@@ -5,15 +5,8 @@ import { remark } from "remark";
 import remarkGfm from "remark-gfm";
 import remarkHtml from "remark-html";
 
-// Resolve paths relative to the monorepo root (two levels up from apps/web)
-const MONOREPO_ROOT = path.join(process.cwd(), "..", "..");
-const BLOG_DIR = path.join(MONOREPO_ROOT, "marketing", "content", "blog-posts");
-const COMPARE_DIR = path.join(
-  MONOREPO_ROOT,
-  "marketing",
-  "content",
-  "competitor-pages"
-);
+const BLOG_DIR = path.join(process.cwd(), "content", "blog-posts");
+const COMPARE_DIR = path.join(process.cwd(), "content", "competitor-pages");
 
 export interface ContentMeta {
   title: string;
