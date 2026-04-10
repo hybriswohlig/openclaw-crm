@@ -1,9 +1,11 @@
 "use client";
 
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { Settings, Users, Box, KeyRound, Bot, Puzzle, Truck, UserCheck } from "lucide-react";
+import { Settings, Users, Box, KeyRound, Bot, Puzzle, Truck, UserCheck, Loader2 } from "lucide-react";
 
 const settingsNav = [
   { href: "/settings", label: "General", icon: Settings, exact: true },
@@ -32,10 +34,38 @@ export default function SettingsLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const [allowed, setAllowed] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    fetch("/api/v1/workspace")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.data?.role === "admin") {
+          setAllowed(true);
+        } else {
+          setAllowed(false);
+          router.replace("/home");
+        }
+      })
+      .catch(() => {
+        setAllowed(false);
+        router.replace("/home");
+      });
+  }, [router]);
+
+  if (allowed === null) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!allowed) return null;
 
   return (
     <div className="flex h-full">
-      {/* Settings sidebar */}
       <nav className="w-52 border-r border-border p-4 space-y-1">
         <h2 className="text-lg font-semibold mb-4">Settings</h2>
         {settingsNav.map((item) => {
@@ -59,8 +89,6 @@ export default function SettingsLayout({
           );
         })}
       </nav>
-
-      {/* Settings content */}
       <div className="flex-1 overflow-y-auto p-6">{children}</div>
     </div>
   );

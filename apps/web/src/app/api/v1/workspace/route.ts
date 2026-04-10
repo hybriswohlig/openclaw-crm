@@ -7,7 +7,7 @@ export async function GET(req: NextRequest) {
   if (!ctx) return unauthorized();
 
   const workspace = await getWorkspace(ctx.workspaceId);
-  return success(workspace);
+  return success({ ...workspace, role: ctx.workspaceRole });
 }
 
 export async function PATCH(req: NextRequest) {

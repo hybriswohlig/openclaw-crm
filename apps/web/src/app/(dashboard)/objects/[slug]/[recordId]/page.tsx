@@ -8,6 +8,7 @@ import { RelatedRecords } from "@/components/records/related-records";
 import { ActivityTimeline } from "@/components/records/activity-timeline";
 import { RecordNotes } from "@/components/notes/record-notes";
 import { RecordTasks } from "@/components/tasks/record-tasks";
+import { QuotationTab } from "@/components/quotation/quotation-tab";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import {
@@ -206,6 +207,9 @@ export default function RecordDetailPage() {
                   </span>
                 )}
               </TabsTrigger>
+              {slug === "deals" && (
+                <TabsTrigger value="quotation">Quotation</TabsTrigger>
+              )}
             </TabsList>
 
             <TabsContent value="attributes">
@@ -234,6 +238,12 @@ export default function RecordDetailPage() {
                 forward={related.forward}
               />
             </TabsContent>
+
+            {slug === "deals" && (
+              <TabsContent value="quotation">
+                <QuotationTab recordId={recordId} />
+              </TabsContent>
+            )}
           </Tabs>
         </div>
       </div>

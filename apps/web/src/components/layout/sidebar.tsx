@@ -20,6 +20,8 @@ import {
   Sun,
   Moon,
   Database,
+  CalendarDays,
+  HardHat,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 
@@ -27,6 +29,7 @@ const mainNav = [
   { href: "/home", label: "Home", icon: Home },
   { href: "/chat", label: "Chat", icon: MessageSquare },
   { href: "/tasks", label: "Tasks", icon: CheckSquare },
+  { href: "/contract-calendar", label: "Contract Calendar", icon: CalendarDays },
   { href: "/notes", label: "Notes", icon: StickyNote },
   { href: "/notifications", label: "Notifications", icon: Bell },
 ];
@@ -51,6 +54,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const [lists, setLists] = useState<ListItem[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [accountName, setAccountName] = useState<string | null>(null);
+  const [accountLogo, setAccountLogo] = useState<string | null>(null);
+  const [workspaceRole, setWorkspaceRole] = useState<string | null>(null);
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const { theme, setTheme } = useTheme();
@@ -76,6 +81,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       .then((res) => res.json())
       .then((data) => {
         if (data.data?.name) setAccountName(data.data.name);
+        if (data.data?.role) setWorkspaceRole(data.data.role);
+        if (data.data?.settings?.logo) setAccountLogo(data.data.settings.logo);
       })
       .catch(() => {});
   }, []);
@@ -107,8 +114,15 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       {/* Account / organization label (single tenant) */}
       <div className="flex h-14 items-center px-2.5">
         <div className="flex w-full items-center gap-2.5 rounded-lg px-1.5 py-1.5">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-foreground/10 text-xs font-semibold text-foreground shrink-0">
-            {(accountName || "O").charAt(0).toUpperCase()}
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-foreground/10 text-xs font-semibold text-foreground shrink-0 overflow-hidden">
+            {accountLogo ? (
+              <div
+                className="h-full w-full p-0.5 [&>svg]:h-full [&>svg]:w-full"
+                dangerouslySetInnerHTML={{ __html: accountLogo }}
+              />
+            ) : (
+              (accountName || "O").charAt(0).toUpperCase()
+            )}
           </div>
           {expanded && (
             <span className="text-sm font-medium text-foreground truncate flex-1">
@@ -178,19 +192,31 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             <span>New list</span>
           </button>
         )}
+
+        <div className="my-3 mx-2 h-px bg-sidebar-border" />
+
+        <NavItem
+          href="/employees"
+          label="Employees"
+          icon={HardHat}
+          active={pathname.startsWith("/employees")}
+          expanded={expanded}
+          onClick={onNavigate}
+        />
       </nav>
 
       {/* Bottom navigation */}
       <div className="border-t border-sidebar-border px-2 py-2 space-y-0.5">
-        {bottomNav.map((item) => (
-          <NavItem
-            key={item.href}
-            {...item}
-            active={pathname.startsWith(item.href)}
-            expanded={expanded}
-            onClick={onNavigate}
-          />
-        ))}
+        {workspaceRole === "admin" &&
+          bottomNav.map((item) => (
+            <NavItem
+              key={item.href}
+              {...item}
+              active={pathname.startsWith(item.href)}
+              expanded={expanded}
+              onClick={onNavigate}
+            />
+          ))}
 
         {isPlatformAdmin && (
           <Link
