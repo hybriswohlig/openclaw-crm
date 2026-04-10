@@ -12,7 +12,7 @@ const examples: { prompt: string; lines: TerminalLine[] }[] = [
     prompt: "add the people from yesterday's meeting to the CRM",
     lines: [
       { text: "Found 3 contacts in your meeting notes.", type: "status" },
-      { text: "Creating records in OpenClaw CRM...", type: "status" },
+      { text: "Creating records in OpenCRM-Umzug...", type: "status" },
       { text: "", type: "status" },
       { text: "done  Sarah Chen, Meridian Health Group", type: "result" },
       { text: "done  Alex Dumont, Sterling & Co", type: "result" },
@@ -24,7 +24,7 @@ const examples: { prompt: string; lines: TerminalLine[] }[] = [
   {
     prompt: "show me all deals closing this month",
     lines: [
-      { text: "Querying OpenClaw CRM...", type: "status" },
+      { text: "Querying OpenCRM-Umzug...", type: "status" },
       { text: "", type: "status" },
       { text: "3 deals closing before Feb 28:", type: "summary" },
       { text: "  Northwind ($89k, Negotiation)", type: "result" },
@@ -137,7 +137,7 @@ export function TerminalDemo() {
             transform: visibleLines > 0 ? "translateY(0)" : "translateY(4px)",
           }}
         >
-          OpenClaw Bot
+          AI agent
         </div>
         <div className="pl-3 border-l-2 border-white/[0.06] space-y-0">
         {example.lines.map((line, i) => (

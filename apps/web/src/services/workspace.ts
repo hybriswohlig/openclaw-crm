@@ -32,6 +32,16 @@ export async function updateWorkspace(
 
 /** Create a new workspace with the creator as admin, and seed standard objects */
 export async function createWorkspace(name: string, userId: string) {
+  const existingMembership = await db
+    .select({ id: workspaceMembers.id })
+    .from(workspaceMembers)
+    .where(eq(workspaceMembers.userId, userId))
+    .limit(1);
+
+  if (existingMembership.length > 0) {
+    throw new Error("ALREADY_HAS_WORKSPACE");
+  }
+
   const slug = name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")

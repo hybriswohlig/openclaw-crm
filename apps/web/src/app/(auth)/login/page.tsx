@@ -16,35 +16,28 @@ function LoginForm() {
   const [loading, setLoading] = useState(false);
 
   async function handlePostLogin() {
-    // Fetch user's workspaces to determine routing
     try {
       const res = await fetch("/api/v1/workspaces");
       if (!res.ok) {
-        router.push("/select-workspace");
+        router.push(redirectTo);
         return;
       }
       const data = await res.json();
-      const workspaces = data.data || [];
+      const list = data.data || [];
 
-      if (workspaces.length === 0) {
-        // No workspaces — create one
-        router.push("/select-workspace");
-      } else if (workspaces.length === 1) {
-        // Auto-select the only workspace
-        const switchRes = await fetch("/api/v1/workspaces/switch", {
+      if (list.length === 0) {
+        const create = await fetch("/api/v1/workspaces", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ workspaceId: workspaces[0].id }),
+          body: JSON.stringify({ name: "My CRM" }),
         });
-        if (switchRes.ok) {
+        if (!create.ok) {
           router.push(redirectTo);
-        } else {
-          router.push("/select-workspace");
+          return;
         }
-      } else {
-        // Multiple workspaces — let user choose
-        router.push("/select-workspace");
       }
+
+      router.push(redirectTo);
     } catch {
       router.push(redirectTo);
     }

@@ -10,7 +10,6 @@ import {
   Copy,
   Check,
   Download,
-  ExternalLink,
   Terminal,
   FileText,
 } from "lucide-react";
@@ -67,7 +66,7 @@ export default function OpenClawPage() {
     const url = instanceUrl || "https://your-openclaw-instance.com";
     return `---
 name: openclaw
-description: Interact with OpenClaw CRM CRM — manage workspaces, records, contacts, companies, deals, tasks, notes, and lists.
+description: Interact with OpenCRM-Umzug — manage workspaces, records, contacts, companies, deals, tasks, notes, and lists.
 homepage: ${url}
 user-invocable: true
 metadata:
@@ -78,9 +77,9 @@ metadata:
         - OPENCLAW_API_KEY
 ---
 
-# OpenClaw CRM CRM Skill
+# OpenCRM-Umzug — agent skill
 
-You have access to an OpenClaw CRM CRM instance. Use its REST API to help users manage their workspaces, contacts, companies, deals, tasks, notes, and lists.
+You have access to an OpenCRM-Umzug instance. Use its REST API to help users manage their workspaces, contacts, companies, deals, tasks, notes, and lists.
 
 ## Configuration
 
@@ -388,17 +387,9 @@ When creating or updating records, use these value formats:
       <div className="mb-6">
         <h1 className="text-xl font-semibold">OpenClaw Integration</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Generate a skill file to connect your OpenClaw CRM instance with{" "}
-          <a
-            href="https://openclaw.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline hover:text-foreground inline-flex items-center gap-1"
-          >
-            OpenClaw
-            <ExternalLink className="h-3 w-3" />
-          </a>
-          . This lets OpenClaw agents interact with your CRM data.
+          Generate a skill file to connect your OpenCRM-Umzug deployment with the
+          OpenClaw agent runtime. This lets OpenClaw agents interact with your CRM
+          data.
         </p>
       </div>
 
@@ -422,7 +413,7 @@ When creating or updating records, use these value formats:
                 placeholder="https://your-crm.example.com"
               />
               <p className="text-xs text-muted-foreground">
-                The URL where your OpenClaw CRM instance is accessible.
+                The URL where your OpenCRM-Umzug instance is accessible.
               </p>
             </div>
 

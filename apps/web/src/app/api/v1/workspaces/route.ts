@@ -41,18 +41,19 @@ export async function POST(req: NextRequest) {
 
   try {
     const workspace = await createWorkspace(name.trim(), session.user.id);
-
-    // Set active-workspace-id cookie
-    const response = NextResponse.json({ data: workspace }, { status: 201 });
-    response.cookies.set("active-workspace-id", workspace.id, {
-      path: "/",
-      httpOnly: false,
-      sameSite: "lax",
-      maxAge: 60 * 60 * 24 * 365, // 1 year
-    });
-
-    return response;
+    return NextResponse.json({ data: workspace }, { status: 201 });
   } catch (err) {
+    if (err instanceof Error && err.message === "ALREADY_HAS_WORKSPACE") {
+      return NextResponse.json(
+        {
+          error: {
+            code: "CONFLICT",
+            message: "Account already has an organization",
+          },
+        },
+        { status: 409 }
+      );
+    }
     console.error("Failed to create workspace:", err);
     return NextResponse.json(
       { error: { code: "INTERNAL_ERROR", message: "Failed to create workspace" } },

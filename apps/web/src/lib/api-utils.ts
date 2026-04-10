@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
-import { workspaceMembers, apiKeys } from "@/db/schema";
-import { eq, and, isNull } from "drizzle-orm";
+import { workspaceMembers, apiKeys, workspaces } from "@/db/schema";
+import { eq, and, isNull, asc } from "drizzle-orm";
 import { createHash } from "crypto";
 
 export interface AuthContext {
@@ -19,7 +19,7 @@ function hashApiKey(key: string): string {
 /**
  * Get authenticated user and their workspace context.
  * Checks Bearer token first, then falls back to cookie auth.
- * Active workspace is determined by the `active-workspace-id` cookie.
+ * Session users use their workspace membership (single tenant, oldest first).
  */
 export async function getAuthContext(req: NextRequest): Promise<AuthContext | null> {
   // 1. Check for Bearer token auth
@@ -42,43 +42,15 @@ export async function getAuthContext(req: NextRequest): Promise<AuthContext | nu
 
   const userId = session.user.id;
 
-  // 3. Determine active workspace from cookie
-  const activeWorkspaceId = req.cookies.get("active-workspace-id")?.value;
-
-  if (activeWorkspaceId) {
-    // Verify user is a member of this workspace
-    const membership = await db
-      .select({
-        workspaceId: workspaceMembers.workspaceId,
-        role: workspaceMembers.role,
-      })
-      .from(workspaceMembers)
-      .where(
-        and(
-          eq(workspaceMembers.userId, userId),
-          eq(workspaceMembers.workspaceId, activeWorkspaceId)
-        )
-      )
-      .limit(1);
-
-    if (membership.length > 0) {
-      return {
-        userId,
-        workspaceId: membership[0].workspaceId,
-        workspaceRole: membership[0].role,
-        authMethod: "cookie",
-      };
-    }
-  }
-
-  // 4. Fall back to user's first workspace membership
   const memberships = await db
     .select({
       workspaceId: workspaceMembers.workspaceId,
       role: workspaceMembers.role,
     })
     .from(workspaceMembers)
+    .innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId))
     .where(eq(workspaceMembers.userId, userId))
+    .orderBy(asc(workspaces.createdAt))
     .limit(1);
 
   if (memberships.length > 0) {
@@ -90,7 +62,6 @@ export async function getAuthContext(req: NextRequest): Promise<AuthContext | nu
     };
   }
 
-  // 5. No workspace membership — return null (user needs to create/join a workspace)
   return null;
 }
 

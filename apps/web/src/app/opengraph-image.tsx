@@ -1,7 +1,7 @@
 import { ImageResponse } from "next/og";
 
 export const runtime = "edge";
-export const alt = "OpenClaw CRM - The CRM your AI agent already knows how to use";
+export const alt = "OpenCRM-Umzug";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -42,25 +42,25 @@ export default function OGImage() {
             marginBottom: 24,
           }}
         >
-          <span style={{ fontSize: 72, fontWeight: 700, color: "#f0f0f5" }}>
-            openclaw
+          <span style={{ fontSize: 56, fontWeight: 700, color: "#f0f0f5" }}>
+            OpenCRM-
           </span>
           <span
             style={{
-              fontSize: 72,
+              fontSize: 56,
               fontWeight: 700,
               background: "linear-gradient(135deg, #818cf8, #6366f1, #4f46e5)",
               backgroundClip: "text",
               color: "transparent",
             }}
           >
-            CRM
+            Umzug
           </span>
         </div>
 
         {/* Tagline */}
         <p style={{ fontSize: 28, color: "#9ca3af", margin: 0 }}>
-          The CRM your AI agent already knows how to use.
+          Customer relationship management.
         </p>
 
         {/* Pills */}
@@ -71,7 +71,7 @@ export default function OGImage() {
             marginTop: 40,
           }}
         >
-          {["Agent Integration", "Self-Hosted", "AI Built In", "REST API"].map(
+          {["People", "Deals", "Tasks", "API"].map(
             (label) => (
               <div
                 key={label}

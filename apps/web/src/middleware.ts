@@ -1,10 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const publicPaths = ["/login", "/register", "/api/auth", "/docs", "/blog", "/compare"];
-const workspaceSetupPaths = ["/select-workspace", "/api/v1/workspaces"];
+const publicPaths = ["/login", "/register", "/api/auth"];
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+
+  // Former marketing/docs routes → home (bookmarks)
+  if (
+    pathname === "/docs" ||
+    pathname.startsWith("/docs/") ||
+    pathname === "/blog" ||
+    pathname.startsWith("/blog/") ||
+    pathname === "/compare" ||
+    pathname.startsWith("/compare/")
+  ) {
+    return NextResponse.redirect(new URL("/", req.url));
+  }
+
+  if (pathname === "/select-workspace" || pathname.startsWith("/select-workspace/")) {
+    return NextResponse.redirect(new URL("/home", req.url));
+  }
 
   // Allow public paths and static assets
   if (
@@ -38,18 +53,6 @@ export function middleware(req: NextRequest) {
     const loginUrl = new URL("/login", req.url);
     loginUrl.searchParams.set("redirect", pathname);
     return NextResponse.redirect(loginUrl);
-  }
-
-  // Allow workspace setup paths (need auth but no active workspace)
-  if (workspaceSetupPaths.some((p) => pathname.startsWith(p))) {
-    return NextResponse.next();
-  }
-
-  // Check for active workspace cookie
-  const activeWorkspace = req.cookies.get("active-workspace-id");
-  if (!activeWorkspace) {
-    // Redirect to workspace selection
-    return NextResponse.redirect(new URL("/select-workspace", req.url));
   }
 
   return NextResponse.next();

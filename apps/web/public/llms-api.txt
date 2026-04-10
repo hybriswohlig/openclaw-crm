@@ -1,35 +1,34 @@
-# OpenClaw CRM API Reference
-# For product overview: /llms.txt
-# For complete product documentation, features, and data model: /llms-full.txt
-# Base URL: https://openclaw-crm.402box.io
+# OpenCRM-Umzug API Reference
+# Product stub: /llms.txt
+# OpenAPI spec: /openapi.json
+# Base URL: set to your deployment origin (e.g. https://crm.example.com)
 # Auth: Bearer token, Authorization: Bearer oc_sk_<token>
 # Create API keys at Settings > API Keys in the web UI
-# OpenAPI spec: /openapi.json
 
 ## Quick Start
 
 ```bash
 # Set your API key
-export OPENCLAW_KEY="oc_sk_..."
+export CRM_API_KEY="oc_sk_..."
 
 # List all object types
-curl -H "Authorization: Bearer $OPENCLAW_KEY" https://openclaw-crm.402box.io/api/v1/objects
+curl -H "Authorization: Bearer $CRM_API_KEY" $BASE_URL/api/v1/objects
 
 # List people records
-curl -H "Authorization: Bearer $OPENCLAW_KEY" https://openclaw-crm.402box.io/api/v1/objects/people/records
+curl -H "Authorization: Bearer $CRM_API_KEY" $BASE_URL/api/v1/objects/people/records
 
 # Create a person
-curl -X POST https://openclaw-crm.402box.io/api/v1/objects/people/records \
-  -H "Authorization: Bearer $OPENCLAW_KEY" \
+curl -X POST $BASE_URL/api/v1/objects/people/records \
+  -H "Authorization: Bearer $CRM_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"values": {"name": {"first_name": "Jane", "last_name": "Doe"}, "email_addresses": "jane@example.com"}}'
 
 # Search across all records
-curl -H "Authorization: Bearer $OPENCLAW_KEY" "https://openclaw-crm.402box.io/api/v1/search?q=Jane"
+curl -H "Authorization: Bearer $CRM_API_KEY" "$BASE_URL/api/v1/search?q=Jane"
 
 # Query with filters
-curl -X POST https://openclaw-crm.402box.io/api/v1/objects/deals/records/query \
-  -H "Authorization: Bearer $OPENCLAW_KEY" \
+curl -X POST $BASE_URL/api/v1/objects/deals/records/query \
+  -H "Authorization: Bearer $CRM_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"filter": {"operator": "and", "conditions": [{"attribute": "deal_value", "operator": "gte", "value": 10000}]}, "sorts": [{"attribute": "deal_value", "direction": "desc"}]}'
 ```
@@ -174,14 +173,14 @@ When setting record values, use these formats:
 ```bash
 # 1. Create company
 COMPANY=$(curl -s -X POST .../api/v1/objects/companies/records \
-  -H "Authorization: Bearer $OPENCLAW_KEY" \
+  -H "Authorization: Bearer $CRM_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"values": {"name": "Acme Inc", "domains": "acme.com"}}')
 COMPANY_ID=$(echo $COMPANY | jq -r '.data.id')
 
 # 2. Create person linked to company
 curl -X POST .../api/v1/objects/people/records \
-  -H "Authorization: Bearer $OPENCLAW_KEY" \
+  -H "Authorization: Bearer $CRM_API_KEY" \
   -H "Content-Type: application/json" \
   -d "{\"values\": {\"name\": {\"first_name\": \"John\", \"last_name\": \"Smith\"}, \"company\": \"$COMPANY_ID\"}}"
 ```
@@ -189,7 +188,7 @@ curl -X POST .../api/v1/objects/people/records \
 ### Find or create (assert mode)
 ```bash
 curl -X POST .../api/v1/objects/companies/records/query \
-  -H "Authorization: Bearer $OPENCLAW_KEY" \
+  -H "Authorization: Bearer $CRM_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"mode": "assert", "matchAttribute": "domains", "matchValue": "acme.com", "values": {"name": "Acme Inc"}}'
 ```
@@ -199,7 +198,7 @@ curl -X POST .../api/v1/objects/companies/records/query \
 OFFSET=0
 while true; do
   RESULT=$(curl -s ".../api/v1/objects/people/records?limit=200&offset=$OFFSET" \
-    -H "Authorization: Bearer $OPENCLAW_KEY")
+    -H "Authorization: Bearer $CRM_API_KEY")
   COUNT=$(echo $RESULT | jq '.data.records | length')
   [ "$COUNT" -eq 0 ] && break
   # Process records...

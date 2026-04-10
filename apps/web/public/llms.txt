@@ -1,53 +1,6 @@
-# OpenClaw CRM
+# OpenCRM-Umzug
 
-> The CRM your AI agent already knows how to use. Open-source, self-hosted, with native OpenClaw Bot integration.
+Customer relationship management (contacts, companies, deals, tasks, notes, lists).
 
-## Overview
-
-OpenClaw CRM is a free, open-source, self-hosted CRM built for AI-native workflows. It ships with a full REST API, machine-readable documentation, and first-class OpenClaw Bot integration so your AI agent can manage contacts, deals, tasks, and notes without any glue code.
-
-- Website: https://openclaw-crm.402box.io
-- Docs: https://openclaw-crm.402box.io/docs
-- GitHub: https://github.com/giorgosn/openclaw-crm
-- License: MIT
-
-## Key Pages
-
-- [Homepage](https://openclaw-crm.402box.io): product overview, features, and signup
-- [Documentation](https://openclaw-crm.402box.io/docs): setup guides, OpenClaw Bot integration, API keys, data import
-- [Blog](https://openclaw-crm.402box.io/blog): product updates and guides
-- [Comparisons](https://openclaw-crm.402box.io/compare): how OpenClaw CRM compares to other CRMs
-
-## What It Does
-
-- **People & Companies**: manage contacts and organizations with 17 attribute types
-- **Deals & Pipeline**: drag-and-drop Kanban boards with customizable stages
-- **Tasks & Notes**: linked to any record with rich text editing and deadlines
-- **Lists**: curated collections with list-specific custom attributes
-- **Search**: full-text search across all records
-- **Custom Objects**: create your own entity types beyond People, Companies, and Deals
-- **AI Chat Agent**: talk to your CRM data in plain English via OpenRouter (Claude, GPT-4o, Llama, Gemini)
-- **CSV Import/Export**: bulk data import with column mapping
-- **Dark & Light Mode**: full theme support
-
-## OpenClaw Bot Integration
-
-Generate a SKILL.md and config from Settings > OpenClaw, drop them into your OpenClaw Bot's skills folder, and your agent can manage your CRM through natural language. 40+ API endpoints, bearer token auth, machine-readable docs.
-
-## Tech Stack
-
-Next.js 15 (App Router), TypeScript, PostgreSQL 16, Drizzle ORM, Better Auth, shadcn/ui, Tailwind CSS v4, TanStack Table, dnd-kit, TipTap, OpenRouter.
-
-## API
-
-Full REST API at `/api/v1/` with Bearer token authentication (`oc_sk_` prefix).
-
-- Concise API reference: https://openclaw-crm.402box.io/llms-api.txt
-- Full product + API docs: https://openclaw-crm.402box.io/llms-full.txt
-- OpenAPI spec: https://openclaw-crm.402box.io/openapi.json
-
-## Self-Hosting
-
-Docker Compose deployment. Clone the repo, configure `.env`, run `docker compose up`. No vendor lock-in, no per-seat pricing, no data leaving your infrastructure.
-
-Detailed setup: https://openclaw-crm.402box.io/docs
+Machine-readable API reference: `/llms-api.txt`  
+OpenAPI: `/openapi.json`

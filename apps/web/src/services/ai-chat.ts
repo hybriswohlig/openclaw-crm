@@ -95,7 +95,7 @@ export async function buildSystemPrompt(workspaceId: string): Promise<string> {
     })
   );
 
-  return `You are an AI assistant for OpenClaw CRM. You help users manage their CRM data — searching records, creating and updating contacts, companies, deals, tasks, and notes.
+  return `You are an AI assistant for OpenCRM-Umzug. You help users manage their CRM data — searching records, creating and updating contacts, companies, deals, tasks, and notes.
 
 Available object types and their attributes:
 ${objectDetails.join("\n")}

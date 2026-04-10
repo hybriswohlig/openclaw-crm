@@ -1,9 +1,9 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "OpenClaw CRM API",
+    "title": "OpenCRM-Umzug API",
     "version": "1.0.0",
-    "description": "REST API for OpenClaw CRM — a self-hosted CRM. All endpoints require authentication via Bearer token or session cookie. Responses use envelope format: { data: ... } on success, { error: { code, message } } on error."
+    "description": "REST API for OpenCRM-Umzug. All endpoints require authentication via Bearer token or session cookie. Responses use envelope format: { data: ... } on success, { error: { code, message } } on error."
   },
   "servers": [
     {

@@ -11,7 +11,6 @@ export default function RegisterPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [workspaceName, setWorkspaceName] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -38,8 +37,7 @@ export default function RegisterPage() {
         return;
       }
 
-      // Create workspace for the new user
-      const wsName = workspaceName.trim() || `${name}'s Workspace`;
+      const wsName = name.trim() ? `${name.trim()}'s CRM` : "My CRM";
       const wsRes = await fetch("/api/v1/workspaces", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -47,12 +45,10 @@ export default function RegisterPage() {
       });
 
       if (!wsRes.ok) {
-        // User was created but workspace creation failed — send to workspace selection
-        router.push("/select-workspace");
+        setError("Account created but setup failed. Try signing in.");
         return;
       }
 
-      // Cookie is set by the POST /api/v1/workspaces response, redirect to home
       trackEvent("signup_completed");
       router.push("/home");
     } catch {
@@ -125,23 +121,6 @@ export default function RegisterPage() {
             minLength={8}
             className={inputClass}
           />
-        </div>
-        <div className="space-y-1.5">
-          <label
-            htmlFor="workspace-name"
-            className="text-label text-muted-foreground"
-          >
-            Workspace name
-          </label>
-          <input
-            id="workspace-name"
-            type="text"
-            placeholder={name ? `${name}'s Workspace` : "My Workspace"}
-            value={workspaceName}
-            onChange={(e) => setWorkspaceName(e.target.value)}
-            className={inputClass}
-          />
-          <p className="text-caption">Leave blank to use your name</p>
         </div>
         <button
           type="submit"

@@ -62,9 +62,9 @@ export default function SettingsPage() {
       <h1 className="text-xl font-semibold mb-6">General Settings</h1>
 
       <div className="space-y-6">
-        {/* Workspace Name */}
+        {/* Organization name */}
         <div className="space-y-2">
-          <label className="text-sm font-medium">Workspace Name</label>
+          <label className="text-sm font-medium">Organization name</label>
           <input
             type="text"
             value={name}
@@ -73,9 +73,9 @@ export default function SettingsPage() {
           />
         </div>
 
-        {/* Workspace Slug (read-only) */}
+        {/* Slug (read-only) */}
         <div className="space-y-2">
-          <label className="text-sm font-medium">Workspace Slug</label>
+          <label className="text-sm font-medium">URL slug</label>
           <input
             type="text"
             value={workspace.slug}
@@ -87,9 +87,9 @@ export default function SettingsPage() {
           </p>
         </div>
 
-        {/* Workspace ID */}
+        {/* Internal ID */}
         <div className="space-y-2">
-          <label className="text-sm font-medium">Workspace ID</label>
+          <label className="text-sm font-medium">Internal ID</label>
           <input
             type="text"
             value={workspace.id}

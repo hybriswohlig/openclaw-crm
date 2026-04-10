@@ -12,7 +12,7 @@ test.describe("Navigation", () => {
 
   test("login page renders correctly", async ({ page }) => {
     await page.goto("/login");
-    await expect(page).toHaveTitle(/OpenClaw|Login|Sign/i);
+    await expect(page).toHaveTitle(/OpenCRM-Umzug|Login|Sign/i);
     await expect(page.locator("body")).toBeVisible();
   });
 

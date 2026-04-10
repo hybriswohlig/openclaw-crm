@@ -17,19 +17,10 @@ import {
   List,
   Plus,
   Settings,
-  BookOpen,
-  ChevronsUpDown,
-  Check,
   Sun,
   Moon,
+  Database,
 } from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { useTheme } from "next-themes";
 
 const mainNav = [
@@ -46,10 +37,7 @@ const objectNav = [
   { href: "/objects/deals", label: "Deals", icon: Handshake },
 ];
 
-const bottomNav = [
-  { href: "/docs", label: "Docs", icon: BookOpen },
-  { href: "/settings", label: "Settings", icon: Settings },
-];
+const bottomNav = [{ href: "/settings", label: "Settings", icon: Settings }];
 
 interface ListItem {
   id: string;
@@ -58,21 +46,23 @@ interface ListItem {
   entryCount: number;
 }
 
-interface Workspace {
-  id: string;
-  name: string;
-  slug: string;
-  role: string;
-}
-
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const [lists, setLists] = useState<ListItem[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [activeWorkspace, setActiveWorkspace] = useState<Workspace | null>(null);
+  const [accountName, setAccountName] = useState<string | null>(null);
+  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const { theme, setTheme } = useTheme();
+
+  useEffect(() => {
+    fetch("/api/admin/db/me")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.data?.admin) setIsPlatformAdmin(true);
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     fetch("/api/v1/lists")
@@ -82,32 +72,13 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       })
       .catch(() => {});
 
-    fetch("/api/v1/workspaces")
+    fetch("/api/v1/workspace")
       .then((res) => res.json())
       .then((data) => {
-        if (data.data) {
-          setWorkspaces(data.data);
-          const cookieId = document.cookie
-            .split("; ")
-            .find((c) => c.startsWith("active-workspace-id="))
-            ?.split("=")[1];
-          const active = data.data.find((ws: Workspace) => ws.id === cookieId) || data.data[0];
-          if (active) setActiveWorkspace(active);
-        }
+        if (data.data?.name) setAccountName(data.data.name);
       })
       .catch(() => {});
   }, []);
-
-  async function switchWorkspace(ws: Workspace) {
-    const res = await fetch("/api/v1/workspaces/switch", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ workspaceId: ws.id }),
-    });
-    if (res.ok) {
-      window.location.reload();
-    }
-  }
 
   async function handleCreateList(name: string, objectSlug: string) {
     const res = await fetch("/api/v1/lists", {
@@ -133,53 +104,18 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         expanded ? "w-56" : "w-12"
       )}
     >
-      {/* Workspace switcher */}
+      {/* Account / organization label (single tenant) */}
       <div className="flex h-14 items-center px-2.5">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className="flex w-full items-center gap-2.5 rounded-lg px-1.5 py-1.5 text-left hover:bg-sidebar-accent transition-colors">
-              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-foreground/10 text-xs font-semibold text-foreground shrink-0">
-                {activeWorkspace?.name?.charAt(0)?.toUpperCase() || "O"}
-              </div>
-              {expanded && (
-                <>
-                  <span className="text-sm font-medium text-foreground truncate flex-1">
-                    {activeWorkspace?.name || "OpenClaw"}
-                  </span>
-                  <ChevronsUpDown className="h-3 w-3 text-muted-foreground shrink-0" />
-                </>
-              )}
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-52">
-            {workspaces.map((ws) => (
-              <DropdownMenuItem
-                key={ws.id}
-                onClick={() => {
-                  if (ws.id !== activeWorkspace?.id) {
-                    switchWorkspace(ws);
-                  }
-                }}
-                className="flex items-center gap-2"
-              >
-                <div className="flex h-6 w-6 items-center justify-center rounded-md bg-foreground/5 text-xs font-semibold text-foreground shrink-0">
-                  {ws.name.charAt(0).toUpperCase()}
-                </div>
-                <span className="truncate flex-1">{ws.name}</span>
-                {ws.id === activeWorkspace?.id && (
-                  <Check className="h-3.5 w-3.5 text-primary shrink-0" />
-                )}
-              </DropdownMenuItem>
-            ))}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem asChild>
-              <Link href="/select-workspace?create=true" className="flex items-center gap-2">
-                <Plus className="h-4 w-4" />
-                <span>Create workspace</span>
-              </Link>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <div className="flex w-full items-center gap-2.5 rounded-lg px-1.5 py-1.5">
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-foreground/10 text-xs font-semibold text-foreground shrink-0">
+            {(accountName || "O").charAt(0).toUpperCase()}
+          </div>
+          {expanded && (
+            <span className="text-sm font-medium text-foreground truncate flex-1">
+              {accountName || "OpenCRM-Umzug"}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Main navigation */}
@@ -255,6 +191,24 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             onClick={onNavigate}
           />
         ))}
+
+        {isPlatformAdmin && (
+          <Link
+            href="/admin/database"
+            onClick={onNavigate}
+            title={!expanded ? "Database admin" : undefined}
+            className={cn(
+              "flex items-center rounded-lg py-1.5 text-sm transition-colors",
+              expanded ? "gap-2.5 px-2.5" : "justify-center px-0",
+              pathname.startsWith("/admin")
+                ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            )}
+          >
+            <Database className="h-4 w-4 shrink-0" />
+            {expanded && "Database admin"}
+          </Link>
+        )}
 
         {/* Theme toggle */}
         <button

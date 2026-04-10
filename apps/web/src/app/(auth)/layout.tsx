@@ -23,8 +23,7 @@ export default function AuthLayout({
             href="/"
             className="text-[15px] font-semibold tracking-[-0.015em] text-foreground transition-opacity hover:opacity-70"
           >
-            OpenClaw{" "}
-            <span className="font-normal text-muted-foreground/60">CRM</span>
+            OpenCRM-Umzug
           </Link>
         </div>
         {children}

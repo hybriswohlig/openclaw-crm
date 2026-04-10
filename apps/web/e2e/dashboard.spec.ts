@@ -40,7 +40,7 @@ test.describe("Dashboard (requires auth)", () => {
   test("settings page shows general settings", async ({ page }) => {
     await page.goto("/settings");
     await expect(page.locator("text=General Settings")).toBeVisible();
-    await expect(page.locator("text=Workspace Name")).toBeVisible();
+    await expect(page.locator("text=Organization name")).toBeVisible();
   });
 
   test("settings members page shows member list", async ({ page }) => {
