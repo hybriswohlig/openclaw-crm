@@ -51,9 +51,20 @@ function dateKey(d: Date): string {
 }
 
 function parseDateValue(val: unknown): string | null {
-  if (!val) return null;
+  if (val == null) return null;
   if (typeof val === "string") return val.slice(0, 10);
+  if (val instanceof Date && !Number.isNaN(val.getTime())) {
+    return dateKey(val);
+  }
   return null;
+}
+
+function normalizeRecordsPayload(data: unknown): DealRecord[] {
+  if (!data || typeof data !== "object") return [];
+  const d = data as { records?: unknown };
+  if (Array.isArray(d.records)) return d.records as DealRecord[];
+  if (Array.isArray(data)) return data as DealRecord[];
+  return [];
 }
 
 export default function ContractCalendarPage() {
@@ -74,17 +85,18 @@ export default function ContractCalendarPage() {
           fetch("/api/v1/objects/deals"),
         ]);
         if (recRes.ok) {
-          const data = await recRes.json();
-          setDeals(data.data || []);
+          const json = await recRes.json();
+          setDeals(normalizeRecordsPayload(json.data));
         }
         if (objRes.ok) {
           const objData = await objRes.json();
-          const stageAttr = objData.data?.attributes?.find(
-            (a: any) => a.slug === "stage" && a.type === "status"
+          const attrs = objData.data?.attributes;
+          const list = Array.isArray(attrs) ? attrs : [];
+          const stageAttr = list.find(
+            (a: { slug?: string; type?: string }) => a.slug === "stage" && a.type === "status"
           );
-          if (stageAttr?.statuses) {
-            setStages(stageAttr.statuses);
-          }
+          const statuses = stageAttr?.statuses;
+          setStages(Array.isArray(statuses) ? statuses : []);
         }
       } finally {
         setLoading(false);
@@ -97,7 +109,8 @@ export default function ContractCalendarPage() {
 
   const dealsByDate = useMemo(() => {
     const map = new Map<string, DealRecord[]>();
-    for (const deal of deals) {
+    const list = Array.isArray(deals) ? deals : [];
+    for (const deal of list) {
       const moveDate = parseDateValue(deal.values.move_date);
       if (!moveDate) continue;
       const existing = map.get(moveDate) || [];

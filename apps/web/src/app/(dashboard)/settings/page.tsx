@@ -40,8 +40,8 @@ export default function SettingsPage() {
       alert("Please upload an SVG file.");
       return;
     }
-    if (file.size > 50_000) {
-      alert("SVG file must be under 50 KB.");
+    if (file.size > 500_000) {
+      alert("SVG file must be under 500 KB.");
       return;
     }
     const reader = new FileReader();
@@ -137,7 +137,7 @@ export default function SettingsPage() {
             />
           </div>
           <p className="text-xs text-muted-foreground">
-            SVG only, max 50 KB. Displayed in the sidebar.
+            SVG only, max 500 KB. Displayed in the sidebar.
           </p>
         </div>
 
