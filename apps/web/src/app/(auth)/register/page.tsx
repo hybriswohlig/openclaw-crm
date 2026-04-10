@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { signUp } from "@/lib/auth-client";
+import { signUp, signOut } from "@/lib/auth-client";
 import { trackEvent } from "@/lib/analytics";
 
 export default function RegisterPage() {
@@ -37,20 +37,9 @@ export default function RegisterPage() {
         return;
       }
 
-      const wsName = name.trim() ? `${name.trim()}'s CRM` : "My CRM";
-      const wsRes = await fetch("/api/v1/workspaces", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: wsName }),
-      });
-
-      if (!wsRes.ok) {
-        setError("Account created but setup failed. Try signing in.");
-        return;
-      }
-
       trackEvent("signup_completed");
-      router.push("/home");
+      await signOut();
+      router.push("/login?registered=pending");
     } catch {
       setError("Something went wrong. Please try again.");
     } finally {

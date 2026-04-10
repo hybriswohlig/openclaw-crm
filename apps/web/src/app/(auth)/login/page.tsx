@@ -10,38 +10,12 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectTo = searchParams.get("redirect") || "/home";
+  const registered = searchParams.get("registered");
+  const reason = searchParams.get("reason");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-
-  async function handlePostLogin() {
-    try {
-      const res = await fetch("/api/v1/workspaces");
-      if (!res.ok) {
-        router.push(redirectTo);
-        return;
-      }
-      const data = await res.json();
-      const list = data.data || [];
-
-      if (list.length === 0) {
-        const create = await fetch("/api/v1/workspaces", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: "My CRM" }),
-        });
-        if (!create.ok) {
-          router.push(redirectTo);
-          return;
-        }
-      }
-
-      router.push(redirectTo);
-    } catch {
-      router.push(redirectTo);
-    }
-  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -58,7 +32,7 @@ function LoginForm() {
         setError(result.error.message || "Invalid email or password");
       } else {
         trackEvent("login_completed");
-        await handlePostLogin();
+        router.push(redirectTo);
       }
     } catch {
       setError("Something went wrong. Please try again.");
@@ -77,6 +51,16 @@ function LoginForm() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
+        {registered === "pending" && (
+          <div className="rounded-xl bg-muted/60 px-4 py-2.5 text-[13px] text-foreground/90">
+            Account created. An administrator must approve your account before you can use the CRM.
+          </div>
+        )}
+        {reason === "rejected" && (
+          <div className="rounded-xl bg-destructive/10 px-4 py-2.5 text-[13px] text-destructive">
+            Your registration was not approved. Contact an administrator if you believe this is a mistake.
+          </div>
+        )}
         {error && (
           <div className="rounded-xl bg-destructive/10 px-4 py-2.5 text-[13px] text-destructive">
             {error}

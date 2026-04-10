@@ -200,7 +200,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             className={cn(
               "flex items-center rounded-lg py-1.5 text-sm transition-colors",
               expanded ? "gap-2.5 px-2.5" : "justify-center px-0",
-              pathname.startsWith("/admin")
+              pathname.startsWith("/admin/database")
                 ? "bg-sidebar-accent text-sidebar-accent-foreground"
                 : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             )}

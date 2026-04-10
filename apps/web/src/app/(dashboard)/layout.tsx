@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { usePathname } from "next/navigation";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
 import { CommandPalette } from "@/components/layout/command-palette";
+import { ApprovalGate } from "@/components/layout/approval-gate";
 
 export default function DashboardLayout({
   children,
@@ -12,12 +12,12 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const pathname = usePathname();
 
   // Close mobile sidebar on navigation
   const handleNavigation = () => setSidebarOpen(false);
 
   return (
+    <ApprovalGate>
     <div className="flex h-screen overflow-hidden">
       {/* Mobile overlay */}
       {sidebarOpen && (
@@ -44,5 +44,6 @@ export default function DashboardLayout({
 
       <CommandPalette />
     </div>
+    </ApprovalGate>
   );
 }

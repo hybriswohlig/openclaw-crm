@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
-import { workspaceMembers, apiKeys, workspaces } from "@/db/schema";
-import { eq, and, isNull, asc } from "drizzle-orm";
+import { workspaceMembers, apiKeys, users } from "@/db/schema";
+import { eq, and, isNull } from "drizzle-orm";
 import { createHash } from "crypto";
+import {
+  ensureUserWorkspaceAccess,
+  getSingletonWorkspaceId,
+} from "@/services/workspace";
 
 export interface AuthContext {
   userId: string;
@@ -18,8 +22,7 @@ function hashApiKey(key: string): string {
 
 /**
  * Get authenticated user and their workspace context.
- * Checks Bearer token first, then falls back to cookie auth.
- * Session users use their workspace membership (single tenant, oldest first).
+ * Single-tenant: one workspace per deployment. Only approved users receive context.
  */
 export async function getAuthContext(req: NextRequest): Promise<AuthContext | null> {
   // 1. Check for Bearer token auth
@@ -42,27 +45,30 @@ export async function getAuthContext(req: NextRequest): Promise<AuthContext | nu
 
   const userId = session.user.id;
 
-  const memberships = await db
+  const [userRow] = await db
     .select({
-      workspaceId: workspaceMembers.workspaceId,
-      role: workspaceMembers.role,
+      approvalStatus: users.approvalStatus,
+      isAppAdmin: users.isAppAdmin,
     })
-    .from(workspaceMembers)
-    .innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId))
-    .where(eq(workspaceMembers.userId, userId))
-    .orderBy(asc(workspaces.createdAt))
+    .from(users)
+    .where(eq(users.id, userId))
     .limit(1);
 
-  if (memberships.length > 0) {
-    return {
-      userId,
-      workspaceId: memberships[0].workspaceId,
-      workspaceRole: memberships[0].role,
-      authMethod: "cookie",
-    };
+  if (!userRow || userRow.approvalStatus !== "approved") {
+    return null;
   }
 
-  return null;
+  const access = await ensureUserWorkspaceAccess(userId, userRow.isAppAdmin);
+  if (!access) {
+    return null;
+  }
+
+  return {
+    userId,
+    workspaceId: access.workspaceId,
+    workspaceRole: access.role,
+    authMethod: "cookie",
+  };
 }
 
 async function getApiKeyAuthContext(token: string): Promise<AuthContext | null> {
@@ -87,6 +93,21 @@ async function getApiKeyAuthContext(token: string): Promise<AuthContext | null> 
 
   // Check expiration
   if (key.expiresAt && key.expiresAt < new Date()) {
+    return null;
+  }
+
+  const [userRow] = await db
+    .select({ approvalStatus: users.approvalStatus })
+    .from(users)
+    .where(eq(users.id, key.userId))
+    .limit(1);
+
+  if (!userRow || userRow.approvalStatus !== "approved") {
+    return null;
+  }
+
+  const singletonId = await getSingletonWorkspaceId();
+  if (!singletonId || key.workspaceId !== singletonId) {
     return null;
   }
 

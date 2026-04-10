@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { workspaces, workspaceMembers, users, objects, attributes, statuses, selectOptions } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, asc, sql } from "drizzle-orm";
 import { STANDARD_OBJECTS, DEAL_STAGES } from "@openclaw-crm/shared";
 
 // ─── Workspace ───────────────────────────────────────────────────────
@@ -30,60 +30,61 @@ export async function updateWorkspace(
   return updated;
 }
 
-/** Create a new workspace with the creator as admin, and seed standard objects */
-export async function createWorkspace(name: string, userId: string) {
-  const existingMembership = await db
-    .select({ id: workspaceMembers.id })
-    .from(workspaceMembers)
-    .where(eq(workspaceMembers.userId, userId))
-    .limit(1);
-
-  if (existingMembership.length > 0) {
-    throw new Error("ALREADY_HAS_WORKSPACE");
-  }
-
-  const slug = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    || "workspace";
-
-  // Ensure slug uniqueness by appending random suffix
-  const existingSlugs = await db
-    .select({ slug: workspaces.slug })
+/** The single CRM workspace for this deployment (oldest row). */
+export async function getSingletonWorkspaceId(): Promise<string | null> {
+  const [w] = await db
+    .select({ id: workspaces.id })
     .from(workspaces)
-    .where(eq(workspaces.slug, slug))
+    .orderBy(asc(workspaces.createdAt))
     .limit(1);
-
-  const finalSlug = existingSlugs.length > 0
-    ? `${slug}-${crypto.randomUUID().slice(0, 8)}`
-    : slug;
-
-  const [workspace] = await db
-    .insert(workspaces)
-    .values({
-      name,
-      slug: finalSlug,
-      settings: {},
-    })
-    .returning();
-
-  // Add creator as admin
-  await db.insert(workspaceMembers).values({
-    workspaceId: workspace.id,
-    userId,
-    role: "admin",
-  });
-
-  // Seed standard objects
-  await seedWorkspaceObjects(workspace.id);
-
-  return workspace;
+  return w?.id ?? null;
 }
 
-/** List all workspaces a user is a member of */
+/**
+ * Ensure an approved user has a membership on the singleton workspace.
+ * First member (or bootstrap app admin) becomes workspace admin.
+ */
+export async function ensureUserWorkspaceAccess(
+  userId: string,
+  isAppAdmin: boolean
+): Promise<{ workspaceId: string; role: "admin" | "member" } | null> {
+  const workspaceId = await getSingletonWorkspaceId();
+  if (!workspaceId) return null;
+
+  const [existing] = await db
+    .select()
+    .from(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, workspaceId),
+        eq(workspaceMembers.userId, userId)
+      )
+    )
+    .limit(1);
+
+  if (existing) {
+    return { workspaceId, role: existing.role };
+  }
+
+  const [countRow] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(workspaceMembers)
+    .where(eq(workspaceMembers.workspaceId, workspaceId));
+
+  const memberCount = countRow?.count ?? 0;
+  const role: "admin" | "member" =
+    isAppAdmin || memberCount === 0 ? "admin" : "member";
+
+  await db.insert(workspaceMembers).values({ workspaceId, userId, role });
+  return { workspaceId, role };
+}
+
+/** List workspace membership for this user (0 or 1 row in single-tenant mode). */
 export async function listUserWorkspaces(userId: string) {
-  return db
+  const workspaceId = await getSingletonWorkspaceId();
+  if (!workspaceId) return [];
+
+  const rows = await db
     .select({
       id: workspaces.id,
       name: workspaces.name,
@@ -93,8 +94,15 @@ export async function listUserWorkspaces(userId: string) {
     })
     .from(workspaceMembers)
     .innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId))
-    .where(eq(workspaceMembers.userId, userId))
+    .where(
+      and(
+        eq(workspaceMembers.userId, userId),
+        eq(workspaceMembers.workspaceId, workspaceId)
+      )
+    )
     .orderBy(workspaces.createdAt);
+
+  return rows;
 }
 
 /** Seed standard objects (People, Companies, Operating companies, Deals) + attributes + deal stages */
@@ -195,6 +203,10 @@ export async function addMemberByEmail(
   }
 
   const user = userRows[0];
+
+  if (user.approvalStatus !== "approved") {
+    throw new Error("User must be approved before they can be added to the team");
+  }
 
   // Check if already a member
   const existing = await db

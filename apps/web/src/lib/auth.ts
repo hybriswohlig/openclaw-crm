@@ -2,6 +2,7 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { db } from "@/db";
 import * as schema from "@/db/schema";
+import { getBootstrapAdminEmails } from "@/lib/bootstrap-admins";
 
 /** Normalize origin: trim, no trailing slash. */
 function addOrigin(set: Set<string>, value: string | undefined) {
@@ -74,6 +75,44 @@ export const auth = betterAuth({
   baseURL: resolveAuthBaseURL(),
   secret: process.env.BETTER_AUTH_SECRET,
   trustedOrigins: buildTrustedOrigins(),
+  user: {
+    additionalFields: {
+      approvalStatus: {
+        type: "string",
+        required: false,
+        defaultValue: "pending",
+      },
+      isAppAdmin: {
+        type: "boolean",
+        required: false,
+        defaultValue: false,
+      },
+    },
+  },
+  databaseHooks: {
+    user: {
+      create: {
+        before: async (user) => {
+          const email = (user.email || "").toLowerCase().trim();
+          const admins = getBootstrapAdminEmails();
+          if (admins.has(email)) {
+            return {
+              data: {
+                approvalStatus: "approved",
+                isAppAdmin: true,
+              },
+            };
+          }
+          return {
+            data: {
+              approvalStatus: "pending",
+              isAppAdmin: false,
+            },
+          };
+        },
+      },
+    },
+  },
   database: drizzleAdapter(db, {
     provider: "pg",
     schema: {

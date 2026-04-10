@@ -3,11 +3,17 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { Settings, Users, Box, KeyRound, Bot, Puzzle, Truck } from "lucide-react";
+import { Settings, Users, Box, KeyRound, Bot, Puzzle, Truck, UserCheck } from "lucide-react";
 
 const settingsNav = [
   { href: "/settings", label: "General", icon: Settings, exact: true },
   { href: "/settings/members", label: "Members", icon: Users, exact: false },
+  {
+    href: "/settings/approvals",
+    label: "User approvals",
+    icon: UserCheck,
+    exact: false,
+  },
   {
     href: "/settings/operating-companies",
     label: "Operating companies",
