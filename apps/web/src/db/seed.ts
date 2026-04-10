@@ -71,6 +71,19 @@ async function seed() {
 
       console.log(`  Created attribute: ${attribute.title} (${attribute.type})`);
 
+      if (attr.type === "select" && attr.selectOptions?.length) {
+        for (let j = 0; j < attr.selectOptions.length; j++) {
+          const opt = attr.selectOptions[j]!;
+          await db.insert(schema.selectOptions).values({
+            attributeId: attribute.id,
+            title: opt.title,
+            color: opt.color ?? "#6366f1",
+            sortOrder: j,
+          });
+        }
+        console.log(`  Created ${attr.selectOptions.length} select options for ${attr.slug}`);
+      }
+
       if (stdObj.slug === "deals" && attr.slug === "stage") {
         for (const stage of DEAL_STAGES) {
           await db.insert(schema.statuses).values({

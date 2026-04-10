@@ -37,7 +37,7 @@ export function FilterBuilder({
 }: FilterBuilderProps) {
   // Only show filterable attributes
   const filterableAttrs = attributes.filter(
-    (a) => a.type !== "interaction"
+    (a) => a.type !== "interaction" && a.type !== "json"
   );
 
   function addCondition() {

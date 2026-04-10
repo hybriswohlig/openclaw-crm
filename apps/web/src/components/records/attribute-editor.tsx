@@ -65,6 +65,9 @@ export function AttributeEditor({
       return <RecordReferenceEditor value={refVal} onSave={onSave} onCancel={onCancel} />;
     }
 
+    case "json":
+      return <JsonValueEditor value={value} onSave={onSave} onCancel={onCancel} />;
+
     default:
       return <TextEditor value={String(value ?? "")} onSave={onSave} onCancel={onCancel} />;
   }
@@ -181,6 +184,67 @@ function DateEditor({ value, onSave, onCancel }: {
       }}
       className="h-7 text-sm"
     />
+  );
+}
+
+function JsonValueEditor({ value, onSave, onCancel }: {
+  value: unknown;
+  onSave: (v: unknown) => void;
+  onCancel: () => void;
+}) {
+  const [text, setText] = useState(() =>
+    value === null || value === undefined ? "" : JSON.stringify(value, null, 2)
+  );
+  const [error, setError] = useState<string | null>(null);
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    ref.current?.focus();
+  }, []);
+
+  function trySave() {
+    const t = text.trim();
+    if (!t) {
+      setError(null);
+      onSave(null);
+      return;
+    }
+    try {
+      onSave(JSON.parse(t));
+      setError(null);
+    } catch {
+      setError("Invalid JSON");
+    }
+  }
+
+  return (
+    <div className="space-y-1 min-w-[min(100%,24rem)]">
+      <textarea
+        ref={ref}
+        value={text}
+        onChange={(e) => {
+          setText(e.target.value);
+          setError(null);
+        }}
+        onBlur={trySave}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") onCancel();
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            trySave();
+          }
+        }}
+        rows={10}
+        className={cn(
+          "flex w-full rounded-lg border border-border bg-transparent px-3 py-2 text-xs font-mono",
+          "placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20",
+          error && "border-destructive"
+        )}
+        spellCheck={false}
+      />
+      {error && <p className="text-xs text-destructive">{error}</p>}
+      <p className="text-[10px] text-muted-foreground">⌘/Ctrl+Enter to save</p>
+    </div>
   );
 }
 
@@ -330,6 +394,7 @@ const OBJECT_COLORS: Record<string, string> = {
   companies: "bg-blue-500",
   people: "bg-purple-500",
   deals: "bg-orange-500",
+  operating_companies: "bg-teal-600",
 };
 
 function RecordReferenceEditor({ value, onSave, onCancel }: {

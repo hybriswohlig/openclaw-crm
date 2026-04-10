@@ -166,6 +166,7 @@ When setting record values, use these formats:
 | record_reference | record UUID | `"uuid-of-target-record"` |
 | actor_reference | user UUID | `"uuid-of-user"` |
 | interaction | object | `{"type": "email", "subject": "Re: Deal"}` |
+| json | object (JSON-serializable) | Moving-lead payloads, e.g. `{"LeadType": "umzug", "Ort_BL": "Berlin"}` |
 
 ## Common Patterns
 

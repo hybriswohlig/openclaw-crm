@@ -16,6 +16,7 @@ export const ATTRIBUTE_TYPES = [
   "record_reference",
   "actor_reference",
   "interaction",
+  "json",
 ] as const;
 
 export type AttributeType = (typeof ATTRIBUTE_TYPES)[number];
@@ -42,4 +43,5 @@ export const ATTRIBUTE_TYPE_COLUMN_MAP: Record<
   record_reference: "referenced_record_id",
   actor_reference: "text_value", // stores user ID
   interaction: "json_value", // { type, date, ... }
+  json: "json_value",
 };

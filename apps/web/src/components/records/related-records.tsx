@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Users, Building2, Handshake, Box, ArrowUpRight } from "lucide-react";
+import { Users, Building2, Handshake, Box, ArrowUpRight, Truck } from "lucide-react";
 
 interface RelatedRecord {
   recordId: string;
@@ -21,6 +21,7 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   people: Users,
   companies: Building2,
   deals: Handshake,
+  operating_companies: Truck,
 };
 
 export function RelatedRecords({ related, forward }: RelatedRecordsProps) {

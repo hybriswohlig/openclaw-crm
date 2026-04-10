@@ -63,7 +63,7 @@
           "title": { "type": "string" },
           "type": {
             "type": "string",
-            "enum": ["text", "number", "currency", "date", "timestamp", "checkbox", "select", "status", "rating", "email_address", "phone_number", "domain", "location", "personal_name", "record_reference", "actor_reference", "interaction"]
+            "enum": ["text", "number", "currency", "date", "timestamp", "checkbox", "select", "status", "rating", "email_address", "phone_number", "domain", "location", "personal_name", "record_reference", "actor_reference", "interaction", "json"]
           },
           "config": { "type": "object" },
           "isRequired": { "type": "boolean" },
@@ -296,7 +296,7 @@
                 "properties": {
                   "slug": { "type": "string" },
                   "title": { "type": "string" },
-                  "type": { "type": "string", "enum": ["text", "number", "currency", "date", "timestamp", "checkbox", "select", "status", "rating", "email_address", "phone_number", "domain", "location", "personal_name", "record_reference", "actor_reference", "interaction"] },
+                  "type": { "type": "string", "enum": ["text", "number", "currency", "date", "timestamp", "checkbox", "select", "status", "rating", "email_address", "phone_number", "domain", "location", "personal_name", "record_reference", "actor_reference", "interaction", "json"] },
                   "config": { "type": "object" },
                   "isRequired": { "type": "boolean" },
                   "isUnique": { "type": "boolean" },

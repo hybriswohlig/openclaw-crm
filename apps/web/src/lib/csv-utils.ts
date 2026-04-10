@@ -53,7 +53,8 @@ function formatValue(value: unknown, attr: AttributeDef): string {
     }
     case "checkbox":
       return value ? "true" : "false";
-    case "interaction": {
+    case "interaction":
+    case "json": {
       if (typeof value === "object") return JSON.stringify(value);
       return String(value);
     }

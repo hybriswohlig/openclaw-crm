@@ -30,7 +30,8 @@ export function SortBuilder({
     (a) =>
       a.type !== "location" &&
       a.type !== "personal_name" &&
-      a.type !== "interaction"
+      a.type !== "interaction" &&
+      a.type !== "json"
   );
 
   function addSort() {

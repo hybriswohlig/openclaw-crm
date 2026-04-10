@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { workspaces, workspaceMembers, users, objects, attributes, statuses } from "@/db/schema";
+import { workspaces, workspaceMembers, users, objects, attributes, statuses, selectOptions } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { STANDARD_OBJECTS, DEAL_STAGES } from "@openclaw-crm/shared";
 
@@ -97,7 +97,7 @@ export async function listUserWorkspaces(userId: string) {
     .orderBy(workspaces.createdAt);
 }
 
-/** Seed standard objects (People, Companies, Deals) + attributes + deal stages for a workspace */
+/** Seed standard objects (People, Companies, Operating companies, Deals) + attributes + deal stages */
 export async function seedWorkspaceObjects(workspaceId: string) {
   for (const stdObj of STANDARD_OBJECTS) {
     const [object] = await db
@@ -129,6 +129,18 @@ export async function seedWorkspaceObjects(workspaceId: string) {
           sortOrder: i,
         })
         .returning();
+
+      if (attr.type === "select" && attr.selectOptions?.length) {
+        for (let j = 0; j < attr.selectOptions.length; j++) {
+          const opt = attr.selectOptions[j]!;
+          await db.insert(selectOptions).values({
+            attributeId: attribute.id,
+            title: opt.title,
+            color: opt.color ?? "#6366f1",
+            sortOrder: j,
+          });
+        }
+      }
 
       // Create deal stages for the "stage" status attribute
       if (stdObj.slug === "deals" && attr.slug === "stage") {

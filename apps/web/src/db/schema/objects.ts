@@ -19,6 +19,7 @@ export const attributeTypeEnum = pgEnum("attribute_type", [
   "record_reference",
   "actor_reference",
   "interaction",
+  "json",
 ]);
 
 export const objects = pgTable(

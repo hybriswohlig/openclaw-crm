@@ -67,3 +67,4 @@ npm-debug.log*
 
 .vercel
 Untitled
+.env*.local

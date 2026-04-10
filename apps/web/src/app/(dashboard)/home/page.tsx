@@ -17,6 +17,7 @@ import {
   Users,
   Building2,
   Handshake,
+  Truck,
   Plus,
   Search,
   FileText,
@@ -91,6 +92,7 @@ const OBJECT_ICONS: Record<string, React.ReactNode> = {
   people: <Users className="h-4 w-4" />,
   companies: <Building2 className="h-4 w-4" />,
   deals: <Handshake className="h-4 w-4" />,
+  operating_companies: <Truck className="h-4 w-4" />,
 };
 
 // Onboarding steps

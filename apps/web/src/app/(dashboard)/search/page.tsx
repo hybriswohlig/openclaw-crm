@@ -8,6 +8,7 @@ import {
   Users,
   Building2,
   Handshake,
+  Truck,
   List,
   FileText,
   Loader2,
@@ -28,6 +29,7 @@ const OBJECT_ICONS: Record<string, React.ComponentType<{ className?: string }>> 
   people: Users,
   companies: Building2,
   deals: Handshake,
+  operating_companies: Truck,
 };
 
 function SearchContent() {

@@ -153,6 +153,22 @@ export function AttributeCell({ type, value, options, statuses }: AttributeCellP
     case "interaction":
       return <span className="text-muted-foreground">Interaction</span>;
 
+    case "json": {
+      if (typeof value !== "object" || value === null) {
+        return <span>{String(value)}</span>;
+      }
+      const keys = Object.keys(value as Record<string, unknown>);
+      const leadType =
+        (value as { LeadType?: string }).LeadType ??
+        (value as { leadType?: string }).leadType;
+      const summary = leadType ? `LeadType: ${leadType}` : keys.length ? `${keys.length} fields` : "—";
+      return (
+        <span className="text-xs text-muted-foreground" title={JSON.stringify(value).slice(0, 500)}>
+          {summary}
+        </span>
+      );
+    }
+
     default:
       return <span>{String(value)}</span>;
   }

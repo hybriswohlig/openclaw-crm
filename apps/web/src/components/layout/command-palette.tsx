@@ -8,6 +8,7 @@ import {
   Users,
   Building2,
   Handshake,
+  Truck,
   List,
   Home,
   CheckSquare,
@@ -22,6 +23,7 @@ const OBJECT_ICONS: Record<string, React.ComponentType<{ className?: string }>> 
   people: Users,
   companies: Building2,
   deals: Handshake,
+  operating_companies: Truck,
 };
 
 const PAGE_ITEMS = [
@@ -31,6 +33,12 @@ const PAGE_ITEMS = [
   { id: "people", label: "People", icon: Users, url: "/objects/people" },
   { id: "companies", label: "Companies", icon: Building2, url: "/objects/companies" },
   { id: "deals", label: "Deals", icon: Handshake, url: "/objects/deals" },
+  {
+    id: "operating-companies",
+    label: "Operating companies",
+    icon: Truck,
+    url: "/settings/operating-companies",
+  },
   { id: "settings", label: "Settings", icon: Settings, url: "/settings" },
 ];
 

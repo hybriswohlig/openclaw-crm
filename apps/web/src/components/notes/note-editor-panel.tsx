@@ -32,6 +32,7 @@ const OBJECT_COLORS: Record<string, string> = {
   companies: "bg-blue-500",
   people: "bg-purple-500",
   deals: "bg-orange-500",
+  operating_companies: "bg-teal-600",
 };
 
 export function NoteEditorPanel({

@@ -154,6 +154,13 @@ export function CSVImportModal({
         // Simple: treat the whole string as line1
         return { line1: trimmed, city: "", state: "", country: "" };
       }
+      case "json": {
+        try {
+          return JSON.parse(trimmed) as unknown;
+        } catch {
+          return null;
+        }
+      }
       default:
         return trimmed;
     }

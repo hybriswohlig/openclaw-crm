@@ -26,6 +26,7 @@ export function getOperatorsForType(type: AttributeType): FilterCondition["opera
       return ["equals", "not_equals", "is_empty", "is_not_empty"];
     case "personal_name":
     case "location":
+    case "json":
       return ["is_empty", "is_not_empty"];
     default:
       return ["equals", "not_equals", "is_empty", "is_not_empty"];

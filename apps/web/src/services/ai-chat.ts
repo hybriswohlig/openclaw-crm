@@ -101,7 +101,7 @@ Available object types and their attributes:
 ${objectDetails.join("\n")}
 
 Guidelines:
-- When the user refers to "people", "contacts", "companies", "deals" etc., map to the correct object slug.
+- When the user refers to "people", "contacts", "companies", "deals", "operating companies" (the user's moving businesses) etc., map to the correct object slug: people, companies, operating_companies, deals.
 - Use search_records to find records by name, email, domain, etc.
 - Use list_records to browse records of a specific type.
 - Use get_record to get full details of a specific record.
@@ -144,11 +144,14 @@ export const toolDefinitions = [
     type: "function" as const,
     function: {
       name: "list_records",
-      description: "List records of a specific object type. Use object_slug like 'people', 'companies', or 'deals'.",
+      description: "List records of a specific object type. Use object_slug like 'people', 'companies', 'operating_companies', or 'deals'.",
       parameters: {
         type: "object",
         properties: {
-          object_slug: { type: "string", description: "Object slug, e.g. 'people', 'companies', 'deals'" },
+          object_slug: {
+            type: "string",
+            description: "Object slug, e.g. 'people', 'companies', 'operating_companies', 'deals'",
+          },
           limit: { type: "number", description: "Max records to return (default 20)" },
           offset: { type: "number", description: "Pagination offset" },
         },
@@ -231,7 +234,10 @@ export const toolDefinitions = [
       parameters: {
         type: "object",
         properties: {
-          object_slug: { type: "string", description: "Object slug, e.g. 'people', 'companies', 'deals'" },
+          object_slug: {
+            type: "string",
+            description: "Object slug, e.g. 'people', 'companies', 'operating_companies', 'deals'",
+          },
           values: {
             type: "object",
             description: "Attribute values keyed by attribute slug",

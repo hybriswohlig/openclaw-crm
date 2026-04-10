@@ -17,6 +17,7 @@ import {
   Building2,
   Handshake,
   Box,
+  Truck,
 } from "lucide-react";
 import { extractPersonalName } from "@/lib/display-name";
 
@@ -42,6 +43,7 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   users: Users,
   "building-2": Building2,
   handshake: Handshake,
+  truck: Truck,
 };
 
 export default function RecordDetailPage() {

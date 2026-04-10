@@ -579,7 +579,9 @@ export function TaskDialog({
                               ? "bg-purple-500"
                               : r.objectSlug === "deals"
                                 ? "bg-orange-500"
-                                : "bg-muted-foreground";
+                                : r.objectSlug === "operating_companies"
+                                  ? "bg-teal-600"
+                                  : "bg-muted-foreground";
                         return (
                           <div
                             key={r.id}
@@ -645,7 +647,9 @@ export function TaskDialog({
                               ? "bg-purple-500"
                               : r.objectSlug === "deals"
                                 ? "bg-orange-500"
-                                : "bg-muted-foreground";
+                                : r.objectSlug === "operating_companies"
+                                  ? "bg-teal-600"
+                                  : "bg-muted-foreground";
                         return (
                           <button
                             key={r.id}

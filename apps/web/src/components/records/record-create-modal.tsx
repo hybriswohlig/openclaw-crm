@@ -145,6 +145,8 @@ function FieldInput({
           onChange={(e) => onChange(e.target.value || null)}
           required={isRequired}
         />
+      ) : type === "json" ? (
+        <JsonCreateField value={value} onChange={onChange} />
       ) : type === "checkbox" ? (
         <div className="flex items-center">
           <input
@@ -244,12 +246,55 @@ function FieldInput({
   );
 }
 
+function JsonCreateField({
+  value,
+  onChange,
+}: {
+  value: unknown;
+  onChange: (val: unknown) => void;
+}) {
+  const [text, setText] = useState(() =>
+    value === null || value === undefined ? "" : JSON.stringify(value, null, 2)
+  );
+
+  useEffect(() => {
+    if (value === null || value === undefined) {
+      setText("");
+    } else if (typeof value === "object") {
+      setText(JSON.stringify(value, null, 2));
+    }
+  }, [value]);
+
+  return (
+    <textarea
+      className="flex min-h-[120px] w-full rounded-lg border border-border bg-transparent px-3 py-2 text-sm font-mono placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
+      placeholder='{"LeadType": "umzug", ...}'
+      value={text}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={() => {
+        const t = text.trim();
+        if (!t) {
+          onChange(null);
+          return;
+        }
+        try {
+          onChange(JSON.parse(t));
+        } catch {
+          // Keep draft text; omit from submit if still invalid — user can fix and blur again
+        }
+      }}
+      spellCheck={false}
+    />
+  );
+}
+
 // ─── Record Reference Picker ─────────────────────────────────────────
 
 const OBJECT_COLORS: Record<string, string> = {
   companies: "bg-blue-500",
   people: "bg-purple-500",
   deals: "bg-orange-500",
+  operating_companies: "bg-teal-600",
 };
 
 function RecordReferencePicker({
