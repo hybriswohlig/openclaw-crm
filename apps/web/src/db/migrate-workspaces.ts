@@ -1,5 +1,6 @@
 import "dotenv/config";
 import postgres from "postgres";
+import { normalizeDatabaseUrl } from "./normalize-database-url";
 
 /**
  * Migration script: Adds workspace_id to tasks table.
@@ -8,7 +9,7 @@ import postgres from "postgres";
  * Usage: npx tsx src/db/migrate-workspaces.ts
  */
 async function migrate() {
-  const connectionString = process.env.DATABASE_URL;
+  const connectionString = normalizeDatabaseUrl(process.env.DATABASE_URL);
   if (!connectionString) {
     throw new Error("DATABASE_URL is required");
   }

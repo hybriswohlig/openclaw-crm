@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import postgres from "postgres";
+import { normalizeDatabaseUrl } from "@/db/normalize-database-url";
 
 export const ADMIN_TARGET_DB_COOKIE = "admin_target_database_url";
 
@@ -39,14 +40,21 @@ export function assertPgDataType(t: string): string {
 }
 
 export function getConfiguredDatabaseUrl(): string | undefined {
-  return process.env.DATABASE_URL?.trim() || undefined;
+  const n = normalizeDatabaseUrl(process.env.DATABASE_URL);
+  return n || undefined;
 }
 
 export function getTargetDatabaseUrl(req: NextRequest): string | undefined {
-  const fromCookie = req.cookies.get(ADMIN_TARGET_DB_COOKIE)?.value?.trim();
-  if (fromCookie) return fromCookie;
-  const fromEnv = process.env.DATABASE_TARGET_URL?.trim();
-  if (fromEnv) return fromEnv;
+  const fromCookie = req.cookies.get(ADMIN_TARGET_DB_COOKIE)?.value;
+  if (fromCookie) {
+    const n = normalizeDatabaseUrl(fromCookie);
+    if (n) return n;
+  }
+  const fromEnv = process.env.DATABASE_TARGET_URL;
+  if (fromEnv) {
+    const n = normalizeDatabaseUrl(fromEnv);
+    if (n) return n;
+  }
   return getConfiguredDatabaseUrl();
 }
 

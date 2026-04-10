@@ -3,9 +3,10 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "./schema";
 import { STANDARD_OBJECTS, DEAL_STAGES } from "@openclaw-crm/shared";
+import { normalizeDatabaseUrl } from "./normalize-database-url";
 
 async function seed() {
-  const connectionString = process.env.DATABASE_URL;
+  const connectionString = normalizeDatabaseUrl(process.env.DATABASE_URL);
   if (!connectionString) {
     throw new Error("DATABASE_URL is required");
   }
