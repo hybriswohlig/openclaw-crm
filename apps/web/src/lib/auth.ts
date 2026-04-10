@@ -10,26 +10,55 @@ function addOrigin(set: Set<string>, value: string | undefined) {
   if (o) set.add(o);
 }
 
+/** Hostname only (no scheme/path). Used for AUTH_TRUSTED_HOSTS. */
+const HOST_RE =
+  /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
+
+function addTrustedHost(set: Set<string>, host: string | undefined) {
+  if (!host) return;
+  const h = host.trim().toLowerCase();
+  if (!HOST_RE.test(h)) return;
+  addOrigin(set, `https://${h}`);
+}
+
 /**
  * Better Auth rejects requests when the browser Origin is not listed here.
- * On Vercel, every deployment has its own hostname (…-git-… or …-hash…);
- * VERCEL_URL is set automatically to that host so sign-up works on those URLs
- * while NEXT_PUBLIC_APP_URL can stay on the stable production domain.
+ * - NEXT_PUBLIC_APP_URL + TRUSTED_ORIGINS (full origins)
+ * - VERCEL_URL / VERCEL_BRANCH_URL / VERCEL_PROJECT_PRODUCTION_URL (Vercel system vars)
+ * - AUTH_TRUSTED_HOSTS: comma-separated hostnames for custom domains that are not Vercel’s
+ *   “shortest production URL” (e.g. darioushkottke.online while primary remains *.vercel.app)
  */
 function buildTrustedOrigins(): string[] {
   const origins = new Set<string>();
   addOrigin(origins, process.env.NEXT_PUBLIC_APP_URL);
   for (const part of (process.env.TRUSTED_ORIGINS || "").split(",")) {
-    addOrigin(origins, part);
+    addOrigin(origins, part.trim());
   }
+  for (const part of (process.env.AUTH_TRUSTED_HOSTS || "").split(",")) {
+    addTrustedHost(origins, part.trim());
+  }
+
   const vercelUrl = process.env.VERCEL_URL?.trim();
   if (vercelUrl) {
     addOrigin(origins, `https://${vercelUrl}`);
   }
-  const vercelProd = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
-  if (vercelProd) {
-    addOrigin(origins, `https://${vercelProd}`);
+
+  const vercelBranch = process.env.VERCEL_BRANCH_URL?.trim();
+  if (vercelBranch) {
+    addOrigin(origins, vercelBranch);
   }
+
+  const vercelProd =
+    process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim() ||
+    process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL?.trim();
+  if (vercelProd) {
+    if (vercelProd.startsWith("http://") || vercelProd.startsWith("https://")) {
+      addOrigin(origins, vercelProd);
+    } else {
+      addOrigin(origins, `https://${vercelProd}`);
+    }
+  }
+
   return [...origins];
 }
 
