@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getAuthContext, unauthorized, success } from "@/lib/api-utils";
 import { queryFinancialDb } from "@/lib/financial-db";
 
@@ -6,7 +6,12 @@ export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized();
 
-  const [ausgaben, zahlungen, konten, saldo] = await Promise.all([
+  let ausgaben;
+  let zahlungen;
+  let konten;
+  let saldo;
+  try {
+    [ausgaben, zahlungen, konten, saldo] = await Promise.all([
     queryFinancialDb((sql) => sql`
       SELECT id, datum, betrag, empfaenger, beschreibung, kategorie, zahlungsart, auftrag_nr, firma, erstellt_am
       FROM ausgaben ORDER BY datum DESC
@@ -23,7 +28,27 @@ export async function GET(req: NextRequest) {
       SELECT mitarbeiter, schulden_gesamt, gezahlt_gesamt, saldo, anzahl_transaktionen
       FROM mitarbeiter_saldo
     `),
-  ]);
+    ]);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const missing =
+      /relation "[^"]+" does not exist/i.test(msg) || (e as { code?: string })?.code === "42P01";
+    if (missing) {
+      return NextResponse.json(
+        {
+          error: {
+            code: "FINANCIAL_SCHEMA_MISSING",
+            message:
+              "Financial database tables are missing. Run the SQL script in your Neon project (SQL Editor).",
+            hint: "Repo file: apps/web/scripts/financial-neon-schema.sql — creates ausgaben, zahlungen, mitarbeiter_konten, mitarbeiter_saldo.",
+            detail: msg,
+          },
+        },
+        { status: 503 }
+      );
+    }
+    throw e;
+  }
 
   const totalAusgaben = ausgaben.reduce((s, r) => s + Number(r.betrag), 0);
   const totalZahlungen = zahlungen.reduce((s, r) => s + Number(r.betrag), 0);
