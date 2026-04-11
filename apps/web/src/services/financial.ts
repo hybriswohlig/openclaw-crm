@@ -453,7 +453,7 @@ export async function getFinancialOverview(
     const rows = await db.execute(
       sql`SELECT rv.record_id, rv.text_value FROM record_values rv INNER JOIN attributes a ON a.id = rv.attribute_id WHERE a.slug = 'name' AND rv.record_id = ANY(ARRAY[${sql.join(dealIds.map(id => sql`${id}`), sql`, `)}]::text[])`
     );
-    dealNames = (rows as Array<{ record_id: string; text_value: string }>).map(r => ({ recordId: r.record_id, name: r.text_value }));
+    dealNames = (rows as unknown as Array<{ record_id: string; text_value: string }>).map(r => ({ recordId: r.record_id, name: r.text_value }));
   }
   const dealNameLookup = new Map(dealNames.map(r => [r.recordId, r.name]));
 
