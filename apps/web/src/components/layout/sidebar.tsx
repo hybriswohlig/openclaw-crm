@@ -23,6 +23,8 @@ import {
   CalendarDays,
   HardHat,
   Banknote,
+  Plug,
+  Inbox,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 
@@ -212,6 +214,28 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           label="Financial"
           icon={Banknote}
           active={pathname.startsWith("/financial")}
+          expanded={expanded}
+          onClick={onNavigate}
+        />
+
+        <div className="my-3 mx-2 h-px bg-sidebar-border" />
+
+        <NavItem
+          href="/integrations"
+          label="Integrations"
+          icon={Plug}
+          active={pathname.startsWith("/integrations")}
+          expanded={expanded}
+          onClick={onNavigate}
+        />
+
+        <div className="my-3 mx-2 h-px bg-sidebar-border" />
+
+        <NavItem
+          href="/inbox"
+          label="Inbox"
+          icon={Inbox}
+          active={pathname.startsWith("/inbox")}
           expanded={expanded}
           onClick={onNavigate}
         />

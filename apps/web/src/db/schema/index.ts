@@ -11,3 +11,5 @@ export * from "./chat";
 export * from "./employees";
 export * from "./quotations";
 export * from "./financial";
+export * from "./integrations";
+export * from "./inbox";
