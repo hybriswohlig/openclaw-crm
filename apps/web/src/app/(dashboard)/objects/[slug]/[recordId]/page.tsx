@@ -9,6 +9,7 @@ import { ActivityTimeline } from "@/components/records/activity-timeline";
 import { RecordNotes } from "@/components/notes/record-notes";
 import { RecordTasks } from "@/components/tasks/record-tasks";
 import { QuotationTab } from "@/components/quotation/quotation-tab";
+import { FinancialTab } from "@/components/financial/financial-tab";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import {
@@ -210,6 +211,9 @@ export default function RecordDetailPage() {
               {slug === "deals" && (
                 <TabsTrigger value="quotation">Quotation</TabsTrigger>
               )}
+              {slug === "deals" && (
+                <TabsTrigger value="financials">Finanzen</TabsTrigger>
+              )}
             </TabsList>
 
             <TabsContent value="attributes">
@@ -242,6 +246,11 @@ export default function RecordDetailPage() {
             {slug === "deals" && (
               <TabsContent value="quotation">
                 <QuotationTab recordId={recordId} />
+              </TabsContent>
+            )}
+            {slug === "deals" && (
+              <TabsContent value="financials">
+                <FinancialTab recordId={recordId} />
               </TabsContent>
             )}
           </Tabs>

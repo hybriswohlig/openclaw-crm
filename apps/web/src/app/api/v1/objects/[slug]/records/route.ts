@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { getAuthContext, unauthorized, notFound, badRequest, success } from "@/lib/api-utils";
 import { getObjectBySlug } from "@/services/objects";
 import { listRecords, createRecord } from "@/services/records";
+import { assignDealNumber } from "@/services/financial";
 
 export async function GET(
   req: NextRequest,
@@ -45,5 +46,10 @@ export async function POST(
   }
 
   const record = await createRecord(obj.id, values, ctx.userId);
+
+  if (slug === "deals" && record) {
+    await assignDealNumber(ctx.workspaceId, record.id);
+  }
+
   return success(record, 201);
 }

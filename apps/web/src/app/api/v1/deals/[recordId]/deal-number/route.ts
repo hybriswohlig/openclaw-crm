@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { getAuthContext, unauthorized, success } from "@/lib/api-utils";
-import { getProfitSummary } from "@/services/financial";
+import { getDealNumber } from "@/services/financial";
 
 export async function GET(
   req: NextRequest,
@@ -10,6 +10,6 @@ export async function GET(
   if (!ctx) return unauthorized();
 
   const { recordId } = await params;
-  const data = await getProfitSummary(recordId);
-  return success(data);
+  const dealNumber = await getDealNumber(recordId);
+  return success({ dealNumber });
 }
