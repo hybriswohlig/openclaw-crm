@@ -22,6 +22,7 @@ import {
   Database,
   CalendarDays,
   HardHat,
+  Banknote,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 
@@ -199,7 +200,18 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           href="/employees"
           label="Employees"
           icon={HardHat}
-          active={pathname.startsWith("/employees")}
+          active={pathname === "/employees"}
+          expanded={expanded}
+          onClick={onNavigate}
+        />
+
+        <div className="my-3 mx-2 h-px bg-sidebar-border" />
+
+        <NavItem
+          href="/financial"
+          label="Financial"
+          icon={Banknote}
+          active={pathname.startsWith("/financial")}
           expanded={expanded}
           onClick={onNavigate}
         />
