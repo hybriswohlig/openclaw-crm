@@ -10,11 +10,18 @@ import {
   index,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { workspaces } from "./workspace";
 import { records } from "./records";
 import { employees } from "./employees";
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
+
+export const dealDocumentTypeEnum = pgEnum("deal_document_type", [
+  "order_confirmation",
+  "invoice",
+  "payment_confirmation",
+]);
 
 export const expenseCategoryEnum = pgEnum("expense_category", [
   "fuel",
@@ -184,5 +191,35 @@ export const employeeTransactions = pgTable(
     index("employee_transactions_employee_idx").on(table.employeeId),
     index("employee_transactions_workspace_idx").on(table.workspaceId),
     index("employee_transactions_status_idx").on(table.status),
+  ]
+);
+
+// ─── Deal Documents ───────────────────────────────────────────────────────────
+// File attachments for a deal: Auftragsbestätigung, Rechnung, Zahlungsbestätigung.
+// File content is stored as base64 text (suitable for documents up to ~5 MB).
+
+export const dealDocuments = pgTable(
+  "deal_documents",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    dealRecordId: text("deal_record_id")
+      .notNull()
+      .references(() => records.id, { onDelete: "cascade" }),
+    documentType: dealDocumentTypeEnum("document_type").notNull(),
+    fileName: text("file_name").notNull(),
+    fileSize: integer("file_size").notNull(), // bytes
+    mimeType: text("mime_type").notNull(),
+    fileContent: text("file_content").notNull(), // base64
+    uploadedAt: timestamp("uploaded_at").notNull().default(sql`now()`),
+  },
+  (table) => [
+    index("deal_documents_deal_idx").on(table.dealRecordId),
+    index("deal_documents_workspace_idx").on(table.workspaceId),
+    index("deal_documents_type_idx").on(table.documentType),
   ]
 );

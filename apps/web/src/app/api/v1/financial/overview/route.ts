@@ -6,6 +6,10 @@ export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized();
 
-  const data = await getFinancialOverview(ctx.workspaceId);
+  const { searchParams } = new URL(req.url);
+  // e.g. ?month=2026-03  — omit for all-time overview
+  const month = searchParams.get("month") || null;
+
+  const data = await getFinancialOverview(ctx.workspaceId, month);
   return success(data);
 }

@@ -137,7 +137,7 @@ export function CSVImportModal({
         const parts = trimmed.split(/\s+/);
         const amount = Number(parts[0]);
         if (isNaN(amount)) return null;
-        return { amount, currency: parts[1] || "USD" };
+        return { amount, currency: parts[1] || "EUR" };
       }
       case "personal_name": {
         const nameParts = trimmed.split(/\s+/);

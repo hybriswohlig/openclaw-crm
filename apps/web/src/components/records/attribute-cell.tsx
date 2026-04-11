@@ -61,9 +61,9 @@ export function AttributeCell({ type, value, options, statuses }: AttributeCellP
       if (!cv?.amount && cv?.amount !== 0) return <span className="text-muted-foreground/50">—</span>;
       return (
         <span>
-          {new Intl.NumberFormat("en-US", {
+          {new Intl.NumberFormat("de-DE", {
             style: "currency",
-            currency: cv.currencyCode || "USD",
+            currency: cv.currencyCode || "EUR",
           }).format(cv.amount)}
         </span>
       );

@@ -7,7 +7,16 @@ import {
   employeeTransactions,
   employees,
 } from "@/db/schema";
-import { eq, and, sum, sql } from "drizzle-orm";
+import { eq, and, sum, sql, gte, lt, type SQL } from "drizzle-orm";
+
+/** Returns [startDate, endDate) strings for a "YYYY-MM" month, or null for all-time. */
+function parseMonth(month: string | null): { start: string; end: string } | null {
+  if (!month) return null;
+  const [year, m] = month.split("-").map(Number);
+  const start = new Date(Date.UTC(year, m - 1, 1)).toISOString().slice(0, 10);
+  const end   = new Date(Date.UTC(year, m,     1)).toISOString().slice(0, 10);
+  return { start, end };
+}
 
 // ─── Deal Numbers ──────────────────────────────────────────────────────────────
 
@@ -342,16 +351,37 @@ export async function getProfitSummary(dealRecordId: string) {
 
 // ─── Workspace Financial Overview ─────────────────────────────────────────────
 
-export async function getFinancialOverview(workspaceId: string) {
+/**
+ * Workspace-level financial overview, optionally filtered by month ("YYYY-MM").
+ * Also returns a per-deal breakdown so the UI can show deal-level rows.
+ */
+export async function getFinancialOverview(
+  workspaceId: string,
+  month: string | null = null
+) {
+  const range = parseMonth(month);
+
+  // Build date conditions per table
+  const paymentDateCond = range
+    ? and(gte(payments.date, range.start), lt(payments.date, range.end))
+    : undefined;
+  const expenseDateCond = range
+    ? and(gte(expenses.date, range.start), lt(expenses.date, range.end))
+    : undefined;
+  const empTxDateCond = range
+    ? and(gte(employeeTransactions.date, range.start), lt(employeeTransactions.date, range.end))
+    : undefined;
+
+  // ── Totals ──────────────────────────────────────────────────────────────────
   const [totalIncome] = await db
     .select({ total: sum(payments.amount) })
     .from(payments)
-    .where(eq(payments.workspaceId, workspaceId));
+    .where(and(eq(payments.workspaceId, workspaceId), paymentDateCond));
 
   const [totalExpensesRow] = await db
     .select({ total: sum(expenses.amount) })
     .from(expenses)
-    .where(eq(expenses.workspaceId, workspaceId));
+    .where(and(eq(expenses.workspaceId, workspaceId), expenseDateCond));
 
   const [totalEmployeeCostsRow] = await db
     .select({ total: sum(employeeTransactions.amount) })
@@ -359,29 +389,84 @@ export async function getFinancialOverview(workspaceId: string) {
     .where(
       and(
         eq(employeeTransactions.workspaceId, workspaceId),
-        sql`${employeeTransactions.type} IN ('salary', 'advance')`
+        sql`${employeeTransactions.type} IN ('salary', 'advance')`,
+        empTxDateCond
       )
     );
 
+  // ── Breakdowns ───────────────────────────────────────────────────────────────
   const expensesByCategory = await db
-    .select({
-      category: expenses.category,
-      total: sum(expenses.amount),
-    })
+    .select({ category: expenses.category, total: sum(expenses.amount) })
     .from(expenses)
-    .where(eq(expenses.workspaceId, workspaceId))
+    .where(and(eq(expenses.workspaceId, workspaceId), expenseDateCond))
     .groupBy(expenses.category);
 
   const employeeBalances = await db
-    .select({
-      employeeName: employees.name,
-      totalCosts: sum(employeeTransactions.amount),
-    })
+    .select({ employeeName: employees.name, total: sum(employeeTransactions.amount) })
     .from(employeeTransactions)
     .innerJoin(employees, eq(employees.id, employeeTransactions.employeeId))
-    .where(eq(employeeTransactions.workspaceId, workspaceId))
+    .where(and(eq(employeeTransactions.workspaceId, workspaceId), empTxDateCond))
     .groupBy(employees.name);
 
+  // ── Per-deal breakdown ────────────────────────────────────────────────────────
+  const dealIncome = await db
+    .select({ dealRecordId: payments.dealRecordId, total: sum(payments.amount) })
+    .from(payments)
+    .where(and(eq(payments.workspaceId, workspaceId), paymentDateCond))
+    .groupBy(payments.dealRecordId);
+
+  const dealExpenses = await db
+    .select({ dealRecordId: expenses.dealRecordId, total: sum(expenses.amount) })
+    .from(expenses)
+    .where(and(eq(expenses.workspaceId, workspaceId), expenseDateCond))
+    .groupBy(expenses.dealRecordId);
+
+  const dealEmpCosts = await db
+    .select({ dealRecordId: employeeTransactions.dealRecordId, total: sum(employeeTransactions.amount) })
+    .from(employeeTransactions)
+    .where(
+      and(
+        eq(employeeTransactions.workspaceId, workspaceId),
+        sql`${employeeTransactions.type} IN ('salary', 'advance')`,
+        empTxDateCond
+      )
+    )
+    .groupBy(employeeTransactions.dealRecordId);
+
+  // Merge into deal map
+  const dealMap = new Map<string, { income: number; expenses: number; empCosts: number }>();
+  for (const r of dealIncome)   { const d = dealMap.get(r.dealRecordId) ?? { income: 0, expenses: 0, empCosts: 0 }; d.income = Number(r.total ?? 0); dealMap.set(r.dealRecordId, d); }
+  for (const r of dealExpenses) { const d = dealMap.get(r.dealRecordId) ?? { income: 0, expenses: 0, empCosts: 0 }; d.expenses = Number(r.total ?? 0); dealMap.set(r.dealRecordId, d); }
+  for (const r of dealEmpCosts) { const d = dealMap.get(r.dealRecordId) ?? { income: 0, expenses: 0, empCosts: 0 }; d.empCosts = Number(r.total ?? 0); dealMap.set(r.dealRecordId, d); }
+
+  // Enrich with deal numbers + names
+  const dealIds = [...dealMap.keys()];
+  const dealNumberRows = dealIds.length
+    ? await db.select({ dealRecordId: dealNumbers.dealRecordId, dealNumber: dealNumbers.dealNumber }).from(dealNumbers).where(sql`${dealNumbers.dealRecordId} = ANY(${sql`ARRAY[${sql.join(dealIds.map(id => sql`${id}`), sql`, `)}]`})`)
+    : [];
+
+  const dealNumberLookup = new Map(dealNumberRows.map(r => [r.dealRecordId, r.dealNumber]));
+
+  // Fetch deal names from record_values
+  let dealNames: Array<{ recordId: string; name: string }> = [];
+  if (dealIds.length) {
+    const rows = await db.execute(
+      sql`SELECT rv.record_id, rv.text_value FROM record_values rv INNER JOIN attributes a ON a.id = rv.attribute_id WHERE a.slug = 'name' AND rv.record_id = ANY(ARRAY[${sql.join(dealIds.map(id => sql`${id}`), sql`, `)}]::text[])`
+    );
+    dealNames = (rows as Array<{ record_id: string; text_value: string }>).map(r => ({ recordId: r.record_id, name: r.text_value }));
+  }
+  const dealNameLookup = new Map(dealNames.map(r => [r.recordId, r.name]));
+
+  const deals = [...dealMap.entries()].map(([id, d]) => ({
+    dealRecordId: id,
+    dealNumber: dealNumberLookup.get(id) ?? "—",
+    name: dealNameLookup.get(id) ?? "Unbekannt",
+    income: d.income,
+    costs: d.expenses + d.empCosts,
+    profit: d.income - d.expenses - d.empCosts,
+  })).sort((a, b) => b.income - a.income);
+
+  // ── Final summary ────────────────────────────────────────────────────────────
   const income = Number(totalIncome.total ?? 0);
   const totalExpenses = Number(totalExpensesRow.total ?? 0);
   const totalEmployeeCosts = Number(totalEmployeeCostsRow.total ?? 0);
@@ -394,13 +479,15 @@ export async function getFinancialOverview(workspaceId: string) {
       totalEmployeeCosts,
       totalCosts,
       netProfit: income - totalCosts,
+      margin: income > 0 ? Math.round(((income - totalCosts) / income) * 100) : null,
     },
     expensesByCategory: Object.fromEntries(
       expensesByCategory.map((r) => [r.category, Number(r.total ?? 0)])
     ),
     employeeBalances: employeeBalances.map((r) => ({
       name: r.employeeName,
-      total: Number(r.totalCosts ?? 0),
+      total: Number(r.total ?? 0),
     })),
+    deals,
   };
 }

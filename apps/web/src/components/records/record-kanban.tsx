@@ -369,9 +369,9 @@ function KanbanColumn({
       {/* Currency total */}
       {currencySum !== null && currencySum > 0 && (
         <div className="px-3 py-1.5 text-xs text-muted-foreground border-b border-border/30">
-          {new Intl.NumberFormat("en-US", {
+          {new Intl.NumberFormat("de-DE", {
             style: "currency",
-            currency: "USD",
+            currency: "EUR",
             maximumFractionDigits: 0,
           }).format(currencySum)}
         </div>
@@ -477,9 +477,9 @@ function KanbanCard({
 
           {currencyVal?.amount != null && (
             <p className="mt-0.5 text-xs text-muted-foreground">
-              {new Intl.NumberFormat("en-US", {
+              {new Intl.NumberFormat("de-DE", {
                 style: "currency",
-                currency: currencyVal.currencyCode || "USD",
+                currency: currencyVal.currencyCode || "EUR",
               }).format(currencyVal.amount)}
             </p>
           )}
@@ -524,9 +524,9 @@ function KanbanCardOverlay({
       <p className="text-sm font-medium truncate">{displayName}</p>
       {currencyVal?.amount != null && (
         <p className="mt-0.5 text-xs text-muted-foreground">
-          {new Intl.NumberFormat("en-US", {
+          {new Intl.NumberFormat("de-DE", {
             style: "currency",
-            currency: currencyVal.currencyCode || "USD",
+            currency: currencyVal.currencyCode || "EUR",
           }).format(currencyVal.amount)}
         </p>
       )}

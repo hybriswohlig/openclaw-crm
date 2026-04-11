@@ -139,7 +139,7 @@ function CurrencyEditor({ value, onSave, onCancel }: {
   useEffect(() => { ref.current?.focus(); }, []);
 
   function save() {
-    onSave(amount ? { amount: Number(amount), currencyCode: value?.currencyCode || "USD" } : null);
+    onSave(amount ? { amount: Number(amount), currencyCode: value?.currencyCode || "EUR" } : null);
   }
 
   return (

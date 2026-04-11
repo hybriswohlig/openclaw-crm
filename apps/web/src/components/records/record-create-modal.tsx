@@ -132,7 +132,7 @@ function FieldInput({
           onChange={(e) =>
             onChange(
               e.target.value
-                ? { amount: Number(e.target.value), currencyCode: "USD" }
+                ? { amount: Number(e.target.value), currencyCode: "EUR" }
                 : null
             )
           }

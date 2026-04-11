@@ -20,6 +20,9 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Minus,
+  Upload,
+  Download,
+  FileText,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -70,6 +73,15 @@ interface Employee {
   id: string;
   name: string;
   hourlyRate: string;
+}
+
+interface DealDocument {
+  id: string;
+  documentType: "order_confirmation" | "invoice" | "payment_confirmation";
+  fileName: string;
+  fileSize: number;
+  mimeType: string;
+  uploadedAt: string;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -930,6 +942,163 @@ function EmployeeCostsSection({
   );
 }
 
+// ─── Documents Section ────────────────────────────────────────────────────────
+
+const DOC_TYPE_LABELS: Record<string, string> = {
+  order_confirmation: "Auftragsbestätigung",
+  invoice: "Rechnung",
+  payment_confirmation: "Zahlungsbestätigung",
+};
+
+function fmtBytes(b: number) {
+  if (b < 1024) return `${b} B`;
+  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+  return `${(b / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function DocumentsSection({
+  recordId,
+  documents,
+  onChanged,
+}: {
+  recordId: string;
+  documents: DealDocument[];
+  onChanged: () => void;
+}) {
+  const [uploading, setUploading] = useState<string | null>(null); // documentType being uploaded
+  const [deleting, setDeleting] = useState<string | null>(null);
+
+  async function handleUpload(documentType: string, file: File) {
+    setUploading(documentType);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("documentType", documentType);
+      const res = await fetch(`/api/v1/deals/${recordId}/documents`, { method: "POST", body: fd });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error ?? "Upload fehlgeschlagen");
+        return;
+      }
+      onChanged();
+    } finally {
+      setUploading(null);
+    }
+  }
+
+  async function handleDelete(docId: string) {
+    if (!confirm("Dokument löschen?")) return;
+    setDeleting(docId);
+    try {
+      await fetch(`/api/v1/deals/${recordId}/documents/${docId}`, { method: "DELETE" });
+      onChanged();
+    } finally {
+      setDeleting(null);
+    }
+  }
+
+  function handleDownload(doc: DealDocument) {
+    window.open(`/api/v1/deals/${recordId}/documents/${doc.id}`, "_blank");
+  }
+
+  const docsByType = Object.fromEntries(
+    (["order_confirmation", "invoice", "payment_confirmation"] as const).map((t) => [
+      t,
+      documents.filter((d) => d.documentType === t),
+    ])
+  );
+
+  return (
+    <section>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-medium text-sm">Dokumente</h3>
+      </div>
+
+      <div className="space-y-4">
+        {(["order_confirmation", "invoice", "payment_confirmation"] as const).map((docType) => {
+          const docs = docsByType[docType];
+          const isUploading = uploading === docType;
+
+          return (
+            <div key={docType} className="rounded-lg border border-border p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm font-medium">{DOC_TYPE_LABELS[docType]}</span>
+                </div>
+                <label className="cursor-pointer">
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleUpload(docType, file);
+                      e.target.value = "";
+                    }}
+                    disabled={isUploading}
+                  />
+                  <span
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${
+                      isUploading
+                        ? "opacity-50 cursor-not-allowed bg-muted text-muted-foreground border-border"
+                        : "bg-background text-foreground border-border hover:bg-muted cursor-pointer"
+                    }`}
+                  >
+                    {isUploading ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Upload className="h-3 w-3" />
+                    )}
+                    Hochladen
+                  </span>
+                </label>
+              </div>
+
+              {docs.length === 0 ? (
+                <p className="text-xs text-muted-foreground">Noch kein Dokument hochgeladen</p>
+              ) : (
+                <div className="space-y-2">
+                  {docs.map((doc) => (
+                    <div
+                      key={doc.id}
+                      className="flex items-center gap-3 rounded-md bg-muted/40 px-3 py-2"
+                    >
+                      <span className="flex-1 text-sm truncate">{doc.fileName}</span>
+                      <span className="text-xs text-muted-foreground shrink-0">
+                        {fmtBytes(doc.fileSize)}
+                      </span>
+                      <button
+                        onClick={() => handleDownload(doc)}
+                        className="text-muted-foreground hover:text-foreground transition-colors"
+                        title="Herunterladen"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(doc.id)}
+                        disabled={deleting === doc.id}
+                        className="text-muted-foreground hover:text-destructive transition-colors"
+                        title="Löschen"
+                      >
+                        {deleting === doc.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 // ─── Main Tab ─────────────────────────────────────────────────────────────────
 
 export function FinancialTab({ recordId }: { recordId: string }) {
@@ -938,6 +1107,7 @@ export function FinancialTab({ recordId }: { recordId: string }) {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [costs, setCosts] = useState<EmployeeCost[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [documents, setDocuments] = useState<DealDocument[]>([]);
   const [dealNumber, setDealNumber] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -945,13 +1115,14 @@ export function FinancialTab({ recordId }: { recordId: string }) {
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [profitRes, paymentsRes, expensesRes, costsRes, empRes, numRes] = await Promise.all([
+      const [profitRes, paymentsRes, expensesRes, costsRes, empRes, numRes, docsRes] = await Promise.all([
         fetch(`/api/v1/deals/${recordId}/profit`),
         fetch(`/api/v1/deals/${recordId}/payments`),
         fetch(`/api/v1/deals/${recordId}/expenses`),
         fetch(`/api/v1/deals/${recordId}/employee-costs`),
         fetch(`/api/v1/employees`),
         fetch(`/api/v1/deals/${recordId}/deal-number`),
+        fetch(`/api/v1/deals/${recordId}/documents`),
       ]);
       if (profitRes.ok) setProfit(await profitRes.json().then((r) => r.data));
       if (paymentsRes.ok) setPayments(await paymentsRes.json().then((r) => r.data));
@@ -959,6 +1130,7 @@ export function FinancialTab({ recordId }: { recordId: string }) {
       if (costsRes.ok) setCosts(await costsRes.json().then((r) => r.data));
       if (empRes.ok) setEmployees(await empRes.json().then((r) => r.data));
       if (numRes.ok) setDealNumber(await numRes.json().then((r) => r.data.dealNumber));
+      if (docsRes.ok) setDocuments(await docsRes.json().then((r) => r.data));
     } finally {
       setLoading(false);
     }
@@ -1008,6 +1180,10 @@ export function FinancialTab({ recordId }: { recordId: string }) {
           employees={employees}
           onChanged={refresh}
         />
+      </div>
+
+      <div className="border-t border-border pt-6">
+        <DocumentsSection recordId={recordId} documents={documents} onChanged={refresh} />
       </div>
     </div>
   );
