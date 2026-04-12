@@ -12,6 +12,8 @@
     "db:push": "drizzle-kit push",
     "db:seed": "tsx src/db/seed.ts",
     "financial:seed-json": "tsx scripts/seed-financial-json.ts",
+    "inbox:import": "tsx scripts/import-emails.ts",
+    "inbox:reimport": "tsx scripts/import-emails.ts --reset",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui"
   },
