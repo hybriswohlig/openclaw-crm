@@ -9,6 +9,7 @@ export interface StandardAttribute {
   isUnique: boolean;
   isMultiselect: boolean;
   config?: Record<string, unknown>;
+  selectOptions?: { title: string; color: string }[];
 }
 
 export interface StandardObject {
@@ -36,12 +37,8 @@ export const STANDARD_OBJECTS: StandardObject[] = [
       { slug: "department", title: "Department", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       { slug: "company", title: "Company", type: "record_reference", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false, config: { targetObjectSlug: "companies" } },
       { slug: "location", title: "Location", type: "location", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
-<<<<<<< Updated upstream
-      { slug: "description", title: "Description", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
-=======
       { slug: "linkedin", title: "LinkedIn", type: "domain", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       { slug: "description", title: "Notes", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
->>>>>>> Stashed changes
     ],
   },
 
@@ -54,15 +51,6 @@ export const STANDARD_OBJECTS: StandardObject[] = [
     isAlwaysOn: true,
     attributes: [
       { slug: "name", title: "Name", type: "text", isSystem: true, isRequired: true, isUnique: true, isMultiselect: false },
-<<<<<<< Updated upstream
-      { slug: "domains", title: "Domains", type: "domain", isSystem: true, isRequired: false, isUnique: true, isMultiselect: true },
-      { slug: "description", title: "Description", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
-      { slug: "team", title: "Team", type: "record_reference", isSystem: true, isRequired: false, isUnique: false, isMultiselect: true, config: { targetObjectSlug: "people" } },
-      { slug: "primary_location", title: "Primary Location", type: "location", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
-      { slug: "categories", title: "Categories", type: "select", isSystem: true, isRequired: false, isUnique: false, isMultiselect: true },
-    ],
-  },
-=======
       { slug: "domains", title: "Website", type: "domain", isSystem: true, isRequired: false, isUnique: true, isMultiselect: true },
       {
         slug: "status",
@@ -130,7 +118,6 @@ export const STANDARD_OBJECTS: StandardObject[] = [
   },
 
   // ─── Deals / Opportunities ───────────────────────────────────────────────
->>>>>>> Stashed changes
   {
     slug: "deals",
     singularName: "Deal",
@@ -139,11 +126,6 @@ export const STANDARD_OBJECTS: StandardObject[] = [
     isAlwaysOn: false,
     attributes: [
       { slug: "name", title: "Name", type: "text", isSystem: true, isRequired: true, isUnique: false, isMultiselect: false },
-<<<<<<< Updated upstream
-      { slug: "value", title: "Value", type: "currency", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
-      { slug: "stage", title: "Stage", type: "status", isSystem: true, isRequired: true, isUnique: false, isMultiselect: false },
-      { slug: "expected_close_date", title: "Expected Close Date", type: "date", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
-=======
       { slug: "stage", title: "Stage", type: "status", isSystem: true, isRequired: true, isUnique: false, isMultiselect: false },
       { slug: "value", title: "Estimated Value (EUR)", type: "currency", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       {
@@ -198,23 +180,11 @@ export const STANDARD_OBJECTS: StandardObject[] = [
         ],
       },
       { slug: "notes", title: "Notes", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
->>>>>>> Stashed changes
       { slug: "owner", title: "Owner", type: "actor_reference", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
-      { slug: "company", title: "Company", type: "record_reference", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false, config: { targetObjectSlug: "companies" } },
-      { slug: "associated_people", title: "Associated People", type: "record_reference", isSystem: true, isRequired: false, isUnique: false, isMultiselect: true, config: { targetObjectSlug: "people" } },
     ],
   },
 ];
 
-<<<<<<< Updated upstream
-export const DEAL_STAGES = [
-  { title: "Lead", color: "#6366f1", sortOrder: 0, isActive: true, celebrationEnabled: false },
-  { title: "Qualified", color: "#8b5cf6", sortOrder: 1, isActive: true, celebrationEnabled: false },
-  { title: "Proposal", color: "#a855f7", sortOrder: 2, isActive: true, celebrationEnabled: false },
-  { title: "Negotiation", color: "#d946ef", sortOrder: 3, isActive: true, celebrationEnabled: false },
-  { title: "Won", color: "#22c55e", sortOrder: 4, isActive: false, celebrationEnabled: true },
-  { title: "Lost", color: "#ef4444", sortOrder: 5, isActive: false, celebrationEnabled: false },
-=======
 /** BioTech sales pipeline stages */
 export const DEAL_STAGES = [
   { title: "Lead", color: "#6366f1", sortOrder: 0, isActive: true, celebrationEnabled: false },
@@ -225,5 +195,4 @@ export const DEAL_STAGES = [
   { title: "Won / Customer", color: "#22c55e", sortOrder: 5, isActive: false, celebrationEnabled: true },
   { title: "Lost", color: "#ef4444", sortOrder: 6, isActive: false, celebrationEnabled: false },
   { title: "On Hold", color: "#94a3b8", sortOrder: 7, isActive: false, celebrationEnabled: false },
->>>>>>> Stashed changes
 ];

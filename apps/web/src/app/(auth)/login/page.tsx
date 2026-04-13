@@ -27,68 +27,16 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectTo = searchParams.get("redirect") || "/home";
-<<<<<<< Updated upstream
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-=======
   const reason = searchParams.get("reason");
   const [googleLoading, setGoogleLoading] = useState(false);
->>>>>>> Stashed changes
   const [error, setError] = useState("");
 
-<<<<<<< Updated upstream
-  async function handlePostLogin() {
-    try {
-      const res = await fetch("/api/v1/workspaces");
-      if (!res.ok) {
-        router.push(redirectTo);
-        return;
-      }
-      const data = await res.json();
-      const list = data.data || [];
-
-      if (list.length === 0) {
-        const create = await fetch("/api/v1/workspaces", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: "My CRM" }),
-        });
-        if (!create.ok) {
-          router.push(redirectTo);
-          return;
-        }
-      }
-
-      router.push(redirectTo);
-    } catch {
-      router.push(redirectTo);
-    }
-  }
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-=======
   async function handleGoogleSignIn() {
->>>>>>> Stashed changes
     setError("");
     setGoogleLoading(true);
     try {
-<<<<<<< Updated upstream
-      const result = await signIn.email({
-        email,
-        password,
-      });
-
-      if (result.error) {
-        setError(result.error.message || "Invalid email or password");
-      } else {
-        trackEvent("login_completed");
-        await handlePostLogin();
-      }
-=======
       await signIn.social({ provider: "google", callbackURL: redirectTo });
       trackEvent("login_completed", { method: "google" });
->>>>>>> Stashed changes
     } catch {
       setError("Sign-in failed. Please try again.");
       setGoogleLoading(false);
@@ -109,9 +57,6 @@ function LoginForm() {
         </h1>
       </div>
 
-<<<<<<< Updated upstream
-      <form onSubmit={handleSubmit} className="space-y-4">
-=======
       {/* Slogans */}
       <ul className="flex flex-col items-center gap-1.5">
         {slogans.map((s) => (
@@ -139,7 +84,6 @@ function LoginForm() {
             Your account is pending approval.
           </p>
         )}
->>>>>>> Stashed changes
         {error && (
           <p className="rounded-xl bg-destructive/10 px-4 py-2.5 text-[13px] text-destructive text-center">
             {error}

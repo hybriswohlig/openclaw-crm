@@ -1,11 +1,6 @@
 import { db } from "@/db";
-<<<<<<< Updated upstream
-import { workspaces, workspaceMembers, users, objects, attributes, statuses } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
-=======
 import { workspaces, workspaceMembers, users, objects, attributes, statuses, selectOptions, teams } from "@/db/schema";
 import { eq, and, asc, sql } from "drizzle-orm";
->>>>>>> Stashed changes
 import { STANDARD_OBJECTS, DEAL_STAGES } from "@openclaw-crm/shared";
 
 const BUILTIN_TEAMS = [
@@ -109,9 +104,6 @@ export async function listUserWorkspaces(userId: string) {
     .orderBy(workspaces.createdAt);
 }
 
-<<<<<<< Updated upstream
-/** Seed standard objects (People, Companies, Deals) + attributes + deal stages for a workspace */
-=======
 /** Seed the four built-in N&E regional teams for a new workspace. */
 export async function seedWorkspaceTeams(workspaceId: string) {
   for (const team of BUILTIN_TEAMS) {
@@ -120,7 +112,6 @@ export async function seedWorkspaceTeams(workspaceId: string) {
 }
 
 /** Seed standard objects (Contacts, Companies, Deals) + attributes + deal stages */
->>>>>>> Stashed changes
 export async function seedWorkspaceObjects(workspaceId: string) {
   for (const stdObj of STANDARD_OBJECTS) {
     const [object] = await db

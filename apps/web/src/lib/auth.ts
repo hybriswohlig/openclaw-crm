@@ -3,12 +3,26 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { db } from "@/db";
 import * as schema from "@/db/schema";
 
+function buildTrustedOrigins(): string[] {
+  const raw = process.env.TRUSTED_ORIGINS || "";
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3001";
+  const fromEnv = raw.split(",").filter(Boolean);
+  return Array.from(new Set([appUrl, ...fromEnv]));
+}
+
+function getBootstrapAdminEmails(): Set<string> {
+  const raw = process.env.CRM_ADMIN_EMAILS || "";
+  return new Set(
+    raw
+      .split(",")
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean)
+  );
+}
+
 export const auth = betterAuth({
   baseURL: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3001",
   secret: process.env.BETTER_AUTH_SECRET,
-<<<<<<< Updated upstream
-  trustedOrigins: (process.env.TRUSTED_ORIGINS || "").split(",").filter(Boolean),
-=======
   trustedOrigins: buildTrustedOrigins(),
   user: {
     additionalFields: {
@@ -62,7 +76,6 @@ export const auth = betterAuth({
       },
     },
   },
->>>>>>> Stashed changes
   database: drizzleAdapter(db, {
     provider: "pg",
     schema: {
