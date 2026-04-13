@@ -37,6 +37,65 @@ export async function updateWorkspace(
   return updated;
 }
 
+/**
+ * Ensure the given user has at least one workspace membership.
+ * Called from getAuthContext (self-heal) and the after-signup hook so an
+ * approved user always lands in a ready-to-use workspace.
+ *
+ * Idempotent: if the user already has a membership, does nothing.
+ */
+export async function ensureBootstrapWorkspace(
+  userId: string,
+  email: string | null | undefined,
+  name: string | null | undefined
+): Promise<string | null> {
+  // Fast-path: already has a membership
+  const existing = await db
+    .select({ workspaceId: workspaceMembers.workspaceId })
+    .from(workspaceMembers)
+    .where(eq(workspaceMembers.userId, userId))
+    .limit(1);
+
+  if (existing.length > 0) {
+    return existing[0].workspaceId;
+  }
+
+  const displayName = (name || email?.split("@")[0] || "User").trim();
+  const workspaceName = `${displayName}'s Workspace`;
+  const baseSlug = displayName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "") || "workspace";
+  const slug = `${baseSlug}-${crypto.randomUUID().slice(0, 6)}`;
+
+  try {
+    const [workspace] = await db
+      .insert(workspaces)
+      .values({ name: workspaceName, slug, settings: {} })
+      .returning();
+
+    await db
+      .insert(workspaceMembers)
+      .values({ workspaceId: workspace.id, userId, role: "admin" })
+      .onConflictDoNothing();
+
+    await seedWorkspaceObjects(workspace.id);
+    await seedWorkspaceTeams(workspace.id);
+
+    return workspace.id;
+  } catch (err) {
+    // Race condition fallback: another request might have created it
+    const retry = await db
+      .select({ workspaceId: workspaceMembers.workspaceId })
+      .from(workspaceMembers)
+      .where(eq(workspaceMembers.userId, userId))
+      .limit(1);
+    if (retry.length > 0) return retry[0].workspaceId;
+    console.error("[ensureBootstrapWorkspace] failed", err);
+    return null;
+  }
+}
+
 /** Create a new workspace with the creator as admin, and seed standard objects */
 export async function createWorkspace(name: string, userId: string) {
   const existingMembership = await db

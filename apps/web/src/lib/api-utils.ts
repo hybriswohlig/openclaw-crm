@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
-import { workspaceMembers, apiKeys, workspaces } from "@/db/schema";
+import { workspaceMembers, apiKeys, workspaces, users } from "@/db/schema";
 import { eq, and, isNull, asc } from "drizzle-orm";
 import { createHash } from "crypto";
+import { ensureBootstrapWorkspace } from "@/services/workspace";
 
 export interface AuthContext {
   userId: string;
@@ -42,16 +43,39 @@ export async function getAuthContext(req: NextRequest): Promise<AuthContext | nu
 
   const userId = session.user.id;
 
-  const memberships = await db
-    .select({
-      workspaceId: workspaceMembers.workspaceId,
-      role: workspaceMembers.role,
-    })
-    .from(workspaceMembers)
-    .innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId))
-    .where(eq(workspaceMembers.userId, userId))
-    .orderBy(asc(workspaces.createdAt))
-    .limit(1);
+  const fetchMembership = async () =>
+    db
+      .select({
+        workspaceId: workspaceMembers.workspaceId,
+        role: workspaceMembers.role,
+      })
+      .from(workspaceMembers)
+      .innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId))
+      .where(eq(workspaceMembers.userId, userId))
+      .orderBy(asc(workspaces.createdAt))
+      .limit(1);
+
+  let memberships = await fetchMembership();
+
+  // Self-heal: an approved user with a valid session but no workspace
+  // membership means the bootstrap flow was skipped (legacy users or pre-hook
+  // signups). Create a workspace + seed objects on the fly.
+  if (memberships.length === 0) {
+    const [userRow] = await db
+      .select({
+        email: users.email,
+        name: users.name,
+        approvalStatus: users.approvalStatus,
+      })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (userRow && userRow.approvalStatus === "approved") {
+      await ensureBootstrapWorkspace(userId, userRow.email, userRow.name);
+      memberships = await fetchMembership();
+    }
+  }
 
   if (memberships.length > 0) {
     return {

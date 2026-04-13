@@ -2,6 +2,7 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { db } from "@/db";
 import * as schema from "@/db/schema";
+import { ensureBootstrapWorkspace } from "@/services/workspace";
 
 function buildTrustedOrigins(): string[] {
   const raw = process.env.TRUSTED_ORIGINS || "";
@@ -87,6 +88,19 @@ export const auth = betterAuth({
               isAppAdmin: false,
             },
           };
+        },
+        after: async (user) => {
+          // Auto-bootstrap a workspace for approved users so they can
+          // immediately use /api/v1/* endpoints without a 401 roundtrip.
+          const approvalStatus = (user as { approvalStatus?: string })
+            .approvalStatus;
+          if (approvalStatus === "approved") {
+            try {
+              await ensureBootstrapWorkspace(user.id, user.email, user.name);
+            } catch (err) {
+              console.error("[auth.after-create] bootstrap failed", err);
+            }
+          }
         },
       },
     },
