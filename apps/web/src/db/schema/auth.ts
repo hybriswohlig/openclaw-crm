@@ -8,6 +8,8 @@ export const users = pgTable("users", {
   image: text("image"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  approvalStatus: text("approval_status").notNull().default("pending"),
+  isAppAdmin: boolean("is_app_admin").notNull().default(false),
 });
 
 export const sessions = pgTable("sessions", {
