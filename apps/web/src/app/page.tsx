@@ -28,7 +28,7 @@ export const metadata: Metadata = {
 const organizationSchema = {
   "@context": "https://schema.org",
   "@type": "Organization",
-  name: "OpenCRM-Umzug",
+  name: "N&E Innovations CRM",
   url: baseUrl,
   logo: `${baseUrl}/favicon.ico`,
   sameAs: [] as string[],
@@ -37,10 +37,10 @@ const organizationSchema = {
 const softwareSchema = {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
-  name: "OpenCRM-Umzug",
+  name: "N&E Innovations CRM",
   applicationCategory: "BusinessApplication",
   operatingSystem: "Linux, macOS, Windows",
-  description: "Customer relationship management with contacts, deals, tasks, and optional AI assistance.",
+  description: "The in-house CRM for N&E Innovations — tracking BioTech leads, trade fairs, and customer relationships across Europe and Asia.",
 };
 
 export default function LandingPage() {
@@ -64,7 +64,7 @@ export default function LandingPage() {
             href="/"
             className="text-[15px] sm:text-[16px] font-semibold tracking-[-0.015em] text-foreground transition-opacity hover:opacity-70"
           >
-            OpenCRM-Umzug
+            N&E Innovations CRM
           </Link>
           <div className="flex items-center">
             {/* Utility group */}
@@ -109,16 +109,16 @@ export default function LandingPage() {
       <section className="relative mx-auto max-w-5xl px-6 pt-36 pb-12 sm:pt-48 sm:pb-20">
         <div className="text-center">
           <h1 className="brand-reveal text-5xl font-medium tracking-[-0.04em] leading-[0.92] sm:text-7xl lg:text-[6rem]">
-            OpenCRM-Umzug
+            N&E Innovations CRM
           </h1>
 
           <p className="landing-fade-up mt-6 text-2xl font-normal tracking-[-0.02em] leading-snug text-muted-foreground sm:text-3xl lg:text-[2.25rem]">
-            Customer relationships, deals, and tasks
-            <br className="hidden sm:block" /> in one place.
+            Our BioTech pipeline, trade fairs, and customers
+            <br className="hidden sm:block" /> across Europe and Asia.
           </p>
 
           <p className="landing-fade-up-1 mt-6 text-[15px] leading-relaxed text-muted-foreground/70">
-            Optional AI chat and agent integration when you configure them in Settings.
+            Built for the four N&E regional teams — Germany, France, UK, and Singapore.
           </p>
 
           <div className="landing-fade-up-2 mt-10 flex flex-col sm:flex-row items-center justify-center gap-3">
@@ -158,18 +158,18 @@ export default function LandingPage() {
       <section className="relative mx-auto max-w-5xl px-6 pb-28 sm:pb-40">
         <ScrollReveal>
           <p className="mb-10 text-center text-[12px] font-medium uppercase tracking-[0.12em] text-muted-foreground/50">
-            Why OpenCRM-Umzug
+            Why we moved to our own CRM
           </p>
         </ScrollReveal>
         <div className="grid gap-5 sm:grid-cols-3 sm:gap-5">
           <ScrollReveal delay={0} className="h-full">
             <div className="h-full rounded-2xl border border-foreground/[0.06] dark:border-white/[0.06] bg-foreground/[0.015] dark:bg-white/[0.02] px-7 py-7 transition-[border-color,background-color,box-shadow,transform] duration-150 hover:border-foreground/20 dark:hover:border-white/15 hover:bg-foreground/[0.025] dark:hover:bg-white/[0.035] hover:shadow-[0_4px_20px_-6px_rgba(0,0,0,0.08)] dark:hover:shadow-[0_4px_24px_-6px_rgba(0,0,0,0.4)] hover:-translate-y-0.5">
               <h3 className="text-[15px] font-medium tracking-[-0.01em]">
-                Your agent can use the CRM
+                Built for our pipeline
               </h3>
               <p className="mt-2 text-[14px] leading-[1.65] text-muted-foreground">
-                Connect an agent via Settings when you are ready. Manage contacts,
-                deals, and tasks from the tools you already use.
+                Lead stages, trade fairs, and regional teams reflect how N&E
+                actually sells — from first contact to final invoice.
               </p>
             </div>
           </ScrollReveal>
@@ -177,11 +177,11 @@ export default function LandingPage() {
           <ScrollReveal delay={0.1} className="h-full">
             <div className="h-full rounded-2xl border border-foreground/[0.06] dark:border-white/[0.06] bg-foreground/[0.015] dark:bg-white/[0.02] px-7 py-7 transition-[border-color,background-color,box-shadow,transform] duration-150 hover:border-foreground/20 dark:hover:border-white/15 hover:bg-foreground/[0.025] dark:hover:bg-white/[0.035] hover:shadow-[0_4px_20px_-6px_rgba(0,0,0,0.08)] dark:hover:shadow-[0_4px_24px_-6px_rgba(0,0,0,0.4)] hover:-translate-y-0.5">
               <h3 className="text-[15px] font-medium tracking-[-0.01em]">
-                Built-in AI assistant
+                One workspace, four regions
               </h3>
               <p className="mt-2 text-[14px] leading-[1.65] text-muted-foreground">
-                When you're inside the CRM, an AI chat agent analyzes your data,
-                looks things up, and takes actions.
+                Germany, France, UK, and Singapore work from the same pipeline,
+                filtered by market, so nothing falls through the cracks.
               </p>
             </div>
           </ScrollReveal>
@@ -189,11 +189,11 @@ export default function LandingPage() {
           <ScrollReveal delay={0.2} className="h-full">
             <div className="h-full rounded-2xl border border-foreground/[0.06] dark:border-white/[0.06] bg-foreground/[0.015] dark:bg-white/[0.02] px-7 py-7 transition-[border-color,background-color,box-shadow,transform] duration-150 hover:border-foreground/20 dark:hover:border-white/15 hover:bg-foreground/[0.025] dark:hover:bg-white/[0.035] hover:shadow-[0_4px_20px_-6px_rgba(0,0,0,0.08)] dark:hover:shadow-[0_4px_24px_-6px_rgba(0,0,0,0.4)] hover:-translate-y-0.5">
               <h3 className="text-[15px] font-medium tracking-[-0.01em]">
-                Your data, your deployment
+                Our data, our control
               </h3>
               <p className="mt-2 text-[14px] leading-[1.65] text-muted-foreground">
-                Run on infrastructure you control. People, companies, deals, lists,
-                and custom objects in one workspace.
+                Customer intelligence stays with us — no licences, no seat
+                counts, no third party deciding what we can see.
               </p>
             </div>
           </ScrollReveal>
@@ -243,15 +243,15 @@ export default function LandingPage() {
         <ScrollReveal>
           <div className="text-center">
             <p className="text-[15px] text-muted-foreground">
-              Connect your agent. Get started.
+              Register now with your @vi-kang.com address and start.
             </p>
             <div className="mt-5">
               <TrackedLink
                 href="/register"
                 className="group inline-flex items-center gap-2 rounded-full border border-foreground/15 dark:border-white/12 px-6 py-2.5 text-[14px] font-medium text-foreground transition-[border-color,background-color] duration-150 hover:border-foreground/30 dark:hover:border-white/20 hover:bg-foreground/[0.03] dark:hover:bg-white/[0.04]"
-                eventProps={{ button_text: "Get started", location: "footer_cta", destination: "register" }}
+                eventProps={{ button_text: "Register", location: "footer_cta", destination: "register" }}
               >
-                Get started
+                Register
                 <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
               </TrackedLink>
             </div>
@@ -263,7 +263,7 @@ export default function LandingPage() {
       <footer className="border-t border-border/15">
         <div className="mx-auto flex max-w-5xl flex-col sm:flex-row items-center justify-between gap-4 px-6 py-6 sm:py-8">
           <span className="text-[12px] text-muted-foreground/60">
-            OpenCRM-Umzug
+            N&E Innovations CRM
           </span>
           <div className="flex items-center gap-4 text-muted-foreground/60">
             <span

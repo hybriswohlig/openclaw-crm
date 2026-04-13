@@ -230,6 +230,7 @@ export const STANDARD_OBJECTS: StandardObject[] = [
 /**
  * BioTech lead pipeline stages.
  * Grouped into phases so the board can render group headers.
+ * Customer status is tracked on the Company record, not here.
  */
 export const DEAL_STAGES = [
   // ── Outreach ──
@@ -243,21 +244,18 @@ export const DEAL_STAGES = [
   { title: "Quotation Sent",   color: "#e879f9", sortOrder: 5,  isActive: true,  celebrationEnabled: false },
   // ── Closing ──
   { title: "Follow-up Meeting",color: "#f97316", sortOrder: 6,  isActive: true,  celebrationEnabled: false },
-  { title: "Invoice Sent",     color: "#fb923c", sortOrder: 7,  isActive: true,  celebrationEnabled: false },
-  { title: "Final Invoice",    color: "#fbbf24", sortOrder: 8,  isActive: true,  celebrationEnabled: false },
-  // ── Won ──
-  { title: "Customer",         color: "#22c55e", sortOrder: 9,  isActive: false, celebrationEnabled: true  },
+  { title: "Invoice Sent",     color: "#fb923c", sortOrder: 7,  isActive: true,  celebrationEnabled: true  },
+  { title: "Final Invoice",    color: "#fbbf24", sortOrder: 8,  isActive: true,  celebrationEnabled: true  },
   // ── Lost ──
-  { title: "Lost",             color: "#ef4444", sortOrder: 10, isActive: false, celebrationEnabled: false },
-  { title: "On Hold",          color: "#94a3b8", sortOrder: 11, isActive: false, celebrationEnabled: false },
+  { title: "Lost",             color: "#ef4444", sortOrder: 9,  isActive: false, celebrationEnabled: false },
+  { title: "On Hold",          color: "#94a3b8", sortOrder: 10, isActive: false, celebrationEnabled: false },
 ];
 
 /** Stage group definitions — used by the Leads board sidebar */
 export const LEAD_STAGE_GROUPS: { label: string; stages: string[]; color: string }[] = [
-  { label: "Outreach",  stages: ["New Lead", "Email Sent"],                           color: "#6366f1" },
-  { label: "Discovery", stages: ["Discovery Call", "Qualified"],                      color: "#8b5cf6" },
-  { label: "Proposal",  stages: ["Proposal Sent", "Quotation Sent"],                  color: "#d946ef" },
+  { label: "Outreach",  stages: ["New Lead", "Email Sent"],                            color: "#6366f1" },
+  { label: "Discovery", stages: ["Discovery Call", "Qualified"],                       color: "#8b5cf6" },
+  { label: "Proposal",  stages: ["Proposal Sent", "Quotation Sent"],                   color: "#d946ef" },
   { label: "Closing",   stages: ["Follow-up Meeting", "Invoice Sent", "Final Invoice"],color: "#f97316" },
-  { label: "Won",       stages: ["Customer"],                                          color: "#22c55e" },
-  { label: "Lost",      stages: ["Lost", "On Hold"],                                  color: "#ef4444" },
+  { label: "Lost",      stages: ["Lost", "On Hold"],                                   color: "#ef4444" },
 ];

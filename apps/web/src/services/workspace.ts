@@ -210,7 +210,9 @@ export async function seedWorkspaceObjects(workspaceId: string) {
         .where(and(eq(attributes.objectId, object.id), eq(attributes.slug, attr.slug)))
         .limit(1);
 
+      const wasNew = !existingAttr[0];
       let attribute = existingAttr[0];
+
       if (!attribute) {
         const [inserted] = await db
           .insert(attributes)
@@ -228,10 +230,33 @@ export async function seedWorkspaceObjects(workspaceId: string) {
           })
           .returning();
         attribute = inserted;
+      }
 
-        // Seed status options for stage attributes
-        if (attr.type === "status" && stdObj.slug === "deals" && attr.slug === "stage") {
-          for (const stage of DEAL_STAGES) {
+      // Stage/status reconciliation (fresh-seed + obsolete cleanup)
+      if (attr.type === "status" && stdObj.slug === "deals" && attr.slug === "stage") {
+        const wantedTitles = new Set(DEAL_STAGES.map((s) => s.title));
+        const existingStages = await db
+          .select()
+          .from(statuses)
+          .where(eq(statuses.attributeId, attribute.id));
+
+        // Drop obsolete stages (e.g. legacy "Customer"). Best-effort: if
+        // a stage is still referenced by records the delete will FK-fail,
+        // so we swallow the error and leave it alone.
+        for (const row of existingStages) {
+          if (!wantedTitles.has(row.title)) {
+            try {
+              await db.delete(statuses).where(eq(statuses.id, row.id));
+            } catch {
+              // stage still in use — leave it
+            }
+          }
+        }
+
+        // Insert any new stages we don't have yet.
+        const existingTitles = new Set(existingStages.map((s) => s.title));
+        for (const stage of DEAL_STAGES) {
+          if (!existingTitles.has(stage.title)) {
             await db.insert(statuses).values({
               attributeId: attribute.id,
               title: stage.title,
@@ -242,18 +267,18 @@ export async function seedWorkspaceObjects(workspaceId: string) {
             });
           }
         }
+      }
 
-        // Seed select options for select attributes
-        if (attr.type === "select" && attr.selectOptions) {
-          for (let j = 0; j < attr.selectOptions.length; j++) {
-            const opt = attr.selectOptions[j];
-            await db.insert(selectOptions).values({
-              attributeId: attribute.id,
-              title: opt.title,
-              color: opt.color,
-              sortOrder: j,
-            });
-          }
+      // Seed select options for newly-created select attributes only
+      if (wasNew && attr.type === "select" && attr.selectOptions) {
+        for (let j = 0; j < attr.selectOptions.length; j++) {
+          const opt = attr.selectOptions[j];
+          await db.insert(selectOptions).values({
+            attributeId: attribute.id,
+            title: opt.title,
+            color: opt.color,
+            sortOrder: j,
+          });
         }
       }
     }

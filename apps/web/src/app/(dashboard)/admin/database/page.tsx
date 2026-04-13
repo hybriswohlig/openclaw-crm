@@ -64,7 +64,6 @@ function uid() {
 export default function AdminDatabasePage() {
   const router = useRouter();
   const [gate, setGate] = useState<"loading" | "ok" | "denied">("loading");
-  const [adminEmailsConfigured, setAdminEmailsConfigured] = useState(false);
 
   const [status, setStatus] = useState<{
     envDatabase: { configured: boolean; host?: string };
@@ -107,7 +106,6 @@ export default function AdminDatabasePage() {
     (async () => {
       const res = await fetch("/api/admin/db/me");
       const j = await res.json();
-      setAdminEmailsConfigured(!!j.data?.adminEmailsConfigured);
       if (!j.data?.admin) {
         setGate("denied");
         return;
@@ -329,18 +327,6 @@ export default function AdminDatabasePage() {
         </div>
       </div>
 
-      {!adminEmailsConfigured && (
-        <Card className="border-amber-500/40 bg-amber-500/5">
-          <CardHeader>
-            <CardTitle className="text-base">Admin access not configured</CardTitle>
-            <CardDescription>
-              Set <code className="text-xs">ADMIN_EMAILS</code> in your server
-              environment to a comma-separated list of admin emails (e.g. your
-              Neon dashboard login). Restart the app after changing env vars.
-            </CardDescription>
-          </CardHeader>
-        </Card>
-      )}
 
       <Card>
         <CardHeader>

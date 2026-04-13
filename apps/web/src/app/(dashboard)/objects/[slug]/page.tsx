@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useObjectRecords } from "@/hooks/use-object-records";
 import { RecordTable } from "@/components/records/record-table";
@@ -55,6 +55,19 @@ export default function ObjectPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
+  const [workspaceRole, setWorkspaceRole] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/v1/workspace")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.data?.role) setWorkspaceRole(data.data.role);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Contact exports expose personal data — restrict to workspace admins.
+  const canExport = slug !== "people" || workspaceRole === "admin";
 
   // Auto-detect if board view is available (has a status attribute)
   const statusAttr = object?.attributes.find((a) => a.type === "status");
@@ -182,18 +195,20 @@ export default function ObjectPage() {
           )}
 
           {/* Import / Export */}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-xs gap-1"
-            onClick={() => {
-              const csv = generateCSV(records, object.attributes as any);
-              downloadCSV(csv, `${object.pluralName.toLowerCase()}.csv`);
-            }}
-          >
-            <Download className="h-3.5 w-3.5" />
-            Export
-          </Button>
+          {canExport && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-xs gap-1"
+              onClick={() => {
+                const csv = generateCSV(records, object.attributes as any);
+                downloadCSV(csv, `${object.pluralName.toLowerCase()}.csv`);
+              }}
+            >
+              <Download className="h-3.5 w-3.5" />
+              Export
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="sm"
