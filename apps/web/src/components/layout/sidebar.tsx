@@ -20,9 +20,7 @@ import {
   Sun,
   Moon,
   Database,
-  CalendarDays,
   Plug,
-  Inbox,
   Store,
 } from "lucide-react";
 import { NELogo, NEMark } from "@/components/brand/ne-logo";
@@ -184,24 +182,6 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         )}
 
         <div className="my-3 mx-2 h-px bg-sidebar-border" />
-
-        <NavItem
-          href="/inbox"
-          label="Inbox"
-          icon={Inbox}
-          active={pathname.startsWith("/inbox")}
-          expanded={expanded}
-          onClick={onNavigate}
-        />
-
-        <NavItem
-          href="/contract-calendar"
-          label="Calendar"
-          icon={CalendarDays}
-          active={pathname.startsWith("/contract-calendar")}
-          expanded={expanded}
-          onClick={onNavigate}
-        />
 
         <NavItem
           href="/integrations"

@@ -12,6 +12,7 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { workspaces } from "./workspace";
+import { users } from "./auth";
 import { records } from "./records";
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
@@ -45,6 +46,28 @@ export const teams = pgTable("teams", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+// ─── Team Members ─────────────────────────────────────────────────────────────
+
+/**
+ * Associates workspace users as members of a regional N&E team.
+ */
+export const teamMembers = pgTable(
+  "team_members",
+  {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("team_members_unique").on(table.teamId, table.userId),
+  ]
+);
 
 // ─── Markets ──────────────────────────────────────────────────────────────────
 
