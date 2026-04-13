@@ -8,3 +8,12 @@ export * from "./tasks";
 export * from "./notifications";
 export * from "./api-keys";
 export * from "./chat";
+<<<<<<< Updated upstream
+=======
+export * from "./employees";
+export * from "./quotations";
+export * from "./financial";
+export * from "./integrations";
+export * from "./inbox";
+export * from "./crm";
+>>>>>>> Stashed changes

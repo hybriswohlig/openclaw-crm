@@ -20,7 +20,15 @@ import {
   Sun,
   Moon,
   Database,
+<<<<<<< Updated upstream
+=======
+  CalendarDays,
+  Plug,
+  Inbox,
+  Store,
+>>>>>>> Stashed changes
 } from "lucide-react";
+import { NELogo, NEMark } from "@/components/brand/ne-logo";
 import { useTheme } from "next-themes";
 
 const mainNav = [
@@ -32,9 +40,10 @@ const mainNav = [
 ];
 
 const objectNav = [
-  { href: "/objects/people", label: "People", icon: Users },
+  { href: "/objects/people", label: "Contacts", icon: Users },
   { href: "/objects/companies", label: "Companies", icon: Building2 },
   { href: "/objects/deals", label: "Deals", icon: Handshake },
+  { href: "/trade-fairs", label: "Trade Fairs", icon: Store },
 ];
 
 const bottomNav = [{ href: "/settings", label: "Settings", icon: Settings }];
@@ -50,7 +59,11 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const [lists, setLists] = useState<ListItem[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
+<<<<<<< Updated upstream
   const [accountName, setAccountName] = useState<string | null>(null);
+=======
+  const [workspaceRole, setWorkspaceRole] = useState<string | null>(null);
+>>>>>>> Stashed changes
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const { theme, setTheme } = useTheme();
@@ -75,7 +88,11 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     fetch("/api/v1/workspace")
       .then((res) => res.json())
       .then((data) => {
+<<<<<<< Updated upstream
         if (data.data?.name) setAccountName(data.data.name);
+=======
+        if (data.data?.role) setWorkspaceRole(data.data.role);
+>>>>>>> Stashed changes
       })
       .catch(() => {});
   }, []);
@@ -104,9 +121,10 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         expanded ? "w-56" : "w-12"
       )}
     >
-      {/* Account / organization label (single tenant) */}
+      {/* Brand header */}
       <div className="flex h-14 items-center px-2.5">
         <div className="flex w-full items-center gap-2.5 rounded-lg px-1.5 py-1.5">
+<<<<<<< Updated upstream
           <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-foreground/10 text-xs font-semibold text-foreground shrink-0">
             {(accountName || "O").charAt(0).toUpperCase()}
           </div>
@@ -114,6 +132,13 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             <span className="text-sm font-medium text-foreground truncate flex-1">
               {accountName || "OpenCRM-Umzug"}
             </span>
+=======
+          {/* Collapsed: show the leaf mark; Expanded: show full wordmark */}
+          {expanded ? (
+            <NELogo className="h-5 w-auto dark:invert shrink-0" />
+          ) : (
+            <NEMark className="h-7 w-7 dark:invert shrink-0" />
+>>>>>>> Stashed changes
           )}
         </div>
       </div>
@@ -178,9 +203,41 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             <span>New list</span>
           </button>
         )}
+<<<<<<< Updated upstream
+=======
+
+        <div className="my-3 mx-2 h-px bg-sidebar-border" />
+
+        <NavItem
+          href="/inbox"
+          label="Inbox"
+          icon={Inbox}
+          active={pathname.startsWith("/inbox")}
+          expanded={expanded}
+          onClick={onNavigate}
+        />
+
+        <NavItem
+          href="/contract-calendar"
+          label="Calendar"
+          icon={CalendarDays}
+          active={pathname.startsWith("/contract-calendar")}
+          expanded={expanded}
+          onClick={onNavigate}
+        />
+
+        <NavItem
+          href="/integrations"
+          label="Integrations"
+          icon={Plug}
+          active={pathname.startsWith("/integrations")}
+          expanded={expanded}
+          onClick={onNavigate}
+        />
+>>>>>>> Stashed changes
       </nav>
 
-      {/* Bottom navigation */}
+      {/* Bottom navigation — Settings visible to admins only */}
       <div className="border-t border-sidebar-border px-2 py-2 space-y-0.5">
         {bottomNav.map((item) => (
           <NavItem

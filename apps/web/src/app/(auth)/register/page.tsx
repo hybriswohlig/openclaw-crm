@@ -1,3 +1,4 @@
+<<<<<<< Updated upstream
 "use client";
 
 import { useState } from "react";
@@ -5,8 +6,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signUp } from "@/lib/auth-client";
 import { trackEvent } from "@/lib/analytics";
+=======
+import { redirect } from "next/navigation";
+>>>>>>> Stashed changes
 
+// Registration is handled via Google OAuth on the login page.
 export default function RegisterPage() {
+<<<<<<< Updated upstream
   const router = useRouter();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -142,4 +148,7 @@ export default function RegisterPage() {
       </p>
     </div>
   );
+=======
+  redirect("/login");
+>>>>>>> Stashed changes
 }

@@ -3,11 +3,30 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
+<<<<<<< Updated upstream
 import { Settings, Users, Box, KeyRound, Bot, Puzzle } from "lucide-react";
+=======
+import { Settings, Users, Box, KeyRound, Bot, Puzzle, Globe, UserCheck, Loader2 } from "lucide-react";
+>>>>>>> Stashed changes
 
 const settingsNav = [
   { href: "/settings", label: "General", icon: Settings, exact: true },
   { href: "/settings/members", label: "Members", icon: Users, exact: false },
+<<<<<<< Updated upstream
+=======
+  {
+    href: "/settings/approvals",
+    label: "User Approvals",
+    icon: UserCheck,
+    exact: false,
+  },
+  {
+    href: "/settings/teams-markets",
+    label: "Teams & Markets",
+    icon: Globe,
+    exact: false,
+  },
+>>>>>>> Stashed changes
   { href: "/settings/objects", label: "Objects", icon: Box, exact: false },
   { href: "/settings/api-keys", label: "API Keys", icon: KeyRound, exact: false },
   { href: "/settings/ai", label: "AI Agent", icon: Bot, exact: false },
