@@ -13,7 +13,7 @@ import {
   Bell,
   Users,
   Building2,
-  Handshake,
+  Target,
   List,
   Plus,
   Settings,
@@ -35,9 +35,9 @@ const mainNav = [
 ];
 
 const objectNav = [
-  { href: "/objects/people", label: "Contacts", icon: Users },
+  { href: "/leads", label: "Leads", icon: Target },
   { href: "/objects/companies", label: "Companies", icon: Building2 },
-  { href: "/objects/deals", label: "Deals", icon: Handshake },
+  { href: "/objects/people", label: "Contacts", icon: Users },
   { href: "/trade-fairs", label: "Trade Fairs", icon: Store },
 ];
 

@@ -111,50 +111,90 @@ export async function seedWorkspaceTeams(workspaceId: string) {
   }
 }
 
-/** Seed standard objects (Contacts, Companies, Deals) + attributes + deal stages */
+/**
+ * Seed standard objects (Contacts, Companies, Leads) + attributes + stages.
+ * Idempotent: skips objects/attributes that already exist so it is safe to
+ * call on an existing workspace to repair or update its schema.
+ */
 export async function seedWorkspaceObjects(workspaceId: string) {
   for (const stdObj of STANDARD_OBJECTS) {
-    const [object] = await db
-      .insert(objects)
-      .values({
-        workspaceId,
-        slug: stdObj.slug,
-        singularName: stdObj.singularName,
-        pluralName: stdObj.pluralName,
-        icon: stdObj.icon,
-        isSystem: true,
-      })
-      .returning();
+    // Upsert the object itself
+    const existing = await db
+      .select()
+      .from(objects)
+      .where(and(eq(objects.workspaceId, workspaceId), eq(objects.slug, stdObj.slug)))
+      .limit(1);
+
+    let object = existing[0];
+    if (!object) {
+      const [inserted] = await db
+        .insert(objects)
+        .values({
+          workspaceId,
+          slug: stdObj.slug,
+          singularName: stdObj.singularName,
+          pluralName: stdObj.pluralName,
+          icon: stdObj.icon,
+          isSystem: true,
+        })
+        .returning();
+      object = inserted;
+    }
 
     for (let i = 0; i < stdObj.attributes.length; i++) {
       const attr = stdObj.attributes[i];
-      const [attribute] = await db
-        .insert(attributes)
-        .values({
-          objectId: object.id,
-          slug: attr.slug,
-          title: attr.title,
-          type: attr.type,
-          config: attr.config || {},
-          isSystem: attr.isSystem,
-          isRequired: attr.isRequired,
-          isUnique: attr.isUnique,
-          isMultiselect: attr.isMultiselect,
-          sortOrder: i,
-        })
-        .returning();
 
-      // Create deal stages for the "stage" status attribute
-      if (stdObj.slug === "deals" && attr.slug === "stage") {
-        for (const stage of DEAL_STAGES) {
-          await db.insert(statuses).values({
-            attributeId: attribute.id,
-            title: stage.title,
-            color: stage.color,
-            sortOrder: stage.sortOrder,
-            isActive: stage.isActive,
-            celebrationEnabled: stage.celebrationEnabled,
-          });
+      // Upsert the attribute
+      const existingAttr = await db
+        .select()
+        .from(attributes)
+        .where(and(eq(attributes.objectId, object.id), eq(attributes.slug, attr.slug)))
+        .limit(1);
+
+      let attribute = existingAttr[0];
+      if (!attribute) {
+        const [inserted] = await db
+          .insert(attributes)
+          .values({
+            objectId: object.id,
+            slug: attr.slug,
+            title: attr.title,
+            type: attr.type,
+            config: attr.config || {},
+            isSystem: attr.isSystem,
+            isRequired: attr.isRequired,
+            isUnique: attr.isUnique,
+            isMultiselect: attr.isMultiselect,
+            sortOrder: i,
+          })
+          .returning();
+        attribute = inserted;
+
+        // Seed status options for stage attributes
+        if (attr.type === "status" && stdObj.slug === "deals" && attr.slug === "stage") {
+          for (const stage of DEAL_STAGES) {
+            await db.insert(statuses).values({
+              attributeId: attribute.id,
+              title: stage.title,
+              color: stage.color,
+              sortOrder: stage.sortOrder,
+              isActive: stage.isActive,
+              celebrationEnabled: stage.celebrationEnabled,
+            });
+          }
+        }
+
+        // Seed select options for select attributes
+        if (attr.type === "select" && attr.selectOptions) {
+          for (let j = 0; j < attr.selectOptions.length; j++) {
+            const opt = attr.selectOptions[j];
+            await db.insert(selectOptions).values({
+              attributeId: attribute.id,
+              title: opt.title,
+              color: opt.color,
+              sortOrder: j,
+            });
+          }
         }
       }
     }

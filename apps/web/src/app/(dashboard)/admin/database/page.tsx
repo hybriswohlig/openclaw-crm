@@ -77,6 +77,7 @@ export default function AdminDatabasePage() {
   const [testMsg, setTestMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const [seedMsg, setSeedMsg] = useState<string | null>(null);
   const [tables, setTables] = useState<string[]>([]);
   const [selectedTable, setSelectedTable] = useState("");
   const [columns, setColumns] = useState<
@@ -156,6 +157,19 @@ export default function AdminDatabasePage() {
       } else {
         setTestMsg(j.error?.message || "Could not save target URL.");
       }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSeedObjects() {
+    setSeedMsg(null);
+    setBusy(true);
+    try {
+      const res = await fetch("/api/admin/db/seed-objects", { method: "POST" });
+      const j = await res.json();
+      if (res.ok) setSeedMsg("Objects seeded successfully. Reload the app to see changes.");
+      else setSeedMsg(j.error || "Seeding failed.");
     } finally {
       setBusy(false);
     }
@@ -327,6 +341,26 @@ export default function AdminDatabasePage() {
           </CardHeader>
         </Card>
       )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Workspace objects</CardTitle>
+          <CardDescription>
+            Seeds or repairs the standard objects (Contacts, Companies, Leads), their
+            attributes, pipeline stages, and built-in teams for your workspace.
+            Safe to run multiple times — existing data is never overwritten.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Button onClick={handleSeedObjects} disabled={busy} size="sm">
+            {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            Seed / repair workspace objects
+          </Button>
+          {seedMsg && (
+            <p className="text-sm text-muted-foreground">{seedMsg}</p>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

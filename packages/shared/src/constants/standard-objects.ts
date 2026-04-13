@@ -21,6 +21,38 @@ export interface StandardObject {
   attributes: StandardAttribute[];
 }
 
+/** Countries relevant to N&E Asia + Europe markets */
+export const COUNTRY_OPTIONS = [
+  // Europe
+  { title: "Germany", color: "#6366f1" },
+  { title: "France", color: "#7c3aed" },
+  { title: "United Kingdom", color: "#0369a1" },
+  { title: "Netherlands", color: "#f97316" },
+  { title: "Switzerland", color: "#dc2626" },
+  { title: "Belgium", color: "#ca8a04" },
+  { title: "Austria", color: "#dc2626" },
+  { title: "Sweden", color: "#0369a1" },
+  { title: "Denmark", color: "#dc2626" },
+  { title: "Norway", color: "#0369a1" },
+  { title: "Finland", color: "#0369a1" },
+  { title: "Poland", color: "#dc2626" },
+  { title: "Italy", color: "#16a34a" },
+  { title: "Spain", color: "#ca8a04" },
+  { title: "Portugal", color: "#16a34a" },
+  { title: "Czech Republic", color: "#0369a1" },
+  // Asia
+  { title: "Singapore", color: "#dc2626" },
+  { title: "China", color: "#dc2626" },
+  { title: "Japan", color: "#dc2626" },
+  { title: "South Korea", color: "#0369a1" },
+  { title: "India", color: "#f97316" },
+  { title: "Taiwan", color: "#0369a1" },
+  { title: "Thailand", color: "#0369a1" },
+  { title: "Malaysia", color: "#16a34a" },
+  { title: "Australia", color: "#16a34a" },
+  { title: "Other", color: "#94a3b8" },
+];
+
 export const STANDARD_OBJECTS: StandardObject[] = [
   // ─── Contacts ────────────────────────────────────────────────────────────
   {
@@ -36,7 +68,7 @@ export const STANDARD_OBJECTS: StandardObject[] = [
       { slug: "job_title", title: "Job Title", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       { slug: "department", title: "Department", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       { slug: "company", title: "Company", type: "record_reference", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false, config: { targetObjectSlug: "companies" } },
-      { slug: "location", title: "Location", type: "location", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      { slug: "country", title: "Country", type: "select", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false, selectOptions: COUNTRY_OPTIONS },
       { slug: "linkedin", title: "LinkedIn", type: "domain", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       { slug: "description", title: "Notes", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
     ],
@@ -67,6 +99,16 @@ export const STANDARD_OBJECTS: StandardObject[] = [
           { title: "Former Customer", color: "#94a3b8" },
           { title: "Lost", color: "#ef4444" },
         ],
+      },
+      {
+        slug: "country",
+        title: "Country",
+        type: "select",
+        isSystem: true,
+        isRequired: false,
+        isUnique: false,
+        isMultiselect: false,
+        selectOptions: COUNTRY_OPTIONS,
       },
       {
         slug: "lead_source",
@@ -105,9 +147,8 @@ export const STANDARD_OBJECTS: StandardObject[] = [
           { title: "Other", color: "#64748b" },
         ],
       },
-      { slug: "primary_location", title: "Country / Location", type: "location", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      { slug: "primary_location", title: "Location / Address", type: "location", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       { slug: "description", title: "Company Description", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
-      // Lead intelligence summary
       { slug: "customer_needs", title: "Customer Needs / Pain Points", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       { slug: "products_of_interest", title: "Products of Interest", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       { slug: "estimated_quantity", title: "Estimated Quantity / Scale", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
@@ -117,29 +158,19 @@ export const STANDARD_OBJECTS: StandardObject[] = [
     ],
   },
 
-  // ─── Deals / Opportunities ───────────────────────────────────────────────
+  // ─── Leads / Pipeline ────────────────────────────────────────────────────
   {
     slug: "deals",
-    singularName: "Deal",
-    pluralName: "Deals",
-    icon: "handshake",
-    isAlwaysOn: false,
+    singularName: "Lead",
+    pluralName: "Leads",
+    icon: "target",
+    isAlwaysOn: true,
     attributes: [
       { slug: "name", title: "Name", type: "text", isSystem: true, isRequired: true, isUnique: false, isMultiselect: false },
       { slug: "stage", title: "Stage", type: "status", isSystem: true, isRequired: true, isUnique: false, isMultiselect: false },
-      { slug: "value", title: "Estimated Value (EUR)", type: "currency", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
-      {
-        slug: "expected_close_date",
-        title: "Expected Close Date",
-        type: "date",
-        isSystem: true,
-        isRequired: false,
-        isUnique: false,
-        isMultiselect: false,
-      },
       {
         slug: "company",
-        title: "Customer / Lead",
+        title: "Company",
         type: "record_reference",
         isSystem: true,
         isRequired: false,
@@ -157,7 +188,18 @@ export const STANDARD_OBJECTS: StandardObject[] = [
         isMultiselect: true,
         config: { targetObjectSlug: "people" },
       },
-      // BioTech-specific deal fields
+      {
+        slug: "country",
+        title: "Country",
+        type: "select",
+        isSystem: true,
+        isRequired: false,
+        isUnique: false,
+        isMultiselect: false,
+        selectOptions: COUNTRY_OPTIONS,
+      },
+      { slug: "value", title: "Estimated Value (EUR)", type: "currency", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      { slug: "expected_close_date", title: "Expected Close Date", type: "date", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       { slug: "product_name", title: "Product / Solution", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       { slug: "quantity", title: "Quantity / Volume", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       { slug: "application", title: "Application / Use Case", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
@@ -185,14 +227,37 @@ export const STANDARD_OBJECTS: StandardObject[] = [
   },
 ];
 
-/** BioTech sales pipeline stages */
+/**
+ * BioTech lead pipeline stages.
+ * Grouped into phases so the board can render group headers.
+ */
 export const DEAL_STAGES = [
-  { title: "Lead", color: "#6366f1", sortOrder: 0, isActive: true, celebrationEnabled: false },
-  { title: "Qualified", color: "#8b5cf6", sortOrder: 1, isActive: true, celebrationEnabled: false },
-  { title: "Needs Analysis", color: "#a855f7", sortOrder: 2, isActive: true, celebrationEnabled: false },
-  { title: "Proposal Sent", color: "#d946ef", sortOrder: 3, isActive: true, celebrationEnabled: false },
-  { title: "Negotiation", color: "#ec4899", sortOrder: 4, isActive: true, celebrationEnabled: false },
-  { title: "Won / Customer", color: "#22c55e", sortOrder: 5, isActive: false, celebrationEnabled: true },
-  { title: "Lost", color: "#ef4444", sortOrder: 6, isActive: false, celebrationEnabled: false },
-  { title: "On Hold", color: "#94a3b8", sortOrder: 7, isActive: false, celebrationEnabled: false },
+  // ── Outreach ──
+  { title: "New Lead",         color: "#6366f1", sortOrder: 0,  isActive: true,  celebrationEnabled: false },
+  { title: "Email Sent",       color: "#7c3aed", sortOrder: 1,  isActive: true,  celebrationEnabled: false },
+  // ── Discovery ──
+  { title: "Discovery Call",   color: "#8b5cf6", sortOrder: 2,  isActive: true,  celebrationEnabled: false },
+  { title: "Qualified",        color: "#a78bfa", sortOrder: 3,  isActive: true,  celebrationEnabled: false },
+  // ── Proposal ──
+  { title: "Proposal Sent",    color: "#d946ef", sortOrder: 4,  isActive: true,  celebrationEnabled: false },
+  { title: "Quotation Sent",   color: "#e879f9", sortOrder: 5,  isActive: true,  celebrationEnabled: false },
+  // ── Closing ──
+  { title: "Follow-up Meeting",color: "#f97316", sortOrder: 6,  isActive: true,  celebrationEnabled: false },
+  { title: "Invoice Sent",     color: "#fb923c", sortOrder: 7,  isActive: true,  celebrationEnabled: false },
+  { title: "Final Invoice",    color: "#fbbf24", sortOrder: 8,  isActive: true,  celebrationEnabled: false },
+  // ── Won ──
+  { title: "Customer",         color: "#22c55e", sortOrder: 9,  isActive: false, celebrationEnabled: true  },
+  // ── Lost ──
+  { title: "Lost",             color: "#ef4444", sortOrder: 10, isActive: false, celebrationEnabled: false },
+  { title: "On Hold",          color: "#94a3b8", sortOrder: 11, isActive: false, celebrationEnabled: false },
+];
+
+/** Stage group definitions — used by the Leads board sidebar */
+export const LEAD_STAGE_GROUPS: { label: string; stages: string[]; color: string }[] = [
+  { label: "Outreach",  stages: ["New Lead", "Email Sent"],                           color: "#6366f1" },
+  { label: "Discovery", stages: ["Discovery Call", "Qualified"],                      color: "#8b5cf6" },
+  { label: "Proposal",  stages: ["Proposal Sent", "Quotation Sent"],                  color: "#d946ef" },
+  { label: "Closing",   stages: ["Follow-up Meeting", "Invoice Sent", "Final Invoice"],color: "#f97316" },
+  { label: "Won",       stages: ["Customer"],                                          color: "#22c55e" },
+  { label: "Lost",      stages: ["Lost", "On Hold"],                                  color: "#ef4444" },
 ];
