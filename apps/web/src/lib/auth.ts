@@ -6,8 +6,23 @@ import * as schema from "@/db/schema";
 function buildTrustedOrigins(): string[] {
   const raw = process.env.TRUSTED_ORIGINS || "";
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3001";
-  const fromEnv = raw.split(",").filter(Boolean);
-  return Array.from(new Set([appUrl, ...fromEnv]));
+  const fromEnv = raw.split(",").map((s) => s.trim()).filter(Boolean);
+
+  const origins = new Set([appUrl, ...fromEnv]);
+
+  // Also trust the www. variant of each https origin
+  for (const origin of [...origins]) {
+    try {
+      const u = new URL(origin);
+      if (u.protocol === "https:" && !u.hostname.startsWith("www.")) {
+        origins.add(`https://www.${u.hostname}`);
+      }
+    } catch {
+      // ignore malformed entries
+    }
+  }
+
+  return Array.from(origins);
 }
 
 function getBootstrapAdminEmails(): Set<string> {
