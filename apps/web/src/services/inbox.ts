@@ -7,6 +7,11 @@ import {
 } from "@/db/schema/inbox";
 import { eq, and, desc, lt, isNotNull } from "drizzle-orm";
 import { getEmailAccountConfigs } from "@/lib/email-accounts";
+import {
+  isKleinanzeigenEmail,
+  parseKleinanzeigenBody,
+  stripKleinanzeigenSuffix,
+} from "./inbox-kleinanzeigen";
 
 // ─── Channel account management ───────────────────────────────────────────────
 
@@ -182,13 +187,31 @@ export async function listConversations(
     .orderBy(desc(inboxConversations.lastMessageAt))
     .limit(limit);
 
-  return rows as ConversationListItem[];
+  // Retroactively clean Kleinanzeigen contact names for already-stored rows.
+  return rows.map((r) => ({
+    ...r,
+    contactName: r.contactName ? stripKleinanzeigenSuffix(r.contactName) : r.contactName,
+    lastMessagePreview: r.lastMessagePreview
+      ? cleanPreview(r.lastMessagePreview)
+      : r.lastMessagePreview,
+  })) as ConversationListItem[];
+}
+
+/** Strip obvious Kleinanzeigen boilerplate from a stored preview string. */
+function cleanPreview(preview: string): string {
+  return preview
+    .replace(/^.*?(?:Nachricht|Antwort)\s+von[^:]*?(?:\(Tel\.?:[^)]*\))?\s*/i, "")
+    .replace(/Beantworte diese Nachricht.*/i, "")
+    .replace(/Schütze dich vor Betrug.*/i, "")
+    .replace(/Ein Interessent hat eine Anfrage.*?gesendet\.?/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 // ─── Messages ─────────────────────────────────────────────────────────────────
 
 export async function getMessages(conversationId: string, workspaceId: string) {
-  return db
+  const rows = await db
     .select()
     .from(inboxMessages)
     .where(
@@ -198,6 +221,17 @@ export async function getMessages(conversationId: string, workspaceId: string) {
       )
     )
     .orderBy(inboxMessages.sentAt, inboxMessages.createdAt);
+
+  // Retroactively clean Kleinanzeigen messages at render time. Old rows were
+  // stored before the new parser existed; we re-run it against the stored
+  // bodyHtml so the UI shows only the customer's message.
+  return rows.map((m) => {
+    const from = m.fromAddress ?? "";
+    const subject = m.subject ?? "";
+    if (!isKleinanzeigenEmail(from, subject)) return m;
+    const cleaned = parseKleinanzeigenBody(m.body ?? "", m.bodyHtml);
+    return cleaned && cleaned !== m.body ? { ...m, body: cleaned } : m;
+  });
 }
 
 export async function markConversationRead(conversationId: string, workspaceId: string) {

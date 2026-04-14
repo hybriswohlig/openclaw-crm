@@ -1,4 +1,10 @@
 {
   "buildCommand": "cd ../.. && npx turbo build --filter=@openclaw-crm/web --env-mode=loose",
-  "installCommand": "cd ../.. && pnpm install"
+  "installCommand": "cd ../.. && pnpm install",
+  "crons": [
+    {
+      "path": "/api/cron/inbox-sync",
+      "schedule": "*/5 * * * *"
+    }
+  ]
 }
