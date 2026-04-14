@@ -17,6 +17,7 @@ import {
   MoreVertical,
   X,
   Check,
+  Tag,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -99,6 +100,33 @@ function contactLabel(conv: Conversation): string {
   return conv.contactName || conv.contactEmail || conv.contactPhone || "Unbekannt";
 }
 
+// ─── Kleinanzeigen detection ──────────────────────────────────────────────────
+
+const KLEINANZEIGEN_RELAY_RE = /@mail\.kleinanzeigen\.de$/i;
+const KLEINANZEIGEN_SUBJECT_RE = /kleinanzeigen|nutzer-anfrage|anfrage zu deiner anzeige|zu ihrer anzeige/i;
+
+function isKleinanzeigenConv(conv: Conversation): boolean {
+  if (conv.contactEmail && KLEINANZEIGEN_RELAY_RE.test(conv.contactEmail)) return true;
+  if (conv.subject && KLEINANZEIGEN_SUBJECT_RE.test(conv.subject)) return true;
+  return false;
+}
+
+/** Small inline Kleinanzeigen "K" mark. */
+function KleinanzeigenLogo({ className }: { className?: string }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center justify-center rounded-[4px] bg-[#96c11f] text-white font-bold",
+        className ?? "h-3.5 w-3.5 text-[9px]"
+      )}
+      aria-label="Kleinanzeigen"
+      title="Kleinanzeigen"
+    >
+      K
+    </span>
+  );
+}
+
 // ─── Channel Icon ─────────────────────────────────────────────────────────────
 
 function ChannelIcon({ type, size = "sm" }: { type: ChannelType; size?: "sm" | "xs" }) {
@@ -124,6 +152,7 @@ function ConvListItem({
   active: boolean;
   onClick: () => void;
 }) {
+  const isKa = isKleinanzeigenConv(conv);
   return (
     <button
       onClick={onClick}
@@ -145,7 +174,7 @@ function ConvListItem({
         </div>
         {/* Channel badge */}
         <div className="absolute -bottom-0.5 -right-0.5 h-4 w-4 rounded-full bg-background border border-border flex items-center justify-center">
-          <ChannelIcon type={conv.channelType} size="xs" />
+          {isKa ? <KleinanzeigenLogo className="h-3 w-3 text-[8px]" /> : <ChannelIcon type={conv.channelType} size="xs" />}
         </div>
       </div>
 
@@ -156,6 +185,7 @@ function ConvListItem({
             <span className={cn("text-sm truncate", conv.unreadCount > 0 && !active ? "font-semibold" : "font-medium")}>
               {contactLabel(conv)}
             </span>
+            {isKa && <KleinanzeigenLogo />}
             {conv.multiCompanyFlag && (
               <AlertTriangle className="h-3 w-3 text-amber-500 shrink-0" aria-label="Hat mehrere Unternehmen kontaktiert" />
             )}
@@ -302,8 +332,17 @@ function ConversationView({
 
   const canSend = conv.channelType === "email"; // WhatsApp send requires live API
 
+  const isKa = isKleinanzeigenConv(conv);
+
   return (
     <div className="flex flex-col h-full">
+      {/* Company banner */}
+      <div className="flex items-center justify-center gap-2 px-4 py-1.5 border-b border-border bg-muted/40 shrink-0">
+        {isKa && <KleinanzeigenLogo />}
+        <span className="text-[11px] text-muted-foreground">
+          {isKa ? "Kleinanzeigen · " : ""}{conv.channelName}
+        </span>
+      </div>
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-background shrink-0">
         <button onClick={onBack} className="md:hidden text-muted-foreground hover:text-foreground">
@@ -449,6 +488,7 @@ export default function InboxPage() {
   const [syncing, setSyncing] = useState(false);
   const [statusFilter, setStatusFilter] = useState<ConversationStatus>("open");
   const [accountFilter, setAccountFilter] = useState<string>("all");
+  const [sourceFilter, setSourceFilter] = useState<"all" | "kleinanzeigen">("all");
   const [search, setSearch] = useState("");
 
   const fetchConversations = useCallback(async () => {
@@ -500,6 +540,7 @@ export default function InboxPage() {
   }
 
   const filtered = conversations.filter((c) => {
+    if (sourceFilter === "kleinanzeigen" && !isKleinanzeigenConv(c)) return false;
     if (!search) return true;
     const q = search.toLowerCase();
     return (
@@ -552,8 +593,47 @@ export default function InboxPage() {
             />
           </div>
 
+          {/* Source filter */}
+          <div className="flex gap-1.5">
+            <button
+              onClick={() => setSourceFilter("all")}
+              className={cn(
+                "shrink-0 flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border transition-colors",
+                sourceFilter === "all"
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "border-border text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Tag className="h-3 w-3" />
+              Alle Quellen
+            </button>
+            <button
+              onClick={() => {
+                setSourceFilter(sourceFilter === "kleinanzeigen" ? "all" : "kleinanzeigen");
+                setAccountFilter("all");
+                setSelected(null);
+              }}
+              className={cn(
+                "shrink-0 flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border transition-colors",
+                sourceFilter === "kleinanzeigen"
+                  ? "bg-[#96c11f] text-white border-[#96c11f]"
+                  : "border-border text-muted-foreground hover:text-foreground"
+              )}
+              title="Nur Kleinanzeigen (alle Firmen kombiniert)"
+            >
+              <KleinanzeigenLogo />
+              Kleinanzeigen
+            </button>
+          </div>
+
+          {sourceFilter === "kleinanzeigen" && (
+            <p className="text-[10px] text-muted-foreground px-0.5">
+              Kombinierter Posteingang aller Firmen. Jede Nachricht zeigt unten, zu welcher Firma sie gehört.
+            </p>
+          )}
+
           {/* Account filter */}
-          {accounts.length > 1 && (
+          {sourceFilter !== "kleinanzeigen" && accounts.length > 1 && (
             <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
               <button
                 onClick={() => setAccountFilter("all")}

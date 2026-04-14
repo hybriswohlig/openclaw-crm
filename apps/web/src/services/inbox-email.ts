@@ -32,14 +32,84 @@ function firstAddress(ao: AddressObject | AddressObject[] | undefined): { name: 
   return { name: val?.name ?? "", address: val?.address ?? "" };
 }
 
-/** Parse Kleinanzeigen notification body to extract customer message text. */
-function parseKleinanzeigenBody(text: string): string {
-  // The relevant customer message appears after "Nachricht:" or "Anfrage:"
-  // Use [\s\S] instead of . with /s flag for ES2017 target compatibility
-  const m =
-    text.match(/nachricht[:\s]+([\s\S]+?)(?:\n{2,}|--)/i) ??
-    text.match(/anfrage[:\s]+([\s\S]+?)(?:\n{2,}|--)/i);
-  return m ? m[1].trim() : text.trim();
+/** Strip HTML tags and decode a few common entities. */
+function htmlToPlain(html: string): string {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|li|tr|h[1-6])>/gi, "\n")
+    .replace(/<li[^>]*>/gi, "• ")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&auml;/gi, "ä")
+    .replace(/&ouml;/gi, "ö")
+    .replace(/&uuml;/gi, "ü")
+    .replace(/&Auml;/gi, "Ä")
+    .replace(/&Ouml;/gi, "Ö")
+    .replace(/&Uuml;/gi, "Ü")
+    .replace(/&szlig;/gi, "ß")
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/**
+ * Parse Kleinanzeigen notification body to extract the customer message.
+ * Kleinanzeigen sends HTML-heavy relay emails with boilerplate around the
+ * actual user message. We:
+ *   1. Prefer HTML (richer than the plain-text fallback).
+ *   2. Try to slice the message between known markers.
+ *   3. Strip trailing Kleinanzeigen boilerplate/footer.
+ *   4. Fall back to the cleaned full text if no marker is found.
+ */
+function parseKleinanzeigenBody(text: string, html?: string | null): string {
+  const source = html ? htmlToPlain(html) : text;
+  if (!source) return text.trim();
+
+  // Normalize
+  let body = source.replace(/\r\n/g, "\n").trim();
+
+  // Try to locate the user message block. Kleinanzeigen uses several
+  // variants over time — match any of them, case-insensitive.
+  const startPatterns = [
+    /(?:^|\n)\s*(?:Nachricht|Anfrage|Nachricht von[^\n:]*|Neue Nachricht)[\s:]*\n+/i,
+    /(?:^|\n)\s*(?:hat dir (?:folgende|eine) Nachricht[^\n]*)\n+/i,
+    /(?:^|\n)\s*(?:schreibt|sagt)[\s:]*\n+/i,
+  ];
+  for (const re of startPatterns) {
+    const m = body.match(re);
+    if (m && m.index !== undefined) {
+      body = body.slice(m.index + m[0].length);
+      break;
+    }
+  }
+
+  // Cut trailing Kleinanzeigen boilerplate / footer / reply instructions.
+  const endPatterns = [
+    /\n\s*(?:Antworte(?:n)?\s+(?:direkt|auf diese)[^\n]*)/i,
+    /\n\s*(?:Auf diese Nachricht antworten)/i,
+    /\n\s*(?:Zur Anzeige|Anzeige ansehen|Jetzt antworten)/i,
+    /\n\s*(?:Diese E-?Mail wurde automatisch)/i,
+    /\n\s*(?:Kleinanzeigen GmbH|© \d{4} Kleinanzeigen)/i,
+    /\n\s*(?:Impressum|Datenschutz|Abmelden)/i,
+    /\n\s*--\s*\n/,
+  ];
+  for (const re of endPatterns) {
+    const m = body.match(re);
+    if (m && m.index !== undefined) {
+      body = body.slice(0, m.index);
+    }
+  }
+
+  body = body.replace(/\n{3,}/g, "\n\n").trim();
+  return body || source.trim() || text.trim();
 }
 
 // ─── Contact upsert ───────────────────────────────────────────────────────────
@@ -164,9 +234,20 @@ export async function syncChannelAccount(accountId: string) {
       const threadKey = isKleinanzeigen ? fromEmail : (parsed.inReplyTo ?? messageId);
 
       // Extract body
+      const rawHtml = typeof parsed.html === "string" ? parsed.html : null;
       let body = parsed.text ?? "";
       if (isKleinanzeigen) {
-        body = parseKleinanzeigenBody(body);
+        body = parseKleinanzeigenBody(body, rawHtml);
+      } else if (!body && rawHtml) {
+        // Fallback for any other HTML-only email
+        body = rawHtml
+          .replace(/<style[\s\S]*?<\/style>/gi, "")
+          .replace(/<script[\s\S]*?<\/script>/gi, "")
+          .replace(/<br\s*\/?>/gi, "\n")
+          .replace(/<\/(p|div|li|tr|h[1-6])>/gi, "\n")
+          .replace(/<[^>]+>/g, "")
+          .replace(/\n{3,}/g, "\n\n")
+          .trim();
       }
 
       // Upsert contact
