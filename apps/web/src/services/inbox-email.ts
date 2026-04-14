@@ -25,6 +25,11 @@ function isKleinanzeigenEmail(from: string, subject: string): boolean {
   return KLEINANZEIGEN_RELAY_RE.test(from) || KLEINANZEIGEN_SUBJECT_RE.test(subject);
 }
 
+/** "RamonaOstd über Kleinanzeigen" → "RamonaOstd". */
+function stripKleinanzeigenSuffix(name: string): string {
+  return name.replace(/\s*(?:über|ueber|via)\s+Kleinanzeigen\s*$/i, "").trim();
+}
+
 /** Extract a human-readable name from a mailparser AddressObject. */
 function firstAddress(ao: AddressObject | AddressObject[] | undefined): { name: string; address: string } {
   const list = Array.isArray(ao) ? ao : ao ? [ao] : [];
@@ -61,55 +66,54 @@ function htmlToPlain(html: string): string {
 }
 
 /**
- * Parse Kleinanzeigen notification body to extract the customer message.
- * Kleinanzeigen sends HTML-heavy relay emails with boilerplate around the
- * actual user message. We:
- *   1. Prefer HTML (richer than the plain-text fallback).
- *   2. Try to slice the message between known markers.
- *   3. Strip trailing Kleinanzeigen boilerplate/footer.
- *   4. Fall back to the cleaned full text if no marker is found.
+ * Parse Kleinanzeigen notification body to extract just the customer message.
+ *
+ * Kleinanzeigen wraps the actual user text inside a grey <td> block that
+ * starts with "<b>Nachricht von</b> NAME (Tel.: ...)" (new inquiry) or
+ * "<b>Antwort von</b> NAME" (reply in same thread). We locate that block,
+ * drop the header line, and return only the message — everything else
+ * (ad link, "Beantworte diese Nachricht", security tips, footer) is dropped.
  */
 function parseKleinanzeigenBody(text: string, html?: string | null): string {
-  const source = html ? htmlToPlain(html) : text;
-  if (!source) return text.trim();
+  let workingHtml = html ?? "";
 
-  // Normalize
-  let body = source.replace(/\r\n/g, "\n").trim();
+  // Strip any quoted reply chain — we only want the newest Kleinanzeigen block.
+  workingHtml = workingHtml.replace(/<blockquote[\s\S]*?<\/blockquote>/gi, "");
 
-  // Try to locate the user message block. Kleinanzeigen uses several
-  // variants over time — match any of them, case-insensitive.
-  const startPatterns = [
-    /(?:^|\n)\s*(?:Nachricht|Anfrage|Nachricht von[^\n:]*|Neue Nachricht)[\s:]*\n+/i,
-    /(?:^|\n)\s*(?:hat dir (?:folgende|eine) Nachricht[^\n]*)\n+/i,
-    /(?:^|\n)\s*(?:schreibt|sagt)[\s:]*\n+/i,
-  ];
-  for (const re of startPatterns) {
-    const m = body.match(re);
-    if (m && m.index !== undefined) {
-      body = body.slice(m.index + m[0].length);
-      break;
-    }
+  // Find the <td> that contains the message block.
+  const blockRe =
+    /<td[^>]*>([\s\S]*?(?:Nachricht|Antwort)\s+von[\s\S]*?)<\/td>/i;
+  const blockMatch = workingHtml.match(blockRe);
+
+  if (blockMatch) {
+    const plain = htmlToPlain(blockMatch[1]);
+    // Remove the header line "Nachricht von NAME (Tel.: ...)" / "Antwort von NAME"
+    // and any immediately following "(Tel.: ...)" line.
+    const cleaned = plain
+      .replace(
+        /^[\s\S]*?(?:Nachricht|Antwort)\s+von[^\n]*\n(?:\s*\(Tel\.?:[^\n]*\)\s*\n)?/i,
+        ""
+      )
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+    if (cleaned) return cleaned;
   }
 
-  // Cut trailing Kleinanzeigen boilerplate / footer / reply instructions.
+  // Fallback: no block found — strip known footer phrases from whatever we have.
+  const source = workingHtml ? htmlToPlain(workingHtml) : text;
+  let body = source.replace(/\r\n/g, "\n").trim();
   const endPatterns = [
-    /\n\s*(?:Antworte(?:n)?\s+(?:direkt|auf diese)[^\n]*)/i,
-    /\n\s*(?:Auf diese Nachricht antworten)/i,
-    /\n\s*(?:Zur Anzeige|Anzeige ansehen|Jetzt antworten)/i,
-    /\n\s*(?:Diese E-?Mail wurde automatisch)/i,
-    /\n\s*(?:Kleinanzeigen GmbH|© \d{4} Kleinanzeigen)/i,
-    /\n\s*(?:Impressum|Datenschutz|Abmelden)/i,
-    /\n\s*--\s*\n/,
+    /\n\s*Beantworte diese Nachricht/i,
+    /\n\s*Schütze dich vor Betrug/i,
+    /\n\s*Zum Schutz unserer Nutzer/i,
+    /\n\s*Dein Team von Kleinanzeigen/i,
+    /\n\s*(?:Impressum|Datenschutzerklärung|Nutzungsbedingungen)/i,
   ];
   for (const re of endPatterns) {
     const m = body.match(re);
-    if (m && m.index !== undefined) {
-      body = body.slice(0, m.index);
-    }
+    if (m && m.index !== undefined) body = body.slice(0, m.index);
   }
-
-  body = body.replace(/\n{3,}/g, "\n\n").trim();
-  return body || source.trim() || text.trim();
+  return body.replace(/\n{3,}/g, "\n\n").trim() || text.trim();
 }
 
 // ─── Contact upsert ───────────────────────────────────────────────────────────
@@ -250,8 +254,10 @@ export async function syncChannelAccount(accountId: string) {
           .trim();
       }
 
-      // Upsert contact
-      const contact = await upsertContact(account.workspaceId, fromEmail, fromName);
+      // Upsert contact — strip "über Kleinanzeigen" suffix so the chat header
+      // shows just the person's name.
+      const contactName = isKleinanzeigen ? stripKleinanzeigenSuffix(fromName) : fromName;
+      const contact = await upsertContact(account.workspaceId, fromEmail, contactName);
 
       // Upsert conversation
       let [conv] = await db
