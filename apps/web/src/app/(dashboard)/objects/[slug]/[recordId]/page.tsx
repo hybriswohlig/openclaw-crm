@@ -17,6 +17,7 @@ import {
   Building2,
   Handshake,
   Box,
+  Lock,
 } from "lucide-react";
 import { extractPersonalName } from "@/lib/display-name";
 
@@ -58,6 +59,19 @@ export default function RecordDetailPage() {
   const [activities, setActivities] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [workspaceRole, setWorkspaceRole] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/auth/get-session")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((s) => setCurrentUserId(s?.user?.id ?? null))
+      .catch(() => {});
+    fetch("/api/v1/workspace")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setWorkspaceRole(d?.data?.role ?? null))
+      .catch(() => {});
+  }, []);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -133,6 +147,20 @@ export default function RecordDetailPage() {
     );
   }
 
+  // Ownership check — must mirror the server-side assertCanEdit in
+  // api/v1/objects/[slug]/records/[recordId]/route.ts.
+  const ownerRaw = record.values.owner as unknown;
+  const ownerId =
+    typeof ownerRaw === "string"
+      ? ownerRaw
+      : typeof ownerRaw === "object" &&
+          ownerRaw !== null &&
+          "id" in (ownerRaw as Record<string, unknown>)
+        ? String((ownerRaw as { id: unknown }).id)
+        : null;
+  const canEdit =
+    workspaceRole === "admin" || !ownerId || ownerId === currentUserId;
+
   const nameAttr = object.attributes.find((a: any) => a.slug === "name");
   let displayName = "Unnamed";
   if (nameAttr) {
@@ -168,17 +196,29 @@ export default function RecordDetailPage() {
           </div>
           <div className="flex items-center justify-between">
             <h1 className="text-2xl font-semibold">{displayName}</h1>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleDelete}
-              disabled={deleting}
-              className="text-muted-foreground hover:text-destructive"
-            >
-              <Trash2 className="mr-1 h-4 w-4" />
-              {deleting ? "Deleting..." : "Delete"}
-            </Button>
+            {canEdit && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleDelete}
+                disabled={deleting}
+                className="text-muted-foreground hover:text-destructive"
+              >
+                <Trash2 className="mr-1 h-4 w-4" />
+                {deleting ? "Deleting..." : "Delete"}
+              </Button>
+            )}
           </div>
+          {!canEdit && (
+            <div className="mt-3 flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
+              <Lock className="h-3.5 w-3.5 shrink-0" />
+              <span>
+                This record is assigned to someone else. You can view it and
+                post updates, but you cannot edit its fields. Ask a workspace
+                admin to reassign it.
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Tabs */}
@@ -210,7 +250,7 @@ export default function RecordDetailPage() {
               <RecordDetail
                 attributes={object.attributes}
                 values={record.values}
-                onUpdate={handleUpdate}
+                onUpdate={canEdit ? handleUpdate : async () => {}}
               />
             </TabsContent>
 

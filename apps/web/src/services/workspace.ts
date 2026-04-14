@@ -81,7 +81,13 @@ export async function updateWorkspace(
  * Called from getAuthContext (self-heal) and the after-signup hook so an
  * approved user always lands in a ready-to-use workspace.
  *
- * Idempotent: if the user already has a membership, does nothing.
+ * Rules (single-tenant N&E model):
+ *   - If the user already has a membership → return it.
+ *   - Else if a workspace exists in the system → join it as a member
+ *     (or admin if the email is in CRM_ADMIN_EMAILS).
+ *   - Else (first user ever) → create a new workspace and make them admin.
+ *
+ * Idempotent and safe under races.
  */
 export async function ensureBootstrapWorkspace(
   userId: string,
@@ -99,6 +105,36 @@ export async function ensureBootstrapWorkspace(
     return existing[0].workspaceId;
   }
 
+  const bootstrapAdmins = new Set(
+    (process.env.CRM_ADMIN_EMAILS || "")
+      .split(",")
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean)
+  );
+  const normalizedEmail = (email || "").toLowerCase().trim();
+  const isBootstrapAdmin = bootstrapAdmins.has(normalizedEmail);
+
+  // If a workspace already exists, join it instead of creating a new one.
+  // This enforces the single-tenant model: everyone at N&E shares one space.
+  const [firstWorkspace] = await db
+    .select({ id: workspaces.id })
+    .from(workspaces)
+    .orderBy(asc(workspaces.createdAt))
+    .limit(1);
+
+  if (firstWorkspace) {
+    await db
+      .insert(workspaceMembers)
+      .values({
+        workspaceId: firstWorkspace.id,
+        userId,
+        role: isBootstrapAdmin ? "admin" : "member",
+      })
+      .onConflictDoNothing();
+    return firstWorkspace.id;
+  }
+
+  // No workspace exists yet — create one and make this user the admin.
   const displayName = (name || email?.split("@")[0] || "User").trim();
   const workspaceName = `${displayName}'s Workspace`;
   const baseSlug = displayName
