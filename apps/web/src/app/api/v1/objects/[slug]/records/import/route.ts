@@ -7,7 +7,16 @@ import { createRecord } from "@/services/records";
  * POST /api/v1/objects/[slug]/records/import
  * Body: { rows: Array<Record<string, unknown>> }
  * Each row is keyed by attribute slug with the appropriate value.
- * Returns: { created: number, errors: Array<{ row: number, message: string }> }
+ * Returns:
+ *   {
+ *     created: number,
+ *     errors: Array<{ row: number, message: string }>,
+ *     total: number,
+ *     // Newly-created record ids whose input row had no `owner` value.
+ *     // The client uses this to offer bulk-assigning the current user as
+ *     // account owner.
+ *     recordIdsMissingOwner: string[]
+ *   }
  */
 export async function POST(
   req: NextRequest,
@@ -33,6 +42,7 @@ export async function POST(
 
   let created = 0;
   const errors: { row: number; message: string }[] = [];
+  const recordIdsMissingOwner: string[] = [];
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
@@ -48,13 +58,17 @@ export async function POST(
     if (!hasAnyValue) continue;
 
     try {
-      await createRecord(obj.id, row, ctx.userId);
+      const record = await createRecord(obj.id, row, ctx.userId);
       created++;
+      const ownerVal = (row as Record<string, unknown>).owner;
+      if (record && (ownerVal === undefined || ownerVal === null || ownerVal === "")) {
+        recordIdsMissingOwner.push(record.id);
+      }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unknown error";
       errors.push({ row: i, message });
     }
   }
 
-  return success({ created, errors, total: rows.length });
+  return success({ created, errors, total: rows.length, recordIdsMissingOwner });
 }

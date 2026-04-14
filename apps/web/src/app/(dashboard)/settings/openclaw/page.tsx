@@ -65,8 +65,8 @@ export default function OpenClawPage() {
   const skillMd = useMemo(() => {
     const url = instanceUrl || "https://your-openclaw-instance.com";
     return `---
-name: openclaw
-description: Interact with OpenCRM-Umzug — manage workspaces, records, contacts, companies, deals, tasks, notes, and lists.
+name: ne-crm
+description: Interact with the N&E Innovations CRM — manage BioTech leads, contacts, companies, trade fairs, tasks, notes, and regional teams across Europe and Asia.
 homepage: ${url}
 user-invocable: true
 metadata:
@@ -77,9 +77,9 @@ metadata:
         - OPENCLAW_API_KEY
 ---
 
-# OpenCRM-Umzug — agent skill
+# N&E CRM — agent skill
 
-You have access to an OpenCRM-Umzug instance. Use its REST API to help users manage their workspaces, contacts, companies, deals, tasks, notes, and lists.
+You have access to the N&E Innovations CRM — the in-house system for tracking BioTech leads, trade fairs, and customer relationships across the four N&E regional teams (Germany, France, UK, Singapore). Use its REST API to manage contacts, companies, leads, trade fairs, tasks, notes, and teams.
 
 ## Configuration
 
@@ -91,12 +91,14 @@ You have access to an OpenCRM-Umzug instance. Use its REST API to help users man
 
 ## Core Concepts
 
-- **Workspaces** isolate data, members, and settings. Each API key belongs to one workspace. Users can belong to multiple workspaces.
-- **Objects** are entity types (People, Companies, Deals, or custom). Each has a slug (e.g. \`people\`, \`companies\`, \`deals\`).
-- **Records** are instances of objects. Values are stored as key-value pairs keyed by attribute slug.
+- **Workspaces** isolate data, members, and settings. Each API key belongs to one workspace.
+- **Objects** are entity types (Contacts, Companies, Leads, or custom). Each has a slug (e.g. \`people\`, \`companies\`, \`deals\`). Note: the lead pipeline lives on the \`deals\` slug and is labelled "Leads" in the UI.
+- **Records** are instances of objects. Values are keyed by attribute slug.
 - **Attributes** define fields on objects. 17 types: text, number, currency, date, timestamp, checkbox, select, status, rating, email_address, phone_number, domain, location, personal_name, record_reference, actor_reference, interaction.
-- **Lists** are collections of records with custom list-specific attributes (like stages for a sales pipeline).
-- **Tasks** and **Notes** can be attached to records. Tasks are workspace-scoped.
+- **Lead stages** are grouped into phases (Outreach, Discovery, Proposal, Closing, Closed, Lost). A new company auto-creates a lead in the "New Lead" stage.
+- **Teams** are the four N&E regional teams (N&E Germany, N&E France, N&E UK, N&E Singapore). Leads and companies carry a \`country\` field that maps to a market region.
+- **Trade Fairs** are tracked separately with dedicated endpoints so leads can be linked back to the event where they were acquired.
+- **Tasks** and **Notes** can be attached to any record.
 
 ## API Endpoints
 
@@ -387,7 +389,7 @@ When creating or updating records, use these value formats:
       <div className="mb-6">
         <h1 className="text-xl font-semibold">OpenClaw Integration</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Generate a skill file to connect your OpenCRM-Umzug deployment with the
+          Generate a skill file to connect your N&E CRM deployment with the
           OpenClaw agent runtime. This lets OpenClaw agents interact with your CRM
           data.
         </p>
@@ -413,7 +415,7 @@ When creating or updating records, use these value formats:
                 placeholder="https://your-crm.example.com"
               />
               <p className="text-xs text-muted-foreground">
-                The URL where your OpenCRM-Umzug instance is accessible.
+                The URL where your N&E CRM instance is accessible.
               </p>
             </div>
 

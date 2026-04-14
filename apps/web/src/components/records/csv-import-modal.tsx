@@ -9,7 +9,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Upload, FileText, AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
+import { Upload, FileText, AlertCircle, CheckCircle2, Loader2, Download } from "lucide-react";
 import { parseCSV, type ParsedCSV } from "@/lib/csv-utils";
 
 interface AttributeDef {
@@ -22,6 +22,65 @@ interface ImportResult {
   created: number;
   errors: { row: number; message: string }[];
   total: number;
+  recordIdsMissingOwner?: string[];
+}
+
+function attrPlaceholder(attr: AttributeDef): string {
+  switch (attr.type) {
+    case "number":
+    case "rating":
+      return "0";
+    case "checkbox":
+      return "true";
+    case "currency":
+      return "1000 EUR";
+    case "date":
+      return "2026-01-31";
+    case "timestamp":
+      return "2026-01-31T14:00:00Z";
+    case "email_address":
+      return "name@example.com";
+    case "phone_number":
+      return "+49 30 1234567";
+    case "domain":
+      return "example.com";
+    case "personal_name":
+      return "Jane Doe";
+    case "location":
+      return "Berlin, Germany";
+    case "select":
+    case "status":
+      return "<option title>";
+    case "record_reference":
+      return "<linked record id>";
+    case "actor_reference":
+      return "<user id>";
+    default:
+      return "";
+  }
+}
+
+function buildTemplateCSV(objectName: string, attributes: AttributeDef[]): string {
+  const headers = attributes.map((a) => a.title).join(",");
+  const sample = attributes
+    .map((a) => {
+      const v = attrPlaceholder(a);
+      return v.includes(",") ? `"${v}"` : v;
+    })
+    .join(",");
+  return `${headers}\n${sample}\n`;
+}
+
+function downloadBlob(content: string, filename: string) {
+  const blob = new Blob([content], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 interface CSVImportModalProps {
@@ -48,6 +107,10 @@ export function CSVImportModal({
   const [mapping, setMapping] = useState<Record<number, string>>({}); // csvColIndex -> attributeSlug
   const [result, setResult] = useState<ImportResult | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [assigningOwner, setAssigningOwner] = useState(false);
+  const [ownerDecisionMade, setOwnerDecisionMade] = useState(false);
+
+  const hasOwnerAttr = attributes.some((a) => a.slug === "owner");
 
   function reset() {
     setStep("upload");
@@ -56,6 +119,45 @@ export function CSVImportModal({
     setMapping({});
     setResult(null);
     setDragOver(false);
+    setAssigningOwner(false);
+    setOwnerDecisionMade(false);
+  }
+
+  function handleDownloadTemplate() {
+    const csv = buildTemplateCSV(objectName, attributes);
+    downloadBlob(csv, `${objectName.toLowerCase().replace(/\s+/g, "-")}-template.csv`);
+  }
+
+  async function handleAssignOwnerToMe() {
+    if (!result?.recordIdsMissingOwner || result.recordIdsMissingOwner.length === 0) return;
+    setAssigningOwner(true);
+    try {
+      // Look up the current user id
+      const sessionRes = await fetch("/api/auth/get-session");
+      const session = sessionRes.ok ? await sessionRes.json() : null;
+      const userId = session?.user?.id;
+      if (!userId) {
+        setAssigningOwner(false);
+        setOwnerDecisionMade(true);
+        return;
+      }
+
+      // PATCH each record with the current user as owner
+      await Promise.all(
+        result.recordIdsMissingOwner.map((recordId) =>
+          fetch(`/api/v1/objects/${objectSlug}/records/${recordId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ values: { owner: userId } }),
+          }).catch(() => null)
+        )
+      );
+
+      onImportComplete();
+    } finally {
+      setAssigningOwner(false);
+      setOwnerDecisionMade(true);
+    }
   }
 
   function handleClose() {
@@ -223,40 +325,63 @@ export function CSVImportModal({
 
         {/* Step 1: Upload */}
         {step === "upload" && (
-          <div
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragOver(true);
-            }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={handleDrop}
-            className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
-              dragOver
-                ? "border-primary bg-primary/5"
-                : "border-border hover:border-primary/50"
-            }`}
-          >
-            <Upload className="h-10 w-10 mx-auto mb-3 text-muted-foreground" />
-            <p className="text-sm font-medium mb-1">
-              Drop a CSV file here, or click to browse
-            </p>
-            <p className="text-xs text-muted-foreground mb-4">
-              Maximum 1,000 rows per import
-            </p>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => fileRef.current?.click()}
+          <div className="space-y-4">
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOver(true);
+              }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={handleDrop}
+              className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+                dragOver
+                  ? "border-primary bg-primary/5"
+                  : "border-border hover:border-primary/50"
+              }`}
             >
-              Choose File
-            </Button>
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".csv,text/csv"
-              onChange={handleFileChange}
-              className="hidden"
-            />
+              <Upload className="h-10 w-10 mx-auto mb-3 text-muted-foreground" />
+              <p className="text-sm font-medium mb-1">
+                Drop a CSV file here, or click to browse
+              </p>
+              <p className="text-xs text-muted-foreground mb-4">
+                Maximum 1,000 rows per import
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => fileRef.current?.click()}
+              >
+                Choose File
+              </Button>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".csv,text/csv"
+                onChange={handleFileChange}
+                className="hidden"
+              />
+            </div>
+
+            {/* Template download */}
+            <div className="rounded-lg border border-border bg-muted/30 p-4 flex items-start gap-3">
+              <FileText className="h-5 w-5 text-muted-foreground mt-0.5 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium">Need the right format?</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Download a template CSV with all {attributes.length} columns
+                  pre-labelled and sample values showing the expected format for each field.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0 gap-1.5"
+                onClick={handleDownloadTemplate}
+              >
+                <Download className="h-3.5 w-3.5" />
+                Download template
+              </Button>
+            </div>
           </div>
         )}
 
@@ -364,15 +489,69 @@ export function CSVImportModal({
 
         {/* Step 4: Done */}
         {step === "done" && result && (
-          <div className="py-6 text-center space-y-3">
-            {result.created > 0 ? (
-              <CheckCircle2 className="h-10 w-10 mx-auto text-green-500" />
-            ) : (
-              <AlertCircle className="h-10 w-10 mx-auto text-destructive" />
-            )}
-            <p className="text-sm font-medium">
-              {result.created} of {result.total} records imported
-            </p>
+          <div className="py-6 space-y-4">
+            <div className="text-center space-y-3">
+              {result.created > 0 ? (
+                <CheckCircle2 className="h-10 w-10 mx-auto text-green-500" />
+              ) : (
+                <AlertCircle className="h-10 w-10 mx-auto text-destructive" />
+              )}
+              <p className="text-sm font-medium">
+                {result.created} of {result.total} records imported
+              </p>
+            </div>
+
+            {/* Account owner assignment prompt */}
+            {hasOwnerAttr &&
+              !ownerDecisionMade &&
+              result.recordIdsMissingOwner &&
+              result.recordIdsMissingOwner.length > 0 && (
+                <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-4 text-left">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="h-5 w-5 text-amber-500 mt-0.5 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium">
+                        {result.recordIdsMissingOwner.length} record
+                        {result.recordIdsMissingOwner.length === 1 ? "" : "s"} imported
+                        without an Account Owner
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Do you want to assign yourself as the account owner for these
+                        records? If you press No, they will stay unassigned.
+                      </p>
+                      <div className="flex gap-2 mt-3">
+                        <Button
+                          size="sm"
+                          onClick={handleAssignOwnerToMe}
+                          disabled={assigningOwner}
+                        >
+                          {assigningOwner && (
+                            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                          )}
+                          Yes, assign to me
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setOwnerDecisionMade(true)}
+                          disabled={assigningOwner}
+                        >
+                          No, leave empty
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+            {ownerDecisionMade &&
+              result.recordIdsMissingOwner &&
+              result.recordIdsMissingOwner.length > 0 && (
+                <p className="text-xs text-center text-muted-foreground">
+                  Account owner decision saved.
+                </p>
+              )}
+
             {result.errors.length > 0 && (
               <div className="text-left mt-4 max-h-40 overflow-y-auto rounded border border-destructive/30 p-3">
                 <p className="text-xs font-medium text-destructive mb-1">

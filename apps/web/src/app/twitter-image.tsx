@@ -1,7 +1,7 @@
 import { ImageResponse } from "next/og";
 
 export const runtime = "edge";
-export const alt = "OpenCRM-Umzug";
+export const alt = "N&E CRM";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -43,7 +43,7 @@ export default function TwitterImage() {
           }}
         >
           <span style={{ fontSize: 56, fontWeight: 700, color: "#f0f0f5" }}>
-            OpenCRM-
+            N&E
           </span>
           <span
             style={{
@@ -54,13 +54,13 @@ export default function TwitterImage() {
               color: "transparent",
             }}
           >
-            Umzug
+            CRM
           </span>
         </div>
 
         {/* Tagline */}
         <p style={{ fontSize: 28, color: "#9ca3af", margin: 0 }}>
-          Customer relationship management.
+          BioTech pipeline across Europe and Asia.
         </p>
 
         {/* Pills */}
@@ -71,7 +71,7 @@ export default function TwitterImage() {
             marginTop: 40,
           }}
         >
-          {["People", "Deals", "Tasks", "API"].map(
+          {["Leads", "Companies", "Trade Fairs", "Teams"].map(
             (label) => (
               <div
                 key={label}

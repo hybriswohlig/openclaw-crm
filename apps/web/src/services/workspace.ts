@@ -3,6 +3,45 @@ import { workspaces, workspaceMembers, users, objects, attributes, statuses, sel
 import { eq, and, asc, sql } from "drizzle-orm";
 import { STANDARD_OBJECTS, DEAL_STAGES } from "@openclaw-crm/shared";
 
+/**
+ * Ensure the record_changes and record_comments audit tables exist.
+ * Called from seedWorkspaceObjects so a single "Seed / repair" click from
+ * Admin → Database bootstraps everything without needing a drizzle-kit
+ * migrate CLI step.
+ */
+async function ensureAuditTables() {
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS "record_changes" (
+      "id" text PRIMARY KEY NOT NULL,
+      "record_id" text NOT NULL REFERENCES "records"("id") ON DELETE CASCADE,
+      "attribute_slug" text NOT NULL,
+      "attribute_title" text NOT NULL,
+      "attribute_type" text NOT NULL,
+      "old_value" jsonb,
+      "new_value" jsonb,
+      "changed_by" text REFERENCES "users"("id") ON DELETE SET NULL,
+      "changed_at" timestamp DEFAULT now() NOT NULL
+    )
+  `);
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS "record_changes_record_id"
+      ON "record_changes" USING btree ("record_id", "changed_at")
+  `);
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS "record_comments" (
+      "id" text PRIMARY KEY NOT NULL,
+      "record_id" text NOT NULL REFERENCES "records"("id") ON DELETE CASCADE,
+      "content" text NOT NULL,
+      "created_by" text REFERENCES "users"("id") ON DELETE SET NULL,
+      "created_at" timestamp DEFAULT now() NOT NULL
+    )
+  `);
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS "record_comments_record_id"
+      ON "record_comments" USING btree ("record_id", "created_at")
+  `);
+}
+
 const BUILTIN_TEAMS = [
   { key: "ne_germany", name: "N&E Germany" },
   { key: "ne_france", name: "N&E France" },
@@ -176,6 +215,8 @@ export async function seedWorkspaceTeams(workspaceId: string) {
  * call on an existing workspace to repair or update its schema.
  */
 export async function seedWorkspaceObjects(workspaceId: string) {
+  await ensureAuditTables();
+
   for (const stdObj of STANDARD_OBJECTS) {
     // Upsert the object itself
     const existing = await db

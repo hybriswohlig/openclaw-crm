@@ -15,24 +15,24 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: {
-    default: "OpenCRM-Umzug",
-    template: "%s | OpenCRM-Umzug",
+    default: "N&E CRM",
+    template: "%s | N&E CRM",
   },
-  description: "Customer relationship management — contacts, companies, deals, tasks, and notes.",
+  description: "N&E Innovations CRM — BioTech leads, trade fairs, and customers across Europe and Asia.",
   metadataBase: new URL(baseUrl),
   openGraph: {
-    title: "OpenCRM-Umzug",
+    title: "N&E CRM",
     description:
-      "Customer relationship management — contacts, companies, deals, tasks, and notes.",
-    siteName: "OpenCRM-Umzug",
+      "N&E Innovations CRM — BioTech leads, trade fairs, and customers across Europe and Asia.",
+    siteName: "N&E CRM",
     type: "website",
     locale: "en_US",
   },
   twitter: {
     card: "summary_large_image",
-    title: "OpenCRM-Umzug",
+    title: "N&E CRM",
     description:
-      "Customer relationship management — contacts, companies, deals, tasks, and notes.",
+      "N&E Innovations CRM — BioTech leads, trade fairs, and customers across Europe and Asia.",
   },
   ...(process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION
     ? {

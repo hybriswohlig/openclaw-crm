@@ -111,6 +111,21 @@ export const STANDARD_OBJECTS: StandardObject[] = [
         selectOptions: COUNTRY_OPTIONS,
       },
       {
+        slug: "team",
+        title: "Team",
+        type: "select",
+        isSystem: true,
+        isRequired: false,
+        isUnique: false,
+        isMultiselect: false,
+        selectOptions: [
+          { title: "N&E Germany", color: "#000000" },
+          { title: "N&E France", color: "#0055a4" },
+          { title: "N&E UK", color: "#c8102e" },
+          { title: "N&E Singapore", color: "#ef3340" },
+        ],
+      },
+      {
         slug: "lead_source",
         title: "Lead Source",
         type: "select",
@@ -135,13 +150,30 @@ export const STANDARD_OBJECTS: StandardObject[] = [
         isUnique: false,
         isMultiselect: false,
         selectOptions: [
+          // ── Food & Packaging (primary) ──
+          { title: "Horeca (Hotel / Restaurant / Catering)", color: "#f97316" },
+          { title: "Food Producer / Manufacturer", color: "#84cc16" },
+          { title: "Meat Processor", color: "#dc2626" },
+          { title: "Fish & Seafood Processor", color: "#0891b2" },
+          { title: "Dairy Producer", color: "#fbbf24" },
+          { title: "Bakery & Confectionery", color: "#d97706" },
+          { title: "Beverage Producer", color: "#06b6d4" },
+          { title: "Fruit & Vegetable Processor", color: "#16a34a" },
+          { title: "Ready Meals / Convenience Food", color: "#a16207" },
+          { title: "Frozen Food", color: "#38bdf8" },
+          { title: "Food Distributor / Wholesaler", color: "#7c3aed" },
+          { title: "Food Retailer / Supermarket", color: "#ec4899" },
+          { title: "Contract Catering / Canteen", color: "#f59e0b" },
+          { title: "Packaging Manufacturer", color: "#64748b" },
+          { title: "Private Label / Co-packer", color: "#94a3b8" },
+          // ── BioTech / Life Sciences ──
           { title: "Pharma", color: "#6366f1" },
           { title: "Biotech", color: "#0891b2" },
           { title: "Medical Devices", color: "#7c3aed" },
           { title: "Life Sciences", color: "#16a34a" },
           { title: "Research / Academia", color: "#ca8a04" },
           { title: "CRO / CMO", color: "#f97316" },
-          { title: "Food & Beverage", color: "#84cc16" },
+          // ── Other ──
           { title: "Cosmetics", color: "#ec4899" },
           { title: "Chemical", color: "#94a3b8" },
           { title: "Other", color: "#64748b" },
@@ -228,27 +260,29 @@ export const STANDARD_OBJECTS: StandardObject[] = [
 ];
 
 /**
- * BioTech lead pipeline stages.
+ * BioTech / food-packaging lead pipeline stages.
  * Grouped into phases so the board can render group headers.
  * Customer status is tracked on the Company record, not here.
  */
 export const DEAL_STAGES = [
   // ── Outreach ──
-  { title: "New Lead",         color: "#6366f1", sortOrder: 0,  isActive: true,  celebrationEnabled: false },
-  { title: "Email Sent",       color: "#7c3aed", sortOrder: 1,  isActive: true,  celebrationEnabled: false },
+  { title: "New Lead",          color: "#6366f1", sortOrder: 0,  isActive: true,  celebrationEnabled: false },
+  { title: "Email Sent",        color: "#7c3aed", sortOrder: 1,  isActive: true,  celebrationEnabled: false },
   // ── Discovery ──
-  { title: "Discovery Call",   color: "#8b5cf6", sortOrder: 2,  isActive: true,  celebrationEnabled: false },
-  { title: "Qualified",        color: "#a78bfa", sortOrder: 3,  isActive: true,  celebrationEnabled: false },
+  { title: "Discovery Call",    color: "#8b5cf6", sortOrder: 2,  isActive: true,  celebrationEnabled: false },
+  { title: "Qualified",         color: "#a78bfa", sortOrder: 3,  isActive: true,  celebrationEnabled: false },
   // ── Proposal ──
-  { title: "Proposal Sent",    color: "#d946ef", sortOrder: 4,  isActive: true,  celebrationEnabled: false },
-  { title: "Quotation Sent",   color: "#e879f9", sortOrder: 5,  isActive: true,  celebrationEnabled: false },
+  { title: "Proposal Sent",     color: "#d946ef", sortOrder: 4,  isActive: true,  celebrationEnabled: false },
+  { title: "Quotation Sent",    color: "#e879f9", sortOrder: 5,  isActive: true,  celebrationEnabled: false },
   // ── Closing ──
-  { title: "Follow-up Meeting",color: "#f97316", sortOrder: 6,  isActive: true,  celebrationEnabled: false },
-  { title: "Invoice Sent",     color: "#fb923c", sortOrder: 7,  isActive: true,  celebrationEnabled: true  },
-  { title: "Final Invoice",    color: "#fbbf24", sortOrder: 8,  isActive: true,  celebrationEnabled: true  },
+  { title: "Follow-up Meeting", color: "#f97316", sortOrder: 6,  isActive: true,  celebrationEnabled: false },
+  { title: "Invoice Sent",      color: "#fb923c", sortOrder: 7,  isActive: true,  celebrationEnabled: false },
+  { title: "Final Invoice",     color: "#fbbf24", sortOrder: 8,  isActive: true,  celebrationEnabled: false },
+  // ── Closed ──
+  { title: "Closed Won",        color: "#22c55e", sortOrder: 9,  isActive: true,  celebrationEnabled: true  },
   // ── Lost ──
-  { title: "Lost",             color: "#ef4444", sortOrder: 9,  isActive: false, celebrationEnabled: false },
-  { title: "On Hold",          color: "#94a3b8", sortOrder: 10, isActive: false, celebrationEnabled: false },
+  { title: "Lost",              color: "#ef4444", sortOrder: 10, isActive: false, celebrationEnabled: false },
+  { title: "On Hold",           color: "#94a3b8", sortOrder: 11, isActive: false, celebrationEnabled: false },
 ];
 
 /** Stage group definitions — used by the Leads board sidebar */
@@ -257,5 +291,6 @@ export const LEAD_STAGE_GROUPS: { label: string; stages: string[]; color: string
   { label: "Discovery", stages: ["Discovery Call", "Qualified"],                       color: "#8b5cf6" },
   { label: "Proposal",  stages: ["Proposal Sent", "Quotation Sent"],                   color: "#d946ef" },
   { label: "Closing",   stages: ["Follow-up Meeting", "Invoice Sent", "Final Invoice"],color: "#f97316" },
+  { label: "Closed",    stages: ["Closed Won"],                                        color: "#22c55e" },
   { label: "Lost",      stages: ["Lost", "On Hold"],                                   color: "#ef4444" },
 ];

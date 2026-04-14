@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { records, recordValues, attributes, objects } from "@/db/schema";
+import { records, recordValues, attributes, objects, recordChanges } from "@/db/schema";
 import { eq, and, inArray, desc, asc, sql, type SQL } from "drizzle-orm";
 import { ATTRIBUTE_TYPE_COLUMN_MAP, type AttributeType } from "@openclaw-crm/shared";
 import type { FilterGroup, SortConfig } from "@openclaw-crm/shared";
@@ -12,6 +12,7 @@ import { batchGetRecordDisplayNames } from "./display-names";
 interface AttributeInfo {
   id: string;
   slug: string;
+  title: string;
   type: AttributeType;
   isMultiselect: boolean;
 }
@@ -43,6 +44,7 @@ async function loadAttributes(objectId: string) {
     const info: AttributeInfo = {
       id: a.id,
       slug: a.slug,
+      title: a.title,
       type: a.type as AttributeType,
       isMultiselect: a.isMultiselect,
     };
@@ -386,6 +388,11 @@ export async function updateRecord(
 
   if (existing.length === 0) return null;
 
+  // Snapshot the current hydrated values so we can log field-level changes
+  // after the update. Done before any writes so we capture the true "from" state.
+  const beforeRecord = await getRecord(objectId, recordId);
+  const beforeValues = beforeRecord?.values ?? {};
+
   // Update timestamp
   await db
     .update(records)
@@ -393,7 +400,7 @@ export async function updateRecord(
     .where(eq(records.id, recordId));
 
   // Delete existing values for the attributes being updated, then insert new
-  for (const [slug, value] of Object.entries(input)) {
+  for (const [slug] of Object.entries(input)) {
     const attrInfo = bySlug.get(slug);
     if (!attrInfo) continue;
 
@@ -411,7 +418,52 @@ export async function updateRecord(
   // Write new values
   await writeValues(recordId, input, bySlug, updatedBy);
 
+  // Log field-level changes to the audit table. Best-effort — never block
+  // the write on a log failure.
+  try {
+    const changeRows: (typeof recordChanges.$inferInsert)[] = [];
+    for (const [slug, newValue] of Object.entries(input)) {
+      const attrInfo = bySlug.get(slug);
+      if (!attrInfo) continue;
+      const oldValue = beforeValues[slug] ?? null;
+      const normalizedNew = newValue === undefined ? null : newValue;
+      if (!valuesEqual(oldValue, normalizedNew)) {
+        changeRows.push({
+          recordId,
+          attributeSlug: attrInfo.slug,
+          attributeTitle: attrInfo.title,
+          attributeType: attrInfo.type,
+          oldValue: oldValue as unknown,
+          newValue: normalizedNew as unknown,
+          changedBy: updatedBy,
+        });
+      }
+    }
+    if (changeRows.length > 0) {
+      await db.insert(recordChanges).values(changeRows);
+    }
+  } catch (err) {
+    console.error("[recordChanges] failed to log update", err);
+  }
+
   return getRecord(objectId, recordId);
+}
+
+/** Deep-ish equality for hydrated record values (arrays, objects, primitives). */
+function valuesEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a === null || b === null || a === undefined || b === undefined) {
+    return (a ?? null) === (b ?? null);
+  }
+  if (typeof a !== typeof b) return false;
+  if (typeof a === "object") {
+    try {
+      return JSON.stringify(a) === JSON.stringify(b);
+    } catch {
+      return false;
+    }
+  }
+  return false;
 }
 
 export async function deleteRecord(objectId: string, recordId: string) {

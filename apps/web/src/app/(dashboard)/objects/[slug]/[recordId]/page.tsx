@@ -223,7 +223,12 @@ export default function RecordDetailPage() {
             </TabsContent>
 
             <TabsContent value="activity">
-              <ActivityTimeline activities={activities} />
+              <ActivityTimeline
+                activities={activities}
+                objectSlug={slug}
+                recordId={recordId}
+                onCommentPosted={fetchData}
+              />
             </TabsContent>
 
             <TabsContent value="related">
