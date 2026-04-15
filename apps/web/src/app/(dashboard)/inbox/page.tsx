@@ -16,6 +16,7 @@ import {
   X,
   Check,
   PenSquare,
+  Pencil,
   Inbox as InboxIcon,
   Archive,
 } from "lucide-react";
@@ -1070,25 +1071,105 @@ function ComposeWhatsAppModal({
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
 
-  // Fetch templates whenever the channel account changes.
+  // Metadata: per-template variable labels. Keyed by `${name}|${language}`.
+  type MetadataRow = {
+    templateName: string;
+    languageCode: string;
+    variableLabels: Record<string, string>;
+  };
+  const [metadata, setMetadata] = useState<MetadataRow[]>([]);
+  const [editingLabel, setEditingLabel] = useState<number | null>(null);
+  const [labelDraft, setLabelDraft] = useState<string>("");
+
+  // Fetch templates AND metadata whenever the channel account changes.
   useEffect(() => {
     if (!channelAccountId) return;
     setTemplatesLoading(true);
     setTemplatesError(null);
     setSelectedTemplate("");
     setVariables([]);
-    fetch(`/api/v1/inbox/channel-accounts/${channelAccountId}/templates`)
-      .then(async (res) => {
-        const j = await res.json();
-        if (!res.ok) throw new Error(j.error?.message ?? "Failed to load templates");
-        const approved: WhatsAppTemplate[] = (j.data ?? []).filter(
-          (t: WhatsAppTemplate) => t.status === "APPROVED"
-        );
-        setTemplates(approved);
+    setMetadata([]);
+    Promise.all([
+      fetch(`/api/v1/inbox/channel-accounts/${channelAccountId}/templates`).then(
+        async (res) => {
+          const j = await res.json();
+          if (!res.ok) throw new Error(j.error?.message ?? "Failed to load templates");
+          return (j.data ?? []).filter(
+            (t: WhatsAppTemplate) => t.status === "APPROVED"
+          ) as WhatsAppTemplate[];
+        }
+      ),
+      fetch(
+        `/api/v1/inbox/channel-accounts/${channelAccountId}/templates/metadata`
+      )
+        .then(async (res) => {
+          const j = await res.json();
+          if (!res.ok) return [] as MetadataRow[];
+          return (j.data ?? []) as MetadataRow[];
+        })
+        .catch(() => [] as MetadataRow[]),
+    ])
+      .then(([tpls, meta]) => {
+        setTemplates(tpls);
+        setMetadata(meta);
       })
       .catch((err) => setTemplatesError(err.message))
       .finally(() => setTemplatesLoading(false));
   }, [channelAccountId]);
+
+  const activeMetadata = metadata.find(
+    (m) =>
+      m.templateName === selectedTemplate &&
+      m.languageCode ===
+        (templates.find((t) => t.name === selectedTemplate)?.language ?? "")
+  );
+
+  function labelFor(index: number): string {
+    return activeMetadata?.variableLabels[String(index + 1)] ?? `{{${index + 1}}}`;
+  }
+
+  async function saveLabel(index: number, value: string) {
+    const tpl = templates.find((t) => t.name === selectedTemplate);
+    if (!tpl) return;
+    const currentLabels = { ...(activeMetadata?.variableLabels ?? {}) };
+    if (value.trim()) {
+      currentLabels[String(index + 1)] = value.trim();
+    } else {
+      delete currentLabels[String(index + 1)];
+    }
+    // Optimistic update so the UI doesn't flicker.
+    setMetadata((prev) => {
+      const key = `${tpl.name}|${tpl.language}`;
+      const others = prev.filter(
+        (m) => `${m.templateName}|${m.languageCode}` !== key
+      );
+      return [
+        ...others,
+        {
+          templateName: tpl.name,
+          languageCode: tpl.language,
+          variableLabels: currentLabels,
+        },
+      ];
+    });
+    try {
+      await fetch(
+        `/api/v1/inbox/channel-accounts/${channelAccountId}/templates/metadata`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            templateName: tpl.name,
+            languageCode: tpl.language,
+            variableLabels: currentLabels,
+          }),
+        }
+      );
+    } catch {
+      // Silent — the optimistic state keeps working, the server just didn't
+      // persist. Next modal open will reload from server anyway.
+    }
+  }
 
   // Reset variable inputs when the selected template changes.
   useEffect(() => {
@@ -1239,19 +1320,62 @@ function ComposeWhatsAppModal({
                 <div className="space-y-2">
                   <label className="text-xs font-medium">Variablen</label>
                   {variables.map((v, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground font-mono w-10 shrink-0">
-                        {`{{${i + 1}}}`}
-                      </span>
+                    <div key={i} className="space-y-1">
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        {editingLabel === i ? (
+                          <input
+                            autoFocus
+                            type="text"
+                            value={labelDraft}
+                            onChange={(e) => setLabelDraft(e.target.value)}
+                            onBlur={() => {
+                              void saveLabel(i, labelDraft);
+                              setEditingLabel(null);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.currentTarget.blur();
+                              } else if (e.key === "Escape") {
+                                setEditingLabel(null);
+                              }
+                            }}
+                            placeholder={`Label für {{${i + 1}}}`}
+                            className="flex-1 rounded border border-input bg-background px-2 py-0.5 text-xs"
+                          />
+                        ) : (
+                          <>
+                            <span className="font-mono text-[10px] text-muted-foreground/70">
+                              {`{{${i + 1}}}`}
+                            </span>
+                            <span className="font-medium text-foreground">
+                              {activeMetadata?.variableLabels[String(i + 1)] ?? ""}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setLabelDraft(
+                                  activeMetadata?.variableLabels[String(i + 1)] ?? ""
+                                );
+                                setEditingLabel(i);
+                              }}
+                              className="text-muted-foreground/60 hover:text-foreground"
+                              title="Label bearbeiten"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
+                          </>
+                        )}
+                      </div>
                       <input
                         type="text"
                         value={v}
+                        placeholder={labelFor(i)}
                         onChange={(e) =>
                           setVariables((prev) =>
                             prev.map((pv, pi) => (pi === i ? e.target.value : pv))
                           )
                         }
-                        className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                       />
                     </div>
                   ))}

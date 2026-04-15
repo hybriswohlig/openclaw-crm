@@ -5,8 +5,10 @@ import {
   integer,
   boolean,
   timestamp,
+  jsonb,
   index,
   uniqueIndex,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 import { workspaces } from "./workspace";
 import { records } from "./records";
@@ -212,5 +214,37 @@ export const inboxMessages = pgTable(
       table.conversationId,
       table.externalMessageId
     ),
+  ]
+);
+
+// ─── WhatsApp template metadata ───────────────────────────────────────────────
+// Per-template variable labels so the compose UI can show "Kundenvorname"
+// instead of "{{1}}". Meta doesn't expose variable semantics, so we persist
+// them on our side, keyed by WABA + template name + language.
+
+export const whatsappTemplateMetadata = pgTable(
+  "whatsapp_template_metadata",
+  {
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    wabaId: text("waba_id").notNull(),
+    templateName: text("template_name").notNull(),
+    languageCode: text("language_code").notNull(),
+    variableLabels: jsonb("variable_labels")
+      .$type<Record<string, string>>()
+      .notNull()
+      .default({}),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [
+        table.workspaceId,
+        table.wabaId,
+        table.templateName,
+        table.languageCode,
+      ],
+    }),
   ]
 );

@@ -18,6 +18,7 @@ import {
   inboxConversations,
   inboxContacts,
   inboxMessages,
+  whatsappTemplateMetadata,
 } from "@/db/schema/inbox";
 import { eq, and } from "drizzle-orm";
 import { createDealForNewConversation } from "./inbox";
@@ -818,6 +819,94 @@ async function renderTemplatePreview(
   } catch {
     return `[Template: ${templateName}]`;
   }
+}
+
+// ─── Template metadata (variable labels) ─────────────────────────────────────
+// Labels are scoped per WABA, not per channel account, so re-creating a
+// channel account doesn't lose them.
+
+export interface TemplateMetadataRow {
+  templateName: string;
+  languageCode: string;
+  variableLabels: Record<string, string>;
+}
+
+async function requireChannelAccountWaba(
+  channelAccountId: string,
+  workspaceId: string
+) {
+  const [account] = await db
+    .select()
+    .from(channelAccounts)
+    .where(
+      and(
+        eq(channelAccounts.id, channelAccountId),
+        eq(channelAccounts.workspaceId, workspaceId)
+      )
+    )
+    .limit(1);
+  if (!account) throw new Error("Channel account not found");
+  if (account.channelType !== "whatsapp") {
+    throw new Error("Not a WhatsApp channel account");
+  }
+  if (!account.wabaId) throw new Error("Channel account missing WABA id");
+  return account;
+}
+
+/** Return all template metadata rows for the WABA behind this channel account. */
+export async function getTemplateMetadataForAccount(
+  channelAccountId: string,
+  workspaceId: string
+): Promise<TemplateMetadataRow[]> {
+  const account = await requireChannelAccountWaba(channelAccountId, workspaceId);
+  const rows = await db
+    .select()
+    .from(whatsappTemplateMetadata)
+    .where(
+      and(
+        eq(whatsappTemplateMetadata.workspaceId, workspaceId),
+        eq(whatsappTemplateMetadata.wabaId, account.wabaId!)
+      )
+    );
+  return rows.map((r) => ({
+    templateName: r.templateName,
+    languageCode: r.languageCode,
+    variableLabels: r.variableLabels,
+  }));
+}
+
+export async function setTemplateLabels(params: {
+  channelAccountId: string;
+  workspaceId: string;
+  templateName: string;
+  languageCode: string;
+  variableLabels: Record<string, string>;
+}) {
+  const account = await requireChannelAccountWaba(
+    params.channelAccountId,
+    params.workspaceId
+  );
+  await db
+    .insert(whatsappTemplateMetadata)
+    .values({
+      workspaceId: params.workspaceId,
+      wabaId: account.wabaId!,
+      templateName: params.templateName,
+      languageCode: params.languageCode,
+      variableLabels: params.variableLabels,
+    })
+    .onConflictDoUpdate({
+      target: [
+        whatsappTemplateMetadata.workspaceId,
+        whatsappTemplateMetadata.wabaId,
+        whatsappTemplateMetadata.templateName,
+        whatsappTemplateMetadata.languageCode,
+      ],
+      set: {
+        variableLabels: params.variableLabels,
+        updatedAt: new Date(),
+      },
+    });
 }
 
 // ─── Settings helpers ─────────────────────────────────────────────────────────
