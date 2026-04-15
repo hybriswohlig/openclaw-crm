@@ -67,6 +67,8 @@ export const channelAccounts = pgTable(
     // WhatsApp Business Account ID / Phone number ID (Meta API)
     wabaId: text("waba_id"),
     waPhoneNumberId: text("wa_phone_number_id"),
+    // Human-readable display number (e.g. "+49 30 12345678") used in the UI.
+    waDisplayPhoneNumber: text("wa_display_phone_number"),
     isActive: boolean("is_active").notNull().default(true),
     // Stores the last IMAP UID seen so polling only fetches new mail
     lastSyncUid: integer("last_sync_uid").default(0),
@@ -77,6 +79,7 @@ export const channelAccounts = pgTable(
   (table) => [
     index("channel_accounts_workspace_idx").on(table.workspaceId),
     index("channel_accounts_op_company_idx").on(table.operatingCompanyRecordId),
+    index("channel_accounts_wa_phone_number_id_idx").on(table.waPhoneNumberId),
     uniqueIndex("channel_accounts_workspace_address_idx").on(
       table.workspaceId,
       table.address
@@ -205,5 +208,9 @@ export const inboxMessages = pgTable(
     index("inbox_messages_external_id_idx").on(table.externalMessageId),
     index("inbox_messages_is_read_idx").on(table.isRead),
     index("inbox_messages_sent_at_idx").on(table.sentAt),
+    uniqueIndex("inbox_messages_conv_external_id_uniq").on(
+      table.conversationId,
+      table.externalMessageId
+    ),
   ]
 );

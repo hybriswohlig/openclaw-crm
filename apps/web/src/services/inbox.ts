@@ -37,6 +37,7 @@ export async function createChannelAccount(
     smtpHost?: string;
     wabaId?: string;
     waPhoneNumberId?: string;
+    waDisplayPhoneNumber?: string;
   }
 ) {
   const [row] = await db
@@ -58,6 +59,7 @@ export async function updateChannelAccount(
     smtpHost: string | null;
     wabaId: string | null;
     waPhoneNumberId: string | null;
+    waDisplayPhoneNumber: string | null;
   }>
 ) {
   const [row] = await db

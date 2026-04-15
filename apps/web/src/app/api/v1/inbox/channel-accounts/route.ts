@@ -23,7 +23,18 @@ export async function POST(req: NextRequest) {
   if (deny) return deny;
 
   const body = await req.json();
-  const { name, channelType, address, credential, operatingCompanyRecordId, imapHost, smtpHost, wabaId, waPhoneNumberId } = body;
+  const {
+    name,
+    channelType,
+    address,
+    credential,
+    operatingCompanyRecordId,
+    imapHost,
+    smtpHost,
+    wabaId,
+    waPhoneNumberId,
+    waDisplayPhoneNumber,
+  } = body;
 
   if (!name || !channelType || !address) {
     return NextResponse.json({ error: "name, channelType and address are required" }, { status: 400 });
@@ -31,7 +42,7 @@ export async function POST(req: NextRequest) {
 
   const row = await createChannelAccount(ctx.workspaceId, {
     name, channelType, address, credential, operatingCompanyRecordId,
-    imapHost, smtpHost, wabaId, waPhoneNumberId,
+    imapHost, smtpHost, wabaId, waPhoneNumberId, waDisplayPhoneNumber,
   });
   return success(row);
 }
