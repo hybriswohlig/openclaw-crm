@@ -64,6 +64,41 @@
       "when": 1775904030108,
       "tag": "0008_flaky_punisher",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1775904151251,
+      "tag": "0009_deal_documents",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1775906627836,
+      "tag": "0010_integrations",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1775934646668,
+      "tag": "0011_inbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1775939100023,
+      "tag": "0012_ai_framework",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1776273900000,
+      "tag": "0013_whatsapp_channel",
+      "breakpoints": true
     }
   ]
 }
