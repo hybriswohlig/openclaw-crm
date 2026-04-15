@@ -18,6 +18,7 @@ import {
   X,
   Check,
   Tag,
+  PenSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -490,6 +491,7 @@ export default function InboxPage() {
   const [accountFilter, setAccountFilter] = useState<string>("all");
   const [sourceFilter, setSourceFilter] = useState<"all" | "kleinanzeigen">("all");
   const [search, setSearch] = useState("");
+  const [composeOpen, setComposeOpen] = useState(false);
 
   const fetchConversations = useCallback(async () => {
     const params = new URLSearchParams({ status: statusFilter });
@@ -553,6 +555,7 @@ export default function InboxPage() {
   const unreadTotal = conversations.reduce((s, c) => s + c.unreadCount, 0);
 
   return (
+    <>
     <div className="flex h-full overflow-hidden">
       {/* ── Left panel: conversation list ── */}
       <div
@@ -571,14 +574,23 @@ export default function InboxPage() {
                 <p className="text-xs text-muted-foreground">{unreadTotal} ungelesen</p>
               )}
             </div>
-            <button
-              onClick={handleSync}
-              disabled={syncing}
-              className="h-8 w-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-              title="E-Mails abrufen"
-            >
-              <RefreshCw className={cn("h-4 w-4", syncing && "animate-spin")} />
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setComposeOpen(true)}
+                className="h-8 w-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                title="Neue WhatsApp-Nachricht"
+              >
+                <PenSquare className="h-4 w-4" />
+              </button>
+              <button
+                onClick={handleSync}
+                disabled={syncing}
+                className="h-8 w-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                title="E-Mails abrufen"
+              >
+                <RefreshCw className={cn("h-4 w-4", syncing && "animate-spin")} />
+              </button>
+            </div>
           </div>
 
           {/* Search */}
@@ -750,6 +762,279 @@ export default function InboxPage() {
             </button>
           </div>
         )}
+      </div>
+    </div>
+    {composeOpen && (
+      <ComposeWhatsAppModal
+        accounts={accounts.filter((a) => a.channelType === "whatsapp" && a.isActive)}
+        onClose={() => setComposeOpen(false)}
+        onSent={(conversationId) => {
+          setComposeOpen(false);
+          void fetchConversations();
+          // Select the conversation if it's already in the list, otherwise
+          // the refetch above will pull it in and the user can click it.
+          setTimeout(() => {
+            setConversations((prev) => {
+              const found = prev.find((c) => c.id === conversationId);
+              if (found) setSelected(found);
+              return prev;
+            });
+          }, 300);
+        }}
+      />
+    )}
+    </>
+  );
+}
+
+// ─── Compose WhatsApp modal ───────────────────────────────────────────────────
+// First-contact flow: pick a business number, enter recipient phone + name,
+// pick an approved template, fill its `{{n}}` variables, send. Meta only
+// allows outbound-initiated conversations via approved templates, which is
+// why the composer below doesn't offer a free-text option.
+
+interface WhatsAppTemplate {
+  name: string;
+  language: string;
+  status: string;
+  category: string;
+  components: Array<{ type: string; text?: string }>;
+  bodyVariableCount: number;
+}
+
+function ComposeWhatsAppModal({
+  accounts,
+  onClose,
+  onSent,
+}: {
+  accounts: ChannelAccount[];
+  onClose: () => void;
+  onSent: (conversationId: string) => void;
+}) {
+  const [channelAccountId, setChannelAccountId] = useState<string>(accounts[0]?.id ?? "");
+  const [templates, setTemplates] = useState<WhatsAppTemplate[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [templatesError, setTemplatesError] = useState<string | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<string>("");
+  const [toPhone, setToPhone] = useState("");
+  const [customerName, setCustomerName] = useState("");
+  const [variables, setVariables] = useState<string[]>([]);
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+
+  // Fetch templates whenever the channel account changes.
+  useEffect(() => {
+    if (!channelAccountId) return;
+    setTemplatesLoading(true);
+    setTemplatesError(null);
+    setSelectedTemplate("");
+    setVariables([]);
+    fetch(`/api/v1/inbox/channel-accounts/${channelAccountId}/templates`)
+      .then(async (res) => {
+        const j = await res.json();
+        if (!res.ok) throw new Error(j.error?.message ?? "Failed to load templates");
+        const approved: WhatsAppTemplate[] = (j.data ?? []).filter(
+          (t: WhatsAppTemplate) => t.status === "APPROVED"
+        );
+        setTemplates(approved);
+      })
+      .catch((err) => setTemplatesError(err.message))
+      .finally(() => setTemplatesLoading(false));
+  }, [channelAccountId]);
+
+  // Reset variable inputs when the selected template changes.
+  useEffect(() => {
+    const tpl = templates.find((t) => t.name === selectedTemplate);
+    if (!tpl) {
+      setVariables([]);
+      return;
+    }
+    setVariables(Array.from({ length: tpl.bodyVariableCount }, () => ""));
+  }, [selectedTemplate, templates]);
+
+  const activeTemplate = templates.find((t) => t.name === selectedTemplate);
+  const bodyText =
+    activeTemplate?.components.find((c) => c.type === "BODY")?.text ?? "";
+  const previewText = bodyText.replace(/\{\{\s*(\d+)\s*\}\}/g, (_, n) => {
+    const idx = Number(n) - 1;
+    return variables[idx] || `{{${n}}}`;
+  });
+
+  const canSend =
+    !sending &&
+    channelAccountId &&
+    toPhone.trim().replace(/\D+/g, "").length >= 7 &&
+    selectedTemplate &&
+    variables.every((v) => v.trim().length > 0);
+
+  async function handleSend() {
+    setSending(true);
+    setSendError(null);
+    try {
+      const tpl = templates.find((t) => t.name === selectedTemplate);
+      const res = await fetch("/api/v1/inbox/whatsapp/send-template", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          channelAccountId,
+          toPhone,
+          customerName,
+          templateName: selectedTemplate,
+          languageCode: tpl?.language ?? "de",
+          bodyParams: variables,
+        }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error ?? "Send failed");
+      onSent(j.data.conversationId);
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : "Send failed");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-background rounded-lg shadow-xl w-full max-w-xl max-h-[90vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border shrink-0">
+          <h2 className="font-semibold text-sm">Neue WhatsApp-Nachricht</h2>
+          <button
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          {accounts.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Keine aktiven WhatsApp-Nummern konfiguriert. Bitte in den Einstellungen
+              unter <b>Einstellungen → WhatsApp</b> eine Nummer hinzufügen.
+            </p>
+          ) : (
+            <>
+              {/* From (channel account) */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium">Absender</label>
+                <select
+                  value={channelAccountId}
+                  onChange={(e) => setChannelAccountId(e.target.value)}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  {accounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name} · {a.address}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Recipient */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium">Empfänger (Telefon)</label>
+                  <input
+                    type="tel"
+                    placeholder="+49 170 1234567"
+                    value={toPhone}
+                    onChange={(e) => setToPhone(e.target.value)}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium">Kundenname</label>
+                  <input
+                    type="text"
+                    placeholder="Max Mustermann"
+                    value={customerName}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+
+              {/* Template picker */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium">Template</label>
+                {templatesLoading ? (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Templates werden geladen…
+                  </div>
+                ) : templatesError ? (
+                  <p className="text-xs text-red-600">{templatesError}</p>
+                ) : templates.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    Keine genehmigten Templates für diese Nummer gefunden.
+                  </p>
+                ) : (
+                  <select
+                    value={selectedTemplate}
+                    onChange={(e) => setSelectedTemplate(e.target.value)}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="">— Template wählen —</option>
+                    {templates.map((t) => (
+                      <option key={`${t.name}-${t.language}`} value={t.name}>
+                        {t.name} ({t.language}, {t.category.toLowerCase()})
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              {/* Variable inputs */}
+              {activeTemplate && variables.length > 0 && (
+                <div className="space-y-2">
+                  <label className="text-xs font-medium">Variablen</label>
+                  {variables.map((v, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground font-mono w-10 shrink-0">
+                        {`{{${i + 1}}}`}
+                      </span>
+                      <input
+                        type="text"
+                        value={v}
+                        onChange={(e) =>
+                          setVariables((prev) =>
+                            prev.map((pv, pi) => (pi === i ? e.target.value : pv))
+                          )
+                        }
+                        className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Preview */}
+              {activeTemplate && (
+                <div className="space-y-1">
+                  <label className="text-xs font-medium">Vorschau</label>
+                  <div className="rounded-md bg-muted/40 border border-border p-3 text-sm whitespace-pre-wrap">
+                    {previewText}
+                  </div>
+                </div>
+              )}
+
+              {sendError && <p className="text-xs text-red-600">{sendError}</p>}
+            </>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border shrink-0">
+          <Button variant="outline" size="sm" onClick={onClose}>
+            Abbrechen
+          </Button>
+          <Button size="sm" onClick={handleSend} disabled={!canSend}>
+            {sending && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
+            Senden
+          </Button>
+        </div>
       </div>
     </div>
   );

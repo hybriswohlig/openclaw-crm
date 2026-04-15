@@ -502,6 +502,324 @@ export async function sendWhatsAppReply(params: {
   return stored;
 }
 
+// ─── Templates (Meta-approved message templates) ─────────────────────────────
+// Templates are the only way to open a conversation from the business side or
+// reply after the 24h customer-service window expires. They're created and
+// approved inside Meta Business Suite; we fetch them live from the Graph API
+// per channel account — no caching, so what you see in the CRM always matches
+// Meta's source of truth.
+
+export interface WhatsAppTemplateComponent {
+  type: "HEADER" | "BODY" | "FOOTER" | "BUTTONS";
+  text?: string;
+  format?: string;
+  example?: unknown;
+  buttons?: Array<{ type: string; text: string }>;
+}
+
+export interface WhatsAppTemplate {
+  name: string;
+  language: string;
+  status: "APPROVED" | "PENDING" | "REJECTED" | "DISABLED" | "PAUSED";
+  category: "UTILITY" | "MARKETING" | "AUTHENTICATION";
+  components: WhatsAppTemplateComponent[];
+  /** Number of `{{n}}` placeholders in the BODY component. */
+  bodyVariableCount: number;
+}
+
+/** Count `{{1}}`, `{{2}}` … placeholders in a template body string. */
+function countBodyVariables(text: string | undefined): number {
+  if (!text) return 0;
+  const matches = text.match(/\{\{\s*\d+\s*\}\}/g);
+  return matches ? new Set(matches).size : 0;
+}
+
+/** Fetch all message templates for a channel account's WABA, live from Meta. */
+export async function fetchWhatsAppTemplates(
+  channelAccountId: string,
+  workspaceId: string
+): Promise<WhatsAppTemplate[]> {
+  const [account] = await db
+    .select()
+    .from(channelAccounts)
+    .where(
+      and(
+        eq(channelAccounts.id, channelAccountId),
+        eq(channelAccounts.workspaceId, workspaceId)
+      )
+    )
+    .limit(1);
+  if (!account) throw new Error("Channel account not found");
+  if (account.channelType !== "whatsapp") {
+    throw new Error("Not a WhatsApp channel account");
+  }
+  if (!account.wabaId || !account.credential) {
+    throw new Error("Channel account missing WABA id or access token");
+  }
+
+  const url =
+    `${GRAPH_API_BASE}/${account.wabaId}/message_templates` +
+    `?fields=name,language,status,category,components&limit=100`;
+
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${account.credential}` },
+  });
+  const json = (await res.json().catch(() => ({}))) as {
+    data?: Array<Omit<WhatsAppTemplate, "bodyVariableCount">>;
+    error?: { message?: string };
+  };
+  if (!res.ok) {
+    throw new Error(
+      `Failed to fetch templates: ${json.error?.message ?? res.status}`
+    );
+  }
+
+  return (json.data ?? []).map((t) => {
+    const body = t.components?.find((c) => c.type === "BODY");
+    return { ...t, bodyVariableCount: countBodyVariables(body?.text) };
+  });
+}
+
+/** Strip non-digits from a phone number. Meta expects digits-only E.164. */
+export function normalizeWaPhone(input: string): string {
+  const digits = input.replace(/\D+/g, "");
+  if (digits.length < 7) throw new Error("Invalid phone number");
+  return digits;
+}
+
+export async function sendWhatsAppTemplate(params: {
+  workspaceId: string;
+  channelAccountId: string;
+  toPhone: string;
+  customerName: string;
+  templateName: string;
+  languageCode: string;
+  bodyParams: string[];
+}) {
+  const {
+    workspaceId,
+    channelAccountId,
+    toPhone,
+    customerName,
+    templateName,
+    languageCode,
+    bodyParams,
+  } = params;
+
+  const [account] = await db
+    .select()
+    .from(channelAccounts)
+    .where(
+      and(
+        eq(channelAccounts.id, channelAccountId),
+        eq(channelAccounts.workspaceId, workspaceId)
+      )
+    )
+    .limit(1);
+  if (!account) throw new Error("Channel account not found");
+  if (account.channelType !== "whatsapp") {
+    throw new Error("Not a WhatsApp channel account");
+  }
+  if (!account.waPhoneNumberId || !account.credential) {
+    throw new Error("Channel account missing phone number ID or access token");
+  }
+
+  const waId = normalizeWaPhone(toPhone);
+
+  // Upsert contact + conversation up-front so the message has somewhere to
+  // land even if Meta's response is slow. We mirror the email thread-key
+  // behaviour: (channelAccountId, waId) uniquely identifies a conversation.
+  const contact = await upsertContact(workspaceId, waId, customerName);
+
+  const threadKey = waId;
+  let [conv] = await db
+    .select()
+    .from(inboxConversations)
+    .where(
+      and(
+        eq(inboxConversations.channelAccountId, account.id),
+        eq(inboxConversations.externalThreadId, threadKey)
+      )
+    )
+    .limit(1);
+
+  let createdNewConversation = false;
+  if (!conv) {
+    const [created] = await db
+      .insert(inboxConversations)
+      .values({
+        workspaceId,
+        channelAccountId: account.id,
+        contactId: contact.id,
+        externalThreadId: threadKey,
+        subject: null,
+        lastMessageAt: new Date(),
+        lastMessagePreview: `Du: [Template] ${templateName}`,
+        unreadCount: 0,
+      })
+      .returning();
+    conv = created;
+    createdNewConversation = true;
+  }
+
+  // Call Meta. Templates bypass the 24h window — that's their whole point.
+  const res = await fetch(
+    `${GRAPH_API_BASE}/${account.waPhoneNumberId}/messages`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${account.credential}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to: waId,
+        type: "template",
+        template: {
+          name: templateName,
+          language: { code: languageCode },
+          components:
+            bodyParams.length > 0
+              ? [
+                  {
+                    type: "body",
+                    parameters: bodyParams.map((text) => ({
+                      type: "text",
+                      text,
+                    })),
+                  },
+                ]
+              : [],
+        },
+      }),
+    }
+  );
+
+  const json = (await res.json().catch(() => ({}))) as {
+    messages?: Array<{ id: string }>;
+    error?: { message?: string };
+  };
+
+  if (!res.ok) {
+    // Roll back the empty conversation if this was a first-contact attempt,
+    // so the inbox doesn't fill with failed shells.
+    if (createdNewConversation) {
+      await db
+        .delete(inboxConversations)
+        .where(eq(inboxConversations.id, conv.id));
+    }
+    throw new Error(
+      `WhatsApp template send failed: ${json.error?.message ?? `Meta ${res.status}`}`
+    );
+  }
+
+  const externalId = json.messages?.[0]?.id ?? null;
+
+  // Render a local preview of what the customer will see so the inbox timeline
+  // has something readable, not just "[Template]".
+  const bodyText = await renderTemplatePreview(
+    account,
+    templateName,
+    languageCode,
+    bodyParams
+  );
+
+  const [stored] = await db
+    .insert(inboxMessages)
+    .values({
+      workspaceId,
+      conversationId: conv.id,
+      direction: "outbound",
+      status: "sent",
+      externalMessageId: externalId,
+      fromAddress: account.waPhoneNumberId,
+      toAddress: waId,
+      subject: null,
+      body: bodyText,
+      isRead: true,
+      rawHeaders: JSON.stringify({
+        kind: "template",
+        templateName,
+        languageCode,
+        bodyParams,
+      }),
+      sentAt: new Date(),
+    })
+    .returning();
+
+  await db
+    .update(inboxConversations)
+    .set({
+      lastMessageAt: new Date(),
+      lastMessagePreview: `Du: ${bodyText.slice(0, 100)}`,
+      updatedAt: new Date(),
+    })
+    .where(eq(inboxConversations.id, conv.id));
+
+  if (createdNewConversation) {
+    await createDealForNewConversation({
+      workspaceId,
+      conversationId: conv.id,
+      dealName: customerName || waId,
+    });
+  }
+
+  if (conv.dealRecordId) {
+    await emitEvent({
+      workspaceId,
+      recordId: conv.dealRecordId,
+      objectSlug: "deals",
+      eventType: "message.sent",
+      payload: {
+        conversationId: conv.id,
+        channelType: "whatsapp",
+        toAddress: waId,
+        externalMessageId: externalId,
+        templateName,
+      },
+    });
+  }
+
+  return { message: stored, conversationId: conv.id, createdNewConversation };
+}
+
+/**
+ * Substitute `{{1}}`, `{{2}}` … placeholders in a template's BODY text so the
+ * inbox can display the rendered message instead of the raw template name.
+ * Failures (template removed, Meta down) degrade to a generic placeholder.
+ */
+async function renderTemplatePreview(
+  account: typeof channelAccounts.$inferSelect,
+  templateName: string,
+  languageCode: string,
+  params: string[]
+): Promise<string> {
+  try {
+    if (!account.wabaId || !account.credential) return `[Template: ${templateName}]`;
+    const res = await fetch(
+      `${GRAPH_API_BASE}/${account.wabaId}/message_templates` +
+        `?fields=name,language,components&limit=200`,
+      { headers: { Authorization: `Bearer ${account.credential}` } }
+    );
+    if (!res.ok) return `[Template: ${templateName}]`;
+    const json = (await res.json()) as {
+      data?: Array<{ name: string; language: string; components: WhatsAppTemplateComponent[] }>;
+    };
+    const tpl = json.data?.find(
+      (t) => t.name === templateName && t.language === languageCode
+    );
+    const body = tpl?.components.find((c) => c.type === "BODY")?.text ?? "";
+    if (!body) return `[Template: ${templateName}]`;
+    return body.replace(/\{\{\s*(\d+)\s*\}\}/g, (_, n) => {
+      const idx = Number(n) - 1;
+      return params[idx] ?? `{{${n}}}`;
+    });
+  } catch {
+    return `[Template: ${templateName}]`;
+  }
+}
+
 // ─── Settings helpers ─────────────────────────────────────────────────────────
 
 export async function getAppSecret(workspaceId: string): Promise<string | null> {
