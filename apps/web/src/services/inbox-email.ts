@@ -20,6 +20,7 @@ import {
   stripKleinanzeigenSuffix,
   parseKleinanzeigenBody,
 } from "./inbox-kleinanzeigen";
+import { createDealForNewConversation } from "./inbox";
 
 /** Extract a human-readable name from a mailparser AddressObject. */
 function firstAddress(ao: AddressObject | AddressObject[] | undefined): { name: string; address: string } {
@@ -201,6 +202,17 @@ export async function syncChannelAccount(accountId: string) {
           })
           .returning();
         conv = created;
+
+        // Auto-create a deal in stage "Inquiry" for brand-new Kleinanzeigen
+        // inquiries and link it to this conversation. Other channels can reuse
+        // the same deal later by writing its id onto their own conversations.
+        if (isKleinanzeigen) {
+          await createDealForNewConversation({
+            workspaceId: account.workspaceId,
+            conversationId: conv.id,
+            dealName: contactName || fromEmail,
+          });
+        }
       } else {
         await db
           .update(inboxConversations)

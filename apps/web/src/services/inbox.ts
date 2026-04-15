@@ -5,13 +5,15 @@ import {
   inboxContacts,
   inboxMessages,
 } from "@/db/schema/inbox";
-import { eq, and, desc, lt, isNotNull } from "drizzle-orm";
+import { objects, attributes, statuses } from "@/db/schema/objects";
+import { eq, and, desc, lt, asc, isNotNull } from "drizzle-orm";
 import { getEmailAccountConfigs } from "@/lib/email-accounts";
 import {
   isKleinanzeigenEmail,
   parseKleinanzeigenBody,
   stripKleinanzeigenSuffix,
 } from "./inbox-kleinanzeigen";
+import { createRecord } from "./records";
 
 // ─── Channel account management ───────────────────────────────────────────────
 
@@ -271,4 +273,89 @@ export async function updateConversationStatus(
     )
     .returning();
   return row ?? null;
+}
+
+// ─── Auto-deal creation ───────────────────────────────────────────────────────
+// Invoked from channel ingest paths (inbox-email.ts for Kleinanzeigen today,
+// future: WhatsApp, CloudTalk, etc.) when a brand-new inbound conversation is
+// created. Sets `inboxConversations.dealRecordId` so the chat is linked to the
+// new deal. To link a second channel (e.g. same customer moves from
+// Kleinanzeigen to WhatsApp) to the SAME deal, just write that existing
+// dealRecordId onto the new conversation — no helper call needed.
+
+/**
+ * Create a "Inquiry"-stage deal for a newly created conversation and link
+ * the two via `inboxConversations.dealRecordId`. Failures are logged but
+ * never thrown — deal creation must never block message ingest.
+ *
+ * Returns the new deal record ID, or null if creation was skipped/failed.
+ */
+export async function createDealForNewConversation(params: {
+  workspaceId: string;
+  conversationId: string;
+  dealName: string;
+}): Promise<string | null> {
+  const { workspaceId, conversationId, dealName } = params;
+  try {
+    // 1. Resolve the workspace's `deals` object.
+    const [dealObj] = await db
+      .select({ id: objects.id })
+      .from(objects)
+      .where(and(eq(objects.workspaceId, workspaceId), eq(objects.slug, "deals")))
+      .limit(1);
+    if (!dealObj) {
+      console.warn(`[inbox] no deals object for workspace ${workspaceId}`);
+      return null;
+    }
+
+    // 2. Resolve the `stage` attribute on the deals object.
+    const [stageAttr] = await db
+      .select({ id: attributes.id })
+      .from(attributes)
+      .where(and(eq(attributes.objectId, dealObj.id), eq(attributes.slug, "stage")))
+      .limit(1);
+    if (!stageAttr) {
+      console.warn(`[inbox] deals has no 'stage' attribute in workspace ${workspaceId}`);
+      return null;
+    }
+
+    // 3. Find the "Inquiry" status (fallback: lowest sortOrder active status).
+    const stageRows = await db
+      .select()
+      .from(statuses)
+      .where(eq(statuses.attributeId, stageAttr.id))
+      .orderBy(asc(statuses.sortOrder));
+    const inquiry =
+      stageRows.find((s) => /^inquiry$/i.test(s.title)) ??
+      stageRows.find((s) => s.isActive) ??
+      stageRows[0];
+    if (!inquiry) {
+      console.warn(`[inbox] no statuses defined for deal stage in workspace ${workspaceId}`);
+      return null;
+    }
+
+    // 4. Create the deal record.
+    const deal = await createRecord(
+      dealObj.id,
+      { name: dealName, stage: inquiry.id },
+      null
+    );
+    if (!deal) return null;
+
+    // 5. Link the conversation to the new deal.
+    await db
+      .update(inboxConversations)
+      .set({ dealRecordId: deal.id, updatedAt: new Date() })
+      .where(
+        and(
+          eq(inboxConversations.id, conversationId),
+          eq(inboxConversations.workspaceId, workspaceId)
+        )
+      );
+
+    return deal.id;
+  } catch (err) {
+    console.error("[inbox] createDealForNewConversation failed:", err);
+    return null;
+  }
 }
