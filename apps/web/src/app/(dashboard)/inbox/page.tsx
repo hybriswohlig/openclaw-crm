@@ -9,16 +9,15 @@ import {
   Search,
   CheckCheck,
   AlertCircle,
-  ChevronDown,
-  Building2,
   AlertTriangle,
   Send,
   ArrowLeft,
   MoreVertical,
   X,
   Check,
-  Tag,
   PenSquare,
+  Inbox as InboxIcon,
+  Archive,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -92,6 +91,28 @@ function fmtFullTime(iso: string | null): string {
   });
 }
 
+function fmtBubbleTime(iso: string | null): string {
+  if (!iso) return "";
+  return new Date(iso).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+}
+
+function fmtDateSeparator(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diffDays = Math.round((startOfDay(now) - startOfDay(d)) / 86400000);
+  if (diffDays === 0) return "Heute";
+  if (diffDays === 1) return "Gestern";
+  if (diffDays < 7) return d.toLocaleDateString("de-DE", { weekday: "long" });
+  return d.toLocaleDateString("de-DE", { day: "2-digit", month: "long", year: "numeric" });
+}
+
+function sameDay(a: string, b: string): boolean {
+  const da = new Date(a);
+  const db = new Date(b);
+  return da.getFullYear() === db.getFullYear() && da.getMonth() === db.getMonth() && da.getDate() === db.getDate();
+}
+
 function contactInitial(conv: Conversation): string {
   const name = conv.contactName ?? conv.contactEmail ?? conv.contactPhone ?? "?";
   return name.charAt(0).toUpperCase();
@@ -142,6 +163,43 @@ function ChannelIcon({ type, size = "sm" }: { type: ChannelType; size?: "sm" | "
   return <Mail className={cn(dim, "text-blue-500")} />;
 }
 
+// ─── Source Filter Chip ──────────────────────────────────────────────────────
+
+function SourceChip({
+  active,
+  onClick,
+  count,
+  activeClass,
+  title,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  count: number;
+  activeClass: string;
+  title?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      className={cn(
+        "shrink-0 flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border transition-colors",
+        active ? activeClass : "border-border text-muted-foreground hover:text-foreground hover:bg-muted/60"
+      )}
+    >
+      {children}
+      <span className={cn(
+        "text-[10px] tabular-nums rounded-full px-1.5 py-px min-w-[18px] text-center",
+        active ? "bg-white/25" : "bg-muted text-muted-foreground"
+      )}>
+        {count}
+      </span>
+    </button>
+  );
+}
+
 // ─── Conversation List Item ───────────────────────────────────────────────────
 
 function ConvListItem({
@@ -154,69 +212,120 @@ function ConvListItem({
   onClick: () => void;
 }) {
   const isKa = isKleinanzeigenConv(conv);
+  const isWa = conv.channelType === "whatsapp";
+  const unread = conv.unreadCount > 0;
+
   return (
     <button
       onClick={onClick}
       className={cn(
-        "w-full flex items-start gap-3 px-4 py-3 text-left transition-colors border-b border-border/50",
-        active
-          ? "bg-accent"
-          : "hover:bg-muted/60",
-        conv.unreadCount > 0 && !active && "bg-muted/20"
+        "group relative w-full text-left px-3 py-2.5 transition-colors",
+        active ? "" : "hover:bg-muted/50"
       )}
     >
-      {/* Avatar */}
-      <div className="relative shrink-0 mt-0.5">
-        <div className={cn(
-          "h-10 w-10 rounded-full flex items-center justify-center text-sm font-semibold",
-          "bg-primary/10 text-primary"
-        )}>
-          {contactInitial(conv)}
-        </div>
-        {/* Channel badge */}
-        <div className="absolute -bottom-0.5 -right-0.5 h-4 w-4 rounded-full bg-background border border-border flex items-center justify-center">
-          {isKa ? <KleinanzeigenLogo className="h-3 w-3 text-[8px]" /> : <ChannelIcon type={conv.channelType} size="xs" />}
-        </div>
-      </div>
+      <div
+        className={cn(
+          "relative flex items-start gap-3 rounded-xl p-3 border transition-all",
+          active
+            ? "bg-background border-primary/40 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_12px_-2px_rgba(0,0,0,0.08)]"
+            : unread
+              ? "bg-background border-border/80"
+              : "bg-transparent border-transparent group-hover:border-border/50 group-hover:bg-background"
+        )}
+      >
+        {/* Unread accent bar */}
+        {unread && !active && (
+          <span className="absolute left-0 top-3 bottom-3 w-[3px] rounded-r-full bg-primary" aria-hidden />
+        )}
 
-      {/* Content */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between gap-1">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <span className={cn("text-sm truncate", conv.unreadCount > 0 && !active ? "font-semibold" : "font-medium")}>
+        {/* Avatar with channel badge */}
+        <div className="relative shrink-0">
+          <div className={cn(
+            "h-11 w-11 rounded-full flex items-center justify-center text-sm font-semibold",
+            isWa ? "bg-[#25D366]/10 text-[#128C4F]" :
+            isKa ? "bg-[#96c11f]/10 text-[#5f7c13]" :
+            "bg-primary/10 text-primary"
+          )}>
+            {contactInitial(conv)}
+          </div>
+          <div className="absolute -bottom-0.5 -right-0.5 h-5 w-5 rounded-full bg-background border border-border flex items-center justify-center shadow-sm">
+            {isKa ? (
+              <KleinanzeigenLogo className="h-3.5 w-3.5 text-[9px]" />
+            ) : (
+              <ChannelIcon type={conv.channelType} size="xs" />
+            )}
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className={cn(
+              "text-sm truncate flex-1",
+              unread ? "font-semibold text-foreground" : "font-medium text-foreground/90"
+            )}>
               {contactLabel(conv)}
             </span>
-            {isKa && <KleinanzeigenLogo />}
-            {conv.multiCompanyFlag && (
-              <AlertTriangle className="h-3 w-3 text-amber-500 shrink-0" aria-label="Hat mehrere Unternehmen kontaktiert" />
-            )}
+            <span className={cn(
+              "text-[10px] shrink-0 tabular-nums",
+              unread ? "text-primary font-semibold" : "text-muted-foreground"
+            )}>
+              {fmtTime(conv.lastMessageAt)}
+            </span>
           </div>
-          <span className="text-[10px] text-muted-foreground shrink-0">
-            {fmtTime(conv.lastMessageAt)}
-          </span>
-        </div>
 
-        <div className="flex items-center justify-between gap-1 mt-0.5">
-          <div className="min-w-0">
-            {conv.subject && (
-              <p className="text-xs text-muted-foreground truncate">{conv.subject}</p>
-            )}
-            <p className="text-xs text-muted-foreground truncate">
-              {conv.lastMessagePreview ?? "—"}
+          {conv.subject && !isWa && (
+            <p className={cn(
+              "text-xs truncate mt-0.5",
+              unread ? "text-foreground/80 font-medium" : "text-muted-foreground"
+            )}>
+              {conv.subject}
             </p>
-          </div>
-          <div className="flex items-center gap-1 shrink-0">
-            {conv.unreadCount > 0 && !active && (
-              <span className="h-4 min-w-4 px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-semibold flex items-center justify-center">
+          )}
+
+          <p className={cn(
+            "text-xs truncate mt-0.5",
+            unread ? "text-foreground/70" : "text-muted-foreground"
+          )}>
+            {conv.lastMessagePreview ?? "—"}
+          </p>
+
+          {/* Tag pills row */}
+          <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+            {isKa ? (
+              <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-[#96c11f]/10 text-[#5f7c13] border border-[#96c11f]/20">
+                <KleinanzeigenLogo className="h-2.5 w-2.5 text-[7px]" />
+                Kleinanzeigen
+              </span>
+            ) : isWa ? (
+              <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-[#25D366]/10 text-[#128C4F] border border-[#25D366]/20">
+                <ChannelIcon type="whatsapp" size="xs" />
+                WhatsApp
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 border border-blue-500/20">
+                <Mail className="h-2.5 w-2.5" />
+                E-Mail
+              </span>
+            )}
+            <span className="text-[10px] text-muted-foreground truncate max-w-[160px]">
+              {conv.channelName}
+            </span>
+            {conv.multiCompanyFlag && (
+              <span
+                className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-700 border border-amber-500/20"
+                title="Hat mehrere Unternehmen kontaktiert"
+              >
+                <AlertTriangle className="h-2.5 w-2.5" />
+                Multi
+              </span>
+            )}
+            {unread && !active && (
+              <span className="ml-auto h-[18px] min-w-[18px] px-1.5 rounded-full bg-primary text-primary-foreground text-[10px] font-semibold flex items-center justify-center">
                 {conv.unreadCount}
               </span>
             )}
           </div>
-        </div>
-
-        {/* Company tag */}
-        <div className="flex items-center gap-1 mt-1">
-          <span className="text-[10px] text-muted-foreground truncate">{conv.channelName}</span>
         </div>
       </div>
     </button>
@@ -225,35 +334,70 @@ function ConvListItem({
 
 // ─── Message Bubble ───────────────────────────────────────────────────────────
 
-function MessageBubble({ msg }: { msg: Message }) {
+function MessageBubble({
+  msg,
+  showAvatar,
+  conv,
+}: {
+  msg: Message;
+  showAvatar: boolean;
+  conv: Conversation;
+}) {
   const isOut = msg.direction === "outbound";
-  const time = fmtFullTime(msg.sentAt ?? msg.createdAt);
+  const time = fmtBubbleTime(msg.sentAt ?? msg.createdAt);
+  const fullTime = fmtFullTime(msg.sentAt ?? msg.createdAt);
 
   return (
-    <div className={cn("flex", isOut ? "justify-end" : "justify-start")}>
+    <div className={cn("flex items-end gap-2", isOut ? "justify-end" : "justify-start")}>
+      {/* Inbound avatar slot (only on last bubble of a burst) */}
+      {!isOut && (
+        <div className={cn("shrink-0 w-7", showAvatar ? "" : "invisible")}>
+          <div className="h-7 w-7 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[11px] font-semibold">
+            {contactInitial(conv)}
+          </div>
+        </div>
+      )}
+
       <div
         className={cn(
-          "max-w-[72%] rounded-2xl px-4 py-2.5 text-sm shadow-sm",
+          "group/bubble max-w-[72%] rounded-2xl px-3.5 py-2 text-sm",
           isOut
-            ? "bg-primary text-primary-foreground rounded-br-sm"
-            : "bg-muted text-foreground rounded-bl-sm"
+            ? "bg-primary text-primary-foreground rounded-br-md shadow-[0_1px_2px_rgba(0,0,0,0.06)]"
+            : "bg-muted text-foreground rounded-bl-md"
         )}
       >
-        <p className="whitespace-pre-wrap break-words">{msg.body}</p>
-        <div className={cn(
-          "flex items-center gap-1 mt-1 text-[10px]",
-          isOut ? "text-primary-foreground/70 justify-end" : "text-muted-foreground"
-        )}>
+        <p className="whitespace-pre-wrap break-words leading-snug">{msg.body}</p>
+        <div
+          className={cn(
+            "flex items-center gap-1 mt-0.5 text-[10px] tabular-nums",
+            isOut ? "text-primary-foreground/70 justify-end" : "text-muted-foreground/80"
+          )}
+          title={fullTime}
+        >
           <span>{time}</span>
           {isOut && (
-            msg.status === "sent" || msg.status === "delivered"
-              ? <CheckCheck className="h-3 w-3" />
-              : msg.status === "failed"
-                ? <AlertCircle className="h-3 w-3 text-red-400" />
-                : null
+            msg.status === "sent" ? <Check className="h-3 w-3" />
+              : msg.status === "delivered" ? <CheckCheck className="h-3 w-3" />
+              : msg.status === "read" ? <CheckCheck className="h-3 w-3 text-sky-300" />
+              : msg.status === "failed" ? <AlertCircle className="h-3 w-3 text-red-300" />
+              : null
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Date Separator ───────────────────────────────────────────────────────────
+
+function DateSeparator({ iso }: { iso: string }) {
+  return (
+    <div className="flex items-center gap-3 py-1">
+      <div className="flex-1 h-px bg-border/60" />
+      <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+        {fmtDateSeparator(iso)}
+      </span>
+      <div className="flex-1 h-px bg-border/60" />
     </div>
   );
 }
@@ -334,44 +478,88 @@ function ConversationView({
   const canSend = conv.channelType === "email" || conv.channelType === "whatsapp";
 
   const isKa = isKleinanzeigenConv(conv);
+  const isWa = conv.channelType === "whatsapp";
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Company banner */}
-      <div className="flex items-center justify-center gap-2 px-4 py-1.5 border-b border-border bg-muted/40 shrink-0">
-        {isKa && <KleinanzeigenLogo />}
-        <span className="text-[11px] text-muted-foreground">
-          {isKa ? "Kleinanzeigen · " : ""}{conv.channelName}
-        </span>
-      </div>
+    <div className="flex flex-col h-full bg-muted/20">
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-background shrink-0">
         <button onClick={onBack} className="md:hidden text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-5 w-5" />
         </button>
 
-        <div className="h-9 w-9 rounded-full bg-primary/10 text-primary flex items-center justify-center font-semibold text-sm shrink-0">
-          {contactInitial(conv)}
+        <div className="relative shrink-0">
+          <div className={cn(
+            "h-11 w-11 rounded-full flex items-center justify-center font-semibold text-base",
+            isWa ? "bg-[#25D366]/10 text-[#128C4F]" :
+            isKa ? "bg-[#96c11f]/10 text-[#5f7c13]" :
+            "bg-primary/10 text-primary"
+          )}>
+            {contactInitial(conv)}
+          </div>
+          <div className="absolute -bottom-0.5 -right-0.5 h-5 w-5 rounded-full bg-background border border-border flex items-center justify-center shadow-sm">
+            {isKa ? (
+              <KleinanzeigenLogo className="h-3.5 w-3.5 text-[9px]" />
+            ) : (
+              <ChannelIcon type={conv.channelType} size="xs" />
+            )}
+          </div>
         </div>
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <p className="font-semibold text-sm truncate">{contactLabel(conv)}</p>
             {conv.multiCompanyFlag && (
-              <span className="flex items-center gap-1 text-[10px] text-amber-600 bg-amber-500/10 border border-amber-500/20 rounded px-1.5 py-0.5 shrink-0">
+              <span className="flex items-center gap-1 text-[10px] text-amber-700 bg-amber-500/10 border border-amber-500/20 rounded-full px-1.5 py-0.5 shrink-0">
                 <AlertTriangle className="h-2.5 w-2.5" />
                 Mehrere Firmen
               </span>
             )}
           </div>
-          <div className="flex items-center gap-1.5 mt-0.5">
-            <ChannelIcon type={conv.channelType} />
-            <span className="text-xs text-muted-foreground">{conv.channelName}</span>
-            {conv.contactEmail && (
-              <span className="text-xs text-muted-foreground">· {conv.contactEmail}</span>
+          <div className="flex items-center gap-1.5 mt-0.5 text-xs text-muted-foreground">
+            {isKa ? (
+              <span className="inline-flex items-center gap-1">
+                <KleinanzeigenLogo className="h-3 w-3 text-[8px]" />
+                Kleinanzeigen
+              </span>
+            ) : isWa ? (
+              <span className="inline-flex items-center gap-1">
+                <ChannelIcon type="whatsapp" size="xs" />
+                WhatsApp
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1">
+                <Mail className="h-3 w-3 text-blue-500" />
+                E-Mail
+              </span>
+            )}
+            <span>·</span>
+            <span className="truncate">{conv.channelName}</span>
+            {conv.contactEmail && !isWa && (
+              <>
+                <span>·</span>
+                <span className="truncate">{conv.contactEmail}</span>
+              </>
+            )}
+            {conv.contactPhone && isWa && (
+              <>
+                <span>·</span>
+                <span className="truncate">{conv.contactPhone}</span>
+              </>
             )}
           </div>
         </div>
+
+        {/* Quick resolve */}
+        {conv.status === "open" && (
+          <button
+            onClick={() => handleStatusChange("resolved")}
+            className="hidden sm:inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg border border-emerald-500/30 text-emerald-700 bg-emerald-500/5 hover:bg-emerald-500/10 transition-colors"
+          >
+            <Check className="h-3.5 w-3.5" />
+            Erledigt
+          </button>
+        )}
 
         {/* Status + menu */}
         <div className="relative">
@@ -418,15 +606,22 @@ function ConversationView({
         </div>
       </div>
 
-      {/* Subject bar (email) */}
-      {conv.subject && (
-        <div className="px-4 py-2 bg-muted/30 border-b border-border text-xs text-muted-foreground">
-          <span className="font-medium">Betreff:</span> {conv.subject}
+      {/* Subject bar (email/kleinanzeigen only) */}
+      {conv.subject && !isWa && (
+        <div className="px-4 py-2 bg-background/60 border-b border-border/60 text-xs text-muted-foreground shrink-0">
+          <span className="font-medium text-foreground/70">Betreff:</span> {conv.subject}
         </div>
       )}
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+      <div
+        className="flex-1 overflow-y-auto px-4 py-4 space-y-1.5"
+        style={{
+          backgroundImage:
+            "radial-gradient(circle at 1px 1px, rgba(0,0,0,0.035) 1px, transparent 0)",
+          backgroundSize: "20px 20px",
+        }}
+      >
         {loadingMsgs ? (
           <div className="flex justify-center py-12">
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -434,7 +629,23 @@ function ConversationView({
         ) : messages.length === 0 ? (
           <p className="text-center text-sm text-muted-foreground py-12">Keine Nachrichten</p>
         ) : (
-          messages.map((msg) => <MessageBubble key={msg.id} msg={msg} />)
+          messages.map((msg, i) => {
+            const prev = messages[i - 1];
+            const next = messages[i + 1];
+            const ts = msg.sentAt ?? msg.createdAt;
+            const prevTs = prev?.sentAt ?? prev?.createdAt;
+            const showDate = !prev || (prevTs && !sameDay(ts, prevTs));
+            const isInbound = msg.direction === "inbound";
+            const nextIsInbound = next?.direction === "inbound";
+            // Show the contact avatar on the last inbound bubble of a burst
+            const showAvatar = isInbound && (!next || !nextIsInbound);
+            return (
+              <div key={msg.id} className="space-y-1.5">
+                {showDate && <DateSeparator iso={ts} />}
+                <MessageBubble msg={msg} showAvatar={showAvatar} conv={conv} />
+              </div>
+            );
+          })
         )}
         <div ref={bottomRef} />
       </div>
@@ -442,11 +653,11 @@ function ConversationView({
       {/* Reply box */}
       <div className="border-t border-border px-4 py-3 bg-background shrink-0">
         {canSend ? (
-          <div className="flex items-end gap-2">
+          <div className="flex items-end gap-2 rounded-2xl border border-input bg-muted/30 focus-within:border-ring/40 focus-within:bg-background focus-within:ring-2 focus-within:ring-ring/10 transition-colors px-3 py-2">
             <textarea
               ref={textareaRef}
-              className="flex-1 rounded-xl border border-input bg-muted/30 px-3 py-2 text-sm resize-none min-h-[42px] max-h-36 focus:outline-none focus:ring-2 focus:ring-ring/20"
-              placeholder="Nachricht schreiben…"
+              className="flex-1 bg-transparent text-sm resize-none min-h-[28px] max-h-36 focus:outline-none placeholder:text-muted-foreground"
+              placeholder={isWa ? "WhatsApp-Nachricht schreiben…" : "Nachricht schreiben…"}
               rows={1}
               value={reply}
               onChange={(e) => setReply(e.target.value)}
@@ -461,7 +672,8 @@ function ConversationView({
               onClick={handleSend}
               disabled={!reply.trim() || sending}
               size="sm"
-              className="rounded-xl h-[42px] px-3"
+              className="rounded-full h-9 w-9 p-0 shrink-0"
+              title="Senden (Enter)"
             >
               {sending
                 ? <Loader2 className="h-4 w-4 animate-spin" />
@@ -489,7 +701,7 @@ export default function InboxPage() {
   const [syncing, setSyncing] = useState(false);
   const [statusFilter, setStatusFilter] = useState<ConversationStatus>("open");
   const [accountFilter, setAccountFilter] = useState<string>("all");
-  const [sourceFilter, setSourceFilter] = useState<"all" | "kleinanzeigen">("all");
+  const [sourceFilter, setSourceFilter] = useState<"messaging" | "kleinanzeigen" | "whatsapp" | "other">("messaging");
   const [search, setSearch] = useState("");
   const [composeOpen, setComposeOpen] = useState(false);
 
@@ -542,7 +754,12 @@ export default function InboxPage() {
   }
 
   const filtered = conversations.filter((c) => {
-    if (sourceFilter === "kleinanzeigen" && !isKleinanzeigenConv(c)) return false;
+    const isKa = isKleinanzeigenConv(c);
+    const isWa = c.channelType === "whatsapp";
+    if (sourceFilter === "messaging" && !(isKa || isWa)) return false;
+    if (sourceFilter === "kleinanzeigen" && !isKa) return false;
+    if (sourceFilter === "whatsapp" && !isWa) return false;
+    if (sourceFilter === "other" && (isKa || isWa)) return false;
     if (!search) return true;
     const q = search.toLowerCase();
     return (
@@ -551,6 +768,19 @@ export default function InboxPage() {
       (c.lastMessagePreview?.toLowerCase().includes(q) ?? false)
     );
   });
+
+  const sourceCounts = conversations.reduce(
+    (acc, c) => {
+      const isKa = isKleinanzeigenConv(c);
+      const isWa = c.channelType === "whatsapp";
+      if (isKa) acc.kleinanzeigen += 1;
+      if (isWa) acc.whatsapp += 1;
+      if (isKa || isWa) acc.messaging += 1;
+      else acc.other += 1;
+      return acc;
+    },
+    { messaging: 0, kleinanzeigen: 0, whatsapp: 0, other: 0 }
+  );
 
   const unreadTotal = conversations.reduce((s, c) => s + c.unreadCount, 0);
 
@@ -568,10 +798,12 @@ export default function InboxPage() {
         {/* Header */}
         <div className="px-4 pt-4 pb-2 shrink-0 space-y-3">
           <div className="flex items-center justify-between">
-            <div>
+            <div className="flex items-center gap-2">
               <h1 className="font-semibold text-base">Posteingang</h1>
               {unreadTotal > 0 && (
-                <p className="text-xs text-muted-foreground">{unreadTotal} ungelesen</p>
+                <span className="h-5 min-w-5 px-1.5 rounded-full bg-primary text-primary-foreground text-[10px] font-semibold flex items-center justify-center">
+                  {unreadTotal}
+                </span>
               )}
             </div>
             <div className="flex items-center gap-1">
@@ -586,7 +818,7 @@ export default function InboxPage() {
                 onClick={handleSync}
                 disabled={syncing}
                 className="h-8 w-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                title="E-Mails abrufen"
+                title="Nachrichten abrufen"
               >
                 <RefreshCw className={cn("h-4 w-4", syncing && "animate-spin")} />
               </button>
@@ -606,46 +838,62 @@ export default function InboxPage() {
           </div>
 
           {/* Source filter */}
-          <div className="flex gap-1.5">
-            <button
-              onClick={() => setSourceFilter("all")}
-              className={cn(
-                "shrink-0 flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border transition-colors",
-                sourceFilter === "all"
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "border-border text-muted-foreground hover:text-foreground"
-              )}
+          <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
+            <SourceChip
+              active={sourceFilter === "messaging"}
+              onClick={() => { setSourceFilter("messaging"); setAccountFilter("all"); setSelected(null); }}
+              count={sourceCounts.messaging}
+              activeClass="bg-primary text-primary-foreground border-primary"
+              title="Kleinanzeigen + WhatsApp zusammen"
             >
-              <Tag className="h-3 w-3" />
-              Alle Quellen
-            </button>
-            <button
-              onClick={() => {
-                setSourceFilter(sourceFilter === "kleinanzeigen" ? "all" : "kleinanzeigen");
-                setAccountFilter("all");
-                setSelected(null);
-              }}
-              className={cn(
-                "shrink-0 flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border transition-colors",
-                sourceFilter === "kleinanzeigen"
-                  ? "bg-[#96c11f] text-white border-[#96c11f]"
-                  : "border-border text-muted-foreground hover:text-foreground"
-              )}
+              <InboxIcon className="h-3 w-3" />
+              Messaging
+            </SourceChip>
+            <SourceChip
+              active={sourceFilter === "kleinanzeigen"}
+              onClick={() => { setSourceFilter("kleinanzeigen"); setAccountFilter("all"); setSelected(null); }}
+              count={sourceCounts.kleinanzeigen}
+              activeClass="bg-[#96c11f] text-white border-[#96c11f]"
               title="Nur Kleinanzeigen (alle Firmen kombiniert)"
             >
               <KleinanzeigenLogo />
               Kleinanzeigen
-            </button>
+            </SourceChip>
+            <SourceChip
+              active={sourceFilter === "whatsapp"}
+              onClick={() => { setSourceFilter("whatsapp"); setAccountFilter("all"); setSelected(null); }}
+              count={sourceCounts.whatsapp}
+              activeClass="bg-[#25D366] text-white border-[#25D366]"
+              title="Nur WhatsApp"
+            >
+              <ChannelIcon type="whatsapp" size="xs" />
+              WhatsApp
+            </SourceChip>
+            <SourceChip
+              active={sourceFilter === "other"}
+              onClick={() => { setSourceFilter("other"); setSelected(null); }}
+              count={sourceCounts.other}
+              activeClass="bg-foreground text-background border-foreground"
+              title="Sonstige E-Mails (Werbung, Newsletter, …)"
+            >
+              <Archive className="h-3 w-3" />
+              Sonstiges
+            </SourceChip>
           </div>
 
+          {sourceFilter === "messaging" && (
+            <p className="text-[10px] text-muted-foreground px-0.5">
+              Kleinanzeigen- und WhatsApp-Nachrichten in einem Posteingang.
+            </p>
+          )}
           {sourceFilter === "kleinanzeigen" && (
             <p className="text-[10px] text-muted-foreground px-0.5">
               Kombinierter Posteingang aller Firmen. Jede Nachricht zeigt unten, zu welcher Firma sie gehört.
             </p>
           )}
 
-          {/* Account filter */}
-          {sourceFilter !== "kleinanzeigen" && accounts.length > 1 && (
+          {/* Account filter — only for "other" (generic email accounts) */}
+          {sourceFilter === "other" && accounts.length > 1 && (
             <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
               <button
                 onClick={() => setAccountFilter("all")}
@@ -712,7 +960,7 @@ export default function InboxPage() {
                   onClick={handleSync}
                   className="text-xs text-primary hover:underline mt-1"
                 >
-                  E-Mails jetzt abrufen
+                  Jetzt abrufen
                 </button>
               )}
             </div>
@@ -758,7 +1006,7 @@ export default function InboxPage() {
               className="flex items-center gap-2 text-sm text-primary hover:underline mt-2"
             >
               <RefreshCw className={cn("h-3.5 w-3.5", syncing && "animate-spin")} />
-              E-Mails jetzt abrufen
+              Nachrichten jetzt abrufen
             </button>
           </div>
         )}
