@@ -330,7 +330,7 @@ function ConversationView({
     onStatusChange(status);
   }
 
-  const canSend = conv.channelType === "email"; // WhatsApp send requires live API
+  const canSend = conv.channelType === "email" || conv.channelType === "whatsapp";
 
   const isKa = isKleinanzeigenConv(conv);
 
