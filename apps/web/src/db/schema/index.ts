@@ -13,3 +13,5 @@ export * from "./quotations";
 export * from "./financial";
 export * from "./integrations";
 export * from "./inbox";
+export * from "./ai";
+export * from "./activity";

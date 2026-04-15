@@ -3,8 +3,8 @@ import { getAuthContext, unauthorized, notFound, success } from "@/lib/api-utils
 import { getObjectBySlug } from "@/services/objects";
 import { getRecord } from "@/services/records";
 import { db } from "@/db";
-import { notes, tasks, taskRecords } from "@/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { notes, tasks, taskRecords, activityEvents } from "@/db/schema";
+import { and, eq, desc } from "drizzle-orm";
 
 export async function GET(
   req: NextRequest,
@@ -43,6 +43,19 @@ export async function GET(
         .orderBy(desc(tasks.createdAt))
     : [];
 
+  // Activity events (message.received, deal.stage_changed, …)
+  const eventRows = await db
+    .select()
+    .from(activityEvents)
+    .where(
+      and(
+        eq(activityEvents.workspaceId, ctx.workspaceId),
+        eq(activityEvents.recordId, recordId)
+      )
+    )
+    .orderBy(desc(activityEvents.createdAt))
+    .limit(200);
+
   // Build activity feed
   const activities = [
     // Record creation event
@@ -71,6 +84,39 @@ export async function GET(
       createdAt: task.createdAt.toISOString(),
       createdBy: task.createdBy,
     })),
+    // Activity events
+    ...eventRows.map((ev) => {
+      const payload = (ev.payload ?? {}) as Record<string, unknown>;
+      if (ev.eventType === "message.received") {
+        const subject = typeof payload.subject === "string" ? payload.subject : "";
+        const from = typeof payload.fromAddress === "string" ? payload.fromAddress : "";
+        return {
+          id: `event-${ev.id}`,
+          type: "message_received" as const,
+          title: subject || "New message",
+          description: from ? `From ${from}` : undefined,
+          createdAt: ev.createdAt.toISOString(),
+          createdBy: ev.actorId ?? undefined,
+        };
+      }
+      if (ev.eventType === "deal.stage_changed") {
+        const attrSlug = typeof payload.attributeSlug === "string" ? payload.attributeSlug : "stage";
+        return {
+          id: `event-${ev.id}`,
+          type: "stage_changed" as const,
+          title: `${attrSlug} changed`,
+          createdAt: ev.createdAt.toISOString(),
+          createdBy: ev.actorId ?? undefined,
+        };
+      }
+      return {
+        id: `event-${ev.id}`,
+        type: "event" as const,
+        title: ev.eventType,
+        createdAt: ev.createdAt.toISOString(),
+        createdBy: ev.actorId ?? undefined,
+      };
+    }),
   ];
 
   // Sort by date descending

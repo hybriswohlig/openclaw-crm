@@ -6,18 +6,18 @@
  * questions that still need an answer. Read-only — does NOT write the
  * extracted values back to the deal. The user reviews and applies them.
  *
- * Provider: Vercel AI Gateway (default global provider in AI SDK v6).
- * Auth: AI_GATEWAY_API_KEY in env, or Vercel OIDC on deployments.
- * Model: configurable via DEAL_INSIGHTS_MODEL (defaults to openai/gpt-5.4-mini).
+ * All AI invocation is delegated to `runAITask("deal.extract-insights", …)`
+ * which handles config, cost logging, and fallback.
  */
 
-import { generateText, Output } from "ai";
 import { z } from "zod";
 import {
   getDealTranscript,
   formatTranscriptForLLM,
   type DealTranscript,
 } from "./deal-transcript";
+import { runAITask } from "./ai/run-task";
+import { AI_TASK_SLUGS } from "./ai/task-registry";
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 // Mirrors the relevant deal attributes from
@@ -156,29 +156,28 @@ export async function extractDealInsights(
     };
   }
 
-  const modelId = process.env.DEAL_INSIGHTS_MODEL || "openai/gpt-5.4-mini";
   const transcriptText = formatTranscriptForLLM(transcript);
 
-  try {
-    const { output } = await generateText({
-      model: modelId,
-      output: Output.object({ schema: InsightsSchema }),
-      system: SYSTEM_PROMPT,
-      prompt: `Hier ist der vollständige Chatverlauf für diesen Deal über alle Kanäle hinweg:\n\n${transcriptText}\n\nExtrahiere die strukturierten Felder.`,
-    });
+  const result = await runAITask({
+    workspaceId,
+    taskSlug: AI_TASK_SLUGS.DEAL_EXTRACT_INSIGHTS,
+    system: SYSTEM_PROMPT,
+    prompt: `Hier ist der vollständige Chatverlauf für diesen Deal über alle Kanäle hinweg:\n\n${transcriptText}\n\nExtrahiere die strukturierten Felder.`,
+    schema: InsightsSchema,
+  });
 
-    return {
-      dealRecordId,
-      transcript,
-      insights: output as DealInsights,
-    };
-  } catch (err) {
-    console.error("[deal-insights] extraction failed:", err);
+  if (!result.ok) {
     return {
       dealRecordId,
       transcript,
       insights: null,
-      error: err instanceof Error ? err.message : "unknown extraction error",
+      error: result.error,
     };
   }
+
+  return {
+    dealRecordId,
+    transcript,
+    insights: result.output,
+  };
 }

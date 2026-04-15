@@ -21,6 +21,7 @@ import {
   parseKleinanzeigenBody,
 } from "./inbox-kleinanzeigen";
 import { createDealForNewConversation } from "./inbox";
+import { emitEvent } from "./activity-events";
 
 /** Extract a human-readable name from a mailparser AddressObject. */
 function firstAddress(ao: AddressObject | AddressObject[] | undefined): { name: string; address: string } {
@@ -241,6 +242,24 @@ export async function syncChannelAccount(accountId: string) {
         rawHeaders: JSON.stringify(Object.fromEntries(parsed.headers ?? [])),
         sentAt,
       });
+
+      // Activity log: record message.received against the linked deal (if any)
+      // so the timeline surfaces every inbound message.
+      if (conv.dealRecordId) {
+        await emitEvent({
+          workspaceId: account.workspaceId,
+          recordId: conv.dealRecordId,
+          objectSlug: "deals",
+          eventType: "message.received",
+          payload: {
+            conversationId: conv.id,
+            channelType: "email",
+            fromAddress: fromEmail,
+            subject,
+            externalMessageId: messageId,
+          },
+        });
+      }
 
       await checkAndFlagMultiCompany(account.workspaceId, contact.id);
     }
