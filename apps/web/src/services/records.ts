@@ -6,6 +6,7 @@ import type { FilterGroup, SortConfig } from "@openclaw-crm/shared";
 import { extractPersonalName } from "@/lib/display-name";
 import { buildFilterSQL, buildSortExpressions } from "@/lib/query-builder";
 import { batchGetRecordDisplayNames } from "./display-names";
+import { emitEvent } from "./activity-events";
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -386,6 +387,30 @@ export async function updateRecord(
 
   if (existing.length === 0) return null;
 
+  // Capture previous status values BEFORE deletion so we can emit a
+  // stage_changed activity event after the write.
+  const statusChanges: Array<{ slug: string; attributeId: string; fromValue: string | null }> = [];
+  for (const [slug, value] of Object.entries(input)) {
+    const attrInfo = bySlug.get(slug);
+    if (!attrInfo || attrInfo.type !== "status") continue;
+    const [prev] = await db
+      .select({ textValue: recordValues.textValue })
+      .from(recordValues)
+      .where(
+        and(
+          eq(recordValues.recordId, recordId),
+          eq(recordValues.attributeId, attrInfo.id)
+        )
+      )
+      .limit(1);
+    statusChanges.push({
+      slug,
+      attributeId: attrInfo.id,
+      fromValue: prev?.textValue ?? null,
+    });
+    void value;
+  }
+
   // Update timestamp
   await db
     .update(records)
@@ -396,6 +421,7 @@ export async function updateRecord(
   for (const [slug, value] of Object.entries(input)) {
     const attrInfo = bySlug.get(slug);
     if (!attrInfo) continue;
+    void value;
 
     // Delete old values for this attribute
     await db
@@ -410,6 +436,36 @@ export async function updateRecord(
 
   // Write new values
   await writeValues(recordId, input, bySlug, updatedBy);
+
+  // Emit deal.stage_changed activity events for status attributes whose
+  // value actually changed. Runs after writes so we see the post-update value.
+  if (statusChanges.length > 0) {
+    const [obj] = await db
+      .select({ slug: objects.slug, workspaceId: objects.workspaceId })
+      .from(objects)
+      .where(eq(objects.id, objectId))
+      .limit(1);
+
+    if (obj) {
+      for (const change of statusChanges) {
+        const newVal = input[change.slug];
+        const toValue = typeof newVal === "string" ? newVal : null;
+        if (toValue === change.fromValue) continue;
+        await emitEvent({
+          workspaceId: obj.workspaceId,
+          recordId,
+          objectSlug: obj.slug,
+          eventType: "deal.stage_changed",
+          payload: {
+            attributeSlug: change.slug,
+            fromStatusId: change.fromValue,
+            toStatusId: toValue,
+          },
+          actorId: updatedBy,
+        });
+      }
+    }
+  }
 
   return getRecord(objectId, recordId);
 }
