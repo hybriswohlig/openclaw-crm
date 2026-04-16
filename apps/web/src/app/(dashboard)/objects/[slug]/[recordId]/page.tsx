@@ -11,6 +11,7 @@ import { RecordTasks } from "@/components/tasks/record-tasks";
 import { QuotationTab } from "@/components/quotation/quotation-tab";
 import { FinancialTab } from "@/components/financial/financial-tab";
 import { DealInsightsTab } from "@/components/deal-insights/deal-insights-tab";
+import { RecordConversations } from "@/components/records/record-conversations";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import {
@@ -209,6 +210,9 @@ export default function RecordDetailPage() {
                   </span>
                 )}
               </TabsTrigger>
+              {(slug === "deals" || slug === "people") && (
+                <TabsTrigger value="conversations">Chats</TabsTrigger>
+              )}
               {slug === "deals" && (
                 <TabsTrigger value="quotation">Quotation</TabsTrigger>
               )}
@@ -246,6 +250,12 @@ export default function RecordDetailPage() {
                 forward={related.forward}
               />
             </TabsContent>
+
+            {(slug === "deals" || slug === "people") && (
+              <TabsContent value="conversations">
+                <RecordConversations objectSlug={slug} recordId={recordId} />
+              </TabsContent>
+            )}
 
             {slug === "deals" && (
               <TabsContent value="quotation">

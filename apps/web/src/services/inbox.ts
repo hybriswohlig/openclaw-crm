@@ -14,6 +14,8 @@ import {
   stripKleinanzeigenSuffix,
 } from "./inbox-kleinanzeigen";
 import { createRecord, updateRecord } from "./records";
+import { extractDealInsights } from "./deal-insights";
+import { applyDealInsights } from "./deal-insights-apply";
 
 // ─── Channel account management ───────────────────────────────────────────────
 
@@ -387,6 +389,25 @@ export async function createDealForNewConversation(params: {
           eq(inboxConversations.workspaceId, workspaceId)
         )
       );
+
+    // 7. Fire-and-forget: extract AI insights from the first message(s)
+    // and write them onto the deal. This runs async so it never blocks
+    // message ingest. If it fails, the user can still click "Auswerten"
+    // manually on the deal's KI-Insights tab.
+    extractDealInsights(workspaceId, deal.id)
+      .then((result) => {
+        if (result.insights) {
+          return applyDealInsights({
+            workspaceId,
+            dealRecordId: deal.id,
+            insights: result.insights,
+            appliedBy: null,
+          });
+        }
+      })
+      .catch((err) => {
+        console.error("[inbox] auto-insights extraction failed (non-blocking):", err);
+      });
 
     return deal.id;
   } catch (err) {
