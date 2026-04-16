@@ -109,6 +109,34 @@ export async function GET(
           createdBy: ev.actorId ?? undefined,
         };
       }
+      if (ev.eventType === "ai.insights_extracted") {
+        const summary = typeof payload.summary === "string" ? payload.summary : "";
+        const fieldsUpdated = Array.isArray(payload.fieldsUpdated) ? payload.fieldsUpdated as string[] : [];
+        const missingFields = Array.isArray(payload.missingFields) ? payload.missingFields as string[] : [];
+        return {
+          id: `event-${ev.id}`,
+          type: "ai_insights" as const,
+          title: "KI-Analyse durchgeführt",
+          description: [
+            summary,
+            fieldsUpdated.length > 0 ? `Aktualisiert: ${fieldsUpdated.join(", ")}` : null,
+            missingFields.length > 0 ? `Fehlend: ${missingFields.join(", ")}` : null,
+          ].filter(Boolean).join(" · "),
+          createdAt: ev.createdAt.toISOString(),
+          createdBy: ev.actorId ?? undefined,
+        };
+      }
+      if (ev.eventType === "message.sent") {
+        const channel = typeof payload.channelType === "string" ? payload.channelType : "";
+        return {
+          id: `event-${ev.id}`,
+          type: "message_sent" as const,
+          title: "Nachricht gesendet",
+          description: channel ? `via ${channel}` : undefined,
+          createdAt: ev.createdAt.toISOString(),
+          createdBy: ev.actorId ?? undefined,
+        };
+      }
       return {
         id: `event-${ev.id}`,
         type: "event" as const,

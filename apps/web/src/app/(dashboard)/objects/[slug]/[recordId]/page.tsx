@@ -22,6 +22,8 @@ import {
   Handshake,
   Box,
   Truck,
+  Sparkles,
+  Loader2,
 } from "lucide-react";
 import { extractPersonalName } from "@/lib/display-name";
 
@@ -64,6 +66,8 @@ export default function RecordDetailPage() {
   const [activities, setActivities] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeResult, setAnalyzeResult] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -123,6 +127,35 @@ export default function RecordDetailPage() {
     }
   }, [slug, recordId, router]);
 
+  const handleAnalyze = useCallback(async () => {
+    setAnalyzing(true);
+    setAnalyzeResult(null);
+    try {
+      const res = await fetch(`/api/v1/deals/${recordId}/insights`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apply: true }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const fieldsUpdated = data.data?.fieldsUpdated as string[] | undefined;
+        if (fieldsUpdated && fieldsUpdated.length > 0) {
+          setAnalyzeResult(`${fieldsUpdated.length} Felder aktualisiert`);
+        } else {
+          setAnalyzeResult("Analyse abgeschlossen");
+        }
+        // Refresh the page data to show updated fields + new activity event.
+        fetchData();
+      } else {
+        setAnalyzeResult("Analyse fehlgeschlagen");
+      }
+    } catch {
+      setAnalyzeResult("Fehler bei der Analyse");
+    } finally {
+      setAnalyzing(false);
+    }
+  }, [recordId, fetchData]);
+
   if (loading && !record) {
     return (
       <div className="flex h-full items-center justify-center text-muted-foreground">
@@ -174,16 +207,38 @@ export default function RecordDetailPage() {
           </div>
           <div className="flex items-center justify-between">
             <h1 className="text-2xl font-semibold">{displayName}</h1>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleDelete}
-              disabled={deleting}
-              className="text-muted-foreground hover:text-destructive"
-            >
-              <Trash2 className="mr-1 h-4 w-4" />
-              {deleting ? "Deleting..." : "Delete"}
-            </Button>
+            <div className="flex items-center gap-2">
+              {slug === "deals" && (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleAnalyze}
+                    disabled={analyzing}
+                  >
+                    {analyzing ? (
+                      <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Sparkles className="mr-1.5 h-4 w-4" />
+                    )}
+                    {analyzing ? "Analysiere…" : "KI-Analyse"}
+                  </Button>
+                  {analyzeResult && (
+                    <span className="text-xs text-green-600">{analyzeResult}</span>
+                  )}
+                </>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleDelete}
+                disabled={deleting}
+                className="text-muted-foreground hover:text-destructive"
+              >
+                <Trash2 className="mr-1 h-4 w-4" />
+                {deleting ? "Deleting..." : "Delete"}
+              </Button>
+            </div>
           </div>
         </div>
 
