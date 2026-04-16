@@ -13,7 +13,7 @@ import {
   parseKleinanzeigenBody,
   stripKleinanzeigenSuffix,
 } from "./inbox-kleinanzeigen";
-import { createRecord } from "./records";
+import { createRecord, updateRecord } from "./records";
 
 // ─── Channel account management ───────────────────────────────────────────────
 
@@ -296,8 +296,10 @@ export async function createDealForNewConversation(params: {
   workspaceId: string;
   conversationId: string;
   dealName: string;
+  contactId?: string;
+  channelAccountId?: string;
 }): Promise<string | null> {
-  const { workspaceId, conversationId, dealName } = params;
+  const { workspaceId, conversationId, dealName, contactId, channelAccountId } = params;
   try {
     // 1. Resolve the workspace's `deals` object.
     const [dealObj] = await db
@@ -344,7 +346,38 @@ export async function createDealForNewConversation(params: {
     );
     if (!deal) return null;
 
-    // 5. Link the conversation to the new deal.
+    // 5. Link Person + operating company to the deal (best-effort).
+    const linkUpdates: Record<string, unknown> = {};
+
+    if (contactId) {
+      const [contact] = await db
+        .select({ crmRecordId: inboxContacts.crmRecordId })
+        .from(inboxContacts)
+        .where(eq(inboxContacts.id, contactId))
+        .limit(1);
+
+      if (contact?.crmRecordId) {
+        linkUpdates.associated_people = [contact.crmRecordId];
+      }
+    }
+
+    if (channelAccountId) {
+      const [account] = await db
+        .select({ opId: channelAccounts.operatingCompanyRecordId })
+        .from(channelAccounts)
+        .where(eq(channelAccounts.id, channelAccountId))
+        .limit(1);
+
+      if (account?.opId) {
+        linkUpdates.operating_company = account.opId;
+      }
+    }
+
+    if (Object.keys(linkUpdates).length > 0) {
+      await updateRecord(dealObj.id, deal.id, linkUpdates, null);
+    }
+
+    // 6. Link the conversation to the new deal.
     await db
       .update(inboxConversations)
       .set({ dealRecordId: deal.id, updatedAt: new Date() })

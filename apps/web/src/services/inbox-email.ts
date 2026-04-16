@@ -22,6 +22,7 @@ import {
 } from "./inbox-kleinanzeigen";
 import { createDealForNewConversation } from "./inbox";
 import { emitEvent } from "./activity-events";
+import { ensureCrmPerson } from "./inbox-crm-link";
 
 /** Extract a human-readable name from a mailparser AddressObject. */
 function firstAddress(ao: AddressObject | AddressObject[] | undefined): { name: string; address: string } {
@@ -173,6 +174,16 @@ export async function syncChannelAccount(accountId: string) {
       const contactName = isKleinanzeigen ? stripKleinanzeigenSuffix(fromName) : fromName;
       const contact = await upsertContact(account.workspaceId, fromEmail, contactName);
 
+      // Auto-create CRM Person for the contact (idempotent).
+      await ensureCrmPerson({
+        workspaceId: account.workspaceId,
+        contactId: contact.id,
+        displayName: contactName || fromEmail,
+        email: fromEmail,
+        phone: null,
+        leadSource: isKleinanzeigen ? "Kleinanzeigen" : "WhatsApp / Website",
+      });
+
       // Upsert conversation
       let [conv] = await db
         .select()
@@ -212,6 +223,8 @@ export async function syncChannelAccount(accountId: string) {
             workspaceId: account.workspaceId,
             conversationId: conv.id,
             dealName: contactName || fromEmail,
+            contactId: contact.id,
+            channelAccountId: account.id,
           });
         }
       } else {

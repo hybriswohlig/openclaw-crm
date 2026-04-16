@@ -24,6 +24,7 @@ import { eq, and } from "drizzle-orm";
 import { createDealForNewConversation } from "./inbox";
 import { emitEvent } from "./activity-events";
 import { getSecret } from "./workspace-settings";
+import { ensureCrmPerson } from "./inbox-crm-link";
 
 // ─── Settings keys ────────────────────────────────────────────────────────────
 // App-level values, stored once per workspace in workspace_settings (encrypted).
@@ -202,6 +203,16 @@ async function ingestMessage(
 
   const contact = await upsertContact(account.workspaceId, waId, displayName);
 
+  // Auto-create CRM Person for the contact (idempotent).
+  await ensureCrmPerson({
+    workspaceId: account.workspaceId,
+    contactId: contact.id,
+    displayName: displayName || waId,
+    email: null,
+    phone: waId,
+    leadSource: "WhatsApp / Website",
+  });
+
   // Thread key for WhatsApp = wa_id. One conversation per (channelAccount, contact phone).
   const threadKey = waId;
 
@@ -240,6 +251,8 @@ async function ingestMessage(
       workspaceId: account.workspaceId,
       conversationId: conv.id,
       dealName: displayName || waId,
+      contactId: contact.id,
+      channelAccountId: account.id,
     });
   } else {
     await db
@@ -632,6 +645,16 @@ export async function sendWhatsAppTemplate(params: {
   // behaviour: (channelAccountId, waId) uniquely identifies a conversation.
   const contact = await upsertContact(workspaceId, waId, customerName);
 
+  // Auto-create CRM Person for the contact (idempotent).
+  await ensureCrmPerson({
+    workspaceId,
+    contactId: contact.id,
+    displayName: customerName || waId,
+    email: null,
+    phone: waId,
+    leadSource: "WhatsApp / Website",
+  });
+
   const threadKey = waId;
   let [conv] = await db
     .select()
@@ -763,6 +786,8 @@ export async function sendWhatsAppTemplate(params: {
       workspaceId,
       conversationId: conv.id,
       dealName: customerName || waId,
+      contactId: contact.id,
+      channelAccountId: account.id,
     });
   }
 

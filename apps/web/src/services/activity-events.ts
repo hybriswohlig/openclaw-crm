@@ -15,7 +15,8 @@ export type ActivityEventType =
   | "message.sent"
   | "deal.stage_changed"
   | "call.received"
-  | "call.summary_attached";
+  | "call.summary_attached"
+  | "ai.insights_extracted";
 
 export interface EmitEventInput {
   workspaceId: string;
