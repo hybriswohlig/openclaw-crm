@@ -110,17 +110,19 @@ export async function GET(
         };
       }
       if (ev.eventType === "ai.insights_extracted") {
+        const note = typeof payload.note === "string" ? payload.note : "";
         const summary = typeof payload.summary === "string" ? payload.summary : "";
         const fieldsUpdated = Array.isArray(payload.fieldsUpdated) ? payload.fieldsUpdated as string[] : [];
-        const missingFields = Array.isArray(payload.missingFields) ? payload.missingFields as string[] : [];
+        const confirmedByUser = payload.confirmedByUser === true;
+        const displayText = note || summary;
+        const attribution = confirmedByUser ? "User + KI" : "KI (automatisch)";
         return {
           id: `event-${ev.id}`,
           type: "ai_insights" as const,
-          title: "KI-Analyse durchgeführt",
+          title: `KI-Analyse · ${attribution}`,
           description: [
-            summary,
+            displayText,
             fieldsUpdated.length > 0 ? `Aktualisiert: ${fieldsUpdated.join(", ")}` : null,
-            missingFields.length > 0 ? `Fehlend: ${missingFields.join(", ")}` : null,
           ].filter(Boolean).join(" · "),
           createdAt: ev.createdAt.toISOString(),
           createdBy: ev.actorId ?? undefined,

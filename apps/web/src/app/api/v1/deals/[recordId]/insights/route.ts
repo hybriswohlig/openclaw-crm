@@ -37,9 +37,15 @@ export async function POST(
   const { recordId } = await params;
 
   let apply = false;
+  let selectedFields: string[] | undefined;
+  let applyStage = false;
+  let applyNote = true;
   try {
     const body = await req.json();
     apply = body?.apply === true;
+    if (Array.isArray(body?.selectedFields)) selectedFields = body.selectedFields;
+    if (body?.applyStage === true) applyStage = true;
+    if (body?.applyNote === false) applyNote = false;
   } catch {
     // No body or invalid JSON — default to preview-only.
   }
@@ -47,13 +53,16 @@ export async function POST(
   const result = await extractDealInsights(ctx.workspaceId, recordId);
 
   if (apply && result.insights) {
-    const { fieldsUpdated } = await applyDealInsights({
+    const applyResult = await applyDealInsights({
       workspaceId: ctx.workspaceId,
       dealRecordId: recordId,
       insights: result.insights,
       appliedBy: ctx.userId,
+      selectedFields,
+      applyStage,
+      applyNote,
     });
-    return success({ ...result, applied: true, fieldsUpdated });
+    return success({ ...result, applied: true, ...applyResult });
   }
 
   return success({ ...result, applied: false });

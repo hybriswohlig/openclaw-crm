@@ -24,6 +24,11 @@ import {
   Truck,
   Sparkles,
   Loader2,
+  X,
+  Check,
+  ArrowRight as ArrowRightIcon,
+  AlertTriangle,
+  FileText,
 } from "lucide-react";
 import { extractPersonalName } from "@/lib/display-name";
 
@@ -52,6 +57,53 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   truck: Truck,
 };
 
+// ─── AI Insights approval types ──────────────────────────────────────────────
+
+interface InsightsExtracted {
+  customer_name: string | null;
+  move_date: string | null;
+  move_from_address: string | null;
+  move_to_address: string | null;
+  floors: string | null;
+  inventory_notes: string | null;
+  estimated_value_eur: number | null;
+  customer_phone: string | null;
+  customer_email: string | null;
+}
+
+interface InsightsData {
+  extracted: InsightsExtracted;
+  suggested_stage: string | null;
+  activity_note: string;
+  summary: string;
+  missingFields: string[];
+  openCustomerQuestions: string[];
+  legalFlags: Array<{ topic: string; reason: string }>;
+}
+
+interface InsightsSuggestions {
+  insights: InsightsData;
+  transcript: { messageCount: number; conversationCount: number };
+  selectedFields: string[];
+  applyStage: boolean;
+  applyNote: boolean;
+}
+
+const FIELD_LABELS: Record<string, { label: string; format: (v: unknown) => string }> = {
+  inventory_notes: { label: "Inventar / Güter", format: (v) => String(v) },
+  move_date: { label: "Umzugsdatum", format: (v) => String(v) },
+  estimated_value_eur: { label: "Geschätzter Wert", format: (v) => `${v} €` },
+};
+
+function buildDefaultSelections(insights: InsightsData): string[] {
+  const fields: string[] = [];
+  const ext = insights.extracted;
+  if (ext.inventory_notes) fields.push("inventory_notes");
+  if (ext.move_date) fields.push("move_date");
+  if (ext.estimated_value_eur != null) fields.push("estimated_value_eur");
+  return fields;
+}
+
 export default function RecordDetailPage() {
   const params = useParams<{ slug: string; recordId: string }>();
   const router = useRouter();
@@ -67,7 +119,9 @@ export default function RecordDetailPage() {
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
-  const [analyzeResult, setAnalyzeResult] = useState<string | null>(null);
+  const [applying, setApplying] = useState(false);
+  const [insightsPanel, setInsightsPanel] = useState<InsightsSuggestions | null>(null);
+  const [analyzeError, setAnalyzeError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -127,34 +181,65 @@ export default function RecordDetailPage() {
     }
   }, [slug, recordId, router]);
 
+  // Step 1: Extract (preview only — no changes written)
   const handleAnalyze = useCallback(async () => {
     setAnalyzing(true);
-    setAnalyzeResult(null);
+    setAnalyzeError(null);
+    setInsightsPanel(null);
     try {
       const res = await fetch(`/api/v1/deals/${recordId}/insights`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apply: true }),
+        body: JSON.stringify({ apply: false }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        const fieldsUpdated = data.data?.fieldsUpdated as string[] | undefined;
-        if (fieldsUpdated && fieldsUpdated.length > 0) {
-          setAnalyzeResult(`${fieldsUpdated.length} Felder aktualisiert`);
-        } else {
-          setAnalyzeResult("Analyse abgeschlossen");
-        }
-        // Refresh the page data to show updated fields + new activity event.
-        fetchData();
-      } else {
-        setAnalyzeResult("Analyse fehlgeschlagen");
+      if (!res.ok) {
+        setAnalyzeError("Analyse fehlgeschlagen");
+        return;
       }
+      const data = await res.json();
+      const d = data.data;
+      if (!d?.insights) {
+        setAnalyzeError(d?.error ?? "Keine Nachrichten mit diesem Deal verknüpft.");
+        return;
+      }
+      // Open the approval panel with suggestions.
+      setInsightsPanel({
+        insights: d.insights,
+        transcript: d.transcript,
+        selectedFields: buildDefaultSelections(d.insights),
+        applyStage: !!d.insights.suggested_stage,
+        applyNote: true,
+      });
     } catch {
-      setAnalyzeResult("Fehler bei der Analyse");
+      setAnalyzeError("Netzwerkfehler bei der Analyse");
     } finally {
       setAnalyzing(false);
     }
-  }, [recordId, fetchData]);
+  }, [recordId]);
+
+  // Step 2: Apply user-approved suggestions
+  const handleApplyInsights = useCallback(async () => {
+    if (!insightsPanel) return;
+    setApplying(true);
+    try {
+      const res = await fetch(`/api/v1/deals/${recordId}/insights`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apply: true,
+          selectedFields: insightsPanel.selectedFields,
+          applyStage: insightsPanel.applyStage,
+          applyNote: insightsPanel.applyNote,
+        }),
+      });
+      if (res.ok) {
+        setInsightsPanel(null);
+        fetchData();
+      }
+    } finally {
+      setApplying(false);
+    }
+  }, [recordId, insightsPanel, fetchData]);
 
   if (loading && !record) {
     return (
@@ -223,8 +308,8 @@ export default function RecordDetailPage() {
                     )}
                     {analyzing ? "Analysiere…" : "KI-Analyse"}
                   </Button>
-                  {analyzeResult && (
-                    <span className="text-xs text-green-600">{analyzeResult}</span>
+                  {analyzeError && (
+                    <span className="text-xs text-red-500">{analyzeError}</span>
                   )}
                 </>
               )}
@@ -363,6 +448,176 @@ export default function RecordDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* ── AI Insights Approval Panel ─────────────────────────────────── */}
+      {insightsPanel && (
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 z-40 bg-black/20"
+            onClick={() => setInsightsPanel(null)}
+          />
+          {/* Panel */}
+          <div className="fixed right-0 top-0 bottom-0 z-50 w-full max-w-md overflow-y-auto border-l border-border bg-background shadow-xl">
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b bg-background px-5 py-3">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-violet-500" />
+                <h2 className="text-sm font-semibold">KI-Analyse Vorschläge</h2>
+              </div>
+              <button
+                onClick={() => setInsightsPanel(null)}
+                className="rounded-md p-1 text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-5 px-5 py-4">
+              {/* Summary */}
+              <div className="rounded-lg bg-violet-500/5 border border-violet-500/20 p-3">
+                <p className="text-sm leading-relaxed">{insightsPanel.insights.summary}</p>
+                <p className="mt-1.5 text-[10px] text-muted-foreground">
+                  Basierend auf {insightsPanel.transcript.messageCount} Nachrichten in{" "}
+                  {insightsPanel.transcript.conversationCount} Unterhaltung(en)
+                </p>
+              </div>
+
+              {/* Stage suggestion */}
+              {insightsPanel.insights.suggested_stage && (
+                <div className="rounded-lg border p-3 space-y-2">
+                  <label className="flex items-center justify-between gap-2 cursor-pointer">
+                    <div className="flex items-center gap-2">
+                      <ArrowRightIcon className="h-4 w-4 text-amber-500" />
+                      <div>
+                        <span className="text-sm font-medium">Pipeline-Stufe ändern</span>
+                        <p className="text-xs text-muted-foreground">
+                          Vorschlag: <strong>{insightsPanel.insights.suggested_stage}</strong>
+                        </p>
+                      </div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={insightsPanel.applyStage}
+                      onChange={(e) =>
+                        setInsightsPanel((p) => p ? { ...p, applyStage: e.target.checked } : p)
+                      }
+                      className="h-4 w-4 rounded border-gray-300"
+                    />
+                  </label>
+                </div>
+              )}
+
+              {/* Data fields */}
+              {Object.entries(FIELD_LABELS).map(([key, { label, format }]) => {
+                const value = insightsPanel.insights.extracted[key as keyof InsightsExtracted];
+                if (value == null) return null;
+                const isSelected = insightsPanel.selectedFields.includes(key);
+                return (
+                  <div key={key} className="rounded-lg border p-3">
+                    <label className="flex items-center justify-between gap-2 cursor-pointer">
+                      <div className="flex-1 min-w-0">
+                        <span className="text-sm font-medium">{label}</span>
+                        <p className="text-xs text-muted-foreground truncate mt-0.5">
+                          {format(value)}
+                        </p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={(e) =>
+                          setInsightsPanel((p) => {
+                            if (!p) return p;
+                            const sf = e.target.checked
+                              ? [...p.selectedFields, key]
+                              : p.selectedFields.filter((f) => f !== key);
+                            return { ...p, selectedFields: sf };
+                          })
+                        }
+                        className="h-4 w-4 rounded border-gray-300"
+                      />
+                    </label>
+                  </div>
+                );
+              })}
+
+              {/* Activity note */}
+              {insightsPanel.insights.activity_note && (
+                <div className="rounded-lg border p-3 space-y-2">
+                  <label className="flex items-center justify-between gap-2 cursor-pointer">
+                    <div className="flex items-center gap-2">
+                      <FileText className="h-4 w-4 text-blue-500" />
+                      <span className="text-sm font-medium">Aktivitätsnotiz posten</span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={insightsPanel.applyNote}
+                      onChange={(e) =>
+                        setInsightsPanel((p) => p ? { ...p, applyNote: e.target.checked } : p)
+                      }
+                      className="h-4 w-4 rounded border-gray-300"
+                    />
+                  </label>
+                  <p className="text-xs text-muted-foreground leading-relaxed pl-6">
+                    {insightsPanel.insights.activity_note}
+                  </p>
+                </div>
+              )}
+
+              {/* Missing fields */}
+              {insightsPanel.insights.missingFields.length > 0 && (
+                <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-amber-700 mb-1.5">
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    Noch fehlende Informationen
+                  </div>
+                  <ul className="space-y-0.5 text-xs text-muted-foreground">
+                    {insightsPanel.insights.missingFields.map((f, i) => (
+                      <li key={i}>• {f}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Open customer questions */}
+              {insightsPanel.insights.openCustomerQuestions.length > 0 && (
+                <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3">
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-blue-700 mb-1.5">
+                    Offene Kundenfragen
+                  </div>
+                  <ul className="space-y-0.5 text-xs text-muted-foreground">
+                    {insightsPanel.insights.openCustomerQuestions.map((q, i) => (
+                      <li key={i}>• {q}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="sticky bottom-0 border-t bg-background px-5 py-3 flex items-center justify-between gap-3">
+              <Button variant="ghost" size="sm" onClick={() => setInsightsPanel(null)}>
+                Abbrechen
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleApplyInsights}
+                disabled={applying || (
+                  insightsPanel.selectedFields.length === 0 &&
+                  !insightsPanel.applyStage &&
+                  !insightsPanel.applyNote
+                )}
+              >
+                {applying ? (
+                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                ) : (
+                  <Check className="mr-1.5 h-4 w-4" />
+                )}
+                Übernehmen
+              </Button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

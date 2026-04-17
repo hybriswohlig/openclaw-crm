@@ -390,10 +390,9 @@ export async function createDealForNewConversation(params: {
         )
       );
 
-    // 7. Fire-and-forget: extract AI insights from the first message(s)
-    // and write them onto the deal. This runs async so it never blocks
-    // message ingest. If it fails, the user can still click "Auswerten"
-    // manually on the deal's KI-Insights tab.
+    // 7. Fire-and-forget: extract AI insights from the first message and
+    // post an initial activity note. Only the note is auto-applied — field
+    // updates are left for the user to review via the KI-Analyse panel.
     extractDealInsights(workspaceId, deal.id)
       .then((result) => {
         if (result.insights) {
@@ -402,6 +401,9 @@ export async function createDealForNewConversation(params: {
             dealRecordId: deal.id,
             insights: result.insights,
             appliedBy: null,
+            selectedFields: [],   // Don't auto-write data fields
+            applyStage: false,    // Don't auto-change stage
+            applyNote: true,      // Post the initial activity note
           });
         }
       })

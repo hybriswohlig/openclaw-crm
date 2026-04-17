@@ -77,6 +77,17 @@ const InsightsSchema = z.object({
   extracted: ExtractedDealSchema.describe(
     "Structured fields extracted from the conversation. Use null for any field that the conversation does not establish."
   ),
+  suggested_stage: z
+    .string()
+    .nullable()
+    .describe(
+      "Suggested pipeline stage based on the conversation progress. One of: 'Inquiry', 'Contacted', 'Information gathered', 'Quoted', 'Planned', 'Done', 'Paid', 'Lost'. Null if you cannot determine. Use 'Contacted' if there is at least one agent reply. Use 'Information gathered' if key details (date, addresses, inventory) are known. Use 'Quoted' if a price was sent. Use 'Lost' if the customer declined."
+    ),
+  activity_note: z
+    .string()
+    .describe(
+      "A concise German note (2-5 sentences) summarizing the current state of the deal for the activity log. Include: what the customer wants, what has been discussed, what is the next step. Written as a neutral third-person observation."
+    ),
   missingFields: z
     .array(z.string())
     .describe(
@@ -124,7 +135,16 @@ Regeln:
 - Achte auf den Unterschied zwischen Kunde (CUSTOMER) und Mitarbeiter (AGENT).
 - "Offene Kundenfragen" sind nur Fragen des Kunden, die der Mitarbeiter noch NICHT beantwortet hat.
 - "Fehlende Felder" priorisieren nach dem, was wir für ein Angebot zwingend brauchen (Datum, Adressen, Stockwerke, Inventar, Telefon).
-- Rechtliche Hinweise (legalFlags) nur dann setzen, wenn der Kunde Themen wie Schäden, Stornierung, Haftung, Garantie, Versicherung anspricht.`;
+- Rechtliche Hinweise (legalFlags) nur dann setzen, wenn der Kunde Themen wie Schäden, Stornierung, Haftung, Garantie, Versicherung anspricht.
+- "suggested_stage": Schlage die passende Pipeline-Stufe vor basierend auf dem Gesprächsverlauf:
+  • "Inquiry" = Erstanfrage, kein Agent hat geantwortet
+  • "Contacted" = Agent hat mindestens einmal geantwortet
+  • "Information gathered" = Wichtige Details (Datum, Adressen, Inventar) sind bekannt
+  • "Quoted" = Ein Preis/Angebot wurde dem Kunden mitgeteilt
+  • "Planned" = Auftrag bestätigt, Termin steht
+  • "Done" = Umzug durchgeführt
+  • "Lost" = Kunde hat abgesagt oder kein Interesse mehr
+- "activity_note": Schreibe eine kurze, sachliche Zusammenfassung für das Aktivitätsprotokoll. Was will der Kunde, was wurde besprochen, was ist der nächste Schritt.`;
 
 // ─── Service ──────────────────────────────────────────────────────────────────
 
