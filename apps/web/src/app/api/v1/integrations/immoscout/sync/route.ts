@@ -25,7 +25,18 @@ export async function POST(req: NextRequest) {
     return badRequest("No API key configured for ImmobilienScout24. Please add your umzug-easy API token.");
   }
 
-  const result = await syncImmoscoutLeads(ctx.workspaceId, immoscout.apiKey);
+  // Parse options from request body
+  let resetFirst = false;
+  try {
+    const body = await req.json();
+    resetFirst = body.resetFirst === true;
+  } catch {
+    // No body or invalid JSON — use defaults
+  }
+
+  const result = await syncImmoscoutLeads(ctx.workspaceId, immoscout.apiKey, {
+    resetFirst,
+  });
 
   return success(result);
 }

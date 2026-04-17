@@ -202,16 +202,20 @@ interface SyncResult {
 
 function ImmoscoutSyncSection({ integration }: { integration: Integration }) {
   const [syncing, setSyncing] = useState(false);
+  const [syncMode, setSyncMode] = useState<"new" | "all" | null>(null);
   const [result, setResult] = useState<SyncResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleSync() {
+  async function handleSync(resetFirst: boolean) {
     setSyncing(true);
+    setSyncMode(resetFirst ? "all" : "new");
     setResult(null);
     setError(null);
     try {
       const res = await fetch("/api/v1/integrations/immoscout/sync", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resetFirst }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -219,10 +223,11 @@ function ImmoscoutSyncSection({ integration }: { integration: Integration }) {
         return;
       }
       setResult(data.data);
-    } catch (err) {
+    } catch {
       setError("Netzwerkfehler beim Synchronisieren");
     } finally {
       setSyncing(false);
+      setSyncMode(null);
     }
   }
 
@@ -231,7 +236,7 @@ function ImmoscoutSyncSection({ integration }: { integration: Integration }) {
   return (
     <div className="border-t border-border pt-4 space-y-3">
       <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-        Lead-Import
+        Lead-Import (umzug-easy.de)
       </p>
 
       {!isReady ? (
@@ -241,19 +246,38 @@ function ImmoscoutSyncSection({ integration }: { integration: Integration }) {
         </div>
       ) : (
         <>
-          <Button
-            onClick={handleSync}
-            disabled={syncing}
-            className="w-full"
-            variant="outline"
-          >
-            {syncing ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4 mr-2" />
-            )}
-            {syncing ? "Leads werden importiert…" : "Leads jetzt importieren"}
-          </Button>
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              onClick={() => handleSync(false)}
+              disabled={syncing}
+              variant="outline"
+              className="w-full"
+            >
+              {syncing && syncMode === "new" ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4 mr-2" />
+              )}
+              Neue Leads
+            </Button>
+            <Button
+              onClick={() => handleSync(true)}
+              disabled={syncing}
+              variant="default"
+              className="w-full"
+            >
+              {syncing && syncMode === "all" ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4 mr-2" />
+              )}
+              Alle Leads
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            <strong>Neue Leads</strong> importiert nur noch nicht abgerufene Anfragen.{" "}
+            <strong>Alle Leads</strong> setzt den Status zurück und importiert alles erneut (Duplikate werden übersprungen).
+          </p>
 
           {result && (
             <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-2 text-sm">
@@ -997,8 +1021,14 @@ interface ChannelAccount {
   lastSyncAt: string | null;
 }
 
+interface OperatingCompany {
+  id: string;
+  name: string;
+}
+
 function ChannelAccountsSection({ isAdmin }: { isAdmin: boolean }) {
   const [accounts, setAccounts] = useState<ChannelAccount[]>([]);
+  const [companies, setCompanies] = useState<OperatingCompany[]>([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<ChannelAccount | null>(null);
@@ -1009,14 +1039,22 @@ function ChannelAccountsSection({ isAdmin }: { isAdmin: boolean }) {
     name: "", channelType: "email" as "email" | "whatsapp",
     address: "", credential: "", imapHost: "imap.gmail.com",
     smtpHost: "smtp.gmail.com", wabaId: "", waPhoneNumberId: "",
+    operatingCompanyRecordId: "",
   };
   const [form, setForm] = useState(emptyForm);
 
   const fetchAccounts = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/v1/inbox/channel-accounts");
-      if (res.ok) setAccounts(await res.json().then((d: { data: ChannelAccount[] }) => d.data ?? []));
+      const [accountsRes, companiesRes] = await Promise.all([
+        fetch("/api/v1/inbox/channel-accounts"),
+        fetch("/api/v1/operating-companies").catch(() => null),
+      ]);
+      if (accountsRes.ok) setAccounts(await accountsRes.json().then((d: { data: ChannelAccount[] }) => d.data ?? []));
+      if (companiesRes?.ok) {
+        const cj = await companiesRes.json();
+        setCompanies(cj.data ?? []);
+      }
     } finally {
       setLoading(false);
     }
@@ -1038,13 +1076,17 @@ function ChannelAccountsSection({ isAdmin }: { isAdmin: boolean }) {
             smtpHost: form.smtpHost || null,
             wabaId: form.wabaId || null,
             waPhoneNumberId: form.waPhoneNumberId || null,
+            operatingCompanyRecordId: form.operatingCompanyRecordId || null,
           }),
         });
       } else {
         await fetch("/api/v1/inbox/channel-accounts", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...form }),
+          body: JSON.stringify({
+            ...form,
+            operatingCompanyRecordId: form.operatingCompanyRecordId || undefined,
+          }),
         });
       }
       await fetchAccounts();
@@ -1073,6 +1115,7 @@ function ChannelAccountsSection({ isAdmin }: { isAdmin: boolean }) {
       credential: "", imapHost: acc.imapHost ?? "imap.gmail.com",
       smtpHost: acc.smtpHost ?? "smtp.gmail.com",
       wabaId: acc.wabaId ?? "", waPhoneNumberId: acc.waPhoneNumberId ?? "",
+      operatingCompanyRecordId: acc.operatingCompanyRecordId ?? "",
     });
     setEditTarget(acc);
     setAddOpen(true);
@@ -1118,6 +1161,7 @@ function ChannelAccountsSection({ isAdmin }: { isAdmin: boolean }) {
                 <th className="text-left px-4 py-2.5 font-medium text-xs text-muted-foreground">Name</th>
                 <th className="text-left px-4 py-2.5 font-medium text-xs text-muted-foreground">Adresse</th>
                 <th className="text-left px-4 py-2.5 font-medium text-xs text-muted-foreground">Typ</th>
+                <th className="text-left px-4 py-2.5 font-medium text-xs text-muted-foreground">Gesellschaft</th>
                 <th className="text-left px-4 py-2.5 font-medium text-xs text-muted-foreground">Letzter Sync</th>
                 {isAdmin && <th className="px-4 py-2.5" />}
               </tr>
@@ -1132,6 +1176,11 @@ function ChannelAccountsSection({ isAdmin }: { isAdmin: boolean }) {
                       ${acc.channelType === "email" ? "text-blue-600 bg-blue-500/10 border-blue-400/20" : "text-emerald-600 bg-emerald-500/10 border-emerald-400/20"}`}>
                       {acc.channelType === "email" ? "E-Mail" : "WhatsApp"}
                     </span>
+                  </td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground">
+                    {acc.operatingCompanyRecordId
+                      ? companies.find((c) => c.id === acc.operatingCompanyRecordId)?.name ?? "—"
+                      : <span className="text-amber-500">nicht verknüpft</span>}
                   </td>
                   <td className="px-4 py-3 text-xs text-muted-foreground">
                     {acc.lastSyncAt ? new Date(acc.lastSyncAt).toLocaleString("de-DE") : "Noch nicht synchronisiert"}
@@ -1229,6 +1278,24 @@ function ChannelAccountsSection({ isAdmin }: { isAdmin: boolean }) {
                     value={form.waPhoneNumberId}
                     onChange={(e) => setForm((f) => ({ ...f, waPhoneNumberId: e.target.value }))} />
                 </div>
+              </div>
+            )}
+            {companies.length > 0 && (
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Betriebsgesellschaft</label>
+                <select
+                  className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
+                  value={form.operatingCompanyRecordId}
+                  onChange={(e) => setForm((f) => ({ ...f, operatingCompanyRecordId: e.target.value }))}
+                >
+                  <option value="">— nicht verknüpft —</option>
+                  {companies.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Eingehende Anfragen über diesen Kanal werden automatisch der gewählten Gesellschaft zugeordnet.
+                </p>
               </div>
             )}
           </div>

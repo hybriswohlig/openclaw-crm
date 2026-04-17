@@ -259,22 +259,54 @@ export default function WhatsAppSettingsPage() {
           </p>
         ) : (
           <div className="space-y-2">
-            {accounts.map((a) => (
-              <div
-                key={a.id}
-                className="flex items-center justify-between rounded-md border border-border px-4 py-3"
-              >
-                <div className="space-y-0.5">
-                  <div className="text-sm font-medium">{a.name}</div>
-                  <div className="text-xs text-muted-foreground font-mono">
-                    {a.waDisplayPhoneNumber ?? a.address} · id {a.waPhoneNumberId ?? "—"}
+            {accounts.map((a) => {
+              const linkedCompany = companies.find((c) => c.id === a.operatingCompanyRecordId);
+              return (
+                <div
+                  key={a.id}
+                  className="flex items-center justify-between rounded-md border border-border px-4 py-3"
+                >
+                  <div className="space-y-0.5">
+                    <div className="text-sm font-medium">{a.name}</div>
+                    <div className="text-xs text-muted-foreground font-mono">
+                      {a.waDisplayPhoneNumber ?? a.address} · id {a.waPhoneNumberId ?? "—"}
+                    </div>
+                    <div className="text-xs">
+                      {linkedCompany ? (
+                        <span className="text-muted-foreground">Gesellschaft: {linkedCompany.name}</span>
+                      ) : (
+                        <span className="text-amber-500">Keine Gesellschaft verknüpft</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {companies.length > 0 && (
+                      <select
+                        className="h-8 rounded-md border border-input bg-transparent px-2 text-xs"
+                        value={a.operatingCompanyRecordId ?? ""}
+                        onChange={async (e) => {
+                          const val = e.target.value || null;
+                          await fetch(`/api/v1/inbox/channel-accounts/${a.id}`, {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ operatingCompanyRecordId: val }),
+                          });
+                          void loadAll();
+                        }}
+                      >
+                        <option value="">— keine —</option>
+                        {companies.map((c) => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                    )}
+                    <Button variant="ghost" size="sm" onClick={() => deleteAccount(a.id)}>
+                      <Trash2 className="h-4 w-4 text-muted-foreground" />
+                    </Button>
                   </div>
                 </div>
-                <Button variant="ghost" size="sm" onClick={() => deleteAccount(a.id)}>
-                  <Trash2 className="h-4 w-4 text-muted-foreground" />
-                </Button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
