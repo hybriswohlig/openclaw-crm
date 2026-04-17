@@ -17,6 +17,7 @@ import {
   Upload,
   Zap,
   Link as LinkIcon,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -187,6 +188,120 @@ function IntegrationCard({
         <ChevronRight className="h-3 w-3 ml-auto opacity-0 group-hover:opacity-100 transition-opacity" />
       </div>
     </button>
+  );
+}
+
+// ─── ImmobilienScout Sync Section ────────────────────────────────────────────
+
+interface SyncResult {
+  total: number;
+  created: number;
+  skipped: number;
+  errors: string[];
+}
+
+function ImmoscoutSyncSection({ integration }: { integration: Integration }) {
+  const [syncing, setSyncing] = useState(false);
+  const [result, setResult] = useState<SyncResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSync() {
+    setSyncing(true);
+    setResult(null);
+    setError(null);
+    try {
+      const res = await fetch("/api/v1/integrations/immoscout/sync", {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error?.message || data.error || "Sync fehlgeschlagen");
+        return;
+      }
+      setResult(data.data);
+    } catch (err) {
+      setError("Netzwerkfehler beim Synchronisieren");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  const isReady = integration.status === "active" && integration.apiKey;
+
+  return (
+    <div className="border-t border-border pt-4 space-y-3">
+      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+        Lead-Import
+      </p>
+
+      {!isReady ? (
+        <div className="rounded-lg border border-dashed border-border p-4 text-center text-sm text-muted-foreground">
+          <p>Bitte aktiviere die Integration und hinterlege einen API-Key,</p>
+          <p>um Leads von umzug-easy.de zu importieren.</p>
+        </div>
+      ) : (
+        <>
+          <Button
+            onClick={handleSync}
+            disabled={syncing}
+            className="w-full"
+            variant="outline"
+          >
+            {syncing ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4 mr-2" />
+            )}
+            {syncing ? "Leads werden importiert…" : "Leads jetzt importieren"}
+          </Button>
+
+          {result && (
+            <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-2 text-sm">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                <span className="font-medium">Import abgeschlossen</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
+                <div className="text-center">
+                  <p className="text-lg font-semibold text-foreground">{result.total}</p>
+                  <p>Gesamt</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-lg font-semibold text-emerald-600">{result.created}</p>
+                  <p>Neu erstellt</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-lg font-semibold text-muted-foreground">{result.skipped}</p>
+                  <p>Übersprungen</p>
+                </div>
+              </div>
+              {result.errors.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  <p className="text-xs font-medium text-destructive">
+                    {result.errors.length} Fehler:
+                  </p>
+                  {result.errors.slice(0, 5).map((e, i) => (
+                    <p key={i} className="text-xs text-destructive/80 break-all">{e}</p>
+                  ))}
+                  {result.errors.length > 5 && (
+                    <p className="text-xs text-muted-foreground">
+                      … und {result.errors.length - 5} weitere
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {error && (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive flex items-start gap-2">
+              <XCircle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>{error}</span>
+            </div>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 
@@ -442,6 +557,11 @@ function IntegrationDrawer({
               </pre>
             )}
           </div>
+
+          {/* ImmobilienScout Sync */}
+          {isAdmin && integration.slug === "immobilienscout24" && (
+            <ImmoscoutSyncSection integration={integration} />
+          )}
 
           {/* Metadata */}
           <div className="text-xs text-muted-foreground space-y-0.5 border-t border-border pt-4">
