@@ -10,6 +10,8 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Minus,
+  Building2,
+  ArrowRightLeft,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -32,11 +34,20 @@ interface DealRow {
   profit: number;
 }
 
+interface CompanyRow {
+  companyName: string;
+  income: number;
+  expenses: number;
+  employeeCosts: number;
+  profit: number;
+}
+
 interface FinancialData {
   summary: FinancialSummary;
   expensesByCategory: Record<string, number>;
   employeeBalances: Array<{ name: string; total: number }>;
   deals: DealRow[];
+  companyBreakdown: CompanyRow[];
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -213,6 +224,115 @@ function DealsTable({ deals }: { deals: DealRow[] }) {
   );
 }
 
+function CompanyBreakdown({ companies }: { companies: CompanyRow[] }) {
+  if (companies.length === 0) {
+    return <p className="text-sm text-muted-foreground py-4 text-center">Keine Daten — Aufträgen eine Betriebsgesellschaft zuweisen</p>;
+  }
+
+  const totalProfit = companies.reduce((s, c) => s + c.profit, 0);
+  const fairShare = totalProfit / 2;
+
+  // Calculate settlement: each company should end up with fairShare.
+  // If company has more profit than fairShare, they owe the difference to the other.
+  const settlements: Array<{ from: string; to: string; amount: number }> = [];
+  const sorted = [...companies].sort((a, b) => b.profit - a.profit);
+
+  if (sorted.length === 2) {
+    const diff = sorted[0].profit - fairShare;
+    if (diff > 0.01) {
+      settlements.push({ from: sorted[0].companyName, to: sorted[1].companyName, amount: diff });
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Company rows */}
+      <div className="rounded-lg border border-border overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border bg-muted/50">
+              <th className="text-left px-4 py-3 font-medium">Betriebsgesellschaft</th>
+              <th className="text-right px-4 py-3 font-medium">Einnahmen</th>
+              <th className="text-right px-4 py-3 font-medium">Ausgaben</th>
+              <th className="text-right px-4 py-3 font-medium">Personalkosten</th>
+              <th className="text-right px-4 py-3 font-medium">Überschuss</th>
+            </tr>
+          </thead>
+          <tbody>
+            {companies.map((c) => (
+              <tr key={c.companyName} className="border-b border-border last:border-0 hover:bg-muted/30">
+                <td className="px-4 py-3 font-medium">
+                  <div className="flex items-center gap-2">
+                    <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
+                    {c.companyName}
+                  </div>
+                </td>
+                <td className="px-4 py-3 text-right tabular-nums text-emerald-600 dark:text-emerald-400">{eur(c.income)}</td>
+                <td className="px-4 py-3 text-right tabular-nums text-red-600 dark:text-red-400">{eur(c.expenses)}</td>
+                <td className="px-4 py-3 text-right tabular-nums text-red-600 dark:text-red-400">{eur(c.employeeCosts)}</td>
+                <td className={`px-4 py-3 text-right tabular-nums font-semibold ${c.profit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
+                  {eur(c.profit)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="border-t border-border bg-muted/50 font-semibold">
+              <td className="px-4 py-3">Gesamt</td>
+              <td className="px-4 py-3 text-right tabular-nums text-emerald-600 dark:text-emerald-400">{eur(companies.reduce((s, c) => s + c.income, 0))}</td>
+              <td className="px-4 py-3 text-right tabular-nums text-red-600 dark:text-red-400">{eur(companies.reduce((s, c) => s + c.expenses, 0))}</td>
+              <td className="px-4 py-3 text-right tabular-nums text-red-600 dark:text-red-400">{eur(companies.reduce((s, c) => s + c.employeeCosts, 0))}</td>
+              <td className={`px-4 py-3 text-right tabular-nums ${totalProfit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
+                {eur(totalProfit)}
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      {/* 50/50 Settlement */}
+      <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-3">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <ArrowRightLeft className="h-4 w-4 text-muted-foreground" />
+          50/50 Ausgleich
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+          <div className="space-y-1">
+            <p className="text-muted-foreground">Gesamtgewinn</p>
+            <p className={`text-lg font-bold ${totalProfit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
+              {eur(totalProfit)}
+            </p>
+          </div>
+          <div className="space-y-1">
+            <p className="text-muted-foreground">Anteil pro Partner (50%)</p>
+            <p className="text-lg font-bold">{eur(fairShare)}</p>
+          </div>
+        </div>
+        {settlements.length > 0 ? (
+          <div className="pt-2 border-t border-border">
+            {settlements.map((s, i) => (
+              <div key={i} className="flex items-center gap-2 text-sm">
+                <span className="font-semibold text-amber-600 dark:text-amber-400">
+                  {s.from}
+                </span>
+                <span className="text-muted-foreground">schuldet</span>
+                <span className="font-semibold text-amber-600 dark:text-amber-400">
+                  {s.to}
+                </span>
+                <span className="ml-auto font-bold text-lg">{eur(s.amount)}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground pt-2 border-t border-border">
+            Kein Ausgleich nötig — beide Seiten sind ausgeglichen.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function FinancialPage() {
@@ -325,6 +445,16 @@ export default function FinancialPage() {
               </CardContent>
             </Card>
           </div>
+
+          {/* Company breakdown + 50/50 settlement */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Genaue Aufteilung aller Ausgaben &amp; Einnahmen</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <CompanyBreakdown companies={data.companyBreakdown} />
+            </CardContent>
+          </Card>
 
           {/* Per-deal breakdown */}
           <Card>

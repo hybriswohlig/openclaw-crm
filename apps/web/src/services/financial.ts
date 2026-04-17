@@ -7,6 +7,8 @@ import {
   employeeTransactions,
   employees,
 } from "@/db/schema";
+import { objects, attributes } from "@/db/schema/objects";
+import { recordValues } from "@/db/schema/records";
 import { eq, and, sum, sql, gte, lt, type SQL } from "drizzle-orm";
 
 /** Returns [startDate, endDate) strings for a "YYYY-MM" month, or null for all-time. */
@@ -466,6 +468,107 @@ export async function getFinancialOverview(
     profit: d.income - d.expenses - d.empCosts,
   })).sort((a, b) => b.income - a.income);
 
+  // ── Per-company breakdown ─────────────────────────────────────────────────────
+  // Look up which operating company each deal belongs to via record_values
+  let companyBreakdown: Array<{
+    companyName: string;
+    income: number;
+    expenses: number;
+    employeeCosts: number;
+    profit: number;
+  }> = [];
+
+  if (dealIds.length) {
+    // Find the "operating_company" attribute for the deals object
+    const ocAttrRows = await db
+      .select({ id: attributes.id })
+      .from(attributes)
+      .innerJoin(objects, eq(objects.id, attributes.objectId))
+      .where(
+        and(
+          eq(objects.workspaceId, workspaceId),
+          eq(objects.slug, "deals"),
+          eq(attributes.slug, "operating_company")
+        )
+      )
+      .limit(1);
+
+    if (ocAttrRows.length > 0) {
+      const ocAttrId = ocAttrRows[0].id;
+
+      // Get deal → operating company record ID mapping
+      const dealOcRows = await db
+        .select({
+          dealId: recordValues.recordId,
+          ocRecordId: recordValues.referencedRecordId,
+        })
+        .from(recordValues)
+        .where(
+          and(
+            eq(recordValues.attributeId, ocAttrId),
+            sql`${recordValues.recordId} = ANY(ARRAY[${sql.join(dealIds.map(id => sql`${id}`), sql`, `)}]::text[])`,
+            sql`${recordValues.referencedRecordId} IS NOT NULL`
+          )
+        );
+
+      // Get operating company names
+      const ocIds = [...new Set(dealOcRows.map(r => r.ocRecordId!))];
+      let ocNameLookup = new Map<string, string>();
+      if (ocIds.length) {
+        // Find the "name" attribute for operating_companies object
+        const ocNameAttrRows = await db
+          .select({ id: attributes.id })
+          .from(attributes)
+          .innerJoin(objects, eq(objects.id, attributes.objectId))
+          .where(
+            and(
+              eq(objects.workspaceId, workspaceId),
+              eq(objects.slug, "operating_companies"),
+              eq(attributes.slug, "name")
+            )
+          )
+          .limit(1);
+
+        if (ocNameAttrRows.length > 0) {
+          const nameRows = await db
+            .select({ recordId: recordValues.recordId, name: recordValues.textValue })
+            .from(recordValues)
+            .where(
+              and(
+                eq(recordValues.attributeId, ocNameAttrRows[0].id),
+                sql`${recordValues.recordId} = ANY(ARRAY[${sql.join(ocIds.map(id => sql`${id}`), sql`, `)}]::text[])`
+              )
+            );
+          ocNameLookup = new Map(nameRows.map(r => [r.recordId, r.name ?? "Unbekannt"]));
+        }
+      }
+
+      // Build deal → company name lookup
+      const dealCompanyLookup = new Map(
+        dealOcRows.map(r => [r.dealId, ocNameLookup.get(r.ocRecordId!) ?? "Unbekannt"])
+      );
+
+      // Aggregate financials per company
+      const companyMap = new Map<string, { income: number; expenses: number; empCosts: number }>();
+      for (const [dealId, d] of dealMap) {
+        const companyName = dealCompanyLookup.get(dealId) ?? "Nicht zugewiesen";
+        const existing = companyMap.get(companyName) ?? { income: 0, expenses: 0, empCosts: 0 };
+        existing.income += d.income;
+        existing.expenses += d.expenses;
+        existing.empCosts += d.empCosts;
+        companyMap.set(companyName, existing);
+      }
+
+      companyBreakdown = [...companyMap.entries()].map(([name, d]) => ({
+        companyName: name,
+        income: d.income,
+        expenses: d.expenses,
+        employeeCosts: d.empCosts,
+        profit: d.income - d.expenses - d.empCosts,
+      })).sort((a, b) => b.income - a.income);
+    }
+  }
+
   // ── Final summary ────────────────────────────────────────────────────────────
   const income = Number(totalIncome.total ?? 0);
   const totalExpenses = Number(totalExpensesRow.total ?? 0);
@@ -489,5 +592,6 @@ export async function getFinancialOverview(
       total: Number(r.total ?? 0),
     })),
     deals,
+    companyBreakdown,
   };
 }

@@ -1066,18 +1066,21 @@ function ChannelAccountsSection({ isAdmin }: { isAdmin: boolean }) {
     setSaving(true);
     try {
       if (editTarget) {
+        const patch: Record<string, unknown> = {
+          name: form.name,
+          imapHost: form.imapHost || null,
+          smtpHost: form.smtpHost || null,
+          wabaId: form.wabaId || null,
+          waPhoneNumberId: form.waPhoneNumberId || null,
+          operatingCompanyRecordId: form.operatingCompanyRecordId || null,
+        };
+        // Only send credential if the user typed a new one — otherwise
+        // leave the existing value in the database untouched.
+        if (form.credential) patch.credential = form.credential;
         await fetch(`/api/v1/inbox/channel-accounts/${editTarget.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: form.name,
-            credential: form.credential || null,
-            imapHost: form.imapHost || null,
-            smtpHost: form.smtpHost || null,
-            wabaId: form.wabaId || null,
-            waPhoneNumberId: form.waPhoneNumberId || null,
-            operatingCompanyRecordId: form.operatingCompanyRecordId || null,
-          }),
+          body: JSON.stringify(patch),
         });
       } else {
         await fetch("/api/v1/inbox/channel-accounts", {
