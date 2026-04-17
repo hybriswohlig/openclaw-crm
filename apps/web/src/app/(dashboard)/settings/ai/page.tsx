@@ -10,6 +10,7 @@ const MODELS = [
   { value: "anthropic/claude-sonnet-4", label: "Claude Sonnet 4" },
   { value: "anthropic/claude-sonnet-4.5", label: "Claude Sonnet 4.5" },
   { value: "anthropic/claude-opus-4", label: "Claude Opus 4" },
+  { value: "openrouter/elephant-alpha", label: "Elephant Alpha" },
   { value: "openai/gpt-4o", label: "GPT-4o" },
   { value: "openai/gpt-4o-mini", label: "GPT-4o Mini" },
   { value: "openai/gpt-5.4-mini", label: "GPT-5.4 Mini" },

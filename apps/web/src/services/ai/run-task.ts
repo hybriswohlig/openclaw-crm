@@ -234,7 +234,9 @@ async function callModel<TSchema extends z.ZodTypeAny | undefined>(
     messages,
   };
   if (temperature != null) body.temperature = temperature;
-  if (maxTokens != null) body.max_tokens = maxTokens;
+  // Omit max_tokens entirely — let the model use its default limit.
+  // Free-tier models on OpenRouter have restricted token budgets and
+  // will reject requests that ask for more tokens than affordable.
   if (useJsonMode) {
     body.response_format = { type: "json_object" };
   }
