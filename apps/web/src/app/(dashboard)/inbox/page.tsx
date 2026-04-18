@@ -409,15 +409,18 @@ function ConversationView({
   conv,
   onBack,
   onStatusChange,
+  onOpenCompose,
 }: {
   conv: Conversation;
   onBack: () => void;
   onStatusChange: (status: ConversationStatus) => void;
+  onOpenCompose?: () => void;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loadingMsgs, setLoadingMsgs] = useState(true);
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<{ code?: string; message?: string } | null>(null);
   const [showMenu, setShowMenu] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -446,6 +449,7 @@ function ConversationView({
   async function handleSend() {
     if (!reply.trim() || sending) return;
     setSending(true);
+    setSendError(null);
     try {
       const res = await fetch(`/api/v1/inbox/conversations/${conv.id}/messages`, {
         method: "POST",
@@ -456,10 +460,12 @@ function ConversationView({
         const data = await res.json();
         setMessages((prev) => [...prev, data.data]);
         setReply("");
+        setSendError(null);
         textareaRef.current?.focus();
       } else {
         const err = await res.json();
-        alert(err.error ?? "Senden fehlgeschlagen");
+        const errObj = typeof err.error === "object" ? err.error : { message: err.error };
+        setSendError(errObj);
       }
     } finally {
       setSending(false);
@@ -652,7 +658,36 @@ function ConversationView({
       </div>
 
       {/* Reply box */}
-      <div className="border-t border-border px-4 py-3 bg-background shrink-0">
+      <div className="border-t border-border px-4 py-3 bg-background shrink-0 space-y-2">
+        {sendError && (
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs space-y-1.5">
+            {sendError.code === "WA_SESSION_EXPIRED" ? (
+              <>
+                <div className="flex items-start gap-2 text-amber-700">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>
+                    Das 24-Stunden-Antwortfenster ist abgelaufen. Du kannst nur noch eine
+                    genehmigte <b>Template-Nachricht</b> senden, um das Gespräch fortzusetzen.
+                  </span>
+                </div>
+                <button
+                  onClick={() => {
+                    setSendError(null);
+                    onOpenCompose?.();
+                  }}
+                  className="text-xs font-medium text-primary hover:underline"
+                >
+                  Template-Nachricht senden
+                </button>
+              </>
+            ) : (
+              <div className="flex items-start gap-2 text-red-700">
+                <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                <span>{sendError.message ?? "Senden fehlgeschlagen"}</span>
+              </div>
+            )}
+          </div>
+        )}
         {canSend ? (
           <div className="flex items-end gap-2 rounded-2xl border border-input bg-muted/30 focus-within:border-ring/40 focus-within:bg-background focus-within:ring-2 focus-within:ring-ring/10 transition-colors px-3 py-2">
             <textarea
@@ -989,6 +1024,7 @@ export default function InboxPage() {
             conv={selected}
             onBack={() => setSelected(null)}
             onStatusChange={(status) => handleStatusChange(selected.id, status)}
+            onOpenCompose={() => setComposeOpen(true)}
           />
         ) : (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-6">
