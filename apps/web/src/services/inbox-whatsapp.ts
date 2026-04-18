@@ -20,7 +20,7 @@ import {
   inboxMessages,
   whatsappTemplateMetadata,
 } from "@/db/schema/inbox";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { createDealForNewConversation } from "./inbox";
 import { emitEvent } from "./activity-events";
 import { getSecret } from "./workspace-settings";
@@ -393,7 +393,7 @@ async function isWithinCustomerServiceWindow(conversationId: string): Promise<bo
         eq(inboxMessages.direction, "inbound")
       )
     )
-    .orderBy(inboxMessages.sentAt)
+    .orderBy(desc(inboxMessages.sentAt))
     .limit(1);
   if (!lastInbound) return false;
   const ts = (lastInbound.sentAt ?? lastInbound.createdAt ?? new Date(0)).getTime();
