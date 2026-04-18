@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthContext, unauthorized, success, requireAdmin } from "@/lib/api-utils";
 import { updateChannelAccount, deleteChannelAccount } from "@/services/inbox";
+import { db } from "@/db";
+import { inboxConversations } from "@/db/schema/inbox";
+import { eq } from "drizzle-orm";
 
 export async function PATCH(
   req: NextRequest,
@@ -37,6 +40,27 @@ export async function DELETE(
   if (deny) return deny;
 
   const { id } = await params;
+
+  // Guard: refuse to delete a channel account that still has conversations.
+  // Cascade delete would permanently destroy all conversations and messages.
+  const [hasConvs] = await db
+    .select({ id: inboxConversations.id })
+    .from(inboxConversations)
+    .where(eq(inboxConversations.channelAccountId, id))
+    .limit(1);
+
+  if (hasConvs) {
+    return NextResponse.json(
+      {
+        error:
+          "Dieser Kanal-Account hat noch Konversationen. " +
+          "Bitte lösche oder verschiebe zuerst alle verknüpften Konversationen, " +
+          "oder deaktiviere den Account stattdessen.",
+      },
+      { status: 409 }
+    );
+  }
+
   const deleted = await deleteChannelAccount(ctx.workspaceId, id);
   if (!deleted) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json({ success: true });
