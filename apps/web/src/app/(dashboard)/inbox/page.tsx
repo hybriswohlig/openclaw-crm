@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Loader2,
   RefreshCw,
@@ -859,6 +860,9 @@ function ConversationView({
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function InboxPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
   const [accounts, setAccounts] = useState<ChannelAccount[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selected, setSelected] = useState<Conversation | null>(null);
@@ -869,6 +873,14 @@ export default function InboxPage() {
   const [sourceFilter, setSourceFilter] = useState<"messaging" | "kleinanzeigen" | "whatsapp" | "other">("messaging");
   const [search, setSearch] = useState("");
   const [composeOpen, setComposeOpen] = useState(false);
+  // Deep-link prefill for the compose dialog, populated from URL params when
+  // the user arrives from the leads table.
+  const [composePrefill, setComposePrefill] = useState<{
+    channelAccountId?: string;
+    toPhone?: string;
+    customerName?: string;
+    dealRecordId?: string | null;
+  }>({});
 
   const fetchConversations = useCallback(async () => {
     const params = new URLSearchParams({ status: statusFilter });
@@ -894,6 +906,43 @@ export default function InboxPage() {
       setLoading(false)
     );
   }, [fetchAccounts, fetchConversations]);
+
+  // Handle deep links from the leads table:
+  //   ?conv=<id>               → auto-select that conversation
+  //   ?compose=1&phone=…&name=…&channelAccountId=…&dealRecordId=…
+  //                            → auto-open composer pre-filled, so the
+  //                              resulting conversation is linked to the lead
+  useEffect(() => {
+    const convParam = searchParams.get("conv");
+    const composeParam = searchParams.get("compose");
+    if (!convParam && !composeParam) return;
+
+    if (composeParam === "1") {
+      setComposePrefill({
+        channelAccountId: searchParams.get("channelAccountId") ?? undefined,
+        toPhone: searchParams.get("phone") ?? undefined,
+        customerName: searchParams.get("name") ?? undefined,
+        dealRecordId: searchParams.get("dealRecordId") ?? null,
+      });
+      setComposeOpen(true);
+      // Clean the URL so a reload doesn't re-open the dialog.
+      router.replace("/inbox");
+      return;
+    }
+
+    if (convParam && conversations.length > 0) {
+      const match = conversations.find((c) => c.id === convParam);
+      if (match) {
+        setSelected(match);
+        // If the match isn't visible under the current filter, clear filter
+        // so the user actually sees it highlighted in the list.
+        if (match.status !== statusFilter) {
+          setStatusFilter(match.status);
+        }
+        router.replace("/inbox");
+      }
+    }
+  }, [searchParams, conversations, router, statusFilter]);
 
   async function handleSync() {
     setSyncing(true);
@@ -1181,9 +1230,17 @@ export default function InboxPage() {
     {composeOpen && (
       <ComposeWhatsAppModal
         accounts={accounts.filter((a) => a.channelType === "whatsapp" && a.isActive)}
-        onClose={() => setComposeOpen(false)}
+        initialChannelAccountId={composePrefill.channelAccountId}
+        initialPhone={composePrefill.toPhone}
+        initialCustomerName={composePrefill.customerName}
+        dealRecordId={composePrefill.dealRecordId}
+        onClose={() => {
+          setComposeOpen(false);
+          setComposePrefill({});
+        }}
         onSent={(conversationId) => {
           setComposeOpen(false);
+          setComposePrefill({});
           void fetchConversations();
           // Select the conversation if it's already in the list, otherwise
           // the refetch above will pull it in and the user can click it.
@@ -1220,18 +1277,30 @@ function ComposeWhatsAppModal({
   accounts,
   onClose,
   onSent,
+  initialChannelAccountId,
+  initialPhone,
+  initialCustomerName,
+  dealRecordId,
 }: {
   accounts: ChannelAccount[];
   onClose: () => void;
   onSent: (conversationId: string) => void;
+  initialChannelAccountId?: string;
+  initialPhone?: string;
+  initialCustomerName?: string;
+  dealRecordId?: string | null;
 }) {
-  const [channelAccountId, setChannelAccountId] = useState<string>(accounts[0]?.id ?? "");
+  const [channelAccountId, setChannelAccountId] = useState<string>(
+    initialChannelAccountId && accounts.some((a) => a.id === initialChannelAccountId)
+      ? initialChannelAccountId
+      : accounts[0]?.id ?? ""
+  );
   const [templates, setTemplates] = useState<WhatsAppTemplate[]>([]);
   const [templatesLoading, setTemplatesLoading] = useState(false);
   const [templatesError, setTemplatesError] = useState<string | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
-  const [toPhone, setToPhone] = useState("");
-  const [customerName, setCustomerName] = useState("");
+  const [toPhone, setToPhone] = useState(initialPhone ?? "");
+  const [customerName, setCustomerName] = useState(initialCustomerName ?? "");
   const [variables, setVariables] = useState<string[]>([]);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -1430,6 +1499,7 @@ function ComposeWhatsAppModal({
           templateName: selectedTemplate,
           languageCode: tpl?.language ?? "de",
           bodyParams: variables,
+          dealRecordId: dealRecordId ?? null,
         }),
       });
       const j = await res.json();

@@ -721,6 +721,201 @@ export async function sendWhatsAppMediaReply(params: {
   return stored;
 }
 
+// ─── Start-from-record (open existing chat or compose new) ───────────────────
+// Called from the Leads/Deals table. Resolves the deal's operating company
+// and linked Person to decide what the user sees next: either jump to an
+// existing WhatsApp conversation (back-filling the deal link if missing) or
+// open the compose dialog pre-filled so a template send creates the linked
+// conversation in one step. One lead = one operating company = one chat, per
+// the product invariant.
+
+export type StartFromRecordResult =
+  | { mode: "open"; conversationId: string }
+  | {
+      mode: "compose";
+      channelAccountId: string;
+      toPhone: string;
+      customerName: string;
+      dealRecordId: string;
+    };
+
+export class StartFromRecordError extends Error {
+  constructor(
+    public code:
+      | "NO_PHONE"
+      | "NO_OPERATING_COMPANY"
+      | "NO_WHATSAPP_ACCOUNT"
+      | "NOT_A_DEAL",
+    message: string
+  ) {
+    super(message);
+    this.name = "StartFromRecordError";
+  }
+}
+
+export async function startWhatsAppChatFromRecord(params: {
+  workspaceId: string;
+  recordId: string;
+}): Promise<StartFromRecordResult> {
+  const { workspaceId, recordId } = params;
+
+  const { getObjectBySlug } = await import("./objects");
+  const { getRecord } = await import("./records");
+
+  const dealsObject = await getObjectBySlug(workspaceId, "deals");
+  if (!dealsObject) {
+    throw new StartFromRecordError(
+      "NOT_A_DEAL",
+      "Deals object not found in this workspace"
+    );
+  }
+
+  const deal = await getRecord(dealsObject.id, recordId);
+  if (!deal) {
+    throw new StartFromRecordError("NOT_A_DEAL", "Lead not found");
+  }
+
+  // Operating company scopes which WhatsApp account this chat lives under.
+  // Without it we can't pick the right channel account — per the rule that
+  // leads are 1:1 with operating companies.
+  const opRef = deal.values.operating_company as
+    | { id: string }
+    | null
+    | undefined;
+  const operatingCompanyRecordId = opRef?.id ?? null;
+  if (!operatingCompanyRecordId) {
+    throw new StartFromRecordError(
+      "NO_OPERATING_COMPANY",
+      "This lead has no operating company set — can't pick a WhatsApp account."
+    );
+  }
+
+  // Resolve the linked Person → phone + display name.
+  const peopleRefs = deal.values.associated_people as
+    | Array<{ id: string; displayName?: string }>
+    | null
+    | undefined;
+  const personId = peopleRefs?.[0]?.id ?? null;
+
+  let phone: string | null = null;
+  let customerName = "";
+  if (personId) {
+    const peopleObject = await getObjectBySlug(workspaceId, "people");
+    if (peopleObject) {
+      const person = await getRecord(peopleObject.id, personId);
+      if (person) {
+        const phones = person.values.phone_numbers as
+          | string[]
+          | string
+          | null
+          | undefined;
+        phone = Array.isArray(phones) ? phones[0] ?? null : phones ?? null;
+        const nameVal = person.values.name as
+          | {
+              first_name?: string;
+              last_name?: string;
+              full_name?: string;
+            }
+          | string
+          | null
+          | undefined;
+        if (typeof nameVal === "string") {
+          customerName = nameVal;
+        } else if (nameVal) {
+          customerName =
+            nameVal.full_name ??
+            [nameVal.first_name, nameVal.last_name]
+              .filter(Boolean)
+              .join(" ")
+              .trim();
+        }
+      }
+    }
+  }
+  if (!customerName) {
+    customerName =
+      (peopleRefs?.[0]?.displayName as string | undefined) ?? "";
+  }
+
+  if (!phone) {
+    throw new StartFromRecordError(
+      "NO_PHONE",
+      "This lead has no phone number on the linked person."
+    );
+  }
+
+  const waId = normalizeWaPhone(phone);
+
+  // Pick the WhatsApp channel account for this operating company.
+  const [account] = await db
+    .select()
+    .from(channelAccounts)
+    .where(
+      and(
+        eq(channelAccounts.workspaceId, workspaceId),
+        eq(channelAccounts.channelType, "whatsapp"),
+        eq(channelAccounts.operatingCompanyRecordId, operatingCompanyRecordId),
+        eq(channelAccounts.isActive, true)
+      )
+    )
+    .limit(1);
+  if (!account) {
+    throw new StartFromRecordError(
+      "NO_WHATSAPP_ACCOUNT",
+      "No active WhatsApp channel account for this operating company."
+    );
+  }
+
+  // Find existing conversation. Priority: already linked to this deal;
+  // fallback: same phone on the same channel account.
+  let [existing] = await db
+    .select()
+    .from(inboxConversations)
+    .where(
+      and(
+        eq(inboxConversations.workspaceId, workspaceId),
+        eq(inboxConversations.channelAccountId, account.id),
+        eq(inboxConversations.dealRecordId, recordId)
+      )
+    )
+    .orderBy(desc(inboxConversations.lastMessageAt))
+    .limit(1);
+
+  if (!existing) {
+    [existing] = await db
+      .select()
+      .from(inboxConversations)
+      .where(
+        and(
+          eq(inboxConversations.workspaceId, workspaceId),
+          eq(inboxConversations.channelAccountId, account.id),
+          eq(inboxConversations.externalThreadId, waId)
+        )
+      )
+      .orderBy(desc(inboxConversations.lastMessageAt))
+      .limit(1);
+  }
+
+  if (existing) {
+    // Back-fill the deal link if missing so future lookups are O(1).
+    if (!existing.dealRecordId) {
+      await db
+        .update(inboxConversations)
+        .set({ dealRecordId: recordId, updatedAt: new Date() })
+        .where(eq(inboxConversations.id, existing.id));
+    }
+    return { mode: "open", conversationId: existing.id };
+  }
+
+  return {
+    mode: "compose",
+    channelAccountId: account.id,
+    toPhone: phone,
+    customerName,
+    dealRecordId: recordId,
+  };
+}
+
 // ─── Templates (Meta-approved message templates) ─────────────────────────────
 // Templates are the only way to open a conversation from the business side or
 // reply after the 24h customer-service window expires. They're created and
@@ -814,6 +1009,9 @@ export async function sendWhatsAppTemplate(params: {
   templateName: string;
   languageCode: string;
   bodyParams: string[];
+  /** Optional deal/lead to link this conversation to. Set on create and
+   *  back-filled onto existing conversations that don't yet have a link. */
+  dealRecordId?: string | null;
 }) {
   const {
     workspaceId,
@@ -823,6 +1021,7 @@ export async function sendWhatsAppTemplate(params: {
     templateName,
     languageCode,
     bodyParams,
+    dealRecordId,
   } = params;
 
   const [account] = await db
@@ -941,10 +1140,19 @@ export async function sendWhatsAppTemplate(params: {
         lastMessageAt: new Date(),
         lastMessagePreview: `Du: [Template] ${templateName}`,
         unreadCount: 0,
+        dealRecordId: dealRecordId ?? null,
       })
       .returning();
     conv = created;
     createdNewConversation = true;
+  } else if (dealRecordId && !conv.dealRecordId) {
+    // Back-fill link on an existing conversation that isn't yet tied to a
+    // deal. Never overwrite an existing link.
+    await db
+      .update(inboxConversations)
+      .set({ dealRecordId, updatedAt: new Date() })
+      .where(eq(inboxConversations.id, conv.id));
+    conv = { ...conv, dealRecordId };
   }
 
   // Call Meta. Templates bypass the 24h window — that's their whole point.

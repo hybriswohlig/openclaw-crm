@@ -14,6 +14,7 @@ export async function POST(req: NextRequest) {
     templateName,
     languageCode,
     bodyParams,
+    dealRecordId,
   } = body as {
     channelAccountId?: string;
     toPhone?: string;
@@ -21,6 +22,7 @@ export async function POST(req: NextRequest) {
     templateName?: string;
     languageCode?: string;
     bodyParams?: string[];
+    dealRecordId?: string | null;
   };
 
   if (!channelAccountId || !toPhone || !templateName || !languageCode) {
@@ -38,6 +40,7 @@ export async function POST(req: NextRequest) {
       templateName,
       languageCode,
       bodyParams: Array.isArray(bodyParams) ? bodyParams : [],
+      dealRecordId: typeof dealRecordId === "string" ? dealRecordId : null,
     });
     return success(result);
   } catch (err) {

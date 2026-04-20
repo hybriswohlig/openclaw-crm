@@ -12,7 +12,7 @@ import type { AttributeType } from "@openclaw-crm/shared";
 import { AttributeCell } from "./attribute-cell";
 import { AttributeEditor } from "./attribute-editor";
 import { cn } from "@/lib/utils";
-import { Plus, ExternalLink } from "lucide-react";
+import { Plus, ExternalLink, MessageCircle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 // ─── Types ───────────────────────────────────────────────────────────
@@ -51,20 +51,89 @@ export function RecordTable({
 }: RecordTableProps) {
   const router = useRouter();
   const [editingCell, setEditingCell] = useState<{ rowId: string; colId: string } | null>(null);
+  const [startingChatFor, setStartingChatFor] = useState<string | null>(null);
+
+  const startWhatsAppChat = useCallback(
+    async (recordId: string) => {
+      setStartingChatFor(recordId);
+      try {
+        const res = await fetch(
+          "/api/v1/inbox/whatsapp/start-from-record",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ recordId }),
+          }
+        );
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const msg =
+            typeof json.error === "object"
+              ? json.error.message
+              : json.error ?? "Konnte WhatsApp-Chat nicht starten";
+          window.alert(msg);
+          return;
+        }
+        const data = json.data as
+          | { mode: "open"; conversationId: string }
+          | {
+              mode: "compose";
+              channelAccountId: string;
+              toPhone: string;
+              customerName: string;
+              dealRecordId: string;
+            };
+        if (data.mode === "open") {
+          router.push(`/inbox?conv=${encodeURIComponent(data.conversationId)}`);
+        } else {
+          const q = new URLSearchParams({
+            compose: "1",
+            channelAccountId: data.channelAccountId,
+            phone: data.toPhone,
+            name: data.customerName,
+            dealRecordId: data.dealRecordId,
+          });
+          router.push(`/inbox?${q.toString()}`);
+        }
+      } finally {
+        setStartingChatFor(null);
+      }
+    },
+    [router]
+  );
 
   const columns = useMemo<ColumnDef<RecordRow>[]>(() => {
     // Open button column
     const openCol: ColumnDef<RecordRow> = {
       id: "_open",
       header: "",
-      size: 40,
+      size: objectSlug === "deals" ? 64 : 40,
       cell: ({ row }) => (
-        <button
-          onClick={() => router.push(`/objects/${objectSlug}/${row.original.id}`)}
-          className="flex items-center justify-center opacity-0 group-hover/row:opacity-100 transition-opacity"
-        >
-          <ExternalLink className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
-        </button>
+        <div className="flex items-center justify-center gap-1">
+          {objectSlug === "deals" && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                void startWhatsAppChat(row.original.id);
+              }}
+              disabled={startingChatFor === row.original.id}
+              className="flex items-center justify-center opacity-0 group-hover/row:opacity-100 disabled:opacity-100 transition-opacity text-[#128C4F] hover:text-[#0e6f3f] disabled:text-muted-foreground"
+              title="WhatsApp-Chat starten"
+            >
+              {startingChatFor === row.original.id ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <MessageCircle className="h-3.5 w-3.5" />
+              )}
+            </button>
+          )}
+          <button
+            onClick={() => router.push(`/objects/${objectSlug}/${row.original.id}`)}
+            className="flex items-center justify-center opacity-0 group-hover/row:opacity-100 transition-opacity"
+          >
+            <ExternalLink className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
+          </button>
+        </div>
       ),
     };
 
@@ -115,7 +184,7 @@ export function RecordTable({
     }));
 
     return [openCol, ...attrCols];
-  }, [attributes, editingCell, onUpdateRecord, objectSlug, router]);
+  }, [attributes, editingCell, onUpdateRecord, objectSlug, router, startWhatsAppChat, startingChatFor]);
 
   const table = useReactTable({
     data: records,
