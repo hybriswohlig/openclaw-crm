@@ -1083,7 +1083,7 @@ interface WhatsAppTemplate {
   language: string;
   status: string;
   category: string;
-  components: Array<{ type: string; text?: string }>;
+  components: Array<{ type: string; text?: string; format?: string }>;
   bodyVariableCount: number;
 }
 
@@ -1112,6 +1112,7 @@ function ComposeWhatsAppModal({
     templateName: string;
     languageCode: string;
     variableLabels: Record<string, string>;
+    headerImageUrl: string | null;
   };
   const [metadata, setMetadata] = useState<MetadataRow[]>([]);
   const [editingLabel, setEditingLabel] = useState<number | null>(null);
@@ -1179,12 +1180,16 @@ function ComposeWhatsAppModal({
       const others = prev.filter(
         (m) => `${m.templateName}|${m.languageCode}` !== key
       );
+      const prior = prev.find(
+        (m) => `${m.templateName}|${m.languageCode}` === key
+      );
       return [
         ...others,
         {
           templateName: tpl.name,
           languageCode: tpl.language,
           variableLabels: currentLabels,
+          headerImageUrl: prior?.headerImageUrl ?? null,
         },
       ];
     });
@@ -1207,6 +1212,47 @@ function ComposeWhatsAppModal({
     }
   }
 
+  async function saveHeaderImageUrl(value: string) {
+    const tpl = templates.find((t) => t.name === selectedTemplate);
+    if (!tpl) return;
+    const trimmed = value.trim();
+    const next = trimmed === "" ? null : trimmed;
+    setMetadata((prev) => {
+      const key = `${tpl.name}|${tpl.language}`;
+      const others = prev.filter(
+        (m) => `${m.templateName}|${m.languageCode}` !== key
+      );
+      const prior = prev.find(
+        (m) => `${m.templateName}|${m.languageCode}` === key
+      );
+      return [
+        ...others,
+        {
+          templateName: tpl.name,
+          languageCode: tpl.language,
+          variableLabels: prior?.variableLabels ?? {},
+          headerImageUrl: next,
+        },
+      ];
+    });
+    try {
+      await fetch(
+        `/api/v1/inbox/channel-accounts/${channelAccountId}/templates/metadata`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            templateName: tpl.name,
+            languageCode: tpl.language,
+            headerImageUrl: next,
+          }),
+        }
+      );
+    } catch {
+      // Silent — reloads from server on next open.
+    }
+  }
+
   // Reset variable inputs when the selected template changes.
   useEffect(() => {
     const tpl = templates.find((t) => t.name === selectedTemplate);
@@ -1225,12 +1271,20 @@ function ComposeWhatsAppModal({
     return variables[idx] || `{{${n}}}`;
   });
 
+  const headerComponent = activeTemplate?.components.find(
+    (c) => c.type === "HEADER"
+  );
+  const headerFormat = headerComponent?.format?.toUpperCase();
+  const requiresHeaderImage = headerFormat === "IMAGE";
+  const headerImageUrl = activeMetadata?.headerImageUrl ?? "";
+
   const canSend =
     !sending &&
     channelAccountId &&
     toPhone.trim().replace(/\D+/g, "").length >= 7 &&
     selectedTemplate &&
-    variables.every((v) => v.trim().length > 0);
+    variables.every((v) => v.trim().length > 0) &&
+    (!requiresHeaderImage || headerImageUrl.trim().length > 0);
 
   async function handleSend() {
     setSending(true);
@@ -1350,6 +1404,45 @@ function ComposeWhatsAppModal({
                   </select>
                 )}
               </div>
+
+              {/* Header image URL — required when the template has an IMAGE header */}
+              {activeTemplate && requiresHeaderImage && (
+                <div className="space-y-1">
+                  <label className="text-xs font-medium">
+                    Header-Bild URL
+                    <span className="text-muted-foreground font-normal ml-1">
+                      (öffentlich erreichbar, einmal pro Template gespeichert)
+                    </span>
+                  </label>
+                  <input
+                    type="url"
+                    placeholder="https://…/kottke-whatsapp-header.jpg"
+                    defaultValue={headerImageUrl}
+                    onBlur={(e) => {
+                      if (e.target.value.trim() !== headerImageUrl) {
+                        void saveHeaderImageUrl(e.target.value);
+                      }
+                    }}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  />
+                  {headerImageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={headerImageUrl}
+                      alt="Header preview"
+                      className="mt-2 max-h-32 rounded border border-border"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = "none";
+                      }}
+                    />
+                  ) : (
+                    <p className="text-[11px] text-amber-600">
+                      Dieses Template hat ein Header-Bild. Ohne URL lehnt
+                      Meta den Versand ab (#132012).
+                    </p>
+                  )}
+                </div>
+              )}
 
               {/* Variable inputs */}
               {activeTemplate && variables.length > 0 && (

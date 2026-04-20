@@ -235,6 +235,10 @@ export const whatsappTemplateMetadata = pgTable(
       .$type<Record<string, string>>()
       .notNull()
       .default({}),
+    // Public URL for templates whose HEADER component is of format IMAGE.
+    // Meta requires the URL to be sent with every send; we persist it per
+    // template so the user sets it once, not on every compose.
+    headerImageUrl: text("header_image_url"),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => [

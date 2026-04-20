@@ -7,7 +7,7 @@ import {
 } from "@/lib/api-utils";
 import {
   getTemplateMetadataForAccount,
-  setTemplateLabels,
+  upsertTemplateMetadata,
 } from "@/services/inbox-whatsapp";
 
 export async function GET(
@@ -35,23 +35,37 @@ export async function PATCH(
   if (!ctx) return unauthorized();
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
-  const { templateName, languageCode, variableLabels } = body as {
-    templateName?: string;
-    languageCode?: string;
-    variableLabels?: Record<string, string>;
-  };
-  if (!templateName || !languageCode || typeof variableLabels !== "object") {
+  const { templateName, languageCode, variableLabels, headerImageUrl } =
+    body as {
+      templateName?: string;
+      languageCode?: string;
+      variableLabels?: Record<string, string>;
+      headerImageUrl?: string | null;
+    };
+  if (!templateName || !languageCode) {
+    return badRequest("templateName and languageCode are required");
+  }
+  if (variableLabels === undefined && headerImageUrl === undefined) {
     return badRequest(
-      "templateName, languageCode and variableLabels are required"
+      "At least one of variableLabels or headerImageUrl must be provided"
     );
   }
   try {
-    await setTemplateLabels({
+    await upsertTemplateMetadata({
       channelAccountId: id,
       workspaceId: ctx.workspaceId,
       templateName,
       languageCode,
-      variableLabels,
+      variableLabels:
+        variableLabels && typeof variableLabels === "object"
+          ? variableLabels
+          : undefined,
+      headerImageUrl:
+        headerImageUrl === undefined
+          ? undefined
+          : typeof headerImageUrl === "string" && headerImageUrl.trim()
+            ? headerImageUrl.trim()
+            : null,
     });
     return success({ ok: true });
   } catch (err) {

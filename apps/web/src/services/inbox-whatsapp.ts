@@ -640,6 +640,62 @@ export async function sendWhatsAppTemplate(params: {
 
   const waId = normalizeWaPhone(toPhone);
 
+  // Look up the template's components so we know whether it has a media
+  // header. Meta requires every component defined in the approved template
+  // to be included at send time — omitting a header image yields #132012.
+  const templateUrl =
+    `${GRAPH_API_BASE}/${account.wabaId}/message_templates` +
+    `?fields=name,language,components&limit=200`;
+  const tplRes = await fetch(templateUrl, {
+    headers: { Authorization: `Bearer ${account.credential}` },
+  });
+  const tplJson = (await tplRes.json().catch(() => ({}))) as {
+    data?: Array<{
+      name: string;
+      language: string;
+      components: WhatsAppTemplateComponent[];
+    }>;
+  };
+  const tpl = tplJson.data?.find(
+    (t) => t.name === templateName && t.language === languageCode
+  );
+  const headerComp = tpl?.components.find((c) => c.type === "HEADER");
+  const headerFormat = headerComp?.format?.toUpperCase();
+  const needsMediaHeader =
+    headerFormat === "IMAGE" ||
+    headerFormat === "VIDEO" ||
+    headerFormat === "DOCUMENT";
+
+  let headerImageUrl: string | null = null;
+  if (needsMediaHeader) {
+    const [metaRow] = await db
+      .select()
+      .from(whatsappTemplateMetadata)
+      .where(
+        and(
+          eq(whatsappTemplateMetadata.workspaceId, workspaceId),
+          eq(whatsappTemplateMetadata.wabaId, account.wabaId!),
+          eq(whatsappTemplateMetadata.templateName, templateName),
+          eq(whatsappTemplateMetadata.languageCode, languageCode)
+        )
+      )
+      .limit(1);
+    headerImageUrl = metaRow?.headerImageUrl ?? null;
+    if (!headerImageUrl) {
+      throw new Error(
+        `Template "${templateName}" has a ${headerFormat} header. ` +
+          `Please set the header media URL for this template in the ` +
+          `compose dialog (it's saved per template and reused on every send).`
+      );
+    }
+    if (headerFormat !== "IMAGE") {
+      throw new Error(
+        `Template "${templateName}" uses a ${headerFormat} header, which ` +
+          `is not yet supported by the CRM. Only IMAGE headers are wired up.`
+      );
+    }
+  }
+
   // Upsert contact + conversation up-front so the message has somewhere to
   // land even if Meta's response is slow. We mirror the email thread-key
   // behaviour: (channelAccountId, waId) uniquely identifies a conversation.
@@ -703,8 +759,18 @@ export async function sendWhatsAppTemplate(params: {
         template: {
           name: templateName,
           language: { code: languageCode },
-          components:
-            bodyParams.length > 0
+          components: [
+            ...(headerImageUrl
+              ? [
+                  {
+                    type: "header",
+                    parameters: [
+                      { type: "image", image: { link: headerImageUrl } },
+                    ],
+                  },
+                ]
+              : []),
+            ...(bodyParams.length > 0
               ? [
                   {
                     type: "body",
@@ -714,7 +780,8 @@ export async function sendWhatsAppTemplate(params: {
                     })),
                   },
                 ]
-              : [],
+              : []),
+          ],
         },
       }),
     }
@@ -854,6 +921,7 @@ export interface TemplateMetadataRow {
   templateName: string;
   languageCode: string;
   variableLabels: Record<string, string>;
+  headerImageUrl: string | null;
 }
 
 async function requireChannelAccountWaba(
@@ -897,20 +965,39 @@ export async function getTemplateMetadataForAccount(
     templateName: r.templateName,
     languageCode: r.languageCode,
     variableLabels: r.variableLabels,
+    headerImageUrl: r.headerImageUrl ?? null,
   }));
 }
 
-export async function setTemplateLabels(params: {
+/**
+ * Partial upsert. Pass only the fields you want to change — undefined means
+ * "leave alone", null on headerImageUrl means "clear". Empty object on
+ * variableLabels replaces the existing labels (intentional — that's how the
+ * UI deletes a label).
+ */
+export async function upsertTemplateMetadata(params: {
   channelAccountId: string;
   workspaceId: string;
   templateName: string;
   languageCode: string;
-  variableLabels: Record<string, string>;
+  variableLabels?: Record<string, string>;
+  headerImageUrl?: string | null;
 }) {
   const account = await requireChannelAccountWaba(
     params.channelAccountId,
     params.workspaceId
   );
+  const updateSet: {
+    variableLabels?: Record<string, string>;
+    headerImageUrl?: string | null;
+    updatedAt: Date;
+  } = { updatedAt: new Date() };
+  if (params.variableLabels !== undefined) {
+    updateSet.variableLabels = params.variableLabels;
+  }
+  if (params.headerImageUrl !== undefined) {
+    updateSet.headerImageUrl = params.headerImageUrl;
+  }
   await db
     .insert(whatsappTemplateMetadata)
     .values({
@@ -918,7 +1005,8 @@ export async function setTemplateLabels(params: {
       wabaId: account.wabaId!,
       templateName: params.templateName,
       languageCode: params.languageCode,
-      variableLabels: params.variableLabels,
+      variableLabels: params.variableLabels ?? {},
+      headerImageUrl: params.headerImageUrl ?? null,
     })
     .onConflictDoUpdate({
       target: [
@@ -927,11 +1015,20 @@ export async function setTemplateLabels(params: {
         whatsappTemplateMetadata.templateName,
         whatsappTemplateMetadata.languageCode,
       ],
-      set: {
-        variableLabels: params.variableLabels,
-        updatedAt: new Date(),
-      },
+      set: updateSet,
     });
+}
+
+/** @deprecated Use `upsertTemplateMetadata` instead. Kept for callers that
+ *  only touch variable labels. */
+export async function setTemplateLabels(params: {
+  channelAccountId: string;
+  workspaceId: string;
+  templateName: string;
+  languageCode: string;
+  variableLabels: Record<string, string>;
+}) {
+  await upsertTemplateMetadata(params);
 }
 
 // ─── Settings helpers ─────────────────────────────────────────────────────────
