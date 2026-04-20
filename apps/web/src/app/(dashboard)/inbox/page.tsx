@@ -19,6 +19,8 @@ import {
   Pencil,
   Inbox as InboxIcon,
   Archive,
+  Paperclip,
+  FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -405,6 +407,56 @@ function DateSeparator({ iso }: { iso: string }) {
 
 // ─── Conversation View ────────────────────────────────────────────────────────
 
+function AttachmentPreview({
+  file,
+  onRemove,
+}: {
+  file: File;
+  onRemove: () => void;
+}) {
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!file.type.startsWith("image/")) return;
+    const url = URL.createObjectURL(file);
+    setImageUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
+  const sizeLabel =
+    file.size > 1024 * 1024
+      ? `${(file.size / 1024 / 1024).toFixed(1)} MB`
+      : `${Math.max(1, Math.round(file.size / 1024))} KB`;
+
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2">
+      {imageUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={imageUrl}
+          alt={file.name}
+          className="h-12 w-12 rounded object-cover border border-border shrink-0"
+        />
+      ) : (
+        <div className="h-12 w-12 rounded bg-background border border-border flex items-center justify-center shrink-0">
+          <FileText className="h-5 w-5 text-muted-foreground" />
+        </div>
+      )}
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-medium truncate">{file.name}</p>
+        <p className="text-[11px] text-muted-foreground">{sizeLabel}</p>
+      </div>
+      <button
+        type="button"
+        onClick={onRemove}
+        className="h-7 w-7 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
+        title="Entfernen"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+}
+
 function ConversationView({
   conv,
   onBack,
@@ -422,8 +474,10 @@ function ConversationView({
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<{ code?: string; message?: string } | null>(null);
   const [showMenu, setShowMenu] = useState(false);
+  const [pendingAttachment, setPendingAttachment] = useState<File | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchMessages = useCallback(async () => {
     setLoadingMsgs(true);
@@ -447,7 +501,12 @@ function ConversationView({
   }, [messages]);
 
   async function handleSend() {
-    if (!reply.trim() || sending) return;
+    if (sending) return;
+    if (pendingAttachment) {
+      await handleSendAttachment();
+      return;
+    }
+    if (!reply.trim()) return;
     setSending(true);
     setSendError(null);
     try {
@@ -464,6 +523,36 @@ function ConversationView({
         textareaRef.current?.focus();
       } else {
         const err = await res.json();
+        const errObj = typeof err.error === "object" ? err.error : { message: err.error };
+        setSendError(errObj);
+      }
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function handleSendAttachment() {
+    if (!pendingAttachment) return;
+    setSending(true);
+    setSendError(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", pendingAttachment);
+      if (reply.trim()) fd.append("caption", reply.trim());
+      const res = await fetch(
+        `/api/v1/inbox/conversations/${conv.id}/messages/media`,
+        { method: "POST", body: fd }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setMessages((prev) => [...prev, data.data]);
+        setReply("");
+        setPendingAttachment(null);
+        setSendError(null);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        textareaRef.current?.focus();
+      } else {
+        const err = await res.json().catch(() => ({}));
         const errObj = typeof err.error === "object" ? err.error : { message: err.error };
         setSendError(errObj);
       }
@@ -689,34 +778,74 @@ function ConversationView({
           </div>
         )}
         {canSend ? (
-          <div className="flex items-end gap-2 rounded-2xl border border-input bg-muted/30 focus-within:border-ring/40 focus-within:bg-background focus-within:ring-2 focus-within:ring-ring/10 transition-colors px-3 py-2">
-            <textarea
-              ref={textareaRef}
-              className="flex-1 bg-transparent text-sm resize-none min-h-[28px] max-h-36 focus:outline-none placeholder:text-muted-foreground"
-              placeholder={isWa ? "WhatsApp-Nachricht schreiben…" : "Nachricht schreiben…"}
-              rows={1}
-              value={reply}
-              onChange={(e) => setReply(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSend();
+          <>
+            {pendingAttachment && (
+              <AttachmentPreview
+                file={pendingAttachment}
+                onRemove={() => {
+                  setPendingAttachment(null);
+                  if (fileInputRef.current) fileInputRef.current.value = "";
+                }}
+              />
+            )}
+            <div className="flex items-end gap-2 rounded-2xl border border-input bg-muted/30 focus-within:border-ring/40 focus-within:bg-background focus-within:ring-2 focus-within:ring-ring/10 transition-colors px-3 py-2">
+              {isWa && (
+                <>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    className="hidden"
+                    accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt,video/mp4,audio/mpeg,audio/ogg"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0] ?? null;
+                      setPendingAttachment(f);
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={sending}
+                    className="h-9 w-9 flex items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0 disabled:opacity-50"
+                    title="Datei anhängen"
+                  >
+                    <Paperclip className="h-4 w-4" />
+                  </button>
+                </>
+              )}
+              <textarea
+                ref={textareaRef}
+                className="flex-1 bg-transparent text-sm resize-none min-h-[28px] max-h-36 focus:outline-none placeholder:text-muted-foreground"
+                placeholder={
+                  pendingAttachment
+                    ? "Bildunterschrift (optional)…"
+                    : isWa
+                      ? "WhatsApp-Nachricht schreiben…"
+                      : "Nachricht schreiben…"
                 }
-              }}
-            />
-            <Button
-              onClick={handleSend}
-              disabled={!reply.trim() || sending}
-              size="sm"
-              className="rounded-full h-9 w-9 p-0 shrink-0"
-              title="Senden (Enter)"
-            >
-              {sending
-                ? <Loader2 className="h-4 w-4 animate-spin" />
-                : <Send className="h-4 w-4" />
-              }
-            </Button>
-          </div>
+                rows={1}
+                value={reply}
+                onChange={(e) => setReply(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }}
+              />
+              <Button
+                onClick={handleSend}
+                disabled={(!reply.trim() && !pendingAttachment) || sending}
+                size="sm"
+                className="rounded-full h-9 w-9 p-0 shrink-0"
+                title="Senden (Enter)"
+              >
+                {sending
+                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : <Send className="h-4 w-4" />
+                }
+              </Button>
+            </div>
+          </>
         ) : (
           <p className="text-xs text-muted-foreground text-center py-2">
             WhatsApp-Antworten erfordern die aktive WhatsApp Business API-Integration.

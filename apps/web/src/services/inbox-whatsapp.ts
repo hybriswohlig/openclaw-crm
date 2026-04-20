@@ -516,6 +516,211 @@ export async function sendWhatsAppReply(params: {
   return stored;
 }
 
+// ─── Media replies (image / document / video / audio) ────────────────────────
+// Two-step with Meta: upload the bytes to `/media` to get a media_id, then
+// send a `/messages` payload that references it. We go through the media_id
+// path (not the public-URL path) because operator-picked files from the
+// browser aren't publicly hosted anywhere. Same 24h window rule as text.
+
+type WhatsAppMediaKind = "image" | "document" | "video" | "audio";
+
+/** Pick the WhatsApp media kind from a MIME type. Meta has hard lists — see
+ *  https://developers.facebook.com/docs/whatsapp/cloud-api/reference/media. */
+function mimeToWhatsAppKind(mime: string): WhatsAppMediaKind | null {
+  const m = mime.toLowerCase();
+  if (m.startsWith("image/")) return "image";
+  if (m.startsWith("video/")) return "video";
+  if (m.startsWith("audio/")) return "audio";
+  // Everything else Meta accepts (pdf, docx, xlsx, txt, …) rides as document.
+  return "document";
+}
+
+/** Upper bounds from Meta. Stickers aren't supported here. */
+const WA_MEDIA_MAX_BYTES: Record<WhatsAppMediaKind, number> = {
+  image: 5 * 1024 * 1024,
+  document: 100 * 1024 * 1024,
+  video: 16 * 1024 * 1024,
+  audio: 16 * 1024 * 1024,
+};
+
+export class WhatsAppMediaTooLargeError extends Error {
+  constructor(kind: WhatsAppMediaKind, bytes: number) {
+    const mb = (WA_MEDIA_MAX_BYTES[kind] / 1024 / 1024) | 0;
+    super(`File too large for ${kind}: max ${mb} MB, got ${(bytes / 1024 / 1024).toFixed(1)} MB`);
+    this.name = "WhatsAppMediaTooLargeError";
+  }
+}
+
+export async function sendWhatsAppMediaReply(params: {
+  conversationId: string;
+  workspaceId: string;
+  file: {
+    blob: Blob;
+    mimeType: string;
+    filename: string;
+    size: number;
+  };
+  caption?: string;
+}) {
+  const { conversationId, workspaceId, file, caption } = params;
+
+  const kind = mimeToWhatsAppKind(file.mimeType);
+  if (!kind) throw new Error(`Unsupported MIME type: ${file.mimeType}`);
+  if (file.size > WA_MEDIA_MAX_BYTES[kind]) {
+    throw new WhatsAppMediaTooLargeError(kind, file.size);
+  }
+
+  const [conv] = await db
+    .select()
+    .from(inboxConversations)
+    .where(
+      and(
+        eq(inboxConversations.id, conversationId),
+        eq(inboxConversations.workspaceId, workspaceId)
+      )
+    )
+    .limit(1);
+  if (!conv) throw new Error("Conversation not found");
+
+  const [account] = await db
+    .select()
+    .from(channelAccounts)
+    .where(eq(channelAccounts.id, conv.channelAccountId))
+    .limit(1);
+  if (!account) throw new Error("Channel account not found");
+  if (account.channelType !== "whatsapp") {
+    throw new Error("Conversation is not a WhatsApp conversation");
+  }
+  if (!account.waPhoneNumberId || !account.credential) {
+    throw new Error("WhatsApp channel account is missing phone_number_id or access token");
+  }
+
+  if (!(await isWithinCustomerServiceWindow(conversationId))) {
+    throw new WhatsAppSessionExpiredError();
+  }
+
+  const [contact] = await db
+    .select()
+    .from(inboxContacts)
+    .where(eq(inboxContacts.id, conv.contactId))
+    .limit(1);
+  const toWaId = contact?.phone ?? conv.externalThreadId;
+  if (!toWaId) throw new Error("Cannot determine recipient wa_id");
+
+  // 1) Upload the bytes to Meta's media endpoint → media_id.
+  const uploadForm = new FormData();
+  uploadForm.append("messaging_product", "whatsapp");
+  uploadForm.append("type", file.mimeType);
+  uploadForm.append("file", file.blob, file.filename);
+  const uploadRes = await fetch(
+    `${GRAPH_API_BASE}/${account.waPhoneNumberId}/media`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${account.credential}` },
+      body: uploadForm,
+    }
+  );
+  const uploadJson = (await uploadRes.json().catch(() => ({}))) as {
+    id?: string;
+    error?: { message?: string };
+  };
+  if (!uploadRes.ok || !uploadJson.id) {
+    throw new Error(
+      `WhatsApp media upload failed: ${uploadJson.error?.message ?? `Meta ${uploadRes.status}`}`
+    );
+  }
+  const mediaId = uploadJson.id;
+
+  // 2) Send a message that references the media_id.
+  const mediaPayload: Record<string, string> = { id: mediaId };
+  if (caption?.trim()) mediaPayload.caption = caption.trim();
+  if (kind === "document") mediaPayload.filename = file.filename;
+
+  const sendRes = await fetch(
+    `${GRAPH_API_BASE}/${account.waPhoneNumberId}/messages`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${account.credential}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to: toWaId,
+        type: kind,
+        [kind]: mediaPayload,
+      }),
+    }
+  );
+  const sendJson = (await sendRes.json().catch(() => ({}))) as {
+    messages?: Array<{ id: string }>;
+    error?: { message?: string };
+  };
+  if (!sendRes.ok) {
+    throw new Error(
+      `WhatsApp send failed: ${sendJson.error?.message ?? `Meta ${sendRes.status}`}`
+    );
+  }
+  const externalId = sendJson.messages?.[0]?.id ?? null;
+
+  const previewLabel =
+    kind === "image"
+      ? "[Bild]"
+      : kind === "video"
+        ? "[Video]"
+        : kind === "audio"
+          ? "[Audio]"
+          : `[Dokument] ${file.filename}`;
+  const bodyText = caption?.trim()
+    ? `${previewLabel} ${caption.trim()}`
+    : previewLabel;
+
+  const [stored] = await db
+    .insert(inboxMessages)
+    .values({
+      workspaceId,
+      conversationId,
+      direction: "outbound",
+      status: "sent",
+      externalMessageId: externalId,
+      fromAddress: account.waPhoneNumberId,
+      toAddress: toWaId,
+      subject: null,
+      body: bodyText,
+      isRead: true,
+      sentAt: new Date(),
+    })
+    .returning();
+
+  await db
+    .update(inboxConversations)
+    .set({
+      lastMessageAt: new Date(),
+      lastMessagePreview: `Du: ${bodyText.slice(0, 100)}`,
+      updatedAt: new Date(),
+    })
+    .where(eq(inboxConversations.id, conversationId));
+
+  if (conv.dealRecordId) {
+    await emitEvent({
+      workspaceId,
+      recordId: conv.dealRecordId,
+      objectSlug: "deals",
+      eventType: "message.sent",
+      payload: {
+        conversationId,
+        channelType: "whatsapp",
+        toAddress: toWaId,
+        externalMessageId: externalId,
+        mediaKind: kind,
+      },
+    });
+  }
+
+  return stored;
+}
+
 // ─── Templates (Meta-approved message templates) ─────────────────────────────
 // Templates are the only way to open a conversation from the business side or
 // reply after the 24h customer-service window expires. They're created and
