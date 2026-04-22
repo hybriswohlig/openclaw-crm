@@ -24,17 +24,131 @@ import { AI_TASK_SLUGS } from "./ai/task-registry";
 // packages/shared/src/constants/standard-objects.ts. Add fields here as
 // the deal schema evolves.
 
-// Helper: nullable + optional with null default — handles models that omit
-// keys entirely instead of setting them to null.
-const nullStr = z.string().nullable().optional().default(null);
-const nullNum = z.number().nullable().optional().default(null);
-const nullBool = z.boolean().nullable().optional().default(null);
+// Helpers: nullable + optional with null default. Wrapped in `preprocess` so
+// the schema is forgiving of common LLM mistakes (returning a single-element
+// array instead of a scalar, returning the string "null"/"unknown", etc.).
+//
+// Smaller / cheaper / "free" models on OpenRouter (Llama, Nemotron, …) often
+// emit arrays even when asked for a scalar. Coercing here keeps KI-Analyze
+// from hard-failing on those.
 
-const ElevatorAccessEnum = z
-  .enum(["Aufzug", "Treppe", "Erdgeschoss", "Nicht nötig (Einfamilienhaus)"])
-  .nullable()
-  .optional()
-  .default(null);
+function unwrapScalar(v: unknown): unknown {
+  if (Array.isArray(v)) return v.length === 0 ? null : v[0];
+  if (typeof v === "string") {
+    const t = v.trim().toLowerCase();
+    if (t === "" || t === "null" || t === "none" || t === "n/a" || t === "unbekannt" || t === "unknown") {
+      return null;
+    }
+  }
+  return v;
+}
+
+function coerceNumberLike(v: unknown): unknown {
+  const u = unwrapScalar(v);
+  if (u == null) return null;
+  if (typeof u === "number") return u;
+  if (typeof u === "string") {
+    const cleaned = u.replace(/[^\d.\-,]/g, "").replace(",", ".");
+    if (cleaned === "" || cleaned === "-" || cleaned === ".") return null;
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function coerceBoolLike(v: unknown): unknown {
+  const u = unwrapScalar(v);
+  if (u == null) return null;
+  if (typeof u === "boolean") return u;
+  if (typeof u === "string") {
+    const t = u.trim().toLowerCase();
+    if (["true", "ja", "yes", "1"].includes(t)) return true;
+    if (["false", "nein", "no", "0"].includes(t)) return false;
+  }
+  return null;
+}
+
+const ELEVATOR_SYNONYMS: Record<string, "Aufzug" | "Treppe" | "Erdgeschoss" | "Nicht nötig (Einfamilienhaus)"> = {
+  // Aufzug
+  "aufzug": "Aufzug",
+  "lift": "Aufzug",
+  "fahrstuhl": "Aufzug",
+  "elevator": "Aufzug",
+  "mit aufzug": "Aufzug",
+  // Treppe (no elevator → stairs)
+  "treppe": "Treppe",
+  "treppen": "Treppe",
+  "treppenhaus": "Treppe",
+  "stairs": "Treppe",
+  "kein aufzug": "Treppe",
+  "ohne aufzug": "Treppe",
+  "no elevator": "Treppe",
+  "no lift": "Treppe",
+  // Erdgeschoss
+  "erdgeschoss": "Erdgeschoss",
+  "eg": "Erdgeschoss",
+  "ground floor": "Erdgeschoss",
+  // Single-family house
+  "einfamilienhaus": "Nicht nötig (Einfamilienhaus)",
+  "efh": "Nicht nötig (Einfamilienhaus)",
+  "nicht nötig": "Nicht nötig (Einfamilienhaus)",
+  "nicht noetig": "Nicht nötig (Einfamilienhaus)",
+  "not needed": "Nicht nötig (Einfamilienhaus)",
+};
+
+const PAYMENT_SYNONYMS: Record<string, "Bar" | "Überweisung" | "Bereits bezahlt"> = {
+  "bar": "Bar",
+  "cash": "Bar",
+  "in cash": "Bar",
+  "vor ort": "Bar",
+  "überweisung": "Überweisung",
+  "ueberweisung": "Überweisung",
+  "transfer": "Überweisung",
+  "bank transfer": "Überweisung",
+  "rechnung": "Überweisung",
+  "bereits bezahlt": "Bereits bezahlt",
+  "schon bezahlt": "Bereits bezahlt",
+  "already paid": "Bereits bezahlt",
+  "paid": "Bereits bezahlt",
+};
+
+function coercePaymentMethod(v: unknown): unknown {
+  const u = unwrapScalar(v);
+  if (u == null) return null;
+  if (typeof u !== "string") return null;
+  const t = u.trim().toLowerCase();
+  if (PAYMENT_SYNONYMS[t]) return PAYMENT_SYNONYMS[t];
+  for (const key of Object.keys(PAYMENT_SYNONYMS)) {
+    if (t.includes(key)) return PAYMENT_SYNONYMS[key];
+  }
+  return null;
+}
+
+function coerceElevator(v: unknown): unknown {
+  const u = unwrapScalar(v);
+  if (u == null) return null;
+  if (typeof u !== "string") return null;
+  const t = u.trim().toLowerCase();
+  if (ELEVATOR_SYNONYMS[t]) return ELEVATOR_SYNONYMS[t];
+  // Fuzzy match: if any synonym key is contained in the response, use it.
+  for (const key of Object.keys(ELEVATOR_SYNONYMS)) {
+    if (t.includes(key)) return ELEVATOR_SYNONYMS[key];
+  }
+  return null;
+}
+
+const nullStr = z.preprocess(unwrapScalar, z.string().nullable().optional().default(null));
+const nullNum = z.preprocess(coerceNumberLike, z.number().nullable().optional().default(null));
+const nullBool = z.preprocess(coerceBoolLike, z.boolean().nullable().optional().default(null));
+
+const ElevatorAccessEnum = z.preprocess(
+  coerceElevator,
+  z
+    .enum(["Aufzug", "Treppe", "Erdgeschoss", "Nicht nötig (Einfamilienhaus)"])
+    .nullable()
+    .optional()
+    .default(null)
+);
 
 const ExtractedDealSchema = z.object({
   customer_name: nullStr.describe(
@@ -107,10 +221,12 @@ const ExtractedDealSchema = z.object({
     "Any unusual customer requests that don't fit other fields (e.g. 'bitte Schuhe ausziehen', 'Katze muss mit', 'vor 10 Uhr nicht klingeln'). Concatenate multiple requests into one German string. Null if none."
   ),
   payment_method: z
-    .enum(["Bar", "Überweisung", "Bereits bezahlt"])
-    .nullable()
-    .optional()
-    .default(null)
+    .preprocess(coercePaymentMethod, z
+      .enum(["Bar", "Überweisung", "Bereits bezahlt"])
+      .nullable()
+      .optional()
+      .default(null)
+    )
     .describe(
       "Payment method if stated. Null if not discussed."
     ),
@@ -212,9 +328,14 @@ Kontaktdaten (customer_name, customer_phone, customer_email):
 - Der Kunde meldet sich oft mit einem Alias (z. B. Kleinanzeigen-Nick). Wenn er im Verlauf seinen echten vollständigen Namen nennt ("Ich bin Maria Schneider"), gib diesen in customer_name zurück — auch wenn der Anzeigen-Alias anders lautet. Keine Halbnamen.
 - Telefon/E-Mail: nur echte Werte. Kleinanzeigen-Relay-E-Mails (…@mail.kleinanzeigen.de) ignorieren.
 
+WICHTIG zum JSON-Format:
+- Jeder Wert ist genau EIN Skalar oder null. Niemals ein Array! Auch nicht für floors_to, elevator_from, elevator_to o. Ä.
+- Enum-Felder müssen EXAKT einen der erlaubten Werte enthalten (Groß-/Kleinschreibung beachten). Wenn unsicher → null statt Eigenformulierung.
+- Zahlen ohne Einheit (z. B. floors_from: 3, nicht "3. Stock").
+
 Auftragsübersicht (für die Monteure am Umzugstag):
 - floors_from / floors_to: Stockwerk als Zahl (Erdgeschoss = 0).
-- elevator_from / elevator_to: "Aufzug" wenn es einen Lift gibt, "Treppe" bei reinem Treppenhaus, "Erdgeschoss" bei EG, "Nicht nötig (Einfamilienhaus)" wenn es ein EFH ist, wo Stockwerke egal sind.
+- elevator_from / elevator_to: GENAU einer der Strings "Aufzug", "Treppe", "Erdgeschoss", "Nicht nötig (Einfamilienhaus)". Niemals ein Array, niemals "kein Aufzug" (das wäre "Treppe").
 - volume_cbm nur setzen, wenn jemand wirklich eine Zahl genannt hat ("ca. 30 Kubikmeter", "2-Zimmer-Wohnung ~25m³"). Sonst null.
 - piano_transport: true, sobald "Klavier", "Flügel" oder "Piano" im Verlauf auftaucht und mit transportiert werden soll.
 - dismantling_required: true, wenn Schrank/Bett/Küche abgebaut werden soll.

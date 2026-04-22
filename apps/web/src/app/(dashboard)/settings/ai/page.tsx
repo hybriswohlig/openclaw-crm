@@ -18,6 +18,7 @@ const MODELS = [
   { value: "meta-llama/llama-3.1-405b-instruct", label: "Llama 3.1 405B" },
   { value: "meta-llama/llama-3.1-70b-instruct", label: "Llama 3.1 70B" },
   { value: "google/gemini-2.0-flash-001", label: "Gemini 2.0 Flash" },
+  { value: "nvidia/nemotron-3-super-120b-a12b:free", label: "Nvidia Nemotron 3 Super 120B (free)" },
 ];
 
 // ─── AI Task Config types ────────────────────────────────────────────────────
