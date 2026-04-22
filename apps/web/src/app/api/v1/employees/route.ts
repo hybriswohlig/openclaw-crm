@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
   if (!ctx) return unauthorized();
 
   const body = await req.json();
-  const { name, experience, hourlyRate } = body;
+  const { name, experience, hourlyRate, photoBase64 } = body;
 
   if (!name || typeof name !== "string") {
     return badRequest("name is required");
@@ -28,6 +28,7 @@ export async function POST(req: NextRequest) {
     name,
     experience,
     hourlyRate: String(hourlyRate),
+    photoBase64: typeof photoBase64 === "string" ? photoBase64 : null,
   });
   return success(employee, 201);
 }

@@ -1,6 +1,12 @@
 import { NextRequest } from "next/server";
 import { getAuthContext, unauthorized, notFound, success } from "@/lib/api-utils";
-import { getEmployee, updateEmployee, deleteEmployee, getEmployeeContracts } from "@/services/employees";
+import {
+  getEmployee,
+  updateEmployee,
+  deleteEmployee,
+  getEmployeeContracts,
+  getEmployeeDetailExtras,
+} from "@/services/employees";
 
 export async function GET(
   req: NextRequest,
@@ -13,8 +19,11 @@ export async function GET(
   const employee = await getEmployee(ctx.workspaceId, employeeId);
   if (!employee) return notFound("Employee not found");
 
-  const contracts = await getEmployeeContracts(ctx.workspaceId, employeeId);
-  return success({ ...employee, contracts });
+  const [contracts, extras] = await Promise.all([
+    getEmployeeContracts(ctx.workspaceId, employeeId),
+    getEmployeeDetailExtras(ctx.workspaceId, employeeId),
+  ]);
+  return success({ ...employee, contracts, ...extras });
 }
 
 export async function PATCH(

@@ -217,6 +217,8 @@ export async function createEmployeeTransaction(
     date: string;
     type: "salary" | "advance" | "reimbursement";
     amount: string;
+    amountPaid?: string;
+    dueDate?: string | null;
     status?: "open" | "paid";
     description?: string;
     notes?: string;
@@ -236,6 +238,8 @@ export async function updateEmployeeTransaction(
     date: string;
     type: "salary" | "advance" | "reimbursement";
     amount: string;
+    amountPaid: string;
+    dueDate: string | null;
     status: "open" | "paid";
     description: string;
     notes: string;
@@ -252,6 +256,36 @@ export async function updateEmployeeTransaction(
     )
     .returning();
   return row ?? null;
+}
+
+/**
+ * Record a payment against an employee transaction. Increments amount_paid by
+ * the given delta (negative is allowed but clamped to 0). Mirrors status to
+ * "paid" once amount_paid >= amount.
+ */
+export async function recordEmployeeTransactionPayment(
+  id: string,
+  workspaceId: string,
+  delta: number
+) {
+  const [existing] = await db
+    .select()
+    .from(employeeTransactions)
+    .where(and(eq(employeeTransactions.id, id), eq(employeeTransactions.workspaceId, workspaceId)))
+    .limit(1);
+  if (!existing) return null;
+
+  const total = Number(existing.amount);
+  const current = Number(existing.amountPaid);
+  const next = Math.max(0, current + delta);
+  const nextStatus: "open" | "paid" = next + 0.005 >= total ? "paid" : "open";
+
+  const [row] = await db
+    .update(employeeTransactions)
+    .set({ amountPaid: next.toFixed(2), status: nextStatus, updatedAt: new Date() })
+    .where(eq(employeeTransactions.id, id))
+    .returning();
+  return row;
 }
 
 export async function deleteEmployeeTransaction(

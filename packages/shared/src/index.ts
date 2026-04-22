@@ -7,5 +7,5 @@ export type { ApiResponse, ApiListResponse, ApiError, FilterCondition, FilterGro
 // Constants
 export { ATTRIBUTE_TYPES, ATTRIBUTE_TYPE_COLUMN_MAP } from "./constants/attribute-types";
 export type { AttributeType } from "./constants/attribute-types";
-export { STANDARD_OBJECTS, DEAL_STAGES } from "./constants/standard-objects";
+export { STANDARD_OBJECTS, DEAL_STAGES, DEFAULT_AUFTRAG_CHECKLIST } from "./constants/standard-objects";
 export type { StandardObject, StandardAttribute } from "./constants/standard-objects";

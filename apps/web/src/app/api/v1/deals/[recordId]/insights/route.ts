@@ -40,12 +40,16 @@ export async function POST(
   let selectedFields: string[] | undefined;
   let applyStage = false;
   let applyNote = true;
+  let applyContact = true;
+  let applyAuftrag = true;
   try {
     const body = await req.json();
     apply = body?.apply === true;
     if (Array.isArray(body?.selectedFields)) selectedFields = body.selectedFields;
     if (body?.applyStage === true) applyStage = true;
     if (body?.applyNote === false) applyNote = false;
+    if (body?.applyContact === false) applyContact = false;
+    if (body?.applyAuftrag === false) applyAuftrag = false;
   } catch {
     // No body or invalid JSON — default to preview-only.
   }
@@ -61,6 +65,8 @@ export async function POST(
       selectedFields,
       applyStage,
       applyNote,
+      applyContact,
+      applyAuftrag,
     });
     return success({ ...result, applied: true, ...applyResult });
   }

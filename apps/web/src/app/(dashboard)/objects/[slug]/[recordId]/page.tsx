@@ -12,6 +12,7 @@ import { QuotationTab } from "@/components/quotation/quotation-tab";
 import { FinancialTab } from "@/components/financial/financial-tab";
 import { MediaTab } from "@/components/media/media-tab";
 import { DealInsightsTab } from "@/components/deal-insights/deal-insights-tab";
+import { AuftragTab } from "@/components/auftrag/auftrag-tab";
 import { RecordConversations } from "@/components/records/record-conversations";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -358,6 +359,9 @@ export default function RecordDetailPage() {
                 <TabsTrigger value="quotation">Quotation</TabsTrigger>
               )}
               {slug === "deals" && (
+                <TabsTrigger value="auftrag">Auftragsübersicht</TabsTrigger>
+              )}
+              {slug === "deals" && (
                 <TabsTrigger value="financials">Finanzen</TabsTrigger>
               )}
               {slug === "deals" && (
@@ -404,6 +408,11 @@ export default function RecordDetailPage() {
             {slug === "deals" && (
               <TabsContent value="quotation">
                 <QuotationTab recordId={recordId} />
+              </TabsContent>
+            )}
+            {slug === "deals" && (
+              <TabsContent value="auftrag">
+                <AuftragTab recordId={recordId} />
               </TabsContent>
             )}
             {slug === "deals" && (

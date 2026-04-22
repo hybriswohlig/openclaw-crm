@@ -11,6 +11,7 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:seed": "tsx src/db/seed.ts",
+    "db:sync-objects": "tsx src/db/sync-standard-objects.ts",
     "financial:seed-json": "tsx scripts/seed-financial-json.ts",
     "inbox:import": "tsx scripts/import-emails.ts",
     "inbox:reimport": "tsx scripts/import-emails.ts --reset",

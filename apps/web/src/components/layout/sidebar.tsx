@@ -25,6 +25,7 @@ import {
   Banknote,
   Plug,
   Inbox,
+  Truck,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 
@@ -208,6 +209,15 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         />
 
         <div className="my-3 mx-2 h-px bg-sidebar-border" />
+
+        <NavItem
+          href="/operations"
+          label="Operations"
+          icon={Truck}
+          active={pathname.startsWith("/operations")}
+          expanded={expanded}
+          onClick={onNavigate}
+        />
 
         <NavItem
           href="/financial"

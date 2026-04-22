@@ -180,6 +180,10 @@ export const employeeTransactions = pgTable(
     date: date("date").notNull(),
     type: employeeTransactionTypeEnum("type").notNull(),
     amount: numeric("amount", { precision: 14, scale: 2 }).notNull(),
+    /** Cumulative paid so far. Status is derived: 0 → offen, < amount → teilweise bezahlt, ≥ amount → bezahlt. */
+    amountPaid: numeric("amount_paid", { precision: 14, scale: 2 }).notNull().default("0"),
+    /** When the transaction is due to be paid. Optional. */
+    dueDate: date("due_date"),
     status: employeeTransactionStatusEnum("status").notNull().default("open"),
     description: text("description"),
     notes: text("notes"),

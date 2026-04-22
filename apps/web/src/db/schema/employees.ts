@@ -12,6 +12,8 @@ export const employees = pgTable(
     name: text("name").notNull(),
     experience: text("experience"),
     hourlyRate: numeric("hourly_rate", { precision: 10, scale: 2 }).notNull(),
+    /** Avatar image as base64 data URL (e.g. "data:image/png;base64,…"). Optional. */
+    photoBase64: text("photo_base64"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
