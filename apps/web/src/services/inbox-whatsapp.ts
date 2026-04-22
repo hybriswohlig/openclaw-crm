@@ -815,17 +815,19 @@ export async function sendWhatsAppMediaReply(params: {
   }
   const externalId = sendJson.messages?.[0]?.id ?? null;
 
-  const previewLabel =
-    kind === "image"
-      ? "[Bild]"
+  // Body stays empty for images/videos/stickers so the bubble renders the
+  // attachment, not a placeholder. Captions are kept verbatim. Documents
+  // keep a filename-only preview for the conversation list.
+  const bodyText = caption?.trim() ?? "";
+  const previewText = caption?.trim()
+    ? caption.trim()
+    : kind === "image"
+      ? "📷 Bild"
       : kind === "video"
-        ? "[Video]"
+        ? "🎞️ Video"
         : kind === "audio"
-          ? "[Audio]"
-          : `[Dokument] ${file.filename}`;
-  const bodyText = caption?.trim()
-    ? `${previewLabel} ${caption.trim()}`
-    : previewLabel;
+          ? "🎤 Audio"
+          : `📎 ${file.filename}`;
 
   const [stored] = await db
     .insert(inboxMessages)
@@ -844,11 +846,36 @@ export async function sendWhatsAppMediaReply(params: {
     })
     .returning();
 
+  // Persist the uploaded bytes as an attachment so the outbound bubble
+  // renders the same image the customer received. Meta's media_id expires
+  // after ~30 days; storing the bytes ourselves makes the inbox view stable.
+  if (stored) {
+    try {
+      const buffer = Buffer.from(await file.blob.arrayBuffer());
+      await db.insert(inboxMessageAttachments).values({
+        workspaceId,
+        messageId: stored.id,
+        conversationId,
+        dealRecordId: conv.dealRecordId ?? null,
+        fileName: file.filename,
+        mimeType: file.mimeType,
+        fileSize: buffer.length,
+        fileContent: buffer.toString("base64"),
+        externalMediaId: mediaId,
+      });
+    } catch (attErr) {
+      console.error(
+        `[inbox-whatsapp] failed to store outbound attachment for ${stored.id}:`,
+        attErr
+      );
+    }
+  }
+
   await db
     .update(inboxConversations)
     .set({
       lastMessageAt: new Date(),
-      lastMessagePreview: `Du: ${bodyText.slice(0, 100)}`,
+      lastMessagePreview: `Du: ${previewText.slice(0, 100)}`,
       updatedAt: new Date(),
     })
     .where(eq(inboxConversations.id, conversationId));
