@@ -10,6 +10,7 @@ import { RecordNotes } from "@/components/notes/record-notes";
 import { RecordTasks } from "@/components/tasks/record-tasks";
 import { QuotationTab } from "@/components/quotation/quotation-tab";
 import { FinancialTab } from "@/components/financial/financial-tab";
+import { MediaTab } from "@/components/media/media-tab";
 import { DealInsightsTab } from "@/components/deal-insights/deal-insights-tab";
 import { RecordConversations } from "@/components/records/record-conversations";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -360,6 +361,9 @@ export default function RecordDetailPage() {
                 <TabsTrigger value="financials">Finanzen</TabsTrigger>
               )}
               {slug === "deals" && (
+                <TabsTrigger value="media">Medien</TabsTrigger>
+              )}
+              {slug === "deals" && (
                 <TabsTrigger value="insights">KI-Insights</TabsTrigger>
               )}
             </TabsList>
@@ -405,6 +409,11 @@ export default function RecordDetailPage() {
             {slug === "deals" && (
               <TabsContent value="financials">
                 <FinancialTab recordId={recordId} />
+              </TabsContent>
+            )}
+            {slug === "deals" && (
+              <TabsContent value="media">
+                <MediaTab recordId={recordId} />
               </TabsContent>
             )}
             {slug === "deals" && (
