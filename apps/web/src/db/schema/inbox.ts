@@ -217,6 +217,52 @@ export const inboxMessages = pgTable(
   ]
 );
 
+// ─── Message attachments ──────────────────────────────────────────────────────
+// Binary attachments that arrive with an inbound message (images, PDFs, voice
+// notes, etc.). Stored as base64 in a TEXT column to keep the storage path the
+// same as `deal_documents` — no new bucket or blob provider needed.
+//
+// `dealRecordId` is duplicated from the parent conversation at insert time so
+// the lead view can list all files the customer has ever sent in O(1) without
+// joining through conversations.
+
+export const inboxMessageAttachments = pgTable(
+  "inbox_message_attachments",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    messageId: text("message_id")
+      .notNull()
+      .references(() => inboxMessages.id, { onDelete: "cascade" }),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => inboxConversations.id, { onDelete: "cascade" }),
+    // Snapshot of the conversation's linked deal at the time the attachment
+    // arrived. Set to null if the conversation is not yet linked; back-filled
+    // later when a deal is created.
+    dealRecordId: text("deal_record_id")
+      .references(() => records.id, { onDelete: "set null" }),
+    fileName: text("file_name").notNull(),
+    mimeType: text("mime_type").notNull(),
+    fileSize: integer("file_size").notNull(),
+    fileContent: text("file_content").notNull(), // base64
+    // The channel-native media id (WhatsApp media_id or email Content-ID), kept
+    // so we can deduplicate if the same payload is replayed.
+    externalMediaId: text("external_media_id"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("inbox_attachments_message_idx").on(table.messageId),
+    index("inbox_attachments_conversation_idx").on(table.conversationId),
+    index("inbox_attachments_deal_idx").on(table.dealRecordId),
+    index("inbox_attachments_workspace_idx").on(table.workspaceId),
+  ]
+);
+
 // ─── WhatsApp template metadata ───────────────────────────────────────────────
 // Per-template variable labels so the compose UI can show "Kundenvorname"
 // instead of "{{1}}". Meta doesn't expose variable semantics, so we persist

@@ -60,6 +60,13 @@ interface Conversation {
   dealRecordId: string | null;
 }
 
+interface MessageAttachment {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+}
+
 interface Message {
   id: string;
   conversationId: string;
@@ -72,6 +79,7 @@ interface Message {
   isRead: boolean;
   sentAt: string | null;
   createdAt: string;
+  attachments?: MessageAttachment[];
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -338,6 +346,58 @@ function ConvListItem({
 
 // ─── Message Bubble ───────────────────────────────────────────────────────────
 
+function formatFileSize(bytes: number): string {
+  if (bytes > 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  if (bytes > 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${bytes} B`;
+}
+
+function MessageAttachmentItem({
+  att,
+  isOut,
+}: {
+  att: MessageAttachment;
+  isOut: boolean;
+}) {
+  const url = `/api/v1/inbox/attachments/${att.id}/content`;
+  const isImage = att.mimeType.startsWith("image/");
+
+  if (isImage) {
+    return (
+      <a href={url} target="_blank" rel="noopener noreferrer" className="block">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={url}
+          alt={att.fileName}
+          className="max-h-80 max-w-full rounded-lg border border-black/10 object-contain bg-white/50"
+          loading="lazy"
+        />
+      </a>
+    );
+  }
+
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={cn(
+        "flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs no-underline transition-colors",
+        isOut
+          ? "bg-white/15 hover:bg-white/25 text-primary-foreground"
+          : "bg-background/80 hover:bg-background border border-border text-foreground"
+      )}
+      download={att.fileName}
+    >
+      <FileText className="h-4 w-4 shrink-0" />
+      <span className="flex-1 truncate font-medium">{att.fileName}</span>
+      <span className={cn("shrink-0 tabular-nums", isOut ? "opacity-80" : "text-muted-foreground")}>
+        {formatFileSize(att.fileSize)}
+      </span>
+    </a>
+  );
+}
+
 function MessageBubble({
   msg,
   showAvatar,
@@ -370,7 +430,16 @@ function MessageBubble({
             : "bg-muted text-foreground rounded-bl-md"
         )}
       >
-        <p className="whitespace-pre-wrap break-words leading-snug">{msg.body}</p>
+        {msg.attachments && msg.attachments.length > 0 && (
+          <div className="space-y-1.5 mb-1.5">
+            {msg.attachments.map((att) => (
+              <MessageAttachmentItem key={att.id} att={att} isOut={isOut} />
+            ))}
+          </div>
+        )}
+        {msg.body && (
+          <p className="whitespace-pre-wrap break-words leading-snug">{msg.body}</p>
+        )}
         <div
           className={cn(
             "flex items-center gap-1 mt-0.5 text-[10px] tabular-nums",

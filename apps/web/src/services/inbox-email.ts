@@ -13,6 +13,7 @@ import {
   inboxConversations,
   inboxContacts,
   inboxMessages,
+  inboxMessageAttachments,
 } from "@/db/schema/inbox";
 import { eq, and, isNull } from "drizzle-orm";
 import {
@@ -23,6 +24,11 @@ import {
 import { createDealForNewConversation } from "./inbox";
 import { emitEvent } from "./activity-events";
 import { ensureCrmPerson } from "./inbox-crm-link";
+
+// Same cap as deal_documents — base64 expands ~33%, so a 10 MB image is
+// ~13 MB in the row. Images exceeding this limit are dropped but the rest
+// of the email is still ingested.
+const ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
 
 /** Extract a human-readable name from a mailparser AddressObject. */
 function firstAddress(ao: AddressObject | AddressObject[] | undefined): { name: string; address: string } {
@@ -240,21 +246,57 @@ export async function syncChannelAccount(accountId: string) {
       }
 
       // Insert message
-      await db.insert(inboxMessages).values({
-        workspaceId: account.workspaceId,
-        conversationId: conv.id,
-        direction: "inbound",
-        status: "received",
-        externalMessageId: messageId,
-        fromAddress: fromEmail,
-        toAddress: account.address,
-        subject,
-        body,
-        bodyHtml: parsed.html || null,
-        isRead: false,
-        rawHeaders: JSON.stringify(Object.fromEntries(parsed.headers ?? [])),
-        sentAt,
-      });
+      const [storedMessage] = await db
+        .insert(inboxMessages)
+        .values({
+          workspaceId: account.workspaceId,
+          conversationId: conv.id,
+          direction: "inbound",
+          status: "received",
+          externalMessageId: messageId,
+          fromAddress: fromEmail,
+          toAddress: account.address,
+          subject,
+          body,
+          bodyHtml: parsed.html || null,
+          isRead: false,
+          rawHeaders: JSON.stringify(Object.fromEntries(parsed.headers ?? [])),
+          sentAt,
+        })
+        .returning({ id: inboxMessages.id });
+
+      // Store attachments (images, PDFs, ...). Cap per-file size so a rogue
+      // email can't blow up the DB; anything larger is silently skipped —
+      // the customer's text still makes it through.
+      if (storedMessage && parsed.attachments?.length) {
+        for (const att of parsed.attachments) {
+          if (!att.content || att.size > ATTACHMENT_MAX_BYTES) continue;
+          const mime = att.contentType || "application/octet-stream";
+          const filename =
+            att.filename ||
+            (mime.startsWith("image/")
+              ? `image.${mime.split("/")[1] || "bin"}`
+              : "attachment.bin");
+          try {
+            await db.insert(inboxMessageAttachments).values({
+              workspaceId: account.workspaceId,
+              messageId: storedMessage.id,
+              conversationId: conv.id,
+              dealRecordId: conv.dealRecordId ?? null,
+              fileName: filename,
+              mimeType: mime,
+              fileSize: att.size,
+              fileContent: Buffer.from(att.content).toString("base64"),
+              externalMediaId: att.contentId ?? att.cid ?? null,
+            });
+          } catch (attErr) {
+            console.error(
+              `[inbox-email] failed to store attachment ${filename}:`,
+              attErr
+            );
+          }
+        }
+      }
 
       // Activity log: record message.received against the linked deal (if any)
       // so the timeline surfaces every inbound message.

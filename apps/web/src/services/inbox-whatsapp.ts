@@ -18,6 +18,7 @@ import {
   inboxConversations,
   inboxContacts,
   inboxMessages,
+  inboxMessageAttachments,
   whatsappTemplateMetadata,
 } from "@/db/schema/inbox";
 import { eq, and, desc } from "drizzle-orm";
@@ -162,7 +163,25 @@ async function upsertContact(
 
 // ─── Message body extraction ──────────────────────────────────────────────────
 
-function extractMessageBody(msg: WAMessage): { body: string; kind: string } {
+// Shape of the nested media payload Meta delivers on image/video/audio/
+// document/sticker messages. `caption` is only present on image/video.
+interface WAMediaPayload {
+  id: string;
+  mime_type?: string;
+  sha256?: string;
+  caption?: string;
+  filename?: string;
+}
+
+/** Extract the text we want to render in the bubble AND, if this is a media
+ *  message, the payload we need to fetch the bytes from Meta. For images and
+ *  videos we prefer showing the caption (if any) — the image itself becomes
+ *  the primary content, no more "[Bild]" placeholder. */
+function extractMessageBody(msg: WAMessage): {
+  body: string;
+  kind: string;
+  media?: WAMediaPayload;
+} {
   switch (msg.type) {
     case "text":
       return { body: (msg as WATextMessage).text?.body ?? "", kind: "text" };
@@ -173,19 +192,100 @@ function extractMessageBody(msg: WAMessage): { body: string; kind: string } {
     }
     case "button":
       return { body: (msg as WAButtonMessage).button?.text ?? "", kind: "button" };
-    case "image":
-      return { body: "[Bild]", kind: "image" };
-    case "video":
-      return { body: "[Video]", kind: "video" };
-    case "audio":
-      return { body: "[Sprachnachricht]", kind: "audio" };
-    case "document":
-      return { body: "[Dokument]", kind: "document" };
-    case "sticker":
-      return { body: "[Sticker]", kind: "sticker" };
+    case "image": {
+      const media = (msg as WAMediaMessage).image as WAMediaPayload | undefined;
+      return { body: media?.caption ?? "", kind: "image", media };
+    }
+    case "video": {
+      const media = (msg as WAMediaMessage).video as WAMediaPayload | undefined;
+      return { body: media?.caption ?? "", kind: "video", media };
+    }
+    case "audio": {
+      const media = (msg as WAMediaMessage).audio as WAMediaPayload | undefined;
+      return { body: "[Sprachnachricht]", kind: "audio", media };
+    }
+    case "document": {
+      const media = (msg as WAMediaMessage).document as WAMediaPayload | undefined;
+      return {
+        body: media?.caption ?? (media?.filename ? `[Dokument] ${media.filename}` : "[Dokument]"),
+        kind: "document",
+        media,
+      };
+    }
+    case "sticker": {
+      const media = (msg as WAMediaMessage).sticker as WAMediaPayload | undefined;
+      return { body: "", kind: "sticker", media };
+    }
     default:
       return { body: `[${msg.type}]`, kind: msg.type };
   }
+}
+
+// ─── Media download from Meta ─────────────────────────────────────────────────
+// Two-step: GET /{media_id} returns a short-lived pre-signed URL (expires ~5m)
+// and then GET that URL with the same bearer token returns the bytes. We run
+// this inline during ingest because the URL expires fast; the webhook handler
+// catches and logs errors so a media-fetch failure never drops the message.
+
+const WA_INBOUND_MEDIA_MAX_BYTES = 25 * 1024 * 1024;
+
+async function downloadWhatsAppMedia(
+  mediaId: string,
+  accessToken: string
+): Promise<{ bytes: Buffer; mimeType: string } | null> {
+  try {
+    const metaRes = await fetch(`${GRAPH_API_BASE}/${mediaId}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!metaRes.ok) {
+      console.error(
+        `[inbox-whatsapp] media meta fetch failed for ${mediaId}: ${metaRes.status}`
+      );
+      return null;
+    }
+    const meta = (await metaRes.json()) as {
+      url?: string;
+      mime_type?: string;
+      file_size?: number;
+    };
+    if (!meta.url) return null;
+    if (meta.file_size && meta.file_size > WA_INBOUND_MEDIA_MAX_BYTES) {
+      console.warn(
+        `[inbox-whatsapp] media ${mediaId} exceeds size cap (${meta.file_size} bytes), skipping`
+      );
+      return null;
+    }
+    const fileRes = await fetch(meta.url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!fileRes.ok) {
+      console.error(
+        `[inbox-whatsapp] media bytes fetch failed for ${mediaId}: ${fileRes.status}`
+      );
+      return null;
+    }
+    const ab = await fileRes.arrayBuffer();
+    if (ab.byteLength > WA_INBOUND_MEDIA_MAX_BYTES) {
+      console.warn(
+        `[inbox-whatsapp] media ${mediaId} over cap after download (${ab.byteLength})`
+      );
+      return null;
+    }
+    return {
+      bytes: Buffer.from(ab),
+      mimeType: meta.mime_type || fileRes.headers.get("content-type") || "application/octet-stream",
+    };
+  } catch (err) {
+    console.error(`[inbox-whatsapp] media download threw for ${mediaId}:`, err);
+    return null;
+  }
+}
+
+/** Guess a sensible filename from mime type when Meta doesn't provide one. */
+function filenameForMedia(kind: string, mime: string, provided?: string): string {
+  if (provided) return provided;
+  const ext = mime.split("/")[1]?.split(";")[0] || "bin";
+  return `${kind}.${ext}`;
 }
 
 // ─── Ingest: inbound messages ─────────────────────────────────────────────────
@@ -198,8 +298,25 @@ async function ingestMessage(
   const waId = msg.from;
   const contactProfile = value.contacts?.find((c) => c.wa_id === waId);
   const displayName = contactProfile?.profile?.name ?? "";
-  const { body } = extractMessageBody(msg);
+  const { body, kind, media } = extractMessageBody(msg);
   const sentAt = new Date(Number(msg.timestamp) * 1000);
+
+  // Preview shown in the conversation list. For media-only messages without
+  // a caption we fall back to a friendly label so the list has something
+  // readable ("📷 Bild") instead of an empty cell.
+  const previewLabelForKind =
+    kind === "image"
+      ? "📷 Bild"
+      : kind === "video"
+        ? "🎞️ Video"
+        : kind === "audio"
+          ? "🎤 Sprachnachricht"
+          : kind === "document"
+            ? "📎 Dokument"
+            : kind === "sticker"
+              ? "🏷️ Sticker"
+              : "";
+  const previewText = body.trim() || previewLabelForKind || body;
 
   const contact = await upsertContact(account.workspaceId, waId, displayName);
 
@@ -227,7 +344,7 @@ async function ingestMessage(
     )
     .limit(1);
 
-  const preview = body.slice(0, 120).replace(/\s+/g, " ");
+  const preview = previewText.slice(0, 120).replace(/\s+/g, " ");
 
   if (!conv) {
     const [created] = await db
@@ -268,25 +385,59 @@ async function ingestMessage(
 
   // Idempotent insert via (conversation_id, external_message_id) unique index.
   // Meta retries webhooks aggressively; we must dedupe in-path.
+  let storedMessageId: string | null = null;
   try {
-    await db.insert(inboxMessages).values({
-      workspaceId: account.workspaceId,
-      conversationId: conv.id,
-      direction: "inbound",
-      status: "received",
-      externalMessageId: msg.id,
-      fromAddress: waId,
-      toAddress: value.metadata.phone_number_id,
-      subject: null,
-      body,
-      isRead: false,
-      rawHeaders: JSON.stringify({ type: msg.type, timestamp: msg.timestamp }),
-      sentAt,
-    });
+    const [stored] = await db
+      .insert(inboxMessages)
+      .values({
+        workspaceId: account.workspaceId,
+        conversationId: conv.id,
+        direction: "inbound",
+        status: "received",
+        externalMessageId: msg.id,
+        fromAddress: waId,
+        toAddress: value.metadata.phone_number_id,
+        subject: null,
+        body,
+        isRead: false,
+        rawHeaders: JSON.stringify({ type: msg.type, timestamp: msg.timestamp }),
+        sentAt,
+      })
+      .returning({ id: inboxMessages.id });
+    storedMessageId = stored?.id ?? null;
   } catch (err) {
     // Unique violation → duplicate delivery. Swallow and move on.
     if (err instanceof Error && /duplicate key|unique/i.test(err.message)) return;
     throw err;
+  }
+
+  // Download + persist media (image/video/audio/document/sticker). This
+  // replaces the old "[Bild]" placeholder: the actual bytes end up in
+  // inbox_message_attachments, linked to both the message and the deal.
+  if (storedMessageId && media?.id && account.credential) {
+    const downloaded = await downloadWhatsAppMedia(media.id, account.credential);
+    if (downloaded) {
+      const mime = media.mime_type || downloaded.mimeType;
+      const filename = filenameForMedia(msg.type, mime, media.filename);
+      try {
+        await db.insert(inboxMessageAttachments).values({
+          workspaceId: account.workspaceId,
+          messageId: storedMessageId,
+          conversationId: conv.id,
+          dealRecordId: conv.dealRecordId ?? null,
+          fileName: filename,
+          mimeType: mime,
+          fileSize: downloaded.bytes.length,
+          fileContent: downloaded.bytes.toString("base64"),
+          externalMediaId: media.id,
+        });
+      } catch (attErr) {
+        console.error(
+          `[inbox-whatsapp] failed to store attachment for ${msg.id}:`,
+          attErr
+        );
+      }
+    }
   }
 
   if (conv.dealRecordId) {

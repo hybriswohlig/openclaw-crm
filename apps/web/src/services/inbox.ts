@@ -4,6 +4,7 @@ import {
   inboxConversations,
   inboxContacts,
   inboxMessages,
+  inboxMessageAttachments,
 } from "@/db/schema/inbox";
 import { objects, attributes, statuses } from "@/db/schema/objects";
 import { eq, and, desc, lt, asc, isNotNull } from "drizzle-orm";
@@ -216,6 +217,13 @@ function cleanPreview(preview: string): string {
 
 // ─── Messages ─────────────────────────────────────────────────────────────────
 
+export interface MessageAttachmentListItem {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+}
+
 export async function getMessages(conversationId: string, workspaceId: string) {
   const rows = await db
     .select()
@@ -228,16 +236,70 @@ export async function getMessages(conversationId: string, workspaceId: string) {
     )
     .orderBy(inboxMessages.sentAt, inboxMessages.createdAt);
 
-  // Retroactively clean Kleinanzeigen messages at render time. Old rows were
-  // stored before the new parser existed; we re-run it against the stored
-  // bodyHtml so the UI shows only the customer's message.
+  // Attachments are fetched in a single round-trip and then grouped by
+  // message id. We exclude file_content here — the inbox only needs the
+  // metadata to render <img src="/api/.../content" /> tags; bytes are
+  // streamed on demand by the content route.
+  const attachmentRows = rows.length
+    ? await db
+        .select({
+          id: inboxMessageAttachments.id,
+          messageId: inboxMessageAttachments.messageId,
+          fileName: inboxMessageAttachments.fileName,
+          mimeType: inboxMessageAttachments.mimeType,
+          fileSize: inboxMessageAttachments.fileSize,
+        })
+        .from(inboxMessageAttachments)
+        .where(
+          and(
+            eq(inboxMessageAttachments.conversationId, conversationId),
+            eq(inboxMessageAttachments.workspaceId, workspaceId)
+          )
+        )
+    : [];
+
+  const byMessage = new Map<string, MessageAttachmentListItem[]>();
+  for (const a of attachmentRows) {
+    const list = byMessage.get(a.messageId) ?? [];
+    list.push({ id: a.id, fileName: a.fileName, mimeType: a.mimeType, fileSize: a.fileSize });
+    byMessage.set(a.messageId, list);
+  }
+
   return rows.map((m) => {
+    const attachments = byMessage.get(m.id) ?? [];
     const from = m.fromAddress ?? "";
     const subject = m.subject ?? "";
-    if (!isKleinanzeigenEmail(from, subject)) return m;
+    if (!isKleinanzeigenEmail(from, subject)) return { ...m, attachments };
     const cleaned = parseKleinanzeigenBody(m.body ?? "", m.bodyHtml);
-    return cleaned && cleaned !== m.body ? { ...m, body: cleaned } : m;
+    return cleaned && cleaned !== m.body
+      ? { ...m, body: cleaned, attachments }
+      : { ...m, attachments };
   });
+}
+
+/** List attachments (metadata only) linked to a CRM deal via its conversation. */
+export async function getAttachmentsForDeal(
+  dealRecordId: string,
+  workspaceId: string
+) {
+  return db
+    .select({
+      id: inboxMessageAttachments.id,
+      fileName: inboxMessageAttachments.fileName,
+      mimeType: inboxMessageAttachments.mimeType,
+      fileSize: inboxMessageAttachments.fileSize,
+      createdAt: inboxMessageAttachments.createdAt,
+      conversationId: inboxMessageAttachments.conversationId,
+      messageId: inboxMessageAttachments.messageId,
+    })
+    .from(inboxMessageAttachments)
+    .where(
+      and(
+        eq(inboxMessageAttachments.workspaceId, workspaceId),
+        eq(inboxMessageAttachments.dealRecordId, dealRecordId)
+      )
+    )
+    .orderBy(desc(inboxMessageAttachments.createdAt));
 }
 
 export async function markConversationRead(conversationId: string, workspaceId: string) {
@@ -387,6 +449,20 @@ export async function createDealForNewConversation(params: {
         and(
           eq(inboxConversations.id, conversationId),
           eq(inboxConversations.workspaceId, workspaceId)
+        )
+      );
+
+    // 6a. Back-fill any attachments that already landed on this conversation
+    // before the deal existed. Ingest sometimes beats deal creation (e.g. the
+    // message insert + media download finish before createDealForNewConversation
+    // returns), so we sweep here to keep the lead's file list complete.
+    await db
+      .update(inboxMessageAttachments)
+      .set({ dealRecordId: deal.id })
+      .where(
+        and(
+          eq(inboxMessageAttachments.conversationId, conversationId),
+          eq(inboxMessageAttachments.workspaceId, workspaceId)
         )
       );
 
