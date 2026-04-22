@@ -5,7 +5,8 @@ import { getDealTranscript } from "@/services/deal-transcript";
 import { applyDealInsights } from "@/services/deal-insights-apply";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+// 5 minutes — covers slow free models (e.g. Nemotron) plus fallback retries.
+export const maxDuration = 300;
 
 /** GET = read transcript only (cheap, no AI call). */
 export async function GET(
