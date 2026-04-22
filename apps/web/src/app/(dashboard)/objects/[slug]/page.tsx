@@ -22,8 +22,16 @@ import {
   ArrowUpDown,
   Download,
   Upload,
+  MoreVertical,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 export default function ObjectPage() {
   const params = useParams<{ slug: string }>();
@@ -79,14 +87,64 @@ export default function ObjectPage() {
   return (
     <div className="flex h-full flex-col">
       {/* Toolbar */}
-      <div className="flex items-center justify-between border-b border-border px-4 py-2">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-border px-3 sm:px-4 py-2">
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-semibold">{object.pluralName}</h1>
           <span className="text-sm text-muted-foreground">
             {total} {total === 1 ? "record" : "records"}
           </span>
         </div>
-        <div className="flex items-center gap-2">
+
+        {/* Mobile-only: compact toolbar (overflow menu + New) */}
+        <div className="flex items-center gap-2 sm:hidden">
+          <Button size="sm" onClick={() => setCreateOpen(true)} className="flex-1">
+            <Plus className="mr-1 h-4 w-4" />
+            New {object.singularName}
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="icon" className="h-9 w-9 shrink-0">
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem onClick={() => setFilterOpen(true)}>
+                <Filter className="h-3.5 w-3.5 mr-2" /> Filter{hasFilter ? ` (${filter.conditions.length})` : ""}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setSortOpen(true)}>
+                <ArrowUpDown className="h-3.5 w-3.5 mr-2" /> Sort{hasSort ? ` (${sorts.length})` : ""}
+              </DropdownMenuItem>
+              {hasBoardView && (
+                <DropdownMenuItem onClick={() => setView(view === "table" ? "board" : "table")}>
+                  {view === "table" ? (
+                    <><Kanban className="h-3.5 w-3.5 mr-2" /> Board view</>
+                  ) : (
+                    <><Table2 className="h-3.5 w-3.5 mr-2" /> Table view</>
+                  )}
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => {
+                  const csv = generateCSV(records, object.attributes as any);
+                  downloadCSV(csv, `${object.pluralName.toLowerCase()}.csv`);
+                }}
+              >
+                <Download className="h-3.5 w-3.5 mr-2" /> Export CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setImportOpen(true)}>
+                <Upload className="h-3.5 w-3.5 mr-2" /> Import CSV
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => fetchData()} disabled={loading}>
+                <RefreshCw className={cn("h-3.5 w-3.5 mr-2", loading && "animate-spin")} /> Refresh
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+
+        {/* Desktop: full toolbar */}
+        <div className="hidden sm:flex items-center gap-2">
           {/* Filter button */}
           <Popover
             open={filterOpen}

@@ -195,7 +195,8 @@ export function RecordTable({
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-auto">
+      {/* Desktop / tablet: table view */}
+      <div className="hidden sm:block flex-1 overflow-auto">
         <table className="w-full border-collapse">
           <thead className="sticky top-0 z-10 bg-background">
             {table.getHeaderGroups().map((headerGroup) => (
@@ -243,6 +244,25 @@ export function RecordTable({
         </table>
       </div>
 
+      {/* Mobile: stacked card view */}
+      <div className="sm:hidden flex-1 overflow-auto divide-y divide-border">
+        {records.length === 0 && (
+          <div className="h-32 flex items-center justify-center text-sm text-muted-foreground">
+            No records yet.
+          </div>
+        )}
+        {records.map((rec) => (
+          <RecordCard
+            key={rec.id}
+            record={rec}
+            attributes={attributes}
+            objectSlug={objectSlug}
+            onWhatsApp={() => startWhatsAppChat(rec.id)}
+            startingChat={startingChatFor === rec.id}
+          />
+        ))}
+      </div>
+
       {/* Add record row */}
       <div className="border-t border-border p-2">
         <Button
@@ -255,6 +275,102 @@ export function RecordTable({
           New record
         </Button>
       </div>
+    </div>
+  );
+}
+
+// ─── Mobile card row ─────────────────────────────────────────────────
+
+const MOBILE_PRIORITY_TYPES: Set<AttributeType> = new Set([
+  "status",
+  "currency",
+  "date",
+  "select",
+]);
+
+function RecordCard({
+  record,
+  attributes,
+  objectSlug,
+  onWhatsApp,
+  startingChat,
+}: {
+  record: RecordRow;
+  attributes: AttributeDef[];
+  objectSlug: string;
+  onWhatsApp: () => void;
+  startingChat: boolean;
+}) {
+  const router = useRouter();
+
+  // Pick: name attribute (always shown big), then up to 4 other "interesting" attrs.
+  const nameAttr = attributes.find((a) => a.slug === "name") ?? attributes[0];
+  const otherAttrs = attributes
+    .filter((a) => a.id !== nameAttr.id)
+    .filter((a) => MOBILE_PRIORITY_TYPES.has(a.type) || ["move_date", "phone_numbers"].includes(a.slug))
+    .slice(0, 4);
+
+  const nameVal = record.values[nameAttr.slug];
+  const titleText =
+    typeof nameVal === "string"
+      ? nameVal
+      : nameAttr.type === "personal_name" && nameVal && typeof nameVal === "object"
+        ? ((nameVal as { fullName?: string; firstName?: string; lastName?: string }).fullName ??
+          [
+            (nameVal as { firstName?: string }).firstName,
+            (nameVal as { lastName?: string }).lastName,
+          ]
+            .filter(Boolean)
+            .join(" "))
+        : "Unbenannt";
+
+  return (
+    <div
+      role="button"
+      onClick={() => router.push(`/objects/${objectSlug}/${record.id}`)}
+      className="flex items-start gap-3 px-4 py-3 active:bg-muted/40 transition"
+    >
+      <div className="flex-1 min-w-0">
+        <div className="font-medium text-sm truncate">{titleText || "Unbenannt"}</div>
+        {otherAttrs.length > 0 && (
+          <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+            {otherAttrs.map((a) => {
+              const v = record.values[a.slug];
+              if (v == null || v === "") return null;
+              return (
+                <span key={a.id} className="inline-flex items-center gap-1">
+                  <span className="opacity-60">{a.title}:</span>
+                  <span className="text-foreground">
+                    <AttributeCell
+                      type={a.type}
+                      value={v}
+                      options={a.options}
+                      statuses={a.statuses}
+                    />
+                  </span>
+                </span>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onWhatsApp();
+        }}
+        disabled={startingChat}
+        className="shrink-0 flex h-9 w-9 items-center justify-center rounded-full text-[#128C4F] active:bg-[#128C4F]/10 disabled:opacity-50"
+        aria-label="WhatsApp"
+      >
+        {startingChat ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <MessageCircle className="h-4 w-4" />
+        )}
+      </button>
     </div>
   );
 }

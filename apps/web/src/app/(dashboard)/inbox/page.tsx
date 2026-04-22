@@ -649,14 +649,14 @@ function ConversationView({
   return (
     <div className="flex flex-col h-full bg-muted/20">
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-background shrink-0">
-        <button onClick={onBack} className="md:hidden text-muted-foreground hover:text-foreground">
+      <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 sm:py-3 border-b border-border bg-background shrink-0">
+        <button onClick={onBack} className="md:hidden text-muted-foreground hover:text-foreground p-1 -ml-1">
           <ArrowLeft className="h-5 w-5" />
         </button>
 
         <div className="relative shrink-0">
           <div className={cn(
-            "h-11 w-11 rounded-full flex items-center justify-center font-semibold text-base",
+            "h-10 w-10 sm:h-11 sm:w-11 rounded-full flex items-center justify-center font-semibold text-base",
             isWa ? "bg-[#25D366]/10 text-[#128C4F]" :
             isKa ? "bg-[#96c11f]/10 text-[#5f7c13]" :
             "bg-primary/10 text-primary"
@@ -682,7 +682,7 @@ function ConversationView({
               </span>
             )}
           </div>
-          <div className="flex items-center gap-1.5 mt-0.5 text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 mt-0.5 text-xs text-muted-foreground">
             {isKa ? (
               <span className="inline-flex items-center gap-1">
                 <KleinanzeigenLogo className="h-3 w-3 text-[8px]" />
@@ -699,12 +699,12 @@ function ConversationView({
                 E-Mail
               </span>
             )}
-            <span>·</span>
-            <span className="truncate">{conv.channelName}</span>
+            <span className="hidden sm:inline">·</span>
+            <span className="truncate hidden sm:inline">{conv.channelName}</span>
             {conv.contactEmail && !isWa && (
               <>
-                <span>·</span>
-                <span className="truncate">{conv.contactEmail}</span>
+                <span className="hidden sm:inline">·</span>
+                <span className="truncate hidden sm:inline">{conv.contactEmail}</span>
               </>
             )}
             {conv.contactPhone && isWa && (
@@ -817,7 +817,10 @@ function ConversationView({
       </div>
 
       {/* Reply box */}
-      <div className="border-t border-border px-4 py-3 bg-background shrink-0 space-y-2">
+      <div
+        className="border-t border-border px-3 sm:px-4 py-2.5 sm:py-3 bg-background shrink-0 space-y-2"
+        style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 0.625rem)" }}
+      >
         {sendError && (
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs space-y-1.5">
             {sendError.code === "WA_SESSION_EXPIRED" ? (
@@ -896,7 +899,12 @@ function ConversationView({
                 value={reply}
                 onChange={(e) => setReply(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
+                  // Touch keyboards: Enter must add a newline (standard expectation).
+                  // Mouse/keyboard: Enter sends, Shift+Enter newline.
+                  const isTouch =
+                    typeof window !== "undefined" &&
+                    window.matchMedia?.("(hover: none)").matches;
+                  if (!isTouch && e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
                     handleSend();
                   }

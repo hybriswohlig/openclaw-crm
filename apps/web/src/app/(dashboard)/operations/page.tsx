@@ -19,6 +19,7 @@ import {
   Calendar,
   ExternalLink,
   X,
+  Plus,
 } from "lucide-react";
 import { EmployeeAvatar } from "@/components/employees/employee-avatar";
 import { cn } from "@/lib/utils";
@@ -90,6 +91,9 @@ export default function OperationsPage() {
   const [data, setData] = useState<OperationsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyDealId, setBusyDealId] = useState<string | null>(null);
+  // Mobile-only state: which deal's "add employee" sheet is open + standalone employee sheet.
+  const [addEmployeeForDealId, setAddEmployeeForDealId] = useState<string | null>(null);
+  const [employeeSheetOpen, setEmployeeSheetOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -170,6 +174,30 @@ export default function OperationsPage() {
     [load]
   );
 
+  const handleAssign = useCallback(
+    async (dealId: string, employeeId: string) => {
+      if (!data) return;
+      const targetDeal = data.deals.find((d) => d.dealId === dealId);
+      if (targetDeal?.assignedEmployees.some((a) => a.employeeId === employeeId)) {
+        setAddEmployeeForDealId(null);
+        return;
+      }
+      setBusyDealId(dealId);
+      try {
+        await fetch(`/api/v1/deals/${dealId}/employees`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ employeeId, role: "helper" }),
+        });
+        await load();
+      } finally {
+        setBusyDealId(null);
+        setAddEmployeeForDealId(null);
+      }
+    },
+    [data, load]
+  );
+
   const ensureAuftragAndPatch = useCallback(
     async (deal: OpsDeal, patch: Record<string, unknown>) => {
       let auftragId = deal.auftragId;
@@ -203,27 +231,31 @@ export default function OperationsPage() {
     return <div className="p-6 text-sm text-muted-foreground">Keine Daten verfügbar.</div>;
   }
 
+  const addingForDeal = addEmployeeForDealId
+    ? data.deals.find((d) => d.dealId === addEmployeeForDealId) ?? null
+    : null;
+
   return (
     <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
       <div className="flex h-full">
         {/* Main column */}
         <div className="flex-1 overflow-auto">
-          <div className="px-6 py-4 border-b border-border flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-semibold flex items-center gap-2">
+          <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-border flex items-start sm:items-center justify-between gap-3">
+            <div className="min-w-0">
+              <h1 className="text-xl sm:text-2xl font-semibold flex items-center gap-2">
                 <Truck className="h-5 w-5" />
                 Operations
               </h1>
-              <p className="text-xs text-muted-foreground mt-1">
-                Aktive Aufträge, sortiert nach Umzugstag. Mitarbeiter aus der Seitenleiste auf einen Auftrag ziehen.
+              <p className="text-xs text-muted-foreground mt-1 hidden sm:block">
+                Aktive Aufträge, sortiert nach Umzugstag. Mitarbeiter aus der Seitenleiste ziehen oder per „+ Mitarbeiter" zuweisen.
               </p>
             </div>
-            <div className="text-xs text-muted-foreground">
-              {data.deals.length} aktive Auftrag{data.deals.length === 1 ? "" : "e"}
+            <div className="text-xs text-muted-foreground shrink-0">
+              {data.deals.length} aktive
             </div>
           </div>
 
-          <div className="p-6 space-y-8">
+          <div className="p-4 sm:p-6 pb-24 lg:pb-6 space-y-6 sm:space-y-8">
             {grouped.length === 0 && (
               <div className="text-center text-sm text-muted-foreground py-12">
                 Keine offenen Aufträge.
@@ -236,7 +268,7 @@ export default function OperationsPage() {
                   <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
                     {g.label}
                   </h2>
-                  <span className="text-xs text-muted-foreground">· {g.deals.length} Auftrag{g.deals.length === 1 ? "" : "e"}</span>
+                  <span className="text-xs text-muted-foreground">· {g.deals.length}</span>
                 </div>
                 <div className="space-y-3">
                   {g.deals.map((deal) => (
@@ -247,6 +279,7 @@ export default function OperationsPage() {
                       busy={busyDealId === deal.dealId}
                       onUnassign={(asgId) => handleUnassign(deal.dealId, asgId)}
                       onPatchAuftrag={(patch) => ensureAuftragAndPatch(deal, patch)}
+                      onAddEmployee={() => setAddEmployeeForDealId(deal.dealId)}
                     />
                   ))}
                 </div>
@@ -255,8 +288,8 @@ export default function OperationsPage() {
           </div>
         </div>
 
-        {/* Right sidebar: draggable employees */}
-        <aside className="w-64 shrink-0 border-l border-border bg-muted/20 overflow-auto">
+        {/* Right sidebar: draggable employees — desktop / large only */}
+        <aside className="hidden lg:flex flex-col w-64 shrink-0 border-l border-border bg-muted/20 overflow-auto">
           <div className="sticky top-0 bg-muted/40 backdrop-blur px-4 py-3 border-b border-border">
             <div className="flex items-center gap-2 text-sm font-semibold">
               <UsersIcon className="h-4 w-4" />
@@ -277,8 +310,120 @@ export default function OperationsPage() {
             ))}
           </div>
         </aside>
+
+        {/* Mobile FAB to view employees */}
+        <button
+          type="button"
+          onClick={() => setEmployeeSheetOpen(true)}
+          className="lg:hidden fixed bottom-4 right-4 z-30 flex items-center gap-2 rounded-full bg-primary text-primary-foreground shadow-lg px-4 py-3 text-sm font-medium active:scale-95 transition"
+        >
+          <UsersIcon className="h-4 w-4" />
+          Mitarbeiter
+        </button>
+
+        {/* Mobile bottom sheet: standalone employee browser (informational) */}
+        {employeeSheetOpen && (
+          <BottomSheet onClose={() => setEmployeeSheetOpen(false)} title="Mitarbeiter">
+            <p className="text-xs text-muted-foreground mb-3">
+              Tipp: Tippe auf einer Auftragskarte „+ Mitarbeiter", um jemanden zuzuweisen.
+            </p>
+            <div className="space-y-1.5">
+              {data.allEmployees.map((emp) => (
+                <div
+                  key={emp.id}
+                  className="flex items-center gap-3 rounded-md bg-background border border-border px-3 py-2"
+                >
+                  <EmployeeAvatar name={emp.name} photoBase64={emp.photoBase64} size="sm" />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm">{emp.name}</div>
+                    <div className="text-[10px] text-muted-foreground">
+                      {Number(emp.hourlyRate).toFixed(2)} €/h
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </BottomSheet>
+        )}
+
+        {/* Mobile bottom sheet: pick an employee to assign to a specific deal */}
+        {addingForDeal && (
+          <BottomSheet
+            onClose={() => setAddEmployeeForDealId(null)}
+            title={`Mitarbeiter zu „${addingForDeal.name}" zuweisen`}
+          >
+            <div className="space-y-1">
+              {data.allEmployees
+                .filter(
+                  (emp) =>
+                    !addingForDeal.assignedEmployees.some((a) => a.employeeId === emp.id)
+                )
+                .map((emp) => (
+                  <button
+                    key={emp.id}
+                    type="button"
+                    onClick={() => handleAssign(addingForDeal.dealId, emp.id)}
+                    className="w-full flex items-center gap-3 rounded-md bg-background border border-border px-3 py-2.5 active:bg-muted/40 transition text-left"
+                  >
+                    <EmployeeAvatar name={emp.name} photoBase64={emp.photoBase64} size="sm" />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium">{emp.name}</div>
+                      <div className="text-[10px] text-muted-foreground">
+                        {Number(emp.hourlyRate).toFixed(2)} €/h
+                      </div>
+                    </div>
+                    <Plus className="h-4 w-4 text-muted-foreground shrink-0" />
+                  </button>
+                ))}
+              {data.allEmployees.filter(
+                (emp) => !addingForDeal.assignedEmployees.some((a) => a.employeeId === emp.id)
+              ).length === 0 && (
+                <p className="text-xs text-muted-foreground py-4 text-center">
+                  Alle Mitarbeiter sind bereits zugewiesen.
+                </p>
+              )}
+            </div>
+          </BottomSheet>
+        )}
       </div>
     </DndContext>
+  );
+}
+
+// ─── Bottom sheet (mobile) ──────────────────────────────────────────
+
+function BottomSheet({
+  onClose,
+  title,
+  children,
+}: {
+  onClose: () => void;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <>
+      <div
+        className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+        onClick={onClose}
+      />
+      <div className="fixed inset-x-0 bottom-0 z-50 max-h-[80vh] overflow-y-auto rounded-t-2xl bg-background border-t border-border shadow-2xl lg:hidden">
+        <div className="sticky top-0 flex items-center justify-between bg-background border-b border-border px-4 py-3">
+          <h3 className="text-sm font-semibold truncate pr-2">{title}</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="shrink-0 rounded-md p-1 text-muted-foreground hover:text-foreground"
+            aria-label="Schließen"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="px-4 py-3">{children}</div>
+        {/* iOS safe-area */}
+        <div className="pb-[env(safe-area-inset-bottom)]" />
+      </div>
+    </>
   );
 }
 
@@ -322,12 +467,14 @@ function OpsCard({
   busy,
   onUnassign,
   onPatchAuftrag,
+  onAddEmployee,
 }: {
   deal: OpsDeal;
   transporterOptions: TransporterOption[];
   busy: boolean;
   onUnassign: (assignmentId: string) => void;
   onPatchAuftrag: (patch: Record<string, unknown>) => void;
+  onAddEmployee: () => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: deal.dealId });
   const [editingWorkers, setEditingWorkers] = useState(false);
@@ -455,30 +602,41 @@ function OpsCard({
       </div>
 
       {/* Assigned employee chips */}
-      <div className="flex flex-wrap gap-1.5">
-        {deal.assignedEmployees.length === 0 ? (
-          <p className="text-xs text-muted-foreground italic">
-            Niemand zugewiesen — Mitarbeiter aus der Seitenleiste hierhin ziehen.
+      <div className="flex flex-wrap gap-1.5 items-center">
+        {deal.assignedEmployees.length === 0 && (
+          <p className="text-xs text-muted-foreground italic flex-1">
+            <span className="hidden lg:inline">
+              Niemand zugewiesen — Mitarbeiter aus der Seitenleiste hierhin ziehen.
+            </span>
+            <span className="lg:hidden">Niemand zugewiesen.</span>
           </p>
-        ) : (
-          deal.assignedEmployees.map((emp) => (
-            <div
-              key={emp.assignmentId}
-              className="group flex items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 text-sm"
-            >
-              <EmployeeAvatar name={emp.name} photoBase64={emp.photoBase64} size="xs" />
-              <span>{emp.name}</span>
-              <button
-                type="button"
-                onClick={() => onUnassign(emp.assignmentId)}
-                className="opacity-50 hover:opacity-100 hover:text-destructive"
-                title="Entfernen"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </div>
-          ))
         )}
+        {deal.assignedEmployees.map((emp) => (
+          <div
+            key={emp.assignmentId}
+            className="group flex items-center gap-1.5 rounded-full bg-muted pl-1 pr-1.5 py-0.5 text-sm"
+          >
+            <EmployeeAvatar name={emp.name} photoBase64={emp.photoBase64} size="xs" />
+            <span>{emp.name}</span>
+            <button
+              type="button"
+              onClick={() => onUnassign(emp.assignmentId)}
+              className="opacity-50 hover:opacity-100 hover:text-destructive p-0.5"
+              title="Entfernen"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        ))}
+        {/* Mobile-only tap-to-add button */}
+        <button
+          type="button"
+          onClick={onAddEmployee}
+          className="lg:hidden inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground active:bg-muted/40"
+        >
+          <Plus className="h-3 w-3" />
+          Mitarbeiter
+        </button>
       </div>
     </div>
   );

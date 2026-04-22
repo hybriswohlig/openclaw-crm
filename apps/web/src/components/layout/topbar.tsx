@@ -42,7 +42,7 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
   }
 
   return (
-    <header className="flex h-12 items-center justify-between border-b border-border/50 px-6">
+    <header className="flex h-12 items-center justify-between border-b border-border/50 px-3 sm:px-6">
       <div className="flex items-center gap-2">
         <Button variant="ghost" size="icon" className="md:hidden h-8 w-8" onClick={onMenuClick}>
           <Menu className="h-4 w-4" />

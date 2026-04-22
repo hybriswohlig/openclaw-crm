@@ -250,7 +250,7 @@ export default function EmployeesPage() {
       {showForm && (
         <div className="mb-6 rounded-lg border border-border p-4 space-y-3">
           <h3 className="font-medium text-sm">{editId ? "Edit Employee" : "New Employee"}</h3>
-          <div className="flex items-start gap-4">
+          <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4">
             {/* Avatar uploader */}
             <div className="flex flex-col items-center gap-2">
               <button
@@ -290,7 +290,7 @@ export default function EmployeesPage() {
               />
             </div>
 
-            <div className="grid grid-cols-3 gap-3 flex-1">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full sm:flex-1">
               <div>
                 <label className="text-xs text-muted-foreground">Name *</label>
                 <input
@@ -343,8 +343,8 @@ export default function EmployeesPage() {
       {employees.length === 0 ? (
         <p className="text-muted-foreground text-sm">No employees yet. Add your first one above.</p>
       ) : (
-        <div className="rounded-lg border border-border overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="rounded-lg border border-border overflow-x-auto">
+          <table className="w-full text-sm min-w-[640px]">
             <thead>
               <tr className="border-b border-border bg-muted/50">
                 <th className="text-left px-4 py-3 font-medium w-8" />
