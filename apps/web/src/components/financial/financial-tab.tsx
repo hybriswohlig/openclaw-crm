@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { DocumentPreviewModal } from "@/components/documents/document-preview-modal";
+import { Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -967,6 +969,7 @@ function DocumentsSection({
 }) {
   const [uploading, setUploading] = useState<string | null>(null); // documentType being uploaded
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [previewDoc, setPreviewDoc] = useState<DealDocument | null>(null);
 
   async function handleUpload(documentType: string, file: File) {
     setUploading(documentType);
@@ -998,7 +1001,13 @@ function DocumentsSection({
   }
 
   function handleDownload(doc: DealDocument) {
-    window.open(`/api/v1/deals/${recordId}/documents/${doc.id}`, "_blank");
+    // Force download (the endpoint defaults to inline for preview).
+    const a = document.createElement("a");
+    a.href = `/api/v1/deals/${recordId}/documents/${doc.id}?download=1`;
+    a.download = doc.fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   }
 
   const docsByType = Object.fromEntries(
@@ -1064,10 +1073,24 @@ function DocumentsSection({
                       key={doc.id}
                       className="flex items-center gap-3 rounded-md bg-muted/40 px-3 py-2"
                     >
-                      <span className="flex-1 text-sm truncate">{doc.fileName}</span>
+                      <button
+                        type="button"
+                        onClick={() => setPreviewDoc(doc)}
+                        className="flex-1 text-left text-sm truncate hover:underline"
+                        title="Vorschau öffnen"
+                      >
+                        {doc.fileName}
+                      </button>
                       <span className="text-xs text-muted-foreground shrink-0">
                         {fmtBytes(doc.fileSize)}
                       </span>
+                      <button
+                        onClick={() => setPreviewDoc(doc)}
+                        className="text-muted-foreground hover:text-foreground transition-colors"
+                        title="Vorschau"
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                      </button>
                       <button
                         onClick={() => handleDownload(doc)}
                         className="text-muted-foreground hover:text-foreground transition-colors"
@@ -1095,6 +1118,16 @@ function DocumentsSection({
           );
         })}
       </div>
+
+      {previewDoc && (
+        <DocumentPreviewModal
+          url={`/api/v1/deals/${recordId}/documents/${previewDoc.id}`}
+          downloadUrl={`/api/v1/deals/${recordId}/documents/${previewDoc.id}?download=1`}
+          fileName={previewDoc.fileName}
+          mimeType={previewDoc.mimeType}
+          onClose={() => setPreviewDoc(null)}
+        />
+      )}
     </section>
   );
 }

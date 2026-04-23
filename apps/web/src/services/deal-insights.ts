@@ -11,6 +11,10 @@
  */
 
 import { z } from "zod";
+import { and, desc, eq } from "drizzle-orm";
+import { db } from "@/db";
+import { notes } from "@/db/schema/notes";
+import { dealDocuments } from "@/db/schema/financial";
 import {
   getDealTranscript,
   formatTranscriptForLLM,
@@ -237,7 +241,7 @@ const InsightsSchema = z.object({
     "Structured fields extracted from the conversation. Use null for any field that the conversation does not establish."
   ),
   suggested_stage: nullStr.describe(
-    "Suggested pipeline stage based on the conversation progress. One of: 'Inquiry', 'Contacted', 'Information gathered', 'Quoted', 'Planned', 'Done', 'Paid', 'Lost'. Null if you cannot determine. Use 'Contacted' if there is at least one agent reply. Use 'Information gathered' if key details (date, addresses, inventory) are known. Use 'Quoted' if a price was sent. Use 'Lost' if the customer declined."
+    "Suggested pipeline stage. One of: 'Inquiry', 'Contacted', 'Information gathered', 'Quoted', 'Planned', 'Done', 'Paid', 'Lost'. DOCUMENT-DERIVED RULES (override chat-only signals): Zahlungsbestätigung uploaded → 'Paid'; Rechnung uploaded → 'Done'; Auftragsbestätigung uploaded → 'Planned'. Otherwise infer from chat: 'Contacted' if at least one agent reply, 'Information gathered' if date+addresses+inventory known, 'Quoted' if a price was sent, 'Planned' if the customer confirmed the job, 'Lost' if the customer declined. Null if unclear."
   ),
   activity_note: z
     .string()
@@ -314,14 +318,18 @@ Regeln:
 - "Offene Kundenfragen" sind nur Fragen des Kunden, die der Mitarbeiter noch NICHT beantwortet hat.
 - "Fehlende Felder" priorisieren nach dem, was wir für ein Angebot zwingend brauchen (Datum, Adressen, Stockwerke, Inventar, Telefon).
 - Rechtliche Hinweise (legalFlags) nur dann setzen, wenn der Kunde Themen wie Schäden, Stornierung, Haftung, Garantie, Versicherung anspricht.
-- "suggested_stage": Schlage die passende Pipeline-Stufe vor basierend auf dem Gesprächsverlauf:
-  • "Inquiry" = Erstanfrage, kein Agent hat geantwortet
-  • "Contacted" = Agent hat mindestens einmal geantwortet
-  • "Information gathered" = Wichtige Details (Datum, Adressen, Inventar) sind bekannt
-  • "Quoted" = Ein Preis/Angebot wurde dem Kunden mitgeteilt
-  • "Planned" = Auftrag bestätigt, Termin steht
-  • "Done" = Umzug durchgeführt
-  • "Lost" = Kunde hat abgesagt oder kein Interesse mehr
+- "suggested_stage": Schlage die passende Pipeline-Stufe vor. Dokumenten-Signale haben IMMER Vorrang vor reinen Chat-Signalen:
+  • Wenn eine "Zahlungsbestätigung" hochgeladen wurde → "Paid"
+  • Sonst wenn eine "Rechnung" hochgeladen wurde → "Done"
+  • Sonst wenn eine "Auftragsbestätigung" hochgeladen wurde → "Planned"
+  • Sonst nach Chat-Verlauf:
+    • "Inquiry" = Erstanfrage, kein Agent hat geantwortet
+    • "Contacted" = Agent hat mindestens einmal geantwortet
+    • "Information gathered" = Wichtige Details (Datum, Adressen, Inventar) sind bekannt
+    • "Quoted" = Ein Preis/Angebot wurde dem Kunden mitgeteilt
+    • "Planned" = Auftrag mündlich/schriftlich bestätigt, Termin steht
+    • "Done" = Umzug durchgeführt
+    • "Lost" = Kunde hat abgesagt oder kein Interesse mehr
 - "activity_note": Schreibe eine kurze, sachliche Zusammenfassung für das Aktivitätsprotokoll. Was will der Kunde, was wurde besprochen, was ist der nächste Schritt.
 
 Kontaktdaten (customer_name, customer_phone, customer_email):
@@ -373,23 +381,38 @@ export async function extractDealInsights(
   dealRecordId: string
 ): Promise<DealInsightsResult> {
   const transcript = await getDealTranscript(workspaceId, dealRecordId);
+  const [notesText, documentsText] = await Promise.all([
+    loadNotesForDeal(dealRecordId),
+    loadDocumentsForDeal(workspaceId, dealRecordId),
+  ]);
 
-  if (transcript.messageCount === 0) {
+  // Allow analysis even without messages, as long as there's *some* signal.
+  if (transcript.messageCount === 0 && !notesText && !documentsText) {
     return {
       dealRecordId,
       transcript,
       insights: null,
-      error: "no messages linked to this deal yet",
+      error: "kein Chatverlauf, keine Notizen und keine Dokumente — nichts zu analysieren",
     };
   }
 
   const transcriptText = formatTranscriptForLLM(transcript);
 
+  const promptParts: string[] = [];
+  promptParts.push(`# Chatverlauf (alle Kanäle)\n\n${transcriptText}`);
+  if (notesText) {
+    promptParts.push(`# Interne Notizen (vom Team manuell erfasst)\n\n${notesText}`);
+  }
+  if (documentsText) {
+    promptParts.push(`# Hochgeladene Dokumente (für Stage-Erkennung)\n\n${documentsText}`);
+  }
+  promptParts.push("Extrahiere die strukturierten Felder.");
+
   const result = await runAITask({
     workspaceId,
     taskSlug: AI_TASK_SLUGS.DEAL_EXTRACT_INSIGHTS,
     system: SYSTEM_PROMPT,
-    prompt: `Hier ist der vollständige Chatverlauf für diesen Deal über alle Kanäle hinweg:\n\n${transcriptText}\n\nExtrahiere die strukturierten Felder.`,
+    prompt: promptParts.join("\n\n"),
     schema: InsightsSchema,
   });
 
@@ -407,4 +430,86 @@ export async function extractDealInsights(
     transcript,
     insights: result.output,
   };
+}
+
+// ─── Notes + Documents loaders ──────────────────────────────────────────────
+
+/** Recursively pull plain text out of a TipTap JSON document. */
+function tiptapToPlainText(node: unknown): string {
+  if (!node) return "";
+  if (typeof node === "string") return node;
+  if (typeof node !== "object") return "";
+  const n = node as Record<string, unknown>;
+  if (typeof n.text === "string") return n.text;
+  const content = n.content;
+  if (Array.isArray(content)) {
+    const isBlock = ["paragraph", "heading", "listItem", "blockquote"].includes(
+      typeof n.type === "string" ? n.type : ""
+    );
+    return content.map(tiptapToPlainText).join("") + (isBlock ? "\n" : "");
+  }
+  return "";
+}
+
+async function loadNotesForDeal(dealRecordId: string): Promise<string | null> {
+  const rows = await db
+    .select({
+      title: notes.title,
+      content: notes.content,
+      createdAt: notes.createdAt,
+      updatedAt: notes.updatedAt,
+    })
+    .from(notes)
+    .where(eq(notes.recordId, dealRecordId))
+    .orderBy(desc(notes.updatedAt));
+
+  if (rows.length === 0) return null;
+
+  const blocks = rows
+    .map((n) => {
+      const body = tiptapToPlainText(n.content).trim();
+      const ts = n.updatedAt.toISOString().slice(0, 16).replace("T", " ");
+      const title = n.title?.trim() || "(ohne Titel)";
+      if (!body) return `--- ${ts} – ${title} ---\n(leer)`;
+      return `--- ${ts} – ${title} ---\n${body}`;
+    })
+    .filter(Boolean);
+
+  return blocks.join("\n\n").trim() || null;
+}
+
+const DOC_TYPE_LABEL: Record<string, string> = {
+  order_confirmation: "Auftragsbestätigung",
+  invoice: "Rechnung",
+  payment_confirmation: "Zahlungsbestätigung",
+};
+
+async function loadDocumentsForDeal(
+  workspaceId: string,
+  dealRecordId: string
+): Promise<string | null> {
+  const rows = await db
+    .select({
+      documentType: dealDocuments.documentType,
+      fileName: dealDocuments.fileName,
+      uploadedAt: dealDocuments.uploadedAt,
+    })
+    .from(dealDocuments)
+    .where(
+      and(
+        eq(dealDocuments.workspaceId, workspaceId),
+        eq(dealDocuments.dealRecordId, dealRecordId)
+      )
+    )
+    .orderBy(desc(dealDocuments.uploadedAt));
+
+  if (rows.length === 0) return null;
+
+  return rows
+    .map((d) => {
+      const label = DOC_TYPE_LABEL[d.documentType] ?? d.documentType;
+      const ts = d.uploadedAt.toISOString().slice(0, 10);
+      return `- ${label}: "${d.fileName}" (hochgeladen ${ts})`;
+    })
+    .join("\n");
 }

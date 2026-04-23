@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Loader2, FileText, Download, ImageIcon } from "lucide-react";
+import { Loader2, FileText, Download, ImageIcon, Eye } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { DocumentPreviewModal } from "@/components/documents/document-preview-modal";
 
 interface DealAttachment {
   id: string;
@@ -34,6 +35,7 @@ export function MediaTab({ recordId }: { recordId: string }) {
   const [items, setItems] = useState<DealAttachment[]>([]);
   const [loading, setLoading] = useState(true);
   const [lightbox, setLightbox] = useState<DealAttachment | null>(null);
+  const [preview, setPreview] = useState<DealAttachment | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -127,22 +129,42 @@ export function MediaTab({ recordId }: { recordId: string }) {
           </div>
           <div className="space-y-1.5">
             {files.map((f) => (
-              <a
+              <div
                 key={f.id}
-                href={`/api/v1/inbox/attachments/${f.id}/content`}
-                target="_blank"
-                rel="noopener noreferrer"
                 className="flex items-center gap-3 rounded-lg border border-border bg-background px-3 py-2.5 hover:border-primary/50 transition-colors"
               >
-                <FileText className="h-5 w-5 shrink-0 text-muted-foreground" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{f.fileName}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {formatFileSize(f.fileSize)} · {formatDate(f.createdAt)}
-                  </p>
-                </div>
-                <Download className="h-4 w-4 shrink-0 text-muted-foreground" />
-              </a>
+                <button
+                  type="button"
+                  onClick={() => setPreview(f)}
+                  className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                  title="Vorschau öffnen"
+                >
+                  <FileText className="h-5 w-5 shrink-0 text-muted-foreground" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{f.fileName}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatFileSize(f.fileSize)} · {formatDate(f.createdAt)}
+                    </p>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPreview(f)}
+                  className="shrink-0 text-muted-foreground hover:text-foreground"
+                  title="Vorschau"
+                >
+                  <Eye className="h-4 w-4" />
+                </button>
+                <a
+                  href={`/api/v1/inbox/attachments/${f.id}/content`}
+                  download={f.fileName}
+                  className="shrink-0 text-muted-foreground hover:text-foreground"
+                  title="Herunterladen"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <Download className="h-4 w-4" />
+                </a>
+              </div>
             ))}
           </div>
         </section>
@@ -185,6 +207,15 @@ export function MediaTab({ recordId }: { recordId: string }) {
             </div>
           </div>
         </div>
+      )}
+
+      {preview && (
+        <DocumentPreviewModal
+          url={`/api/v1/inbox/attachments/${preview.id}/content`}
+          fileName={preview.fileName}
+          mimeType={preview.mimeType}
+          onClose={() => setPreview(null)}
+        />
       )}
     </div>
   );
