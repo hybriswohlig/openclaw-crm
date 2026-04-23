@@ -115,8 +115,14 @@ export async function GET(
 
   const insightPayload = (latestInsight?.payload ?? {}) as Record<string, unknown>;
 
+  // ── Lead context: the fields that live on the Lead but are relevant for the
+  // worker on-site. We surface them read-only on the Auftragsübersicht so the
+  // worker sees everything in one view without hopping to the Attributes tab.
+  const leadContext = await loadLeadContext(ctx.workspaceId, dealRecordId);
+
   return success({
     auftrag,
+    leadContext,
     criticalMissing: Array.isArray(insightPayload.criticalMissing)
       ? insightPayload.criticalMissing
       : [],
@@ -125,4 +131,87 @@ export async function GET(
       : [],
     insightAt: latestInsight?.createdAt ?? null,
   });
+}
+
+async function loadLeadContext(workspaceId: string, dealRecordId: string) {
+  const [dealObj] = await db
+    .select({ id: objects.id })
+    .from(objects)
+    .where(and(eq(objects.workspaceId, workspaceId), eq(objects.slug, "deals")))
+    .limit(1);
+  if (!dealObj) return null;
+
+  const attrRows = await db
+    .select()
+    .from(attributes)
+    .where(eq(attributes.objectId, dealObj.id));
+  const bySlug = new Map(attrRows.map((a) => [a.slug, a]));
+
+  const wanted = [
+    "name",
+    "move_date",
+    "move_from_address",
+    "move_to_address",
+    "floors_from",
+    "floors_to",
+    "elevator_from",
+    "elevator_to",
+    "inventory_notes",
+  ];
+  const wantedIds = wanted.map((s) => bySlug.get(s)?.id).filter((x): x is string => !!x);
+  if (wantedIds.length === 0) return null;
+
+  const vrows = await db
+    .select()
+    .from(recordValues)
+    .where(
+      and(eq(recordValues.recordId, dealRecordId))
+    );
+  const byAttr = new Map(vrows.map((r) => [r.attributeId, r]));
+
+  // Resolve select option title for elevator_* fields (they store option IDs).
+  const elevatorFromAttr = bySlug.get("elevator_from");
+  const elevatorToAttr = bySlug.get("elevator_to");
+  const selectOptionIds = [
+    byAttr.get(elevatorFromAttr?.id ?? "")?.textValue,
+    byAttr.get(elevatorToAttr?.id ?? "")?.textValue,
+  ].filter((x): x is string => !!x);
+
+  const optionTitles = new Map<string, string>();
+  if (selectOptionIds.length > 0) {
+    const { selectOptions } = await import("@/db/schema/objects");
+    const { inArray } = await import("drizzle-orm");
+    const opts = await db
+      .select({ id: selectOptions.id, title: selectOptions.title })
+      .from(selectOptions)
+      .where(inArray(selectOptions.id, selectOptionIds));
+    for (const o of opts) optionTitles.set(o.id, o.title);
+  }
+
+  function get(slug: string): unknown {
+    const a = bySlug.get(slug);
+    if (!a) return null;
+    const v = byAttr.get(a.id);
+    if (!v) return null;
+    if (a.type === "location" || a.type === "json") return v.jsonValue ?? null;
+    if (a.type === "number") return v.numberValue != null ? Number(v.numberValue) : null;
+    if (a.type === "date") return v.dateValue ?? null;
+    if (a.type === "select") {
+      const id = v.textValue;
+      return id ? optionTitles.get(id) ?? id : null;
+    }
+    return v.textValue ?? null;
+  }
+
+  return {
+    name: get("name"),
+    move_date: get("move_date"),
+    move_from_address: get("move_from_address"),
+    move_to_address: get("move_to_address"),
+    floors_from: get("floors_from"),
+    floors_to: get("floors_to"),
+    elevator_from: get("elevator_from"),
+    elevator_to: get("elevator_to"),
+    inventory_notes: get("inventory_notes"),
+  };
 }

@@ -36,6 +36,38 @@ interface CriticalMissing {
   question: string;
 }
 
+interface LeadContext {
+  name: string | null;
+  move_date: string | null;
+  move_from_address: unknown;
+  move_to_address: unknown;
+  floors_from: number | null;
+  floors_to: number | null;
+  elevator_from: string | null;
+  elevator_to: string | null;
+  inventory_notes: string | null;
+}
+
+function formatLocation(v: unknown): string {
+  if (!v) return "—";
+  if (typeof v === "string") return v;
+  if (typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    return (
+      [o.line1, o.postcode, o.city].filter(Boolean).join(", ") ||
+      (typeof o.line1 === "string" ? o.line1 : "—")
+    );
+  }
+  return "—";
+}
+
+function formatDateDE(iso: string | null): string {
+  if (!iso) return "—";
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return iso;
+  return `${m[3]}.${m[2]}.${m[1]}`;
+}
+
 interface ChecklistItem {
   key: string;
   label: string;
@@ -92,6 +124,7 @@ export function AuftragTab({ recordId }: { recordId: string }) {
   const [auftrag, setAuftrag] = useState<AuftragRecord | null>(null);
   const [criticalMissing, setCriticalMissing] = useState<CriticalMissing[]>([]);
   const [openQuestions, setOpenQuestions] = useState<string[]>([]);
+  const [leadContext, setLeadContext] = useState<LeadContext | null>(null);
   const [needsSync, setNeedsSync] = useState(false);
 
   const load = useCallback(async () => {
@@ -112,6 +145,7 @@ export function AuftragTab({ recordId }: { recordId: string }) {
           setAuftrag(d?.auftrag ?? null);
           setCriticalMissing(d?.criticalMissing ?? []);
           setOpenQuestions(d?.openCustomerQuestions ?? []);
+          setLeadContext(d?.leadContext ?? null);
         }
       }
       if (objRes.ok) {
@@ -217,6 +251,51 @@ export function AuftragTab({ recordId }: { recordId: string }) {
           Öffnen <ExternalLink className="h-3 w-3" />
         </Link>
       </div>
+
+      {/* ── Lead context (read-only) ───────────────────────────────── */}
+      {leadContext && (
+        <section className="rounded-lg border border-border bg-muted/10 p-3 sm:p-4">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Lead-Kontext
+            </h3>
+            <Link
+              href={`/objects/deals/${recordId}`}
+              className="text-[10px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+            >
+              Im Lead bearbeiten <ExternalLink className="h-3 w-3" />
+            </Link>
+          </div>
+          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+            <LeadFact label="Umzugsdatum" value={formatDateDE(leadContext.move_date)} />
+            <LeadFact
+              label="Inventar / Notizen"
+              value={leadContext.inventory_notes ?? "—"}
+              truncate
+            />
+            <LeadFact
+              label="Abholadresse"
+              value={formatLocation(leadContext.move_from_address)}
+            />
+            <LeadFact
+              label="Zieladresse"
+              value={formatLocation(leadContext.move_to_address)}
+            />
+            <LeadFact
+              label="Zugang Abholung"
+              value={[leadContext.elevator_from, leadContext.floors_from != null ? `${leadContext.floors_from}. Stock` : null]
+                .filter(Boolean)
+                .join(" · ") || "—"}
+            />
+            <LeadFact
+              label="Zugang Ziel"
+              value={[leadContext.elevator_to, leadContext.floors_to != null ? `${leadContext.floors_to}. Stock` : null]
+                .filter(Boolean)
+                .join(" · ") || "—"}
+            />
+          </dl>
+        </section>
+      )}
 
       {/* ── Critical-missing orange card ───────────────────────────── */}
       {criticalMissing.length > 0 && (
@@ -423,6 +502,31 @@ function AddChecklistItem({ onAdd }: { onAdd: (label: string) => void }) {
       <Button size="sm" variant="ghost" onClick={commit}>
         Hinzufügen
       </Button>
+    </div>
+  );
+}
+
+function LeadFact({
+  label,
+  value,
+  truncate,
+}: {
+  label: string;
+  value: string;
+  truncate?: boolean;
+}) {
+  return (
+    <div className="flex flex-col">
+      <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</dt>
+      <dd
+        className={cn(
+          "text-sm text-foreground",
+          truncate && "line-clamp-2"
+        )}
+        title={truncate ? value : undefined}
+      >
+        {value}
+      </dd>
     </div>
   );
 }

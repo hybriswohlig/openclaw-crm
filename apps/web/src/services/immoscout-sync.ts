@@ -21,6 +21,7 @@ import { records, recordValues } from "@/db/schema/records";
 import { eq, and } from "drizzle-orm";
 import { createRecord } from "./records";
 import { assignDealNumber } from "./financial";
+import { computeLeadName } from "./lead-name";
 
 const API_BASE = "https://www.umzug-easy.de/api";
 
@@ -352,9 +353,13 @@ export async function syncImmoscoutLeads(
       const fromCity = d.Ort_BL || String(d.PLZ_BL || "");
       const toCity = d.Ort_EL || String(d.PLZ_EL || "");
       const leadTypeLabel = LEAD_TYPE_LABELS[d.LeadType] || d.LeadType || "Umzug";
-      const dealName = fromCity && toCity
-        ? `${leadTypeLabel} ${fromCity} → ${toCity} (${fullName})`
-        : `${leadTypeLabel} — ${fullName}`;
+      const moveDate = d.WunschterminVon || null;
+      const dealName = computeLeadName({
+        customerName: fullName,
+        fromAddress: fromCity,
+        toAddress: toCity,
+        moveDate,
+      });
 
       // ── Build inventory notes ──
       const inventoryParts: string[] = [];
@@ -481,7 +486,6 @@ export async function syncImmoscoutLeads(
       };
 
       // ── Create Deal ──
-      const moveDate = d.WunschterminVon || null;
       const dealInput: Record<string, unknown> = {
         name: dealName,
         moving_lead_payload: payload,

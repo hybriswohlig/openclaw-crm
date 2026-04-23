@@ -11,6 +11,8 @@ interface AttributeEditorProps {
   value: unknown;
   options?: { id: string; title: string; color: string }[];
   statuses?: { id: string; title: string; color: string; isActive: boolean }[];
+  /** For `record_reference` attributes — restricts the picker to records of this object slug. */
+  targetObjectSlug?: string;
   onSave: (value: unknown) => void;
   onCancel: () => void;
 }
@@ -20,6 +22,7 @@ export function AttributeEditor({
   value,
   options,
   statuses,
+  targetObjectSlug,
   onSave,
   onCancel,
 }: AttributeEditorProps) {
@@ -62,7 +65,14 @@ export function AttributeEditor({
       const refVal = value && typeof value === "object" && "id" in (value as Record<string, unknown>)
         ? (value as { id: string }).id
         : (value as string | null);
-      return <RecordReferenceEditor value={refVal} onSave={onSave} onCancel={onCancel} />;
+      return (
+        <RecordReferenceEditor
+          value={refVal}
+          targetObjectSlug={targetObjectSlug}
+          onSave={onSave}
+          onCancel={onCancel}
+        />
+      );
     }
 
     case "json":
@@ -397,8 +407,9 @@ const OBJECT_COLORS: Record<string, string> = {
   operating_companies: "bg-teal-600",
 };
 
-function RecordReferenceEditor({ value, onSave, onCancel }: {
+function RecordReferenceEditor({ value, targetObjectSlug, onSave, onCancel }: {
   value: string | null;
+  targetObjectSlug?: string;
   onSave: (v: unknown) => void;
   onCancel: () => void;
 }) {
@@ -411,14 +422,18 @@ function RecordReferenceEditor({ value, onSave, onCancel }: {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const browseUrl = targetObjectSlug
+    ? `/api/v1/records/browse?limit=50&objectSlug=${encodeURIComponent(targetObjectSlug)}`
+    : `/api/v1/records/browse?limit=15`;
+
   useEffect(() => {
     ref.current?.focus();
     // Load initial results
-    fetch("/api/v1/records/browse?limit=15")
+    fetch(browseUrl)
       .then((r) => r.json())
       .then((data) => setResults(data.data || []))
       .catch(() => {});
-  }, []);
+  }, [browseUrl]);
 
   useEffect(() => {
     function handle(e: MouseEvent) {
@@ -431,7 +446,7 @@ function RecordReferenceEditor({ value, onSave, onCancel }: {
   const search = useCallback((q: string) => {
     if (timerRef.current) clearTimeout(timerRef.current);
     if (!q.trim()) {
-      fetch("/api/v1/records/browse?limit=15")
+      fetch(browseUrl)
         .then((r) => r.json())
         .then((data) => setResults(data.data || []))
         .catch(() => {});
@@ -440,19 +455,22 @@ function RecordReferenceEditor({ value, onSave, onCancel }: {
     setLoading(true);
     timerRef.current = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/v1/search?q=${encodeURIComponent(q)}&limit=15`);
+        const res = await fetch(`/api/v1/search?q=${encodeURIComponent(q)}&limit=30`);
         if (res.ok) {
           const data = await res.json();
-          setResults(
-            (data.data || [])
-              .filter((r: { type: string }) => r.type === "record")
-              .map((r: { id: string; title: string; objectSlug: string; objectName: string }) => ({
-                recordId: r.id,
-                displayName: r.title,
-                objectSlug: r.objectSlug,
-                objectName: r.objectName,
-              }))
-          );
+          const filtered = (data.data || [])
+            .filter((r: { type: string }) => r.type === "record")
+            .filter((r: { objectSlug: string }) =>
+              targetObjectSlug ? r.objectSlug === targetObjectSlug : true
+            )
+            .slice(0, 15)
+            .map((r: { id: string; title: string; objectSlug: string; objectName: string }) => ({
+              recordId: r.id,
+              displayName: r.title,
+              objectSlug: r.objectSlug,
+              objectName: r.objectName,
+            }));
+          setResults(filtered);
         }
       } catch {
         // ignore
@@ -460,7 +478,7 @@ function RecordReferenceEditor({ value, onSave, onCancel }: {
         setLoading(false);
       }
     }, 250);
-  }, []);
+  }, [browseUrl, targetObjectSlug]);
 
   return (
     <div ref={wrapperRef} className="absolute z-50 mt-1 w-64 rounded-md border bg-popover shadow-lg">

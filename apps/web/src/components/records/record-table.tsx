@@ -155,6 +155,7 @@ export function RecordTable({
                 value={val}
                 options={attr.options}
                 statuses={attr.statuses}
+                targetObjectSlug={(attr as { config?: { targetObjectSlug?: string } }).config?.targetObjectSlug}
                 onSave={(newVal) => {
                   onUpdateRecord(row.original.id, attr.slug, newVal);
                   setEditingCell(null);

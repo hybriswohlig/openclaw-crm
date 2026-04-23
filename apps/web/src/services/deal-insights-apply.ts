@@ -17,6 +17,7 @@ import { createRecord, getRecord, updateRecord } from "./records";
 import { emitEvent } from "./activity-events";
 import { DEFAULT_AUFTRAG_CHECKLIST } from "@openclaw-crm/shared";
 import { extractPersonalName } from "@/lib/display-name";
+import { computeLeadName, shouldAutoRename } from "./lead-name";
 import type { DealInsights } from "./deal-insights";
 
 export interface ApplyInsightsInput {
@@ -72,6 +73,16 @@ const AUFTRAG_FIELD_KEYS: string[] = [
   "time_window_end",
   "special_requests",
   "payment_method",
+  "transporter",
+  "worker_count",
+  "equipment_needed",
+  "walking_distance_from_m",
+  "walking_distance_to_m",
+  "contact_pickup_name",
+  "contact_pickup_phone",
+  "contact_dropoff_name",
+  "contact_dropoff_phone",
+  "amount_outstanding_eur",
 ];
 
 const AUFTRAG_FIELD_LABELS: Record<string, string> = {
@@ -87,6 +98,16 @@ const AUFTRAG_FIELD_LABELS: Record<string, string> = {
   time_window_end: "Ende (geplant)",
   special_requests: "Sonderwünsche",
   payment_method: "Zahlungsart",
+  transporter: "Transporter",
+  worker_count: "Anzahl Arbeiter",
+  equipment_needed: "Werkzeug / Material",
+  walking_distance_from_m: "Laufweg Abholung",
+  walking_distance_to_m: "Laufweg Ziel",
+  contact_pickup_name: "Kontakt Abholort",
+  contact_pickup_phone: "Kontakt Abholort (Telefon)",
+  contact_dropoff_name: "Kontakt Zielort",
+  contact_dropoff_phone: "Kontakt Zielort (Telefon)",
+  amount_outstanding_eur: "Offener Betrag",
 };
 
 /** Build a German address string from a freeform LLM address string into a minimal location object. */
@@ -254,7 +275,35 @@ export async function applyDealInsights(
       }
     }
 
-    // 5. Write all approved deal-level changes.
+    // 5a. Recompute Lead name if its current title is auto-generated and we
+    //     now have a better (name, address, date) to build from.
+    try {
+      const dealBefore = await getRecord(dealObj.id, dealRecordId);
+      const currentName = (dealBefore?.values as Record<string, unknown> | undefined)?.name;
+      const currentNameStr = typeof currentName === "string" ? currentName : null;
+      if (shouldAutoRename(currentNameStr)) {
+        const nextName = computeLeadName({
+          customerName: ext.customer_name ?? currentNameStr ?? null,
+          moveDate: ext.move_date ?? (dealBefore?.values as Record<string, unknown>)?.move_date as string | null ?? null,
+          fromAddress:
+            (input.move_from_address as unknown) ??
+            ((dealBefore?.values as Record<string, unknown>)?.move_from_address as unknown) ??
+            null,
+          toAddress:
+            (input.move_to_address as unknown) ??
+            ((dealBefore?.values as Record<string, unknown>)?.move_to_address as unknown) ??
+            null,
+        });
+        if (nextName && nextName !== currentNameStr) {
+          input.name = nextName;
+          result.fieldsUpdated.push("Lead-Titel");
+        }
+      }
+    } catch (err) {
+      console.warn("[deal-insights-apply] lead-name recompute failed:", err);
+    }
+
+    // 5b. Write all approved deal-level changes.
     if (Object.keys(input).length > 0) {
       await updateRecord(dealObj.id, dealRecordId, input, appliedBy);
     }
@@ -497,6 +546,19 @@ async function upsertAuftragForDeal(params: {
   setIfSelected("time_window_start", "time_window_start", ext.time_window_start);
   setIfSelected("time_window_end", "time_window_end", ext.time_window_end);
   setIfSelected("special_requests", "special_requests", ext.special_requests);
+  setIfSelected("worker_count", "worker_count", ext.worker_count);
+  setIfSelected("walking_distance_from_m", "walking_distance_from_m", ext.walking_distance_from_m);
+  setIfSelected("walking_distance_to_m", "walking_distance_to_m", ext.walking_distance_to_m);
+  setIfSelected("contact_pickup_name", "contact_pickup_name", ext.contact_pickup_name);
+  setIfSelected("contact_pickup_phone", "contact_pickup_phone", ext.contact_pickup_phone);
+  setIfSelected("contact_dropoff_name", "contact_dropoff_name", ext.contact_dropoff_name);
+  setIfSelected("contact_dropoff_phone", "contact_dropoff_phone", ext.contact_dropoff_phone);
+
+  // amount_outstanding (currency) → needs { amount, currencyCode } shape
+  if (selected.has("amount_outstanding_eur") && ext.amount_outstanding_eur != null) {
+    input.amount_outstanding = { amount: ext.amount_outstanding_eur, currencyCode: "EUR" };
+    updatedFields.push("Offener Betrag");
+  }
 
   // payment_method → resolve select option ID
   if (selected.has("payment_method") && ext.payment_method) {
@@ -506,6 +568,34 @@ async function upsertAuftragForDeal(params: {
       if (optId) {
         input.payment_method = optId;
         updatedFields.push("Zahlungsart");
+      }
+    }
+  }
+
+  // transporter → resolve select option ID
+  if (selected.has("transporter") && ext.transporter) {
+    const attr = auftragAttrBySlug.get("transporter");
+    if (attr) {
+      const optId = await resolveSelectOptionId(attr.id, ext.transporter);
+      if (optId) {
+        input.transporter = optId;
+        updatedFields.push("Transporter");
+      }
+    }
+  }
+
+  // equipment_needed (multi-select) → resolve option IDs
+  if (selected.has("equipment_needed") && Array.isArray(ext.equipment_needed) && ext.equipment_needed.length > 0) {
+    const attr = auftragAttrBySlug.get("equipment_needed");
+    if (attr) {
+      const ids: string[] = [];
+      for (const title of ext.equipment_needed) {
+        const optId = await resolveSelectOptionId(attr.id, title);
+        if (optId) ids.push(optId);
+      }
+      if (ids.length > 0) {
+        input.equipment_needed = ids;
+        updatedFields.push("Werkzeug / Material");
       }
     }
   }

@@ -16,6 +16,7 @@ interface AttributeDef {
   isMultiselect: boolean;
   options?: { id: string; title: string; color: string }[];
   statuses?: { id: string; title: string; color: string; isActive: boolean }[];
+  config?: { targetObjectSlug?: string } & Record<string, unknown>;
 }
 
 interface RecordDetailProps {
@@ -51,6 +52,7 @@ export function RecordDetail({ attributes, values, onUpdate }: RecordDetailProps
                   value={val}
                   options={attr.options}
                   statuses={attr.statuses}
+                  targetObjectSlug={attr.config?.targetObjectSlug as string | undefined}
                   onSave={(newVal) => {
                     onUpdate(attr.slug, newVal);
                     setEditingSlug(null);

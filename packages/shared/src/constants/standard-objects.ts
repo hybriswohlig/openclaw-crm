@@ -115,8 +115,8 @@ export const STANDARD_OBJECTS: StandardObject[] = [
   },
   {
     slug: "deals",
-    singularName: "Deal",
-    pluralName: "Deals",
+    singularName: "Lead",
+    pluralName: "Leads",
     icon: "handshake",
     isAlwaysOn: true,
     attributes: [

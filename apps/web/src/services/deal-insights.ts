@@ -221,6 +221,67 @@ const ExtractedDealSchema = z.object({
   time_window_end: nullStr.describe(
     "Preferred end timestamp as ISO-8601. Null if not stated."
   ),
+  transporter: z
+    .preprocess(
+      unwrapScalar,
+      z
+        .enum([
+          "Auto",
+          "Mercedes Sprinter kurz",
+          "Mercedes Sprinter lang",
+          "Peugeot Boxer 3,5 t",
+        ])
+        .nullable()
+        .optional()
+        .default(null)
+    )
+    .describe(
+      "Vehicle inference based on volume + inventory. Pick exactly one: 'Auto' for very small moves (<5 m³, few boxes), 'Mercedes Sprinter kurz' for small apartments (5-15 m³), 'Mercedes Sprinter lang' for 1-2 Zimmer (15-25 m³), 'Peugeot Boxer 3,5 t' for 3+ Zimmer / with furniture / 25+ m³. Null if unclear."
+    ),
+  worker_count: nullNum.describe(
+    "Suggested number of workers. Rule of thumb: 2 for <15 m³, 3 for 15-25 m³, 4 for 25-40 m³, 5+ for larger. Adjust up for 3. Stock ohne Aufzug, piano, or Möbeldemontage. Null if you can't reasonably estimate."
+  ),
+  equipment_needed: z
+    .array(
+      z.enum([
+        "Sackkarre",
+        "Möbelhund",
+        "Gurte",
+        "Decken",
+        "Werkzeugkoffer",
+        "Kleiderboxen",
+        "Folie / Stretch",
+        "Leiter",
+        "Rampe",
+        "Klaviergurt",
+      ])
+    )
+    .optional()
+    .default([])
+    .describe(
+      "Equipment we should bring. Examples: piano → add Klaviergurt; Möbeldemontage → Werkzeugkoffer; Kleiderschrank → Kleiderboxen; 3. Stock ohne Aufzug → Gurte + Decken; Parksituation mit Höhendifferenz → Rampe. Only include what the chat actually implies."
+    ),
+  walking_distance_from_m: nullNum.describe(
+    "Meters from the parking spot to the apartment at the pickup, if mentioned (e.g. 'Hinterhof, ca. 40 m')."
+  ),
+  walking_distance_to_m: nullNum.describe(
+    "Same for the destination. Null if not discussed."
+  ),
+  contact_pickup_name: nullStr.describe(
+    "Alternate contact at pickup address on move day, if the customer names one (e.g. 'mein Vater Peter macht auf'). Null if customer is the contact."
+  ),
+  contact_pickup_phone: nullStr.describe(
+    "Phone of the alternate pickup contact. Null if not given."
+  ),
+  contact_dropoff_name: nullStr.describe(
+    "Alternate contact at destination on move day. Null if customer."
+  ),
+  contact_dropoff_phone: nullStr.describe(
+    "Phone of the alternate dropoff contact. Null if not given."
+  ),
+  amount_outstanding_eur: nullNum.describe(
+    "Remaining amount the customer still has to pay, in EUR. Useful when a partial payment / deposit has already been made. Null if not discussed."
+  ),
   special_requests: nullStr.describe(
     "Any unusual customer requests that don't fit other fields (e.g. 'bitte Schuhe ausziehen', 'Katze muss mit', 'vor 10 Uhr nicht klingeln'). Concatenate multiple requests into one German string. Null if none."
   ),

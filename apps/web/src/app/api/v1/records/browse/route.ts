@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { getAuthContext, unauthorized, success } from "@/lib/api-utils";
 import { db } from "@/db";
 import { records, objects, recordValues, attributes } from "@/db/schema";
-import { eq, inArray, desc } from "drizzle-orm";
+import { and, eq, inArray, desc } from "drizzle-orm";
 import { extractPersonalName } from "@/lib/display-name";
 
 /** GET /api/v1/records/browse — Browse recent records across all objects */
@@ -14,12 +14,18 @@ export async function GET(req: NextRequest) {
     Number(req.nextUrl.searchParams.get("limit") || 20),
     50
   );
+  const objectSlug = req.nextUrl.searchParams.get("objectSlug");
 
-  // Get all objects in workspace
-  const objs = await db
-    .select({ id: objects.id, slug: objects.slug, singularName: objects.singularName, icon: objects.icon })
-    .from(objects)
-    .where(eq(objects.workspaceId, ctx.workspaceId));
+  // Get objects in workspace (optionally narrowed by slug for record-reference pickers)
+  const objs = objectSlug
+    ? await db
+        .select({ id: objects.id, slug: objects.slug, singularName: objects.singularName, icon: objects.icon })
+        .from(objects)
+        .where(and(eq(objects.workspaceId, ctx.workspaceId), eq(objects.slug, objectSlug)))
+    : await db
+        .select({ id: objects.id, slug: objects.slug, singularName: objects.singularName, icon: objects.icon })
+        .from(objects)
+        .where(eq(objects.workspaceId, ctx.workspaceId));
 
   if (objs.length === 0) return success([]);
 
