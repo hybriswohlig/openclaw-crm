@@ -37,8 +37,21 @@ export interface ApplyInsightsInput {
   applyAuftrag?: boolean;
 }
 
+export interface DealFieldChange {
+  /** Attribute slug (e.g. "value", "stage"). */
+  slug: string;
+  /** German label shown in the timeline. */
+  label: string;
+  /** Pre-update value as a human-readable string. `null` = previously empty. */
+  before: string | null;
+  /** Post-update value as a human-readable string. */
+  after: string | null;
+}
+
 export interface ApplyInsightsResult {
   fieldsUpdated: string[];
+  /** Per-field before/after diffs for the deal record. Useful for audit / activity log. */
+  changes: DealFieldChange[];
   stageUpdated: boolean;
   notePosted: boolean;
   contactUpdated: string[];
@@ -117,6 +130,47 @@ function addressStringToLocationValue(text: string): Record<string, unknown> {
   return { line1: text.trim() };
 }
 
+/**
+ * Render any deal-attribute value as a short human-readable string, used in
+ * the activity-log diff (e.g. "Inquiry", "25", "—"). Resolves status / select
+ * option IDs back to their titles. Returns "—" for null / empty.
+ */
+async function formatChangeValue(
+  dealObjId: string,
+  slug: string,
+  value: unknown
+): Promise<string | null> {
+  if (value == null || value === "") return null;
+  if (slug === "stage") {
+    const id = typeof value === "string" ? value : null;
+    if (!id) return String(value);
+    const [row] = await db
+      .select({ title: statuses.title })
+      .from(statuses)
+      .where(eq(statuses.id, id))
+      .limit(1);
+    return row?.title ?? id;
+  }
+  if (slug === "elevator_from" || slug === "elevator_to") {
+    const id = typeof value === "string" ? value : null;
+    if (!id) return String(value);
+    const { selectOptions } = await import("@/db/schema/objects");
+    const [row] = await db
+      .select({ title: selectOptions.title })
+      .from(selectOptions)
+      .where(eq(selectOptions.id, id))
+      .limit(1);
+    return row?.title ?? id;
+  }
+  if (typeof value === "object") {
+    // Locations stored as { line1, ... } — show line1, else compact JSON.
+    const obj = value as Record<string, unknown>;
+    if (typeof obj.line1 === "string" && obj.line1.trim()) return obj.line1.trim();
+    return JSON.stringify(value);
+  }
+  return String(value);
+}
+
 /** Resolve a select option's ID from its title (case-insensitive). */
 async function resolveSelectOptionId(
   attributeId: string,
@@ -151,6 +205,7 @@ export async function applyDealInsights(
 
   const result: ApplyInsightsResult = {
     fieldsUpdated: [],
+    changes: [],
     stageUpdated: false,
     notePosted: false,
     contactUpdated: [],
@@ -174,6 +229,17 @@ export async function applyDealInsights(
     const input: Record<string, unknown> = {};
     const ext = insights.extracted;
     const selected = new Set(selectedFields);
+
+    // Snapshot the deal BEFORE any writes so we can compute per-field diffs
+    // for the activity-log audit trail. Stage labels and select option titles
+    // are resolved lazily below (only for fields that actually changed).
+    const dealSnapshot = await getRecord(dealObj.id, dealRecordId);
+    const beforeValues = (dealSnapshot?.values ?? {}) as Record<string, unknown>;
+    const labelByDealSlug: Record<string, string> = {
+      ...Object.fromEntries(Object.values(DEAL_FIELD_TO_SLUG).map((v) => [v.slug, v.label])),
+      stage: "Stage",
+      name: "Lead-Titel",
+    };
 
     // 2. Apply selected deal-level fields.
     const addSimple = (key: keyof typeof ext, slug: string, label: string, raw: unknown) => {
@@ -278,20 +344,19 @@ export async function applyDealInsights(
     // 5a. Recompute Lead name if its current title is auto-generated and we
     //     now have a better (name, address, date) to build from.
     try {
-      const dealBefore = await getRecord(dealObj.id, dealRecordId);
-      const currentName = (dealBefore?.values as Record<string, unknown> | undefined)?.name;
+      const currentName = beforeValues.name;
       const currentNameStr = typeof currentName === "string" ? currentName : null;
       if (shouldAutoRename(currentNameStr)) {
         const nextName = computeLeadName({
           customerName: ext.customer_name ?? currentNameStr ?? null,
-          moveDate: ext.move_date ?? (dealBefore?.values as Record<string, unknown>)?.move_date as string | null ?? null,
+          moveDate: ext.move_date ?? (beforeValues.move_date as string | null | undefined) ?? null,
           fromAddress:
             (input.move_from_address as unknown) ??
-            ((dealBefore?.values as Record<string, unknown>)?.move_from_address as unknown) ??
+            (beforeValues.move_from_address as unknown) ??
             null,
           toAddress:
             (input.move_to_address as unknown) ??
-            ((dealBefore?.values as Record<string, unknown>)?.move_to_address as unknown) ??
+            (beforeValues.move_to_address as unknown) ??
             null,
         });
         if (nextName && nextName !== currentNameStr) {
@@ -303,7 +368,28 @@ export async function applyDealInsights(
       console.warn("[deal-insights-apply] lead-name recompute failed:", err);
     }
 
-    // 5b. Write all approved deal-level changes.
+    // 5b. Capture per-field diffs (before/after) for the activity log.
+    //     Resolve stage option ID → stage title and select option IDs to titles
+    //     for human-readable display. Run BEFORE updateRecord so `beforeValues`
+    //     still reflects pre-update state.
+    for (const slug of Object.keys(input)) {
+      const label = labelByDealSlug[slug] ?? slug;
+      const beforeRaw = beforeValues[slug];
+      const afterRaw = input[slug];
+      const [beforeStr, afterStr] = await Promise.all([
+        formatChangeValue(dealObj.id, slug, beforeRaw),
+        formatChangeValue(dealObj.id, slug, afterRaw),
+      ]);
+      if (beforeStr === afterStr) continue;
+      result.changes.push({ slug, label, before: beforeStr, after: afterStr });
+    }
+
+    // Stamp last_insights_at so the n8n hot-loop knows this deal is fresh.
+    // Inserted into the same write so we get one DB round-trip and one
+    // updatedAt bump.
+    input.last_insights_at = new Date().toISOString();
+
+    // 5c. Write all approved deal-level changes.
     if (Object.keys(input).length > 0) {
       await updateRecord(dealObj.id, dealRecordId, input, appliedBy);
     }
@@ -333,6 +419,7 @@ export async function applyDealInsights(
           note: noteText,
           summary: insights.summary,
           fieldsUpdated: result.fieldsUpdated,
+          changes: result.changes,
           stageUpdated: result.stageUpdated,
           contactUpdated: result.contactUpdated,
           auftragUpdated: result.auftragUpdated,

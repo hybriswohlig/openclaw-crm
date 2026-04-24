@@ -113,17 +113,24 @@ export async function GET(
         const note = typeof payload.note === "string" ? payload.note : "";
         const summary = typeof payload.summary === "string" ? payload.summary : "";
         const fieldsUpdated = Array.isArray(payload.fieldsUpdated) ? payload.fieldsUpdated as string[] : [];
+        const changes = Array.isArray(payload.changes) ? payload.changes as Array<{ label?: string; before?: string | null; after?: string | null }> : [];
         const confirmedByUser = payload.confirmedByUser === true;
         const displayText = note || summary;
         const attribution = confirmedByUser ? "User + KI" : "KI (automatisch)";
+        // Prefer the explicit before/after diff when available; fall back to the
+        // legacy bare list of changed labels for older events.
+        const changesText = changes.length > 0
+          ? changes
+              .map((c) => `${c.label}: ${c.before ?? "—"} → ${c.after ?? "—"}`)
+              .join(" · ")
+          : fieldsUpdated.length > 0
+            ? `Aktualisiert: ${fieldsUpdated.join(", ")}`
+            : null;
         return {
           id: `event-${ev.id}`,
           type: "ai_insights" as const,
           title: `KI-Analyse · ${attribution}`,
-          description: [
-            displayText,
-            fieldsUpdated.length > 0 ? `Aktualisiert: ${fieldsUpdated.join(", ")}` : null,
-          ].filter(Boolean).join(" · "),
+          description: [displayText, changesText].filter(Boolean).join(" · "),
           createdAt: ev.createdAt.toISOString(),
           createdBy: ev.actorId ?? undefined,
         };
