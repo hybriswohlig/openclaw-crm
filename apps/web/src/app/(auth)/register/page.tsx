@@ -51,7 +51,24 @@ export default function RegisterPage() {
     "flex h-10 w-full rounded-xl border border-foreground/8 dark:border-white/[0.06] bg-background/60 dark:bg-white/[0.04] px-4 text-[14px] text-foreground placeholder:text-muted-foreground/40 outline-none transition-colors focus:border-foreground/20 dark:focus:border-white/15 focus:ring-0";
 
   return (
-    <div className="rounded-2xl border border-foreground/[0.06] dark:border-white/[0.06] bg-foreground/[0.015] dark:bg-white/[0.02] px-8 py-8">
+    <div className="relative flex min-h-screen items-center justify-center bg-background">
+      <div
+        className="pointer-events-none absolute inset-x-0 top-0 h-[70vh]"
+        style={{
+          background:
+            "linear-gradient(180deg, var(--landing-tint) 0%, transparent 100%)",
+        }}
+      />
+      <div className="relative w-full max-w-sm px-4">
+        <div className="mb-10 text-center">
+          <Link
+            href="/login"
+            className="text-[15px] font-semibold tracking-[-0.015em] text-foreground transition-opacity hover:opacity-70"
+          >
+            Kottke Umzüge
+          </Link>
+        </div>
+        <div className="rounded-2xl border border-foreground/[0.06] dark:border-white/[0.06] bg-foreground/[0.015] dark:bg-white/[0.02] px-8 py-8">
       <div className="text-center mb-6">
         <h1 className="text-title-4">Create an account</h1>
         <p className="text-body-sm text-muted-foreground/70 mt-1.5">
@@ -129,6 +146,8 @@ export default function RegisterPage() {
           Sign in
         </Link>
       </p>
+        </div>
+      </div>
     </div>
   );
 }
