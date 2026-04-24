@@ -36,32 +36,57 @@
 :root {
   --radius: 0.75rem;
 
-  /* Light theme (default) */
-  --background: #ffffff;
-  --foreground: #1d1d1f;
-  --card: #fafafa;
-  --card-foreground: #1d1d1f;
+  /* ── Kottke design tokens (warm paper) ─────────────── */
+  --paper: #fbf8f3;
+  --paper-2: #f5efe5;
+  --paper-3: #ede5d6;
+  --ink: #221d16;
+  --ink-soft: #5a5046;
+  --ink-muted: #8a7f72;
+  --line: rgba(34, 29, 22, 0.09);
+  --line-strong: rgba(34, 29, 22, 0.18);
+  --kottke-accent: oklch(0.58 0.12 45);
+  --accent-soft: oklch(0.94 0.04 60);
+  --accent-ink: #fbf8f3;
+  --ok: oklch(0.55 0.12 150);
+  --warn: oklch(0.72 0.14 75);
+  --danger: oklch(0.58 0.18 25);
+  --info: oklch(0.6 0.08 230);
+  --radius-card: 18px;
+
+  /* Font-family helpers (map next/font vars if loaded) */
+  --f-display: var(--font-fraunces), Fraunces, "Times New Roman", serif;
+  --f-body: var(--font-inter), Inter, system-ui, sans-serif;
+  --f-mono: var(--font-jetbrains-mono), "JetBrains Mono", ui-monospace, monospace;
+
+  /* Light theme — shadcn vars mapped onto the Kottke palette so every
+     existing component that uses bg-card / text-foreground / border-border
+     inherits the warm paper look automatically. */
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: #ffffff;
+  --card-foreground: var(--ink);
   --popover: #ffffff;
-  --popover-foreground: #1d1d1f;
-  --primary: oklch(0.55 0.15 250);
-  --primary-foreground: #ffffff;
-  --secondary: #f5f5f7;
-  --secondary-foreground: #1d1d1f;
-  --muted: #f5f5f7;
-  --muted-foreground: #86868b;
-  --accent: #f5f5f7;
-  --accent-foreground: #1d1d1f;
-  --destructive: oklch(0.55 0.22 25);
+  --popover-foreground: var(--ink);
+  --primary: var(--ink);
+  --primary-foreground: var(--paper);
+  --secondary: var(--paper-2);
+  --secondary-foreground: var(--ink);
+  --muted: var(--paper-2);
+  --muted-foreground: var(--ink-muted);
+  --accent: var(--accent-soft);
+  --accent-foreground: oklch(0.35 0.09 45);
+  --destructive: var(--danger);
   --destructive-foreground: #ffffff;
-  --border: rgba(0, 0, 0, 0.05);
-  --input: rgba(0, 0, 0, 0.05);
-  --ring: oklch(0.55 0.15 250);
-  --sidebar: #f5f5f7;
-  --sidebar-foreground: #86868b;
-  --sidebar-accent: rgba(0, 0, 0, 0.03);
-  --sidebar-accent-foreground: #1d1d1f;
-  --sidebar-border: rgba(0, 0, 0, 0.04);
-  --landing-tint: rgba(230, 235, 245, 0.5);
+  --border: var(--line);
+  --input: var(--line);
+  --ring: var(--kottke-accent);
+  --sidebar: color-mix(in srgb, var(--paper) 70%, var(--paper-2));
+  --sidebar-foreground: var(--ink-soft);
+  --sidebar-accent: #ffffff;
+  --sidebar-accent-foreground: var(--ink);
+  --sidebar-border: var(--line);
+  --landing-tint: rgba(237, 229, 214, 0.5);
 }
 
 .dark {
@@ -372,4 +397,211 @@ html {
   height: auto;
   border-radius: 0.75rem;
   margin: 1.5rem 0;
+}
+
+/* ── Kottke component utilities ────────────────────────── */
+
+.k-display {
+  font-family: var(--f-display);
+  font-variation-settings: "opsz" 48, "SOFT" 80;
+  font-weight: 400;
+  letter-spacing: -0.025em;
+}
+
+.k-mono {
+  font-family: var(--f-mono);
+}
+
+.k-label {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.k-card {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  box-shadow: 0 1px 2px rgba(34, 29, 22, 0.03),
+    0 4px 12px -6px rgba(34, 29, 22, 0.06);
+}
+
+.dark .k-card {
+  background: var(--card);
+  border-color: var(--border);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2), 0 4px 12px -6px rgba(0, 0, 0, 0.3);
+}
+
+/* Chips */
+.k-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.005em;
+  border: 1px solid var(--line-strong);
+  background: var(--paper);
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+.k-chip.accent {
+  background: var(--accent-soft);
+  border-color: color-mix(in oklch, var(--kottke-accent) 25%, transparent);
+  color: oklch(0.35 0.09 45);
+}
+.k-chip.ok {
+  background: oklch(0.94 0.05 150);
+  border-color: color-mix(in oklch, var(--ok) 25%, transparent);
+  color: oklch(0.32 0.1 150);
+}
+.k-chip.warn {
+  background: oklch(0.95 0.06 75);
+  border-color: color-mix(in oklch, var(--warn) 30%, transparent);
+  color: oklch(0.38 0.12 75);
+}
+.k-chip.danger {
+  background: oklch(0.94 0.05 25);
+  border-color: color-mix(in oklch, var(--danger) 25%, transparent);
+  color: oklch(0.4 0.15 25);
+}
+.k-chip.info {
+  background: oklch(0.94 0.03 230);
+  border-color: color-mix(in oklch, var(--info) 25%, transparent);
+  color: oklch(0.4 0.08 230);
+}
+
+.k-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  background: currentColor;
+}
+
+/* Buttons — opt-in helpers used by new design sections */
+.k-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  height: 36px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  font-weight: 500;
+  border: 1px solid var(--line-strong);
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.12s;
+  font-family: inherit;
+}
+.k-btn:hover {
+  background: var(--paper);
+  border-color: rgba(34, 29, 22, 0.28);
+}
+.k-btn:active {
+  transform: translateY(1px);
+}
+.k-btn.primary {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+}
+.k-btn.primary:hover {
+  background: #17130d;
+}
+.k-btn.accent {
+  background: var(--kottke-accent);
+  color: var(--accent-ink);
+  border-color: var(--kottke-accent);
+}
+.k-btn.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--ink-soft);
+}
+.k-btn.ghost:hover {
+  background: rgba(34, 29, 22, 0.04);
+}
+.k-btn.sm {
+  height: 30px;
+  padding: 0 10px;
+  font-size: 12.5px;
+  border-radius: 8px;
+}
+.k-btn.icon {
+  width: 36px;
+  padding: 0;
+  justify-content: center;
+}
+.k-btn.icon.sm {
+  width: 30px;
+}
+
+/* Avatars for person initials */
+.k-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--f-display);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink);
+  flex-shrink: 0;
+}
+.k-avatar.a1 { background: oklch(0.88 0.06 60); }
+.k-avatar.a2 { background: oklch(0.85 0.04 140); }
+.k-avatar.a3 { background: oklch(0.86 0.05 20); }
+.k-avatar.lg {
+  width: 36px;
+  height: 36px;
+  font-size: 13px;
+}
+
+/* Dashed divider */
+.k-divider-dashed {
+  border: 0;
+  border-top: 1px dashed var(--line);
+  margin: 0;
+}
+
+/* Subtle paper-noise overlay used on full-page canvases (home, ops) */
+.k-paper-noise {
+  position: relative;
+}
+.k-paper-noise::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.3;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' seed='4'/><feColorMatrix values='0 0 0 0 0.8  0 0 0 0 0.7  0 0 0 0 0.55  0 0 0 0 0.05 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  z-index: 0;
+}
+.k-paper-noise > * {
+  position: relative;
+  z-index: 1;
+}
+
+.dark .k-paper-noise::before {
+  opacity: 0;
+}
+
+/* Pulse dot for "läuft jetzt" / in-progress state */
+@keyframes k-pulse {
+  0% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(1.2); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.k-pulse {
+  animation: k-pulse 1.8s ease-out infinite;
 }

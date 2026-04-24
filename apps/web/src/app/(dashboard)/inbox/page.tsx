@@ -1090,7 +1090,7 @@ export default function InboxPage() {
         <div className="px-4 pt-4 pb-2 shrink-0 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <h1 className="font-semibold text-base">Posteingang</h1>
+              <h1 className="k-display text-[20px]" style={{ fontWeight: 500, letterSpacing: "-0.015em" }}>Posteingang</h1>
               {unreadTotal > 0 && (
                 <span className="h-5 min-w-5 px-1.5 rounded-full bg-primary text-primary-foreground text-[10px] font-semibold flex items-center justify-center">
                   {unreadTotal}

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { CreateListModal } from "@/components/lists/create-list-modal";
+import { SidebarCrew } from "@/components/layout/sidebar-crew";
 import {
   Home,
   MessageSquare,
@@ -30,21 +31,21 @@ import {
 import { useTheme } from "next-themes";
 
 const mainNav = [
-  { href: "/home", label: "Home", icon: Home },
+  { href: "/home", label: "Heute", icon: Home },
   { href: "/chat", label: "Chat", icon: MessageSquare },
-  { href: "/tasks", label: "Tasks", icon: CheckSquare },
-  { href: "/contract-calendar", label: "Contract Calendar", icon: CalendarDays },
-  { href: "/notes", label: "Notes", icon: StickyNote },
-  { href: "/notifications", label: "Notifications", icon: Bell },
+  { href: "/tasks", label: "Aufgaben", icon: CheckSquare },
+  { href: "/contract-calendar", label: "Kalender", icon: CalendarDays },
+  { href: "/notes", label: "Notizen", icon: StickyNote },
+  { href: "/notifications", label: "Benachrichtigungen", icon: Bell },
 ];
 
 const objectNav = [
-  { href: "/objects/people", label: "People", icon: Users },
-  { href: "/objects/companies", label: "Companies", icon: Building2 },
+  { href: "/objects/people", label: "Kunden", icon: Users },
+  { href: "/objects/companies", label: "Firmen", icon: Building2 },
   { href: "/objects/deals", label: "Leads", icon: Handshake },
 ];
 
-const bottomNav = [{ href: "/settings", label: "Settings", icon: Settings }];
+const bottomNav = [{ href: "/settings", label: "Einstellungen", icon: Settings }];
 
 interface ListItem {
   id: string;
@@ -118,19 +119,43 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       {/* Account / organization label (single tenant) */}
       <div className="flex h-14 items-center px-2.5">
         <div className="flex w-full items-center gap-2.5 rounded-lg px-1.5 py-1.5">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-foreground/10 text-xs font-semibold text-foreground shrink-0 overflow-hidden">
-            {accountLogo ? (
+          {accountLogo ? (
+            <div
+              className="flex h-7 w-7 items-center justify-center rounded-lg bg-foreground/10 text-xs font-semibold text-foreground shrink-0 overflow-hidden"
+            >
               <div
                 className="h-full w-full p-0.5 [&>svg]:h-full [&>svg]:w-full"
                 dangerouslySetInnerHTML={{ __html: accountLogo }}
               />
-            ) : (
-              (accountName || "O").charAt(0).toUpperCase()
-            )}
-          </div>
+            </div>
+          ) : (
+            <span
+              className="inline-block h-2 w-2 shrink-0 rounded-full"
+              style={{ background: "var(--kottke-accent)" }}
+              aria-hidden
+            />
+          )}
           {expanded && (
-            <span className="text-sm font-medium text-foreground truncate flex-1">
-              {accountName || "OpenCRM-Umzug"}
+            <span
+              className="k-display truncate flex-1 text-[17px]"
+              style={{ fontWeight: 500, letterSpacing: "-0.02em" }}
+            >
+              {accountName ? (
+                accountName
+              ) : (
+                <>
+                  Kottke{" "}
+                  <em
+                    style={{
+                      fontStyle: "italic",
+                      fontWeight: 300,
+                      color: "var(--ink-muted)",
+                    }}
+                  >
+                    Umzüge
+                  </em>
+                </>
+              )}
             </span>
           )}
         </div>
@@ -201,7 +226,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
         <NavItem
           href="/employees"
-          label="Employees"
+          label="Mitarbeiter"
           icon={HardHat}
           active={pathname === "/employees"}
           expanded={expanded}
@@ -221,7 +246,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
         <NavItem
           href="/financial"
-          label="Financial"
+          label="Finanzen"
           icon={Banknote}
           active={pathname.startsWith("/financial")}
           expanded={expanded}
@@ -232,7 +257,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
         <NavItem
           href="/integrations"
-          label="Integrations"
+          label="Integrationen"
           icon={Plug}
           active={pathname.startsWith("/integrations")}
           expanded={expanded}
@@ -249,6 +274,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           expanded={expanded}
           onClick={onNavigate}
         />
+
+        {expanded && <SidebarCrew />}
       </nav>
 
       {/* Bottom navigation */}
