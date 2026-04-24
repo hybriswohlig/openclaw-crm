@@ -26,7 +26,17 @@ export async function POST(
 
   const { recordId } = await params;
   const body = await req.json();
-  const { date, amount, category, description, recipient, paymentMethod, receiptFile } = body;
+  const {
+    date,
+    amount,
+    category,
+    description,
+    recipient,
+    paymentMethod,
+    receiptFile,
+    isTaxDeductible,
+    payingOperatingCompanyId,
+  } = body;
 
   if (!date || !amount) return badRequest("date and amount are required");
   if (category && !VALID_CATEGORIES.includes(category)) {
@@ -41,6 +51,8 @@ export async function POST(
     recipient,
     paymentMethod,
     receiptFile,
+    isTaxDeductible: typeof isTaxDeductible === "boolean" ? isTaxDeductible : undefined,
+    payingOperatingCompanyId: payingOperatingCompanyId ?? null,
   });
   return success(row, 201);
 }

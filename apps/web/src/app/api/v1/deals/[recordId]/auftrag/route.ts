@@ -157,6 +157,7 @@ async function loadLeadContext(workspaceId: string, dealRecordId: string) {
     "elevator_from",
     "elevator_to",
     "inventory_notes",
+    "operating_company",
   ];
   const wantedIds = wanted.map((s) => bySlug.get(s)?.id).filter((x): x is string => !!x);
   if (wantedIds.length === 0) return null;
@@ -188,6 +189,28 @@ async function loadLeadContext(workspaceId: string, dealRecordId: string) {
     for (const o of opts) optionTitles.set(o.id, o.title);
   }
 
+  // Resolve record_reference display names (e.g. operating_company).
+  const refAttr = bySlug.get("operating_company");
+  const refTargetId = refAttr ? byAttr.get(refAttr.id)?.referencedRecordId ?? null : null;
+  let refTargetName: string | null = null;
+  if (refTargetId) {
+    const { selectOptions: _unused } = await import("@/db/schema/objects");
+    void _unused;
+    // Look up the name attribute of the referenced record's object.
+    const [ocName] = await db
+      .select({ name: recordValues.textValue })
+      .from(recordValues)
+      .innerJoin(attributes, eq(attributes.id, recordValues.attributeId))
+      .where(
+        and(
+          eq(recordValues.recordId, refTargetId),
+          eq(attributes.slug, "name")
+        )
+      )
+      .limit(1);
+    refTargetName = ocName?.name ?? null;
+  }
+
   function get(slug: string): unknown {
     const a = bySlug.get(slug);
     if (!a) return null;
@@ -199,6 +222,11 @@ async function loadLeadContext(workspaceId: string, dealRecordId: string) {
     if (a.type === "select") {
       const id = v.textValue;
       return id ? optionTitles.get(id) ?? id : null;
+    }
+    if (a.type === "record_reference") {
+      return v.referencedRecordId
+        ? { id: v.referencedRecordId, displayName: refTargetName ?? "Unbekannt" }
+        : null;
     }
     return v.textValue ?? null;
   }
@@ -213,5 +241,6 @@ async function loadLeadContext(workspaceId: string, dealRecordId: string) {
     elevator_from: get("elevator_from"),
     elevator_to: get("elevator_to"),
     inventory_notes: get("inventory_notes"),
+    operating_company: get("operating_company"),
   };
 }

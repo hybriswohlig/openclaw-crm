@@ -46,6 +46,7 @@ interface LeadContext {
   elevator_from: string | null;
   elevator_to: string | null;
   inventory_notes: string | null;
+  operating_company: { id: string; displayName: string } | null;
 }
 
 function formatLocation(v: unknown): string {
@@ -79,8 +80,10 @@ interface ChecklistItem {
 // dumped into the last "Weitere Details" section so nothing is lost.
 const SECTIONS: { title: string; slugs: string[] }[] = [
   {
+    // operating_company is intentionally NOT here — it's a read-only mirror
+    // of the Deal's value to enforce one source of truth. Edit it on the Deal.
     title: "Stammdaten",
-    slugs: ["name", "deal", "operating_company"],
+    slugs: ["name", "deal"],
   },
   {
     title: "Logistik",
@@ -115,8 +118,10 @@ const SECTIONS: { title: string; slugs: string[] }[] = [
   { title: "Sonderwünsche & Notizen", slugs: ["special_requests", "notes"] },
 ];
 
-// Slugs rendered by custom sections (not by the generic RecordDetail)
-const CUSTOM_SLUGS = new Set(["checklist"]);
+// Slugs handled by custom sections (not by the generic RecordDetail editor).
+// `operating_company` is read-only mirrored from the Lead — users cannot edit
+// it on the Auftrag, so we suppress the attribute field entirely.
+const CUSTOM_SLUGS = new Set(["checklist", "operating_company"]);
 
 export function AuftragTab({ recordId }: { recordId: string }) {
   const [loading, setLoading] = useState(true);
@@ -267,6 +272,10 @@ export function AuftragTab({ recordId }: { recordId: string }) {
             </Link>
           </div>
           <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+            <LeadFact
+              label="Ausführende Firma"
+              value={leadContext.operating_company?.displayName ?? "— (im Lead zuweisen)"}
+            />
             <LeadFact label="Umzugsdatum" value={formatDateDE(leadContext.move_date)} />
             <LeadFact
               label="Inventar / Notizen"

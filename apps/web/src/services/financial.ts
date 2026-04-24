@@ -6,10 +6,13 @@ import {
   expenses,
   employeeTransactions,
   employees,
+  privateTransactions,
 } from "@/db/schema";
 import { objects, attributes } from "@/db/schema/objects";
 import { recordValues } from "@/db/schema/records";
-import { eq, and, sum, sql, gte, lt, type SQL } from "drizzle-orm";
+import { eq, and, sum, sql, gte, lt, desc } from "drizzle-orm";
+
+export type PaymentMethod = "cash" | "bank_transfer" | "other";
 
 /** Returns [startDate, endDate) strings for a "YYYY-MM" month, or null for all-time. */
 function parseMonth(month: string | null): { start: string; end: string } | null {
@@ -147,6 +150,8 @@ export async function createExpense(
     recipient?: string;
     paymentMethod?: string;
     receiptFile?: string;
+    isTaxDeductible?: boolean;
+    payingOperatingCompanyId?: string | null;
   }
 ) {
   const [row] = await db
@@ -167,6 +172,8 @@ export async function updateExpense(
     recipient: string;
     paymentMethod: string;
     receiptFile: string;
+    isTaxDeductible: boolean;
+    payingOperatingCompanyId: string | null;
   }>
 ) {
   const [row] = await db
@@ -197,9 +204,14 @@ export async function listEmployeeTransactions(dealRecordId: string) {
       date: employeeTransactions.date,
       type: employeeTransactions.type,
       amount: employeeTransactions.amount,
+      amountPaid: employeeTransactions.amountPaid,
+      dueDate: employeeTransactions.dueDate,
       status: employeeTransactions.status,
       description: employeeTransactions.description,
       notes: employeeTransactions.notes,
+      paymentMethod: employeeTransactions.paymentMethod,
+      isTaxDeductible: employeeTransactions.isTaxDeductible,
+      payingOperatingCompanyId: employeeTransactions.payingOperatingCompanyId,
       createdAt: employeeTransactions.createdAt,
       updatedAt: employeeTransactions.updatedAt,
     })
@@ -222,6 +234,9 @@ export async function createEmployeeTransaction(
     status?: "open" | "paid";
     description?: string;
     notes?: string;
+    paymentMethod?: PaymentMethod | null;
+    isTaxDeductible?: boolean;
+    payingOperatingCompanyId?: string | null;
   }
 ) {
   const [row] = await db
@@ -243,6 +258,9 @@ export async function updateEmployeeTransaction(
     status: "open" | "paid";
     description: string;
     notes: string;
+    paymentMethod: PaymentMethod | null;
+    isTaxDeductible: boolean;
+    payingOperatingCompanyId: string | null;
   }>
 ) {
   const [row] = await db
@@ -301,6 +319,79 @@ export async function deleteEmployeeTransaction(
       )
     )
     .returning({ id: employeeTransactions.id });
+  return row ?? null;
+}
+
+// ─── Private Transactions ─────────────────────────────────────────────────────
+
+export async function listPrivateTransactions(workspaceId: string) {
+  return db
+    .select()
+    .from(privateTransactions)
+    .where(eq(privateTransactions.workspaceId, workspaceId))
+    .orderBy(desc(privateTransactions.date));
+}
+
+export async function createPrivateTransaction(
+  workspaceId: string,
+  input: {
+    date: string;
+    amount: string;
+    method: PaymentMethod;
+    fromPartner: string;
+    toPartner?: string | null;
+    operatingCompanyId: string;
+    direction: "einlage" | "entnahme";
+    notes?: string | null;
+  }
+) {
+  const [row] = await db
+    .insert(privateTransactions)
+    .values({ workspaceId, ...input })
+    .returning();
+  return row;
+}
+
+export async function updatePrivateTransaction(
+  id: string,
+  workspaceId: string,
+  input: Partial<{
+    date: string;
+    amount: string;
+    method: PaymentMethod;
+    fromPartner: string;
+    toPartner: string | null;
+    operatingCompanyId: string;
+    direction: "einlage" | "entnahme";
+    notes: string | null;
+  }>
+) {
+  const [row] = await db
+    .update(privateTransactions)
+    .set({ ...input, updatedAt: new Date() })
+    .where(
+      and(
+        eq(privateTransactions.id, id),
+        eq(privateTransactions.workspaceId, workspaceId)
+      )
+    )
+    .returning();
+  return row ?? null;
+}
+
+export async function deletePrivateTransaction(
+  id: string,
+  workspaceId: string
+) {
+  const [row] = await db
+    .delete(privateTransactions)
+    .where(
+      and(
+        eq(privateTransactions.id, id),
+        eq(privateTransactions.workspaceId, workspaceId)
+      )
+    )
+    .returning({ id: privateTransactions.id });
   return row ?? null;
 }
 
@@ -387,9 +478,30 @@ export async function getProfitSummary(dealRecordId: string) {
 
 // ─── Workspace Financial Overview ─────────────────────────────────────────────
 
+export interface CompanyBreakdownRow {
+  companyId: string | null;
+  companyName: string;
+  income: number;
+  deductibleExpenses: number;
+  nonDeductibleExpenses: number;
+  employeeCosts: number;
+  crossSubsidyIn: number;
+  crossSubsidyOut: number;
+  privateEinlagen: number;
+  privateEntnahmen: number;
+  netResult: number;
+}
+
 /**
  * Workspace-level financial overview, optionally filtered by month ("YYYY-MM").
- * Also returns a per-deal breakdown so the UI can show deal-level rows.
+ *
+ * Per-company attribution rules:
+ *   - Income: always to the Auftrag owner (deal.operating_company).
+ *   - Expense / employee-tx: attributed to `paying_operating_company_id` if set,
+ *     otherwise to the deal's operating_company. If `paying_op != deal_op` the
+ *     row counts as a cross-subsidy (Quersubvention) for transparency.
+ *   - Private transactions: hit the company's pot directly. Einlage += cash,
+ *     Entnahme -= cash.
  */
 export async function getFinancialOverview(
   workspaceId: string,
@@ -397,7 +509,6 @@ export async function getFinancialOverview(
 ) {
   const range = parseMonth(month);
 
-  // Build date conditions per table
   const paymentDateCond = range
     ? and(gte(payments.date, range.start), lt(payments.date, range.end))
     : undefined;
@@ -407,114 +518,69 @@ export async function getFinancialOverview(
   const empTxDateCond = range
     ? and(gte(employeeTransactions.date, range.start), lt(employeeTransactions.date, range.end))
     : undefined;
+  const privateDateCond = range
+    ? and(gte(privateTransactions.date, range.start), lt(privateTransactions.date, range.end))
+    : undefined;
 
-  // ── Totals ──────────────────────────────────────────────────────────────────
-  const [totalIncome] = await db
-    .select({ total: sum(payments.amount) })
+  // ── Raw rows ──────────────────────────────────────────────────────────────
+  const paymentRows = await db
+    .select({
+      dealRecordId: payments.dealRecordId,
+      amount: payments.amount,
+    })
     .from(payments)
     .where(and(eq(payments.workspaceId, workspaceId), paymentDateCond));
 
-  const [totalExpensesRow] = await db
-    .select({ total: sum(expenses.amount) })
+  const expenseRows = await db
+    .select({
+      dealRecordId: expenses.dealRecordId,
+      amount: expenses.amount,
+      category: expenses.category,
+      isTaxDeductible: expenses.isTaxDeductible,
+      payingOperatingCompanyId: expenses.payingOperatingCompanyId,
+    })
     .from(expenses)
     .where(and(eq(expenses.workspaceId, workspaceId), expenseDateCond));
 
-  const [totalEmployeeCostsRow] = await db
-    .select({ total: sum(employeeTransactions.amount) })
-    .from(employeeTransactions)
-    .where(
-      and(
-        eq(employeeTransactions.workspaceId, workspaceId),
-        sql`${employeeTransactions.type} IN ('salary', 'advance')`,
-        empTxDateCond
-      )
-    );
-
-  // ── Breakdowns ───────────────────────────────────────────────────────────────
-  const expensesByCategory = await db
-    .select({ category: expenses.category, total: sum(expenses.amount) })
-    .from(expenses)
-    .where(and(eq(expenses.workspaceId, workspaceId), expenseDateCond))
-    .groupBy(expenses.category);
-
-  const employeeBalances = await db
-    .select({ employeeName: employees.name, total: sum(employeeTransactions.amount) })
+  const empTxRows = await db
+    .select({
+      dealRecordId: employeeTransactions.dealRecordId,
+      amount: employeeTransactions.amount,
+      type: employeeTransactions.type,
+      employeeName: employees.name,
+      payingOperatingCompanyId: employeeTransactions.payingOperatingCompanyId,
+    })
     .from(employeeTransactions)
     .innerJoin(employees, eq(employees.id, employeeTransactions.employeeId))
-    .where(and(eq(employeeTransactions.workspaceId, workspaceId), empTxDateCond))
-    .groupBy(employees.name);
-
-  // ── Per-deal breakdown ────────────────────────────────────────────────────────
-  const dealIncome = await db
-    .select({ dealRecordId: payments.dealRecordId, total: sum(payments.amount) })
-    .from(payments)
-    .where(and(eq(payments.workspaceId, workspaceId), paymentDateCond))
-    .groupBy(payments.dealRecordId);
-
-  const dealExpenses = await db
-    .select({ dealRecordId: expenses.dealRecordId, total: sum(expenses.amount) })
-    .from(expenses)
-    .where(and(eq(expenses.workspaceId, workspaceId), expenseDateCond))
-    .groupBy(expenses.dealRecordId);
-
-  const dealEmpCosts = await db
-    .select({ dealRecordId: employeeTransactions.dealRecordId, total: sum(employeeTransactions.amount) })
-    .from(employeeTransactions)
     .where(
       and(
         eq(employeeTransactions.workspaceId, workspaceId),
         sql`${employeeTransactions.type} IN ('salary', 'advance')`,
         empTxDateCond
       )
-    )
-    .groupBy(employeeTransactions.dealRecordId);
-
-  // Merge into deal map
-  const dealMap = new Map<string, { income: number; expenses: number; empCosts: number }>();
-  for (const r of dealIncome)   { const d = dealMap.get(r.dealRecordId) ?? { income: 0, expenses: 0, empCosts: 0 }; d.income = Number(r.total ?? 0); dealMap.set(r.dealRecordId, d); }
-  for (const r of dealExpenses) { const d = dealMap.get(r.dealRecordId) ?? { income: 0, expenses: 0, empCosts: 0 }; d.expenses = Number(r.total ?? 0); dealMap.set(r.dealRecordId, d); }
-  for (const r of dealEmpCosts) { const d = dealMap.get(r.dealRecordId) ?? { income: 0, expenses: 0, empCosts: 0 }; d.empCosts = Number(r.total ?? 0); dealMap.set(r.dealRecordId, d); }
-
-  // Enrich with deal numbers + names
-  const dealIds = [...dealMap.keys()];
-  const dealNumberRows = dealIds.length
-    ? await db.select({ dealRecordId: dealNumbers.dealRecordId, dealNumber: dealNumbers.dealNumber }).from(dealNumbers).where(sql`${dealNumbers.dealRecordId} = ANY(${sql`ARRAY[${sql.join(dealIds.map(id => sql`${id}`), sql`, `)}]`})`)
-    : [];
-
-  const dealNumberLookup = new Map(dealNumberRows.map(r => [r.dealRecordId, r.dealNumber]));
-
-  // Fetch deal names from record_values
-  let dealNames: Array<{ recordId: string; name: string }> = [];
-  if (dealIds.length) {
-    const rows = await db.execute(
-      sql`SELECT rv.record_id, rv.text_value FROM record_values rv INNER JOIN attributes a ON a.id = rv.attribute_id WHERE a.slug = 'name' AND rv.record_id = ANY(ARRAY[${sql.join(dealIds.map(id => sql`${id}`), sql`, `)}]::text[])`
     );
-    dealNames = (rows as unknown as Array<{ record_id: string; text_value: string }>).map(r => ({ recordId: r.record_id, name: r.text_value }));
-  }
-  const dealNameLookup = new Map(dealNames.map(r => [r.recordId, r.name]));
 
-  const deals = [...dealMap.entries()].map(([id, d]) => ({
-    dealRecordId: id,
-    dealNumber: dealNumberLookup.get(id) ?? "—",
-    name: dealNameLookup.get(id) ?? "Unbekannt",
-    income: d.income,
-    costs: d.expenses + d.empCosts,
-    profit: d.income - d.expenses - d.empCosts,
-  })).sort((a, b) => b.income - a.income);
+  const privateRows = await db
+    .select()
+    .from(privateTransactions)
+    .where(
+      and(eq(privateTransactions.workspaceId, workspaceId), privateDateCond)
+    );
 
-  // ── Per-company breakdown ─────────────────────────────────────────────────────
-  // Look up which operating company each deal belongs to via record_values
-  let companyBreakdown: Array<{
-    companyName: string;
-    income: number;
-    expenses: number;
-    employeeCosts: number;
-    profit: number;
-  }> = [];
+  // ── Deal → operating_company lookup ───────────────────────────────────────
+  const dealIds = [
+    ...new Set([
+      ...paymentRows.map((r) => r.dealRecordId),
+      ...expenseRows.map((r) => r.dealRecordId),
+      ...empTxRows.map((r) => r.dealRecordId),
+    ]),
+  ];
+
+  const dealCompanyLookup = new Map<string, string | null>(); // dealId → op_company_id
+  const companyNames = new Map<string, string>(); // op_company_id → name
 
   if (dealIds.length) {
-    // Find the "operating_company" attribute for the deals object
-    const ocAttrRows = await db
+    const [ocAttr] = await db
       .select({ id: attributes.id })
       .from(attributes)
       .innerJoin(objects, eq(objects.id, attributes.objectId))
@@ -527,10 +593,7 @@ export async function getFinancialOverview(
       )
       .limit(1);
 
-    if (ocAttrRows.length > 0) {
-      const ocAttrId = ocAttrRows[0].id;
-
-      // Get deal → operating company record ID mapping
+    if (ocAttr) {
       const dealOcRows = await db
         .select({
           dealId: recordValues.recordId,
@@ -539,93 +602,272 @@ export async function getFinancialOverview(
         .from(recordValues)
         .where(
           and(
-            eq(recordValues.attributeId, ocAttrId),
-            sql`${recordValues.recordId} = ANY(ARRAY[${sql.join(dealIds.map(id => sql`${id}`), sql`, `)}]::text[])`,
+            eq(recordValues.attributeId, ocAttr.id),
+            sql`${recordValues.recordId} = ANY(ARRAY[${sql.join(dealIds.map((id) => sql`${id}`), sql`, `)}]::text[])`,
             sql`${recordValues.referencedRecordId} IS NOT NULL`
           )
         );
-
-      // Get operating company names
-      const ocIds = [...new Set(dealOcRows.map(r => r.ocRecordId!))];
-      let ocNameLookup = new Map<string, string>();
-      if (ocIds.length) {
-        // Find the "name" attribute for operating_companies object
-        const ocNameAttrRows = await db
-          .select({ id: attributes.id })
-          .from(attributes)
-          .innerJoin(objects, eq(objects.id, attributes.objectId))
-          .where(
-            and(
-              eq(objects.workspaceId, workspaceId),
-              eq(objects.slug, "operating_companies"),
-              eq(attributes.slug, "name")
-            )
-          )
-          .limit(1);
-
-        if (ocNameAttrRows.length > 0) {
-          const nameRows = await db
-            .select({ recordId: recordValues.recordId, name: recordValues.textValue })
-            .from(recordValues)
-            .where(
-              and(
-                eq(recordValues.attributeId, ocNameAttrRows[0].id),
-                sql`${recordValues.recordId} = ANY(ARRAY[${sql.join(ocIds.map(id => sql`${id}`), sql`, `)}]::text[])`
-              )
-            );
-          ocNameLookup = new Map(nameRows.map(r => [r.recordId, r.name ?? "Unbekannt"]));
-        }
-      }
-
-      // Build deal → company name lookup
-      const dealCompanyLookup = new Map(
-        dealOcRows.map(r => [r.dealId, ocNameLookup.get(r.ocRecordId!) ?? "Unbekannt"])
-      );
-
-      // Aggregate financials per company
-      const companyMap = new Map<string, { income: number; expenses: number; empCosts: number }>();
-      for (const [dealId, d] of dealMap) {
-        const companyName = dealCompanyLookup.get(dealId) ?? "Nicht zugewiesen";
-        const existing = companyMap.get(companyName) ?? { income: 0, expenses: 0, empCosts: 0 };
-        existing.income += d.income;
-        existing.expenses += d.expenses;
-        existing.empCosts += d.empCosts;
-        companyMap.set(companyName, existing);
-      }
-
-      companyBreakdown = [...companyMap.entries()].map(([name, d]) => ({
-        companyName: name,
-        income: d.income,
-        expenses: d.expenses,
-        employeeCosts: d.empCosts,
-        profit: d.income - d.expenses - d.empCosts,
-      })).sort((a, b) => b.income - a.income);
+      for (const r of dealOcRows) dealCompanyLookup.set(r.dealId, r.ocRecordId);
     }
   }
 
-  // ── Final summary ────────────────────────────────────────────────────────────
-  const income = Number(totalIncome.total ?? 0);
-  const totalExpenses = Number(totalExpensesRow.total ?? 0);
-  const totalEmployeeCosts = Number(totalEmployeeCostsRow.total ?? 0);
-  const totalCosts = totalExpenses + totalEmployeeCosts;
+  // Collect every op_company we actually see (from deals + payingOp overrides + private)
+  const touchedCompanyIds = new Set<string>();
+  for (const id of dealCompanyLookup.values()) if (id) touchedCompanyIds.add(id);
+  for (const r of expenseRows) if (r.payingOperatingCompanyId) touchedCompanyIds.add(r.payingOperatingCompanyId);
+  for (const r of empTxRows)   if (r.payingOperatingCompanyId) touchedCompanyIds.add(r.payingOperatingCompanyId);
+  for (const r of privateRows) touchedCompanyIds.add(r.operatingCompanyId);
+
+  if (touchedCompanyIds.size) {
+    const [nameAttr] = await db
+      .select({ id: attributes.id })
+      .from(attributes)
+      .innerJoin(objects, eq(objects.id, attributes.objectId))
+      .where(
+        and(
+          eq(objects.workspaceId, workspaceId),
+          eq(objects.slug, "operating_companies"),
+          eq(attributes.slug, "name")
+        )
+      )
+      .limit(1);
+
+    if (nameAttr) {
+      const ids = [...touchedCompanyIds];
+      const nameRows = await db
+        .select({ recordId: recordValues.recordId, name: recordValues.textValue })
+        .from(recordValues)
+        .where(
+          and(
+            eq(recordValues.attributeId, nameAttr.id),
+            sql`${recordValues.recordId} = ANY(ARRAY[${sql.join(ids.map((id) => sql`${id}`), sql`, `)}]::text[])`
+          )
+        );
+      for (const r of nameRows) companyNames.set(r.recordId, r.name ?? "Unbekannt");
+    }
+  }
+
+  // ── Aggregate per company ─────────────────────────────────────────────────
+  const UNASSIGNED = "__unassigned__";
+  const blankRow = (): Omit<CompanyBreakdownRow, "companyId" | "companyName" | "netResult"> => ({
+    income: 0,
+    deductibleExpenses: 0,
+    nonDeductibleExpenses: 0,
+    employeeCosts: 0,
+    crossSubsidyIn: 0,
+    crossSubsidyOut: 0,
+    privateEinlagen: 0,
+    privateEntnahmen: 0,
+  });
+
+  const byCompany = new Map<string, ReturnType<typeof blankRow>>();
+  const bump = (companyId: string | null): ReturnType<typeof blankRow> => {
+    const key = companyId ?? UNASSIGNED;
+    let row = byCompany.get(key);
+    if (!row) {
+      row = blankRow();
+      byCompany.set(key, row);
+    }
+    return row;
+  };
+
+  // Income → Auftrag owner
+  for (const p of paymentRows) {
+    const dealOp = dealCompanyLookup.get(p.dealRecordId) ?? null;
+    bump(dealOp).income += Number(p.amount);
+  }
+
+  // Expenses → effective payer; cross-subsidy bookkeeping
+  for (const e of expenseRows) {
+    const dealOp = dealCompanyLookup.get(e.dealRecordId) ?? null;
+    const effectivePayer = e.payingOperatingCompanyId ?? dealOp;
+    const amt = Number(e.amount);
+    const isCross =
+      e.payingOperatingCompanyId !== null &&
+      dealOp !== null &&
+      e.payingOperatingCompanyId !== dealOp;
+
+    const r = bump(effectivePayer);
+    if (e.isTaxDeductible) r.deductibleExpenses += amt;
+    else r.nonDeductibleExpenses += amt;
+    if (isCross) r.crossSubsidyOut += amt;
+
+    // The "beneficiary" company (deal owner) got its expense paid by someone else.
+    if (isCross && dealOp) {
+      bump(dealOp).crossSubsidyIn += amt;
+    }
+  }
+
+  // Employee costs → same rules
+  for (const t of empTxRows) {
+    const dealOp = dealCompanyLookup.get(t.dealRecordId) ?? null;
+    const effectivePayer = t.payingOperatingCompanyId ?? dealOp;
+    const amt = Number(t.amount);
+    const isCross =
+      t.payingOperatingCompanyId !== null &&
+      dealOp !== null &&
+      t.payingOperatingCompanyId !== dealOp;
+
+    const r = bump(effectivePayer);
+    r.employeeCosts += amt;
+    if (isCross) r.crossSubsidyOut += amt;
+    if (isCross && dealOp) bump(dealOp).crossSubsidyIn += amt;
+  }
+
+  // Private movements → direct hits to a company's pot
+  for (const pt of privateRows) {
+    const amt = Number(pt.amount);
+    const r = bump(pt.operatingCompanyId);
+    if (pt.direction === "einlage") r.privateEinlagen += amt;
+    else r.privateEntnahmen += amt;
+  }
+
+  const companyBreakdown: CompanyBreakdownRow[] = [...byCompany.entries()].map(
+    ([key, r]) => {
+      const companyId = key === UNASSIGNED ? null : key;
+      const companyName =
+        companyId === null
+          ? "Nicht zugewiesen"
+          : companyNames.get(companyId) ?? "Unbekannt";
+      // Net cash result for the company's pot:
+      //   income + crossIn + einlagen  -  deductible - nonDeductible - employeeCosts - crossOut - entnahmen
+      //
+      // Note: expenses attributed via effectivePayer already include the
+      // crossOut amount in deductible/nonDeductible, so subtracting crossOut on
+      // top would double-count. The breakdown below shows crossOut as a
+      // transparency line only; it is NOT subtracted again in netResult.
+      const netResult =
+        r.income +
+        r.crossSubsidyIn +
+        r.privateEinlagen -
+        r.deductibleExpenses -
+        r.nonDeductibleExpenses -
+        r.employeeCosts -
+        r.privateEntnahmen;
+      return {
+        companyId,
+        companyName,
+        ...r,
+        netResult,
+      };
+    }
+  ).sort((a, b) => b.income - a.income);
+
+  // ── Per-deal breakdown (unchanged shape; used by DealsTable) ──────────────
+  const dealMap = new Map<string, { income: number; expenses: number; empCosts: number }>();
+  for (const p of paymentRows) {
+    const d = dealMap.get(p.dealRecordId) ?? { income: 0, expenses: 0, empCosts: 0 };
+    d.income += Number(p.amount);
+    dealMap.set(p.dealRecordId, d);
+  }
+  for (const e of expenseRows) {
+    const d = dealMap.get(e.dealRecordId) ?? { income: 0, expenses: 0, empCosts: 0 };
+    d.expenses += Number(e.amount);
+    dealMap.set(e.dealRecordId, d);
+  }
+  for (const t of empTxRows) {
+    const d = dealMap.get(t.dealRecordId) ?? { income: 0, expenses: 0, empCosts: 0 };
+    d.empCosts += Number(t.amount);
+    dealMap.set(t.dealRecordId, d);
+  }
+
+  let dealNumberLookup = new Map<string, string>();
+  let dealNameLookup = new Map<string, string>();
+  if (dealIds.length) {
+    const dealNumberRows = await db
+      .select({ dealRecordId: dealNumbers.dealRecordId, dealNumber: dealNumbers.dealNumber })
+      .from(dealNumbers)
+      .where(sql`${dealNumbers.dealRecordId} = ANY(ARRAY[${sql.join(dealIds.map((id) => sql`${id}`), sql`, `)}]::text[])`);
+    dealNumberLookup = new Map(dealNumberRows.map((r) => [r.dealRecordId, r.dealNumber]));
+
+    const rows = await db.execute(
+      sql`SELECT rv.record_id, rv.text_value FROM record_values rv INNER JOIN attributes a ON a.id = rv.attribute_id WHERE a.slug = 'name' AND rv.record_id = ANY(ARRAY[${sql.join(dealIds.map((id) => sql`${id}`), sql`, `)}]::text[])`
+    );
+    dealNameLookup = new Map(
+      (rows as unknown as Array<{ record_id: string; text_value: string }>).map((r) => [r.record_id, r.text_value])
+    );
+  }
+
+  const deals = [...dealMap.entries()]
+    .map(([id, d]) => ({
+      dealRecordId: id,
+      dealNumber: dealNumberLookup.get(id) ?? "—",
+      name: dealNameLookup.get(id) ?? "Unbekannt",
+      income: d.income,
+      costs: d.expenses + d.empCosts,
+      profit: d.income - d.expenses - d.empCosts,
+    }))
+    .sort((a, b) => b.income - a.income);
+
+  // ── Expenses by category + employee balances (legacy top-level shape) ─────
+  const expensesByCategory: Record<string, number> = {};
+  for (const e of expenseRows) {
+    expensesByCategory[e.category] =
+      (expensesByCategory[e.category] ?? 0) + Number(e.amount);
+  }
+
+  const employeeTotals = new Map<string, number>();
+  for (const t of empTxRows) {
+    employeeTotals.set(
+      t.employeeName,
+      (employeeTotals.get(t.employeeName) ?? 0) + Number(t.amount)
+    );
+  }
+  const employeeBalances = [...employeeTotals.entries()].map(([name, total]) => ({
+    name,
+    total,
+  }));
+
+  // ── Workspace-level summary ───────────────────────────────────────────────
+  const totalIncome = paymentRows.reduce((s, p) => s + Number(p.amount), 0);
+  const totalDeductibleExpenses = expenseRows
+    .filter((e) => e.isTaxDeductible)
+    .reduce((s, e) => s + Number(e.amount), 0);
+  const totalNonDeductibleExpenses = expenseRows
+    .filter((e) => !e.isTaxDeductible)
+    .reduce((s, e) => s + Number(e.amount), 0);
+  const totalExpenses = totalDeductibleExpenses + totalNonDeductibleExpenses;
+  const totalEmployeeCosts = empTxRows.reduce((s, t) => s + Number(t.amount), 0);
+  const totalPrivateEinlagen = privateRows
+    .filter((p) => p.direction === "einlage")
+    .reduce((s, p) => s + Number(p.amount), 0);
+  const totalPrivateEntnahmen = privateRows
+    .filter((p) => p.direction === "entnahme")
+    .reduce((s, p) => s + Number(p.amount), 0);
+
+  const netProfit =
+    totalIncome + totalPrivateEinlagen
+    - totalExpenses - totalEmployeeCosts - totalPrivateEntnahmen;
 
   return {
     summary: {
-      totalIncome: income,
+      totalIncome,
       totalExpenses,
+      totalDeductibleExpenses,
+      totalNonDeductibleExpenses,
       totalEmployeeCosts,
-      totalCosts,
-      netProfit: income - totalCosts,
-      margin: income > 0 ? Math.round(((income - totalCosts) / income) * 100) : null,
+      totalPrivateEinlagen,
+      totalPrivateEntnahmen,
+      totalCosts: totalExpenses + totalEmployeeCosts,
+      netProfit,
+      margin: totalIncome > 0 ? Math.round((netProfit / totalIncome) * 100) : null,
     },
-    expensesByCategory: Object.fromEntries(
-      expensesByCategory.map((r) => [r.category, Number(r.total ?? 0)])
-    ),
-    employeeBalances: employeeBalances.map((r) => ({
-      name: r.employeeName,
-      total: Number(r.total ?? 0),
-    })),
+    expensesByCategory,
+    employeeBalances,
     deals,
     companyBreakdown,
+    privateTransactions: privateRows.map((p) => ({
+      id: p.id,
+      date: p.date,
+      amount: Number(p.amount),
+      method: p.method,
+      fromPartner: p.fromPartner,
+      toPartner: p.toPartner,
+      operatingCompanyId: p.operatingCompanyId,
+      operatingCompanyName:
+        companyNames.get(p.operatingCompanyId) ?? "Unbekannt",
+      direction: p.direction,
+      notes: p.notes,
+    })),
   };
 }

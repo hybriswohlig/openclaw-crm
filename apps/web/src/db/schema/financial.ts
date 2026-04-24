@@ -6,6 +6,7 @@ import {
   numeric,
   date,
   timestamp,
+  boolean,
   primaryKey,
   index,
   uniqueIndex,
@@ -41,6 +42,17 @@ export const employeeTransactionTypeEnum = pgEnum("employee_transaction_type", [
 export const employeeTransactionStatusEnum = pgEnum(
   "employee_transaction_status",
   ["open", "paid"]
+);
+
+export const paymentMethodEnum = pgEnum("payment_method", [
+  "cash",
+  "bank_transfer",
+  "other",
+]);
+
+export const privateTransactionDirectionEnum = pgEnum(
+  "private_transaction_direction",
+  ["einlage", "entnahme"]
 );
 
 // ─── Deal Number Sequences ─────────────────────────────────────────────────────
@@ -147,6 +159,13 @@ export const expenses = pgTable(
     recipient: text("recipient"),
     paymentMethod: text("payment_method"),
     receiptFile: text("receipt_file"),
+    /** true = steuerlich absetzbar, false = privat/nicht absetzbar */
+    isTaxDeductible: boolean("is_tax_deductible").notNull().default(true),
+    /** When set, another operating company's cash paid this expense — Quersubvention. */
+    payingOperatingCompanyId: text("paying_operating_company_id").references(
+      () => records.id,
+      { onDelete: "set null" }
+    ),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -155,6 +174,7 @@ export const expenses = pgTable(
     index("expenses_workspace_idx").on(table.workspaceId),
     index("expenses_date_idx").on(table.date),
     index("expenses_category_idx").on(table.category),
+    index("expenses_paying_company_idx").on(table.payingOperatingCompanyId),
   ]
 );
 
@@ -187,6 +207,15 @@ export const employeeTransactions = pgTable(
     status: employeeTransactionStatusEnum("status").notNull().default("open"),
     description: text("description"),
     notes: text("notes"),
+    /** How the employee was paid. Nullable = unknown / not yet paid. */
+    paymentMethod: paymentMethodEnum("payment_method"),
+    /** true = steuerlich absetzbar, false = nicht absetzbar */
+    isTaxDeductible: boolean("is_tax_deductible").notNull().default(true),
+    /** When set, another operating company's cash paid this employee — Quersubvention. */
+    payingOperatingCompanyId: text("paying_operating_company_id").references(
+      () => records.id,
+      { onDelete: "set null" }
+    ),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -195,6 +224,9 @@ export const employeeTransactions = pgTable(
     index("employee_transactions_employee_idx").on(table.employeeId),
     index("employee_transactions_workspace_idx").on(table.workspaceId),
     index("employee_transactions_status_idx").on(table.status),
+    index("employee_transactions_paying_company_idx").on(
+      table.payingOperatingCompanyId
+    ),
   ]
 );
 
@@ -225,5 +257,43 @@ export const dealDocuments = pgTable(
     index("deal_documents_deal_idx").on(table.dealRecordId),
     index("deal_documents_workspace_idx").on(table.workspaceId),
     index("deal_documents_type_idx").on(table.documentType),
+  ]
+);
+
+// ─── Private Transactions ─────────────────────────────────────────────────────
+// Partner-level private money movements that bypass a deal:
+//   - Privatentnahme: partner takes money out of a company's pot
+//   - Privateinlage: partner pays something for the business out of their own pocket
+// Always standalone (no deal link). Tied to one operating company.
+
+export const privateTransactions = pgTable(
+  "private_transactions",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    date: date("date").notNull(),
+    amount: numeric("amount", { precision: 14, scale: 2 }).notNull(),
+    method: paymentMethodEnum("method").notNull().default("cash"),
+    /** Partner whose money it is (paying partner). */
+    fromPartner: text("from_partner").notNull(),
+    /** Partner who received the money. Null = paid "on his own" / into the business. */
+    toPartner: text("to_partner"),
+    /** Which operating company's pot this movement belongs to. */
+    operatingCompanyId: text("operating_company_id")
+      .notNull()
+      .references(() => records.id, { onDelete: "restrict" }),
+    direction: privateTransactionDirectionEnum("direction").notNull(),
+    notes: text("notes"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("private_transactions_workspace_idx").on(table.workspaceId),
+    index("private_transactions_date_idx").on(table.date),
+    index("private_transactions_company_idx").on(table.operatingCompanyId),
   ]
 );

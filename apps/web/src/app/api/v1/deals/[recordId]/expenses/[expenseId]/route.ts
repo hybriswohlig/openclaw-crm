@@ -14,7 +14,17 @@ export async function PUT(
 
   const { expenseId } = await params;
   const body = await req.json();
-  const { date, amount, category, description, recipient, paymentMethod, receiptFile } = body;
+  const {
+    date,
+    amount,
+    category,
+    description,
+    recipient,
+    paymentMethod,
+    receiptFile,
+    isTaxDeductible,
+    payingOperatingCompanyId,
+  } = body;
 
   if (category && !VALID_CATEGORIES.includes(category)) {
     return badRequest(`category must be one of: ${VALID_CATEGORIES.join(", ")}`);
@@ -28,6 +38,10 @@ export async function PUT(
     ...(recipient !== undefined && { recipient }),
     ...(paymentMethod !== undefined && { paymentMethod }),
     ...(receiptFile !== undefined && { receiptFile }),
+    ...(isTaxDeductible !== undefined && { isTaxDeductible }),
+    ...(payingOperatingCompanyId !== undefined && {
+      payingOperatingCompanyId: payingOperatingCompanyId || null,
+    }),
   });
   if (!row) return notFound("Expense not found");
   return success(row);

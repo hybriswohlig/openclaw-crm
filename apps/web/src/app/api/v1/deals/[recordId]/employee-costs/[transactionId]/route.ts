@@ -4,6 +4,8 @@ import { updateEmployeeTransaction, deleteEmployeeTransaction } from "@/services
 
 const VALID_TYPES = ["salary", "advance", "reimbursement"] as const;
 const VALID_STATUSES = ["open", "paid"] as const;
+const VALID_METHODS = ["cash", "bank_transfer", "other"] as const;
+type PaymentMethod = typeof VALID_METHODS[number];
 
 export async function PUT(
   req: NextRequest,
@@ -14,13 +16,26 @@ export async function PUT(
 
   const { transactionId } = await params;
   const body = await req.json();
-  const { date, type, amount, status, description, notes } = body;
+  const {
+    date,
+    type,
+    amount,
+    status,
+    description,
+    notes,
+    paymentMethod,
+    isTaxDeductible,
+    payingOperatingCompanyId,
+  } = body;
 
   if (type && !VALID_TYPES.includes(type)) {
     return badRequest(`type must be one of: ${VALID_TYPES.join(", ")}`);
   }
   if (status && !VALID_STATUSES.includes(status)) {
     return badRequest(`status must be one of: ${VALID_STATUSES.join(", ")}`);
+  }
+  if (paymentMethod && paymentMethod !== null && !VALID_METHODS.includes(paymentMethod)) {
+    return badRequest(`paymentMethod must be one of: ${VALID_METHODS.join(", ")}`);
   }
 
   const row = await updateEmployeeTransaction(transactionId, ctx.workspaceId, {
@@ -30,6 +45,9 @@ export async function PUT(
     ...(status !== undefined && { status }),
     ...(description !== undefined && { description }),
     ...(notes !== undefined && { notes }),
+    ...(paymentMethod !== undefined && { paymentMethod: (paymentMethod || null) as PaymentMethod | null }),
+    ...(isTaxDeductible !== undefined && { isTaxDeductible }),
+    ...(payingOperatingCompanyId !== undefined && { payingOperatingCompanyId: payingOperatingCompanyId || null }),
   });
   if (!row) return notFound("Transaction not found");
   return success(row);

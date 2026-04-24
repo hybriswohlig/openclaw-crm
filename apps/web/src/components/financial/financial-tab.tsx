@@ -58,6 +58,8 @@ interface Expense {
   description: string | null;
   recipient: string | null;
   paymentMethod: string | null;
+  isTaxDeductible: boolean;
+  payingOperatingCompanyId: string | null;
 }
 
 interface EmployeeCost {
@@ -69,6 +71,14 @@ interface EmployeeCost {
   amount: string;
   status: "open" | "paid";
   description: string | null;
+  paymentMethod: "cash" | "bank_transfer" | "other" | null;
+  isTaxDeductible: boolean;
+  payingOperatingCompanyId: string | null;
+}
+
+interface OperatingCompany {
+  id: string;
+  name: string;
 }
 
 interface Employee {
@@ -190,10 +200,12 @@ function ProfitKPIs({ profit }: { profit: ProfitSummary }) {
 function PaymentsSection({
   recordId,
   payments,
+  dealValue,
   onChanged,
 }: {
   recordId: string;
   payments: Payment[];
+  dealValue: number | null;
   onChanged: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -266,6 +278,11 @@ function PaymentsSection({
     onChanged();
   }
 
+  const totalPaid = payments.reduce((s, p) => s + Number(p.amount), 0);
+  const outstanding = dealValue != null ? Math.max(0, dealValue - totalPaid) : null;
+  const progress = dealValue && dealValue > 0 ? Math.min(100, (totalPaid / dealValue) * 100) : null;
+  const fullyPaid = dealValue != null && totalPaid + 0.005 >= dealValue;
+
   return (
     <section>
       <div className="flex items-center justify-between mb-3">
@@ -273,7 +290,7 @@ function PaymentsSection({
           Zahlungseingänge
           {payments.length > 0 && (
             <span className="ml-2 text-xs font-normal text-muted-foreground">
-              {eur(payments.reduce((s, p) => s + Number(p.amount), 0))} gesamt
+              {eur(totalPaid)} gesamt
             </span>
           )}
         </h3>
@@ -282,6 +299,28 @@ function PaymentsSection({
           Hinzufügen
         </Button>
       </div>
+
+      {dealValue != null && dealValue > 0 && (
+        <div className="mb-3 rounded-lg border border-border bg-muted/30 p-3 space-y-2">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">
+              <span className="font-medium text-foreground">{eur(totalPaid)}</span>
+              {" von "}
+              <span className="font-medium text-foreground">{eur(dealValue)}</span>
+              {" bezahlt"}
+            </span>
+            <span className={`font-medium tabular-nums ${fullyPaid ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}>
+              {fullyPaid ? "Vollständig bezahlt" : `${eur(outstanding ?? 0)} offen`}
+            </span>
+          </div>
+          <div className="h-2 rounded-full bg-muted overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${fullyPaid ? "bg-emerald-500" : "bg-amber-500"}`}
+              style={{ width: `${progress ?? 0}%` }}
+            />
+          </div>
+        </div>
+      )}
 
       {payments.length === 0 ? (
         <p className="text-sm text-muted-foreground py-4 text-center">
@@ -426,10 +465,12 @@ function PaymentsSection({
 function ExpensesSection({
   recordId,
   expenses,
+  operatingCompanies,
   onChanged,
 }: {
   recordId: string;
   expenses: Expense[];
+  operatingCompanies: OperatingCompany[];
   onChanged: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -443,11 +484,13 @@ function ExpensesSection({
     description: "",
     recipient: "",
     paymentMethod: "",
+    isTaxDeductible: true,
+    payingOperatingCompanyId: "",
   });
 
   function openAdd() {
     setEditing(null);
-    setForm({ date: new Date().toISOString().slice(0, 10), amount: "", category: "other", description: "", recipient: "", paymentMethod: "" });
+    setForm({ date: new Date().toISOString().slice(0, 10), amount: "", category: "other", description: "", recipient: "", paymentMethod: "", isTaxDeductible: true, payingOperatingCompanyId: "" });
     setOpen(true);
   }
 
@@ -460,6 +503,8 @@ function ExpensesSection({
       description: e.description ?? "",
       recipient: e.recipient ?? "",
       paymentMethod: e.paymentMethod ?? "",
+      isTaxDeductible: e.isTaxDeductible,
+      payingOperatingCompanyId: e.payingOperatingCompanyId ?? "",
     });
     setOpen(true);
   }
@@ -475,6 +520,8 @@ function ExpensesSection({
         description: form.description || null,
         recipient: form.recipient || null,
         paymentMethod: form.paymentMethod || null,
+        isTaxDeductible: form.isTaxDeductible,
+        payingOperatingCompanyId: form.payingOperatingCompanyId || null,
       };
       if (editing) {
         await fetch(`/api/v1/deals/${recordId}/expenses/${editing.id}`, {
@@ -651,6 +698,32 @@ function ExpensesSection({
                 </select>
               </div>
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Bezahlt durch andere Firma</label>
+                <select
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={form.payingOperatingCompanyId}
+                  onChange={(e) => setForm((f) => ({ ...f, payingOperatingCompanyId: e.target.value }))}
+                >
+                  <option value="">— (Standard: Auftragsfirma)</option>
+                  {operatingCompanies.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-end">
+                <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-input"
+                    checked={form.isTaxDeductible}
+                    onChange={(e) => setForm((f) => ({ ...f, isTaxDeductible: e.target.checked }))}
+                  />
+                  Steuerlich absetzbar
+                </label>
+              </div>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>Abbrechen</Button>
@@ -671,11 +744,13 @@ function EmployeeCostsSection({
   recordId,
   costs,
   employees,
+  operatingCompanies,
   onChanged,
 }: {
   recordId: string;
   costs: EmployeeCost[];
   employees: Employee[];
+  operatingCompanies: OperatingCompany[];
   onChanged: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -689,6 +764,9 @@ function EmployeeCostsSection({
     amount: "",
     status: "open" as "open" | "paid",
     description: "",
+    paymentMethod: "" as "" | "cash" | "bank_transfer" | "other",
+    isTaxDeductible: true,
+    payingOperatingCompanyId: "",
   });
 
   function openAdd() {
@@ -700,6 +778,9 @@ function EmployeeCostsSection({
       amount: "",
       status: "open",
       description: "",
+      paymentMethod: "",
+      isTaxDeductible: true,
+      payingOperatingCompanyId: "",
     });
     setOpen(true);
   }
@@ -713,6 +794,9 @@ function EmployeeCostsSection({
       amount: String(Number(c.amount).toFixed(2)),
       status: c.status,
       description: c.description ?? "",
+      paymentMethod: c.paymentMethod ?? "",
+      isTaxDeductible: c.isTaxDeductible,
+      payingOperatingCompanyId: c.payingOperatingCompanyId ?? "",
     });
     setOpen(true);
   }
@@ -728,6 +812,9 @@ function EmployeeCostsSection({
         amount: form.amount,
         status: form.status,
         description: form.description || null,
+        paymentMethod: form.paymentMethod || null,
+        isTaxDeductible: form.isTaxDeductible,
+        payingOperatingCompanyId: form.payingOperatingCompanyId || null,
       };
       if (editing) {
         await fetch(`/api/v1/deals/${recordId}/employee-costs/${editing.id}`, {
@@ -929,6 +1016,45 @@ function EmployeeCostsSection({
                 value={form.description}
                 onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
               />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Zahlungsart</label>
+                <select
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={form.paymentMethod}
+                  onChange={(e) => setForm((f) => ({ ...f, paymentMethod: e.target.value as typeof form.paymentMethod }))}
+                >
+                  <option value="">—</option>
+                  <option value="cash">Bar</option>
+                  <option value="bank_transfer">Überweisung</option>
+                  <option value="other">Sonstiges</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Bezahlt durch andere Firma</label>
+                <select
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={form.payingOperatingCompanyId}
+                  onChange={(e) => setForm((f) => ({ ...f, payingOperatingCompanyId: e.target.value }))}
+                >
+                  <option value="">— (Standard: Auftragsfirma)</option>
+                  {operatingCompanies.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-input"
+                  checked={form.isTaxDeductible}
+                  onChange={(e) => setForm((f) => ({ ...f, isTaxDeductible: e.target.checked }))}
+                />
+                Steuerlich absetzbar
+              </label>
             </div>
           </div>
           <DialogFooter>
@@ -1140,15 +1266,17 @@ export function FinancialTab({ recordId }: { recordId: string }) {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [costs, setCosts] = useState<EmployeeCost[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [operatingCompanies, setOperatingCompanies] = useState<OperatingCompany[]>([]);
   const [documents, setDocuments] = useState<DealDocument[]>([]);
   const [dealNumber, setDealNumber] = useState<string | null>(null);
+  const [dealValue, setDealValue] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [profitRes, paymentsRes, expensesRes, costsRes, empRes, numRes, docsRes] = await Promise.all([
+      const [profitRes, paymentsRes, expensesRes, costsRes, empRes, numRes, docsRes, ocRes, dealRes] = await Promise.all([
         fetch(`/api/v1/deals/${recordId}/profit`),
         fetch(`/api/v1/deals/${recordId}/payments`),
         fetch(`/api/v1/deals/${recordId}/expenses`),
@@ -1156,6 +1284,8 @@ export function FinancialTab({ recordId }: { recordId: string }) {
         fetch(`/api/v1/employees`),
         fetch(`/api/v1/deals/${recordId}/deal-number`),
         fetch(`/api/v1/deals/${recordId}/documents`),
+        fetch(`/api/v1/operating-companies`),
+        fetch(`/api/v1/objects/deals/records/${recordId}`),
       ]);
       if (profitRes.ok) setProfit(await profitRes.json().then((r) => r.data));
       if (paymentsRes.ok) setPayments(await paymentsRes.json().then((r) => r.data));
@@ -1164,6 +1294,13 @@ export function FinancialTab({ recordId }: { recordId: string }) {
       if (empRes.ok) setEmployees(await empRes.json().then((r) => r.data));
       if (numRes.ok) setDealNumber(await numRes.json().then((r) => r.data.dealNumber));
       if (docsRes.ok) setDocuments(await docsRes.json().then((r) => r.data));
+      if (ocRes.ok) setOperatingCompanies(await ocRes.json().then((r) => r.data));
+      if (dealRes.ok) {
+        const dealJson = await dealRes.json();
+        const valueAttr = dealJson?.data?.values?.value;
+        const n = valueAttr != null ? Number(valueAttr) : NaN;
+        setDealValue(Number.isFinite(n) ? n : null);
+      }
     } finally {
       setLoading(false);
     }
@@ -1199,11 +1336,11 @@ export function FinancialTab({ recordId }: { recordId: string }) {
       {profit && <ProfitKPIs profit={profit} />}
 
       <div className="border-t border-border pt-6">
-        <PaymentsSection recordId={recordId} payments={payments} onChanged={refresh} />
+        <PaymentsSection recordId={recordId} payments={payments} dealValue={dealValue} onChanged={refresh} />
       </div>
 
       <div className="border-t border-border pt-6">
-        <ExpensesSection recordId={recordId} expenses={expenses} onChanged={refresh} />
+        <ExpensesSection recordId={recordId} expenses={expenses} operatingCompanies={operatingCompanies} onChanged={refresh} />
       </div>
 
       <div className="border-t border-border pt-6">
@@ -1211,6 +1348,7 @@ export function FinancialTab({ recordId }: { recordId: string }) {
           recordId={recordId}
           costs={costs}
           employees={employees}
+          operatingCompanies={operatingCompanies}
           onChanged={refresh}
         />
       </div>

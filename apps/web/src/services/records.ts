@@ -15,6 +15,8 @@ interface AttributeInfo {
   slug: string;
   type: AttributeType;
   isMultiselect: boolean;
+  /** For `record_reference` attributes: the object slug the picker is scoped to. */
+  targetObjectSlug?: string;
 }
 
 /** Flat record with values keyed by attribute slug */
@@ -41,11 +43,16 @@ async function loadAttributes(objectId: string) {
   const byId = new Map<string, AttributeInfo & { slug: string }>();
 
   for (const a of attrs) {
+    const cfg = (a.config ?? {}) as { targetObjectSlug?: string };
     const info: AttributeInfo = {
       id: a.id,
       slug: a.slug,
       type: a.type as AttributeType,
       isMultiselect: a.isMultiselect,
+      targetObjectSlug:
+        a.type === "record_reference" && typeof cfg.targetObjectSlug === "string"
+          ? cfg.targetObjectSlug
+          : undefined,
     };
     bySlug.set(a.slug, info);
     byId.set(a.id, info);
@@ -483,6 +490,50 @@ export async function deleteRecord(objectId: string, recordId: string) {
   return existing[0];
 }
 
+/**
+ * Verify that proposed record_reference values point at records whose object
+ * slug matches the attribute's `config.targetObjectSlug`. Returns a Set of IDs
+ * that are valid. Invalid ones are dropped by the caller.
+ */
+async function validateRecordReferences(
+  proposed: Array<{ attrInfo: AttributeInfo; refId: string }>
+): Promise<Set<string>> {
+  const valid = new Set<string>();
+  const needed = proposed.filter((p) => p.attrInfo.targetObjectSlug);
+  if (needed.length === 0) {
+    // No scoped record-reference values — everything passes.
+    for (const p of proposed) valid.add(keyRefCheck(p.attrInfo.id, p.refId));
+    return valid;
+  }
+
+  const ids = [...new Set(needed.map((p) => p.refId))];
+  const rows = ids.length
+    ? await db
+        .select({ id: records.id, slug: objects.slug })
+        .from(records)
+        .innerJoin(objects, eq(objects.id, records.objectId))
+        .where(inArray(records.id, ids))
+    : [];
+  const idToSlug = new Map(rows.map((r) => [r.id, r.slug]));
+
+  for (const p of proposed) {
+    if (!p.attrInfo.targetObjectSlug) {
+      valid.add(keyRefCheck(p.attrInfo.id, p.refId));
+      continue;
+    }
+    const actualSlug = idToSlug.get(p.refId);
+    if (actualSlug && actualSlug === p.attrInfo.targetObjectSlug) {
+      valid.add(keyRefCheck(p.attrInfo.id, p.refId));
+    }
+    // else: silently drop — picker should not have offered this option
+  }
+  return valid;
+}
+
+function keyRefCheck(attrId: string, refId: string) {
+  return `${attrId}::${refId}`;
+}
+
 /** Write attribute values for a record */
 async function writeValues(
   recordId: string,
@@ -490,6 +541,20 @@ async function writeValues(
   bySlug: Map<string, AttributeInfo>,
   createdBy: string | null
 ) {
+  // Pre-collect every proposed record_reference value so we can validate them
+  // in one query (scope = config.targetObjectSlug).
+  const proposedRefs: Array<{ attrInfo: AttributeInfo; refId: string }> = [];
+  for (const [slug, value] of Object.entries(input)) {
+    const attrInfo = bySlug.get(slug);
+    if (!attrInfo || attrInfo.type !== "record_reference") continue;
+    if (value === null || value === undefined) continue;
+    const values = Array.isArray(value) ? value : [value];
+    for (const v of values) {
+      if (typeof v === "string" && v) proposedRefs.push({ attrInfo, refId: v });
+    }
+  }
+  const validRefKeys = await validateRecordReferences(proposedRefs);
+
   const rows: (typeof recordValues.$inferInsert)[] = [];
 
   for (const [slug, value] of Object.entries(input)) {
@@ -497,12 +562,28 @@ async function writeValues(
     if (!attrInfo) continue;
     if (value === null || value === undefined) continue;
 
+    const isRecordRef = attrInfo.type === "record_reference";
+
     if (attrInfo.isMultiselect && Array.isArray(value)) {
       for (let i = 0; i < value.length; i++) {
+        if (
+          isRecordRef &&
+          typeof value[i] === "string" &&
+          !validRefKeys.has(keyRefCheck(attrInfo.id, value[i] as string))
+        ) {
+          continue; // cross-type reference — drop silently
+        }
         const row = buildValueRow(recordId, attrInfo, value[i], i, createdBy);
         if (row) rows.push(row);
       }
     } else {
+      if (
+        isRecordRef &&
+        typeof value === "string" &&
+        !validRefKeys.has(keyRefCheck(attrInfo.id, value))
+      ) {
+        continue; // cross-type reference — drop silently
+      }
       const row = buildValueRow(recordId, attrInfo, value, 0, createdBy);
       if (row) rows.push(row);
     }

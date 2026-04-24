@@ -4,6 +4,8 @@ import { listEmployeeTransactions, createEmployeeTransaction } from "@/services/
 
 const VALID_TYPES = ["salary", "advance", "reimbursement"] as const;
 const VALID_STATUSES = ["open", "paid"] as const;
+const VALID_METHODS = ["cash", "bank_transfer", "other"] as const;
+type PaymentMethod = typeof VALID_METHODS[number];
 
 export async function GET(
   req: NextRequest,
@@ -26,7 +28,18 @@ export async function POST(
 
   const { recordId } = await params;
   const body = await req.json();
-  const { employeeId, date, type, amount, status, description, notes } = body;
+  const {
+    employeeId,
+    date,
+    type,
+    amount,
+    status,
+    description,
+    notes,
+    paymentMethod,
+    isTaxDeductible,
+    payingOperatingCompanyId,
+  } = body;
 
   if (!employeeId) return badRequest("employeeId is required");
   if (!date || !amount) return badRequest("date and amount are required");
@@ -35,6 +48,9 @@ export async function POST(
   }
   if (status && !VALID_STATUSES.includes(status)) {
     return badRequest(`status must be one of: ${VALID_STATUSES.join(", ")}`);
+  }
+  if (paymentMethod && !VALID_METHODS.includes(paymentMethod)) {
+    return badRequest(`paymentMethod must be one of: ${VALID_METHODS.join(", ")}`);
   }
 
   const row = await createEmployeeTransaction(ctx.workspaceId, recordId, {
@@ -45,6 +61,9 @@ export async function POST(
     status: status ?? "open",
     description,
     notes,
+    paymentMethod: (paymentMethod as PaymentMethod | undefined) ?? null,
+    isTaxDeductible: typeof isTaxDeductible === "boolean" ? isTaxDeductible : undefined,
+    payingOperatingCompanyId: payingOperatingCompanyId ?? null,
   });
   return success(row, 201);
 }
