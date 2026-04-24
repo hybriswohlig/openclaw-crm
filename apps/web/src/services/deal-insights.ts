@@ -319,18 +319,33 @@ const InsightsSchema = z.object({
       "Human-readable list of important fields that are still missing and should be asked of the customer next. Sorted by priority (most important first)."
     ),
   criticalMissing: z
-    .array(
-      z.object({
-        field: z.string().describe(
-          "Short slug of the critical missing field, e.g. 'move_date', 'move_from_address', 'move_to_address', 'floors_from', 'floors_to', 'elevator_from', 'elevator_to', 'customer_phone', 'volume_cbm'."
-        ),
-        question: z.string().describe(
-          "A polite German question the agent should ask the customer to fill this gap (one sentence)."
-        ),
-      })
+    .preprocess(
+      // Smaller / free models frequently return `criticalMissing` as an array
+      // of strings (just the question text) instead of the requested
+      // {field, question} objects. Coerce strings to objects so the whole
+      // parse doesn't fail on that one deviation.
+      (v) => {
+        if (!Array.isArray(v)) return v;
+        return v.map((item) => {
+          if (typeof item === "string") return { field: "", question: item };
+          if (item && typeof item === "object") return item;
+          return item;
+        });
+      },
+      z
+        .array(
+          z.object({
+            field: z.string().default("").describe(
+              "Short slug of the critical missing field, e.g. 'move_date', 'move_from_address', 'move_to_address', 'floors_from', 'floors_to', 'elevator_from', 'elevator_to', 'customer_phone', 'volume_cbm'."
+            ),
+            question: z.string().describe(
+              "A polite German question the agent should ask the customer to fill this gap (one sentence)."
+            ),
+          })
+        )
+        .optional()
+        .default([])
     )
-    .optional()
-    .default([])
     .describe(
       "Subset of the most critical missing fields that block planning the Auftrag (the day-of job sheet). For each, produce a ready-to-send German question. Only include fields where knowing the answer materially changes what tools / vehicle / workers we send. Empty array if nothing critical is missing."
     ),
@@ -342,18 +357,31 @@ const InsightsSchema = z.object({
       "Verbatim or paraphrased customer questions that have NOT been answered by the agent yet. Empty array if the customer has no open questions."
     ),
   legalFlags: z
-    .array(
-      z.object({
-        topic: z.string().describe(
-          "Short label, e.g. 'Schadensregelung', 'Stornierung', 'Haftung'."
-        ),
-        reason: z.string().describe(
-          "One sentence explaining what the customer said that triggers this flag and what we should link to (typically AGB section)."
-        ),
-      })
+    .preprocess(
+      // Same tolerance as criticalMissing: coerce stray strings into the
+      // {topic, reason} shape rather than hard-failing on a minor LLM slip.
+      (v) => {
+        if (!Array.isArray(v)) return v;
+        return v.map((item) => {
+          if (typeof item === "string") return { topic: "", reason: item };
+          if (item && typeof item === "object") return item;
+          return item;
+        });
+      },
+      z
+        .array(
+          z.object({
+            topic: z.string().default("").describe(
+              "Short label, e.g. 'Schadensregelung', 'Stornierung', 'Haftung'."
+            ),
+            reason: z.string().describe(
+              "One sentence explaining what the customer said that triggers this flag and what we should link to (typically AGB section)."
+            ),
+          })
+        )
+        .optional()
+        .default([])
     )
-    .optional()
-    .default([])
     .describe(
       "Topics where we should send the customer our AGB / legal information. Empty array if nothing legally noteworthy."
     ),
