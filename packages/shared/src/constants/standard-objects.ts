@@ -211,6 +211,9 @@ export const STANDARD_OBJECTS: StandardObject[] = [
         },
       },
       { slug: "owner", title: "Owner", type: "actor_reference", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      // Stamps for the n8n insights auto-loop and reminder bot. Read by external orchestration to gate work.
+      { slug: "last_insights_at", title: "Last KI-Analyse", type: "timestamp", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      { slug: "last_reminder_at", title: "Last reminder sent", type: "timestamp", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
     ],
   },
   {
