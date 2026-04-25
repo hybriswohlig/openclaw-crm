@@ -216,6 +216,8 @@ export const employeeTransactions = pgTable(
       () => records.id,
       { onDelete: "set null" }
     ),
+    /** Receipt / invoice file as base64 data URL (e.g. "data:image/jpeg;base64,…"). */
+    receiptFile: text("receipt_file"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },

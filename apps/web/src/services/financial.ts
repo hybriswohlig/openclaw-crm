@@ -212,6 +212,7 @@ export async function listEmployeeTransactions(dealRecordId: string) {
       paymentMethod: employeeTransactions.paymentMethod,
       isTaxDeductible: employeeTransactions.isTaxDeductible,
       payingOperatingCompanyId: employeeTransactions.payingOperatingCompanyId,
+      receiptFile: employeeTransactions.receiptFile,
       createdAt: employeeTransactions.createdAt,
       updatedAt: employeeTransactions.updatedAt,
     })
@@ -237,6 +238,7 @@ export async function createEmployeeTransaction(
     paymentMethod?: PaymentMethod | null;
     isTaxDeductible?: boolean;
     payingOperatingCompanyId?: string | null;
+    receiptFile?: string | null;
   }
 ) {
   const [row] = await db
@@ -261,6 +263,7 @@ export async function updateEmployeeTransaction(
     paymentMethod: PaymentMethod | null;
     isTaxDeductible: boolean;
     payingOperatingCompanyId: string | null;
+    receiptFile: string | null;
   }>
 ) {
   const [row] = await db

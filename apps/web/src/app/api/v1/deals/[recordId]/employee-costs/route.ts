@@ -39,6 +39,7 @@ export async function POST(
     paymentMethod,
     isTaxDeductible,
     payingOperatingCompanyId,
+    receiptFile,
   } = body;
 
   if (!employeeId) return badRequest("employeeId is required");
@@ -64,6 +65,7 @@ export async function POST(
     paymentMethod: (paymentMethod as PaymentMethod | undefined) ?? null,
     isTaxDeductible: typeof isTaxDeductible === "boolean" ? isTaxDeductible : undefined,
     payingOperatingCompanyId: payingOperatingCompanyId ?? null,
+    receiptFile: receiptFile ?? null,
   });
   return success(row, 201);
 }

@@ -165,6 +165,8 @@ export interface EmployeeTransactionRow {
   dealRecordId: string;
   dealNumber: string | null;
   dealName: string;
+  isTaxDeductible: boolean;
+  hasReceipt: boolean;
 }
 
 export interface EmployeeDetailExtras {
@@ -175,6 +177,12 @@ export interface EmployeeDetailExtras {
     receivedTotal: number;
     outstandingTotal: number;
     outOfPocketOpen: number;
+    /** Sum of amount_paid across all transactions where is_tax_deductible = true. */
+    deductibleReceived: number;
+    /** Sum of amount_paid across all transactions where is_tax_deductible = false. */
+    nonDeductibleReceived: number;
+    /** Number of transactions with a receipt attached. */
+    receiptCount: number;
   };
 }
 
@@ -246,6 +254,8 @@ export async function getEmployeeDetailExtras(
       dealRecordId: t.dealRecordId,
       dealNumber: info?.dealNumber ?? null,
       dealName: info?.name ?? "(Deal gelöscht)",
+      isTaxDeductible: t.isTaxDeductible,
+      hasReceipt: !!t.receiptFile,
     };
   });
 
@@ -261,12 +271,26 @@ export async function getEmployeeDetailExtras(
   const receivedTotal = paymentsReceived.reduce((sum, t) => sum + t.amountPaid, 0);
   const outstandingTotal = enriched.reduce((sum, t) => sum + t.amountOutstanding, 0);
   const outOfPocketOpen = outOfPocket.reduce((sum, t) => sum + t.amountOutstanding, 0);
+  const deductibleReceived = enriched
+    .filter((t) => t.isTaxDeductible)
+    .reduce((sum, t) => sum + t.amountPaid, 0);
+  const nonDeductibleReceived = enriched
+    .filter((t) => !t.isTaxDeductible)
+    .reduce((sum, t) => sum + t.amountPaid, 0);
+  const receiptCount = enriched.filter((t) => t.hasReceipt).length;
 
   return {
     auftraege,
     paymentsReceived,
     outOfPocket,
-    totals: { receivedTotal, outstandingTotal, outOfPocketOpen },
+    totals: {
+      receivedTotal,
+      outstandingTotal,
+      outOfPocketOpen,
+      deductibleReceived,
+      nonDeductibleReceived,
+      receiptCount,
+    },
   };
 }
 

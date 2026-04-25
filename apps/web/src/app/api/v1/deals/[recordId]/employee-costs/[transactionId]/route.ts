@@ -26,6 +26,7 @@ export async function PUT(
     paymentMethod,
     isTaxDeductible,
     payingOperatingCompanyId,
+    receiptFile,
   } = body;
 
   if (type && !VALID_TYPES.includes(type)) {
@@ -48,6 +49,7 @@ export async function PUT(
     ...(paymentMethod !== undefined && { paymentMethod: (paymentMethod || null) as PaymentMethod | null }),
     ...(isTaxDeductible !== undefined && { isTaxDeductible }),
     ...(payingOperatingCompanyId !== undefined && { payingOperatingCompanyId: payingOperatingCompanyId || null }),
+    ...(receiptFile !== undefined && { receiptFile: receiptFile || null }),
   });
   if (!row) return notFound("Transaction not found");
   return success(row);

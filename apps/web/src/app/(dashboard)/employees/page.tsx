@@ -17,6 +17,9 @@ import {
   Receipt,
   AlertCircle,
   CalendarClock,
+  FileText,
+  Scale,
+  ShieldOff,
 } from "lucide-react";
 import { EmployeeAvatar } from "@/components/employees/employee-avatar";
 import { cn } from "@/lib/utils";
@@ -56,6 +59,8 @@ interface TransactionRow {
   dealRecordId: string;
   dealNumber: string | null;
   dealName: string;
+  isTaxDeductible: boolean;
+  hasReceipt: boolean;
 }
 
 interface EmployeeDetail {
@@ -63,7 +68,14 @@ interface EmployeeDetail {
   auftraege: AuftragRow[];
   paymentsReceived: TransactionRow[];
   outOfPocket: TransactionRow[];
-  totals: { receivedTotal: number; outstandingTotal: number; outOfPocketOpen: number };
+  totals: {
+    receivedTotal: number;
+    outstandingTotal: number;
+    outOfPocketOpen: number;
+    deductibleReceived: number;
+    nonDeductibleReceived: number;
+    receiptCount: number;
+  };
 }
 
 const TYPE_LABEL: Record<TransactionRow["type"], string> = {
@@ -449,9 +461,25 @@ function EmployeeDetailView({
   return (
     <div className="space-y-5">
       {/* Summary stats */}
-      <div className="flex flex-wrap items-center gap-4 text-xs">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
         <Stat label="Aufträge" value={String(detail.auftraege.length)} icon={<Briefcase className="h-3.5 w-3.5" />} />
         <Stat label="Erhalten" value={fmtEUR(detail.totals.receivedTotal)} icon={<Wallet className="h-3.5 w-3.5" />} />
+        <Stat
+          label="Abzugsfähig"
+          value={fmtEUR(detail.totals.deductibleReceived)}
+          icon={<Scale className="h-3.5 w-3.5" />}
+        />
+        <Stat
+          label="Nicht abz."
+          value={fmtEUR(detail.totals.nonDeductibleReceived)}
+          icon={<ShieldOff className="h-3.5 w-3.5" />}
+          highlight={detail.totals.nonDeductibleReceived > 0}
+        />
+        <Stat
+          label="Belege"
+          value={String(detail.totals.receiptCount)}
+          icon={<FileText className="h-3.5 w-3.5" />}
+        />
         <Stat
           label="Offene Auslagen"
           value={fmtEUR(detail.totals.outOfPocketOpen)}
@@ -596,6 +624,8 @@ function TransactionTable({
             <th className="text-right px-3 py-1.5 font-medium">Bezahlt</th>
             {showOutstanding && <th className="text-right px-3 py-1.5 font-medium">Offen</th>}
             <th className="text-left px-3 py-1.5 font-medium">Status</th>
+            <th className="text-left px-3 py-1.5 font-medium">Beleg</th>
+            <th className="text-left px-3 py-1.5 font-medium">Steuer</th>
             <th className="text-left px-3 py-1.5 font-medium">Fällig</th>
             <th className="text-left px-3 py-1.5 font-medium">Kommentar</th>
             <th className="px-3 py-1.5" />
@@ -631,6 +661,35 @@ function TransactionTable({
                   <span className={cn("inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium", sb.cls)}>
                     {sb.label}
                   </span>
+                </td>
+                <td className="px-3 py-1.5 whitespace-nowrap">
+                  {t.hasReceipt ? (
+                    <a
+                      href={`/api/v1/employee-transactions/${t.id}/receipt`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                      title="Beleg ansehen"
+                    >
+                      <FileText className="h-3.5 w-3.5" />
+                      ansehen
+                    </a>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">—</span>
+                  )}
+                </td>
+                <td className="px-3 py-1.5 whitespace-nowrap text-xs">
+                  {t.isTaxDeductible ? (
+                    <span className="inline-flex items-center gap-1 text-emerald-700">
+                      <Scale className="h-3 w-3" />
+                      abz.
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-muted-foreground">
+                      <ShieldOff className="h-3 w-3" />
+                      nicht abz.
+                    </span>
+                  )}
                 </td>
                 <td className="px-3 py-1.5 whitespace-nowrap text-xs">
                   {t.dueDate ? (

@@ -74,6 +74,7 @@ interface EmployeeCost {
   paymentMethod: "cash" | "bank_transfer" | "other" | null;
   isTaxDeductible: boolean;
   payingOperatingCompanyId: string | null;
+  receiptFile: string | null;
 }
 
 interface OperatingCompany {
@@ -767,6 +768,8 @@ function EmployeeCostsSection({
     paymentMethod: "" as "" | "cash" | "bank_transfer" | "other",
     isTaxDeductible: true,
     payingOperatingCompanyId: "",
+    receiptFile: null as string | null,
+    receiptName: "" as string,
   });
 
   function openAdd() {
@@ -781,6 +784,8 @@ function EmployeeCostsSection({
       paymentMethod: "",
       isTaxDeductible: true,
       payingOperatingCompanyId: "",
+      receiptFile: null,
+      receiptName: "",
     });
     setOpen(true);
   }
@@ -797,8 +802,21 @@ function EmployeeCostsSection({
       paymentMethod: c.paymentMethod ?? "",
       isTaxDeductible: c.isTaxDeductible,
       payingOperatingCompanyId: c.payingOperatingCompanyId ?? "",
+      receiptFile: c.receiptFile,
+      receiptName: c.receiptFile ? "Vorhandener Beleg" : "",
     });
     setOpen(true);
+  }
+
+  async function handleReceiptPick(file: File) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result === "string") {
+        setForm((f) => ({ ...f, receiptFile: result, receiptName: file.name }));
+      }
+    };
+    reader.readAsDataURL(file);
   }
 
   async function handleSave() {
@@ -815,6 +833,7 @@ function EmployeeCostsSection({
         paymentMethod: form.paymentMethod || null,
         isTaxDeductible: form.isTaxDeductible,
         payingOperatingCompanyId: form.payingOperatingCompanyId || null,
+        receiptFile: form.receiptFile,
       };
       if (editing) {
         await fetch(`/api/v1/deals/${recordId}/employee-costs/${editing.id}`, {
@@ -1044,6 +1063,32 @@ function EmployeeCostsSection({
                   ))}
                 </select>
               </div>
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Beleg / Rechnung (Bild oder PDF)</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="file"
+                  accept="image/*,application/pdf"
+                  className="block w-full text-sm text-muted-foreground file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border file:border-input file:bg-background file:text-sm file:cursor-pointer hover:file:bg-muted"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleReceiptPick(f);
+                  }}
+                />
+                {form.receiptFile && (
+                  <button
+                    type="button"
+                    onClick={() => setForm((f) => ({ ...f, receiptFile: null, receiptName: "" }))}
+                    className="text-xs text-muted-foreground hover:text-destructive shrink-0"
+                  >
+                    Entfernen
+                  </button>
+                )}
+              </div>
+              {form.receiptName && (
+                <p className="text-[11px] text-muted-foreground mt-1 truncate">{form.receiptName}</p>
+              )}
             </div>
             <div>
               <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
