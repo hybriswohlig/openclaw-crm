@@ -358,6 +358,8 @@ async function ingestMessage(
         lastMessageAt: sentAt,
         lastMessagePreview: preview,
         unreadCount: 1,
+        aiNeedsReply: true,
+        aiLastInboundAt: sentAt,
       })
       .returning();
     conv = created;
@@ -378,6 +380,8 @@ async function ingestMessage(
         lastMessageAt: sentAt,
         lastMessagePreview: preview,
         unreadCount: (conv.unreadCount ?? 0) + 1,
+        aiNeedsReply: true,
+        aiLastInboundAt: sentAt,
         updatedAt: new Date(),
       })
       .where(eq(inboxConversations.id, conv.id));
