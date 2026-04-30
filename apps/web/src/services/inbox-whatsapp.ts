@@ -290,6 +290,177 @@ function filenameForMedia(kind: string, mime: string, provided?: string): string
 
 // ─── Ingest: inbound messages ─────────────────────────────────────────────────
 
+/**
+ * Provider-agnostic upsert of an inbound WhatsApp message.
+ *
+ * Used by:
+ *   - the Meta Cloud API webhook (this file's `ingestMessage`)
+ *   - the Baileys ingestion endpoint (`/api/v1/inbox/whatsapp/baileys-inbound`)
+ *
+ * Both share conversation + contact + deal semantics. Provider-specific bits
+ * (media download for Meta, attachment payload from Baileys) are layered on
+ * top by the caller using the returned IDs.
+ *
+ * Idempotent on `(conversationId, externalMessageId)`. Sets `aiNeedsReply` so
+ * the lead-assistant cron picks the conversation up after the debounce window.
+ */
+export async function ingestInboundWhatsAppMessage(params: {
+  account: typeof channelAccounts.$inferSelect;
+  peerWaId: string;
+  peerName?: string | null;
+  body: string;
+  /** Preview override for media-only messages (e.g. "📷 Bild"). */
+  previewLabel?: string | null;
+  externalMessageId: string;
+  sentAt: Date;
+  /** For WABA: phone_number_id we received on. For Baileys: our own E.164. */
+  toAddress?: string | null;
+  /** Stored as JSON in `raw_headers` for debugging. */
+  rawHeaders?: Record<string, unknown> | null;
+}): Promise<{
+  conversationId: string;
+  dealRecordId: string | null;
+  messageId: string | null;
+  isNewConversation: boolean;
+}> {
+  const {
+    account, peerWaId, peerName, body, previewLabel,
+    externalMessageId, sentAt, toAddress, rawHeaders,
+  } = params;
+
+  const previewText = body.trim() || previewLabel || body;
+
+  const contact = await upsertContact(account.workspaceId, peerWaId, peerName ?? "");
+
+  await ensureCrmPerson({
+    workspaceId: account.workspaceId,
+    contactId: contact.id,
+    displayName: peerName || peerWaId,
+    email: null,
+    phone: peerWaId,
+    leadSource: "WhatsApp / Website",
+  });
+
+  // Thread key for WhatsApp = wa_id. One conversation per (channelAccount, contact phone).
+  const threadKey = peerWaId;
+
+  let [conv] = await db
+    .select()
+    .from(inboxConversations)
+    .where(
+      and(
+        eq(inboxConversations.channelAccountId, account.id),
+        eq(inboxConversations.externalThreadId, threadKey)
+      )
+    )
+    .limit(1);
+
+  const preview = previewText.slice(0, 120).replace(/\s+/g, " ");
+  let isNewConversation = false;
+
+  if (!conv) {
+    const [created] = await db
+      .insert(inboxConversations)
+      .values({
+        workspaceId: account.workspaceId,
+        channelAccountId: account.id,
+        contactId: contact.id,
+        externalThreadId: threadKey,
+        subject: null,
+        lastMessageAt: sentAt,
+        lastMessagePreview: preview,
+        unreadCount: 1,
+        aiNeedsReply: true,
+        aiLastInboundAt: sentAt,
+      })
+      .returning();
+    conv = created;
+    isNewConversation = true;
+
+    await createDealForNewConversation({
+      workspaceId: account.workspaceId,
+      conversationId: conv.id,
+      dealName: peerName || peerWaId,
+      contactId: contact.id,
+      channelAccountId: account.id,
+    });
+
+    // Re-fetch to pick up dealRecordId set by createDealForNewConversation
+    [conv] = await db
+      .select()
+      .from(inboxConversations)
+      .where(eq(inboxConversations.id, conv.id))
+      .limit(1);
+  } else {
+    await db
+      .update(inboxConversations)
+      .set({
+        lastMessageAt: sentAt,
+        lastMessagePreview: preview,
+        unreadCount: (conv.unreadCount ?? 0) + 1,
+        aiNeedsReply: true,
+        aiLastInboundAt: sentAt,
+        updatedAt: new Date(),
+      })
+      .where(eq(inboxConversations.id, conv.id));
+  }
+
+  let messageId: string | null = null;
+  try {
+    const [stored] = await db
+      .insert(inboxMessages)
+      .values({
+        workspaceId: account.workspaceId,
+        conversationId: conv.id,
+        direction: "inbound",
+        status: "received",
+        externalMessageId,
+        fromAddress: peerWaId,
+        toAddress: toAddress ?? null,
+        subject: null,
+        body,
+        isRead: false,
+        rawHeaders: rawHeaders ? JSON.stringify(rawHeaders) : null,
+        sentAt,
+      })
+      .returning({ id: inboxMessages.id });
+    messageId = stored?.id ?? null;
+  } catch (err) {
+    // Unique violation → duplicate delivery. Swallow and move on.
+    if (err instanceof Error && /duplicate key|unique/i.test(err.message)) {
+      return {
+        conversationId: conv.id,
+        dealRecordId: conv.dealRecordId ?? null,
+        messageId: null,
+        isNewConversation,
+      };
+    }
+    throw err;
+  }
+
+  if (conv.dealRecordId) {
+    await emitEvent({
+      workspaceId: account.workspaceId,
+      recordId: conv.dealRecordId,
+      objectSlug: "deals",
+      eventType: "message.received",
+      payload: {
+        conversationId: conv.id,
+        channelType: "whatsapp",
+        fromAddress: peerWaId,
+        externalMessageId,
+      },
+    });
+  }
+
+  return {
+    conversationId: conv.id,
+    dealRecordId: conv.dealRecordId ?? null,
+    messageId,
+    isNewConversation,
+  };
+}
+
 async function ingestMessage(
   account: typeof channelAccounts.$inferSelect,
   value: WAChangeValue,
@@ -304,7 +475,7 @@ async function ingestMessage(
   // Preview shown in the conversation list. For media-only messages without
   // a caption we fall back to a friendly label so the list has something
   // readable ("📷 Bild") instead of an empty cell.
-  const previewLabelForKind =
+  const previewLabel =
     kind === "image"
       ? "📷 Bild"
       : kind === "video"
@@ -315,106 +486,24 @@ async function ingestMessage(
             ? "📎 Dokument"
             : kind === "sticker"
               ? "🏷️ Sticker"
-              : "";
-  const previewText = body.trim() || previewLabelForKind || body;
+              : null;
 
-  const contact = await upsertContact(account.workspaceId, waId, displayName);
-
-  // Auto-create CRM Person for the contact (idempotent).
-  await ensureCrmPerson({
-    workspaceId: account.workspaceId,
-    contactId: contact.id,
-    displayName: displayName || waId,
-    email: null,
-    phone: waId,
-    leadSource: "WhatsApp / Website",
+  const ingest = await ingestInboundWhatsAppMessage({
+    account,
+    peerWaId: waId,
+    peerName: displayName,
+    body,
+    previewLabel,
+    externalMessageId: msg.id,
+    sentAt,
+    toAddress: value.metadata.phone_number_id,
+    rawHeaders: { type: msg.type, timestamp: msg.timestamp },
   });
-
-  // Thread key for WhatsApp = wa_id. One conversation per (channelAccount, contact phone).
-  const threadKey = waId;
-
-  let [conv] = await db
-    .select()
-    .from(inboxConversations)
-    .where(
-      and(
-        eq(inboxConversations.channelAccountId, account.id),
-        eq(inboxConversations.externalThreadId, threadKey)
-      )
-    )
-    .limit(1);
-
-  const preview = previewText.slice(0, 120).replace(/\s+/g, " ");
-
-  if (!conv) {
-    const [created] = await db
-      .insert(inboxConversations)
-      .values({
-        workspaceId: account.workspaceId,
-        channelAccountId: account.id,
-        contactId: contact.id,
-        externalThreadId: threadKey,
-        subject: null,
-        lastMessageAt: sentAt,
-        lastMessagePreview: preview,
-        unreadCount: 1,
-      })
-      .returning();
-    conv = created;
-
-    // Mirror the email flow: auto-create a deal for brand-new inbound
-    // conversations so WhatsApp inquiries show up on the pipeline board.
-    await createDealForNewConversation({
-      workspaceId: account.workspaceId,
-      conversationId: conv.id,
-      dealName: displayName || waId,
-      contactId: contact.id,
-      channelAccountId: account.id,
-    });
-  } else {
-    await db
-      .update(inboxConversations)
-      .set({
-        lastMessageAt: sentAt,
-        lastMessagePreview: preview,
-        unreadCount: (conv.unreadCount ?? 0) + 1,
-        updatedAt: new Date(),
-      })
-      .where(eq(inboxConversations.id, conv.id));
-  }
-
-  // Idempotent insert via (conversation_id, external_message_id) unique index.
-  // Meta retries webhooks aggressively; we must dedupe in-path.
-  let storedMessageId: string | null = null;
-  try {
-    const [stored] = await db
-      .insert(inboxMessages)
-      .values({
-        workspaceId: account.workspaceId,
-        conversationId: conv.id,
-        direction: "inbound",
-        status: "received",
-        externalMessageId: msg.id,
-        fromAddress: waId,
-        toAddress: value.metadata.phone_number_id,
-        subject: null,
-        body,
-        isRead: false,
-        rawHeaders: JSON.stringify({ type: msg.type, timestamp: msg.timestamp }),
-        sentAt,
-      })
-      .returning({ id: inboxMessages.id });
-    storedMessageId = stored?.id ?? null;
-  } catch (err) {
-    // Unique violation → duplicate delivery. Swallow and move on.
-    if (err instanceof Error && /duplicate key|unique/i.test(err.message)) return;
-    throw err;
-  }
 
   // Download + persist media (image/video/audio/document/sticker). This
   // replaces the old "[Bild]" placeholder: the actual bytes end up in
   // inbox_message_attachments, linked to both the message and the deal.
-  if (storedMessageId && media?.id && account.credential) {
+  if (ingest.messageId && media?.id && account.credential) {
     const downloaded = await downloadWhatsAppMedia(media.id, account.credential);
     if (downloaded) {
       const mime = media.mime_type || downloaded.mimeType;
@@ -422,9 +511,9 @@ async function ingestMessage(
       try {
         await db.insert(inboxMessageAttachments).values({
           workspaceId: account.workspaceId,
-          messageId: storedMessageId,
-          conversationId: conv.id,
-          dealRecordId: conv.dealRecordId ?? null,
+          messageId: ingest.messageId,
+          conversationId: ingest.conversationId,
+          dealRecordId: ingest.dealRecordId,
           fileName: filename,
           mimeType: mime,
           fileSize: downloaded.bytes.length,
@@ -438,21 +527,6 @@ async function ingestMessage(
         );
       }
     }
-  }
-
-  if (conv.dealRecordId) {
-    await emitEvent({
-      workspaceId: account.workspaceId,
-      recordId: conv.dealRecordId,
-      objectSlug: "deals",
-      eventType: "message.received",
-      payload: {
-        conversationId: conv.id,
-        channelType: "whatsapp",
-        fromAddress: waId,
-        externalMessageId: msg.id,
-      },
-    });
   }
 }
 

@@ -154,6 +154,15 @@ export const inboxConversations = pgTable(
     // Optional: link this conversation to a CRM deal
     dealRecordId: text("deal_record_id")
       .references(() => records.id, { onDelete: "set null" }),
+    // Lead-assistant debounce state. The AI worker watches conversations
+    // where aiNeedsReply=true and (now - aiLastInboundAt) >= aiQuietWindowSeconds,
+    // bundles all unprocessed inbound messages, and replies once. Manual
+    // operator replies clear aiNeedsReply via the send pipeline. aiPaused is
+    // a per-lead kill switch to take a conversation out of AI handling.
+    aiNeedsReply: boolean("ai_needs_reply").notNull().default(false),
+    aiLastInboundAt: timestamp("ai_last_inbound_at"),
+    aiQuietWindowSeconds: integer("ai_quiet_window_seconds").notNull().default(160),
+    aiPaused: boolean("ai_paused").notNull().default(false),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -202,6 +211,11 @@ export const inboxMessages = pgTable(
     // Raw email headers JSON (for threading / debugging)
     rawHeaders: text("raw_headers"),
     sentAt: timestamp("sent_at"),
+    // Set when the lead-assistant has consumed this inbound message (either
+    // by replying, or by deciding to skip — in which case aiSkipReason
+    // explains why: 'human_replied_first', 'spam', 'out_of_scope', etc.).
+    aiProcessedAt: timestamp("ai_processed_at"),
+    aiSkipReason: text("ai_skip_reason"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (table) => [
