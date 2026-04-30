@@ -24,7 +24,9 @@ import {
   Pencil,
   Trash2,
   Wallet,
+  ChevronRight,
 } from "lucide-react";
+import { CompanyDetailDialog } from "@/components/financial/company-detail-dialog";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -198,7 +200,13 @@ function KPICards({ summary }: { summary: FinancialSummary }) {
 
 // ─── Company breakdown + 50/50 settlement ─────────────────────────────────────
 
-function CompanyBreakdown({ companies }: { companies: CompanyRow[] }) {
+function CompanyBreakdown({
+  companies,
+  onSelect,
+}: {
+  companies: CompanyRow[];
+  onSelect: (c: CompanyRow) => void;
+}) {
   if (companies.length === 0) {
     return (
       <p className="text-sm text-muted-foreground py-4 text-center">
@@ -247,11 +255,19 @@ function CompanyBreakdown({ companies }: { companies: CompanyRow[] }) {
             <tr className="border-b border-border bg-muted/50">
               <th className="text-left px-4 py-3 font-medium">Betriebsgesellschaft</th>
               {companies.map((c) => (
-                <th key={c.companyId ?? "unassigned"} className="text-right px-4 py-3 font-medium">
-                  <div className="flex items-center gap-2 justify-end">
-                    <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
-                    {c.companyName}
-                  </div>
+                <th key={c.companyId ?? "unassigned"} className="text-right px-0 py-0 font-medium">
+                  <button
+                    type="button"
+                    onClick={() => onSelect(c)}
+                    className="w-full flex items-center gap-2 justify-end px-4 py-3 hover:bg-muted/60 hover:text-primary transition-colors group"
+                    title="Details öffnen"
+                  >
+                    <Building2 className="h-4 w-4 text-muted-foreground shrink-0 group-hover:text-primary" />
+                    <span className="underline-offset-2 group-hover:underline">
+                      {c.companyName}
+                    </span>
+                    <ChevronRight className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary" />
+                  </button>
                 </th>
               ))}
             </tr>
@@ -656,6 +672,7 @@ export default function FinancialPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [selectedCompany, setSelectedCompany] = useState<CompanyRow | null>(null);
 
   const fetchData = useCallback(() => {
     setLoading(true);
@@ -738,9 +755,15 @@ export default function FinancialPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-sm">Aufteilung pro Betriebsgesellschaft</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Auf eine Firma klicken für Details, Tortendiagramme und Drilldown.
+              </p>
             </CardHeader>
             <CardContent>
-              <CompanyBreakdown companies={data.companyBreakdown} />
+              <CompanyBreakdown
+                companies={data.companyBreakdown}
+                onSelect={setSelectedCompany}
+              />
             </CardContent>
           </Card>
 
@@ -763,6 +786,17 @@ export default function FinancialPage() {
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {selectedCompany && (
+        <CompanyDetailDialog
+          open={selectedCompany !== null}
+          onClose={() => setSelectedCompany(null)}
+          companyId={selectedCompany.companyId}
+          companyName={selectedCompany.companyName}
+          monthLabel={selectedLabel}
+          monthQuery={selectedMonth === "gesamt" ? null : selectedMonth}
+        />
       )}
     </div>
   );

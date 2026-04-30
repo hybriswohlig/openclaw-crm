@@ -874,3 +874,574 @@ export async function getFinancialOverview(
     })),
   };
 }
+
+// ─── Per-Company Drill-Down ───────────────────────────────────────────────────
+
+export interface CompanyDetails {
+  companyId: string | null;
+  companyName: string;
+  totals: {
+    income: number;
+    deductibleExpenses: number;
+    nonDeductibleExpenses: number;
+    employeeCosts: number;
+    crossSubsidyIn: number;
+    crossSubsidyOut: number;
+    privateEinlagen: number;
+    privateEntnahmen: number;
+    netResult: number;
+  };
+  /** Income grouped by deal (one slice per deal in the income pie chart). */
+  incomeByDeal: Array<{
+    dealRecordId: string;
+    dealNumber: string;
+    dealName: string;
+    total: number;
+    payments: Array<{
+      id: string;
+      date: string;
+      amount: number;
+      payer: string | null;
+      paymentMethod: string | null;
+      reference: string | null;
+      notes: string | null;
+    }>;
+  }>;
+  /** Expense aggregates per category (deductible + non-deductible split). */
+  expensesByCategory: Array<{
+    category: string;
+    total: number;
+    deductibleTotal: number;
+    nonDeductibleTotal: number;
+    count: number;
+  }>;
+  /** Individual expense entries attributed to this company. */
+  expenseEntries: Array<{
+    id: string;
+    date: string;
+    amount: number;
+    category: string;
+    description: string | null;
+    recipient: string | null;
+    paymentMethod: string | null;
+    isTaxDeductible: boolean;
+    isCrossSubsidy: boolean;
+    dealRecordId: string;
+    dealNumber: string;
+    dealName: string;
+  }>;
+  /** Employee cost aggregates per person. */
+  employeeCostsByPerson: Array<{
+    employeeName: string;
+    total: number;
+    deductibleTotal: number;
+    nonDeductibleTotal: number;
+    count: number;
+  }>;
+  /** Individual employee transaction entries attributed to this company. */
+  employeeEntries: Array<{
+    id: string;
+    date: string;
+    amount: number;
+    type: "salary" | "advance" | "reimbursement";
+    employeeName: string;
+    description: string | null;
+    paymentMethod: string | null;
+    status: "open" | "paid";
+    isTaxDeductible: boolean;
+    isCrossSubsidy: boolean;
+    dealRecordId: string;
+    dealNumber: string;
+    dealName: string;
+  }>;
+  /** Private movements that hit this company's pot. */
+  privateEntries: Array<{
+    id: string;
+    date: string;
+    amount: number;
+    method: "cash" | "bank_transfer" | "other";
+    fromPartner: string;
+    toPartner: string | null;
+    direction: "einlage" | "entnahme";
+    notes: string | null;
+  }>;
+  /** Expenses paid by another company for this company's deals (Quersubventionen +in). */
+  crossSubsidyInEntries: Array<{
+    id: string;
+    kind: "expense" | "employee";
+    date: string;
+    amount: number;
+    label: string;
+    paidByCompanyId: string;
+    paidByCompanyName: string;
+    dealRecordId: string;
+    dealNumber: string;
+    dealName: string;
+  }>;
+}
+
+/**
+ * Per-company drill-down for the financial overview. Filters all workspace
+ * transactions to those attributed to `companyId` (null = "Nicht zugewiesen")
+ * using the same effective-payer rules as `getFinancialOverview`.
+ */
+export async function getCompanyDetails(
+  workspaceId: string,
+  companyId: string | null,
+  month: string | null = null
+): Promise<CompanyDetails> {
+  const range = parseMonth(month);
+
+  const paymentDateCond = range
+    ? and(gte(payments.date, range.start), lt(payments.date, range.end))
+    : undefined;
+  const expenseDateCond = range
+    ? and(gte(expenses.date, range.start), lt(expenses.date, range.end))
+    : undefined;
+  const empTxDateCond = range
+    ? and(
+        gte(employeeTransactions.date, range.start),
+        lt(employeeTransactions.date, range.end)
+      )
+    : undefined;
+  const privateDateCond = range
+    ? and(
+        gte(privateTransactions.date, range.start),
+        lt(privateTransactions.date, range.end)
+      )
+    : undefined;
+
+  // ── Raw rows ──────────────────────────────────────────────────────────────
+  const paymentRows = await db
+    .select()
+    .from(payments)
+    .where(and(eq(payments.workspaceId, workspaceId), paymentDateCond));
+
+  const expenseRows = await db
+    .select()
+    .from(expenses)
+    .where(and(eq(expenses.workspaceId, workspaceId), expenseDateCond));
+
+  const empTxRows = await db
+    .select({
+      id: employeeTransactions.id,
+      dealRecordId: employeeTransactions.dealRecordId,
+      employeeName: employees.name,
+      date: employeeTransactions.date,
+      type: employeeTransactions.type,
+      amount: employeeTransactions.amount,
+      status: employeeTransactions.status,
+      description: employeeTransactions.description,
+      paymentMethod: employeeTransactions.paymentMethod,
+      isTaxDeductible: employeeTransactions.isTaxDeductible,
+      payingOperatingCompanyId: employeeTransactions.payingOperatingCompanyId,
+    })
+    .from(employeeTransactions)
+    .innerJoin(employees, eq(employees.id, employeeTransactions.employeeId))
+    .where(
+      and(
+        eq(employeeTransactions.workspaceId, workspaceId),
+        // Salary/advance only — reimbursements are paybacks, not costs.
+        sql`${employeeTransactions.type} IN ('salary', 'advance')`,
+        empTxDateCond
+      )
+    );
+
+  const privateRows = await db
+    .select()
+    .from(privateTransactions)
+    .where(
+      and(eq(privateTransactions.workspaceId, workspaceId), privateDateCond)
+    );
+
+  // ── Deal → operating_company + deal name + deal number lookups ───────────
+  const dealIds = [
+    ...new Set([
+      ...paymentRows.map((r) => r.dealRecordId),
+      ...expenseRows.map((r) => r.dealRecordId),
+      ...empTxRows.map((r) => r.dealRecordId),
+    ]),
+  ];
+
+  const dealCompanyLookup = new Map<string, string | null>();
+  const dealNumberLookup = new Map<string, string>();
+  const dealNameLookup = new Map<string, string>();
+  const companyNames = new Map<string, string>();
+
+  if (dealIds.length) {
+    // operating_company attribute on deals
+    const [ocAttr] = await db
+      .select({ id: attributes.id })
+      .from(attributes)
+      .innerJoin(objects, eq(objects.id, attributes.objectId))
+      .where(
+        and(
+          eq(objects.workspaceId, workspaceId),
+          eq(objects.slug, "deals"),
+          eq(attributes.slug, "operating_company")
+        )
+      )
+      .limit(1);
+
+    if (ocAttr) {
+      const dealOcRows = await db
+        .select({
+          dealId: recordValues.recordId,
+          ocRecordId: recordValues.referencedRecordId,
+        })
+        .from(recordValues)
+        .where(
+          and(
+            eq(recordValues.attributeId, ocAttr.id),
+            sql`${recordValues.recordId} = ANY(ARRAY[${sql.join(
+              dealIds.map((id) => sql`${id}`),
+              sql`, `
+            )}]::text[])`,
+            sql`${recordValues.referencedRecordId} IS NOT NULL`
+          )
+        );
+      for (const r of dealOcRows) dealCompanyLookup.set(r.dealId, r.ocRecordId);
+    }
+
+    // deal numbers
+    const dealNumberRows = await db
+      .select({
+        dealRecordId: dealNumbers.dealRecordId,
+        dealNumber: dealNumbers.dealNumber,
+      })
+      .from(dealNumbers)
+      .where(
+        sql`${dealNumbers.dealRecordId} = ANY(ARRAY[${sql.join(
+          dealIds.map((id) => sql`${id}`),
+          sql`, `
+        )}]::text[])`
+      );
+    for (const r of dealNumberRows)
+      dealNumberLookup.set(r.dealRecordId, r.dealNumber);
+
+    // deal names (via record_values + 'name' attribute)
+    const nameRows = await db.execute(
+      sql`SELECT rv.record_id, rv.text_value FROM record_values rv INNER JOIN attributes a ON a.id = rv.attribute_id WHERE a.slug = 'name' AND rv.record_id = ANY(ARRAY[${sql.join(
+        dealIds.map((id) => sql`${id}`),
+        sql`, `
+      )}]::text[])`
+    );
+    for (const r of nameRows as unknown as Array<{
+      record_id: string;
+      text_value: string;
+    }>) {
+      dealNameLookup.set(r.record_id, r.text_value);
+    }
+  }
+
+  // ── Operating-company name lookup (every company we'll display) ──────────
+  const touchedCompanyIds = new Set<string>();
+  if (companyId) touchedCompanyIds.add(companyId);
+  for (const r of expenseRows)
+    if (r.payingOperatingCompanyId)
+      touchedCompanyIds.add(r.payingOperatingCompanyId);
+  for (const r of empTxRows)
+    if (r.payingOperatingCompanyId)
+      touchedCompanyIds.add(r.payingOperatingCompanyId);
+  for (const id of dealCompanyLookup.values()) if (id) touchedCompanyIds.add(id);
+
+  if (touchedCompanyIds.size) {
+    const [nameAttr] = await db
+      .select({ id: attributes.id })
+      .from(attributes)
+      .innerJoin(objects, eq(objects.id, attributes.objectId))
+      .where(
+        and(
+          eq(objects.workspaceId, workspaceId),
+          eq(objects.slug, "operating_companies"),
+          eq(attributes.slug, "name")
+        )
+      )
+      .limit(1);
+
+    if (nameAttr) {
+      const ids = [...touchedCompanyIds];
+      const nameRows = await db
+        .select({
+          recordId: recordValues.recordId,
+          name: recordValues.textValue,
+        })
+        .from(recordValues)
+        .where(
+          and(
+            eq(recordValues.attributeId, nameAttr.id),
+            sql`${recordValues.recordId} = ANY(ARRAY[${sql.join(
+              ids.map((id) => sql`${id}`),
+              sql`, `
+            )}]::text[])`
+          )
+        );
+      for (const r of nameRows)
+        companyNames.set(r.recordId, r.name ?? "Unbekannt");
+    }
+  }
+
+  // ── Income (payments) → attributed to deal owner ──────────────────────────
+  const incomePaymentsByDeal = new Map<
+    string,
+    { total: number; payments: CompanyDetails["incomeByDeal"][number]["payments"] }
+  >();
+  for (const p of paymentRows) {
+    const dealOp = dealCompanyLookup.get(p.dealRecordId) ?? null;
+    if (dealOp !== companyId) continue;
+    let bucket = incomePaymentsByDeal.get(p.dealRecordId);
+    if (!bucket) {
+      bucket = { total: 0, payments: [] };
+      incomePaymentsByDeal.set(p.dealRecordId, bucket);
+    }
+    bucket.total += Number(p.amount);
+    bucket.payments.push({
+      id: p.id,
+      date: p.date,
+      amount: Number(p.amount),
+      payer: p.payer,
+      paymentMethod: p.paymentMethod,
+      reference: p.reference,
+      notes: p.notes,
+    });
+  }
+
+  const incomeByDeal: CompanyDetails["incomeByDeal"] = [
+    ...incomePaymentsByDeal.entries(),
+  ]
+    .map(([dealRecordId, b]) => ({
+      dealRecordId,
+      dealNumber: dealNumberLookup.get(dealRecordId) ?? "—",
+      dealName: dealNameLookup.get(dealRecordId) ?? "Unbekannt",
+      total: b.total,
+      payments: b.payments.sort((a, b) => a.date.localeCompare(b.date)),
+    }))
+    .sort((a, b) => b.total - a.total);
+
+  // ── Expenses → effective payer ────────────────────────────────────────────
+  const expenseEntries: CompanyDetails["expenseEntries"] = [];
+  const crossSubsidyInEntries: CompanyDetails["crossSubsidyInEntries"] = [];
+  let totalDeductible = 0;
+  let totalNonDeductible = 0;
+  let totalCrossOut = 0;
+  let totalCrossIn = 0;
+
+  for (const e of expenseRows) {
+    const dealOp = dealCompanyLookup.get(e.dealRecordId) ?? null;
+    const effectivePayer = e.payingOperatingCompanyId ?? dealOp;
+    const isCross =
+      e.payingOperatingCompanyId !== null &&
+      dealOp !== null &&
+      e.payingOperatingCompanyId !== dealOp;
+    const amt = Number(e.amount);
+
+    if (effectivePayer === companyId) {
+      expenseEntries.push({
+        id: e.id,
+        date: e.date,
+        amount: amt,
+        category: e.category,
+        description: e.description,
+        recipient: e.recipient,
+        paymentMethod: e.paymentMethod,
+        isTaxDeductible: e.isTaxDeductible,
+        isCrossSubsidy: isCross,
+        dealRecordId: e.dealRecordId,
+        dealNumber: dealNumberLookup.get(e.dealRecordId) ?? "—",
+        dealName: dealNameLookup.get(e.dealRecordId) ?? "Unbekannt",
+      });
+      if (e.isTaxDeductible) totalDeductible += amt;
+      else totalNonDeductible += amt;
+      if (isCross) totalCrossOut += amt;
+    }
+
+    // Cross-subsidy IN: this company owns the deal, but someone else paid.
+    if (isCross && dealOp === companyId) {
+      totalCrossIn += amt;
+      crossSubsidyInEntries.push({
+        id: e.id,
+        kind: "expense",
+        date: e.date,
+        amount: amt,
+        label:
+          e.description ??
+          e.recipient ??
+          (CATEGORY_LABEL_FALLBACK[e.category] ?? e.category),
+        paidByCompanyId: e.payingOperatingCompanyId!,
+        paidByCompanyName:
+          companyNames.get(e.payingOperatingCompanyId!) ?? "Unbekannt",
+        dealRecordId: e.dealRecordId,
+        dealNumber: dealNumberLookup.get(e.dealRecordId) ?? "—",
+        dealName: dealNameLookup.get(e.dealRecordId) ?? "Unbekannt",
+      });
+    }
+  }
+
+  // Aggregate expenses by category (for the pie chart).
+  const categoryAgg = new Map<
+    string,
+    { total: number; deductibleTotal: number; nonDeductibleTotal: number; count: number }
+  >();
+  for (const e of expenseEntries) {
+    let row = categoryAgg.get(e.category);
+    if (!row) {
+      row = { total: 0, deductibleTotal: 0, nonDeductibleTotal: 0, count: 0 };
+      categoryAgg.set(e.category, row);
+    }
+    row.total += e.amount;
+    row.count += 1;
+    if (e.isTaxDeductible) row.deductibleTotal += e.amount;
+    else row.nonDeductibleTotal += e.amount;
+  }
+  const expensesByCategory: CompanyDetails["expensesByCategory"] = [
+    ...categoryAgg.entries(),
+  ]
+    .map(([category, r]) => ({ category, ...r }))
+    .sort((a, b) => b.total - a.total);
+
+  // ── Employee costs → effective payer ──────────────────────────────────────
+  const employeeEntries: CompanyDetails["employeeEntries"] = [];
+  let totalEmployeeCosts = 0;
+
+  for (const t of empTxRows) {
+    const dealOp = dealCompanyLookup.get(t.dealRecordId) ?? null;
+    const effectivePayer = t.payingOperatingCompanyId ?? dealOp;
+    const isCross =
+      t.payingOperatingCompanyId !== null &&
+      dealOp !== null &&
+      t.payingOperatingCompanyId !== dealOp;
+    const amt = Number(t.amount);
+
+    if (effectivePayer === companyId) {
+      employeeEntries.push({
+        id: t.id,
+        date: t.date,
+        amount: amt,
+        type: t.type,
+        employeeName: t.employeeName,
+        description: t.description,
+        paymentMethod: t.paymentMethod,
+        status: t.status,
+        isTaxDeductible: t.isTaxDeductible,
+        isCrossSubsidy: isCross,
+        dealRecordId: t.dealRecordId,
+        dealNumber: dealNumberLookup.get(t.dealRecordId) ?? "—",
+        dealName: dealNameLookup.get(t.dealRecordId) ?? "Unbekannt",
+      });
+      totalEmployeeCosts += amt;
+      if (isCross) totalCrossOut += amt;
+    }
+
+    if (isCross && dealOp === companyId) {
+      totalCrossIn += amt;
+      crossSubsidyInEntries.push({
+        id: t.id,
+        kind: "employee",
+        date: t.date,
+        amount: amt,
+        label: `${t.employeeName} — ${t.type === "salary" ? "Lohn" : "Vorschuss"}`,
+        paidByCompanyId: t.payingOperatingCompanyId!,
+        paidByCompanyName:
+          companyNames.get(t.payingOperatingCompanyId!) ?? "Unbekannt",
+        dealRecordId: t.dealRecordId,
+        dealNumber: dealNumberLookup.get(t.dealRecordId) ?? "—",
+        dealName: dealNameLookup.get(t.dealRecordId) ?? "Unbekannt",
+      });
+    }
+  }
+
+  // Aggregate employee costs by person.
+  const employeeAgg = new Map<
+    string,
+    { total: number; deductibleTotal: number; nonDeductibleTotal: number; count: number }
+  >();
+  for (const t of employeeEntries) {
+    let row = employeeAgg.get(t.employeeName);
+    if (!row) {
+      row = { total: 0, deductibleTotal: 0, nonDeductibleTotal: 0, count: 0 };
+      employeeAgg.set(t.employeeName, row);
+    }
+    row.total += t.amount;
+    row.count += 1;
+    if (t.isTaxDeductible) row.deductibleTotal += t.amount;
+    else row.nonDeductibleTotal += t.amount;
+  }
+  const employeeCostsByPerson: CompanyDetails["employeeCostsByPerson"] = [
+    ...employeeAgg.entries(),
+  ]
+    .map(([employeeName, r]) => ({ employeeName, ...r }))
+    .sort((a, b) => b.total - a.total);
+
+  // ── Private transactions hit this company's pot directly ──────────────────
+  const privateEntries: CompanyDetails["privateEntries"] = [];
+  let totalEinlagen = 0;
+  let totalEntnahmen = 0;
+  for (const p of privateRows) {
+    if (p.operatingCompanyId !== companyId) continue;
+    const amt = Number(p.amount);
+    privateEntries.push({
+      id: p.id,
+      date: p.date,
+      amount: amt,
+      method: p.method,
+      fromPartner: p.fromPartner,
+      toPartner: p.toPartner,
+      direction: p.direction,
+      notes: p.notes,
+    });
+    if (p.direction === "einlage") totalEinlagen += amt;
+    else totalEntnahmen += amt;
+  }
+
+  // ── Compose totals (mirror getFinancialOverview's netResult formula) ─────
+  const totalIncome = incomeByDeal.reduce((s, d) => s + d.total, 0);
+  const netResult =
+    totalIncome +
+    totalCrossIn +
+    totalEinlagen -
+    totalDeductible -
+    totalNonDeductible -
+    totalEmployeeCosts -
+    totalEntnahmen;
+
+  const companyName =
+    companyId === null
+      ? "Nicht zugewiesen"
+      : companyNames.get(companyId) ?? "Unbekannt";
+
+  return {
+    companyId,
+    companyName,
+    totals: {
+      income: totalIncome,
+      deductibleExpenses: totalDeductible,
+      nonDeductibleExpenses: totalNonDeductible,
+      employeeCosts: totalEmployeeCosts,
+      crossSubsidyIn: totalCrossIn,
+      crossSubsidyOut: totalCrossOut,
+      privateEinlagen: totalEinlagen,
+      privateEntnahmen: totalEntnahmen,
+      netResult,
+    },
+    incomeByDeal,
+    expensesByCategory,
+    expenseEntries: expenseEntries.sort((a, b) => b.date.localeCompare(a.date)),
+    employeeCostsByPerson,
+    employeeEntries: employeeEntries.sort((a, b) => b.date.localeCompare(a.date)),
+    privateEntries: privateEntries.sort((a, b) => b.date.localeCompare(a.date)),
+    crossSubsidyInEntries: crossSubsidyInEntries.sort((a, b) =>
+      b.date.localeCompare(a.date)
+    ),
+  };
+}
+
+// Server-side fallback labels (UI re-translates, but the cross-subsidy "label"
+// field is plain text — without a deal description we want a readable category).
+const CATEGORY_LABEL_FALLBACK: Record<string, string> = {
+  fuel: "Kraftstoff",
+  truck_rental: "LKW-Miete",
+  equipment: "Ausstattung",
+  subcontractor: "Subunternehmer",
+  toll: "Maut",
+  other: "Sonstiges",
+};
