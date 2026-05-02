@@ -570,6 +570,15 @@ function ConversationView({
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Auto-grow the composer with content. CSS `max-h-48` caps it so the
+  // message list stays visible; once the cap is hit the textarea scrolls.
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [reply]);
+
   async function handleSend() {
     if (sending) return;
     if (pendingAttachment) {
@@ -887,7 +896,7 @@ function ConversationView({
               )}
               <textarea
                 ref={textareaRef}
-                className="flex-1 bg-transparent text-sm resize-none min-h-[28px] max-h-36 focus:outline-none placeholder:text-muted-foreground"
+                className="flex-1 bg-transparent text-sm resize-none min-h-[28px] max-h-[40vh] sm:max-h-48 overflow-y-auto focus:outline-none placeholder:text-muted-foreground"
                 placeholder={
                   pendingAttachment
                     ? "Bildunterschrift (optional)…"
