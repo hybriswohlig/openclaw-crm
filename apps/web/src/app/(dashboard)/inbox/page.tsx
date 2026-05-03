@@ -22,9 +22,16 @@ import {
   Archive,
   Paperclip,
   FileText,
+  Copy,
+  Braces,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  formatChatAsMarkdown,
+  formatChatAsJSON,
+  copyTextToClipboard,
+} from "./chat-export";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -544,6 +551,7 @@ function ConversationView({
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<{ code?: string; message?: string } | null>(null);
   const [showMenu, setShowMenu] = useState(false);
+  const [copyFeedback, setCopyFeedback] = useState<"md" | "json" | "error" | null>(null);
   const [pendingAttachment, setPendingAttachment] = useState<File | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -640,6 +648,17 @@ function ConversationView({
     }
   }
 
+  async function handleCopyHistory(format: "md" | "json") {
+    setShowMenu(false);
+    const text =
+      format === "md"
+        ? formatChatAsMarkdown(conv, messages)
+        : formatChatAsJSON(conv, messages);
+    const ok = await copyTextToClipboard(text);
+    setCopyFeedback(ok ? format : "error");
+    window.setTimeout(() => setCopyFeedback(null), 2200);
+  }
+
   async function handleStatusChange(status: ConversationStatus) {
     setShowMenu(false);
     await fetch(`/api/v1/inbox/conversations/${conv.id}/status`, {
@@ -656,7 +675,7 @@ function ConversationView({
   const isWa = conv.channelType === "whatsapp";
 
   return (
-    <div className="flex flex-col h-full bg-muted/20">
+    <div className="relative flex flex-col h-full bg-muted/20">
       {/* Header */}
       <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 sm:py-3 border-b border-border bg-background shrink-0">
         <button onClick={onBack} className="md:hidden text-muted-foreground hover:text-foreground p-1 -ml-1">
@@ -747,7 +766,7 @@ function ConversationView({
           {showMenu && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
-              <div className="absolute right-0 top-9 z-50 w-48 rounded-lg border border-border bg-popover shadow-lg py-1">
+              <div className="absolute right-0 top-9 z-50 w-60 rounded-lg border border-border bg-popover shadow-lg py-1">
                 {conv.status !== "resolved" && (
                   <button
                     onClick={() => handleStatusChange("resolved")}
@@ -775,6 +794,23 @@ function ConversationView({
                     Als Spam markieren
                   </button>
                 )}
+                <div className="my-1 border-t border-border" />
+                <button
+                  onClick={() => handleCopyHistory("md")}
+                  disabled={loadingMsgs || messages.length === 0}
+                  className="flex items-center gap-2 w-full px-3 py-2 text-sm hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Copy className="h-4 w-4" />
+                  Verlauf kopieren (Markdown)
+                </button>
+                <button
+                  onClick={() => handleCopyHistory("json")}
+                  disabled={loadingMsgs || messages.length === 0}
+                  className="flex items-center gap-2 w-full px-3 py-2 text-sm hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Braces className="h-4 w-4" />
+                  Verlauf kopieren (JSON)
+                </button>
               </div>
             </>
           )}
@@ -785,6 +821,34 @@ function ConversationView({
       {conv.subject && !isWa && (
         <div className="px-4 py-2 bg-background/60 border-b border-border/60 text-xs text-muted-foreground shrink-0">
           <span className="font-medium text-foreground/70">Betreff:</span> {conv.subject}
+        </div>
+      )}
+
+      {/* Copy feedback toast */}
+      {copyFeedback && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-50 pointer-events-none">
+          <div
+            className={cn(
+              "flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium shadow-lg border",
+              copyFeedback === "error"
+                ? "bg-red-500/10 border-red-500/30 text-red-700"
+                : "bg-emerald-500/10 border-emerald-500/30 text-emerald-700",
+            )}
+          >
+            {copyFeedback === "error" ? (
+              <>
+                <AlertCircle className="h-3.5 w-3.5" />
+                Kopieren fehlgeschlagen
+              </>
+            ) : (
+              <>
+                <Check className="h-3.5 w-3.5" />
+                {copyFeedback === "md"
+                  ? "Verlauf als Markdown kopiert"
+                  : "Verlauf als JSON kopiert"}
+              </>
+            )}
+          </div>
         </div>
       )}
 
