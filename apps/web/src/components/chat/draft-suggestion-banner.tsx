@@ -58,6 +58,44 @@ function tiptapToPlainText(node: unknown): string {
   return "";
 }
 
+/**
+ * The Sales-Outreach-Agent always structures its draft note like:
+ *
+ *     <email body paragraphs ending with the signature>
+ *     ## Verkaufspsychologische Hebel
+ *     ...
+ *     ## Was bewusst weggelassen wurde
+ *     ...
+ *     ## Conversion-Einschätzung
+ *     ...
+ *
+ * The composer only wants the email itself — not the agent's analysis
+ * scaffolding. Walk top-level nodes and stop at the first heading; everything
+ * before it is the message. If we'd produce an empty result (agent used a
+ * different shape, or wrote a heading in the body), fall back to the full
+ * plain-text body so the user at least has something to start from.
+ */
+function extractDraftMessage(content: unknown): string {
+  const fullText = tiptapToPlainText(content).trim();
+  if (!content || typeof content !== "object") return fullText;
+  const root = content as { content?: unknown };
+  const top = Array.isArray(root.content) ? root.content : null;
+  if (!top) return fullText;
+
+  const messageNodes: unknown[] = [];
+  for (const child of top) {
+    const t = (child as { type?: unknown })?.type;
+    if (t === "heading") break;
+    messageNodes.push(child);
+  }
+  const trimmed = tiptapToPlainText({ type: "doc", content: messageNodes }).trim();
+
+  // Sanity: if trimming ate almost everything, the note doesn't follow the
+  // expected shape — show the whole thing rather than an empty composer.
+  if (trimmed.length < 40 && fullText.length >= 40) return fullText;
+  return trimmed || fullText;
+}
+
 function isAgentDraft(note: RawNote): boolean {
   const t = note.title ?? "";
   if (!t.startsWith(DRAFT_TITLE_PREFIX)) return false;
@@ -97,7 +135,7 @@ export function DraftSuggestionBanner({
         if (drafts.length === 0 || cancelled) return;
 
         const top = drafts[0];
-        const body = tiptapToPlainText(top.content).trim();
+        const body = extractDraftMessage(top.content);
         if (!body) return;
 
         setSuggestion({
