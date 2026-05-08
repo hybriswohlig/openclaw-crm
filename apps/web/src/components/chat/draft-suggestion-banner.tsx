@@ -39,14 +39,16 @@ interface DraftSuggestionBannerProps {
 
 /**
  * Pulls draft text out of TipTap JSON. Mirrors the server-side helper in
- * services/deal-insights.ts so the banner doesn't need a round-trip through
- * a server route just to render a preview.
+ * services/deal-insights.ts but also emits `\n` for `hardBreak` nodes so
+ * notes that pack the whole draft into a single paragraph (with `<br>`
+ * line breaks) still render with usable line structure.
  */
 function tiptapToPlainText(node: unknown): string {
   if (!node) return "";
   if (typeof node === "string") return node;
   if (typeof node !== "object") return "";
   const n = node as Record<string, unknown>;
+  if (n.type === "hardBreak") return "\n";
   if (typeof n.text === "string") return n.text;
   const content = n.content;
   if (Array.isArray(content)) {
@@ -177,12 +179,58 @@ function looksLikeGreeting(line: string): boolean {
   return GREETING_PATTERNS.some((re) => re.test(line));
 }
 
+/**
+ * String-level fallback: when the structural walker fails to find a clean
+ * email body (because the agent packed everything into a single paragraph,
+ * used unfamiliar node types, or wrote scaffolding lines we did not classify),
+ * try the same heuristics on the rendered plain text — find the first
+ * greeting, slice up to the first section label or separator line.
+ *
+ * Returns null if no greeting is found or the resulting body is too short to
+ * be useful; callers should then fall back to the full text.
+ */
+function extractFromPlainText(text: string): string | null {
+  if (!text) return null;
+  const lines = text.split(/\r?\n/);
+
+  let startIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (looksLikeGreeting(lines[i].trim())) {
+      startIdx = i;
+      break;
+    }
+  }
+  if (startIdx === -1) return null;
+
+  const isSepLine = (line: string) => paragraphIsSeparator(line);
+  const isLabelLine = (line: string) => isAnalysisSectionLabel(line.trim());
+
+  let endIdx = lines.length;
+  for (let i = startIdx + 1; i < lines.length; i++) {
+    if (isSepLine(lines[i]) || isLabelLine(lines[i])) {
+      endIdx = i;
+      break;
+    }
+  }
+
+  // Trim trailing blank lines.
+  while (endIdx > startIdx + 1 && lines[endIdx - 1].trim().length === 0) {
+    endIdx--;
+  }
+
+  const body = lines.slice(startIdx, endIdx).join("\n").trim();
+  if (body.length < 40) return null;
+  return body;
+}
+
 function extractDraftMessage(content: unknown): string {
   const fullText = tiptapToPlainText(content).trim();
-  if (!content || typeof content !== "object") return fullText;
+  if (!content || typeof content !== "object") {
+    return extractFromPlainText(fullText) ?? fullText;
+  }
   const root = content as { content?: unknown };
   const top = Array.isArray(root.content) ? root.content : null;
-  if (!top) return fullText;
+  if (!top) return extractFromPlainText(fullText) ?? fullText;
 
   const kept: unknown[] = [];
   type State = "preamble" | "body" | "analysis";
@@ -267,7 +315,15 @@ function extractDraftMessage(content: unknown): string {
   }
 
   const trimmed = tiptapToPlainText({ type: "doc", content: kept }).trim();
-  if (trimmed.length < 40 && fullText.length >= 40) return fullText;
+  if (trimmed.length >= 40) return trimmed;
+
+  // Structural extraction came up short — try string-level extraction on the
+  // rendered plain text. Handles the case where the agent wrote the entire
+  // note as one paragraph with hardBreaks, or used custom node types that
+  // the state machine does not recognize.
+  const stringLevel = extractFromPlainText(fullText);
+  if (stringLevel) return stringLevel;
+
   return trimmed || fullText;
 }
 
