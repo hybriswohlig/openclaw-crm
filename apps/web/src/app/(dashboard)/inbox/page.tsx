@@ -32,6 +32,12 @@ import {
   formatChatAsJSON,
   copyTextToClipboard,
 } from "./chat-export";
+import {
+  DraftSuggestionBanner,
+  isDraftBannerEnabled,
+  markDraftConsumed,
+  type DraftSuggestion,
+} from "@/components/chat/draft-suggestion-banner";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -553,6 +559,13 @@ function ConversationView({
   const [showMenu, setShowMenu] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState<"md" | "json" | "error" | null>(null);
   const [pendingAttachment, setPendingAttachment] = useState<File | null>(null);
+  // Tracks whether the current reply text was seeded from an agent draft note
+  // and which note to mark as consumed once the message goes out.
+  const [acceptedDraft, setAcceptedDraft] = useState<DraftSuggestion | null>(null);
+  // Bumped after a successful send so the banner re-fetches and discovers the
+  // freshly flipped `· Übernommen` title (and therefore disappears).
+  const [draftRefreshKey, setDraftRefreshKey] = useState(0);
+  const draftBannerEnabled = isDraftBannerEnabled();
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -587,6 +600,15 @@ function ConversationView({
     el.style.height = `${el.scrollHeight}px`;
   }, [reply]);
 
+  // If the user empties the textarea after accepting a draft, drop the
+  // consumed-marker tracker so a fresh hand-written reply doesn't end up
+  // marking an unrelated draft note as taken.
+  useEffect(() => {
+    if (acceptedDraft && reply.trim().length === 0) {
+      setAcceptedDraft(null);
+    }
+  }, [reply, acceptedDraft]);
+
   async function handleSend() {
     if (sending) return;
     if (pendingAttachment) {
@@ -608,6 +630,11 @@ function ConversationView({
         setReply("");
         setSendError(null);
         textareaRef.current?.focus();
+        if (acceptedDraft) {
+          await markDraftConsumed(acceptedDraft.noteId);
+          setAcceptedDraft(null);
+          setDraftRefreshKey((k) => k + 1);
+        }
       } else {
         const err = await res.json();
         const errObj = typeof err.error === "object" ? err.error : { message: err.error };
@@ -638,6 +665,11 @@ function ConversationView({
         setSendError(null);
         if (fileInputRef.current) fileInputRef.current.value = "";
         textareaRef.current?.focus();
+        if (acceptedDraft) {
+          await markDraftConsumed(acceptedDraft.noteId);
+          setAcceptedDraft(null);
+          setDraftRefreshKey((k) => k + 1);
+        }
       } else {
         const err = await res.json().catch(() => ({}));
         const errObj = typeof err.error === "object" ? err.error : { message: err.error };
@@ -894,6 +926,25 @@ function ConversationView({
         className="border-t border-border px-3 sm:px-4 py-2.5 sm:py-3 bg-background shrink-0 space-y-2"
         style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 0.625rem)" }}
       >
+        {draftBannerEnabled && canSend && conv.dealRecordId && (
+          <DraftSuggestionBanner
+            dealRecordId={conv.dealRecordId}
+            refreshKey={draftRefreshKey}
+            onAcceptDraft={(text, suggestion) => {
+              setReply(text);
+              setAcceptedDraft(suggestion);
+              // Defer so the textarea has the new value before we focus it,
+              // ensuring the auto-grow effect kicks in on the same tick.
+              requestAnimationFrame(() => {
+                const el = textareaRef.current;
+                if (!el) return;
+                el.focus();
+                const end = el.value.length;
+                el.setSelectionRange(end, end);
+              });
+            }}
+          />
+        )}
         {sendError && (
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs space-y-1.5">
             {sendError.code === "WA_SESSION_EXPIRED" ? (
