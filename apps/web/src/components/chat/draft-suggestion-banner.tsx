@@ -59,28 +59,48 @@ function tiptapToPlainText(node: unknown): string {
 }
 
 /**
- * The Sales-Outreach-Agent emits draft notes shaped roughly like:
+ * The Sales-Outreach-Agent emits draft notes in two observed shapes:
  *
- *     Antwort-Entwurf · Sales Outreach Agent              ← header line
- *     ---                                                  ← horizontal rule
- *     Betreff: Re: Anfrage Umzug                           ← optional subject
- *     Hallo R.H.,
- *     <email body paragraphs ending with the signature>
- *     ---                                                  ← horizontal rule
- *     ## Verkaufspsychologische Hebel                      ← analysis (skip)
- *     ## Was bewusst weggelassen wurde
- *     ## Conversion-Einschätzung
- *     ---
- *     *Quelle für Tonalität ... PR #6 ...*                 ← italic citation
+ *   Format A (R.H.-style, uses TipTap markdown features):
+ *     [paragraph] Antwort-Entwurf · Sales Outreach Agent
+ *     [horizontalRule]
+ *     [paragraph] Hallo R.H.,
+ *     <email body>
+ *     [paragraph] Kottke Dienstleistungen
+ *     [horizontalRule]
+ *     [heading] Verkaufspsychologische Hebel
+ *     <analysis>
+ *     [horizontalRule]
+ *     [paragraph italic] Quelle für Tonalität ... PR #6 ...
  *
- * Only the email body should land in the composer. Walk the top-level
- * TipTap nodes and drop the scaffolding bits explicitly: the title repeat,
- * `Betreff:` / `Subject:` lines, horizontal rules, headings + everything
- * after them, and italic-only "source" footer paragraphs.
+ *   Format B (Josefine-style, plain-text scaffolding):
+ *     [paragraph] Kanal: Kleinanzeigen ... Phase: Closing — ...
+ *     [paragraph] ────────────  ENTWURF (nicht versendet)  ────────────
+ *     [paragraph] Hallo Josefine,
+ *     <email body>
+ *     [paragraph] Nuri
+ *     [paragraph] ──────────────────────────────────────────────
+ *     [paragraph] Verkaufspsychologische Hebel:
+ *     [orderedList] 1. ... 2. ...
+ *     [paragraph] Bewusst weggelassen:
+ *     [bulletList] ...
+ *     [paragraph] Wahrscheinliche Antwort:
+ *     <analysis paragraphs>
+ *     [paragraph] Referenz: Paperclip KOT-554.
  *
- * If the heuristics over-strip (note doesn't follow this shape), fall back
- * to the full plain-text body so the human at least has something editable
- * instead of an empty composer.
+ * Both shapes can be read with the same state machine:
+ *
+ *   preamble ──[separator OR greeting]──► body ──[separator/heading/
+ *   known-section-label/italic-citation]──► analysis (terminal)
+ *
+ * Separators include TipTap horizontalRule, headings (Format A), and
+ * paragraphs whose plain text is mostly box-drawing / dash glyphs (Format B).
+ * Section labels (`Verkaufspsychologische Hebel:`, `Bewusst weggelassen:`,
+ * `Wahrscheinliche Antwort:`, `Referenz:`, `Quelle:` …) terminate body even
+ * without a preceding separator, in case the agent drops one.
+ *
+ * Fallback: if the cleanup ends up nearly empty, return the full plain-text
+ * body so the human still has something editable.
  */
 
 function paragraphIsAllItalic(node: unknown): boolean {
@@ -102,14 +122,59 @@ function paragraphIsAllItalic(node: unknown): boolean {
   return sawText;
 }
 
-function isAgentHeaderLine(line: string): boolean {
-  return /^antwort[-\s]?entwurf\s*[·•|–-]\s*sales\s+outreach\s+agent/i.test(
-    line
-  );
+// Box-drawing, dashes, equals, underscores, asterisks, tildes — anything that
+// can be repeated to form a visual "──── ENTWURF ────" / "═════" line.
+const SEPARATOR_GLYPHS = /[─━═│┃║╔╗╚╝╠╣╦╩╬\-_=*•~⎯]/g;
+
+function paragraphIsSeparator(text: string): boolean {
+  const t = text.trim();
+  if (t.length === 0) return false;
+  const glyphs = t.match(SEPARATOR_GLYPHS) || [];
+  if (glyphs.length < 6) return false;
+  // Allow short labels embedded in the line ("ENTWURF (nicht versendet)").
+  const rest = t.replace(SEPARATOR_GLYPHS, "").replace(/\s+/g, " ").trim();
+  return rest.length <= 50;
 }
 
-function isSubjectLine(line: string): boolean {
-  return /^(betreff|subject)\s*:/i.test(line);
+const PREAMBLE_LINE_PATTERNS: RegExp[] = [
+  /^antwort[-\s]?entwurf\s*[·•|–-]\s*sales\s+outreach\s+agent/i,
+  /^kanal\s*:/i,
+  /^ton(alit[äa]t)?\s*:/i,
+  /^phase\s*:/i,
+  /^betreff\s*:/i,
+  /^subject\s*:/i,
+];
+
+function isPreambleLine(line: string): boolean {
+  return PREAMBLE_LINE_PATTERNS.some((re) => re.test(line));
+}
+
+const ANALYSIS_LABEL_PATTERNS: RegExp[] = [
+  /^verkaufspsychologische\s+hebel\b/i,
+  /^(was\s+)?bewusst\s+weggelassen\b/i,
+  /^wahrscheinliche\s+antwort\b/i,
+  /^conversion[-\s]?einsch[äa]tzung\b/i,
+  /^kontext\s+zu(m|r)?\b/i,
+  /^referenz\s*:/i,
+  /^quelle\s*:/i,
+];
+
+function isAnalysisSectionLabel(line: string): boolean {
+  return ANALYSIS_LABEL_PATTERNS.some((re) => re.test(line));
+}
+
+const GREETING_PATTERNS: RegExp[] = [
+  /^hallo\b/i,
+  /^hi\b/i,
+  /^hey\b/i,
+  /^moin\b/i,
+  /^guten\s+(tag|morgen|abend)\b/i,
+  /^sehr\s+geehrt(er?|e\s+(frau|herr|damen))/i,
+  /^liebe[rsn]?\b/i,
+];
+
+function looksLikeGreeting(line: string): boolean {
+  return GREETING_PATTERNS.some((re) => re.test(line));
 }
 
 function extractDraftMessage(content: unknown): string {
@@ -120,39 +185,77 @@ function extractDraftMessage(content: unknown): string {
   if (!top) return fullText;
 
   const kept: unknown[] = [];
-  let inAnalysis = false;
+  type State = "preamble" | "body" | "analysis";
+  let state: State = "preamble";
+
   for (const child of top) {
-    if (inAnalysis) continue;
+    if (state === "analysis") continue;
     const c = child as { type?: string };
 
-    // Hard stops: anything from here on is agent commentary, not the email.
+    // Headings: in preamble they're typically a title-as-heading repeat —
+    // skip and wait for the real start signal. In body they unambiguously
+    // mark the beginning of the analysis sections.
     if (c.type === "heading") {
-      inAnalysis = true;
+      if (state === "body") state = "analysis";
       continue;
     }
-    // Drop separators between sections.
-    if (c.type === "horizontalRule") continue;
+    // TipTap horizontalRules are explicit section breaks.
+    if (c.type === "horizontalRule") {
+      state = state === "preamble" ? "body" : "analysis";
+      continue;
+    }
 
     if (c.type === "paragraph") {
       const line = tiptapToPlainText(child).trim();
+
+      // Visual separators ("──── ENTWURF ────", "═════") flip state too.
+      if (paragraphIsSeparator(line)) {
+        state = state === "preamble" ? "body" : "analysis";
+        continue;
+      }
+
+      // Section labels ("Verkaufspsychologische Hebel:", "Referenz:" …).
+      if (line.length > 0 && isAnalysisSectionLabel(line)) {
+        state = "analysis";
+        continue;
+      }
+
+      // Italic-only paragraph: the source citation. Stops body if seen mid-doc;
+      // in preamble it's just a footnote-style caption — drop it silently.
+      if (paragraphIsAllItalic(child)) {
+        if (state === "body") state = "analysis";
+        continue;
+      }
+
+      if (state === "preamble") {
+        if (line.length === 0) continue;
+        if (isPreambleLine(line)) continue;
+        // Greeting reliably marks the start of the email body.
+        if (looksLikeGreeting(line)) {
+          state = "body";
+          kept.push(child);
+          continue;
+        }
+        // Unknown line in preamble: keep skipping. If no greeting and no
+        // separator ever appears, the fallback returns the full text.
+        continue;
+      }
+
+      // state === "body"
       if (line.length === 0) {
         if (kept.length > 0) kept.push(child);
         continue;
       }
-      if (isAgentHeaderLine(line)) continue;
-      if (isSubjectLine(line)) continue;
-      // Italic-only paragraph AFTER the body is the citation footer
-      // (`*Quelle … PR #6 …*`). If we haven't started collecting the email
-      // yet it's just preamble — drop it without entering analysis mode.
-      if (paragraphIsAllItalic(child)) {
-        if (kept.length > 0) inAnalysis = true;
-        continue;
-      }
+      // Defense-in-depth: a stray "Betreff:" inside the body is still scaffolding.
+      if (isPreambleLine(line)) continue;
       kept.push(child);
       continue;
     }
-    // Lists, blockquotes, code, etc.: keep them as part of the body.
-    kept.push(child);
+
+    // Lists, blockquotes, code blocks, etc.
+    if (state === "body") {
+      kept.push(child);
+    }
   }
 
   // Drop trailing blank paragraphs introduced by the skip rules above.
