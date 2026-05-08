@@ -59,22 +59,59 @@ function tiptapToPlainText(node: unknown): string {
 }
 
 /**
- * The Sales-Outreach-Agent always structures its draft note like:
+ * The Sales-Outreach-Agent emits draft notes shaped roughly like:
  *
+ *     Antwort-Entwurf · Sales Outreach Agent              ← header line
+ *     ---                                                  ← horizontal rule
+ *     Betreff: Re: Anfrage Umzug                           ← optional subject
+ *     Hallo R.H.,
  *     <email body paragraphs ending with the signature>
- *     ## Verkaufspsychologische Hebel
- *     ...
+ *     ---                                                  ← horizontal rule
+ *     ## Verkaufspsychologische Hebel                      ← analysis (skip)
  *     ## Was bewusst weggelassen wurde
- *     ...
  *     ## Conversion-Einschätzung
- *     ...
+ *     ---
+ *     *Quelle für Tonalität ... PR #6 ...*                 ← italic citation
  *
- * The composer only wants the email itself — not the agent's analysis
- * scaffolding. Walk top-level nodes and stop at the first heading; everything
- * before it is the message. If we'd produce an empty result (agent used a
- * different shape, or wrote a heading in the body), fall back to the full
- * plain-text body so the user at least has something to start from.
+ * Only the email body should land in the composer. Walk the top-level
+ * TipTap nodes and drop the scaffolding bits explicitly: the title repeat,
+ * `Betreff:` / `Subject:` lines, horizontal rules, headings + everything
+ * after them, and italic-only "source" footer paragraphs.
+ *
+ * If the heuristics over-strip (note doesn't follow this shape), fall back
+ * to the full plain-text body so the human at least has something editable
+ * instead of an empty composer.
  */
+
+function paragraphIsAllItalic(node: unknown): boolean {
+  if (!node || typeof node !== "object") return false;
+  const n = node as { content?: unknown };
+  if (!Array.isArray(n.content) || n.content.length === 0) return false;
+  let sawText = false;
+  for (const child of n.content) {
+    const c = child as { type?: string; text?: string; marks?: unknown };
+    if (c.type !== "text") return false;
+    if (typeof c.text !== "string" || c.text.length === 0) continue;
+    sawText = true;
+    const marks = Array.isArray(c.marks) ? c.marks : [];
+    const italic = marks.some(
+      (m) => (m as { type?: string }).type === "italic"
+    );
+    if (!italic) return false;
+  }
+  return sawText;
+}
+
+function isAgentHeaderLine(line: string): boolean {
+  return /^antwort[-\s]?entwurf\s*[·•|–-]\s*sales\s+outreach\s+agent/i.test(
+    line
+  );
+}
+
+function isSubjectLine(line: string): boolean {
+  return /^(betreff|subject)\s*:/i.test(line);
+}
+
 function extractDraftMessage(content: unknown): string {
   const fullText = tiptapToPlainText(content).trim();
   if (!content || typeof content !== "object") return fullText;
@@ -82,16 +119,51 @@ function extractDraftMessage(content: unknown): string {
   const top = Array.isArray(root.content) ? root.content : null;
   if (!top) return fullText;
 
-  const messageNodes: unknown[] = [];
+  const kept: unknown[] = [];
+  let inAnalysis = false;
   for (const child of top) {
-    const t = (child as { type?: unknown })?.type;
-    if (t === "heading") break;
-    messageNodes.push(child);
-  }
-  const trimmed = tiptapToPlainText({ type: "doc", content: messageNodes }).trim();
+    if (inAnalysis) continue;
+    const c = child as { type?: string };
 
-  // Sanity: if trimming ate almost everything, the note doesn't follow the
-  // expected shape — show the whole thing rather than an empty composer.
+    // Hard stops: anything from here on is agent commentary, not the email.
+    if (c.type === "heading") {
+      inAnalysis = true;
+      continue;
+    }
+    // Drop separators between sections.
+    if (c.type === "horizontalRule") continue;
+
+    if (c.type === "paragraph") {
+      const line = tiptapToPlainText(child).trim();
+      if (line.length === 0) {
+        if (kept.length > 0) kept.push(child);
+        continue;
+      }
+      if (isAgentHeaderLine(line)) continue;
+      if (isSubjectLine(line)) continue;
+      // Italic-only paragraph AFTER the body is the citation footer
+      // (`*Quelle … PR #6 …*`). If we haven't started collecting the email
+      // yet it's just preamble — drop it without entering analysis mode.
+      if (paragraphIsAllItalic(child)) {
+        if (kept.length > 0) inAnalysis = true;
+        continue;
+      }
+      kept.push(child);
+      continue;
+    }
+    // Lists, blockquotes, code, etc.: keep them as part of the body.
+    kept.push(child);
+  }
+
+  // Drop trailing blank paragraphs introduced by the skip rules above.
+  while (kept.length > 0) {
+    const last = kept[kept.length - 1];
+    if (tiptapToPlainText(last).trim().length === 0) {
+      kept.pop();
+    } else break;
+  }
+
+  const trimmed = tiptapToPlainText({ type: "doc", content: kept }).trim();
   if (trimmed.length < 40 && fullText.length >= 40) return fullText;
   return trimmed || fullText;
 }
