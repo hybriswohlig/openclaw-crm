@@ -3,8 +3,8 @@ import { getAuthContext, unauthorized, notFound, success } from "@/lib/api-utils
 import { getObjectBySlug } from "@/services/objects";
 import { getRecord } from "@/services/records";
 import { db } from "@/db";
-import { notes, tasks, taskRecords, activityEvents } from "@/db/schema";
-import { and, eq, desc } from "drizzle-orm";
+import { notes, tasks, taskRecords, activityEvents, inboxMessages } from "@/db/schema";
+import { and, eq, desc, inArray } from "drizzle-orm";
 
 export async function GET(
   req: NextRequest,
@@ -56,6 +56,45 @@ export async function GET(
     .orderBy(desc(activityEvents.createdAt))
     .limit(200);
 
+  // Resolve inbox message bodies for every `message.received` event in the
+  // current page. The activity payload only carries identifiers; the original
+  // text/html body lives in `inbox_messages` so the AI sales-assistant API
+  // consumers can read tone, wording, emojis, etc. — not just the KI summary.
+  const externalMessageIds = Array.from(
+    new Set(
+      eventRows.flatMap((ev) => {
+        if (ev.eventType !== "message.received") return [];
+        const payload = (ev.payload ?? {}) as Record<string, unknown>;
+        const id = typeof payload.externalMessageId === "string" ? payload.externalMessageId : null;
+        return id ? [id] : [];
+      })
+    )
+  );
+  const messageBodyByExternalId = new Map<string, { body: string; bodyHtml: string | null }>();
+  if (externalMessageIds.length > 0) {
+    const messageRows = await db
+      .select({
+        externalMessageId: inboxMessages.externalMessageId,
+        body: inboxMessages.body,
+        bodyHtml: inboxMessages.bodyHtml,
+      })
+      .from(inboxMessages)
+      .where(
+        and(
+          eq(inboxMessages.workspaceId, ctx.workspaceId),
+          inArray(inboxMessages.externalMessageId, externalMessageIds)
+        )
+      );
+    for (const row of messageRows) {
+      if (row.externalMessageId) {
+        messageBodyByExternalId.set(row.externalMessageId, {
+          body: row.body,
+          bodyHtml: row.bodyHtml,
+        });
+      }
+    }
+  }
+
   // Build activity feed
   const activities = [
     // Record creation event
@@ -90,6 +129,10 @@ export async function GET(
       if (ev.eventType === "message.received") {
         const subject = typeof payload.subject === "string" ? payload.subject : "";
         const from = typeof payload.fromAddress === "string" ? payload.fromAddress : "";
+        const channelType = typeof payload.channelType === "string" ? payload.channelType : undefined;
+        const externalMessageId = typeof payload.externalMessageId === "string" ? payload.externalMessageId : undefined;
+        const conversationId = typeof payload.conversationId === "string" ? payload.conversationId : undefined;
+        const enrichment = externalMessageId ? messageBodyByExternalId.get(externalMessageId) : undefined;
         return {
           id: `event-${ev.id}`,
           type: "message_received" as const,
@@ -97,6 +140,16 @@ export async function GET(
           description: from ? `From ${from}` : undefined,
           createdAt: ev.createdAt.toISOString(),
           createdBy: ev.actorId ?? undefined,
+          channelType,
+          fromAddress: from || undefined,
+          subject: subject || undefined,
+          conversationId,
+          externalMessageId,
+          // Original message body (plain-text, HTML stripped). Exposed so API
+          // consumers can craft replies that preserve the lead's tone/wording
+          // instead of relying on the structured KI summary alone.
+          body: enrichment?.body ?? null,
+          bodyHtml: enrichment?.bodyHtml ?? null,
         };
       }
       if (ev.eventType === "deal.stage_changed") {
