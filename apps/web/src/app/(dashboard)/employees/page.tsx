@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useEffect, useCallback } from "react";
+import { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
@@ -8,126 +8,128 @@ import {
   Loader2,
   Pencil,
   Trash2,
-  ChevronDown,
-  ChevronRight,
   ImagePlus,
   X,
-  Briefcase,
-  Wallet,
-  Receipt,
-  AlertCircle,
-  CalendarClock,
-  FileText,
-  Scale,
-  ShieldOff,
+  ArrowUpDown,
+  ArrowDown,
+  ArrowUp,
+  Star,
+  Clock,
+  CalendarRange,
+  Search,
 } from "lucide-react";
 import { EmployeeAvatar } from "@/components/employees/employee-avatar";
+import { fmtEUR, fmtDate } from "@/components/employees/employee-detail-view";
 import { cn } from "@/lib/utils";
 
-interface Employee {
+type EmployeeStatus = "active" | "on_leave" | "inactive";
+
+interface OverviewRow {
+  id: string;
+  name: string;
+  role: string | null;
+  status: EmployeeStatus;
+  photoBase64: string | null;
+  hourlyRate: string;
+  jobsThisMonth: number;
+  hoursThisMonth: number;
+  paidYtd: number;
+  owedNow: number;
+  avgRating: number | null;
+  ratedJobCount: number;
+  onTimePct: number | null;
+  onTimeJobCount: number;
+  lastJobDate: string | null;
+}
+
+interface BasicEmployee {
   id: string;
   name: string;
   experience: string | null;
   hourlyRate: string;
+  role: string | null;
+  status: EmployeeStatus;
   photoBase64: string | null;
-  createdAt: string;
-  contractCount: number;
 }
 
-interface AuftragRow {
-  assignmentId: string;
-  dealRecordId: string;
-  dealNumber: string | null;
-  dealName: string;
-  stage: { title: string; color: string } | null;
-  moveDate: string | null;
-  role: string;
-  assignedAt: string;
-}
-
-interface TransactionRow {
-  id: string;
-  date: string;
-  type: "salary" | "advance" | "reimbursement";
-  amount: number;
-  amountPaid: number;
-  amountOutstanding: number;
-  status: "offen" | "teilweise bezahlt" | "bezahlt";
-  dueDate: string | null;
-  description: string | null;
-  notes: string | null;
-  dealRecordId: string;
-  dealNumber: string | null;
-  dealName: string;
-  isTaxDeductible: boolean;
-  hasReceipt: boolean;
-}
-
-interface EmployeeDetail {
-  contracts: { assignmentId: string; dealRecordId: string; role: string; assignedAt: string }[];
-  auftraege: AuftragRow[];
-  paymentsReceived: TransactionRow[];
-  outOfPocket: TransactionRow[];
-  totals: {
-    receivedTotal: number;
-    outstandingTotal: number;
-    outOfPocketOpen: number;
-    deductibleReceived: number;
-    nonDeductibleReceived: number;
-    receiptCount: number;
-  };
-}
-
-const TYPE_LABEL: Record<TransactionRow["type"], string> = {
-  salary: "Lohn",
-  advance: "Vorschuss",
-  reimbursement: "Erstattung",
+const STATUS_LABEL: Record<EmployeeStatus, string> = {
+  active: "Aktiv",
+  on_leave: "In Urlaub",
+  inactive: "Inaktiv",
 };
 
-const STATUS_BADGE: Record<TransactionRow["status"], { label: string; cls: string }> = {
-  offen: { label: "offen", cls: "bg-amber-500/15 text-amber-700" },
-  "teilweise bezahlt": { label: "teilweise bezahlt", cls: "bg-blue-500/15 text-blue-700" },
-  bezahlt: { label: "bezahlt", cls: "bg-emerald-500/15 text-emerald-700" },
+const STATUS_BADGE: Record<EmployeeStatus, string> = {
+  active: "bg-emerald-500/15 text-emerald-700",
+  on_leave: "bg-amber-500/15 text-amber-700",
+  inactive: "bg-zinc-500/15 text-zinc-700",
 };
 
-function fmtEUR(n: number): string {
-  return n.toLocaleString("de-DE", { style: "currency", currency: "EUR" });
-}
+type SortKey =
+  | "name"
+  | "role"
+  | "status"
+  | "jobsThisMonth"
+  | "hoursThisMonth"
+  | "paidYtd"
+  | "owedNow"
+  | "avgRating"
+  | "onTimePct"
+  | "lastJobDate";
 
-function fmtDate(iso: string | null): string {
-  if (!iso) return "—";
-  return new Date(iso + (iso.length === 10 ? "T00:00:00" : "")).toLocaleDateString("de-DE");
-}
-
-function isOverdue(due: string | null, status: TransactionRow["status"]): boolean {
-  if (!due) return false;
-  if (status === "bezahlt") return false;
-  return new Date(due + "T23:59:59") < new Date();
+interface SortState {
+  key: SortKey;
+  dir: "asc" | "desc";
 }
 
 export default function EmployeesPage() {
-  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [rows, setRows] = useState<OverviewRow[]>([]);
+  const [basicById, setBasicById] = useState<Map<string, BasicEmployee>>(new Map());
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [detail, setDetail] = useState<EmployeeDetail | null>(null);
-  const [form, setForm] = useState<{ name: string; experience: string; hourlyRate: string; photoBase64: string | null }>({
+  const [form, setForm] = useState<{
+    name: string;
+    experience: string;
+    hourlyRate: string;
+    role: string;
+    status: EmployeeStatus;
+    photoBase64: string | null;
+  }>({
     name: "",
     experience: "",
     hourlyRate: "",
+    role: "",
+    status: "active",
     photoBase64: null,
   });
   const [saving, setSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const fetchEmployees = useCallback(async () => {
+  // Filter state
+  const [search, setSearch] = useState("");
+  const [filterRole, setFilterRole] = useState<string>("");
+  const [filterStatus, setFilterStatus] = useState<EmployeeStatus | "">("");
+  const [filterMinOwed, setFilterMinOwed] = useState<string>("");
+  const [filterMinRating, setFilterMinRating] = useState<string>("");
+
+  const [sort, setSort] = useState<SortState>({ key: "name", dir: "asc" });
+
+  const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/v1/employees");
-      if (res.ok) {
-        const data = await res.json();
-        setEmployees(data.data || []);
+      const [overviewRes, basicRes] = await Promise.all([
+        fetch("/api/v1/employees/overview"),
+        fetch("/api/v1/employees"),
+      ]);
+      if (overviewRes.ok) {
+        const data = await overviewRes.json();
+        setRows((data.data as OverviewRow[]) || []);
+      }
+      if (basicRes.ok) {
+        const data = await basicRes.json();
+        const map = new Map<string, BasicEmployee>();
+        for (const e of (data.data as BasicEmployee[]) || []) map.set(e.id, e);
+        setBasicById(map);
       }
     } finally {
       setLoading(false);
@@ -135,24 +137,32 @@ export default function EmployeesPage() {
   }, []);
 
   useEffect(() => {
-    fetchEmployees();
-  }, [fetchEmployees]);
+    fetchAll();
+  }, [fetchAll]);
 
   async function handleSave() {
     setSaving(true);
     try {
       const url = editId ? `/api/v1/employees/${editId}` : "/api/v1/employees";
       const method = editId ? "PATCH" : "POST";
+      const payload = {
+        name: form.name,
+        experience: form.experience,
+        hourlyRate: form.hourlyRate,
+        role: form.role.trim() === "" ? null : form.role.trim(),
+        status: form.status,
+        photoBase64: form.photoBase64,
+      };
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
       if (res.ok) {
         setShowForm(false);
         setEditId(null);
-        setForm({ name: "", experience: "", hourlyRate: "", photoBase64: null });
-        fetchEmployees();
+        setForm({ name: "", experience: "", hourlyRate: "", role: "", status: "active", photoBase64: null });
+        fetchAll();
       }
     } finally {
       setSaving(false);
@@ -181,58 +191,65 @@ export default function EmployeesPage() {
   async function handleDelete(id: string) {
     if (!confirm("Delete this employee?")) return;
     const res = await fetch(`/api/v1/employees/${id}`, { method: "DELETE" });
-    if (res.ok) fetchEmployees();
+    if (res.ok) fetchAll();
   }
 
-  function startEdit(emp: Employee) {
-    setEditId(emp.id);
+  function startEdit(empId: string) {
+    const emp = basicById.get(empId);
+    if (!emp) return;
+    setEditId(empId);
     setForm({
       name: emp.name,
       experience: emp.experience || "",
       hourlyRate: emp.hourlyRate,
+      role: emp.role || "",
+      status: emp.status,
       photoBase64: emp.photoBase64 || null,
     });
     setShowForm(true);
   }
 
-  const reloadDetail = useCallback(async (employeeId: string) => {
-    const res = await fetch(`/api/v1/employees/${employeeId}`);
-    if (!res.ok) return;
-    const data = await res.json();
-    setDetail({
-      contracts: data.data?.contracts ?? [],
-      auftraege: data.data?.auftraege ?? [],
-      paymentsReceived: data.data?.paymentsReceived ?? [],
-      outOfPocket: data.data?.outOfPocket ?? [],
-      totals: data.data?.totals ?? { receivedTotal: 0, outstandingTotal: 0, outOfPocketOpen: 0 },
-    });
-  }, []);
+  const knownRoles = useMemo(() => {
+    const s = new Set<string>();
+    for (const r of rows) if (r.role) s.add(r.role);
+    return Array.from(s).sort();
+  }, [rows]);
 
-  async function toggleExpand(emp: Employee) {
-    if (expandedId === emp.id) {
-      setExpandedId(null);
-      setDetail(null);
-      return;
-    }
-    setExpandedId(emp.id);
-    setDetail(null);
-    await reloadDetail(emp.id);
-  }
-
-  async function recordPayment(emp: Employee, transactionId: string) {
-    const input = prompt("Betrag der Zahlung in EUR (z. B. 50 oder -50 zum Stornieren):");
-    if (!input) return;
-    const delta = Number(input.replace(",", "."));
-    if (!Number.isFinite(delta) || delta === 0) {
-      alert("Ungültiger Betrag.");
-      return;
-    }
-    const res = await fetch(`/api/v1/employee-transactions/${transactionId}/record-payment`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ delta }),
+  const filtered = useMemo(() => {
+    const minOwed = Number(filterMinOwed);
+    const minRating = Number(filterMinRating);
+    const q = search.trim().toLowerCase();
+    return rows.filter((r) => {
+      if (q && !r.name.toLowerCase().includes(q)) return false;
+      if (filterRole && r.role !== filterRole) return false;
+      if (filterStatus && r.status !== filterStatus) return false;
+      if (Number.isFinite(minOwed) && filterMinOwed !== "" && r.owedNow < minOwed) return false;
+      if (Number.isFinite(minRating) && filterMinRating !== "") {
+        if (r.avgRating === null || r.avgRating < minRating) return false;
+      }
+      return true;
     });
-    if (res.ok) await reloadDetail(emp.id);
+  }, [rows, search, filterRole, filterStatus, filterMinOwed, filterMinRating]);
+
+  const sorted = useMemo(() => {
+    const copy = [...filtered];
+    copy.sort((a, b) => compareRows(a, b, sort));
+    return copy;
+  }, [filtered, sort]);
+
+  const totals = useMemo(() => {
+    const acc = { paidYtd: 0, owedNow: 0, jobsThisMonth: 0, employees: rows.length, active: 0 };
+    for (const r of rows) {
+      acc.paidYtd += r.paidYtd;
+      acc.owedNow += r.owedNow;
+      acc.jobsThisMonth += r.jobsThisMonth;
+      if (r.status === "active") acc.active += 1;
+    }
+    return acc;
+  }, [rows]);
+
+  function toggleSort(key: SortKey) {
+    setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }));
   }
 
   if (loading) {
@@ -244,26 +261,40 @@ export default function EmployeesPage() {
   }
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-semibold">Employees</h1>
+    <div className="p-6 max-w-7xl mx-auto">
+      <div className="flex items-center justify-between mb-1">
+        <h1 className="text-2xl font-semibold">Team</h1>
         <Button
           onClick={() => {
             setEditId(null);
-            setForm({ name: "", experience: "", hourlyRate: "", photoBase64: null });
+            setForm({ name: "", experience: "", hourlyRate: "", role: "", status: "active", photoBase64: null });
             setShowForm(true);
           }}
         >
           <Plus className="mr-1.5 h-4 w-4" />
-          Add Employee
+          Mitarbeiter hinzufügen
         </Button>
+      </div>
+      <p className="text-sm text-muted-foreground mb-5">
+        Wer hat diesen Monat gearbeitet, was wurde bezahlt, was ist offen.
+      </p>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+        <SummaryCard label="Mitarbeiter" value={`${totals.active} / ${totals.employees}`} hint="aktiv / gesamt" />
+        <SummaryCard label="Aufträge diesen Monat" value={String(totals.jobsThisMonth)} hint="alle Mitarbeiter" />
+        <SummaryCard label="Bezahlt YTD" value={fmtEUR(totals.paidYtd)} hint="seit 1. Januar" />
+        <SummaryCard
+          label="Offen jetzt"
+          value={fmtEUR(totals.owedNow)}
+          hint="nicht ausgezahlt"
+          highlight={totals.owedNow > 0}
+        />
       </div>
 
       {showForm && (
         <div className="mb-6 rounded-lg border border-border p-4 space-y-3">
-          <h3 className="font-medium text-sm">{editId ? "Edit Employee" : "New Employee"}</h3>
+          <h3 className="font-medium text-sm">{editId ? "Mitarbeiter bearbeiten" : "Neuer Mitarbeiter"}</h3>
           <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4">
-            {/* Avatar uploader */}
             <div className="flex flex-col items-center gap-2">
               <button
                 type="button"
@@ -271,11 +302,7 @@ export default function EmployeesPage() {
                 className="group relative"
                 title="Foto hochladen"
               >
-                <EmployeeAvatar
-                  name={form.name || "?"}
-                  photoBase64={form.photoBase64}
-                  size="xl"
-                />
+                <EmployeeAvatar name={form.name || "?"} photoBase64={form.photoBase64} size="xl" />
                 <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition">
                   <ImagePlus className="h-5 w-5 text-white" />
                 </div>
@@ -303,27 +330,54 @@ export default function EmployeesPage() {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full sm:flex-1">
-              <div>
-                <label className="text-xs text-muted-foreground">Name *</label>
+              <FormField label="Name *">
                 <input
                   type="text"
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
                 />
-              </div>
-              <div>
-                <label className="text-xs text-muted-foreground">Experience</label>
+              </FormField>
+              <FormField label="Rolle">
+                <input
+                  type="text"
+                  list="role-suggestions"
+                  value={form.role}
+                  onChange={(e) => setForm({ ...form, role: e.target.value })}
+                  placeholder="z. B. Fahrer, Packer, Helfer"
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                />
+                <datalist id="role-suggestions">
+                  {knownRoles.map((r) => (
+                    <option key={r} value={r} />
+                  ))}
+                  <option value="Fahrer" />
+                  <option value="Packer" />
+                  <option value="Mover" />
+                  <option value="Helfer" />
+                </datalist>
+              </FormField>
+              <FormField label="Status">
+                <select
+                  value={form.status}
+                  onChange={(e) => setForm({ ...form, status: e.target.value as EmployeeStatus })}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="active">Aktiv</option>
+                  <option value="on_leave">In Urlaub</option>
+                  <option value="inactive">Inaktiv</option>
+                </select>
+              </FormField>
+              <FormField label="Erfahrung">
                 <input
                   type="text"
                   value={form.experience}
                   onChange={(e) => setForm({ ...form, experience: e.target.value })}
-                  placeholder="e.g. 5 years, Senior"
+                  placeholder="z. B. 5 Jahre, Senior"
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
                 />
-              </div>
-              <div>
-                <label className="text-xs text-muted-foreground">Hourly Rate (EUR) *</label>
+              </FormField>
+              <FormField label="Stundensatz (EUR) *">
                 <input
                   type="number"
                   step="0.01"
@@ -331,13 +385,13 @@ export default function EmployeesPage() {
                   onChange={(e) => setForm({ ...form, hourlyRate: e.target.value })}
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
                 />
-              </div>
+              </FormField>
             </div>
           </div>
           <div className="flex gap-2">
             <Button onClick={handleSave} disabled={saving || !form.name || !form.hourlyRate}>
               {saving && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
-              {editId ? "Update" : "Create"}
+              {editId ? "Aktualisieren" : "Erstellen"}
             </Button>
             <Button
               variant="ghost"
@@ -346,387 +400,362 @@ export default function EmployeesPage() {
                 setEditId(null);
               }}
             >
-              Cancel
+              Abbrechen
             </Button>
           </div>
         </div>
       )}
 
-      {employees.length === 0 ? (
-        <p className="text-muted-foreground text-sm">No employees yet. Add your first one above.</p>
+      {/* Filter bar */}
+      <div className="mb-3 flex flex-wrap items-end gap-2 rounded-lg border border-border bg-muted/30 p-3">
+        <div className="flex-1 min-w-[180px]">
+          <label className="text-[11px] uppercase tracking-wider text-muted-foreground">Suche</label>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Name…"
+              className="w-full rounded-md border border-input bg-background pl-8 pr-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+            />
+          </div>
+        </div>
+        <div>
+          <label className="text-[11px] uppercase tracking-wider text-muted-foreground">Rolle</label>
+          <select
+            value={filterRole}
+            onChange={(e) => setFilterRole(e.target.value)}
+            className="rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+          >
+            <option value="">Alle</option>
+            {knownRoles.map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="text-[11px] uppercase tracking-wider text-muted-foreground">Status</label>
+          <select
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value as EmployeeStatus | "")}
+            className="rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+          >
+            <option value="">Alle</option>
+            <option value="active">Aktiv</option>
+            <option value="on_leave">In Urlaub</option>
+            <option value="inactive">Inaktiv</option>
+          </select>
+        </div>
+        <div>
+          <label className="text-[11px] uppercase tracking-wider text-muted-foreground">Offen ≥ €</label>
+          <input
+            type="number"
+            min="0"
+            step="50"
+            value={filterMinOwed}
+            onChange={(e) => setFilterMinOwed(e.target.value)}
+            placeholder="z. B. 100"
+            className="w-28 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+          />
+        </div>
+        <div>
+          <label className="text-[11px] uppercase tracking-wider text-muted-foreground">Bewertung ≥</label>
+          <input
+            type="number"
+            min="1"
+            max="5"
+            step="0.5"
+            value={filterMinRating}
+            onChange={(e) => setFilterMinRating(e.target.value)}
+            placeholder="1–5"
+            className="w-24 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+          />
+        </div>
+        {(search || filterRole || filterStatus || filterMinOwed || filterMinRating) && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setSearch("");
+              setFilterRole("");
+              setFilterStatus("");
+              setFilterMinOwed("");
+              setFilterMinRating("");
+            }}
+            className="h-8"
+          >
+            <X className="h-3.5 w-3.5 mr-1" />
+            Zurücksetzen
+          </Button>
+        )}
+      </div>
+
+      {sorted.length === 0 ? (
+        <p className="text-muted-foreground text-sm">
+          {rows.length === 0
+            ? "Noch keine Mitarbeiter. Lege oben den ersten an."
+            : "Keine Mitarbeiter passen zu den Filtern."}
+        </p>
       ) : (
         <div className="rounded-lg border border-border overflow-x-auto">
-          <table className="w-full text-sm min-w-[640px]">
+          <table className="w-full text-sm min-w-[1100px]">
             <thead>
               <tr className="border-b border-border bg-muted/50">
-                <th className="text-left px-4 py-3 font-medium w-8" />
-                <th className="text-left px-4 py-3 font-medium">Name</th>
-                <th className="text-left px-4 py-3 font-medium">Experience</th>
-                <th className="text-right px-4 py-3 font-medium">Hourly Rate</th>
-                <th className="text-right px-4 py-3 font-medium">Contracts</th>
-                <th className="text-right px-4 py-3 font-medium w-24" />
+                <SortHeader sortState={sort} onClick={() => toggleSort("name")} sortKey="name" align="left">
+                  Name
+                </SortHeader>
+                <SortHeader sortState={sort} onClick={() => toggleSort("role")} sortKey="role" align="left">
+                  Rolle
+                </SortHeader>
+                <SortHeader sortState={sort} onClick={() => toggleSort("status")} sortKey="status" align="left">
+                  Status
+                </SortHeader>
+                <SortHeader
+                  sortState={sort}
+                  onClick={() => toggleSort("jobsThisMonth")}
+                  sortKey="jobsThisMonth"
+                  align="right"
+                >
+                  Aufträge / Mon
+                </SortHeader>
+                <SortHeader
+                  sortState={sort}
+                  onClick={() => toggleSort("hoursThisMonth")}
+                  sortKey="hoursThisMonth"
+                  align="right"
+                >
+                  Stunden / Mon
+                </SortHeader>
+                <SortHeader
+                  sortState={sort}
+                  onClick={() => toggleSort("paidYtd")}
+                  sortKey="paidYtd"
+                  align="right"
+                >
+                  Bezahlt YTD
+                </SortHeader>
+                <SortHeader sortState={sort} onClick={() => toggleSort("owedNow")} sortKey="owedNow" align="right">
+                  Offen jetzt
+                </SortHeader>
+                <SortHeader
+                  sortState={sort}
+                  onClick={() => toggleSort("avgRating")}
+                  sortKey="avgRating"
+                  align="right"
+                >
+                  Bewertung
+                </SortHeader>
+                <SortHeader
+                  sortState={sort}
+                  onClick={() => toggleSort("onTimePct")}
+                  sortKey="onTimePct"
+                  align="right"
+                >
+                  Pünktlich
+                </SortHeader>
+                <SortHeader
+                  sortState={sort}
+                  onClick={() => toggleSort("lastJobDate")}
+                  sortKey="lastJobDate"
+                  align="right"
+                >
+                  Letzter Auftrag
+                </SortHeader>
+                <th className="text-right px-3 py-2 font-medium w-24" />
               </tr>
             </thead>
             <tbody>
-              {employees.map((emp) => (
-                <>
-                  <tr
-                    key={emp.id}
-                    className="border-b border-border hover:bg-muted/30 cursor-pointer"
-                    onClick={() => toggleExpand(emp)}
-                  >
-                    <td className="px-4 py-3">
-                      {expandedId === emp.id ? (
-                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                      ) : (
-                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+              {sorted.map((r) => (
+                <tr key={r.id} className="border-b border-border hover:bg-muted/30">
+                  <td className="px-3 py-2 font-medium">
+                    <Link href={`/employees/${r.id}`} className="flex items-center gap-2 hover:underline">
+                      <EmployeeAvatar name={r.name} photoBase64={r.photoBase64} size="sm" />
+                      <span>{r.name}</span>
+                    </Link>
+                  </td>
+                  <td className="px-3 py-2 text-muted-foreground">{r.role || "—"}</td>
+                  <td className="px-3 py-2">
+                    <span
+                      className={cn(
+                        "inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium",
+                        STATUS_BADGE[r.status]
                       )}
-                    </td>
-                    <td className="px-4 py-3 font-medium">
-                      <div className="flex items-center gap-2">
-                        <EmployeeAvatar name={emp.name} photoBase64={emp.photoBase64} size="sm" />
-                        <span>{emp.name}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">{emp.experience || "—"}</td>
-                    <td className="px-4 py-3 text-right">
-                      {Number(emp.hourlyRate).toLocaleString("de-DE", {
-                        style: "currency",
-                        currency: "EUR",
-                      })}
-                    </td>
-                    <td className="px-4 py-3 text-right">{emp.contractCount}</td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            startEdit(emp);
-                          }}
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDelete(emp.id);
-                          }}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                  {expandedId === emp.id && (
-                    <tr key={`${emp.id}-detail`}>
-                      <td colSpan={6} className="bg-muted/10 px-8 py-4">
-                        {!detail ? (
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <Loader2 className="h-3 w-3 animate-spin" /> Lade Details…
-                          </div>
-                        ) : (
-                          <EmployeeDetailView
-                            detail={detail}
-                            onRecordPayment={(txId) => recordPayment(emp, txId)}
-                          />
-                        )}
-                      </td>
-                    </tr>
-                  )}
-                </>
+                    >
+                      {STATUS_LABEL[r.status]}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">{r.jobsThisMonth}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                    {r.hoursThisMonth > 0 ? `${r.hoursThisMonth.toLocaleString("de-DE")} h` : "—"}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">{fmtEUR(r.paidYtd)}</td>
+                  <td
+                    className={cn(
+                      "px-3 py-2 text-right tabular-nums",
+                      r.owedNow > 0 && "text-amber-700 font-medium"
+                    )}
+                  >
+                    {fmtEUR(r.owedNow)}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {r.avgRating === null ? (
+                      <span className="text-muted-foreground" title="Noch keine Bewertungen erfasst.">
+                        —
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1">
+                        <Star className="h-3 w-3 text-amber-500 fill-amber-500" />
+                        <span>{r.avgRating.toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</span>
+                        <span className="text-[10px] text-muted-foreground">({r.ratedJobCount})</span>
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {r.onTimePct === null ? (
+                      <span
+                        className="text-muted-foreground"
+                        title="Tatsächliche Startzeiten werden noch nicht erfasst."
+                      >
+                        —
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1">
+                        <Clock className="h-3 w-3 text-muted-foreground" />
+                        {r.onTimePct}%
+                        <span className="text-[10px] text-muted-foreground">({r.onTimeJobCount})</span>
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-right text-xs text-muted-foreground whitespace-nowrap">
+                    <span className="inline-flex items-center gap-1">
+                      <CalendarRange className="h-3 w-3" />
+                      {r.lastJobDate ? fmtDate(r.lastJobDate) : "—"}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    <div className="flex justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => startEdit(r.id)}
+                        title="Bearbeiten"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                        onClick={() => handleDelete(r.id)}
+                        title="Löschen"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
-    </div>
-  );
-}
 
-// ─── Detail view (Aufträge / Zahlungen / Auslagen) ──────────────────────────
-
-function EmployeeDetailView({
-  detail,
-  onRecordPayment,
-}: {
-  detail: EmployeeDetail;
-  onRecordPayment: (transactionId: string) => void;
-}) {
-  return (
-    <div className="space-y-5">
-      {/* Summary stats */}
-      <div className="flex flex-wrap items-center gap-2 text-xs">
-        <Stat label="Aufträge" value={String(detail.auftraege.length)} icon={<Briefcase className="h-3.5 w-3.5" />} />
-        <Stat label="Erhalten" value={fmtEUR(detail.totals.receivedTotal)} icon={<Wallet className="h-3.5 w-3.5" />} />
-        <Stat
-          label="Abzugsfähig"
-          value={fmtEUR(detail.totals.deductibleReceived)}
-          icon={<Scale className="h-3.5 w-3.5" />}
-        />
-        <Stat
-          label="Nicht abz."
-          value={fmtEUR(detail.totals.nonDeductibleReceived)}
-          icon={<ShieldOff className="h-3.5 w-3.5" />}
-          highlight={detail.totals.nonDeductibleReceived > 0}
-        />
-        <Stat
-          label="Belege"
-          value={String(detail.totals.receiptCount)}
-          icon={<FileText className="h-3.5 w-3.5" />}
-        />
-        <Stat
-          label="Offene Auslagen"
-          value={fmtEUR(detail.totals.outOfPocketOpen)}
-          icon={<Receipt className="h-3.5 w-3.5" />}
-          highlight={detail.totals.outOfPocketOpen > 0}
-        />
-        <Stat
-          label="Insgesamt offen"
-          value={fmtEUR(detail.totals.outstandingTotal)}
-          icon={<AlertCircle className="h-3.5 w-3.5" />}
-          highlight={detail.totals.outstandingTotal > 0}
-        />
+      <div className="mt-3 text-[11px] text-muted-foreground">
+        Felder mit „—" werden befüllt, sobald Aufträge mit{" "}
+        <code className="font-mono text-[10px]">customer_rating</code> bzw.{" "}
+        <code className="font-mono text-[10px]">actual_start</code> erfasst werden.
       </div>
-
-      {/* Aufträge */}
-      <DetailSection title="Aufträge" icon={<Briefcase className="h-4 w-4" />} count={detail.auftraege.length}>
-        {detail.auftraege.length === 0 ? (
-          <p className="text-xs text-muted-foreground py-2 px-1">Noch keine Aufträge.</p>
-        ) : (
-          <div className="rounded-md border border-border bg-background divide-y divide-border">
-            {detail.auftraege.map((a) => (
-              <Link
-                key={a.assignmentId}
-                href={`/objects/deals/${a.dealRecordId}`}
-                className="flex items-center gap-3 px-3 py-2 text-sm hover:bg-muted/40 transition"
-              >
-                {a.dealNumber && <span className="font-mono text-xs text-muted-foreground">{a.dealNumber}</span>}
-                <span className="font-medium flex-1 truncate">{a.dealName}</span>
-                {a.stage && (
-                  <span
-                    className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium"
-                    style={{ backgroundColor: a.stage.color + "33", color: a.stage.color }}
-                  >
-                    {a.stage.title}
-                  </span>
-                )}
-                <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{a.role}</span>
-                <span className="text-xs text-muted-foreground w-24 text-right">
-                  {a.moveDate ? fmtDate(a.moveDate) : "kein Datum"}
-                </span>
-              </Link>
-            ))}
-          </div>
-        )}
-      </DetailSection>
-
-      {/* Zahlungen erhalten */}
-      <DetailSection
-        title="Zahlungen erhalten"
-        icon={<Wallet className="h-4 w-4" />}
-        count={detail.paymentsReceived.length}
-      >
-        {detail.paymentsReceived.length === 0 ? (
-          <p className="text-xs text-muted-foreground py-2 px-1">Noch keine Zahlungen erhalten.</p>
-        ) : (
-          <TransactionTable rows={detail.paymentsReceived} onRecordPayment={onRecordPayment} />
-        )}
-      </DetailSection>
-
-      {/* Auslagen (eigene Tasche) */}
-      <DetailSection
-        title="Auslagen (aus eigener Tasche)"
-        icon={<Receipt className="h-4 w-4" />}
-        count={detail.outOfPocket.length}
-      >
-        {detail.outOfPocket.length === 0 ? (
-          <p className="text-xs text-muted-foreground py-2 px-1">Keine Auslagen erfasst.</p>
-        ) : (
-          <TransactionTable rows={detail.outOfPocket} onRecordPayment={onRecordPayment} showOutstanding />
-        )}
-      </DetailSection>
     </div>
   );
 }
 
-function Stat({
+function compareRows(a: OverviewRow, b: OverviewRow, sort: SortState): number {
+  const dir = sort.dir === "asc" ? 1 : -1;
+  const k = sort.key;
+  if (k === "name") return a.name.localeCompare(b.name) * dir;
+  if (k === "role") return (a.role ?? "").localeCompare(b.role ?? "") * dir;
+  if (k === "status") return STATUS_LABEL[a.status].localeCompare(STATUS_LABEL[b.status]) * dir;
+  if (k === "lastJobDate") {
+    if (a.lastJobDate === b.lastJobDate) return 0;
+    if (!a.lastJobDate) return 1;
+    if (!b.lastJobDate) return -1;
+    return a.lastJobDate.localeCompare(b.lastJobDate) * dir;
+  }
+  // numeric fields, with nulls always last
+  const av = (a as unknown as Record<string, number | null>)[k];
+  const bv = (b as unknown as Record<string, number | null>)[k];
+  if (av === null && bv === null) return 0;
+  if (av === null) return 1;
+  if (bv === null) return -1;
+  return ((av as number) - (bv as number)) * dir;
+}
+
+function SummaryCard({
   label,
   value,
-  icon,
+  hint,
   highlight,
 }: {
   label: string;
   value: string;
-  icon: React.ReactNode;
+  hint?: string;
   highlight?: boolean;
 }) {
   return (
     <div
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5",
-        highlight ? "border-amber-500/40 bg-amber-500/10 text-amber-700" : "border-border bg-background"
+        "rounded-lg border bg-background px-4 py-3",
+        highlight ? "border-amber-500/40 bg-amber-500/5" : "border-border"
       )}
     >
-      {icon}
-      <span className="text-muted-foreground">{label}:</span>
-      <span className="font-medium text-foreground">{value}</span>
+      <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className={cn("text-xl font-semibold mt-0.5", highlight && "text-amber-700")}>{value}</div>
+      {hint && <div className="text-[11px] text-muted-foreground mt-0.5">{hint}</div>}
     </div>
   );
 }
 
-function DetailSection({
-  title,
-  icon,
-  count,
-  children,
-}: {
-  title: string;
-  icon: React.ReactNode;
-  count: number;
-  children: React.ReactNode;
-}) {
+function FormField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <section>
-      <div className="flex items-center gap-2 mb-1.5 px-1">
-        {icon}
-        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</h4>
-        <span className="text-xs text-muted-foreground">({count})</span>
-      </div>
+    <div>
+      <label className="text-xs text-muted-foreground">{label}</label>
       {children}
-    </section>
+    </div>
   );
 }
 
-function TransactionTable({
-  rows,
-  onRecordPayment,
-  showOutstanding,
+function SortHeader({
+  children,
+  sortState,
+  sortKey,
+  onClick,
+  align,
 }: {
-  rows: TransactionRow[];
-  onRecordPayment: (transactionId: string) => void;
-  showOutstanding?: boolean;
+  children: React.ReactNode;
+  sortState: SortState;
+  sortKey: SortKey;
+  onClick: () => void;
+  align: "left" | "right";
 }) {
+  const active = sortState.key === sortKey;
+  const Icon = !active ? ArrowUpDown : sortState.dir === "asc" ? ArrowUp : ArrowDown;
   return (
-    <div className="rounded-md border border-border bg-background overflow-hidden">
-      <table className="w-full text-sm">
-        <thead className="bg-muted/40">
-          <tr className="text-xs text-muted-foreground">
-            <th className="text-left px-3 py-1.5 font-medium">Datum</th>
-            <th className="text-left px-3 py-1.5 font-medium">Typ</th>
-            <th className="text-left px-3 py-1.5 font-medium">Deal</th>
-            <th className="text-right px-3 py-1.5 font-medium">Betrag</th>
-            <th className="text-right px-3 py-1.5 font-medium">Bezahlt</th>
-            {showOutstanding && <th className="text-right px-3 py-1.5 font-medium">Offen</th>}
-            <th className="text-left px-3 py-1.5 font-medium">Status</th>
-            <th className="text-left px-3 py-1.5 font-medium">Beleg</th>
-            <th className="text-left px-3 py-1.5 font-medium">Steuer</th>
-            <th className="text-left px-3 py-1.5 font-medium">Fällig</th>
-            <th className="text-left px-3 py-1.5 font-medium">Kommentar</th>
-            <th className="px-3 py-1.5" />
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border">
-          {rows.map((t) => {
-            const overdue = isOverdue(t.dueDate, t.status);
-            const sb = STATUS_BADGE[t.status];
-            return (
-              <tr key={t.id} className="hover:bg-muted/30">
-                <td className="px-3 py-1.5 whitespace-nowrap">{fmtDate(t.date)}</td>
-                <td className="px-3 py-1.5 whitespace-nowrap text-muted-foreground">{TYPE_LABEL[t.type]}</td>
-                <td className="px-3 py-1.5">
-                  <Link href={`/objects/deals/${t.dealRecordId}`} className="hover:underline">
-                    {t.dealNumber ? <span className="font-mono text-xs mr-1.5">{t.dealNumber}</span> : null}
-                    <span className="text-xs">{t.dealName}</span>
-                  </Link>
-                </td>
-                <td className="px-3 py-1.5 text-right tabular-nums">{fmtEUR(t.amount)}</td>
-                <td className="px-3 py-1.5 text-right tabular-nums">{fmtEUR(t.amountPaid)}</td>
-                {showOutstanding && (
-                  <td
-                    className={cn(
-                      "px-3 py-1.5 text-right tabular-nums",
-                      t.amountOutstanding > 0 && "text-amber-700 font-medium"
-                    )}
-                  >
-                    {fmtEUR(t.amountOutstanding)}
-                  </td>
-                )}
-                <td className="px-3 py-1.5 whitespace-nowrap">
-                  <span className={cn("inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium", sb.cls)}>
-                    {sb.label}
-                  </span>
-                </td>
-                <td className="px-3 py-1.5 whitespace-nowrap">
-                  {t.hasReceipt ? (
-                    <a
-                      href={`/api/v1/employee-transactions/${t.id}/receipt`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                      title="Beleg ansehen"
-                    >
-                      <FileText className="h-3.5 w-3.5" />
-                      ansehen
-                    </a>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">—</span>
-                  )}
-                </td>
-                <td className="px-3 py-1.5 whitespace-nowrap text-xs">
-                  {t.isTaxDeductible ? (
-                    <span className="inline-flex items-center gap-1 text-emerald-700">
-                      <Scale className="h-3 w-3" />
-                      abz.
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 text-muted-foreground">
-                      <ShieldOff className="h-3 w-3" />
-                      nicht abz.
-                    </span>
-                  )}
-                </td>
-                <td className="px-3 py-1.5 whitespace-nowrap text-xs">
-                  {t.dueDate ? (
-                    <span
-                      className={cn(
-                        "inline-flex items-center gap-1",
-                        overdue ? "text-red-600 font-medium" : "text-muted-foreground"
-                      )}
-                    >
-                      <CalendarClock className="h-3 w-3" />
-                      {fmtDate(t.dueDate)}
-                      {overdue && " (überfällig)"}
-                    </span>
-                  ) : (
-                    <span className="text-muted-foreground">—</span>
-                  )}
-                </td>
-                <td className="px-3 py-1.5 text-xs text-muted-foreground max-w-[24ch] truncate" title={[t.description, t.notes].filter(Boolean).join(" – ") || undefined}>
-                  {[t.description, t.notes].filter(Boolean).join(" – ") || "—"}
-                </td>
-                <td className="px-3 py-1.5 text-right">
-                  {t.status !== "bezahlt" && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => onRecordPayment(t.id)}
-                      className="h-7 text-xs"
-                    >
-                      + Zahlung
-                    </Button>
-                  )}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    <th className={cn("px-3 py-2 font-medium select-none", align === "right" ? "text-right" : "text-left")}>
+      <button
+        type="button"
+        onClick={onClick}
+        className={cn(
+          "inline-flex items-center gap-1 hover:text-foreground",
+          active ? "text-foreground" : "text-muted-foreground"
+        )}
+      >
+        <span>{children}</span>
+        <Icon className="h-3 w-3" />
+      </button>
+    </th>
   );
 }

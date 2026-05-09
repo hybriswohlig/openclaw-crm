@@ -9,6 +9,8 @@ export async function listEmployees(workspaceId: string) {
       name: employees.name,
       experience: employees.experience,
       hourlyRate: employees.hourlyRate,
+      role: employees.role,
+      status: employees.status,
       photoBase64: employees.photoBase64,
       createdAt: employees.createdAt,
       updatedAt: employees.updatedAt,
@@ -32,9 +34,18 @@ export async function getEmployee(workspaceId: string, employeeId: string) {
   return row ?? null;
 }
 
+export type EmployeeStatus = "active" | "on_leave" | "inactive";
+
 export async function createEmployee(
   workspaceId: string,
-  input: { name: string; experience?: string; hourlyRate: string; photoBase64?: string | null }
+  input: {
+    name: string;
+    experience?: string;
+    hourlyRate: string;
+    photoBase64?: string | null;
+    role?: string | null;
+    status?: EmployeeStatus;
+  }
 ) {
   const [row] = await db
     .insert(employees)
@@ -44,6 +55,8 @@ export async function createEmployee(
       experience: input.experience ?? null,
       hourlyRate: input.hourlyRate,
       photoBase64: input.photoBase64 ?? null,
+      role: input.role ?? null,
+      ...(input.status !== undefined && { status: input.status }),
     })
     .returning();
   return row;
@@ -52,7 +65,14 @@ export async function createEmployee(
 export async function updateEmployee(
   workspaceId: string,
   employeeId: string,
-  input: { name?: string; experience?: string; hourlyRate?: string; photoBase64?: string | null }
+  input: {
+    name?: string;
+    experience?: string;
+    hourlyRate?: string;
+    photoBase64?: string | null;
+    role?: string | null;
+    status?: EmployeeStatus;
+  }
 ) {
   const existing = await getEmployee(workspaceId, employeeId);
   if (!existing) return null;
@@ -64,6 +84,8 @@ export async function updateEmployee(
       ...(input.experience !== undefined && { experience: input.experience }),
       ...(input.hourlyRate !== undefined && { hourlyRate: input.hourlyRate }),
       ...(input.photoBase64 !== undefined && { photoBase64: input.photoBase64 }),
+      ...(input.role !== undefined && { role: input.role }),
+      ...(input.status !== undefined && { status: input.status }),
       updatedAt: new Date(),
     })
     .where(eq(employees.id, employeeId))
