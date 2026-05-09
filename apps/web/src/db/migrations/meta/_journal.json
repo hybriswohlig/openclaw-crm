@@ -99,6 +99,13 @@
       "when": 1776273900000,
       "tag": "0013_whatsapp_channel",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1778414400000,
+      "tag": "0017_reviews_engine",
+      "breakpoints": true
     }
   ]
 }

@@ -11,6 +11,12 @@ export interface StandardAttribute {
   config?: Record<string, unknown>;
   /** For `select` attributes: default options when seeding a workspace */
   selectOptions?: { title: string; color?: string }[];
+  /**
+   * For `status` attributes: default statuses when seeding a workspace.
+   * The legacy `deals.stage` attribute is still seeded from DEAL_STAGES;
+   * any other status attribute defines its statuses inline here.
+   */
+  statuses?: { title: string; color?: string; sortOrder?: number; isActive?: boolean; celebrationEnabled?: boolean }[];
 }
 
 export interface StandardObject {
@@ -214,6 +220,100 @@ export const STANDARD_OBJECTS: StandardObject[] = [
       // Stamps for the n8n insights auto-loop and reminder bot. Read by external orchestration to gate work.
       { slug: "last_insights_at", title: "Last KI-Analyse", type: "timestamp", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       { slug: "last_reminder_at", title: "Last reminder sent", type: "timestamp", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+
+      // ── Post-move reviews engine (KOT-603 / KOT-614) ────────────
+      // Trigger anchor: set by the crew lead at sign-off. The 15-min cron
+      // job ([KOT-622]) selects deals whose move_completed_at falls in the
+      // 4–24 h send window and runs the negative-experience valve before
+      // dispatching an SMS review request.
+      { slug: "move_completed_at", title: "Move completed at", type: "timestamp", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      { slug: "internal_quality_rating", title: "Internal quality rating", type: "rating", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      { slug: "internal_quality_notes", title: "Internal quality notes", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      { slug: "crew_positive_note", title: "Crew positive note (Variant B)", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      {
+        slug: "review_request_status",
+        title: "Review request status",
+        type: "status",
+        isSystem: true,
+        isRequired: false,
+        isUnique: false,
+        isMultiselect: false,
+        statuses: [
+          { title: "not_due", color: "#94a3b8", sortOrder: 0, isActive: true },
+          { title: "scheduled", color: "#6366f1", sortOrder: 1, isActive: true },
+          { title: "sent_sms", color: "#0ea5e9", sortOrder: 2, isActive: true },
+          // sent_whatsapp is reserved for Phase 2 (KOT-618); Phase 1 is SMS-only.
+          { title: "sent_whatsapp", color: "#22c55e", sortOrder: 3, isActive: true },
+          { title: "clicked", color: "#a855f7", sortOrder: 4, isActive: true },
+          { title: "review_left", color: "#15803d", sortOrder: 5, isActive: false, celebrationEnabled: true },
+          { title: "complaint_routed", color: "#dc2626", sortOrder: 6, isActive: false },
+          { title: "failed", color: "#ef4444", sortOrder: 7, isActive: false },
+          { title: "suppressed", color: "#64748b", sortOrder: 8, isActive: false },
+        ],
+      },
+      {
+        slug: "review_request_variant",
+        title: "Review request variant",
+        type: "select",
+        isSystem: true,
+        isRequired: false,
+        isUnique: false,
+        isMultiselect: false,
+        selectOptions: [
+          { title: "A", color: "#6366f1" },
+          { title: "B", color: "#a855f7" },
+        ],
+      },
+      { slug: "review_request_sent_at", title: "Review request sent at", type: "timestamp", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      { slug: "review_request_clicked_at", title: "Review request clicked at", type: "timestamp", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      { slug: "review_request_left_at", title: "Review left at", type: "timestamp", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      { slug: "review_request_attempt_count", title: "Review request attempts", type: "number", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      {
+        slug: "review_destination",
+        title: "Review destination",
+        type: "select",
+        isSystem: true,
+        isRequired: false,
+        isUnique: false,
+        isMultiselect: false,
+        selectOptions: [
+          { title: "google_kottke", color: "#16a34a" },
+          { title: "google_ceylan", color: "#0ea5e9" },
+          { title: "trustpilot_kottke", color: "#00b67a" },
+        ],
+      },
+      {
+        slug: "customer_locale",
+        title: "Customer locale",
+        type: "select",
+        isSystem: true,
+        isRequired: false,
+        isUnique: false,
+        isMultiselect: false,
+        selectOptions: [
+          { title: "de", color: "#000000" },
+          { title: "en", color: "#1e3a8a" },
+        ],
+      },
+      { slug: "complaint_keywords_hit", title: "Complaint keywords hit", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      { slug: "do_not_contact_review", title: "Do not contact for reviews", type: "checkbox", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      // DSGVO consent gate (CEO default 3 on KOT-603). Cron job filters
+      // review_contact_consent_at IS NOT NULL — booking-form checkbox
+      // ([KOT-620]) writes the timestamp on submit.
+      { slug: "review_contact_consent_at", title: "Review contact consent at", type: "timestamp", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      {
+        slug: "brand",
+        title: "Brand",
+        type: "select",
+        isSystem: true,
+        isRequired: false,
+        isUnique: false,
+        isMultiselect: false,
+        selectOptions: [
+          { title: "kottke", color: "#16a34a" },
+          { title: "ceylan", color: "#0ea5e9" },
+        ],
+      },
     ],
   },
   {
