@@ -153,6 +153,31 @@ async function syncStandardObjects() {
             stagesAdded++;
           }
         }
+
+        // 6) Seed inline statuses for any other status attribute (e.g. the
+        //    review_request_status attribute on deals from KOT-614). We
+        //    keep the legacy DEAL_STAGES path above for backward compat.
+        if (attr.type === "status" && attr.statuses?.length && !(stdObj.slug === "deals" && attr.slug === "stage")) {
+          const existingInline = await db
+            .select()
+            .from(schema.statuses)
+            .where(eq(schema.statuses.attributeId, attribute.id));
+          const existingInlineTitles = new Set(existingInline.map((s) => s.title.toLowerCase()));
+          for (let k = 0; k < attr.statuses.length; k++) {
+            const s = attr.statuses[k]!;
+            if (existingInlineTitles.has(s.title.toLowerCase())) continue;
+            await db.insert(schema.statuses).values({
+              attributeId: attribute.id,
+              title: s.title,
+              color: s.color ?? "#6366f1",
+              sortOrder: s.sortOrder ?? k,
+              isActive: s.isActive ?? true,
+              celebrationEnabled: s.celebrationEnabled ?? false,
+            });
+            console.log(`      + status: ${s.title}`);
+            stagesAdded++;
+          }
+        }
       }
     }
   }
