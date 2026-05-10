@@ -27,6 +27,7 @@ import {
   Plug,
   Inbox,
   Truck,
+  Zap,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 
@@ -43,6 +44,7 @@ const objectNav = [
   { href: "/objects/people", label: "Kunden", icon: Users },
   { href: "/objects/companies", label: "Firmen", icon: Building2 },
   { href: "/objects/deals", label: "Leads", icon: Handshake },
+  { href: "/leads/speed-to-lead", label: "Speed-to-lead", icon: Zap },
 ];
 
 const bottomNav = [{ href: "/settings", label: "Einstellungen", icon: Settings }];
