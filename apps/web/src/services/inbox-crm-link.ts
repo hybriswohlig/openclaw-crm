@@ -36,7 +36,7 @@ export async function ensureCrmPerson(params: {
   displayName: string;
   email: string | null;
   phone: string | null;
-  leadSource: "WhatsApp / Website" | "Kleinanzeigen";
+  leadSource: "WhatsApp / Website" | "Kleinanzeigen" | "GBP-Kottke" | "GBP-Ceylan";
 }): Promise<string | null> {
   const { workspaceId, contactId, displayName, email, phone, leadSource } = params;
   try {
