@@ -100,3 +100,35 @@ export function parseKleinanzeigenBody(
   }
   return body.replace(/\n{3,}/g, "\n\n").trim() || text.trim();
 }
+
+/**
+ * Extract the variant tag from a Kleinanzeigen email's subject or body.
+ *
+ * Convention (KOT-607): each ad title is prefixed with `[variant|stadtteil|brand]`
+ * - e.g. `[K1|Bogenhausen|Kottke] Moebeltransport Muenchen`. The notification
+ * mail copies the ad title into the subject, so the tag is usually right
+ * there; we fall back to the body in case Kleinanzeigen reformats the subject.
+ *
+ * Returns the inner `variant|stadtteil|brand` string, or `null` if no tag is
+ * present (Sales Outreach can fill `lead_subsource` manually for legacy ads).
+ */
+const KLEINANZEIGEN_SUBSOURCE_RE = /\[([^|\]\s][^|\]]*)\|([^|\]]+)\|([^\]]+)\]/;
+
+export function extractKleinanzeigenSubsource(
+  subject: string,
+  body: string
+): string | null {
+  const haystacks = [subject ?? "", body ?? ""];
+  for (const h of haystacks) {
+    const m = h.match(KLEINANZEIGEN_SUBSOURCE_RE);
+    if (m) {
+      const variant = m[1].trim();
+      const stadtteil = m[2].trim();
+      const brand = m[3].trim();
+      if (variant && stadtteil && brand) {
+        return `${variant}|${stadtteil}|${brand}`;
+      }
+    }
+  }
+  return null;
+}

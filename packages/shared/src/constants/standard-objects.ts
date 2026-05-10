@@ -214,6 +214,42 @@ export const STANDARD_OBJECTS: StandardObject[] = [
       // Stamps for the n8n insights auto-loop and reminder bot. Read by external orchestration to gate work.
       { slug: "last_insights_at", title: "Last KI-Analyse", type: "timestamp", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       { slug: "last_reminder_at", title: "Last reminder sent", type: "timestamp", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      // Lead attribution (KOT-607). Populated by ingestion paths so HoG can slice CPL by channel x variant.
+      {
+        slug: "lead_source",
+        title: "Lead source",
+        type: "select",
+        isSystem: true,
+        isRequired: false,
+        isUnique: false,
+        isMultiselect: false,
+        selectOptions: [
+          { title: "Kleinanzeigen", color: "#ca8a04" },
+          { title: "Google Ads", color: "#2563eb" },
+          { title: "ImmobilienScout", color: "#f97316" },
+          { title: "Check24", color: "#0369a1" },
+          { title: "Movinga", color: "#0891b2" },
+          { title: "Meta Ads", color: "#1d4ed8" },
+          { title: "Partner", color: "#7c3aed" },
+          { title: "Direct", color: "#16a34a" },
+          { title: "Other", color: "#6b7280" },
+        ],
+      },
+      {
+        slug: "lead_subsource",
+        title: "Lead subsource",
+        type: "text",
+        isSystem: true,
+        isRequired: false,
+        isUnique: false,
+        isMultiselect: false,
+        config: {
+          description:
+            "Free-text variant tag. Kleinanzeigen convention: `{ad_variant_id}|{stadtteil}|{brand}` (e.g. `K1|Bogenhausen|Kottke`).",
+        },
+      },
+      { slug: "lead_received_at", title: "Lead received at", type: "timestamp", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      { slug: "first_response_at", title: "First response at", type: "timestamp", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
     ],
   },
   {
