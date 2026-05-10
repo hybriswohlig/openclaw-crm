@@ -20,8 +20,9 @@ import {
   isKleinanzeigenEmail,
   stripKleinanzeigenSuffix,
   parseKleinanzeigenBody,
+  extractKleinanzeigenSubsource,
 } from "./inbox-kleinanzeigen";
-import { createDealForNewConversation } from "./inbox";
+import { createDealForNewConversation, stampFirstResponseAtIfNull } from "./inbox";
 import { emitEvent } from "./activity-events";
 import { ensureCrmPerson } from "./inbox-crm-link";
 
@@ -227,12 +228,19 @@ export async function syncChannelAccount(accountId: string) {
         // inquiries and link it to this conversation. Other channels can reuse
         // the same deal later by writing its id onto their own conversations.
         if (isKleinanzeigen) {
+          // KOT-607: stamp lead attribution at capture time. Subsource regex
+          // pulls `[variant|stadtteil|brand]` from the ad title in the subject
+          // (or body); empty if the ad isn't tagged yet.
+          const leadSubsource = extractKleinanzeigenSubsource(subject, body);
           await createDealForNewConversation({
             workspaceId: account.workspaceId,
             conversationId: conv.id,
             dealName: contactName || fromEmail,
             contactId: contact.id,
             channelAccountId: account.id,
+            leadSource: "Kleinanzeigen",
+            leadSubsource,
+            leadReceivedAt: sentAt,
           });
         }
       } else {
@@ -468,6 +476,11 @@ export async function sendEmailReply(params: {
       updatedAt: new Date(),
     })
     .where(eq(inboxConversations.id, conversationId));
+
+  // KOT-607 speed-to-lead: stamp first_response_at on the linked deal once.
+  if (conv.dealRecordId) {
+    await stampFirstResponseAtIfNull(workspaceId, conv.dealRecordId, new Date());
+  }
 
   return stored;
 }

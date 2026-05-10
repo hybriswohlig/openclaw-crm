@@ -22,7 +22,7 @@ import {
   whatsappTemplateMetadata,
 } from "@/db/schema/inbox";
 import { eq, and, desc } from "drizzle-orm";
-import { createDealForNewConversation } from "./inbox";
+import { createDealForNewConversation, stampFirstResponseAtIfNull } from "./inbox";
 import { emitEvent } from "./activity-events";
 import { getSecret } from "./workspace-settings";
 import { ensureCrmPerson } from "./inbox-crm-link";
@@ -736,6 +736,8 @@ export async function sendWhatsAppReply(params: {
         externalMessageId: externalId,
       },
     });
+    // KOT-607 speed-to-lead: stamp first_response_at on the linked deal.
+    await stampFirstResponseAtIfNull(workspaceId, conv.dealRecordId, new Date());
   }
 
   return stored;

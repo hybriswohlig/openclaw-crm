@@ -6,7 +6,8 @@ import {
   inboxMessages,
   inboxMessageAttachments,
 } from "@/db/schema/inbox";
-import { objects, attributes, statuses } from "@/db/schema/objects";
+import { objects, attributes, statuses, selectOptions } from "@/db/schema/objects";
+import { records, recordValues } from "@/db/schema/records";
 import { eq, and, desc, lt, asc, isNotNull } from "drizzle-orm";
 import { getEmailAccountConfigs } from "@/lib/email-accounts";
 import {
@@ -362,8 +363,23 @@ export async function createDealForNewConversation(params: {
   dealName: string;
   contactId?: string;
   channelAccountId?: string;
+  /** Title of the `lead_source` select option, e.g. "Kleinanzeigen". */
+  leadSource?: string;
+  /** Free-text subsource tag, e.g. `K1|Bogenhausen|Kottke`. */
+  leadSubsource?: string | null;
+  /** Capture time of the inbound message (NOT import time). */
+  leadReceivedAt?: Date | null;
 }): Promise<string | null> {
-  const { workspaceId, conversationId, dealName, contactId, channelAccountId } = params;
+  const {
+    workspaceId,
+    conversationId,
+    dealName,
+    contactId,
+    channelAccountId,
+    leadSource,
+    leadSubsource,
+    leadReceivedAt,
+  } = params;
   try {
     // 1. Resolve the workspace's `deals` object.
     const [dealObj] = await db
@@ -437,6 +453,27 @@ export async function createDealForNewConversation(params: {
       }
     }
 
+    // Lead attribution (KOT-607). lead_source is a select; resolve its option
+    // by title so HoG can slice CPL by channel x variant. Missing attributes
+    // (older workspaces that haven't run db:sync-objects yet) are skipped.
+    if (leadSource) {
+      const [lsAttr] = await db
+        .select({ id: attributes.id })
+        .from(attributes)
+        .where(and(eq(attributes.objectId, dealObj.id), eq(attributes.slug, "lead_source")))
+        .limit(1);
+      if (lsAttr) {
+        const [opt] = await db
+          .select({ id: selectOptions.id })
+          .from(selectOptions)
+          .where(and(eq(selectOptions.attributeId, lsAttr.id), eq(selectOptions.title, leadSource)))
+          .limit(1);
+        if (opt) linkUpdates.lead_source = opt.id;
+      }
+    }
+    if (leadSubsource) linkUpdates.lead_subsource = leadSubsource;
+    if (leadReceivedAt) linkUpdates.lead_received_at = leadReceivedAt;
+
     if (Object.keys(linkUpdates).length > 0) {
       await updateRecord(dealObj.id, deal.id, linkUpdates, null);
     }
@@ -492,4 +529,65 @@ export async function createDealForNewConversation(params: {
     console.error("[inbox] createDealForNewConversation failed:", err);
     return null;
   }
+}
+
+// ----- Speed-to-lead stamping -----
+// KOT-607 Phase 1: when an operator sends the first outbound reply on a
+// conversation, stamp the linked deal's `first_response_at` once. Subsequent
+// replies do not overwrite it - the metric we care about is time-to-first-touch.
+// Failures are swallowed (parity with the rest of the inbox helpers).
+
+/** Stamp `first_response_at` on the linked deal if not already set. No-op when the deal has no such attribute (workspace not yet synced). */
+export async function stampFirstResponseAtIfNull(
+  workspaceId: string,
+  dealRecordId: string,
+  sentAt: Date
+): Promise<void> {
+  try {
+    const [dealRow] = await db
+      .select({ objectId: records.objectId })
+      .from(records)
+      .where(eq(records.id, dealRecordId))
+      .limit(1);
+    if (!dealRow) return;
+
+    const [attr] = await db
+      .select({ id: attributes.id })
+      .from(attributes)
+      .where(
+        and(
+          eq(attributes.objectId, dealRow.objectId),
+          eq(attributes.slug, "first_response_at")
+        )
+      )
+      .limit(1);
+    if (!attr) return;
+
+    const [existing] = await db
+      .select({ id: recordValues.id })
+      .from(recordValues)
+      .where(
+        and(
+          eq(recordValues.recordId, dealRecordId),
+          eq(recordValues.attributeId, attr.id)
+        )
+      )
+      .limit(1);
+    if (existing) return;
+
+    await db.insert(recordValues).values({
+      recordId: dealRecordId,
+      attributeId: attr.id,
+      timestampValue: sentAt,
+    });
+
+    await db
+      .update(records)
+      .set({ updatedAt: new Date() })
+      .where(and(eq(records.id, dealRecordId), eq(records.objectId, dealRow.objectId)));
+  } catch (err) {
+    console.error("[inbox] stampFirstResponseAtIfNull failed (non-blocking):", err);
+  }
+
+  void workspaceId;
 }
