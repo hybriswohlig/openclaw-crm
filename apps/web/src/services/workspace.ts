@@ -3,6 +3,15 @@ import { workspaces, workspaceMembers, users, objects, attributes, statuses, sel
 import { eq, and, asc, sql } from "drizzle-orm";
 import { STANDARD_OBJECTS, DEAL_STAGES } from "@openclaw-crm/shared";
 
+type Db = typeof db;
+
+export interface SyncStandardObjectExtrasResult {
+  objectsAdded: number;
+  attributesAdded: number;
+  optionsAdded: number;
+  stagesAdded: number;
+}
+
 // ─── Workspace ───────────────────────────────────────────────────────
 
 export async function getWorkspace(workspaceId: string) {
@@ -105,55 +114,120 @@ export async function listUserWorkspaces(userId: string) {
   return rows;
 }
 
-/** Seed standard objects (People, Companies, Operating companies, Deals) + attributes + deal stages */
-export async function seedWorkspaceObjects(workspaceId: string) {
-  for (const stdObj of STANDARD_OBJECTS) {
-    const [object] = await db
-      .insert(objects)
-      .values({
-        workspaceId,
-        slug: stdObj.slug,
-        singularName: stdObj.singularName,
-        pluralName: stdObj.pluralName,
-        icon: stdObj.icon,
-        isSystem: true,
-      })
-      .returning();
+/**
+ * Idempotent backfill of every standard object/attribute/select option/deal stage
+ * declared in `STANDARD_OBJECTS` for the given workspace. Inserts only what is
+ * missing — never deletes, never renames. Safe to run on every boot.
+ *
+ * Used by `seedWorkspaceObjects` (fresh workspaces), the boot hook
+ * (`apps/web/src/instrumentation.ts`), and the admin endpoint
+ * `POST /api/admin/sync-standard-objects` so existing workspaces pick up new
+ * options like `Meta Ads` or new attributes like `utm_campaign` / `utm_content`.
+ */
+export async function syncStandardObjectExtras(
+  workspaceId: string,
+  client: Db = db
+): Promise<SyncStandardObjectExtrasResult> {
+  const result: SyncStandardObjectExtrasResult = {
+    objectsAdded: 0,
+    attributesAdded: 0,
+    optionsAdded: 0,
+    stagesAdded: 0,
+  };
 
-    for (let i = 0; i < stdObj.attributes.length; i++) {
-      const attr = stdObj.attributes[i];
-      const [attribute] = await db
-        .insert(attributes)
+  for (const stdObj of STANDARD_OBJECTS) {
+    let [object] = await client
+      .select()
+      .from(objects)
+      .where(and(eq(objects.workspaceId, workspaceId), eq(objects.slug, stdObj.slug)))
+      .limit(1);
+
+    if (!object) {
+      [object] = await client
+        .insert(objects)
         .values({
-          objectId: object.id,
-          slug: attr.slug,
-          title: attr.title,
-          type: attr.type,
-          config: attr.config || {},
-          isSystem: attr.isSystem,
-          isRequired: attr.isRequired,
-          isUnique: attr.isUnique,
-          isMultiselect: attr.isMultiselect,
-          sortOrder: i,
+          workspaceId,
+          slug: stdObj.slug,
+          singularName: stdObj.singularName,
+          pluralName: stdObj.pluralName,
+          icon: stdObj.icon,
+          isSystem: true,
         })
         .returning();
+      result.objectsAdded++;
+    }
+
+    const existingAttrs = await client
+      .select()
+      .from(attributes)
+      .where(eq(attributes.objectId, object.id));
+    const existingBySlug = new Map(existingAttrs.map((a) => [a.slug, a]));
+    let appendCursor = existingAttrs.reduce(
+      (m, a) => (a.sortOrder > m ? a.sortOrder : m),
+      -1
+    );
+
+    for (const attr of stdObj.attributes) {
+      let attribute = existingBySlug.get(attr.slug) ?? null;
+
+      if (!attribute) {
+        appendCursor++;
+        [attribute] = await client
+          .insert(attributes)
+          .values({
+            objectId: object.id,
+            slug: attr.slug,
+            title: attr.title,
+            type: attr.type,
+            config: attr.config || {},
+            isSystem: attr.isSystem,
+            isRequired: attr.isRequired,
+            isUnique: attr.isUnique,
+            isMultiselect: attr.isMultiselect,
+            sortOrder: appendCursor,
+          })
+          .returning();
+        existingBySlug.set(attr.slug, attribute);
+        result.attributesAdded++;
+      }
 
       if (attr.type === "select" && attr.selectOptions?.length) {
-        for (let j = 0; j < attr.selectOptions.length; j++) {
-          const opt = attr.selectOptions[j]!;
-          await db.insert(selectOptions).values({
+        const existingOpts = await client
+          .select()
+          .from(selectOptions)
+          .where(eq(selectOptions.attributeId, attribute.id));
+        const existingTitles = new Set(
+          existingOpts.map((o) => o.title.toLowerCase())
+        );
+        let optMax = existingOpts.reduce(
+          (m, o) => (o.sortOrder > m ? o.sortOrder : m),
+          -1
+        );
+        for (const opt of attr.selectOptions) {
+          if (existingTitles.has(opt.title.toLowerCase())) continue;
+          optMax++;
+          await client.insert(selectOptions).values({
             attributeId: attribute.id,
             title: opt.title,
             color: opt.color ?? "#6366f1",
-            sortOrder: j,
+            sortOrder: optMax,
           });
+          existingTitles.add(opt.title.toLowerCase());
+          result.optionsAdded++;
         }
       }
 
-      // Create deal stages for the "stage" status attribute
       if (stdObj.slug === "deals" && attr.slug === "stage") {
+        const existingStages = await client
+          .select()
+          .from(statuses)
+          .where(eq(statuses.attributeId, attribute.id));
+        const existingStageTitles = new Set(
+          existingStages.map((s) => s.title.toLowerCase())
+        );
         for (const stage of DEAL_STAGES) {
-          await db.insert(statuses).values({
+          if (existingStageTitles.has(stage.title.toLowerCase())) continue;
+          await client.insert(statuses).values({
             attributeId: attribute.id,
             title: stage.title,
             color: stage.color,
@@ -161,10 +235,19 @@ export async function seedWorkspaceObjects(workspaceId: string) {
             isActive: stage.isActive,
             celebrationEnabled: stage.celebrationEnabled,
           });
+          existingStageTitles.add(stage.title.toLowerCase());
+          result.stagesAdded++;
         }
       }
     }
   }
+
+  return result;
+}
+
+/** Seed standard objects (People, Companies, Operating companies, Deals) + attributes + deal stages. */
+export async function seedWorkspaceObjects(workspaceId: string) {
+  await syncStandardObjectExtras(workspaceId);
 }
 
 // ─── Members ─────────────────────────────────────────────────────────
