@@ -233,6 +233,11 @@ export const STANDARD_OBJECTS: StandardObject[] = [
           { title: "Partner", color: "#7c3aed" },
           { title: "Direct", color: "#16a34a" },
           { title: "Other", color: "#6b7280" },
+          // KOT-654 — GBP→OpenCRM email-forward bridge. Stamped from the
+          // recipient alias (gbp-kottke@… / gbp-ceylan@…) by the inbound
+          // handler. Op-co tonality is picked from this value downstream.
+          { title: "GBP-Kottke", color: "#0ea5e9" },
+          { title: "GBP-Ceylan", color: "#a855f7" },
         ],
       },
       {
@@ -250,6 +255,23 @@ export const STANDARD_OBJECTS: StandardObject[] = [
       },
       { slug: "lead_received_at", title: "Lead received at", type: "timestamp", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       { slug: "first_response_at", title: "First response at", type: "timestamp", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      // KOT-654 — terminal close label set by Sales Outreach Agent on deal
+      // close. Distinct from the deal stage column; used for funnel slicing.
+      {
+        slug: "outcome",
+        title: "Outcome",
+        type: "select",
+        isSystem: true,
+        isRequired: false,
+        isUnique: false,
+        isMultiselect: false,
+        selectOptions: [
+          { title: "booked", color: "#16a34a" },
+          { title: "no-fit", color: "#6b7280" },
+          { title: "no-response", color: "#f59e0b" },
+          { title: "spam", color: "#dc2626" },
+        ],
+      },
     ],
   },
   {

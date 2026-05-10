@@ -25,6 +25,7 @@ import {
 import { createDealForNewConversation, stampFirstResponseAtIfNull } from "./inbox";
 import { emitEvent } from "./activity-events";
 import { ensureCrmPerson } from "./inbox-crm-link";
+import { detectGbpAlias, stripForwardWrapper } from "./inbox-gbp-alias";
 
 // Same cap as deal_documents — base64 expands ~33%, so a 10 MB image is
 // ~13 MB in the row. Images exceeding this limit are dropped but the rest
@@ -156,6 +157,27 @@ export async function syncChannelAccount(accountId: string) {
 
       const isKleinanzeigen = isKleinanzeigenEmail(fromEmail, subject);
 
+      // KOT-654: when the inbound mailbox is the shared GBP-bridge inbox, peek
+      // at Delivered-To / X-Original-To to figure out which forwarding alias
+      // (gbp-kottke@ / gbp-ceylan@) fanned this message in. The result drives
+      // both `lead_source` and the auto-create-deal branch below.
+      const gbpAlias = isKleinanzeigen ? null : detectGbpAlias(parsed, account.address);
+      if (gbpAlias?.kind === "fellThrough") {
+        // Fallthrough on the shared inbox is our early-warning signal that
+        // Dario's mail-provider forward is missing, broken, or stripping
+        // headers. Without the WARN we can't tell a misconfigured forward
+        // apart from legitimate `WhatsApp / Website` traffic.
+        console.warn("[inbox-email] GBP alias detection fell through", {
+          deliveredTo: gbpAlias.deliveredTo,
+          xOriginalTo: gbpAlias.xOriginalTo,
+          to: gbpAlias.toAddress,
+          channelAccountId: account.id,
+          channelAccountAddress: account.address,
+          externalMessageId: messageId,
+        });
+      }
+      const matchedGbpLeadSource = gbpAlias?.kind === "matched" ? gbpAlias.leadSource : null;
+
       // For Kleinanzeigen the relay address IS the thread key
       const threadKey = isKleinanzeigen ? fromEmail : (parsed.inReplyTo ?? messageId);
 
@@ -175,11 +197,22 @@ export async function syncChannelAccount(accountId: string) {
           .replace(/\n{3,}/g, "\n\n")
           .trim();
       }
+      if (matchedGbpLeadSource) {
+        // Forwarded GBP mail wraps the customer's words in a "Forwarded
+        // message" envelope — strip it so the activity feed reads naturally.
+        body = stripForwardWrapper(body);
+      }
 
       // Upsert contact — strip "über Kleinanzeigen" suffix so the chat header
       // shows just the person's name.
       const contactName = isKleinanzeigen ? stripKleinanzeigenSuffix(fromName) : fromName;
       const contact = await upsertContact(account.workspaceId, fromEmail, contactName);
+
+      const personLeadSource = matchedGbpLeadSource
+        ? matchedGbpLeadSource
+        : isKleinanzeigen
+        ? "Kleinanzeigen"
+        : "WhatsApp / Website";
 
       // Auto-create CRM Person for the contact (idempotent).
       await ensureCrmPerson({
@@ -188,7 +221,7 @@ export async function syncChannelAccount(accountId: string) {
         displayName: contactName || fromEmail,
         email: fromEmail,
         phone: null,
-        leadSource: isKleinanzeigen ? "Kleinanzeigen" : "WhatsApp / Website",
+        leadSource: personLeadSource,
       });
 
       // Upsert conversation
@@ -225,8 +258,9 @@ export async function syncChannelAccount(accountId: string) {
         conv = created;
 
         // Auto-create a deal in stage "Inquiry" for brand-new Kleinanzeigen
-        // inquiries and link it to this conversation. Other channels can reuse
-        // the same deal later by writing its id onto their own conversations.
+        // and GBP-forwarded inquiries, and link it to this conversation. Other
+        // channels can reuse the same deal later by writing its id onto their
+        // own conversations.
         if (isKleinanzeigen) {
           // KOT-607: stamp lead attribution at capture time. Subsource regex
           // pulls `[variant|stadtteil|brand]` from the ad title in the subject
@@ -240,6 +274,20 @@ export async function syncChannelAccount(accountId: string) {
             channelAccountId: account.id,
             leadSource: "Kleinanzeigen",
             leadSubsource,
+            leadReceivedAt: sentAt,
+          });
+        } else if (matchedGbpLeadSource) {
+          // KOT-654: GBP→OpenCRM bridge. The forwarded mail's recipient alias
+          // (gbp-kottke / gbp-ceylan) becomes the deal's `lead_source`; the
+          // 60-min SLA timer anchors on `lead_received_at = sentAt`.
+          await createDealForNewConversation({
+            workspaceId: account.workspaceId,
+            conversationId: conv.id,
+            dealName: contactName || fromEmail,
+            contactId: contact.id,
+            channelAccountId: account.id,
+            leadSource: matchedGbpLeadSource,
+            leadSubsource: null,
             leadReceivedAt: sentAt,
           });
         }
