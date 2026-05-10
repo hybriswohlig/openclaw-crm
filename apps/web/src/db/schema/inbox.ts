@@ -18,6 +18,7 @@ import { records } from "./records";
 export const channelTypeEnum = pgEnum("channel_type", [
   "email",
   "whatsapp",
+  "sms",
 ]);
 
 export const messageDirectionEnum = pgEnum("message_direction", [

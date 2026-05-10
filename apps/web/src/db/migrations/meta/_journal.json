@@ -99,6 +99,13 @@
       "when": 1776273900000,
       "tag": "0013_whatsapp_channel",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1778414500000,
+      "tag": "0018_channel_type_sms",
+      "breakpoints": true
     }
   ]
 }
