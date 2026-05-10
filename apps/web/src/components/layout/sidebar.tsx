@@ -26,6 +26,7 @@ import {
   Banknote,
   Plug,
   Inbox,
+  Sparkles,
   Truck,
 } from "lucide-react";
 import { useTheme } from "next-themes";
@@ -270,7 +271,16 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           href="/inbox"
           label="Inbox"
           icon={Inbox}
-          active={pathname.startsWith("/inbox")}
+          active={pathname === "/inbox" || (pathname.startsWith("/inbox") && !pathname.startsWith("/inbox/drafts"))}
+          expanded={expanded}
+          onClick={onNavigate}
+        />
+
+        <NavItem
+          href="/inbox/drafts"
+          label="Antwort-Entwürfe"
+          icon={Sparkles}
+          active={pathname.startsWith("/inbox/drafts")}
           expanded={expanded}
           onClick={onNavigate}
         />
