@@ -25,6 +25,7 @@ import {
   Copy,
   Braces,
   Sparkles,
+  ListPlus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -424,6 +425,31 @@ function MessageBubble({
   const isOut = msg.direction === "outbound";
   const time = fmtBubbleTime(msg.sentAt ?? msg.createdAt);
   const fullTime = fmtFullTime(msg.sentAt ?? msg.createdAt);
+  const [convertingToTask, setConvertingToTask] = useState(false);
+  const [taskCreated, setTaskCreated] = useState(false);
+
+  async function createTaskFromMessage() {
+    if (convertingToTask || taskCreated) return;
+    setConvertingToTask(true);
+    try {
+      const snippet = (msg.body ?? "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 100);
+      const res = await fetch("/api/v1/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: snippet ? `Klären: "${snippet}"` : "Klären: (Nachricht)",
+          recordIds: conv.dealRecordId ? [conv.dealRecordId] : [],
+        }),
+      });
+      if (res.ok) setTaskCreated(true);
+    } finally {
+      setConvertingToTask(false);
+      window.setTimeout(() => setTaskCreated(false), 2500);
+    }
+  }
 
   return (
     <div className={cn("flex items-end gap-2", isOut ? "justify-end" : "justify-start")}>
@@ -471,6 +497,30 @@ function MessageBubble({
           )}
         </div>
       </div>
+      {/* "+ Aufgabe" action sits next to inbound bubbles only. On desktop
+          it fades in on hover; on touch devices it's always visible. */}
+      {!isOut && (
+        <button
+          type="button"
+          onClick={createTaskFromMessage}
+          disabled={convertingToTask || taskCreated}
+          className={cn(
+            "shrink-0 inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-opacity",
+            "md:opacity-0 md:group-hover/bubble:opacity-100",
+            "hover:text-foreground hover:bg-muted/60",
+            taskCreated && "opacity-100 text-emerald-600"
+          )}
+          title={taskCreated ? "Aufgabe angelegt" : "Aus dieser Nachricht eine Aufgabe erstellen"}
+        >
+          {convertingToTask ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : taskCreated ? (
+            <Check className="h-3.5 w-3.5" />
+          ) : (
+            <ListPlus className="h-3.5 w-3.5" />
+          )}
+        </button>
+      )}
     </div>
   );
 }

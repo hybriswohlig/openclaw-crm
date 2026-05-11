@@ -92,9 +92,25 @@ export function RecordTasks({
     });
   }
 
+  // Prefill state for Quick-Action chips. Cleared whenever the dialog
+  // closes so a normal "Add task" click after a Quick-Action doesn't
+  // re-use stale defaults.
+  const [prefillContent, setPrefillContent] = useState<string | undefined>();
+  const [prefillDeadline, setPrefillDeadline] = useState<Date | null>(null);
+
   function openCreateDialog() {
     setDialogMode("create");
     setEditingTask(null);
+    setPrefillContent(undefined);
+    setPrefillDeadline(null);
+    setDialogOpen(true);
+  }
+
+  function openQuickAction(content: string, deadline: Date | null) {
+    setDialogMode("create");
+    setEditingTask(null);
+    setPrefillContent(content);
+    setPrefillDeadline(deadline);
     setDialogOpen(true);
   }
 
@@ -137,6 +153,50 @@ export function RecordTasks({
   const openTasks = tasks.filter((t) => !t.isCompleted);
   const completedTasks = tasks.filter((t) => t.isCompleted);
 
+  // Quick-Action presets. Only show on deals (Leads) — they're the
+  // operational hot path. Each chip seeds content + a sensible default
+  // deadline; user can still tweak inside the dialog before saving.
+  const isDeal = objectSlug === "deals";
+  const QUICK_ACTIONS: Array<{ label: string; content: string; deadline: () => Date }> = [
+    {
+      label: "📞 Rückruf",
+      content: "Rückruf vereinbaren",
+      deadline: () => {
+        const d = new Date();
+        d.setHours(d.getHours() + 2);
+        return d;
+      },
+    },
+    {
+      label: "💰 Angebot",
+      content: "Angebot erstellen und senden",
+      deadline: () => {
+        const d = new Date();
+        d.setDate(d.getDate() + 1);
+        d.setHours(17, 0, 0, 0);
+        return d;
+      },
+    },
+    {
+      label: "🚛 Crew einteilen",
+      content: "Crew + Transporter für den Umzug einteilen",
+      deadline: () => {
+        const d = new Date();
+        d.setDate(d.getDate() + 3);
+        return d;
+      },
+    },
+    {
+      label: "✉️ Bestätigung",
+      content: "Bestätigung senden",
+      deadline: () => {
+        const d = new Date();
+        d.setHours(d.getHours() + 4);
+        return d;
+      },
+    },
+  ];
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -151,6 +211,21 @@ export function RecordTasks({
           Add task
         </Button>
       </div>
+
+      {isDeal && (
+        <div className="flex flex-wrap gap-1.5">
+          {QUICK_ACTIONS.map((qa) => (
+            <button
+              key={qa.label}
+              type="button"
+              onClick={() => openQuickAction(qa.content, qa.deadline())}
+              className="inline-flex items-center gap-1 rounded-full border border-input bg-muted/30 px-2.5 py-1 text-[12px] hover:bg-background transition-colors"
+            >
+              {qa.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {loading && tasks.length === 0 && (
         <p className="text-xs text-muted-foreground py-4 text-center">
@@ -239,6 +314,8 @@ export function RecordTasks({
         defaultRecordId={recordId}
         defaultRecordName={recordDisplayName}
         defaultRecordSlug={objectSlug}
+        defaultContent={prefillContent}
+        defaultDeadline={prefillDeadline}
         initialData={
           editingTask
             ? {

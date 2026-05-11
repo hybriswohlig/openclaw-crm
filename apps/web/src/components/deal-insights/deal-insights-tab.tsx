@@ -10,6 +10,8 @@ import {
   HelpCircle,
   Scale,
   MessageSquare,
+  ListPlus,
+  Check as CheckIcon,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -73,6 +75,38 @@ interface InsightsResponse {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function DealInsightsTab({ recordId }: { recordId: string }) {
+  // Tracks which of the listed open-questions have already been
+  // converted into tasks during this view session (no DB round-trip
+  // needed — the user sees an immediate check). Reset on refetch.
+  const [convertedQuestions, setConvertedQuestions] = useState<Set<string>>(
+    new Set()
+  );
+  const [convertingQuestion, setConvertingQuestion] = useState<string | null>(
+    null
+  );
+
+  async function convertQuestionToTask(question: string) {
+    if (convertedQuestions.has(question) || convertingQuestion) return;
+    setConvertingQuestion(question);
+    try {
+      const res = await fetch("/api/v1/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: `Antwort an Kunde: ${question}`,
+          recordIds: [recordId],
+        }),
+      });
+      if (res.ok) {
+        setConvertedQuestions((prev) => new Set(prev).add(question));
+      }
+    } catch {
+      // Silent — user can re-click on failure.
+    } finally {
+      setConvertingQuestion(null);
+    }
+  }
+
   const [transcript, setTranscript] = useState<DealTranscript | null>(null);
   const [insights, setInsights] = useState<DealInsights | null>(null);
   const [transcriptLoading, setTranscriptLoading] = useState(true);
@@ -280,13 +314,38 @@ export function DealInsightsTab({ recordId }: { recordId: string }) {
               icon={<HelpCircle className="h-4 w-4 text-blue-500" />}
               title="Offene Fragen des Kunden"
             >
-              <ul className="space-y-1 text-sm">
-                {insights.openCustomerQuestions.map((q, i) => (
-                  <li key={i} className="flex gap-2">
-                    <span className="text-blue-500">•</span>
-                    {q}
-                  </li>
-                ))}
+              <ul className="space-y-1.5 text-sm">
+                {insights.openCustomerQuestions.map((q, i) => {
+                  const done = convertedQuestions.has(q);
+                  const busy = convertingQuestion === q;
+                  return (
+                    <li key={i} className="group flex items-start gap-2">
+                      <span className="text-blue-500 mt-0.5">•</span>
+                      <span className="flex-1">{q}</span>
+                      <button
+                        type="button"
+                        onClick={() => convertQuestionToTask(q)}
+                        disabled={done || busy}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1 disabled:opacity-100 disabled:text-emerald-600 shrink-0"
+                        title={done ? "Aufgabe wurde angelegt" : "Als Aufgabe anlegen"}
+                      >
+                        {busy ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : done ? (
+                          <>
+                            <CheckIcon className="h-3 w-3" />
+                            Angelegt
+                          </>
+                        ) : (
+                          <>
+                            <ListPlus className="h-3 w-3" />
+                            Aufgabe
+                          </>
+                        )}
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
             </Section>
           )}

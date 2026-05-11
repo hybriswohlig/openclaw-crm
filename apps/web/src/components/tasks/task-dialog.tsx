@@ -71,6 +71,10 @@ interface TaskDialogProps {
   defaultRecordId?: string;
   defaultRecordName?: string;
   defaultRecordSlug?: string;
+  /** Pre-fill task content (used by quick-action chips on record pages). */
+  defaultContent?: string;
+  /** Pre-fill deadline (used by quick-action chips). */
+  defaultDeadline?: Date | null;
   onSave: (data: {
     content: string;
     deadline: string | null;
@@ -91,6 +95,8 @@ export function TaskDialog({
   defaultRecordId,
   defaultRecordName,
   defaultRecordSlug,
+  defaultContent,
+  defaultDeadline,
   onSave,
   onDelete,
 }: TaskDialogProps) {
@@ -148,8 +154,8 @@ export function TaskDialog({
         setAssigneeIds(initialData.assigneeIds);
         setLinkedRecords(initialData.linkedRecords || []);
       } else {
-        setContent("");
-        setDeadline(null);
+        setContent(defaultContent ?? "");
+        setDeadline(defaultDeadline ?? null);
         setAssigneeIds(currentUserId ? [currentUserId] : []);
         setLinkedRecords(
           defaultRecordId && defaultRecordName
@@ -180,6 +186,8 @@ export function TaskDialog({
     defaultRecordId,
     defaultRecordName,
     defaultRecordSlug,
+    defaultContent,
+    defaultDeadline,
   ]);
 
   // Fetch workspace members
