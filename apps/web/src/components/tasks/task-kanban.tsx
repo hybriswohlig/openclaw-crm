@@ -13,6 +13,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { Clock, Plus, Truck } from "lucide-react";
+import { TaskDialog } from "./task-dialog";
 
 interface TaskAssignee {
   id: string;
@@ -111,10 +112,28 @@ export function TaskKanban() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>("alle");
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [dialogMode, setDialogMode] = useState<"create" | "edit">("edit");
+  const [editingTask, setEditingTask] = useState<ApiTask | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | undefined>(undefined);
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } })
+    useSensor(PointerSensor, {
+      // 6px so the small fingertip wobble between mousedown and a fast
+      // tap doesn't kick off a drag — opening the dialog stays cheap.
+      activationConstraint: { distance: 6 },
+    })
   );
+
+  // Current user for the dialog's assignee defaulting + "(You)" badge.
+  useEffect(() => {
+    fetch("/api/auth/get-session")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.user?.id) setCurrentUserId(data.user.id);
+      })
+      .catch(() => {});
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -288,15 +307,10 @@ export function TaskKanban() {
           </div>
           <button
             className="k-btn primary sm"
-            onClick={async () => {
-              const content = window.prompt("Neue Aufgabe — Beschreibung:");
-              if (!content) return;
-              await fetch("/api/v1/tasks", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ content }),
-              });
-              load();
+            onClick={() => {
+              setDialogMode("create");
+              setEditingTask(null);
+              setDialogOpen(true);
             }}
           >
             <Plus size={13} />
@@ -325,6 +339,11 @@ export function TaskKanban() {
               col={col}
               tasks={byColumn[col.key]}
               loading={loading}
+              onTaskClick={(t) => {
+                setDialogMode("edit");
+                setEditingTask(t);
+                setDialogOpen(true);
+              }}
             />
           ))}
         </div>
@@ -333,6 +352,52 @@ export function TaskKanban() {
           {activeTask ? <TaskCard task={activeTask} dragging /> : null}
         </DragOverlay>
       </DndContext>
+
+      <TaskDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        mode={dialogMode}
+        currentUserId={currentUserId}
+        initialData={
+          editingTask
+            ? {
+                id: editingTask.id,
+                content: editingTask.content,
+                deadline: editingTask.deadline ? new Date(editingTask.deadline) : null,
+                assigneeIds: editingTask.assignees.map((a) => a.id),
+                recordIds: editingTask.linkedRecords.map((r) => r.id),
+                linkedRecords: editingTask.linkedRecords,
+                assignees: editingTask.assignees,
+              }
+            : undefined
+        }
+        onSave={async (data) => {
+          if (dialogMode === "create") {
+            await fetch("/api/v1/tasks", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(data),
+            });
+          } else if (editingTask) {
+            await fetch(`/api/v1/tasks/${editingTask.id}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(data),
+            });
+          }
+          await load();
+        }}
+        onDelete={
+          dialogMode === "edit" && editingTask
+            ? async () => {
+                await fetch(`/api/v1/tasks/${editingTask.id}`, {
+                  method: "DELETE",
+                });
+                await load();
+              }
+            : undefined
+        }
+      />
 
       <style>{`@keyframes pulse { 0%{opacity:1; transform:scale(1);} 50%{opacity:.4; transform:scale(1.2);} 100%{opacity:1; transform:scale(1);} }`}</style>
     </div>
@@ -372,10 +437,12 @@ function KanbanColumn({
   col,
   tasks,
   loading,
+  onTaskClick,
 }: {
   col: { key: ColumnKey; label: string; hint: string; live?: boolean };
   tasks: ApiTask[];
   loading: boolean;
+  onTaskClick: (t: ApiTask) => void;
 }) {
   const { isOver, setNodeRef } = useDroppable({ id: col.key });
   return (
@@ -456,21 +523,51 @@ function KanbanColumn({
           </div>
         ) : null}
         {tasks.map((t) => (
-          <DraggableTaskCard key={t.id} task={t} />
+          <DraggableTaskCard key={t.id} task={t} onClick={() => onTaskClick(t)} />
         ))}
       </div>
     </div>
   );
 }
 
-function DraggableTaskCard({ task }: { task: ApiTask }) {
+function DraggableTaskCard({
+  task,
+  onClick,
+}: {
+  task: ApiTask;
+  onClick: () => void;
+}) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: task.id });
+  // dnd-kit fires onDragStart only after the activation-distance threshold
+  // is exceeded. If the user tapped without moving, no drag, and we fire
+  // the click here (mouse-up). isDragging covers the case where a drag
+  // was just released — don't open the dialog at the end of a drag.
+  const pointerDownAt = useState<{ x: number; y: number } | null>(null);
+  const [downPos, setDownPos] = pointerDownAt;
+
   return (
     <div
       ref={setNodeRef}
       {...attributes}
       {...listeners}
-      style={{ opacity: isDragging ? 0.3 : 1, cursor: "grab", touchAction: "none" }}
+      onPointerDown={(e) => {
+        setDownPos({ x: e.clientX, y: e.clientY });
+      }}
+      onPointerUp={(e) => {
+        if (isDragging) return;
+        if (!downPos) return;
+        const dx = Math.abs(e.clientX - downPos.x);
+        const dy = Math.abs(e.clientY - downPos.y);
+        // Same threshold as PointerSensor activation distance — only fire
+        // click for genuine taps, not for cancelled drags.
+        if (dx < 6 && dy < 6) onClick();
+        setDownPos(null);
+      }}
+      style={{
+        opacity: isDragging ? 0.3 : 1,
+        cursor: isDragging ? "grabbing" : "pointer",
+        touchAction: "none",
+      }}
     >
       <TaskCard task={task} />
     </div>

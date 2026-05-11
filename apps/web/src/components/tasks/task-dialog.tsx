@@ -22,6 +22,7 @@ import {
   Building2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { TaskComments } from "./task-comments";
 import {
   format,
   isToday,
@@ -680,6 +681,18 @@ export function TaskDialog({
               )}
             </div>
           </div>
+
+          {mode === "edit" && initialData?.id && (
+            <div
+              className="mt-1 pt-3"
+              style={{ borderTop: "1px dashed var(--line, rgba(0,0,0,0.1))" }}
+            >
+              <TaskComments
+                taskId={initialData.id}
+                currentUserId={currentUserId}
+              />
+            </div>
+          )}
         </div>
 
         <DialogFooter className="flex-row items-center gap-2 sm:justify-between">

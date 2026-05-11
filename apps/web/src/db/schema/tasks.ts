@@ -49,3 +49,26 @@ export const taskAssignees = pgTable(
     index("task_assignees_user_id").on(table.userId),
   ]
 );
+
+export const taskComments = pgTable(
+  "task_comments",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    taskId: text("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("task_comments_task_id").on(table.taskId),
+    index("task_comments_workspace_id").on(table.workspaceId),
+  ]
+);
