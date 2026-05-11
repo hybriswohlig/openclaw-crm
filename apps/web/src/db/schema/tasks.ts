@@ -14,8 +14,18 @@ export const tasks = pgTable("tasks", {
     .references(() => workspaces.id, { onDelete: "cascade" }),
   createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  // Subtask link — null for top-level, points at the parent task otherwise.
+  parentTaskId: text("parent_task_id"),
+  // 'daily' | 'weekly' | 'monthly' | null. Cron materialises the next
+  // instance once the current one is marked completed.
+  recurrenceRule: text("recurrence_rule"),
+  recurrenceAnchor: timestamp("recurrence_anchor"),
+  // Set by /api/cron/check-overdue-tasks once it has notified the team
+  // about a missed deadline. Cleared when the deadline is edited.
+  overdueNotifiedAt: timestamp("overdue_notified_at"),
 }, (table) => [
   index("tasks_workspace_id").on(table.workspaceId),
+  index("tasks_parent_task_id").on(table.parentTaskId),
 ]);
 
 export const taskRecords = pgTable(

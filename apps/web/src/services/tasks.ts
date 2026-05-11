@@ -92,13 +92,18 @@ export async function listTasks(
 ) {
   const { showCompleted = false, limit = 50, offset = 0 } = options;
 
+  // Subtasks are excluded from the top-level kanban — they show up
+  // inside their parent's TaskDialog instead. parentTaskId IS NULL means
+  // "this is a top-level task".
+  const baseClause = sql`${tasks.parentTaskId} IS NULL`;
   let whereClause;
   if (showCompleted) {
-    whereClause = eq(tasks.workspaceId, workspaceId);
+    whereClause = and(eq(tasks.workspaceId, workspaceId), baseClause);
   } else {
     whereClause = and(
       eq(tasks.workspaceId, workspaceId),
-      eq(tasks.isCompleted, false)
+      eq(tasks.isCompleted, false),
+      baseClause
     );
   }
 
@@ -145,6 +150,8 @@ export async function createTask(
     deadline?: string | null;
     recordIds?: string[];
     assigneeIds?: string[];
+    parentTaskId?: string | null;
+    recurrenceRule?: "daily" | "weekly" | "monthly" | null;
   } = {}
 ) {
   const [task] = await db
@@ -154,6 +161,13 @@ export async function createTask(
       createdBy,
       workspaceId,
       deadline: options.deadline ? new Date(options.deadline) : null,
+      parentTaskId: options.parentTaskId ?? null,
+      recurrenceRule: options.recurrenceRule ?? null,
+      recurrenceAnchor: options.recurrenceRule
+        ? options.deadline
+          ? new Date(options.deadline)
+          : new Date()
+        : null,
     })
     .returning();
 
@@ -189,6 +203,7 @@ export async function updateTask(
     isCompleted?: boolean;
     recordIds?: string[];
     assigneeIds?: string[];
+    recurrenceRule?: "daily" | "weekly" | "monthly" | null;
   }
 ) {
   // Verify task belongs to workspace
@@ -204,10 +219,16 @@ export async function updateTask(
   if (updates.content !== undefined) setValues.content = updates.content;
   if (updates.deadline !== undefined) {
     setValues.deadline = updates.deadline ? new Date(updates.deadline) : null;
+    // Reset the overdue-notified flag so a re-scheduled task can be
+    // re-flagged once the new deadline passes.
+    setValues.overdueNotifiedAt = null;
   }
   if (updates.isCompleted !== undefined) {
     setValues.isCompleted = updates.isCompleted;
     setValues.completedAt = updates.isCompleted ? new Date() : null;
+  }
+  if (updates.recurrenceRule !== undefined) {
+    setValues.recurrenceRule = updates.recurrenceRule;
   }
 
   if (Object.keys(setValues).length > 0) {

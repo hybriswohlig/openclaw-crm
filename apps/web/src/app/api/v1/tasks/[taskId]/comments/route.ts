@@ -60,32 +60,55 @@ export async function POST(
       );
     }
 
-    // Push the audience (assignees + creator − commenter). Fire-and-forget
-    // via waitUntil so the comment shows up instantly in the UI even if
-    // the push pipeline is slow.
+    // Push the audience (assignees + creator − commenter) + anyone
+    // explicitly @-mentioned in the comment body. Fire-and-forget via
+    // waitUntil so the comment shows up instantly in the UI even if the
+    // push pipeline is slow.
     const { waitUntil } = await import("@vercel/functions");
     const { sendPush } = await import("@/services/push");
+    const { resolveMentions } = await import("@/services/mentions");
     waitUntil(
       (async () => {
-        const targets = await commentAudience({
-          taskId,
-          workspaceId: ctx.workspaceId,
-          commentAuthorId: ctx.userId,
-        });
-        if (targets.length === 0) return;
+        const [audience, mentioned] = await Promise.all([
+          commentAudience({
+            taskId,
+            workspaceId: ctx.workspaceId,
+            commentAuthorId: ctx.userId,
+          }),
+          resolveMentions(text, ctx.workspaceId, ctx.userId),
+        ]);
+        // Merge — @-mentioned users get the push even if not on the
+        // task. Push tag is unique per-(task,kind) so an audience push
+        // and a mention push don't collide on the recipient's lock
+        // screen.
         const authorName =
           comment.user?.name?.trim().split(/\s+/)[0] || "Kollege";
-        const preview =
-          text.length > 100 ? text.slice(0, 99) + "…" : text;
-        await sendPush(
-          {
-            title: `Neuer Kommentar von ${authorName}`,
-            body: preview,
-            url: `/tasks?taskId=${taskId}`,
-            tag: `task-${taskId}`,
-          },
-          { workspaceId: ctx.workspaceId, userIds: targets }
+        const preview = text.length > 100 ? text.slice(0, 99) + "…" : text;
+        if (audience.length > 0) {
+          await sendPush(
+            {
+              title: `Neuer Kommentar von ${authorName}`,
+              body: preview,
+              url: `/tasks?taskId=${taskId}`,
+              tag: `task-${taskId}`,
+            },
+            { workspaceId: ctx.workspaceId, userIds: audience }
+          );
+        }
+        const mentionTargets = mentioned.filter(
+          (id) => !audience.includes(id)
         );
+        if (mentionTargets.length > 0) {
+          await sendPush(
+            {
+              title: `${authorName} hat dich erwähnt`,
+              body: preview,
+              url: `/tasks?taskId=${taskId}`,
+              tag: `task-${taskId}-mention`,
+            },
+            { workspaceId: ctx.workspaceId, userIds: mentionTargets }
+          );
+        }
       })()
     );
 

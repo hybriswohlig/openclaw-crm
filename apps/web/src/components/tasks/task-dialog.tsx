@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TaskComments } from "./task-comments";
+import { TaskSubtasks } from "./task-subtasks";
 import {
   format,
   isToday,
@@ -684,9 +685,10 @@ export function TaskDialog({
 
           {mode === "edit" && initialData?.id && (
             <div
-              className="mt-1 pt-3"
+              className="mt-1 pt-3 flex flex-col gap-4"
               style={{ borderTop: "1px dashed var(--line, rgba(0,0,0,0.1))" }}
             >
+              <TaskSubtasks taskId={initialData.id} />
               <TaskComments
                 taskId={initialData.id}
                 currentUserId={currentUserId}

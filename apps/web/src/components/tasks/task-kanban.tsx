@@ -163,8 +163,22 @@ export function TaskKanban() {
 
   const filtered = useMemo(() => {
     if (filter === "alle") return tasks;
+    if (filter === "mine") {
+      if (!currentUserId) return tasks;
+      return tasks.filter((t) => t.assignees.some((a) => a.id === currentUserId));
+    }
     return tasks.filter((t) => t.assignees.some((a) => a.id === filter));
-  }, [tasks, filter]);
+  }, [tasks, filter, currentUserId]);
+
+  // Unread "my open" count — drives the orange dot on the "Mir zugewiesen"
+  // pill so you can see at a glance how many open tasks are on your plate.
+  const myOpenCount = useMemo(() => {
+    if (!currentUserId) return 0;
+    return tasks.filter(
+      (t) =>
+        !t.isCompleted && t.assignees.some((a) => a.id === currentUserId)
+    ).length;
+  }, [tasks, currentUserId]);
 
   const byColumn = useMemo(() => {
     const m: Record<ColumnKey, ApiTask[]> = {
@@ -292,6 +306,28 @@ export function TaskKanban() {
               padding: 3,
             }}
           >
+            <FilterPill
+              active={filter === "mine"}
+              onClick={() => setFilter("mine")}
+            >
+              Mir zugewiesen
+              {myOpenCount > 0 && (
+                <span
+                  style={{
+                    marginLeft: 6,
+                    background:
+                      filter === "mine" ? "var(--paper)" : "var(--kottke-accent)",
+                    color: filter === "mine" ? "var(--ink)" : "var(--paper)",
+                    fontSize: 10,
+                    fontWeight: 600,
+                    padding: "1px 6px",
+                    borderRadius: 999,
+                  }}
+                >
+                  {myOpenCount}
+                </span>
+              )}
+            </FilterPill>
             <FilterPill active={filter === "alle"} onClick={() => setFilter("alle")}>
               Alle
             </FilterPill>
