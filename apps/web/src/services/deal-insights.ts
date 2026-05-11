@@ -297,12 +297,44 @@ const ExtractedDealSchema = z.object({
     ),
 });
 
+// Tolerance helpers — small models routinely emit Listen-Felder as a
+// single comma- or newline-separated string instead of an array, or as
+// null when they mean an empty list. Coerce those shapes before
+// validation so the whole extract doesn't 400 on a stylistic slip.
+function coerceToArray(v: unknown): unknown {
+  if (v == null || v === "") return [];
+  if (Array.isArray(v)) return v;
+  if (typeof v === "string") {
+    // Newline- or semicolon-separated → array. Single-line plain string
+    // → 1-element array. Leading bullet "- " markers stripped.
+    const parts = v
+      .split(/\r?\n|;\s*|•\s*/)
+      .map((s) => s.replace(/^[\s\-*•]+/, "").trim())
+      .filter(Boolean);
+    return parts.length > 0 ? parts : [v];
+  }
+  return v;
+}
+
+function coerceObjectArray(
+  v: unknown,
+  mapString: (s: string) => Record<string, string>
+): unknown {
+  const arr = coerceToArray(v);
+  if (!Array.isArray(arr)) return arr;
+  return arr.map((item) => {
+    if (typeof item === "string") return mapString(item);
+    if (item && typeof item === "object") return item;
+    return item;
+  });
+}
+
 const InsightsSchema = z.object({
   extracted: ExtractedDealSchema.describe(
     "Structured fields extracted from the conversation. Use null for any field that the conversation does not establish."
   ),
   suggested_stage: nullStr.describe(
-    "Suggested pipeline stage. One of: 'Inquiry', 'Contacted', 'Information gathered', 'Quoted', 'Planned', 'Done', 'Paid', 'Lost'. DOCUMENT-DERIVED RULES (override chat-only signals): Zahlungsbestätigung uploaded → 'Paid'; Rechnung uploaded → 'Done'; Auftragsbestätigung uploaded → 'Planned'. Otherwise infer from chat: 'Contacted' if at least one agent reply, 'Information gathered' if date+addresses+inventory known, 'Quoted' if a price was sent, 'Planned' if the customer confirmed the job, 'Lost' if the customer declined. Null if unclear."
+    "Suggested pipeline stage. One of: 'Neue Anfrage', 'In Kontakt', 'Geplant', 'Durchgeführt', 'Bezahlt (Abgeschlossen)', 'Verloren'. DOCUMENT-DERIVED RULES (override chat-only signals): Zahlungsbestätigung uploaded → 'Bezahlt (Abgeschlossen)'; Rechnung uploaded → 'Durchgeführt'; Auftragsbestätigung uploaded → 'Geplant'. Otherwise infer from chat. Null if unclear."
   ),
   activity_note: z
     .string()
@@ -312,26 +344,14 @@ const InsightsSchema = z.object({
       "A concise German note (2-5 sentences) summarizing the current state of the deal for the activity log. Include: what the customer wants, what has been discussed, what is the next step. Written as a neutral third-person observation."
     ),
   missingFields: z
-    .array(z.string())
-    .optional()
-    .default([])
+    .preprocess(coerceToArray, z.array(z.string()).optional().default([]))
     .describe(
       "Human-readable list of important fields that are still missing and should be asked of the customer next. Sorted by priority (most important first)."
     ),
   criticalMissing: z
     .preprocess(
-      // Smaller / free models frequently return `criticalMissing` as an array
-      // of strings (just the question text) instead of the requested
-      // {field, question} objects. Coerce strings to objects so the whole
-      // parse doesn't fail on that one deviation.
-      (v) => {
-        if (!Array.isArray(v)) return v;
-        return v.map((item) => {
-          if (typeof item === "string") return { field: "", question: item };
-          if (item && typeof item === "object") return item;
-          return item;
-        });
-      },
+      (v) =>
+        coerceObjectArray(v, (s) => ({ field: "", question: s })),
       z
         .array(
           z.object({
@@ -350,24 +370,13 @@ const InsightsSchema = z.object({
       "Subset of the most critical missing fields that block planning the Auftrag (the day-of job sheet). For each, produce a ready-to-send German question. Only include fields where knowing the answer materially changes what tools / vehicle / workers we send. Empty array if nothing critical is missing."
     ),
   openCustomerQuestions: z
-    .array(z.string())
-    .optional()
-    .default([])
+    .preprocess(coerceToArray, z.array(z.string()).optional().default([]))
     .describe(
       "Verbatim or paraphrased customer questions that have NOT been answered by the agent yet. Empty array if the customer has no open questions."
     ),
   legalFlags: z
     .preprocess(
-      // Same tolerance as criticalMissing: coerce stray strings into the
-      // {topic, reason} shape rather than hard-failing on a minor LLM slip.
-      (v) => {
-        if (!Array.isArray(v)) return v;
-        return v.map((item) => {
-          if (typeof item === "string") return { topic: "", reason: item };
-          if (item && typeof item === "object") return item;
-          return item;
-        });
-      },
+      (v) => coerceObjectArray(v, (s) => ({ topic: "", reason: s })),
       z
         .array(
           z.object({
@@ -424,7 +433,9 @@ Kontaktdaten (customer_name, customer_phone, customer_email):
 - Telefon/E-Mail: nur echte Werte. Kleinanzeigen-Relay-E-Mails (…@mail.kleinanzeigen.de) ignorieren.
 
 WICHTIG zum JSON-Format:
-- Jeder Wert ist genau EIN Skalar oder null. Niemals ein Array! Auch nicht für floors_to, elevator_from, elevator_to o. Ä.
+- Jeder Wert in "extracted" ist genau EIN Skalar oder null. Niemals ein Array! Auch nicht für floors_to, elevator_from, elevator_to o. Ä.
+- Die TOP-LEVEL Felder "missingFields", "openCustomerQuestions" MÜSSEN Arrays von Strings sein. NIEMALS ein einzelner String. Wenn nichts zu nennen ist → leeres Array [].
+- "criticalMissing" und "legalFlags" MÜSSEN Arrays von Objekten sein (siehe Schema unten). Wenn nichts zu nennen ist → leeres Array [].
 - Enum-Felder müssen EXAKT einen der erlaubten Werte enthalten (Groß-/Kleinschreibung beachten). Wenn unsicher → null statt Eigenformulierung.
 - Zahlen ohne Einheit (z. B. floors_from: 3, nicht "3. Stock").
 
