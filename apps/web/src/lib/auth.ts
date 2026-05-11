@@ -138,8 +138,17 @@ export const auth = betterAuth({
     },
   },
   session: {
-    expiresIn: 60 * 60 * 24 * 7, // 7 days
-    updateAge: 60 * 60 * 24, // 1 day
+    // Stay logged in for a full year. Each active day rolls the expiry
+    // forward (`updateAge`), so a user who opens the app at least once
+    // every 365 days never needs to re-authenticate — only an explicit
+    // logout (or workspace admin revoking the session) ends it.
+    expiresIn: 60 * 60 * 24 * 365, // 1 year
+    updateAge: 60 * 60 * 24, // refresh sliding window once per day of use
+    // 5 min in-memory cookie cache cuts the DB round-trip on every request.
+    cookieCache: {
+      enabled: true,
+      maxAge: 5 * 60,
+    },
   },
 });
 
