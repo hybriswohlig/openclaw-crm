@@ -141,7 +141,10 @@ export function DealInsightsTab({ recordId }: { recordId: string }) {
       const res = await fetch(`/api/v1/deals/${recordId}/insights`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apply }),
+        // applyStage:true so a forward Phase-Vorschlag of the KI actually
+        // lands on the Lead. The server has a forward-only guard so this
+        // can never drag a "Durchgeführt" deal back to "Neue Anfrage".
+        body: JSON.stringify({ apply, applyStage: apply }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = (await res.json()).data as InsightsResponse;

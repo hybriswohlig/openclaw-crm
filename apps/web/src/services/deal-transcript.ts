@@ -10,13 +10,15 @@
  */
 
 import { db } from "@/db";
-import { asc, eq, and, inArray } from "drizzle-orm";
+import { asc, eq, and, inArray, or } from "drizzle-orm";
 import {
   channelAccounts,
   inboxContacts,
   inboxConversations,
   inboxMessages,
 } from "@/db/schema/inbox";
+import { recordValues } from "@/db/schema/records";
+import { attributes } from "@/db/schema/objects";
 import { parseKleinanzeigenBody, isKleinanzeigenEmail } from "./inbox-kleinanzeigen";
 
 export interface TranscriptMessage {
@@ -60,7 +62,45 @@ export async function getDealTranscript(
   workspaceId: string,
   dealRecordId: string
 ): Promise<DealTranscript> {
-  // 1. All conversations linked to this deal.
+  // 1a. Conversations directly linked to this deal via deal_record_id.
+  // 1b. PLUS: conversations whose inbox-contact's crm_record_id matches a
+  //     person referenced by this deal (via record_values where the
+  //     attribute's type is "record_reference" pointing at a person).
+  //     Catches the common "deal was created manually after the chat
+  //     existed, so deal_record_id is still NULL on the conversation".
+
+  // Find every record_value on this deal that references another record
+  // (those are the linked Person/Company picks). We pull all referenced
+  // record IDs and intersect them with inbox_contacts.crm_record_id.
+  const referencedRecordRows = await db
+    .select({ ref: recordValues.referencedRecordId })
+    .from(recordValues)
+    .where(
+      and(
+        eq(recordValues.recordId, dealRecordId),
+        // referencedRecordId is non-null when this value is a record link
+      )
+    );
+  const referencedRecordIds = referencedRecordRows
+    .map((r) => r.ref)
+    .filter((id): id is string => !!id);
+
+  // Person/contact records that are linked to this deal → their inbox
+  // contacts → their conversations.
+  let indirectContactIds: string[] = [];
+  if (referencedRecordIds.length > 0) {
+    const contactRows = await db
+      .select({ id: inboxContacts.id })
+      .from(inboxContacts)
+      .where(
+        and(
+          eq(inboxContacts.workspaceId, workspaceId),
+          inArray(inboxContacts.crmRecordId, referencedRecordIds)
+        )
+      );
+    indirectContactIds = contactRows.map((c) => c.id);
+  }
+
   const convs = await db
     .select({
       id: inboxConversations.id,
@@ -84,7 +124,12 @@ export async function getDealTranscript(
     .where(
       and(
         eq(inboxConversations.workspaceId, workspaceId),
-        eq(inboxConversations.dealRecordId, dealRecordId)
+        indirectContactIds.length > 0
+          ? or(
+              eq(inboxConversations.dealRecordId, dealRecordId),
+              inArray(inboxConversations.contactId, indirectContactIds)
+            )
+          : eq(inboxConversations.dealRecordId, dealRecordId)
       )
     );
 
@@ -97,6 +142,30 @@ export async function getDealTranscript(
       messages: [],
     };
   }
+
+  // Side-effect: backfill the deal-conversation link on any indirect
+  // matches so the next read short-circuits and the cron-driven
+  // refresh-log keys off the right deal. Fire-and-forget; failure does
+  // not affect this read.
+  const unlinkedIds = convs
+    .filter((c) => indirectContactIds.includes(c.contactId))
+    .map((c) => c.id);
+  if (unlinkedIds.length > 0) {
+    db.update(inboxConversations)
+      .set({ dealRecordId, updatedAt: new Date() })
+      .where(inArray(inboxConversations.id, unlinkedIds))
+      .then(() => {
+        console.log(
+          `[deal-transcript] back-linked ${unlinkedIds.length} conversation(s) to deal ${dealRecordId}`
+        );
+      })
+      .catch((err) => {
+        console.warn("[deal-transcript] back-link failed (non-fatal)", err);
+      });
+  }
+
+  // Silence unused-import lint.
+  void attributes;
 
   const convIds = convs.map((c) => c.id);
   const convById = new Map(convs.map((c) => [c.id, c]));

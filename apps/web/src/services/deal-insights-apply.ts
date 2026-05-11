@@ -315,7 +315,7 @@ export async function applyDealInsights(
       });
     }
 
-    // 4. Stage change if approved.
+    // 4. Stage change if approved — forward-only.
     if (applyStage && insights.suggested_stage) {
       const [stageAttr] = await db
         .select({ id: attributes.id })
@@ -325,18 +325,34 @@ export async function applyDealInsights(
 
       if (stageAttr) {
         const stageRows = await db
-          .select({ id: statuses.id, title: statuses.title })
+          .select({ id: statuses.id, title: statuses.title, sortOrder: statuses.sortOrder })
           .from(statuses)
           .where(eq(statuses.attributeId, stageAttr.id))
           .orderBy(asc(statuses.sortOrder));
 
-        const matched = stageRows.find(
+        const suggested = stageRows.find(
           (s) => s.title.toLowerCase() === insights.suggested_stage!.toLowerCase()
         );
-        if (matched) {
-          input.stage = matched.id;
-          result.stageUpdated = true;
-          result.fieldsUpdated.push("Stage");
+        if (suggested) {
+          // Forward-only: refuse to drag a deal backward in the pipeline.
+          // A chat smalltalk after delivery must never re-open the deal as
+          // "Neue Anfrage". Use sortOrder as the canonical order — same as
+          // the kanban left-to-right reading.
+          const currentStageId = beforeValues.stage as string | undefined;
+          const current = currentStageId
+            ? stageRows.find((s) => s.id === currentStageId)
+            : null;
+          const isForward =
+            !current || suggested.sortOrder > current.sortOrder;
+          if (isForward) {
+            input.stage = suggested.id;
+            result.stageUpdated = true;
+            result.fieldsUpdated.push("Stage");
+          } else {
+            console.log(
+              `[apply] Stage suggestion "${suggested.title}" rejected — would move backward from "${current?.title}"`
+            );
+          }
         }
       }
     }
