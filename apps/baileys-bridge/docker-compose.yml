@@ -1,0 +1,34 @@
+# Standalone compose for the in-house Baileys bridge.
+# This service does NOT join the apps/web docker-compose stack — the bridge
+# runs on the Oracle VPS (92.5.97.190) alongside OpenClaw + N8N, while the
+# CRM web app and Postgres are deployed elsewhere. The bridge talks to the
+# CRM only over HTTPS.
+#
+# Build context is the repo root (../..) so the Dockerfile can pull in the
+# pnpm workspace.
+#
+# Required env vars (.env in this directory):
+#   CRM_BASE_URL      e.g. https://app.kottke.example
+#   CRM_API_KEY       oc_sk_*  (issued from CRM Settings → API keys)
+#   BRIDGE_SECRET     shared secret for /accounts/* control endpoints
+#                     (CRM web sends it as X-Bridge-Secret)
+
+services:
+  baileys-bridge:
+    build:
+      context: ../..
+      dockerfile: apps/baileys-bridge/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    environment:
+      CRM_BASE_URL: ${CRM_BASE_URL}
+      CRM_API_KEY: ${CRM_API_KEY}
+      BRIDGE_SECRET: ${BRIDGE_SECRET}
+      BRIDGE_PORT: "8787"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8787/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

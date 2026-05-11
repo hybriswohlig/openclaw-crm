@@ -1,12 +1,23 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, Fraunces, JetBrains_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { PlausibleScript } from "@/components/analytics/plausible-script";
 import { GA4Script } from "@/components/analytics/ga4-script";
 import { AmplitudeScript } from "@/components/analytics/amplitude-script";
 import { CookieConsent } from "@/components/analytics/cookie-consent";
+import { ServiceWorkerRegister } from "@/components/pwa/service-worker-register";
 import { baseUrl } from "@/lib/base-url";
 import "./globals.css";
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#fbf8f3" },
+    { media: "(prefers-color-scheme: dark)", color: "#1a1713" },
+  ],
+};
 
 const inter = Inter({
   subsets: ["latin"],
@@ -35,6 +46,24 @@ export const metadata: Metadata = {
   },
   description: "Customer relationship management — contacts, companies, deals, tasks, and notes.",
   metadataBase: new URL(baseUrl),
+  manifest: "/manifest.webmanifest",
+  applicationName: "Kottke CRM",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Kottke CRM",
+  },
+  formatDetection: {
+    telephone: false,
+  },
+  icons: {
+    icon: [
+      { url: "/icon.svg", type: "image/svg+xml" },
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180" }],
+  },
   openGraph: {
     title: "OpenCRM-Umzug",
     description:
@@ -73,6 +102,7 @@ export default function RootLayout({
         <PlausibleScript />
         <GA4Script />
         <AmplitudeScript />
+        <ServiceWorkerRegister />
         <ThemeProvider>{children}</ThemeProvider>
         <CookieConsent />
       </body>

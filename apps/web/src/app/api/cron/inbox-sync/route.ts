@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { syncAllEmailAccountsGlobal } from "@/services/inbox-email";
 
-// Runs on the Vercel cron schedule defined in vercel.json (every 5 minutes).
+// Runs on the Vercel cron schedule defined in vercel.json (every 1 minute).
 // Vercel cron requests include an Authorization: Bearer <CRON_SECRET> header
 // when CRON_SECRET is set in project env — we verify it to reject strangers.
 export const dynamic = "force-dynamic";

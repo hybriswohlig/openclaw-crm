@@ -34,15 +34,25 @@ export async function POST(req: NextRequest) {
     wabaId,
     waPhoneNumberId,
     waDisplayPhoneNumber,
+    baileysBridgeProvider,
   } = body;
 
   if (!name || !channelType || !address) {
     return NextResponse.json({ error: "name, channelType and address are required" }, { status: 400 });
   }
 
+  // Whitelist baileysBridgeProvider so the UI can't smuggle in arbitrary
+  // strings. The schema column accepts free text but the dispatcher only
+  // recognises these two values.
+  const provider =
+    baileysBridgeProvider === "inhouse" || baileysBridgeProvider === "openclaw"
+      ? baileysBridgeProvider
+      : undefined;
+
   const row = await createChannelAccount(ctx.workspaceId, {
     name, channelType, address, credential, operatingCompanyRecordId,
     imapHost, smtpHost, wabaId, waPhoneNumberId, waDisplayPhoneNumber,
+    baileysBridgeProvider: provider,
   });
   return success(row);
 }

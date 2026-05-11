@@ -1,7 +1,7 @@
 "use client";
 
-import { TaskList } from "@/components/tasks/task-list";
+import { TaskKanban } from "@/components/tasks/task-kanban";
 
 export default function TasksPage() {
-  return <TaskList />;
+  return <TaskKanban />;
 }

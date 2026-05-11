@@ -16,12 +16,25 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { channelAccounts } from "@/db/schema/inbox";
+import { channelAccounts, inboxMessageAttachments } from "@/db/schema/inbox";
 import { eq, and, isNull } from "drizzle-orm";
 import { getAuthContext, unauthorized } from "@/lib/api-utils";
 import { ingestInboundWhatsAppMessage } from "@/services/inbox-whatsapp";
 
 export const dynamic = "force-dynamic";
+
+interface BaileysInboundAttachment {
+  /** Display name (e.g. "image.jpeg", "document.pdf"). */
+  fileName: string;
+  /** MIME type as reported by Baileys / WhatsApp. */
+  mimeType: string;
+  /** Size in bytes after base64 decode. */
+  fileSize: number;
+  /** The bytes, base64-encoded. Stored verbatim in inbox_message_attachments.file_content. */
+  fileContentBase64: string;
+  /** Provider-side media id (Baileys directPath / mediaKey hash) for dedup. */
+  externalMediaId?: string | null;
+}
 
 interface BaileysInboundPayload {
   /** UUID of the channel_accounts row (channel_type='whatsapp', wa_phone_number_id IS NULL). */
@@ -40,6 +53,12 @@ interface BaileysInboundPayload {
   sentAt?: string;
   /** Optional metadata blob preserved in raw_headers for debugging. */
   rawHeaders?: Record<string, unknown> | null;
+  /**
+   * Inline attachment payloads. The bridge has already downloaded the bytes
+   * from WhatsApp and base64-encoded them; we just persist. Failures here
+   * never block ingest (matches the WABA media path in inbox-whatsapp.ts).
+   */
+  attachments?: BaileysInboundAttachment[];
 }
 
 function badRequest(message: string, extra?: Record<string, unknown>) {
@@ -115,6 +134,28 @@ export async function POST(req: NextRequest) {
     return badRequest("sentAt must be a valid ISO timestamp");
   }
 
+  // Attachment shape check. We only inspect the envelope; the actual base64
+  // is opaque to us. Reject obviously malformed entries up front so we don't
+  // partially ingest a message and partially reject the rest.
+  const attachments = payload.attachments ?? [];
+  for (const a of attachments) {
+    if (!a || typeof a !== "object") {
+      return badRequest("attachments[] entries must be objects");
+    }
+    if (typeof a.fileName !== "string" || !a.fileName) {
+      return badRequest("attachment.fileName required");
+    }
+    if (typeof a.mimeType !== "string" || !a.mimeType) {
+      return badRequest("attachment.mimeType required");
+    }
+    if (typeof a.fileSize !== "number" || a.fileSize < 0) {
+      return badRequest("attachment.fileSize must be a non-negative number");
+    }
+    if (typeof a.fileContentBase64 !== "string" || !a.fileContentBase64) {
+      return badRequest("attachment.fileContentBase64 required");
+    }
+  }
+
   try {
     const result = await ingestInboundWhatsAppMessage({
       account,
@@ -128,12 +169,40 @@ export async function POST(req: NextRequest) {
       rawHeaders: { provider: "baileys", ...(payload.rawHeaders ?? {}) },
     });
 
+    // Persist attachments only when we actually inserted a new message row.
+    // On duplicate delivery (messageId === null) the original row's
+    // attachments already exist — re-ingesting would double them up.
+    if (result.messageId && attachments.length > 0) {
+      for (const a of attachments) {
+        try {
+          await db.insert(inboxMessageAttachments).values({
+            workspaceId: account.workspaceId,
+            messageId: result.messageId,
+            conversationId: result.conversationId,
+            dealRecordId: result.dealRecordId,
+            fileName: a.fileName,
+            mimeType: a.mimeType,
+            fileSize: a.fileSize,
+            fileContent: a.fileContentBase64,
+            externalMediaId: a.externalMediaId ?? null,
+          });
+        } catch (attErr) {
+          console.error(
+            `[baileys-inbound] failed to store attachment for ${payload.externalMessageId}:`,
+            attErr
+          );
+        }
+      }
+    }
+
     return NextResponse.json({
       success: true,
       conversationId: result.conversationId,
       dealRecordId: result.dealRecordId,
       messageId: result.messageId,
       isNewConversation: result.isNewConversation,
+      attachmentsPersisted:
+        result.messageId && attachments.length > 0 ? attachments.length : 0,
       duplicate: result.messageId === null && !result.isNewConversation ? true : undefined,
     });
   } catch (err) {

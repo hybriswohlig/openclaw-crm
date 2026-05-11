@@ -400,6 +400,8 @@ export async function ingestInboundWhatsAppMessage(params: {
         unreadCount: (conv.unreadCount ?? 0) + 1,
         aiNeedsReply: true,
         aiLastInboundAt: sentAt,
+        // Re-open resolved/spam conversations when the customer writes back
+        ...(conv.status !== "open" ? { status: "open" } : {}),
         updatedAt: new Date(),
       })
       .where(eq(inboxConversations.id, conv.id));
@@ -453,12 +455,45 @@ export async function ingestInboundWhatsAppMessage(params: {
     });
   }
 
+  if (messageId) {
+    // Fire-and-forget; the message has already been stored successfully and
+    // a failed push must never block ingest.
+    notifyInboxPush({
+      workspaceId: account.workspaceId,
+      conversationId: conv.id,
+      title: peerName || peerWaId,
+      body: preview,
+      channel: "whatsapp",
+    }).catch((err) => {
+      console.error("[push] whatsapp notify failed", err);
+    });
+  }
+
   return {
     conversationId: conv.id,
     dealRecordId: conv.dealRecordId ?? null,
     messageId,
     isNewConversation,
   };
+}
+
+async function notifyInboxPush(input: {
+  workspaceId: string;
+  conversationId: string;
+  title: string;
+  body: string;
+  channel: "whatsapp" | "email";
+}): Promise<void> {
+  const { sendPush } = await import("./push");
+  await sendPush(
+    {
+      title: input.title,
+      body: input.body,
+      url: `/inbox?conversationId=${input.conversationId}`,
+      tag: `inbox-${input.conversationId}`,
+    },
+    { workspaceId: input.workspaceId }
+  );
 }
 
 async function ingestMessage(
@@ -1704,4 +1739,293 @@ export async function getAppSecret(workspaceId: string): Promise<string | null> 
 
 export async function getVerifyToken(workspaceId: string): Promise<string | null> {
   return getSecret(workspaceId, WA_VERIFY_TOKEN_KEY);
+}
+
+// ─── In-house Baileys bridge — outbound ───────────────────────────────────────
+// Mirrors `sendWhatsAppReply` / `sendWhatsAppMediaReply` but routes via the
+// bridge running on the Oracle VPS. No 24h-window restriction (Baileys is
+// personal — that limit is WABA-only). The bridge is a thin facade in front
+// of Baileys' `sock.sendMessage`; we own message persistence + event
+// emission.
+
+const BAILEYS_BRIDGE_URL_ENV = "BAILEYS_BRIDGE_URL";
+const BAILEYS_BRIDGE_SECRET_ENV = "BAILEYS_BRIDGE_SECRET";
+
+export class BaileysBridgeNotConfiguredError extends Error {
+  constructor() {
+    super(
+      "BAILEYS_BRIDGE_URL / BAILEYS_BRIDGE_SECRET not set. The in-house Baileys bridge is unreachable.",
+    );
+    this.name = "BaileysBridgeNotConfiguredError";
+  }
+}
+
+export class BaileysBridgeError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
+    this.name = "BaileysBridgeError";
+  }
+}
+
+interface BridgeSendResponse {
+  ok: boolean;
+  externalMessageId?: string;
+  error?: string;
+  message?: string;
+}
+
+async function callBridgeSend(
+  accountId: string,
+  body: Record<string, unknown>,
+): Promise<{ externalMessageId: string }> {
+  const url = process.env[BAILEYS_BRIDGE_URL_ENV];
+  const secret = process.env[BAILEYS_BRIDGE_SECRET_ENV];
+  if (!url || !secret) throw new BaileysBridgeNotConfiguredError();
+
+  const res = await fetch(`${url}/accounts/${accountId}/send`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Bridge-Secret": secret,
+    },
+    body: JSON.stringify(body),
+  });
+  const json = (await res.json().catch(() => ({}))) as BridgeSendResponse;
+  if (!res.ok || !json.ok) {
+    throw new BaileysBridgeError(
+      res.status,
+      json.message ?? json.error ?? `bridge returned ${res.status}`,
+    );
+  }
+  if (!json.externalMessageId) {
+    throw new BaileysBridgeError(500, "bridge returned no externalMessageId");
+  }
+  return { externalMessageId: json.externalMessageId };
+}
+
+async function loadBaileysSendContext(
+  conversationId: string,
+  workspaceId: string,
+): Promise<{
+  conv: typeof inboxConversations.$inferSelect;
+  account: typeof channelAccounts.$inferSelect;
+  toWaId: string;
+}> {
+  const [conv] = await db
+    .select()
+    .from(inboxConversations)
+    .where(
+      and(
+        eq(inboxConversations.id, conversationId),
+        eq(inboxConversations.workspaceId, workspaceId),
+      ),
+    )
+    .limit(1);
+  if (!conv) throw new Error("Conversation not found");
+
+  const [account] = await db
+    .select()
+    .from(channelAccounts)
+    .where(eq(channelAccounts.id, conv.channelAccountId))
+    .limit(1);
+  if (!account) throw new Error("Channel account not found");
+  if (account.channelType !== "whatsapp") {
+    throw new Error("Conversation is not a WhatsApp conversation");
+  }
+  if (account.waPhoneNumberId) {
+    throw new Error(
+      "Channel account is WABA, not Baileys — call sendWhatsAppReply instead",
+    );
+  }
+  if (account.baileysBridgeProvider !== "inhouse") {
+    throw new Error(
+      `Channel account uses bridge '${account.baileysBridgeProvider}', not 'inhouse' — outbound not supported here`,
+    );
+  }
+
+  const [contact] = await db
+    .select()
+    .from(inboxContacts)
+    .where(eq(inboxContacts.id, conv.contactId))
+    .limit(1);
+  const toWaId = contact?.phone ?? conv.externalThreadId;
+  if (!toWaId) throw new Error("Cannot determine recipient wa_id");
+
+  return { conv, account, toWaId };
+}
+
+export async function sendBaileysReply(params: {
+  conversationId: string;
+  workspaceId: string;
+  body: string;
+}) {
+  const { conversationId, workspaceId, body } = params;
+  const { conv, account, toWaId } = await loadBaileysSendContext(
+    conversationId,
+    workspaceId,
+  );
+
+  const sendResult = await callBridgeSend(account.id, {
+    kind: "text",
+    peerWaId: toWaId,
+    text: body,
+  });
+
+  const [stored] = await db
+    .insert(inboxMessages)
+    .values({
+      workspaceId,
+      conversationId,
+      direction: "outbound",
+      status: "sent",
+      externalMessageId: sendResult.externalMessageId,
+      fromAddress: account.address,
+      toAddress: toWaId,
+      subject: null,
+      body,
+      isRead: true,
+      sentAt: new Date(),
+    })
+    .returning();
+
+  await db
+    .update(inboxConversations)
+    .set({
+      lastMessageAt: new Date(),
+      lastMessagePreview: `Du: ${body.slice(0, 100)}`,
+      updatedAt: new Date(),
+    })
+    .where(eq(inboxConversations.id, conversationId));
+
+  if (conv.dealRecordId) {
+    await emitEvent({
+      workspaceId,
+      recordId: conv.dealRecordId,
+      objectSlug: "deals",
+      eventType: "message.sent",
+      payload: {
+        conversationId,
+        channelType: "whatsapp",
+        bridge: "baileys-inhouse",
+        toAddress: toWaId,
+        externalMessageId: sendResult.externalMessageId,
+      },
+    });
+  }
+
+  return stored;
+}
+
+export async function sendBaileysMediaReply(params: {
+  conversationId: string;
+  workspaceId: string;
+  file: {
+    blob: Blob;
+    mimeType: string;
+    filename: string;
+    size: number;
+  };
+  caption?: string;
+}) {
+  const { conversationId, workspaceId, file, caption } = params;
+  const { conv, account, toWaId } = await loadBaileysSendContext(
+    conversationId,
+    workspaceId,
+  );
+
+  const buffer = Buffer.from(await file.blob.arrayBuffer());
+  const mediaBase64 = buffer.toString("base64");
+  const kind: "image" | "video" | "audio" | "document" = (() => {
+    const m = file.mimeType.toLowerCase();
+    if (m.startsWith("image/")) return "image";
+    if (m.startsWith("video/")) return "video";
+    if (m.startsWith("audio/")) return "audio";
+    return "document";
+  })();
+
+  const sendResult = await callBridgeSend(account.id, {
+    kind,
+    peerWaId: toWaId,
+    mediaBase64,
+    mimeType: file.mimeType,
+    fileName: file.filename,
+    caption: caption?.trim() || undefined,
+  });
+
+  const bodyText = caption?.trim() ?? "";
+  const previewText = caption?.trim()
+    ? caption.trim()
+    : kind === "image"
+      ? "📷 Bild"
+      : kind === "video"
+        ? "🎞️ Video"
+        : kind === "audio"
+          ? "🎤 Audio"
+          : `📎 ${file.filename}`;
+
+  const [stored] = await db
+    .insert(inboxMessages)
+    .values({
+      workspaceId,
+      conversationId,
+      direction: "outbound",
+      status: "sent",
+      externalMessageId: sendResult.externalMessageId,
+      fromAddress: account.address,
+      toAddress: toWaId,
+      subject: null,
+      body: bodyText,
+      isRead: true,
+      sentAt: new Date(),
+    })
+    .returning();
+
+  if (stored) {
+    try {
+      await db.insert(inboxMessageAttachments).values({
+        workspaceId,
+        messageId: stored.id,
+        conversationId,
+        dealRecordId: conv.dealRecordId ?? null,
+        fileName: file.filename,
+        mimeType: file.mimeType,
+        fileSize: buffer.length,
+        fileContent: mediaBase64,
+        externalMediaId: sendResult.externalMessageId,
+      });
+    } catch (attErr) {
+      console.error(
+        `[inbox-whatsapp] failed to store outbound Baileys attachment for ${stored.id}:`,
+        attErr,
+      );
+    }
+  }
+
+  await db
+    .update(inboxConversations)
+    .set({
+      lastMessageAt: new Date(),
+      lastMessagePreview: `Du: ${previewText.slice(0, 100)}`,
+      updatedAt: new Date(),
+    })
+    .where(eq(inboxConversations.id, conversationId));
+
+  if (conv.dealRecordId) {
+    await emitEvent({
+      workspaceId,
+      recordId: conv.dealRecordId,
+      objectSlug: "deals",
+      eventType: "message.sent",
+      payload: {
+        conversationId,
+        channelType: "whatsapp",
+        bridge: "baileys-inhouse",
+        toAddress: toWaId,
+        externalMessageId: sendResult.externalMessageId,
+        mediaKind: kind,
+      },
+    });
+  }
+
+  return stored;
 }

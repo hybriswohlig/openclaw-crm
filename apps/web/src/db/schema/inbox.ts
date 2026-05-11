@@ -71,6 +71,31 @@ export const channelAccounts = pgTable(
     waPhoneNumberId: text("wa_phone_number_id"),
     // Human-readable display number (e.g. "+49 30 12345678") used in the UI.
     waDisplayPhoneNumber: text("wa_display_phone_number"),
+    // Baileys (personal-WhatsApp linked-device) bridge selector. Only relevant
+    // when waPhoneNumberId IS NULL — i.e. the row represents a Baileys-bridged
+    // account, not a WABA Cloud-API account. Two valid bridges today:
+    //   'openclaw' — the legacy external bridge (status quo).
+    //   'inhouse'  — the new in-house Baileys bridge running on our VPS.
+    // Default 'openclaw' so existing rows stay on the legacy bridge.
+    baileysBridgeProvider: text("baileys_bridge_provider").default("openclaw"),
+    // Bridge-reported pairing lifecycle. The in-house bridge writes this via
+    // POST /api/v1/inbox/whatsapp/baileys-pairing whenever connection.update
+    // fires. Operators read this in the integrations UI to know whether to
+    // show a QR, "scan complete", or a re-pair prompt.
+    //   'idle' | 'awaiting_qr' | 'awaiting_code' | 'connecting' | 'connected'
+    //   | 'logged_out' | 'error'
+    baileysPairingStatus: text("baileys_pairing_status").default("idle"),
+    // Most recent QR string from connection.update (refreshed ~every 30s while
+    // pairing). Rendered to PNG client-side via the `qrcode` package.
+    baileysQrPayload: text("baileys_qr_payload"),
+    baileysQrUpdatedAt: timestamp("baileys_qr_updated_at"),
+    // 8-character pairing code, set only when the operator opted into the
+    // pairing-code flow instead of QR.
+    baileysPairingCode: text("baileys_pairing_code"),
+    // The account's own JID once paired (e.g. "4917641234567@s.whatsapp.net").
+    baileysOwnJid: text("baileys_own_jid"),
+    baileysLastSeenAt: timestamp("baileys_last_seen_at"),
+    baileysLastDisconnectReason: text("baileys_last_disconnect_reason"),
     isActive: boolean("is_active").notNull().default(true),
     // Stores the last IMAP UID seen so polling only fetches new mail
     lastSyncUid: integer("last_sync_uid").default(0),

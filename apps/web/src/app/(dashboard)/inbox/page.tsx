@@ -24,6 +24,7 @@ import {
   FileText,
   Copy,
   Braces,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -566,12 +567,104 @@ function ConversationView({
   // freshly flipped `· Übernommen` title (and therefore disappears).
   const [draftRefreshKey, setDraftRefreshKey] = useState(0);
   const draftBannerEnabled = isDraftBannerEnabled();
+  // Inline AI suggestion (manual fetch via Sparkles button — never auto-fires)
+  const [aiSuggestion, setAiSuggestion] = useState<string | null>(null);
+  const [aiSuggestionLoading, setAiSuggestionLoading] = useState(false);
+  const [aiSuggestionError, setAiSuggestionError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Reset suggestion when switching conversations
+  useEffect(() => {
+    setAiSuggestion(null);
+    setAiSuggestionError(null);
+    setAiSuggestionLoading(false);
+  }, [conv.id]);
+
+  async function fetchAiSuggestion() {
+    if (aiSuggestionLoading) return;
+    setAiSuggestionLoading(true);
+    setAiSuggestionError(null);
+    try {
+      const res = await fetch(
+        `/api/v1/inbox/conversations/${conv.id}/suggest-reply`,
+        { method: "POST" }
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        text?: string | null;
+        error?: string | null;
+      };
+      if (data?.text) {
+        setAiSuggestion(data.text);
+      } else {
+        setAiSuggestion(null);
+        setAiSuggestionError(data?.error ?? "Kein Vorschlag verfügbar.");
+      }
+    } catch {
+      setAiSuggestionError("Vorschlag konnte nicht geladen werden.");
+    } finally {
+      setAiSuggestionLoading(false);
+    }
+  }
+
+  function acceptAiSuggestion() {
+    if (!aiSuggestion) return;
+    setReply(aiSuggestion);
+    setAiSuggestion(null);
+    setAiSuggestionError(null);
+    textareaRef.current?.focus();
+  }
+
+  function editAiSuggestion() {
+    if (!aiSuggestion) return;
+    setReply(aiSuggestion);
+    setAiSuggestion(null);
+    setAiSuggestionError(null);
+    setTimeout(() => {
+      const el = textareaRef.current;
+      if (el) {
+        el.focus();
+        el.setSelectionRange(el.value.length, el.value.length);
+      }
+    }, 0);
+  }
+
+  // ── Auto-resolve: 60 s after the last outbound message, mark as resolved.
+  // Sending another message resets the timer so multi-message replies work.
+  const autoResolveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function clearAutoResolve() {
+    if (autoResolveTimer.current) {
+      clearTimeout(autoResolveTimer.current);
+      autoResolveTimer.current = null;
+    }
+  }
+
+  function scheduleAutoResolve() {
+    clearAutoResolve();
+    autoResolveTimer.current = setTimeout(async () => {
+      autoResolveTimer.current = null;
+      try {
+        await fetch(`/api/v1/inbox/conversations/${conv.id}/status`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "resolved" }),
+        });
+        onStatusChange("resolved");
+      } catch (err) {
+        console.error("[inbox] auto-resolve failed:", err);
+      }
+    }, 60_000);
+  }
+
+  // Clean up on unmount or conversation change
+  useEffect(() => {
+    return () => clearAutoResolve();
+  }, [conv.id]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const fetchMessages = useCallback(async () => {
-    setLoadingMsgs(true);
+  const fetchMessages = useCallback(async (silent = false) => {
+    if (!silent) setLoadingMsgs(true);
     try {
       const res = await fetch(`/api/v1/inbox/conversations/${conv.id}/messages`);
       if (res.ok) {
@@ -579,12 +672,34 @@ function ConversationView({
         setMessages(data.data ?? []);
       }
     } finally {
-      setLoadingMsgs(false);
+      if (!silent) setLoadingMsgs(false);
     }
   }, [conv.id]);
 
   useEffect(() => {
     fetchMessages();
+  }, [fetchMessages]);
+
+  // Auto-refresh messages every 60 s so new inbound messages appear
+  // without requiring a manual reload. Pauses when the tab is hidden.
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    function start() {
+      if (timer) return;
+      timer = setInterval(() => fetchMessages(true), 60_000);
+    }
+    function stop() {
+      if (timer) { clearInterval(timer); timer = null; }
+    }
+    function onVis() {
+      if (document.hidden) { stop(); }
+      else { fetchMessages(true); start(); }
+    }
+
+    start();
+    document.addEventListener("visibilitychange", onVis);
+    return () => { stop(); document.removeEventListener("visibilitychange", onVis); };
   }, [fetchMessages]);
 
   useEffect(() => {
@@ -635,6 +750,7 @@ function ConversationView({
           setAcceptedDraft(null);
           setDraftRefreshKey((k) => k + 1);
         }
+        scheduleAutoResolve();
       } else {
         const err = await res.json();
         const errObj = typeof err.error === "object" ? err.error : { message: err.error };
@@ -670,6 +786,7 @@ function ConversationView({
           setAcceptedDraft(null);
           setDraftRefreshKey((k) => k + 1);
         }
+        scheduleAutoResolve();
       } else {
         const err = await res.json().catch(() => ({}));
         const errObj = typeof err.error === "object" ? err.error : { message: err.error };
@@ -918,6 +1035,63 @@ function ConversationView({
             );
           })
         )}
+
+        {/* AI suggestion bubble (manual, never auto-fires) */}
+        {(aiSuggestion || aiSuggestionLoading || aiSuggestionError) && (
+          <div
+            style={{
+              marginTop: 12,
+              padding: "12px 14px",
+              background:
+                "linear-gradient(90deg, color-mix(in srgb, var(--accent-soft) 60%, #fff), #fff)",
+              border:
+                "1px dashed color-mix(in oklch, var(--kottke-accent) 30%, transparent)",
+              borderRadius: 12,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                fontSize: 11,
+                fontFamily: "var(--f-mono)",
+                letterSpacing: ".08em",
+                textTransform: "uppercase",
+                color: "var(--kottke-accent)",
+                fontWeight: 500,
+                marginBottom: 6,
+              }}
+            >
+              <Sparkles className="h-[11px] w-[11px]" />
+              Vorschlag
+            </div>
+            {aiSuggestionLoading ? (
+              <div style={{ fontSize: 13, color: "var(--ink-soft)" }}>
+                Wird generiert …
+              </div>
+            ) : aiSuggestionError ? (
+              <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>
+                {aiSuggestionError}
+              </div>
+            ) : aiSuggestion ? (
+              <>
+                <div style={{ fontSize: 13, color: "var(--ink-soft)" }}>
+                  „{aiSuggestion}"
+                </div>
+                <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                  <button className="k-btn sm" onClick={acceptAiSuggestion}>
+                    Übernehmen
+                  </button>
+                  <button className="k-btn sm ghost" onClick={editAiSuggestion}>
+                    Bearbeiten
+                  </button>
+                </div>
+              </>
+            ) : null}
+          </div>
+        )}
+
         <div ref={bottomRef} />
       </div>
 
@@ -1009,6 +1183,19 @@ function ConversationView({
                   </button>
                 </>
               )}
+              <button
+                type="button"
+                onClick={fetchAiSuggestion}
+                disabled={aiSuggestionLoading || messages.length === 0}
+                className="h-9 w-9 flex items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0 disabled:opacity-50"
+                title="KI-Vorschlag erstellen"
+              >
+                {aiSuggestionLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
+              </button>
               <textarea
                 ref={textareaRef}
                 className="flex-1 bg-transparent text-sm resize-none min-h-[28px] max-h-[40vh] sm:max-h-48 overflow-y-auto focus:outline-none placeholder:text-muted-foreground"
@@ -1107,6 +1294,49 @@ export default function InboxPage() {
       setLoading(false)
     );
   }, [fetchAccounts, fetchConversations]);
+
+  // ── Auto-refresh: poll every 60 s so new messages appear without manual
+  // clicking. Pauses when the browser tab is hidden to save resources.
+  const selectedRef = useRef<Conversation | null>(null);
+  selectedRef.current = selected;
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    function startPolling() {
+      if (timer) return;
+      timer = setInterval(() => {
+        // Silently refresh the conversation list (no loading spinner)
+        fetchConversations();
+      }, 60_000);
+    }
+
+    function stopPolling() {
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+    }
+
+    function onVisibilityChange() {
+      if (document.hidden) {
+        stopPolling();
+      } else {
+        // Immediately refresh when the user comes back to the tab,
+        // then resume the interval.
+        fetchConversations();
+        startPolling();
+      }
+    }
+
+    startPolling();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      stopPolling();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [fetchConversations]);
 
   // Handle deep links from the leads table:
   //   ?conv=<id>               → auto-select that conversation

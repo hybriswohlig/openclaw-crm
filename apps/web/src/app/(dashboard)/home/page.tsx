@@ -45,6 +45,7 @@ interface FinancialOverview {
     employeeCosts?: string | number;
     profit?: string | number;
   };
+  series?: number[];
 }
 
 interface ActivityEvent {
@@ -134,6 +135,31 @@ function fmtEUR(value: number): string {
   });
 }
 
+function parseTimeToMinutes(t: string | null): number | null {
+  if (!t) return null;
+  const [hh, mm] = t.split(":").map(Number);
+  if (Number.isNaN(hh)) return null;
+  return hh * 60 + (mm || 0);
+}
+
+function computeProgress(deal: {
+  moveDate: string | null;
+  timeStart: string | null;
+  timeEnd: string | null;
+}): number {
+  // Outside the move date → 0
+  const today = todayISO();
+  if (deal.moveDate !== today) return 0;
+  const start = parseTimeToMinutes(deal.timeStart);
+  const end = parseTimeToMinutes(deal.timeEnd);
+  if (start == null || end == null || end <= start) return 0.5;
+  const now = new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  if (nowMin <= start) return 0;
+  if (nowMin >= end) return 1;
+  return (nowMin - start) / (end - start);
+}
+
 // ─── Page ────────────────────────────────────────────────────────────────
 
 export default function HomePage() {
@@ -154,7 +180,9 @@ export default function HomePage() {
     try {
       const [opsRes, finRes] = await Promise.all([
         fetch("/api/v1/operations"),
-        fetch(`/api/v1/financial/overview?month=${currentMonthParam()}`),
+        fetch(
+          `/api/v1/financial/overview?month=${currentMonthParam()}&series=6`
+        ),
       ]);
       if (opsRes.ok) {
         const json = await opsRes.json();
@@ -281,7 +309,7 @@ export default function HomePage() {
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.15fr_.85fr] lg:gap-5">
           <UpcomingList deals={upcomingList} loading={loading} />
           <div className="flex flex-col gap-5">
-            <RevenueCard income={income} />
+            <RevenueCard income={income} series={financial?.series ?? []} />
             <ActivityCard events={activity} />
           </div>
         </div>
@@ -427,42 +455,44 @@ function FocusJobCard({ deal, today }: { deal: OpsDeal; today: string }) {
               ))}
             </div>
           )}
+
+          {isToday && (
+            <div className="mt-4 flex items-center gap-2.5">
+              <div
+                style={{
+                  flex: 1,
+                  height: 6,
+                  borderRadius: 3,
+                  background: "rgba(34,29,22,.08)",
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    height: "100%",
+                    width: `${Math.round(computeProgress(deal) * 100)}%`,
+                    background: "var(--kottke-accent)",
+                    borderRadius: 3,
+                    transition: "width .3s",
+                  }}
+                />
+              </div>
+              <span
+                className="k-mono"
+                style={{ fontSize: 11.5, color: "var(--ink-soft)" }}
+              >
+                {Math.round(computeProgress(deal) * 100)}% · Einsatz
+              </span>
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col gap-2.5">
-          <div
-            className="rounded-[12px] p-3"
-            style={{
-              background: "var(--paper)",
-              border: "1px solid var(--line)",
-              minHeight: 110,
-            }}
-          >
-            {deal.stage ? (
-              <div className="flex items-center justify-between">
-                <div className="k-label" style={{ fontSize: 10 }}>
-                  Phase
-                </div>
-                <span
-                  className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium"
-                  style={{
-                    backgroundColor: deal.stage.color + "33",
-                    color: deal.stage.color,
-                  }}
-                >
-                  {deal.stage.title}
-                </span>
-              </div>
-            ) : null}
-            <p
-              className="mt-2 text-[13px]"
-              style={{ color: "var(--ink-soft)" }}
-            >
-              {isToday
-                ? "Heute ist Einsatztag. Check vor Start: Transporter, Crew, Adresse."
-                : `Geplant ${formatRelativeMoveDate(deal.moveDate)}. Auftragsübersicht jetzt prüfen.`}
-            </p>
-          </div>
+          <RouteMini
+            from={deal.moveFromAddress}
+            to={deal.moveToAddress}
+            progress={computeProgress(deal)}
+          />
 
           <div className="mt-auto flex gap-1.5">
             <button className="k-btn sm flex-1">
@@ -512,6 +542,87 @@ function FocusStat({
         style={warn ? { color: "oklch(0.4 0.15 25)" } : undefined}
       >
         {value}
+      </div>
+    </div>
+  );
+}
+
+function RouteMini({
+  from,
+  to,
+  progress,
+}: {
+  from: string | null;
+  to: string | null;
+  progress: number;
+}) {
+  const dashLen = 250;
+  return (
+    <div
+      style={{
+        background: "var(--paper)",
+        borderRadius: 12,
+        padding: 14,
+        border: "1px solid var(--line)",
+        position: "relative",
+        minHeight: 130,
+      }}
+    >
+      <svg viewBox="0 0 240 100" width="100%" height="100" preserveAspectRatio="none">
+        <defs>
+          <pattern id="routegrid" width="12" height="12" patternUnits="userSpaceOnUse">
+            <path d="M 12 0 L 0 0 0 12" fill="none" stroke="rgba(34,29,22,.06)" strokeWidth="0.5" />
+          </pattern>
+        </defs>
+        <rect width="240" height="100" fill="url(#routegrid)" />
+        <path
+          d="M 20 70 Q 80 20, 140 50 T 220 30"
+          fill="none"
+          stroke="rgba(34,29,22,.2)"
+          strokeWidth="1.5"
+          strokeDasharray="3 3"
+        />
+        <path
+          d="M 20 70 Q 80 20, 140 50 T 220 30"
+          fill="none"
+          stroke="var(--kottke-accent)"
+          strokeWidth="2"
+          strokeDasharray={dashLen}
+          strokeDashoffset={dashLen - dashLen * progress}
+        />
+        <circle cx="20" cy="70" r="4" fill="var(--kottke-accent)" />
+        <circle cx="220" cy="30" r="4" fill="none" stroke="var(--ink)" strokeWidth="1.5" />
+        <g transform={`translate(${20 + 200 * progress}, ${70 - 40 * progress})`}>
+          <circle r="10" fill="#fff" stroke="var(--kottke-accent)" strokeWidth="1.5" />
+          <g transform="translate(-6,-5) scale(.5)">
+            <path
+              d="M1 6h13v10H1z M14 9h5l3 4v3h-8"
+              fill="none"
+              stroke="var(--kottke-accent)"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </g>
+        </g>
+      </svg>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          marginTop: 6,
+          fontSize: 11,
+          color: "var(--ink-muted)",
+          fontFamily: "var(--f-mono)",
+          gap: 8,
+        }}
+      >
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {from ?? "—"}
+        </span>
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {to ?? "—"}
+        </span>
       </div>
     </div>
   );
@@ -656,26 +767,39 @@ function UpcomingList({
 
 // ─── Revenue card ────────────────────────────────────────────────────────
 
-function RevenueCard({ income }: { income: number }) {
+function RevenueCard({ income, series }: { income: number; series: number[] }) {
   const now = new Date();
   const monthName = now.toLocaleDateString("de-DE", { month: "long" });
+  const prev = series.length >= 2 ? series[series.length - 2] : 0;
+  const pct = prev > 0 ? Math.round(((income - prev) / prev) * 100) : null;
 
   return (
     <div className="k-card p-5 sm:p-6">
       <div className="mb-2 flex items-baseline justify-between">
-        <h3
-          className="k-display m-0"
-          style={{ fontSize: 18, fontWeight: 500 }}
-        >
+        <h3 className="k-display m-0" style={{ fontSize: 18, fontWeight: 500 }}>
           Umsatz {monthName}
         </h3>
-        <Link
-          href="/financial"
-          className="text-xs"
-          style={{ color: "var(--kottke-accent)" }}
-        >
-          Details →
-        </Link>
+        <div className="flex items-center gap-2">
+          {pct !== null && (
+            <span className={pct >= 0 ? "k-chip ok" : "k-chip danger"}>
+              <TrendingUp
+                className="h-[11px] w-[11px]"
+                style={{
+                  transform: pct >= 0 ? undefined : "scaleY(-1)",
+                }}
+              />
+              {pct >= 0 ? "+" : ""}
+              {pct}%
+            </span>
+          )}
+          <Link
+            href="/financial"
+            className="text-xs"
+            style={{ color: "var(--kottke-accent)" }}
+          >
+            Details →
+          </Link>
+        </div>
       </div>
       <div className="flex items-baseline gap-2">
         <div
@@ -684,20 +808,61 @@ function RevenueCard({ income }: { income: number }) {
         >
           {income > 0 ? fmtEUR(income) : "—"}
         </div>
-        {income > 0 && (
-          <span className="k-chip ok">
-            <TrendingUp className="h-[11px] w-[11px]" />
-            aktiv
-          </span>
-        )}
       </div>
-      <p
-        className="mt-3 text-[12px]"
-        style={{ color: "var(--ink-muted)" }}
-      >
-        Bezahlte Eingänge in diesem Monat
+
+      <Sparkline series={series.length > 0 ? series : [income]} />
+
+      <p className="mt-1 text-[12px]" style={{ color: "var(--ink-muted)" }}>
+        Bezahlte Eingänge in diesem Monat · letzte {series.length || 1} Monate
       </p>
     </div>
+  );
+}
+
+function Sparkline({ series }: { series: number[] }) {
+  if (series.length === 0) return null;
+  const max = Math.max(...series, 1);
+  const min = Math.min(...series, 0);
+  const range = max - min || 1;
+  const pts = series
+    .map((v, i) => {
+      const x = (i / Math.max(series.length - 1, 1)) * 240;
+      const y = 40 - ((v - min) / range) * 36;
+      return `${x},${y}`;
+    })
+    .join(" ");
+  return (
+    <svg
+      viewBox="0 0 240 40"
+      width="100%"
+      height="46"
+      style={{ marginTop: 6, marginBottom: 6, display: "block" }}
+      preserveAspectRatio="none"
+    >
+      <defs>
+        <linearGradient id="spark" x1="0" y1="0" x2="0" y2="1">
+          <stop
+            offset="0%"
+            stopColor="var(--kottke-accent)"
+            stopOpacity=".25"
+          />
+          <stop
+            offset="100%"
+            stopColor="var(--kottke-accent)"
+            stopOpacity="0"
+          />
+        </linearGradient>
+      </defs>
+      <polyline
+        points={pts}
+        fill="none"
+        stroke="var(--kottke-accent)"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <polygon points={`0,40 ${pts} 240,40`} fill="url(#spark)" />
+    </svg>
   );
 }
 

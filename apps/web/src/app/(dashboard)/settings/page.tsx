@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Loader2, Upload, X } from "lucide-react";
+import { EnablePushButton } from "@/components/pwa/enable-push";
 
 interface Workspace {
   id: string;
@@ -89,6 +90,10 @@ export default function SettingsPage() {
   return (
     <div className="max-w-xl">
       <h1 className="text-xl font-semibold mb-6">General Settings</h1>
+
+      <div className="mb-6">
+        <EnablePushButton />
+      </div>
 
       <div className="space-y-6">
         {/* Logo */}

@@ -25,6 +25,16 @@ export async function PATCH(
     delete body.credential;
   }
 
+  // Whitelist baileysBridgeProvider — schema accepts free text, but the
+  // dispatcher only knows two values.
+  if (
+    body.baileysBridgeProvider !== undefined &&
+    body.baileysBridgeProvider !== "inhouse" &&
+    body.baileysBridgeProvider !== "openclaw"
+  ) {
+    delete body.baileysBridgeProvider;
+  }
+
   const row = await updateChannelAccount(ctx.workspaceId, id, body);
   if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return success(row);

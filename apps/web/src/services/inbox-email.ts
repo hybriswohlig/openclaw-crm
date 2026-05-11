@@ -244,6 +244,8 @@ export async function syncChannelAccount(accountId: string) {
             unreadCount: (conv.unreadCount ?? 0) + 1,
             aiNeedsReply: true,
             aiLastInboundAt: sentAt,
+            // Re-open resolved/spam conversations when the customer writes back
+            ...(conv.status !== "open" ? { status: "open" } : {}),
             updatedAt: new Date(),
           })
           .where(eq(inboxConversations.id, conv.id));
@@ -317,6 +319,18 @@ export async function syncChannelAccount(accountId: string) {
             subject,
             externalMessageId: messageId,
           },
+        });
+      }
+
+      if (storedMessage) {
+        // Fire-and-forget push notification. Never blocks ingest.
+        notifyInboxPushEmail({
+          workspaceId: account.workspaceId,
+          conversationId: conv.id,
+          title: contactName || fromEmail,
+          body: subject ? `${subject} — ${preview}` : preview,
+        }).catch((err) => {
+          console.error("[push] email notify failed", err);
         });
       }
 
@@ -470,4 +484,22 @@ export async function sendEmailReply(params: {
     .where(eq(inboxConversations.id, conversationId));
 
   return stored;
+}
+
+async function notifyInboxPushEmail(input: {
+  workspaceId: string;
+  conversationId: string;
+  title: string;
+  body: string;
+}): Promise<void> {
+  const { sendPush } = await import("./push");
+  await sendPush(
+    {
+      title: input.title,
+      body: input.body.slice(0, 140),
+      url: `/inbox?conversationId=${input.conversationId}`,
+      tag: `inbox-${input.conversationId}`,
+    },
+    { workspaceId: input.workspaceId }
+  );
 }

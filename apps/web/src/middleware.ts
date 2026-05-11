@@ -44,6 +44,17 @@ export function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
+  // PWA core: manifest, service worker, and the public VAPID key endpoint must
+  // be reachable without a session so the browser can install the app and the
+  // service worker can register before the user signs in.
+  if (
+    pathname === "/manifest.webmanifest" ||
+    pathname === "/sw.js" ||
+    pathname === "/api/v1/push/vapid-public-key"
+  ) {
+    return NextResponse.next();
+  }
+
   // Check for Better Auth session cookie
   const sessionCookie =
     req.cookies.get("better-auth.session_token") ||

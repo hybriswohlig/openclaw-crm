@@ -23,6 +23,49 @@ function parseMonth(month: string | null): { start: string; end: string } | null
   return { start, end };
 }
 
+/**
+ * Monthly income totals for the last `count` months (oldest → newest),
+ * used for the dashboard sparkline. Returns numbers, never null.
+ */
+export async function getIncomeSeries(
+  workspaceId: string,
+  count: number
+): Promise<number[]> {
+  const n = Math.max(1, Math.min(count, 24));
+  const now = new Date();
+  const months: { key: string; start: string; end: string }[] = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+    const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i + 1, 1));
+    months.push({
+      key: `${start.getUTCFullYear()}-${String(start.getUTCMonth() + 1).padStart(2, "0")}`,
+      start: start.toISOString().slice(0, 10),
+      end: end.toISOString().slice(0, 10),
+    });
+  }
+  const rangeStart = months[0].start;
+  const rangeEnd = months[months.length - 1].end;
+
+  const rows = await db
+    .select({
+      month: sql<string>`to_char(${payments.date}::date, 'YYYY-MM')`,
+      total: sum(payments.amount),
+    })
+    .from(payments)
+    .where(
+      and(
+        eq(payments.workspaceId, workspaceId),
+        gte(payments.date, rangeStart),
+        lt(payments.date, rangeEnd)
+      )
+    )
+    .groupBy(sql`to_char(${payments.date}::date, 'YYYY-MM')`);
+
+  const map = new Map<string, number>();
+  for (const r of rows) map.set(r.month, Number(r.total ?? 0));
+  return months.map((m) => map.get(m.key) ?? 0);
+}
+
 // ─── Deal Numbers ──────────────────────────────────────────────────────────────
 
 /**

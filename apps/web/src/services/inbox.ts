@@ -41,6 +41,11 @@ export async function createChannelAccount(
     wabaId?: string;
     waPhoneNumberId?: string;
     waDisplayPhoneNumber?: string;
+    /**
+     * Only meaningful for WhatsApp/Baileys rows (waPhoneNumberId IS NULL).
+     * 'openclaw' = legacy external bridge, 'inhouse' = our new in-house bridge.
+     */
+    baileysBridgeProvider?: "openclaw" | "inhouse";
   }
 ) {
   const [row] = await db
@@ -63,6 +68,7 @@ export async function updateChannelAccount(
     wabaId: string | null;
     waPhoneNumberId: string | null;
     waDisplayPhoneNumber: string | null;
+    baileysBridgeProvider: "openclaw" | "inhouse";
   }>
 ) {
   const [row] = await db

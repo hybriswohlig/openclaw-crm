@@ -4,7 +4,7 @@
   "crons": [
     {
       "path": "/api/cron/inbox-sync",
-      "schedule": "0 0 * * *"
+      "schedule": "* * * * *"
     }
   ]
 }

@@ -6,6 +6,8 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { CreateListModal } from "@/components/lists/create-list-modal";
 import { SidebarCrew } from "@/components/layout/sidebar-crew";
+import { signOut, useSession } from "@/lib/auth-client";
+import { useRouter } from "next/navigation";
 import {
   Home,
   MessageSquare,
@@ -27,6 +29,8 @@ import {
   Plug,
   Inbox,
   Truck,
+  Search,
+  LogOut,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 
@@ -45,8 +49,6 @@ const objectNav = [
   { href: "/objects/deals", label: "Leads", icon: Handshake },
 ];
 
-const bottomNav = [{ href: "/settings", label: "Einstellungen", icon: Settings }];
-
 interface ListItem {
   id: string;
   name: string;
@@ -56,13 +58,14 @@ interface ListItem {
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { data: session } = useSession();
   const [lists, setLists] = useState<ListItem[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [accountName, setAccountName] = useState<string | null>(null);
   const [accountLogo, setAccountLogo] = useState<string | null>(null);
   const [workspaceRole, setWorkspaceRole] = useState<string | null>(null);
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
-  const [expanded, setExpanded] = useState(false);
   const { theme, setTheme } = useTheme();
 
   useEffect(() => {
@@ -107,103 +110,137 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     }
   }
 
+  function openCommandPalette() {
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true })
+    );
+  }
+
+  async function handleSignOut() {
+    await signOut();
+    router.push("/login");
+  }
+
   return (
     <aside
-      onMouseEnter={() => setExpanded(true)}
-      onMouseLeave={() => setExpanded(false)}
-      className={cn(
-        "flex h-full flex-col border-r border-sidebar-border bg-sidebar sidebar-glass transition-all duration-200 ease-out overflow-hidden",
-        expanded ? "w-56" : "w-12"
-      )}
+      className="flex h-full w-[236px] flex-col overflow-hidden"
+      style={{
+        borderRight: "1px solid var(--line)",
+        background: "color-mix(in srgb, var(--paper) 70%, var(--paper-2))",
+        padding: "16px 12px",
+        gap: 14,
+      }}
     >
-      {/* Account / organization label (single tenant) */}
-      <div className="flex h-14 items-center px-2.5">
-        <div className="flex w-full items-center gap-2.5 rounded-lg px-1.5 py-1.5">
-          {accountLogo ? (
+      {/* Brand */}
+      <div className="flex items-center gap-2.5 px-2 pb-2 pt-1">
+        {accountLogo ? (
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-foreground/10">
             <div
-              className="flex h-7 w-7 items-center justify-center rounded-lg bg-foreground/10 text-xs font-semibold text-foreground shrink-0 overflow-hidden"
-            >
-              <div
-                className="h-full w-full p-0.5 [&>svg]:h-full [&>svg]:w-full"
-                dangerouslySetInnerHTML={{ __html: accountLogo }}
-              />
-            </div>
-          ) : (
-            <span
-              className="inline-block h-2 w-2 shrink-0 rounded-full"
-              style={{ background: "var(--kottke-accent)" }}
-              aria-hidden
+              className="h-full w-full p-0.5 [&>svg]:h-full [&>svg]:w-full"
+              dangerouslySetInnerHTML={{ __html: accountLogo }}
             />
+          </div>
+        ) : (
+          <span
+            className="inline-block h-2 w-2 shrink-0 rounded-full"
+            style={{ background: "var(--kottke-accent)" }}
+            aria-hidden
+          />
+        )}
+        <span
+          className="k-display flex-1 truncate text-[17px]"
+          style={{ fontWeight: 500, letterSpacing: "-0.02em" }}
+        >
+          {accountName ? (
+            accountName
+          ) : (
+            <>
+              Kottke{" "}
+              <em
+                style={{
+                  fontStyle: "italic",
+                  fontWeight: 300,
+                  color: "var(--ink-muted)",
+                }}
+              >
+                Umzüge
+              </em>
+            </>
           )}
-          {expanded && (
-            <span
-              className="k-display truncate flex-1 text-[17px]"
-              style={{ fontWeight: 500, letterSpacing: "-0.02em" }}
-            >
-              {accountName ? (
-                accountName
-              ) : (
-                <>
-                  Kottke{" "}
-                  <em
-                    style={{
-                      fontStyle: "italic",
-                      fontWeight: 300,
-                      color: "var(--ink-muted)",
-                    }}
-                  >
-                    Umzüge
-                  </em>
-                </>
-              )}
-            </span>
-          )}
-        </div>
+        </span>
       </div>
 
+      {/* Search */}
+      <button
+        type="button"
+        onClick={openCommandPalette}
+        className="flex items-center gap-2 rounded-[10px] border bg-white px-2.5 py-2 text-left text-[12.5px] hover:border-[color-mix(in_srgb,var(--ink)_28%,transparent)]"
+        style={{
+          borderColor: "var(--line)",
+          color: "var(--ink-soft)",
+        }}
+      >
+        <Search className="h-3.5 w-3.5 opacity-55" />
+        <span className="flex-1" style={{ color: "var(--ink-muted)" }}>
+          Alles durchsuchen
+        </span>
+        <kbd
+          className="rounded px-1.5 py-px text-[10px]"
+          style={{
+            fontFamily: "var(--f-mono)",
+            color: "var(--ink-muted)",
+            border: "1px solid var(--line)",
+            background: "var(--paper)",
+          }}
+        >
+          ⌘K
+        </kbd>
+      </button>
+
       {/* Main navigation */}
-      <nav className="flex-1 space-y-0.5 px-2 py-2 overflow-y-auto">
+      <nav className="-mx-0.5 flex flex-1 flex-col gap-0.5 overflow-y-auto px-0.5 k-scroll">
         {mainNav.map((item) => (
           <NavItem
             key={item.href}
             {...item}
             active={pathname === item.href}
-            expanded={expanded}
             onClick={onNavigate}
           />
         ))}
 
-        <div className="my-3 mx-2 h-px bg-sidebar-border" />
+        <Divider />
 
         {objectNav.map((item) => (
           <NavItem
             key={item.href}
             {...item}
             active={pathname.startsWith(item.href)}
-            expanded={expanded}
             onClick={onNavigate}
           />
         ))}
 
-        {expanded && lists.length > 0 && (
+        {lists.length > 0 && (
           <>
-            <div className="my-3 mx-2 h-px bg-sidebar-border" />
+            <Divider />
             <div className="space-y-0.5">
               {lists.map((list) => (
                 <Link
                   key={list.id}
                   href={`/lists/${list.id}`}
                   onClick={onNavigate}
-                  className={cn(
-                    "flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm transition-colors",
+                  className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13.5px] transition-colors"
+                  style={
                     pathname === `/lists/${list.id}`
-                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                      : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                  )}
+                      ? activeStyle
+                      : inactiveStyle
+                  }
                 >
                   <List className="h-4 w-4 shrink-0" />
                   <span className="truncate">{list.name}</span>
-                  <span className="ml-auto text-xs text-muted-foreground">
+                  <span
+                    className="ml-auto text-[11px]"
+                    style={{ color: "var(--ink-muted)" }}
+                  >
                     {list.entryCount}
                   </span>
                 </Link>
@@ -212,35 +249,32 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           </>
         )}
 
-        {expanded && (
-          <button
-            onClick={() => setCreateOpen(true)}
-            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
-          >
-            <Plus className="h-4 w-4 shrink-0" />
-            <span>New list</span>
-          </button>
-        )}
+        <button
+          onClick={() => setCreateOpen(true)}
+          className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13.5px]"
+          style={{ color: "var(--ink-muted)" }}
+        >
+          <Plus className="h-4 w-4 shrink-0" />
+          <span>Neue Liste</span>
+        </button>
 
-        <div className="my-3 mx-2 h-px bg-sidebar-border" />
+        <Divider />
 
         <NavItem
           href="/employees"
           label="Mitarbeiter"
           icon={HardHat}
           active={pathname === "/employees"}
-          expanded={expanded}
           onClick={onNavigate}
         />
 
-        <div className="my-3 mx-2 h-px bg-sidebar-border" />
+        <Divider />
 
         <NavItem
           href="/operations"
-          label="Operations"
+          label="Aufträge"
           icon={Truck}
           active={pathname.startsWith("/operations")}
-          expanded={expanded}
           onClick={onNavigate}
         />
 
@@ -249,81 +283,99 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           label="Finanzen"
           icon={Banknote}
           active={pathname.startsWith("/financial")}
-          expanded={expanded}
           onClick={onNavigate}
         />
 
-        <div className="my-3 mx-2 h-px bg-sidebar-border" />
+        <Divider />
 
         <NavItem
           href="/integrations"
           label="Integrationen"
           icon={Plug}
           active={pathname.startsWith("/integrations")}
-          expanded={expanded}
           onClick={onNavigate}
         />
 
-        <div className="my-3 mx-2 h-px bg-sidebar-border" />
+        <Divider />
 
         <NavItem
           href="/inbox"
           label="Inbox"
           icon={Inbox}
           active={pathname.startsWith("/inbox")}
-          expanded={expanded}
           onClick={onNavigate}
         />
 
-        {expanded && <SidebarCrew />}
+        <SidebarCrew />
       </nav>
 
-      {/* Bottom navigation */}
-      <div className="border-t border-sidebar-border px-2 py-2 space-y-0.5">
-        {workspaceRole === "admin" &&
-          bottomNav.map((item) => (
-            <NavItem
-              key={item.href}
-              {...item}
-              active={pathname.startsWith(item.href)}
-              expanded={expanded}
-              onClick={onNavigate}
-            />
-          ))}
-
-        {isPlatformAdmin && (
-          <Link
-            href="/admin/database"
+      {/* Footer: settings + user + theme/signout */}
+      <div
+        className="flex flex-col gap-0.5 pt-2"
+        style={{ borderTop: "1px solid var(--line)" }}
+      >
+        {workspaceRole === "admin" && (
+          <NavItem
+            href="/settings"
+            label="Einstellungen"
+            icon={Settings}
+            active={pathname.startsWith("/settings")}
             onClick={onNavigate}
-            title={!expanded ? "Database admin" : undefined}
-            className={cn(
-              "flex items-center rounded-lg py-1.5 text-sm transition-colors",
-              expanded ? "gap-2.5 px-2.5" : "justify-center px-0",
-              pathname.startsWith("/admin/database")
-                ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-            )}
-          >
-            <Database className="h-4 w-4 shrink-0" />
-            {expanded && "Database admin"}
-          </Link>
+          />
         )}
 
-        {/* Theme toggle */}
-        <button
-          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-          className={cn(
-            "flex w-full items-center rounded-lg py-1.5 text-sm transition-colors text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-            expanded ? "gap-2.5 px-2.5" : "justify-center px-0"
-          )}
-        >
-          {theme === "dark" ? (
-            <Sun className="h-4 w-4 shrink-0" />
-          ) : (
-            <Moon className="h-4 w-4 shrink-0" />
-          )}
-          {expanded && <span>{theme === "dark" ? "Light mode" : "Dark mode"}</span>}
-        </button>
+        {isPlatformAdmin && (
+          <NavItem
+            href="/admin/database"
+            label="Database admin"
+            icon={Database}
+            active={pathname.startsWith("/admin/database")}
+            onClick={onNavigate}
+          />
+        )}
+
+        <div className="flex items-center gap-2.5 rounded-lg px-2.5 py-2">
+          <span
+            className="k-avatar a1"
+            aria-hidden
+            style={{ width: 28, height: 28, fontSize: 11 }}
+          >
+            {(session?.user?.name?.[0] ?? "K").toUpperCase()}
+          </span>
+          <div className="min-w-0 flex-1 text-[13px]">
+            <div className="truncate" style={{ fontWeight: 500 }}>
+              {session?.user?.name ?? "Konto"}
+            </div>
+            <div
+              className="truncate text-[11px]"
+              style={{ color: "var(--ink-muted)" }}
+            >
+              {workspaceRole === "admin" ? "Teamleitung" : "Team"}
+            </div>
+          </div>
+          <button
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            className="rounded-md p-1"
+            style={{ color: "var(--ink-muted)" }}
+            aria-label={theme === "dark" ? "Light mode" : "Dark mode"}
+            title={theme === "dark" ? "Light mode" : "Dark mode"}
+          >
+            {theme === "dark" ? (
+              <Sun className="h-3.5 w-3.5" />
+            ) : (
+              <Moon className="h-3.5 w-3.5" />
+            )}
+          </button>
+          <button
+            onClick={handleSignOut}
+            className="rounded-md p-1"
+            style={{ color: "var(--ink-muted)" }}
+            aria-label="Abmelden"
+            title="Abmelden"
+          >
+            <LogOut className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
 
       <CreateListModal
@@ -335,36 +387,84 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
+const activeStyle: React.CSSProperties = {
+  background: "#fff",
+  color: "var(--ink)",
+  fontWeight: 500,
+  boxShadow: "0 1px 2px rgba(34,29,22,0.04)",
+};
+
+const inactiveStyle: React.CSSProperties = {
+  background: "transparent",
+  color: "var(--ink-soft)",
+};
+
+function Divider() {
+  return (
+    <div
+      className="my-2.5 mx-1"
+      style={{ borderTop: "1px dashed var(--line)" }}
+      aria-hidden
+    />
+  );
+}
+
 function NavItem({
   href,
   label,
   icon: Icon,
   active,
-  expanded,
   onClick,
+  badge,
 }: {
   href: string;
   label: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
   active: boolean;
-  expanded: boolean;
   onClick?: () => void;
+  badge?: number;
 }) {
   return (
     <Link
       href={href}
       onClick={onClick}
-      title={!expanded ? label : undefined}
+      aria-current={active ? "page" : undefined}
       className={cn(
-        "flex items-center rounded-lg py-1.5 text-sm transition-colors",
-        expanded ? "gap-2.5 px-2.5" : "justify-center px-0",
-        active
-          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-          : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+        "relative flex items-center gap-2.5 rounded-[9px] px-2.5 py-2 text-[13.5px] transition-colors"
       )}
+      style={active ? activeStyle : inactiveStyle}
     >
-      <Icon className="h-4 w-4 shrink-0" />
-      {expanded && label}
+      <Icon
+        className="h-[17px] w-[17px] shrink-0"
+        style={{ opacity: active ? 1 : 0.7 }}
+      />
+      <span className="flex-1 truncate text-left">{label}</span>
+      {badge ? (
+        <span
+          className="inline-flex items-center justify-center rounded-full px-1.5 py-px text-[10px]"
+          style={{
+            background: "var(--kottke-accent)",
+            color: "var(--paper)",
+            fontWeight: 600,
+          }}
+        >
+          {badge}
+        </span>
+      ) : null}
+      {active && (
+        <span
+          aria-hidden
+          className="absolute"
+          style={{
+            left: -12,
+            top: 8,
+            bottom: 8,
+            width: 2,
+            background: "var(--kottke-accent)",
+            borderRadius: 2,
+          }}
+        />
+      )}
     </Link>
   );
 }

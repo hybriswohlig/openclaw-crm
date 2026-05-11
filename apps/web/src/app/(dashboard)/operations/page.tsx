@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import {
   DndContext,
   type DragEndEvent,
@@ -11,6 +12,31 @@ import {
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
+
+const MapView = dynamic(
+  () => import("@/components/operations/map-view").then((m) => m.MapView),
+  { ssr: false, loading: () => <MapLoadingFallback /> }
+);
+
+function MapLoadingFallback() {
+  return (
+    <div
+      style={{
+        height: "min(70vh, 600px)",
+        borderRadius: 14,
+        border: "1px solid var(--line)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "var(--paper)",
+        color: "var(--ink-muted)",
+        fontSize: 13,
+      }}
+    >
+      Karte wird geladen …
+    </div>
+  );
+}
 import {
   Loader2,
   Truck,
@@ -87,7 +113,7 @@ function formatTime(iso: string | null): string {
   });
 }
 
-type OpsView = "list" | "pipeline";
+type OpsView = "list" | "pipeline" | "map";
 
 export default function OperationsPage() {
   const [data, setData] = useState<OperationsData | null>(null);
@@ -271,8 +297,9 @@ export default function OperationsPage() {
                 style={{ background: "#fff", border: "1px solid var(--line)" }}
               >
                 {([
-                  { k: "list", label: "Liste" },
                   { k: "pipeline", label: "Pipeline" },
+                  { k: "list", label: "Liste" },
+                  { k: "map", label: "Karte" },
                 ] as const).map((o) => (
                   <button
                     key={o.k}
@@ -290,7 +317,11 @@ export default function OperationsPage() {
             </div>
           </div>
 
-          {view === "pipeline" ? (
+          {view === "map" ? (
+            <div className="p-4 sm:p-6 pb-24 lg:pb-6">
+              <MapView deals={data.deals} />
+            </div>
+          ) : view === "pipeline" ? (
             <PipelineView
               deals={data.deals}
               busyDealId={busyDealId}
