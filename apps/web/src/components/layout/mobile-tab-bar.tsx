@@ -27,7 +27,7 @@ const primary = [
   { href: "/home", icon: Home, label: "Heute" },
   { href: "/operations", icon: Truck, label: "Aufträge" },
   { href: "/inbox", icon: InboxIcon, label: "Inbox", showBadge: true },
-  { href: "/objects/people", icon: Users, label: "Kunden" },
+  { href: "/objects/deals", icon: Handshake, label: "Leads" },
 ];
 
 const mehrItems = [
@@ -36,8 +36,8 @@ const mehrItems = [
   { href: "/notes", icon: StickyNote, label: "Notizen" },
   { href: "/notifications", icon: Bell, label: "Benachrichtigungen" },
   { href: "/chat", icon: MessageSquare, label: "Chat" },
+  { href: "/objects/people", icon: Users, label: "Kunden" },
   { href: "/objects/companies", icon: Building2, label: "Firmen" },
-  { href: "/objects/deals", icon: Handshake, label: "Leads" },
   { href: "/employees", icon: HardHat, label: "Mitarbeiter" },
   { href: "/financial", icon: Banknote, label: "Finanzen" },
   { href: "/integrations", icon: Plug, label: "Integrationen" },
@@ -72,13 +72,12 @@ export function MobileTabBar() {
   return (
     <>
       <nav
-        className="md:hidden"
+        className="flex md:hidden"
         style={{
           position: "fixed",
           left: 10,
           right: 10,
           bottom: "max(10px, env(safe-area-inset-bottom))",
-          display: "flex",
           alignItems: "stretch",
           justifyContent: "space-around",
           background: "rgba(34,29,22,.94)",
