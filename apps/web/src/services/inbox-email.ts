@@ -323,15 +323,20 @@ export async function syncChannelAccount(accountId: string) {
       }
 
       if (storedMessage) {
-        // Fire-and-forget push notification. Never blocks ingest.
-        notifyInboxPushEmail({
-          workspaceId: account.workspaceId,
-          conversationId: conv.id,
-          title: contactName || fromEmail,
-          body: subject ? `${subject} — ${preview}` : preview,
-        }).catch((err) => {
-          console.error("[push] email notify failed", err);
-        });
+        // Don't block ingest on push delivery, but keep the function alive
+        // long enough for the request to Apple/Google to finish — see the
+        // matching pattern in inbox-whatsapp.ts for the rationale.
+        const { waitUntil } = await import("@vercel/functions");
+        waitUntil(
+          notifyInboxPushEmail({
+            workspaceId: account.workspaceId,
+            conversationId: conv.id,
+            title: contactName || fromEmail,
+            body: subject ? `${subject} — ${preview}` : preview,
+          }).catch((err) => {
+            console.error("[push] email notify failed", err);
+          })
+        );
       }
 
       await checkAndFlagMultiCompany(account.workspaceId, contact.id);

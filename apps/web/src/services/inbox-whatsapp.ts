@@ -456,17 +456,22 @@ export async function ingestInboundWhatsAppMessage(params: {
   }
 
   if (messageId) {
-    // Fire-and-forget; the message has already been stored successfully and
-    // a failed push must never block ingest.
-    notifyInboxPush({
-      workspaceId: account.workspaceId,
-      conversationId: conv.id,
-      title: peerName || peerWaId,
-      body: preview,
-      channel: "whatsapp",
-    }).catch((err) => {
-      console.error("[push] whatsapp notify failed", err);
-    });
+    // Don't block the webhook response on push delivery, but DO keep the
+    // Vercel function alive until the push request completes — otherwise
+    // the serverless runtime kills the call mid-flight as soon as we
+    // return 200 to Meta and the iPhone never gets buzzed.
+    const { waitUntil } = await import("@vercel/functions");
+    waitUntil(
+      notifyInboxPush({
+        workspaceId: account.workspaceId,
+        conversationId: conv.id,
+        title: peerName || peerWaId,
+        body: preview,
+        channel: "whatsapp",
+      }).catch((err) => {
+        console.error("[push] whatsapp notify failed", err);
+      })
+    );
   }
 
   return {
