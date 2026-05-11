@@ -16,6 +16,7 @@
     "inbox:import": "tsx scripts/import-emails.ts",
     "inbox:reimport": "tsx scripts/import-emails.ts --reset",
     "push:generate-keys": "tsx scripts/generate-vapid-keys.ts",
+    "whatsapp:diagnose": "tsx scripts/diagnose-whatsapp.ts",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui"
   },
