@@ -75,7 +75,10 @@ export function RecordKanban({
   const boardRef = useRef<HTMLDivElement>(null);
 
   const statusAttr = attributes.find((a) => a.slug === statusAttributeSlug);
-  const statuses = statusAttr?.statuses || [];
+  // Hide deactivated statuses (e.g. merged-in or retired pipeline stages).
+  // They still exist in the DB so historic records remain valid, but they
+  // should not appear as kanban columns.
+  const statuses = (statusAttr?.statuses || []).filter((s) => s.isActive);
 
   // Find the "name" attribute for card display
   const nameAttr = attributes.find((a) => a.slug === "name");

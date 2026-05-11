@@ -14,7 +14,16 @@ import { records, recordValues } from "@/db/schema/records";
 import { employees, dealEmployees } from "@/db/schema/employees";
 import { dealNumbers } from "@/db/schema/financial";
 
-const FINALIZED_STAGE_TITLES = ["done", "paid", "lost"];
+// Title comparison is case-insensitive. Includes both the old English names
+// (for any environment that hasn't run the pipeline rename) and the new
+// German ones so the filter keeps working through the transition.
+const FINALIZED_STAGE_TITLES = [
+  "done",
+  "paid",
+  "lost",
+  "durchgeführt",
+  "bezahlt (abgeschlossen)",
+];
 
 export interface OperationsDealRow {
   dealId: string;
