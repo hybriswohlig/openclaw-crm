@@ -538,43 +538,44 @@ function DraggableTaskCard({
   onClick: () => void;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: task.id });
-  // dnd-kit fires onDragStart only after the activation-distance threshold
-  // is exceeded. If the user tapped without moving, no drag, and we fire
-  // the click here (mouse-up). isDragging covers the case where a drag
-  // was just released — don't open the dialog at the end of a drag.
-  const pointerDownAt = useState<{ x: number; y: number } | null>(null);
-  const [downPos, setDownPos] = pointerDownAt;
 
+  // dnd-kit's listeners are spread onto the OUTER wrapper so its drag
+  // detection (pointerdown / pointermove with 6px activation distance)
+  // stays intact. The click target sits one level deeper — when the user
+  // taps without moving, no drag activates, and the synthesized click on
+  // the inner element fires normally. If a drag DID activate, dnd-kit
+  // absorbs the pointer events and no click is synthesized, so we never
+  // open the dialog after dropping a card.
   return (
     <div
       ref={setNodeRef}
       {...attributes}
       {...listeners}
-      onPointerDown={(e) => {
-        setDownPos({ x: e.clientX, y: e.clientY });
-      }}
-      onPointerUp={(e) => {
-        if (isDragging) return;
-        if (!downPos) return;
-        const dx = Math.abs(e.clientX - downPos.x);
-        const dy = Math.abs(e.clientY - downPos.y);
-        // Same threshold as PointerSensor activation distance — only fire
-        // click for genuine taps, not for cancelled drags.
-        if (dx < 6 && dy < 6) onClick();
-        setDownPos(null);
-      }}
       style={{
         opacity: isDragging ? 0.3 : 1,
         cursor: isDragging ? "grabbing" : "pointer",
         touchAction: "none",
       }}
     >
-      <TaskCard task={task} />
+      <TaskCard
+        task={task}
+        onCardClick={() => {
+          if (!isDragging) onClick();
+        }}
+      />
     </div>
   );
 }
 
-function TaskCard({ task, dragging }: { task: ApiTask; dragging?: boolean }) {
+function TaskCard({
+  task,
+  dragging,
+  onCardClick,
+}: {
+  task: ApiTask;
+  dragging?: boolean;
+  onCardClick?: () => void;
+}) {
   const done = task.isCompleted;
   const live =
     !done &&
@@ -587,9 +588,10 @@ function TaskCard({ task, dragging }: { task: ApiTask; dragging?: boolean }) {
   return (
     <div
       className="k-card"
+      onClick={onCardClick}
       style={{
         padding: 12,
-        cursor: dragging ? "grabbing" : "grab",
+        cursor: dragging ? "grabbing" : onCardClick ? "pointer" : "grab",
         border: live
           ? "1px solid color-mix(in oklch, var(--kottke-accent) 30%, transparent)"
           : "1px solid var(--line)",
