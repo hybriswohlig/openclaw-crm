@@ -223,7 +223,7 @@ export async function syncChannelAccount(accountId: string) {
           .returning();
         conv = created;
 
-        // Auto-create a deal in stage "Inquiry" for brand-new Kleinanzeigen
+        // Auto-create a deal in stage "Neue Anfrage" for brand-new Kleinanzeigen
         // inquiries and link it to this conversation. Other channels can reuse
         // the same deal later by writing its id onto their own conversations.
         if (isKleinanzeigen) {

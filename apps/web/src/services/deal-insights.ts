@@ -407,17 +407,15 @@ Regeln:
 - "Offene Kundenfragen" sind nur Fragen des Kunden, die der Mitarbeiter noch NICHT beantwortet hat.
 - "Fehlende Felder" priorisieren nach dem, was wir für ein Angebot zwingend brauchen (Datum, Adressen, Stockwerke, Inventar, Telefon).
 - Rechtliche Hinweise (legalFlags) nur dann setzen, wenn der Kunde Themen wie Schäden, Stornierung, Haftung, Garantie, Versicherung anspricht.
-- "suggested_stage": Schlage die passende Pipeline-Stufe vor. Dokumenten-Signale haben IMMER Vorrang vor reinen Chat-Signalen:
-  • Wenn eine "Zahlungsbestätigung" hochgeladen wurde → "Paid"
-  • Sonst wenn eine "Rechnung" hochgeladen wurde → "Done"
-  • Sonst wenn eine "Auftragsbestätigung" hochgeladen wurde → "Planned"
+- "suggested_stage": Schlage die passende Pipeline-Stufe vor. Verwende GENAU einen der folgenden deutschen Werte. Dokumenten-Signale haben IMMER Vorrang vor reinen Chat-Signalen:
+  • Wenn eine "Zahlungsbestätigung" hochgeladen wurde → "Bezahlt (Abgeschlossen)"
+  • Sonst wenn eine "Rechnung" hochgeladen wurde → "Durchgeführt"
+  • Sonst wenn eine "Auftragsbestätigung" hochgeladen wurde → "Geplant"
   • Sonst nach Chat-Verlauf:
-    • "Inquiry" = Erstanfrage, kein Agent hat geantwortet
-    • "Contacted" = Agent hat mindestens einmal geantwortet
-    • "Information gathered" = Wichtige Details (Datum, Adressen, Inventar) sind bekannt
-    • "Quoted" = Ein Preis/Angebot wurde dem Kunden mitgeteilt
-    • "Planned" = Auftrag mündlich/schriftlich bestätigt, Termin steht
-    • "Done" = Umzug durchgeführt
+    • "Neue Anfrage" = Erstanfrage, kein Agent hat geantwortet
+    • "In Kontakt" = Agent hat mindestens einmal geantwortet, ODER Details werden gesammelt (Datum, Adressen, Inventar), ODER ein Preis/Angebot wurde dem Kunden mitgeteilt — alle drei Phasen sind hier zusammengefasst
+    • "Geplant" = Auftrag mündlich/schriftlich bestätigt, Termin steht
+    • "Durchgeführt" = Umzug durchgeführt
     • "Lost" = Kunde hat abgesagt oder kein Interesse mehr
 - "activity_note": Schreibe eine kurze, sachliche Zusammenfassung für das Aktivitätsprotokoll. Was will der Kunde, was wurde besprochen, was ist der nächste Schritt.
 

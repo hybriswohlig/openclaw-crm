@@ -356,7 +356,7 @@ export async function updateConversationStatus(
 // dealRecordId onto the new conversation — no helper call needed.
 
 /**
- * Create a "Inquiry"-stage deal for a newly created conversation and link
+ * Create a "Neue Anfrage"-stage deal for a newly created conversation and link
  * the two via `inboxConversations.dealRecordId`. Failures are logged but
  * never thrown — deal creation must never block message ingest.
  *
@@ -393,14 +393,15 @@ export async function createDealForNewConversation(params: {
       return null;
     }
 
-    // 3. Find the "Inquiry" status (fallback: lowest sortOrder active status).
+    // 3. Find the "Neue Anfrage" status (fallback: legacy "Inquiry" rename,
+    //    then any active status with the lowest sortOrder).
     const stageRows = await db
       .select()
       .from(statuses)
       .where(eq(statuses.attributeId, stageAttr.id))
       .orderBy(asc(statuses.sortOrder));
     const inquiry =
-      stageRows.find((s) => /^inquiry$/i.test(s.title)) ??
+      stageRows.find((s) => /^(neue anfrage|inquiry)$/i.test(s.title)) ??
       stageRows.find((s) => s.isActive) ??
       stageRows[0];
     if (!inquiry) {

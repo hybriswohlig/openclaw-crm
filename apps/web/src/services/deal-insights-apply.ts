@@ -132,8 +132,8 @@ function addressStringToLocationValue(text: string): Record<string, unknown> {
 
 /**
  * Render any deal-attribute value as a short human-readable string, used in
- * the activity-log diff (e.g. "Inquiry", "25", "—"). Resolves status / select
- * option IDs back to their titles. Returns "—" for null / empty.
+ * the activity-log diff (e.g. "Neue Anfrage", "25", "—"). Resolves status /
+ * select option IDs back to their titles. Returns "—" for null / empty.
  */
 async function formatChangeValue(
   dealObjId: string,
