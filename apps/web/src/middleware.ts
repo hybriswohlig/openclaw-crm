@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const publicPaths = ["/login", "/register", "/api/auth", "/api/webhooks"];
+// Public paths that never require a session cookie. Cron and webhook endpoints
+// must be here — they are hit by Vercel's cron scheduler and third-party
+// platforms (Meta, etc.) that have no browser session, but they do their own
+// bearer/HMAC auth inside the route handler.
+const publicPaths = ["/login", "/register", "/api/auth", "/api/webhooks", "/api/cron"];
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;

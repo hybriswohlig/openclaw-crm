@@ -229,7 +229,7 @@ async function main() {
         const statusColor =
           status === "failed"
             ? err(status)
-            : status === "read" || status === "delivered"
+            : status === "delivered"
               ? ok(status)
               : warn(status);
         const preview = (m.body ?? "").slice(0, 60).replace(/\n/g, " ");
@@ -284,12 +284,12 @@ async function main() {
     // We only check presence here (is_secret = true AND value_encrypted IS
     // NOT NULL) — decrypting would require the WORKSPACE_SETTINGS_ENC_KEY,
     // which we don't need just to confirm "set / not set".
-    const rows = await sql<{ key: string; has_secret: boolean }[]>`
+    const rows = (await sql`
       SELECT key, (is_secret = true AND value_encrypted IS NOT NULL) AS has_secret
       FROM workspace_settings
       WHERE workspace_id = ${wsId}
-        AND key IN (${WA_VERIFY_TOKEN_KEY}, ${WA_APP_SECRET_KEY})
-    `;
+        AND key = ANY(${[WA_VERIFY_TOKEN_KEY, WA_APP_SECRET_KEY]})
+    `) as Array<{ key: string; has_secret: boolean }>;
     const byKey = new Map(rows.map((r) => [r.key, r.has_secret]));
 
     const verify = byKey.get(WA_VERIFY_TOKEN_KEY);
