@@ -12,6 +12,12 @@ import "./globals.css";
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  // Internal-team app — explicit "no accidental pinch-zoom" request.
+  // Locks the layout at 1× so taps near the edge of the chat composer
+  // and the bottom tab bar don't accidentally rescale the page.
+  maximumScale: 1,
+  minimumScale: 1,
+  userScalable: false,
   viewportFit: "cover",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#fbf8f3" },
