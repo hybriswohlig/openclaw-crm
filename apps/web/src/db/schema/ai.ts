@@ -76,3 +76,25 @@ export const aiTaskRuns = pgTable(
     index("ai_task_runs_task_created_idx").on(table.taskSlug, table.createdAt),
   ]
 );
+
+/**
+ * One row per Lead that has been seen by the nightly auto-refresh cron.
+ * Used to skip leads where no new inbox message has arrived since the
+ * last run — saves OpenRouter tokens.
+ */
+export const dealInsightsRefreshLog = pgTable(
+  "deal_insights_refresh_log",
+  {
+    dealRecordId: text("deal_record_id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    refreshedAt: timestamp("refreshed_at").notNull().defaultNow(),
+    lastMessageAtSeen: timestamp("last_message_at_seen"),
+    fieldsUpdated: text("fields_updated"),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("deal_insights_refresh_log_workspace_idx").on(table.workspaceId),
+  ]
+);

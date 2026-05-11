@@ -5,6 +5,10 @@
     {
       "path": "/api/cron/inbox-sync",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/refresh-leads-insights",
+      "schedule": "0 7 * * *"
     }
   ]
 }

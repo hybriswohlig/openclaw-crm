@@ -416,7 +416,7 @@ Regeln:
     • "In Kontakt" = Agent hat mindestens einmal geantwortet, ODER Details werden gesammelt (Datum, Adressen, Inventar), ODER ein Preis/Angebot wurde dem Kunden mitgeteilt — alle drei Phasen sind hier zusammengefasst
     • "Geplant" = Auftrag mündlich/schriftlich bestätigt, Termin steht
     • "Durchgeführt" = Umzug durchgeführt
-    • "Lost" = Kunde hat abgesagt oder kein Interesse mehr
+    • "Verloren" = Kunde hat abgesagt oder kein Interesse mehr
 - "activity_note": Schreibe eine kurze, sachliche Zusammenfassung für das Aktivitätsprotokoll. Was will der Kunde, was wurde besprochen, was ist der nächste Schritt.
 
 Kontaktdaten (customer_name, customer_phone, customer_email):

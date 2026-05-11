@@ -23,6 +23,7 @@ const FINALIZED_STAGE_TITLES = [
   "lost",
   "durchgeführt",
   "bezahlt (abgeschlossen)",
+  "verloren",
 ];
 
 export interface OperationsDealRow {
