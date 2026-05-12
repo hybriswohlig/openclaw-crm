@@ -31,6 +31,8 @@ import {
   Truck,
   Search,
   LogOut,
+  BarChart3,
+  ChevronRight,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 
@@ -39,14 +41,19 @@ const mainNav = [
   { href: "/chat", label: "Chat", icon: MessageSquare },
   { href: "/tasks", label: "Aufgaben", icon: CheckSquare },
   { href: "/contract-calendar", label: "Kalender", icon: CalendarDays },
-  { href: "/notes", label: "Notizen", icon: StickyNote },
   { href: "/notifications", label: "Benachrichtigungen", icon: Bell },
 ];
 
 const objectNav = [
   { href: "/objects/people", label: "Kunden", icon: Users },
-  { href: "/objects/companies", label: "Firmen", icon: Building2 },
   { href: "/objects/deals", label: "Leads", icon: Handshake },
+];
+
+const moreNav = [
+  { href: "/statistics", label: "Statistiken", icon: BarChart3 },
+  { href: "/notes", label: "Notizen", icon: StickyNote },
+  { href: "/objects/companies", label: "Firmen", icon: Building2 },
+  { href: "/integrations", label: "Integrationen", icon: Plug },
 ];
 
 interface ListItem {
@@ -288,13 +295,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
         <Divider />
 
-        <NavItem
-          href="/integrations"
-          label="Integrationen"
-          icon={Plug}
-          active={pathname.startsWith("/integrations")}
-          onClick={onNavigate}
-        />
+        <MoreGroup pathname={pathname} onNavigate={onNavigate} />
 
         <Divider />
 
@@ -406,6 +407,83 @@ function Divider() {
       style={{ borderTop: "1px dashed var(--line)" }}
       aria-hidden
     />
+  );
+}
+
+function MoreGroup({
+  pathname,
+  onNavigate,
+}: {
+  pathname: string;
+  onNavigate?: () => void;
+}) {
+  const containsActive = moreNav.some((item) =>
+    item.href === "/objects/companies"
+      ? pathname.startsWith("/objects/companies")
+      : pathname.startsWith(item.href)
+  );
+
+  const [userOpen, setUserOpen] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    setHydrated(true);
+    if (typeof window !== "undefined") {
+      setUserOpen(window.localStorage.getItem("sidebar.more.open") === "1");
+    }
+  }, []);
+
+  const isOpen = hydrated ? userOpen || containsActive : containsActive;
+
+  function toggle() {
+    const next = !userOpen;
+    setUserOpen(next);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("sidebar.more.open", next ? "1" : "0");
+    }
+  }
+
+  return (
+    <div className="space-y-0.5">
+      <button
+        type="button"
+        onClick={toggle}
+        aria-expanded={isOpen}
+        className="relative flex w-full items-center gap-2.5 rounded-[9px] px-2.5 py-2 text-[13.5px] transition-colors"
+        style={inactiveStyle}
+      >
+        <ChevronRight
+          className="h-[15px] w-[15px] shrink-0"
+          style={{
+            opacity: 0.6,
+            transition: "transform 140ms ease",
+            transform: isOpen ? "rotate(90deg)" : "rotate(0deg)",
+          }}
+        />
+        <span className="flex-1 truncate text-left">Mehr</span>
+      </button>
+
+      {isOpen && (
+        <div className="space-y-0.5" style={{ paddingLeft: 10 }}>
+          {moreNav.map((item) => {
+            const active =
+              item.href === "/objects/companies"
+                ? pathname.startsWith("/objects/companies")
+                : pathname.startsWith(item.href);
+            return (
+              <NavItem
+                key={item.href}
+                href={item.href}
+                label={item.label}
+                icon={item.icon}
+                active={active}
+                onClick={onNavigate}
+              />
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
