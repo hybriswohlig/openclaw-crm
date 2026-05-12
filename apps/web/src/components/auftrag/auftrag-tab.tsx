@@ -7,6 +7,8 @@ import { RecordDetail } from "@/components/records/record-detail";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { DealDocumentActions } from "@/components/DealDocumentActions";
+import type { DealData, Firma } from "@/components/GenerateDocumentDialog";
 
 // Shape returned by /api/v1/objects/auftraege
 interface AttributeDef {
@@ -47,6 +49,51 @@ interface LeadContext {
   elevator_to: string | null;
   inventory_notes: string | null;
   operating_company: { id: string; displayName: string } | null;
+}
+
+function buildDealDataForDocs(
+  dealRecordId: string,
+  ctx: LeadContext
+): DealData | null {
+  // Require the bare minimum the skill needs (firma + customer surname).
+  if (!ctx.operating_company || !ctx.name) return null;
+  const company = ctx.operating_company.displayName.toLowerCase();
+  const firma: Firma = company.includes("ceylan") ? "ceylan" : "kottke";
+
+  const nameParts = ctx.name.trim().split(/\s+/).filter(Boolean);
+  if (nameParts.length === 0) return null;
+  const nachname = nameParts[nameParts.length - 1];
+  const vorname =
+    nameParts.length > 1 ? nameParts.slice(0, -1).join(" ") : undefined;
+
+  const besonderheiten = [
+    ctx.floors_from != null &&
+      `Auszug ${ctx.floors_from}. Stock${ctx.elevator_from ? ` (${ctx.elevator_from})` : ""}`,
+    ctx.floors_to != null &&
+      `Einzug ${ctx.floors_to}. Stock${ctx.elevator_to ? ` (${ctx.elevator_to})` : ""}`,
+  ]
+    .filter(Boolean)
+    .join(", ") || undefined;
+
+  const fromAddr = formatLocation(ctx.move_from_address);
+  const toAddr = formatLocation(ctx.move_to_address);
+
+  return {
+    dealRecordId,
+    firma,
+    kunde: {
+      vorname,
+      nachname,
+      adresse: fromAddr !== "—" ? fromAddr : undefined,
+    },
+    auftrag: {
+      strecke_von: fromAddr !== "—" ? fromAddr : undefined,
+      strecke_nach: toAddr !== "—" ? toAddr : undefined,
+      datum: ctx.move_date ?? undefined,
+      volumen: ctx.inventory_notes ?? undefined,
+      besonderheiten,
+    },
+  };
 }
 
 function formatLocation(v: unknown): string {
@@ -305,6 +352,38 @@ export function AuftragTab({ recordId }: { recordId: string }) {
           </dl>
         </section>
       )}
+
+      {/* ── Dokumente erstellen (Auftragsbestätigung / Rechnung) ───── */}
+      {leadContext && (() => {
+        const dealData = buildDealDataForDocs(recordId, leadContext);
+        if (!dealData) {
+          return (
+            <section className="rounded-lg border border-dashed border-border bg-muted/10 p-3 sm:p-4">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+                Dokumente erstellen
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                Zum Erstellen einer Auftragsbestätigung oder Rechnung müssen
+                <span className="font-medium text-foreground"> ausführende Firma</span> und
+                <span className="font-medium text-foreground"> Kundenname</span> im Lead gesetzt sein.
+              </p>
+            </section>
+          );
+        }
+        return (
+          <section className="rounded-lg border border-border bg-muted/10 p-3 sm:p-4">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Dokumente erstellen
+              </h3>
+              <span className="text-[10px] text-muted-foreground">
+                Vorausgefüllt aus dem Lead — Preise im Modal nachtragen
+              </span>
+            </div>
+            <DealDocumentActions deal={dealData} />
+          </section>
+        );
+      })()}
 
       {/* ── Critical-missing orange card ───────────────────────────── */}
       {criticalMissing.length > 0 && (
