@@ -34,6 +34,7 @@ export async function PATCH(
   const body = await req.json();
   const {
     enabled,
+    provider,
     model,
     fallbackModel,
     temperature,
@@ -41,6 +42,7 @@ export async function PATCH(
     dailySpendCapUsd,
   } = body as {
     enabled?: boolean;
+    provider?: string;
     model?: string;
     fallbackModel?: string | null;
     temperature?: number | null;
@@ -50,6 +52,7 @@ export async function PATCH(
 
   if (
     enabled === undefined &&
+    provider === undefined &&
     model === undefined &&
     fallbackModel === undefined &&
     temperature === undefined &&
@@ -57,6 +60,10 @@ export async function PATCH(
     dailySpendCapUsd === undefined
   ) {
     return badRequest("Provide at least one field to update");
+  }
+
+  if (provider !== undefined && provider !== "openrouter" && provider !== "crm-tools") {
+    return badRequest("provider must be 'openrouter' or 'crm-tools'");
   }
 
   // Upsert: if no row yet, seed from registry defaults then apply the patch.
@@ -75,6 +82,7 @@ export async function PATCH(
     updatedAt: new Date(),
   };
   if (enabled !== undefined) updates.enabled = enabled;
+  if (provider !== undefined) updates.provider = provider;
   if (model !== undefined) updates.model = model;
   if (fallbackModel !== undefined) updates.fallbackModel = fallbackModel;
   if (temperature !== undefined)
@@ -99,7 +107,7 @@ export async function PATCH(
     await db.insert(aiTaskConfigs).values({
       workspaceId: ctx.workspaceId,
       taskSlug,
-      provider: def.defaultProvider,
+      provider: provider ?? def.defaultProvider,
       model: model ?? def.defaultModel,
       fallbackModel:
         fallbackModel !== undefined ? fallbackModel : def.defaultFallbackModel,
