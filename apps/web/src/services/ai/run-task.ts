@@ -3,12 +3,18 @@
  *
  * - Resolves per-task config from `ai_task_configs` (falls back to registry
  *   defaults and auto-seeds a row on first run).
- * - Reads the OpenRouter API key from workspace settings.
- * - Enforces a daily spend cap against `ai_task_runs`.
- * - Calls OpenRouter directly (no Vercel AI Gateway dependency).
- * - For structured output, uses JSON mode + schema in the prompt.
+ * - Routes by provider:
+ *     - `openrouter` (default): direct HTTPS call, structured output via JSON mode
+ *     - `crm-tools`: forwards the prompt to the crm-tools FastAPI service which
+ *       runs Claude Code CLI server-side. Async (job_id + polling). Used so
+ *       this workspace can opt into the Claude-Max plan for some tasks
+ *       (typically background tasks like the daily insights refresh — UI
+ *       interactivity suffers from the 30-90s latency).
+ * - Enforces a daily spend cap against `ai_task_runs` (cap counts attempts;
+ *   crm-tools path logs $0 since the cost is the Max-plan quota, not USD).
  * - Logs every invocation — success or failure — to `ai_task_runs`.
- * - Falls back to the configured `fallback_model` if the primary model throws.
+ * - Falls back to the configured `fallback_model` if the primary model throws
+ *   (openrouter path only; crm-tools has a single Claude model).
  *
  * No feature module should call OpenRouter directly; everything routes here.
  */
@@ -24,6 +30,20 @@ import {
 } from "./task-registry";
 
 const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
+
+// crm-tools FastAPI provider (Claude-Code-CLI on the OCI server).
+const CRM_TOOLS_API_URL = process.env.CRM_TOOLS_API_URL;
+const CRM_TOOLS_AUTH_TOKEN = process.env.CRM_TOOLS_AUTH_TOKEN;
+// Cap the polling so a hung skill can't keep a Vercel function alive forever.
+const CRM_TOOLS_POLL_INTERVAL_MS = 3000;
+const CRM_TOOLS_POLL_MAX_MS = 240_000; // 4 minutes
+const CRM_TOOLS_MODEL_TAG = "claude-via-crm-tools";
+
+export const AI_PROVIDERS = ["openrouter", "crm-tools"] as const;
+export type AIProvider = (typeof AI_PROVIDERS)[number];
+export function isAIProvider(v: unknown): v is AIProvider {
+  return typeof v === "string" && (AI_PROVIDERS as readonly string[]).includes(v);
+}
 
 export interface RunAITaskInput<TSchema extends z.ZodTypeAny | undefined = undefined> {
   workspaceId: string;
@@ -287,6 +307,246 @@ async function callModel<TSchema extends z.ZodTypeAny | undefined>(
   };
 }
 
+// ─── crm-tools provider ──────────────────────────────────────────────────────
+//
+// Forwards the prompt to /skills/ai-prompt on the crm-tools FastAPI, polls the
+// resulting job_id, then parses + Zod-validates the response on this side.
+// Schema description is built the same way as for OpenRouter (describeSchema)
+// so the model gets identical guidance.
+
+async function runViaCrmTools<TSchema extends z.ZodTypeAny | undefined>(
+  input: RunAITaskInput<TSchema>,
+  cfg: ResolvedConfig
+): Promise<RunAITaskResult<TSchema>> {
+  const started = Date.now();
+
+  if (!CRM_TOOLS_API_URL || !CRM_TOOLS_AUTH_TOKEN) {
+    const runId = await logRun({
+      workspaceId: input.workspaceId,
+      taskSlug: input.taskSlug,
+      provider: "crm-tools",
+      model: CRM_TOOLS_MODEL_TAG,
+      inputTokens: null,
+      outputTokens: null,
+      costUsd: null,
+      latencyMs: 0,
+      success: false,
+      errorMessage:
+        "crm-tools env not configured (CRM_TOOLS_API_URL / CRM_TOOLS_AUTH_TOKEN)",
+    });
+    return {
+      ok: false,
+      runId,
+      error: "crm-tools provider not configured. Set CRM_TOOLS_API_URL and CRM_TOOLS_AUTH_TOKEN in Vercel env.",
+    };
+  }
+
+  if (cfg.dailySpendCapUsd !== null) {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const spent = await getSpendSince(input.workspaceId, input.taskSlug, since);
+    if (spent >= cfg.dailySpendCapUsd) {
+      const runId = await logRun({
+        workspaceId: input.workspaceId,
+        taskSlug: input.taskSlug,
+        provider: "crm-tools",
+        model: CRM_TOOLS_MODEL_TAG,
+        inputTokens: null,
+        outputTokens: null,
+        costUsd: null,
+        latencyMs: 0,
+        success: false,
+        errorMessage: `daily spend cap reached (${spent.toFixed(4)} / ${cfg.dailySpendCapUsd})`,
+      });
+      return {
+        ok: false,
+        runId,
+        error: `Daily AI spend cap reached for this task ($${cfg.dailySpendCapUsd.toFixed(2)}).`,
+      };
+    }
+  }
+
+  // Build the user prompt with schema hint, matching the OpenRouter path.
+  let userPrompt = input.prompt;
+  if (input.schema) {
+    const schemaDesc = describeSchema(input.schema);
+    userPrompt = `${input.prompt}\n\nReturn a JSON object with this exact shape:\n${schemaDesc}`;
+  }
+
+  // 1) Start the job.
+  let jobId: string;
+  try {
+    const startResp = await fetch(`${CRM_TOOLS_API_URL}/skills/ai-prompt`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${CRM_TOOLS_AUTH_TOKEN}`,
+      },
+      body: JSON.stringify({
+        params: {
+          system_prompt: input.system,
+          user_prompt: userPrompt,
+          expect_json: !!input.schema,
+          _workspace_id: input.workspaceId,
+          _task_slug: input.taskSlug,
+        },
+        timeout_sec: 300,
+      }),
+    });
+    if (!startResp.ok) {
+      throw new Error(`HTTP ${startResp.status}: ${await startResp.text()}`);
+    }
+    const startData = (await startResp.json()) as { job_id?: string };
+    if (!startData.job_id) throw new Error("no job_id in response");
+    jobId = startData.job_id;
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : "start failed";
+    const runId = await logRun({
+      workspaceId: input.workspaceId,
+      taskSlug: input.taskSlug,
+      provider: "crm-tools",
+      model: CRM_TOOLS_MODEL_TAG,
+      inputTokens: null,
+      outputTokens: null,
+      costUsd: null,
+      latencyMs: Date.now() - started,
+      success: false,
+      errorMessage: `crm-tools start: ${errMsg}`,
+    });
+    return { ok: false, runId, error: `crm-tools start failed: ${errMsg}` };
+  }
+
+  // 2) Poll until done/error/timeout.
+  const deadline = Date.now() + CRM_TOOLS_POLL_MAX_MS;
+  let finalStatus: "done" | "error" | "timeout" = "timeout";
+  let lastErrorMsg: string | null = null;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, CRM_TOOLS_POLL_INTERVAL_MS));
+    try {
+      const pollResp = await fetch(`${CRM_TOOLS_API_URL}/jobs/${jobId}`, {
+        headers: { Authorization: `Bearer ${CRM_TOOLS_AUTH_TOKEN}` },
+        cache: "no-store",
+      });
+      if (!pollResp.ok) {
+        lastErrorMsg = `poll HTTP ${pollResp.status}`;
+        continue;
+      }
+      const pollData = (await pollResp.json()) as {
+        status: "queued" | "running" | "done" | "error";
+        error?: string | null;
+      };
+      if (pollData.status === "done") {
+        finalStatus = "done";
+        break;
+      }
+      if (pollData.status === "error") {
+        finalStatus = "error";
+        lastErrorMsg = pollData.error ?? "skill error";
+        break;
+      }
+    } catch (err) {
+      lastErrorMsg = err instanceof Error ? err.message : "poll exception";
+    }
+  }
+
+  if (finalStatus !== "done") {
+    const errMsg =
+      finalStatus === "timeout"
+        ? `crm-tools job timed out after ${CRM_TOOLS_POLL_MAX_MS / 1000}s`
+        : `crm-tools job error: ${lastErrorMsg ?? "unknown"}`;
+    const runId = await logRun({
+      workspaceId: input.workspaceId,
+      taskSlug: input.taskSlug,
+      provider: "crm-tools",
+      model: CRM_TOOLS_MODEL_TAG,
+      inputTokens: null,
+      outputTokens: null,
+      costUsd: null,
+      latencyMs: Date.now() - started,
+      success: false,
+      errorMessage: errMsg,
+    });
+    return { ok: false, runId, error: errMsg };
+  }
+
+  // 3) Fetch result.
+  let resultText: string;
+  try {
+    const resultResp = await fetch(`${CRM_TOOLS_API_URL}/jobs/${jobId}/result`, {
+      headers: { Authorization: `Bearer ${CRM_TOOLS_AUTH_TOKEN}` },
+    });
+    if (!resultResp.ok) {
+      throw new Error(`HTTP ${resultResp.status}`);
+    }
+    const resultPayload = (await resultResp.json()) as { text?: string };
+    resultText = (resultPayload.text ?? "").trim();
+    if (!resultText) throw new Error("empty result.text");
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : "result fetch failed";
+    const runId = await logRun({
+      workspaceId: input.workspaceId,
+      taskSlug: input.taskSlug,
+      provider: "crm-tools",
+      model: CRM_TOOLS_MODEL_TAG,
+      inputTokens: null,
+      outputTokens: null,
+      costUsd: null,
+      latencyMs: Date.now() - started,
+      success: false,
+      errorMessage: `crm-tools result: ${errMsg}`,
+    });
+    return { ok: false, runId, error: `crm-tools result fetch failed: ${errMsg}` };
+  }
+
+  // 4) Parse JSON + Zod-validate if schema provided.
+  let output: unknown;
+  if (input.schema) {
+    try {
+      const cleaned = resultText
+        .replace(/^```(?:json)?\s*/i, "")
+        .replace(/\s*```$/i, "")
+        .trim();
+      const parsed = JSON.parse(cleaned);
+      output = input.schema.parse(parsed);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "JSON/schema parse failed";
+      const runId = await logRun({
+        workspaceId: input.workspaceId,
+        taskSlug: input.taskSlug,
+        provider: "crm-tools",
+        model: CRM_TOOLS_MODEL_TAG,
+        inputTokens: null,
+        outputTokens: null,
+        costUsd: null,
+        latencyMs: Date.now() - started,
+        success: false,
+        errorMessage: `crm-tools parse: ${errMsg}. text head: ${resultText.slice(0, 200)}`,
+      });
+      return { ok: false, runId, error: `crm-tools response parse failed: ${errMsg}` };
+    }
+  } else {
+    output = resultText;
+  }
+
+  const runId = await logRun({
+    workspaceId: input.workspaceId,
+    taskSlug: input.taskSlug,
+    provider: "crm-tools",
+    model: CRM_TOOLS_MODEL_TAG,
+    inputTokens: null,
+    outputTokens: null,
+    costUsd: null,
+    latencyMs: Date.now() - started,
+    success: true,
+    errorMessage: null,
+  });
+  return {
+    ok: true,
+    runId,
+    model: CRM_TOOLS_MODEL_TAG,
+    output: output as TSchema extends z.ZodTypeAny ? z.infer<TSchema> : string,
+  };
+}
+
 export async function runAITask<TSchema extends z.ZodTypeAny | undefined = undefined>(
   input: RunAITaskInput<TSchema>
 ): Promise<RunAITaskResult<TSchema>> {
@@ -311,6 +571,11 @@ export async function runAITask<TSchema extends z.ZodTypeAny | undefined = undef
       errorMessage: "task disabled for this workspace",
     });
     return { ok: false, runId, error: "AI task is disabled for this workspace." };
+  }
+
+  // Branch on provider. crm-tools is opt-in per task; default stays openrouter.
+  if (cfg.provider === "crm-tools") {
+    return runViaCrmTools(input, cfg);
   }
 
   // Resolve the OpenRouter API key from workspace settings.

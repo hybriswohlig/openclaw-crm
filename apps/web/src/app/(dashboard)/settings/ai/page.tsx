@@ -91,6 +91,7 @@ export default function AISettingsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           enabled: task.enabled,
+          provider: task.provider,
           model: task.model,
           fallbackModel: task.fallbackModel,
           temperature: task.temperature,
@@ -287,13 +288,42 @@ export default function AISettingsPage() {
                 </div>
 
                 {task.enabled && (
-                  <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-3">
                     <div className="space-y-1">
-                      <Label className="text-xs">Model</Label>
+                      <Label className="text-xs">Provider</Label>
+                      <select
+                        value={task.provider}
+                        onChange={(e) =>
+                          updateTask(task.slug, { provider: e.target.value })
+                        }
+                        className="flex h-8 w-full rounded-md border border-input bg-transparent px-2 py-1 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      >
+                        <option value="openrouter">OpenRouter (sync, pay-per-call)</option>
+                        <option value="crm-tools">crm-tools FastAPI (Claude Max plan, async ~30-90s)</option>
+                      </select>
+                      {task.provider === "crm-tools" && (
+                        <p className="text-[10px] text-muted-foreground">
+                          Routes via https://crm-tools.kottke.info → Claude Code CLI server-side. Model + Fallback below are ignored.
+                          Recommended for background tasks only (cron); interactive UI calls will spinner for 30-90s.
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <Label className="text-xs">
+                        Model
+                        {task.provider === "crm-tools" && (
+                          <span className="ml-1 text-[10px] text-muted-foreground">
+                            (n/a for crm-tools)
+                          </span>
+                        )}
+                      </Label>
                       <select
                         value={task.model}
+                        disabled={task.provider === "crm-tools"}
                         onChange={(e) => updateTask(task.slug, { model: e.target.value })}
-                        className="flex h-8 w-full rounded-md border border-input bg-transparent px-2 py-1 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                        className="flex h-8 w-full rounded-md border border-input bg-transparent px-2 py-1 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {MODELS.map((m) => (
                           <option key={m.value} value={m.value}>{m.label}</option>
@@ -359,6 +389,7 @@ export default function AISettingsPage() {
                         placeholder="Default"
                         className="h-8 text-xs"
                       />
+                    </div>
                     </div>
                   </div>
                 )}
