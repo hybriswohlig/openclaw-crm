@@ -37,6 +37,7 @@ interface ApiTask {
   createdAt: string;
   linkedRecords: TaskLinkedRecord[];
   assignees: TaskAssignee[];
+  kanbanStatus: ColumnKey | null;
 }
 
 type ColumnKey = "backlog" | "heute" | "laeuft" | "warte" | "erledigt";
@@ -58,7 +59,13 @@ function isSameDay(a: Date, b: Date) {
 }
 
 function classifyTask(t: ApiTask): ColumnKey {
+  // Explicit column wins — set by drag-drop. We still honour isCompleted
+  // for the "erledigt" terminal state because completing a task should
+  // also move it visually, even if it had a different kanbanStatus.
   if (t.isCompleted) return "erledigt";
+  if (t.kanbanStatus && COLUMNS.some((c) => c.key === t.kanbanStatus))
+    return t.kanbanStatus as ColumnKey;
+  // Derivation fallback for tasks that have never been dragged.
   if (t.deadline) {
     const d = new Date(t.deadline);
     const now = new Date();
@@ -198,15 +205,21 @@ export function TaskKanban() {
     const current = classifyTask(t);
     if (current === target) return;
 
-    const updates: Record<string, unknown> = {};
+    // Always write the explicit kanbanStatus so the column placement
+    // sticks no matter what the derivation would say. "erledigt" also
+    // flips isCompleted=true (terminal semantic), every other column
+    // implicitly opens the task back up if it was completed.
+    const updates: Record<string, unknown> = { kanbanStatus: target };
     if (target === "erledigt") {
       updates.isCompleted = true;
-    } else {
-      if (t.isCompleted) updates.isCompleted = false;
-      if (target === "heute") updates.deadline = todayISO();
-      else if (target === "laeuft") updates.deadline = nowISO();
-      else if (target === "warte") updates.deadline = null;
-      else if (target === "backlog") updates.deadline = null;
+    } else if (t.isCompleted) {
+      updates.isCompleted = false;
+    }
+    // "heute" still nudges the deadline so the daily overdue cron has
+    // a sensible value to compare against — but the kanban placement
+    // no longer depends on it.
+    if (target === "heute" && !t.deadline) {
+      updates.deadline = todayISO();
     }
 
     // Optimistic update
@@ -215,6 +228,7 @@ export function TaskKanban() {
         x.id === taskId
           ? {
               ...x,
+              kanbanStatus: target,
               isCompleted:
                 "isCompleted" in updates ? !!updates.isCompleted : x.isCompleted,
               deadline:
@@ -227,11 +241,12 @@ export function TaskKanban() {
     );
 
     try {
-      await fetch(`/api/v1/tasks/${taskId}`, {
+      const res = await fetch(`/api/v1/tasks/${taskId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updates),
       });
+      if (!res.ok) load();
     } catch {
       load();
     }

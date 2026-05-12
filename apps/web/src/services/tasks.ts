@@ -18,6 +18,7 @@ export interface TaskData {
   createdAt: Date;
   linkedRecords: { id: string; displayName: string; objectSlug: string }[];
   assignees: { id: string; name: string; email: string }[];
+  kanbanStatus: string | null;
 }
 
 /** Batch-enrich an array of task rows into TaskData[] (~3 queries total) */
@@ -80,6 +81,7 @@ async function enrichTasks(
     createdAt: t.createdAt,
     linkedRecords: recordsByTask.get(t.id) || [],
     assignees: assigneesByTask.get(t.id) || [],
+    kanbanStatus: t.kanbanStatus ?? null,
   }));
 }
 
@@ -204,6 +206,7 @@ export async function updateTask(
     recordIds?: string[];
     assigneeIds?: string[];
     recurrenceRule?: "daily" | "weekly" | "monthly" | null;
+    kanbanStatus?: "backlog" | "heute" | "laeuft" | "warte" | "erledigt" | null;
   }
 ) {
   // Verify task belongs to workspace
@@ -229,6 +232,9 @@ export async function updateTask(
   }
   if (updates.recurrenceRule !== undefined) {
     setValues.recurrenceRule = updates.recurrenceRule;
+  }
+  if (updates.kanbanStatus !== undefined) {
+    setValues.kanbanStatus = updates.kanbanStatus;
   }
 
   if (Object.keys(setValues).length > 0) {

@@ -23,6 +23,10 @@ export const tasks = pgTable("tasks", {
   // Set by /api/cron/check-overdue-tasks once it has notified the team
   // about a missed deadline. Cleared when the deadline is edited.
   overdueNotifiedAt: timestamp("overdue_notified_at"),
+  // Explicit kanban column set by drag-drop. Null = derive from
+  // isCompleted/deadline/linkedRecords. Values: backlog | heute |
+  // laeuft | warte | erledigt.
+  kanbanStatus: text("kanban_status"),
 }, (table) => [
   index("tasks_workspace_id").on(table.workspaceId),
   index("tasks_parent_task_id").on(table.parentTaskId),
