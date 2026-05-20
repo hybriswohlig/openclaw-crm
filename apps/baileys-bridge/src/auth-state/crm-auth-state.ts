@@ -17,13 +17,22 @@
 import {
   initAuthCreds,
   BufferJSON,
-  proto,
   type AuthenticationState,
   type AuthenticationCreds,
   type SignalDataTypeMap,
   type SignalDataSet,
   type SignalKeyStore,
 } from "baileys";
+import { createRequire } from "module";
+
+// Baileys's `proto` namespace is a re-export of WAProto. Node's ESM↔CJS
+// named-export detector picks up `initAuthCreds` / `BufferJSON` but misses
+// `proto` (its shape blocks static enumeration). Falling back to a real CJS
+// require sidesteps the detector and gives us the live module.exports object.
+const require = createRequire(import.meta.url);
+const { proto } = require("baileys") as {
+  proto: typeof import("baileys").proto;
+};
 import type { Logger } from "../lib/logger.js";
 import type { CrmClient } from "../lib/crm-client.js";
 
