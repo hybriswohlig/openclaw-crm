@@ -18,6 +18,7 @@ import {
   Zap,
   Link as LinkIcon,
   RefreshCw,
+  AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +29,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { BaileysPairingPanel } from "./_components/BaileysPairingPanel";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1019,7 +1021,22 @@ interface ChannelAccount {
   wabaId: string | null;
   waPhoneNumberId: string | null;
   lastSyncAt: string | null;
+  baileysBridgeProvider: "openclaw" | "inhouse" | null;
+  baileysPairingStatus:
+    | "idle"
+    | "awaiting_qr"
+    | "awaiting_code"
+    | "connecting"
+    | "connected"
+    | "logged_out"
+    | "error"
+    | null;
+  baileysOwnJid: string | null;
+  baileysLastSeenAt: string | null;
+  baileysLastDisconnectReason: string | null;
 }
+
+type WhatsAppProvider = "waba" | "baileys";
 
 interface OperatingCompany {
   id: string;
@@ -1034,12 +1051,22 @@ function ChannelAccountsSection({ isAdmin }: { isAdmin: boolean }) {
   const [editTarget, setEditTarget] = useState<ChannelAccount | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  // After a Baileys row is created or "Re-pair" is clicked, the modal swaps
+  // to the QR pairing panel for this account id. null = no panel open.
+  const [pairingFor, setPairingFor] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const emptyForm = {
-    name: "", channelType: "email" as "email" | "whatsapp",
-    address: "", credential: "", imapHost: "imap.gmail.com",
-    smtpHost: "smtp.gmail.com", wabaId: "", waPhoneNumberId: "",
+    name: "",
+    channelType: "email" as "email" | "whatsapp",
+    address: "",
+    credential: "",
+    imapHost: "imap.gmail.com",
+    smtpHost: "smtp.gmail.com",
+    wabaId: "",
+    waPhoneNumberId: "",
     operatingCompanyRecordId: "",
+    waProvider: "baileys" as WhatsAppProvider,
   };
   const [form, setForm] = useState(emptyForm);
 
@@ -1064,6 +1091,7 @@ function ChannelAccountsSection({ isAdmin }: { isAdmin: boolean }) {
 
   async function handleSave() {
     setSaving(true);
+    setSaveError(null);
     try {
       if (editTarget) {
         const patch: Record<string, unknown> = {
@@ -1074,28 +1102,69 @@ function ChannelAccountsSection({ isAdmin }: { isAdmin: boolean }) {
           waPhoneNumberId: form.waPhoneNumberId || null,
           operatingCompanyRecordId: form.operatingCompanyRecordId || null,
         };
-        // Only send credential if the user typed a new one — otherwise
-        // leave the existing value in the database untouched.
         if (form.credential) patch.credential = form.credential;
         await fetch(`/api/v1/inbox/channel-accounts/${editTarget.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(patch),
         });
-      } else {
-        await fetch("/api/v1/inbox/channel-accounts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ...form,
-            operatingCompanyRecordId: form.operatingCompanyRecordId || undefined,
-          }),
-        });
+        await fetchAccounts();
+        setAddOpen(false);
+        setEditTarget(null);
+        setForm(emptyForm);
+        return;
       }
+
+      // Create-path. Build payload from the channelType + waProvider matrix.
+      // Baileys rows MUST omit waba/phoneNumberId — the inbox dispatcher reads
+      // them as the signal for "this is a Cloud-API row, use Meta".
+      const isBaileys =
+        form.channelType === "whatsapp" && form.waProvider === "baileys";
+      const payload: Record<string, unknown> = {
+        name: form.name,
+        channelType: form.channelType,
+        address: form.address,
+        operatingCompanyRecordId: form.operatingCompanyRecordId || undefined,
+      };
+      if (form.channelType === "email") {
+        payload.credential = form.credential || undefined;
+        payload.imapHost = form.imapHost || undefined;
+        payload.smtpHost = form.smtpHost || undefined;
+      } else if (isBaileys) {
+        payload.baileysBridgeProvider = "inhouse";
+        // No credential, no wabaId, no waPhoneNumberId. Pairing replaces those.
+      } else {
+        // WABA / Meta Cloud API
+        payload.credential = form.credential || undefined;
+        payload.wabaId = form.wabaId || undefined;
+        payload.waPhoneNumberId = form.waPhoneNumberId || undefined;
+      }
+
+      const res = await fetch("/api/v1/inbox/channel-accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        data?: { id: string };
+        error?: string;
+      };
+      if (!res.ok || !json.data?.id) {
+        setSaveError(json.error ?? `Anlegen fehlgeschlagen (${res.status})`);
+        return;
+      }
+
       await fetchAccounts();
-      setAddOpen(false);
-      setEditTarget(null);
       setForm(emptyForm);
+
+      if (isBaileys) {
+        // Stay in the modal — swap body to the QR pairing panel for the new
+        // account. The panel calls /integrations/baileys/start on mount and
+        // then polls /integrations/baileys/qr.
+        setPairingFor(json.data.id);
+      } else {
+        setAddOpen(false);
+      }
     } finally {
       setSaving(false);
     }
@@ -1114,14 +1183,56 @@ function ChannelAccountsSection({ isAdmin }: { isAdmin: boolean }) {
 
   function openEdit(acc: ChannelAccount) {
     setForm({
-      name: acc.name, channelType: acc.channelType, address: acc.address,
-      credential: "", imapHost: acc.imapHost ?? "imap.gmail.com",
+      name: acc.name,
+      channelType: acc.channelType,
+      address: acc.address,
+      credential: "",
+      imapHost: acc.imapHost ?? "imap.gmail.com",
       smtpHost: acc.smtpHost ?? "smtp.gmail.com",
-      wabaId: acc.wabaId ?? "", waPhoneNumberId: acc.waPhoneNumberId ?? "",
+      wabaId: acc.wabaId ?? "",
+      waPhoneNumberId: acc.waPhoneNumberId ?? "",
       operatingCompanyRecordId: acc.operatingCompanyRecordId ?? "",
+      waProvider:
+        acc.baileysBridgeProvider === "inhouse" ? "baileys" : "waba",
     });
     setEditTarget(acc);
     setAddOpen(true);
+  }
+
+  // Open the QR pairing panel for an existing Baileys row (Re-pair flow). If
+  // the row was deactivated on logout, reactivate it before the bridge starts.
+  async function openPairing(acc: ChannelAccount) {
+    if (!acc.isActive) {
+      await fetch(`/api/v1/inbox/channel-accounts/${acc.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isActive: true }),
+      });
+      await fetchAccounts();
+    }
+    setEditTarget(null);
+    setForm(emptyForm);
+    setPairingFor(acc.id);
+    setAddOpen(true);
+  }
+
+  async function handleDisconnect(acc: ChannelAccount) {
+    if (!confirm(`Verbindung zu ${acc.name} trennen?`)) return;
+    try {
+      await fetch("/api/v1/integrations/baileys/stop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId: acc.id }),
+      });
+      await fetch(`/api/v1/inbox/channel-accounts/${acc.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isActive: false }),
+      });
+      await fetchAccounts();
+    } catch {
+      /* table stays stale; user can refresh */
+    }
   }
 
   return (
@@ -1164,21 +1275,37 @@ function ChannelAccountsSection({ isAdmin }: { isAdmin: boolean }) {
                 <th className="text-left px-4 py-2.5 font-medium text-xs text-muted-foreground">Name</th>
                 <th className="text-left px-4 py-2.5 font-medium text-xs text-muted-foreground">Adresse</th>
                 <th className="text-left px-4 py-2.5 font-medium text-xs text-muted-foreground">Typ</th>
+                <th className="text-left px-4 py-2.5 font-medium text-xs text-muted-foreground">Status</th>
                 <th className="text-left px-4 py-2.5 font-medium text-xs text-muted-foreground">Gesellschaft</th>
                 <th className="text-left px-4 py-2.5 font-medium text-xs text-muted-foreground">Letzter Sync</th>
                 {isAdmin && <th className="px-4 py-2.5" />}
               </tr>
             </thead>
             <tbody>
-              {accounts.map((acc) => (
+              {accounts.map((acc) => {
+                const isBaileys =
+                  acc.channelType === "whatsapp" &&
+                  acc.baileysBridgeProvider === "inhouse";
+                return (
                 <tr key={acc.id} className="border-b border-border last:border-0 hover:bg-muted/20">
                   <td className="px-4 py-3 font-medium">{acc.name}</td>
                   <td className="px-4 py-3 text-muted-foreground font-mono text-xs">{acc.address}</td>
                   <td className="px-4 py-3">
                     <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border font-medium
                       ${acc.channelType === "email" ? "text-blue-600 bg-blue-500/10 border-blue-400/20" : "text-emerald-600 bg-emerald-500/10 border-emerald-400/20"}`}>
-                      {acc.channelType === "email" ? "E-Mail" : "WhatsApp"}
+                      {acc.channelType === "email"
+                        ? "E-Mail"
+                        : isBaileys
+                          ? "WhatsApp (Baileys)"
+                          : "WhatsApp (Business)"}
                     </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    {isBaileys ? (
+                      <PairingStatusBadge status={acc.baileysPairingStatus} isActive={acc.isActive} />
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-xs text-muted-foreground">
                     {acc.operatingCompanyRecordId
@@ -1191,6 +1318,33 @@ function ChannelAccountsSection({ isAdmin }: { isAdmin: boolean }) {
                   {isAdmin && (
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1 justify-end">
+                        {isBaileys && (
+                          <>
+                            {(acc.baileysPairingStatus === "connected" && acc.isActive) ? (
+                              <button
+                                onClick={() => handleDisconnect(acc)}
+                                title="Verbindung trennen"
+                                className="h-7 px-2 rounded-md flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive hover:bg-muted transition-colors"
+                              >
+                                <Plug className="h-3.5 w-3.5" />
+                                Trennen
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => openPairing(acc)}
+                                title="QR scannen"
+                                className="h-7 px-2 rounded-md flex items-center gap-1 text-xs text-primary hover:bg-muted transition-colors"
+                              >
+                                <RefreshCw className="h-3.5 w-3.5" />
+                                {acc.baileysPairingStatus === "logged_out" ||
+                                acc.baileysPairingStatus === "error" ||
+                                !acc.isActive
+                                  ? "Erneut pairen"
+                                  : "Pairing öffnen"}
+                              </button>
+                            )}
+                          </>
+                        )}
                         <button onClick={() => openEdit(acc)} className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
                           <Pencil className="h-3.5 w-3.5" />
                         </button>
@@ -1201,118 +1355,300 @@ function ChannelAccountsSection({ isAdmin }: { isAdmin: boolean }) {
                     </td>
                   )}
                 </tr>
-              ))}
+              );
+              })}
             </tbody>
           </table>
         </div>
       )}
 
-      {/* Add/Edit modal */}
-      <Dialog open={addOpen} onOpenChange={(v) => { if (!v) { setAddOpen(false); setEditTarget(null); } }}>
+      {/* Add/Edit modal — also doubles as the QR pairing step for Baileys */}
+      <Dialog
+        open={addOpen}
+        onOpenChange={(v) => {
+          if (!v) {
+            setAddOpen(false);
+            setEditTarget(null);
+            setPairingFor(null);
+            setSaveError(null);
+            setForm(emptyForm);
+            // Pull fresh status after the modal closes (covers both pair-
+            // finished and abandoned-during-pair cases).
+            void fetchAccounts();
+          }
+        }}
+      >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>{editTarget ? "Kanal-Account bearbeiten" : "Kanal-Account hinzufügen"}</DialogTitle>
+            <DialogTitle>
+              {pairingFor
+                ? "WhatsApp pairen"
+                : editTarget
+                  ? "Kanal-Account bearbeiten"
+                  : "Kanal-Account hinzufügen"}
+            </DialogTitle>
           </DialogHeader>
-          <div className="space-y-3 py-2">
-            <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Name *</label>
-              <input type="text" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                placeholder="z.B. Kottke E-Mail" value={form.name}
-                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+
+          {pairingFor ? (
+            <div className="py-2">
+              <BaileysPairingPanel
+                accountId={pairingFor}
+                onConnected={() => {
+                  // Refresh table so the status badge flips to "connected".
+                  void fetchAccounts();
+                }}
+              />
             </div>
-            {!editTarget && (
-              <>
-                <div>
-                  <label className="text-xs text-muted-foreground mb-1 block">Typ</label>
-                  <select className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    value={form.channelType}
-                    onChange={(e) => setForm((f) => ({ ...f, channelType: e.target.value as "email" | "whatsapp" }))}>
-                    <option value="email">E-Mail (IMAP/SMTP)</option>
-                    <option value="whatsapp">WhatsApp Business</option>
-                  </select>
-                </div>
+          ) : (
+            <div className="space-y-3 py-2">
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Name *</label>
+                <input type="text" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  placeholder="z.B. Kottke WhatsApp" value={form.name}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+              </div>
+              {!editTarget && (
+                <>
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">Typ</label>
+                    <select className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      value={form.channelType}
+                      onChange={(e) => setForm((f) => ({ ...f, channelType: e.target.value as "email" | "whatsapp" }))}>
+                      <option value="email">E-Mail (IMAP/SMTP)</option>
+                      <option value="whatsapp">WhatsApp</option>
+                    </select>
+                  </div>
+
+                  {form.channelType === "whatsapp" && (
+                    <div>
+                      <label className="text-xs text-muted-foreground mb-1 block">WhatsApp-Anbindung</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <label
+                          className={`flex flex-col gap-0.5 rounded-md border p-3 text-xs cursor-pointer transition-colors
+                            ${form.waProvider === "baileys" ? "border-primary bg-primary/5" : "border-input hover:bg-muted/30"}`}
+                        >
+                          <input
+                            type="radio"
+                            name="waProvider"
+                            value="baileys"
+                            checked={form.waProvider === "baileys"}
+                            onChange={() => setForm((f) => ({ ...f, waProvider: "baileys" }))}
+                            className="sr-only"
+                          />
+                          <span className="font-medium text-foreground">Persönliches WhatsApp (Baileys)</span>
+                          <span className="text-muted-foreground">QR-Scan, keine API-Freischaltung nötig.</span>
+                        </label>
+                        <label
+                          className={`flex flex-col gap-0.5 rounded-md border p-3 text-xs cursor-pointer transition-colors
+                            ${form.waProvider === "waba" ? "border-primary bg-primary/5" : "border-input hover:bg-muted/30"}`}
+                        >
+                          <input
+                            type="radio"
+                            name="waProvider"
+                            value="waba"
+                            checked={form.waProvider === "waba"}
+                            onChange={() => setForm((f) => ({ ...f, waProvider: "waba" }))}
+                            className="sr-only"
+                          />
+                          <span className="font-medium text-foreground">WhatsApp Business Cloud API</span>
+                          <span className="text-muted-foreground">Meta-WABA mit Phone-Number-ID + Access-Token.</span>
+                        </label>
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">
+                      {form.channelType === "email"
+                        ? "E-Mail-Adresse *"
+                        : form.waProvider === "baileys"
+                          ? "Telefonnummer (E.164) *"
+                          : "Anzeigenummer (E.164) *"}
+                    </label>
+                    <input type="text" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      placeholder={form.channelType === "email" ? "name@gmail.com" : "+49176..."}
+                      value={form.address}
+                      onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} />
+                    {form.channelType === "whatsapp" && form.waProvider === "baileys" && (
+                      <p className="text-[11px] text-muted-foreground mt-1">
+                        Nur als Label im Posteingang. Die echte Nummer wird beim Pairing
+                        vom verknüpften Gerät übernommen.
+                      </p>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {/* Credential — required for email + WABA, hidden for Baileys */}
+              {(form.channelType === "email" ||
+                (form.channelType === "whatsapp" && form.waProvider === "waba")) && (
                 <div>
                   <label className="text-xs text-muted-foreground mb-1 block">
-                    {form.channelType === "email" ? "E-Mail-Adresse *" : "Telefonnummer (E.164) *"}
+                    {form.channelType === "email" ? "Gmail App-Passwort" : "API Bearer Token"}
                   </label>
-                  <input type="text" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    placeholder={form.channelType === "email" ? "name@gmail.com" : "+49176..."}
-                    value={form.address}
-                    onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} />
+                  <input type="password" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
+                    placeholder={editTarget ? "Leer lassen um nicht zu ändern" : ""}
+                    value={form.credential}
+                    onChange={(e) => setForm((f) => ({ ...f, credential: e.target.value }))} />
                 </div>
+              )}
+
+              {form.channelType === "email" && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">IMAP-Server</label>
+                    <input type="text" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      value={form.imapHost}
+                      onChange={(e) => setForm((f) => ({ ...f, imapHost: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">SMTP-Server</label>
+                    <input type="text" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      value={form.smtpHost}
+                      onChange={(e) => setForm((f) => ({ ...f, smtpHost: e.target.value }))} />
+                  </div>
+                </div>
+              )}
+
+              {form.channelType === "whatsapp" && form.waProvider === "waba" && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">WABA ID</label>
+                    <input type="text" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      value={form.wabaId}
+                      onChange={(e) => setForm((f) => ({ ...f, wabaId: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">Phone Number ID</label>
+                    <input type="text" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      value={form.waPhoneNumberId}
+                      onChange={(e) => setForm((f) => ({ ...f, waPhoneNumberId: e.target.value }))} />
+                  </div>
+                </div>
+              )}
+
+              {companies.length > 0 && (
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">Betriebsgesellschaft</label>
+                  <select
+                    className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
+                    value={form.operatingCompanyRecordId}
+                    onChange={(e) => setForm((f) => ({ ...f, operatingCompanyRecordId: e.target.value }))}
+                  >
+                    <option value="">— nicht verknüpft —</option>
+                    {companies.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Eingehende Anfragen über diesen Kanal werden automatisch der gewählten Gesellschaft zugeordnet.
+                  </p>
+                </div>
+              )}
+
+              {saveError && (
+                <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                  {saveError}
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            {pairingFor ? (
+              <Button
+                onClick={() => {
+                  setAddOpen(false);
+                  setPairingFor(null);
+                  void fetchAccounts();
+                }}
+              >
+                Fertig
+              </Button>
+            ) : (
+              <>
+                <Button variant="outline" onClick={() => { setAddOpen(false); setEditTarget(null); setForm(emptyForm); }}>
+                  Abbrechen
+                </Button>
+                <Button onClick={handleSave} disabled={saving || !form.name || (!editTarget && !form.address)}>
+                  {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                  {editTarget
+                    ? "Speichern"
+                    : form.channelType === "whatsapp" && form.waProvider === "baileys"
+                      ? "Weiter zum QR-Scan"
+                      : "Hinzufügen"}
+                </Button>
               </>
             )}
-            <div>
-              <label className="text-xs text-muted-foreground mb-1 block">
-                {form.channelType === "email" ? "Gmail App-Passwort" : "API Bearer Token"}
-              </label>
-              <input type="password" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
-                placeholder={editTarget ? "Leer lassen um nicht zu ändern" : ""}
-                value={form.credential}
-                onChange={(e) => setForm((f) => ({ ...f, credential: e.target.value }))} />
-            </div>
-            {form.channelType === "email" && (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-muted-foreground mb-1 block">IMAP-Server</label>
-                  <input type="text" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    value={form.imapHost}
-                    onChange={(e) => setForm((f) => ({ ...f, imapHost: e.target.value }))} />
-                </div>
-                <div>
-                  <label className="text-xs text-muted-foreground mb-1 block">SMTP-Server</label>
-                  <input type="text" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    value={form.smtpHost}
-                    onChange={(e) => setForm((f) => ({ ...f, smtpHost: e.target.value }))} />
-                </div>
-              </div>
-            )}
-            {form.channelType === "whatsapp" && (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-muted-foreground mb-1 block">WABA ID</label>
-                  <input type="text" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    value={form.wabaId}
-                    onChange={(e) => setForm((f) => ({ ...f, wabaId: e.target.value }))} />
-                </div>
-                <div>
-                  <label className="text-xs text-muted-foreground mb-1 block">Phone Number ID</label>
-                  <input type="text" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    value={form.waPhoneNumberId}
-                    onChange={(e) => setForm((f) => ({ ...f, waPhoneNumberId: e.target.value }))} />
-                </div>
-              </div>
-            )}
-            {companies.length > 0 && (
-              <div>
-                <label className="text-xs text-muted-foreground mb-1 block">Betriebsgesellschaft</label>
-                <select
-                  className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
-                  value={form.operatingCompanyRecordId}
-                  onChange={(e) => setForm((f) => ({ ...f, operatingCompanyRecordId: e.target.value }))}
-                >
-                  <option value="">— nicht verknüpft —</option>
-                  {companies.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Eingehende Anfragen über diesen Kanal werden automatisch der gewählten Gesellschaft zugeordnet.
-                </p>
-              </div>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setAddOpen(false); setEditTarget(null); }}>Abbrechen</Button>
-            <Button onClick={handleSave} disabled={saving || !form.name || (!editTarget && !form.address)}>
-              {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              {editTarget ? "Speichern" : "Hinzufügen"}
-            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
     </section>
   );
+}
+
+// ─── Pairing status badge ─────────────────────────────────────────────────────
+
+function PairingStatusBadge({
+  status,
+  isActive,
+}: {
+  status: ChannelAccount["baileysPairingStatus"];
+  isActive: boolean;
+}) {
+  if (!isActive) {
+    return (
+      <Badge className="bg-muted text-muted-foreground border-border gap-1">
+        <XCircle className="h-3 w-3" />
+        Inaktiv
+      </Badge>
+    );
+  }
+  switch (status) {
+    case "connected":
+      return (
+        <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 dark:text-emerald-400 gap-1">
+          <CheckCircle2 className="h-3 w-3" />
+          Verbunden
+        </Badge>
+      );
+    case "awaiting_qr":
+    case "awaiting_code":
+      return (
+        <Badge className="bg-blue-500/10 text-blue-600 border-blue-500/20 gap-1">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          QR scannen
+        </Badge>
+      );
+    case "connecting":
+      return (
+        <Badge className="bg-blue-500/10 text-blue-600 border-blue-500/20 gap-1">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          Verbinde…
+        </Badge>
+      );
+    case "logged_out":
+      return (
+        <Badge className="bg-amber-500/10 text-amber-600 border-amber-500/20 gap-1">
+          <AlertTriangle className="h-3 w-3" />
+          Abgemeldet
+        </Badge>
+      );
+    case "error":
+      return (
+        <Badge className="bg-red-500/10 text-red-600 border-red-500/20 gap-1">
+          <XCircle className="h-3 w-3" />
+          Fehler
+        </Badge>
+      );
+    default:
+      return (
+        <Badge className="bg-muted text-muted-foreground border-border gap-1">
+          <Clock className="h-3 w-3" />
+          Bereit
+        </Badge>
+      );
+  }
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
