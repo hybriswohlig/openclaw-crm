@@ -36,6 +36,18 @@ export interface InboundPayload {
   attachments?: InboundAttachment[];
 }
 
+/** Outbound = messages the operator typed on the linked phone, not via the CRM. */
+export interface OutboundPayload {
+  accountId: string;
+  peerWaId: string;
+  body: string;
+  previewLabel?: string | null;
+  externalMessageId: string;
+  sentAt?: string;
+  rawHeaders?: Record<string, unknown> | null;
+  attachments?: InboundAttachment[];
+}
+
 export interface PairingPayload {
   accountId: string;
   status:
@@ -123,6 +135,13 @@ export class CrmClient {
 
   async postInbound(p: InboundPayload): Promise<void> {
     await this.fetch("/api/v1/inbox/whatsapp/baileys-inbound", {
+      method: "POST",
+      body: JSON.stringify(p),
+    });
+  }
+
+  async postOutbound(p: OutboundPayload): Promise<void> {
+    await this.fetch("/api/v1/inbox/whatsapp/baileys-outbound", {
       method: "POST",
       body: JSON.stringify(p),
     });

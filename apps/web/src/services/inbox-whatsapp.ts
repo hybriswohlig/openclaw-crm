@@ -482,6 +482,179 @@ export async function ingestInboundWhatsAppMessage(params: {
   };
 }
 
+/**
+ * Ingest an outbound message that the operator typed directly on their phone
+ * (WhatsApp Business app on the linked device), not through the CRM. Baileys
+ * forwards every `messages.upsert` event including ones with `key.fromMe=true`;
+ * the bridge filters those to this endpoint via `/baileys-outbound`.
+ *
+ * Idempotent on `(conversationId, externalMessageId)`. The CRM's own send
+ * pipeline inserts with the same `externalMessageId` (the WhatsApp `key.id`
+ * that the bridge returns from sendMessage), so the unique index automatically
+ * dedupes phone-typed echoes against CRM-sent messages — whichever insert
+ * loses the race becomes a no-op.
+ *
+ * Differences vs `ingestInboundWhatsAppMessage`:
+ *   - `direction='outbound'`, `status='sent'`, `isRead=true`
+ *   - does NOT increment unreadCount (it's the operator's own message)
+ *   - clears `aiNeedsReply` (a human just handled the conversation)
+ *   - no push notification (the operator just typed — they don't need a bell)
+ *   - emits `message.sent` instead of `message.received`
+ *   - preview prefixed with "Du:" matching the CRM-internal outbound convention
+ */
+export async function ingestOutboundWhatsAppMessage(params: {
+  account: typeof channelAccounts.$inferSelect;
+  peerWaId: string;
+  body: string;
+  previewLabel?: string | null;
+  externalMessageId: string;
+  sentAt: Date;
+  rawHeaders?: Record<string, unknown> | null;
+}): Promise<{
+  conversationId: string;
+  dealRecordId: string | null;
+  messageId: string | null;
+  isNewConversation: boolean;
+}> {
+  const {
+    account, peerWaId, body, previewLabel,
+    externalMessageId, sentAt, rawHeaders,
+  } = params;
+
+  const previewText = body.trim() || previewLabel || "";
+  const preview = `Du: ${previewText}`.slice(0, 120).replace(/\s+/g, " ");
+
+  // The peer here is the *customer* the operator is texting. Contact / Person
+  // get auto-created so a phone-initiated outreach still becomes a tracked
+  // lead in the CRM.
+  const contact = await upsertContact(account.workspaceId, peerWaId, "");
+
+  await ensureCrmPerson({
+    workspaceId: account.workspaceId,
+    contactId: contact.id,
+    displayName: peerWaId,
+    email: null,
+    phone: peerWaId,
+    leadSource: "WhatsApp / Website",
+  });
+
+  const threadKey = peerWaId;
+
+  let [conv] = await db
+    .select()
+    .from(inboxConversations)
+    .where(
+      and(
+        eq(inboxConversations.channelAccountId, account.id),
+        eq(inboxConversations.externalThreadId, threadKey)
+      )
+    )
+    .limit(1);
+
+  let isNewConversation = false;
+
+  if (!conv) {
+    const [created] = await db
+      .insert(inboxConversations)
+      .values({
+        workspaceId: account.workspaceId,
+        channelAccountId: account.id,
+        contactId: contact.id,
+        externalThreadId: threadKey,
+        subject: null,
+        lastMessageAt: sentAt,
+        lastMessagePreview: preview,
+        unreadCount: 0,
+        aiNeedsReply: false,
+      })
+      .returning();
+    conv = created;
+    isNewConversation = true;
+
+    await createDealForNewConversation({
+      workspaceId: account.workspaceId,
+      conversationId: conv.id,
+      dealName: peerWaId,
+      contactId: contact.id,
+      channelAccountId: account.id,
+    });
+
+    [conv] = await db
+      .select()
+      .from(inboxConversations)
+      .where(eq(inboxConversations.id, conv.id))
+      .limit(1);
+  } else {
+    await db
+      .update(inboxConversations)
+      .set({
+        lastMessageAt: sentAt,
+        lastMessagePreview: preview,
+        aiNeedsReply: false,
+        aiLastInboundAt: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(inboxConversations.id, conv.id));
+  }
+
+  let messageId: string | null = null;
+  try {
+    const [stored] = await db
+      .insert(inboxMessages)
+      .values({
+        workspaceId: account.workspaceId,
+        conversationId: conv.id,
+        direction: "outbound",
+        status: "sent",
+        externalMessageId,
+        fromAddress: account.baileysOwnJid?.replace(/@.*$/, "") ?? account.address,
+        toAddress: peerWaId,
+        subject: null,
+        body,
+        isRead: true,
+        rawHeaders: rawHeaders ? JSON.stringify(rawHeaders) : null,
+        sentAt,
+      })
+      .returning({ id: inboxMessages.id });
+    messageId = stored?.id ?? null;
+  } catch (err) {
+    // Duplicate delivery — most commonly the CRM-side send pipeline already
+    // wrote this row via the bridge's send API. Swallow and return.
+    if (err instanceof Error && /duplicate key|unique/i.test(err.message)) {
+      return {
+        conversationId: conv.id,
+        dealRecordId: conv.dealRecordId ?? null,
+        messageId: null,
+        isNewConversation,
+      };
+    }
+    throw err;
+  }
+
+  if (conv.dealRecordId && messageId) {
+    await emitEvent({
+      workspaceId: account.workspaceId,
+      recordId: conv.dealRecordId,
+      objectSlug: "deals",
+      eventType: "message.sent",
+      payload: {
+        conversationId: conv.id,
+        channelType: "whatsapp",
+        toAddress: peerWaId,
+        externalMessageId,
+        source: "phone-direct",
+      },
+    });
+  }
+
+  return {
+    conversationId: conv.id,
+    dealRecordId: conv.dealRecordId ?? null,
+    messageId,
+    isNewConversation,
+  };
+}
+
 async function notifyInboxPush(input: {
   workspaceId: string;
   conversationId: string;
