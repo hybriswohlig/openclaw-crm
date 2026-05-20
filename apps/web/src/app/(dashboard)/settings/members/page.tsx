@@ -4,10 +4,15 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Loader2, UserPlus, Trash2, Shield, User } from "lucide-react";
 
+interface MemberPermissions {
+  manageChannels?: boolean;
+}
+
 interface Member {
   id: string;
   userId: string;
   role: "admin" | "member";
+  permissions: MemberPermissions;
   createdAt: string;
   userName: string;
   userEmail: string;
@@ -75,6 +80,38 @@ export default function MembersPage() {
     } else {
       const data = await res.json();
       setError(data.error?.message ?? "Failed to change role");
+    }
+  }
+
+  async function handlePermissionToggle(
+    memberId: string,
+    key: keyof MemberPermissions,
+    next: boolean,
+  ) {
+    const res = await fetch(`/api/v1/workspace-members/${memberId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ permissions: { [key]: next } }),
+    });
+    if (res.ok) {
+      setMembers((prev) =>
+        prev.map((m) =>
+          m.id === memberId
+            ? {
+                ...m,
+                permissions: next
+                  ? { ...m.permissions, [key]: true }
+                  : (() => {
+                      const { [key]: _, ...rest } = m.permissions;
+                      return rest;
+                    })(),
+              }
+            : m,
+        ),
+      );
+    } else {
+      const data = await res.json();
+      setError(data.error?.message ?? "Failed to update permission");
     }
   }
 
@@ -148,6 +185,7 @@ export default function MembersPage() {
               <tr className="border-b bg-muted/50">
                 <th className="px-4 py-3 text-left font-medium">User</th>
                 <th className="px-4 py-3 text-left font-medium">Role</th>
+                <th className="px-4 py-3 text-left font-medium">Permissions</th>
                 <th className="px-4 py-3 text-left font-medium">Joined</th>
                 <th className="px-4 py-3 text-right font-medium">Actions</th>
               </tr>
@@ -182,6 +220,29 @@ export default function MembersPage() {
                       <option value="admin">Admin</option>
                       <option value="member">Member</option>
                     </select>
+                  </td>
+                  <td className="px-4 py-3">
+                    {member.role === "admin" ? (
+                      <span className="text-xs text-muted-foreground italic">
+                        Admin – alle Rechte
+                      </span>
+                    ) : (
+                      <label className="inline-flex items-center gap-2 text-xs cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={member.permissions?.manageChannels === true}
+                          onChange={(e) =>
+                            handlePermissionToggle(
+                              member.id,
+                              "manageChannels",
+                              e.target.checked,
+                            )
+                          }
+                          className="h-3.5 w-3.5 rounded border-input accent-primary"
+                        />
+                        Kanäle verwalten
+                      </label>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">
                     {new Date(member.createdAt).toLocaleDateString()}

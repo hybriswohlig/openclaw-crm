@@ -7,7 +7,18 @@ export async function GET(req: NextRequest) {
   if (!ctx) return unauthorized();
 
   const workspace = await getWorkspace(ctx.workspaceId);
-  return success({ ...workspace, role: ctx.workspaceRole });
+  return success({
+    ...workspace,
+    role: ctx.workspaceRole,
+    permissions: ctx.permissions,
+    // Effective capability flags — admins implicitly have everything. The UI
+    // reads these directly so it doesn't have to OR the role + permissions
+    // each time it gates a button.
+    capabilities: {
+      manageChannels:
+        ctx.workspaceRole === "admin" || ctx.permissions?.manageChannels === true,
+    },
+  });
 }
 
 export async function PATCH(req: NextRequest) {

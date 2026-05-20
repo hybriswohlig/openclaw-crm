@@ -1,5 +1,6 @@
 import { db } from "@/db";
 import { workspaces, workspaceMembers, users, objects, attributes, statuses, selectOptions } from "@/db/schema";
+import type { MemberPermissions } from "@/db/schema/workspace";
 import { eq, and, asc, sql } from "drizzle-orm";
 import { STANDARD_OBJECTS, DEAL_STAGES } from "@openclaw-crm/shared";
 
@@ -47,7 +48,11 @@ export async function getSingletonWorkspaceId(): Promise<string | null> {
 export async function ensureUserWorkspaceAccess(
   userId: string,
   isAppAdmin: boolean
-): Promise<{ workspaceId: string; role: "admin" | "member" } | null> {
+): Promise<{
+  workspaceId: string;
+  role: "admin" | "member";
+  permissions: MemberPermissions;
+} | null> {
   const workspaceId = await getSingletonWorkspaceId();
   if (!workspaceId) return null;
 
@@ -63,7 +68,11 @@ export async function ensureUserWorkspaceAccess(
     .limit(1);
 
   if (existing) {
-    return { workspaceId, role: existing.role };
+    return {
+      workspaceId,
+      role: existing.role,
+      permissions: existing.permissions ?? {},
+    };
   }
 
   const [countRow] = await db
@@ -76,7 +85,7 @@ export async function ensureUserWorkspaceAccess(
     isAppAdmin || memberCount === 0 ? "admin" : "member";
 
   await db.insert(workspaceMembers).values({ workspaceId, userId, role });
-  return { workspaceId, role };
+  return { workspaceId, role, permissions: {} };
 }
 
 /** List workspace membership for this user (0 or 1 row in single-tenant mode). */
@@ -175,6 +184,7 @@ export async function listMembers(workspaceId: string) {
       id: workspaceMembers.id,
       userId: workspaceMembers.userId,
       role: workspaceMembers.role,
+      permissions: workspaceMembers.permissions,
       createdAt: workspaceMembers.createdAt,
       userName: users.name,
       userEmail: users.email,
@@ -245,6 +255,48 @@ export async function updateMemberRole(
   const [updated] = await db
     .update(workspaceMembers)
     .set({ role })
+    .where(
+      and(
+        eq(workspaceMembers.id, memberId),
+        eq(workspaceMembers.workspaceId, workspaceId)
+      )
+    )
+    .returning();
+  return updated ?? null;
+}
+
+/**
+ * Merge-patch a member's granular permissions. Unspecified keys are left
+ * alone; pass `{ key: false }` to revoke. The whole JSONB column is
+ * rewritten because Postgres doesn't have a partial-update primitive for
+ * JSONB through Drizzle without raw SQL.
+ */
+export async function updateMemberPermissions(
+  workspaceId: string,
+  memberId: string,
+  patch: MemberPermissions
+) {
+  const [existing] = await db
+    .select({ permissions: workspaceMembers.permissions })
+    .from(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.id, memberId),
+        eq(workspaceMembers.workspaceId, workspaceId)
+      )
+    )
+    .limit(1);
+  if (!existing) return null;
+
+  const merged: MemberPermissions = { ...(existing.permissions ?? {}), ...patch };
+  // Strip explicit `false`/`undefined` so the JSONB stays compact.
+  for (const k of Object.keys(merged) as (keyof MemberPermissions)[]) {
+    if (merged[k] === false || merged[k] === undefined) delete merged[k];
+  }
+
+  const [updated] = await db
+    .update(workspaceMembers)
+    .set({ permissions: merged })
     .where(
       and(
         eq(workspaceMembers.id, memberId),

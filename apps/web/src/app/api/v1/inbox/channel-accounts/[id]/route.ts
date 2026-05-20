@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthContext, unauthorized, success, requireAdmin } from "@/lib/api-utils";
+import { getAuthContext, unauthorized, success, requireChannelManager } from "@/lib/api-utils";
 import { updateChannelAccount, deleteChannelAccount } from "@/services/inbox";
 import { db } from "@/db";
 import { inboxConversations } from "@/db/schema/inbox";
@@ -11,7 +11,7 @@ export async function PATCH(
 ) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized();
-  const deny = requireAdmin(ctx);
+  const deny = requireChannelManager(ctx);
   if (deny) return deny;
 
   const { id } = await params;
@@ -46,7 +46,7 @@ export async function DELETE(
 ) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized();
-  const deny = requireAdmin(ctx);
+  const deny = requireChannelManager(ctx);
   if (deny) return deny;
 
   const { id } = await params;

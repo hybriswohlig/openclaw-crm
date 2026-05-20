@@ -15,6 +15,7 @@ import {
   unauthorized,
   badRequest,
   notFound,
+  requireChannelManager,
 } from "@/lib/api-utils";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +23,8 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized();
+  const deny = requireChannelManager(ctx);
+  if (deny) return deny;
 
   const url = process.env.BAILEYS_BRIDGE_URL;
   const secret = process.env.BAILEYS_BRIDGE_SECRET;

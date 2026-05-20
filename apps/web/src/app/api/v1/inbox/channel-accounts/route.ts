@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthContext, unauthorized, success, requireAdmin } from "@/lib/api-utils";
+import { getAuthContext, unauthorized, success, requireChannelManager } from "@/lib/api-utils";
 import { getChannelAccounts, createChannelAccount, seedEmailAccountsFromEnv } from "@/services/inbox";
 
 export async function GET(req: NextRequest) {
@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized();
-  const deny = requireAdmin(ctx);
+  const deny = requireChannelManager(ctx);
   if (deny) return deny;
 
   const body = await req.json();

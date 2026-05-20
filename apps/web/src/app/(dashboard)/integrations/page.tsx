@@ -1043,7 +1043,12 @@ interface OperatingCompany {
   name: string;
 }
 
-function ChannelAccountsSection({ isAdmin }: { isAdmin: boolean }) {
+function ChannelAccountsSection({ canManage }: { canManage: boolean }) {
+  // Treat `canManage` as the gate: admins always have it, members get it
+  // when an admin grants them the `manageChannels` permission. The variable
+  // name stays generic so this section can be reused if more granular gates
+  // appear later.
+  const isAdmin = canManage;
   const [accounts, setAccounts] = useState<ChannelAccount[]>([]);
   const [companies, setCompanies] = useState<OperatingCompany[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1657,6 +1662,10 @@ export default function IntegrationsPage() {
   const [integrationsList, setIntegrationsList] = useState<Integration[]>([]);
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
+  // Members can be granted manageChannels independently of admin role.
+  // Used to gate the Kanal-Accounts section only — Integration cards stay
+  // admin-only because they expose API keys and webhook URLs.
+  const [canManageChannels, setCanManageChannels] = useState(false);
   const [selected, setSelected] = useState<Integration | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [logoEditTarget, setLogoEditTarget] = useState<Integration | null>(null);
@@ -1675,6 +1684,7 @@ export default function IntegrationsPage() {
       if (wsRes.ok) {
         const data = await wsRes.json();
         setIsAdmin(data.data?.role === "admin");
+        setCanManageChannels(Boolean(data.data?.capabilities?.manageChannels));
       }
     } finally {
       setLoading(false);
@@ -1841,7 +1851,7 @@ export default function IntegrationsPage() {
       {/* Channel accounts */}
       {!loading && (
         <div className="border-t border-border pt-6">
-          <ChannelAccountsSection isAdmin={isAdmin} />
+          <ChannelAccountsSection canManage={canManageChannels} />
         </div>
       )}
     </div>

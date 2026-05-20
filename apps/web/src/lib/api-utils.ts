@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { workspaceMembers, apiKeys, users } from "@/db/schema";
+import type { MemberPermissions } from "@/db/schema/workspace";
 import { eq, and, isNull } from "drizzle-orm";
 import { createHash } from "crypto";
 import {
@@ -13,6 +14,13 @@ export interface AuthContext {
   userId: string;
   workspaceId: string;
   workspaceRole: "admin" | "member";
+  /**
+   * Granular permissions granted to this member on top of their role.
+   * Admins implicitly have every permission regardless of what's set here;
+   * code that gates on a capability should still call the matching `require*`
+   * helper which honours the admin shortcut.
+   */
+  permissions: MemberPermissions;
   authMethod?: "cookie" | "api_key";
 }
 
@@ -67,6 +75,7 @@ export async function getAuthContext(req: NextRequest): Promise<AuthContext | nu
     userId,
     workspaceId: access.workspaceId,
     workspaceRole: access.role,
+    permissions: access.permissions,
     authMethod: "cookie",
   };
 }
@@ -118,9 +127,12 @@ async function getApiKeyAuthContext(token: string): Promise<AuthContext | null> 
     .execute()
     .catch(() => {});
 
-  // Look up the user's workspace role
+  // Look up the user's workspace role + granular permissions
   const memberships = await db
-    .select({ role: workspaceMembers.role })
+    .select({
+      role: workspaceMembers.role,
+      permissions: workspaceMembers.permissions,
+    })
     .from(workspaceMembers)
     .where(
       and(
@@ -131,11 +143,13 @@ async function getApiKeyAuthContext(token: string): Promise<AuthContext | null> 
     .limit(1);
 
   const role = memberships.length > 0 ? memberships[0].role : "member";
+  const permissions = memberships.length > 0 ? memberships[0].permissions ?? {} : {};
 
   return {
     userId: key.userId,
     workspaceId: key.workspaceId,
     workspaceRole: role,
+    permissions,
     authMethod: "api_key",
   };
 }
@@ -168,6 +182,19 @@ export function forbidden(message = "Insufficient permissions") {
 export function requireAdmin(ctx: AuthContext): NextResponse | null {
   if (ctx.workspaceRole !== "admin") {
     return forbidden("Admin access required");
+  }
+  return null;
+}
+
+/** Admin OR member with the `manageChannels` permission. */
+export function canManageChannels(ctx: AuthContext): boolean {
+  return ctx.workspaceRole === "admin" || ctx.permissions?.manageChannels === true;
+}
+
+/** Gate channel-account mutation routes — returns 403 if the caller can't manage channels. */
+export function requireChannelManager(ctx: AuthContext): NextResponse | null {
+  if (!canManageChannels(ctx)) {
+    return forbidden("You don't have permission to manage inbox channels.");
   }
   return null;
 }
