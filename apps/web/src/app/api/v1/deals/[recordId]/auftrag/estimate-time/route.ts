@@ -56,8 +56,21 @@ export async function POST(
   const moveFromAddress = formatLocation(moveFromRaw);
   const moveToAddress = formatLocation(moveToRaw);
   if (!moveFromAddress || !moveToAddress) {
-    return badRequest(
-      "Abhol- und Zieladresse müssen am Lead gepflegt sein, bevor die Schätzung läuft."
+    // Distinct code so the UI can render the inline "Adresse eintragen / KI-
+    // Analyse starten" fallback instead of just an error banner.
+    return NextResponse.json(
+      {
+        error: {
+          code: "MISSING_ADDRESSES",
+          message:
+            "Abhol- und Zieladresse müssen am Lead gepflegt sein, bevor die Schätzung läuft.",
+        },
+        missing: {
+          from: !moveFromAddress,
+          to: !moveToAddress,
+        },
+      },
+      { status: 400 }
     );
   }
 

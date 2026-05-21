@@ -553,6 +553,7 @@ export function AuftragTab({ recordId }: { recordId: string }) {
         <ZeitschaetzungSection
           recordId={recordId}
           dealData={buildDealDataForDocs(recordId, leadContext)}
+          onLeadUpdated={load}
           initial={{
             depotName:
               extractRefDisplay(auftrag.values.depot) ?? null,

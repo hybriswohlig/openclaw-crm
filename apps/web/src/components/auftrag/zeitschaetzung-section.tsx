@@ -15,13 +15,24 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, RefreshCw, Truck, ChevronRight } from "lucide-react";
+import {
+  Loader2,
+  RefreshCw,
+  Truck,
+  ChevronRight,
+  MapPin,
+  Sparkles,
+} from "lucide-react";
 import {
   GenerateDocumentDialog,
   type DealData,
   type DocumentType,
   type PrefilledPreise,
 } from "@/components/GenerateDocumentDialog";
+import {
+  AddressAutocomplete,
+  type LocationValue,
+} from "@/components/maps/AddressAutocomplete";
 
 interface DriveLeg {
   fromLabel: string;
@@ -60,14 +71,36 @@ interface Props {
   };
   /** When present, "In AB/RE übernehmen" buttons are enabled. */
   dealData: DealData | null;
+  /**
+   * Called after addresses are written back to the Lead (via inline form or
+   * KI-Analyse) so the parent can re-fetch leadContext and rerun this card.
+   */
+  onLeadUpdated?: () => void;
 }
 
 type CeylanMode = "single" | "itemized";
 
-export function ZeitschaetzungSection({ recordId, initial, dealData }: Props) {
+interface MissingAddresses {
+  from: boolean;
+  to: boolean;
+}
+
+export function ZeitschaetzungSection({
+  recordId,
+  initial,
+  dealData,
+  onLeadUpdated,
+}: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
+  const [missing, setMissing] = useState<MissingAddresses | null>(null);
+  // Inline address-edit state when the "MISSING_ADDRESSES" fallback is open.
+  const [editFrom, setEditFrom] = useState<LocationValue | null>(null);
+  const [editTo, setEditTo] = useState<LocationValue | null>(null);
+  const [savingAddrs, setSavingAddrs] = useState(false);
+  const [kiBusy, setKiBusy] = useState(false);
+  const [kiNote, setKiNote] = useState<string | null>(null);
   const [estimate, setEstimate] = useState<EstimateResponse | null>(() =>
     initial && initial.totalMinutes != null
       ? {
@@ -109,6 +142,8 @@ export function ZeitschaetzungSection({ recordId, initial, dealData }: Props) {
     setBusy(true);
     setError(null);
     setWarning(null);
+    setMissing(null);
+    setKiNote(null);
     try {
       const resp = await fetch(`/api/v1/deals/${recordId}/auftrag/estimate-time`, {
         method: "POST",
@@ -117,6 +152,20 @@ export function ZeitschaetzungSection({ recordId, initial, dealData }: Props) {
       });
       const json = await resp.json().catch(() => null);
       if (!resp.ok) {
+        // Special case: the Lead is missing addresses. Branch into an inline
+        // fallback offering manual address entry + KI-Analyse instead of just
+        // surfacing an error.
+        if (
+          json &&
+          typeof json === "object" &&
+          json.error?.code === "MISSING_ADDRESSES"
+        ) {
+          setMissing({
+            from: !!json.missing?.from,
+            to: !!json.missing?.to,
+          });
+          return;
+        }
         setError(extractErrorMessage(json?.error) || `HTTP ${resp.status}`);
         return;
       }
@@ -143,6 +192,80 @@ export function ZeitschaetzungSection({ recordId, initial, dealData }: Props) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
+    }
+  }
+
+  // ── Manual address-save (from the inline MISSING_ADDRESSES fallback) ──
+  async function saveAddressesAndRetry() {
+    if (!editFrom && !editTo) return;
+    setSavingAddrs(true);
+    setError(null);
+    try {
+      const values: Record<string, unknown> = {};
+      if (editFrom) values.move_from_address = stripFormatted(editFrom);
+      if (editTo) values.move_to_address = stripFormatted(editTo);
+      const resp = await fetch(
+        `/api/v1/objects/deals/records/${recordId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ values }),
+        }
+      );
+      if (!resp.ok) {
+        const json = await resp.json().catch(() => null);
+        setError(extractErrorMessage(json?.error) || `PATCH ${resp.status}`);
+        return;
+      }
+      setMissing(null);
+      setEditFrom(null);
+      setEditTo(null);
+      onLeadUpdated?.();
+      // Auto-retry the estimate so the user lands directly on the result.
+      await recompute();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSavingAddrs(false);
+    }
+  }
+
+  // ── KI-Analyse trigger (reads chat + writes extracted addresses) ──────
+  async function runKiAnalyse() {
+    setKiBusy(true);
+    setError(null);
+    setKiNote("KI liest den Chatverlauf… (~30–60 s)");
+    try {
+      const resp = await fetch(`/api/v1/deals/${recordId}/insights`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apply: true,
+          // Only write back addresses; leave Auftrag/stage/notes alone so we
+          // don't surprise the user with a bunch of other updates.
+          selectedFields: ["move_from_address", "move_to_address"],
+          applyStage: false,
+          applyNote: false,
+          applyContact: false,
+          applyAuftrag: false,
+        }),
+      });
+      const json = await resp.json().catch(() => null);
+      if (!resp.ok) {
+        setKiNote(null);
+        setError(extractErrorMessage(json?.error) || `KI HTTP ${resp.status}`);
+        return;
+      }
+      setKiNote("KI fertig. Werte den Lead neu aus…");
+      setMissing(null);
+      onLeadUpdated?.();
+      await recompute();
+      setKiNote(null);
+    } catch (e) {
+      setKiNote(null);
+      setError((e as Error).message);
+    } finally {
+      setKiBusy(false);
     }
   }
 
@@ -222,8 +345,92 @@ export function ZeitschaetzungSection({ recordId, initial, dealData }: Props) {
           {warning}
         </div>
       )}
+      {kiNote && (
+        <div className="rounded border border-blue-500/30 bg-blue-500/5 p-2 text-xs text-blue-700">
+          {kiNote}
+        </div>
+      )}
 
-      {!estimate && (
+      {/* ── Inline fallback when the Lead is missing addresses ─────── */}
+      {missing && (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 space-y-3">
+          <div className="flex items-start gap-2 text-xs text-amber-800">
+            <MapPin className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+            <div>
+              <div className="font-semibold">Adressen fehlen am Lead</div>
+              <div className="text-amber-700/80">
+                Trag sie unten ein (Google-Suche) oder lass die KI sie aus dem
+                Chatverlauf extrahieren.
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {missing.from && (
+              <AddressAutocomplete
+                label="Abholadresse"
+                value={editFrom}
+                onChange={setEditFrom}
+                placeholder="Straße + Nr., PLZ Stadt"
+                disabled={savingAddrs || kiBusy}
+              />
+            )}
+            {missing.to && (
+              <AddressAutocomplete
+                label="Zieladresse"
+                value={editTo}
+                onChange={setEditTo}
+                placeholder="Straße + Nr., PLZ Stadt"
+                disabled={savingAddrs || kiBusy}
+              />
+            )}
+          </div>
+
+          <div className="flex flex-wrap gap-2 pt-1">
+            <button
+              type="button"
+              onClick={saveAddressesAndRetry}
+              disabled={
+                savingAddrs ||
+                kiBusy ||
+                (missing.from && !editFrom) ||
+                (missing.to && !editTo)
+              }
+              className="inline-flex items-center gap-1 rounded bg-blue-600 px-3 py-1.5 text-xs text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {savingAddrs ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <MapPin className="h-3 w-3" />
+              )}
+              Speichern & berechnen
+            </button>
+            <button
+              type="button"
+              onClick={runKiAnalyse}
+              disabled={savingAddrs || kiBusy}
+              className="inline-flex items-center gap-1 rounded border bg-white px-3 py-1.5 text-xs hover:bg-gray-50 dark:bg-gray-900 dark:hover:bg-gray-800 disabled:opacity-50"
+            >
+              {kiBusy ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Sparkles className="h-3 w-3" />
+              )}
+              KI-Analyse aus Chat starten
+            </button>
+            <button
+              type="button"
+              onClick={() => setMissing(null)}
+              disabled={savingAddrs || kiBusy}
+              className="text-xs text-muted-foreground hover:underline disabled:opacity-50"
+            >
+              abbrechen
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!estimate && !missing && (
         <p className="text-xs text-muted-foreground">
           Adressen werden live vom Lead gezogen. Klick auf <strong>Berechnen</strong>, um die Route
           (Depot → Abholung → Ziel → Depot) und die Be-/Entladezeit zu schätzen.
@@ -459,6 +666,19 @@ function NumField({
  * the standard error envelope. Never returns an object — React error #31
  * has a way of finding any unguarded path.
  */
+/**
+ * Drop the `formattedAddress` field before PATCHing — it's a UI-only sugar
+ * not in the Lead's LocationValue contract (line1, postcode, city, countryCode).
+ */
+function stripFormatted(v: LocationValue): Record<string, string | undefined> {
+  return {
+    line1: v.line1,
+    postcode: v.postcode,
+    city: v.city,
+    countryCode: v.countryCode,
+  };
+}
+
 function extractErrorMessage(e: unknown): string {
   if (e == null) return "";
   if (typeof e === "string") return e;
