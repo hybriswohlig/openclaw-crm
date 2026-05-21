@@ -28,8 +28,9 @@ export function StageOneKva({
   if (!ctx.kva) {
     return (
       <section className="rounded-2xl border border-border/50 bg-card p-6 text-sm text-muted-foreground">
-        Ihr Kostenvoranschlag wird gerade erstellt — Sie erhalten den Link erneut,
-        sobald das Angebot abrufbar ist.
+        Ihr Kostenvoranschlag wird gerade erstellt. Diese Seite aktualisiert sich
+        automatisch, sobald das Angebot bereitsteht — einfach kurz später erneut
+        öffnen.
       </section>
     );
   }
