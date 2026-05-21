@@ -3,7 +3,11 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { and, eq } from "drizzle-orm";
 import * as schema from "./schema";
-import { STANDARD_OBJECTS, DEAL_STAGES } from "@openclaw-crm/shared";
+import {
+  STANDARD_OBJECTS,
+  DEAL_STAGES,
+  DEFAULT_TRANSPORT_DEPOTS,
+} from "@openclaw-crm/shared";
 import { normalizeDatabaseUrl } from "./normalize-database-url";
 
 /**
@@ -137,8 +141,75 @@ async function syncStandardObjects() {
     }
   }
 
+  // ─── Seed default transport_depots rows per workspace (only if empty) ──
+  let depotsAdded = 0;
+  for (const ws of workspaceRows) {
+    const [depotObj] = await db
+      .select()
+      .from(schema.objects)
+      .where(and(eq(schema.objects.workspaceId, ws.id), eq(schema.objects.slug, "transport_depots")))
+      .limit(1);
+    if (!depotObj) continue;
+
+    const existingDepots = await db
+      .select({ id: schema.records.id })
+      .from(schema.records)
+      .where(eq(schema.records.objectId, depotObj.id))
+      .limit(1);
+    if (existingDepots.length > 0) continue; // workspace already has depots — don't overwrite
+
+    const depotAttrs = await db
+      .select()
+      .from(schema.attributes)
+      .where(eq(schema.attributes.objectId, depotObj.id));
+    const attrBySlug = new Map(depotAttrs.map((a) => [a.slug, a]));
+
+    for (const depot of DEFAULT_TRANSPORT_DEPOTS) {
+      const [rec] = await db
+        .insert(schema.records)
+        .values({ objectId: depotObj.id })
+        .returning();
+
+      const setVal = async (
+        slug: string,
+        values: Partial<{
+          textValue: string;
+          numberValue: string;
+          booleanValue: boolean;
+          jsonValue: unknown;
+          dateValue: string;
+        }>
+      ) => {
+        const attr = attrBySlug.get(slug);
+        if (!attr) return;
+        await db.insert(schema.recordValues).values({
+          recordId: rec.id,
+          attributeId: attr.id,
+          textValue: values.textValue ?? null,
+          numberValue: values.numberValue ?? null,
+          booleanValue: values.booleanValue ?? null,
+          jsonValue: values.jsonValue ?? null,
+          dateValue: values.dateValue ?? null,
+        });
+      };
+
+      await setVal("name", { textValue: depot.name });
+      await setVal("address", {
+        jsonValue: { address: depot.address, lat: depot.lat, lng: depot.lng },
+      });
+      await setVal("lat", { numberValue: String(depot.lat) });
+      await setVal("lng", { numberValue: String(depot.lng) });
+      await setVal("city_tag", { textValue: depot.city_tag });
+      await setVal("plz_prefixes", { textValue: depot.plz_prefixes });
+      await setVal("service_radius_km", { numberValue: String(depot.service_radius_km) });
+      await setVal("active", { booleanValue: depot.active });
+      depotsAdded++;
+      console.log(`    + depot: ${depot.name}`);
+    }
+  }
+
   console.log(
-    `\n✓ Sync complete. Added: ${objectsAdded} object(s), ${attributesAdded} attr(s), ${optionsAdded} option(s), ${stagesAdded} stage(s).`
+    `\n✓ Sync complete. Added: ${objectsAdded} object(s), ${attributesAdded} attr(s), ${optionsAdded} option(s), ${stagesAdded} stage(s), ${depotsAdded} depot(s).`
   );
   await client.end();
 }

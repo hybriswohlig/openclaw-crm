@@ -22,6 +22,7 @@ export const dealDocumentTypeEnum = pgEnum("deal_document_type", [
   "order_confirmation",
   "invoice",
   "payment_confirmation",
+  "worker_instructions",
 ]);
 
 export const expenseCategoryEnum = pgEnum("expense_category", [

@@ -18,11 +18,13 @@ const VALID_DOCUMENT_TYPES = new Set([
   "order_confirmation",
   "invoice",
   "payment_confirmation",
+  "worker_instructions",
 ]);
 
 function deduceDocumentType(filename: string): string | null {
   if (filename.startsWith("AB-")) return "order_confirmation";
   if (filename.startsWith("RE-")) return "invoice";
+  if (filename.startsWith("AW-")) return "worker_instructions";
   return null;
 }
 

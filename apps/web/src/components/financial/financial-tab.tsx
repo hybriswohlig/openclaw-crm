@@ -90,7 +90,11 @@ interface Employee {
 
 interface DealDocument {
   id: string;
-  documentType: "order_confirmation" | "invoice" | "payment_confirmation";
+  documentType:
+    | "order_confirmation"
+    | "invoice"
+    | "payment_confirmation"
+    | "worker_instructions";
   fileName: string;
   fileSize: number;
   mimeType: string;
@@ -1121,6 +1125,7 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   order_confirmation: "Auftragsbestätigung",
   invoice: "Rechnung",
   payment_confirmation: "Zahlungsbestätigung",
+  worker_instructions: "Auftragsanweisung (Crew)",
 };
 
 function fmtBytes(b: number) {
@@ -1182,7 +1187,7 @@ function DocumentsSection({
   }
 
   const docsByType = Object.fromEntries(
-    (["order_confirmation", "invoice", "payment_confirmation"] as const).map((t) => [
+    (["order_confirmation", "invoice", "payment_confirmation", "worker_instructions"] as const).map((t) => [
       t,
       documents.filter((d) => d.documentType === t),
     ])
@@ -1195,7 +1200,7 @@ function DocumentsSection({
       </div>
 
       <div className="space-y-4">
-        {(["order_confirmation", "invoice", "payment_confirmation"] as const).map((docType) => {
+        {(["order_confirmation", "invoice", "payment_confirmation", "worker_instructions"] as const).map((docType) => {
           const docs = docsByType[docType];
           const isUploading = uploading === docType;
 

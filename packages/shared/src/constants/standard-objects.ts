@@ -342,7 +342,103 @@ export const STANDARD_OBJECTS: StandardObject[] = [
         },
       },
       { slug: "notes", title: "Notizen", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+
+      // ── Zeitschätzung / Kalkulation ─────────────────────────────
+      {
+        slug: "depot",
+        title: "Depot / Transporter-Ausgangspunkt",
+        type: "record_reference",
+        isSystem: true,
+        isRequired: false,
+        isUnique: false,
+        isMultiselect: false,
+        config: { targetObjectSlug: "transport_depots" },
+      },
+      { slug: "drive_segments_json", title: "Fahrt-Etappen (JSON)", type: "json", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      { slug: "drive_minutes_total", title: "Fahrtzeit gesamt (min)", type: "number", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      { slug: "load_unload_minutes", title: "Be-/Entladezeit (min)", type: "number", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      { slug: "total_minutes", title: "Gesamtdauer (min)", type: "number", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      { slug: "time_estimate_computed_at", title: "Schätzung berechnet am", type: "timestamp", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      { slug: "price_calc_json", title: "Preis-Kalkulator (JSON)", type: "json", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
     ],
+  },
+  {
+    slug: "transport_depots",
+    singularName: "Depot",
+    pluralName: "Depots",
+    icon: "truck",
+    isAlwaysOn: true,
+    attributes: [
+      { slug: "name", title: "Name", type: "text", isSystem: true, isRequired: true, isUnique: false, isMultiselect: false },
+      { slug: "address", title: "Adresse", type: "location", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      { slug: "lat", title: "Latitude", type: "number", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      { slug: "lng", title: "Longitude", type: "number", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      { slug: "city_tag", title: "Stadt-Tag", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false, config: { description: "Lowercase city keyword for PLZ-auto-pick, e.g. 'stuttgart', 'pforzheim', 'tuebingen', 'sindelfingen'." } },
+      { slug: "plz_prefixes", title: "PLZ-Präfixe", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false, config: { description: "Comma-separated PLZ prefixes that route to this depot (e.g. '70,71'). Used for auto-pick." } },
+      { slug: "service_radius_km", title: "Einsatzradius (km)", type: "number", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      { slug: "daily_rate_eur", title: "Tagesmiete (€)", type: "currency", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      { slug: "active", title: "Aktiv", type: "checkbox", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      { slug: "notes", title: "Notizen", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+    ],
+  },
+];
+
+/**
+ * Default depots seeded on workspace creation / sync. Four Sixt Truck Center
+ * locations covering Baden-Württemberg moves. Coordinates are approximate
+ * (Google-public address geocoding). PLZ prefixes are a coarse first-pass
+ * for auto-pick; user can override on the Auftrag.
+ */
+export const DEFAULT_TRANSPORT_DEPOTS: {
+  name: string;
+  address: string;
+  lat: number;
+  lng: number;
+  city_tag: string;
+  plz_prefixes: string;
+  service_radius_km: number;
+  active: boolean;
+  notes?: string;
+}[] = [
+  {
+    name: "Sixt Truck Center Stuttgart",
+    address: "Heilbronner Str. 339, 70469 Stuttgart",
+    lat: 48.8124,
+    lng: 9.1761,
+    city_tag: "stuttgart",
+    plz_prefixes: "70,71,73,74",
+    service_radius_km: 50,
+    active: true,
+  },
+  {
+    name: "Sixt Truck Center Pforzheim",
+    address: "Wilferdinger Str. 36, 75179 Pforzheim",
+    lat: 48.8939,
+    lng: 8.7186,
+    city_tag: "pforzheim",
+    plz_prefixes: "75,76",
+    service_radius_km: 40,
+    active: true,
+  },
+  {
+    name: "Sixt Truck Center Tübingen",
+    address: "Bahnhofstr. 1, 72072 Tübingen",
+    lat: 48.5226,
+    lng: 9.0566,
+    city_tag: "tuebingen",
+    plz_prefixes: "72",
+    service_radius_km: 40,
+    active: true,
+  },
+  {
+    name: "Sixt Truck Center Sindelfingen",
+    address: "Mahdentalstr. 92, 71065 Sindelfingen",
+    lat: 48.7099,
+    lng: 9.0030,
+    city_tag: "sindelfingen",
+    plz_prefixes: "71,70",
+    service_radius_km: 35,
+    active: true,
   },
 ];
 

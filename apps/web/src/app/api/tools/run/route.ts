@@ -43,6 +43,7 @@ export async function POST(req: NextRequest) {
   const ALLOWED_SKILLS = new Set([
     "echo-test",
     "rechnungen-und-auftragsbestaetigungen",
+    "auftragsanweisung",
   ]);
   if (!ALLOWED_SKILLS.has(body.skill)) {
     return badRequest(`skill '${body.skill}' is not allowed`);

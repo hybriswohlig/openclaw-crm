@@ -34,16 +34,35 @@ export interface DealData {
   };
 }
 
+interface PauschalePosition {
+  titel: string;
+  betrag: number;
+}
+
+/**
+ * Optional prefill from the Auftrags-Tab Kalkulator. When passed, the dialog
+ * opens with these values pre-populated so the user only has to click "PDF
+ * erstellen". The user can still tweak fields before generating.
+ */
+export interface PrefilledPreise {
+  modell?: Preismodell;
+  helferAnzahl?: number;
+  stundenGeschaetzt?: number;
+  helferRate?: number;
+  transporterRate?: number;
+  mindestStunden?: number;
+  pauschalePositionen?: PauschalePosition[];
+  pauschaleBetragCeylan?: number;
+  anzahlungBar?: number;
+  stammkundenrabatt?: boolean;
+}
+
 interface Props {
   open: boolean;
   onClose: () => void;
   documentType: DocumentType;
   deal: DealData;
-}
-
-interface PauschalePosition {
-  titel: string;
-  betrag: number;
+  prefill?: PrefilledPreise;
 }
 
 export function GenerateDocumentDialog({
@@ -51,19 +70,33 @@ export function GenerateDocumentDialog({
   onClose,
   documentType,
   deal,
+  prefill,
 }: Props) {
   const isKottke = deal.firma === "kottke";
   const [modell, setModell] = useState<Preismodell>(
-    isKottke ? "stundensatz" : "pauschale"
+    prefill?.modell ?? (isKottke ? "stundensatz" : "pauschale")
   );
-  const [helferAnzahl, setHelferAnzahl] = useState(3);
-  const [stundenGeschaetzt, setStundenGeschaetzt] = useState(4);
-  const [pauschalePositionen, setPauschalePositionen] = useState<PauschalePosition[]>([
-    { titel: "Möbeltransport", betrag: 0 },
-  ]);
-  const [pauschaleBetragCeylan, setPauschaleBetragCeylan] = useState(0);
-  const [anzahlungBar, setAnzahlungBar] = useState(0);
-  const [stammkundenrabatt, setStammkundenrabatt] = useState(false);
+  const [helferAnzahl, setHelferAnzahl] = useState(prefill?.helferAnzahl ?? 3);
+  const [stundenGeschaetzt, setStundenGeschaetzt] = useState(
+    prefill?.stundenGeschaetzt ?? 4
+  );
+  const [helferRate, setHelferRate] = useState(prefill?.helferRate ?? 35);
+  const [transporterRate, setTransporterRate] = useState(
+    prefill?.transporterRate ?? 25
+  );
+  const [mindestStunden, setMindestStunden] = useState(prefill?.mindestStunden ?? 3);
+  const [pauschalePositionen, setPauschalePositionen] = useState<PauschalePosition[]>(
+    prefill?.pauschalePositionen && prefill.pauschalePositionen.length > 0
+      ? prefill.pauschalePositionen
+      : [{ titel: "Möbeltransport", betrag: 0 }]
+  );
+  const [pauschaleBetragCeylan, setPauschaleBetragCeylan] = useState(
+    prefill?.pauschaleBetragCeylan ?? 0
+  );
+  const [anzahlungBar, setAnzahlungBar] = useState(prefill?.anzahlungBar ?? 0);
+  const [stammkundenrabatt, setStammkundenrabatt] = useState(
+    prefill?.stammkundenrabatt ?? false
+  );
   const [storeError, setStoreError] = useState<string | null>(null);
   const [storedDocId, setStoredDocId] = useState<string | null>(null);
   const [storing, setStoring] = useState(false);
@@ -90,9 +123,9 @@ export function GenerateDocumentDialog({
         modell: "stundensatz" as const,
         helfer_anzahl: helferAnzahl,
         stunden_geschaetzt: stundenGeschaetzt,
-        stundensatz_helfer_eur: 35,
-        stundensatz_transporter_eur: 25,
-        mindest_stunden: 3,
+        stundensatz_helfer_eur: helferRate,
+        stundensatz_transporter_eur: transporterRate,
+        mindest_stunden: mindestStunden,
         anzahlung_bar_eur: anzahlungBar || 0,
       };
     }

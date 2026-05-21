@@ -595,6 +595,7 @@ const DOC_TYPE_LABEL: Record<string, string> = {
   order_confirmation: "Auftragsbestätigung",
   invoice: "Rechnung",
   payment_confirmation: "Zahlungsbestätigung",
+  worker_instructions: "Auftragsanweisung (intern)",
 };
 
 async function loadDocumentsForDeal(

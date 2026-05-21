@@ -9,6 +9,11 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { DealDocumentActions } from "@/components/DealDocumentActions";
 import type { DealData, Firma } from "@/components/GenerateDocumentDialog";
+import { ZeitschaetzungSection } from "@/components/auftrag/zeitschaetzung-section";
+import {
+  GenerateWorkerInstructionsDialog,
+  type AnweisungContext,
+} from "@/components/GenerateWorkerInstructionsDialog";
 
 // Shape returned by /api/v1/objects/auftraege
 interface AttributeDef {
@@ -96,6 +101,120 @@ function buildDealDataForDocs(
   };
 }
 
+/**
+ * Assemble the AnweisungContext from Lead context + Auftrag values. Returns
+ * null if firma / kunde are missing — the button is then hidden, same gate
+ * as buildDealDataForDocs.
+ */
+function buildAnweisungCtx(
+  dealRecordId: string,
+  lead: LeadContext,
+  auftragValues: Record<string, unknown>
+): AnweisungContext | null {
+  const base = buildDealDataForDocs(dealRecordId, lead);
+  if (!base) return null;
+
+  const fromAddr = formatLocation(lead.move_from_address);
+  const toAddr = formatLocation(lead.move_to_address);
+
+  const asNum = (v: unknown): number | null =>
+    typeof v === "number" && Number.isFinite(v) ? v : null;
+  const asBool = (v: unknown): boolean | null => (typeof v === "boolean" ? v : null);
+  const asStr = (v: unknown): string | null =>
+    typeof v === "string" && v.trim() ? v : null;
+  const asArr = (v: unknown): string[] => {
+    if (!Array.isArray(v)) return [];
+    return v.filter((x): x is string => typeof x === "string");
+  };
+  const selectOpt = (v: unknown): string | null => {
+    if (typeof v === "string") return v;
+    if (v && typeof v === "object" && "title" in v) {
+      const t = (v as { title: unknown }).title;
+      if (typeof t === "string") return t;
+    }
+    return null;
+  };
+
+  const checkRaw = auftragValues.checklist;
+  const checkliste: { label: string; done: boolean }[] = Array.isArray(checkRaw)
+    ? (checkRaw as { label?: unknown; done?: unknown }[])
+        .map((c) => ({
+          label: typeof c.label === "string" ? c.label : "",
+          done: !!c.done,
+        }))
+        .filter((c) => c.label.length > 0)
+    : [];
+
+  const equipment: string[] = (() => {
+    const v = auftragValues.equipment_needed;
+    if (Array.isArray(v)) {
+      return v
+        .map((x) => (typeof x === "string" ? x : selectOpt(x)))
+        .filter((x): x is string => !!x);
+    }
+    return asArr(v);
+  })();
+
+  const amountOut = auftragValues.amount_outstanding;
+  void amountOut; // not used — prices stay out of the Anweisung by design
+
+  return {
+    dealRecordId,
+    firma: base.firma,
+    kunde: {
+      vorname: base.kunde.vorname,
+      nachname: base.kunde.nachname,
+      telefon: undefined, // not on Lead today
+      email: base.kunde.email,
+    },
+    auftrag: {
+      datum: lead.move_date ?? undefined,
+      zeit_von:
+        typeof auftragValues.time_window_start === "string"
+          ? auftragValues.time_window_start.slice(11, 16)
+          : undefined,
+      zeit_bis:
+        typeof auftragValues.time_window_end === "string"
+          ? auftragValues.time_window_end.slice(11, 16)
+          : undefined,
+      strecke_von: fromAddr !== "—" ? fromAddr : undefined,
+      strecke_nach: toAddr !== "—" ? toAddr : undefined,
+      adresse_von: fromAddr !== "—" ? fromAddr : undefined,
+      adresse_nach: toAddr !== "—" ? toAddr : undefined,
+      stockwerk_von: asNum(lead.floors_from),
+      zugang_von: lead.elevator_from,
+      laufweg_von_m: asNum(auftragValues.walking_distance_from_m),
+      stockwerk_nach: asNum(lead.floors_to),
+      zugang_nach: lead.elevator_to,
+      laufweg_nach_m: asNum(auftragValues.walking_distance_to_m),
+      halteverbot: asBool(auftragValues.parking_halteverbot_needed),
+      volumen: (() => {
+        const v = auftragValues.volume_cbm;
+        if (typeof v === "number" && Number.isFinite(v) && v > 0) return `${v} m³`;
+        if (typeof v === "string" && v.trim()) return `${v} m³`;
+        return lead.inventory_notes ?? null;
+      })(),
+      transporter: selectOpt(auftragValues.transporter),
+      helfer_anzahl: asNum(auftragValues.worker_count),
+      klavier_transport: asBool(auftragValues.piano_transport),
+      demontage: asBool(auftragValues.dismantling_required),
+      einpackservice: asBool(auftragValues.packing_service),
+      entsorgung: asBool(auftragValues.disposal_required),
+      einlagerung: asBool(auftragValues.storage_required),
+      ausstattung: equipment,
+      kontakte: {
+        abholung_name: asStr(auftragValues.contact_pickup_name),
+        abholung_telefon: asStr(auftragValues.contact_pickup_phone),
+        ziel_name: asStr(auftragValues.contact_dropoff_name),
+        ziel_telefon: asStr(auftragValues.contact_dropoff_phone),
+      },
+      checkliste,
+      sonderwuensche: asStr(auftragValues.special_requests),
+      notizen: asStr(auftragValues.notes),
+    },
+  };
+}
+
 function formatLocation(v: unknown): string {
   if (!v) return "—";
   if (typeof v === "string") return v;
@@ -114,6 +233,16 @@ function formatDateDE(iso: string | null): string {
   const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (!m) return iso;
   return `${m[3]}.${m[2]}.${m[1]}`;
+}
+
+function extractRefDisplay(v: unknown): string | null {
+  if (!v) return null;
+  if (typeof v === "string") return v;
+  if (typeof v === "object" && v && "displayName" in v) {
+    const d = (v as { displayName: unknown }).displayName;
+    if (typeof d === "string") return d;
+  }
+  return null;
 }
 
 interface ChecklistItem {
@@ -168,7 +297,18 @@ const SECTIONS: { title: string; slugs: string[] }[] = [
 // Slugs handled by custom sections (not by the generic RecordDetail editor).
 // `operating_company` is read-only mirrored from the Lead — users cannot edit
 // it on the Auftrag, so we suppress the attribute field entirely.
-const CUSTOM_SLUGS = new Set(["checklist", "operating_company"]);
+// The Zeitschätzung block owns depot + drive/load/total estimate fields.
+const CUSTOM_SLUGS = new Set([
+  "checklist",
+  "operating_company",
+  "depot",
+  "drive_segments_json",
+  "drive_minutes_total",
+  "load_unload_minutes",
+  "total_minutes",
+  "time_estimate_computed_at",
+  "price_calc_json",
+]);
 
 export function AuftragTab({ recordId }: { recordId: string }) {
   const [loading, setLoading] = useState(true);
@@ -178,6 +318,7 @@ export function AuftragTab({ recordId }: { recordId: string }) {
   const [openQuestions, setOpenQuestions] = useState<string[]>([]);
   const [leadContext, setLeadContext] = useState<LeadContext | null>(null);
   const [needsSync, setNeedsSync] = useState(false);
+  const [anweisungOpen, setAnweisungOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -370,9 +511,10 @@ export function AuftragTab({ recordId }: { recordId: string }) {
             </section>
           );
         }
+        const anweisungCtx = buildAnweisungCtx(recordId, leadContext, auftrag.values);
         return (
-          <section className="rounded-lg border border-border bg-muted/10 p-3 sm:p-4">
-            <div className="flex items-center justify-between mb-2">
+          <section className="rounded-lg border border-border bg-muted/10 p-3 sm:p-4 space-y-3">
+            <div className="flex items-center justify-between">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Dokumente erstellen
               </h3>
@@ -381,9 +523,62 @@ export function AuftragTab({ recordId }: { recordId: string }) {
               </span>
             </div>
             <DealDocumentActions deal={dealData} />
+            {anweisungCtx && (
+              <div className="border-t border-border pt-3">
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">
+                  Crew-Unterlagen (intern, ohne Preise)
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAnweisungOpen(true)}
+                  className="rounded border bg-white px-3 py-1.5 text-sm hover:bg-gray-50 dark:bg-gray-900 dark:hover:bg-gray-800"
+                >
+                  Auftragsanweisung erstellen
+                </button>
+              </div>
+            )}
+            {anweisungCtx && anweisungOpen && (
+              <GenerateWorkerInstructionsDialog
+                open
+                ctx={anweisungCtx}
+                onClose={() => setAnweisungOpen(false)}
+              />
+            )}
           </section>
         );
       })()}
+
+      {/* ── Zeitschätzung & Preis-Kalkulator ─────────────────────────── */}
+      {leadContext && (
+        <ZeitschaetzungSection
+          recordId={recordId}
+          dealData={buildDealDataForDocs(recordId, leadContext)}
+          initial={{
+            depotName:
+              extractRefDisplay(auftrag.values.depot) ?? null,
+            driveMinutesTotal:
+              typeof auftrag.values.drive_minutes_total === "number"
+                ? auftrag.values.drive_minutes_total
+                : null,
+            loadUnloadMinutes:
+              typeof auftrag.values.load_unload_minutes === "number"
+                ? auftrag.values.load_unload_minutes
+                : null,
+            totalMinutes:
+              typeof auftrag.values.total_minutes === "number"
+                ? auftrag.values.total_minutes
+                : null,
+            computedAt:
+              typeof auftrag.values.time_estimate_computed_at === "string"
+                ? auftrag.values.time_estimate_computed_at
+                : null,
+            segments:
+              (auftrag.values.drive_segments_json as
+                | { legs?: never; pickupAddress?: string; dropoffAddress?: string; warnings?: string[] }
+                | null) ?? null,
+          }}
+        />
+      )}
 
       {/* ── Critical-missing orange card ───────────────────────────── */}
       {criticalMissing.length > 0 && (

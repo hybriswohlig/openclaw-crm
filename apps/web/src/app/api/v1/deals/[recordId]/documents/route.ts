@@ -53,7 +53,12 @@ export async function POST(
     return NextResponse.json({ error: "file and documentType are required" }, { status: 400 });
   }
 
-  const validTypes = ["order_confirmation", "invoice", "payment_confirmation"];
+  const validTypes = [
+    "order_confirmation",
+    "invoice",
+    "payment_confirmation",
+    "worker_instructions",
+  ];
   if (!validTypes.includes(documentType)) {
     return NextResponse.json({ error: "Invalid documentType" }, { status: 400 });
   }
