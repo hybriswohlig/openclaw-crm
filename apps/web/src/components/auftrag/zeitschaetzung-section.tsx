@@ -127,16 +127,33 @@ export function ZeitschaetzungSection({
   const [stammkundenrabatt, setStammkundenrabatt] = useState(false);
   const [ceylanMode, setCeylanMode] = useState<CeylanMode>("single");
 
+  // ── Trip count: total number of pickup→dropoff loads. Default 1 = one
+  // single haul. Higher when the volume needs multiple shuttle runs between
+  // Abholung and Ziel before the final drop-off.
+  const [tripCount, setTripCount] = useState(1);
+  // ── Optional manual override for Be-/Entladezeit. When enabled the
+  // computed estimate is ignored and the input value drives the total.
+  const [manualLoadUnload, setManualLoadUnload] = useState(false);
+  const [manualLoadUnloadMin, setManualLoadUnloadMin] = useState(60);
+
   const [dialogType, setDialogType] = useState<DocumentType | null>(null);
 
   // Re-seed sliders whenever a fresh estimate lands. Auto-derive starting
-  // stunden from total minutes: round up to next half hour.
+  // stunden from total minutes: round up to next half hour. When trip count
+  // or load/unload override changes, re-seed too so the sliders stay in sync
+  // with the headline total.
   useEffect(() => {
     if (!estimate || estimate.totalMinutes <= 0) return;
-    const hours = Math.max(mindestStunden, Math.ceil((estimate.totalMinutes / 60) * 2) / 2);
+    const total = computeEffectiveTotal(
+      estimate,
+      tripCount,
+      manualLoadUnload ? manualLoadUnloadMin : null
+    );
+    if (total <= 0) return;
+    const hours = Math.max(mindestStunden, Math.ceil((total / 60) * 2) / 2);
     setStunden(hours);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [estimate?.computedAt]);
+  }, [estimate?.computedAt, tripCount, manualLoadUnload, manualLoadUnloadMin]);
 
   async function recompute() {
     setBusy(true);
@@ -277,6 +294,17 @@ export function ZeitschaetzungSection({
   const totalEUR = Math.round((baseTotal - minderung) * 100) / 100;
 
   const isKottke = dealData?.firma === "kottke";
+
+  // ── Effective drive / load+unload / total (reflect trip count + override) ──
+  const effectiveDriveMinutes = useMemo(
+    () => (estimate ? computeEffectiveDrive(estimate, tripCount) : 0),
+    [estimate, tripCount]
+  );
+  const effectiveLoadUnloadMinutes = useMemo(() => {
+    if (manualLoadUnload) return manualLoadUnloadMin;
+    return estimate?.loadUnloadMinutes ?? 0;
+  }, [estimate, manualLoadUnload, manualLoadUnloadMin]);
+  const effectiveTotalMinutes = effectiveDriveMinutes + effectiveLoadUnloadMinutes;
 
   const itemizedPositionen = useMemo(() => {
     if (isKottke || ceylanMode !== "itemized") return null;
@@ -462,9 +490,15 @@ export function ZeitschaetzungSection({
               })}
             </ol>
             <div className="mt-2 grid grid-cols-3 gap-2 border-t border-border pt-2 text-xs">
-              <Stat label="Fahrtzeit" value={formatMinutes(estimate.driveMinutesTotal)} />
-              <Stat label="Be-/Entladen" value={formatMinutes(estimate.loadUnloadMinutes)} />
-              <Stat label="Gesamt" value={formatMinutes(estimate.totalMinutes)} highlight />
+              <Stat
+                label={tripCount > 1 ? `Fahrtzeit (${tripCount} Fahrten)` : "Fahrtzeit"}
+                value={formatMinutes(effectiveDriveMinutes)}
+              />
+              <Stat
+                label={manualLoadUnload ? "Be-/Entladen (manuell)" : "Be-/Entladen"}
+                value={formatMinutes(effectiveLoadUnloadMinutes)}
+              />
+              <Stat label="Gesamt" value={formatMinutes(effectiveTotalMinutes)} highlight />
             </div>
           </div>
 
@@ -496,6 +530,36 @@ export function ZeitschaetzungSection({
               onChange={setStunden}
               suffix="h"
             />
+            <Slider
+              label="Anzahl der Fahrten (Pendel-Strecke)"
+              value={tripCount}
+              min={1}
+              max={8}
+              step={1}
+              onChange={setTripCount}
+              suffix={tripCount === 1 ? "Fahrt" : "Fahrten"}
+            />
+            <div className="rounded border border-border/60 p-2 space-y-1.5">
+              <label className="flex items-center justify-between gap-2 text-xs">
+                <span className="text-muted-foreground">Be-/Entladezeit manuell setzen</span>
+                <input
+                  type="checkbox"
+                  checked={manualLoadUnload}
+                  onChange={(e) => setManualLoadUnload(e.target.checked)}
+                />
+              </label>
+              {manualLoadUnload && (
+                <Slider
+                  label="Be-/Entladen"
+                  value={manualLoadUnloadMin}
+                  min={0}
+                  max={480}
+                  step={5}
+                  onChange={setManualLoadUnloadMin}
+                  suffix="min"
+                />
+              )}
+            </div>
             <div className="grid grid-cols-3 gap-3">
               <NumField label="Helfer-Rate €/h" value={helferRate} onChange={setHelferRate} />
               <NumField label="Transp. €/h" value={transporterRate} onChange={setTransporterRate} />
@@ -666,6 +730,40 @@ function NumField({
  * the standard error envelope. Never returns an object — React error #31
  * has a way of finding any unguarded path.
  */
+/**
+ * Drive minutes adjusted for multiple shuttle trips between Abholung and
+ * Ziel. Assumes the route legs come back as [depot→pickup, pickup→dropoff,
+ * dropoff→depot]. For N>1 trips: depot→pickup + N×(pickup→dropoff) +
+ * (N-1)×(dropoff→pickup, approximated as the same minutes) + dropoff→depot.
+ *
+ * If the legs aren't in the expected 3-leg shape, falls back to the raw
+ * driveMinutesTotal × tripCount as a coarse estimate.
+ */
+function computeEffectiveDrive(est: EstimateResponse, tripCount: number): number {
+  const n = Math.max(1, Math.floor(tripCount));
+  if (n === 1) return est.driveMinutesTotal;
+  if (est.legs.length !== 3) {
+    return Math.round(est.driveMinutesTotal * n);
+  }
+  const minutesFor = (i: number) =>
+    typeof est.legs[i]?.seconds === "number" ? est.legs[i].seconds / 60 : 0;
+  const first = minutesFor(0);
+  const middle = minutesFor(1);
+  const last = minutesFor(2);
+  // pickup → dropoff happens N times, dropoff → pickup (N-1) times.
+  return Math.round(first + last + (2 * n - 1) * middle);
+}
+
+function computeEffectiveTotal(
+  est: EstimateResponse,
+  tripCount: number,
+  manualLoadUnload: number | null
+): number {
+  const drive = computeEffectiveDrive(est, tripCount);
+  const load = manualLoadUnload != null ? manualLoadUnload : est.loadUnloadMinutes;
+  return drive + load;
+}
+
 /**
  * Drop the `formattedAddress` field before PATCHing — it's a UI-only sugar
  * not in the Lead's LocationValue contract (line1, postcode, city, countryCode).
