@@ -115,12 +115,28 @@ export function ZeitschaetzungSection({ recordId, initial, dealData }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
       });
-      const json = await resp.json();
+      const json = await resp.json().catch(() => null);
       if (!resp.ok) {
-        setError(json?.error ?? `HTTP ${resp.status}`);
+        setError(extractErrorMessage(json?.error) || `HTTP ${resp.status}`);
         return;
       }
-      const data = json.data as EstimateResponse;
+      const raw = (json?.data ?? json) as Partial<EstimateResponse> | null;
+      if (!raw || typeof raw !== "object") {
+        setError("Unerwartete Server-Antwort (kein data-Objekt).");
+        return;
+      }
+      // Coerce defensively — never let an undefined .legs/.warnings crash render.
+      const data: EstimateResponse = {
+        depot: raw.depot ?? { id: "", name: "—" },
+        legs: Array.isArray(raw.legs) ? raw.legs : [],
+        driveMinutesTotal: typeof raw.driveMinutesTotal === "number" ? raw.driveMinutesTotal : 0,
+        loadUnloadMinutes: typeof raw.loadUnloadMinutes === "number" ? raw.loadUnloadMinutes : 0,
+        totalMinutes: typeof raw.totalMinutes === "number" ? raw.totalMinutes : 0,
+        computedAt: typeof raw.computedAt === "string" ? raw.computedAt : new Date().toISOString(),
+        warnings: Array.isArray(raw.warnings) ? raw.warnings : [],
+        pickupAddress: typeof raw.pickupAddress === "string" ? raw.pickupAddress : "",
+        dropoffAddress: typeof raw.dropoffAddress === "string" ? raw.dropoffAddress : "",
+      };
       setEstimate(data);
       if (data.warnings.length > 0) setWarning(data.warnings.join(" · "));
     } catch (e) {
@@ -222,17 +238,21 @@ export function ZeitschaetzungSection({ recordId, initial, dealData }: Props) {
               Route über {estimate.depot.name}
             </div>
             <ol className="space-y-1">
-              {estimate.legs.map((leg, i) => (
-                <li key={i} className="flex items-center gap-2 text-xs">
-                  <span className="text-muted-foreground tabular-nums w-6">{i + 1}.</span>
-                  <span className="truncate flex-1">
-                    {leg.fromLabel} <ChevronRight className="inline h-3 w-3" /> {leg.toLabel}
-                  </span>
-                  <span className="tabular-nums text-muted-foreground">
-                    {formatKm(leg.meters)} · {formatMinutes(Math.round(leg.seconds / 60))}
-                  </span>
-                </li>
-              ))}
+              {estimate.legs.map((leg, i) => {
+                const meters = typeof leg?.meters === "number" ? leg.meters : 0;
+                const seconds = typeof leg?.seconds === "number" ? leg.seconds : 0;
+                return (
+                  <li key={i} className="flex items-center gap-2 text-xs">
+                    <span className="text-muted-foreground tabular-nums w-6">{i + 1}.</span>
+                    <span className="truncate flex-1">
+                      {leg?.fromLabel ?? "—"} <ChevronRight className="inline h-3 w-3" /> {leg?.toLabel ?? "—"}
+                    </span>
+                    <span className="tabular-nums text-muted-foreground">
+                      {formatKm(meters)} · {formatMinutes(Math.round(seconds / 60))}
+                    </span>
+                  </li>
+                );
+              })}
             </ol>
             <div className="mt-2 grid grid-cols-3 gap-2 border-t border-border pt-2 text-xs">
               <Stat label="Fahrtzeit" value={formatMinutes(estimate.driveMinutesTotal)} />
@@ -431,6 +451,28 @@ function NumField({
       />
     </label>
   );
+}
+
+/**
+ * The CRM's error helpers return { error: { code, message } }. Pull a
+ * displayable string out, regardless of whether the value is a string or
+ * the standard error envelope. Never returns an object — React error #31
+ * has a way of finding any unguarded path.
+ */
+function extractErrorMessage(e: unknown): string {
+  if (e == null) return "";
+  if (typeof e === "string") return e;
+  if (typeof e === "object") {
+    const o = e as { message?: unknown; code?: unknown; error?: unknown };
+    if (typeof o.message === "string" && o.message.trim()) return o.message;
+    if (typeof o.error === "string") return o.error;
+    if (typeof o.code === "string") return o.code;
+  }
+  try {
+    return String(e);
+  } catch {
+    return "Unbekannter Fehler";
+  }
 }
 
 /**
