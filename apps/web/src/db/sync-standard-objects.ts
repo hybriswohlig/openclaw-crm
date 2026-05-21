@@ -1,4 +1,6 @@
-import "dotenv/config";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { config as loadEnv } from "dotenv";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { and, eq } from "drizzle-orm";
@@ -9,6 +11,20 @@ import {
   DEFAULT_TRANSPORT_DEPOTS,
 } from "@openclaw-crm/shared";
 import { normalizeDatabaseUrl } from "./normalize-database-url";
+
+// Mirror drizzle.config.ts — load env from both the web dir and the repo root,
+// since `vercel env pull` writes the file at the repo root.
+const thisFile = fileURLToPath(import.meta.url);
+const webDir = path.resolve(thisFile, "../../..");
+const repoRoot = path.resolve(webDir, "../..");
+for (const filePath of [
+  path.join(repoRoot, ".env"),
+  path.join(repoRoot, ".env.local"),
+  path.join(webDir, ".env"),
+  path.join(webDir, ".env.local"),
+]) {
+  loadEnv({ path: filePath, override: true, quiet: true });
+}
 
 /**
  * Idempotent sync of STANDARD_OBJECTS into every workspace. Safe to run
