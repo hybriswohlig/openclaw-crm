@@ -24,6 +24,7 @@ import {
   kvaConfirmations,
   moveTimeEntries,
   customerEmployeeRatings,
+  operatingCompanyPortalSettings,
 } from "@/db/schema/customer-portal";
 import { quotations, quotationLineItems } from "@/db/schema/quotations";
 import { dealDocuments, payments, dealNumbers } from "@/db/schema/financial";
@@ -116,6 +117,43 @@ export async function revokeCustomerStatusLink(token: string): Promise<void> {
     .update(customerStatusLinks)
     .set({ revokedAt: new Date() })
     .where(eq(customerStatusLinks.token, token));
+}
+
+/**
+ * Resolve which origin the public-facing URL for a given deal should use.
+ *
+ * Priority:
+ *   1) Per-OC `customDomain` once `domainVerificationState === 'verified'` —
+ *      this is the customer-facing brand the operator wants.
+ *   2) `NEXT_PUBLIC_APP_URL` — the workspace-wide fallback (set in Vercel env).
+ *   3) Best-effort default of the vercel deployment URL.
+ *
+ * Returns the bare origin without a trailing slash so the caller can append
+ * `/s/<token>` directly.
+ */
+export async function resolveCustomerLinkOrigin(
+  dealRecordId: string,
+  workspaceId: string,
+  envFallback: string | null
+): Promise<string> {
+  const dealAttrs = await loadDealAttributeMap(workspaceId);
+  const dealValues = await loadValuesForRecord(dealRecordId);
+  const ocId = await refValue(dealValues, dealAttrs.bySlug.get("operating_company")?.id);
+  if (ocId) {
+    const [s] = await db
+      .select({
+        customDomain: operatingCompanyPortalSettings.customDomain,
+        state: operatingCompanyPortalSettings.domainVerificationState,
+      })
+      .from(operatingCompanyPortalSettings)
+      .where(eq(operatingCompanyPortalSettings.operatingCompanyRecordId, ocId))
+      .limit(1);
+    if (s?.customDomain && s.state === "verified") {
+      return `https://${s.customDomain}`;
+    }
+  }
+  if (envFallback) return envFallback.replace(/\/+$/, "");
+  return "https://openclaw-crm-web.vercel.app";
 }
 
 /**

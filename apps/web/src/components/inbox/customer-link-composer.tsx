@@ -8,6 +8,7 @@ type Snippet = "kva_available" | "ab_available" | "deposit_request" | "stage_3_l
 interface LinkInfo {
   token: string | null;
   url: string | null;
+  dealNumber?: string | null;
   skipped?: boolean;
 }
 
@@ -24,12 +25,13 @@ export function CustomerLinkComposer({
   dealRecordId,
   firmaDisplayName,
   customerFirstName,
-  dealNumber,
+  dealNumber: dealNumberProp,
   onInsert,
 }: {
   dealRecordId: string;
   firmaDisplayName: string | null;
   customerFirstName: string | null;
+  /** Optional override — composer falls back to the deal_number it gets from the API. */
   dealNumber: string | null;
   onInsert: (text: string) => void;
 }) {
@@ -70,12 +72,14 @@ export function CustomerLinkComposer({
     return () => window.removeEventListener("mousedown", onClick);
   }, [open]);
 
+  const effectiveDealNumber = dealNumberProp ?? link?.dealNumber ?? null;
+
   const message = link?.url
     ? renderSnippet(snippet, {
         url: link.url,
         firmaName: firmaDisplayName ?? "wir",
         customerFirstName,
-        dealNumber: dealNumber ?? "Ihrem Auftrag",
+        dealNumber: effectiveDealNumber,
       })
     : "";
 
@@ -181,20 +185,22 @@ export function CustomerLinkComposer({
 
 function renderSnippet(
   s: Snippet,
-  ctx: { url: string; firmaName: string; customerFirstName: string | null; dealNumber: string }
+  ctx: { url: string; firmaName: string; customerFirstName: string | null; dealNumber: string | null }
 ): string {
   const greeting = ctx.customerFirstName ? `Hallo ${ctx.customerFirstName},` : "Hallo,";
   const sign = `\n\nViele Grüße\n${ctx.firmaName}`;
+  // Inline phrase like " (Auftrag 2026-003)" only when we actually have a number.
+  const ref = ctx.dealNumber ? ` (Auftrag ${ctx.dealNumber})` : "";
   switch (s) {
     case "kva_available":
-      return `${greeting}\n\nIhr Kostenvoranschlag zum Auftrag ${ctx.dealNumber} ist abrufbar. Über den folgenden Link sehen Sie den genauen Umfang und können das Angebot mit einem Klick verbindlich annehmen:\n\n${ctx.url}${sign}`;
+      return `${greeting}\n\nIhr Kostenvoranschlag${ref} ist abrufbar. Über den folgenden Link sehen Sie den genauen Umfang und können das Angebot mit einem Klick verbindlich annehmen:\n\n${ctx.url}${sign}`;
     case "deposit_request":
-      return `${greeting}\n\nVielen Dank für die Bestätigung! Um den Termin verbindlich zu reservieren, benötigen wir noch Ihre Anzahlung. Sie können bequem über folgenden Link bezahlen (Überweisung per QR-Code oder PayPal):\n\n${ctx.url}\n\nSobald die Zahlung bei uns eingegangen ist, erhalten Sie automatisch die Auftragsbestätigung.${sign}`;
+      return `${greeting}\n\nVielen Dank für die Bestätigung! Um den Termin verbindlich zu reservieren, benötigen wir noch Ihre Anzahlung${ref}. Sie können bequem über folgenden Link bezahlen (Überweisung per QR-Code oder PayPal):\n\n${ctx.url}\n\nSobald die Zahlung bei uns eingegangen ist, erhalten Sie automatisch die Auftragsbestätigung.${sign}`;
     case "ab_available":
-      return `${greeting}\n\nIhre Auftragsbestätigung zu ${ctx.dealNumber} ist soeben fertig geworden. Den vollständigen Vertrag, Termin, Crew und alle Details finden Sie hier:\n\n${ctx.url}${sign}`;
+      return `${greeting}\n\nIhre Auftragsbestätigung${ref} ist soeben fertig geworden. Den vollständigen Vertrag, Termin, Crew und alle Details finden Sie hier:\n\n${ctx.url}${sign}`;
     case "stage_3_live":
-      return `${greeting}\n\nUnser Team ist heute für Sie unterwegs. Über den folgenden Link sehen Sie live alle Bilder und Updates vom Umzug:\n\n${ctx.url}\n\nSollten Sie Fragen haben, sind wir jederzeit per WhatsApp über den Link erreichbar.${sign}`;
+      return `${greeting}\n\nUnser Team ist heute für Sie unterwegs${ref}. Über den folgenden Link sehen Sie live alle Bilder und Updates vom Umzug:\n\n${ctx.url}\n\nSollten Sie Fragen haben, sind wir jederzeit per WhatsApp über den Link erreichbar.${sign}`;
     case "final_invoice":
-      return `${greeting}\n\nVielen Dank für den reibungslosen Umzug! Ihre Rechnung sowie die Möglichkeit zur sofortigen Überweisung per QR-Code finden Sie hier:\n\n${ctx.url}\n\nÜber eine Google-Bewertung würden wir uns sehr freuen — auch dort führt der Link direkt zum richtigen Formular.${sign}`;
+      return `${greeting}\n\nVielen Dank für den reibungslosen Umzug${ref}! Ihre Rechnung sowie die Möglichkeit zur sofortigen Überweisung per QR-Code finden Sie hier:\n\n${ctx.url}\n\nÜber eine Google-Bewertung würden wir uns sehr freuen — auch dort führt der Link direkt zum richtigen Formular.${sign}`;
   }
 }

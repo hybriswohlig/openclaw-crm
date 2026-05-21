@@ -3,27 +3,29 @@
  * a specific deal. Lives under /api/v1 so it follows the existing auth
  * conventions (cookie or oc_sk_* Bearer).
  *
- * GET    → returns { token, url, viewCount, firstViewedAt, lastViewedAt, revokedAt }
+ * GET    → returns { token, url, dealNumber, viewCount, firstViewedAt, lastViewedAt, revokedAt }
  * POST   → ensure link exists (idempotent); returns the same shape
  * DELETE → revokes the link (soft — sets revoked_at, doesn't drop the row)
+ *
+ * URL resolution: prefers the per-OC `customDomain` once verified, falls back
+ * to NEXT_PUBLIC_APP_URL. See resolveCustomerLinkOrigin in
+ * services/customer-portal-data.ts.
  */
 import { NextRequest } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { getAuthContext, unauthorized, notFound, success } from "@/lib/api-utils";
 import { db } from "@/db";
 import { customerStatusLinks } from "@/db/schema/customer-portal";
+import { dealNumbers } from "@/db/schema/financial";
 import {
   ensureCustomerStatusLink,
+  resolveCustomerLinkOrigin,
   revokeCustomerStatusLink,
 } from "@/services/customer-portal-data";
 
 export const dynamic = "force-dynamic";
 
-function publicUrlFor(token: string, origin: string): string {
-  return `${origin.replace(/\/+$/, "")}/s/${token}`;
-}
-
-function resolveOrigin(req: NextRequest): string {
+function envFallback(req: NextRequest): string | null {
   const envUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
   if (envUrl) return envUrl;
   const host = req.headers.get("host");
@@ -31,7 +33,16 @@ function resolveOrigin(req: NextRequest): string {
     const proto = req.headers.get("x-forwarded-proto") ?? "https";
     return `${proto}://${host}`;
   }
-  return "http://localhost:3001";
+  return null;
+}
+
+async function loadDealNumber(dealRecordId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ dealNumber: dealNumbers.dealNumber })
+    .from(dealNumbers)
+    .where(eq(dealNumbers.dealRecordId, dealRecordId))
+    .limit(1);
+  return row?.dealNumber ?? null;
 }
 
 export async function GET(
@@ -55,9 +66,17 @@ export async function GET(
 
   if (!row) return notFound("No customer link for this deal");
 
+  const origin = await resolveCustomerLinkOrigin(
+    dealRecordId,
+    ctx.workspaceId,
+    envFallback(req)
+  );
+  const dealNumber = await loadDealNumber(dealRecordId);
+
   return success({
     token: row.token,
-    url: publicUrlFor(row.token, resolveOrigin(req)),
+    url: `${origin}/s/${row.token}`,
+    dealNumber,
     viewCount: row.viewCount,
     firstViewedAt: row.firstViewedAt,
     lastViewedAt: row.lastViewedAt,
@@ -82,14 +101,23 @@ export async function POST(
     return success({
       token: null,
       url: null,
+      dealNumber: null,
       skipped: true,
       reason: "feature_disabled_for_operating_company",
     });
   }
 
+  const origin = await resolveCustomerLinkOrigin(
+    dealRecordId,
+    ctx.workspaceId,
+    envFallback(req)
+  );
+  const dealNumber = await loadDealNumber(dealRecordId);
+
   return success({
     token: result.token,
-    url: publicUrlFor(result.token, resolveOrigin(req)),
+    url: `${origin}/s/${result.token}`,
+    dealNumber,
   });
 }
 
