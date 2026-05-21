@@ -9,7 +9,7 @@
 // surrounding page. The dialog does NOT re-fetch the deal.
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useToolJob } from "@/hooks/useToolJob";
 
 export type Firma = "kottke" | "ceylan";
@@ -67,6 +67,10 @@ export function GenerateDocumentDialog({
   const [storeError, setStoreError] = useState<string | null>(null);
   const [storedDocId, setStoredDocId] = useState<string | null>(null);
   const [storing, setStoring] = useState(false);
+  const [dueDateSet, setDueDateSet] = useState<string | null>(null);
+  // Guard so the auto-store effect only fires once per generated PDF, even
+  // if React re-renders while the store request is in flight.
+  const autoStoreFiredFor = useRef<string | null>(null);
 
   const { start, status, jobId, error, result, reset } = useToolJob();
 
@@ -102,6 +106,29 @@ export function GenerateDocumentDialog({
   async function handleGenerate() {
     setStoreError(null);
     setStoredDocId(null);
+    setDueDateSet(null);
+    autoStoreFiredFor.current = null;
+
+    // Forward image attachments from the Lead (apartment photos etc.) so the
+    // headless skill can use them as visual context for volume / floors /
+    // besonderheiten. Failures are non-fatal — generation still proceeds
+    // without images.
+    let imageIds: string[] = [];
+    try {
+      const res = await fetch(`/api/v1/deals/${deal.dealRecordId}/attachments`);
+      if (res.ok) {
+        const json = (await res.json()) as {
+          data?: { id: string; mimeType: string }[];
+        };
+        imageIds = (json.data ?? [])
+          .filter((a) => a.mimeType.startsWith("image/"))
+          .slice(0, 8)
+          .map((a) => a.id);
+      }
+    } catch {
+      // ignore — skill runs without images
+    }
+
     await start("rechnungen-und-auftragsbestaetigungen", {
       firma: deal.firma,
       document_type: documentType,
@@ -109,6 +136,7 @@ export function GenerateDocumentDialog({
       auftrag: deal.auftrag,
       preise: buildPreise(),
       _deal_record_id: deal.dealRecordId,
+      _image_attachment_ids: imageIds,
     });
   }
 
@@ -125,6 +153,9 @@ export function GenerateDocumentDialog({
       const data = await resp.json();
       if (!resp.ok) throw new Error(data?.error || `upload ${resp.status}`);
       setStoredDocId(data.document?.id ?? null);
+      if (typeof data.rechnungFaelligAm === "string") {
+        setDueDateSet(data.rechnungFaelligAm);
+      }
     } catch (e) {
       setStoreError((e as Error).message);
     } finally {
@@ -132,10 +163,24 @@ export function GenerateDocumentDialog({
     }
   }
 
+  // Auto-attach the PDF to the Lead's Finance tab as soon as the job is done.
+  // The ref guards against duplicate POSTs on re-renders.
+  useEffect(() => {
+    if (status !== "done" || !jobId) return;
+    if (autoStoreFiredFor.current === jobId) return;
+    autoStoreFiredFor.current = jobId;
+    handleStore();
+    // handleStore is intentionally not in deps — we want exactly one call per
+    // completed jobId.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, jobId]);
+
   function handleClose() {
     reset();
     setStoredDocId(null);
     setStoreError(null);
+    setDueDateSet(null);
+    autoStoreFiredFor.current = null;
     onClose();
   }
 
@@ -264,7 +309,7 @@ export function GenerateDocumentDialog({
             <div className="rounded bg-green-50 p-3 text-sm text-green-900 dark:bg-green-900/20 dark:text-green-200">
               ✓ {result?.result_filename} erstellt
             </div>
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2">
               <a
                 href={`/api/tools/jobs/${jobId}/result`}
                 target="_blank"
@@ -273,21 +318,28 @@ export function GenerateDocumentDialog({
               >
                 PDF öffnen
               </a>
-              {!storedDocId && (
-                <button
-                  onClick={handleStore}
-                  disabled={storing}
-                  className="rounded bg-blue-600 px-4 py-2 text-sm text-white disabled:opacity-50"
-                >
-                  {storing ? "Speichere…" : "Im Deal speichern"}
-                </button>
+              {storing && (
+                <span className="text-sm text-gray-500">Speichere im Lead…</span>
               )}
-              {storedDocId && (
+              {!storing && storedDocId && (
                 <span className="rounded bg-green-100 px-4 py-2 text-sm text-green-900">
-                  ✓ Angehängt
+                  ✓ Im Finanzen-Tab angehängt
                 </span>
               )}
+              {!storing && !storedDocId && storeError && (
+                <button
+                  onClick={handleStore}
+                  className="rounded bg-blue-600 px-4 py-2 text-sm text-white"
+                >
+                  Erneut anhängen
+                </button>
+              )}
             </div>
+            {dueDateSet && (
+              <p className="text-sm text-gray-600">
+                Fälligkeitsdatum gesetzt: <strong>{dueDateSet}</strong>
+              </p>
+            )}
             {storeError && <p className="text-sm text-red-600">{storeError}</p>}
             <div className="flex justify-end pt-2">
               <button onClick={handleClose} className="rounded border px-4 py-2 text-sm">

@@ -4,9 +4,17 @@
 // The browser then polls /api/tools/jobs/<id> until status=done.
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthContext, unauthorized, badRequest } from "@/lib/api-utils";
+import { db } from "@/db";
+import { inboxMessageAttachments } from "@/db/schema/inbox";
+import { and, eq, inArray } from "drizzle-orm";
 
 const CRM_TOOLS_API_URL = process.env.CRM_TOOLS_API_URL;
 const CRM_TOOLS_AUTH_TOKEN = process.env.CRM_TOOLS_AUTH_TOKEN;
+
+// Cap on total bytes of forwarded images. 15 MB stays well under the
+// per-job timeout budget and avoids blowing up the FastAPI request body.
+const MAX_IMAGE_BYTES_TOTAL = 15 * 1024 * 1024;
+const MAX_IMAGES_FORWARDED = 8;
 
 interface RunBody {
   skill: string;
@@ -40,6 +48,46 @@ export async function POST(req: NextRequest) {
     return badRequest(`skill '${body.skill}' is not allowed`);
   }
 
+  // If the dialog sent _image_attachment_ids, resolve them to base64 payloads
+  // server-side and inline them into params._images. We never let the browser
+  // upload raw image bytes here — IDs only, dereferenced under the user's
+  // workspace scope. This is what gives the headless skill image context
+  // (apartment photos etc.) for volume / Stockwerk / besonderheiten.
+  const params: Record<string, unknown> = { ...(body.params ?? {}) };
+  const imageIds = Array.isArray(params._image_attachment_ids)
+    ? (params._image_attachment_ids as unknown[])
+        .filter((x): x is string => typeof x === "string")
+        .slice(0, MAX_IMAGES_FORWARDED)
+    : [];
+  delete params._image_attachment_ids;
+  if (imageIds.length > 0) {
+    const rows = await db
+      .select({
+        id: inboxMessageAttachments.id,
+        fileName: inboxMessageAttachments.fileName,
+        mimeType: inboxMessageAttachments.mimeType,
+        fileContent: inboxMessageAttachments.fileContent,
+      })
+      .from(inboxMessageAttachments)
+      .where(
+        and(
+          eq(inboxMessageAttachments.workspaceId, ctx.workspaceId),
+          inArray(inboxMessageAttachments.id, imageIds)
+        )
+      );
+
+    const images: { filename: string; mime: string; base64: string }[] = [];
+    let total = 0;
+    for (const r of rows) {
+      if (!r.mimeType.startsWith("image/")) continue;
+      const size = Math.floor((r.fileContent.length * 3) / 4); // base64 → bytes (approx)
+      if (total + size > MAX_IMAGE_BYTES_TOTAL) break;
+      total += size;
+      images.push({ filename: r.fileName, mime: r.mimeType, base64: r.fileContent });
+    }
+    if (images.length > 0) params._images = images;
+  }
+
   const upstream = await fetch(
     `${CRM_TOOLS_API_URL}/skills/${encodeURIComponent(body.skill)}`,
     {
@@ -50,7 +98,7 @@ export async function POST(req: NextRequest) {
       },
       body: JSON.stringify({
         params: {
-          ...body.params,
+          ...params,
           // Always tag the workspace so the skill has the right scope. The
           // skill can decide whether to use it.
           _workspace_id: ctx.workspaceId,

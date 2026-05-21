@@ -11,10 +11,12 @@
  */
 
 import { z } from "zod";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { notes } from "@/db/schema/notes";
 import { dealDocuments } from "@/db/schema/financial";
+import { objects, attributes, selectOptions } from "@/db/schema/objects";
+import { records, recordValues } from "@/db/schema/records";
 import {
   getDealTranscript,
   formatTranscriptForLLM,
@@ -453,6 +455,8 @@ Auftragsübersicht (für die Monteure am Umzugstag):
 - special_requests: besondere Wünsche in einem deutschen Satz zusammenfassen.
 - payment_method: nur bei klarer Aussage ("ich zahle bar", "per Überweisung", "habe schon bezahlt").
 
+Quellen-Priorität (sehr wichtig): Wenn im Prompt ein Block "Bereits erfasster Auftrag" vorhanden ist, gilt jeder dort gepflegte Wert als autoritativ. Übernimm ihn unverändert in das passende "extracted.*"-Feld und entferne ihn aus "missingFields" / "criticalMissing". Der Chatverlauf darf gepflegte Werte nicht überschreiben — er wird nur genutzt, um Lücken im Auftrag zu schließen. Im "summary" und "activity_note" den aktuellen Auftragsstand kurz erwähnen (Transporter, Personal, Zeitfenster, offene Checklistenpunkte), wenn vorhanden.
+
 criticalMissing: Liste der Felder, die wir unbedingt brauchen, um den Auftrag korrekt zu planen und die RICHTIGEN Werkzeuge/Fahrzeuge mitzubringen. Für jedes Feld eine freundliche deutsche Frage formulieren, die der Mitarbeiter 1:1 an den Kunden schicken kann. Beispiele:
   • move_date fehlt → "Haben Sie schon ein konkretes Umzugsdatum im Blick?"
   • move_from_address fehlt → "Könnten Sie mir bitte die genaue Abholadresse (Straße, Hausnummer, PLZ) schicken?"
@@ -479,13 +483,19 @@ export async function extractDealInsights(
   dealRecordId: string
 ): Promise<DealInsightsResult> {
   const transcript = await getDealTranscript(workspaceId, dealRecordId);
-  const [notesText, documentsText] = await Promise.all([
+  const [notesText, documentsText, auftragText] = await Promise.all([
     loadNotesForDeal(dealRecordId),
     loadDocumentsForDeal(workspaceId, dealRecordId),
+    loadAuftragForDeal(workspaceId, dealRecordId),
   ]);
 
   // Allow analysis even without messages, as long as there's *some* signal.
-  if (transcript.messageCount === 0 && !notesText && !documentsText) {
+  if (
+    transcript.messageCount === 0 &&
+    !notesText &&
+    !documentsText &&
+    !auftragText
+  ) {
     return {
       dealRecordId,
       transcript,
@@ -503,6 +513,11 @@ export async function extractDealInsights(
   }
   if (documentsText) {
     promptParts.push(`# Hochgeladene Dokumente (für Stage-Erkennung)\n\n${documentsText}`);
+  }
+  if (auftragText) {
+    promptParts.push(
+      `# Bereits erfasster Auftrag (vom Team manuell gepflegt — autoritativ, nicht überschreiben)\n\n${auftragText}`
+    );
   }
   promptParts.push("Extrahiere die strukturierten Felder.");
 
@@ -610,4 +625,202 @@ async function loadDocumentsForDeal(
       return `- ${label}: "${d.fileName}" (hochgeladen ${ts})`;
     })
     .join("\n");
+}
+
+// ─── Auftrag loader ─────────────────────────────────────────────────────────
+// Mirrors the lookup in /api/v1/deals/[recordId]/auftrag/route.ts: find the
+// auftraege object, find its `deal` reference attribute, find the Auftrag
+// record that points back at this Deal, then format the populated attributes
+// as a German block. Skips empty values so noise stays low. Returns null when
+// no Auftrag exists or has no populated fields.
+
+// Slug → human label, grouped roughly by the Auftrags-Tab sections.
+const AUFTRAG_FIELD_LABELS: Record<string, string> = {
+  // Logistik
+  transporter: "Transporter",
+  worker_count: "Mitarbeiteranzahl",
+  time_window_start: "Zeitfenster Start",
+  time_window_end: "Zeitfenster Ende",
+  parking_halteverbot_needed: "Halteverbot beantragen?",
+  walking_distance_from_m: "Tragweg Abholung (m)",
+  walking_distance_to_m: "Tragweg Ziel (m)",
+  // Umfang
+  volume_cbm: "Volumen (m³)",
+  boxes_needed: "Umzugskartons benötigt",
+  dismantling_required: "Demontage erforderlich",
+  packing_service: "Packservice",
+  piano_transport: "Klaviertransport",
+  disposal_required: "Entsorgung",
+  storage_required: "Einlagerung",
+  // Werkzeug / Material
+  equipment_needed: "Benötigte Ausrüstung",
+  // Kontakte am Tag
+  contact_pickup_name: "Kontakt Abholung (Name)",
+  contact_pickup_phone: "Kontakt Abholung (Telefon)",
+  contact_dropoff_name: "Kontakt Ziel (Name)",
+  contact_dropoff_phone: "Kontakt Ziel (Telefon)",
+  // Zahlung
+  payment_method: "Zahlungsmethode",
+  amount_outstanding: "Offener Betrag (€)",
+  // Sonstiges
+  special_requests: "Besondere Wünsche",
+  notes: "Notizen",
+  checklist: "Checkliste",
+};
+
+async function loadAuftragForDeal(
+  workspaceId: string,
+  dealRecordId: string
+): Promise<string | null> {
+  // 1) Find the auftraege object for this workspace
+  const [auftragObj] = await db
+    .select({ id: objects.id })
+    .from(objects)
+    .where(and(eq(objects.workspaceId, workspaceId), eq(objects.slug, "auftraege")))
+    .limit(1);
+  if (!auftragObj) return null;
+
+  // 2) Find the deal-reference attribute on auftraege
+  const [dealRefAttr] = await db
+    .select({ id: attributes.id })
+    .from(attributes)
+    .where(and(eq(attributes.objectId, auftragObj.id), eq(attributes.slug, "deal")))
+    .limit(1);
+  if (!dealRefAttr) return null;
+
+  // 3) Find the Auftrag record pointing at this Deal
+  const [refRow] = await db
+    .select({ recordId: recordValues.recordId })
+    .from(recordValues)
+    .innerJoin(records, eq(records.id, recordValues.recordId))
+    .where(
+      and(
+        eq(records.objectId, auftragObj.id),
+        eq(recordValues.attributeId, dealRefAttr.id),
+        eq(recordValues.referencedRecordId, dealRecordId)
+      )
+    )
+    .limit(1);
+  if (!refRow) return null;
+  const auftragRecordId = refRow.recordId;
+
+  // 4) Pull all attributes on the auftraege object
+  const attrRows = await db
+    .select()
+    .from(attributes)
+    .where(eq(attributes.objectId, auftragObj.id));
+  const byId = new Map(attrRows.map((a) => [a.id, a]));
+
+  // 5) Pull this Auftrag's recordValues
+  const vrows = await db
+    .select()
+    .from(recordValues)
+    .where(eq(recordValues.recordId, auftragRecordId));
+
+  // 6) Resolve select-option IDs to titles (payment_method, transporter,
+  // equipment_needed, etc.)
+  const optionIds = vrows
+    .map((v) => v.textValue)
+    .filter((x): x is string => !!x && /^[0-9a-f-]{36}$/i.test(x));
+  const optionTitleById = new Map<string, string>();
+  if (optionIds.length > 0) {
+    const opts = await db
+      .select({ id: selectOptions.id, title: selectOptions.title })
+      .from(selectOptions)
+      .where(inArray(selectOptions.id, optionIds));
+    for (const o of opts) optionTitleById.set(o.id, o.title);
+  }
+
+  // 7) Format
+  const lines: string[] = [];
+  for (const v of vrows) {
+    const attr = byId.get(v.attributeId);
+    if (!attr) continue;
+    if (attr.slug === "deal" || attr.slug === "name") continue;
+    const label = AUFTRAG_FIELD_LABELS[attr.slug] ?? attr.title ?? attr.slug;
+    const formatted = formatAuftragValue(attr.type, v, optionTitleById);
+    if (formatted == null) continue;
+    lines.push(`- ${label}: ${formatted}`);
+  }
+
+  if (lines.length === 0) return null;
+  return lines.join("\n");
+}
+
+function formatAuftragValue(
+  attrType: string,
+  v: {
+    textValue: string | null;
+    numberValue: string | null;
+    dateValue: Date | string | null;
+    booleanValue: boolean | null;
+    jsonValue: unknown;
+    referencedRecordId: string | null;
+  },
+  optionTitleById: Map<string, string>
+): string | null {
+  switch (attrType) {
+    case "number": {
+      if (v.numberValue == null) return null;
+      const n = Number(v.numberValue);
+      return Number.isFinite(n) ? String(n) : null;
+    }
+    case "date":
+    case "timestamp": {
+      if (!v.dateValue) return null;
+      const d = v.dateValue instanceof Date ? v.dateValue : new Date(v.dateValue);
+      if (Number.isNaN(d.getTime())) return null;
+      return attrType === "date"
+        ? d.toISOString().slice(0, 10)
+        : d.toISOString().slice(0, 16).replace("T", " ");
+    }
+    case "boolean":
+    case "checkbox": {
+      if (v.booleanValue == null) return null;
+      return v.booleanValue ? "ja" : "nein";
+    }
+    case "select":
+    case "status": {
+      if (!v.textValue) return null;
+      return optionTitleById.get(v.textValue) ?? v.textValue;
+    }
+    case "multi_select": {
+      const ids = Array.isArray(v.jsonValue)
+        ? (v.jsonValue as unknown[]).filter((x): x is string => typeof x === "string")
+        : [];
+      if (ids.length === 0) return null;
+      const titles = ids.map((id) => optionTitleById.get(id) ?? id);
+      return titles.join(", ");
+    }
+    case "json": {
+      if (!v.jsonValue) return null;
+      // Checklist shape: [{ title, done }]
+      if (Array.isArray(v.jsonValue) && v.jsonValue.every((x) => x && typeof x === "object")) {
+        const items = v.jsonValue as Array<{ title?: string; done?: boolean }>;
+        const open = items.filter((i) => !i.done).map((i) => i.title).filter(Boolean);
+        const done = items.filter((i) => i.done).map((i) => i.title).filter(Boolean);
+        const parts: string[] = [];
+        if (open.length) parts.push(`offen: ${open.join(", ")}`);
+        if (done.length) parts.push(`erledigt: ${done.join(", ")}`);
+        return parts.length ? parts.join(" | ") : null;
+      }
+      try {
+        return JSON.stringify(v.jsonValue);
+      } catch {
+        return null;
+      }
+    }
+    default: {
+      // text, location, record_reference, …
+      if (v.textValue) return v.textValue;
+      if (v.jsonValue) {
+        try {
+          return JSON.stringify(v.jsonValue);
+        } catch {
+          return null;
+        }
+      }
+      return null;
+    }
+  }
 }
