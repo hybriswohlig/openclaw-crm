@@ -13,7 +13,7 @@
  * Europe/Berlin (to give a buffer for late-finishing jobs).
  */
 
-import type { CustomerLinkStage } from "./types.js";
+import type { CustomerLinkStage } from "./types";
 
 export interface StageInputs {
   /** PDF "invoice" already uploaded to deal_documents. */

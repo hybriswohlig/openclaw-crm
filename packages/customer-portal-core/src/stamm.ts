@@ -7,7 +7,7 @@
  * Mirror of /home/ubuntu/apps/crm-tools/skills/rechnungen-und-auftragsbestaetigungen/stammdaten/{kottke,ceylan}.md
  */
 
-import type { FirmaBranding } from "./types.js";
+import type { FirmaBranding } from "./types";
 
 export const KOTTKE_BRANDING: FirmaBranding = {
   firmaSlug: "kottke",
