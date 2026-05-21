@@ -18,6 +18,12 @@ interface Quotation {
   isVariable: boolean;
   notes: string | null;
   lineItems: LineItem[];
+  /** Anzahlung in cents — when set, Stage 2 gates on operator-confirmed payment ≥ this. */
+  depositRequiredCents?: number | null;
+  /** Per-deal payment method shown to the customer. */
+  paymentMethodPreference?: "bank_transfer" | "paypal" | "cash" | "card" | null;
+  /** ISO date — offer valid until. */
+  validUntil?: string | null;
 }
 
 interface Props {
@@ -43,6 +49,13 @@ export function QuotationCalculator({ recordId, quotation, onSaved }: Props) {
   const [lineItems, setLineItems] = useState<LineItem[]>(
     quotation?.lineItems?.length ? quotation.lineItems : [emptyLine(0)]
   );
+  const [depositEur, setDepositEur] = useState<string>(
+    quotation?.depositRequiredCents != null ? (quotation.depositRequiredCents / 100).toFixed(2) : ""
+  );
+  const [paymentMethod, setPaymentMethod] = useState<NonNullable<Quotation["paymentMethodPreference"]>>(
+    quotation?.paymentMethodPreference ?? "bank_transfer"
+  );
+  const [validUntil, setValidUntil] = useState<string>(quotation?.validUntil ?? "");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -51,6 +64,13 @@ export function QuotationCalculator({ recordId, quotation, onSaved }: Props) {
       setFixedPrice(quotation.fixedPrice ?? "");
       setNotes(quotation.notes ?? "");
       setLineItems(quotation.lineItems?.length ? quotation.lineItems : [emptyLine(0)]);
+      setDepositEur(
+        quotation.depositRequiredCents != null
+          ? (quotation.depositRequiredCents / 100).toFixed(2)
+          : ""
+      );
+      setPaymentMethod(quotation.paymentMethodPreference ?? "bank_transfer");
+      setValidUntil(quotation.validUntil ?? "");
     }
   }, [quotation]);
 
@@ -78,6 +98,9 @@ export function QuotationCalculator({ recordId, quotation, onSaved }: Props) {
   async function handleSave() {
     setSaving(true);
     try {
+      const depositCents = depositEur.trim()
+        ? Math.round(Number(depositEur) * 100)
+        : null;
       await fetch(`/api/v1/deals/${recordId}/quotation`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -88,6 +111,12 @@ export function QuotationCalculator({ recordId, quotation, onSaved }: Props) {
           lineItems: isVariable
             ? lineItems.map((li, i) => ({ ...li, sortOrder: i }))
             : [],
+          depositRequiredCents:
+            depositCents != null && Number.isFinite(depositCents) && depositCents > 0
+              ? depositCents
+              : null,
+          paymentMethodPreference: paymentMethod,
+          validUntil: validUntil || null,
         }),
       });
 
@@ -228,6 +257,60 @@ export function QuotationCalculator({ recordId, quotation, onSaved }: Props) {
           className="w-full mt-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring resize-none"
           placeholder="Internal notes about this quotation..."
         />
+      </div>
+
+      {/* Kunden-Portal: Anzahlung, Zahlungsweg, Gültigkeit */}
+      <div className="mt-5 grid grid-cols-1 gap-3 rounded-lg border border-dashed border-border bg-muted/30 p-4 sm:grid-cols-3">
+        <div>
+          <label className="text-xs font-medium text-muted-foreground">
+            Anzahlung (EUR, optional)
+          </label>
+          <input
+            type="number"
+            step="0.01"
+            value={depositEur}
+            onChange={(e) => setDepositEur(e.target.value)}
+            placeholder="z. B. 500"
+            className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+          />
+          <p className="mt-1 text-[10px] text-muted-foreground">
+            Wenn gesetzt: Auftragsbestätigung wird im Kunden-Portal erst nach
+            Zahlungseingang freigeschaltet.
+          </p>
+        </div>
+        <div>
+          <label className="text-xs font-medium text-muted-foreground">
+            Zahlungsweg
+          </label>
+          <select
+            value={paymentMethod}
+            onChange={(e) =>
+              setPaymentMethod(
+                e.target.value as NonNullable<Quotation["paymentMethodPreference"]>
+              )
+            }
+            className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+          >
+            <option value="bank_transfer">Überweisung (Girocode QR)</option>
+            <option value="paypal">PayPal</option>
+            <option value="cash">Bar bei Übergabe</option>
+            <option value="card">Karte</option>
+          </select>
+          <p className="mt-1 text-[10px] text-muted-foreground">
+            Wird dem Kunden im Status-Link entsprechend angezeigt.
+          </p>
+        </div>
+        <div>
+          <label className="text-xs font-medium text-muted-foreground">
+            Angebot gültig bis
+          </label>
+          <input
+            type="date"
+            value={validUntil}
+            onChange={(e) => setValidUntil(e.target.value)}
+            className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+          />
+        </div>
       </div>
 
       {/* Total + Save */}

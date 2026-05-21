@@ -26,6 +26,12 @@ export async function upsertQuotation(
     fixedPrice?: string | null;
     isVariable: boolean;
     notes?: string | null;
+    /** Anzahlung in cents — gates Stage 2 in the customer portal when set. */
+    depositRequiredCents?: number | null;
+    /** Per-deal payment method shown to the customer. */
+    paymentMethodPreference?: "bank_transfer" | "paypal" | "cash" | "card" | null;
+    /** ISO date — offer valid until. */
+    validUntil?: string | null;
     lineItems?: Array<{
       id?: string;
       type: "helper" | "transporter" | "other";
@@ -47,6 +53,16 @@ export async function upsertQuotation(
         fixedPrice: input.fixedPrice ?? null,
         isVariable: input.isVariable,
         notes: input.notes ?? null,
+        depositRequiredCents:
+          input.depositRequiredCents !== undefined
+            ? input.depositRequiredCents
+            : existing.depositRequiredCents,
+        paymentMethodPreference:
+          input.paymentMethodPreference !== undefined
+            ? input.paymentMethodPreference
+            : existing.paymentMethodPreference,
+        validUntil:
+          input.validUntil !== undefined ? input.validUntil : existing.validUntil,
         updatedAt: new Date(),
       })
       .where(eq(quotations.id, existing.id))
@@ -60,6 +76,9 @@ export async function upsertQuotation(
         fixedPrice: input.fixedPrice ?? null,
         isVariable: input.isVariable,
         notes: input.notes ?? null,
+        depositRequiredCents: input.depositRequiredCents ?? null,
+        paymentMethodPreference: input.paymentMethodPreference ?? null,
+        validUntil: input.validUntil ?? null,
       })
       .returning();
     quotationId = created.id;

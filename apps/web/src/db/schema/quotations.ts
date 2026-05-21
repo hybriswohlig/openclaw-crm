@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, numeric, boolean, integer, pgEnum, index } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, numeric, boolean, integer, date, pgEnum, index } from "drizzle-orm/pg-core";
 import { records } from "./records";
 
 export const lineItemTypeEnum = pgEnum("line_item_type", [
@@ -18,6 +18,19 @@ export const quotations = pgTable(
     fixedPrice: numeric("fixed_price", { precision: 12, scale: 2 }),
     isVariable: boolean("is_variable").notNull().default(false),
     notes: text("notes"),
+    /**
+     * If set, the customer portal gates Stage 2 (Auftragsbestätigung) on an
+     * operator-confirmed payment >= this amount. Null = no Anzahlung required.
+     */
+    depositRequiredCents: integer("deposit_required_cents"),
+    /**
+     * Per-deal payment method shown to the customer at Stage 4 (and Stage 1
+     * when a deposit is required). One of: bank_transfer | paypal | cash | card.
+     * Null falls back to bank_transfer.
+     */
+    paymentMethodPreference: text("payment_method_preference"),
+    /** ISO date — offer valid until. Optional. */
+    validUntil: date("valid_until"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },

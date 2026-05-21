@@ -14,6 +14,7 @@ import { MediaTab } from "@/components/media/media-tab";
 import { DealInsightsTab } from "@/components/deal-insights/deal-insights-tab";
 import { AuftragTab } from "@/components/auftrag/auftrag-tab";
 import { RecordConversations } from "@/components/records/record-conversations";
+import { ShareLinkPanel } from "@/components/customer-link/share-link-panel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import {
@@ -328,6 +329,12 @@ export default function RecordDetailPage() {
             </div>
           </div>
         </div>
+
+        {slug === "deals" && (
+          <div className="px-6 pt-4">
+            <ShareLinkPanel dealRecordId={recordId} />
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="px-6 py-4">

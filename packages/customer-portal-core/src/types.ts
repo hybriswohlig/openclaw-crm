@@ -1,0 +1,223 @@
+/**
+ * Portable types shared between the CRM's public API and the customer portal
+ * UI. Keep these stable — they form the public contract.
+ *
+ * Note on dates: every Date is serialized as an ISO-8601 string in JSON, so
+ * fields that the API returns over the wire are typed `string`. Internal DB
+ * code converts to Date before returning.
+ */
+
+export type CustomerLinkStage = 1 | 2 | 3 | 4;
+
+export type Firma = "kottke" | "ceylan" | (string & {});
+
+export type PaymentMethodPreference =
+  | "bank_transfer"
+  | "paypal"
+  | "cash"
+  | "card";
+
+/**
+ * Branding pulled from the operating company (or a per-firma constant for v1).
+ * The public route uses this to theme the page.
+ */
+export interface FirmaBranding {
+  firmaSlug: Firma;
+  displayName: string;
+  /** Hex without leading # — used for accents, buttons, headers. */
+  primaryColor: string;
+  /** Optional logo URL or data URI. */
+  logoUrl: string | null;
+  /** Optional human-readable footer line. */
+  footer: string | null;
+  /** Where the customer should leave a Google review at Stage 4. */
+  googleReviewUrl: string | null;
+  /** WhatsApp contact for the "Frage stellen" button (E.164, no leading +). */
+  whatsappNumberE164: string | null;
+  /** Payment destinations (one or both may be filled). */
+  bank: {
+    iban: string | null;
+    bic: string | null;
+    holder: string | null;
+  };
+  paypal: {
+    /** Either an email or a paypal.me handle. */
+    handleOrEmail: string | null;
+  };
+  /** Acceptance flow uses this string as the AGB version stored on the snapshot. */
+  agbVersion: string;
+  /** URL of the AGB PDF the customer should be able to download/inspect. */
+  agbPdfUrl: string | null;
+}
+
+/**
+ * One line item on the offer.
+ */
+export interface KvaLineItem {
+  type: "helper" | "transporter" | "other";
+  description: string;
+  quantity: number;
+  unitRate: number; // EUR
+  /** quantity * unitRate, rounded to 2 dp. */
+  lineTotal: number;
+}
+
+/**
+ * The price block the customer sees. For variable-priced offers the totals
+ * are an estimate (lineItems.length > 0); for fixed-price offers totalCents
+ * is the binding number.
+ */
+export interface KvaSnapshot {
+  isVariable: boolean;
+  fixedPriceCents: number | null;
+  lineItems: KvaLineItem[];
+  notes: string | null;
+  /** Sum of lineItems OR fixedPrice — always populated for display. */
+  totalCents: number;
+  /** Optional Anzahlung due before the AB unlocks. */
+  depositRequiredCents: number | null;
+  /** ISO date until which the offer is valid. */
+  validUntil: string | null;
+}
+
+/**
+ * Scope details shown to the customer so they know what they're agreeing to.
+ * All fields optional — populate what's known.
+ */
+export interface MoveScope {
+  moveDate: string | null;            // YYYY-MM-DD
+  timeStart: string | null;           // ISO
+  timeEnd: string | null;             // ISO
+  fromAddress: string | null;
+  toAddress: string | null;
+  floorsFrom: number | null;
+  floorsTo: number | null;
+  accessFrom: string | null;          // resolved select title
+  accessTo: string | null;            // resolved select title
+  volumeCbm: number | null;
+  workerCount: number | null;
+  transporterName: string | null;
+  specialRequests: string | null;
+  inventoryNotes: string | null;
+}
+
+export interface CrewMember {
+  employeeId: string;
+  name: string;
+  role: string;
+  photoBase64DataUrl: string | null;
+}
+
+export interface AttachmentRef {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  /** Full ISO timestamp. */
+  sentAt: string;
+  /** "image/*" / "video/*" / etc. — caller can branch on this. */
+  isImage: boolean;
+  /** Caption from inbox_messages.body if any. */
+  caption: string;
+  /** "inbound" (from customer) vs "outbound" (from crew/operator). */
+  direction: "inbound" | "outbound";
+}
+
+export interface MoveTiming {
+  departureAt: string | null;
+  onsiteAt: string | null;
+  finishedAt: string | null;
+}
+
+export interface PaymentInstructions {
+  method: PaymentMethodPreference;
+  amountCents: number;
+  reference: string;          // Verwendungszweck (e.g. invoice number)
+  /** For "bank_transfer": destination details. Null on cash / card. */
+  bank: {
+    iban: string;
+    bic: string;
+    holder: string;
+  } | null;
+  /** For "paypal": ready-to-use paypal.me URL. */
+  paypalUrl: string | null;
+  /** Pre-built EPC Girocode payload (string). Null when method != bank_transfer. */
+  girocodePayload: string | null;
+}
+
+export interface AcceptanceRecord {
+  signedAt: string;
+  acceptedFullName: string | null;
+  widerrufVerzichtAccepted: boolean;
+  agbVersionAccepted: string;
+}
+
+/**
+ * The full context the public route fetches for a given token. The public API
+ * returns exactly this shape — UI components read straight from it.
+ *
+ * Field rule of thumb: if the field is sensitive (DB id of a deal,
+ * conversation, employee receipt etc.), DO NOT include it here.
+ */
+export interface CustomerPortalContext {
+  /** Computed every request from underlying data. */
+  stage: CustomerLinkStage;
+  /** Always set — used for human reference and Verwendungszweck. */
+  dealNumber: string;
+  /** Customer's display name as the operator stored it. */
+  customerDisplayName: string | null;
+
+  branding: FirmaBranding;
+  scope: MoveScope;
+  crew: CrewMember[];
+  kva: KvaSnapshot | null;
+
+  /** Was the KVA already accepted? Drives Stage 2 visibility. */
+  acceptance: AcceptanceRecord | null;
+
+  /** Documents that already exist as PDFs. URLs are public-token-scoped. */
+  documents: {
+    orderConfirmationUrl: string | null;
+    invoiceUrl: string | null;
+  };
+
+  /** Live media feed for Stage 3 — chronological. Already filtered server-side. */
+  attachments: AttachmentRef[];
+
+  /** Three timestamps the operator clicks during the move. */
+  timing: MoveTiming;
+
+  /** Set on Stage 4 (or earlier when a deposit is required). */
+  payment: PaymentInstructions | null;
+
+  /** Customer-side rate-limiting hint to the UI. */
+  meta: {
+    serverTime: string;
+    /** Token revoked or expired? UI shows a friendly message. */
+    revoked: boolean;
+    /**
+     * Per-OC feature flag was turned off in settings → UI shows a friendly
+     * "currently unavailable" message instead of the stage stack.
+     */
+    featureDisabled: boolean;
+    /**
+     * If the operating company has a verified custom domain, this is it.
+     * The public page redirects the browser to that host so the customer
+     * always sees the matching brand, regardless of which host they hit.
+     */
+    canonicalHost: string | null;
+  };
+}
+
+/**
+ * Payload posted from the KVA acceptance dialog.
+ */
+export interface ConfirmKvaPayload {
+  /** Both must be true. */
+  acceptedOffer: boolean;
+  acceptedBindingNature: boolean;
+  /** Only required when the move is < 14 days away. */
+  widerrufVerzichtAccepted: boolean;
+  /** Optional self-typed full name. Strengthens evidence. */
+  fullName: string | null;
+}

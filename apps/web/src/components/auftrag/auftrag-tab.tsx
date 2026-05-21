@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { DealDocumentActions } from "@/components/DealDocumentActions";
 import type { DealData, Firma } from "@/components/GenerateDocumentDialog";
 import { ZeitschaetzungSection } from "@/components/auftrag/zeitschaetzung-section";
+import { MoveTimingButtons } from "@/components/auftrag/move-timing-buttons";
 import {
   GenerateWorkerInstructionsDialog,
   type AnweisungContext,
@@ -547,6 +548,11 @@ export function AuftragTab({ recordId }: { recordId: string }) {
           </section>
         );
       })()}
+
+      {/* ── Kunden-Portal Live-Status (Anfahrt / Vor Ort / Beendet) ─── */}
+      <div className="rounded-xl border border-border/50 bg-card p-4">
+        <MoveTimingButtons dealRecordId={recordId} />
+      </div>
 
       {/* ── Zeitschätzung & Preis-Kalkulator ─────────────────────────── */}
       {leadContext && (

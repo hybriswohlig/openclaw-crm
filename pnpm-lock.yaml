@@ -63,6 +63,9 @@ importers:
       '@neondatabase/serverless':
         specifier: ^0.10.0
         version: 0.10.4
+      '@openclaw-crm/customer-portal-core':
+        specifier: workspace:*
+        version: link:../../packages/customer-portal-core
       '@openclaw-crm/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -256,6 +259,12 @@ importers:
       tsx:
         specifier: ^4.19.0
         version: 4.21.0
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
+  packages/customer-portal-core:
+    devDependencies:
       typescript:
         specifier: ^5.7.0
         version: 5.9.3

@@ -4,7 +4,16 @@ import { NextRequest, NextResponse } from "next/server";
 // must be here — they are hit by Vercel's cron scheduler and third-party
 // platforms (Meta, etc.) that have no browser session, but they do their own
 // bearer/HMAC auth inside the route handler.
-const publicPaths = ["/login", "/register", "/api/auth", "/api/webhooks", "/api/cron"];
+const publicPaths = [
+  "/login",
+  "/register",
+  "/api/auth",
+  "/api/webhooks",
+  "/api/cron",
+  // Customer status portal — token-scoped, no session
+  "/s/",
+  "/api/public/",
+];
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;

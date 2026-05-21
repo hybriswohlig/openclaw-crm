@@ -40,6 +40,7 @@ import {
   markDraftConsumed,
   type DraftSuggestion,
 } from "@/components/chat/draft-suggestion-banner";
+import { CustomerLinkComposer } from "@/components/inbox/customer-link-composer";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1246,6 +1247,20 @@ function ConversationView({
                   <Sparkles className="h-4 w-4" />
                 )}
               </button>
+              {conv.dealRecordId && (
+                <CustomerLinkComposer
+                  dealRecordId={conv.dealRecordId}
+                  firmaDisplayName={conv.channelName}
+                  customerFirstName={
+                    conv.contactName ? conv.contactName.split(" ")[0] : null
+                  }
+                  dealNumber={null}
+                  onInsert={(text) => {
+                    setReply((r) => (r.trim() ? `${r.trimEnd()}\n\n${text}` : text));
+                    requestAnimationFrame(() => textareaRef.current?.focus());
+                  }}
+                />
+              )}
               <textarea
                 ref={textareaRef}
                 className="flex-1 bg-transparent text-sm resize-none min-h-[28px] max-h-[40vh] sm:max-h-48 overflow-y-auto focus:outline-none placeholder:text-muted-foreground"

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { Settings, Users, Box, KeyRound, Bot, Puzzle, Truck, UserCheck, Loader2, MessageCircle } from "lucide-react";
+import { Settings, Users, Box, KeyRound, Bot, Puzzle, Truck, UserCheck, Loader2, MessageCircle, Link2 } from "lucide-react";
 
 const settingsNav = [
   { href: "/settings", label: "General", icon: Settings, exact: true },
@@ -26,6 +26,12 @@ const settingsNav = [
   { href: "/settings/api-keys", label: "API Keys", icon: KeyRound, exact: false },
   { href: "/settings/ai", label: "AI Agent", icon: Bot, exact: false },
   { href: "/settings/whatsapp", label: "WhatsApp", icon: MessageCircle, exact: false },
+  {
+    href: "/settings/customer-portal",
+    label: "Kunden-Portal",
+    icon: Link2,
+    exact: false,
+  },
   { href: "/settings/openclaw", label: "OpenClaw", icon: Puzzle, exact: false },
 ];
 
