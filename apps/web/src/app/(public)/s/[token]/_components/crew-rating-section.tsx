@@ -71,7 +71,7 @@ export function CrewRatingSection({
         <div className="font-medium">Danke für dein Feedback!</div>
         <p className="mt-1 text-xs">
           {branding.googleReviewUrl
-            ? "Wenn alles geklappt hat, freuen wir uns über eine öffentliche Google-Bewertung — Button direkt darunter."
+            ? "Wenn alles geklappt hat, freuen wir uns über eine öffentliche Google-Bewertung. Der Button dazu erscheint direkt darunter."
             : "Wir geben dein Feedback an die Crew weiter."}
         </p>
       </section>

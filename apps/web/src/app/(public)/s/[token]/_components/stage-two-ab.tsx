@@ -15,7 +15,7 @@ export function StageTwoAb({ ctx }: { ctx: CustomerPortalContext }) {
         <div className="font-medium">Ihr Auftrag ist bestätigt.</div>
         <p className="mt-1 text-xs">
           Wir freuen uns auf Ihren Umzug. Alle wichtigen Informationen finden
-          Sie unten — die Auftragsbestätigung als PDF folgt direkt darunter.
+          Sie unten. Die Auftragsbestätigung als PDF folgt direkt darunter.
         </p>
       </div>
 

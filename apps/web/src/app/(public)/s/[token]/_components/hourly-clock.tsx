@@ -116,7 +116,7 @@ function Milestone({ label, iso }: { label: string; iso: string | null }) {
               hour: "2-digit",
               minute: "2-digit",
             })
-          : "—"}
+          : "·"}
       </div>
     </div>
   );

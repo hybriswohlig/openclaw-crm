@@ -143,7 +143,7 @@ function PayPalBlock({ url, branding }: { url: string; branding: FirmaBranding }
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">
-        Tippe auf den Button, um die Zahlung in der PayPal-App zu öffnen — Betrag
+        Tippe auf den Button, um die Zahlung in der PayPal-App zu öffnen. Betrag
         und Empfänger sind vorausgefüllt.
       </p>
       <a
@@ -179,7 +179,7 @@ function CardComingSoonBlock() {
       <strong className="block">Kartenzahlung</strong>
       <p className="mt-1 text-muted-foreground">
         Wir nehmen Visa, Mastercard und Girocard vor Ort entgegen. Eine
-        Online-Kartenzahlung bauen wir gerade — bei Fragen melde dich bitte
+        Online-Kartenzahlung bauen wir gerade. Bei Fragen melde dich bitte
         kurz bei deinem Ansprechpartner.
       </p>
     </div>

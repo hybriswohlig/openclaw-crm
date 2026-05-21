@@ -78,7 +78,7 @@ export function DomainStatusBlock({
             {isSubdomain ? customDomain.split(".")[0] : "@"}
           </code>
           <span className="text-[10px]">
-            (im DNS-Anbieter — meistens nur der erste Teil)
+            (im DNS-Anbieter meistens nur der erste Teil)
           </span>
           <span>Wert</span>
           <code className="font-mono">{dnsRecord.value}</code>
@@ -150,7 +150,7 @@ function StatusLine({
     return (
       <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-300">
         <Loader2 className="h-4 w-4 animate-spin" />
-        DNS ist richtig — Vercel stellt jetzt das SSL-Zertifikat aus (≈30-90 s).
+        DNS ist richtig. Vercel stellt jetzt das SSL-Zertifikat aus (≈30 bis 90 s).
       </div>
     );
   }
@@ -166,7 +166,7 @@ function StatusLine({
   }
   return (
     <div className="text-xs text-muted-foreground">
-      Noch nicht geprüft — klicke auf „Jetzt prüfen", um den DNS-Eintrag zu
+      Noch nicht geprüft. Klicke auf „Jetzt prüfen", um den DNS-Eintrag zu
       validieren.
     </div>
   );

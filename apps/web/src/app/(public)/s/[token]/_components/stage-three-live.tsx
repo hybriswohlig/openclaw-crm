@@ -67,7 +67,7 @@ export function StageThreeLive({
 }
 
 function headlineForStage(ctx: CustomerPortalContext): string {
-  if (ctx.timing.finishedAt) return "Umzug abgeschlossen — Aufräumen läuft.";
+  if (ctx.timing.finishedAt) return "Umzug abgeschlossen. Aufräumen läuft.";
   if (ctx.timing.onsiteAt) return "Die Crew ist vor Ort und arbeitet.";
   if (ctx.timing.departureAt) return "Die Crew ist auf dem Weg zur Abholadresse.";
   return "Der Umzug läuft.";

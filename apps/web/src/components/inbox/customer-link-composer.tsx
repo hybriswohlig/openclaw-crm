@@ -201,6 +201,6 @@ function renderSnippet(
     case "stage_3_live":
       return `${greeting}\n\nUnser Team ist heute für Sie unterwegs${ref}. Über den folgenden Link sehen Sie live alle Bilder und Updates vom Umzug:\n\n${ctx.url}\n\nSollten Sie Fragen haben, sind wir jederzeit per WhatsApp über den Link erreichbar.${sign}`;
     case "final_invoice":
-      return `${greeting}\n\nVielen Dank für den reibungslosen Umzug${ref}! Ihre Rechnung sowie die Möglichkeit zur sofortigen Überweisung per QR-Code finden Sie hier:\n\n${ctx.url}\n\nÜber eine Google-Bewertung würden wir uns sehr freuen — auch dort führt der Link direkt zum richtigen Formular.${sign}`;
+      return `${greeting}\n\nVielen Dank für den reibungslosen Umzug${ref}! Ihre Rechnung sowie die Möglichkeit zur sofortigen Überweisung per QR-Code finden Sie hier:\n\n${ctx.url}\n\nÜber eine Google-Bewertung würden wir uns sehr freuen. Auch dort führt der Link direkt zum richtigen Formular.${sign}`;
   }
 }

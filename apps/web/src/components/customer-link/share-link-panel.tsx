@@ -117,7 +117,7 @@ export function ShareLinkPanel({ dealRecordId }: { dealRecordId: string }) {
         </div>
         <p className="mt-1 text-xs text-muted-foreground">
           Noch kein Link erstellt. Sobald ein Kostenvoranschlag gespeichert wird,
-          erstellt das System den Link automatisch — du kannst ihn auch hier
+          erstellt das System den Link automatisch. Du kannst ihn auch hier
           jetzt schon manuell anlegen.
         </p>
         <button
