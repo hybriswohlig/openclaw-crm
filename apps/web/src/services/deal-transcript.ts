@@ -24,7 +24,7 @@ import { parseKleinanzeigenBody, isKleinanzeigenEmail } from "./inbox-kleinanzei
 export interface TranscriptMessage {
   id: string;
   conversationId: string;
-  channelType: "email" | "whatsapp";
+  channelType: "email" | "whatsapp" | "sms";
   channelName: string;
   channelAddress: string;
   direction: "inbound" | "outbound";
@@ -41,7 +41,7 @@ export interface DealTranscript {
   messageCount: number;
   channels: Array<{
     conversationId: string;
-    channelType: "email" | "whatsapp";
+    channelType: "email" | "whatsapp" | "sms";
     channelName: string;
     channelAddress: string;
     contactName: string | null;

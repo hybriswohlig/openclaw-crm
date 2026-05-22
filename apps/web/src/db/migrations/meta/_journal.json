@@ -106,6 +106,13 @@
       "when": 1778414400000,
       "tag": "0024_reviews_engine",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1778414500000,
+      "tag": "0025_channel_type_sms",
+      "breakpoints": true
     }
   ]
 }
