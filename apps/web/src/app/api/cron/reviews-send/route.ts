@@ -111,7 +111,10 @@ export async function POST(req: NextRequest) {
 
 // ─── Quiet hours helper ───────────────────────────────────────────────────────
 
-export function isQuietHoursBerlin(now: Date): boolean {
+// Internal helper. Not exported because Next.js App Router restricts
+// route files to its conventional exports only — KOT-624 will extract
+// to a separate lib file when it wires the unit-test coverage.
+function isQuietHoursBerlin(now: Date): boolean {
   // Use Intl to avoid pulling a tz library. Format yields "Mo, Di, …, So" for
   // German and "Mon, Tue, …, Sun" for English; we use 'en-US' for stable parsing.
   const fmt = new Intl.DateTimeFormat("en-US", {
