@@ -101,6 +101,28 @@ export interface MoveScope {
   inventoryNotes: string | null;
 }
 
+/**
+ * What the customer is getting (and what they could still add) at Stage 1.
+ *
+ * Two-section model based on the popular Check24 / Updater pattern:
+ *   included   → operator already promised this. Renders with a check icon.
+ *   optional   → not part of the offer today, customer can ask for it.
+ *
+ * Each item has a stable `key` for analytics + future per-item add-on flows,
+ * a human `label` shown to the customer, and an optional one-line `detail`
+ * (e.g. "Anzahl: 30" for boxes).
+ */
+export interface OfferInclusionItem {
+  key: string;
+  label: string;
+  detail: string | null;
+}
+
+export interface OfferInclusions {
+  included: OfferInclusionItem[];
+  optional: OfferInclusionItem[];
+}
+
 export interface CrewMember {
   employeeId: string;
   name: string;
@@ -169,6 +191,7 @@ export interface CustomerPortalContext {
 
   branding: FirmaBranding;
   scope: MoveScope;
+  inclusions: OfferInclusions;
   crew: CrewMember[];
   kva: KvaSnapshot | null;
 

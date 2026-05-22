@@ -49,11 +49,13 @@ import {
   type KvaSnapshot,
   type MoveScope,
   type MoveTiming,
+  type OfferInclusions,
   type PaymentInstructions,
   type PaymentMethodPreference,
 } from "@openclaw-crm/customer-portal-core";
 import { loadEffectiveBranding } from "./customer-portal-config";
 import { emitEvent } from "./activity-events";
+import { sendKvaAcceptanceEmail } from "./customer-portal-emails";
 
 // ─── Token / link lifecycle ────────────────────────────────────────────────────
 
@@ -238,6 +240,10 @@ export async function loadContextByToken(
   // Crew
   const crew = await loadCrew(dealRecordId);
 
+  // Offer inclusions (derived from the linked auftrag, plus a baseline of
+  // always-included services every move gets).
+  const inclusions = await loadInclusions(workspaceId, dealRecordId);
+
   // Confirmation
   const acceptance = await loadLatestAcceptance(dealRecordId);
 
@@ -319,6 +325,7 @@ export async function loadContextByToken(
     customerDisplayName,
     branding,
     scope,
+    inclusions,
     crew,
     kva,
     acceptance,
@@ -384,6 +391,7 @@ export async function confirmKvaForToken(
     return { ok: false, reason: "feature_disabled" };
   }
 
+  const signedAt = new Date();
   await db.insert(kvaConfirmations).values({
     workspaceId: link.workspaceId,
     dealRecordId: link.dealRecordId,
@@ -395,6 +403,20 @@ export async function confirmKvaForToken(
     ipAddress: ctx.ipAddress.slice(0, 200),
     userAgent: ctx.userAgent.slice(0, 1000),
     acceptedFullName: body.fullName ?? null,
+    signedAt,
+  });
+
+  // Fire-and-forget confirmation email. Never throws — failures log + drop.
+  void sendKvaAcceptanceEmail({
+    workspaceId: link.workspaceId,
+    dealRecordId: link.dealRecordId,
+    customerLinkId: link.id,
+    acceptedFullName: body.fullName ?? null,
+    widerrufVerzichtAccepted: body.widerrufVerzichtAccepted,
+    snapshot: kva,
+    signedAt: signedAt.toISOString(),
+  }).catch((err) => {
+    console.error("[customer-portal] email dispatch failed:", err);
   });
 
   await emitEvent({
@@ -939,4 +961,151 @@ function toCents(eur: number): number {
 
 function roundCents(eur: number): number {
   return Math.round(eur * 100) / 100;
+}
+
+// ─── Offer inclusions ─────────────────────────────────────────────────────────
+// What the customer is getting. Baseline = always-included services every
+// Kottke / Ceylan move ships with. Conditional items are flipped between
+// "included" and "optional" based on the linked auftrag's checkbox + number
+// flags. If no auftrag exists yet the customer still sees the baseline.
+
+const BASELINE_INCLUSIONS: { key: string; label: string }[] = [
+  { key: "insurance", label: "Transportversicherung bis 5.000 EUR" },
+  { key: "blankets", label: "Decken und Polstermaterial" },
+  { key: "tools", label: "Werkzeug (Sackkarre, Gurte, Möbelhund)" },
+  { key: "load_unload", label: "An- und Abladen" },
+];
+
+interface ConditionalDef {
+  /** Slug of the boolean/number attribute on the auftrag record. */
+  slug: string;
+  /** What it's called on the offer. */
+  label: string;
+  /** Stable key for analytics. */
+  key: string;
+  /** Optional formatter for numeric attributes ("Anzahl 30" etc.). */
+  detailFromNumber?: (n: number) => string;
+}
+
+const CONDITIONALS: ConditionalDef[] = [
+  { slug: "dismantling_required", label: "Demontage und Montage", key: "dismantling" },
+  { slug: "packing_service", label: "Einpackservice", key: "packing" },
+  { slug: "piano_transport", label: "Klaviertransport", key: "piano" },
+  { slug: "disposal_required", label: "Sperrmüll und Entsorgung", key: "disposal" },
+  { slug: "storage_required", label: "Einlagerung", key: "storage" },
+  { slug: "parking_halteverbot_needed", label: "Halteverbotszone einrichten", key: "halteverbot" },
+  {
+    slug: "boxes_needed",
+    label: "Umzugskartons",
+    key: "boxes",
+    detailFromNumber: (n) => (n > 0 ? `Anzahl ${n}` : ""),
+  },
+];
+
+async function loadInclusions(
+  workspaceId: string,
+  dealRecordId: string
+): Promise<OfferInclusions> {
+  // Find the auftrag (if any) attached to this deal.
+  const [auftragObj] = await db
+    .select({ id: objects.id })
+    .from(objects)
+    .where(and(eq(objects.workspaceId, workspaceId), eq(objects.slug, "auftraege")))
+    .limit(1);
+
+  const included: OfferInclusions["included"] = BASELINE_INCLUSIONS.map((b) => ({
+    key: b.key,
+    label: b.label,
+    detail: null,
+  }));
+  const optional: OfferInclusions["optional"] = [];
+
+  if (!auftragObj) {
+    // No auftrag-object provisioned in this workspace: ship only the baseline,
+    // mark every conditional as optional.
+    for (const c of CONDITIONALS) {
+      optional.push({ key: c.key, label: c.label, detail: null });
+    }
+    return { included, optional };
+  }
+
+  // Resolve auftrag attributes by slug.
+  const attrRows = await db
+    .select({ id: attributes.id, slug: attributes.slug, type: attributes.type })
+    .from(attributes)
+    .where(eq(attributes.objectId, auftragObj.id));
+  const attrBySlug = new Map(attrRows.map((a) => [a.slug, a]));
+
+  // Find the auftrag record linked to the deal via the `deal` ref attribute.
+  const dealRefAttr = attrBySlug.get("deal");
+  let auftragRecordId: string | null = null;
+  if (dealRefAttr) {
+    const [link] = await db
+      .select({ recordId: recordValues.recordId })
+      .from(recordValues)
+      .innerJoin(records, eq(records.id, recordValues.recordId))
+      .where(
+        and(
+          eq(records.objectId, auftragObj.id),
+          eq(recordValues.attributeId, dealRefAttr.id),
+          eq(recordValues.referencedRecordId, dealRecordId)
+        )
+      )
+      .limit(1);
+    auftragRecordId = link?.recordId ?? null;
+  }
+
+  // No linked auftrag yet: same fallback as above.
+  if (!auftragRecordId) {
+    for (const c of CONDITIONALS) {
+      optional.push({ key: c.key, label: c.label, detail: null });
+    }
+    return { included, optional };
+  }
+
+  // Bulk-load values for the conditional attributes on the auftrag.
+  const wantedAttrIds = CONDITIONALS.map((c) => attrBySlug.get(c.slug)?.id).filter(
+    (id): id is string => !!id
+  );
+  const vals = wantedAttrIds.length
+    ? await db
+        .select({
+          attributeId: recordValues.attributeId,
+          booleanValue: recordValues.booleanValue,
+          numberValue: recordValues.numberValue,
+        })
+        .from(recordValues)
+        .where(
+          and(
+            eq(recordValues.recordId, auftragRecordId),
+            inArray(recordValues.attributeId, wantedAttrIds)
+          )
+        )
+    : [];
+  const valByAttr = new Map(vals.map((v) => [v.attributeId, v]));
+
+  for (const c of CONDITIONALS) {
+    const attr = attrBySlug.get(c.slug);
+    if (!attr) {
+      optional.push({ key: c.key, label: c.label, detail: null });
+      continue;
+    }
+    const v = valByAttr.get(attr.id);
+    if (c.detailFromNumber) {
+      const n = v?.numberValue != null ? Number(v.numberValue) : 0;
+      if (n > 0) {
+        included.push({ key: c.key, label: c.label, detail: c.detailFromNumber(n) });
+      } else {
+        optional.push({ key: c.key, label: c.label, detail: null });
+      }
+    } else {
+      if (v?.booleanValue === true) {
+        included.push({ key: c.key, label: c.label, detail: null });
+      } else {
+        optional.push({ key: c.key, label: c.label, detail: null });
+      }
+    }
+  }
+
+  return { included, optional };
 }

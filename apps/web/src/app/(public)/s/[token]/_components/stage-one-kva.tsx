@@ -8,6 +8,7 @@ import {
 import { ConfirmKvaDialog } from "./confirm-kva-dialog";
 import { ScopeSummary } from "./scope-summary";
 import { PaymentSection } from "./payment-section";
+import { OfferInclusionsSection } from "./offer-inclusions";
 
 export function StageOneKva({
   token,
@@ -107,6 +108,11 @@ export function StageOneKva({
 
       {/* Scope summary */}
       <ScopeSummary scope={ctx.scope} />
+
+      {/* What is and isn't included in the offer. Placed between the dry
+          facts (Eckdaten) and the legal acceptance card so the customer sees
+          value first and signs second. */}
+      <OfferInclusionsSection inclusions={ctx.inclusions} branding={ctx.branding} />
 
       {/* Acceptance card */}
       {alreadyAccepted ? (
