@@ -8,24 +8,25 @@
  *     review_request_status = 'sent_sms', OR
  *   - mark complaint_routed and let the inbound scanner ([KOT-623])
  *     handle the CEO-email forward + Template C auto-response, OR
- *   - mark suppressed (quiet hours / cap), OR
+ *   - mark suppressed with a structured reason in review_events, OR
  *   - mark failed (after 2 send attempts).
  *
  * Quiet hours: 09:00–19:00 Europe/Berlin, no Sundays. If the 24h cap
- * cannot be honored inside the window, mark suppressed.
+ * cannot be honored inside the window, a separate sweep marks the deal
+ * suppressed with reason `quiet_hours_window_missed` so the "why did
+ * this deal not get a message" SQL query never returns empty.
  *
  * Phase 1 ships SMS-only per CEO default 1 on KOT-603. Phase 2 ([KOT-618])
  * flips the primary channel to WhatsApp behind the same shape.
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { and, eq, gte, lt } from "drizzle-orm";
+import { and, eq, gte, isNotNull, lt } from "drizzle-orm";
 import { db } from "@/db";
 import {
   workspaces,
   objects,
   attributes,
-  records,
   recordValues,
   reviewEvents,
   reviewTokens,
@@ -58,16 +59,22 @@ interface CronResult {
   suppressed: number;
   complaint_routed: number;
   failed: number;
+  window_missed_swept: number;
   skipped_reason?: string;
 }
 
 export async function POST(req: NextRequest) {
+  // CEO required (KOT-603): auth must be fail-closed. Vercel Cron always
+  // provides the secret in production; dev opts in by setting the env var.
+  // Silent passthrough was a security hole — a missing env in prod would
+  // have left the cron endpoint open to any caller.
   const secret = process.env.CRON_SECRET;
-  if (secret) {
-    const auth = req.headers.get("authorization");
-    if (auth !== `Bearer ${secret}`) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
+  if (!secret) {
+    return NextResponse.json({ error: "cron_secret_not_configured" }, { status: 500 });
+  }
+  const auth = req.headers.get("authorization");
+  if (auth !== `Bearer ${secret}`) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   const workspaceId = await getSingletonWorkspaceId();
@@ -75,22 +82,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "no workspace" }, { status: 500 });
   }
 
-  // Quiet-hours check, Europe/Berlin.
-  const quiet = isQuietHoursBerlin(new Date());
-  if (quiet) {
-    return NextResponse.json({ skipped: "quiet_hours" });
-  }
-
-  // Feature flag.
+  // Feature flag is checked BEFORE the quiet-hours skip so the engine-
+  // disabled state is observable in production logs even outside business
+  // hours (otherwise every Sunday + every night reports "quiet_hours"
+  // and you can't tell whether the flag is set).
   const [ws] = await db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1);
   const settings = (ws?.settings as Record<string, unknown> | null) ?? {};
   if (settings["reviews_engine_enabled"] === false) {
     return NextResponse.json({ skipped: "engine_disabled" });
   }
 
+  // Quiet-hours skip applies only to the send loop; the window-missed
+  // sweep still runs so deals aging out during quiet hours get their
+  // suppressed event written promptly.
+  const quiet = isQuietHoursBerlin(new Date());
+
   try {
-    const result = await runReviewsCron(workspaceId);
-    return NextResponse.json({ success: true, ...result });
+    const result = await runReviewsCron(workspaceId, { skipSendLoop: quiet });
+    return NextResponse.json({ success: true, quiet_hours: quiet, ...result });
   } catch (err) {
     console.error("[cron/reviews-send]", err);
     return NextResponse.json(
@@ -121,8 +130,18 @@ export function isQuietHoursBerlin(now: Date): boolean {
 
 // ─── Main loop ────────────────────────────────────────────────────────────────
 
-async function runReviewsCron(workspaceId: string): Promise<CronResult> {
-  const result: CronResult = { scanned: 0, sent: 0, suppressed: 0, complaint_routed: 0, failed: 0 };
+async function runReviewsCron(
+  workspaceId: string,
+  opts: { skipSendLoop: boolean }
+): Promise<CronResult> {
+  const result: CronResult = {
+    scanned: 0,
+    sent: 0,
+    suppressed: 0,
+    complaint_routed: 0,
+    failed: 0,
+    window_missed_swept: 0,
+  };
 
   // 1) Resolve the deal object + attribute IDs we'll need by slug.
   const [dealObj] = await db
@@ -154,7 +173,38 @@ async function runReviewsCron(workspaceId: string): Promise<CronResult> {
   const complaintHitsAttr = need("complaint_keywords_hit");
   const firstNameAttr = attrBySlug.get("name");
 
-  // 2) Find candidate deals: move_completed_at in the 4–24h window.
+  // Pre-load the relevant statuses for the review_request_status attribute
+  // so we can resolve title → status row id without a per-deal round-trip.
+  const statusRows = await db
+    .select()
+    .from(statuses)
+    .where(eq(statuses.attributeId, reviewStatusAttr.id));
+  const statusByTitle = new Map(statusRows.map((s) => [s.title, s] as const));
+
+  // 2) Window-missed sweep: any deal whose move_completed_at is older
+  //    than 24h, status is still not_due, and consent_at is non-null,
+  //    has aged past the send window without ever being dispatched
+  //    (typically quiet-hours-clamp on a weekend completion). Mark
+  //    suppressed with a structured reason so the "why didn't this
+  //    deal get a message" query returns one row per deal.
+  result.window_missed_swept = await sweepWindowMissed({
+    workspaceId,
+    statusByTitle,
+    reviewStatusAttr,
+    moveCompletedAtAttr,
+    consentAtAttr,
+    statusRows,
+  });
+  result.suppressed += result.window_missed_swept;
+
+  // 3) If we're in quiet hours, do not run the send loop. The window-missed
+  //    sweep above still runs because aging-out deals shouldn't wait for
+  //    business hours to be marked suppressed in the audit trail.
+  if (opts.skipSendLoop) {
+    return result;
+  }
+
+  // 4) Find candidate deals: move_completed_at in the 4–24h window.
   const now = new Date();
   const earliest = new Date(now.getTime() - SEND_WINDOW_END_MS);
   const latest = new Date(now.getTime() - SEND_WINDOW_START_MS);
@@ -169,33 +219,48 @@ async function runReviewsCron(workspaceId: string): Promise<CronResult> {
       )
     );
 
-  // 3) Pre-load the relevant statuses for the review_request_status attribute
-  //    so we can resolve title → status row id without a per-deal round-trip.
-  const statusRows = await db
-    .select()
-    .from(statuses)
-    .where(eq(statuses.attributeId, reviewStatusAttr.id));
-  const statusByTitle = new Map(statusRows.map((s) => [s.title, s] as const));
-
-  // 4) For each candidate, load all attribute values, filter, and act.
+  // 5) For each candidate, load all attribute values, filter, and act.
   for (const cand of candidates) {
     result.scanned++;
     const dealId = cand.recordId;
     const values = await db.select().from(recordValues).where(eq(recordValues.recordId, dealId));
     const valByAttr = new Map(values.map((v) => [v.attributeId, v] as const));
 
-    // Already-sent / already-routed deals should be skipped.
+    // Already-sent / already-routed deals should be skipped (no event;
+    // the previous transition already wrote one).
     const currentStatus = valByAttr.get(reviewStatusAttr.id);
     const currentStatusTitle = currentStatus?.referencedRecordId
       ? statusRows.find((s) => s.id === currentStatus.referencedRecordId)?.title
       : null;
     if (currentStatusTitle && currentStatusTitle !== "not_due") continue;
 
-    // Consent gate.
-    if (!valByAttr.get(consentAtAttr.id)?.timestampValue) continue;
+    // Consent gate. CEO required: write a suppressed event so the audit
+    // trail explains why this deal never got a send.
+    if (!valByAttr.get(consentAtAttr.id)?.timestampValue) {
+      await markSuppressed({
+        workspaceId,
+        dealId,
+        reason: "consent_missing",
+        statusByTitle,
+        reviewStatusAttr,
+      });
+      result.suppressed++;
+      continue;
+    }
 
-    // Hard suppression flag.
-    if (valByAttr.get(dncAttr.id)?.booleanValue === true) continue;
+    // Hard suppression flag (set by STOP keyword handler, manual opt-out,
+    // or the schema-backfill safety default for pre-existing deals).
+    if (valByAttr.get(dncAttr.id)?.booleanValue === true) {
+      await markSuppressed({
+        workspaceId,
+        dealId,
+        reason: "do_not_contact_review",
+        statusByTitle,
+        reviewStatusAttr,
+      });
+      result.suppressed++;
+      continue;
+    }
 
     // Rating gate (allow null = no rating yet, only block if 1-3).
     const rating = valByAttr.get(ratingAttr?.id ?? "")?.numberValue;
@@ -236,11 +301,31 @@ async function runReviewsCron(workspaceId: string): Promise<CronResult> {
       .where(eq(inboxContacts.crmRecordId, dealId))
       .limit(1);
     const phone = contact?.phone ?? null;
-    if (!phone) continue;
+    if (!phone) {
+      await markSuppressed({
+        workspaceId,
+        dealId,
+        reason: "phone_missing",
+        statusByTitle,
+        reviewStatusAttr,
+      });
+      result.suppressed++;
+      continue;
+    }
 
     // Resolve brand → destination URL.
     const brandTitle = await resolveSelectTitle(valByAttr.get(brandAttr.id));
-    if (brandTitle !== "kottke" && brandTitle !== "ceylan") continue;
+    if (brandTitle !== "kottke" && brandTitle !== "ceylan") {
+      await markSuppressed({
+        workspaceId,
+        dealId,
+        reason: "brand_unknown",
+        statusByTitle,
+        reviewStatusAttr,
+      });
+      result.suppressed++;
+      continue;
+    }
     const brand = brandTitle as Brand;
     let destination: ReturnType<typeof resolveDestination>;
     try {
@@ -252,12 +337,13 @@ async function runReviewsCron(workspaceId: string): Promise<CronResult> {
       continue;
     }
 
-    // Variant assignment + body.
+    // Variant assignment + body. Phase 1 templates no longer take a
+    // crewLeadFirstName arg — sign-off uses the brand-aware teamName
+    // baked into the template lib (KOT-616 / KOT-603 review).
     const variant = assignVariant(dealId);
     const positiveNote = valByAttr.get(positiveAttr?.id ?? "")?.textValue ?? null;
     const firstName =
       valByAttr.get(firstNameAttr?.id ?? "")?.textValue?.split(/\s+/)[0] ?? "Kunde";
-    const crewLeadFirstName = "das Kottke-Team"; // Phase 1 placeholder; cron has no crew-lead lookup yet.
 
     // Mint a token + insert review_tokens row.
     const token = generateToken();
@@ -271,8 +357,8 @@ async function runReviewsCron(workspaceId: string): Promise<CronResult> {
 
     const body =
       variant === "B"
-        ? renderVariantB({ brand, firstName, crewLeadFirstName, crewPositiveNote: positiveNote, reviewLink })
-        : renderVariantA({ brand, firstName, crewLeadFirstName, reviewLink });
+        ? renderVariantB({ brand, firstName, crewPositiveNote: positiveNote, reviewLink })
+        : renderVariantA({ brand, firstName, reviewLink });
 
     // Send.
     const currentAttempts = Number(valByAttr.get(attemptsAttr.id)?.numberValue ?? 0);
@@ -308,6 +394,62 @@ async function runReviewsCron(workspaceId: string): Promise<CronResult> {
   }
 
   return result;
+}
+
+// ─── Window-missed sweep ──────────────────────────────────────────────────────
+
+// Marks deals that aged past the 24h send window without ever being
+// dispatched as suppressed with reason 'quiet_hours_window_missed'.
+// Runs on every cron tick — idempotent because we filter on
+// review_request_status = 'not_due', which the status transition removes.
+async function sweepWindowMissed(args: {
+  workspaceId: string;
+  statusByTitle: Map<string, typeof statuses.$inferSelect>;
+  reviewStatusAttr: typeof attributes.$inferSelect;
+  moveCompletedAtAttr: typeof attributes.$inferSelect;
+  consentAtAttr: typeof attributes.$inferSelect;
+  statusRows: (typeof statuses.$inferSelect)[];
+}): Promise<number> {
+  const windowExpired = new Date(Date.now() - SEND_WINDOW_END_MS);
+  const aged = await db
+    .select({ recordId: recordValues.recordId })
+    .from(recordValues)
+    .where(
+      and(
+        eq(recordValues.attributeId, args.moveCompletedAtAttr.id),
+        lt(recordValues.timestampValue, windowExpired),
+        isNotNull(recordValues.timestampValue)
+      )
+    );
+
+  let count = 0;
+  for (const row of aged) {
+    const values = await db.select().from(recordValues).where(eq(recordValues.recordId, row.recordId));
+    const valByAttr = new Map(values.map((v) => [v.attributeId, v] as const));
+
+    // Only sweep deals still in not_due. Anything past that has already
+    // recorded its outcome.
+    const currentStatus = valByAttr.get(args.reviewStatusAttr.id);
+    const currentStatusTitle = currentStatus?.referencedRecordId
+      ? args.statusRows.find((s) => s.id === currentStatus.referencedRecordId)?.title
+      : null;
+    if (currentStatusTitle && currentStatusTitle !== "not_due") continue;
+
+    // Only sweep deals where consent was given. If consent was never
+    // present the deal was never eligible to send and the consent_missing
+    // branch in the main loop captures that on its first tick.
+    if (!valByAttr.get(args.consentAtAttr.id)?.timestampValue) continue;
+
+    await markSuppressed({
+      workspaceId: args.workspaceId,
+      dealId: row.recordId,
+      reason: "quiet_hours_window_missed",
+      statusByTitle: args.statusByTitle,
+      reviewStatusAttr: args.reviewStatusAttr,
+    });
+    count++;
+  }
+  return count;
 }
 
 // ─── Token generation ─────────────────────────────────────────────────────────
@@ -383,6 +525,31 @@ async function routeAsComplaint(args: {
     eventType: "complaint_routed",
     channel: "sms",
     meta: { source: "cron_pre_send_valve", keywords: args.keywords },
+  });
+}
+
+async function markSuppressed(args: {
+  workspaceId: string;
+  dealId: string;
+  reason:
+    | "consent_missing"
+    | "do_not_contact_review"
+    | "phone_missing"
+    | "brand_unknown"
+    | "quiet_hours_window_missed";
+  statusByTitle: Map<string, typeof statuses.$inferSelect>;
+  reviewStatusAttr: typeof attributes.$inferSelect;
+}) {
+  const status = args.statusByTitle.get("suppressed");
+  if (status) {
+    await upsertReferenceValue(args.dealId, args.reviewStatusAttr.id, status.id);
+  }
+  await db.insert(reviewEvents).values({
+    workspaceId: args.workspaceId,
+    dealRecordId: args.dealId,
+    eventType: "suppressed",
+    channel: "sms",
+    meta: { reason: args.reason },
   });
 }
 
