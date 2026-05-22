@@ -9,6 +9,7 @@ import { ConfirmKvaDialog } from "./confirm-kva-dialog";
 import { ScopeSummary } from "./scope-summary";
 import { PaymentSection } from "./payment-section";
 import { OfferInclusionsSection } from "./offer-inclusions";
+import { EmailCaptureBanner } from "./email-capture-banner";
 
 export function StageOneKva({
   token,
@@ -40,6 +41,15 @@ export function StageOneKva({
 
   return (
     <section className="space-y-5">
+      {/* Capture the customer's real email when we only have a Kleinanzeigen
+          relay or nothing at all. Shown above the offer because confirmations
+          land there once the customer accepts. */}
+      <EmailCaptureBanner
+        token={token}
+        status={ctx.customerEmailStatus}
+        branding={ctx.branding}
+      />
+
       {/* Price card */}
       <div
         className="overflow-hidden rounded-2xl border border-border/50 bg-card shadow-sm"

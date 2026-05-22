@@ -16,6 +16,12 @@ export function isKleinanzeigenEmail(from: string, subject: string): boolean {
   );
 }
 
+/** Checks an address (no subject context) — used outside the inbox ingest path. */
+export function isKleinanzeigenRelayAddress(address: string | null | undefined): boolean {
+  if (!address) return false;
+  return KLEINANZEIGEN_RELAY_RE.test(address);
+}
+
 /** "RamonaOstd über Kleinanzeigen" → "RamonaOstd". */
 export function stripKleinanzeigenSuffix(name: string): string {
   return name.replace(/\s*(?:über|ueber|via)\s+Kleinanzeigen\s*$/i, "").trim();

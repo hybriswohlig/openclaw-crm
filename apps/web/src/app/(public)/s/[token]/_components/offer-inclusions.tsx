@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Plus, ShieldCheck } from "lucide-react";
+import { Check, Plus } from "lucide-react";
 import type {
   FirmaBranding,
   OfferInclusions,
@@ -14,10 +14,6 @@ import type {
  * sets clear expectations on what is NOT in the offer so the customer is not
  * surprised later. No third "Nicht enthalten" section: that would feel
  * negative right before the accept button.
- *
- * Below the lists sits a small "Versicherung" trust line. It mirrors what
- * top German moving marketplaces (Check24, MOVE24) ship by default and helps
- * the customer cross the commitment threshold.
  */
 export function OfferInclusionsSection({
   inclusions,
@@ -92,16 +88,6 @@ export function OfferInclusionsSection({
           </div>
         )}
 
-        <div className="flex items-start gap-3 rounded-lg bg-muted/50 px-3 py-2.5 text-xs text-muted-foreground">
-          <ShieldCheck
-            className="mt-0.5 h-4 w-4 shrink-0"
-            style={{ color: `#${branding.primaryColor}` }}
-          />
-          <span className="leading-relaxed">
-            Ihre Möbel sind bei uns versichert. Höhere Deckungssummen vereinbaren
-            wir gern auf Anfrage.
-          </span>
-        </div>
       </div>
     </section>
   );

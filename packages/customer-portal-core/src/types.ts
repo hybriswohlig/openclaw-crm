@@ -181,6 +181,17 @@ export interface AcceptanceRecord {
  * Field rule of thumb: if the field is sensitive (DB id of a deal,
  * conversation, employee receipt etc.), DO NOT include it here.
  */
+/**
+ * Where the customer's email currently sits.
+ *
+ *   present              → we have a usable email on file, confirmations go out.
+ *   missing              → no email at all on the lead. UI shows a capture banner.
+ *   kleinanzeigen_relay  → only a Kleinanzeigen relay address is on file. Those
+ *                          can't receive long-form transactional mail reliably,
+ *                          so UI also shows the capture banner.
+ */
+export type CustomerEmailStatus = "present" | "missing" | "kleinanzeigen_relay";
+
 export interface CustomerPortalContext {
   /** Computed every request from underlying data. */
   stage: CustomerLinkStage;
@@ -188,6 +199,15 @@ export interface CustomerPortalContext {
   dealNumber: string;
   /** Customer's display name as the operator stored it. */
   customerDisplayName: string | null;
+  /**
+   * Whether confirmations can land in the customer's inbox. The actual address
+   * is intentionally NOT exposed to the public context unless it's already a
+   * full, non-relay email — we just say "present" and let the page mask it
+   * for privacy on a shared device.
+   */
+  customerEmailStatus: CustomerEmailStatus;
+  /** Last few chars of the email when status === 'present', masked otherwise. */
+  customerEmailMasked: string | null;
 
   branding: FirmaBranding;
   scope: MoveScope;

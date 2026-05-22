@@ -43,6 +43,7 @@ import {
   type AttachmentRef,
   type ConfirmKvaPayload,
   type CrewMember,
+  type CustomerEmailStatus,
   type CustomerPortalContext,
   type FirmaBranding,
   type KvaLineItem,
@@ -53,6 +54,7 @@ import {
   type PaymentInstructions,
   type PaymentMethodPreference,
 } from "@openclaw-crm/customer-portal-core";
+import { isKleinanzeigenRelayAddress } from "./inbox-kleinanzeigen";
 import { loadEffectiveBranding } from "./customer-portal-config";
 import { emitEvent } from "./activity-events";
 import { sendKvaAcceptanceEmail } from "./customer-portal-emails";
@@ -226,6 +228,13 @@ export async function loadContextByToken(
   // Customer display name from associated_people (first only, lightweight)
   const customerDisplayName = await loadCustomerDisplayName(dealValues, dealAttrs);
 
+  // Email status: do we have a usable address for confirmations? When a
+  // customer arrived via Kleinanzeigen the only address on file is the
+  // anonymising relay, which is no good for long-form transactional mail.
+  const emailInfo = await loadCustomerEmailInfo(dealValues, dealAttrs);
+  const customerEmailStatus: CustomerEmailStatus = emailInfo.status;
+  const customerEmailMasked = emailInfo.masked;
+
   // Deal number
   const [dealNumberRow] = await db
     .select({ dealNumber: dealNumbers.dealNumber })
@@ -323,6 +332,8 @@ export async function loadContextByToken(
     stage,
     dealNumber,
     customerDisplayName,
+    customerEmailStatus,
+    customerEmailMasked,
     branding,
     scope,
     inclusions,
@@ -731,6 +742,183 @@ async function loadCustomerDisplayName(
   if (name) return name;
   // Fallback: try the `name` (personal_name JSON) on the people record.
   return null;
+}
+
+interface CustomerEmailInfo {
+  status: CustomerEmailStatus;
+  /** Masked rendering of the address ("d…@gmail.com") when status is 'present'. */
+  masked: string | null;
+  /** Internal: the actual people record id (used by the write path). */
+  peopleRecordId: string | null;
+}
+
+async function loadCustomerEmailInfo(
+  values: Map<string, ValueRow>,
+  dealAttrs: DealAttrIndex
+): Promise<CustomerEmailInfo> {
+  const attr = dealAttrs.bySlug.get("associated_people");
+  if (!attr) return { status: "missing", masked: null, peopleRecordId: null };
+  const v = values.get(attr.id);
+  const peopleRecordId = v?.referencedRecordId ?? null;
+  if (!peopleRecordId) {
+    return { status: "missing", masked: null, peopleRecordId: null };
+  }
+
+  const email = await loadFirstEmailOnPeople(peopleRecordId);
+  if (!email) return { status: "missing", masked: null, peopleRecordId };
+  if (isKleinanzeigenRelayAddress(email)) {
+    return { status: "kleinanzeigen_relay", masked: null, peopleRecordId };
+  }
+  return { status: "present", masked: maskEmail(email), peopleRecordId };
+}
+
+async function loadFirstEmailOnPeople(peopleRecordId: string): Promise<string | null> {
+  // Resolve the people object id, find the email_addresses attribute, read the
+  // first row. For multi-value attributes Drizzle stores one row per value;
+  // sorting by sortOrder mirrors the operator's intended ordering.
+  const [rec] = await db
+    .select({ objectId: records.objectId })
+    .from(records)
+    .where(eq(records.id, peopleRecordId))
+    .limit(1);
+  if (!rec) return null;
+  const [emailAttr] = await db
+    .select({ id: attributes.id })
+    .from(attributes)
+    .where(
+      and(eq(attributes.objectId, rec.objectId), eq(attributes.slug, "email_addresses"))
+    )
+    .limit(1);
+  if (!emailAttr) return null;
+  const rows = await db
+    .select({ textValue: recordValues.textValue, sortOrder: recordValues.sortOrder })
+    .from(recordValues)
+    .where(
+      and(
+        eq(recordValues.recordId, peopleRecordId),
+        eq(recordValues.attributeId, emailAttr.id)
+      )
+    )
+    .orderBy(recordValues.sortOrder);
+  for (const r of rows) {
+    if (r.textValue && r.textValue.includes("@")) return r.textValue;
+  }
+  return null;
+}
+
+function maskEmail(email: string): string {
+  const at = email.indexOf("@");
+  if (at <= 0) return email;
+  const local = email.slice(0, at);
+  const domain = email.slice(at);
+  if (local.length <= 2) return `${local[0]}…${domain}`;
+  return `${local[0]}${local[1]}…${local[local.length - 1]}${domain}`;
+}
+
+/**
+ * Public-facing email save. Used by the inline banner on Stage 1 when the
+ * lead's email is missing or a Kleinanzeigen relay. Validates the address
+ * server-side, writes it as the primary email on the people record, and
+ * returns the new status the UI should render.
+ *
+ * Idempotent: if the new email already exists in the email_addresses values
+ * we don't duplicate it; we just promote it to sortOrder 0 so future loads
+ * pick it up as primary.
+ */
+export async function recordCustomerEmail(
+  token: string,
+  rawEmail: string
+): Promise<{ ok: true; status: CustomerEmailStatus; masked: string | null } | { ok: false; reason: string }> {
+  if (!validateTokenShape(token)) return { ok: false, reason: "invalid_token" };
+  const email = rawEmail.trim().toLowerCase();
+  // Conservative validator. Same shape Better Auth uses upstream.
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { ok: false, reason: "invalid_email" };
+  }
+  if (isKleinanzeigenRelayAddress(email)) {
+    return { ok: false, reason: "relay_not_allowed" };
+  }
+
+  const [link] = await db
+    .select({
+      workspaceId: customerStatusLinks.workspaceId,
+      dealRecordId: customerStatusLinks.dealRecordId,
+      revokedAt: customerStatusLinks.revokedAt,
+    })
+    .from(customerStatusLinks)
+    .where(eq(customerStatusLinks.token, token))
+    .limit(1);
+  if (!link) return { ok: false, reason: "not_found" };
+  if (link.revokedAt) return { ok: false, reason: "revoked" };
+
+  // Find the people record.
+  const dealAttrs = await loadDealAttributeMap(link.workspaceId);
+  const dealValues = await loadValuesForRecord(link.dealRecordId);
+  const assocAttr = dealAttrs.bySlug.get("associated_people");
+  const peopleRecordId = assocAttr ? dealValues.get(assocAttr.id)?.referencedRecordId ?? null : null;
+  if (!peopleRecordId) {
+    return { ok: false, reason: "no_people_record" };
+  }
+
+  // Resolve the email_addresses attribute on the people object.
+  const [rec] = await db
+    .select({ objectId: records.objectId })
+    .from(records)
+    .where(eq(records.id, peopleRecordId))
+    .limit(1);
+  if (!rec) return { ok: false, reason: "no_people_record" };
+  const [emailAttr] = await db
+    .select({ id: attributes.id })
+    .from(attributes)
+    .where(and(eq(attributes.objectId, rec.objectId), eq(attributes.slug, "email_addresses")))
+    .limit(1);
+  if (!emailAttr) return { ok: false, reason: "no_email_attribute" };
+
+  // Promote the new email to sortOrder 0 and shift existing values down.
+  // We don't delete the old Kleinanzeigen relay row — it's evidence of the
+  // lead source and the operator may want to see it.
+  const existing = await db
+    .select({ id: recordValues.id, textValue: recordValues.textValue })
+    .from(recordValues)
+    .where(
+      and(
+        eq(recordValues.recordId, peopleRecordId),
+        eq(recordValues.attributeId, emailAttr.id)
+      )
+    )
+    .orderBy(recordValues.sortOrder);
+
+  // Bump everyone else down by one.
+  for (let i = 0; i < existing.length; i++) {
+    if (existing[i].textValue?.toLowerCase() === email) {
+      // Already in the list — just bring it to the top.
+      await db
+        .update(recordValues)
+        .set({ sortOrder: 0 })
+        .where(eq(recordValues.id, existing[i].id));
+      // Push the rest down.
+      let next = 1;
+      for (const other of existing) {
+        if (other.id === existing[i].id) continue;
+        await db.update(recordValues).set({ sortOrder: next++ }).where(eq(recordValues.id, other.id));
+      }
+      return { ok: true, status: "present", masked: maskEmail(email) };
+    }
+  }
+
+  // New email — insert at sortOrder 0, push existing rows down.
+  let next = 1;
+  for (const other of existing) {
+    await db.update(recordValues).set({ sortOrder: next++ }).where(eq(recordValues.id, other.id));
+  }
+  await db.insert(recordValues).values({
+    recordId: peopleRecordId,
+    attributeId: emailAttr.id,
+    textValue: email,
+    sortOrder: 0,
+  });
+
+  return { ok: true, status: "present", masked: maskEmail(email) };
 }
 
 async function loadKvaSnapshot(dealRecordId: string): Promise<KvaSnapshot | null> {
