@@ -19,6 +19,24 @@ export const quotations = pgTable(
     isVariable: boolean("is_variable").notNull().default(false),
     notes: text("notes"),
     /**
+     * Customer-facing free-text description of what the offer covers
+     * (e.g. "Transport einer Waschmaschine von A nach B inkl. einem Helfer").
+     * Shown prominently on the customer portal at Stage 1 when set.
+     * Independent from `notes`, which is operator-internal.
+     */
+    summary: text("summary"),
+    /**
+     * Whether to render the Leistungsumfang block (baseline move inclusions
+     * + auftrag conditional list) on the customer portal. Off for one-off
+     * transports (laundry machine, piano-only) so the customer does not see
+     * irrelevant items like "Decken" or "Halteverbot". Default true for
+     * backward compatibility with existing rows; the calculator defaults
+     * new transports to false.
+     */
+    showStandardInclusions: boolean("show_standard_inclusions")
+      .notNull()
+      .default(true),
+    /**
      * If set, the customer portal gates Stage 2 (Auftragsbestätigung) on an
      * operator-confirmed payment >= this amount. Null = no Anzahlung required.
      */

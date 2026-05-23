@@ -273,6 +273,7 @@ function renderEmail(input: RenderInput): {
     `Hiermit bestätigen wir Ihre verbindliche Annahme des Angebots (${ref}).`,
     `Angenommen am: ${signedAtStr}`,
     "",
+    snapshot.summary ? `Auftragsumfang:\n${snapshot.summary}\n` : "",
     `Gesamtbetrag: ${totalStr}`,
     snapshot.lineItems.length > 0 ? `\nLeistungen:\n${lineItemsText}` : "",
     snapshot.notes ? `\nHinweise: ${snapshot.notes}` : "",
@@ -358,6 +359,7 @@ Wir bestätigen Ihre verbindliche Annahme des Angebots <strong>${escapeHtml(ref)
 <div style="display:block;border:1px solid #e6e3dc;border-radius:12px;padding:16px;margin:16px 0;">
 <div style="font-size:12px;text-transform:uppercase;color:#888;letter-spacing:1px;">Gesamtbetrag</div>
 <div style="font-size:28px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:4px;">${escapeHtml(totalStr)}</div>
+${snapshot.summary ? `<div style="font-size:13px;color:#555;background:#f7f5f1;border-radius:8px;padding:10px 12px;margin:0 0 12px 0;white-space:pre-wrap;">${escapeHtml(snapshot.summary)}</div>` : ""}
 ${lineItemsHtml}
 ${snapshot.notes ? `<div style="font-size:13px;color:#555;background:#f7f5f1;border-radius:8px;padding:10px 12px;margin-top:8px;">${escapeHtml(snapshot.notes)}</div>` : ""}
 </div>

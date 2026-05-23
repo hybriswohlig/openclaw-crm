@@ -24,6 +24,10 @@ interface Quotation {
   paymentMethodPreference?: "bank_transfer" | "paypal" | "cash" | "card" | null;
   /** ISO date — offer valid until. */
   validUntil?: string | null;
+  /** Customer-facing free-text description of what the offer covers. */
+  summary?: string | null;
+  /** Whether the customer portal should render the standard move inclusions. */
+  showStandardInclusions?: boolean;
 }
 
 interface Props {
@@ -56,6 +60,10 @@ export function QuotationCalculator({ recordId, quotation, onSaved }: Props) {
     quotation?.paymentMethodPreference ?? "bank_transfer"
   );
   const [validUntil, setValidUntil] = useState<string>(quotation?.validUntil ?? "");
+  const [summary, setSummary] = useState<string>(quotation?.summary ?? "");
+  const [showStandardInclusions, setShowStandardInclusions] = useState<boolean>(
+    quotation?.showStandardInclusions ?? true
+  );
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -71,6 +79,8 @@ export function QuotationCalculator({ recordId, quotation, onSaved }: Props) {
       );
       setPaymentMethod(quotation.paymentMethodPreference ?? "bank_transfer");
       setValidUntil(quotation.validUntil ?? "");
+      setSummary(quotation.summary ?? "");
+      setShowStandardInclusions(quotation.showStandardInclusions ?? true);
     }
   }, [quotation]);
 
@@ -117,6 +127,8 @@ export function QuotationCalculator({ recordId, quotation, onSaved }: Props) {
               : null,
           paymentMethodPreference: paymentMethod,
           validUntil: validUntil || null,
+          summary: summary.trim() || null,
+          showStandardInclusions,
         }),
       });
 
@@ -247,15 +259,52 @@ export function QuotationCalculator({ recordId, quotation, onSaved }: Props) {
         </div>
       )}
 
+      {/* Beschreibung — what the customer sees as the offer summary */}
+      <div className="mt-4">
+        <label className="text-sm font-medium">Beschreibung des Angebots (Kunde sieht das)</label>
+        <textarea
+          value={summary}
+          onChange={(e) => setSummary(e.target.value)}
+          rows={3}
+          className="w-full mt-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring resize-none"
+          placeholder="z. B. Transport einer Waschmaschine von Wildberg nach Stuttgart, inkl. einem Helfer und Transporter."
+        />
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          Wird oben im Kunden-Portal als „Was umfasst der Auftrag" angezeigt.
+          Leer lassen, wenn die Eckdaten und Leistungsumfang ausreichen.
+        </p>
+      </div>
+
+      {/* Standard-Umzugsleistungen toggle */}
+      <div className="mt-3">
+        <label className="flex cursor-pointer items-start gap-2 rounded-md border border-input bg-background p-3 text-sm">
+          <input
+            type="checkbox"
+            checked={showStandardInclusions}
+            onChange={(e) => setShowStandardInclusions(e.target.checked)}
+            className="mt-0.5 h-4 w-4"
+          />
+          <span>
+            Standard-Umzugsleistungen im Kunden-Portal anzeigen
+            <span className="ml-1 text-[11px] text-muted-foreground">
+              (Transportversicherung, Decken, Werkzeug, An- und Abladen + Auftrags-Checkboxen)
+            </span>
+            <span className="mt-1 block text-[11px] text-muted-foreground">
+              Für Komplettumzüge aktiviert lassen. Für Einzeltransporte (Waschmaschine, Klavier-only, …) deaktivieren.
+            </span>
+          </span>
+        </label>
+      </div>
+
       {/* Notes */}
       <div className="mt-4">
-        <label className="text-sm font-medium">Notes</label>
+        <label className="text-sm font-medium">Interne Notizen</label>
         <textarea
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           rows={2}
           className="w-full mt-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring resize-none"
-          placeholder="Internal notes about this quotation..."
+          placeholder="Nur intern sichtbar..."
         />
       </div>
 

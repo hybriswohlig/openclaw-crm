@@ -78,6 +78,18 @@ export interface KvaSnapshot {
   depositRequiredCents: number | null;
   /** ISO date until which the offer is valid. */
   validUntil: string | null;
+  /**
+   * Customer-facing free-text description of what the offer covers. Set by
+   * the operator in the quotation calculator. The portal renders this as a
+   * card above the price so the customer never has to guess. Use this for
+   * one-off jobs like "Transport einer Waschmaschine".
+   */
+  summary: string | null;
+  /**
+   * Whether the portal should render the standard move-inclusions block.
+   * False for one-off transports where decken/halteverbot are irrelevant.
+   */
+  showStandardInclusions: boolean;
 }
 
 /**

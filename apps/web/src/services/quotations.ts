@@ -32,6 +32,10 @@ export async function upsertQuotation(
     paymentMethodPreference?: "bank_transfer" | "paypal" | "cash" | "card" | null;
     /** ISO date — offer valid until. */
     validUntil?: string | null;
+    /** Customer-facing free-text description of what the offer covers. */
+    summary?: string | null;
+    /** Whether to render the standard move inclusions on the portal. */
+    showStandardInclusions?: boolean;
     lineItems?: Array<{
       id?: string;
       type: "helper" | "transporter" | "other";
@@ -63,6 +67,12 @@ export async function upsertQuotation(
             : existing.paymentMethodPreference,
         validUntil:
           input.validUntil !== undefined ? input.validUntil : existing.validUntil,
+        summary:
+          input.summary !== undefined ? input.summary : existing.summary,
+        showStandardInclusions:
+          input.showStandardInclusions !== undefined
+            ? input.showStandardInclusions
+            : existing.showStandardInclusions,
         updatedAt: new Date(),
       })
       .where(eq(quotations.id, existing.id))
@@ -79,6 +89,8 @@ export async function upsertQuotation(
         depositRequiredCents: input.depositRequiredCents ?? null,
         paymentMethodPreference: input.paymentMethodPreference ?? null,
         validUntil: input.validUntil ?? null,
+        summary: input.summary ?? null,
+        showStandardInclusions: input.showStandardInclusions ?? true,
       })
       .returning();
     quotationId = created.id;

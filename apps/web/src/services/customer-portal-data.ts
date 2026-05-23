@@ -961,6 +961,8 @@ async function loadKvaSnapshot(dealRecordId: string): Promise<KvaSnapshot | null
     notes: q.notes ?? null,
     totalCents,
     depositRequiredCents: q.depositRequiredCents ?? null,
+    summary: q.summary ?? null,
+    showStandardInclusions: q.showStandardInclusions ?? true,
     validUntil: q.validUntil ?? null,
   };
 }
@@ -1194,6 +1196,19 @@ async function loadInclusions(
   workspaceId: string,
   dealRecordId: string
 ): Promise<OfferInclusions> {
+  // If the operator opted out of the standard move-inclusions block for this
+  // quote (e.g. it's a single laundry-machine transport), short-circuit early
+  // so the portal does not render baseline items the customer does not care
+  // about.
+  const [q] = await db
+    .select({ showStandardInclusions: quotations.showStandardInclusions })
+    .from(quotations)
+    .where(eq(quotations.dealRecordId, dealRecordId))
+    .limit(1);
+  if (q && q.showStandardInclusions === false) {
+    return { included: [], optional: [] };
+  }
+
   // Find the auftrag (if any) attached to this deal.
   const [auftragObj] = await db
     .select({ id: objects.id })

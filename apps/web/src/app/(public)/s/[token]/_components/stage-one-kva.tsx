@@ -50,6 +50,20 @@ export function StageOneKva({
         branding={ctx.branding}
       />
 
+      {/* Operator-written offer summary — the explicit "what is this offer for"
+          card. Shown only when set. Renders as a calm content card that sits
+          above the price so the customer reads context before number. */}
+      {ctx.kva.summary && ctx.kva.summary.trim().length > 0 && (
+        <div className="overflow-hidden rounded-2xl border border-border/50 bg-card">
+          <div className="border-b border-border/50 px-6 py-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            Was umfasst der Auftrag
+          </div>
+          <p className="whitespace-pre-wrap p-6 text-sm leading-relaxed">
+            {ctx.kva.summary}
+          </p>
+        </div>
+      )}
+
       {/* Price card */}
       <div
         className="overflow-hidden rounded-2xl border border-border/50 bg-card shadow-sm"

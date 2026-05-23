@@ -26,7 +26,7 @@ export function StageHeader({ ctx }: { ctx: CustomerPortalContext }) {
             {ctx.branding.displayName}
           </div>
           <h1 className="mt-1 truncate text-xl font-medium sm:text-2xl">
-            Ihr Umzug · {ctx.dealNumber}
+            Ihr Auftrag · {ctx.dealNumber}
           </h1>
           {ctx.customerDisplayName && (
             <p className="mt-0.5 truncate text-sm text-muted-foreground">
