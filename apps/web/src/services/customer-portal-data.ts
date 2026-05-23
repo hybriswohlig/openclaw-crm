@@ -124,6 +124,30 @@ export async function revokeCustomerStatusLink(token: string): Promise<void> {
 }
 
 /**
+ * Clears `revoked_at` on the deal's link so the customer can use it again.
+ * Returns the token + dealRecordId on success, or null when no link exists.
+ */
+export async function reactivateCustomerStatusLink(input: {
+  workspaceId: string;
+  dealRecordId: string;
+}): Promise<{ token: string; dealRecordId: string } | null> {
+  const [row] = await db
+    .update(customerStatusLinks)
+    .set({ revokedAt: null })
+    .where(
+      and(
+        eq(customerStatusLinks.workspaceId, input.workspaceId),
+        eq(customerStatusLinks.dealRecordId, input.dealRecordId)
+      )
+    )
+    .returning({
+      token: customerStatusLinks.token,
+      dealRecordId: customerStatusLinks.dealRecordId,
+    });
+  return row ?? null;
+}
+
+/**
  * Resolve which origin the public-facing URL for a given deal should use.
  *
  * Priority:

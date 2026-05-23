@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, Copy, Check, ExternalLink, Trash2, Link as LinkIcon } from "lucide-react";
+import { Loader2, Copy, Check, ExternalLink, Trash2, Link as LinkIcon, RotateCcw } from "lucide-react";
 
 interface LinkInfo {
   token: string;
@@ -69,6 +69,11 @@ export function ShareLinkPanel({ dealRecordId }: { dealRecordId: string }) {
   async function revoke() {
     if (!confirm("Soll der Kunden-Link wirklich gesperrt werden? Bestehende Bestätigungen bleiben erhalten.")) return;
     const res = await fetch(`/api/v1/customer-link/${dealRecordId}`, { method: "DELETE" });
+    if (res.ok) await load();
+  }
+
+  async function reactivate() {
+    const res = await fetch(`/api/v1/customer-link/${dealRecordId}`, { method: "PATCH" });
     if (res.ok) await load();
   }
 
@@ -185,7 +190,16 @@ export function ShareLinkPanel({ dealRecordId }: { dealRecordId: string }) {
             ? `Zuletzt geöffnet: ${new Date(link.lastViewedAt).toLocaleString("de-DE")}`
             : "Noch nicht geöffnet"}
         </span>
-        {!revoked && (
+        {revoked ? (
+          <button
+            type="button"
+            onClick={reactivate}
+            className="inline-flex items-center gap-1 font-medium text-foreground hover:underline"
+          >
+            <RotateCcw className="h-3 w-3" />
+            Re-aktivieren
+          </button>
+        ) : (
           <button
             type="button"
             onClick={revoke}

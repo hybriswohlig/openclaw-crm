@@ -19,6 +19,7 @@ import { customerStatusLinks } from "@/db/schema/customer-portal";
 import { dealNumbers } from "@/db/schema/financial";
 import {
   ensureCustomerStatusLink,
+  reactivateCustomerStatusLink,
   resolveCustomerLinkOrigin,
   revokeCustomerStatusLink,
 } from "@/services/customer-portal-data";
@@ -118,6 +119,40 @@ export async function POST(
     token: result.token,
     url: `${origin}/s/${result.token}`,
     dealNumber,
+  });
+}
+
+/**
+ * PATCH: un-revokes an existing revoked link. Idempotent. Returns the same
+ * shape as POST so the share panel can drop the response straight back into
+ * state.
+ */
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ dealRecordId: string }> }
+) {
+  const ctx = await getAuthContext(req);
+  if (!ctx) return unauthorized();
+  const { dealRecordId } = await params;
+
+  const result = await reactivateCustomerStatusLink({
+    workspaceId: ctx.workspaceId,
+    dealRecordId,
+  });
+  if (!result) return notFound("No customer link for this deal");
+
+  const origin = await resolveCustomerLinkOrigin(
+    dealRecordId,
+    ctx.workspaceId,
+    envFallback(req)
+  );
+  const dealNumber = await loadDealNumber(dealRecordId);
+
+  return success({
+    token: result.token,
+    url: `${origin}/s/${result.token}`,
+    dealNumber,
+    reactivated: true,
   });
 }
 

@@ -30,4 +30,12 @@ export default defineConfig({
   dbCredentials: {
     url: databaseUrl,
   },
+  // Skip extension-owned views (pg_stat_statements, pg_stat_statements_info)
+  // and Neon's internal `neon_auth` schema, so `db:push` does not propose to
+  // drop objects it does not own. Without this, push fails on Neon because
+  // pg_stat_statements_info is a dependency of the pg_stat_statements
+  // extension and cannot be dropped without dropping the extension.
+  extensionsFilters: ["postgis"],
+  schemaFilter: ["public"],
+  tablesFilter: ["!pg_stat_statements", "!pg_stat_statements_info"],
 });
