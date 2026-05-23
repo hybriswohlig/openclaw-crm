@@ -79,7 +79,7 @@ export function RecordConversations({
       {conversations.map((conv) => (
         <a
           key={conv.id}
-          href="/inbox"
+          href={`/inbox?conv=${conv.id}`}
           className="flex items-start gap-3 rounded-lg border p-3 hover:bg-muted/50 transition-colors"
         >
           {/* Channel icon */}

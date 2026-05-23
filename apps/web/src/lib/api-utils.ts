@@ -89,6 +89,7 @@ async function getApiKeyAuthContext(token: string): Promise<AuthContext | null> 
       userId: apiKeys.userId,
       workspaceId: apiKeys.workspaceId,
       expiresAt: apiKeys.expiresAt,
+      lastUsedAt: apiKeys.lastUsedAt,
     })
     .from(apiKeys)
     .where(and(eq(apiKeys.keyHash, keyHash), isNull(apiKeys.revokedAt)))
@@ -120,12 +121,22 @@ async function getApiKeyAuthContext(token: string): Promise<AuthContext | null> 
     return null;
   }
 
-  // Fire-and-forget: update last_used_at
-  db.update(apiKeys)
-    .set({ lastUsedAt: new Date() })
-    .where(eq(apiKeys.id, key.id))
-    .execute()
-    .catch(() => {});
+  // Throttle last_used_at writes to once per 5 minutes per key.
+  // Without this, every API request fires a WAL-generating UPDATE on a tiny
+  // 10-row table — observed >14k updates/month, the second-largest source of
+  // wasted Neon compute behind the inbox-sync cron.
+  const LAST_USED_THROTTLE_MS = 5 * 60 * 1000;
+  const now = new Date();
+  if (
+    !key.lastUsedAt ||
+    now.getTime() - key.lastUsedAt.getTime() > LAST_USED_THROTTLE_MS
+  ) {
+    db.update(apiKeys)
+      .set({ lastUsedAt: now })
+      .where(eq(apiKeys.id, key.id))
+      .execute()
+      .catch(() => {});
+  }
 
   // Look up the user's workspace role + granular permissions
   const memberships = await db

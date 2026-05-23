@@ -160,7 +160,11 @@ export async function listConversations(
     cursor?: string; // lastMessageAt ISO
   } = {}
 ): Promise<ConversationListItem[]> {
-  const { limit = 50 } = opts;
+  // Raised from 50 → 500. The inbox UI has no pagination; with 215+ open
+  // conversations the default cap silently hid the older ones. 500 covers
+  // the current dataset (≈263 total) with headroom; safe given indexes on
+  // workspace_id + last_message_at and the tiny per-row payload.
+  const { limit = 500 } = opts;
 
   const rows = await db
     .select({
