@@ -42,6 +42,7 @@ import {
   renderVariantB,
   type Brand,
 } from "@/lib/reviews/templates";
+import { isQuietHoursBerlin } from "@/lib/reviews/quiet-hours";
 import { sendSms, MessagingSendError } from "@/lib/messaging";
 
 export const runtime = "nodejs";
@@ -107,28 +108,6 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-// ─── Quiet hours helper ───────────────────────────────────────────────────────
-
-// Internal helper. Not exported because Next.js App Router restricts
-// route files to its conventional exports only — KOT-624 will extract
-// to a separate lib file when it wires the unit-test coverage.
-function isQuietHoursBerlin(now: Date): boolean {
-  // Use Intl to avoid pulling a tz library. Format yields "Mo, Di, …, So" for
-  // German and "Mon, Tue, …, Sun" for English; we use 'en-US' for stable parsing.
-  const fmt = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Europe/Berlin",
-    weekday: "short",
-    hour: "2-digit",
-    hour12: false,
-  });
-  const parts = fmt.formatToParts(now);
-  const weekday = parts.find((p) => p.type === "weekday")?.value;
-  const hour = Number(parts.find((p) => p.type === "hour")?.value);
-  if (weekday === "Sun") return true;
-  if (Number.isNaN(hour)) return true;
-  return hour < 9 || hour >= 19;
 }
 
 // ─── Main loop ────────────────────────────────────────────────────────────────
