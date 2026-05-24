@@ -77,6 +77,8 @@ interface TeamStats {
   newLeadsByOwner30d: { ownerId: string; count: number }[];
 }
 
+type LeadChannelType = "email" | "whatsapp" | "sms";
+
 interface CompanyComparisonRow {
   companyId: string;
   companyName: string;
@@ -89,6 +91,24 @@ interface CompanyComparisonRow {
   dealsLost: number;
   winRatePct: number | null;
   avgDealValue: number | null;
+  movesCompleted: number;
+  revenuePerMove: number | null;
+  costPerMove: number | null;
+  laborRatioPct: number | null;
+  expenseRatioPct: number | null;
+  crossSubsidyIn: number;
+  crossSubsidyOut: number;
+  newLeads: number;
+  leadsByChannel: { channelType: LeadChannelType; count: number }[];
+  leadToWinRatePct: number | null;
+  monthlySeries: {
+    month: string;
+    revenue: number;
+    profit: number;
+    moves: number;
+    leads: number;
+  }[];
+  score: number;
 }
 
 type Period = "30d" | "90d" | "365d" | "ytd";
@@ -783,10 +803,32 @@ function TeamTab() {
 
 // ─── Tab: Company comparison ─────────────────────────────────────────────────
 
+type TrendMetric = "revenue" | "profit" | "moves" | "leads";
+
+const TREND_LABELS: Record<TrendMetric, string> = {
+  revenue: "Umsatz",
+  profit: "Profit",
+  moves: "Umzüge",
+  leads: "Leads",
+};
+
+const CHANNEL_LABELS: Record<LeadChannelType, string> = {
+  email: "E-Mail",
+  whatsapp: "WhatsApp",
+  sms: "SMS",
+};
+
+const CHANNEL_COLORS: Record<LeadChannelType, string> = {
+  email: "#6366f1",
+  whatsapp: "#22c55e",
+  sms: "#f97316",
+};
+
 function CompareTab() {
   const [period, setPeriod] = useState<Period>("90d");
   const [data, setData] = useState<CompanyComparisonRow[] | null>(null);
   const [loading, setLoading] = useState(true);
+  const [trendMetric, setTrendMetric] = useState<TrendMetric>("revenue");
 
   useEffect(() => {
     setLoading(true);
@@ -798,26 +840,94 @@ function CompareTab() {
     });
   }, [period]);
 
+  // Per-metric rank (1 = best). Higher is better for all of these.
+  const ranks = useMemo(() => {
+    if (!data || data.length === 0) return new Map<string, Record<string, number>>();
+    const metrics: { key: string; get: (r: CompanyComparisonRow) => number }[] = [
+      { key: "revenue", get: (r) => r.revenue },
+      { key: "marginPct", get: (r) => r.marginPct ?? -Infinity },
+      { key: "winRatePct", get: (r) => r.winRatePct ?? -Infinity },
+      { key: "movesCompleted", get: (r) => r.movesCompleted },
+      { key: "leadToWinRatePct", get: (r) => r.leadToWinRatePct ?? -Infinity },
+      { key: "revenuePerMove", get: (r) => r.revenuePerMove ?? -Infinity },
+    ];
+    const out = new Map<string, Record<string, number>>();
+    for (const m of metrics) {
+      const sorted = [...data].sort((a, b) => m.get(b) - m.get(a));
+      sorted.forEach((row, idx) => {
+        const r = out.get(row.companyId) ?? {};
+        r[m.key] = idx + 1;
+        out.set(row.companyId, r);
+      });
+    }
+    return out;
+  }, [data]);
+
+  // Workspace medians for efficiency color coding
+  const medians = useMemo(() => {
+    if (!data || data.length === 0) return null;
+    const median = (vals: number[]) => {
+      const v = vals.filter((x) => Number.isFinite(x)).sort((a, b) => a - b);
+      if (v.length === 0) return 0;
+      const mid = Math.floor(v.length / 2);
+      return v.length % 2 ? v[mid] : (v[mid - 1] + v[mid]) / 2;
+    };
+    return {
+      revenuePerMove: median(data.map((r) => r.revenuePerMove ?? 0)),
+      laborRatio: median(data.map((r) => r.laborRatioPct ?? 0)),
+      expenseRatio: median(data.map((r) => r.expenseRatioPct ?? 0)),
+    };
+  }, [data]);
+
+  const trendChartData = useMemo(() => {
+    if (!data || data.length === 0) return [];
+    const months = data[0].monthlySeries.map((m) => m.month);
+    return months.map((mk, idx) => {
+      const row: Record<string, number | string> = { month: monthShort(mk) };
+      for (const c of data) {
+        row[c.companyName] = c.monthlySeries[idx]?.[trendMetric] ?? 0;
+      }
+      return row;
+    });
+  }, [data, trendMetric]);
+
   const radarData = useMemo(() => {
     if (!data || data.length === 0) return [];
     const maxRevenue = Math.max(...data.map((r) => r.revenue), 1);
-    const maxMargin = Math.max(...data.map((r) => Math.max(0, r.margin)), 1);
     const maxAvg = Math.max(...data.map((r) => r.avgDealValue ?? 0), 1);
-    const maxDeals = Math.max(...data.map((r) => r.dealsWon), 1);
-    const axes = ["Umsatz", "Marge", "Win-Rate", "Volumen", "Ø Wert"];
+    const maxMoves = Math.max(...data.map((r) => r.movesCompleted), 1);
+    const axes: { label: string; getNorm: (r: CompanyComparisonRow) => number; getAbs: (r: CompanyComparisonRow) => string }[] = [
+      {
+        label: "Umsatz",
+        getNorm: (r) => Math.round((r.revenue / maxRevenue) * 100),
+        getAbs: (r) => fmtEUR(r.revenue),
+      },
+      {
+        label: "Marge %",
+        getNorm: (r) => Math.max(0, Math.min(100, r.marginPct ?? 0)),
+        getAbs: (r) => fmtPct(r.marginPct),
+      },
+      {
+        label: "Win-Rate",
+        getNorm: (r) => r.winRatePct ?? 0,
+        getAbs: (r) => fmtPct(r.winRatePct),
+      },
+      {
+        label: "Volumen",
+        getNorm: (r) => Math.round((r.movesCompleted / maxMoves) * 100),
+        getAbs: (r) => `${r.movesCompleted} Umzüge`,
+      },
+      {
+        label: "Ø Wert",
+        getNorm: (r) => Math.round(((r.avgDealValue ?? 0) / maxAvg) * 100),
+        getAbs: (r) => fmtEUR(r.avgDealValue),
+      },
+    ];
     return axes.map((axis) => {
-      const row: Record<string, number | string> = { axis };
+      const row: Record<string, number | string> = { axis: axis.label };
       for (const c of data) {
-        let v = 0;
-        if (axis === "Umsatz") v = Math.round((c.revenue / maxRevenue) * 100);
-        else if (axis === "Marge")
-          v = Math.round((Math.max(0, c.margin) / maxMargin) * 100);
-        else if (axis === "Win-Rate") v = c.winRatePct ?? 0;
-        else if (axis === "Volumen")
-          v = Math.round((c.dealsWon / maxDeals) * 100);
-        else if (axis === "Ø Wert")
-          v = Math.round(((c.avgDealValue ?? 0) / maxAvg) * 100);
-        row[c.companyName] = v;
+        row[c.companyName] = axis.getNorm(c);
+        row[`${c.companyName}__abs`] = axis.getAbs(c);
       }
       return row;
     });
@@ -853,59 +963,76 @@ function CompareTab() {
         <EmptyMsg>Keine Operating-Companies mit Daten im gewählten Zeitraum.</EmptyMsg>
       ) : (
         <>
-          <Panel title="Umsatz nach Operating Company">
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={data}>
+          <LeaderScorecard data={data} ranks={ranks} />
+
+          <Panel
+            title="Trend (letzte 6 Monate)"
+            right={
+              <div className="flex gap-1">
+                {(Object.keys(TREND_LABELS) as TrendMetric[]).map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => setTrendMetric(m)}
+                    className="rounded-md px-2 py-1 text-[11.5px]"
+                    style={{
+                      border: "1px solid var(--line)",
+                      background:
+                        trendMetric === m ? "var(--kottke-accent)" : "var(--paper)",
+                      color:
+                        trendMetric === m ? "var(--paper)" : "var(--ink-soft)",
+                      fontWeight: trendMetric === m ? 500 : 400,
+                    }}
+                  >
+                    {TREND_LABELS[m]}
+                  </button>
+                ))}
+              </div>
+            }
+          >
+            <ResponsiveContainer width="100%" height={280}>
+              <LineChart data={trendChartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" />
-                <XAxis dataKey="companyName" tick={{ fontSize: 11 }} />
+                <XAxis dataKey="month" tick={{ fontSize: 11 }} />
                 <YAxis
                   tick={{ fontSize: 11 }}
-                  tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
+                  tickFormatter={(v) =>
+                    trendMetric === "revenue" || trendMetric === "profit"
+                      ? `${(v / 1000).toFixed(0)}k`
+                      : String(v)
+                  }
                 />
                 <Tooltip
-                  formatter={(v: unknown) => [fmtEUR(Number(v)), "Umsatz"]}
+                  formatter={(v: unknown, name: unknown) => [
+                    trendMetric === "revenue" || trendMetric === "profit"
+                      ? fmtEUR(Number(v))
+                      : fmtNum(Number(v)),
+                    String(name ?? ""),
+                  ]}
                   contentStyle={tooltipStyle}
                 />
-                <Bar dataKey="revenue" fill="var(--kottke-accent)" />
-              </BarChart>
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                {data.map((c, i) => (
+                  <Line
+                    key={c.companyId}
+                    type="monotone"
+                    dataKey={c.companyName}
+                    stroke={RADAR_COLORS[i % RADAR_COLORS.length]}
+                    strokeWidth={2}
+                    dot={{ r: 3 }}
+                  />
+                ))}
+              </LineChart>
             </ResponsiveContainer>
           </Panel>
 
-          <Panel title="Gewinnmarge (Umsatz − Ausgaben − Lohn)">
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={data}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" />
-                <XAxis dataKey="companyName" tick={{ fontSize: 11 }} />
-                <YAxis
-                  tick={{ fontSize: 11 }}
-                  tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
-                />
-                <Tooltip
-                  formatter={(v: unknown) => [fmtEUR(Number(v)), "Marge"]}
-                  contentStyle={tooltipStyle}
-                />
-                <Bar dataKey="margin" fill="#15803d" />
-              </BarChart>
-            </ResponsiveContainer>
-          </Panel>
+          <LeadIntakePanel data={data} />
 
-          <Panel title="Win-Rate (%)">
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={data}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" />
-                <XAxis dataKey="companyName" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} domain={[0, 100]} />
-                <Tooltip
-                  formatter={(v: unknown) => [`${Number(v)} %`, "Win-Rate"]}
-                  contentStyle={tooltipStyle}
-                />
-                <Bar dataKey="winRatePct" fill="#a855f7" />
-              </BarChart>
-            </ResponsiveContainer>
-          </Panel>
+          {medians && <EfficiencyGrid data={data} medians={medians} />}
+
+          <CrossSubsidyPanel data={data} />
 
           {data.length >= 2 && (
-            <Panel title="Radar-Vergleich (normalisiert, 0–100)">
+            <Panel title="Radar-Vergleich (normalisiert, 0 bis 100)">
               <ResponsiveContainer width="100%" height={320}>
                 <RadarChart data={radarData}>
                   <PolarGrid stroke="var(--line)" />
@@ -922,56 +1049,442 @@ function CompareTab() {
                     />
                   ))}
                   <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Tooltip contentStyle={tooltipStyle} />
+                  <Tooltip
+                    contentStyle={tooltipStyle}
+                    formatter={(_v: unknown, name: unknown, item: unknown) => {
+                      const nm = String(name ?? "");
+                      const payload = (item as { payload?: Record<string, unknown> } | undefined)?.payload;
+                      const abs = payload?.[`${nm}__abs`];
+                      return [typeof abs === "string" ? abs : String(_v), nm];
+                    }}
+                  />
                 </RadarChart>
               </ResponsiveContainer>
             </Panel>
           )}
 
-          <Panel title="Übersicht">
-            <div className="overflow-x-auto">
-              <table className="w-full text-[13px]">
-                <thead>
-                  <tr style={{ color: "var(--ink-muted)" }}>
-                    <th className="text-left font-medium py-1.5">Firma</th>
-                    <th className="text-right font-medium py-1.5">Umsatz</th>
-                    <th className="text-right font-medium py-1.5">Ausgaben</th>
-                    <th className="text-right font-medium py-1.5">Lohn</th>
-                    <th className="text-right font-medium py-1.5">Marge</th>
-                    <th className="text-right font-medium py-1.5">Marge&nbsp;%</th>
-                    <th className="text-right font-medium py-1.5">Gewonnen</th>
-                    <th className="text-right font-medium py-1.5">Verloren</th>
-                    <th className="text-right font-medium py-1.5">Win-Rate</th>
-                    <th className="text-right font-medium py-1.5">Ø Wert</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.map((r) => (
-                    <tr
-                      key={r.companyId}
-                      style={{ borderTop: "1px solid var(--line)" }}
-                    >
-                      <td className="py-1.5">{r.companyName}</td>
-                      <td className="py-1.5 text-right font-mono">{fmtEUR(r.revenue)}</td>
-                      <td className="py-1.5 text-right font-mono">{fmtEUR(r.expenses)}</td>
-                      <td className="py-1.5 text-right font-mono">{fmtEUR(r.employeeCosts)}</td>
-                      <td className="py-1.5 text-right font-mono">{fmtEUR(r.margin)}</td>
-                      <td className="py-1.5 text-right font-mono">{fmtPct(r.marginPct)}</td>
-                      <td className="py-1.5 text-right font-mono">{r.dealsWon}</td>
-                      <td className="py-1.5 text-right font-mono">{r.dealsLost}</td>
-                      <td className="py-1.5 text-right font-mono">{fmtPct(r.winRatePct)}</td>
-                      <td className="py-1.5 text-right font-mono">
-                        {fmtEUR(r.avgDealValue)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Panel>
+          <RankingTable data={data} ranks={ranks} />
         </>
       )}
     </div>
+  );
+}
+
+// ─── Sub-components for the compare tab ──────────────────────────────────────
+
+function LeaderScorecard({
+  data,
+  ranks,
+}: {
+  data: CompanyComparisonRow[];
+  ranks: Map<string, Record<string, number>>;
+}) {
+  const rankIcon = (n: number) => (n === 1 ? "🥇" : n === 2 ? "🥈" : n === 3 ? "🥉" : `#${n}`);
+
+  return (
+    <Panel title="Leader-Scorecard">
+      <div
+        className="grid gap-3"
+        style={{ gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))" }}
+      >
+        {data.map((c, i) => {
+          const r = ranks.get(c.companyId) ?? {};
+          const accent = RADAR_COLORS[i % RADAR_COLORS.length];
+          return (
+            <div
+              key={c.companyId}
+              className="rounded-xl"
+              style={{
+                border: "1px solid var(--line)",
+                background: "var(--paper)",
+                padding: "12px 14px",
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+              }}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span
+                    style={{
+                      display: "inline-block",
+                      width: 8,
+                      height: 8,
+                      borderRadius: 999,
+                      background: accent,
+                    }}
+                  />
+                  <span style={{ fontWeight: 500 }}>{c.companyName}</span>
+                </div>
+                <div
+                  className="text-[11px]"
+                  style={{
+                    background: "var(--surface)",
+                    border: "1px solid var(--line)",
+                    borderRadius: 6,
+                    padding: "2px 6px",
+                    color: "var(--ink-soft)",
+                  }}
+                >
+                  Score {c.score}
+                </div>
+              </div>
+              <div className="flex items-baseline gap-2">
+                <div
+                  className="k-display"
+                  style={{ fontSize: 22, fontWeight: 500, letterSpacing: "-0.02em" }}
+                >
+                  {fmtEUR(c.revenue)}
+                </div>
+                <div className="text-[12px]" style={{ color: "var(--ink-muted)" }}>
+                  Umsatz
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                <RankChip label="Umsatz" rank={r.revenue} icon={rankIcon(r.revenue)} />
+                <RankChip label="Marge" rank={r.marginPct} icon={rankIcon(r.marginPct)} />
+                <RankChip label="Win" rank={r.winRatePct} icon={rankIcon(r.winRatePct)} />
+                <RankChip label="Volumen" rank={r.movesCompleted} icon={rankIcon(r.movesCompleted)} />
+                <RankChip label="Conv." rank={r.leadToWinRatePct} icon={rankIcon(r.leadToWinRatePct)} />
+              </div>
+              <div
+                className="text-[12px] grid grid-cols-3 gap-2"
+                style={{ color: "var(--ink-muted)", marginTop: 2 }}
+              >
+                <div>
+                  <div style={{ color: "var(--ink-soft)", fontWeight: 500 }}>
+                    {fmtPct(c.marginPct)}
+                  </div>
+                  <div>Marge</div>
+                </div>
+                <div>
+                  <div style={{ color: "var(--ink-soft)", fontWeight: 500 }}>
+                    {c.movesCompleted}
+                  </div>
+                  <div>Umzüge</div>
+                </div>
+                <div>
+                  <div style={{ color: "var(--ink-soft)", fontWeight: 500 }}>
+                    {c.newLeads}
+                  </div>
+                  <div>Leads</div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </Panel>
+  );
+}
+
+function RankChip({
+  label,
+  rank,
+  icon,
+}: {
+  label: string;
+  rank: number | undefined;
+  icon: string;
+}) {
+  if (!rank) return null;
+  const accent = rank === 1 ? "#15803d" : rank === 2 ? "#0ea5e9" : rank === 3 ? "#a855f7" : "var(--ink-muted)";
+  return (
+    <span
+      className="text-[11px]"
+      style={{
+        border: "1px solid var(--line)",
+        borderRadius: 999,
+        padding: "1px 8px",
+        display: "inline-flex",
+        gap: 4,
+        alignItems: "center",
+        color: accent,
+      }}
+    >
+      <span>{icon}</span>
+      <span style={{ color: "var(--ink-soft)" }}>{label}</span>
+    </span>
+  );
+}
+
+function LeadIntakePanel({ data }: { data: CompanyComparisonRow[] }) {
+  const stackedData = data.map((c) => {
+    const row: Record<string, string | number> = { companyName: c.companyName };
+    for (const ch of c.leadsByChannel) row[CHANNEL_LABELS[ch.channelType]] = ch.count;
+    return row;
+  });
+  const channels: LeadChannelType[] = ["email", "whatsapp", "sms"];
+
+  return (
+    <Panel title="Lead-Aufkommen je Operating Company">
+      <div className="grid gap-4" style={{ gridTemplateColumns: "minmax(0, 1.5fr) minmax(0, 1fr)" }}>
+        <div>
+          <ResponsiveContainer width="100%" height={240}>
+            <BarChart data={stackedData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" />
+              <XAxis dataKey="companyName" tick={{ fontSize: 11 }} />
+              <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+              <Tooltip contentStyle={tooltipStyle} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              {channels.map((ch) => (
+                <Bar
+                  key={ch}
+                  dataKey={CHANNEL_LABELS[ch]}
+                  stackId="leads"
+                  fill={CHANNEL_COLORS[ch]}
+                />
+              ))}
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+        <div>
+          <div
+            className="text-[11.5px] mb-2"
+            style={{ color: "var(--ink-muted)", letterSpacing: "0.04em", textTransform: "uppercase" }}
+          >
+            Conversion (Leads zu gewonnen)
+          </div>
+          <div className="space-y-2">
+            {data.map((c, i) => {
+              const conv = c.leadToWinRatePct ?? 0;
+              const accent = RADAR_COLORS[i % RADAR_COLORS.length];
+              return (
+                <div key={c.companyId}>
+                  <div className="flex justify-between text-[12px]">
+                    <span style={{ color: "var(--ink-soft)" }}>{c.companyName}</span>
+                    <span className="font-mono" style={{ color: "var(--ink-soft)" }}>
+                      {c.dealsWon} / {c.newLeads} · {fmtPct(c.leadToWinRatePct)}
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      height: 6,
+                      background: "var(--surface)",
+                      borderRadius: 999,
+                      overflow: "hidden",
+                      marginTop: 2,
+                    }}
+                  >
+                    <div
+                      style={{
+                        height: "100%",
+                        width: `${Math.min(100, conv)}%`,
+                        background: accent,
+                      }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function EfficiencyGrid({
+  data,
+  medians,
+}: {
+  data: CompanyComparisonRow[];
+  medians: { revenuePerMove: number; laborRatio: number; expenseRatio: number };
+}) {
+  // For revenuePerMove higher is better. For laborRatio / expenseRatio lower is better.
+  const colorEUR = (v: number | null) => {
+    if (v == null || medians.revenuePerMove === 0) return "var(--ink-soft)";
+    if (v >= medians.revenuePerMove * 1.05) return "#15803d";
+    if (v <= medians.revenuePerMove * 0.95) return "#ef4444";
+    return "var(--ink-soft)";
+  };
+  const colorPctLowerBetter = (v: number | null, median: number) => {
+    if (v == null || median === 0) return "var(--ink-soft)";
+    if (v <= median * 0.95) return "#15803d";
+    if (v >= median * 1.05) return "#ef4444";
+    return "var(--ink-soft)";
+  };
+
+  return (
+    <Panel title="Effizienz pro Umzug & Kostenstruktur">
+      <div className="overflow-x-auto">
+        <table className="w-full text-[13px]">
+          <thead>
+            <tr style={{ color: "var(--ink-muted)" }}>
+              <th className="text-left font-medium py-1.5">Firma</th>
+              <th className="text-right font-medium py-1.5">Umzüge</th>
+              <th className="text-right font-medium py-1.5">Umsatz / Umzug</th>
+              <th className="text-right font-medium py-1.5">Kosten / Umzug</th>
+              <th className="text-right font-medium py-1.5">Lohn-Quote</th>
+              <th className="text-right font-medium py-1.5">Kosten-Quote</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((r) => (
+              <tr key={r.companyId} style={{ borderTop: "1px solid var(--line)" }}>
+                <td className="py-1.5">{r.companyName}</td>
+                <td className="py-1.5 text-right font-mono">{r.movesCompleted}</td>
+                <td
+                  className="py-1.5 text-right font-mono"
+                  style={{ color: colorEUR(r.revenuePerMove) }}
+                >
+                  {fmtEUR(r.revenuePerMove)}
+                </td>
+                <td className="py-1.5 text-right font-mono" style={{ color: "var(--ink-soft)" }}>
+                  {fmtEUR(r.costPerMove)}
+                </td>
+                <td
+                  className="py-1.5 text-right font-mono"
+                  style={{ color: colorPctLowerBetter(r.laborRatioPct, medians.laborRatio) }}
+                >
+                  {fmtPct(r.laborRatioPct)}
+                </td>
+                <td
+                  className="py-1.5 text-right font-mono"
+                  style={{ color: colorPctLowerBetter(r.expenseRatioPct, medians.expenseRatio) }}
+                >
+                  {fmtPct(r.expenseRatioPct)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="text-[11px] mt-2" style={{ color: "var(--ink-muted)" }}>
+          Farben relativ zum Workspace-Median: grün besser, rot schlechter (Marge 5 % Abweichung).
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function CrossSubsidyPanel({ data }: { data: CompanyComparisonRow[] }) {
+  const totalCross = data.reduce((s, r) => s + r.crossSubsidyOut, 0);
+  if (totalCross === 0) return null;
+
+  return (
+    <Panel title="Quersubvention zwischen Firmen">
+      <div className="space-y-2">
+        {data
+          .filter((r) => r.crossSubsidyIn > 0 || r.crossSubsidyOut > 0)
+          .map((r) => (
+            <div
+              key={r.companyId}
+              className="flex items-center justify-between text-[13px]"
+              style={{ borderTop: "1px solid var(--line)", paddingTop: 8 }}
+            >
+              <span style={{ fontWeight: 500 }}>{r.companyName}</span>
+              <div className="flex gap-4">
+                <span style={{ color: r.crossSubsidyIn > 0 ? "#15803d" : "var(--ink-muted)" }}>
+                  Erhalten <span className="font-mono">{fmtEUR(r.crossSubsidyIn)}</span>
+                </span>
+                <span style={{ color: r.crossSubsidyOut > 0 ? "#ef4444" : "var(--ink-muted)" }}>
+                  Gezahlt <span className="font-mono">{fmtEUR(r.crossSubsidyOut)}</span>
+                </span>
+              </div>
+            </div>
+          ))}
+        <div className="text-[11px] mt-2" style={{ color: "var(--ink-muted)" }}>
+          Ausgaben oder Löhne, die eine Firma für einen Auftrag einer anderen Firma getragen hat.
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function RankingTable({
+  data,
+  ranks,
+}: {
+  data: CompanyComparisonRow[];
+  ranks: Map<string, Record<string, number>>;
+}) {
+  const rankBadge = (n: number | undefined) => {
+    if (!n) return null;
+    const color = n === 1 ? "#15803d" : n === 2 ? "#0ea5e9" : n === 3 ? "#a855f7" : "var(--ink-muted)";
+    return (
+      <span
+        className="text-[10px]"
+        style={{
+          background: "var(--surface)",
+          color,
+          border: "1px solid var(--line)",
+          borderRadius: 999,
+          padding: "0px 5px",
+          marginLeft: 4,
+        }}
+      >
+        #{n}
+      </span>
+    );
+  };
+
+  return (
+    <Panel title="Detaillierte Rangliste">
+      <div className="overflow-x-auto">
+        <table className="w-full text-[13px]">
+          <thead>
+            <tr style={{ color: "var(--ink-muted)" }}>
+              <th className="text-left font-medium py-1.5">Firma</th>
+              <th className="text-left font-medium py-1.5">6-Mo. Umsatz</th>
+              <th className="text-right font-medium py-1.5">Umsatz</th>
+              <th className="text-right font-medium py-1.5">Marge</th>
+              <th className="text-right font-medium py-1.5">Marge %</th>
+              <th className="text-right font-medium py-1.5">Umzüge</th>
+              <th className="text-right font-medium py-1.5">Gewonnen</th>
+              <th className="text-right font-medium py-1.5">Verloren</th>
+              <th className="text-right font-medium py-1.5">Win</th>
+              <th className="text-right font-medium py-1.5">Leads</th>
+              <th className="text-right font-medium py-1.5">Conv.</th>
+              <th className="text-right font-medium py-1.5">Ø Wert</th>
+              <th className="text-right font-medium py-1.5">Score</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((r) => {
+              const rr = ranks.get(r.companyId) ?? {};
+              return (
+                <tr key={r.companyId} style={{ borderTop: "1px solid var(--line)" }}>
+                  <td className="py-1.5" style={{ fontWeight: 500 }}>
+                    {r.companyName}
+                  </td>
+                  <td className="py-1.5" style={{ minWidth: 100 }}>
+                    <Sparkline points={r.monthlySeries.map((m) => m.revenue)} />
+                  </td>
+                  <td className="py-1.5 text-right font-mono">
+                    {fmtEUR(r.revenue)}
+                    {rankBadge(rr.revenue)}
+                  </td>
+                  <td className="py-1.5 text-right font-mono">{fmtEUR(r.margin)}</td>
+                  <td className="py-1.5 text-right font-mono">
+                    {fmtPct(r.marginPct)}
+                    {rankBadge(rr.marginPct)}
+                  </td>
+                  <td className="py-1.5 text-right font-mono">
+                    {r.movesCompleted}
+                    {rankBadge(rr.movesCompleted)}
+                  </td>
+                  <td className="py-1.5 text-right font-mono">{r.dealsWon}</td>
+                  <td className="py-1.5 text-right font-mono">{r.dealsLost}</td>
+                  <td className="py-1.5 text-right font-mono">
+                    {fmtPct(r.winRatePct)}
+                    {rankBadge(rr.winRatePct)}
+                  </td>
+                  <td className="py-1.5 text-right font-mono">{r.newLeads}</td>
+                  <td className="py-1.5 text-right font-mono">
+                    {fmtPct(r.leadToWinRatePct)}
+                    {rankBadge(rr.leadToWinRatePct)}
+                  </td>
+                  <td className="py-1.5 text-right font-mono">{fmtEUR(r.avgDealValue)}</td>
+                  <td className="py-1.5 text-right font-mono" style={{ fontWeight: 500 }}>
+                    {r.score}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Panel>
   );
 }
 
@@ -1007,9 +1520,11 @@ const RADAR_COLORS = [
 function Panel({
   title,
   children,
+  right,
 }: {
   title: string;
   children: React.ReactNode;
+  right?: React.ReactNode;
 }) {
   return (
     <section
@@ -1020,17 +1535,22 @@ function Panel({
         padding: "14px 16px",
       }}
     >
-      <h2
-        className="k-display"
-        style={{
-          fontSize: 14,
-          fontWeight: 500,
-          marginBottom: 12,
-          letterSpacing: "-0.01em",
-        }}
+      <div
+        className="flex items-center justify-between"
+        style={{ marginBottom: 12 }}
       >
-        {title}
-      </h2>
+        <h2
+          className="k-display"
+          style={{
+            fontSize: 14,
+            fontWeight: 500,
+            letterSpacing: "-0.01em",
+          }}
+        >
+          {title}
+        </h2>
+        {right}
+      </div>
       {children}
     </section>
   );
@@ -1079,6 +1599,14 @@ function weekShort(iso: string): string {
   if (!iso) return "";
   const d = new Date(iso + "T00:00:00Z");
   return `${d.getUTCDate()}.${d.getUTCMonth() + 1}.`;
+}
+
+function monthShort(yyyymm: string): string {
+  if (!yyyymm) return "";
+  const [y, m] = yyyymm.split("-").map(Number);
+  if (!y || !m) return yyyymm;
+  const d = new Date(Date.UTC(y, m - 1, 1));
+  return d.toLocaleDateString("de-DE", { month: "short" });
 }
 
 function shortId(id: string): string {

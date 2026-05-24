@@ -12,6 +12,7 @@ import { objects, attributes, statuses, selectOptions } from "@/db/schema/object
 import { records, recordValues } from "@/db/schema/records";
 import { payments, expenses, employeeTransactions } from "@/db/schema/financial";
 import { tasks } from "@/db/schema/tasks";
+import { inboxConversations, channelAccounts } from "@/db/schema/inbox";
 
 // ─── Period helpers ──────────────────────────────────────────────────────────
 
@@ -810,18 +811,46 @@ export async function getTeamStats(workspaceId: string): Promise<TeamStats> {
 
 // ─── Operating-company comparison ────────────────────────────────────────────
 
+export type LeadChannelType = "email" | "whatsapp" | "sms";
+
 export interface CompanyComparisonRow {
   companyId: string;
   companyName: string;
+  // Financial
   revenue: number;
   expenses: number;
   employeeCosts: number;
   margin: number;
   marginPct: number | null;
+  // Pipeline
   dealsWon: number;
   dealsLost: number;
   winRatePct: number | null;
   avgDealValue: number | null;
+  // Operations
+  movesCompleted: number;
+  revenuePerMove: number | null;
+  costPerMove: number | null;
+  // Efficiency
+  laborRatioPct: number | null;
+  expenseRatioPct: number | null;
+  // Cross-subsidy (Quersubvention)
+  crossSubsidyIn: number;
+  crossSubsidyOut: number;
+  // Lead intake
+  newLeads: number;
+  leadsByChannel: { channelType: LeadChannelType; count: number }[];
+  leadToWinRatePct: number | null;
+  // Trend (oldest to newest, last 6 months)
+  monthlySeries: {
+    month: string;
+    revenue: number;
+    profit: number;
+    moves: number;
+    leads: number;
+  }[];
+  // Composite score (0 to 100)
+  score: number;
 }
 
 export async function getCompanyComparison(
@@ -830,15 +859,21 @@ export async function getCompanyComparison(
 ): Promise<CompanyComparisonRow[]> {
   const { start } = periodRange(period);
   const startIso = isoDate(start);
+  const now = new Date();
+
+  // Six-month window for trend (covers the longest period 365d but capped to 6 months for chart density).
+  const sixMonthsAgo = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 5, 1));
+  const sixMonthsAgoIso = isoDate(sixMonthsAgo);
 
   const meta = await loadDealMeta(workspaceId);
   if (!meta.dealObjectId) return [];
 
-  // Map deal → operating_company
   const ocAttr = meta.attrBySlug.get("operating_company");
   const stageAttr = meta.attrBySlug.get("stage");
   const valueAttr = meta.attrBySlug.get("value");
+  const moveDateAttr = meta.attrBySlug.get("move_date");
 
+  // ── Deal → OC mapping ──────────────────────────────────────────────────────
   const dealOcRows = ocAttr
     ? await db
         .select({ dealId: recordValues.recordId, ocId: recordValues.referencedRecordId })
@@ -850,28 +885,39 @@ export async function getCompanyComparison(
 
   const allOcIds = new Set([...dealToOc.values()]);
 
-  // Revenue per company (payments in period)
+  // ── Raw rows for the period ────────────────────────────────────────────────
   const paymentRows = await db
-    .select({ dealId: payments.dealRecordId, amount: payments.amount })
+    .select({ dealId: payments.dealRecordId, amount: payments.amount, date: payments.date })
     .from(payments)
-    .where(and(eq(payments.workspaceId, workspaceId), gte(payments.date, startIso)));
-  // Expenses
+    .where(and(eq(payments.workspaceId, workspaceId), gte(payments.date, sixMonthsAgoIso)));
+
   const expenseRows = await db
-    .select({ dealId: expenses.dealRecordId, amount: expenses.amount, payingOc: expenses.payingOperatingCompanyId })
+    .select({
+      dealId: expenses.dealRecordId,
+      amount: expenses.amount,
+      payingOc: expenses.payingOperatingCompanyId,
+      date: expenses.date,
+    })
     .from(expenses)
-    .where(and(eq(expenses.workspaceId, workspaceId), gte(expenses.date, startIso)));
-  // Employee costs
+    .where(and(eq(expenses.workspaceId, workspaceId), gte(expenses.date, sixMonthsAgoIso)));
+
   const empRows = await db
-    .select({ dealId: employeeTransactions.dealRecordId, amount: employeeTransactions.amount, payingOc: employeeTransactions.payingOperatingCompanyId })
+    .select({
+      dealId: employeeTransactions.dealRecordId,
+      amount: employeeTransactions.amount,
+      payingOc: employeeTransactions.payingOperatingCompanyId,
+      date: employeeTransactions.date,
+    })
     .from(employeeTransactions)
     .where(
       and(
         eq(employeeTransactions.workspaceId, workspaceId),
-        gte(employeeTransactions.date, startIso),
+        gte(employeeTransactions.date, sixMonthsAgoIso),
         sql`${employeeTransactions.type} IN ('salary', 'advance')`
       )
     );
 
+  // ── Per-OC accumulators ────────────────────────────────────────────────────
   const blank = () => ({
     revenue: 0,
     expenses: 0,
@@ -879,9 +925,19 @@ export async function getCompanyComparison(
     wonValueSum: 0,
     wonCount: 0,
     lostCount: 0,
+    movesCompleted: 0,
+    crossIn: 0,
+    crossOut: 0,
+    newLeads: 0,
+    leadsByChannel: new Map<LeadChannelType, number>(),
+    monthly: new Map<
+      string,
+      { revenue: number; expenses: number; employeeCosts: number; moves: number; leads: number }
+    >(),
   });
-  const byOc = new Map<string, ReturnType<typeof blank>>();
-  const bump = (id: string) => {
+  type Bucket = ReturnType<typeof blank>;
+  const byOc = new Map<string, Bucket>();
+  const bump = (id: string): Bucket => {
     let r = byOc.get(id);
     if (!r) {
       r = blank();
@@ -890,23 +946,70 @@ export async function getCompanyComparison(
     allOcIds.add(id);
     return r;
   };
+  const monthBucket = (b: Bucket, monthKey: string) => {
+    let m = b.monthly.get(monthKey);
+    if (!m) {
+      m = { revenue: 0, expenses: 0, employeeCosts: 0, moves: 0, leads: 0 };
+      b.monthly.set(monthKey, m);
+    }
+    return m;
+  };
+  const monthKey = (iso: string | null) => (iso ?? "").slice(0, 7);
+  const inPeriod = (iso: string | null) => !!iso && iso >= startIso;
 
+  // ── Revenue: by deal owner OC ──────────────────────────────────────────────
   for (const p of paymentRows) {
     const oc = dealToOc.get(p.dealId);
-    if (oc) bump(oc).revenue += Number(p.amount);
-  }
-  for (const e of expenseRows) {
-    const effective = e.payingOc ?? dealToOc.get(e.dealId);
-    if (effective) bump(effective).expenses += Number(e.amount);
-  }
-  for (const t of empRows) {
-    const effective = t.payingOc ?? dealToOc.get(t.dealId);
-    if (effective) bump(effective).employeeCosts += Number(t.amount);
+    if (!oc) continue;
+    const amt = Number(p.amount);
+    const b = bump(oc);
+    if (inPeriod(p.date)) b.revenue += amt;
+    monthBucket(b, monthKey(p.date)).revenue += amt;
   }
 
-  // Win/loss + avg deal value — within the period, based on `records.updatedAt`
+  // ── Expenses + cross-subsidy bookkeeping ──────────────────────────────────
+  for (const e of expenseRows) {
+    const dealOp = dealToOc.get(e.dealId) ?? null;
+    const effectivePayer = e.payingOc ?? dealOp;
+    if (!effectivePayer) continue;
+    const amt = Number(e.amount);
+    const isCross = e.payingOc !== null && dealOp !== null && e.payingOc !== dealOp;
+
+    const payer = bump(effectivePayer);
+    if (inPeriod(e.date)) {
+      payer.expenses += amt;
+      if (isCross) payer.crossOut += amt;
+    }
+    monthBucket(payer, monthKey(e.date)).expenses += amt;
+
+    if (isCross && dealOp && inPeriod(e.date)) {
+      bump(dealOp).crossIn += amt;
+    }
+  }
+
+  for (const t of empRows) {
+    const dealOp = dealToOc.get(t.dealId) ?? null;
+    const effectivePayer = t.payingOc ?? dealOp;
+    if (!effectivePayer) continue;
+    const amt = Number(t.amount);
+    const isCross = t.payingOc !== null && dealOp !== null && t.payingOc !== dealOp;
+
+    const payer = bump(effectivePayer);
+    if (inPeriod(t.date)) {
+      payer.employeeCosts += amt;
+      if (isCross) payer.crossOut += amt;
+    }
+    monthBucket(payer, monthKey(t.date)).employeeCosts += amt;
+
+    if (isCross && dealOp && inPeriod(t.date)) {
+      bump(dealOp).crossIn += amt;
+    }
+  }
+
+  // ── Win / loss / avg deal value ───────────────────────────────────────────
   const paidId = meta.stageByLowerTitle.get("paid") ?? meta.stageByLowerTitle.get("bezahlt (abgeschlossen)");
   const lostId = meta.stageByLowerTitle.get("lost") ?? meta.stageByLowerTitle.get("verloren");
+  const doneId = meta.stageByLowerTitle.get("done") ?? meta.stageByLowerTitle.get("durchgeführt");
 
   if (stageAttr && (paidId || lostId)) {
     const wonLostStageIds = [paidId, lostId].filter((x): x is string => !!x);
@@ -922,7 +1025,6 @@ export async function getCompanyComparison(
         )
       );
 
-    // Pull deal values in bulk
     let valueByDeal = new Map<string, number>();
     if (valueAttr && decisionRows.length > 0) {
       const valueRows = await db
@@ -951,27 +1053,161 @@ export async function getCompanyComparison(
     }
   }
 
-  // Names
+  // ── Completed moves: deals in Done/Paid with move_date in period (+monthly) ─
+  if (stageAttr && moveDateAttr && (doneId || paidId)) {
+    const completedStageIds = [doneId, paidId].filter((x): x is string => !!x);
+    const completedDealRows = await db
+      .select({ recordId: recordValues.recordId })
+      .from(recordValues)
+      .where(
+        and(eq(recordValues.attributeId, stageAttr.id), inArray(recordValues.textValue, completedStageIds))
+      );
+    const completedIds = completedDealRows.map((r) => r.recordId);
+
+    if (completedIds.length > 0) {
+      const moveDateRows = await db
+        .select({ dealId: recordValues.recordId, moveDate: recordValues.dateValue })
+        .from(recordValues)
+        .where(
+          and(
+            eq(recordValues.attributeId, moveDateAttr.id),
+            inArray(recordValues.recordId, completedIds),
+            gte(recordValues.dateValue, sixMonthsAgoIso)
+          )
+        );
+
+      for (const m of moveDateRows) {
+        const oc = dealToOc.get(m.dealId);
+        if (!oc) continue;
+        const b = bump(oc);
+        if (inPeriod(m.moveDate)) b.movesCompleted += 1;
+        monthBucket(b, monthKey(m.moveDate)).moves += 1;
+      }
+    }
+  }
+
+  // ── Lead intake from inbox conversations (+monthly) ────────────────────────
+  const convoRows = await db
+    .select({
+      ocId: channelAccounts.operatingCompanyRecordId,
+      channelType: channelAccounts.channelType,
+      createdAt: inboxConversations.createdAt,
+    })
+    .from(inboxConversations)
+    .innerJoin(channelAccounts, eq(channelAccounts.id, inboxConversations.channelAccountId))
+    .where(
+      and(
+        eq(inboxConversations.workspaceId, workspaceId),
+        gte(inboxConversations.createdAt, sixMonthsAgo)
+      )
+    );
+
+  for (const c of convoRows) {
+    if (!c.ocId) continue;
+    const b = bump(c.ocId);
+    const createdIso = c.createdAt instanceof Date ? c.createdAt.toISOString().slice(0, 10) : null;
+    if (inPeriod(createdIso)) {
+      b.newLeads += 1;
+      const ch = c.channelType as LeadChannelType;
+      b.leadsByChannel.set(ch, (b.leadsByChannel.get(ch) ?? 0) + 1);
+    }
+    monthBucket(b, monthKey(createdIso)).leads += 1;
+  }
+
+  // ── Resolve OC names ───────────────────────────────────────────────────────
   const names = await loadOperatingCompanyNames(workspaceId, [...allOcIds]);
 
-  const out: CompanyComparisonRow[] = [];
+  // ── Build six-month series (oldest to newest) for each OC ──────────────────
+  const monthKeys: string[] = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+    monthKeys.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`);
+  }
+
+  // ── First pass: assemble rows without composite score ──────────────────────
+  type Pre = Omit<CompanyComparisonRow, "score">;
+  const pre: Pre[] = [];
   for (const [companyId, r] of byOc.entries()) {
     const margin = r.revenue - r.expenses - r.employeeCosts;
     const decisions = r.wonCount + r.lostCount;
-    out.push({
+    const marginPct = r.revenue > 0 ? Math.round((margin / r.revenue) * 100) : null;
+    const winRatePct = decisions > 0 ? Math.round((r.wonCount / decisions) * 100) : null;
+    const laborRatioPct = r.revenue > 0 ? Math.round((r.employeeCosts / r.revenue) * 100) : null;
+    const expenseRatioPct = r.revenue > 0 ? Math.round((r.expenses / r.revenue) * 100) : null;
+    const revenuePerMove = r.movesCompleted > 0 ? Math.round(r.revenue / r.movesCompleted) : null;
+    const costPerMove =
+      r.movesCompleted > 0
+        ? Math.round((r.expenses + r.employeeCosts) / r.movesCompleted)
+        : null;
+    const leadToWinRatePct =
+      r.newLeads > 0 ? Math.round((r.wonCount / r.newLeads) * 100) : null;
+
+    const leadsByChannel: { channelType: LeadChannelType; count: number }[] = [
+      "email",
+      "whatsapp",
+      "sms",
+    ].map((c) => ({
+      channelType: c as LeadChannelType,
+      count: r.leadsByChannel.get(c as LeadChannelType) ?? 0,
+    }));
+
+    const monthlySeries = monthKeys.map((mk) => {
+      const m = r.monthly.get(mk) ?? {
+        revenue: 0,
+        expenses: 0,
+        employeeCosts: 0,
+        moves: 0,
+        leads: 0,
+      };
+      return {
+        month: mk,
+        revenue: Math.round(m.revenue),
+        profit: Math.round(m.revenue - m.expenses - m.employeeCosts),
+        moves: m.moves,
+        leads: m.leads,
+      };
+    });
+
+    pre.push({
       companyId,
       companyName: names.get(companyId) ?? "Unbekannt",
       revenue: r.revenue,
       expenses: r.expenses,
       employeeCosts: r.employeeCosts,
       margin,
-      marginPct: r.revenue > 0 ? Math.round((margin / r.revenue) * 100) : null,
+      marginPct,
       dealsWon: r.wonCount,
       dealsLost: r.lostCount,
-      winRatePct: decisions > 0 ? Math.round((r.wonCount / decisions) * 100) : null,
+      winRatePct,
       avgDealValue: r.wonCount > 0 ? Math.round(r.wonValueSum / r.wonCount) : null,
+      movesCompleted: r.movesCompleted,
+      revenuePerMove,
+      costPerMove,
+      laborRatioPct,
+      expenseRatioPct,
+      crossSubsidyIn: r.crossIn,
+      crossSubsidyOut: r.crossOut,
+      newLeads: r.newLeads,
+      leadsByChannel,
+      leadToWinRatePct,
+      monthlySeries,
     });
   }
-  out.sort((a, b) => b.revenue - a.revenue);
+
+  // ── Composite score (40% Marge% · 30% Umsatz · 20% Win-Rate · 10% Volumen) ─
+  const maxRevenue = Math.max(...pre.map((p) => p.revenue), 1);
+  const maxMoves = Math.max(...pre.map((p) => p.movesCompleted), 1);
+  const out: CompanyComparisonRow[] = pre.map((p) => {
+    const marginScore = Math.max(0, Math.min(100, p.marginPct ?? 0));
+    const revenueScore = (p.revenue / maxRevenue) * 100;
+    const winScore = p.winRatePct ?? 0;
+    const volumeScore = (p.movesCompleted / maxMoves) * 100;
+    const score = Math.round(
+      0.4 * marginScore + 0.3 * revenueScore + 0.2 * winScore + 0.1 * volumeScore
+    );
+    return { ...p, score };
+  });
+
+  out.sort((a, b) => b.score - a.score);
   return out;
 }
