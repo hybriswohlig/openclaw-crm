@@ -26,6 +26,10 @@ export interface AITaskDefinition {
   defaultTemperature: number | null;
   defaultMaxTokens: number | null;
   defaultDailySpendCapUsd: number | null;
+  // When true and the task returns a plain string (no Zod schema), runAITask
+  // pipes the output through the `humanizer-de` skill on crm-tools before
+  // returning. Used for customer-facing drafts so they don't read as AI-typical.
+  humanizeOutput?: boolean;
 }
 
 export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
@@ -64,6 +68,7 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
     defaultTemperature: 0.4,
     defaultMaxTokens: 1500,
     defaultDailySpendCapUsd: 2,
+    humanizeOutput: true,
   },
   [AI_TASK_SLUGS.CALL_SUMMARIZE]: {
     slug: AI_TASK_SLUGS.CALL_SUMMARIZE,

@@ -15,6 +15,10 @@
  * - Logs every invocation — success or failure — to `ai_task_runs`.
  * - Falls back to the configured `fallback_model` if the primary model throws
  *   (openrouter path only; crm-tools has a single Claude model).
+ * - Post-processes plain-string outputs through the `humanizer-de` skill on
+ *   crm-tools when the task definition sets `humanizeOutput: true`. Failures
+ *   are swallowed (logged) — the original draft is returned rather than
+ *   breaking the UI.
  *
  * No feature module should call OpenRouter directly; everything routes here.
  */
@@ -38,6 +42,9 @@ const CRM_TOOLS_AUTH_TOKEN = process.env.CRM_TOOLS_AUTH_TOKEN;
 const CRM_TOOLS_POLL_INTERVAL_MS = 3000;
 const CRM_TOOLS_POLL_MAX_MS = 240_000; // 4 minutes
 const CRM_TOOLS_MODEL_TAG = "claude-via-crm-tools";
+// Humanizer runs as a second crm-tools job. Bound it separately so a slow
+// humanization can't double the worst-case latency of the main task.
+const HUMANIZER_POLL_MAX_MS = 90_000;
 
 export const AI_PROVIDERS = ["openrouter", "crm-tools"] as const;
 export type AIProvider = (typeof AI_PROVIDERS)[number];
@@ -547,6 +554,101 @@ async function runViaCrmTools<TSchema extends z.ZodTypeAny | undefined>(
   };
 }
 
+// ─── Humanizer (crm-tools /skills/humanizer-de) ──────────────────────────────
+//
+// Best-effort: returns the humanized text or `null` if anything goes wrong
+// (env missing, job timeout, parse error). Caller falls back to the original
+// draft on null — humanization must never block the user-facing reply.
+
+async function humanizeViaCrmTools(text: string): Promise<string | null> {
+  if (!CRM_TOOLS_API_URL || !CRM_TOOLS_AUTH_TOKEN) {
+    console.warn("[humanizer] crm-tools env not configured; skipping");
+    return null;
+  }
+
+  try {
+    const startResp = await fetch(`${CRM_TOOLS_API_URL}/skills/humanizer-de`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${CRM_TOOLS_AUTH_TOKEN}`,
+      },
+      body: JSON.stringify({
+        params: { text, _task_slug: "humanizer-de" },
+        timeout_sec: 120,
+      }),
+    });
+    if (!startResp.ok) {
+      console.warn(`[humanizer] start HTTP ${startResp.status}`);
+      return null;
+    }
+    const { job_id: jobId } = (await startResp.json()) as { job_id?: string };
+    if (!jobId) {
+      console.warn("[humanizer] no job_id in start response");
+      return null;
+    }
+
+    const deadline = Date.now() + HUMANIZER_POLL_MAX_MS;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, CRM_TOOLS_POLL_INTERVAL_MS));
+      const pollResp = await fetch(`${CRM_TOOLS_API_URL}/jobs/${jobId}`, {
+        headers: { Authorization: `Bearer ${CRM_TOOLS_AUTH_TOKEN}` },
+        cache: "no-store",
+      });
+      if (!pollResp.ok) continue;
+      const { status, error } = (await pollResp.json()) as {
+        status: "queued" | "running" | "done" | "error";
+        error?: string | null;
+      };
+      if (status === "done") break;
+      if (status === "error") {
+        console.warn(`[humanizer] skill error: ${error ?? "unknown"}`);
+        return null;
+      }
+      if (Date.now() >= deadline) {
+        console.warn(`[humanizer] timeout after ${HUMANIZER_POLL_MAX_MS / 1000}s`);
+        return null;
+      }
+    }
+
+    const resultResp = await fetch(`${CRM_TOOLS_API_URL}/jobs/${jobId}/result`, {
+      headers: { Authorization: `Bearer ${CRM_TOOLS_AUTH_TOKEN}` },
+    });
+    if (!resultResp.ok) {
+      console.warn(`[humanizer] result HTTP ${resultResp.status}`);
+      return null;
+    }
+    const { text: humanized } = (await resultResp.json()) as { text?: string };
+    const trimmed = (humanized ?? "").trim();
+    return trimmed.length > 0 ? trimmed : null;
+  } catch (err) {
+    console.warn("[humanizer] unexpected error:", err);
+    return null;
+  }
+}
+
+/**
+ * If the task is flagged `humanizeOutput` and the result is a plain string,
+ * pipe it through the humanizer skill. Errors return the original draft.
+ */
+async function maybeHumanize<TSchema extends z.ZodTypeAny | undefined>(
+  def: AITaskDefinition,
+  input: RunAITaskInput<TSchema>,
+  result: RunAITaskResult<TSchema>
+): Promise<RunAITaskResult<TSchema>> {
+  if (!def.humanizeOutput) return result;
+  if (!result.ok) return result;
+  if (input.schema) return result; // structured outputs are not customer text
+  if (typeof result.output !== "string") return result;
+
+  const humanized = await humanizeViaCrmTools(result.output);
+  if (humanized === null) return result;
+  return {
+    ...result,
+    output: humanized as TSchema extends z.ZodTypeAny ? z.infer<TSchema> : string,
+  };
+}
+
 export async function runAITask<TSchema extends z.ZodTypeAny | undefined = undefined>(
   input: RunAITaskInput<TSchema>
 ): Promise<RunAITaskResult<TSchema>> {
@@ -575,7 +677,8 @@ export async function runAITask<TSchema extends z.ZodTypeAny | undefined = undef
 
   // Branch on provider. crm-tools is opt-in per task; default stays openrouter.
   if (cfg.provider === "crm-tools") {
-    return runViaCrmTools(input, cfg);
+    const result = await runViaCrmTools(input, cfg);
+    return maybeHumanize(def, input, result);
   }
 
   // Resolve the OpenRouter API key from workspace settings.
@@ -646,7 +749,12 @@ export async function runAITask<TSchema extends z.ZodTypeAny | undefined = undef
         success: true,
         errorMessage: null,
       });
-      return { ok: true, runId, model, output: result.output };
+      return maybeHumanize(def, input, {
+        ok: true,
+        runId,
+        model,
+        output: result.output,
+      });
     } catch (err) {
       lastError = err;
       console.error(
