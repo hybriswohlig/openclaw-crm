@@ -12,7 +12,7 @@ import { objects, attributes, statuses, selectOptions } from "@/db/schema/object
 import { records, recordValues } from "@/db/schema/records";
 import { payments, expenses, employeeTransactions } from "@/db/schema/financial";
 import { tasks } from "@/db/schema/tasks";
-import { inboxConversations, channelAccounts } from "@/db/schema/inbox";
+import { inboxConversations, channelAccounts, inboxContacts } from "@/db/schema/inbox";
 
 // ─── Period helpers ──────────────────────────────────────────────────────────
 
@@ -813,6 +813,61 @@ export async function getTeamStats(workspaceId: string): Promise<TeamStats> {
 
 export type LeadChannelType = "email" | "whatsapp" | "sms";
 
+export type LeadSource =
+  | "kleinanzeigen"
+  | "whatsapp"
+  | "sms"
+  | "email_direct"
+  | "immobilienscout"
+  | "other";
+
+const KLEINANZEIGEN_RELAY_RE = /@mail\.kleinanzeigen\.de$/i;
+const KLEINANZEIGEN_SUBJECT_RE =
+  /kleinanzeigen|nutzer-anfrage|anfrage zu deiner anzeige|zu ihrer anzeige/i;
+const IMMOSCOUT_RE = /immobilienscout|immoscout|immowelt/i;
+
+// Patterns that almost certainly mean "this is not a real customer reaching
+// out". Kept conservative on purpose — false positives (a real customer using
+// info@ from their work address) cost more than false negatives.
+const NONLEAD_SENDER_LOCALPART_RE =
+  /^(no[-_.]?reply|donot[-_.]?reply|noreply|mailer-daemon|postmaster|bounces?|delivery|delivery-status|notifications?|alerts?|automated?|auto-confirm|newsletter|marketing|promo|promotions?|hello|support|billing|invoice|invoicing|abuse|security|noreply2?|reply\+|notify)$/i;
+const NONLEAD_SUBJECT_RE =
+  /(newsletter|unsubscribe|abmelden|abmeldung|out of office|abwesenheits|delivery status|undeliverable|mail delivery|returned mail|payment receipt|invoice|rechnung von|kontoauszug|password reset|verify your|verifizierung|2fa|two-factor|webinar|sale ends|black friday|cyber monday)/i;
+
+function isNonLeadEmail(
+  channelType: string,
+  contactEmail: string | null,
+  subject: string | null
+): boolean {
+  if (channelType !== "email") return false;
+  // Never filter out Kleinanzeigen relay — those are real leads even though the
+  // local-part can look randomised.
+  if (contactEmail && KLEINANZEIGEN_RELAY_RE.test(contactEmail)) return false;
+  if (subject && KLEINANZEIGEN_SUBJECT_RE.test(subject)) return false;
+
+  if (contactEmail) {
+    const local = contactEmail.split("@")[0] ?? "";
+    if (NONLEAD_SENDER_LOCALPART_RE.test(local)) return true;
+  }
+  if (subject && NONLEAD_SUBJECT_RE.test(subject)) return true;
+  return false;
+}
+
+function classifyLeadSource(
+  channelType: string,
+  contactEmail: string | null,
+  subject: string | null
+): LeadSource {
+  if (channelType === "whatsapp") return "whatsapp";
+  if (channelType === "sms") return "sms";
+  // email channel
+  if (contactEmail && KLEINANZEIGEN_RELAY_RE.test(contactEmail)) return "kleinanzeigen";
+  if (subject && KLEINANZEIGEN_SUBJECT_RE.test(subject)) return "kleinanzeigen";
+  if (contactEmail && IMMOSCOUT_RE.test(contactEmail)) return "immobilienscout";
+  if (subject && IMMOSCOUT_RE.test(subject)) return "immobilienscout";
+  return "email_direct";
+}
+
 export interface CompanyComparisonRow {
   companyId: string;
   companyName: string;
@@ -837,9 +892,14 @@ export interface CompanyComparisonRow {
   // Cross-subsidy (Quersubvention)
   crossSubsidyIn: number;
   crossSubsidyOut: number;
-  // Lead intake
+  // Lead intake. newLeads counts unique contacts per OC per channel within the
+  // period, after filtering out noreply / mailer-daemon / newsletter / system
+  // notification emails. filteredOutLeads is the number of unique contacts
+  // dropped by that filter — surfaced so operators can sanity-check it.
   newLeads: number;
+  filteredOutLeads: number;
   leadsByChannel: { channelType: LeadChannelType; count: number }[];
+  leadsBySource: { source: LeadSource; count: number }[];
   leadToWinRatePct: number | null;
   // Trend (oldest to newest, last 6 months)
   monthlySeries: {
@@ -929,7 +989,9 @@ export async function getCompanyComparison(
     crossIn: 0,
     crossOut: 0,
     newLeads: 0,
+    filteredOutLeads: 0,
     leadsByChannel: new Map<LeadChannelType, number>(),
+    leadsBySource: new Map<LeadSource, number>(),
     monthly: new Map<
       string,
       { revenue: number; expenses: number; employeeCosts: number; moves: number; leads: number }
@@ -1087,31 +1149,77 @@ export async function getCompanyComparison(
   }
 
   // ── Lead intake from inbox conversations (+monthly) ────────────────────────
+  //
+  // Counting rule: one lead = one unique CONTACT per OC per channel within the
+  // period. So a person who starts five separate email threads with Kottke is
+  // one Kottke email lead. A person who messages both Kottke and Ceylan counts
+  // once per OC. A person who reaches the same OC via both email and WhatsApp
+  // counts once per channel (because channel is part of the dedup key) — that
+  // matches the user's stated rule that multi-channel intake is multiple leads.
+  //
+  // For the source breakdown we keep the same per-(contact, channel) dedup but
+  // assign source from the FIRST conversation we see for that contact/channel
+  // pair (sorted ascending by createdAt) so the breakdown total agrees with
+  // newLeads.
+  //
+  // Source classification uses contact email + subject regex matching the
+  // inbox UI logic (Kleinanzeigen relay address / subject keywords, Immoscout
+  // sender domain) so the breakdown agrees with what operators see.
   const convoRows = await db
     .select({
+      contactId: inboxConversations.contactId,
+      externalThreadId: inboxConversations.externalThreadId,
+      subject: inboxConversations.subject,
       ocId: channelAccounts.operatingCompanyRecordId,
       channelType: channelAccounts.channelType,
+      contactEmail: inboxContacts.email,
       createdAt: inboxConversations.createdAt,
     })
     .from(inboxConversations)
     .innerJoin(channelAccounts, eq(channelAccounts.id, inboxConversations.channelAccountId))
+    .innerJoin(inboxContacts, eq(inboxContacts.id, inboxConversations.contactId))
     .where(
       and(
         eq(inboxConversations.workspaceId, workspaceId),
         gte(inboxConversations.createdAt, sixMonthsAgo)
       )
-    );
+    )
+    .orderBy(inboxConversations.createdAt);
+
+  // Dedup key: (ocId, contactId, channelType). The first occurrence wins for
+  // both the period count and the monthly bucket.
+  const seenInPeriod = new Set<string>();
+  const seenAllTime = new Set<string>();
 
   for (const c of convoRows) {
     if (!c.ocId) continue;
-    const b = bump(c.ocId);
+    const key = `${c.ocId}|${c.contactId}|${c.channelType}`;
     const createdIso = c.createdAt instanceof Date ? c.createdAt.toISOString().slice(0, 10) : null;
-    if (inPeriod(createdIso)) {
-      b.newLeads += 1;
-      const ch = c.channelType as LeadChannelType;
-      b.leadsByChannel.set(ch, (b.leadsByChannel.get(ch) ?? 0) + 1);
+    const source = classifyLeadSource(c.channelType, c.contactEmail, c.subject);
+    const ch = c.channelType as LeadChannelType;
+    const isJunk = isNonLeadEmail(c.channelType, c.contactEmail, c.subject);
+
+    // Monthly bucket: count first real-lead sighting in any month.
+    if (!seenAllTime.has(key)) {
+      seenAllTime.add(key);
+      if (!isJunk) {
+        const b = bump(c.ocId);
+        monthBucket(b, monthKey(createdIso)).leads += 1;
+      }
     }
-    monthBucket(b, monthKey(createdIso)).leads += 1;
+
+    // Period count: count first sighting inside the selected period.
+    if (inPeriod(createdIso) && !seenInPeriod.has(key)) {
+      seenInPeriod.add(key);
+      const b = bump(c.ocId);
+      if (isJunk) {
+        b.filteredOutLeads += 1;
+      } else {
+        b.newLeads += 1;
+        b.leadsByChannel.set(ch, (b.leadsByChannel.get(ch) ?? 0) + 1);
+        b.leadsBySource.set(source, (b.leadsBySource.get(source) ?? 0) + 1);
+      }
+    }
   }
 
   // ── Resolve OC names ───────────────────────────────────────────────────────
@@ -1151,6 +1259,20 @@ export async function getCompanyComparison(
       count: r.leadsByChannel.get(c as LeadChannelType) ?? 0,
     }));
 
+    const leadsBySource: { source: LeadSource; count: number }[] = [
+      "kleinanzeigen",
+      "whatsapp",
+      "sms",
+      "email_direct",
+      "immobilienscout",
+      "other",
+    ]
+      .map((s) => ({
+        source: s as LeadSource,
+        count: r.leadsBySource.get(s as LeadSource) ?? 0,
+      }))
+      .filter((s) => s.count > 0);
+
     const monthlySeries = monthKeys.map((mk) => {
       const m = r.monthly.get(mk) ?? {
         revenue: 0,
@@ -1188,7 +1310,9 @@ export async function getCompanyComparison(
       crossSubsidyIn: r.crossIn,
       crossSubsidyOut: r.crossOut,
       newLeads: r.newLeads,
+      filteredOutLeads: r.filteredOutLeads,
       leadsByChannel,
+      leadsBySource,
       leadToWinRatePct,
       monthlySeries,
     });

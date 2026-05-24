@@ -78,6 +78,13 @@ interface TeamStats {
 }
 
 type LeadChannelType = "email" | "whatsapp" | "sms";
+type LeadSource =
+  | "kleinanzeigen"
+  | "whatsapp"
+  | "sms"
+  | "email_direct"
+  | "immobilienscout"
+  | "other";
 
 interface CompanyComparisonRow {
   companyId: string;
@@ -99,7 +106,9 @@ interface CompanyComparisonRow {
   crossSubsidyIn: number;
   crossSubsidyOut: number;
   newLeads: number;
+  filteredOutLeads: number;
   leadsByChannel: { channelType: LeadChannelType; count: number }[];
+  leadsBySource: { source: LeadSource; count: number }[];
   leadToWinRatePct: number | null;
   monthlySeries: {
     month: string;
@@ -824,6 +833,24 @@ const CHANNEL_COLORS: Record<LeadChannelType, string> = {
   sms: "#f97316",
 };
 
+const SOURCE_LABELS: Record<LeadSource, string> = {
+  kleinanzeigen: "Kleinanzeigen",
+  whatsapp: "WhatsApp",
+  sms: "SMS",
+  email_direct: "E-Mail (direkt)",
+  immobilienscout: "Immobilienscout",
+  other: "Sonstige",
+};
+
+const SOURCE_COLORS: Record<LeadSource, string> = {
+  kleinanzeigen: "#96c11f",
+  whatsapp: "#22c55e",
+  sms: "#f97316",
+  email_direct: "#6366f1",
+  immobilienscout: "#ec4899",
+  other: "#94a3b8",
+};
+
 function CompareTab() {
   const [period, setPeriod] = useState<Period>("90d");
   const [data, setData] = useState<CompanyComparisonRow[] | null>(null);
@@ -1027,6 +1054,8 @@ function CompareTab() {
 
           <LeadIntakePanel data={data} />
 
+          <LeadSourceBreakdown data={data} />
+
           {medians && <EfficiencyGrid data={data} medians={medians} />}
 
           <CrossSubsidyPanel data={data} />
@@ -1215,9 +1244,29 @@ function LeadIntakePanel({ data }: { data: CompanyComparisonRow[] }) {
     return row;
   });
   const channels: LeadChannelType[] = ["email", "whatsapp", "sms"];
+  const totalFiltered = data.reduce((s, c) => s + c.filteredOutLeads, 0);
 
   return (
-    <Panel title="Lead-Aufkommen je Operating Company">
+    <Panel
+      title="Lead-Aufkommen je Operating Company"
+      right={
+        totalFiltered > 0 ? (
+          <span
+            className="text-[11.5px]"
+            style={{
+              color: "var(--ink-muted)",
+              border: "1px solid var(--line)",
+              background: "var(--surface)",
+              borderRadius: 6,
+              padding: "2px 8px",
+            }}
+            title="Noreply, Newsletter, System-Benachrichtigungen und ähnliche automatisierte E-Mails wurden ausgeschlossen"
+          >
+            {totalFiltered} gefiltert
+          </span>
+        ) : null
+      }
+    >
       <div className="grid gap-4" style={{ gridTemplateColumns: "minmax(0, 1.5fr) minmax(0, 1fr)" }}>
         <div>
           <ResponsiveContainer width="100%" height={240}>
@@ -1252,7 +1301,18 @@ function LeadIntakePanel({ data }: { data: CompanyComparisonRow[] }) {
               return (
                 <div key={c.companyId}>
                   <div className="flex justify-between text-[12px]">
-                    <span style={{ color: "var(--ink-soft)" }}>{c.companyName}</span>
+                    <span style={{ color: "var(--ink-soft)" }}>
+                      {c.companyName}
+                      {c.filteredOutLeads > 0 && (
+                        <span
+                          className="ml-1.5 text-[10.5px]"
+                          style={{ color: "var(--ink-muted)" }}
+                          title="Automatisierte E-Mails ausgeschlossen"
+                        >
+                          ({c.filteredOutLeads} gefiltert)
+                        </span>
+                      )}
+                    </span>
                     <span className="font-mono" style={{ color: "var(--ink-soft)" }}>
                       {c.dealsWon} / {c.newLeads} · {fmtPct(c.leadToWinRatePct)}
                     </span>
@@ -1280,6 +1340,173 @@ function LeadIntakePanel({ data }: { data: CompanyComparisonRow[] }) {
           </div>
         </div>
       </div>
+    </Panel>
+  );
+}
+
+function LeadSourceBreakdown({ data }: { data: CompanyComparisonRow[] }) {
+  // Aggregate workspace-wide totals for the comparison bar at the bottom.
+  const totals = new Map<LeadSource, number>();
+  for (const c of data) {
+    for (const s of c.leadsBySource) {
+      totals.set(s.source, (totals.get(s.source) ?? 0) + s.count);
+    }
+  }
+  const totalLeads = [...totals.values()].reduce((s, v) => s + v, 0);
+
+  return (
+    <Panel title="Lead-Quellen je Operating Company">
+      <div
+        className="grid gap-4"
+        style={{ gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}
+      >
+        {data.map((c) => {
+          const slices = c.leadsBySource;
+          const total = slices.reduce((s, x) => s + x.count, 0);
+          return (
+            <div
+              key={c.companyId}
+              className="rounded-xl"
+              style={{
+                border: "1px solid var(--line)",
+                background: "var(--paper)",
+                padding: "12px 14px",
+              }}
+            >
+              <div className="flex items-baseline justify-between mb-2">
+                <span style={{ fontWeight: 500 }}>{c.companyName}</span>
+                <span className="text-[12px]" style={{ color: "var(--ink-muted)" }}>
+                  {total} Leads
+                </span>
+              </div>
+              {total === 0 ? (
+                <div
+                  className="text-[12px]"
+                  style={{ color: "var(--ink-muted)", padding: "24px 0", textAlign: "center" }}
+                >
+                  Keine Leads im Zeitraum.
+                </div>
+              ) : (
+                <>
+                  <ResponsiveContainer width="100%" height={180}>
+                    <PieChart>
+                      <Pie
+                        data={slices}
+                        dataKey="count"
+                        nameKey="source"
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={40}
+                        outerRadius={70}
+                        paddingAngle={2}
+                      >
+                        {slices.map((s) => (
+                          <Cell key={s.source} fill={SOURCE_COLORS[s.source]} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        contentStyle={tooltipStyle}
+                        formatter={(v: unknown, name: unknown) => {
+                          const key = String(name ?? "") as LeadSource;
+                          const label = SOURCE_LABELS[key] ?? String(name ?? "");
+                          const count = Number(v);
+                          const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+                          return [`${count} (${pct} %)`, label];
+                        }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1">
+                    {slices.map((s) => {
+                      const pct = total > 0 ? Math.round((s.count / total) * 100) : 0;
+                      return (
+                        <div
+                          key={s.source}
+                          className="flex items-center gap-1.5 text-[11.5px]"
+                          style={{ color: "var(--ink-soft)" }}
+                        >
+                          <span
+                            style={{
+                              display: "inline-block",
+                              width: 8,
+                              height: 8,
+                              borderRadius: 2,
+                              background: SOURCE_COLORS[s.source],
+                            }}
+                          />
+                          <span>{SOURCE_LABELS[s.source]}</span>
+                          <span className="font-mono" style={{ color: "var(--ink-muted)" }}>
+                            {s.count} · {pct} %
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {totalLeads > 0 && (
+        <div className="mt-4">
+          <div
+            className="text-[11.5px] mb-2"
+            style={{ color: "var(--ink-muted)", letterSpacing: "0.04em", textTransform: "uppercase" }}
+          >
+            Quellenverteilung über alle Firmen
+          </div>
+          <div
+            style={{
+              display: "flex",
+              height: 12,
+              borderRadius: 999,
+              overflow: "hidden",
+              border: "1px solid var(--line)",
+            }}
+          >
+            {[...totals.entries()].map(([source, count]) => {
+              const w = (count / totalLeads) * 100;
+              return (
+                <div
+                  key={source}
+                  style={{
+                    width: `${w}%`,
+                    background: SOURCE_COLORS[source],
+                  }}
+                  title={`${SOURCE_LABELS[source]}: ${count} (${Math.round(w)} %)`}
+                />
+              );
+            })}
+          </div>
+          <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2">
+            {[...totals.entries()]
+              .sort((a, b) => b[1] - a[1])
+              .map(([source, count]) => (
+                <div
+                  key={source}
+                  className="flex items-center gap-1.5 text-[11.5px]"
+                  style={{ color: "var(--ink-soft)" }}
+                >
+                  <span
+                    style={{
+                      display: "inline-block",
+                      width: 8,
+                      height: 8,
+                      borderRadius: 2,
+                      background: SOURCE_COLORS[source],
+                    }}
+                  />
+                  <span>{SOURCE_LABELS[source]}</span>
+                  <span className="font-mono" style={{ color: "var(--ink-muted)" }}>
+                    {count}
+                  </span>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
     </Panel>
   );
 }
