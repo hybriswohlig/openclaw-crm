@@ -133,7 +133,20 @@ async function findOrCreateConversation(params: {
 
 // ─── Top-level handler ────────────────────────────────────────────────────────
 
-export async function handleMessagebirdInbound(payload: MessagebirdInboundPayload, workspaceId: string) {
+export interface MessagebirdInboundResult {
+  messageId: string;
+  conversationId: string;
+  contactId: string;
+  /** Customer phone in E.164 (originator of the inbound SMS). */
+  customerAddress: string;
+  body: string;
+  sentAt: Date;
+}
+
+export async function handleMessagebirdInbound(
+  payload: MessagebirdInboundPayload,
+  workspaceId: string
+): Promise<MessagebirdInboundResult | null> {
   const recipient = payload.recipient != null ? String(payload.recipient) : null;
   const originator = payload.originator?.startsWith("+") ? payload.originator : null;
   const body = payload.body ?? "";
@@ -185,5 +198,13 @@ export async function handleMessagebirdInbound(payload: MessagebirdInboundPayloa
     })
     .where(eq(inboxConversations.id, conversation.id));
 
-  return message;
+  if (!message) return null;
+  return {
+    messageId: message.id,
+    conversationId: conversation.id,
+    contactId: contact.id,
+    customerAddress: originator,
+    body,
+    sentAt,
+  };
 }

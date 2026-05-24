@@ -26,6 +26,7 @@ import { createDealForNewConversation } from "./inbox";
 import { emitEvent } from "./activity-events";
 import { getSecret } from "./workspace-settings";
 import { ensureCrmPerson } from "./inbox-crm-link";
+import { scanInboundReply } from "./reviews/inbound-scanner";
 
 // ─── Settings keys ────────────────────────────────────────────────────────────
 // App-level values, stored once per workspace in workspace_settings (encrypted).
@@ -472,6 +473,26 @@ export async function ingestInboundWhatsAppMessage(params: {
         console.error("[push] whatsapp notify failed", err);
       })
     );
+
+    // Reviews engine — inbound complaint scanner parity stub ([KOT-623]).
+    // The scanner internally gates the whatsapp channel behind
+    // REVIEWS_INBOUND_SCAN_WHATSAPP, so Phase 1 ([KOT-603]) ships this
+    // as a no-op. Phase 2 ([KOT-618]) flips the env flag and the same
+    // code path lights up — no further plumbing required.
+    try {
+      await scanInboundReply({
+        workspaceId: account.workspaceId,
+        conversationId: conv.id,
+        messageId,
+        channel: "whatsapp",
+        body,
+        contactId: contact.id,
+        customerAddress: peerWaId,
+        sentAt,
+      });
+    } catch (scanErr) {
+      console.error("[whatsapp inbound] reviews scanner failed:", scanErr);
+    }
   }
 
   return {
