@@ -43,7 +43,8 @@ import {
   type Brand,
 } from "@/lib/reviews/templates";
 import { isQuietHoursBerlin } from "@/lib/reviews/quiet-hours";
-import { sendSms, MessagingSendError } from "@/lib/messaging";
+import { trySendReviewSms } from "@/lib/reviews/cron-send";
+import { sendSms } from "@/lib/messaging";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -342,37 +343,39 @@ async function runReviewsCron(
         ? renderVariantB({ brand, firstName, crewPositiveNote: positiveNote, reviewLink })
         : renderVariantA({ brand, firstName, reviewLink });
 
-    // Send.
+    // Send. Per-deal try/catch/retry is in @/lib/reviews/cron-send so the
+    // retry-once → mark-failed contract (KOT-624 §4) is unit-tested in
+    // cron-send.test.ts without needing a drizzle/db mock here.
     const currentAttempts = Number(valByAttr.get(attemptsAttr.id)?.numberValue ?? 0);
-    try {
-      const sendResult = await sendSms(phone, body);
-      // Persist success state.
-      await stampSendSuccess({
-        workspaceId,
-        dealId,
-        variant,
-        destinationKind: destination.kind,
-        statusByTitle,
-        reviewStatusAttr,
-        variantAttr,
-        sentAtAttr,
-        attemptsAttr,
-        destAttr,
-        currentAttempts,
-        externalMessageId: sendResult.id,
-      });
-      result.sent++;
-    } catch (err) {
-      const isMessagingErr = err instanceof MessagingSendError;
-      console.warn("[cron/reviews-send] send failed", { dealId, err: isMessagingErr ? err.cause : String(err) });
-      const nextAttempts = currentAttempts + 1;
-      await upsertNumberValue(dealId, attemptsAttr.id, nextAttempts);
-      if (nextAttempts >= 2) {
-        await markFailed({ workspaceId, dealId, statusByTitle, reviewStatusAttr });
-        result.failed++;
+    const sendOutcome = await trySendReviewSms(
+      { dealId, phone, body, variant, currentAttempts },
+      {
+        sendSms,
+        onSendSuccess: ({ externalMessageId, attemptCount }) =>
+          stampSendSuccess({
+            workspaceId,
+            dealId,
+            variant,
+            destinationKind: destination.kind,
+            statusByTitle,
+            reviewStatusAttr,
+            variantAttr,
+            sentAtAttr,
+            attemptsAttr,
+            destAttr,
+            currentAttempts: attemptCount - 1,
+            externalMessageId,
+          }),
+        onAttemptIncrement: ({ attemptCount }) =>
+          upsertNumberValue(dealId, attemptsAttr.id, attemptCount),
+        onFinalFailure: () =>
+          markFailed({ workspaceId, dealId, statusByTitle, reviewStatusAttr }),
       }
-      // Otherwise leave status as not_due so the next tick retries within the 24h cap.
-    }
+    );
+    if (sendOutcome.outcome === "sent") result.sent++;
+    if (sendOutcome.outcome === "failed") result.failed++;
+    // outcome === "retry_pending" leaves status as not_due so the next
+    // 15-min tick retries within the 24h cap.
   }
 
   return result;
