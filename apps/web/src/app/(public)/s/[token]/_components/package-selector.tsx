@@ -16,6 +16,10 @@ import type {
  * the operator. The other cards exist so the customer can see they had
  * options and understands what the chosen tier delivers vs the rest.
  *
+ * Visibility rule: nothing renders unless the operator explicitly picked a
+ * package for this quote. One-off jobs (Waschmaschinen-Transport, single
+ * piano move, etc.) don't surface the moving-package showcase at all.
+ *
  * Layout: vertical stack on mobile, 3-up grid on >= 640px.
  *
  * Reference: Apple iPhone storage selector, Tesla configurator interior pick.
@@ -29,6 +33,7 @@ export function PackageSelector({
   packages: OfferPackagesContext;
   branding: FirmaBranding;
 }) {
+  if (!packages.selectedSlug) return null;
   if (packages.available.length === 0) return null;
 
   return (
