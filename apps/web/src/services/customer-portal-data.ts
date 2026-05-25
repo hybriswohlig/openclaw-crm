@@ -25,6 +25,7 @@ import {
   moveTimeEntries,
   customerEmployeeRatings,
   operatingCompanyPortalSettings,
+  offerPackages,
 } from "@/db/schema/customer-portal";
 import { quotations, quotationLineItems } from "@/db/schema/quotations";
 import { dealDocuments, payments, dealNumbers } from "@/db/schema/financial";
@@ -51,6 +52,8 @@ import {
   type MoveScope,
   type MoveTiming,
   type OfferInclusions,
+  type OfferPackage,
+  type OfferPackagesContext,
   type PaymentInstructions,
   type PaymentMethodPreference,
 } from "@openclaw-crm/customer-portal-core";
@@ -277,6 +280,9 @@ export async function loadContextByToken(
   // always-included services every move gets).
   const inclusions = await loadInclusions(workspaceId, dealRecordId);
 
+  // Festpreis packages for this operating company + the operator's pick.
+  const packages = await loadPackagesContext(workspaceId, ocId, dealRecordId);
+
   // Confirmation
   const acceptance = await loadLatestAcceptance(dealRecordId);
 
@@ -361,6 +367,7 @@ export async function loadContextByToken(
     branding,
     scope,
     inclusions,
+    packages,
     crew,
     kva,
     acceptance,
@@ -1215,6 +1222,51 @@ const CONDITIONALS: ConditionalDef[] = [
     detailFromNumber: (n) => (n > 0 ? `Anzahl ${n}` : ""),
   },
 ];
+
+async function loadPackagesContext(
+  workspaceId: string,
+  operatingCompanyRecordId: string | null,
+  dealRecordId: string
+): Promise<OfferPackagesContext> {
+  if (!operatingCompanyRecordId) {
+    return { available: [], selectedSlug: null };
+  }
+
+  const rows = await db
+    .select()
+    .from(offerPackages)
+    .where(
+      and(
+        eq(offerPackages.workspaceId, workspaceId),
+        eq(offerPackages.operatingCompanyRecordId, operatingCompanyRecordId),
+        eq(offerPackages.active, true)
+      )
+    )
+    .orderBy(offerPackages.sortOrder);
+
+  const available: OfferPackage[] = rows.map((r) => ({
+    slug: r.slug,
+    displayName: r.displayName,
+    shortDescription: r.shortDescription,
+    targetSegment: r.targetSegment,
+    priceFromCents: r.priceFromCents,
+    priceFixedFlag: r.priceFixedFlag,
+    includedItems: Array.isArray(r.includedItems) ? r.includedItems : [],
+    isRecommended: r.isRecommended,
+    sortOrder: r.sortOrder,
+  }));
+
+  const [q] = await db
+    .select({ selectedPackageSlug: quotations.selectedPackageSlug })
+    .from(quotations)
+    .where(eq(quotations.dealRecordId, dealRecordId))
+    .limit(1);
+
+  return {
+    available,
+    selectedSlug: q?.selectedPackageSlug ?? null,
+  };
+}
 
 async function loadInclusions(
   workspaceId: string,

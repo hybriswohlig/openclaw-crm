@@ -135,6 +135,31 @@ export interface OfferInclusions {
   optional: OfferInclusionItem[];
 }
 
+/**
+ * Per-operating-company Festpreis package (Basis / Komfort / Premium / …).
+ * Surfaced to the customer as a radio-card group on Stage 1.
+ */
+export interface OfferPackage {
+  slug: string;
+  displayName: string;
+  shortDescription: string | null;
+  targetSegment: string | null;
+  /** Price-from in cents. Null = "auf Anfrage" or pricing entirely in line items. */
+  priceFromCents: number | null;
+  /** When true the customer sees this as the binding price; otherwise "ab X €". */
+  priceFixedFlag: boolean;
+  includedItems: string[];
+  isRecommended: boolean;
+  sortOrder: number;
+}
+
+export interface OfferPackagesContext {
+  /** All active packages for the deal's operating company, sorted. */
+  available: OfferPackage[];
+  /** The slug the operator chose for this quote, if any. */
+  selectedSlug: string | null;
+}
+
 export interface CrewMember {
   employeeId: string;
   name: string;
@@ -224,6 +249,7 @@ export interface CustomerPortalContext {
   branding: FirmaBranding;
   scope: MoveScope;
   inclusions: OfferInclusions;
+  packages: OfferPackagesContext;
   crew: CrewMember[];
   kva: KvaSnapshot | null;
 

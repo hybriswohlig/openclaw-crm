@@ -36,6 +36,8 @@ export async function upsertQuotation(
     summary?: string | null;
     /** Whether to render the standard move inclusions on the portal. */
     showStandardInclusions?: boolean;
+    /** Selected offer package slug (per operating company). */
+    selectedPackageSlug?: string | null;
     lineItems?: Array<{
       id?: string;
       type: "helper" | "transporter" | "other";
@@ -73,6 +75,10 @@ export async function upsertQuotation(
           input.showStandardInclusions !== undefined
             ? input.showStandardInclusions
             : existing.showStandardInclusions,
+        selectedPackageSlug:
+          input.selectedPackageSlug !== undefined
+            ? input.selectedPackageSlug
+            : existing.selectedPackageSlug,
         updatedAt: new Date(),
       })
       .where(eq(quotations.id, existing.id))
@@ -91,6 +97,7 @@ export async function upsertQuotation(
         validUntil: input.validUntil ?? null,
         summary: input.summary ?? null,
         showStandardInclusions: input.showStandardInclusions ?? true,
+        selectedPackageSlug: input.selectedPackageSlug ?? null,
       })
       .returning();
     quotationId = created.id;

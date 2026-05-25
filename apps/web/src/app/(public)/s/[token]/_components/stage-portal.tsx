@@ -44,7 +44,7 @@ export function StagePortal({
   }, [ctx.stage, refresh]);
 
   return (
-    <main className="mx-auto flex min-h-svh max-w-2xl flex-col px-4 pb-16 pt-6 sm:px-6 md:pt-10">
+    <main className="mx-auto flex min-h-svh w-full max-w-5xl flex-col px-4 pb-16 pt-6 sm:px-6 md:pt-10">
       <StageHeader ctx={ctx} />
 
       <div className="mt-6 flex flex-1 flex-col gap-5">

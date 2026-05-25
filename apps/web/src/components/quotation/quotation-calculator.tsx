@@ -28,6 +28,23 @@ interface Quotation {
   summary?: string | null;
   /** Whether the customer portal should render the standard move inclusions. */
   showStandardInclusions?: boolean;
+  /** Selected package slug from the operating company's catalogue. */
+  selectedPackageSlug?: string | null;
+}
+
+interface OperatingCompanyPackage {
+  slug: string;
+  displayName: string;
+  shortDescription: string | null;
+  priceFromCents: number | null;
+  priceFixedFlag: boolean;
+  isRecommended: boolean;
+}
+
+interface OperatingCompanyPackagesPayload {
+  operatingCompanyName: string | null;
+  selectedSlug: string | null;
+  packages: OperatingCompanyPackage[];
 }
 
 interface Props {
@@ -64,7 +81,28 @@ export function QuotationCalculator({ recordId, quotation, onSaved }: Props) {
   const [showStandardInclusions, setShowStandardInclusions] = useState<boolean>(
     quotation?.showStandardInclusions ?? true
   );
+  const [selectedPackageSlug, setSelectedPackageSlug] = useState<string>(
+    quotation?.selectedPackageSlug ?? ""
+  );
+  const [packagesPayload, setPackagesPayload] =
+    useState<OperatingCompanyPackagesPayload | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // Load the operating company's packages once. The picker shows nothing
+  // when the OC has no catalogue (or no OC is linked yet).
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/v1/deals/${recordId}/offer-packages`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (cancelled || !j?.data) return;
+        setPackagesPayload(j.data as OperatingCompanyPackagesPayload);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [recordId]);
 
   useEffect(() => {
     if (quotation) {
@@ -81,8 +119,22 @@ export function QuotationCalculator({ recordId, quotation, onSaved }: Props) {
       setValidUntil(quotation.validUntil ?? "");
       setSummary(quotation.summary ?? "");
       setShowStandardInclusions(quotation.showStandardInclusions ?? true);
+      setSelectedPackageSlug(quotation.selectedPackageSlug ?? "");
     }
   }, [quotation]);
+
+  function onPackageSlugChange(slug: string) {
+    setSelectedPackageSlug(slug);
+    // Auto-fill the fixed price from the package's priceFromCents when the
+    // customer is on a fixed-price plan and the operator hasn't typed
+    // anything yet. Operator can still override manually.
+    if (!slug) return;
+    const pkg = packagesPayload?.packages.find((p) => p.slug === slug);
+    if (!pkg?.priceFromCents) return;
+    if (!isVariable && !fixedPrice) {
+      setFixedPrice((pkg.priceFromCents / 100).toFixed(2));
+    }
+  }
 
   function addLine() {
     setLineItems([...lineItems, emptyLine(lineItems.length)]);
@@ -129,6 +181,7 @@ export function QuotationCalculator({ recordId, quotation, onSaved }: Props) {
           validUntil: validUntil || null,
           summary: summary.trim() || null,
           showStandardInclusions,
+          selectedPackageSlug: selectedPackageSlug || null,
         }),
       });
 
@@ -149,6 +202,83 @@ export function QuotationCalculator({ recordId, quotation, onSaved }: Props) {
   return (
     <div>
       <h3 className="text-lg font-semibold mb-4">Quotation</h3>
+
+      {/* Package picker — only appears when the operating company has packages
+          defined. Picking a package writes the slug on the quotation and, if
+          the price field is empty + the offer is fixed-price, auto-fills the
+          starting price from the package. */}
+      {packagesPayload && packagesPayload.packages.length > 0 && (
+        <div className="mb-4 rounded-lg border border-dashed border-border bg-muted/30 p-3">
+          <div className="flex items-baseline justify-between gap-3">
+            <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Paket
+            </label>
+            {packagesPayload.operatingCompanyName && (
+              <span className="text-[10px] text-muted-foreground">
+                {packagesPayload.operatingCompanyName}
+              </span>
+            )}
+          </div>
+          <div className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+            <label
+              className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm ${
+                !selectedPackageSlug ? "border-foreground bg-background" : "border-input bg-background hover:bg-accent"
+              }`}
+            >
+              <input
+                type="radio"
+                name="package"
+                checked={!selectedPackageSlug}
+                onChange={() => onPackageSlugChange("")}
+                className="h-3.5 w-3.5"
+              />
+              <span className="text-xs text-muted-foreground">Kein Paket</span>
+            </label>
+            {packagesPayload.packages.map((p) => {
+              const selected = selectedPackageSlug === p.slug;
+              return (
+                <label
+                  key={p.slug}
+                  className={`flex cursor-pointer items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm ${
+                    selected
+                      ? "border-foreground bg-background"
+                      : "border-input bg-background hover:bg-accent"
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="package"
+                      checked={selected}
+                      onChange={() => onPackageSlugChange(p.slug)}
+                      className="h-3.5 w-3.5"
+                    />
+                    <span className="font-medium">{p.displayName}</span>
+                    {p.isRecommended && (
+                      <span className="rounded-full bg-muted px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-muted-foreground">
+                        Beliebt
+                      </span>
+                    )}
+                  </span>
+                  {p.priceFromCents != null && (
+                    <span className="text-xs tabular-nums text-muted-foreground">
+                      {p.priceFixedFlag ? "" : "ab "}
+                      {new Intl.NumberFormat("de-DE", {
+                        style: "currency",
+                        currency: "EUR",
+                        maximumFractionDigits: 0,
+                      }).format(p.priceFromCents / 100)}
+                    </span>
+                  )}
+                </label>
+              );
+            })}
+          </div>
+          <p className="mt-2 text-[10px] text-muted-foreground">
+            Sichtbar im Kunden-Portal. Preis kann unten überschrieben werden.
+          </p>
+        </div>
+      )}
 
       {/* Mode toggle */}
       <div className="flex gap-2 mb-4">

@@ -1,0 +1,97 @@
+/*
+ * Berlin Blue palette, scoped to the customer-facing portal only.
+ *
+ * Every Tailwind utility in this codebase reads colour from CSS custom
+ * properties (--background, --foreground, --primary, …) defined globally
+ * in app/globals.css. By re-declaring those same properties on a wrapper
+ * class, every Tailwind class inside the wrapper resolves to the new
+ * palette WITHOUT touching the CRM dashboard's design.
+ *
+ * Wrapper: <div class="kottke-portal"> in layout.tsx of (public)/s/[token].
+ *
+ * Reference: Allianz Wallet 2023, Volksbank Banking, DKB — calm cool neutrals
+ * with a confident dark navy primary that reads as "real German Rechnung".
+ */
+
+.kottke-portal {
+  /* Neutrals (light mode) */
+  --background: #f7f8fa;
+  --foreground: #0f1722;
+
+  --card: #ffffff;
+  --card-foreground: #0f1722;
+  --popover: #ffffff;
+  --popover-foreground: #0f1722;
+
+  --muted: #eef0f4;
+  --muted-foreground: #56627a;
+
+  --border: #e2e6ec;
+  --input: #e2e6ec;
+
+  /* Brand — Berlin Blue */
+  --primary: #1e3a5f;
+  --primary-foreground: #ffffff;
+  --kottke-portal-primary-50: #eff4fb;
+  --kottke-portal-primary-100: #dce6f2;
+  --kottke-portal-primary-700: #15294a;
+  --kottke-portal-primary-900: #0a1830;
+
+  --secondary: #eef0f4;
+  --secondary-foreground: #0f1722;
+  --accent: #eef0f4;
+  --accent-foreground: #15294a;
+
+  --destructive: #b43a3a;
+  --destructive-foreground: #ffffff;
+
+  --ring: #1e3a5f;
+
+  /* Slightly tighter radii for a more architectural feel */
+  --radius: 0.625rem;
+
+  background: var(--background);
+  color: var(--foreground);
+  font-feature-settings: "ss01", "cv11";
+}
+
+.dark .kottke-portal,
+.kottke-portal.dark {
+  --background: #0b111b;
+  --foreground: #e8ecf3;
+
+  --card: #131b28;
+  --card-foreground: #e8ecf3;
+  --popover: #131b28;
+  --popover-foreground: #e8ecf3;
+
+  --muted: #1a2333;
+  --muted-foreground: #8a95ab;
+
+  --border: #1f2a3c;
+  --input: #1f2a3c;
+
+  --primary: #6b9bd8;
+  --primary-foreground: #0b111b;
+  --kottke-portal-primary-50: #15294a;
+  --kottke-portal-primary-100: #1e3a5f;
+  --kottke-portal-primary-700: #a8c4e6;
+  --kottke-portal-primary-900: #dce6f2;
+
+  --secondary: #1a2333;
+  --secondary-foreground: #e8ecf3;
+  --accent: #1a2333;
+  --accent-foreground: #a8c4e6;
+
+  --destructive: #e26b6b;
+  --destructive-foreground: #0b111b;
+
+  --ring: #6b9bd8;
+}
+
+/* Headline / price utility — uses the Fraunces display already loaded in the
+   root layout so we don't bring in a new font. */
+.kottke-portal .display {
+  font-family: var(--font-fraunces), Georgia, serif;
+  letter-spacing: -0.01em;
+}

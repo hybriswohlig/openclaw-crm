@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
+import "./portal.css";
 
 export const metadata: Metadata = {
-  title: "Ihr Umzug · Status",
-  description: "Live-Status, Angebot, Auftragsbestätigung und Rechnung Ihres Umzugs.",
+  title: "Ihr Auftrag · Status",
+  description: "Live-Status, Angebot, Auftragsbestätigung und Rechnung Ihres Auftrags.",
   robots: { index: false, follow: false },
 };
 
@@ -11,8 +12,9 @@ export const metadata: Metadata = {
  * no Better Auth, no CRM chrome — just a clean, mobile-first canvas the
  * Stage 1-4 components can paint into.
  *
- * Lives behind the public route group `(public)`, which means it inherits
- * the root `<html>`/`<body>` but skips the dashboard sidebar entirely.
+ * The `kottke-portal` class swaps every Tailwind colour token (background,
+ * foreground, primary, muted, …) for the Berlin Blue palette defined in
+ * portal.css. The CRM dashboard keeps its warm-paper palette untouched.
  */
 export default function CustomerPortalLayout({
   children,
@@ -20,7 +22,7 @@ export default function CustomerPortalLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-svh bg-background text-foreground antialiased">
+    <div className="kottke-portal min-h-svh bg-background text-foreground antialiased">
       {children}
     </div>
   );

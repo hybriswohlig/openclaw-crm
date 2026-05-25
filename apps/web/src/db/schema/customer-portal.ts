@@ -225,3 +225,64 @@ export const customerEmployeeRatings = pgTable(
     index("customer_employee_ratings_employee_idx").on(table.employeeId),
   ]
 );
+
+// ─── Offer Packages ───────────────────────────────────────────────────────────
+// Per-operating-company catalogue of Festpreis bundles the operator can offer
+// (Kottke: Basis / Komfort / Premium / Einzeltransport). The customer-portal
+// renders these as a radio-card group on Stage 1, and quotations.selectedPackageSlug
+// points at the chosen row. Editable from the admin settings page.
+
+export const offerPackages = pgTable(
+  "offer_packages",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    operatingCompanyRecordId: text("operating_company_record_id")
+      .notNull()
+      .references(() => records.id, { onDelete: "cascade" }),
+    /** Stable slug ("basis", "komfort", "premium", "einzeltransport"). */
+    slug: text("slug").notNull(),
+    displayName: text("display_name").notNull(),
+    /**
+     * Short marketing line shown under the name. ("Schlanker Transport für
+     * kleine Wohnungen und WG-Wechsel.") Optional but recommended.
+     */
+    shortDescription: text("short_description"),
+    /**
+     * Audience hint ("1-2 Zimmer, WG-Wechsel"). Rendered as a small caption.
+     */
+    targetSegment: text("target_segment"),
+    /**
+     * Starting price in cents. When `priceFixedFlag` is true the customer sees
+     * this as the binding price. Otherwise it renders as "ab 890 €".
+     */
+    priceFromCents: integer("price_from_cents"),
+    priceFixedFlag: boolean("price_fixed_flag").notNull().default(false),
+    /** Array of "Im Paket enthalten" lines as strings. */
+    includedItems: jsonb("included_items")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    /**
+     * "Beliebteste Wahl" / "Empfohlen" badge. Exactly one package per OC
+     * should be flagged so the UI knows what to emphasise.
+     */
+    isRecommended: boolean("is_recommended").notNull().default(false),
+    sortOrder: integer("sort_order").notNull().default(0),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("offer_packages_oc_slug_idx").on(
+      table.operatingCompanyRecordId,
+      table.slug
+    ),
+    index("offer_packages_workspace_idx").on(table.workspaceId),
+    index("offer_packages_oc_idx").on(table.operatingCompanyRecordId),
+  ]
+);

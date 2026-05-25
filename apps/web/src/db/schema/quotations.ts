@@ -49,6 +49,12 @@ export const quotations = pgTable(
     paymentMethodPreference: text("payment_method_preference"),
     /** ISO date — offer valid until. Optional. */
     validUntil: date("valid_until"),
+    /**
+     * Selected package slug from offer_packages for this operating company.
+     * Customer portal shows it in the package selector as the chosen tier.
+     * Null = no package picked, customer just sees the line items / fixed price.
+     */
+    selectedPackageSlug: text("selected_package_slug"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
