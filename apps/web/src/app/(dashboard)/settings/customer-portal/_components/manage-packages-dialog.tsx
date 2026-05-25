@@ -249,12 +249,6 @@ function PackageRow({
               Inaktiv
             </span>
           )}
-          {row.priceFromCents != null && (
-            <span className="ml-auto text-xs tabular-nums text-muted-foreground">
-              {row.priceFixedFlag ? "Festpreis " : "ab "}
-              {formatEur(row.priceFromCents)}
-            </span>
-          )}
         </div>
         {row.shortDescription && (
           <p className="mt-0.5 text-xs text-muted-foreground">{row.shortDescription}</p>
@@ -375,25 +369,7 @@ function PackageEditor({
         placeholder="2 bis 4 Zimmer, Familien, Berufsumzüge"
       />
 
-      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[1fr_auto_auto_auto]">
-        <Field
-          label="Preis ab (EUR)"
-          value={
-            form.priceFromCents != null
-              ? (form.priceFromCents / 100).toFixed(2)
-              : ""
-          }
-          onChange={(v) => {
-            const n = Number(v);
-            set("priceFromCents", v && Number.isFinite(n) ? Math.round(n * 100) : null);
-          }}
-          placeholder="890.00"
-        />
-        <Checkbox
-          label="Festpreis"
-          checked={form.priceFixedFlag}
-          onChange={(v) => set("priceFixedFlag", v)}
-        />
+      <div className="mt-3 flex flex-wrap gap-3">
         <Checkbox
           label="Empfohlen"
           checked={form.isRecommended}
@@ -405,6 +381,10 @@ function PackageEditor({
           onChange={(v) => set("active", v)}
         />
       </div>
+      <p className="mt-2 text-[10px] text-muted-foreground">
+        Der Preis wird pro Auftrag im Quotation-Calculator eingegeben. Pakete
+        sind hier nur Vorlagen für Leistungsumfang und Beschreibung.
+      </p>
 
       <div className="mt-3">
         <label className="block text-[10px] uppercase tracking-wider text-muted-foreground">
@@ -539,10 +519,3 @@ function emptyDraft(existing: number): OfferPackageRow {
   };
 }
 
-function formatEur(cents: number): string {
-  return new Intl.NumberFormat("de-DE", {
-    style: "currency",
-    currency: "EUR",
-    maximumFractionDigits: 0,
-  }).format(cents / 100);
-}

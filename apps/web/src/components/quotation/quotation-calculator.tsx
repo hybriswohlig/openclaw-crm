@@ -124,16 +124,10 @@ export function QuotationCalculator({ recordId, quotation, onSaved }: Props) {
   }, [quotation]);
 
   function onPackageSlugChange(slug: string) {
+    // Packages are scope templates only; the price for every move is
+    // entered separately on this calculator. Picking a package just stamps
+    // the slug onto the quotation so the customer portal can highlight it.
     setSelectedPackageSlug(slug);
-    // Auto-fill the fixed price from the package's priceFromCents when the
-    // customer is on a fixed-price plan and the operator hasn't typed
-    // anything yet. Operator can still override manually.
-    if (!slug) return;
-    const pkg = packagesPayload?.packages.find((p) => p.slug === slug);
-    if (!pkg?.priceFromCents) return;
-    if (!isVariable && !fixedPrice) {
-      setFixedPrice((pkg.priceFromCents / 100).toFixed(2));
-    }
   }
 
   function addLine() {
@@ -260,22 +254,12 @@ export function QuotationCalculator({ recordId, quotation, onSaved }: Props) {
                       </span>
                     )}
                   </span>
-                  {p.priceFromCents != null && (
-                    <span className="text-xs tabular-nums text-muted-foreground">
-                      {p.priceFixedFlag ? "" : "ab "}
-                      {new Intl.NumberFormat("de-DE", {
-                        style: "currency",
-                        currency: "EUR",
-                        maximumFractionDigits: 0,
-                      }).format(p.priceFromCents / 100)}
-                    </span>
-                  )}
                 </label>
               );
             })}
           </div>
           <p className="mt-2 text-[10px] text-muted-foreground">
-            Sichtbar im Kunden-Portal. Preis kann unten überschrieben werden.
+            Sichtbar im Kunden-Portal. Preis wird unten pro Auftrag eingegeben.
           </p>
         </div>
       )}

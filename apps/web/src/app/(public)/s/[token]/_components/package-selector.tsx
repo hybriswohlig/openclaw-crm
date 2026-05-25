@@ -71,19 +71,6 @@ export function PackageSelector({
                 )}
               </div>
 
-              {p.priceFromCents != null && (
-                <div className="mt-2 text-sm tabular-nums">
-                  {p.priceFixedFlag ? (
-                    <span className="font-medium">{formatEur(p.priceFromCents)}</span>
-                  ) : (
-                    <>
-                      <span className="text-muted-foreground">ab </span>
-                      <span className="font-medium">{formatEur(p.priceFromCents)}</span>
-                    </>
-                  )}
-                </div>
-              )}
-
               {p.shortDescription && (
                 <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
                   {p.shortDescription}
@@ -133,10 +120,3 @@ export function PackageSelector({
   );
 }
 
-function formatEur(cents: number): string {
-  return new Intl.NumberFormat("de-DE", {
-    style: "currency",
-    currency: "EUR",
-    maximumFractionDigits: 0,
-  }).format(cents / 100);
-}
