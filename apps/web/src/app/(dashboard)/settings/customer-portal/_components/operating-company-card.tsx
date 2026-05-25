@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import type { OperatingCompanyPortalSettings } from "@/services/customer-portal-config";
 import { EditPortalDialog } from "./edit-portal-dialog";
 import { DomainStatusBlock } from "./domain-status-block";
+import { ManagePackagesDialog } from "./manage-packages-dialog";
 
 /**
  * One collapsed/expanded card per operating company. The collapsed view shows
@@ -21,6 +22,7 @@ export function OperatingCompanyCard({
 }) {
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [managingPackages, setManagingPackages] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -145,13 +147,22 @@ export function OperatingCompanyCard({
                 {settings.paypalHandle ? <> · PayPal vorhanden</> : null}
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => setEditing(true)}
-              className="h-9 shrink-0 rounded-lg border border-border bg-background px-3 text-sm font-medium hover:bg-accent"
-            >
-              Bearbeiten
-            </button>
+            <div className="flex shrink-0 gap-2">
+              <button
+                type="button"
+                onClick={() => setManagingPackages(true)}
+                className="h-9 rounded-lg border border-border bg-background px-3 text-sm font-medium hover:bg-accent"
+              >
+                Pakete
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditing(true)}
+                className="h-9 rounded-lg border border-border bg-background px-3 text-sm font-medium hover:bg-accent"
+              >
+                Bearbeiten
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -164,6 +175,13 @@ export function OperatingCompanyCard({
           setEditing(false);
           onChanged();
         }}
+      />
+
+      <ManagePackagesDialog
+        open={managingPackages}
+        onOpenChange={setManagingPackages}
+        operatingCompanyRecordId={settings.operatingCompanyRecordId}
+        operatingCompanyName={settings.operatingCompanyName}
       />
     </div>
   );

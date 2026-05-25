@@ -15,7 +15,7 @@
 
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { operatingCompanyPortalSettings } from "@/db/schema/customer-portal";
+import { operatingCompanyPortalSettings, offerPackages } from "@/db/schema/customer-portal";
 import { objects, attributes } from "@/db/schema/objects";
 import { records, recordValues } from "@/db/schema/records";
 import {
@@ -521,4 +521,157 @@ function shapeSettings(
     agbVersion: s?.agbVersion ?? null,
     agbPdfUrl: s?.agbPdfUrl ?? null,
   };
+}
+
+// ─── Offer packages CRUD ──────────────────────────────────────────────────────
+
+export interface OfferPackageRow {
+  id: string;
+  slug: string;
+  displayName: string;
+  shortDescription: string | null;
+  targetSegment: string | null;
+  priceFromCents: number | null;
+  priceFixedFlag: boolean;
+  includedItems: string[];
+  isRecommended: boolean;
+  sortOrder: number;
+  active: boolean;
+}
+
+export interface OfferPackageInput {
+  slug: string;
+  displayName: string;
+  shortDescription?: string | null;
+  targetSegment?: string | null;
+  priceFromCents?: number | null;
+  priceFixedFlag?: boolean;
+  includedItems?: string[];
+  isRecommended?: boolean;
+  sortOrder?: number;
+  active?: boolean;
+}
+
+export async function listOfferPackages(
+  workspaceId: string,
+  operatingCompanyRecordId: string
+): Promise<OfferPackageRow[]> {
+  const rows = await db
+    .select()
+    .from(offerPackages)
+    .where(
+      and(
+        eq(offerPackages.workspaceId, workspaceId),
+        eq(offerPackages.operatingCompanyRecordId, operatingCompanyRecordId)
+      )
+    )
+    .orderBy(offerPackages.sortOrder);
+  return rows.map(shapeOfferPackage);
+}
+
+export async function createOfferPackage(
+  workspaceId: string,
+  operatingCompanyRecordId: string,
+  input: OfferPackageInput
+): Promise<OfferPackageRow | null> {
+  if (!input.slug || !input.displayName) return null;
+  const slug = normalizeSlug(input.slug);
+  const [row] = await db
+    .insert(offerPackages)
+    .values({
+      workspaceId,
+      operatingCompanyRecordId,
+      slug,
+      displayName: input.displayName.trim(),
+      shortDescription: input.shortDescription?.trim() || null,
+      targetSegment: input.targetSegment?.trim() || null,
+      priceFromCents: input.priceFromCents ?? null,
+      priceFixedFlag: input.priceFixedFlag ?? false,
+      includedItems: input.includedItems ?? [],
+      isRecommended: input.isRecommended ?? false,
+      sortOrder: input.sortOrder ?? 100,
+      active: input.active ?? true,
+    })
+    .returning();
+  return row ? shapeOfferPackage(row) : null;
+}
+
+export async function updateOfferPackage(
+  workspaceId: string,
+  operatingCompanyRecordId: string,
+  packageId: string,
+  patch: Partial<OfferPackageInput>
+): Promise<OfferPackageRow | null> {
+  const cleaned: Record<string, unknown> = { updatedAt: new Date() };
+  if (patch.slug !== undefined) cleaned.slug = normalizeSlug(patch.slug);
+  if (patch.displayName !== undefined) cleaned.displayName = patch.displayName.trim();
+  if (patch.shortDescription !== undefined)
+    cleaned.shortDescription = patch.shortDescription?.trim() || null;
+  if (patch.targetSegment !== undefined)
+    cleaned.targetSegment = patch.targetSegment?.trim() || null;
+  if (patch.priceFromCents !== undefined) cleaned.priceFromCents = patch.priceFromCents;
+  if (patch.priceFixedFlag !== undefined) cleaned.priceFixedFlag = patch.priceFixedFlag;
+  if (patch.includedItems !== undefined) cleaned.includedItems = patch.includedItems;
+  if (patch.isRecommended !== undefined) cleaned.isRecommended = patch.isRecommended;
+  if (patch.sortOrder !== undefined) cleaned.sortOrder = patch.sortOrder;
+  if (patch.active !== undefined) cleaned.active = patch.active;
+
+  const [row] = await db
+    .update(offerPackages)
+    .set(cleaned)
+    .where(
+      and(
+        eq(offerPackages.id, packageId),
+        eq(offerPackages.workspaceId, workspaceId),
+        eq(offerPackages.operatingCompanyRecordId, operatingCompanyRecordId)
+      )
+    )
+    .returning();
+  return row ? shapeOfferPackage(row) : null;
+}
+
+export async function deleteOfferPackage(
+  workspaceId: string,
+  operatingCompanyRecordId: string,
+  packageId: string
+): Promise<boolean> {
+  const [row] = await db
+    .delete(offerPackages)
+    .where(
+      and(
+        eq(offerPackages.id, packageId),
+        eq(offerPackages.workspaceId, workspaceId),
+        eq(offerPackages.operatingCompanyRecordId, operatingCompanyRecordId)
+      )
+    )
+    .returning({ id: offerPackages.id });
+  return !!row;
+}
+
+function shapeOfferPackage(r: typeof offerPackages.$inferSelect): OfferPackageRow {
+  return {
+    id: r.id,
+    slug: r.slug,
+    displayName: r.displayName,
+    shortDescription: r.shortDescription,
+    targetSegment: r.targetSegment,
+    priceFromCents: r.priceFromCents,
+    priceFixedFlag: r.priceFixedFlag,
+    includedItems: Array.isArray(r.includedItems) ? r.includedItems : [],
+    isRecommended: r.isRecommended,
+    sortOrder: r.sortOrder,
+    active: r.active,
+  };
+}
+
+function normalizeSlug(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .normalize("NFKD")
+    // strip combining diacritical marks via Unicode property escape
+    .replace(/\p{M}/gu, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
 }
