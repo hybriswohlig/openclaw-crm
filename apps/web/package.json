@@ -18,6 +18,8 @@
     "push:generate-keys": "tsx scripts/generate-vapid-keys.ts",
     "whatsapp:diagnose": "tsx scripts/diagnose-whatsapp.ts",
     "whatsapp:probe-webhook": "tsx scripts/probe-whatsapp-webhook.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui"
   },
@@ -94,6 +96,8 @@
     "postcss": "^8.4.0",
     "tailwindcss": "^4.0.0",
     "tsx": "^4.19.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "^3.2.4"
   }
 }
