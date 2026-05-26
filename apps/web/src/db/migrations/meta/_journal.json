@@ -113,6 +113,13 @@
       "when": 1778414500000,
       "tag": "0025_channel_type_sms",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1778414600000,
+      "tag": "0026_reviews_velocity_view",
+      "breakpoints": true
     }
   ]
 }
