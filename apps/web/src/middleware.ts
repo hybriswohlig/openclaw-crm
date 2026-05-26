@@ -10,6 +10,10 @@ const publicPaths = [
   "/api/auth",
   "/api/webhooks",
   "/api/cron",
+  // MessageBird inbound SMS webhook — HMAC-signed inside the route handler.
+  // No session, no Bearer token. Without this entry the production webhook
+  // 307s to /login and MessageBird drops the inbound message.
+  "/api/v1/inbox/sms/messagebird-inbound",
   // Customer status portal — token-scoped, no session
   "/s/",
   "/api/public/",
