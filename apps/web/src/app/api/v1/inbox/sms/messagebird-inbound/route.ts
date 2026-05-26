@@ -16,6 +16,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { handleMessagebirdInbound, verifyMessagebirdSignature } from "@/services/inbox-sms";
 import type { MessagebirdInboundPayload } from "@/services/inbox-sms";
 import { getSingletonWorkspaceId } from "@/services/workspace";
+import { scanInboundReply } from "@/services/reviews/inbound-scanner";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,7 +47,27 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    await handleMessagebirdInbound(payload, workspaceId);
+    const result = await handleMessagebirdInbound(payload, workspaceId);
+    // Reviews engine — inbound complaint scanner ([KOT-623]). Runs only
+    // when the message persisted; scanner internally short-circuits if the
+    // body has no red-flag keywords or the deal isn't in an open
+    // review-request thread.
+    if (result) {
+      try {
+        await scanInboundReply({
+          workspaceId,
+          conversationId: result.conversationId,
+          messageId: result.messageId,
+          channel: "sms",
+          body: result.body,
+          contactId: result.contactId,
+          customerAddress: result.customerAddress,
+          sentAt: result.sentAt,
+        });
+      } catch (scanErr) {
+        console.error("[messagebird inbound] reviews scanner failed:", scanErr);
+      }
+    }
   } catch (err) {
     console.error("[messagebird inbound] handler failed:", err);
   }
