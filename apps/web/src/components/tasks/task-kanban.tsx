@@ -38,6 +38,7 @@ interface ApiTask {
   linkedRecords: TaskLinkedRecord[];
   assignees: TaskAssignee[];
   kanbanStatus: ColumnKey | null;
+  pointEstimate: number | null;
 }
 
 type ColumnKey = "backlog" | "heute" | "laeuft" | "warte" | "erledigt";
@@ -419,6 +420,7 @@ export function TaskKanban() {
                 recordIds: editingTask.linkedRecords.map((r) => r.id),
                 linkedRecords: editingTask.linkedRecords,
                 assignees: editingTask.assignees,
+                pointEstimate: editingTask.pointEstimate ?? null,
               }
             : undefined
         }
@@ -673,6 +675,25 @@ function TaskCard({
       >
         {task.content}
       </div>
+
+      {task.pointEstimate != null && (
+        <div style={{ marginTop: 6 }}>
+          <span
+            className="k-chip"
+            style={{
+              padding: "1px 7px",
+              fontSize: 10,
+              fontFamily: "var(--f-mono)",
+              background: "var(--accent-soft, rgba(16,185,129,0.12))",
+              color: "var(--accent, #047857)",
+              border: "1px solid var(--accent-line, rgba(16,185,129,0.3))",
+            }}
+            title="Fibonacci-Größe — zählt für den Team-Pulse"
+          >
+            {task.pointEstimate}p
+          </span>
+        </div>
+      )}
 
       {(linkedDeal || task.linkedRecords.length > 0) && (
         <div className="flex flex-wrap gap-1.5" style={{ marginTop: 10 }}>

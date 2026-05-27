@@ -25,6 +25,9 @@ export const dynamic = "force-dynamic";
 
 interface HeatmapDay {
   date: string;
+  /** Effective points scored that day (subtask-aware). */
+  points: number;
+  /** Raw count of completed leaf tasks. Kept for tooltips / streak signal. */
   count: number;
 }
 interface UserPulse {
@@ -32,15 +35,32 @@ interface UserPulse {
   name: string;
   email: string;
   image: string | null;
+  /** Total Fibonacci points scored this/last week from leaf tasks. */
+  pointsThisWeek: number;
+  pointsLastWeek: number;
+  /** Raw task counts (kept as a secondary stat in the UI). */
   thisWeek: number;
   lastWeek: number;
   currentStreak: number;
   bestStreak: number;
   badges: string[];
+  /** Tier bucket derived from lifetime points. */
+  tier: TierName;
+  tierProgress: { current: number; target: number };
   /** 28 entries oldest→newest */
   heatmap: HeatmapDay[];
+  lifetimePoints: number;
   lifetimeCompleted: number;
 }
+
+type TierName = "Starter" | "Bronze" | "Silver" | "Gold" | "Platin";
+const TIER_THRESHOLDS: { name: TierName; min: number }[] = [
+  { name: "Starter", min: 0 },
+  { name: "Bronze", min: 100 },
+  { name: "Silver", min: 500 },
+  { name: "Gold", min: 1500 },
+  { name: "Platin", min: 5000 },
+];
 
 interface RecentWin {
   taskId: string;
@@ -51,6 +71,9 @@ interface RecentWin {
 
 interface PulseResponse {
   users: UserPulse[];
+  /** Sum across all members. */
+  pointsThisWeekTotal: number;
+  pointsLastWeekTotal: number;
   thisWeekTotal: number;
   lastWeekTotal: number;
   recentWins: RecentWin[];
@@ -76,6 +99,8 @@ export async function GET(req: NextRequest) {
   if (members.length === 0) {
     return success<PulseResponse>({
       users: [],
+      pointsThisWeekTotal: 0,
+      pointsLastWeekTotal: 0,
       thisWeekTotal: 0,
       lastWeekTotal: 0,
       recentWins: [],
@@ -95,6 +120,7 @@ export async function GET(req: NextRequest) {
       userId: taskAssignees.userId,
       completedAt: tasks.completedAt,
       taskId: tasks.id,
+      pointEstimate: tasks.pointEstimate,
     })
     .from(tasks)
     .innerJoin(taskAssignees, eq(taskAssignees.taskId, tasks.id))
@@ -108,13 +134,38 @@ export async function GET(req: NextRequest) {
       )
     );
 
-  // 3) Group by user → date for heatmap + streak math
-  const byUserDate = new Map<string, Map<string, number>>(); // userId → date(YYYY-MM-DD) → count
+  // 2b) Find which tasks in this workspace have children — parents are
+  // excluded from scoring (subtask-aware: only leaf completions score).
+  // We check all tasks in the workspace, not just completed ones, so a
+  // parent whose only subtasks are still open also yields 0 on its own
+  // completion (which shouldn't really happen, but be defensive).
+  const parentRows = await db
+    .selectDistinct({ parentTaskId: tasks.parentTaskId })
+    .from(tasks)
+    .where(
+      and(eq(tasks.workspaceId, ctx.workspaceId), isNotNull(tasks.parentTaskId))
+    );
+  const taskIdsWithChildren = new Set<string>();
+  for (const r of parentRows) {
+    if (r.parentTaskId) taskIdsWithChildren.add(r.parentTaskId);
+  }
+
+  // 3) Group by user → date for heatmap + streak math.
+  //    `count` = leaf tasks done that day (binary "active day" signal).
+  //    `points` = effective Fibonacci points (subtask-aware).
+  type DayBucket = { count: number; points: number };
+  const byUserDate = new Map<string, Map<string, DayBucket>>();
   for (const r of completedRows) {
     if (!r.completedAt) continue;
+    // Parent tasks (with subtasks) don't score — only their leaves do.
+    if (taskIdsWithChildren.has(r.taskId)) continue;
+    const pts = r.pointEstimate ?? 1;
     const key = toISODate(r.completedAt);
-    const m = byUserDate.get(r.userId) ?? new Map<string, number>();
-    m.set(key, (m.get(key) ?? 0) + 1);
+    const m = byUserDate.get(r.userId) ?? new Map<string, DayBucket>();
+    const bucket = m.get(key) ?? { count: 0, points: 0 };
+    bucket.count += 1;
+    bucket.points += pts;
+    m.set(key, bucket);
     byUserDate.set(r.userId, m);
   }
 
@@ -134,34 +185,51 @@ export async function GET(req: NextRequest) {
 
   // 5) Build per-user pulse
   const userPulses: UserPulse[] = members.map((m) => {
-    const dateCounts = byUserDate.get(m.userId) ?? new Map<string, number>();
+    const dateBuckets =
+      byUserDate.get(m.userId) ?? new Map<string, { count: number; points: number }>();
 
-    const heatmap: HeatmapDay[] = heatmapDays.map((date) => ({
-      date,
-      count: dateCounts.get(date) ?? 0,
-    }));
+    const heatmap: HeatmapDay[] = heatmapDays.map((date) => {
+      const b = dateBuckets.get(date);
+      return { date, count: b?.count ?? 0, points: b?.points ?? 0 };
+    });
 
-    // Week deltas
+    // Week deltas (both raw count and points)
     let thisWeek = 0;
     let lastWeek = 0;
-    for (const [dateStr, count] of dateCounts) {
+    let pointsThisWeek = 0;
+    let pointsLastWeek = 0;
+    for (const [dateStr, bucket] of dateBuckets) {
       const d = new Date(dateStr);
-      if (d >= thisWeekStart) thisWeek += count;
-      else if (d >= lastWeekStart) lastWeek += count;
+      if (d >= thisWeekStart) {
+        thisWeek += bucket.count;
+        pointsThisWeek += bucket.points;
+      } else if (d >= lastWeekStart) {
+        lastWeek += bucket.count;
+        pointsLastWeek += bucket.points;
+      }
     }
 
-    // Current streak: walk back from today, stop at first zero day.
-    // Special case: if today is 0 but yesterday >0, streak still counts
-    // yesterday's chain (don't punish someone before EOD).
+    // Streaks operate on the binary "did anything today" signal so a
+    // 1-point task still keeps the flame burning.
+    const dateCounts = new Map<string, number>();
+    for (const [k, v] of dateBuckets) dateCounts.set(k, v.count);
     const currentStreak = computeCurrentStreak(dateCounts, today);
     const bestStreak = computeBestStreak(dateCounts);
 
-    const lifetimeCompleted = sumValues(dateCounts);
+    let lifetimeCompleted = 0;
+    let lifetimePoints = 0;
+    for (const b of dateBuckets.values()) {
+      lifetimeCompleted += b.count;
+      lifetimePoints += b.points;
+    }
+
+    const { tier, tierProgress } = computeTier(lifetimePoints);
 
     const badges = deriveBadges({
-      lifetimeCompleted,
+      lifetimePoints,
       currentStreak,
       bestStreak,
+      tier,
     });
 
     return {
@@ -169,12 +237,17 @@ export async function GET(req: NextRequest) {
       name: m.name,
       email: m.email,
       image: m.image,
+      pointsThisWeek,
+      pointsLastWeek,
       thisWeek,
       lastWeek,
       currentStreak,
       bestStreak,
       badges,
+      tier,
+      tierProgress,
       heatmap,
+      lifetimePoints,
       lifetimeCompleted,
     };
   });
@@ -182,9 +255,13 @@ export async function GET(req: NextRequest) {
   // 6) Team totals
   let thisWeekTotal = 0;
   let lastWeekTotal = 0;
+  let pointsThisWeekTotal = 0;
+  let pointsLastWeekTotal = 0;
   for (const u of userPulses) {
     thisWeekTotal += u.thisWeek;
     lastWeekTotal += u.lastWeek;
+    pointsThisWeekTotal += u.pointsThisWeek;
+    pointsLastWeekTotal += u.pointsLastWeek;
   }
 
   // 7) Recent wins — last 5 completions, joined to assignee names
@@ -235,7 +312,9 @@ export async function GET(req: NextRequest) {
   void sql;
 
   return success<PulseResponse>({
-    users: userPulses.sort((a, b) => b.thisWeek - a.thisWeek),
+    users: userPulses.sort((a, b) => b.pointsThisWeek - a.pointsThisWeek),
+    pointsThisWeekTotal,
+    pointsLastWeekTotal,
     thisWeekTotal,
     lastWeekTotal,
     recentWins,
@@ -331,15 +410,43 @@ function computeBestStreak(counts: Map<string, number>): number {
   return best;
 }
 
+/**
+ * Resolve lifetime points to a tier name + progress info for the bar.
+ * Returns the next-tier target; when the user is already at the top tier
+ * we keep the bar full and target=current.
+ */
+function computeTier(lifetimePoints: number): {
+  tier: TierName;
+  tierProgress: { current: number; target: number };
+} {
+  let current: TierName = "Starter";
+  let nextTarget = TIER_THRESHOLDS[TIER_THRESHOLDS.length - 1]!.min;
+  for (let i = 0; i < TIER_THRESHOLDS.length; i++) {
+    const t = TIER_THRESHOLDS[i]!;
+    if (lifetimePoints >= t.min) current = t.name;
+  }
+  for (const t of TIER_THRESHOLDS) {
+    if (t.min > lifetimePoints) {
+      nextTarget = t.min;
+      break;
+    }
+  }
+  return {
+    tier: current,
+    tierProgress: { current: lifetimePoints, target: nextTarget },
+  };
+}
+
 function deriveBadges(input: {
-  lifetimeCompleted: number;
+  lifetimePoints: number;
   currentStreak: number;
   bestStreak: number;
+  tier: TierName;
 }): string[] {
   const out: string[] = [];
-  if (input.lifetimeCompleted >= 1000) out.push("1000-Tasks-Club");
-  else if (input.lifetimeCompleted >= 500) out.push("500-Tasks");
-  else if (input.lifetimeCompleted >= 100) out.push("Erste 100 Tasks");
+  // Tier badge competence signal — one of: Bronze / Silver / Gold / Platin.
+  // Starter is implicit (no badge needed).
+  if (input.tier !== "Starter") out.push(input.tier);
   if (input.currentStreak >= 30) out.push("30-Tage-Streak");
   else if (input.currentStreak >= 14) out.push("2-Wochen-Streak");
   else if (input.currentStreak >= 7) out.push("Wochen-Streak");

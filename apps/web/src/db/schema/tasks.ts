@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, boolean, index } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, boolean, index, integer } from "drizzle-orm/pg-core";
 import { records } from "./records";
 import { users } from "./auth";
 import { workspaces } from "./workspace";
@@ -27,6 +27,12 @@ export const tasks = pgTable("tasks", {
   // isCompleted/deadline/linkedRecords. Values: backlog | heute |
   // laeuft | warte | erledigt.
   kanbanStatus: text("kanban_status"),
+  // Fibonacci size estimate (1,2,3,5,8,13). Drives the Team-Pulse points
+  // scoring. Nullable — old tasks default to 1 in aggregation. Parent tasks
+  // with subtasks: their points are NOT scored on completion; only leaf
+  // tasks score. This keeps "many small tasks" and "one big task with
+  // subtasks" fairly comparable.
+  pointEstimate: integer("point_estimate"),
 }, (table) => [
   index("tasks_workspace_id").on(table.workspaceId),
   index("tasks_parent_task_id").on(table.parentTaskId),

@@ -8,6 +8,15 @@ import {
 import { eq, and, desc, inArray, sql } from "drizzle-orm";
 import { batchGetRecordDisplayNames } from "./display-names";
 
+/** Allowed Fibonacci sizes — anything else is coerced to null. */
+export const TASK_POINT_VALUES = [1, 2, 3, 5, 8, 13] as const;
+export type TaskPointEstimate = (typeof TASK_POINT_VALUES)[number];
+
+export function normalizePoints(v: number | null | undefined): number | null {
+  if (v === null || v === undefined) return null;
+  return (TASK_POINT_VALUES as readonly number[]).includes(v) ? v : null;
+}
+
 export interface TaskData {
   id: string;
   content: string;
@@ -19,6 +28,8 @@ export interface TaskData {
   linkedRecords: { id: string; displayName: string; objectSlug: string }[];
   assignees: { id: string; name: string; email: string }[];
   kanbanStatus: string | null;
+  /** Fibonacci size (1,2,3,5,8,13) or null when not estimated. */
+  pointEstimate: number | null;
 }
 
 /** Batch-enrich an array of task rows into TaskData[] (~3 queries total) */
@@ -82,6 +93,7 @@ async function enrichTasks(
     linkedRecords: recordsByTask.get(t.id) || [],
     assignees: assigneesByTask.get(t.id) || [],
     kanbanStatus: t.kanbanStatus ?? null,
+    pointEstimate: t.pointEstimate ?? null,
   }));
 }
 
@@ -154,6 +166,7 @@ export async function createTask(
     assigneeIds?: string[];
     parentTaskId?: string | null;
     recurrenceRule?: "daily" | "weekly" | "monthly" | null;
+    pointEstimate?: number | null;
   } = {}
 ) {
   const [task] = await db
@@ -170,6 +183,7 @@ export async function createTask(
           ? new Date(options.deadline)
           : new Date()
         : null,
+      pointEstimate: normalizePoints(options.pointEstimate),
     })
     .returning();
 
@@ -207,6 +221,7 @@ export async function updateTask(
     assigneeIds?: string[];
     recurrenceRule?: "daily" | "weekly" | "monthly" | null;
     kanbanStatus?: "backlog" | "heute" | "laeuft" | "warte" | "erledigt" | null;
+    pointEstimate?: number | null;
   }
 ) {
   // Verify task belongs to workspace
@@ -235,6 +250,9 @@ export async function updateTask(
   }
   if (updates.kanbanStatus !== undefined) {
     setValues.kanbanStatus = updates.kanbanStatus;
+  }
+  if (updates.pointEstimate !== undefined) {
+    setValues.pointEstimate = normalizePoints(updates.pointEstimate);
   }
 
   if (Object.keys(setValues).length > 0) {

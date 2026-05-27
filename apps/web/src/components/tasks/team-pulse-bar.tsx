@@ -13,23 +13,30 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Flame, TrendingUp, TrendingDown, CheckCircle2, Trophy } from "lucide-react";
+import { Flame, TrendingUp, TrendingDown, CheckCircle2, Trophy, Sparkles } from "lucide-react";
 
 interface HeatmapDay {
   date: string;
   count: number;
+  points: number;
 }
+type TierName = "Starter" | "Bronze" | "Silver" | "Gold" | "Platin";
 interface UserPulse {
   userId: string;
   name: string;
   email: string;
   image: string | null;
+  pointsThisWeek: number;
+  pointsLastWeek: number;
   thisWeek: number;
   lastWeek: number;
   currentStreak: number;
   bestStreak: number;
   badges: string[];
+  tier: TierName;
+  tierProgress: { current: number; target: number };
   heatmap: HeatmapDay[];
+  lifetimePoints: number;
   lifetimeCompleted: number;
 }
 interface RecentWin {
@@ -40,6 +47,8 @@ interface RecentWin {
 }
 interface PulseResponse {
   users: UserPulse[];
+  pointsThisWeekTotal: number;
+  pointsLastWeekTotal: number;
   thisWeekTotal: number;
   lastWeekTotal: number;
   recentWins: RecentWin[];
@@ -78,14 +87,15 @@ export function TeamPulseBar() {
     return () => window.removeEventListener("focus", onFocus);
   }, [load]);
 
-  // 5-bucket intensity scale based on the team's busiest single day across
-  // the heatmap window. Falls back to a fixed scale when there are no
+  // 5-bucket intensity scale based on the team's heaviest single day across
+  // the heatmap window. Uses points so a Fibonacci-13 task lights brighter
+  // than a Fibonacci-1 task. Falls back to a fixed scale when there are no
   // completions yet so the grid still looks correct.
-  const maxDay = useMemo(() => {
+  const maxDayPoints = useMemo(() => {
     if (!data) return 0;
     let m = 0;
     for (const u of data.users) {
-      for (const d of u.heatmap) if (d.count > m) m = d.count;
+      for (const d of u.heatmap) if (d.points > m) m = d.points;
     }
     return m;
   }, [data]);
@@ -108,7 +118,8 @@ export function TeamPulseBar() {
     return null;
   }
 
-  const weekDelta = data.thisWeekTotal - data.lastWeekTotal;
+  const pointsDelta = data.pointsThisWeekTotal - data.pointsLastWeekTotal;
+  const taskCountDelta = data.thisWeekTotal - data.lastWeekTotal;
 
   return (
     <div className="space-y-2">
@@ -116,11 +127,24 @@ export function TeamPulseBar() {
         {/* ── Team headline ───────────────────────────────────────── */}
         <div className="flex flex-wrap items-center gap-3 mb-3 pb-3 border-b border-border">
           <div className="flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-            <span className="text-2xl font-bold tabular-nums">{data.thisWeekTotal}</span>
-            <span className="text-xs text-muted-foreground">Tasks diese Woche</span>
+            <Sparkles className="h-4 w-4 text-emerald-600" />
+            <span
+              className="text-2xl font-bold tabular-nums"
+              title="Fibonacci-Punkte aus erledigten Leaf-Tasks (Parent-Tasks mit Subtasks zählen nicht doppelt)"
+            >
+              {data.pointsThisWeekTotal}
+            </span>
+            <span className="text-xs text-muted-foreground">Punkte diese Woche</span>
+            <span
+              className="text-[11px] text-muted-foreground tabular-nums"
+              title="Anzahl abgeschlossener Tasks"
+            >
+              <CheckCircle2 className="inline h-3 w-3 mr-0.5 align-text-bottom" />
+              {data.thisWeekTotal} Tasks ({taskCountDelta >= 0 ? "+" : ""}
+              {taskCountDelta})
+            </span>
           </div>
-          <DeltaBadge delta={weekDelta} compareLabel="vs Vorwoche" />
+          <DeltaBadge delta={pointsDelta} compareLabel="vs Vorwoche" />
           <div className="ml-auto">
             <button
               type="button"
@@ -152,7 +176,7 @@ export function TeamPulseBar() {
         {/* ── Per-user rows ────────────────────────────────────────── */}
         <div className="space-y-3">
           {data.users.map((u) => (
-            <UserRow key={u.userId} user={u} maxDay={maxDay} />
+            <UserRow key={u.userId} user={u} maxDayPoints={maxDayPoints} />
           ))}
         </div>
       </div>
@@ -160,21 +184,62 @@ export function TeamPulseBar() {
   );
 }
 
-function UserRow({ user, maxDay }: { user: UserPulse; maxDay: number }) {
-  const delta = user.thisWeek - user.lastWeek;
+const TIER_COLORS: Record<TierName, { chip: string; bar: string }> = {
+  Starter: {
+    chip: "bg-muted text-muted-foreground",
+    bar: "bg-slate-400",
+  },
+  Bronze: {
+    chip: "bg-amber-800 text-amber-50",
+    bar: "bg-amber-800",
+  },
+  Silver: {
+    chip: "bg-slate-400 text-slate-900",
+    bar: "bg-slate-400",
+  },
+  Gold: {
+    chip: "bg-yellow-400 text-yellow-900",
+    bar: "bg-yellow-400",
+  },
+  Platin: {
+    chip: "bg-cyan-300 text-cyan-900",
+    bar: "bg-cyan-400",
+  },
+};
+
+function UserRow({ user, maxDayPoints }: { user: UserPulse; maxDayPoints: number }) {
+  const delta = user.pointsThisWeek - user.pointsLastWeek;
   const streakActive = user.currentStreak >= 3;
   const streakHot = user.currentStreak >= 7;
   const streakFire = user.currentStreak >= 30;
+  const tierColors = TIER_COLORS[user.tier];
+  // Tier-progress bar — % between previous tier threshold and next-tier
+  // target. At top tier we leave the bar full (cur === target).
+  const progress = (() => {
+    const { current, target } = user.tierProgress;
+    if (target <= 0 || current >= target) return 1;
+    // For the slice between this tier's threshold and the next, we don't
+    // know this tier's min from the client — approximate by treating the
+    // range 0→target as the fill. Good enough visual progress.
+    return Math.max(0, Math.min(1, current / target));
+  })();
 
   return (
     <div className="flex flex-wrap items-center gap-3">
-      {/* Identity */}
-      <div className="flex items-center gap-2 min-w-[140px]">
+      {/* Identity + tier chip */}
+      <div className="flex items-center gap-2 min-w-[160px]">
         <Avatar user={user} />
         <div className="leading-tight">
           <div className="text-sm font-medium truncate">{user.name}</div>
-          <div className="text-[10px] text-muted-foreground tabular-nums">
-            {user.lifetimeCompleted} lifetime
+          <div className="text-[10px] text-muted-foreground tabular-nums flex items-center gap-1">
+            <span
+              className={`inline-flex items-center gap-0.5 rounded px-1 py-[1px] font-medium ${tierColors.chip}`}
+              title="Tier basiert auf Lifetime-Punkten"
+            >
+              <Trophy className="h-2.5 w-2.5" />
+              {user.tier}
+            </span>
+            <span>{user.lifetimePoints}p</span>
           </div>
         </div>
       </div>
@@ -196,16 +261,35 @@ function UserRow({ user, maxDay }: { user: UserPulse; maxDay: number }) {
         {user.currentStreak} {user.currentStreak === 1 ? "Tag" : "Tage"}
       </div>
 
-      {/* This-week count + delta */}
+      {/* This-week points + delta + raw task count */}
       <div className="flex items-center gap-1.5 text-xs">
-        <span className="tabular-nums font-semibold">{user.thisWeek}</span>
-        <span className="text-muted-foreground">diese Woche</span>
-        {delta !== 0 && <DeltaBadge delta={delta} small />}
+        <span className="tabular-nums font-semibold">{user.pointsThisWeek}p</span>
+        <span className="text-muted-foreground">
+          / {user.thisWeek} {user.thisWeek === 1 ? "Task" : "Tasks"}
+        </span>
+        {delta !== 0 && <DeltaBadge delta={delta} small suffix="p" />}
       </div>
 
       {/* Heatmap */}
-      <div className="ml-auto" title="Letzte 28 Tage">
-        <Heatmap days={user.heatmap} maxDay={maxDay} />
+      <div className="ml-auto" title="Letzte 28 Tage (Größe = Punkte)">
+        <Heatmap days={user.heatmap} maxDayPoints={maxDayPoints} />
+      </div>
+
+      {/* Tier progress bar — full-width, sits under the row */}
+      <div
+        className="basis-full mt-0.5"
+        title={
+          user.tierProgress.current >= user.tierProgress.target
+            ? "Top-Tier erreicht"
+            : `${user.tierProgress.current} / ${user.tierProgress.target} Punkte bis zum nächsten Tier`
+        }
+      >
+        <div className="h-1 w-full bg-muted/40 rounded overflow-hidden">
+          <div
+            className={`h-full ${tierColors.bar}`}
+            style={{ width: `${Math.round(progress * 100)}%` }}
+          />
+        </div>
       </div>
 
       {/* Badges */}
@@ -225,26 +309,39 @@ function UserRow({ user, maxDay }: { user: UserPulse; maxDay: number }) {
   );
 }
 
-function Heatmap({ days, maxDay }: { days: HeatmapDay[]; maxDay: number }) {
+function Heatmap({ days, maxDayPoints }: { days: HeatmapDay[]; maxDayPoints: number }) {
   // 28 days into 4 columns × 7 rows (oldest top-left, newest bottom-right
   // when read left-to-right top-to-bottom). Each row = one week.
+  // Intensity = points (so a single 13-point task lights up bigger than
+  // a single 1-point task). A day with any leaf completion still gets the
+  // lightest shade so streaks remain visible.
   return (
     <div className="inline-grid grid-flow-col grid-rows-7 gap-[2px]">
       {days.map((d) => (
         <div
           key={d.date}
-          title={`${d.date}: ${d.count}`}
-          className={`h-2.5 w-2.5 rounded-[2px] ${intensityClass(d.count, maxDay)}`}
+          title={`${d.date}: ${d.points}p (${d.count} ${
+            d.count === 1 ? "Task" : "Tasks"
+          })`}
+          className={`h-2.5 w-2.5 rounded-[2px] ${intensityClass(
+            d.points,
+            d.count,
+            maxDayPoints
+          )}`}
         />
       ))}
     </div>
   );
 }
 
-function intensityClass(count: number, maxDay: number): string {
-  if (count === 0) return "bg-muted/50";
-  const m = Math.max(maxDay, 1);
-  const ratio = count / m;
+function intensityClass(points: number, count: number, maxPoints: number): string {
+  // No leaf completion at all → flat muted.
+  if (count === 0 && points === 0) return "bg-muted/50";
+  // Any completion but 0 points (legacy null estimates) still gets the
+  // lightest shade so the streak signal stays visible.
+  if (points === 0) return "bg-emerald-300";
+  const m = Math.max(maxPoints, 1);
+  const ratio = points / m;
   if (ratio >= 0.8) return "bg-emerald-700";
   if (ratio >= 0.5) return "bg-emerald-600";
   if (ratio >= 0.25) return "bg-emerald-500";
@@ -255,10 +352,12 @@ function DeltaBadge({
   delta,
   small,
   compareLabel,
+  suffix,
 }: {
   delta: number;
   small?: boolean;
   compareLabel?: string;
+  suffix?: string;
 }) {
   if (delta === 0 && !compareLabel) return null;
   const pos = delta > 0;
@@ -275,6 +374,7 @@ function DeltaBadge({
       {neg && <TrendingDown className={small ? "h-2.5 w-2.5" : "h-3 w-3"} />}
       {pos ? "+" : ""}
       {delta}
+      {suffix}
       {compareLabel && <span className="opacity-80">· {compareLabel}</span>}
     </span>
   );

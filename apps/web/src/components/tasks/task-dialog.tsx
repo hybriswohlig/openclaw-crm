@@ -44,7 +44,18 @@ interface TaskFormData {
   recordIds: string[];
   linkedRecords?: { id: string; displayName: string; objectSlug: string }[];
   assignees?: { id: string; name: string; email: string }[];
+  /** Fibonacci size (1,2,3,5,8,13) or null. */
+  pointEstimate?: number | null;
 }
+
+const POINT_OPTIONS: { value: number; label: string; hint: string }[] = [
+  { value: 1, label: "1", hint: "XS · < 15 min" },
+  { value: 2, label: "2", hint: "S · ~ 30 min" },
+  { value: 3, label: "3", hint: "M · ~ 1 h" },
+  { value: 5, label: "5", hint: "L · halber Tag" },
+  { value: 8, label: "8", hint: "XL · ganzer Tag" },
+  { value: 13, label: "13", hint: "XXL · mehrtägig — bitte in Subtasks splitten" },
+];
 
 interface Member {
   id: string;
@@ -80,6 +91,7 @@ interface TaskDialogProps {
     deadline: string | null;
     recordIds: string[];
     assigneeIds: string[];
+    pointEstimate: number | null;
   }) => Promise<void>;
   onDelete?: () => Promise<void>;
 }
@@ -103,6 +115,7 @@ export function TaskDialog({
   const [content, setContent] = useState("");
   const [deadline, setDeadline] = useState<Date | null>(null);
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
+  const [pointEstimate, setPointEstimate] = useState<number | null>(null);
   const [linkedRecords, setLinkedRecords] = useState<
     { id: string; displayName: string; objectSlug: string }[]
   >([]);
@@ -153,10 +166,12 @@ export function TaskDialog({
         setDeadline(initialData.deadline);
         setAssigneeIds(initialData.assigneeIds);
         setLinkedRecords(initialData.linkedRecords || []);
+        setPointEstimate(initialData.pointEstimate ?? null);
       } else {
         setContent(defaultContent ?? "");
         setDeadline(defaultDeadline ?? null);
         setAssigneeIds(currentUserId ? [currentUserId] : []);
+        setPointEstimate(null);
         setLinkedRecords(
           defaultRecordId && defaultRecordName
             ? [
@@ -289,10 +304,12 @@ export function TaskDialog({
         deadline: deadline ? deadline.toISOString().split("T")[0] : null,
         recordIds: linkedRecords.map((r) => r.id),
         assigneeIds,
+        pointEstimate,
       });
       if (createMore && mode === "create") {
         setContent("");
         setDeadline(null);
+        setPointEstimate(null);
         setLinkedRecords(
           defaultRecordId && defaultRecordName
             ? [
@@ -689,6 +706,43 @@ export function TaskDialog({
                 </div>
               )}
             </div>
+          </div>
+
+          {/* ── Fibonacci size picker ─────────────────────────────────
+              Drives the Team-Pulse points score. Optional — leaving it
+              blank counts as 1 in aggregation. Parent tasks with subtasks
+              don't score on their own completion; only their leaf
+              subtasks do. */}
+          <div className="flex items-center gap-2 flex-wrap text-xs">
+            <span className="text-muted-foreground">Größe</span>
+            <div className="inline-flex rounded-md border border-border overflow-hidden">
+              {POINT_OPTIONS.map((opt) => {
+                const active = pointEstimate === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    title={opt.hint}
+                    onClick={() =>
+                      setPointEstimate(active ? null : opt.value)
+                    }
+                    className={cn(
+                      "px-2 py-1 tabular-nums border-r border-border last:border-r-0 transition-colors",
+                      active
+                        ? "bg-emerald-600 text-white"
+                        : "bg-background hover:bg-muted/50 text-muted-foreground"
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+            {pointEstimate != null && (
+              <span className="text-[11px] text-muted-foreground">
+                {POINT_OPTIONS.find((o) => o.value === pointEstimate)?.hint}
+              </span>
+            )}
           </div>
 
           {mode === "edit" && initialData?.id && (

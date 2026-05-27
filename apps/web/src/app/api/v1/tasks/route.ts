@@ -48,6 +48,8 @@ export async function POST(req: NextRequest) {
       deadline: body.deadline as string | undefined,
       recordIds: body.recordIds as string[] | undefined,
       assigneeIds,
+      pointEstimate:
+        typeof body.pointEstimate === "number" ? body.pointEstimate : null,
     });
 
     // Push-notify each new assignee (excluding the creator themselves).

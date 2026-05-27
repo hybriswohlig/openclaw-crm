@@ -23,6 +23,7 @@ export async function PATCH(
       recordIds?: string[];
       assigneeIds?: string[];
       kanbanStatus?: "backlog" | "heute" | "laeuft" | "warte" | "erledigt" | null;
+      pointEstimate?: number | null;
     };
 
     // Capture the previous assignee set BEFORE the update so we can tell
