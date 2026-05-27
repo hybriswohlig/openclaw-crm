@@ -26,6 +26,8 @@ import {
   Braces,
   Sparkles,
   ListPlus,
+  Phone,
+  ExternalLink,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -158,6 +160,20 @@ const KLEINANZEIGEN_SUBJECT_RE = /kleinanzeigen|nutzer-anfrage|anfrage zu deiner
 function isKleinanzeigenConv(conv: Conversation): boolean {
   if (conv.contactEmail && KLEINANZEIGEN_RELAY_RE.test(conv.contactEmail)) return true;
   if (conv.subject && KLEINANZEIGEN_SUBJECT_RE.test(conv.subject)) return true;
+  return false;
+}
+
+/**
+ * Detects whether a phone number is a German mobile (Handy) number.
+ * Mobile prefixes after country code: 15x, 16x, 17x.
+ * WhatsApp numbers are inherently mobile, so any WhatsApp contact counts.
+ */
+function isMobilePhone(phone: string | null, isWa: boolean): boolean {
+  if (!phone) return false;
+  if (isWa) return true;
+  const digits = phone.replace(/\D/g, "");
+  if (/^49(15|16|17)/.test(digits)) return true;
+  if (/^0(15|16|17)/.test(digits)) return true;
   return false;
 }
 
@@ -603,6 +619,7 @@ function ConversationView({
   onStatusChange: (status: ConversationStatus) => void;
   onOpenCompose?: () => void;
 }) {
+  const router = useRouter();
   const [messages, setMessages] = useState<Message[]>([]);
   const [loadingMsgs, setLoadingMsgs] = useState(true);
   const [reply, setReply] = useState("");
@@ -993,6 +1010,28 @@ function ConversationView({
                     <X className="h-4 w-4" />
                     Als Spam markieren
                   </button>
+                )}
+                {conv.dealRecordId && (
+                  <button
+                    onClick={() => {
+                      setShowMenu(false);
+                      router.push(`/objects/deals/${conv.dealRecordId}`);
+                    }}
+                    className="flex items-center gap-2 w-full px-3 py-2 text-sm hover:bg-muted transition-colors"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                    Lead öffnen
+                  </button>
+                )}
+                {isMobilePhone(conv.contactPhone, isWa) && (
+                  <a
+                    href={`tel:${conv.contactPhone}`}
+                    onClick={() => setShowMenu(false)}
+                    className="sm:hidden flex items-center gap-2 w-full px-3 py-2 text-sm hover:bg-muted transition-colors"
+                  >
+                    <Phone className="h-4 w-4" />
+                    Anrufen
+                  </a>
                 )}
                 <div className="my-1 border-t border-border" />
                 <button
