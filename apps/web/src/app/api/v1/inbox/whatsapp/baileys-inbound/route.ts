@@ -41,6 +41,15 @@ interface BaileysInboundPayload {
   accountId: string;
   /** Sender's WhatsApp ID (E.164 with or without leading +). */
   peerWaId: string;
+  /**
+   * Full peer JID with domain preserved (`123@lid` or `123@s.whatsapp.net`).
+   * Stored as `external_thread_id` so outbound replies hit the same
+   * addressing mode the contact answered from. Required for contacts whose
+   * Meta identity has migrated to LID-routing — without it, replies are
+   * silently undeliverable. Optional for back-compat with older bridge
+   * builds that don't send the field yet.
+   */
+  peerJid?: string;
   /** Sender's profile/push name, if known. */
   peerName?: string | null;
   /** Plain-text body. For media-only messages, may be empty (use previewLabel). */
@@ -129,6 +138,20 @@ export async function POST(req: NextRequest) {
     return badRequest("peerWaId must be a digit-only E.164-like phone", { received: payload.peerWaId });
   }
 
+  // peerJid is the full address (`digits@lid` or `digits@s.whatsapp.net`)
+  // with device suffix stripped. We persist it so reply sends can target
+  // the correct addressing mode.
+  let peerJid: string | null = null;
+  if (typeof payload.peerJid === "string" && payload.peerJid) {
+    const raw = payload.peerJid.replace(/\s+/g, "");
+    if (!/^\+?\d{6,20}(?::\d+)?@(?:lid|s\.whatsapp\.net|c\.us|g\.us)$/.test(raw)) {
+      return badRequest("peerJid must be a digits@domain JID", { received: payload.peerJid });
+    }
+    const at = raw.indexOf("@");
+    const local = raw.slice(0, at).replace(/^\+/, "").replace(/:.*$/, "");
+    peerJid = `${local}${raw.slice(at)}`;
+  }
+
   const sentAt = payload.sentAt ? new Date(payload.sentAt) : new Date();
   if (Number.isNaN(sentAt.getTime())) {
     return badRequest("sentAt must be a valid ISO timestamp");
@@ -160,6 +183,7 @@ export async function POST(req: NextRequest) {
     const result = await ingestInboundWhatsAppMessage({
       account,
       peerWaId,
+      peerJid,
       peerName: payload.peerName ?? null,
       body: payload.body,
       previewLabel: payload.previewLabel ?? null,

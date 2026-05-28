@@ -27,6 +27,11 @@ export interface InboundAttachment {
 export interface InboundPayload {
   accountId: string;
   peerWaId: string;
+  // Full peer JID with domain preserved (`@lid` or `@s.whatsapp.net`).
+  // The CRM stores this so outbound sends can target the same addressing
+  // mode the contact answered from. Optional for backward-compat with
+  // older CRM deployments that don't know the field.
+  peerJid?: string;
   peerName?: string | null;
   body: string;
   previewLabel?: string | null;
@@ -40,6 +45,9 @@ export interface InboundPayload {
 export interface OutboundPayload {
   accountId: string;
   peerWaId: string;
+  // See InboundPayload.peerJid — same field, same purpose. Here the JID
+  // identifies the recipient the operator was texting from their phone.
+  peerJid?: string;
   body: string;
   previewLabel?: string | null;
   externalMessageId: string;

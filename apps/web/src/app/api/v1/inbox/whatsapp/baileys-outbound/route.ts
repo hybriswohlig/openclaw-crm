@@ -36,6 +36,13 @@ interface BaileysOutboundPayload {
   accountId: string;
   /** Recipient's WhatsApp ID (the customer). */
   peerWaId: string;
+  /**
+   * Full recipient JID (`123@lid` or `123@s.whatsapp.net`). Stored on the
+   * conversation so the CRM's own outbound path can target the right
+   * addressing mode on the next send. See `baileys-inbound/route.ts` for
+   * details. Optional for backward compatibility.
+   */
+  peerJid?: string;
   /** Plain-text body (may be empty for media-only). */
   body: string;
   /** Optional preview label override for media-only messages. */
@@ -112,6 +119,17 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  let peerJid: string | null = null;
+  if (typeof payload.peerJid === "string" && payload.peerJid) {
+    const raw = payload.peerJid.replace(/\s+/g, "");
+    if (!/^\+?\d{6,20}(?::\d+)?@(?:lid|s\.whatsapp\.net|c\.us|g\.us)$/.test(raw)) {
+      return badRequest("peerJid must be a digits@domain JID", { received: payload.peerJid });
+    }
+    const at = raw.indexOf("@");
+    const local = raw.slice(0, at).replace(/^\+/, "").replace(/:.*$/, "");
+    peerJid = `${local}${raw.slice(at)}`;
+  }
+
   const sentAt = payload.sentAt ? new Date(payload.sentAt) : new Date();
   if (Number.isNaN(sentAt.getTime())) {
     return badRequest("sentAt must be a valid ISO timestamp");
@@ -130,6 +148,7 @@ export async function POST(req: NextRequest) {
     const result = await ingestOutboundWhatsAppMessage({
       account,
       peerWaId,
+      peerJid,
       body: payload.body,
       previewLabel: payload.previewLabel ?? null,
       externalMessageId: payload.externalMessageId,

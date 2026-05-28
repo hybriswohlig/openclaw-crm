@@ -158,3 +158,20 @@ export function jidToWaId(jid: string | null | undefined): string {
     .replace(/\s+/g, "")
     .replace(/:.*$/, "");
 }
+
+// Strips the device suffix (`:N`) but keeps the domain (`@lid` or
+// `@s.whatsapp.net`). Required so the CRM can remember which addressing
+// mode a contact answered from — without it, contacts whose Meta identity
+// has migrated to LID-routing become unreachable on outbound, because the
+// bridge would wrongly default the reply to `@s.whatsapp.net`.
+export function jidToPeerJid(jid: string | null | undefined): string {
+  if (!jid) return "";
+  const at = jid.indexOf("@");
+  if (at < 0) return jid.replace(/^\+/, "").replace(/\s+/g, "");
+  const local = jid
+    .slice(0, at)
+    .replace(/^\+/, "")
+    .replace(/\s+/g, "")
+    .replace(/:.*$/, "");
+  return `${local}${jid.slice(at)}`;
+}

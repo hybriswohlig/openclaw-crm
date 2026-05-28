@@ -13,6 +13,7 @@
   "dependencies": {
     "baileys": "7.0.0-rc11",
     "fastify": "^5.2.1",
+    "link-preview-js": "^3.0.0",
     "pino": "^9.5.0",
     "qrcode": "^1.5.4",
     "zod": "^3.24.0"

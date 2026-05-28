@@ -17,15 +17,26 @@ export interface ServerOptions {
   log: Logger;
 }
 
+// Either a digits-only WA id (legacy path, defaults to `@s.whatsapp.net`)
+// or a full JID `digits[:N]@(lid|s.whatsapp.net|c.us|g.us)`. The CRM passes
+// the full JID for contacts whose Meta identity has migrated to LID-routing.
+const PEER_WA_ID = z
+  .string()
+  .min(6)
+  .regex(
+    /^\+?\d{6,20}(?::\d+)?(?:@(?:lid|s\.whatsapp\.net|c\.us|g\.us))?$/,
+    "peerWaId must be digits or a JID like 123@lid / 123@s.whatsapp.net",
+  );
+
 const SendBody = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("text"),
-    peerWaId: z.string().min(6),
+    peerWaId: PEER_WA_ID,
     text: z.string().min(1),
   }),
   z.object({
     kind: z.enum(["image", "video", "audio", "document"]),
-    peerWaId: z.string().min(6),
+    peerWaId: PEER_WA_ID,
     mediaBase64: z.string().min(1),
     mimeType: z.string().min(3),
     fileName: z.string().optional(),

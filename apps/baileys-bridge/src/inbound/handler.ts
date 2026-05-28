@@ -21,7 +21,13 @@ import type {
   InboundPayload,
   OutboundPayload,
 } from "../lib/crm-client.js";
-import { textOf, mediaKindOf, previewLabelFor, jidToWaId } from "./envelope.js";
+import {
+  textOf,
+  mediaKindOf,
+  previewLabelFor,
+  jidToWaId,
+  jidToPeerJid,
+} from "./envelope.js";
 import { tryDownloadAttachment } from "./media-downloader.js";
 
 export interface InboundHandlerArgs {
@@ -101,6 +107,7 @@ async function ingestOne(args: {
   const payload: InboundPayload = {
     accountId,
     peerWaId,
+    peerJid: jidToPeerJid(key.remoteJid),
     peerName: msg.pushName ?? null,
     body,
     previewLabel,
@@ -168,6 +175,7 @@ async function ingestOutboundOne(args: {
   const payload: OutboundPayload = {
     accountId,
     peerWaId,
+    peerJid: jidToPeerJid(key.remoteJid),
     body,
     previewLabel,
     externalMessageId: key.id,
