@@ -14,6 +14,9 @@ import {
   Smartphone,
   Monitor,
   Clock,
+  FileText,
+  Download,
+  Eye,
 } from "lucide-react";
 import { DateOfferComposer } from "./date-offer-composer";
 
@@ -327,9 +330,160 @@ export function ShareLinkPanel({ dealRecordId }: { dealRecordId: string }) {
         </div>
       </div>
 
+      {!revoked && <CustomerVisibleDocuments dealRecordId={dealRecordId} />}
+
       {!revoked && <DateOfferComposer dealRecordId={dealRecordId} />}
     </div>
   );
+}
+
+interface DealDocumentMeta {
+  id: string;
+  documentType: "order_confirmation" | "invoice" | "payment_confirmation" | "worker_instructions";
+  fileName: string;
+  fileSize: number;
+  mimeType: string;
+  uploadedAt: string;
+}
+
+/**
+ * Mirrors the two PDFs the customer sees on the public portal
+ * (Auftragsbestätigung at Stage 2, Rechnung at Stage 4) and gives the
+ * operator a one-click download + inline preview button — same endpoint
+ * + download=1 pattern as financial-tab.tsx so nothing diverges.
+ */
+function CustomerVisibleDocuments({ dealRecordId }: { dealRecordId: string }) {
+  const [docs, setDocs] = useState<DealDocumentMeta[] | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/v1/deals/${dealRecordId}/documents`);
+      if (!res.ok) {
+        setDocs([]);
+        return;
+      }
+      const json = (await res.json()) as { data: DealDocumentMeta[] };
+      setDocs(json.data ?? []);
+    } finally {
+      setLoading(false);
+    }
+  }, [dealRecordId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  function triggerDownload(doc: DealDocumentMeta) {
+    const a = document.createElement("a");
+    a.href = `/api/v1/deals/${dealRecordId}/documents/${doc.id}?download=1`;
+    a.download = doc.fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-border/50 bg-card px-4 py-3 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Dokumente werden geladen…
+      </div>
+    );
+  }
+
+  // Only render the section when at least one customer-visible doc exists.
+  // If the operator hasn't uploaded an Auftragsbestätigung or Rechnung yet
+  // there's nothing for them to download from this panel, and the financial
+  // tab is the right place to add it.
+  const visible = (docs ?? []).filter(
+    (d) => d.documentType === "order_confirmation" || d.documentType === "invoice"
+  );
+  if (visible.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground">
+        <div className="flex items-center gap-2 font-medium text-foreground">
+          <FileText className="h-3.5 w-3.5" />
+          Kunden-Dokumente
+        </div>
+        <p className="mt-1">
+          Noch keine Auftragsbestätigung oder Rechnung hochgeladen. PDFs werden im{" "}
+          <span className="font-medium">Finanzen</span>-Tab gepflegt und
+          erscheinen automatisch hier.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-border/60 bg-card p-4">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <FileText className="h-4 w-4" />
+          Kunden-Dokumente
+        </div>
+        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+          Im Portal sichtbar
+        </span>
+      </div>
+
+      <p className="mt-1 text-xs text-muted-foreground">
+        Dieselben PDFs, die der Kunde im Status-Link aufrufen kann.
+      </p>
+
+      <ul className="mt-3 space-y-2">
+        {visible.map((doc) => (
+          <li
+            key={doc.id}
+            className="flex items-center justify-between gap-2 rounded-lg border border-border/50 bg-background/40 p-3"
+          >
+            <div className="min-w-0">
+              <div className="text-sm font-medium">
+                {DOC_TYPE_LABELS[doc.documentType]}
+              </div>
+              <div className="truncate text-[11px] text-muted-foreground">
+                {doc.fileName} · {fmtBytes(doc.fileSize)}
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <a
+                href={`/api/v1/deals/${dealRecordId}/documents/${doc.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex h-8 items-center gap-1 rounded-md border border-border bg-background px-2.5 text-xs font-medium hover:bg-accent"
+                title="In neuem Tab ansehen"
+              >
+                <Eye className="h-3.5 w-3.5" />
+                Vorschau
+              </a>
+              <button
+                type="button"
+                onClick={() => triggerDownload(doc)}
+                className="inline-flex h-8 items-center gap-1 rounded-md bg-foreground px-2.5 text-xs font-medium text-background hover:opacity-90"
+              >
+                <Download className="h-3.5 w-3.5" />
+                PDF
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+const DOC_TYPE_LABELS: Record<DealDocumentMeta["documentType"], string> = {
+  order_confirmation: "Auftragsbestätigung",
+  invoice: "Rechnung",
+  payment_confirmation: "Zahlungsbestätigung",
+  worker_instructions: "Auftragsanweisung (Crew)",
+};
+
+function fmtBytes(b: number): string {
+  if (b < 1024) return `${b} B`;
+  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+  return `${(b / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
