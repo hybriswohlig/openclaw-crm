@@ -11,9 +11,11 @@ import { and, eq, inArray } from "drizzle-orm";
 const CRM_TOOLS_API_URL = process.env.CRM_TOOLS_API_URL;
 const CRM_TOOLS_AUTH_TOKEN = process.env.CRM_TOOLS_AUTH_TOKEN;
 
-// Cap on total bytes of forwarded images. 15 MB stays well under the
-// per-job timeout budget and avoids blowing up the FastAPI request body.
-const MAX_IMAGE_BYTES_TOTAL = 15 * 1024 * 1024;
+// Cap on the base64 image payload we forward to FastAPI. Measured as the
+// JSON-encoded size (i.e. base64 string length), since that's what actually
+// goes on the wire. ~3 MB leaves headroom under the upstream FastAPI's
+// request-body limit, which rejects larger bodies with 413.
+const MAX_IMAGE_BASE64_BYTES_TOTAL = 3 * 1024 * 1024;
 const MAX_IMAGES_FORWARDED = 8;
 
 interface RunBody {
@@ -78,37 +80,50 @@ export async function POST(req: NextRequest) {
       );
 
     const images: { filename: string; mime: string; base64: string }[] = [];
-    let total = 0;
+    let totalBase64Bytes = 0;
     for (const r of rows) {
       if (!r.mimeType.startsWith("image/")) continue;
-      const size = Math.floor((r.fileContent.length * 3) / 4); // base64 → bytes (approx)
-      if (total + size > MAX_IMAGE_BYTES_TOTAL) break;
-      total += size;
+      // r.fileContent is the base64 string we forward verbatim, so its length
+      // is what counts against the upstream's request-body limit.
+      const base64Len = r.fileContent.length;
+      if (totalBase64Bytes + base64Len > MAX_IMAGE_BASE64_BYTES_TOTAL) continue;
+      totalBase64Bytes += base64Len;
       images.push({ filename: r.fileName, mime: r.mimeType, base64: r.fileContent });
     }
     if (images.length > 0) params._images = images;
   }
 
-  const upstream = await fetch(
-    `${CRM_TOOLS_API_URL}/skills/${encodeURIComponent(body.skill)}`,
-    {
+  const upstreamUrl = `${CRM_TOOLS_API_URL}/skills/${encodeURIComponent(body.skill)}`;
+  const buildBody = (p: Record<string, unknown>) =>
+    JSON.stringify({
+      params: {
+        ...p,
+        // Always tag the workspace so the skill has the right scope. The
+        // skill can decide whether to use it.
+        _workspace_id: ctx.workspaceId,
+        _user_id: ctx.userId,
+      },
+      timeout_sec: body.timeout_sec,
+    });
+  const callUpstream = (p: Record<string, unknown>) =>
+    fetch(upstreamUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${CRM_TOOLS_AUTH_TOKEN}`,
       },
-      body: JSON.stringify({
-        params: {
-          ...params,
-          // Always tag the workspace so the skill has the right scope. The
-          // skill can decide whether to use it.
-          _workspace_id: ctx.workspaceId,
-          _user_id: ctx.userId,
-        },
-        timeout_sec: body.timeout_sec,
-      }),
-    }
-  );
+      body: buildBody(p),
+    });
+
+  let upstream = await callUpstream(params);
+
+  // If upstream rejects the body as too large, drop the image payload and
+  // retry once. The skill still produces a document, just without visual
+  // context from attachments.
+  if (upstream.status === 413 && params._images) {
+    delete params._images;
+    upstream = await callUpstream(params);
+  }
 
   const data = await upstream.json().catch(() => ({}));
   if (!upstream.ok) {

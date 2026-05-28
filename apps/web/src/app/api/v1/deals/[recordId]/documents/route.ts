@@ -75,7 +75,11 @@ export async function POST(
     .values({
       workspaceId: ctx.workspaceId,
       dealRecordId: recordId,
-      documentType: documentType as "order_confirmation" | "invoice" | "payment_confirmation",
+      documentType: documentType as
+        | "order_confirmation"
+        | "invoice"
+        | "payment_confirmation"
+        | "worker_instructions",
       fileName: file.name,
       fileSize: file.size,
       mimeType: file.type || "application/octet-stream",
