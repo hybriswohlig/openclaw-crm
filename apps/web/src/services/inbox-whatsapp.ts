@@ -308,6 +308,13 @@ function filenameForMedia(kind: string, mime: string, provided?: string): string
 export async function ingestInboundWhatsAppMessage(params: {
   account: typeof channelAccounts.$inferSelect;
   peerWaId: string;
+  /**
+   * Full peer JID (`digits@lid` or `digits@s.whatsapp.net`). When present,
+   * stored as `external_thread_id` so reply sends can target the same
+   * addressing mode the contact answered from. WABA path always omits it
+   * (Cloud API doesn't expose LID/PN — there is only the phone number).
+   */
+  peerJid?: string | null;
   peerName?: string | null;
   body: string;
   /** Preview override for media-only messages (e.g. "📷 Bild"). */
@@ -325,7 +332,7 @@ export async function ingestInboundWhatsAppMessage(params: {
   isNewConversation: boolean;
 }> {
   const {
-    account, peerWaId, peerName, body, previewLabel,
+    account, peerWaId, peerJid, peerName, body, previewLabel,
     externalMessageId, sentAt, toAddress, rawHeaders,
   } = params;
 
@@ -342,8 +349,13 @@ export async function ingestInboundWhatsAppMessage(params: {
     leadSource: "WhatsApp / Website",
   });
 
-  // Thread key for WhatsApp = wa_id. One conversation per (channelAccount, contact phone).
-  const threadKey = peerWaId;
+  // Thread key for WhatsApp = full peer JID when known (Baileys w/ LID
+  // migration), digits-only wa_id otherwise (WABA, old Baileys). One
+  // conversation per (channelAccount, peer). We look up by JID first, then
+  // fall back to digits-only so existing conversations created before the
+  // bridge started sending `peerJid` still match; on a digits-only hit we
+  // upgrade `external_thread_id` to the full JID in place.
+  const threadKey = peerJid ?? peerWaId;
 
   let [conv] = await db
     .select()
@@ -355,6 +367,27 @@ export async function ingestInboundWhatsAppMessage(params: {
       )
     )
     .limit(1);
+
+  if (!conv && peerJid) {
+    // No JID-keyed row yet → check for a legacy digits-only row.
+    [conv] = await db
+      .select()
+      .from(inboxConversations)
+      .where(
+        and(
+          eq(inboxConversations.channelAccountId, account.id),
+          eq(inboxConversations.externalThreadId, peerWaId)
+        )
+      )
+      .limit(1);
+    if (conv) {
+      await db
+        .update(inboxConversations)
+        .set({ externalThreadId: peerJid })
+        .where(eq(inboxConversations.id, conv.id));
+      conv = { ...conv, externalThreadId: peerJid };
+    }
+  }
 
   const preview = previewText.slice(0, 120).replace(/\s+/g, " ");
   let isNewConversation = false;
@@ -526,6 +559,8 @@ export async function ingestInboundWhatsAppMessage(params: {
 export async function ingestOutboundWhatsAppMessage(params: {
   account: typeof channelAccounts.$inferSelect;
   peerWaId: string;
+  /** See ingestInboundWhatsAppMessage.peerJid. */
+  peerJid?: string | null;
   body: string;
   previewLabel?: string | null;
   externalMessageId: string;
@@ -538,7 +573,7 @@ export async function ingestOutboundWhatsAppMessage(params: {
   isNewConversation: boolean;
 }> {
   const {
-    account, peerWaId, body, previewLabel,
+    account, peerWaId, peerJid, body, previewLabel,
     externalMessageId, sentAt, rawHeaders,
   } = params;
 
@@ -559,7 +594,8 @@ export async function ingestOutboundWhatsAppMessage(params: {
     leadSource: "WhatsApp / Website",
   });
 
-  const threadKey = peerWaId;
+  // See ingestInboundWhatsAppMessage for the JID-vs-digits dedup story.
+  const threadKey = peerJid ?? peerWaId;
 
   let [conv] = await db
     .select()
@@ -571,6 +607,26 @@ export async function ingestOutboundWhatsAppMessage(params: {
       )
     )
     .limit(1);
+
+  if (!conv && peerJid) {
+    [conv] = await db
+      .select()
+      .from(inboxConversations)
+      .where(
+        and(
+          eq(inboxConversations.channelAccountId, account.id),
+          eq(inboxConversations.externalThreadId, peerWaId)
+        )
+      )
+      .limit(1);
+    if (conv) {
+      await db
+        .update(inboxConversations)
+        .set({ externalThreadId: peerJid })
+        .where(eq(inboxConversations.id, conv.id));
+      conv = { ...conv, externalThreadId: peerJid };
+    }
+  }
 
   let isNewConversation = false;
 
@@ -2047,7 +2103,17 @@ async function loadBaileysSendContext(
     .from(inboxContacts)
     .where(eq(inboxContacts.id, conv.contactId))
     .limit(1);
-  const toWaId = contact?.phone ?? conv.externalThreadId;
+
+  // Prefer `external_thread_id` when it carries the full JID
+  // (`digits@lid` / `digits@s.whatsapp.net`). That tells the bridge the
+  // correct addressing mode — critical for LID-migrated contacts whose
+  // `contact.phone` is actually a LID, not a real phone number. Falls
+  // back to `contact.phone` (legacy digits-only) for conversations
+  // created before the bridge started forwarding `peerJid`.
+  const threadId = conv.externalThreadId ?? "";
+  const toWaId = threadId.includes("@")
+    ? threadId
+    : contact?.phone ?? threadId;
   if (!toWaId) throw new Error("Cannot determine recipient wa_id");
 
   return { conv, account, toWaId };
