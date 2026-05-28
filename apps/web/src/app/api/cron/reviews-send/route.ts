@@ -1,7 +1,7 @@
 /**
  * Post-move reviews engine — 15-min cron trigger ([KOT-622] / [KOT-603]).
  *
- * Vercel Cron POSTs every 15 minutes with `Authorization: Bearer <CRON_SECRET>`.
+ * Vercel Cron GETs every 15 minutes with `Authorization: Bearer <CRON_SECRET>`.
  * For each completed move whose `move_completed_at` falls in the
  * 4–24h send window, we run the negative-experience valve and either:
  *   - dispatch a Variant A or B SMS via MessageBird (PR #16) and stamp
@@ -64,7 +64,11 @@ interface CronResult {
   skipped_reason?: string;
 }
 
-export async function POST(req: NextRequest) {
+// Vercel Cron Jobs invoke this with GET (the platform doesn't support POST
+// for scheduled triggers). Spec [KOT-622](/KOT/issues/KOT-622) says "mirror inbox-sync" — that route
+// uses GET, this one originally shipped as POST which silently broke the
+// Vercel cron schedule. Switched to GET as part of the [KOT-747](/KOT/issues/KOT-747) wiring sweep.
+export async function GET(req: NextRequest) {
   // CEO required (KOT-603): auth must be fail-closed. Vercel Cron always
   // provides the secret in production; dev opts in by setting the env var.
   // Silent passthrough was a security hole — a missing env in prod would
