@@ -21,22 +21,68 @@ export default function OperatingCompaniesSettingsPage() {
   const [notes, setNotes] = useState("");
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState("");
+  // Google review URL per OC (the same field the customer portal uses on
+  // the "thanks for moving with us" page, and that the post-move SMS
+  // engine reads when sending the review-request text). Edits here PUT
+  // straight to /api/v1/customer-portal-settings/[ocId].
+  const [reviewUrls, setReviewUrls] = useState<Record<string, string>>({});
+  const [reviewUrlSavingFor, setReviewUrlSavingFor] = useState<string | null>(null);
+  const [reviewUrlSavedFor, setReviewUrlSavedFor] = useState<string | null>(null);
 
   async function fetchRecords() {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`/api/v1/objects/${OBJECT_SLUG}/records?limit=200`);
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
+      const [recRes, portalRes] = await Promise.all([
+        fetch(`/api/v1/objects/${OBJECT_SLUG}/records?limit=200`),
+        fetch(`/api/v1/customer-portal-settings`),
+      ]);
+      if (!recRes.ok) {
+        const data = await recRes.json().catch(() => ({}));
         setError(data.error?.message ?? "Could not load operating companies.");
         setRecords([]);
         return;
       }
-      const data = await res.json();
-      setRecords(data.data?.records ?? []);
+      const recData = await recRes.json();
+      setRecords(recData.data?.records ?? []);
+
+      if (portalRes.ok) {
+        const portalData = await portalRes.json();
+        const rows: Array<{
+          operatingCompanyRecordId: string;
+          googleReviewUrl: string | null;
+        }> = portalData.data?.operatingCompanies ?? [];
+        setReviewUrls(
+          Object.fromEntries(
+            rows.map((r) => [r.operatingCompanyRecordId, r.googleReviewUrl ?? ""]),
+          ),
+        );
+      }
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function saveReviewUrl(ocId: string, value: string) {
+    setReviewUrlSavingFor(ocId);
+    setReviewUrlSavedFor(null);
+    try {
+      const res = await fetch(`/api/v1/customer-portal-settings/${ocId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ googleReviewUrl: value.trim() || null }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error?.message ?? "Could not save review URL.");
+        return;
+      }
+      setReviewUrlSavedFor(ocId);
+      setTimeout(() => {
+        setReviewUrlSavedFor((cur) => (cur === ocId ? null : cur));
+      }, 2000);
+    } finally {
+      setReviewUrlSavingFor(null);
     }
   }
 
@@ -144,20 +190,59 @@ export default function OperatingCompaniesSettingsPage() {
           {records.map((r) => {
             const displayName = String(r.values?.name ?? "Unnamed");
             const note = r.values?.notes ? String(r.values.notes) : null;
+            const reviewUrl = reviewUrls[r.id] ?? "";
+            const isSaving = reviewUrlSavingFor === r.id;
+            const justSaved = reviewUrlSavedFor === r.id;
             return (
               <li
                 key={r.id}
                 className="flex items-start justify-between gap-3 rounded-md border border-border px-3 py-2.5"
               >
-                <div className="min-w-0 flex-1">
-                  <p className="font-medium truncate">{displayName}</p>
-                  {note && <p className="text-xs text-muted-foreground truncate">{note}</p>}
-                  <Link
-                    href={`/objects/${OBJECT_SLUG}/${r.id}`}
-                    className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-1"
-                  >
-                    Open record <ExternalLink className="h-3 w-3" />
-                  </Link>
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div>
+                    <p className="font-medium truncate">{displayName}</p>
+                    {note && <p className="text-xs text-muted-foreground truncate">{note}</p>}
+                    <Link
+                      href={`/objects/${OBJECT_SLUG}/${r.id}`}
+                      className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-1"
+                    >
+                      Open record <ExternalLink className="h-3 w-3" />
+                    </Link>
+                  </div>
+                  <div className="space-y-1">
+                    <Label
+                      htmlFor={`oc-review-url-${r.id}`}
+                      className="text-xs text-muted-foreground"
+                    >
+                      Google review URL
+                      <span className="text-muted-foreground/70 ml-1 font-normal">
+                        (used by the post-move review SMS and the customer portal thank-you page)
+                      </span>
+                    </Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        id={`oc-review-url-${r.id}`}
+                        value={reviewUrl}
+                        placeholder="https://g.page/r/…/review"
+                        onChange={(e) =>
+                          setReviewUrls((cur) => ({ ...cur, [r.id]: e.target.value }))
+                        }
+                        onBlur={(e) => {
+                          const next = e.target.value.trim();
+                          // Skip if no actual change.
+                          if (next === (reviewUrl ?? "").trim()) return;
+                          void saveReviewUrl(r.id, next);
+                        }}
+                        className="h-8 text-sm"
+                      />
+                      {isSaving && (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground shrink-0" />
+                      )}
+                      {justSaved && (
+                        <span className="text-xs text-emerald-600 shrink-0">Saved</span>
+                      )}
+                    </div>
+                  </div>
                 </div>
                 <Button
                   type="button"

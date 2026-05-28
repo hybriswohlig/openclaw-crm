@@ -33,6 +33,7 @@ import {
   inboxContacts,
   statuses,
 } from "@/db/schema";
+import { operatingCompanyPortalSettings } from "@/db/schema/customer-portal";
 import { getSingletonWorkspaceId } from "@/services/workspace";
 import { scanInternalNotes } from "@/lib/reviews/valve";
 import {
@@ -158,6 +159,21 @@ async function runReviewsCron(
   const destAttr = need("review_destination");
   const complaintHitsAttr = need("complaint_keywords_hit");
   const firstNameAttr = attrBySlug.get("name");
+  const operatingCompanyAttr = attrBySlug.get("operating_company");
+
+  // Per-OC Google review URL is the admin-editable source of truth
+  // (Settings → Operating Companies). Pre-load all rows once per tick
+  // so we don't round-trip the DB inside the per-deal loop.
+  const portalSettingsRows = await db
+    .select({
+      ocId: operatingCompanyPortalSettings.operatingCompanyRecordId,
+      url: operatingCompanyPortalSettings.googleReviewUrl,
+    })
+    .from(operatingCompanyPortalSettings)
+    .where(eq(operatingCompanyPortalSettings.workspaceId, workspaceId));
+  const reviewUrlByOc = new Map(
+    portalSettingsRows.map((r) => [r.ocId, r.url] as const),
+  );
 
   // Pre-load the relevant statuses for the review_request_status attribute
   // so we can resolve title → status row id without a per-deal round-trip.
@@ -313,9 +329,16 @@ async function runReviewsCron(
       continue;
     }
     const brand = brandTitle as Brand;
+    // Prefer the per-OC review URL set by admins in
+    // Settings → Operating Companies. Falls back to the env var if the
+    // deal isn't linked to an OC or the OC has no URL configured.
+    const ocId = operatingCompanyAttr
+      ? valByAttr.get(operatingCompanyAttr.id)?.referencedRecordId ?? null
+      : null;
+    const ocReviewUrl = ocId ? reviewUrlByOc.get(ocId) ?? null : null;
     let destination: ReturnType<typeof resolveDestination>;
     try {
-      destination = resolveDestination(brand);
+      destination = resolveDestination(brand, ocReviewUrl);
     } catch {
       // No GBP url configured — mark failed and move on.
       result.failed++;

@@ -48,19 +48,28 @@ export function assignVariant(dealId: string): Variant {
   return digest.readUInt32BE(0) % 2 === 0 ? "A" : "B";
 }
 
-// Brand → review destination URL. Read from env so we can rotate the
-// destination without a deploy (e.g. if Google flips the GBP review
-// link format). The cron job catches the throw and marks the deal
-// `failed` rather than sending a malformed link.
-export function resolveDestination(brand: Brand): ReviewDestination {
-  if (brand === "kottke") {
-    const url = process.env.REVIEWS_GBP_URL_KOTTKE;
-    if (!url) throw new Error("REVIEWS_GBP_URL_KOTTKE env var is not set");
-    return { kind: "google_kottke", url };
+// Brand → review destination URL. `urlOverride` is the per-OC
+// `customer_portal_settings.google_review_url` looked up by the cron — the
+// admin-editable source of truth (Settings → Operating Companies). Falls
+// back to env vars for back-compat with older deploys and to keep this
+// helper pure (no DB) so it stays unit-testable. The cron job catches the
+// throw and marks the deal `failed` rather than sending a malformed link.
+export function resolveDestination(
+  brand: Brand,
+  urlOverride?: string | null,
+): ReviewDestination {
+  const kind: ReviewDestinationKind =
+    brand === "kottke" ? "google_kottke" : "google_ceylan";
+  const trimmed = urlOverride?.trim();
+  if (trimmed) return { kind, url: trimmed };
+  const envKey = brand === "kottke" ? "REVIEWS_GBP_URL_KOTTKE" : "REVIEWS_GBP_URL_CEYLAN";
+  const url = process.env[envKey];
+  if (!url) {
+    throw new Error(
+      `No review URL configured for brand '${brand}'. Set it in Settings → Operating Companies, or the ${envKey} env var.`,
+    );
   }
-  const url = process.env.REVIEWS_GBP_URL_CEYLAN;
-  if (!url) throw new Error("REVIEWS_GBP_URL_CEYLAN env var is not set");
-  return { kind: "google_ceylan", url };
+  return { kind, url };
 }
 
 export interface VariantAArgs {
