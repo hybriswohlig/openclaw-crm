@@ -12,7 +12,7 @@ const examples: { prompt: string; lines: TerminalLine[] }[] = [
     prompt: "add the people from yesterday's meeting to the CRM",
     lines: [
       { text: "Found 3 contacts in your meeting notes.", type: "status" },
-      { text: "Creating records in OpenCRM-Umzug...", type: "status" },
+      { text: "Creating records in Umzug-Suite...", type: "status" },
       { text: "", type: "status" },
       { text: "done  Sarah Chen, Meridian Health Group", type: "result" },
       { text: "done  Alex Dumont, Sterling & Co", type: "result" },
@@ -24,7 +24,7 @@ const examples: { prompt: string; lines: TerminalLine[] }[] = [
   {
     prompt: "show me all deals closing this month",
     lines: [
-      { text: "Querying OpenCRM-Umzug...", type: "status" },
+      { text: "Querying Umzug-Suite...", type: "status" },
       { text: "", type: "status" },
       { text: "3 deals closing before Feb 28:", type: "summary" },
       { text: "  Northwind ($89k, Negotiation)", type: "result" },

@@ -1,7 +1,14 @@
+/**
+ * Fallback OG card — only shown for non-portal routes (dashboard root etc.).
+ *
+ * For customer status links, `(public)/s/[token]/opengraph-image.tsx`
+ * overrides this with a per-firma card, so the OpenCRM/Umzug-Suite brand
+ * is never visible to customers.
+ */
 import { ImageResponse } from "next/og";
 
 export const runtime = "edge";
-export const alt = "OpenCRM-Umzug";
+export const alt = "Umzug-Suite";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -20,7 +27,6 @@ export default function OGImage() {
           fontFamily: "system-ui, sans-serif",
         }}
       >
-        {/* Glow */}
         <div
           style={{
             position: "absolute",
@@ -33,7 +39,6 @@ export default function OGImage() {
           }}
         />
 
-        {/* Logo */}
         <div
           style={{
             display: "flex",
@@ -42,53 +47,25 @@ export default function OGImage() {
             marginBottom: 24,
           }}
         >
-          <span style={{ fontSize: 56, fontWeight: 700, color: "#f0f0f5" }}>
-            OpenCRM-
+          <span style={{ fontSize: 64, fontWeight: 700, color: "#f0f0f5" }}>
+            Umzug-
           </span>
           <span
             style={{
-              fontSize: 56,
+              fontSize: 64,
               fontWeight: 700,
               background: "linear-gradient(135deg, #818cf8, #6366f1, #4f46e5)",
               backgroundClip: "text",
               color: "transparent",
             }}
           >
-            Umzug
+            Suite
           </span>
         </div>
 
-        {/* Tagline */}
         <p style={{ fontSize: 28, color: "#9ca3af", margin: 0 }}>
-          Customer relationship management.
+          Operative Steuerung für Umzüge und Transporte.
         </p>
-
-        {/* Pills */}
-        <div
-          style={{
-            display: "flex",
-            gap: 12,
-            marginTop: 40,
-          }}
-        >
-          {["People", "Deals", "Tasks", "API"].map(
-            (label) => (
-              <div
-                key={label}
-                style={{
-                  padding: "8px 20px",
-                  borderRadius: 999,
-                  border: "1px solid rgba(255,255,255,0.1)",
-                  background: "rgba(255,255,255,0.03)",
-                  color: "#9ca3af",
-                  fontSize: 18,
-                }}
-              >
-                {label}
-              </div>
-            )
-          )}
-        </div>
       </div>
     ),
     { ...size }

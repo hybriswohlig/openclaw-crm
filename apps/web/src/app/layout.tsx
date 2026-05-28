@@ -47,17 +47,17 @@ const jetbrainsMono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "OpenCRM-Umzug",
-    template: "%s | OpenCRM-Umzug",
+    default: "Umzug-Suite",
+    template: "%s | Umzug-Suite",
   },
-  description: "Customer relationship management — contacts, companies, deals, tasks, and notes.",
+  description: "Operative Steuerung für Umzüge, Transporte und Auftragsabwicklung.",
   metadataBase: new URL(baseUrl),
   manifest: "/manifest.webmanifest",
-  applicationName: "Kottke CRM",
+  applicationName: "Umzug-Suite",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Kottke CRM",
+    title: "Umzug-Suite",
   },
   formatDetection: {
     telephone: false,
@@ -71,18 +71,16 @@ export const metadata: Metadata = {
     apple: [{ url: "/apple-touch-icon.png", sizes: "180x180" }],
   },
   openGraph: {
-    title: "OpenCRM-Umzug",
-    description:
-      "Customer relationship management — contacts, companies, deals, tasks, and notes.",
-    siteName: "OpenCRM-Umzug",
+    title: "Umzug-Suite",
+    description: "Operative Steuerung für Umzüge, Transporte und Auftragsabwicklung.",
+    siteName: "Umzug-Suite",
     type: "website",
-    locale: "en_US",
+    locale: "de_DE",
   },
   twitter: {
     card: "summary_large_image",
-    title: "OpenCRM-Umzug",
-    description:
-      "Customer relationship management — contacts, companies, deals, tasks, and notes.",
+    title: "Umzug-Suite",
+    description: "Operative Steuerung für Umzüge, Transporte und Auftragsabwicklung.",
   },
   ...(process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION
     ? {
@@ -100,7 +98,7 @@ export default function RootLayout({
 }) {
   return (
     <html
-      lang="en"
+      lang="de"
       suppressHydrationWarning
       className={`${inter.variable} ${fraunces.variable} ${jetbrainsMono.variable}`}
     >

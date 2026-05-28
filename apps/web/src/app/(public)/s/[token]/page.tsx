@@ -9,6 +9,7 @@
  * in `services/customer-portal-data.ts`. The day the portal moves to its own
  * app, this page swaps that import for an HTTP fetch and works unchanged.
  */
+import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { loadContextByToken, bumpView } from "@/services/customer-portal-data";
@@ -18,6 +19,55 @@ import { NotFoundNotice } from "./_components/not-found-notice";
 import { FeatureDisabledNotice } from "./_components/feature-disabled-notice";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * Per-firma link preview. Reads the token, pulls the operating-company
+ * branding, and returns title / description / openGraph fields that
+ * reflect the firma — never "OpenCRM" or any internal product name.
+ *
+ * If the token is unknown / revoked we fall back to a neutral "Auftrag"
+ * preview so the link doesn't leak existence either way.
+ */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ token: string }>;
+}): Promise<Metadata> {
+  const { token } = await params;
+  const ctx = await loadContextByToken(token).catch(() => null);
+
+  if (!ctx) {
+    return {
+      title: "Auftrag",
+      description: "Status, Angebot und Auftragsbestätigung.",
+      robots: { index: false, follow: false },
+    };
+  }
+
+  const firma = ctx.branding.displayName;
+  const title = `${firma} · Auftrag ${ctx.dealNumber}`;
+  const description = ctx.customerDisplayName
+    ? `Auftrag ${ctx.dealNumber} für ${ctx.customerDisplayName} — Angebot, Status und Bestätigung.`
+    : `Auftrag ${ctx.dealNumber} — Angebot, Status und Bestätigung.`;
+
+  return {
+    title,
+    description,
+    robots: { index: false, follow: false },
+    openGraph: {
+      title,
+      description,
+      siteName: firma,
+      type: "website",
+      locale: "de_DE",
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+    },
+  };
+}
 
 export default async function PublicStatusPage({
   params,

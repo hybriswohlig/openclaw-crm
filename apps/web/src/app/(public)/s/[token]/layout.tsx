@@ -1,9 +1,16 @@
 import type { Metadata } from "next";
 import "./portal.css";
 
+/**
+ * Defaults only. The page-level `generateMetadata` below in
+ * `[token]/page.tsx` overrides title, description, openGraph and twitter
+ * fields with per-firma values so the WhatsApp/iMessage link preview
+ * shows the operating company's brand, not a CRM product name.
+ *
+ * The `robots: noindex` stays here so unauthenticated crawlers don't
+ * follow tokens.
+ */
 export const metadata: Metadata = {
-  title: "Ihr Auftrag · Status",
-  description: "Live-Status, Angebot, Auftragsbestätigung und Rechnung Ihres Auftrags.",
   robots: { index: false, follow: false },
 };
 
