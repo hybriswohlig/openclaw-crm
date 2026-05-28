@@ -11,6 +11,7 @@ import { PaymentSection } from "./payment-section";
 import { OfferInclusionsSection } from "./offer-inclusions";
 import { EmailCaptureBanner } from "./email-capture-banner";
 import { PackageSelector } from "./package-selector";
+import { DateOfferPicker } from "./date-offer-picker";
 
 /**
  * Stage 1 layout — desktop is a two-column grid with a sticky price/CTA
@@ -57,6 +58,8 @@ export function StageOneKva({
   }
 
   const alreadyAccepted = !!ctx.acceptance;
+  const hasOpenDateChoice =
+    ctx.dateOffers.options.length > 0 && !ctx.dateOffers.selection;
 
   return (
     <>
@@ -68,6 +71,13 @@ export function StageOneKva({
             status={ctx.customerEmailStatus}
             branding={ctx.branding}
           />
+
+          {/* Multi-date picker. When the operator proposed candidate dates,
+              the customer picks one BEFORE accepting the offer so the binding
+              total is anchored to a real date. */}
+          {ctx.dateOffers.options.length > 0 && (
+            <DateOfferPicker token={token} ctx={ctx} onPicked={onConfirmed} />
+          )}
 
           {/* Operator-written summary. Calm content card so the customer reads
               context BEFORE the number. */}
@@ -133,6 +143,7 @@ export function StageOneKva({
             <PriceCard
               ctx={ctx}
               alreadyAccepted={alreadyAccepted}
+              blockedByDateChoice={hasOpenDateChoice}
               onAccept={() => setOpen(true)}
             />
             <TrustLine branding={ctx.branding} />
@@ -157,11 +168,18 @@ export function StageOneKva({
             </div>
             <button
               type="button"
-              onClick={() => setOpen(true)}
-              className="inline-flex h-11 flex-1 max-w-[60%] items-center justify-center rounded-xl text-sm font-medium text-white"
+              onClick={() => {
+                if (hasOpenDateChoice) {
+                  const el = document.querySelector("[data-portal-section='date-picker']");
+                  el?.scrollIntoView({ behavior: "smooth", block: "center" });
+                  return;
+                }
+                setOpen(true);
+              }}
+              className="inline-flex h-11 flex-1 max-w-[60%] items-center justify-center rounded-xl text-sm font-medium text-white disabled:opacity-60"
               style={{ background: `#${ctx.branding.primaryColor}` }}
             >
-              Angebot annehmen
+              {hasOpenDateChoice ? "Termin wählen" : "Angebot annehmen"}
             </button>
           </div>
         </div>
@@ -188,28 +206,39 @@ export function StageOneKva({
 function PriceCard({
   ctx,
   alreadyAccepted,
+  blockedByDateChoice,
   onAccept,
 }: {
   ctx: CustomerPortalContext;
   alreadyAccepted: boolean;
+  blockedByDateChoice: boolean;
   onAccept: () => void;
 }) {
   const kva = ctx.kva!;
+  const accent = `#${ctx.branding.primaryColor}`;
   return (
-    <div className="overflow-hidden rounded-2xl border bg-card">
-      <div className="border-b px-5 py-3 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+    <div className="relative overflow-hidden rounded-2xl border bg-card shadow-sm">
+      {/* Thin accent rule at the very top — Stripe Checkout style. */}
+      <div
+        aria-hidden
+        className="absolute inset-x-0 top-0 h-[3px]"
+        style={{
+          background: `linear-gradient(90deg, ${accent}, ${accent}99)`,
+        }}
+      />
+      <div className="border-b px-5 pb-3 pt-4 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
         {ctx.customerDisplayName ? `Angebot für ${ctx.customerDisplayName}` : "Ihr Angebot"}
       </div>
       <div className="space-y-4 px-5 py-5">
         <div>
           <div className="text-xs text-muted-foreground">
-            {kva.isVariable ? "Voraussichtlich" : "Festpreis"}
+            {kva.isVariable ? "Voraussichtlich" : "Festpreis inkl. MwSt."}
           </div>
-          <div className="display mt-1 text-3xl font-medium tabular-nums leading-none">
+          <div className="display mt-1 text-4xl font-medium tabular-nums leading-none tracking-tight">
             {formatEurCents(kva.totalCents)}
           </div>
           {kva.validUntil && (
-            <div className="mt-1 text-[11px] text-muted-foreground">
+            <div className="mt-2 text-[11px] text-muted-foreground">
               Gültig bis{" "}
               {new Date(kva.validUntil).toLocaleDateString("de-DE", {
                 day: "numeric",
@@ -246,16 +275,32 @@ function PriceCard({
           <>
             <button
               type="button"
-              onClick={onAccept}
-              className="inline-flex h-11 w-full items-center justify-center rounded-xl text-sm font-medium text-white transition-opacity hover:opacity-90"
+              onClick={() => {
+                if (blockedByDateChoice) {
+                  const el = document.querySelector("[data-portal-section='date-picker']");
+                  el?.scrollIntoView({ behavior: "smooth", block: "center" });
+                  return;
+                }
+                onAccept();
+              }}
+              className="inline-flex h-11 w-full items-center justify-center rounded-xl text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
               style={{ background: `#${ctx.branding.primaryColor}` }}
             >
-              Angebot verbindlich annehmen
+              {blockedByDateChoice
+                ? "Zuerst Termin wählen"
+                : "Angebot verbindlich annehmen"}
             </button>
-            <p className="text-[10px] leading-relaxed text-muted-foreground">
-              Mit einem Klick bestätigen Sie den Auftrag rechtlich verbindlich
-              (Textform gem. § 126b BGB). Sie erhalten eine Kopie per E-Mail.
-            </p>
+            {blockedByDateChoice ? (
+              <p className="text-[10px] leading-relaxed text-muted-foreground">
+                Bitte wählen Sie oben einen Termin, damit wir den Auftrag
+                verbindlich für Sie reservieren können.
+              </p>
+            ) : (
+              <p className="text-[10px] leading-relaxed text-muted-foreground">
+                Mit einem Klick bestätigen Sie den Auftrag rechtlich verbindlich
+                (Textform gem. § 126b BGB). Sie erhalten eine Kopie per E-Mail.
+              </p>
+            )}
           </>
         )}
       </div>

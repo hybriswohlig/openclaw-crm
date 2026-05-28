@@ -3,7 +3,10 @@ import {
   text,
   timestamp,
   integer,
+  bigint,
+  smallint,
   boolean,
+  date,
   jsonb,
   index,
   uniqueIndex,
@@ -123,6 +126,17 @@ export const customerStatusLinks = pgTable(
     firstViewedAt: timestamp("first_viewed_at"),
     lastViewedAt: timestamp("last_viewed_at"),
     viewCount: integer("view_count").notNull().default(0),
+    /**
+     * Roll-ups maintained by the visit beacon (see customerPortalVisits).
+     * `totalActiveMs` is the sum of foreground/active-engagement time across
+     * all sessions; `sessionCount` is the count of distinct browser sessions.
+     * Both are denormalised so the operator's share panel renders without
+     * a join.
+     */
+    totalActiveMs: bigint("total_active_ms", { mode: "number" })
+      .notNull()
+      .default(0),
+    sessionCount: integer("session_count").notNull().default(0),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     createdBy: text("created_by").references(() => users.id, {
       onDelete: "set null",
@@ -284,5 +298,131 @@ export const offerPackages = pgTable(
     ),
     index("offer_packages_workspace_idx").on(table.workspaceId),
     index("offer_packages_oc_idx").on(table.operatingCompanyRecordId),
+  ]
+);
+
+// ─── Customer Portal Visits ───────────────────────────────────────────────────
+// One row per browser session (de-duplicated by a localStorage-stored
+// sessionId), with heartbeats tracking how long the customer actively engaged
+// with the portal. Powers the share-panel telemetry ("5 Sitzungen · 4 Min
+// aktiv · zuletzt heute 18:42").
+//
+// `activeMs` counts only foreground time; the heartbeat client stops the
+// clock when document.visibilityState !== "visible". `pageVisibleMs` is a
+// looser counter that includes idle while the tab is visible — kept so the
+// numbers can be sanity-checked.
+
+export const customerPortalVisits = pgTable(
+  "customer_portal_visits",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    customerLinkId: text("customer_link_id")
+      .notNull()
+      .references(() => customerStatusLinks.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    dealRecordId: text("deal_record_id")
+      .notNull()
+      .references(() => records.id, { onDelete: "cascade" }),
+    /** Stable per-browser id from localStorage. UUID v4. */
+    sessionId: text("session_id").notNull(),
+    /** "share_panel" | "sms" | "whatsapp" | "email" | "unknown" */
+    channel: text("channel"),
+    userAgent: text("user_agent"),
+    ipAddress: text("ip_address"),
+    referrer: text("referrer"),
+    isMobile: boolean("is_mobile"),
+    /** Which Stage the customer landed on. */
+    stageAtOpen: smallint("stage_at_open"),
+    openedAt: timestamp("opened_at").notNull().defaultNow(),
+    lastHeartbeatAt: timestamp("last_heartbeat_at").notNull().defaultNow(),
+    /** Foreground/active engagement time in milliseconds. */
+    activeMs: integer("active_ms").notNull().default(0),
+    /** Visible time including idle. activeMs ≤ pageVisibleMs always. */
+    pageVisibleMs: integer("page_visible_ms").notNull().default(0),
+  },
+  (table) => [
+    uniqueIndex("customer_portal_visits_session_idx").on(
+      table.customerLinkId,
+      table.sessionId
+    ),
+    index("customer_portal_visits_deal_idx").on(
+      table.dealRecordId,
+      table.openedAt
+    ),
+  ]
+);
+
+// ─── Multi-Date Offer ─────────────────────────────────────────────────────────
+// The operator can propose multiple candidate move dates, each with one or
+// more time slots ("vormittags 08-11", "ganztags 08-17"). The customer picks
+// one on the portal; on selection we mirror the chosen date into the deal's
+// `move_date` attribute so the rest of the CRM (calendars, routing) reads
+// the agreed-upon date without special-casing.
+
+export const quotationDateOffers = pgTable(
+  "quotation_date_offers",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    dealRecordId: text("deal_record_id")
+      .notNull()
+      .references(() => records.id, { onDelete: "cascade" }),
+    /** YYYY-MM-DD. */
+    offerDate: date("offer_date").notNull(),
+    /** Array of { label, startTime, endTime }. startTime/endTime are "HH:MM". */
+    slots: jsonb("slots")
+      .$type<Array<{ label: string; startTime: string | null; endTime: string | null }>>()
+      .notNull()
+      .default([]),
+    note: text("note"),
+    isRecommended: boolean("is_recommended").notNull().default(false),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdBy: text("created_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("quotation_date_offers_deal_idx").on(table.dealRecordId, table.sortOrder),
+  ]
+);
+
+export const customerDateSelections = pgTable(
+  "customer_date_selections",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    dealRecordId: text("deal_record_id")
+      .notNull()
+      .unique()
+      .references(() => records.id, { onDelete: "cascade" }),
+    customerLinkId: text("customer_link_id")
+      .notNull()
+      .references(() => customerStatusLinks.id, { onDelete: "cascade" }),
+    dateOfferId: text("date_offer_id")
+      .notNull()
+      .references(() => quotationDateOffers.id, { onDelete: "cascade" }),
+    selectedDate: date("selected_date").notNull(),
+    selectedSlotLabel: text("selected_slot_label"),
+    selectedSlotStart: text("selected_slot_start"),
+    selectedSlotEnd: text("selected_slot_end"),
+    ipAddress: text("ip_address"),
+    userAgent: text("user_agent"),
+    selectedAt: timestamp("selected_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("customer_date_selections_link_idx").on(table.customerLinkId),
   ]
 );

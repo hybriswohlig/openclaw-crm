@@ -19,6 +19,7 @@ import { customerStatusLinks } from "@/db/schema/customer-portal";
 import { dealNumbers } from "@/db/schema/financial";
 import {
   ensureCustomerStatusLink,
+  loadVisitTelemetry,
   reactivateCustomerStatusLink,
   resolveCustomerLinkOrigin,
   revokeCustomerStatusLink,
@@ -73,6 +74,7 @@ export async function GET(
     envFallback(req)
   );
   const dealNumber = await loadDealNumber(dealRecordId);
+  const telemetry = await loadVisitTelemetry(ctx.workspaceId, dealRecordId);
 
   return success({
     token: row.token,
@@ -82,6 +84,7 @@ export async function GET(
     firstViewedAt: row.firstViewedAt,
     lastViewedAt: row.lastViewedAt,
     revokedAt: row.revokedAt,
+    telemetry,
   });
 }
 

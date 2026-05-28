@@ -21,11 +21,14 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   customerStatusLinks,
+  customerPortalVisits,
   kvaConfirmations,
   moveTimeEntries,
   customerEmployeeRatings,
   operatingCompanyPortalSettings,
   offerPackages,
+  quotationDateOffers,
+  customerDateSelections,
 } from "@/db/schema/customer-portal";
 import { quotations, quotationLineItems } from "@/db/schema/quotations";
 import { dealDocuments, payments, dealNumbers } from "@/db/schema/financial";
@@ -46,6 +49,10 @@ import {
   type CrewMember,
   type CustomerEmailStatus,
   type CustomerPortalContext,
+  type DateOfferOption,
+  type DateOfferSelection,
+  type DateOfferSlot,
+  type DateOffersContext,
   type FirmaBranding,
   type KvaLineItem,
   type KvaSnapshot,
@@ -283,6 +290,9 @@ export async function loadContextByToken(
   // Festpreis packages for this operating company + the operator's pick.
   const packages = await loadPackagesContext(workspaceId, ocId, dealRecordId);
 
+  // Multi-date offer (candidate dates + the customer's selection, if any).
+  const dateOffers = await loadDateOffersContext(dealRecordId);
+
   // Confirmation
   const acceptance = await loadLatestAcceptance(dealRecordId);
 
@@ -368,6 +378,7 @@ export async function loadContextByToken(
     scope,
     inclusions,
     packages,
+    dateOffers,
     crew,
     kva,
     acceptance,
@@ -1387,4 +1398,419 @@ async function loadInclusions(
   }
 
   return { included, optional };
+}
+
+// ─── Multi-date offer ─────────────────────────────────────────────────────────
+
+async function loadDateOffersContext(
+  dealRecordId: string
+): Promise<DateOffersContext> {
+  const rows = await db
+    .select()
+    .from(quotationDateOffers)
+    .where(eq(quotationDateOffers.dealRecordId, dealRecordId))
+    .orderBy(quotationDateOffers.sortOrder);
+
+  const options: DateOfferOption[] = rows.map((r) => ({
+    id: r.id,
+    date: r.offerDate,
+    slots: Array.isArray(r.slots)
+      ? (r.slots as DateOfferSlot[]).map((s) => ({
+          label: s.label,
+          startTime: s.startTime ?? null,
+          endTime: s.endTime ?? null,
+        }))
+      : [],
+    note: r.note,
+    isRecommended: r.isRecommended,
+    sortOrder: r.sortOrder,
+  }));
+
+  const [sel] = await db
+    .select()
+    .from(customerDateSelections)
+    .where(eq(customerDateSelections.dealRecordId, dealRecordId))
+    .limit(1);
+
+  const selection: DateOfferSelection | null = sel
+    ? {
+        dateOfferId: sel.dateOfferId,
+        selectedDate: sel.selectedDate,
+        slotLabel: sel.selectedSlotLabel,
+        startTime: sel.selectedSlotStart,
+        endTime: sel.selectedSlotEnd,
+        selectedAt: sel.selectedAt.toISOString(),
+      }
+    : null;
+
+  return { options, selection };
+}
+
+/**
+ * Operator-side write path for the multi-date-offer composer.
+ *
+ * Replaces the deal's full set of candidate dates atomically. If the
+ * customer already picked a slot, the existing selection is preserved when
+ * the chosen date still appears in the new set; otherwise it is cleared so
+ * the customer is re-prompted.
+ */
+export interface DateOfferInput {
+  date: string; // YYYY-MM-DD
+  slots: DateOfferSlot[];
+  note: string | null;
+  isRecommended: boolean;
+}
+
+export async function replaceDateOffers(input: {
+  workspaceId: string;
+  dealRecordId: string;
+  createdBy: string | null;
+  offers: DateOfferInput[];
+}): Promise<{ count: number }> {
+  // Wipe + re-insert. Done in two steps because Drizzle's pg dialect doesn't
+  // have a tidy multi-row-upsert helper here and the data is small.
+  const existingSel = await db
+    .select({ selectedDate: customerDateSelections.selectedDate })
+    .from(customerDateSelections)
+    .where(eq(customerDateSelections.dealRecordId, input.dealRecordId))
+    .limit(1);
+
+  await db
+    .delete(quotationDateOffers)
+    .where(eq(quotationDateOffers.dealRecordId, input.dealRecordId));
+
+  const validated = input.offers
+    .filter((o) => /^\d{4}-\d{2}-\d{2}$/.test(o.date))
+    .map((o, i) => ({
+      workspaceId: input.workspaceId,
+      dealRecordId: input.dealRecordId,
+      offerDate: o.date,
+      slots: o.slots.map((s) => ({
+        label: (s.label ?? "").slice(0, 80),
+        startTime: s.startTime || null,
+        endTime: s.endTime || null,
+      })),
+      note: o.note ? o.note.slice(0, 200) : null,
+      isRecommended: !!o.isRecommended,
+      sortOrder: i,
+      createdBy: input.createdBy,
+    }));
+
+  if (validated.length > 0) {
+    await db.insert(quotationDateOffers).values(validated);
+  }
+
+  // If the customer's prior selection no longer matches any offered date,
+  // clear it so they're re-prompted on the next portal visit.
+  if (existingSel.length > 0) {
+    const stillOffered = validated.some(
+      (o) => o.offerDate === existingSel[0].selectedDate
+    );
+    if (!stillOffered) {
+      await db
+        .delete(customerDateSelections)
+        .where(eq(customerDateSelections.dealRecordId, input.dealRecordId));
+    }
+  }
+
+  await emitEvent({
+    workspaceId: input.workspaceId,
+    recordId: input.dealRecordId,
+    objectSlug: "deals",
+    eventType: "customer.date_offers_set",
+    payload: { count: validated.length },
+  });
+
+  return { count: validated.length };
+}
+
+/**
+ * Customer-side pick: writes the selection, mirrors the chosen date into
+ * the deal's `move_date` attribute, and emits an activity event.
+ */
+export async function selectDateOffer(
+  token: string,
+  body: { dateOfferId: string; slotIndex: number },
+  ctx: { ipAddress: string; userAgent: string }
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  if (!validateTokenShape(token)) return { ok: false, reason: "invalid_token" };
+  const [link] = await db
+    .select()
+    .from(customerStatusLinks)
+    .where(eq(customerStatusLinks.token, token))
+    .limit(1);
+  if (!link) return { ok: false, reason: "not_found" };
+  if (link.revokedAt) return { ok: false, reason: "revoked" };
+
+  const [offer] = await db
+    .select()
+    .from(quotationDateOffers)
+    .where(
+      and(
+        eq(quotationDateOffers.id, body.dateOfferId),
+        eq(quotationDateOffers.dealRecordId, link.dealRecordId)
+      )
+    )
+    .limit(1);
+  if (!offer) return { ok: false, reason: "offer_not_found" };
+
+  const slots = Array.isArray(offer.slots) ? (offer.slots as DateOfferSlot[]) : [];
+  if (body.slotIndex < 0 || body.slotIndex >= slots.length) {
+    return { ok: false, reason: "invalid_slot" };
+  }
+  const slot = slots[body.slotIndex];
+
+  // Upsert by deal — one customer pick per deal.
+  await db
+    .delete(customerDateSelections)
+    .where(eq(customerDateSelections.dealRecordId, link.dealRecordId));
+  await db.insert(customerDateSelections).values({
+    workspaceId: link.workspaceId,
+    dealRecordId: link.dealRecordId,
+    customerLinkId: link.id,
+    dateOfferId: offer.id,
+    selectedDate: offer.offerDate,
+    selectedSlotLabel: slot.label ?? null,
+    selectedSlotStart: slot.startTime ?? null,
+    selectedSlotEnd: slot.endTime ?? null,
+    ipAddress: ctx.ipAddress.slice(0, 200),
+    userAgent: ctx.userAgent.slice(0, 1000),
+  });
+
+  // Mirror into the deal's `move_date` attribute so calendars + the rest of
+  // the CRM read the agreed-upon date without special-casing the portal.
+  await mirrorMoveDateOntoDeal(link.workspaceId, link.dealRecordId, offer.offerDate);
+
+  await emitEvent({
+    workspaceId: link.workspaceId,
+    recordId: link.dealRecordId,
+    objectSlug: "deals",
+    eventType: "customer.date_selected",
+    payload: {
+      dateOfferId: offer.id,
+      selectedDate: offer.offerDate,
+      slotLabel: slot.label ?? null,
+      slotStart: slot.startTime ?? null,
+      slotEnd: slot.endTime ?? null,
+      ipAddress: ctx.ipAddress.slice(0, 200),
+    },
+  });
+
+  return { ok: true };
+}
+
+async function mirrorMoveDateOntoDeal(
+  workspaceId: string,
+  dealRecordId: string,
+  ymd: string
+): Promise<void> {
+  const dealAttrs = await loadDealAttributeMap(workspaceId);
+  const moveDateAttr = dealAttrs.bySlug.get("move_date");
+  if (!moveDateAttr) return;
+  await db
+    .delete(recordValues)
+    .where(
+      and(
+        eq(recordValues.recordId, dealRecordId),
+        eq(recordValues.attributeId, moveDateAttr.id)
+      )
+    );
+  await db.insert(recordValues).values({
+    recordId: dealRecordId,
+    attributeId: moveDateAttr.id,
+    dateValue: ymd,
+  });
+}
+
+// ─── Visit tracking (open + heartbeat beacons) ────────────────────────────────
+//
+// The customer portal's stage-portal client posts to /api/public/[token]/track
+// on mount and every ~25s while the tab is visible. We dedupe by sessionId
+// (UUID stored in localStorage) so opening the same link in three tabs counts
+// as one session, not three.
+//
+// Each call sends a *delta* of foreground-active ms since the last beacon —
+// we sum into customer_portal_visits.active_ms. We also re-roll the link's
+// `total_active_ms` and `session_count` columns so the share-panel can read
+// them without a join. Errors are swallowed: telemetry must never break the
+// customer's page.
+
+export interface VisitBeaconInput {
+  sessionId: string;
+  /** Foreground-active ms since the last beacon. */
+  activeMsDelta: number;
+  /** Visible (incl. idle) ms since the last beacon. */
+  visibleMsDelta: number;
+  /** "open" on first beacon for the session, "heartbeat" thereafter. */
+  event: "open" | "heartbeat";
+  channel: string | null;
+  referrer: string | null;
+  isMobile: boolean | null;
+  stageAtOpen: number | null;
+}
+
+export async function recordVisitBeacon(
+  token: string,
+  input: VisitBeaconInput,
+  ctx: { ipAddress: string; userAgent: string }
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  if (!validateTokenShape(token)) return { ok: false, reason: "invalid_token" };
+  if (!input.sessionId || input.sessionId.length > 64) {
+    return { ok: false, reason: "invalid_session" };
+  }
+
+  const [link] = await db
+    .select({
+      id: customerStatusLinks.id,
+      workspaceId: customerStatusLinks.workspaceId,
+      dealRecordId: customerStatusLinks.dealRecordId,
+      revokedAt: customerStatusLinks.revokedAt,
+    })
+    .from(customerStatusLinks)
+    .where(eq(customerStatusLinks.token, token))
+    .limit(1);
+  if (!link) return { ok: false, reason: "not_found" };
+  if (link.revokedAt) return { ok: false, reason: "revoked" };
+
+  // Clamp to a sane upper bound — a single heartbeat can never represent
+  // more than ~10 min of activity.
+  const activeDelta = clampMs(input.activeMsDelta);
+  const visibleDelta = clampMs(input.visibleMsDelta);
+
+  const [existing] = await db
+    .select({ id: customerPortalVisits.id })
+    .from(customerPortalVisits)
+    .where(
+      and(
+        eq(customerPortalVisits.customerLinkId, link.id),
+        eq(customerPortalVisits.sessionId, input.sessionId)
+      )
+    )
+    .limit(1);
+
+  if (existing) {
+    await db
+      .update(customerPortalVisits)
+      .set({
+        lastHeartbeatAt: new Date(),
+        activeMs: sql`${customerPortalVisits.activeMs} + ${activeDelta}`,
+        pageVisibleMs: sql`${customerPortalVisits.pageVisibleMs} + ${visibleDelta}`,
+      })
+      .where(eq(customerPortalVisits.id, existing.id));
+  } else {
+    await db.insert(customerPortalVisits).values({
+      customerLinkId: link.id,
+      workspaceId: link.workspaceId,
+      dealRecordId: link.dealRecordId,
+      sessionId: input.sessionId,
+      channel: input.channel?.slice(0, 32) ?? null,
+      userAgent: ctx.userAgent.slice(0, 1000),
+      ipAddress: ctx.ipAddress.slice(0, 200),
+      referrer: input.referrer?.slice(0, 500) ?? null,
+      isMobile: input.isMobile,
+      stageAtOpen: input.stageAtOpen,
+      activeMs: activeDelta,
+      pageVisibleMs: visibleDelta,
+    });
+  }
+
+  // Re-roll roll-ups. Cheap because we just touched the table.
+  const [agg] = await db
+    .select({
+      total: sql<number>`COALESCE(SUM(${customerPortalVisits.activeMs}), 0)::bigint`,
+      sessions: sql<number>`COUNT(*)::int`,
+    })
+    .from(customerPortalVisits)
+    .where(eq(customerPortalVisits.customerLinkId, link.id));
+
+  await db
+    .update(customerStatusLinks)
+    .set({
+      totalActiveMs: Number(agg?.total ?? 0),
+      sessionCount: Number(agg?.sessions ?? 0),
+      lastViewedAt: new Date(),
+      firstViewedAt: sql`COALESCE(${customerStatusLinks.firstViewedAt}, NOW())`,
+    })
+    .where(eq(customerStatusLinks.id, link.id));
+
+  return { ok: true };
+}
+
+function clampMs(n: number): number {
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.min(Math.floor(n), 10 * 60 * 1000);
+}
+
+/**
+ * Operator-side: aggregate visit telemetry for a deal. Returns a tidy shape
+ * the share-link-panel can render directly. Returns null when no visits.
+ */
+export interface VisitTelemetry {
+  sessionCount: number;
+  totalActiveMs: number;
+  firstViewedAt: string | null;
+  lastViewedAt: string | null;
+  recent: Array<{
+    sessionId: string;
+    openedAt: string;
+    lastHeartbeatAt: string;
+    activeMs: number;
+    channel: string | null;
+    isMobile: boolean | null;
+    stageAtOpen: number | null;
+  }>;
+}
+
+export async function loadVisitTelemetry(
+  workspaceId: string,
+  dealRecordId: string
+): Promise<VisitTelemetry | null> {
+  const [link] = await db
+    .select({
+      id: customerStatusLinks.id,
+      firstViewedAt: customerStatusLinks.firstViewedAt,
+      lastViewedAt: customerStatusLinks.lastViewedAt,
+      sessionCount: customerStatusLinks.sessionCount,
+      totalActiveMs: customerStatusLinks.totalActiveMs,
+    })
+    .from(customerStatusLinks)
+    .where(
+      and(
+        eq(customerStatusLinks.workspaceId, workspaceId),
+        eq(customerStatusLinks.dealRecordId, dealRecordId)
+      )
+    )
+    .limit(1);
+  if (!link) return null;
+
+  const recent = await db
+    .select({
+      sessionId: customerPortalVisits.sessionId,
+      openedAt: customerPortalVisits.openedAt,
+      lastHeartbeatAt: customerPortalVisits.lastHeartbeatAt,
+      activeMs: customerPortalVisits.activeMs,
+      channel: customerPortalVisits.channel,
+      isMobile: customerPortalVisits.isMobile,
+      stageAtOpen: customerPortalVisits.stageAtOpen,
+    })
+    .from(customerPortalVisits)
+    .where(eq(customerPortalVisits.customerLinkId, link.id))
+    .orderBy(desc(customerPortalVisits.openedAt))
+    .limit(10);
+
+  return {
+    sessionCount: link.sessionCount,
+    totalActiveMs: Number(link.totalActiveMs ?? 0),
+    firstViewedAt: link.firstViewedAt?.toISOString() ?? null,
+    lastViewedAt: link.lastViewedAt?.toISOString() ?? null,
+    recent: recent.map((r) => ({
+      sessionId: r.sessionId,
+      openedAt: r.openedAt.toISOString(),
+      lastHeartbeatAt: r.lastHeartbeatAt.toISOString(),
+      activeMs: r.activeMs,
+      channel: r.channel,
+      isMobile: r.isMobile,
+      stageAtOpen: r.stageAtOpen,
+    })),
+  };
 }

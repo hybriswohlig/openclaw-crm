@@ -160,6 +160,52 @@ export interface OfferPackagesContext {
   selectedSlug: string | null;
 }
 
+/**
+ * One time window the operator offers within a given candidate date.
+ * `startTime` / `endTime` are "HH:MM" 24h strings or null when only the
+ * human-readable `label` is given ("ganztags", "auf Anfrage").
+ */
+export interface DateOfferSlot {
+  label: string;
+  startTime: string | null;
+  endTime: string | null;
+}
+
+/**
+ * One candidate move date the operator proposes to the customer. The
+ * customer picks exactly one slot from exactly one option; on selection the
+ * underlying deal's `move_date` is updated so the rest of the CRM agrees.
+ */
+export interface DateOfferOption {
+  id: string;
+  /** YYYY-MM-DD. */
+  date: string;
+  slots: DateOfferSlot[];
+  /** Optional one-liner shown under the date (e.g. "Stoßzeit, früh anmelden"). */
+  note: string | null;
+  isRecommended: boolean;
+  sortOrder: number;
+}
+
+export interface DateOfferSelection {
+  dateOfferId: string;
+  /** YYYY-MM-DD. */
+  selectedDate: string;
+  /** Human label of the chosen slot ("vormittags 08-11"). */
+  slotLabel: string | null;
+  startTime: string | null;
+  endTime: string | null;
+  /** ISO timestamp. */
+  selectedAt: string;
+}
+
+export interface DateOffersContext {
+  /** Sorted candidate dates. Empty array = operator did not propose any. */
+  options: DateOfferOption[];
+  /** Customer's pick, or null while no selection has been made. */
+  selection: DateOfferSelection | null;
+}
+
 export interface CrewMember {
   employeeId: string;
   name: string;
@@ -250,6 +296,8 @@ export interface CustomerPortalContext {
   scope: MoveScope;
   inclusions: OfferInclusions;
   packages: OfferPackagesContext;
+  /** Multi-date offer + customer's selection. Empty `options` = nothing to pick. */
+  dateOffers: DateOffersContext;
   crew: CrewMember[];
   kva: KvaSnapshot | null;
 

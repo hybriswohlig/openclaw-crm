@@ -19,7 +19,9 @@ export type ActivityEventType =
   | "ai.insights_extracted"
   | "customer.kva_confirmed"
   | "customer.marked_paid"
-  | "customer.rated_crew";
+  | "customer.rated_crew"
+  | "customer.date_offers_set"
+  | "customer.date_selected";
 
 export interface EmitEventInput {
   workspaceId: string;
