@@ -162,4 +162,26 @@ describe("resolveDestination — env-driven URL with fail-loud missing config", 
     expect(() => resolveDestination("kottke")).toThrow(/REVIEWS_GBP_URL_KOTTKE/);
     expect(() => resolveDestination("ceylan")).toThrow(/REVIEWS_GBP_URL_CEYLAN/);
   });
+
+  it("prefers the per-OC override over the env var", () => {
+    process.env.REVIEWS_GBP_URL_KOTTKE = "https://env.example/kottke";
+    expect(resolveDestination("kottke", "https://oc.example/kottke")).toEqual({
+      kind: "google_kottke",
+      url: "https://oc.example/kottke",
+    });
+  });
+
+  it("trims whitespace from the per-OC override", () => {
+    expect(
+      resolveDestination("ceylan", "   https://oc.example/ceylan   "),
+    ).toEqual({ kind: "google_ceylan", url: "https://oc.example/ceylan" });
+  });
+
+  it("falls back to the env var when the override is empty / whitespace / null", () => {
+    process.env.REVIEWS_GBP_URL_KOTTKE = "https://env.example/kottke";
+    expect(resolveDestination("kottke", null).url).toBe("https://env.example/kottke");
+    expect(resolveDestination("kottke", "").url).toBe("https://env.example/kottke");
+    expect(resolveDestination("kottke", "   ").url).toBe("https://env.example/kottke");
+    expect(resolveDestination("kottke", undefined).url).toBe("https://env.example/kottke");
+  });
 });
