@@ -92,7 +92,13 @@ export function StageOneKva({
             </div>
           )}
 
-          <PackageSelector packages={ctx.packages} branding={ctx.branding} />
+          <PackageSelector
+            token={token}
+            packages={ctx.packages}
+            branding={ctx.branding}
+            locked={alreadyAccepted}
+            onPicked={onConfirmed}
+          />
 
           <ScopeSummary scope={ctx.scope} />
 

@@ -1402,6 +1402,113 @@ async function loadInclusions(
 
 // ─── Multi-date offer ─────────────────────────────────────────────────────────
 
+/**
+ * Customer-side package pick. Updates `quotations.selected_package_slug`
+ * and, when the package is priceFixedFlag, also mirrors the package's
+ * price into `quotations.fixed_price` so the customer's price card reads
+ * the picked tier. Locked once the deal has a confirmed acceptance —
+ * picking a different tier post-acceptance would silently change the
+ * already-signed price.
+ */
+export async function selectPackageForToken(
+  token: string,
+  body: { slug: string },
+  ctx: { ipAddress: string; userAgent: string }
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  if (!validateTokenShape(token)) return { ok: false, reason: "invalid_token" };
+  const [link] = await db
+    .select()
+    .from(customerStatusLinks)
+    .where(eq(customerStatusLinks.token, token))
+    .limit(1);
+  if (!link) return { ok: false, reason: "not_found" };
+  if (link.revokedAt) return { ok: false, reason: "revoked" };
+
+  // Lock after binding acceptance.
+  const [acceptance] = await db
+    .select({ id: kvaConfirmations.id })
+    .from(kvaConfirmations)
+    .where(eq(kvaConfirmations.dealRecordId, link.dealRecordId))
+    .limit(1);
+  if (acceptance) return { ok: false, reason: "already_accepted" };
+
+  // Resolve the operating company so we only let the customer pick from
+  // packages that actually belong to this deal's firma.
+  const dealAttrs = await loadDealAttributeMap(link.workspaceId);
+  const dealValues = await loadValuesForRecord(link.dealRecordId);
+  const ocId = await refValue(dealValues, dealAttrs.bySlug.get("operating_company")?.id);
+  if (!ocId) return { ok: false, reason: "no_operating_company" };
+
+  const [pkg] = await db
+    .select()
+    .from(offerPackages)
+    .where(
+      and(
+        eq(offerPackages.workspaceId, link.workspaceId),
+        eq(offerPackages.operatingCompanyRecordId, ocId),
+        eq(offerPackages.slug, body.slug),
+        eq(offerPackages.active, true)
+      )
+    )
+    .limit(1);
+  if (!pkg) return { ok: false, reason: "package_not_found" };
+
+  const [existingQ] = await db
+    .select({ id: quotations.id })
+    .from(quotations)
+    .where(eq(quotations.dealRecordId, link.dealRecordId))
+    .limit(1);
+
+  if (existingQ) {
+    // Update existing quotation. Only touch fixed_price when the package
+    // carries a fixed binding price; otherwise leave the operator's
+    // numbers alone and treat the click as a "preference signal" the
+    // operator will react to.
+    const patch: Partial<typeof quotations.$inferInsert> = {
+      selectedPackageSlug: pkg.slug,
+      updatedAt: new Date(),
+    };
+    if (pkg.priceFixedFlag && pkg.priceFromCents != null) {
+      patch.fixedPrice = (pkg.priceFromCents / 100).toFixed(2);
+      patch.isVariable = false;
+    }
+    await db
+      .update(quotations)
+      .set(patch)
+      .where(eq(quotations.id, existingQ.id));
+  } else {
+    // No quotation yet — create a thin one so the customer's price card
+    // can render. Operator fills in the rest later.
+    await db.insert(quotations).values({
+      dealRecordId: link.dealRecordId,
+      selectedPackageSlug: pkg.slug,
+      isVariable: !pkg.priceFixedFlag,
+      fixedPrice:
+        pkg.priceFixedFlag && pkg.priceFromCents != null
+          ? (pkg.priceFromCents / 100).toFixed(2)
+          : null,
+      showStandardInclusions: true,
+    });
+  }
+
+  await emitEvent({
+    workspaceId: link.workspaceId,
+    recordId: link.dealRecordId,
+    objectSlug: "deals",
+    eventType: "customer.package_selected",
+    payload: {
+      slug: pkg.slug,
+      displayName: pkg.displayName,
+      priceFromCents: pkg.priceFromCents,
+      priceFixedFlag: pkg.priceFixedFlag,
+      ipAddress: ctx.ipAddress.slice(0, 200),
+      userAgent: ctx.userAgent.slice(0, 200),
+    },
+  });
+
+  return { ok: true };
+}
+
 async function loadDateOffersContext(
   dealRecordId: string
 ): Promise<DateOffersContext> {
