@@ -134,6 +134,13 @@
       "when": 1779100000000,
       "tag": "0028_portal_visits_and_date_offers",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1779200000000,
+      "tag": "0029_per_deal_package_options",
+      "breakpoints": true
     }
   ]
 }

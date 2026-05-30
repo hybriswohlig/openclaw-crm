@@ -28,6 +28,7 @@ import {
   operatingCompanyPortalSettings,
   offerPackages,
   quotationDateOffers,
+  quotationPackageOptions,
   customerDateSelections,
 } from "@/db/schema/customer-portal";
 import { quotations, quotationLineItems } from "@/db/schema/quotations";
@@ -53,6 +54,8 @@ import {
   type DateOfferSelection,
   type DateOfferSlot,
   type DateOffersContext,
+  type DealPackageOption,
+  type DealPackageOffersContext,
   type FirmaBranding,
   type KvaLineItem,
   type KvaSnapshot,
@@ -290,6 +293,10 @@ export async function loadContextByToken(
   // Festpreis packages for this operating company + the operator's pick.
   const packages = await loadPackagesContext(workspaceId, ocId, dealRecordId);
 
+  // Per-deal package options — take precedence over the catalogue when the
+  // operator has set them up via the share panel composer.
+  const dealPackageOffers = await loadDealPackageOffersContext(dealRecordId);
+
   // Multi-date offer (candidate dates + the customer's selection, if any).
   const dateOffers = await loadDateOffersContext(dealRecordId);
 
@@ -378,6 +385,7 @@ export async function loadContextByToken(
     scope,
     inclusions,
     packages,
+    dealPackageOffers,
     dateOffers,
     crew,
     kva,
@@ -1401,6 +1409,196 @@ async function loadInclusions(
 }
 
 // ─── Multi-date offer ─────────────────────────────────────────────────────────
+
+// ─── Per-deal package options ─────────────────────────────────────────────────
+
+async function loadDealPackageOffersContext(
+  dealRecordId: string
+): Promise<DealPackageOffersContext> {
+  const rows = await db
+    .select()
+    .from(quotationPackageOptions)
+    .where(eq(quotationPackageOptions.dealRecordId, dealRecordId))
+    .orderBy(quotationPackageOptions.sortOrder);
+
+  const options: DealPackageOption[] = rows.map((r) => ({
+    id: r.id,
+    catalogueSlug: r.catalogueSlug,
+    displayName: r.displayName,
+    shortDescription: r.shortDescription,
+    priceCents: r.priceCents,
+    includedItems: Array.isArray(r.includedItems) ? r.includedItems : [],
+    note: r.note,
+    isRecommended: r.isRecommended,
+    sortOrder: r.sortOrder,
+  }));
+
+  const [q] = await db
+    .select({ selectedPackageOptionId: quotations.selectedPackageOptionId })
+    .from(quotations)
+    .where(eq(quotations.dealRecordId, dealRecordId))
+    .limit(1);
+
+  return {
+    options,
+    selectedOptionId: q?.selectedPackageOptionId ?? null,
+  };
+}
+
+/**
+ * Operator-side write. Replaces the deal's full set of options. Any
+ * customer selection that no longer points at a surviving option is
+ * cleared (FK ON DELETE SET NULL handles it automatically because we
+ * delete the old rows first).
+ */
+export interface DealPackageOptionInput {
+  catalogueSlug: string | null;
+  displayName: string;
+  shortDescription: string | null;
+  priceCents: number;
+  includedItems: string[];
+  note: string | null;
+  isRecommended: boolean;
+}
+
+export async function replaceDealPackageOptions(input: {
+  workspaceId: string;
+  dealRecordId: string;
+  createdBy: string | null;
+  options: DealPackageOptionInput[];
+}): Promise<{ count: number }> {
+  await db
+    .delete(quotationPackageOptions)
+    .where(eq(quotationPackageOptions.dealRecordId, input.dealRecordId));
+
+  const validated = input.options
+    .filter(
+      (o) =>
+        typeof o.displayName === "string" &&
+        o.displayName.trim().length > 0 &&
+        Number.isFinite(o.priceCents) &&
+        o.priceCents >= 0
+    )
+    .map((o, i) => ({
+      workspaceId: input.workspaceId,
+      dealRecordId: input.dealRecordId,
+      catalogueSlug: o.catalogueSlug,
+      displayName: o.displayName.slice(0, 80),
+      shortDescription: o.shortDescription
+        ? o.shortDescription.slice(0, 200)
+        : null,
+      priceCents: Math.round(o.priceCents),
+      includedItems: (o.includedItems ?? [])
+        .filter((s): s is string => typeof s === "string")
+        .map((s) => s.slice(0, 200))
+        .slice(0, 10),
+      note: o.note ? o.note.slice(0, 200) : null,
+      isRecommended: !!o.isRecommended,
+      sortOrder: i,
+      createdBy: input.createdBy,
+    }));
+
+  if (validated.length > 0) {
+    await db.insert(quotationPackageOptions).values(validated);
+  }
+
+  await emitEvent({
+    workspaceId: input.workspaceId,
+    recordId: input.dealRecordId,
+    objectSlug: "deals",
+    eventType: "customer.package_options_set",
+    payload: { count: validated.length },
+  });
+
+  return { count: validated.length };
+}
+
+/**
+ * Customer-side pick from the per-deal options. Binds the chosen option's
+ * price into `quotations.fixed_price` and remembers the option id so the
+ * picker can render the lock state on subsequent loads. Locked once an
+ * acceptance exists for the deal — same rationale as the catalogue path.
+ */
+export async function selectDealPackageOptionForToken(
+  token: string,
+  body: { optionId: string },
+  ctx: { ipAddress: string; userAgent: string }
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  if (!validateTokenShape(token)) return { ok: false, reason: "invalid_token" };
+  const [link] = await db
+    .select()
+    .from(customerStatusLinks)
+    .where(eq(customerStatusLinks.token, token))
+    .limit(1);
+  if (!link) return { ok: false, reason: "not_found" };
+  if (link.revokedAt) return { ok: false, reason: "revoked" };
+
+  const [acceptance] = await db
+    .select({ id: kvaConfirmations.id })
+    .from(kvaConfirmations)
+    .where(eq(kvaConfirmations.dealRecordId, link.dealRecordId))
+    .limit(1);
+  if (acceptance) return { ok: false, reason: "already_accepted" };
+
+  const [option] = await db
+    .select()
+    .from(quotationPackageOptions)
+    .where(
+      and(
+        eq(quotationPackageOptions.id, body.optionId),
+        eq(quotationPackageOptions.dealRecordId, link.dealRecordId)
+      )
+    )
+    .limit(1);
+  if (!option) return { ok: false, reason: "option_not_found" };
+
+  const [existingQ] = await db
+    .select({ id: quotations.id })
+    .from(quotations)
+    .where(eq(quotations.dealRecordId, link.dealRecordId))
+    .limit(1);
+
+  const priceEur = (option.priceCents / 100).toFixed(2);
+
+  if (existingQ) {
+    await db
+      .update(quotations)
+      .set({
+        selectedPackageOptionId: option.id,
+        selectedPackageSlug: option.catalogueSlug ?? quotations.selectedPackageSlug,
+        fixedPrice: priceEur,
+        isVariable: false,
+        updatedAt: new Date(),
+      })
+      .where(eq(quotations.id, existingQ.id));
+  } else {
+    await db.insert(quotations).values({
+      dealRecordId: link.dealRecordId,
+      selectedPackageOptionId: option.id,
+      selectedPackageSlug: option.catalogueSlug,
+      fixedPrice: priceEur,
+      isVariable: false,
+      showStandardInclusions: true,
+    });
+  }
+
+  await emitEvent({
+    workspaceId: link.workspaceId,
+    recordId: link.dealRecordId,
+    objectSlug: "deals",
+    eventType: "customer.package_option_selected",
+    payload: {
+      optionId: option.id,
+      displayName: option.displayName,
+      priceCents: option.priceCents,
+      catalogueSlug: option.catalogueSlug,
+      ipAddress: ctx.ipAddress.slice(0, 200),
+      userAgent: ctx.userAgent.slice(0, 200),
+    },
+  });
+
+  return { ok: true };
+}
 
 /**
  * Customer-side package pick. Updates `quotations.selected_package_slug`

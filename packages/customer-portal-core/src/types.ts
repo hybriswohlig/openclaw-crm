@@ -161,6 +161,31 @@ export interface OfferPackagesContext {
 }
 
 /**
+ * Per-deal package option the operator typed in the share panel composer.
+ * Independent from the catalogue: same `displayName` / `includedItems` may
+ * appear, but the price always wins from here when at least one row exists
+ * for the deal. `catalogueSlug` is kept for analytics ("this option was
+ * offered as the Komfort tier") but is not required.
+ */
+export interface DealPackageOption {
+  id: string;
+  catalogueSlug: string | null;
+  displayName: string;
+  shortDescription: string | null;
+  priceCents: number;
+  includedItems: string[];
+  note: string | null;
+  isRecommended: boolean;
+  sortOrder: number;
+}
+
+export interface DealPackageOffersContext {
+  options: DealPackageOption[];
+  /** Id of the option the customer picked, or null. */
+  selectedOptionId: string | null;
+}
+
+/**
  * One time window the operator offers within a given candidate date.
  * `startTime` / `endTime` are "HH:MM" 24h strings or null when only the
  * human-readable `label` is given ("ganztags", "auf Anfrage").
@@ -296,6 +321,12 @@ export interface CustomerPortalContext {
   scope: MoveScope;
   inclusions: OfferInclusions;
   packages: OfferPackagesContext;
+  /**
+   * Per-deal package options the operator typed in the CRM share panel.
+   * When `options.length > 0` the customer's package picker uses these
+   * instead of the catalogue. Empty array = fall back to `packages`.
+   */
+  dealPackageOffers: DealPackageOffersContext;
   /** Multi-date offer + customer's selection. Empty `options` = nothing to pick. */
   dateOffers: DateOffersContext;
   crew: CrewMember[];

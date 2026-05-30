@@ -19,6 +19,7 @@ import {
   Eye,
 } from "lucide-react";
 import { DateOfferComposer } from "./date-offer-composer";
+import { PackageOptionsComposer } from "./package-options-composer";
 
 interface VisitTelemetry {
   sessionCount: number;
@@ -331,6 +332,8 @@ export function ShareLinkPanel({ dealRecordId }: { dealRecordId: string }) {
       </div>
 
       {!revoked && <CustomerVisibleDocuments dealRecordId={dealRecordId} />}
+
+      {!revoked && <PackageOptionsComposer dealRecordId={dealRecordId} />}
 
       {!revoked && <DateOfferComposer dealRecordId={dealRecordId} />}
     </div>

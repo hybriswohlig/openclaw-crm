@@ -95,6 +95,7 @@ export function StageOneKva({
           <PackageSelector
             token={token}
             packages={ctx.packages}
+            dealOffers={ctx.dealPackageOffers}
             branding={ctx.branding}
             locked={alreadyAccepted}
             onPicked={onConfirmed}

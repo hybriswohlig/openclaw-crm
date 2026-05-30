@@ -22,7 +22,9 @@ export type ActivityEventType =
   | "customer.rated_crew"
   | "customer.date_offers_set"
   | "customer.date_selected"
-  | "customer.package_selected";
+  | "customer.package_selected"
+  | "customer.package_options_set"
+  | "customer.package_option_selected";
 
 export interface EmitEventInput {
   workspaceId: string;

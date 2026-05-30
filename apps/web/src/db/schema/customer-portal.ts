@@ -395,6 +395,53 @@ export const quotationDateOffers = pgTable(
   ]
 );
 
+// ─── Per-Deal Package Options ─────────────────────────────────────────────────
+// Operator-typed per-Auftrag package options with custom prices. When at
+// least one option exists for a deal, the customer's Stage 1 picker renders
+// these instead of the offer_packages catalogue.
+//
+// The catalogue stays as the master template (display names, included items,
+// default segments). The composer in the share panel can seed options from
+// the catalogue with one click; the operator then overrides price (and
+// anything else) per Auftrag. Ad-hoc options (catalogue_slug = null) are
+// supported for one-off transports that don't map to the standard tiers.
+
+export const quotationPackageOptions = pgTable(
+  "quotation_package_options",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    dealRecordId: text("deal_record_id")
+      .notNull()
+      .references(() => records.id, { onDelete: "cascade" }),
+    catalogueSlug: text("catalogue_slug"),
+    displayName: text("display_name").notNull(),
+    shortDescription: text("short_description"),
+    priceCents: integer("price_cents").notNull(),
+    includedItems: jsonb("included_items")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    note: text("note"),
+    isRecommended: boolean("is_recommended").notNull().default(false),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdBy: text("created_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("quotation_package_options_deal_idx").on(
+      table.dealRecordId,
+      table.sortOrder
+    ),
+  ]
+);
+
 export const customerDateSelections = pgTable(
   "customer_date_selections",
   {

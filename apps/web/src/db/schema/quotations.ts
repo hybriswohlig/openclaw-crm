@@ -55,6 +55,15 @@ export const quotations = pgTable(
      * Null = no package picked, customer just sees the line items / fixed price.
      */
     selectedPackageSlug: text("selected_package_slug"),
+    /**
+     * Set when the customer picks one of the per-deal `quotation_package_options`
+     * rows (operator-typed custom prices per Auftrag). Independent from
+     * selectedPackageSlug: that one names the catalogue tier even after the
+     * options table changes; this one points at the exact priced row the
+     * customer committed to. Cleared by ON DELETE SET NULL when the operator
+     * replaces the option set.
+     */
+    selectedPackageOptionId: text("selected_package_option_id"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
