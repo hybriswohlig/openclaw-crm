@@ -15,6 +15,12 @@ import { useToolJob } from "@/hooks/useToolJob";
 export type Firma = "kottke" | "ceylan";
 export type DocumentType = "AB" | "RE";
 export type Preismodell = "stundensatz" | "pauschale";
+/**
+ * How the customer pays the Anzahlung. "bar" is collected on-site by the
+ * crew; "bank_transfer" / "paypal" are routed through the customer portal's
+ * payment section (girocode QR for the bank case, paypal.me URL for PayPal).
+ */
+export type AnzahlungMethod = "bar" | "bank_transfer" | "paypal";
 
 export interface DealData {
   dealRecordId: string;
@@ -54,6 +60,7 @@ export interface PrefilledPreise {
   pauschalePositionen?: PauschalePosition[];
   pauschaleBetragCeylan?: number;
   anzahlungBar?: number;
+  anzahlungMethod?: AnzahlungMethod;
   stammkundenrabatt?: boolean;
 }
 
@@ -93,7 +100,13 @@ export function GenerateDocumentDialog({
   const [pauschaleBetragCeylan, setPauschaleBetragCeylan] = useState(
     prefill?.pauschaleBetragCeylan ?? 0
   );
-  const [anzahlungBar, setAnzahlungBar] = useState(prefill?.anzahlungBar ?? 0);
+  // Anzahlung amount + method. Method drives both the AB PDF wording (via
+  // the skill payload) and how the customer portal renders the Anzahlung
+  // instructions on Stage 1 (via quotations.payment_method_preference).
+  const [anzahlungBetrag, setAnzahlungBetrag] = useState(prefill?.anzahlungBar ?? 0);
+  const [anzahlungMethod, setAnzahlungMethod] = useState<AnzahlungMethod>(
+    prefill?.anzahlungMethod ?? "bar"
+  );
   const [stammkundenrabatt, setStammkundenrabatt] = useState(
     prefill?.stammkundenrabatt ?? false
   );
@@ -110,11 +123,22 @@ export function GenerateDocumentDialog({
   if (!open) return null;
 
   function buildPreise() {
+    // Anzahlung block forwarded to every preismodell. anzahlung_bar_eur is
+    // kept populated only when method=bar so the skill's existing branch
+    // (which renders the cash-collection line on the AB PDF) still works.
+    // anzahlung_zahlungsweg + anzahlung_betrag_eur are the new generalised
+    // fields the skill can branch on for "Überweisung" / "PayPal" wording.
+    const anzahlungBlock = {
+      anzahlung_betrag_eur: anzahlungBetrag || 0,
+      anzahlung_zahlungsweg: anzahlungMethod,
+      anzahlung_bar_eur: anzahlungMethod === "bar" ? (anzahlungBetrag || 0) : 0,
+    };
+
     if (!isKottke) {
       return {
         modell: "pauschale" as const,
         pauschale_betrag: pauschaleBetragCeylan,
-        anzahlung_bar_eur: anzahlungBar || 0,
+        ...anzahlungBlock,
         stammkundenrabatt,
       };
     }
@@ -126,13 +150,13 @@ export function GenerateDocumentDialog({
         stundensatz_helfer_eur: helferRate,
         stundensatz_transporter_eur: transporterRate,
         mindest_stunden: mindestStunden,
-        anzahlung_bar_eur: anzahlungBar || 0,
+        ...anzahlungBlock,
       };
     }
     return {
       modell: "pauschale" as const,
       pauschale_positionen: pauschalePositionen.filter((p) => p.titel && p.betrag > 0),
-      anzahlung_bar_eur: anzahlungBar || 0,
+      ...anzahlungBlock,
     };
   }
 
@@ -141,6 +165,31 @@ export function GenerateDocumentDialog({
     setStoredDocId(null);
     setDueDateSet(null);
     autoStoreFiredFor.current = null;
+
+    // Persist the Anzahlung choice on the quotation BEFORE the skill runs,
+    // so that as soon as the customer opens the portal Stage 1 they see the
+    // right payment instructions (girocode for bank, paypal.me URL for
+    // PayPal, no payment block for cash). Best-effort: failure here doesn't
+    // block PDF generation.
+    if (documentType === "AB" && anzahlungBetrag > 0) {
+      try {
+        await fetch(
+          `/api/v1/deals/${deal.dealRecordId}/quotation/anzahlung`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              depositRequiredCents: Math.round(anzahlungBetrag * 100),
+              paymentMethodPreference:
+                anzahlungMethod === "bar" ? "cash" : anzahlungMethod,
+            }),
+          }
+        );
+      } catch {
+        // Ignore — the PDF is the primary artefact, the portal sync can be
+        // retried by re-opening the dialog.
+      }
+    }
 
     // Forward image attachments from the Lead (apartment photos etc.) so the
     // headless skill can use them as visual context for volume / floors /
@@ -295,22 +344,62 @@ export function GenerateDocumentDialog({
               />
             )}
 
-            <div className="grid grid-cols-2 gap-3">
-              <NumberField
-                label="Anzahlung in bar (€)"
-                value={anzahlungBar}
-                onChange={setAnzahlungBar}
-                step={10}
-              />
-              {!isKottke && (
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={stammkundenrabatt}
-                    onChange={(e) => setStammkundenrabatt(e.target.checked)}
-                  />
-                  Stammkundenrabatt (3% Skonto)
-                </label>
+            {/* ── Anzahlung block ──────────────────────────────────────── */}
+            <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+              <div className="grid grid-cols-2 gap-3">
+                <NumberField
+                  label="Anzahlung (€)"
+                  value={anzahlungBetrag}
+                  onChange={setAnzahlungBetrag}
+                  step={10}
+                />
+                {!isKottke && (
+                  <label className="flex items-center gap-2 self-end pb-1 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={stammkundenrabatt}
+                      onChange={(e) =>
+                        setStammkundenrabatt(e.target.checked)
+                      }
+                    />
+                    Stammkundenrabatt (3% Skonto)
+                  </label>
+                )}
+              </div>
+
+              {anzahlungBetrag > 0 && (
+                <fieldset className="mt-3">
+                  <legend className="text-xs uppercase tracking-wide text-gray-500">
+                    Zahlungsweg für die Anzahlung
+                  </legend>
+                  <div className="mt-2 grid grid-cols-3 gap-2">
+                    <AnzahlungRadio
+                      label="Bar"
+                      hint="Crew kassiert vor Ort"
+                      checked={anzahlungMethod === "bar"}
+                      onChange={() => setAnzahlungMethod("bar")}
+                    />
+                    <AnzahlungRadio
+                      label="Überweisung"
+                      hint="Kunde sieht IBAN + Girocode"
+                      checked={anzahlungMethod === "bank_transfer"}
+                      onChange={() => setAnzahlungMethod("bank_transfer")}
+                    />
+                    <AnzahlungRadio
+                      label="PayPal"
+                      hint="paypal.me-Link"
+                      checked={anzahlungMethod === "paypal"}
+                      onChange={() => setAnzahlungMethod("paypal")}
+                    />
+                  </div>
+                  <p className="mt-2 text-[11px] leading-relaxed text-gray-500">
+                    {anzahlungMethod === "bar"
+                      ? "Wird auf der AB als Barzahlung am Umzugstag vermerkt."
+                      : anzahlungMethod === "bank_transfer"
+                        ? "Der Kunde sieht im Status-Portal sofort IBAN, BIC und einen Girocode-QR zur Überweisung."
+                        : "Der Kunde sieht im Status-Portal einen paypal.me-Link mit dem Betrag vorausgefüllt."}
+                  </p>
+                </fieldset>
               )}
             </div>
 
@@ -430,6 +519,37 @@ function NumberField({
         className="mt-1 w-full rounded border px-2 py-1"
       />
     </label>
+  );
+}
+
+function AnzahlungRadio({
+  label,
+  hint,
+  checked,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  checked: boolean;
+  onChange: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onChange}
+      aria-pressed={checked}
+      className={
+        "flex flex-col items-start gap-0.5 rounded-md border px-3 py-2 text-left text-xs transition " +
+        (checked
+          ? "border-blue-500 bg-blue-50 text-blue-900 dark:border-blue-400 dark:bg-blue-950/40 dark:text-blue-100"
+          : "border-gray-300 bg-white text-gray-700 hover:border-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200")
+      }
+    >
+      <span className="font-medium">{label}</span>
+      <span className="text-[10px] text-gray-500 dark:text-gray-400">
+        {hint}
+      </span>
+    </button>
   );
 }
 
