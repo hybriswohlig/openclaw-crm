@@ -452,6 +452,13 @@ export async function confirmKvaForToken(
     return { ok: false, reason: "feature_disabled" };
   }
 
+  // AGB must be explicitly accepted whenever the firma publishes AGB
+  // (separate, unambiguous consent — § 305 Abs. 2 BGB). The recorded
+  // agbVersionAccepted below then proves which AGB version was accepted.
+  if (effective.branding.agbPdfUrl && !body.acceptedAgb) {
+    return { ok: false, reason: "missing_acknowledgement" };
+  }
+
   const signedAt = new Date();
   await db.insert(kvaConfirmations).values({
     workspaceId: link.workspaceId,
@@ -488,6 +495,7 @@ export async function confirmKvaForToken(
     payload: {
       confirmedTotalCents: kva.totalCents,
       agbVersion: effective.branding.agbVersion,
+      acceptedAgb: body.acceptedAgb,
       acceptedFullName: body.fullName ?? null,
       widerrufVerzichtAccepted: body.widerrufVerzichtAccepted,
       ipAddress: ctx.ipAddress.slice(0, 200),

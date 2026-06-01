@@ -376,6 +376,12 @@ export interface ConfirmKvaPayload {
   /** Both must be true. */
   acceptedOffer: boolean;
   acceptedBindingNature: boolean;
+  /**
+   * AGB explicitly accepted. Required by the server whenever the firma has an
+   * AGB (branding.agbPdfUrl set). Separate from acceptedOffer so the consent
+   * is unambiguous (§ 305 Abs. 2 BGB).
+   */
+  acceptedAgb: boolean;
   /** Only required when the move is < 14 days away. */
   widerrufVerzichtAccepted: boolean;
   /** Optional self-typed full name. Strengthens evidence. */

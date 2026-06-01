@@ -24,8 +24,8 @@ export const KOTTKE_BRANDING: FirmaBranding = {
     holder: "Darioush Kottke",
   },
   paypal: { handleOrEmail: null },
-  agbVersion: "kottke-2026-01",
-  agbPdfUrl: "/legal/agb-kottke.pdf",
+  agbVersion: "kottke-2026-06",
+  agbPdfUrl: "/legal/agb/kottke",
 };
 
 export const CEYLAN_BRANDING: FirmaBranding = {
@@ -43,8 +43,8 @@ export const CEYLAN_BRANDING: FirmaBranding = {
     holder: "Nurullah Ceylan",
   },
   paypal: { handleOrEmail: null },
-  agbVersion: "ceylan-2026-01",
-  agbPdfUrl: "/legal/agb-ceylan.pdf",
+  agbVersion: "ceylan-2026-06",
+  agbPdfUrl: "/legal/agb/ceylan",
 };
 
 const FALLBACK: FirmaBranding = {
