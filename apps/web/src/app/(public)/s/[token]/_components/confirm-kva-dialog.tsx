@@ -29,6 +29,7 @@ export function ConfirmKvaDialog({
   onConfirmed: () => void;
 }) {
   const [accOffer, setAccOffer] = useState(false);
+  const [accAgb, setAccAgb] = useState(false);
   const [accBinding, setAccBinding] = useState(false);
   const [accWiderruf, setAccWiderruf] = useState(false);
   const [fullName, setFullName] = useState("");
@@ -37,8 +38,15 @@ export function ConfirmKvaDialog({
 
   if (!open) return null;
 
+  const agbHref = ctx.branding.agbPdfUrl;
+  const hasAgb = !!agbHref;
+
   const ready =
-    accOffer && accBinding && (!widerrufNeeded || accWiderruf) && !submitting;
+    accOffer &&
+    accBinding &&
+    (!hasAgb || accAgb) &&
+    (!widerrufNeeded || accWiderruf) &&
+    !submitting;
 
   async function submit() {
     if (!ready) return;
@@ -46,6 +54,7 @@ export function ConfirmKvaDialog({
     setError(null);
     const payload: ConfirmKvaPayload = {
       acceptedOffer: accOffer,
+      acceptedAgb: accAgb,
       acceptedBindingNature: accBinding,
       widerrufVerzichtAccepted: accWiderruf,
       fullName: fullName.trim() || null,
@@ -94,24 +103,32 @@ export function ConfirmKvaDialog({
             onCheckedChange={setAccOffer}
           >
             <span>
-              Ich habe das Angebot{" "}
-              <strong>{ctx.dealNumber}</strong>
-              {ctx.branding.agbPdfUrl ? (
-                <>
-                  {" "}und die{" "}
-                  <a
-                    href={ctx.branding.agbPdfUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline underline-offset-2"
-                  >
-                    AGB
-                  </a>
-                </>
-              ) : null}{" "}
-              gelesen und stimme {ctx.branding.agbPdfUrl ? "ihnen" : "zu"}.
+              Ich habe das Angebot <strong>{ctx.dealNumber}</strong> gelesen und
+              stimme dem Inhalt zu.
             </span>
           </CheckboxRow>
+
+          {hasAgb && (
+            <CheckboxRow
+              id="acc-agb"
+              checked={accAgb}
+              onCheckedChange={setAccAgb}
+            >
+              <span>
+                Ich habe die{" "}
+                <a
+                  href={agbHref!}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium underline underline-offset-2"
+                  style={{ color: `#${ctx.branding.primaryColor}` }}
+                >
+                  Allgemeinen Geschäftsbedingungen (AGB)
+                </a>{" "}
+                gelesen und akzeptiere sie.
+              </span>
+            </CheckboxRow>
+          )}
 
           <CheckboxRow
             id="acc-binding"
