@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { employees, dealEmployees, employeeTransactions, dealNumbers, records, recordValues, attributes, objects, statuses } from "@/db/schema";
+import { employees, dealEmployees, employeeLedger, dealNumbers, records, recordValues, attributes, objects, statuses } from "@/db/schema";
 import { eq, and, sql, inArray, desc } from "drizzle-orm";
 
 export async function listEmployees(workspaceId: string) {
@@ -20,7 +20,9 @@ export async function listEmployees(workspaceId: string) {
     .where(eq(employees.workspaceId, workspaceId))
     .orderBy(employees.name);
 
-  return rows;
+  // Saldo (earned − paid) je Mitarbeiter dazumischen.
+  const saldos = await listEmployeeSaldos(workspaceId);
+  return rows.map((r) => ({ ...r, saldoTotal: saldos.get(r.id) ?? 0 }));
 }
 
 export async function getEmployee(workspaceId: string, employeeId: string) {
@@ -136,9 +138,7 @@ export async function getEmployeeContracts(workspaceId: string, employeeId: stri
     .orderBy(dealEmployees.createdAt);
 }
 
-// ─── Rich detail (Aufträge / Zahlungen / Auslagen) ──────────────────────────
-
-export type EmployeeTransactionStatusComputed = "offen" | "teilweise bezahlt" | "bezahlt";
+// ─── Rich detail (Saldo / Buchungsverlauf / Aufträge) ───────────────────────
 
 export interface EmployeeAuftrag {
   assignmentId: string;
@@ -151,45 +151,53 @@ export interface EmployeeAuftrag {
   assignedAt: Date;
 }
 
-export interface EmployeeTransactionRow {
+export interface EmployeeLedgerRow {
   id: string;
   date: string;
-  type: "salary" | "advance" | "reimbursement";
+  kind: "earning" | "reimbursement" | "payment";
+  /** Always positive. */
   amount: number;
-  amountPaid: number;
-  amountOutstanding: number;
-  status: EmployeeTransactionStatusComputed;
-  dueDate: string | null;
+  /** + for credit (earning/reimbursement), − for payment. */
+  signedAmount: number;
+  operatingCompanyId: string | null;
+  operatingCompanyName: string;
+  payingOperatingCompanyId: string | null;
+  payingOperatingCompanyName: string | null;
+  /** True when a different company paid/bears this entry (Quersubvention). */
+  isCrossSubsidy: boolean;
+  dealRecordId: string | null;
+  dealNumber: string | null;
+  dealName: string | null;
+  paymentMethod: string | null;
   description: string | null;
   notes: string | null;
-  dealRecordId: string;
-  dealNumber: string | null;
-  dealName: string;
   isTaxDeductible: boolean;
   hasReceipt: boolean;
+  dueDate: string | null;
+}
+
+export interface EmployeeCompanySaldo {
+  companyId: string | null;
+  companyName: string;
+  earned: number;
+  paid: number;
+  /** earned − paid = was wir dieser Firma-Zuordnung noch schulden. */
+  balance: number;
 }
 
 export interface EmployeeDetailExtras {
   auftraege: EmployeeAuftrag[];
-  paymentsReceived: EmployeeTransactionRow[];
-  outOfPocket: EmployeeTransactionRow[];
+  ledger: EmployeeLedgerRow[];
+  /** Saldo gesamt (firmenübergreifend) = was wir dem Mitarbeiter schulden. */
+  saldoTotal: number;
+  saldoByCompany: EmployeeCompanySaldo[];
   totals: {
-    receivedTotal: number;
-    outstandingTotal: number;
-    outOfPocketOpen: number;
-    /** Sum of amount_paid across all transactions where is_tax_deductible = true. */
-    deductibleReceived: number;
-    /** Sum of amount_paid across all transactions where is_tax_deductible = false. */
-    nonDeductibleReceived: number;
-    /** Number of transactions with a receipt attached. */
+    earnedTotal: number;
+    paidTotal: number;
+    /** Offene Erstattungen (Belege), die noch nicht im Saldo beglichen sind — informativ. */
+    reimbursementTotal: number;
     receiptCount: number;
   };
-}
-
-function computeStatus(amount: number, amountPaid: number): EmployeeTransactionStatusComputed {
-  if (amountPaid <= 0) return "offen";
-  if (amountPaid + 0.005 < amount) return "teilweise bezahlt";
-  return "bezahlt";
 }
 
 export async function getEmployeeDetailExtras(
@@ -199,28 +207,41 @@ export async function getEmployeeDetailExtras(
   const existing = await getEmployee(workspaceId, employeeId);
   if (!existing) return null;
 
-  // 1) All deal_employees rows for this employee
+  // 1) Auftrags-Zuweisungen
   const assignments = await db
     .select()
     .from(dealEmployees)
     .where(eq(dealEmployees.employeeId, employeeId))
     .orderBy(desc(dealEmployees.createdAt));
 
-  // 2) All employee_transactions for this employee
-  const txRows = await db
+  // 2) Alle Ledger-Buchungen
+  const rows = await db
     .select()
-    .from(employeeTransactions)
-    .where(eq(employeeTransactions.employeeId, employeeId))
-    .orderBy(desc(employeeTransactions.date));
+    .from(employeeLedger)
+    .where(eq(employeeLedger.employeeId, employeeId))
+    .orderBy(desc(employeeLedger.date), desc(employeeLedger.createdAt));
 
-  // Collect all involved deal IDs to batch-resolve names + numbers + stage
+  // Deal-Infos (Name/Nummer/Stage/Datum + Firma) für alle beteiligten Deals
   const dealIds = Array.from(
-    new Set([...assignments.map((a) => a.dealRecordId), ...txRows.map((t) => t.dealRecordId)])
+    new Set(
+      [
+        ...assignments.map((a) => a.dealRecordId),
+        ...rows.map((r) => r.dealRecordId),
+      ].filter((id): id is string => !!id)
+    )
   );
-
   const dealInfo = await batchGetDealOpsInfo(workspaceId, dealIds);
 
-  // 3) Aufträge list
+  // Firmen-Namen für alle berührten Firmen-IDs (Deal-Firma + operating/paying)
+  const companyIds = new Set<string>();
+  for (const info of dealInfo.values())
+    if (info.operatingCompanyId) companyIds.add(info.operatingCompanyId);
+  for (const r of rows) {
+    if (r.operatingCompanyId) companyIds.add(r.operatingCompanyId);
+    if (r.payingOperatingCompanyId) companyIds.add(r.payingOperatingCompanyId);
+  }
+  const companyNames = await resolveCompanyNames(workspaceId, [...companyIds]);
+
   const auftraege: EmployeeAuftrag[] = assignments.map((a) => {
     const info = dealInfo.get(a.dealRecordId);
     return {
@@ -235,63 +256,134 @@ export async function getEmployeeDetailExtras(
     };
   });
 
-  // 4) Build typed transaction rows with computed status
-  const enriched: EmployeeTransactionRow[] = txRows.map((t) => {
-    const info = dealInfo.get(t.dealRecordId);
-    const amount = Number(t.amount);
-    const amountPaid = Number(t.amountPaid);
+  /** Resolve the company a ledger row belongs to: deal's live company if linked, else stored. */
+  const resolveCompany = (r: (typeof rows)[number]): string | null =>
+    r.dealRecordId
+      ? dealInfo.get(r.dealRecordId)?.operatingCompanyId ?? null
+      : r.operatingCompanyId ?? null;
+
+  const ledger: EmployeeLedgerRow[] = rows.map((r) => {
+    const info = r.dealRecordId ? dealInfo.get(r.dealRecordId) : undefined;
+    const ownCompany = resolveCompany(r);
+    const amount = Number(r.amount);
+    const isCredit = r.kind === "earning" || r.kind === "reimbursement";
+    const isCross =
+      r.payingOperatingCompanyId != null &&
+      ownCompany != null &&
+      r.payingOperatingCompanyId !== ownCompany;
     return {
-      id: t.id,
-      date: t.date,
-      type: t.type as "salary" | "advance" | "reimbursement",
+      id: r.id,
+      date: r.date,
+      kind: r.kind as EmployeeLedgerRow["kind"],
       amount,
-      amountPaid,
-      amountOutstanding: Math.max(0, amount - amountPaid),
-      status: computeStatus(amount, amountPaid),
-      dueDate: t.dueDate ?? null,
-      description: t.description,
-      notes: t.notes,
-      dealRecordId: t.dealRecordId,
+      signedAmount: isCredit ? amount : -amount,
+      operatingCompanyId: ownCompany,
+      operatingCompanyName: ownCompany
+        ? companyNames.get(ownCompany) ?? "Unbekannt"
+        : "—",
+      payingOperatingCompanyId: r.payingOperatingCompanyId ?? null,
+      payingOperatingCompanyName: r.payingOperatingCompanyId
+        ? companyNames.get(r.payingOperatingCompanyId) ?? "Unbekannt"
+        : null,
+      isCrossSubsidy: isCross,
+      dealRecordId: r.dealRecordId ?? null,
       dealNumber: info?.dealNumber ?? null,
-      dealName: info?.name ?? "(Deal gelöscht)",
-      isTaxDeductible: t.isTaxDeductible,
-      hasReceipt: !!t.receiptFile,
+      dealName: r.dealRecordId ? info?.name ?? "(Deal gelöscht)" : null,
+      paymentMethod: r.paymentMethod,
+      description: r.description,
+      notes: r.notes,
+      isTaxDeductible: r.isTaxDeductible,
+      hasReceipt: !!r.receiptFile,
+      dueDate: r.dueDate ?? null,
     };
   });
 
-  // 5) Split into payments-received vs out-of-pocket
-  // Payments received = salary + advance, plus reimbursement *paid back to them* (any amountPaid > 0).
-  //   - For reimbursements we still also list them under "Auslagen" so user can see status.
-  const paymentsReceived = enriched.filter(
-    (t) => t.type === "salary" || t.type === "advance" || (t.type === "reimbursement" && t.amountPaid > 0)
-  );
-  // Out-of-pocket = ALL reimbursement rows, regardless of paid status (status badge distinguishes).
-  const outOfPocket = enriched.filter((t) => t.type === "reimbursement");
+  // Saldo pro Firma (earned − paid), companyId null = "Nicht zugewiesen"
+  const UNASSIGNED = "__unassigned__";
+  const byCompany = new Map<
+    string,
+    { companyId: string | null; earned: number; paid: number }
+  >();
+  for (const row of ledger) {
+    const key = row.operatingCompanyId ?? UNASSIGNED;
+    let agg = byCompany.get(key);
+    if (!agg) {
+      agg = { companyId: row.operatingCompanyId, earned: 0, paid: 0 };
+      byCompany.set(key, agg);
+    }
+    if (row.kind === "payment") agg.paid += row.amount;
+    else agg.earned += row.amount;
+  }
 
-  const receivedTotal = paymentsReceived.reduce((sum, t) => sum + t.amountPaid, 0);
-  const outstandingTotal = enriched.reduce((sum, t) => sum + t.amountOutstanding, 0);
-  const outOfPocketOpen = outOfPocket.reduce((sum, t) => sum + t.amountOutstanding, 0);
-  const deductibleReceived = enriched
-    .filter((t) => t.isTaxDeductible)
-    .reduce((sum, t) => sum + t.amountPaid, 0);
-  const nonDeductibleReceived = enriched
-    .filter((t) => !t.isTaxDeductible)
-    .reduce((sum, t) => sum + t.amountPaid, 0);
-  const receiptCount = enriched.filter((t) => t.hasReceipt).length;
+  const saldoByCompany: EmployeeCompanySaldo[] = [...byCompany.values()]
+    .map((a) => ({
+      companyId: a.companyId,
+      companyName:
+        a.companyId === null
+          ? "Nicht zugewiesen"
+          : companyNames.get(a.companyId) ?? "Unbekannt",
+      earned: a.earned,
+      paid: a.paid,
+      balance: a.earned - a.paid,
+    }))
+    .sort((a, b) => b.balance - a.balance);
+
+  const earnedTotal = ledger
+    .filter((r) => r.kind !== "payment")
+    .reduce((s, r) => s + r.amount, 0);
+  const paidTotal = ledger
+    .filter((r) => r.kind === "payment")
+    .reduce((s, r) => s + r.amount, 0);
+  const reimbursementTotal = ledger
+    .filter((r) => r.kind === "reimbursement")
+    .reduce((s, r) => s + r.amount, 0);
+  const receiptCount = ledger.filter((r) => r.hasReceipt).length;
 
   return {
     auftraege,
-    paymentsReceived,
-    outOfPocket,
+    ledger,
+    saldoTotal: earnedTotal - paidTotal,
+    saldoByCompany,
     totals: {
-      receivedTotal,
-      outstandingTotal,
-      outOfPocketOpen,
-      deductibleReceived,
-      nonDeductibleReceived,
+      earnedTotal,
+      paidTotal,
+      reimbursementTotal,
       receiptCount,
     },
   };
+}
+
+/** Resolve operating-company display names for a set of record ids. */
+async function resolveCompanyNames(
+  workspaceId: string,
+  ids: string[]
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  if (ids.length === 0) return map;
+  const [nameAttr] = await db
+    .select({ id: attributes.id })
+    .from(attributes)
+    .innerJoin(objects, eq(objects.id, attributes.objectId))
+    .where(
+      and(
+        eq(objects.workspaceId, workspaceId),
+        eq(objects.slug, "operating_companies"),
+        eq(attributes.slug, "name")
+      )
+    )
+    .limit(1);
+  if (!nameAttr) return map;
+  const nameRows = await db
+    .select({ recordId: recordValues.recordId, name: recordValues.textValue })
+    .from(recordValues)
+    .where(
+      and(
+        eq(recordValues.attributeId, nameAttr.id),
+        inArray(recordValues.recordId, ids)
+      )
+    );
+  for (const r of nameRows) map.set(r.recordId, r.name ?? "Unbekannt");
+  return map;
 }
 
 interface DealOpsInfo {
@@ -299,6 +391,7 @@ interface DealOpsInfo {
   dealNumber: string | null;
   stage: { title: string; color: string } | null;
   moveDate: string | null;
+  operatingCompanyId: string | null;
 }
 
 async function batchGetDealOpsInfo(
@@ -321,7 +414,7 @@ async function batchGetDealOpsInfo(
   const attrRows = await db
     .select()
     .from(attributes)
-    .where(and(eq(attributes.objectId, dealObj.id), inArray(attributes.slug, ["name", "stage", "move_date"])));
+    .where(and(eq(attributes.objectId, dealObj.id), inArray(attributes.slug, ["name", "stage", "move_date", "operating_company"])));
   const attrBySlug = new Map(attrRows.map((a) => [a.slug, a]));
 
   const stageAttr = attrBySlug.get("stage");
@@ -367,6 +460,7 @@ async function batchGetDealOpsInfo(
 
   const nameAttrId = attrBySlug.get("name")?.id ?? null;
   const moveDateAttrId = attrBySlug.get("move_date")?.id ?? null;
+  const ocAttrId = attrBySlug.get("operating_company")?.id ?? null;
 
   for (const id of unique) {
     if (!presentSet.has(id)) continue;
@@ -377,8 +471,39 @@ async function batchGetDealOpsInfo(
       dealNumber: numByDeal.get(id) ?? null,
       stage: stageId ? stageMap.get(stageId) ?? null : null,
       moveDate: moveDateAttrId ? vals?.get(moveDateAttrId)?.dateValue ?? null : null,
+      operatingCompanyId: ocAttrId ? vals?.get(ocAttrId)?.referencedRecordId ?? null : null,
     });
   }
 
   return result;
+}
+
+// ─── Workspace-weite Mitarbeiter-Salden (Übersichtsliste) ───────────────────
+
+export interface EmployeeSaldoSummary {
+  employeeId: string;
+  saldoTotal: number;
+}
+
+/**
+ * Saldo (earned − paid) je Mitarbeiter für den ganzen Workspace — für die
+ * Übersichtstabelle. Eine Query, gruppiert in JS.
+ */
+export async function listEmployeeSaldos(
+  workspaceId: string
+): Promise<Map<string, number>> {
+  const rows = await db
+    .select({
+      employeeId: employeeLedger.employeeId,
+      kind: employeeLedger.kind,
+      amount: employeeLedger.amount,
+    })
+    .from(employeeLedger)
+    .where(eq(employeeLedger.workspaceId, workspaceId));
+  const map = new Map<string, number>();
+  for (const r of rows) {
+    const delta = r.kind === "payment" ? -Number(r.amount) : Number(r.amount);
+    map.set(r.employeeId, (map.get(r.employeeId) ?? 0) + delta);
+  }
+  return map;
 }

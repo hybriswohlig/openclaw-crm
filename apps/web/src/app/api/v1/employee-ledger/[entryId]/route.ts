@@ -6,14 +6,14 @@ const VALID_KINDS = ["earning", "reimbursement", "payment"] as const;
 const VALID_METHODS = ["cash", "bank_transfer", "other"] as const;
 type PaymentMethod = typeof VALID_METHODS[number];
 
-export async function PUT(
+export async function PATCH(
   req: NextRequest,
-  { params }: { params: Promise<{ recordId: string; transactionId: string }> }
+  { params }: { params: Promise<{ entryId: string }> }
 ) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized();
 
-  const { transactionId } = await params;
+  const { entryId } = await params;
   const body = await req.json();
   const {
     date,
@@ -25,6 +25,7 @@ export async function PUT(
     isTaxDeductible,
     payingOperatingCompanyId,
     operatingCompanyId,
+    dealRecordId,
     dueDate,
     receiptFile,
   } = body;
@@ -36,7 +37,7 @@ export async function PUT(
     return badRequest(`paymentMethod must be one of: ${VALID_METHODS.join(", ")}`);
   }
 
-  const row = await updateEmployeeLedgerEntry(transactionId, ctx.workspaceId, {
+  const row = await updateEmployeeLedgerEntry(entryId, ctx.workspaceId, {
     ...(date !== undefined && { date }),
     ...(kind !== undefined && { kind }),
     ...(amount !== undefined && { amount: String(amount) }),
@@ -46,6 +47,7 @@ export async function PUT(
     ...(isTaxDeductible !== undefined && { isTaxDeductible }),
     ...(payingOperatingCompanyId !== undefined && { payingOperatingCompanyId: payingOperatingCompanyId || null }),
     ...(operatingCompanyId !== undefined && { operatingCompanyId: operatingCompanyId || null }),
+    ...(dealRecordId !== undefined && { dealRecordId: dealRecordId || null }),
     ...(dueDate !== undefined && { dueDate: dueDate || null }),
     ...(receiptFile !== undefined && { receiptFile: receiptFile || null }),
   });
@@ -55,13 +57,13 @@ export async function PUT(
 
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: Promise<{ recordId: string; transactionId: string }> }
+  { params }: { params: Promise<{ entryId: string }> }
 ) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized();
 
-  const { transactionId } = await params;
-  const row = await deleteEmployeeLedgerEntry(transactionId, ctx.workspaceId);
+  const { entryId } = await params;
+  const row = await deleteEmployeeLedgerEntry(entryId, ctx.workspaceId);
   if (!row) return notFound("Ledger entry not found");
   return success({ deleted: true });
 }

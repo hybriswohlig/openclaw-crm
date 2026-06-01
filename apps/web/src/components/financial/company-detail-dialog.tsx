@@ -84,11 +84,10 @@ interface CompanyDetails {
     id: string;
     date: string;
     amount: number;
-    type: "salary" | "advance" | "reimbursement";
+    type: "earning" | "reimbursement" | "payment";
     employeeName: string;
     description: string | null;
     paymentMethod: string | null;
-    status: "open" | "paid";
     isTaxDeductible: boolean;
     isCrossSubsidy: boolean;
     dealRecordId: string;
@@ -146,9 +145,11 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 const TYPE_LABELS: Record<string, string> = {
+  earning: "Verdienst",
   salary: "Lohn",
   advance: "Vorschuss",
   reimbursement: "Erstattung",
+  payment: "Auszahlung",
 };
 
 const METHOD_LABELS: Record<string, string> = {

@@ -67,13 +67,13 @@ interface EmployeeCost {
   date: string;
   employeeId: string;
   employeeName: string;
-  type: "salary" | "advance" | "reimbursement";
+  kind: "earning" | "reimbursement" | "payment";
   amount: string;
-  status: "open" | "paid";
   description: string | null;
   paymentMethod: "cash" | "bank_transfer" | "other" | null;
   isTaxDeductible: boolean;
   payingOperatingCompanyId: string | null;
+  operatingCompanyId: string | null;
   receiptFile: string | null;
 }
 
@@ -125,9 +125,11 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 const TYPE_LABELS: Record<string, string> = {
+  earning: "Verdienst",
   salary: "Lohn",
   advance: "Vorschuss",
   reimbursement: "Erstattung",
+  payment: "Auszahlung",
 };
 
 // ─── Profit KPIs ─────────────────────────────────────────────────────────────
@@ -765,9 +767,8 @@ function EmployeeCostsSection({
   const [form, setForm] = useState({
     employeeId: "",
     date: "",
-    type: "salary" as "salary" | "advance" | "reimbursement",
+    kind: "earning" as "earning" | "reimbursement" | "payment",
     amount: "",
-    status: "open" as "open" | "paid",
     description: "",
     paymentMethod: "" as "" | "cash" | "bank_transfer" | "other",
     isTaxDeductible: true,
@@ -781,9 +782,8 @@ function EmployeeCostsSection({
     setForm({
       employeeId: employees[0]?.id ?? "",
       date: new Date().toISOString().slice(0, 10),
-      type: "salary",
+      kind: "earning",
       amount: "",
-      status: "open",
       description: "",
       paymentMethod: "",
       isTaxDeductible: true,
@@ -799,9 +799,8 @@ function EmployeeCostsSection({
     setForm({
       employeeId: c.employeeId,
       date: c.date,
-      type: c.type,
+      kind: c.kind,
       amount: String(Number(c.amount).toFixed(2)),
-      status: c.status,
       description: c.description ?? "",
       paymentMethod: c.paymentMethod ?? "",
       isTaxDeductible: c.isTaxDeductible,
@@ -830,11 +829,10 @@ function EmployeeCostsSection({
       const body = {
         employeeId: form.employeeId,
         date: form.date,
-        type: form.type,
+        kind: form.kind,
         amount: form.amount,
-        status: form.status,
         description: form.description || null,
-        paymentMethod: form.paymentMethod || null,
+        paymentMethod: form.kind === "payment" ? form.paymentMethod || null : null,
         isTaxDeductible: form.isTaxDeductible,
         payingOperatingCompanyId: form.payingOperatingCompanyId || null,
         receiptFile: form.receiptFile,
@@ -865,18 +863,26 @@ function EmployeeCostsSection({
     onChanged();
   }
 
-  const totalCosts = costs
-    .filter((c) => c.type === "salary" || c.type === "advance")
+  // Saldo dieses Auftrags = Verdienste/Erstattungen − Auszahlungen.
+  const earned = costs
+    .filter((c) => c.kind !== "payment")
     .reduce((s, c) => s + Number(c.amount), 0);
+  const paid = costs
+    .filter((c) => c.kind === "payment")
+    .reduce((s, c) => s + Number(c.amount), 0);
+  const labourCost = costs
+    .filter((c) => c.kind === "earning")
+    .reduce((s, c) => s + Number(c.amount), 0);
+  const open0 = earned - paid;
 
   return (
     <section>
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold">
-          Personalkosten
+          Personal
           {costs.length > 0 && (
             <span className="ml-2 text-xs font-normal text-muted-foreground">
-              {eur(totalCosts)} Kosten
+              {eur(labourCost)} Lohnkosten · {eur(paid)} ausgezahlt · {eur(open0)} offen
             </span>
           )}
         </h3>
@@ -894,7 +900,7 @@ function EmployeeCostsSection({
 
       {costs.length === 0 && employees.length > 0 ? (
         <p className="text-sm text-muted-foreground py-4 text-center">
-          Noch keine Personalkosten eingetragen
+          Noch nichts eingetragen — Verdienste, Belege oder Auszahlungen hinzufügen
         </p>
       ) : costs.length > 0 ? (
         <div className="rounded-lg border border-border overflow-hidden">
@@ -903,60 +909,51 @@ function EmployeeCostsSection({
               <tr className="border-b border-border bg-muted/50">
                 <th className="text-left px-3 py-2 font-medium">Datum</th>
                 <th className="text-left px-3 py-2 font-medium">Mitarbeiter</th>
-                <th className="text-left px-3 py-2 font-medium">Typ</th>
-                <th className="text-left px-3 py-2 font-medium">Status</th>
+                <th className="text-left px-3 py-2 font-medium">Art</th>
                 <th className="text-left px-3 py-2 font-medium">Beschreibung</th>
                 <th className="text-right px-3 py-2 font-medium">Betrag</th>
                 <th className="px-3 py-2 w-16" />
               </tr>
             </thead>
             <tbody>
-              {costs.map((c) => (
-                <tr key={c.id} className="border-b border-border last:border-0 hover:bg-muted/30">
-                  <td className="px-3 py-2 tabular-nums whitespace-nowrap">{fmtDate(c.date)}</td>
-                  <td className="px-3 py-2 font-medium">{c.employeeName}</td>
-                  <td className="px-3 py-2">
-                    <Badge variant="secondary" className="text-xs">
-                      {TYPE_LABELS[c.type] ?? c.type}
-                    </Badge>
-                  </td>
-                  <td className="px-3 py-2">
-                    <span
-                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                        c.status === "paid"
-                          ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400"
-                          : "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400"
-                      }`}
-                    >
-                      {c.status === "paid" ? "Bezahlt" : "Offen"}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 text-muted-foreground text-xs max-w-[140px] truncate">
-                    {c.description ?? "—"}
-                  </td>
-                  <td className="px-3 py-2 text-right font-medium tabular-nums">
-                    <span className={c.type === "reimbursement" ? "text-emerald-600 dark:text-emerald-400" : "text-orange-600 dark:text-orange-400"}>
-                      {c.type === "reimbursement" ? "+" : "−"}{eur(c.amount)}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2">
-                    <div className="flex items-center gap-1 justify-end">
-                      <button
-                        onClick={() => openEdit(c)}
-                        className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(c.id)}
-                        className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-destructive"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {costs.map((c) => {
+                const isPayment = c.kind === "payment";
+                return (
+                  <tr key={c.id} className="border-b border-border last:border-0 hover:bg-muted/30">
+                    <td className="px-3 py-2 tabular-nums whitespace-nowrap">{fmtDate(c.date)}</td>
+                    <td className="px-3 py-2 font-medium">{c.employeeName}</td>
+                    <td className="px-3 py-2">
+                      <Badge variant="secondary" className="text-xs">
+                        {TYPE_LABELS[c.kind] ?? c.kind}
+                      </Badge>
+                    </td>
+                    <td className="px-3 py-2 text-muted-foreground text-xs max-w-[160px] truncate">
+                      {c.description ?? "—"}
+                    </td>
+                    <td className="px-3 py-2 text-right font-medium tabular-nums">
+                      <span className={isPayment ? "text-blue-600 dark:text-blue-400" : "text-orange-600 dark:text-orange-400"}>
+                        {isPayment ? "−" : "+"}{eur(c.amount)}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center gap-1 justify-end">
+                        <button
+                          onClick={() => openEdit(c)}
+                          className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(c.id)}
+                          className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-destructive"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -965,7 +962,7 @@ function EmployeeCostsSection({
       <Dialog open={open} onOpenChange={(v) => !v && setOpen(false)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editing ? "Eintrag bearbeiten" : "Personalkost hinzufügen"}</DialogTitle>
+            <DialogTitle>{editing ? "Eintrag bearbeiten" : "Personal-Buchung hinzufügen"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
             <div>
@@ -1005,30 +1002,17 @@ function EmployeeCostsSection({
                 />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-muted-foreground mb-1 block">Typ</label>
-                <select
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  value={form.type}
-                  onChange={(e) => setForm((f) => ({ ...f, type: e.target.value as typeof form.type }))}
-                >
-                  <option value="salary">Lohn</option>
-                  <option value="advance">Vorschuss</option>
-                  <option value="reimbursement">Erstattung</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-xs text-muted-foreground mb-1 block">Status</label>
-                <select
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  value={form.status}
-                  onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as typeof form.status }))}
-                >
-                  <option value="open">Offen</option>
-                  <option value="paid">Bezahlt</option>
-                </select>
-              </div>
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Art</label>
+              <select
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={form.kind}
+                onChange={(e) => setForm((f) => ({ ...f, kind: e.target.value as typeof form.kind }))}
+              >
+                <option value="earning">Verdienst (Lohn) — erhöht Saldo</option>
+                <option value="reimbursement">Beleg / Auslage — erhöht Saldo</option>
+                <option value="payment">Auszahlung — senkt Saldo</option>
+              </select>
             </div>
             <div>
               <label className="text-xs text-muted-foreground mb-1 block">Beschreibung</label>
@@ -1041,19 +1025,21 @@ function EmployeeCostsSection({
               />
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-muted-foreground mb-1 block">Zahlungsart</label>
-                <select
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  value={form.paymentMethod}
-                  onChange={(e) => setForm((f) => ({ ...f, paymentMethod: e.target.value as typeof form.paymentMethod }))}
-                >
-                  <option value="">—</option>
-                  <option value="cash">Bar</option>
-                  <option value="bank_transfer">Überweisung</option>
-                  <option value="other">Sonstiges</option>
-                </select>
-              </div>
+              {form.kind === "payment" && (
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">Zahlungsart</label>
+                  <select
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={form.paymentMethod}
+                    onChange={(e) => setForm((f) => ({ ...f, paymentMethod: e.target.value as typeof form.paymentMethod }))}
+                  >
+                    <option value="">—</option>
+                    <option value="cash">Bar</option>
+                    <option value="bank_transfer">Überweisung</option>
+                    <option value="other">Sonstiges</option>
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="text-xs text-muted-foreground mb-1 block">Bezahlt durch andere Firma</label>
                 <select

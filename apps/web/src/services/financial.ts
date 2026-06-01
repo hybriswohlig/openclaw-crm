@@ -4,15 +4,51 @@ import {
   dealNumbers,
   payments,
   expenses,
-  employeeTransactions,
   employees,
+  employeeLedger,
   privateTransactions,
 } from "@/db/schema";
 import { objects, attributes } from "@/db/schema/objects";
 import { recordValues } from "@/db/schema/records";
-import { eq, and, sum, sql, gte, lt, desc } from "drizzle-orm";
+import { eq, and, sum, sql, gte, lt, desc, inArray } from "drizzle-orm";
 
 export type PaymentMethod = "cash" | "bank_transfer" | "other";
+export type EmployeeLedgerKind = "earning" | "reimbursement" | "payment";
+
+/**
+ * Resolve the live operating company of a deal (the `operating_company`
+ * reference attribute on the `deals` object). Returns null if unset.
+ */
+export async function resolveDealOperatingCompany(
+  workspaceId: string,
+  dealRecordId: string
+): Promise<string | null> {
+  const [ocAttr] = await db
+    .select({ id: attributes.id })
+    .from(attributes)
+    .innerJoin(objects, eq(objects.id, attributes.objectId))
+    .where(
+      and(
+        eq(objects.workspaceId, workspaceId),
+        eq(objects.slug, "deals"),
+        eq(attributes.slug, "operating_company")
+      )
+    )
+    .limit(1);
+  if (!ocAttr) return null;
+
+  const [row] = await db
+    .select({ ref: recordValues.referencedRecordId })
+    .from(recordValues)
+    .where(
+      and(
+        eq(recordValues.attributeId, ocAttr.id),
+        eq(recordValues.recordId, dealRecordId)
+      )
+    )
+    .limit(1);
+  return row?.ref ?? null;
+}
 
 /** Returns [startDate, endDate) strings for a "YYYY-MM" month, or null for all-time. */
 function parseMonth(month: string | null): { start: string; end: string } | null {
@@ -237,134 +273,140 @@ export async function deleteExpense(id: string, workspaceId: string) {
 
 // ─── Employee Transactions ────────────────────────────────────────────────────
 
-export async function listEmployeeTransactions(dealRecordId: string) {
+/**
+ * All ledger entries linked to a deal (the deal's Personalkosten mini-ledger).
+ * Returns earnings, reimbursements and payments in date order.
+ */
+export async function listDealEmployeeLedger(dealRecordId: string) {
   return db
     .select({
-      id: employeeTransactions.id,
-      dealRecordId: employeeTransactions.dealRecordId,
-      employeeId: employeeTransactions.employeeId,
+      id: employeeLedger.id,
+      dealRecordId: employeeLedger.dealRecordId,
+      employeeId: employeeLedger.employeeId,
       employeeName: employees.name,
-      date: employeeTransactions.date,
-      type: employeeTransactions.type,
-      amount: employeeTransactions.amount,
-      amountPaid: employeeTransactions.amountPaid,
-      dueDate: employeeTransactions.dueDate,
-      status: employeeTransactions.status,
-      description: employeeTransactions.description,
-      notes: employeeTransactions.notes,
-      paymentMethod: employeeTransactions.paymentMethod,
-      isTaxDeductible: employeeTransactions.isTaxDeductible,
-      payingOperatingCompanyId: employeeTransactions.payingOperatingCompanyId,
-      receiptFile: employeeTransactions.receiptFile,
-      createdAt: employeeTransactions.createdAt,
-      updatedAt: employeeTransactions.updatedAt,
+      date: employeeLedger.date,
+      kind: employeeLedger.kind,
+      amount: employeeLedger.amount,
+      operatingCompanyId: employeeLedger.operatingCompanyId,
+      payingOperatingCompanyId: employeeLedger.payingOperatingCompanyId,
+      paymentMethod: employeeLedger.paymentMethod,
+      description: employeeLedger.description,
+      notes: employeeLedger.notes,
+      isTaxDeductible: employeeLedger.isTaxDeductible,
+      dueDate: employeeLedger.dueDate,
+      receiptFile: employeeLedger.receiptFile,
+      createdAt: employeeLedger.createdAt,
+      updatedAt: employeeLedger.updatedAt,
     })
-    .from(employeeTransactions)
-    .innerJoin(employees, eq(employees.id, employeeTransactions.employeeId))
-    .where(eq(employeeTransactions.dealRecordId, dealRecordId))
-    .orderBy(employeeTransactions.date);
+    .from(employeeLedger)
+    .innerJoin(employees, eq(employees.id, employeeLedger.employeeId))
+    .where(eq(employeeLedger.dealRecordId, dealRecordId))
+    .orderBy(employeeLedger.date);
 }
 
-export async function createEmployeeTransaction(
+export interface CreateLedgerInput {
+  employeeId: string;
+  date: string;
+  kind: EmployeeLedgerKind;
+  amount: string;
+  /** Firma deren Konto betroffen ist. Wenn nicht gesetzt & dealRecordId vorhanden → aus dem Auftrag abgeleitet. */
+  operatingCompanyId?: string | null;
+  /** Quersubvention: eine andere Firma trägt/zahlt den Betrag. */
+  payingOperatingCompanyId?: string | null;
+  dealRecordId?: string | null;
+  paymentMethod?: PaymentMethod | null;
+  description?: string | null;
+  notes?: string | null;
+  isTaxDeductible?: boolean;
+  dueDate?: string | null;
+  receiptFile?: string | null;
+}
+
+/**
+ * Create a ledger entry (earning / reimbursement / payment). If
+ * `operatingCompanyId` is omitted but a deal is given, it is resolved from the
+ * deal's operating company.
+ */
+export async function createEmployeeLedgerEntry(
   workspaceId: string,
-  dealRecordId: string,
-  input: {
-    employeeId: string;
-    date: string;
-    type: "salary" | "advance" | "reimbursement";
-    amount: string;
-    amountPaid?: string;
-    dueDate?: string | null;
-    status?: "open" | "paid";
-    description?: string;
-    notes?: string;
-    paymentMethod?: PaymentMethod | null;
-    isTaxDeductible?: boolean;
-    payingOperatingCompanyId?: string | null;
-    receiptFile?: string | null;
-  }
+  input: CreateLedgerInput
 ) {
+  let operatingCompanyId = input.operatingCompanyId ?? null;
+  if (!operatingCompanyId && input.dealRecordId) {
+    operatingCompanyId = await resolveDealOperatingCompany(
+      workspaceId,
+      input.dealRecordId
+    );
+  }
+
   const [row] = await db
-    .insert(employeeTransactions)
-    .values({ workspaceId, dealRecordId, ...input })
+    .insert(employeeLedger)
+    .values({
+      workspaceId,
+      employeeId: input.employeeId,
+      date: input.date,
+      kind: input.kind,
+      amount: input.amount,
+      operatingCompanyId,
+      payingOperatingCompanyId: input.payingOperatingCompanyId ?? null,
+      dealRecordId: input.dealRecordId ?? null,
+      paymentMethod: input.paymentMethod ?? null,
+      description: input.description ?? null,
+      notes: input.notes ?? null,
+      isTaxDeductible: input.isTaxDeductible ?? true,
+      dueDate: input.dueDate ?? null,
+      receiptFile: input.receiptFile ?? null,
+    })
     .returning();
   return row;
 }
 
-export async function updateEmployeeTransaction(
+export async function updateEmployeeLedgerEntry(
   id: string,
   workspaceId: string,
   input: Partial<{
     date: string;
-    type: "salary" | "advance" | "reimbursement";
+    kind: EmployeeLedgerKind;
     amount: string;
-    amountPaid: string;
-    dueDate: string | null;
-    status: "open" | "paid";
-    description: string;
-    notes: string;
-    paymentMethod: PaymentMethod | null;
-    isTaxDeductible: boolean;
+    operatingCompanyId: string | null;
     payingOperatingCompanyId: string | null;
+    dealRecordId: string | null;
+    paymentMethod: PaymentMethod | null;
+    description: string | null;
+    notes: string | null;
+    isTaxDeductible: boolean;
+    dueDate: string | null;
     receiptFile: string | null;
   }>
 ) {
   const [row] = await db
-    .update(employeeTransactions)
+    .update(employeeLedger)
     .set({ ...input, updatedAt: new Date() })
     .where(
-      and(
-        eq(employeeTransactions.id, id),
-        eq(employeeTransactions.workspaceId, workspaceId)
-      )
+      and(eq(employeeLedger.id, id), eq(employeeLedger.workspaceId, workspaceId))
     )
     .returning();
   return row ?? null;
 }
 
-/**
- * Record a payment against an employee transaction. Increments amount_paid by
- * the given delta (negative is allowed but clamped to 0). Mirrors status to
- * "paid" once amount_paid >= amount.
- */
-export async function recordEmployeeTransactionPayment(
-  id: string,
-  workspaceId: string,
-  delta: number
-) {
-  const [existing] = await db
-    .select()
-    .from(employeeTransactions)
-    .where(and(eq(employeeTransactions.id, id), eq(employeeTransactions.workspaceId, workspaceId)))
-    .limit(1);
-  if (!existing) return null;
-
-  const total = Number(existing.amount);
-  const current = Number(existing.amountPaid);
-  const next = Math.max(0, current + delta);
-  const nextStatus: "open" | "paid" = next + 0.005 >= total ? "paid" : "open";
-
+export async function deleteEmployeeLedgerEntry(id: string, workspaceId: string) {
   const [row] = await db
-    .update(employeeTransactions)
-    .set({ amountPaid: next.toFixed(2), status: nextStatus, updatedAt: new Date() })
-    .where(eq(employeeTransactions.id, id))
-    .returning();
-  return row;
+    .delete(employeeLedger)
+    .where(
+      and(eq(employeeLedger.id, id), eq(employeeLedger.workspaceId, workspaceId))
+    )
+    .returning({ id: employeeLedger.id });
+  return row ?? null;
 }
 
-export async function deleteEmployeeTransaction(
-  id: string,
-  workspaceId: string
-) {
+export async function getEmployeeLedgerEntry(id: string, workspaceId: string) {
   const [row] = await db
-    .delete(employeeTransactions)
+    .select()
+    .from(employeeLedger)
     .where(
-      and(
-        eq(employeeTransactions.id, id),
-        eq(employeeTransactions.workspaceId, workspaceId)
-      )
+      and(eq(employeeLedger.id, id), eq(employeeLedger.workspaceId, workspaceId))
     )
-    .returning({ id: employeeTransactions.id });
+    .limit(1);
   return row ?? null;
 }
 
@@ -468,27 +510,28 @@ export async function getProfitSummary(dealRecordId: string) {
     .groupBy(expenses.category);
 
   const [employeeCostsTotal] = await db
-    .select({ total: sum(employeeTransactions.amount) })
-    .from(employeeTransactions)
+    .select({ total: sum(employeeLedger.amount) })
+    .from(employeeLedger)
     .where(
       and(
-        eq(employeeTransactions.dealRecordId, dealRecordId),
-        // Only count salary and advances as costs, not reimbursements paid back to employees
-        sql`${employeeTransactions.type} IN ('salary', 'advance')`
+        eq(employeeLedger.dealRecordId, dealRecordId),
+        // Only earnings count as labour cost — reimbursements are paybacks and
+        // payments are mere settlements of an already-recognised cost.
+        eq(employeeLedger.kind, "earning")
       )
     );
 
   const employeeCostsByPerson = await db
     .select({
       employeeName: employees.name,
-      total: sum(employeeTransactions.amount),
+      total: sum(employeeLedger.amount),
     })
-    .from(employeeTransactions)
-    .innerJoin(employees, eq(employees.id, employeeTransactions.employeeId))
+    .from(employeeLedger)
+    .innerJoin(employees, eq(employees.id, employeeLedger.employeeId))
     .where(
       and(
-        eq(employeeTransactions.dealRecordId, dealRecordId),
-        sql`${employeeTransactions.type} IN ('salary', 'advance')`
+        eq(employeeLedger.dealRecordId, dealRecordId),
+        eq(employeeLedger.kind, "earning")
       )
     )
     .groupBy(employees.name);
@@ -562,7 +605,7 @@ export async function getFinancialOverview(
     ? and(gte(expenses.date, range.start), lt(expenses.date, range.end))
     : undefined;
   const empTxDateCond = range
-    ? and(gte(employeeTransactions.date, range.start), lt(employeeTransactions.date, range.end))
+    ? and(gte(employeeLedger.date, range.start), lt(employeeLedger.date, range.end))
     : undefined;
   const privateDateCond = range
     ? and(gte(privateTransactions.date, range.start), lt(privateTransactions.date, range.end))
@@ -588,20 +631,23 @@ export async function getFinancialOverview(
     .from(expenses)
     .where(and(eq(expenses.workspaceId, workspaceId), expenseDateCond));
 
+  // Employee labour cost = `earning` ledger rows (the old salary/advance amounts).
+  // Reimbursements + payments do not count as cost here (payments merely settle
+  // an already-recognised cost; reimbursements are paybacks).
   const empTxRows = await db
     .select({
-      dealRecordId: employeeTransactions.dealRecordId,
-      amount: employeeTransactions.amount,
-      type: employeeTransactions.type,
+      dealRecordId: employeeLedger.dealRecordId,
+      operatingCompanyId: employeeLedger.operatingCompanyId,
+      amount: employeeLedger.amount,
       employeeName: employees.name,
-      payingOperatingCompanyId: employeeTransactions.payingOperatingCompanyId,
+      payingOperatingCompanyId: employeeLedger.payingOperatingCompanyId,
     })
-    .from(employeeTransactions)
-    .innerJoin(employees, eq(employees.id, employeeTransactions.employeeId))
+    .from(employeeLedger)
+    .innerJoin(employees, eq(employees.id, employeeLedger.employeeId))
     .where(
       and(
-        eq(employeeTransactions.workspaceId, workspaceId),
-        sql`${employeeTransactions.type} IN ('salary', 'advance')`,
+        eq(employeeLedger.workspaceId, workspaceId),
+        eq(employeeLedger.kind, "earning"),
         empTxDateCond
       )
     );
@@ -615,11 +661,13 @@ export async function getFinancialOverview(
 
   // ── Deal → operating_company lookup ───────────────────────────────────────
   const dealIds = [
-    ...new Set([
-      ...paymentRows.map((r) => r.dealRecordId),
-      ...expenseRows.map((r) => r.dealRecordId),
-      ...empTxRows.map((r) => r.dealRecordId),
-    ]),
+    ...new Set(
+      [
+        ...paymentRows.map((r) => r.dealRecordId),
+        ...expenseRows.map((r) => r.dealRecordId),
+        ...empTxRows.map((r) => r.dealRecordId),
+      ].filter((id): id is string => !!id)
+    ),
   ];
 
   const dealCompanyLookup = new Map<string, string | null>(); // dealId → op_company_id
@@ -661,7 +709,10 @@ export async function getFinancialOverview(
   const touchedCompanyIds = new Set<string>();
   for (const id of dealCompanyLookup.values()) if (id) touchedCompanyIds.add(id);
   for (const r of expenseRows) if (r.payingOperatingCompanyId) touchedCompanyIds.add(r.payingOperatingCompanyId);
-  for (const r of empTxRows)   if (r.payingOperatingCompanyId) touchedCompanyIds.add(r.payingOperatingCompanyId);
+  for (const r of empTxRows) {
+    if (r.payingOperatingCompanyId) touchedCompanyIds.add(r.payingOperatingCompanyId);
+    if (r.operatingCompanyId) touchedCompanyIds.add(r.operatingCompanyId);
+  }
   for (const r of privateRows) touchedCompanyIds.add(r.operatingCompanyId);
 
   if (touchedCompanyIds.size) {
@@ -744,9 +795,12 @@ export async function getFinancialOverview(
     }
   }
 
-  // Employee costs → same rules
+  // Employee costs → same rules. For deal-linked earnings the company is the
+  // deal's live owner; standalone earnings carry their own operating company.
   for (const t of empTxRows) {
-    const dealOp = dealCompanyLookup.get(t.dealRecordId) ?? null;
+    const dealOp = t.dealRecordId
+      ? dealCompanyLookup.get(t.dealRecordId) ?? null
+      : t.operatingCompanyId ?? null;
     const effectivePayer = t.payingOperatingCompanyId ?? dealOp;
     const amt = Number(t.amount);
     const isCross =
@@ -812,6 +866,7 @@ export async function getFinancialOverview(
     dealMap.set(e.dealRecordId, d);
   }
   for (const t of empTxRows) {
+    if (!t.dealRecordId) continue; // standalone earnings are not part of a deal row
     const d = dealMap.get(t.dealRecordId) ?? { income: 0, expenses: 0, empCosts: 0 };
     d.empCosts += Number(t.amount);
     dealMap.set(t.dealRecordId, d);
@@ -986,11 +1041,10 @@ export interface CompanyDetails {
     id: string;
     date: string;
     amount: number;
-    type: "salary" | "advance" | "reimbursement";
+    type: "earning" | "reimbursement" | "payment";
     employeeName: string;
     description: string | null;
     paymentMethod: string | null;
-    status: "open" | "paid";
     isTaxDeductible: boolean;
     isCrossSubsidy: boolean;
     dealRecordId: string;
@@ -1043,8 +1097,8 @@ export async function getCompanyDetails(
     : undefined;
   const empTxDateCond = range
     ? and(
-        gte(employeeTransactions.date, range.start),
-        lt(employeeTransactions.date, range.end)
+        gte(employeeLedger.date, range.start),
+        lt(employeeLedger.date, range.end)
       )
     : undefined;
   const privateDateCond = range
@@ -1065,27 +1119,27 @@ export async function getCompanyDetails(
     .from(expenses)
     .where(and(eq(expenses.workspaceId, workspaceId), expenseDateCond));
 
+  // Earnings = labour cost rows (the old salary/advance amounts).
   const empTxRows = await db
     .select({
-      id: employeeTransactions.id,
-      dealRecordId: employeeTransactions.dealRecordId,
+      id: employeeLedger.id,
+      dealRecordId: employeeLedger.dealRecordId,
+      operatingCompanyId: employeeLedger.operatingCompanyId,
       employeeName: employees.name,
-      date: employeeTransactions.date,
-      type: employeeTransactions.type,
-      amount: employeeTransactions.amount,
-      status: employeeTransactions.status,
-      description: employeeTransactions.description,
-      paymentMethod: employeeTransactions.paymentMethod,
-      isTaxDeductible: employeeTransactions.isTaxDeductible,
-      payingOperatingCompanyId: employeeTransactions.payingOperatingCompanyId,
+      date: employeeLedger.date,
+      kind: employeeLedger.kind,
+      amount: employeeLedger.amount,
+      description: employeeLedger.description,
+      paymentMethod: employeeLedger.paymentMethod,
+      isTaxDeductible: employeeLedger.isTaxDeductible,
+      payingOperatingCompanyId: employeeLedger.payingOperatingCompanyId,
     })
-    .from(employeeTransactions)
-    .innerJoin(employees, eq(employees.id, employeeTransactions.employeeId))
+    .from(employeeLedger)
+    .innerJoin(employees, eq(employees.id, employeeLedger.employeeId))
     .where(
       and(
-        eq(employeeTransactions.workspaceId, workspaceId),
-        // Salary/advance only — reimbursements are paybacks, not costs.
-        sql`${employeeTransactions.type} IN ('salary', 'advance')`,
+        eq(employeeLedger.workspaceId, workspaceId),
+        eq(employeeLedger.kind, "earning"),
         empTxDateCond
       )
     );
@@ -1099,11 +1153,13 @@ export async function getCompanyDetails(
 
   // ── Deal → operating_company + deal name + deal number lookups ───────────
   const dealIds = [
-    ...new Set([
-      ...paymentRows.map((r) => r.dealRecordId),
-      ...expenseRows.map((r) => r.dealRecordId),
-      ...empTxRows.map((r) => r.dealRecordId),
-    ]),
+    ...new Set(
+      [
+        ...paymentRows.map((r) => r.dealRecordId),
+        ...expenseRows.map((r) => r.dealRecordId),
+        ...empTxRows.map((r) => r.dealRecordId),
+      ].filter((id): id is string => !!id)
+    ),
   ];
 
   const dealCompanyLookup = new Map<string, string | null>();
@@ -1183,9 +1239,11 @@ export async function getCompanyDetails(
   for (const r of expenseRows)
     if (r.payingOperatingCompanyId)
       touchedCompanyIds.add(r.payingOperatingCompanyId);
-  for (const r of empTxRows)
+  for (const r of empTxRows) {
     if (r.payingOperatingCompanyId)
       touchedCompanyIds.add(r.payingOperatingCompanyId);
+    if (r.operatingCompanyId) touchedCompanyIds.add(r.operatingCompanyId);
+  }
   for (const id of dealCompanyLookup.values()) if (id) touchedCompanyIds.add(id);
 
   if (touchedCompanyIds.size) {
@@ -1347,29 +1405,35 @@ export async function getCompanyDetails(
   let totalEmployeeCosts = 0;
 
   for (const t of empTxRows) {
-    const dealOp = dealCompanyLookup.get(t.dealRecordId) ?? null;
+    const dealId = t.dealRecordId;
+    const dealOp = dealId
+      ? dealCompanyLookup.get(dealId) ?? null
+      : t.operatingCompanyId ?? null;
     const effectivePayer = t.payingOperatingCompanyId ?? dealOp;
     const isCross =
       t.payingOperatingCompanyId !== null &&
       dealOp !== null &&
       t.payingOperatingCompanyId !== dealOp;
     const amt = Number(t.amount);
+    const dealNumber = dealId ? dealNumberLookup.get(dealId) ?? "—" : "—";
+    const dealName = dealId
+      ? dealNameLookup.get(dealId) ?? "Unbekannt"
+      : "Freie Buchung";
 
     if (effectivePayer === companyId) {
       employeeEntries.push({
         id: t.id,
         date: t.date,
         amount: amt,
-        type: t.type,
+        type: t.kind,
         employeeName: t.employeeName,
         description: t.description,
         paymentMethod: t.paymentMethod,
-        status: t.status,
         isTaxDeductible: t.isTaxDeductible,
         isCrossSubsidy: isCross,
-        dealRecordId: t.dealRecordId,
-        dealNumber: dealNumberLookup.get(t.dealRecordId) ?? "—",
-        dealName: dealNameLookup.get(t.dealRecordId) ?? "Unbekannt",
+        dealRecordId: dealId ?? "",
+        dealNumber,
+        dealName,
       });
       totalEmployeeCosts += amt;
       if (isCross) totalCrossOut += amt;
@@ -1382,13 +1446,13 @@ export async function getCompanyDetails(
         kind: "employee",
         date: t.date,
         amount: amt,
-        label: `${t.employeeName} — ${t.type === "salary" ? "Lohn" : "Vorschuss"}`,
+        label: `${t.employeeName} — Verdienst`,
         paidByCompanyId: t.payingOperatingCompanyId!,
         paidByCompanyName:
           companyNames.get(t.payingOperatingCompanyId!) ?? "Unbekannt",
-        dealRecordId: t.dealRecordId,
-        dealNumber: dealNumberLookup.get(t.dealRecordId) ?? "—",
-        dealName: dealNameLookup.get(t.dealRecordId) ?? "Unbekannt",
+        dealRecordId: dealId ?? "",
+        dealNumber,
+        dealName,
       });
     }
   }

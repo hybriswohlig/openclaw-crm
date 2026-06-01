@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useEffect, useCallback } from "react";
+import { useRef, useState, useEffect, useCallback, Fragment } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,11 +15,11 @@ import {
   Briefcase,
   Wallet,
   Receipt,
-  AlertCircle,
-  CalendarClock,
   FileText,
   Scale,
   ShieldOff,
+  ArrowRightLeft,
+  Building2,
 } from "lucide-react";
 import { EmployeeAvatar } from "@/components/employees/employee-avatar";
 import { cn } from "@/lib/utils";
@@ -32,6 +32,7 @@ interface Employee {
   photoBase64: string | null;
   createdAt: string;
   contractCount: number;
+  saldoTotal: number;
 }
 
 interface AuftragRow {
@@ -45,49 +46,66 @@ interface AuftragRow {
   assignedAt: string;
 }
 
-interface TransactionRow {
+type LedgerKind = "earning" | "reimbursement" | "payment";
+
+interface LedgerRow {
   id: string;
   date: string;
-  type: "salary" | "advance" | "reimbursement";
+  kind: LedgerKind;
   amount: number;
-  amountPaid: number;
-  amountOutstanding: number;
-  status: "offen" | "teilweise bezahlt" | "bezahlt";
-  dueDate: string | null;
+  signedAmount: number;
+  operatingCompanyId: string | null;
+  operatingCompanyName: string;
+  payingOperatingCompanyId: string | null;
+  payingOperatingCompanyName: string | null;
+  isCrossSubsidy: boolean;
+  dealRecordId: string | null;
+  dealNumber: string | null;
+  dealName: string | null;
+  paymentMethod: string | null;
   description: string | null;
   notes: string | null;
-  dealRecordId: string;
-  dealNumber: string | null;
-  dealName: string;
   isTaxDeductible: boolean;
   hasReceipt: boolean;
+  dueDate: string | null;
+}
+
+interface CompanySaldo {
+  companyId: string | null;
+  companyName: string;
+  earned: number;
+  paid: number;
+  balance: number;
 }
 
 interface EmployeeDetail {
-  contracts: { assignmentId: string; dealRecordId: string; role: string; assignedAt: string }[];
   auftraege: AuftragRow[];
-  paymentsReceived: TransactionRow[];
-  outOfPocket: TransactionRow[];
+  ledger: LedgerRow[];
+  saldoTotal: number;
+  saldoByCompany: CompanySaldo[];
   totals: {
-    receivedTotal: number;
-    outstandingTotal: number;
-    outOfPocketOpen: number;
-    deductibleReceived: number;
-    nonDeductibleReceived: number;
+    earnedTotal: number;
+    paidTotal: number;
+    reimbursementTotal: number;
     receiptCount: number;
   };
 }
 
-const TYPE_LABEL: Record<TransactionRow["type"], string> = {
-  salary: "Lohn",
-  advance: "Vorschuss",
+interface OperatingCompany {
+  id: string;
+  name: string;
+}
+
+const KIND_LABEL: Record<LedgerKind, string> = {
+  earning: "Verdienst",
   reimbursement: "Erstattung",
+  payment: "Auszahlung",
 };
 
-const STATUS_BADGE: Record<TransactionRow["status"], { label: string; cls: string }> = {
-  offen: { label: "offen", cls: "bg-amber-500/15 text-amber-700" },
-  "teilweise bezahlt": { label: "teilweise bezahlt", cls: "bg-blue-500/15 text-blue-700" },
-  bezahlt: { label: "bezahlt", cls: "bg-emerald-500/15 text-emerald-700" },
+const METHOD_LABEL: Record<string, string> = {
+  cash: "Bar",
+  bank_transfer: "Überweisung",
+  other: "Sonstiges",
 };
 
 function fmtEUR(n: number): string {
@@ -99,14 +117,9 @@ function fmtDate(iso: string | null): string {
   return new Date(iso + (iso.length === 10 ? "T00:00:00" : "")).toLocaleDateString("de-DE");
 }
 
-function isOverdue(due: string | null, status: TransactionRow["status"]): boolean {
-  if (!due) return false;
-  if (status === "bezahlt") return false;
-  return new Date(due + "T23:59:59") < new Date();
-}
-
 export default function EmployeesPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [companies, setCompanies] = useState<OperatingCompany[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -120,6 +133,13 @@ export default function EmployeesPage() {
   });
   const [saving, setSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Ledger entry dialog
+  const [ledgerDialog, setLedgerDialog] = useState<{
+    employeeId: string;
+    entry: LedgerRow | null;
+    defaultKind: LedgerKind;
+  } | null>(null);
 
   const fetchEmployees = useCallback(async () => {
     setLoading(true);
@@ -136,6 +156,10 @@ export default function EmployeesPage() {
 
   useEffect(() => {
     fetchEmployees();
+    fetch("/api/v1/operating-companies")
+      .then((r) => (r.ok ? r.json() : { data: [] }))
+      .then((d) => setCompanies(d.data || []))
+      .catch(() => {});
   }, [fetchEmployees]);
 
   async function handleSave() {
@@ -179,9 +203,10 @@ export default function EmployeesPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Delete this employee?")) return;
+    if (!confirm("Diesen Mitarbeiter löschen?")) return;
     const res = await fetch(`/api/v1/employees/${id}`, { method: "DELETE" });
     if (res.ok) fetchEmployees();
+    else alert("Löschen nicht möglich (es existieren noch Buchungen).");
   }
 
   function startEdit(emp: Employee) {
@@ -200,11 +225,11 @@ export default function EmployeesPage() {
     if (!res.ok) return;
     const data = await res.json();
     setDetail({
-      contracts: data.data?.contracts ?? [],
       auftraege: data.data?.auftraege ?? [],
-      paymentsReceived: data.data?.paymentsReceived ?? [],
-      outOfPocket: data.data?.outOfPocket ?? [],
-      totals: data.data?.totals ?? { receivedTotal: 0, outstandingTotal: 0, outOfPocketOpen: 0 },
+      ledger: data.data?.ledger ?? [],
+      saldoTotal: data.data?.saldoTotal ?? 0,
+      saldoByCompany: data.data?.saldoByCompany ?? [],
+      totals: data.data?.totals ?? { earnedTotal: 0, paidTotal: 0, reimbursementTotal: 0, receiptCount: 0 },
     });
   }, []);
 
@@ -219,20 +244,19 @@ export default function EmployeesPage() {
     await reloadDetail(emp.id);
   }
 
-  async function recordPayment(emp: Employee, transactionId: string) {
-    const input = prompt("Betrag der Zahlung in EUR (z. B. 50 oder -50 zum Stornieren):");
-    if (!input) return;
-    const delta = Number(input.replace(",", "."));
-    if (!Number.isFinite(delta) || delta === 0) {
-      alert("Ungültiger Betrag.");
-      return;
+  async function afterLedgerChange(employeeId: string) {
+    setLedgerDialog(null);
+    await reloadDetail(employeeId);
+    fetchEmployees(); // refresh saldo column
+  }
+
+  async function deleteEntry(employeeId: string, entryId: string) {
+    if (!confirm("Diese Buchung löschen?")) return;
+    const res = await fetch(`/api/v1/employee-ledger/${entryId}`, { method: "DELETE" });
+    if (res.ok) {
+      await reloadDetail(employeeId);
+      fetchEmployees();
     }
-    const res = await fetch(`/api/v1/employee-transactions/${transactionId}/record-payment`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ delta }),
-    });
-    if (res.ok) await reloadDetail(emp.id);
   }
 
   if (loading) {
@@ -244,9 +268,9 @@ export default function EmployeesPage() {
   }
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
+    <div className="p-6 max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-semibold">Employees</h1>
+        <h1 className="text-2xl font-semibold">Mitarbeiter</h1>
         <Button
           onClick={() => {
             setEditId(null);
@@ -255,15 +279,14 @@ export default function EmployeesPage() {
           }}
         >
           <Plus className="mr-1.5 h-4 w-4" />
-          Add Employee
+          Mitarbeiter hinzufügen
         </Button>
       </div>
 
       {showForm && (
         <div className="mb-6 rounded-lg border border-border p-4 space-y-3">
-          <h3 className="font-medium text-sm">{editId ? "Edit Employee" : "New Employee"}</h3>
+          <h3 className="font-medium text-sm">{editId ? "Mitarbeiter bearbeiten" : "Neuer Mitarbeiter"}</h3>
           <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4">
-            {/* Avatar uploader */}
             <div className="flex flex-col items-center gap-2">
               <button
                 type="button"
@@ -271,11 +294,7 @@ export default function EmployeesPage() {
                 className="group relative"
                 title="Foto hochladen"
               >
-                <EmployeeAvatar
-                  name={form.name || "?"}
-                  photoBase64={form.photoBase64}
-                  size="xl"
-                />
+                <EmployeeAvatar name={form.name || "?"} photoBase64={form.photoBase64} size="xl" />
                 <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition">
                   <ImagePlus className="h-5 w-5 text-white" />
                 </div>
@@ -313,17 +332,17 @@ export default function EmployeesPage() {
                 />
               </div>
               <div>
-                <label className="text-xs text-muted-foreground">Experience</label>
+                <label className="text-xs text-muted-foreground">Erfahrung</label>
                 <input
                   type="text"
                   value={form.experience}
                   onChange={(e) => setForm({ ...form, experience: e.target.value })}
-                  placeholder="e.g. 5 years, Senior"
+                  placeholder="z.B. 5 Jahre, Senior"
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
                 />
               </div>
               <div>
-                <label className="text-xs text-muted-foreground">Hourly Rate (EUR) *</label>
+                <label className="text-xs text-muted-foreground">Stundenlohn (EUR) *</label>
                 <input
                   type="number"
                   step="0.01"
@@ -337,7 +356,7 @@ export default function EmployeesPage() {
           <div className="flex gap-2">
             <Button onClick={handleSave} disabled={saving || !form.name || !form.hourlyRate}>
               {saving && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
-              {editId ? "Update" : "Create"}
+              {editId ? "Aktualisieren" : "Anlegen"}
             </Button>
             <Button
               variant="ghost"
@@ -346,32 +365,32 @@ export default function EmployeesPage() {
                 setEditId(null);
               }}
             >
-              Cancel
+              Abbrechen
             </Button>
           </div>
         </div>
       )}
 
       {employees.length === 0 ? (
-        <p className="text-muted-foreground text-sm">No employees yet. Add your first one above.</p>
+        <p className="text-muted-foreground text-sm">Noch keine Mitarbeiter. Lege oben den ersten an.</p>
       ) : (
         <div className="rounded-lg border border-border overflow-x-auto">
-          <table className="w-full text-sm min-w-[640px]">
+          <table className="w-full text-sm min-w-[680px]">
             <thead>
               <tr className="border-b border-border bg-muted/50">
                 <th className="text-left px-4 py-3 font-medium w-8" />
                 <th className="text-left px-4 py-3 font-medium">Name</th>
-                <th className="text-left px-4 py-3 font-medium">Experience</th>
-                <th className="text-right px-4 py-3 font-medium">Hourly Rate</th>
-                <th className="text-right px-4 py-3 font-medium">Contracts</th>
+                <th className="text-left px-4 py-3 font-medium">Erfahrung</th>
+                <th className="text-right px-4 py-3 font-medium">Stundenlohn</th>
+                <th className="text-right px-4 py-3 font-medium">Aufträge</th>
+                <th className="text-right px-4 py-3 font-medium">Saldo (offen)</th>
                 <th className="text-right px-4 py-3 font-medium w-24" />
               </tr>
             </thead>
             <tbody>
               {employees.map((emp) => (
-                <>
+                <Fragment key={emp.id}>
                   <tr
-                    key={emp.id}
                     className="border-b border-border hover:bg-muted/30 cursor-pointer"
                     onClick={() => toggleExpand(emp)}
                   >
@@ -389,13 +408,11 @@ export default function EmployeesPage() {
                       </div>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">{emp.experience || "—"}</td>
-                    <td className="px-4 py-3 text-right">
-                      {Number(emp.hourlyRate).toLocaleString("de-DE", {
-                        style: "currency",
-                        currency: "EUR",
-                      })}
-                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums">{fmtEUR(Number(emp.hourlyRate))}</td>
                     <td className="px-4 py-3 text-right">{emp.contractCount}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">
+                      <SaldoBadge value={emp.saldoTotal} />
+                    </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-1">
                         <Button
@@ -425,7 +442,7 @@ export default function EmployeesPage() {
                   </tr>
                   {expandedId === emp.id && (
                     <tr key={`${emp.id}-detail`}>
-                      <td colSpan={6} className="bg-muted/10 px-8 py-4">
+                      <td colSpan={7} className="bg-muted/10 px-6 py-4">
                         {!detail ? (
                           <div className="flex items-center gap-2 text-xs text-muted-foreground">
                             <Loader2 className="h-3 w-3 animate-spin" /> Lade Details…
@@ -433,71 +450,141 @@ export default function EmployeesPage() {
                         ) : (
                           <EmployeeDetailView
                             detail={detail}
-                            onRecordPayment={(txId) => recordPayment(emp, txId)}
+                            onAddEntry={(defaultKind) =>
+                              setLedgerDialog({ employeeId: emp.id, entry: null, defaultKind })
+                            }
+                            onEditEntry={(entry) =>
+                              setLedgerDialog({ employeeId: emp.id, entry, defaultKind: entry.kind })
+                            }
+                            onDeleteEntry={(entryId) => deleteEntry(emp.id, entryId)}
                           />
                         )}
                       </td>
                     </tr>
                   )}
-                </>
+                </Fragment>
               ))}
             </tbody>
           </table>
         </div>
       )}
+
+      {ledgerDialog && (
+        <LedgerEntryDialog
+          employeeId={ledgerDialog.employeeId}
+          entry={ledgerDialog.entry}
+          defaultKind={ledgerDialog.defaultKind}
+          companies={companies}
+          onClose={() => setLedgerDialog(null)}
+          onSaved={() => afterLedgerChange(ledgerDialog.employeeId)}
+        />
+      )}
     </div>
   );
 }
 
-// ─── Detail view (Aufträge / Zahlungen / Auslagen) ──────────────────────────
+// ─── Saldo badge ─────────────────────────────────────────────────────────────
+
+function SaldoBadge({ value, small }: { value: number; small?: boolean }) {
+  // Positive = wir schulden (amber). ~0 = ausgeglichen (muted). Negative = überzahlt (emerald).
+  const positive = value > 0.005;
+  const negative = value < -0.005;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-md px-2 py-0.5 font-medium tabular-nums",
+        small ? "text-xs" : "text-sm",
+        positive && "bg-amber-500/15 text-amber-700 dark:text-amber-400",
+        negative && "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
+        !positive && !negative && "text-muted-foreground"
+      )}
+      title={positive ? "Wir schulden dem Mitarbeiter" : negative ? "Überzahlt (Mitarbeiter schuldet uns)" : "Ausgeglichen"}
+    >
+      {fmtEUR(value)}
+    </span>
+  );
+}
+
+// ─── Detail view ──────────────────────────────────────────────────────────────
 
 function EmployeeDetailView({
   detail,
-  onRecordPayment,
+  onAddEntry,
+  onEditEntry,
+  onDeleteEntry,
 }: {
   detail: EmployeeDetail;
-  onRecordPayment: (transactionId: string) => void;
+  onAddEntry: (kind: LedgerKind) => void;
+  onEditEntry: (entry: LedgerRow) => void;
+  onDeleteEntry: (entryId: string) => void;
 }) {
   return (
     <div className="space-y-5">
-      {/* Summary stats */}
-      <div className="flex flex-wrap items-center gap-2 text-xs">
-        <Stat label="Aufträge" value={String(detail.auftraege.length)} icon={<Briefcase className="h-3.5 w-3.5" />} />
-        <Stat label="Erhalten" value={fmtEUR(detail.totals.receivedTotal)} icon={<Wallet className="h-3.5 w-3.5" />} />
-        <Stat
-          label="Abzugsfähig"
-          value={fmtEUR(detail.totals.deductibleReceived)}
-          icon={<Scale className="h-3.5 w-3.5" />}
-        />
-        <Stat
-          label="Nicht abz."
-          value={fmtEUR(detail.totals.nonDeductibleReceived)}
-          icon={<ShieldOff className="h-3.5 w-3.5" />}
-          highlight={detail.totals.nonDeductibleReceived > 0}
-        />
-        <Stat
-          label="Belege"
-          value={String(detail.totals.receiptCount)}
-          icon={<FileText className="h-3.5 w-3.5" />}
-        />
-        <Stat
-          label="Offene Auslagen"
-          value={fmtEUR(detail.totals.outOfPocketOpen)}
-          icon={<Receipt className="h-3.5 w-3.5" />}
-          highlight={detail.totals.outOfPocketOpen > 0}
-        />
-        <Stat
-          label="Insgesamt offen"
-          value={fmtEUR(detail.totals.outstandingTotal)}
-          icon={<AlertCircle className="h-3.5 w-3.5" />}
-          highlight={detail.totals.outstandingTotal > 0}
-        />
+      {/* Saldo block */}
+      <div className="rounded-lg border border-border bg-background p-4">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-xs text-muted-foreground mb-1">Saldo gesamt (firmenübergreifend)</p>
+            <div className="flex items-center gap-2">
+              <SaldoBadge value={detail.saldoTotal} />
+              <span className="text-xs text-muted-foreground">
+                {detail.saldoTotal > 0.005
+                  ? "offen — das schulden wir noch"
+                  : detail.saldoTotal < -0.005
+                  ? "überzahlt"
+                  : "ausgeglichen"}
+              </span>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {detail.saldoByCompany.map((c) => (
+                <span
+                  key={c.companyId ?? "unassigned"}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs"
+                >
+                  <Building2 className="h-3 w-3 text-muted-foreground" />
+                  <span className="text-muted-foreground">{c.companyName}:</span>
+                  <span
+                    className={cn(
+                      "font-medium tabular-nums",
+                      c.balance > 0.005 && "text-amber-700 dark:text-amber-400",
+                      c.balance < -0.005 && "text-emerald-700 dark:text-emerald-400"
+                    )}
+                  >
+                    {fmtEUR(c.balance)}
+                  </span>
+                </span>
+              ))}
+            </div>
+          </div>
+          <div className="flex flex-col gap-2 items-end">
+            <Button size="sm" onClick={() => onAddEntry("payment")}>
+              <Wallet className="h-3.5 w-3.5 mr-1.5" />
+              Zahlung erfassen
+            </Button>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => onAddEntry("earning")}>
+                <Plus className="h-3.5 w-3.5 mr-1" />
+                Verdienst
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => onAddEntry("reimbursement")}>
+                <Receipt className="h-3.5 w-3.5 mr-1" />
+                Beleg
+              </Button>
+            </div>
+          </div>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground border-t border-border pt-3">
+          <span>Verdient gesamt: <span className="font-medium text-foreground">{fmtEUR(detail.totals.earnedTotal)}</span></span>
+          <span>Ausgezahlt gesamt: <span className="font-medium text-foreground">{fmtEUR(detail.totals.paidTotal)}</span></span>
+          <span>Belege (Erstattungen): <span className="font-medium text-foreground">{fmtEUR(detail.totals.reimbursementTotal)}</span></span>
+          <span>Belege angehängt: <span className="font-medium text-foreground">{detail.totals.receiptCount}</span></span>
+        </div>
       </div>
 
       {/* Aufträge */}
       <DetailSection title="Aufträge" icon={<Briefcase className="h-4 w-4" />} count={detail.auftraege.length}>
         {detail.auftraege.length === 0 ? (
-          <p className="text-xs text-muted-foreground py-2 px-1">Noch keine Aufträge.</p>
+          <p className="text-xs text-muted-foreground py-2 px-1">Noch keine Aufträge zugewiesen.</p>
         ) : (
           <div className="rounded-md border border-border bg-background divide-y divide-border">
             {detail.auftraege.map((a) => (
@@ -526,56 +613,14 @@ function EmployeeDetailView({
         )}
       </DetailSection>
 
-      {/* Zahlungen erhalten */}
-      <DetailSection
-        title="Zahlungen erhalten"
-        icon={<Wallet className="h-4 w-4" />}
-        count={detail.paymentsReceived.length}
-      >
-        {detail.paymentsReceived.length === 0 ? (
-          <p className="text-xs text-muted-foreground py-2 px-1">Noch keine Zahlungen erhalten.</p>
+      {/* Buchungsverlauf */}
+      <DetailSection title="Buchungsverlauf" icon={<Wallet className="h-4 w-4" />} count={detail.ledger.length}>
+        {detail.ledger.length === 0 ? (
+          <p className="text-xs text-muted-foreground py-2 px-1">Noch keine Buchungen.</p>
         ) : (
-          <TransactionTable rows={detail.paymentsReceived} onRecordPayment={onRecordPayment} />
+          <LedgerTable rows={detail.ledger} onEdit={onEditEntry} onDelete={onDeleteEntry} />
         )}
       </DetailSection>
-
-      {/* Auslagen (eigene Tasche) */}
-      <DetailSection
-        title="Auslagen (aus eigener Tasche)"
-        icon={<Receipt className="h-4 w-4" />}
-        count={detail.outOfPocket.length}
-      >
-        {detail.outOfPocket.length === 0 ? (
-          <p className="text-xs text-muted-foreground py-2 px-1">Keine Auslagen erfasst.</p>
-        ) : (
-          <TransactionTable rows={detail.outOfPocket} onRecordPayment={onRecordPayment} showOutstanding />
-        )}
-      </DetailSection>
-    </div>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  icon,
-  highlight,
-}: {
-  label: string;
-  value: string;
-  icon: React.ReactNode;
-  highlight?: boolean;
-}) {
-  return (
-    <div
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5",
-        highlight ? "border-amber-500/40 bg-amber-500/10 text-amber-700" : "border-border bg-background"
-      )}
-    >
-      {icon}
-      <span className="text-muted-foreground">{label}:</span>
-      <span className="font-medium text-foreground">{value}</span>
     </div>
   );
 }
@@ -603,69 +648,88 @@ function DetailSection({
   );
 }
 
-function TransactionTable({
+function LedgerTable({
   rows,
-  onRecordPayment,
-  showOutstanding,
+  onEdit,
+  onDelete,
 }: {
-  rows: TransactionRow[];
-  onRecordPayment: (transactionId: string) => void;
-  showOutstanding?: boolean;
+  rows: LedgerRow[];
+  onEdit: (entry: LedgerRow) => void;
+  onDelete: (entryId: string) => void;
 }) {
   return (
-    <div className="rounded-md border border-border bg-background overflow-hidden">
-      <table className="w-full text-sm">
+    <div className="rounded-md border border-border bg-background overflow-x-auto">
+      <table className="w-full text-sm min-w-[760px]">
         <thead className="bg-muted/40">
           <tr className="text-xs text-muted-foreground">
             <th className="text-left px-3 py-1.5 font-medium">Datum</th>
-            <th className="text-left px-3 py-1.5 font-medium">Typ</th>
-            <th className="text-left px-3 py-1.5 font-medium">Deal</th>
+            <th className="text-left px-3 py-1.5 font-medium">Art</th>
+            <th className="text-left px-3 py-1.5 font-medium">Firma</th>
+            <th className="text-left px-3 py-1.5 font-medium">Auftrag</th>
             <th className="text-right px-3 py-1.5 font-medium">Betrag</th>
-            <th className="text-right px-3 py-1.5 font-medium">Bezahlt</th>
-            {showOutstanding && <th className="text-right px-3 py-1.5 font-medium">Offen</th>}
-            <th className="text-left px-3 py-1.5 font-medium">Status</th>
+            <th className="text-left px-3 py-1.5 font-medium">Zahlart</th>
             <th className="text-left px-3 py-1.5 font-medium">Beleg</th>
             <th className="text-left px-3 py-1.5 font-medium">Steuer</th>
-            <th className="text-left px-3 py-1.5 font-medium">Fällig</th>
             <th className="text-left px-3 py-1.5 font-medium">Kommentar</th>
             <th className="px-3 py-1.5" />
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
           {rows.map((t) => {
-            const overdue = isOverdue(t.dueDate, t.status);
-            const sb = STATUS_BADGE[t.status];
+            const isPayment = t.kind === "payment";
             return (
               <tr key={t.id} className="hover:bg-muted/30">
                 <td className="px-3 py-1.5 whitespace-nowrap">{fmtDate(t.date)}</td>
-                <td className="px-3 py-1.5 whitespace-nowrap text-muted-foreground">{TYPE_LABEL[t.type]}</td>
-                <td className="px-3 py-1.5">
-                  <Link href={`/objects/deals/${t.dealRecordId}`} className="hover:underline">
-                    {t.dealNumber ? <span className="font-mono text-xs mr-1.5">{t.dealNumber}</span> : null}
-                    <span className="text-xs">{t.dealName}</span>
-                  </Link>
-                </td>
-                <td className="px-3 py-1.5 text-right tabular-nums">{fmtEUR(t.amount)}</td>
-                <td className="px-3 py-1.5 text-right tabular-nums">{fmtEUR(t.amountPaid)}</td>
-                {showOutstanding && (
-                  <td
+                <td className="px-3 py-1.5 whitespace-nowrap">
+                  <span
                     className={cn(
-                      "px-3 py-1.5 text-right tabular-nums",
-                      t.amountOutstanding > 0 && "text-amber-700 font-medium"
+                      "inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium",
+                      t.kind === "payment" && "bg-blue-500/15 text-blue-700 dark:text-blue-400",
+                      t.kind === "earning" && "bg-orange-500/15 text-orange-700 dark:text-orange-400",
+                      t.kind === "reimbursement" && "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
                     )}
                   >
-                    {fmtEUR(t.amountOutstanding)}
-                  </td>
-                )}
-                <td className="px-3 py-1.5 whitespace-nowrap">
-                  <span className={cn("inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium", sb.cls)}>
-                    {sb.label}
+                    {KIND_LABEL[t.kind]}
                   </span>
+                </td>
+                <td className="px-3 py-1.5 whitespace-nowrap text-xs">
+                  <span className="text-muted-foreground">{t.operatingCompanyName}</span>
+                  {t.isCrossSubsidy && t.payingOperatingCompanyName && (
+                    <span
+                      className="ml-1.5 inline-flex items-center gap-0.5 text-[10px] text-amber-700 dark:text-amber-500"
+                      title={`Bezahlt von ${t.payingOperatingCompanyName} (Quersubvention)`}
+                    >
+                      <ArrowRightLeft className="h-2.5 w-2.5" />
+                      {t.payingOperatingCompanyName}
+                    </span>
+                  )}
+                </td>
+                <td className="px-3 py-1.5 text-xs">
+                  {t.dealRecordId ? (
+                    <Link href={`/objects/deals/${t.dealRecordId}`} className="hover:underline">
+                      {t.dealNumber ? <span className="font-mono mr-1.5">{t.dealNumber}</span> : null}
+                      <span>{t.dealName}</span>
+                    </Link>
+                  ) : (
+                    <span className="text-muted-foreground">frei</span>
+                  )}
+                </td>
+                <td
+                  className={cn(
+                    "px-3 py-1.5 text-right tabular-nums font-medium",
+                    isPayment ? "text-blue-700 dark:text-blue-400" : "text-foreground"
+                  )}
+                >
+                  {isPayment ? "−" : "+"}
+                  {fmtEUR(t.amount)}
+                </td>
+                <td className="px-3 py-1.5 text-xs text-muted-foreground whitespace-nowrap">
+                  {t.paymentMethod ? METHOD_LABEL[t.paymentMethod] ?? t.paymentMethod : "—"}
                 </td>
                 <td className="px-3 py-1.5 whitespace-nowrap">
                   {t.hasReceipt ? (
                     <a
-                      href={`/api/v1/employee-transactions/${t.id}/receipt`}
+                      href={`/api/v1/employee-ledger/${t.id}/receipt`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
@@ -680,53 +744,301 @@ function TransactionTable({
                 </td>
                 <td className="px-3 py-1.5 whitespace-nowrap text-xs">
                   {t.isTaxDeductible ? (
-                    <span className="inline-flex items-center gap-1 text-emerald-700">
+                    <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400">
                       <Scale className="h-3 w-3" />
                       abz.
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1 text-muted-foreground">
                       <ShieldOff className="h-3 w-3" />
-                      nicht abz.
+                      nicht
                     </span>
                   )}
                 </td>
-                <td className="px-3 py-1.5 whitespace-nowrap text-xs">
-                  {t.dueDate ? (
-                    <span
-                      className={cn(
-                        "inline-flex items-center gap-1",
-                        overdue ? "text-red-600 font-medium" : "text-muted-foreground"
-                      )}
-                    >
-                      <CalendarClock className="h-3 w-3" />
-                      {fmtDate(t.dueDate)}
-                      {overdue && " (überfällig)"}
-                    </span>
-                  ) : (
-                    <span className="text-muted-foreground">—</span>
-                  )}
-                </td>
-                <td className="px-3 py-1.5 text-xs text-muted-foreground max-w-[24ch] truncate" title={[t.description, t.notes].filter(Boolean).join(" – ") || undefined}>
+                <td
+                  className="px-3 py-1.5 text-xs text-muted-foreground max-w-[22ch] truncate"
+                  title={[t.description, t.notes].filter(Boolean).join(" – ") || undefined}
+                >
                   {[t.description, t.notes].filter(Boolean).join(" – ") || "—"}
                 </td>
-                <td className="px-3 py-1.5 text-right">
-                  {t.status !== "bezahlt" && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => onRecordPayment(t.id)}
-                      className="h-7 text-xs"
-                    >
-                      + Zahlung
-                    </Button>
-                  )}
+                <td className="px-3 py-1.5 text-right whitespace-nowrap">
+                  <button
+                    onClick={() => onEdit(t)}
+                    className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+                    title="Bearbeiten"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    onClick={() => onDelete(t.id)}
+                    className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-destructive"
+                    title="Löschen"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
                 </td>
               </tr>
             );
           })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// ─── Ledger entry dialog (create / edit) ────────────────────────────────────
+
+function LedgerEntryDialog({
+  employeeId,
+  entry,
+  defaultKind,
+  companies,
+  onClose,
+  onSaved,
+}: {
+  employeeId: string;
+  entry: LedgerRow | null;
+  defaultKind: LedgerKind;
+  companies: OperatingCompany[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    kind: entry?.kind ?? defaultKind,
+    date: entry?.date ?? new Date().toISOString().slice(0, 10),
+    amount: entry ? String(entry.amount.toFixed(2)) : "",
+    operatingCompanyId: entry?.operatingCompanyId ?? (companies[0]?.id ?? ""),
+    payingOperatingCompanyId: entry?.payingOperatingCompanyId ?? "",
+    paymentMethod: entry?.paymentMethod ?? "cash",
+    description: entry?.description ?? "",
+    isTaxDeductible: entry?.isTaxDeductible ?? true,
+    receiptFile: null as string | null,
+    receiptName: entry?.hasReceipt ? "Vorhandener Beleg" : "",
+  });
+
+  const isPayment = form.kind === "payment";
+
+  function handleReceiptPick(file: File) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result === "string") {
+        setForm((f) => ({ ...f, receiptFile: result, receiptName: file.name }));
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function handleSave() {
+    if (!form.date || !form.amount || Number(form.amount) <= 0) return;
+    setSaving(true);
+    try {
+      const payload: Record<string, unknown> = {
+        kind: form.kind,
+        date: form.date,
+        amount: form.amount,
+        operatingCompanyId: form.operatingCompanyId || null,
+        payingOperatingCompanyId: form.payingOperatingCompanyId || null,
+        paymentMethod: isPayment ? form.paymentMethod || null : null,
+        description: form.description || null,
+        isTaxDeductible: form.isTaxDeductible,
+      };
+      if (form.receiptFile !== null) payload.receiptFile = form.receiptFile;
+
+      let res: Response;
+      if (entry) {
+        res = await fetch(`/api/v1/employee-ledger/${entry.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      } else {
+        res = await fetch(`/api/v1/employees/${employeeId}/ledger`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      }
+      if (res.ok) onSaved();
+      else alert("Speichern fehlgeschlagen.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div
+        className="w-full max-w-lg rounded-lg border border-border bg-background p-5 shadow-lg space-y-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between">
+          <h3 className="text-base font-semibold">
+            {entry ? "Buchung bearbeiten" : "Buchung erfassen"}
+          </h3>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Kind selector */}
+        <div className="grid grid-cols-3 gap-2">
+          {(["payment", "earning", "reimbursement"] as LedgerKind[]).map((k) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setForm((f) => ({ ...f, kind: k }))}
+              className={cn(
+                "rounded-md border px-2 py-2 text-xs font-medium transition",
+                form.kind === k
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border text-muted-foreground hover:bg-muted/40"
+              )}
+            >
+              {KIND_LABEL[k]}
+            </button>
+          ))}
+        </div>
+        <p className="text-[11px] text-muted-foreground -mt-2">
+          {isPayment
+            ? "Auszahlung an den Mitarbeiter — senkt den Saldo."
+            : form.kind === "earning"
+            ? "Verdienst (Lohn) — erhöht den Saldo (wir schulden)."
+            : "Beleg / Auslage des Mitarbeiters (z.B. Sprit) — erhöht den Saldo."}
+        </p>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Datum *</label>
+            <input
+              type="date"
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={form.date}
+              onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Betrag (€) *</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="0,00"
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={form.amount}
+              onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">
+              {isPayment ? "Firma (deren Schuld wird beglichen) *" : "Firma (Auftrags-/Kostenfirma) *"}
+            </label>
+            <select
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={form.operatingCompanyId}
+              onChange={(e) => setForm((f) => ({ ...f, operatingCompanyId: e.target.value }))}
+            >
+              <option value="">— bitte wählen —</option>
+              {companies.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Bezahlt von anderer Firma</label>
+            <select
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={form.payingOperatingCompanyId}
+              onChange={(e) => setForm((f) => ({ ...f, payingOperatingCompanyId: e.target.value }))}
+            >
+              <option value="">— (gleiche Firma)</option>
+              {companies.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        {form.payingOperatingCompanyId &&
+          form.payingOperatingCompanyId !== form.operatingCompanyId && (
+            <p className="text-[11px] text-amber-700 dark:text-amber-500 -mt-1 inline-flex items-center gap-1">
+              <ArrowRightLeft className="h-3 w-3" />
+              Quersubvention — fließt in den 50/50-Ausgleich zwischen den Firmen ein.
+            </p>
+          )}
+
+        {isPayment && (
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Zahlungsart</label>
+            <select
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={form.paymentMethod}
+              onChange={(e) => setForm((f) => ({ ...f, paymentMethod: e.target.value }))}
+            >
+              <option value="cash">Bar</option>
+              <option value="bank_transfer">Überweisung</option>
+              <option value="other">Sonstiges</option>
+            </select>
+          </div>
+        )}
+
+        <div>
+          <label className="text-xs text-muted-foreground mb-1 block">Kommentar</label>
+          <input
+            type="text"
+            placeholder={isPayment ? "z.B. Restlohn Juni" : "z.B. Umzug Müller, 8h / Tankquittung"}
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            value={form.description}
+            onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+          />
+        </div>
+
+        {form.kind === "reimbursement" && (
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Beleg (Bild oder PDF)</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="file"
+                accept="image/*,application/pdf"
+                className="block w-full text-sm text-muted-foreground file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border file:border-input file:bg-background file:text-sm file:cursor-pointer hover:file:bg-muted"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handleReceiptPick(f);
+                }}
+              />
+              {form.receiptName && (
+                <span className="text-[11px] text-muted-foreground shrink-0 max-w-[120px] truncate">
+                  {form.receiptName}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+          <input
+            type="checkbox"
+            className="h-4 w-4 rounded border-input"
+            checked={form.isTaxDeductible}
+            onChange={(e) => setForm((f) => ({ ...f, isTaxDeductible: e.target.checked }))}
+          />
+          Steuerlich absetzbar
+        </label>
+
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="outline" onClick={onClose}>Abbrechen</Button>
+          <Button
+            onClick={handleSave}
+            disabled={saving || !form.date || !form.amount || Number(form.amount) <= 0}
+          >
+            {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            Speichern
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

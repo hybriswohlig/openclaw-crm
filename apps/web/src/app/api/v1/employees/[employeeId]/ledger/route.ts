@@ -1,48 +1,43 @@
 import { NextRequest } from "next/server";
-import { getAuthContext, unauthorized, badRequest, success } from "@/lib/api-utils";
-import { listDealEmployeeLedger, createEmployeeLedgerEntry } from "@/services/financial";
+import { getAuthContext, unauthorized, badRequest, notFound, success } from "@/lib/api-utils";
+import { createEmployeeLedgerEntry } from "@/services/financial";
+import { getEmployee } from "@/services/employees";
 
 const VALID_KINDS = ["earning", "reimbursement", "payment"] as const;
 const VALID_METHODS = ["cash", "bank_transfer", "other"] as const;
 type PaymentMethod = typeof VALID_METHODS[number];
 
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ recordId: string }> }
-) {
-  const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
-
-  const { recordId } = await params;
-  const data = await listDealEmployeeLedger(recordId);
-  return success(data);
-}
-
+/**
+ * Create a ledger entry for an employee (earning / reimbursement / payment).
+ * Used by the Mitarbeiter overview to record free payments and manual credits.
+ */
 export async function POST(
   req: NextRequest,
-  { params }: { params: Promise<{ recordId: string }> }
+  { params }: { params: Promise<{ employeeId: string }> }
 ) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized();
 
-  const { recordId } = await params;
+  const { employeeId } = await params;
+  const emp = await getEmployee(ctx.workspaceId, employeeId);
+  if (!emp) return notFound("Employee not found");
+
   const body = await req.json();
   const {
-    employeeId,
     date,
     kind,
     amount,
+    operatingCompanyId,
+    payingOperatingCompanyId,
+    dealRecordId,
+    paymentMethod,
     description,
     notes,
-    paymentMethod,
     isTaxDeductible,
-    payingOperatingCompanyId,
-    operatingCompanyId,
     dueDate,
     receiptFile,
   } = body;
 
-  if (!employeeId) return badRequest("employeeId is required");
   if (!date || !amount) return badRequest("date and amount are required");
   if (!kind || !VALID_KINDS.includes(kind)) {
     return badRequest(`kind must be one of: ${VALID_KINDS.join(", ")}`);
@@ -50,19 +45,20 @@ export async function POST(
   if (paymentMethod && !VALID_METHODS.includes(paymentMethod)) {
     return badRequest(`paymentMethod must be one of: ${VALID_METHODS.join(", ")}`);
   }
+  if (Number(amount) <= 0) return badRequest("amount must be positive");
 
   const row = await createEmployeeLedgerEntry(ctx.workspaceId, {
     employeeId,
-    dealRecordId: recordId,
     date,
     kind,
     amount: String(amount),
-    description,
-    notes,
-    paymentMethod: (paymentMethod as PaymentMethod | undefined) ?? null,
-    isTaxDeductible: typeof isTaxDeductible === "boolean" ? isTaxDeductible : undefined,
-    payingOperatingCompanyId: payingOperatingCompanyId ?? null,
     operatingCompanyId: operatingCompanyId ?? null,
+    payingOperatingCompanyId: payingOperatingCompanyId ?? null,
+    dealRecordId: dealRecordId ?? null,
+    paymentMethod: (paymentMethod as PaymentMethod | undefined) ?? null,
+    description: description ?? null,
+    notes: notes ?? null,
+    isTaxDeductible: typeof isTaxDeductible === "boolean" ? isTaxDeductible : undefined,
     dueDate: dueDate ?? null,
     receiptFile: receiptFile ?? null,
   });

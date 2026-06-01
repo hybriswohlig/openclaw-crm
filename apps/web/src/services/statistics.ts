@@ -10,7 +10,8 @@ import { db } from "@/db";
 import { and, eq, gte, lt, inArray, sum, sql } from "drizzle-orm";
 import { objects, attributes, statuses, selectOptions } from "@/db/schema/objects";
 import { records, recordValues } from "@/db/schema/records";
-import { payments, expenses, employeeTransactions } from "@/db/schema/financial";
+import { payments, expenses } from "@/db/schema/financial";
+import { employeeLedger } from "@/db/schema/employee-ledger";
 import { tasks } from "@/db/schema/tasks";
 import { inboxConversations, channelAccounts, inboxContacts } from "@/db/schema/inbox";
 
@@ -963,17 +964,18 @@ export async function getCompanyComparison(
 
   const empRows = await db
     .select({
-      dealId: employeeTransactions.dealRecordId,
-      amount: employeeTransactions.amount,
-      payingOc: employeeTransactions.payingOperatingCompanyId,
-      date: employeeTransactions.date,
+      dealId: employeeLedger.dealRecordId,
+      operatingCompanyId: employeeLedger.operatingCompanyId,
+      amount: employeeLedger.amount,
+      payingOc: employeeLedger.payingOperatingCompanyId,
+      date: employeeLedger.date,
     })
-    .from(employeeTransactions)
+    .from(employeeLedger)
     .where(
       and(
-        eq(employeeTransactions.workspaceId, workspaceId),
-        gte(employeeTransactions.date, sixMonthsAgoIso),
-        sql`${employeeTransactions.type} IN ('salary', 'advance')`
+        eq(employeeLedger.workspaceId, workspaceId),
+        gte(employeeLedger.date, sixMonthsAgoIso),
+        eq(employeeLedger.kind, "earning")
       )
     );
 
@@ -1050,7 +1052,9 @@ export async function getCompanyComparison(
   }
 
   for (const t of empRows) {
-    const dealOp = dealToOc.get(t.dealId) ?? null;
+    const dealOp = t.dealId
+      ? dealToOc.get(t.dealId) ?? null
+      : t.operatingCompanyId ?? null;
     const effectivePayer = t.payingOc ?? dealOp;
     if (!effectivePayer) continue;
     const amt = Number(t.amount);

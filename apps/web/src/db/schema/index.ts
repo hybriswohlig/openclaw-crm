@@ -9,6 +9,7 @@ export * from "./notifications";
 export * from "./api-keys";
 export * from "./chat";
 export * from "./employees";
+export * from "./employee-ledger";
 export * from "./quotations";
 export * from "./financial";
 export * from "./integrations";
