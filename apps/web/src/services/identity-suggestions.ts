@@ -10,7 +10,7 @@
  * cross-channel case (one side has no phone yet) is exactly what we surface.
  */
 import { db } from "@/db";
-import { objects, attributes, records, recordValues, personIdentifiers, personMergeEdges } from "@/db/schema";
+import { objects, attributes, records, recordValues, personIdentifiers, personMergeEdges, inboxConversations, inboxContacts, channelAccounts } from "@/db/schema";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { extractPersonalName } from "@/lib/display-name";
 import { jaroWinkler, normalizeName } from "@/lib/identity/jaro-winkler";
@@ -90,15 +90,65 @@ export async function scanForSuggestions(workspaceId: string, opts: { apply?: bo
   return found;
 }
 
+interface PersonInboxInfo {
+  channels: string;
+  lastPreview: string | null;
+  convCount: number;
+  hasLead: boolean;
+}
+
+/** Per-person inbox summary: channels, last preview, count, and whether the
+ *  person is a real LEAD (has a conversation in the lead lane). */
+async function personInboxInfo(workspaceId: string, personIds: string[]): Promise<Map<string, PersonInboxInfo>> {
+  const out = new Map<string, PersonInboxInfo>();
+  if (personIds.length === 0) return out;
+  const rows = await db
+    .select({
+      crm: inboxContacts.crmRecordId,
+      channelType: channelAccounts.channelType,
+      lane: inboxConversations.lane,
+      lastMessageAt: inboxConversations.lastMessageAt,
+      lastPreview: inboxConversations.lastMessagePreview,
+      ext: inboxConversations.externalThreadId,
+    })
+    .from(inboxConversations)
+    .innerJoin(inboxContacts, eq(inboxConversations.contactId, inboxContacts.id))
+    .innerJoin(channelAccounts, eq(inboxConversations.channelAccountId, channelAccounts.id))
+    .where(and(eq(inboxConversations.workspaceId, workspaceId), inArray(inboxContacts.crmRecordId, personIds)));
+
+  const acc = new Map<string, { channels: Set<string>; lastAt: string; lastPreview: string | null; count: number; hasLead: boolean }>();
+  for (const r of rows) {
+    if (!r.crm) continue;
+    const a = acc.get(r.crm) ?? { channels: new Set<string>(), lastAt: "", lastPreview: null, count: 0, hasLead: false };
+    const isKa = /@mail\.kleinanzeigen\.de$/i.test(r.ext ?? "");
+    a.channels.add(isKa ? "Kleinanzeigen" : r.channelType === "whatsapp" ? "WhatsApp" : r.channelType === "sms" ? "SMS" : "E-Mail");
+    a.count += 1;
+    if (r.lane === "lead") a.hasLead = true;
+    const at = r.lastMessageAt ? new Date(r.lastMessageAt).toISOString() : "";
+    if (at >= a.lastAt) { a.lastAt = at; a.lastPreview = r.lastPreview; }
+    acc.set(r.crm, a);
+  }
+  for (const [id, a] of acc) out.set(id, { channels: [...a.channels].join(", "), lastPreview: a.lastPreview, convCount: a.count, hasLead: a.hasLead });
+  return out;
+}
+
 export interface MergeSuggestionView {
   survivorId: string;
   survivorName: string;
+  survivorChannels: string;
+  survivorPreview: string | null;
+  survivorConvCount: number;
   absorbedId: string;
   absorbedName: string;
+  absorbedChannels: string;
+  absorbedPreview: string | null;
+  absorbedConvCount: number;
   jw: number;
 }
 
-/** Live merge suggestions with display names, excluding pairs already rejected. */
+/** Live merge suggestions, LEADS only (bots / marketing whose chats are in the
+ *  Info lane are excluded), enriched with per-person details for a preview, and
+ *  excluding pairs already decided. */
 export async function getMergeSuggestions(workspaceId: string): Promise<MergeSuggestionView[]> {
   const pairs = await scanForSuggestions(workspaceId, { apply: false });
   if (pairs.length === 0) return [];
@@ -110,14 +160,25 @@ export async function getMergeSuggestions(workspaceId: string): Promise<MergeSug
   const fresh = pairs.filter((p) => !skip.has(`${p.survivor}|${p.absorbed}`));
   if (fresh.length === 0) return [];
   const ids = [...new Set(fresh.flatMap((p) => [p.survivor, p.absorbed]))];
-  const names = await batchGetRecordDisplayNames(ids);
-  return fresh.map((p) => ({
-    survivorId: p.survivor,
-    survivorName: names.get(p.survivor)?.displayName ?? "Unbekannt",
-    absorbedId: p.absorbed,
-    absorbedName: names.get(p.absorbed)?.displayName ?? "Unbekannt",
-    jw: p.jw,
-  }));
+  const [names, info] = await Promise.all([batchGetRecordDisplayNames(ids), personInboxInfo(workspaceId, ids)]);
+  const leadOnly = fresh.filter((p) => info.get(p.survivor)?.hasLead && info.get(p.absorbed)?.hasLead);
+  return leadOnly.map((p) => {
+    const si = info.get(p.survivor);
+    const ai = info.get(p.absorbed);
+    return {
+      survivorId: p.survivor,
+      survivorName: names.get(p.survivor)?.displayName ?? "Unbekannt",
+      survivorChannels: si?.channels ?? "",
+      survivorPreview: si?.lastPreview ?? null,
+      survivorConvCount: si?.convCount ?? 0,
+      absorbedId: p.absorbed,
+      absorbedName: names.get(p.absorbed)?.displayName ?? "Unbekannt",
+      absorbedChannels: ai?.channels ?? "",
+      absorbedPreview: ai?.lastPreview ?? null,
+      absorbedConvCount: ai?.convCount ?? 0,
+      jw: p.jw,
+    };
+  });
 }
 
 /** Accept a suggested merge. Survivor = the older record (more established). */
