@@ -11,7 +11,29 @@
  *   "Max@Example.COM "  ->  "max@example.com"
  */
 
-import { parsePhoneNumberFromString, type CountryCode } from "libphonenumber-js";
+import { parsePhoneNumberFromString } from "libphonenumber-js/core";
+import type { CountryCode } from "libphonenumber-js";
+// Metadata is imported separately so we control the ESM/CJS interop: under
+// esbuild/tsx the JSON module arrives wrapped as `{ default }`, while
+// webpack/turbopack hand it over directly. Normalizing both shapes here makes
+// canonicalizePhone work in EVERY runtime (Next.js, vitest, node/tsx); the main
+// "libphonenumber-js" entry breaks under tsx because its bundled metadata import
+// resolves to `{ default }`.
+import phoneMetadataRaw from "libphonenumber-js/min/metadata";
+const PHONE_METADATA = (
+  (phoneMetadataRaw as { countries?: unknown }).countries
+    ? phoneMetadataRaw
+    : (phoneMetadataRaw as unknown as { default: unknown }).default
+) as Parameters<typeof parsePhoneNumberFromString>[2];
+
+/** Parse with explicit metadata; never throws (the contract for this module). */
+function parsePhone(s: string, region: CountryCode) {
+  try {
+    return parsePhoneNumberFromString(s, region, PHONE_METADATA) ?? null;
+  } catch {
+    return null;
+  }
+}
 
 // ─── Kleinanzeigen relay detection ────────────────────────────────────────────
 // KEEP IN SYNC with apps/web/src/services/inbox-kleinanzeigen.ts:9-10. A relay
@@ -94,22 +116,22 @@ export function canonicalizePhone(raw: string | null | undefined, defaultRegion:
   // that against a national region fails, so we prepend "+" for bare
   // international-looking digit runs. A leading 0 means national (region);
   // "00" / "+" are explicit international.
-  let phone = null as ReturnType<typeof parsePhoneNumberFromString> | null;
+  let phone = null as ReturnType<typeof parsePhone>;
   if (compact.startsWith("+")) {
-    phone = parsePhoneNumberFromString(compact, defaultRegion);
+    phone = parsePhone(compact, defaultRegion);
   } else if (compact.startsWith("00")) {
-    phone = parsePhoneNumberFromString("+" + compact.slice(2), defaultRegion);
+    phone = parsePhone("+" + compact.slice(2), defaultRegion);
   } else if (compact.startsWith("0")) {
-    phone = parsePhoneNumberFromString(compact, defaultRegion); // national
+    phone = parsePhone(compact, defaultRegion); // national
   } else if (/^\d{8,15}$/.test(compact)) {
     // Bare international digits (WhatsApp wa_id). Prefer the "+"-prefixed reading;
     // fall back to a national reading if that is invalid.
-    phone = parsePhoneNumberFromString("+" + compact, defaultRegion);
+    phone = parsePhone("+" + compact, defaultRegion);
     if (!phone || !phone.isValid()) {
-      phone = parsePhoneNumberFromString(compact, defaultRegion);
+      phone = parsePhone(compact, defaultRegion);
     }
   } else {
-    phone = parsePhoneNumberFromString(compact, defaultRegion);
+    phone = parsePhone(compact, defaultRegion);
   }
 
   if (!phone || !phone.isValid()) return null;
