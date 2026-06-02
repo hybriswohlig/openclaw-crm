@@ -1838,13 +1838,56 @@ export default function InboxPage() {
         selected ? "flex flex-col" : "hidden md:flex md:flex-col"
       )}>
         {selected ? (
-          <ConversationView
-            key={selected.id}
-            conv={selected}
-            onBack={() => setSelected(null)}
-            onStatusChange={(status) => handleStatusChange(selected.id, status)}
-            onOpenCompose={() => setComposeOpen(true)}
-          />
+          <>
+            {(() => {
+              // KOT-IDENTITY Phase 5b: thread switcher — a person can have several
+              // conversations across channels; let the operator reach all of them.
+              const personKey = selected.crmRecordId ?? `contact:${selected.contactId}`;
+              const threads = conversations
+                .filter((c) => (c.crmRecordId ?? `contact:${c.contactId}`) === personKey)
+                .sort((a, b) => (b.lastMessageAt ?? "").localeCompare(a.lastMessageAt ?? ""));
+              if (threads.length <= 1) return null;
+              return (
+                <div className="shrink-0 flex items-center gap-1.5 overflow-x-auto border-b border-border bg-muted/30 px-3 py-1.5 scrollbar-none">
+                  <span className="shrink-0 text-[10px] text-muted-foreground mr-1">Kanäle dieser Person:</span>
+                  {threads.map((t) => {
+                    const isKa = isKleinanzeigenConv(t);
+                    const label = isKa
+                      ? "Kleinanzeigen"
+                      : t.channelType === "whatsapp"
+                      ? "WhatsApp"
+                      : (t.channelType as string) === "sms"
+                      ? "SMS"
+                      : "E-Mail";
+                    const when = t.lastMessageAt ? new Date(t.lastMessageAt).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }) : "";
+                    return (
+                      <button
+                        key={t.id}
+                        onClick={() => setSelected(t)}
+                        className={cn(
+                          "shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-medium border transition-colors",
+                          t.id === selected.id
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "border-border text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        {label}{when ? ` · ${when}` : ""}{t.unreadCount > 0 ? ` (${t.unreadCount})` : ""}
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+            <div className="flex-1 min-h-0 flex flex-col">
+              <ConversationView
+                key={selected.id}
+                conv={selected}
+                onBack={() => setSelected(null)}
+                onStatusChange={(status) => handleStatusChange(selected.id, status)}
+                onOpenCompose={() => setComposeOpen(true)}
+              />
+            </div>
+          </>
         ) : (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-6">
             <div className="h-16 w-16 rounded-2xl bg-muted flex items-center justify-center">
