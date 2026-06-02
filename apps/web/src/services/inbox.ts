@@ -139,6 +139,7 @@ export interface ConversationListItem {
   channelAddress: string;
   operatingCompanyRecordId: string | null;
   contactId: string;
+  crmRecordId: string | null;
   contactName: string | null;
   contactEmail: string | null;
   contactPhone: string | null;
@@ -179,6 +180,7 @@ export async function listConversations(
       channelAddress: channelAccounts.address,
       operatingCompanyRecordId: channelAccounts.operatingCompanyRecordId,
       contactId: inboxConversations.contactId,
+      crmRecordId: inboxContacts.crmRecordId,
       contactName: inboxContacts.displayName,
       contactEmail: inboxContacts.email,
       contactPhone: inboxContacts.phone,

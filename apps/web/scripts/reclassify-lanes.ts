@@ -11,27 +11,27 @@
  * Run: NODE_ENV=production DATABASE_URL=... pnpm --filter @openclaw-crm/web exec tsx scripts/reclassify-lanes.ts [--apply]
  */
 import { db } from "@/db";
-import { channelAccounts, inboxConversations, inboxMessages } from "@/db/schema";
+import { channelAccounts, inboxConversations, inboxContacts, inboxMessages } from "@/db/schema";
 import { and, eq, desc } from "drizzle-orm";
-import { classifyInbound } from "@/services/inbox-triage";
+import { classifyInbound, classifyMessagingBody } from "@/services/inbox-triage";
 
 const APPLY = process.argv.includes("--apply");
 
 async function main() {
   console.log(`\n=== Lane reclassification — ${APPLY ? "APPLY" : "DRY-RUN"} ===`);
-  const emailAccounts = await db.select({ id: channelAccounts.id }).from(channelAccounts).where(eq(channelAccounts.channelType, "email"));
-  const accountIds = emailAccounts.map((a) => a.id);
-  if (accountIds.length === 0) { console.log("no email channel accounts"); process.exit(0); }
+  const accounts = await db.select({ id: channelAccounts.id, channelType: channelAccounts.channelType }).from(channelAccounts);
+  if (accounts.length === 0) { console.log("no channel accounts"); process.exit(0); }
 
   let moved = 0, kept = 0;
   const byReason = new Map<string, number>();
   const examples: string[] = [];
 
-  for (const accId of accountIds) {
+  for (const acc of accounts) {
     const convs = await db
-      .select({ id: inboxConversations.id, lane: inboxConversations.lane, subject: inboxConversations.subject })
+      .select({ id: inboxConversations.id, lane: inboxConversations.lane, subject: inboxConversations.subject, contactName: inboxContacts.displayName })
       .from(inboxConversations)
-      .where(and(eq(inboxConversations.channelAccountId, accId), eq(inboxConversations.lane, "lead")));
+      .innerJoin(inboxContacts, eq(inboxConversations.contactId, inboxContacts.id))
+      .where(and(eq(inboxConversations.channelAccountId, acc.id), eq(inboxConversations.lane, "lead")));
     for (const c of convs) {
       const [msg] = await db
         .select({ rawHeaders: inboxMessages.rawHeaders, fromAddress: inboxMessages.fromAddress, subject: inboxMessages.subject, body: inboxMessages.body })
@@ -42,7 +42,9 @@ async function main() {
       if (!msg) { kept++; continue; }
       let headers: Record<string, unknown> = {};
       if (msg.rawHeaders) { try { headers = JSON.parse(msg.rawHeaders); } catch { /* ignore */ } }
-      const res = classifyInbound({ headers, fromAddr: msg.fromAddress, subject: msg.subject ?? c.subject, body: msg.body });
+      const res = acc.channelType === "email"
+        ? classifyInbound({ headers, fromAddr: msg.fromAddress, subject: msg.subject ?? c.subject, body: msg.body })
+        : classifyMessagingBody(msg.body, c.contactName);
       if (res.lane === "lead") { kept++; continue; }
       moved++;
       byReason.set(res.reason, (byReason.get(res.reason) ?? 0) + 1);

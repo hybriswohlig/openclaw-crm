@@ -43,6 +43,7 @@ import {
   type DraftSuggestion,
 } from "@/components/chat/draft-suggestion-banner";
 import { CustomerLinkComposer } from "@/components/inbox/customer-link-composer";
+import { PersonRow } from "@/components/inbox/person-row";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -66,16 +67,78 @@ interface Conversation {
   channelAddress: string;
   operatingCompanyRecordId: string | null;
   contactId: string;
+  crmRecordId: string | null;
   contactName: string | null;
   contactEmail: string | null;
   contactPhone: string | null;
   multiCompanyFlag: boolean;
   subject: string | null;
   status: ConversationStatus;
+  lane?: "lead" | "info" | "spam" | "review";
   lastMessageAt: string | null;
   lastMessagePreview: string | null;
   unreadCount: number;
   dealRecordId: string | null;
+}
+
+// ─── Person grouping (KOT-IDENTITY Phase 5b) ─────────────────────────────────
+// One golden person can have several conversations across channels. We bundle
+// them into a single row keyed by the CRM person (crm_record_id), falling back
+// to the inbox contact when the person is not yet resolved.
+interface PersonGroup {
+  key: string;
+  name: string;
+  conversations: Conversation[]; // newest first
+  latest: Conversation;
+  channels: { kleinanzeigen: boolean; whatsapp: boolean; email: boolean; sms: boolean };
+  unread: number;
+  dealRecordId: string | null;
+  phone: string | null;
+  email: string | null;
+  firma: "kottke" | "ceylan";
+}
+
+function looksNumeric(name: string | null | undefined): boolean {
+  if (!name) return true;
+  return !/[a-zA-ZÀ-ſ]/.test(name);
+}
+
+function groupConversationsByPerson(convs: Conversation[]): PersonGroup[] {
+  const map = new Map<string, Conversation[]>();
+  for (const c of convs) {
+    const key = c.crmRecordId ?? `contact:${c.contactId}`;
+    (map.get(key) ?? map.set(key, []).get(key)!).push(c);
+  }
+  const groups: PersonGroup[] = [];
+  for (const [key, list] of map) {
+    list.sort((a, b) => (b.lastMessageAt ?? "").localeCompare(a.lastMessageAt ?? ""));
+    const latest = list[0];
+    // Best name: prefer a non-numeric contact name across the person's threads.
+    const named = list.find((c) => !looksNumeric(c.contactName));
+    const rawName = named?.contactName || latest.contactName || latest.contactPhone || latest.contactEmail || "Unbekannt";
+    const name = rawName.replace(/\s*(?:über|ueber|via)\s+Kleinanzeigen\s*$/i, "").trim();
+    const channels = { kleinanzeigen: false, whatsapp: false, email: false, sms: false };
+    for (const c of list) {
+      if (isKleinanzeigenConv(c)) { channels.kleinanzeigen = true; continue; }
+      const t = c.channelType as string;
+      if (t === "whatsapp") channels.whatsapp = true;
+      else if (t === "sms") channels.sms = true;
+      else channels.email = true;
+    }
+    const dealConv = list.find((c) => c.dealRecordId);
+    const phone = list.find((c) => c.contactPhone)?.contactPhone ?? null;
+    const email = list.find((c) => c.contactEmail && !/@mail\.kleinanzeigen\.de$/i.test(c.contactEmail))?.contactEmail ?? null;
+    const firma: "kottke" | "ceylan" = /ceylan/i.test(latest.channelName) ? "ceylan" : "kottke";
+    groups.push({
+      key, name, conversations: list, latest,
+      channels,
+      unread: list.reduce((s, c) => s + (c.unreadCount || 0), 0),
+      dealRecordId: dealConv?.dealRecordId ?? null,
+      phone, email, firma,
+    });
+  }
+  groups.sort((a, b) => (b.latest.lastMessageAt ?? "").localeCompare(a.latest.lastMessageAt ?? ""));
+  return groups;
 }
 
 interface MessageAttachment {
@@ -1740,12 +1803,25 @@ export default function InboxPage() {
               )}
             </div>
           ) : (
-            filtered.map((conv) => (
-              <ConvListItem
-                key={conv.id}
-                conv={conv}
-                active={selected?.id === conv.id}
-                onClick={() => setSelected(conv)}
+            groupConversationsByPerson(filtered).map((person) => (
+              <PersonRow
+                key={person.key}
+                data={{
+                  name: person.name,
+                  channels: person.channels,
+                  unread: person.unread,
+                  conversationCount: person.conversations.length,
+                  dealRecordId: person.dealRecordId,
+                  phone: person.phone,
+                  email: person.email,
+                  firma: person.firma,
+                  lastMessageAt: person.latest.lastMessageAt,
+                  lastMessagePreview: person.latest.lastMessagePreview,
+                  latestConversationId: person.latest.id,
+                }}
+                active={person.conversations.some((c) => c.id === selected?.id)}
+                onClick={() => setSelected(person.latest)}
+                onStatusChange={(status) => handleStatusChange(person.latest.id, status)}
               />
             ))
           )}

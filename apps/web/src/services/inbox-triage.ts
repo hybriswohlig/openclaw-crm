@@ -110,3 +110,20 @@ export function classifyInbound(input: ClassifyInput): ClassifyResult {
   // ── default ───────────────────────────────────────────────────────────────
   return { lane: "lead", reason: "menschliche Anfrage (kein Noise-Signal)", by: "heuristic" };
 }
+
+// ─── Messaging (WhatsApp / SMS) body classification ───────────────────────────
+// WhatsApp / SMS have no email headers, so we classify by body. Precision-biased:
+// only one-time-codes / verification notifications go to Info (a real customer
+// inquiry never contains an OTP). A brand-ish push name alone is NOT enough.
+const OTP_RE = /(best[äa]tigungscode|verifizierungscode|sicherheitscode|verification code|security code|einmalpasswort|one[\s-]?time|\bOTP\b|\bcode\b[^\d]{0,20}\d{3,8}|\d{3,8}[^\d]{0,20}\bcode\b|code\s*(?:lautet|ist|:))/i;
+const CODE6_RE = /(?<!\d)\d{3}[\s-]?\d{3}(?!\d)/;
+
+export function classifyMessagingBody(body: string | null | undefined, displayName?: string | null): ClassifyResult {
+  const b = body ?? "";
+  if (OTP_RE.test(b)) return { lane: "info", reason: "Verifizierungscode / OTP", by: "heuristic" };
+  const name = (displayName ?? "").toLowerCase();
+  if (/\b(facebook|instagram|whatsapp|telegram|google|microsoft|paypal|amazon|tiktok|netflix|twitter|linkedin|apple)\b/.test(name) && CODE6_RE.test(b)) {
+    return { lane: "info", reason: "Plattform-Benachrichtigung", by: "senderlist" };
+  }
+  return { lane: "lead", reason: "Nachricht (kein Noise-Signal)", by: "heuristic" };
+}

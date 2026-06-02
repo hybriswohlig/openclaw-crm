@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyInbound } from "./inbox-triage";
+import { classifyInbound, classifyMessagingBody } from "./inbox-triage";
 
 // KOT-IDENTITY Phase 6: keep ads / bots / notifications out of the lead inbox,
 // never lose a real buyer inquiry. Uses the actual noise senders from the audit.
@@ -45,5 +45,20 @@ describe("classifyInbound — real human mail stays a LEAD", () => {
       body: "Guten Tag, ich brauche ein Angebot fuer einen Umzug von Stuttgart nach Esslingen. Koennen Sie helfen?",
     });
     expect(r.lane).toBe("lead");
+  });
+});
+
+describe("classifyMessagingBody — WhatsApp/SMS OTP noise -> Info", () => {
+  it("the Facebook verification code from the screenshot is INFO", () => {
+    expect(classifyMessagingBody("Dein Bestätigungscode für Facebook ist 012345. Gib den Code nicht weiter.").lane).toBe("info");
+  });
+  it("a generic 6-digit code from a brand push name is INFO", () => {
+    expect(classifyMessagingBody("123 456 is your login code", "WhatsApp").lane).toBe("info");
+  });
+  it("a real WhatsApp customer message stays a LEAD", () => {
+    expect(classifyMessagingBody("Hallo, passt der Termin am Freitag um 14 Uhr fuer den Umzug?", "Anna").lane).toBe("lead");
+  });
+  it("a message that merely contains numbers (address) is NOT flagged", () => {
+    expect(classifyMessagingBody("Wir ziehen von Hauptstr 12 nach Bahnhofstr 8", "Bernd").lane).toBe("lead");
   });
 });
