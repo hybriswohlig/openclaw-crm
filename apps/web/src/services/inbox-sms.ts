@@ -21,6 +21,7 @@ import {
   inboxConversations,
   inboxMessages,
 } from "@/db/schema/inbox";
+import { resolveOrCreatePerson } from "./inbox-crm-link";
 
 // ─── Signature verification ───────────────────────────────────────────────────
 // MessageBird's legacy webhook signs the raw body with HMAC-SHA256
@@ -160,6 +161,23 @@ export async function handleMessagebirdInbound(
 
   const channelAccount = await findOrCreateSmsChannelAccount(workspaceId, recipient);
   const contact = await findOrCreateContact(workspaceId, originator);
+
+  // KOT-IDENTITY: resolve the SMS contact to a golden person via the single
+  // ingest contract. SMS shares the WhatsApp number space, so an SMS originator
+  // that matches an existing WhatsApp person deterministically merges instead of
+  // creating a third silo. (Previously SMS never created a CRM person at all.)
+  if (!contact.crmRecordId) {
+    await resolveOrCreatePerson({
+      workspaceId,
+      contactId: contact.id,
+      displayName: contact.displayName ?? originator,
+      phone: originator,
+      leadSource: "WhatsApp / Website",
+      source: "sms",
+      trust: "verified",
+    });
+  }
+
   const conversation = await findOrCreateConversation({
     workspaceId,
     channelAccountId: channelAccount.id,

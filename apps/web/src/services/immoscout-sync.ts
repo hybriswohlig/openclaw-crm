@@ -19,7 +19,8 @@ import { db } from "@/db";
 import { objects, attributes, selectOptions } from "@/db/schema/objects";
 import { records, recordValues } from "@/db/schema/records";
 import { eq, and } from "drizzle-orm";
-import { createRecord } from "./records";
+import { createRecord, updateRecord } from "./records";
+import { resolveOrCreatePerson } from "./inbox-crm-link";
 import { assignDealNumber } from "./financial";
 import { computeLeadName } from "./lead-name";
 
@@ -322,31 +323,30 @@ export async function syncImmoscoutLeads(
       const phone = d.Telefon_A || d.Telefon2_A || "";
       const salutation = SALUTATION_MAP[d.Anrede_A] || "";
 
-      // ── Dedup: check if person already exists ──
-      let personRecordId: string | null = null;
-      personRecordId = await findExistingPerson(peopleObj.id, email, phone, peopleAttrBySlug);
-
-      if (!personRecordId) {
-        const personInput: Record<string, unknown> = {
-          name: {
-            first_name: firstName,
-            last_name: lastName,
-            full_name: fullName,
-          },
-        };
-        if (email) personInput.email_addresses = email;
-        if (phone) personInput.phone_numbers = phone;
-        if (leadSourceOptionId) personInput.lead_source = leadSourceOptionId;
-        if (d.Ort_A || d.Strasse_A) {
-          personInput.location = JSON.stringify({
-            city: d.Ort_A || "",
-            street: d.Strasse_A || "",
-            postalCode: String(d.PLZ_A || ""),
-          });
-        }
-
-        const personRecord = await createRecord(peopleObj.id, personInput, null);
-        personRecordId = personRecord?.id ?? null;
+      // ── Resolve to a golden person via the single ingest contract ──
+      // KOT-IDENTITY: canonical dedup across all channels + identity graph +
+      // deterministic auto-merge, replacing ImmoScout's own exact-match lookup
+      // so it stops minting un-deduped duplicate people.
+      const resolved = await resolveOrCreatePerson({
+        workspaceId,
+        contactId: null,
+        displayName: fullName,
+        email: email || null,
+        phone: phone || null,
+        leadSource: "ImmobilienScout",
+        source: "import",
+        trust: "verified",
+      });
+      let personRecordId = resolved.personRecordId;
+      // ImmoScout-specific extras the generic contract does not set; only on a
+      // freshly-created person, to avoid overwriting an existing record.
+      if (resolved.isNew && personRecordId && (d.Ort_A || d.Strasse_A)) {
+        await updateRecord(
+          peopleObj.id,
+          personRecordId,
+          { location: JSON.stringify({ city: d.Ort_A || "", street: d.Strasse_A || "", postalCode: String(d.PLZ_A || "") }) },
+          null
+        );
       }
 
       // ── Build deal name ──
