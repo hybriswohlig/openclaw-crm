@@ -297,6 +297,73 @@ export async function getMessages(conversationId: string, workspaceId: string) {
   });
 }
 
+// ─── Person timeline (KOT-IDENTITY Phase 5b, merged view) ─────────────────────
+// Merge all messages of a person's conversations into one chronological stream,
+// each tagged with its channel, so the operator sees everything at a glance.
+export interface PersonTimelineMessage {
+  id: string;
+  conversationId: string;
+  direction: "inbound" | "outbound";
+  body: string;
+  sentAt: Date | null;
+  channelType: "email" | "whatsapp" | "sms";
+  isKleinanzeigen: boolean;
+  attachments: MessageAttachmentListItem[];
+}
+
+export async function getPersonMessages(workspaceId: string, conversationIds: string[]): Promise<PersonTimelineMessage[]> {
+  if (conversationIds.length === 0) return [];
+  const rows = await db
+    .select({
+      id: inboxMessages.id,
+      conversationId: inboxMessages.conversationId,
+      direction: inboxMessages.direction,
+      body: inboxMessages.body,
+      bodyHtml: inboxMessages.bodyHtml,
+      fromAddress: inboxMessages.fromAddress,
+      subject: inboxMessages.subject,
+      sentAt: inboxMessages.sentAt,
+      createdAt: inboxMessages.createdAt,
+      channelType: channelAccounts.channelType,
+      externalThreadId: inboxConversations.externalThreadId,
+    })
+    .from(inboxMessages)
+    .innerJoin(inboxConversations, eq(inboxMessages.conversationId, inboxConversations.id))
+    .innerJoin(channelAccounts, eq(inboxConversations.channelAccountId, channelAccounts.id))
+    .where(and(eq(inboxMessages.workspaceId, workspaceId), inArray(inboxMessages.conversationId, conversationIds)))
+    .orderBy(inboxMessages.sentAt, inboxMessages.createdAt);
+
+  const attRows = await db
+    .select({ id: inboxMessageAttachments.id, messageId: inboxMessageAttachments.messageId, fileName: inboxMessageAttachments.fileName, mimeType: inboxMessageAttachments.mimeType, fileSize: inboxMessageAttachments.fileSize })
+    .from(inboxMessageAttachments)
+    .where(and(eq(inboxMessageAttachments.workspaceId, workspaceId), inArray(inboxMessageAttachments.conversationId, conversationIds)));
+  const byMsg = new Map<string, MessageAttachmentListItem[]>();
+  for (const a of attRows) {
+    const list = byMsg.get(a.messageId) ?? [];
+    list.push({ id: a.id, fileName: a.fileName, mimeType: a.mimeType, fileSize: a.fileSize });
+    byMsg.set(a.messageId, list);
+  }
+
+  return rows.map((m) => {
+    const isKa = /@mail\.kleinanzeigen\.de$/i.test(m.externalThreadId ?? "") || isKleinanzeigenEmail(m.fromAddress ?? "", m.subject ?? "");
+    let body = m.body ?? "";
+    if (isKa) {
+      const cleaned = parseKleinanzeigenBody(body, m.bodyHtml);
+      if (cleaned) body = cleaned;
+    }
+    return {
+      id: m.id,
+      conversationId: m.conversationId,
+      direction: m.direction as "inbound" | "outbound",
+      body,
+      sentAt: m.sentAt,
+      channelType: m.channelType as "email" | "whatsapp" | "sms",
+      isKleinanzeigen: isKa,
+      attachments: byMsg.get(m.id) ?? [],
+    };
+  });
+}
+
 /** List attachments (metadata only) linked to a CRM deal via its conversation. */
 export async function getAttachmentsForDeal(
   dealRecordId: string,

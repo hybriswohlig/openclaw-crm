@@ -45,6 +45,7 @@ import {
 import { CustomerLinkComposer } from "@/components/inbox/customer-link-composer";
 import { PersonRow } from "@/components/inbox/person-row";
 import { MergeSuggestions } from "@/components/inbox/merge-suggestions";
+import { PersonTimeline } from "@/components/inbox/person-timeline";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1422,6 +1423,10 @@ export default function InboxPage() {
   const [accounts, setAccounts] = useState<ChannelAccount[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selected, setSelected] = useState<Conversation | null>(null);
+  // KOT-IDENTITY Phase 5b: merged person view. `merged` = show the combined
+  // "Gesamt" timeline; `mergedOc` = which operating company's threads to merge.
+  const [merged, setMerged] = useState(false);
+  const [mergedOc, setMergedOc] = useState<string>("__none__");
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [statusFilter, setStatusFilter] = useState<ConversationStatus>("open");
@@ -1824,7 +1829,15 @@ export default function InboxPage() {
                   latestConversationId: person.latest.id,
                 }}
                 active={person.conversations.some((c) => c.id === selected?.id)}
-                onClick={() => setSelected(person.latest)}
+                onClick={() => {
+                  setSelected(person.latest);
+                  if (person.conversations.length > 1) {
+                    setMerged(true);
+                    setMergedOc(person.latest.operatingCompanyRecordId ?? "__none__");
+                  } else {
+                    setMerged(false);
+                  }
+                }}
                 onStatusChange={(status) => handleStatusChange(person.latest.id, status)}
               />
             ))
@@ -1837,38 +1850,48 @@ export default function InboxPage() {
         "flex-1 min-w-0",
         selected ? "flex flex-col" : "hidden md:flex md:flex-col"
       )}>
-        {selected ? (
-          <>
-            {(() => {
-              // KOT-IDENTITY Phase 5b: thread switcher — a person can have several
-              // conversations across channels; let the operator reach all of them.
-              const personKey = selected.crmRecordId ?? `contact:${selected.contactId}`;
-              const threads = conversations
-                .filter((c) => (c.crmRecordId ?? `contact:${c.contactId}`) === personKey)
-                .sort((a, b) => (b.lastMessageAt ?? "").localeCompare(a.lastMessageAt ?? ""));
-              if (threads.length <= 1) return null;
-              return (
+        {selected ? (() => {
+          // KOT-IDENTITY Phase 5b: person detail. With several conversations a bar
+          // switches between a merged "Gesamt" timeline (split per operating
+          // company: Kottke / Ceylan stay separate) and the individual channel chats.
+          const personKey = selected.crmRecordId ?? `contact:${selected.contactId}`;
+          const threads = conversations
+            .filter((c) => (c.crmRecordId ?? `contact:${c.contactId}`) === personKey)
+            .sort((a, b) => (b.lastMessageAt ?? "").localeCompare(a.lastMessageAt ?? ""));
+          const multi = threads.length > 1;
+          const ocKey = (c: Conversation) => c.operatingCompanyRecordId ?? "__none__";
+          const firma = (c: Conversation) => (/ceylan/i.test(c.channelName) ? "Ceylan" : "Kottke");
+          const companies = [...new Map(threads.map((c) => [ocKey(c), c] as const)).values()];
+          const showMerged = merged && multi;
+          const mergedIds = threads.filter((c) => ocKey(c) === mergedOc).map((c) => c.id);
+          return (
+            <>
+              {multi && (
                 <div className="shrink-0 flex items-center gap-1.5 overflow-x-auto border-b border-border bg-muted/30 px-3 py-1.5 scrollbar-none">
-                  <span className="shrink-0 text-[10px] text-muted-foreground mr-1">Kanäle dieser Person:</span>
+                  {companies.map((s) => (
+                    <button
+                      key={"g" + ocKey(s)}
+                      onClick={() => { setMerged(true); setMergedOc(ocKey(s)); }}
+                      className={cn(
+                        "shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold border transition-colors",
+                        showMerged && mergedOc === ocKey(s) ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      {companies.length > 1 ? `Gesamt · ${firma(s)}` : "Gesamt"}
+                    </button>
+                  ))}
+                  <span className="shrink-0 mx-1 h-3 w-px bg-border" />
                   {threads.map((t) => {
                     const isKa = isKleinanzeigenConv(t);
-                    const label = isKa
-                      ? "Kleinanzeigen"
-                      : t.channelType === "whatsapp"
-                      ? "WhatsApp"
-                      : (t.channelType as string) === "sms"
-                      ? "SMS"
-                      : "E-Mail";
+                    const label = isKa ? "Kleinanzeigen" : t.channelType === "whatsapp" ? "WhatsApp" : (t.channelType as string) === "sms" ? "SMS" : "E-Mail";
                     const when = t.lastMessageAt ? new Date(t.lastMessageAt).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }) : "";
                     return (
                       <button
                         key={t.id}
-                        onClick={() => setSelected(t)}
+                        onClick={() => { setMerged(false); setSelected(t); }}
                         className={cn(
                           "shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-medium border transition-colors",
-                          t.id === selected.id
-                            ? "bg-primary text-primary-foreground border-primary"
-                            : "border-border text-muted-foreground hover:text-foreground"
+                          !showMerged && t.id === selected.id ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:text-foreground"
                         )}
                       >
                         {label}{when ? ` · ${when}` : ""}{t.unreadCount > 0 ? ` (${t.unreadCount})` : ""}
@@ -1876,19 +1899,28 @@ export default function InboxPage() {
                     );
                   })}
                 </div>
-              );
-            })()}
-            <div className="flex-1 min-h-0 flex flex-col">
-              <ConversationView
-                key={selected.id}
-                conv={selected}
-                onBack={() => setSelected(null)}
-                onStatusChange={(status) => handleStatusChange(selected.id, status)}
-                onOpenCompose={() => setComposeOpen(true)}
-              />
-            </div>
-          </>
-        ) : (
+              )}
+              <div className="flex-1 min-h-0 flex flex-col">
+                {showMerged ? (
+                  <>
+                    <PersonTimeline conversationIds={mergedIds} />
+                    <div className="shrink-0 border-t border-border px-4 py-2 text-center text-[11px] text-muted-foreground">
+                      Zum Antworten oben einen Kanal wählen.
+                    </div>
+                  </>
+                ) : (
+                  <ConversationView
+                    key={selected.id}
+                    conv={selected}
+                    onBack={() => setSelected(null)}
+                    onStatusChange={(status) => handleStatusChange(selected.id, status)}
+                    onOpenCompose={() => setComposeOpen(true)}
+                  />
+                )}
+              </div>
+            </>
+          );
+        })() : (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-6">
             <div className="h-16 w-16 rounded-2xl bg-muted flex items-center justify-center">
               <MessageCircle className="h-8 w-8 text-muted-foreground/50" />
