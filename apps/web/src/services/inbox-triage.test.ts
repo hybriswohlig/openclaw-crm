@@ -32,6 +32,10 @@ describe("classifyInbound — bots / bulk senders go to INFO", () => {
   it("newsletter local part", () => {
     expect(classifyInbound({ fromAddr: "newsletter@example.com" }).lane).toBe("info");
   });
+  it("AliExpress marketing without a List-Unsubscribe header (domain rule)", () => {
+    expect(classifyInbound({ fromAddr: "ae-ug-ut-interest20@mail.aliexpress.com", subject: "Top deals" }).lane).toBe("info");
+    expect(classifyInbound({ fromAddr: "aeug-best-wishes-notify25@selections.aliexpress.com", subject: "Preissturz" }).lane).toBe("info");
+  });
   it("Auto-Submitted auto-reply", () => {
     expect(classifyInbound({ fromAddr: "office@firma.de", subject: "Out of office", headers: { "Auto-Submitted": "auto-replied" } }).lane).toBe("info");
   });

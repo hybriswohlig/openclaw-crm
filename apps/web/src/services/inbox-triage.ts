@@ -37,6 +37,9 @@ const KA_BUYER_SUBJECT_RE = /nutzer-anfrage|anfrage zu deiner anzeige|nachricht 
 const DENY_PREFIXES = ["no-reply", "noreply", "no_reply", "donotreply", "do-not-reply", "mailer-daemon", "bounce", "notification", "notifications", "mailing", "newsletter"];
 const MARKETING_LOCALS = new Set(["newsletter", "marketing", "news", "promo", "promotions", "deals", "offers"]);
 const ESP_DOMAINS = ["mailchimp", "sendgrid", "klaviyo", "hubspot", "sendinblue", "mailgun", "amazonses", "sparkpostmail", "mailjet", "constantcontact", "mailerlite"];
+// Big consumer platforms whose mail is never a moving lead (shop newsletters,
+// account/security notices). Domain-based so format variants are all caught.
+const NOTIFICATION_DOMAINS = ["aliexpress", "facebookmail", "accounts.google", "accountprotection", "paypal.", "amazon.", "ebay.", "tiktok", "instagram", "linkedin", "netflix", "temu", "shein", "booking.com", "airbnb"];
 
 function headerVal(headers: Record<string, unknown> | null | undefined, name: string): string {
   if (!headers) return "";
@@ -98,6 +101,9 @@ export function classifyInbound(input: ClassifyInput): ClassifyResult {
   }
   if (domain && ESP_DOMAINS.some((d) => domain.includes(d))) {
     return { lane: "info", reason: `Newsletter-Dienst (${domain})`, by: "senderlist" };
+  }
+  if (domain && NOTIFICATION_DOMAINS.some((d) => domain.includes(d))) {
+    return { lane: "info", reason: `Plattform-Benachrichtigung (${domain})`, by: "senderlist" };
   }
 
   // ── Layer 3: light content heuristic ──────────────────────────────────────
