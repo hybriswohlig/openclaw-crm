@@ -1,34 +1,279 @@
 /**
- * Auto-creates CRM "people" records for inbox contacts.
+ * The single ingest contract that resolves an inbound contact to ONE golden
+ * CRM "people" record (KOT-IDENTITY).
  *
- * Called during message ingest (both email and WhatsApp paths) so that
- * every external contact who reaches out automatically gets a Person in
- * the CRM, not just a lightweight inboxContacts row.
+ * resolveOrCreatePerson canonicalizes the inbound identifiers (E.164 phone,
+ * lowercased email), looks up an existing person by HARD canonical key via the
+ * person_identifiers graph (plus a legacy exact-value fallback), attaches to it
+ * or creates a new person, fires a DETERMINISTIC auto-merge (D1) when the same
+ * human turns out to own two person records, and records every identifier on the
+ * graph. ensureCrmPerson is kept as a thin backward-compatible wrapper so the
+ * existing email / Kleinanzeigen / WhatsApp call sites get the upgrade with no
+ * changes.
  *
- * Deduplication: before creating a new record, searches existing people
- * by email or phone. If a match is found, the inbox contact is linked to
- * the existing record and any missing contact fields are added.
- *
- * Failures are logged but never thrown — CRM record creation must never
- * block message ingest.
+ * Failures are logged but never thrown — CRM resolution must never block ingest.
  */
 
 import { db } from "@/db";
 import { inboxContacts } from "@/db/schema/inbox";
+import { personIdentifiers } from "@/db/schema/identity";
 import { objects, attributes, selectOptions } from "@/db/schema/objects";
 import { records, recordValues } from "@/db/schema/records";
-import { eq, and } from "drizzle-orm";
+import { eq, and, or, inArray, asc } from "drizzle-orm";
 import { createRecord, updateRecord } from "./records";
+import { canonicalizePhone, canonicalizeEmail, isRelayEmail } from "@/lib/identity/canonical";
+import { mergePersons } from "./person-merge";
+
+type IdentifierSource = "email" | "kleinanzeigen" | "whatsapp" | "sms" | "operator" | "import";
+type IdentifierTrust = "verified" | "operator" | "claimed";
+
+export interface ResolvePersonCtx {
+  workspaceId: string;
+  /** inbox_contacts row to link to the resolved person (optional). */
+  contactId: string | null;
+  displayName: string;
+  /** raw email; may be a Kleinanzeigen relay address. */
+  email?: string | null;
+  /** raw phone in any format. */
+  phone?: string | null;
+  /** additional phones rescued from message text (KA "(Tel.: ...)", operator-pasted). */
+  extraPhones?: string[];
+  leadSource: string;
+  source: IdentifierSource;
+  trust?: IdentifierTrust;
+}
+
+export interface ResolvePersonResult {
+  personRecordId: string | null;
+  isNew: boolean;
+  autoMerged: boolean;
+}
+
+interface PeopleCtx {
+  peopleObjectId: string;
+  attrBySlug: Map<string, string>;
+}
+
+async function loadPeople(workspaceId: string): Promise<PeopleCtx | null> {
+  const [peopleObj] = await db
+    .select({ id: objects.id })
+    .from(objects)
+    .where(and(eq(objects.workspaceId, workspaceId), eq(objects.slug, "people")))
+    .limit(1);
+  if (!peopleObj) return null;
+  const attrRows = await db
+    .select({ id: attributes.id, slug: attributes.slug })
+    .from(attributes)
+    .where(eq(attributes.objectId, peopleObj.id));
+  return { peopleObjectId: peopleObj.id, attrBySlug: new Map(attrRows.map((a) => [a.slug, a.id])) };
+}
+
+/** Find existing people whose person_identifiers carry one of the given HARD keys. */
+async function findPersonsByCanonical(
+  workspaceId: string,
+  phoneCanons: string[],
+  emailCanon: string | null
+): Promise<string[]> {
+  const clauses = [];
+  if (phoneCanons.length > 0) {
+    clauses.push(and(eq(personIdentifiers.kind, "phone"), inArray(personIdentifiers.valueCanonical, phoneCanons)));
+  }
+  if (emailCanon) {
+    clauses.push(and(eq(personIdentifiers.kind, "email"), eq(personIdentifiers.valueCanonical, emailCanon)));
+  }
+  if (clauses.length === 0) return [];
+  const rows = await db
+    .selectDistinct({ p: personIdentifiers.personRecordId })
+    .from(personIdentifiers)
+    .where(and(eq(personIdentifiers.workspaceId, workspaceId), clauses.length === 1 ? clauses[0] : or(...clauses)));
+  return rows.map((r) => r.p);
+}
+
+/** Insert or refresh a person_identifier, deduped by hard canonical key (or raw for soft kinds). */
+async function upsertIdentifier(
+  workspaceId: string,
+  personRecordId: string,
+  kind: "phone" | "email" | "ka_relay_email" | "ka_pseudonym" | "wa_name" | "wa_lid",
+  valueRaw: string,
+  valueCanonical: string | null,
+  source: IdentifierSource,
+  trust: IdentifierTrust
+): Promise<void> {
+  if (valueCanonical) {
+    const [ex] = await db
+      .select({ id: personIdentifiers.id })
+      .from(personIdentifiers)
+      .where(and(eq(personIdentifiers.workspaceId, workspaceId), eq(personIdentifiers.kind, kind), eq(personIdentifiers.valueCanonical, valueCanonical)))
+      .limit(1);
+    if (ex) {
+      await db.update(personIdentifiers).set({ lastSeen: new Date(), personRecordId }).where(eq(personIdentifiers.id, ex.id));
+      return;
+    }
+  } else {
+    const [ex] = await db
+      .select({ id: personIdentifiers.id })
+      .from(personIdentifiers)
+      .where(and(eq(personIdentifiers.workspaceId, workspaceId), eq(personIdentifiers.personRecordId, personRecordId), eq(personIdentifiers.kind, kind), eq(personIdentifiers.valueRaw, valueRaw)))
+      .limit(1);
+    if (ex) {
+      await db.update(personIdentifiers).set({ lastSeen: new Date() }).where(eq(personIdentifiers.id, ex.id));
+      return;
+    }
+  }
+  await db.insert(personIdentifiers).values({ workspaceId, personRecordId, kind, valueRaw, valueCanonical, source, trust });
+}
+
+/** Create a fresh people record from the inbound contact. */
+async function createPersonRecord(
+  people: PeopleCtx,
+  displayName: string,
+  email: string | null,
+  phone: string | null,
+  leadSource: string
+): Promise<string | null> {
+  let leadSourceOptionId: string | null = null;
+  const leadSourceAttrId = people.attrBySlug.get("lead_source");
+  if (leadSourceAttrId) {
+    const options = await db
+      .select({ id: selectOptions.id, title: selectOptions.title })
+      .from(selectOptions)
+      .where(eq(selectOptions.attributeId, leadSourceAttrId));
+    leadSourceOptionId = options.find((o) => o.title === leadSource)?.id ?? null;
+  }
+  const input: Record<string, unknown> = { name: parsePersonalName(displayName) };
+  if (email) input.email_addresses = email;
+  if (phone) input.phone_numbers = phone;
+  if (leadSourceOptionId) input.lead_source = leadSourceOptionId;
+  const record = await createRecord(people.peopleObjectId, input, null);
+  return record?.id ?? null;
+}
+
+/** Add any missing email/phone values to an existing person. */
+async function enrichPerson(
+  people: PeopleCtx,
+  recordId: string,
+  email: string | null,
+  phone: string | null
+): Promise<void> {
+  const enrich: Record<string, unknown> = {};
+  const emailAttrId = people.attrBySlug.get("email_addresses");
+  const phoneAttrId = people.attrBySlug.get("phone_numbers");
+  if (email && emailAttrId && !(await hasAttributeValue(recordId, emailAttrId, email))) {
+    enrich.email_addresses = email;
+  }
+  if (phone && phoneAttrId && !(await hasAttributeValue(recordId, phoneAttrId, phone))) {
+    enrich.phone_numbers = phone;
+  }
+  if (Object.keys(enrich).length > 0) {
+    await updateRecord(people.peopleObjectId, recordId, enrich, null);
+  }
+}
 
 /**
- * Ensure the given inbox contact has a corresponding CRM "people" record.
- * Idempotent: if `crmRecordId` is already set, returns it immediately.
- *
- * Dedup: searches existing people records by email or phone before
- * creating a new one. If found, links to the existing record and
- * enriches it with any new contact fields (phone from WA, email from KA).
- *
- * @returns The CRM record ID, or null if creation was skipped / failed.
+ * THE single mandated ingest contract. Resolves an inbound contact to one golden
+ * person, auto-merging duplicates on a hard-key collision (D1).
+ */
+export async function resolveOrCreatePerson(ctx: ResolvePersonCtx): Promise<ResolvePersonResult> {
+  const trust = ctx.trust ?? "claimed";
+  try {
+    const people = await loadPeople(ctx.workspaceId);
+    if (!people) {
+      console.warn(`[inbox-crm-link] no people object for workspace ${ctx.workspaceId}`);
+      return { personRecordId: null, isNew: false, autoMerged: false };
+    }
+
+    // ── Canonicalize inbound identifiers ─────────────────────────────────────
+    const emailRaw = ctx.email ?? null;
+    const phoneRaw = ctx.phone ?? null;
+    const emailCanon = canonicalizeEmail(emailRaw);
+    const relay = emailRaw && isRelayEmail(emailRaw) ? emailRaw : null;
+    const phoneCanons = Array.from(
+      new Set(
+        [phoneRaw, ...(ctx.extraPhones ?? [])]
+          .map((p) => (p ? canonicalizePhone(p) : null))
+          .filter((p): p is string => !!p)
+      )
+    );
+
+    // ── Find candidate person records (graph hard-key + legacy exact match) ──
+    const matched = await findPersonsByCanonical(ctx.workspaceId, phoneCanons, emailCanon);
+    const legacy = await findExistingPerson(
+      people.peopleObjectId,
+      emailCanon ?? emailRaw,
+      phoneRaw,
+      people.attrBySlug.get("email_addresses") ?? null,
+      people.attrBySlug.get("phone_numbers") ?? null
+    );
+    let p0: string | null = null;
+    if (ctx.contactId) {
+      const [c] = await db.select({ crm: inboxContacts.crmRecordId }).from(inboxContacts).where(eq(inboxContacts.id, ctx.contactId)).limit(1);
+      p0 = c?.crm ?? null;
+    }
+    const candidates = Array.from(new Set([p0, ...matched, legacy].filter((v): v is string => !!v)));
+
+    // ── Resolve target + deterministic auto-merge ────────────────────────────
+    let target: string | null = null;
+    let isNew = false;
+    let autoMerged = false;
+
+    if (candidates.length === 0) {
+      target = await createPersonRecord(people, ctx.displayName, emailCanon ?? null, phoneRaw, ctx.leadSource);
+      isNew = !!target;
+    } else if (candidates.length === 1) {
+      target = candidates[0];
+    } else {
+      // Multiple person records for one human -> merge into the OLDEST (survivor).
+      const rows = await db
+        .select({ id: records.id })
+        .from(records)
+        .where(inArray(records.id, candidates))
+        .orderBy(asc(records.createdAt));
+      const ordered = rows.map((r) => r.id).filter((id) => candidates.includes(id));
+      const survivor = ordered[0] ?? candidates[0];
+      for (const other of candidates) {
+        if (other === survivor) continue;
+        try {
+          await mergePersons({
+            workspaceId: ctx.workspaceId,
+            survivorId: survivor,
+            absorbedId: other,
+            method: "deterministic",
+            confidence: 1,
+            evidence: { reason: "ingest hard-key collision", phoneCanons, emailCanon, source: ctx.source },
+          });
+          autoMerged = true;
+        } catch (err) {
+          console.error("[inbox-crm-link] auto-merge failed:", err);
+        }
+      }
+      target = survivor;
+    }
+
+    if (!target) return { personRecordId: null, isNew: false, autoMerged };
+
+    // ── Link the contact + enrich the person ─────────────────────────────────
+    if (ctx.contactId) {
+      await db.update(inboxContacts).set({ crmRecordId: target, updatedAt: new Date() }).where(eq(inboxContacts.id, ctx.contactId));
+    }
+    if (!isNew) await enrichPerson(people, target, emailCanon ?? null, phoneRaw);
+
+    // ── Record identifiers on the graph ──────────────────────────────────────
+    for (const canon of phoneCanons) {
+      await upsertIdentifier(ctx.workspaceId, target, "phone", canon, canon, ctx.source, trust);
+    }
+    if (emailCanon) await upsertIdentifier(ctx.workspaceId, target, "email", emailRaw ?? emailCanon, emailCanon, ctx.source, trust);
+    if (relay) await upsertIdentifier(ctx.workspaceId, target, "ka_relay_email", relay, null, ctx.source, "claimed");
+
+    return { personRecordId: target, isNew, autoMerged };
+  } catch (err) {
+    console.error("[inbox-crm-link] resolveOrCreatePerson failed:", err);
+    return { personRecordId: null, isNew: false, autoMerged: false };
+  }
+}
+
+/**
+ * Backward-compatible wrapper. Idempotent: if the contact is already linked,
+ * returns that record id. Otherwise delegates to resolveOrCreatePerson.
  */
 export async function ensureCrmPerson(params: {
   workspaceId: string;
@@ -37,110 +282,31 @@ export async function ensureCrmPerson(params: {
   email: string | null;
   phone: string | null;
   leadSource: "WhatsApp / Website" | "Kleinanzeigen";
+  /** phones rescued from message text (KA "(Tel.: ...)", operator-pasted). */
+  extraPhones?: string[];
 }): Promise<string | null> {
-  const { workspaceId, contactId, displayName, email, phone, leadSource } = params;
   try {
-    // 1. Check if already linked — idempotent guard.
     const [contact] = await db
       .select({ crmRecordId: inboxContacts.crmRecordId })
       .from(inboxContacts)
-      .where(eq(inboxContacts.id, contactId))
+      .where(eq(inboxContacts.id, params.contactId))
       .limit(1);
-
     if (contact?.crmRecordId) return contact.crmRecordId;
 
-    // 2. Resolve the workspace's "people" object.
-    const [peopleObj] = await db
-      .select({ id: objects.id })
-      .from(objects)
-      .where(and(eq(objects.workspaceId, workspaceId), eq(objects.slug, "people")))
-      .limit(1);
-    if (!peopleObj) {
-      console.warn(`[inbox-crm-link] no people object for workspace ${workspaceId}`);
-      return null;
-    }
-
-    // 3. Resolve relevant attributes.
-    const attrRows = await db
-      .select({ id: attributes.id, slug: attributes.slug })
-      .from(attributes)
-      .where(eq(attributes.objectId, peopleObj.id));
-    const attrBySlug = new Map(attrRows.map((a) => [a.slug, a.id]));
-
-    // 4. Dedup: search for an existing people record with matching email or phone.
-    const existingRecordId = await findExistingPerson(
-      peopleObj.id,
-      email,
-      phone,
-      attrBySlug.get("email_addresses") ?? null,
-      attrBySlug.get("phone_numbers") ?? null
-    );
-
-    if (existingRecordId) {
-      // Link this inbox contact to the existing person.
-      await db
-        .update(inboxContacts)
-        .set({ crmRecordId: existingRecordId, updatedAt: new Date() })
-        .where(eq(inboxContacts.id, contactId));
-
-      // Enrich: add any missing contact fields to the existing person.
-      const enrichUpdates: Record<string, unknown> = {};
-      if (email && attrBySlug.get("email_addresses")) {
-        const hasEmail = await hasAttributeValue(
-          existingRecordId, attrBySlug.get("email_addresses")!, email
-        );
-        if (!hasEmail) enrichUpdates.email_addresses = email;
-      }
-      if (phone && attrBySlug.get("phone_numbers")) {
-        const hasPhone = await hasAttributeValue(
-          existingRecordId, attrBySlug.get("phone_numbers")!, phone
-        );
-        if (!hasPhone) enrichUpdates.phone_numbers = phone;
-      }
-      if (Object.keys(enrichUpdates).length > 0) {
-        await updateRecord(peopleObj.id, existingRecordId, enrichUpdates, null);
-      }
-
-      return existingRecordId;
-    }
-
-    // 5. Resolve lead_source select option.
-    let leadSourceOptionId: string | null = null;
-    const leadSourceAttrId = attrBySlug.get("lead_source");
-    if (leadSourceAttrId) {
-      const options = await db
-        .select({ id: selectOptions.id, title: selectOptions.title })
-        .from(selectOptions)
-        .where(eq(selectOptions.attributeId, leadSourceAttrId));
-      const match = options.find((o) => o.title === leadSource);
-      leadSourceOptionId = match?.id ?? null;
-    }
-
-    // 6. Parse display name into personal_name JSON.
-    const nameParts = parsePersonalName(displayName);
-
-    // 7. Build the CRM record input.
-    const input: Record<string, unknown> = {
-      name: nameParts,
-    };
-    if (email) input.email_addresses = email;
-    if (phone) input.phone_numbers = phone;
-    if (leadSourceOptionId) input.lead_source = leadSourceOptionId;
-
-    // 8. Create the CRM people record.
-    const record = await createRecord(peopleObj.id, input, null);
-    if (!record) {
-      console.warn(`[inbox-crm-link] createRecord returned null for contact ${contactId}`);
-      return null;
-    }
-
-    // 9. Link the inbox contact to the new CRM record.
-    await db
-      .update(inboxContacts)
-      .set({ crmRecordId: record.id, updatedAt: new Date() })
-      .where(eq(inboxContacts.id, contactId));
-
-    return record.id;
+    const source: IdentifierSource =
+      params.leadSource === "Kleinanzeigen" ? "kleinanzeigen" : params.phone ? "whatsapp" : "email";
+    const { personRecordId } = await resolveOrCreatePerson({
+      workspaceId: params.workspaceId,
+      contactId: params.contactId,
+      displayName: params.displayName,
+      email: params.email,
+      phone: params.phone,
+      extraPhones: params.extraPhones,
+      leadSource: params.leadSource,
+      source,
+      trust: "verified",
+    });
+    return personRecordId;
   } catch (err) {
     console.error("[inbox-crm-link] ensureCrmPerson failed:", err);
     return null;
@@ -149,7 +315,7 @@ export async function ensureCrmPerson(params: {
 
 /**
  * Search for an existing CRM people record that has a matching email
- * or phone stored in its record_values.
+ * or phone stored in its record_values (legacy exact match).
  */
 async function findExistingPerson(
   peopleObjectId: string,
@@ -158,84 +324,42 @@ async function findExistingPerson(
   emailAttrId: string | null,
   phoneAttrId: string | null
 ): Promise<string | null> {
-  // Try email first (more reliable identifier).
   if (email && emailAttrId) {
     const [match] = await db
       .select({ recordId: recordValues.recordId })
       .from(recordValues)
       .innerJoin(records, eq(records.id, recordValues.recordId))
-      .where(
-        and(
-          eq(records.objectId, peopleObjectId),
-          eq(recordValues.attributeId, emailAttrId),
-          eq(recordValues.textValue, email)
-        )
-      )
+      .where(and(eq(records.objectId, peopleObjectId), eq(recordValues.attributeId, emailAttrId), eq(recordValues.textValue, email)))
       .limit(1);
     if (match) return match.recordId;
   }
-
-  // Fallback to phone.
   if (phone && phoneAttrId) {
     const [match] = await db
       .select({ recordId: recordValues.recordId })
       .from(recordValues)
       .innerJoin(records, eq(records.id, recordValues.recordId))
-      .where(
-        and(
-          eq(records.objectId, peopleObjectId),
-          eq(recordValues.attributeId, phoneAttrId),
-          eq(recordValues.textValue, phone)
-        )
-      )
+      .where(and(eq(records.objectId, peopleObjectId), eq(recordValues.attributeId, phoneAttrId), eq(recordValues.textValue, phone)))
       .limit(1);
     if (match) return match.recordId;
   }
-
   return null;
 }
 
-/**
- * Check if a record already has a specific text value for an attribute
- * (used to avoid adding duplicate emails/phones during enrichment).
- */
-async function hasAttributeValue(
-  recordId: string,
-  attributeId: string,
-  value: string
-): Promise<boolean> {
+/** Check if a record already has a specific text value for an attribute. */
+async function hasAttributeValue(recordId: string, attributeId: string, value: string): Promise<boolean> {
   const [existing] = await db
     .select({ id: recordValues.id })
     .from(recordValues)
-    .where(
-      and(
-        eq(recordValues.recordId, recordId),
-        eq(recordValues.attributeId, attributeId),
-        eq(recordValues.textValue, value)
-      )
-    )
+    .where(and(eq(recordValues.recordId, recordId), eq(recordValues.attributeId, attributeId), eq(recordValues.textValue, value)))
     .limit(1);
   return !!existing;
 }
 
-/**
- * Parse a display name string into the personal_name JSON format:
- * `{ first_name, last_name, full_name }`.
- */
-function parsePersonalName(displayName: string): {
-  first_name: string;
-  last_name: string;
-  full_name: string;
-} {
+/** Parse a display name string into the personal_name JSON format. */
+function parsePersonalName(displayName: string): { first_name: string; last_name: string; full_name: string } {
   const trimmed = (displayName || "").trim();
-  if (!trimmed) {
-    return { first_name: "", last_name: "", full_name: "" };
-  }
+  if (!trimmed) return { first_name: "", last_name: "", full_name: "" };
   const parts = trimmed.split(/\s+/);
-  if (parts.length === 1) {
-    return { first_name: parts[0], last_name: "", full_name: trimmed };
-  }
-  const firstName = parts[0];
-  const lastName = parts.slice(1).join(" ");
-  return { first_name: firstName, last_name: lastName, full_name: trimmed };
+  if (parts.length === 1) return { first_name: parts[0], last_name: "", full_name: trimmed };
+  return { first_name: parts[0], last_name: parts.slice(1).join(" "), full_name: trimmed };
 }

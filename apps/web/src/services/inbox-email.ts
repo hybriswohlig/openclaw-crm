@@ -24,6 +24,7 @@ import {
 import { createDealForNewConversation } from "./inbox";
 import { emitEvent } from "./activity-events";
 import { ensureCrmPerson } from "./inbox-crm-link";
+import { extractPhonesFromText } from "@/lib/identity/canonical";
 
 // Same cap as deal_documents — base64 expands ~33%, so a 10 MB image is
 // ~13 MB in the row. Images exceeding this limit are dropped but the rest
@@ -161,7 +162,15 @@ export async function syncChannelAccount(accountId: string) {
       // Extract body
       const rawHtml = typeof parsed.html === "string" ? parsed.html : null;
       let body = parsed.text ?? "";
+      // KOT-IDENTITY: rescue the buyer's phone from the Kleinanzeigen
+      // "Nachricht von NAME (Tel.: 0151 ...)" header BEFORE parseKleinanzeigenBody
+      // strips that line. This gives the KA person a real phone identity so a
+      // later WhatsApp message on that number resolves to the same person.
+      let kaPhones: string[] = [];
       if (isKleinanzeigen) {
+        const preParse = `${parsed.text ?? ""}\n${rawHtml ?? ""}`;
+        const telMatch = preParse.match(/Tel\.?:\s*([0-9 ()/.+\-]{6,})/i);
+        kaPhones = telMatch ? extractPhonesFromText(telMatch[1]) : [];
         body = parseKleinanzeigenBody(body, rawHtml);
       } else if (!body && rawHtml) {
         // Fallback for any other HTML-only email
@@ -188,6 +197,7 @@ export async function syncChannelAccount(accountId: string) {
         email: fromEmail,
         phone: null,
         leadSource: isKleinanzeigen ? "Kleinanzeigen" : "WhatsApp / Website",
+        extraPhones: kaPhones,
       });
 
       // Upsert conversation
