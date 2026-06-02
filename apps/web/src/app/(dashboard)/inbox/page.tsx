@@ -1446,6 +1446,10 @@ export default function InboxPage() {
     dealRecordId?: string | null;
   }>({});
 
+  // KOT-IDENTITY: pending duplicate suggestions, used for an inline banner in the
+  // detail so the operator can merge the person they are looking at, in place.
+  const [suggestions, setSuggestions] = useState<{ survivorId: string; survivorName: string; absorbedId: string; absorbedName: string }[]>([]);
+
   const fetchConversations = useCallback(async () => {
     const params = new URLSearchParams({ status: statusFilter, lane: laneFilter });
     if (accountFilter !== "all") params.set("channelAccountId", accountFilter);
@@ -1455,6 +1459,25 @@ export default function InboxPage() {
       setConversations(data.data ?? []);
     }
   }, [statusFilter, accountFilter, laneFilter]);
+
+  const fetchSuggestions = useCallback(async () => {
+    const res = await fetch("/api/v1/persons/merge-suggestions");
+    if (res.ok) setSuggestions((await res.json()).data ?? []);
+  }, []);
+
+  const decideSuggestion = useCallback(async (idA: string, idB: string, action: "merge" | "reject") => {
+    const res = await fetch("/api/v1/persons/merge-suggestions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, idA, idB }),
+    });
+    if (res.ok) {
+      await fetchSuggestions();
+      if (action === "merge") await fetchConversations();
+    }
+  }, [fetchSuggestions, fetchConversations]);
+
+  useEffect(() => { void fetchSuggestions(); }, [fetchSuggestions]);
 
   const fetchAccounts = useCallback(async () => {
     const res = await fetch("/api/v1/inbox/channel-accounts");
@@ -1682,7 +1705,7 @@ export default function InboxPage() {
           </div>
 
           {/* Duplicate merge suggestions (KOT-IDENTITY Part B) */}
-          <MergeSuggestions onMerged={fetchConversations} />
+          <MergeSuggestions onMerged={() => { void fetchConversations(); void fetchSuggestions(); }} />
 
           {/* Source filter */}
           <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
@@ -1864,8 +1887,19 @@ export default function InboxPage() {
           const companies = [...new Map(threads.map((c) => [ocKey(c), c] as const)).values()];
           const showMerged = merged && multi;
           const mergedIds = threads.filter((c) => ocKey(c) === mergedOc).map((c) => c.id);
+          const sug = selected.crmRecordId ? suggestions.find((s) => s.survivorId === selected.crmRecordId || s.absorbedId === selected.crmRecordId) : undefined;
+          const sugOther = sug ? (sug.survivorId === selected.crmRecordId ? sug.absorbedName : sug.survivorName) : "";
           return (
             <>
+              {sug && (
+                <div className="shrink-0 flex items-center gap-2 border-b border-amber-300/60 bg-amber-50 dark:bg-amber-950/30 px-3 py-1.5 text-xs">
+                  <span className="text-amber-800 dark:text-amber-300">Mögliche Dublette: <b>{sugOther}</b></span>
+                  <div className="ml-auto flex gap-1.5 shrink-0">
+                    <button onClick={() => decideSuggestion(sug.survivorId, sug.absorbedId, "merge")} className="rounded-md bg-amber-600 text-white px-2 py-0.5 font-medium hover:bg-amber-700">Zusammenführen</button>
+                    <button onClick={() => decideSuggestion(sug.survivorId, sug.absorbedId, "reject")} className="rounded-md border border-amber-400 text-amber-700 px-2 py-0.5 hover:bg-amber-100">Verschieden</button>
+                  </div>
+                </div>
+              )}
               {multi && (
                 <div className="shrink-0 flex items-center gap-1.5 overflow-x-auto border-b border-border bg-muted/30 px-3 py-1.5 scrollbar-none">
                   {companies.map((s) => (
