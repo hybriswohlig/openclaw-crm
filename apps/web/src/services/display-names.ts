@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { records, objects, attributes, recordValues } from "@/db/schema";
-import { and, inArray } from "drizzle-orm";
+import { and, inArray, isNull } from "drizzle-orm";
 import { extractPersonalName } from "@/lib/display-name";
 
 export interface RecordDisplayInfo {
@@ -23,10 +23,12 @@ export async function batchGetRecordDisplayNames(
   const uniqueIds = [...new Set(recordIds)];
 
   // 1. Batch get records → collect objectIds
+  // Exclude records absorbed by a person/deal merge (KOT-IDENTITY): a soft-deleted
+  // loser must not render its old name on deals/associations after the merge.
   const recordRows = await db
     .select({ id: records.id, objectId: records.objectId })
     .from(records)
-    .where(inArray(records.id, uniqueIds));
+    .where(and(inArray(records.id, uniqueIds), isNull(records.deletedAt)));
 
   if (recordRows.length === 0) {
     for (const id of uniqueIds) {

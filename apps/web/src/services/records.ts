@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { records, recordValues, attributes, objects } from "@/db/schema";
-import { eq, and, inArray, desc, asc, sql, type SQL } from "drizzle-orm";
+import { eq, and, inArray, desc, asc, isNull, sql, type SQL } from "drizzle-orm";
 import { ATTRIBUTE_TYPE_COLUMN_MAP, type AttributeType } from "@openclaw-crm/shared";
 import type { FilterGroup, SortConfig } from "@openclaw-crm/shared";
 import { extractPersonalName } from "@/lib/display-name";
@@ -159,7 +159,7 @@ async function hydrateRecords(
     const refRecords = await db
       .select({ id: records.id, objectId: records.objectId })
       .from(records)
-      .where(inArray(records.id, [...refIds]));
+      .where(and(inArray(records.id, [...refIds]), isNull(records.deletedAt)));
 
     if (refRecords.length > 0) {
       const refRecordIds = refRecords.map((r) => r.id);
@@ -296,8 +296,9 @@ export async function listRecords(
   // Build sort expressions
   const sortExprs = sorts ? buildSortExpressions(sorts, attrMap) : [];
 
-  // Combined WHERE: objectId + optional filter
-  const baseWhere = eq(records.objectId, objectId);
+  // Combined WHERE: objectId + not soft-deleted + optional filter.
+  // isNull(deletedAt) hides records absorbed by a person/deal merge (KOT-IDENTITY).
+  const baseWhere = and(eq(records.objectId, objectId), isNull(records.deletedAt));
   const whereClause = filterSQL ? and(baseWhere, filterSQL) : baseWhere;
 
   // Build query
@@ -344,7 +345,7 @@ export async function getRecord(objectId: string, recordId: string) {
   const recordRows = await db
     .select()
     .from(records)
-    .where(and(eq(records.id, recordId), eq(records.objectId, objectId)))
+    .where(and(eq(records.id, recordId), eq(records.objectId, objectId), isNull(records.deletedAt)))
     .limit(1);
 
   if (recordRows.length === 0) return null;
@@ -612,7 +613,7 @@ export async function getRelatedRecords(recordId: string) {
   const refRecords = await db
     .select({ id: records.id, objectId: records.objectId, createdAt: records.createdAt })
     .from(records)
-    .where(inArray(records.id, refRecordIds));
+    .where(and(inArray(records.id, refRecordIds), isNull(records.deletedAt)));
 
   if (refRecords.length === 0) return [];
 
