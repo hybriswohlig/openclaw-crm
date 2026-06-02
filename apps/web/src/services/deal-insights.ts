@@ -20,6 +20,7 @@ import { records, recordValues } from "@/db/schema/records";
 import {
   getDealTranscript,
   formatTranscriptForLLM,
+  getDealImageAttachments,
   type DealTranscript,
 } from "./deal-transcript";
 import { runAITask } from "./ai/run-task";
@@ -483,10 +484,12 @@ export async function extractDealInsights(
   dealRecordId: string
 ): Promise<DealInsightsResult> {
   const transcript = await getDealTranscript(workspaceId, dealRecordId);
-  const [notesText, documentsText, auftragText] = await Promise.all([
+  const convIds = transcript.channels.map((c) => c.conversationId);
+  const [notesText, documentsText, auftragText, images] = await Promise.all([
     loadNotesForDeal(dealRecordId),
     loadDocumentsForDeal(workspaceId, dealRecordId),
     loadAuftragForDeal(workspaceId, dealRecordId),
+    getDealImageAttachments(workspaceId, dealRecordId, convIds),
   ]);
 
   // Allow analysis even without messages, as long as there's *some* signal.
@@ -494,7 +497,8 @@ export async function extractDealInsights(
     transcript.messageCount === 0 &&
     !notesText &&
     !documentsText &&
-    !auftragText
+    !auftragText &&
+    images.length === 0
   ) {
     return {
       dealRecordId,
@@ -519,6 +523,13 @@ export async function extractDealInsights(
       `# Bereits erfasster Auftrag (vom Team manuell gepflegt — autoritativ, nicht überschreiben)\n\n${auftragText}`
     );
   }
+  if (images.length > 0) {
+    const fileList = images.map((i) => `- ${i.fileName} (${i.mimeType})`).join("\n");
+    promptParts.push(
+      `# Angehängte Bilder (${images.length})\n\nDer Kunde oder das Team hat Bilder geschickt (z. B. Fotos von Möbeln/Räumen, Grundrisse, gescannte Dokumente). Die Dateien liegen in deinem Arbeitsverzeichnis und sind dir über das Read-Tool zugänglich. Sieh dir JEDE Datei an und nutze sie, um Inventar, Volumen (volume_cbm), Stockwerk/Zugang und Sonderfälle zu erkennen:\n${fileList}`
+    );
+  }
+
   promptParts.push("Extrahiere die strukturierten Felder.");
 
   const result = await runAITask({
@@ -527,6 +538,11 @@ export async function extractDealInsights(
     system: SYSTEM_PROMPT,
     prompt: promptParts.join("\n\n"),
     schema: InsightsSchema,
+    attachments: images.map((i) => ({
+      filename: i.fileName,
+      mime: i.mimeType,
+      contentB64: i.contentB64,
+    })),
   });
 
   if (!result.ok) {

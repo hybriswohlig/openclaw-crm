@@ -1,9 +1,12 @@
 /**
- * Nightly auto-refresh of "In Kontakt" leads.
+ * Nightly auto-refresh of active leads.
  *
- * For each deal whose stage is "In Kontakt" AND whose linked conversations
- * have a new message since the last log entry, run extractDealInsights +
- * applyDealInsights with a tight whitelist.
+ * For each deal at an ACTIVE stage (Neue Anfrage, In Kontakt, Geplant,
+ * Durchgeführt — never the terminal Bezahlt / Verloren) whose linked
+ * conversations have a new message since the last log entry, run
+ * extractDealInsights + applyDealInsights with a tight whitelist. Writes only
+ * fill empty fields (onlyFillEmpty) so the cron never clobbers manual edits;
+ * stage moves are forward-only from each deal's current stage.
  *
  * Whitelist rules (per user spec):
  *   - All deal-level chat-derivable fields: customer-name, phone, email,
@@ -79,8 +82,16 @@ const STAGE_FORWARD_ORDER = [
   "verloren",
 ];
 
+/** Drop a trailing parenthetical so "Bezahlt" matches "Bezahlt (Abgeschlossen)". */
+function normalizeStageTitle(title: string): string {
+  return title.trim().toLowerCase().replace(/\s*\([^)]*\)\s*$/, "").trim();
+}
+
 function stageIndex(title: string): number {
-  return STAGE_FORWARD_ORDER.indexOf(title.toLowerCase());
+  const exact = STAGE_FORWARD_ORDER.indexOf(title.toLowerCase());
+  if (exact !== -1) return exact;
+  const norm = normalizeStageTitle(title);
+  return STAGE_FORWARD_ORDER.findIndex((s) => normalizeStageTitle(s) === norm);
 }
 
 export interface RefreshSummary {
@@ -133,26 +144,43 @@ export async function refreshInContactLeads(
     .select()
     .from(statuses)
     .where(eq(statuses.attributeId, stageAttr.id));
-  const inKontakt = stageRows.find(
-    (s) => s.title.toLowerCase() === "in kontakt"
+  // Active (non-terminal) stages we auto-refresh. Terminal stages — Bezahlt
+  // (Abgeschlossen) and Verloren — are left alone. Matched by normalized title
+  // so the duplicate English seed rows on this attribute are ignored.
+  const ACTIVE_STAGES = new Set([
+    "neue anfrage",
+    "in kontakt",
+    "geplant",
+    "durchgeführt",
+  ]);
+  const activeStatusById = new Map(
+    stageRows
+      .filter((s) => ACTIVE_STAGES.has(normalizeStageTitle(s.title)))
+      .map((s) => [s.id, s.title] as const)
   );
-  if (!inKontakt) {
-    console.warn(`[auto-refresh] "In Kontakt" stage not found`);
+  if (activeStatusById.size === 0) {
+    console.warn(`[auto-refresh] no active stage statuses found`);
     return summary;
   }
 
-  // 2. Find all deal records that have stage = "In Kontakt".
+  // 2. Find all deal records currently at one of the active stages, and record
+  //    each deal's current stage title for the forward-only gate.
   const stageValueRows = await db
-    .select({ recordId: recordValues.recordId })
+    .select({ recordId: recordValues.recordId, statusId: recordValues.textValue })
     .from(recordValues)
     .where(
       and(
         eq(recordValues.attributeId, stageAttr.id),
-        eq(recordValues.textValue, inKontakt.id)
+        inArray(recordValues.textValue, [...activeStatusById.keys()])
       )
     );
 
-  const candidateDealIds = [...new Set(stageValueRows.map((r) => r.recordId))];
+  const currentStageByDeal = new Map<string, string>();
+  for (const r of stageValueRows) {
+    const title = r.statusId ? activeStatusById.get(r.statusId) : undefined;
+    if (title) currentStageByDeal.set(r.recordId, title);
+  }
+  const candidateDealIds = [...currentStageByDeal.keys()];
   summary.totalCandidates = candidateDealIds.length;
   if (candidateDealIds.length === 0) return summary;
 
@@ -225,8 +253,9 @@ export async function refreshInContactLeads(
       }
 
       // Forward-only stage gate: if the AI suggests a stage that's BEFORE
-      // the current one in the canonical order, drop the suggestion.
-      const fromIdx = stageIndex(inKontakt.title);
+      // this deal's CURRENT stage in the canonical order, drop the suggestion.
+      const currentStageTitle = currentStageByDeal.get(dealRecordId) ?? "";
+      const fromIdx = stageIndex(currentStageTitle);
       const suggestedIdx = insights.suggested_stage
         ? stageIndex(insights.suggested_stage)
         : -1;
@@ -245,6 +274,9 @@ export async function refreshInContactLeads(
         applyNote: true,
         applyContact: true,
         applyAuftrag: true,
+        // Automated path: only fill gaps, never overwrite a value that may have
+        // been corrected by hand. The manual KI-Analyse flow overwrites freely.
+        onlyFillEmpty: true,
       });
 
       // 6. Upsert the refresh log row.
@@ -279,7 +311,7 @@ export async function refreshInContactLeads(
         status: "refreshed",
         fieldsUpdated: updatedSummary,
         stageMoved: applyResult.stageUpdated
-          ? { from: inKontakt.title, to: insights.suggested_stage ?? null }
+          ? { from: currentStageTitle, to: insights.suggested_stage ?? null }
           : null,
       });
 

@@ -18,6 +18,8 @@ import { emitEvent } from "./activity-events";
 import { DEFAULT_AUFTRAG_CHECKLIST } from "@openclaw-crm/shared";
 import { extractPersonalName } from "@/lib/display-name";
 import { computeLeadName, shouldAutoRename } from "./lead-name";
+import { canonicalizePhone, canonicalizeEmail, isRelayEmail } from "@/lib/identity/canonical";
+import { findPersonsByCanonical, upsertIdentifier } from "./inbox-crm-link";
 import type { DealInsights } from "./deal-insights";
 
 export interface ApplyInsightsInput {
@@ -35,6 +37,14 @@ export interface ApplyInsightsInput {
   applyContact?: boolean;
   /** Whether to populate / upsert the linked Auftrag with the extracted fields. */
   applyAuftrag?: boolean;
+  /**
+   * When true, only write a data field if its current value is empty — never
+   * overwrite an existing (possibly human-corrected) value. Used by the nightly
+   * cron so automation fills gaps without clobbering manual edits. The manual,
+   * user-reviewed flow leaves this false (full overwrite of approved fields).
+   * Stage moves and contact appends are unaffected.
+   */
+  onlyFillEmpty?: boolean;
 }
 
 export interface DealFieldChange {
@@ -123,11 +133,58 @@ const AUFTRAG_FIELD_LABELS: Record<string, string> = {
   amount_outstanding_eur: "Offener Betrag",
 };
 
-/** Build a German address string from a freeform LLM address string into a minimal location object. */
+/**
+ * Coerce an LLM date to a valid ISO `YYYY-MM-DD`, or null if unparseable.
+ * Accepts ISO and German `DD.MM.YYYY`. Returning null means the field is
+ * skipped rather than crashing the whole batched updateRecord with an invalid
+ * date (a Postgres `date` column rejects e.g. "15. Juni").
+ */
+function toSafeDate(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const s = raw.trim();
+  if (!s) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    return isNaN(new Date(`${s}T00:00:00Z`).getTime()) ? null : s;
+  }
+  const m = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  if (m) {
+    const iso = `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+    return isNaN(new Date(`${iso}T00:00:00Z`).getTime()) ? null : iso;
+  }
+  return null;
+}
+
+/** Validate an LLM timestamp string; null if it would produce an Invalid Date. */
+function toSafeTimestamp(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const s = raw.trim();
+  if (!s) return null;
+  return isNaN(new Date(s).getTime()) ? null : s;
+}
+
+/**
+ * Parse a freeform German address ("Straße Nr, PLZ Ort") into the canonical
+ * location shape { line1, postcode, city }. Falls back to line1-only when the
+ * format is not recognized, so downstream consumers (depot PLZ-auto-pick, CSV
+ * export) get structured city/postcode when available.
+ */
 function addressStringToLocationValue(text: string): Record<string, unknown> {
-  // Keep it simple: store the raw text in line1; the LLM's format is already "Straße Nr, PLZ Ort".
-  // Downstream location editors read line1/city/postcode but any shape is acceptable.
-  return { line1: text.trim() };
+  const raw = text.trim();
+  const result: Record<string, unknown> = { line1: raw };
+  const parts = raw.split(",").map((p) => p.trim()).filter(Boolean);
+  if (parts.length >= 2) {
+    result.line1 = parts[0];
+    for (let i = 1; i < parts.length; i++) {
+      const m = parts[i].match(/\b(\d{5})\b\s*(.*)/);
+      if (m) {
+        result.postcode = m[1];
+        if (m[2]?.trim()) result.city = m[2].trim();
+        break;
+      }
+    }
+    if (!result.postcode && !result.city) result.city = parts[1];
+  }
+  return result;
 }
 
 /**
@@ -171,6 +228,19 @@ async function formatChangeValue(
   return String(value);
 }
 
+/**
+ * Normalize a pipeline-stage title for forgiving matching: lowercase, trimmed,
+ * and with any trailing parenthetical dropped, so the model's "Bezahlt" still
+ * matches the DB status "Bezahlt (Abgeschlossen)".
+ */
+function normalizeStageTitle(title: string): string {
+  return title
+    .trim()
+    .toLowerCase()
+    .replace(/\s*\([^)]*\)\s*$/, "")
+    .trim();
+}
+
 /** Resolve a select option's ID from its title (case-insensitive). */
 async function resolveSelectOptionId(
   attributeId: string,
@@ -201,6 +271,7 @@ export async function applyDealInsights(
     applyNote = true,
     applyContact = true,
     applyAuftrag = true,
+    onlyFillEmpty = false,
   } = params;
 
   const result: ApplyInsightsResult = {
@@ -241,39 +312,49 @@ export async function applyDealInsights(
       name: "Lead-Titel",
     };
 
+    // onlyFillEmpty guard: in the automated (cron) path, never overwrite an
+    // existing non-empty value — only fill gaps.
+    const isEmptyValue = (v: unknown) =>
+      v == null || v === "" || (Array.isArray(v) && v.length === 0);
+    const canWriteDeal = (slug: string) =>
+      !onlyFillEmpty || isEmptyValue(beforeValues[slug]);
+
     // 2. Apply selected deal-level fields.
     const addSimple = (key: keyof typeof ext, slug: string, label: string, raw: unknown) => {
       if (raw == null || raw === "") return;
+      if (!canWriteDeal(slug)) return;
       input[slug] = raw;
       result.fieldsUpdated.push(label);
       void key;
     };
 
     if (selected.has("inventory_notes")) addSimple("inventory_notes", "inventory_notes", "Inventar", ext.inventory_notes);
-    if (selected.has("move_date")) addSimple("move_date", "move_date", "Umzugsdatum", ext.move_date);
-    if (selected.has("estimated_value_eur") && ext.estimated_value_eur != null) {
-      input.value = ext.estimated_value_eur;
+    if (selected.has("move_date")) addSimple("move_date", "move_date", "Umzugsdatum", toSafeDate(ext.move_date));
+    if (selected.has("estimated_value_eur") && ext.estimated_value_eur != null && canWriteDeal("value")) {
+      // `value` is a currency attribute → json_value expects { amount, currencyCode }
+      // (same shape as amount_outstanding below). Writing a bare number renders empty.
+      input.value = { amount: ext.estimated_value_eur, currencyCode: "EUR" };
       result.fieldsUpdated.push("Angebotswert");
     }
-    if (selected.has("move_from_address") && ext.move_from_address) {
+    if (selected.has("move_from_address") && ext.move_from_address && canWriteDeal("move_from_address")) {
       input.move_from_address = addressStringToLocationValue(ext.move_from_address);
       result.fieldsUpdated.push("Abholadresse");
     }
-    if (selected.has("move_to_address") && ext.move_to_address) {
+    if (selected.has("move_to_address") && ext.move_to_address && canWriteDeal("move_to_address")) {
       input.move_to_address = addressStringToLocationValue(ext.move_to_address);
       result.fieldsUpdated.push("Zieladresse");
     }
-    if (selected.has("floors_from") && ext.floors_from != null) {
+    if (selected.has("floors_from") && ext.floors_from != null && canWriteDeal("floors_from")) {
       input.floors_from = ext.floors_from;
       result.fieldsUpdated.push("Stockwerk Abholung");
     }
-    if (selected.has("floors_to") && ext.floors_to != null) {
+    if (selected.has("floors_to") && ext.floors_to != null && canWriteDeal("floors_to")) {
       input.floors_to = ext.floors_to;
       result.fieldsUpdated.push("Stockwerk Ziel");
     }
 
     // Elevator select — resolve option ID by title, because select attributes store the option ID.
-    if (selected.has("elevator_from") && ext.elevator_from) {
+    if (selected.has("elevator_from") && ext.elevator_from && canWriteDeal("elevator_from")) {
       const [attr] = await db
         .select({ id: attributes.id })
         .from(attributes)
@@ -287,7 +368,7 @@ export async function applyDealInsights(
         }
       }
     }
-    if (selected.has("elevator_to") && ext.elevator_to) {
+    if (selected.has("elevator_to") && ext.elevator_to && canWriteDeal("elevator_to")) {
       const [attr] = await db
         .select({ id: attributes.id })
         .from(attributes)
@@ -330,9 +411,11 @@ export async function applyDealInsights(
           .where(eq(statuses.attributeId, stageAttr.id))
           .orderBy(asc(statuses.sortOrder));
 
-        const suggested = stageRows.find(
-          (s) => s.title.toLowerCase() === insights.suggested_stage!.toLowerCase()
-        );
+        const wantStage = normalizeStageTitle(insights.suggested_stage!);
+        const suggested =
+          stageRows.find(
+            (s) => s.title.toLowerCase() === insights.suggested_stage!.toLowerCase()
+          ) ?? stageRows.find((s) => normalizeStageTitle(s.title) === wantStage);
         if (suggested) {
           // Forward-only: refuse to drag a deal backward in the pipeline.
           // A chat smalltalk after delivery must never re-open the deal as
@@ -419,6 +502,7 @@ export async function applyDealInsights(
         selected,
         appliedBy,
         updatedFields: result.auftragUpdated,
+        onlyFillEmpty,
       });
       result.auftragRecordId = auftragId;
     }
@@ -499,6 +583,31 @@ async function applyContactUpdates(params: {
     ? ((deal.values as Record<string, unknown>).name as string)
     : "";
 
+  // Register the KI-extracted phone/email on the identity graph
+  // (person_identifiers) so the KA/WhatsApp dedupe can see them. Guarded so we
+  // never steal a hard key already owned by a DIFFERENT person — that cross-link
+  // is the async matcher's job, not ours.
+  const registerContactIdentifiers = async (personId: string) => {
+    if (ext.customer_phone) {
+      const canon = canonicalizePhone(ext.customer_phone);
+      if (canon) {
+        const owners = await findPersonsByCanonical(workspaceId, [canon], null);
+        if (owners.length === 0 || owners.includes(personId)) {
+          await upsertIdentifier(workspaceId, personId, "phone", ext.customer_phone.trim(), canon, "operator", "claimed");
+        }
+      }
+    }
+    if (ext.customer_email && !isRelayEmail(ext.customer_email)) {
+      const canon = canonicalizeEmail(ext.customer_email);
+      if (canon) {
+        const owners = await findPersonsByCanonical(workspaceId, [], canon);
+        if (owners.length === 0 || owners.includes(personId)) {
+          await upsertIdentifier(workspaceId, personId, "email", ext.customer_email.trim(), canon, "operator", "claimed");
+        }
+      }
+    }
+  };
+
   if (primaryPersonId) {
     // Load existing person values.
     const person = await getRecord(peopleObj.id, primaryPersonId);
@@ -556,27 +665,73 @@ async function applyContactUpdates(params: {
     if (Object.keys(personInput).length > 0) {
       await updateRecord(peopleObj.id, primaryPersonId, personInput, appliedBy);
     }
-  } else if (ext.customer_name) {
-    // No linked person yet — create one and link to deal.
-    const nameAttr = personAttrBySlug.get("name");
-    const personInput: Record<string, unknown> = {};
-    if (nameAttr?.type === "personal_name") {
-      const parts = ext.customer_name.trim().split(/\s+/);
-      const firstName = parts.length > 1 ? parts.slice(0, -1).join(" ") : parts[0];
-      const lastName = parts.length > 1 ? parts[parts.length - 1] : "";
-      personInput.name = { firstName, lastName, fullName: ext.customer_name.trim() };
-    } else {
-      personInput.name = ext.customer_name.trim();
-    }
-    if (ext.customer_phone) personInput.phone_numbers = [ext.customer_phone.trim()];
-    if (ext.customer_email && !ext.customer_email.endsWith("mail.kleinanzeigen.de")) {
-      personInput.email_addresses = [ext.customer_email.trim()];
+    await registerContactIdentifiers(primaryPersonId);
+  } else {
+    // No linked person yet. First dedupe against the identity graph by HARD key
+    // (canonical phone / email) so we attach to the existing golden person
+    // instead of manufacturing a duplicate every run.
+    const phoneCanon = ext.customer_phone ? canonicalizePhone(ext.customer_phone) : null;
+    const emailCanon =
+      ext.customer_email && !isRelayEmail(ext.customer_email)
+        ? canonicalizeEmail(ext.customer_email)
+        : null;
+    let targetPersonId: string | null = null;
+    if (phoneCanon || emailCanon) {
+      const matches = await findPersonsByCanonical(
+        workspaceId,
+        phoneCanon ? [phoneCanon] : [],
+        emailCanon
+      );
+      targetPersonId = matches[0] ?? null;
     }
 
-    const created = await createRecord(peopleObj.id, personInput, appliedBy);
-    if (created) {
-      dealInput.associated_people = [created.id];
-      contactFieldsUpdated.push(`Neue Person angelegt: ${ext.customer_name.trim()}`);
+    if (targetPersonId) {
+      // Attach the existing person to the deal and enrich its arrays.
+      dealInput.associated_people = [targetPersonId];
+      const person = await getRecord(peopleObj.id, targetPersonId);
+      const pv = (person?.values ?? {}) as Record<string, unknown>;
+      const enrich: Record<string, unknown> = {};
+      if (ext.customer_phone) {
+        const existing = Array.isArray(pv.phone_numbers) ? (pv.phone_numbers as string[]) : [];
+        const norm = ext.customer_phone.replace(/\s+/g, "");
+        if (!existing.some((p) => String(p).replace(/\s+/g, "") === norm)) {
+          enrich.phone_numbers = [...existing, ext.customer_phone.trim()];
+        }
+      }
+      if (emailCanon && ext.customer_email) {
+        const existing = Array.isArray(pv.email_addresses) ? (pv.email_addresses as string[]) : [];
+        if (!existing.some((e) => String(e).toLowerCase() === ext.customer_email!.toLowerCase())) {
+          enrich.email_addresses = [...existing, ext.customer_email.trim()];
+        }
+      }
+      if (Object.keys(enrich).length > 0) {
+        await updateRecord(peopleObj.id, targetPersonId, enrich, appliedBy);
+      }
+      contactFieldsUpdated.push(`Bestehende Person verknüpft`);
+      await registerContactIdentifiers(targetPersonId);
+    } else if (ext.customer_name) {
+      // No match — create a new person and link it to the deal.
+      const nameAttr = personAttrBySlug.get("name");
+      const personInput: Record<string, unknown> = {};
+      if (nameAttr?.type === "personal_name") {
+        const parts = ext.customer_name.trim().split(/\s+/);
+        const firstName = parts.length > 1 ? parts.slice(0, -1).join(" ") : parts[0];
+        const lastName = parts.length > 1 ? parts[parts.length - 1] : "";
+        personInput.name = { firstName, lastName, fullName: ext.customer_name.trim() };
+      } else {
+        personInput.name = ext.customer_name.trim();
+      }
+      if (ext.customer_phone) personInput.phone_numbers = [ext.customer_phone.trim()];
+      if (emailCanon && ext.customer_email) {
+        personInput.email_addresses = [ext.customer_email.trim()];
+      }
+
+      const created = await createRecord(peopleObj.id, personInput, appliedBy);
+      if (created) {
+        dealInput.associated_people = [created.id];
+        contactFieldsUpdated.push(`Neue Person angelegt: ${ext.customer_name.trim()}`);
+        await registerContactIdentifiers(created.id);
+      }
     }
   }
 }
@@ -590,8 +745,9 @@ async function upsertAuftragForDeal(params: {
   selected: Set<string>;
   appliedBy: string | null;
   updatedFields: string[];
+  onlyFillEmpty: boolean;
 }): Promise<string | null> {
-  const { workspaceId, dealRecordId, ext, selected, appliedBy, updatedFields } = params;
+  const { workspaceId, dealRecordId, ext, selected, appliedBy, updatedFields, onlyFillEmpty } = params;
 
   const [auftragObj] = await db
     .select({ id: objects.id })
@@ -628,12 +784,25 @@ async function upsertAuftragForDeal(params: {
     auftragRecordId = refRows[0]?.recordId ?? null;
   }
 
+  // Load existing Auftrag values so the onlyFillEmpty guard never overwrites a
+  // value already on the job sheet (a new Auftrag has none, so all writes pass).
+  let existingAuftrag: Record<string, unknown> = {};
+  if (auftragRecordId) {
+    const rec = await getRecord(auftragObj.id, auftragRecordId);
+    existingAuftrag = (rec?.values ?? {}) as Record<string, unknown>;
+  }
+  const isEmptyAuftrag = (v: unknown) =>
+    v == null || v === "" || (Array.isArray(v) && v.length === 0);
+  const canWriteAuftrag = (slug: string) =>
+    !onlyFillEmpty || isEmptyAuftrag(existingAuftrag[slug]);
+
   // Build input — only write fields that are (a) selected and (b) non-null in extraction.
   const input: Record<string, unknown> = {};
 
   const setIfSelected = (key: string, slug: string, raw: unknown) => {
     if (!selected.has(key)) return;
     if (raw == null || raw === "") return;
+    if (!canWriteAuftrag(slug)) return;
     input[slug] = raw;
     updatedFields.push(AUFTRAG_FIELD_LABELS[key] ?? slug);
   };
@@ -646,8 +815,8 @@ async function upsertAuftragForDeal(params: {
   setIfSelected("disposal_required", "disposal_required", ext.disposal_required);
   setIfSelected("storage_required", "storage_required", ext.storage_required);
   setIfSelected("parking_halteverbot_needed", "parking_halteverbot_needed", ext.parking_halteverbot_needed);
-  setIfSelected("time_window_start", "time_window_start", ext.time_window_start);
-  setIfSelected("time_window_end", "time_window_end", ext.time_window_end);
+  setIfSelected("time_window_start", "time_window_start", toSafeTimestamp(ext.time_window_start));
+  setIfSelected("time_window_end", "time_window_end", toSafeTimestamp(ext.time_window_end));
   setIfSelected("special_requests", "special_requests", ext.special_requests);
   setIfSelected("worker_count", "worker_count", ext.worker_count);
   setIfSelected("walking_distance_from_m", "walking_distance_from_m", ext.walking_distance_from_m);
@@ -658,13 +827,13 @@ async function upsertAuftragForDeal(params: {
   setIfSelected("contact_dropoff_phone", "contact_dropoff_phone", ext.contact_dropoff_phone);
 
   // amount_outstanding (currency) → needs { amount, currencyCode } shape
-  if (selected.has("amount_outstanding_eur") && ext.amount_outstanding_eur != null) {
+  if (selected.has("amount_outstanding_eur") && ext.amount_outstanding_eur != null && canWriteAuftrag("amount_outstanding")) {
     input.amount_outstanding = { amount: ext.amount_outstanding_eur, currencyCode: "EUR" };
     updatedFields.push("Offener Betrag");
   }
 
   // payment_method → resolve select option ID
-  if (selected.has("payment_method") && ext.payment_method) {
+  if (selected.has("payment_method") && ext.payment_method && canWriteAuftrag("payment_method")) {
     const attr = auftragAttrBySlug.get("payment_method");
     if (attr) {
       const optId = await resolveSelectOptionId(attr.id, ext.payment_method);
@@ -676,7 +845,7 @@ async function upsertAuftragForDeal(params: {
   }
 
   // transporter → resolve select option ID
-  if (selected.has("transporter") && ext.transporter) {
+  if (selected.has("transporter") && ext.transporter && canWriteAuftrag("transporter")) {
     const attr = auftragAttrBySlug.get("transporter");
     if (attr) {
       const optId = await resolveSelectOptionId(attr.id, ext.transporter);
@@ -688,7 +857,7 @@ async function upsertAuftragForDeal(params: {
   }
 
   // equipment_needed (multi-select) → resolve option IDs
-  if (selected.has("equipment_needed") && Array.isArray(ext.equipment_needed) && ext.equipment_needed.length > 0) {
+  if (selected.has("equipment_needed") && Array.isArray(ext.equipment_needed) && ext.equipment_needed.length > 0 && canWriteAuftrag("equipment_needed")) {
     const attr = auftragAttrBySlug.get("equipment_needed");
     if (attr) {
       const ids: string[] = [];
