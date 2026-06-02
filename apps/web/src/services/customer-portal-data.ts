@@ -1218,7 +1218,6 @@ function roundCents(eur: number): number {
 // flags. If no auftrag exists yet the customer still sees the baseline.
 
 const BASELINE_INCLUSIONS: { key: string; label: string }[] = [
-  { key: "insurance", label: "Transportversicherung bis 5.000 EUR" },
   { key: "blankets", label: "Decken und Polstermaterial" },
   { key: "tools", label: "Werkzeug (Sackkarre, Gurte, Möbelhund)" },
   { key: "load_unload", label: "An- und Abladen" },

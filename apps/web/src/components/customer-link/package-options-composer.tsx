@@ -313,7 +313,7 @@ export function PackageOptionsComposer({
             />
 
             <textarea
-              placeholder={`Enthaltene Leistungen (eine pro Zeile)\nz.B.\n2 Helfer\nTransporter inkl. Diesel\nVersicherung 5.000 EUR`}
+              placeholder={`Enthaltene Leistungen (eine pro Zeile)\nz.B.\n2 Helfer\nTransporter inkl. Diesel\nBe- und Entladen`}
               value={o.includedItems}
               onChange={(e) => patch(o.id, { includedItems: e.target.value })}
               rows={4}
