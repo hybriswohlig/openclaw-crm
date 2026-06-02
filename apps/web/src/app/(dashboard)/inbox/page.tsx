@@ -44,6 +44,7 @@ import {
 } from "@/components/chat/draft-suggestion-banner";
 import { CustomerLinkComposer } from "@/components/inbox/customer-link-composer";
 import { PersonRow } from "@/components/inbox/person-row";
+import { MergeSuggestions } from "@/components/inbox/merge-suggestions";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1674,6 +1675,9 @@ export default function InboxPage() {
               </button>
             ))}
           </div>
+
+          {/* Duplicate merge suggestions (KOT-IDENTITY Part B) */}
+          <MergeSuggestions onMerged={fetchConversations} />
 
           {/* Source filter */}
           <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">

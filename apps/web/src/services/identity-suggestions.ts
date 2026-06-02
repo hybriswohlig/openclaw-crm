@@ -14,6 +14,8 @@ import { objects, attributes, records, recordValues, personIdentifiers, personMe
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { extractPersonalName } from "@/lib/display-name";
 import { jaroWinkler, normalizeName } from "@/lib/identity/jaro-winkler";
+import { batchGetRecordDisplayNames } from "./display-names";
+import { mergePersons } from "./person-merge";
 
 const NAME_THRESHOLD = 0.9; // JW >= this to even consider a suggestion
 
@@ -86,4 +88,53 @@ export async function scanForSuggestions(workspaceId: string, opts: { apply?: bo
     }
   }
   return found;
+}
+
+export interface MergeSuggestionView {
+  survivorId: string;
+  survivorName: string;
+  absorbedId: string;
+  absorbedName: string;
+  jw: number;
+}
+
+/** Live merge suggestions with display names, excluding pairs already rejected. */
+export async function getMergeSuggestions(workspaceId: string): Promise<MergeSuggestionView[]> {
+  const pairs = await scanForSuggestions(workspaceId, { apply: false });
+  if (pairs.length === 0) return [];
+  const decided = await db
+    .select({ s: personMergeEdges.survivorRecordId, a: personMergeEdges.absorbedRecordId })
+    .from(personMergeEdges)
+    .where(and(eq(personMergeEdges.workspaceId, workspaceId), inArray(personMergeEdges.status, ["rejected", "applied", "reverted"])));
+  const skip = new Set(decided.map((d) => `${d.s}|${d.a}`));
+  const fresh = pairs.filter((p) => !skip.has(`${p.survivor}|${p.absorbed}`));
+  if (fresh.length === 0) return [];
+  const ids = [...new Set(fresh.flatMap((p) => [p.survivor, p.absorbed]))];
+  const names = await batchGetRecordDisplayNames(ids);
+  return fresh.map((p) => ({
+    survivorId: p.survivor,
+    survivorName: names.get(p.survivor)?.displayName ?? "Unbekannt",
+    absorbedId: p.absorbed,
+    absorbedName: names.get(p.absorbed)?.displayName ?? "Unbekannt",
+    jw: p.jw,
+  }));
+}
+
+/** Accept a suggested merge. Survivor = the older record (more established). */
+export async function acceptMergeSuggestion(workspaceId: string, idA: string, idB: string, actorId: string | null): Promise<void> {
+  const rows = await db.select({ id: records.id, createdAt: records.createdAt, deletedAt: records.deletedAt }).from(records).where(inArray(records.id, [idA, idB]));
+  const a = rows.find((r) => r.id === idA);
+  const b = rows.find((r) => r.id === idB);
+  if (!a || !b || a.deletedAt || b.deletedAt) throw new Error("one of the records is missing or already merged");
+  const survivor = a.createdAt <= b.createdAt ? idA : idB;
+  const absorbed = survivor === idA ? idB : idA;
+  await mergePersons({ workspaceId, survivorId: survivor, absorbedId: absorbed, method: "manual", confidence: 1, evidence: { reason: "operator confirmed name-similarity suggestion" }, actorId });
+}
+
+/** Remember a rejected suggestion so it is not surfaced again. */
+export async function rejectMergeSuggestion(workspaceId: string, survivorId: string, absorbedId: string, actorId: string | null): Promise<void> {
+  await db
+    .insert(personMergeEdges)
+    .values({ workspaceId, survivorRecordId: survivorId, absorbedRecordId: absorbedId, method: "suggested", status: "rejected", evidence: { kind: "name-similarity", rejectedBy: actorId }, decidedAt: new Date(), createdBy: actorId })
+    .onConflictDoNothing();
 }
