@@ -69,7 +69,7 @@ async function loadPeople(workspaceId: string): Promise<PeopleCtx | null> {
 }
 
 /** Find existing people whose person_identifiers carry one of the given HARD keys. */
-async function findPersonsByCanonical(
+export async function findPersonsByCanonical(
   workspaceId: string,
   phoneCanons: string[],
   emailCanon: string | null
@@ -90,7 +90,7 @@ async function findPersonsByCanonical(
 }
 
 /** Insert or refresh a person_identifier, deduped by hard canonical key (or raw for soft kinds). */
-async function upsertIdentifier(
+export async function upsertIdentifier(
   workspaceId: string,
   personRecordId: string,
   kind: "phone" | "email" | "ka_relay_email" | "ka_pseudonym" | "wa_name" | "wa_lid",

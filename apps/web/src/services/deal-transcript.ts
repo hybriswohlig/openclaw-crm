@@ -10,12 +10,13 @@
  */
 
 import { db } from "@/db";
-import { asc, eq, and, inArray, or } from "drizzle-orm";
+import { asc, desc, eq, and, inArray, or } from "drizzle-orm";
 import {
   channelAccounts,
   inboxContacts,
   inboxConversations,
   inboxMessages,
+  inboxMessageAttachments,
 } from "@/db/schema/inbox";
 import { recordValues } from "@/db/schema/records";
 import { attributes } from "@/db/schema/objects";
@@ -225,19 +226,103 @@ export async function getDealTranscript(
  * Render a deal transcript as a single plain-text block suitable for
  * feeding into an LLM prompt. Channels are labelled per line.
  */
+export interface DealImageAttachment {
+  fileName: string;
+  mimeType: string;
+  /** base64 file content as stored in inbox_message_attachments. */
+  contentB64: string;
+}
+
+const MAX_IMAGE_ATTACHMENTS = 6;
+const MAX_TOTAL_IMAGE_BYTES = 8 * 1024 * 1024; // 8 MB across all images
+
+/**
+ * Image attachments (photos of furniture, floorplans, scanned documents) linked
+ * to a deal, for the multimodal KI-Analyse. Capped in count and total size so a
+ * `claude -p` run stays fast. Newest first; non-image attachments are skipped.
+ */
+export async function getDealImageAttachments(
+  workspaceId: string,
+  dealRecordId: string,
+  conversationIds: string[]
+): Promise<DealImageAttachment[]> {
+  const scope =
+    conversationIds.length > 0
+      ? or(
+          eq(inboxMessageAttachments.dealRecordId, dealRecordId),
+          inArray(inboxMessageAttachments.conversationId, conversationIds)
+        )
+      : eq(inboxMessageAttachments.dealRecordId, dealRecordId);
+
+  const rows = await db
+    .select({
+      fileName: inboxMessageAttachments.fileName,
+      mimeType: inboxMessageAttachments.mimeType,
+      fileSize: inboxMessageAttachments.fileSize,
+      fileContent: inboxMessageAttachments.fileContent,
+    })
+    .from(inboxMessageAttachments)
+    .where(and(eq(inboxMessageAttachments.workspaceId, workspaceId), scope))
+    .orderBy(desc(inboxMessageAttachments.createdAt));
+
+  const out: DealImageAttachment[] = [];
+  let total = 0;
+  for (const r of rows) {
+    if (!r.mimeType.startsWith("image/")) continue;
+    if (out.length >= MAX_IMAGE_ATTACHMENTS) break;
+    if (total + r.fileSize > MAX_TOTAL_IMAGE_BYTES) continue;
+    total += r.fileSize;
+    out.push({ fileName: r.fileName, mimeType: r.mimeType, contentB64: r.fileContent });
+  }
+  return out;
+}
+
+/**
+ * Max characters of transcript to send to the model (~15k tokens). Keeps the
+ * `claude -p` run fast and within context. Very long chats are trimmed head+tail
+ * (keep the opening facts AND the latest state, elide the middle) — already
+ * captured values are still fed back via the authoritative "Bereits erfasster
+ * Auftrag" block, so trimming never loses confirmed data.
+ */
+const TRANSCRIPT_CHAR_BUDGET = 60_000;
+
 export function formatTranscriptForLLM(transcript: DealTranscript): string {
   if (transcript.messages.length === 0) return "(no messages)";
-  const lines: string[] = [];
-  for (const m of transcript.messages) {
+  const blocks = transcript.messages.map((m) => {
     const ts = m.sentAt ? m.sentAt.toISOString() : "unknown time";
     const who =
       m.direction === "inbound"
         ? `CUSTOMER (${m.contactName ?? m.fromAddress ?? "unknown"})`
         : `AGENT (${m.channelName})`;
-    const channel = `[${m.channelType}]`;
-    lines.push(`--- ${ts} ${channel} ${who} ---`);
-    lines.push(m.body.trim());
-    lines.push("");
+    return `--- ${ts} [${m.channelType}] ${who} ---\n${m.body.trim()}`;
+  });
+
+  const full = blocks.join("\n\n");
+  if (full.length <= TRANSCRIPT_CHAR_BUDGET) return full;
+
+  // Head+tail budget: earliest messages usually carry name/addresses/scope;
+  // latest carry the current state (price agreed, payment, stage signals).
+  const headBudget = Math.floor(TRANSCRIPT_CHAR_BUDGET * 0.45);
+  const tailBudget = TRANSCRIPT_CHAR_BUDGET - headBudget;
+  const head: string[] = [];
+  let hLen = 0;
+  for (const b of blocks) {
+    if (hLen + b.length > headBudget) break;
+    head.push(b);
+    hLen += b.length + 2;
   }
-  return lines.join("\n");
+  const tail: string[] = [];
+  let tLen = 0;
+  for (let i = blocks.length - 1; i >= head.length; i--) {
+    if (tLen + blocks[i].length > tailBudget) break;
+    tail.unshift(blocks[i]);
+    tLen += blocks[i].length + 2;
+  }
+  const omitted = blocks.length - head.length - tail.length;
+  if (omitted <= 0) return full;
+  return [
+    ...head,
+    `[... ${omitted} ältere Nachrichten aus Platzgründen ausgelassen; bereits erfasste Werte siehe Abschnitt "Bereits erfasster Auftrag" ...]`,
+    ...tail,
+  ].join("\n\n");
 }

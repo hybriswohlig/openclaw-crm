@@ -40,7 +40,10 @@ const CRM_TOOLS_API_URL = process.env.CRM_TOOLS_API_URL;
 const CRM_TOOLS_AUTH_TOKEN = process.env.CRM_TOOLS_AUTH_TOKEN;
 // Cap the polling so a hung skill can't keep a Vercel function alive forever.
 const CRM_TOOLS_POLL_INTERVAL_MS = 3000;
-const CRM_TOOLS_POLL_MAX_MS = 240_000; // 4 minutes
+// Poll budget must exceed the VPS skill timeout (we send 270s below) so we
+// never abandon a job the VPS will still finish, while staying under the
+// route's 300s function maxDuration so the function returns gracefully.
+const CRM_TOOLS_POLL_MAX_MS = 290_000;
 const CRM_TOOLS_MODEL_TAG = "claude-via-crm-tools";
 // Humanizer runs as a second crm-tools job. Bound it separately so a slow
 // humanization can't double the worst-case latency of the main task.
@@ -58,6 +61,13 @@ export interface RunAITaskInput<TSchema extends z.ZodTypeAny | undefined = undef
   system: string;
   prompt: string;
   schema?: TSchema;
+  /**
+   * Optional image attachments (base64) for multimodal tasks. Only the
+   * `crm-tools` provider uses them: they are written into the Claude Code job's
+   * working directory so `claude -p` can read them. Ignored by the (text-only)
+   * OpenRouter path.
+   */
+  attachments?: Array<{ filename: string; mime: string; contentB64: string }>;
 }
 
 export type RunAITaskResult<TSchema extends z.ZodTypeAny | undefined> =
@@ -203,31 +213,154 @@ async function getOpenRouterApiKey(workspaceId: string): Promise<string | null> 
  * Convert a Zod schema into a JSON Schema-ish description string
  * suitable for embedding in a prompt (no external dependency needed).
  */
+function scalarLabel(tn: string | undefined): string {
+  if (tn === "ZodNumber") return "number";
+  if (tn === "ZodBoolean") return "boolean";
+  return "string";
+}
+
+/**
+ * Produce a JSON-Schema-ish type label for a Zod type, RECURSING into nested
+ * objects, arrays (including arrays of objects), and enums. Unwraps the
+ * preprocess/default/optional/nullable wrappers our insight schema uses so the
+ * model sees the real per-field types and the exact allowed enum values —
+ * not a flat "string" for everything. (The previous version only walked the
+ * top level, so `extracted` was described to the model as a bare "string".)
+ */
+function zodTypeLabel(schema: unknown, depth: number): string {
+  let s: any = schema;
+  let nullable = false;
+  for (let i = 0; i < 10 && s?._def; i++) {
+    const tn = s._def.typeName;
+    if (tn === "ZodNullable") { nullable = true; s = s._def.innerType; continue; }
+    if (tn === "ZodOptional" || tn === "ZodDefault") { s = s._def.innerType; continue; }
+    if (tn === "ZodEffects") { s = s._def.schema; continue; }
+    break;
+  }
+  const tn: string | undefined = s?._def?.typeName;
+  let label: string;
+  if (tn === "ZodObject" && depth < 5) {
+    label = describeObject(s, depth + 1);
+  } else if (tn === "ZodEnum") {
+    const opts: string[] = s._def.values ?? [];
+    label = opts.map((o) => JSON.stringify(o)).join(" | ") || "string";
+  } else if (tn === "ZodArray") {
+    const el = s._def.type;
+    const elTn: string | undefined = el?._def?.typeName;
+    if (elTn === "ZodObject" && depth < 5) label = `${describeObject(el, depth + 1)}[]`;
+    else if (elTn === "ZodEnum") {
+      const opts: string[] = el._def.values ?? [];
+      label = `(${opts.map((o) => JSON.stringify(o)).join(" | ")})[]`;
+    } else label = `${scalarLabel(elTn)}[]`;
+  } else {
+    label = scalarLabel(tn);
+  }
+  return nullable ? `${label} | null` : label;
+}
+
+function describeObject(schema: any, depth: number): string {
+  const shape = (schema?.shape ?? {}) as Record<string, unknown>;
+  const indent = "  ".repeat(depth);
+  const closeIndent = "  ".repeat(Math.max(0, depth - 1));
+  const fields: string[] = [];
+  for (const [key, val] of Object.entries(shape)) {
+    const desc =
+      (val as any)?._def?.description ?? (val as any)?.description ?? "";
+    const label = zodTypeLabel(val, depth);
+    fields.push(`${indent}"${key}": ${label}${desc ? `  // ${desc}` : ""}`);
+  }
+  return `{\n${fields.join(",\n")}\n${closeIndent}}`;
+}
+
 function describeSchema(schema: ZodTypeAny): string {
   try {
-    // Zod shapes can be walked manually for object schemas.
-    const def = (schema as any)._def;
-    if (def?.typeName === "ZodObject") {
-      const shape = (schema as any).shape;
-      const fields: string[] = [];
-      for (const [key, val] of Object.entries(shape)) {
-        const desc = (val as any)?._def?.description ?? (val as any)?.description ?? "";
-        const typeName = (val as any)?._def?.typeName ?? "unknown";
-        let typeLabel = "string";
-        if (typeName === "ZodNullable") {
-          const inner = (val as any)?._def?.innerType?._def?.typeName ?? "";
-          if (inner === "ZodNumber") typeLabel = "number | null";
-          else if (inner === "ZodArray") typeLabel = "array | null";
-          else typeLabel = "string | null";
-        } else if (typeName === "ZodNumber") typeLabel = "number";
-        else if (typeName === "ZodBoolean") typeLabel = "boolean";
-        else if (typeName === "ZodArray") typeLabel = "array";
-        fields.push(`  "${key}": ${typeLabel}  // ${desc}`);
-      }
-      return `{\n${fields.join(",\n")}\n}`;
-    }
+    const label = zodTypeLabel(schema, 0);
+    if (label.startsWith("{")) return label;
   } catch { /* fallback */ }
   return "{}";
+}
+
+/**
+ * Pull the outermost JSON object out of a raw model response. Tolerates
+ * markdown fences, a reasoning/preamble prefix, and trailing commentary by
+ * slicing from the first `{` to the last `}`. Returns the original (trimmed,
+ * de-fenced) text if no braces are found, so JSON.parse still throws a useful
+ * error upstream.
+ */
+function extractJsonObject(raw: string): string {
+  const cleaned = raw
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+  const first = cleaned.indexOf("{");
+  const last = cleaned.lastIndexOf("}");
+  if (first !== -1 && last !== -1 && last > first) {
+    return cleaned.slice(first, last + 1);
+  }
+  return cleaned;
+}
+
+/** Unwrap ZodDefault/Optional/Nullable/Effects layers down to a ZodObject, or null. */
+function unwrapToObject(schema: unknown): { shape: Record<string, ZodTypeAny> } | null {
+  let s: any = schema;
+  for (let i = 0; i < 8 && s?._def; i++) {
+    const tn = s._def.typeName;
+    if (tn === "ZodObject") return { shape: s.shape as Record<string, ZodTypeAny> };
+    if (tn === "ZodDefault" || tn === "ZodOptional" || tn === "ZodNullable") {
+      s = s._def.innerType;
+      continue;
+    }
+    if (tn === "ZodEffects") {
+      s = s._def.schema;
+      continue;
+    }
+    break;
+  }
+  return null;
+}
+
+/**
+ * Validate `parsed` against `schema`, but never throw away good data because of
+ * one bad field. If a strict parse fails on an object schema, validate each
+ * key independently (recursing into nested objects such as `extracted`),
+ * keeping the keys that pass and falling back to each failing key's schema
+ * default (null / [] for our insight fields). Returns the validated value plus
+ * the list of dropped key paths, or ok:false if even per-key salvage can't
+ * produce a schema-valid object.
+ */
+function tolerantParse<T extends ZodTypeAny>(
+  schema: T,
+  parsed: unknown
+): { ok: true; data: z.infer<T>; dropped: string[] } | { ok: false; error: string } {
+  const direct = schema.safeParse(parsed);
+  if (direct.success) return { ok: true, data: direct.data, dropped: [] };
+
+  const obj = unwrapToObject(schema);
+  if (obj && parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+    const src = parsed as Record<string, unknown>;
+    const salvaged: Record<string, unknown> = {};
+    const dropped: string[] = [];
+    for (const [key, sub] of Object.entries(obj.shape)) {
+      const r = sub.safeParse(src[key]);
+      if (r.success) {
+        salvaged[key] = r.data;
+        continue;
+      }
+      const nested = tolerantParse(sub, src[key]);
+      if (nested.ok) {
+        salvaged[key] = nested.data;
+        dropped.push(...nested.dropped.map((d) => `${key}.${d}`));
+        continue;
+      }
+      const dflt = sub.safeParse(undefined);
+      if (dflt.success) salvaged[key] = dflt.data;
+      dropped.push(key);
+    }
+    const final = schema.safeParse(salvaged);
+    if (final.success) return { ok: true, data: final.data, dropped };
+  }
+
+  return { ok: false, error: JSON.stringify(direct.error.issues).slice(0, 500) };
 }
 
 async function callModel<TSchema extends z.ZodTypeAny | undefined>(
@@ -290,18 +423,25 @@ async function callModel<TSchema extends z.ZodTypeAny | undefined>(
   const usage = data.usage;
 
   if (input.schema) {
-    // Parse JSON and validate with Zod.
+    // Parse JSON tolerantly (strip fences + slice the outermost object), then
+    // salvage per-field so one bad field doesn't discard the whole extraction.
     let parsed: unknown;
     try {
-      // Strip markdown code fences if the model wraps the JSON.
-      const cleaned = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
-      parsed = JSON.parse(cleaned);
+      parsed = JSON.parse(extractJsonObject(content));
     } catch {
       throw new Error(`Failed to parse JSON from model response: ${content.slice(0, 200)}`);
     }
-    const validated = input.schema.parse(parsed);
+    const result = tolerantParse(input.schema, parsed);
+    if (!result.ok) {
+      throw new Error(`Schema validation failed: ${result.error}`);
+    }
+    if (result.dropped.length > 0) {
+      console.warn(
+        `[run-task] salvaged response, dropped ${result.dropped.length} invalid field(s): ${result.dropped.join(", ")}`
+      );
+    }
     return {
-      output: validated,
+      output: result.data,
       inputTokens: usage?.prompt_tokens ?? null,
       outputTokens: usage?.completion_tokens ?? null,
     };
@@ -379,34 +519,50 @@ async function runViaCrmTools<TSchema extends z.ZodTypeAny | undefined>(
     userPrompt = `${input.prompt}\n\nReturn a JSON object with this exact shape:\n${schemaDesc}`;
   }
 
-  // 1) Start the job.
-  let jobId: string;
-  try {
-    const startResp = await fetch(`${CRM_TOOLS_API_URL}/skills/ai-prompt`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${CRM_TOOLS_AUTH_TOKEN}`,
-      },
-      body: JSON.stringify({
-        params: {
-          system_prompt: input.system,
-          user_prompt: userPrompt,
-          expect_json: !!input.schema,
-          _workspace_id: input.workspaceId,
-          _task_slug: input.taskSlug,
+  // 1) Start the job. Retry transient reachability failures (the historical
+  //    `crm-tools start: fetch failed` errors are usually a brief VPS/network
+  //    blip), with a short backoff between attempts.
+  let jobId = "";
+  let startError = "";
+  const MAX_START_ATTEMPTS = 3;
+  for (let attempt = 1; attempt <= MAX_START_ATTEMPTS && !jobId; attempt++) {
+    try {
+      const startResp = await fetch(`${CRM_TOOLS_API_URL}/skills/ai-prompt`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${CRM_TOOLS_AUTH_TOKEN}`,
         },
-        timeout_sec: 300,
-      }),
-    });
-    if (!startResp.ok) {
-      throw new Error(`HTTP ${startResp.status}: ${await startResp.text()}`);
+        body: JSON.stringify({
+          params: {
+            system_prompt: input.system,
+            user_prompt: userPrompt,
+            expect_json: !!input.schema,
+            // Multimodal: the skill writes these into the job working dir so
+            // `claude -p` can read the images. Omitted when there are none.
+            attachments:
+              input.attachments && input.attachments.length > 0 ? input.attachments : undefined,
+            _workspace_id: input.workspaceId,
+            _task_slug: input.taskSlug,
+          },
+          timeout_sec: 270,
+        }),
+      });
+      if (!startResp.ok) {
+        throw new Error(`HTTP ${startResp.status}: ${await startResp.text()}`);
+      }
+      const startData = (await startResp.json()) as { job_id?: string };
+      if (!startData.job_id) throw new Error("no job_id in response");
+      jobId = startData.job_id;
+    } catch (err) {
+      startError = err instanceof Error ? err.message : "start failed";
+      if (attempt < MAX_START_ATTEMPTS) {
+        await new Promise((r) => setTimeout(r, 1500 * attempt));
+      }
     }
-    const startData = (await startResp.json()) as { job_id?: string };
-    if (!startData.job_id) throw new Error("no job_id in response");
-    jobId = startData.job_id;
-  } catch (err) {
-    const errMsg = err instanceof Error ? err.message : "start failed";
+  }
+  if (!jobId) {
+    const errMsg = `${startError} (after ${MAX_START_ATTEMPTS} attempts)`;
     const runId = await logRun({
       workspaceId: input.workspaceId,
       taskSlug: input.taskSlug,
@@ -508,12 +664,17 @@ async function runViaCrmTools<TSchema extends z.ZodTypeAny | undefined>(
   let output: unknown;
   if (input.schema) {
     try {
-      const cleaned = resultText
-        .replace(/^```(?:json)?\s*/i, "")
-        .replace(/\s*```$/i, "")
-        .trim();
-      const parsed = JSON.parse(cleaned);
-      output = input.schema.parse(parsed);
+      const parsed = JSON.parse(extractJsonObject(resultText));
+      const tolerant = tolerantParse(input.schema, parsed);
+      if (!tolerant.ok) {
+        throw new Error(`Schema validation failed: ${tolerant.error}`);
+      }
+      if (tolerant.dropped.length > 0) {
+        console.warn(
+          `[run-task] crm-tools salvaged response, dropped ${tolerant.dropped.length} field(s): ${tolerant.dropped.join(", ")}`
+        );
+      }
+      output = tolerant.data;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "JSON/schema parse failed";
       const runId = await logRun({

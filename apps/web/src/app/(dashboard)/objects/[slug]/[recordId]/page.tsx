@@ -92,19 +92,59 @@ interface InsightsSuggestions {
   applyNote: boolean;
 }
 
+const fmtBool = (v: unknown) => (v === true ? "Ja" : v === false ? "Nein" : String(v));
+const fmtList = (v: unknown) => (Array.isArray(v) ? v.join(", ") : String(v));
+
+// Every extracted field the KI-Analyse can write. Deal-level + Auftrag-level.
+// (customer_name / phone / email are propagated to the linked person via the
+// applyContact flag, not via selectedFields, so they are not listed here.)
 const FIELD_LABELS: Record<string, { label: string; format: (v: unknown) => string }> = {
+  // ── Deal-level ──
   inventory_notes: { label: "Inventar / Güter", format: (v) => String(v) },
   move_date: { label: "Umzugsdatum", format: (v) => String(v) },
   estimated_value_eur: { label: "Geschätzter Wert", format: (v) => `${v} €` },
+  move_from_address: { label: "Abholadresse", format: (v) => String(v) },
+  move_to_address: { label: "Zieladresse", format: (v) => String(v) },
+  floors_from: { label: "Stockwerk (Abholung)", format: (v) => String(v) },
+  floors_to: { label: "Stockwerk (Ziel)", format: (v) => String(v) },
+  elevator_from: { label: "Zugang (Abholung)", format: (v) => String(v) },
+  elevator_to: { label: "Zugang (Ziel)", format: (v) => String(v) },
+  // ── Auftrag-level ──
+  volume_cbm: { label: "Volumen (m³)", format: (v) => `${v} m³` },
+  boxes_needed: { label: "Kartons benötigt", format: (v) => String(v) },
+  dismantling_required: { label: "Demontage erforderlich", format: fmtBool },
+  packing_service: { label: "Einpackservice", format: fmtBool },
+  piano_transport: { label: "Klaviertransport", format: fmtBool },
+  disposal_required: { label: "Sperrmüll / Entsorgung", format: fmtBool },
+  storage_required: { label: "Einlagerung", format: fmtBool },
+  parking_halteverbot_needed: { label: "Halteverbot benötigt", format: fmtBool },
+  time_window_start: { label: "Start (geplant)", format: (v) => String(v) },
+  time_window_end: { label: "Ende (geplant)", format: (v) => String(v) },
+  special_requests: { label: "Sonderwünsche", format: (v) => String(v) },
+  payment_method: { label: "Zahlungsart", format: (v) => String(v) },
+  transporter: { label: "Transporter", format: (v) => String(v) },
+  worker_count: { label: "Anzahl Arbeiter", format: (v) => String(v) },
+  equipment_needed: { label: "Werkzeug / Material", format: fmtList },
+  walking_distance_from_m: { label: "Laufweg Abholung (m)", format: (v) => `${v} m` },
+  walking_distance_to_m: { label: "Laufweg Ziel (m)", format: (v) => `${v} m` },
+  contact_pickup_name: { label: "Kontakt Abholort", format: (v) => String(v) },
+  contact_pickup_phone: { label: "Kontakt Abholort (Tel.)", format: (v) => String(v) },
+  contact_dropoff_name: { label: "Kontakt Zielort", format: (v) => String(v) },
+  contact_dropoff_phone: { label: "Kontakt Zielort (Tel.)", format: (v) => String(v) },
+  amount_outstanding_eur: { label: "Offener Betrag", format: (v) => `${v} €` },
 };
 
+/** Select every extracted field that actually carries a value, so a single
+ *  "Übernehmen" fills everything the chat established (user can still uncheck). */
 function buildDefaultSelections(insights: InsightsData): string[] {
-  const fields: string[] = [];
-  const ext = insights.extracted;
-  if (ext.inventory_notes) fields.push("inventory_notes");
-  if (ext.move_date) fields.push("move_date");
-  if (ext.estimated_value_eur != null) fields.push("estimated_value_eur");
-  return fields;
+  const ext = insights.extracted as unknown as Record<string, unknown>;
+  return Object.keys(FIELD_LABELS).filter((key) => {
+    const v = ext[key];
+    if (v == null) return false;
+    if (typeof v === "string" && v.trim() === "") return false;
+    if (Array.isArray(v) && v.length === 0) return false;
+    return true;
+  });
 }
 
 export default function RecordDetailPage() {
