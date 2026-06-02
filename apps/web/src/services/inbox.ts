@@ -7,7 +7,8 @@ import {
   inboxMessageAttachments,
 } from "@/db/schema/inbox";
 import { objects, attributes, statuses } from "@/db/schema/objects";
-import { eq, and, desc, lt, asc, isNotNull } from "drizzle-orm";
+import { records, recordValues } from "@/db/schema/records";
+import { eq, and, desc, lt, asc, isNotNull, isNull, inArray } from "drizzle-orm";
 import { getEmailAccountConfigs } from "@/lib/email-accounts";
 import {
   isKleinanzeigenEmail,
@@ -366,6 +367,73 @@ export async function updateConversationStatus(
  *
  * Returns the new deal record ID, or null if creation was skipped/failed.
  */
+// Deal stages that count as "closed" — a closed deal is NOT reused, a fresh
+// inquiry on the same person+company opens a new lead.
+const CLOSED_STAGE_RE = /gewonnen|won|verloren|lost|abgeschlossen|closed|abgesagt|storniert|abgelehnt|kein\s*interesse/i;
+
+/**
+ * KOT-IDENTITY deal-reuse: find an OPEN deal that already belongs to this person
+ * AND this operating company, so a second channel (or a re-contact) does not mint
+ * a duplicate lead. Returns null if none — the caller then creates a new deal.
+ * Conservative: when the stage taxonomy is unknown, treats a deal as open
+ * (false-split of a deal is cheap; merging two real jobs is destructive).
+ */
+async function findReusableOpenDeal(
+  dealObjectId: string,
+  personRecordId: string,
+  operatingCompanyRecordId: string | null
+): Promise<string | null> {
+  if (!operatingCompanyRecordId) return null;
+  const attrRows = await db
+    .select({ id: attributes.id, slug: attributes.slug })
+    .from(attributes)
+    .where(eq(attributes.objectId, dealObjectId));
+  const aBySlug = new Map(attrRows.map((a) => [a.slug, a.id]));
+  const assocAttr = aBySlug.get("associated_people");
+  const ocAttr = aBySlug.get("operating_company");
+  const stageAttr = aBySlug.get("stage");
+  if (!assocAttr || !ocAttr) return null;
+
+  const personDeals = await db
+    .select({ rid: recordValues.recordId })
+    .from(recordValues)
+    .where(and(eq(recordValues.attributeId, assocAttr), eq(recordValues.referencedRecordId, personRecordId)));
+  const personDealIds = [...new Set(personDeals.map((r) => r.rid))];
+  if (personDealIds.length === 0) return null;
+
+  const ocDeals = await db
+    .select({ rid: recordValues.recordId })
+    .from(recordValues)
+    .where(and(eq(recordValues.attributeId, ocAttr), eq(recordValues.referencedRecordId, operatingCompanyRecordId), inArray(recordValues.recordId, personDealIds)));
+  const candidateIds = [...new Set(ocDeals.map((r) => r.rid))];
+  if (candidateIds.length === 0) return null;
+
+  const dealRows = await db
+    .select({ id: records.id })
+    .from(records)
+    .where(and(inArray(records.id, candidateIds), isNull(records.deletedAt)))
+    .orderBy(desc(records.createdAt));
+  if (dealRows.length === 0) return null;
+
+  let closedStatusIds = new Set<string>();
+  if (stageAttr) {
+    const statusRows = await db.select({ id: statuses.id, title: statuses.title }).from(statuses).where(eq(statuses.attributeId, stageAttr));
+    closedStatusIds = new Set(statusRows.filter((s) => CLOSED_STAGE_RE.test(s.title)).map((s) => s.id));
+  }
+  for (const d of dealRows) {
+    if (stageAttr && closedStatusIds.size > 0) {
+      const [stageVal] = await db
+        .select({ v: recordValues.textValue })
+        .from(recordValues)
+        .where(and(eq(recordValues.recordId, d.id), eq(recordValues.attributeId, stageAttr)))
+        .limit(1);
+      if (stageVal?.v && closedStatusIds.has(stageVal.v)) continue; // closed -> skip
+    }
+    return d.id; // open (or no closed taxonomy) -> reuse
+  }
+  return null;
+}
+
 export async function createDealForNewConversation(params: {
   workspaceId: string;
   conversationId: string;
@@ -384,6 +452,28 @@ export async function createDealForNewConversation(params: {
     if (!dealObj) {
       console.warn(`[inbox] no deals object for workspace ${workspaceId}`);
       return null;
+    }
+
+    // 1a. KOT-IDENTITY deal-reuse: if the resolved person already has an open
+    // deal for this operating company, link the conversation to it instead of
+    // minting a duplicate lead.
+    if (contactId && channelAccountId) {
+      const [contact] = await db.select({ crm: inboxContacts.crmRecordId }).from(inboxContacts).where(eq(inboxContacts.id, contactId)).limit(1);
+      const [account] = await db.select({ opId: channelAccounts.operatingCompanyRecordId }).from(channelAccounts).where(eq(channelAccounts.id, channelAccountId)).limit(1);
+      if (contact?.crm && account?.opId) {
+        const reuse = await findReusableOpenDeal(dealObj.id, contact.crm, account.opId);
+        if (reuse) {
+          await db
+            .update(inboxConversations)
+            .set({ dealRecordId: reuse, updatedAt: new Date() })
+            .where(and(eq(inboxConversations.id, conversationId), eq(inboxConversations.workspaceId, workspaceId)));
+          await db
+            .update(inboxMessageAttachments)
+            .set({ dealRecordId: reuse })
+            .where(and(eq(inboxMessageAttachments.conversationId, conversationId), eq(inboxMessageAttachments.workspaceId, workspaceId)));
+          return reuse;
+        }
+      }
     }
 
     // 2. Resolve the `stage` attribute on the deals object.
