@@ -25,6 +25,7 @@ import { createDealForNewConversation } from "./inbox";
 import { emitEvent } from "./activity-events";
 import { ensureCrmPerson } from "./inbox-crm-link";
 import { extractPhonesFromText } from "@/lib/identity/canonical";
+import { classifyInbound } from "./inbox-triage";
 
 // Same cap as deal_documents — base64 expands ~33%, so a 10 MB image is
 // ~13 MB in the row. Images exceeding this limit are dropped but the rest
@@ -215,6 +216,15 @@ export async function syncChannelAccount(accountId: string) {
       const preview = body.slice(0, 120).replace(/\s+/g, " ");
       const sentAt = parsed.date ?? new Date();
 
+      // KOT-IDENTITY Phase 6: triage into a lane so ads / newsletters / platform
+      // notifications stay out of the lead inbox. Only real leads get an AI reply.
+      const triage = classifyInbound({
+        headers: Object.fromEntries(parsed.headers ?? []),
+        fromAddr: fromEmail,
+        subject,
+        body,
+      });
+
       if (!conv) {
         const [created] = await db
           .insert(inboxConversations)
@@ -227,16 +237,19 @@ export async function syncChannelAccount(accountId: string) {
             lastMessageAt: sentAt,
             lastMessagePreview: preview,
             unreadCount: 1,
-            aiNeedsReply: true,
+            lane: triage.lane,
+            classificationReason: triage.reason,
+            classifiedBy: triage.by,
+            aiNeedsReply: triage.lane === "lead",
             aiLastInboundAt: sentAt,
           })
           .returning();
         conv = created;
 
         // Auto-create a deal in stage "Neue Anfrage" for brand-new Kleinanzeigen
-        // inquiries and link it to this conversation. Other channels can reuse
-        // the same deal later by writing its id onto their own conversations.
-        if (isKleinanzeigen) {
+        // inquiries that are real leads (not platform notifications), and link it
+        // to this conversation. Other channels can reuse the same deal later.
+        if (isKleinanzeigen && triage.lane === "lead") {
           await createDealForNewConversation({
             workspaceId: account.workspaceId,
             conversationId: conv.id,
