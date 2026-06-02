@@ -20,6 +20,15 @@ import { extractPersonalName } from "@/lib/display-name";
 import { computeLeadName, shouldAutoRename } from "./lead-name";
 import { canonicalizePhone, canonicalizeEmail, isRelayEmail } from "@/lib/identity/canonical";
 import { findPersonsByCanonical, upsertIdentifier } from "./inbox-crm-link";
+import {
+  getLatestScopeSnapshot,
+  getCommitmentTier,
+  evaluateScopeChange,
+  dispatchScopeWarning,
+  type CommitmentTier,
+  type ScopeChangeResult,
+  type ScopeData,
+} from "./scope-guard";
 import type { DealInsights } from "./deal-insights";
 
 export interface ApplyInsightsInput {
@@ -319,6 +328,24 @@ export async function applyDealInsights(
     const canWriteDeal = (slug: string) =>
       !onlyFillEmpty || isEmptyValue(beforeValues[slug]);
 
+    // Post-quote scope guard: if a quote baseline exists, detect whether the
+    // newly extracted scope diverges from what was quoted. At the kva_accepted
+    // tier the quoted scope is hard-locked: inventory/value/volume are NOT
+    // overwritten and the new values are parked in pending_* fields instead.
+    const scopeSnapshot = await getLatestScopeSnapshot(dealRecordId);
+    let scopeChange: ScopeChangeResult | null = null;
+    let commitmentTier: CommitmentTier = "link_issued";
+    if (scopeSnapshot) {
+      commitmentTier = await getCommitmentTier(dealRecordId);
+      const aiChanged = !!insights.scope_change_vs_quote?.changed;
+      scopeChange = evaluateScopeChange(
+        scopeSnapshot.scope as unknown as ScopeData,
+        ext as unknown as Record<string, unknown>,
+        aiChanged
+      );
+    }
+    const scopeLocked = !!(scopeChange?.changed && commitmentTier === "kva_accepted");
+
     // 2. Apply selected deal-level fields.
     const addSimple = (key: keyof typeof ext, slug: string, label: string, raw: unknown) => {
       if (raw == null || raw === "") return;
@@ -328,9 +355,12 @@ export async function applyDealInsights(
       void key;
     };
 
-    if (selected.has("inventory_notes")) addSimple("inventory_notes", "inventory_notes", "Inventar", ext.inventory_notes);
+    // inventory_notes + value are quote-defining: when the quoted scope is
+    // hard-locked (kva_accepted) we do NOT overwrite them — the new values are
+    // parked in pending_* fields below and the team is warned.
+    if (selected.has("inventory_notes") && !scopeLocked) addSimple("inventory_notes", "inventory_notes", "Inventar", ext.inventory_notes);
     if (selected.has("move_date")) addSimple("move_date", "move_date", "Umzugsdatum", toSafeDate(ext.move_date));
-    if (selected.has("estimated_value_eur") && ext.estimated_value_eur != null && canWriteDeal("value")) {
+    if (selected.has("estimated_value_eur") && ext.estimated_value_eur != null && !scopeLocked && canWriteDeal("value")) {
       // `value` is a currency attribute → json_value expects { amount, currencyCode }
       // (same shape as amount_outstanding below). Writing a bare number renders empty.
       input.value = { amount: ext.estimated_value_eur, currencyCode: "EUR" };
@@ -380,6 +410,20 @@ export async function applyDealInsights(
           input.elevator_to = optId;
           result.fieldsUpdated.push("Zugang Ziel");
         }
+      }
+    }
+
+    // 2b. Post-quote scope change: flag the deal + park the new scope in
+    // pending_* fields (never lose the originally-quoted scope, which lives
+    // immutably in quotation_scope_snapshots). Flag fields bypass the
+    // onlyFillEmpty guard so the cron flags too.
+    if (scopeChange?.changed) {
+      input.scope_changed_after_quote = true;
+      input.scope_change_tier = commitmentTier;
+      if (ext.inventory_notes) input.pending_inventory_notes = ext.inventory_notes;
+      if (ext.volume_cbm != null) input.pending_volume_cbm = ext.volume_cbm;
+      if (!beforeValues.scope_changed_after_quote) {
+        input.scope_change_flagged_at = new Date().toISOString();
       }
     }
 
@@ -503,6 +547,7 @@ export async function applyDealInsights(
         appliedBy,
         updatedFields: result.auftragUpdated,
         onlyFillEmpty,
+        scopeLocked,
       });
       result.auftragRecordId = auftragId;
     }
@@ -533,6 +578,26 @@ export async function applyDealInsights(
         actorId: appliedBy,
       });
       result.notePosted = true;
+    }
+
+    // 8. Post-quote scope-change warning. Fire once per change (not every cron
+    //    run) — gated on the flag not already being set. Never blocks apply.
+    if (scopeChange?.changed && scopeSnapshot && !beforeValues.scope_changed_after_quote) {
+      try {
+        await dispatchScopeWarning({
+          workspaceId,
+          dealRecordId,
+          dealName: typeof beforeValues.name === "string" ? beforeValues.name : "Deal",
+          tier: commitmentTier,
+          change: scopeChange,
+          snapshotId: scopeSnapshot.id,
+          quotedTotalCents: scopeSnapshot.quotedTotalCents ?? null,
+          actorId: appliedBy,
+        });
+        result.fieldsUpdated.push("⚠ Umfang nach Angebot geändert");
+      } catch (err) {
+        console.error("[deal-insights-apply] scope warning dispatch failed:", err);
+      }
     }
   } catch (err) {
     console.error("[deal-insights-apply] applyDealInsights failed:", err);
@@ -746,8 +811,10 @@ async function upsertAuftragForDeal(params: {
   appliedBy: string | null;
   updatedFields: string[];
   onlyFillEmpty: boolean;
+  /** When true (kva_accepted tier + scope changed), do not overwrite the quoted volume. */
+  scopeLocked: boolean;
 }): Promise<string | null> {
-  const { workspaceId, dealRecordId, ext, selected, appliedBy, updatedFields, onlyFillEmpty } = params;
+  const { workspaceId, dealRecordId, ext, selected, appliedBy, updatedFields, onlyFillEmpty, scopeLocked } = params;
 
   const [auftragObj] = await db
     .select({ id: objects.id })
@@ -807,7 +874,8 @@ async function upsertAuftragForDeal(params: {
     updatedFields.push(AUFTRAG_FIELD_LABELS[key] ?? slug);
   };
 
-  setIfSelected("volume_cbm", "volume_cbm", ext.volume_cbm);
+  // Quoted volume is hard-locked when the scope changed after KVA acceptance.
+  if (!scopeLocked) setIfSelected("volume_cbm", "volume_cbm", ext.volume_cbm);
   setIfSelected("boxes_needed", "boxes_needed", ext.boxes_needed);
   setIfSelected("dismantling_required", "dismantling_required", ext.dismantling_required);
   setIfSelected("packing_service", "packing_service", ext.packing_service);

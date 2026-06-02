@@ -25,6 +25,7 @@ import {
 } from "./deal-transcript";
 import { runAITask } from "./ai/run-task";
 import { AI_TASK_SLUGS } from "./ai/task-registry";
+import { getLatestScopeSnapshot } from "./scope-guard";
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 // Mirrors the relevant deal attributes from
@@ -339,6 +340,16 @@ const InsightsSchema = z.object({
   suggested_stage: nullStr.describe(
     "Suggested pipeline stage. One of: 'Neue Anfrage', 'In Kontakt', 'Geplant', 'Durchgeführt', 'Bezahlt (Abgeschlossen)', 'Verloren'. DOCUMENT-DERIVED RULES (override chat-only signals): Zahlungsbestätigung uploaded → 'Bezahlt (Abgeschlossen)'; Rechnung uploaded → 'Durchgeführt'; Auftragsbestätigung uploaded → 'Geplant'. Otherwise infer from chat. Null if unclear."
   ),
+  scope_change_vs_quote: z
+    .object({
+      changed: z.preprocess(coerceBoolLike, z.boolean().nullable().optional().default(false)),
+      summary: z.string().optional().default(""),
+    })
+    .optional()
+    .default({ changed: false, summary: "" })
+    .describe(
+      "ONLY relevant when a '# Bereits angebotener Umfang (Stand Angebot)' block is present in the prompt. Set changed=true if the customer has since ADDED or CHANGED items / increased the move scope versus that quoted scope (genuine scope change, not mere rephrasing of the same items). summary = short German note of what changed. If no quote block is present, or nothing changed, set changed=false."
+    ),
   activity_note: z
     .string()
     .optional()
@@ -485,11 +496,12 @@ export async function extractDealInsights(
 ): Promise<DealInsightsResult> {
   const transcript = await getDealTranscript(workspaceId, dealRecordId);
   const convIds = transcript.channels.map((c) => c.conversationId);
-  const [notesText, documentsText, auftragText, images] = await Promise.all([
+  const [notesText, documentsText, auftragText, images, scopeSnapshot] = await Promise.all([
     loadNotesForDeal(dealRecordId),
     loadDocumentsForDeal(workspaceId, dealRecordId),
     loadAuftragForDeal(workspaceId, dealRecordId),
     getDealImageAttachments(workspaceId, dealRecordId, convIds),
+    getLatestScopeSnapshot(dealRecordId),
   ]);
 
   // Allow analysis even without messages, as long as there's *some* signal.
@@ -527,6 +539,17 @@ export async function extractDealInsights(
     const fileList = images.map((i) => `- ${i.fileName} (${i.mimeType})`).join("\n");
     promptParts.push(
       `# Angehängte Bilder (${images.length})\n\nDer Kunde oder das Team hat Bilder geschickt (z. B. Fotos von Möbeln/Räumen, Grundrisse, gescannte Dokumente). Die Dateien liegen in deinem Arbeitsverzeichnis und sind dir über das Read-Tool zugänglich. Sieh dir JEDE Datei an und nutze sie, um Inventar, Volumen (volume_cbm), Stockwerk/Zugang und Sonderfälle zu erkennen:\n${fileList}`
+    );
+  }
+  if (scopeSnapshot) {
+    const s = (scopeSnapshot.scope ?? {}) as Record<string, unknown>;
+    const quotedInv =
+      typeof s.inventory_notes === "string" && s.inventory_notes.trim()
+        ? s.inventory_notes.trim()
+        : "(nicht erfasst)";
+    const quotedVol = s.volume_cbm != null ? `${s.volume_cbm} m³` : "(nicht erfasst)";
+    promptParts.push(
+      `# Bereits angebotener Umfang (Stand Angebot — der Preis basiert hierauf)\n\nInventar: ${quotedInv}\nVolumen: ${quotedVol}\n\nDies ist der Umfang, auf dem das bereits abgegebene Angebot beruht. Wenn der Kunde seither Gegenstände HINZUGEFÜGT oder den Umfang GEÄNDERT hat (mehr Möbel, größeres Volumen, zusätzliche Leistungen wie Klavier/Verpackung/Entsorgung), setze scope_change_vs_quote.changed=true und beschreibe in scope_change_vs_quote.summary kurz, was sich geändert hat. Reine Umformulierung derselben Gegenstände ist KEINE Änderung.`
     );
   }
 

@@ -227,6 +227,17 @@ export const STANDARD_OBJECTS: StandardObject[] = [
       { slug: "last_reminder_at", title: "Last reminder sent", type: "timestamp", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       { slug: "rechnung_faellig_am", title: "Rechnung fällig am", type: "date", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
 
+      // ── Post-quote scope-change guard ───────────────────────────
+      // Set by the KI write-back when the customer changes inventory/scope
+      // after a quote was issued. The team is warned; the originally-quoted
+      // scope is preserved immutably in quotation_scope_snapshots and the new
+      // (unaccepted) scope is parked in the pending_* fields below.
+      { slug: "scope_changed_after_quote", title: "Umfang nach Angebot geändert", type: "checkbox", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      { slug: "scope_change_flagged_at", title: "Umfangsänderung erkannt am", type: "timestamp", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      { slug: "scope_change_tier", title: "Umfangsänderung Stufe", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      { slug: "pending_inventory_notes", title: "Neuer Umfang (zur Prüfung)", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      { slug: "pending_volume_cbm", title: "Neues Volumen (zur Prüfung)", type: "number", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+
       // ── Post-move reviews engine (KOT-603 / KOT-614) ────────────
       // Trigger anchor: set by the crew lead at sign-off. The 15-min cron
       // job ([KOT-622]) selects deals whose move_completed_at falls in the

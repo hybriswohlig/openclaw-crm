@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { getAuthContext, unauthorized, success } from "@/lib/api-utils";
 import { getQuotation, upsertQuotation } from "@/services/quotations";
 import { ensureCustomerStatusLink } from "@/services/customer-portal-data";
+import { captureScopeSnapshot } from "@/services/scope-guard";
 
 export async function GET(
   req: NextRequest,
@@ -37,6 +38,11 @@ export async function PUT(
   }).catch(() => {
     // Failure here must not block the quotation save.
   });
+
+  // Anchor the scope baseline the first time a quote is issued, so later
+  // KI extractions can detect (and warn on) a post-quote scope change.
+  // Idempotent: no-op once a snapshot already exists for this deal.
+  await captureScopeSnapshot(ctx.workspaceId, recordId, "issue");
 
   return success(data);
 }

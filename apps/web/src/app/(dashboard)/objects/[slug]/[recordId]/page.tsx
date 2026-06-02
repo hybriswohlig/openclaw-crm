@@ -194,6 +194,24 @@ export default function RecordDetailPage() {
     fetchData();
   }, [fetchData]);
 
+  const [resolvingScope, setResolvingScope] = useState(false);
+  const handleResolveScopeChange = useCallback(
+    async (action: "accept" | "dismiss") => {
+      setResolvingScope(true);
+      try {
+        await fetch(`/api/v1/deals/${recordId}/scope-change`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action }),
+        });
+        await fetchData();
+      } finally {
+        setResolvingScope(false);
+      }
+    },
+    [recordId, fetchData]
+  );
+
   const handleUpdate = useCallback(
     async (attrSlug: string, value: unknown) => {
       setRecord((prev) =>
@@ -375,6 +393,50 @@ export default function RecordDetailPage() {
             <ShareLinkPanel dealRecordId={recordId} />
           </div>
         )}
+
+        {/* Post-quote scope-change warning */}
+        {slug === "deals" &&
+        (record?.values as Record<string, unknown> | undefined)?.scope_changed_after_quote ? (
+          <div className="px-6 pt-4">
+            <div className="rounded-md border border-red-500/30 bg-red-500/5 p-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-red-700">
+                <AlertTriangle className="h-4 w-4" />
+                Umfang nach Angebot geändert — Preis prüfen
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Der Kunde hat den Umfang geändert, nachdem bereits ein Angebot abgegeben wurde. Der
+                ursprünglich angebotene Umfang bleibt gespeichert.
+              </p>
+              {typeof (record?.values as Record<string, unknown>)?.pending_inventory_notes ===
+                "string" &&
+              (record?.values as Record<string, unknown>).pending_inventory_notes ? (
+                <div className="mt-2 text-xs">
+                  <div className="mb-0.5 text-muted-foreground">Neu erkannt (zur Prüfung):</div>
+                  <div className="rounded bg-background/60 p-2 whitespace-pre-wrap">
+                    {String((record?.values as Record<string, unknown>).pending_inventory_notes)}
+                  </div>
+                </div>
+              ) : null}
+              <div className="mt-3 flex gap-2">
+                <Button
+                  size="sm"
+                  onClick={() => handleResolveScopeChange("accept")}
+                  disabled={resolvingScope}
+                >
+                  Preis aktualisiert
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => handleResolveScopeChange("dismiss")}
+                  disabled={resolvingScope}
+                >
+                  Änderung verwerfen
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         {/* Tabs */}
         <div className="px-6 py-4">

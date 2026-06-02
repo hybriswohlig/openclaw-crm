@@ -17,6 +17,7 @@ export type ActivityEventType =
   | "call.received"
   | "call.summary_attached"
   | "ai.insights_extracted"
+  | "deal.scope_changed_after_quote"
   | "customer.kva_confirmed"
   | "customer.marked_paid"
   | "customer.rated_crew"

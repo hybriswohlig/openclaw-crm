@@ -1,5 +1,6 @@
-import { pgTable, text, timestamp, numeric, boolean, integer, date, pgEnum, index } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, numeric, boolean, integer, date, pgEnum, index, jsonb } from "drizzle-orm/pg-core";
 import { records } from "./records";
+import { workspaces } from "./workspace";
 
 export const lineItemTypeEnum = pgEnum("line_item_type", [
   "helper",
@@ -85,4 +86,36 @@ export const quotationLineItems = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (table) => [index("quotation_line_items_quotation_idx").on(table.quotationId)]
+);
+
+/**
+ * Immutable snapshot of the move SCOPE (the price-drivers) at the moment a
+ * quote was issued. The price itself is frozen elsewhere (kvaConfirmations),
+ * but nothing recorded what inventory/volume the price was based on — this
+ * table is that anchor. On every later KI extraction we diff the live scope
+ * against the latest snapshot here; a divergence means the customer changed
+ * the scope after we quoted, which must warn the team (never silently
+ * overwrite). Keep history (one row per issue / approved re-issue), newest
+ * row is the active baseline.
+ */
+export const quotationScopeSnapshots = pgTable(
+  "quotation_scope_snapshots",
+  {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    dealRecordId: text("deal_record_id")
+      .notNull()
+      .references(() => records.id, { onDelete: "cascade" }),
+    capturedAt: timestamp("captured_at").notNull().defaultNow(),
+    /** 'issue' = first quote put in front of the customer; 'reissue_approved' = operator re-quoted after an approved change. */
+    capturedReason: text("captured_reason").notNull().default("issue"),
+    /** Quoted total in cents at capture time (from the quotation), for the warning UI. */
+    quotedTotalCents: integer("quoted_total_cents"),
+    /** The frozen price-driver scope: inventory_notes, volume_cbm, floors, piano/packing/disposal/storage, special_requests, addresses. */
+    scope: jsonb("scope").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [index("quotation_scope_snapshots_deal_idx").on(table.dealRecordId)]
 );
