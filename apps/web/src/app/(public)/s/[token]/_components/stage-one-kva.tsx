@@ -47,7 +47,17 @@ export function StageOneKva({
     [ctx.scope.moveDate, ctx.meta.serverTime]
   );
 
-  if (!ctx.kva) {
+  // The customer can choose an offer (package option, catalogue package, or a
+  // proposed date) even before a base quotation exists — picking one is what
+  // CREATES the quotation server-side. So only show the "wird erstellt" notice
+  // when there is genuinely nothing to show or pick yet. Otherwise we would
+  // hide the very picker that lets the customer proceed (deadlock).
+  const hasSelectableOffers =
+    ctx.dealPackageOffers.options.length > 0 ||
+    ctx.packages.available.length > 0 ||
+    ctx.dateOffers.options.length > 0;
+
+  if (!ctx.kva && !hasSelectableOffers) {
     return (
       <section className="rounded-2xl border bg-card p-6 text-sm text-muted-foreground">
         Ihr Kostenvoranschlag wird gerade erstellt. Diese Seite aktualisiert sich
@@ -81,7 +91,7 @@ export function StageOneKva({
 
           {/* Operator-written summary. Calm content card so the customer reads
               context BEFORE the number. */}
-          {ctx.kva.summary && ctx.kva.summary.trim().length > 0 && (
+          {ctx.kva?.summary && ctx.kva.summary.trim().length > 0 && (
             <div className="overflow-hidden rounded-2xl border bg-card">
               <div className="border-b px-6 py-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Was umfasst der Auftrag
@@ -108,7 +118,7 @@ export function StageOneKva({
           {/* Detailed line-item breakdown (when variable / hourly). Sits at
               the bottom of the left column so the right-rail headline price
               gets the customer's attention first. */}
-          {ctx.kva.isVariable && ctx.kva.lineItems.length > 0 && (
+          {ctx.kva?.isVariable && ctx.kva.lineItems.length > 0 && (
             <div className="overflow-hidden rounded-2xl border bg-card">
               <div className="border-b px-6 py-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Aufschlüsselung
@@ -147,19 +157,25 @@ export function StageOneKva({
         {/* ── Right rail: sticky price card + acceptance ─────────────── */}
         <aside className="hidden lg:block">
           <div className="sticky top-6 space-y-3">
-            <PriceCard
-              ctx={ctx}
-              alreadyAccepted={alreadyAccepted}
-              blockedByDateChoice={hasOpenDateChoice}
-              onAccept={() => setOpen(true)}
-            />
+            {ctx.kva ? (
+              <PriceCard
+                ctx={ctx}
+                alreadyAccepted={alreadyAccepted}
+                blockedByDateChoice={hasOpenDateChoice}
+                onAccept={() => setOpen(true)}
+              />
+            ) : (
+              <ChooseOfferPrompt branding={ctx.branding} />
+            )}
             <TrustLine branding={ctx.branding} />
           </div>
         </aside>
       </div>
 
       {/* ── Mobile sticky bottom bar ──────────────────────────────────── */}
-      {!alreadyAccepted && (
+      {/* Only once a quotation exists (price known). Before that the customer
+          uses the package/date picker above to choose, which creates it. */}
+      {!alreadyAccepted && ctx.kva && (
         <div
           className="fixed inset-x-0 bottom-0 z-30 border-t bg-card/95 backdrop-blur lg:hidden"
           style={{ paddingBottom: "max(env(safe-area-inset-bottom), 0.625rem)" }}
@@ -193,7 +209,7 @@ export function StageOneKva({
       )}
 
       {/* Spacer so the last content card isn't covered by the sticky bar. */}
-      {!alreadyAccepted && <div className="h-20 lg:hidden" aria-hidden />}
+      {!alreadyAccepted && ctx.kva && <div className="h-20 lg:hidden" aria-hidden />}
 
       <ConfirmKvaDialog
         token={token}
@@ -207,6 +223,40 @@ export function StageOneKva({
         }}
       />
     </>
+  );
+}
+
+/**
+ * Right-rail placeholder shown when offers exist but no base quotation has
+ * been created yet (the customer hasn't picked a package/option). Picking one
+ * in the left column creates the quotation; the real PriceCard then replaces
+ * this on the next render.
+ */
+function ChooseOfferPrompt({ branding }: { branding: { primaryColor: string } }) {
+  return (
+    <div className="rounded-2xl border bg-card p-5 text-sm shadow-sm">
+      <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+        Ihr Angebot
+      </div>
+      <p className="mt-2 leading-relaxed text-muted-foreground">
+        Bitte wählen Sie nebenan Ihr passendes Paket bzw. einen Termin. Sobald
+        Sie gewählt haben, sehen Sie hier den verbindlichen Preis und können den
+        Auftrag annehmen.
+      </p>
+      <button
+        type="button"
+        onClick={() => {
+          const el =
+            document.querySelector("[data-portal-section='packages']") ??
+            document.querySelector("[data-portal-section='date-picker']");
+          el?.scrollIntoView({ behavior: "smooth", block: "center" });
+        }}
+        className="mt-4 inline-flex h-10 w-full items-center justify-center rounded-xl text-sm font-medium text-white"
+        style={{ background: `#${branding.primaryColor}` }}
+      >
+        Angebot auswählen
+      </button>
+    </div>
   );
 }
 
