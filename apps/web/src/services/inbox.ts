@@ -145,6 +145,7 @@ export interface ConversationListItem {
   multiCompanyFlag: boolean;
   subject: string | null;
   status: "open" | "resolved" | "spam";
+  lane: "lead" | "info" | "spam" | "review";
   lastMessageAt: Date | null;
   lastMessagePreview: string | null;
   unreadCount: number;
@@ -157,6 +158,8 @@ export async function listConversations(
     channelAccountId?: string;
     operatingCompanyRecordId?: string;
     status?: "open" | "resolved" | "spam";
+    /** Triage lane (KOT-IDENTITY Phase 6). 'all' = no lane filter. */
+    lane?: "lead" | "info" | "spam" | "review" | "all";
     limit?: number;
     cursor?: string; // lastMessageAt ISO
   } = {}
@@ -182,6 +185,7 @@ export async function listConversations(
       multiCompanyFlag: inboxContacts.multiCompanyFlag,
       subject: inboxConversations.subject,
       status: inboxConversations.status,
+      lane: inboxConversations.lane,
       lastMessageAt: inboxConversations.lastMessageAt,
       lastMessagePreview: inboxConversations.lastMessagePreview,
       unreadCount: inboxConversations.unreadCount,
@@ -199,6 +203,9 @@ export async function listConversations(
           : undefined,
         opts.operatingCompanyRecordId
           ? eq(channelAccounts.operatingCompanyRecordId, opts.operatingCompanyRecordId)
+          : undefined,
+        opts.lane && opts.lane !== "all"
+          ? eq(inboxConversations.lane, opts.lane)
           : undefined,
       )
     )

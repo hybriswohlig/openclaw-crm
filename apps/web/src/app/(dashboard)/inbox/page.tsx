@@ -1363,6 +1363,9 @@ export default function InboxPage() {
   const [statusFilter, setStatusFilter] = useState<ConversationStatus>("open");
   const [accountFilter, setAccountFilter] = useState<string>("all");
   const [sourceFilter, setSourceFilter] = useState<"messaging" | "kleinanzeigen" | "whatsapp" | "other">("messaging");
+  // KOT-IDENTITY Phase 6: triage lane. Default 'lead' keeps ads / newsletters /
+  // platform notifications out of the inbox; 'info' shows them, 'all' shows both.
+  const [laneFilter, setLaneFilter] = useState<"lead" | "info" | "all">("lead");
   const [search, setSearch] = useState("");
   const [composeOpen, setComposeOpen] = useState(false);
   // Deep-link prefill for the compose dialog, populated from URL params when
@@ -1375,14 +1378,14 @@ export default function InboxPage() {
   }>({});
 
   const fetchConversations = useCallback(async () => {
-    const params = new URLSearchParams({ status: statusFilter });
+    const params = new URLSearchParams({ status: statusFilter, lane: laneFilter });
     if (accountFilter !== "all") params.set("channelAccountId", accountFilter);
     const res = await fetch(`/api/v1/inbox/conversations?${params}`);
     if (res.ok) {
       const data = await res.json();
       setConversations(data.data ?? []);
     }
-  }, [statusFilter, accountFilter]);
+  }, [statusFilter, accountFilter, laneFilter]);
 
   const fetchAccounts = useCallback(async () => {
     const res = await fetch("/api/v1/inbox/channel-accounts");
@@ -1584,6 +1587,29 @@ export default function InboxPage() {
               onChange={(e) => setSearch(e.target.value)}
               className="w-full rounded-lg border border-input bg-muted/30 pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring/20"
             />
+          </div>
+
+          {/* Lane tabs (KOT-IDENTITY Phase 6): keep ads / newsletters / platform
+              notifications out of the lead inbox; switch to see them. */}
+          <div className="flex rounded-lg bg-muted p-0.5 text-xs">
+            {([
+              { key: "lead", label: "Leads" },
+              { key: "info", label: "Info / Werbung" },
+              { key: "all", label: "Alle" },
+            ] as const).map((l) => (
+              <button
+                key={l.key}
+                onClick={() => { setLaneFilter(l.key); setSelected(null); }}
+                className={cn(
+                  "flex-1 rounded-md py-1 font-medium transition-colors",
+                  laneFilter === l.key
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {l.label}
+              </button>
+            ))}
           </div>
 
           {/* Source filter */}

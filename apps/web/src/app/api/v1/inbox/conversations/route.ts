@@ -10,6 +10,9 @@ export async function GET(req: NextRequest) {
   const channelAccountId = searchParams.get("channelAccountId") ?? undefined;
   const operatingCompanyRecordId = searchParams.get("operatingCompanyRecordId") ?? undefined;
   const status = (searchParams.get("status") ?? "open") as "open" | "resolved" | "spam";
+  // KOT-IDENTITY Phase 6: default to the 'lead' lane so ads / newsletters /
+  // platform notifications stay out of the inbox unless explicitly requested.
+  const lane = (searchParams.get("lane") ?? "lead") as "lead" | "info" | "spam" | "review" | "all";
   const limitParam = searchParams.get("limit");
   const limit = limitParam ? Math.min(Math.max(parseInt(limitParam, 10) || 0, 1), 1000) : undefined;
 
@@ -17,6 +20,7 @@ export async function GET(req: NextRequest) {
     channelAccountId,
     operatingCompanyRecordId,
     status,
+    lane,
     limit,
   });
 
