@@ -1,4 +1,5 @@
-import { pgTable, text, timestamp, numeric, date, boolean, jsonb, integer, index } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, numeric, date, boolean, jsonb, integer, index, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { objects, attributes } from "./objects";
 import { users } from "./auth";
 
@@ -13,9 +14,25 @@ export const records = pgTable(
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
     sortOrder: integer("sort_order").notNull().default(0),
+    // ── Soft-delete + merge pointer (KOT-IDENTITY, D3) ────────────────────────
+    // deletedAt: set by mergePersons on the absorbed (loser) record. NULL = live.
+    // Every record read path (listRecords, getRecord, hydrateRecords,
+    // display-names) must filter `deleted_at IS NULL`.
+    deletedAt: timestamp("deleted_at"),
+    // mergedIntoRecordId: loser → survivor pointer for un-merge + stale-link
+    // repair. NULL for live records. Self-FK; set null if the survivor is gone.
+    mergedIntoRecordId: text("merged_into_record_id").references(
+      (): AnyPgColumn => records.id,
+      { onDelete: "set null" }
+    ),
   },
   (table) => [
     index("records_object_id").on(table.objectId),
+    index("records_merged_into_idx").on(table.mergedIntoRecordId),
+    // Partial index so the hot "live records of an object" query stays cheap.
+    index("records_object_live_idx")
+      .on(table.objectId)
+      .where(sql`${table.deletedAt} is null`),
   ]
 );
 

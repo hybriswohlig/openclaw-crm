@@ -1,0 +1,153 @@
+/**
+ * Canonicalization layer for the identity graph (KOT-IDENTITY).
+ *
+ * Pure and dependency-light (only libphonenumber-js). Every function NEVER
+ * throws, so it is safe to call inline on the ingest hot path. No DB imports.
+ *
+ * These functions produce the `value_canonical` keys that person_identifiers
+ * and inbox_contacts.{phone,email}_canonical are matched on, and that drive the
+ * D1 deterministic auto-merge. Equal humans must produce equal canonical keys:
+ *   "+49 151 5905 8963"  "0151 5905 8963"  "0049 151 59058963"  ->  "+4915159058963"
+ *   "Max@Example.COM "  ->  "max@example.com"
+ */
+
+import { parsePhoneNumberFromString, type CountryCode } from "libphonenumber-js";
+
+// ─── Kleinanzeigen relay detection ────────────────────────────────────────────
+// KEEP IN SYNC with apps/web/src/services/inbox-kleinanzeigen.ts:9-10. A relay
+// address (xxxx-<40hex>-ek-ek@mail.kleinanzeigen.de) rotates per ad and is NOT
+// the person's mailbox, so it must never become a hard `email` identity key.
+const KA_RELAY_RE = /^[a-z0-9]+-[a-f0-9]{40,}-ek-ek@mail\.kleinanzeigen\.de$/i;
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export function isRelayEmail(addr: string | null | undefined): boolean {
+  if (!addr) return false;
+  return KA_RELAY_RE.test(addr.trim());
+}
+
+// ─── JID classification (WhatsApp / Baileys) ──────────────────────────────────
+export type JidKind = "phone" | "wa_lid" | "group" | "unknown";
+
+export interface JidParts {
+  kind: JidKind;
+  /** The local part before "@" with any device suffix (":4") stripped. */
+  local: string;
+  /** Canonical E.164 if this JID is a real phone, else null. */
+  phoneE164: string | null;
+}
+
+/**
+ * Classify a Baileys / WhatsApp JID.
+ *   "4917...@s.whatsapp.net"      -> phone   (a dialable number)
+ *   "4917...@c.us"               -> phone
+ *   "12345678901234@lid"          -> wa_lid  (a LID, NOT a phone — never key on it)
+ *   "12036...-1602...@g.us"       -> group   (a group thread, NEVER a person)
+ *   "4917..."                     -> phone   (bare number, no domain)
+ */
+export function classifyJid(jid: string | null | undefined, defaultRegion: CountryCode = "DE"): JidParts {
+  if (!jid) return { kind: "unknown", local: "", phoneE164: null };
+  const trimmed = jid.trim();
+  const at = trimmed.indexOf("@");
+  const domain = at >= 0 ? trimmed.slice(at + 1).toLowerCase() : "";
+  // Strip device suffix ("123:4@...") from the local part.
+  const local = (at >= 0 ? trimmed.slice(0, at) : trimmed).replace(/:\d+$/, "");
+
+  if (domain.startsWith("g.us")) return { kind: "group", local, phoneE164: null };
+  if (domain.startsWith("lid")) return { kind: "wa_lid", local, phoneE164: null };
+
+  // s.whatsapp.net / c.us / bare number -> treat the local part as a phone.
+  const phoneE164 = canonicalizePhone(local, defaultRegion);
+  if (phoneE164) return { kind: "phone", local, phoneE164 };
+  return { kind: "unknown", local, phoneE164: null };
+}
+
+// ─── Phone ────────────────────────────────────────────────────────────────────
+/**
+ * Canonicalize a raw phone string to E.164 ("+49151..."). Returns null for
+ * empty input, non-dialable junk, WhatsApp @lid / @g.us JIDs, and anything
+ * libphonenumber rejects as invalid for the inferred region.
+ *
+ * Replaces normalizeWaPhone for IDENTITY keying. (normalizeWaPhone stays only
+ * as the Meta wire-format helper: digits-only for the Graph API send call.)
+ */
+export function canonicalizePhone(raw: string | null | undefined, defaultRegion: CountryCode = "DE"): string | null {
+  if (!raw) return null;
+  let s = String(raw).trim();
+  if (!s) return null;
+
+  // A "@lid" or "@g.us" JID is not a phone; bail before parsing.
+  const at = s.indexOf("@");
+  if (at >= 0) {
+    const domain = s.slice(at + 1).toLowerCase();
+    if (domain.startsWith("lid") || domain.startsWith("g.us")) return null;
+    s = s.slice(0, at).replace(/:\d+$/, ""); // drop device suffix "123:4@..."
+  }
+
+  // Reduce to digits and a single leading "+", so the prefix logic is robust to
+  // spaces / parens / dashes in the raw input.
+  const compact = s.replace(/[^\d+]/g, "").replace(/(?!^)\+/g, "");
+  if (!compact) return null;
+
+  // Pick the right interpretation. The hard case is the WhatsApp wa_id, which is
+  // the full international number WITHOUT a "+" (e.g. "4915159058963"); parsing
+  // that against a national region fails, so we prepend "+" for bare
+  // international-looking digit runs. A leading 0 means national (region);
+  // "00" / "+" are explicit international.
+  let phone = null as ReturnType<typeof parsePhoneNumberFromString> | null;
+  if (compact.startsWith("+")) {
+    phone = parsePhoneNumberFromString(compact, defaultRegion);
+  } else if (compact.startsWith("00")) {
+    phone = parsePhoneNumberFromString("+" + compact.slice(2), defaultRegion);
+  } else if (compact.startsWith("0")) {
+    phone = parsePhoneNumberFromString(compact, defaultRegion); // national
+  } else if (/^\d{8,15}$/.test(compact)) {
+    // Bare international digits (WhatsApp wa_id). Prefer the "+"-prefixed reading;
+    // fall back to a national reading if that is invalid.
+    phone = parsePhoneNumberFromString("+" + compact, defaultRegion);
+    if (!phone || !phone.isValid()) {
+      phone = parsePhoneNumberFromString(compact, defaultRegion);
+    }
+  } else {
+    phone = parsePhoneNumberFromString(compact, defaultRegion);
+  }
+
+  if (!phone || !phone.isValid()) return null;
+  return phone.number; // E.164
+}
+
+// ─── Email ────────────────────────────────────────────────────────────────────
+/**
+ * Lowercase + trim an email. Returns null for malformed addresses OR relay
+ * addresses (a Kleinanzeigen rotating relay must never become a hard key).
+ */
+export function canonicalizeEmail(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const e = String(raw).trim().toLowerCase();
+  if (!EMAIL_RE.test(e)) return null;
+  if (isRelayEmail(e)) return null;
+  return e;
+}
+
+// ─── Phone extraction from free text ──────────────────────────────────────────
+/**
+ * Pull every dialable phone out of a body. Used for:
+ *  - the Kleinanzeigen "(Tel.: 0151 ...)" line the parser currently discards, and
+ *  - operator-pasted numbers inside a KA / email / WhatsApp thread.
+ * Returns a DEDUPED E.164 list (first-seen order). Empty on no hits.
+ */
+export function extractPhonesFromText(body: string | null | undefined, defaultRegion: CountryCode = "DE"): string[] {
+  if (!body) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  // Candidate runs: +49..., 0049..., 0151..., grouped with spaces / ( ) / - / .
+  const CAND = /(?:\+|00)?\d[\d\s().\-/]{6,20}\d/g;
+  for (const m of String(body).matchAll(CAND)) {
+    const canon = canonicalizePhone(m[0], defaultRegion);
+    if (canon && !seen.has(canon)) {
+      seen.add(canon);
+      out.push(canon);
+    }
+  }
+  return out;
+}

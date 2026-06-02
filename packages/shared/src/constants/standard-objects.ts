@@ -59,6 +59,11 @@ export const STANDARD_OBJECTS: StandardObject[] = [
         ],
       },
       { slug: "description", title: "Description", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      // KOT-IDENTITY: set automatically when the same person has Vorgaenge with more
+      // than one operating company. Recomputed on every merge/split. Source of truth
+      // for multi-company is this person attribute; inbox_contacts.multi_company_flag
+      // is a render cache. Informative only, never a merge veto (D2).
+      { slug: "multi_company_flag", title: "Mehrfach-Firma", type: "checkbox", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
     ],
   },
   {

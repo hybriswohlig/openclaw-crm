@@ -40,6 +40,24 @@ export const conversationStatusEnum = pgEnum("conversation_status", [
   "spam",
 ]);
 
+// Inbound triage lane (classifyInbound). Default 'lead' preserves today's
+// behavior where every inbound is treated as a potential lead.
+export const conversationLaneEnum = pgEnum("conversation_lane", [
+  "lead",
+  "info",
+  "spam",
+  "review",
+]);
+
+// Which of the 4 triage layers assigned the lane.
+export const conversationClassifiedByEnum = pgEnum("conversation_classified_by", [
+  "header", // List-Unsubscribe / Auto-Submitted / Precedence header rule
+  "senderlist", // known noreply@ / newsletter allow/deny list
+  "heuristic", // keyword / shape heuristic
+  "llm", // model classification
+  "manual", // operator override in the UI
+]);
+
 // ─── Channel Accounts ─────────────────────────────────────────────────────────
 // One row per email address / WhatsApp number per operating company.
 // These are created via Settings → Integrations → Channel Accounts.
@@ -137,6 +155,13 @@ export const inboxContacts = pgTable(
     // Cross-company contact flag: set true when the same person has conversations
     // with more than one of our operating companies
     multiCompanyFlag: boolean("multi_company_flag").notNull().default(false),
+    // Canonical comparison keys (KOT-IDENTITY), populated by resolveOrCreatePerson
+    // at ingest and by the backfill for legacy rows. Nullable: a contact may have
+    // neither a dialable phone nor a real email (e.g. a KA relay-only thread).
+    // The "substrate floor" UNIQUE partial indexes over these are created in
+    // migration 0031 (post-backfill-dedupe), NOT here, because legacy rows collide.
+    phoneCanonical: text("phone_canonical"),
+    emailCanonical: text("email_canonical"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -145,6 +170,8 @@ export const inboxContacts = pgTable(
     index("inbox_contacts_email_idx").on(table.email),
     index("inbox_contacts_phone_idx").on(table.phone),
     index("inbox_contacts_crm_idx").on(table.crmRecordId),
+    index("inbox_contacts_phone_canonical_idx").on(table.workspaceId, table.phoneCanonical),
+    index("inbox_contacts_email_canonical_idx").on(table.workspaceId, table.emailCanonical),
   ]
 );
 
@@ -189,6 +216,17 @@ export const inboxConversations = pgTable(
     aiLastInboundAt: timestamp("ai_last_inbound_at"),
     aiQuietWindowSeconds: integer("ai_quiet_window_seconds").notNull().default(160),
     aiPaused: boolean("ai_paused").notNull().default(false),
+    // ── Inbound triage (classifyInbound, KOT-IDENTITY) ────────────────────────
+    lane: conversationLaneEnum("lane").notNull().default("lead"),
+    classificationReason: text("classification_reason"),
+    classifiedBy: conversationClassifiedByEnum("classified_by"),
+    // ── D1 outbound side-effect hold ──────────────────────────────────────────
+    // THE single canonical merge-hold column. mergePersons writes now()+15min to
+    // every conversation of both merged persons. Automated outbound (AI reply,
+    // Angebot send, stage advance) MUST check `ai_hold_until IS NULL OR
+    // ai_hold_until <= now()` before firing. Human sends are warned, not blocked.
+    // NULL = no hold.
+    aiHoldUntil: timestamp("ai_hold_until"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -199,6 +237,8 @@ export const inboxConversations = pgTable(
     index("inbox_conv_status_idx").on(table.status),
     index("inbox_conv_last_msg_idx").on(table.lastMessageAt),
     index("inbox_conv_deal_idx").on(table.dealRecordId),
+    index("inbox_conv_lane_idx").on(table.workspaceId, table.lane),
+    index("inbox_conv_ai_hold_idx").on(table.aiHoldUntil),
     uniqueIndex("inbox_conv_channel_thread_idx").on(
       table.channelAccountId,
       table.externalThreadId

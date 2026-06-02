@@ -141,6 +141,20 @@
       "when": 1779200000000,
       "tag": "0029_per_deal_package_options",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1779300000000,
+      "tag": "0030_identity_merge",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1779400000000,
+      "tag": "0031_identity_substrate_floor",
+      "breakpoints": true
     }
   ]
 }

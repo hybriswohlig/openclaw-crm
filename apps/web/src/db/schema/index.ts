@@ -19,3 +19,4 @@ export * from "./activity";
 export * from "./push-subscriptions";
 export * from "./customer-portal";
 export * from "./reviews";
+export * from "./identity";
