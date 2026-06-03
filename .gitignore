@@ -68,3 +68,8 @@ npm-debug.log*
 .vercel
 Untitled
 .env*.local
+
+# Local DB backups (may contain plaintext credentials) and session scratch
+backups/
+_analysis/
+apps/web/_analysis/

@@ -1,12 +1,21 @@
 /**
- * IMAP fetch + SMTP send for inbox conversations.
+ * Email receive + send for inbox conversations.
+ *
+ * Two transports share one ingest/parse/store pipeline, selected per channel
+ * account by `emailProvider`:
+ *   - 'imap_smtp' (default): IMAP fetch + SMTP send via Gmail App Password.
+ *   - 'gmail_api'          : Google Workspace via the Gmail REST API + OAuth2.
+ * `channelType` stays 'email' for both, so every downstream caller is unchanged.
  *
  * Runs server-side only (Node.js). Never import from client components.
  */
 
 import { ImapFlow } from "imapflow";
 import nodemailer from "nodemailer";
+import MailComposer from "nodemailer/lib/mail-composer";
 import { simpleParser, type ParsedMail, type AddressObject } from "mailparser";
+import { randomUUID } from "crypto";
+import type { gmail_v1 } from "googleapis";
 import { db } from "@/db";
 import {
   channelAccounts,
@@ -15,7 +24,7 @@ import {
   inboxMessages,
   inboxMessageAttachments,
 } from "@/db/schema/inbox";
-import { eq, and, isNull } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import {
   isKleinanzeigenEmail,
   stripKleinanzeigenSuffix,
@@ -26,6 +35,9 @@ import { emitEvent } from "./activity-events";
 import { ensureCrmPerson } from "./inbox-crm-link";
 import { extractPhonesFromText } from "@/lib/identity/canonical";
 import { classifyInbound } from "./inbox-triage";
+import { getSecret } from "./workspace-settings";
+
+type ChannelAccountRow = typeof channelAccounts.$inferSelect;
 
 // Same cap as deal_documents — base64 expands ~33%, so a 10 MB image is
 // ~13 MB in the row. Images exceeding this limit are dropped but the rest
@@ -103,7 +115,253 @@ async function checkAndFlagMultiCompany(workspaceId: string, contactId: string) 
   }
 }
 
-// ─── Main IMAP sync ───────────────────────────────────────────────────────────
+// ─── Shared ingest ──────────────────────────────────────────────────────────────
+// Both transports (IMAP and Gmail API) funnel each parsed message through here so
+// the Kleinanzeigen handling, identity/dedup, contact+person creation, lane
+// triage, attachment storage, activity log and push all behave identically.
+
+async function ingestParsedEmail(
+  account: ChannelAccountRow,
+  parsed: ParsedMail,
+  opts: {
+    /** Resolved external Message-ID (caller provides; per-transport fallback). */
+    messageId: string;
+    /** Native thread id (Gmail thread.id). Used as the thread key for non-KA mail. */
+    nativeThreadId?: string;
+  }
+): Promise<void> {
+  const { messageId, nativeThreadId } = opts;
+
+  const fromObj = firstAddress(parsed.from);
+  const fromEmail = fromObj.address.toLowerCase();
+  const fromName = fromObj.name;
+  const subject = parsed.subject ?? "";
+
+  // Skip messages FROM our own address (those are outbound copies in Sent)
+  if (fromEmail === account.address.toLowerCase()) return;
+
+  // Dedup: skip if we already have this external message ID
+  const [dup] = await db
+    .select({ id: inboxMessages.id })
+    .from(inboxMessages)
+    .where(eq(inboxMessages.externalMessageId, messageId))
+    .limit(1);
+  if (dup) return;
+
+  const isKleinanzeigen = isKleinanzeigenEmail(fromEmail, subject);
+
+  // Thread key: Kleinanzeigen → the relay address; otherwise the native thread
+  // id (Gmail) or the In-Reply-To/Message-ID chain (IMAP).
+  const threadKey = isKleinanzeigen
+    ? fromEmail
+    : nativeThreadId ?? parsed.inReplyTo ?? messageId;
+
+  // Extract body
+  const rawHtml = typeof parsed.html === "string" ? parsed.html : null;
+  let body = parsed.text ?? "";
+  // KOT-IDENTITY: rescue the buyer's phone from the Kleinanzeigen
+  // "Nachricht von NAME (Tel.: 0151 ...)" header BEFORE parseKleinanzeigenBody
+  // strips that line. This gives the KA person a real phone identity so a
+  // later WhatsApp message on that number resolves to the same person.
+  let kaPhones: string[] = [];
+  if (isKleinanzeigen) {
+    const preParse = `${parsed.text ?? ""}\n${rawHtml ?? ""}`;
+    const telMatch = preParse.match(/Tel\.?:\s*([0-9 ()/.+\-]{6,})/i);
+    kaPhones = telMatch ? extractPhonesFromText(telMatch[1]) : [];
+    body = parseKleinanzeigenBody(body, rawHtml);
+  } else if (!body && rawHtml) {
+    // Fallback for any other HTML-only email
+    body = rawHtml
+      .replace(/<style[\s\S]*?<\/style>/gi, "")
+      .replace(/<script[\s\S]*?<\/script>/gi, "")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/(p|div|li|tr|h[1-6])>/gi, "\n")
+      .replace(/<[^>]+>/g, "")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+
+  // Upsert contact — strip "über Kleinanzeigen" suffix so the chat header
+  // shows just the person's name.
+  const contactName = isKleinanzeigen ? stripKleinanzeigenSuffix(fromName) : fromName;
+  const contact = await upsertContact(account.workspaceId, fromEmail, contactName);
+
+  // Auto-create CRM Person for the contact (idempotent).
+  await ensureCrmPerson({
+    workspaceId: account.workspaceId,
+    contactId: contact.id,
+    displayName: contactName || fromEmail,
+    email: fromEmail,
+    phone: null,
+    leadSource: isKleinanzeigen ? "Kleinanzeigen" : "WhatsApp / Website",
+    extraPhones: kaPhones,
+  });
+
+  // Upsert conversation
+  let [conv] = await db
+    .select()
+    .from(inboxConversations)
+    .where(
+      and(
+        eq(inboxConversations.channelAccountId, account.id),
+        eq(inboxConversations.externalThreadId, threadKey)
+      )
+    )
+    .limit(1);
+
+  const preview = body.slice(0, 120).replace(/\s+/g, " ");
+  const sentAt = parsed.date ?? new Date();
+
+  // KOT-IDENTITY Phase 6: triage into a lane so ads / newsletters / platform
+  // notifications stay out of the lead inbox. Only real leads get an AI reply.
+  const triage = classifyInbound({
+    headers: Object.fromEntries(parsed.headers ?? []),
+    fromAddr: fromEmail,
+    subject,
+    body,
+  });
+
+  if (!conv) {
+    const [created] = await db
+      .insert(inboxConversations)
+      .values({
+        workspaceId: account.workspaceId,
+        channelAccountId: account.id,
+        contactId: contact.id,
+        externalThreadId: threadKey,
+        subject,
+        lastMessageAt: sentAt,
+        lastMessagePreview: preview,
+        unreadCount: 1,
+        lane: triage.lane,
+        classificationReason: triage.reason,
+        classifiedBy: triage.by,
+        aiNeedsReply: triage.lane === "lead",
+        aiLastInboundAt: sentAt,
+      })
+      .returning();
+    conv = created;
+
+    // Auto-create a deal in stage "Neue Anfrage" for brand-new Kleinanzeigen
+    // inquiries that are real leads (not platform notifications), and link it
+    // to this conversation. Other channels can reuse the same deal later.
+    if (isKleinanzeigen && triage.lane === "lead") {
+      await createDealForNewConversation({
+        workspaceId: account.workspaceId,
+        conversationId: conv.id,
+        dealName: contactName || fromEmail,
+        contactId: contact.id,
+        channelAccountId: account.id,
+      });
+    }
+  } else {
+    await db
+      .update(inboxConversations)
+      .set({
+        lastMessageAt: sentAt,
+        lastMessagePreview: preview,
+        unreadCount: (conv.unreadCount ?? 0) + 1,
+        aiNeedsReply: true,
+        aiLastInboundAt: sentAt,
+        // Re-open resolved/spam conversations when the customer writes back
+        ...(conv.status !== "open" ? { status: "open" } : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(inboxConversations.id, conv.id));
+  }
+
+  // Insert message
+  const [storedMessage] = await db
+    .insert(inboxMessages)
+    .values({
+      workspaceId: account.workspaceId,
+      conversationId: conv.id,
+      direction: "inbound",
+      status: "received",
+      externalMessageId: messageId,
+      fromAddress: fromEmail,
+      toAddress: account.address,
+      subject,
+      body,
+      bodyHtml: parsed.html || null,
+      isRead: false,
+      rawHeaders: JSON.stringify(Object.fromEntries(parsed.headers ?? [])),
+      sentAt,
+    })
+    .returning({ id: inboxMessages.id });
+
+  // Store attachments (images, PDFs, ...). Cap per-file size so a rogue
+  // email can't blow up the DB; anything larger is silently skipped —
+  // the customer's text still makes it through.
+  if (storedMessage && parsed.attachments?.length) {
+    for (const att of parsed.attachments) {
+      if (!att.content || att.size > ATTACHMENT_MAX_BYTES) continue;
+      const mime = att.contentType || "application/octet-stream";
+      const filename =
+        att.filename ||
+        (mime.startsWith("image/")
+          ? `image.${mime.split("/")[1] || "bin"}`
+          : "attachment.bin");
+      try {
+        await db.insert(inboxMessageAttachments).values({
+          workspaceId: account.workspaceId,
+          messageId: storedMessage.id,
+          conversationId: conv.id,
+          dealRecordId: conv.dealRecordId ?? null,
+          fileName: filename,
+          mimeType: mime,
+          fileSize: att.size,
+          fileContent: Buffer.from(att.content).toString("base64"),
+          externalMediaId: att.contentId ?? att.cid ?? null,
+        });
+      } catch (attErr) {
+        console.error(
+          `[inbox-email] failed to store attachment ${filename}:`,
+          attErr
+        );
+      }
+    }
+  }
+
+  // Activity log: record message.received against the linked deal (if any)
+  // so the timeline surfaces every inbound message.
+  if (conv.dealRecordId) {
+    await emitEvent({
+      workspaceId: account.workspaceId,
+      recordId: conv.dealRecordId,
+      objectSlug: "deals",
+      eventType: "message.received",
+      payload: {
+        conversationId: conv.id,
+        channelType: "email",
+        fromAddress: fromEmail,
+        subject,
+        externalMessageId: messageId,
+      },
+    });
+  }
+
+  if (storedMessage) {
+    // Don't block ingest on push delivery, but keep the function alive
+    // long enough for the request to Apple/Google to finish — see the
+    // matching pattern in inbox-whatsapp.ts for the rationale.
+    const { waitUntil } = await import("@vercel/functions");
+    waitUntil(
+      notifyInboxPushEmail({
+        workspaceId: account.workspaceId,
+        conversationId: conv.id,
+        title: contactName || fromEmail,
+        body: subject ? `${subject} — ${preview}` : preview,
+      }).catch((err) => {
+        console.error("[push] email notify failed", err);
+      })
+    );
+  }
+
+  await checkAndFlagMultiCompany(account.workspaceId, contact.id);
+}
+
+// ─── Transport dispatch ─────────────────────────────────────────────────────────
 
 export async function syncChannelAccount(accountId: string) {
   const [account] = await db
@@ -112,13 +370,26 @@ export async function syncChannelAccount(accountId: string) {
     .where(eq(channelAccounts.id, accountId))
     .limit(1);
 
-  if (!account || account.channelType !== "email" || !account.credential) return;
+  if (!account || account.channelType !== "email") return;
 
+  if (account.emailProvider === "gmail_api") {
+    await syncGmailAccount(account);
+    return;
+  }
+
+  // Legacy IMAP transport needs a stored credential (App Password).
+  if (!account.credential) return;
+  await syncImapAccount(account);
+}
+
+// ─── IMAP receive ───────────────────────────────────────────────────────────────
+
+async function syncImapAccount(account: ChannelAccountRow) {
   const client = new ImapFlow({
     host: account.imapHost ?? "imap.gmail.com",
     port: 993,
     secure: true,
-    auth: { user: account.address, pass: account.credential },
+    auth: { user: account.address, pass: account.credential! },
     logger: false,
   });
 
@@ -138,231 +409,8 @@ export async function syncChannelAccount(accountId: string) {
 
       if (!msg.source) continue;
       const parsed: ParsedMail = await simpleParser(msg.source as Buffer);
-      const fromObj = firstAddress(parsed.from);
-      const fromEmail = fromObj.address.toLowerCase();
-      const fromName = fromObj.name;
-      const subject = parsed.subject ?? "";
       const messageId = parsed.messageId ?? `uid-${uid}@${account.address}`;
-
-      // Skip messages FROM our own address (those are outbound copies in Sent)
-      if (fromEmail === account.address.toLowerCase()) continue;
-
-      // Dedup: skip if we already have this external message ID
-      const [dup] = await db
-        .select({ id: inboxMessages.id })
-        .from(inboxMessages)
-        .where(eq(inboxMessages.externalMessageId, messageId))
-        .limit(1);
-      if (dup) continue;
-
-      const isKleinanzeigen = isKleinanzeigenEmail(fromEmail, subject);
-
-      // For Kleinanzeigen the relay address IS the thread key
-      const threadKey = isKleinanzeigen ? fromEmail : (parsed.inReplyTo ?? messageId);
-
-      // Extract body
-      const rawHtml = typeof parsed.html === "string" ? parsed.html : null;
-      let body = parsed.text ?? "";
-      // KOT-IDENTITY: rescue the buyer's phone from the Kleinanzeigen
-      // "Nachricht von NAME (Tel.: 0151 ...)" header BEFORE parseKleinanzeigenBody
-      // strips that line. This gives the KA person a real phone identity so a
-      // later WhatsApp message on that number resolves to the same person.
-      let kaPhones: string[] = [];
-      if (isKleinanzeigen) {
-        const preParse = `${parsed.text ?? ""}\n${rawHtml ?? ""}`;
-        const telMatch = preParse.match(/Tel\.?:\s*([0-9 ()/.+\-]{6,})/i);
-        kaPhones = telMatch ? extractPhonesFromText(telMatch[1]) : [];
-        body = parseKleinanzeigenBody(body, rawHtml);
-      } else if (!body && rawHtml) {
-        // Fallback for any other HTML-only email
-        body = rawHtml
-          .replace(/<style[\s\S]*?<\/style>/gi, "")
-          .replace(/<script[\s\S]*?<\/script>/gi, "")
-          .replace(/<br\s*\/?>/gi, "\n")
-          .replace(/<\/(p|div|li|tr|h[1-6])>/gi, "\n")
-          .replace(/<[^>]+>/g, "")
-          .replace(/\n{3,}/g, "\n\n")
-          .trim();
-      }
-
-      // Upsert contact — strip "über Kleinanzeigen" suffix so the chat header
-      // shows just the person's name.
-      const contactName = isKleinanzeigen ? stripKleinanzeigenSuffix(fromName) : fromName;
-      const contact = await upsertContact(account.workspaceId, fromEmail, contactName);
-
-      // Auto-create CRM Person for the contact (idempotent).
-      await ensureCrmPerson({
-        workspaceId: account.workspaceId,
-        contactId: contact.id,
-        displayName: contactName || fromEmail,
-        email: fromEmail,
-        phone: null,
-        leadSource: isKleinanzeigen ? "Kleinanzeigen" : "WhatsApp / Website",
-        extraPhones: kaPhones,
-      });
-
-      // Upsert conversation
-      let [conv] = await db
-        .select()
-        .from(inboxConversations)
-        .where(
-          and(
-            eq(inboxConversations.channelAccountId, account.id),
-            eq(inboxConversations.externalThreadId, threadKey)
-          )
-        )
-        .limit(1);
-
-      const preview = body.slice(0, 120).replace(/\s+/g, " ");
-      const sentAt = parsed.date ?? new Date();
-
-      // KOT-IDENTITY Phase 6: triage into a lane so ads / newsletters / platform
-      // notifications stay out of the lead inbox. Only real leads get an AI reply.
-      const triage = classifyInbound({
-        headers: Object.fromEntries(parsed.headers ?? []),
-        fromAddr: fromEmail,
-        subject,
-        body,
-      });
-
-      if (!conv) {
-        const [created] = await db
-          .insert(inboxConversations)
-          .values({
-            workspaceId: account.workspaceId,
-            channelAccountId: account.id,
-            contactId: contact.id,
-            externalThreadId: threadKey,
-            subject,
-            lastMessageAt: sentAt,
-            lastMessagePreview: preview,
-            unreadCount: 1,
-            lane: triage.lane,
-            classificationReason: triage.reason,
-            classifiedBy: triage.by,
-            aiNeedsReply: triage.lane === "lead",
-            aiLastInboundAt: sentAt,
-          })
-          .returning();
-        conv = created;
-
-        // Auto-create a deal in stage "Neue Anfrage" for brand-new Kleinanzeigen
-        // inquiries that are real leads (not platform notifications), and link it
-        // to this conversation. Other channels can reuse the same deal later.
-        if (isKleinanzeigen && triage.lane === "lead") {
-          await createDealForNewConversation({
-            workspaceId: account.workspaceId,
-            conversationId: conv.id,
-            dealName: contactName || fromEmail,
-            contactId: contact.id,
-            channelAccountId: account.id,
-          });
-        }
-      } else {
-        await db
-          .update(inboxConversations)
-          .set({
-            lastMessageAt: sentAt,
-            lastMessagePreview: preview,
-            unreadCount: (conv.unreadCount ?? 0) + 1,
-            aiNeedsReply: true,
-            aiLastInboundAt: sentAt,
-            // Re-open resolved/spam conversations when the customer writes back
-            ...(conv.status !== "open" ? { status: "open" } : {}),
-            updatedAt: new Date(),
-          })
-          .where(eq(inboxConversations.id, conv.id));
-      }
-
-      // Insert message
-      const [storedMessage] = await db
-        .insert(inboxMessages)
-        .values({
-          workspaceId: account.workspaceId,
-          conversationId: conv.id,
-          direction: "inbound",
-          status: "received",
-          externalMessageId: messageId,
-          fromAddress: fromEmail,
-          toAddress: account.address,
-          subject,
-          body,
-          bodyHtml: parsed.html || null,
-          isRead: false,
-          rawHeaders: JSON.stringify(Object.fromEntries(parsed.headers ?? [])),
-          sentAt,
-        })
-        .returning({ id: inboxMessages.id });
-
-      // Store attachments (images, PDFs, ...). Cap per-file size so a rogue
-      // email can't blow up the DB; anything larger is silently skipped —
-      // the customer's text still makes it through.
-      if (storedMessage && parsed.attachments?.length) {
-        for (const att of parsed.attachments) {
-          if (!att.content || att.size > ATTACHMENT_MAX_BYTES) continue;
-          const mime = att.contentType || "application/octet-stream";
-          const filename =
-            att.filename ||
-            (mime.startsWith("image/")
-              ? `image.${mime.split("/")[1] || "bin"}`
-              : "attachment.bin");
-          try {
-            await db.insert(inboxMessageAttachments).values({
-              workspaceId: account.workspaceId,
-              messageId: storedMessage.id,
-              conversationId: conv.id,
-              dealRecordId: conv.dealRecordId ?? null,
-              fileName: filename,
-              mimeType: mime,
-              fileSize: att.size,
-              fileContent: Buffer.from(att.content).toString("base64"),
-              externalMediaId: att.contentId ?? att.cid ?? null,
-            });
-          } catch (attErr) {
-            console.error(
-              `[inbox-email] failed to store attachment ${filename}:`,
-              attErr
-            );
-          }
-        }
-      }
-
-      // Activity log: record message.received against the linked deal (if any)
-      // so the timeline surfaces every inbound message.
-      if (conv.dealRecordId) {
-        await emitEvent({
-          workspaceId: account.workspaceId,
-          recordId: conv.dealRecordId,
-          objectSlug: "deals",
-          eventType: "message.received",
-          payload: {
-            conversationId: conv.id,
-            channelType: "email",
-            fromAddress: fromEmail,
-            subject,
-            externalMessageId: messageId,
-          },
-        });
-      }
-
-      if (storedMessage) {
-        // Don't block ingest on push delivery, but keep the function alive
-        // long enough for the request to Apple/Google to finish — see the
-        // matching pattern in inbox-whatsapp.ts for the rationale.
-        const { waitUntil } = await import("@vercel/functions");
-        waitUntil(
-          notifyInboxPushEmail({
-            workspaceId: account.workspaceId,
-            conversationId: conv.id,
-            title: contactName || fromEmail,
-            body: subject ? `${subject} — ${preview}` : preview,
-          }).catch((err) => {
-            console.error("[push] email notify failed", err);
-          })
-        );
-      }
-
-      await checkAndFlagMultiCompany(account.workspaceId, contact.id);
+      await ingestParsedEmail(account, parsed, { messageId });
     }
 
     // Persist last synced UID
@@ -375,6 +423,135 @@ export async function syncChannelAccount(accountId: string) {
   } finally {
     lock.release();
     await client.logout();
+  }
+}
+
+// ─── Gmail API receive ──────────────────────────────────────────────────────────
+
+/** Bounded full pull used for first connect and historyId-expired fallback. */
+async function gmailFullSync(
+  gmail: gmail_v1.Gmail
+): Promise<{ messageIds: string[]; newHistoryId?: string }> {
+  // Only the last 30 days, newest-first, capped — don't flood the CRM inbox with
+  // a mailbox's entire back-catalogue. Dedup on Message-ID protects re-runs.
+  const res = await gmail.users.messages.list({
+    userId: "me",
+    q: "newer_than:30d -in:chats",
+    maxResults: 100,
+  });
+  const messageIds = (res.data.messages ?? [])
+    .map((m) => m.id)
+    .filter((id): id is string => Boolean(id));
+  const prof = await gmail.users.getProfile({ userId: "me" });
+  return { messageIds, newHistoryId: prof.data.historyId ?? undefined };
+}
+
+async function syncGmailAccount(account: ChannelAccountRow) {
+  const refreshToken = await getSecret(
+    account.workspaceId,
+    `gmail_refresh:${account.id}`
+  );
+  if (!refreshToken) {
+    console.warn(
+      `[gmail] no refresh token for ${account.address} — needs reconnect`
+    );
+    return;
+  }
+
+  const { gmailFromRefreshToken, isGmailAuthError, isHistoryExpiredError } =
+    await import("@/lib/gmail/client");
+  const gmail = gmailFromRefreshToken(account.address, refreshToken);
+
+  try {
+    let messageIds: string[] = [];
+    let newHistoryId: string | undefined;
+
+    if (account.lastSyncHistoryId) {
+      try {
+        let pageToken: string | undefined;
+        do {
+          const res = await gmail.users.history.list({
+            userId: "me",
+            startHistoryId: account.lastSyncHistoryId,
+            historyTypes: ["messageAdded"],
+            pageToken,
+          });
+          for (const h of res.data.history ?? []) {
+            for (const m of h.messagesAdded ?? []) {
+              if (m.message?.id) messageIds.push(m.message.id);
+            }
+          }
+          newHistoryId = res.data.historyId ?? newHistoryId;
+          pageToken = res.data.nextPageToken ?? undefined;
+        } while (pageToken);
+      } catch (err) {
+        // historyId older than Gmail's ~1-week window → re-seed via full sync.
+        if (isHistoryExpiredError(err)) {
+          ({ messageIds, newHistoryId } = await gmailFullSync(gmail));
+        } else {
+          throw err;
+        }
+      }
+    } else {
+      // First connect.
+      ({ messageIds, newHistoryId } = await gmailFullSync(gmail));
+    }
+
+    // Oldest-first, de-duplicated. messages.get format=raw gives us the exact
+    // RFC822 bytes the existing simpleParser already handles.
+    const uniqueIds = [...new Set(messageIds)];
+    for (const id of uniqueIds) {
+      try {
+        const msg = await gmail.users.messages.get({
+          userId: "me",
+          id,
+          format: "raw",
+        });
+        const raw = msg.data.raw;
+        if (!raw) continue;
+        const parsed: ParsedMail = await simpleParser(Buffer.from(raw, "base64url"));
+        const messageId = parsed.messageId ?? `gmail-${id}@${account.address}`;
+        await ingestParsedEmail(account, parsed, {
+          messageId,
+          nativeThreadId: msg.data.threadId ?? undefined,
+        });
+      } catch (err) {
+        console.error(`[gmail] failed to ingest message ${id}:`, err);
+      }
+    }
+
+    // Persist the cursor. Prefer the history walk's latest historyId; otherwise
+    // (e.g. nothing new) read the mailbox profile so we never re-scan from old.
+    if (!newHistoryId) {
+      const prof = await gmail.users.getProfile({ userId: "me" });
+      newHistoryId = prof.data.historyId ?? undefined;
+    }
+    if (newHistoryId) {
+      await db
+        .update(channelAccounts)
+        .set({
+          lastSyncHistoryId: newHistoryId,
+          lastSyncAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(channelAccounts.id, account.id));
+    }
+  } catch (err) {
+    if (isGmailAuthError(err)) {
+      // Token revoked (admin reset, 6-month inactivity, manual revoke). Don't
+      // throw — the per-account try/catch in the cron isolates one account, but
+      // we also mark it inactive so the connect UI can prompt a reconnect.
+      console.error(
+        `[gmail] auth failed for ${account.address} — marking inactive, needs reconnect`,
+        err
+      );
+      await db
+        .update(channelAccounts)
+        .set({ isActive: false, updatedAt: new Date() })
+        .where(eq(channelAccounts.id, account.id));
+      return;
+    }
+    throw err;
   }
 }
 
@@ -422,7 +599,7 @@ export async function syncAllEmailAccountsGlobal() {
   return { synced: accounts.length };
 }
 
-// ─── SMTP send ────────────────────────────────────────────────────────────────
+// ─── Send ───────────────────────────────────────────────────────────────────────
 
 export async function sendEmailReply(params: {
   conversationId: string;
@@ -450,7 +627,7 @@ export async function sendEmailReply(params: {
     .where(eq(channelAccounts.id, conv.channelAccountId))
     .limit(1);
 
-  if (!account || !account.credential) throw new Error("Channel account not configured");
+  if (!account) throw new Error("Channel account not configured");
 
   const contact = await db
     .select()
@@ -460,28 +637,40 @@ export async function sendEmailReply(params: {
     .then((r) => r[0]);
 
   const toAddress = conv.externalThreadId?.includes("@")
-    ? conv.externalThreadId  // Kleinanzeigen relay address
+    ? conv.externalThreadId // Kleinanzeigen relay address
     : contact?.email ?? "";
 
   if (!toAddress) throw new Error("Cannot determine reply-to address");
 
-  const transporter = nodemailer.createTransport({
-    host: account.smtpHost ?? "smtp.gmail.com",
-    port: 587,
-    secure: false,
-    auth: { user: account.address, pass: account.credential },
-  });
+  const subject = conv.subject
+    ? `Re: ${conv.subject.replace(/^Re:\s*/i, "")}`
+    : "Re: Ihre Anfrage";
 
-  const info = await transporter.sendMail({
-    from: account.address,
-    to: toAddress,
-    subject: conv.subject ? `Re: ${conv.subject.replace(/^Re:\s*/i, "")}` : "Re: Ihre Anfrage",
-    text: body,
-    headers: {
-      "In-Reply-To": conv.externalThreadId ?? "",
-      "References": conv.externalThreadId ?? "",
-    },
-  });
+  let externalMessageId: string | null;
+
+  if (account.emailProvider === "gmail_api") {
+    externalMessageId = await sendViaGmail({ account, conv, toAddress, subject, body });
+  } else {
+    if (!account.credential) throw new Error("Channel account not configured");
+    const transporter = nodemailer.createTransport({
+      host: account.smtpHost ?? "smtp.gmail.com",
+      port: 587,
+      secure: false,
+      auth: { user: account.address, pass: account.credential },
+    });
+
+    const info = await transporter.sendMail({
+      from: account.address,
+      to: toAddress,
+      subject,
+      text: body,
+      headers: {
+        "In-Reply-To": conv.externalThreadId ?? "",
+        References: conv.externalThreadId ?? "",
+      },
+    });
+    externalMessageId = info.messageId ?? null;
+  }
 
   // Store outbound message
   const [stored] = await db
@@ -491,7 +680,7 @@ export async function sendEmailReply(params: {
       conversationId,
       direction: "outbound",
       status: "sent",
-      externalMessageId: info.messageId,
+      externalMessageId,
       fromAddress: account.address,
       toAddress,
       subject: conv.subject ?? "",
@@ -512,6 +701,120 @@ export async function sendEmailReply(params: {
     .where(eq(inboxConversations.id, conversationId));
 
   return stored;
+}
+
+// ─── Gmail API send ─────────────────────────────────────────────────────────────
+
+async function sendViaGmail(params: {
+  account: ChannelAccountRow;
+  conv: typeof inboxConversations.$inferSelect;
+  toAddress: string;
+  subject: string;
+  body: string;
+}): Promise<string> {
+  const { account, conv, toAddress, subject, body } = params;
+
+  const refreshToken = await getSecret(
+    account.workspaceId,
+    `gmail_refresh:${account.id}`
+  );
+  if (!refreshToken) {
+    throw new Error("Gmail account not connected (no refresh token) — reconnect needed");
+  }
+  const { gmailFromRefreshToken } = await import("@/lib/gmail/client");
+  const gmail = gmailFromRefreshToken(account.address, refreshToken);
+
+  // Build the RFC822 threading headers from the latest inbound message in this
+  // conversation: In-Reply-To = its Message-ID, References = its References chain
+  // PLUS that Message-ID. This is what threads the reply in the CUSTOMER's inbox
+  // — the Gmail threadId only groups the copy in OUR mailbox.
+  const [lastInbound] = await db
+    .select({
+      externalMessageId: inboxMessages.externalMessageId,
+      rawHeaders: inboxMessages.rawHeaders,
+    })
+    .from(inboxMessages)
+    .where(
+      and(
+        eq(inboxMessages.conversationId, conv.id),
+        eq(inboxMessages.direction, "inbound")
+      )
+    )
+    .orderBy(desc(inboxMessages.sentAt))
+    .limit(1);
+
+  const references: string[] = [];
+  if (lastInbound?.rawHeaders) {
+    try {
+      const headers = JSON.parse(lastInbound.rawHeaders) as Record<string, unknown>;
+      const ref = headers["references"];
+      if (typeof ref === "string") references.push(...ref.split(/\s+/).filter(Boolean));
+      else if (Array.isArray(ref)) references.push(...ref.map(String));
+    } catch {
+      /* malformed header json — fall back to In-Reply-To only */
+    }
+  }
+  const inReplyTo = lastInbound?.externalMessageId ?? undefined;
+  if (inReplyTo && !references.includes(inReplyTo)) references.push(inReplyTo);
+
+  // Our own Message-ID so the customer's later replies chain back to us.
+  const domain = account.address.split("@")[1] ?? "localhost";
+  const ownMessageId = `<${randomUUID()}@${domain}>`;
+
+  const raw = await buildRawEmail({
+    from: account.address,
+    to: toAddress,
+    subject,
+    text: body,
+    messageId: ownMessageId,
+    inReplyTo,
+    references,
+  });
+
+  // Pass a native threadId only when we actually have a Gmail one. Gmail thread
+  // ids contain no "@"; KA-relay / Message-ID thread keys do — those thread via
+  // References alone, and passing them as threadId would be rejected.
+  const threadId =
+    conv.externalThreadId && !conv.externalThreadId.includes("@")
+      ? conv.externalThreadId
+      : undefined;
+
+  await gmail.users.messages.send({
+    userId: "me",
+    requestBody: { raw, threadId },
+  });
+
+  return ownMessageId;
+}
+
+/** Compile a MIME message to base64url RFC822 for gmail.users.messages.send. */
+async function buildRawEmail(opts: {
+  from: string;
+  to: string;
+  subject: string;
+  text: string;
+  messageId?: string;
+  inReplyTo?: string;
+  references?: string[];
+}): Promise<string> {
+  const headers: Record<string, string> = {};
+  if (opts.inReplyTo) headers["In-Reply-To"] = opts.inReplyTo;
+  if (opts.references?.length) headers["References"] = opts.references.join(" ");
+
+  const composer = new MailComposer({
+    from: opts.from,
+    to: opts.to,
+    subject: opts.subject,
+    text: opts.text,
+    messageId: opts.messageId,
+    headers,
+  });
+
+  const message: Buffer = await new Promise((resolve, reject) => {
+    composer.compile().build((err, msg) => (err ? reject(err) : resolve(msg)));
+  });
+
+  return message.toString("base64url");
 }
 
 async function notifyInboxPushEmail(input: {

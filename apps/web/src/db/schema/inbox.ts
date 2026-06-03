@@ -116,8 +116,20 @@ export const channelAccounts = pgTable(
     baileysLastSeenAt: timestamp("baileys_last_seen_at"),
     baileysLastDisconnectReason: text("baileys_last_disconnect_reason"),
     isActive: boolean("is_active").notNull().default(true),
+    // Email transport discriminator. 'imap_smtp' = legacy IMAP fetch + SMTP send
+    // (Gmail App Password), 'gmail_api' = Google Workspace via Gmail REST API +
+    // OAuth2. channelType stays 'email' for both, so every downstream caller
+    // (messages route, agent worker, customer-portal mails) is unchanged — only
+    // syncChannelAccount (receive) and sendEmailReply (send) branch on this.
+    emailProvider: text("email_provider").default("imap_smtp"),
     // Stores the last IMAP UID seen so polling only fetches new mail
     lastSyncUid: integer("last_sync_uid").default(0),
+    // Gmail incremental-sync cursor (users.history.list startHistoryId). Replaces
+    // lastSyncUid for gmail_api rows; expires after ~1 week → full-sync fallback.
+    lastSyncHistoryId: text("last_sync_history_id"),
+    // Phase 2 (Pub/Sub push): when the current users.watch registration lapses.
+    // Unused while polling; a daily cron will renew it before this timestamp.
+    watchExpiresAt: timestamp("watch_expires_at"),
     lastSyncAt: timestamp("last_sync_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),

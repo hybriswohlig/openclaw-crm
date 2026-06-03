@@ -1014,6 +1014,8 @@ interface ChannelAccount {
   name: string;
   address: string;
   channelType: "email" | "whatsapp";
+  // 'imap_smtp' (App Password) | 'gmail_api' (Google Workspace OAuth)
+  emailProvider: string | null;
   operatingCompanyRecordId: string | null;
   isActive: boolean;
   imapHost: string | null;
@@ -1060,6 +1062,10 @@ function ChannelAccountsSection({ canManage }: { canManage: boolean }) {
   // to the QR pairing panel for this account id. null = no panel open.
   const [pairingFor, setPairingFor] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Result banner after returning from the Gmail OAuth round-trip.
+  const [gmailNotice, setGmailNotice] = useState<
+    { ok: boolean; text: string } | null
+  >(null);
 
   const emptyForm = {
     name: "",
@@ -1093,6 +1099,47 @@ function ChannelAccountsSection({ canManage }: { canManage: boolean }) {
   }, []);
 
   useEffect(() => { fetchAccounts(); }, [fetchAccounts]);
+
+  // Pick up the ?gmail=connected|error result the OAuth callback redirects to,
+  // show a banner, then strip the params from the URL.
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    const result = sp.get("gmail");
+    if (!result) return;
+    if (result === "connected") {
+      const addr = sp.get("address");
+      setGmailNotice({
+        ok: true,
+        text: addr ? `Gmail verbunden: ${addr}` : "Gmail erfolgreich verbunden.",
+      });
+    } else {
+      const reasons: Record<string, string> = {
+        no_oauth_client: "Kein OAuth-Client fuer diese Domain konfiguriert.",
+        no_refresh_token: "Kein Refresh-Token erhalten. Bitte erneut versuchen.",
+        bad_state: "Sicherheitspruefung fehlgeschlagen. Bitte erneut versuchen.",
+        workspace_mismatch: "Falscher Arbeitsbereich.",
+        account_not_found: "Kanal-Account nicht gefunden.",
+        exchange_failed: "Verbindung zu Google fehlgeschlagen.",
+        access_denied: "Zugriff bei Google abgelehnt.",
+      };
+      const reason = sp.get("reason") ?? "";
+      setGmailNotice({
+        ok: false,
+        text: reasons[reason] ?? `Gmail-Verbindung fehlgeschlagen (${reason || "unbekannt"}).`,
+      });
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.delete("gmail");
+    url.searchParams.delete("address");
+    url.searchParams.delete("reason");
+    window.history.replaceState({}, "", url.toString());
+    void fetchAccounts();
+  }, [fetchAccounts]);
+
+  // Kick off the Gmail OAuth flow for an email account (full-page redirect).
+  function connectGmail(acc: ChannelAccount) {
+    window.location.href = `/api/integrations/gmail/oauth/start?channelAccountId=${encodeURIComponent(acc.id)}`;
+  }
 
   async function handleSave() {
     setSaving(true);
@@ -1259,6 +1306,29 @@ function ChannelAccountsSection({ canManage }: { canManage: boolean }) {
         )}
       </div>
 
+      {gmailNotice && (
+        <div
+          className={`flex items-start gap-2 rounded-lg border p-3 text-sm ${
+            gmailNotice.ok
+              ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400"
+              : "border-destructive/30 bg-destructive/5 text-destructive"
+          }`}
+        >
+          {gmailNotice.ok ? (
+            <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />
+          ) : (
+            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+          )}
+          <span className="flex-1">{gmailNotice.text}</span>
+          <button
+            onClick={() => setGmailNotice(null)}
+            className="text-current/60 hover:text-current"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
           <Loader2 className="h-4 w-4 animate-spin" /> Wird geladen…
@@ -1308,6 +1378,11 @@ function ChannelAccountsSection({ canManage }: { canManage: boolean }) {
                   <td className="px-4 py-3">
                     {isBaileys ? (
                       <PairingStatusBadge status={acc.baileysPairingStatus} isActive={acc.isActive} />
+                    ) : acc.channelType === "email" && acc.emailProvider === "gmail_api" ? (
+                      <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border font-medium text-emerald-600 bg-emerald-500/10 border-emerald-400/20">
+                        <CheckCircle2 className="h-3 w-3" />
+                        {acc.isActive ? "Gmail verbunden" : "Neu verbinden"}
+                      </span>
                     ) : (
                       <span className="text-xs text-muted-foreground">—</span>
                     )}
@@ -1349,6 +1424,16 @@ function ChannelAccountsSection({ canManage }: { canManage: boolean }) {
                               </button>
                             )}
                           </>
+                        )}
+                        {acc.channelType === "email" && (
+                          <button
+                            onClick={() => connectGmail(acc)}
+                            title="Google Workspace per OAuth verbinden"
+                            className="h-7 px-2 rounded-md flex items-center gap-1 text-xs text-primary hover:bg-muted transition-colors"
+                          >
+                            <LinkIcon className="h-3.5 w-3.5" />
+                            {acc.emailProvider === "gmail_api" ? "Gmail neu verbinden" : "Gmail verbinden"}
+                          </button>
                         )}
                         <button onClick={() => openEdit(acc)} className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
                           <Pencil className="h-3.5 w-3.5" />
