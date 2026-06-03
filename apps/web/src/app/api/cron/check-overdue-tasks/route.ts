@@ -3,6 +3,8 @@ import { db } from "@/db";
 import { tasks, taskAssignees, users } from "@/db/schema";
 import { and, eq, lt, isNull, sql, inArray } from "drizzle-orm";
 import { sendPush } from "@/services/push";
+import { createTaskComment } from "@/services/task-comments";
+import { AGENT_PRICE_TASK_MARKER } from "@/services/agent/agent-tasks";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -99,6 +101,20 @@ export async function GET(req: NextRequest) {
         { workspaceId: t.workspaceId }
       );
       if (sent > 0) notified++;
+
+      // For agent-created price tasks, also leave a nudge comment on the task,
+      // so the overdue reminder is visible on the task itself (once per deadline).
+      if (t.content.startsWith(AGENT_PRICE_TASK_MARKER)) {
+        const commenterId = responsible?.userId ?? t.createdBy;
+        if (commenterId) {
+          await createTaskComment({
+            taskId: t.id,
+            workspaceId: t.workspaceId,
+            userId: commenterId,
+            body: "Erinnerung vom KI-Assistenten: Diese Aufgabe ist überfällig. Der Lead wartet auf sein Angebot. Bitte kalkulieren oder den Lead schließen.",
+          }).catch(() => {});
+        }
+      }
     }
 
     // 4. Mark them so we don't re-notify on the same deadline.

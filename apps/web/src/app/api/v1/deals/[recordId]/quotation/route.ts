@@ -3,6 +3,7 @@ import { getAuthContext, unauthorized, success } from "@/lib/api-utils";
 import { getQuotation, upsertQuotation } from "@/services/quotations";
 import { ensureCustomerStatusLink } from "@/services/customer-portal-data";
 import { captureScopeSnapshot } from "@/services/scope-guard";
+import { completeAgentPriceTasks } from "@/services/agent/agent-tasks";
 
 export async function GET(
   req: NextRequest,
@@ -43,6 +44,10 @@ export async function PUT(
   // KI extractions can detect (and warn on) a post-quote scope change.
   // Idempotent: no-op once a snapshot already exists for this deal.
   await captureScopeSnapshot(ctx.workspaceId, recordId, "issue");
+
+  // Close the loop: a quote now exists, so complete any open agent-created
+  // "price this lead" task and stop the overdue nudges.
+  await completeAgentPriceTasks(ctx.workspaceId, recordId);
 
   return success(data);
 }

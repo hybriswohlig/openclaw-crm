@@ -56,6 +56,7 @@ import {
   isMoveDatePast,
   looksDeclined,
 } from "./agent-shared";
+import { ensureAgentPriceTask } from "./agent-tasks";
 
 const MAX_CONVERSATIONS_PER_TICK = 8;
 // Cap the slow crm-tools vision extraction per tick (30 to 90s each).
@@ -581,6 +582,10 @@ async function processConversation(
         },
         { workspaceId: conv.workspaceId, userIds: owners }
       );
+    }
+    // Create a task on the deal so it shows in the team's to-do list (deduped).
+    if (conv.dealRecordId) {
+      await ensureAgentPriceTask(conv.workspaceId, conv.dealRecordId, turn.owner_note);
     }
     await emitAgentEvent(conv, "live", turn, outgoing);
     await stampInboundProcessed(conv.id, now);
