@@ -118,6 +118,35 @@ export async function resolveBrandSignature(
   return fallback;
 }
 
+/**
+ * Deterministic pre-answer eligibility checks ("logical approach before it
+ * answers"). These run BEFORE the LLM so the agent can never text a dead or
+ * past-date thread, regardless of what the model decides.
+ */
+
+/** True only if the deal's move_date is a real date in the past. Unknown/unparseable -> false. */
+export function isMoveDatePast(
+  record: { values?: Record<string, unknown> } | null | undefined
+): boolean {
+  const mv = record?.values?.move_date;
+  if (!mv) return false;
+  const d = new Date(mv as string | number | Date);
+  if (Number.isNaN(d.getTime())) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return d.getTime() < today.getTime();
+}
+
+// Conservative: only clear, unambiguous declines, to avoid silencing real leads.
+const DECLINE_PATTERNS =
+  /(kein interesse|zu teuer|doch nicht|anderweitig|anderen anbieter|bereits (beauftragt|gebucht|vergeben|organisiert)|schon (beauftragt|gebucht|jemanden)|abgesagt|hat sich erledigt|erledigt sich|brauche (keine|nichts|nicht mehr)|nicht mehr (nötig|notwendig|relevant|aktuell|gebraucht))/i;
+
+/** Heuristic safety net: does the customer's last message clearly decline? */
+export function looksDeclined(text: string | null | undefined): boolean {
+  if (!text) return false;
+  return DECLINE_PATTERNS.test(text);
+}
+
 /** Prepend the AI disclosure when this is the agent's first customer message. */
 export function withDisclosure(message: string, disclosure: string, isFirst: boolean): string {
   const d = disclosure.trim();

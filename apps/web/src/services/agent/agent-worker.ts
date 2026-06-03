@@ -35,6 +35,8 @@ import { sendPush } from "@/services/push";
 import { emitEvent } from "@/services/activity-events";
 import { extractDealInsights } from "@/services/deal-insights";
 import { applyDealInsights } from "@/services/deal-insights-apply";
+import { getRecord } from "@/services/records";
+import { getObjectBySlug } from "@/services/objects";
 import {
   isSalesAgentEnabled,
   isSalesAgentDryRun,
@@ -51,6 +53,8 @@ import {
   agentHasSentCustomerMessage,
   withDisclosure,
   resolveBrandSignature,
+  isMoveDatePast,
+  looksDeclined,
 } from "./agent-shared";
 
 const MAX_CONVERSATIONS_PER_TICK = 8;
@@ -378,6 +382,7 @@ async function processConversation(
     discloseAi: boolean;
     disclosure: string;
     handoffAck: string;
+    dealsObjId: string | null;
     visionBudget: { left: number };
   },
   now: Date,
@@ -405,6 +410,41 @@ async function processConversation(
     // Flag set but nothing new to answer; disarm so we don't spin on it.
     await stampInboundProcessed(conv.id, now);
     return;
+  }
+
+  // ── Deterministic eligibility gate (runs BEFORE the LLM, so the model can
+  // never override it) ──────────────────────────────────────────────────────
+  // 1. Customer clearly declined -> leave them alone, send nothing.
+  if (looksDeclined(last.body)) {
+    await stampInboundProcessed(conv.id, now);
+    summary.noops += 1;
+    return;
+  }
+  // 2. Move date already passed -> never auto-text; flag the owner to check.
+  if (opts.dealsObjId && conv.dealRecordId) {
+    const deal = await getRecord(opts.dealsObjId, conv.dealRecordId);
+    if (isMoveDatePast(deal)) {
+      if (!opts.dryRun) {
+        const owners = await ownerUserIds(conv.workspaceId);
+        if (owners.length > 0) {
+          await sendPush(
+            {
+              title: "Lead prüfen: Termin vorbei",
+              body: "Der hinterlegte Wunschtermin liegt in der Vergangenheit. Bitte kurz prüfen.",
+              url: `/objects/deals/${conv.dealRecordId}`,
+              tag: `agent-pastdate-${conv.id}`,
+            },
+            { workspaceId: conv.workspaceId, userIds: owners }
+          );
+        }
+      }
+      await emitAgentEvent(conv, opts.dryRun ? "dry_run" : "live", {
+        action: "no_op", message_de: "", owner_note: "Wunschtermin liegt in der Vergangenheit", reason: "past_move_date",
+      }, "");
+      await stampInboundProcessed(conv.id, now);
+      summary.noops += 1;
+      return;
+    }
   }
 
   // Fold any newly received customer photos into the structured slots first,
@@ -562,7 +602,7 @@ async function runForWorkspace(
   deadlineMs: number,
   summary: AgentRunSummary
 ): Promise<void> {
-  const [enabled, dryRun, channels, signature, discloseAi, disclosure, handoffAck] =
+  const [enabled, dryRun, channels, signature, discloseAi, disclosure, handoffAck, dealsObj] =
     await Promise.all([
       isSalesAgentEnabled(workspaceId),
       isSalesAgentDryRun(workspaceId),
@@ -571,9 +611,11 @@ async function runForWorkspace(
       isDiscloseAiEnabled(workspaceId),
       getAgentDisclosure(workspaceId),
       getAgentHandoffAck(workspaceId),
+      getObjectBySlug(workspaceId, "deals"),
     ]);
   if (!enabled) return;
   summary.enabledWorkspaces += 1;
+  const dealsObjId = dealsObj?.id ?? null;
 
   const due = await selectDueConversations(workspaceId, channels, now);
   summary.due += due.length;
@@ -587,7 +629,7 @@ async function runForWorkspace(
     try {
       await processConversation(
         conv,
-        { dryRun, signature, discloseAi, disclosure, handoffAck, visionBudget },
+        { dryRun, signature, discloseAi, disclosure, handoffAck, dealsObjId, visionBudget },
         now,
         summary
       );

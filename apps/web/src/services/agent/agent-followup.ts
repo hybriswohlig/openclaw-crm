@@ -35,6 +35,7 @@ import {
   agentHasSentCustomerMessage,
   withDisclosure,
   resolveBrandSignature,
+  isMoveDatePast,
   type AgentChannelRow,
 } from "./agent-shared";
 
@@ -84,15 +85,6 @@ interface FollowupCandidate {
   operatingCompanyRecordId: string | null;
 }
 
-function isMoveDatePast(record: { values?: Record<string, unknown> } | null | undefined): boolean {
-  const mv = record?.values?.move_date;
-  if (!mv) return false; // unknown move date -> still a worthwhile early lead
-  const d = new Date(mv as string | number | Date);
-  if (Number.isNaN(d.getTime())) return false; // unparseable -> treat as unknown
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return d.getTime() < today.getTime();
-}
 
 async function trailingOutboundCount(conversationId: string): Promise<{
   trailing: number;
