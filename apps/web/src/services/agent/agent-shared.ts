@@ -8,8 +8,8 @@
  */
 
 import { db } from "@/db";
-import { and, eq } from "drizzle-orm";
-import { workspaceMembers } from "@/db/schema";
+import { and, eq, sql } from "drizzle-orm";
+import { workspaceMembers, activityEvents } from "@/db/schema";
 import { sendWhatsAppReply, sendBaileysReply } from "@/services/inbox-whatsapp";
 import { sendEmailReply } from "@/services/inbox-email";
 
@@ -52,4 +52,41 @@ export async function ownerUserIds(workspaceId: string): Promise<string[]> {
       and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.role, "admin"))
     );
   return rows.map((r) => r.userId);
+}
+
+/**
+ * Has the agent already sent a customer-facing message on this deal? Used to
+ * decide whether to prepend the legally-required AI disclosure (only on the
+ * agent's FIRST customer message). Derived from the agent.action timeline events
+ * (mode "live" with a non-empty message), so it needs no extra column. Returns
+ * false when the deal is unknown, so the disclosure is included (fail-safe).
+ */
+export async function agentHasSentCustomerMessage(
+  workspaceId: string,
+  dealRecordId: string | null
+): Promise<boolean> {
+  if (!dealRecordId) return false;
+  const rows = await db
+    .select({ payload: activityEvents.payload })
+    .from(activityEvents)
+    .where(
+      and(
+        eq(activityEvents.workspaceId, workspaceId),
+        eq(activityEvents.recordId, dealRecordId),
+        eq(activityEvents.eventType, "agent.action")
+      )
+    )
+    .orderBy(sql`${activityEvents.createdAt} DESC`)
+    .limit(25);
+  return rows.some((r) => {
+    const p = (r.payload ?? {}) as Record<string, unknown>;
+    return p.mode === "live" && typeof p.message === "string" && p.message.trim().length > 0;
+  });
+}
+
+/** Prepend the AI disclosure when this is the agent's first customer message. */
+export function withDisclosure(message: string, disclosure: string, isFirst: boolean): string {
+  const d = disclosure.trim();
+  if (!isFirst || !d || !message.trim()) return message;
+  return `${d}\n\n${message}`;
 }

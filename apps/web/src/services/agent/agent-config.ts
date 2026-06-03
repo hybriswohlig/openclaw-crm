@@ -25,6 +25,8 @@ const KEY_DRY_RUN = "sales_agent_dry_run";
 const KEY_CHANNELS = "sales_agent_channels";
 const KEY_SIGNATURE = "sales_agent_signature";
 const KEY_FOLLOWUP = "sales_followup_enabled";
+const KEY_DISCLOSURE = "sales_agent_disclosure";
+const KEY_HANDOFF_ACK = "sales_agent_handoff_ack";
 
 /** Channel types the agent is allowed to act on, by default. KA rides on email. */
 export const DEFAULT_AGENT_CHANNELS = ["whatsapp", "email"] as const;
@@ -35,12 +37,34 @@ export const DEFAULT_AGENT_CHANNELS = ["whatsapp", "email"] as const;
  */
 export const DEFAULT_AGENT_SIGNATURE = "Kottke Umzüge";
 
+/**
+ * First-message AI disclosure. REQUIRED for compliance: EU AI Act Art. 50(1)+(5)
+ * mandates a clear, distinguishable disclosure that the counterpart is automated,
+ * at the latest at the first interaction (in force from 2 Aug 2026; already
+ * prudent under German UWG). Prepended deterministically to the agent's first
+ * customer-facing message in a thread, so the model can never skip it. Editing
+ * the wording is fine; an empty value falls back to this default (it cannot be
+ * disabled, by design).
+ */
+export const DEFAULT_AGENT_DISCLOSURE =
+  "Kurzer Hinweis: Hier antwortet zunächst unser KI-Assistent, damit Sie sofort eine Rückmeldung bekommen. Ein Mitarbeiter erstellt Ihnen anschließend Ihr persönliches Angebot und ist bei Fragen jederzeit für Sie da.";
+
+/**
+ * Short, neutral acknowledgment sent to the customer at handoff (warm transfer,
+ * sets expectations, contains NO price). Set to an empty string to send nothing
+ * on handoff (then only the owner is notified).
+ */
+export const DEFAULT_AGENT_HANDOFF_ACK =
+  "Vielen Dank, ich habe alle wichtigen Angaben. Ein Mitarbeiter erstellt Ihnen jetzt Ihr persönliches Angebot und meldet sich in Kürze bei Ihnen.";
+
 export interface AgentSettings {
   enabled: boolean;
   dryRun: boolean;
   channels: string[];
   signature: string;
   followupEnabled: boolean;
+  disclosure: string;
+  handoffAck: string;
 }
 
 export async function isSalesAgentEnabled(workspaceId: string): Promise<boolean> {
@@ -72,15 +96,30 @@ export async function getAgentSignature(workspaceId: string): Promise<string> {
   return raw && raw.trim() ? raw.trim() : DEFAULT_AGENT_SIGNATURE;
 }
 
+/** Empty/unset falls back to the default: the legal disclosure cannot be disabled. */
+export async function getAgentDisclosure(workspaceId: string): Promise<string> {
+  const raw = await getSetting(workspaceId, KEY_DISCLOSURE);
+  return raw && raw.trim() ? raw.trim() : DEFAULT_AGENT_DISCLOSURE;
+}
+
+/** Unset falls back to the default; an explicit empty string means "send no ack". */
+export async function getAgentHandoffAck(workspaceId: string): Promise<string> {
+  const raw = await getSetting(workspaceId, KEY_HANDOFF_ACK);
+  return raw === null ? DEFAULT_AGENT_HANDOFF_ACK : raw;
+}
+
 export async function getAgentSettings(workspaceId: string): Promise<AgentSettings> {
-  const [enabled, dryRun, channels, signature, followupEnabled] = await Promise.all([
-    isSalesAgentEnabled(workspaceId),
-    isSalesAgentDryRun(workspaceId),
-    getAgentChannels(workspaceId),
-    getAgentSignature(workspaceId),
-    isSalesFollowupEnabled(workspaceId),
-  ]);
-  return { enabled, dryRun, channels, signature, followupEnabled };
+  const [enabled, dryRun, channels, signature, followupEnabled, disclosure, handoffAck] =
+    await Promise.all([
+      isSalesAgentEnabled(workspaceId),
+      isSalesAgentDryRun(workspaceId),
+      getAgentChannels(workspaceId),
+      getAgentSignature(workspaceId),
+      isSalesFollowupEnabled(workspaceId),
+      getAgentDisclosure(workspaceId),
+      getAgentHandoffAck(workspaceId),
+    ]);
+  return { enabled, dryRun, channels, signature, followupEnabled, disclosure, handoffAck };
 }
 
 export async function setAgentSettings(
@@ -91,10 +130,18 @@ export async function setAgentSettings(
     channels?: string[];
     signature?: string;
     followupEnabled?: boolean;
+    disclosure?: string;
+    handoffAck?: string;
   }
 ): Promise<AgentSettings> {
   if (patch.followupEnabled !== undefined) {
     await setSetting(workspaceId, KEY_FOLLOWUP, patch.followupEnabled ? "true" : "false");
+  }
+  if (patch.disclosure !== undefined) {
+    await setSetting(workspaceId, KEY_DISCLOSURE, patch.disclosure);
+  }
+  if (patch.handoffAck !== undefined) {
+    await setSetting(workspaceId, KEY_HANDOFF_ACK, patch.handoffAck);
   }
   if (patch.enabled !== undefined) {
     await setSetting(workspaceId, KEY_ENABLED, patch.enabled ? "true" : "false");

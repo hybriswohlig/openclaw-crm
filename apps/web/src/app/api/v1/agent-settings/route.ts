@@ -24,6 +24,8 @@ export async function PATCH(req: NextRequest) {
     channels?: unknown;
     signature?: unknown;
     followupEnabled?: unknown;
+    disclosure?: unknown;
+    handoffAck?: unknown;
   };
 
   const patch: {
@@ -32,6 +34,8 @@ export async function PATCH(req: NextRequest) {
     channels?: string[];
     signature?: string;
     followupEnabled?: boolean;
+    disclosure?: string;
+    handoffAck?: string;
   } = {};
   if (body.enabled !== undefined) {
     if (typeof body.enabled !== "boolean")
@@ -57,6 +61,16 @@ export async function PATCH(req: NextRequest) {
     if (typeof body.signature !== "string")
       return NextResponse.json({ error: "signature must be string" }, { status: 400 });
     patch.signature = body.signature;
+  }
+  if (body.disclosure !== undefined) {
+    if (typeof body.disclosure !== "string")
+      return NextResponse.json({ error: "disclosure must be string" }, { status: 400 });
+    patch.disclosure = body.disclosure;
+  }
+  if (body.handoffAck !== undefined) {
+    if (typeof body.handoffAck !== "string")
+      return NextResponse.json({ error: "handoffAck must be string" }, { status: 400 });
+    patch.handoffAck = body.handoffAck;
   }
 
   return success(await setAgentSettings(ctx.workspaceId, patch));

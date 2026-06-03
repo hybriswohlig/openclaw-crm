@@ -59,8 +59,12 @@ export default function AISettingsPage() {
     channels: string[];
     signature: string;
     followupEnabled: boolean;
+    disclosure: string;
+    handoffAck: string;
   } | null>(null);
   const [signature, setSignature] = useState("");
+  const [disclosure, setDisclosure] = useState("");
+  const [handoffAck, setHandoffAck] = useState("");
   const [savingAgent, setSavingAgent] = useState(false);
 
   const patchAgent = useCallback(
@@ -69,6 +73,8 @@ export default function AISettingsPage() {
       dryRun?: boolean;
       signature?: string;
       followupEnabled?: boolean;
+      disclosure?: string;
+      handoffAck?: string;
     }) => {
       setSavingAgent(true);
       setAgent((a) => (a ? { ...a, ...patch } : a));
@@ -82,6 +88,8 @@ export default function AISettingsPage() {
           const data = await res.json();
           setAgent(data.data);
           setSignature(data.data.signature ?? "");
+          setDisclosure(data.data.disclosure ?? "");
+          setHandoffAck(data.data.handoffAck ?? "");
         }
       } finally {
         setSavingAgent(false);
@@ -322,6 +330,57 @@ export default function AISettingsPage() {
                     disabled={savingAgent || signature === agent.signature}
                     onClick={() => patchAgent({ signature })}
                     className="h-8 text-xs"
+                  >
+                    Speichern
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs">KI-Kennzeichnung (Pflicht, erste Nachricht)</Label>
+                <textarea
+                  value={disclosure}
+                  onChange={(e) => setDisclosure(e.target.value)}
+                  rows={3}
+                  className="flex w-full rounded-md border border-input bg-transparent px-2 py-1 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                />
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[10px] text-muted-foreground">
+                    Wird der ersten Nachricht des Assistenten vorangestellt (gesetzlich
+                    vorgeschrieben, EU AI Act Art. 50). Leer = Standardtext, lässt sich nicht
+                    abschalten.
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={savingAgent || disclosure === agent.disclosure}
+                    onClick={() => patchAgent({ disclosure })}
+                    className="h-7 text-xs shrink-0"
+                  >
+                    Speichern
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs">Übergabe-Nachricht an den Kunden (ohne Preis)</Label>
+                <textarea
+                  value={handoffAck}
+                  onChange={(e) => setHandoffAck(e.target.value)}
+                  rows={2}
+                  className="flex w-full rounded-md border border-input bg-transparent px-2 py-1 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                />
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[10px] text-muted-foreground">
+                    Kurze Nachricht an den Kunden, wenn der Assistent an Sie übergibt. Leer
+                    lassen = nichts senden, nur Sie werden benachrichtigt.
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={savingAgent || handoffAck === agent.handoffAck}
+                    onClick={() => patchAgent({ handoffAck })}
+                    className="h-7 text-xs shrink-0"
                   >
                     Speichern
                   </Button>

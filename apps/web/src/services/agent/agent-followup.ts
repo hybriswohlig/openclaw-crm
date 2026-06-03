@@ -26,8 +26,15 @@ import {
   isSalesAgentDryRun,
   getAgentChannels,
   getAgentSignature,
+  getAgentDisclosure,
 } from "./agent-config";
-import { sendOnChannel, appendSignature, type AgentChannelRow } from "./agent-shared";
+import {
+  sendOnChannel,
+  appendSignature,
+  agentHasSentCustomerMessage,
+  withDisclosure,
+  type AgentChannelRow,
+} from "./agent-shared";
 
 // Wait this long after OUR last message before nudging.
 const FOLLOWUP_AFTER_DAYS = 3;
@@ -53,7 +60,7 @@ const FollowupSchema = z.object({
 
 const FOLLOWUP_SYSTEM = `Du bist Mitarbeiter im Vertrieb eines Umzugsunternehmens (kein Chatbot). Ein Interessent hat sich nach unserer letzten Nachricht einige Tage nicht mehr gemeldet. Schreibe HÖCHSTENS eine kurze, freundliche Nachfass-Nachricht.
 
-STIL: Deutsch, Sie-Form, kurz, locker, kein Druck, keine Gedankenstriche, keine Bot-Floskeln, kein Hinweis auf KI. Erfinde KEINEN Namen; die Signatur wird separat angehängt.
+STIL: Deutsch, Sie-Form, kurz, locker, kein Druck, keine Gedankenstriche, keine Bot-Floskeln. Erfinde KEINEN menschlichen Namen und gib dich nicht als bestimmte Person aus. Die Signatur und die nötige KI-Kennzeichnung werden separat angehängt.
 
 REGELN
 - NENNE KEINEN PREIS und mache KEIN Angebot.
@@ -119,10 +126,11 @@ async function runForWorkspace(
   if (!(await isSalesFollowupEnabled(workspaceId))) return;
   summary.enabledWorkspaces += 1;
 
-  const [dryRun, channels, signature, dealsObj] = await Promise.all([
+  const [dryRun, channels, signature, disclosure, dealsObj] = await Promise.all([
     isSalesAgentDryRun(workspaceId),
     getAgentChannels(workspaceId),
     getAgentSignature(workspaceId),
+    getAgentDisclosure(workspaceId),
     getObjectBySlug(workspaceId, "deals"),
   ]);
   // Fail-safe: without the deals object we cannot check move_date, so do not
@@ -157,7 +165,15 @@ async function runForWorkspace(
     .limit(MAX_PER_TICK * 4);
 
   const candidates = rows
-    .filter((r) => r.dealRecordId && allowed.has(r.channelType))
+    .filter(
+      (r) =>
+        r.dealRecordId &&
+        allowed.has(r.channelType) &&
+        // A follow-up is days later, so a WABA WhatsApp number is always outside
+        // the 24h window and the free-form send would throw and silently fail.
+        // Only the in-house Baileys path (no window) and email can be nudged.
+        !(r.channelType === "whatsapp" && r.waPhoneNumberId)
+    )
     .slice(0, MAX_PER_TICK) as FollowupCandidate[];
   summary.candidates += candidates.length;
 
@@ -192,9 +208,11 @@ async function runForWorkspace(
         continue;
       }
 
-      // Humanize the nudge (crm-tools humanizer-de) before sending.
+      // Humanize the nudge (crm-tools humanizer-de) and add the AI disclosure if
+      // the agent has not yet sent a customer message on this deal.
+      const isFirst = !(await agentHasSentCustomerMessage(workspaceId, conv.dealRecordId));
       const humanized = await humanizeGerman(out.message_de);
-      const message = appendSignature(humanized, signature);
+      const message = withDisclosure(appendSignature(humanized, signature), disclosure, isFirst);
       const mode = dryRun ? "dry_run" : "live";
 
       if (!dryRun) {

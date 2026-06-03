@@ -40,8 +40,16 @@ import {
   isSalesAgentDryRun,
   getAgentChannels,
   getAgentSignature,
+  getAgentDisclosure,
+  getAgentHandoffAck,
 } from "./agent-config";
-import { sendOnChannel, appendSignature, ownerUserIds } from "./agent-shared";
+import {
+  sendOnChannel,
+  appendSignature,
+  ownerUserIds,
+  agentHasSentCustomerMessage,
+  withDisclosure,
+} from "./agent-shared";
 
 const MAX_CONVERSATIONS_PER_TICK = 8;
 // Cap the slow crm-tools vision extraction per tick (30 to 90s each).
@@ -74,8 +82,8 @@ type AgentTurn = z.infer<typeof AgentTurnSchema>;
 const SYSTEM_PROMPT = `Du bist Mitarbeiter im Vertrieb eines Umzugsunternehmens (kein Chatbot). Du schreibst per WhatsApp, E-Mail oder Kleinanzeigen mit einem Interessenten, der einen Umzug anfragt.
 
 STIL
-- Deutsch, Sie-Form, kurz, freundlich, sachlich-warm. Klingt wie ein echter Mensch, nicht wie eine KI.
-- Keine Gedankenstriche (keine "-" als Satzzeichen), keine Bot-Floskeln, keine Emojis-Flut, kein "Als KI...". Verrate nie, dass du eine KI bist.
+- Deutsch, Sie-Form, kurz, freundlich, sachlich-warm. Schreibt natürlich und persönlich, nicht maschinell.
+- Keine Gedankenstriche (keine "-" als Satzzeichen), keine Bot-Floskeln, keine Emojis-Flut. Erfinde KEINEN menschlichen Namen und gib dich nicht als bestimmte Person aus. Wenn der Kunde fragt, ob er mit einem Menschen oder einer KI schreibt, antworte ehrlich (KI-Assistent, ein Mitarbeiter übernimmt für das Angebot). Die nötige KI-Kennzeichnung wird separat ergänzt.
 - Frage in EINER Nachricht nur die 1 bis 3 wichtigsten noch fehlenden Punkte ab, nicht alles auf einmal (zu viele Fragen schrecken ab).
 - Wenn Umfang/Volumen unklar ist, bitte freundlich um 5 bis 10 Fotos der Möbel und Räume.
 
@@ -325,7 +333,13 @@ async function emitAgentEvent(
 
 async function processConversation(
   conv: DueConversation,
-  opts: { dryRun: boolean; signature: string; visionBudget: { left: number } },
+  opts: {
+    dryRun: boolean;
+    signature: string;
+    disclosure: string;
+    handoffAck: string;
+    visionBudget: { left: number };
+  },
   now: Date,
   summary: AgentRunSummary
 ): Promise<void> {
@@ -385,17 +399,26 @@ async function processConversation(
     return;
   }
 
-  // Pass the customer-facing message through the humanizer-de skill (crm-tools)
-  // so it does not read as AI-typical. Best-effort: falls back to the original.
-  let customerMessage = "";
+  // Is this the agent's first customer-facing message on this deal? If so, the
+  // outgoing message gets the required AI disclosure prepended (deterministic,
+  // so the model can never skip it).
+  const isFirst = !(await agentHasSentCustomerMessage(conv.workspaceId, conv.dealRecordId));
+
+  // Build the customer-facing message for this action (empty = send nothing).
+  // Both the gather question and the handoff acknowledgment go through the
+  // humanizer, then the signature, then the first-message disclosure.
+  let outgoing = "";
   if (turn.action === "ask" && turn.message_de.trim()) {
     const humanized = await humanizeGerman(turn.message_de);
-    customerMessage = appendSignature(humanized, opts.signature);
+    outgoing = withDisclosure(appendSignature(humanized, opts.signature), opts.disclosure, isFirst);
+  } else if (turn.action === "handoff" && opts.handoffAck.trim()) {
+    const humanizedAck = await humanizeGerman(opts.handoffAck);
+    outgoing = withDisclosure(appendSignature(humanizedAck, opts.signature), opts.disclosure, isFirst);
   }
 
   if (opts.dryRun) {
     // Decide and record a visible preview, but never send/push/pause.
-    await emitAgentEvent(conv, "dry_run", turn, customerMessage || turn.message_de);
+    await emitAgentEvent(conv, "dry_run", turn, outgoing || turn.owner_note || turn.message_de);
     await stampInboundProcessed(conv.id, now);
     await clearNeedsReply(conv.id, false);
     summary.dryRunPreviews += 1;
@@ -403,9 +426,15 @@ async function processConversation(
   }
 
   // Live mode.
-  if (turn.action === "ask" && customerMessage) {
+  if (turn.action === "ask") {
+    if (!outgoing) {
+      await stampInboundProcessed(conv.id, now);
+      await clearNeedsReply(conv.id, false);
+      summary.noops += 1;
+      return;
+    }
     try {
-      await sendOnChannel(conv, customerMessage);
+      await sendOnChannel(conv, outgoing);
       summary.sent += 1;
     } catch (err) {
       console.error("[agent-worker] send failed:", err);
@@ -413,13 +442,22 @@ async function processConversation(
       // Leave aiNeedsReply set so a retry/human can pick it up; do not stamp.
       return;
     }
-    await emitAgentEvent(conv, "live", turn, customerMessage);
+    await emitAgentEvent(conv, "live", turn, outgoing);
     await stampInboundProcessed(conv.id, now);
     await clearNeedsReply(conv.id, false);
     return;
   }
 
   if (turn.action === "handoff") {
+    // Warm transfer: tell the customer a colleague will follow up (no price),
+    // then notify the owner and pause the agent on this thread.
+    if (outgoing) {
+      try {
+        await sendOnChannel(conv, outgoing);
+      } catch (err) {
+        console.error("[agent-worker] handoff ack send failed:", err);
+      }
+    }
     const owners = await ownerUserIds(conv.workspaceId);
     if (owners.length > 0) {
       await sendPush(
@@ -432,7 +470,7 @@ async function processConversation(
         { workspaceId: conv.workspaceId, userIds: owners }
       );
     }
-    await emitAgentEvent(conv, "live", turn, "");
+    await emitAgentEvent(conv, "live", turn, outgoing);
     await stampInboundProcessed(conv.id, now);
     // Hand the thread to the human: pause the agent until it is handed back.
     await clearNeedsReply(conv.id, true);
@@ -452,11 +490,13 @@ async function runForWorkspace(
   deadlineMs: number,
   summary: AgentRunSummary
 ): Promise<void> {
-  const [enabled, dryRun, channels, signature] = await Promise.all([
+  const [enabled, dryRun, channels, signature, disclosure, handoffAck] = await Promise.all([
     isSalesAgentEnabled(workspaceId),
     isSalesAgentDryRun(workspaceId),
     getAgentChannels(workspaceId),
     getAgentSignature(workspaceId),
+    getAgentDisclosure(workspaceId),
+    getAgentHandoffAck(workspaceId),
   ]);
   if (!enabled) return;
   summary.enabledWorkspaces += 1;
@@ -471,7 +511,12 @@ async function runForWorkspace(
     // picked up on the next tick.
     if (Date.now() > deadlineMs) break;
     try {
-      await processConversation(conv, { dryRun, signature, visionBudget }, now, summary);
+      await processConversation(
+        conv,
+        { dryRun, signature, disclosure, handoffAck, visionBudget },
+        now,
+        summary
+      );
       summary.processed += 1;
     } catch (err) {
       console.error("[agent-worker] conversation failed:", conv.id, err);
