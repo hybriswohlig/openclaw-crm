@@ -34,11 +34,15 @@ import {
   appendSignature,
   agentHasSentCustomerMessage,
   withDisclosure,
+  resolveBrandSignature,
   type AgentChannelRow,
 } from "./agent-shared";
 
 // Wait this long after OUR last message before nudging.
 const FOLLOWUP_AFTER_DAYS = 3;
+// But never nudge threads older than this (avoids draining a stale backlog when
+// follow-ups are first switched on).
+const FOLLOWUP_MAX_AGE_DAYS = 21;
 const MAX_PER_TICK = 10;
 // At most one automated nudge per waiting state (our reply + one follow-up).
 const MAX_TRAILING_OUTBOUND = 2;
@@ -77,6 +81,7 @@ interface FollowupCandidate {
   channelType: string;
   waPhoneNumberId: string | null;
   baileysBridgeProvider: string | null;
+  operatingCompanyRecordId: string | null;
 }
 
 function isMoveDatePast(record: { values?: Record<string, unknown> } | null | undefined): boolean {
@@ -150,6 +155,7 @@ async function runForWorkspace(
       channelType: channelAccounts.channelType,
       waPhoneNumberId: channelAccounts.waPhoneNumberId,
       baileysBridgeProvider: channelAccounts.baileysBridgeProvider,
+      operatingCompanyRecordId: channelAccounts.operatingCompanyRecordId,
     })
     .from(inboxConversations)
     .innerJoin(channelAccounts, eq(inboxConversations.channelAccountId, channelAccounts.id))
@@ -160,7 +166,9 @@ async function runForWorkspace(
         eq(inboxConversations.aiPaused, false),
         eq(inboxConversations.lane, "lead"),
         eq(inboxConversations.status, "open"),
-        lt(inboxConversations.lastMessageAt, cutoff)
+        lt(inboxConversations.lastMessageAt, cutoff),
+        // Upper age bound: do not nudge stale backlog threads.
+        sql`${inboxConversations.lastMessageAt} > ${new Date(now.getTime() - FOLLOWUP_MAX_AGE_DAYS * 86_400_000)}`
       )
     )
     .orderBy(asc(inboxConversations.lastMessageAt))
@@ -211,11 +219,17 @@ async function runForWorkspace(
       }
 
       // Humanize the nudge (crm-tools humanizer-de) and add the AI disclosure if
-      // the agent has not yet sent a customer message on this deal.
+      // the agent has not yet sent a customer message on this deal. Brand is
+      // routed by the conversation's channel company.
       const isFirst = !(await agentHasSentCustomerMessage(workspaceId, conv.dealRecordId));
+      const brand = await resolveBrandSignature(
+        workspaceId,
+        conv.operatingCompanyRecordId,
+        signature
+      );
       const humanized = await humanizeGerman(out.message_de);
       const message = withDisclosure(
-        appendSignature(humanized, signature),
+        appendSignature(humanized, brand),
         disclosure,
         discloseAi && isFirst
       );

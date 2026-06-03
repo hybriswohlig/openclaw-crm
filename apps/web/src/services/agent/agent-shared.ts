@@ -12,6 +12,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { workspaceMembers, activityEvents } from "@/db/schema";
 import { sendWhatsAppReply, sendBaileysReply } from "@/services/inbox-whatsapp";
 import { sendEmailReply } from "@/services/inbox-email";
+import { getSetting } from "@/services/workspace-settings";
 
 export interface AgentChannelRow {
   id: string;
@@ -82,6 +83,39 @@ export async function agentHasSentCustomerMessage(
     const p = (r.payload ?? {}) as Record<string, unknown>;
     return p.mode === "live" && typeof p.message === "string" && p.message.trim().length > 0;
   });
+}
+
+/**
+ * Resolve the brand signature for a conversation by its channel's operating
+ * company, so a Ceylan thread never signs as Kottke. Priority:
+ *   1. per-company override setting `sales_agent_signature:<ocId>`,
+ *   2. the operating company's own name (hyphens/underscores cleaned),
+ *   3. the workspace-wide fallback signature.
+ */
+export async function resolveBrandSignature(
+  workspaceId: string,
+  operatingCompanyRecordId: string | null,
+  fallback: string
+): Promise<string> {
+  if (!operatingCompanyRecordId) return fallback;
+  const override = await getSetting(workspaceId, `sales_agent_signature:${operatingCompanyRecordId}`);
+  if (override && override.trim()) return override.trim();
+  try {
+    const rows = (await db.execute(
+      sql`SELECT rv.text_value AS name
+          FROM record_values rv
+          JOIN attributes a ON a.id = rv.attribute_id
+          WHERE rv.record_id = ${operatingCompanyRecordId} AND a.slug = 'name'
+          LIMIT 1`
+    )) as unknown as Array<{ name: string | null }>;
+    const name = rows?.[0]?.name;
+    if (name && name.trim()) {
+      return name.replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim();
+    }
+  } catch {
+    // fall through to fallback
+  }
+  return fallback;
 }
 
 /** Prepend the AI disclosure when this is the agent's first customer message. */

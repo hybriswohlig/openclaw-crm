@@ -50,12 +50,17 @@ import {
   ownerUserIds,
   agentHasSentCustomerMessage,
   withDisclosure,
+  resolveBrandSignature,
 } from "./agent-shared";
 
 const MAX_CONVERSATIONS_PER_TICK = 8;
 // Cap the slow crm-tools vision extraction per tick (30 to 90s each).
 const MAX_VISION_EXTRACTIONS_PER_TICK = 3;
 const MAX_TRANSCRIPT_MESSAGES = 30;
+// Only act on conversations whose last customer message is recent. This is the
+// guard against a stale backlog: turning the agent on must never drain weeks of
+// already-closed, declined, or human-handled threads. Fresh inquiries only.
+const MAX_LEAD_AGE_MS = 48 * 60 * 60 * 1000;
 
 export interface AgentRunSummary {
   workspaces: number;
@@ -98,16 +103,18 @@ HARTE REGELN
 - NENNE NIEMALS EINEN PREIS und mache KEIN Angebot. Du sammelst nur Infos. Den Preis macht ein Mensch.
 - Wenn der Kunde nach Preis, Angebot oder einer verbindlichen Buchung fragt, ODER wenn alle Pflichtangaben vorliegen, ODER wenn die Lage einen Menschen braucht (Beschwerde, Sonderfall, Verhandlung): setze action = "handoff". Sende dann KEINE Nachricht mit Preis, schreibe stattdessen eine kurze interne Notiz in owner_note (was vorliegt, was der Kunde will).
 - Wenn noch Pflichtangaben fehlen und der Kunde im Gespräch ist: action = "ask" und schreibe in message_de genau EINE kurze Nachricht, die die wichtigsten fehlenden Punkte erfragt.
-- Wenn nichts zu tun ist (z.B. reines "Danke", Smalltalk, oder die Nachricht ist kein echter Lead): action = "no_op".
+- KEIN echter Umzugs-Lead: Bewerbungen (jemand bewirbt sich als Mitarbeiter), Angebote von Lieferanten oder Partnern, Werbung, Spam oder reines Danke/Smalltalk -> action = "no_op". Schreibe in owner_note kurz, worum es geht (z.B. "Bewerbung, kein Kunde"). Sende NICHTS.
+- Abgesagt oder bereits bedient: Wenn der Kunde abgesagt hat, kein Interesse mehr hat, oder bereits ein ausführliches Angebot bzw. eine Antwort von uns erhalten hat und nichts Neues fragt -> action = "no_op". Reaktiviere NIE abgeschlossene oder abgelehnte Gespräche.
+- Vergangener Termin: Schlage NIE einen Umzugstermin vor und bestätige keinen, der vor dem heutigen Datum (oben angegeben) liegt. Liegt der besprochene Wunschtermin in der Vergangenheit, frage NICHT danach, sondern kurz, ob der Umzug noch ansteht und welcher Termin jetzt gilt, oder setze action = "handoff" mit einer Notiz.
 
 AUSGABE: NUR ein JSON-Objekt mit { action, message_de, owner_note, reason }. message_de ist die fertige Kundennachricht (nur bei action=ask), inklusive einer kurzen Grußzeile am Ende. Erfinde KEINEN persönlichen Namen; die Signatur wird separat angehängt.`;
 
 /** Style guidance appended to the system prompt, depending on the disclosure toggle. */
-function disclosureClause(discloseAi: boolean): string {
+function disclosureClause(discloseAi: boolean, brand: string): string {
   if (discloseAi) {
     return "\n\nTRANSPARENZ: Wenn der Kunde fragt, ob er mit einem Menschen oder einer KI schreibt, antworte ehrlich (ein KI-Assistent nimmt vorab Infos auf, ein Mitarbeiter übernimmt für das Angebot). Die KI-Kennzeichnung wird der ersten Nachricht separat vorangestellt.";
   }
-  return "\n\nDu bist Mitarbeiter von Kottke Umzüge und schreibst natürlich und persönlich. Thematisiere nicht von dir aus, ob du Mensch oder KI bist.";
+  return `\n\nDu bist Mitarbeiter von ${brand} und schreibst natürlich und persönlich. Thematisiere nicht von dir aus, ob du Mensch oder KI bist.`;
 }
 
 interface DueConversation {
@@ -119,6 +126,7 @@ interface DueConversation {
   channelType: string;
   waPhoneNumberId: string | null;
   baileysBridgeProvider: string | null;
+  operatingCompanyRecordId: string | null;
 }
 
 async function selectDueConversations(
@@ -136,6 +144,7 @@ async function selectDueConversations(
       channelType: channelAccounts.channelType,
       waPhoneNumberId: channelAccounts.waPhoneNumberId,
       baileysBridgeProvider: channelAccounts.baileysBridgeProvider,
+      operatingCompanyRecordId: channelAccounts.operatingCompanyRecordId,
     })
     .from(inboxConversations)
     .innerJoin(channelAccounts, eq(inboxConversations.channelAccountId, channelAccounts.id))
@@ -146,6 +155,9 @@ async function selectDueConversations(
         eq(inboxConversations.aiPaused, false),
         eq(inboxConversations.lane, "lead"),
         or(isNull(inboxConversations.aiHoldUntil), lte(inboxConversations.aiHoldUntil, now)),
+        // Freshness: only recent inbound. Prevents draining a stale backlog when
+        // the agent is first switched on.
+        sql`${inboxConversations.aiLastInboundAt} IS NOT NULL AND ${inboxConversations.aiLastInboundAt} >= ${new Date(now.getTime() - MAX_LEAD_AGE_MS)}`,
       )
     )
     .orderBy(asc(inboxConversations.aiLastInboundAt))
@@ -157,7 +169,7 @@ async function selectDueConversations(
   // channel allow-list here (avoids enum/string[] typing friction in SQL).
   const due = rows.filter((r) => {
     if (!allowed.has(r.channelType)) return false;
-    if (!r.aiLastInboundAt) return true;
+    if (!r.aiLastInboundAt) return false;
     const elapsedMs = now.getTime() - r.aiLastInboundAt.getTime();
     return elapsedMs >= (r.aiQuietWindowSeconds ?? 160) * 1000;
   });
@@ -341,6 +353,23 @@ async function emitAgentEvent(
   });
 }
 
+/**
+ * Atomically claim a conversation so two overlapping cron ticks never both send
+ * (the every-minute cron plus slow turns made this a real duplicate-send bug).
+ * Flips aiNeedsReply true -> false in one statement; returns true only for the
+ * tick that won the flip.
+ */
+async function claimConversation(conversationId: string): Promise<boolean> {
+  const claimed = await db
+    .update(inboxConversations)
+    .set({ aiNeedsReply: false, updatedAt: new Date() })
+    .where(
+      and(eq(inboxConversations.id, conversationId), eq(inboxConversations.aiNeedsReply, true))
+    )
+    .returning({ id: inboxConversations.id });
+  return claimed.length > 0;
+}
+
 async function processConversation(
   conv: DueConversation,
   opts: {
@@ -354,14 +383,27 @@ async function processConversation(
   now: Date,
   summary: AgentRunSummary
 ): Promise<void> {
+  // Claim atomically so no two ticks process (and send) the same conversation.
+  if (!(await claimConversation(conv.id))) return;
+
   const messages = await loadRecentMessages(conv.id);
+
+  // Only reply if the CUSTOMER wrote last. If our last message is outbound (we or
+  // a human already responded), it is not our turn, so do nothing. This stops the
+  // agent re-engaging threads a human already handled.
+  const last = messages[messages.length - 1];
+  if (!last || last.direction !== "inbound") {
+    await stampInboundProcessed(conv.id, now);
+    return;
+  }
+
   const unprocessedInbound = messages.filter(
     (m) => m.direction === "inbound" && !m.aiProcessedAt
   );
 
   if (unprocessedInbound.length === 0) {
     // Flag set but nothing new to answer; disarm so we don't spin on it.
-    if (!opts.dryRun) await clearNeedsReply(conv.id, false);
+    await stampInboundProcessed(conv.id, now);
     return;
   }
 
@@ -403,8 +445,25 @@ async function processConversation(
     insights = await readLatestInsights(conv.workspaceId, conv.dealRecordId);
   }
 
+  // Resolve the brand by the conversation's own channel company, so a Ceylan
+  // thread signs as Ceylan and never as Kottke.
+  const brand = await resolveBrandSignature(
+    conv.workspaceId,
+    conv.operatingCompanyRecordId,
+    opts.signature
+  );
+  const todayStr = now.toLocaleDateString("de-DE", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+
   const transcript = formatTranscript(messages);
-  const system = SYSTEM_PROMPT + disclosureClause(opts.discloseAi);
+  const system =
+    `Heute ist ${todayStr}. Du schreibst im Namen von ${brand}.\n\n` +
+    SYSTEM_PROMPT +
+    disclosureClause(opts.discloseAi, brand);
   const turn = await runTurn(conv.workspaceId, system, buildTurnPrompt(transcript, insights));
   if (!turn) {
     summary.errors += 1;
@@ -423,10 +482,10 @@ async function processConversation(
   let outgoing = "";
   if (turn.action === "ask" && turn.message_de.trim()) {
     const humanized = await humanizeGerman(turn.message_de);
-    outgoing = withDisclosure(appendSignature(humanized, opts.signature), opts.disclosure, wantDisclose);
+    outgoing = withDisclosure(appendSignature(humanized, brand), opts.disclosure, wantDisclose);
   } else if (turn.action === "handoff" && opts.handoffAck.trim()) {
     const humanizedAck = await humanizeGerman(opts.handoffAck);
-    outgoing = withDisclosure(appendSignature(humanizedAck, opts.signature), opts.disclosure, wantDisclose);
+    outgoing = withDisclosure(appendSignature(humanizedAck, brand), opts.disclosure, wantDisclose);
   }
 
   if (opts.dryRun) {
