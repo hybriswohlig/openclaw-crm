@@ -39,6 +39,13 @@ import { getSecret } from "./workspace-settings";
 
 type ChannelAccountRow = typeof channelAccounts.$inferSelect;
 
+/**
+ * A validation error whose message is safe to show the operator (bad address,
+ * empty body, account not connected). Transport/library errors are NOT this
+ * type, so the route can surface these verbatim but hide raw infra errors.
+ */
+export class EmailUserError extends Error {}
+
 // Same cap as deal_documents — base64 expands ~33%, so a 10 MB image is
 // ~13 MB in the row. Images exceeding this limit are dropped but the rest
 // of the email is still ingested.
@@ -701,6 +708,143 @@ export async function sendEmailReply(params: {
     .where(eq(inboxConversations.id, conversationId));
 
   return stored;
+}
+
+// ─── New outbound email (compose) ─────────────────────────────────────────────────
+
+/**
+ * Start a brand-new email thread from the CRM (not a reply). Picks the FROM
+ * mailbox by channel account, creates the contact + conversation, sends via that
+ * account's transport (Gmail API or SMTP), and stores the outbound message.
+ * Returns the new conversation id so the UI can open it.
+ *
+ * Deliberately does NOT auto-create a CRM person: composing an outbound mail
+ * should not mint a lead for every recipient. If they reply, the inbound
+ * pipeline creates the person then.
+ */
+export async function sendNewEmail(params: {
+  workspaceId: string;
+  channelAccountId: string;
+  to: string;
+  subject: string;
+  body: string;
+}): Promise<{ conversationId: string | null }> {
+  const { workspaceId, channelAccountId, body } = params;
+  const toAddress = params.to.trim().toLowerCase();
+  const subject = params.subject.trim();
+
+  // Exactly one recipient, no address-list / header punctuation. The regex alone
+  // would accept commas etc. (it only bans '@' and whitespace), so reject the
+  // list/bracket characters explicitly to keep it a single clean address.
+  if (/[,;<>]/.test(toAddress) || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(toAddress)) {
+    throw new EmailUserError("Ungültige E-Mail-Adresse");
+  }
+  if (!body.trim()) throw new EmailUserError("Nachricht ist leer");
+
+  const [account] = await db
+    .select()
+    .from(channelAccounts)
+    .where(
+      and(
+        eq(channelAccounts.id, channelAccountId),
+        eq(channelAccounts.workspaceId, workspaceId)
+      )
+    )
+    .limit(1);
+  if (!account || account.channelType !== "email") {
+    throw new EmailUserError("Kein gültiges E-Mail-Konto");
+  }
+
+  // Our own Message-ID doubles as the new conversation's thread key.
+  const domain = account.address.split("@")[1] ?? "localhost";
+  const ownMessageId = `<${randomUUID()}@${domain}>`;
+
+  // Send through the account's transport before we persist anything, so a send
+  // failure surfaces to the caller and leaves no orphan conversation. An empty
+  // subject is sent as a blank Subject header — never inject a UI placeholder
+  // like "(kein Betreff)" into the customer's inbox.
+  if (account.emailProvider === "gmail_api") {
+    const refreshToken = await getSecret(workspaceId, `gmail_refresh:${account.id}`);
+    if (!refreshToken) {
+      throw new EmailUserError("Gmail-Konto nicht verbunden — bitte neu verbinden");
+    }
+    const { gmailFromRefreshToken } = await import("@/lib/gmail/client");
+    const gmail = gmailFromRefreshToken(account.address, refreshToken);
+    const raw = await buildRawEmail({
+      from: account.address,
+      to: toAddress,
+      subject,
+      text: body,
+      messageId: ownMessageId,
+    });
+    await gmail.users.messages.send({ userId: "me", requestBody: { raw } });
+  } else {
+    if (!account.credential) throw new EmailUserError("E-Mail-Konto nicht konfiguriert");
+    const transporter = nodemailer.createTransport({
+      host: account.smtpHost ?? "smtp.gmail.com",
+      port: 587,
+      secure: false,
+      auth: { user: account.address, pass: account.credential },
+    });
+    await transporter.sendMail({
+      from: account.address,
+      to: toAddress,
+      subject,
+      text: body,
+      messageId: ownMessageId,
+    });
+  }
+
+  // The mail is already out. Persistence is best-effort: if it throws now, we
+  // must NOT report a send failure (the operator would re-send and the customer
+  // would get a duplicate). Log it and return without a conversation id instead.
+  try {
+    const contact = await upsertContact(workspaceId, toAddress, "");
+
+    // New conversation keyed by our Message-ID, parked in the 'info' lane so the
+    // lead assistant never treats an operator-initiated thread as an inbound lead.
+    const [conv] = await db
+      .insert(inboxConversations)
+      .values({
+        workspaceId,
+        channelAccountId: account.id,
+        contactId: contact.id,
+        externalThreadId: ownMessageId,
+        subject: subject || null,
+        status: "open",
+        lastMessageAt: new Date(),
+        lastMessagePreview: `Du: ${body.slice(0, 100)}`,
+        unreadCount: 0,
+        lane: "info",
+        classificationReason: "Manuell verfasste E-Mail",
+        classifiedBy: "manual",
+        aiNeedsReply: false,
+        aiPaused: true,
+      })
+      .returning();
+
+    await db.insert(inboxMessages).values({
+      workspaceId,
+      conversationId: conv.id,
+      direction: "outbound",
+      status: "sent",
+      externalMessageId: ownMessageId,
+      fromAddress: account.address,
+      toAddress,
+      subject,
+      body,
+      isRead: true,
+      sentAt: new Date(),
+    });
+
+    return { conversationId: conv.id };
+  } catch (persistErr) {
+    console.error(
+      `[inbox-email] sendNewEmail: mail ${ownMessageId} was DELIVERED but failed to persist`,
+      persistErr
+    );
+    return { conversationId: null };
+  }
 }
 
 // ─── Gmail API send ─────────────────────────────────────────────────────────────

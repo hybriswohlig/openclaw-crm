@@ -13,8 +13,16 @@ import {
   Paperclip,
   Download,
   Inbox as InboxIcon,
+  PenLine,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 // ─── Types (mirror the inbox service payloads) ───────────────────────────────
 
@@ -59,6 +67,16 @@ interface EmailMessage {
 interface OperatingCompany {
   id: string;
   name: string;
+}
+
+interface EmailAccount {
+  id: string;
+  name: string;
+  address: string;
+  channelType: "email" | "whatsapp";
+  operatingCompanyRecordId: string | null;
+  emailProvider: string | null;
+  isActive: boolean;
 }
 
 type Bucket = "direct" | "kleinanzeigen" | "spam" | "all";
@@ -121,6 +139,20 @@ export default function EmailPage() {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const threadEndRef = useRef<HTMLDivElement>(null);
+  // In-flight guards: button `disabled` relies on async state, so a fast double
+  // click can fire two sends before the re-render. A ref blocks the second.
+  const sendingRef = useRef(false);
+  const composingRef = useRef(false);
+
+  // Compose (new email) dialog state.
+  const [emailAccounts, setEmailAccounts] = useState<EmailAccount[]>([]);
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [composeFrom, setComposeFrom] = useState("");
+  const [composeTo, setComposeTo] = useState("");
+  const [composeSubject, setComposeSubject] = useState("");
+  const [composeBody, setComposeBody] = useState("");
+  const [composeSending, setComposeSending] = useState(false);
+  const [composeError, setComposeError] = useState<string | null>(null);
 
   // ── Data loaders ──────────────────────────────────────────────────────────
 
@@ -147,6 +179,17 @@ export default function EmailPage() {
     fetch("/api/v1/operating-companies")
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => j?.data && setCompanies(j.data))
+      .catch(() => {});
+
+    fetch("/api/v1/inbox/channel-accounts")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        const accs: EmailAccount[] = (j?.data ?? []).filter(
+          (a: EmailAccount) => a.channelType === "email" && a.isActive
+        );
+        setEmailAccounts(accs);
+        if (accs.length > 0) setComposeFrom((prev) => prev || accs[0].id);
+      })
       .catch(() => {});
   }, []);
 
@@ -195,7 +238,8 @@ export default function EmailPage() {
   }
 
   async function handleSend() {
-    if (!reply.trim() || !selectedId) return;
+    if (!reply.trim() || !selectedId || sendingRef.current) return;
+    sendingRef.current = true;
     setSending(true);
     setSendError(null);
     try {
@@ -217,6 +261,7 @@ export default function EmailPage() {
       setSendError("Netzwerkfehler beim Senden.");
     } finally {
       setSending(false);
+      sendingRef.current = false;
     }
   }
 
@@ -232,6 +277,53 @@ export default function EmailPage() {
     if (toStatus === "resolved" && statusFilter === "open") {
       setSelectedId(null);
       setMobileThread(false);
+    }
+  }
+
+  function openCompose() {
+    setComposeError(null);
+    setComposeTo("");
+    setComposeSubject("");
+    setComposeBody("");
+    if (!composeFrom && emailAccounts[0]) setComposeFrom(emailAccounts[0].id);
+    setComposeOpen(true);
+  }
+
+  async function handleCompose() {
+    if (!composeFrom || !composeTo.trim() || !composeBody.trim() || composingRef.current) return;
+    composingRef.current = true;
+    setComposeSending(true);
+    setComposeError(null);
+    try {
+      const res = await fetch("/api/v1/inbox/email/compose", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          channelAccountId: composeFrom,
+          to: composeTo.trim(),
+          subject: composeSubject.trim(),
+          body: composeBody.trim(),
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg = typeof json.error === "object" ? json.error?.message : json.error;
+        setComposeError(msg ?? "Senden fehlgeschlagen.");
+        return;
+      }
+      setComposeOpen(false);
+      // Outbound threads land in the 'info' lane → show "Alle" so the new one is
+      // visible, then open it.
+      setBucket("all");
+      setStatusFilter("open");
+      await fetchConvs();
+      const newId = json.data?.conversationId as string | undefined;
+      if (newId) openConv(newId);
+    } catch {
+      setComposeError("Netzwerkfehler beim Senden.");
+    } finally {
+      setComposeSending(false);
+      composingRef.current = false;
     }
   }
 
@@ -294,14 +386,20 @@ export default function EmailPage() {
               <Mail className="h-4 w-4 text-primary" />
               E-Mail
             </h1>
-            <Button size="sm" variant="outline" onClick={handleSync} disabled={syncing}>
-              {syncing ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <RefreshCw className="h-3.5 w-3.5" />
-              )}
-              <span className="ml-1.5 hidden sm:inline">Abrufen</span>
-            </Button>
+            <div className="flex items-center gap-1.5">
+              <Button size="sm" variant="outline" onClick={handleSync} disabled={syncing}>
+                {syncing ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5" />
+                )}
+                <span className="ml-1.5 hidden sm:inline">Abrufen</span>
+              </Button>
+              <Button size="sm" onClick={openCompose} disabled={emailAccounts.length === 0}>
+                <PenLine className="h-3.5 w-3.5" />
+                <span className="ml-1.5">Neu</span>
+              </Button>
+            </div>
           </div>
 
           {/* Search */}
@@ -567,6 +665,87 @@ export default function EmailPage() {
           </>
         )}
       </div>
+
+      {/* Compose new email */}
+      <Dialog open={composeOpen} onOpenChange={(v) => !v && setComposeOpen(false)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Neue E-Mail</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-1">
+            {emailAccounts.length > 1 ? (
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Von</label>
+                <select
+                  value={composeFrom}
+                  onChange={(e) => setComposeFrom(e.target.value)}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  {emailAccounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name} ({a.address})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : emailAccounts.length === 1 ? (
+              <p className="text-xs text-muted-foreground">
+                Von: <span className="font-medium text-foreground">{emailAccounts[0].address}</span>
+              </p>
+            ) : null}
+
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">An *</label>
+              <input
+                type="email"
+                value={composeTo}
+                onChange={(e) => setComposeTo(e.target.value)}
+                placeholder="kunde@example.com"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Betreff</label>
+              <input
+                type="text"
+                value={composeSubject}
+                onChange={(e) => setComposeSubject(e.target.value)}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Nachricht *</label>
+              <textarea
+                value={composeBody}
+                onChange={(e) => setComposeBody(e.target.value)}
+                rows={8}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none"
+              />
+            </div>
+            {composeError && (
+              <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+                {composeError}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setComposeOpen(false)}>
+              Abbrechen
+            </Button>
+            <Button
+              onClick={handleCompose}
+              disabled={composeSending || !composeTo.trim() || !composeBody.trim()}
+            >
+              {composeSending ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+              ) : (
+                <Send className="h-4 w-4 mr-1.5" />
+              )}
+              Senden
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
