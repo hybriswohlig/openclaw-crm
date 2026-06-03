@@ -29,7 +29,7 @@ import {
 } from "@/db/schema/inbox";
 import { activityEvents } from "@/db/schema";
 import { z } from "zod";
-import { runAITask } from "@/services/ai/run-task";
+import { runAITask, humanizeGerman } from "@/services/ai/run-task";
 import { AI_TASK_SLUGS } from "@/services/ai/task-registry";
 import { sendPush } from "@/services/push";
 import { emitEvent } from "@/services/activity-events";
@@ -385,8 +385,13 @@ async function processConversation(
     return;
   }
 
-  const customerMessage =
-    turn.action === "ask" ? appendSignature(turn.message_de, opts.signature) : "";
+  // Pass the customer-facing message through the humanizer-de skill (crm-tools)
+  // so it does not read as AI-typical. Best-effort: falls back to the original.
+  let customerMessage = "";
+  if (turn.action === "ask" && turn.message_de.trim()) {
+    const humanized = await humanizeGerman(turn.message_de);
+    customerMessage = appendSignature(humanized, opts.signature);
+  }
 
   if (opts.dryRun) {
     // Decide and record a visible preview, but never send/push/pause.
@@ -444,6 +449,7 @@ async function processConversation(
 async function runForWorkspace(
   workspaceId: string,
   now: Date,
+  deadlineMs: number,
   summary: AgentRunSummary
 ): Promise<void> {
   const [enabled, dryRun, channels, signature] = await Promise.all([
@@ -460,6 +466,10 @@ async function runForWorkspace(
 
   const visionBudget = { left: MAX_VISION_EXTRACTIONS_PER_TICK };
   for (const conv of due) {
+    // Time budget: the vision + humanizer steps can each be slow, so bail before
+    // the cron times out. Unprocessed conversations keep aiNeedsReply and are
+    // picked up on the next tick.
+    if (Date.now() > deadlineMs) break;
     try {
       await processConversation(conv, { dryRun, signature, visionBudget }, now, summary);
       summary.processed += 1;
@@ -473,6 +483,8 @@ async function runForWorkspace(
 /** Entry point for the cron: run the agent across every workspace that enabled it. */
 export async function runAgentReplies(): Promise<AgentRunSummary> {
   const now = new Date();
+  // Leave headroom under the route's maxDuration (300s) for slow vision/humanize.
+  const deadlineMs = now.getTime() + 240_000;
   const summary: AgentRunSummary = {
     workspaces: 0,
     enabledWorkspaces: 0,
@@ -491,8 +503,9 @@ export async function runAgentReplies(): Promise<AgentRunSummary> {
 
   summary.workspaces = wsRows.length;
   for (const w of wsRows) {
+    if (Date.now() > deadlineMs) break;
     try {
-      await runForWorkspace(w.id, now, summary);
+      await runForWorkspace(w.id, now, deadlineMs, summary);
     } catch (err) {
       console.error("[agent-worker] workspace failed:", w.id, err);
       summary.errors += 1;

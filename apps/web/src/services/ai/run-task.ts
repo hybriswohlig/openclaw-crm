@@ -789,6 +789,19 @@ async function humanizeViaCrmTools(text: string): Promise<string | null> {
 }
 
 /**
+ * Public helper: run a German customer-facing message through the humanizer-de
+ * skill so it does not read as AI-typical. Best-effort, returns the original
+ * text unchanged if the humanizer is unavailable, errors, or times out, so it
+ * must never block or delay a send beyond the humanizer's own timeout.
+ */
+export async function humanizeGerman(text: string): Promise<string> {
+  const trimmed = text.trim();
+  if (!trimmed) return text;
+  const out = await humanizeViaCrmTools(trimmed);
+  return out ?? text;
+}
+
+/**
  * If the task is flagged `humanizeOutput` and the result is a plain string,
  * pipe it through the humanizer skill. Errors return the original draft.
  */

@@ -16,7 +16,7 @@ import { db } from "@/db";
 import { and, asc, eq, lt, sql } from "drizzle-orm";
 import { inboxConversations, inboxMessages, channelAccounts } from "@/db/schema/inbox";
 import { z } from "zod";
-import { runAITask } from "@/services/ai/run-task";
+import { runAITask, humanizeGerman } from "@/services/ai/run-task";
 import { AI_TASK_SLUGS } from "@/services/ai/task-registry";
 import { emitEvent } from "@/services/activity-events";
 import { getObjectBySlug } from "@/services/objects";
@@ -113,6 +113,7 @@ async function trailingOutboundCount(conversationId: string): Promise<{
 async function runForWorkspace(
   workspaceId: string,
   now: Date,
+  deadlineMs: number,
   summary: FollowupRunSummary
 ): Promise<void> {
   if (!(await isSalesFollowupEnabled(workspaceId))) return;
@@ -161,6 +162,7 @@ async function runForWorkspace(
   summary.candidates += candidates.length;
 
   for (const conv of candidates) {
+    if (Date.now() > deadlineMs) break;
     try {
       const { trailing, lastIsOutbound, transcript } = await trailingOutboundCount(conv.id);
       // Only nudge when WE are the ones waiting and we have not already nudged.
@@ -190,7 +192,9 @@ async function runForWorkspace(
         continue;
       }
 
-      const message = appendSignature(out.message_de, signature);
+      // Humanize the nudge (crm-tools humanizer-de) before sending.
+      const humanized = await humanizeGerman(out.message_de);
+      const message = appendSignature(humanized, signature);
       const mode = dryRun ? "dry_run" : "live";
 
       if (!dryRun) {
@@ -226,6 +230,7 @@ async function runForWorkspace(
 /** Entry point for the follow-up cron. */
 export async function runAgentFollowups(): Promise<FollowupRunSummary> {
   const now = new Date();
+  const deadlineMs = now.getTime() + 240_000;
   const summary: FollowupRunSummary = {
     enabledWorkspaces: 0,
     candidates: 0,
@@ -240,8 +245,9 @@ export async function runAgentFollowups(): Promise<FollowupRunSummary> {
   )) as unknown as Array<{ id: string }>;
 
   for (const w of wsRows) {
+    if (Date.now() > deadlineMs) break;
     try {
-      await runForWorkspace(w.id, now, summary);
+      await runForWorkspace(w.id, now, deadlineMs, summary);
     } catch (err) {
       console.error("[agent-followup] workspace failed:", w.id, err);
       summary.errors += 1;
