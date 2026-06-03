@@ -9,6 +9,11 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const channelAccountId = searchParams.get("channelAccountId") ?? undefined;
   const operatingCompanyRecordId = searchParams.get("operatingCompanyRecordId") ?? undefined;
+  const channelTypeParam = searchParams.get("channelType");
+  const channelType =
+    channelTypeParam === "email" || channelTypeParam === "whatsapp"
+      ? channelTypeParam
+      : undefined;
   const status = (searchParams.get("status") ?? "open") as "open" | "resolved" | "spam";
   // KOT-IDENTITY Phase 6: default to the 'lead' lane so ads / newsletters /
   // platform notifications stay out of the inbox unless explicitly requested.

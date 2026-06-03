@@ -28,6 +28,7 @@ import {
   Banknote,
   Plug,
   Inbox,
+  Mail,
   Truck,
   Search,
   LogOut,
@@ -304,6 +305,14 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           label="Inbox"
           icon={Inbox}
           active={pathname.startsWith("/inbox")}
+          onClick={onNavigate}
+        />
+
+        <NavItem
+          href="/email"
+          label="E-Mail"
+          icon={Mail}
+          active={pathname.startsWith("/email")}
           onClick={onNavigate}
         />
 

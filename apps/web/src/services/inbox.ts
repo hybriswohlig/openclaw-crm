@@ -152,6 +152,8 @@ export interface ConversationListItem {
   unreadCount: number;
   dealRecordId: string | null;
   aiPaused: boolean;
+  /** True for Kleinanzeigen relay threads — lets the email area keep them separate. */
+  isKleinanzeigen: boolean;
 }
 
 export async function listConversations(
@@ -159,6 +161,8 @@ export async function listConversations(
   opts: {
     channelAccountId?: string;
     operatingCompanyRecordId?: string;
+    /** Filter to a single channel medium. Used by the dedicated /email area. */
+    channelType?: "email" | "whatsapp";
     status?: "open" | "resolved" | "spam";
     /** Triage lane (KOT-IDENTITY Phase 6). 'all' = no lane filter. */
     lane?: "lead" | "info" | "spam" | "review" | "all";
@@ -189,6 +193,7 @@ export async function listConversations(
       subject: inboxConversations.subject,
       status: inboxConversations.status,
       lane: inboxConversations.lane,
+      externalThreadId: inboxConversations.externalThreadId,
       lastMessageAt: inboxConversations.lastMessageAt,
       lastMessagePreview: inboxConversations.lastMessagePreview,
       unreadCount: inboxConversations.unreadCount,
@@ -211,19 +216,30 @@ export async function listConversations(
         opts.lane && opts.lane !== "all"
           ? eq(inboxConversations.lane, opts.lane)
           : undefined,
+        opts.channelType
+          ? eq(channelAccounts.channelType, opts.channelType)
+          : undefined,
       )
     )
     .orderBy(desc(inboxConversations.lastMessageAt))
     .limit(limit);
 
-  // Retroactively clean Kleinanzeigen contact names for already-stored rows.
-  return rows.map((r) => ({
-    ...r,
-    contactName: r.contactName ? stripKleinanzeigenSuffix(r.contactName) : r.contactName,
-    lastMessagePreview: r.lastMessagePreview
-      ? cleanPreview(r.lastMessagePreview)
-      : r.lastMessagePreview,
-  })) as ConversationListItem[];
+  // Retroactively clean Kleinanzeigen contact names for already-stored rows, and
+  // tag each row as Kleinanzeigen or not so the email area can split them out.
+  return rows.map((r) => {
+    const { externalThreadId, ...rest } = r;
+    const isKleinanzeigen =
+      /@mail\.kleinanzeigen\.de$/i.test(externalThreadId ?? "") ||
+      isKleinanzeigenEmail(rest.contactEmail ?? "", rest.subject ?? "");
+    return {
+      ...rest,
+      contactName: rest.contactName ? stripKleinanzeigenSuffix(rest.contactName) : rest.contactName,
+      lastMessagePreview: rest.lastMessagePreview
+        ? cleanPreview(rest.lastMessagePreview)
+        : rest.lastMessagePreview,
+      isKleinanzeigen,
+    };
+  }) as ConversationListItem[];
 }
 
 /** Strip obvious Kleinanzeigen boilerplate from a stored preview string. */

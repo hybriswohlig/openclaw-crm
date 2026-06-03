@@ -7,6 +7,7 @@ import {
   Home,
   Truck,
   Inbox as InboxIcon,
+  Mail,
   Users,
   Menu,
   X,
@@ -31,6 +32,7 @@ const primary = [
 ];
 
 const mehrItems = [
+  { href: "/email", icon: Mail, label: "E-Mail" },
   { href: "/tasks", icon: CheckSquare, label: "Aufgaben" },
   { href: "/contract-calendar", icon: CalendarDays, label: "Kalender" },
   { href: "/notes", icon: StickyNote, label: "Notizen" },
