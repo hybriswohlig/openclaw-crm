@@ -28,6 +28,7 @@ import {
   ListPlus,
   Phone,
   ExternalLink,
+  Bot,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -81,6 +82,7 @@ interface Conversation {
   lastMessagePreview: string | null;
   unreadCount: number;
   dealRecordId: string | null;
+  aiPaused?: boolean;
 }
 
 // ─── Person grouping (KOT-IDENTITY Phase 5b) ─────────────────────────────────
@@ -703,6 +705,31 @@ function ConversationView({
   // Inline AI suggestion (manual fetch via Sparkles button — never auto-fires)
   const [aiSuggestion, setAiSuggestion] = useState<string | null>(null);
   const [aiSuggestionLoading, setAiSuggestionLoading] = useState(false);
+
+  // Per-conversation sales-agent toggle. Seeded from the list payload and kept
+  // in sync when switching conversations.
+  const [aiPaused, setAiPaused] = useState<boolean>(conv.aiPaused ?? false);
+  const [aiToggling, setAiToggling] = useState(false);
+  useEffect(() => {
+    setAiPaused(conv.aiPaused ?? false);
+  }, [conv.id, conv.aiPaused]);
+  async function toggleAiPaused() {
+    const next = !aiPaused;
+    setAiToggling(true);
+    setAiPaused(next);
+    try {
+      const res = await fetch(`/api/v1/inbox/conversations/${conv.id}/ai-paused`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ aiPaused: next }),
+      });
+      if (!res.ok) setAiPaused(!next);
+    } catch {
+      setAiPaused(!next);
+    } finally {
+      setAiToggling(false);
+    }
+  }
   const [aiSuggestionError, setAiSuggestionError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -1025,6 +1052,25 @@ function ConversationView({
             )}
           </div>
         </div>
+
+        {/* Sales-agent per-conversation toggle */}
+        <button
+          onClick={toggleAiPaused}
+          disabled={aiToggling}
+          title={
+            aiPaused
+              ? "KI-Assistent ist für diesen Chat aus. Klicken, um ihn wieder zu aktivieren."
+              : "KI-Assistent ist für diesen Chat an. Klicken, um ihn zu pausieren."
+          }
+          className={`hidden sm:inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg border transition-colors disabled:opacity-50 ${
+            aiPaused
+              ? "border-border text-muted-foreground bg-muted/30 hover:bg-muted"
+              : "border-violet-500/30 text-violet-700 bg-violet-500/5 hover:bg-violet-500/10"
+          }`}
+        >
+          <Bot className="h-3.5 w-3.5" />
+          {aiPaused ? "Assistent aus" : "Assistent an"}
+        </button>
 
         {/* Quick resolve */}
         {conv.status === "open" && (

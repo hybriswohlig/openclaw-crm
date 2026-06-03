@@ -151,6 +151,7 @@ export interface ConversationListItem {
   lastMessagePreview: string | null;
   unreadCount: number;
   dealRecordId: string | null;
+  aiPaused: boolean;
 }
 
 export async function listConversations(
@@ -192,6 +193,7 @@ export async function listConversations(
       lastMessagePreview: inboxConversations.lastMessagePreview,
       unreadCount: inboxConversations.unreadCount,
       dealRecordId: inboxConversations.dealRecordId,
+      aiPaused: inboxConversations.aiPaused,
     })
     .from(inboxConversations)
     .innerJoin(channelAccounts, eq(inboxConversations.channelAccountId, channelAccounts.id))
@@ -418,6 +420,42 @@ export async function updateConversationStatus(
   const [row] = await db
     .update(inboxConversations)
     .set({ status, updatedAt: new Date() })
+    .where(
+      and(
+        eq(inboxConversations.id, conversationId),
+        eq(inboxConversations.workspaceId, workspaceId)
+      )
+    )
+    .returning();
+  return row ?? null;
+}
+
+/**
+ * Per-conversation sales-agent kill switch. paused=true stops the agent on this
+ * thread; paused=false hands it back. When handing back to the agent we also
+ * re-arm aiNeedsReply if the last message is an unanswered customer message, so
+ * the worker picks it up on the next tick.
+ */
+export async function setConversationAiPaused(
+  conversationId: string,
+  workspaceId: string,
+  paused: boolean
+) {
+  const set: Record<string, unknown> = { aiPaused: paused, updatedAt: new Date() };
+
+  if (!paused) {
+    const [last] = await db
+      .select({ direction: inboxMessages.direction })
+      .from(inboxMessages)
+      .where(eq(inboxMessages.conversationId, conversationId))
+      .orderBy(desc(inboxMessages.sentAt), desc(inboxMessages.createdAt))
+      .limit(1);
+    if (last?.direction === "inbound") set.aiNeedsReply = true;
+  }
+
+  const [row] = await db
+    .update(inboxConversations)
+    .set(set)
     .where(
       and(
         eq(inboxConversations.id, conversationId),

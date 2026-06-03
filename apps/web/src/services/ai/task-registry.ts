@@ -12,6 +12,10 @@ export const AI_TASK_SLUGS = {
   // UI lists them, even though no code path calls them yet.
   DEAL_DRAFT_REPLY: "deal.draft-reply",
   CALL_SUMMARIZE: "call.summarize",
+  // Sales agent (the on/off inbox assistant). reply = decide-and-send a turn,
+  // followup = re-engage a stale lead (Phase 3).
+  LEAD_ASSISTANT_REPLY: "lead.assistant.reply",
+  LEAD_FOLLOWUP: "lead.followup",
 } as const;
 
 export type AITaskSlug = (typeof AI_TASK_SLUGS)[keyof typeof AI_TASK_SLUGS];
@@ -80,6 +84,30 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
     defaultFallbackModel: null,
     defaultTemperature: 0.2,
     defaultMaxTokens: 2000,
+    defaultDailySpendCapUsd: 2,
+  },
+  [AI_TASK_SLUGS.LEAD_ASSISTANT_REPLY]: {
+    slug: AI_TASK_SLUGS.LEAD_ASSISTANT_REPLY,
+    label: "Sales agent reply turn",
+    description:
+      "The on/off sales assistant. Decides the next conversation turn (ask for info, hand off to a human, or no-op) and drafts the German customer message. Never names a price.",
+    defaultProvider: "openrouter",
+    defaultModel: "anthropic/claude-sonnet-4",
+    defaultFallbackModel: "openai/gpt-4o",
+    defaultTemperature: 0.4,
+    defaultMaxTokens: 1200,
+    defaultDailySpendCapUsd: 5,
+  },
+  [AI_TASK_SLUGS.LEAD_FOLLOWUP]: {
+    slug: AI_TASK_SLUGS.LEAD_FOLLOWUP,
+    label: "Sales agent follow-up (P3)",
+    description:
+      "Re-engages a stale lead whose move date is still in the future. Phase 3, not wired yet.",
+    defaultProvider: "openrouter",
+    defaultModel: "anthropic/claude-sonnet-4",
+    defaultFallbackModel: null,
+    defaultTemperature: 0.4,
+    defaultMaxTokens: 800,
     defaultDailySpendCapUsd: 2,
   },
 };

@@ -27,6 +27,7 @@ import { emitEvent } from "./activity-events";
 import { getSecret } from "./workspace-settings";
 import { ensureCrmPerson } from "./inbox-crm-link";
 import { scanInboundReply } from "./reviews/inbound-scanner";
+import { classifyMessagingBody } from "./inbox-triage";
 
 // ─── Settings keys ────────────────────────────────────────────────────────────
 // App-level values, stored once per workspace in workspace_settings (encrypted).
@@ -392,6 +393,11 @@ export async function ingestInboundWhatsAppMessage(params: {
   const preview = previewText.slice(0, 120).replace(/\s+/g, " ");
   let isNewConversation = false;
 
+  // Triage so OTP / verification noise never arms the sales agent. Mirrors the
+  // email path; classifyMessagingBody is precision-biased (only OTP-style bodies
+  // become "info", everything else stays "lead").
+  const triage = classifyMessagingBody(previewText, peerName);
+
   if (!conv) {
     const [created] = await db
       .insert(inboxConversations)
@@ -404,7 +410,10 @@ export async function ingestInboundWhatsAppMessage(params: {
         lastMessageAt: sentAt,
         lastMessagePreview: preview,
         unreadCount: 1,
-        aiNeedsReply: true,
+        lane: triage.lane,
+        classificationReason: triage.reason,
+        classifiedBy: triage.by,
+        aiNeedsReply: triage.lane === "lead",
         aiLastInboundAt: sentAt,
       })
       .returning();
@@ -432,7 +441,9 @@ export async function ingestInboundWhatsAppMessage(params: {
         lastMessageAt: sentAt,
         lastMessagePreview: preview,
         unreadCount: (conv.unreadCount ?? 0) + 1,
-        aiNeedsReply: true,
+        // Only arm the agent for real lead messages; an OTP-style follow-up on an
+        // existing thread should not trigger a reply.
+        aiNeedsReply: triage.lane === "lead",
         aiLastInboundAt: sentAt,
         // Re-open resolved/spam conversations when the customer writes back
         ...(conv.status !== "open" ? { status: "open" } : {}),

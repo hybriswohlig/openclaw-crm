@@ -27,7 +27,8 @@ export type ActivityEventType =
   | "customer.package_options_set"
   | "customer.package_option_selected"
   | "person.merge"
-  | "person.unmerge";
+  | "person.unmerge"
+  | "agent.action";
 
 export interface EmitEventInput {
   workspaceId: string;

@@ -199,6 +199,30 @@ export async function GET(
           createdBy: ev.actorId ?? undefined,
         };
       }
+      if (ev.eventType === "agent.action") {
+        const mode = payload.mode === "dry_run" ? "Testlauf" : "aktiv";
+        const action = typeof payload.action === "string" ? payload.action : "";
+        const channel = typeof payload.channel === "string" ? payload.channel : "";
+        const message = typeof payload.message === "string" ? payload.message : "";
+        const ownerNote = typeof payload.ownerNote === "string" ? payload.ownerNote : "";
+        const actionLabel =
+          action === "ask"
+            ? "Rückfrage gesendet"
+            : action === "handoff"
+              ? "an Sie übergeben"
+              : action === "no_op"
+                ? "keine Aktion"
+                : action;
+        return {
+          id: `event-${ev.id}`,
+          // Reuse the AI-insights visual lane (Sparkles) for agent actions.
+          type: "ai_insights" as const,
+          title: `KI-Assistent (${mode}) · ${actionLabel}${channel ? ` · ${channel}` : ""}`,
+          description: [message, ownerNote].filter(Boolean).join(" · ") || undefined,
+          createdAt: ev.createdAt.toISOString(),
+          createdBy: ev.actorId ?? undefined,
+        };
+      }
       return {
         id: `event-${ev.id}`,
         type: "event" as const,

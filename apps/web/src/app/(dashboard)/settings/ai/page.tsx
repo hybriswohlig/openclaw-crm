@@ -52,6 +52,38 @@ export default function AISettingsPage() {
   const [loadingTasks, setLoadingTasks] = useState(true);
   const [savingTask, setSavingTask] = useState<string | null>(null);
 
+  // ── Sales agent master switch ────────────────────────────────────────────
+  const [agent, setAgent] = useState<{
+    enabled: boolean;
+    dryRun: boolean;
+    channels: string[];
+    signature: string;
+  } | null>(null);
+  const [signature, setSignature] = useState("");
+  const [savingAgent, setSavingAgent] = useState(false);
+
+  const patchAgent = useCallback(
+    async (patch: { enabled?: boolean; dryRun?: boolean; signature?: string }) => {
+      setSavingAgent(true);
+      setAgent((a) => (a ? { ...a, ...patch } : a));
+      try {
+        const res = await fetch("/api/v1/agent-settings", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setAgent(data.data);
+          setSignature(data.data.signature ?? "");
+        }
+      } finally {
+        setSavingAgent(false);
+      }
+    },
+    []
+  );
+
   const fetchTasks = useCallback(async () => {
     try {
       const res = await fetch("/api/v1/ai-task-configs");
@@ -71,6 +103,15 @@ export default function AISettingsPage() {
         if (data.data) {
           setModel(data.data.model);
           setHasApiKey(data.data.hasApiKey);
+        }
+      })
+      .catch(() => {});
+    fetch("/api/v1/agent-settings")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.data) {
+          setAgent(data.data);
+          setSignature(data.data.signature ?? "");
         }
       })
       .catch(() => {});
@@ -161,6 +202,101 @@ export default function AISettingsPage() {
           Configure the AI assistant that can answer questions about your CRM data and take actions on your behalf.
         </p>
       </div>
+
+      {/* ── KI-Verkaufsassistent (master switch) ─────────────────────────── */}
+      {agent && (
+        <div className="rounded-lg border p-4 space-y-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1 min-w-0">
+              <h2 className="text-lg font-semibold">KI-Verkaufsassistent</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Beantwortet neue Anfragen automatisch, sammelt die nötigen Infos und meldet sich bei Ihnen,
+                sobald ein Angebot bereit ist. Preise oder Angebote sendet der Assistent nie selbst. Antwortet
+                ein Mensch in einem Chat, pausiert der Assistent dort automatisch.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={agent.enabled}
+              disabled={savingAgent}
+              onClick={() => patchAgent({ enabled: !agent.enabled })}
+              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                agent.enabled ? "bg-primary" : "bg-muted"
+              }`}
+            >
+              <span
+                className={`pointer-events-none block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+                  agent.enabled ? "translate-x-4" : "translate-x-0"
+                }`}
+              />
+            </button>
+          </div>
+
+          {agent.enabled && (
+            <div className="space-y-3 border-t pt-3">
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">Testlauf (kein Versand)</p>
+                  <p className="text-xs text-muted-foreground">
+                    An: der Assistent zeigt im Deal-Verlauf nur an, was er schreiben würde, sendet aber nichts.
+                    Aus: der Assistent antwortet wirklich an die Kunden.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={agent.dryRun}
+                  disabled={savingAgent}
+                  onClick={() => patchAgent({ dryRun: !agent.dryRun })}
+                  className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                    agent.dryRun ? "bg-amber-500" : "bg-muted"
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+                      agent.dryRun ? "translate-x-4" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+              </div>
+
+              <div className="rounded-md bg-muted/50 px-3 py-2 text-xs">
+                {agent.dryRun ? (
+                  <span className="text-amber-600">
+                    Testlauf aktiv. Es werden keine Nachrichten an Kunden gesendet.
+                  </span>
+                ) : (
+                  <span className="text-green-600">
+                    Aktiv. Der Assistent antwortet Kunden auf {agent.channels.join(", ")}.
+                  </span>
+                )}
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs">Signatur (Grußzeile unter jeder Nachricht)</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={signature}
+                    onChange={(e) => setSignature(e.target.value)}
+                    placeholder="Kottke Umzüge"
+                    className="h-8 text-xs"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={savingAgent || signature === agent.signature}
+                    onClick={() => patchAgent({ signature })}
+                    className="h-8 text-xs"
+                  >
+                    Speichern
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="space-y-4">
         <div className="space-y-2">

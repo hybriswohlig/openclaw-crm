@@ -69,40 +69,57 @@ export async function POST(
   }
 
   try {
+    let msg;
     if (row.channelType === "whatsapp") {
       if (row.waPhoneNumberId) {
-        const msg = await sendWhatsAppReply({
+        msg = await sendWhatsAppReply({
           conversationId: id,
           workspaceId: ctx.workspaceId,
           body: body.trim(),
         });
-        return success(msg);
-      }
-      if (row.baileysBridgeProvider === "inhouse") {
-        const msg = await sendBaileysReply({
+      } else if (row.baileysBridgeProvider === "inhouse") {
+        msg = await sendBaileysReply({
           conversationId: id,
           workspaceId: ctx.workspaceId,
           body: body.trim(),
         });
-        return success(msg);
-      }
-      // OpenClaw — outbound not implemented through the CRM yet.
-      return NextResponse.json(
-        {
-          error: {
-            code: "OPENCLAW_OUTBOUND_NOT_IMPLEMENTED",
-            message:
-              "This WhatsApp number is bridged via OpenClaw, which does not expose outbound to the CRM. Switch this account to the in-house bridge in Integrations to send replies from here.",
+      } else {
+        // OpenClaw — outbound not implemented through the CRM yet.
+        return NextResponse.json(
+          {
+            error: {
+              code: "OPENCLAW_OUTBOUND_NOT_IMPLEMENTED",
+              message:
+                "This WhatsApp number is bridged via OpenClaw, which does not expose outbound to the CRM. Switch this account to the in-house bridge in Integrations to send replies from here.",
+            },
           },
-        },
-        { status: 501 }
-      );
+          { status: 501 }
+        );
+      }
+    } else {
+      msg = await sendEmailReply({
+        conversationId: id,
+        workspaceId: ctx.workspaceId,
+        body: body.trim(),
+      });
     }
-    const msg = await sendEmailReply({
-      conversationId: id,
-      workspaceId: ctx.workspaceId,
-      body: body.trim(),
-    });
+
+    // A human just replied on this thread. Hand it to the human: stop the sales
+    // agent here until it is explicitly handed back via the per-conversation
+    // toggle. The shared send services do not touch aiNeedsReply/aiPaused (only
+    // the WABA echo path clears aiNeedsReply), so we do it here. The agent's own
+    // sends go through the service functions directly, not this route, so they
+    // never trigger this pause.
+    await db
+      .update(inboxConversations)
+      .set({ aiPaused: true, aiNeedsReply: false, updatedAt: new Date() })
+      .where(
+        and(
+          eq(inboxConversations.id, id),
+          eq(inboxConversations.workspaceId, ctx.workspaceId)
+        )
+      );
+
     return success(msg);
   } catch (err) {
     if (err instanceof WhatsAppSessionExpiredError) {
