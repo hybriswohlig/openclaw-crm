@@ -158,8 +158,11 @@ export default function EmailPage() {
 
   const fetchConvs = useCallback(async () => {
     try {
+      // lane=all disables the positive lane filter; excludeLane=lead then drops
+      // the lead pipeline (owned by the main Inbox) so the mailbox never
+      // duplicates it. Net: direct correspondence + Kleinanzeigen infos + spam.
       const res = await fetch(
-        `/api/v1/inbox/conversations?channelType=email&lane=all&status=${statusFilter}&limit=500`
+        `/api/v1/inbox/conversations?channelType=email&lane=all&excludeLane=lead&status=${statusFilter}&limit=500`
       );
       if (res.ok) {
         const json = (await res.json()) as { data: EmailConversation[] };
@@ -312,9 +315,9 @@ export default function EmailPage() {
         return;
       }
       setComposeOpen(false);
-      // Outbound threads land in the 'info' lane → show "Alle" so the new one is
-      // visible, then open it.
-      setBucket("all");
+      // Outbound threads land in the 'info' lane (non-Kleinanzeigen) → they show
+      // in the Posteingang bucket. Switch there so the new mail is visible.
+      setBucket("direct");
       setStatusFilter("open");
       await fetchConvs();
       const newId = json.data?.conversationId as string | undefined;
@@ -363,7 +366,7 @@ export default function EmailPage() {
     id ? companies.find((c) => c.id === id)?.name ?? null : null;
 
   const buckets: { key: Bucket; label: string; count: number }[] = [
-    { key: "direct", label: "Direkt", count: counts.direct },
+    { key: "direct", label: "Posteingang", count: counts.direct },
     { key: "kleinanzeigen", label: "Kleinanzeigen", count: counts.ka },
     { key: "spam", label: "Spam", count: counts.spam },
     { key: "all", label: "Alle", count: counts.all },

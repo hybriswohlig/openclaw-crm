@@ -8,7 +8,7 @@ import {
 } from "@/db/schema/inbox";
 import { objects, attributes, statuses } from "@/db/schema/objects";
 import { records, recordValues } from "@/db/schema/records";
-import { eq, and, desc, lt, asc, isNotNull, isNull, inArray } from "drizzle-orm";
+import { eq, and, desc, lt, asc, isNotNull, isNull, inArray, notInArray } from "drizzle-orm";
 import { getEmailAccountConfigs } from "@/lib/email-accounts";
 import {
   isKleinanzeigenEmail,
@@ -166,6 +166,11 @@ export async function listConversations(
     status?: "open" | "resolved" | "spam";
     /** Triage lane (KOT-IDENTITY Phase 6). 'all' = no lane filter. */
     lane?: "lead" | "info" | "spam" | "review" | "all";
+    /**
+     * Lanes to EXCLUDE. The dedicated /email area passes ['lead'] so the lead
+     * pipeline (owned by the main Inbox) never duplicates into the mail client.
+     */
+    excludeLanes?: ("lead" | "info" | "spam" | "review")[];
     limit?: number;
     cursor?: string; // lastMessageAt ISO
   } = {}
@@ -215,6 +220,9 @@ export async function listConversations(
           : undefined,
         opts.lane && opts.lane !== "all"
           ? eq(inboxConversations.lane, opts.lane)
+          : undefined,
+        opts.excludeLanes && opts.excludeLanes.length > 0
+          ? notInArray(inboxConversations.lane, opts.excludeLanes)
           : undefined,
         opts.channelType
           ? eq(channelAccounts.channelType, opts.channelType)
