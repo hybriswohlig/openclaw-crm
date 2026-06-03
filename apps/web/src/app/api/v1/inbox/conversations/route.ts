@@ -24,6 +24,7 @@ export async function GET(req: NextRequest) {
   const rows = await listConversations(ctx.workspaceId, {
     channelAccountId,
     operatingCompanyRecordId,
+    channelType,
     status,
     lane,
     limit,
