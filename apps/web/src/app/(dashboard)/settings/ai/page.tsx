@@ -58,12 +58,18 @@ export default function AISettingsPage() {
     dryRun: boolean;
     channels: string[];
     signature: string;
+    followupEnabled: boolean;
   } | null>(null);
   const [signature, setSignature] = useState("");
   const [savingAgent, setSavingAgent] = useState(false);
 
   const patchAgent = useCallback(
-    async (patch: { enabled?: boolean; dryRun?: boolean; signature?: string }) => {
+    async (patch: {
+      enabled?: boolean;
+      dryRun?: boolean;
+      signature?: string;
+      followupEnabled?: boolean;
+    }) => {
       setSavingAgent(true);
       setAgent((a) => (a ? { ...a, ...patch } : a));
       try {
@@ -228,6 +234,34 @@ export default function AISettingsPage() {
               <span
                 className={`pointer-events-none block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
                   agent.enabled ? "translate-x-4" : "translate-x-0"
+                }`}
+              />
+            </button>
+          </div>
+
+          {/* Follow-up engine (independent of the reply agent) */}
+          <div className="flex items-center justify-between gap-4 border-t pt-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium">Automatische Nachfass-Nachrichten</p>
+              <p className="text-xs text-muted-foreground">
+                Erinnert ruhende Leads einmal freundlich, wenn sie sich einige Tage nicht melden.
+                Überspringt Anfragen, deren Umzugstermin schon vorbei ist. Läuft unabhängig vom
+                Antwort-Assistenten und folgt demselben Testlauf-Schalter.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={agent.followupEnabled}
+              disabled={savingAgent}
+              onClick={() => patchAgent({ followupEnabled: !agent.followupEnabled })}
+              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                agent.followupEnabled ? "bg-primary" : "bg-muted"
+              }`}
+            >
+              <span
+                className={`pointer-events-none block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+                  agent.followupEnabled ? "translate-x-4" : "translate-x-0"
                 }`}
               />
             </button>

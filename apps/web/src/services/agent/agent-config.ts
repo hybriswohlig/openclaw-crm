@@ -24,6 +24,7 @@ const KEY_ENABLED = "sales_agent_enabled";
 const KEY_DRY_RUN = "sales_agent_dry_run";
 const KEY_CHANNELS = "sales_agent_channels";
 const KEY_SIGNATURE = "sales_agent_signature";
+const KEY_FOLLOWUP = "sales_followup_enabled";
 
 /** Channel types the agent is allowed to act on, by default. KA rides on email. */
 export const DEFAULT_AGENT_CHANNELS = ["whatsapp", "email"] as const;
@@ -39,6 +40,7 @@ export interface AgentSettings {
   dryRun: boolean;
   channels: string[];
   signature: string;
+  followupEnabled: boolean;
 }
 
 export async function isSalesAgentEnabled(workspaceId: string): Promise<boolean> {
@@ -48,6 +50,11 @@ export async function isSalesAgentEnabled(workspaceId: string): Promise<boolean>
 /** Default true: unset means dry-run, so going live is always an explicit choice. */
 export async function isSalesAgentDryRun(workspaceId: string): Promise<boolean> {
   return (await getSetting(workspaceId, KEY_DRY_RUN)) !== "false";
+}
+
+/** Follow-up engine on/off, independent of the reply agent. Default OFF. */
+export async function isSalesFollowupEnabled(workspaceId: string): Promise<boolean> {
+  return (await getSetting(workspaceId, KEY_FOLLOWUP)) === "true";
 }
 
 export async function getAgentChannels(workspaceId: string): Promise<string[]> {
@@ -66,19 +73,29 @@ export async function getAgentSignature(workspaceId: string): Promise<string> {
 }
 
 export async function getAgentSettings(workspaceId: string): Promise<AgentSettings> {
-  const [enabled, dryRun, channels, signature] = await Promise.all([
+  const [enabled, dryRun, channels, signature, followupEnabled] = await Promise.all([
     isSalesAgentEnabled(workspaceId),
     isSalesAgentDryRun(workspaceId),
     getAgentChannels(workspaceId),
     getAgentSignature(workspaceId),
+    isSalesFollowupEnabled(workspaceId),
   ]);
-  return { enabled, dryRun, channels, signature };
+  return { enabled, dryRun, channels, signature, followupEnabled };
 }
 
 export async function setAgentSettings(
   workspaceId: string,
-  patch: { enabled?: boolean; dryRun?: boolean; channels?: string[]; signature?: string }
+  patch: {
+    enabled?: boolean;
+    dryRun?: boolean;
+    channels?: string[];
+    signature?: string;
+    followupEnabled?: boolean;
+  }
 ): Promise<AgentSettings> {
+  if (patch.followupEnabled !== undefined) {
+    await setSetting(workspaceId, KEY_FOLLOWUP, patch.followupEnabled ? "true" : "false");
+  }
   if (patch.enabled !== undefined) {
     await setSetting(workspaceId, KEY_ENABLED, patch.enabled ? "true" : "false");
   }

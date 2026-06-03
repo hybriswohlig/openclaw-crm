@@ -21,6 +21,10 @@
     {
       "path": "/api/cron/agent-replies",
       "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/cron/agent-followups",
+      "schedule": "0 8 * * *"
     }
   ]
 }

@@ -23,9 +23,16 @@ export async function PATCH(req: NextRequest) {
     dryRun?: unknown;
     channels?: unknown;
     signature?: unknown;
+    followupEnabled?: unknown;
   };
 
-  const patch: { enabled?: boolean; dryRun?: boolean; channels?: string[]; signature?: string } = {};
+  const patch: {
+    enabled?: boolean;
+    dryRun?: boolean;
+    channels?: string[];
+    signature?: string;
+    followupEnabled?: boolean;
+  } = {};
   if (body.enabled !== undefined) {
     if (typeof body.enabled !== "boolean")
       return NextResponse.json({ error: "enabled must be boolean" }, { status: 400 });
@@ -35,6 +42,11 @@ export async function PATCH(req: NextRequest) {
     if (typeof body.dryRun !== "boolean")
       return NextResponse.json({ error: "dryRun must be boolean" }, { status: 400 });
     patch.dryRun = body.dryRun;
+  }
+  if (body.followupEnabled !== undefined) {
+    if (typeof body.followupEnabled !== "boolean")
+      return NextResponse.json({ error: "followupEnabled must be boolean" }, { status: 400 });
+    patch.followupEnabled = body.followupEnabled;
   }
   if (body.channels !== undefined) {
     if (!Array.isArray(body.channels) || body.channels.some((c) => typeof c !== "string"))

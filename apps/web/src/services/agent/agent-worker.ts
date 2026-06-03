@@ -27,12 +27,10 @@ import {
   inboxMessageAttachments,
   channelAccounts,
 } from "@/db/schema/inbox";
-import { workspaceMembers, activityEvents } from "@/db/schema";
+import { activityEvents } from "@/db/schema";
 import { z } from "zod";
 import { runAITask } from "@/services/ai/run-task";
 import { AI_TASK_SLUGS } from "@/services/ai/task-registry";
-import { sendWhatsAppReply, sendBaileysReply } from "@/services/inbox-whatsapp";
-import { sendEmailReply } from "@/services/inbox-email";
 import { sendPush } from "@/services/push";
 import { emitEvent } from "@/services/activity-events";
 import { extractDealInsights } from "@/services/deal-insights";
@@ -43,6 +41,7 @@ import {
   getAgentChannels,
   getAgentSignature,
 } from "./agent-config";
+import { sendOnChannel, appendSignature, ownerUserIds } from "./agent-shared";
 
 const MAX_CONVERSATIONS_PER_TICK = 8;
 // Cap the slow crm-tools vision extraction per tick (30 to 90s each).
@@ -278,40 +277,6 @@ async function runTurn(
     return null;
   }
   return result.output;
-}
-
-async function sendOnChannel(conv: DueConversation, body: string): Promise<void> {
-  if (conv.channelType === "whatsapp") {
-    if (conv.waPhoneNumberId) {
-      await sendWhatsAppReply({ conversationId: conv.id, workspaceId: conv.workspaceId, body });
-      return;
-    }
-    if (conv.baileysBridgeProvider === "inhouse") {
-      await sendBaileysReply({ conversationId: conv.id, workspaceId: conv.workspaceId, body });
-      return;
-    }
-    throw new Error("WhatsApp channel is receive-only (OpenClaw); cannot auto-send.");
-  }
-  // email + kleinanzeigen (KA rides on the email transport)
-  await sendEmailReply({ conversationId: conv.id, workspaceId: conv.workspaceId, body });
-}
-
-async function ownerUserIds(workspaceId: string): Promise<string[]> {
-  const rows = await db
-    .select({ userId: workspaceMembers.userId })
-    .from(workspaceMembers)
-    .where(
-      and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.role, "admin"))
-    );
-  return rows.map((r) => r.userId);
-}
-
-function appendSignature(message: string, signature: string): string {
-  const trimmed = message.trim();
-  if (!trimmed) return trimmed;
-  // Only append if the model did not already end with the brand name.
-  if (trimmed.toLowerCase().includes(signature.toLowerCase())) return trimmed;
-  return `${trimmed}\n${signature}`;
 }
 
 async function stampInboundProcessed(conversationId: string, now: Date): Promise<void> {
