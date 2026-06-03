@@ -24,6 +24,7 @@ export async function PATCH(req: NextRequest) {
     channels?: unknown;
     signature?: unknown;
     followupEnabled?: unknown;
+    discloseAi?: unknown;
     disclosure?: unknown;
     handoffAck?: unknown;
   };
@@ -34,6 +35,7 @@ export async function PATCH(req: NextRequest) {
     channels?: string[];
     signature?: string;
     followupEnabled?: boolean;
+    discloseAi?: boolean;
     disclosure?: string;
     handoffAck?: string;
   } = {};
@@ -51,6 +53,11 @@ export async function PATCH(req: NextRequest) {
     if (typeof body.followupEnabled !== "boolean")
       return NextResponse.json({ error: "followupEnabled must be boolean" }, { status: 400 });
     patch.followupEnabled = body.followupEnabled;
+  }
+  if (body.discloseAi !== undefined) {
+    if (typeof body.discloseAi !== "boolean")
+      return NextResponse.json({ error: "discloseAi must be boolean" }, { status: 400 });
+    patch.discloseAi = body.discloseAi;
   }
   if (body.channels !== undefined) {
     if (!Array.isArray(body.channels) || body.channels.some((c) => typeof c !== "string"))

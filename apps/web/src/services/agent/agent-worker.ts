@@ -40,6 +40,7 @@ import {
   isSalesAgentDryRun,
   getAgentChannels,
   getAgentSignature,
+  isDiscloseAiEnabled,
   getAgentDisclosure,
   getAgentHandoffAck,
 } from "./agent-config";
@@ -83,7 +84,7 @@ const SYSTEM_PROMPT = `Du bist Mitarbeiter im Vertrieb eines Umzugsunternehmens 
 
 STIL
 - Deutsch, Sie-Form, kurz, freundlich, sachlich-warm. Schreibt natürlich und persönlich, nicht maschinell.
-- Keine Gedankenstriche (keine "-" als Satzzeichen), keine Bot-Floskeln, keine Emojis-Flut. Erfinde KEINEN menschlichen Namen und gib dich nicht als bestimmte Person aus. Wenn der Kunde fragt, ob er mit einem Menschen oder einer KI schreibt, antworte ehrlich (KI-Assistent, ein Mitarbeiter übernimmt für das Angebot). Die nötige KI-Kennzeichnung wird separat ergänzt.
+- Keine Gedankenstriche (keine "-" als Satzzeichen), keine Bot-Floskeln, keine Emojis-Flut. Erfinde KEINEN menschlichen Namen und gib dich nicht als bestimmte Person aus.
 - Frage in EINER Nachricht nur die 1 bis 3 wichtigsten noch fehlenden Punkte ab, nicht alles auf einmal (zu viele Fragen schrecken ab).
 - Wenn Umfang/Volumen unklar ist, bitte freundlich um 5 bis 10 Fotos der Möbel und Räume.
 
@@ -100,6 +101,14 @@ HARTE REGELN
 - Wenn nichts zu tun ist (z.B. reines "Danke", Smalltalk, oder die Nachricht ist kein echter Lead): action = "no_op".
 
 AUSGABE: NUR ein JSON-Objekt mit { action, message_de, owner_note, reason }. message_de ist die fertige Kundennachricht (nur bei action=ask), inklusive einer kurzen Grußzeile am Ende. Erfinde KEINEN persönlichen Namen; die Signatur wird separat angehängt.`;
+
+/** Style guidance appended to the system prompt, depending on the disclosure toggle. */
+function disclosureClause(discloseAi: boolean): string {
+  if (discloseAi) {
+    return "\n\nTRANSPARENZ: Wenn der Kunde fragt, ob er mit einem Menschen oder einer KI schreibt, antworte ehrlich (ein KI-Assistent nimmt vorab Infos auf, ein Mitarbeiter übernimmt für das Angebot). Die KI-Kennzeichnung wird der ersten Nachricht separat vorangestellt.";
+  }
+  return "\n\nDu bist Mitarbeiter von Kottke Umzüge und schreibst natürlich und persönlich. Thematisiere nicht von dir aus, ob du Mensch oder KI bist.";
+}
 
 interface DueConversation {
   id: string;
@@ -271,12 +280,13 @@ function buildTurnPrompt(transcript: string, insights: InsightsContext | null): 
 
 async function runTurn(
   workspaceId: string,
+  system: string,
   prompt: string
 ): Promise<AgentTurn | null> {
   const result = await runAITask({
     workspaceId,
     taskSlug: AI_TASK_SLUGS.LEAD_ASSISTANT_REPLY,
-    system: SYSTEM_PROMPT,
+    system,
     prompt,
     schema: AgentTurnSchema,
   });
@@ -336,6 +346,7 @@ async function processConversation(
   opts: {
     dryRun: boolean;
     signature: string;
+    discloseAi: boolean;
     disclosure: string;
     handoffAck: string;
     visionBudget: { left: number };
@@ -393,27 +404,29 @@ async function processConversation(
   }
 
   const transcript = formatTranscript(messages);
-  const turn = await runTurn(conv.workspaceId, buildTurnPrompt(transcript, insights));
+  const system = SYSTEM_PROMPT + disclosureClause(opts.discloseAi);
+  const turn = await runTurn(conv.workspaceId, system, buildTurnPrompt(transcript, insights));
   if (!turn) {
     summary.errors += 1;
     return;
   }
 
-  // Is this the agent's first customer-facing message on this deal? If so, the
-  // outgoing message gets the required AI disclosure prepended (deterministic,
-  // so the model can never skip it).
+  // If disclosure is ON and this is the agent's first customer-facing message on
+  // this deal, the outgoing message gets the AI disclosure prepended
+  // (deterministic, so the model can never skip it). Default is OFF.
   const isFirst = !(await agentHasSentCustomerMessage(conv.workspaceId, conv.dealRecordId));
+  const wantDisclose = opts.discloseAi && isFirst;
 
   // Build the customer-facing message for this action (empty = send nothing).
   // Both the gather question and the handoff acknowledgment go through the
-  // humanizer, then the signature, then the first-message disclosure.
+  // humanizer, then the signature, then the optional first-message disclosure.
   let outgoing = "";
   if (turn.action === "ask" && turn.message_de.trim()) {
     const humanized = await humanizeGerman(turn.message_de);
-    outgoing = withDisclosure(appendSignature(humanized, opts.signature), opts.disclosure, isFirst);
+    outgoing = withDisclosure(appendSignature(humanized, opts.signature), opts.disclosure, wantDisclose);
   } else if (turn.action === "handoff" && opts.handoffAck.trim()) {
     const humanizedAck = await humanizeGerman(opts.handoffAck);
-    outgoing = withDisclosure(appendSignature(humanizedAck, opts.signature), opts.disclosure, isFirst);
+    outgoing = withDisclosure(appendSignature(humanizedAck, opts.signature), opts.disclosure, wantDisclose);
   }
 
   if (opts.dryRun) {
@@ -490,14 +503,16 @@ async function runForWorkspace(
   deadlineMs: number,
   summary: AgentRunSummary
 ): Promise<void> {
-  const [enabled, dryRun, channels, signature, disclosure, handoffAck] = await Promise.all([
-    isSalesAgentEnabled(workspaceId),
-    isSalesAgentDryRun(workspaceId),
-    getAgentChannels(workspaceId),
-    getAgentSignature(workspaceId),
-    getAgentDisclosure(workspaceId),
-    getAgentHandoffAck(workspaceId),
-  ]);
+  const [enabled, dryRun, channels, signature, discloseAi, disclosure, handoffAck] =
+    await Promise.all([
+      isSalesAgentEnabled(workspaceId),
+      isSalesAgentDryRun(workspaceId),
+      getAgentChannels(workspaceId),
+      getAgentSignature(workspaceId),
+      isDiscloseAiEnabled(workspaceId),
+      getAgentDisclosure(workspaceId),
+      getAgentHandoffAck(workspaceId),
+    ]);
   if (!enabled) return;
   summary.enabledWorkspaces += 1;
 
@@ -513,7 +528,7 @@ async function runForWorkspace(
     try {
       await processConversation(
         conv,
-        { dryRun, signature, disclosure, handoffAck, visionBudget },
+        { dryRun, signature, discloseAi, disclosure, handoffAck, visionBudget },
         now,
         summary
       );

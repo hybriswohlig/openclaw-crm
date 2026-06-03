@@ -26,6 +26,7 @@ import {
   isSalesAgentDryRun,
   getAgentChannels,
   getAgentSignature,
+  isDiscloseAiEnabled,
   getAgentDisclosure,
 } from "./agent-config";
 import {
@@ -126,10 +127,11 @@ async function runForWorkspace(
   if (!(await isSalesFollowupEnabled(workspaceId))) return;
   summary.enabledWorkspaces += 1;
 
-  const [dryRun, channels, signature, disclosure, dealsObj] = await Promise.all([
+  const [dryRun, channels, signature, discloseAi, disclosure, dealsObj] = await Promise.all([
     isSalesAgentDryRun(workspaceId),
     getAgentChannels(workspaceId),
     getAgentSignature(workspaceId),
+    isDiscloseAiEnabled(workspaceId),
     getAgentDisclosure(workspaceId),
     getObjectBySlug(workspaceId, "deals"),
   ]);
@@ -212,7 +214,11 @@ async function runForWorkspace(
       // the agent has not yet sent a customer message on this deal.
       const isFirst = !(await agentHasSentCustomerMessage(workspaceId, conv.dealRecordId));
       const humanized = await humanizeGerman(out.message_de);
-      const message = withDisclosure(appendSignature(humanized, signature), disclosure, isFirst);
+      const message = withDisclosure(
+        appendSignature(humanized, signature),
+        disclosure,
+        discloseAi && isFirst
+      );
       const mode = dryRun ? "dry_run" : "live";
 
       if (!dryRun) {

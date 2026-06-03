@@ -25,6 +25,7 @@ const KEY_DRY_RUN = "sales_agent_dry_run";
 const KEY_CHANNELS = "sales_agent_channels";
 const KEY_SIGNATURE = "sales_agent_signature";
 const KEY_FOLLOWUP = "sales_followup_enabled";
+const KEY_DISCLOSE_AI = "sales_agent_disclose_ai";
 const KEY_DISCLOSURE = "sales_agent_disclosure";
 const KEY_HANDOFF_ACK = "sales_agent_handoff_ack";
 
@@ -63,6 +64,7 @@ export interface AgentSettings {
   channels: string[];
   signature: string;
   followupEnabled: boolean;
+  discloseAi: boolean;
   disclosure: string;
   handoffAck: string;
 }
@@ -96,7 +98,18 @@ export async function getAgentSignature(workspaceId: string): Promise<string> {
   return raw && raw.trim() ? raw.trim() : DEFAULT_AGENT_SIGNATURE;
 }
 
-/** Empty/unset falls back to the default: the legal disclosure cannot be disabled. */
+/**
+ * Whether the agent prepends the AI disclosure on first contact. Default OFF
+ * (owner decision 2026-06-03: a closed 1-week friends test runs without
+ * disclosure; the owner enables it himself before real customers). NOTE: from
+ * 2 Aug 2026 EU AI Act Art. 50 makes disclosure mandatory for consumer-facing
+ * bots, so this must be turned ON before serving real customers.
+ */
+export async function isDiscloseAiEnabled(workspaceId: string): Promise<boolean> {
+  return (await getSetting(workspaceId, KEY_DISCLOSE_AI)) === "true";
+}
+
+/** Empty/unset falls back to the default text (used only when disclosure is ON). */
 export async function getAgentDisclosure(workspaceId: string): Promise<string> {
   const raw = await getSetting(workspaceId, KEY_DISCLOSURE);
   return raw && raw.trim() ? raw.trim() : DEFAULT_AGENT_DISCLOSURE;
@@ -109,17 +122,18 @@ export async function getAgentHandoffAck(workspaceId: string): Promise<string> {
 }
 
 export async function getAgentSettings(workspaceId: string): Promise<AgentSettings> {
-  const [enabled, dryRun, channels, signature, followupEnabled, disclosure, handoffAck] =
+  const [enabled, dryRun, channels, signature, followupEnabled, discloseAi, disclosure, handoffAck] =
     await Promise.all([
       isSalesAgentEnabled(workspaceId),
       isSalesAgentDryRun(workspaceId),
       getAgentChannels(workspaceId),
       getAgentSignature(workspaceId),
       isSalesFollowupEnabled(workspaceId),
+      isDiscloseAiEnabled(workspaceId),
       getAgentDisclosure(workspaceId),
       getAgentHandoffAck(workspaceId),
     ]);
-  return { enabled, dryRun, channels, signature, followupEnabled, disclosure, handoffAck };
+  return { enabled, dryRun, channels, signature, followupEnabled, discloseAi, disclosure, handoffAck };
 }
 
 export async function setAgentSettings(
@@ -130,12 +144,16 @@ export async function setAgentSettings(
     channels?: string[];
     signature?: string;
     followupEnabled?: boolean;
+    discloseAi?: boolean;
     disclosure?: string;
     handoffAck?: string;
   }
 ): Promise<AgentSettings> {
   if (patch.followupEnabled !== undefined) {
     await setSetting(workspaceId, KEY_FOLLOWUP, patch.followupEnabled ? "true" : "false");
+  }
+  if (patch.discloseAi !== undefined) {
+    await setSetting(workspaceId, KEY_DISCLOSE_AI, patch.discloseAi ? "true" : "false");
   }
   if (patch.disclosure !== undefined) {
     await setSetting(workspaceId, KEY_DISCLOSURE, patch.disclosure);

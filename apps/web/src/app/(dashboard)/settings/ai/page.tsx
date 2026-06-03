@@ -59,6 +59,7 @@ export default function AISettingsPage() {
     channels: string[];
     signature: string;
     followupEnabled: boolean;
+    discloseAi: boolean;
     disclosure: string;
     handoffAck: string;
   } | null>(null);
@@ -73,6 +74,7 @@ export default function AISettingsPage() {
       dryRun?: boolean;
       signature?: string;
       followupEnabled?: boolean;
+      discloseAi?: boolean;
       disclosure?: string;
       handoffAck?: string;
     }) => {
@@ -336,30 +338,63 @@ export default function AISettingsPage() {
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <Label className="text-xs">KI-Kennzeichnung (Pflicht, erste Nachricht)</Label>
-                <textarea
-                  value={disclosure}
-                  onChange={(e) => setDisclosure(e.target.value)}
-                  rows={3}
-                  className="flex w-full rounded-md border border-input bg-transparent px-2 py-1 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                />
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-[10px] text-muted-foreground">
-                    Wird der ersten Nachricht des Assistenten vorangestellt (gesetzlich
-                    vorgeschrieben, EU AI Act Art. 50). Leer = Standardtext, lässt sich nicht
-                    abschalten.
-                  </p>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={savingAgent || disclosure === agent.disclosure}
-                    onClick={() => patchAgent({ disclosure })}
-                    className="h-7 text-xs shrink-0"
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">KI-Kennzeichnung an Kunden senden</p>
+                    <p className="text-xs text-muted-foreground">
+                      Stellt der ersten Nachricht einen kurzen Hinweis voran, dass ein KI-Assistent
+                      schreibt.
+                      {!agent.discloseAi && (
+                        <span className="text-amber-600">
+                          {" "}
+                          Aktuell AUS: der Assistent gibt sich nicht als KI zu erkennen. Ab dem
+                          2. August 2026 ist die Kennzeichnung gegenüber echten Kunden gesetzlich
+                          Pflicht (EU AI Act Art. 50). Vor dem Echtbetrieb einschalten.
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={agent.discloseAi}
+                    disabled={savingAgent}
+                    onClick={() => patchAgent({ discloseAi: !agent.discloseAi })}
+                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                      agent.discloseAi ? "bg-primary" : "bg-muted"
+                    }`}
                   >
-                    Speichern
-                  </Button>
+                    <span
+                      className={`pointer-events-none block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+                        agent.discloseAi ? "translate-x-4" : "translate-x-0"
+                      }`}
+                    />
+                  </button>
                 </div>
+                {agent.discloseAi && (
+                  <div className="space-y-1">
+                    <Label className="text-xs">Hinweistext (erste Nachricht)</Label>
+                    <textarea
+                      value={disclosure}
+                      onChange={(e) => setDisclosure(e.target.value)}
+                      rows={3}
+                      className="flex w-full rounded-md border border-input bg-transparent px-2 py-1 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    />
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[10px] text-muted-foreground">Leer = Standardtext.</p>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={savingAgent || disclosure === agent.disclosure}
+                        onClick={() => patchAgent({ disclosure })}
+                        className="h-7 text-xs shrink-0"
+                      >
+                        Speichern
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-1">
