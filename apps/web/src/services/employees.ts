@@ -1,6 +1,7 @@
 import { db } from "@/db";
 import { employees, dealEmployees, employeeLedger, dealNumbers, records, recordValues, attributes, objects, statuses } from "@/db/schema";
 import { eq, and, sql, inArray, desc } from "drizzle-orm";
+import { isLedgerDebit, ledgerDelta } from "@/lib/employee-ledger";
 
 export async function listEmployees(workspaceId: string) {
   const rows = await db
@@ -154,10 +155,10 @@ export interface EmployeeAuftrag {
 export interface EmployeeLedgerRow {
   id: string;
   date: string;
-  kind: "earning" | "reimbursement" | "payment";
+  kind: "earning" | "reimbursement" | "payment" | "in_kind";
   /** Always positive. */
   amount: number;
-  /** + for credit (earning/reimbursement), − for payment. */
+  /** + for credit (earning/reimbursement), − for debit (payment/in_kind). */
   signedAmount: number;
   operatingCompanyId: string | null;
   operatingCompanyName: string;
@@ -196,6 +197,8 @@ export interface EmployeeDetailExtras {
     paidTotal: number;
     /** Offene Erstattungen (Belege), die noch nicht im Saldo beglichen sind — informativ. */
     reimbursementTotal: number;
+    /** Sachbezüge (geldwerte Leistungen), die gegen den Lohn verrechnet wurden. */
+    inKindTotal: number;
     receiptCount: number;
   };
 }
@@ -266,7 +269,8 @@ export async function getEmployeeDetailExtras(
     const info = r.dealRecordId ? dealInfo.get(r.dealRecordId) : undefined;
     const ownCompany = resolveCompany(r);
     const amount = Number(r.amount);
-    const isCredit = r.kind === "earning" || r.kind === "reimbursement";
+    // payment + in_kind are debits (−), earning + reimbursement credits (+).
+    const signedAmount = ledgerDelta(r.kind, amount);
     const isCross =
       r.payingOperatingCompanyId != null &&
       ownCompany != null &&
@@ -276,7 +280,7 @@ export async function getEmployeeDetailExtras(
       date: r.date,
       kind: r.kind as EmployeeLedgerRow["kind"],
       amount,
-      signedAmount: isCredit ? amount : -amount,
+      signedAmount,
       operatingCompanyId: ownCompany,
       operatingCompanyName: ownCompany
         ? companyNames.get(ownCompany) ?? "Unbekannt"
@@ -311,7 +315,8 @@ export async function getEmployeeDetailExtras(
       agg = { companyId: row.operatingCompanyId, earned: 0, paid: 0 };
       byCompany.set(key, agg);
     }
-    if (row.kind === "payment") agg.paid += row.amount;
+    // payment + in_kind are debits (we settled, in cash or in goods).
+    if (isLedgerDebit(row.kind)) agg.paid += row.amount;
     else agg.earned += row.amount;
   }
 
@@ -328,11 +333,15 @@ export async function getEmployeeDetailExtras(
     }))
     .sort((a, b) => b.balance - a.balance);
 
+  // Credits = earning + reimbursement. Debits = payment (cash) + in_kind (goods).
   const earnedTotal = ledger
-    .filter((r) => r.kind !== "payment")
+    .filter((r) => r.kind === "earning" || r.kind === "reimbursement")
     .reduce((s, r) => s + r.amount, 0);
   const paidTotal = ledger
     .filter((r) => r.kind === "payment")
+    .reduce((s, r) => s + r.amount, 0);
+  const inKindTotal = ledger
+    .filter((r) => r.kind === "in_kind")
     .reduce((s, r) => s + r.amount, 0);
   const reimbursementTotal = ledger
     .filter((r) => r.kind === "reimbursement")
@@ -342,12 +351,13 @@ export async function getEmployeeDetailExtras(
   return {
     auftraege,
     ledger,
-    saldoTotal: earnedTotal - paidTotal,
+    saldoTotal: earnedTotal - paidTotal - inKindTotal,
     saldoByCompany,
     totals: {
       earnedTotal,
       paidTotal,
       reimbursementTotal,
+      inKindTotal,
       receiptCount,
     },
   };
@@ -502,8 +512,119 @@ export async function listEmployeeSaldos(
     .where(eq(employeeLedger.workspaceId, workspaceId));
   const map = new Map<string, number>();
   for (const r of rows) {
-    const delta = r.kind === "payment" ? -Number(r.amount) : Number(r.amount);
+    const delta = ledgerDelta(r.kind, Number(r.amount));
     map.set(r.employeeId, (map.get(r.employeeId) ?? 0) + delta);
   }
   return map;
+}
+
+// ─── Firmenweite Mitarbeiter-Verbindlichkeiten (Finanz-Übersicht) ────────────
+// "Was schulden wir den Mitarbeitern gesamt" — kumulativ, NICHT monatlich.
+// Verdient (earning + reimbursement) − Beglichen (payment + in_kind), je Firma
+// und je Mitarbeiter. Firmenzuordnung wie im Mitarbeiterdetail: bei
+// auftragsgebundenen Buchungen die Live-Firma des Deals, sonst die gespeicherte.
+
+export interface EmployeeLiabilityRow {
+  employeeId: string;
+  employeeName: string;
+  earned: number;
+  paid: number;
+  /** earned − paid = was wir dem Mitarbeiter noch schulden. */
+  open: number;
+}
+
+export interface CompanyLiabilityRow {
+  companyId: string | null;
+  companyName: string;
+  earned: number;
+  paid: number;
+  open: number;
+}
+
+export interface EmployeeLiabilities {
+  totalEarned: number;
+  totalPaid: number;
+  totalOpen: number;
+  byEmployee: EmployeeLiabilityRow[];
+  byCompany: CompanyLiabilityRow[];
+}
+
+export async function getEmployeeLiabilities(
+  workspaceId: string
+): Promise<EmployeeLiabilities> {
+  const rows = await db
+    .select({
+      employeeId: employeeLedger.employeeId,
+      employeeName: employees.name,
+      kind: employeeLedger.kind,
+      amount: employeeLedger.amount,
+      operatingCompanyId: employeeLedger.operatingCompanyId,
+      dealRecordId: employeeLedger.dealRecordId,
+    })
+    .from(employeeLedger)
+    .innerJoin(employees, eq(employees.id, employeeLedger.employeeId))
+    .where(eq(employeeLedger.workspaceId, workspaceId));
+
+  // Resolve the live operating company for deal-linked rows (mirrors the
+  // per-employee detail view), then names for every touched company.
+  const dealIds = Array.from(
+    new Set(rows.map((r) => r.dealRecordId).filter((id): id is string => !!id))
+  );
+  const dealInfo = await batchGetDealOpsInfo(workspaceId, dealIds);
+  const companyIds = new Set<string>();
+  for (const info of dealInfo.values())
+    if (info.operatingCompanyId) companyIds.add(info.operatingCompanyId);
+  for (const r of rows) if (r.operatingCompanyId) companyIds.add(r.operatingCompanyId);
+  const companyNames = await resolveCompanyNames(workspaceId, [...companyIds]);
+
+  const UNASSIGNED = "__unassigned__";
+  const byEmp = new Map<string, EmployeeLiabilityRow>();
+  const byComp = new Map<string, CompanyLiabilityRow>();
+  let totalEarned = 0;
+  let totalPaid = 0;
+
+  for (const r of rows) {
+    const amount = Number(r.amount);
+    const isDebit = isLedgerDebit(r.kind);
+    const company = r.dealRecordId
+      ? dealInfo.get(r.dealRecordId)?.operatingCompanyId ?? null
+      : r.operatingCompanyId ?? null;
+
+    if (isDebit) totalPaid += amount;
+    else totalEarned += amount;
+
+    let emp = byEmp.get(r.employeeId);
+    if (!emp) {
+      emp = { employeeId: r.employeeId, employeeName: r.employeeName, earned: 0, paid: 0, open: 0 };
+      byEmp.set(r.employeeId, emp);
+    }
+    if (isDebit) emp.paid += amount;
+    else emp.earned += amount;
+    emp.open = emp.earned - emp.paid;
+
+    const ckey = company ?? UNASSIGNED;
+    let comp = byComp.get(ckey);
+    if (!comp) {
+      comp = {
+        companyId: company,
+        companyName:
+          company === null ? "Nicht zugewiesen" : companyNames.get(company) ?? "Unbekannt",
+        earned: 0,
+        paid: 0,
+        open: 0,
+      };
+      byComp.set(ckey, comp);
+    }
+    if (isDebit) comp.paid += amount;
+    else comp.earned += amount;
+    comp.open = comp.earned - comp.paid;
+  }
+
+  return {
+    totalEarned,
+    totalPaid,
+    totalOpen: totalEarned - totalPaid,
+    byEmployee: [...byEmp.values()].sort((a, b) => b.open - a.open),
+    byCompany: [...byComp.values()].sort((a, b) => b.open - a.open),
+  };
 }

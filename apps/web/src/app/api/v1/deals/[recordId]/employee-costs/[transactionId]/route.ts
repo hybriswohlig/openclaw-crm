@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { getAuthContext, unauthorized, notFound, badRequest, success } from "@/lib/api-utils";
 import { updateEmployeeLedgerEntry, deleteEmployeeLedgerEntry } from "@/services/financial";
 
-const VALID_KINDS = ["earning", "reimbursement", "payment"] as const;
+const VALID_KINDS = ["earning", "reimbursement", "payment", "in_kind"] as const;
 const VALID_METHODS = ["cash", "bank_transfer", "other"] as const;
 type PaymentMethod = typeof VALID_METHODS[number];
 

@@ -93,6 +93,26 @@ interface OperatingCompany {
   name: string;
 }
 
+interface EmployeeLiabilities {
+  totalEarned: number;
+  totalPaid: number;
+  totalOpen: number;
+  byEmployee: Array<{
+    employeeId: string;
+    employeeName: string;
+    earned: number;
+    paid: number;
+    open: number;
+  }>;
+  byCompany: Array<{
+    companyId: string | null;
+    companyName: string;
+    earned: number;
+    paid: number;
+    open: number;
+  }>;
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function eur(n: number) {
@@ -664,10 +684,75 @@ function DealsTable({ deals }: { deals: DealRow[] }) {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
+function EmployeeLiabilitiesSection({ liabilities }: { liabilities: EmployeeLiabilities }) {
+  const openColor = (v: number) =>
+    v > 0.005
+      ? "text-amber-700 dark:text-amber-400"
+      : v < -0.005
+      ? "text-emerald-700 dark:text-emerald-400"
+      : "text-muted-foreground";
+
+  return (
+    <div className="space-y-4">
+      {/* Totals + per-company */}
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+        <div>
+          <p className="text-xs text-muted-foreground">Offen gesamt</p>
+          <p className={`text-xl font-semibold tabular-nums ${openColor(liabilities.totalOpen)}`}>
+            {eur(liabilities.totalOpen)}
+          </p>
+        </div>
+        <div className="text-xs text-muted-foreground">
+          <span>Verdient gesamt: <span className="font-medium text-foreground">{eur(liabilities.totalEarned)}</span></span>
+          <span className="mx-2">·</span>
+          <span>Ausgezahlt/Verrechnet: <span className="font-medium text-foreground">{eur(liabilities.totalPaid)}</span></span>
+        </div>
+        <div className="flex flex-wrap gap-2 ml-auto">
+          {liabilities.byCompany.map((c) => (
+            <span
+              key={c.companyId ?? "unassigned"}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs"
+            >
+              <Building2 className="h-3 w-3 text-muted-foreground" />
+              <span className="text-muted-foreground">{c.companyName}:</span>
+              <span className={`font-medium tabular-nums ${openColor(c.open)}`}>{eur(c.open)}</span>
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Per-employee */}
+      <div className="rounded-md border border-border overflow-x-auto">
+        <table className="w-full text-sm min-w-[420px]">
+          <thead className="bg-muted/40">
+            <tr className="text-xs text-muted-foreground">
+              <th className="text-left px-3 py-1.5 font-medium">Mitarbeiter</th>
+              <th className="text-right px-3 py-1.5 font-medium">Verdient</th>
+              <th className="text-right px-3 py-1.5 font-medium">Ausgezahlt/Verrechnet</th>
+              <th className="text-right px-3 py-1.5 font-medium">Offen</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {liabilities.byEmployee.map((e) => (
+              <tr key={e.employeeId} className="hover:bg-muted/30">
+                <td className="px-3 py-1.5 font-medium">{e.employeeName}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{eur(e.earned)}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{eur(e.paid)}</td>
+                <td className={`px-3 py-1.5 text-right tabular-nums font-medium ${openColor(e.open)}`}>{eur(e.open)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export default function FinancialPage() {
   const MONTHS = generateMonths();
   const [selectedMonth, setSelectedMonth] = useState<string>("gesamt");
   const [data, setData] = useState<FinancialData | null>(null);
+  const [liabilities, setLiabilities] = useState<EmployeeLiabilities | null>(null);
   const [operatingCompanies, setOperatingCompanies] = useState<OperatingCompany[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -683,10 +768,13 @@ export default function FinancialPage() {
     Promise.all([
       fetch(url).then((res) => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json(); }),
       fetch("/api/v1/operating-companies").then((res) => res.json()),
+      // Cumulative liabilities — independent of the selected month.
+      fetch("/api/v1/employees/liabilities").then((res) => (res.ok ? res.json() : { data: null })),
     ])
-      .then(([overview, oc]) => {
+      .then(([overview, oc, liab]) => {
         setData(overview.data);
         setOperatingCompanies(oc.data ?? []);
+        setLiabilities(liab.data ?? null);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -766,6 +854,20 @@ export default function FinancialPage() {
               />
             </CardContent>
           </Card>
+
+          {liabilities && liabilities.byEmployee.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">Was wir Mitarbeitern schulden</CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  Offener Saldo gesamt (kumulativ, unabhängig vom Monat). Verdient minus bereits Ausgezahlt/Verrechnet.
+                </p>
+              </CardHeader>
+              <CardContent>
+                <EmployeeLiabilitiesSection liabilities={liabilities} />
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader>

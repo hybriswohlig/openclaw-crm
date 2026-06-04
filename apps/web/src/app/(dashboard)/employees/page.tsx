@@ -20,6 +20,7 @@ import {
   ShieldOff,
   ArrowRightLeft,
   Building2,
+  Package,
 } from "lucide-react";
 import { EmployeeAvatar } from "@/components/employees/employee-avatar";
 import { cn } from "@/lib/utils";
@@ -46,7 +47,7 @@ interface AuftragRow {
   assignedAt: string;
 }
 
-type LedgerKind = "earning" | "reimbursement" | "payment";
+type LedgerKind = "earning" | "reimbursement" | "payment" | "in_kind";
 
 interface LedgerRow {
   id: string;
@@ -87,6 +88,7 @@ interface EmployeeDetail {
     earnedTotal: number;
     paidTotal: number;
     reimbursementTotal: number;
+    inKindTotal: number;
     receiptCount: number;
   };
 }
@@ -100,6 +102,7 @@ const KIND_LABEL: Record<LedgerKind, string> = {
   earning: "Verdienst",
   reimbursement: "Erstattung",
   payment: "Auszahlung",
+  in_kind: "Sachbezug",
 };
 
 const METHOD_LABEL: Record<string, string> = {
@@ -229,7 +232,7 @@ export default function EmployeesPage() {
       ledger: data.data?.ledger ?? [],
       saldoTotal: data.data?.saldoTotal ?? 0,
       saldoByCompany: data.data?.saldoByCompany ?? [],
-      totals: data.data?.totals ?? { earnedTotal: 0, paidTotal: 0, reimbursementTotal: 0, receiptCount: 0 },
+      totals: data.data?.totals ?? { earnedTotal: 0, paidTotal: 0, reimbursementTotal: 0, inKindTotal: 0, receiptCount: 0 },
     });
   }, []);
 
@@ -570,12 +573,19 @@ function EmployeeDetailView({
                 <Receipt className="h-3.5 w-3.5 mr-1" />
                 Beleg
               </Button>
+              <Button size="sm" variant="outline" onClick={() => onAddEntry("in_kind")}>
+                <Package className="h-3.5 w-3.5 mr-1" />
+                Sachbezug
+              </Button>
             </div>
           </div>
         </div>
         <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground border-t border-border pt-3">
           <span>Verdient gesamt: <span className="font-medium text-foreground">{fmtEUR(detail.totals.earnedTotal)}</span></span>
           <span>Ausgezahlt gesamt: <span className="font-medium text-foreground">{fmtEUR(detail.totals.paidTotal)}</span></span>
+          {detail.totals.inKindTotal > 0.005 && (
+            <span>Sachbezug gesamt: <span className="font-medium text-foreground">{fmtEUR(detail.totals.inKindTotal)}</span></span>
+          )}
           <span>Belege (Erstattungen): <span className="font-medium text-foreground">{fmtEUR(detail.totals.reimbursementTotal)}</span></span>
           <span>Belege angehängt: <span className="font-medium text-foreground">{detail.totals.receiptCount}</span></span>
         </div>
@@ -676,7 +686,7 @@ function LedgerTable({
         </thead>
         <tbody className="divide-y divide-border">
           {rows.map((t) => {
-            const isPayment = t.kind === "payment";
+            const isDebit = t.kind === "payment" || t.kind === "in_kind";
             return (
               <tr key={t.id} className="hover:bg-muted/30">
                 <td className="px-3 py-1.5 whitespace-nowrap">{fmtDate(t.date)}</td>
@@ -686,7 +696,8 @@ function LedgerTable({
                       "inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium",
                       t.kind === "payment" && "bg-blue-500/15 text-blue-700 dark:text-blue-400",
                       t.kind === "earning" && "bg-orange-500/15 text-orange-700 dark:text-orange-400",
-                      t.kind === "reimbursement" && "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                      t.kind === "reimbursement" && "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
+                      t.kind === "in_kind" && "bg-violet-500/15 text-violet-700 dark:text-violet-400"
                     )}
                   >
                     {KIND_LABEL[t.kind]}
@@ -717,10 +728,12 @@ function LedgerTable({
                 <td
                   className={cn(
                     "px-3 py-1.5 text-right tabular-nums font-medium",
-                    isPayment ? "text-blue-700 dark:text-blue-400" : "text-foreground"
+                    t.kind === "payment" && "text-blue-700 dark:text-blue-400",
+                    t.kind === "in_kind" && "text-violet-700 dark:text-violet-400",
+                    !isDebit && "text-foreground"
                   )}
                 >
-                  {isPayment ? "−" : "+"}
+                  {isDebit ? "−" : "+"}
                   {fmtEUR(t.amount)}
                 </td>
                 <td className="px-3 py-1.5 text-xs text-muted-foreground whitespace-nowrap">
@@ -818,6 +831,7 @@ function LedgerEntryDialog({
   });
 
   const isPayment = form.kind === "payment";
+  const isDebit = form.kind === "payment" || form.kind === "in_kind";
 
   function handleReceiptPick(file: File) {
     const reader = new FileReader();
@@ -883,8 +897,8 @@ function LedgerEntryDialog({
         </div>
 
         {/* Kind selector */}
-        <div className="grid grid-cols-3 gap-2">
-          {(["payment", "earning", "reimbursement"] as LedgerKind[]).map((k) => (
+        <div className="grid grid-cols-2 gap-2">
+          {(["payment", "earning", "reimbursement", "in_kind"] as LedgerKind[]).map((k) => (
             <button
               key={k}
               type="button"
@@ -901,11 +915,13 @@ function LedgerEntryDialog({
           ))}
         </div>
         <p className="text-[11px] text-muted-foreground -mt-2">
-          {isPayment
+          {form.kind === "payment"
             ? "Auszahlung an den Mitarbeiter — senkt den Saldo."
             : form.kind === "earning"
             ? "Verdienst (Lohn) — erhöht den Saldo (wir schulden)."
-            : "Beleg / Auslage des Mitarbeiters (z.B. Sprit) — erhöht den Saldo."}
+            : form.kind === "reimbursement"
+            ? "Beleg / Auslage des Mitarbeiters (z.B. Sprit) — erhöht den Saldo."
+            : "Sachbezug: du kaufst dem Mitarbeiter etwas (z.B. Werkzeug) und verrechnest es gegen den Lohn — senkt den Saldo. Kaufbeleg optional."}
         </p>
 
         <div className="grid grid-cols-2 gap-3">
@@ -935,7 +951,7 @@ function LedgerEntryDialog({
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="text-xs text-muted-foreground mb-1 block">
-              {isPayment ? "Firma (deren Schuld wird beglichen) *" : "Firma (Auftrags-/Kostenfirma) *"}
+              {isDebit ? "Firma (deren Schuld wird beglichen) *" : "Firma (Auftrags-/Kostenfirma) *"}
             </label>
             <select
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -996,9 +1012,11 @@ function LedgerEntryDialog({
           />
         </div>
 
-        {form.kind === "reimbursement" && (
+        {(form.kind === "reimbursement" || form.kind === "in_kind") && (
           <div>
-            <label className="text-xs text-muted-foreground mb-1 block">Beleg (Bild oder PDF)</label>
+            <label className="text-xs text-muted-foreground mb-1 block">
+              {form.kind === "in_kind" ? "Kaufbeleg (Bild oder PDF)" : "Beleg (Bild oder PDF)"}
+            </label>
             <div className="flex items-center gap-2">
               <input
                 type="file"

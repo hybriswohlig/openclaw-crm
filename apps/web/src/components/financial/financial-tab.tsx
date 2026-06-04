@@ -67,7 +67,7 @@ interface EmployeeCost {
   date: string;
   employeeId: string;
   employeeName: string;
-  kind: "earning" | "reimbursement" | "payment";
+  kind: "earning" | "reimbursement" | "payment" | "in_kind";
   amount: string;
   description: string | null;
   paymentMethod: "cash" | "bank_transfer" | "other" | null;
@@ -126,10 +126,9 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 const TYPE_LABELS: Record<string, string> = {
   earning: "Verdienst",
-  salary: "Lohn",
-  advance: "Vorschuss",
   reimbursement: "Erstattung",
   payment: "Auszahlung",
+  in_kind: "Sachbezug",
 };
 
 // ─── Profit KPIs ─────────────────────────────────────────────────────────────
@@ -767,7 +766,7 @@ function EmployeeCostsSection({
   const [form, setForm] = useState({
     employeeId: "",
     date: "",
-    kind: "earning" as "earning" | "reimbursement" | "payment",
+    kind: "earning" as "earning" | "reimbursement" | "payment" | "in_kind",
     amount: "",
     description: "",
     paymentMethod: "" as "" | "cash" | "bank_transfer" | "other",
@@ -863,12 +862,12 @@ function EmployeeCostsSection({
     onChanged();
   }
 
-  // Saldo dieses Auftrags = Verdienste/Erstattungen − Auszahlungen.
+  // Saldo dieses Auftrags = Verdienste/Erstattungen (Gutschrift) − Auszahlungen/Sachbezüge (Lastschrift).
   const earned = costs
-    .filter((c) => c.kind !== "payment")
+    .filter((c) => c.kind === "earning" || c.kind === "reimbursement")
     .reduce((s, c) => s + Number(c.amount), 0);
   const paid = costs
-    .filter((c) => c.kind === "payment")
+    .filter((c) => c.kind === "payment" || c.kind === "in_kind")
     .reduce((s, c) => s + Number(c.amount), 0);
   const labourCost = costs
     .filter((c) => c.kind === "earning")
@@ -917,7 +916,7 @@ function EmployeeCostsSection({
             </thead>
             <tbody>
               {costs.map((c) => {
-                const isPayment = c.kind === "payment";
+                const isDebit = c.kind === "payment" || c.kind === "in_kind";
                 return (
                   <tr key={c.id} className="border-b border-border last:border-0 hover:bg-muted/30">
                     <td className="px-3 py-2 tabular-nums whitespace-nowrap">{fmtDate(c.date)}</td>
@@ -931,8 +930,8 @@ function EmployeeCostsSection({
                       {c.description ?? "—"}
                     </td>
                     <td className="px-3 py-2 text-right font-medium tabular-nums">
-                      <span className={isPayment ? "text-blue-600 dark:text-blue-400" : "text-orange-600 dark:text-orange-400"}>
-                        {isPayment ? "−" : "+"}{eur(c.amount)}
+                      <span className={isDebit ? "text-blue-600 dark:text-blue-400" : "text-orange-600 dark:text-orange-400"}>
+                        {isDebit ? "−" : "+"}{eur(c.amount)}
                       </span>
                     </td>
                     <td className="px-3 py-2">
@@ -1012,6 +1011,7 @@ function EmployeeCostsSection({
                 <option value="earning">Verdienst (Lohn) — erhöht Saldo</option>
                 <option value="reimbursement">Beleg / Auslage — erhöht Saldo</option>
                 <option value="payment">Auszahlung — senkt Saldo</option>
+                <option value="in_kind">Sachbezug (gegen Lohn verrechnet) — senkt Saldo</option>
               </select>
             </div>
             <div>

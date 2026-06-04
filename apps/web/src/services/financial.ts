@@ -13,7 +13,11 @@ import { recordValues } from "@/db/schema/records";
 import { eq, and, sum, sql, gte, lt, desc, inArray } from "drizzle-orm";
 
 export type PaymentMethod = "cash" | "bank_transfer" | "other";
-export type EmployeeLedgerKind = "earning" | "reimbursement" | "payment";
+export type EmployeeLedgerKind =
+  | "earning"
+  | "reimbursement"
+  | "payment"
+  | "in_kind";
 
 /**
  * Resolve the live operating company of a deal (the `operating_company`
@@ -1041,7 +1045,7 @@ export interface CompanyDetails {
     id: string;
     date: string;
     amount: number;
-    type: "earning" | "reimbursement" | "payment";
+    type: "earning" | "reimbursement" | "payment" | "in_kind";
     employeeName: string;
     description: string | null;
     paymentMethod: string | null;

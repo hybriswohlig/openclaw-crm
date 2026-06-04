@@ -146,10 +146,9 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 const TYPE_LABELS: Record<string, string> = {
   earning: "Verdienst",
-  salary: "Lohn",
-  advance: "Vorschuss",
   reimbursement: "Erstattung",
   payment: "Auszahlung",
+  in_kind: "Sachbezug",
 };
 
 const METHOD_LABELS: Record<string, string> = {

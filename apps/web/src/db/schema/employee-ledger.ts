@@ -23,9 +23,13 @@ import { records } from "./records";
 //                    einen Beleg ein. Erhöht ebenfalls den Saldo.
 //   - payment      → wir haben an den Mitarbeiter ausgezahlt. Senkt den Saldo.
 //                    Kann frei (ohne Auftrag) erfolgen.
+//   - in_kind      → Sachbezug / geldwerte Leistung. Wir haben dem Mitarbeiter
+//                    etwas gekauft (Werkzeug, Schuhe, Material) und verrechnen es
+//                    gegen den Lohn. Wie eine Auszahlung in Waren statt Bar →
+//                    senkt den Saldo. Optionaler Kaufbeleg.
 //
 // Saldo (was wir dem Mitarbeiter schulden) pro Firma
-//   = Σ(earning + reimbursement, operating_company = C) − Σ(payment, operating_company = C).
+//   = Σ(earning + reimbursement, C) − Σ(payment + in_kind, C).
 //
 // Company attribution mirrors expenses/employee_transactions:
 //   - operating_company_id     → die Firma, deren "Konto" der Eintrag betrifft
@@ -38,6 +42,7 @@ export const employeeLedgerKindEnum = pgEnum("employee_ledger_kind", [
   "earning",
   "reimbursement",
   "payment",
+  "in_kind",
 ]);
 
 export const employeeLedger = pgTable(
@@ -53,7 +58,7 @@ export const employeeLedger = pgTable(
       .notNull()
       .references(() => employees.id, { onDelete: "restrict" }),
     date: date("date").notNull(),
-    /** earning / reimbursement = credit (+Saldo), payment = debit (−Saldo). */
+    /** earning / reimbursement = credit (+Saldo), payment / in_kind = debit (−Saldo). */
     kind: employeeLedgerKindEnum("kind").notNull(),
     /** Always positive. The sign is implied by `kind`. */
     amount: numeric("amount", { precision: 14, scale: 2 }).notNull(),

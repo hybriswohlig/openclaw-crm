@@ -3,7 +3,7 @@ import { getAuthContext, unauthorized, badRequest, notFound, success } from "@/l
 import { createEmployeeLedgerEntry } from "@/services/financial";
 import { getEmployee } from "@/services/employees";
 
-const VALID_KINDS = ["earning", "reimbursement", "payment"] as const;
+const VALID_KINDS = ["earning", "reimbursement", "payment", "in_kind"] as const;
 const VALID_METHODS = ["cash", "bank_transfer", "other"] as const;
 type PaymentMethod = typeof VALID_METHODS[number];
 
