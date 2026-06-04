@@ -43,6 +43,8 @@ export interface ClassifyInput {
   recentText: string;
   moveDate: Date | null;
   movePast: boolean;
+  /** True only if the deal was actually AI-analyzed (an insights run exists). */
+  hasInsights: boolean;
   criticalMissing: Array<{ field: string; question: string }>;
   now: Date;
 }
@@ -108,7 +110,7 @@ export function computeConversationFlags(input: ClassifyInput): AgentConversatio
 async function latestCriticalMissing(
   workspaceId: string,
   dealRecordId: string
-): Promise<Array<{ field: string; question: string }>> {
+): Promise<{ hasInsights: boolean; criticalMissing: Array<{ field: string; question: string }> }> {
   const [latest] = await db
     .select({ payload: activityEvents.payload })
     .from(activityEvents)
@@ -121,13 +123,15 @@ async function latestCriticalMissing(
     )
     .orderBy(desc(activityEvents.createdAt))
     .limit(1);
-  const p = (latest?.payload ?? {}) as Record<string, unknown>;
-  return Array.isArray(p.criticalMissing)
+  if (!latest) return { hasInsights: false, criticalMissing: [] };
+  const p = (latest.payload ?? {}) as Record<string, unknown>;
+  const criticalMissing = Array.isArray(p.criticalMissing)
     ? (p.criticalMissing as Array<{ field?: string; question?: string }>).map((c) => ({
         field: typeof c.field === "string" ? c.field : "",
         question: typeof c.question === "string" ? c.question : "",
       }))
     : [];
+  return { hasInsights: true, criticalMissing };
 }
 
 async function classifyOne(
@@ -149,6 +153,7 @@ async function classifyOne(
   let moveDate: Date | null = null;
   let movePast = false;
   let criticalMissing: Array<{ field: string; question: string }> = [];
+  let hasInsights = false;
   if (dealsObjId && conv.dealRecordId) {
     const deal = await getRecord(dealsObjId, conv.dealRecordId);
     const mv = (deal?.values as Record<string, unknown> | undefined)?.move_date;
@@ -157,7 +162,9 @@ async function classifyOne(
       if (!Number.isNaN(d.getTime())) moveDate = d;
     }
     movePast = isMoveDatePast(deal);
-    criticalMissing = await latestCriticalMissing(workspaceId, conv.dealRecordId);
+    const ins = await latestCriticalMissing(workspaceId, conv.dealRecordId);
+    hasInsights = ins.hasInsights;
+    criticalMissing = ins.criticalMissing;
   }
 
   const flags = computeConversationFlags({
@@ -166,6 +173,7 @@ async function classifyOne(
     recentText,
     moveDate,
     movePast,
+    hasInsights,
     criticalMissing,
     now,
   });
