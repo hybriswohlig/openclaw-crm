@@ -5,6 +5,7 @@ import {
   inboxContacts,
   inboxMessages,
   inboxMessageAttachments,
+  type AgentConversationState,
 } from "@/db/schema/inbox";
 import { objects, attributes, statuses } from "@/db/schema/objects";
 import { records, recordValues } from "@/db/schema/records";
@@ -152,6 +153,8 @@ export interface ConversationListItem {
   unreadCount: number;
   dealRecordId: string | null;
   aiPaused: boolean;
+  /** Cached agent classification (stage/priority/missing) for inbox badges. */
+  agentState: AgentConversationState | null;
   /** True for Kleinanzeigen relay threads — lets the email area keep them separate. */
   isKleinanzeigen: boolean;
 }
@@ -204,6 +207,7 @@ export async function listConversations(
       unreadCount: inboxConversations.unreadCount,
       dealRecordId: inboxConversations.dealRecordId,
       aiPaused: inboxConversations.aiPaused,
+      agentState: inboxConversations.agentState,
     })
     .from(inboxConversations)
     .innerJoin(channelAccounts, eq(inboxConversations.channelAccountId, channelAccounts.id))

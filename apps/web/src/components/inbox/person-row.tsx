@@ -22,7 +22,26 @@ export interface PersonRowData {
   lastMessageAt: string | null;
   lastMessagePreview: string | null;
   latestConversationId: string;
+  /** Agent classification (KI-Assistent flags) for the inbox badges. */
+  agentStage?: string | null;
+  agentPriority?: "hoch" | "mittel" | "niedrig" | null;
+  agentMissing?: string[] | null;
 }
+
+const STAGE_META: Record<string, { label: string; className: string }> = {
+  neu: { label: "Neu", className: "bg-muted text-muted-foreground" },
+  sammelt_infos: { label: "Sammelt Infos", className: "bg-sky-100 text-sky-700" },
+  bereit_kalkulieren: { label: "Bereit zum Kalkulieren", className: "bg-emerald-100 text-emerald-700" },
+  angebot_raus: { label: "Angebot raus", className: "bg-violet-100 text-violet-700" },
+  wartet_kunde: { label: "Wartet auf Kunde", className: "bg-amber-100 text-amber-700" },
+  verloren: { label: "Verloren", className: "bg-rose-100 text-rose-600" },
+};
+
+const PRIORITY_DOT: Record<string, string> = {
+  hoch: "bg-rose-500",
+  mittel: "bg-amber-400",
+  niedrig: "bg-muted-foreground/40",
+};
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -99,6 +118,12 @@ export function PersonRow({ data, active, onClick, onStatusChange }: Props) {
       {/* Body */}
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
+          {data.agentPriority && (
+            <span
+              title={`Priorität: ${data.agentPriority}`}
+              className={cn("shrink-0 h-2 w-2 rounded-full", PRIORITY_DOT[data.agentPriority] ?? "bg-muted-foreground/40")}
+            />
+          )}
           <span className="font-medium truncate">{data.name}</span>
           {data.conversationCount > 1 && (
             <span className="shrink-0 text-[9px] text-muted-foreground rounded-full border border-border px-1.5 leading-tight">
@@ -110,11 +135,24 @@ export function PersonRow({ data, active, onClick, onStatusChange }: Props) {
         {data.lastMessagePreview && (
           <p className="text-xs text-muted-foreground truncate mt-0.5">{data.lastMessagePreview}</p>
         )}
-        <div className="flex items-center gap-1 mt-1">
+        <div className="flex items-center gap-1 mt-1 flex-wrap">
+          {data.agentStage && STAGE_META[data.agentStage] && (
+            <span
+              className={cn(
+                "inline-flex items-center rounded px-1.5 py-px text-[9px] font-semibold leading-none",
+                STAGE_META[data.agentStage].className
+              )}
+            >
+              {STAGE_META[data.agentStage].label}
+            </span>
+          )}
           {data.channels.kleinanzeigen && <ChannelBadge label="Kleinanzeigen" className="bg-[#e8f3d6] text-[#5a7a1e]" />}
           {data.channels.whatsapp && <ChannelBadge label="WhatsApp" className="bg-[#dcf8e8] text-[#1c7a47]" />}
           {data.channels.email && <ChannelBadge label="E-Mail" className="bg-muted text-muted-foreground" />}
           {data.channels.sms && <ChannelBadge label="SMS" className="bg-blue-100 text-blue-700" />}
+          {data.agentMissing && data.agentMissing.length > 0 && (
+            <span className="text-[9px] text-muted-foreground">fehlt: {data.agentMissing.join(", ")}</span>
+          )}
         </div>
       </div>
 

@@ -83,6 +83,11 @@ interface Conversation {
   unreadCount: number;
   dealRecordId: string | null;
   aiPaused?: boolean;
+  agentState?: {
+    stage?: string;
+    priority?: "hoch" | "mittel" | "niedrig";
+    missing?: string[];
+  } | null;
 }
 
 // ─── Person grouping (KOT-IDENTITY Phase 5b) ─────────────────────────────────
@@ -1896,6 +1901,9 @@ export default function InboxPage() {
                   lastMessageAt: person.latest.lastMessageAt,
                   lastMessagePreview: person.latest.lastMessagePreview,
                   latestConversationId: person.latest.id,
+                  agentStage: person.latest.agentState?.stage ?? null,
+                  agentPriority: person.latest.agentState?.priority ?? null,
+                  agentMissing: person.latest.agentState?.missing ?? null,
                 }}
                 active={person.conversations.some((c) => c.id === selected?.id)}
                 onClick={() => {

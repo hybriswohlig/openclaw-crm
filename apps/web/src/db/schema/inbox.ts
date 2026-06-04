@@ -191,6 +191,30 @@ export const inboxContacts = pgTable(
 // A thread between one contact and one channel account.
 // One contact can have multiple conversations (one per channel account).
 
+/** Sales-agent funnel sub-stage shown as an inbox badge. */
+export type AgentStage =
+  | "neu"
+  | "sammelt_infos"
+  | "bereit_kalkulieren"
+  | "angebot_raus"
+  | "wartet_kunde"
+  | "verloren";
+export type AgentPriority = "hoch" | "mittel" | "niedrig";
+
+/** Cached classification rendered in the inbox. Stored in inboxConversations.agentState. */
+export interface AgentConversationState {
+  stage: AgentStage;
+  priority: AgentPriority;
+  /** German labels of still-missing info, e.g. ["Adresse", "Termin"]. */
+  missing: string[];
+  /** Whether the agent is allowed to auto-answer this thread. */
+  eligible: boolean;
+  ineligibleReason?: string;
+  nextAction?: string;
+  /** ISO timestamp of the last classification. */
+  classifiedAt: string;
+}
+
 export const inboxConversations = pgTable(
   "inbox_conversations",
   {
@@ -239,6 +263,11 @@ export const inboxConversations = pgTable(
     // ai_hold_until <= now()` before firing. Human sends are warned, not blocked.
     // NULL = no hold.
     aiHoldUntil: timestamp("ai_hold_until"),
+    // ── Agent flagging cache ──────────────────────────────────────────────────
+    // Per-conversation classification the inbox renders as badges: stage,
+    // priority, missing slots, eligibility, next action. Maintained by the
+    // classify cron and the reply worker. NULL = not classified yet.
+    agentState: jsonb("agent_state").$type<AgentConversationState>(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
