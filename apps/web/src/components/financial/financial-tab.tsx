@@ -60,6 +60,7 @@ interface Expense {
   paymentMethod: string | null;
   isTaxDeductible: boolean;
   payingOperatingCompanyId: string | null;
+  receiptFile: string | null;
 }
 
 interface EmployeeCost {
@@ -492,11 +493,13 @@ function ExpensesSection({
     paymentMethod: "",
     isTaxDeductible: true,
     payingOperatingCompanyId: "",
+    receiptFile: null as string | null,
+    receiptName: "" as string,
   });
 
   function openAdd() {
     setEditing(null);
-    setForm({ date: new Date().toISOString().slice(0, 10), amount: "", category: "other", description: "", recipient: "", paymentMethod: "", isTaxDeductible: true, payingOperatingCompanyId: "" });
+    setForm({ date: new Date().toISOString().slice(0, 10), amount: "", category: "other", description: "", recipient: "", paymentMethod: "", isTaxDeductible: true, payingOperatingCompanyId: "", receiptFile: null, receiptName: "" });
     setOpen(true);
   }
 
@@ -511,15 +514,28 @@ function ExpensesSection({
       paymentMethod: e.paymentMethod ?? "",
       isTaxDeductible: e.isTaxDeductible,
       payingOperatingCompanyId: e.payingOperatingCompanyId ?? "",
+      receiptFile: null,
+      receiptName: e.receiptFile ? "Vorhandener Beleg" : "",
     });
     setOpen(true);
+  }
+
+  function handleReceiptPick(file: File) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result === "string") {
+        setForm((f) => ({ ...f, receiptFile: result, receiptName: file.name }));
+      }
+    };
+    reader.readAsDataURL(file);
   }
 
   async function handleSave() {
     if (!form.date || !form.amount) return;
     setSaving(true);
     try {
-      const body = {
+      const body: Record<string, unknown> = {
         date: form.date,
         amount: form.amount,
         category: form.category,
@@ -529,6 +545,9 @@ function ExpensesSection({
         isTaxDeductible: form.isTaxDeductible,
         payingOperatingCompanyId: form.payingOperatingCompanyId || null,
       };
+      // Only send receiptFile when a new file was picked, so editing without
+      // re-uploading keeps the existing Beleg.
+      if (form.receiptFile !== null) body.receiptFile = form.receiptFile;
       if (editing) {
         await fetch(`/api/v1/deals/${recordId}/expenses/${editing.id}`, {
           method: "PUT",
@@ -605,6 +624,17 @@ function ExpensesSection({
                   </td>
                   <td className="px-3 py-2">
                     <div className="flex items-center gap-1 justify-end">
+                      {e.receiptFile && (
+                        <a
+                          href={`/api/v1/deals/${recordId}/expenses/${e.id}/receipt`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-1 rounded hover:bg-muted text-primary"
+                          title="Beleg ansehen"
+                        >
+                          <FileText className="h-3.5 w-3.5" />
+                        </a>
+                      )}
                       <button
                         onClick={() => openEdit(e)}
                         className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
@@ -729,6 +759,43 @@ function ExpensesSection({
                   Steuerlich absetzbar
                 </label>
               </div>
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Beleg / Rechnung (Bild oder PDF)</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="file"
+                  accept="image/*,application/pdf"
+                  className="block w-full text-sm text-muted-foreground file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border file:border-input file:bg-background file:text-sm file:cursor-pointer hover:file:bg-muted"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleReceiptPick(f);
+                  }}
+                />
+                {form.receiptFile && (
+                  <button
+                    type="button"
+                    onClick={() => setForm((f) => ({ ...f, receiptFile: null, receiptName: "" }))}
+                    className="text-xs text-muted-foreground hover:text-destructive shrink-0"
+                  >
+                    Entfernen
+                  </button>
+                )}
+              </div>
+              {form.receiptName && (
+                <p className="text-[11px] text-muted-foreground mt-1 truncate">{form.receiptName}</p>
+              )}
+              {editing?.receiptFile && (
+                <a
+                  href={`/api/v1/deals/${recordId}/expenses/${editing.id}/receipt`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline mt-1"
+                >
+                  <FileText className="h-3 w-3" />
+                  Vorhandenen Beleg ansehen
+                </a>
+              )}
             </div>
           </div>
           <DialogFooter>

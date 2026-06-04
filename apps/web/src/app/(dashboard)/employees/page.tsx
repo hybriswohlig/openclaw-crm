@@ -1012,10 +1012,13 @@ function LedgerEntryDialog({
           />
         </div>
 
-        {(form.kind === "reimbursement" || form.kind === "in_kind") && (
-          <div>
+        <div>
             <label className="text-xs text-muted-foreground mb-1 block">
-              {form.kind === "in_kind" ? "Kaufbeleg (Bild oder PDF)" : "Beleg (Bild oder PDF)"}
+              {form.kind === "in_kind"
+                ? "Kaufbeleg (Bild oder PDF)"
+                : form.kind === "payment"
+                ? "Auszahlungsbeleg / Quittung (Bild oder PDF)"
+                : "Beleg (Bild oder PDF)"}
             </label>
             <div className="flex items-center gap-2">
               <input
@@ -1033,8 +1036,7 @@ function LedgerEntryDialog({
                 </span>
               )}
             </div>
-          </div>
-        )}
+        </div>
 
         <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
           <input
