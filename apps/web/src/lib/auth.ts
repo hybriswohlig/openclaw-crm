@@ -33,8 +33,24 @@ function addTrustedHost(set: Set<string>, host: string | undefined) {
 function buildTrustedOrigins(): string[] {
   const origins = new Set<string>();
   addOrigin(origins, process.env.NEXT_PUBLIC_APP_URL);
-  // Mobile employee portal host (served by the same app on its own subdomain).
-  addOrigin(origins, "https://kottke-mitarbeiter.mimren.com");
+  // Trust all of the owner's own domains — apex + any subdomain — so the CRM
+  // and the employee portal keep working regardless of which custom domain they
+  // are served on (better-auth supports "*" wildcard origin patterns). These are
+  // all domains the owner controls on this Vercel project, so there is no CSRF
+  // risk in trusting them. Covers kottke-mitarbeiter.mimren.com too.
+  const ownedDomains = [
+    "kottke-umzuege.de",
+    "darioushkottke.online",
+    "mimren.com",
+    "ne-crm.tech",
+    "ne-innovations.de",
+    "vectoros.tech",
+    "vertexos.tech",
+  ];
+  for (const d of ownedDomains) {
+    origins.add(`https://${d}`);
+    origins.add(`https://*.${d}`);
+  }
   for (const part of (process.env.TRUSTED_ORIGINS || "").split(",")) {
     addOrigin(origins, part.trim());
   }
