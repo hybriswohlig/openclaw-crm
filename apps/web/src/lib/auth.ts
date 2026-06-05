@@ -1,5 +1,6 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { username } from "better-auth/plugins";
 import { db } from "@/db";
 import * as schema from "@/db/schema";
 import { getBootstrapAdminEmails } from "@/lib/bootstrap-admins";
@@ -32,6 +33,8 @@ function addTrustedHost(set: Set<string>, host: string | undefined) {
 function buildTrustedOrigins(): string[] {
   const origins = new Set<string>();
   addOrigin(origins, process.env.NEXT_PUBLIC_APP_URL);
+  // Mobile employee portal host (served by the same app on its own subdomain).
+  addOrigin(origins, "https://kottke-mitarbeiter.mimren.com");
   for (const part of (process.env.TRUSTED_ORIGINS || "").split(",")) {
     addOrigin(origins, part.trim());
   }
@@ -75,6 +78,8 @@ export const auth = betterAuth({
   baseURL: resolveAuthBaseURL(),
   secret: process.env.BETTER_AUTH_SECRET,
   trustedOrigins: buildTrustedOrigins(),
+  // Employees sign in with a username (no email). Staff keep email/password.
+  plugins: [username({ minUsernameLength: 3, maxUsernameLength: 40 })],
   user: {
     additionalFields: {
       approvalStatus: {

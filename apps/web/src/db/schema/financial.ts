@@ -160,6 +160,8 @@ export const expenses = pgTable(
     recipient: text("recipient"),
     paymentMethod: text("payment_method"),
     receiptFile: text("receipt_file"),
+    /** Receipt photo in Blob (job_media id) — set by the employee portal camera flow. */
+    receiptJobMediaId: text("receipt_job_media_id"),
     /** true = steuerlich absetzbar, false = privat/nicht absetzbar */
     isTaxDeductible: boolean("is_tax_deductible").notNull().default(true),
     /** When set, another operating company's cash paid this expense — Quersubvention. */

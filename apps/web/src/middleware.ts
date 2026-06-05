@@ -17,10 +17,57 @@ const publicPaths = [
   // Customer status portal — token-scoped, no session
   "/s/",
   "/api/public/",
+  // Employee portal APIs — they enforce employee auth in the handler
+  // (getEmployeePortalContextFromHeaders) or are token-based (set-password).
+  "/api/v1/portal/",
 ];
+
+/** The mobile employee portal lives on its own host (kottke-mitarbeiter.*). */
+function isEmployeePortalHost(host: string): boolean {
+  const h = host.split(":")[0].toLowerCase();
+  return h.startsWith("kottke-mitarbeiter.") || h === "mitarbeiter.localhost";
+}
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+  const host = req.headers.get("host") || "";
+
+  // ── Employee portal subdomain ────────────────────────────────────────────
+  // kottke-mitarbeiter.<domain> serves the mobile portal: every page path is
+  // rewritten under /mitarbeiter, with its own login gate. Shared APIs and
+  // assets pass through (APIs do their own auth in the handler).
+  if (isEmployeePortalHost(host)) {
+    if (
+      pathname.startsWith("/api/") ||
+      pathname.startsWith("/_next") ||
+      pathname.startsWith("/favicon") ||
+      pathname === "/manifest.webmanifest" ||
+      pathname === "/sw.js"
+    ) {
+      return NextResponse.next();
+    }
+
+    const portalPublic = pathname === "/login" || pathname === "/passwort-setzen";
+    if (!portalPublic) {
+      const cookie =
+        req.cookies.get("better-auth.session_token") ||
+        req.cookies.get("__Secure-better-auth.session_token");
+      if (!cookie) {
+        const loginUrl = new URL("/login", req.url);
+        if (pathname !== "/") loginUrl.searchParams.set("redirect", pathname);
+        return NextResponse.redirect(loginUrl);
+      }
+    }
+
+    const url = req.nextUrl.clone();
+    url.pathname = `/mitarbeiter${pathname === "/" ? "" : pathname}`;
+    return NextResponse.rewrite(url);
+  }
+
+  // On the CRM host the portal routes are hidden.
+  if (pathname === "/mitarbeiter" || pathname.startsWith("/mitarbeiter/")) {
+    return NextResponse.redirect(new URL("/", req.url));
+  }
 
   // Former marketing/docs routes → home (bookmarks)
   if (

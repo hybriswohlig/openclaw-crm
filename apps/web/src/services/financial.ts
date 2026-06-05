@@ -233,6 +233,7 @@ export async function createExpense(
     recipient?: string;
     paymentMethod?: string;
     receiptFile?: string;
+    receiptJobMediaId?: string | null;
     isTaxDeductible?: boolean;
     payingOperatingCompanyId?: string | null;
   }

@@ -1,6 +1,7 @@
 import { pgTable, text, timestamp, numeric, index } from "drizzle-orm/pg-core";
 import { workspaces } from "./workspace";
 import { records } from "./records";
+import { users } from "./auth";
 
 export const employees = pgTable(
   "employees",
@@ -14,10 +15,17 @@ export const employees = pgTable(
     hourlyRate: numeric("hourly_rate", { precision: 10, scale: 2 }).notNull(),
     /** Avatar image as base64 data URL (e.g. "data:image/png;base64,…"). Optional. */
     photoBase64: text("photo_base64"),
+    /** Linked login account for the mobile employee portal. Null = no portal access. */
+    userId: text("user_id")
+      .unique()
+      .references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
-  (table) => [index("employees_workspace_idx").on(table.workspaceId)]
+  (table) => [
+    index("employees_workspace_idx").on(table.workspaceId),
+    index("employees_user_idx").on(table.userId),
+  ]
 );
 
 export const dealEmployees = pgTable(

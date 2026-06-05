@@ -10,6 +10,11 @@ export const users = pgTable("users", {
   approvalStatus: text("approval_status").notNull().default("pending"),
   /** Can approve registrations (Settings → User approvals) */
   isAppAdmin: boolean("is_app_admin").notNull().default(false),
+  /** "staff" = CRM users, "employee" = mobile employee-portal accounts. */
+  role: text("role").notNull().default("staff"),
+  /** Username login for employee accounts (better-auth username plugin). */
+  username: text("username").unique(),
+  displayUsername: text("display_username"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
