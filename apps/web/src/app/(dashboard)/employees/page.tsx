@@ -509,42 +509,53 @@ function PortalAccessSection({ emp, onChanged }: { emp: Employee; onChanged: () 
   const [setupUrl, setSetupUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  async function create() {
+  // The API returns errors as { error: { code, message } }. Extract a string.
+  function errMsg(data: unknown, status: number): string {
+    const e = (data as { error?: unknown } | null)?.error;
+    if (typeof e === "string") return e;
+    if (e && typeof e === "object" && "message" in e) return String((e as { message: unknown }).message);
+    return `Fehler (${status}). Bitte erneut versuchen.`;
+  }
+
+  async function call(url: string, body?: unknown) {
     setBusy(true);
     setError(null);
+    setSetupUrl(null);
     try {
-      const res = await fetch(`/api/v1/employees/${emp.id}/account`, {
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username }),
+        body: body ? JSON.stringify(body) : undefined,
       });
-      const data = await res.json();
+      let data: { data?: { setupUrl?: string } } | null = null;
+      try {
+        data = await res.json();
+      } catch {
+        /* non-JSON (e.g. 500 HTML) */
+      }
       if (!res.ok) {
-        setError(data.error || "Konnte Zugang nicht erstellen.");
+        setError(errMsg(data, res.status));
+        return;
+      }
+      if (!data?.data?.setupUrl) {
+        setError("Unerwartete Antwort vom Server.");
         return;
       }
       setSetupUrl(data.data.setupUrl);
       onChanged();
+    } catch (e) {
+      setError("Netzwerkfehler: " + (e as Error).message);
     } finally {
       setBusy(false);
     }
   }
 
-  async function reset() {
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/v1/employees/${emp.id}/account/reset`, { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Konnte Link nicht erzeugen.");
-        return;
-      }
-      setSetupUrl(data.data.setupUrl);
-      onChanged();
-    } finally {
-      setBusy(false);
-    }
+  function create() {
+    return call(`/api/v1/employees/${emp.id}/account`, { username });
+  }
+
+  function reset() {
+    return call(`/api/v1/employees/${emp.id}/account/reset`);
   }
 
   function copy() {

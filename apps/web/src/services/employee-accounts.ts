@@ -58,15 +58,43 @@ export async function createEmployeeAccount(
   if (existing.length) throw new Error("Username bereits vergeben.");
 
   // Create the better-auth user + credential account with a random password.
-  const tempPassword = randomBytes(18).toString("base64url");
-  const res = await auth.api.signUpEmail({
-    body: {
-      email: syntheticEmail(uname),
-      password: tempPassword,
-      name: emp.name,
-    },
-  });
-  const userId = res.user.id;
+  // NOTE: auth.api.signUpEmail creates the user + credential account, then tries
+  // to auto-create a SESSION and throws FAILED_TO_CREATE_SESSION when called
+  // server-side (no request context) — even though the user already exists. So
+  // we resolve the user by email afterwards and tolerate that post-creation
+  // throw. Also idempotent: reuse an orphan from a prior partial attempt.
+  const email = syntheticEmail(uname);
+  let userId: string;
+  const [orphan] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.email, email))
+    .limit(1);
+  if (orphan) {
+    userId = orphan.id;
+  } else {
+    const tempPassword = randomBytes(18).toString("base64url");
+    let signupErr: unknown = null;
+    try {
+      await auth.api.signUpEmail({
+        body: { email, password: tempPassword, name: emp.name },
+      });
+    } catch (e) {
+      signupErr = e; // tolerate the session-step failure; user is already created
+    }
+    const [created] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, email))
+      .limit(1);
+    if (!created) {
+      throw new Error(
+        "Konto konnte nicht angelegt werden: " +
+          ((signupErr as Error)?.message ?? "unbekannter Fehler")
+      );
+    }
+    userId = created.id;
+  }
 
   // Promote to an approved employee account with username login.
   await db
