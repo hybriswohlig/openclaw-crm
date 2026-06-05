@@ -3,7 +3,7 @@
 import { useState, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { KeyRound, Loader2, CheckCircle2 } from "lucide-react";
+import { Loader2, CheckCircle2 } from "lucide-react";
 
 function SetPasswordForm() {
   const searchParams = useSearchParams();
@@ -94,8 +94,13 @@ function SetPasswordForm() {
     <div className="flex min-h-svh flex-col items-center justify-center px-4 py-10">
       <div className="w-full max-w-md space-y-8">
         <div className="flex flex-col items-center gap-3 text-center">
-          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-sm">
-            <KeyRound className="h-8 w-8" aria-hidden="true" />
+          <div className="flex items-center justify-center rounded-2xl bg-white px-6 py-4 shadow-sm">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/kottke-umzuege-logo.svg"
+              alt="Kottke Umzüge"
+              className="h-11 w-auto"
+            />
           </div>
           <div className="space-y-1">
             <h1 className="text-2xl font-bold tracking-tight">
