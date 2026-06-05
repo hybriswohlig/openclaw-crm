@@ -21,6 +21,10 @@ import {
   ArrowRightLeft,
   Building2,
   Package,
+  KeyRound,
+  Copy,
+  Check,
+  Smartphone,
 } from "lucide-react";
 import { EmployeeAvatar } from "@/components/employees/employee-avatar";
 import { cn } from "@/lib/utils";
@@ -34,6 +38,10 @@ interface Employee {
   createdAt: string;
   contractCount: number;
   saldoTotal: number;
+  userId: string | null;
+  username: string | null;
+  hasAccount: boolean;
+  hasPasswordSet: boolean;
 }
 
 interface AuftragRow {
@@ -445,7 +453,8 @@ export default function EmployeesPage() {
                   </tr>
                   {expandedId === emp.id && (
                     <tr key={`${emp.id}-detail`}>
-                      <td colSpan={7} className="bg-muted/10 px-6 py-4">
+                      <td colSpan={7} className="bg-muted/10 px-6 py-4 space-y-5">
+                        <PortalAccessSection emp={emp} onChanged={fetchEmployees} />
                         {!detail ? (
                           <div className="flex items-center gap-2 text-xs text-muted-foreground">
                             <Loader2 className="h-3 w-3 animate-spin" /> Lade Details…
@@ -481,6 +490,141 @@ export default function EmployeesPage() {
           onClose={() => setLedgerDialog(null)}
           onSaved={() => afterLedgerChange(ledgerDialog.employeeId)}
         />
+      )}
+    </div>
+  );
+}
+
+// ─── Portal-Zugang (Mitarbeiter-App Account) ────────────────────────────────────
+
+function slugUsername(name: string): string {
+  const first = name.trim().split(/\s+/)[0] ?? "";
+  return first.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 20);
+}
+
+function PortalAccessSection({ emp, onChanged }: { emp: Employee; onChanged: () => void }) {
+  const [username, setUsername] = useState(emp.username ?? slugUsername(emp.name));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [setupUrl, setSetupUrl] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  async function create() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/v1/employees/${emp.id}/account`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Konnte Zugang nicht erstellen.");
+        return;
+      }
+      setSetupUrl(data.data.setupUrl);
+      onChanged();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function reset() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/v1/employees/${emp.id}/account/reset`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Konnte Link nicht erzeugen.");
+        return;
+      }
+      setSetupUrl(data.data.setupUrl);
+      onChanged();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function copy() {
+    if (!setupUrl) return;
+    navigator.clipboard?.writeText(setupUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+
+  return (
+    <div className="rounded-lg border border-border bg-background p-4">
+      <div className="flex items-center gap-2 mb-2">
+        <Smartphone className="h-4 w-4 text-muted-foreground" />
+        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Portal-Zugang (Mitarbeiter-App)
+        </h4>
+        {emp.hasAccount && (
+          <span
+            className={cn(
+              "ml-auto inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium",
+              emp.hasPasswordSet
+                ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                : "bg-amber-500/15 text-amber-700 dark:text-amber-400"
+            )}
+          >
+            {emp.hasPasswordSet ? "Aktiv" : "Wartet auf Passwort"}
+          </span>
+        )}
+      </div>
+
+      {!emp.hasAccount ? (
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            Lege einen Login an. {emp.name} setzt das Passwort über den Link selbst.
+          </p>
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="flex-1 min-w-[160px]">
+              <label className="text-xs text-muted-foreground mb-1 block">Username</label>
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/\s/g, ""))}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                placeholder="z.B. mehmet"
+              />
+            </div>
+            <Button size="sm" onClick={create} disabled={busy || username.length < 3}>
+              {busy ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <KeyRound className="h-3.5 w-3.5 mr-1.5" />}
+              Zugang erstellen
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            Username: <span className="font-mono text-foreground">{emp.username}</span>
+          </p>
+          <Button size="sm" variant="outline" onClick={reset} disabled={busy}>
+            {busy ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <KeyRound className="h-3.5 w-3.5 mr-1.5" />}
+            Neuen Passwort-Link erzeugen
+          </Button>
+        </div>
+      )}
+
+      {error && <p className="text-xs text-destructive mt-2">{error}</p>}
+
+      {setupUrl && (
+        <div className="mt-3 rounded-md border border-border bg-muted/40 p-3">
+          <p className="text-xs text-muted-foreground mb-1.5">
+            Diesen Link an {emp.name} geben (öffnet er am Handy, setzt sein Passwort):
+          </p>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 text-[11px] break-all bg-background rounded px-2 py-1.5 border border-border">
+              {setupUrl}
+            </code>
+            <Button size="sm" variant="outline" onClick={copy} className="shrink-0">
+              {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+            </Button>
+          </div>
+        </div>
       )}
     </div>
   );

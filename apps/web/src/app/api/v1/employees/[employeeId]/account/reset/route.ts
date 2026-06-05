@@ -1,6 +1,5 @@
 import { NextRequest } from "next/server";
 import { getAuthContext, unauthorized, badRequest, success } from "@/lib/api-utils";
-import { getAppAdminFromRequest } from "@/lib/require-app-admin";
 import { resetEmployeePassword } from "@/services/employee-accounts";
 
 const PORTAL_BASE =
@@ -11,9 +10,8 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ employeeId: string }> }
 ) {
-  const admin = await getAppAdminFromRequest(req);
   const ctx = await getAuthContext(req);
-  if (!admin || !ctx) return unauthorized();
+  if (!ctx) return unauthorized();
   const { employeeId } = await params;
   try {
     const { setupToken } = await resetEmployeePassword(ctx.workspaceId, employeeId);

@@ -1,6 +1,6 @@
 import { db } from "@/db";
-import { employees, dealEmployees, employeeLedger, dealNumbers, records, recordValues, attributes, objects, statuses } from "@/db/schema";
-import { eq, and, sql, inArray, desc } from "drizzle-orm";
+import { employees, dealEmployees, employeeLedger, dealNumbers, records, recordValues, attributes, objects, statuses, users, verifications } from "@/db/schema";
+import { eq, and, sql, inArray, desc, like } from "drizzle-orm";
 import { isLedgerDebit, ledgerDelta } from "@/lib/employee-ledger";
 
 export async function listEmployees(workspaceId: string) {
@@ -13,17 +13,33 @@ export async function listEmployees(workspaceId: string) {
       photoBase64: employees.photoBase64,
       createdAt: employees.createdAt,
       updatedAt: employees.updatedAt,
+      userId: employees.userId,
+      username: users.username,
       contractCount: sql<number>`(
         SELECT count(*)::int FROM deal_employees WHERE deal_employees.employee_id = ${employees.id}
       )`,
     })
     .from(employees)
+    .leftJoin(users, eq(users.id, employees.userId))
     .where(eq(employees.workspaceId, workspaceId))
     .orderBy(employees.name);
 
   // Saldo (earned − paid) je Mitarbeiter dazumischen.
   const saldos = await listEmployeeSaldos(workspaceId);
-  return rows.map((r) => ({ ...r, saldoTotal: saldos.get(r.id) ?? 0 }));
+
+  // Portal-Account-Status: ein offener Setup-Token = Passwort noch nicht gesetzt.
+  const pending = await db
+    .select({ value: verifications.value })
+    .from(verifications)
+    .where(like(verifications.value, "emp-setup:%"));
+  const pendingUserIds = new Set(pending.map((p) => p.value.slice("emp-setup:".length)));
+
+  return rows.map((r) => ({
+    ...r,
+    saldoTotal: saldos.get(r.id) ?? 0,
+    hasAccount: !!r.userId,
+    hasPasswordSet: !!r.userId && !pendingUserIds.has(r.userId),
+  }));
 }
 
 export async function getEmployee(workspaceId: string, employeeId: string) {
