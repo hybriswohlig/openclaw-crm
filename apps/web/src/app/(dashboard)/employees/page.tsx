@@ -152,8 +152,12 @@ export default function EmployeesPage() {
     defaultKind: LedgerKind;
   } | null>(null);
 
-  const fetchEmployees = useCallback(async () => {
-    setLoading(true);
+  // `silent` refreshes do NOT toggle the full-page loading spinner. Without
+  // this, refreshing after an action (e.g. creating a portal link) unmounts the
+  // whole table — including the expanded card — and the just-shown setup link
+  // disappears immediately.
+  const fetchEmployees = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await fetch("/api/v1/employees");
       if (res.ok) {
@@ -161,7 +165,7 @@ export default function EmployeesPage() {
         setEmployees(data.data || []);
       }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
@@ -258,7 +262,7 @@ export default function EmployeesPage() {
   async function afterLedgerChange(employeeId: string) {
     setLedgerDialog(null);
     await reloadDetail(employeeId);
-    fetchEmployees(); // refresh saldo column
+    fetchEmployees(true); // refresh saldo column silently (keep row expanded)
   }
 
   async function deleteEntry(employeeId: string, entryId: string) {
@@ -266,7 +270,7 @@ export default function EmployeesPage() {
     const res = await fetch(`/api/v1/employee-ledger/${entryId}`, { method: "DELETE" });
     if (res.ok) {
       await reloadDetail(employeeId);
-      fetchEmployees();
+      fetchEmployees(true);
     }
   }
 
@@ -454,7 +458,7 @@ export default function EmployeesPage() {
                   {expandedId === emp.id && (
                     <tr key={`${emp.id}-detail`}>
                       <td colSpan={7} className="bg-muted/10 px-6 py-4 space-y-5">
-                        <PortalAccessSection emp={emp} onChanged={fetchEmployees} />
+                        <PortalAccessSection emp={emp} onChanged={() => fetchEmployees(true)} />
                         {!detail ? (
                           <div className="flex items-center gap-2 text-xs text-muted-foreground">
                             <Loader2 className="h-3 w-3 animate-spin" /> Lade Details…
