@@ -1,7 +1,7 @@
 // Kottke CRM service worker — push notifications + basic offline shell.
 // Scope is the site root, so this file MUST live in /public.
 
-const CACHE_VERSION = "kottke-v1";
+const CACHE_VERSION = "kottke-v2";
 
 self.addEventListener("install", (event) => {
   // Activate immediately so the new SW takes over on next page load.
@@ -9,8 +9,24 @@ self.addEventListener("install", (event) => {
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    (async () => {
+      // Purge EVERY cache left over from any previous service-worker version.
+      // Older versions may have cached app assets; without this, a stale bundle
+      // can keep running after a deploy and throw client-side exceptions.
+      try {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
+      } catch (_) {
+        // ignore — best effort
+      }
+      await self.clients.claim();
+    })()
+  );
 });
+
+// No fetch handler: this service worker never serves cached responses, so the
+// browser always fetches fresh app code from the network. (Push only.)
 
 self.addEventListener("push", (event) => {
   // Default payload if push arrives without a body
