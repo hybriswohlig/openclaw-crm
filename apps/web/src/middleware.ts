@@ -20,6 +20,8 @@ const publicPaths = [
   // Employee portal APIs — they enforce employee auth in the handler
   // (getEmployeePortalContextFromHeaders) or are token-based (set-password).
   "/api/v1/portal/",
+  // Client-error diagnostic sink (temporary).
+  "/api/v1/diag/",
 ];
 
 /** The mobile employee portal lives on its own host (kottke-mitarbeiter.*). */
