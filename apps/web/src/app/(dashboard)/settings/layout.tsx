@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { Settings, Users, Box, KeyRound, Bot, Puzzle, Truck, UserCheck, Loader2, MessageCircle, Link2 } from "lucide-react";
+import { Settings, Users, Box, KeyRound, Bot, Puzzle, Truck, UserCheck, Loader2, MessageCircle, Link2, MapPin } from "lucide-react";
 
 const settingsNav = [
   { href: "/settings", label: "General", icon: Settings, exact: true },
@@ -20,6 +20,12 @@ const settingsNav = [
     href: "/settings/operating-companies",
     label: "Operating companies",
     icon: Truck,
+    exact: false,
+  },
+  {
+    href: "/settings/depots",
+    label: "Anfahrtadressen",
+    icon: MapPin,
     exact: false,
   },
   { href: "/settings/objects", label: "Objects", icon: Box, exact: false },

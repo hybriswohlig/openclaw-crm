@@ -7,8 +7,10 @@ import { records, recordValues } from "@/db/schema/records";
 import { getRecord, updateRecord } from "@/services/records";
 import {
   estimateRoundTrip,
+  rankDepotsToPickup,
   DriveTimeConfigError,
   DriveTimeAPIError,
+  type DepotDistance,
 } from "@/services/drive-time";
 import {
   estimateLoadUnloadMinutes,
@@ -123,11 +125,41 @@ export async function POST(
     );
   }
 
+  // ── Rank depots by real road distance to the pickup (one Distance Matrix
+  //    call). Drives both the auto-pick (nearest Sixt center) and the UI's
+  //    depot dropdown. Non-fatal if it fails for any reason other than a
+  //    missing API key — we then fall back to the coarse PLZ/haversine pick.
+  let ranking: DepotDistance[] = [];
+  try {
+    ranking = await rankDepotsToPickup({
+      depots: candidates.map((d) => ({ id: d.id, lat: d.lat, lng: d.lng })),
+      pickupAddress: moveFromAddress,
+    });
+  } catch (e) {
+    if (e instanceof DriveTimeConfigError) {
+      return NextResponse.json({ error: e.message, code: "no_api_key" }, { status: 503 });
+    }
+    ranking = [];
+  }
+  const rankById = new Map(ranking.map((r) => [r.depotId, r]));
+
+  // ── Nearest depot by real drive time (ranking is sorted ascending by
+  //    seconds). This single value drives BOTH the auto-pick and the
+  //    "empfohlen" recommendation, so they can never contradict each other.
+  const nearest = ranking.find((r) => Number.isFinite(r.seconds)) ?? null;
+  const recommendedDepotId = nearest ? nearest.depotId : null;
+
   // ── Pick depot ─────────────────────────────────────────────────────────
+  //  1. Explicit pick (UI dropdown / pinned on the Auftrag) wins.
+  //  2. Otherwise auto-pick the nearest (= recommended) depot.
+  //  3. Fall back to the coarse PLZ/haversine picker if ranking is empty.
   let chosenDepot: DepotCandidate | null = null;
   const explicitId = body.depotRecordId ?? extractRefId(av.depot);
   if (explicitId) {
     chosenDepot = candidates.find((d) => d.id === explicitId) ?? null;
+  }
+  if (!chosenDepot && recommendedDepotId) {
+    chosenDepot = candidates.find((d) => d.id === recommendedDepotId) ?? null;
   }
   if (!chosenDepot) {
     chosenDepot = pickDepot(candidates, {
@@ -138,13 +170,50 @@ export async function POST(
   }
   if (!chosenDepot) return badRequest("Kein Depot wählbar.");
 
+  // ── Ranked alternatives for the UI (nearest by time first; unreachable
+  //    last). Empty when ranking failed, so the picker renders nothing
+  //    instead of labelling every depot "keine Route".
+  const depotOptions =
+    ranking.length === 0
+      ? []
+      : candidates
+          .map((d) => {
+            const r = rankById.get(d.id);
+            const reachable =
+              !!r && r.status === "OK" && Number.isFinite(r.meters) && Number.isFinite(r.seconds);
+            return {
+              id: d.id,
+              name: d.name,
+              distanceMeters: reachable ? r!.meters : null,
+              minutes: reachable ? Math.round(r!.seconds / 60) : null,
+              reachable,
+            };
+          })
+          .sort((a, b) => {
+            if (a.minutes == null && b.minutes == null) return a.name.localeCompare(b.name);
+            if (a.minutes == null) return 1;
+            if (b.minutes == null) return -1;
+            return a.minutes - b.minutes;
+          });
+
   // ── Drive time (Google Distance Matrix) ───────────────────────────────
+  const chosenRank = rankById.get(chosenDepot.id);
   let drive;
   try {
     drive = await estimateRoundTrip({
       depot: { label: chosenDepot.name, lat: chosenDepot.lat, lng: chosenDepot.lng },
       pickup: { label: "Abholung", address: moveFromAddress },
       dropoff: { label: "Ziel", address: moveToAddress },
+      // Reuse the depot → pickup leg from the ranking call (saves one request).
+      // Require finite meters AND seconds so a malformed element can never leak
+      // Infinity into the persisted totals.
+      depotToPickup:
+        chosenRank &&
+        chosenRank.status === "OK" &&
+        Number.isFinite(chosenRank.meters) &&
+        Number.isFinite(chosenRank.seconds)
+          ? { meters: chosenRank.meters, seconds: chosenRank.seconds }
+          : undefined,
     });
   } catch (e) {
     if (e instanceof DriveTimeConfigError) {
@@ -192,6 +261,8 @@ export async function POST(
         depot: { id: chosenDepot.id, name: chosenDepot.name, lat: chosenDepot.lat, lng: chosenDepot.lng },
         pickupAddress: moveFromAddress,
         dropoffAddress: moveToAddress,
+        depotOptions,
+        recommendedDepotId,
       },
       drive_minutes_total: driveMinutesTotal,
       load_unload_minutes: loadUnloadMinutes,
@@ -206,6 +277,8 @@ export async function POST(
       id: chosenDepot.id,
       name: chosenDepot.name,
     },
+    depotOptions,
+    recommendedDepotId,
     legs: drive.legs,
     driveMinutesTotal,
     loadUnloadMinutes,
@@ -317,6 +390,12 @@ async function loadActiveDepots(workspaceId: string): Promise<DepotCandidate[]> 
     const name = getText("name");
     if (lat == null || lng == null || !name) continue;
 
+    // Honor the Settings "aktiv" toggle: a depot switched off must never be
+    // ranked, auto-picked or shown in the calculator dropdown. Treat a null
+    // flag as active (matches the seed + the ?? true default used elsewhere).
+    const active = getBool("active") ?? true;
+    if (!active) continue;
+
     out.push({
       id: r.id,
       name,
@@ -325,7 +404,7 @@ async function loadActiveDepots(workspaceId: string): Promise<DepotCandidate[]> 
       cityTag: getText("city_tag"),
       plzPrefixes: getText("plz_prefixes"),
       serviceRadiusKm: getNum("service_radius_km"),
-      active: getBool("active") ?? true,
+      active,
     });
   }
   return out;

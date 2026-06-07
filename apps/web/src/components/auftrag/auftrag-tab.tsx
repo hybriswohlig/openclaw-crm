@@ -581,7 +581,21 @@ export function AuftragTab({ recordId }: { recordId: string }) {
                 : null,
             segments:
               (auftrag.values.drive_segments_json as
-                | { legs?: never; pickupAddress?: string; dropoffAddress?: string; warnings?: string[] }
+                | {
+                    legs?: never;
+                    pickupAddress?: string;
+                    dropoffAddress?: string;
+                    warnings?: string[];
+                    depot?: { id?: string; name?: string };
+                    depotOptions?: {
+                      id: string;
+                      name: string;
+                      distanceMeters: number | null;
+                      minutes: number | null;
+                      reachable: boolean;
+                    }[];
+                    recommendedDepotId?: string | null;
+                  }
                 | null) ?? null,
           }}
         />

@@ -32,6 +32,10 @@ export interface PlaceLocation {
   countryCode: string;
   /** Free-form formatted address as Google returns it. Useful for display + Distance Matrix. */
   formattedAddress: string;
+  /** WGS84 latitude, if Google resolved a geometry. Used for depot distance ranking. */
+  lat?: number;
+  /** WGS84 longitude, if Google resolved a geometry. */
+  lng?: number;
 }
 
 export class PlacesConfigError extends Error {}
@@ -143,7 +147,7 @@ export async function placeDetail(input: {
   const resp = await fetch(url.toString(), {
     headers: {
       "X-Goog-Api-Key": apiKey,
-      "X-Goog-FieldMask": "id,formattedAddress,addressComponents",
+      "X-Goog-FieldMask": "id,formattedAddress,addressComponents,location",
     },
   });
 
@@ -155,6 +159,7 @@ export async function placeDetail(input: {
 
   const data = (await resp.json()) as {
     formattedAddress?: string;
+    location?: { latitude?: number; longitude?: number };
     addressComponents?: Array<{
       longText?: string;
       shortText?: string;
@@ -173,11 +178,15 @@ export async function placeDetail(input: {
   const route = pick("route") ?? "";
   const line1 = [route, streetNumber].filter(Boolean).join(" ").trim();
 
+  const lat = data.location?.latitude;
+  const lng = data.location?.longitude;
+
   return {
     line1,
     postcode: pick("postal_code") ?? "",
     city: pick("locality") ?? pick("postal_town") ?? "",
     countryCode: (pick("country", "short") ?? "DE").toUpperCase(),
     formattedAddress: data.formattedAddress ?? "",
+    ...(typeof lat === "number" && typeof lng === "number" ? { lat, lng } : {}),
   };
 }

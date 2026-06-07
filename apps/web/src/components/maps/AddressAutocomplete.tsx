@@ -24,6 +24,9 @@ export interface LocationValue {
   city?: string;
   countryCode?: string;
   formattedAddress?: string;
+  /** Geocoded coordinates, present when picked from a Google prediction. */
+  lat?: number;
+  lng?: number;
 }
 
 interface PlacePrediction {

@@ -41,8 +41,22 @@ interface DriveLeg {
   seconds: number;
 }
 
+interface DepotOption {
+  id: string;
+  name: string;
+  /** depot → pickup road distance in meters; null when unreachable. */
+  distanceMeters: number | null;
+  /** depot → pickup drive minutes; null when unreachable. */
+  minutes: number | null;
+  reachable: boolean;
+}
+
 interface EstimateResponse {
   depot: { id: string; name: string };
+  /** Every active depot ranked nearest-first; drives the depot dropdown. */
+  depotOptions: DepotOption[];
+  /** The nearest reachable depot — marked "empfohlen" in the UI. */
+  recommendedDepotId: string | null;
   legs: DriveLeg[];
   driveMinutesTotal: number;
   loadUnloadMinutes: number;
@@ -67,6 +81,9 @@ interface Props {
       pickupAddress?: string;
       dropoffAddress?: string;
       warnings?: string[];
+      depot?: { id?: string; name?: string };
+      depotOptions?: DepotOption[];
+      recommendedDepotId?: string | null;
     } | null;
   };
   /** When present, "In AB/RE übernehmen" buttons are enabled. */
@@ -104,7 +121,12 @@ export function ZeitschaetzungSection({
   const [estimate, setEstimate] = useState<EstimateResponse | null>(() =>
     initial && initial.totalMinutes != null
       ? {
-          depot: { id: "", name: initial.depotName ?? "—" },
+          depot: {
+            id: initial.segments?.depot?.id ?? "",
+            name: initial.depotName ?? initial.segments?.depot?.name ?? "—",
+          },
+          depotOptions: initial.segments?.depotOptions ?? [],
+          recommendedDepotId: initial.segments?.recommendedDepotId ?? null,
           legs: initial.segments?.legs ?? [],
           driveMinutesTotal: initial.driveMinutesTotal ?? 0,
           loadUnloadMinutes: initial.loadUnloadMinutes ?? 0,
@@ -155,7 +177,7 @@ export function ZeitschaetzungSection({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [estimate?.computedAt, tripCount, manualLoadUnload, manualLoadUnloadMin]);
 
-  async function recompute() {
+  async function recompute(depotRecordId?: string) {
     setBusy(true);
     setError(null);
     setWarning(null);
@@ -165,7 +187,7 @@ export function ZeitschaetzungSection({
       const resp = await fetch(`/api/v1/deals/${recordId}/auftrag/estimate-time`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify(depotRecordId ? { depotRecordId } : {}),
       });
       const json = await resp.json().catch(() => null);
       if (!resp.ok) {
@@ -194,6 +216,9 @@ export function ZeitschaetzungSection({
       // Coerce defensively — never let an undefined .legs/.warnings crash render.
       const data: EstimateResponse = {
         depot: raw.depot ?? { id: "", name: "—" },
+        depotOptions: Array.isArray(raw.depotOptions) ? raw.depotOptions : [],
+        recommendedDepotId:
+          typeof raw.recommendedDepotId === "string" ? raw.recommendedDepotId : null,
         legs: Array.isArray(raw.legs) ? raw.legs : [],
         driveMinutesTotal: typeof raw.driveMinutesTotal === "number" ? raw.driveMinutesTotal : 0,
         loadUnloadMinutes: typeof raw.loadUnloadMinutes === "number" ? raw.loadUnloadMinutes : 0,
@@ -354,7 +379,7 @@ export function ZeitschaetzungSection({
         </h3>
         <button
           type="button"
-          onClick={recompute}
+          onClick={() => recompute()}
           disabled={busy}
           className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs hover:bg-muted/50 disabled:opacity-50"
         >
@@ -467,6 +492,16 @@ export function ZeitschaetzungSection({
 
       {estimate && (
         <>
+          {/* ── Depot picker (nearest Sixt center, switchable) ─────── */}
+          <DepotPicker
+            options={estimate.depotOptions}
+            chosenId={estimate.depot.id}
+            chosenName={estimate.depot.name}
+            recommendedId={estimate.recommendedDepotId}
+            busy={busy}
+            onPick={(id) => recompute(id)}
+          />
+
           {/* ── Route legs ────────────────────────────────── */}
           <div className="rounded-md bg-background p-3 text-sm">
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">
@@ -662,6 +697,82 @@ function Stat({ label, value, highlight = false }: { label: string; value: strin
       <div className={highlight ? "text-base font-semibold tabular-nums" : "tabular-nums"}>{value}</div>
     </div>
   );
+}
+
+/**
+ * Depot dropdown. Lists every active Sixt center ranked nearest-first (drive
+ * km + min to the Abholung), marks the closest as "empfohlen", and recomputes
+ * the route when the operator switches. Renders nothing if there are no ranked
+ * options (e.g. a legacy estimate saved before depot ranking existed).
+ */
+function DepotPicker({
+  options,
+  chosenId,
+  chosenName,
+  recommendedId,
+  busy,
+  onPick,
+}: {
+  options: DepotOption[];
+  chosenId: string;
+  chosenName: string;
+  recommendedId: string | null;
+  busy: boolean;
+  onPick: (id: string) => void;
+}) {
+  if (!options || options.length === 0) return null;
+
+  const recommended = options.find((o) => o.id === recommendedId) ?? null;
+  const showRecommendCta = !!recommended && !!chosenId && chosenId !== recommendedId;
+
+  return (
+    <div className="rounded-md border border-border/60 bg-background p-3 space-y-1.5">
+      <label className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+        <MapPin className="h-3 w-3" /> Abfahrt-Depot (Sixt Center)
+      </label>
+      <select
+        value={chosenId || ""}
+        disabled={busy}
+        onChange={(e) => {
+          const id = e.target.value;
+          if (id && id !== chosenId) onPick(id);
+        }}
+        className="w-full rounded border px-2 py-1.5 text-sm bg-background disabled:opacity-50"
+      >
+        {/* Keep the chosen depot selectable even if it isn't in the ranked
+            list (unreachable, or a legacy pick). */}
+        {chosenId && !options.some((o) => o.id === chosenId) && (
+          <option value={chosenId}>{chosenName}</option>
+        )}
+        {options.map((o) => (
+          <option key={o.id} value={o.id}>
+            {depotOptionLabel(o, o.id === recommendedId)}
+          </option>
+        ))}
+      </select>
+      {showRecommendCta && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => onPick(recommended!.id)}
+          className="inline-flex items-center gap-1 text-[11px] text-blue-600 hover:underline disabled:opacity-50"
+        >
+          <Sparkles className="h-3 w-3" /> Näheres Depot wählen: {recommended!.name}
+          {recommended!.minutes != null ? ` (${formatMinutes(recommended!.minutes)})` : ""}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function depotOptionLabel(o: DepotOption, isRecommended: boolean): string {
+  const dist =
+    o.distanceMeters != null && o.minutes != null
+      ? ` · ${formatKm(o.distanceMeters)} · ${formatMinutes(o.minutes)}`
+      : o.reachable
+        ? ""
+        : " · keine Route";
+  return `${o.name}${dist}${isRecommended ? "  ★ empfohlen" : ""}`;
 }
 
 function Slider({
