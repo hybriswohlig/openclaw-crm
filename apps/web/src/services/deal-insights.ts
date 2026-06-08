@@ -20,6 +20,7 @@ import { records, recordValues } from "@/db/schema/records";
 import {
   getDealTranscript,
   formatTranscriptForLLM,
+  transcriptExceedsBudget,
   getDealImageAttachments,
   type DealTranscript,
 } from "./deal-transcript";
@@ -492,7 +493,8 @@ export interface DealInsightsResult {
  */
 export async function extractDealInsights(
   workspaceId: string,
-  dealRecordId: string
+  dealRecordId: string,
+  opts: { forceFullTranscript?: boolean } = {}
 ): Promise<DealInsightsResult> {
   const transcript = await getDealTranscript(workspaceId, dealRecordId);
   const convIds = transcript.channels.map((c) => c.conversationId);
@@ -520,10 +522,36 @@ export async function extractDealInsights(
     };
   }
 
-  const transcriptText = formatTranscriptForLLM(transcript);
+  // Incremental mode: when the full transcript would overflow the budget and
+  // the deal was analysed before, send only the delta since the last analysis
+  // plus a structured "Bisheriger Stand" block, instead of the lossy head+tail
+  // trim. Engages ONLY for over-budget, previously-analysed deals; every other
+  // deal gets the exact same full-transcript prompt as before.
+  // `forceFullTranscript` (used by the comparison harness / as a kill switch)
+  // keeps the legacy full path.
+  const incremental = !opts.forceFullTranscript && transcriptExceedsBudget(transcript);
+  const priorState = incremental ? await loadPriorState(workspaceId, dealRecordId) : null;
+  // Engage the delta path only when we have a state block to point at. Apply a
+  // margin so messages that arrived between the last LLM run and the last apply
+  // (and any small web/db clock skew) are re-sent rather than lost. Overlap is
+  // harmless: re-showing a few recent messages is idempotent.
+  const WATERMARK_MARGIN_MS = 30 * 60 * 1000;
+  const since =
+    priorState?.block && priorState.lastInsightsAt
+      ? new Date(priorState.lastInsightsAt.getTime() - WATERMARK_MARGIN_MS)
+      : null;
+
+  const { text: transcriptText, mode } = formatTranscriptForLLM(transcript, since);
 
   const promptParts: string[] = [];
   promptParts.push(`# Chatverlauf (alle Kanäle)\n\n${transcriptText}`);
+  // Inject the structured state ONLY when the delta path actually fired (mode
+  // "incremental"); on the legacy-trim fallback it would be a confusing hybrid.
+  if (mode === "incremental" && priorState?.block) {
+    promptParts.push(
+      `# Bisheriger Stand (Deal-Daten aus früherer Analyse; operative Auftragsfelder siehe Abschnitt "Bereits erfasster Auftrag"). Diese Werte bevorzugt übernehmen, aber wenn der neue Chatverlauf ihnen widerspricht, den neuen Wert verwenden:\n\n${priorState.block}`
+    );
+  }
   if (notesText) {
     promptParts.push(`# Interne Notizen (vom Team manuell erfasst)\n\n${notesText}`);
   }
@@ -582,6 +610,98 @@ export async function extractDealInsights(
     transcript,
     insights: result.output,
   };
+}
+
+// ─── Prior-state loader (incremental mode) ──────────────────────────────────
+// Reconstructs the deal's already-extracted structured state + the last
+// summary so the over-budget incremental path can feed it back instead of
+// re-sending the whole chat. The watermark (lastInsightsAt) is the deal's
+// last_insights_at stamp, written by applyDealInsights on every apply.
+
+async function loadPriorState(
+  workspaceId: string,
+  dealRecordId: string
+): Promise<{ lastInsightsAt: Date | null; block: string }> {
+  let lastInsightsAt: Date | null = null;
+  const lines: string[] = [];
+
+  const [dealObj] = await db
+    .select({ id: objects.id })
+    .from(objects)
+    .where(and(eq(objects.workspaceId, workspaceId), eq(objects.slug, "deals")))
+    .limit(1);
+
+  if (dealObj) {
+    const { getRecord } = await import("./records");
+    const deal = await getRecord(dealObj.id, dealRecordId);
+    const v = (deal?.values ?? {}) as Record<string, unknown>;
+
+    const rawLast = v.last_insights_at;
+    if (rawLast) {
+      const d = rawLast instanceof Date ? rawLast : new Date(String(rawLast));
+      if (!Number.isNaN(d.getTime())) lastInsightsAt = d;
+    }
+
+    const push = (label: string, val: unknown) => {
+      if (val == null || val === "") return;
+      let s: string;
+      if (typeof val === "object") {
+        const o = val as Record<string, unknown>;
+        if (typeof o.line1 === "string") {
+          // Location shape { line1, postcode, city } → keep all parts so the
+          // model does not blank out city/PLZ when the original address message
+          // is in the elided middle.
+          const parts = [o.line1, o.postcode, o.city].filter(
+            (x): x is string => typeof x === "string" && x.trim().length > 0
+          );
+          s = parts.length ? parts.join(", ") : String(o.line1);
+        } else if (o.amount != null) {
+          s = `${o.amount} €`;
+        } else {
+          s = JSON.stringify(val);
+        }
+      } else {
+        s = String(val);
+      }
+      lines.push(`- ${label}: ${s}`);
+    };
+    push("Inventar", v.inventory_notes);
+    push("Umzugsdatum", v.move_date);
+    push("Abholadresse", v.move_from_address);
+    push("Zieladresse", v.move_to_address);
+    push("Stockwerk Abholung", v.floors_from);
+    push("Stockwerk Ziel", v.floors_to);
+    push("Angebotswert", v.value);
+  }
+
+  // Most recent activity_note / summary from the last extraction event.
+  try {
+    const { activityEvents } = await import("@/db/schema");
+    const [ev] = await db
+      .select({ payload: activityEvents.payload })
+      .from(activityEvents)
+      .where(
+        and(
+          eq(activityEvents.workspaceId, workspaceId),
+          eq(activityEvents.recordId, dealRecordId),
+          eq(activityEvents.eventType, "ai.insights_extracted")
+        )
+      )
+      .orderBy(desc(activityEvents.createdAt))
+      .limit(1);
+    const payload = (ev?.payload ?? {}) as Record<string, unknown>;
+    const sum =
+      typeof payload.summary === "string" && payload.summary.trim()
+        ? payload.summary.trim()
+        : typeof payload.note === "string"
+          ? payload.note.trim()
+          : "";
+    if (sum) lines.unshift(`Zusammenfassung: ${sum}`, "");
+  } catch {
+    // activity_events unavailable → skip the summary, keep the structured state.
+  }
+
+  return { lastInsightsAt, block: lines.join("\n") };
 }
 
 // ─── Notes + Documents loaders ──────────────────────────────────────────────

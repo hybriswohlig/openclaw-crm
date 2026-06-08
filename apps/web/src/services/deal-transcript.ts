@@ -34,6 +34,9 @@ export interface TranscriptMessage {
   subject: string | null;
   body: string;
   sentAt: Date | null;
+  /** Ingest time. Used as the incremental watermark (more reliable than sentAt,
+   *  which can be backdated on a backfilled message). */
+  createdAt: Date;
 }
 
 export interface DealTranscript {
@@ -203,6 +206,7 @@ export async function getDealTranscript(
       subject: m.subject,
       body,
       sentAt: m.sentAt,
+      createdAt: m.createdAt,
     };
   });
 
@@ -284,21 +288,111 @@ export async function getDealImageAttachments(
  * captured values are still fed back via the authoritative "Bereits erfasster
  * Auftrag" block, so trimming never loses confirmed data.
  */
-const TRANSCRIPT_CHAR_BUDGET = 60_000;
+export const TRANSCRIPT_CHAR_BUDGET = 60_000;
 
-export function formatTranscriptForLLM(transcript: DealTranscript): string {
-  if (transcript.messages.length === 0) return "(no messages)";
-  const blocks = transcript.messages.map((m) => {
-    const ts = m.sentAt ? m.sentAt.toISOString() : "unknown time";
-    const who =
-      m.direction === "inbound"
-        ? `CUSTOMER (${m.contactName ?? m.fromAddress ?? "unknown"})`
-        : `AGENT (${m.channelName})`;
-    return `--- ${ts} [${m.channelType}] ${who} ---\n${m.body.trim()}`;
-  });
+/** Render one message as its labelled transcript block. */
+function renderBlock(m: TranscriptMessage): string {
+  const ts = m.sentAt ? m.sentAt.toISOString() : "unknown time";
+  const who =
+    m.direction === "inbound"
+      ? `CUSTOMER (${m.contactName ?? m.fromAddress ?? "unknown"})`
+      : `AGENT (${m.channelName})`;
+  return `--- ${ts} [${m.channelType}] ${who} ---\n${m.body.trim()}`;
+}
+
+/**
+ * Whether the full (untrimmed) transcript would exceed the budget. When true,
+ * `formatTranscriptForLLM` either trims (legacy) or, given a watermark, sends
+ * only the delta. Callers use this to decide whether to add a structured
+ * "Bisheriger Stand" block.
+ */
+export function transcriptExceedsBudget(transcript: DealTranscript): boolean {
+  let len = 0;
+  for (const m of transcript.messages) {
+    len += renderBlock(m).length + 2; // +2 for the "\n\n" join
+    if (len > TRANSCRIPT_CHAR_BUDGET) return true;
+  }
+  return false;
+}
+
+export type FormattedTranscript = {
+  text: string;
+  /** How the transcript was rendered. The caller injects the structured
+   *  "Bisheriger Stand" block ONLY for "incremental". */
+  mode: "full" | "trimmed" | "incremental";
+};
+
+/**
+ * Render a deal transcript as one plain-text block for the LLM prompt.
+ *
+ * - Within budget: the full transcript, unchanged → mode "full".
+ * - Over budget WITHOUT `since` (or with no new messages): legacy head+tail
+ *   trim → mode "trimmed". Behaviour preserved for the first analysis of a
+ *   very long deal.
+ * - Over budget WITH `since` and at least one newer message (incremental): keep
+ *   the opening messages for first-contact context, then only the messages
+ *   newer than `since`, and point to the caller's structured "Bisheriger Stand"
+ *   block for the compressed middle → mode "incremental".
+ */
+export function formatTranscriptForLLM(
+  transcript: DealTranscript,
+  since?: Date | null
+): FormattedTranscript {
+  if (transcript.messages.length === 0) return { text: "(no messages)", mode: "full" };
+  const blocks = transcript.messages.map(renderBlock);
 
   const full = blocks.join("\n\n");
-  if (full.length <= TRANSCRIPT_CHAR_BUDGET) return full;
+  if (full.length <= TRANSCRIPT_CHAR_BUDGET) return { text: full, mode: "full" };
+
+  // Incremental path: over budget AND we know what was already analysed.
+  if (since) {
+    const headBudget = Math.floor(TRANSCRIPT_CHAR_BUDGET * 0.3);
+    const head: string[] = [];
+    let hLen = 0;
+    let headCount = 0;
+    for (const b of blocks) {
+      if (hLen + b.length > headBudget) break;
+      head.push(b);
+      hLen += b.length + 2;
+      headCount++;
+    }
+    // Delta = EVERY message after the head with createdAt > watermark. Filtered
+    // by value, NOT by array position: the query sorts by sentAt, so createdAt
+    // is not monotonic (a backfilled message has an old sentAt but a recent
+    // createdAt). An early `break` would silently drop genuinely-new messages.
+    const sinceMs = since.getTime();
+    const candidates: number[] = [];
+    for (let i = headCount; i < transcript.messages.length; i++) {
+      if (transcript.messages[i].createdAt.getTime() > sinceMs) candidates.push(i);
+    }
+    if (candidates.length > 0) {
+      // Keep the NEWEST that fit the remaining budget (latest state matters
+      // most), then render chronologically.
+      const deltaBudget = TRANSCRIPT_CHAR_BUDGET - hLen;
+      const kept: number[] = [];
+      let dLen = 0;
+      for (let j = candidates.length - 1; j >= 0; j--) {
+        const i = candidates[j];
+        if (dLen + blocks[i].length > deltaBudget) break;
+        kept.push(i);
+        dLen += blocks[i].length + 2;
+      }
+      kept.reverse();
+      const dropped = candidates.length - kept.length;
+      const parts = [
+        ...head,
+        `[... ältere Nachrichten dazwischen sind im Abschnitt "Bisheriger Stand" zusammengefasst ...]`,
+        `# Neue Nachrichten seit der letzten Analyse`,
+      ];
+      if (dropped > 0) {
+        parts.push(`[... ${dropped} weitere neue Nachrichten aus Platzgründen ausgelassen ...]`);
+      }
+      parts.push(...kept.map((i) => blocks[i]));
+      return { text: parts.join("\n\n"), mode: "incremental" };
+    }
+    // No new messages since the watermark → fall through to the legacy trim so
+    // we still send a useful tail.
+  }
 
   // Head+tail budget: earliest messages usually carry name/addresses/scope;
   // latest carry the current state (price agreed, payment, stage signals).
@@ -319,10 +413,13 @@ export function formatTranscriptForLLM(transcript: DealTranscript): string {
     tLen += blocks[i].length + 2;
   }
   const omitted = blocks.length - head.length - tail.length;
-  if (omitted <= 0) return full;
-  return [
-    ...head,
-    `[... ${omitted} ältere Nachrichten aus Platzgründen ausgelassen; bereits erfasste Werte siehe Abschnitt "Bereits erfasster Auftrag" ...]`,
-    ...tail,
-  ].join("\n\n");
+  if (omitted <= 0) return { text: full, mode: "trimmed" };
+  return {
+    text: [
+      ...head,
+      `[... ${omitted} ältere Nachrichten aus Platzgründen ausgelassen; bereits erfasste Werte siehe Abschnitt "Bereits erfasster Auftrag" ...]`,
+      ...tail,
+    ].join("\n\n"),
+    mode: "trimmed",
+  };
 }
