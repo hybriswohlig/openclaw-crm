@@ -21,6 +21,7 @@ import {
   getDealTranscript,
   formatTranscriptForLLM,
   transcriptExceedsBudget,
+  INCREMENTAL_ENGAGE_CHARS,
   getDealImageAttachments,
   type DealTranscript,
 } from "./deal-transcript";
@@ -494,7 +495,7 @@ export interface DealInsightsResult {
 export async function extractDealInsights(
   workspaceId: string,
   dealRecordId: string,
-  opts: { forceFullTranscript?: boolean } = {}
+  opts: { forceFullTranscript?: boolean; engageChars?: number } = {}
 ): Promise<DealInsightsResult> {
   const transcript = await getDealTranscript(workspaceId, dealRecordId);
   const convIds = transcript.channels.map((c) => c.conversationId);
@@ -529,7 +530,8 @@ export async function extractDealInsights(
   // deal gets the exact same full-transcript prompt as before.
   // `forceFullTranscript` (used by the comparison harness / as a kill switch)
   // keeps the legacy full path.
-  const incremental = !opts.forceFullTranscript && transcriptExceedsBudget(transcript);
+  const engageChars = opts.engageChars ?? INCREMENTAL_ENGAGE_CHARS;
+  const incremental = !opts.forceFullTranscript && transcriptExceedsBudget(transcript, engageChars);
   const priorState = incremental ? await loadPriorState(workspaceId, dealRecordId) : null;
   // Engage the delta path only when we have a state block to point at. Apply a
   // margin so messages that arrived between the last LLM run and the last apply
@@ -541,7 +543,7 @@ export async function extractDealInsights(
       ? new Date(priorState.lastInsightsAt.getTime() - WATERMARK_MARGIN_MS)
       : null;
 
-  const { text: transcriptText, mode } = formatTranscriptForLLM(transcript, since);
+  const { text: transcriptText, mode } = formatTranscriptForLLM(transcript, since, { engageChars });
 
   const promptParts: string[] = [];
   promptParts.push(`# Chatverlauf (alle Kanäle)\n\n${transcriptText}`);

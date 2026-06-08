@@ -290,6 +290,15 @@ export async function getDealImageAttachments(
  */
 export const TRANSCRIPT_CHAR_BUDGET = 60_000;
 
+/**
+ * Char count at/above which the incremental delta path engages (when a watermark
+ * exists). Defaults to the hard prompt cap, so incremental only kicks in for
+ * genuinely over-budget deals and behaviour is unchanged. Lower this (after
+ * validating with scripts/compare-insights.ts) to send delta-only prompts for
+ * medium deals too.
+ */
+export const INCREMENTAL_ENGAGE_CHARS = TRANSCRIPT_CHAR_BUDGET;
+
 /** Render one message as its labelled transcript block. */
 function renderBlock(m: TranscriptMessage): string {
   const ts = m.sentAt ? m.sentAt.toISOString() : "unknown time";
@@ -306,11 +315,14 @@ function renderBlock(m: TranscriptMessage): string {
  * only the delta. Callers use this to decide whether to add a structured
  * "Bisheriger Stand" block.
  */
-export function transcriptExceedsBudget(transcript: DealTranscript): boolean {
+export function transcriptExceedsBudget(
+  transcript: DealTranscript,
+  threshold: number = TRANSCRIPT_CHAR_BUDGET
+): boolean {
   let len = 0;
   for (const m of transcript.messages) {
     len += renderBlock(m).length + 2; // +2 for the "\n\n" join
-    if (len > TRANSCRIPT_CHAR_BUDGET) return true;
+    if (len > threshold) return true;
   }
   return false;
 }
@@ -336,17 +348,19 @@ export type FormattedTranscript = {
  */
 export function formatTranscriptForLLM(
   transcript: DealTranscript,
-  since?: Date | null
+  since?: Date | null,
+  opts?: { engageChars?: number }
 ): FormattedTranscript {
   if (transcript.messages.length === 0) return { text: "(no messages)", mode: "full" };
   const blocks = transcript.messages.map(renderBlock);
 
   const full = blocks.join("\n\n");
-  if (full.length <= TRANSCRIPT_CHAR_BUDGET) return { text: full, mode: "full" };
+  const engageChars = opts?.engageChars ?? INCREMENTAL_ENGAGE_CHARS;
 
-  // Incremental path: over budget AND we know what was already analysed.
-  if (since) {
-    const headBudget = Math.floor(TRANSCRIPT_CHAR_BUDGET * 0.3);
+  // Incremental path: a watermark exists AND the transcript is over the engage
+  // threshold (which may be below the hard prompt cap once widened).
+  if (since && full.length > engageChars) {
+    const headBudget = Math.floor(engageChars * 0.3);
     const head: string[] = [];
     let hLen = 0;
     let headCount = 0;
@@ -390,12 +404,14 @@ export function formatTranscriptForLLM(
       parts.push(...kept.map((i) => blocks[i]));
       return { text: parts.join("\n\n"), mode: "incremental" };
     }
-    // No new messages since the watermark → fall through to the legacy trim so
-    // we still send a useful tail.
+    // No new messages since the watermark → fall through below.
   }
 
-  // Head+tail budget: earliest messages usually carry name/addresses/scope;
-  // latest carry the current state (price agreed, payment, stage signals).
+  // Not incremental: within the hard prompt cap → send the full transcript.
+  if (full.length <= TRANSCRIPT_CHAR_BUDGET) return { text: full, mode: "full" };
+
+  // Over the hard cap → legacy head+tail trim: earliest messages usually carry
+  // name/addresses/scope; latest carry the current state (price, payment, stage).
   const headBudget = Math.floor(TRANSCRIPT_CHAR_BUDGET * 0.45);
   const tailBudget = TRANSCRIPT_CHAR_BUDGET - headBudget;
   const head: string[] = [];

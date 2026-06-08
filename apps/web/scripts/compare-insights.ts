@@ -17,16 +17,41 @@
  * expect those to differ even between two FULL runs. What matters is that the
  * SLOT fields (addresses, floors, dates, value, elevator, volume, etc.) match.
  *
- *   DATABASE_URL=... CRM_TOOLS_API_URL=... CRM_TOOLS_AUTH_TOKEN=... \
- *     pnpm --filter @openclaw-crm/web exec tsx scripts/compare-insights.ts <dealRecordId> [workspaceId]
+ * Env (DATABASE_URL, CRM_TOOLS_API_URL, CRM_TOOLS_AUTH_TOKEN) is loaded
+ * automatically from the repo-root and apps/web .env / .env.local files.
+ *
+ *   pnpm --filter @openclaw-crm/web exec tsx scripts/compare-insights.ts [dealRecordId] [workspaceId] [--engage=<chars>]
+ *
+ * If no dealRecordId is given, the deal with the largest transcript is picked
+ * automatically (best candidate to exercise the delta path).
+ *
+ * --engage lowers the char threshold at which incremental engages, so you can
+ * test it on a normal-sized deal before widening the shipped 60k default.
+ * Example: --engage=8000 makes incremental engage for any deal over ~8k chars.
  */
+import path from "node:path";
+import { config as loadEnv } from "dotenv";
+
+// Load env the same way next.config.ts / the other scripts do: repo-root
+// .env(.local) first, then apps/web overrides. So you can run this directly
+// without manually exporting DATABASE_URL / CRM_TOOLS_*.
+loadEnv({ path: path.resolve(__dirname, "../../../.env"), quiet: true });
+loadEnv({ path: path.resolve(__dirname, "../../../.env.local"), override: true, quiet: true });
+loadEnv({ path: path.resolve(__dirname, "../.env"), override: true, quiet: true });
+loadEnv({ path: path.resolve(__dirname, "../.env.local"), override: true, quiet: true });
+
 import { db } from "@/db";
+import { sql } from "drizzle-orm";
 import { objects } from "@/db/schema";
 import { extractDealInsights, type DealInsights } from "@/services/deal-insights";
 import { getDealTranscript, transcriptExceedsBudget } from "@/services/deal-transcript";
 
-const dealRecordId = process.argv[2];
-let workspaceId = process.argv[3];
+const rawArgs = process.argv.slice(2);
+const engageArg = rawArgs.find((a) => a.startsWith("--engage="));
+const engageChars = engageArg ? parseInt(engageArg.split("=")[1], 10) : undefined;
+const positional = rawArgs.filter((a) => !a.startsWith("--"));
+let dealRecordId = positional[0];
+let workspaceId = positional[1];
 
 function flatten(insights: DealInsights | null): Record<string, string> {
   const out: Record<string, string> = {};
@@ -71,10 +96,6 @@ const SLOT_FIELDS = new Set([
 ]);
 
 async function main() {
-  if (!dealRecordId) {
-    console.error("usage: tsx scripts/compare-insights.ts <dealRecordId> [workspaceId]");
-    process.exit(1);
-  }
   if (!workspaceId) {
     const rows = await db.select({ id: objects.workspaceId }).from(objects).groupBy(objects.workspaceId);
     const ids = [...new Set(rows.map((r) => r.id))];
@@ -85,12 +106,37 @@ async function main() {
     workspaceId = ids[0];
   }
 
+  if (!dealRecordId) {
+    // Auto-pick the deal with the largest linked transcript, so you do not have
+    // to hunt for an ID. Runs under your own authorized env when you run this.
+    const rows = await db.execute<{ id: string; chars: string }>(sql`
+      SELECT c.deal_record_id AS id, SUM(LENGTH(COALESCE(m.body, ''))) AS chars
+      FROM inbox_conversations c
+      JOIN inbox_messages m ON m.conversation_id = c.id
+      WHERE c.deal_record_id IS NOT NULL AND c.workspace_id = ${workspaceId}
+      GROUP BY c.deal_record_id
+      ORDER BY chars DESC
+      LIMIT 1
+    `);
+    const top = (rows as unknown as Array<{ id: string; chars: string }>)[0];
+    if (!top?.id) {
+      console.error("No deals with linked messages found. Pass a <dealRecordId> explicitly.");
+      process.exit(1);
+    }
+    dealRecordId = top.id;
+    console.log(`Auto-picked deal ${dealRecordId} (largest transcript, ~${top.chars} message chars).`);
+  }
+
   const transcript = await getDealTranscript(workspaceId, dealRecordId);
-  const exceeds = transcriptExceedsBudget(transcript);
+  const exceeds = transcriptExceedsBudget(transcript, engageChars);
   console.log(`\nDeal ${dealRecordId}`);
-  console.log(`Messages: ${transcript.messageCount} | over budget (incremental engages): ${exceeds}`);
+  console.log(
+    `Messages: ${transcript.messageCount} | engage threshold: ${engageChars ?? "default (60k)"} chars | incremental engages: ${exceeds}`,
+  );
   if (!exceeds) {
-    console.log("\nUnder budget → incremental never engages → both runs are identical. Nothing to compare.");
+    console.log(
+      "\nUnder the engage threshold → incremental never engages → both runs are identical. Pass --engage=<chars> (e.g. --engage=8000) to test incremental on a smaller deal.",
+    );
     process.exit(0);
   }
 
@@ -98,7 +144,7 @@ async function main() {
   const full = await extractDealInsights(workspaceId, dealRecordId, { forceFullTranscript: true });
   if (full.error) console.log(`  FULL error: ${full.error}`);
   console.log("Running INCREMENTAL extraction…");
-  const incr = await extractDealInsights(workspaceId, dealRecordId);
+  const incr = await extractDealInsights(workspaceId, dealRecordId, { engageChars });
   if (incr.error) console.log(`  INCR error: ${incr.error}`);
 
   const a = flatten(full.insights);
