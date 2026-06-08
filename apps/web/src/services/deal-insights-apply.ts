@@ -76,6 +76,13 @@ export interface ApplyInsightsResult {
   contactUpdated: string[];
   auftragUpdated: string[];
   auftragRecordId: string | null;
+  /** Selected, non-null fields that could NOT be written (e.g. a select-option
+   *  title the model emitted that has no matching option). Makes silent drops
+   *  visible to the caller / activity log. */
+  skipped: string[];
+  /** Step-level errors caught during apply, so a partial failure is reported
+   *  rather than looking like an empty extraction. */
+  errors: string[];
 }
 
 /** Map of extracted field key → deal attribute slug (deal-level attributes only) */
@@ -250,18 +257,42 @@ function normalizeStageTitle(title: string): string {
     .trim();
 }
 
-/** Resolve a select option's ID from its title (case-insensitive). */
-async function resolveSelectOptionId(
-  attributeId: string,
-  title: string
-): Promise<string | null> {
+/**
+ * Load an attribute's select options as a lowercased title -> id map (one
+ * query). First occurrence wins on a duplicate title, matching the previous
+ * `rows.find` lookup exactly.
+ */
+async function loadSelectOptions(attributeId: string): Promise<Map<string, string>> {
   const { selectOptions } = await import("@/db/schema/objects");
   const rows = await db
     .select({ id: selectOptions.id, title: selectOptions.title })
     .from(selectOptions)
     .where(eq(selectOptions.attributeId, attributeId));
-  const match = rows.find((r) => r.title.toLowerCase() === title.toLowerCase());
-  return match?.id ?? null;
+  const byTitle = new Map<string, string>();
+  for (const r of rows) {
+    const key = r.title.toLowerCase();
+    if (!byTitle.has(key)) byTitle.set(key, r.id);
+  }
+  return byTitle;
+}
+
+/**
+ * Resolve a select option's ID from its title (case-insensitive). When the
+ * title matches no option the value would be silently dropped, so we log a
+ * warning and (when given) record the miss via `onMiss`, making the drop
+ * visible instead of looking like the chat established nothing.
+ */
+async function resolveSelectOptionId(
+  attributeId: string,
+  title: string,
+  onMiss?: (title: string) => void
+): Promise<string | null> {
+  const id = (await loadSelectOptions(attributeId)).get(title.toLowerCase()) ?? null;
+  if (!id) {
+    console.warn(`[deal-insights-apply] unresolved select option "${title}" on attribute ${attributeId}`);
+    onMiss?.(title);
+  }
+  return id;
 }
 
 /**
@@ -291,6 +322,8 @@ export async function applyDealInsights(
     contactUpdated: [],
     auftragUpdated: [],
     auftragRecordId: null,
+    skipped: [],
+    errors: [],
   };
 
   try {
@@ -391,7 +424,8 @@ export async function applyDealInsights(
         .where(and(eq(attributes.objectId, dealObj.id), eq(attributes.slug, "elevator_from")))
         .limit(1);
       if (attr) {
-        const optId = await resolveSelectOptionId(attr.id, ext.elevator_from);
+        const optId = await resolveSelectOptionId(attr.id, ext.elevator_from, (t) =>
+          result.skipped.push(`Zugang Abholung nicht erkannt: "${t}"`));
         if (optId) {
           input.elevator_from = optId;
           result.fieldsUpdated.push("Zugang Abholung");
@@ -405,7 +439,8 @@ export async function applyDealInsights(
         .where(and(eq(attributes.objectId, dealObj.id), eq(attributes.slug, "elevator_to")))
         .limit(1);
       if (attr) {
-        const optId = await resolveSelectOptionId(attr.id, ext.elevator_to);
+        const optId = await resolveSelectOptionId(attr.id, ext.elevator_to, (t) =>
+          result.skipped.push(`Zugang Ziel nicht erkannt: "${t}"`));
         if (optId) {
           input.elevator_to = optId;
           result.fieldsUpdated.push("Zugang Ziel");
@@ -546,6 +581,7 @@ export async function applyDealInsights(
         selected,
         appliedBy,
         updatedFields: result.auftragUpdated,
+        skipped: result.skipped,
         onlyFillEmpty,
         scopeLocked,
       });
@@ -569,6 +605,7 @@ export async function applyDealInsights(
           contactUpdated: result.contactUpdated,
           auftragUpdated: result.auftragUpdated,
           auftragRecordId: result.auftragRecordId,
+          skipped: result.skipped,
           missingFields: insights.missingFields,
           criticalMissing: insights.criticalMissing,
           openCustomerQuestions: insights.openCustomerQuestions,
@@ -601,6 +638,7 @@ export async function applyDealInsights(
     }
   } catch (err) {
     console.error("[deal-insights-apply] applyDealInsights failed:", err);
+    result.errors.push(err instanceof Error ? err.message : String(err));
   }
 
   return result;
@@ -810,11 +848,13 @@ async function upsertAuftragForDeal(params: {
   selected: Set<string>;
   appliedBy: string | null;
   updatedFields: string[];
+  /** Select-option titles that could not be resolved are pushed here. */
+  skipped: string[];
   onlyFillEmpty: boolean;
   /** When true (kva_accepted tier + scope changed), do not overwrite the quoted volume. */
   scopeLocked: boolean;
 }): Promise<string | null> {
-  const { workspaceId, dealRecordId, ext, selected, appliedBy, updatedFields, onlyFillEmpty, scopeLocked } = params;
+  const { workspaceId, dealRecordId, ext, selected, appliedBy, updatedFields, skipped, onlyFillEmpty, scopeLocked } = params;
 
   const [auftragObj] = await db
     .select({ id: objects.id })
@@ -904,7 +944,8 @@ async function upsertAuftragForDeal(params: {
   if (selected.has("payment_method") && ext.payment_method && canWriteAuftrag("payment_method")) {
     const attr = auftragAttrBySlug.get("payment_method");
     if (attr) {
-      const optId = await resolveSelectOptionId(attr.id, ext.payment_method);
+      const optId = await resolveSelectOptionId(attr.id, ext.payment_method, (t) =>
+        skipped.push(`Zahlungsart nicht erkannt: "${t}"`));
       if (optId) {
         input.payment_method = optId;
         updatedFields.push("Zahlungsart");
@@ -916,7 +957,8 @@ async function upsertAuftragForDeal(params: {
   if (selected.has("transporter") && ext.transporter && canWriteAuftrag("transporter")) {
     const attr = auftragAttrBySlug.get("transporter");
     if (attr) {
-      const optId = await resolveSelectOptionId(attr.id, ext.transporter);
+      const optId = await resolveSelectOptionId(attr.id, ext.transporter, (t) =>
+        skipped.push(`Transporter nicht erkannt: "${t}"`));
       if (optId) {
         input.transporter = optId;
         updatedFields.push("Transporter");
@@ -924,14 +966,20 @@ async function upsertAuftragForDeal(params: {
     }
   }
 
-  // equipment_needed (multi-select) → resolve option IDs
+  // equipment_needed (multi-select) → resolve all option IDs in ONE query
   if (selected.has("equipment_needed") && Array.isArray(ext.equipment_needed) && ext.equipment_needed.length > 0 && canWriteAuftrag("equipment_needed")) {
     const attr = auftragAttrBySlug.get("equipment_needed");
     if (attr) {
+      const options = await loadSelectOptions(attr.id);
       const ids: string[] = [];
       for (const title of ext.equipment_needed) {
-        const optId = await resolveSelectOptionId(attr.id, title);
-        if (optId) ids.push(optId);
+        const optId = options.get(title.toLowerCase()) ?? null;
+        if (optId) {
+          ids.push(optId);
+        } else {
+          console.warn(`[deal-insights-apply] unresolved equipment option "${title}"`);
+          skipped.push(`Werkzeug nicht erkannt: "${title}"`);
+        }
       }
       if (ids.length > 0) {
         input.equipment_needed = ids;
