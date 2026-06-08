@@ -43,6 +43,10 @@ export const integrations = pgTable(
     webhookUrl: text("webhook_url"),
     // Arbitrary JSON object: sync preferences, field mappings, event toggles, etc.
     syncRules: text("sync_rules"),
+    // Last automatic/manual sync run (e.g. the ImmoScout lead import cron).
+    lastSyncAt: timestamp("last_sync_at"),
+    // JSON of the last sync result: { source, total, created, skipped, errors, at }.
+    lastSyncResult: text("last_sync_result"),
     position: integer("position").notNull().default(0),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),

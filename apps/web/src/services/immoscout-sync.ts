@@ -18,11 +18,13 @@
 import { db } from "@/db";
 import { objects, attributes, selectOptions } from "@/db/schema/objects";
 import { records, recordValues } from "@/db/schema/records";
-import { eq, and } from "drizzle-orm";
+import { integrations } from "@/db/schema/integrations";
+import { eq, and, sql } from "drizzle-orm";
 import { createRecord, updateRecord } from "./records";
 import { resolveOrCreatePerson } from "./inbox-crm-link";
 import { assignDealNumber } from "./financial";
 import { computeLeadName } from "./lead-name";
+import { updateIntegration } from "./integrations";
 
 const API_BASE = "https://www.umzug-easy.de/api";
 
@@ -411,6 +413,7 @@ export async function syncImmoscoutLeads(
         externalId: aid,
         importId: d.ImportId,
         source: "immoscout24",
+        channel: "api",
         leadType: d.LeadType,
         premiumLead: d.PremiumLead,
         createdAt: d.CreatedAt,
@@ -511,6 +514,127 @@ export async function syncImmoscoutLeads(
   }
 
   return result;
+}
+
+// ─── Cross-channel helpers (shared with the IS24 email ingest) ───────
+
+/**
+ * Returns the existing deal record id whose moving_lead_payload.externalId
+ * equals the given IS24 request id, or null. Both the umzug-easy API sync and
+ * the IS24 email ingest call this so the same lead never becomes two deals
+ * (the API `aid`/`ImportId` and the IS24 email request id are the SAME id).
+ */
+export async function findExistingMovingLeadDeal(
+  workspaceId: string,
+  externalId: string
+): Promise<string | null> {
+  const [dealsObj] = await db
+    .select({ id: objects.id })
+    .from(objects)
+    .where(and(eq(objects.workspaceId, workspaceId), eq(objects.slug, "deals")))
+    .limit(1);
+  if (!dealsObj) return null;
+  const [attr] = await db
+    .select({ id: attributes.id })
+    .from(attributes)
+    .where(and(eq(attributes.objectId, dealsObj.id), eq(attributes.slug, "moving_lead_payload")))
+    .limit(1);
+  if (!attr) return null;
+  const [row] = await db
+    .select({ recordId: recordValues.recordId })
+    .from(recordValues)
+    .innerJoin(records, eq(records.id, recordValues.recordId))
+    .where(
+      and(
+        eq(records.objectId, dealsObj.id),
+        eq(recordValues.attributeId, attr.id),
+        sql`${recordValues.jsonValue}->>'externalId' = ${externalId}`
+      )
+    )
+    .limit(1);
+  return row?.recordId ?? null;
+}
+
+/**
+ * Enrich an already-created deal with the structured moving-lead data. Used by
+ * the IS24 email ingest, which creates the deal via createDealForNewConversation
+ * (person + stage + conversation link) and then calls this so the deal matches a
+ * umzug-easy API import (payload + inventory notes + move date + deal number).
+ */
+export async function setDealMovingLead(params: {
+  workspaceId: string;
+  dealRecordId: string;
+  payload: Record<string, unknown>;
+  inventoryNotes?: string;
+  moveDate?: string | null;
+}): Promise<void> {
+  const [dealsObj] = await db
+    .select({ id: objects.id })
+    .from(objects)
+    .where(and(eq(objects.workspaceId, params.workspaceId), eq(objects.slug, "deals")))
+    .limit(1);
+  if (!dealsObj) return;
+  const fields: Record<string, unknown> = { moving_lead_payload: params.payload };
+  if (params.inventoryNotes) fields.inventory_notes = params.inventoryNotes;
+  if (params.moveDate) fields.move_date = params.moveDate;
+  await updateRecord(dealsObj.id, params.dealRecordId, fields, null);
+  await assignDealNumber(params.workspaceId, params.dealRecordId);
+}
+
+// ─── Cron entrypoint ─────────────────────────────────────────────────
+
+export interface GlobalSyncEntry {
+  workspaceId: string;
+  result?: SyncResult;
+  error?: string;
+}
+
+/**
+ * Run the umzug-easy lead import for every workspace whose ImmobilienScout24
+ * integration is active and has an API key, persisting the run status on the
+ * integration (lastSyncAt + lastSyncResult). Failures are isolated per
+ * workspace so one bad token never blocks the others. Called by the
+ * /api/cron/immoscout-sync route.
+ */
+export async function syncImmoscoutLeadsGlobal(): Promise<GlobalSyncEntry[]> {
+  const rows = await db
+    .select()
+    .from(integrations)
+    .where(
+      and(
+        eq(integrations.slug, "immobilienscout24"),
+        eq(integrations.status, "active")
+      )
+    );
+
+  const out: GlobalSyncEntry[] = [];
+  for (const immo of rows) {
+    if (!immo.apiKey) continue;
+    try {
+      const result = await syncImmoscoutLeads(immo.workspaceId, immo.apiKey);
+      await updateIntegration(immo.workspaceId, immo.id, {
+        lastSyncAt: new Date(),
+        lastSyncResult: JSON.stringify({
+          source: "cron",
+          total: result.total,
+          created: result.created,
+          skipped: result.skipped,
+          errors: result.errors,
+          at: new Date().toISOString(),
+        }),
+      });
+      out.push({ workspaceId: immo.workspaceId, result });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[immoscout-sync] workspace ${immo.workspaceId} failed:`, msg);
+      await updateIntegration(immo.workspaceId, immo.id, {
+        lastSyncAt: new Date(),
+        lastSyncResult: JSON.stringify({ source: "cron", error: msg, at: new Date().toISOString() }),
+      }).catch(() => {});
+      out.push({ workspaceId: immo.workspaceId, error: msg });
+    }
+  }
+  return out;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────

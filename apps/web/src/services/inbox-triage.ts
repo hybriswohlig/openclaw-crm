@@ -34,6 +34,9 @@ const KA_DOMAIN_RE = /@(?:[a-z0-9.-]*\.)?kleinanzeigen\.de$/i;
 const KA_RELAY_RE = /-ek-ek@mail\.kleinanzeigen\.de$/i;
 const KA_BUYER_SUBJECT_RE = /nutzer-anfrage|anfrage zu deiner anzeige|nachricht von|antwort von/i;
 
+const IS24_DOMAIN_RE = /@immobilienscout24\.de$/i;
+const IS24_LEAD_SUBJECT_RE = /^\s*IS24\s+Umzugsanfrage/i;
+
 const DENY_PREFIXES = ["no-reply", "noreply", "no_reply", "donotreply", "do-not-reply", "mailer-daemon", "bounce", "notification", "notifications", "mailing", "newsletter"];
 const MARKETING_LOCALS = new Set(["newsletter", "marketing", "news", "promo", "promotions", "deals", "offers"]);
 const ESP_DOMAINS = ["mailchimp", "sendgrid", "klaviyo", "hubspot", "sendinblue", "mailgun", "amazonses", "sparkpostmail", "mailjet", "constantcontact", "mailerlite"];
@@ -69,6 +72,17 @@ export function classifyInbound(input: ClassifyInput): ClassifyResult {
       return { lane: "lead", reason: "Kleinanzeigen Kaeufer-Anfrage", by: "senderlist" };
     }
     return { lane: "info", reason: "Kleinanzeigen Plattform-Benachrichtigung", by: "senderlist" };
+  }
+
+  // ── Layer 0b: ImmobilienScout24 ───────────────────────────────────────────
+  // IS24 sends real Umzug leads from noreply@immobilienscout24.de (subject
+  // "IS24 Umzugsanfrage: …") alongside heavy AnfragenShop marketing. Runs BEFORE
+  // the deny list so the "noreply" prefix does not bury the actual lead as noise.
+  if (IS24_DOMAIN_RE.test(from)) {
+    if (IS24_LEAD_SUBJECT_RE.test(subject)) {
+      return { lane: "lead", reason: "ImmobilienScout24 Umzugsanfrage", by: "senderlist" };
+    }
+    return { lane: "info", reason: "ImmobilienScout24 Benachrichtigung", by: "senderlist" };
   }
 
   // ── Layer 1: RFC bulk/automation headers ──────────────────────────────────

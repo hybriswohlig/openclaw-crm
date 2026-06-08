@@ -19,6 +19,24 @@ describe("classifyInbound — Kleinanzeigen", () => {
   });
 });
 
+describe("classifyInbound — ImmobilienScout24", () => {
+  it("an IS24 Umzugsanfrage is a LEAD despite the noreply sender", () => {
+    const r = classifyInbound({
+      fromAddr: "noreply@immobilienscout24.de",
+      subject: "IS24 Umzugsanfrage: ID 95744021260604094746 / Gerrit Ermert",
+    });
+    expect(r.lane).toBe("lead");
+  });
+  it("IS24 marketing / notifications stay INFO", () => {
+    expect(
+      classifyInbound({ fromAddr: "noreply@immobilienscout24.de", subject: "Neue Angebote im AnfragenShop" }).lane
+    ).toBe("info");
+    expect(
+      classifyInbound({ fromAddr: "noreply@immobilienscout24.de", subject: "Bestätigung: Ihre Anfrage & Widerrufsbelehrung" }).lane
+    ).toBe("info");
+  });
+});
+
 describe("classifyInbound — bots / bulk senders go to INFO", () => {
   it("Google no-reply", () => {
     expect(classifyInbound({ fromAddr: "no-reply@accounts.google.com", subject: "Security alert" }).lane).toBe("info");

@@ -32,10 +32,13 @@ import {
 } from "./inbox-kleinanzeigen";
 import { createDealForNewConversation } from "./inbox";
 import { emitEvent } from "./activity-events";
-import { ensureCrmPerson } from "./inbox-crm-link";
+import { ensureCrmPerson, resolveOrCreatePerson } from "./inbox-crm-link";
 import { extractPhonesFromText } from "@/lib/identity/canonical";
 import { classifyInbound } from "./inbox-triage";
 import { getSecret } from "./workspace-settings";
+import { isImmoscoutLeadEmail, parseImmoscoutLeadEmail } from "./inbox-immoscout";
+import { findExistingMovingLeadDeal, setDealMovingLead } from "./immoscout-sync";
+import { computeLeadName } from "./lead-name";
 
 type ChannelAccountRow = typeof channelAccounts.$inferSelect;
 
@@ -157,11 +160,24 @@ async function ingestParsedEmail(
 
   const isKleinanzeigen = isKleinanzeigenEmail(fromEmail, subject);
 
-  // Thread key: Kleinanzeigen → the relay address; otherwise the native thread
-  // id (Gmail) or the In-Reply-To/Message-ID chain (IMAP).
+  // IS24 relocation requests arrive from noreply@immobilienscout24.de with the
+  // full lead in the body. Parse it once; isImmoLead gates the lead-specific
+  // path (real customer from body + structured deal). Non-lead IS24 mail
+  // (AnfragenShop etc.) leaves immo null and flows through the normal path.
+  const immo = isImmoscoutLeadEmail(fromEmail, subject)
+    ? parseImmoscoutLeadEmail(parsed.text ?? "")
+    : null;
+  const isImmoLead = !!(immo && immo.externalId);
+
+  // Thread key: Kleinanzeigen → the relay address; IS24 lead → the request id
+  // (all leads share the same noreply@ sender, so threading by sender would
+  // collapse them into one conversation); otherwise the native thread id
+  // (Gmail) or the In-Reply-To/Message-ID chain (IMAP).
   const threadKey = isKleinanzeigen
     ? fromEmail
-    : nativeThreadId ?? parsed.inReplyTo ?? messageId;
+    : isImmoLead
+      ? `is24:${immo!.externalId}`
+      : nativeThreadId ?? parsed.inReplyTo ?? messageId;
 
   // Extract body
   const rawHtml = typeof parsed.html === "string" ? parsed.html : null;
@@ -188,21 +204,46 @@ async function ingestParsedEmail(
       .trim();
   }
 
-  // Upsert contact — strip "über Kleinanzeigen" suffix so the chat header
-  // shows just the person's name.
-  const contactName = isKleinanzeigen ? stripKleinanzeigenSuffix(fromName) : fromName;
-  const contact = await upsertContact(account.workspaceId, fromEmail, contactName);
+  // Upsert contact. For Kleinanzeigen strip the "über Kleinanzeigen" suffix; for
+  // IS24 leads use the real customer parsed from the body (NOT the shared
+  // noreply@ sender), keyed by the customer email (fallback: the request id so
+  // each lead stays a distinct contact even without an email).
+  const contactName = isKleinanzeigen
+    ? stripKleinanzeigenSuffix(fromName)
+    : isImmoLead
+      ? immo!.customer.fullName || fromName
+      : fromName;
+  const contactEmailKey = isImmoLead
+    ? immo!.customer.email ?? `is24-${immo!.externalId}@is24.lead`
+    : fromEmail;
+  const contact = await upsertContact(account.workspaceId, contactEmailKey, contactName);
 
-  // Auto-create CRM Person for the contact (idempotent).
-  await ensureCrmPerson({
-    workspaceId: account.workspaceId,
-    contactId: contact.id,
-    displayName: contactName || fromEmail,
-    email: fromEmail,
-    phone: null,
-    leadSource: isKleinanzeigen ? "Kleinanzeigen" : "WhatsApp / Website",
-    extraPhones: kaPhones,
-  });
+  // Auto-create / resolve the golden CRM Person (idempotent). IS24 leads route
+  // through resolveOrCreatePerson directly so the customer's body-parsed phone +
+  // email feed the identity graph under leadSource "ImmobilienScout".
+  if (isImmoLead) {
+    await resolveOrCreatePerson({
+      workspaceId: account.workspaceId,
+      contactId: contact.id,
+      displayName: contactName || contactEmailKey,
+      email: immo!.customer.email,
+      phone: immo!.customer.phone,
+      extraPhones: immo!.customer.phone ? [immo!.customer.phone] : [],
+      leadSource: "ImmobilienScout",
+      source: "import",
+      trust: "verified",
+    });
+  } else {
+    await ensureCrmPerson({
+      workspaceId: account.workspaceId,
+      contactId: contact.id,
+      displayName: contactName || fromEmail,
+      email: fromEmail,
+      phone: null,
+      leadSource: isKleinanzeigen ? "Kleinanzeigen" : "WhatsApp / Website",
+      extraPhones: kaPhones,
+    });
+  }
 
   // Upsert conversation
   let [conv] = await db
@@ -243,7 +284,10 @@ async function ingestParsedEmail(
         lane: triage.lane,
         classificationReason: triage.reason,
         classifiedBy: triage.by,
-        aiNeedsReply: triage.lane === "lead",
+        // IS24 leads land in the lead lane but get NO auto-reply: the sender is
+        // a no-reply notification address, not a channel back to the customer.
+        // The team works the lead from the created deal (phone/email in the body).
+        aiNeedsReply: isImmoLead ? false : triage.lane === "lead",
         aiLastInboundAt: sentAt,
       })
       .returning();
@@ -260,6 +304,43 @@ async function ingestParsedEmail(
         contactId: contact.id,
         channelAccountId: account.id,
       });
+    } else if (isImmoLead) {
+      // IS24 relocation request → structured deal. Dedup over the shared IS24
+      // request id so an email never duplicates a umzug-easy API import (and
+      // vice versa). If the deal already exists, just link this conversation.
+      const existingDeal = await findExistingMovingLeadDeal(
+        account.workspaceId,
+        immo!.externalId!
+      );
+      if (existingDeal) {
+        await db
+          .update(inboxConversations)
+          .set({ dealRecordId: existingDeal, updatedAt: new Date() })
+          .where(eq(inboxConversations.id, conv.id));
+      } else {
+        const dealName = computeLeadName({
+          customerName: immo!.dealNameParts.customerName,
+          fromAddress: immo!.dealNameParts.fromCity,
+          toAddress: immo!.dealNameParts.toCity,
+          moveDate: immo!.dealNameParts.moveDate,
+        });
+        const dealId = await createDealForNewConversation({
+          workspaceId: account.workspaceId,
+          conversationId: conv.id,
+          dealName,
+          contactId: contact.id,
+          channelAccountId: account.id,
+        });
+        if (dealId) {
+          await setDealMovingLead({
+            workspaceId: account.workspaceId,
+            dealRecordId: dealId,
+            payload: immo!.payload,
+            inventoryNotes: immo!.inventoryNotes,
+            moveDate: immo!.dealNameParts.moveDate,
+          });
+        }
+      }
     }
   } else {
     await db

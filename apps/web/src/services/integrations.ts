@@ -128,6 +128,8 @@ export interface IntegrationUpdateInput {
   apiKey?: string | null;
   webhookUrl?: string | null;
   syncRules?: string | null;
+  lastSyncAt?: Date | null;
+  lastSyncResult?: string | null;
   position?: number;
 }
 

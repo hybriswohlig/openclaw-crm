@@ -48,6 +48,8 @@ interface Integration {
   apiKey?: string | null;
   webhookUrl: string | null;
   syncRules: string | null;
+  lastSyncAt?: string | null;
+  lastSyncResult?: string | null;
   position: number;
   createdAt: string;
   updatedAt: string;
@@ -202,11 +204,49 @@ interface SyncResult {
   errors: string[];
 }
 
+interface ChannelStat {
+  total: number;
+  last30d: number;
+  lastAt: string | null;
+}
+
+function formatDateTime(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString("de-DE");
+}
+
 function ImmoscoutSyncSection({ integration }: { integration: Integration }) {
   const [syncing, setSyncing] = useState(false);
   const [syncMode, setSyncMode] = useState<"new" | "all" | null>(null);
   const [result, setResult] = useState<SyncResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [stats, setStats] = useState<{ email: ChannelStat; api: ChannelStat } | null>(null);
+
+  useEffect(() => {
+    fetch("/api/v1/integrations/immoscout/stats")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d?.data && setStats(d.data))
+      .catch(() => {});
+  }, [result]);
+
+  // Persisted status of the last automatic (cron) or manual umzug-easy sync.
+  const lastSync = (() => {
+    if (!integration.lastSyncResult) return null;
+    try {
+      return JSON.parse(integration.lastSyncResult) as {
+        source?: string;
+        total?: number;
+        created?: number;
+        skipped?: number;
+        errors?: string[];
+        error?: string;
+        at?: string;
+      };
+    } catch {
+      return null;
+    }
+  })();
 
   async function handleSync(resetFirst: boolean) {
     setSyncing(true);
@@ -238,8 +278,59 @@ function ImmoscoutSyncSection({ integration }: { integration: Integration }) {
   return (
     <div className="border-t border-border pt-4 space-y-3">
       <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-        Lead-Import (umzug-easy.de)
+        Lead-Import (ImmobilienScout24)
       </p>
+
+      {/* Live status: which channel is actually delivering leads. */}
+      {(stats || lastSync) && (
+        <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2 text-xs">
+          {stats && (
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-md bg-background border border-border p-2">
+                <p className="text-muted-foreground">Via E-Mail (IS24)</p>
+                <p className="text-base font-semibold text-foreground">
+                  {stats.email.last30d}
+                  <span className="text-xs font-normal text-muted-foreground"> / 30 Tage</span>
+                </p>
+                <p className="text-muted-foreground">
+                  Gesamt {stats.email.total} · zuletzt {formatDateTime(stats.email.lastAt)}
+                </p>
+              </div>
+              <div className="rounded-md bg-background border border-border p-2">
+                <p className="text-muted-foreground">Via API (umzug-easy)</p>
+                <p className="text-base font-semibold text-foreground">
+                  {stats.api.last30d}
+                  <span className="text-xs font-normal text-muted-foreground"> / 30 Tage</span>
+                </p>
+                <p className="text-muted-foreground">
+                  Gesamt {stats.api.total} · zuletzt {formatDateTime(stats.api.lastAt)}
+                </p>
+              </div>
+            </div>
+          )}
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Clock className="h-3 w-3 shrink-0" />
+            <span>
+              Letzter API-Sync: {formatDateTime(integration.lastSyncAt)}
+              {lastSync && !lastSync.error && (
+                <> · {lastSync.created ?? 0} neu, {lastSync.skipped ?? 0} übersprungen</>
+              )}
+              {lastSync?.error && (
+                <span className="text-destructive"> · Fehler: {lastSync.error}</span>
+              )}
+            </span>
+          </div>
+          {stats && stats.api.total > 0 && stats.api.last30d === 0 && (
+            <div className="flex items-start gap-2 text-amber-600 dark:text-amber-500">
+              <AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" />
+              <span>
+                Der umzug-easy API-Export liefert aktuell keine neuen Leads. Die Erfassung
+                läuft derzeit über die IS24-E-Mails an kontakt@kottke-umzuege.de.
+              </span>
+            </div>
+          )}
+        </div>
+      )}
 
       {!isReady ? (
         <div className="rounded-lg border border-dashed border-border p-4 text-center text-sm text-muted-foreground">
