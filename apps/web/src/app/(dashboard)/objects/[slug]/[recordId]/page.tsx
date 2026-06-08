@@ -165,6 +165,7 @@ export default function RecordDetailPage() {
   const [applying, setApplying] = useState(false);
   const [insightsPanel, setInsightsPanel] = useState<InsightsSuggestions | null>(null);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
+  const [applyNotice, setApplyNotice] = useState<{ skipped: string[]; errors: string[] } | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -294,6 +295,12 @@ export default function RecordDetailPage() {
         }),
       });
       if (res.ok) {
+        const r = (await res.json().catch(() => null))?.data as
+          | { skipped?: string[]; errors?: string[] }
+          | undefined;
+        const skipped = Array.isArray(r?.skipped) ? r!.skipped! : [];
+        const errors = Array.isArray(r?.errors) ? r!.errors! : [];
+        setApplyNotice(skipped.length || errors.length ? { skipped, errors } : null);
         setInsightsPanel(null);
         fetchData();
       }
@@ -391,6 +398,41 @@ export default function RecordDetailPage() {
         {slug === "deals" && (
           <div className="px-6 pt-4">
             <ShareLinkPanel dealRecordId={recordId} />
+          </div>
+        )}
+
+        {/* KI-Analyse: fields that could not be written / step errors */}
+        {slug === "deals" && applyNotice && (
+          <div className="px-6 pt-4">
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-sm font-semibold text-amber-700">
+                  <AlertTriangle className="h-4 w-4" />
+                  KI-Analyse übernommen, aber nicht alles konnte gesetzt werden
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setApplyNotice(null)}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                >
+                  schließen
+                </button>
+              </div>
+              {applyNotice.skipped.length > 0 && (
+                <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground">
+                  {applyNotice.skipped.map((s, i) => (
+                    <li key={i}>• {s}</li>
+                  ))}
+                </ul>
+              )}
+              {applyNotice.errors.length > 0 && (
+                <ul className="mt-2 space-y-0.5 text-xs text-red-600">
+                  {applyNotice.errors.map((e, i) => (
+                    <li key={i}>⚠ {e}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
         )}
 

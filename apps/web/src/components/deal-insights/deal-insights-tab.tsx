@@ -19,7 +19,7 @@ import {
 interface TranscriptMessage {
   id: string;
   conversationId: string;
-  channelType: "email" | "whatsapp";
+  channelType: "email" | "whatsapp" | "sms";
   channelName: string;
   channelAddress: string;
   direction: "inbound" | "outbound";
@@ -36,7 +36,7 @@ interface DealTranscript {
   messageCount: number;
   channels: Array<{
     conversationId: string;
-    channelType: "email" | "whatsapp";
+    channelType: "email" | "whatsapp" | "sms";
     channelName: string;
     channelAddress: string;
     contactName: string | null;
@@ -45,23 +45,37 @@ interface DealTranscript {
   messages: TranscriptMessage[];
 }
 
+// Mirrors the fields this read view shows from the server InsightsSchema
+// (services/deal-insights.ts). Kept as a display subset, but the keys and types
+// must match the real schema (floors_from/floors_to are numbers, not a single
+// `floors` string).
 interface DealInsights {
   extracted: {
     customer_name: string | null;
     move_date: string | null;
     move_from_address: string | null;
     move_to_address: string | null;
-    floors: string | null;
+    floors_from: number | null;
+    floors_to: number | null;
+    elevator_from: string | null;
+    elevator_to: string | null;
     inventory_notes: string | null;
     estimated_value_eur: number | null;
     customer_phone: string | null;
     customer_email: string | null;
+    volume_cbm: number | null;
+    transporter: string | null;
+    worker_count: number | null;
+    payment_method: string | null;
   };
+  suggested_stage: string | null;
   missingFields: string[];
   openCustomerQuestions: string[];
   legalFlags: Array<{ topic: string; reason: string }>;
   summary: string;
 }
+
+const numOrNull = (n: number | null | undefined) => (n != null ? String(n) : null);
 
 interface InsightsResponse {
   dealRecordId: string;
@@ -270,7 +284,14 @@ export function DealInsightsTab({ recordId }: { recordId: string }) {
               <Field label="Umzugsdatum" value={insights.extracted.move_date} />
               <Field label="Von" value={insights.extracted.move_from_address} />
               <Field label="Nach" value={insights.extracted.move_to_address} />
-              <Field label="Etagen" value={insights.extracted.floors} />
+              <Field label="Stockwerk (Abholung)" value={numOrNull(insights.extracted.floors_from)} />
+              <Field label="Stockwerk (Ziel)" value={numOrNull(insights.extracted.floors_to)} />
+              <Field label="Zugang (Abholung)" value={insights.extracted.elevator_from} />
+              <Field label="Zugang (Ziel)" value={insights.extracted.elevator_to} />
+              <Field label="Volumen (m³)" value={numOrNull(insights.extracted.volume_cbm)} />
+              <Field label="Transporter" value={insights.extracted.transporter} />
+              <Field label="Anzahl Arbeiter" value={numOrNull(insights.extracted.worker_count)} />
+              <Field label="Zahlungsart" value={insights.extracted.payment_method} />
               <Field
                 label="Geschätzter Wert"
                 value={
@@ -281,6 +302,7 @@ export function DealInsightsTab({ recordId }: { recordId: string }) {
               />
               <Field label="Telefon" value={insights.extracted.customer_phone} />
               <Field label="E-Mail" value={insights.extracted.customer_email} />
+              <Field label="Vorgeschlagene Phase" value={insights.suggested_stage} />
             </dl>
             {insights.extracted.inventory_notes && (
               <div className="mt-3">
