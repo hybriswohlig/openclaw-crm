@@ -2305,3 +2305,177 @@ export async function sendBaileysMediaReply(params: {
 
   return stored;
 }
+
+/**
+ * First-contact send over the in-house Baileys bridge.
+ *
+ * The WABA composer can only open a conversation through an approved template
+ * (Meta rule). Baileys is personal WhatsApp, so it has no template requirement
+ * and no 24h window — we can send a free-form text to a brand-new recipient.
+ * This bootstraps the contact + conversation (mirroring `sendWhatsAppTemplate`)
+ * and then sends the first message through the bridge.
+ */
+export async function sendBaileysFirstMessage(params: {
+  workspaceId: string;
+  channelAccountId: string;
+  toPhone: string;
+  customerName: string;
+  body: string;
+  /** Optional deal/lead to link this conversation to. */
+  dealRecordId?: string | null;
+}) {
+  const { workspaceId, channelAccountId, toPhone, customerName, dealRecordId } =
+    params;
+  const body = params.body.trim();
+  if (!body) throw new Error("Message body is required");
+
+  const [account] = await db
+    .select()
+    .from(channelAccounts)
+    .where(
+      and(
+        eq(channelAccounts.id, channelAccountId),
+        eq(channelAccounts.workspaceId, workspaceId),
+      ),
+    )
+    .limit(1);
+  if (!account) throw new Error("Channel account not found");
+  if (account.channelType !== "whatsapp") {
+    throw new Error("Not a WhatsApp channel account");
+  }
+  if (account.waPhoneNumberId) {
+    throw new Error(
+      "Channel account is WABA, not Baileys — open the conversation with a template instead",
+    );
+  }
+  if (account.baileysBridgeProvider !== "inhouse") {
+    throw new Error(
+      `Channel account uses bridge '${account.baileysBridgeProvider}', not 'inhouse' — outbound not supported here`,
+    );
+  }
+
+  const waId = normalizeWaPhone(toPhone);
+
+  // Upsert contact + conversation up-front so the message has somewhere to
+  // land. (channelAccountId, waId) uniquely identifies a conversation.
+  const contact = await upsertContact(workspaceId, waId, customerName);
+  await ensureCrmPerson({
+    workspaceId,
+    contactId: contact.id,
+    displayName: customerName || waId,
+    email: null,
+    phone: waId,
+    leadSource: "WhatsApp / Website",
+  });
+
+  const threadKey = waId;
+  let [conv] = await db
+    .select()
+    .from(inboxConversations)
+    .where(
+      and(
+        eq(inboxConversations.channelAccountId, account.id),
+        eq(inboxConversations.externalThreadId, threadKey),
+      ),
+    )
+    .limit(1);
+
+  let createdNewConversation = false;
+  if (!conv) {
+    const [created] = await db
+      .insert(inboxConversations)
+      .values({
+        workspaceId,
+        channelAccountId: account.id,
+        contactId: contact.id,
+        externalThreadId: threadKey,
+        subject: null,
+        lastMessageAt: new Date(),
+        lastMessagePreview: `Du: ${body.slice(0, 100)}`,
+        unreadCount: 0,
+        dealRecordId: dealRecordId ?? null,
+      })
+      .returning();
+    conv = created;
+    createdNewConversation = true;
+  } else if (dealRecordId && !conv.dealRecordId) {
+    // Back-fill the deal link on an existing conversation; never overwrite.
+    await db
+      .update(inboxConversations)
+      .set({ dealRecordId, updatedAt: new Date() })
+      .where(eq(inboxConversations.id, conv.id));
+    conv = { ...conv, dealRecordId };
+  }
+
+  let sendResult: { externalMessageId: string };
+  try {
+    sendResult = await callBridgeSend(account.id, {
+      kind: "text",
+      peerWaId: waId,
+      text: body,
+    });
+  } catch (err) {
+    // Roll back the empty shell conversation on a first-contact failure so the
+    // inbox doesn't fill with dead threads.
+    if (createdNewConversation) {
+      await db
+        .delete(inboxConversations)
+        .where(eq(inboxConversations.id, conv.id));
+    }
+    throw err;
+  }
+
+  const [stored] = await db
+    .insert(inboxMessages)
+    .values({
+      workspaceId,
+      conversationId: conv.id,
+      direction: "outbound",
+      status: "sent",
+      externalMessageId: sendResult.externalMessageId,
+      fromAddress: account.address,
+      toAddress: waId,
+      subject: null,
+      body,
+      isRead: true,
+      sentAt: new Date(),
+    })
+    .returning();
+
+  await db
+    .update(inboxConversations)
+    .set({
+      lastMessageAt: new Date(),
+      lastMessagePreview: `Du: ${body.slice(0, 100)}`,
+      updatedAt: new Date(),
+    })
+    .where(eq(inboxConversations.id, conv.id));
+
+  if (createdNewConversation) {
+    await createDealForNewConversation({
+      workspaceId,
+      conversationId: conv.id,
+      dealName: customerName || waId,
+      contactId: contact.id,
+      channelAccountId: account.id,
+    });
+  }
+
+  if (conv.dealRecordId) {
+    await emitEvent({
+      workspaceId,
+      recordId: conv.dealRecordId,
+      objectSlug: "deals",
+      eventType: "message.sent",
+      payload: {
+        conversationId: conv.id,
+        channelType: "whatsapp",
+        bridge: "baileys-inhouse",
+        toAddress: waId,
+        externalMessageId: sendResult.externalMessageId,
+      },
+    });
+  }
+
+  return { message: stored, conversationId: conv.id, createdNewConversation };
+}

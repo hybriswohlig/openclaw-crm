@@ -60,6 +60,11 @@ interface ChannelAccount {
   channelType: ChannelType;
   operatingCompanyRecordId: string | null;
   isActive: boolean;
+  // WhatsApp transport discriminator. waPhoneNumberId set ⇒ WABA Cloud API
+  // (template-only compose). null ⇒ Baileys personal WhatsApp (free-text
+  // compose), with baileysBridgeProvider selecting which bridge handles it.
+  waPhoneNumberId?: string | null;
+  baileysBridgeProvider?: string | null;
 }
 
 interface Conversation {
@@ -2063,10 +2068,14 @@ export default function InboxPage() {
 }
 
 // ─── Compose WhatsApp modal ───────────────────────────────────────────────────
-// First-contact flow: pick a business number, enter recipient phone + name,
-// pick an approved template, fill its `{{n}}` variables, send. Meta only
-// allows outbound-initiated conversations via approved templates, which is
-// why the composer below doesn't offer a free-text option.
+// First-contact flow: pick a business number, enter recipient phone + name.
+//
+// The sender's transport decides the rest:
+//   • WABA Cloud API (waPhoneNumberId set) — Meta only allows outbound-initiated
+//     conversations via approved templates, so the composer makes you pick a
+//     template and fill its `{{n}}` variables.
+//   • Baileys personal WhatsApp (waPhoneNumberId null) — no template requirement
+//     and no 24h window, so the composer offers a plain free-text box instead.
 
 interface WhatsAppTemplate {
   name: string;
@@ -2108,6 +2117,15 @@ function ComposeWhatsAppModal({
   const [variables, setVariables] = useState<string[]>([]);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  // Free-text body, used only by the Baileys (personal WhatsApp) branch.
+  const [messageText, setMessageText] = useState("");
+
+  // Transport of the selected sender. Baileys accounts have no
+  // waPhoneNumberId; only the in-house bridge can send outbound from the CRM.
+  const selectedAccount = accounts.find((a) => a.id === channelAccountId) ?? null;
+  const isBaileys = !!selectedAccount && !selectedAccount.waPhoneNumberId;
+  const baileysOutboundSupported =
+    isBaileys && selectedAccount?.baileysBridgeProvider === "inhouse";
 
   // Metadata: per-template variable labels. Keyed by `${name}|${language}`.
   type MetadataRow = {
@@ -2121,13 +2139,22 @@ function ComposeWhatsAppModal({
   const [labelDraft, setLabelDraft] = useState<string>("");
 
   // Fetch templates AND metadata whenever the channel account changes.
+  // Baileys senders have no Meta templates, so skip the fetch entirely —
+  // calling the templates endpoint for them only yields a "missing WABA id"
+  // error. Their compose path is the free-text box below.
   useEffect(() => {
     if (!channelAccountId) return;
-    setTemplatesLoading(true);
     setTemplatesError(null);
     setSelectedTemplate("");
     setVariables([]);
     setMetadata([]);
+    setSendError(null);
+    if (isBaileys) {
+      setTemplates([]);
+      setTemplatesLoading(false);
+      return;
+    }
+    setTemplatesLoading(true);
     Promise.all([
       fetch(`/api/v1/inbox/channel-accounts/${channelAccountId}/templates`).then(
         async (res) => {
@@ -2154,7 +2181,7 @@ function ComposeWhatsAppModal({
       })
       .catch((err) => setTemplatesError(err.message))
       .finally(() => setTemplatesLoading(false));
-  }, [channelAccountId]);
+  }, [channelAccountId, isBaileys]);
 
   const activeMetadata = metadata.find(
     (m) =>
@@ -2280,18 +2307,41 @@ function ComposeWhatsAppModal({
   const requiresHeaderImage = headerFormat === "IMAGE";
   const headerImageUrl = activeMetadata?.headerImageUrl ?? "";
 
+  const phoneIsValid = toPhone.trim().replace(/\D+/g, "").length >= 7;
   const canSend =
     !sending &&
-    channelAccountId &&
-    toPhone.trim().replace(/\D+/g, "").length >= 7 &&
-    selectedTemplate &&
-    variables.every((v) => v.trim().length > 0) &&
-    (!requiresHeaderImage || headerImageUrl.trim().length > 0);
+    !!channelAccountId &&
+    phoneIsValid &&
+    (isBaileys
+      ? baileysOutboundSupported && messageText.trim().length > 0
+      : !!selectedTemplate &&
+        variables.every((v) => v.trim().length > 0) &&
+        (!requiresHeaderImage || headerImageUrl.trim().length > 0));
 
   async function handleSend() {
     setSending(true);
     setSendError(null);
     try {
+      if (isBaileys) {
+        // Baileys: free-text first message via the in-house bridge.
+        const res = await fetch("/api/v1/inbox/whatsapp/send-baileys", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            channelAccountId,
+            toPhone,
+            customerName,
+            body: messageText,
+            dealRecordId: dealRecordId ?? null,
+          }),
+        });
+        const j = await res.json();
+        if (!res.ok) throw new Error(j.error ?? "Send failed");
+        onSent(j.data.conversationId);
+        return;
+      }
+
+      // WABA Cloud API: open the conversation with an approved template.
       const tpl = templates.find((t) => t.name === selectedTemplate);
       const res = await fetch("/api/v1/inbox/whatsapp/send-template", {
         method: "POST",
@@ -2379,7 +2429,35 @@ function ComposeWhatsAppModal({
                 </div>
               </div>
 
-              {/* Template picker */}
+              {/* Baileys (personal WhatsApp): free-text first message.
+                  No template, no 24h window — just type and send. */}
+              {isBaileys &&
+                (baileysOutboundSupported ? (
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium">Nachricht</label>
+                    <textarea
+                      value={messageText}
+                      onChange={(e) => setMessageText(e.target.value)}
+                      rows={5}
+                      placeholder="Nachricht eingeben…"
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-y"
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      Persönliches WhatsApp – freie Textnachricht, keine Vorlage
+                      nötig.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-xs text-amber-600">
+                    Diese Nummer ist über den OpenClaw-Bridge verbunden, der kein
+                    Senden aus dem CRM unterstützt. Stelle das Konto in den
+                    Integrationen auf den hauseigenen Bridge um, um von hier zu
+                    schreiben.
+                  </p>
+                ))}
+
+              {/* Template picker — WABA Cloud API only */}
+              {!isBaileys && (
               <div className="space-y-1">
                 <label className="text-xs font-medium">Template</label>
                 {templatesLoading ? (
@@ -2407,6 +2485,7 @@ function ComposeWhatsAppModal({
                   </select>
                 )}
               </div>
+              )}
 
               {/* Header image URL — required when the template has an IMAGE header */}
               {activeTemplate && requiresHeaderImage && (
