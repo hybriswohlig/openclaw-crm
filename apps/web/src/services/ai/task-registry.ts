@@ -24,7 +24,7 @@ export interface AITaskDefinition {
   slug: AITaskSlug;
   label: string;
   description: string;
-  defaultProvider: "gateway" | "openrouter";
+  defaultProvider: "openrouter" | "crm-tools";
   defaultModel: string;
   defaultFallbackModel: string | null;
   defaultTemperature: number | null;
@@ -42,7 +42,7 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
     label: "Deal insights extraction",
     description:
       "Runs over the cross-channel transcript of a deal and extracts structured fields plus open questions.",
-    defaultProvider: "openrouter",
+    defaultProvider: "crm-tools",
     defaultModel: "anthropic/claude-sonnet-4",
     defaultFallbackModel: "openai/gpt-4o",
     defaultTemperature: 0.2,
@@ -54,7 +54,7 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
     label: "CRM chat assistant",
     description:
       "The /chat assistant with tool calls over the CRM.",
-    defaultProvider: "openrouter",
+    defaultProvider: "crm-tools",
     defaultModel: "anthropic/claude-sonnet-4",
     defaultFallbackModel: null,
     defaultTemperature: null,
@@ -66,7 +66,7 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
     label: "Deal auto-reply draft (P4)",
     description:
       "Drafts a reply into the compose box, matching the customer's tone. Never sends.",
-    defaultProvider: "openrouter",
+    defaultProvider: "crm-tools",
     defaultModel: "anthropic/claude-sonnet-4",
     defaultFallbackModel: null,
     defaultTemperature: 0.4,
@@ -79,7 +79,7 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
     label: "Call summarization (P4)",
     description:
       "Summarizes a CloudTalk call transcript into key points and action items.",
-    defaultProvider: "openrouter",
+    defaultProvider: "crm-tools",
     defaultModel: "anthropic/claude-sonnet-4",
     defaultFallbackModel: null,
     defaultTemperature: 0.2,
@@ -91,7 +91,7 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
     label: "Sales agent reply turn",
     description:
       "The on/off sales assistant. Decides the next conversation turn (ask for info, hand off to a human, or no-op) and drafts the German customer message. Never names a price.",
-    defaultProvider: "openrouter",
+    defaultProvider: "crm-tools",
     defaultModel: "anthropic/claude-sonnet-4",
     defaultFallbackModel: "openai/gpt-4o",
     defaultTemperature: 0.4,
@@ -103,7 +103,7 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
     label: "Sales agent follow-up (P3)",
     description:
       "Re-engages a stale lead whose move date is still in the future. Phase 3, not wired yet.",
-    defaultProvider: "openrouter",
+    defaultProvider: "crm-tools",
     defaultModel: "anthropic/claude-sonnet-4",
     defaultFallbackModel: null,
     defaultTemperature: 0.4,

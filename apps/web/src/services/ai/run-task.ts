@@ -4,14 +4,15 @@
  * - Resolves per-task config from `ai_task_configs` (falls back to registry
  *   defaults and auto-seeds a row on first run).
  * - Routes by provider:
- *     - `openrouter` (default): direct HTTPS call, structured output via JSON mode
- *     - `crm-tools`: forwards the prompt to the crm-tools FastAPI service which
- *       runs Claude Code CLI server-side. Async (job_id + polling). Used so
- *       this workspace can opt into the Claude-Max plan for some tasks
- *       (typically background tasks like the daily insights refresh — UI
- *       interactivity suffers from the 30-90s latency).
- * - Enforces a daily spend cap against `ai_task_runs` (cap counts attempts;
- *   crm-tools path logs $0 since the cost is the Max-plan quota, not USD).
+ *     - `crm-tools` (operational default): forwards the prompt to the crm-tools
+ *       FastAPI service which runs Claude Code CLI server-side on the Claude-Max
+ *       plan. Async (job_id + polling, 30-90s). Every live task uses this, and
+ *       the registry defaults seed new tasks to it.
+ *     - `openrouter` (fallback): direct HTTPS call, structured output via JSON
+ *       mode, synchronous and low-latency. Retained as a per-task fallback for
+ *       any latency-sensitive task; not used in normal operation.
+ * - Enforces a daily spend cap (OpenRouter path only) against `ai_task_runs`;
+ *   the crm-tools path is exempt since its cost is the flat-rate Max-plan quota.
  * - Logs every invocation — success or failure — to `ai_task_runs`.
  * - Falls back to the configured `fallback_model` if the primary model throws
  *   (openrouter path only; crm-tools has a single Claude model).
@@ -193,6 +194,11 @@ async function logRun(params: {
       errorMessage: params.errorMessage,
     })
     .returning({ id: aiTaskRuns.id });
+  console.log(
+    `[ai] ${params.taskSlug} provider=${params.provider} model=${params.model} ` +
+      `ok=${params.success} latency=${params.latencyMs}ms` +
+      (params.errorMessage ? ` error=${params.errorMessage.slice(0, 160)}` : "")
+  );
   return row.id;
 }
 
@@ -488,29 +494,9 @@ async function runViaCrmTools<TSchema extends z.ZodTypeAny | undefined>(
     };
   }
 
-  if (cfg.dailySpendCapUsd !== null) {
-    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const spent = await getSpendSince(input.workspaceId, input.taskSlug, since);
-    if (spent >= cfg.dailySpendCapUsd) {
-      const runId = await logRun({
-        workspaceId: input.workspaceId,
-        taskSlug: input.taskSlug,
-        provider: "crm-tools",
-        model: CRM_TOOLS_MODEL_TAG,
-        inputTokens: null,
-        outputTokens: null,
-        costUsd: null,
-        latencyMs: 0,
-        success: false,
-        errorMessage: `daily spend cap reached (${spent.toFixed(4)} / ${cfg.dailySpendCapUsd})`,
-      });
-      return {
-        ok: false,
-        runId,
-        error: `Daily AI spend cap reached for this task ($${cfg.dailySpendCapUsd.toFixed(2)}).`,
-      };
-    }
-  }
+  // No daily spend cap on the crm-tools path: the cost is the flat-rate Claude
+  // subscription (not USD-metered), so costUsd is always logged null and any cap
+  // check would compare against 0. The spend cap applies to the OpenRouter path.
 
   // Build the user prompt with schema hint, matching the OpenRouter path.
   let userPrompt = input.prompt;

@@ -36,9 +36,9 @@ import { getLatestScopeSnapshot } from "./scope-guard";
 // the schema is forgiving of common LLM mistakes (returning a single-element
 // array instead of a scalar, returning the string "null"/"unknown", etc.).
 //
-// Smaller / cheaper / "free" models on OpenRouter (Llama, Nemotron, …) often
-// emit arrays even when asked for a scalar. Coercing here keeps KI-Analyze
-// from hard-failing on those.
+// Models sometimes emit an array even when asked for a scalar, or the string
+// "null"/"unknown" instead of null. Coercing here keeps KI-Analyse from
+// hard-failing on those slips, whichever provider produced the response.
 
 function unwrapScalar(v: unknown): unknown {
   if (Array.isArray(v)) return v.length === 0 ? null : v[0];

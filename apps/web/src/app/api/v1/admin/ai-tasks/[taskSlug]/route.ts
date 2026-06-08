@@ -23,8 +23,8 @@ function sanitize(body: unknown): PatchBody | string {
   const out: PatchBody = {};
   if ("provider" in b) {
     if (typeof b.provider !== "string") return "provider must be a string";
-    if (b.provider !== "gateway" && b.provider !== "openrouter")
-      return "provider must be 'gateway' or 'openrouter'";
+    if (b.provider !== "openrouter" && b.provider !== "crm-tools")
+      return "provider must be 'openrouter' or 'crm-tools'";
     out.provider = b.provider;
   }
   if ("model" in b) {

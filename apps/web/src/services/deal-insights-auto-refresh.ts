@@ -222,7 +222,7 @@ export async function refreshInContactLeads(
     );
   const logByDeal = new Map(logRows.map((r) => [r.dealRecordId, r]));
 
-  // 5. Iterate. Throttle to ≤1 deal per 2s to be friendly to OpenRouter.
+  // 5. Iterate. Each deal blocks on its crm-tools job, so runs are naturally serial.
   for (const dealRecordId of candidateDealIds) {
     const lastMessageAt = recentByDeal.get(dealRecordId) ?? null;
     const log = logByDeal.get(dealRecordId);
@@ -315,9 +315,8 @@ export async function refreshInContactLeads(
           : null,
       });
 
-      // Throttle — OpenRouter is fine with bursts but the underlying
-      // models sometimes 429. 2s sleep keeps us well under any limit.
-      await new Promise((r) => setTimeout(r, 2000));
+      // No artificial throttle: each deal already blocks on its crm-tools job
+      // (30-90s), so extractions run strictly serially, paced by job duration.
     } catch (err) {
       console.error(
         `[auto-refresh] failed for deal ${dealRecordId}:`,

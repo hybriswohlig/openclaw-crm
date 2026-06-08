@@ -16,7 +16,8 @@ import { AI_TASK_SLUGS } from "@/services/ai/task-registry";
  *
  * Generates a short reply suggestion for the conversation. Gated to manual
  * invocation only — never auto-runs. Uses the existing `deal.draft-reply`
- * AI task slug; the workspace must have the OpenRouter key configured.
+ * AI task slug; the provider/key come from that task's ai_task_configs row
+ * (crm-tools by default, OpenRouter only if the task is set to it).
  *
  * Returns `{ text: string }` on success, or `{ error: string }` on failure
  * (UI hides the suggestion bubble when there's no text).
