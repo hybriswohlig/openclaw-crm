@@ -29,23 +29,9 @@
  * test it on a normal-sized deal before widening the shipped 60k default.
  * Example: --engage=8000 makes incremental engage for any deal over ~8k chars.
  */
-import path from "node:path";
-import { config as loadEnv } from "dotenv";
-
-// Load env the same way next.config.ts / the other scripts do: repo-root
-// .env(.local) first, then apps/web overrides. So you can run this directly
-// without manually exporting DATABASE_URL / CRM_TOOLS_*.
-loadEnv({ path: path.resolve(__dirname, "../../../.env"), quiet: true });
-loadEnv({ path: path.resolve(__dirname, "../../../.env.local"), override: true, quiet: true });
-loadEnv({ path: path.resolve(__dirname, "../.env"), override: true, quiet: true });
-loadEnv({ path: path.resolve(__dirname, "../.env.local"), override: true, quiet: true });
-
-// The db client only enables SSL when NODE_ENV=production (src/db/index.ts:18),
-// and Neon refuses non-SSL connections. Default to production so the script
-// connects without the caller needing to prefix NODE_ENV.
-if (!process.env.NODE_ENV) {
-  (process.env as unknown as { NODE_ENV?: string }).NODE_ENV = "production";
-}
+// MUST be first: loads env (and defaults NODE_ENV) before any "@/" module is
+// evaluated, so run-task.ts's import-time CRM_TOOLS_* consts see the values.
+import "./_load-env";
 
 import { db } from "@/db";
 import { sql } from "drizzle-orm";
@@ -153,6 +139,13 @@ async function main() {
   console.log("Running INCREMENTAL extraction…");
   const incr = await extractDealInsights(workspaceId, dealRecordId, { engageChars });
   if (incr.error) console.log(`  INCR error: ${incr.error}`);
+
+  if (!full.insights || !incr.insights) {
+    console.log(
+      "\n✗ Cannot compare: one or both extractions returned no insights (see the errors above). Nothing was validated.",
+    );
+    process.exit(1);
+  }
 
   const a = flatten(full.insights);
   const b = flatten(incr.insights);
