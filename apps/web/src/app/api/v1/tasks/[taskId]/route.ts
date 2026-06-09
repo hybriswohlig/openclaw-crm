@@ -27,6 +27,8 @@ export async function PATCH(
       sprintId?: string | null;
       workType?: string | null;
       growthCategory?: string | null;
+      description?: string | null;
+      priority?: string | null;
     };
 
     // Capture the previous assignee set BEFORE the update so we can tell

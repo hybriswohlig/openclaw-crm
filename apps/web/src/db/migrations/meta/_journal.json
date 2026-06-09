@@ -169,6 +169,13 @@
       "when": 1779600000000,
       "tag": "0033_sprints",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1779700000000,
+      "tag": "0034_task_detail",
+      "breakpoints": true
     }
   ]
 }

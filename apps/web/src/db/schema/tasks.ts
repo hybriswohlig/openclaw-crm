@@ -49,6 +49,10 @@ export const tasks = pgTable("tasks", {
   // Validated against a constant in the service. Only meaningful for build
   // work; NULL otherwise.
   growthCategory: text("growth_category"),
+  // Free-text details beyond the one-line title. NULL = no description.
+  description: text("description"),
+  // 'niedrig' | 'mittel' | 'hoch' | NULL. Validated in the service.
+  priority: text("priority"),
 }, (table) => [
   index("tasks_workspace_id").on(table.workspaceId),
   index("tasks_parent_task_id").on(table.parentTaskId),

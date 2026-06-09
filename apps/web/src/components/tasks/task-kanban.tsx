@@ -12,8 +12,9 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { Clock, Plus, Truck } from "lucide-react";
+import { Clock, Plus, Truck, AlignLeft } from "lucide-react";
 import { TaskDialog } from "./task-dialog";
+import { priorityMeta } from "@/lib/task-priority";
 
 interface TaskAssignee {
   id: string;
@@ -42,6 +43,8 @@ interface ApiTask {
   sprintId: string | null;
   workType: string | null;
   growthCategory: string | null;
+  description: string | null;
+  priority: string | null;
 }
 
 type ColumnKey = "backlog" | "heute" | "laeuft" | "warte" | "erledigt";
@@ -507,6 +510,11 @@ export function TaskKanban({
                 sprintId: editingTask.sprintId,
                 workType: editingTask.workType,
                 growthCategory: editingTask.growthCategory,
+                description: editingTask.description,
+                priority: editingTask.priority,
+                kanbanStatus: editingTask.kanbanStatus,
+                createdBy: editingTask.createdBy,
+                createdAt: editingTask.createdAt,
               }
             : undefined
         }
@@ -749,6 +757,8 @@ function TaskCard({
     !isSameDay(new Date(task.deadline), new Date());
   const assignee = task.assignees[0];
   const linkedDeal = task.linkedRecords.find((r) => r.objectSlug === "deals");
+  const prio = priorityMeta(task.priority);
+  const hasDescription = !!task.description && task.description.trim().length > 0;
 
   return (
     <div
@@ -773,6 +783,20 @@ function TaskCard({
           color: done ? "var(--ink-muted)" : "var(--ink)",
         }}
       >
+        {prio && (
+          <span
+            title={`Prioritaet: ${prio.label}`}
+            style={{
+              display: "inline-block",
+              width: 7,
+              height: 7,
+              borderRadius: "50%",
+              background: prio.dot,
+              marginRight: 6,
+              verticalAlign: "middle",
+            }}
+          />
+        )}
         {task.content}
       </div>
 
@@ -856,6 +880,9 @@ function TaskCard({
           }}
         >
           <span style={{ opacity: 0.6 }}>T-{task.id.slice(0, 4)}</span>
+          {hasDescription && (
+            <AlignLeft size={10} aria-label="Beschreibung vorhanden" />
+          )}
           <Clock size={10} />
           {formatDue(task)}
         </span>

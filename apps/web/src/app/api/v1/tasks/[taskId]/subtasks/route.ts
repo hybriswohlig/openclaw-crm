@@ -8,8 +8,8 @@ import {
 } from "@/lib/api-utils";
 import { db } from "@/db";
 import { tasks } from "@/db/schema";
-import { and, eq, asc } from "drizzle-orm";
-import { createTask } from "@/services/tasks";
+import { and, eq } from "drizzle-orm";
+import { createTask, listSubtasks } from "@/services/tasks";
 
 /**
  * GET /api/v1/tasks/[taskId]/subtasks — list children of a task.
@@ -26,19 +26,10 @@ export async function GET(
 
     const { taskId } = await params;
 
-    // Parent must belong to this workspace.
-    const [parent] = await db
-      .select({ id: tasks.id })
-      .from(tasks)
-      .where(and(eq(tasks.id, taskId), eq(tasks.workspaceId, ctx.workspaceId)))
-      .limit(1);
-    if (!parent) return notFound("Task not found");
-
-    const rows = await db
-      .select()
-      .from(tasks)
-      .where(eq(tasks.parentTaskId, taskId))
-      .orderBy(asc(tasks.createdAt));
+    // Enriched children (assignees, points, etc.) so subtasks render as
+    // full mini-tasks. Returns null when the parent is not in this workspace.
+    const rows = await listSubtasks(ctx.workspaceId, taskId);
+    if (rows === null) return notFound("Task not found");
 
     return success(rows);
   } catch (err) {

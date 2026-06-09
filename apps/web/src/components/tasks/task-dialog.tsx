@@ -28,6 +28,29 @@ import {
   WORK_TYPE_LABELS,
   GROWTH_CATEGORIES,
 } from "@/lib/sprint-constants";
+import { PRIORITIES } from "@/lib/task-priority";
+
+function formatRelativeDe(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const min = Math.round(diff / 60000);
+  if (min < 1) return "gerade eben";
+  if (min < 60) return `vor ${min} min`;
+  const hr = Math.round(min / 60);
+  if (hr < 24) return `vor ${hr} h`;
+  const d = Math.round(hr / 24);
+  if (d < 7) return `vor ${d} ${d === 1 ? "Tag" : "Tagen"}`;
+  return new Date(iso).toLocaleDateString("de-DE");
+}
+
+// Kanban status options for the in-dialog status dropdown (mirrors the board).
+const STATUS_OPTIONS: { value: string; label: string }[] = [
+  { value: "", label: "Automatisch" },
+  { value: "backlog", label: "Backlog" },
+  { value: "heute", label: "Heute" },
+  { value: "laeuft", label: "Läuft jetzt" },
+  { value: "warte", label: "Wartet" },
+  { value: "erledigt", label: "Erledigt" },
+];
 import {
   format,
   isToday,
@@ -56,6 +79,15 @@ interface TaskFormData {
   workType?: string | null;
   /** Growth-category slug for build tasks. */
   growthCategory?: string | null;
+  /** Free-text details. */
+  description?: string | null;
+  /** 'niedrig' | 'mittel' | 'hoch' | null. */
+  priority?: string | null;
+  /** Kanban column. */
+  kanbanStatus?: string | null;
+  /** For the activity footer. */
+  createdBy?: string | null;
+  createdAt?: string | null;
 }
 
 interface SprintOption {
@@ -113,6 +145,9 @@ interface TaskDialogProps {
     sprintId: string | null;
     workType: string | null;
     growthCategory: string | null;
+    description: string | null;
+    priority: string | null;
+    kanbanStatus?: string | null;
   }) => Promise<void>;
   onDelete?: () => Promise<void>;
 }
@@ -142,6 +177,9 @@ export function TaskDialog({
   const [workType, setWorkType] = useState<"flow" | "build">("flow");
   const [growthCategory, setGrowthCategory] = useState<string>("");
   const [sprints, setSprints] = useState<SprintOption[]>([]);
+  const [description, setDescription] = useState<string>("");
+  const [priority, setPriority] = useState<string>("");
+  const [kanbanStatus, setKanbanStatus] = useState<string>("");
   const [linkedRecords, setLinkedRecords] = useState<
     { id: string; displayName: string; objectSlug: string }[]
   >([]);
@@ -196,6 +234,9 @@ export function TaskDialog({
         setSprintId(initialData.sprintId ?? "");
         setWorkType(initialData.workType === "build" ? "build" : "flow");
         setGrowthCategory(initialData.growthCategory ?? "");
+        setDescription(initialData.description ?? "");
+        setPriority(initialData.priority ?? "");
+        setKanbanStatus(initialData.kanbanStatus ?? "");
       } else {
         setContent(defaultContent ?? "");
         setDeadline(defaultDeadline ?? null);
@@ -205,6 +246,9 @@ export function TaskDialog({
         setSprintId(defaultSprintId ?? "");
         setWorkType(defaultSprintId ? "build" : "flow");
         setGrowthCategory("");
+        setDescription("");
+        setPriority("");
+        setKanbanStatus("");
         setLinkedRecords(
           defaultRecordId && defaultRecordName
             ? [
@@ -358,11 +402,17 @@ export function TaskDialog({
         sprintId: sprintId || null,
         workType,
         growthCategory: workType === "build" ? growthCategory || null : null,
+        description: description.trim() || null,
+        priority: priority || null,
+        // Status only carries when editing; new tasks derive their column.
+        ...(mode === "edit" ? { kanbanStatus: kanbanStatus || null } : {}),
       });
       if (createMore && mode === "create") {
         setContent("");
         setDeadline(null);
         setPointEstimate(null);
+        setDescription("");
+        setPriority("");
         setLinkedRecords(
           defaultRecordId && defaultRecordName
             ? [
@@ -484,6 +534,15 @@ export function TaskDialog({
                 handleSave();
               }
             }}
+          />
+
+          {/* Beschreibung — the details beyond the one-line title. */}
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Beschreibung (optional)…"
+            rows={2}
+            className="w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus:border-ring"
           />
 
           {/* Action buttons row */}
@@ -862,16 +921,80 @@ export function TaskDialog({
             </select>
           </div>
 
+          {/* ── Prioritaet ──────────────────────────────────────────────── */}
+          <div className="flex items-center gap-2 flex-wrap text-xs">
+            <span className="text-muted-foreground">Prioritaet</span>
+            <div className="inline-flex rounded-md border border-border overflow-hidden">
+              {PRIORITIES.map((p) => {
+                const active = priority === p.value;
+                return (
+                  <button
+                    key={p.value}
+                    type="button"
+                    onClick={() => setPriority(active ? "" : p.value)}
+                    className={cn(
+                      "inline-flex items-center gap-1 px-2.5 py-1 border-r border-border last:border-r-0 transition-colors",
+                      active
+                        ? "bg-foreground text-background"
+                        : "bg-background hover:bg-muted/50 text-muted-foreground"
+                    )}
+                  >
+                    <span
+                      className="h-2 w-2 rounded-full"
+                      style={{ background: p.dot }}
+                    />
+                    {p.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* ── Status (only when editing; new tasks derive their column) ── */}
+          {mode === "edit" && (
+            <div className="flex items-center gap-2 flex-wrap text-xs">
+              <span className="text-muted-foreground">Status</span>
+              <select
+                value={kanbanStatus}
+                onChange={(e) => setKanbanStatus(e.target.value)}
+                className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground"
+              >
+                {STATUS_OPTIONS.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {mode === "edit" && initialData?.id && (
             <div
               className="mt-1 pt-3 flex flex-col gap-4"
               style={{ borderTop: "1px dashed var(--line, rgba(0,0,0,0.1))" }}
             >
-              <TaskSubtasks taskId={initialData.id} />
+              <TaskSubtasks
+                taskId={initialData.id}
+                members={members}
+                currentUserId={currentUserId}
+              />
               <TaskComments
                 taskId={initialData.id}
                 currentUserId={currentUserId}
               />
+              {/* Aktivitaet — who created this task and when. */}
+              {initialData.createdAt && (
+                <p className="text-[11px] text-muted-foreground">
+                  Erstellt
+                  {(() => {
+                    const creator = members.find(
+                      (m) => m.userId === initialData.createdBy
+                    );
+                    return creator ? ` von ${creator.name || creator.email}` : "";
+                  })()}{" "}
+                  · {formatRelativeDe(initialData.createdAt)}
+                </p>
+              )}
             </div>
           )}
         </div>

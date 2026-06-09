@@ -8,6 +8,7 @@ import {
 import { eq, and, desc, inArray, isNull, sql } from "drizzle-orm";
 import { batchGetRecordDisplayNames } from "./display-names";
 import { normalizeWorkType, normalizeGrowthCategory } from "@/lib/sprint-constants";
+import { normalizePriority } from "@/lib/task-priority";
 
 /** Allowed Fibonacci sizes — anything else is coerced to null. */
 export const TASK_POINT_VALUES = [1, 2, 3, 5, 8, 13] as const;
@@ -37,6 +38,12 @@ export interface TaskData {
   workType: string | null;
   /** Growth-category slug for build tasks, or null. */
   growthCategory: string | null;
+  /** Free-text details beyond the title, or null. */
+  description: string | null;
+  /** 'niedrig' | 'mittel' | 'hoch' | null. */
+  priority: string | null;
+  /** Parent task id for subtasks, else null. */
+  parentTaskId: string | null;
 }
 
 /** Batch-enrich an array of task rows into TaskData[] (~3 queries total) */
@@ -104,6 +111,9 @@ async function enrichTasks(
     sprintId: t.sprintId ?? null,
     workType: t.workType ?? null,
     growthCategory: t.growthCategory ?? null,
+    description: t.description ?? null,
+    priority: t.priority ?? null,
+    parentTaskId: t.parentTaskId ?? null,
   }));
 }
 
@@ -168,6 +178,27 @@ export async function getTasksForRecord(recordId: string) {
   return enrichTasks(taskRows);
 }
 
+/**
+ * Enriched children of a task (assignees, points, sprint, etc.) so subtasks
+ * can be rendered as full mini-tasks. Verifies the parent is in-workspace.
+ */
+export async function listSubtasks(workspaceId: string, parentTaskId: string) {
+  const [parent] = await db
+    .select({ id: tasks.id })
+    .from(tasks)
+    .where(and(eq(tasks.id, parentTaskId), eq(tasks.workspaceId, workspaceId)))
+    .limit(1);
+  if (!parent) return null;
+
+  const childRows = await db
+    .select()
+    .from(tasks)
+    .where(eq(tasks.parentTaskId, parentTaskId))
+    .orderBy(tasks.createdAt);
+
+  return enrichTasks(childRows);
+}
+
 export async function createTask(
   content: string,
   createdBy: string,
@@ -182,6 +213,8 @@ export async function createTask(
     sprintId?: string | null;
     workType?: string | null;
     growthCategory?: string | null;
+    description?: string | null;
+    priority?: string | null;
   } = {}
 ) {
   const [task] = await db
@@ -202,6 +235,8 @@ export async function createTask(
       sprintId: options.sprintId ?? null,
       workType: normalizeWorkType(options.workType),
       growthCategory: normalizeGrowthCategory(options.growthCategory),
+      description: options.description?.trim() ? options.description.trim() : null,
+      priority: normalizePriority(options.priority),
     })
     .returning();
 
@@ -243,6 +278,8 @@ export async function updateTask(
     sprintId?: string | null;
     workType?: string | null;
     growthCategory?: string | null;
+    description?: string | null;
+    priority?: string | null;
   }
 ) {
   // Verify task belongs to workspace
@@ -284,6 +321,14 @@ export async function updateTask(
   }
   if (updates.growthCategory !== undefined) {
     setValues.growthCategory = normalizeGrowthCategory(updates.growthCategory);
+  }
+  if (updates.description !== undefined) {
+    setValues.description = updates.description?.trim()
+      ? updates.description.trim()
+      : null;
+  }
+  if (updates.priority !== undefined) {
+    setValues.priority = normalizePriority(updates.priority);
   }
 
   if (Object.keys(setValues).length > 0) {

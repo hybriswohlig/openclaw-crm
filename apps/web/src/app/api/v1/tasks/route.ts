@@ -79,6 +79,9 @@ export async function POST(req: NextRequest) {
       workType: typeof body.workType === "string" ? body.workType : null,
       growthCategory:
         typeof body.growthCategory === "string" ? body.growthCategory : null,
+      description:
+        typeof body.description === "string" ? body.description : null,
+      priority: typeof body.priority === "string" ? body.priority : null,
     });
 
     // Push-notify each new assignee (excluding the creator themselves).
