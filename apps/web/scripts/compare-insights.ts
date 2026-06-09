@@ -40,6 +40,13 @@ loadEnv({ path: path.resolve(__dirname, "../../../.env.local"), override: true, 
 loadEnv({ path: path.resolve(__dirname, "../.env"), override: true, quiet: true });
 loadEnv({ path: path.resolve(__dirname, "../.env.local"), override: true, quiet: true });
 
+// The db client only enables SSL when NODE_ENV=production (src/db/index.ts:18),
+// and Neon refuses non-SSL connections. Default to production so the script
+// connects without the caller needing to prefix NODE_ENV.
+if (!process.env.NODE_ENV) {
+  (process.env as unknown as { NODE_ENV?: string }).NODE_ENV = "production";
+}
+
 import { db } from "@/db";
 import { sql } from "drizzle-orm";
 import { objects } from "@/db/schema";
