@@ -293,9 +293,14 @@ export const TRANSCRIPT_CHAR_BUDGET = 60_000;
 /**
  * Char count at/above which the incremental delta path engages (when a watermark
  * exists). Defaults to the hard prompt cap, so incremental only kicks in for
- * genuinely over-budget deals and behaviour is unchanged. Lower this (after
- * validating with scripts/compare-insights.ts) to send delta-only prompts for
- * medium deals too.
+ * genuinely over-budget deals and behaviour is unchanged.
+ *
+ * Validated 2026-06-09 (scripts/compare-insights.ts): do NOT lower this below
+ * the cap. Below the cap the full transcript fits, and incremental then elides
+ * the middle that full would see, degrading extraction (on a real deal it
+ * dropped a postal code + umlaut from an address and under-counted boxes).
+ * Incremental is only worthwhile ABOVE the cap, where the alternative is the
+ * equally-lossy head/tail trim.
  */
 export const INCREMENTAL_ENGAGE_CHARS = TRANSCRIPT_CHAR_BUDGET;
 
