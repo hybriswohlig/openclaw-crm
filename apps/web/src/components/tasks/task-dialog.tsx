@@ -25,6 +25,10 @@ import { cn } from "@/lib/utils";
 import { TaskComments } from "./task-comments";
 import { TaskSubtasks } from "./task-subtasks";
 import {
+  WORK_TYPE_LABELS,
+  GROWTH_CATEGORIES,
+} from "@/lib/sprint-constants";
+import {
   format,
   isToday,
   isTomorrow,
@@ -46,6 +50,18 @@ interface TaskFormData {
   assignees?: { id: string; name: string; email: string }[];
   /** Fibonacci size (1,2,3,5,8,13) or null. */
   pointEstimate?: number | null;
+  /** Sprint membership; null/"" = Kein Sprint. */
+  sprintId?: string | null;
+  /** 'flow' | 'build' | null. */
+  workType?: string | null;
+  /** Growth-category slug for build tasks. */
+  growthCategory?: string | null;
+}
+
+interface SprintOption {
+  id: string;
+  name: string;
+  state: string;
 }
 
 const POINT_OPTIONS: { value: number; label: string; hint: string }[] = [
@@ -86,12 +102,17 @@ interface TaskDialogProps {
   defaultContent?: string;
   /** Pre-fill deadline (used by quick-action chips). */
   defaultDeadline?: Date | null;
+  /** Pre-select a sprint when creating from a sprint context. */
+  defaultSprintId?: string | null;
   onSave: (data: {
     content: string;
     deadline: string | null;
     recordIds: string[];
     assigneeIds: string[];
     pointEstimate: number | null;
+    sprintId: string | null;
+    workType: string | null;
+    growthCategory: string | null;
   }) => Promise<void>;
   onDelete?: () => Promise<void>;
 }
@@ -109,6 +130,7 @@ export function TaskDialog({
   defaultRecordSlug,
   defaultContent,
   defaultDeadline,
+  defaultSprintId,
   onSave,
   onDelete,
 }: TaskDialogProps) {
@@ -116,6 +138,10 @@ export function TaskDialog({
   const [deadline, setDeadline] = useState<Date | null>(null);
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [pointEstimate, setPointEstimate] = useState<number | null>(null);
+  const [sprintId, setSprintId] = useState<string>("");
+  const [workType, setWorkType] = useState<"flow" | "build">("flow");
+  const [growthCategory, setGrowthCategory] = useState<string>("");
+  const [sprints, setSprints] = useState<SprintOption[]>([]);
   const [linkedRecords, setLinkedRecords] = useState<
     { id: string; displayName: string; objectSlug: string }[]
   >([]);
@@ -167,11 +193,18 @@ export function TaskDialog({
         setAssigneeIds(initialData.assigneeIds);
         setLinkedRecords(initialData.linkedRecords || []);
         setPointEstimate(initialData.pointEstimate ?? null);
+        setSprintId(initialData.sprintId ?? "");
+        setWorkType(initialData.workType === "build" ? "build" : "flow");
+        setGrowthCategory(initialData.growthCategory ?? "");
       } else {
         setContent(defaultContent ?? "");
         setDeadline(defaultDeadline ?? null);
         setAssigneeIds(currentUserId ? [currentUserId] : []);
         setPointEstimate(null);
+        // Pulling a task into a sprint implies it is growth/build work.
+        setSprintId(defaultSprintId ?? "");
+        setWorkType(defaultSprintId ? "build" : "flow");
+        setGrowthCategory("");
         setLinkedRecords(
           defaultRecordId && defaultRecordName
             ? [
@@ -203,7 +236,24 @@ export function TaskDialog({
     defaultRecordSlug,
     defaultContent,
     defaultDeadline,
+    defaultSprintId,
   ]);
+
+  // Fetch assignable sprints (Planung + Aktiv) so a task can be slotted
+  // into the sprint backlog right from the task dialog.
+  useEffect(() => {
+    if (open && sprints.length === 0) {
+      fetch("/api/v1/sprints")
+        .then((r) => r.json())
+        .then((data) => {
+          const list = (data?.data?.sprints ?? []) as SprintOption[];
+          setSprints(
+            list.filter((s) => s.state === "planung" || s.state === "aktiv")
+          );
+        })
+        .catch(() => {});
+    }
+  }, [open, sprints.length]);
 
   // Fetch workspace members
   useEffect(() => {
@@ -305,6 +355,9 @@ export function TaskDialog({
         recordIds: linkedRecords.map((r) => r.id),
         assigneeIds,
         pointEstimate,
+        sprintId: sprintId || null,
+        workType,
+        growthCategory: workType === "build" ? growthCategory || null : null,
       });
       if (createMore && mode === "create") {
         setContent("");
@@ -743,6 +796,70 @@ export function TaskDialog({
                 {POINT_OPTIONS.find((o) => o.value === pointEstimate)?.hint}
               </span>
             )}
+          </div>
+
+          {/* ── Art der Arbeit: laufender Betrieb vs Wachstum ─────────────
+              'Wachstum' tasks are the finite grow-the-company initiatives
+              that belong in a Sprint. 'Laufender Betrieb' is daily ops and
+              stays in pure flow. Optional, defaults to laufender Betrieb. */}
+          <div className="flex items-center gap-2 flex-wrap text-xs">
+            <span className="text-muted-foreground">Art</span>
+            <div className="inline-flex rounded-md border border-border overflow-hidden">
+              {(["flow", "build"] as const).map((wt) => {
+                const active = workType === wt;
+                return (
+                  <button
+                    key={wt}
+                    type="button"
+                    onClick={() => {
+                      setWorkType(wt);
+                      if (wt === "flow") setGrowthCategory("");
+                    }}
+                    className={cn(
+                      "px-2.5 py-1 border-r border-border last:border-r-0 transition-colors",
+                      active
+                        ? "bg-emerald-600 text-white"
+                        : "bg-background hover:bg-muted/50 text-muted-foreground"
+                    )}
+                  >
+                    {WORK_TYPE_LABELS[wt]}
+                  </button>
+                );
+              })}
+            </div>
+            {workType === "build" && (
+              <select
+                value={growthCategory}
+                onChange={(e) => setGrowthCategory(e.target.value)}
+                className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground"
+                title="Wachstumsbereich"
+              >
+                <option value="">Bereich waehlen</option>
+                {GROWTH_CATEGORIES.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          {/* ── Sprint-Zuordnung ───────────────────────────────────────── */}
+          <div className="flex items-center gap-2 flex-wrap text-xs">
+            <span className="text-muted-foreground">Sprint</span>
+            <select
+              value={sprintId}
+              onChange={(e) => setSprintId(e.target.value)}
+              className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground"
+            >
+              <option value="">Kein Sprint</option>
+              {sprints.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                  {s.state === "aktiv" ? " (aktiv)" : " (Planung)"}
+                </option>
+              ))}
+            </select>
           </div>
 
           {mode === "edit" && initialData?.id && (

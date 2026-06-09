@@ -24,6 +24,9 @@ export async function PATCH(
       assigneeIds?: string[];
       kanbanStatus?: "backlog" | "heute" | "laeuft" | "warte" | "erledigt" | null;
       pointEstimate?: number | null;
+      sprintId?: string | null;
+      workType?: string | null;
+      growthCategory?: string | null;
     };
 
     // Capture the previous assignee set BEFORE the update so we can tell

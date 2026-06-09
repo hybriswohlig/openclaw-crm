@@ -33,9 +33,26 @@ export const tasks = pgTable("tasks", {
   // tasks score. This keeps "many small tasks" and "one big task with
   // subtasks" fairly comparable.
   pointEstimate: integer("point_estimate"),
+  // Sprint membership. NULL = product backlog / pure flow (the default and
+  // the only state any pre-existing task is ever in). A set sprintId puts
+  // the task into that sprint's backlog and lets it count toward the
+  // sprint's velocity. ON DELETE SET NULL so deleting a sprint returns its
+  // tasks to flow instead of cascading them away.
+  sprintId: text("sprint_id"),
+  // Work classification tag, independent of sprint membership.
+  // NULL / 'flow' = laufender Betrieb (daily operations). 'build' = Wachstum
+  // (a finite grow-the-company initiative). The migration leaves this NULL
+  // so every existing task reads as flow. This is a label for filtering and
+  // reporting only; it does NOT gate sprint velocity (sprint membership does).
+  workType: text("work_type"),
+  // Sub-bucket of a 'build' task, e.g. 'vertrieb' | 'marketing' | 'hiring'.
+  // Validated against a constant in the service. Only meaningful for build
+  // work; NULL otherwise.
+  growthCategory: text("growth_category"),
 }, (table) => [
   index("tasks_workspace_id").on(table.workspaceId),
   index("tasks_parent_task_id").on(table.parentTaskId),
+  index("tasks_sprint_id").on(table.sprintId),
 ]);
 
 export const taskRecords = pgTable(

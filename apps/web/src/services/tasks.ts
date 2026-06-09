@@ -5,8 +5,9 @@ import {
   taskAssignees,
   users,
 } from "@/db/schema";
-import { eq, and, desc, inArray, sql } from "drizzle-orm";
+import { eq, and, desc, inArray, isNull, sql } from "drizzle-orm";
 import { batchGetRecordDisplayNames } from "./display-names";
+import { normalizeWorkType, normalizeGrowthCategory } from "@/lib/sprint-constants";
 
 /** Allowed Fibonacci sizes — anything else is coerced to null. */
 export const TASK_POINT_VALUES = [1, 2, 3, 5, 8, 13] as const;
@@ -30,6 +31,12 @@ export interface TaskData {
   kanbanStatus: string | null;
   /** Fibonacci size (1,2,3,5,8,13) or null when not estimated. */
   pointEstimate: number | null;
+  /** Sprint membership; null = product backlog / pure flow. */
+  sprintId: string | null;
+  /** 'flow' | 'build' | null (null reads as flow). */
+  workType: string | null;
+  /** Growth-category slug for build tasks, or null. */
+  growthCategory: string | null;
 }
 
 /** Batch-enrich an array of task rows into TaskData[] (~3 queries total) */
@@ -94,6 +101,9 @@ async function enrichTasks(
     assignees: assigneesByTask.get(t.id) || [],
     kanbanStatus: t.kanbanStatus ?? null,
     pointEstimate: t.pointEstimate ?? null,
+    sprintId: t.sprintId ?? null,
+    workType: t.workType ?? null,
+    growthCategory: t.growthCategory ?? null,
   }));
 }
 
@@ -102,24 +112,26 @@ async function enrichTasks(
 export async function listTasks(
   workspaceId: string,
   _createdBy: string,
-  options: { showCompleted?: boolean; limit?: number; offset?: number } = {}
+  options: {
+    showCompleted?: boolean;
+    limit?: number;
+    offset?: number;
+    /** Only tasks in this sprint. */
+    sprintId?: string;
+    /** Only tasks NOT in any sprint (product backlog / flow). */
+    noSprint?: boolean;
+  } = {}
 ) {
   const { showCompleted = false, limit = 50, offset = 0 } = options;
 
   // Subtasks are excluded from the top-level kanban — they show up
   // inside their parent's TaskDialog instead. parentTaskId IS NULL means
   // "this is a top-level task".
-  const baseClause = sql`${tasks.parentTaskId} IS NULL`;
-  let whereClause;
-  if (showCompleted) {
-    whereClause = and(eq(tasks.workspaceId, workspaceId), baseClause);
-  } else {
-    whereClause = and(
-      eq(tasks.workspaceId, workspaceId),
-      eq(tasks.isCompleted, false),
-      baseClause
-    );
-  }
+  const clauses = [eq(tasks.workspaceId, workspaceId), sql`${tasks.parentTaskId} IS NULL`];
+  if (!showCompleted) clauses.push(eq(tasks.isCompleted, false));
+  if (options.sprintId) clauses.push(eq(tasks.sprintId, options.sprintId));
+  else if (options.noSprint) clauses.push(isNull(tasks.sprintId));
+  const whereClause = and(...clauses);
 
   const [taskRows, [countResult]] = await Promise.all([
     db
@@ -167,6 +179,9 @@ export async function createTask(
     parentTaskId?: string | null;
     recurrenceRule?: "daily" | "weekly" | "monthly" | null;
     pointEstimate?: number | null;
+    sprintId?: string | null;
+    workType?: string | null;
+    growthCategory?: string | null;
   } = {}
 ) {
   const [task] = await db
@@ -184,6 +199,9 @@ export async function createTask(
           : new Date()
         : null,
       pointEstimate: normalizePoints(options.pointEstimate),
+      sprintId: options.sprintId ?? null,
+      workType: normalizeWorkType(options.workType),
+      growthCategory: normalizeGrowthCategory(options.growthCategory),
     })
     .returning();
 
@@ -222,6 +240,9 @@ export async function updateTask(
     recurrenceRule?: "daily" | "weekly" | "monthly" | null;
     kanbanStatus?: "backlog" | "heute" | "laeuft" | "warte" | "erledigt" | null;
     pointEstimate?: number | null;
+    sprintId?: string | null;
+    workType?: string | null;
+    growthCategory?: string | null;
   }
 ) {
   // Verify task belongs to workspace
@@ -253,6 +274,16 @@ export async function updateTask(
   }
   if (updates.pointEstimate !== undefined) {
     setValues.pointEstimate = normalizePoints(updates.pointEstimate);
+  }
+  if (updates.sprintId !== undefined) {
+    // Empty string from the form means "Kein Sprint".
+    setValues.sprintId = updates.sprintId ? updates.sprintId : null;
+  }
+  if (updates.workType !== undefined) {
+    setValues.workType = normalizeWorkType(updates.workType);
+  }
+  if (updates.growthCategory !== undefined) {
+    setValues.growthCategory = normalizeGrowthCategory(updates.growthCategory);
   }
 
   if (Object.keys(setValues).length > 0) {

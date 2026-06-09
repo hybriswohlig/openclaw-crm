@@ -5,6 +5,7 @@ export * from "./records";
 export * from "./lists";
 export * from "./notes";
 export * from "./tasks";
+export * from "./sprints";
 export * from "./notifications";
 export * from "./api-keys";
 export * from "./chat";

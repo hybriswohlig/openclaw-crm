@@ -39,6 +39,9 @@ interface ApiTask {
   assignees: TaskAssignee[];
   kanbanStatus: ColumnKey | null;
   pointEstimate: number | null;
+  sprintId: string | null;
+  workType: string | null;
+  growthCategory: string | null;
 }
 
 type ColumnKey = "backlog" | "heute" | "laeuft" | "warte" | "erledigt";
@@ -115,15 +118,41 @@ function initials(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-export function TaskKanban() {
+interface SprintLite {
+  id: string;
+  name: string;
+  state: string;
+}
+
+type SprintScope = "alle" | "sprint" | "backlog";
+
+export function TaskKanban({
+  refreshKey,
+  onMutate,
+}: {
+  refreshKey?: number;
+  onMutate?: () => void;
+} = {}) {
   const [tasks, setTasks] = useState<ApiTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>("alle");
+  const [sprintScope, setSprintScope] = useState<SprintScope>("alle");
+  const [sprints, setSprints] = useState<SprintLite[]>([]);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogMode, setDialogMode] = useState<"create" | "edit">("edit");
   const [editingTask, setEditingTask] = useState<ApiTask | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | undefined>(undefined);
+
+  const activeSprint = useMemo(
+    () => sprints.find((s) => s.state === "aktiv") ?? null,
+    [sprints]
+  );
+  const sprintNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const s of sprints) m.set(s.id, s.name);
+    return m;
+  }, [sprints]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -157,9 +186,28 @@ export function TaskKanban() {
     }
   }, []);
 
+  const loadSprints = useCallback(async () => {
+    try {
+      const res = await fetch("/api/v1/sprints", { cache: "no-store" });
+      if (!res.ok) return;
+      const data = await res.json();
+      setSprints((data?.data?.sprints ?? []) as SprintLite[]);
+    } catch {
+      // swallow
+    }
+  }, []);
+
   useEffect(() => {
     load();
-  }, [load]);
+    loadSprints();
+  }, [load, loadSprints, refreshKey]);
+
+  // Bubble mutations up so the Sprint-Bar refreshes too; fall back to a
+  // local reload when used standalone.
+  const reload = useCallback(() => {
+    if (onMutate) onMutate();
+    else load();
+  }, [onMutate, load]);
 
   const allAssignees = useMemo(() => {
     const map = new Map<string, TaskAssignee>();
@@ -170,13 +218,26 @@ export function TaskKanban() {
   }, [tasks]);
 
   const filtered = useMemo(() => {
-    if (filter === "alle") return tasks;
-    if (filter === "mine") {
-      if (!currentUserId) return tasks;
-      return tasks.filter((t) => t.assignees.some((a) => a.id === currentUserId));
+    let list = tasks;
+    // Sprint scope: focus the board on the active sprint, the product
+    // backlog, or show everything (the default).
+    if (sprintScope === "sprint") {
+      list = activeSprint
+        ? list.filter((t) => t.sprintId === activeSprint.id)
+        : [];
+    } else if (sprintScope === "backlog") {
+      list = list.filter((t) => !t.sprintId);
     }
-    return tasks.filter((t) => t.assignees.some((a) => a.id === filter));
-  }, [tasks, filter, currentUserId]);
+    // Assignee filter.
+    if (filter === "mine") {
+      if (!currentUserId) return list;
+      return list.filter((t) => t.assignees.some((a) => a.id === currentUserId));
+    }
+    if (filter !== "alle") {
+      return list.filter((t) => t.assignees.some((a) => a.id === filter));
+    }
+    return list;
+  }, [tasks, filter, currentUserId, sprintScope, activeSprint]);
 
   // Unread "my open" count — drives the orange dot on the "Mir zugewiesen"
   // pill so you can see at a glance how many open tasks are on your plate.
@@ -247,7 +308,10 @@ export function TaskKanban() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updates),
       });
+      // On success keep the optimistic state but nudge the Sprint-Bar so
+      // its done-points reflect a card dragged into / out of "erledigt".
       if (!res.ok) load();
+      else onMutate?.();
     } catch {
       load();
     }
@@ -313,6 +377,37 @@ export function TaskKanban() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2.5">
+          {/* Sprint scope — focus the board on the active sprint or the
+              product backlog. Default "Alle" shows everything (flow + sprint),
+              so the board behaves exactly as before unless you opt in. */}
+          <div
+            style={{
+              display: "inline-flex",
+              background: "#fff",
+              borderRadius: 10,
+              border: "1px solid var(--line)",
+              padding: 3,
+            }}
+          >
+            <FilterPill
+              active={sprintScope === "sprint"}
+              onClick={() => setSprintScope("sprint")}
+            >
+              Aktiver Sprint
+            </FilterPill>
+            <FilterPill
+              active={sprintScope === "backlog"}
+              onClick={() => setSprintScope("backlog")}
+            >
+              Backlog
+            </FilterPill>
+            <FilterPill
+              active={sprintScope === "alle"}
+              onClick={() => setSprintScope("alle")}
+            >
+              Alle
+            </FilterPill>
+          </div>
           <div
             style={{
               display: "inline-flex",
@@ -391,6 +486,7 @@ export function TaskKanban() {
               col={col}
               tasks={byColumn[col.key]}
               loading={loading}
+              sprintNameById={sprintNameById}
               onTaskClick={(t) => {
                 setDialogMode("edit");
                 setEditingTask(t);
@@ -410,6 +506,13 @@ export function TaskKanban() {
         onOpenChange={setDialogOpen}
         mode={dialogMode}
         currentUserId={currentUserId}
+        // When the board is scoped to the active sprint, new tasks land in
+        // that sprint by default.
+        defaultSprintId={
+          dialogMode === "create" && sprintScope === "sprint" && activeSprint
+            ? activeSprint.id
+            : null
+        }
         initialData={
           editingTask
             ? {
@@ -421,6 +524,9 @@ export function TaskKanban() {
                 linkedRecords: editingTask.linkedRecords,
                 assignees: editingTask.assignees,
                 pointEstimate: editingTask.pointEstimate ?? null,
+                sprintId: editingTask.sprintId,
+                workType: editingTask.workType,
+                growthCategory: editingTask.growthCategory,
               }
             : undefined
         }
@@ -438,7 +544,7 @@ export function TaskKanban() {
               body: JSON.stringify(data),
             });
           }
-          await load();
+          reload();
         }}
         onDelete={
           dialogMode === "edit" && editingTask
@@ -446,7 +552,7 @@ export function TaskKanban() {
                 await fetch(`/api/v1/tasks/${editingTask.id}`, {
                   method: "DELETE",
                 });
-                await load();
+                reload();
               }
             : undefined
         }
@@ -490,11 +596,13 @@ function KanbanColumn({
   col,
   tasks,
   loading,
+  sprintNameById,
   onTaskClick,
 }: {
   col: { key: ColumnKey; label: string; hint: string; live?: boolean };
   tasks: ApiTask[];
   loading: boolean;
+  sprintNameById: Map<string, string>;
   onTaskClick: (t: ApiTask) => void;
 }) {
   const { isOver, setNodeRef } = useDroppable({ id: col.key });
@@ -576,7 +684,12 @@ function KanbanColumn({
           </div>
         ) : null}
         {tasks.map((t) => (
-          <DraggableTaskCard key={t.id} task={t} onClick={() => onTaskClick(t)} />
+          <DraggableTaskCard
+            key={t.id}
+            task={t}
+            sprintName={t.sprintId ? sprintNameById.get(t.sprintId) : undefined}
+            onClick={() => onTaskClick(t)}
+          />
         ))}
       </div>
     </div>
@@ -585,9 +698,11 @@ function KanbanColumn({
 
 function DraggableTaskCard({
   task,
+  sprintName,
   onClick,
 }: {
   task: ApiTask;
+  sprintName?: string;
   onClick: () => void;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: task.id });
@@ -612,6 +727,7 @@ function DraggableTaskCard({
     >
       <TaskCard
         task={task}
+        sprintName={sprintName}
         onCardClick={() => {
           if (!isDragging) onClick();
         }}
@@ -623,10 +739,12 @@ function DraggableTaskCard({
 function TaskCard({
   task,
   dragging,
+  sprintName,
   onCardClick,
 }: {
   task: ApiTask;
   dragging?: boolean;
+  sprintName?: string;
   onCardClick?: () => void;
 }) {
   const done = task.isCompleted;
@@ -676,22 +794,40 @@ function TaskCard({
         {task.content}
       </div>
 
-      {task.pointEstimate != null && (
-        <div style={{ marginTop: 6 }}>
-          <span
-            className="k-chip"
-            style={{
-              padding: "1px 7px",
-              fontSize: 10,
-              fontFamily: "var(--f-mono)",
-              background: "var(--accent-soft, rgba(16,185,129,0.12))",
-              color: "var(--accent, #047857)",
-              border: "1px solid var(--accent-line, rgba(16,185,129,0.3))",
-            }}
-            title="Fibonacci-Größe — zählt für den Team-Pulse"
-          >
-            {task.pointEstimate}p
-          </span>
+      {(task.pointEstimate != null || sprintName) && (
+        <div className="flex flex-wrap items-center gap-1.5" style={{ marginTop: 6 }}>
+          {task.pointEstimate != null && (
+            <span
+              className="k-chip"
+              style={{
+                padding: "1px 7px",
+                fontSize: 10,
+                fontFamily: "var(--f-mono)",
+                background: "var(--accent-soft, rgba(16,185,129,0.12))",
+                color: "var(--accent, #047857)",
+                border: "1px solid var(--accent-line, rgba(16,185,129,0.3))",
+              }}
+              title="Fibonacci-Größe — zählt für den Team-Pulse"
+            >
+              {task.pointEstimate}p
+            </span>
+          )}
+          {sprintName && (
+            <span
+              className="k-chip"
+              style={{
+                padding: "1px 7px",
+                fontSize: 10,
+                fontFamily: "var(--f-mono)",
+                background: "color-mix(in srgb, var(--kottke-accent, #c2410c) 12%, transparent)",
+                color: "var(--kottke-accent, #c2410c)",
+                border: "1px solid color-mix(in srgb, var(--kottke-accent, #c2410c) 30%, transparent)",
+              }}
+              title="Sprint"
+            >
+              {sprintName.slice(0, 16)}
+            </span>
+          )}
         </div>
       )}
 

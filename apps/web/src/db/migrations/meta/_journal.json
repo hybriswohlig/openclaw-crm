@@ -162,6 +162,13 @@
       "when": 1779500000000,
       "tag": "0032_gmail_api_channel",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1779600000000,
+      "tag": "0033_sprints",
+      "breakpoints": true
     }
   ]
 }

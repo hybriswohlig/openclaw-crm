@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthContext, unauthorized, badRequest, success } from "@/lib/api-utils";
 import { listTasks, createTask } from "@/services/tasks";
+import { getActiveSprint } from "@/services/sprints";
 
 /** GET /api/v1/tasks — All tasks for current user in active workspace */
 export async function GET(req: NextRequest) {
@@ -13,7 +14,31 @@ export async function GET(req: NextRequest) {
     const limit = Math.min(Number(searchParams.get("limit") || 50), 200);
     const offset = Number(searchParams.get("offset") || 0);
 
-    const result = await listTasks(ctx.workspaceId, ctx.userId, { showCompleted, limit, offset });
+    // Optional sprint scope:
+    //   ?sprintId=<id>     → only that sprint
+    //   ?sprintId=active   → only the currently active sprint (empty if none)
+    //   ?sprintId=none     → only the product backlog (no sprint)
+    const sprintParam = searchParams.get("sprintId");
+    const listOpts: {
+      showCompleted: boolean;
+      limit: number;
+      offset: number;
+      sprintId?: string;
+      noSprint?: boolean;
+    } = { showCompleted, limit, offset };
+    if (sprintParam === "none") {
+      listOpts.noSprint = true;
+    } else if (sprintParam === "active") {
+      const active = await getActiveSprint(ctx.workspaceId);
+      if (!active) {
+        return success({ tasks: [], pagination: { limit, offset, total: 0 } });
+      }
+      listOpts.sprintId = active.id;
+    } else if (sprintParam) {
+      listOpts.sprintId = sprintParam;
+    }
+
+    const result = await listTasks(ctx.workspaceId, ctx.userId, listOpts);
 
     return success({
       tasks: result.tasks,
@@ -50,6 +75,10 @@ export async function POST(req: NextRequest) {
       assigneeIds,
       pointEstimate:
         typeof body.pointEstimate === "number" ? body.pointEstimate : null,
+      sprintId: typeof body.sprintId === "string" ? body.sprintId : null,
+      workType: typeof body.workType === "string" ? body.workType : null,
+      growthCategory:
+        typeof body.growthCategory === "string" ? body.growthCategory : null,
     });
 
     // Push-notify each new assignee (excluding the creator themselves).
