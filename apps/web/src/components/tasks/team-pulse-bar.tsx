@@ -13,7 +13,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Flame, TrendingUp, TrendingDown, CheckCircle2, Trophy, Sparkles } from "lucide-react";
+import { Flame, TrendingUp, TrendingDown, CheckCircle2, Trophy, Sparkles, ChevronDown, ChevronUp } from "lucide-react";
+
+// Persisted per-browser preference: hide the Team-Pulse to reclaim space.
+const PULSE_COLLAPSE_KEY = "kottke:teamPulseCollapsed";
 
 interface HeatmapDay {
   date: string;
@@ -60,6 +63,25 @@ export function TeamPulseBar() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showWins, setShowWins] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+
+  // Restore the collapsed preference after mount (avoids SSR hydration mismatch).
+  useEffect(() => {
+    try {
+      setCollapsed(localStorage.getItem(PULSE_COLLAPSE_KEY) === "1");
+    } catch {
+      // localStorage unavailable — keep default (expanded).
+    }
+  }, []);
+
+  const setCollapsedPersist = useCallback((next: boolean) => {
+    setCollapsed(next);
+    try {
+      localStorage.setItem(PULSE_COLLAPSE_KEY, next ? "1" : "0");
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -118,6 +140,28 @@ export function TeamPulseBar() {
     return null;
   }
 
+  // Collapsed: a slim one-line strip with the headline number and a button
+  // to bring the full Team-Pulse back. Keeps the board roomy by default.
+  if (collapsed) {
+    return (
+      <button
+        type="button"
+        onClick={() => setCollapsedPersist(false)}
+        className="flex w-full items-center gap-2 rounded-lg border border-border bg-muted/10 px-3 py-1.5 text-xs hover:bg-muted/20"
+        title="Team-Pulse einblenden"
+      >
+        <Sparkles className="h-3.5 w-3.5 text-emerald-600" />
+        <span className="font-medium">Team-Pulse</span>
+        <span className="tabular-nums text-muted-foreground">
+          {data.pointsThisWeekTotal}p diese Woche
+        </span>
+        <span className="ml-auto inline-flex items-center gap-1 text-muted-foreground">
+          <ChevronDown className="h-3.5 w-3.5" /> Einblenden
+        </span>
+      </button>
+    );
+  }
+
   const pointsDelta = data.pointsThisWeekTotal - data.pointsLastWeekTotal;
   const taskCountDelta = data.thisWeekTotal - data.lastWeekTotal;
 
@@ -145,7 +189,7 @@ export function TeamPulseBar() {
             </span>
           </div>
           <DeltaBadge delta={pointsDelta} compareLabel="vs Vorwoche" />
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-1.5">
             <button
               type="button"
               onClick={() => setShowWins((v) => !v)}
@@ -153,6 +197,15 @@ export function TeamPulseBar() {
             >
               <Trophy className="h-3 w-3" />
               {showWins ? "Wins ausblenden" : "Letzte Wins"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setCollapsedPersist(true)}
+              className="inline-flex items-center gap-1 rounded border bg-white px-2 py-1 text-xs text-muted-foreground hover:bg-gray-50 dark:bg-gray-900 dark:hover:bg-gray-800"
+              title="Team-Pulse ausblenden"
+            >
+              <ChevronUp className="h-3 w-3" />
+              Ausblenden
             </button>
           </div>
         </div>
