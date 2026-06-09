@@ -13,9 +13,11 @@ export default function TasksPage() {
   const bump = useCallback(() => setRefresh((r) => r + 1), []);
 
   return (
-    <div className="space-y-4">
+    <div>
       <SprintBar refreshKey={refresh} onMutate={bump} />
-      <TeamPulseBar />
+      <div className="px-9 pt-2">
+        <TeamPulseBar />
+      </div>
       <TaskKanban refreshKey={refresh} onMutate={bump} />
     </div>
   );

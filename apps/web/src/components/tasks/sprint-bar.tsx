@@ -1,14 +1,10 @@
 "use client";
 
-// Sprint-Bar — the thin Sprint layer that sits above the Aufgaben board.
-// Shows the active sprint's goal (the highest-leverage adoption nudge), a
-// committed/done progress bar, days remaining, a derived burndown spark,
-// and a velocity forecast from past sprints. When no sprint is active it
-// offers the Planung sprints to start, or creating a new one.
-//
-// Design: a Scrumban layer for the office's grow-the-company work. Daily
+// Sprint-Bar — a compact command strip above the Aufgaben board (Scrumban).
+// One dense line: sprint identity + day counter + inline progress + a
+// burndown spark + the actions. A second line carries the Sprintziel. Daily
 // move jobs stay in pure flow on the board below and never need a sprint.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -23,10 +19,10 @@ import {
   Target,
   Rocket,
   Flag,
-  CalendarRange,
   Plus,
   Trophy,
   Trash2,
+  MoreHorizontal,
 } from "lucide-react";
 import { SprintPlanning } from "./sprint-planning";
 
@@ -113,8 +109,6 @@ export function SprintBar({ refreshKey, onMutate }: SprintBarProps) {
     load();
   }, [load, refreshKey]);
 
-  // Bubble mutations to the page so the Kanban refreshes too; fall back to a
-  // local reload when used standalone.
   const refresh = useCallback(() => {
     if (onMutate) onMutate();
     else load();
@@ -185,14 +179,23 @@ export function SprintBar({ refreshKey, onMutate }: SprintBarProps) {
 
   if (loading && sprints.length === 0) {
     return (
-      <div className="rounded-lg border border-border bg-muted/10 p-3 text-xs text-muted-foreground">
+      <div
+        className="px-9 py-2 text-xs"
+        style={{
+          color: "var(--ink-muted)",
+          borderBottom: "1px solid var(--line, #e7e2d9)",
+        }}
+      >
         Lade Sprints…
       </div>
     );
   }
 
   return (
-    <div className="rounded-lg border border-border bg-muted/10 p-3 sm:p-4">
+    <div
+      className="px-9 py-2.5"
+      style={{ borderBottom: "1px solid var(--line, #e7e2d9)" }}
+    >
       {active ? (
         <ActiveSprint
           sprint={active}
@@ -223,7 +226,7 @@ export function SprintBar({ refreshKey, onMutate }: SprintBarProps) {
       )}
 
       {closeSummary && (
-        <div className="mt-3 flex flex-wrap items-center gap-3 rounded-md border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-xs">
+        <div className="mt-2 flex flex-wrap items-center gap-3 rounded-md border border-emerald-500/30 bg-emerald-500/5 px-3 py-1.5 text-xs">
           <Trophy className="h-4 w-4 text-emerald-600" />
           <span className="font-medium">Sprint-Rueckblick:</span>
           <span>
@@ -262,7 +265,7 @@ export function SprintBar({ refreshKey, onMutate }: SprintBarProps) {
   );
 }
 
-// ─── Active sprint view ─────────────────────────────────────────────────
+// ─── Active sprint: one dense line + goal subtitle ──────────────────────
 
 function ActiveSprint({
   sprint,
@@ -280,127 +283,195 @@ function ActiveSprint({
   onClose: () => void;
 }) {
   const m = sprint.metrics;
-  const denom = sprint.capacityPoints ?? m.committedPoints;
+  // Treat 0 / unset capacity as "not set" so we never render "Kapazitaet 0".
+  const cap = sprint.capacityPoints && sprint.capacityPoints > 0 ? sprint.capacityPoints : null;
+  const denom = cap ?? m.committedPoints;
   const pct = denom > 0 ? Math.min(100, Math.round((m.completedPoints / denom) * 100)) : 0;
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--kottke-accent,#c2410c)]/10 px-2 py-0.5 text-[11px] font-medium text-[var(--kottke-accent,#c2410c)]">
-          <Rocket className="h-3 w-3" /> Aktiver Sprint
+    <div className="space-y-1">
+      {/* Line 1 — identity · progress · burndown · actions */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs">
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--kottke-accent,#c2410c)]/10 px-2 py-0.5 font-medium text-[var(--kottke-accent,#c2410c)]">
+          <Rocket className="h-3 w-3" /> {sprint.name}
         </span>
-        <span className="text-sm font-semibold">{sprint.name}</span>
         {sprint.daysTotal != null && (
-          <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-            <CalendarRange className="h-3 w-3" />
-            Tag {sprint.daysElapsed} von {sprint.daysTotal} ·{" "}
+          <span className="text-muted-foreground">
+            Tag {sprint.daysElapsed}/{sprint.daysTotal}
             {sprint.daysRemaining === 0
-              ? "letzter Tag"
-              : `noch ${sprint.daysRemaining} Tage`}
+              ? " · letzter Tag"
+              : ` · noch ${sprint.daysRemaining} Tage`}
           </span>
         )}
-        <div className="ml-auto flex items-center gap-2">
-          <Button variant="outline" size="sm" className="text-xs" onClick={onPlan} disabled={busy}>
-            <Flag className="mr-1 h-3.5 w-3.5" /> Sprint planen
-          </Button>
-          <Button variant="ghost" size="sm" className="text-xs" onClick={onEdit} disabled={busy}>
-            Bearbeiten
-          </Button>
-          <Button variant="ghost" size="sm" className="text-xs" onClick={onClose} disabled={busy}>
-            Abschliessen
-          </Button>
-        </div>
-      </div>
 
-      {/* Sprintziel banner — always visible, the cheapest adoption nudge. */}
-      <div className="flex items-start gap-2 rounded-md border border-border bg-background px-3 py-2">
-        <Target className="mt-0.5 h-4 w-4 shrink-0 text-[var(--kottke-accent,#c2410c)]" />
-        <div className="min-w-0">
-          <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            Sprintziel
-          </div>
-          {sprint.goal ? (
-            <div className="text-sm">{sprint.goal}</div>
-          ) : (
-            <button onClick={onEdit} className="text-sm italic text-muted-foreground hover:text-foreground">
-              Kein Ziel gesetzt. Jetzt ein Satz festlegen.
-            </button>
-          )}
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-        {/* Progress */}
-        <div className="min-w-[200px] flex-1">
-          <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
-            <span>
-              <span className="font-semibold text-foreground tabular-nums">
-                {m.completedPoints}
-              </span>{" "}
-              von {m.committedPoints} Punkten erledigt
-              {sprint.capacityPoints != null && (
-                <span className="ml-1">· Kapazitaet {sprint.capacityPoints}</span>
-              )}
+        {/* Inline progress meter */}
+        <span className="flex items-center gap-1.5">
+          <span className="tabular-nums">
+            <span className="font-semibold text-foreground">
+              {m.completedPoints}
             </span>
-            <span className="tabular-nums">
-              {m.doneTasks}/{m.totalTasks} Aufgaben
-            </span>
-          </div>
-          <div className="h-2 w-full overflow-hidden rounded bg-muted/50">
-            <div
-              className="h-full rounded bg-emerald-500"
+            /{m.committedPoints}&nbsp;P
+          </span>
+          <span className="h-1.5 w-20 overflow-hidden rounded bg-muted/50">
+            <span
+              className="block h-full rounded bg-emerald-500"
               style={{ width: `${pct}%` }}
             />
-          </div>
-        </div>
+          </span>
+          <span className="tabular-nums text-muted-foreground">
+            {m.doneTasks}/{m.totalTasks}&nbsp;✓
+          </span>
+          {cap && (
+            <span className="text-muted-foreground">· Kap. {cap}</span>
+          )}
+        </span>
 
-        {/* Burndown spark + forecast */}
+        {/* Burndown spark + remaining */}
         {velocity && velocity.burndown.length > 1 && (
-          <div className="flex items-center gap-2">
+          <span className="flex items-center gap-1 text-muted-foreground">
             <Burndown points={velocity.burndown} />
-            <div className="text-[11px] leading-tight text-muted-foreground">
-              <div className="font-medium text-foreground">Burndown</div>
-              <div>noch {m.remainingPoints} Punkte</div>
-            </div>
-          </div>
+            <span>noch&nbsp;{m.remainingPoints}</span>
+          </span>
         )}
         {velocity?.forecast && (
-          <div className="text-[11px] leading-tight text-muted-foreground">
-            <div className="font-medium text-foreground">Velocity</div>
-            <div title={`Schnitt aus ${velocity.forecast.count} Sprints`}>
-              ~{velocity.forecast.avg} Punkte / Sprint
-            </div>
-          </div>
+          <span
+            className="text-muted-foreground"
+            title={`Schnitt aus ${velocity.forecast.count} Sprints`}
+          >
+            · Velocity ~{velocity.forecast.avg}
+          </span>
+        )}
+
+        {/* Actions */}
+        <div className="ml-auto flex items-center gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={onPlan}
+            disabled={busy}
+          >
+            <Flag className="mr-1 h-3.5 w-3.5" /> Sprint planen
+          </Button>
+          <ActionsMenu busy={busy} onEdit={onEdit} onClose={onClose} />
+        </div>
+      </div>
+
+      {/* Line 2 — Sprintziel (the always-visible commitment) */}
+      <div className="flex items-center gap-1.5 text-xs">
+        <Target className="h-3.5 w-3.5 shrink-0 text-[var(--kottke-accent,#c2410c)]" />
+        <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          Ziel
+        </span>
+        {sprint.goal ? (
+          <span className="truncate">{sprint.goal}</span>
+        ) : (
+          <button
+            onClick={onEdit}
+            className="italic text-muted-foreground hover:text-foreground"
+          >
+            Kein Ziel gesetzt. Jetzt festlegen.
+          </button>
         )}
       </div>
     </div>
   );
 }
 
-// Tiny inline burndown: dashed ideal line vs solid actual (up to today).
+function ActionsMenu({
+  busy,
+  onEdit,
+  onClose,
+}: {
+  busy: boolean;
+  onEdit: () => void;
+  onClose: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    function handle(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, []);
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border hover:bg-muted/50 disabled:opacity-50"
+        title="Mehr"
+      >
+        <MoreHorizontal className="h-3.5 w-3.5" />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full z-30 mt-1 w-40 rounded-md border border-border bg-popover p-1 text-xs shadow-lg">
+          <button
+            onClick={() => {
+              setOpen(false);
+              onEdit();
+            }}
+            className="block w-full rounded px-2 py-1.5 text-left hover:bg-muted/50"
+          >
+            Sprint bearbeiten
+          </button>
+          <button
+            onClick={() => {
+              setOpen(false);
+              onClose();
+            }}
+            className="block w-full rounded px-2 py-1.5 text-left hover:bg-muted/50"
+          >
+            Sprint abschliessen
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Tiny inline burndown: dashed ideal vs solid actual (up to today).
 function Burndown({ points }: { points: BurndownPoint[] }) {
-  const W = 132;
-  const H = 36;
+  const W = 84;
+  const H = 22;
   const n = points.length;
   const max = Math.max(1, ...points.map((p) => p.ideal), ...points.map((p) => p.remaining));
   const x = (i: number) => (i / (n - 1)) * W;
   const y = (v: number) => H - (v / max) * H;
-  const idealPath = points.map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(p.ideal).toFixed(1)}`).join(" ");
+  const idealPath = points
+    .map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(p.ideal).toFixed(1)}`)
+    .join(" ");
   const actual = points.filter((p) => !p.isFuture);
   const actualPath = actual
     .map((p, i) => `${i === 0 ? "M" : "L"}${x(points.indexOf(p)).toFixed(1)},${y(p.remaining).toFixed(1)}`)
     .join(" ");
   return (
-    <svg width={W} height={H} className="overflow-visible">
-      <path d={idealPath} fill="none" stroke="currentColor" strokeWidth={1} strokeDasharray="3 3" className="text-muted-foreground/50" />
+    <svg width={W} height={H} className="overflow-visible align-middle">
+      <path
+        d={idealPath}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1}
+        strokeDasharray="3 3"
+        className="text-muted-foreground/40"
+      />
       {actualPath && (
-        <path d={actualPath} fill="none" stroke="currentColor" strokeWidth={1.75} className="text-emerald-600" />
+        <path
+          d={actualPath}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={1.75}
+          className="text-emerald-600"
+        />
       )}
     </svg>
   );
 }
 
-// ─── Empty state (no active sprint) ─────────────────────────────────────
+// ─── Empty state (no active sprint) — single compact line ───────────────
 
 function EmptyState({
   planung,
@@ -418,54 +489,56 @@ function EmptyState({
   onNew: () => void;
 }) {
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="inline-flex items-center gap-1.5 text-sm font-medium">
-          <Rocket className="h-4 w-4 text-muted-foreground" /> Kein aktiver Sprint
-        </span>
-        <span className="text-xs text-muted-foreground">
-          Starte einen Sprint, um Wachstums-Aufgaben fuer zwei Wochen zu fokussieren. Der laufende Betrieb bleibt unten im Board.
-        </span>
-        <Button size="sm" className="ml-auto text-xs" onClick={onNew} disabled={busy}>
-          <Plus className="mr-1 h-3.5 w-3.5" /> Neuer Sprint
-        </Button>
-      </div>
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs">
+      <span className="inline-flex items-center gap-1.5 font-medium">
+        <Rocket className="h-4 w-4 text-muted-foreground" /> Kein aktiver Sprint
+      </span>
+      <span className="text-muted-foreground">
+        Starte einen Sprint, um Wachstums-Aufgaben zu fokussieren. Der laufende Betrieb laeuft unten weiter.
+      </span>
 
-      {planung.length > 0 && (
-        <div className="space-y-1">
-          <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            In Planung
-          </div>
-          {planung.map((s) => (
-            <div
-              key={s.id}
-              className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs"
-            >
-              <span className="font-medium">{s.name}</span>
-              {s.goal && <span className="truncate text-muted-foreground">{s.goal}</span>}
-              <span className="tabular-nums text-muted-foreground">
-                {s.metrics.committedPoints} Punkte geplant
-              </span>
-              <div className="ml-auto flex items-center gap-1.5">
-                <Button size="sm" className="text-xs" onClick={() => onActivate(s.id)} disabled={busy}>
-                  <Rocket className="mr-1 h-3 w-3" /> Starten
-                </Button>
-                <Button variant="ghost" size="sm" className="text-xs" onClick={() => onEditSprint(s)} disabled={busy}>
-                  Bearbeiten
-                </Button>
-                <button
-                  className="text-muted-foreground hover:text-destructive"
-                  title="Loeschen"
-                  onClick={() => onDeleteSprint(s.id)}
-                  disabled={busy}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      {planung.map((s) => (
+        <span
+          key={s.id}
+          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2 py-0.5"
+        >
+          <span className="font-medium">{s.name}</span>
+          <span className="tabular-nums text-muted-foreground">
+            {s.metrics.committedPoints} P
+          </span>
+          <button
+            className="inline-flex items-center gap-0.5 text-[var(--kottke-accent,#c2410c)] hover:underline"
+            onClick={() => onActivate(s.id)}
+            disabled={busy}
+          >
+            <Rocket className="h-3 w-3" /> Starten
+          </button>
+          <button
+            className="text-muted-foreground hover:text-foreground"
+            onClick={() => onEditSprint(s)}
+            disabled={busy}
+          >
+            Bearbeiten
+          </button>
+          <button
+            className="text-muted-foreground hover:text-destructive"
+            title="Loeschen"
+            onClick={() => onDeleteSprint(s.id)}
+            disabled={busy}
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
+        </span>
+      ))}
+
+      <Button
+        size="sm"
+        className="ml-auto h-7 text-xs"
+        onClick={onNew}
+        disabled={busy}
+      >
+        <Plus className="mr-1 h-3.5 w-3.5" /> Neuer Sprint
+      </Button>
     </div>
   );
 }
@@ -514,7 +587,6 @@ function SprintFormDialog({
       setEndDate(toDateInput(sprint.endDate));
       setCapacity(sprint.capacityPoints != null ? String(sprint.capacityPoints) : "");
     } else {
-      // Default: a 2-week sprint starting today, named by calendar week.
       const today = new Date();
       const end = new Date(today);
       end.setDate(today.getDate() + 13);

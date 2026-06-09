@@ -153,6 +153,9 @@ export function TaskKanban({
     for (const s of sprints) m.set(s.id, s.name);
     return m;
   }, [sprints]);
+  // While scoped to the active sprint, every card is in that sprint, so the
+  // sprint chip is pure noise — suppress it by passing an empty name map.
+  const emptyMap = useMemo(() => new Map<string, string>(), []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -335,47 +338,24 @@ export function TaskKanban({
   return (
     <div
       style={{
-        padding: "28px 36px 40px",
+        padding: "12px 36px 36px",
         display: "flex",
         flexDirection: "column",
-        gap: 18,
+        gap: 12,
       }}
       className="k-paper-noise"
     >
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <div
-            style={{
-              fontFamily: "var(--f-mono)",
-              fontSize: 11,
-              letterSpacing: ".14em",
-              textTransform: "uppercase",
-              color: "var(--ink-muted)",
-              marginBottom: 4,
-            }}
-          >
-            Projekt-Board
-          </div>
-          <h1
-            className="k-display"
-            style={{
-              margin: 0,
-              fontSize: 34,
-              fontVariationSettings: '"opsz" 96, "SOFT" 100',
-            }}
-          >
-            Aufgaben
-          </h1>
-          <p
-            style={{
-              margin: "6px 0 0",
-              color: "var(--ink-soft)",
-              fontSize: 14,
-            }}
-          >
-            {tasks.length} Aufgaben · {byColumn.laeuft.length} läuft · {byColumn.heute.length} heute
-          </p>
-        </div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <span
+          style={{
+            fontFamily: "var(--f-mono)",
+            fontSize: 11,
+            letterSpacing: ".04em",
+            color: "var(--ink-muted)",
+          }}
+        >
+          {tasks.length} Aufgaben · {byColumn.laeuft.length} läuft · {byColumn.heute.length} heute
+        </span>
         <div className="flex flex-wrap items-center gap-2.5">
           {/* Sprint scope — focus the board on the active sprint or the
               product backlog. Default "Alle" shows everything (flow + sprint),
@@ -486,7 +466,7 @@ export function TaskKanban({
               col={col}
               tasks={byColumn[col.key]}
               loading={loading}
-              sprintNameById={sprintNameById}
+              sprintNameById={sprintScope === "sprint" ? emptyMap : sprintNameById}
               onTaskClick={(t) => {
                 setDialogMode("edit");
                 setEditingTask(t);
@@ -609,9 +589,8 @@ function KanbanColumn({
   return (
     <div
       style={{
-        minWidth: 270,
-        width: 270,
-        flex: "0 0 auto",
+        minWidth: 240,
+        flex: "1 1 0",
         display: "flex",
         flexDirection: "column",
         gap: 10,
@@ -691,6 +670,21 @@ function KanbanColumn({
             onClick={() => onTaskClick(t)}
           />
         ))}
+        {!loading && tasks.length === 0 && (
+          <div
+            style={{
+              borderRadius: 10,
+              border: "1px dashed var(--line, #e7e2d9)",
+              padding: "14px 10px",
+              textAlign: "center",
+              fontSize: 11,
+              color: "var(--ink-muted)",
+              fontFamily: "var(--f-mono)",
+            }}
+          >
+            Hierher ziehen
+          </div>
+        )}
       </div>
     </div>
   );
@@ -770,22 +764,10 @@ function TaskCard({
         boxShadow: dragging ? "0 12px 32px -8px rgba(34,29,22,.25)" : undefined,
       }}
     >
-      <div className="flex items-baseline justify-between gap-2">
-        <span
-          style={{
-            fontFamily: "var(--f-mono)",
-            fontSize: 10,
-            color: "var(--ink-muted)",
-          }}
-        >
-          T-{task.id.slice(0, 6)}
-        </span>
-      </div>
       <div
         style={{
           fontWeight: 500,
           fontSize: 13.5,
-          marginTop: 6,
           lineHeight: 1.35,
           textDecoration: done ? "line-through" : "none",
           color: done ? "var(--ink-muted)" : "var(--ink)",
@@ -870,9 +852,10 @@ function TaskCard({
             fontFamily: "var(--f-mono)",
             display: "inline-flex",
             alignItems: "center",
-            gap: 4,
+            gap: 5,
           }}
         >
+          <span style={{ opacity: 0.6 }}>T-{task.id.slice(0, 4)}</span>
           <Clock size={10} />
           {formatDue(task)}
         </span>
