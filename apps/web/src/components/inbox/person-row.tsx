@@ -8,7 +8,7 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { ExternalLink, Phone, Check, Ban, MoreVertical } from "lucide-react";
+import { ExternalLink, Phone, MoreVertical } from "lucide-react";
 import { ChannelAvatar, type LastChannel } from "@/components/inbox/channel-logos";
 import { normalizeAgentStage } from "@/lib/agent-stage";
 
@@ -71,10 +71,9 @@ interface Props {
   data: PersonRowData;
   active: boolean;
   onClick: () => void;
-  onStatusChange: (status: "resolved" | "spam") => void;
 }
 
-export function PersonRow({ data, active, onClick, onStatusChange }: Props) {
+export function PersonRow({ data, active, onClick }: Props) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -180,13 +179,6 @@ export function PersonRow({ data, active, onClick, onStatusChange }: Props) {
                   Anrufen
                 </MenuItem>
               )}
-              <div className="my-1 h-px bg-border" />
-              <MenuItem icon={<Check className="h-4 w-4" />} onClick={act(() => onStatusChange("resolved"))}>
-                Als erledigt markieren
-              </MenuItem>
-              <MenuItem icon={<Ban className="h-4 w-4" />} onClick={act(() => onStatusChange("spam"))}>
-                Als Spam markieren
-              </MenuItem>
             </div>
           </>
         )}

@@ -48,6 +48,22 @@ import { CustomerLinkComposer } from "@/components/inbox/customer-link-composer"
 import { InboxContextPanel } from "@/components/inbox/context-panel";
 import { ChannelAvatar, type LastChannel } from "@/components/inbox/channel-logos";
 import type { AgentStage } from "@/db/schema/inbox";
+import { normalizeAgentStage } from "@/lib/agent-stage";
+
+// Funnel stages for the inbox filter chips. Order = funnel order; each carries
+// its own dot + active tint so they're distinguishable at a glance.
+const STAGE_FILTERS: Array<{
+  value: AgentStage;
+  label: string;
+  dot: string;
+  activeClass: string;
+}> = [
+  { value: "erstkontakt", label: "Erstkontakt", dot: "bg-slate-400", activeClass: "bg-slate-100 text-slate-700 border-slate-300" },
+  { value: "infos_erhalten", label: "Infos erhalten", dot: "bg-sky-500", activeClass: "bg-sky-100 text-sky-700 border-sky-300" },
+  { value: "angebot_raus", label: "Angebot raus", dot: "bg-violet-500", activeClass: "bg-violet-100 text-violet-700 border-violet-300" },
+  { value: "angenommen", label: "Angenommen", dot: "bg-emerald-500", activeClass: "bg-emerald-100 text-emerald-700 border-emerald-300" },
+  { value: "verloren", label: "Verloren", dot: "bg-rose-500", activeClass: "bg-rose-100 text-rose-700 border-rose-300" },
+];
 import { PersonRow } from "@/components/inbox/person-row";
 import { MergeSuggestions } from "@/components/inbox/merge-suggestions";
 import { PersonTimeline } from "@/components/inbox/person-timeline";
@@ -703,13 +719,11 @@ function AttachmentPreview({
 function ConversationView({
   conv,
   onBack,
-  onStatusChange,
   onAgentStageChange,
   onOpenCompose,
 }: {
   conv: Conversation;
   onBack: () => void;
-  onStatusChange: (status: ConversationStatus) => void;
   onAgentStageChange?: (stage: AgentStage) => void;
   onOpenCompose?: () => void;
 }) {
@@ -829,38 +843,6 @@ function ConversationView({
     }, 0);
   }
 
-  // ── Auto-resolve: 60 s after the last outbound message, mark as resolved.
-  // Sending another message resets the timer so multi-message replies work.
-  const autoResolveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  function clearAutoResolve() {
-    if (autoResolveTimer.current) {
-      clearTimeout(autoResolveTimer.current);
-      autoResolveTimer.current = null;
-    }
-  }
-
-  function scheduleAutoResolve() {
-    clearAutoResolve();
-    autoResolveTimer.current = setTimeout(async () => {
-      autoResolveTimer.current = null;
-      try {
-        await fetch(`/api/v1/inbox/conversations/${conv.id}/status`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: "resolved" }),
-        });
-        onStatusChange("resolved");
-      } catch (err) {
-        console.error("[inbox] auto-resolve failed:", err);
-      }
-    }, 60_000);
-  }
-
-  // Clean up on unmount or conversation change
-  useEffect(() => {
-    return () => clearAutoResolve();
-  }, [conv.id]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchMessages = useCallback(async (silent = false) => {
@@ -950,7 +932,6 @@ function ConversationView({
           setAcceptedDraft(null);
           setDraftRefreshKey((k) => k + 1);
         }
-        scheduleAutoResolve();
       } else {
         const err = await res.json();
         const errObj = typeof err.error === "object" ? err.error : { message: err.error };
@@ -986,7 +967,6 @@ function ConversationView({
           setAcceptedDraft(null);
           setDraftRefreshKey((k) => k + 1);
         }
-        scheduleAutoResolve();
       } else {
         const err = await res.json().catch(() => ({}));
         const errObj = typeof err.error === "object" ? err.error : { message: err.error };
@@ -1006,16 +986,6 @@ function ConversationView({
     const ok = await copyTextToClipboard(text);
     setCopyFeedback(ok ? format : "error");
     window.setTimeout(() => setCopyFeedback(null), 2200);
-  }
-
-  async function handleStatusChange(status: ConversationStatus) {
-    setShowMenu(false);
-    await fetch(`/api/v1/inbox/conversations/${conv.id}/status`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
-    });
-    onStatusChange(status);
   }
 
   const canSend = conv.channelType === "email" || conv.channelType === "whatsapp";
@@ -1102,17 +1072,6 @@ function ConversationView({
           {aiPaused ? "Assistent aus" : "Assistent an"}
         </button>
 
-        {/* Quick resolve */}
-        {conv.status === "open" && (
-          <button
-            onClick={() => handleStatusChange("resolved")}
-            className="hidden sm:inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg border border-emerald-500/30 text-emerald-700 bg-emerald-500/5 hover:bg-emerald-500/10 transition-colors"
-          >
-            <Check className="h-3.5 w-3.5" />
-            Erledigt
-          </button>
-        )}
-
         {/* Context panel toggle */}
         <button
           onClick={() => setPanel(!panelOpen)}
@@ -1139,33 +1098,6 @@ function ConversationView({
             <>
               <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
               <div className="absolute right-0 top-9 z-50 w-60 rounded-lg border border-border bg-popover shadow-lg py-1">
-                {conv.status !== "resolved" && (
-                  <button
-                    onClick={() => handleStatusChange("resolved")}
-                    className="flex items-center gap-2 w-full px-3 py-2 text-sm hover:bg-muted transition-colors text-emerald-600"
-                  >
-                    <Check className="h-4 w-4" />
-                    Als erledigt markieren
-                  </button>
-                )}
-                {conv.status !== "open" && (
-                  <button
-                    onClick={() => handleStatusChange("open")}
-                    className="flex items-center gap-2 w-full px-3 py-2 text-sm hover:bg-muted transition-colors"
-                  >
-                    <MessageCircle className="h-4 w-4" />
-                    Wieder öffnen
-                  </button>
-                )}
-                {conv.status !== "spam" && (
-                  <button
-                    onClick={() => handleStatusChange("spam")}
-                    className="flex items-center gap-2 w-full px-3 py-2 text-sm hover:bg-muted transition-colors text-destructive"
-                  >
-                    <X className="h-4 w-4" />
-                    Als Spam markieren
-                  </button>
-                )}
                 {conv.dealRecordId && (
                   <button
                     onClick={() => {
@@ -1538,7 +1470,12 @@ export default function InboxPage() {
   const [mergedOc, setMergedOc] = useState<string>("__none__");
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<ConversationStatus>("open");
+  // Status (open/resolved/spam) is no longer surfaced — the inbox is triaged by
+  // the agent funnel stage instead. We still fetch "open" so the live pipeline
+  // shows (nothing auto-resolves anymore) and any legacy spam stays hidden.
+  const statusFilter: ConversationStatus = "open";
+  // Multi-select funnel-stage filter. Empty set = "Alle" (show every stage).
+  const [stageFilter, setStageFilter] = useState<Set<AgentStage>>(new Set());
   const [accountFilter, setAccountFilter] = useState<string>("all");
   const [sourceFilter, setSourceFilter] = useState<"messaging" | "kleinanzeigen" | "whatsapp" | "other">("messaging");
   // KOT-IDENTITY Phase 6: triage lane. Default 'lead' keeps ads / newsletters /
@@ -1673,15 +1610,10 @@ export default function InboxPage() {
       const match = conversations.find((c) => c.id === convParam);
       if (match) {
         setSelected(match);
-        // If the match isn't visible under the current filter, clear filter
-        // so the user actually sees it highlighted in the list.
-        if (match.status !== statusFilter) {
-          setStatusFilter(match.status);
-        }
         router.replace("/inbox");
       }
     }
-  }, [searchParams, conversations, router, statusFilter]);
+  }, [searchParams, conversations, router]);
 
   async function handleSync() {
     setSyncing(true);
@@ -1693,18 +1625,6 @@ export default function InboxPage() {
     }
   }
 
-  function handleStatusChange(convId: string, status: ConversationStatus) {
-    setConversations((prev) =>
-      prev.map((c) => (c.id === convId ? { ...c, status } : c))
-    );
-    if (selected?.id === convId) {
-      if (status !== statusFilter) {
-        setSelected(null);
-      } else {
-        setSelected((s) => s ? { ...s, status } : s);
-      }
-    }
-  }
 
   // Manual stage override from the context panel — keep the list badge in sync.
   function handleAgentStageChange(convId: string, stage: AgentStage) {
@@ -1729,6 +1649,11 @@ export default function InboxPage() {
     if (sourceFilter === "kleinanzeigen" && !isKa) return false;
     if (sourceFilter === "whatsapp" && !isWa) return false;
     if (sourceFilter === "other" && (isKa || isWa)) return false;
+    // Funnel-stage filter (multi-select). Empty set = show all stages.
+    if (stageFilter.size > 0) {
+      const st = normalizeAgentStage(c.agentState?.stage);
+      if (!st || !stageFilter.has(st)) return false;
+    }
     if (!search) return true;
     const q = search.toLowerCase();
     return (
@@ -1920,22 +1845,44 @@ export default function InboxPage() {
             </div>
           )}
 
-          {/* Status tabs */}
-          <div className="flex rounded-lg bg-muted p-0.5 text-xs">
-            {(["open", "resolved", "spam"] as ConversationStatus[]).map((s) => (
-              <button
-                key={s}
-                onClick={() => { setStatusFilter(s); setSelected(null); }}
-                className={cn(
-                  "flex-1 rounded-md py-1 font-medium transition-colors",
-                  statusFilter === s
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                {s === "open" ? "Offen" : s === "resolved" ? "Erledigt" : "Spam"}
-              </button>
-            ))}
+          {/* Funnel-stage filter (multi-select) */}
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              onClick={() => setStageFilter(new Set())}
+              className={cn(
+                "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                stageFilter.size === 0
+                  ? "border-foreground bg-foreground text-background"
+                  : "border-border text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Alle
+            </button>
+            {STAGE_FILTERS.map((s) => {
+              const active = stageFilter.has(s.value);
+              return (
+                <button
+                  key={s.value}
+                  onClick={() =>
+                    setStageFilter((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(s.value)) next.delete(s.value);
+                      else next.add(s.value);
+                      return next;
+                    })
+                  }
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                    active
+                      ? s.activeClass
+                      : "border-border text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <span className={cn("h-1.5 w-1.5 rounded-full", s.dot)} />
+                  {s.label}
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -1951,7 +1898,7 @@ export default function InboxPage() {
               <p className="text-sm text-muted-foreground">
                 {search ? "Keine Treffer" : "Keine Konversationen"}
               </p>
-              {!search && statusFilter === "open" && (
+              {!search && stageFilter.size === 0 && (
                 <button
                   onClick={handleSync}
                   className="text-xs text-primary hover:underline mt-1"
@@ -1991,7 +1938,6 @@ export default function InboxPage() {
                     setMerged(false);
                   }
                 }}
-                onStatusChange={(status) => handleStatusChange(person.latest.id, status)}
               />
             ))
           )}
@@ -2077,7 +2023,6 @@ export default function InboxPage() {
                     key={selected.id}
                     conv={selected}
                     onBack={() => setSelected(null)}
-                    onStatusChange={(status) => handleStatusChange(selected.id, status)}
                     onAgentStageChange={(stage) => handleAgentStageChange(selected.id, stage)}
                     onOpenCompose={() => setComposeOpen(true)}
                   />
