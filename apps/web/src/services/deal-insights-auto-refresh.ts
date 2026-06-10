@@ -108,8 +108,24 @@ export interface RefreshSummary {
   }>;
 }
 
+export interface RefreshOptions {
+  /** Cap how many deals are refreshed per invocation. The keep-warm cron uses
+   * 2 so a tick always fits the 300s route budget (p90 extraction ~2 min). */
+  maxDeals?: number;
+  /** Debounce: skip deals whose newest message is younger than this, so we
+   * never extract mid-conversation and re-extract a minute later. */
+  quietMinutes?: number;
+  /** Emit the cache event silently (no visible note in the activity feed).
+   * Used by the keep-warm cron, which may touch a deal many times a day. */
+  silentNote?: boolean;
+  /** Route the VPS jobs through the background lane (1-slot semaphore) so a
+   * batch never competes with a user-triggered job for the single vCPU. */
+  background?: boolean;
+}
+
 export async function refreshInContactLeads(
-  workspaceId: string
+  workspaceId: string,
+  opts: RefreshOptions = {}
 ): Promise<RefreshSummary> {
   const summary: RefreshSummary = {
     totalCandidates: 0,
@@ -222,13 +238,18 @@ export async function refreshInContactLeads(
     );
   const logByDeal = new Map(logRows.map((r) => [r.dealRecordId, r]));
 
-  // 5. Iterate. Each deal blocks on its crm-tools job, so runs are naturally serial.
+  // 5. Determine which deals are actually due: a NEW message since the last
+  //    run, and (for the keep-warm cron) old enough to be outside the
+  //    quiet-window debounce. Sorted newest-first so a capped invocation
+  //    spends its budget on the most active conversations.
+  const quietCutoff = opts.quietMinutes
+    ? Date.now() - opts.quietMinutes * 60_000
+    : null;
+  const dueDeals: Array<{ dealRecordId: string; lastMessageAt: Date }> = [];
   for (const dealRecordId of candidateDealIds) {
     const lastMessageAt = recentByDeal.get(dealRecordId) ?? null;
     const log = logByDeal.get(dealRecordId);
     const lastSeen = log?.lastMessageAtSeen ?? null;
-
-    // Skip if there's no message OR no NEW message since the last run.
     if (!lastMessageAt) {
       summary.skippedNoNewMessages++;
       summary.perDeal.push({ dealRecordId, status: "skipped" });
@@ -239,9 +260,23 @@ export async function refreshInContactLeads(
       summary.perDeal.push({ dealRecordId, status: "skipped" });
       continue;
     }
+    if (quietCutoff !== null && lastMessageAt.getTime() > quietCutoff) {
+      // Conversation is still moving; wait until it settles.
+      summary.skippedNoNewMessages++;
+      summary.perDeal.push({ dealRecordId, status: "skipped" });
+      continue;
+    }
+    dueDeals.push({ dealRecordId, lastMessageAt });
+  }
+  dueDeals.sort((a, b) => b.lastMessageAt.getTime() - a.lastMessageAt.getTime());
+  const batch = opts.maxDeals ? dueDeals.slice(0, opts.maxDeals) : dueDeals;
 
+  // 6. Iterate. Each deal blocks on its crm-tools job, so runs are naturally serial.
+  for (const { dealRecordId, lastMessageAt } of batch) {
     try {
-      const { insights } = await extractDealInsights(workspaceId, dealRecordId);
+      const { insights } = await extractDealInsights(workspaceId, dealRecordId, {
+        background: opts.background,
+      });
       if (!insights) {
         summary.failed++;
         summary.perDeal.push({
@@ -271,7 +306,9 @@ export async function refreshInContactLeads(
           ...AUTO_REFRESH_AUFTRAG_FIELDS,
         ],
         applyStage: allowStageMove,
-        applyNote: true,
+        // silentNote (keep-warm): refresh the latest-insights cache event
+        // without spamming a visible note onto the activity feed.
+        applyNote: !opts.silentNote,
         applyContact: true,
         applyAuftrag: true,
         // Automated path: only fill gaps, never overwrite a value that may have
@@ -335,13 +372,13 @@ export async function refreshInContactLeads(
 }
 
 /** Convenience: run the refresh across every workspace in the database. */
-export async function refreshInContactLeadsGlobal() {
+export async function refreshInContactLeadsGlobal(opts: RefreshOptions = {}) {
   const wsRows = await db.execute<{ id: string }>(
     sql`SELECT id FROM workspaces`
   );
   const summaries: Array<{ workspaceId: string; summary: RefreshSummary }> = [];
   for (const w of wsRows as unknown as Array<{ id: string }>) {
-    const summary = await refreshInContactLeads(w.id);
+    const summary = await refreshInContactLeads(w.id, opts);
     summaries.push({ workspaceId: w.id, summary });
   }
   return summaries;

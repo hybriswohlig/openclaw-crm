@@ -90,6 +90,9 @@ interface InsightsSuggestions {
   selectedFields: string[];
   applyStage: boolean;
   applyNote: boolean;
+  /** Transcript freshness token from the preview; sent back on apply so the
+   * server can reuse the reviewed JSON instead of re-extracting. */
+  fingerprint?: string;
 }
 
 const fmtBool = (v: unknown) => (v === true ? "Ja" : v === false ? "Nein" : String(v));
@@ -271,6 +274,7 @@ export default function RecordDetailPage() {
         selectedFields: buildDefaultSelections(d.insights),
         applyStage: !!d.insights.suggested_stage,
         applyNote: true,
+        fingerprint: typeof d.fingerprint === "string" ? d.fingerprint : undefined,
       });
     } catch {
       setAnalyzeError("Netzwerkfehler bei der Analyse");
@@ -292,6 +296,10 @@ export default function RecordDetailPage() {
           selectedFields: insightsPanel.selectedFields,
           applyStage: insightsPanel.applyStage,
           applyNote: insightsPanel.applyNote,
+          // Reuse the reviewed JSON server-side (skips the second extraction)
+          // as long as the transcript fingerprint still matches.
+          insights: insightsPanel.insights,
+          fingerprint: insightsPanel.fingerprint,
         }),
       });
       if (res.ok) {

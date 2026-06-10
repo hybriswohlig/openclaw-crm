@@ -335,7 +335,7 @@ function coerceObjectArray(
   });
 }
 
-const InsightsSchema = z.object({
+export const InsightsSchema = z.object({
   extracted: ExtractedDealSchema.describe(
     "Structured fields extracted from the conversation. Use null for any field that the conversation does not establish."
   ),
@@ -479,6 +479,19 @@ criticalMissing: Liste der Felder, die wir unbedingt brauchen, um den Auftrag ko
 
 // ─── Service ──────────────────────────────────────────────────────────────────
 
+/**
+ * Cheap freshness fingerprint over the transcript. The review panel gets it
+ * with the preview and sends it back on apply: if the conversation has not
+ * changed in between, the previewed insights JSON can be applied directly
+ * without re-running the extraction (previously every apply paid for a
+ * second full LLM run, and the applied values came from a run the user
+ * never reviewed).
+ */
+export function transcriptFingerprint(transcript: DealTranscript): string {
+  const last = transcript.messages[transcript.messages.length - 1];
+  return `${transcript.messageCount}:${last?.id ?? "none"}`;
+}
+
 export interface DealInsightsResult {
   dealRecordId: string;
   transcript: DealTranscript;
@@ -495,7 +508,7 @@ export interface DealInsightsResult {
 export async function extractDealInsights(
   workspaceId: string,
   dealRecordId: string,
-  opts: { forceFullTranscript?: boolean; engageChars?: number } = {}
+  opts: { forceFullTranscript?: boolean; engageChars?: number; background?: boolean } = {}
 ): Promise<DealInsightsResult> {
   const transcript = await getDealTranscript(workspaceId, dealRecordId);
   const convIds = transcript.channels.map((c) => c.conversationId);
@@ -596,6 +609,7 @@ export async function extractDealInsights(
       mime: i.mimeType,
       contentB64: i.contentB64,
     })),
+    background: opts.background,
   });
 
   if (!result.ok) {

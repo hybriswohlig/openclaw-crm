@@ -588,8 +588,12 @@ export async function applyDealInsights(
       result.auftragRecordId = auftragId;
     }
 
-    // 7. Activity note (attributed to "User + KI").
-    if (applyNote) {
+    // 7. Activity event. ALWAYS emitted: this event is the durable insights
+    //    cache that GET /latest-insights and the UI read, so background runs
+    //    (agent worker, keep-warm) must refresh it too. `applyNote` only
+    //    controls whether the event carries a visible note for the activity
+    //    feed; `silent: true` events are filtered out of the feed rendering.
+    {
       const noteText = insights.activity_note || insights.summary;
       await emitEvent({
         workspaceId,
@@ -597,7 +601,8 @@ export async function applyDealInsights(
         objectSlug: "deals",
         eventType: "ai.insights_extracted",
         payload: {
-          note: noteText,
+          note: applyNote ? noteText : null,
+          silent: !applyNote,
           summary: insights.summary,
           fieldsUpdated: result.fieldsUpdated,
           changes: result.changes,
@@ -614,7 +619,7 @@ export async function applyDealInsights(
         },
         actorId: appliedBy,
       });
-      result.notePosted = true;
+      result.notePosted = applyNote;
     }
 
     // 8. Post-quote scope-change warning. Fire once per change (not every cron

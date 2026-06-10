@@ -69,6 +69,12 @@ export interface RunAITaskInput<TSchema extends z.ZodTypeAny | undefined = undef
    * OpenRouter path.
    */
   attachments?: Array<{ filename: string; mime: string; contentB64: string }>;
+  /**
+   * Background jobs (keep-warm crons etc.) are serialized through a 1-slot
+   * lane on the VPS runner so they never compete with a user-triggered job
+   * for the single vCPU. Interactive calls leave this unset.
+   */
+  background?: boolean;
 }
 
 export type RunAITaskResult<TSchema extends z.ZodTypeAny | undefined> =
@@ -530,6 +536,7 @@ async function runViaCrmTools<TSchema extends z.ZodTypeAny | undefined>(
               input.attachments && input.attachments.length > 0 ? input.attachments : undefined,
             _workspace_id: input.workspaceId,
             _task_slug: input.taskSlug,
+            _background: input.background || undefined,
           },
           timeout_sec: 270,
         }),

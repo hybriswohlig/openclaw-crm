@@ -15,6 +15,10 @@
       "schedule": "0 7 * * *"
     },
     {
+      "path": "/api/cron/keep-warm-insights",
+      "schedule": "*/10 6-21 * * *"
+    },
+    {
       "path": "/api/cron/check-overdue-tasks",
       "schedule": "*/15 * * * *"
     },

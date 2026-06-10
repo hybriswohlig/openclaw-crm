@@ -163,6 +163,9 @@ export async function GET(
         };
       }
       if (ev.eventType === "ai.insights_extracted") {
+        // Silent events exist only to keep the latest-insights cache warm
+        // (background extraction without applyNote); keep them out of the feed.
+        if (payload.silent === true) return null;
         const note = typeof payload.note === "string" ? payload.note : "";
         const summary = typeof payload.summary === "string" ? payload.summary : "";
         const fieldsUpdated = Array.isArray(payload.fieldsUpdated) ? payload.fieldsUpdated as string[] : [];
@@ -230,7 +233,7 @@ export async function GET(
         createdAt: ev.createdAt.toISOString(),
         createdBy: ev.actorId ?? undefined,
       };
-    }),
+    }).filter(<T,>(item: T): item is NonNullable<T> => item != null),
   ];
 
   // Sort by date descending

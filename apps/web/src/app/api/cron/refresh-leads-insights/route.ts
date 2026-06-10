@@ -28,7 +28,9 @@ export async function GET(req: NextRequest) {
 
   try {
     const started = Date.now();
-    const summaries = await refreshInContactLeadsGlobal();
+    // Background lane: the nightly batch must never contend with a
+    // user-triggered document job on the VPS's single vCPU.
+    const summaries = await refreshInContactLeadsGlobal({ background: true });
     const elapsedMs = Date.now() - started;
     const totals = summaries.reduce(
       (acc, s) => {

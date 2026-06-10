@@ -157,6 +157,26 @@ function fmtDate(iso: string): string {
   });
 }
 
+/** "vor 5 Min" / "vor 3 Std" / "vor 2 Tagen" for the freshness chip. */
+function relTimeDe(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  const min = Math.round(ms / 60_000);
+  if (min < 1) return "gerade eben";
+  if (min < 60) return `vor ${min} Min`;
+  const h = Math.round(min / 60);
+  if (h < 24) return `vor ${h} Std`;
+  const d = Math.round(h / 24);
+  return d === 1 ? "vor 1 Tag" : `vor ${d} Tagen`;
+}
+
+/** Shape of the cached ai.insights_extracted payload we render. */
+interface CachedKiSummary {
+  createdAt: string;
+  summary: string | null;
+  criticalMissing: Array<{ field?: string; question?: string }>;
+  missingFields: string[];
+}
+
 /** Map quotation values to the GenerateDocumentDialog prefill shape. */
 function prefillFromQuotation(
   q: QuotationPayload | null,
@@ -267,8 +287,17 @@ export function InboxContextPanel({
     type: DocumentType;
     items: InsightsExtractedSuggestion[];
     selected: Set<string>;
+    /** Full previewed insights + freshness token: sent back on apply so the
+     * server reuses the reviewed JSON instead of re-running the extraction. */
+    insights: unknown;
+    fingerprint?: string;
   } | null>(null);
   const [applying, setApplying] = useState(false);
+
+  // Cached KI-Zusammenfassung (rendered instantly from the durable
+  // ai.insights_extracted event; kept warm by the keep-warm cron).
+  const [kiSummary, setKiSummary] = useState<CachedKiSummary | null>(null);
+  const [kiCopiedIdx, setKiCopiedIdx] = useState<number | null>(null);
 
   const refresh = useCallback(async () => {
     if (!dealRecordId) {
@@ -277,12 +306,42 @@ export function InboxContextPanel({
     }
     setLoading(true);
     try {
-      const [linkRes, docsRes, qRes, lifeRes] = await Promise.all([
+      const [linkRes, docsRes, qRes, lifeRes, kiRes] = await Promise.all([
         fetch(`/api/v1/customer-link/${dealRecordId}`),
         fetch(`/api/v1/deals/${dealRecordId}/documents`),
         fetch(`/api/v1/deals/${dealRecordId}/quotation`),
         fetch(`/api/v1/deals/${dealRecordId}/lifecycle`),
+        fetch(`/api/v1/deals/${dealRecordId}/latest-insights`),
       ]);
+      if (kiRes.ok) {
+        const j = (await kiRes.json()) as {
+          data?: {
+            createdAt?: string;
+            payload?: {
+              summary?: unknown;
+              criticalMissing?: unknown;
+              missingFields?: unknown;
+            };
+          };
+        };
+        const p = j.data?.payload;
+        if (j.data?.createdAt && p) {
+          setKiSummary({
+            createdAt: j.data.createdAt,
+            summary: typeof p.summary === "string" ? p.summary : null,
+            criticalMissing: Array.isArray(p.criticalMissing)
+              ? (p.criticalMissing as Array<{ field?: string; question?: string }>)
+              : [],
+            missingFields: Array.isArray(p.missingFields)
+              ? (p.missingFields as string[])
+              : [],
+          });
+        } else {
+          setKiSummary(null);
+        }
+      } else {
+        setKiSummary(null);
+      }
       if (linkRes.ok) {
         const j = (await linkRes.json()) as { data?: { url?: string | null } };
         setLinkUrl(j.data?.url ?? null);
@@ -407,7 +466,11 @@ export function InboxContextPanel({
         return;
       }
       const data = (await res.json()) as {
-        data?: { insights?: { extracted?: Record<string, unknown> } | null; error?: string };
+        data?: {
+          insights?: { extracted?: Record<string, unknown> } | null;
+          error?: string;
+          fingerprint?: string;
+        };
       };
       const extracted = data.data?.insights?.extracted;
       if (!extracted) {
@@ -433,7 +496,13 @@ export function InboxContextPanel({
         return;
       }
       setMissingDialog(null);
-      setSuggestions({ type, items, selected: new Set(items.map((i) => i.key)) });
+      setSuggestions({
+        type,
+        items,
+        selected: new Set(items.map((i) => i.key)),
+        insights: data.data?.insights ?? null,
+        fingerprint: data.data?.fingerprint,
+      });
     } catch {
       setAnalyzeError("Netzwerkfehler bei der Analyse.");
     } finally {
@@ -453,6 +522,10 @@ export function InboxContextPanel({
           selectedFields: [...suggestions.selected],
           applyStage: false,
           applyNote: true,
+          // Reuse the previewed JSON server-side; without this every
+          // "Übernehmen & weiter" paid for a second full extraction.
+          insights: suggestions.insights,
+          fingerprint: suggestions.fingerprint,
         }),
       });
       // Re-fetch lead context and continue into the document dialog.
@@ -526,6 +599,92 @@ export function InboxContextPanel({
                 {analyzeError && (
                   <p className="mx-3 mb-2 rounded-md bg-destructive/10 px-2.5 py-1.5 text-[11px] text-destructive">
                     {analyzeError}
+                  </p>
+                )}
+              </Section>
+
+              {/* ── KI-Zusammenfassung (instant, from the durable cache) ── */}
+              <Section title="KI-Zusammenfassung">
+                {loading ? (
+                  <PanelSpinner />
+                ) : kiSummary ? (
+                  <div className="space-y-2 px-3 pb-3">
+                    <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                      <Sparkles className="h-3 w-3" />
+                      <span>Stand: {relTimeDe(kiSummary.createdAt)}</span>
+                    </div>
+                    {kiSummary.summary && (
+                      <p className="text-xs leading-relaxed text-foreground/90">
+                        {kiSummary.summary}
+                      </p>
+                    )}
+                    {kiSummary.criticalMissing.filter((m) => m.question).length > 0 && (
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-medium uppercase tracking-wider text-amber-600 dark:text-amber-500">
+                            Fehlt noch
+                          </span>
+                          <button
+                            onClick={() =>
+                              onInsert(
+                                kiSummary.criticalMissing
+                                  .map((m) => m.question)
+                                  .filter(Boolean)
+                                  .join("\n")
+                              )
+                            }
+                            className="text-[10px] text-primary hover:underline"
+                            title="Alle offenen Fragen als eine Nachricht in den Antwort-Editor übernehmen"
+                          >
+                            Alle Fragen übernehmen
+                          </button>
+                        </div>
+                        {kiSummary.criticalMissing
+                          .filter((m) => m.question)
+                          .map((m, i) => (
+                            <div
+                              key={i}
+                              className="flex items-start gap-1.5 rounded-md border border-border/60 bg-muted/30 px-2 py-1.5"
+                            >
+                              <span className="flex-1 text-[11px] leading-snug">
+                                {m.question}
+                              </span>
+                              <button
+                                onClick={() => onInsert(m.question!)}
+                                className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                                title="In den Antwort-Editor übernehmen"
+                              >
+                                <FileText className="h-3 w-3" />
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    await navigator.clipboard.writeText(m.question!);
+                                    setKiCopiedIdx(i);
+                                    window.setTimeout(() => setKiCopiedIdx(null), 1200);
+                                  } catch {
+                                    // ignore
+                                  }
+                                }}
+                                className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                                title="Frage kopieren"
+                              >
+                                {kiCopiedIdx === i ? (
+                                  <Check className="h-3 w-3 text-emerald-600" />
+                                ) : (
+                                  <Copy className="h-3 w-3" />
+                                )}
+                              </button>
+                            </div>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="px-3 pb-3 text-[11px] text-muted-foreground">
+                    Noch keine KI-Analyse vorhanden. Sie entsteht automatisch,
+                    sobald neue Nachrichten eingehen, oder über die KI-Analyse
+                    im AB/RE-Dialog.
                   </p>
                 )}
               </Section>
