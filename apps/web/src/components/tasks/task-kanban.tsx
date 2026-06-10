@@ -14,7 +14,7 @@ import {
 } from "@dnd-kit/core";
 import { Clock, Plus, Truck, AlignLeft } from "lucide-react";
 import { TaskDialog } from "./task-dialog";
-import { priorityMeta } from "@/lib/task-priority";
+import { priorityMeta, PRIORITIES } from "@/lib/task-priority";
 
 interface TaskAssignee {
   id: string;
@@ -349,16 +349,38 @@ export function TaskKanban({
       className="k-paper-noise"
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <span
-          style={{
-            fontFamily: "var(--f-mono)",
-            fontSize: 11,
-            letterSpacing: ".04em",
-            color: "var(--ink-muted)",
-          }}
-        >
-          {tasks.length} Aufgaben · {byColumn.laeuft.length} läuft · {byColumn.heute.length} heute
-        </span>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          <span
+            style={{
+              fontFamily: "var(--f-mono)",
+              fontSize: 11,
+              letterSpacing: ".04em",
+              color: "var(--ink-muted)",
+            }}
+          >
+            {tasks.length} Aufgaben · {byColumn.laeuft.length} läuft · {byColumn.heute.length} heute
+          </span>
+          {/* Priority legend — decode the card colours, like a Kanban board. */}
+          <span
+            className="flex items-center gap-2.5"
+            style={{ fontSize: 11, color: "var(--ink-muted)" }}
+          >
+            {PRIORITIES.map((p) => (
+              <span key={p.value} className="inline-flex items-center gap-1">
+                <span
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: "50%",
+                    background: p.dot,
+                    display: "inline-block",
+                  }}
+                />
+                {p.label}
+              </span>
+            ))}
+          </span>
+        </div>
         <div className="flex flex-wrap items-center gap-2.5">
           {/* Sprint scope — focus the board on the active sprint or the
               product backlog. Default "Alle" shows everything (flow + sprint),
@@ -760,43 +782,62 @@ function TaskCard({
   const prio = priorityMeta(task.priority);
   const hasDescription = !!task.description && task.description.trim().length > 0;
 
+  // Priority-tinted box (like a Kanban template): a soft wash of the
+  // priority colour + a matching border + a corner dot. Completed cards stay
+  // muted so "done" still reads as done.
+  const cardBorder =
+    done
+      ? "1px solid var(--line)"
+      : prio
+        ? `1px solid color-mix(in srgb, ${prio.dot} 38%, transparent)`
+        : live
+          ? "1px solid color-mix(in oklch, var(--kottke-accent) 30%, transparent)"
+          : "1px solid var(--line)";
+  const cardBg = done
+    ? "color-mix(in srgb, var(--paper) 60%, #fff)"
+    : prio
+      ? `color-mix(in srgb, ${prio.dot} 9%, #fff)`
+      : "#fff";
+
   return (
     <div
       className="k-card"
       onClick={onCardClick}
       style={{
+        position: "relative",
         padding: 12,
         cursor: dragging ? "grabbing" : onCardClick ? "pointer" : "grab",
-        border: live
-          ? "1px solid color-mix(in oklch, var(--kottke-accent) 30%, transparent)"
-          : "1px solid var(--line)",
-        background: done ? "color-mix(in srgb, var(--paper) 60%, #fff)" : "#fff",
+        border: cardBorder,
+        background: cardBg,
         boxShadow: dragging ? "0 12px 32px -8px rgba(34,29,22,.25)" : undefined,
       }}
     >
+      {prio && (
+        <span
+          title={`Prioritaet: ${prio.label}`}
+          style={{
+            position: "absolute",
+            top: 11,
+            right: 11,
+            width: 9,
+            height: 9,
+            borderRadius: "50%",
+            background: prio.dot,
+            opacity: done ? 0.45 : 1,
+            boxShadow: done ? "none" : `0 0 0 2px color-mix(in srgb, ${prio.dot} 18%, transparent)`,
+          }}
+        />
+      )}
       <div
         style={{
           fontWeight: 500,
           fontSize: 13.5,
           lineHeight: 1.35,
+          paddingRight: prio ? 14 : 0,
           textDecoration: done ? "line-through" : "none",
           color: done ? "var(--ink-muted)" : "var(--ink)",
         }}
       >
-        {prio && (
-          <span
-            title={`Prioritaet: ${prio.label}`}
-            style={{
-              display: "inline-block",
-              width: 7,
-              height: 7,
-              borderRadius: "50%",
-              background: prio.dot,
-              marginRight: 6,
-              verticalAlign: "middle",
-            }}
-          />
-        )}
         {task.content}
       </div>
 
