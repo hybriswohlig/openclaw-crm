@@ -45,6 +45,41 @@ export async function ensureAgentPriceTask(
   }
 }
 
+export const AGENT_CALL_TASK_MARKER = "[KI] Lead anrufen (Festnetz)";
+
+function isOpenAgentCallTask(t: EnrichedTask): boolean {
+  return !t.isCompleted && typeof t.content === "string" && t.content.startsWith(AGENT_CALL_TASK_MARKER);
+}
+
+/**
+ * Landline lead: WhatsApp cannot reach them, so the first-contact engine files
+ * a call task instead. Short deadline (3h), because speed-to-lead applies to
+ * phone calls even more than to messages. One open task per deal, no duplicates.
+ */
+export async function ensureAgentCallTask(
+  workspaceId: string,
+  dealRecordId: string,
+  hint: string
+): Promise<void> {
+  try {
+    const existing = (await getTasksForRecord(dealRecordId)) as unknown as EnrichedTask[];
+    if (existing.some(isOpenAgentCallTask)) return;
+
+    const owners = await ownerUserIds(workspaceId);
+    if (owners.length === 0) return;
+
+    const label = (hint || "neuer Lead").replace(/\s+/g, " ").trim().slice(0, 140);
+    const deadline = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString();
+    await createTask(`${AGENT_CALL_TASK_MARKER}: ${label}`, owners[0], workspaceId, {
+      deadline,
+      recordIds: [dealRecordId],
+      assigneeIds: owners,
+    });
+  } catch (err) {
+    console.error("[agent-tasks] ensureAgentCallTask failed (non-blocking):", err);
+  }
+}
+
 /** Complete any open agent price-task for a deal (called when a quote is saved). */
 export async function completeAgentPriceTasks(
   workspaceId: string,

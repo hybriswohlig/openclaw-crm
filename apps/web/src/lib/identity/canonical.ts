@@ -25,6 +25,14 @@ const PHONE_METADATA = (
     ? phoneMetadataRaw
     : (phoneMetadataRaw as unknown as { default: unknown }).default
 ) as Parameters<typeof parsePhoneNumberFromString>[2];
+// Mobile-only metadata: a number that validates against it is a mobile number.
+// (The min metadata has no type patterns, so it cannot tell mobile from fixed.)
+import phoneMobileMetadataRaw from "libphonenumber-js/mobile/metadata";
+const PHONE_MOBILE_METADATA = (
+  (phoneMobileMetadataRaw as { countries?: unknown }).countries
+    ? phoneMobileMetadataRaw
+    : (phoneMobileMetadataRaw as unknown as { default: unknown }).default
+) as Parameters<typeof parsePhoneNumberFromString>[2];
 
 /** Parse with explicit metadata; never throws (the contract for this module). */
 function parsePhone(s: string, region: CountryCode) {
@@ -136,6 +144,43 @@ export function canonicalizePhone(raw: string | null | undefined, defaultRegion:
 
   if (!phone || !phone.isValid()) return null;
   return phone.number; // E.164
+}
+
+// ─── Line type (mobile vs landline) ──────────────────────────────────────────
+export type PhoneLineType = "mobile" | "landline" | "unknown";
+
+/**
+ * Classify an E.164 number as mobile vs landline. Drives the first-contact
+ * channel decision: WhatsApp only goes to mobiles; landlines get a call task.
+ * Never throws.
+ *
+ * Order of evidence:
+ *  1. valid against the mobile-only metadata -> mobile (works worldwide; in
+ *     countries where fixed and mobile share patterns, e.g. US, everything
+ *     passes as mobile, which errs on the permissive side),
+ *  2. German prefix fallback (15x/16x/17x is the complete DE mobile space),
+ *  3. valid full number that failed the mobile check -> landline,
+ *  4. otherwise unknown (caller decides; first contact treats it like mobile).
+ */
+export function classifyPhoneLineType(e164: string | null | undefined): PhoneLineType {
+  if (!e164 || !/^\+\d{6,15}$/.test(e164)) return "unknown";
+  // The input is E.164 (leading +), so the default region never kicks in; "DE"
+  // just satisfies the signature, matching the rest of this module.
+  try {
+    const mobile = parsePhoneNumberFromString(e164, "DE", PHONE_MOBILE_METADATA);
+    if (mobile?.isValid()) return "mobile";
+  } catch {
+    // fall through to the prefix heuristic
+  }
+  const de = e164.match(/^\+49(\d+)$/);
+  if (de) return /^(15|16|17)/.test(de[1]) ? "mobile" : "landline";
+  try {
+    const full = parsePhoneNumberFromString(e164, "DE", PHONE_METADATA);
+    if (full?.isValid()) return "landline";
+  } catch {
+    // ignore
+  }
+  return "unknown";
 }
 
 // ─── Email ────────────────────────────────────────────────────────────────────

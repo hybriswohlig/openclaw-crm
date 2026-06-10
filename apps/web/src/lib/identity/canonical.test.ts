@@ -4,6 +4,7 @@ import {
   canonicalizeEmail,
   isRelayEmail,
   classifyJid,
+  classifyPhoneLineType,
   extractPhonesFromText,
 } from "./canonical";
 
@@ -118,5 +119,27 @@ describe("extractPhonesFromText — rescue the discarded KA Tel. line", () => {
     expect(
       extractPhonesFromText("Tel 0151 5905 8963 oder 0049 151 59058963")
     ).toEqual(["+4915159058963"]);
+  });
+});
+
+describe("classifyPhoneLineType — mobile vs landline routing for first contact", () => {
+  it("German mobiles (15x/16x/17x) are mobile", () => {
+    expect(classifyPhoneLineType("+4915159058963")).toBe("mobile");
+    expect(classifyPhoneLineType("+491701234567")).toBe("mobile");
+    expect(classifyPhoneLineType("+4916090000000")).toBe("mobile");
+  });
+  it("German landlines (city codes) are landline", () => {
+    expect(classifyPhoneLineType("+49711120930")).toBe("landline"); // Stuttgart
+    expect(classifyPhoneLineType("+4930901820")).toBe("landline"); // Berlin
+    expect(classifyPhoneLineType("+497031234567")).toBe("landline"); // Böblingen
+  });
+  it("foreign mobiles are mobile", () => {
+    expect(classifyPhoneLineType("+41791234567")).toBe("mobile"); // CH mobile
+    expect(classifyPhoneLineType("+436641234567")).toBe("mobile"); // AT mobile
+  });
+  it("garbage and empty are unknown", () => {
+    expect(classifyPhoneLineType(null)).toBe("unknown");
+    expect(classifyPhoneLineType("")).toBe("unknown");
+    expect(classifyPhoneLineType("0151 5905 8963")).toBe("unknown"); // not E.164
   });
 });

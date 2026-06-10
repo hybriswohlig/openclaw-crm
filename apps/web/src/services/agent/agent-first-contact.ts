@@ -40,8 +40,9 @@ import { AI_TASK_SLUGS } from "@/services/ai/task-registry";
 import { emitEvent } from "@/services/activity-events";
 import { sendPush } from "@/services/push";
 import { getObjectBySlug } from "@/services/objects";
-import { canonicalizePhone } from "@/lib/identity/canonical";
+import { canonicalizePhone, classifyPhoneLineType } from "@/lib/identity/canonical";
 import { sendBaileysFirstMessage, sendWhatsAppTemplate } from "@/services/inbox-whatsapp";
+import { ensureAgentCallTask } from "./agent-tasks";
 import {
   isFirstContactEnabled,
   getFirstContactEnabledAt,
@@ -83,6 +84,8 @@ export interface FirstContactRunSummary {
   errors: number;
   outsideWindow: number;
   capReached: number;
+  /** Landline leads routed to a call task instead of WhatsApp. */
+  callTasks: number;
 }
 
 const FirstContactSchema = z.object({
@@ -510,6 +513,56 @@ async function runForWorkspace(
         continue;
       }
 
+      // 2b. Landline? WhatsApp cannot reach it. Notify the team and file a call
+      // task instead (owner decision 2026-06-11). "unknown" stays on the
+      // WhatsApp path; a failed send already alerts the owner.
+      if (classifyPhoneLineType(e164) === "landline") {
+        if (!(await claimLead(lead.rvId, nowIso, staleCutoffIso))) continue;
+        const name =
+          `${p.client?.firstName ?? ""} ${p.client?.lastName ?? ""}`.trim() || "Unbekannt";
+        const fromCity = p.from?.city || p.from?.zip || "?";
+        const toCity = p.to?.city || p.to?.zip || "?";
+        const hint = `${name}, ${e164}, ${fromCity} nach ${toCity}`;
+        const mode = dryRun ? "dry_run" : "live";
+        await markLead(lead.rvId, { status: "landline_call_task", at: nowIso, mode });
+        await emitEvent({
+          workspaceId,
+          recordId: lead.recordId,
+          objectSlug: "deals",
+          eventType: "agent.action",
+          payload: {
+            mode,
+            action: "first_contact",
+            channel: "phone",
+            message: "",
+            reason: `Festnetznummer ${e164}: kein WhatsApp möglich, Anruf-Aufgabe ${dryRun ? "würde erstellt (Testlauf)" : "erstellt"}`,
+          },
+          actorId: null,
+        });
+        if (!dryRun) {
+          await ensureAgentCallTask(workspaceId, lead.recordId, hint);
+          try {
+            const owners = await ownerUserIds(workspaceId);
+            if (owners.length > 0) {
+              await sendPush(
+                {
+                  title: "Festnetz-Lead: bitte anrufen",
+                  body: `${hint}. WhatsApp nicht möglich, Aufgabe erstellt.`,
+                  url: `/objects/deals/${lead.recordId}`,
+                  tag: `agent-firstcontact-${lead.recordId}`,
+                },
+                { workspaceId, userIds: owners }
+              );
+            }
+          } catch (err) {
+            console.error("[agent-first-contact] landline push failed (non-blocking):", err);
+          }
+        }
+        processed += 1;
+        summary.callTasks += 1;
+        continue;
+      }
+
       // 3. Existing WhatsApp thread with this number on the outreach account?
       // Then we are already in contact; the reply agent owns it.
       const waId = e164.slice(1);
@@ -749,6 +802,7 @@ export async function runAgentFirstContact(): Promise<FirstContactRunSummary> {
     errors: 0,
     outsideWindow: 0,
     capReached: 0,
+    callTasks: 0,
   };
 
   const wsRows = (await db.execute<{ id: string }>(

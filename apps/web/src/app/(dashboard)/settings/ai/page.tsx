@@ -317,9 +317,10 @@ export default function AISettingsPage() {
                 <p className="text-xs text-muted-foreground">
                   Begrüßt jeden neuen ImmoScout-Lead innerhalb weniger Minuten per WhatsApp im Namen
                   der Firma: Bezug auf die Anfrage, genau eine leichte Frage, Vorschlag für ein kurzes
-                  Telefonat. Nur Leads, die NACH dem Einschalten eingehen, werden kontaktiert. Versand
-                  Mo bis Sa 8 bis 20 Uhr, So 10 bis 19 Uhr, mit Tageslimit und STOP-Hinweis. Folgt dem
-                  Testlauf-Schalter oben.
+                  Telefonat. WhatsApp geht nur an Mobilnummern; bei Festnetznummern gibt es stattdessen
+                  eine Push-Mitteilung und automatisch eine Anruf-Aufgabe. Nur Leads, die NACH dem
+                  Einschalten eingehen, werden kontaktiert. Versand Mo bis Sa 8 bis 20 Uhr, So 10 bis
+                  19 Uhr, mit Tageslimit und STOP-Hinweis. Folgt dem Testlauf-Schalter oben.
                 </p>
               </div>
               <button
