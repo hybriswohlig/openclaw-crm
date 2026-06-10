@@ -138,8 +138,10 @@ export function isMoveDatePast(
 }
 
 // Conservative: only clear, unambiguous declines, to avoid silencing real leads.
+// Includes opt-out keywords (STOP etc.): an advertising objection under Art. 21
+// DSGVO / §7 UWG is absolute, so the agent must fall silent immediately.
 const DECLINE_PATTERNS =
-  /(kein interesse|zu teuer|doch nicht|anderweitig|anderen anbieter|bereits (beauftragt|gebucht|vergeben|organisiert)|schon (beauftragt|gebucht|jemanden)|abgesagt|hat sich erledigt|erledigt sich|brauche (keine|nichts|nicht mehr)|nicht mehr (nötig|notwendig|relevant|aktuell|gebraucht))/i;
+  /(kein interesse|zu teuer|doch nicht|anderweitig|anderen anbieter|bereits (beauftragt|gebucht|vergeben|organisiert)|schon (beauftragt|gebucht|jemanden)|abgesagt|hat sich erledigt|erledigt sich|brauche (keine|nichts|nicht mehr)|nicht mehr (nötig|notwendig|relevant|aktuell|gebraucht)|keine (weiteren )?nachrichten|nicht mehr (schreiben|kontaktieren)|^\s*stopp?\s*[.!]?\s*$|abbestellen|abmelden)/i;
 
 /** Heuristic safety net: does the customer's last message clearly decline? */
 export function looksDeclined(text: string | null | undefined): boolean {

@@ -28,6 +28,20 @@ const KEY_FOLLOWUP = "sales_followup_enabled";
 const KEY_DISCLOSE_AI = "sales_agent_disclose_ai";
 const KEY_DISCLOSURE = "sales_agent_disclosure";
 const KEY_HANDOFF_ACK = "sales_agent_handoff_ack";
+// First-contact engine (proactive WhatsApp outreach to fresh ImmoScout leads).
+const KEY_FIRST_CONTACT = "sales_first_contact_enabled";
+// Set to the enable timestamp every time the switch flips ON. The engine only
+// ever touches leads CREATED AFTER this moment, so enabling it can never blast
+// a stale backlog (the 2026-06-03 live-run failure mode).
+const KEY_FIRST_CONTACT_ENABLED_AT = "sales_first_contact_enabled_at";
+const KEY_FIRST_CONTACT_ACCOUNT = "sales_first_contact_channel_account_id";
+const KEY_FIRST_CONTACT_TEMPLATE = "sales_first_contact_template";
+const KEY_FIRST_CONTACT_TEMPLATE_PARAMS = "sales_first_contact_template_params";
+const KEY_FIRST_CONTACT_DAILY_CAP = "sales_first_contact_daily_cap";
+
+export const DEFAULT_FIRST_CONTACT_DAILY_CAP = 30;
+/** Default WABA template body params (token-substituted at send time). */
+export const DEFAULT_FIRST_CONTACT_TEMPLATE_PARAMS = "{name}";
 
 /** Channel types the agent is allowed to act on, by default. KA rides on email. */
 export const DEFAULT_AGENT_CHANNELS = ["whatsapp", "email"] as const;
@@ -67,6 +81,11 @@ export interface AgentSettings {
   discloseAi: boolean;
   disclosure: string;
   handoffAck: string;
+  firstContactEnabled: boolean;
+  firstContactChannelAccountId: string | null;
+  firstContactTemplate: string;
+  firstContactTemplateParams: string;
+  firstContactDailyCap: number;
 }
 
 export async function isSalesAgentEnabled(workspaceId: string): Promise<boolean> {
@@ -121,6 +140,47 @@ export async function getAgentHandoffAck(workspaceId: string): Promise<string> {
   return raw === null ? DEFAULT_AGENT_HANDOFF_ACK : raw;
 }
 
+/** First-contact engine on/off, independent of the reply agent. Default OFF. */
+export async function isFirstContactEnabled(workspaceId: string): Promise<boolean> {
+  return (await getSetting(workspaceId, KEY_FIRST_CONTACT)) === "true";
+}
+
+/**
+ * The ISO timestamp of the most recent OFF->ON flip. The engine refuses to run
+ * without it (fail-safe) and only contacts leads created after it.
+ */
+export async function getFirstContactEnabledAt(workspaceId: string): Promise<Date | null> {
+  const raw = await getSetting(workspaceId, KEY_FIRST_CONTACT_ENABLED_AT);
+  if (!raw) return null;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** The WhatsApp channel account (WABA or in-house Baileys) used for first contact. */
+export async function getFirstContactChannelAccountId(workspaceId: string): Promise<string | null> {
+  const raw = await getSetting(workspaceId, KEY_FIRST_CONTACT_ACCOUNT);
+  return raw && raw.trim() ? raw.trim() : null;
+}
+
+/** WABA-only: the approved template used to open the conversation. */
+export async function getFirstContactTemplate(workspaceId: string): Promise<string> {
+  const raw = await getSetting(workspaceId, KEY_FIRST_CONTACT_TEMPLATE);
+  return raw?.trim() ?? "";
+}
+
+/** WABA-only: comma-separated body params with {name}/{vorname}/{von}/{nach}/{route}/{datum} tokens. */
+export async function getFirstContactTemplateParams(workspaceId: string): Promise<string> {
+  const raw = await getSetting(workspaceId, KEY_FIRST_CONTACT_TEMPLATE_PARAMS);
+  return raw && raw.trim() ? raw.trim() : DEFAULT_FIRST_CONTACT_TEMPLATE_PARAMS;
+}
+
+/** Hard cap on first-contact attempts (live + dry-run) per calendar day. */
+export async function getFirstContactDailyCap(workspaceId: string): Promise<number> {
+  const raw = await getSetting(workspaceId, KEY_FIRST_CONTACT_DAILY_CAP);
+  const n = raw ? Number.parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_FIRST_CONTACT_DAILY_CAP;
+}
+
 export async function getAgentSettings(workspaceId: string): Promise<AgentSettings> {
   const [enabled, dryRun, channels, signature, followupEnabled, discloseAi, disclosure, handoffAck] =
     await Promise.all([
@@ -133,7 +193,34 @@ export async function getAgentSettings(workspaceId: string): Promise<AgentSettin
       getAgentDisclosure(workspaceId),
       getAgentHandoffAck(workspaceId),
     ]);
-  return { enabled, dryRun, channels, signature, followupEnabled, discloseAi, disclosure, handoffAck };
+  const [
+    firstContactEnabled,
+    firstContactChannelAccountId,
+    firstContactTemplate,
+    firstContactTemplateParams,
+    firstContactDailyCap,
+  ] = await Promise.all([
+    isFirstContactEnabled(workspaceId),
+    getFirstContactChannelAccountId(workspaceId),
+    getFirstContactTemplate(workspaceId),
+    getFirstContactTemplateParams(workspaceId),
+    getFirstContactDailyCap(workspaceId),
+  ]);
+  return {
+    enabled,
+    dryRun,
+    channels,
+    signature,
+    followupEnabled,
+    discloseAi,
+    disclosure,
+    handoffAck,
+    firstContactEnabled,
+    firstContactChannelAccountId,
+    firstContactTemplate,
+    firstContactTemplateParams,
+    firstContactDailyCap,
+  };
 }
 
 export async function setAgentSettings(
@@ -147,8 +234,43 @@ export async function setAgentSettings(
     discloseAi?: boolean;
     disclosure?: string;
     handoffAck?: string;
+    firstContactEnabled?: boolean;
+    firstContactChannelAccountId?: string | null;
+    firstContactTemplate?: string;
+    firstContactTemplateParams?: string;
+    firstContactDailyCap?: number;
   }
 ): Promise<AgentSettings> {
+  if (patch.firstContactEnabled !== undefined) {
+    const wasEnabled = await isFirstContactEnabled(workspaceId);
+    await setSetting(workspaceId, KEY_FIRST_CONTACT, patch.firstContactEnabled ? "true" : "false");
+    // Every OFF->ON flip re-stamps the watermark, so only leads arriving from
+    // now on are auto-contacted. Old leads stay untouched, always.
+    if (patch.firstContactEnabled && !wasEnabled) {
+      await setSetting(workspaceId, KEY_FIRST_CONTACT_ENABLED_AT, new Date().toISOString());
+    }
+  }
+  if (patch.firstContactChannelAccountId !== undefined) {
+    await setSetting(
+      workspaceId,
+      KEY_FIRST_CONTACT_ACCOUNT,
+      patch.firstContactChannelAccountId?.trim() ?? ""
+    );
+  }
+  if (patch.firstContactTemplate !== undefined) {
+    await setSetting(workspaceId, KEY_FIRST_CONTACT_TEMPLATE, patch.firstContactTemplate.trim());
+  }
+  if (patch.firstContactTemplateParams !== undefined) {
+    await setSetting(
+      workspaceId,
+      KEY_FIRST_CONTACT_TEMPLATE_PARAMS,
+      patch.firstContactTemplateParams.trim()
+    );
+  }
+  if (patch.firstContactDailyCap !== undefined) {
+    const n = Math.max(1, Math.floor(patch.firstContactDailyCap));
+    await setSetting(workspaceId, KEY_FIRST_CONTACT_DAILY_CAP, String(n));
+  }
   if (patch.followupEnabled !== undefined) {
     await setSetting(workspaceId, KEY_FOLLOWUP, patch.followupEnabled ? "true" : "false");
   }

@@ -62,11 +62,21 @@ export default function AISettingsPage() {
     discloseAi: boolean;
     disclosure: string;
     handoffAck: string;
+    firstContactEnabled: boolean;
+    firstContactChannelAccountId: string | null;
+    firstContactTemplate: string;
+    firstContactTemplateParams: string;
+    firstContactDailyCap: number;
   } | null>(null);
   const [signature, setSignature] = useState("");
   const [disclosure, setDisclosure] = useState("");
   const [handoffAck, setHandoffAck] = useState("");
   const [savingAgent, setSavingAgent] = useState(false);
+  const [waAccounts, setWaAccounts] = useState<
+    Array<{ id: string; name: string; waPhoneNumberId: string | null; baileysBridgeProvider: string | null }>
+  >([]);
+  const [fcTemplate, setFcTemplate] = useState("");
+  const [fcTemplateParams, setFcTemplateParams] = useState("");
 
   const patchAgent = useCallback(
     async (patch: {
@@ -77,6 +87,11 @@ export default function AISettingsPage() {
       discloseAi?: boolean;
       disclosure?: string;
       handoffAck?: string;
+      firstContactEnabled?: boolean;
+      firstContactChannelAccountId?: string | null;
+      firstContactTemplate?: string;
+      firstContactTemplateParams?: string;
+      firstContactDailyCap?: number;
     }) => {
       setSavingAgent(true);
       setAgent((a) => (a ? { ...a, ...patch } : a));
@@ -92,6 +107,8 @@ export default function AISettingsPage() {
           setSignature(data.data.signature ?? "");
           setDisclosure(data.data.disclosure ?? "");
           setHandoffAck(data.data.handoffAck ?? "");
+          setFcTemplate(data.data.firstContactTemplate ?? "");
+          setFcTemplateParams(data.data.firstContactTemplateParams ?? "");
         }
       } finally {
         setSavingAgent(false);
@@ -128,7 +145,22 @@ export default function AISettingsPage() {
         if (data?.data) {
           setAgent(data.data);
           setSignature(data.data.signature ?? "");
+          setFcTemplate(data.data.firstContactTemplate ?? "");
+          setFcTemplateParams(data.data.firstContactTemplateParams ?? "");
         }
+      })
+      .catch(() => {});
+    fetch("/api/v1/inbox/channel-accounts")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        const rows = (data?.data ?? []) as Array<{
+          id: string;
+          name: string;
+          channelType: string;
+          waPhoneNumberId: string | null;
+          baileysBridgeProvider: string | null;
+        }>;
+        setWaAccounts(rows.filter((r) => r.channelType === "whatsapp"));
       })
       .catch(() => {});
     fetchTasks();
@@ -275,6 +307,158 @@ export default function AISettingsPage() {
                 }`}
               />
             </button>
+          </div>
+
+          {/* First-contact engine: proactive WhatsApp outreach to fresh ImmoScout leads */}
+          <div className="space-y-3 border-t pt-3">
+            <div className="flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">Automatische Erstansprache neuer ImmoScout-Leads</p>
+                <p className="text-xs text-muted-foreground">
+                  Begrüßt jeden neuen ImmoScout-Lead innerhalb weniger Minuten per WhatsApp im Namen
+                  der Firma: Bezug auf die Anfrage, genau eine leichte Frage, Vorschlag für ein kurzes
+                  Telefonat. Nur Leads, die NACH dem Einschalten eingehen, werden kontaktiert. Versand
+                  Mo bis Sa 8 bis 20 Uhr, So 10 bis 19 Uhr, mit Tageslimit und STOP-Hinweis. Folgt dem
+                  Testlauf-Schalter oben.
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={agent.firstContactEnabled}
+                disabled={savingAgent}
+                onClick={() => patchAgent({ firstContactEnabled: !agent.firstContactEnabled })}
+                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                  agent.firstContactEnabled ? "bg-primary" : "bg-muted"
+                }`}
+              >
+                <span
+                  className={`pointer-events-none block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+                    agent.firstContactEnabled ? "translate-x-4" : "translate-x-0"
+                  }`}
+                />
+              </button>
+            </div>
+
+            {agent.firstContactEnabled && (
+              <div className="space-y-3 pl-1">
+                {agent.dryRun ? (
+                  <div className="rounded-md bg-muted/50 px-3 py-2 text-xs text-amber-600">
+                    Testlauf aktiv: Vorschauen erscheinen nur im Deal-Verlauf, es wird nichts gesendet.
+                  </div>
+                ) : (
+                  <div className="rounded-md bg-muted/50 px-3 py-2 text-xs text-green-600">
+                    Aktiv: neue ImmoScout-Leads werden wirklich angeschrieben. Sie erhalten bei jedem
+                    Versand eine Push-Benachrichtigung.
+                  </div>
+                )}
+
+                <div className="space-y-1">
+                  <Label className="text-xs">WhatsApp-Kanal für die Erstansprache</Label>
+                  <select
+                    value={agent.firstContactChannelAccountId ?? ""}
+                    disabled={savingAgent}
+                    onChange={(e) =>
+                      patchAgent({ firstContactChannelAccountId: e.target.value || null })
+                    }
+                    className="flex h-8 w-full rounded-md border border-input bg-transparent px-2 py-1 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  >
+                    <option value="">Bitte wählen…</option>
+                    {waAccounts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}{" "}
+                        {a.waPhoneNumberId
+                          ? "(WABA, braucht Template)"
+                          : a.baileysBridgeProvider === "inhouse"
+                            ? "(Baileys, freier Text)"
+                            : "(nicht versandfähig)"}
+                      </option>
+                    ))}
+                  </select>
+                  {!agent.firstContactChannelAccountId && (
+                    <p className="text-[10px] text-amber-600">
+                      Ohne Kanal bleibt die Erstansprache wirkungslos.
+                    </p>
+                  )}
+                </div>
+
+                {(() => {
+                  const selected = waAccounts.find(
+                    (a) => a.id === agent.firstContactChannelAccountId
+                  );
+                  if (!selected?.waPhoneNumberId) return null;
+                  return (
+                    <div className="space-y-2">
+                      <div className="space-y-1">
+                        <Label className="text-xs">WABA-Template-Name (von Meta genehmigt)</Label>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            value={fcTemplate}
+                            onChange={(e) => setFcTemplate(e.target.value)}
+                            placeholder="z.B. erstkontakt_umzugsanfrage"
+                            className="h-8 text-xs"
+                          />
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={savingAgent || fcTemplate === agent.firstContactTemplate}
+                            onClick={() => patchAgent({ firstContactTemplate: fcTemplate })}
+                            className="h-8 text-xs shrink-0"
+                          >
+                            Speichern
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Template-Variablen (kommagetrennt)</Label>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            value={fcTemplateParams}
+                            onChange={(e) => setFcTemplateParams(e.target.value)}
+                            placeholder="{name}, {route}, {datum}"
+                            className="h-8 text-xs"
+                          />
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={
+                              savingAgent || fcTemplateParams === agent.firstContactTemplateParams
+                            }
+                            onClick={() =>
+                              patchAgent({ firstContactTemplateParams: fcTemplateParams })
+                            }
+                            className="h-8 text-xs shrink-0"
+                          >
+                            Speichern
+                          </Button>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">
+                          Platzhalter: {"{name} {vorname} {nachname} {von} {nach} {route} {datum}"}.
+                          Reihenfolge muss zu den {"{{n}}"}-Variablen des Templates passen.
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                <div className="space-y-1">
+                  <Label className="text-xs">Tageslimit (Nachrichten pro 24h)</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    step="1"
+                    defaultValue={agent.firstContactDailyCap}
+                    onBlur={(e) => {
+                      const n = Number.parseInt(e.target.value, 10);
+                      if (Number.isFinite(n) && n > 0 && n !== agent.firstContactDailyCap) {
+                        patchAgent({ firstContactDailyCap: n });
+                      }
+                    }}
+                    className="h-8 w-28 text-xs"
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           {agent.enabled && (

@@ -16,6 +16,8 @@ export const AI_TASK_SLUGS = {
   // followup = re-engage a stale lead (Phase 3).
   LEAD_ASSISTANT_REPLY: "lead.assistant.reply",
   LEAD_FOLLOWUP: "lead.followup",
+  // Proactive WhatsApp first contact for fresh ImmoScout leads (speed-to-lead).
+  LEAD_FIRST_CONTACT: "lead.first-contact",
 } as const;
 
 export type AITaskSlug = (typeof AI_TASK_SLUGS)[keyof typeof AI_TASK_SLUGS];
@@ -109,6 +111,18 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
     defaultTemperature: 0.4,
     defaultMaxTokens: 800,
     defaultDailySpendCapUsd: 2,
+  },
+  [AI_TASK_SLUGS.LEAD_FIRST_CONTACT]: {
+    slug: AI_TASK_SLUGS.LEAD_FIRST_CONTACT,
+    label: "Sales agent first contact (ImmoScout)",
+    description:
+      "Composes the proactive WhatsApp opener for a fresh ImmoScout lead: references the inquiry, asks ONE easy question, proposes a call. Never names a price. Speed matters, so this defaults to the sync OpenRouter path instead of the VPS job queue.",
+    defaultProvider: "openrouter",
+    defaultModel: "anthropic/claude-sonnet-4.5",
+    defaultFallbackModel: "openai/gpt-4o",
+    defaultTemperature: 0.4,
+    defaultMaxTokens: 800,
+    defaultDailySpendCapUsd: 3,
   },
 };
 

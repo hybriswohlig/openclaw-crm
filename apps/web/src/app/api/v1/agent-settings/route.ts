@@ -27,6 +27,11 @@ export async function PATCH(req: NextRequest) {
     discloseAi?: unknown;
     disclosure?: unknown;
     handoffAck?: unknown;
+    firstContactEnabled?: unknown;
+    firstContactChannelAccountId?: unknown;
+    firstContactTemplate?: unknown;
+    firstContactTemplateParams?: unknown;
+    firstContactDailyCap?: unknown;
   };
 
   const patch: {
@@ -38,6 +43,11 @@ export async function PATCH(req: NextRequest) {
     discloseAi?: boolean;
     disclosure?: string;
     handoffAck?: string;
+    firstContactEnabled?: boolean;
+    firstContactChannelAccountId?: string | null;
+    firstContactTemplate?: string;
+    firstContactTemplateParams?: string;
+    firstContactDailyCap?: number;
   } = {};
   if (body.enabled !== undefined) {
     if (typeof body.enabled !== "boolean")
@@ -78,6 +88,37 @@ export async function PATCH(req: NextRequest) {
     if (typeof body.handoffAck !== "string")
       return NextResponse.json({ error: "handoffAck must be string" }, { status: 400 });
     patch.handoffAck = body.handoffAck;
+  }
+  if (body.firstContactEnabled !== undefined) {
+    if (typeof body.firstContactEnabled !== "boolean")
+      return NextResponse.json({ error: "firstContactEnabled must be boolean" }, { status: 400 });
+    patch.firstContactEnabled = body.firstContactEnabled;
+  }
+  if (body.firstContactChannelAccountId !== undefined) {
+    if (body.firstContactChannelAccountId !== null && typeof body.firstContactChannelAccountId !== "string")
+      return NextResponse.json(
+        { error: "firstContactChannelAccountId must be string or null" },
+        { status: 400 }
+      );
+    patch.firstContactChannelAccountId = body.firstContactChannelAccountId;
+  }
+  if (body.firstContactTemplate !== undefined) {
+    if (typeof body.firstContactTemplate !== "string")
+      return NextResponse.json({ error: "firstContactTemplate must be string" }, { status: 400 });
+    patch.firstContactTemplate = body.firstContactTemplate;
+  }
+  if (body.firstContactTemplateParams !== undefined) {
+    if (typeof body.firstContactTemplateParams !== "string")
+      return NextResponse.json(
+        { error: "firstContactTemplateParams must be string" },
+        { status: 400 }
+      );
+    patch.firstContactTemplateParams = body.firstContactTemplateParams;
+  }
+  if (body.firstContactDailyCap !== undefined) {
+    if (typeof body.firstContactDailyCap !== "number" || !Number.isFinite(body.firstContactDailyCap))
+      return NextResponse.json({ error: "firstContactDailyCap must be a number" }, { status: 400 });
+    patch.firstContactDailyCap = body.firstContactDailyCap;
   }
 
   return success(await setAgentSettings(ctx.workspaceId, patch));

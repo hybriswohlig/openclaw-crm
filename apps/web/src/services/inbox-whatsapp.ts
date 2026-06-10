@@ -1814,7 +1814,9 @@ export async function sendWhatsAppTemplate(params: {
     })
     .where(eq(inboxConversations.id, conv.id));
 
-  if (createdNewConversation) {
+  // Only mint a deal when the caller did NOT hand one in (see the Baileys
+  // first-message path for the rationale).
+  if (createdNewConversation && !conv.dealRecordId) {
     await createDealForNewConversation({
       workspaceId,
       conversationId: conv.id,
@@ -2451,7 +2453,10 @@ export async function sendBaileysFirstMessage(params: {
     })
     .where(eq(inboxConversations.id, conv.id));
 
-  if (createdNewConversation) {
+  // Only mint a deal when the caller did NOT hand one in: a conversation opened
+  // for an existing lead (e.g. the ImmoScout first-contact agent) must stay
+  // linked to that deal, never get a duplicate.
+  if (createdNewConversation && !conv.dealRecordId) {
     await createDealForNewConversation({
       workspaceId,
       conversationId: conv.id,
