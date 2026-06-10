@@ -29,6 +29,7 @@ import {
   Phone,
   ExternalLink,
   Bot,
+  PanelRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -44,6 +45,7 @@ import {
   type DraftSuggestion,
 } from "@/components/chat/draft-suggestion-banner";
 import { CustomerLinkComposer } from "@/components/inbox/customer-link-composer";
+import { InboxContextPanel } from "@/components/inbox/context-panel";
 import { PersonRow } from "@/components/inbox/person-row";
 import { MergeSuggestions } from "@/components/inbox/merge-suggestions";
 import { PersonTimeline } from "@/components/inbox/person-timeline";
@@ -744,6 +746,19 @@ function ConversationView({
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Zendesk-style context panel. Open by default on desktop, remembered
+  // across sessions; below lg it renders as an overlay drawer.
+  const [panelOpen, setPanelOpen] = useState(false);
+  useEffect(() => {
+    const stored = window.localStorage.getItem("inbox.contextPanel");
+    if (stored != null) setPanelOpen(stored === "1");
+    else setPanelOpen(window.matchMedia("(min-width: 1024px)").matches);
+  }, []);
+  function setPanel(open: boolean) {
+    setPanelOpen(open);
+    window.localStorage.setItem("inbox.contextPanel", open ? "1" : "0");
+  }
+
   // Reset suggestion when switching conversations
   useEffect(() => {
     setAiSuggestion(null);
@@ -994,7 +1009,8 @@ function ConversationView({
   const isWa = conv.channelType === "whatsapp";
 
   return (
-    <div className="relative flex flex-col h-full bg-muted/20">
+    <div className="flex h-full min-w-0">
+    <div className="relative flex flex-col h-full flex-1 min-w-0 bg-muted/20">
       {/* Header */}
       <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 sm:py-3 border-b border-border bg-background shrink-0">
         <button onClick={onBack} className="md:hidden text-muted-foreground hover:text-foreground p-1 -ml-1">
@@ -1092,6 +1108,20 @@ function ConversationView({
             Erledigt
           </button>
         )}
+
+        {/* Context panel toggle */}
+        <button
+          onClick={() => setPanel(!panelOpen)}
+          title={panelOpen ? "Schnellzugriff ausblenden" : "Schnellzugriff einblenden"}
+          className={cn(
+            "h-8 w-8 flex items-center justify-center rounded-lg transition-colors",
+            panelOpen
+              ? "bg-muted text-foreground"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted"
+          )}
+        >
+          <PanelRight className="h-4 w-4" />
+        </button>
 
         {/* Status + menu */}
         <div className="relative">
@@ -1466,6 +1496,22 @@ function ConversationView({
           </p>
         )}
       </div>
+    </div>
+
+    {/* ── Context panel (Zendesk-style quick actions) ── */}
+    {panelOpen && (
+      <InboxContextPanel
+        dealRecordId={conv.dealRecordId}
+        firma={/ceylan/i.test(conv.channelName) ? "ceylan" : "kottke"}
+        firmaDisplayName={conv.channelName}
+        customerName={contactLabel(conv)}
+        onInsert={(text) => {
+          setReply((r) => (r.trim() ? `${r.trimEnd()}\n\n${text}` : text));
+          requestAnimationFrame(() => textareaRef.current?.focus());
+        }}
+        onClose={() => setPanel(false)}
+      />
+    )}
     </div>
   );
 }

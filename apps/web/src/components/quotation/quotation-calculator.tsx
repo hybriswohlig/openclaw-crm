@@ -389,26 +389,9 @@ export function QuotationCalculator({ recordId, quotation, onSaved }: Props) {
         </p>
       </div>
 
-      {/* Standard-Umzugsleistungen toggle */}
-      <div className="mt-3">
-        <label className="flex cursor-pointer items-start gap-2 rounded-md border border-input bg-background p-3 text-sm">
-          <input
-            type="checkbox"
-            checked={showStandardInclusions}
-            onChange={(e) => setShowStandardInclusions(e.target.checked)}
-            className="mt-0.5 h-4 w-4"
-          />
-          <span>
-            Standard-Umzugsleistungen im Kunden-Portal anzeigen
-            <span className="ml-1 text-[11px] text-muted-foreground">
-              (Transportversicherung, Decken, Werkzeug, An- und Abladen + Auftrags-Checkboxen)
-            </span>
-            <span className="mt-1 block text-[11px] text-muted-foreground">
-              Für Komplettumzüge aktiviert lassen. Für Einzeltransporte (Waschmaschine, Klavier-only, …) deaktivieren.
-            </span>
-          </span>
-        </label>
-      </div>
+      {/* Standard-Umzugsleistungen: toggle intentionally hidden for now (the
+          stored value is passed through unchanged on save). A better surface
+          for this setting is planned. */}
 
       {/* Notes */}
       <div className="mt-4">

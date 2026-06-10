@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link2, Loader2, Copy, Check } from "lucide-react";
 
-type Snippet = "kva_available" | "ab_available" | "deposit_request" | "stage_3_live" | "final_invoice";
+export type Snippet = "kva_available" | "ab_available" | "deposit_request" | "stage_3_live" | "final_invoice";
 
 interface LinkInfo {
   token: string | null;
@@ -183,7 +183,7 @@ export function CustomerLinkComposer({
   );
 }
 
-function renderSnippet(
+export function renderSnippet(
   s: Snippet,
   ctx: { url: string; firmaName: string; customerFirstName: string | null; dealNumber: string | null }
 ): string {

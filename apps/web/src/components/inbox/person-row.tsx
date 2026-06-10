@@ -1,14 +1,14 @@
 // Person-centric inbox row (KOT-IDENTITY Phase 5b).
 // One row per golden person (their conversations across channels are bundled),
-// with a quick-actions menu so the operator can act without opening the lead:
-// Auftragsbestätigung / Rechnung erstellen, Lead öffnen, Anrufen, Erledigt, Spam.
+// with a quick-actions menu: Lead öffnen, Anrufen, Erledigt, Spam. Dokumente
+// (Auftragsbestätigung / Rechnung) live im Kontext-Panel der offenen
+// Konversation.
 "use client";
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { GenerateDocumentDialog, type DealData } from "@/components/GenerateDocumentDialog";
-import { FileText, Receipt, ExternalLink, Phone, Check, Ban, MoreVertical } from "lucide-react";
+import { ExternalLink, Phone, Check, Ban, MoreVertical } from "lucide-react";
 
 export interface PersonRowData {
   name: string;
@@ -81,13 +81,9 @@ interface Props {
 export function PersonRow({ data, active, onClick, onStatusChange }: Props) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [openDoc, setOpenDoc] = useState<"AB" | "RE" | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const hasDeal = !!data.dealRecordId;
-  const dealData: DealData | null = hasDeal
-    ? { dealRecordId: data.dealRecordId!, firma: data.firma, kunde: { nachname: data.name, email: data.email ?? undefined }, auftrag: {} }
-    : null;
 
   const act = (fn: () => void) => (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -176,12 +172,6 @@ export function PersonRow({ data, active, onClick, onStatusChange }: Props) {
               onMouseLeave={() => { closeTimer.current = setTimeout(() => setMenuOpen(false), 400); }}
               onMouseEnter={() => { if (closeTimer.current) clearTimeout(closeTimer.current); }}
             >
-              <MenuItem icon={<FileText className="h-4 w-4" />} disabled={!hasDeal} onClick={act(() => setOpenDoc("AB"))}>
-                Auftragsbestätigung erstellen
-              </MenuItem>
-              <MenuItem icon={<Receipt className="h-4 w-4" />} disabled={!hasDeal} onClick={act(() => setOpenDoc("RE"))}>
-                Rechnung erstellen
-              </MenuItem>
               <MenuItem icon={<ExternalLink className="h-4 w-4" />} disabled={!hasDeal} onClick={act(() => router.push(`/objects/deals/${data.dealRecordId}`))}>
                 Lead öffnen
               </MenuItem>
@@ -202,11 +192,6 @@ export function PersonRow({ data, active, onClick, onStatusChange }: Props) {
         )}
       </div>
 
-      {openDoc && dealData && (
-        <div onClick={(e) => e.stopPropagation()}>
-          <GenerateDocumentDialog open documentType={openDoc} deal={dealData} onClose={() => setOpenDoc(null)} />
-        </div>
-      )}
     </div>
   );
 }
