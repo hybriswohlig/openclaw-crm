@@ -1,16 +1,19 @@
 // apps/web/src/components/GenerateDocumentDialog.tsx
 //
 // Modal that collects pricing fields the deal doesn't contain (Stundensatz vs.
-// Pauschale, helpers, hours, deposit, discount), kicks off the
-// rechnungen-und-auftragsbestaetigungen skill via /api/tools/run, shows a
-// spinner while polling, then offers "Im Deal speichern" + "PDF öffnen".
+// Pauschale, helpers, hours, deposit, discount) and kicks off the
+// rechnungen-und-auftragsbestaetigungen skill via the global background job
+// center. The dialog closes as soon as the job is started; progress and the
+// finished PDF surface as a popup in the bottom-right tray, so the user can
+// keep working anywhere in the app. Attaching the PDF to the deal happens in
+// the tray too (store-as-document), independent of this dialog's lifetime.
 //
 // Inputs come from the deal page — pass `dealData` already loaded by the
 // surrounding page. The dialog does NOT re-fetch the deal.
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useToolJob } from "@/hooks/useToolJob";
+import { useEffect, useState } from "react";
+import { useBackgroundJobs } from "@/components/background-jobs";
 
 export type Firma = "kottke" | "ceylan";
 export type DocumentType = "AB" | "RE";
@@ -110,18 +113,12 @@ export function GenerateDocumentDialog({
   const [stammkundenrabatt, setStammkundenrabatt] = useState(
     prefill?.stammkundenrabatt ?? false
   );
-  const [storeError, setStoreError] = useState<string | null>(null);
-  const [storedDocId, setStoredDocId] = useState<string | null>(null);
-  const [storing, setStoring] = useState(false);
-  const [dueDateSet, setDueDateSet] = useState<string | null>(null);
-  // Double-click guard: "PDF erstellen" fired twice mints two Belegnummern
-  // (two AB jobs were observed starting 76ms apart in production).
+  // Double-click guard + inline error for START failures (validation etc.).
+  // Once the job is started, the dialog closes and the global tray takes over.
   const [submitting, setSubmitting] = useState(false);
-  // Guard so the auto-store effect only fires once per generated PDF, even
-  // if React re-renders while the store request is in flight.
-  const autoStoreFiredFor = useRef<string | null>(null);
+  const [startError, setStartError] = useState<string | null>(null);
 
-  const { start, status, jobId, error, result, reset } = useToolJob();
+  const { startDocumentJob } = useBackgroundJobs();
 
   if (!open) return null;
 
@@ -166,116 +163,86 @@ export function GenerateDocumentDialog({
   async function handleGenerate() {
     if (submitting) return;
     setSubmitting(true);
-    setStoreError(null);
-    setStoredDocId(null);
-    setDueDateSet(null);
-    autoStoreFiredFor.current = null;
+    setStartError(null);
 
-    // Persist the Anzahlung choice on the quotation BEFORE the skill runs,
-    // so that as soon as the customer opens the portal Stage 1 they see the
-    // right payment instructions (girocode for bank, paypal.me URL for
-    // PayPal, no payment block for cash). Best-effort: failure here doesn't
-    // block PDF generation.
-    if (documentType === "AB" && anzahlungBetrag > 0) {
+    try {
+      // Persist the Anzahlung choice on the quotation BEFORE the skill runs,
+      // so that as soon as the customer opens the portal Stage 1 they see the
+      // right payment instructions (girocode for bank, paypal.me URL for
+      // PayPal, no payment block for cash). Best-effort: failure here doesn't
+      // block PDF generation.
+      if (documentType === "AB" && anzahlungBetrag > 0) {
+        try {
+          await fetch(
+            `/api/v1/deals/${deal.dealRecordId}/quotation/anzahlung`,
+            {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                depositRequiredCents: Math.round(anzahlungBetrag * 100),
+                paymentMethodPreference:
+                  anzahlungMethod === "bar" ? "cash" : anzahlungMethod,
+              }),
+            }
+          );
+        } catch {
+          // Ignore — the PDF is the primary artefact, the portal sync can be
+          // retried by re-opening the dialog.
+        }
+      }
+
+      // Forward image attachments from the Lead (apartment photos etc.) so the
+      // headless skill can use them as visual context for volume / floors /
+      // besonderheiten. Failures are non-fatal — generation still proceeds
+      // without images.
+      let imageIds: string[] = [];
       try {
-        await fetch(
-          `/api/v1/deals/${deal.dealRecordId}/quotation/anzahlung`,
-          {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              depositRequiredCents: Math.round(anzahlungBetrag * 100),
-              paymentMethodPreference:
-                anzahlungMethod === "bar" ? "cash" : anzahlungMethod,
-            }),
-          }
-        );
+        const res = await fetch(`/api/v1/deals/${deal.dealRecordId}/attachments`);
+        if (res.ok) {
+          const json = (await res.json()) as {
+            data?: { id: string; mimeType: string }[];
+          };
+          imageIds = (json.data ?? [])
+            .filter((a) => a.mimeType.startsWith("image/"))
+            .slice(0, 8)
+            .map((a) => a.id);
+        }
       } catch {
-        // Ignore — the PDF is the primary artefact, the portal sync can be
-        // retried by re-opening the dialog.
+        // ignore — skill runs without images
       }
-    }
 
-    // Forward image attachments from the Lead (apartment photos etc.) so the
-    // headless skill can use them as visual context for volume / floors /
-    // besonderheiten. Failures are non-fatal — generation still proceeds
-    // without images.
-    let imageIds: string[] = [];
-    try {
-      const res = await fetch(`/api/v1/deals/${deal.dealRecordId}/attachments`);
-      if (res.ok) {
-        const json = (await res.json()) as {
-          data?: { id: string; mimeType: string }[];
-        };
-        imageIds = (json.data ?? [])
-          .filter((a) => a.mimeType.startsWith("image/"))
-          .slice(0, 8)
-          .map((a) => a.id);
-      }
-    } catch {
-      // ignore — skill runs without images
-    }
-
-    try {
-      await start("rechnungen-und-auftragsbestaetigungen", {
-        firma: deal.firma,
-        document_type: documentType,
-        kunde: deal.kunde,
-        auftrag: deal.auftrag,
-        preise: buildPreise(),
-        _deal_record_id: deal.dealRecordId,
-        _image_attachment_ids: imageIds,
+      const kundeName = [deal.kunde.vorname, deal.kunde.nachname]
+        .filter(Boolean)
+        .join(" ");
+      await startDocumentJob({
+        skill: "rechnungen-und-auftragsbestaetigungen",
+        params: {
+          firma: deal.firma,
+          document_type: documentType,
+          kunde: deal.kunde,
+          auftrag: deal.auftrag,
+          preise: buildPreise(),
+          _deal_record_id: deal.dealRecordId,
+          _image_attachment_ids: imageIds,
+        },
+        dealRecordId: deal.dealRecordId,
+        label: kundeName || "Lead",
+        docType: documentType,
       });
+
+      // Job is running in the background; the tray takes over from here.
+      handleClose();
+    } catch (e) {
+      setStartError((e as Error).message);
     } finally {
       setSubmitting(false);
     }
   }
 
-  async function handleStore() {
-    if (!jobId) return;
-    setStoring(true);
-    setStoreError(null);
-    try {
-      const resp = await fetch(`/api/tools/jobs/${jobId}/store-as-document`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dealRecordId: deal.dealRecordId }),
-      });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data?.error || `upload ${resp.status}`);
-      setStoredDocId(data.document?.id ?? null);
-      if (typeof data.rechnungFaelligAm === "string") {
-        setDueDateSet(data.rechnungFaelligAm);
-      }
-    } catch (e) {
-      setStoreError((e as Error).message);
-    } finally {
-      setStoring(false);
-    }
-  }
-
-  // Auto-attach the PDF to the Lead's Finance tab as soon as the job is done.
-  // The ref guards against duplicate POSTs on re-renders.
-  useEffect(() => {
-    if (status !== "done" || !jobId) return;
-    if (autoStoreFiredFor.current === jobId) return;
-    autoStoreFiredFor.current = jobId;
-    handleStore();
-    // handleStore is intentionally not in deps — we want exactly one call per
-    // completed jobId.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, jobId]);
-
   function handleClose() {
-    reset();
-    setStoredDocId(null);
-    setStoreError(null);
-    setDueDateSet(null);
-    autoStoreFiredFor.current = null;
+    setStartError(null);
     onClose();
   }
-
-  const isRunning = status === "starting" || status === "queued" || status === "running";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -295,213 +262,146 @@ export function GenerateDocumentDialog({
           </button>
         </div>
 
-        {/* Preise-Form (only shown until job starts) */}
-        {status === "idle" && (
-          <div className="space-y-4">
-            <h3 className="text-sm font-medium">Preise</h3>
+        <div className="space-y-4">
+          <h3 className="text-sm font-medium">Preise</h3>
 
-            {isKottke && (
-              <div className="flex gap-4">
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="radio"
-                    checked={modell === "stundensatz"}
-                    onChange={() => setModell("stundensatz")}
-                  />
-                  Stundensatz
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="radio"
-                    checked={modell === "pauschale"}
-                    onChange={() => setModell("pauschale")}
-                  />
-                  Pauschale
-                </label>
-              </div>
-            )}
-
-            {isKottke && modell === "stundensatz" && (
-              <div className="grid grid-cols-2 gap-3">
-                <NumberField
-                  label="Helfer-Anzahl"
-                  value={helferAnzahl}
-                  onChange={setHelferAnzahl}
+          {isKottke && (
+            <div className="flex gap-4">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="radio"
+                  checked={modell === "stundensatz"}
+                  onChange={() => setModell("stundensatz")}
                 />
-                <NumberField
-                  label="Stunden (geschätzt)"
-                  value={stundenGeschaetzt}
-                  onChange={setStundenGeschaetzt}
-                  step={0.5}
+                Stundensatz
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="radio"
+                  checked={modell === "pauschale"}
+                  onChange={() => setModell("pauschale")}
                 />
-              </div>
-            )}
+                Pauschale
+              </label>
+            </div>
+          )}
 
-            {isKottke && modell === "pauschale" && (
-              <PauschalePositionsEditor
-                value={pauschalePositionen}
-                onChange={setPauschalePositionen}
-              />
-            )}
-
-            {!isKottke && (
+          {isKottke && modell === "stundensatz" && (
+            <div className="grid grid-cols-2 gap-3">
               <NumberField
-                label="Pauschalbetrag (€)"
-                value={pauschaleBetragCeylan}
-                onChange={setPauschaleBetragCeylan}
-                step={50}
+                label="Helfer-Anzahl"
+                value={helferAnzahl}
+                onChange={setHelferAnzahl}
               />
+              <NumberField
+                label="Stunden (geschätzt)"
+                value={stundenGeschaetzt}
+                onChange={setStundenGeschaetzt}
+                step={0.5}
+              />
+            </div>
+          )}
+
+          {isKottke && modell === "pauschale" && (
+            <PauschalePositionsEditor
+              value={pauschalePositionen}
+              onChange={setPauschalePositionen}
+            />
+          )}
+
+          {!isKottke && (
+            <NumberField
+              label="Pauschalbetrag (€)"
+              value={pauschaleBetragCeylan}
+              onChange={setPauschaleBetragCeylan}
+              step={50}
+            />
+          )}
+
+          {/* ── Anzahlung block ──────────────────────────────────────── */}
+          <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+            <div className="grid grid-cols-2 gap-3">
+              <NumberField
+                label="Anzahlung (€)"
+                value={anzahlungBetrag}
+                onChange={setAnzahlungBetrag}
+                step={10}
+              />
+              {!isKottke && (
+                <label className="flex items-center gap-2 self-end pb-1 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={stammkundenrabatt}
+                    onChange={(e) =>
+                      setStammkundenrabatt(e.target.checked)
+                    }
+                  />
+                  Stammkundenrabatt (3% Skonto)
+                </label>
+              )}
+            </div>
+
+            {anzahlungBetrag > 0 && (
+              <fieldset className="mt-3">
+                <legend className="text-xs uppercase tracking-wide text-gray-500">
+                  Zahlungsweg für die Anzahlung
+                </legend>
+                <div className="mt-2 grid grid-cols-3 gap-2">
+                  <AnzahlungRadio
+                    label="Bar"
+                    hint="Crew kassiert vor Ort"
+                    checked={anzahlungMethod === "bar"}
+                    onChange={() => setAnzahlungMethod("bar")}
+                  />
+                  <AnzahlungRadio
+                    label="Überweisung"
+                    hint="Kunde sieht IBAN + Girocode"
+                    checked={anzahlungMethod === "bank_transfer"}
+                    onChange={() => setAnzahlungMethod("bank_transfer")}
+                  />
+                  <AnzahlungRadio
+                    label="PayPal"
+                    hint="paypal.me-Link"
+                    checked={anzahlungMethod === "paypal"}
+                    onChange={() => setAnzahlungMethod("paypal")}
+                  />
+                </div>
+                <p className="mt-2 text-[11px] leading-relaxed text-gray-500">
+                  {anzahlungMethod === "bar"
+                    ? "Wird auf der AB als Barzahlung am Umzugstag vermerkt."
+                    : anzahlungMethod === "bank_transfer"
+                      ? "Der Kunde sieht im Status-Portal sofort IBAN, BIC und einen Girocode-QR zur Überweisung."
+                      : "Der Kunde sieht im Status-Portal einen paypal.me-Link mit dem Betrag vorausgefüllt."}
+                </p>
+              </fieldset>
             )}
-
-            {/* ── Anzahlung block ──────────────────────────────────────── */}
-            <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
-              <div className="grid grid-cols-2 gap-3">
-                <NumberField
-                  label="Anzahlung (€)"
-                  value={anzahlungBetrag}
-                  onChange={setAnzahlungBetrag}
-                  step={10}
-                />
-                {!isKottke && (
-                  <label className="flex items-center gap-2 self-end pb-1 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={stammkundenrabatt}
-                      onChange={(e) =>
-                        setStammkundenrabatt(e.target.checked)
-                      }
-                    />
-                    Stammkundenrabatt (3% Skonto)
-                  </label>
-                )}
-              </div>
-
-              {anzahlungBetrag > 0 && (
-                <fieldset className="mt-3">
-                  <legend className="text-xs uppercase tracking-wide text-gray-500">
-                    Zahlungsweg für die Anzahlung
-                  </legend>
-                  <div className="mt-2 grid grid-cols-3 gap-2">
-                    <AnzahlungRadio
-                      label="Bar"
-                      hint="Crew kassiert vor Ort"
-                      checked={anzahlungMethod === "bar"}
-                      onChange={() => setAnzahlungMethod("bar")}
-                    />
-                    <AnzahlungRadio
-                      label="Überweisung"
-                      hint="Kunde sieht IBAN + Girocode"
-                      checked={anzahlungMethod === "bank_transfer"}
-                      onChange={() => setAnzahlungMethod("bank_transfer")}
-                    />
-                    <AnzahlungRadio
-                      label="PayPal"
-                      hint="paypal.me-Link"
-                      checked={anzahlungMethod === "paypal"}
-                      onChange={() => setAnzahlungMethod("paypal")}
-                    />
-                  </div>
-                  <p className="mt-2 text-[11px] leading-relaxed text-gray-500">
-                    {anzahlungMethod === "bar"
-                      ? "Wird auf der AB als Barzahlung am Umzugstag vermerkt."
-                      : anzahlungMethod === "bank_transfer"
-                        ? "Der Kunde sieht im Status-Portal sofort IBAN, BIC und einen Girocode-QR zur Überweisung."
-                        : "Der Kunde sieht im Status-Portal einen paypal.me-Link mit dem Betrag vorausgefüllt."}
-                  </p>
-                </fieldset>
-              )}
-            </div>
-
-            <div className="flex justify-end gap-2 pt-4">
-              <button onClick={handleClose} className="rounded border px-4 py-2 text-sm">
-                Abbrechen
-              </button>
-              <button
-                onClick={handleGenerate}
-                disabled={submitting}
-                className="rounded bg-blue-600 px-4 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {submitting ? "Wird gestartet…" : "PDF erstellen"}
-              </button>
-            </div>
           </div>
-        )}
 
-        {/* Running */}
-        {isRunning && (
-          <div className="py-8 text-center text-sm text-gray-600">
-            <div className="mb-2">⏳ Erstelle Dokument… (dauert normalerweise unter 30 Sekunden)</div>
-            <div className="text-xs text-gray-400">
-              Status: {status} · <ElapsedTimer />
-            </div>
-          </div>
-        )}
-
-        {/* Done */}
-        {status === "done" && jobId && (
-          <div className="space-y-4">
-            <div className="rounded bg-green-50 p-3 text-sm text-green-900 dark:bg-green-900/20 dark:text-green-200">
-              ✓ {result?.result_filename} erstellt
-            </div>
-            <div className="flex items-center gap-2">
-              <a
-                href={`/api/tools/jobs/${jobId}/result`}
-                target="_blank"
-                rel="noreferrer"
-                className="rounded border px-4 py-2 text-sm"
-              >
-                PDF öffnen
-              </a>
-              {storing && (
-                <span className="text-sm text-gray-500">Speichere im Lead…</span>
-              )}
-              {!storing && storedDocId && (
-                <span className="rounded bg-green-100 px-4 py-2 text-sm text-green-900">
-                  ✓ Im Finanzen-Tab angehängt
-                </span>
-              )}
-              {!storing && !storedDocId && storeError && (
-                <button
-                  onClick={handleStore}
-                  className="rounded bg-blue-600 px-4 py-2 text-sm text-white"
-                >
-                  Erneut anhängen
-                </button>
-              )}
-            </div>
-            {dueDateSet && (
-              <p className="text-sm text-gray-600">
-                Fälligkeitsdatum gesetzt: <strong>{dueDateSet}</strong>
-              </p>
-            )}
-            {storeError && <p className="text-sm text-red-600">{storeError}</p>}
-            <div className="flex justify-end pt-2">
-              <button onClick={handleClose} className="rounded border px-4 py-2 text-sm">
-                Schließen
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Error */}
-        {status === "error" && (
-          <div className="space-y-3">
+          {startError && (
             <div className="rounded bg-red-50 p-3 text-sm text-red-900 dark:bg-red-900/20 dark:text-red-200">
-              Fehler: {error}
+              Start fehlgeschlagen: {startError}
             </div>
-            <div className="flex justify-end gap-2">
-              <button onClick={handleClose} className="rounded border px-4 py-2 text-sm">
-                Schließen
-              </button>
-              <button
-                onClick={() => reset()}
-                className="rounded bg-blue-600 px-4 py-2 text-sm text-white"
-              >
-                Nochmal
-              </button>
-            </div>
+          )}
+
+          <p className="text-xs text-gray-500">
+            Das PDF wird im Hintergrund erstellt (normalerweise unter 30
+            Sekunden). Sie können währenddessen weiterarbeiten; unten rechts
+            erscheint eine Meldung, sobald es fertig ist und am Lead hängt.
+          </p>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button onClick={handleClose} className="rounded border px-4 py-2 text-sm">
+              Abbrechen
+            </button>
+            <button
+              onClick={handleGenerate}
+              disabled={submitting}
+              className="rounded bg-blue-600 px-4 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {submitting ? "Wird gestartet…" : "PDF erstellen"}
+            </button>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
@@ -510,8 +410,7 @@ export function GenerateDocumentDialog({
 // ─── tiny field components ──────────────────────────────────────────────────
 
 /**
- * Live mm:ss counter since mount. Honest feedback while a job runs; shared
- * with GenerateWorkerInstructionsDialog.
+ * Live mm:ss counter since mount. Honest feedback while a job runs.
  */
 export function ElapsedTimer() {
   const [seconds, setSeconds] = useState(0);

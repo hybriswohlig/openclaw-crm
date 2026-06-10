@@ -26,6 +26,7 @@ import {
   X,
 } from "lucide-react";
 import { type AgentStage, normalizeAgentStage } from "@/lib/agent-stage";
+import { useBackgroundJobs } from "@/components/background-jobs";
 import { cn } from "@/lib/utils";
 import {
   GenerateDocumentDialog,
@@ -280,8 +281,12 @@ export function InboxContextPanel({
     leadContext: LeadContext | null;
   } | null>(null);
 
-  // KI-Analyse mini flow
-  const [analyzing, setAnalyzing] = useState(false);
+  // KI-Analyse mini flow (runs via the global background job center)
+  const { jobs: bgJobs, startInsightsJob, takeInsightsResult } = useBackgroundJobs();
+  const analyzing = bgJobs.some(
+    (j) =>
+      j.kind === "insights" && j.dealRecordId === dealRecordId && j.status === "running"
+  );
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<{
     type: DocumentType;
@@ -450,65 +455,63 @@ export function InboxContextPanel({
     setDocDialog({ type, deal, prefill: prefillFromQuotation(quotation, firma) });
   }
 
-  /** KI-Analyse: extract from the chat, let the user approve, apply, retry. */
-  async function runAnalyze(type: DocumentType) {
+  /** KI-Analyse: runs as a global background job, so the user can answer
+   * other conversations meanwhile. The consumption effect below opens the
+   * suggestions modal as soon as the result is in (popup via the tray if the
+   * user moved elsewhere in the app). */
+  function runAnalyze(type: DocumentType) {
     if (!dealRecordId || analyzing) return;
-    setAnalyzing(true);
     setAnalyzeError(null);
-    try {
-      const res = await fetch(`/api/v1/deals/${dealRecordId}/insights`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apply: false }),
-      });
-      if (!res.ok) {
-        setAnalyzeError("Analyse fehlgeschlagen.");
-        return;
-      }
-      const data = (await res.json()) as {
-        data?: {
-          insights?: { extracted?: Record<string, unknown> } | null;
-          error?: string;
-          fingerprint?: string;
-        };
-      };
-      const extracted = data.data?.insights?.extracted;
-      if (!extracted) {
-        setAnalyzeError(
-          data.data?.error ?? "Keine Nachrichten mit diesem Lead verknüpft."
-        );
-        return;
-      }
-      const items: InsightsExtractedSuggestion[] = Object.entries(extracted)
-        .filter(([, v]) => {
-          if (v == null) return false;
-          if (typeof v === "string" && v.trim() === "") return false;
-          if (Array.isArray(v) && v.length === 0) return false;
-          return true;
-        })
-        .map(([key, v]) => ({
-          key,
-          label: INSIGHT_LABELS[key] ?? key,
-          value: fmtValue(v),
-        }));
-      if (items.length === 0) {
-        setAnalyzeError("Die KI-Analyse hat keine neuen Daten gefunden.");
-        return;
-      }
-      setMissingDialog(null);
-      setSuggestions({
-        type,
-        items,
-        selected: new Set(items.map((i) => i.key)),
-        insights: data.data?.insights ?? null,
-        fingerprint: data.data?.fingerprint,
-      });
-    } catch {
-      setAnalyzeError("Netzwerkfehler bei der Analyse.");
-    } finally {
-      setAnalyzing(false);
-    }
+    setMissingDialog(null);
+    startInsightsJob({
+      dealRecordId,
+      label: customerName ?? "Lead",
+      source: "context-panel",
+      docType: type,
+    });
   }
+
+  // Consume a finished context-panel KI-Analyse for the deal currently shown
+  // and open the approval modal with the extracted suggestions.
+  useEffect(() => {
+    if (!dealRecordId) return;
+    const job = takeInsightsResult(dealRecordId, "context-panel");
+    if (!job) return;
+    if (job.status === "error" || !job.result) {
+      setAnalyzeError(job.error ?? "Analyse fehlgeschlagen.");
+      return;
+    }
+    const insights = job.result.insights as { extracted?: Record<string, unknown> };
+    const extracted = insights?.extracted;
+    if (!extracted) {
+      setAnalyzeError("Keine Nachrichten mit diesem Lead verknüpft.");
+      return;
+    }
+    const items: InsightsExtractedSuggestion[] = Object.entries(extracted)
+      .filter(([, v]) => {
+        if (v == null) return false;
+        if (typeof v === "string" && v.trim() === "") return false;
+        if (Array.isArray(v) && v.length === 0) return false;
+        return true;
+      })
+      .map(([key, v]) => ({
+        key,
+        label: INSIGHT_LABELS[key] ?? key,
+        value: fmtValue(v),
+      }));
+    if (items.length === 0) {
+      setAnalyzeError("Die KI-Analyse hat keine neuen Daten gefunden.");
+      return;
+    }
+    setSuggestions({
+      type: job.docType ?? "AB",
+      items,
+      selected: new Set(items.map((i) => i.key)),
+      insights: job.result.insights,
+      fingerprint: job.result.fingerprint,
+    });
+    // bgJobs in deps: re-check whenever the job center state changes.
+  }, [bgJobs, dealRecordId, takeInsightsResult]);
 
   async function applySuggestions() {
     if (!dealRecordId || !suggestions) return;

@@ -1,19 +1,19 @@
 // apps/web/src/components/GenerateWorkerInstructionsDialog.tsx
 //
 // Modal that fires the "auftragsanweisung" skill (worker-facing PDF, no
-// prices). Pulls everything from the Lead + Auftrag context — the only thing
-// the user can edit is a free-text note that gets appended to the PDF.
+// prices) via the global background job center. The dialog closes as soon as
+// the job is started; progress and the finished PDF surface as a popup in
+// the bottom-right tray, and the PDF is attached to the Lead from there.
 //
 // Flow:
-//   1) On open: fetch Street View images for Abhol/Ziel address (best-effort)
-//   2) Optionally: user adds a one-line note for the crew
-//   3) "Anweisung erstellen" → /api/tools/run + poll + auto-store as
-//      worker_instructions document on the Lead
+//   1) On open: user optionally adds a one-line note for the crew
+//   2) "Anweisung erstellen" → fetch Street View images (best-effort) →
+//      start background job → dialog closes, tray takes over
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useToolJob } from "@/hooks/useToolJob";
-import { ElapsedTimer, type Firma } from "@/components/GenerateDocumentDialog";
+import { useState } from "react";
+import { useBackgroundJobs } from "@/components/background-jobs";
+import type { Firma } from "@/components/GenerateDocumentDialog";
 
 export interface AnweisungContext {
   dealRecordId: string;
@@ -63,42 +63,12 @@ interface Props {
 
 export function GenerateWorkerInstructionsDialog({ open, onClose, ctx }: Props) {
   const [crewNote, setCrewNote] = useState("");
-  const [storeError, setStoreError] = useState<string | null>(null);
-  const [storedDocId, setStoredDocId] = useState<string | null>(null);
-  const [storing, setStoring] = useState(false);
-  // Double-click guard: a second click would mint a second Belegnummer.
+  // Double-click guard + inline error for START failures. Once running, the
+  // global tray owns progress, completion popup, and the auto-attach.
   const [submitting, setSubmitting] = useState(false);
-  const autoStoreFiredFor = useRef<string | null>(null);
+  const [startError, setStartError] = useState<string | null>(null);
 
-  const { start, status, jobId, error, result, reset } = useToolJob();
-
-  // Auto-store the PDF on the Lead as soon as the job is done.
-  useEffect(() => {
-    if (status !== "done" || !jobId) return;
-    if (autoStoreFiredFor.current === jobId) return;
-    autoStoreFiredFor.current = jobId;
-    (async () => {
-      setStoring(true);
-      setStoreError(null);
-      try {
-        const resp = await fetch(`/api/tools/jobs/${jobId}/store-as-document`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            dealRecordId: ctx.dealRecordId,
-            documentType: "worker_instructions",
-          }),
-        });
-        const data = await resp.json();
-        if (!resp.ok) throw new Error(data?.error || `upload ${resp.status}`);
-        setStoredDocId(data.document?.id ?? null);
-      } catch (e) {
-        setStoreError((e as Error).message);
-      } finally {
-        setStoring(false);
-      }
-    })();
-  }, [status, jobId, ctx.dealRecordId]);
+  const { startDocumentJob } = useBackgroundJobs();
 
   if (!open) return null;
 
@@ -119,51 +89,56 @@ export function GenerateWorkerInstructionsDialog({ open, onClose, ctx }: Props) 
   async function handleGenerate() {
     if (submitting) return;
     setSubmitting(true);
-    setStoreError(null);
-    setStoredDocId(null);
-    autoStoreFiredFor.current = null;
+    setStartError(null);
     try {
+      // Fetch Street View images for both endpoints in parallel.
+      const [imgVon, imgNach] = await Promise.all([
+        ctx.auftrag.adresse_von
+          ? fetchStreetView(ctx.auftrag.adresse_von, "streetview-von.jpg")
+          : Promise.resolve(null),
+        ctx.auftrag.adresse_nach
+          ? fetchStreetView(ctx.auftrag.adresse_nach, "streetview-nach.jpg")
+          : Promise.resolve(null),
+      ]);
+      const images = [imgVon, imgNach].filter(
+        (i): i is { filename: string; mime: string; base64: string } => !!i
+      );
 
-    // Fetch Street View images for both endpoints in parallel.
-    const [imgVon, imgNach] = await Promise.all([
-      ctx.auftrag.adresse_von
-        ? fetchStreetView(ctx.auftrag.adresse_von, "streetview-von.jpg")
-        : Promise.resolve(null),
-      ctx.auftrag.adresse_nach
-        ? fetchStreetView(ctx.auftrag.adresse_nach, "streetview-nach.jpg")
-        : Promise.resolve(null),
-    ]);
-    const images = [imgVon, imgNach].filter(
-      (i): i is { filename: string; mime: string; base64: string } => !!i
-    );
+      const merged = {
+        firma: ctx.firma,
+        kunde: ctx.kunde,
+        auftrag: {
+          ...ctx.auftrag,
+          notizen: [ctx.auftrag.notizen, crewNote].filter(Boolean).join("\n\n") || undefined,
+        },
+        _deal_record_id: ctx.dealRecordId,
+      } as Record<string, unknown>;
+      if (images.length > 0) merged._images = images;
 
-    const merged = {
-      firma: ctx.firma,
-      kunde: ctx.kunde,
-      auftrag: {
-        ...ctx.auftrag,
-        notizen: [ctx.auftrag.notizen, crewNote].filter(Boolean).join("\n\n") || undefined,
-      },
-      _deal_record_id: ctx.dealRecordId,
-    } as Record<string, unknown>;
-    if (images.length > 0) merged._images = images;
+      const kundeName = [ctx.kunde.vorname, ctx.kunde.nachname]
+        .filter(Boolean)
+        .join(" ");
+      await startDocumentJob({
+        skill: "auftragsanweisung",
+        params: merged,
+        dealRecordId: ctx.dealRecordId,
+        label: kundeName || "Lead",
+        docType: "AW",
+      });
 
-    await start("auftragsanweisung", merged);
+      handleClose();
+    } catch (e) {
+      setStartError((e as Error).message);
     } finally {
       setSubmitting(false);
     }
   }
 
   function handleClose() {
-    reset();
-    setStoredDocId(null);
-    setStoreError(null);
+    setStartError(null);
     setCrewNote("");
-    autoStoreFiredFor.current = null;
     onClose();
   }
-
-  const isRunning = status === "starting" || status === "queued" || status === "running";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -181,93 +156,47 @@ export function GenerateWorkerInstructionsDialog({ open, onClose, ctx }: Props) 
           </button>
         </div>
 
-        {status === "idle" && (
-          <div className="space-y-4">
-            <div className="rounded bg-blue-50 p-3 text-xs text-blue-900 dark:bg-blue-900/20 dark:text-blue-200">
-              Die Anweisung wird automatisch aus dem Lead + Auftrag zusammengestellt. Street-View-Bilder
-              der Adressen werden mit angehängt, sofern verfügbar. Keine Preise im Dokument.
-            </div>
-
-            <label className="block text-sm">
-              <span className="block text-gray-600 mb-1">Notiz für die Crew (optional)</span>
-              <textarea
-                value={crewNote}
-                onChange={(e) => setCrewNote(e.target.value)}
-                placeholder="z. B. „Schlüssel beim Nachbarn 2. OG, Schmidt"
-                rows={3}
-                className="w-full rounded border px-2 py-1.5 text-sm"
-              />
-            </label>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button onClick={handleClose} className="rounded border px-4 py-2 text-sm">
-                Abbrechen
-              </button>
-              <button
-                onClick={handleGenerate}
-                disabled={submitting}
-                className="rounded bg-blue-600 px-4 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {submitting ? "Wird gestartet…" : "Anweisung erstellen"}
-              </button>
-            </div>
+        <div className="space-y-4">
+          <div className="rounded bg-blue-50 p-3 text-xs text-blue-900 dark:bg-blue-900/20 dark:text-blue-200">
+            Die Anweisung wird automatisch aus dem Lead + Auftrag zusammengestellt. Street-View-Bilder
+            der Adressen werden mit angehängt, sofern verfügbar. Keine Preise im Dokument.
           </div>
-        )}
 
-        {isRunning && (
-          <div className="py-8 text-center text-sm text-gray-600">
-            <div className="mb-2">⏳ Erstelle Auftragsanweisung… (dauert normalerweise unter 30 Sekunden)</div>
-            <div className="text-xs text-gray-400">
-              Status: {status} · <ElapsedTimer />
-            </div>
-          </div>
-        )}
+          <label className="block text-sm">
+            <span className="block text-gray-600 mb-1">Notiz für die Crew (optional)</span>
+            <textarea
+              value={crewNote}
+              onChange={(e) => setCrewNote(e.target.value)}
+              placeholder="z. B. „Schlüssel beim Nachbarn 2. OG, Schmidt"
+              rows={3}
+              className="w-full rounded border px-2 py-1.5 text-sm"
+            />
+          </label>
 
-        {status === "done" && jobId && (
-          <div className="space-y-4">
-            <div className="rounded bg-green-50 p-3 text-sm text-green-900 dark:bg-green-900/20 dark:text-green-200">
-              ✓ {result?.result_filename} erstellt
-            </div>
-            <div className="flex items-center gap-2">
-              <a
-                href={`/api/tools/jobs/${jobId}/result`}
-                target="_blank"
-                rel="noreferrer"
-                className="rounded border px-4 py-2 text-sm"
-              >
-                PDF öffnen
-              </a>
-              {storing && <span className="text-sm text-gray-500">Speichere im Lead…</span>}
-              {!storing && storedDocId && (
-                <span className="rounded bg-green-100 px-4 py-2 text-sm text-green-900">
-                  ✓ Im Finanzen-Tab angehängt
-                </span>
-              )}
-            </div>
-            {storeError && <p className="text-sm text-red-600">{storeError}</p>}
-            <div className="flex justify-end pt-2">
-              <button onClick={handleClose} className="rounded border px-4 py-2 text-sm">
-                Schließen
-              </button>
-            </div>
-          </div>
-        )}
-
-        {status === "error" && (
-          <div className="space-y-3">
+          {startError && (
             <div className="rounded bg-red-50 p-3 text-sm text-red-900 dark:bg-red-900/20 dark:text-red-200">
-              Fehler: {error}
+              Start fehlgeschlagen: {startError}
             </div>
-            <div className="flex justify-end gap-2">
-              <button onClick={handleClose} className="rounded border px-4 py-2 text-sm">
-                Schließen
-              </button>
-              <button onClick={() => reset()} className="rounded bg-blue-600 px-4 py-2 text-sm text-white">
-                Nochmal
-              </button>
-            </div>
+          )}
+
+          <p className="text-xs text-gray-500">
+            Das PDF wird im Hintergrund erstellt. Sie können weiterarbeiten;
+            unten rechts erscheint eine Meldung, sobald es fertig ist.
+          </p>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button onClick={handleClose} className="rounded border px-4 py-2 text-sm">
+              Abbrechen
+            </button>
+            <button
+              onClick={handleGenerate}
+              disabled={submitting}
+              className="rounded bg-blue-600 px-4 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {submitting ? "Wird gestartet…" : "Anweisung erstellen"}
+            </button>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );

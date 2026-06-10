@@ -34,6 +34,7 @@ import {
   FileText,
 } from "lucide-react";
 import { extractPersonalName } from "@/lib/display-name";
+import { useBackgroundJobs } from "@/components/background-jobs";
 
 interface ObjectData {
   id: string;
@@ -164,11 +165,18 @@ export default function RecordDetailPage() {
   const [activities, setActivities] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
-  const [analyzing, setAnalyzing] = useState(false);
   const [applying, setApplying] = useState(false);
   const [insightsPanel, setInsightsPanel] = useState<InsightsSuggestions | null>(null);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
   const [applyNotice, setApplyNotice] = useState<{ skipped: string[]; errors: string[] } | null>(null);
+
+  // KI-Analyse runs in the global background job center, so the user can
+  // navigate freely while it loads; the review panel opens via the
+  // consumption effect below as soon as the result is in.
+  const { jobs: bgJobs, startInsightsJob, takeInsightsResult } = useBackgroundJobs();
+  const analyzing = bgJobs.some(
+    (j) => j.kind === "insights" && j.dealRecordId === recordId && j.status === "running"
+  );
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -246,42 +254,48 @@ export default function RecordDetailPage() {
     }
   }, [slug, recordId, router]);
 
-  // Step 1: Extract (preview only — no changes written)
-  const handleAnalyze = useCallback(async () => {
-    setAnalyzing(true);
+  // Step 1: Extract (preview only — no changes written). Runs as a global
+  // background job: the user can keep working anywhere; a popup appears when
+  // the analysis is done and the review panel opens via the effect below.
+  const handleAnalyze = useCallback(() => {
+    if (analyzing) return;
     setAnalyzeError(null);
     setInsightsPanel(null);
-    try {
-      const res = await fetch(`/api/v1/deals/${recordId}/insights`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apply: false }),
-      });
-      if (!res.ok) {
-        setAnalyzeError("Analyse fehlgeschlagen");
-        return;
-      }
-      const data = await res.json();
-      const d = data.data;
-      if (!d?.insights) {
-        setAnalyzeError(d?.error ?? "Keine Nachrichten mit diesem Deal verknüpft.");
-        return;
-      }
-      // Open the approval panel with suggestions.
-      setInsightsPanel({
-        insights: d.insights,
-        transcript: d.transcript,
-        selectedFields: buildDefaultSelections(d.insights),
-        applyStage: !!d.insights.suggested_stage,
-        applyNote: true,
-        fingerprint: typeof d.fingerprint === "string" ? d.fingerprint : undefined,
-      });
-    } catch {
-      setAnalyzeError("Netzwerkfehler bei der Analyse");
-    } finally {
-      setAnalyzing(false);
+    let label = "Deal";
+    const nameVal = record?.values?.name;
+    if (typeof nameVal === "string" && nameVal.trim()) {
+      label = nameVal;
+    } else if (nameVal && typeof nameVal === "object") {
+      label = extractPersonalName(nameVal) || "Deal";
     }
-  }, [recordId]);
+    startInsightsJob({ dealRecordId: recordId, label, source: "deal-page" });
+  }, [recordId, record, analyzing, startInsightsJob]);
+
+  // Consume a finished KI-Analyse for THIS record (whether started here or
+  // from the inbox panel) and open the review panel with the results.
+  useEffect(() => {
+    if (slug !== "deals") return;
+    const job = takeInsightsResult(recordId);
+    if (!job) return;
+    if (job.status === "error" || !job.result) {
+      setAnalyzeError(job.error ?? "Analyse fehlgeschlagen");
+      return;
+    }
+    const insights = job.result.insights as InsightsData;
+    const transcript = job.result.transcript as {
+      messageCount: number;
+      conversationCount: number;
+    };
+    setInsightsPanel({
+      insights,
+      transcript,
+      selectedFields: buildDefaultSelections(insights),
+      applyStage: !!insights.suggested_stage,
+      applyNote: true,
+      fingerprint: job.result.fingerprint,
+    });
+    // bgJobs in deps: re-check whenever the job center state changes.
+  }, [bgJobs, slug, recordId, takeInsightsResult]);
 
   // Step 2: Apply user-approved suggestions
   const handleApplyInsights = useCallback(async () => {
