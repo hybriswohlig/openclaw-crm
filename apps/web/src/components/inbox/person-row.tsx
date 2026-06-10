@@ -9,10 +9,13 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { ExternalLink, Phone, Check, Ban, MoreVertical } from "lucide-react";
+import { ChannelAvatar, type LastChannel } from "@/components/inbox/channel-logos";
 
 export interface PersonRowData {
   name: string;
   channels: { kleinanzeigen: boolean; whatsapp: boolean; email: boolean; sms: boolean };
+  /** Platform of the most recent conversation — drives the avatar. */
+  lastChannel: LastChannel;
   unread: number;
   conversationCount: number;
   dealRecordId: string | null;
@@ -42,13 +45,6 @@ const PRIORITY_DOT: Record<string, string> = {
   mittel: "bg-amber-400",
   niedrig: "bg-muted-foreground/40",
 };
-
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
 
 function timeLabel(iso: string | null): string {
   if (!iso) return "";
@@ -95,15 +91,15 @@ export function PersonRow({ data, active, onClick, onStatusChange }: Props) {
     <div
       onClick={onClick}
       className={cn(
-        "group relative flex gap-3 px-4 py-3 cursor-pointer border-b border-border/60 transition-colors",
-        active ? "bg-muted" : "hover:bg-muted/50"
+        "group relative flex gap-3 px-4 py-3 cursor-pointer border-b border-border/50 transition-colors",
+        active
+          ? "bg-card shadow-[inset_3px_0_0_var(--kottke-accent)]"
+          : "hover:bg-card/60"
       )}
     >
-      {/* Avatar */}
+      {/* Avatar — shows the last platform we wrote with the person on */}
       <div className="relative shrink-0">
-        <div className="h-9 w-9 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-semibold">
-          {initials(data.name)}
-        </div>
+        <ChannelAvatar channel={data.lastChannel} size="md" />
         {data.unread > 0 && (
           <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-primary text-primary-foreground text-[9px] font-bold flex items-center justify-center">
             {data.unread}

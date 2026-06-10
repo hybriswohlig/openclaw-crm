@@ -15,6 +15,7 @@ import { useRouter } from "next/navigation";
 import {
   Calculator,
   Check,
+  ChevronDown,
   Copy,
   ExternalLink,
   FileText,
@@ -24,6 +25,7 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
+import type { AgentStage } from "@/db/schema/inbox";
 import { cn } from "@/lib/utils";
 import {
   GenerateDocumentDialog,
@@ -75,6 +77,35 @@ interface InsightsExtractedSuggestion {
   label: string;
   value: string;
 }
+
+type LifecycleKey =
+  | "erstkontakt"
+  | "infos_erhalten"
+  | "angebot"
+  | "umzugstermin"
+  | "bezahlt";
+
+interface LifecycleMilestone {
+  key: LifecycleKey;
+  label: string;
+  at: string | null;
+  done: boolean;
+}
+
+interface DealLifecycle {
+  milestones: LifecycleMilestone[];
+  current: LifecycleKey | null;
+}
+
+// Funnel stages the operator can set by hand. Order = funnel order.
+const STAGE_OPTIONS: Array<{ value: AgentStage; label: string; dot: string }> = [
+  { value: "neu", label: "Neu", dot: "bg-muted-foreground/50" },
+  { value: "sammelt_infos", label: "Sammelt Infos", dot: "bg-sky-500" },
+  { value: "bereit_kalkulieren", label: "Bereit zum Kalkulieren", dot: "bg-emerald-500" },
+  { value: "angebot_raus", label: "Angebot raus", dot: "bg-violet-500" },
+  { value: "wartet_kunde", label: "Wartet auf Kunde", dot: "bg-amber-500" },
+  { value: "verloren", label: "Verloren", dot: "bg-rose-500" },
+];
 
 const DOC_TYPE_LABELS: Record<string, string> = {
   order_confirmation: "Auftragsbestätigung",
@@ -172,21 +203,37 @@ function prefillFromQuotation(
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export function InboxContextPanel({
+  conversationId,
   dealRecordId,
   firma,
   firmaDisplayName,
   customerName,
+  agentStage,
+  onStageChange,
   onInsert,
   onClose,
 }: {
+  conversationId: string;
   dealRecordId: string | null;
   firma: "kottke" | "ceylan";
   firmaDisplayName: string | null;
   customerName: string | null;
+  agentStage: AgentStage | null;
+  /** Called after a manual stage change so the inbox list updates its badge. */
+  onStageChange?: (stage: AgentStage) => void;
   onInsert: (text: string) => void;
   onClose: () => void;
 }) {
   const router = useRouter();
+
+  // Manual stage editing
+  const [stage, setStage] = useState<AgentStage | null>(agentStage);
+  const [stageMenuOpen, setStageMenuOpen] = useState(false);
+  const [stageSaving, setStageSaving] = useState(false);
+  useEffect(() => setStage(agentStage), [agentStage, conversationId]);
+
+  // Lifecycle timeline
+  const [lifecycle, setLifecycle] = useState<DealLifecycle | null>(null);
 
   // Panel data
   const [linkUrl, setLinkUrl] = useState<string | null>(null);
@@ -229,10 +276,11 @@ export function InboxContextPanel({
     }
     setLoading(true);
     try {
-      const [linkRes, docsRes, qRes] = await Promise.all([
+      const [linkRes, docsRes, qRes, lifeRes] = await Promise.all([
         fetch(`/api/v1/customer-link/${dealRecordId}`),
         fetch(`/api/v1/deals/${dealRecordId}/documents`),
         fetch(`/api/v1/deals/${dealRecordId}/quotation`),
+        fetch(`/api/v1/deals/${dealRecordId}/lifecycle`),
       ]);
       if (linkRes.ok) {
         const j = (await linkRes.json()) as { data?: { url?: string | null } };
@@ -248,10 +296,38 @@ export function InboxContextPanel({
         const j = (await qRes.json()) as { data?: QuotationPayload | null };
         setQuotation(j.data ?? null);
       }
+      if (lifeRes.ok) {
+        const j = (await lifeRes.json()) as { data?: DealLifecycle };
+        setLifecycle(j.data ?? null);
+      }
     } finally {
       setLoading(false);
     }
   }, [dealRecordId]);
+
+  async function changeStage(next: AgentStage) {
+    setStageMenuOpen(false);
+    if (next === stage) return;
+    const prev = stage;
+    setStage(next);
+    setStageSaving(true);
+    try {
+      const res = await fetch(
+        `/api/v1/inbox/conversations/${conversationId}/agent-stage`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ stage: next }),
+        }
+      );
+      if (res.ok) onStageChange?.(next);
+      else setStage(prev);
+    } catch {
+      setStage(prev);
+    } finally {
+      setStageSaving(false);
+    }
+  }
 
   useEffect(() => {
     void refresh();
@@ -396,7 +472,10 @@ export function InboxContextPanel({
       {/* Mobile/tablet backdrop */}
       <div className="fixed inset-0 z-40 bg-black/30 lg:hidden" onClick={onClose} />
 
-      <aside className="fixed inset-y-0 right-0 z-50 flex w-[min(100vw-3rem,340px)] flex-col border-l border-border bg-background lg:static lg:z-auto lg:w-[340px] lg:shrink-0">
+      <aside
+        className="fixed inset-y-0 right-0 z-50 flex w-[min(100vw-3rem,340px)] flex-col border-l border-border lg:static lg:z-auto lg:w-[340px] lg:shrink-0"
+        style={{ background: "var(--inbox-panel)" }}
+      >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <span className="text-sm font-semibold">Schnellzugriff</span>
@@ -448,6 +527,58 @@ export function InboxContextPanel({
                     {analyzeError}
                   </p>
                 )}
+              </Section>
+
+              {/* ── Status (manually editable funnel stage) ── */}
+              <Section title="Status">
+                <div className="relative px-3 pb-3">
+                  <button
+                    onClick={() => setStageMenuOpen((v) => !v)}
+                    disabled={stageSaving}
+                    className="flex w-full items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-left text-sm hover:bg-accent disabled:opacity-60"
+                  >
+                    <span
+                      className={cn(
+                        "h-2 w-2 shrink-0 rounded-full",
+                        STAGE_OPTIONS.find((s) => s.value === stage)?.dot ??
+                          "bg-muted-foreground/40"
+                      )}
+                    />
+                    <span className="flex-1 truncate font-medium">
+                      {STAGE_OPTIONS.find((s) => s.value === stage)?.label ??
+                        "Kein Status"}
+                    </span>
+                    {stageSaving ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                    ) : (
+                      <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                    )}
+                  </button>
+                  {stageMenuOpen && (
+                    <>
+                      <div
+                        className="fixed inset-0 z-40"
+                        onClick={() => setStageMenuOpen(false)}
+                      />
+                      <div className="absolute left-3 right-3 z-50 mt-1 overflow-hidden rounded-lg border border-border bg-popover py-1 shadow-lg">
+                        {STAGE_OPTIONS.map((s) => (
+                          <button
+                            key={s.value}
+                            onClick={() => void changeStage(s.value)}
+                            className={cn(
+                              "flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted",
+                              s.value === stage && "bg-muted/60"
+                            )}
+                          >
+                            <span className={cn("h-2 w-2 shrink-0 rounded-full", s.dot)} />
+                            <span className="flex-1 truncate">{s.label}</span>
+                            {s.value === stage && <Check className="h-3.5 w-3.5" />}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
               </Section>
 
               {/* ── Status-Link ── */}
@@ -545,6 +676,19 @@ export function InboxContextPanel({
                     Lead öffnen
                   </button>
                 </div>
+              </Section>
+
+              {/* ── Interaktionen (lifecycle timeline) ── */}
+              <Section title="Interaktionen">
+                {loading ? (
+                  <PanelSpinner />
+                ) : lifecycle ? (
+                  <LifecycleTimeline lifecycle={lifecycle} />
+                ) : (
+                  <p className="px-3 pb-3 text-xs text-muted-foreground">
+                    Noch keine Interaktionen.
+                  </p>
+                )}
               </Section>
             </>
           )}
@@ -787,5 +931,91 @@ function PanelSpinner() {
       <Loader2 className="h-3.5 w-3.5 animate-spin" />
       Lädt…
     </div>
+  );
+}
+
+function lifecycleDate(key: LifecycleKey, at: string | null): string {
+  if (!at) return "—";
+  const d = new Date(at);
+  if (Number.isNaN(d.getTime())) return "—";
+  // The move date is a plain day; the rest carry a wall-clock time.
+  if (key === "umzugstermin") {
+    return d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+  }
+  return d.toLocaleString("de-DE", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/**
+ * Vertical milestone timeline like Zendesk's "Interactions": done steps get a
+ * filled dot, the step in flight pulses (warm accent), future steps are
+ * hollow. The connecting rail fills up to the current step.
+ */
+function LifecycleTimeline({ lifecycle }: { lifecycle: DealLifecycle }) {
+  const { milestones, current } = lifecycle;
+  return (
+    <ul className="px-3 pb-4 pt-1">
+      {milestones.map((m, i) => {
+        const isCurrent = m.key === current;
+        const isLast = i === milestones.length - 1;
+        const isFutureMove = m.key === "umzugstermin" && !m.done && m.at;
+        return (
+          <li key={m.key} className="relative flex gap-3 pb-4 last:pb-0">
+            {/* Rail */}
+            {!isLast && (
+              <span
+                className={cn(
+                  "absolute left-[5px] top-4 h-full w-px",
+                  m.done ? "bg-[var(--kottke-accent)]/40" : "bg-border"
+                )}
+                aria-hidden
+              />
+            )}
+            {/* Dot */}
+            <span className="relative mt-1 flex h-[11px] w-[11px] shrink-0 items-center justify-center">
+              {isCurrent ? (
+                <>
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--kottke-accent)] opacity-60" />
+                  <span className="relative inline-flex h-[11px] w-[11px] rounded-full bg-[var(--kottke-accent)]" />
+                </>
+              ) : m.done ? (
+                <span className="inline-flex h-[11px] w-[11px] items-center justify-center rounded-full bg-[var(--kottke-accent)] text-white">
+                  <Check className="h-2 w-2" strokeWidth={3} />
+                </span>
+              ) : (
+                <span className="inline-flex h-[11px] w-[11px] rounded-full border-2 border-border bg-background" />
+              )}
+            </span>
+            {/* Label + time */}
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5">
+                <span
+                  className={cn(
+                    "text-xs font-medium",
+                    m.done || isCurrent ? "text-foreground" : "text-muted-foreground"
+                  )}
+                >
+                  {m.label}
+                </span>
+                {isCurrent && (
+                  <span className="rounded-full bg-[var(--kottke-accent)]/12 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wider text-[var(--kottke-accent)]">
+                    aktuell
+                  </span>
+                )}
+              </div>
+              <span className="text-[11px] text-muted-foreground">
+                {isFutureMove
+                  ? `geplant: ${lifecycleDate(m.key, m.at)}`
+                  : lifecycleDate(m.key, m.at)}
+              </span>
+            </div>
+          </li>
+        );
+      })}
+    </ul>
   );
 }

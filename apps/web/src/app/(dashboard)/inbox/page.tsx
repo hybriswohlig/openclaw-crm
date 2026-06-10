@@ -46,6 +46,8 @@ import {
 } from "@/components/chat/draft-suggestion-banner";
 import { CustomerLinkComposer } from "@/components/inbox/customer-link-composer";
 import { InboxContextPanel } from "@/components/inbox/context-panel";
+import { ChannelAvatar, type LastChannel } from "@/components/inbox/channel-logos";
+import type { AgentStage } from "@/db/schema/inbox";
 import { PersonRow } from "@/components/inbox/person-row";
 import { MergeSuggestions } from "@/components/inbox/merge-suggestions";
 import { PersonTimeline } from "@/components/inbox/person-timeline";
@@ -240,6 +242,14 @@ function isKleinanzeigenConv(conv: Conversation): boolean {
   if (conv.contactEmail && KLEINANZEIGEN_RELAY_RE.test(conv.contactEmail)) return true;
   if (conv.subject && KLEINANZEIGEN_SUBJECT_RE.test(conv.subject)) return true;
   return false;
+}
+
+/** The channel a conversation belongs to, with Kleinanzeigen split out of email. */
+function lastChannelOf(conv: Conversation): LastChannel {
+  if (isKleinanzeigenConv(conv)) return "kleinanzeigen";
+  if (conv.channelType === "whatsapp") return "whatsapp";
+  if ((conv.channelType as string) === "sms") return "sms";
+  return "email";
 }
 
 /**
@@ -552,9 +562,7 @@ function MessageBubble({
       {/* Inbound avatar slot (only on last bubble of a burst) */}
       {!isOut && (
         <div className={cn("shrink-0 w-7", showAvatar ? "" : "invisible")}>
-          <div className="h-7 w-7 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[11px] font-semibold">
-            {contactInitial(conv)}
-          </div>
+          <ChannelAvatar channel={lastChannelOf(conv)} size="sm" />
         </div>
       )}
 
@@ -562,9 +570,14 @@ function MessageBubble({
         className={cn(
           "group/bubble max-w-[72%] rounded-2xl px-3.5 py-2 text-sm",
           isOut
-            ? "bg-primary text-primary-foreground rounded-br-md shadow-[0_1px_2px_rgba(0,0,0,0.06)]"
-            : "bg-muted text-foreground rounded-bl-md"
+            ? "rounded-br-md shadow-[0_1px_2px_rgba(0,0,0,0.06)]"
+            : "rounded-bl-md border border-border"
         )}
+        style={
+          isOut
+            ? { background: "var(--bubble-out)", color: "var(--bubble-out-fg)" }
+            : { background: "var(--bubble-in)", color: "var(--foreground)" }
+        }
       >
         {msg.attachments && msg.attachments.length > 0 && (
           <div className="space-y-1.5 mb-1.5">
@@ -579,7 +592,7 @@ function MessageBubble({
         <div
           className={cn(
             "flex items-center gap-1 mt-0.5 text-[10px] tabular-nums",
-            isOut ? "text-primary-foreground/70 justify-end" : "text-muted-foreground/80"
+            isOut ? "justify-end opacity-70" : "text-muted-foreground/80"
           )}
           title={fullTime}
         >
@@ -691,11 +704,13 @@ function ConversationView({
   conv,
   onBack,
   onStatusChange,
+  onAgentStageChange,
   onOpenCompose,
 }: {
   conv: Conversation;
   onBack: () => void;
   onStatusChange: (status: ConversationStatus) => void;
+  onAgentStageChange?: (stage: AgentStage) => void;
   onOpenCompose?: () => void;
 }) {
   const router = useRouter();
@@ -1010,7 +1025,10 @@ function ConversationView({
 
   return (
     <div className="flex h-full min-w-0">
-    <div className="relative flex flex-col h-full flex-1 min-w-0 bg-muted/20">
+    <div
+      className="relative flex flex-col h-full flex-1 min-w-0"
+      style={{ background: "var(--inbox-canvas)" }}
+    >
       {/* Header */}
       <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 sm:py-3 border-b border-border bg-background shrink-0">
         <button onClick={onBack} className="md:hidden text-muted-foreground hover:text-foreground p-1 -ml-1">
@@ -1018,21 +1036,7 @@ function ConversationView({
         </button>
 
         <div className="relative shrink-0">
-          <div className={cn(
-            "h-10 w-10 sm:h-11 sm:w-11 rounded-full flex items-center justify-center font-semibold text-base",
-            isWa ? "bg-[#25D366]/10 text-[#128C4F]" :
-            isKa ? "bg-[#96c11f]/10 text-[#5f7c13]" :
-            "bg-primary/10 text-primary"
-          )}>
-            {contactInitial(conv)}
-          </div>
-          <div className="absolute -bottom-0.5 -right-0.5 h-5 w-5 rounded-full bg-background border border-border flex items-center justify-center shadow-sm">
-            {isKa ? (
-              <KleinanzeigenLogo className="h-3.5 w-3.5 text-[9px]" />
-            ) : (
-              <ChannelIcon type={conv.channelType} size="xs" />
-            )}
-          </div>
+          <ChannelAvatar channel={lastChannelOf(conv)} size="lg" />
         </div>
 
         <div className="flex-1 min-w-0">
@@ -1501,10 +1505,13 @@ function ConversationView({
     {/* ── Context panel (Zendesk-style quick actions) ── */}
     {panelOpen && (
       <InboxContextPanel
+        conversationId={conv.id}
         dealRecordId={conv.dealRecordId}
         firma={/ceylan/i.test(conv.channelName) ? "ceylan" : "kottke"}
         firmaDisplayName={conv.channelName}
         customerName={contactLabel(conv)}
+        agentStage={(conv.agentState?.stage as AgentStage | undefined) ?? null}
+        onStageChange={onAgentStageChange}
         onInsert={(text) => {
           setReply((r) => (r.trim() ? `${r.trimEnd()}\n\n${text}` : text));
           requestAnimationFrame(() => textareaRef.current?.focus());
@@ -1699,6 +1706,22 @@ export default function InboxPage() {
     }
   }
 
+  // Manual stage override from the context panel — keep the list badge in sync.
+  function handleAgentStageChange(convId: string, stage: AgentStage) {
+    setConversations((prev) =>
+      prev.map((c) =>
+        c.id === convId && c.agentState
+          ? { ...c, agentState: { ...c.agentState, stage } }
+          : c
+      )
+    );
+    setSelected((s) =>
+      s && s.id === convId && s.agentState
+        ? { ...s, agentState: { ...s.agentState, stage } }
+        : s
+    );
+  }
+
   const filtered = conversations.filter((c) => {
     const isKa = isKleinanzeigenConv(c);
     const isWa = c.channelType === "whatsapp";
@@ -1736,10 +1759,11 @@ export default function InboxPage() {
       {/* ── Left panel: conversation list ── */}
       <div
         className={cn(
-          "flex flex-col border-r border-border bg-background",
+          "flex flex-col border-r border-border",
           "w-full md:w-80 lg:w-96 shrink-0",
           selected ? "hidden md:flex" : "flex"
         )}
+        style={{ background: "var(--inbox-rail)" }}
       >
         {/* Header */}
         <div className="px-4 pt-4 pb-2 shrink-0 space-y-3">
@@ -1943,6 +1967,7 @@ export default function InboxPage() {
                 data={{
                   name: person.name,
                   channels: person.channels,
+                  lastChannel: lastChannelOf(person.latest),
                   unread: person.unread,
                   conversationCount: person.conversations.length,
                   dealRecordId: person.dealRecordId,
@@ -2053,6 +2078,7 @@ export default function InboxPage() {
                     conv={selected}
                     onBack={() => setSelected(null)}
                     onStatusChange={(status) => handleStatusChange(selected.id, status)}
+                    onAgentStageChange={(stage) => handleAgentStageChange(selected.id, stage)}
                     onOpenCompose={() => setComposeOpen(true)}
                   />
                 )}

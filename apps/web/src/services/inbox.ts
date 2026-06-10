@@ -494,6 +494,57 @@ export async function setConversationAiPaused(
   return row ?? null;
 }
 
+/**
+ * Operator override of the agent funnel stage shown as the inbox badge. The
+ * classify cron derives the stage automatically, but the badge is sometimes
+ * stale — this lets whoever works the inbox correct it by hand. We merge the
+ * new stage into the existing agentState (seeding a minimal one if the
+ * conversation was never classified) and stamp classifiedAt so the manual
+ * value is treated as the latest classification.
+ */
+export async function setConversationAgentStage(
+  conversationId: string,
+  workspaceId: string,
+  stage: AgentConversationState["stage"]
+) {
+  const [conv] = await db
+    .select({ agentState: inboxConversations.agentState })
+    .from(inboxConversations)
+    .where(
+      and(
+        eq(inboxConversations.id, conversationId),
+        eq(inboxConversations.workspaceId, workspaceId)
+      )
+    )
+    .limit(1);
+  if (!conv) return null;
+
+  const prev = conv.agentState;
+  const nowIso = new Date().toISOString();
+  const nextState: AgentConversationState = prev
+    ? { ...prev, stage, classifiedAt: nowIso }
+    : {
+        stage,
+        priority: "mittel",
+        missing: [],
+        eligible: false,
+        ineligibleReason: "manuell gesetzt",
+        classifiedAt: nowIso,
+      };
+
+  const [row] = await db
+    .update(inboxConversations)
+    .set({ agentState: nextState, updatedAt: new Date() })
+    .where(
+      and(
+        eq(inboxConversations.id, conversationId),
+        eq(inboxConversations.workspaceId, workspaceId)
+      )
+    )
+    .returning();
+  return row ?? null;
+}
+
 // ─── Auto-deal creation ───────────────────────────────────────────────────────
 // Invoked from channel ingest paths (inbox-email.ts for Kleinanzeigen today,
 // future: WhatsApp, CloudTalk, etc.) when a brand-new inbound conversation is
