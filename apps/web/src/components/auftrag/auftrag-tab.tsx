@@ -56,7 +56,8 @@ interface CriticalMissing {
 function buildAnweisungCtx(
   dealRecordId: string,
   lead: LeadContext,
-  auftragValues: Record<string, unknown>
+  auftragValues: Record<string, unknown>,
+  attributes: AttributeDef[] = []
 ): AnweisungContext | null {
   const base = buildDealDataForDocs(dealRecordId, lead);
   if (!base) return null;
@@ -73,13 +74,17 @@ function buildAnweisungCtx(
     if (!Array.isArray(v)) return [];
     return v.filter((x): x is string => typeof x === "string");
   };
-  const selectOpt = (v: unknown): string | null => {
-    if (typeof v === "string") return v;
+  // Select values arrive either as {title} objects or as raw option-ID
+  // strings. Raw IDs must be mapped to their option title here; the skill
+  // used to print UUIDs onto the crew PDF (e.g. Transporter/Ausstattung).
+  const selectOpt = (slug: string, v: unknown): string | null => {
     if (v && typeof v === "object" && "title" in v) {
       const t = (v as { title: unknown }).title;
       if (typeof t === "string") return t;
     }
-    return null;
+    if (typeof v !== "string" || !v.trim()) return null;
+    const opts = attributes.find((a) => a.slug === slug)?.options;
+    return opts?.find((o) => o.id === v)?.title ?? v;
   };
 
   const checkRaw = auftragValues.checklist;
@@ -96,7 +101,7 @@ function buildAnweisungCtx(
     const v = auftragValues.equipment_needed;
     if (Array.isArray(v)) {
       return v
-        .map((x) => (typeof x === "string" ? x : selectOpt(x)))
+        .map((x) => selectOpt("equipment_needed", x))
         .filter((x): x is string => !!x);
     }
     return asArr(v);
@@ -141,7 +146,7 @@ function buildAnweisungCtx(
         if (typeof v === "string" && v.trim()) return `${v} m³`;
         return lead.inventory_notes ?? null;
       })(),
-      transporter: selectOpt(auftragValues.transporter),
+      transporter: selectOpt("transporter", auftragValues.transporter),
       helfer_anzahl: asNum(auftragValues.worker_count),
       klavier_transport: asBool(auftragValues.piano_transport),
       demontage: asBool(auftragValues.dismantling_required),
@@ -445,7 +450,12 @@ export function AuftragTab({ recordId }: { recordId: string }) {
             </section>
           );
         }
-        const anweisungCtx = buildAnweisungCtx(recordId, leadContext, auftrag.values);
+        const anweisungCtx = buildAnweisungCtx(
+          recordId,
+          leadContext,
+          auftrag.values,
+          object.attributes
+        );
         return (
           <section className="rounded-lg border border-border bg-muted/10 p-3 sm:p-4 space-y-3">
             <div className="flex items-center justify-between">

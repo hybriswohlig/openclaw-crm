@@ -13,7 +13,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useToolJob } from "@/hooks/useToolJob";
-import type { Firma } from "@/components/GenerateDocumentDialog";
+import { ElapsedTimer, type Firma } from "@/components/GenerateDocumentDialog";
 
 export interface AnweisungContext {
   dealRecordId: string;
@@ -66,6 +66,8 @@ export function GenerateWorkerInstructionsDialog({ open, onClose, ctx }: Props) 
   const [storeError, setStoreError] = useState<string | null>(null);
   const [storedDocId, setStoredDocId] = useState<string | null>(null);
   const [storing, setStoring] = useState(false);
+  // Double-click guard: a second click would mint a second Belegnummer.
+  const [submitting, setSubmitting] = useState(false);
   const autoStoreFiredFor = useRef<string | null>(null);
 
   const { start, status, jobId, error, result, reset } = useToolJob();
@@ -115,9 +117,12 @@ export function GenerateWorkerInstructionsDialog({ open, onClose, ctx }: Props) 
   }
 
   async function handleGenerate() {
+    if (submitting) return;
+    setSubmitting(true);
     setStoreError(null);
     setStoredDocId(null);
     autoStoreFiredFor.current = null;
+    try {
 
     // Fetch Street View images for both endpoints in parallel.
     const [imgVon, imgNach] = await Promise.all([
@@ -144,6 +149,9 @@ export function GenerateWorkerInstructionsDialog({ open, onClose, ctx }: Props) 
     if (images.length > 0) merged._images = images;
 
     await start("auftragsanweisung", merged);
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   function handleClose() {
@@ -197,9 +205,10 @@ export function GenerateWorkerInstructionsDialog({ open, onClose, ctx }: Props) 
               </button>
               <button
                 onClick={handleGenerate}
-                className="rounded bg-blue-600 px-4 py-2 text-sm text-white"
+                disabled={submitting}
+                className="rounded bg-blue-600 px-4 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Anweisung erstellen
+                {submitting ? "Wird gestartet…" : "Anweisung erstellen"}
               </button>
             </div>
           </div>
@@ -207,8 +216,10 @@ export function GenerateWorkerInstructionsDialog({ open, onClose, ctx }: Props) 
 
         {isRunning && (
           <div className="py-8 text-center text-sm text-gray-600">
-            <div className="mb-2">⏳ Erstelle Auftragsanweisung… (typisch ca. 60 Sekunden)</div>
-            <div className="text-xs text-gray-400">Status: {status}</div>
+            <div className="mb-2">⏳ Erstelle Auftragsanweisung… (dauert normalerweise unter 30 Sekunden)</div>
+            <div className="text-xs text-gray-400">
+              Status: {status} · <ElapsedTimer />
+            </div>
           </div>
         )}
 

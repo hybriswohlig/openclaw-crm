@@ -114,6 +114,9 @@ export function GenerateDocumentDialog({
   const [storedDocId, setStoredDocId] = useState<string | null>(null);
   const [storing, setStoring] = useState(false);
   const [dueDateSet, setDueDateSet] = useState<string | null>(null);
+  // Double-click guard: "PDF erstellen" fired twice mints two Belegnummern
+  // (two AB jobs were observed starting 76ms apart in production).
+  const [submitting, setSubmitting] = useState(false);
   // Guard so the auto-store effect only fires once per generated PDF, even
   // if React re-renders while the store request is in flight.
   const autoStoreFiredFor = useRef<string | null>(null);
@@ -161,6 +164,8 @@ export function GenerateDocumentDialog({
   }
 
   async function handleGenerate() {
+    if (submitting) return;
+    setSubmitting(true);
     setStoreError(null);
     setStoredDocId(null);
     setDueDateSet(null);
@@ -211,15 +216,19 @@ export function GenerateDocumentDialog({
       // ignore — skill runs without images
     }
 
-    await start("rechnungen-und-auftragsbestaetigungen", {
-      firma: deal.firma,
-      document_type: documentType,
-      kunde: deal.kunde,
-      auftrag: deal.auftrag,
-      preise: buildPreise(),
-      _deal_record_id: deal.dealRecordId,
-      _image_attachment_ids: imageIds,
-    });
+    try {
+      await start("rechnungen-und-auftragsbestaetigungen", {
+        firma: deal.firma,
+        document_type: documentType,
+        kunde: deal.kunde,
+        auftrag: deal.auftrag,
+        preise: buildPreise(),
+        _deal_record_id: deal.dealRecordId,
+        _image_attachment_ids: imageIds,
+      });
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   async function handleStore() {
@@ -409,9 +418,10 @@ export function GenerateDocumentDialog({
               </button>
               <button
                 onClick={handleGenerate}
-                className="rounded bg-blue-600 px-4 py-2 text-sm text-white"
+                disabled={submitting}
+                className="rounded bg-blue-600 px-4 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-60"
               >
-                PDF erstellen
+                {submitting ? "Wird gestartet…" : "PDF erstellen"}
               </button>
             </div>
           </div>
@@ -420,8 +430,10 @@ export function GenerateDocumentDialog({
         {/* Running */}
         {isRunning && (
           <div className="py-8 text-center text-sm text-gray-600">
-            <div className="mb-2">⏳ Erstelle Dokument… (typisch ca. 90 Sekunden)</div>
-            <div className="text-xs text-gray-400">Status: {status}</div>
+            <div className="mb-2">⏳ Erstelle Dokument… (dauert normalerweise unter 30 Sekunden)</div>
+            <div className="text-xs text-gray-400">
+              Status: {status} · <ElapsedTimer />
+            </div>
           </div>
         )}
 
@@ -496,6 +508,25 @@ export function GenerateDocumentDialog({
 }
 
 // ─── tiny field components ──────────────────────────────────────────────────
+
+/**
+ * Live mm:ss counter since mount. Honest feedback while a job runs; shared
+ * with GenerateWorkerInstructionsDialog.
+ */
+export function ElapsedTimer() {
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setSeconds((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const mm = Math.floor(seconds / 60);
+  const ss = String(seconds % 60).padStart(2, "0");
+  return (
+    <span>
+      {mm}:{ss} min
+    </span>
+  );
+}
 
 function NumberField({
   label,
