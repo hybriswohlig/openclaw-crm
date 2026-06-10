@@ -191,14 +191,13 @@ export const inboxContacts = pgTable(
 // A thread between one contact and one channel account.
 // One contact can have multiple conversations (one per channel account).
 
-/** Sales-agent funnel sub-stage shown as an inbox badge. */
-export type AgentStage =
-  | "neu"
-  | "sammelt_infos"
-  | "bereit_kalkulieren"
-  | "angebot_raus"
-  | "wartet_kunde"
-  | "verloren";
+// Funnel stage type + helpers live in a DB-free module so client components
+// can import them without pulling Drizzle into the bundle. Re-exported here so
+// existing `from "@/db/schema/inbox"` imports keep working.
+export type { AgentStage } from "@/lib/agent-stage";
+export { AGENT_STAGE_RANK, normalizeAgentStage } from "@/lib/agent-stage";
+import type { AgentStage } from "@/lib/agent-stage";
+
 export type AgentPriority = "hoch" | "mittel" | "niedrig";
 
 /** Cached classification rendered in the inbox. Stored in inboxConversations.agentState. */

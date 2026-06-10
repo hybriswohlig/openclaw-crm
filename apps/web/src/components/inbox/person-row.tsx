@@ -10,6 +10,7 @@ import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { ExternalLink, Phone, Check, Ban, MoreVertical } from "lucide-react";
 import { ChannelAvatar, type LastChannel } from "@/components/inbox/channel-logos";
+import { normalizeAgentStage } from "@/lib/agent-stage";
 
 export interface PersonRowData {
   name: string;
@@ -32,11 +33,10 @@ export interface PersonRowData {
 }
 
 const STAGE_META: Record<string, { label: string; className: string }> = {
-  neu: { label: "Neu", className: "bg-muted text-muted-foreground" },
-  sammelt_infos: { label: "Sammelt Infos", className: "bg-sky-100 text-sky-700" },
-  bereit_kalkulieren: { label: "Bereit zum Kalkulieren", className: "bg-emerald-100 text-emerald-700" },
+  erstkontakt: { label: "Erstkontakt", className: "bg-muted text-muted-foreground" },
+  infos_erhalten: { label: "Infos erhalten", className: "bg-sky-100 text-sky-700" },
   angebot_raus: { label: "Angebot raus", className: "bg-violet-100 text-violet-700" },
-  wartet_kunde: { label: "Wartet auf Kunde", className: "bg-amber-100 text-amber-700" },
+  angenommen: { label: "Angenommen", className: "bg-emerald-100 text-emerald-700" },
   verloren: { label: "Verloren", className: "bg-rose-100 text-rose-600" },
 };
 
@@ -128,16 +128,20 @@ export function PersonRow({ data, active, onClick, onStatusChange }: Props) {
           <p className="text-xs text-muted-foreground truncate mt-0.5">{data.lastMessagePreview}</p>
         )}
         <div className="flex items-center gap-1 mt-1 flex-wrap">
-          {data.agentStage && STAGE_META[data.agentStage] && (
-            <span
-              className={cn(
-                "inline-flex items-center rounded px-1.5 py-px text-[9px] font-semibold leading-none",
-                STAGE_META[data.agentStage].className
-              )}
-            >
-              {STAGE_META[data.agentStage].label}
-            </span>
-          )}
+          {(() => {
+            const st = normalizeAgentStage(data.agentStage);
+            const meta = st ? STAGE_META[st] : null;
+            return meta ? (
+              <span
+                className={cn(
+                  "inline-flex items-center rounded px-1.5 py-px text-[9px] font-semibold leading-none",
+                  meta.className
+                )}
+              >
+                {meta.label}
+              </span>
+            ) : null;
+          })()}
           {data.channels.kleinanzeigen && <ChannelBadge label="Kleinanzeigen" className="bg-[#e8f3d6] text-[#5a7a1e]" />}
           {data.channels.whatsapp && <ChannelBadge label="WhatsApp" className="bg-[#dcf8e8] text-[#1c7a47]" />}
           {data.channels.email && <ChannelBadge label="E-Mail" className="bg-muted text-muted-foreground" />}

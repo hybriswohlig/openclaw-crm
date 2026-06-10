@@ -25,7 +25,7 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
-import type { AgentStage } from "@/db/schema/inbox";
+import { type AgentStage, normalizeAgentStage } from "@/lib/agent-stage";
 import { cn } from "@/lib/utils";
 import {
   GenerateDocumentDialog,
@@ -82,8 +82,10 @@ type LifecycleKey =
   | "erstkontakt"
   | "infos_erhalten"
   | "angebot"
+  | "angenommen"
   | "umzugstermin"
-  | "bezahlt";
+  | "bezahlt"
+  | "bewertung";
 
 interface LifecycleMilestone {
   key: LifecycleKey;
@@ -99,11 +101,10 @@ interface DealLifecycle {
 
 // Funnel stages the operator can set by hand. Order = funnel order.
 const STAGE_OPTIONS: Array<{ value: AgentStage; label: string; dot: string }> = [
-  { value: "neu", label: "Neu", dot: "bg-muted-foreground/50" },
-  { value: "sammelt_infos", label: "Sammelt Infos", dot: "bg-sky-500" },
-  { value: "bereit_kalkulieren", label: "Bereit zum Kalkulieren", dot: "bg-emerald-500" },
+  { value: "erstkontakt", label: "Erstkontakt", dot: "bg-muted-foreground/50" },
+  { value: "infos_erhalten", label: "Infos erhalten", dot: "bg-sky-500" },
   { value: "angebot_raus", label: "Angebot raus", dot: "bg-violet-500" },
-  { value: "wartet_kunde", label: "Wartet auf Kunde", dot: "bg-amber-500" },
+  { value: "angenommen", label: "Angenommen", dot: "bg-emerald-500" },
   { value: "verloren", label: "Verloren", dot: "bg-rose-500" },
 ];
 
@@ -226,11 +227,11 @@ export function InboxContextPanel({
 }) {
   const router = useRouter();
 
-  // Manual stage editing
-  const [stage, setStage] = useState<AgentStage | null>(agentStage);
+  // Manual stage editing (normalise legacy stored values for display)
+  const [stage, setStage] = useState<AgentStage | null>(normalizeAgentStage(agentStage));
   const [stageMenuOpen, setStageMenuOpen] = useState(false);
   const [stageSaving, setStageSaving] = useState(false);
-  useEffect(() => setStage(agentStage), [agentStage, conversationId]);
+  useEffect(() => setStage(normalizeAgentStage(agentStage)), [agentStage, conversationId]);
 
   // Lifecycle timeline
   const [lifecycle, setLifecycle] = useState<DealLifecycle | null>(null);
@@ -938,8 +939,8 @@ function lifecycleDate(key: LifecycleKey, at: string | null): string {
   if (!at) return "—";
   const d = new Date(at);
   if (Number.isNaN(d.getTime())) return "—";
-  // The move date is a plain day; the rest carry a wall-clock time.
-  if (key === "umzugstermin") {
+  // Move date and payment date are plain days; the rest carry a wall-clock time.
+  if (key === "umzugstermin" || key === "bezahlt") {
     return d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
   }
   return d.toLocaleString("de-DE", {

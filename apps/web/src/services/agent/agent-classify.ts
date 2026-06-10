@@ -15,9 +15,11 @@ import type {
   AgentStage,
   AgentPriority,
 } from "@/db/schema/inbox";
+import { AGENT_STAGE_RANK, normalizeAgentStage } from "@/db/schema/inbox";
 import { activityEvents } from "@/db/schema";
 import { getObjectBySlug } from "@/services/objects";
 import { getRecord } from "@/services/records";
+import { getDealStageSignals } from "@/services/deal-lifecycle";
 import { looksDeclined, isMoveDatePast } from "./agent-shared";
 
 const URGENCY = /(dringend|kurzfristig|schnellstmöglich|asap|diese woche|nächste woche|sofort|eilt|so schnell wie möglich)/i;
@@ -46,6 +48,12 @@ export interface ClassifyInput {
   /** True only if the deal was actually AI-analyzed (an insights run exists). */
   hasInsights: boolean;
   criticalMissing: Array<{ field: string; question: string }>;
+  /** A quotation, status link, or Auftragsbestätigung exists for the deal. */
+  offerSent: boolean;
+  /** The customer signed the binding KVA on the status portal. */
+  offerAccepted: boolean;
+  /** Currently stored stage — the auto-classifier never regresses below it. */
+  currentStage: AgentStage | null;
   now: Date;
 }
 
@@ -59,42 +67,55 @@ export function computeConversationFlags(input: ClassifyInput): AgentConversatio
   }
   const missing = [...missingSet].slice(0, 4);
 
-  // Stage
+  // Stage — funnel order: erstkontakt → infos_erhalten → angebot_raus →
+  // angenommen, with verloren as the lost-terminal. Accepted (a hard DB
+  // signal) outranks a noisy "declined" keyword match, so a signed deal is
+  // never flipped to verloren.
   let stage: AgentStage;
-  if (declined) stage = "verloren";
-  else if (input.criticalMissing.length === 0 && customerWroteLast) stage = "bereit_kalkulieren";
-  else if (input.criticalMissing.length === 0) stage = "bereit_kalkulieren";
-  else if (input.lastDirection === "outbound") stage = "wartet_kunde";
-  else if (input.lastDirection === "inbound") stage = "sammelt_infos";
-  else stage = "neu";
+  if (input.offerAccepted) stage = "angenommen";
+  else if (declined) stage = "verloren";
+  else if (input.offerSent) stage = "angebot_raus";
+  else if (input.hasInsights && input.criticalMissing.length === 0) stage = "infos_erhalten";
+  else stage = "erstkontakt";
+
+  // Monotonic: only advance or hold. Never fall behind the currently stored
+  // stage (which is also where a manual override lives). The lost-terminal is
+  // the one exception we allow the keyword path to set even from a higher rank.
+  if (
+    input.currentStage &&
+    stage !== "verloren" &&
+    AGENT_STAGE_RANK[input.currentStage] > AGENT_STAGE_RANK[stage]
+  ) {
+    stage = input.currentStage;
+  }
 
   // Priority
   let priority: AgentPriority = "mittel";
-  if (declined || input.movePast) {
+  if (stage === "verloren" || input.movePast) {
     priority = "niedrig";
   } else if (input.moveDate) {
     const days = Math.floor((input.moveDate.getTime() - input.now.getTime()) / 86_400_000);
     priority = days <= 7 ? "hoch" : days <= 21 ? "mittel" : "niedrig";
   }
-  if (!declined && !input.movePast && URGENCY.test(input.recentText)) priority = "hoch";
+  if (stage !== "verloren" && !input.movePast && URGENCY.test(input.recentText)) priority = "hoch";
 
   // Eligibility for auto-answer (a hint; the worker re-checks freshness etc.)
-  const eligible = !declined && !input.movePast && customerWroteLast;
+  const eligible = stage !== "verloren" && !input.movePast && customerWroteLast;
   let ineligibleReason: string | undefined;
   if (input.movePast) ineligibleReason = "Termin vorbei";
-  else if (declined) ineligibleReason = "Abgesagt";
+  else if (stage === "verloren") ineligibleReason = "Abgesagt";
   else if (!customerWroteLast) ineligibleReason = "Wir am Zug";
 
   const nextAction =
-    stage === "bereit_kalkulieren"
-      ? "Angebot kalkulieren"
-      : stage === "wartet_kunde"
+    stage === "angenommen"
+      ? "Umzug einplanen"
+      : stage === "angebot_raus"
         ? "Auf Antwort warten"
-        : stage === "sammelt_infos"
-          ? "Infos sammeln"
+        : stage === "infos_erhalten"
+          ? "Angebot kalkulieren"
           : stage === "verloren"
             ? "Geschlossen"
-            : "Anfrage prüfen";
+            : "Infos sammeln";
 
   return {
     stage,
@@ -136,7 +157,7 @@ async function latestCriticalMissing(
 
 async function classifyOne(
   workspaceId: string,
-  conv: { id: string; dealRecordId: string | null },
+  conv: { id: string; dealRecordId: string | null; agentState: AgentConversationState | null },
   dealsObjId: string | null,
   now: Date
 ): Promise<void> {
@@ -154,6 +175,8 @@ async function classifyOne(
   let movePast = false;
   let criticalMissing: Array<{ field: string; question: string }> = [];
   let hasInsights = false;
+  let offerSent = false;
+  let offerAccepted = false;
   if (dealsObjId && conv.dealRecordId) {
     const deal = await getRecord(dealsObjId, conv.dealRecordId);
     const mv = (deal?.values as Record<string, unknown> | undefined)?.move_date;
@@ -165,6 +188,9 @@ async function classifyOne(
     const ins = await latestCriticalMissing(workspaceId, conv.dealRecordId);
     hasInsights = ins.hasInsights;
     criticalMissing = ins.criticalMissing;
+    const signals = await getDealStageSignals(conv.dealRecordId);
+    offerSent = signals.offerSent;
+    offerAccepted = signals.offerAccepted;
   }
 
   const flags = computeConversationFlags({
@@ -175,6 +201,9 @@ async function classifyOne(
     movePast,
     hasInsights,
     criticalMissing,
+    offerSent,
+    offerAccepted,
+    currentStage: normalizeAgentStage(conv.agentState?.stage ?? null),
     now,
   });
 
@@ -206,7 +235,11 @@ export async function runAgentClassify(): Promise<ClassifyRunSummary> {
 
     // Open lead conversations never classified, or changed since last classify.
     const due = await db
-      .select({ id: inboxConversations.id, dealRecordId: inboxConversations.dealRecordId })
+      .select({
+        id: inboxConversations.id,
+        dealRecordId: inboxConversations.dealRecordId,
+        agentState: inboxConversations.agentState,
+      })
       .from(inboxConversations)
       .where(
         and(

@@ -4,11 +4,10 @@ import { setConversationAgentStage } from "@/services/inbox";
 import type { AgentStage } from "@/db/schema/inbox";
 
 const VALID_STAGES: AgentStage[] = [
-  "neu",
-  "sammelt_infos",
-  "bereit_kalkulieren",
+  "erstkontakt",
+  "infos_erhalten",
   "angebot_raus",
-  "wartet_kunde",
+  "angenommen",
   "verloren",
 ];
 
