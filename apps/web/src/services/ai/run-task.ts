@@ -30,6 +30,7 @@ import { aiTaskConfigs, aiTaskRuns, workspaces } from "@/db/schema";
 import { and, eq, gte, sql } from "drizzle-orm";
 import {
   AI_TASK_REGISTRY,
+  ENGINE_OWNED_TASKS,
   type AITaskSlug,
   type AITaskDefinition,
 } from "./task-registry";
@@ -826,7 +827,10 @@ export async function runAITask<TSchema extends z.ZodTypeAny | undefined = undef
 
   const cfg = await resolveConfig(input.workspaceId, input.taskSlug, def);
 
-  if (!cfg.enabled) {
+  // Sales-agent tasks are gated by their feature card (KI-Verkaufsassistent),
+  // not by this per-task enable flag, so an AI-task toggle can never silently
+  // break a feature the card says is on. Skip the disable check for them.
+  if (!cfg.enabled && !ENGINE_OWNED_TASKS.has(input.taskSlug)) {
     const runId = await logRun({
       workspaceId: input.workspaceId,
       taskSlug: input.taskSlug,

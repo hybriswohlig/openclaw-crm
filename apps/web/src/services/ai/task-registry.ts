@@ -7,18 +7,30 @@
 
 export const AI_TASK_SLUGS = {
   DEAL_EXTRACT_INSIGHTS: "deal.extract-insights",
-  CHAT_ASSISTANT: "chat.assistant",
-  // Forward-declared for later phases — registry entries exist so the admin
-  // UI lists them, even though no code path calls them yet.
+  // The inbox "Antwort vorschlagen" button (suggest-reply endpoint).
   DEAL_DRAFT_REPLY: "deal.draft-reply",
-  CALL_SUMMARIZE: "call.summarize",
   // Sales agent (the on/off inbox assistant). reply = decide-and-send a turn,
-  // followup = re-engage a stale lead (Phase 3).
+  // followup = re-engage a stale lead, first-contact = proactive ImmoScout opener.
+  // On/off for these three lives in the KI-Verkaufsassistent cards, NOT in the
+  // AI-task enable toggle (see ENGINE_OWNED_TASKS).
   LEAD_ASSISTANT_REPLY: "lead.assistant.reply",
   LEAD_FOLLOWUP: "lead.followup",
-  // Proactive WhatsApp first contact for fresh ImmoScout leads (speed-to-lead).
   LEAD_FIRST_CONTACT: "lead.first-contact",
 } as const;
+
+/**
+ * Sales-agent tasks whose on/off is owned by the dedicated KI-Verkaufsassistent
+ * feature cards (master switch / follow-up / first-contact toggles), NOT by the
+ * generic per-task enable flag. runAITask ignores a disabled flag for these so
+ * the AI-task toggle can never silently break a feature that the card says is
+ * on. The AI Tasks UI hides the enable toggle for them and only exposes the
+ * model/provider config.
+ */
+export const ENGINE_OWNED_TASKS: ReadonlySet<string> = new Set([
+  AI_TASK_SLUGS.LEAD_ASSISTANT_REPLY,
+  AI_TASK_SLUGS.LEAD_FOLLOWUP,
+  AI_TASK_SLUGS.LEAD_FIRST_CONTACT,
+]);
 
 export type AITaskSlug = (typeof AI_TASK_SLUGS)[keyof typeof AI_TASK_SLUGS];
 
@@ -51,23 +63,11 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
     defaultMaxTokens: 4096,
     defaultDailySpendCapUsd: 5,
   },
-  [AI_TASK_SLUGS.CHAT_ASSISTANT]: {
-    slug: AI_TASK_SLUGS.CHAT_ASSISTANT,
-    label: "CRM chat assistant",
-    description:
-      "The /chat assistant with tool calls over the CRM.",
-    defaultProvider: "crm-tools",
-    defaultModel: "anthropic/claude-sonnet-4",
-    defaultFallbackModel: null,
-    defaultTemperature: null,
-    defaultMaxTokens: null,
-    defaultDailySpendCapUsd: 10,
-  },
   [AI_TASK_SLUGS.DEAL_DRAFT_REPLY]: {
     slug: AI_TASK_SLUGS.DEAL_DRAFT_REPLY,
-    label: "Deal auto-reply draft (P4)",
+    label: "Antwort-Vorschlag (Inbox)",
     description:
-      "Drafts a reply into the compose box, matching the customer's tone. Never sends.",
+      "Schreibt auf Knopfdruck einen Antwortentwurf in das Kompositionsfeld der Inbox, im Ton des Kunden. Sendet nie selbst.",
     defaultProvider: "crm-tools",
     defaultModel: "anthropic/claude-sonnet-4",
     defaultFallbackModel: null,
@@ -75,18 +75,6 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
     defaultMaxTokens: 1500,
     defaultDailySpendCapUsd: 2,
     humanizeOutput: true,
-  },
-  [AI_TASK_SLUGS.CALL_SUMMARIZE]: {
-    slug: AI_TASK_SLUGS.CALL_SUMMARIZE,
-    label: "Call summarization (P4)",
-    description:
-      "Summarizes a CloudTalk call transcript into key points and action items.",
-    defaultProvider: "crm-tools",
-    defaultModel: "anthropic/claude-sonnet-4",
-    defaultFallbackModel: null,
-    defaultTemperature: 0.2,
-    defaultMaxTokens: 2000,
-    defaultDailySpendCapUsd: 2,
   },
   [AI_TASK_SLUGS.LEAD_ASSISTANT_REPLY]: {
     slug: AI_TASK_SLUGS.LEAD_ASSISTANT_REPLY,

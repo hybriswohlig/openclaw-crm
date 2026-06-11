@@ -21,6 +21,15 @@ const MODELS = [
   { value: "nvidia/nemotron-3-super-120b-a12b:free", label: "Nvidia Nemotron 3 Super 120B (free)" },
 ];
 
+// Sales-agent tasks whose on/off lives in the KI-Verkaufsassistent cards above,
+// not in this list. We hide their (redundant, contradictory) enable toggle and
+// only show the model/provider config.
+const ENGINE_OWNED_TASK_SLUGS = [
+  "lead.assistant.reply",
+  "lead.followup",
+  "lead.first-contact",
+];
+
 // ─── AI Task Config types ────────────────────────────────────────────────────
 
 interface TaskConfig {
@@ -782,25 +791,32 @@ export default function AISettingsPage() {
                     </p>
                   </div>
 
-                  {/* Enabled toggle */}
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={task.enabled}
-                    onClick={() => updateTask(task.slug, { enabled: !task.enabled })}
-                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
-                      task.enabled ? "bg-primary" : "bg-muted"
-                    }`}
-                  >
-                    <span
-                      className={`pointer-events-none block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
-                        task.enabled ? "translate-x-4" : "translate-x-0"
+                  {/* Enabled toggle — hidden for engine-owned tasks (their on/off
+                      is the KI-Verkaufsassistent card above, not here). */}
+                  {ENGINE_OWNED_TASK_SLUGS.includes(task.slug) ? (
+                    <span className="text-[10px] text-muted-foreground bg-muted px-2 py-1 rounded shrink-0 max-w-[9rem] text-right leading-tight">
+                      Ein/Aus oben im KI-Verkaufsassistenten
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={task.enabled}
+                      onClick={() => updateTask(task.slug, { enabled: !task.enabled })}
+                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                        task.enabled ? "bg-primary" : "bg-muted"
                       }`}
-                    />
-                  </button>
+                    >
+                      <span
+                        className={`pointer-events-none block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+                          task.enabled ? "translate-x-4" : "translate-x-0"
+                        }`}
+                      />
+                    </button>
+                  )}
                 </div>
 
-                {task.enabled && (
+                {(task.enabled || ENGINE_OWNED_TASK_SLUGS.includes(task.slug)) && (
                   <div className="space-y-3">
                     <div className="space-y-1">
                       <Label className="text-xs">Provider</Label>
