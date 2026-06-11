@@ -30,7 +30,10 @@ import {
   ExternalLink,
   Bot,
   PanelRight,
+  Ban,
+  RotateCcw,
 } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -721,11 +724,20 @@ function ConversationView({
   onBack,
   onAgentStageChange,
   onOpenCompose,
+  onSetStatus,
+  onAiPausedChange,
+  onDealLinked,
 }: {
   conv: Conversation;
   onBack: () => void;
   onAgentStageChange?: (stage: AgentStage) => void;
   onOpenCompose?: () => void;
+  /** Erledigt/Spam-Triage für die geöffnete Konversation (Paket 3). */
+  onSetStatus?: (status: ConversationStatus) => void;
+  /** Hält aiPaused in der Liste + im selected-Objekt der Seite synchron. */
+  onAiPausedChange?: (paused: boolean) => void;
+  /** Vom Kontext-Panel: Konversation wurde mit einem Lead verknüpft. */
+  onDealLinked?: (dealRecordId: string) => void;
 }) {
   const router = useRouter();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -765,6 +777,7 @@ function ConversationView({
         body: JSON.stringify({ aiPaused: next }),
       });
       if (!res.ok) setAiPaused(!next);
+      else onAiPausedChange?.(next);
     } catch {
       setAiPaused(!next);
     } finally {
@@ -774,6 +787,11 @@ function ConversationView({
   const [aiSuggestionError, setAiSuggestionError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Scroll-Sprung-Fix: nur scrollen, wenn wirklich neue Nachrichten kamen und
+  // der Nutzer unten ist (oder gerade selbst gesendet hat).
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const lastMsgIdRef = useRef<string | null>(null);
+  const justSentRef = useRef(false);
 
   // Zendesk-style context panel. Open by default on desktop, remembered
   // across sessions; below lg it renders as an overlay drawer.
@@ -851,7 +869,19 @@ function ConversationView({
       const res = await fetch(`/api/v1/inbox/conversations/${conv.id}/messages`);
       if (res.ok) {
         const data = await res.json();
-        setMessages(data.data ?? []);
+        const next: Message[] = data.data ?? [];
+        // Unveränderte Payloads behalten ihre Array-Identität, damit der
+        // 60s-Poll keine Effekte (z. B. Auto-Scroll) erneut auslöst.
+        setMessages((prev) => {
+          if (
+            prev.length === next.length &&
+            prev[prev.length - 1]?.id === next[next.length - 1]?.id &&
+            prev.every((m, i) => m.id === next[i].id && m.status === next[i].status)
+          ) {
+            return prev;
+          }
+          return next;
+        });
       }
     } finally {
       if (!silent) setLoadingMsgs(false);
@@ -885,7 +915,23 @@ function ConversationView({
   }, [fetchMessages]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    const lastId = messages.length > 0 ? messages[messages.length - 1].id : null;
+    const prevId = lastMsgIdRef.current;
+    lastMsgIdRef.current = lastId;
+    if (!lastId || lastId === prevId) return;
+    if (prevId === null) {
+      // Erstes Laden nach dem Öffnen der Konversation: wie bisher nach unten.
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      return;
+    }
+    const el = scrollRef.current;
+    const nearBottom = el
+      ? el.scrollHeight - el.scrollTop - el.clientHeight < 150
+      : true;
+    if (nearBottom || justSentRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+    justSentRef.current = false;
   }, [messages]);
 
   // Auto-grow the composer with content. CSS `max-h-48` caps it so the
@@ -923,10 +969,21 @@ function ConversationView({
       });
       if (res.ok) {
         const data = await res.json();
+        justSentRef.current = true;
         setMessages((prev) => [...prev, data.data]);
         setReply("");
         setSendError(null);
         textareaRef.current?.focus();
+        // Der Server pausiert den KI-Assistenten nach einer manuellen Antwort.
+        // Toggle + Liste sofort nachziehen; Hinweis nur einmal pro Pause.
+        if (!aiPaused) {
+          setAiPaused(true);
+          onAiPausedChange?.(true);
+          toast.info("KI-Assistent pausiert", {
+            description:
+              "Manuelle Antwort gesendet. Über den Schalter lässt er sich wieder aktivieren.",
+          });
+        }
         if (acceptedDraft) {
           await markDraftConsumed(acceptedDraft.noteId);
           setAcceptedDraft(null);
@@ -956,6 +1013,7 @@ function ConversationView({
       );
       if (res.ok) {
         const data = await res.json();
+        justSentRef.current = true;
         setMessages((prev) => [...prev, data.data]);
         setReply("");
         setPendingAttachment(null);
@@ -1120,6 +1178,37 @@ function ConversationView({
                     Anrufen
                   </a>
                 )}
+                {onSetStatus && (
+                  <>
+                    <div className="my-1 border-t border-border" />
+                    {conv.status === "open" ? (
+                      <>
+                        <button
+                          onClick={() => { setShowMenu(false); onSetStatus("resolved"); }}
+                          className="flex items-center gap-2 w-full px-3 py-2 text-sm hover:bg-muted transition-colors"
+                        >
+                          <CheckCheck className="h-4 w-4" />
+                          Erledigt
+                        </button>
+                        <button
+                          onClick={() => { setShowMenu(false); onSetStatus("spam"); }}
+                          className="flex items-center gap-2 w-full px-3 py-2 text-sm hover:bg-muted transition-colors"
+                        >
+                          <Ban className="h-4 w-4" />
+                          Als Spam
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={() => { setShowMenu(false); onSetStatus("open"); }}
+                        className="flex items-center gap-2 w-full px-3 py-2 text-sm hover:bg-muted transition-colors"
+                      >
+                        <RotateCcw className="h-4 w-4" />
+                        Wieder öffnen
+                      </button>
+                    )}
+                  </>
+                )}
                 <div className="my-1 border-t border-border" />
                 <button
                   onClick={() => handleCopyHistory("md")}
@@ -1180,6 +1269,7 @@ function ConversationView({
 
       {/* Messages */}
       <div
+        ref={scrollRef}
         className="flex-1 overflow-y-auto px-4 py-4 space-y-1.5"
         style={{
           backgroundImage:
@@ -1444,6 +1534,7 @@ function ConversationView({
         customerName={contactLabel(conv)}
         agentStage={(conv.agentState?.stage as AgentStage | undefined) ?? null}
         onStageChange={onAgentStageChange}
+        onDealLinked={onDealLinked}
         onInsert={(text) => {
           setReply((r) => (r.trim() ? `${r.trimEnd()}\n\n${text}` : text));
           requestAnimationFrame(() => textareaRef.current?.focus());
@@ -1470,10 +1561,10 @@ export default function InboxPage() {
   const [mergedOc, setMergedOc] = useState<string>("__none__");
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
-  // Status (open/resolved/spam) is no longer surfaced — the inbox is triaged by
-  // the agent funnel stage instead. We still fetch "open" so the live pipeline
-  // shows (nothing auto-resolves anymore) and any legacy spam stays hidden.
-  const statusFilter: ConversationStatus = "open";
+  // Paket 3 (Inbox-Triage): "Offen" ist die Standardansicht; der kompakte
+  // Umschalter im Listenkopf blendet erledigte Konversationen ein, wo sie
+  // wieder geöffnet werden können. Spam bleibt ausgeblendet.
+  const [statusFilter, setStatusFilter] = useState<"open" | "resolved">("open");
   // Multi-select funnel-stage filter. Empty set = "Alle" (show every stage).
   const [stageFilter, setStageFilter] = useState<Set<AgentStage>>(new Set());
   const [accountFilter, setAccountFilter] = useState<string>("all");
@@ -1482,6 +1573,10 @@ export default function InboxPage() {
   // platform notifications out of the inbox; 'info' shows them, 'all' shows both.
   const [laneFilter, setLaneFilter] = useState<"lead" | "info" | "all">("lead");
   const [search, setSearch] = useState("");
+  // Nachrichtensuche (Paket 3): Serverseitige Suche über alle Nachrichten-
+  // Inhalte, unabhängig von Lane/Status. null = keine Server-Ergebnisse
+  // (leere Suche oder Antwort steht noch aus — dann greift der Client-Filter).
+  const [searchResults, setSearchResults] = useState<Conversation[] | null>(null);
   const [composeOpen, setComposeOpen] = useState(false);
   // Deep-link prefill for the compose dialog, populated from URL params when
   // the user arrives from the leads table.
@@ -1502,7 +1597,32 @@ export default function InboxPage() {
     const res = await fetch(`/api/v1/inbox/conversations?${params}`);
     if (res.ok) {
       const data = await res.json();
-      setConversations(data.data ?? []);
+      const list: Conversation[] = data.data ?? [];
+      setConversations(list);
+      // Poll-Reconcile: `selected` ist ein eigenes Objekt und würde sonst
+      // veralten. Nur die volatilen Felder mergen, nichts anderes anfassen.
+      setSelected((s) => {
+        if (!s) return s;
+        const fresh = list.find((c) => c.id === s.id);
+        if (!fresh) return s;
+        if (
+          fresh.aiPaused === s.aiPaused &&
+          fresh.unreadCount === s.unreadCount &&
+          fresh.dealRecordId === s.dealRecordId &&
+          fresh.status === s.status &&
+          JSON.stringify(fresh.agentState ?? null) === JSON.stringify(s.agentState ?? null)
+        ) {
+          return s;
+        }
+        return {
+          ...s,
+          aiPaused: fresh.aiPaused,
+          unreadCount: fresh.unreadCount,
+          dealRecordId: fresh.dealRecordId,
+          status: fresh.status,
+          agentState: fresh.agentState,
+        };
+      });
     }
   }, [statusFilter, accountFilter, laneFilter]);
 
@@ -1642,7 +1762,107 @@ export default function InboxPage() {
     );
   }
 
-  const filtered = conversations.filter((c) => {
+  // ── Nachrichtensuche: 300 ms Debounce, dann serverseitig in allen
+  // Nachrichten und Kanälen suchen (Lane/Status werden serverseitig ignoriert).
+  useEffect(() => {
+    const q = search.trim();
+    if (!q) {
+      setSearchResults(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/v1/inbox/conversations?q=${encodeURIComponent(q)}`);
+        if (cancelled || !res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setSearchResults(data.data ?? []);
+      } catch {
+        // Netzwerkfehler: Client-Filter bleibt als Fallback aktiv.
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [search]);
+
+  // ── Erledigt/Spam-Triage (Paket 3). Eine Personenzeile kann mehrere
+  // Konversationen bündeln; der Status wird auf alle angewendet.
+  const patchStatus = useCallback(
+    (ids: string[], status: ConversationStatus) =>
+      Promise.all(
+        ids.map((id) =>
+          fetch(`/api/v1/inbox/conversations/${id}/status`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status }),
+          })
+        )
+      ),
+    []
+  );
+
+  async function handleSetStatus(ids: string[], status: ConversationStatus) {
+    try {
+      const results = await patchStatus(ids, status);
+      if (results.some((r) => !r.ok)) throw new Error("status_failed");
+      // Der neue Status passt nie zur aktuellen Ansicht — Zeilen entfernen.
+      setConversations((prev) => prev.filter((c) => !ids.includes(c.id)));
+      setSelected((s) => (s && ids.includes(s.id) ? null : s));
+      if (status === "open") {
+        toast.success("Wieder geöffnet");
+      } else {
+        toast.success(status === "resolved" ? "Als erledigt markiert" : "Als Spam markiert", {
+          action: {
+            label: "Rückgängig",
+            onClick: () => {
+              void patchStatus(ids, "open").then(() => fetchConversations());
+            },
+          },
+        });
+      }
+    } catch {
+      toast.error("Aktion fehlgeschlagen");
+    }
+  }
+
+  // Unread-Fix: Öffnen markiert serverseitig als gelesen (Einzel- wie
+  // Gesamtansicht) — die Badges sofort lokal nachziehen statt auf den
+  // nächsten Poll zu warten.
+  function markReadLocally(ids: string[]) {
+    setConversations((prev) =>
+      prev.some((c) => ids.includes(c.id) && c.unreadCount > 0)
+        ? prev.map((c) =>
+            ids.includes(c.id) && c.unreadCount > 0 ? { ...c, unreadCount: 0 } : c
+          )
+        : prev
+    );
+  }
+
+  // Nach manueller Antwort oder Toggle: aiPaused in Liste + selected spiegeln.
+  function handleAiPausedChange(convId: string, paused: boolean) {
+    setConversations((prev) =>
+      prev.map((c) => (c.id === convId ? { ...c, aiPaused: paused } : c))
+    );
+    setSelected((s) => (s && s.id === convId ? { ...s, aiPaused: paused } : s));
+  }
+
+  // Kontext-Panel hat die Konversation mit einem Lead verknüpft: dealRecordId
+  // in Liste + selected setzen, damit Panel und Listen-Badge sofort stimmen.
+  function handleDealLinked(convId: string, dealRecordId: string) {
+    setConversations((prev) =>
+      prev.map((c) => (c.id === convId ? { ...c, dealRecordId } : c))
+    );
+    setSelected((s) => (s && s.id === convId ? { ...s, dealRecordId } : s));
+  }
+
+  const searchMode = search.trim().length > 0;
+  const filtered = (searchMode && searchResults !== null ? searchResults : conversations).filter((c) => {
+    // Server-Suchergebnisse sind lane-/status-übergreifend und werden
+    // ungefiltert angezeigt; der Block darunter ist die normale Ansicht
+    // (plus Client-Filter als Sofort-Fallback, solange die Suche lädt).
+    if (searchMode && searchResults !== null) return true;
     const isKa = isKleinanzeigenConv(c);
     const isWa = c.channelType === "whatsapp";
     if (sourceFilter === "messaging" && !(isKa || isWa)) return false;
@@ -1702,6 +1922,30 @@ export default function InboxPage() {
               )}
             </div>
             <div className="flex items-center gap-1">
+              {/* Triage-Ansicht: Offen | Erledigt */}
+              <div className="flex items-center rounded-lg bg-muted p-0.5 text-[11px] font-medium mr-1">
+                {([
+                  { key: "open", label: "Offen" },
+                  { key: "resolved", label: "Erledigt" },
+                ] as const).map((v) => (
+                  <button
+                    key={v.key}
+                    onClick={() => {
+                      if (statusFilter === v.key) return;
+                      setStatusFilter(v.key);
+                      setSelected(null);
+                    }}
+                    className={cn(
+                      "rounded-md px-2 py-0.5 transition-colors",
+                      statusFilter === v.key
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {v.label}
+                  </button>
+                ))}
+              </div>
               <button
                 onClick={() => setComposeOpen(true)}
                 className="h-8 w-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
@@ -1888,6 +2132,11 @@ export default function InboxPage() {
 
         {/* List */}
         <div className="flex-1 overflow-y-auto">
+          {searchMode && (
+            <p className="px-4 py-1.5 text-[10px] text-muted-foreground border-b border-border/50">
+              Suche in allen Nachrichten und Kanälen
+            </p>
+          )}
           {loading ? (
             <div className="flex justify-center py-12">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -1929,14 +2178,27 @@ export default function InboxPage() {
                   agentMissing: person.latest.agentState?.missing ?? null,
                 }}
                 active={person.conversations.some((c) => c.id === selected?.id)}
+                statusView={statusFilter}
+                onSetStatus={(status) =>
+                  void handleSetStatus(person.conversations.map((c) => c.id), status)
+                }
                 onClick={() => {
-                  setSelected(person.latest);
                   if (person.conversations.length > 1) {
                     setMerged(true);
-                    setMergedOc(person.latest.operatingCompanyRecordId ?? "__none__");
+                    const oc = person.latest.operatingCompanyRecordId ?? "__none__";
+                    setMergedOc(oc);
+                    // Gesamtansicht markiert sich serverseitig als gelesen —
+                    // betroffen sind die Threads derselben Firma.
+                    markReadLocally(
+                      person.conversations
+                        .filter((c) => (c.operatingCompanyRecordId ?? "__none__") === oc)
+                        .map((c) => c.id)
+                    );
                   } else {
                     setMerged(false);
+                    markReadLocally([person.latest.id]);
                   }
+                  setSelected({ ...person.latest, unreadCount: 0 });
                 }}
               />
             ))
@@ -1981,7 +2243,12 @@ export default function InboxPage() {
                   {companies.map((s) => (
                     <button
                       key={"g" + ocKey(s)}
-                      onClick={() => { setMerged(true); setMergedOc(ocKey(s)); }}
+                      onClick={() => {
+                        setMerged(true);
+                        setMergedOc(ocKey(s));
+                        // Gesamtansicht markiert sich serverseitig als gelesen.
+                        markReadLocally(threads.filter((c) => ocKey(c) === ocKey(s)).map((c) => c.id));
+                      }}
                       className={cn(
                         "shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold border transition-colors",
                         showMerged && mergedOc === ocKey(s) ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:text-foreground"
@@ -1998,7 +2265,11 @@ export default function InboxPage() {
                     return (
                       <button
                         key={t.id}
-                        onClick={() => { setMerged(false); setSelected(t); }}
+                        onClick={() => {
+                          setMerged(false);
+                          markReadLocally([t.id]);
+                          setSelected({ ...t, unreadCount: 0 });
+                        }}
                         className={cn(
                           "shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-medium border transition-colors",
                           !showMerged && t.id === selected.id ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:text-foreground"
@@ -2025,6 +2296,9 @@ export default function InboxPage() {
                     onBack={() => setSelected(null)}
                     onAgentStageChange={(stage) => handleAgentStageChange(selected.id, stage)}
                     onOpenCompose={() => setComposeOpen(true)}
+                    onSetStatus={(status) => void handleSetStatus([selected.id], status)}
+                    onAiPausedChange={(paused) => handleAiPausedChange(selected.id, paused)}
+                    onDealLinked={(dealRecordId) => handleDealLinked(selected.id, dealRecordId)}
                   />
                 )}
               </div>

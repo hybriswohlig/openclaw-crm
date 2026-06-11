@@ -28,6 +28,9 @@ export async function GET(req: NextRequest) {
     .filter((s): s is Lane => (validLanes as readonly string[]).includes(s));
   const limitParam = searchParams.get("limit");
   const limit = limitParam ? Math.min(Math.max(parseInt(limitParam, 10) || 0, 1), 1000) : undefined;
+  // Free-text search over contact/subject/message bodies. When set,
+  // listConversations ignores the status and lane filters.
+  const q = (searchParams.get("q") ?? "").trim().slice(0, 200) || undefined;
 
   const rows = await listConversations(ctx.workspaceId, {
     channelAccountId,
@@ -36,6 +39,7 @@ export async function GET(req: NextRequest) {
     status,
     lane,
     excludeLanes: excludeLanes.length ? excludeLanes : undefined,
+    q,
     limit,
   });
 

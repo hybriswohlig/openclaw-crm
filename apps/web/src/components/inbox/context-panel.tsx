@@ -10,7 +10,7 @@
 // drawer with backdrop. All data hangs off the conversation's dealRecordId.
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Calculator,
@@ -21,10 +21,13 @@ import {
   FileText,
   Link2,
   Loader2,
+  Plus,
   Receipt,
+  Search,
   Sparkles,
   X,
 } from "lucide-react";
+import { toast } from "sonner";
 import { type AgentStage, normalizeAgentStage } from "@/lib/agent-stage";
 import { useBackgroundJobs } from "@/components/background-jobs";
 import { cn } from "@/lib/utils";
@@ -226,12 +229,13 @@ function prefillFromQuotation(
 
 export function InboxContextPanel({
   conversationId,
-  dealRecordId,
+  dealRecordId: dealRecordIdProp,
   firma,
   firmaDisplayName,
   customerName,
   agentStage,
   onStageChange,
+  onDealLinked,
   onInsert,
   onClose,
 }: {
@@ -243,10 +247,19 @@ export function InboxContextPanel({
   agentStage: AgentStage | null;
   /** Called after a manual stage change so the inbox list updates its badge. */
   onStageChange?: (stage: AgentStage) => void;
+  /** Called after the conversation got linked to a deal (existing or new). */
+  onDealLinked?: (dealRecordId: string) => void;
   onInsert: (text: string) => void;
   onClose: () => void;
 }) {
   const router = useRouter();
+
+  // A walk-in conversation can gain its lead while the panel is open: the
+  // local override flips the panel to the full view right after linking,
+  // without waiting for the parent to re-render with the new prop.
+  const [linkedDealId, setLinkedDealId] = useState<string | null>(null);
+  useEffect(() => setLinkedDealId(null), [conversationId]);
+  const dealRecordId = linkedDealId ?? dealRecordIdProp;
 
   // Manual stage editing (normalise legacy stored values for display)
   const [stage, setStage] = useState<AgentStage | null>(normalizeAgentStage(agentStage));
@@ -567,10 +580,14 @@ export function InboxContextPanel({
 
         <div className="flex-1 overflow-y-auto">
           {!hasDeal ? (
-            <p className="px-4 py-6 text-sm text-muted-foreground">
-              Kein Lead mit dieser Konversation verknüpft. Aktionen sind
-              verfügbar, sobald ein Lead existiert.
-            </p>
+            <LinkDealSection
+              conversationId={conversationId}
+              customerName={customerName}
+              onLinked={(id) => {
+                setLinkedDealId(id);
+                onDealLinked?.(id);
+              }}
+            />
           ) : (
             <>
               {/* ── Aktionen ── */}
@@ -1094,6 +1111,268 @@ function PanelSpinner() {
       <Loader2 className="h-3.5 w-3.5 animate-spin" />
       Lädt…
     </div>
+  );
+}
+
+/** Pull the server's error message out of a failed API response, if any. */
+async function apiErrorMessage(res: Response): Promise<string | null> {
+  try {
+    const j = (await res.json()) as { error?: { message?: string } };
+    return typeof j.error?.message === "string" ? j.error.message : null;
+  } catch {
+    return null;
+  }
+}
+
+interface DealPickerResult {
+  id: string;
+  displayName: string;
+  subtitle: string;
+}
+
+/**
+ * Shown instead of the action sections when the conversation has no deal yet
+ * (WhatsApp walk-ins / Empfehlungen): link an existing lead via inline search,
+ * or create a fresh lead from the customer name and link it in one go.
+ */
+function LinkDealSection({
+  conversationId,
+  customerName,
+  onLinked,
+}: {
+  conversationId: string;
+  customerName: string | null;
+  onLinked: (dealRecordId: string) => void;
+}) {
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<DealPickerResult[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [linkingId, setLinkingId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const searchTimerRef = useRef<number | null>(null);
+
+  // Browse fallback while the query is empty (same source as the task
+  // dialog's record picker), filtered down to deals.
+  const loadBrowseResults = useCallback(async () => {
+    setSearchLoading(true);
+    try {
+      const res = await fetch("/api/v1/records/browse?limit=30");
+      if (res.ok) {
+        const data = (await res.json()) as {
+          data?: Array<{
+            recordId: string;
+            displayName: string;
+            subtitle?: string;
+            objectSlug: string;
+          }>;
+        };
+        setResults(
+          (data.data ?? [])
+            .filter((r) => r.objectSlug === "deals")
+            .map((r) => ({
+              id: r.recordId,
+              displayName: r.displayName,
+              subtitle: r.subtitle ?? "",
+            }))
+        );
+      }
+    } catch {
+      // ignore
+    } finally {
+      setSearchLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (searchOpen) void loadBrowseResults();
+  }, [searchOpen, loadBrowseResults]);
+
+  // Clear a pending debounce when the panel unmounts.
+  useEffect(
+    () => () => {
+      if (searchTimerRef.current !== null) window.clearTimeout(searchTimerRef.current);
+    },
+    []
+  );
+
+  function searchDeals(q: string) {
+    setQuery(q);
+    if (searchTimerRef.current !== null) window.clearTimeout(searchTimerRef.current);
+    if (!q.trim()) {
+      void loadBrowseResults();
+      return;
+    }
+    setSearchLoading(true);
+    searchTimerRef.current = window.setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/v1/search?q=${encodeURIComponent(q)}&limit=10`);
+        if (res.ok) {
+          const data = (await res.json()) as {
+            data?: Array<{
+              type: string;
+              id: string;
+              title: string;
+              subtitle?: string;
+              objectSlug?: string;
+            }>;
+          };
+          setResults(
+            (data.data ?? [])
+              .filter((r) => r.type === "record" && r.objectSlug === "deals")
+              .map((r) => ({
+                id: r.id,
+                displayName: r.title,
+                subtitle: r.subtitle ?? "",
+              }))
+          );
+        }
+      } catch {
+        // ignore
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 300);
+  }
+
+  async function patchLinkDeal(dealRecordId: string): Promise<string | null> {
+    const res = await fetch(
+      `/api/v1/inbox/conversations/${conversationId}/link-deal`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dealRecordId }),
+      }
+    );
+    if (res.ok) return null;
+    return (await apiErrorMessage(res)) ?? "Unbekannter Fehler";
+  }
+
+  async function pickDeal(dealRecordId: string) {
+    if (linkingId || creating) return;
+    setLinkingId(dealRecordId);
+    try {
+      const err = await patchLinkDeal(dealRecordId);
+      if (err) {
+        toast.error("Verknüpfen fehlgeschlagen", { description: err });
+        return;
+      }
+      toast.success("Lead verknüpft");
+      onLinked(dealRecordId);
+    } catch {
+      toast.error("Verknüpfen fehlgeschlagen");
+    } finally {
+      setLinkingId(null);
+    }
+  }
+
+  async function createAndLink() {
+    if (creating || linkingId) return;
+    setCreating(true);
+    try {
+      // Deal display name lives in the standard "name" attribute.
+      const createRes = await fetch("/api/v1/objects/deals/records", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          values: { name: customerName?.trim() || "Neuer Lead" },
+        }),
+      });
+      const createBody = (await createRes.json().catch(() => null)) as {
+        data?: { id?: string };
+        error?: { message?: string };
+      } | null;
+      const newId = createBody?.data?.id;
+      if (!createRes.ok || !newId) {
+        toast.error("Lead anlegen fehlgeschlagen", {
+          description: createBody?.error?.message ?? "Unbekannter Fehler",
+        });
+        return;
+      }
+      const err = await patchLinkDeal(newId);
+      if (err) {
+        toast.error("Lead anlegen fehlgeschlagen", { description: err });
+        return;
+      }
+      toast.success("Lead angelegt und verknüpft");
+      onLinked(newId);
+    } catch {
+      toast.error("Lead anlegen fehlgeschlagen");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  return (
+    <>
+      <p className="px-4 pb-1 pt-4 text-sm text-muted-foreground">
+        Kein Lead mit dieser Konversation verknüpft.
+      </p>
+      <Section title="Lead verknüpfen">
+        <ActionRow
+          icon={<Search className="h-4 w-4" />}
+          label="Mit bestehendem Lead verknüpfen"
+          hint="Lead suchen und auswählen"
+          onClick={() => setSearchOpen((v) => !v)}
+        />
+        {searchOpen && (
+          <div className="px-3 pb-3">
+            <input
+              autoFocus
+              value={query}
+              onChange={(e) => searchDeals(e.target.value)}
+              placeholder="Lead suchen…"
+              className="h-8 w-full rounded-md border border-border bg-card px-2 text-sm outline-none focus:border-ring"
+            />
+            <div className="mt-1.5 max-h-56 overflow-y-auto rounded-lg border border-border bg-card">
+              {searchLoading ? (
+                <div className="flex items-center gap-2 px-3 py-2.5 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Sucht…
+                </div>
+              ) : results.length === 0 ? (
+                <p className="px-3 py-2.5 text-xs text-muted-foreground">
+                  Keine Leads gefunden.
+                </p>
+              ) : (
+                <ul className="py-1">
+                  {results.map((r) => (
+                    <li key={r.id}>
+                      <button
+                        onClick={() => void pickDeal(r.id)}
+                        disabled={linkingId !== null || creating}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted disabled:opacity-60"
+                      >
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-xs font-medium">
+                            {r.displayName}
+                          </span>
+                          {r.subtitle && (
+                            <span className="block truncate text-[10px] text-muted-foreground">
+                              {r.subtitle}
+                            </span>
+                          )}
+                        </span>
+                        {linkingId === r.id && (
+                          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
+                        )}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
+        <ActionRow
+          icon={<Plus className="h-4 w-4" />}
+          label="Lead anlegen und verknüpfen"
+          hint={customerName ? `Neuer Lead für ${customerName}` : "Neuen Lead erstellen"}
+          loading={creating}
+          onClick={() => void createAndLink()}
+        />
+      </Section>
+    </>
   );
 }
 

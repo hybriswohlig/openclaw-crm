@@ -8,7 +8,7 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { ExternalLink, Phone, MoreVertical } from "lucide-react";
+import { ExternalLink, Phone, MoreVertical, CheckCheck, Ban, RotateCcw } from "lucide-react";
 import { ChannelAvatar, type LastChannel } from "@/components/inbox/channel-logos";
 import { normalizeAgentStage } from "@/lib/agent-stage";
 
@@ -71,9 +71,13 @@ interface Props {
   data: PersonRowData;
   active: boolean;
   onClick: () => void;
+  /** Which list view the row sits in — switches the triage quick actions. */
+  statusView?: "open" | "resolved";
+  /** Applies the status to ALL conversations of this person (the page holds the ids). */
+  onSetStatus?: (status: "open" | "resolved" | "spam") => void;
 }
 
-export function PersonRow({ data, active, onClick }: Props) {
+export function PersonRow({ data, active, onClick, statusView = "open", onSetStatus }: Props) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -178,6 +182,25 @@ export function PersonRow({ data, active, onClick }: Props) {
                 <MenuItem icon={<Phone className="h-4 w-4" />} onClick={act(() => { window.location.href = `tel:${data.phone}`; })}>
                   Anrufen
                 </MenuItem>
+              )}
+              {onSetStatus && (
+                <>
+                  <div className="my-1 border-t border-border" />
+                  {statusView === "resolved" ? (
+                    <MenuItem icon={<RotateCcw className="h-4 w-4" />} onClick={act(() => onSetStatus("open"))}>
+                      Wieder öffnen
+                    </MenuItem>
+                  ) : (
+                    <>
+                      <MenuItem icon={<CheckCheck className="h-4 w-4" />} onClick={act(() => onSetStatus("resolved"))}>
+                        Erledigt
+                      </MenuItem>
+                      <MenuItem icon={<Ban className="h-4 w-4" />} onClick={act(() => onSetStatus("spam"))}>
+                        Als Spam
+                      </MenuItem>
+                    </>
+                  )}
+                </>
               )}
             </div>
           </>

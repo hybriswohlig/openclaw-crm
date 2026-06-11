@@ -9,7 +9,7 @@ import {
 } from "@/db/schema/inbox";
 import { objects, attributes, statuses } from "@/db/schema/objects";
 import { records, recordValues } from "@/db/schema/records";
-import { eq, and, desc, lt, asc, isNotNull, isNull, inArray, notInArray } from "drizzle-orm";
+import { eq, and, or, desc, lt, asc, isNotNull, isNull, inArray, notInArray, ilike, exists, sql } from "drizzle-orm";
 import { getEmailAccountConfigs } from "@/lib/email-accounts";
 import {
   isKleinanzeigenEmail,
@@ -174,6 +174,13 @@ export async function listConversations(
      * pipeline (owned by the main Inbox) never duplicates into the mail client.
      */
     excludeLanes?: ("lead" | "info" | "spam" | "review")[];
+    /**
+     * Free-text search over contact name, subject, peer identifier and message
+     * bodies. When set, the status/lane filters are IGNORED — the operator is
+     * looking for "the thread where someone mentioned Klavier", regardless of
+     * which lane or status it ended up in.
+     */
+    q?: string;
     limit?: number;
     cursor?: string; // lastMessageAt ISO
   } = {}
@@ -183,6 +190,11 @@ export async function listConversations(
   // the current dataset (≈263 total) with headroom; safe given indexes on
   // workspace_id + last_message_at and the tiny per-row payload.
   const { limit = 500 } = opts;
+
+  // ILIKE pattern for the free-text search; % and _ in user input are escaped
+  // so they match literally (Postgres default escape char is backslash).
+  const q = opts.q?.trim() || undefined;
+  const qPattern = q ? `%${q.replace(/[\\%_]/g, "\\$&")}%` : undefined;
 
   const rows = await db
     .select({
@@ -215,21 +227,41 @@ export async function listConversations(
     .where(
       and(
         eq(inboxConversations.workspaceId, workspaceId),
-        opts.status ? eq(inboxConversations.status, opts.status) : undefined,
+        !qPattern && opts.status ? eq(inboxConversations.status, opts.status) : undefined,
         opts.channelAccountId
           ? eq(inboxConversations.channelAccountId, opts.channelAccountId)
           : undefined,
         opts.operatingCompanyRecordId
           ? eq(channelAccounts.operatingCompanyRecordId, opts.operatingCompanyRecordId)
           : undefined,
-        opts.lane && opts.lane !== "all"
+        !qPattern && opts.lane && opts.lane !== "all"
           ? eq(inboxConversations.lane, opts.lane)
           : undefined,
-        opts.excludeLanes && opts.excludeLanes.length > 0
+        !qPattern && opts.excludeLanes && opts.excludeLanes.length > 0
           ? notInArray(inboxConversations.lane, opts.excludeLanes)
           : undefined,
         opts.channelType
           ? eq(channelAccounts.channelType, opts.channelType)
+          : undefined,
+        qPattern
+          ? or(
+              ilike(inboxContacts.displayName, qPattern),
+              ilike(inboxConversations.subject, qPattern),
+              ilike(inboxContacts.email, qPattern),
+              ilike(inboxContacts.phone, qPattern),
+              ilike(inboxConversations.externalThreadId, qPattern),
+              exists(
+                db
+                  .select({ one: sql`1` })
+                  .from(inboxMessages)
+                  .where(
+                    and(
+                      eq(inboxMessages.conversationId, inboxConversations.id),
+                      ilike(inboxMessages.body, qPattern)
+                    )
+                  )
+              )
+            )
           : undefined,
       )
     )
@@ -459,6 +491,57 @@ export async function updateConversationStatus(
     )
     .returning();
   return row ?? null;
+}
+
+/**
+ * Manually link a conversation to a CRM deal (Inbox-Triage). Verifies the deal
+ * record is live and belongs to this workspace, writes the link on the
+ * conversation and back-fills the duplicated dealRecordId on the conversation's
+ * attachments (see schema comment on inbox_message_attachments) so the lead's
+ * file list stays complete.
+ */
+export async function linkConversationToDeal(
+  conversationId: string,
+  workspaceId: string,
+  dealRecordId: string
+) {
+  const [deal] = await db
+    .select({ id: records.id })
+    .from(records)
+    .innerJoin(objects, eq(records.objectId, objects.id))
+    .where(
+      and(
+        eq(records.id, dealRecordId),
+        eq(objects.workspaceId, workspaceId),
+        isNull(records.deletedAt)
+      )
+    )
+    .limit(1);
+  if (!deal) return { error: "deal_not_found" as const };
+
+  const [row] = await db
+    .update(inboxConversations)
+    .set({ dealRecordId, updatedAt: new Date() })
+    .where(
+      and(
+        eq(inboxConversations.id, conversationId),
+        eq(inboxConversations.workspaceId, workspaceId)
+      )
+    )
+    .returning();
+  if (!row) return { error: "conversation_not_found" as const };
+
+  await db
+    .update(inboxMessageAttachments)
+    .set({ dealRecordId })
+    .where(
+      and(
+        eq(inboxMessageAttachments.conversationId, conversationId),
+        eq(inboxMessageAttachments.workspaceId, workspaceId)
+      )
+    );
+
+  return { conversation: row };
 }
 
 /**
