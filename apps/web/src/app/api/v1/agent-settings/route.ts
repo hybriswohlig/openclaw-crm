@@ -32,6 +32,7 @@ export async function PATCH(req: NextRequest) {
     firstContactTemplate?: unknown;
     firstContactTemplateParams?: unknown;
     firstContactDailyCap?: unknown;
+    firstContactSignature?: unknown;
   };
 
   const patch: {
@@ -48,6 +49,7 @@ export async function PATCH(req: NextRequest) {
     firstContactTemplate?: string;
     firstContactTemplateParams?: string;
     firstContactDailyCap?: number;
+    firstContactSignature?: string;
   } = {};
   if (body.enabled !== undefined) {
     if (typeof body.enabled !== "boolean")
@@ -119,6 +121,11 @@ export async function PATCH(req: NextRequest) {
     if (typeof body.firstContactDailyCap !== "number" || !Number.isFinite(body.firstContactDailyCap))
       return NextResponse.json({ error: "firstContactDailyCap must be a number" }, { status: 400 });
     patch.firstContactDailyCap = body.firstContactDailyCap;
+  }
+  if (body.firstContactSignature !== undefined) {
+    if (typeof body.firstContactSignature !== "string")
+      return NextResponse.json({ error: "firstContactSignature must be string" }, { status: 400 });
+    patch.firstContactSignature = body.firstContactSignature;
   }
 
   return success(await setAgentSettings(ctx.workspaceId, patch));

@@ -50,6 +50,7 @@ import {
   getFirstContactTemplate,
   getFirstContactTemplateParams,
   getFirstContactDailyCap,
+  getFirstContactSignature,
   isSalesAgentDryRun,
   getAgentSignature,
   isDiscloseAiEnabled,
@@ -71,8 +72,9 @@ const STALE_CLAIM_MS = 15 * 60 * 1000;
 
 // Deterministic opt-out, appended to every live free-form first message. An
 // objection is absolute (Art. 21 DSGVO), so the wording must make it trivial.
+// Du-Form to match the opener's register (owner style decision 2026-06-11).
 const OPT_OUT_LINE =
-  "PS: Wenn Sie keine Nachrichten von uns möchten, antworten Sie einfach mit STOP.";
+  "PS: Wenn du keine Nachrichten mehr von uns willst, antworte einfach mit STOP.";
 
 export interface FirstContactRunSummary {
   enabledWorkspaces: number;
@@ -93,20 +95,40 @@ const FirstContactSchema = z.object({
   reason: z.string().default(""),
 });
 
-const FIRST_CONTACT_SYSTEM = `Du bist Mitarbeiter im Vertrieb eines Umzugsunternehmens (kein Chatbot). Ein Interessent hat soeben über ImmobilienScout24 eine Umzugsanfrage gestellt und dabei seine Telefonnummer angegeben. Du schreibst ihm jetzt die ALLERERSTE WhatsApp-Nachricht im Namen der Firma. Bis zu 4 Mitbewerber erhalten dieselbe Anfrage; wer zuerst ein gutes Gespräch eröffnet, gewinnt meistens.
+/**
+ * The opener's voice (owner style decision 2026-06-11): casual Du-Form modeled
+ * on the owner's own real first-contact messages, with the humanizer-de core
+ * rules baked into generation (Modalpartikel ok, no bot phrases, no Trikolon,
+ * varied sentence length, no Nominalstil). The result still passes through the
+ * humanizer-de skill on crm-tools afterwards (humanizeGerman), belt and braces.
+ */
+function buildFirstContactSystem(persona: string | null, companyBrand: string): string {
+  const personaLine = persona
+    ? `Du heißt ${persona} und stellst dich im ersten Halbsatz kurz vor ("ich bin ${persona} von ${companyBrand}").`
+    : `Erfinde KEINEN menschlichen Namen; stell dich nur mit der Firma vor ("hier ist ${companyBrand}").`;
+  const exampleIntro = persona ? `ich bin ${persona} von ${companyBrand}` : `hier ist ${companyBrand}`;
+  return `Du bist Vertriebsmitarbeiter des Umzugsunternehmens ${companyBrand} (ein Mensch am Handy, kein Chatbot). Ein Interessent hat soeben über ImmobilienScout24 eine Umzugsanfrage gestellt und dabei seine Telefonnummer angegeben. Du schreibst ihm jetzt die ALLERERSTE WhatsApp-Nachricht. Bis zu 4 Mitbewerber erhalten dieselbe Anfrage; wer zuerst ein echtes Gespräch eröffnet, gewinnt meistens. ${personaLine}
 
-STIL
-- Deutsch, Sie-Form, warm und professionell, 50 bis 80 Wörter, 3 bis 5 kurze Zeilen.
-- Keine Gedankenstriche, keine Emojis, keine Bot-Floskeln ("Gerne helfen wir Ihnen weiter!"), keine Werbesprache (keine Rabatte, kein "bestes Angebot", keine Superlative).
-- Erfinde KEINEN menschlichen Namen und gib dich nicht als bestimmte Person aus. Signatur und Pflichthinweise werden separat angehängt.
+STIL (der Kunde soll einen Menschen spüren, keinen Bot)
+- Deutsch, DU-Form mit Vorname ("Hey Max,"). Locker, direkt, professionell.
+- 40 bis 70 Wörter, 3 bis 5 kurze Zeilen. Satzlängen variieren, gern Telegrammstil bei den Fakten ("Magstadt nach Besigheim, 1-2 Zimmer, 1. September. Passt.").
+- Umgangssprachliche Kurzformen sind gut ("Hab", "sowas", "wann's", "kriegen wir hin"). Modalpartikel (mal, eben, halt, schon) sind erwünscht, aber sparsam.
+- VERBOTEN: Bot-Floskeln ("Gerne helfen wir dir weiter", "zögere nicht", "Wir freuen uns auf deine Rückmeldung"), Werbesprache und Superlative, Emojis, Gedankenstriche, Dreier-Aufzählungen, "nicht nur ... sondern auch", Nominalstil ("zur Durchführung deines Umzugs" -> "für deinen Umzug").
 
-AUFBAU (genau diese Reihenfolge)
-1. Anrede (mit Nachnamen, falls bekannt, sonst "Guten Tag").
-2. Bezug: Sie haben gerade über ImmobilienScout24 eine Umzugsanfrage gestellt. Nenne 1 bis 2 konkrete Details aus der Anfrage (Strecke, Termin), damit klar ist, dass es um IHRE Anfrage geht.
+AUFBAU (wie das Stil-Beispiel unten)
+1. "Hey {Vorname}," plus wer du bist, ein Halbsatz. Kein Vorname bekannt? Dann nur "Hey," oder "Hallo," und NIE einen Namen raten.
+2. Bezug: du hast die Anfrage auf ImmoScout24 gesehen. Bestätige knapp 1 bis 2 echte Details (Strecke, Termin, Größe), damit klar ist, dass es um SEINE Anfrage geht.
 3. GENAU EINE leicht beantwortbare Frage. Erlaubt ist nur eine dieser zwei Formen:
-   a) Telefonat vorschlagen mit den beiden unten vorgegebenen Zeitfenstern als A/B-Wahl, plus Ausweg ("oder schreiben Sie mir einfach hier, was Ihnen lieber ist").
-   b) Die EINE wichtigste fehlende Angabe als geschlossene, kurze Frage (z.B. "Steht der Termin am 15.07. schon fest, oder sind Sie noch flexibel?").
-   Wenn ein Telefonat sinnvoll ist (es fehlen mehrere Angaben oder alles liegt schon vor), nimm Form a.
+   a) Telefonat oder Chat anbieten ("Willst du kurz telefonieren, oder regelst du sowas lieber per Chat? Beides kein Problem."). Beim Telefonat darfst du die zwei unten vorgegebenen Zeitfenster als Orientierung nennen oder ihn einfach die Zeit nennen lassen.
+   b) Die EINE wichtigste fehlende Angabe als kurze geschlossene Frage (z.B. "Steht der Termin am 15.07. schon fest, oder bist du noch flexibel?").
+   Im Zweifel Form a.
+4. Kurzer Abschluss ("Grüße"). KEINE Signatur darunter, die wird separat angehängt.
+
+STIL-BEISPIEL (so soll es klingen; Inhalt an den echten Lead anpassen, nicht wörtlich kopieren):
+"Hey Gerrit, ${exampleIntro}.
+Hab deine Anfrage auf ImmoScout24 gesehen. Magstadt nach Besigheim, 1-2 Zimmer, 1. September. Passt.
+Willst du kurz telefonieren, oder regelst du sowas lieber per Chat? Beides kein Problem. Falls Anruf, sag mir einfach wann's bei dir passt.
+Grüße"
 
 HARTE REGELN
 - NENNE NIEMALS EINEN PREIS, keine Preisspanne, keine Stundensätze. Kein Angebot, keine Rabatte.
@@ -115,6 +137,13 @@ HARTE REGELN
 - Schlage NIE ein Datum in der Vergangenheit vor.
 
 AUSGABE: NUR ein JSON-Objekt { message_de, reason }. message_de ist die fertige Nachricht ohne Signatur.`;
+}
+
+/** "Dario von Kottke-Umzügen (…)" -> "Dario"; no leading name pattern -> null. */
+function personaFromSignature(signature: string): string | null {
+  const m = signature.trim().match(/^([A-ZÄÖÜ][a-zäöüß]+)\s+von\s+/);
+  return m ? m[1] : null;
+}
 
 // ── Berlin-time helpers ──────────────────────────────────────────────────────
 
@@ -661,15 +690,18 @@ async function runForWorkspace(
         month: "long",
         day: "numeric",
       });
+      const fcSignature = await getFirstContactSignature(workspaceId);
+      const persona = personaFromSignature(fcSignature);
       const anrede = p.client?.salutation ?? "";
       const prompt = [
         `# Lead-Daten aus der ImmoScout24-Anfrage`,
         `Name: ${anrede ? anrede + " " : ""}${fullName}`,
+        `Vorname für die Anrede: ${p.client?.firstName?.trim() || "(unbekannt, neutral grüßen)"}`,
         ...facts.map((f) => `- ${f}`),
         missing.length
           ? `\n# Noch fehlende Angaben für ein Festpreisangebot\n${missing.map((m) => `- ${m}`).join("\n")}`
           : `\n# Es liegen bereits alle wichtigen Angaben vor.`,
-        `\n# Vorgegebene Telefon-Zeitfenster (nur diese verwenden)`,
+        `\n# Mögliche Telefon-Zeitfenster (als Orientierung)`,
         `- Option A: ${slotA}`,
         `- Option B: ${slotB}`,
         `\nSchreibe jetzt die Erstnachricht und liefere das JSON.`,
@@ -678,7 +710,7 @@ async function runForWorkspace(
       const result = await runAITask({
         workspaceId,
         taskSlug: AI_TASK_SLUGS.LEAD_FIRST_CONTACT,
-        system: `Heute ist ${todayStr}. Du schreibst im Namen von ${brand}.\n\n${FIRST_CONTACT_SYSTEM}`,
+        system: `Heute ist ${todayStr}.\n\n${buildFirstContactSystem(persona, brand)}`,
         prompt,
         schema: FirstContactSchema,
       });
@@ -710,7 +742,7 @@ async function runForWorkspace(
         getAgentDisclosure(workspaceId),
       ]);
       const humanized = await humanizeGerman(sanitized);
-      let outgoing = withDisclosure(appendSignature(humanized, brand), disclosure, discloseAi);
+      let outgoing = withDisclosure(appendSignature(humanized, fcSignature), disclosure, discloseAi);
       outgoing = `${outgoing}\n\n${OPT_OUT_LINE}`;
 
       if (dryRun) {

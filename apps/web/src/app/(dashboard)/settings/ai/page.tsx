@@ -67,6 +67,7 @@ export default function AISettingsPage() {
     firstContactTemplate: string;
     firstContactTemplateParams: string;
     firstContactDailyCap: number;
+    firstContactSignature: string;
   } | null>(null);
   const [signature, setSignature] = useState("");
   const [disclosure, setDisclosure] = useState("");
@@ -77,6 +78,7 @@ export default function AISettingsPage() {
   >([]);
   const [fcTemplate, setFcTemplate] = useState("");
   const [fcTemplateParams, setFcTemplateParams] = useState("");
+  const [fcSignature, setFcSignature] = useState("");
 
   const patchAgent = useCallback(
     async (patch: {
@@ -92,6 +94,7 @@ export default function AISettingsPage() {
       firstContactTemplate?: string;
       firstContactTemplateParams?: string;
       firstContactDailyCap?: number;
+      firstContactSignature?: string;
     }) => {
       setSavingAgent(true);
       setAgent((a) => (a ? { ...a, ...patch } : a));
@@ -109,6 +112,7 @@ export default function AISettingsPage() {
           setHandoffAck(data.data.handoffAck ?? "");
           setFcTemplate(data.data.firstContactTemplate ?? "");
           setFcTemplateParams(data.data.firstContactTemplateParams ?? "");
+          setFcSignature(data.data.firstContactSignature ?? "");
         }
       } finally {
         setSavingAgent(false);
@@ -147,6 +151,7 @@ export default function AISettingsPage() {
           setSignature(data.data.signature ?? "");
           setFcTemplate(data.data.firstContactTemplate ?? "");
           setFcTemplateParams(data.data.firstContactTemplateParams ?? "");
+          setFcSignature(data.data.firstContactSignature ?? "");
         }
       })
       .catch(() => {});
@@ -441,6 +446,32 @@ export default function AISettingsPage() {
                     </div>
                   );
                 })()}
+
+                <div className="space-y-1">
+                  <Label className="text-xs">Absender-Signatur der Erstnachricht</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={fcSignature}
+                      onChange={(e) => setFcSignature(e.target.value)}
+                      placeholder="Dario von Kottke-Umzügen (Partner der Immobilien Scout GmbH)"
+                      className="h-8 text-xs"
+                    />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={savingAgent || fcSignature === agent.firstContactSignature}
+                      onClick={() => patchAgent({ firstContactSignature: fcSignature })}
+                      className="h-8 text-xs shrink-0"
+                    >
+                      Speichern
+                    </Button>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">
+                    Beginnt sie mit {'"Vorname von ..."'}, stellt sich der Assistent in der Nachricht
+                    mit diesem Vornamen vor (z.B. {'"ich bin Dario von Kottke Umzügen"'}). Gilt für den
+                    freien Baileys-Text, nicht für WABA-Templates.
+                  </p>
+                </div>
 
                 <div className="space-y-1">
                   <Label className="text-xs">Tageslimit (Nachrichten pro 24h)</Label>

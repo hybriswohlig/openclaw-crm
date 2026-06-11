@@ -38,10 +38,18 @@ const KEY_FIRST_CONTACT_ACCOUNT = "sales_first_contact_channel_account_id";
 const KEY_FIRST_CONTACT_TEMPLATE = "sales_first_contact_template";
 const KEY_FIRST_CONTACT_TEMPLATE_PARAMS = "sales_first_contact_template_params";
 const KEY_FIRST_CONTACT_DAILY_CAP = "sales_first_contact_daily_cap";
+const KEY_FIRST_CONTACT_SIGNATURE = "sales_first_contact_signature";
 
 export const DEFAULT_FIRST_CONTACT_DAILY_CAP = 30;
 /** Default WABA template body params (token-substituted at send time). */
 export const DEFAULT_FIRST_CONTACT_TEMPLATE_PARAMS = "{name}";
+/**
+ * Sender line under the first-contact opener (owner's wording, 2026-06-11).
+ * A leading "<Vorname> von ..." pattern doubles as the agent's persona: the
+ * opener then introduces itself with that first name ("ich bin Dario von ...").
+ */
+export const DEFAULT_FIRST_CONTACT_SIGNATURE =
+  "Dario von Kottke-Umzügen (Partner der Immobilien Scout GmbH)";
 
 /** Channel types the agent is allowed to act on, by default. KA rides on email. */
 export const DEFAULT_AGENT_CHANNELS = ["whatsapp", "email"] as const;
@@ -86,6 +94,7 @@ export interface AgentSettings {
   firstContactTemplate: string;
   firstContactTemplateParams: string;
   firstContactDailyCap: number;
+  firstContactSignature: string;
 }
 
 export async function isSalesAgentEnabled(workspaceId: string): Promise<boolean> {
@@ -181,6 +190,12 @@ export async function getFirstContactDailyCap(workspaceId: string): Promise<numb
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_FIRST_CONTACT_DAILY_CAP;
 }
 
+/** Sender line under the opener; empty/unset falls back to the default. */
+export async function getFirstContactSignature(workspaceId: string): Promise<string> {
+  const raw = await getSetting(workspaceId, KEY_FIRST_CONTACT_SIGNATURE);
+  return raw && raw.trim() ? raw.trim() : DEFAULT_FIRST_CONTACT_SIGNATURE;
+}
+
 export async function getAgentSettings(workspaceId: string): Promise<AgentSettings> {
   const [enabled, dryRun, channels, signature, followupEnabled, discloseAi, disclosure, handoffAck] =
     await Promise.all([
@@ -199,12 +214,14 @@ export async function getAgentSettings(workspaceId: string): Promise<AgentSettin
     firstContactTemplate,
     firstContactTemplateParams,
     firstContactDailyCap,
+    firstContactSignature,
   ] = await Promise.all([
     isFirstContactEnabled(workspaceId),
     getFirstContactChannelAccountId(workspaceId),
     getFirstContactTemplate(workspaceId),
     getFirstContactTemplateParams(workspaceId),
     getFirstContactDailyCap(workspaceId),
+    getFirstContactSignature(workspaceId),
   ]);
   return {
     enabled,
@@ -220,6 +237,7 @@ export async function getAgentSettings(workspaceId: string): Promise<AgentSettin
     firstContactTemplate,
     firstContactTemplateParams,
     firstContactDailyCap,
+    firstContactSignature,
   };
 }
 
@@ -239,6 +257,7 @@ export async function setAgentSettings(
     firstContactTemplate?: string;
     firstContactTemplateParams?: string;
     firstContactDailyCap?: number;
+    firstContactSignature?: string;
   }
 ): Promise<AgentSettings> {
   if (patch.firstContactEnabled !== undefined) {
@@ -270,6 +289,9 @@ export async function setAgentSettings(
   if (patch.firstContactDailyCap !== undefined) {
     const n = Math.max(1, Math.floor(patch.firstContactDailyCap));
     await setSetting(workspaceId, KEY_FIRST_CONTACT_DAILY_CAP, String(n));
+  }
+  if (patch.firstContactSignature !== undefined) {
+    await setSetting(workspaceId, KEY_FIRST_CONTACT_SIGNATURE, patch.firstContactSignature.trim());
   }
   if (patch.followupEnabled !== undefined) {
     await setSetting(workspaceId, KEY_FOLLOWUP, patch.followupEnabled ? "true" : "false");
