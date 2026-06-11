@@ -102,9 +102,9 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
   },
   [AI_TASK_SLUGS.LEAD_FOLLOWUP]: {
     slug: AI_TASK_SLUGS.LEAD_FOLLOWUP,
-    label: "Sales agent follow-up (P3)",
+    label: "Sales agent follow-up",
     description:
-      "Re-engages a stale lead whose move date is still in the future. Phase 3, not wired yet.",
+      "Re-engages a stale lead whose move date is still in the future: one gentle nudge after a few days of silence. Never names a price.",
     defaultProvider: "crm-tools",
     defaultModel: "anthropic/claude-sonnet-4",
     defaultFallbackModel: null,

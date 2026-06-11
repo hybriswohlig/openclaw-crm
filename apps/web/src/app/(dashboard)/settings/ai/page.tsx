@@ -316,6 +316,37 @@ export default function AISettingsPage() {
             </button>
           </div>
 
+          {/* STOP opt-out line — applies to ALL proactive messages (opener +
+              nudges), so it lives at card level, visible even when the master
+              reply agent is off. Default OFF = human test tone. */}
+          <div className="flex items-center justify-between gap-4 border-t pt-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium">STOP-Hinweis in proaktiven Nachrichten</p>
+              <p className="text-xs text-muted-foreground">
+                Hängt an Erstansprache und Nachfass-Nachrichten eine Zeile {'"...antworte mit STOP"'}.
+                Für ein menschliches Testsystem aus lassen. Vor echten Kunden einschalten
+                (rechtlich sauberer, §7 UWG / Art. 21 DSGVO). Ein eingehendes STOP wird in jedem
+                Fall respektiert, auch wenn dieser Hinweis aus ist.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={agent.optOutLine}
+              disabled={savingAgent}
+              onClick={() => patchAgent({ optOutLine: !agent.optOutLine })}
+              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                agent.optOutLine ? "bg-primary" : "bg-muted"
+              }`}
+            >
+              <span
+                className={`pointer-events-none block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+                  agent.optOutLine ? "translate-x-4" : "translate-x-0"
+                }`}
+              />
+            </button>
+          </div>
+
           {/* First-contact engine: proactive WhatsApp outreach to fresh ImmoScout leads */}
           <div className="space-y-3 border-t pt-3">
             <div className="flex items-center justify-between gap-4">
@@ -613,34 +644,6 @@ export default function AISettingsPage() {
                     </div>
                   </div>
                 )}
-              </div>
-
-              <div className="flex items-center justify-between gap-4">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium">STOP-Hinweis in proaktiven Nachrichten</p>
-                  <p className="text-xs text-muted-foreground">
-                    Hängt an Erstansprache und Nachfass-Nachrichten eine Zeile {'"...antworte mit STOP"'}.
-                    Für ein menschliches Testsystem aus lassen. Vor echten Kunden einschalten
-                    (rechtlich sauberer, §7 UWG / Art. 21 DSGVO). Ein eingehendes STOP wird in jedem
-                    Fall respektiert, auch wenn der Hinweis aus ist.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={agent.optOutLine}
-                  disabled={savingAgent}
-                  onClick={() => patchAgent({ optOutLine: !agent.optOutLine })}
-                  className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
-                    agent.optOutLine ? "bg-primary" : "bg-muted"
-                  }`}
-                >
-                  <span
-                    className={`pointer-events-none block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
-                      agent.optOutLine ? "translate-x-4" : "translate-x-0"
-                    }`}
-                  />
-                </button>
               </div>
 
               <div className="space-y-1">
