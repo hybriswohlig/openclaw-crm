@@ -1703,37 +1703,96 @@ export default function InboxPage() {
     };
   }, [fetchConversations]);
 
-  // Handle deep links from the leads table:
-  //   ?conv=<id>               → auto-select that conversation
+  // Handle deep links from the leads table / home page:
+  //   ?conv=<id>[&merged=1]    → auto-select that conversation; merged=1 öffnet
+  //                              die Gesamtansicht der Person wieder
   //   ?compose=1&phone=…&name=…&channelAccountId=…&dealRecordId=…
   //                            → auto-open composer pre-filled, so the
   //                              resulting conversation is linked to the lead
   useEffect(() => {
-    const convParam = searchParams.get("conv");
     const composeParam = searchParams.get("compose");
-    if (!convParam && !composeParam) return;
+    if (composeParam !== "1") return;
+    setComposePrefill({
+      channelAccountId: searchParams.get("channelAccountId") ?? undefined,
+      toPhone: searchParams.get("phone") ?? undefined,
+      customerName: searchParams.get("name") ?? undefined,
+      dealRecordId: searchParams.get("dealRecordId") ?? null,
+    });
+    setComposeOpen(true);
+    // Clean the URL so a reload doesn't re-open the dialog.
+    router.replace("/inbox");
+  }, [searchParams, router]);
 
-    if (composeParam === "1") {
-      setComposePrefill({
-        channelAccountId: searchParams.get("channelAccountId") ?? undefined,
-        toPhone: searchParams.get("phone") ?? undefined,
-        customerName: searchParams.get("name") ?? undefined,
-        dealRecordId: searchParams.get("dealRecordId") ?? null,
-      });
-      setComposeOpen(true);
-      // Clean the URL so a reload doesn't re-open the dialog.
-      router.replace("/inbox");
+  // ── Restore (Paket 4): läuft genau einmal, nachdem die Liste erstmals
+  // geladen ist — nicht bei jedem Poll. Danach gibt restoreDoneRef die
+  // URL-Synchronisation unten frei. Status-/Lane-Filter werden nicht
+  // angefasst: ist die Konversation nicht in der geladenen Ansicht, wird sie
+  // einzeln nachgeladen und als Einzelansicht geöffnet.
+  const restoreDoneRef = useRef(false);
+  useEffect(() => {
+    if (restoreDoneRef.current || loading) return;
+    if (searchParams.get("compose") === "1") return; // Composer-Deep-Link hat Vorrang
+    const convParam = searchParams.get("conv");
+    restoreDoneRef.current = true;
+    if (!convParam) return;
+
+    const match = conversations.find((c) => c.id === convParam);
+    if (match) {
+      // Wie ein Klick auf die Personenzeile: gleiche Lese- und Merge-Logik.
+      const personKey = match.crmRecordId ?? `contact:${match.contactId}`;
+      const threads = conversations.filter(
+        (c) => (c.crmRecordId ?? `contact:${c.contactId}`) === personKey
+      );
+      if (searchParams.get("merged") === "1" && threads.length > 1) {
+        setMerged(true);
+        const oc = match.operatingCompanyRecordId ?? "__none__";
+        setMergedOc(oc);
+        markReadLocally(
+          threads
+            .filter((c) => (c.operatingCompanyRecordId ?? "__none__") === oc)
+            .map((c) => c.id)
+        );
+      } else {
+        setMerged(false);
+        markReadLocally([match.id]);
+      }
+      setSelected({ ...match, unreadCount: 0 });
       return;
     }
 
-    if (convParam && conversations.length > 0) {
-      const match = conversations.find((c) => c.id === convParam);
-      if (match) {
-        setSelected(match);
-        router.replace("/inbox");
+    // Nicht in der geladenen Liste (andere Lane / anderer Status):
+    // direkt über die Einzel-Route laden.
+    void (async () => {
+      try {
+        const res = await fetch(`/api/v1/inbox/conversations/${convParam}`);
+        const data = res.ok ? await res.json() : null;
+        const conv: Conversation | null = data?.data ?? null;
+        if (!conv) throw new Error("not_found");
+        setMerged(false);
+        setSelected({ ...conv, unreadCount: 0 });
+      } catch {
+        toast.error("Konversation nicht gefunden");
+        router.replace("/inbox", { scroll: false });
       }
-    }
-  }, [searchParams, conversations, router]);
+    })();
+  }, [loading, searchParams, conversations, router]);
+
+  // ── URL-Sync (Paket 4): die ausgewählte Konversation als ?conv=<id> in der
+  // URL spiegeln, damit Fälle teilbar sind und ein Reload an derselben Stelle
+  // landet. replace statt push: kein History-Eintrag pro Auswahl. merged=1
+  // steht für die Gesamtansicht der Person.
+  const lastSyncedUrlRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!restoreDoneRef.current) return; // erst nach dem einmaligen Restore
+    const url = selected
+      ? `/inbox?conv=${selected.id}${merged ? "&merged=1" : ""}`
+      : "/inbox";
+    // Poll-Reconcile tauscht das selected-Objekt aus, ohne dass sich die URL
+    // ändert — identische Replaces überspringen.
+    if (lastSyncedUrlRef.current === url) return;
+    lastSyncedUrlRef.current = url;
+    router.replace(url, { scroll: false });
+  }, [selected, merged, router]);
 
   async function handleSync() {
     setSyncing(true);

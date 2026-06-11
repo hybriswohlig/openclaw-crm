@@ -468,7 +468,7 @@ function PipelineTab() {
                   <tr key={d.dealId} style={{ borderTop: "1px solid var(--line)" }}>
                     <td className="py-1.5">
                       <a
-                        href={`/records/${d.dealId}`}
+                        href={`/objects/deals/${d.dealId}`}
                         className="hover:underline"
                       >
                         {d.name}

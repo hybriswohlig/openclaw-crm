@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { CreateListModal } from "@/components/lists/create-list-modal";
 import { SidebarCrew } from "@/components/layout/sidebar-crew";
+import { useInboxUnread } from "@/hooks/use-inbox-unread";
 import { signOut, useSession } from "@/lib/auth-client";
 import { useRouter } from "next/navigation";
 import {
@@ -57,6 +58,18 @@ const moreNav = [
   { href: "/integrations", label: "Integrationen", icon: Plug },
 ];
 
+const titleNav: { href: string; label: string }[] = [
+  ...mainNav,
+  ...objectNav,
+  ...moreNav,
+  { href: "/employees", label: "Mitarbeiter" },
+  { href: "/operations", label: "Aufträge" },
+  { href: "/financial", label: "Finanzen" },
+  { href: "/inbox", label: "Inbox" },
+  { href: "/email", label: "E-Mail" },
+  { href: "/settings", label: "Einstellungen" },
+];
+
 interface ListItem {
   id: string;
   name: string;
@@ -74,7 +87,35 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const [accountLogo, setAccountLogo] = useState<string | null>(null);
   const [workspaceRole, setWorkspaceRole] = useState<string | null>(null);
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
+  const [notifUnread, setNotifUnread] = useState(0);
+  const inboxUnread = useInboxUnread();
   const { theme, setTheme } = useTheme();
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const res = await fetch("/api/v1/notifications?limit=1");
+        if (!res.ok) return;
+        const data = await res.json();
+        setNotifUnread(Number(data?.data?.unreadCount ?? 0));
+      } catch {
+        // ignore
+      }
+    }
+    load();
+    const id = setInterval(load, 60000);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    const match = titleNav
+      .filter(
+        (item) => pathname === item.href || pathname.startsWith(`${item.href}/`)
+      )
+      .sort((a, b) => b.href.length - a.href.length)[0];
+    const base = match ? `${match.label} | Umzug-Suite` : "Umzug-Suite";
+    document.title = inboxUnread > 0 ? `(${inboxUnread}) ${base}` : base;
+  }, [pathname, inboxUnread]);
 
   useEffect(() => {
     fetch("/api/admin/db/me")
@@ -213,6 +254,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             {...item}
             active={pathname === item.href}
             onClick={onNavigate}
+            badge={item.href === "/notifications" ? notifUnread : undefined}
           />
         ))}
 
@@ -306,6 +348,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           icon={Inbox}
           active={pathname.startsWith("/inbox")}
           onClick={onNavigate}
+          badge={inboxUnread}
         />
 
         <NavItem

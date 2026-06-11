@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { useObjectRecords } from "@/hooks/use-object-records";
 import { RecordTable } from "@/components/records/record-table";
@@ -37,6 +37,7 @@ import {
 export default function ObjectPage() {
   const params = useParams<{ slug: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const slug = params.slug;
 
   const {
@@ -68,6 +69,15 @@ export default function ObjectPage() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+
+  // Deep-Link aus der Befehlspalette: ?create=1 öffnet das Erstellen-Modal.
+  // Danach URL bereinigen, damit ein Reload das Modal nicht erneut öffnet.
+  useEffect(() => {
+    if (searchParams.get("create") === "1") {
+      setCreateOpen(true);
+      router.replace(`/objects/${slug}`);
+    }
+  }, [searchParams, router, slug]);
 
   const handleExport = async () => {
     if (!object || exporting) return;

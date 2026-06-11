@@ -54,10 +54,10 @@ export function MobileTabBar() {
   useEffect(() => {
     async function load() {
       try {
-        const res = await fetch("/api/v1/inbox/conversations?status=open&limit=1");
+        const res = await fetch("/api/v1/inbox/unread-count");
         if (!res.ok) return;
         const data = await res.json();
-        setUnread(Number(data?.unreadCount ?? data?.data?.unreadCount ?? 0));
+        setUnread(Number(data?.data?.unreadCount ?? 0));
       } catch {
         // ignore
       }

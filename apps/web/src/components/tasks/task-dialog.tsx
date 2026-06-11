@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import Link from "next/link";
 import {
   Dialog,
   DialogContent,
@@ -739,9 +740,20 @@ export function TaskDialog({
                             >
                               <Building2 className="h-2 w-2 text-white" />
                             </div>
-                            <span className="truncate max-w-[120px]">
-                              {r.displayName}
-                            </span>
+                            {r.objectSlug ? (
+                              <Link
+                                href={`/objects/${r.objectSlug}/${r.id}`}
+                                onClick={(e) => e.stopPropagation()}
+                                title={`${r.displayName} öffnen`}
+                                className="truncate max-w-[120px] hover:underline hover:text-primary"
+                              >
+                                {r.displayName}
+                              </Link>
+                            ) : (
+                              <span className="truncate max-w-[120px]">
+                                {r.displayName}
+                              </span>
+                            )}
                             <button
                               onClick={() => removeRecord(r.id)}
                               className="shrink-0 text-muted-foreground hover:text-destructive"
@@ -823,6 +835,15 @@ export function TaskDialog({
                 </div>
               )}
             </div>
+            {linkedRecords.length === 1 && linkedRecords[0].objectSlug && (
+              <Link
+                href={`/objects/${linkedRecords[0].objectSlug}/${linkedRecords[0].id}`}
+                title={`${linkedRecords[0].displayName} öffnen`}
+                className="text-xs text-primary hover:underline truncate max-w-[160px]"
+              >
+                {linkedRecords[0].displayName}
+              </Link>
+            )}
           </div>
 
           {/* ── Fibonacci size picker ─────────────────────────────────

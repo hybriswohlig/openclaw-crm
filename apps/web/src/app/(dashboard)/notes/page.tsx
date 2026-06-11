@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
   Plus,
@@ -89,6 +90,8 @@ function getRelativeDate(dateStr: string): string {
 // ─── Main Component ─────────────────────────────────────────────────
 
 export default function NotesPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [notes, setNotes] = useState<Note[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -125,6 +128,16 @@ export default function NotesPage() {
   useEffect(() => {
     fetchNotes();
   }, [fetchNotes]);
+
+  // Deep-Link aus der Befehlspalette: ?create=1 startet den Neue-Notiz-Flow
+  // (Datensatz wählen, dann Editor). Danach URL bereinigen, damit ein Reload
+  // den Dialog nicht erneut öffnet.
+  useEffect(() => {
+    if (searchParams.get("create") === "1") {
+      setChooseRecordOpen(true);
+      router.replace("/notes");
+    }
+  }, [searchParams, router]);
 
   function handleNewNote() {
     setChooseRecordOpen(true);

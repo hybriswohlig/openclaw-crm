@@ -6,6 +6,8 @@ import { useSession } from "@/lib/auth-client";
 import { EmployeeAvatar } from "@/components/employees/employee-avatar";
 import {
   ArrowRight,
+  CalendarClock,
+  Hourglass,
   Inbox as InboxIcon,
   MapPin,
   MessageCircle,
@@ -29,6 +31,8 @@ interface OpsDeal {
   workerCount: number | null;
   timeStart: string | null;
   timeEnd: string | null;
+  customerPhone: string | null;
+  conversationId: string | null;
   assignedEmployees: Array<{
     assignmentId: string;
     employeeId: string;
@@ -302,6 +306,9 @@ export default function HomePage() {
           </div>
         </div>
 
+        {/* ── Heute wichtig ───────────────────────────────────────── */}
+        <HeuteWichtig />
+
         {/* ── Focus-Job card ──────────────────────────────────────── */}
         {focusJob && <FocusJobCard deal={focusJob} today={today} />}
 
@@ -315,6 +322,160 @@ export default function HomePage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// ─── Heute wichtig ───────────────────────────────────────────────────────
+
+function HeuteWichtig() {
+  const [unanswered, setUnanswered] = useState<number | null>(null);
+  const [dueToday, setDueToday] = useState<number | null>(null);
+  const [stale, setStale] = useState<number | null>(null);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadUnanswered = async () => {
+      const res = await fetch("/api/v1/inbox/conversations");
+      if (!res.ok) return null;
+      const json = await res.json();
+      const rows = (json.data ?? []) as Array<{ aiNeedsReply?: boolean }>;
+      return rows.filter((r) => r.aiNeedsReply === true).length;
+    };
+
+    const loadDueTasks = async () => {
+      const res = await fetch("/api/v1/tasks?limit=200");
+      if (!res.ok) return null;
+      const json = await res.json();
+      const tasks = (json.data?.tasks ?? []) as Array<{
+        deadline: string | null;
+        isCompleted: boolean;
+      }>;
+      const endOfToday = new Date();
+      endOfToday.setHours(23, 59, 59, 999);
+      // Heute fällig inkl. überfällig: deadline bis Tagesende (lokal).
+      return tasks.filter(
+        (t) => !t.isCompleted && t.deadline && new Date(t.deadline) <= endOfToday
+      ).length;
+    };
+
+    const loadStale = async () => {
+      const res = await fetch("/api/v1/statistics/pipeline");
+      if (!res.ok) return null;
+      const json = await res.json();
+      const staleDeals = (json.data?.staleDeals ?? null) as unknown[] | null;
+      return staleDeals ? staleDeals.length : null;
+    };
+
+    Promise.allSettled([loadUnanswered(), loadDueTasks(), loadStale()]).then(
+      ([a, b, c]) => {
+        if (cancelled) return;
+        if (a.status === "fulfilled") setUnanswered(a.value);
+        if (b.status === "fulfilled") setDueToday(b.value);
+        if (c.status === "fulfilled") setStale(c.value);
+        setLoaded(true);
+      }
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Nothing while loading; section disappears entirely when no fetch succeeded.
+  if (!loaded) return null;
+  if (unanswered === null && dueToday === null && stale === null) return null;
+
+  return (
+    <div>
+      <div
+        className="k-label mb-2"
+        style={{ fontSize: 11, color: "var(--ink-muted)" }}
+      >
+        Heute wichtig
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {unanswered !== null && (
+          <WichtigTile
+            href="/inbox"
+            icon={<MessageCircle className="h-[15px] w-[15px]" />}
+            count={unanswered}
+            label="Unbeantwortet"
+            sub="Konversationen"
+          />
+        )}
+        {dueToday !== null && (
+          <WichtigTile
+            href="/tasks"
+            icon={<CalendarClock className="h-[15px] w-[15px]" />}
+            count={dueToday}
+            label="Heute fällig"
+            sub="Aufgaben"
+          />
+        )}
+        {stale !== null && (
+          <WichtigTile
+            href="/statistics"
+            icon={<Hourglass className="h-[15px] w-[15px]" />}
+            count={stale}
+            label="Liegen geblieben"
+            sub="Leads"
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function WichtigTile({
+  href,
+  icon,
+  count,
+  label,
+  sub,
+}: {
+  href: string;
+  icon: React.ReactNode;
+  count: number;
+  label: string;
+  sub: string;
+}) {
+  const active = count > 0;
+  return (
+    <Link href={href} className="k-card flex items-center gap-3 p-4">
+      <span
+        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
+        style={{
+          background: active
+            ? "color-mix(in oklch, var(--kottke-accent) 12%, transparent)"
+            : "var(--paper)",
+          color: active ? "var(--kottke-accent)" : "var(--ink-muted)",
+        }}
+      >
+        {icon}
+      </span>
+      <div className="min-w-0">
+        <div
+          className="k-display"
+          style={{
+            fontSize: 22,
+            lineHeight: 1.1,
+            letterSpacing: "-0.02em",
+            color: active ? "var(--ink)" : "var(--ink-muted)",
+          }}
+        >
+          {count}
+        </div>
+        <div className="k-label" style={{ fontSize: 10, color: "var(--ink-muted)" }}>
+          {label} · {sub}
+        </div>
+      </div>
+      <ArrowRight
+        className="ml-auto h-[15px] w-[15px] shrink-0"
+        style={{ color: "var(--ink-muted)" }}
+      />
+    </Link>
   );
 }
 
@@ -495,14 +656,22 @@ function FocusJobCard({ deal, today }: { deal: OpsDeal; today: string }) {
           />
 
           <div className="mt-auto flex gap-1.5">
-            <button className="k-btn sm flex-1">
-              <Phone className="h-[13px] w-[13px]" />
-              Kunde
-            </button>
-            <button className="k-btn sm flex-1">
-              <MessageCircle className="h-[13px] w-[13px]" />
-              Nachricht
-            </button>
+            {deal.customerPhone && (
+              <a href={`tel:${deal.customerPhone}`} className="flex-1">
+                <button className="k-btn sm w-full">
+                  <Phone className="h-[13px] w-[13px]" />
+                  Kunde
+                </button>
+              </a>
+            )}
+            {deal.conversationId && (
+              <Link href={`/inbox?conv=${deal.conversationId}`} className="flex-1">
+                <button className="k-btn sm w-full">
+                  <MessageCircle className="h-[13px] w-[13px]" />
+                  Nachricht
+                </button>
+              </Link>
+            )}
             <Link href={`/objects/deals/${deal.dealId}`} className="flex-1">
               <button
                 className="k-btn sm accent w-full"

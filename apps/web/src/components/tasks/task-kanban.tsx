@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   DndContext,
   DragOverlay,
@@ -922,23 +923,31 @@ function TaskCard({
       {(linkedDeal || task.linkedRecords.length > 0) && (
         <div className="flex flex-wrap gap-1.5" style={{ marginTop: 10 }}>
           {linkedDeal && (
-            <span
-              className="k-chip"
+            <Link
+              href={`/objects/${linkedDeal.objectSlug}/${linkedDeal.id}`}
+              className="k-chip hover:underline"
               style={{ padding: "1px 7px", fontSize: 10, fontFamily: "var(--f-mono)" }}
+              title={linkedDeal.displayName}
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
             >
               <Truck size={9} />
-              {linkedDeal.displayName.slice(0, 14)}
-            </span>
+              {linkedDeal.displayName.slice(0, 20)}
+            </Link>
           )}
           {!linkedDeal &&
             task.linkedRecords.slice(0, 2).map((r) => (
-              <span
+              <Link
                 key={r.id}
-                className="k-chip"
+                href={`/objects/${r.objectSlug}/${r.id}`}
+                className="k-chip hover:underline"
                 style={{ padding: "1px 7px", fontSize: 10 }}
+                title={r.displayName}
+                onClick={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
               >
-                {r.displayName.slice(0, 16)}
-              </span>
+                {r.displayName.slice(0, 20)}
+              </Link>
             ))}
         </div>
       )}

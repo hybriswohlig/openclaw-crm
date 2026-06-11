@@ -6,6 +6,7 @@ import { MobileTopBar } from "@/components/layout/mobile-top-bar";
 import { MobileTabBar } from "@/components/layout/mobile-tab-bar";
 import { CommandPalette } from "@/components/layout/command-palette";
 import { ApprovalGate } from "@/components/layout/approval-gate";
+import { WhatsappStatusBanner } from "@/components/layout/whatsapp-status-banner";
 import { PushPromptBanner } from "@/components/pwa/push-prompt-banner";
 import { BackgroundJobsProvider } from "@/components/background-jobs";
 
@@ -40,6 +41,7 @@ export default function DashboardLayout({
           {/* Main content */}
           <div className="flex flex-1 flex-col overflow-hidden">
             <MobileTopBar onMenuClick={() => setMobileNavOpen(true)} />
+            <WhatsappStatusBanner />
             <PushPromptBanner />
             <main className="flex-1 overflow-auto pb-[calc(env(safe-area-inset-bottom)+76px)] md:pb-0">
               {children}

@@ -8,11 +8,12 @@
  */
 
 import { db } from "@/db";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { objects, attributes, statuses, selectOptions } from "@/db/schema/objects";
 import { records, recordValues } from "@/db/schema/records";
 import { employees, dealEmployees } from "@/db/schema/employees";
 import { dealNumbers } from "@/db/schema/financial";
+import { inboxConversations, inboxContacts } from "@/db/schema/inbox";
 
 // Title comparison is case-insensitive. Includes both the old English names
 // (for any environment that hasn't run the pipeline rename) and the new
@@ -40,6 +41,10 @@ export interface OperationsDealRow {
   workerCount: number | null;
   timeStart: string | null;
   timeEnd: string | null;
+  // Linked inbox conversation (latest by lastMessageAt) + the contact's phone.
+  // Used by the home Focus card for the "Kunde" (tel:) and "Nachricht" buttons.
+  customerPhone: string | null;
+  conversationId: string | null;
   // Live assignments from dealEmployees (single source of truth)
   assignedEmployees: Array<{
     assignmentId: string;
@@ -270,6 +275,25 @@ export async function getOperationsView(workspaceId: string): Promise<Operations
     dealEmpByDeal.set(r.dealRecordId, arr);
   }
 
+  // 8b) Linked inbox conversation + contact phone per deal. Uses the
+  // inbox_conv_deal_idx index; the newest conversation (lastMessageAt) wins.
+  const convRows = await db
+    .select({
+      conversationId: inboxConversations.id,
+      dealRecordId: inboxConversations.dealRecordId,
+      contactPhone: inboxContacts.phone,
+    })
+    .from(inboxConversations)
+    .innerJoin(inboxContacts, eq(inboxContacts.id, inboxConversations.contactId))
+    .where(inArray(inboxConversations.dealRecordId, filteredDealIds))
+    .orderBy(desc(inboxConversations.lastMessageAt));
+
+  const convByDeal = new Map<string, { conversationId: string; phone: string | null }>();
+  for (const c of convRows) {
+    if (!c.dealRecordId || convByDeal.has(c.dealRecordId)) continue;
+    convByDeal.set(c.dealRecordId, { conversationId: c.conversationId, phone: c.contactPhone });
+  }
+
   // 9) Build the view rows
   const nameAttrId = dealAttrBySlug.get("name")?.id;
   const moveDateAttrId = dealAttrBySlug.get("move_date")?.id;
@@ -323,6 +347,8 @@ export async function getOperationsView(workspaceId: string): Promise<Operations
       workerCount,
       timeStart,
       timeEnd,
+      customerPhone: convByDeal.get(dealId)?.phone ?? null,
+      conversationId: convByDeal.get(dealId)?.conversationId ?? null,
       assignedEmployees: dealEmpByDeal.get(dealId) ?? [],
     };
   });

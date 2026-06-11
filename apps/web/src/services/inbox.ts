@@ -153,6 +153,8 @@ export interface ConversationListItem {
   unreadCount: number;
   dealRecordId: string | null;
   aiPaused: boolean;
+  /** True while the last customer message is still unanswered. */
+  aiNeedsReply: boolean;
   /** Cached agent classification (stage/priority/missing) for inbox badges. */
   agentState: AgentConversationState | null;
   /** True for Kleinanzeigen relay threads — lets the email area keep them separate. */
@@ -181,6 +183,8 @@ export async function listConversations(
      * which lane or status it ended up in.
      */
     q?: string;
+    /** Restrict to a single conversation id (deep-link restore, Paket 4). */
+    id?: string;
     limit?: number;
     cursor?: string; // lastMessageAt ISO
   } = {}
@@ -219,6 +223,7 @@ export async function listConversations(
       unreadCount: inboxConversations.unreadCount,
       dealRecordId: inboxConversations.dealRecordId,
       aiPaused: inboxConversations.aiPaused,
+      aiNeedsReply: inboxConversations.aiNeedsReply,
       agentState: inboxConversations.agentState,
     })
     .from(inboxConversations)
@@ -227,6 +232,7 @@ export async function listConversations(
     .where(
       and(
         eq(inboxConversations.workspaceId, workspaceId),
+        opts.id ? eq(inboxConversations.id, opts.id) : undefined,
         !qPattern && opts.status ? eq(inboxConversations.status, opts.status) : undefined,
         opts.channelAccountId
           ? eq(inboxConversations.channelAccountId, opts.channelAccountId)
@@ -284,6 +290,20 @@ export async function listConversations(
       isKleinanzeigen,
     };
   }) as ConversationListItem[];
+}
+
+/**
+ * Single conversation in exactly the list-item shape (Paket 4: ?conv= deep
+ * link). Reuses listConversations so the client can drop the row straight into
+ * the same state as the list. Deliberately ignores status/lane — the link must
+ * also resolve resolved threads and other lanes.
+ */
+export async function getConversationForClient(
+  workspaceId: string,
+  id: string
+): Promise<ConversationListItem | null> {
+  const [row] = await listConversations(workspaceId, { id, limit: 1 });
+  return row ?? null;
 }
 
 /** Strip obvious Kleinanzeigen boilerplate from a stored preview string. */
