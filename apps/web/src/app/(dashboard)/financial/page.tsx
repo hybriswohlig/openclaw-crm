@@ -26,7 +26,18 @@ import {
   Wallet,
   ChevronRight,
 } from "lucide-react";
+import { toast } from "sonner";
 import { CompanyDetailDialog } from "@/components/financial/company-detail-dialog";
+
+async function saveErrorDescription(res: Response): Promise<string> {
+  const data = await res.json().catch(() => null);
+  const err = (data as { error?: unknown } | null)?.error;
+  if (typeof err === "string") return err;
+  if (err && typeof err === "object" && "message" in err) {
+    return String((err as { message?: unknown }).message);
+  }
+  return "Bitte erneut versuchen.";
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -406,21 +417,33 @@ function PrivateTransactionsSection({
         direction: form.direction,
         notes: form.notes || null,
       };
+      let res: Response;
       if (editing) {
-        await fetch(`/api/v1/private-transactions/${editing.id}`, {
+        res = await fetch(`/api/v1/private-transactions/${editing.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
       } else {
-        await fetch(`/api/v1/private-transactions`, {
+        res = await fetch(`/api/v1/private-transactions`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
       }
+      if (!res.ok) {
+        toast.error("Buchung konnte nicht gespeichert werden", {
+          description: await saveErrorDescription(res),
+        });
+        return;
+      }
+      toast.success("Buchung gespeichert");
       setOpen(false);
       onChanged();
+    } catch {
+      toast.error("Buchung konnte nicht gespeichert werden", {
+        description: "Netzwerkfehler. Bitte erneut versuchen.",
+      });
     } finally {
       setSaving(false);
     }
@@ -428,7 +451,17 @@ function PrivateTransactionsSection({
 
   async function handleDelete(id: string) {
     if (!confirm("Privatbewegung löschen?")) return;
-    await fetch(`/api/v1/private-transactions/${id}`, { method: "DELETE" });
+    let res: Response;
+    try {
+      res = await fetch(`/api/v1/private-transactions/${id}`, { method: "DELETE" });
+    } catch {
+      toast.error("Löschen fehlgeschlagen", { description: "Netzwerkfehler. Bitte erneut versuchen." });
+      return;
+    }
+    if (!res.ok) {
+      toast.error("Löschen fehlgeschlagen");
+      return;
+    }
     onChanged();
   }
 

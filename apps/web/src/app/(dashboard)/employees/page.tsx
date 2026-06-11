@@ -26,8 +26,20 @@ import {
   Check,
   Smartphone,
 } from "lucide-react";
+import { toast } from "sonner";
 import { EmployeeAvatar } from "@/components/employees/employee-avatar";
 import { cn } from "@/lib/utils";
+import { prepareReceiptDataUrl } from "@/lib/receipt-image";
+
+async function saveErrorDescription(res: Response): Promise<string> {
+  const data = await res.json().catch(() => null);
+  const err = (data as { error?: unknown } | null)?.error;
+  if (typeof err === "string") return err;
+  if (err && typeof err === "object" && "message" in err) {
+    return String((err as { message?: unknown }).message);
+  }
+  return "Bitte erneut versuchen.";
+}
 
 interface Employee {
   id: string;
@@ -192,7 +204,15 @@ export default function EmployeesPage() {
         setEditId(null);
         setForm({ name: "", experience: "", hourlyRate: "", photoBase64: null });
         fetchEmployees();
+      } else {
+        toast.error("Speichern fehlgeschlagen", {
+          description: await saveErrorDescription(res),
+        });
       }
+    } catch {
+      toast.error("Speichern fehlgeschlagen", {
+        description: "Netzwerkfehler. Bitte erneut versuchen.",
+      });
     } finally {
       setSaving(false);
     }
@@ -219,9 +239,16 @@ export default function EmployeesPage() {
 
   async function handleDelete(id: string) {
     if (!confirm("Diesen Mitarbeiter löschen?")) return;
-    const res = await fetch(`/api/v1/employees/${id}`, { method: "DELETE" });
-    if (res.ok) fetchEmployees();
-    else alert("Löschen nicht möglich (es existieren noch Buchungen).");
+    try {
+      const res = await fetch(`/api/v1/employees/${id}`, { method: "DELETE" });
+      if (res.ok) fetchEmployees();
+      else
+        toast.error("Löschen nicht möglich", {
+          description: "Es existieren noch Buchungen zu diesem Mitarbeiter.",
+        });
+    } catch {
+      toast.error("Löschen fehlgeschlagen", { description: "Netzwerkfehler. Bitte erneut versuchen." });
+    }
   }
 
   function startEdit(emp: Employee) {
@@ -267,10 +294,18 @@ export default function EmployeesPage() {
 
   async function deleteEntry(employeeId: string, entryId: string) {
     if (!confirm("Diese Buchung löschen?")) return;
-    const res = await fetch(`/api/v1/employee-ledger/${entryId}`, { method: "DELETE" });
+    let res: Response;
+    try {
+      res = await fetch(`/api/v1/employee-ledger/${entryId}`, { method: "DELETE" });
+    } catch {
+      toast.error("Löschen fehlgeschlagen", { description: "Netzwerkfehler. Bitte erneut versuchen." });
+      return;
+    }
     if (res.ok) {
       await reloadDetail(employeeId);
       fetchEmployees(true);
+    } else {
+      toast.error("Löschen fehlgeschlagen");
     }
   }
 
@@ -992,15 +1027,13 @@ function LedgerEntryDialog({
   const isPayment = form.kind === "payment";
   const isDebit = form.kind === "payment" || form.kind === "in_kind";
 
-  function handleReceiptPick(file: File) {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result;
-      if (typeof result === "string") {
-        setForm((f) => ({ ...f, receiptFile: result, receiptName: file.name }));
-      }
-    };
-    reader.readAsDataURL(file);
+  async function handleReceiptPick(file: File) {
+    try {
+      const dataUrl = await prepareReceiptDataUrl(file);
+      setForm((f) => ({ ...f, receiptFile: dataUrl, receiptName: file.name }));
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
   }
 
   async function handleSave() {
@@ -1033,8 +1066,18 @@ function LedgerEntryDialog({
           body: JSON.stringify(payload),
         });
       }
-      if (res.ok) onSaved();
-      else alert("Speichern fehlgeschlagen.");
+      if (res.ok) {
+        toast.success("Buchung gespeichert");
+        onSaved();
+      } else {
+        toast.error("Buchung konnte nicht gespeichert werden", {
+          description: await saveErrorDescription(res),
+        });
+      }
+    } catch {
+      toast.error("Buchung konnte nicht gespeichert werden", {
+        description: "Netzwerkfehler. Bitte erneut versuchen.",
+      });
     } finally {
       setSaving(false);
     }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { toast } from "sonner";
 import type { FilterGroup, SortConfig } from "@openclaw-crm/shared";
 
 interface AttributeDef {
@@ -97,34 +98,73 @@ export function useObjectRecords(slug: string) {
 
   const updateRecord = useCallback(
     async (recordId: string, attrSlug: string, value: unknown) => {
+      let snapshot: RecordRow | undefined;
       setRecords((prev) =>
-        prev.map((r) =>
-          r.id === recordId
-            ? { ...r, values: { ...r.values, [attrSlug]: value } }
-            : r
-        )
+        prev.map((r) => {
+          if (r.id !== recordId) return r;
+          snapshot = r;
+          return { ...r, values: { ...r.values, [attrSlug]: value } };
+        })
       );
 
-      await fetch(`/api/v1/objects/${slug}/records/${recordId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ values: { [attrSlug]: value } }),
-      });
+      let serverMessage: string | undefined;
+      let failed = false;
+      try {
+        const res = await fetch(`/api/v1/objects/${slug}/records/${recordId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ values: { [attrSlug]: value } }),
+        });
+        if (!res.ok) {
+          failed = true;
+          const body = await res.json().catch(() => null);
+          if (typeof body?.error?.message === "string") {
+            serverMessage = body.error.message;
+          }
+        }
+      } catch {
+        failed = true;
+      }
+
+      if (failed) {
+        const prevRecord = snapshot;
+        if (prevRecord) {
+          setRecords((prev) =>
+            prev.map((r) => (r.id === recordId ? prevRecord : r))
+          );
+        }
+        toast.error("Änderung konnte nicht gespeichert werden", {
+          description: serverMessage ?? "Der vorherige Wert wurde wiederhergestellt",
+        });
+      }
     },
     [slug]
   );
 
   const createRecord = useCallback(
     async (values: Record<string, unknown>) => {
-      const res = await fetch(`/api/v1/objects/${slug}/records`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ values }),
-      });
+      let serverMessage: string | undefined;
+      try {
+        const res = await fetch(`/api/v1/objects/${slug}/records`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ values }),
+        });
 
-      if (res.ok) {
-        fetchRecords();
+        if (res.ok) {
+          fetchRecords();
+          return;
+        }
+        const body = await res.json().catch(() => null);
+        if (typeof body?.error?.message === "string") {
+          serverMessage = body.error.message;
+        }
+      } catch {
+        // handled below
       }
+      toast.error("Eintrag konnte nicht erstellt werden", {
+        description: serverMessage ?? "Bitte erneut versuchen",
+      });
     },
     [slug, fetchRecords]
   );

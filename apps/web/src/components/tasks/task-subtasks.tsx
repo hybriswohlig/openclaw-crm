@@ -17,6 +17,7 @@ import {
   Calendar,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 import { TaskComments } from "./task-comments";
 
 interface Member {
@@ -121,6 +122,7 @@ export function TaskSubtasks({
           body: JSON.stringify(body),
         });
         if (!res.ok) {
+          toast.error("Änderung konnte nicht gespeichert werden");
           load();
           return;
         }
@@ -128,6 +130,7 @@ export function TaskSubtasks({
         const updated = (data?.data ?? data) as SubtaskRow;
         setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...updated } : r)));
       } catch {
+        toast.error("Änderung konnte nicht gespeichert werden");
         load();
       }
     },
@@ -155,8 +158,13 @@ export function TaskSubtasks({
     if (!confirm("Subtask loeschen?")) return;
     setRows((prev) => prev.filter((r) => r.id !== sub.id));
     try {
-      await fetch(`/api/v1/tasks/${sub.id}`, { method: "DELETE" });
+      const res = await fetch(`/api/v1/tasks/${sub.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        toast.error("Subtask konnte nicht gelöscht werden");
+        load();
+      }
     } catch {
+      toast.error("Subtask konnte nicht gelöscht werden");
       load();
     }
   }

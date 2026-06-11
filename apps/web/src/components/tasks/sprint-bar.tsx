@@ -24,6 +24,7 @@ import {
   Trash2,
   MoreHorizontal,
 } from "lucide-react";
+import { toast } from "sonner";
 import { SprintPlanning } from "./sprint-planning";
 
 interface ApiSprintMetrics {
@@ -85,7 +86,10 @@ export function SprintBar({ refreshKey, onMutate }: SprintBarProps) {
   const load = useCallback(async () => {
     try {
       const res = await fetch("/api/v1/sprints", { cache: "no-store" });
-      if (!res.ok) return;
+      if (!res.ok) {
+        toast.error("Sprints konnten nicht geladen werden", { id: "sprints-load" });
+        return;
+      }
       const json = await res.json();
       const list = (json?.data?.sprints ?? []) as ApiSprint[];
       setSprints(list);
@@ -99,7 +103,7 @@ export function SprintBar({ refreshKey, onMutate }: SprintBarProps) {
         setVelocity(null);
       }
     } catch {
-      // swallow
+      toast.error("Sprints konnten nicht geladen werden", { id: "sprints-load" });
     } finally {
       setLoading(false);
     }
@@ -133,7 +137,9 @@ export function SprintBar({ refreshKey, onMutate }: SprintBarProps) {
       });
       if (!res.ok) {
         const err = await res.json().catch(() => null);
-        alert(err?.error?.message ?? "Sprint konnte nicht gestartet werden.");
+        toast.error("Sprint konnte nicht gestartet werden", {
+          description: err?.error?.message,
+        });
         return;
       }
       refresh();
@@ -159,6 +165,12 @@ export function SprintBar({ refreshKey, onMutate }: SprintBarProps) {
       if (res.ok) {
         const json = await res.json();
         setCloseSummary((json?.data?.summary as CloseSummary) ?? null);
+      } else {
+        const err = await res.json().catch(() => null);
+        toast.error("Sprint konnte nicht abgeschlossen werden", {
+          description: err?.error?.message,
+        });
+        return;
       }
       refresh();
     } finally {
@@ -170,7 +182,11 @@ export function SprintBar({ refreshKey, onMutate }: SprintBarProps) {
     if (!confirm("Sprint in Planung loeschen?")) return;
     setBusy(true);
     try {
-      await fetch(`/api/v1/sprints/${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/v1/sprints/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        toast.error("Sprint konnte nicht gelöscht werden");
+        return;
+      }
       refresh();
     } finally {
       setBusy(false);
@@ -609,18 +625,26 @@ function SprintFormDialog({
         endDate: endDate || null,
         capacityPoints: capacity ? Number(capacity) : null,
       };
+      let res: Response | null = null;
       if (mode === "create") {
-        await fetch("/api/v1/sprints", {
+        res = await fetch("/api/v1/sprints", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
       } else if (sprint) {
-        await fetch(`/api/v1/sprints/${sprint.id}`, {
+        res = await fetch(`/api/v1/sprints/${sprint.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
+      }
+      if (res && !res.ok) {
+        const err = await res.json().catch(() => null);
+        toast.error("Sprint konnte nicht gespeichert werden", {
+          description: err?.error?.message,
+        });
+        return;
       }
       onSaved();
       onOpenChange(false);

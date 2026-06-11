@@ -22,6 +22,7 @@ import {
   Building2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 import { TaskComments } from "./task-comments";
 import { TaskSubtasks } from "./task-subtasks";
 import {
@@ -428,6 +429,10 @@ export function TaskDialog({
       } else {
         onOpenChange(false);
       }
+    } catch (err) {
+      toast.error("Aufgabe konnte nicht gespeichert werden", {
+        description: err instanceof Error ? err.message : undefined,
+      });
     } finally {
       setSaving(false);
     }
@@ -1018,6 +1023,12 @@ export function TaskDialog({
                 size="sm"
                 className="text-xs text-destructive hover:text-destructive"
                 onClick={async () => {
+                  if (
+                    !window.confirm(
+                      "Aufgabe wirklich löschen? Unteraufgaben und Kommentare werden mit gelöscht."
+                    )
+                  )
+                    return;
                   await onDelete();
                   onOpenChange(false);
                 }}

@@ -26,6 +26,8 @@ import {
   Download,
   FileText,
 } from "lucide-react";
+import { toast } from "sonner";
+import { prepareReceiptDataUrl } from "@/lib/receipt-image";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -114,6 +116,16 @@ function fmtDate(d: string) {
     month: "2-digit",
     year: "numeric",
   });
+}
+
+async function saveErrorDescription(res: Response): Promise<string> {
+  const data = await res.json().catch(() => null);
+  const err = (data as { error?: unknown } | null)?.error;
+  if (typeof err === "string") return err;
+  if (err && typeof err === "object" && "message" in err) {
+    return String((err as { message?: unknown }).message);
+  }
+  return "Bitte erneut versuchen.";
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -259,21 +271,33 @@ function PaymentsSection({
         reference: form.reference || null,
         notes: form.notes || null,
       };
+      let res: Response;
       if (editing) {
-        await fetch(`/api/v1/deals/${recordId}/payments/${editing.id}`, {
+        res = await fetch(`/api/v1/deals/${recordId}/payments/${editing.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
       } else {
-        await fetch(`/api/v1/deals/${recordId}/payments`, {
+        res = await fetch(`/api/v1/deals/${recordId}/payments`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
       }
+      if (!res.ok) {
+        toast.error("Buchung konnte nicht gespeichert werden", {
+          description: await saveErrorDescription(res),
+        });
+        return;
+      }
+      toast.success("Buchung gespeichert");
       setOpen(false);
       onChanged();
+    } catch {
+      toast.error("Buchung konnte nicht gespeichert werden", {
+        description: "Netzwerkfehler. Bitte erneut versuchen.",
+      });
     } finally {
       setSaving(false);
     }
@@ -281,7 +305,17 @@ function PaymentsSection({
 
   async function handleDelete(id: string) {
     if (!confirm("Zahlung löschen?")) return;
-    await fetch(`/api/v1/deals/${recordId}/payments/${id}`, { method: "DELETE" });
+    let res: Response;
+    try {
+      res = await fetch(`/api/v1/deals/${recordId}/payments/${id}`, { method: "DELETE" });
+    } catch {
+      toast.error("Löschen fehlgeschlagen", { description: "Netzwerkfehler. Bitte erneut versuchen." });
+      return;
+    }
+    if (!res.ok) {
+      toast.error("Löschen fehlgeschlagen");
+      return;
+    }
     onChanged();
   }
 
@@ -520,15 +554,13 @@ function ExpensesSection({
     setOpen(true);
   }
 
-  function handleReceiptPick(file: File) {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result;
-      if (typeof result === "string") {
-        setForm((f) => ({ ...f, receiptFile: result, receiptName: file.name }));
-      }
-    };
-    reader.readAsDataURL(file);
+  async function handleReceiptPick(file: File) {
+    try {
+      const dataUrl = await prepareReceiptDataUrl(file);
+      setForm((f) => ({ ...f, receiptFile: dataUrl, receiptName: file.name }));
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
   }
 
   async function handleSave() {
@@ -548,21 +580,33 @@ function ExpensesSection({
       // Only send receiptFile when a new file was picked, so editing without
       // re-uploading keeps the existing Beleg.
       if (form.receiptFile !== null) body.receiptFile = form.receiptFile;
+      let res: Response;
       if (editing) {
-        await fetch(`/api/v1/deals/${recordId}/expenses/${editing.id}`, {
+        res = await fetch(`/api/v1/deals/${recordId}/expenses/${editing.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
       } else {
-        await fetch(`/api/v1/deals/${recordId}/expenses`, {
+        res = await fetch(`/api/v1/deals/${recordId}/expenses`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
       }
+      if (!res.ok) {
+        toast.error("Buchung konnte nicht gespeichert werden", {
+          description: await saveErrorDescription(res),
+        });
+        return;
+      }
+      toast.success("Buchung gespeichert");
       setOpen(false);
       onChanged();
+    } catch {
+      toast.error("Buchung konnte nicht gespeichert werden", {
+        description: "Netzwerkfehler. Bitte erneut versuchen.",
+      });
     } finally {
       setSaving(false);
     }
@@ -570,7 +614,17 @@ function ExpensesSection({
 
   async function handleDelete(id: string) {
     if (!confirm("Ausgabe löschen?")) return;
-    await fetch(`/api/v1/deals/${recordId}/expenses/${id}`, { method: "DELETE" });
+    let res: Response;
+    try {
+      res = await fetch(`/api/v1/deals/${recordId}/expenses/${id}`, { method: "DELETE" });
+    } catch {
+      toast.error("Löschen fehlgeschlagen", { description: "Netzwerkfehler. Bitte erneut versuchen." });
+      return;
+    }
+    if (!res.ok) {
+      toast.error("Löschen fehlgeschlagen");
+      return;
+    }
     onChanged();
   }
 
@@ -878,14 +932,12 @@ function EmployeeCostsSection({
   }
 
   async function handleReceiptPick(file: File) {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result;
-      if (typeof result === "string") {
-        setForm((f) => ({ ...f, receiptFile: result, receiptName: file.name }));
-      }
-    };
-    reader.readAsDataURL(file);
+    try {
+      const dataUrl = await prepareReceiptDataUrl(file);
+      setForm((f) => ({ ...f, receiptFile: dataUrl, receiptName: file.name }));
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
   }
 
   async function handleSave() {
@@ -903,21 +955,33 @@ function EmployeeCostsSection({
         payingOperatingCompanyId: form.payingOperatingCompanyId || null,
         receiptFile: form.receiptFile,
       };
+      let res: Response;
       if (editing) {
-        await fetch(`/api/v1/deals/${recordId}/employee-costs/${editing.id}`, {
+        res = await fetch(`/api/v1/deals/${recordId}/employee-costs/${editing.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
       } else {
-        await fetch(`/api/v1/deals/${recordId}/employee-costs`, {
+        res = await fetch(`/api/v1/deals/${recordId}/employee-costs`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
       }
+      if (!res.ok) {
+        toast.error("Buchung konnte nicht gespeichert werden", {
+          description: await saveErrorDescription(res),
+        });
+        return;
+      }
+      toast.success("Buchung gespeichert");
       setOpen(false);
       onChanged();
+    } catch {
+      toast.error("Buchung konnte nicht gespeichert werden", {
+        description: "Netzwerkfehler. Bitte erneut versuchen.",
+      });
     } finally {
       setSaving(false);
     }
@@ -925,7 +989,17 @@ function EmployeeCostsSection({
 
   async function handleDelete(id: string) {
     if (!confirm("Eintrag löschen?")) return;
-    await fetch(`/api/v1/deals/${recordId}/employee-costs/${id}`, { method: "DELETE" });
+    let res: Response;
+    try {
+      res = await fetch(`/api/v1/deals/${recordId}/employee-costs/${id}`, { method: "DELETE" });
+    } catch {
+      toast.error("Löschen fehlgeschlagen", { description: "Netzwerkfehler. Bitte erneut versuchen." });
+      return;
+    }
+    if (!res.ok) {
+      toast.error("Löschen fehlgeschlagen");
+      return;
+    }
     onChanged();
   }
 
@@ -1222,8 +1296,11 @@ function DocumentsSection({
     if (!confirm("Dokument löschen?")) return;
     setDeleting(docId);
     try {
-      await fetch(`/api/v1/deals/${recordId}/documents/${docId}`, { method: "DELETE" });
+      const res = await fetch(`/api/v1/deals/${recordId}/documents/${docId}`, { method: "DELETE" });
+      if (!res.ok) toast.error("Löschen fehlgeschlagen");
       onChanged();
+    } catch {
+      toast.error("Löschen fehlgeschlagen", { description: "Netzwerkfehler. Bitte erneut versuchen." });
     } finally {
       setDeleting(null);
     }

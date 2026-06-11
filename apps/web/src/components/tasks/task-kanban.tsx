@@ -13,6 +13,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { Clock, Plus, Truck, AlignLeft } from "lucide-react";
+import { toast } from "sonner";
 import { TaskDialog } from "./task-dialog";
 import { priorityMeta, PRIORITIES } from "@/lib/task-priority";
 
@@ -181,12 +182,15 @@ export function TaskKanban({
   const load = useCallback(async () => {
     try {
       const res = await fetch("/api/v1/tasks?showCompleted=true&limit=200");
-      if (!res.ok) return;
+      if (!res.ok) {
+        toast.error("Aufgaben konnten nicht geladen werden", { id: "tasks-load" });
+        return;
+      }
       const data = await res.json();
       const list = (data?.data?.tasks ?? data?.tasks ?? []) as ApiTask[];
       setTasks(list);
     } catch {
-      // swallow
+      toast.error("Aufgaben konnten nicht geladen werden", { id: "tasks-load" });
     } finally {
       setLoading(false);
     }
@@ -316,9 +320,12 @@ export function TaskKanban({
       });
       // On success keep the optimistic state but nudge the Sprint-Bar so
       // its done-points reflect a card dragged into / out of "erledigt".
-      if (!res.ok) load();
-      else onMutate?.();
+      if (!res.ok) {
+        toast.error("Verschieben fehlgeschlagen, die Aufgabe wurde zurückgesetzt");
+        load();
+      } else onMutate?.();
     } catch {
+      toast.error("Verschieben fehlgeschlagen, die Aufgabe wurde zurückgesetzt");
       load();
     }
   }
@@ -541,27 +548,40 @@ export function TaskKanban({
             : undefined
         }
         onSave={async (data) => {
+          let res: Response | null = null;
           if (dialogMode === "create") {
-            await fetch("/api/v1/tasks", {
+            res = await fetch("/api/v1/tasks", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(data),
             });
           } else if (editingTask) {
-            await fetch(`/api/v1/tasks/${editingTask.id}`, {
+            res = await fetch(`/api/v1/tasks/${editingTask.id}`, {
               method: "PATCH",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(data),
             });
+          }
+          if (res && !res.ok) {
+            const err = await res.json().catch(() => null);
+            throw new Error(
+              err?.error?.message ||
+                "Speichern fehlgeschlagen, bitte erneut versuchen"
+            );
           }
           reload();
         }}
         onDelete={
           dialogMode === "edit" && editingTask
             ? async () => {
-                await fetch(`/api/v1/tasks/${editingTask.id}`, {
+                const res = await fetch(`/api/v1/tasks/${editingTask.id}`, {
                   method: "DELETE",
                 });
+                if (!res.ok) {
+                  toast.error("Aufgabe konnte nicht gelöscht werden");
+                  return;
+                }
+                toast.success("Aufgabe gelöscht");
                 reload();
               }
             : undefined

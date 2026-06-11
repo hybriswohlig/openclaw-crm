@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { toast } from "sonner";
 import Link from "next/link";
 import { RecordDetail } from "@/components/records/record-detail";
 import { RelatedRecords } from "@/components/records/related-records";
@@ -211,12 +212,21 @@ export default function RecordDetailPage() {
     async (action: "accept" | "dismiss") => {
       setResolvingScope(true);
       try {
-        await fetch(`/api/v1/deals/${recordId}/scope-change`, {
+        const res = await fetch(`/api/v1/deals/${recordId}/scope-change`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action }),
         });
+        if (!res.ok) {
+          toast.error("Aktion fehlgeschlagen", {
+            description: "Die Änderung wurde nicht gespeichert",
+          });
+        }
         await fetchData();
+      } catch {
+        toast.error("Aktion fehlgeschlagen", {
+          description: "Die Änderung wurde nicht gespeichert",
+        });
       } finally {
         setResolvingScope(false);
       }
@@ -226,15 +236,39 @@ export default function RecordDetailPage() {
 
   const handleUpdate = useCallback(
     async (attrSlug: string, value: unknown) => {
-      setRecord((prev) =>
-        prev ? { ...prev, values: { ...prev.values, [attrSlug]: value } } : prev
-      );
-
-      await fetch(`/api/v1/objects/${slug}/records/${recordId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ values: { [attrSlug]: value } }),
+      let snapshot: RecordData | undefined;
+      setRecord((prev) => {
+        if (!prev) return prev;
+        snapshot = prev;
+        return { ...prev, values: { ...prev.values, [attrSlug]: value } };
       });
+
+      let serverMessage: string | undefined;
+      let failed = false;
+      try {
+        const res = await fetch(`/api/v1/objects/${slug}/records/${recordId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ values: { [attrSlug]: value } }),
+        });
+        if (!res.ok) {
+          failed = true;
+          const body = await res.json().catch(() => null);
+          if (typeof body?.error?.message === "string") {
+            serverMessage = body.error.message;
+          }
+        }
+      } catch {
+        failed = true;
+      }
+
+      if (failed) {
+        const prevRecord = snapshot;
+        if (prevRecord) setRecord(prevRecord);
+        toast.error("Änderung konnte nicht gespeichert werden", {
+          description: serverMessage ?? "Der vorherige Wert wurde wiederhergestellt",
+        });
+      }
     },
     [slug, recordId]
   );
@@ -248,7 +282,19 @@ export default function RecordDetailPage() {
       });
       if (res.ok) {
         router.push(`/objects/${slug}`);
+      } else {
+        const body = await res.json().catch(() => null);
+        toast.error("Löschen fehlgeschlagen", {
+          description:
+            typeof body?.error?.message === "string"
+              ? body.error.message
+              : "Der Eintrag wurde nicht gelöscht",
+        });
       }
+    } catch {
+      toast.error("Löschen fehlgeschlagen", {
+        description: "Der Eintrag wurde nicht gelöscht",
+      });
     } finally {
       setDeleting(false);
     }
@@ -325,7 +371,19 @@ export default function RecordDetailPage() {
         setApplyNotice(skipped.length || errors.length ? { skipped, errors } : null);
         setInsightsPanel(null);
         fetchData();
+      } else {
+        const body = await res.json().catch(() => null);
+        toast.error("Übernehmen fehlgeschlagen", {
+          description:
+            typeof body?.error?.message === "string"
+              ? body.error.message
+              : "Die Vorschläge wurden nicht gespeichert",
+        });
       }
+    } catch {
+      toast.error("Übernehmen fehlgeschlagen", {
+        description: "Die Vorschläge wurden nicht gespeichert",
+      });
     } finally {
       setApplying(false);
     }

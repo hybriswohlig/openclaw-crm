@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, Fraunces, JetBrains_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
+import { Toaster } from "@/components/ui/sonner";
 import { PlausibleScript } from "@/components/analytics/plausible-script";
 import { GA4Script } from "@/components/analytics/ga4-script";
 import { AmplitudeScript } from "@/components/analytics/amplitude-script";
@@ -107,7 +108,10 @@ export default function RootLayout({
         <GA4Script />
         <AmplitudeScript />
         <ServiceWorkerRegister />
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider>
+          {children}
+          <Toaster />
+        </ThemeProvider>
         <CookieConsent />
       </body>
     </html>

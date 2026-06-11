@@ -15,6 +15,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 import { TaskDialog } from "./task-dialog";
 import {
   isToday,
@@ -226,7 +227,9 @@ export function TaskList() {
       });
       if (!res.ok) {
         const err = await res.json().catch(() => null);
-        throw new Error(err?.error?.message || "Failed to create task");
+        throw new Error(
+          err?.error?.message || "Speichern fehlgeschlagen, bitte erneut versuchen"
+        );
       }
     } else if (editingTask) {
       const res = await fetch(`/api/v1/tasks/${editingTask.id}`, {
@@ -236,7 +239,9 @@ export function TaskList() {
       });
       if (!res.ok) {
         const err = await res.json().catch(() => null);
-        throw new Error(err?.error?.message || "Failed to update task");
+        throw new Error(
+          err?.error?.message || "Speichern fehlgeschlagen, bitte erneut versuchen"
+        );
       }
     }
     fetchTasks();
@@ -244,7 +249,14 @@ export function TaskList() {
 
   async function handleDelete() {
     if (!editingTask) return;
-    await fetch(`/api/v1/tasks/${editingTask.id}`, { method: "DELETE" });
+    const res = await fetch(`/api/v1/tasks/${editingTask.id}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) {
+      toast.error("Aufgabe konnte nicht gelöscht werden");
+      return;
+    }
+    toast.success("Aufgabe gelöscht");
     fetchTasks();
   }
 

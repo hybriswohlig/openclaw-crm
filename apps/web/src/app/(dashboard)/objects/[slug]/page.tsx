@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { useObjectRecords } from "@/hooks/use-object-records";
 import { RecordTable } from "@/components/records/record-table";
 import { RecordKanban } from "@/components/records/record-kanban";
@@ -344,7 +345,14 @@ export default function ObjectPage() {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ recordIds: orderedIds }),
-              });
+              })
+                .then((res) => {
+                  if (!res.ok) throw new Error();
+                })
+                .catch(() => {
+                  toast.error("Verschieben fehlgeschlagen");
+                  fetchData();
+                });
             }}
             onClickRecord={(recordId) =>
               router.push(`/objects/${slug}/${recordId}`)
