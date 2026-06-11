@@ -5,7 +5,7 @@ import {
   taskAssignees,
   users,
 } from "@/db/schema";
-import { eq, and, desc, inArray, isNull, sql } from "drizzle-orm";
+import { eq, and, or, gte, desc, inArray, isNull, sql } from "drizzle-orm";
 import { batchGetRecordDisplayNames } from "./display-names";
 import { normalizeWorkType, normalizeGrowthCategory } from "@/lib/sprint-constants";
 import { normalizePriority } from "@/lib/task-priority";
@@ -130,6 +130,8 @@ export async function listTasks(
     sprintId?: string;
     /** Only tasks NOT in any sprint (product backlog / flow). */
     noSprint?: boolean;
+    /** With showCompleted: only completed tasks finished at/after this date. */
+    completedAfter?: Date;
   } = {}
 ) {
   const { showCompleted = false, limit = 50, offset = 0 } = options;
@@ -138,7 +140,16 @@ export async function listTasks(
   // inside their parent's TaskDialog instead. parentTaskId IS NULL means
   // "this is a top-level task".
   const clauses = [eq(tasks.workspaceId, workspaceId), sql`${tasks.parentTaskId} IS NULL`];
-  if (!showCompleted) clauses.push(eq(tasks.isCompleted, false));
+  if (!showCompleted) {
+    clauses.push(eq(tasks.isCompleted, false));
+  } else if (options.completedAfter) {
+    clauses.push(
+      or(
+        eq(tasks.isCompleted, false),
+        gte(tasks.completedAt, options.completedAfter)
+      )!
+    );
+  }
   if (options.sprintId) clauses.push(eq(tasks.sprintId, options.sprintId));
   else if (options.noSprint) clauses.push(isNull(tasks.sprintId));
   const whereClause = and(...clauses);

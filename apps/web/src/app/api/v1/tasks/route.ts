@@ -25,7 +25,15 @@ export async function GET(req: NextRequest) {
       offset: number;
       sprintId?: string;
       noSprint?: boolean;
+      completedAfter?: Date;
     } = { showCompleted, limit, offset };
+    const completedAfterParam = searchParams.get("completedAfter");
+    if (completedAfterParam) {
+      const completedAfter = new Date(completedAfterParam);
+      if (!Number.isNaN(completedAfter.getTime())) {
+        listOpts.completedAfter = completedAfter;
+      }
+    }
     if (sprintParam === "none") {
       listOpts.noSprint = true;
     } else if (sprintParam === "active") {

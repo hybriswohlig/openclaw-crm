@@ -44,6 +44,9 @@ export default function ObjectPage() {
     records,
     total,
     loading,
+    loadingMore,
+    hasMore,
+    loadMore,
     fetchData,
     updateRecord,
     createRecord,
@@ -64,6 +67,63 @@ export default function ObjectPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  const handleExport = async () => {
+    if (!object || exporting) return;
+    let rows = records;
+    if (records.length < total) {
+      setExporting(true);
+      try {
+        const all: typeof records = [];
+        let pages = 0;
+        while (all.length < total && pages < 50) {
+          let recData: any;
+          if (hasFilter || hasSort) {
+            const res = await fetch(`/api/v1/objects/${slug}/records/query`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                limit: 200,
+                offset: all.length,
+                ...(hasFilter ? { filter } : {}),
+                ...(hasSort ? { sorts } : {}),
+              }),
+            });
+            if (res.ok) recData = await res.json();
+          } else {
+            const res = await fetch(
+              `/api/v1/objects/${slug}/records?limit=200&offset=${all.length}`
+            );
+            if (res.ok) recData = await res.json();
+          }
+          if (!recData) {
+            toast.error("Export fehlgeschlagen", {
+              description: "Bitte erneut versuchen",
+            });
+            return;
+          }
+          const batch = recData.data.records;
+          if (batch.length === 0) break;
+          all.push(...batch);
+          pages++;
+        }
+        if (pages >= 50 && all.length < total) {
+          toast.warning("Export auf 10000 Zeilen begrenzt");
+        }
+        rows = all;
+      } catch {
+        toast.error("Export fehlgeschlagen", {
+          description: "Bitte erneut versuchen",
+        });
+        return;
+      } finally {
+        setExporting(false);
+      }
+    }
+    const csv = generateCSV(rows, object.attributes as any);
+    downloadCSV(csv, `${object.pluralName.toLowerCase()}.csv`);
+  };
 
   // Auto-detect if board view is available (has a status attribute)
   const statusAttr = object?.attributes.find((a) => a.type === "status");
@@ -125,13 +185,8 @@ export default function ObjectPage() {
                 </DropdownMenuItem>
               )}
               <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => {
-                  const csv = generateCSV(records, object.attributes as any);
-                  downloadCSV(csv, `${object.pluralName.toLowerCase()}.csv`);
-                }}
-              >
-                <Download className="h-3.5 w-3.5 mr-2" /> Export CSV
+              <DropdownMenuItem onClick={handleExport} disabled={exporting}>
+                <Download className="h-3.5 w-3.5 mr-2" /> {exporting ? "Exportiere..." : "Export CSV"}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setImportOpen(true)}>
                 <Upload className="h-3.5 w-3.5 mr-2" /> Import CSV
@@ -245,13 +300,11 @@ export default function ObjectPage() {
             variant="ghost"
             size="sm"
             className="text-xs gap-1"
-            onClick={() => {
-              const csv = generateCSV(records, object.attributes as any);
-              downloadCSV(csv, `${object.pluralName.toLowerCase()}.csv`);
-            }}
+            onClick={handleExport}
+            disabled={exporting}
           >
             <Download className="h-3.5 w-3.5" />
-            Export
+            {exporting ? "Exportiere..." : "Export"}
           </Button>
           <Button
             variant="ghost"
@@ -361,6 +414,23 @@ export default function ObjectPage() {
           />
         )}
       </div>
+
+      {hasMore && (
+        <div className="flex items-center justify-center gap-2 border-t border-border px-4 py-2">
+          <span className="text-xs text-muted-foreground">
+            Zeige {records.length} von {total}
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-xs"
+            onClick={loadMore}
+            disabled={loadingMore}
+          >
+            {loadingMore ? "Lädt..." : "Mehr laden"}
+          </Button>
+        </div>
+      )}
 
       {/* Create modal */}
       <RecordCreateModal

@@ -138,6 +138,7 @@ export function TaskKanban({
   onMutate?: () => void;
 } = {}) {
   const [tasks, setTasks] = useState<ApiTask[]>([]);
+  const [totalTasks, setTotalTasks] = useState(0);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>("alle");
   const [sprintScope, setSprintScope] = useState<SprintScope>("alle");
@@ -181,7 +182,15 @@ export function TaskKanban({
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch("/api/v1/tasks?showCompleted=true&limit=200");
+      // Start of the current week (Monday 00:00 local) — keeps "Erledigt"
+      // in sync with its "Diese Woche" hint and stops old completed tasks
+      // from crowding open ones out of the 200er limit.
+      const weekStart = new Date();
+      weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() + 6) % 7));
+      weekStart.setHours(0, 0, 0, 0);
+      const res = await fetch(
+        `/api/v1/tasks?showCompleted=true&limit=200&completedAfter=${encodeURIComponent(weekStart.toISOString())}`
+      );
       if (!res.ok) {
         toast.error("Aufgaben konnten nicht geladen werden", { id: "tasks-load" });
         return;
@@ -189,6 +198,7 @@ export function TaskKanban({
       const data = await res.json();
       const list = (data?.data?.tasks ?? data?.tasks ?? []) as ApiTask[];
       setTasks(list);
+      setTotalTasks(Number(data?.data?.pagination?.total ?? list.length));
     } catch {
       toast.error("Aufgaben konnten nicht geladen werden", { id: "tasks-load" });
     } finally {
@@ -367,6 +377,17 @@ export function TaskKanban({
           >
             {tasks.length} Aufgaben · {byColumn.laeuft.length} läuft · {byColumn.heute.length} heute
           </span>
+          {totalTasks > tasks.length && (
+            <span
+              style={{
+                fontFamily: "var(--f-mono)",
+                fontSize: 11,
+                color: "var(--ink-muted)",
+              }}
+            >
+              Zeige {tasks.length} von {totalTasks} Aufgaben
+            </span>
+          )}
           {/* Priority legend — decode the card colours, like a Kanban board. */}
           <span
             className="flex items-center gap-2.5"

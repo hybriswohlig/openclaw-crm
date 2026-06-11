@@ -36,6 +36,7 @@ export function useObjectRecords(slug: string) {
   const [records, setRecords] = useState<RecordRow[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   // Filter & sort state
   const [filter, setFilter] = useState<FilterGroup>(EMPTY_FILTER);
@@ -95,6 +96,54 @@ export function useObjectRecords(slug: string) {
   useEffect(() => {
     fetchRecords();
   }, [fetchRecords]);
+
+  const hasMore = records.length < total;
+
+  const loadMore = useCallback(async () => {
+    setLoadingMore(true);
+    try {
+      const offset = records.length;
+      let recData: any;
+      if (hasFilter || hasSort) {
+        const queryRes = await fetch(`/api/v1/objects/${slug}/records/query`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            limit: 200,
+            offset,
+            ...(hasFilter ? { filter } : {}),
+            ...(hasSort ? { sorts } : {}),
+          }),
+        });
+        if (queryRes.ok) {
+          recData = await queryRes.json();
+        }
+      } else {
+        const recRes = await fetch(
+          `/api/v1/objects/${slug}/records?limit=200&offset=${offset}`
+        );
+        if (recRes.ok) {
+          recData = await recRes.json();
+        }
+      }
+
+      if (recData) {
+        const next: RecordRow[] = recData.data.records;
+        setRecords((prev) => [...prev, ...next]);
+        setTotal(recData.data.pagination.total);
+      } else {
+        toast.error("Mehr laden fehlgeschlagen", {
+          description: "Bitte erneut versuchen",
+        });
+      }
+    } catch {
+      toast.error("Mehr laden fehlgeschlagen", {
+        description: "Bitte erneut versuchen",
+      });
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [slug, filter, sorts, hasFilter, hasSort, records.length]);
 
   const updateRecord = useCallback(
     async (recordId: string, attrSlug: string, value: unknown) => {
@@ -193,6 +242,9 @@ export function useObjectRecords(slug: string) {
     records,
     total,
     loading,
+    loadingMore,
+    hasMore,
+    loadMore,
     fetchData: fetchRecords,
     updateRecord,
     createRecord,
