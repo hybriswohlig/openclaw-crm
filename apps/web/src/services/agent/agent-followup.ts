@@ -14,11 +14,12 @@
 
 import { db } from "@/db";
 import { and, asc, eq, lt, sql } from "drizzle-orm";
-import { inboxConversations, inboxMessages, channelAccounts } from "@/db/schema/inbox";
+import { inboxConversations, inboxMessages, inboxContacts, channelAccounts } from "@/db/schema/inbox";
 import { z } from "zod";
 import { runAITask, humanizeGerman } from "@/services/ai/run-task";
 import { AI_TASK_SLUGS } from "@/services/ai/task-registry";
 import { emitEvent } from "@/services/activity-events";
+import { sendPush } from "@/services/push";
 import { getObjectBySlug } from "@/services/objects";
 import { getRecord } from "@/services/records";
 import {
@@ -32,12 +33,16 @@ import {
 import {
   sendOnChannel,
   appendSignature,
+  ownerUserIds,
   agentHasSentCustomerMessage,
   withDisclosure,
   resolveBrandSignature,
   isMoveDatePast,
   getDecidedStageIds,
   getDealStageId,
+  leaksPriceOrCommitment,
+  isAgentSuppressed,
+  OPT_OUT_LINE,
   type AgentChannelRow,
 } from "./agent-shared";
 
@@ -85,6 +90,8 @@ interface FollowupCandidate {
   waPhoneNumberId: string | null;
   baileysBridgeProvider: string | null;
   operatingCompanyRecordId: string | null;
+  contactPhone: string | null;
+  contactEmail: string | null;
 }
 
 
@@ -157,9 +164,12 @@ async function runForWorkspace(
       waPhoneNumberId: channelAccounts.waPhoneNumberId,
       baileysBridgeProvider: channelAccounts.baileysBridgeProvider,
       operatingCompanyRecordId: channelAccounts.operatingCompanyRecordId,
+      contactPhone: inboxContacts.phone,
+      contactEmail: inboxContacts.email,
     })
     .from(inboxConversations)
     .innerJoin(channelAccounts, eq(inboxConversations.channelAccountId, channelAccounts.id))
+    .leftJoin(inboxContacts, eq(inboxConversations.contactId, inboxContacts.id))
     .where(
       and(
         eq(inboxConversations.workspaceId, workspaceId),
@@ -196,6 +206,13 @@ async function runForWorkspace(
       if (!lastIsOutbound) continue;
       if (trailing >= MAX_TRAILING_OUTBOUND) continue;
 
+      // Opted out? A STOP on any thread suppresses all automated outreach
+      // (Art. 21 DSGVO). Never nudge a person who declined.
+      if (await isAgentSuppressed(workspaceId, { phone: conv.contactPhone, email: conv.contactEmail })) {
+        summary.skipped += 1;
+        continue;
+      }
+
       // Decided deal (booked/done/paid or lost)? Leave them alone.
       if (decidedStages.size > 0 && conv.dealRecordId) {
         const stageId = await getDealStageId(dealsObj.id, conv.dealRecordId);
@@ -228,9 +245,29 @@ async function runForWorkspace(
         continue;
       }
 
+      // Deterministic guard: the human always makes the price/offer. A nudge that
+      // slipped in a price or a booking commitment is never sent; flag the owner.
+      if (leaksPriceOrCommitment(out.message_de)) {
+        summary.skipped += 1;
+        const owners = await ownerUserIds(workspaceId);
+        if (owners.length > 0 && !dryRun) {
+          await sendPush(
+            {
+              title: "Nachfass blockiert (Preis/Zusage)",
+              body: "Ein KI-Nachfassentwurf enthielt einen Preis. Bitte selbst nachfassen.",
+              url: conv.dealRecordId ? `/objects/deals/${conv.dealRecordId}` : "/inbox",
+              tag: `agent-followup-blocked-${conv.id}`,
+            },
+            { workspaceId, userIds: owners }
+          );
+        }
+        continue;
+      }
+
       // Humanize the nudge (crm-tools humanizer-de) and add the AI disclosure if
       // the agent has not yet sent a customer message on this deal. Brand is
-      // routed by the conversation's channel company.
+      // routed by the conversation's channel company. Every proactive nudge ends
+      // with the opt-out line (Art. 21 DSGVO).
       const isFirst = !(await agentHasSentCustomerMessage(workspaceId, conv.dealRecordId));
       const brand = await resolveBrandSignature(
         workspaceId,
@@ -238,11 +275,9 @@ async function runForWorkspace(
         signature
       );
       const humanized = await humanizeGerman(out.message_de);
-      const message = withDisclosure(
-        appendSignature(humanized, brand),
-        disclosure,
-        discloseAi && isFirst
-      );
+      const message =
+        withDisclosure(appendSignature(humanized, brand), disclosure, discloseAi && isFirst) +
+        `\n\n${OPT_OUT_LINE}`;
       const mode = dryRun ? "dry_run" : "live";
 
       if (!dryRun) {

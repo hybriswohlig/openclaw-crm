@@ -78,7 +78,7 @@ export const DEFAULT_AGENT_DISCLOSURE =
  * on handoff (then only the owner is notified).
  */
 export const DEFAULT_AGENT_HANDOFF_ACK =
-  "Vielen Dank, ich habe alle wichtigen Angaben. Ein Mitarbeiter erstellt Ihnen jetzt Ihr persönliches Angebot und meldet sich in Kürze bei Ihnen.";
+  "Vielen Dank, das reicht mir fürs Erste. Ich verweise dich jetzt an einen Kollegen, der sich mit einem persönlichen Angebot bei dir meldet.";
 
 export interface AgentSettings {
   enabled: boolean;

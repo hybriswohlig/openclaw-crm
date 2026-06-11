@@ -16,6 +16,20 @@ import { sendWhatsAppReply, sendBaileysReply } from "@/services/inbox-whatsapp";
 import { sendEmailReply } from "@/services/inbox-email";
 import { getSetting } from "@/services/workspace-settings";
 
+// Decline/opt-out detection, the suppression list, and the price/commitment
+// guard live in the leaf module agent-suppress (no inbox-send dependency, so the
+// ingest hot path can import them without a cycle). Re-exported here so existing
+// callers that import from agent-shared keep working.
+export {
+  looksDeclined,
+  leaksPriceOrCommitment,
+  PRICE_RE,
+  COMMITMENT_RE,
+  OPT_OUT_LINE,
+  recordAgentDecline,
+  isAgentSuppressed,
+} from "./agent-suppress";
+
 export interface AgentChannelRow {
   id: string;
   workspaceId: string;
@@ -137,18 +151,6 @@ export function isMoveDatePast(
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   return d.getTime() < today.getTime();
-}
-
-// Conservative: only clear, unambiguous declines, to avoid silencing real leads.
-// Includes opt-out keywords (STOP etc.): an advertising objection under Art. 21
-// DSGVO / §7 UWG is absolute, so the agent must fall silent immediately.
-const DECLINE_PATTERNS =
-  /(kein interesse|zu teuer|doch nicht|anderweitig|anderen anbieter|bereits (beauftragt|gebucht|vergeben|organisiert)|schon (beauftragt|gebucht|jemanden)|abgesagt|hat sich erledigt|erledigt sich|brauche (keine|nichts|nicht mehr)|nicht mehr (nötig|notwendig|relevant|aktuell|gebraucht)|keine (weiteren )?nachrichten|nicht mehr (schreiben|kontaktieren)|^\s*stopp?\s*[.!]?\s*$|abbestellen|abmelden)/i;
-
-/** Heuristic safety net: does the customer's last message clearly decline? */
-export function looksDeclined(text: string | null | undefined): boolean {
-  if (!text) return false;
-  return DECLINE_PATTERNS.test(text);
 }
 
 /** Prepend the AI disclosure when this is the agent's first customer message. */

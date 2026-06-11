@@ -28,6 +28,7 @@ import { getSecret } from "./workspace-settings";
 import { ensureCrmPerson } from "./inbox-crm-link";
 import { scanInboundReply } from "./reviews/inbound-scanner";
 import { classifyMessagingBody } from "./inbox-triage";
+import { looksDeclined, recordAgentDecline } from "./agent/agent-suppress";
 
 // ─── Settings keys ────────────────────────────────────────────────────────────
 // App-level values, stored once per workspace in workspace_settings (encrypted).
@@ -398,6 +399,10 @@ export async function ingestInboundWhatsAppMessage(params: {
   // become "info", everything else stays "lead").
   const triage = classifyMessagingBody(previewText, peerName);
 
+  // Opt-out: a STOP / clear decline must never arm the agent and must suppress
+  // all future automated outreach to this person (recorded below once conv exists).
+  const declined = looksDeclined(body) || looksDeclined(previewText);
+
   if (!conv) {
     const [created] = await db
       .insert(inboxConversations)
@@ -413,7 +418,7 @@ export async function ingestInboundWhatsAppMessage(params: {
         lane: triage.lane,
         classificationReason: triage.reason,
         classifiedBy: triage.by,
-        aiNeedsReply: triage.lane === "lead",
+        aiNeedsReply: triage.lane === "lead" && !declined,
         aiLastInboundAt: sentAt,
       })
       .returning();
@@ -442,14 +447,23 @@ export async function ingestInboundWhatsAppMessage(params: {
         lastMessagePreview: preview,
         unreadCount: (conv.unreadCount ?? 0) + 1,
         // Only arm the agent for real lead messages; an OTP-style follow-up on an
-        // existing thread should not trigger a reply.
-        aiNeedsReply: triage.lane === "lead",
+        // existing thread should not trigger a reply. A STOP/decline never arms it.
+        aiNeedsReply: triage.lane === "lead" && !declined,
         aiLastInboundAt: sentAt,
         // Re-open resolved/spam conversations when the customer writes back
         ...(conv.status !== "open" ? { status: "open" } : {}),
         updatedAt: new Date(),
       })
       .where(eq(inboxConversations.id, conv.id));
+  }
+
+  // Record the opt-out across all engines (idempotent, non-blocking).
+  if (declined && conv) {
+    await recordAgentDecline(account.workspaceId, {
+      phone: peerWaId,
+      conversationId: conv.id,
+      reason: "customer_stop",
+    });
   }
 
   let messageId: string | null = null;

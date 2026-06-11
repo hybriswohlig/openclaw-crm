@@ -25,6 +25,7 @@ import {
   inboxConversations,
   inboxMessages,
   inboxMessageAttachments,
+  inboxContacts,
   channelAccounts,
 } from "@/db/schema/inbox";
 import { activityEvents } from "@/db/schema";
@@ -32,6 +33,7 @@ import { z } from "zod";
 import { runAITask, humanizeGerman } from "@/services/ai/run-task";
 import { AI_TASK_SLUGS } from "@/services/ai/task-registry";
 import { sendPush } from "@/services/push";
+import { WhatsAppSessionExpiredError } from "@/services/inbox-whatsapp";
 import { emitEvent } from "@/services/activity-events";
 import { extractDealInsights } from "@/services/deal-insights";
 import { applyDealInsights } from "@/services/deal-insights-apply";
@@ -55,6 +57,8 @@ import {
   resolveBrandSignature,
   isMoveDatePast,
   looksDeclined,
+  leaksPriceOrCommitment,
+  isAgentSuppressed,
 } from "./agent-shared";
 import { ensureAgentPriceTask } from "./agent-tasks";
 
@@ -133,6 +137,8 @@ interface DueConversation {
   waPhoneNumberId: string | null;
   baileysBridgeProvider: string | null;
   operatingCompanyRecordId: string | null;
+  contactPhone: string | null;
+  contactEmail: string | null;
 }
 
 async function selectDueConversations(
@@ -151,9 +157,12 @@ async function selectDueConversations(
       waPhoneNumberId: channelAccounts.waPhoneNumberId,
       baileysBridgeProvider: channelAccounts.baileysBridgeProvider,
       operatingCompanyRecordId: channelAccounts.operatingCompanyRecordId,
+      contactPhone: inboxContacts.phone,
+      contactEmail: inboxContacts.email,
     })
     .from(inboxConversations)
     .innerJoin(channelAccounts, eq(inboxConversations.channelAccountId, channelAccounts.id))
+    .leftJoin(inboxContacts, eq(inboxConversations.contactId, inboxContacts.id))
     .where(
       and(
         eq(inboxConversations.workspaceId, workspaceId),
@@ -393,6 +402,14 @@ async function processConversation(
   // Claim atomically so no two ticks process (and send) the same conversation.
   if (!(await claimConversation(conv.id))) return;
 
+  // Opted out? A STOP on any thread suppresses all automated outreach to this
+  // person. Disarm and leave them alone (Art. 21 DSGVO).
+  if (await isAgentSuppressed(conv.workspaceId, { phone: conv.contactPhone, email: conv.contactEmail })) {
+    await stampInboundProcessed(conv.id, now);
+    summary.noops += 1;
+    return;
+  }
+
   const messages = await loadRecentMessages(conv.id);
 
   // Only reply if the CUSTOMER wrote last. If our last message is outbound (we or
@@ -508,8 +525,27 @@ async function processConversation(
     disclosureClause(opts.discloseAi, brand);
   const turn = await runTurn(conv.workspaceId, system, buildTurnPrompt(transcript, insights));
   if (!turn) {
+    // The model failed (timeout/parse). The claim already cleared aiNeedsReply,
+    // so re-arm it (without stamping the inbound) so the next tick retries this
+    // due lead instead of silently dropping it.
+    await db
+      .update(inboxConversations)
+      .set({ aiNeedsReply: true, updatedAt: new Date() })
+      .where(eq(inboxConversations.id, conv.id));
     summary.errors += 1;
     return;
+  }
+
+  // Deterministic guard: the human ALWAYS makes the price/offer. If the model's
+  // "ask" turn slipped in a price or a booking commitment, do not send it —
+  // convert to a handoff so the customer gets the courtesy line and a human
+  // takes over (owner rule 2026-06-11). The model can never override this.
+  if (turn.action === "ask" && leaksPriceOrCommitment(turn.message_de)) {
+    turn.owner_note =
+      `KI-Entwurf enthielt Preis/Zusage, automatisch zur Übergabe umgeleitet: "${turn.message_de.slice(0, 140)}"`;
+    turn.reason = "blocked_price_or_commitment";
+    turn.action = "handoff";
+    turn.message_de = "";
   }
 
   // If disclosure is ON and this is the agent's first customer-facing message on
@@ -551,9 +587,35 @@ async function processConversation(
       await sendOnChannel(conv, outgoing);
       summary.sent += 1;
     } catch (err) {
+      if (err instanceof WhatsAppSessionExpiredError) {
+        // WABA 24h customer-service window is closed: a free-form retry can
+        // never succeed until the customer writes again (which re-arms the flag
+        // at ingest). Do NOT re-arm, or the per-minute cron loops forever on a
+        // doomed send. Stamp, flag the owner to reply manually or via template.
+        await stampInboundProcessed(conv.id, now);
+        const owners = await ownerUserIds(conv.workspaceId);
+        if (owners.length > 0) {
+          await sendPush(
+            {
+              title: "WhatsApp-Antwort nicht möglich",
+              body: "Das 24-Stunden-Fenster ist zu. Bitte manuell oder per Vorlage antworten.",
+              url: conv.dealRecordId ? `/objects/deals/${conv.dealRecordId}` : "/inbox",
+              tag: `agent-waba-expired-${conv.id}`,
+            },
+            { workspaceId: conv.workspaceId, userIds: owners }
+          );
+        }
+        summary.errors += 1;
+        return;
+      }
       console.error("[agent-worker] send failed:", err);
+      // Transient failure: re-arm (the claim cleared the flag) so the next tick
+      // retries; do not stamp the inbound.
+      await db
+        .update(inboxConversations)
+        .set({ aiNeedsReply: true, updatedAt: new Date() })
+        .where(eq(inboxConversations.id, conv.id));
       summary.errors += 1;
-      // Leave aiNeedsReply set so a retry/human can pick it up; do not stamp.
       return;
     }
     await emitAgentEvent(conv, "live", turn, outgoing);

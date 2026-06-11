@@ -63,6 +63,9 @@ import {
   resolveBrandSignature,
   getDecidedStageIds,
   getDealStageId,
+  OPT_OUT_LINE,
+  isAgentSuppressed,
+  leaksPriceOrCommitment,
 } from "./agent-shared";
 
 const MAX_PER_TICK = 5;
@@ -71,12 +74,6 @@ const MAX_PER_TICK = 5;
 const MAX_LEAD_AGE_MS = 48 * 60 * 60 * 1000;
 // A 'claimed' marker older than this is a crashed tick; retry once.
 const STALE_CLAIM_MS = 15 * 60 * 1000;
-
-// Deterministic opt-out, appended to every live free-form first message. An
-// objection is absolute (Art. 21 DSGVO), so the wording must make it trivial.
-// Du-Form to match the opener's register (owner style decision 2026-06-11).
-const OPT_OUT_LINE =
-  "PS: Wenn du keine Nachrichten mehr von uns willst, antworte einfach mit STOP.";
 
 export interface FirstContactRunSummary {
   enabledWorkspaces: number;
@@ -216,6 +213,7 @@ interface MovingLeadPayload {
     lastName?: string;
     phone?: string;
     phone2?: string;
+    email?: string;
   };
   from?: {
     street?: string;
@@ -310,8 +308,6 @@ function analyzeLead(p: MovingLeadPayload): { facts: string[]; missing: string[]
 }
 
 // ── Output sanitizing (deterministic, the model can never override) ─────────
-
-const PRICE_RE = /\d{2,6}\s?(€|EUR|Euro)\b/i;
 
 /** No dashes in customer copy: ranges become "bis", asides become commas. */
 function stripDashes(text: string): string {
@@ -537,6 +533,16 @@ async function runForWorkspace(
         continue;
       }
 
+      // 1b. Opted out? A STOP on ANY prior thread (this or another deal, phone
+      // or email) suppresses outreach to this person, full stop (Art. 21 DSGVO).
+      if (await isAgentSuppressed(workspaceId, { phone: e164, email: p.client?.email })) {
+        if (await claimLead(lead.rvId, nowIso, staleCutoffIso)) {
+          await markLead(lead.rvId, { status: "skipped_opted_out", at: nowIso });
+        }
+        summary.skipped += 1;
+        continue;
+      }
+
       // 2. Move date sanity: never open a thread about a past move.
       const desired = p.dates?.desiredFrom ?? null;
       if (desired && desired.slice(0, 10) < todayKey) {
@@ -739,8 +745,9 @@ async function runForWorkspace(
       }
 
       const sanitized = stripDashes(result.output.message_de.trim());
-      // Deterministic guard: a first message with a price never leaves the house.
-      if (PRICE_RE.test(sanitized)) {
+      // Deterministic guard: a first message with a price or commitment never
+      // leaves the house (shared regex, same one the reply/follow-up agents use).
+      if (leaksPriceOrCommitment(sanitized)) {
         await markLead(lead.rvId, { status: "blocked_price", at: nowIso });
         await emitEvent({
           workspaceId,

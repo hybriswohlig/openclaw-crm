@@ -35,6 +35,7 @@ import { emitEvent } from "./activity-events";
 import { ensureCrmPerson, resolveOrCreatePerson } from "./inbox-crm-link";
 import { extractPhonesFromText } from "@/lib/identity/canonical";
 import { classifyInbound } from "./inbox-triage";
+import { looksDeclined, recordAgentDecline } from "./agent/agent-suppress";
 import { getSecret } from "./workspace-settings";
 import { isImmoscoutLeadEmail, parseImmoscoutLeadEmail } from "./inbox-immoscout";
 import { findExistingMovingLeadDeal, setDealMovingLead } from "./immoscout-sync";
@@ -269,6 +270,10 @@ async function ingestParsedEmail(
     body,
   });
 
+  // Opt-out: a STOP / clear decline must never arm the agent. IS24 mails come
+  // from a no-reply address, so only treat real two-way threads as opt-outs.
+  const declined = !isImmoLead && looksDeclined(body);
+
   if (!conv) {
     const [created] = await db
       .insert(inboxConversations)
@@ -287,7 +292,7 @@ async function ingestParsedEmail(
         // IS24 leads land in the lead lane but get NO auto-reply: the sender is
         // a no-reply notification address, not a channel back to the customer.
         // The team works the lead from the created deal (phone/email in the body).
-        aiNeedsReply: isImmoLead ? false : triage.lane === "lead",
+        aiNeedsReply: isImmoLead ? false : triage.lane === "lead" && !declined,
         aiLastInboundAt: sentAt,
       })
       .returning();
@@ -349,13 +354,22 @@ async function ingestParsedEmail(
         lastMessageAt: sentAt,
         lastMessagePreview: preview,
         unreadCount: (conv.unreadCount ?? 0) + 1,
-        aiNeedsReply: true,
+        aiNeedsReply: !declined,
         aiLastInboundAt: sentAt,
         // Re-open resolved/spam conversations when the customer writes back
         ...(conv.status !== "open" ? { status: "open" } : {}),
         updatedAt: new Date(),
       })
       .where(eq(inboxConversations.id, conv.id));
+  }
+
+  // Record the opt-out across all engines (idempotent, non-blocking).
+  if (declined && conv) {
+    await recordAgentDecline(account.workspaceId, {
+      email: fromEmail,
+      conversationId: conv.id,
+      reason: "customer_stop",
+    });
   }
 
   // Insert message

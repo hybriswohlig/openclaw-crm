@@ -22,3 +22,4 @@ export * from "./push-subscriptions";
 export * from "./customer-portal";
 export * from "./reviews";
 export * from "./identity";
+export * from "./agent";
