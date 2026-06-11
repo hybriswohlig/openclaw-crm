@@ -20,7 +20,7 @@
  */
 
 import { db } from "@/db";
-import { and, asc, eq, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
   inboxConversations,
   inboxMessages,
@@ -169,10 +169,14 @@ async function selectDueConversations(
         eq(inboxConversations.aiNeedsReply, true),
         eq(inboxConversations.aiPaused, false),
         eq(inboxConversations.lane, "lead"),
-        or(isNull(inboxConversations.aiHoldUntil), lte(inboxConversations.aiHoldUntil, now)),
+        // Date params are passed as ISO strings with an explicit ::timestamptz
+        // cast. A raw JS Date interpolated into s`` is handed to the postgres
+        // driver untyped and throws ("Received an instance of Date"), which
+        // crashed every agent run; a string + cast is bullet-proof.
+        sql`(${inboxConversations.aiHoldUntil} IS NULL OR ${inboxConversations.aiHoldUntil} <= ${now.toISOString()}::timestamptz)`,
         // Freshness: only recent inbound. Prevents draining a stale backlog when
         // the agent is first switched on.
-        sql`${inboxConversations.aiLastInboundAt} IS NOT NULL AND ${inboxConversations.aiLastInboundAt} >= ${new Date(now.getTime() - MAX_LEAD_AGE_MS)}`,
+        sql`${inboxConversations.aiLastInboundAt} IS NOT NULL AND ${inboxConversations.aiLastInboundAt} >= ${new Date(now.getTime() - MAX_LEAD_AGE_MS).toISOString()}::timestamptz`,
       )
     )
     .orderBy(asc(inboxConversations.aiLastInboundAt))

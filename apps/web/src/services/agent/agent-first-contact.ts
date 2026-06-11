@@ -29,7 +29,7 @@
  */
 
 import { db } from "@/db";
-import { and, asc, eq, gte, isNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
 import { records, recordValues } from "@/db/schema/records";
 import { attributes } from "@/db/schema/objects";
 import { inboxConversations, channelAccounts } from "@/db/schema/inbox";
@@ -356,7 +356,7 @@ async function attemptsLast24h(workspaceId: string, now: Date): Promise<number> 
       and(
         eq(activityEvents.workspaceId, workspaceId),
         eq(activityEvents.eventType, "agent.action"),
-        gte(activityEvents.createdAt, cutoff),
+        sql`${activityEvents.createdAt} >= ${cutoff.toISOString()}::timestamptz`,
         sql`${activityEvents.payload}->>'action' = 'first_contact'`
       )
     )) as Array<{ n: number }>;
@@ -493,7 +493,8 @@ async function runForWorkspace(
         isNull(records.deletedAt),
         eq(recordValues.attributeId, payloadAttr.id),
         sql`${recordValues.jsonValue}->>'source' = 'immoscout24'`,
-        gte(records.createdAt, watermark),
+        // ISO string + cast (a raw JS Date in s`` throws in the postgres driver).
+        sql`${records.createdAt} >= ${watermark.toISOString()}::timestamptz`,
         sql`((${recordValues.jsonValue}->>'firstContact') IS NULL OR (${recordValues.jsonValue}#>>'{firstContact,status}' = 'claimed' AND ${recordValues.jsonValue}#>>'{firstContact,at}' < ${staleCutoffIso}))`
       )
     )

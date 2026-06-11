@@ -13,7 +13,7 @@
  */
 
 import { db } from "@/db";
-import { and, asc, eq, lt, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { inboxConversations, inboxMessages, inboxContacts, channelAccounts } from "@/db/schema/inbox";
 import { z } from "zod";
 import { runAITask, humanizeGerman } from "@/services/ai/run-task";
@@ -179,9 +179,11 @@ async function runForWorkspace(
         eq(inboxConversations.aiPaused, false),
         eq(inboxConversations.lane, "lead"),
         eq(inboxConversations.status, "open"),
-        lt(inboxConversations.lastMessageAt, cutoff),
+        // Date params as ISO strings + ::timestamptz cast — a raw JS Date in s``
+        // is handed to the postgres driver untyped and throws.
+        sql`${inboxConversations.lastMessageAt} < ${cutoff.toISOString()}::timestamptz`,
         // Upper age bound: do not nudge stale backlog threads.
-        sql`${inboxConversations.lastMessageAt} > ${new Date(now.getTime() - FOLLOWUP_MAX_AGE_DAYS * 86_400_000)}`
+        sql`${inboxConversations.lastMessageAt} > ${new Date(now.getTime() - FOLLOWUP_MAX_AGE_DAYS * 86_400_000).toISOString()}::timestamptz`
       )
     )
     .orderBy(asc(inboxConversations.lastMessageAt))
