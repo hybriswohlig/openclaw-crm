@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { MessageCircle } from "lucide-react";
 import type { CustomerPortalContext } from "@openclaw-crm/customer-portal-core";
 import { LiveMediaFeed } from "./live-media-feed";
@@ -12,7 +12,6 @@ import { HourlyClock } from "./hourly-clock";
  *   2. Hourly billing clock (only when the offer is variable / hourly)
  *   3. Live media feed of crew-sent photos with captions
  *   4. WhatsApp direct-message button to the responsible party
- *   5. Live-tracking coming-soon placeholder
  */
 export function StageThreeLive({
   token,
@@ -52,16 +51,6 @@ export function StageThreeLive({
           primaryColor={ctx.branding.primaryColor}
         />
       )}
-
-      <div className="rounded-2xl border border-dashed border-border bg-muted/30 p-5 text-sm">
-        <div className="font-medium text-muted-foreground">
-          Live-Tracking · in Kürze verfügbar
-        </div>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Schon bald siehst du den Standort des Transporters und der Crew live
-          auf einer Karte.
-        </p>
-      </div>
     </section>
   );
 }
@@ -84,18 +73,15 @@ function WhatsAppButton({
   firma: string;
   primaryColor: string;
 }) {
-  const [href, setHref] = useState<string>("");
-  useEffect(() => {
-    const text = encodeURIComponent(
-      `Hallo ${firma}, ich habe eine Frage zu meinem Umzug ${dealNumber}.`
-    );
-    const phone = phoneE164.replace(/^\+/, "").replace(/\s/g, "");
-    setHref(`https://wa.me/${phone}?text=${text}`);
-  }, [phoneE164, dealNumber, firma]);
+  const text = encodeURIComponent(
+    `Hallo ${firma}, ich habe eine Frage zu meinem Umzug ${dealNumber}.`
+  );
+  const phone = phoneE164.replace(/^\+/, "").replace(/\s/g, "");
+  const href = `https://wa.me/${phone}?text=${text}`;
 
   return (
     <a
-      href={href || "#"}
+      href={href}
       target="_blank"
       rel="noopener noreferrer"
       className="flex items-center justify-between gap-3 rounded-2xl border border-border/50 bg-card px-5 py-4 transition-colors hover:bg-accent"
@@ -110,7 +96,7 @@ function WhatsAppButton({
         <div>
           <div className="text-sm font-medium">Frage stellen</div>
           <div className="text-xs text-muted-foreground">
-            Direkt per WhatsApp an deine:n Ansprechpartner:in
+            Direkt per WhatsApp an Ihren Ansprechpartner
           </div>
         </div>
       </div>

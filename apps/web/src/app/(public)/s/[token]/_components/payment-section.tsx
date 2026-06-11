@@ -32,11 +32,13 @@ export function PaymentSection({
 }) {
   const [marking, setMarking] = useState(false);
   const [marked, setMarked] = useState(false);
+  const [markError, setMarkError] = useState(false);
 
   async function markPaid() {
     setMarking(true);
+    setMarkError(false);
     try {
-      await fetch(`/api/public/${token}/marked-paid`, {
+      const res = await fetch(`/api/public/${token}/marked-paid`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -45,7 +47,13 @@ export function PaymentSection({
           variant,
         }),
       });
-      setMarked(true);
+      if (res.ok) {
+        setMarked(true);
+      } else {
+        setMarkError(true);
+      }
+    } catch {
+      setMarkError(true);
     } finally {
       setMarking(false);
     }
@@ -69,10 +77,7 @@ export function PaymentSection({
           <div className="text-sm text-muted-foreground">Offener Betrag</div>
           <div className="text-2xl font-medium tabular-nums">{amountStr}</div>
         </div>
-        <div className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-          Verwendungszweck:{" "}
-          <code className="break-all font-mono">{payment.reference}</code>
-        </div>
+        <CopyField label="Verwendungszweck" value={payment.reference} />
 
         {payment.method === "bank_transfer" && payment.bank?.iban ? (
           <BankTransferBlock payment={payment} branding={branding} />
@@ -92,14 +97,21 @@ export function PaymentSection({
             uns angekommen ist.
           </div>
         ) : (
-          <button
-            type="button"
-            onClick={markPaid}
-            disabled={marking}
-            className="h-10 w-full rounded-xl border border-border bg-background text-sm font-medium hover:bg-accent disabled:opacity-50"
-          >
-            {marking ? "Wird gesendet…" : "Ich habe bezahlt"}
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={markPaid}
+              disabled={marking}
+              className="h-10 w-full rounded-xl border border-border bg-background text-sm font-medium hover:bg-accent disabled:opacity-50"
+            >
+              {marking ? "Wird gesendet…" : "Ich habe bezahlt"}
+            </button>
+            {markError && (
+              <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                Konnte nicht gesendet werden. Bitte versuchen Sie es erneut.
+              </p>
+            )}
+          </>
         )}
       </div>
     </section>
@@ -126,13 +138,18 @@ function BankTransferBlock({
         )}
         <div className="min-w-0 flex-1 space-y-2 text-sm">
           <p className="text-xs text-muted-foreground">
-            Banking-App öffnen → QR scannen → IBAN, Betrag und Verwendungszweck
-            sind vorausgefüllt.
+            Banking-App öffnen und QR-Code scannen: IBAN, Betrag und
+            Verwendungszweck sind vorausgefüllt.
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Sie lesen das auf dem Handy? Machen Sie einen Screenshot und
+            scannen Sie den Code in Ihrer Banking-App aus der Galerie. Oder
+            kopieren Sie einfach die Felder unten.
           </p>
           <CopyField label="Kontoinhaber" value={bank.holder} />
           <CopyField label="IBAN" value={formatIban(bank.iban)} copyValue={bank.iban.replace(/\s/g, "")} />
           {bank.bic && <CopyField label="BIC" value={bank.bic} />}
-          <CopyField label="Betrag" value={new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(payment.amountCents / 100)} copyValue={(payment.amountCents / 100).toFixed(2)} />
+          <CopyField label="Betrag" value={new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(payment.amountCents / 100)} copyValue={(payment.amountCents / 100).toFixed(2).replace(".", ",")} />
         </div>
       </div>
     </div>
@@ -143,8 +160,8 @@ function PayPalBlock({ url, branding }: { url: string; branding: FirmaBranding }
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">
-        Tippe auf den Button, um die Zahlung in der PayPal-App zu öffnen. Betrag
-        und Empfänger sind vorausgefüllt.
+        Tippen Sie auf den Button, um die Zahlung in der PayPal-App zu öffnen.
+        Betrag und Empfänger sind vorausgefüllt.
       </p>
       <a
         href={url}
@@ -166,8 +183,8 @@ function CashBlock() {
     <div className="rounded-md bg-muted/50 px-4 py-3 text-sm">
       <strong className="block">Zahlung bar bei Übergabe</strong>
       <p className="mt-1 text-xs text-muted-foreground">
-        Bitte halte den passenden Betrag bereit. Eine Quittung erhältst du
-        unmittelbar nach Abschluss des Umzugs.
+        Bitte halten Sie den passenden Betrag bereit. Eine Quittung erhalten
+        Sie unmittelbar nach Abschluss des Umzugs.
       </p>
     </div>
   );
@@ -179,8 +196,8 @@ function CardComingSoonBlock() {
       <strong className="block">Kartenzahlung</strong>
       <p className="mt-1 text-muted-foreground">
         Wir nehmen Visa, Mastercard und Girocard vor Ort entgegen. Eine
-        Online-Kartenzahlung bauen wir gerade. Bei Fragen melde dich bitte
-        kurz bei deinem Ansprechpartner.
+        Online-Kartenzahlung bauen wir gerade. Bei Fragen melden Sie sich
+        bitte kurz bei Ihrem Ansprechpartner.
       </p>
     </div>
   );
@@ -189,8 +206,8 @@ function CardComingSoonBlock() {
 function UnconfiguredHint() {
   return (
     <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-200">
-      Für diesen Auftrag sind noch keine Zahldaten hinterlegt. Bitte melde dich
-      kurz beim Ansprechpartner.
+      Für diesen Auftrag sind noch keine Zahldaten hinterlegt. Bitte melden
+      Sie sich kurz beim Ansprechpartner.
     </div>
   );
 }
@@ -225,11 +242,14 @@ function CopyField({
       <button
         type="button"
         onClick={copy}
-        className="shrink-0 text-muted-foreground hover:text-foreground"
+        className="-my-2 -mr-2 flex min-h-11 min-w-11 shrink-0 items-center justify-center text-muted-foreground hover:text-foreground"
         aria-label={`${label} kopieren`}
       >
         {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
       </button>
+      <span aria-live="polite" className="sr-only">
+        {copied ? `${label} kopiert` : ""}
+      </span>
     </div>
   );
 }

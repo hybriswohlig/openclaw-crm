@@ -9,6 +9,7 @@
  * in `services/customer-portal-data.ts`. The day the portal moves to its own
  * app, this page swaps that import for an HTTP fetch and works unchanged.
  */
+import { cache } from "react";
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -19,6 +20,10 @@ import { NotFoundNotice } from "./_components/not-found-notice";
 import { FeatureDisabledNotice } from "./_components/feature-disabled-notice";
 
 export const dynamic = "force-dynamic";
+
+// Per-request dedup: generateMetadata and the page body both need the
+// context, cache() makes that a single DB round trip per request.
+const getCtx = cache(loadContextByToken);
 
 /**
  * Per-firma link preview. Reads the token, pulls the operating-company
@@ -34,7 +39,7 @@ export async function generateMetadata({
   params: Promise<{ token: string }>;
 }): Promise<Metadata> {
   const { token } = await params;
-  const ctx = await loadContextByToken(token).catch(() => null);
+  const ctx = await getCtx(token).catch(() => null);
 
   if (!ctx) {
     return {
@@ -47,8 +52,8 @@ export async function generateMetadata({
   const firma = ctx.branding.displayName;
   const title = `${firma} · Auftrag ${ctx.dealNumber}`;
   const description = ctx.customerDisplayName
-    ? `Auftrag ${ctx.dealNumber} für ${ctx.customerDisplayName} — Angebot, Status und Bestätigung.`
-    : `Auftrag ${ctx.dealNumber} — Angebot, Status und Bestätigung.`;
+    ? `Auftrag ${ctx.dealNumber} für ${ctx.customerDisplayName}: Angebot, Status und Bestätigung.`
+    : `Auftrag ${ctx.dealNumber}: Angebot, Status und Bestätigung.`;
 
   return {
     title,
@@ -75,7 +80,7 @@ export default async function PublicStatusPage({
   params: Promise<{ token: string }>;
 }) {
   const { token } = await params;
-  const ctx = await loadContextByToken(token);
+  const ctx = await getCtx(token);
 
   if (!ctx) {
     return <NotFoundNotice />;
@@ -83,7 +88,7 @@ export default async function PublicStatusPage({
 
   // Per-OC feature toggle: short-circuit before doing anything else.
   if (ctx.meta.featureDisabled) {
-    return <FeatureDisabledNotice firmaDisplayName={ctx.branding.displayName} />;
+    return <FeatureDisabledNotice whatsappNumberE164={ctx.branding.whatsappNumberE164} />;
   }
 
   // Canonical-host redirect: if the OC has its own verified custom domain
@@ -105,7 +110,12 @@ export default async function PublicStatusPage({
   bumpView(token).catch(() => {});
 
   if (ctx.meta.revoked) {
-    return <RevokedNotice firmaDisplayName={ctx.branding.displayName} />;
+    return (
+      <RevokedNotice
+        firmaDisplayName={ctx.branding.displayName}
+        whatsappNumberE164={ctx.branding.whatsappNumberE164}
+      />
+    );
   }
 
   return <StagePortal token={token} ctx={ctx} />;

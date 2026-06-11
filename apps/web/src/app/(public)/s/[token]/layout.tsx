@@ -1,5 +1,23 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./portal.css";
+
+/**
+ * Overrides the root layout's viewport for the portal segment: customers
+ * may pinch-zoom here (the CRM locks zoom for its app chrome), and the
+ * browser UI tint follows the Berlin Blue palette from portal.css instead
+ * of the CRM theme colours.
+ */
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+  userScalable: true,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f7f8fa" },
+    { media: "(prefers-color-scheme: dark)", color: "#0b111b" },
+  ],
+};
 
 /**
  * Defaults only. The page-level `generateMetadata` below in

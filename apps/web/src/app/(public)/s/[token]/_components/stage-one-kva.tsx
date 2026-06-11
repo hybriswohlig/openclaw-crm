@@ -76,6 +76,34 @@ export function StageOneKva({
       <div className="grid gap-6 lg:grid-cols-[1fr_360px] lg:items-start lg:gap-10">
         {/* ── Left column: details ───────────────────────────────────── */}
         <div className="space-y-5">
+          {/* Mobile acceptance feedback. The wrapper stays mounted (empty
+              before acceptance) so screen readers announce the card right
+              after the dialog submit; empty:mb-0 keeps the space-y rhythm
+              intact until then. Desktop shows the status in the right rail. */}
+          <div aria-live="polite" className="lg:hidden empty:mb-0">
+            {alreadyAccepted && (
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-200">
+                <div className="flex items-center gap-2 font-medium">
+                  <span aria-hidden>✓</span>
+                  Angebot angenommen
+                </div>
+                <p className="mt-1 leading-relaxed">
+                  Bestätigt am{" "}
+                  {new Date(ctx.acceptance!.signedAt).toLocaleString("de-DE", {
+                    dateStyle: "long",
+                    timeStyle: "short",
+                  })}
+                  .
+                </p>
+                <p className="mt-2 leading-relaxed">
+                  {ctx.payment && ctx.payment.amountCents > 0
+                    ? "Damit Ihr Termin fest reserviert ist, überweisen Sie bitte die Anzahlung. Alle Zahlungsdaten finden Sie unten."
+                    : "Sie erhalten Ihre Auftragsbestätigung in Kürze per E-Mail."}
+                </p>
+              </div>
+            )}
+          </div>
+
           <EmailCaptureBanner
             token={token}
             status={ctx.customerEmailStatus}
@@ -101,6 +129,11 @@ export function StageOneKva({
               </p>
             </div>
           )}
+
+          {/* Mobile price details. The right rail is desktop only, so validity,
+              deposit and trust signals need a home in the column as well. The
+              sticky bottom bar keeps owning the accept CTA. */}
+          {ctx.kva && !alreadyAccepted && <MobilePriceDetails ctx={ctx} />}
 
           <PackageSelector
             token={token}
@@ -167,7 +200,7 @@ export function StageOneKva({
             ) : (
               <ChooseOfferPrompt branding={ctx.branding} />
             )}
-            <TrustLine branding={ctx.branding} />
+            <TrustLine branding={ctx.branding} isVariable={!!ctx.kva?.isVariable} />
           </div>
         </aside>
       </div>
@@ -365,10 +398,56 @@ function PriceCard({
   );
 }
 
-function TrustLine({ branding }: { branding: { firmaSlug: string; displayName: string } }) {
+/**
+ * Compact lg:hidden companion of the PriceCard for the left column. Carries
+ * the price context the rail would otherwise show (label, validity, deposit,
+ * trust line). No CTA here, the mobile sticky bottom bar owns the button.
+ */
+function MobilePriceDetails({ ctx }: { ctx: CustomerPortalContext }) {
+  const kva = ctx.kva!;
+  return (
+    <div className="space-y-3 lg:hidden">
+      <div className="rounded-2xl border bg-card px-5 py-4 shadow-sm">
+        <div className="text-xs text-muted-foreground">
+          {kva.isVariable ? "Voraussichtlich" : "Festpreis inkl. MwSt."}
+        </div>
+        <div className="display mt-1 text-3xl font-medium tabular-nums leading-none tracking-tight">
+          {formatEurCents(kva.totalCents)}
+        </div>
+        {kva.validUntil && (
+          <div className="mt-2 text-[11px] text-muted-foreground">
+            Gültig bis{" "}
+            {new Date(kva.validUntil).toLocaleDateString("de-DE", {
+              day: "numeric",
+              month: "long",
+              year: "numeric",
+            })}
+          </div>
+        )}
+        {kva.depositRequiredCents && kva.depositRequiredCents > 0 ? (
+          <div className="mt-3 rounded-lg bg-muted/50 px-3 py-2 text-[11px] leading-relaxed">
+            <strong className="font-medium">Anzahlung</strong>{" "}
+            {formatEurCents(kva.depositRequiredCents)} zur Auftragsbestätigung.
+          </div>
+        ) : null}
+      </div>
+      <TrustLine branding={ctx.branding} isVariable={kva.isVariable} />
+    </div>
+  );
+}
+
+function TrustLine({
+  branding,
+  isVariable,
+}: {
+  branding: { firmaSlug: string; displayName: string };
+  isVariable: boolean;
+}) {
   return (
     <div className="px-1 text-center text-[11px] leading-relaxed text-muted-foreground">
-      Versicherter Transport. Kein Aufpreis am Tag.
+      {isVariable
+        ? "Versicherter Transport. Transparente Abrechnung nach Aufwand."
+        : "Versicherter Transport. Kein Aufpreis am Tag."}
       <br />
       Persönlicher Ansprechpartner bei {branding.displayName}.
     </div>

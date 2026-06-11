@@ -19,6 +19,7 @@ import { objects, attributes } from "@/db/schema/objects";
 import { records, recordValues } from "@/db/schema/records";
 import { dealNumbers } from "@/db/schema/financial";
 import { customerStatusLinks } from "@/db/schema/customer-portal";
+import { isKleinanzeigenRelayAddress } from "./inbox-kleinanzeigen";
 import { loadEffectiveBranding } from "./customer-portal-config";
 import type {
   FirmaBranding,
@@ -164,7 +165,11 @@ async function loadCustomerEmail(
     .limit(1);
   if (!emailAttr) return null;
 
-  const [val] = await db
+  // Walk all addresses lowest sortOrder first (the operator's primary pick)
+  // and skip Kleinanzeigen relay rows: those anonymising addresses must never
+  // receive the confirmation. If only relay rows exist we return null and the
+  // caller skips the send (reason "no_customer_email").
+  const rows = await db
     .select({ textValue: recordValues.textValue })
     .from(recordValues)
     .where(
@@ -173,8 +178,13 @@ async function loadCustomerEmail(
         eq(recordValues.attributeId, emailAttr.id)
       )
     )
-    .limit(1);
-  return val?.textValue ?? null;
+    .orderBy(recordValues.sortOrder);
+  for (const r of rows) {
+    if (!r.textValue || !r.textValue.includes("@")) continue;
+    if (isKleinanzeigenRelayAddress(r.textValue)) continue;
+    return r.textValue;
+  }
+  return null;
 }
 
 async function loadOperatingCompanyRecordId(

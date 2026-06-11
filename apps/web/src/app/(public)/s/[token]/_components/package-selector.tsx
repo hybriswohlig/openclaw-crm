@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Check, Loader2 } from "lucide-react";
+import { WhatsAppContactLink } from "./whatsapp-contact-link";
 import type {
   DealPackageOffersContext,
   DealPackageOption,
@@ -162,12 +163,12 @@ function DealOptionPicker({
           <span className="tabular-nums">
             {formatEurCents(selected.priceCents)}
           </span>
-          {locked ? " (verbindlich)" : " — Sie können oben jederzeit umwählen."}
+          {locked ? " (verbindlich)" : ". Sie können oben jederzeit umwählen."}
         </p>
       ) : (
         <p className="text-[11px] text-muted-foreground">
-          Wählen Sie eine der Optionen. Der Preis oben rechts übernimmt
-          automatisch Ihre Auswahl.
+          Wählen Sie eine der Optionen. Der angezeigte Gesamtpreis übernimmt
+          Ihre Auswahl automatisch.
         </p>
       )}
     </section>
@@ -240,6 +241,7 @@ function CataloguePicker({
             key={p.slug}
             pkg={p}
             accent={accent}
+            branding={branding}
             isSelected={p.slug === currentSlug}
             isPending={pendingSlug === p.slug}
             disabled={locked || (pendingSlug != null && pendingSlug !== p.slug)}
@@ -258,15 +260,18 @@ function CataloguePicker({
         <p className="text-[11px] text-muted-foreground">
           Ihr Angebot basiert auf dem Paket{" "}
           <strong className="text-foreground">
-            {packages.available.find((p) => p.slug === currentSlug)?.displayName ??
-              currentSlug}
+            {packages.available.find((p) => p.slug === currentSlug)
+              ?.displayName ?? currentSlug}
           </strong>
-          {locked ? " (verbindlich)" : ". Sie können oben jederzeit ein anderes Paket wählen"}.
+          {locked
+            ? " (verbindlich)"
+            : ". Sie können oben jederzeit ein anderes Paket wählen"}
+          .
         </p>
       ) : (
         <p className="text-[11px] text-muted-foreground">
-          Wählen Sie das Paket, das am besten zu Ihrem Umzug passt. Der Preis
-          oben rechts aktualisiert sich entsprechend.
+          Wählen Sie das Paket, das am besten zu Ihrem Umzug passt. Der
+          angezeigte Gesamtpreis übernimmt Ihre Auswahl automatisch.
         </p>
       )}
     </section>
@@ -397,6 +402,7 @@ function DealOptionCard({
 function PackageCard({
   pkg,
   accent,
+  branding,
   isSelected,
   isPending,
   disabled,
@@ -404,6 +410,7 @@ function PackageCard({
 }: {
   pkg: OfferPackage;
   accent: string;
+  branding: FirmaBranding;
   isSelected: boolean;
   isPending: boolean;
   disabled: boolean;
@@ -413,120 +420,143 @@ function PackageCard({
   const onRequest = !hasPrice;
   const isFixed = pkg.priceFixedFlag && hasPrice;
 
-  return (
-    <li className="relative">
-      <button
-        type="button"
-        onClick={onTap}
-        disabled={disabled || onRequest}
-        aria-pressed={isSelected}
-        className="group relative flex h-full w-full flex-col rounded-2xl border bg-card p-4 text-left transition-all hover:border-foreground/30 hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-70"
-        style={
-          isSelected
-            ? {
-                borderColor: accent,
-                borderWidth: 2,
-                padding: 15,
-                boxShadow: `0 0 0 3px ${accent}1a`,
-              }
-            : undefined
-        }
-      >
-        {pkg.isRecommended && (
-          <span
-            className="absolute -top-2.5 right-4 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white shadow-sm"
-            style={{ background: accent }}
-          >
-            Beliebteste Wahl
-          </span>
-        )}
+  const cardBody = (
+    <>
+      {pkg.isRecommended && (
+        <span
+          className="absolute -top-2.5 right-4 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white shadow-sm"
+          style={{ background: accent }}
+        >
+          Beliebteste Wahl
+        </span>
+      )}
 
-        {/* Price block — calmest, biggest. Reads first. */}
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-              {onRequest
-                ? "Auf Anfrage"
-                : isFixed
-                  ? "Festpreis"
-                  : "ab"}
-            </div>
-            <div className="display mt-0.5 text-2xl font-medium tabular-nums leading-none">
-              {hasPrice ? formatEurCents(pkg.priceFromCents!) : "—"}
-            </div>
+      {/* Price block — calmest, biggest. Reads first. */}
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            {onRequest ? "Auf Anfrage" : isFixed ? "Festpreis" : "ab"}
           </div>
-          {isSelected ? (
-            <span
-              className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
-              style={{ background: accent }}
-              aria-hidden
-            >
-              <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />
-            </span>
-          ) : isPending ? (
-            <span
-              className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border"
-              style={{ borderColor: accent, color: accent }}
-              aria-hidden
-            >
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            </span>
-          ) : null}
+          <div className="display mt-0.5 text-2xl font-medium tabular-nums leading-none">
+            {hasPrice ? formatEurCents(pkg.priceFromCents!) : "Individuell"}
+          </div>
         </div>
+        {isSelected ? (
+          <span
+            className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
+            style={{ background: accent }}
+            aria-hidden
+          >
+            <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />
+          </span>
+        ) : isPending ? (
+          <span
+            className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border"
+            style={{ borderColor: accent, color: accent }}
+            aria-hidden
+          >
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          </span>
+        ) : null}
+      </div>
 
-        {/* Name + short description */}
-        <div className="mt-3">
-          <div className="text-sm font-medium">{pkg.displayName}</div>
-          {pkg.shortDescription && (
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              {pkg.shortDescription}
-            </p>
-          )}
-        </div>
-
-        {/* Included lines */}
-        {pkg.includedItems.length > 0 && (
-          <ul className="mt-3 space-y-1.5 text-xs">
-            {pkg.includedItems.slice(0, 4).map((item, i) => (
-              <li key={i} className="flex items-start gap-2 leading-snug">
-                <Check
-                  className="mt-0.5 h-3 w-3 shrink-0"
-                  strokeWidth={2.5}
-                  style={{ color: accent }}
-                  aria-hidden
-                />
-                <span>{item}</span>
-              </li>
-            ))}
-            {pkg.includedItems.length > 4 && (
-              <li className="text-muted-foreground">
-                und {pkg.includedItems.length - 4} weitere
-              </li>
-            )}
-          </ul>
-        )}
-
-        {pkg.targetSegment && (
-          <p className="mt-3 border-t pt-2 text-[11px] text-muted-foreground">
-            {pkg.targetSegment}
+      {/* Name + short description */}
+      <div className="mt-3">
+        <div className="text-sm font-medium">{pkg.displayName}</div>
+        {pkg.shortDescription && (
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            {pkg.shortDescription}
           </p>
         )}
+      </div>
 
-        {/* Bottom-anchored CTA hint */}
-        {!isSelected && !onRequest && (
-          <div
-            className="mt-3 inline-flex items-center justify-center self-stretch rounded-lg border border-dashed px-3 py-1.5 text-[11px] font-medium text-muted-foreground transition group-hover:border-solid group-hover:text-foreground"
-            style={{ borderColor: "var(--border)" }}
+      {/* Included lines */}
+      {pkg.includedItems.length > 0 && (
+        <ul className="mt-3 space-y-1.5 text-xs">
+          {pkg.includedItems.slice(0, 4).map((item, i) => (
+            <li key={i} className="flex items-start gap-2 leading-snug">
+              <Check
+                className="mt-0.5 h-3 w-3 shrink-0"
+                strokeWidth={2.5}
+                style={{ color: accent }}
+                aria-hidden
+              />
+              <span>{item}</span>
+            </li>
+          ))}
+          {pkg.includedItems.length > 4 && (
+            <li className="text-muted-foreground">
+              und {pkg.includedItems.length - 4} weitere
+            </li>
+          )}
+        </ul>
+      )}
+
+      {pkg.targetSegment && (
+        <p className="mt-3 border-t pt-2 text-[11px] text-muted-foreground">
+          {pkg.targetSegment}
+        </p>
+      )}
+
+      {/* Bottom-anchored CTA hint */}
+      {!isSelected && !onRequest && (
+        <div
+          className="mt-3 inline-flex items-center justify-center self-stretch rounded-lg border border-dashed px-3 py-1.5 text-[11px] font-medium text-muted-foreground transition group-hover:border-solid group-hover:text-foreground"
+          style={{ borderColor: "var(--border)" }}
+        >
+          {isPending ? "Wird gespeichert…" : "Dieses Paket wählen"}
+        </div>
+      )}
+      {onRequest &&
+        (branding.whatsappNumberE164 ? (
+          <span
+            className="mt-3 block self-stretch rounded-xl"
+            style={{ background: accent }}
           >
-            {isPending ? "Wird gespeichert…" : "Dieses Paket wählen"}
-          </div>
-        )}
-        {onRequest && (
+            <WhatsAppContactLink
+              phoneE164={branding.whatsappNumberE164}
+              label="Per WhatsApp anfragen"
+              message={`Hallo ${branding.displayName}, ich interessiere mich für das Paket ${pkg.displayName}. Können Sie mir dazu ein Angebot machen?`}
+              className="flex h-11 w-full items-center justify-center gap-1.5 rounded-xl text-sm font-medium text-white"
+            />
+          </span>
+        ) : (
           <div className="mt-3 inline-flex items-center justify-center self-stretch rounded-lg bg-muted px-3 py-1.5 text-[11px] font-medium text-muted-foreground">
-            Bitte über Chat anfragen
+            Auf Anfrage. Antworten Sie uns einfach im Chat.
           </div>
-        )}
-      </button>
+        ))}
+    </>
+  );
+
+  return (
+    <li className="relative">
+      {onRequest ? (
+        // On-request cards are never selectable. Render a plain container,
+        // because a link inside a disabled button would not be tappable.
+        <div className="relative flex h-full w-full flex-col rounded-2xl border bg-card p-4 text-left">
+          {cardBody}
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={onTap}
+          disabled={disabled}
+          aria-pressed={isSelected}
+          className="group relative flex h-full w-full flex-col rounded-2xl border bg-card p-4 text-left transition-all hover:border-foreground/30 hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-70"
+          style={
+            isSelected
+              ? {
+                  borderColor: accent,
+                  borderWidth: 2,
+                  padding: 15,
+                  boxShadow: `0 0 0 3px ${accent}1a`,
+                }
+              : undefined
+          }
+        >
+          {cardBody}
+        </button>
+      )}
     </li>
   );
 }

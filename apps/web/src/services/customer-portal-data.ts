@@ -431,6 +431,15 @@ export async function confirmKvaForToken(
   if (!link) return { ok: false, reason: "not_found" };
   if (link.revokedAt) return { ok: false, reason: "revoked" };
 
+  // Idempotent on double-submit: a second tap must not write a second
+  // confirmation row or fire a second email. The first acceptance stands.
+  const [alreadyConfirmed] = await db
+    .select({ id: kvaConfirmations.id })
+    .from(kvaConfirmations)
+    .where(eq(kvaConfirmations.dealRecordId, link.dealRecordId))
+    .limit(1);
+  if (alreadyConfirmed) return { ok: true };
+
   // Re-validate gates server-side so the client can't lie.
   if (!body.acceptedOffer || !body.acceptedBindingNature) {
     return { ok: false, reason: "missing_acknowledgement" };

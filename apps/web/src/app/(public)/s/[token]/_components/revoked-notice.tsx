@@ -1,4 +1,12 @@
-export function RevokedNotice({ firmaDisplayName }: { firmaDisplayName: string }) {
+import { WhatsAppContactLink } from "./whatsapp-contact-link";
+
+export function RevokedNotice({
+  firmaDisplayName,
+  whatsappNumberE164 = null,
+}: {
+  firmaDisplayName: string;
+  whatsappNumberE164?: string | null;
+}) {
   return (
     <main className="mx-auto flex min-h-svh max-w-md flex-col items-center justify-center px-6 text-center">
       <div className="text-5xl">🔒</div>
@@ -8,6 +16,11 @@ export function RevokedNotice({ firmaDisplayName }: { firmaDisplayName: string }
         Bitte kontaktieren Sie {firmaDisplayName}, falls Sie weiterhin
         Informationen zu Ihrem Umzug benötigen.
       </p>
+      <WhatsAppContactLink
+        phoneE164={whatsappNumberE164}
+        label="Fragen? Per WhatsApp schreiben"
+        className="mt-5 inline-flex min-h-11 items-center gap-1.5 text-sm font-medium underline underline-offset-4"
+      />
     </main>
   );
 }

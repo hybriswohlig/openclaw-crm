@@ -36,7 +36,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ token: stri
   const { token } = await ctx.params;
 
   const [tok] = await db.select().from(reviewTokens).where(eq(reviewTokens.token, token)).limit(1);
-  if (!tok) return new NextResponse("Not found", { status: 404 });
+  if (!tok) return notFoundPage();
 
   if (tok.clickedAt === null) {
     const userAgent = req.headers.get("user-agent");
@@ -68,6 +68,33 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ token: stri
   }
 
   return NextResponse.redirect(tok.destinationUrl, 302);
+}
+
+/**
+ * Customers open these links from a WhatsApp or SMS thread, so an expired
+ * token must read as a normal German page, not a bare "Not found". Inline
+ * styles in the portal palette, no assets to load.
+ */
+function notFoundPage(): NextResponse {
+  const html = `<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Link nicht gefunden</title>
+</head>
+<body style="margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px;background:#f7f8fa;color:#0f1722;font-family:system-ui,-apple-system,sans-serif;text-align:center;">
+<main>
+<h1 style="margin:0;font-size:20px;font-weight:600;">Link nicht gefunden</h1>
+<p style="margin:12px auto 0;max-width:26rem;font-size:15px;line-height:1.6;color:#56627a;">Dieser Bewertungslink ist leider nicht mehr g&uuml;ltig. Antworten Sie einfach auf die Nachricht, mit der Sie ihn erhalten haben.</p>
+</main>
+</body>
+</html>`;
+  return new NextResponse(html, {
+    status: 404,
+    headers: { "Content-Type": "text/html; charset=utf-8" },
+  });
 }
 
 async function stampDealClickedAt(dealRecordId: string): Promise<void> {

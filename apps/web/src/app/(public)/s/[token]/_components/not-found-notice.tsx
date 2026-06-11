@@ -7,6 +7,10 @@ export function NotFoundNotice() {
         Dieser Status-Link ist ungültig. Bitte überprüfen Sie die URL oder
         wenden Sie sich an Ihren Ansprechpartner.
       </p>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Antworten Sie einfach auf die Nachricht, mit der Sie diesen Link
+        erhalten haben. Wir helfen sofort weiter.
+      </p>
     </main>
   );
 }

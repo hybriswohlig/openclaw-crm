@@ -39,14 +39,16 @@ export function StagePortal({
     }
   }, [token]);
 
-  // Auto-refresh every 30 s during the active move so the live feed updates
-  // without manual reload. Polling is cheap because /state is cached for 0
+  // Auto-refresh every 30 s during the active move (Stage 3) and on Stage 1
+  // while the customer waits for the KVA: the waiting card promises that the
+  // page updates itself. Polling is cheap because /state is cached for 0
   // seconds but indexed reads.
+  const shouldPoll = ctx.stage === 3 || (ctx.stage === 1 && !ctx.kva);
   useEffect(() => {
-    if (ctx.stage !== 3) return;
+    if (!shouldPoll) return;
     const i = window.setInterval(refresh, 30_000);
     return () => window.clearInterval(i);
-  }, [ctx.stage, refresh]);
+  }, [shouldPoll, refresh]);
 
   return (
     <main className="mx-auto flex min-h-svh w-full max-w-5xl flex-col px-4 pb-16 pt-8 sm:px-6 md:pt-12 lg:pt-14">

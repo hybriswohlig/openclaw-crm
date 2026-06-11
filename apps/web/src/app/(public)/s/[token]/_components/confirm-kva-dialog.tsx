@@ -96,6 +96,40 @@ export function ConfirmKvaDialog({
           geht Ihnen anschließend per E-Mail zu.
         </p>
 
+        {/* Preis-Recap unmittelbar vor der Annahme (§ 312j Abs. 2 BGB). */}
+        {ctx.kva && (
+          <div className="mt-4">
+            <div className="rounded-xl border border-border/50 bg-muted/30 px-4 py-3">
+              <div className="text-xs text-muted-foreground">
+                {ctx.kva.isVariable
+                  ? "Voraussichtlicher Gesamtbetrag"
+                  : "Festpreis inkl. MwSt."}
+              </div>
+              <div className="mt-1 text-2xl font-medium tabular-nums leading-none tracking-tight">
+                {formatEurCents(ctx.kva.totalCents)}
+              </div>
+              {ctx.scope.moveDate && (
+                <div className="mt-2 text-xs text-muted-foreground">
+                  Umzugstermin: {formatGermanDate(ctx.scope.moveDate)}
+                </div>
+              )}
+              {ctx.kva.depositRequiredCents != null &&
+                ctx.kva.depositRequiredCents > 0 && (
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    Anzahlung: {formatEurCents(ctx.kva.depositRequiredCents)}{" "}
+                    zur Auftragsbestätigung
+                  </div>
+                )}
+            </div>
+            {ctx.kva.isVariable && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Die Abrechnung erfolgt nach tatsächlichem Aufwand. Verbindlich
+                ist die finale Rechnung.
+              </p>
+            )}
+          </div>
+        )}
+
         <div className="mt-5 space-y-4">
           <CheckboxRow
             id="acc-offer"
@@ -164,7 +198,7 @@ export function ConfirmKvaDialog({
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
               autoComplete="name"
-              className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-offset-1"
+              className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 text-base focus:outline-none focus:ring-2 focus:ring-offset-1"
               style={{ ["--tw-ring-color" as never]: `#${ctx.branding.primaryColor}` }}
             />
           </label>
@@ -196,9 +230,16 @@ export function ConfirmKvaDialog({
           </button>
         </div>
 
+        {!ready && !submitting && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Bitte bestätigen Sie zuerst alle Punkte oben.
+          </p>
+        )}
+
         <p className="mt-4 text-[10px] leading-relaxed text-muted-foreground">
-          Mit Klick auf „Verbindlich annehmen" geht ein Kaufvertrag in Textform
-          (§ 126b BGB) zwischen Ihnen und {ctx.branding.displayName} zustande.
+          Mit Klick auf „Verbindlich annehmen" kommt ein verbindlicher Vertrag
+          über die vereinbarten Umzugsleistungen in Textform (§ 126b BGB)
+          zwischen Ihnen und {ctx.branding.displayName} zustande.
           Zur Dokumentation werden Zeitpunkt, IP-Adresse und Browser-Kennung
           gespeichert.
         </p>
@@ -233,6 +274,27 @@ function CheckboxRow({
       <span className="leading-relaxed">{children}</span>
     </label>
   );
+}
+
+function formatEurCents(cents: number): string {
+  const fractionDigits = cents % 100 === 0 ? 0 : 2;
+  return new Intl.NumberFormat("de-DE", {
+    style: "currency",
+    currency: "EUR",
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  }).format(cents / 100);
+}
+
+function formatGermanDate(ymd: string): string {
+  const d = new Date(`${ymd}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return ymd;
+  return d.toLocaleDateString("de-DE", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
 }
 
 function germanError(code: string | undefined): string {

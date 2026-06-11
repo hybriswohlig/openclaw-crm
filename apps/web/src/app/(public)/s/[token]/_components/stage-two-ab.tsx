@@ -5,8 +5,9 @@ import { ScopeSummary } from "./scope-summary";
 
 /**
  * Placeholder for Stage 2 ahead of the full AB build. Renders the live-data
- * summary card + an embed for the AB PDF when one exists, plus the crew
- * preview.
+ * summary card + a document card linking to the AB PDF when one exists, plus
+ * the crew preview. No inline PDF embed: <object type="application/pdf">
+ * renders as a blank area on iOS Safari and in-app browsers.
  */
 export function StageTwoAb({ ctx }: { ctx: CustomerPortalContext }) {
   return (
@@ -15,7 +16,10 @@ export function StageTwoAb({ ctx }: { ctx: CustomerPortalContext }) {
         <div className="font-medium">Ihr Auftrag ist bestätigt.</div>
         <p className="mt-1 text-xs">
           Wir freuen uns auf Ihren Umzug. Alle wichtigen Informationen finden
-          Sie unten. Die Auftragsbestätigung als PDF folgt direkt darunter.
+          Sie unten.
+          {ctx.documents.orderConfirmationUrl
+            ? " Ihre Auftragsbestätigung können Sie unten als PDF öffnen."
+            : null}
         </p>
       </div>
 
@@ -52,22 +56,24 @@ export function StageTwoAb({ ctx }: { ctx: CustomerPortalContext }) {
       )}
 
       {ctx.documents.orderConfirmationUrl ? (
-        <div className="overflow-hidden rounded-2xl border border-border/50 bg-card">
+        <div className="rounded-2xl border border-border/50 bg-card">
           <div className="border-b border-border/50 px-6 py-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
             Auftragsbestätigung
           </div>
-          <object
-            data={ctx.documents.orderConfirmationUrl}
-            type="application/pdf"
-            className="h-[60vh] w-full"
-          >
+          <div className="space-y-3 p-5">
+            <div className="text-sm text-muted-foreground">
+              Auftragsbestätigung (PDF)
+            </div>
             <a
               href={ctx.documents.orderConfirmationUrl}
-              className="block p-6 text-sm underline"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex h-11 w-full items-center justify-center rounded-xl text-sm font-medium text-white"
+              style={{ background: `#${ctx.branding.primaryColor}` }}
             >
-              Auftragsbestätigung herunterladen
+              PDF öffnen
             </a>
-          </object>
+          </div>
         </div>
       ) : null}
     </section>

@@ -6,6 +6,7 @@ import type {
   DateOfferOption,
   DateOfferSlot,
 } from "@openclaw-crm/customer-portal-core";
+import { WhatsAppContactLink } from "./whatsapp-contact-link";
 
 /**
  * Customer-facing multi-date picker rendered on Stage 1.
@@ -37,8 +38,11 @@ export function DateOfferPicker({
   const accent = `#${ctx.branding.primaryColor}`;
 
   const selectedOption = useMemo(
-    () => (selection ? options.find((o) => o.id === selection.dateOfferId) ?? null : null),
-    [options, selection]
+    () =>
+      selection
+        ? (options.find((o) => o.id === selection.dateOfferId) ?? null)
+        : null,
+    [options, selection],
   );
 
   if (options.length === 0) return null;
@@ -139,7 +143,11 @@ export function DateOfferPicker({
               accent={accent}
               pendingSlot={pendingId === opt.id ? pendingSlot : null}
               isSubmittingFor={submitting && pendingId === opt.id}
-              currentSelectionDate={selectedOption?.id === opt.id ? selection?.selectedDate ?? null : null}
+              currentSelectionDate={
+                selectedOption?.id === opt.id
+                  ? (selection?.selectedDate ?? null)
+                  : null
+              }
               onSlotTap={(idx) => {
                 setPendingId(opt.id);
                 setPendingSlot(idx);
@@ -152,6 +160,22 @@ export function DateOfferPicker({
               }}
             />
           ))}
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground sm:mt-5">
+          <span>Keiner der Termine passt?</span>
+          <WhatsAppContactLink
+            phoneE164={ctx.branding.whatsappNumberE164}
+            label="Schreiben Sie uns kurz"
+            message={`Hallo ${ctx.branding.displayName}, die vorgeschlagenen Termine passen bei mir leider nicht. Welche Alternativen gibt es?`}
+            className="inline-flex min-h-11 items-center gap-1.5 text-sm font-medium text-foreground underline underline-offset-4"
+            fallback={
+              <span>
+                Antworten Sie uns einfach auf die Nachricht, mit der Sie diesen
+                Link erhalten haben.
+              </span>
+            }
+          />
         </div>
 
         {error && (
@@ -235,7 +259,7 @@ function DateCard({
               type="button"
               onClick={() => onSlotTap(idx)}
               disabled={isSubmittingFor}
-              className="rounded-full border px-3 py-1.5 text-xs font-medium transition active:scale-[0.97] disabled:opacity-50"
+              className="inline-flex min-h-11 items-center rounded-full border px-4 py-2 text-sm font-medium transition active:scale-[0.97] disabled:opacity-50"
               style={
                 pendingSlot === idx
                   ? {
@@ -263,12 +287,10 @@ function DateCard({
           type="button"
           onClick={onConfirm}
           disabled={isSubmittingFor}
-          className="mt-auto inline-flex h-10 items-center justify-center rounded-xl text-sm font-medium text-white transition-opacity disabled:opacity-50"
+          className="mt-auto inline-flex h-11 items-center justify-center rounded-xl text-sm font-medium text-white transition-opacity disabled:opacity-50"
           style={{ background: accent }}
         >
-          {isSubmittingFor
-            ? "Wird gespeichert…"
-            : `Diesen Termin wählen`}
+          {isSubmittingFor ? "Wird gespeichert…" : `Diesen Termin wählen`}
         </button>
       )}
     </article>
