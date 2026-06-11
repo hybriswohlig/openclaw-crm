@@ -36,6 +36,8 @@ import {
   withDisclosure,
   resolveBrandSignature,
   isMoveDatePast,
+  getDecidedStageIds,
+  getDealStageId,
   type AgentChannelRow,
 } from "./agent-shared";
 
@@ -136,6 +138,13 @@ async function runForWorkspace(
   // follow up at all (better silent than nudging a passed-date lead).
   if (!dealsObj) return;
 
+  // Stage gate: deals that are already decided (Geplant/Durchgeführt/Bezahlt =
+  // booked or done with us, Verloren = gone) never get a nudge, regardless of
+  // how the conversation looks. This is what keeps old customers and closed
+  // leads out of the follow-up loop even when the decision only happened in
+  // the CRM and never in the chat.
+  const decidedStages = await getDecidedStageIds(dealsObj.id);
+
   const allowed = new Set(channels);
   const cutoff = new Date(now.getTime() - FOLLOWUP_AFTER_DAYS * 86_400_000);
 
@@ -186,6 +195,15 @@ async function runForWorkspace(
       // Only nudge when WE are the ones waiting and we have not already nudged.
       if (!lastIsOutbound) continue;
       if (trailing >= MAX_TRAILING_OUTBOUND) continue;
+
+      // Decided deal (booked/done/paid or lost)? Leave them alone.
+      if (decidedStages.size > 0 && conv.dealRecordId) {
+        const stageId = await getDealStageId(dealsObj.id, conv.dealRecordId);
+        if (stageId && decidedStages.has(stageId)) {
+          summary.skipped += 1;
+          continue;
+        }
+      }
 
       const deal = conv.dealRecordId ? await getRecord(dealsObj.id, conv.dealRecordId) : null;
       if (isMoveDatePast(deal)) {

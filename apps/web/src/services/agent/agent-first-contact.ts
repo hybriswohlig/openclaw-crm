@@ -61,6 +61,8 @@ import {
   ownerUserIds,
   withDisclosure,
   resolveBrandSignature,
+  getDecidedStageIds,
+  getDealStageId,
 } from "./agent-shared";
 
 const MAX_PER_TICK = 5;
@@ -475,6 +477,9 @@ async function runForWorkspace(
   const staleCutoffIso = new Date(now.getTime() - STALE_CLAIM_MS).toISOString();
   const freshCutoff = new Date(now.getTime() - MAX_LEAD_AGE_MS);
   const watermark = enabledAt > freshCutoff ? enabledAt : freshCutoff;
+  // Stage gate: if the owner already processed the lead by hand (set it to
+  // Geplant/Verloren etc.) before the engine got to it, never open a thread.
+  const decidedStages = await getDecidedStageIds(dealsObj.id);
 
   const rows = (await db
     .select({
@@ -540,6 +545,19 @@ async function runForWorkspace(
         }
         summary.skipped += 1;
         continue;
+      }
+
+      // 2c. Deal already decided (owner booked or closed it manually before the
+      // engine got to the lead)? Then never open an automated thread.
+      if (decidedStages.size > 0) {
+        const stageId = await getDealStageId(dealsObj.id, lead.recordId);
+        if (stageId && decidedStages.has(stageId)) {
+          if (await claimLead(lead.rvId, nowIso, staleCutoffIso)) {
+            await markLead(lead.rvId, { status: "skipped_stage_decided", at: nowIso });
+          }
+          summary.skipped += 1;
+          continue;
+        }
       }
 
       // 2b. Landline? WhatsApp cannot reach it. Notify the team and file a call

@@ -10,6 +10,8 @@
 import { db } from "@/db";
 import { and, eq, sql } from "drizzle-orm";
 import { workspaceMembers, activityEvents } from "@/db/schema";
+import { attributes, statuses } from "@/db/schema/objects";
+import { recordValues } from "@/db/schema/records";
 import { sendWhatsAppReply, sendBaileysReply } from "@/services/inbox-whatsapp";
 import { sendEmailReply } from "@/services/inbox-email";
 import { getSetting } from "@/services/workspace-settings";
@@ -154,4 +156,62 @@ export function withDisclosure(message: string, disclosure: string, isFirst: boo
   const d = disclosure.trim();
   if (!isFirst || !d || !message.trim()) return message;
   return `${d}\n\n${message}`;
+}
+
+/**
+ * Deal stages where the lead is already DECIDED, in either direction: booked /
+ * planned / done / paid (we won) or lost / declined. Automated outreach to
+ * such a deal is embarrassing on a won deal and unlawful pestering on a lost
+ * one, so both the follow-up engine and the first-contact engine gate on this
+ * BEFORE any LLM call. Matched against the live status titles (German live set:
+ * Neue Anfrage, In Kontakt, Geplant, Durchgeführt, Bezahlt (Abgeschlossen),
+ * Verloren; plus English legacy seeds). Superset of CLOSED_STAGE_RE in
+ * services/inbox.ts.
+ */
+const DECIDED_STAGE_RE =
+  /gewonnen|won|verloren|lost|abgeschlossen|closed|abgesagt|storniert|abgelehnt|kein\s*interesse|geplant|planned|durchgef(ü|ue)hrt|done|bezahlt|paid|angenommen|gebucht|auftrag/i;
+
+/** Resolve the status ids of "decided" deal stages for a workspace's deals object. */
+export async function getDecidedStageIds(dealsObjectId: string): Promise<Set<string>> {
+  try {
+    const [stageAttr] = await db
+      .select({ id: attributes.id })
+      .from(attributes)
+      .where(and(eq(attributes.objectId, dealsObjectId), eq(attributes.slug, "stage")))
+      .limit(1);
+    if (!stageAttr) return new Set();
+    const rows = await db
+      .select({ id: statuses.id, title: statuses.title })
+      .from(statuses)
+      .where(eq(statuses.attributeId, stageAttr.id));
+    return new Set(rows.filter((s) => DECIDED_STAGE_RE.test(s.title)).map((s) => s.id));
+  } catch (err) {
+    console.error("[agent-shared] getDecidedStageIds failed:", err);
+    return new Set();
+  }
+}
+
+/** The raw stage status id of a deal (or null). Cheap single-value read. */
+export async function getDealStageId(
+  dealsObjectId: string,
+  dealRecordId: string
+): Promise<string | null> {
+  try {
+    const [stageAttr] = await db
+      .select({ id: attributes.id })
+      .from(attributes)
+      .where(and(eq(attributes.objectId, dealsObjectId), eq(attributes.slug, "stage")))
+      .limit(1);
+    if (!stageAttr) return null;
+    const [row] = await db
+      .select({ v: recordValues.textValue })
+      .from(recordValues)
+      .where(
+        and(eq(recordValues.recordId, dealRecordId), eq(recordValues.attributeId, stageAttr.id))
+      )
+      .limit(1);
+    return row?.v ?? null;
+  } catch {
+    return null;
+  }
 }
