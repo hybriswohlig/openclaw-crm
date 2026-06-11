@@ -55,6 +55,7 @@ import {
   getAgentSignature,
   isDiscloseAiEnabled,
   getAgentDisclosure,
+  isOptOutLineEnabled,
 } from "./agent-config";
 import {
   appendSignature,
@@ -762,13 +763,16 @@ async function runForWorkspace(
         continue;
       }
 
-      const [discloseAi, disclosure] = await Promise.all([
+      const [discloseAi, disclosure, optOutLine] = await Promise.all([
         isDiscloseAiEnabled(workspaceId),
         getAgentDisclosure(workspaceId),
+        isOptOutLineEnabled(workspaceId),
       ]);
       const humanized = await humanizeGerman(sanitized);
       let outgoing = withDisclosure(appendSignature(humanized, fcSignature), disclosure, discloseAi);
-      outgoing = `${outgoing}\n\n${OPT_OUT_LINE}`;
+      // Opt-out line only when the owner enabled it (default OFF = human test
+      // tone). An inbound STOP is honored regardless of this flag.
+      if (optOutLine) outgoing = `${outgoing}\n\n${OPT_OUT_LINE}`;
 
       if (dryRun) {
         await markLead(lead.rvId, { status: "dry_run", at: nowIso, channel: "baileys" });

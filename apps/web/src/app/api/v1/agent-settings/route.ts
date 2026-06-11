@@ -27,6 +27,7 @@ export async function PATCH(req: NextRequest) {
     discloseAi?: unknown;
     disclosure?: unknown;
     handoffAck?: unknown;
+    optOutLine?: unknown;
     firstContactEnabled?: unknown;
     firstContactChannelAccountId?: unknown;
     firstContactTemplate?: unknown;
@@ -44,6 +45,7 @@ export async function PATCH(req: NextRequest) {
     discloseAi?: boolean;
     disclosure?: string;
     handoffAck?: string;
+    optOutLine?: boolean;
     firstContactEnabled?: boolean;
     firstContactChannelAccountId?: string | null;
     firstContactTemplate?: string;
@@ -90,6 +92,11 @@ export async function PATCH(req: NextRequest) {
     if (typeof body.handoffAck !== "string")
       return NextResponse.json({ error: "handoffAck must be string" }, { status: 400 });
     patch.handoffAck = body.handoffAck;
+  }
+  if (body.optOutLine !== undefined) {
+    if (typeof body.optOutLine !== "boolean")
+      return NextResponse.json({ error: "optOutLine must be boolean" }, { status: 400 });
+    patch.optOutLine = body.optOutLine;
   }
   if (body.firstContactEnabled !== undefined) {
     if (typeof body.firstContactEnabled !== "boolean")

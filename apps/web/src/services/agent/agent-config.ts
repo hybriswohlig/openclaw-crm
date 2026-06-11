@@ -28,6 +28,10 @@ const KEY_FOLLOWUP = "sales_followup_enabled";
 const KEY_DISCLOSE_AI = "sales_agent_disclose_ai";
 const KEY_DISCLOSURE = "sales_agent_disclosure";
 const KEY_HANDOFF_ACK = "sales_agent_handoff_ack";
+// Appends "...antworte mit STOP" to proactive messages (opener + nudges).
+// Default OFF so the test system reads human; turn ON before real customers
+// for §7 UWG / Art. 21 DSGVO compliance.
+const KEY_OPTOUT_LINE = "sales_agent_optout_line";
 // First-contact engine (proactive WhatsApp outreach to fresh ImmoScout leads).
 const KEY_FIRST_CONTACT = "sales_first_contact_enabled";
 // Set to the enable timestamp every time the switch flips ON. The engine only
@@ -89,6 +93,7 @@ export interface AgentSettings {
   discloseAi: boolean;
   disclosure: string;
   handoffAck: string;
+  optOutLine: boolean;
   firstContactEnabled: boolean;
   firstContactChannelAccountId: string | null;
   firstContactTemplate: string;
@@ -149,6 +154,17 @@ export async function getAgentHandoffAck(workspaceId: string): Promise<string> {
   return raw === null ? DEFAULT_AGENT_HANDOFF_ACK : raw;
 }
 
+/**
+ * Whether to append the "antworte mit STOP" opt-out line to proactive messages
+ * (first-contact opener + follow-up nudges). Default OFF so the test system
+ * reads human; the owner turns it ON before serving real customers (then it is
+ * the §7 UWG / Art. 21 DSGVO safe path). Inbound STOP is ALWAYS honored either
+ * way — this only controls whether we advertise it in the message.
+ */
+export async function isOptOutLineEnabled(workspaceId: string): Promise<boolean> {
+  return (await getSetting(workspaceId, KEY_OPTOUT_LINE)) === "true";
+}
+
 /** First-contact engine on/off, independent of the reply agent. Default OFF. */
 export async function isFirstContactEnabled(workspaceId: string): Promise<boolean> {
   return (await getSetting(workspaceId, KEY_FIRST_CONTACT)) === "true";
@@ -197,7 +213,7 @@ export async function getFirstContactSignature(workspaceId: string): Promise<str
 }
 
 export async function getAgentSettings(workspaceId: string): Promise<AgentSettings> {
-  const [enabled, dryRun, channels, signature, followupEnabled, discloseAi, disclosure, handoffAck] =
+  const [enabled, dryRun, channels, signature, followupEnabled, discloseAi, disclosure, handoffAck, optOutLine] =
     await Promise.all([
       isSalesAgentEnabled(workspaceId),
       isSalesAgentDryRun(workspaceId),
@@ -207,6 +223,7 @@ export async function getAgentSettings(workspaceId: string): Promise<AgentSettin
       isDiscloseAiEnabled(workspaceId),
       getAgentDisclosure(workspaceId),
       getAgentHandoffAck(workspaceId),
+      isOptOutLineEnabled(workspaceId),
     ]);
   const [
     firstContactEnabled,
@@ -232,6 +249,7 @@ export async function getAgentSettings(workspaceId: string): Promise<AgentSettin
     discloseAi,
     disclosure,
     handoffAck,
+    optOutLine,
     firstContactEnabled,
     firstContactChannelAccountId,
     firstContactTemplate,
@@ -252,6 +270,7 @@ export async function setAgentSettings(
     discloseAi?: boolean;
     disclosure?: string;
     handoffAck?: string;
+    optOutLine?: boolean;
     firstContactEnabled?: boolean;
     firstContactChannelAccountId?: string | null;
     firstContactTemplate?: string;
@@ -260,6 +279,9 @@ export async function setAgentSettings(
     firstContactSignature?: string;
   }
 ): Promise<AgentSettings> {
+  if (patch.optOutLine !== undefined) {
+    await setSetting(workspaceId, KEY_OPTOUT_LINE, patch.optOutLine ? "true" : "false");
+  }
   if (patch.firstContactEnabled !== undefined) {
     const wasEnabled = await isFirstContactEnabled(workspaceId);
     await setSetting(workspaceId, KEY_FIRST_CONTACT, patch.firstContactEnabled ? "true" : "false");

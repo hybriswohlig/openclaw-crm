@@ -29,6 +29,7 @@ import {
   getAgentSignature,
   isDiscloseAiEnabled,
   getAgentDisclosure,
+  isOptOutLineEnabled,
 } from "./agent-config";
 import {
   sendOnChannel,
@@ -133,12 +134,13 @@ async function runForWorkspace(
   if (!(await isSalesFollowupEnabled(workspaceId))) return;
   summary.enabledWorkspaces += 1;
 
-  const [dryRun, channels, signature, discloseAi, disclosure, dealsObj] = await Promise.all([
+  const [dryRun, channels, signature, discloseAi, disclosure, optOutLine, dealsObj] = await Promise.all([
     isSalesAgentDryRun(workspaceId),
     getAgentChannels(workspaceId),
     getAgentSignature(workspaceId),
     isDiscloseAiEnabled(workspaceId),
     getAgentDisclosure(workspaceId),
+    isOptOutLineEnabled(workspaceId),
     getObjectBySlug(workspaceId, "deals"),
   ]);
   // Fail-safe: without the deals object we cannot check move_date, so do not
@@ -266,8 +268,9 @@ async function runForWorkspace(
 
       // Humanize the nudge (crm-tools humanizer-de) and add the AI disclosure if
       // the agent has not yet sent a customer message on this deal. Brand is
-      // routed by the conversation's channel company. Every proactive nudge ends
-      // with the opt-out line (Art. 21 DSGVO).
+      // routed by the conversation's channel company. The opt-out line is only
+      // appended when the owner enabled it (OFF by default = human test tone);
+      // an inbound STOP is honored regardless.
       const isFirst = !(await agentHasSentCustomerMessage(workspaceId, conv.dealRecordId));
       const brand = await resolveBrandSignature(
         workspaceId,
@@ -275,9 +278,12 @@ async function runForWorkspace(
         signature
       );
       const humanized = await humanizeGerman(out.message_de);
-      const message =
-        withDisclosure(appendSignature(humanized, brand), disclosure, discloseAi && isFirst) +
-        `\n\n${OPT_OUT_LINE}`;
+      const base = withDisclosure(
+        appendSignature(humanized, brand),
+        disclosure,
+        discloseAi && isFirst
+      );
+      const message = optOutLine ? `${base}\n\n${OPT_OUT_LINE}` : base;
       const mode = dryRun ? "dry_run" : "live";
 
       if (!dryRun) {

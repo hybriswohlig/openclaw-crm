@@ -62,6 +62,7 @@ export default function AISettingsPage() {
     discloseAi: boolean;
     disclosure: string;
     handoffAck: string;
+    optOutLine: boolean;
     firstContactEnabled: boolean;
     firstContactChannelAccountId: string | null;
     firstContactTemplate: string;
@@ -89,6 +90,7 @@ export default function AISettingsPage() {
       discloseAi?: boolean;
       disclosure?: string;
       handoffAck?: string;
+      optOutLine?: boolean;
       firstContactEnabled?: boolean;
       firstContactChannelAccountId?: string | null;
       firstContactTemplate?: string;
@@ -611,6 +613,34 @@ export default function AISettingsPage() {
                     </div>
                   </div>
                 )}
+              </div>
+
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">STOP-Hinweis in proaktiven Nachrichten</p>
+                  <p className="text-xs text-muted-foreground">
+                    Hängt an Erstansprache und Nachfass-Nachrichten eine Zeile {'"...antworte mit STOP"'}.
+                    Für ein menschliches Testsystem aus lassen. Vor echten Kunden einschalten
+                    (rechtlich sauberer, §7 UWG / Art. 21 DSGVO). Ein eingehendes STOP wird in jedem
+                    Fall respektiert, auch wenn der Hinweis aus ist.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={agent.optOutLine}
+                  disabled={savingAgent}
+                  onClick={() => patchAgent({ optOutLine: !agent.optOutLine })}
+                  className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                    agent.optOutLine ? "bg-primary" : "bg-muted"
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+                      agent.optOutLine ? "translate-x-4" : "translate-x-0"
+                    }`}
+                  />
+                </button>
               </div>
 
               <div className="space-y-1">
