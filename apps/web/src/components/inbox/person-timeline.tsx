@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
-import { Loader2 } from "lucide-react";
+import { AlertCircle, Check, CheckCheck, Loader2 } from "lucide-react";
 
 interface TimelineMsg {
   id: string;
@@ -15,6 +15,7 @@ interface TimelineMsg {
   sentAt: string | null;
   channelType: "email" | "whatsapp" | "sms";
   isKleinanzeigen: boolean;
+  status: string;
   attachments: { id: string; fileName: string; mimeType: string; fileSize: number }[];
 }
 
@@ -41,12 +42,34 @@ export function PersonTimeline({ conversationIds }: { conversationIds: string[] 
 
   useEffect(() => {
     let cancel = false;
-    setLoading(true);
-    fetch(`/api/v1/inbox/person-thread?ids=${encodeURIComponent(idKey)}`)
-      .then((r) => (r.ok ? r.json() : { data: [] }))
-      .then((d) => { if (!cancel) setMsgs((d.data ?? []) as TimelineMsg[]); })
-      .finally(() => { if (!cancel) setLoading(false); });
-    return () => { cancel = true; };
+    let seq = 0;
+    const load = (initial: boolean) => {
+      const mySeq = ++seq;
+      if (initial) setLoading(true);
+      fetch(`/api/v1/inbox/person-thread?ids=${encodeURIComponent(idKey)}`)
+        .then((r) => {
+          if (!r.ok) throw new Error("person-thread fetch failed");
+          return r.json();
+        })
+        // The seq guard drops out-of-order responses when a refocus refresh
+        // and an interval tick are in flight at the same time.
+        .then((d) => { if (!cancel && mySeq === seq) setMsgs((d.data ?? []) as TimelineMsg[]); })
+        // Keep the last-good messages on a failed poll; the next one self-heals.
+        .catch(() => {})
+        .finally(() => { if (!cancel && initial) setLoading(false); });
+    };
+    load(true);
+    // Same 60s cadence as the single-conversation view, so delivery/read
+    // ticks and new messages update here too; paused while the tab is
+    // hidden, refreshed immediately on refocus.
+    const interval = setInterval(() => { if (!document.hidden) load(false); }, 60_000);
+    const onVis = () => { if (!document.hidden) load(false); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      cancel = true;
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVis);
+    };
   }, [idKey]);
 
   if (loading) {
@@ -73,6 +96,16 @@ export function PersonTimeline({ conversationIds }: { conversationIds: string[] 
                   <span className={cn("text-[9px] tabular-nums", isOut ? "opacity-70" : "text-muted-foreground")}>
                     {m.sentAt ? new Date(m.sentAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }) : ""}
                   </span>
+                  {/* Unlike the conversation view's var(--bubble-out), this
+                      bubble is bg-foreground and inverts with the theme, so
+                      the colored ticks need explicit dark-mode variants. */}
+                  {isOut && (
+                    m.status === "sent" ? <Check className="h-3 w-3 opacity-70" />
+                      : m.status === "delivered" ? <CheckCheck className="h-3 w-3 opacity-70" />
+                      : m.status === "read" ? <CheckCheck className="h-3 w-3 text-sky-300 dark:text-sky-600" />
+                      : m.status === "failed" ? <AlertCircle className="h-3 w-3 text-red-300 dark:text-red-600" />
+                      : null
+                  )}
                 </div>
                 {m.body && <p className="text-sm whitespace-pre-wrap break-words">{m.body}</p>}
                 {m.attachments.map((a) =>

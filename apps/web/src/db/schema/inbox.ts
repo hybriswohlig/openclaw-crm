@@ -32,6 +32,7 @@ export const messageStatusEnum = pgEnum("message_status", [
   "delivered",  // outbound: confirmed delivered (WhatsApp)
   "failed",     // outbound: delivery failed
   "received",   // inbound: arrived in inbox
+  "read",       // outbound: read by the recipient (WhatsApp blue ticks)
 ]);
 
 export const conversationStatusEnum = pgEnum("conversation_status", [

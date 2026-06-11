@@ -4,11 +4,14 @@
  * The in-house Baileys bridge POSTs here when a `messages.update` event
  * fires on a socket — i.e. the customer's phone delivered or read one of
  * our outbound messages. We mirror these into `inbox_messages.status` so
- * the inbox UI shows the same ticks WABA already produces.
+ * the inbox UI shows the same ticks WABA already produces, including the
+ * blue 'read' state (migration 0035).
  *
  * Auth: Bearer `oc_sk_*` API key, scoped to a workspace.
  *
- * Idempotent — last write of the higher-precedence status wins.
+ * Idempotent — receipts may replay or arrive out of order (bridge reconnect
+ * replays WhatsApp's offline queue), so the UPDATE only ever upgrades along
+ * the MESSAGE_STATUS_RANK ladder; downgrades are no-ops.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
@@ -19,6 +22,10 @@ import {
 } from "@/db/schema/inbox";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { getAuthContext, unauthorized, badRequest } from "@/lib/api-utils";
+import {
+  MESSAGE_STATUS_RANK,
+  messageStatusRankSql,
+} from "@/services/inbox-whatsapp";
 
 export const dynamic = "force-dynamic";
 
@@ -44,13 +51,6 @@ const ALLOWED_STATUS: ReadonlySet<BaileysStatus> = new Set([
   "failed",
 ]);
 
-// Map Baileys' four-state model into our message_status enum. We don't carry
-// "read" as its own enum value — collapse to "delivered" which is the existing
-// terminal positive state in the WABA path.
-function mapToEnum(s: BaileysStatus): "sent" | "delivered" | "failed" {
-  if (s === "read") return "delivered";
-  return s;
-}
 
 export async function POST(req: NextRequest) {
   const ctx = await getAuthContext(req);
@@ -102,22 +102,29 @@ export async function POST(req: NextRequest) {
   // Find conversations belonging to this account (for the WHERE) and update
   // any matching outbound message. The unique constraint
   // (conversation_id, external_message_id) means at most one row matches.
-  const nextStatus = mapToEnum(payload.status);
+  // The rank guard makes this upgrade-only: a late 'delivered' or 'sent'
+  // receipt never downgrades an already-'read' message.
+  const nextStatus = payload.status;
 
   const result = await db.execute(sql`
     UPDATE inbox_messages
        SET status = ${nextStatus}
      WHERE external_message_id = ${payload.externalMessageId}
        AND workspace_id = ${ctx.workspaceId}
+       AND direction = 'outbound'
+       AND ${messageStatusRankSql} < ${MESSAGE_STATUS_RANK[nextStatus]}
        AND conversation_id IN (
          SELECT id FROM ${inboxConversations}
           WHERE channel_account_id = ${account.id}
        )
+     RETURNING id
   `);
 
   // Best-effort: if status='failed' and we have a reason, stash it in
-  // raw_headers so support can see why.
-  if (payload.status === "failed" && payload.errorReason) {
+  // raw_headers so support can see why. Only when the status write actually
+  // landed — a rank-guarded late 'failed' must not slap an error note onto a
+  // message that stays 'delivered'/'read'.
+  if (payload.status === "failed" && payload.errorReason && result.length > 0) {
     await db
       .update(inboxMessages)
       .set({

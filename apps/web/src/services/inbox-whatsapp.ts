@@ -21,7 +21,7 @@ import {
   inboxMessageAttachments,
   whatsappTemplateMetadata,
 } from "@/db/schema/inbox";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { createDealForNewConversation } from "./inbox";
 import { emitEvent } from "./activity-events";
 import { getSecret } from "./workspace-settings";
@@ -833,16 +833,48 @@ async function ingestMessage(
 
 // ─── Ingest: delivery status updates ──────────────────────────────────────────
 
+// Receipt precedence ladder. Providers can replay or reorder receipt webhooks
+// (Meta retries, bridge reconnect replays), so status may only ever move UP
+// this ladder — a late 'delivered' must not downgrade an already-'read'
+// message. 'failed' outranks 'sent' (the provider gave up) but never a
+// positive terminal state. 'received' (inbound rows) is unranked on purpose:
+// receipts only ever apply to outbound messages.
+export const MESSAGE_STATUS_RANK: Record<string, number> = {
+  pending: 0,
+  sent: 1,
+  failed: 2,
+  delivered: 3,
+  read: 4,
+};
+
+/**
+ * SQL fragment ranking the current inbox_messages.status per the ladder above.
+ * The ::text cast keeps the CASE parse-safe on databases that have not run
+ * migration 0035 yet (a bare enum CASE would coerce 'read' at parse time and
+ * fail EVERY receipt update there, not just read receipts).
+ */
+export const messageStatusRankSql = sql`COALESCE(CASE ${inboxMessages.status}::text
+  WHEN 'pending' THEN 0
+  WHEN 'sent' THEN 1
+  WHEN 'failed' THEN 2
+  WHEN 'delivered' THEN 3
+  WHEN 'read' THEN 4
+END, 99)`;
+
 async function ingestStatus(
   account: typeof channelAccounts.$inferSelect,
   status: WAStatus
 ) {
-  const nextStatus =
-    status.status === "failed"
-      ? "failed"
-      : status.status === "delivered" || status.status === "read"
-        ? "delivered"
-        : "sent";
+  // WAStatus.status is sent | delivered | read | failed — all carried by the
+  // message_status enum since migration 0035, so 'read' passes through and
+  // lights up the blue ticks in the inbox.
+  const nextStatus = status.status;
+
+  // The union above is compile-time only; Meta can emit statuses outside it
+  // (e.g. 'deleted', 'warning'). Skip anything we don't rank instead of
+  // erroring on the enum cast. (A hypothetical 'pending' is harmless: rank 0
+  // never wins the upgrade-only guard below.)
+  if (!(nextStatus in MESSAGE_STATUS_RANK)) return;
 
   await db
     .update(inboxMessages)
@@ -850,7 +882,9 @@ async function ingestStatus(
     .where(
       and(
         eq(inboxMessages.workspaceId, account.workspaceId),
-        eq(inboxMessages.externalMessageId, status.id)
+        eq(inboxMessages.externalMessageId, status.id),
+        eq(inboxMessages.direction, "outbound"),
+        sql`${messageStatusRankSql} < ${MESSAGE_STATUS_RANK[nextStatus]}`
       )
     );
 }

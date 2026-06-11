@@ -338,6 +338,7 @@ export interface PersonTimelineMessage {
   sentAt: Date | null;
   channelType: "email" | "whatsapp" | "sms";
   isKleinanzeigen: boolean;
+  status: string;
   attachments: MessageAttachmentListItem[];
 }
 
@@ -354,6 +355,7 @@ export async function getPersonMessages(workspaceId: string, conversationIds: st
       subject: inboxMessages.subject,
       sentAt: inboxMessages.sentAt,
       createdAt: inboxMessages.createdAt,
+      status: inboxMessages.status,
       channelType: channelAccounts.channelType,
       externalThreadId: inboxConversations.externalThreadId,
     })
@@ -389,6 +391,7 @@ export async function getPersonMessages(workspaceId: string, conversationIds: st
       sentAt: m.sentAt,
       channelType: m.channelType as "email" | "whatsapp" | "sms",
       isKleinanzeigen: isKa,
+      status: m.status,
       attachments: byMsg.get(m.id) ?? [],
     };
   });

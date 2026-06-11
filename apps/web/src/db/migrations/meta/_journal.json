@@ -176,6 +176,13 @@
       "when": 1779700000000,
       "tag": "0034_task_detail",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1779800000000,
+      "tag": "0035_message_status_read",
+      "breakpoints": true
     }
   ]
 }
