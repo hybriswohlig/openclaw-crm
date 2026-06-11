@@ -9,16 +9,18 @@ import {
 } from "@openclaw-crm/customer-portal-core";
 import { ScopeSummary } from "./scope-summary";
 import { MovingChecklist } from "./moving-checklist";
+import { PortalRequestForm } from "./portal-request-form";
 
 /**
  * Stage 2: the waiting weeks between the confirmed AB and the move day.
  * Composition:
  *   1. Confirmation banner
- *   2. Move-day card with day-based countdown + planned arrival window
+ *   2. Move-day card with day-based countdown + planned arrival window,
+ *      followed by a reschedule request form (also when the card is hidden)
  *   3. Crew preview
  *   4. Scope summary
  *   5. Preparation checklist (persisted per browser, see moving-checklist.tsx)
- *   6. WhatsApp contact card to the responsible party
+ *   6. WhatsApp contact card to the responsible party + question form
  * The AB PDF lives in the portal-wide documents section, not in this stage.
  */
 export function StageTwoAb({ ctx }: { ctx: CustomerPortalContext }) {
@@ -41,6 +43,15 @@ export function StageTwoAb({ ctx }: { ctx: CustomerPortalContext }) {
       <MoveDayCard
         scope={ctx.scope}
         serverTime={ctx.meta.serverTime}
+        primaryColor={ctx.branding.primaryColor}
+      />
+
+      <PortalRequestForm
+        token={token}
+        kind="reschedule"
+        triggerLabel="Termin passt nicht mehr? Terminänderung anfragen"
+        title="Terminänderung anfragen"
+        intro="Nennen Sie uns gern bis zu drei Wunschtermine, wir prüfen die Verfügbarkeit und melden uns."
         primaryColor={ctx.branding.primaryColor}
       />
 
@@ -86,6 +97,14 @@ export function StageTwoAb({ ctx }: { ctx: CustomerPortalContext }) {
           primaryColor={ctx.branding.primaryColor}
         />
       )}
+
+      <PortalRequestForm
+        token={token}
+        kind="question"
+        triggerLabel="Lieber schreiben? Nachricht senden"
+        title="Nachricht an uns"
+        primaryColor={ctx.branding.primaryColor}
+      />
     </section>
   );
 }

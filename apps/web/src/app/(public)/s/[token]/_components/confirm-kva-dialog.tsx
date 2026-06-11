@@ -6,6 +6,7 @@ import type {
   ConfirmKvaPayload,
   CustomerPortalContext,
 } from "@openclaw-crm/customer-portal-core";
+import { PaymentSection } from "./payment-section";
 
 /**
  * Acceptance flow. The two top checkboxes are mandatory always; the
@@ -13,6 +14,11 @@ import type {
  * days away (§ 356 Abs. 4 BGB).
  *
  * Server re-validates all three gates — the client cannot bypass them.
+ *
+ * After a successful accept the sheet stays open and switches to a "done"
+ * step that shows the deposit payment widget right away (ctx.payment is
+ * already populated before acceptance), so the customer pays without
+ * scrolling back through the page.
  */
 export function ConfirmKvaDialog({
   token,
@@ -20,15 +26,18 @@ export function ConfirmKvaDialog({
   onOpenChange,
   ctx,
   widerrufNeeded,
-  onConfirmed,
+  onAccepted,
 }: {
   token: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   ctx: CustomerPortalContext;
   widerrufNeeded: boolean;
-  onConfirmed: () => void;
+  /** Fires once the accept POST succeeded. Refreshes the context in the
+      background; the dialog stays open and moves to the done step. */
+  onAccepted: () => void;
 }) {
+  const [step, setStep] = useState<"form" | "done">("form");
   const [accOffer, setAccOffer] = useState(false);
   const [accAgb, setAccAgb] = useState(false);
   const [accBinding, setAccBinding] = useState(false);
@@ -36,6 +45,22 @@ export function ConfirmKvaDialog({
   const [fullName, setFullName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // The component stays mounted while the dialog is closed (Radix only
+  // unmounts the Content), so the state must be reset explicitly on close
+  // for the next opening.
+  function handleOpenChange(next: boolean) {
+    if (!next) {
+      setStep("form");
+      setAccOffer(false);
+      setAccAgb(false);
+      setAccBinding(false);
+      setAccWiderruf(false);
+      setFullName("");
+      setError(null);
+    }
+    onOpenChange(next);
+  }
 
   const agbHref = ctx.branding.agbPdfUrl;
   const hasAgb = !!agbHref;
@@ -71,7 +96,8 @@ export function ConfirmKvaDialog({
         setError(germanError(body.error?.code));
         return;
       }
-      onConfirmed();
+      setStep("done");
+      onAccepted();
     } catch {
       setError("Verbindungsfehler. Bitte versuchen Sie es erneut.");
     } finally {
@@ -80,7 +106,7 @@ export function ConfirmKvaDialog({
   }
 
   return (
-    <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
+    <DialogPrimitive.Root open={open} onOpenChange={handleOpenChange}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50" />
         {/* Radix portals to document.body, outside the .kottke-portal wrapper.
@@ -88,12 +114,16 @@ export function ConfirmKvaDialog({
         <DialogPrimitive.Content
           className="kottke-portal fixed bottom-0 left-1/2 z-50 max-h-[92svh] w-full max-w-lg -translate-x-1/2 overflow-y-auto rounded-t-3xl bg-background p-6 shadow-2xl sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2 sm:rounded-2xl"
           onEscapeKeyDown={(e) => {
-            if (submitting) e.preventDefault();
+            if (step === "form" && submitting) e.preventDefault();
           }}
           onPointerDownOutside={(e) => {
-            if (submitting) e.preventDefault();
+            if (step === "form" && submitting) e.preventDefault();
           }}
         >
+          {step === "done" ? (
+            <DoneStep token={token} ctx={ctx} onClose={() => handleOpenChange(false)} />
+          ) : (
+            <>
           <DialogPrimitive.Title className="text-lg font-medium">
             Verbindliche Annahme
           </DialogPrimitive.Title>
@@ -219,7 +249,7 @@ export function ConfirmKvaDialog({
           <div className="mt-6 flex gap-3">
             <button
               type="button"
-              onClick={() => onOpenChange(false)}
+              onClick={() => handleOpenChange(false)}
               disabled={submitting}
               className="h-11 flex-1 rounded-xl border border-border bg-transparent text-sm font-medium hover:bg-accent"
             >
@@ -249,9 +279,72 @@ export function ConfirmKvaDialog({
             Zur Dokumentation werden Zeitpunkt, IP-Adresse und Browser-Kennung
             gespeichert.
           </p>
+            </>
+          )}
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
+  );
+}
+
+/**
+ * Success step inside the same bottom sheet. Keeps the customer in the flow:
+ * confirmation on top, then directly the deposit payment widget when a
+ * deposit is open, so accepting and paying happen without a scroll detour.
+ */
+function DoneStep({
+  token,
+  ctx,
+  onClose,
+}: {
+  token: string;
+  ctx: CustomerPortalContext;
+  onClose: () => void;
+}) {
+  const hasDeposit = !!ctx.payment && ctx.payment.amountCents > 0;
+  return (
+    <div aria-live="polite">
+      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-200">
+        <DialogPrimitive.Title className="flex items-center gap-2 text-base font-medium">
+          <span aria-hidden>✓</span>
+          Angebot angenommen
+        </DialogPrimitive.Title>
+        <DialogPrimitive.Description className="mt-1 leading-relaxed">
+          Eine Kopie geht Ihnen per E-Mail zu.
+        </DialogPrimitive.Description>
+      </div>
+
+      {hasDeposit ? (
+        <>
+          <p className="mt-4 text-sm leading-relaxed">
+            Nur noch ein Schritt: Mit Eingang der Anzahlung ist Ihr Termin fest
+            reserviert.
+          </p>
+          <div className="mt-3">
+            <PaymentSection
+              token={token}
+              payment={ctx.payment!}
+              branding={ctx.branding}
+              variant="deposit"
+              markedPaidAt={ctx.customerSignals.markedPaidDepositAt}
+            />
+          </div>
+        </>
+      ) : (
+        <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
+          Sie erhalten Ihre Auftragsbestätigung in Kürze per E-Mail.
+        </p>
+      )}
+
+      <button
+        type="button"
+        onClick={onClose}
+        className="mt-6 h-11 w-full rounded-xl text-sm font-medium text-white transition-opacity hover:opacity-90"
+        style={{ background: `#${ctx.branding.primaryColor}` }}
+      >
+        Fertig
+      </button>
+    </div>
   );
 }
 

@@ -277,10 +277,7 @@ export function StageOneKva({
         onOpenChange={setOpen}
         ctx={ctx}
         widerrufNeeded={widerrufNeeded}
-        onConfirmed={() => {
-          setOpen(false);
-          onConfirmed();
-        }}
+        onAccepted={onConfirmed}
       />
     </>
   );

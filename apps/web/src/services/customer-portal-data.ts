@@ -35,6 +35,7 @@ import { quotations, quotationLineItems } from "@/db/schema/quotations";
 import { activityEvents } from "@/db/schema/activity";
 import { dealDocuments, payments, dealNumbers } from "@/db/schema/financial";
 import { dealEmployees, employees } from "@/db/schema/employees";
+import { workspaceMembers } from "@/db/schema/workspace";
 import { objects, attributes, selectOptions } from "@/db/schema/objects";
 import { records, recordValues } from "@/db/schema/records";
 import { inboxMessageAttachments, inboxMessages } from "@/db/schema/inbox";
@@ -72,6 +73,7 @@ import {
 import { isKleinanzeigenRelayAddress } from "./inbox-kleinanzeigen";
 import { loadEffectiveBranding } from "./customer-portal-config";
 import { emitEvent } from "./activity-events";
+import { createTask } from "./tasks";
 import { sendKvaAcceptanceEmail } from "./customer-portal-emails";
 
 // ─── Token / link lifecycle ────────────────────────────────────────────────────
@@ -564,6 +566,141 @@ export async function recordMarkedPaid(
       userAgent: ctx.userAgent.slice(0, 200),
     },
   });
+
+  return { ok: true };
+}
+
+/**
+ * Portal self-service request (Terminänderung, Rückfrage, Schadensmeldung).
+ * Writes a structured activity event so the deal timeline shows it, then
+ * creates a CRM task for the workspace admin. Task creation is best-effort:
+ * if no admin can be resolved the event still stands and the call succeeds.
+ */
+export type CustomerRequestKind = "reschedule" | "question" | "damage";
+
+const CUSTOMER_REQUEST_EVENT_TYPES = {
+  reschedule: "customer.reschedule_requested",
+  question: "customer.question",
+  damage: "customer.damage_reported",
+} as const;
+
+const CUSTOMER_REQUEST_TASK_LABELS: Record<CustomerRequestKind, string> = {
+  reschedule: "Kundenanfrage Terminänderung",
+  question: "Kundenfrage",
+  damage: "Schadensmeldung",
+};
+
+/** Hard cap on self-service requests per deal. Keeps the task board sane. */
+const CUSTOMER_REQUEST_MAX_PER_DEAL = 20;
+
+export async function recordCustomerRequest(
+  token: string,
+  input: { kind: CustomerRequestKind; message: string; preferredDates?: string[] },
+  meta: { ipAddress: string; userAgent: string }
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  if (!validateTokenShape(token)) return { ok: false, reason: "not_found" };
+
+  const eventType = CUSTOMER_REQUEST_EVENT_TYPES[input.kind];
+  if (!eventType) return { ok: false, reason: "invalid_input" };
+
+  const message = typeof input.message === "string" ? input.message.trim() : "";
+  if (message.length < 1 || message.length > 2000) {
+    return { ok: false, reason: "invalid_input" };
+  }
+
+  let preferredDates: string[] | null = null;
+  if (input.preferredDates !== undefined) {
+    if (
+      input.kind !== "reschedule" ||
+      !Array.isArray(input.preferredDates) ||
+      input.preferredDates.length > 3 ||
+      !input.preferredDates.every(
+        (d) => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d)
+      )
+    ) {
+      return { ok: false, reason: "invalid_input" };
+    }
+    preferredDates = input.preferredDates;
+  }
+
+  const [link] = await db
+    .select()
+    .from(customerStatusLinks)
+    .where(eq(customerStatusLinks.token, token))
+    .limit(1);
+  if (!link) return { ok: false, reason: "not_found" };
+  if (link.revokedAt) return { ok: false, reason: "revoked" };
+
+  // Abuse cap: count all prior self-service requests on this deal.
+  const [countRow] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(activityEvents)
+    .where(
+      and(
+        eq(activityEvents.workspaceId, link.workspaceId),
+        eq(activityEvents.recordId, link.dealRecordId),
+        inArray(
+          activityEvents.eventType,
+          Object.values(CUSTOMER_REQUEST_EVENT_TYPES)
+        )
+      )
+    );
+  if (Number(countRow?.count ?? 0) >= CUSTOMER_REQUEST_MAX_PER_DEAL) {
+    return { ok: false, reason: "rate_limited" };
+  }
+
+  await emitEvent({
+    workspaceId: link.workspaceId,
+    recordId: link.dealRecordId,
+    objectSlug: "deals",
+    eventType,
+    payload: {
+      message,
+      preferredDates: preferredDates ?? null,
+      ipAddress: meta.ipAddress.slice(0, 200),
+      userAgent: meta.userAgent.slice(0, 200),
+    },
+  });
+
+  // Best-effort task so the request lands on the Aufgaben board. The event
+  // above is the source of truth; a task failure must not fail the request.
+  try {
+    const [admin] = await db
+      .select({ userId: workspaceMembers.userId })
+      .from(workspaceMembers)
+      .where(
+        and(
+          eq(workspaceMembers.workspaceId, link.workspaceId),
+          eq(workspaceMembers.role, "admin")
+        )
+      )
+      .orderBy(workspaceMembers.createdAt)
+      .limit(1);
+    if (!admin) throw new Error("no admin member in workspace");
+
+    const [dealNumberRow] = await db
+      .select({ dealNumber: dealNumbers.dealNumber })
+      .from(dealNumbers)
+      .where(eq(dealNumbers.dealRecordId, link.dealRecordId))
+      .limit(1);
+
+    const label = CUSTOMER_REQUEST_TASK_LABELS[input.kind];
+    const content = dealNumberRow?.dealNumber
+      ? `${label}: ${dealNumberRow.dealNumber}`
+      : label;
+    const description =
+      preferredDates && preferredDates.length > 0
+        ? `${message}\nWunschtermine: ${preferredDates.join(", ")}`
+        : message;
+
+    await createTask(content, admin.userId, link.workspaceId, {
+      recordIds: [link.dealRecordId],
+      description,
+      priority: input.kind === "damage" ? "hoch" : undefined,
+    });
+  } catch (err) {
+    console.error("[customer-portal] request task creation failed:", err);
+  }
 
   return { ok: true };
 }
