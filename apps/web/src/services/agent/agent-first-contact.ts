@@ -148,11 +148,15 @@ function personaFromSignature(signature: string): string | null {
 // ── Berlin-time helpers ──────────────────────────────────────────────────────
 
 function berlinHour(now: Date): number {
+  // MUST NOT use a de-DE formatter here: de-DE renders the hour as "17 Uhr",
+  // and Number("17 Uhr") is NaN, which made isWithinSendWindow() ALWAYS return
+  // false and the engine bail before contacting any lead. en-GB + h23 yields a
+  // clean "00".."23".
   return Number(
-    new Intl.DateTimeFormat("de-DE", {
+    new Intl.DateTimeFormat("en-GB", {
       timeZone: "Europe/Berlin",
-      hour: "numeric",
-      hour12: false,
+      hour: "2-digit",
+      hourCycle: "h23",
     }).format(now)
   );
 }
@@ -176,8 +180,8 @@ function berlinDayKey(now: Date): string {
   }).format(now);
 }
 
-/** Proactive outreach window: Mon-Sat 08-20, Sun 10-19 (Europe/Berlin). */
-function isWithinSendWindow(now: Date): boolean {
+/** Proactive outreach window: Mon-Sat 08-20, Sun 10-19 (Europe/Berlin). Exported for tests. */
+export function isWithinSendWindow(now: Date): boolean {
   const hour = berlinHour(now);
   const weekday = berlinWeekday(now);
   if (weekday === 0) return hour >= 10 && hour < 19;
