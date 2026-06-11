@@ -27,6 +27,7 @@ import {
   differenceInDays,
   format,
 } from "date-fns";
+import { de } from "date-fns/locale";
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -58,23 +59,23 @@ function getRelativeDateLabel(deadline: string): {
   const now = new Date();
   now.setHours(0, 0, 0, 0);
 
-  if (isToday(d)) return { label: "Due today", color: "text-orange-400" };
-  if (isTomorrow(d)) return { label: "Due tomorrow", color: "text-orange-400" };
-  if (isYesterday(d)) return { label: "Due yesterday", color: "text-destructive" };
+  if (isToday(d)) return { label: "Fällig heute", color: "text-orange-400" };
+  if (isTomorrow(d)) return { label: "Fällig morgen", color: "text-orange-400" };
+  if (isYesterday(d)) return { label: "Fällig gestern", color: "text-destructive" };
 
   const days = differenceInDays(d, now);
   if (days < 0) {
     return {
-      label: `Overdue ${Math.abs(days)}d`,
+      label: `Überfällig ${Math.abs(days)} T`,
       color: "text-destructive",
     };
   }
   if (days <= 7)
     return {
-      label: `Due ${format(d, "EEEE")}`,
+      label: `Fällig ${format(d, "EEEE", { locale: de })}`,
       color: "text-orange-400",
     };
-  return { label: `Due ${format(d, "MMM d")}`, color: "text-muted-foreground" };
+  return { label: `Fällig ${format(d, "d. MMM", { locale: de })}`, color: "text-muted-foreground" };
 }
 
 type GroupKey =
@@ -104,13 +105,13 @@ function getGroupKey(task: Task): GroupKey {
 }
 
 const GROUP_LABELS: Record<GroupKey, string> = {
-  overdue: "Overdue",
-  today: "Today",
-  this_week: "This week",
-  next_week: "Next week",
-  later: "Later",
-  no_date: "No date",
-  completed: "Completed",
+  overdue: "Überfällig",
+  today: "Heute",
+  this_week: "Diese Woche",
+  next_week: "Nächste Woche",
+  later: "Später",
+  no_date: "Kein Datum",
+  completed: "Erledigt",
 };
 
 const GROUP_ORDER: GroupKey[] = [
@@ -157,11 +158,11 @@ export function TaskList() {
       } else {
         const data = await res.json().catch(() => null);
         setError(
-          data?.error?.message || `Failed to load tasks (${res.status})`
+          data?.error?.message || `Aufgaben konnten nicht geladen werden (${res.status})`
         );
       }
     } catch {
-      setError("Network error — could not load tasks");
+      setError("Netzwerkfehler, Aufgaben konnten nicht geladen werden");
     } finally {
       setLoading(false);
     }
@@ -284,16 +285,16 @@ export function TaskList() {
       {/* Toolbar */}
       <div className="flex items-center justify-between border-b border-border px-4 py-2">
         <div className="flex items-center gap-3">
-          <h1 className="text-lg font-semibold">Tasks</h1>
+          <h1 className="text-lg font-semibold">Aufgaben</h1>
           <span className="text-sm text-muted-foreground">
-            {total} {total === 1 ? "task" : "tasks"}
+            {total} {total === 1 ? "Aufgabe" : "Aufgaben"}
           </span>
         </div>
         <div className="flex items-center gap-2">
           {/* Sort pill */}
           <div className="flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground">
             <ArrowUpDown className="h-3 w-3" />
-            <span>Due date</span>
+            <span>Fälligkeit</span>
           </div>
 
           <Button
@@ -307,21 +308,21 @@ export function TaskList() {
             ) : (
               <Eye className="h-3.5 w-3.5" />
             )}
-            {showCompleted ? "Hide completed" : "Show completed"}
+            {showCompleted ? "Erledigte ausblenden" : "Erledigte anzeigen"}
           </Button>
           <Button size="sm" onClick={openCreateDialog}>
             <Plus className="mr-1 h-4 w-4" />
-            New task
+            Neue Aufgabe
           </Button>
         </div>
       </div>
 
       {/* Column headers */}
       <div className="grid grid-cols-[1fr_120px_150px_120px] gap-2 border-b border-border px-4 py-1.5 text-xs font-medium text-muted-foreground">
-        <span>Task</span>
-        <span>Due date</span>
-        <span>Record</span>
-        <span>Assigned to</span>
+        <span>Aufgabe</span>
+        <span>Fälligkeit</span>
+        <span>Eintrag</span>
+        <span>Zugewiesen an</span>
       </div>
 
       {/* Error */}
@@ -334,17 +335,17 @@ export function TaskList() {
       {/* Task list */}
       <div className="flex-1 overflow-auto">
         {loading && tasks.length === 0 && (
-          <p className="text-muted-foreground text-center py-12">Loading...</p>
+          <p className="text-muted-foreground text-center py-12">Lade…</p>
         )}
 
         {!loading && tasks.length === 0 && (
           <div className="text-center py-12 space-y-2">
             <p className="text-muted-foreground">
-              No tasks yet! Create your first task to get started.
+              Noch keine Aufgaben. Erstelle die erste Aufgabe, um loszulegen.
             </p>
             <Button size="sm" variant="outline" onClick={openCreateDialog}>
               <Plus className="mr-1 h-4 w-4" />
-              New task
+              Neue Aufgabe
             </Button>
           </div>
         )}

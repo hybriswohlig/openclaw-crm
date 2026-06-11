@@ -107,7 +107,7 @@ export default function ObjectSettingsPage() {
         setNewAttrType("text");
       } else {
         const data = await res.json();
-        setError(data.error?.message ?? "Failed to add attribute");
+        setError(data.error?.message ?? "Attribut konnte nicht hinzugefügt werden");
       }
     } finally {
       setAddingFor(null);
@@ -132,7 +132,7 @@ export default function ObjectSettingsPage() {
       }));
     } else {
       const data = await res.json();
-      setError(data.error?.message ?? "Failed to delete attribute");
+      setError(data.error?.message ?? "Attribut konnte nicht gelöscht werden");
     }
   }
 
@@ -146,7 +146,7 @@ export default function ObjectSettingsPage() {
 
   return (
     <div className="max-w-3xl">
-      <h1 className="text-xl font-semibold mb-6">Objects</h1>
+      <h1 className="text-xl font-semibold mb-6">Objekte</h1>
 
       {error && (
         <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -155,7 +155,7 @@ export default function ObjectSettingsPage() {
             onClick={() => setError("")}
             className="ml-2 underline hover:no-underline"
           >
-            dismiss
+            schließen
           </button>
         </div>
       )}
@@ -212,16 +212,16 @@ export default function ObjectSettingsPage() {
                         <thead>
                           <tr className="border-b bg-muted/30">
                             <th className="px-4 py-2 text-left font-medium">
-                              Title
+                              Titel
                             </th>
                             <th className="px-4 py-2 text-left font-medium">
                               Slug
                             </th>
                             <th className="px-4 py-2 text-left font-medium">
-                              Type
+                              Typ
                             </th>
                             <th className="px-4 py-2 text-right font-medium">
-                              Actions
+                              Aktionen
                             </th>
                           </tr>
                         </thead>
@@ -273,7 +273,7 @@ export default function ObjectSettingsPage() {
                                 colSpan={4}
                                 className="px-4 py-4 text-center text-muted-foreground"
                               >
-                                No attributes
+                                Keine Attribute
                               </td>
                             </tr>
                           )}
@@ -283,7 +283,7 @@ export default function ObjectSettingsPage() {
                       {/* Add attribute form */}
                       <div className="flex items-end gap-2 border-t border-border px-4 py-3 bg-muted/20">
                         <div className="space-y-1">
-                          <label className="text-xs font-medium">Title</label>
+                          <label className="text-xs font-medium">Titel</label>
                           <input
                             type="text"
                             value={newAttrTitle}
@@ -296,7 +296,7 @@ export default function ObjectSettingsPage() {
                                   .replace(/^_|_$/g, "")
                               );
                             }}
-                            placeholder="Attribute title"
+                            placeholder="Attribut-Titel"
                             className="w-40 rounded border border-input bg-background px-2 py-1.5 text-xs outline-none focus:ring-1 focus:ring-ring"
                           />
                         </div>
@@ -311,7 +311,7 @@ export default function ObjectSettingsPage() {
                           />
                         </div>
                         <div className="space-y-1">
-                          <label className="text-xs font-medium">Type</label>
+                          <label className="text-xs font-medium">Typ</label>
                           <select
                             value={newAttrType}
                             onChange={(e) => setNewAttrType(e.target.value)}
@@ -339,7 +339,7 @@ export default function ObjectSettingsPage() {
                           ) : (
                             <Plus className="mr-1 h-3 w-3" />
                           )}
-                          Add
+                          Hinzufügen
                         </Button>
                       </div>
                     </>

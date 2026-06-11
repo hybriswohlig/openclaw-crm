@@ -237,7 +237,7 @@ export function RecordTable({
                   colSpan={attributes.length}
                   className="h-32 text-center text-muted-foreground"
                 >
-                  No records yet. Click the button below to create one.
+                  Noch keine Einträge. Mit dem Button unten einen anlegen.
                 </td>
               </tr>
             )}
@@ -249,7 +249,7 @@ export function RecordTable({
       <div className="sm:hidden flex-1 overflow-auto divide-y divide-border">
         {records.length === 0 && (
           <div className="h-32 flex items-center justify-center text-sm text-muted-foreground">
-            No records yet.
+            Noch keine Einträge.
           </div>
         )}
         {records.map((rec) => (
@@ -273,7 +273,7 @@ export function RecordTable({
           className="text-muted-foreground hover:text-foreground"
         >
           <Plus className="mr-1 h-4 w-4" />
-          New record
+          Neuer Eintrag
         </Button>
       </div>
     </div>

@@ -203,7 +203,7 @@ export function CSVImportModal({
         const err = await res.json();
         setResult({
           created: 0,
-          errors: [{ row: -1, message: err.error?.message ?? "Import failed" }],
+          errors: [{ row: -1, message: err.error?.message ?? "Import fehlgeschlagen" }],
           total: rows.length,
         });
         setStep("done");
@@ -211,7 +211,7 @@ export function CSVImportModal({
     } catch {
       setResult({
         created: 0,
-        errors: [{ row: -1, message: "Network error" }],
+        errors: [{ row: -1, message: "Netzwerkfehler" }],
         total: parsed.rows.length,
       });
       setStep("done");
@@ -225,7 +225,7 @@ export function CSVImportModal({
     <Dialog open={open} onOpenChange={() => handleClose()}>
       <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Import {objectName} Records</DialogTitle>
+          <DialogTitle>{objectName} importieren</DialogTitle>
         </DialogHeader>
 
         {/* Step 1: Upload */}
@@ -245,17 +245,17 @@ export function CSVImportModal({
           >
             <Upload className="h-10 w-10 mx-auto mb-3 text-muted-foreground" />
             <p className="text-sm font-medium mb-1">
-              Drop a CSV file here, or click to browse
+              CSV-Datei hier ablegen oder zum Auswählen klicken
             </p>
             <p className="text-xs text-muted-foreground mb-4">
-              Maximum 1,000 rows per import
+              Maximal 1000 Zeilen pro Import
             </p>
             <Button
               variant="outline"
               size="sm"
               onClick={() => fileRef.current?.click()}
             >
-              Choose File
+              Datei auswählen
             </Button>
             <input
               ref={fileRef}
@@ -273,10 +273,10 @@ export function CSVImportModal({
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <FileText className="h-4 w-4" />
               <span>{fileName}</span>
-              <span>&mdash;</span>
+              <span>&middot;</span>
               <span>
-                {parsed.rows.length} row{parsed.rows.length !== 1 ? "s" : ""},{" "}
-                {parsed.headers.length} column{parsed.headers.length !== 1 ? "s" : ""}
+                {parsed.rows.length} {parsed.rows.length === 1 ? "Zeile" : "Zeilen"},{" "}
+                {parsed.headers.length} {parsed.headers.length === 1 ? "Spalte" : "Spalten"}
               </span>
             </div>
 
@@ -285,9 +285,9 @@ export function CSVImportModal({
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b bg-muted/50">
-                    <th className="px-3 py-2 text-left font-medium">CSV Column</th>
-                    <th className="px-3 py-2 text-left font-medium">Maps To</th>
-                    <th className="px-3 py-2 text-left font-medium">Preview</th>
+                    <th className="px-3 py-2 text-left font-medium">CSV-Spalte</th>
+                    <th className="px-3 py-2 text-left font-medium">Zuordnung</th>
+                    <th className="px-3 py-2 text-left font-medium">Vorschau</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -300,7 +300,7 @@ export function CSVImportModal({
                           onChange={(e) => updateMapping(i, e.target.value)}
                           className="w-full rounded border border-input bg-background px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-ring"
                         >
-                          <option value="">-- Skip --</option>
+                          <option value="">-- Überspringen --</option>
                           {attributes.map((attr) => (
                             <option key={attr.slug} value={attr.slug}>
                               {attr.title} ({attr.type})
@@ -321,7 +321,7 @@ export function CSVImportModal({
             {previewRows.length > 1 && (
               <details className="text-xs">
                 <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
-                  Preview first {previewRows.length} rows
+                  Vorschau der ersten {previewRows.length} Zeilen
                 </summary>
                 <div className="mt-2 overflow-x-auto border rounded-lg">
                   <table className="w-full text-xs">
@@ -362,9 +362,9 @@ export function CSVImportModal({
         {step === "importing" && (
           <div className="py-8 text-center">
             <Loader2 className="h-8 w-8 mx-auto mb-3 animate-spin text-primary" />
-            <p className="text-sm font-medium">Importing records...</p>
+            <p className="text-sm font-medium">Einträge werden importiert...</p>
             <p className="text-xs text-muted-foreground mt-1">
-              This may take a moment for large files
+              Bei großen Dateien kann das einen Moment dauern
             </p>
           </div>
         )}
@@ -378,22 +378,22 @@ export function CSVImportModal({
               <AlertCircle className="h-10 w-10 mx-auto text-destructive" />
             )}
             <p className="text-sm font-medium">
-              {result.created} of {result.total} records imported
+              {result.created} von {result.total} Einträgen importiert
             </p>
             {result.errors.length > 0 && (
               <div className="text-left mt-4 max-h-40 overflow-y-auto rounded border border-destructive/30 p-3">
                 <p className="text-xs font-medium text-destructive mb-1">
-                  {result.errors.length} error{result.errors.length !== 1 ? "s" : ""}:
+                  {result.errors.length} Fehler:
                 </p>
                 {result.errors.slice(0, 20).map((err, i) => (
                   <p key={i} className="text-xs text-muted-foreground">
-                    {err.row >= 0 ? `Row ${err.row + 1}: ` : ""}
+                    {err.row >= 0 ? `Zeile ${err.row + 1}: ` : ""}
                     {err.message}
                   </p>
                 ))}
                 {result.errors.length > 20 && (
                   <p className="text-xs text-muted-foreground mt-1">
-                    ...and {result.errors.length - 20} more errors
+                    ...und {result.errors.length - 20} weitere Fehler
                   </p>
                 )}
               </div>
@@ -404,29 +404,29 @@ export function CSVImportModal({
         <DialogFooter>
           {step === "upload" && (
             <Button variant="ghost" onClick={handleClose}>
-              Cancel
+              Abbrechen
             </Button>
           )}
           {step === "map" && (
             <>
               <Button variant="ghost" onClick={reset}>
-                Back
+                Zurück
               </Button>
               <Button
                 onClick={handleImport}
                 disabled={mappedCount === 0}
               >
-                Import {parsed?.rows.length ?? 0} Records
+                {parsed?.rows.length ?? 0} {(parsed?.rows.length ?? 0) === 1 ? "Eintrag" : "Einträge"} importieren
                 {mappedCount > 0 && (
                   <span className="ml-1 text-xs opacity-70">
-                    ({mappedCount} column{mappedCount !== 1 ? "s" : ""} mapped)
+                    ({mappedCount} {mappedCount === 1 ? "Spalte" : "Spalten"} zugeordnet)
                   </span>
                 )}
               </Button>
             </>
           )}
           {step === "done" && (
-            <Button onClick={handleClose}>Close</Button>
+            <Button onClick={handleClose}>Schließen</Button>
           )}
         </DialogFooter>
       </DialogContent>

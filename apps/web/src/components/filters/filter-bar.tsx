@@ -48,7 +48,7 @@ export function FilterBar({
           >
             {index > 0 && (
               <span className="text-muted-foreground uppercase text-[10px] mr-1">
-                {filter.operator}
+                {filter.operator === "and" ? "UND" : "ODER"}
               </span>
             )}
             <span className="text-muted-foreground">{attr.title}</span>
@@ -74,7 +74,7 @@ export function FilterBar({
           onClick={onClearAll}
           className="text-xs text-muted-foreground hover:text-foreground ml-1"
         >
-          Clear all
+          Alle entfernen
         </button>
       )}
     </div>
@@ -107,7 +107,7 @@ function formatFilterValue(
   }
 
   if (attr.type === "checkbox") {
-    return value === true ? "Yes" : "No";
+    return value === true ? "Ja" : "Nein";
   }
 
   if (Array.isArray(value)) {

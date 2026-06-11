@@ -81,7 +81,7 @@ function SearchContent() {
 
   const recordsByObject = new Map<string, SearchResult[]>();
   for (const r of recordResults) {
-    const key = r.objectName ?? "Other";
+    const key = r.objectName ?? "Sonstige";
     const arr = recordsByObject.get(key) || [];
     arr.push(r);
     recordsByObject.set(key, arr);
@@ -97,7 +97,7 @@ function SearchContent() {
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
-      <h1 className="text-2xl font-semibold mb-6">Search</h1>
+      <h1 className="text-2xl font-semibold mb-6">Suche</h1>
 
       <form onSubmit={handleSubmit} className="mb-8">
         <div className="relative">
@@ -106,7 +106,7 @@ function SearchContent() {
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search records, lists..."
+            placeholder="Suchen..."
             autoFocus
             className="w-full rounded-lg border border-input bg-background px-10 py-2.5 text-sm outline-none ring-offset-background placeholder:text-muted-foreground focus:ring-2 focus:ring-ring focus:ring-offset-2"
           />
@@ -119,8 +119,8 @@ function SearchContent() {
       {searched && !loading && results.length === 0 && (
         <div className="text-center py-12 text-muted-foreground">
           <Search className="h-12 w-12 mx-auto mb-3 opacity-30" />
-          <p className="text-lg">No results found</p>
-          <p className="text-sm mt-1">Try searching with different keywords</p>
+          <p className="text-lg">Keine Ergebnisse</p>
+          <p className="text-sm mt-1">Mit anderen Begriffen versuchen</p>
         </div>
       )}
 
@@ -153,7 +153,7 @@ function SearchContent() {
       {listResults.length > 0 && (
         <div className="mb-6">
           <h2 className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-2 px-1">
-            Lists ({listResults.length})
+            Listen ({listResults.length})
           </h2>
           <div className="space-y-1">
             {listResults.map((result) => (
@@ -181,7 +181,7 @@ export default function SearchPage() {
     <Suspense
       fallback={
         <div className="p-6 max-w-4xl mx-auto">
-          <h1 className="text-2xl font-semibold mb-6">Search</h1>
+          <h1 className="text-2xl font-semibold mb-6">Suche</h1>
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>

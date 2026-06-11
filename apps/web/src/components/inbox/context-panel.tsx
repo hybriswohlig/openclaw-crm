@@ -1377,9 +1377,9 @@ function LinkDealSection({
 }
 
 function lifecycleDate(key: LifecycleKey, at: string | null): string {
-  if (!at) return "—";
+  if (!at) return "·";
   const d = new Date(at);
-  if (Number.isNaN(d.getTime())) return "—";
+  if (Number.isNaN(d.getTime())) return "·";
   // Move date and payment date are plain days; the rest carry a wall-clock time.
   if (key === "umzugstermin" || key === "bezahlt") {
     return d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });

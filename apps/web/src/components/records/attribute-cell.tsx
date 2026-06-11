@@ -133,7 +133,7 @@ export function AttributeCell({ type, value, options, statuses }: AttributeCellP
           <span className="flex flex-wrap gap-1">
             {refs.map((ref, i) => (
               <Badge key={i} variant="secondary" className="text-xs font-normal">
-                {ref.displayName || "Unnamed"}
+                {ref.displayName || "Unbenannt"}
               </Badge>
             ))}
           </span>
@@ -151,7 +151,7 @@ export function AttributeCell({ type, value, options, statuses }: AttributeCellP
       return <span>{String(value)}</span>;
 
     case "interaction":
-      return <span className="text-muted-foreground">Interaction</span>;
+      return <span className="text-muted-foreground">Interaktion</span>;
 
     case "json": {
       if (typeof value !== "object" || value === null) {
@@ -161,7 +161,7 @@ export function AttributeCell({ type, value, options, statuses }: AttributeCellP
       const leadType =
         (value as { LeadType?: string }).LeadType ??
         (value as { leadType?: string }).leadType;
-      const summary = leadType ? `LeadType: ${leadType}` : keys.length ? `${keys.length} fields` : "—";
+      const summary = leadType ? `LeadType: ${leadType}` : keys.length ? `${keys.length} Felder` : "·";
       return (
         <span className="text-xs text-muted-foreground" title={JSON.stringify(value).slice(0, 500)}>
           {summary}

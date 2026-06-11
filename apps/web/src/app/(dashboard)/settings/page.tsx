@@ -38,11 +38,11 @@ export default function SettingsPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.name.endsWith(".svg") && file.type !== "image/svg+xml") {
-      alert("Please upload an SVG file.");
+      alert("Bitte eine SVG-Datei hochladen.");
       return;
     }
     if (file.size > 500_000) {
-      alert("SVG file must be under 500 KB.");
+      alert("Die SVG-Datei darf maximal 500 KB groß sein.");
       return;
     }
     const reader = new FileReader();
@@ -89,7 +89,7 @@ export default function SettingsPage() {
 
   return (
     <div className="max-w-xl">
-      <h1 className="text-xl font-semibold mb-6">General Settings</h1>
+      <h1 className="text-xl font-semibold mb-6">Allgemeine Einstellungen</h1>
 
       <div className="mb-6">
         <EnablePushButton />
@@ -98,7 +98,7 @@ export default function SettingsPage() {
       <div className="space-y-6">
         {/* Logo */}
         <div className="space-y-2">
-          <label className="text-sm font-medium">Organization logo</label>
+          <label className="text-sm font-medium">Logo der Organisation</label>
           <div className="flex items-center gap-4">
             <div className="flex h-16 w-16 items-center justify-center rounded-lg border border-input bg-background overflow-hidden">
               {logo ? (
@@ -119,7 +119,7 @@ export default function SettingsPage() {
                 onClick={() => fileRef.current?.click()}
               >
                 <Upload className="mr-1.5 h-3.5 w-3.5" />
-                Upload SVG
+                SVG hochladen
               </Button>
               {logo && (
                 <Button
@@ -129,7 +129,7 @@ export default function SettingsPage() {
                   className="text-muted-foreground"
                 >
                   <X className="mr-1 h-3.5 w-3.5" />
-                  Remove
+                  Entfernen
                 </Button>
               )}
             </div>
@@ -142,13 +142,13 @@ export default function SettingsPage() {
             />
           </div>
           <p className="text-xs text-muted-foreground">
-            SVG only, max 500 KB. Displayed in the sidebar.
+            Nur SVG, max. 500 KB. Wird in der Seitenleiste angezeigt.
           </p>
         </div>
 
         {/* Organization name */}
         <div className="space-y-2">
-          <label className="text-sm font-medium">Organization name</label>
+          <label className="text-sm font-medium">Name der Organisation</label>
           <input
             type="text"
             value={name}
@@ -159,7 +159,7 @@ export default function SettingsPage() {
 
         {/* Slug (read-only) */}
         <div className="space-y-2">
-          <label className="text-sm font-medium">URL slug</label>
+          <label className="text-sm font-medium">URL-Slug</label>
           <input
             type="text"
             value={workspace.slug}
@@ -167,13 +167,13 @@ export default function SettingsPage() {
             className="w-full rounded-md border border-input bg-muted px-3 py-2 text-sm text-muted-foreground"
           />
           <p className="text-xs text-muted-foreground">
-            The slug is used in URLs and cannot be changed.
+            Der Slug wird in URLs verwendet und kann nicht geändert werden.
           </p>
         </div>
 
         {/* Internal ID */}
         <div className="space-y-2">
-          <label className="text-sm font-medium">Internal ID</label>
+          <label className="text-sm font-medium">Interne ID</label>
           <input
             type="text"
             value={workspace.id}
@@ -184,9 +184,9 @@ export default function SettingsPage() {
 
         {/* Created */}
         <div className="space-y-2">
-          <label className="text-sm font-medium">Created</label>
+          <label className="text-sm font-medium">Erstellt am</label>
           <p className="text-sm text-muted-foreground">
-            {new Date(workspace.createdAt).toLocaleDateString(undefined, {
+            {new Date(workspace.createdAt).toLocaleDateString("de-DE", {
               year: "numeric",
               month: "long",
               day: "numeric",
@@ -198,9 +198,9 @@ export default function SettingsPage() {
         <div className="flex items-center gap-3">
           <Button onClick={handleSave} disabled={saving || !hasChanges}>
             {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Save Changes
+            Änderungen speichern
           </Button>
-          {saved && <span className="text-sm text-green-500">Saved</span>}
+          {saved && <span className="text-sm text-green-500">Gespeichert</span>}
         </div>
       </div>
     </div>

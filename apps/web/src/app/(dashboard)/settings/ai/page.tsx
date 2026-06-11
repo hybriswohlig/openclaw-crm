@@ -246,14 +246,14 @@ export default function AISettingsPage() {
       const data = await res.json();
       if (res.ok && data.data?.success) {
         setTestResult("success");
-        setTestMessage("Connection successful");
+        setTestMessage("Verbindung erfolgreich");
       } else {
         setTestResult("error");
-        setTestMessage(data.error?.message || data.data?.error || "Connection failed");
+        setTestMessage(data.error?.message || data.data?.error || "Verbindung fehlgeschlagen");
       }
     } catch {
       setTestResult("error");
-      setTestMessage("Network error");
+      setTestMessage("Netzwerkfehler");
     } finally {
       setTesting(false);
     }
@@ -262,9 +262,9 @@ export default function AISettingsPage() {
   return (
     <div className="max-w-xl space-y-8">
       <div>
-        <h1 className="text-2xl font-bold">AI Agent</h1>
+        <h1 className="text-2xl font-bold">KI-Agent</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Configure the AI assistant that can answer questions about your CRM data and take actions on your behalf.
+          Konfigurieren Sie den KI-Assistenten, der Fragen zu Ihren CRM-Daten beantwortet und in Ihrem Auftrag Aktionen ausführt.
         </p>
       </div>
 
@@ -701,7 +701,7 @@ export default function AISettingsPage() {
 
       <div className="space-y-4">
         <div className="space-y-2">
-          <Label htmlFor="apiKey">OpenRouter API Key</Label>
+          <Label htmlFor="apiKey">OpenRouter API-Schlüssel</Label>
           <div className="relative">
             <Input
               id="apiKey"
@@ -720,10 +720,10 @@ export default function AISettingsPage() {
             </button>
           </div>
           {hasApiKey && !apiKey && (
-            <p className="text-xs text-muted-foreground">API key is set. Enter a new key to replace it.</p>
+            <p className="text-xs text-muted-foreground">API-Schlüssel ist hinterlegt. Neuen Schlüssel eingeben, um ihn zu ersetzen.</p>
           )}
           <p className="text-xs text-muted-foreground">
-            Get your API key from{" "}
+            Den API-Schlüssel erhalten Sie unter{" "}
             <a
               href="https://openrouter.ai/keys"
               target="_blank"
@@ -736,7 +736,7 @@ export default function AISettingsPage() {
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="model">Model</Label>
+          <Label htmlFor="model">Modell</Label>
           <select
             id="model"
             value={model}
@@ -754,11 +754,11 @@ export default function AISettingsPage() {
         <div className="flex items-center gap-3 pt-2">
           <Button onClick={handleSave} disabled={saving}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-            Save
+            Speichern
           </Button>
           <Button variant="outline" onClick={handleTest} disabled={testing || (!hasApiKey && !apiKey)}>
             {testing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-            Test Connection
+            Verbindung testen
           </Button>
           {testResult && (
             <span className={`flex items-center gap-1 text-sm ${testResult === "success" ? "text-green-600" : "text-red-600"}`}>
@@ -772,9 +772,9 @@ export default function AISettingsPage() {
       {/* ── AI Tasks ──────────────────────────────────────────────────────── */}
       <div className="border-t pt-8">
         <div>
-          <h2 className="text-lg font-semibold">AI Tasks</h2>
+          <h2 className="text-lg font-semibold">KI-Aufgaben</h2>
           <p className="text-sm text-muted-foreground mt-1">
-            Configure individual AI features — enable/disable, choose models, and set daily spend caps.
+            Einzelne KI-Funktionen konfigurieren: ein- oder ausschalten, Modelle wählen und Tageslimits festlegen.
           </p>
         </div>
 
@@ -784,7 +784,7 @@ export default function AISettingsPage() {
           </div>
         ) : tasks.length === 0 ? (
           <p className="text-sm text-muted-foreground py-6">
-            No AI tasks registered yet. Tasks appear here automatically when first used.
+            Noch keine KI-Aufgaben registriert. Aufgaben erscheinen hier automatisch bei der ersten Nutzung.
           </p>
         ) : (
           <div className="space-y-6 mt-4">
@@ -834,7 +834,7 @@ export default function AISettingsPage() {
                 {(task.enabled || ENGINE_OWNED_TASK_SLUGS.includes(task.slug)) && (
                   <div className="space-y-3">
                     <div className="space-y-1">
-                      <Label className="text-xs">Provider</Label>
+                      <Label className="text-xs">Anbieter</Label>
                       <select
                         value={task.provider}
                         onChange={(e) =>
@@ -842,13 +842,13 @@ export default function AISettingsPage() {
                         }
                         className="flex h-8 w-full rounded-md border border-input bg-transparent px-2 py-1 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                       >
-                        <option value="openrouter">OpenRouter (sync, pay-per-call)</option>
-                        <option value="crm-tools">crm-tools FastAPI (Claude Max plan, async ~30-90s)</option>
+                        <option value="openrouter">OpenRouter (synchron, Bezahlung pro Aufruf)</option>
+                        <option value="crm-tools">crm-tools FastAPI (Claude-Max-Abo, asynchron ca. 30 bis 90 s)</option>
                       </select>
                       {task.provider === "crm-tools" && (
                         <p className="text-[10px] text-muted-foreground">
-                          Routes via https://crm-tools.kottke.info → Claude Code CLI server-side. Model + Fallback below are ignored.
-                          Recommended for background tasks only (cron); interactive UI calls will spinner for 30-90s.
+                          Läuft serverseitig über https://crm-tools.kottke.info → Claude Code CLI. Modell und Fallback unten werden ignoriert.
+                          Nur für Hintergrundaufgaben (Cron) empfohlen; interaktive Aufrufe in der Oberfläche laden 30 bis 90 s.
                         </p>
                       )}
                     </div>
@@ -856,10 +856,10 @@ export default function AISettingsPage() {
                     <div className="grid gap-3 sm:grid-cols-2">
                     <div className="space-y-1">
                       <Label className="text-xs">
-                        Model
+                        Modell
                         {task.provider === "crm-tools" && (
                           <span className="ml-1 text-[10px] text-muted-foreground">
-                            (n/a for crm-tools)
+                            (bei crm-tools ohne Wirkung)
                           </span>
                         )}
                       </Label>
@@ -880,7 +880,7 @@ export default function AISettingsPage() {
                     </div>
 
                     <div className="space-y-1">
-                      <Label className="text-xs">Fallback Model</Label>
+                      <Label className="text-xs">Fallback-Modell</Label>
                       <select
                         value={task.fallbackModel ?? ""}
                         onChange={(e) =>
@@ -890,7 +890,7 @@ export default function AISettingsPage() {
                         }
                         className="flex h-8 w-full rounded-md border border-input bg-transparent px-2 py-1 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                       >
-                        <option value="">None</option>
+                        <option value="">Keins</option>
                         {MODELS.map((m) => (
                           <option key={m.value} value={m.value}>{m.label}</option>
                         ))}
@@ -901,7 +901,7 @@ export default function AISettingsPage() {
                     </div>
 
                     <div className="space-y-1">
-                      <Label className="text-xs">Daily Spend Cap (USD)</Label>
+                      <Label className="text-xs">Tageslimit (USD)</Label>
                       <Input
                         type="number"
                         step="0.50"
@@ -912,13 +912,13 @@ export default function AISettingsPage() {
                             dailySpendCapUsd: e.target.value ? Number(e.target.value) : null,
                           })
                         }
-                        placeholder="No limit"
+                        placeholder="Kein Limit"
                         className="h-8 text-xs"
                       />
                     </div>
 
                     <div className="space-y-1">
-                      <Label className="text-xs">Temperature</Label>
+                      <Label className="text-xs">Temperatur</Label>
                       <Input
                         type="number"
                         step="0.1"
@@ -930,7 +930,7 @@ export default function AISettingsPage() {
                             temperature: e.target.value ? Number(e.target.value) : null,
                           })
                         }
-                        placeholder="Default"
+                        placeholder="Standard"
                         className="h-8 text-xs"
                       />
                     </div>
@@ -951,7 +951,7 @@ export default function AISettingsPage() {
                     ) : (
                       <Save className="h-3 w-3" />
                     )}
-                    Save
+                    Speichern
                   </Button>
                 </div>
               </div>

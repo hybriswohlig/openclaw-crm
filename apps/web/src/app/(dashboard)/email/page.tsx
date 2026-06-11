@@ -526,7 +526,7 @@ export default function EmailPage() {
         {!selected ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center text-muted-foreground gap-3 p-8">
             <Mail className="h-10 w-10 opacity-30" />
-            <p className="text-sm">Waehle links eine E-Mail aus.</p>
+            <p className="text-sm">Wähle links eine E-Mail aus.</p>
           </div>
         ) : (
           <>
@@ -537,7 +537,7 @@ export default function EmailPage() {
                   setMobileThread(false);
                 }}
                 className="md:hidden mt-0.5 text-muted-foreground"
-                aria-label="Zurueck"
+                aria-label="Zurück"
               >
                 <ArrowLeft className="h-5 w-5" />
               </button>
@@ -556,7 +556,7 @@ export default function EmailPage() {
               {selected.status === "resolved" ? (
                 <Button size="sm" variant="outline" onClick={() => handleResolve("open")}>
                   <RotateCcw className="h-3.5 w-3.5 sm:mr-1.5" />
-                  <span className="hidden sm:inline">Wieder oeffnen</span>
+                  <span className="hidden sm:inline">Wieder öffnen</span>
                 </Button>
               ) : (
                 <Button size="sm" variant="outline" onClick={() => handleResolve("resolved")}>

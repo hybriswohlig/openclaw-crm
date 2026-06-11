@@ -90,7 +90,7 @@ export function FilterBuilder({
   return (
     <div className="w-[480px] space-y-3">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium">Filters</h3>
+        <h3 className="text-sm font-medium">Filter</h3>
         <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
           <X className="h-4 w-4" />
         </button>
@@ -111,14 +111,14 @@ export function FilterBuilder({
                 {/* AND/OR toggle for 2nd+ condition */}
                 {index === 0 ? (
                   <span className="w-12 shrink-0 text-xs text-muted-foreground text-right">
-                    Where
+                    Wo
                   </span>
                 ) : (
                   <button
                     onClick={toggleOperator}
                     className="w-12 shrink-0 text-xs font-medium text-primary hover:text-primary/80 text-right uppercase"
                   >
-                    {filter.operator}
+                    {filter.operator === "and" ? "UND" : "ODER"}
                   </button>
                 )}
 
@@ -180,13 +180,13 @@ export function FilterBuilder({
 
       {filter.conditions.length === 0 && (
         <p className="text-xs text-muted-foreground py-2">
-          No filters applied. Add a filter to narrow down records.
+          Keine Filter aktiv. Filter hinzufügen, um Einträge einzugrenzen.
         </p>
       )}
 
       <Button variant="ghost" size="sm" onClick={addCondition} className="text-xs">
         <Plus className="mr-1 h-3.5 w-3.5" />
-        Add filter
+        Filter hinzufügen
       </Button>
     </div>
   );
@@ -213,7 +213,7 @@ function FilterValueInput({
         onChange={(e) => onChange(e.target.value)}
         className="h-8 flex-1 rounded-md border border-border bg-background px-2 text-xs min-w-[100px]"
       >
-        <option value="">Select...</option>
+        <option value="">Auswählen...</option>
         {attribute.options.map((opt) => (
           <option key={opt.id} value={opt.id}>
             {opt.title}
@@ -230,7 +230,7 @@ function FilterValueInput({
         onChange={(e) => onChange(e.target.value)}
         className="h-8 flex-1 rounded-md border border-border bg-background px-2 text-xs min-w-[100px]"
       >
-        <option value="">Select...</option>
+        <option value="">Auswählen...</option>
         {attribute.statuses.map((s) => (
           <option key={s.id} value={s.id}>
             {s.title}
@@ -248,9 +248,9 @@ function FilterValueInput({
         onChange={(e) => onChange(e.target.value === "true")}
         className="h-8 flex-1 rounded-md border border-border bg-background px-2 text-xs min-w-[80px]"
       >
-        <option value="">Select...</option>
-        <option value="true">Yes</option>
-        <option value="false">No</option>
+        <option value="">Auswählen...</option>
+        <option value="true">Ja</option>
+        <option value="false">Nein</option>
       </select>
     );
   }
@@ -267,7 +267,7 @@ function FilterValueInput({
         value={String(value ?? "")}
         onChange={(e) => onChange(e.target.value ? Number(e.target.value) : "")}
         className="h-8 flex-1 text-xs min-w-[80px]"
-        placeholder="Value"
+        placeholder="Wert"
       />
     );
   }

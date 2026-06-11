@@ -55,21 +55,21 @@ export function CreateListModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="fixed inset-0 bg-black/50" onClick={onClose} />
       <div className="relative z-10 w-full max-w-sm rounded-lg border border-border bg-background p-5 shadow-lg">
-        <h2 className="text-sm font-semibold mb-4">Create List</h2>
+        <h2 className="text-sm font-semibold mb-4">Liste erstellen</h2>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <Label className="text-xs">Name</Label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Hot Leads, Enterprise Prospects"
+              placeholder="z. B. Heiße Leads, Großkunden"
               className="mt-1"
               autoFocus
             />
           </div>
 
           <div>
-            <Label className="text-xs">Object Type</Label>
+            <Label className="text-xs">Objekttyp</Label>
             <select
               value={objectSlug}
               onChange={(e) => setObjectSlug(e.target.value)}
@@ -85,10 +85,10 @@ export function CreateListModal({
 
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="ghost" size="sm" onClick={onClose}>
-              Cancel
+              Abbrechen
             </Button>
             <Button type="submit" size="sm" disabled={!name.trim()}>
-              Create
+              Erstellen
             </Button>
           </div>
         </form>

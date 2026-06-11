@@ -174,17 +174,17 @@ export function TeamPulseBar() {
             <Sparkles className="h-4 w-4 text-emerald-600" />
             <span
               className="text-2xl font-bold tabular-nums"
-              title="Fibonacci-Punkte aus erledigten Leaf-Tasks (Parent-Tasks mit Subtasks zählen nicht doppelt)"
+              title="Fibonacci-Punkte aus erledigten Aufgaben (Aufgaben mit Unteraufgaben zählen nicht doppelt)"
             >
               {data.pointsThisWeekTotal}
             </span>
             <span className="text-xs text-muted-foreground">Punkte diese Woche</span>
             <span
               className="text-[11px] text-muted-foreground tabular-nums"
-              title="Anzahl abgeschlossener Tasks"
+              title="Anzahl abgeschlossener Aufgaben"
             >
               <CheckCircle2 className="inline h-3 w-3 mr-0.5 align-text-bottom" />
-              {data.thisWeekTotal} Tasks ({taskCountDelta >= 0 ? "+" : ""}
+              {data.thisWeekTotal} Aufgaben ({taskCountDelta >= 0 ? "+" : ""}
               {taskCountDelta})
             </span>
           </div>
@@ -196,7 +196,7 @@ export function TeamPulseBar() {
               className="inline-flex items-center gap-1 rounded border bg-white px-2 py-1 text-xs hover:bg-gray-50 dark:bg-gray-900 dark:hover:bg-gray-800"
             >
               <Trophy className="h-3 w-3" />
-              {showWins ? "Wins ausblenden" : "Letzte Wins"}
+              {showWins ? "Erfolge ausblenden" : "Letzte Erfolge"}
             </button>
             <button
               type="button"
@@ -236,6 +236,16 @@ export function TeamPulseBar() {
     </div>
   );
 }
+
+// Display labels only — the API keeps delivering the English keys
+// (e.g. "Silver"), the UI shows the German name.
+const TIER_LABELS: Record<TierName, string> = {
+  Starter: "Starter",
+  Bronze: "Bronze",
+  Silver: "Silber",
+  Gold: "Gold",
+  Platin: "Platin",
+};
 
 const TIER_COLORS: Record<TierName, { chip: string; bar: string }> = {
   Starter: {
@@ -287,10 +297,10 @@ function UserRow({ user, maxDayPoints }: { user: UserPulse; maxDayPoints: number
           <div className="text-[10px] text-muted-foreground tabular-nums flex items-center gap-1">
             <span
               className={`inline-flex items-center gap-0.5 rounded px-1 py-[1px] font-medium ${tierColors.chip}`}
-              title="Tier basiert auf Lifetime-Punkten"
+              title="Stufe basiert auf allen jemals erzielten Punkten"
             >
               <Trophy className="h-2.5 w-2.5" />
-              {user.tier}
+              {TIER_LABELS[user.tier]}
             </span>
             <span>{user.lifetimePoints}p</span>
           </div>
@@ -308,7 +318,7 @@ function UserRow({ user, maxDayPoints }: { user: UserPulse; maxDayPoints: number
             ? "bg-amber-100 text-amber-800"
             : "bg-muted text-muted-foreground"
         }`}
-        title={user.bestStreak > 0 ? `Best: ${user.bestStreak} Tage` : undefined}
+        title={user.bestStreak > 0 ? `Rekord: ${user.bestStreak} Tage` : undefined}
       >
         <Flame className={`h-3.5 w-3.5 ${streakActive ? "" : "opacity-40"}`} />
         {user.currentStreak} {user.currentStreak === 1 ? "Tag" : "Tage"}
@@ -318,7 +328,7 @@ function UserRow({ user, maxDayPoints }: { user: UserPulse; maxDayPoints: number
       <div className="flex items-center gap-1.5 text-xs">
         <span className="tabular-nums font-semibold">{user.pointsThisWeek}p</span>
         <span className="text-muted-foreground">
-          / {user.thisWeek} {user.thisWeek === 1 ? "Task" : "Tasks"}
+          / {user.thisWeek} {user.thisWeek === 1 ? "Aufgabe" : "Aufgaben"}
         </span>
         {delta !== 0 && <DeltaBadge delta={delta} small suffix="p" />}
       </div>
@@ -333,8 +343,8 @@ function UserRow({ user, maxDayPoints }: { user: UserPulse; maxDayPoints: number
         className="basis-full mt-0.5"
         title={
           user.tierProgress.current >= user.tierProgress.target
-            ? "Top-Tier erreicht"
-            : `${user.tierProgress.current} / ${user.tierProgress.target} Punkte bis zum nächsten Tier`
+            ? "Höchste Stufe erreicht"
+            : `${user.tierProgress.current} / ${user.tierProgress.target} Punkte bis zur nächsten Stufe`
         }
       >
         <div className="h-1 w-full bg-muted/40 rounded overflow-hidden">
@@ -374,7 +384,7 @@ function Heatmap({ days, maxDayPoints }: { days: HeatmapDay[]; maxDayPoints: num
         <div
           key={d.date}
           title={`${d.date}: ${d.points}p (${d.count} ${
-            d.count === 1 ? "Task" : "Tasks"
+            d.count === 1 ? "Aufgabe" : "Aufgaben"
           })`}
           className={`h-2.5 w-2.5 rounded-[2px] ${intensityClass(
             d.points,

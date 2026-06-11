@@ -587,7 +587,7 @@ function OpsCard({
             {deal.timeStart && (
               <span>
                 {formatTime(deal.timeStart)}
-                {deal.timeEnd ? ` – ${formatTime(deal.timeEnd)}` : ""}
+                {deal.timeEnd ? ` bis ${formatTime(deal.timeEnd)}` : ""}
               </span>
             )}
           </div>
@@ -600,7 +600,7 @@ function OpsCard({
           </Link>
           {(deal.moveFromAddress || deal.moveToAddress) && (
             <div className="text-xs text-muted-foreground mt-0.5">
-              {deal.moveFromAddress || "—"} → {deal.moveToAddress || "—"}
+              {deal.moveFromAddress || "·"} → {deal.moveToAddress || "·"}
             </div>
           )}
         </div>
@@ -619,7 +619,7 @@ function OpsCard({
             }}
             className="rounded-md border border-input bg-background px-2 py-1 text-sm"
           >
-            <option value="">— Transporter wählen —</option>
+            <option value="">Transporter wählen</option>
             {transporterOptions.map((o) => (
               <option key={o.id} value={o.id}>
                 {o.title}
@@ -684,7 +684,7 @@ function OpsCard({
         {deal.assignedEmployees.length === 0 && (
           <p className="text-xs text-muted-foreground italic flex-1">
             <span className="hidden lg:inline">
-              Niemand zugewiesen — Mitarbeiter aus der Seitenleiste hierhin ziehen.
+              Niemand zugewiesen. Mitarbeiter aus der Seitenleiste hierhin ziehen.
             </span>
             <span className="lg:hidden">Niemand zugewiesen.</span>
           </p>
@@ -851,7 +851,7 @@ function PipelineCard({
           className="k-mono"
           style={{ fontSize: 10.5, color: "var(--ink-muted)" }}
         >
-          {deal.dealNumber ?? "—"}
+          {deal.dealNumber ?? "·"}
         </span>
         {deal.moveDate && (
           <span
@@ -876,7 +876,7 @@ function PipelineCard({
           className="mt-1 truncate text-[11.5px]"
           style={{ color: "var(--ink-muted)" }}
         >
-          {deal.moveFromAddress ?? "—"} → {deal.moveToAddress ?? "—"}
+          {deal.moveFromAddress ?? "·"} → {deal.moveToAddress ?? "·"}
         </div>
       )}
 

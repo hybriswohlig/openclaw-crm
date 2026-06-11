@@ -111,7 +111,7 @@ export function ManagePackagesDialog({
           <div>
             <h2 className="text-lg font-medium">Pakete: {operatingCompanyName}</h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              Diese Pakete erscheinen im Kunden-Portal und im Quotation-Calculator
+              Diese Pakete erscheinen im Kunden-Portal und im Preis-Kalkulator
               auf dem Lead. Sortierung steuert die Reihenfolge im Portal.
             </p>
           </div>
@@ -382,7 +382,7 @@ function PackageEditor({
         />
       </div>
       <p className="mt-2 text-[10px] text-muted-foreground">
-        Der Preis wird pro Auftrag im Quotation-Calculator eingegeben. Pakete
+        Der Preis wird pro Auftrag im Preis-Kalkulator eingegeben. Pakete
         sind hier nur Vorlagen für Leistungsumfang und Beschreibung.
       </p>
 

@@ -641,13 +641,13 @@ export function CompanyDetailDialog({
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <PieBlock
-                title="Einnahmen — pro Auftrag"
+                title="Einnahmen pro Auftrag"
                 total={data.totals.income}
                 slices={incomeSlices}
                 emptyLabel="Keine Einnahmen"
               />
               <PieBlock
-                title="Ausgaben — wofür?"
+                title="Ausgaben: wofür?"
                 total={totalSpending}
                 slices={spendingSlices}
                 emptyLabel="Keine Ausgaben"
@@ -688,7 +688,7 @@ export function CompanyDetailDialog({
                               {fmtDate(p.date)}
                             </span>
                             <span className="truncate flex-1">
-                              {p.payer ?? "—"}
+                              {p.payer ?? "·"}
                               {p.reference ? ` · ${p.reference}` : ""}
                               {p.paymentMethod ? ` · ${p.paymentMethod}` : ""}
                             </span>
@@ -741,7 +741,7 @@ export function CompanyDetailDialog({
                           {CATEGORY_LABELS[e.category] ?? e.category}
                         </td>
                         <td className="px-4 py-2 text-xs max-w-[220px] truncate">
-                          {e.description ?? e.recipient ?? "—"}
+                          {e.description ?? e.recipient ?? "·"}
                           {e.isCrossSubsidy && (
                             <span className="ml-2 inline-flex items-center gap-1 text-[10px] text-amber-700 dark:text-amber-500">
                               <ArrowRightLeft className="h-2.5 w-2.5" />
@@ -806,7 +806,7 @@ export function CompanyDetailDialog({
                           {TYPE_LABELS[t.type] ?? t.type}
                         </td>
                         <td className="px-4 py-2 text-xs max-w-[200px] truncate">
-                          {t.description ?? "—"}
+                          {t.description ?? "·"}
                           {t.isCrossSubsidy && (
                             <span className="ml-2 inline-flex items-center gap-1 text-[10px] text-amber-700 dark:text-amber-500">
                               <ArrowRightLeft className="h-2.5 w-2.5" />
@@ -873,13 +873,13 @@ export function CompanyDetailDialog({
                         </td>
                         <td className="px-4 py-2 text-xs">{p.fromPartner}</td>
                         <td className="px-4 py-2 text-xs text-muted-foreground">
-                          {p.toPartner ?? "—"}
+                          {p.toPartner ?? "·"}
                         </td>
                         <td className="px-4 py-2 text-xs text-muted-foreground">
                           {METHOD_LABELS[p.method] ?? p.method}
                         </td>
                         <td className="px-4 py-2 text-xs text-muted-foreground max-w-[180px] truncate">
-                          {p.notes ?? "—"}
+                          {p.notes ?? "·"}
                         </td>
                         <td
                           className={`px-4 py-2 text-right tabular-nums font-medium ${
@@ -898,7 +898,7 @@ export function CompanyDetailDialog({
               </DrillDownSection>
 
               <DrillDownSection
-                title="Quersubventionen — von anderen Firmen bezahlt"
+                title="Quersubventionen: von anderen Firmen bezahlt"
                 count={data.crossSubsidyInEntries.length}
               >
                 <table className="w-full text-sm">

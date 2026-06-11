@@ -8,17 +8,17 @@ import { cn } from "@/lib/utils";
 import { Settings, Users, Box, KeyRound, Bot, Puzzle, Truck, UserCheck, Loader2, MessageCircle, Link2, MapPin } from "lucide-react";
 
 const settingsNav = [
-  { href: "/settings", label: "General", icon: Settings, exact: true },
-  { href: "/settings/members", label: "Members", icon: Users, exact: false },
+  { href: "/settings", label: "Allgemein", icon: Settings, exact: true },
+  { href: "/settings/members", label: "Mitglieder", icon: Users, exact: false },
   {
     href: "/settings/approvals",
-    label: "User approvals",
+    label: "Benutzer-Freigaben",
     icon: UserCheck,
     exact: false,
   },
   {
     href: "/settings/operating-companies",
-    label: "Operating companies",
+    label: "Gesellschaften",
     icon: Truck,
     exact: false,
   },
@@ -28,9 +28,9 @@ const settingsNav = [
     icon: MapPin,
     exact: false,
   },
-  { href: "/settings/objects", label: "Objects", icon: Box, exact: false },
-  { href: "/settings/api-keys", label: "API Keys", icon: KeyRound, exact: false },
-  { href: "/settings/ai", label: "AI Agent", icon: Bot, exact: false },
+  { href: "/settings/objects", label: "Objekte", icon: Box, exact: false },
+  { href: "/settings/api-keys", label: "API-Schlüssel", icon: KeyRound, exact: false },
+  { href: "/settings/ai", label: "KI-Agent", icon: Bot, exact: false },
   { href: "/settings/whatsapp", label: "WhatsApp", icon: MessageCircle, exact: false },
   {
     href: "/settings/customer-portal",
@@ -80,7 +80,7 @@ export default function SettingsLayout({
   return (
     <div className="flex h-full">
       <nav className="w-52 border-r border-border p-4 space-y-1">
-        <h2 className="text-lg font-semibold mb-4">Settings</h2>
+        <h2 className="text-lg font-semibold mb-4">Einstellungen</h2>
         {settingsNav.map((item) => {
           const active = item.exact
             ? pathname === item.href

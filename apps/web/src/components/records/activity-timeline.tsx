@@ -19,7 +19,7 @@ export function ActivityTimeline({ activities }: ActivityTimelineProps) {
   if (activities.length === 0) {
     return (
       <div className="px-3 py-4 text-sm text-muted-foreground">
-        No activity yet.
+        Noch keine Aktivität.
       </div>
     );
   }
@@ -80,9 +80,9 @@ function formatRelativeTime(dateStr: string): string {
   const hours = Math.floor(diff / 3600000);
   const days = Math.floor(diff / 86400000);
 
-  if (minutes < 1) return "Just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  if (hours < 24) return `${hours}h ago`;
-  if (days < 7) return `${days}d ago`;
+  if (minutes < 1) return "Gerade eben";
+  if (minutes < 60) return `vor ${minutes} Min.`;
+  if (hours < 24) return `vor ${hours} Std.`;
+  if (days < 7) return `vor ${days} ${days === 1 ? "Tag" : "Tagen"}`;
   return date.toLocaleDateString();
 }

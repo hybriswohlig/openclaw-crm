@@ -62,6 +62,7 @@ import {
   endOfWeek,
   addWeeks,
 } from "date-fns";
+import { de } from "date-fns/locale";
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -104,7 +105,7 @@ const POINT_OPTIONS: { value: number; label: string; hint: string }[] = [
   { value: 3, label: "3", hint: "M · ~ 1 h" },
   { value: 5, label: "5", hint: "L · halber Tag" },
   { value: 8, label: "8", hint: "XL · ganzer Tag" },
-  { value: 13, label: "13", hint: "XXL · mehrtägig — bitte in Subtasks splitten" },
+  { value: 13, label: "13", hint: "XXL · mehrtägig, bitte in Unteraufgaben splitten" },
 ];
 
 interface Member {
@@ -467,10 +468,10 @@ export function TaskDialog({
   }
 
   function getDeadlineLabel(): string {
-    if (!deadline) return "No date";
-    if (isToday(deadline)) return "Today";
-    if (isTomorrow(deadline)) return "Tomorrow";
-    return format(deadline, "MMM d");
+    if (!deadline) return "Kein Datum";
+    if (isToday(deadline)) return "Heute";
+    if (isTomorrow(deadline)) return "Morgen";
+    return format(deadline, "d. MMM", { locale: de });
   }
 
   function addRecord(record: SearchResult) {
@@ -517,12 +518,12 @@ export function TaskDialog({
       >
         <DialogHeader>
           <DialogTitle>
-            {mode === "create" ? "Create task" : "Edit task"}
+            {mode === "create" ? "Neue Aufgabe" : "Aufgabe bearbeiten"}
           </DialogTitle>
           <DialogDescription className="sr-only">
             {mode === "create"
-              ? "Fill in the details to create a new task"
-              : "Edit the task details"}
+              ? "Details ausfüllen, um eine neue Aufgabe zu erstellen"
+              : "Details der Aufgabe bearbeiten"}
           </DialogDescription>
         </DialogHeader>
 
@@ -532,7 +533,7 @@ export function TaskDialog({
             ref={contentRef}
             value={content}
             onChange={(e) => setContent(e.target.value)}
-            placeholder="What needs to be done?"
+            placeholder="Was ist zu tun?"
             className="text-sm"
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.ctrlKey && !e.metaKey) {
@@ -590,7 +591,7 @@ export function TaskDialog({
                       className="text-xs h-7"
                       onClick={() => setQuickDate("today")}
                     >
-                      Today
+                      Heute
                     </Button>
                     <Button
                       variant="ghost"
@@ -598,7 +599,7 @@ export function TaskDialog({
                       className="text-xs h-7"
                       onClick={() => setQuickDate("tomorrow")}
                     >
-                      Tomorrow
+                      Morgen
                     </Button>
                     <Button
                       variant="ghost"
@@ -606,7 +607,7 @@ export function TaskDialog({
                       className="text-xs h-7"
                       onClick={() => setQuickDate("next_week")}
                     >
-                      Next week
+                      Nächste Woche
                     </Button>
                     <Button
                       variant="ghost"
@@ -614,7 +615,7 @@ export function TaskDialog({
                       className="text-xs h-7"
                       onClick={() => setQuickDate("none")}
                     >
-                      No date
+                      Kein Datum
                     </Button>
                   </div>
                 </div>
@@ -641,9 +642,9 @@ export function TaskDialog({
                 {assignedMembers.length > 0
                   ? assignedMembers.length === 1 &&
                     assignedMembers[0].userId === currentUserId
-                    ? "Assigned to You"
-                    : `${assignedMembers.length} assignee${assignedMembers.length > 1 ? "s" : ""}`
-                  : "Assign"}
+                    ? "Dir zugewiesen"
+                    : `${assignedMembers.length} ${assignedMembers.length > 1 ? "Personen" : "Person"}`
+                  : "Zuweisen"}
               </Button>
               {assigneePickerOpen && (
                 <div className="absolute top-full left-0 z-50 mt-1 w-56 rounded-lg border border-border bg-popover shadow-lg">
@@ -653,7 +654,7 @@ export function TaskDialog({
                       <Input
                         value={memberSearch}
                         onChange={(e) => setMemberSearch(e.target.value)}
-                        placeholder="Find a user..."
+                        placeholder="Person suchen..."
                         className="h-8 pl-8 text-xs"
                         autoFocus
                       />
@@ -662,7 +663,7 @@ export function TaskDialog({
                   <div className="max-h-40 overflow-auto px-1 pb-2">
                     {filteredMembers.length === 0 && (
                       <p className="px-2 py-3 text-center text-xs text-muted-foreground">
-                        No users
+                        Keine Personen
                       </p>
                     )}
                     {filteredMembers.map((m) => (
@@ -676,7 +677,7 @@ export function TaskDialog({
                         </div>
                         <span className="flex-1 truncate text-left text-xs">
                           {m.name || m.email}
-                          {m.userId === currentUserId && " (You)"}
+                          {m.userId === currentUserId && " (Du)"}
                         </span>
                         {assigneeIds.includes(m.userId) && (
                           <Check className="h-3.5 w-3.5 text-primary shrink-0" />
@@ -708,8 +709,10 @@ export function TaskDialog({
               >
                 <Link2 className="h-3.5 w-3.5" />
                 {linkedRecords.length > 0
-                  ? `${linkedRecords.length} linked record${linkedRecords.length > 1 ? "s" : ""}`
-                  : "Add record"}
+                  ? linkedRecords.length === 1
+                    ? "1 verknüpfter Eintrag"
+                    : `${linkedRecords.length} verknüpfte Einträge`
+                  : "Eintrag verknüpfen"}
               </Button>
               {recordPickerOpen && (
                 <div className="absolute top-full left-0 z-50 mt-1 w-64 rounded-lg border border-border bg-popover shadow-lg">
@@ -774,7 +777,7 @@ export function TaskDialog({
                           setRecordSearch(e.target.value);
                           searchRecords(e.target.value);
                         }}
-                        placeholder="Search records..."
+                        placeholder="Einträge suchen..."
                         className="h-8 pl-8 text-xs"
                         autoFocus
                       />
@@ -783,12 +786,12 @@ export function TaskDialog({
                   <div className="max-h-48 overflow-auto px-1 pb-2">
                     {searchLoading && searchResults.length === 0 && (
                       <p className="px-2 py-3 text-center text-xs text-muted-foreground">
-                        Searching...
+                        Suche...
                       </p>
                     )}
                     {!searchLoading && recordSearch && searchResults.length === 0 && (
                       <p className="px-2 py-3 text-center text-xs text-muted-foreground">
-                        No results
+                        Keine Ergebnisse
                       </p>
                     )}
                     {searchResults
@@ -919,7 +922,7 @@ export function TaskDialog({
                 className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground"
                 title="Wachstumsbereich"
               >
-                <option value="">Bereich waehlen</option>
+                <option value="">Bereich wählen</option>
                 {GROWTH_CATEGORIES.map((c) => (
                   <option key={c.value} value={c.value}>
                     {c.label}
@@ -949,7 +952,7 @@ export function TaskDialog({
 
           {/* ── Prioritaet ──────────────────────────────────────────────── */}
           <div className="flex items-center gap-2 flex-wrap text-xs">
-            <span className="text-muted-foreground">Prioritaet</span>
+            <span className="text-muted-foreground">Priorität</span>
             <div className="inline-flex rounded-md border border-border overflow-hidden">
               {PRIORITIES.map((p) => {
                 const active = priority === p.value;
@@ -1035,7 +1038,7 @@ export function TaskDialog({
                   onChange={(e) => setCreateMore(e.target.checked)}
                   className="rounded border-border"
                 />
-                Create more
+                Weitere erstellen
               </label>
             )}
             {mode === "edit" && onDelete && (
@@ -1054,7 +1057,7 @@ export function TaskDialog({
                   onOpenChange(false);
                 }}
               >
-                Delete
+                Löschen
               </Button>
             )}
           </div>
@@ -1064,14 +1067,14 @@ export function TaskDialog({
               size="sm"
               onClick={() => onOpenChange(false)}
             >
-              Cancel
+              Abbrechen
             </Button>
             <Button
               size="sm"
               onClick={handleSave}
               disabled={!content.trim() || saving}
             >
-              {saving ? "Saving..." : "Save"}
+              {saving ? "Speichert..." : "Speichern"}
               <span className="ml-1.5 text-[10px] text-primary-foreground/60">
                 Ctrl+Enter
               </span>

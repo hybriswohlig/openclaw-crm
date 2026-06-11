@@ -30,7 +30,7 @@ export default function UserApprovalsSettingsPage() {
         return;
       }
       if (!res.ok) {
-        setError("Could not load pending registrations.");
+        setError("Offene Registrierungen konnten nicht geladen werden.");
         setRows([]);
         return;
       }
@@ -54,7 +54,7 @@ export default function UserApprovalsSettingsPage() {
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
-        setError(d.error?.message ?? "Approve failed");
+        setError(d.error?.message ?? "Benutzer konnte nicht freigegeben werden");
         return;
       }
       setRows((r) => r.filter((x) => x.id !== id));
@@ -64,7 +64,7 @@ export default function UserApprovalsSettingsPage() {
   }
 
   async function reject(id: string) {
-    if (!confirm("Reject this user? They will not be able to sign in.")) return;
+    if (!confirm("Diesen Benutzer ablehnen? Er kann sich dann nicht anmelden.")) return;
     setActionId(id);
     setError("");
     try {
@@ -73,7 +73,7 @@ export default function UserApprovalsSettingsPage() {
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
-        setError(d.error?.message ?? "Reject failed");
+        setError(d.error?.message ?? "Benutzer konnte nicht abgelehnt werden");
         return;
       }
       setRows((r) => r.filter((x) => x.id !== id));
@@ -85,8 +85,9 @@ export default function UserApprovalsSettingsPage() {
   if (forbidden) {
     return (
       <p className="text-sm text-muted-foreground">
-        You do not have permission to approve users. Ask a CRM administrator to grant access or add
-        your email to <code className="text-xs">CRM_ADMIN_EMAILS</code> for bootstrap accounts.
+        Du hast keine Berechtigung, Benutzer freizugeben. Bitte einen CRM-Administrator um Zugriff
+        oder trage deine E-Mail-Adresse in <code className="text-xs">CRM_ADMIN_EMAILS</code> ein
+        (für Bootstrap-Konten).
       </p>
     );
   }
@@ -94,9 +95,9 @@ export default function UserApprovalsSettingsPage() {
   return (
     <div className="max-w-2xl space-y-6">
       <div>
-        <h1 className="text-xl font-semibold mb-1">User approvals</h1>
+        <h1 className="text-xl font-semibold mb-1">Benutzer-Freigaben</h1>
         <p className="text-sm text-muted-foreground">
-          Approve new registrations before they can use the CRM.
+          Neue Registrierungen freigeben, bevor sie das CRM nutzen können.
         </p>
       </div>
 
@@ -104,10 +105,10 @@ export default function UserApprovalsSettingsPage() {
 
       {loading ? (
         <p className="text-sm text-muted-foreground flex items-center gap-2">
-          <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+          <Loader2 className="h-4 w-4 animate-spin" /> Lädt…
         </p>
       ) : rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No pending registrations.</p>
+        <p className="text-sm text-muted-foreground">Keine offenen Registrierungen.</p>
       ) : (
         <ul className="space-y-2">
           {rows.map((u) => (
@@ -119,7 +120,7 @@ export default function UserApprovalsSettingsPage() {
                 <p className="font-medium truncate">{u.name}</p>
                 <p className="text-xs text-muted-foreground truncate">{u.email}</p>
                 <p className="text-[10px] text-muted-foreground mt-1">
-                  Requested {new Date(u.createdAt).toLocaleString()}
+                  Angefragt am {new Date(u.createdAt).toLocaleString("de-DE")}
                 </p>
               </div>
               <div className="flex gap-2 shrink-0">
@@ -128,7 +129,7 @@ export default function UserApprovalsSettingsPage() {
                   disabled={actionId === u.id}
                   onClick={() => approve(u.id)}
                 >
-                  {actionId === u.id ? <Loader2 className="h-4 w-4 animate-spin" /> : "Approve"}
+                  {actionId === u.id ? <Loader2 className="h-4 w-4 animate-spin" /> : "Freigeben"}
                 </Button>
                 <Button
                   size="sm"
@@ -136,7 +137,7 @@ export default function UserApprovalsSettingsPage() {
                   disabled={actionId === u.id}
                   onClick={() => reject(u.id)}
                 >
-                  Reject
+                  Ablehnen
                 </Button>
               </div>
             </li>

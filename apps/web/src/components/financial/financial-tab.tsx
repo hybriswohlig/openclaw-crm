@@ -384,9 +384,9 @@ function PaymentsSection({
               {payments.map((p) => (
                 <tr key={p.id} className="border-b border-border last:border-0 hover:bg-muted/30">
                   <td className="px-3 py-2 tabular-nums whitespace-nowrap">{fmtDate(p.date)}</td>
-                  <td className="px-3 py-2">{p.payer ?? "—"}</td>
-                  <td className="px-3 py-2 text-muted-foreground text-xs">{p.paymentMethod ?? "—"}</td>
-                  <td className="px-3 py-2 text-muted-foreground text-xs max-w-[120px] truncate">{p.reference ?? "—"}</td>
+                  <td className="px-3 py-2">{p.payer ?? "·"}</td>
+                  <td className="px-3 py-2 text-muted-foreground text-xs">{p.paymentMethod ?? "·"}</td>
+                  <td className="px-3 py-2 text-muted-foreground text-xs max-w-[120px] truncate">{p.reference ?? "·"}</td>
                   <td className="px-3 py-2 text-right font-medium tabular-nums text-emerald-600 dark:text-emerald-400">
                     {eur(p.amount)}
                   </td>
@@ -460,7 +460,7 @@ function PaymentsSection({
                   value={form.paymentMethod}
                   onChange={(e) => setForm((f) => ({ ...f, paymentMethod: e.target.value }))}
                 >
-                  <option value="">—</option>
+                  <option value="">(keine Angabe)</option>
                   <option value="bar">Bar</option>
                   <option value="ueberweisung">Überweisung</option>
                   <option value="karte">Karte</option>
@@ -671,8 +671,8 @@ function ExpensesSection({
                       {CATEGORY_LABELS[e.category] ?? e.category}
                     </Badge>
                   </td>
-                  <td className="px-3 py-2 text-muted-foreground max-w-[160px] truncate">{e.description ?? "—"}</td>
-                  <td className="px-3 py-2 text-muted-foreground text-xs">{e.recipient ?? "—"}</td>
+                  <td className="px-3 py-2 text-muted-foreground max-w-[160px] truncate">{e.description ?? "·"}</td>
+                  <td className="px-3 py-2 text-muted-foreground text-xs">{e.recipient ?? "·"}</td>
                   <td className="px-3 py-2 text-right font-medium tabular-nums text-red-600 dark:text-red-400">
                     {eur(e.amount)}
                   </td>
@@ -781,7 +781,7 @@ function ExpensesSection({
                   value={form.paymentMethod}
                   onChange={(e) => setForm((f) => ({ ...f, paymentMethod: e.target.value }))}
                 >
-                  <option value="">—</option>
+                  <option value="">(keine Angabe)</option>
                   <option value="bar">Bar</option>
                   <option value="ueberweisung">Überweisung</option>
                   <option value="karte">Karte</option>
@@ -796,7 +796,7 @@ function ExpensesSection({
                   value={form.payingOperatingCompanyId}
                   onChange={(e) => setForm((f) => ({ ...f, payingOperatingCompanyId: e.target.value }))}
                 >
-                  <option value="">— (Standard: Auftragsfirma)</option>
+                  <option value="">(Standard: Auftragsfirma)</option>
                   {operatingCompanies.map((c) => (
                     <option key={c.id} value={c.id}>{c.name}</option>
                   ))}
@@ -1040,7 +1040,7 @@ function EmployeeCostsSection({
 
       {costs.length === 0 && employees.length > 0 ? (
         <p className="text-sm text-muted-foreground py-4 text-center">
-          Noch nichts eingetragen — Verdienste, Belege oder Auszahlungen hinzufügen
+          Noch nichts eingetragen. Verdienste, Belege oder Auszahlungen hinzufügen
         </p>
       ) : costs.length > 0 ? (
         <div className="rounded-lg border border-border overflow-hidden">
@@ -1068,7 +1068,7 @@ function EmployeeCostsSection({
                       </Badge>
                     </td>
                     <td className="px-3 py-2 text-muted-foreground text-xs max-w-[160px] truncate">
-                      {c.description ?? "—"}
+                      {c.description ?? "·"}
                     </td>
                     <td className="px-3 py-2 text-right font-medium tabular-nums">
                       <span className={isDebit ? "text-blue-600 dark:text-blue-400" : "text-orange-600 dark:text-orange-400"}>
@@ -1149,10 +1149,10 @@ function EmployeeCostsSection({
                 value={form.kind}
                 onChange={(e) => setForm((f) => ({ ...f, kind: e.target.value as typeof form.kind }))}
               >
-                <option value="earning">Verdienst (Lohn) — erhöht Saldo</option>
-                <option value="reimbursement">Beleg / Auslage — erhöht Saldo</option>
-                <option value="payment">Auszahlung — senkt Saldo</option>
-                <option value="in_kind">Sachbezug (gegen Lohn verrechnet) — senkt Saldo</option>
+                <option value="earning">Verdienst (Lohn), erhöht Saldo</option>
+                <option value="reimbursement">Beleg / Auslage, erhöht Saldo</option>
+                <option value="payment">Auszahlung, senkt Saldo</option>
+                <option value="in_kind">Sachbezug (gegen Lohn verrechnet), senkt Saldo</option>
               </select>
             </div>
             <div>
@@ -1174,7 +1174,7 @@ function EmployeeCostsSection({
                     value={form.paymentMethod}
                     onChange={(e) => setForm((f) => ({ ...f, paymentMethod: e.target.value as typeof form.paymentMethod }))}
                   >
-                    <option value="">—</option>
+                    <option value="">(keine Angabe)</option>
                     <option value="cash">Bar</option>
                     <option value="bank_transfer">Überweisung</option>
                     <option value="other">Sonstiges</option>
@@ -1188,7 +1188,7 @@ function EmployeeCostsSection({
                   value={form.payingOperatingCompanyId}
                   onChange={(e) => setForm((f) => ({ ...f, payingOperatingCompanyId: e.target.value }))}
                 >
-                  <option value="">— (Standard: Auftragsfirma)</option>
+                  <option value="">(Standard: Auftragsfirma)</option>
                   {operatingCompanies.map((c) => (
                     <option key={c.id} value={c.id}>{c.name}</option>
                   ))}

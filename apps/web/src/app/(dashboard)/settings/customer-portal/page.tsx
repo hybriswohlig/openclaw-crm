@@ -64,9 +64,9 @@ export default function CustomerPortalSettingsPage() {
 
       {!loading && data && data.operatingCompanies.length === 0 && (
         <div className="rounded-xl border border-dashed border-border p-6 text-sm text-muted-foreground">
-          Es sind noch keine Operating Companies angelegt. Lege zuerst unter{" "}
+          Es sind noch keine Gesellschaften angelegt. Lege zuerst unter{" "}
           <a className="underline" href="/settings/operating-companies">
-            Operating companies
+            Gesellschaften
           </a>{" "}
           eine Firma an.
         </div>

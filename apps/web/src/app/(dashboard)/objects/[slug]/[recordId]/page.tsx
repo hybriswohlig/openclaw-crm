@@ -35,6 +35,7 @@ import {
   FileText,
 } from "lucide-react";
 import { extractPersonalName } from "@/lib/display-name";
+import { objectPluralLabel, objectSingularLabel } from "@/lib/object-labels";
 import { useBackgroundJobs } from "@/components/background-jobs";
 
 interface ObjectData {
@@ -274,7 +275,7 @@ export default function RecordDetailPage() {
   );
 
   const handleDelete = useCallback(async () => {
-    if (!confirm("Are you sure you want to delete this record?")) return;
+    if (!confirm("Diesen Eintrag wirklich löschen? Das kann nicht rückgängig gemacht werden.")) return;
     setDeleting(true);
     try {
       const res = await fetch(`/api/v1/objects/${slug}/records/${recordId}`, {
@@ -392,7 +393,7 @@ export default function RecordDetailPage() {
   if (loading && !record) {
     return (
       <div className="flex h-full items-center justify-center text-muted-foreground">
-        Loading...
+        Lädt...
       </div>
     );
   }
@@ -400,17 +401,17 @@ export default function RecordDetailPage() {
   if (!object || !record) {
     return (
       <div className="flex h-full items-center justify-center text-muted-foreground">
-        Record not found
+        Eintrag nicht gefunden
       </div>
     );
   }
 
   const nameAttr = object.attributes.find((a: any) => a.slug === "name");
-  let displayName = "Unnamed";
+  let displayName = "Unbenannt";
   if (nameAttr) {
     const val = record.values.name;
     if (nameAttr.type === "personal_name" && val) {
-      displayName = extractPersonalName(val) || "Unnamed";
+      displayName = extractPersonalName(val) || "Unbenannt";
     } else if (typeof val === "string") {
       displayName = val;
     }
@@ -433,7 +434,7 @@ export default function RecordDetailPage() {
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <ObjIcon className="h-4 w-4" />
               <Link href={`/objects/${slug}`} className="hover:text-foreground">
-                {object.pluralName}
+                {objectPluralLabel(slug, object.pluralName)}
               </Link>
               <span>/</span>
             </div>
@@ -469,7 +470,7 @@ export default function RecordDetailPage() {
                 className="text-muted-foreground hover:text-destructive"
               >
                 <Trash2 className="mr-1 h-4 w-4" />
-                {deleting ? "Deleting..." : "Delete"}
+                {deleting ? "Lösche..." : "Löschen"}
               </Button>
             </div>
           </div>
@@ -523,7 +524,7 @@ export default function RecordDetailPage() {
             <div className="rounded-md border border-red-500/30 bg-red-500/5 p-3">
               <div className="flex items-center gap-2 text-sm font-semibold text-red-700">
                 <AlertTriangle className="h-4 w-4" />
-                Umfang nach Angebot geändert — Preis prüfen
+                Umfang nach Angebot geändert, Preis prüfen
               </div>
               <p className="mt-1 text-xs text-muted-foreground">
                 Der Kunde hat den Umfang geändert, nachdem bereits ein Angebot abgegeben wurde. Der
@@ -564,11 +565,11 @@ export default function RecordDetailPage() {
         <div className="px-6 py-4">
           <Tabs defaultValue="attributes">
             <TabsList>
-              <TabsTrigger value="attributes">Attributes</TabsTrigger>
-              <TabsTrigger value="notes">Notes</TabsTrigger>
-              <TabsTrigger value="tasks">Tasks</TabsTrigger>
+              <TabsTrigger value="attributes">Attribute</TabsTrigger>
+              <TabsTrigger value="notes">Notizen</TabsTrigger>
+              <TabsTrigger value="tasks">Aufgaben</TabsTrigger>
               <TabsTrigger value="activity">
-                Activity
+                Aktivität
                 {activities.length > 0 && (
                   <span className="ml-1.5 text-xs text-muted-foreground">
                     {activities.length}
@@ -576,7 +577,7 @@ export default function RecordDetailPage() {
                 )}
               </TabsTrigger>
               <TabsTrigger value="related">
-                Related
+                Verknüpft
                 {(related.related.length + related.forward.length) > 0 && (
                   <span className="ml-1.5 text-xs text-muted-foreground">
                     {related.related.length + related.forward.length}
@@ -587,7 +588,7 @@ export default function RecordDetailPage() {
                 <TabsTrigger value="conversations">Chats</TabsTrigger>
               )}
               {slug === "deals" && (
-                <TabsTrigger value="quotation">Quotation</TabsTrigger>
+                <TabsTrigger value="quotation">Angebot</TabsTrigger>
               )}
               {slug === "deals" && (
                 <TabsTrigger value="auftrag">Auftragsübersicht</TabsTrigger>
@@ -669,13 +670,13 @@ export default function RecordDetailPage() {
       <div className="hidden w-64 shrink-0 border-l border-border lg:block">
         <div className="p-4 space-y-4">
           <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            Record Info
+            Eintragsinfo
           </h3>
           <div className="space-y-3">
-            <MetaItem label="Record ID" value={record.id.slice(0, 8) + "..."} />
-            <MetaItem label="Object" value={object.singularName} />
+            <MetaItem label="Eintrags-ID" value={record.id.slice(0, 8) + "..."} />
+            <MetaItem label="Objekt" value={objectSingularLabel(slug, object.singularName)} />
             <MetaItem
-              label="Created"
+              label="Erstellt"
               value={new Date(record.createdAt).toLocaleDateString(undefined, {
                 year: "numeric",
                 month: "short",
@@ -685,7 +686,7 @@ export default function RecordDetailPage() {
               })}
             />
             <MetaItem
-              label="Updated"
+              label="Aktualisiert"
               value={new Date(record.updatedAt).toLocaleDateString(undefined, {
                 year: "numeric",
                 month: "short",

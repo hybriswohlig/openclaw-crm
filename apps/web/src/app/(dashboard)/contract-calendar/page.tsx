@@ -18,7 +18,7 @@ interface StageInfo {
   isActive: boolean;
 }
 
-const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
 
 function getMonthDays(year: number, month: number) {
   const firstDay = new Date(year, month, 1);
@@ -137,9 +137,9 @@ export default function ContractCalendarPage() {
     setCurrentDate(new Date());
   }
 
-  const monthLabel = new Date(year, month).toLocaleDateString("en-US", {
-    year: "numeric",
+  const monthLabel = new Date(year, month).toLocaleDateString("de-DE", {
     month: "long",
+    year: "numeric",
   });
 
   const today = dateKey(new Date());
@@ -155,10 +155,10 @@ export default function ContractCalendarPage() {
   return (
     <div className="p-6 h-full flex flex-col">
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-semibold">Contract Calendar</h1>
+        <h1 className="text-2xl font-semibold">Kalender</h1>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={goToday}>
-            Today
+            Heute
           </Button>
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={prevMonth}>
             <ChevronLeft className="h-4 w-4" />
@@ -222,7 +222,7 @@ export default function ContractCalendarPage() {
                 <div className="space-y-0.5">
                   {dayDeals.slice(0, 3).map((deal) => {
                     const stage = getStageInfo(deal.values.stage);
-                    const name = (deal.values.name as string) || "Untitled";
+                    const name = (deal.values.name as string) || "Ohne Titel";
                     return (
                       <Link
                         key={deal.id}
@@ -239,7 +239,7 @@ export default function ContractCalendarPage() {
                   })}
                   {dayDeals.length > 3 && (
                     <span className="text-[10px] text-muted-foreground pl-1">
-                      +{dayDeals.length - 3} more
+                      +{dayDeals.length - 3} weitere
                     </span>
                   )}
                 </div>

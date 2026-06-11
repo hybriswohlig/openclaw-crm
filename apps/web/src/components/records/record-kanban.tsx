@@ -264,7 +264,7 @@ export function RecordKanban({
         {(columnMap.get("_unset")?.length ?? 0) > 0 && (
           <KanbanColumn
             id="_unset"
-            title="No Status"
+            title="Ohne Status"
             color="#666"
             records={columnMap.get("_unset") || []}
             nameAttr={nameAttr}
@@ -398,7 +398,7 @@ function KanbanColumn({
 
         {visibleRecords.length === 0 && !showInsert && (
           <div className="py-8 text-center text-xs text-muted-foreground/50">
-            Drop here
+            Hier ablegen
           </div>
         )}
         {visibleRecords.length === 0 && showInsert && <InsertIndicator />}
@@ -540,11 +540,11 @@ function KanbanCardOverlay({
 // ─── Helpers ─────────────────────────────────────────────────────────
 
 function getDisplayName(record: RecordRow, nameAttr?: AttributeDef): string {
-  if (!nameAttr) return "Unnamed";
+  if (!nameAttr) return "Unbenannt";
   const val = record.values[nameAttr.slug];
-  if (!val) return "Unnamed";
+  if (!val) return "Unbenannt";
   if (nameAttr.type === "personal_name") {
-    return extractPersonalName(val) || "Unnamed";
+    return extractPersonalName(val) || "Unbenannt";
   }
   return String(val);
 }

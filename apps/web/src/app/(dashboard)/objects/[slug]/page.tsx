@@ -14,6 +14,7 @@ import { Popover } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { CSVImportModal } from "@/components/records/csv-import-modal";
 import { generateCSV, downloadCSV } from "@/lib/csv-utils";
+import { objectPluralLabel, objectSingularLabel } from "@/lib/object-labels";
 import {
   Plus,
   RefreshCw,
@@ -132,7 +133,7 @@ export default function ObjectPage() {
       }
     }
     const csv = generateCSV(rows, object.attributes as any);
-    downloadCSV(csv, `${object.pluralName.toLowerCase()}.csv`);
+    downloadCSV(csv, `${objectPluralLabel(slug, object.pluralName).toLowerCase()}.csv`);
   };
 
   // Auto-detect if board view is available (has a status attribute)
@@ -142,7 +143,7 @@ export default function ObjectPage() {
   if (loading && !object) {
     return (
       <div className="flex h-full items-center justify-center text-muted-foreground">
-        Loading...
+        Lädt...
       </div>
     );
   }
@@ -150,19 +151,22 @@ export default function ObjectPage() {
   if (!object) {
     return (
       <div className="flex h-full items-center justify-center text-muted-foreground">
-        Object not found
+        Objekt nicht gefunden
       </div>
     );
   }
+
+  const pluralLabel = objectPluralLabel(slug, object.pluralName);
+  const singularLabel = objectSingularLabel(slug, object.singularName);
 
   return (
     <div className="flex h-full flex-col">
       {/* Toolbar */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-border px-3 sm:px-4 py-2">
         <div className="flex items-center gap-3">
-          <h1 className="text-lg font-semibold">{object.pluralName}</h1>
+          <h1 className="text-lg font-semibold">{pluralLabel}</h1>
           <span className="text-sm text-muted-foreground">
-            {total} {total === 1 ? "record" : "records"}
+            {total} {total === 1 ? "Eintrag" : "Einträge"}
           </span>
         </div>
 
@@ -170,7 +174,7 @@ export default function ObjectPage() {
         <div className="flex items-center gap-2 sm:hidden">
           <Button size="sm" onClick={() => setCreateOpen(true)} className="flex-1">
             <Plus className="mr-1 h-4 w-4" />
-            New {object.singularName}
+            {singularLabel} anlegen
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -183,14 +187,14 @@ export default function ObjectPage() {
                 <Filter className="h-3.5 w-3.5 mr-2" /> Filter{hasFilter ? ` (${filter.conditions.length})` : ""}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setSortOpen(true)}>
-                <ArrowUpDown className="h-3.5 w-3.5 mr-2" /> Sort{hasSort ? ` (${sorts.length})` : ""}
+                <ArrowUpDown className="h-3.5 w-3.5 mr-2" /> Sortieren{hasSort ? ` (${sorts.length})` : ""}
               </DropdownMenuItem>
               {hasBoardView && (
                 <DropdownMenuItem onClick={() => setView(view === "table" ? "board" : "table")}>
                   {view === "table" ? (
-                    <><Kanban className="h-3.5 w-3.5 mr-2" /> Board view</>
+                    <><Kanban className="h-3.5 w-3.5 mr-2" /> Board-Ansicht</>
                   ) : (
-                    <><Table2 className="h-3.5 w-3.5 mr-2" /> Table view</>
+                    <><Table2 className="h-3.5 w-3.5 mr-2" /> Tabellen-Ansicht</>
                   )}
                 </DropdownMenuItem>
               )}
@@ -203,7 +207,7 @@ export default function ObjectPage() {
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => fetchData()} disabled={loading}>
-                <RefreshCw className={cn("h-3.5 w-3.5 mr-2", loading && "animate-spin")} /> Refresh
+                <RefreshCw className={cn("h-3.5 w-3.5 mr-2", loading && "animate-spin")} /> Aktualisieren
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -258,7 +262,7 @@ export default function ObjectPage() {
                 )}
               >
                 <ArrowUpDown className="h-3.5 w-3.5" />
-                Sort
+                Sortieren
                 {hasSort && (
                   <span className="ml-0.5 rounded-full bg-primary/20 px-1.5 text-[10px] text-primary">
                     {sorts.length}
@@ -288,7 +292,7 @@ export default function ObjectPage() {
                 )}
               >
                 <Table2 className="h-3.5 w-3.5" />
-                Table
+                Tabelle
               </button>
               <button
                 onClick={() => setView("board")}
@@ -331,7 +335,7 @@ export default function ObjectPage() {
           </Button>
           <Button size="sm" onClick={() => setCreateOpen(true)}>
             <Plus className="mr-1 h-4 w-4" />
-            New {object.singularName}
+            {singularLabel} anlegen
           </Button>
         </div>
       </div>
@@ -351,7 +355,7 @@ export default function ObjectPage() {
       {/* Active sort indicator */}
       {hasSort && (
         <div className="border-b border-border/50 px-4 py-1.5 flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">Sorted by:</span>
+          <span className="text-xs text-muted-foreground">Sortiert nach:</span>
           {sorts.map((sort, i) => {
             const attr = object.attributes.find((a) => a.slug === sort.attribute);
             return (
@@ -368,7 +372,7 @@ export default function ObjectPage() {
             onClick={clearSorts}
             className="text-xs text-muted-foreground hover:text-foreground ml-2"
           >
-            Clear
+            Zurücksetzen
           </button>
         </div>
       )}
@@ -448,7 +452,7 @@ export default function ObjectPage() {
         onClose={() => setCreateOpen(false)}
         onSubmit={createRecord}
         attributes={object.attributes as any}
-        objectName={object.singularName}
+        objectName={singularLabel}
       />
 
       {/* Import modal */}
@@ -456,7 +460,7 @@ export default function ObjectPage() {
         open={importOpen}
         onClose={() => setImportOpen(false)}
         objectSlug={slug}
-        objectName={object.singularName}
+        objectName={pluralLabel}
         attributes={object.attributes as any}
         onImportComplete={fetchData}
       />

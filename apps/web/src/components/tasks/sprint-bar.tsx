@@ -151,7 +151,7 @@ export function SprintBar({ refreshKey, onMutate }: SprintBarProps) {
   async function closeActive(id: string) {
     if (
       !confirm(
-        "Sprint abschliessen? Nicht erledigte Aufgaben wandern zurueck ins Produkt-Backlog."
+        "Sprint abschließen? Nicht erledigte Aufgaben wandern zurück ins Produkt-Backlog."
       )
     )
       return;
@@ -179,7 +179,7 @@ export function SprintBar({ refreshKey, onMutate }: SprintBarProps) {
   }
 
   async function deleteSprint(id: string) {
-    if (!confirm("Sprint in Planung loeschen?")) return;
+    if (!confirm("Sprint in Planung löschen?")) return;
     setBusy(true);
     try {
       const res = await fetch(`/api/v1/sprints/${id}`, { method: "DELETE" });
@@ -244,7 +244,7 @@ export function SprintBar({ refreshKey, onMutate }: SprintBarProps) {
       {closeSummary && (
         <div className="mt-2 flex flex-wrap items-center gap-3 rounded-md border border-emerald-500/30 bg-emerald-500/5 px-3 py-1.5 text-xs">
           <Trophy className="h-4 w-4 text-emerald-600" />
-          <span className="font-medium">Sprint-Rueckblick:</span>
+          <span className="font-medium">Sprint-Rückblick:</span>
           <span>
             {closeSummary.completedPoints} von {closeSummary.committedPoints}{" "}
             Punkten erledigt
@@ -257,7 +257,7 @@ export function SprintBar({ refreshKey, onMutate }: SprintBarProps) {
             className="ml-auto text-muted-foreground hover:text-foreground"
             onClick={() => setCloseSummary(null)}
           >
-            schliessen
+            schließen
           </button>
         </div>
       )}
@@ -441,7 +441,7 @@ function ActionsMenu({
             }}
             className="block w-full rounded px-2 py-1.5 text-left hover:bg-muted/50"
           >
-            Sprint abschliessen
+            Sprint abschließen
           </button>
         </div>
       )}
@@ -510,7 +510,7 @@ function EmptyState({
         <Rocket className="h-4 w-4 text-muted-foreground" /> Kein aktiver Sprint
       </span>
       <span className="text-muted-foreground">
-        Starte einen Sprint, um Wachstums-Aufgaben zu fokussieren. Der laufende Betrieb laeuft unten weiter.
+        Starte einen Sprint, um Wachstums-Aufgaben zu fokussieren. Der laufende Betrieb läuft unten weiter.
       </span>
 
       {planung.map((s) => (
@@ -538,7 +538,7 @@ function EmptyState({
           </button>
           <button
             className="text-muted-foreground hover:text-destructive"
-            title="Loeschen"
+            title="Löschen"
             onClick={() => onDeleteSprint(s.id)}
             disabled={busy}
           >
@@ -659,7 +659,7 @@ function SprintFormDialog({
         <DialogHeader>
           <DialogTitle>{mode === "create" ? "Neuer Sprint" : "Sprint bearbeiten"}</DialogTitle>
           <DialogDescription className="sr-only">
-            Name, Ziel, Zeitraum und Kapazitaet des Sprints
+            Name, Ziel, Zeitraum und Kapazität des Sprints
           </DialogDescription>
         </DialogHeader>
 
@@ -697,7 +697,7 @@ function SprintFormDialog({
               />
             </div>
             <div className="w-24">
-              <label className="mb-1 block text-xs text-muted-foreground">Kapazitaet</label>
+              <label className="mb-1 block text-xs text-muted-foreground">Kapazität</label>
               <input
                 type="number"
                 min={0}

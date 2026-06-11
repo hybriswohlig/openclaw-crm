@@ -60,7 +60,7 @@ export function AddEntryModal({
       <div className="fixed inset-0 bg-black/50" onClick={onClose} />
       <div className="relative z-10 w-full max-w-md rounded-lg border border-border bg-background p-4 shadow-lg">
         <h2 className="text-sm font-semibold mb-3">
-          Add {objectName} to list
+          {objectName} zur Liste hinzufügen
         </h2>
 
         {/* Search */}
@@ -69,7 +69,7 @@ export function AddEntryModal({
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder={`Search ${objectName}...`}
+            placeholder={`${objectName} suchen...`}
             className="pl-9 h-9 text-sm"
           />
         </div>
@@ -78,12 +78,12 @@ export function AddEntryModal({
         <div className="max-h-60 overflow-y-auto space-y-1">
           {loading && (
             <p className="text-xs text-muted-foreground py-4 text-center">
-              Loading...
+              Wird geladen...
             </p>
           )}
           {!loading && records.length === 0 && (
             <p className="text-xs text-muted-foreground py-4 text-center">
-              No records available to add
+              Keine Datensätze zum Hinzufügen verfügbar
             </p>
           )}
           {records.map((rec) => (
@@ -105,7 +105,7 @@ export function AddEntryModal({
         {/* Footer */}
         <div className="mt-3 flex justify-end">
           <Button variant="ghost" size="sm" onClick={onClose}>
-            Done
+            Fertig
           </Button>
         </div>
       </div>

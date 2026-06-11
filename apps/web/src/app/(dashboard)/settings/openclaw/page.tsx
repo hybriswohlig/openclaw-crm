@@ -385,11 +385,11 @@ When creating or updating records, use these value formats:
   return (
     <div className="max-w-3xl">
       <div className="mb-6">
-        <h1 className="text-xl font-semibold">OpenClaw Integration</h1>
+        <h1 className="text-xl font-semibold">OpenClaw-Integration</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Generate a skill file to connect your Umzug-Suite deployment with the
-          OpenClaw agent runtime. This lets OpenClaw agents interact with your CRM
-          data.
+          Erzeuge eine Skill-Datei, um deine Umzug-Suite-Instanz mit der
+          OpenClaw-Agent-Laufzeit zu verbinden. OpenClaw-Agenten können damit auf
+          deine CRM-Daten zugreifen.
         </p>
       </div>
 
@@ -400,12 +400,12 @@ When creating or updating records, use these value formats:
             <Badge variant="secondary" className="text-xs font-mono">
               1
             </Badge>
-            <h2 className="font-medium">Configure</h2>
+            <h2 className="font-medium">Konfigurieren</h2>
           </div>
 
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <Label htmlFor="instance-url">Instance URL</Label>
+              <Label htmlFor="instance-url">Instanz-URL</Label>
               <Input
                 id="instance-url"
                 value={instanceUrl}
@@ -413,12 +413,12 @@ When creating or updating records, use these value formats:
                 placeholder="https://your-crm.example.com"
               />
               <p className="text-xs text-muted-foreground">
-                The URL where your Umzug-Suite instance is accessible.
+                Die URL, unter der deine Umzug-Suite-Instanz erreichbar ist.
               </p>
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="api-key">API Key</Label>
+              <Label htmlFor="api-key">API-Schlüssel</Label>
               {apiKeys.length > 0 ? (
                 <select
                   id="api-key"
@@ -434,23 +434,24 @@ When creating or updating records, use these value formats:
                 </select>
               ) : (
                 <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-                  No API keys found.{" "}
+                  Keine API-Schlüssel gefunden.{" "}
                   <a
                     href="/settings/api-keys"
                     className="underline hover:text-foreground"
                   >
-                    Create one first
-                  </a>{" "}
-                  to use with OpenClaw.
+                    Erstelle zuerst einen
+                  </a>
+                  , um ihn mit OpenClaw zu verwenden.
                 </div>
               )}
               <p className="text-xs text-muted-foreground">
-                The API key OpenClaw will use to authenticate. Create keys in{" "}
+                Der API-Schlüssel, mit dem sich OpenClaw authentifiziert. Schlüssel
+                erstellst du unter{" "}
                 <a
                   href="/settings/api-keys"
                   className="underline hover:text-foreground"
                 >
-                  Settings &gt; API Keys
+                  Einstellungen &gt; API-Schlüssel
                 </a>
                 .
               </p>
@@ -465,7 +466,7 @@ When creating or updating records, use these value formats:
               <Badge variant="secondary" className="text-xs font-mono">
                 2
               </Badge>
-              <h2 className="font-medium">Skill File</h2>
+              <h2 className="font-medium">Skill-Datei</h2>
             </div>
             <div className="flex items-center gap-2">
               <Button
@@ -478,11 +479,11 @@ When creating or updating records, use these value formats:
                 ) : (
                   <Copy className="mr-1 h-3.5 w-3.5" />
                 )}
-                {copied === "skill" ? "Copied" : "Copy"}
+                {copied === "skill" ? "Kopiert" : "Kopieren"}
               </Button>
               <Button variant="outline" size="sm" onClick={handleDownload}>
                 <Download className="mr-1 h-3.5 w-3.5" />
-                Download
+                Herunterladen
               </Button>
             </div>
           </div>
@@ -505,7 +506,7 @@ When creating or updating records, use these value formats:
               <Badge variant="secondary" className="text-xs font-mono">
                 3
               </Badge>
-              <h2 className="font-medium">OpenClaw Config</h2>
+              <h2 className="font-medium">OpenClaw-Konfiguration</h2>
             </div>
             <Button
               variant="outline"
@@ -517,13 +518,13 @@ When creating or updating records, use these value formats:
               ) : (
                 <Copy className="mr-1 h-3.5 w-3.5" />
               )}
-              {copied === "config" ? "Copied" : "Copy"}
+              {copied === "config" ? "Kopiert" : "Kopieren"}
             </Button>
           </div>
 
           <p className="text-sm text-muted-foreground">
-            Add this to your <code className="text-xs bg-muted px-1 py-0.5 rounded">openclaw.json</code> or <code className="text-xs bg-muted px-1 py-0.5 rounded">moltbot.json</code> config file.
-            Replace the API key placeholder with your actual key.
+            Füge dies in deine <code className="text-xs bg-muted px-1 py-0.5 rounded">openclaw.json</code> oder <code className="text-xs bg-muted px-1 py-0.5 rounded">moltbot.json</code> ein.
+            Ersetze den Platzhalter durch deinen echten API-Schlüssel.
           </p>
 
           <div className="relative">
@@ -544,7 +545,7 @@ When creating or updating records, use these value formats:
               <Badge variant="secondary" className="text-xs font-mono">
                 4
               </Badge>
-              <h2 className="font-medium">Install</h2>
+              <h2 className="font-medium">Installieren</h2>
             </div>
             <Button
               variant="outline"
@@ -556,12 +557,12 @@ When creating or updating records, use these value formats:
               ) : (
                 <Copy className="mr-1 h-3.5 w-3.5" />
               )}
-              {copied === "install" ? "Copied" : "Copy"}
+              {copied === "install" ? "Kopiert" : "Kopieren"}
             </Button>
           </div>
 
           <p className="text-sm text-muted-foreground">
-            After downloading the SKILL.md, install it to your OpenClaw skills directory:
+            Nach dem Download die SKILL.md im OpenClaw-Skills-Verzeichnis ablegen:
           </p>
 
           <div className="relative">
@@ -576,14 +577,14 @@ When creating or updating records, use these value formats:
 
           <div className="rounded-md border border-blue-500/20 bg-blue-500/5 p-3 text-sm space-y-2">
             <p className="font-medium text-blue-600 dark:text-blue-400">
-              Quick start:
+              Schnellstart:
             </p>
             <ol className="list-decimal pl-5 space-y-1 text-muted-foreground text-xs">
-              <li>Download the SKILL.md file above</li>
-              <li>Place it at <code className="bg-muted px-1 py-0.5 rounded">~/.openclaw/skills/openclaw/SKILL.md</code></li>
-              <li>Add the config snippet to your <code className="bg-muted px-1 py-0.5 rounded">openclaw.json</code></li>
-              <li>Set your actual API key in the config (from Settings &gt; API Keys)</li>
-              <li>Restart OpenClaw — the agent can now interact with your CRM</li>
+              <li>Die SKILL.md oben herunterladen</li>
+              <li>Unter <code className="bg-muted px-1 py-0.5 rounded">~/.openclaw/skills/openclaw/SKILL.md</code> ablegen</li>
+              <li>Den Konfigurationsausschnitt in die <code className="bg-muted px-1 py-0.5 rounded">openclaw.json</code> einfügen</li>
+              <li>Den echten API-Schlüssel in der Konfiguration eintragen (aus Einstellungen &gt; API-Schlüssel)</li>
+              <li>OpenClaw neu starten, danach kann der Agent mit dem CRM arbeiten</li>
             </ol>
           </div>
         </section>

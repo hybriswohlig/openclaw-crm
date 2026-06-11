@@ -132,15 +132,15 @@ const EUR = new Intl.NumberFormat("de-DE", {
 const NUM = new Intl.NumberFormat("de-DE");
 
 function fmtEUR(n: number | null | undefined) {
-  if (n == null) return "–";
+  if (n == null) return "·";
   return EUR.format(n);
 }
 function fmtNum(n: number | null | undefined) {
-  if (n == null) return "–";
+  if (n == null) return "·";
   return NUM.format(n);
 }
 function fmtPct(n: number | null | undefined) {
-  if (n == null) return "–";
+  if (n == null) return "·";
   return `${n} %`;
 }
 
@@ -388,11 +388,11 @@ function PipelineTab() {
         style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}
       >
         <KpiCard
-          label="Ø Time-to-Close"
+          label="Ø Zeit bis Abschluss"
           value={
             data.avgTimeToCloseDays != null
               ? `${data.avgTimeToCloseDays} Tage`
-              : "–"
+              : "·"
           }
         />
         <KpiCard
@@ -404,7 +404,7 @@ function PipelineTab() {
           value={fmtEUR(data.avgQuoteValueWon)}
         />
         <KpiCard
-          label="Stale Deals (>14T)"
+          label="Inaktive Deals (>14T)"
           value={fmtNum(data.staleDeals.length)}
         />
       </div>
@@ -450,7 +450,7 @@ function PipelineTab() {
         </ResponsiveContainer>
       </Panel>
 
-      <Panel title="Stale Deals (nicht aktualisiert in den letzten 14 Tagen)">
+      <Panel title="Inaktive Deals (nicht aktualisiert in den letzten 14 Tagen)">
         {data.staleDeals.length === 0 ? (
           <EmptyMsg>Keine vergessenen Deals. ✓</EmptyMsg>
         ) : (
@@ -475,7 +475,7 @@ function PipelineTab() {
                       </a>
                     </td>
                     <td className="py-1.5" style={{ color: "var(--ink-soft)" }}>
-                      {d.stageTitle ?? "—"}
+                      {d.stageTitle ?? "·"}
                     </td>
                     <td className="py-1.5 text-right font-mono">{d.daysStale}</td>
                   </tr>
@@ -628,11 +628,11 @@ function OperationsTab() {
         <KpiCard
           label="Ø Personalstärke"
           value={
-            data.workerCountAvg != null ? data.workerCountAvg.toString() : "–"
+            data.workerCountAvg != null ? data.workerCountAvg.toString() : "·"
           }
           delta={
             data.workerCountMin != null && data.workerCountMax != null
-              ? `${data.workerCountMin}–${data.workerCountMax}`
+              ? `${data.workerCountMin} bis ${data.workerCountMax}`
               : null
           }
         />
@@ -738,7 +738,7 @@ function TeamTab() {
       >
         <KpiCard label="Erledigte Aufgaben (8W)" value={fmtNum(totalCompleted)} />
         <KpiCard label="Überfällig (8W)" value={fmtNum(totalOverdue)} />
-        <KpiCard label="Aktive Owner" value={fmtNum(data.dealsByOwner.length)} />
+        <KpiCard label="Aktive Mitarbeiter" value={fmtNum(data.dealsByOwner.length)} />
       </div>
 
       <Panel title="Aufgaben: erledigt vs. überfällig (8 Wochen)">
@@ -759,9 +759,9 @@ function TeamTab() {
         </ResponsiveContainer>
       </Panel>
 
-      <Panel title="Deals pro Owner">
+      <Panel title="Leads pro Mitarbeiter">
         {data.dealsByOwner.length === 0 ? (
-          <EmptyMsg>Noch keine Owner zugewiesen.</EmptyMsg>
+          <EmptyMsg>Noch keine Mitarbeiter zugewiesen.</EmptyMsg>
         ) : (
           <ResponsiveContainer
             width="100%"
@@ -785,7 +785,7 @@ function TeamTab() {
       </Panel>
 
       {data.newLeadsByOwner30d.length > 0 && (
-        <Panel title="Neue Leads pro Owner (30 Tage)">
+        <Panel title="Neue Leads pro Mitarbeiter (30 Tage)">
           <ResponsiveContainer
             width="100%"
             height={Math.max(160, data.newLeadsByOwner30d.length * 32)}
@@ -987,7 +987,7 @@ function CompareTab() {
       {loading ? (
         <Skeleton label="Lade Vergleich…" />
       ) : !data || data.length === 0 ? (
-        <EmptyMsg>Keine Operating-Companies mit Daten im gewählten Zeitraum.</EmptyMsg>
+        <EmptyMsg>Keine Betriebsgesellschaften mit Daten im gewählten Zeitraum.</EmptyMsg>
       ) : (
         <>
           <LeaderScorecard data={data} ranks={ranks} />
@@ -1111,7 +1111,7 @@ function LeaderScorecard({
   const rankIcon = (n: number) => (n === 1 ? "🥇" : n === 2 ? "🥈" : n === 3 ? "🥉" : `#${n}`);
 
   return (
-    <Panel title="Leader-Scorecard">
+    <Panel title="Bestenliste">
       <div
         className="grid gap-3"
         style={{ gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))" }}
@@ -1172,9 +1172,9 @@ function LeaderScorecard({
               <div className="flex flex-wrap gap-1.5">
                 <RankChip label="Umsatz" rank={r.revenue} icon={rankIcon(r.revenue)} />
                 <RankChip label="Marge" rank={r.marginPct} icon={rankIcon(r.marginPct)} />
-                <RankChip label="Win" rank={r.winRatePct} icon={rankIcon(r.winRatePct)} />
+                <RankChip label="Win-Rate" rank={r.winRatePct} icon={rankIcon(r.winRatePct)} />
                 <RankChip label="Volumen" rank={r.movesCompleted} icon={rankIcon(r.movesCompleted)} />
-                <RankChip label="Conv." rank={r.leadToWinRatePct} icon={rankIcon(r.leadToWinRatePct)} />
+                <RankChip label="Konv." rank={r.leadToWinRatePct} icon={rankIcon(r.leadToWinRatePct)} />
               </div>
               <div
                 className="text-[12px] grid grid-cols-3 gap-2"
@@ -1248,7 +1248,7 @@ function LeadIntakePanel({ data }: { data: CompanyComparisonRow[] }) {
 
   return (
     <Panel
-      title="Lead-Aufkommen je Operating Company"
+      title="Lead-Aufkommen je Betriebsgesellschaft"
       right={
         totalFiltered > 0 ? (
           <span
@@ -1355,7 +1355,7 @@ function LeadSourceBreakdown({ data }: { data: CompanyComparisonRow[] }) {
   const totalLeads = [...totals.values()].reduce((s, v) => s + v, 0);
 
   return (
-    <Panel title="Lead-Quellen je Operating Company">
+    <Panel title="Lead-Quellen je Betriebsgesellschaft">
       <div
         className="grid gap-4"
         style={{ gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}
@@ -1837,7 +1837,7 @@ function monthShort(yyyymm: string): string {
 }
 
 function shortId(id: string): string {
-  if (!id) return "—";
+  if (!id) return "·";
   return id.length > 12 ? id.slice(0, 6) + "…" + id.slice(-3) : id;
 }
 

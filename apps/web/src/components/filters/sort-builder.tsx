@@ -56,7 +56,7 @@ export function SortBuilder({
   return (
     <div className="w-[360px] space-y-3">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium">Sort</h3>
+        <h3 className="text-sm font-medium">Sortieren</h3>
         <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
           <X className="h-4 w-4" />
         </button>
@@ -67,7 +67,7 @@ export function SortBuilder({
           {sorts.map((sort, index) => (
             <div key={index} className="flex items-center gap-2">
               <span className="w-14 shrink-0 text-xs text-muted-foreground text-right">
-                {index === 0 ? "Sort by" : "then by"}
+                {index === 0 ? "Nach" : "dann nach"}
               </span>
 
               {/* Attribute select */}
@@ -97,12 +97,12 @@ export function SortBuilder({
                 {sort.direction === "asc" ? (
                   <>
                     <ArrowUp className="h-3 w-3" />
-                    Asc
+                    Auf
                   </>
                 ) : (
                   <>
                     <ArrowDown className="h-3 w-3" />
-                    Desc
+                    Ab
                   </>
                 )}
               </button>
@@ -121,7 +121,7 @@ export function SortBuilder({
 
       {sorts.length === 0 && (
         <p className="text-xs text-muted-foreground py-2">
-          No sorts applied. Records are sorted by creation date.
+          Keine Sortierung aktiv. Einträge sind nach Erstelldatum sortiert.
         </p>
       )}
 
@@ -133,7 +133,7 @@ export function SortBuilder({
         disabled={sorts.length >= sortableAttrs.length}
       >
         <Plus className="mr-1 h-3.5 w-3.5" />
-        Add sort
+        Sortierung hinzufügen
       </Button>
     </div>
   );

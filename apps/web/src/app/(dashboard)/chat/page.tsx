@@ -147,7 +147,7 @@ export default function ChatPage() {
           break;
 
         case "tool_executing":
-          accumulatedRef.current += `\n\u{1F527} Running **${parsed.name}**...\n`;
+          accumulatedRef.current += `\n\u{1F527} Führe **${parsed.name}** aus...\n`;
           setStreamingContent(accumulatedRef.current);
           break;
 
@@ -164,7 +164,7 @@ export default function ChatPage() {
           break;
 
         case "error":
-          accumulatedRef.current += `\n\nError: ${parsed.error}`;
+          accumulatedRef.current += `\n\nAntwort fehlgeschlagen. Bitte erneut versuchen.${parsed.error ? ` (${parsed.error})` : ""}`;
           setStreamingContent(accumulatedRef.current);
           break;
       }
@@ -255,8 +255,9 @@ export default function ChatPage() {
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
+        const detail = (err as { error?: { message?: string } }).error?.message;
         setStreamingContent(
-          `Error: ${(err as { error?: { message?: string } }).error?.message || "Failed to get response"}`
+          `Antwort fehlgeschlagen. Bitte erneut versuchen.${detail ? ` (${detail})` : ""}`
         );
         setStreaming(false);
         isStreamingRef.current = false;
@@ -268,7 +269,7 @@ export default function ChatPage() {
       if (e instanceof DOMException && e.name === "AbortError") {
         // User cancelled
       } else {
-        setStreamingContent("Connection error. Please try again.");
+        setStreamingContent("Verbindungsfehler. Bitte erneut versuchen.");
       }
     }
 

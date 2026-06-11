@@ -6,8 +6,6 @@ import { Button } from "@/components/ui/button";
 import {
   Plus,
   StickyNote,
-  Star,
-  ArrowUpDown,
   Building2,
   ChevronDown,
   ChevronRight,
@@ -15,7 +13,7 @@ import {
 import { cn } from "@/lib/utils";
 import { ChooseRecordDialog } from "@/components/records/choose-record-dialog";
 import { NoteEditorPanel } from "@/components/notes/note-editor-panel";
-import { isToday, isYesterday, isThisWeek, format } from "date-fns";
+import { isToday, isYesterday, isThisWeek } from "date-fns";
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -44,10 +42,10 @@ function getDateGroup(dateStr: string): DateGroup {
 }
 
 const GROUP_LABELS: Record<DateGroup, string> = {
-  today: "Created today",
-  yesterday: "Yesterday",
-  this_week: "This week",
-  older: "Older",
+  today: "Heute erstellt",
+  yesterday: "Gestern",
+  this_week: "Diese Woche",
+  older: "Älter",
 };
 
 const GROUP_ORDER: DateGroup[] = ["today", "yesterday", "this_week", "older"];
@@ -60,7 +58,7 @@ const OBJECT_COLORS: Record<string, string> = {
 };
 
 function getContentPreview(content: unknown): string {
-  if (!content) return "This note has no content.";
+  if (!content) return "Diese Notiz hat keinen Inhalt.";
   try {
     const doc = content as { content?: Array<{ content?: Array<{ text?: string }> }> };
     if (doc.content) {
@@ -77,14 +75,14 @@ function getContentPreview(content: unknown): string {
   } catch {
     // ignore
   }
-  return "This note has no content.";
+  return "Diese Notiz hat keinen Inhalt.";
 }
 
 function getRelativeDate(dateStr: string): string {
   const d = new Date(dateStr);
-  if (isToday(d)) return "Today";
-  if (isYesterday(d)) return "Yesterday";
-  return format(d, "MMM d");
+  if (isToday(d)) return "Heute";
+  if (isYesterday(d)) return "Gestern";
+  return d.toLocaleDateString("de-DE", { day: "numeric", month: "short" });
 }
 
 // ─── Main Component ─────────────────────────────────────────────────
@@ -187,50 +185,30 @@ export default function NotesPage() {
       {/* Toolbar */}
       <div className="flex items-center justify-between border-b border-border px-4 py-2">
         <div className="flex items-center gap-3">
-          <h1 className="text-lg font-semibold">Notes</h1>
+          <h1 className="text-lg font-semibold">Notizen</h1>
           <span className="text-sm text-muted-foreground">{total}</span>
         </div>
         <div className="flex items-center gap-2">
-          {/* Sort pill */}
-          <div className="flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground">
-            <ArrowUpDown className="h-3 w-3" />
-            <span>Creation date</span>
-          </div>
-
           <Button size="sm" onClick={handleNewNote}>
             <Plus className="mr-1 h-4 w-4" />
-            New note
+            Neue Notiz
           </Button>
         </div>
       </div>
 
       {/* Content */}
       <div className="flex-1 overflow-auto">
-        {/* Favorites section */}
-        <div className="px-4 pt-4 pb-2">
-          <h2 className="text-xs font-medium text-muted-foreground mb-3">
-            Favorites
-          </h2>
-          <div className="rounded-lg border-2 border-dashed border-border/50 py-8 text-center">
-            <Star className="h-6 w-6 text-muted-foreground/20 mx-auto mb-2" />
-            <p className="text-sm text-muted-foreground">Favorites</p>
-            <p className="text-xs text-muted-foreground/60 mt-1">
-              Notes that you favorite will appear here
-            </p>
-          </div>
-        </div>
-
         {/* Loading / Empty states */}
         {loading && notes.length === 0 && (
-          <p className="text-muted-foreground text-center py-12">Loading...</p>
+          <p className="text-muted-foreground text-center py-12">Wird geladen...</p>
         )}
 
         {!loading && notes.length === 0 && (
           <div className="text-center py-12">
             <StickyNote className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
-            <p className="text-muted-foreground">No notes yet.</p>
+            <p className="text-muted-foreground">Noch keine Notizen.</p>
             <p className="text-sm text-muted-foreground/60 mt-1">
-              Click &quot;+ New note&quot; to create your first note.
+              Klicke auf &quot;+ Neue Notiz&quot;, um deine erste Notiz zu erstellen.
             </p>
           </div>
         )}
@@ -331,13 +309,13 @@ function NoteCard({
               <Building2 className="h-2 w-2 text-white" />
             </div>
             <span className="text-xs font-medium text-muted-foreground truncate">
-              {note.recordDisplayName || "Unknown"}
+              {note.recordDisplayName || "Unbekannt"}
             </span>
           </div>
 
           {/* Title */}
           <h3 className="text-sm font-medium truncate">
-            {note.title || "Untitled"}
+            {note.title || "Ohne Titel"}
           </h3>
 
           {/* Preview */}

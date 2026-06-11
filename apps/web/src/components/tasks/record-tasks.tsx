@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { TaskDialog } from "./task-dialog";
 import { isToday, isTomorrow, differenceInDays, format } from "date-fns";
+import { de } from "date-fns/locale";
 
 interface Task {
   id: string;
@@ -30,12 +31,12 @@ function getRelativeDate(deadline: string): {
   color: string;
 } {
   const d = new Date(deadline);
-  if (isToday(d)) return { label: "Today", color: "text-orange-400" };
-  if (isTomorrow(d)) return { label: "Tomorrow", color: "text-orange-400" };
+  if (isToday(d)) return { label: "Heute", color: "text-orange-400" };
+  if (isTomorrow(d)) return { label: "Morgen", color: "text-orange-400" };
   const days = differenceInDays(d, new Date());
-  if (days < 0) return { label: "Overdue", color: "text-destructive" };
-  if (days <= 7) return { label: format(d, "EEEE"), color: "text-muted-foreground" };
-  return { label: format(d, "MMM d"), color: "text-muted-foreground" };
+  if (days < 0) return { label: "Überfällig", color: "text-destructive" };
+  if (days <= 7) return { label: format(d, "EEEE", { locale: de }), color: "text-muted-foreground" };
+  return { label: format(d, "d. MMM", { locale: de }), color: "text-muted-foreground" };
 }
 
 export function RecordTasks({
@@ -218,7 +219,7 @@ export function RecordTasks({
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium">Tasks</h3>
+        <h3 className="text-sm font-medium">Aufgaben</h3>
         <Button
           variant="ghost"
           size="sm"
@@ -226,7 +227,7 @@ export function RecordTasks({
           className="text-xs"
         >
           <Plus className="mr-1 h-3.5 w-3.5" />
-          Add task
+          Aufgabe hinzufügen
         </Button>
       </div>
 
@@ -247,13 +248,13 @@ export function RecordTasks({
 
       {loading && tasks.length === 0 && (
         <p className="text-xs text-muted-foreground py-4 text-center">
-          Loading...
+          Lade…
         </p>
       )}
 
       {!loading && tasks.length === 0 && (
         <p className="text-xs text-muted-foreground py-4 text-center">
-          No tasks yet
+          Noch keine Aufgaben
         </p>
       )}
 
@@ -297,7 +298,7 @@ export function RecordTasks({
       {completedTasks.length > 0 && (
         <div className="space-y-1">
           <p className="text-xs text-muted-foreground pt-2">
-            Completed ({completedTasks.length})
+            Erledigt ({completedTasks.length})
           </p>
           {completedTasks.map((task) => (
             <div

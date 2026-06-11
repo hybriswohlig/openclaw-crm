@@ -58,30 +58,31 @@ export default function NotificationsPage() {
     const seconds = Math.floor(
       (Date.now() - new Date(date).getTime()) / 1000
     );
-    if (seconds < 60) return "just now";
+    if (seconds < 60) return "gerade eben";
     const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `${minutes}m ago`;
+    if (minutes < 60) return `vor ${minutes} Min.`;
     const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
+    if (hours < 24) return `vor ${hours} Std.`;
     const days = Math.floor(hours / 24);
-    return `${days}d ago`;
+    if (days < 7) return days === 1 ? "vor 1 Tag" : `vor ${days} Tagen`;
+    return new Date(date).toLocaleDateString("de-DE");
   }
 
   return (
     <div className="p-6 max-w-2xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-semibold">Notifications</h1>
+          <h1 className="text-2xl font-semibold">Benachrichtigungen</h1>
           {unreadCount > 0 && (
             <span className="rounded-full bg-primary/20 px-2 py-0.5 text-xs font-medium text-primary">
-              {unreadCount} unread
+              {unreadCount} ungelesen
             </span>
           )}
         </div>
         {unreadCount > 0 && (
           <Button variant="ghost" size="sm" onClick={handleMarkAllRead}>
             <CheckCheck className="mr-1 h-4 w-4" />
-            Mark all read
+            Alle als gelesen markieren
           </Button>
         )}
       </div>
@@ -93,8 +94,8 @@ export default function NotificationsPage() {
       ) : notifications.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground">
           <Bell className="h-12 w-12 mx-auto mb-3 opacity-30" />
-          <p className="text-lg">No notifications</p>
-          <p className="text-sm mt-1">You&apos;re all caught up</p>
+          <p className="text-lg">Keine Benachrichtigungen</p>
+          <p className="text-sm mt-1">Alles auf dem neuesten Stand</p>
         </div>
       ) : (
         <div className="space-y-1">

@@ -136,7 +136,7 @@ function fmtEUR(n: number): string {
 }
 
 function fmtDate(iso: string | null): string {
-  if (!iso) return "—";
+  if (!iso) return "·";
   return new Date(iso + (iso.length === 10 ? "T00:00:00" : "")).toLocaleDateString("de-DE");
 }
 
@@ -457,7 +457,7 @@ export default function EmployeesPage() {
                         <span>{emp.name}</span>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">{emp.experience || "—"}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{emp.experience || "·"}</td>
                     <td className="px-4 py-3 text-right tabular-nums">{fmtEUR(Number(emp.hourlyRate))}</td>
                     <td className="px-4 py-3 text-right">{emp.contractCount}</td>
                     <td className="px-4 py-3 text-right tabular-nums">
@@ -726,7 +726,7 @@ function EmployeeDetailView({
               <SaldoBadge value={detail.saldoTotal} />
               <span className="text-xs text-muted-foreground">
                 {detail.saldoTotal > 0.005
-                  ? "offen — das schulden wir noch"
+                  ? "offen, das schulden wir noch"
                   : detail.saldoTotal < -0.005
                   ? "überzahlt"
                   : "ausgeglichen"}
@@ -931,7 +931,7 @@ function LedgerTable({
                   {fmtEUR(t.amount)}
                 </td>
                 <td className="px-3 py-1.5 text-xs text-muted-foreground whitespace-nowrap">
-                  {t.paymentMethod ? METHOD_LABEL[t.paymentMethod] ?? t.paymentMethod : "—"}
+                  {t.paymentMethod ? METHOD_LABEL[t.paymentMethod] ?? t.paymentMethod : "·"}
                 </td>
                 <td className="px-3 py-1.5 whitespace-nowrap">
                   {t.hasReceipt ? (
@@ -946,7 +946,7 @@ function LedgerTable({
                       ansehen
                     </a>
                   ) : (
-                    <span className="text-xs text-muted-foreground">—</span>
+                    <span className="text-xs text-muted-foreground">·</span>
                   )}
                 </td>
                 <td className="px-3 py-1.5 whitespace-nowrap text-xs">
@@ -964,9 +964,9 @@ function LedgerTable({
                 </td>
                 <td
                   className="px-3 py-1.5 text-xs text-muted-foreground max-w-[22ch] truncate"
-                  title={[t.description, t.notes].filter(Boolean).join(" – ") || undefined}
+                  title={[t.description, t.notes].filter(Boolean).join(" · ") || undefined}
                 >
-                  {[t.description, t.notes].filter(Boolean).join(" – ") || "—"}
+                  {[t.description, t.notes].filter(Boolean).join(" · ") || "·"}
                 </td>
                 <td className="px-3 py-1.5 text-right whitespace-nowrap">
                   <button
@@ -1118,12 +1118,12 @@ function LedgerEntryDialog({
         </div>
         <p className="text-[11px] text-muted-foreground -mt-2">
           {form.kind === "payment"
-            ? "Auszahlung an den Mitarbeiter — senkt den Saldo."
+            ? "Auszahlung an den Mitarbeiter, senkt den Saldo."
             : form.kind === "earning"
-            ? "Verdienst (Lohn) — erhöht den Saldo (wir schulden)."
+            ? "Verdienst (Lohn), erhöht den Saldo (wir schulden)."
             : form.kind === "reimbursement"
-            ? "Beleg / Auslage des Mitarbeiters (z.B. Sprit) — erhöht den Saldo."
-            : "Sachbezug: du kaufst dem Mitarbeiter etwas (z.B. Werkzeug) und verrechnest es gegen den Lohn — senkt den Saldo. Kaufbeleg optional."}
+            ? "Beleg / Auslage des Mitarbeiters (z.B. Sprit), erhöht den Saldo."
+            : "Sachbezug: du kaufst dem Mitarbeiter etwas (z.B. Werkzeug) und verrechnest es gegen den Lohn. Senkt den Saldo. Kaufbeleg optional."}
         </p>
 
         <div className="grid grid-cols-2 gap-3">
@@ -1160,7 +1160,7 @@ function LedgerEntryDialog({
               value={form.operatingCompanyId}
               onChange={(e) => setForm((f) => ({ ...f, operatingCompanyId: e.target.value }))}
             >
-              <option value="">— bitte wählen —</option>
+              <option value="">Bitte wählen</option>
               {companies.map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
@@ -1173,7 +1173,7 @@ function LedgerEntryDialog({
               value={form.payingOperatingCompanyId}
               onChange={(e) => setForm((f) => ({ ...f, payingOperatingCompanyId: e.target.value }))}
             >
-              <option value="">— (gleiche Firma)</option>
+              <option value="">(gleiche Firma)</option>
               {companies.map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
@@ -1184,7 +1184,7 @@ function LedgerEntryDialog({
           form.payingOperatingCompanyId !== form.operatingCompanyId && (
             <p className="text-[11px] text-amber-700 dark:text-amber-500 -mt-1 inline-flex items-center gap-1">
               <ArrowRightLeft className="h-3 w-3" />
-              Quersubvention — fließt in den 50/50-Ausgleich zwischen den Firmen ein.
+              Quersubvention, fließt in den 50/50-Ausgleich zwischen den Firmen ein.
             </p>
           )}
 

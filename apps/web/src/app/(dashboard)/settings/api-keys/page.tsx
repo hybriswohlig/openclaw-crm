@@ -79,7 +79,7 @@ export default function ApiKeysPage() {
         fetchKeys();
       } else {
         const data = await res.json();
-        setError(data.error?.message ?? "Failed to create API key");
+        setError(data.error?.message ?? "API-Schlüssel konnte nicht erstellt werden");
       }
     } finally {
       setCreating(false);
@@ -98,7 +98,7 @@ export default function ApiKeysPage() {
         setRevokeTarget(null);
       } else {
         const data = await res.json();
-        setError(data.error?.message ?? "Failed to revoke API key");
+        setError(data.error?.message ?? "API-Schlüssel konnte nicht widerrufen werden");
       }
     } finally {
       setRevoking(false);
@@ -117,14 +117,14 @@ export default function ApiKeysPage() {
     <div className="max-w-2xl">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-semibold">API Keys</h1>
+          <h1 className="text-xl font-semibold">API-Schlüssel</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Manage API keys for programmatic access. Keys use Bearer token authentication.
+            API-Schlüssel für den programmatischen Zugriff verwalten. Die Schlüssel nutzen Bearer-Token-Authentifizierung.
           </p>
         </div>
         <Button onClick={() => setShowCreate(true)}>
           <Plus className="mr-1 h-4 w-4" />
-          Create Key
+          Schlüssel erstellen
         </Button>
       </div>
 
@@ -135,7 +135,7 @@ export default function ApiKeysPage() {
             onClick={() => setError("")}
             className="ml-2 underline hover:no-underline"
           >
-            dismiss
+            schließen
           </button>
         </div>
       )}
@@ -150,10 +150,10 @@ export default function ApiKeysPage() {
             <thead>
               <tr className="border-b bg-muted/50">
                 <th className="px-4 py-3 text-left font-medium">Name</th>
-                <th className="px-4 py-3 text-left font-medium">Key</th>
-                <th className="px-4 py-3 text-left font-medium">Created</th>
-                <th className="px-4 py-3 text-left font-medium">Last Used</th>
-                <th className="px-4 py-3 text-right font-medium">Actions</th>
+                <th className="px-4 py-3 text-left font-medium">Schlüssel</th>
+                <th className="px-4 py-3 text-left font-medium">Erstellt</th>
+                <th className="px-4 py-3 text-left font-medium">Zuletzt verwendet</th>
+                <th className="px-4 py-3 text-right font-medium">Aktionen</th>
               </tr>
             </thead>
             <tbody>
@@ -163,7 +163,7 @@ export default function ApiKeysPage() {
                     <span className="font-medium">{key.name}</span>
                     {key.expiresAt && (
                       <Badge variant="outline" className="ml-2 text-xs">
-                        Expires {new Date(key.expiresAt).toLocaleDateString()}
+                        Läuft ab am {new Date(key.expiresAt).toLocaleDateString("de-DE")}
                       </Badge>
                     )}
                   </td>
@@ -173,12 +173,12 @@ export default function ApiKeysPage() {
                     </code>
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">
-                    {new Date(key.createdAt).toLocaleDateString()}
+                    {new Date(key.createdAt).toLocaleDateString("de-DE")}
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">
                     {key.lastUsedAt
-                      ? new Date(key.lastUsedAt).toLocaleDateString()
-                      : "Never"}
+                      ? new Date(key.lastUsedAt).toLocaleDateString("de-DE")
+                      : "Nie"}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <Button
@@ -196,7 +196,7 @@ export default function ApiKeysPage() {
           </table>
           {keys.length === 0 && (
             <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-              No API keys yet. Create one to get started.
+              Noch keine API-Schlüssel. Erstelle einen, um loszulegen.
             </div>
           )}
         </div>
@@ -206,9 +206,9 @@ export default function ApiKeysPage() {
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Create API Key</DialogTitle>
+            <DialogTitle>API-Schlüssel erstellen</DialogTitle>
             <DialogDescription>
-              Create a new API key for programmatic access to the CRM.
+              Erstelle einen neuen API-Schlüssel für den programmatischen Zugriff auf das CRM.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleCreate}>
@@ -217,7 +217,7 @@ export default function ApiKeysPage() {
                 <Label htmlFor="key-name">Name</Label>
                 <Input
                   id="key-name"
-                  placeholder="e.g. Claude Agent, CI Pipeline"
+                  placeholder="z. B. Claude Agent, CI-Pipeline"
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
                   autoFocus
@@ -230,11 +230,11 @@ export default function ApiKeysPage() {
                 variant="outline"
                 onClick={() => setShowCreate(false)}
               >
-                Cancel
+                Abbrechen
               </Button>
               <Button type="submit" disabled={creating || !newName.trim()}>
                 {creating && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-                Create
+                Erstellen
               </Button>
             </DialogFooter>
           </form>
@@ -251,9 +251,9 @@ export default function ApiKeysPage() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>API Key Created</DialogTitle>
+            <DialogTitle>API-Schlüssel erstellt</DialogTitle>
             <DialogDescription>
-              Copy this key now. You won't be able to see it again.
+              Kopiere diesen Schlüssel jetzt. Er wird danach nicht mehr angezeigt.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -275,8 +275,8 @@ export default function ApiKeysPage() {
             <div className="flex items-start gap-2 rounded-md border border-yellow-500/30 bg-yellow-500/10 p-3 text-sm">
               <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-yellow-600" />
               <span>
-                Store this key securely. It will not be shown again. Use it as a
-                Bearer token: <code className="text-xs">Authorization: Bearer {"<key>"}</code>
+                Bewahre diesen Schlüssel sicher auf. Er wird nicht erneut angezeigt. Verwendung
+                als Bearer-Token: <code className="text-xs">Authorization: Bearer {"<key>"}</code>
               </span>
             </div>
           </div>
@@ -287,7 +287,7 @@ export default function ApiKeysPage() {
                 setCopied(false);
               }}
             >
-              Done
+              Fertig
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -297,15 +297,15 @@ export default function ApiKeysPage() {
       <Dialog open={!!revokeTarget} onOpenChange={() => setRevokeTarget(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Revoke API Key</DialogTitle>
+            <DialogTitle>API-Schlüssel widerrufen</DialogTitle>
             <DialogDescription>
-              Are you sure you want to revoke &quot;{revokeTarget?.name}&quot;? Any
-              applications using this key will lose access immediately.
+              Soll &quot;{revokeTarget?.name}&quot; wirklich widerrufen werden? Anwendungen,
+              die diesen Schlüssel verwenden, verlieren sofort den Zugriff.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setRevokeTarget(null)}>
-              Cancel
+              Abbrechen
             </Button>
             <Button
               variant="destructive"
@@ -313,7 +313,7 @@ export default function ApiKeysPage() {
               disabled={revoking}
             >
               {revoking && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-              Revoke Key
+              Schlüssel widerrufen
             </Button>
           </DialogFooter>
         </DialogContent>

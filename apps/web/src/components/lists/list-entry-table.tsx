@@ -78,7 +78,7 @@ export function ListEntryTable({
     // Record name column (always shown)
     const nameCol: ColumnDef<ListEntry> = {
       id: "_record_name",
-      header: "Record",
+      header: "Datensatz",
       size: 200,
       cell: ({ row }) => (
         <span className="font-medium text-sm">
@@ -90,11 +90,11 @@ export function ListEntryTable({
     // Date added column
     const dateCol: ColumnDef<ListEntry> = {
       id: "_added_at",
-      header: "Added",
+      header: "Hinzugefügt",
       size: 120,
       cell: ({ row }) => (
         <span className="text-xs text-muted-foreground">
-          {new Date(row.original.createdAt).toLocaleDateString()}
+          {new Date(row.original.createdAt).toLocaleDateString("de-DE")}
         </span>
       ),
     };
@@ -217,7 +217,7 @@ export function ListEntryTable({
                   colSpan={columns.length}
                   className="h-32 text-center text-muted-foreground"
                 >
-                  No entries yet. Add records to this list.
+                  Noch keine Einträge. Füge Datensätze zu dieser Liste hinzu.
                 </td>
               </tr>
             )}

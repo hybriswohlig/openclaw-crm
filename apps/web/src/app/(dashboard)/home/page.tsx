@@ -286,7 +286,7 @@ export default function HomePage() {
               style={{ color: "var(--ink-soft)" }}
             >
               {activeCount} aktive Aufträge · {todayCount} heute
-              {todayCount > 0 ? " — bereit loszulegen." : "."}
+              {todayCount > 0 ? ", bereit loszulegen." : "."}
             </p>
           </div>
 
@@ -787,10 +787,10 @@ function RouteMini({
         }}
       >
         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {from ?? "—"}
+          {from ?? "·"}
         </span>
         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {to ?? "—"}
+          {to ?? "·"}
         </span>
       </div>
     </div>
@@ -872,7 +872,7 @@ function UpcomingList({
                     className="k-mono"
                     style={{ fontSize: 10, color: "var(--ink-muted)" }}
                   >
-                    —
+                    ·
                   </div>
                 )}
               </div>
@@ -897,12 +897,12 @@ function UpcomingList({
                     style={{ color: "var(--ink-muted)" }}
                   >
                     <MapPin className="h-[11px] w-[11px]" />
-                    {d.moveFromAddress ?? "—"}
+                    {d.moveFromAddress ?? "·"}
                     <ArrowRight
                       className="h-[10px] w-[10px]"
                       style={{ opacity: 0.4 }}
                     />
-                    {d.moveToAddress ?? "—"}
+                    {d.moveToAddress ?? "·"}
                   </div>
                 )}
               </div>
@@ -975,7 +975,7 @@ function RevenueCard({ income, series }: { income: number; series: number[] }) {
           className="k-display"
           style={{ fontSize: 32, letterSpacing: "-0.03em" }}
         >
-          {income > 0 ? fmtEUR(income) : "—"}
+          {income > 0 ? fmtEUR(income) : "·"}
         </div>
       </div>
 

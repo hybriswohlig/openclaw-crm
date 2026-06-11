@@ -99,7 +99,7 @@ export function SprintPlanning({
             Aufgaben aus dem Produkt-Backlog in den Sprint ziehen. Geplant:{" "}
             {committed}
             {sprint.capacityPoints != null
-              ? ` von ${sprint.capacityPoints} Punkten Kapazitaet`
+              ? ` von ${sprint.capacityPoints} Punkten Kapazität`
               : " Punkte"}
             .
           </DialogDescription>
@@ -126,7 +126,7 @@ export function SprintPlanning({
               tasks={inSprint}
               busyId={busyId}
               actionIcon={<ArrowLeft className="h-3.5 w-3.5" />}
-              actionTitle="Zurueck ins Backlog"
+              actionTitle="Zurück ins Backlog"
               onAction={(t) => move(t, false)}
               reverse
             />

@@ -28,7 +28,7 @@ export function RelatedRecords({ related, forward }: RelatedRecordsProps) {
   if (related.length === 0 && forward.length === 0) {
     return (
       <div className="px-3 py-4 text-sm text-muted-foreground">
-        No related records.
+        Keine verknüpften Einträge.
       </div>
     );
   }
@@ -39,7 +39,7 @@ export function RelatedRecords({ related, forward }: RelatedRecordsProps) {
       {forward.length > 0 && (
         <div>
           <h4 className="px-3 pb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            References
+            Verweist auf
           </h4>
           <div className="space-y-0.5">
             {forward.map((ref) => (
@@ -53,7 +53,7 @@ export function RelatedRecords({ related, forward }: RelatedRecordsProps) {
       {related.length > 0 && (
         <div>
           <h4 className="px-3 pb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            Referenced By
+            Verwiesen von
           </h4>
           <div className="space-y-0.5">
             {related.map((ref) => (

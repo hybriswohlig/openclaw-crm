@@ -211,7 +211,7 @@ export function NoteEditorPanel({
             <Building2 className="h-2.5 w-2.5 text-white" />
           </div>
           <DialogTitle className="text-sm font-medium truncate flex-1">
-            {recordDisplayName || "Untitled"}
+            {recordDisplayName || "Ohne Titel"}
           </DialogTitle>
         </div>
 
@@ -219,7 +219,7 @@ export function NoteEditorPanel({
         <div className="flex items-center justify-end gap-2 px-4 py-1.5 border-b border-border/50">
           {saving && (
             <span className="text-[10px] text-muted-foreground">
-              Saving...
+              Wird gespeichert...
             </span>
           )}
           <Button
@@ -235,7 +235,7 @@ export function NoteEditorPanel({
             }}
           >
             <Copy className="h-3 w-3" />
-            Copy link
+            Link kopieren
           </Button>
           <div className="relative" ref={menuRef}>
             <Button
@@ -256,7 +256,7 @@ export function NoteEditorPanel({
                   className="flex w-full items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-muted/50"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
-                  Delete note
+                  Notiz löschen
                 </button>
               </div>
             )}
@@ -266,7 +266,7 @@ export function NoteEditorPanel({
         {/* Note content */}
         <div className="flex-1 overflow-auto px-12 py-6">
           {!ready ? (
-            <p className="text-sm text-muted-foreground">Loading...</p>
+            <p className="text-sm text-muted-foreground">Wird geladen...</p>
           ) : (
             <>
               {/* Title */}
@@ -274,7 +274,7 @@ export function NoteEditorPanel({
                 ref={titleRef}
                 value={title}
                 onChange={(e) => handleTitleChange(e.target.value)}
-                placeholder="Untitled note"
+                placeholder="Unbenannte Notiz"
                 className="w-full bg-transparent text-2xl font-semibold text-foreground placeholder:text-muted-foreground/40 outline-none border-none mb-2"
               />
 
@@ -298,7 +298,7 @@ export function NoteEditorPanel({
               <NoteEditor
                 content={content}
                 onChange={handleContentChange}
-                placeholder="Start typing..."
+                placeholder="Beginne zu schreiben..."
                 className="border-none"
               />
             </>

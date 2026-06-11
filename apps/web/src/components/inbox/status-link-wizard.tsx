@@ -405,7 +405,7 @@ export function StatusLinkWizard({
                   <ChoiceCard
                     icon={<Euro className="h-5 w-5" />}
                     title="Fixbetrag"
-                    hint="Fester Preis — als ein Angebot oder als Paket-Auswahl (Basic / Komfort / Premium)."
+                    hint="Fester Preis, als ein Angebot oder als Paket-Auswahl (Basic / Komfort / Premium)."
                     selected={mode === "fix"}
                     onClick={() => {
                       setMode("fix");
@@ -446,7 +446,7 @@ export function StatusLinkWizard({
                     title="Pakete anbieten"
                     hint={
                       catalogue.length > 0
-                        ? `${catalogue.map((c) => c.displayName).join(" · ")} — Preis pro Paket eingeben, der Kunde wählt im Portal.`
+                        ? `${catalogue.map((c) => c.displayName).join(" · ")}. Preis pro Paket eingeben, der Kunde wählt im Portal.`
                         : "Für diese Firma sind keine Pakete hinterlegt (Einstellungen → Kunden-Portal)."
                     }
                     disabled={catalogue.length === 0}
@@ -569,7 +569,7 @@ export function StatusLinkWizard({
               {step === "stunden" && (
                 <div className="space-y-3">
                   <p className="text-sm text-muted-foreground">
-                    Positionen wie im Kostenrechner — Anzahl × Stundensatz.
+                    Positionen wie im Kostenrechner: Anzahl × Stundensatz.
                   </p>
                   {lineItems.map((li, idx) => (
                     <div key={idx} className="rounded-lg border border-border bg-card p-2.5">

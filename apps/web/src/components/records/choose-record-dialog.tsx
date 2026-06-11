@@ -138,9 +138,9 @@ export function ChooseRecordDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg p-0 gap-0">
         <DialogHeader className="px-4 pt-4 pb-0">
-          <DialogTitle>Choose record</DialogTitle>
+          <DialogTitle>Datensatz wählen</DialogTitle>
           <DialogDescription className="sr-only">
-            Select a record to link this note to
+            Wähle einen Datensatz, mit dem diese Notiz verknüpft wird
           </DialogDescription>
         </DialogHeader>
 
@@ -157,7 +157,7 @@ export function ChooseRecordDialog({
                 searchRecords(e.target.value);
               }}
               onKeyDown={handleKeyDown}
-              placeholder="Search records..."
+              placeholder="Datensätze suchen..."
               className="pl-9"
             />
           </div>
@@ -167,20 +167,20 @@ export function ChooseRecordDialog({
         <div className="max-h-[400px] overflow-auto">
           {loading && records.length === 0 && (
             <p className="text-sm text-muted-foreground text-center py-8">
-              Loading...
+              Wird geladen...
             </p>
           )}
 
           {!loading && records.length === 0 && (
             <p className="text-sm text-muted-foreground text-center py-8">
-              No records found
+              Keine Datensätze gefunden
             </p>
           )}
 
           {records.length > 0 && (
             <div className="px-2 py-2">
               <p className="px-2 pb-2 text-xs font-medium text-muted-foreground">
-                Records
+                Datensätze
               </p>
               {records.map((rec, idx) => (
                 <button
@@ -235,10 +235,10 @@ export function ChooseRecordDialog({
         <div className="flex items-center justify-between border-t border-border px-4 py-2">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span>↑ ↓</span>
-            <span>Navigate</span>
+            <span>Navigieren</span>
           </div>
           <div className="flex items-center gap-1 rounded bg-primary/20 px-2 py-1 text-xs text-primary">
-            Select record ↵
+            Datensatz auswählen ↵
           </div>
         </div>
       </DialogContent>

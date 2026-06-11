@@ -29,7 +29,7 @@ export default function OperatingCompaniesSettingsPage() {
       const res = await fetch(`/api/v1/objects/${OBJECT_SLUG}/records?limit=200`);
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError(data.error?.message ?? "Could not load operating companies.");
+        setError(data.error?.message ?? "Gesellschaften konnten nicht geladen werden.");
         setRecords([]);
         return;
       }
@@ -66,7 +66,7 @@ export default function OperatingCompaniesSettingsPage() {
         fetchRecords();
       } else {
         const data = await res.json();
-        setError(data.error?.message ?? "Failed to create company");
+        setError(data.error?.message ?? "Gesellschaft konnte nicht angelegt werden");
       }
     } finally {
       setAdding(false);
@@ -74,7 +74,7 @@ export default function OperatingCompaniesSettingsPage() {
   }
 
   async function handleRemove(recordId: string) {
-    if (!confirm("Remove this operating company? Deals that reference it will lose the link.")) {
+    if (!confirm("Diese Gesellschaft entfernen? Deals, die darauf verweisen, verlieren die Verknüpfung.")) {
       return;
     }
     const res = await fetch(`/api/v1/objects/${OBJECT_SLUG}/records/${recordId}`, {
@@ -84,37 +84,37 @@ export default function OperatingCompaniesSettingsPage() {
       setRecords((prev) => prev.filter((r) => r.id !== recordId));
     } else {
       const data = await res.json();
-      setError(data.error?.message ?? "Failed to remove");
+      setError(data.error?.message ?? "Gesellschaft konnte nicht entfernt werden");
     }
   }
 
   return (
     <div className="max-w-2xl">
-      <h1 className="text-xl font-semibold mb-1">Operating companies</h1>
+      <h1 className="text-xl font-semibold mb-1">Gesellschaften</h1>
       <p className="text-sm text-muted-foreground mb-6">
-        Your moving businesses (brands or legal entities). Each deal can be assigned to the company
-        that received the inquiry, separate from the client&apos;s company on the deal record.
+        Deine Umzugsfirmen (Marken oder Gesellschaften). Jeder Deal kann der Gesellschaft zugeordnet
+        werden, bei der die Anfrage eingegangen ist, unabhängig von der Firma des Kunden auf dem Deal.
       </p>
 
       <form onSubmit={handleAdd} className="space-y-4 mb-8 rounded-lg border border-border p-4">
-        <h2 className="text-sm font-medium">Add operating company</h2>
+        <h2 className="text-sm font-medium">Gesellschaft hinzufügen</h2>
         <div className="space-y-2">
           <Label htmlFor="oc-name">Name</Label>
           <Input
             id="oc-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. North Moves GmbH"
+            placeholder="z. B. Kottke Umzüge GmbH"
             required
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="oc-notes">Notes (optional)</Label>
+          <Label htmlFor="oc-notes">Notizen (optional)</Label>
           <Input
             id="oc-notes"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder="Region, legal note, …"
+            placeholder="Region, rechtlicher Hinweis, …"
           />
         </div>
         {error && <p className="text-sm text-destructive">{error}</p>}
@@ -124,25 +124,25 @@ export default function OperatingCompaniesSettingsPage() {
           ) : (
             <>
               <Plus className="mr-1 h-4 w-4" />
-              Add company
+              Hinzufügen
             </>
           )}
         </Button>
       </form>
 
-      <h2 className="text-sm font-medium mb-3">Your companies</h2>
+      <h2 className="text-sm font-medium mb-3">Deine Gesellschaften</h2>
       {loading ? (
         <p className="text-sm text-muted-foreground flex items-center gap-2">
-          <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+          <Loader2 className="h-4 w-4 animate-spin" /> Lädt…
         </p>
       ) : records.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          No operating companies yet. Add at least one so you can assign deals to the right business.
+          Noch keine Gesellschaften. Lege mindestens eine an, um Deals der richtigen Firma zuzuordnen.
         </p>
       ) : (
         <ul className="space-y-2">
           {records.map((r) => {
-            const displayName = String(r.values?.name ?? "Unnamed");
+            const displayName = String(r.values?.name ?? "Unbenannt");
             const note = r.values?.notes ? String(r.values.notes) : null;
             return (
               <li
@@ -156,7 +156,7 @@ export default function OperatingCompaniesSettingsPage() {
                     href={`/objects/${OBJECT_SLUG}/${r.id}`}
                     className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-1"
                   >
-                    Open record <ExternalLink className="h-3 w-3" />
+                    Datensatz öffnen <ExternalLink className="h-3 w-3" />
                   </Link>
                 </div>
                 <Button
@@ -165,7 +165,7 @@ export default function OperatingCompaniesSettingsPage() {
                   size="icon"
                   className="shrink-0 text-muted-foreground hover:text-destructive"
                   onClick={() => handleRemove(r.id)}
-                  aria-label={`Remove ${displayName}`}
+                  aria-label={`${displayName} entfernen`}
                 >
                   <Trash2 className="h-4 w-4" />
                 </Button>

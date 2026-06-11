@@ -439,7 +439,7 @@ function ConvListItem({
             "text-xs truncate mt-0.5",
             unread ? "text-foreground/70" : "text-muted-foreground"
           )}>
-            {conv.lastMessagePreview ?? "—"}
+            {conv.lastMessagePreview ?? "·"}
           </p>
 
           {/* Tag pills row */}
@@ -1394,7 +1394,7 @@ function ConversationView({
                   <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
                   <span>
                     Das 24-Stunden-Antwortfenster ist abgelaufen. Du kannst nur noch eine
-                    genehmigte <b>Template-Nachricht</b> senden, um das Gespräch fortzusetzen.
+                    genehmigte <b>Vorlagen-Nachricht</b> senden, um das Gespräch fortzusetzen.
                   </span>
                 </div>
                 <button
@@ -1404,7 +1404,7 @@ function ConversationView({
                   }}
                   className="text-xs font-medium text-primary hover:underline"
                 >
-                  Template-Nachricht senden
+                  Vorlagen-Nachricht senden
                 </button>
               </>
             ) : (
@@ -2509,7 +2509,7 @@ function ComposeWhatsAppModal({
       fetch(`/api/v1/inbox/channel-accounts/${channelAccountId}/templates`).then(
         async (res) => {
           const j = await res.json();
-          if (!res.ok) throw new Error(j.error?.message ?? "Failed to load templates");
+          if (!res.ok) throw new Error(j.error?.message ?? "Vorlagen konnten nicht geladen werden");
           return (j.data ?? []).filter(
             (t: WhatsAppTemplate) => t.status === "APPROVED"
           ) as WhatsAppTemplate[];
@@ -2686,7 +2686,7 @@ function ComposeWhatsAppModal({
           }),
         });
         const j = await res.json();
-        if (!res.ok) throw new Error(j.error ?? "Send failed");
+        if (!res.ok) throw new Error(j.error ?? "Senden fehlgeschlagen");
         onSent(j.data.conversationId);
         return;
       }
@@ -2707,10 +2707,10 @@ function ComposeWhatsAppModal({
         }),
       });
       const j = await res.json();
-      if (!res.ok) throw new Error(j.error ?? "Send failed");
+      if (!res.ok) throw new Error(j.error ?? "Senden fehlgeschlagen");
       onSent(j.data.conversationId);
     } catch (err) {
-      setSendError(err instanceof Error ? err.message : "Send failed");
+      setSendError(err instanceof Error ? err.message : "Senden fehlgeschlagen");
     } finally {
       setSending(false);
     }
@@ -2793,7 +2793,7 @@ function ComposeWhatsAppModal({
                       className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-y"
                     />
                     <p className="text-[11px] text-muted-foreground">
-                      Persönliches WhatsApp – freie Textnachricht, keine Vorlage
+                      Persönliches WhatsApp: freie Textnachricht, keine Vorlage
                       nötig.
                     </p>
                   </div>
@@ -2809,16 +2809,16 @@ function ComposeWhatsAppModal({
               {/* Template picker — WABA Cloud API only */}
               {!isBaileys && (
               <div className="space-y-1">
-                <label className="text-xs font-medium">Template</label>
+                <label className="text-xs font-medium">Vorlage</label>
                 {templatesLoading ? (
                   <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Templates werden geladen…
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Vorlagen werden geladen…
                   </div>
                 ) : templatesError ? (
                   <p className="text-xs text-red-600">{templatesError}</p>
                 ) : templates.length === 0 ? (
                   <p className="text-xs text-muted-foreground">
-                    Keine genehmigten Templates für diese Nummer gefunden.
+                    Keine genehmigten Vorlagen für diese Nummer gefunden.
                   </p>
                 ) : (
                   <select
@@ -2826,7 +2826,7 @@ function ComposeWhatsAppModal({
                     onChange={(e) => setSelectedTemplate(e.target.value)}
                     className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                   >
-                    <option value="">— Template wählen —</option>
+                    <option value="">Vorlage wählen</option>
                     {templates.map((t) => (
                       <option key={`${t.name}-${t.language}`} value={t.name}>
                         {t.name} ({t.language}, {t.category.toLowerCase()})
@@ -2843,7 +2843,7 @@ function ComposeWhatsAppModal({
                   <label className="text-xs font-medium">
                     Header-Bild URL
                     <span className="text-muted-foreground font-normal ml-1">
-                      (öffentlich erreichbar, einmal pro Template gespeichert)
+                      (öffentlich erreichbar, einmal pro Vorlage gespeichert)
                     </span>
                   </label>
                   <input
@@ -2869,7 +2869,7 @@ function ComposeWhatsAppModal({
                     />
                   ) : (
                     <p className="text-[11px] text-amber-600">
-                      Dieses Template hat ein Header-Bild. Ohne URL lehnt
+                      Diese Vorlage hat ein Header-Bild. Ohne URL lehnt
                       Meta den Versand ab (#132012).
                     </p>
                   )}

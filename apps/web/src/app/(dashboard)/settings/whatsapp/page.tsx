@@ -107,7 +107,7 @@ export default function WhatsAppSettingsPage() {
   async function createAccount() {
     setCreateError(null);
     if (!formName || !formDisplayPhone || !formPhoneNumberId || !formToken) {
-      setCreateError("Name, display number, phone number ID and token are required.");
+      setCreateError("Name, Anzeigenummer, Phone Number ID und Token sind erforderlich.");
       return;
     }
     setCreating(true);
@@ -128,7 +128,7 @@ export default function WhatsAppSettingsPage() {
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        setCreateError(j.error ?? "Create failed");
+        setCreateError(j.error ?? "Nummer konnte nicht hinzugefügt werden");
         return;
       }
       setFormName("");
@@ -144,7 +144,7 @@ export default function WhatsAppSettingsPage() {
   }
 
   async function deleteAccount(id: string) {
-    if (!confirm("Remove this WhatsApp number from the CRM?")) return;
+    if (!confirm("Diese WhatsApp-Nummer aus dem CRM entfernen?")) return;
     const res = await fetch(`/api/v1/inbox/channel-accounts/${id}`, { method: "DELETE" });
     if (res.ok) void loadAll();
   }
@@ -164,14 +164,14 @@ export default function WhatsAppSettingsPage() {
       <div>
         <h1 className="text-2xl font-bold">WhatsApp Business</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Connect Meta Cloud API numbers so WhatsApp conversations land in the shared inbox,
-          tagged with the company they belong to.
+          Verbinde Meta-Cloud-API-Nummern, damit WhatsApp-Unterhaltungen im gemeinsamen
+          Posteingang landen, zugeordnet zur jeweiligen Gesellschaft.
         </p>
       </div>
 
       {/* ─── Webhook + App credentials ─── */}
       <section className="space-y-4">
-        <h2 className="text-lg font-semibold">1. Meta App connection</h2>
+        <h2 className="text-lg font-semibold">1. Meta-App-Verbindung</h2>
 
         <div className="space-y-2">
           <Label>Webhook URL</Label>
@@ -186,30 +186,30 @@ export default function WhatsAppSettingsPage() {
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
-            Paste this into the Meta App → WhatsApp → Configuration → Callback URL.
+            Diese URL in der Meta App unter WhatsApp → Configuration → Callback URL eintragen.
           </p>
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="verifyToken">Verify token {hasVerifyToken && <span className="text-green-600 text-xs">(set)</span>}</Label>
+          <Label htmlFor="verifyToken">Verify-Token {hasVerifyToken && <span className="text-green-600 text-xs">(hinterlegt)</span>}</Label>
           <div className="flex gap-2">
             <Input
               id="verifyToken"
-              placeholder={hasVerifyToken ? "••••••••••••••••" : "click Generate or paste"}
+              placeholder={hasVerifyToken ? "••••••••••••••••" : "auf Generieren klicken oder einfügen"}
               value={verifyToken}
               onChange={(e) => setVerifyToken(e.target.value)}
             />
-            <Button variant="outline" size="sm" onClick={generateVerifyToken}>Generate</Button>
+            <Button variant="outline" size="sm" onClick={generateVerifyToken}>Generieren</Button>
           </div>
           <p className="text-xs text-muted-foreground">
-            You enter the same value here and in Meta's Verify Token field. Meta pings our
-            webhook with it on save.
+            Denselben Wert hier und im Verify-Token-Feld bei Meta eintragen. Meta prüft damit
+            beim Speichern unseren Webhook.
           </p>
         </div>
 
         <div className="space-y-2">
           <Label htmlFor="appSecret">
-            App secret {hasAppSecret && <span className="text-green-600 text-xs">(set)</span>}
+            App-Secret {hasAppSecret && <span className="text-green-600 text-xs">(hinterlegt)</span>}
           </Label>
           <Input
             id="appSecret"
@@ -219,8 +219,8 @@ export default function WhatsAppSettingsPage() {
             onChange={(e) => setAppSecret(e.target.value)}
           />
           <p className="text-xs text-muted-foreground">
-            Used to verify the X-Hub-Signature-256 header on every inbound webhook. Stored
-            encrypted.
+            Dient zur Prüfung des X-Hub-Signature-256-Headers bei jedem eingehenden Webhook.
+            Wird verschlüsselt gespeichert.
           </p>
         </div>
 
@@ -230,16 +230,16 @@ export default function WhatsAppSettingsPage() {
             disabled={savingApp || (!appSecret && !verifyToken)}
           >
             {savingApp && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Save
+            Speichern
           </Button>
           {appSaved === "ok" && (
             <span className="text-sm text-green-600 flex items-center gap-1">
-              <CheckCircle2 className="h-4 w-4" /> Saved
+              <CheckCircle2 className="h-4 w-4" /> Gespeichert
             </span>
           )}
           {appSaved === "err" && (
             <span className="text-sm text-red-600 flex items-center gap-1">
-              <XCircle className="h-4 w-4" /> Failed
+              <XCircle className="h-4 w-4" /> Fehlgeschlagen
             </span>
           )}
         </div>
@@ -247,7 +247,7 @@ export default function WhatsAppSettingsPage() {
 
       {/* ─── Channel accounts (one per number) ─── */}
       <section className="space-y-4">
-        <h2 className="text-lg font-semibold">2. WhatsApp numbers</h2>
+        <h2 className="text-lg font-semibold">2. WhatsApp-Nummern</h2>
 
         {loading ? (
           <div className="flex items-center justify-center py-6">
@@ -255,7 +255,7 @@ export default function WhatsAppSettingsPage() {
           </div>
         ) : accounts.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No WhatsApp numbers yet. Add one below.
+            Noch keine WhatsApp-Nummern. Füge unten eine hinzu.
           </p>
         ) : (
           <div className="space-y-2">
@@ -294,7 +294,7 @@ export default function WhatsAppSettingsPage() {
                           void loadAll();
                         }}
                       >
-                        <option value="">— keine —</option>
+                        <option value="">keine</option>
                         {companies.map((c) => (
                           <option key={c.id} value={c.id}>{c.name}</option>
                         ))}
@@ -311,20 +311,20 @@ export default function WhatsAppSettingsPage() {
         )}
 
         <div className="rounded-md border border-border p-4 space-y-3">
-          <h3 className="text-sm font-semibold">Add a WhatsApp number</h3>
+          <h3 className="text-sm font-semibold">WhatsApp-Nummer hinzufügen</h3>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label htmlFor="f-name">Label</Label>
+              <Label htmlFor="f-name">Bezeichnung</Label>
               <Input
                 id="f-name"
-                placeholder="e.g. Kottke Umzüge GmbH"
+                placeholder="z. B. Kottke Umzüge GmbH"
                 value={formName}
                 onChange={(e) => setFormName(e.target.value)}
               />
             </div>
             <div className="space-y-1">
-              <Label htmlFor="f-phone">Display number</Label>
+              <Label htmlFor="f-phone">Anzeigenummer</Label>
               <Input
                 id="f-phone"
                 placeholder="+49 30 12345678"
@@ -351,7 +351,7 @@ export default function WhatsAppSettingsPage() {
               />
             </div>
             <div className="col-span-2 space-y-1">
-              <Label htmlFor="f-token">System User access token</Label>
+              <Label htmlFor="f-token">System-User-Zugriffstoken</Label>
               <Input
                 id="f-token"
                 type="password"
@@ -360,19 +360,19 @@ export default function WhatsAppSettingsPage() {
                 onChange={(e) => setFormToken(e.target.value)}
               />
               <p className="text-xs text-muted-foreground">
-                Generate in Business Settings → Users → System Users. Never expires, full WABA access.
+                Im Meta Business Manager unter Business Settings → Users → System Users erstellen. Läuft nie ab, voller WABA-Zugriff.
               </p>
             </div>
             {companies.length > 0 && (
               <div className="col-span-2 space-y-1">
-                <Label htmlFor="f-op">Operating company</Label>
+                <Label htmlFor="f-op">Gesellschaft</Label>
                 <select
                   id="f-op"
                   value={formOpCompany}
                   onChange={(e) => setFormOpCompany(e.target.value)}
                   className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm"
                 >
-                  <option value="">— not linked —</option>
+                  <option value="">nicht verknüpft</option>
                   {companies.map((c) => (
                     <option key={c.id} value={c.id}>{c.name}</option>
                   ))}
@@ -386,7 +386,7 @@ export default function WhatsAppSettingsPage() {
           <div>
             <Button onClick={createAccount} disabled={creating}>
               {creating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Add number
+              Nummer hinzufügen
             </Button>
           </div>
         </div>

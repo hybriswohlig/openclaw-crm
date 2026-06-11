@@ -856,7 +856,7 @@ function TaskCard({
     >
       {prio && (
         <span
-          title={`Prioritaet: ${prio.label}`}
+          title={`Priorität: ${prio.label}`}
           style={{
             position: "absolute",
             top: 11,
@@ -896,7 +896,7 @@ function TaskCard({
                 color: "var(--accent, #047857)",
                 border: "1px solid var(--accent-line, rgba(16,185,129,0.3))",
               }}
-              title="Fibonacci-Größe — zählt für den Team-Pulse"
+              title="Fibonacci-Größe, zählt für den Team-Pulse"
             >
               {task.pointEstimate}p
             </span>

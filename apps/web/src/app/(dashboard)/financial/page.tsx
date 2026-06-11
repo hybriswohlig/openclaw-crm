@@ -241,7 +241,7 @@ function CompanyBreakdown({
   if (companies.length === 0) {
     return (
       <p className="text-sm text-muted-foreground py-4 text-center">
-        Keine Daten — Aufträgen eine Betriebsgesellschaft zuweisen
+        Keine Daten. Aufträgen eine Betriebsgesellschaft zuweisen
       </p>
     );
   }
@@ -347,7 +347,7 @@ function CompanyBreakdown({
           </div>
         ) : (
           <p className="text-sm text-muted-foreground pt-2 border-t border-border">
-            Kein Ausgleich nötig — beide Seiten sind ausgeglichen.
+            Kein Ausgleich nötig, beide Seiten sind ausgeglichen.
           </p>
         )}
       </div>
@@ -516,7 +516,7 @@ function PrivateTransactionsSection({
                     </span>
                   </td>
                   <td className="px-3 py-2">{t.fromPartner}</td>
-                  <td className="px-3 py-2 text-muted-foreground">{t.toPartner ?? "—"}</td>
+                  <td className="px-3 py-2 text-muted-foreground">{t.toPartner ?? "·"}</td>
                   <td className="px-3 py-2">{t.operatingCompanyName}</td>
                   <td className="px-3 py-2 text-muted-foreground text-xs">{METHOD_LABELS[t.method] ?? t.method}</td>
                   <td className={`px-3 py-2 text-right font-medium tabular-nums ${
@@ -690,7 +690,7 @@ function DealsTable({ deals }: { deals: DealRow[] }) {
                   {eur(d.profit)}
                 </td>
                 <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
-                  {margin !== null ? `${margin}%` : "—"}
+                  {margin !== null ? `${margin}%` : "·"}
                 </td>
               </tr>
             );
@@ -904,7 +904,7 @@ export default function FinancialPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm">Aufträge — {selectedLabel}</CardTitle>
+              <CardTitle className="text-sm">Aufträge · {selectedLabel}</CardTitle>
             </CardHeader>
             <CardContent>
               <DealsTable deals={data.deals} />

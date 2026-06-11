@@ -67,7 +67,7 @@ export function TaskSubtasks({
     try {
       const res = await fetch(`/api/v1/tasks/${taskId}/subtasks`);
       if (!res.ok) {
-        setError("Subtasks konnten nicht geladen werden.");
+        setError("Unteraufgaben konnten nicht geladen werden.");
         return;
       }
       const data = await res.json();
@@ -155,16 +155,16 @@ export function TaskSubtasks({
   }
 
   async function del(sub: SubtaskRow) {
-    if (!confirm("Subtask loeschen?")) return;
+    if (!confirm("Unteraufgabe löschen?")) return;
     setRows((prev) => prev.filter((r) => r.id !== sub.id));
     try {
       const res = await fetch(`/api/v1/tasks/${sub.id}`, { method: "DELETE" });
       if (!res.ok) {
-        toast.error("Subtask konnte nicht gelöscht werden");
+        toast.error("Unteraufgabe konnte nicht gelöscht werden");
         load();
       }
     } catch {
-      toast.error("Subtask konnte nicht gelöscht werden");
+      toast.error("Unteraufgabe konnte nicht gelöscht werden");
       load();
     }
   }
@@ -175,7 +175,7 @@ export function TaskSubtasks({
     <div className="flex flex-col gap-2.5">
       <div className="flex items-center gap-2 text-[12px] font-medium text-muted-foreground">
         <ListTree className="h-3.5 w-3.5" />
-        <span>Subtasks {rows.length > 0 ? `(${completed}/${rows.length})` : ""}</span>
+        <span>Unteraufgaben {rows.length > 0 ? `(${completed}/${rows.length})` : ""}</span>
       </div>
 
       {rows.length > 0 && (
@@ -324,7 +324,7 @@ export function TaskSubtasks({
                         onClick={() => del(r)}
                         className="ml-auto inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-destructive"
                       >
-                        <Trash2 className="h-3 w-3" /> Loeschen
+                        <Trash2 className="h-3 w-3" /> Löschen
                       </button>
                     </div>
 
@@ -351,7 +351,7 @@ export function TaskSubtasks({
         <input
           value={newContent}
           onChange={(e) => setNewContent(e.target.value)}
-          placeholder="Subtask hinzufügen…"
+          placeholder="Unteraufgabe hinzufügen…"
           className="flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
           onKeyDown={(e) => {
             if (e.key === "Enter") {

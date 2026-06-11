@@ -28,7 +28,7 @@ export default function ListPage() {
   const [deleting, setDeleting] = useState(false);
 
   async function handleDelete() {
-    if (!confirm(`Delete list "${list?.name}"? This cannot be undone.`)) return;
+    if (!confirm(`Liste "${list?.name}" wirklich löschen? Das kann nicht rückgängig gemacht werden.`)) return;
     setDeleting(true);
     const res = await fetch(`/api/v1/lists/${listId}`, { method: "DELETE" });
     if (res.ok) {
@@ -40,7 +40,7 @@ export default function ListPage() {
   if (loading && !list) {
     return (
       <div className="flex h-full items-center justify-center text-muted-foreground">
-        Loading...
+        Wird geladen...
       </div>
     );
   }
@@ -48,7 +48,7 @@ export default function ListPage() {
   if (!list) {
     return (
       <div className="flex h-full items-center justify-center text-muted-foreground">
-        List not found
+        Liste nicht gefunden
       </div>
     );
   }
@@ -67,8 +67,8 @@ export default function ListPage() {
           <div>
             <h1 className="text-lg font-semibold">{list.name}</h1>
             <p className="text-xs text-muted-foreground">
-              {list.objectPluralName} list · {total}{" "}
-              {total === 1 ? "entry" : "entries"}
+              {list.objectPluralName}-Liste · {total}{" "}
+              {total === 1 ? "Eintrag" : "Einträge"}
             </p>
           </div>
         </div>
@@ -93,7 +93,7 @@ export default function ListPage() {
           </Button>
           <Button size="sm" onClick={() => setAddOpen(true)}>
             <Plus className="mr-1 h-4 w-4" />
-            Add {list.objectName}
+            Eintrag hinzufügen
           </Button>
         </div>
       </div>

@@ -65,8 +65,8 @@ export function RecordCreateModal({
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-h-[80vh] overflow-auto">
         <DialogHeader>
-          <DialogTitle>Create {objectName}</DialogTitle>
-          <DialogDescription>Fill in the fields to create a new record.</DialogDescription>
+          <DialogTitle>{objectName} anlegen</DialogTitle>
+          <DialogDescription>Felder ausfüllen, um einen neuen Eintrag anzulegen.</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           {attributes.map((attr) => (
@@ -79,10 +79,10 @@ export function RecordCreateModal({
           ))}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
-              Cancel
+              Abbrechen
             </Button>
             <Button type="submit" disabled={submitting}>
-              {submitting ? "Creating..." : "Create"}
+              {submitting ? "Wird angelegt..." : "Anlegen"}
             </Button>
           </DialogFooter>
         </form>
@@ -127,7 +127,7 @@ function FieldInput({
         <Input
           type="number"
           step="0.01"
-          placeholder="Amount"
+          placeholder="Betrag"
           value={(value as { amount?: number })?.amount?.toString() ?? ""}
           onChange={(e) =>
             onChange(
@@ -163,7 +163,7 @@ function FieldInput({
           onChange={(e) => onChange(e.target.value || null)}
           required={isRequired}
         >
-          <option value="">Select...</option>
+          <option value="">Auswählen...</option>
           {attr.options?.map((opt) => (
             <option key={opt.id} value={opt.id}>
               {opt.title}
@@ -177,7 +177,7 @@ function FieldInput({
           onChange={(e) => onChange(e.target.value || null)}
           required={isRequired}
         >
-          <option value="">Select...</option>
+          <option value="">Auswählen...</option>
           {attr.statuses?.map((s) => (
             <option key={s.id} value={s.id}>
               {s.title}
@@ -201,7 +201,7 @@ function FieldInput({
       ) : type === "personal_name" ? (
         <div className="flex gap-2">
           <Input
-            placeholder="First name"
+            placeholder="Vorname"
             value={(value as { firstName?: string })?.firstName ?? ""}
             onChange={(e) => {
               const pn = (value as { firstName?: string; lastName?: string }) || {};
@@ -215,7 +215,7 @@ function FieldInput({
             required={isRequired}
           />
           <Input
-            placeholder="Last name"
+            placeholder="Nachname"
             value={(value as { lastName?: string })?.lastName ?? ""}
             onChange={(e) => {
               const pn = (value as { firstName?: string; lastName?: string }) || {};
@@ -418,16 +418,16 @@ function RecordReferencePicker({
           search(e.target.value);
         }}
         onFocus={handleFocus}
-        placeholder="Search records..."
+        placeholder="Einträge suchen..."
         className="h-9"
       />
       {showDropdown && (
         <div className="absolute z-50 mt-1 w-full max-h-48 overflow-auto rounded-md border bg-popover shadow-lg">
           {loading && results.length === 0 && (
-            <p className="text-xs text-muted-foreground text-center py-3">Loading...</p>
+            <p className="text-xs text-muted-foreground text-center py-3">Lädt...</p>
           )}
           {!loading && results.length === 0 && (
-            <p className="text-xs text-muted-foreground text-center py-3">No records found</p>
+            <p className="text-xs text-muted-foreground text-center py-3">Keine Einträge gefunden</p>
           )}
           {results.map((rec) => (
             <button
