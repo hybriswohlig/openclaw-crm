@@ -23,15 +23,18 @@ export function PaymentSection({
   payment,
   branding,
   variant,
+  markedPaidAt,
 }: {
   token: string;
   payment: PaymentInstructions;
   branding: FirmaBranding;
   /** "deposit" for the Anzahlung at Stage 1, "final" for Stage 4. */
   variant: "deposit" | "final";
+  /** ISO timestamp of a previously reported payment, survives reloads. */
+  markedPaidAt?: string | null;
 }) {
   const [marking, setMarking] = useState(false);
-  const [marked, setMarked] = useState(false);
+  const [marked, setMarked] = useState(() => !!markedPaidAt);
   const [markError, setMarkError] = useState(false);
 
   async function markPaid() {
@@ -95,6 +98,14 @@ export function PaymentSection({
           <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-200">
             ✓ Danke! Wir prüfen den Zahlungseingang und melden uns sobald er bei
             uns angekommen ist.
+            {markedPaidAt && (
+              <p className="mt-1">
+                Gemeldet am{" "}
+                {new Intl.DateTimeFormat("de-DE", { dateStyle: "long" }).format(
+                  new Date(markedPaidAt),
+                )}
+              </p>
+            )}
           </div>
         ) : (
           <>

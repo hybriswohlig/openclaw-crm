@@ -195,7 +195,7 @@ export function renderSnippet(
     case "kva_available":
       return `${greeting}\n\nIhr Kostenvoranschlag${ref} ist abrufbar. Über den folgenden Link sehen Sie den genauen Umfang und können das Angebot mit einem Klick verbindlich annehmen:\n\n${ctx.url}${sign}`;
     case "deposit_request":
-      return `${greeting}\n\nVielen Dank für die Bestätigung! Um den Termin verbindlich zu reservieren, benötigen wir noch Ihre Anzahlung${ref}. Sie können bequem über folgenden Link bezahlen (Überweisung per QR-Code oder PayPal):\n\n${ctx.url}\n\nSobald die Zahlung bei uns eingegangen ist, erhalten Sie automatisch die Auftragsbestätigung.${sign}`;
+      return `${greeting}\n\nVielen Dank für die Bestätigung! Um den Termin verbindlich zu reservieren, benötigen wir noch Ihre Anzahlung${ref}. Sie können bequem über folgenden Link bezahlen (Überweisung per QR-Code oder PayPal):\n\n${ctx.url}\n\nSobald die Zahlung bei uns eingegangen ist, senden wir Ihnen die Auftragsbestätigung.${sign}`;
     case "ab_available":
       return `${greeting}\n\nIhre Auftragsbestätigung${ref} ist soeben fertig geworden. Den vollständigen Vertrag, Termin, Crew und alle Details finden Sie hier:\n\n${ctx.url}${sign}`;
     case "stage_3_live":

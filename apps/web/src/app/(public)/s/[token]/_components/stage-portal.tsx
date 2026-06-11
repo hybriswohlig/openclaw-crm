@@ -7,6 +7,7 @@ import { StageOneKva } from "./stage-one-kva";
 import { StageTwoAb } from "./stage-two-ab";
 import { StageThreeLive } from "./stage-three-live";
 import { StageFourDone } from "./stage-four-done";
+import { DocumentsSection } from "./documents-section";
 import { BrandingFooter } from "./branding-footer";
 import { useVisitTracker } from "./use-visit-tracker";
 
@@ -60,6 +61,13 @@ export function StagePortal({
         {ctx.stage === 3 && <StageThreeLive token={token} ctx={ctx} />}
         {ctx.stage === 4 && <StageFourDone token={token} ctx={ctx} />}
       </div>
+
+      {/* Stage 1 shows the offer live, so the paperwork card starts at Stage 2. */}
+      {ctx.stage >= 2 && (
+        <div className="mt-5">
+          <DocumentsSection ctx={ctx} />
+        </div>
+      )}
 
       <BrandingFooter branding={ctx.branding} />
     </main>

@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { getAuthContext, unauthorized, badRequest, success } from "@/lib/api-utils";
 import { listPayments, createPayment } from "@/services/financial";
+import { maybeNotifyDepositReceived } from "@/services/customer-portal-notifications";
 
 export async function GET(
   req: NextRequest,
@@ -35,5 +36,12 @@ export async function POST(
     reference,
     notes,
   });
+
+  // Fire-and-forget: notify the customer once the deposit is fully covered.
+  void maybeNotifyDepositReceived({
+    workspaceId: ctx.workspaceId,
+    dealRecordId: recordId,
+  }).catch(() => {});
+
   return success(row, 201);
 }

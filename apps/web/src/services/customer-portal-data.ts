@@ -32,6 +32,7 @@ import {
   customerDateSelections,
 } from "@/db/schema/customer-portal";
 import { quotations, quotationLineItems } from "@/db/schema/quotations";
+import { activityEvents } from "@/db/schema/activity";
 import { dealDocuments, payments, dealNumbers } from "@/db/schema/financial";
 import { dealEmployees, employees } from "@/db/schema/employees";
 import { objects, attributes, selectOptions } from "@/db/schema/objects";
@@ -50,6 +51,7 @@ import {
   type CrewMember,
   type CustomerEmailStatus,
   type CustomerPortalContext,
+  type CustomerSignals,
   type DateOfferOption,
   type DateOfferSelection,
   type DateOfferSlot,
@@ -300,6 +302,14 @@ export async function loadContextByToken(
   // Multi-date offer (candidate dates + the customer's selection, if any).
   const dateOffers = await loadDateOffersContext(dealRecordId);
 
+  // Mirror the chosen slot's arrival window into the scope. The selection row
+  // stores the slot's "HH:MM" strings at pick time, so no extra query needed.
+  if (dateOffers.selection?.startTime) scope.timeStart = dateOffers.selection.startTime;
+  if (dateOffers.selection?.endTime) scope.timeEnd = dateOffers.selection.endTime;
+
+  // Customer-side soft signals (marked paid, crew rating).
+  const customerSignals = await loadCustomerSignals(workspaceId, dealRecordId);
+
   // Confirmation
   const acceptance = await loadLatestAcceptance(dealRecordId);
 
@@ -399,6 +409,7 @@ export async function loadContextByToken(
     attachments,
     timing,
     payment,
+    customerSignals,
     meta: {
       serverTime: now.toISOString(),
       revoked,
@@ -447,6 +458,12 @@ export async function confirmKvaForToken(
 
   const kva = await loadKvaSnapshot(link.dealRecordId);
   if (!kva) return { ok: false, reason: "no_quotation" };
+
+  // Expired offers can no longer be accepted. Day-based comparison: only a
+  // validUntil strictly before today blocks; on the day itself it still works.
+  if (kva.validUntil && kva.validUntil < new Date().toISOString().slice(0, 10)) {
+    return { ok: false, reason: "offer_expired" };
+  }
 
   const dealAttrs = await loadDealAttributeMap(link.workspaceId);
   const dealValues = await loadValuesForRecord(link.dealRecordId);
@@ -1087,6 +1104,56 @@ async function loadLatestAcceptance(
     acceptedFullName: row.acceptedFullName,
     widerrufVerzichtAccepted: row.widerrufVerzichtAccepted,
     agbVersionAccepted: row.agbVersionAccepted,
+  };
+}
+
+/**
+ * Customer-side soft signals for the context. "Ich habe bezahlt" taps live as
+ * `customer.marked_paid` activity events (newest per payload.variant wins);
+ * the crew-rating timestamp is the latest ratings row for the deal.
+ */
+async function loadCustomerSignals(
+  workspaceId: string,
+  dealRecordId: string
+): Promise<CustomerSignals> {
+  const paidRows = await db
+    .select({
+      payload: activityEvents.payload,
+      createdAt: activityEvents.createdAt,
+    })
+    .from(activityEvents)
+    .where(
+      and(
+        eq(activityEvents.workspaceId, workspaceId),
+        eq(activityEvents.recordId, dealRecordId),
+        eq(activityEvents.eventType, "customer.marked_paid")
+      )
+    )
+    .orderBy(desc(activityEvents.createdAt));
+
+  let markedPaidDepositAt: string | null = null;
+  let markedPaidFinalAt: string | null = null;
+  for (const r of paidRows) {
+    const variant = (r.payload as Record<string, unknown> | null)?.variant;
+    if (variant === "deposit" && !markedPaidDepositAt) {
+      markedPaidDepositAt = r.createdAt.toISOString();
+    } else if (variant === "final" && !markedPaidFinalAt) {
+      markedPaidFinalAt = r.createdAt.toISOString();
+    }
+    if (markedPaidDepositAt && markedPaidFinalAt) break;
+  }
+
+  const [latestRating] = await db
+    .select({ createdAt: customerEmployeeRatings.createdAt })
+    .from(customerEmployeeRatings)
+    .where(eq(customerEmployeeRatings.dealRecordId, dealRecordId))
+    .orderBy(desc(customerEmployeeRatings.createdAt))
+    .limit(1);
+
+  return {
+    markedPaidDepositAt,
+    markedPaidFinalAt,
+    crewRatedAt: latestRating?.createdAt.toISOString() ?? null,
   };
 }
 

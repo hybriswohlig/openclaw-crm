@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { BellRing, Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { OperatingCompanyCard } from "./_components/operating-company-card";
 import type { OperatingCompanyPortalSettings } from "@/services/customer-portal-config";
 
@@ -79,6 +80,86 @@ export default function CustomerPortalSettingsPage() {
             onChanged={load}
           />
         ))}
+      </div>
+
+      <PortalNotificationsCard />
+    </div>
+  );
+}
+
+/**
+ * Workspace-wide master switch for automatic customer status messages
+ * (WhatsApp-first, email fallback). Backed by
+ * /api/v1/portal-notification-settings; default OFF.
+ */
+function PortalNotificationsCard() {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const res = await fetch("/api/v1/portal-notification-settings");
+      if (res.ok) {
+        const json = (await res.json()) as { data: { enabled: boolean } };
+        if (!cancelled) setEnabled(json.data.enabled);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function toggle() {
+    if (enabled === null || busy) return;
+    setBusy(true);
+    try {
+      const res = await fetch("/api/v1/portal-notification-settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: !enabled }),
+      });
+      if (res.ok) {
+        const json = (await res.json()) as { data: { enabled: boolean } };
+        setEnabled(json.data.enabled);
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="rounded-2xl border border-border bg-card px-4 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <BellRing className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <div className="min-w-0">
+            <div className="text-sm font-medium">Automatische Status-Nachrichten</div>
+            <div className="text-xs text-muted-foreground">
+              Sendet dem Kunden automatisch eine WhatsApp-Nachricht (sonst
+              E-Mail), wenn die Auftragsbestätigung fertig ist, die Anzahlung
+              eingegangen ist, das Team losfährt und die Rechnung bereitsteht.
+            </div>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={toggle}
+          disabled={busy || enabled === null}
+          className={cn(
+            "relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50",
+            enabled ? "bg-emerald-500" : "bg-muted"
+          )}
+          aria-pressed={enabled === true}
+          aria-label="Automatische Status-Nachrichten umschalten"
+        >
+          <span
+            className={cn(
+              "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform",
+              enabled ? "translate-x-5" : "translate-x-0.5"
+            )}
+          />
+        </button>
       </div>
     </div>
   );

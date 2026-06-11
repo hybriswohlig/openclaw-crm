@@ -11,9 +11,10 @@ import type {
 /**
  * Live hourly-billing transparency widget. Shows three milestones plus a
  * running clock derived from the variable line items in the KVA. We compute
- * cost client-side and tick every second once the crew is on-site.
+ * cost client-side and tick once per minute while the crew is on-site, so
+ * the total updates calmly instead of counting up like a taximeter.
  *
- * Numbers are illustrative ("voraussichtlich") — the final invoice is what
+ * Numbers are illustrative ("voraussichtlich"); the final invoice is what
  * counts. Goal: build trust by showing the running total instead of leaving
  * the customer to guess.
  */
@@ -33,7 +34,7 @@ export function HourlyClock({
   useEffect(() => {
     // Only re-tick while the move is actually running.
     if (timing.finishedAt || !timing.onsiteAt) return;
-    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    const id = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(id);
   }, [timing.onsiteAt, timing.finishedAt]);
 
@@ -43,10 +44,15 @@ export function HourlyClock({
   const elapsedSec = onsiteMs && endMs ? Math.max(0, Math.floor((endMs - onsiteMs) / 1000)) : 0;
 
   // Hourly rate model: pull rates from the variable line items in the KVA.
-  // Helpers count = crew size on-site; transporter line is a single unit.
+  // Helpers count = offered quantity from the KVA so the customer sees the
+  // rates they accepted; crew size on-site is only the fallback.
   const helperRate = kva?.lineItems.find((li) => li.type === "helper")?.unitRate ?? 0;
   const transporterRate = kva?.lineItems.find((li) => li.type === "transporter")?.unitRate ?? 0;
-  const helperCount = crew.filter((c) => c.role !== "Transporter").length || crew.length;
+  const offeredHelpers = kva?.lineItems.find((li) => li.type === "helper")?.quantity ?? 0;
+  const helperCount =
+    offeredHelpers > 0
+      ? offeredHelpers
+      : crew.filter((c) => c.role !== "Transporter").length || crew.length;
   const hourlyRunRateEur = helperCount * helperRate + transporterRate;
   const elapsedHours = elapsedSec / 3600;
   const runningEur = elapsedHours * hourlyRunRateEur;
@@ -125,9 +131,8 @@ function Milestone({ label, iso }: { label: string; iso: string | null }) {
 function formatElapsed(sec: number): string {
   const h = Math.floor(sec / 3600);
   const m = Math.floor((sec % 3600) / 60);
-  const s = sec % 60;
   if (h > 0) return `${h}h ${m.toString().padStart(2, "0")}m`;
-  return `${m}m ${s.toString().padStart(2, "0")}s`;
+  return `${m}m`;
 }
 
 function formatEur(v: number): string {

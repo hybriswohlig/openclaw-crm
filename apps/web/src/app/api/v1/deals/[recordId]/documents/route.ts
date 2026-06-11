@@ -3,6 +3,7 @@ import { getAuthContext, unauthorized, success } from "@/lib/api-utils";
 import { db } from "@/db";
 import { dealDocuments } from "@/db/schema/financial";
 import { eq, and } from "drizzle-orm";
+import { maybeNotifyPortalEvent } from "@/services/customer-portal-notifications";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
@@ -93,6 +94,14 @@ export async function POST(
       mimeType: dealDocuments.mimeType,
       uploadedAt: dealDocuments.uploadedAt,
     });
+
+  // Fire-and-forget customer notification (never blocks the response).
+  if (documentType === "order_confirmation" || documentType === "invoice") {
+    void maybeNotifyPortalEvent(
+      documentType === "order_confirmation" ? "ab_ready" : "invoice_ready",
+      { workspaceId: ctx.workspaceId, dealRecordId: recordId }
+    ).catch(() => {});
+  }
 
   return success(doc);
 }

@@ -98,8 +98,8 @@ export interface KvaSnapshot {
  */
 export interface MoveScope {
   moveDate: string | null;            // YYYY-MM-DD
-  timeStart: string | null;           // ISO
-  timeEnd: string | null;             // ISO
+  timeStart: string | null;           // "HH:MM" from the customer's chosen slot
+  timeEnd: string | null;             // "HH:MM" from the customer's chosen slot
   fromAddress: string | null;
   toAddress: string | null;
   floorsFrom: number | null;
@@ -283,6 +283,20 @@ export interface AcceptanceRecord {
 }
 
 /**
+ * Soft signals the customer gave through the portal. They do not change deal
+ * state on their own; the operator verifies them in the CRM. All values are
+ * ISO timestamps, null while the signal has not been given yet.
+ */
+export interface CustomerSignals {
+  /** Newest "Ich habe bezahlt" tap for the Anzahlung. */
+  markedPaidDepositAt: string | null;
+  /** Newest "Ich habe bezahlt" tap for the Restzahlung. */
+  markedPaidFinalAt: string | null;
+  /** Latest crew rating submission. */
+  crewRatedAt: string | null;
+}
+
+/**
  * The full context the public route fetches for a given token. The public API
  * returns exactly this shape — UI components read straight from it.
  *
@@ -349,6 +363,9 @@ export interface CustomerPortalContext {
 
   /** Set on Stage 4 (or earlier when a deposit is required). */
   payment: PaymentInstructions | null;
+
+  /** Customer-side soft signals (marked paid, crew rating). */
+  customerSignals: CustomerSignals;
 
   /** Customer-side rate-limiting hint to the UI. */
   meta: {

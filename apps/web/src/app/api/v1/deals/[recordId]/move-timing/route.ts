@@ -19,6 +19,7 @@ import {
 } from "@/lib/api-utils";
 import { db } from "@/db";
 import { moveTimeEntries } from "@/db/schema/customer-portal";
+import { maybeNotifyPortalEvent } from "@/services/customer-portal-notifications";
 
 export const dynamic = "force-dynamic";
 
@@ -96,6 +97,14 @@ export async function POST(
           eq(moveTimeEntries.workspaceId, ctx.workspaceId)
         )
       );
+  }
+
+  // Fire-and-forget: tell the customer the crew is on its way.
+  if (milestone === "departure" && !body.clear) {
+    void maybeNotifyPortalEvent("departure", {
+      workspaceId: ctx.workspaceId,
+      dealRecordId: recordId,
+    }).catch(() => {});
   }
 
   const [row] = await db

@@ -124,6 +124,9 @@ export function EmailCaptureBanner({
                 className="h-10 w-full rounded-lg border border-amber-300 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-offset-1 dark:border-amber-800 dark:bg-amber-950/60"
                 style={{ ["--tw-ring-color" as never]: `#${branding.primaryColor}` }}
               />
+              <p className="text-xs text-muted-foreground">
+                Wir verwenden Ihre Adresse nur für Unterlagen zu diesem Umzug.
+              </p>
               {error && (
                 <p className="rounded-md bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
                   {error}

@@ -35,7 +35,7 @@ export async function POST(
     const status =
       result.reason === "not_found"
         ? 404
-        : result.reason === "revoked"
+        : result.reason === "revoked" || result.reason === "offer_expired"
           ? 410
           : result.reason === "invalid_token"
             ? 400

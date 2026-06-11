@@ -46,43 +46,18 @@ export async function sendKvaAcceptanceEmail(
   input: KvaAcceptanceEmailInput
 ): Promise<{ sent: boolean; reason: string | null }> {
   try {
-    // 1. Find the customer email.
-    const customerEmail = await loadCustomerEmail(input.workspaceId, input.dealRecordId);
-    if (!customerEmail) {
-      return { sent: false, reason: "no_customer_email" };
-    }
+    // 1.-2. Customer email + the operating company's SMTP channel + branding.
+    const resolved = await resolveCustomerEmailTransport(input.workspaceId, input.dealRecordId);
+    if (!resolved.ok) return { sent: false, reason: resolved.reason };
+    const { customerEmail, account, branding } = resolved;
 
-    // 2. Find the operating company + its SMTP channel.
-    const opCoId = await loadOperatingCompanyRecordId(input.workspaceId, input.dealRecordId);
-    if (!opCoId) {
-      return { sent: false, reason: "no_operating_company" };
-    }
-
-    const [account] = await db
-      .select()
-      .from(channelAccounts)
-      .where(
-        and(
-          eq(channelAccounts.workspaceId, input.workspaceId),
-          eq(channelAccounts.operatingCompanyRecordId, opCoId),
-          eq(channelAccounts.channelType, "email"),
-          eq(channelAccounts.isActive, true)
-        )
-      )
-      .limit(1);
-
-    if (!account || !account.credential) {
-      return { sent: false, reason: "no_email_channel_account" };
-    }
-
-    // 3. Resolve branding + portal URL.
-    const effective = await loadEffectiveBranding(opCoId);
-    const portalUrl = await loadPortalUrl(input.customerLinkId, effective.branding);
+    // 3. Resolve portal URL + deal number.
+    const portalUrl = await loadPortalUrl(input.customerLinkId, branding);
     const dealNumber = await loadDealNumberFor(input.dealRecordId);
 
     // 4. Render the email body.
     const { subject, text, html } = renderEmail({
-      branding: effective.branding,
+      branding,
       snapshot: input.snapshot,
       portalUrl,
       dealNumber,
@@ -99,7 +74,7 @@ export async function sendKvaAcceptanceEmail(
       auth: { user: account.address, pass: account.credential },
     });
     await transporter.sendMail({
-      from: `${effective.branding.displayName} <${account.address}>`,
+      from: `${branding.displayName} <${account.address}>`,
       to: customerEmail,
       subject,
       text,
@@ -113,7 +88,115 @@ export async function sendKvaAcceptanceEmail(
   }
 }
 
+export interface PortalNotificationEmailInput {
+  workspaceId: string;
+  dealRecordId: string;
+  subject: string;
+  /** Body copy, one entry per paragraph, plain text. */
+  paragraphs: string[];
+  ctaLabel: string;
+  ctaUrl: string;
+}
+
+/**
+ * Generic customer-facing notification mail (used by the automatic portal
+ * notifications as the fallback when no WhatsApp thread is reachable).
+ * Same transport + account resolution as the KVA confirmation; never throws.
+ */
+export async function sendPortalNotificationEmail(
+  input: PortalNotificationEmailInput
+): Promise<{ sent: boolean; reason: string | null }> {
+  try {
+    const resolved = await resolveCustomerEmailTransport(input.workspaceId, input.dealRecordId);
+    if (!resolved.ok) return { sent: false, reason: resolved.reason };
+    const { customerEmail, account, branding } = resolved;
+
+    const text = [...input.paragraphs, input.ctaUrl, "", branding.footer ?? ""]
+      .filter((line) => line !== "")
+      .join("\n\n");
+    const html = renderNotificationHtml({
+      branding,
+      paragraphs: input.paragraphs,
+      ctaLabel: input.ctaLabel,
+      ctaUrl: input.ctaUrl,
+    });
+
+    const transporter = nodemailer.createTransport({
+      host: account.smtpHost ?? "smtp.gmail.com",
+      port: 587,
+      secure: false,
+      auth: { user: account.address, pass: account.credential },
+    });
+    await transporter.sendMail({
+      from: `${branding.displayName} <${account.address}>`,
+      to: customerEmail,
+      subject: input.subject,
+      text,
+      html,
+    });
+
+    return { sent: true, reason: null };
+  } catch (err) {
+    console.error("[customer-portal-emails] notification send failed:", err);
+    return { sent: false, reason: "send_error" };
+  }
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+type CustomerEmailTransport =
+  | {
+      ok: true;
+      customerEmail: string;
+      account: typeof channelAccounts.$inferSelect & { credential: string };
+      branding: FirmaBranding;
+    }
+  | { ok: false; reason: string };
+
+/**
+ * Shared resolution for every customer-portal mail: usable customer address
+ * (Kleinanzeigen relays excluded), the deal's operating company, its active
+ * SMTP channel account and the effective branding.
+ */
+async function resolveCustomerEmailTransport(
+  workspaceId: string,
+  dealRecordId: string
+): Promise<CustomerEmailTransport> {
+  const customerEmail = await loadCustomerEmail(workspaceId, dealRecordId);
+  if (!customerEmail) {
+    return { ok: false, reason: "no_customer_email" };
+  }
+
+  const opCoId = await loadOperatingCompanyRecordId(workspaceId, dealRecordId);
+  if (!opCoId) {
+    return { ok: false, reason: "no_operating_company" };
+  }
+
+  const [account] = await db
+    .select()
+    .from(channelAccounts)
+    .where(
+      and(
+        eq(channelAccounts.workspaceId, workspaceId),
+        eq(channelAccounts.operatingCompanyRecordId, opCoId),
+        eq(channelAccounts.channelType, "email"),
+        eq(channelAccounts.isActive, true)
+      )
+    )
+    .limit(1);
+
+  if (!account || !account.credential) {
+    return { ok: false, reason: "no_email_channel_account" };
+  }
+
+  const effective = await loadEffectiveBranding(opCoId);
+  return {
+    ok: true,
+    customerEmail,
+    account: { ...account, credential: account.credential },
+    branding: effective.branding,
+  };
+}
 
 async function loadCustomerEmail(
   workspaceId: string,
@@ -342,7 +425,7 @@ ${snapshot.lineItems
   const depositBlock =
     snapshot.depositRequiredCents && snapshot.depositRequiredCents > 0
       ? `<p style="background:#fff8e6;border:1px solid #f3d27a;border-radius:8px;padding:10px 12px;color:#7a5a00;font-size:14px;">
-<strong>Anzahlung erforderlich:</strong> ${formatEurCents(snapshot.depositRequiredCents)}. Sobald die Anzahlung bei uns eingegangen ist, erhalten Sie automatisch die Auftragsbestätigung.</p>`
+<strong>Anzahlung erforderlich:</strong> ${formatEurCents(snapshot.depositRequiredCents)}. Sobald die Anzahlung bei uns eingegangen ist, senden wir Ihnen die Auftragsbestätigung.</p>`
       : "";
 
   const widerrufBlock = widerrufVerzicht
@@ -389,6 +472,53 @@ Bei Fragen melden Sie sich gerne jederzeit. Wir freuen uns auf Ihren Umzug.
 
 ${widerrufBlock}
 
+</td></tr>
+<tr><td style="padding:14px 24px;border-top:1px solid #e6e3dc;background:#fafaf7;color:#888;font-size:11px;line-height:1.5;">
+${safeFooter}
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>`;
+}
+
+/** Plain notification layout: branded header, paragraphs, one CTA button. */
+function renderNotificationHtml(args: {
+  branding: FirmaBranding;
+  paragraphs: string[];
+  ctaLabel: string;
+  ctaUrl: string;
+}): string {
+  const { branding, paragraphs, ctaLabel, ctaUrl } = args;
+  const color = `#${branding.primaryColor}`;
+  const safeFooter = escapeHtml(branding.footer ?? "");
+
+  const paragraphsHtml = paragraphs
+    .map(
+      (p) =>
+        `<p style="margin:0 0 14px 0;font-size:14px;line-height:1.55;">${escapeHtml(p)}</p>`
+    )
+    .join("\n");
+
+  return `<!doctype html>
+<html lang="de">
+<head><meta charset="utf-8" /><title>${escapeHtml(branding.displayName)}</title></head>
+<body style="margin:0;background:#f7f5f1;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1a1a1a;">
+<table role="presentation" style="width:100%;border-collapse:collapse;background:#f7f5f1;">
+<tr><td style="padding:32px 16px;">
+<table role="presentation" style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #e6e3dc;">
+<tr><td style="background:${color};color:#fff;padding:20px 24px;font-size:13px;letter-spacing:1.5px;text-transform:uppercase;font-weight:500;">
+${escapeHtml(branding.displayName)}
+</td></tr>
+<tr><td style="padding:24px;">
+${paragraphsHtml}
+<p style="margin:16px 0 24px 0;">
+<a href="${escapeAttr(ctaUrl)}" style="display:inline-block;background:${color};color:#ffffff;text-decoration:none;font-weight:500;padding:12px 20px;border-radius:10px;font-size:14px;">${escapeHtml(ctaLabel)}</a>
+</p>
+<p style="font-size:13px;color:#666;line-height:1.5;">
+Bei Fragen melden Sie sich gerne jederzeit.
+</p>
 </td></tr>
 <tr><td style="padding:14px 24px;border-top:1px solid #e6e3dc;background:#fafaf7;color:#888;font-size:11px;line-height:1.5;">
 ${safeFooter}

@@ -8,6 +8,7 @@ import {
 import { ConfirmKvaDialog } from "./confirm-kva-dialog";
 import { ScopeSummary } from "./scope-summary";
 import { PaymentSection } from "./payment-section";
+import { WhatsAppContactLink } from "./whatsapp-contact-link";
 import { OfferInclusionsSection } from "./offer-inclusions";
 import { EmailCaptureBanner } from "./email-capture-banner";
 import { PackageSelector } from "./package-selector";
@@ -47,6 +48,19 @@ export function StageOneKva({
     [ctx.scope.moveDate, ctx.meta.serverTime]
   );
 
+  // Day-based validity check anchored to server time (the server rejects an
+  // accept on an expired offer with OFFER_EXPIRED; the UI should never let
+  // the customer run into that).
+  const expired = useMemo(() => {
+    if (!ctx.kva?.validUntil) return false;
+    const startOfDay = (d: Date) =>
+      new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    return (
+      startOfDay(new Date(ctx.kva.validUntil)) <
+      startOfDay(new Date(ctx.meta.serverTime))
+    );
+  }, [ctx.kva?.validUntil, ctx.meta.serverTime]);
+
   // The customer can choose an offer (package option, catalogue package, or a
   // proposed date) even before a base quotation exists — picking one is what
   // CREATES the quotation server-side. So only show the "wird erstellt" notice
@@ -68,6 +82,7 @@ export function StageOneKva({
   }
 
   const alreadyAccepted = !!ctx.acceptance;
+  const offerExpired = expired && !alreadyAccepted;
   const hasOpenDateChoice =
     ctx.dateOffers.options.length > 0 && !ctx.dateOffers.selection;
 
@@ -133,7 +148,9 @@ export function StageOneKva({
           {/* Mobile price details. The right rail is desktop only, so validity,
               deposit and trust signals need a home in the column as well. The
               sticky bottom bar keeps owning the accept CTA. */}
-          {ctx.kva && !alreadyAccepted && <MobilePriceDetails ctx={ctx} />}
+          {ctx.kva && !alreadyAccepted && (
+            <MobilePriceDetails ctx={ctx} expired={offerExpired} />
+          )}
 
           <PackageSelector
             token={token}
@@ -183,6 +200,7 @@ export function StageOneKva({
               payment={ctx.payment}
               branding={ctx.branding}
               variant="deposit"
+              markedPaidAt={ctx.customerSignals.markedPaidDepositAt}
             />
           )}
         </div>
@@ -195,6 +213,7 @@ export function StageOneKva({
                 ctx={ctx}
                 alreadyAccepted={alreadyAccepted}
                 blockedByDateChoice={hasOpenDateChoice}
+                expired={offerExpired}
                 onAccept={() => setOpen(true)}
               />
             ) : (
@@ -213,40 +232,48 @@ export function StageOneKva({
           className="fixed inset-x-0 bottom-0 z-30 border-t bg-card/95 backdrop-blur lg:hidden"
           style={{ paddingBottom: "max(env(safe-area-inset-bottom), 0.625rem)" }}
         >
-          <div className="mx-auto flex max-w-2xl items-center justify-between gap-3 px-4 py-3">
-            <div className="leading-tight">
-              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                {ctx.kva.isVariable ? "Voraussichtlich" : "Festpreis"}
-              </div>
-              <div className="display text-lg font-medium tabular-nums">
-                {formatEurCents(ctx.kva.totalCents)}
-              </div>
+          {offerExpired ? (
+            <div className="mx-auto max-w-2xl px-4 py-3">
+              <OfferExpiredNotice ctx={ctx} />
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                if (hasOpenDateChoice) {
-                  const el = document.querySelector("[data-portal-section='date-picker']");
-                  el?.scrollIntoView({ behavior: "smooth", block: "center" });
-                  return;
-                }
-                setOpen(true);
-              }}
-              className="inline-flex h-11 flex-1 max-w-[60%] items-center justify-center rounded-xl text-sm font-medium text-white disabled:opacity-60"
-              style={{ background: `#${ctx.branding.primaryColor}` }}
-            >
-              {hasOpenDateChoice ? "Termin wählen" : "Angebot annehmen"}
-            </button>
-          </div>
+          ) : (
+            <div className="mx-auto flex max-w-2xl items-center justify-between gap-3 px-4 py-3">
+              <div className="leading-tight">
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                  {ctx.kva.isVariable ? "Voraussichtlich" : "Festpreis"}
+                </div>
+                <div className="display text-lg font-medium tabular-nums">
+                  {formatEurCents(ctx.kva.totalCents)}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (hasOpenDateChoice) {
+                    const el = document.querySelector("[data-portal-section='date-picker']");
+                    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+                    return;
+                  }
+                  setOpen(true);
+                }}
+                className="inline-flex h-11 flex-1 max-w-[60%] items-center justify-center rounded-xl text-sm font-medium text-white disabled:opacity-60"
+                style={{ background: `#${ctx.branding.primaryColor}` }}
+              >
+                {hasOpenDateChoice ? "Termin wählen" : "Angebot annehmen"}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
       {/* Spacer so the last content card isn't covered by the sticky bar. */}
-      {!alreadyAccepted && ctx.kva && <div className="h-20 lg:hidden" aria-hidden />}
+      {!alreadyAccepted && ctx.kva && (
+        <div className={offerExpired ? "h-48 lg:hidden" : "h-20 lg:hidden"} aria-hidden />
+      )}
 
       <ConfirmKvaDialog
         token={token}
-        open={open}
+        open={open && !offerExpired}
         onOpenChange={setOpen}
         ctx={ctx}
         widerrufNeeded={widerrufNeeded}
@@ -297,11 +324,13 @@ function PriceCard({
   ctx,
   alreadyAccepted,
   blockedByDateChoice,
+  expired,
   onAccept,
 }: {
   ctx: CustomerPortalContext;
   alreadyAccepted: boolean;
   blockedByDateChoice: boolean;
+  expired: boolean;
   onAccept: () => void;
 }) {
   const kva = ctx.kva!;
@@ -361,6 +390,8 @@ function PriceCard({
               .
             </p>
           </div>
+        ) : expired ? (
+          <OfferExpiredNotice ctx={ctx} />
         ) : (
           <>
             <button
@@ -403,7 +434,13 @@ function PriceCard({
  * the price context the rail would otherwise show (label, validity, deposit,
  * trust line). No CTA here, the mobile sticky bottom bar owns the button.
  */
-function MobilePriceDetails({ ctx }: { ctx: CustomerPortalContext }) {
+function MobilePriceDetails({
+  ctx,
+  expired,
+}: {
+  ctx: CustomerPortalContext;
+  expired: boolean;
+}) {
   const kva = ctx.kva!;
   return (
     <div className="space-y-3 lg:hidden">
@@ -415,13 +452,18 @@ function MobilePriceDetails({ ctx }: { ctx: CustomerPortalContext }) {
           {formatEurCents(kva.totalCents)}
         </div>
         {kva.validUntil && (
-          <div className="mt-2 text-[11px] text-muted-foreground">
+          <div
+            className={`mt-2 text-[11px] ${
+              expired ? "font-medium text-destructive" : "text-muted-foreground"
+            }`}
+          >
             Gültig bis{" "}
             {new Date(kva.validUntil).toLocaleDateString("de-DE", {
               day: "numeric",
               month: "long",
               year: "numeric",
             })}
+            {expired && " (abgelaufen)"}
           </div>
         )}
         {kva.depositRequiredCents && kva.depositRequiredCents > 0 ? (
@@ -432,6 +474,36 @@ function MobilePriceDetails({ ctx }: { ctx: CustomerPortalContext }) {
         ) : null}
       </div>
       <TrustLine branding={ctx.branding} isVariable={kva.isVariable} />
+    </div>
+  );
+}
+
+/**
+ * Calm replacement for the accept CTA once the offer's validUntil has passed.
+ * The server would reject the acceptance with OFFER_EXPIRED anyway, so the
+ * portal routes the customer back into the WhatsApp thread instead.
+ */
+function OfferExpiredNotice({ ctx }: { ctx: CustomerPortalContext }) {
+  return (
+    <div className="rounded-lg bg-muted/50 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
+      <p className="font-medium text-foreground">Dieses Angebot ist abgelaufen.</p>
+      <p className="mt-1">
+        Schreiben Sie uns kurz, wir prüfen die Verfügbarkeit und senden Ihnen
+        ein aktualisiertes Angebot.
+      </p>
+      <div className="mt-2">
+        <WhatsAppContactLink
+          phoneE164={ctx.branding.whatsappNumberE164}
+          label="Kurz nachfragen"
+          message={`Guten Tag ${ctx.branding.displayName}, das Angebot zu meinem Auftrag ${ctx.dealNumber} ist abgelaufen. Können Sie mir bitte ein aktualisiertes Angebot senden?`}
+          fallback={
+            <p>
+              Antworten Sie einfach auf die Nachricht, mit der Sie diesen Link
+              erhalten haben.
+            </p>
+          }
+        />
+      </div>
     </div>
   );
 }

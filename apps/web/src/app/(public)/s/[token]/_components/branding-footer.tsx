@@ -31,6 +31,27 @@ export function BrandingFooter({ branding }: { branding: FirmaBranding }) {
           </p>
         )}
       </div>
+      {(branding.firmaSlug === "kottke" || branding.firmaSlug === "ceylan") && (
+        <p className="mt-2 text-center text-[11px] text-muted-foreground">
+          <a
+            href={`/legal/impressum/${branding.firmaSlug}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-block px-1.5 py-2.5 hover:underline"
+          >
+            Impressum
+          </a>
+          {" · "}
+          <a
+            href={`/legal/datenschutz/${branding.firmaSlug}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-block px-1.5 py-2.5 hover:underline"
+          >
+            Datenschutz
+          </a>
+        </p>
+      )}
     </footer>
   );
 }

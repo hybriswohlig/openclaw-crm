@@ -19,15 +19,18 @@ export function CrewRatingSection({
   token,
   crew,
   branding,
+  ratedAt,
 }: {
   token: string;
   crew: CrewMember[];
   branding: FirmaBranding;
+  /** ISO timestamp of a previously submitted rating, survives reloads. */
+  ratedAt?: string | null;
 }) {
   const [scores, setScores] = useState<Record<string, number>>({});
   const [comment, setComment] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [done, setDone] = useState(false);
+  const [done, setDone] = useState(() => !!ratedAt);
   const [error, setError] = useState<string | null>(null);
 
   if (crew.length === 0) return null;
@@ -43,7 +46,7 @@ export function CrewRatingSection({
       .filter((r) => r.stars >= 1 && r.stars <= 5);
 
     if (ratings.length === 0) {
-      setError("Bitte vergib mindestens eine Bewertung.");
+      setError("Bitte vergeben Sie mindestens eine Bewertung.");
       return;
     }
 
@@ -60,6 +63,8 @@ export function CrewRatingSection({
         return;
       }
       setDone(true);
+    } catch {
+      setError("Keine Verbindung. Bitte versuchen Sie es erneut.");
     } finally {
       setSubmitting(false);
     }
@@ -68,11 +73,16 @@ export function CrewRatingSection({
   if (done) {
     return (
       <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-200">
-        <div className="font-medium">Danke für dein Feedback!</div>
+        <div className="font-medium">Danke für Ihr Feedback!</div>
+        {ratedAt && (
+          <p className="mt-1 text-xs">
+            Sie haben Ihre Bewertung bereits abgegeben. Vielen Dank!
+          </p>
+        )}
         <p className="mt-1 text-xs">
           {branding.googleReviewUrl
             ? "Wenn alles geklappt hat, freuen wir uns über eine öffentliche Google-Bewertung. Der Button dazu erscheint direkt darunter."
-            : "Wir geben dein Feedback an die Crew weiter."}
+            : "Wir geben Ihr Feedback an die Crew weiter."}
         </p>
       </section>
     );
@@ -84,7 +94,7 @@ export function CrewRatingSection({
         className="px-6 py-3 text-sm font-medium text-white"
         style={{ background: `#${branding.primaryColor}` }}
       >
-        Wie war eure Crew?
+        Wie war Ihre Crew?
       </div>
       <div className="space-y-4 p-6">
         <ul className="space-y-3">

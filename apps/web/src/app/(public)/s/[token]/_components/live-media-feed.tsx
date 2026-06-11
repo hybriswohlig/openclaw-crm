@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { ImageIcon, FileText, X } from "lucide-react";
 import type { AttachmentRef } from "@openclaw-crm/customer-portal-core";
 
@@ -60,12 +61,13 @@ export function LiveMediaFeed({
                 onClick={() => setLightbox(a)}
                 className="group relative aspect-square overflow-hidden rounded-xl border border-border/50 bg-muted"
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
+                <Image
                   src={`/api/public/${token}/attachments/${a.id}`}
                   alt={a.caption || a.fileName}
-                  loading="lazy"
-                  className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                  fill
+                  sizes="(max-width: 640px) 50vw, 33vw"
+                  quality={60}
+                  className="object-cover transition-transform group-hover:scale-105"
                 />
               </button>
               <div className="text-[10px] text-muted-foreground">
