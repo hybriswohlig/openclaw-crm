@@ -59,6 +59,8 @@ import {
   looksDeclined,
   leaksPriceOrCommitment,
   isAgentSuppressed,
+  getAdvancedStageIds,
+  getDealStageId,
 } from "./agent-shared";
 import { ensureAgentPriceTask } from "./agent-tasks";
 
@@ -398,6 +400,7 @@ async function processConversation(
     disclosure: string;
     handoffAck: string;
     dealsObjId: string | null;
+    advancedStages: Set<string>;
     visionBudget: { left: number };
   },
   now: Date,
@@ -405,6 +408,19 @@ async function processConversation(
 ): Promise<void> {
   // Claim atomically so no two ticks process (and send) the same conversation.
   if (!(await claimConversation(conv.id))) return;
+
+  // Advanced deal (an offer/Auftragsbestätigung already went out, or it is
+  // booked/done/lost)? Then a human owns this conversation. The info-gathering
+  // bot must NOT re-engage — re-asking or sending "a colleague will prepare your
+  // offer" on a fully quoted, AB-signed deal is wrong. Hand it to the human.
+  if (opts.advancedStages.size > 0 && conv.dealRecordId && opts.dealsObjId) {
+    const stageId = await getDealStageId(opts.dealsObjId, conv.dealRecordId);
+    if (stageId && opts.advancedStages.has(stageId)) {
+      await stampInboundProcessed(conv.id, now);
+      summary.noops += 1;
+      return;
+    }
+  }
 
   // Opted out? A STOP on any thread suppresses all automated outreach to this
   // person. Disarm and leave them alone (Art. 21 DSGVO).
@@ -688,6 +704,10 @@ async function runForWorkspace(
   if (!enabled) return;
   summary.enabledWorkspaces += 1;
   const dealsObjId = dealsObj?.id ?? null;
+  // Stages where a human already owns the deal (offer sent / booked / done /
+  // lost). The reply agent skips these so it never re-engages a quoted or
+  // AB-signed conversation.
+  const advancedStages = dealsObjId ? await getAdvancedStageIds(dealsObjId) : new Set<string>();
 
   const due = await selectDueConversations(workspaceId, channels, now);
   summary.due += due.length;
@@ -701,7 +721,7 @@ async function runForWorkspace(
     try {
       await processConversation(
         conv,
-        { dryRun, signature, discloseAi, disclosure, handoffAck, dealsObjId, visionBudget },
+        { dryRun, signature, discloseAi, disclosure, handoffAck, dealsObjId, advancedStages, visionBudget },
         now,
         summary
       );

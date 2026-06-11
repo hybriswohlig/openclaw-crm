@@ -173,8 +173,22 @@ export function withDisclosure(message: string, disclosure: string, isFirst: boo
 const DECIDED_STAGE_RE =
   /gewonnen|won|verloren|lost|abgeschlossen|closed|abgesagt|storniert|abgelehnt|kein\s*interesse|geplant|planned|durchgef(ü|ue)hrt|done|bezahlt|paid|angenommen|gebucht|auftrag/i;
 
-/** Resolve the status ids of "decided" deal stages for a workspace's deals object. */
-export async function getDecidedStageIds(dealsObjectId: string): Promise<Set<string>> {
+/**
+ * Stages where the reply agent must NOT engage: everything from "offer sent"
+ * onward. Once a human has sent a quote / Auftragsbestätigung (let alone booked
+ * the move), the conversation belongs to a person, and the info-gathering bot
+ * re-asking or sending a "a colleague will prepare your offer" line is wrong and
+ * embarrassing (it happened to a fully-quoted, AB-signed Ceylan deal). Superset
+ * of DECIDED: adds the offer-sent stages (Angebot raus / Quoted).
+ */
+const ADVANCED_STAGE_RE =
+  /angebot|quoted|offer|in verhandlung|gewonnen|won|verloren|lost|abgeschlossen|closed|abgesagt|storniert|abgelehnt|kein\s*interesse|geplant|planned|durchgef(ü|ue)hrt|done|bezahlt|paid|angenommen|gebucht|auftrag/i;
+
+async function getStageIdsMatching(
+  dealsObjectId: string,
+  re: RegExp,
+  label: string
+): Promise<Set<string>> {
   try {
     const [stageAttr] = await db
       .select({ id: attributes.id })
@@ -186,11 +200,21 @@ export async function getDecidedStageIds(dealsObjectId: string): Promise<Set<str
       .select({ id: statuses.id, title: statuses.title })
       .from(statuses)
       .where(eq(statuses.attributeId, stageAttr.id));
-    return new Set(rows.filter((s) => DECIDED_STAGE_RE.test(s.title)).map((s) => s.id));
+    return new Set(rows.filter((s) => re.test(s.title)).map((s) => s.id));
   } catch (err) {
-    console.error("[agent-shared] getDecidedStageIds failed:", err);
+    console.error(`[agent-shared] getStageIdsMatching(${label}) failed:`, err);
     return new Set();
   }
+}
+
+/** Status ids of "decided" stages (booked/done/paid or lost) — used by follow-up + first-contact. */
+export function getDecidedStageIds(dealsObjectId: string): Promise<Set<string>> {
+  return getStageIdsMatching(dealsObjectId, DECIDED_STAGE_RE, "decided");
+}
+
+/** Status ids of "advanced" stages (offer-sent or later) — the reply agent skips these. */
+export function getAdvancedStageIds(dealsObjectId: string): Promise<Set<string>> {
+  return getStageIdsMatching(dealsObjectId, ADVANCED_STAGE_RE, "advanced");
 }
 
 /** The raw stage status id of a deal (or null). Cheap single-value read. */

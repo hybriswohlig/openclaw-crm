@@ -493,38 +493,66 @@ async function syncImapAccount(account: ChannelAccountRow) {
     secure: true,
     auth: { user: account.address, pass: account.credential! },
     logger: false,
+    // Bound the connection so a wedged socket cannot hang for the whole
+    // function lifetime.
+    socketTimeout: 60_000,
+    greetingTimeout: 15_000,
   });
 
-  await client.connect();
-  const lock = await client.getMailboxLock("INBOX");
+  // CRITICAL: handle socket errors so a failed/dangling IMAP connection cannot
+  // emit an UNHANDLED 'error'/'timeout' later. On Vercel Fluid Compute the
+  // instance is reused across invocations, so a leaked socket from a failed
+  // login (e.g. wrong credentials) would otherwise time out and crash whatever
+  // cron is running on that instance (this took down the agent crons).
+  client.on("error", (err: Error) => {
+    console.error("[inbox-email] imap socket error:", account.address, err?.message);
+  });
 
+  // connect() is INSIDE the try so the finally always destroys the socket even
+  // when authentication fails (the previous version leaked on auth failure).
   try {
-    const lastUid = account.lastSyncUid ?? 0;
-    const range = lastUid > 0 ? `${lastUid + 1}:*` : "1:*";
+    await client.connect();
+    const lock = await client.getMailboxLock("INBOX");
+    try {
+      const lastUid = account.lastSyncUid ?? 0;
+      const range = lastUid > 0 ? `${lastUid + 1}:*` : "1:*";
 
-    let maxUid = lastUid;
+      let maxUid = lastUid;
 
-    for await (const msg of client.fetch(range, { uid: true, envelope: true, source: true })) {
-      const uid = msg.uid;
-      if (uid <= lastUid) continue;
-      if (uid > maxUid) maxUid = uid;
+      for await (const msg of client.fetch(range, { uid: true, envelope: true, source: true })) {
+        const uid = msg.uid;
+        if (uid <= lastUid) continue;
+        if (uid > maxUid) maxUid = uid;
 
-      if (!msg.source) continue;
-      const parsed: ParsedMail = await simpleParser(msg.source as Buffer);
-      const messageId = parsed.messageId ?? `uid-${uid}@${account.address}`;
-      await ingestParsedEmail(account, parsed, { messageId });
-    }
+        if (!msg.source) continue;
+        const parsed: ParsedMail = await simpleParser(msg.source as Buffer);
+        const messageId = parsed.messageId ?? `uid-${uid}@${account.address}`;
+        await ingestParsedEmail(account, parsed, { messageId });
+      }
 
-    // Persist last synced UID
-    if (maxUid > lastUid) {
-      await db
-        .update(channelAccounts)
-        .set({ lastSyncUid: maxUid, lastSyncAt: new Date(), updatedAt: new Date() })
-        .where(eq(channelAccounts.id, account.id));
+      // Persist last synced UID
+      if (maxUid > lastUid) {
+        await db
+          .update(channelAccounts)
+          .set({ lastSyncUid: maxUid, lastSyncAt: new Date(), updatedAt: new Date() })
+          .where(eq(channelAccounts.id, account.id));
+      }
+    } finally {
+      lock.release();
     }
   } finally {
-    lock.release();
-    await client.logout();
+    // Always tear the connection down. logout() is graceful; close() forces the
+    // socket shut so nothing lingers to time out on a reused instance.
+    try {
+      await client.logout();
+    } catch {
+      /* ignore — connection may already be dead */
+    }
+    try {
+      client.close();
+    } catch {
+      /* ignore */
+    }
   }
 }
 
