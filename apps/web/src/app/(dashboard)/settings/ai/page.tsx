@@ -73,6 +73,7 @@ export default function AISettingsPage() {
     handoffAck: string;
     optOutLine: boolean;
     firstContactEnabled: boolean;
+    firstContactEnabledAt: string | null;
     firstContactChannelAccountId: string | null;
     firstContactTemplate: string;
     firstContactTemplateParams: string;
@@ -367,7 +368,7 @@ export default function AISettingsPage() {
                   Telefonat. WhatsApp geht nur an Mobilnummern; bei Festnetznummern gibt es stattdessen
                   eine Push-Mitteilung und automatisch eine Anruf-Aufgabe. Nur Leads, die NACH dem
                   Einschalten eingehen, werden kontaktiert. Versand Mo bis Sa 8 bis 20 Uhr, So 10 bis
-                  19 Uhr, mit Tageslimit und STOP-Hinweis. Folgt dem Testlauf-Schalter oben.
+                  19 Uhr, mit Tageslimit. Folgt dem Testlauf-Schalter oben.
                 </p>
               </div>
               <button
@@ -398,6 +399,20 @@ export default function AISettingsPage() {
                   <div className="rounded-md bg-muted/50 px-3 py-2 text-xs text-green-600">
                     Aktiv: neue ImmoScout-Leads werden wirklich angeschrieben. Sie erhalten bei jedem
                     Versand eine Push-Benachrichtigung.
+                    {agent.firstContactEnabledAt && (
+                      <span className="block text-muted-foreground mt-1">
+                        Aktiv seit{" "}
+                        {new Date(agent.firstContactEnabledAt).toLocaleString("de-DE", {
+                          day: "2-digit",
+                          month: "2-digit",
+                          year: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}{" "}
+                        Uhr. Nur Leads, die danach eingehen, werden angeschrieben. Leads von davor
+                        bleiben unberührt.
+                      </span>
+                    )}
                   </div>
                 )}
 

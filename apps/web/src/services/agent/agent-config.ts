@@ -95,6 +95,8 @@ export interface AgentSettings {
   handoffAck: string;
   optOutLine: boolean;
   firstContactEnabled: boolean;
+  /** ISO timestamp the engine was last switched on; only leads created after it are contacted. */
+  firstContactEnabledAt: string | null;
   firstContactChannelAccountId: string | null;
   firstContactTemplate: string;
   firstContactTemplateParams: string;
@@ -227,6 +229,7 @@ export async function getAgentSettings(workspaceId: string): Promise<AgentSettin
     ]);
   const [
     firstContactEnabled,
+    firstContactEnabledAtDate,
     firstContactChannelAccountId,
     firstContactTemplate,
     firstContactTemplateParams,
@@ -234,6 +237,7 @@ export async function getAgentSettings(workspaceId: string): Promise<AgentSettin
     firstContactSignature,
   ] = await Promise.all([
     isFirstContactEnabled(workspaceId),
+    getFirstContactEnabledAt(workspaceId),
     getFirstContactChannelAccountId(workspaceId),
     getFirstContactTemplate(workspaceId),
     getFirstContactTemplateParams(workspaceId),
@@ -251,6 +255,7 @@ export async function getAgentSettings(workspaceId: string): Promise<AgentSettin
     handoffAck,
     optOutLine,
     firstContactEnabled,
+    firstContactEnabledAt: firstContactEnabledAtDate ? firstContactEnabledAtDate.toISOString() : null,
     firstContactChannelAccountId,
     firstContactTemplate,
     firstContactTemplateParams,

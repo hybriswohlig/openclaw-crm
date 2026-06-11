@@ -96,7 +96,14 @@ export async function recordAgentDecline(
   }
 }
 
-/** True if this person (by canonical phone or email) has opted out of agent contact. */
+/**
+ * True if this person (by canonical phone or email) has opted out of agent
+ * contact. FAIL-SAFE: any DB error (e.g. the migration that creates the table is
+ * not applied yet) returns false ("not suppressed, proceed") and logs a warning,
+ * rather than throwing. A suppression-list hiccup must never silently block all
+ * outreach — the worst case is we contact someone we should have skipped, which
+ * the inbound STOP detection then catches on their reply.
+ */
 export async function isAgentSuppressed(
   workspaceId: string,
   input: { phone?: string | null; email?: string | null }
@@ -107,15 +114,23 @@ export async function isAgentSuppressed(
   if (phone) keys.push(phone);
   if (email) keys.push(email);
   if (keys.length === 0) return false;
-  const [row] = await db
-    .select({ id: agentSuppressions.id })
-    .from(agentSuppressions)
-    .where(
-      and(
-        eq(agentSuppressions.workspaceId, workspaceId),
-        sql`${agentSuppressions.valueCanonical} = ANY(${keys})`
+  try {
+    const [row] = await db
+      .select({ id: agentSuppressions.id })
+      .from(agentSuppressions)
+      .where(
+        and(
+          eq(agentSuppressions.workspaceId, workspaceId),
+          sql`${agentSuppressions.valueCanonical} = ANY(${keys})`
+        )
       )
-    )
-    .limit(1);
-  return Boolean(row);
+      .limit(1);
+    return Boolean(row);
+  } catch (err) {
+    console.error(
+      "[agent-suppress] isAgentSuppressed failed (treating as NOT suppressed; is migration 0036 applied?):",
+      err
+    );
+    return false;
+  }
 }
