@@ -6,7 +6,7 @@
  */
 
 import { db } from "@/db";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { agentSuppressions } from "@/db/schema/agent";
 import { canonicalizePhone, canonicalizeEmail } from "@/lib/identity/canonical";
 
@@ -121,7 +121,10 @@ export async function isAgentSuppressed(
       .where(
         and(
           eq(agentSuppressions.workspaceId, workspaceId),
-          sql`${agentSuppressions.valueCanonical} = ANY(${keys})`
+          // inArray builds an IN (...) with one bound param per value. The raw
+          // `= ANY(${keys})` form serialized the JS array as a single text param
+          // ("malformed array literal"), which the fail-safe then swallowed.
+          inArray(agentSuppressions.valueCanonical, keys)
         )
       )
       .limit(1);
