@@ -8,7 +8,8 @@
     "db:generate": "turbo run db:generate --filter=@openclaw-crm/web",
     "db:migrate": "turbo run db:migrate --filter=@openclaw-crm/web",
     "db:push": "turbo run db:push --filter=@openclaw-crm/web",
-    "db:seed": "turbo run db:seed --filter=@openclaw-crm/web"
+    "db:seed": "turbo run db:seed --filter=@openclaw-crm/web",
+    "finance:backfill-belegnummern": "pnpm --filter @openclaw-crm/web finance:backfill-belegnummern"
   },
   "devDependencies": {
     "turbo": "^2.5.0",
