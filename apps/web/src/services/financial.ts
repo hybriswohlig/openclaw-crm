@@ -10,14 +10,33 @@ import {
 } from "@/db/schema";
 import { objects, attributes } from "@/db/schema/objects";
 import { recordValues } from "@/db/schema/records";
-import { eq, and, sum, sql, gte, lt, desc, inArray } from "drizzle-orm";
+import { eq, and, sum, sql, gte, lt, desc, inArray, isNull } from "drizzle-orm";
 
 export type PaymentMethod = "cash" | "bank_transfer" | "other";
+export type ExpenseCategory =
+  | "fuel"
+  | "truck_rental"
+  | "equipment"
+  | "subcontractor"
+  | "toll"
+  | "other";
 export type EmployeeLedgerKind =
   | "earning"
   | "reimbursement"
   | "payment"
   | "in_kind";
+
+/**
+ * Ledger kinds that count as Personalkosten / Betriebsausgabe (owner decision
+ * 2026-06-12): earnings, plus reimbursements (Auslagen, z.B. Sprit) and
+ * in-kind purchases (Sachbezug). `payment` rows stay excluded — they merely
+ * settle an already-recognised earning in cash.
+ */
+const COST_LEDGER_KINDS: EmployeeLedgerKind[] = [
+  "earning",
+  "reimbursement",
+  "in_kind",
+];
 
 /**
  * Resolve the live operating company of a deal (the `operating_company`
@@ -175,11 +194,16 @@ export async function createPayment(
     paymentMethod?: string;
     reference?: string;
     notes?: string;
+    /** Snapshot der Betriebsgesellschaft. Wenn nicht gesetzt → aus dem Auftrag abgeleitet. */
+    operatingCompanyId?: string | null;
   }
 ) {
+  const operatingCompanyId =
+    input.operatingCompanyId ??
+    (await resolveDealOperatingCompany(workspaceId, dealRecordId));
   const [row] = await db
     .insert(payments)
-    .values({ workspaceId, dealRecordId, ...input })
+    .values({ workspaceId, dealRecordId, ...input, operatingCompanyId })
     .returning();
   return row;
 }
@@ -194,6 +218,7 @@ export async function updatePayment(
     paymentMethod: string;
     reference: string;
     notes: string;
+    operatingCompanyId: string | null;
   }>
 ) {
   const [row] = await db
@@ -228,7 +253,7 @@ export async function createExpense(
   input: {
     date: string;
     amount: string;
-    category?: "fuel" | "truck_rental" | "equipment" | "subcontractor" | "toll" | "other";
+    category?: ExpenseCategory;
     description?: string;
     recipient?: string;
     paymentMethod?: string;
@@ -236,11 +261,16 @@ export async function createExpense(
     receiptJobMediaId?: string | null;
     isTaxDeductible?: boolean;
     payingOperatingCompanyId?: string | null;
+    /** Snapshot der Betriebsgesellschaft. Wenn nicht gesetzt → aus dem Auftrag abgeleitet. */
+    operatingCompanyId?: string | null;
   }
 ) {
+  const operatingCompanyId =
+    input.operatingCompanyId ??
+    (await resolveDealOperatingCompany(workspaceId, dealRecordId));
   const [row] = await db
     .insert(expenses)
-    .values({ workspaceId, dealRecordId, ...input })
+    .values({ workspaceId, dealRecordId, ...input, operatingCompanyId })
     .returning();
   return row;
 }
@@ -251,13 +281,14 @@ export async function updateExpense(
   input: Partial<{
     date: string;
     amount: string;
-    category: "fuel" | "truck_rental" | "equipment" | "subcontractor" | "toll" | "other";
+    category: ExpenseCategory;
     description: string;
     recipient: string;
     paymentMethod: string;
     receiptFile: string;
     isTaxDeductible: boolean;
     payingOperatingCompanyId: string | null;
+    operatingCompanyId: string | null;
   }>
 ) {
   const [row] = await db
@@ -272,6 +303,202 @@ export async function deleteExpense(id: string, workspaceId: string) {
   const [row] = await db
     .delete(expenses)
     .where(and(eq(expenses.id, id), eq(expenses.workspaceId, workspaceId)))
+    .returning({ id: expenses.id });
+  return row ?? null;
+}
+
+// ─── Company Bookings (deal-less income / expenses) ──────────────────────────
+// Direct bookings against an operating company without a deal: Gemeinkosten
+// (Miete, Versicherung, Software, ...) and Sonstige Erloese (Geraeteverkauf,
+// Erstattungen Dritter). Stored in payments / expenses with dealRecordId NULL
+// and the operatingCompanyId snapshot set.
+
+export interface CompanyBookingInput {
+  type: "income" | "expense";
+  operatingCompanyId: string;
+  date: string;
+  amount: string;
+  dealRecordId?: string | null;
+  description?: string | null;
+  /** Expense only. Defaults to "other". */
+  category?: ExpenseCategory;
+  /** Income only. */
+  payer?: string | null;
+  /** Expense only. */
+  recipient?: string | null;
+  paymentMethod?: string | null;
+  /** Expense only. Defaults to true. */
+  isTaxDeductible?: boolean;
+  /** Expense only (payments have no receipt column). Base64 data URL. */
+  receiptFile?: string | null;
+  /** Accepted for API compatibility; not persisted (no column yet). */
+  receiptName?: string | null;
+  notes?: string | null;
+}
+
+export interface CompanyBookingPatch {
+  operatingCompanyId?: string;
+  date?: string;
+  amount?: string;
+  description?: string | null;
+  category?: ExpenseCategory;
+  payer?: string | null;
+  recipient?: string | null;
+  paymentMethod?: string | null;
+  isTaxDeductible?: boolean;
+  receiptFile?: string | null;
+  notes?: string | null;
+}
+
+/**
+ * Create a deal-less booking for an operating company.
+ *   - type "income"  → payments row (description is folded into notes, since
+ *     payments has no description column).
+ *   - type "expense" → expenses row (notes is folded into description, since
+ *     expenses has no notes column).
+ * Returns the inserted row.
+ */
+export async function createCompanyBooking(
+  workspaceId: string,
+  input: CompanyBookingInput
+) {
+  if (input.type === "income") {
+    const notes =
+      input.description && input.notes
+        ? `${input.description} / ${input.notes}`
+        : input.description ?? input.notes ?? null;
+    const [row] = await db
+      .insert(payments)
+      .values({
+        workspaceId,
+        dealRecordId: input.dealRecordId ?? null,
+        operatingCompanyId: input.operatingCompanyId,
+        date: input.date,
+        amount: input.amount,
+        payer: input.payer ?? null,
+        paymentMethod: input.paymentMethod ?? null,
+        notes,
+      })
+      .returning();
+    return row;
+  }
+
+  const description =
+    input.description && input.notes
+      ? `${input.description} / ${input.notes}`
+      : input.description ?? input.notes ?? null;
+  const [row] = await db
+    .insert(expenses)
+    .values({
+      workspaceId,
+      dealRecordId: input.dealRecordId ?? null,
+      operatingCompanyId: input.operatingCompanyId,
+      date: input.date,
+      amount: input.amount,
+      category: input.category ?? "other",
+      description,
+      recipient: input.recipient ?? null,
+      paymentMethod: input.paymentMethod ?? null,
+      isTaxDeductible: input.isTaxDeductible ?? true,
+      receiptFile: input.receiptFile ?? null,
+    })
+    .returning();
+  return row;
+}
+
+/**
+ * Update a deal-less booking. Scoped to rows with dealRecordId NULL so the
+ * generic booking route can never mutate deal-bound rows. Returns the updated
+ * row or null when no deal-less row matched.
+ */
+export async function updateCompanyBooking(
+  id: string,
+  type: "income" | "expense",
+  workspaceId: string,
+  patch: CompanyBookingPatch
+) {
+  if (type === "income") {
+    const set: Partial<typeof payments.$inferInsert> = { updatedAt: new Date() };
+    if (patch.date !== undefined) set.date = patch.date;
+    if (patch.amount !== undefined) set.amount = patch.amount;
+    if (patch.operatingCompanyId !== undefined)
+      set.operatingCompanyId = patch.operatingCompanyId;
+    if (patch.payer !== undefined) set.payer = patch.payer;
+    if (patch.paymentMethod !== undefined) set.paymentMethod = patch.paymentMethod;
+    if (patch.notes !== undefined || patch.description !== undefined)
+      set.notes = patch.notes ?? patch.description ?? null;
+    const [row] = await db
+      .update(payments)
+      .set(set)
+      .where(
+        and(
+          eq(payments.id, id),
+          eq(payments.workspaceId, workspaceId),
+          isNull(payments.dealRecordId)
+        )
+      )
+      .returning();
+    return row ?? null;
+  }
+
+  const set: Partial<typeof expenses.$inferInsert> = { updatedAt: new Date() };
+  if (patch.date !== undefined) set.date = patch.date;
+  if (patch.amount !== undefined) set.amount = patch.amount;
+  if (patch.operatingCompanyId !== undefined)
+    set.operatingCompanyId = patch.operatingCompanyId;
+  if (patch.category !== undefined) set.category = patch.category;
+  if (patch.description !== undefined || patch.notes !== undefined)
+    set.description = patch.description ?? patch.notes ?? null;
+  if (patch.recipient !== undefined) set.recipient = patch.recipient;
+  if (patch.paymentMethod !== undefined) set.paymentMethod = patch.paymentMethod;
+  if (patch.isTaxDeductible !== undefined)
+    set.isTaxDeductible = patch.isTaxDeductible;
+  if (patch.receiptFile !== undefined) set.receiptFile = patch.receiptFile;
+  const [row] = await db
+    .update(expenses)
+    .set(set)
+    .where(
+      and(
+        eq(expenses.id, id),
+        eq(expenses.workspaceId, workspaceId),
+        isNull(expenses.dealRecordId)
+      )
+    )
+    .returning();
+  return row ?? null;
+}
+
+/**
+ * Delete a deal-less booking. Scoped to rows with dealRecordId NULL.
+ * Returns { id } or null when no deal-less row matched.
+ */
+export async function deleteCompanyBooking(
+  id: string,
+  type: "income" | "expense",
+  workspaceId: string
+) {
+  if (type === "income") {
+    const [row] = await db
+      .delete(payments)
+      .where(
+        and(
+          eq(payments.id, id),
+          eq(payments.workspaceId, workspaceId),
+          isNull(payments.dealRecordId)
+        )
+      )
+      .returning({ id: payments.id });
+    return row ?? null;
+  }
+  const [row] = await db
+    .delete(expenses)
+    .where(
+      and(
+        eq(expenses.id, id),
+        eq(expenses.workspaceId, workspaceId),
+        isNull(expenses.dealRecordId)
+      )
+    )
     .returning({ id: expenses.id });
   return row ?? null;
 }
@@ -520,9 +747,9 @@ export async function getProfitSummary(dealRecordId: string) {
     .where(
       and(
         eq(employeeLedger.dealRecordId, dealRecordId),
-        // Only earnings count as labour cost — reimbursements are paybacks and
-        // payments are mere settlements of an already-recognised cost.
-        eq(employeeLedger.kind, "earning")
+        // Earnings + reimbursements + in-kind purchases count as labour cost.
+        // `payment` rows are mere settlements of an already-recognised cost.
+        inArray(employeeLedger.kind, COST_LEDGER_KINDS)
       )
     );
 
@@ -536,7 +763,7 @@ export async function getProfitSummary(dealRecordId: string) {
     .where(
       and(
         eq(employeeLedger.dealRecordId, dealRecordId),
-        eq(employeeLedger.kind, "earning")
+        inArray(employeeLedger.kind, COST_LEDGER_KINDS)
       )
     )
     .groupBy(employees.name);
@@ -583,19 +810,26 @@ export interface CompanyBreakdownRow {
   crossSubsidyOut: number;
   privateEinlagen: number;
   privateEntnahmen: number;
+  /** Betriebsergebnis: income - expenses - employeeCosts. No private movements, no cross-subsidy credit. */
   netResult: number;
+  /** Kassenstand des Firmentopfs: netResult + privateEinlagen - privateEntnahmen. */
+  kassenstand: number;
 }
 
 /**
  * Workspace-level financial overview, optionally filtered by month ("YYYY-MM").
  *
  * Per-company attribution rules:
- *   - Income: always to the Auftrag owner (deal.operating_company).
- *   - Expense / employee-tx: attributed to `paying_operating_company_id` if set,
- *     otherwise to the deal's operating_company. If `paying_op != deal_op` the
- *     row counts as a cross-subsidy (Quersubvention) for transparency.
- *   - Private transactions: hit the company's pot directly. Einlage += cash,
- *     Entnahme -= cash.
+ *   - Base company per row: the `operating_company_id` snapshot written at
+ *     booking time, falling back to the deal's live operating_company for
+ *     legacy rows, else "Nicht zugewiesen".
+ *   - Income: attributed to the base company.
+ *   - Expense / employee-tx: attributed to `paying_operating_company_id` if
+ *     set, otherwise to the base company. If the payer differs from the base
+ *     company the row counts as a cross-subsidy (Quersubvention); crossIn/Out
+ *     are pure transparency fields and never enter netResult.
+ *   - Private transactions: equity movements. They never enter netResult /
+ *     netProfit; they only move the kassenstand.
  */
 export async function getFinancialOverview(
   workspaceId: string,
@@ -620,6 +854,7 @@ export async function getFinancialOverview(
   const paymentRows = await db
     .select({
       dealRecordId: payments.dealRecordId,
+      operatingCompanyId: payments.operatingCompanyId,
       amount: payments.amount,
     })
     .from(payments)
@@ -628,6 +863,7 @@ export async function getFinancialOverview(
   const expenseRows = await db
     .select({
       dealRecordId: expenses.dealRecordId,
+      operatingCompanyId: expenses.operatingCompanyId,
       amount: expenses.amount,
       category: expenses.category,
       isTaxDeductible: expenses.isTaxDeductible,
@@ -636,9 +872,9 @@ export async function getFinancialOverview(
     .from(expenses)
     .where(and(eq(expenses.workspaceId, workspaceId), expenseDateCond));
 
-  // Employee labour cost = `earning` ledger rows (the old salary/advance amounts).
-  // Reimbursements + payments do not count as cost here (payments merely settle
-  // an already-recognised cost; reimbursements are paybacks).
+  // Employee labour cost = earnings + reimbursements + in-kind purchases
+  // (owner decision 2026-06-12). `payment` rows merely settle an
+  // already-recognised cost and stay excluded.
   const empTxRows = await db
     .select({
       dealRecordId: employeeLedger.dealRecordId,
@@ -652,7 +888,7 @@ export async function getFinancialOverview(
     .where(
       and(
         eq(employeeLedger.workspaceId, workspaceId),
-        eq(employeeLedger.kind, "earning"),
+        inArray(employeeLedger.kind, COST_LEDGER_KINDS),
         empTxDateCond
       )
     );
@@ -710,10 +946,14 @@ export async function getFinancialOverview(
     }
   }
 
-  // Collect every op_company we actually see (from deals + payingOp overrides + private)
+  // Collect every op_company we actually see (deals + snapshots + payingOp overrides + private)
   const touchedCompanyIds = new Set<string>();
   for (const id of dealCompanyLookup.values()) if (id) touchedCompanyIds.add(id);
-  for (const r of expenseRows) if (r.payingOperatingCompanyId) touchedCompanyIds.add(r.payingOperatingCompanyId);
+  for (const r of paymentRows) if (r.operatingCompanyId) touchedCompanyIds.add(r.operatingCompanyId);
+  for (const r of expenseRows) {
+    if (r.payingOperatingCompanyId) touchedCompanyIds.add(r.payingOperatingCompanyId);
+    if (r.operatingCompanyId) touchedCompanyIds.add(r.operatingCompanyId);
+  }
   for (const r of empTxRows) {
     if (r.payingOperatingCompanyId) touchedCompanyIds.add(r.payingOperatingCompanyId);
     if (r.operatingCompanyId) touchedCompanyIds.add(r.operatingCompanyId);
@@ -751,7 +991,7 @@ export async function getFinancialOverview(
 
   // ── Aggregate per company ─────────────────────────────────────────────────
   const UNASSIGNED = "__unassigned__";
-  const blankRow = (): Omit<CompanyBreakdownRow, "companyId" | "companyName" | "netResult"> => ({
+  const blankRow = (): Omit<CompanyBreakdownRow, "companyId" | "companyName" | "netResult" | "kassenstand"> => ({
     income: 0,
     deductibleExpenses: 0,
     nonDeductibleExpenses: 0,
@@ -773,50 +1013,54 @@ export async function getFinancialOverview(
     return row;
   };
 
-  // Income → Auftrag owner
+  // Base company per row: snapshot first, then the deal's live owner.
+  const baseCompany = (row: {
+    operatingCompanyId: string | null;
+    dealRecordId: string | null;
+  }): string | null =>
+    row.operatingCompanyId ??
+    (row.dealRecordId ? dealCompanyLookup.get(row.dealRecordId) ?? null : null);
+
+  // Income → base company
   for (const p of paymentRows) {
-    const dealOp = dealCompanyLookup.get(p.dealRecordId) ?? null;
-    bump(dealOp).income += Number(p.amount);
+    bump(baseCompany(p)).income += Number(p.amount);
   }
 
   // Expenses → effective payer; cross-subsidy bookkeeping
   for (const e of expenseRows) {
-    const dealOp = dealCompanyLookup.get(e.dealRecordId) ?? null;
-    const effectivePayer = e.payingOperatingCompanyId ?? dealOp;
+    const baseOp = baseCompany(e);
+    const effectivePayer = e.payingOperatingCompanyId ?? baseOp;
     const amt = Number(e.amount);
     const isCross =
       e.payingOperatingCompanyId !== null &&
-      dealOp !== null &&
-      e.payingOperatingCompanyId !== dealOp;
+      baseOp !== null &&
+      e.payingOperatingCompanyId !== baseOp;
 
     const r = bump(effectivePayer);
     if (e.isTaxDeductible) r.deductibleExpenses += amt;
     else r.nonDeductibleExpenses += amt;
     if (isCross) r.crossSubsidyOut += amt;
 
-    // The "beneficiary" company (deal owner) got its expense paid by someone else.
-    if (isCross && dealOp) {
-      bump(dealOp).crossSubsidyIn += amt;
+    // The beneficiary company got its expense paid by someone else.
+    if (isCross && baseOp) {
+      bump(baseOp).crossSubsidyIn += amt;
     }
   }
 
-  // Employee costs → same rules. For deal-linked earnings the company is the
-  // deal's live owner; standalone earnings carry their own operating company.
+  // Employee costs → same rules (snapshot first, then deal owner).
   for (const t of empTxRows) {
-    const dealOp = t.dealRecordId
-      ? dealCompanyLookup.get(t.dealRecordId) ?? null
-      : t.operatingCompanyId ?? null;
-    const effectivePayer = t.payingOperatingCompanyId ?? dealOp;
+    const baseOp = baseCompany(t);
+    const effectivePayer = t.payingOperatingCompanyId ?? baseOp;
     const amt = Number(t.amount);
     const isCross =
       t.payingOperatingCompanyId !== null &&
-      dealOp !== null &&
-      t.payingOperatingCompanyId !== dealOp;
+      baseOp !== null &&
+      t.payingOperatingCompanyId !== baseOp;
 
     const r = bump(effectivePayer);
     r.employeeCosts += amt;
     if (isCross) r.crossSubsidyOut += amt;
-    if (isCross && dealOp) bump(dealOp).crossSubsidyIn += amt;
+    if (isCross && baseOp) bump(baseOp).crossSubsidyIn += amt;
   }
 
   // Private movements → direct hits to a company's pot
@@ -834,26 +1078,27 @@ export async function getFinancialOverview(
         companyId === null
           ? "Nicht zugewiesen"
           : companyNames.get(companyId) ?? "Unbekannt";
-      // Net cash result for the company's pot:
-      //   income + crossIn + einlagen  -  deductible - nonDeductible - employeeCosts - crossOut - entnahmen
+      // Betriebsergebnis (operating result):
+      //   income - deductible - nonDeductible - employeeCosts
       //
-      // Note: expenses attributed via effectivePayer already include the
-      // crossOut amount in deductible/nonDeductible, so subtracting crossOut on
-      // top would double-count. The breakdown below shows crossOut as a
-      // transparency line only; it is NOT subtracted again in netResult.
+      // crossSubsidyIn/Out are pure transparency fields: expenses attributed
+      // via effectivePayer already contain the crossOut amount in
+      // deductible/nonDeductible, and crediting crossIn here would
+      // double-count the subsidy in the 50/50 settlement.
+      // Private Einlagen/Entnahmen are equity movements and only affect the
+      // kassenstand, never the operating result.
       const netResult =
-        r.income +
-        r.crossSubsidyIn +
-        r.privateEinlagen -
+        r.income -
         r.deductibleExpenses -
         r.nonDeductibleExpenses -
-        r.employeeCosts -
-        r.privateEntnahmen;
+        r.employeeCosts;
+      const kassenstand = netResult + r.privateEinlagen - r.privateEntnahmen;
       return {
         companyId,
         companyName,
         ...r,
         netResult,
+        kassenstand,
       };
     }
   ).sort((a, b) => b.income - a.income);
@@ -861,11 +1106,13 @@ export async function getFinancialOverview(
   // ── Per-deal breakdown (unchanged shape; used by DealsTable) ──────────────
   const dealMap = new Map<string, { income: number; expenses: number; empCosts: number }>();
   for (const p of paymentRows) {
+    if (!p.dealRecordId) continue; // deal-less bookings are not part of a deal row
     const d = dealMap.get(p.dealRecordId) ?? { income: 0, expenses: 0, empCosts: 0 };
     d.income += Number(p.amount);
     dealMap.set(p.dealRecordId, d);
   }
   for (const e of expenseRows) {
+    if (!e.dealRecordId) continue; // deal-less bookings are not part of a deal row
     const d = dealMap.get(e.dealRecordId) ?? { income: 0, expenses: 0, empCosts: 0 };
     d.expenses += Number(e.amount);
     dealMap.set(e.dealRecordId, d);
@@ -941,9 +1188,11 @@ export async function getFinancialOverview(
     .filter((p) => p.direction === "entnahme")
     .reduce((s, p) => s + Number(p.amount), 0);
 
-  const netProfit =
-    totalIncome + totalPrivateEinlagen
-    - totalExpenses - totalEmployeeCosts - totalPrivateEntnahmen;
+  // Betriebsergebnis: private Einlagen/Entnahmen are equity movements and
+  // stay out of profit and margin. They only move the kassenstand.
+  const netProfit = totalIncome - totalExpenses - totalEmployeeCosts;
+  const totalKassenstand =
+    netProfit + totalPrivateEinlagen - totalPrivateEntnahmen;
 
   return {
     summary: {
@@ -956,6 +1205,7 @@ export async function getFinancialOverview(
       totalPrivateEntnahmen,
       totalCosts: totalExpenses + totalEmployeeCosts,
       netProfit,
+      totalKassenstand,
       margin: totalIncome > 0 ? Math.round((netProfit / totalIncome) * 100) : null,
     },
     expensesByCategory,
@@ -992,9 +1242,16 @@ export interface CompanyDetails {
     crossSubsidyOut: number;
     privateEinlagen: number;
     privateEntnahmen: number;
+    /** Betriebsergebnis: income - expenses - employeeCosts. No private movements, no cross-subsidy credit. */
     netResult: number;
+    /** Kassenstand des Firmentopfs: netResult + privateEinlagen - privateEntnahmen. */
+    kassenstand: number;
   };
-  /** Income grouped by deal (one slice per deal in the income pie chart). */
+  /**
+   * Income grouped by deal (one slice per deal in the income pie chart).
+   * Deal-less bookings are grouped into one bucket with dealRecordId "" and
+   * dealName "Ohne Auftrag".
+   */
   incomeByDeal: Array<{
     dealRecordId: string;
     dealNumber: string;
@@ -1124,7 +1381,8 @@ export async function getCompanyDetails(
     .from(expenses)
     .where(and(eq(expenses.workspaceId, workspaceId), expenseDateCond));
 
-  // Earnings = labour cost rows (the old salary/advance amounts).
+  // Labour cost rows: earnings + reimbursements + in-kind purchases
+  // (owner decision 2026-06-12). `payment` rows stay excluded.
   const empTxRows = await db
     .select({
       id: employeeLedger.id,
@@ -1144,7 +1402,7 @@ export async function getCompanyDetails(
     .where(
       and(
         eq(employeeLedger.workspaceId, workspaceId),
-        eq(employeeLedger.kind, "earning"),
+        inArray(employeeLedger.kind, COST_LEDGER_KINDS),
         empTxDateCond
       )
     );
@@ -1241,9 +1499,13 @@ export async function getCompanyDetails(
   // ── Operating-company name lookup (every company we'll display) ──────────
   const touchedCompanyIds = new Set<string>();
   if (companyId) touchedCompanyIds.add(companyId);
-  for (const r of expenseRows)
+  for (const r of paymentRows)
+    if (r.operatingCompanyId) touchedCompanyIds.add(r.operatingCompanyId);
+  for (const r of expenseRows) {
     if (r.payingOperatingCompanyId)
       touchedCompanyIds.add(r.payingOperatingCompanyId);
+    if (r.operatingCompanyId) touchedCompanyIds.add(r.operatingCompanyId);
+  }
   for (const r of empTxRows) {
     if (r.payingOperatingCompanyId)
       touchedCompanyIds.add(r.payingOperatingCompanyId);
@@ -1287,18 +1549,27 @@ export async function getCompanyDetails(
     }
   }
 
-  // ── Income (payments) → attributed to deal owner ──────────────────────────
+  // Base company per row: snapshot first, then the deal's live owner.
+  const baseCompany = (row: {
+    operatingCompanyId: string | null;
+    dealRecordId: string | null;
+  }): string | null =>
+    row.operatingCompanyId ??
+    (row.dealRecordId ? dealCompanyLookup.get(row.dealRecordId) ?? null : null);
+
+  // ── Income (payments) → attributed to base company ────────────────────────
+  // Deal-less bookings share one bucket keyed "".
   const incomePaymentsByDeal = new Map<
     string,
     { total: number; payments: CompanyDetails["incomeByDeal"][number]["payments"] }
   >();
   for (const p of paymentRows) {
-    const dealOp = dealCompanyLookup.get(p.dealRecordId) ?? null;
-    if (dealOp !== companyId) continue;
-    let bucket = incomePaymentsByDeal.get(p.dealRecordId);
+    if (baseCompany(p) !== companyId) continue;
+    const key = p.dealRecordId ?? "";
+    let bucket = incomePaymentsByDeal.get(key);
     if (!bucket) {
       bucket = { total: 0, payments: [] };
-      incomePaymentsByDeal.set(p.dealRecordId, bucket);
+      incomePaymentsByDeal.set(key, bucket);
     }
     bucket.total += Number(p.amount);
     bucket.payments.push({
@@ -1317,8 +1588,10 @@ export async function getCompanyDetails(
   ]
     .map(([dealRecordId, b]) => ({
       dealRecordId,
-      dealNumber: dealNumberLookup.get(dealRecordId) ?? "—",
-      dealName: dealNameLookup.get(dealRecordId) ?? "Unbekannt",
+      dealNumber: dealRecordId ? dealNumberLookup.get(dealRecordId) ?? "—" : "—",
+      dealName: dealRecordId
+        ? dealNameLookup.get(dealRecordId) ?? "Unbekannt"
+        : "Ohne Auftrag",
       total: b.total,
       payments: b.payments.sort((a, b) => a.date.localeCompare(b.date)),
     }))
@@ -1333,13 +1606,19 @@ export async function getCompanyDetails(
   let totalCrossIn = 0;
 
   for (const e of expenseRows) {
-    const dealOp = dealCompanyLookup.get(e.dealRecordId) ?? null;
-    const effectivePayer = e.payingOperatingCompanyId ?? dealOp;
+    const baseOp = baseCompany(e);
+    const effectivePayer = e.payingOperatingCompanyId ?? baseOp;
     const isCross =
       e.payingOperatingCompanyId !== null &&
-      dealOp !== null &&
-      e.payingOperatingCompanyId !== dealOp;
+      baseOp !== null &&
+      e.payingOperatingCompanyId !== baseOp;
     const amt = Number(e.amount);
+    const dealNumber = e.dealRecordId
+      ? dealNumberLookup.get(e.dealRecordId) ?? "—"
+      : "—";
+    const dealName = e.dealRecordId
+      ? dealNameLookup.get(e.dealRecordId) ?? "Unbekannt"
+      : "Ohne Auftrag";
 
     if (effectivePayer === companyId) {
       expenseEntries.push({
@@ -1352,17 +1631,17 @@ export async function getCompanyDetails(
         paymentMethod: e.paymentMethod,
         isTaxDeductible: e.isTaxDeductible,
         isCrossSubsidy: isCross,
-        dealRecordId: e.dealRecordId,
-        dealNumber: dealNumberLookup.get(e.dealRecordId) ?? "—",
-        dealName: dealNameLookup.get(e.dealRecordId) ?? "Unbekannt",
+        dealRecordId: e.dealRecordId ?? "",
+        dealNumber,
+        dealName,
       });
       if (e.isTaxDeductible) totalDeductible += amt;
       else totalNonDeductible += amt;
       if (isCross) totalCrossOut += amt;
     }
 
-    // Cross-subsidy IN: this company owns the deal, but someone else paid.
-    if (isCross && dealOp === companyId) {
+    // Cross-subsidy IN: this company's booking, but someone else paid.
+    if (isCross && baseOp === companyId) {
       totalCrossIn += amt;
       crossSubsidyInEntries.push({
         id: e.id,
@@ -1376,9 +1655,9 @@ export async function getCompanyDetails(
         paidByCompanyId: e.payingOperatingCompanyId!,
         paidByCompanyName:
           companyNames.get(e.payingOperatingCompanyId!) ?? "Unbekannt",
-        dealRecordId: e.dealRecordId,
-        dealNumber: dealNumberLookup.get(e.dealRecordId) ?? "—",
-        dealName: dealNameLookup.get(e.dealRecordId) ?? "Unbekannt",
+        dealRecordId: e.dealRecordId ?? "",
+        dealNumber,
+        dealName,
       });
     }
   }
@@ -1411,14 +1690,12 @@ export async function getCompanyDetails(
 
   for (const t of empTxRows) {
     const dealId = t.dealRecordId;
-    const dealOp = dealId
-      ? dealCompanyLookup.get(dealId) ?? null
-      : t.operatingCompanyId ?? null;
-    const effectivePayer = t.payingOperatingCompanyId ?? dealOp;
+    const baseOp = baseCompany(t);
+    const effectivePayer = t.payingOperatingCompanyId ?? baseOp;
     const isCross =
       t.payingOperatingCompanyId !== null &&
-      dealOp !== null &&
-      t.payingOperatingCompanyId !== dealOp;
+      baseOp !== null &&
+      t.payingOperatingCompanyId !== baseOp;
     const amt = Number(t.amount);
     const dealNumber = dealId ? dealNumberLookup.get(dealId) ?? "—" : "—";
     const dealName = dealId
@@ -1444,14 +1721,14 @@ export async function getCompanyDetails(
       if (isCross) totalCrossOut += amt;
     }
 
-    if (isCross && dealOp === companyId) {
+    if (isCross && baseOp === companyId) {
       totalCrossIn += amt;
       crossSubsidyInEntries.push({
         id: t.id,
         kind: "employee",
         date: t.date,
         amount: amt,
-        label: `${t.employeeName} — Verdienst`,
+        label: `${t.employeeName} (${LEDGER_KIND_LABEL[t.kind] ?? t.kind})`,
         paidByCompanyId: t.payingOperatingCompanyId!,
         paidByCompanyName:
           companyNames.get(t.payingOperatingCompanyId!) ?? "Unbekannt",
@@ -1505,16 +1782,12 @@ export async function getCompanyDetails(
     else totalEntnahmen += amt;
   }
 
-  // ── Compose totals (mirror getFinancialOverview's netResult formula) ─────
+  // ── Compose totals (mirror getFinancialOverview's formulas) ──────────────
   const totalIncome = incomeByDeal.reduce((s, d) => s + d.total, 0);
+  // Betriebsergebnis: no cross-subsidy credit, no private movements.
   const netResult =
-    totalIncome +
-    totalCrossIn +
-    totalEinlagen -
-    totalDeductible -
-    totalNonDeductible -
-    totalEmployeeCosts -
-    totalEntnahmen;
+    totalIncome - totalDeductible - totalNonDeductible - totalEmployeeCosts;
+  const kassenstand = netResult + totalEinlagen - totalEntnahmen;
 
   const companyName =
     companyId === null
@@ -1534,6 +1807,7 @@ export async function getCompanyDetails(
       privateEinlagen: totalEinlagen,
       privateEntnahmen: totalEntnahmen,
       netResult,
+      kassenstand,
     },
     incomeByDeal,
     expensesByCategory,
@@ -1549,6 +1823,13 @@ export async function getCompanyDetails(
 
 // Server-side fallback labels (UI re-translates, but the cross-subsidy "label"
 // field is plain text — without a deal description we want a readable category).
+const LEDGER_KIND_LABEL: Record<string, string> = {
+  earning: "Verdienst",
+  reimbursement: "Auslage",
+  payment: "Auszahlung",
+  in_kind: "Sachbezug",
+};
+
 const CATEGORY_LABEL_FALLBACK: Record<string, string> = {
   fuel: "Kraftstoff",
   truck_rental: "LKW-Miete",

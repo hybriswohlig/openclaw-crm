@@ -35,12 +35,16 @@ interface CompanyDetails {
     crossSubsidyOut: number;
     privateEinlagen: number;
     privateEntnahmen: number;
+    /** Betriebsergebnis (operativ, ohne Privatbewegungen). */
     netResult: number;
+    /** Kassenstand = netResult + Privateinlagen - Privatentnahmen. */
+    kassenstand?: number;
   };
   incomeByDeal: Array<{
-    dealRecordId: string;
-    dealNumber: string;
-    dealName: string;
+    /** null = Einnahmen ohne Auftrag. */
+    dealRecordId: string | null;
+    dealNumber: string | null;
+    dealName: string | null;
     total: number;
     payments: Array<{
       id: string;
@@ -69,9 +73,9 @@ interface CompanyDetails {
     paymentMethod: string | null;
     isTaxDeductible: boolean;
     isCrossSubsidy: boolean;
-    dealRecordId: string;
-    dealNumber: string;
-    dealName: string;
+    dealRecordId: string | null;
+    dealNumber: string | null;
+    dealName: string | null;
   }>;
   employeeCostsByPerson: Array<{
     employeeName: string;
@@ -90,9 +94,9 @@ interface CompanyDetails {
     paymentMethod: string | null;
     isTaxDeductible: boolean;
     isCrossSubsidy: boolean;
-    dealRecordId: string;
-    dealNumber: string;
-    dealName: string;
+    dealRecordId: string | null;
+    dealNumber: string | null;
+    dealName: string | null;
   }>;
   privateEntries: Array<{
     id: string;
@@ -112,9 +116,9 @@ interface CompanyDetails {
     label: string;
     paidByCompanyId: string;
     paidByCompanyName: string;
-    dealRecordId: string;
-    dealNumber: string;
-    dealName: string;
+    dealRecordId: string | null;
+    dealNumber: string | null;
+    dealName: string | null;
   }>;
 }
 
@@ -368,7 +372,7 @@ function Summary({
       </div>
       <div className="rounded-lg border border-border p-3">
         <div className="flex items-center justify-between">
-          <span className="text-xs text-muted-foreground">Netto-Ergebnis</span>
+          <span className="text-xs text-muted-foreground">Betriebsergebnis</span>
           <Wallet className="h-3.5 w-3.5 text-muted-foreground" />
         </div>
         <p
@@ -382,6 +386,11 @@ function Summary({
         >
           {eur(totals.netResult)}
         </p>
+        {typeof totals.kassenstand === "number" && (
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            Kassenstand: {eur(totals.kassenstand)}
+          </p>
+        )}
       </div>
     </div>
   );
@@ -560,12 +569,14 @@ export function CompanyDetailDialog({
     };
   }, [open, companyId, monthQuery]);
 
-  // Pie slices for income (one slice per deal).
+  // Pie slices for income (one slice per deal, deal-less income as own slice).
   const incomeSlices = useMemo<Slice[]>(() => {
     if (!data) return [];
-    return data.incomeByDeal.map((d) => ({
-      key: d.dealRecordId,
-      label: `${d.dealNumber} · ${d.dealName}`,
+    return data.incomeByDeal.map((d, i) => ({
+      key: d.dealRecordId ?? `ohne-auftrag-${i}`,
+      label: d.dealRecordId
+        ? `${d.dealNumber} · ${d.dealName}`
+        : (d.dealName ?? "Gemeinkosten / Sonstige Erlöse"),
       value: d.total,
       hint: `${d.payments.length}× Zahlung`,
     }));
@@ -667,12 +678,18 @@ export function CompanyDetailDialog({
                 count={data.incomeByDeal.length}
               >
                 <div className="divide-y divide-border">
-                  {data.incomeByDeal.map((deal) => (
-                    <div key={deal.dealRecordId} className="px-4 py-3">
+                  {data.incomeByDeal.map((deal, i) => (
+                    <div key={deal.dealRecordId ?? `ohne-auftrag-${i}`} className="px-4 py-3">
                       <div className="flex items-center gap-2 mb-2">
-                        <DealBadge number={deal.dealNumber} />
-                        <span className="font-medium text-sm truncate">
-                          {deal.dealName}
+                        {deal.dealNumber && <DealBadge number={deal.dealNumber} />}
+                        <span
+                          className={`text-sm truncate ${
+                            deal.dealRecordId ? "font-medium" : "text-muted-foreground"
+                          }`}
+                        >
+                          {deal.dealRecordId
+                            ? deal.dealName
+                            : (deal.dealName ?? "Gemeinkosten / Sonstige Erlöse")}
                         </span>
                         <span className="ml-auto font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
                           {eur(deal.total)}
@@ -750,7 +767,11 @@ export function CompanyDetailDialog({
                           )}
                         </td>
                         <td className="px-4 py-2 text-xs">
-                          <DealBadge number={e.dealNumber} />
+                          {e.dealNumber ? (
+                            <DealBadge number={e.dealNumber} />
+                          ) : (
+                            <span className="text-muted-foreground">Ohne Auftrag</span>
+                          )}
                         </td>
                         <td className="px-2 py-2 text-center">
                           <DeductibleIcon deductible={e.isTaxDeductible} />
@@ -815,7 +836,11 @@ export function CompanyDetailDialog({
                           )}
                         </td>
                         <td className="px-4 py-2 text-xs">
-                          <DealBadge number={t.dealNumber} />
+                          {t.dealNumber ? (
+                            <DealBadge number={t.dealNumber} />
+                          ) : (
+                            <span className="text-muted-foreground">Ohne Auftrag</span>
+                          )}
                         </td>
                         <td className="px-2 py-2 text-center">
                           <DeductibleIcon deductible={t.isTaxDeductible} />
@@ -935,7 +960,11 @@ export function CompanyDetailDialog({
                           {c.label}
                         </td>
                         <td className="px-4 py-2 text-xs">
-                          <DealBadge number={c.dealNumber} />
+                          {c.dealNumber ? (
+                            <DealBadge number={c.dealNumber} />
+                          ) : (
+                            <span className="text-muted-foreground">Ohne Auftrag</span>
+                          )}
                         </td>
                         <td className="px-4 py-2 text-right tabular-nums font-medium text-amber-600 dark:text-amber-400">
                           {eur(c.amount)}

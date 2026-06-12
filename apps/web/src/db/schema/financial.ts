@@ -106,7 +106,8 @@ export const dealNumbers = pgTable(
 );
 
 // ─── Payments ──────────────────────────────────────────────────────────────────
-// Income received from clients for a specific deal.
+// Income received from clients for a specific deal, or deal-less income
+// (e.g. Geraeteverkauf) booked directly against an operating company.
 // A deal can have multiple payment installments.
 
 export const payments = pgTable(
@@ -118,9 +119,19 @@ export const payments = pgTable(
     workspaceId: text("workspace_id")
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
-    dealRecordId: text("deal_record_id")
-      .notNull()
-      .references(() => records.id, { onDelete: "cascade" }),
+    /** Optional Auftragsbezug. Null = deal-less booking (Sonstige Erloese). */
+    dealRecordId: text("deal_record_id").references(() => records.id, {
+      onDelete: "cascade",
+    }),
+    /**
+     * Snapshot of the operating company at booking time. Attribution
+     * precedence: this snapshot, then the deal's live operating_company.
+     * Required for deal-less rows.
+     */
+    operatingCompanyId: text("operating_company_id").references(
+      () => records.id,
+      { onDelete: "set null" }
+    ),
     date: date("date").notNull(),
     amount: numeric("amount", { precision: 14, scale: 2 }).notNull(),
     payer: text("payer"),
@@ -134,12 +145,14 @@ export const payments = pgTable(
     index("payments_deal_idx").on(table.dealRecordId),
     index("payments_workspace_idx").on(table.workspaceId),
     index("payments_date_idx").on(table.date),
+    index("payments_company_idx").on(table.operatingCompanyId),
   ]
 );
 
 // ─── Expenses ─────────────────────────────────────────────────────────────────
-// All outgoing costs tied to a deal: fuel, truck rental, equipment, etc.
-// dealRecordId is required — all costs belong to a deal.
+// Outgoing costs tied to a deal (fuel, truck rental, equipment, ...) or
+// deal-less overhead (Miete, Versicherung, Software, ...) booked directly
+// against an operating company.
 
 export const expenses = pgTable(
   "expenses",
@@ -150,9 +163,19 @@ export const expenses = pgTable(
     workspaceId: text("workspace_id")
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
-    dealRecordId: text("deal_record_id")
-      .notNull()
-      .references(() => records.id, { onDelete: "cascade" }),
+    /** Optional Auftragsbezug. Null = deal-less booking (Gemeinkosten). */
+    dealRecordId: text("deal_record_id").references(() => records.id, {
+      onDelete: "cascade",
+    }),
+    /**
+     * Snapshot of the operating company at booking time. Attribution
+     * precedence: this snapshot, then the deal's live operating_company.
+     * Required for deal-less rows.
+     */
+    operatingCompanyId: text("operating_company_id").references(
+      () => records.id,
+      { onDelete: "set null" }
+    ),
     date: date("date").notNull(),
     amount: numeric("amount", { precision: 14, scale: 2 }).notNull(),
     category: expenseCategoryEnum("category").notNull().default("other"),
@@ -178,6 +201,7 @@ export const expenses = pgTable(
     index("expenses_date_idx").on(table.date),
     index("expenses_category_idx").on(table.category),
     index("expenses_paying_company_idx").on(table.payingOperatingCompanyId),
+    index("expenses_company_idx").on(table.operatingCompanyId),
   ]
 );
 

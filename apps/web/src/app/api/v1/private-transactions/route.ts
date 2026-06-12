@@ -10,6 +10,11 @@ const VALID_DIRECTIONS = ["einlage", "entnahme"] as const;
 type Method = typeof VALID_METHODS[number];
 type Direction = typeof VALID_DIRECTIONS[number];
 
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const isValidAmount = (v: unknown) => Number.isFinite(Number(v)) && Number(v) > 0;
+const isValidDate = (v: unknown) =>
+  typeof v === "string" && DATE_RE.test(v) && !Number.isNaN(Date.parse(v));
+
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized();
@@ -34,6 +39,8 @@ export async function POST(req: NextRequest) {
   } = body;
 
   if (!date || !amount) return badRequest("date and amount are required");
+  if (!isValidDate(date)) return badRequest("Ungültiges Datum (JJJJ-MM-TT erwartet)");
+  if (!isValidAmount(amount)) return badRequest("Betrag muss größer 0 sein");
   if (!fromPartner) return badRequest("fromPartner is required");
   if (!operatingCompanyId) return badRequest("operatingCompanyId is required");
   if (!method || !VALID_METHODS.includes(method)) {

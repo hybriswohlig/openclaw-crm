@@ -1,6 +1,11 @@
 import { NextRequest } from "next/server";
-import { getAuthContext, unauthorized, notFound, success } from "@/lib/api-utils";
+import { getAuthContext, unauthorized, notFound, badRequest, success } from "@/lib/api-utils";
 import { updatePayment, deletePayment } from "@/services/financial";
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const isValidAmount = (v: unknown) => Number.isFinite(Number(v)) && Number(v) > 0;
+const isValidDate = (v: unknown) =>
+  typeof v === "string" && DATE_RE.test(v) && !Number.isNaN(Date.parse(v));
 
 export async function PUT(
   req: NextRequest,
@@ -12,6 +17,13 @@ export async function PUT(
   const { paymentId } = await params;
   const body = await req.json();
   const { date, amount, payer, paymentMethod, reference, notes } = body;
+
+  if (date !== undefined && !isValidDate(date)) {
+    return badRequest("Ungültiges Datum (JJJJ-MM-TT erwartet)");
+  }
+  if (amount !== undefined && !isValidAmount(amount)) {
+    return badRequest("Betrag muss größer 0 sein");
+  }
 
   const row = await updatePayment(paymentId, ctx.workspaceId, {
     ...(date !== undefined && { date }),

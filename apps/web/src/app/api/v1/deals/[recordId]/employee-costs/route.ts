@@ -6,6 +6,11 @@ const VALID_KINDS = ["earning", "reimbursement", "payment", "in_kind"] as const;
 const VALID_METHODS = ["cash", "bank_transfer", "other"] as const;
 type PaymentMethod = typeof VALID_METHODS[number];
 
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const isValidAmount = (v: unknown) => Number.isFinite(Number(v)) && Number(v) > 0;
+const isValidDate = (v: unknown) =>
+  typeof v === "string" && DATE_RE.test(v) && !Number.isNaN(Date.parse(v));
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ recordId: string }> }
@@ -44,6 +49,8 @@ export async function POST(
 
   if (!employeeId) return badRequest("employeeId is required");
   if (!date || !amount) return badRequest("date and amount are required");
+  if (!isValidDate(date)) return badRequest("Ungültiges Datum (JJJJ-MM-TT erwartet)");
+  if (!isValidAmount(amount)) return badRequest("Betrag muss größer 0 sein");
   if (!kind || !VALID_KINDS.includes(kind)) {
     return badRequest(`kind must be one of: ${VALID_KINDS.join(", ")}`);
   }

@@ -1,7 +1,16 @@
 import { NextRequest } from "next/server";
 import { getAuthContext, unauthorized, badRequest, success } from "@/lib/api-utils";
-import { listPayments, createPayment } from "@/services/financial";
+import {
+  listPayments,
+  createPayment,
+  resolveDealOperatingCompany,
+} from "@/services/financial";
 import { maybeNotifyDepositReceived } from "@/services/customer-portal-notifications";
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const isValidAmount = (v: unknown) => Number.isFinite(Number(v)) && Number(v) > 0;
+const isValidDate = (v: unknown) =>
+  typeof v === "string" && DATE_RE.test(v) && !Number.isNaN(Date.parse(v));
 
 export async function GET(
   req: NextRequest,
@@ -27,6 +36,14 @@ export async function POST(
   const { date, amount, payer, paymentMethod, reference, notes } = body;
 
   if (!date || !amount) return badRequest("date and amount are required");
+  if (!isValidDate(date)) return badRequest("Ungültiges Datum (JJJJ-MM-TT erwartet)");
+  if (!isValidAmount(amount)) return badRequest("Betrag muss größer 0 sein");
+
+  // Snapshot the deal's operating company at booking time (Phase 0 Punkt 5).
+  const operatingCompanyId = await resolveDealOperatingCompany(
+    ctx.workspaceId,
+    recordId
+  );
 
   const row = await createPayment(ctx.workspaceId, recordId, {
     date,
@@ -35,6 +52,7 @@ export async function POST(
     paymentMethod,
     reference,
     notes,
+    operatingCompanyId,
   });
 
   // Fire-and-forget: notify the customer once the deposit is fully covered.

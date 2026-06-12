@@ -1023,7 +1023,7 @@ export async function getCompanyComparison(
 
   // ── Revenue: by deal owner OC ──────────────────────────────────────────────
   for (const p of paymentRows) {
-    const oc = dealToOc.get(p.dealId);
+    const oc = p.dealId ? dealToOc.get(p.dealId) : undefined;
     if (!oc) continue;
     const amt = Number(p.amount);
     const b = bump(oc);
@@ -1033,7 +1033,7 @@ export async function getCompanyComparison(
 
   // ── Expenses + cross-subsidy bookkeeping ──────────────────────────────────
   for (const e of expenseRows) {
-    const dealOp = dealToOc.get(e.dealId) ?? null;
+    const dealOp = e.dealId ? dealToOc.get(e.dealId) ?? null : null;
     const effectivePayer = e.payingOc ?? dealOp;
     if (!effectivePayer) continue;
     const amt = Number(e.amount);

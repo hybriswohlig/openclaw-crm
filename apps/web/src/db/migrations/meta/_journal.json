@@ -190,6 +190,13 @@
       "when": 1781176188228,
       "tag": "0036_agent_suppressions",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1781251386003,
+      "tag": "0037_wild_smiling_tiger",
+      "breakpoints": true
     }
   ]
 }

@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { CompanyDetailDialog } from "@/components/financial/company-detail-dialog";
+import { CompanyBookingDialog } from "@/components/financial/company-booking-dialog";
 
 async function saveErrorDescription(res: Response): Promise<string> {
   const data = await res.json().catch(() => null);
@@ -52,12 +53,14 @@ interface FinancialSummary {
   totalCosts: number;
   netProfit: number;
   margin: number | null;
+  totalKassenstand: number;
 }
 
 interface DealRow {
-  dealRecordId: string;
-  dealNumber: string;
-  name: string;
+  /** null = Buchungen ohne Auftrag ("Ohne Auftrag"). */
+  dealRecordId: string | null;
+  dealNumber: string | null;
+  name: string | null;
   income: number;
   costs: number;
   profit: number;
@@ -74,7 +77,10 @@ interface CompanyRow {
   crossSubsidyOut: number;
   privateEinlagen: number;
   privateEntnahmen: number;
+  /** Betriebsergebnis (operativ, ohne Privatbewegungen und Quersubventionen). */
   netResult: number;
+  /** Kassenstand = netResult + Privateinlagen - Privatentnahmen. */
+  kassenstand: number;
 }
 
 interface PrivateTxRow {
@@ -174,8 +180,10 @@ const METHOD_LABELS: Record<string, string> = {
 function KPICards({ summary }: { summary: FinancialSummary }) {
   const positive = summary.netProfit > 0;
   const neutral = summary.netProfit === 0;
+  const kassePositive = summary.totalKassenstand > 0;
+  const kasseNeutral = summary.totalKassenstand === 0;
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
       <Card>
         <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
           <CardTitle className="text-sm text-muted-foreground">Einnahmen</CardTitle>
@@ -213,7 +221,7 @@ function KPICards({ summary }: { summary: FinancialSummary }) {
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-          <CardTitle className="text-sm text-muted-foreground">Netto-Ergebnis</CardTitle>
+          <CardTitle className="text-sm text-muted-foreground">Betriebsergebnis</CardTitle>
           {positive ? <ArrowUpRight className="h-4 w-4 text-emerald-500" /> : neutral ? <Minus className="h-4 w-4 text-muted-foreground" /> : <ArrowDownRight className="h-4 w-4 text-red-500" />}
         </CardHeader>
         <CardContent>
@@ -223,6 +231,19 @@ function KPICards({ summary }: { summary: FinancialSummary }) {
           {summary.margin !== null && (
             <p className="text-xs text-muted-foreground mt-1">{summary.margin}% Marge</p>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+          <CardTitle className="text-sm text-muted-foreground">Kassenstand gesamt</CardTitle>
+          <Wallet className="h-4 w-4 text-muted-foreground" />
+        </CardHeader>
+        <CardContent>
+          <p className={`text-2xl font-bold ${kassePositive ? "text-emerald-600 dark:text-emerald-400" : kasseNeutral ? "text-muted-foreground" : "text-red-600 dark:text-red-400"}`}>
+            {eur(summary.totalKassenstand)}
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">inkl. Privateinlagen und Entnahmen</p>
         </CardContent>
       </Card>
     </div>
@@ -246,13 +267,31 @@ function CompanyBreakdown({
     );
   }
 
-  const totalNet = companies.reduce((s, c) => s + c.netResult, 0);
+  // Settlement basis: operating netResult of real companies only. The
+  // "Nicht zugewiesen" bucket (companyId === null) pauses the settlement.
+  const realCompanies = companies.filter((c) => c.companyId !== null);
+  const unassignedRows = companies.filter((c) => c.companyId === null);
+  const unassignedNet = unassignedRows.reduce((s, c) => s + c.netResult, 0);
+  const unassignedBlocked = unassignedRows.some((c) =>
+    [
+      c.income,
+      c.deductibleExpenses,
+      c.nonDeductibleExpenses,
+      c.employeeCosts,
+      c.privateEinlagen,
+      c.privateEntnahmen,
+      c.netResult,
+      c.kassenstand,
+    ].some((v) => Math.abs(v) > 0.005)
+  );
+
+  const totalNet = realCompanies.reduce((s, c) => s + c.netResult, 0);
   const fairShare = totalNet / 2;
 
   const settlements: Array<{ from: string; to: string; amount: number }> = [];
-  const sorted = [...companies].sort((a, b) => b.netResult - a.netResult);
-  if (sorted.length === 2) {
-    const diff = sorted[0].netResult - fairShare;
+  if (!unassignedBlocked && realCompanies.length === 2) {
+    const sorted = [...realCompanies].sort((a, b) => b.netResult - a.netResult);
+    const diff = (sorted[0].netResult - sorted[1].netResult) / 2;
     if (diff > 0.01) {
       settlements.push({
         from: sorted[0].companyName,
@@ -308,11 +347,12 @@ function CompanyBreakdown({
             <Row label="Ausgaben (abzugsfähig)" values={companies.map((c) => -c.deductibleExpenses)} />
             <Row label="Ausgaben (nicht abz.)" values={companies.map((c) => -c.nonDeductibleExpenses)} />
             <Row label="Personalkosten" values={companies.map((c) => -c.employeeCosts)} />
-            <Row label="Quersubventionen +in" values={companies.map((c) => c.crossSubsidyIn)} muted />
-            <Row label="Quersubventionen −out" values={companies.map((c) => -c.crossSubsidyOut)} muted />
+            <Row label="Betriebsergebnis" values={companies.map((c) => c.netResult)} emphasise />
+            <Row label="Quersubventionen erhalten" values={companies.map((c) => c.crossSubsidyIn)} muted />
+            <Row label="Quersubventionen gezahlt" values={companies.map((c) => -c.crossSubsidyOut)} muted />
             <Row label="Privateinlagen" values={companies.map((c) => c.privateEinlagen)} />
             <Row label="Privatentnahmen" values={companies.map((c) => -c.privateEntnahmen)} />
-            <Row label="Netto-Ergebnis" values={companies.map((c) => c.netResult)} emphasise />
+            <Row label="Kassenstand" values={companies.map((c) => c.kassenstand)} emphasise />
           </tbody>
         </table>
       </div>
@@ -324,7 +364,7 @@ function CompanyBreakdown({
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
           <div className="space-y-1">
-            <p className="text-muted-foreground">Gesamtergebnis</p>
+            <p className="text-muted-foreground">Betriebsergebnis gesamt</p>
             <p className={`text-lg font-bold ${totalNet >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
               {eur(totalNet)}
             </p>
@@ -334,7 +374,12 @@ function CompanyBreakdown({
             <p className="text-lg font-bold">{eur(fairShare)}</p>
           </div>
         </div>
-        {settlements.length > 0 ? (
+        {unassignedBlocked ? (
+          <div className="rounded-md border border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20 p-3 text-sm text-amber-800 dark:text-amber-300">
+            Ausgleich pausiert: {eur(unassignedNet)} sind keiner Gesellschaft zugeordnet.
+            Aufträgen eine Gesellschaft zuweisen, dann rechnet der Ausgleich wieder.
+          </div>
+        ) : settlements.length > 0 ? (
           <div className="pt-2 border-t border-border">
             {settlements.map((s, i) => (
               <div key={i} className="flex items-center gap-2 text-sm">
@@ -345,9 +390,17 @@ function CompanyBreakdown({
               </div>
             ))}
           </div>
-        ) : (
+        ) : realCompanies.length === 2 ? (
           <p className="text-sm text-muted-foreground pt-2 border-t border-border">
             Kein Ausgleich nötig, beide Seiten sind ausgeglichen.
+          </p>
+        ) : realCompanies.length > 2 ? (
+          <p className="text-sm text-muted-foreground pt-2 border-t border-border">
+            Ausgleich ist nur für genau 2 Gesellschaften definiert.
+          </p>
+        ) : (
+          <p className="text-sm text-muted-foreground pt-2 border-t border-border">
+            Ausgleich benötigt genau 2 Gesellschaften mit Buchungen.
           </p>
         )}
       </div>
@@ -675,15 +728,22 @@ function DealsTable({ deals }: { deals: DealRow[] }) {
           </tr>
         </thead>
         <tbody>
-          {deals.map((d) => {
+          {deals.map((d, i) => {
             const margin = d.income > 0 ? Math.round((d.profit / d.income) * 100) : null;
             const positive = d.profit > 0;
+            const noDeal = d.dealRecordId === null;
             return (
-              <tr key={d.dealRecordId} className="border-b border-border last:border-0 hover:bg-muted/30">
+              <tr key={d.dealRecordId ?? `ohne-auftrag-${i}`} className="border-b border-border last:border-0 hover:bg-muted/30">
                 <td className="px-4 py-3">
-                  <span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">{d.dealNumber}</span>
+                  {d.dealNumber ? (
+                    <span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">{d.dealNumber}</span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">·</span>
+                  )}
                 </td>
-                <td className="px-4 py-3 font-medium">{d.name}</td>
+                <td className={`px-4 py-3 ${noDeal ? "text-muted-foreground" : "font-medium"}`}>
+                  {noDeal ? (d.name ?? "Ohne Auftrag") : d.name}
+                </td>
                 <td className="px-4 py-3 text-right tabular-nums text-emerald-600 dark:text-emerald-400">{eur(d.income)}</td>
                 <td className="px-4 py-3 text-right tabular-nums text-red-600 dark:text-red-400">{eur(d.costs)}</td>
                 <td className={`px-4 py-3 text-right tabular-nums font-semibold ${positive ? "text-emerald-600 dark:text-emerald-400" : d.profit < 0 ? "text-red-600 dark:text-red-400" : "text-muted-foreground"}`}>
@@ -791,6 +851,7 @@ export default function FinancialPage() {
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [selectedCompany, setSelectedCompany] = useState<CompanyRow | null>(null);
+  const [bookingOpen, setBookingOpen] = useState(false);
 
   const fetchData = useCallback(() => {
     setLoading(true);
@@ -855,6 +916,15 @@ export default function FinancialPage() {
               {m.label}
             </button>
           ))}
+          <Button
+            size="sm"
+            className="ml-1"
+            onClick={() => setBookingOpen(true)}
+            disabled={operatingCompanies.length === 0}
+          >
+            <Plus className="h-3.5 w-3.5 mr-1" />
+            Buchung erfassen
+          </Button>
         </div>
       </div>
 
@@ -933,6 +1003,13 @@ export default function FinancialPage() {
           monthQuery={selectedMonth === "gesamt" ? null : selectedMonth}
         />
       )}
+
+      <CompanyBookingDialog
+        open={bookingOpen}
+        onClose={() => setBookingOpen(false)}
+        operatingCompanies={operatingCompanies}
+        onSaved={refresh}
+      />
     </div>
   );
 }

@@ -5,6 +5,11 @@ import { updateExpense, deleteExpense } from "@/services/financial";
 const VALID_CATEGORIES = ["fuel", "truck_rental", "equipment", "subcontractor", "toll", "other"] as const;
 type Category = typeof VALID_CATEGORIES[number];
 
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const isValidAmount = (v: unknown) => Number.isFinite(Number(v)) && Number(v) > 0;
+const isValidDate = (v: unknown) =>
+  typeof v === "string" && DATE_RE.test(v) && !Number.isNaN(Date.parse(v));
+
 export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ recordId: string; expenseId: string }> }
@@ -26,6 +31,12 @@ export async function PUT(
     payingOperatingCompanyId,
   } = body;
 
+  if (date !== undefined && !isValidDate(date)) {
+    return badRequest("Ungültiges Datum (JJJJ-MM-TT erwartet)");
+  }
+  if (amount !== undefined && !isValidAmount(amount)) {
+    return badRequest("Betrag muss größer 0 sein");
+  }
   if (category && !VALID_CATEGORIES.includes(category)) {
     return badRequest(`category must be one of: ${VALID_CATEGORIES.join(", ")}`);
   }

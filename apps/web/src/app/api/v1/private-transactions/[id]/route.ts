@@ -16,6 +16,11 @@ const VALID_DIRECTIONS = ["einlage", "entnahme"] as const;
 type Method = typeof VALID_METHODS[number];
 type Direction = typeof VALID_DIRECTIONS[number];
 
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const isValidAmount = (v: unknown) => Number.isFinite(Number(v)) && Number(v) > 0;
+const isValidDate = (v: unknown) =>
+  typeof v === "string" && DATE_RE.test(v) && !Number.isNaN(Date.parse(v));
+
 export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -36,6 +41,12 @@ export async function PUT(
     notes,
   } = body;
 
+  if (date !== undefined && !isValidDate(date)) {
+    return badRequest("Ungültiges Datum (JJJJ-MM-TT erwartet)");
+  }
+  if (amount !== undefined && !isValidAmount(amount)) {
+    return badRequest("Betrag muss größer 0 sein");
+  }
   if (method && !VALID_METHODS.includes(method)) {
     return badRequest(`method must be one of: ${VALID_METHODS.join(", ")}`);
   }
