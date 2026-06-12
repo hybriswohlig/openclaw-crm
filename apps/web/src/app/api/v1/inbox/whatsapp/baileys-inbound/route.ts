@@ -39,7 +39,13 @@ interface BaileysInboundAttachment {
 interface BaileysInboundPayload {
   /** UUID of the channel_accounts row (channel_type='whatsapp', wa_phone_number_id IS NULL). */
   accountId: string;
-  /** Sender's WhatsApp ID (E.164 with or without leading +). */
+  /**
+   * Sender's WhatsApp ID (E.164 with or without leading +). For LID-routed
+   * chats the bridge resolves this to the REAL phone via remoteJidAlt / the
+   * LID mapping store; only when no mapping exists does it carry the LID
+   * digits (detected downstream by comparing with peerJid, never treated as
+   * a phone identity then).
+   */
   peerWaId: string;
   /**
    * Full peer JID with domain preserved (`123@lid` or `123@s.whatsapp.net`).
@@ -50,6 +56,13 @@ interface BaileysInboundPayload {
    * builds that don't send the field yet.
    */
   peerJid?: string;
+  /**
+   * The sender's LID JID whenever known, INDEPENDENT of this message's
+   * addressing mode: equals peerJid for LID-routed stanzas, and carries the
+   * stanza's PN-side alt for PN-routed messages of a LID-capable peer. Used
+   * to match LID-keyed threads and to record the wa_lid identity key.
+   */
+  peerLid?: string | null;
   /** Sender's profile/push name, if known. */
   peerName?: string | null;
   /** Plain-text body. For media-only messages, may be empty (use previewLabel). */
@@ -144,12 +157,22 @@ export async function POST(req: NextRequest) {
   let peerJid: string | null = null;
   if (typeof payload.peerJid === "string" && payload.peerJid) {
     const raw = payload.peerJid.replace(/\s+/g, "");
-    if (!/^\+?\d{6,20}(?::\d+)?@(?:lid|s\.whatsapp\.net|c\.us|g\.us)$/.test(raw)) {
+    if (!/^\+?\d{6,20}(?::\d+)?@(?:lid|hosted\.lid|hosted|s\.whatsapp\.net|c\.us|g\.us)$/.test(raw)) {
       return badRequest("peerJid must be a digits@domain JID", { received: payload.peerJid });
     }
     const at = raw.indexOf("@");
     const local = raw.slice(0, at).replace(/^\+/, "").replace(/:.*$/, "");
     peerJid = `${local}${raw.slice(at)}`;
+  }
+
+  // peerLid carries the peer's LID identity regardless of this message's
+  // addressing mode. Malformed values are dropped, not rejected: the field is
+  // advisory and must never block ingest.
+  let peerLid: string | null = null;
+  if (typeof payload.peerLid === "string" && payload.peerLid) {
+    const raw = payload.peerLid.replace(/\s+/g, "");
+    const m = raw.match(/^(\d{6,20})(?::\d+)?@((?:hosted\.)?lid)$/);
+    if (m) peerLid = `${m[1]}@${m[2]}`;
   }
 
   const sentAt = payload.sentAt ? new Date(payload.sentAt) : new Date();
@@ -184,6 +207,7 @@ export async function POST(req: NextRequest) {
       account,
       peerWaId,
       peerJid,
+      peerLid,
       peerName: payload.peerName ?? null,
       body: payload.body,
       previewLabel: payload.previewLabel ?? null,

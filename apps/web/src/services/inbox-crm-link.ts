@@ -38,6 +38,20 @@ export interface ResolvePersonCtx {
   phone?: string | null;
   /** additional phones rescued from message text (KA "(Tel.: ...)", operator-pasted). */
   extraPhones?: string[];
+  /**
+   * WhatsApp LID JID (`<digits>@lid`) this contact messaged from, if the
+   * thread is LID-routed. Recorded as a `wa_lid` identifier (a hard key for
+   * the SAME WhatsApp identity), never as a phone. Lets a later message from
+   * the same LID find this person even when no phone could be resolved.
+   */
+  waLid?: string | null;
+  /**
+   * Known-same-human person records discovered outside the identifier graph
+   * (e.g. the person of the contact that owns the conversation this message
+   * landed in). Joined into the candidate set so the deterministic merge can
+   * unify them.
+   */
+  extraCandidatePersonIds?: string[];
   leadSource: string;
   source: IdentifierSource;
   trust?: IdentifierTrust;
@@ -52,6 +66,19 @@ export interface ResolvePersonResult {
 interface PeopleCtx {
   peopleObjectId: string;
   attrBySlug: Map<string, string>;
+}
+
+/**
+ * Canonical form of a WhatsApp LID identity key: `<digits>@lid`, no device
+ * suffix. `@hosted.lid` collapses to the same canonical (same identity space);
+ * accepts bare digits too (defensively), rejects everything else.
+ */
+function canonicalizeWaLid(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const s = String(raw).trim().toLowerCase();
+  const m = s.match(/^(\d{6,20})(?::\d+)?(?:@(?:hosted\.)?lid)?$/);
+  if (!m) return null;
+  return `${m[1]}@lid`;
 }
 
 async function loadPeople(workspaceId: string): Promise<PeopleCtx | null> {
@@ -72,7 +99,8 @@ async function loadPeople(workspaceId: string): Promise<PeopleCtx | null> {
 export async function findPersonsByCanonical(
   workspaceId: string,
   phoneCanons: string[],
-  emailCanon: string | null
+  emailCanon: string | null,
+  waLidCanon?: string | null
 ): Promise<string[]> {
   const clauses = [];
   if (phoneCanons.length > 0) {
@@ -80,6 +108,9 @@ export async function findPersonsByCanonical(
   }
   if (emailCanon) {
     clauses.push(and(eq(personIdentifiers.kind, "email"), eq(personIdentifiers.valueCanonical, emailCanon)));
+  }
+  if (waLidCanon) {
+    clauses.push(and(eq(personIdentifiers.kind, "wa_lid"), eq(personIdentifiers.valueCanonical, waLidCanon)));
   }
   if (clauses.length === 0) return [];
   const rows = await db
@@ -194,9 +225,10 @@ export async function resolveOrCreatePerson(ctx: ResolvePersonCtx): Promise<Reso
           .filter((p): p is string => !!p)
       )
     );
+    const waLidCanon = canonicalizeWaLid(ctx.waLid);
 
     // ── Find candidate person records (graph hard-key + legacy exact match) ──
-    const matched = await findPersonsByCanonical(ctx.workspaceId, phoneCanons, emailCanon);
+    const matched = await findPersonsByCanonical(ctx.workspaceId, phoneCanons, emailCanon, waLidCanon);
     const legacy = await findExistingPerson(
       people.peopleObjectId,
       emailCanon ?? emailRaw,
@@ -209,7 +241,13 @@ export async function resolveOrCreatePerson(ctx: ResolvePersonCtx): Promise<Reso
       const [c] = await db.select({ crm: inboxContacts.crmRecordId }).from(inboxContacts).where(eq(inboxContacts.id, ctx.contactId)).limit(1);
       p0 = c?.crm ?? null;
     }
-    const candidates = Array.from(new Set([p0, ...matched, legacy].filter((v): v is string => !!v)));
+    const candidates = Array.from(
+      new Set(
+        [p0, ...matched, legacy, ...(ctx.extraCandidatePersonIds ?? [])].filter(
+          (v): v is string => !!v
+        )
+      )
+    );
 
     // ── Resolve target + deterministic auto-merge ────────────────────────────
     let target: string | null = null;
@@ -239,7 +277,7 @@ export async function resolveOrCreatePerson(ctx: ResolvePersonCtx): Promise<Reso
             absorbedId: other,
             method: "deterministic",
             confidence: 1,
-            evidence: { reason: "ingest hard-key collision", phoneCanons, emailCanon, source: ctx.source },
+            evidence: { reason: "ingest hard-key collision", phoneCanons, emailCanon, waLidCanon, source: ctx.source },
           });
           autoMerged = true;
         } catch (err) {
@@ -263,6 +301,7 @@ export async function resolveOrCreatePerson(ctx: ResolvePersonCtx): Promise<Reso
     }
     if (emailCanon) await upsertIdentifier(ctx.workspaceId, target, "email", emailRaw ?? emailCanon, emailCanon, ctx.source, trust);
     if (relay) await upsertIdentifier(ctx.workspaceId, target, "ka_relay_email", relay, null, ctx.source, "claimed");
+    if (waLidCanon) await upsertIdentifier(ctx.workspaceId, target, "wa_lid", ctx.waLid ?? waLidCanon, waLidCanon, ctx.source, trust);
 
     return { personRecordId: target, isNew, autoMerged };
   } catch (err) {
@@ -284,6 +323,10 @@ export async function ensureCrmPerson(params: {
   leadSource: "WhatsApp / Website" | "Kleinanzeigen";
   /** phones rescued from message text (KA "(Tel.: ...)", operator-pasted). */
   extraPhones?: string[];
+  /** See ResolvePersonCtx.waLid: the `<digits>@lid` JID for LID-routed threads. */
+  waLid?: string | null;
+  /** See ResolvePersonCtx.extraCandidatePersonIds. */
+  extraCandidatePersonIds?: string[];
 }): Promise<string | null> {
   try {
     const [contact] = await db
@@ -291,10 +334,44 @@ export async function ensureCrmPerson(params: {
       .from(inboxContacts)
       .where(eq(inboxContacts.id, params.contactId))
       .limit(1);
-    if (contact?.crmRecordId) return contact.crmRecordId;
+    if (contact?.crmRecordId) {
+      // Already linked. Still record the LID on the graph: the linked case is
+      // exactly the one where a LID-routed reply just matched an existing
+      // phone contact, and the wa_lid key is what lets the NEXT message from
+      // this LID find the person even if no phone can be resolved then.
+      const waLidCanon = canonicalizeWaLid(params.waLid);
+      if (waLidCanon) {
+        const owners = await findPersonsByCanonical(params.workspaceId, [], null, waLidCanon);
+        const foreignOwner = owners.some((o) => o !== contact.crmRecordId);
+        if (!foreignOwner) {
+          await upsertIdentifier(
+            params.workspaceId,
+            contact.crmRecordId,
+            "wa_lid",
+            params.waLid ?? waLidCanon,
+            waLidCanon,
+            "whatsapp",
+            "verified"
+          );
+          return contact.crmRecordId;
+        }
+        // The wa_lid already belongs to ANOTHER person: the same WhatsApp
+        // identity owns two person records. Do NOT silently reassign the
+        // identifier (that bypasses the merge and ping-pongs ownership) —
+        // fall through to the full resolution below so the hard-key
+        // collision enters the candidate set and the deterministic merge
+        // unifies the records.
+      } else {
+        return contact.crmRecordId;
+      }
+    }
 
     const source: IdentifierSource =
-      params.leadSource === "Kleinanzeigen" ? "kleinanzeigen" : params.phone ? "whatsapp" : "email";
+      params.leadSource === "Kleinanzeigen"
+        ? "kleinanzeigen"
+        : params.phone || params.waLid
+          ? "whatsapp"
+          : "email";
     const { personRecordId } = await resolveOrCreatePerson({
       workspaceId: params.workspaceId,
       contactId: params.contactId,
@@ -302,6 +379,8 @@ export async function ensureCrmPerson(params: {
       email: params.email,
       phone: params.phone,
       extraPhones: params.extraPhones,
+      waLid: params.waLid,
+      extraCandidatePersonIds: params.extraCandidatePersonIds,
       leadSource: params.leadSource,
       source,
       trust: "verified",

@@ -204,6 +204,13 @@
       "when": 1781252634327,
       "tag": "0038_absent_the_hood",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1781252634328,
+      "tag": "0039_wa_lid_hard_key",
+      "breakpoints": true
     }
   ]
 }

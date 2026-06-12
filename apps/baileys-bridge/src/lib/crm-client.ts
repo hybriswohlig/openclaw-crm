@@ -26,12 +26,21 @@ export interface InboundAttachment {
 
 export interface InboundPayload {
   accountId: string;
+  // The peer's REAL phone number (digits only) whenever it is known. For
+  // LID-routed chats this is the resolved PN from remoteJidAlt / the LID
+  // mapping store; only when no mapping exists does it fall back to the
+  // LID digits (the CRM detects that by comparing with peerJid).
   peerWaId: string;
   // Full peer JID with domain preserved (`@lid` or `@s.whatsapp.net`).
   // The CRM stores this so outbound sends can target the same addressing
   // mode the contact answered from. Optional for backward-compat with
   // older CRM deployments that don't know the field.
   peerJid?: string;
+  // The peer's LID JID whenever known, INDEPENDENT of the addressing mode of
+  // this message: equals peerJid for LID-routed stanzas, and carries
+  // remoteJidAlt for PN-routed stanzas of a LID-capable peer. Lets the CRM
+  // match LID-keyed threads/identities when the addressing mode flips.
+  peerLid?: string | null;
   peerName?: string | null;
   body: string;
   previewLabel?: string | null;
@@ -48,6 +57,8 @@ export interface OutboundPayload {
   // See InboundPayload.peerJid — same field, same purpose. Here the JID
   // identifies the recipient the operator was texting from their phone.
   peerJid?: string;
+  // See InboundPayload.peerLid.
+  peerLid?: string | null;
   body: string;
   previewLabel?: string | null;
   externalMessageId: string;

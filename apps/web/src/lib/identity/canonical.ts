@@ -133,16 +133,40 @@ export function canonicalizePhone(raw: string | null | undefined, defaultRegion:
     phone = parsePhone(compact, defaultRegion); // national
   } else if (/^\d{8,15}$/.test(compact)) {
     // Bare international digits (WhatsApp wa_id). Prefer the "+"-prefixed reading;
-    // fall back to a national reading if that is invalid.
+    // fall back to a national reading if that is invalid. The fallback is capped
+    // at 11 digits: a German national number never exceeds that without its
+    // leading 0, while WhatsApp LIDs (13-15 bare digits) used to slip through
+    // here as absurd "valid" DE readings (the min metadata validates by length
+    // only), minting corrupted +49<lid> identity keys.
     phone = parsePhone("+" + compact, defaultRegion);
-    if (!phone || !phone.isValid()) {
+    if ((!phone || !phone.isValid()) && compact.length <= 11) {
       phone = parsePhone(compact, defaultRegion);
+    }
+    // 13-15 bare digits sit in the LID length band, and for some country-code
+    // prefixes (43..., 49..., 62...) the min metadata waves the "+"-reading
+    // through on length alone. Real wa_ids of that length are mobiles, so
+    // require the mobile patterns to confirm before minting an identity key.
+    if (phone?.isValid() && compact.length >= 13) {
+      try {
+        const mobile = parsePhoneNumberFromString(
+          phone.number,
+          defaultRegion,
+          PHONE_MOBILE_METADATA
+        );
+        if (!mobile?.isValid()) phone = null;
+      } catch {
+        phone = null;
+      }
     }
   } else {
     phone = parsePhone(compact, defaultRegion);
   }
 
   if (!phone || !phone.isValid()) return null;
+  // E.164 hard cap is 15 digits. The min metadata can wave through longer
+  // "valid" numbers (e.g. +49 + 14-digit LID), so enforce the spec here:
+  // anything longer is junk and must never become an identity key.
+  if (!/^\+\d{6,15}$/.test(phone.number)) return null;
   return phone.number; // E.164
 }
 

@@ -13,7 +13,8 @@
  * Idempotency on both sides is enforced server-side by the unique constraint
  * on (conversation_id, external_message_id) so retries / echo are safe.
  */
-import type { WAMessage, WASocket } from "baileys";
+import type { WAMessage, WAMessageKey, WASocket } from "baileys";
+import { isHostedLidUser, isHostedPnUser, isLidUser, isPnUser } from "baileys";
 import type { Logger } from "../lib/logger.js";
 import type {
   CrmClient,
@@ -35,6 +36,87 @@ export interface InboundHandlerArgs {
   sock: WASocket;
   crm: CrmClient;
   log: Logger;
+}
+
+/**
+ * Derive the CRM addressing fields from a message key.
+ *
+ * For PN-routed chats (`...@s.whatsapp.net`) this is a plain unwrap. For
+ * LID-routed chats (`...@lid`) the LID digits are NOT a phone number, so the
+ * real phone is resolved via `key.remoteJidAlt` (set when WhatsApp includes
+ * the alt attr on the stanza) or the socket's persisted LID<->PN mapping
+ * store. `peerWaId` then carries the real phone while `peerJid` keeps the
+ * `@lid` addressing replies must target. Without this resolution the CRM
+ * keys a SECOND conversation/contact/deal on the LID digits whenever Meta
+ * routes a chat through the LID identity.
+ *
+ * If neither source knows the phone, `peerWaId` falls back to the LID digits
+ * (the CRM detects that case by comparing against `peerJid` and skips
+ * phone-identity writes).
+ */
+async function resolvePeerAddressing(args: {
+  key: WAMessageKey;
+  sock: WASocket;
+  log: Logger;
+}): Promise<{
+  peerWaId: string;
+  peerJid: string;
+  peerLid: string | null;
+  lidPnSource: "remoteJidAlt" | "lidMapping" | null;
+}> {
+  const { key, sock, log } = args;
+  const remoteJid = key.remoteJid ?? "";
+  const peerJid = jidToPeerJid(remoteJid);
+  let peerWaId = jidToWaId(remoteJid);
+  let peerLid: string | null = null;
+  let lidPnSource: "remoteJidAlt" | "lidMapping" | null = null;
+
+  // remoteJidAlt names the PEER's other identity. Defensive guard: on fromMe
+  // echoes WhatsApp's sender_pn/sender_lid attrs could carry OUR OWN number
+  // or LID instead — accepting that would bind the operator's identity to a
+  // customer record. Ignore any alt that matches the account's own ids.
+  const ownIds = [
+    jidToWaId(sock.user?.id ?? ""),
+    jidToWaId(sock.user?.lid ?? ""),
+  ].filter(Boolean);
+  let alt = key.remoteJidAlt;
+  if (alt && ownIds.includes(jidToWaId(alt))) {
+    alt = undefined;
+  }
+
+  if (isLidUser(remoteJid) || isHostedLidUser(remoteJid)) {
+    peerLid = peerJid;
+    let pnJid =
+      alt && (isPnUser(alt) || isHostedPnUser(alt)) ? alt : null;
+    if (pnJid) {
+      lidPnSource = "remoteJidAlt";
+    } else {
+      try {
+        // Keystore-only lookup (no network); populated automatically from
+        // message envelopes, history sync and USync results on send.
+        pnJid = await sock.signalRepository.lidMapping.getPNForLID(remoteJid);
+        if (pnJid) lidPnSource = "lidMapping";
+      } catch (err) {
+        log.warn({ err, remoteJid }, "[peer] LID->PN mapping lookup failed");
+      }
+    }
+    if (pnJid) {
+      peerWaId = jidToWaId(pnJid);
+    } else {
+      log.warn(
+        { remoteJid },
+        "[peer] no PN known for LID, ingesting under LID digits",
+      );
+    }
+  } else if (alt && (isLidUser(alt) || isHostedLidUser(alt))) {
+    // PN-routed stanza that also names the peer's LID. Forward it so the CRM
+    // can match LID-keyed threads/identities of the same person — WhatsApp
+    // flips addressing modes per message, and without this the PN-routed half
+    // of a flip can re-split the lead. Deliberately NO lidMapping.getLIDForPN
+    // here: that direction falls back to a USync network query per message.
+    peerLid = jidToPeerJid(alt);
+  }
+  return { peerWaId, peerJid, peerLid, lidPnSource };
 }
 
 export function attachInboundHandler(args: InboundHandlerArgs): void {
@@ -76,7 +158,8 @@ async function ingestOne(args: {
   if (key.remoteJid === "status@broadcast") return;
   if (!msg.message) return;
 
-  const peerWaId = jidToWaId(key.remoteJid);
+  const { peerWaId, peerJid, peerLid, lidPnSource } =
+    await resolvePeerAddressing({ key, sock, log });
   if (!/^\d{6,20}$/.test(peerWaId)) {
     // Group / channel / newsletter — skip for now; CRM only ingests 1:1.
     log.debug(
@@ -107,7 +190,8 @@ async function ingestOne(args: {
   const payload: InboundPayload = {
     accountId,
     peerWaId,
-    peerJid: jidToPeerJid(key.remoteJid),
+    peerJid,
+    peerLid,
     peerName: msg.pushName ?? null,
     body,
     previewLabel,
@@ -117,6 +201,7 @@ async function ingestOne(args: {
       provider: "baileys-inhouse",
       messageType: kind ?? "text",
       participant: key.participant ?? null,
+      ...(peerLid ? { lid: peerLid, lidPnSource } : {}),
     },
     attachments: attachments.length > 0 ? attachments : undefined,
   };
@@ -145,7 +230,8 @@ async function ingestOutboundOne(args: {
   if (!msg.message) return;
 
   // remoteJid here is the *recipient* (the customer the operator is texting).
-  const peerWaId = jidToWaId(key.remoteJid);
+  const { peerWaId, peerJid, peerLid, lidPnSource } =
+    await resolvePeerAddressing({ key, sock, log });
   if (!/^\d{6,20}$/.test(peerWaId)) {
     log.debug(
       { accountId, remoteJid: key.remoteJid },
@@ -175,7 +261,8 @@ async function ingestOutboundOne(args: {
   const payload: OutboundPayload = {
     accountId,
     peerWaId,
-    peerJid: jidToPeerJid(key.remoteJid),
+    peerJid,
+    peerLid,
     body,
     previewLabel,
     externalMessageId: key.id,
@@ -184,6 +271,7 @@ async function ingestOutboundOne(args: {
       provider: "baileys-inhouse",
       source: "phone-direct",
       messageType: kind ?? "text",
+      ...(peerLid ? { lid: peerLid, lidPnSource } : {}),
     },
     attachments: attachments.length > 0 ? attachments : undefined,
   };

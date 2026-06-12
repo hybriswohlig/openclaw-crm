@@ -18,13 +18,14 @@ export interface ServerOptions {
 }
 
 // Either a digits-only WA id (legacy path, defaults to `@s.whatsapp.net`)
-// or a full JID `digits[:N]@(lid|s.whatsapp.net|c.us|g.us)`. The CRM passes
-// the full JID for contacts whose Meta identity has migrated to LID-routing.
+// or a full JID `digits[:N]@(lid|hosted.lid|hosted|s.whatsapp.net|c.us|g.us)`.
+// The CRM passes the full JID for contacts whose Meta identity has migrated
+// to LID-routing; the hosted variants cover cloud-hosted business accounts.
 const PEER_WA_ID = z
   .string()
   .min(6)
   .regex(
-    /^\+?\d{6,20}(?::\d+)?(?:@(?:lid|s\.whatsapp\.net|c\.us|g\.us))?$/,
+    /^\+?\d{6,20}(?::\d+)?(?:@(?:lid|hosted\.lid|hosted|s\.whatsapp\.net|c\.us|g\.us))?$/,
     "peerWaId must be digits or a JID like 123@lid / 123@s.whatsapp.net",
   );
 

@@ -32,7 +32,7 @@ import { db } from "@/db";
 import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
 import { records, recordValues } from "@/db/schema/records";
 import { attributes } from "@/db/schema/objects";
-import { inboxConversations, channelAccounts } from "@/db/schema/inbox";
+import { inboxConversations, inboxContacts, channelAccounts } from "@/db/schema/inbox";
 import { activityEvents } from "@/db/schema";
 import { z } from "zod";
 import { runAITask, humanizeGerman } from "@/services/ai/run-task";
@@ -623,8 +623,23 @@ async function runForWorkspace(
       }
 
       // 3. Existing WhatsApp thread with this number on the outreach account?
-      // Then we are already in contact; the reply agent owns it.
+      // Then we are already in contact; the reply agent owns it. The thread
+      // key may carry the customer's LID (`<otherDigits>@lid`) after a LID
+      // migration, which shares no digits with the phone — so beyond the key
+      // pattern we also match via the phone-keyed inbox contact, mirroring
+      // the send path's contact fallback. Without this the agent would drop
+      // its scripted opener into the middle of an active conversation.
       const waId = e164.slice(1);
+      const [phoneContact] = await db
+        .select({ id: inboxContacts.id })
+        .from(inboxContacts)
+        .where(
+          and(
+            eq(inboxContacts.workspaceId, workspaceId),
+            eq(inboxContacts.phone, waId)
+          )
+        )
+        .limit(1);
       const [existingConv] = await db
         .select({ id: inboxConversations.id })
         .from(inboxConversations)
@@ -633,7 +648,10 @@ async function runForWorkspace(
             eq(inboxConversations.channelAccountId, account.id),
             or(
               eq(inboxConversations.externalThreadId, waId),
-              sql`${inboxConversations.externalThreadId} LIKE ${waId + "@%"}`
+              sql`${inboxConversations.externalThreadId} LIKE ${waId + "@%"}`,
+              ...(phoneContact
+                ? [eq(inboxConversations.contactId, phoneContact.id)]
+                : [])
             )
           )
         )

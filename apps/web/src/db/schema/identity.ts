@@ -16,9 +16,9 @@ import { users } from "./auth";
 // ─── Identity graph (KOT-IDENTITY) ────────────────────────────────────────────
 // One golden person (a `people` record) carries many channel identifiers
 // (person_identifiers) and a merge ledger (person_merge_edges). HARD kinds
-// (phone, email) participate in a partial UNIQUE index and in the D1 silent
-// auto-merge; SOFT kinds (relay, pseudonym, names, lid) are stored for lineage
-// and the async matcher but never auto-merge.
+// (phone, email, wa_lid) participate in a partial UNIQUE index and in the D1
+// silent auto-merge; SOFT kinds (relay, pseudonym, names) are stored for
+// lineage and the async matcher but never auto-merge.
 
 export const personIdentifierKindEnum = pgEnum("person_identifier_kind", [
   "phone", // HARD — canonical E.164
@@ -26,7 +26,8 @@ export const personIdentifierKindEnum = pgEnum("person_identifier_kind", [
   "ka_relay_email", // Kleinanzeigen rotating relay — not a mailable identity
   "ka_pseudonym", // Kleinanzeigen display pseudonym
   "wa_name", // WhatsApp pushName
-  "wa_lid", // Baileys @lid — not a phone number
+  "wa_lid", // HARD — Baileys LID, canonical `<digits>@lid`. NOT a phone, but
+  // a channel-authenticated WhatsApp identity: one LID = one account.
 ]);
 
 export const personIdentifierSourceEnum = pgEnum("person_identifier_source", [
@@ -93,14 +94,14 @@ export const personIdentifiers = pgTable(
       table.kind,
       table.valueCanonical
     ),
-    // HARD-KEY uniqueness, phone/email + non-null canonical only. A second
-    // person carrying the same E.164 is impossible once the substrate is clean;
-    // a collision on insert is the D1 silent-merge trigger. Safe to ship in
-    // 0030 because the table is brand new (empty).
+    // HARD-KEY uniqueness, phone/email/wa_lid + non-null canonical only. A
+    // second person carrying the same E.164 or LID is impossible once the
+    // substrate is clean; a collision on insert is the D1 silent-merge
+    // trigger. wa_lid added in 0039 (with a defensive dedupe first).
     uniqueIndex("person_identifiers_hardkey_uniq")
       .on(table.workspaceId, table.kind, table.valueCanonical)
       .where(
-        sql`${table.kind} in ('phone','email') and ${table.valueCanonical} is not null`
+        sql`${table.kind} in ('phone','email','wa_lid') and ${table.valueCanonical} is not null`
       ),
   ]
 );

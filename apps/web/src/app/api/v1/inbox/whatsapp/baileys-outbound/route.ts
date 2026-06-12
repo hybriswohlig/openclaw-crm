@@ -43,6 +43,8 @@ interface BaileysOutboundPayload {
    * details. Optional for backward compatibility.
    */
   peerJid?: string;
+  /** See `baileys-inbound/route.ts`: the recipient's LID JID whenever known. */
+  peerLid?: string | null;
   /** Plain-text body (may be empty for media-only). */
   body: string;
   /** Optional preview label override for media-only messages. */
@@ -122,12 +124,20 @@ export async function POST(req: NextRequest) {
   let peerJid: string | null = null;
   if (typeof payload.peerJid === "string" && payload.peerJid) {
     const raw = payload.peerJid.replace(/\s+/g, "");
-    if (!/^\+?\d{6,20}(?::\d+)?@(?:lid|s\.whatsapp\.net|c\.us|g\.us)$/.test(raw)) {
+    if (!/^\+?\d{6,20}(?::\d+)?@(?:lid|hosted\.lid|hosted|s\.whatsapp\.net|c\.us|g\.us)$/.test(raw)) {
       return badRequest("peerJid must be a digits@domain JID", { received: payload.peerJid });
     }
     const at = raw.indexOf("@");
     const local = raw.slice(0, at).replace(/^\+/, "").replace(/:.*$/, "");
     peerJid = `${local}${raw.slice(at)}`;
+  }
+
+  // Advisory LID identity of the recipient; malformed values are dropped.
+  let peerLid: string | null = null;
+  if (typeof payload.peerLid === "string" && payload.peerLid) {
+    const raw = payload.peerLid.replace(/\s+/g, "");
+    const m = raw.match(/^(\d{6,20})(?::\d+)?@((?:hosted\.)?lid)$/);
+    if (m) peerLid = `${m[1]}@${m[2]}`;
   }
 
   const sentAt = payload.sentAt ? new Date(payload.sentAt) : new Date();
@@ -149,6 +159,7 @@ export async function POST(req: NextRequest) {
       account,
       peerWaId,
       peerJid,
+      peerLid,
       body: payload.body,
       previewLabel: payload.previewLabel ?? null,
       externalMessageId: payload.externalMessageId,

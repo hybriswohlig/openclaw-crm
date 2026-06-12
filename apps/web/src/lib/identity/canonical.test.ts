@@ -52,6 +52,28 @@ describe("canonicalizePhone — rejects non-phones", () => {
   it("WhatsApp @lid is NOT a phone", () => {
     expect(canonicalizePhone("123456789012345@lid")).toBeNull();
   });
+  it("BARE LID digits (suffix already stripped upstream) are NOT a phone", () => {
+    // Real LIDs from the 2026-06-12 incident: before the guard these came back
+    // as absurd "+49<lid>" DE-national readings and corrupted person_identifiers.
+    expect(canonicalizePhone("86505372536889")).toBeNull(); // 14 digits
+    expect(canonicalizePhone("206820442378292")).toBeNull(); // 15 digits
+    expect(canonicalizePhone("60993216487445")).toBeNull(); // 14 digits
+    expect(canonicalizePhone("12897921032297")).toBeNull(); // 14 digits
+  });
+  it("LID digits whose '+'-reading passes the length-only check still fail the mobile patterns", () => {
+    // 43/49/62-prefixed LIDs read as "valid" AT/DE/ID numbers under the min
+    // metadata (length classes only); the mobile-pattern check rejects them.
+    expect(canonicalizePhone("43505372536889")).toBeNull(); // fake +43 reading
+    expect(canonicalizePhone("431234567890123")).toBeNull(); // fake +43, 15 digits
+  });
+  it("a real 13-digit mobile wa_id still canonicalizes", () => {
+    expect(canonicalizePhone("4915159058963")).toBe("+4915159058963");
+  });
+  it("the result is always real E.164 (max 15 digits)", () => {
+    // The min metadata validates by length classes only; a fabricated
+    // 16-digit "+49..." must never become an identity key.
+    expect(canonicalizePhone("+4986505372536889")).toBeNull();
+  });
   it("WhatsApp @g.us group is NOT a phone", () => {
     expect(canonicalizePhone("120363012345678901-1602000000@g.us")).toBeNull();
   });
