@@ -358,6 +358,12 @@ export interface CustomerPortalContext {
   /** Live media feed for Stage 3 — chronological. Already filtered server-side. */
   attachments: AttachmentRef[];
 
+  /**
+   * Vom Mitarbeiter freigegebene, vom Kunden selbst gesendete Fotos.
+   * Leeres Array, wenn noch nichts kuratiert wurde. Immer direction 'inbound'.
+   */
+  customerPhotos: AttachmentRef[];
+
   /** Three timestamps the operator clicks during the move. */
   timing: MoveTiming;
 

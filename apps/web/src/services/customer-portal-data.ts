@@ -366,6 +366,11 @@ export async function loadContextByToken(
   // Attachments (only fetched when stage >= 3 to keep Stage-1 fast).
   const attachments = stage >= 3 ? await loadAttachments(workspaceId, dealRecordId, scope.moveDate) : [];
 
+  // Curated customer photos: the operator-approved subset of the customer's
+  // own inbound pictures. Loaded for every stage, independent of the
+  // outbound-only live media feed above.
+  const customerPhotos = await loadCuratedCustomerPhotos(workspaceId, dealRecordId);
+
   // Payment instructions are computed when:
   //   - Stage 4 (Rechnung-Zahlung), OR
   //   - Stage 1 with a deposit required.
@@ -409,6 +414,7 @@ export async function loadContextByToken(
       invoiceUrl: invoiceDoc ? `/api/public/${token}/documents/${invoiceDoc.id}` : null,
     },
     attachments,
+    customerPhotos,
     timing,
     payment,
     customerSignals,
@@ -1355,6 +1361,90 @@ async function loadAttachments(
     });
   }
   out.sort((a, b) => a.sentAt.localeCompare(b.sentAt));
+  return out;
+}
+
+/**
+ * Operator-curated customer photos. The newest 'deal.portal_photos_curated'
+ * activity event holds the valid selection (payload.attachmentIds); every
+ * re-curation writes a fresh event. Each id is re-validated against the deal's
+ * inbound image attachments so deleted or re-linked files drop out silently.
+ * Order follows the curated attachmentIds, not upload time.
+ */
+async function loadCuratedCustomerPhotos(
+  workspaceId: string,
+  dealRecordId: string
+): Promise<AttachmentRef[]> {
+  const [event] = await db
+    .select({ payload: activityEvents.payload })
+    .from(activityEvents)
+    .where(
+      and(
+        eq(activityEvents.workspaceId, workspaceId),
+        eq(activityEvents.recordId, dealRecordId),
+        eq(activityEvents.eventType, "deal.portal_photos_curated")
+      )
+    )
+    .orderBy(desc(activityEvents.createdAt))
+    .limit(1);
+  if (!event) return [];
+
+  const rawIds = (event.payload as Record<string, unknown> | null)?.attachmentIds;
+  const attachmentIds = Array.isArray(rawIds)
+    ? rawIds.filter((id): id is string => typeof id === "string")
+    : [];
+  if (attachmentIds.length === 0) return [];
+
+  const rows = await db
+    .select({
+      id: inboxMessageAttachments.id,
+      fileName: inboxMessageAttachments.fileName,
+      mimeType: inboxMessageAttachments.mimeType,
+      fileSize: inboxMessageAttachments.fileSize,
+      createdAt: inboxMessageAttachments.createdAt,
+      messageId: inboxMessageAttachments.messageId,
+    })
+    .from(inboxMessageAttachments)
+    .where(
+      and(
+        inArray(inboxMessageAttachments.id, attachmentIds),
+        eq(inboxMessageAttachments.workspaceId, workspaceId),
+        eq(inboxMessageAttachments.dealRecordId, dealRecordId)
+      )
+    );
+  if (rows.length === 0) return [];
+
+  const messageRows = await db
+    .select({
+      id: inboxMessages.id,
+      direction: inboxMessages.direction,
+      body: inboxMessages.body,
+      sentAt: inboxMessages.sentAt,
+      createdAt: inboxMessages.createdAt,
+    })
+    .from(inboxMessages)
+    .where(inArray(inboxMessages.id, rows.map((r) => r.messageId)));
+  const byMsg = new Map(messageRows.map((m) => [m.id, m]));
+  const byId = new Map(rows.map((r) => [r.id, r]));
+
+  const out: AttachmentRef[] = [];
+  for (const id of attachmentIds) {
+    const r = byId.get(id);
+    if (!r || !r.mimeType.startsWith("image/")) continue;
+    const m = byMsg.get(r.messageId);
+    if (!m || m.direction !== "inbound") continue;
+    const ts = m.sentAt ?? m.createdAt ?? r.createdAt;
+    out.push({
+      id: r.id,
+      fileName: r.fileName,
+      mimeType: r.mimeType,
+      fileSize: r.fileSize,
+      sentAt: (ts ?? r.createdAt).toISOString(),
+      isImage: true,
+      caption: m.body ?? "",
+      direction: "inbound",
+    });
+  }
   return out;
 }
 

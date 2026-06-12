@@ -7,8 +7,11 @@
 //   2. Fixbetrag → ein Angebot (ein Preis) ODER Pakete aus dem
 //      offer_packages-Katalog der Firma (Preis pro Paket, gespeichert als
 //      per-Deal package options). Stündlich → Positionen wie im Kostenrechner.
-//   3. Beschreibung (Freitext, Kunde sieht das im Portal)
-//   4. Speichern (quotation PUT mintet den Link automatisch) → Link anzeigen
+//   3. Kundenfotos (nur wenn der Deal inbound-Bilder hat): Auswahl fürs
+//      Portal kuratieren, optional KI-Zusammenfassung als Vorschlag für die
+//      Beschreibung (der Operator prüft und speichert immer selbst)
+//   4. Beschreibung (Freitext, Kunde sieht das im Portal)
+//   5. Speichern (quotation PUT mintet den Link automatisch) → Link anzeigen
 //
 // The Standard-Umzugsleistungen toggle is intentionally NOT part of this
 // wizard; the existing quotation value is passed through unchanged.
@@ -32,6 +35,7 @@ import {
   Truck,
   X,
 } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { renderSnippet } from "@/components/inbox/customer-link-composer";
 
@@ -78,7 +82,22 @@ interface PackagePriceRow {
   isRecommended: boolean;
 }
 
-type Step = "abrechnung" | "angebotsart" | "preis" | "pakete" | "stunden" | "beschreibung" | "fertig";
+interface PortalPhoto {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  createdAt: string;
+  selected: boolean;
+}
+
+interface ScopeResult {
+  summary: string;
+  inventory: string[];
+  hints: string[];
+}
+
+type Step = "abrechnung" | "angebotsart" | "preis" | "pakete" | "stunden" | "fotos" | "beschreibung" | "fertig";
 
 const LINE_TYPES: Array<{ value: LineItem["type"]; label: string }> = [
   { value: "helper", label: "Helfer" },
@@ -150,6 +169,15 @@ export function StatusLinkWizard({
 
   // Beschreibung
   const [summary, setSummary] = useState("");
+  const [summaryFromAi, setSummaryFromAi] = useState(false);
+
+  // Kundenfotos (Portal-Auswahl + KI-Zusammenfassung)
+  const [photos, setPhotos] = useState<PortalPhoto[]>([]);
+  const [selectedPhotoIds, setSelectedPhotoIds] = useState<string[]>([]);
+  const [aiPending, setAiPending] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiResult, setAiResult] = useState<ScopeResult | null>(null);
+  const [aiConfirm, setAiConfirm] = useState(false);
 
   // Finish
   const [saving, setSaving] = useState(false);
@@ -162,9 +190,10 @@ export function StatusLinkWizard({
     let cancelled = false;
     (async () => {
       try {
-        const [qRes, pRes] = await Promise.all([
+        const [qRes, pRes, fRes] = await Promise.all([
           fetch(`/api/v1/deals/${dealRecordId}/quotation`),
           fetch(`/api/v1/deals/${dealRecordId}/offer-packages`),
+          fetch(`/api/v1/deals/${dealRecordId}/portal-photos`).catch(() => null),
         ]);
         if (cancelled) return;
         if (qRes.ok) {
@@ -185,6 +214,17 @@ export function StatusLinkWizard({
             | { packages?: CataloguePackage[] }
             | undefined;
           if (data?.packages) setCatalogue(data.packages);
+        }
+        if (fRes?.ok) {
+          const data = (await fRes.json().catch(() => null))?.data as
+            | { photos?: PortalPhoto[] }
+            | undefined;
+          if (data?.photos) {
+            setPhotos(data.photos);
+            setSelectedPhotoIds(
+              data.photos.filter((p) => p.selected).map((p) => p.id)
+            );
+          }
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -220,13 +260,16 @@ export function StatusLinkWizard({
     [lineItems]
   );
 
+  const priceStep: Step =
+    mode === "stundensatz" ? "stunden" : offerKind === "packages" ? "pakete" : "preis";
+
   const stepBack: Partial<Record<Step, Step>> = {
     angebotsart: "abrechnung",
     preis: "angebotsart",
     pakete: "angebotsart",
     stunden: "abrechnung",
-    beschreibung:
-      mode === "stundensatz" ? "stunden" : offerKind === "packages" ? "pakete" : "preis",
+    fotos: priceStep,
+    beschreibung: photos.length > 0 ? "fotos" : priceStep,
   };
 
   function next(s: Step) {
@@ -241,12 +284,78 @@ export function StatusLinkWizard({
         ? packageRows.some((r) => parseEur(r.priceEur) != null && parseEur(r.priceEur)! > 0)
         : Number(fixedPrice) > 0;
 
+  function togglePhoto(id: string) {
+    setSelectedPhotoIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  }
+
+  async function handleAiAnalyze() {
+    if (selectedPhotoIds.length === 0 || selectedPhotoIds.length > 6) return;
+    setAiPending(true);
+    setAiError(null);
+    try {
+      const res = await fetch(`/api/v1/deals/${dealRecordId}/scope-from-photos`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ attachmentIds: selectedPhotoIds }),
+      });
+      const j = (await res.json().catch(() => null)) as
+        | { data?: ScopeResult; error?: { code?: string } }
+        | null;
+      if (!res.ok || !j?.data) throw new Error(j?.error?.code ?? "AI_FAILED");
+      setAiResult(j.data);
+      if (summary.trim()) {
+        // Vorhandene Beschreibung nie stillschweigend überschreiben.
+        setAiConfirm(true);
+      } else {
+        setSummary(j.data.summary);
+        setSummaryFromAi(true);
+      }
+    } catch {
+      setAiError(
+        "Die Analyse hat nicht geklappt. Bitte erneut versuchen oder die Beschreibung manuell verfassen."
+      );
+    } finally {
+      setAiPending(false);
+    }
+  }
+
+  function applyAiSummary(how: "replace" | "append") {
+    if (!aiResult) return;
+    setSummary((prev) =>
+      how === "append" && prev.trim()
+        ? `${prev.trimEnd()}\n\n${aiResult.summary}`
+        : aiResult.summary
+    );
+    setSummaryFromAi(true);
+    setAiConfirm(false);
+  }
+
   async function handleFinish() {
     setSaving(true);
     setSaveError(null);
     try {
       const depositCents = depositEur.trim() ? parseEur(depositEur) : null;
       const isVariable = mode === "stundensatz";
+
+      // Kuratierte Foto-Auswahl fürs Portal sichern. Fire-and-forget, damit
+      // das Quotation-Save-Verhalten unverändert bleibt.
+      if (photos.length > 0) {
+        fetch(`/api/v1/deals/${dealRecordId}/portal-photos`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ attachmentIds: selectedPhotoIds }),
+        })
+          .then((res) => {
+            if (!res.ok) {
+              toast.error("Foto-Auswahl konnte nicht gespeichert werden.");
+            }
+          })
+          .catch(() => {
+            toast.error("Foto-Auswahl konnte nicht gespeichert werden.");
+          });
+      }
 
       // Packages path: persist the per-deal options first so the portal
       // renders exactly these rows with the operator's prices.
@@ -687,7 +796,147 @@ export function StatusLinkWizard({
                 </div>
               )}
 
-              {/* ── Step 4: Beschreibung ── */}
+              {/* ── Step 4: Kundenfotos kuratieren + KI-Zusammenfassung ── */}
+              {step === "fotos" && (
+                <div className="space-y-3">
+                  <p className="text-sm text-muted-foreground">
+                    Fotos, die der Kunde geschickt hat. Ausgewählte Fotos sieht
+                    der Kunde im Angebot unter „Ihre Fotos".
+                  </p>
+                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                    {photos.map((photo) => {
+                      const selected = selectedPhotoIds.includes(photo.id);
+                      return (
+                        <button
+                          key={photo.id}
+                          type="button"
+                          aria-pressed={selected}
+                          onClick={() => togglePhoto(photo.id)}
+                          className={cn(
+                            "relative aspect-square overflow-hidden rounded-lg border-2 transition-colors",
+                            selected
+                              ? "border-foreground"
+                              : "border-border hover:border-foreground/40"
+                          )}
+                        >
+                          <img
+                            src={`/api/v1/deals/${dealRecordId}/portal-photos/${photo.id}`}
+                            alt={photo.fileName}
+                            loading="lazy"
+                            className="h-full w-full object-cover"
+                          />
+                          {selected && (
+                            <span className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-foreground text-background shadow">
+                              <Check className="h-3 w-3" />
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleAiAnalyze}
+                    disabled={
+                      aiPending ||
+                      selectedPhotoIds.length === 0 ||
+                      selectedPhotoIds.length > 6
+                    }
+                    className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-md border border-border px-3 text-sm font-medium hover:bg-accent disabled:opacity-50"
+                  >
+                    {aiPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Sparkles className="h-4 w-4" />
+                    )}
+                    KI-Zusammenfassung aus {selectedPhotoIds.length}{" "}
+                    {selectedPhotoIds.length === 1 ? "Foto" : "Fotos"} erstellen
+                  </button>
+                  {selectedPhotoIds.length > 6 && (
+                    <p className="text-xs text-amber-700 dark:text-amber-300">
+                      Für die KI-Zusammenfassung bitte maximal 6 Fotos
+                      auswählen.
+                    </p>
+                  )}
+                  {aiPending && (
+                    <p className="text-xs text-muted-foreground">
+                      Die KI analysiert die Fotos, das dauert bis zu zwei
+                      Minuten.
+                    </p>
+                  )}
+                  {aiError && (
+                    <p className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                      {aiError}
+                    </p>
+                  )}
+                  {aiConfirm && aiResult && (
+                    <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
+                      <p className="text-sm font-medium">
+                        Vorhandene Beschreibung ersetzen?
+                      </p>
+                      <p className="whitespace-pre-wrap text-xs text-muted-foreground">
+                        {aiResult.summary}
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => applyAiSummary("replace")}
+                          className="inline-flex h-8 items-center rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90"
+                        >
+                          Ersetzen
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => applyAiSummary("append")}
+                          className="inline-flex h-8 items-center rounded-md border border-border px-3 text-xs font-medium hover:bg-accent"
+                        >
+                          Anhängen
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAiConfirm(false)}
+                          className="inline-flex h-8 items-center rounded-md px-3 text-xs font-medium text-muted-foreground hover:bg-muted"
+                        >
+                          Abbrechen
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {aiResult && !aiConfirm && (
+                    <div className="space-y-2 rounded-lg border border-border bg-card p-3">
+                      {aiResult.inventory.length > 0 && (
+                        <div>
+                          <p className="text-[11px] font-medium text-muted-foreground">
+                            Erkanntes Umzugsgut
+                          </p>
+                          <ul className="mt-1 space-y-0.5 text-xs">
+                            {aiResult.inventory.map((item, i) => (
+                              <li key={i} className="flex items-start gap-1.5">
+                                <Check className="mt-0.5 h-3 w-3 shrink-0 text-emerald-600" />
+                                <span>{item}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {aiResult.hints.length > 0 && (
+                        <div>
+                          <p className="text-[11px] font-medium text-muted-foreground">
+                            Interne Hinweise, nicht für den Kunden sichtbar
+                          </p>
+                          <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-muted-foreground">
+                            {aiResult.hints.map((hint, i) => (
+                              <li key={i}>{hint}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Step 5: Beschreibung ── */}
               {step === "beschreibung" && (
                 <div className="space-y-2">
                   <label className="text-sm font-medium">
@@ -701,6 +950,13 @@ export function StatusLinkWizard({
                     placeholder="z. B. Transport einer Waschmaschine von Wildberg nach Stuttgart, inkl. einem Helfer und Transporter."
                     className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
                   />
+                  {summaryFromAi && (
+                    <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                      <Sparkles className="h-3 w-3 shrink-0" />
+                      Von der KI aus den Kundenfotos erstellt. Bitte prüfen und
+                      anpassen.
+                    </p>
+                  )}
                   <p className="text-[11px] text-muted-foreground">
                     Der Kunde sieht diesen Text oben im Portal als „Was umfasst
                     der Auftrag". Optional.
@@ -713,7 +969,7 @@ export function StatusLinkWizard({
                 </div>
               )}
 
-              {/* ── Step 5: done ── */}
+              {/* ── Step 6: done ── */}
               {step === "fertig" && (
                 <div className="space-y-3">
                   <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-200">
@@ -777,7 +1033,11 @@ export function StatusLinkWizard({
               </button>
             ) : (
               <button
-                onClick={() => next("beschreibung")}
+                onClick={() =>
+                  next(
+                    step !== "fotos" && photos.length > 0 ? "fotos" : "beschreibung"
+                  )
+                }
                 disabled={!priceValid}
                 className="inline-flex h-9 items-center rounded-md bg-foreground px-4 text-sm font-medium text-background hover:opacity-90 disabled:opacity-50"
               >

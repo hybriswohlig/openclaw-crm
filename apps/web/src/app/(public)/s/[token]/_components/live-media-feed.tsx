@@ -18,10 +18,14 @@ export function LiveMediaFeed({
   token,
   attachments,
   primaryColor,
+  title = "Bilder & Updates",
+  emptyText = "Noch keine Bilder von der Crew. Sobald euer Team Fotos sendet, erscheinen sie hier automatisch.",
 }: {
   token: string;
   attachments: AttachmentRef[];
   primaryColor: string;
+  title?: string;
+  emptyText?: string;
 }) {
   const [lightbox, setLightbox] = useState<AttachmentRef | null>(null);
 
@@ -33,8 +37,7 @@ export function LiveMediaFeed({
       <section className="rounded-2xl border border-border/50 bg-card p-5 text-sm">
         <div className="flex items-center gap-2 text-muted-foreground">
           <ImageIcon className="h-4 w-4" />
-          Noch keine Bilder von der Crew. Sobald euer Team Fotos sendet,
-          erscheinen sie hier automatisch.
+          {emptyText}
         </div>
       </section>
     );
@@ -43,7 +46,7 @@ export function LiveMediaFeed({
   return (
     <section className="space-y-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-medium">Bilder & Updates</h2>
+        <h2 className="text-sm font-medium">{title}</h2>
         <span
           className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
           style={{ background: `#${primaryColor}` }}

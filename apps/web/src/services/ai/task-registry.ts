@@ -9,6 +9,9 @@ export const AI_TASK_SLUGS = {
   DEAL_EXTRACT_INSIGHTS: "deal.extract-insights",
   // The inbox "Antwort vorschlagen" button (suggest-reply endpoint).
   DEAL_DRAFT_REPLY: "deal.draft-reply",
+  // Operator-triggered photo analysis: customer-facing scope summary for the
+  // offer, generated from curated customer photos (scope-from-photos endpoint).
+  DEAL_SCOPE_FROM_PHOTOS: "deal.scope-from-photos",
   // Sales agent (the on/off inbox assistant). reply = decide-and-send a turn,
   // followup = re-engage a stale lead, first-contact = proactive ImmoScout opener.
   // On/off for these three lives in the KI-Verkaufsassistent cards, NOT in the
@@ -75,6 +78,20 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
     defaultMaxTokens: 1500,
     defaultDailySpendCapUsd: 2,
     humanizeOutput: true,
+  },
+  [AI_TASK_SLUGS.DEAL_SCOPE_FROM_PHOTOS]: {
+    slug: AI_TASK_SLUGS.DEAL_SCOPE_FROM_PHOTOS,
+    label: "Foto-Analyse Angebot",
+    description:
+      "Analysiert vom Kunden geschickte Fotos und erzeugt die kundengerechte Auftrags-Zusammenfassung plus erkanntes Inventar und interne Hinweise. Bilder verarbeitet nur der crm-tools-Pfad, OpenRouter verwirft Anhänge.",
+    defaultProvider: "crm-tools",
+    defaultModel: "anthropic/claude-sonnet-4",
+    // No OpenRouter fallback: that path is text-only and would silently drop
+    // the photos this task exists for.
+    defaultFallbackModel: null,
+    defaultTemperature: 0.3,
+    defaultMaxTokens: 4096,
+    defaultDailySpendCapUsd: 3,
   },
   [AI_TASK_SLUGS.LEAD_ASSISTANT_REPLY]: {
     slug: AI_TASK_SLUGS.LEAD_ASSISTANT_REPLY,

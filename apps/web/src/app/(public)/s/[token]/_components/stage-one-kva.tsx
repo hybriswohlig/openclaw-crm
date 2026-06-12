@@ -13,6 +13,7 @@ import { OfferInclusionsSection } from "./offer-inclusions";
 import { EmailCaptureBanner } from "./email-capture-banner";
 import { PackageSelector } from "./package-selector";
 import { DateOfferPicker } from "./date-offer-picker";
+import { CustomerPhotosSection } from "./customer-photos-section";
 
 /**
  * Stage 1 layout — desktop is a two-column grid with a sticky price/CTA
@@ -135,15 +136,20 @@ export function StageOneKva({
           {/* Operator-written summary. Calm content card so the customer reads
               context BEFORE the number. */}
           {ctx.kva?.summary && ctx.kva.summary.trim().length > 0 && (
-            <div className="overflow-hidden rounded-2xl border bg-card">
-              <div className="border-b px-6 py-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                Was umfasst der Auftrag
-              </div>
-              <p className="whitespace-pre-wrap p-6 text-sm leading-relaxed">
-                {ctx.kva.summary}
-              </p>
-            </div>
+            <SummaryCard
+              summary={ctx.kva.summary}
+              primaryColor={ctx.branding.primaryColor}
+            />
           )}
+
+          {/* Curated customer photos, collapsed by default. Renders nothing
+              when no photos were curated for this deal. */}
+          <CustomerPhotosSection
+            token={token}
+            photos={ctx.customerPhotos}
+            primaryColor={ctx.branding.primaryColor}
+          />
+
 
           {/* Mobile price details. The right rail is desktop only, so validity,
               deposit and trust signals need a home in the column as well. The
@@ -280,6 +286,51 @@ export function StageOneKva({
         onAccepted={onConfirmed}
       />
     </>
+  );
+}
+
+/**
+ * "Was umfasst der Auftrag" card. Long operator summaries collapse to five
+ * lines so the card never pushes the price below the fold; short texts render
+ * in full without the toggle.
+ */
+function SummaryCard({
+  summary,
+  primaryColor,
+}: {
+  summary: string;
+  primaryColor: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const isLong = summary.trim().length > 350;
+  return (
+    <div className="overflow-hidden rounded-2xl border bg-card">
+      <div className="border-b px-6 py-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+        Was umfasst der Auftrag
+      </div>
+      <div className="px-6 pb-4 pt-6">
+        <p
+          className={`whitespace-pre-wrap text-sm leading-relaxed ${
+            isLong && !expanded ? "line-clamp-5" : ""
+          }`}
+        >
+          {summary}
+        </p>
+        {isLong ? (
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            aria-expanded={expanded}
+            className="mt-1 inline-flex min-h-11 items-center text-sm font-medium"
+            style={{ color: `#${primaryColor}` }}
+          >
+            {expanded ? "Weniger anzeigen" : "Mehr anzeigen"}
+          </button>
+        ) : (
+          <div className="h-2" aria-hidden />
+        )}
+      </div>
+    </div>
   );
 }
 
