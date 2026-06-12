@@ -15,6 +15,10 @@ import { sql } from "drizzle-orm";
 import { workspaces } from "./workspace";
 import { records } from "./records";
 import { employees } from "./employees";
+import type {
+  ExpenseTaxTreatment,
+  IncomeTaxTreatment,
+} from "@/lib/expense-categories";
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
 
@@ -25,6 +29,9 @@ export const dealDocumentTypeEnum = pgEnum("deal_document_type", [
   "worker_instructions",
 ]);
 
+// EUeR-nahe Kategorien. The first six values predate Phase 2 and must keep
+// their spelling for data compat; the rest were added 2026-06-12. Labels,
+// display order and default tax treatment live in src/lib/expense-categories.ts.
 export const expenseCategoryEnum = pgEnum("expense_category", [
   "fuel",
   "truck_rental",
@@ -32,6 +39,17 @@ export const expenseCategoryEnum = pgEnum("expense_category", [
   "subcontractor",
   "toll",
   "other",
+  "vehicle",
+  "repairs",
+  "office",
+  "rent",
+  "insurance",
+  "phone_internet",
+  "advertising",
+  "tax_advisor",
+  "entertainment",
+  "gifts",
+  "fines",
 ]);
 
 export const employeeTransactionTypeEnum = pgEnum("employee_transaction_type", [
@@ -138,6 +156,17 @@ export const payments = pgTable(
     paymentMethod: text("payment_method"),
     reference: text("reference"),
     notes: text("notes"),
+    /**
+     * Steuerliche Behandlung der Einnahme:
+     *   "betriebseinnahme" = steuerlich relevant (Default fuer Kundenzahlungen)
+     *   "nicht_steuerbar"  = Kaution, durchlaufender Posten, Versicherungserstattung
+     */
+    taxTreatment: text("tax_treatment")
+      .$type<IncomeTaxTreatment>()
+      .notNull()
+      .default("betriebseinnahme"),
+    /** Fortlaufende Belegnummer, z.B. "K-E-2026-0001". Assigned once, never reused. */
+    receiptNumber: text("receipt_number"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -146,6 +175,7 @@ export const payments = pgTable(
     index("payments_workspace_idx").on(table.workspaceId),
     index("payments_date_idx").on(table.date),
     index("payments_company_idx").on(table.operatingCompanyId),
+    index("payments_receipt_number_idx").on(table.receiptNumber),
   ]
 );
 
@@ -185,8 +215,26 @@ export const expenses = pgTable(
     receiptFile: text("receipt_file"),
     /** Receipt photo in Blob (job_media id) — set by the employee portal camera flow. */
     receiptJobMediaId: text("receipt_job_media_id"),
-    /** true = steuerlich absetzbar, false = privat/nicht absetzbar */
+    /**
+     * Legacy binary flag, kept in sync with taxTreatment (true unless
+     * taxTreatment is "nicht"). Phase 2 replaced it with taxTreatment;
+     * the column stays for now until all readers are migrated.
+     */
     isTaxDeductible: boolean("is_tax_deductible").notNull().default(true),
+    /**
+     * Steuerliche Behandlung der Ausgabe:
+     *   "voll"      = voll abzugsfaehig
+     *   "teilweise" = teilweise abzugsfaehig (deductiblePercent, z.B. Bewirtung 70)
+     *   "nicht"     = nicht abzugsfaehig (Bussgelder, privat veranlasst)
+     */
+    taxTreatment: text("tax_treatment")
+      .$type<ExpenseTaxTreatment>()
+      .notNull()
+      .default("voll"),
+    /** Abzugsfaehiger Anteil in Prozent. Only set when taxTreatment = "teilweise". */
+    deductiblePercent: integer("deductible_percent"),
+    /** Fortlaufende Belegnummer, z.B. "K-A-2026-0001". Assigned once, never reused. */
+    receiptNumber: text("receipt_number"),
     /** When set, another operating company's cash paid this expense — Quersubvention. */
     payingOperatingCompanyId: text("paying_operating_company_id").references(
       () => records.id,
@@ -202,6 +250,44 @@ export const expenses = pgTable(
     index("expenses_category_idx").on(table.category),
     index("expenses_paying_company_idx").on(table.payingOperatingCompanyId),
     index("expenses_company_idx").on(table.operatingCompanyId),
+    uniqueIndex("expenses_receipt_number_uniq").on(
+      table.workspaceId,
+      table.receiptNumber
+    ),
+  ]
+);
+
+// ─── Beleg Number Counters ────────────────────────────────────────────────────
+// Fortlaufende Belegnummern je Firma, Jahr und Buchungsart (Einnahme/Ausgabe).
+// Atomically incremented via INSERT ... ON CONFLICT DO UPDATE, mirroring
+// deal_number_sequences. Numbers are never cleared or reused, so counters
+// survive even when the company record goes away.
+
+export const belegNumberCounters = pgTable(
+  "beleg_number_counters",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    /** The operating company record the counter belongs to. */
+    operatingCompanyId: text("operating_company_id")
+      .notNull()
+      .references(() => records.id, { onDelete: "restrict" }),
+    year: integer("year").notNull(),
+    /** "income" → E-Nummern, "expense" → A-Nummern. */
+    kind: text("kind").$type<"income" | "expense">().notNull(),
+    lastNumber: integer("last_number").notNull().default(0),
+  },
+  (table) => [
+    uniqueIndex("beleg_number_counters_scope_uniq").on(
+      table.workspaceId,
+      table.operatingCompanyId,
+      table.year,
+      table.kind
+    ),
   ]
 );
 

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,11 +25,23 @@ import {
   Pencil,
   Trash2,
   Wallet,
+  ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  Eye,
+  ExternalLink,
 } from "lucide-react";
 import { toast } from "sonner";
 import { CompanyDetailDialog } from "@/components/financial/company-detail-dialog";
-import { CompanyBookingDialog } from "@/components/financial/company-booking-dialog";
+import {
+  CompanyBookingDialog,
+  type BookingEditTarget,
+} from "@/components/financial/company-booking-dialog";
+import {
+  EXPENSE_CATEGORIES,
+  EXPENSE_TAX_TREATMENT_LABELS,
+  INCOME_TAX_TREATMENT_LABELS,
+} from "@/lib/expense-categories";
 
 async function saveErrorDescription(res: Response): Promise<string> {
   const data = await res.json().catch(() => null);
@@ -130,6 +143,26 @@ interface EmployeeLiabilities {
   }>;
 }
 
+/** Row from GET /api/v1/financial/bookings. */
+interface BookingRow {
+  id: string;
+  type: "income" | "expense";
+  date: string;
+  amount: number;
+  category?: string | null;
+  taxTreatment: string;
+  deductiblePercent?: number | null;
+  receiptNumber: string | null;
+  hasReceipt: boolean;
+  description?: string | null;
+  payer?: string | null;
+  recipient?: string | null;
+  dealRecordId: string | null;
+  dealName: string | null;
+  operatingCompanyId: string;
+  operatingCompanyName: string;
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function eur(n: number) {
@@ -160,20 +193,43 @@ function generateMonths(): Array<{ value: string; label: string }> {
   return months.reverse();
 }
 
-const CATEGORY_LABELS: Record<string, string> = {
-  fuel: "Kraftstoff",
-  truck_rental: "LKW-Miete",
-  equipment: "Ausstattung",
-  subcontractor: "Subunternehmer",
-  toll: "Maut",
-  other: "Sonstiges",
-};
+const EXPENSE_CATEGORY_LABELS: Record<string, string> = Object.fromEntries(
+  EXPENSE_CATEGORIES.map((c) => [c.value, c.label])
+);
 
 const METHOD_LABELS: Record<string, string> = {
   cash: "Bar",
   bank_transfer: "Überweisung",
   other: "Sonstiges",
 };
+
+function openReceipt(type: "income" | "expense", id: string) {
+  window.open(
+    `/api/v1/financial/receipt?type=${type}&id=${encodeURIComponent(id)}`,
+    "_blank",
+    "noopener"
+  );
+}
+
+// Widened views of the label maps for lookups with plain string keys from the API.
+const INCOME_TREATMENT_LABELS: Record<string, string> = INCOME_TAX_TREATMENT_LABELS;
+const EXPENSE_TREATMENT_LABELS: Record<string, string> = EXPENSE_TAX_TREATMENT_LABELS;
+
+/** Compact tax treatment for table cells: "voll", "70%", "nicht", "n. steuerbar". */
+function taxShort(row: BookingRow): { short: string; full: string } {
+  if (row.type === "income") {
+    const full = INCOME_TREATMENT_LABELS[row.taxTreatment] ?? row.taxTreatment;
+    return row.taxTreatment === "nicht_steuerbar"
+      ? { short: "n. steuerbar", full }
+      : { short: "voll", full };
+  }
+  const full = EXPENSE_TREATMENT_LABELS[row.taxTreatment] ?? row.taxTreatment;
+  if (row.taxTreatment === "teilweise") {
+    return { short: `${row.deductiblePercent ?? 70}%`, full };
+  }
+  if (row.taxTreatment === "nicht") return { short: "nicht", full };
+  return { short: "voll", full };
+}
 
 // ─── KPI Cards ─────────────────────────────────────────────────────────────────
 
@@ -250,6 +306,344 @@ function KPICards({ summary }: { summary: FinancialSummary }) {
   );
 }
 
+// ─── Buchungen section ───────────────────────────────────────────────────────
+
+const TYPE_FILTERS = [
+  { value: "alle", label: "Alle" },
+  { value: "income", label: "Einnahmen" },
+  { value: "expense", label: "Ausgaben" },
+] as const;
+
+type TypeFilter = (typeof TYPE_FILTERS)[number]["value"];
+
+function BookingsSection({
+  month,
+  operatingCompanies,
+  refreshKey,
+  onChanged,
+}: {
+  /** "gesamt" or "YYYY-MM". */
+  month: string;
+  operatingCompanies: OperatingCompany[];
+  refreshKey: number;
+  onChanged: () => void;
+}) {
+  const [rows, setRows] = useState<BookingRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("alle");
+  const [companyFilter, setCompanyFilter] = useState("");
+  const [editTarget, setEditTarget] = useState<BookingEditTarget | null>(null);
+  const hasRowsRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (hasRowsRef.current) setRefreshing(true);
+    else setLoading(true);
+    setError(null);
+    const params = new URLSearchParams();
+    if (month !== "gesamt") params.set("month", month);
+    const qs = params.toString();
+    fetch(`/api/v1/financial/bookings${qs ? `?${qs}` : ""}`)
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((json) => {
+        if (cancelled) return;
+        setRows((json.data as BookingRow[]) ?? []);
+        hasRowsRef.current = true;
+      })
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        setError(e instanceof Error ? e.message : "Unbekannter Fehler");
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setLoading(false);
+        setRefreshing(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [month, refreshKey]);
+
+  const filtered = rows.filter(
+    (r) =>
+      (typeFilter === "alle" || r.type === typeFilter) &&
+      (companyFilter === "" || r.operatingCompanyId === companyFilter)
+  );
+
+  async function handleDelete(row: BookingRow) {
+    const label = row.type === "income" ? "Einnahme" : "Ausgabe";
+    if (!confirm(`${label} vom ${fmtDate(row.date)} über ${eur(row.amount)} wirklich löschen?`)) {
+      return;
+    }
+    try {
+      const res = await fetch(`/api/v1/financial/bookings/${row.id}?type=${row.type}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        toast.error("Löschen fehlgeschlagen", { description: await saveErrorDescription(res) });
+        return;
+      }
+      toast.success("Buchung gelöscht");
+      onChanged();
+    } catch {
+      toast.error("Löschen fehlgeschlagen", {
+        description: "Netzwerkfehler. Bitte erneut versuchen.",
+      });
+    }
+  }
+
+  function startEdit(row: BookingRow) {
+    setEditTarget({
+      id: row.id,
+      type: row.type,
+      date: row.date,
+      amount: row.amount,
+      operatingCompanyId: row.operatingCompanyId,
+      category: row.category ?? null,
+      taxTreatment: row.taxTreatment,
+      deductiblePercent: row.deductiblePercent ?? null,
+      description: row.description ?? null,
+      payer: row.payer ?? null,
+      recipient: row.recipient ?? null,
+    });
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-10">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <p className="text-sm text-destructive py-6 text-center">
+        Buchungen konnten nicht geladen werden ({error})
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        {TYPE_FILTERS.map((f) => (
+          <button
+            key={f.value}
+            type="button"
+            onClick={() => setTypeFilter(f.value)}
+            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+              typeFilter === f.value
+                ? "bg-primary text-primary-foreground"
+                : "bg-muted text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {f.label}
+          </button>
+        ))}
+        {refreshing && (
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" aria-hidden />
+        )}
+        {operatingCompanies.length > 0 && (
+          <select
+            aria-label="Nach Gesellschaft filtern"
+            className="ml-auto rounded-md border border-input bg-background px-2 py-1.5 text-xs"
+            value={companyFilter}
+            onChange={(e) => setCompanyFilter(e.target.value)}
+          >
+            <option value="">Alle Gesellschaften</option>
+            {operatingCompanies.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+        )}
+      </div>
+
+      {filtered.length === 0 ? (
+        <p className="text-sm text-muted-foreground py-8 text-center">
+          {rows.length === 0
+            ? "Keine Buchungen in diesem Zeitraum. Mit „Buchung erfassen“ eine Einnahme oder Ausgabe anlegen."
+            : "Keine Buchungen für diesen Filter."}
+        </p>
+      ) : (
+        <div
+          className={`rounded-lg border border-border overflow-x-auto transition-opacity ${
+            refreshing ? "opacity-60" : ""
+          }`}
+        >
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/50 text-xs">
+                <th className="text-left px-3 py-2 font-medium">Datum</th>
+                <th className="text-left px-2 py-2 font-medium">Beleg-Nr</th>
+                <th className="text-left px-2 py-2 font-medium">Art</th>
+                <th className="text-left px-2 py-2 font-medium">Kategorie</th>
+                <th className="text-left px-2 py-2 font-medium">Beschreibung</th>
+                <th className="text-left px-2 py-2 font-medium">Auftrag</th>
+                <th className="text-left px-2 py-2 font-medium">Gesellschaft</th>
+                <th className="text-left px-2 py-2 font-medium" title="Steuerliche Behandlung">Steuer</th>
+                <th className="text-right px-2 py-2 font-medium">Betrag</th>
+                <th className="text-center px-2 py-2 font-medium">Beleg</th>
+                <th className="px-2 py-2 w-16">
+                  <span className="sr-only">Aktionen</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((r) => {
+                const tax = taxShort(r);
+                const desc =
+                  r.description ||
+                  (r.type === "income" ? r.payer : r.recipient) ||
+                  null;
+                return (
+                  <tr key={`${r.type}-${r.id}`} className="border-b border-border last:border-0 hover:bg-muted/30">
+                    <td className="px-3 py-2 tabular-nums whitespace-nowrap text-xs">
+                      {fmtDate(r.date)}
+                    </td>
+                    <td className="px-2 py-2 whitespace-nowrap">
+                      {r.receiptNumber && (
+                        <span className="font-mono text-[11px] text-muted-foreground">
+                          {r.receiptNumber}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-2 py-2">
+                      <span
+                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap ${
+                          r.type === "income"
+                            ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400"
+                            : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
+                        }`}
+                      >
+                        {r.type === "income" ? "Einnahme" : "Ausgabe"}
+                      </span>
+                    </td>
+                    <td className="px-2 py-2 text-xs text-muted-foreground whitespace-nowrap">
+                      {r.type === "expense" && r.category
+                        ? (EXPENSE_CATEGORY_LABELS[r.category] ?? r.category)
+                        : "·"}
+                    </td>
+                    <td className="px-2 py-2 text-xs max-w-[180px]">
+                      {desc ? (
+                        <span className="block truncate" title={desc}>{desc}</span>
+                      ) : (
+                        <span className="text-muted-foreground">·</span>
+                      )}
+                    </td>
+                    <td className="px-2 py-2 text-xs max-w-[150px]">
+                      {r.dealRecordId ? (
+                        <Link
+                          href={`/objects/deals/${r.dealRecordId}`}
+                          className="block truncate text-primary hover:underline"
+                          title={r.dealName ?? "Auftrag öffnen"}
+                        >
+                          {r.dealName ?? "Auftrag"}
+                        </Link>
+                      ) : (
+                        <span className="text-muted-foreground">Ohne Auftrag</span>
+                      )}
+                    </td>
+                    <td className="px-2 py-2 text-xs max-w-[120px]">
+                      <span className="block truncate" title={r.operatingCompanyName}>
+                        {r.operatingCompanyName}
+                      </span>
+                    </td>
+                    <td className="px-2 py-2 text-xs whitespace-nowrap">
+                      <span
+                        title={tax.full}
+                        className={`tabular-nums ${
+                          tax.short === "nicht" || tax.short === "n. steuerbar"
+                            ? "text-rose-500"
+                            : tax.short === "voll"
+                              ? "text-emerald-600 dark:text-emerald-400"
+                              : "text-amber-600 dark:text-amber-400"
+                        }`}
+                      >
+                        {tax.short}
+                      </span>
+                    </td>
+                    <td
+                      className={`px-2 py-2 text-right tabular-nums font-medium whitespace-nowrap ${
+                        r.type === "income"
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : "text-red-600 dark:text-red-400"
+                      }`}
+                    >
+                      {r.type === "income" ? "+" : "−"}{eur(r.amount)}
+                    </td>
+                    <td className="px-2 py-2 text-center">
+                      {r.hasReceipt && (
+                        <button
+                          type="button"
+                          onClick={() => openReceipt(r.type, r.id)}
+                          className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+                          title="Beleg öffnen"
+                          aria-label="Beleg öffnen"
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </td>
+                    <td className="px-2 py-2">
+                      <div className="flex items-center gap-1 justify-end">
+                        {r.dealRecordId === null ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => startEdit(r)}
+                              className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+                              title="Bearbeiten"
+                              aria-label="Buchung bearbeiten"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(r)}
+                              className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-destructive"
+                              title="Löschen"
+                              aria-label="Buchung löschen"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </>
+                        ) : (
+                          <Link
+                            href={`/objects/deals/${r.dealRecordId}`}
+                            className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+                            title="Im Auftrag bearbeiten"
+                            aria-label="Im Auftrag bearbeiten"
+                          >
+                            <ExternalLink className="h-3.5 w-3.5" />
+                          </Link>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <CompanyBookingDialog
+        open={editTarget !== null}
+        onClose={() => setEditTarget(null)}
+        operatingCompanies={operatingCompanies}
+        onSaved={onChanged}
+        editing={editTarget}
+      />
+    </div>
+  );
+}
+
 // ─── Company breakdown + 50/50 settlement ─────────────────────────────────────
 
 function CompanyBreakdown({
@@ -318,8 +712,8 @@ function CompanyBreakdown({
   );
 
   return (
-    <div className="space-y-4">
-      <div className="rounded-lg border border-border overflow-hidden">
+    <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 items-start">
+      <div className="xl:col-span-2 rounded-lg border border-border overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/50">
@@ -362,7 +756,7 @@ function CompanyBreakdown({
           <ArrowRightLeft className="h-4 w-4 text-muted-foreground" />
           50/50 Ausgleich
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-1 gap-3 text-sm">
           <div className="space-y-1">
             <p className="text-muted-foreground">Betriebsergebnis gesamt</p>
             <p className={`text-lg font-bold ${totalNet >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
@@ -382,7 +776,7 @@ function CompanyBreakdown({
         ) : settlements.length > 0 ? (
           <div className="pt-2 border-t border-border">
             {settlements.map((s, i) => (
-              <div key={i} className="flex items-center gap-2 text-sm">
+              <div key={i} className="flex items-center gap-2 text-sm flex-wrap">
                 <span className="font-semibold text-amber-600 dark:text-amber-400">{s.from}</span>
                 <span className="text-muted-foreground">schuldet</span>
                 <span className="font-semibold text-amber-600 dark:text-amber-400">{s.to}</span>
@@ -520,19 +914,10 @@ function PrivateTransactionsSection({
 
   return (
     <>
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold flex items-center gap-2">
-          <Wallet className="h-4 w-4 text-muted-foreground" />
-          Privatbewegungen
-          {transactions.length > 0 && (
-            <span className="ml-2 text-xs font-normal text-muted-foreground">
-              {transactions.length} {transactions.length === 1 ? "Eintrag" : "Einträge"}
-            </span>
-          )}
-        </h3>
+      <div className="flex items-center justify-end mb-3">
         <Button size="sm" variant="outline" onClick={openAdd} disabled={operatingCompanies.length === 0}>
           <Plus className="h-3.5 w-3.5 mr-1" />
-          Hinzufügen
+          Privatbewegung hinzufügen
         </Button>
       </div>
 
@@ -579,10 +964,20 @@ function PrivateTransactionsSection({
                   </td>
                   <td className="px-3 py-2">
                     <div className="flex items-center gap-1 justify-end">
-                      <button onClick={() => openEdit(t)} className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground">
+                      <button
+                        onClick={() => openEdit(t)}
+                        className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+                        title="Bearbeiten"
+                        aria-label="Privatbewegung bearbeiten"
+                      >
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
-                      <button onClick={() => handleDelete(t.id)} className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-destructive">
+                      <button
+                        onClick={() => handleDelete(t.id)}
+                        className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-destructive"
+                        title="Löschen"
+                        aria-label="Privatbewegung löschen"
+                      >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     </div>
@@ -775,7 +1170,7 @@ function DealsTable({ deals }: { deals: DealRow[] }) {
   );
 }
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
+// ─── Employee liabilities ────────────────────────────────────────────────────
 
 function EmployeeLiabilitiesSection({ liabilities }: { liabilities: EmployeeLiabilities }) {
   const openColor = (v: number) =>
@@ -841,20 +1236,71 @@ function EmployeeLiabilitiesSection({ liabilities }: { liabilities: EmployeeLiab
   );
 }
 
+// ─── Collapsible section card ────────────────────────────────────────────────
+
+function CollapsibleCard({
+  title,
+  subtitle,
+  badge,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  badge?: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <Card>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="w-full flex items-center gap-3 px-6 py-4 text-left hover:bg-muted/30 transition-colors rounded-xl"
+      >
+        {open ? (
+          <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+        ) : (
+          <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+        )}
+        <span className="min-w-0">
+          <span className="block text-base font-semibold truncate">{title}</span>
+          {subtitle && (
+            <span className="block text-xs text-muted-foreground truncate">{subtitle}</span>
+          )}
+        </span>
+        {badge && (
+          <span className="ml-auto text-xs text-muted-foreground whitespace-nowrap">{badge}</span>
+        )}
+      </button>
+      {open && <CardContent className="pt-2">{children}</CardContent>}
+    </Card>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
 export default function FinancialPage() {
-  const MONTHS = generateMonths();
+  const MONTHS = useMemo(generateMonths, []);
   const [selectedMonth, setSelectedMonth] = useState<string>("gesamt");
   const [data, setData] = useState<FinancialData | null>(null);
   const [liabilities, setLiabilities] = useState<EmployeeLiabilities | null>(null);
   const [operatingCompanies, setOperatingCompanies] = useState<OperatingCompany[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [selectedCompany, setSelectedCompany] = useState<CompanyRow | null>(null);
   const [bookingOpen, setBookingOpen] = useState(false);
+  const hasDataRef = useRef(false);
 
   const fetchData = useCallback(() => {
-    setLoading(true);
+    // Initial load shows the big spinner; later switches keep the page
+    // rendered and only dim it (refreshing).
+    if (hasDataRef.current) setRefreshing(true);
+    else setLoading(true);
     setError(null);
     const url = selectedMonth === "gesamt"
       ? "/api/v1/financial/overview"
@@ -862,21 +1308,31 @@ export default function FinancialPage() {
     Promise.all([
       fetch(url).then((res) => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json(); }),
       fetch("/api/v1/operating-companies").then((res) => res.json()),
-      // Cumulative liabilities — independent of the selected month.
+      // Cumulative liabilities, independent of the selected month.
       fetch("/api/v1/employees/liabilities").then((res) => (res.ok ? res.json() : { data: null })),
     ])
       .then(([overview, oc, liab]) => {
         setData(overview.data);
+        hasDataRef.current = true;
         setOperatingCompanies(oc.data ?? []);
         setLiabilities(liab.data ?? null);
       })
       .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        setRefreshing(false);
+      });
   }, [selectedMonth, refreshKey]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
   const refresh = () => setRefreshKey((k) => k + 1);
+
+  // Ordered timeline for the arrow navigation: Gesamt, then newest -> oldest.
+  const navOrder = useMemo(() => ["gesamt", ...MONTHS.map((m) => m.value)], [MONTHS]);
+  const navIndex = navOrder.indexOf(selectedMonth);
+  const canGoOlder = navIndex >= 0 && navIndex < navOrder.length - 1;
+  const canGoNewer = navIndex > 0;
 
   const selectedLabel = selectedMonth === "gesamt"
     ? "Gesamt"
@@ -893,29 +1349,40 @@ export default function FinancialPage() {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          <button
-            onClick={() => setSelectedMonth("gesamt")}
-            className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-              selectedMonth === "gesamt"
-                ? "bg-primary text-primary-foreground"
-                : "bg-muted text-muted-foreground hover:text-foreground"
-            }`}
+          <Button
+            variant="outline"
+            size="icon"
+            aria-label="Älterer Monat"
+            title="Älterer Monat"
+            disabled={!canGoOlder}
+            onClick={() => setSelectedMonth(navOrder[navIndex + 1])}
           >
-            Gesamt
-          </button>
-          {MONTHS.map((m) => (
-            <button
-              key={m.value}
-              onClick={() => setSelectedMonth(m.value)}
-              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                selectedMonth === m.value
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {m.label}
-            </button>
-          ))}
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <select
+            aria-label="Zeitraum wählen"
+            className="rounded-md border border-input bg-background px-3 py-2 text-sm font-medium min-w-[160px]"
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(e.target.value)}
+          >
+            <option value="gesamt">Gesamt</option>
+            {MONTHS.map((m) => (
+              <option key={m.value} value={m.value}>{m.label}</option>
+            ))}
+          </select>
+          <Button
+            variant="outline"
+            size="icon"
+            aria-label="Neuerer Monat"
+            title="Neuerer Monat"
+            disabled={!canGoNewer}
+            onClick={() => setSelectedMonth(navOrder[navIndex - 1])}
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+          {refreshing && (
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden />
+          )}
           <Button
             size="sm"
             className="ml-1"
@@ -940,14 +1407,31 @@ export default function FinancialPage() {
           </div>
         </div>
       ) : (
-        <div className="space-y-6">
+        <div className={`space-y-6 transition-opacity ${refreshing ? "opacity-60" : ""}`}>
           <KPICards summary={data.summary} />
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm">Aufteilung pro Betriebsgesellschaft</CardTitle>
+              <CardTitle className="text-base">Buchungen · {selectedLabel}</CardTitle>
               <p className="text-xs text-muted-foreground">
-                Auf eine Firma klicken für Details, Tortendiagramme und Drilldown.
+                Alle Einnahmen und Ausgaben im Zeitraum. Jeder Beleg lässt sich über das Auge wieder öffnen.
+              </p>
+            </CardHeader>
+            <CardContent>
+              <BookingsSection
+                month={selectedMonth}
+                operatingCompanies={operatingCompanies}
+                refreshKey={refreshKey}
+                onChanged={refresh}
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Gesellschaften &amp; Ausgleich</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Auf eine Gesellschaft klicken für Details, Tortendiagramme und Drilldown.
               </p>
             </CardHeader>
             <CardContent>
@@ -958,38 +1442,43 @@ export default function FinancialPage() {
             </CardContent>
           </Card>
 
+          <CollapsibleCard
+            title="Privatbewegungen"
+            subtitle="Einlagen und Entnahmen der Partner"
+            badge={
+              data.privateTransactions.length > 0
+                ? `${data.privateTransactions.length} ${data.privateTransactions.length === 1 ? "Eintrag" : "Einträge"}`
+                : undefined
+            }
+          >
+            <PrivateTransactionsSection
+              transactions={data.privateTransactions}
+              operatingCompanies={operatingCompanies}
+              onChanged={refresh}
+            />
+          </CollapsibleCard>
+
           {liabilities && liabilities.byEmployee.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm">Was wir Mitarbeitern schulden</CardTitle>
-                <p className="text-xs text-muted-foreground">
-                  Offener Saldo gesamt (kumulativ, unabhängig vom Monat). Verdient minus bereits Ausgezahlt/Verrechnet.
-                </p>
-              </CardHeader>
-              <CardContent>
-                <EmployeeLiabilitiesSection liabilities={liabilities} />
-              </CardContent>
-            </Card>
+            <CollapsibleCard
+              title="Schulden-Bilanz Mitarbeiter"
+              subtitle="Kumulativ, unabhängig vom Monat: Verdient minus Ausgezahlt/Verrechnet"
+              badge={`Offen: ${eur(liabilities.totalOpen)}`}
+            >
+              <EmployeeLiabilitiesSection liabilities={liabilities} />
+            </CollapsibleCard>
           )}
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">Aufträge · {selectedLabel}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <DealsTable deals={data.deals} />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="pt-6">
-              <PrivateTransactionsSection
-                transactions={data.privateTransactions}
-                operatingCompanies={operatingCompanies}
-                onChanged={refresh}
-              />
-            </CardContent>
-          </Card>
+          <CollapsibleCard
+            title={`Aufträge · ${selectedLabel}`}
+            subtitle="Einnahmen, Kosten und Gewinn pro Auftrag"
+            badge={
+              data.deals.length > 0
+                ? `${data.deals.length} ${data.deals.length === 1 ? "Auftrag" : "Aufträge"}`
+                : undefined
+            }
+          >
+            <DealsTable deals={data.deals} />
+          </CollapsibleCard>
         </div>
       )}
 

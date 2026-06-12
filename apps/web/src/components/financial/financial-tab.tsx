@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { prepareReceiptDataUrl } from "@/lib/receipt-image";
+import { EXPENSE_CATEGORIES, EXPENSE_TAX_TREATMENT_LABELS } from "@/lib/expense-categories";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -50,7 +51,10 @@ interface Payment {
   paymentMethod: string | null;
   reference: string | null;
   notes: string | null;
+  receiptNumber: string | null;
 }
+
+type ExpenseTaxTreatment = "voll" | "teilweise" | "nicht";
 
 interface Expense {
   id: string;
@@ -60,9 +64,11 @@ interface Expense {
   description: string | null;
   recipient: string | null;
   paymentMethod: string | null;
-  isTaxDeductible: boolean;
+  taxTreatment: ExpenseTaxTreatment;
+  deductiblePercent: number | null;
+  receiptNumber: string | null;
+  hasReceipt: boolean;
   payingOperatingCompanyId: string | null;
-  receiptFile: string | null;
 }
 
 interface EmployeeCost {
@@ -78,6 +84,7 @@ interface EmployeeCost {
   payingOperatingCompanyId: string | null;
   operatingCompanyId: string | null;
   receiptFile: string | null;
+  hasReceipt?: boolean;
 }
 
 interface OperatingCompany {
@@ -128,6 +135,8 @@ async function saveErrorDescription(res: Response): Promise<string> {
   return "Bitte erneut versuchen.";
 }
 
+// Fallback-Labels für Alt-Einträge, deren Kategorie nicht (mehr) in der
+// zentralen Liste vorkommt. Picker und Anzeige nutzen EXPENSE_CATEGORIES.
 const CATEGORY_LABELS: Record<string, string> = {
   fuel: "Kraftstoff",
   truck_rental: "LKW-Miete",
@@ -136,6 +145,21 @@ const CATEGORY_LABELS: Record<string, string> = {
   toll: "Maut",
   other: "Sonstiges",
 };
+
+const LIB_CATEGORY_LABELS: Record<string, string> = Object.fromEntries(
+  EXPENSE_CATEGORIES.map((c) => [c.value, c.label])
+);
+
+function expenseCategoryLabel(category: string) {
+  return LIB_CATEGORY_LABELS[category] ?? CATEGORY_LABELS[category] ?? category;
+}
+
+/** Kompakte Anzeige der steuerlichen Behandlung: "voll" / "70%" / "nicht". */
+function expenseTreatmentCompact(e: Expense) {
+  const t = e.taxTreatment ?? "voll";
+  if (t === "teilweise") return `${e.deductiblePercent ?? 70}%`;
+  return t;
+}
 
 const TYPE_LABELS: Record<string, string> = {
   earning: "Verdienst",
@@ -383,7 +407,14 @@ function PaymentsSection({
             <tbody>
               {payments.map((p) => (
                 <tr key={p.id} className="border-b border-border last:border-0 hover:bg-muted/30">
-                  <td className="px-3 py-2 tabular-nums whitespace-nowrap">{fmtDate(p.date)}</td>
+                  <td className="px-3 py-2 tabular-nums whitespace-nowrap">
+                    {fmtDate(p.date)}
+                    {p.receiptNumber && (
+                      <span className="ml-1.5 font-mono text-[10px] text-muted-foreground">
+                        {p.receiptNumber}
+                      </span>
+                    )}
+                  </td>
                   <td className="px-3 py-2">{p.payer ?? "·"}</td>
                   <td className="px-3 py-2 text-muted-foreground text-xs">{p.paymentMethod ?? "·"}</td>
                   <td className="px-3 py-2 text-muted-foreground text-xs max-w-[120px] truncate">{p.reference ?? "·"}</td>
@@ -525,20 +556,25 @@ function ExpensesSection({
     description: "",
     recipient: "",
     paymentMethod: "",
-    isTaxDeductible: true,
+    taxTreatment: "voll" as ExpenseTaxTreatment,
+    deductiblePercent: "70",
     payingOperatingCompanyId: "",
     receiptFile: null as string | null,
     receiptName: "" as string,
   });
 
+  const categoryDef = EXPENSE_CATEGORIES.find((c) => c.value === form.category);
+
   function openAdd() {
     setEditing(null);
-    setForm({ date: new Date().toISOString().slice(0, 10), amount: "", category: "other", description: "", recipient: "", paymentMethod: "", isTaxDeductible: true, payingOperatingCompanyId: "", receiptFile: null, receiptName: "" });
+    const def = EXPENSE_CATEGORIES.find((c) => c.value === "other");
+    setForm({ date: new Date().toISOString().slice(0, 10), amount: "", category: "other", description: "", recipient: "", paymentMethod: "", taxTreatment: def?.defaultTreatment ?? "voll", deductiblePercent: String(def?.defaultPercent ?? 70), payingOperatingCompanyId: "", receiptFile: null, receiptName: "" });
     setOpen(true);
   }
 
   function openEdit(e: Expense) {
     setEditing(e);
+    const def = EXPENSE_CATEGORIES.find((c) => c.value === e.category);
     setForm({
       date: e.date,
       amount: String(Number(e.amount).toFixed(2)),
@@ -546,10 +582,11 @@ function ExpensesSection({
       description: e.description ?? "",
       recipient: e.recipient ?? "",
       paymentMethod: e.paymentMethod ?? "",
-      isTaxDeductible: e.isTaxDeductible,
+      taxTreatment: e.taxTreatment ?? "voll",
+      deductiblePercent: String(e.deductiblePercent ?? def?.defaultPercent ?? 70),
       payingOperatingCompanyId: e.payingOperatingCompanyId ?? "",
       receiptFile: null,
-      receiptName: e.receiptFile ? "Vorhandener Beleg" : "",
+      receiptName: e.hasReceipt ? "Vorhandener Beleg" : "",
     });
     setOpen(true);
   }
@@ -565,6 +602,16 @@ function ExpensesSection({
 
   async function handleSave() {
     if (!form.date || !form.amount) return;
+    const deductiblePercent = Number(form.deductiblePercent);
+    if (
+      form.taxTreatment === "teilweise" &&
+      (!Number.isFinite(deductiblePercent) || deductiblePercent < 1 || deductiblePercent > 99)
+    ) {
+      toast.error("Buchung konnte nicht gespeichert werden", {
+        description: "Absetzbarer Anteil muss zwischen 1 und 99 Prozent liegen.",
+      });
+      return;
+    }
     setSaving(true);
     try {
       const body: Record<string, unknown> = {
@@ -574,9 +621,10 @@ function ExpensesSection({
         description: form.description || null,
         recipient: form.recipient || null,
         paymentMethod: form.paymentMethod || null,
-        isTaxDeductible: form.isTaxDeductible,
+        taxTreatment: form.taxTreatment,
         payingOperatingCompanyId: form.payingOperatingCompanyId || null,
       };
+      if (form.taxTreatment === "teilweise") body.deductiblePercent = deductiblePercent;
       // Only send receiptFile when a new file was picked, so editing without
       // re-uploading keeps the existing Beleg.
       if (form.receiptFile !== null) body.receiptFile = form.receiptFile;
@@ -658,6 +706,8 @@ function ExpensesSection({
                 <th className="text-left px-3 py-2 font-medium">Kategorie</th>
                 <th className="text-left px-3 py-2 font-medium">Beschreibung</th>
                 <th className="text-left px-3 py-2 font-medium">Empfänger</th>
+                <th className="text-left px-3 py-2 font-medium">Steuer</th>
+                <th className="text-left px-3 py-2 font-medium">Beleg-Nr.</th>
                 <th className="text-right px-3 py-2 font-medium">Betrag</th>
                 <th className="px-3 py-2 w-16" />
               </tr>
@@ -668,26 +718,31 @@ function ExpensesSection({
                   <td className="px-3 py-2 tabular-nums whitespace-nowrap">{fmtDate(e.date)}</td>
                   <td className="px-3 py-2">
                     <Badge variant="secondary" className="text-xs">
-                      {CATEGORY_LABELS[e.category] ?? e.category}
+                      {expenseCategoryLabel(e.category)}
                     </Badge>
                   </td>
                   <td className="px-3 py-2 text-muted-foreground max-w-[160px] truncate">{e.description ?? "·"}</td>
                   <td className="px-3 py-2 text-muted-foreground text-xs">{e.recipient ?? "·"}</td>
+                  <td className="px-3 py-2 text-muted-foreground text-xs whitespace-nowrap">
+                    {expenseTreatmentCompact(e)}
+                  </td>
+                  <td className="px-3 py-2 font-mono text-muted-foreground text-xs whitespace-nowrap">
+                    {e.receiptNumber ?? "·"}
+                  </td>
                   <td className="px-3 py-2 text-right font-medium tabular-nums text-red-600 dark:text-red-400">
                     {eur(e.amount)}
                   </td>
                   <td className="px-3 py-2">
                     <div className="flex items-center gap-1 justify-end">
-                      {e.receiptFile && (
-                        <a
-                          href={`/api/v1/deals/${recordId}/expenses/${e.id}/receipt`}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                      {e.hasReceipt && (
+                        <button
+                          onClick={() => window.open(`/api/v1/financial/receipt?type=expense&id=${e.id}`, "_blank", "noopener,noreferrer")}
                           className="p-1 rounded hover:bg-muted text-primary"
                           title="Beleg ansehen"
+                          aria-label="Beleg ansehen"
                         >
-                          <FileText className="h-3.5 w-3.5" />
-                        </a>
+                          <Eye className="h-3.5 w-3.5" />
+                        </button>
                       )}
                       <button
                         onClick={() => openEdit(e)}
@@ -744,15 +799,26 @@ function ExpensesSection({
               <select
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 value={form.category}
-                onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
+                onChange={(e) => {
+                  const def = EXPENSE_CATEGORIES.find((c) => c.value === e.target.value);
+                  setForm((f) => ({
+                    ...f,
+                    category: e.target.value,
+                    taxTreatment: def?.defaultTreatment ?? f.taxTreatment,
+                    deductiblePercent: String(def?.defaultPercent ?? 70),
+                  }));
+                }}
               >
-                <option value="fuel">Kraftstoff</option>
-                <option value="truck_rental">LKW-Miete</option>
-                <option value="equipment">Ausstattung</option>
-                <option value="subcontractor">Subunternehmer</option>
-                <option value="toll">Maut</option>
-                <option value="other">Sonstiges</option>
+                {EXPENSE_CATEGORIES.map((c) => (
+                  <option key={c.value} value={c.value}>{c.label}</option>
+                ))}
+                {!EXPENSE_CATEGORIES.some((c) => c.value === form.category) && (
+                  <option value={form.category}>{expenseCategoryLabel(form.category)}</option>
+                )}
               </select>
+              {categoryDef?.hint && (
+                <p className="text-[11px] text-muted-foreground mt-1">{categoryDef.hint}</p>
+              )}
             </div>
             <div>
               <label className="text-xs text-muted-foreground mb-1 block">Beschreibung</label>
@@ -802,18 +868,34 @@ function ExpensesSection({
                   ))}
                 </select>
               </div>
-              <div className="flex items-end">
-                <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 rounded border-input"
-                    checked={form.isTaxDeductible}
-                    onChange={(e) => setForm((f) => ({ ...f, isTaxDeductible: e.target.checked }))}
-                  />
-                  Steuerlich absetzbar
-                </label>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Steuerliche Behandlung</label>
+                <select
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:opacity-60"
+                  value={form.taxTreatment}
+                  disabled={categoryDef?.locked ?? false}
+                  onChange={(e) => setForm((f) => ({ ...f, taxTreatment: e.target.value as ExpenseTaxTreatment }))}
+                >
+                  {(["voll", "teilweise", "nicht"] as const).map((t) => (
+                    <option key={t} value={t}>{EXPENSE_TAX_TREATMENT_LABELS[t]}</option>
+                  ))}
+                </select>
               </div>
             </div>
+            {form.taxTreatment === "teilweise" && (
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Absetzbarer Anteil (%)</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="99"
+                  step="1"
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={form.deductiblePercent}
+                  onChange={(e) => setForm((f) => ({ ...f, deductiblePercent: e.target.value }))}
+                />
+              </div>
+            )}
             <div>
               <label className="text-xs text-muted-foreground mb-1 block">Beleg / Rechnung (Bild oder PDF)</label>
               <div className="flex items-center gap-2">
@@ -839,9 +921,9 @@ function ExpensesSection({
               {form.receiptName && (
                 <p className="text-[11px] text-muted-foreground mt-1 truncate">{form.receiptName}</p>
               )}
-              {editing?.receiptFile && (
+              {editing?.hasReceipt && (
                 <a
-                  href={`/api/v1/deals/${recordId}/expenses/${editing.id}/receipt`}
+                  href={`/api/v1/financial/receipt?type=expense&id=${editing.id}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline mt-1"
@@ -1077,6 +1159,16 @@ function EmployeeCostsSection({
                     </td>
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-1 justify-end">
+                        {(c.hasReceipt ?? c.receiptFile != null) && (
+                          <button
+                            onClick={() => window.open(`/api/v1/financial/receipt?type=ledger&id=${c.id}`, "_blank", "noopener,noreferrer")}
+                            className="p-1 rounded hover:bg-muted text-primary"
+                            title="Beleg ansehen"
+                            aria-label="Beleg ansehen"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                         <button
                           onClick={() => openEdit(c)}
                           className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"

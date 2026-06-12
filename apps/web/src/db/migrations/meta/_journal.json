@@ -197,6 +197,13 @@
       "when": 1781251386003,
       "tag": "0037_wild_smiling_tiger",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1781252634327,
+      "tag": "0038_absent_the_hood",
+      "breakpoints": true
     }
   ]
 }

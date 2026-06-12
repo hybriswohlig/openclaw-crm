@@ -17,9 +17,14 @@ import {
   Building2,
   ChevronDown,
   ChevronRight,
+  Eye,
   ShieldCheck,
   ShieldOff,
 } from "lucide-react";
+import {
+  EXPENSE_CATEGORIES,
+  EXPENSE_TAX_TREATMENT_LABELS,
+} from "@/lib/expense-categories";
 
 // ─── Types (mirror server CompanyDetails) ────────────────────────────────────
 
@@ -54,6 +59,8 @@ interface CompanyDetails {
       paymentMethod: string | null;
       reference: string | null;
       notes: string | null;
+      receiptNumber: string | null;
+      hasReceipt: boolean;
     }>;
   }>;
   expensesByCategory: Array<{
@@ -71,7 +78,10 @@ interface CompanyDetails {
     description: string | null;
     recipient: string | null;
     paymentMethod: string | null;
-    isTaxDeductible: boolean;
+    taxTreatment: "voll" | "teilweise" | "nicht";
+    deductiblePercent: number | null;
+    receiptNumber: string | null;
+    hasReceipt: boolean;
     isCrossSubsidy: boolean;
     dealRecordId: string | null;
     dealNumber: string | null;
@@ -139,14 +149,17 @@ function fmtDate(s: string) {
   });
 }
 
-const CATEGORY_LABELS: Record<string, string> = {
-  fuel: "Kraftstoff",
-  truck_rental: "LKW-Miete",
-  equipment: "Ausstattung",
-  subcontractor: "Subunternehmer",
-  toll: "Maut",
-  other: "Sonstiges",
-};
+const CATEGORY_LABELS: Record<string, string> = Object.fromEntries(
+  EXPENSE_CATEGORIES.map((c) => [c.value, c.label])
+);
+
+function openReceipt(type: "income" | "expense", id: string) {
+  window.open(
+    `/api/v1/financial/receipt?type=${type}&id=${encodeURIComponent(id)}`,
+    "_blank",
+    "noopener"
+  );
+}
 
 const TYPE_LABELS: Record<string, string> = {
   earning: "Verdienst",
@@ -511,6 +524,67 @@ function DeductibleIcon({ deductible }: { deductible: boolean }) {
   );
 }
 
+/** Compact tax treatment: "voll", "70%", "nicht" with full label as title. */
+function TreatmentCell({
+  treatment,
+  percent,
+}: {
+  treatment: "voll" | "teilweise" | "nicht";
+  percent: number | null;
+}) {
+  const label = EXPENSE_TAX_TREATMENT_LABELS[treatment] ?? treatment;
+  const short = treatment === "teilweise" ? `${percent ?? 70}%` : treatment;
+  return (
+    <span
+      title={label}
+      className={`text-xs tabular-nums ${
+        treatment === "nicht"
+          ? "text-rose-500"
+          : treatment === "teilweise"
+            ? "text-amber-600 dark:text-amber-400"
+            : "text-emerald-600 dark:text-emerald-400"
+      }`}
+    >
+      {short}
+    </span>
+  );
+}
+
+/** Beleg-Nr (muted mono) plus Eye button when the receipt is stored. */
+function ReceiptCell({
+  type,
+  id,
+  receiptNumber,
+  hasReceipt,
+}: {
+  type: "income" | "expense";
+  id: string;
+  receiptNumber: string | null;
+  hasReceipt: boolean;
+}) {
+  if (!receiptNumber && !hasReceipt) {
+    return <span className="text-muted-foreground text-xs">·</span>;
+  }
+  return (
+    <span className="inline-flex items-center gap-1 whitespace-nowrap">
+      {receiptNumber && (
+        <span className="font-mono text-[11px] text-muted-foreground">{receiptNumber}</span>
+      )}
+      {hasReceipt && (
+        <button
+          type="button"
+          onClick={() => openReceipt(type, id)}
+          className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+          title="Beleg öffnen"
+          aria-label="Beleg öffnen"
+        >
+          <Eye className="h-3.5 w-3.5" />
+        </button>
+      )}
+    </span>
+  );
+}
+
 // ─── Main Dialog ─────────────────────────────────────────────────────────────
 
 export function CompanyDetailDialog({
@@ -709,6 +783,22 @@ export function CompanyDetailDialog({
                               {p.reference ? ` · ${p.reference}` : ""}
                               {p.paymentMethod ? ` · ${p.paymentMethod}` : ""}
                             </span>
+                            {p.receiptNumber && (
+                              <span className="font-mono text-[10px] whitespace-nowrap">
+                                {p.receiptNumber}
+                              </span>
+                            )}
+                            {p.hasReceipt && (
+                              <button
+                                type="button"
+                                onClick={() => openReceipt("income", p.id)}
+                                className="p-0.5 rounded hover:bg-muted hover:text-foreground"
+                                title="Beleg öffnen"
+                                aria-label="Beleg öffnen"
+                              >
+                                <Eye className="h-3 w-3" />
+                              </button>
+                            )}
                             <span className="font-medium tabular-nums text-foreground">
                               {eur(p.amount)}
                             </span>
@@ -737,8 +827,11 @@ export function CompanyDetailDialog({
                       <th className="text-left px-4 py-2 font-medium">
                         Auftrag
                       </th>
-                      <th className="text-center px-2 py-2 font-medium" title="Steuerlich absetzbar">
+                      <th className="text-center px-2 py-2 font-medium" title="Steuerliche Behandlung">
                         Steuer
+                      </th>
+                      <th className="text-left px-2 py-2 font-medium">
+                        Beleg
                       </th>
                       <th className="text-right px-4 py-2 font-medium">
                         Betrag
@@ -774,7 +867,18 @@ export function CompanyDetailDialog({
                           )}
                         </td>
                         <td className="px-2 py-2 text-center">
-                          <DeductibleIcon deductible={e.isTaxDeductible} />
+                          <TreatmentCell
+                            treatment={e.taxTreatment}
+                            percent={e.deductiblePercent}
+                          />
+                        </td>
+                        <td className="px-2 py-2">
+                          <ReceiptCell
+                            type="expense"
+                            id={e.id}
+                            receiptNumber={e.receiptNumber}
+                            hasReceipt={e.hasReceipt}
+                          />
                         </td>
                         <td className="px-4 py-2 text-right tabular-nums font-medium text-red-600 dark:text-red-400">
                           {eur(e.amount)}

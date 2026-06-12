@@ -15,7 +15,7 @@ import {
   Briefcase,
   Wallet,
   Receipt,
-  FileText,
+  Eye,
   Scale,
   ShieldOff,
   ArrowRightLeft,
@@ -935,16 +935,15 @@ function LedgerTable({
                 </td>
                 <td className="px-3 py-1.5 whitespace-nowrap">
                   {t.hasReceipt ? (
-                    <a
-                      href={`/api/v1/employee-ledger/${t.id}/receipt`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                      title="Beleg ansehen"
+                    <button
+                      type="button"
+                      onClick={() => window.open(`/api/v1/financial/receipt?type=ledger&id=${t.id}`, "_blank", "noopener,noreferrer")}
+                      className="p-1 rounded hover:bg-muted text-primary"
+                      title="Beleg öffnen"
+                      aria-label="Beleg öffnen"
                     >
-                      <FileText className="h-3.5 w-3.5" />
-                      ansehen
-                    </a>
+                      <Eye className="h-3.5 w-3.5" />
+                    </button>
                   ) : (
                     <span className="text-xs text-muted-foreground">·</span>
                   )}

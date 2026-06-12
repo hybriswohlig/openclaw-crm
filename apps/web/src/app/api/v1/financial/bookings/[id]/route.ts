@@ -1,6 +1,11 @@
 import { NextRequest } from "next/server";
 import { getAuthContext, unauthorized, badRequest, notFound, success } from "@/lib/api-utils";
-import { updateCompanyBooking, deleteCompanyBooking } from "@/services/financial";
+import {
+  updateCompanyBooking,
+  deleteCompanyBooking,
+  type ExpenseCategory,
+} from "@/services/financial";
+import { EXPENSE_CATEGORIES } from "@/lib/expense-categories";
 import { db } from "@/db";
 import { objects } from "@/db/schema/objects";
 import { records } from "@/db/schema/records";
@@ -9,13 +14,23 @@ import { eq, and, isNull } from "drizzle-orm";
 const VALID_TYPES = ["income", "expense"] as const;
 type BookingType = (typeof VALID_TYPES)[number];
 
-const VALID_CATEGORIES = ["fuel", "truck_rental", "equipment", "subcontractor", "toll", "other"] as const;
-type Category = (typeof VALID_CATEGORIES)[number];
+const CATEGORY_VALUES = EXPENSE_CATEGORIES.map((c) => c.value);
+type Category = ExpenseCategory;
+
+const EXPENSE_TREATMENTS = ["voll", "teilweise", "nicht"] as const;
+type ExpenseTreatment = (typeof EXPENSE_TREATMENTS)[number];
+const INCOME_TREATMENTS = ["betriebseinnahme", "nicht_steuerbar"] as const;
+type IncomeTreatment = (typeof INCOME_TREATMENTS)[number];
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const isValidAmount = (v: unknown) => Number.isFinite(Number(v)) && Number(v) > 0;
 const isValidDate = (v: unknown) =>
   typeof v === "string" && DATE_RE.test(v) && !Number.isNaN(Date.parse(v));
+const isValidPercent = (v: unknown) =>
+  (typeof v === "number" || typeof v === "string") &&
+  Number.isInteger(Number(v)) &&
+  Number(v) >= 1 &&
+  Number(v) <= 99;
 
 /** Max accepted receipt data-URL length (~3 MB). Client compresses to ~2 MB. */
 const MAX_RECEIPT_LENGTH = 3 * 1024 * 1024;
@@ -100,6 +115,8 @@ export async function PATCH(
     paymentMethod,
     notes,
     isTaxDeductible,
+    taxTreatment,
+    deductiblePercent,
     receiptFile,
     receiptName,
   } = body;
@@ -128,12 +145,49 @@ export async function PATCH(
     if (type !== "expense") {
       return badRequest("Kategorie ist nur für Ausgaben erlaubt");
     }
-    if (!VALID_CATEGORIES.includes(category)) {
-      return badRequest(`Kategorie muss eine der folgenden sein: ${VALID_CATEGORIES.join(", ")}`);
+    if (!CATEGORY_VALUES.includes(category)) {
+      return badRequest(`Kategorie muss eine der folgenden sein: ${CATEGORY_VALUES.join(", ")}`);
     }
   }
   if (isTaxDeductible !== undefined && typeof isTaxDeductible !== "boolean") {
     return badRequest("isTaxDeductible muss ein Boolean sein");
+  }
+
+  // --- Steuerliche Behandlung ------------------------------------------
+  let resolvedTreatment: ExpenseTreatment | IncomeTreatment | undefined;
+  let resolvedPercent: number | undefined;
+  if (taxTreatment !== undefined && taxTreatment !== null) {
+    if (type === "expense") {
+      if (!EXPENSE_TREATMENTS.includes(taxTreatment)) {
+        return badRequest("taxTreatment muss voll, teilweise oder nicht sein");
+      }
+    } else if (!INCOME_TREATMENTS.includes(taxTreatment)) {
+      return badRequest("taxTreatment muss betriebseinnahme oder nicht_steuerbar sein");
+    }
+    resolvedTreatment = taxTreatment;
+  } else if (type === "expense" && typeof isTaxDeductible === "boolean") {
+    // Legacy-Clients senden noch isTaxDeductible statt taxTreatment.
+    resolvedTreatment = isTaxDeductible ? "voll" : "nicht";
+  }
+  if (deductiblePercent !== undefined && deductiblePercent !== null) {
+    if (type !== "expense") {
+      return badRequest("deductiblePercent ist nur für Ausgaben erlaubt");
+    }
+    if (!isValidPercent(deductiblePercent)) {
+      return badRequest("deductiblePercent muss eine ganze Zahl zwischen 1 und 99 sein");
+    }
+    if (resolvedTreatment !== "teilweise") {
+      return badRequest("deductiblePercent ist nur bei taxTreatment teilweise erlaubt");
+    }
+    resolvedPercent = Number(deductiblePercent);
+  }
+  if (resolvedTreatment === "teilweise" && resolvedPercent === undefined) {
+    resolvedPercent = 70;
+  }
+  // Bußgelder sind nie abziehbar (serverseitige Regel).
+  if (type === "expense" && category === "fines") {
+    resolvedTreatment = "nicht";
+    resolvedPercent = undefined;
   }
   for (const [key, label, max] of STRING_LIMITS) {
     const value = body[key];
@@ -161,7 +215,8 @@ export async function PATCH(
     ...(recipient !== undefined && { recipient }),
     ...(paymentMethod !== undefined && { paymentMethod }),
     ...(notes !== undefined && { notes }),
-    ...(isTaxDeductible !== undefined && { isTaxDeductible }),
+    ...(resolvedTreatment !== undefined && { taxTreatment: resolvedTreatment }),
+    ...(resolvedPercent !== undefined && { deductiblePercent: resolvedPercent }),
     ...(receiptFile !== undefined && { receiptFile: receiptFile || null }),
     ...(receiptName !== undefined && { receiptName: receiptName || null }),
   });

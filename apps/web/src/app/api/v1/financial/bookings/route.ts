@@ -1,6 +1,11 @@
 import { NextRequest } from "next/server";
 import { getAuthContext, unauthorized, badRequest, success } from "@/lib/api-utils";
-import { createCompanyBooking } from "@/services/financial";
+import {
+  createCompanyBooking,
+  listCompanyBookings,
+  type ExpenseCategory,
+} from "@/services/financial";
+import { EXPENSE_CATEGORIES } from "@/lib/expense-categories";
 import { db } from "@/db";
 import { objects } from "@/db/schema/objects";
 import { records } from "@/db/schema/records";
@@ -9,13 +14,24 @@ import { eq, and, isNull } from "drizzle-orm";
 const VALID_TYPES = ["income", "expense"] as const;
 type BookingType = (typeof VALID_TYPES)[number];
 
-const VALID_CATEGORIES = ["fuel", "truck_rental", "equipment", "subcontractor", "toll", "other"] as const;
-type Category = (typeof VALID_CATEGORIES)[number];
+const CATEGORY_VALUES = EXPENSE_CATEGORIES.map((c) => c.value);
+type Category = ExpenseCategory;
+
+const EXPENSE_TREATMENTS = ["voll", "teilweise", "nicht"] as const;
+type ExpenseTreatment = (typeof EXPENSE_TREATMENTS)[number];
+const INCOME_TREATMENTS = ["betriebseinnahme", "nicht_steuerbar"] as const;
+type IncomeTreatment = (typeof INCOME_TREATMENTS)[number];
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 const isValidAmount = (v: unknown) => Number.isFinite(Number(v)) && Number(v) > 0;
 const isValidDate = (v: unknown) =>
   typeof v === "string" && DATE_RE.test(v) && !Number.isNaN(Date.parse(v));
+const isValidPercent = (v: unknown) =>
+  (typeof v === "number" || typeof v === "string") &&
+  Number.isInteger(Number(v)) &&
+  Number(v) >= 1 &&
+  Number(v) <= 99;
 
 /** Max accepted receipt data-URL length (~3 MB). Client compresses to ~2 MB. */
 const MAX_RECEIPT_LENGTH = 3 * 1024 * 1024;
@@ -90,6 +106,8 @@ export async function POST(req: NextRequest) {
     paymentMethod,
     notes,
     isTaxDeductible,
+    taxTreatment,
+    deductiblePercent,
     receiptFile,
     receiptName,
   } = body;
@@ -118,10 +136,50 @@ export async function POST(req: NextRequest) {
     if (type !== "expense") {
       return badRequest("Kategorie ist nur für Ausgaben erlaubt");
     }
-    if (!VALID_CATEGORIES.includes(category)) {
-      return badRequest(`Kategorie muss eine der folgenden sein: ${VALID_CATEGORIES.join(", ")}`);
+    if (!CATEGORY_VALUES.includes(category)) {
+      return badRequest(`Kategorie muss eine der folgenden sein: ${CATEGORY_VALUES.join(", ")}`);
     }
   }
+
+  // --- Steuerliche Behandlung ------------------------------------------
+  let resolvedTreatment: ExpenseTreatment | IncomeTreatment | undefined;
+  let resolvedPercent: number | undefined;
+  if (taxTreatment != null) {
+    if (type === "expense") {
+      if (!EXPENSE_TREATMENTS.includes(taxTreatment)) {
+        return badRequest("taxTreatment muss voll, teilweise oder nicht sein");
+      }
+    } else if (!INCOME_TREATMENTS.includes(taxTreatment)) {
+      return badRequest("taxTreatment muss betriebseinnahme oder nicht_steuerbar sein");
+    }
+    resolvedTreatment = taxTreatment;
+  } else if (type === "expense" && typeof isTaxDeductible === "boolean") {
+    // Legacy-Clients senden noch isTaxDeductible statt taxTreatment.
+    resolvedTreatment = isTaxDeductible ? "voll" : "nicht";
+  }
+  if (deductiblePercent != null) {
+    if (type !== "expense") {
+      return badRequest("deductiblePercent ist nur für Ausgaben erlaubt");
+    }
+    if (!isValidPercent(deductiblePercent)) {
+      return badRequest("deductiblePercent muss eine ganze Zahl zwischen 1 und 99 sein");
+    }
+    if (resolvedTreatment !== "teilweise") {
+      return badRequest("deductiblePercent ist nur bei taxTreatment teilweise erlaubt");
+    }
+    resolvedPercent = Number(deductiblePercent);
+  }
+  if (resolvedTreatment === "teilweise" && resolvedPercent === undefined) {
+    resolvedPercent = 70;
+  }
+  // Bußgelder sind nie abziehbar (serverseitige Regel).
+  const effectiveCategory: Category | undefined =
+    type === "expense" ? ((category as Category) ?? "other") : undefined;
+  if (effectiveCategory === "fines") {
+    resolvedTreatment = "nicht";
+    resolvedPercent = undefined;
+  }
+
   for (const [key, label, max] of STRING_LIMITS) {
     const value = body[key];
     if (value == null) continue;
@@ -143,20 +201,46 @@ export async function POST(req: NextRequest) {
     date,
     amount: String(amount),
     dealRecordId: dealRecordId || null,
-    category: type === "expense" ? ((category as Category) ?? "other") : undefined,
+    category: effectiveCategory,
     description,
     payer,
     recipient,
     paymentMethod,
     notes,
-    isTaxDeductible:
-      type === "expense"
-        ? typeof isTaxDeductible === "boolean"
-          ? isTaxDeductible
-          : true
-        : undefined,
+    ...(resolvedTreatment !== undefined && { taxTreatment: resolvedTreatment }),
+    ...(resolvedPercent !== undefined && { deductiblePercent: resolvedPercent }),
     receiptFile: receiptFile ?? null,
     receiptName: receiptName ?? null,
   });
   return success(row, 201);
+}
+
+/**
+ * GET /api/v1/financial/bookings?month=YYYY-MM&type=income|expense&companyId=...
+ *
+ * List company bookings, optionally filtered by month, type and operating
+ * company. All filters are optional.
+ */
+export async function GET(req: NextRequest) {
+  const ctx = await getAuthContext(req);
+  if (!ctx) return unauthorized();
+
+  const searchParams = req.nextUrl.searchParams;
+  const month = searchParams.get("month");
+  const type = searchParams.get("type");
+  const companyId = searchParams.get("companyId");
+
+  if (month !== null && !MONTH_RE.test(month)) {
+    return badRequest("Ungültiger Monat (JJJJ-MM erwartet)");
+  }
+  if (type !== null && !VALID_TYPES.includes(type as BookingType)) {
+    return badRequest("type muss income oder expense sein");
+  }
+
+  const rows = await listCompanyBookings(ctx.workspaceId, {
+    ...(month && { month }),
+    ...(type && { type: type as BookingType }),
+    ...(companyId && { operatingCompanyId: companyId }),
+  });
+  return success(rows);
 }
