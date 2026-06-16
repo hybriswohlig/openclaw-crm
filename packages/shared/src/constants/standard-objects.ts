@@ -56,8 +56,11 @@ export const STANDARD_OBJECTS: StandardObject[] = [
           { title: "WhatsApp / Website", color: "#16a34a" },
           { title: "Kleinanzeigen", color: "#ca8a04" },
           { title: "Introduced by others", color: "#7c3aed" },
+          { title: "Meta Ads", color: "#1877f2" },
         ],
       },
+      { slug: "utm_campaign", title: "UTM campaign", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      { slug: "utm_content", title: "UTM content", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       { slug: "description", title: "Description", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       // KOT-IDENTITY: set automatically when the same person has Vorgaenge with more
       // than one operating company. Recomputed on every merge/split. Source of truth
@@ -92,8 +95,11 @@ export const STANDARD_OBJECTS: StandardObject[] = [
           { title: "WhatsApp / Website", color: "#16a34a" },
           { title: "Kleinanzeigen", color: "#ca8a04" },
           { title: "Introduced by others", color: "#7c3aed" },
+          { title: "Meta Ads", color: "#1877f2" },
         ],
       },
+      { slug: "utm_campaign", title: "UTM campaign", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      { slug: "utm_content", title: "UTM content", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       { slug: "categories", title: "Categories", type: "select", isSystem: true, isRequired: false, isUnique: false, isMultiselect: true },
     ],
   },
