@@ -218,6 +218,19 @@ export async function bumpView(token: string): Promise<void> {
     .catch(() => {});
 }
 
+/**
+ * True when the status link may still accept mutations / document streams.
+ * Matches loadContextByToken's display rule: revoked OR past expiresAt = unusable.
+ */
+function isLinkUsable(
+  link: { revokedAt: Date | null; expiresAt?: Date | null },
+  now: Date = new Date()
+): boolean {
+  if (link.revokedAt) return false;
+  if (link.expiresAt != null && link.expiresAt < now) return false;
+  return true;
+}
+
 // ─── Context load ──────────────────────────────────────────────────────────────
 
 /**
@@ -448,7 +461,7 @@ export async function confirmKvaForToken(
     .limit(1);
 
   if (!link) return { ok: false, reason: "not_found" };
-  if (link.revokedAt) return { ok: false, reason: "revoked" };
+  if (!isLinkUsable(link)) return { ok: false, reason: "revoked" };
 
   // Idempotent on double-submit: a second tap must not write a second
   // confirmation row or fire a second email. The first acceptance stands.
@@ -494,19 +507,36 @@ export async function confirmKvaForToken(
   }
 
   const signedAt = new Date();
-  await db.insert(kvaConfirmations).values({
-    workspaceId: link.workspaceId,
-    dealRecordId: link.dealRecordId,
-    customerLinkId: link.id,
-    quotationSnapshot: kva,
-    confirmedTotalCents: kva.totalCents,
-    agbVersionAccepted: effective.branding.agbVersion,
-    widerrufVerzichtAccepted: body.widerrufVerzichtAccepted,
-    ipAddress: ctx.ipAddress.slice(0, 200),
-    userAgent: ctx.userAgent.slice(0, 1000),
-    acceptedFullName: body.fullName ?? null,
-    signedAt,
-  });
+  // Unique on deal_record_id makes concurrent double-taps race-safe:
+  // second insert hits unique violation and is treated as idempotent success.
+  let inserted = true;
+  try {
+    await db.insert(kvaConfirmations).values({
+      workspaceId: link.workspaceId,
+      dealRecordId: link.dealRecordId,
+      customerLinkId: link.id,
+      quotationSnapshot: kva,
+      confirmedTotalCents: kva.totalCents,
+      agbVersionAccepted: effective.branding.agbVersion,
+      widerrufVerzichtAccepted: body.widerrufVerzichtAccepted,
+      ipAddress: ctx.ipAddress.slice(0, 200),
+      userAgent: ctx.userAgent.slice(0, 1000),
+      acceptedFullName: body.fullName ?? null,
+      signedAt,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const code =
+      err && typeof err === "object" && "code" in err
+        ? String((err as { code: unknown }).code)
+        : "";
+    if (code === "23505" || /unique|duplicate/i.test(msg)) {
+      inserted = false;
+    } else {
+      throw err;
+    }
+  }
+  if (!inserted) return { ok: true };
 
   // Fire-and-forget confirmation email. Never throws — failures log + drop.
   void sendKvaAcceptanceEmail({
@@ -557,7 +587,7 @@ export async function recordMarkedPaid(
     .where(eq(customerStatusLinks.token, token))
     .limit(1);
   if (!link) return { ok: false, reason: "not_found" };
-  if (link.revokedAt) return { ok: false, reason: "revoked" };
+  if (!isLinkUsable(link)) return { ok: false, reason: "revoked" };
 
   await emitEvent({
     workspaceId: link.workspaceId,
@@ -635,7 +665,7 @@ export async function recordCustomerRequest(
     .where(eq(customerStatusLinks.token, token))
     .limit(1);
   if (!link) return { ok: false, reason: "not_found" };
-  if (link.revokedAt) return { ok: false, reason: "revoked" };
+  if (!isLinkUsable(link)) return { ok: false, reason: "revoked" };
 
   // Abuse cap: count all prior self-service requests on this deal.
   const [countRow] = await db
@@ -727,7 +757,7 @@ export async function recordCrewRatings(
     .where(eq(customerStatusLinks.token, token))
     .limit(1);
   if (!link) return { ok: false, reason: "not_found" };
-  if (link.revokedAt) return { ok: false, reason: "revoked" };
+  if (!isLinkUsable(link)) return { ok: false, reason: "revoked" };
 
   // Only persist ratings whose employee is actually assigned to this deal.
   const assigned = await db
@@ -792,11 +822,15 @@ export async function getScopedDocument(
   if (!validateTokenShape(token)) return null;
 
   const [link] = await db
-    .select({ dealRecordId: customerStatusLinks.dealRecordId, revokedAt: customerStatusLinks.revokedAt })
+    .select({
+      dealRecordId: customerStatusLinks.dealRecordId,
+      revokedAt: customerStatusLinks.revokedAt,
+      expiresAt: customerStatusLinks.expiresAt,
+    })
     .from(customerStatusLinks)
     .where(eq(customerStatusLinks.token, token))
     .limit(1);
-  if (!link || link.revokedAt) return null;
+  if (!link || !isLinkUsable(link)) return null;
 
   const [doc] = await db
     .select({
@@ -823,11 +857,15 @@ export async function getScopedAttachment(
   if (!validateTokenShape(token)) return null;
 
   const [link] = await db
-    .select({ dealRecordId: customerStatusLinks.dealRecordId, revokedAt: customerStatusLinks.revokedAt })
+    .select({
+      dealRecordId: customerStatusLinks.dealRecordId,
+      revokedAt: customerStatusLinks.revokedAt,
+      expiresAt: customerStatusLinks.expiresAt,
+    })
     .from(customerStatusLinks)
     .where(eq(customerStatusLinks.token, token))
     .limit(1);
-  if (!link || link.revokedAt) return null;
+  if (!link || !isLinkUsable(link)) return null;
 
   const [att] = await db
     .select({
@@ -1071,12 +1109,13 @@ export async function recordCustomerEmail(
       workspaceId: customerStatusLinks.workspaceId,
       dealRecordId: customerStatusLinks.dealRecordId,
       revokedAt: customerStatusLinks.revokedAt,
+      expiresAt: customerStatusLinks.expiresAt,
     })
     .from(customerStatusLinks)
     .where(eq(customerStatusLinks.token, token))
     .limit(1);
   if (!link) return { ok: false, reason: "not_found" };
-  if (link.revokedAt) return { ok: false, reason: "revoked" };
+  if (!isLinkUsable(link)) return { ok: false, reason: "revoked" };
 
   // Find the people record.
   const dealAttrs = await loadDealAttributeMap(link.workspaceId);
@@ -1841,7 +1880,7 @@ export async function selectDealPackageOptionForToken(
     .where(eq(customerStatusLinks.token, token))
     .limit(1);
   if (!link) return { ok: false, reason: "not_found" };
-  if (link.revokedAt) return { ok: false, reason: "revoked" };
+  if (!isLinkUsable(link)) return { ok: false, reason: "revoked" };
 
   const [acceptance] = await db
     .select({ id: kvaConfirmations.id })
@@ -1930,7 +1969,7 @@ export async function selectPackageForToken(
     .where(eq(customerStatusLinks.token, token))
     .limit(1);
   if (!link) return { ok: false, reason: "not_found" };
-  if (link.revokedAt) return { ok: false, reason: "revoked" };
+  if (!isLinkUsable(link)) return { ok: false, reason: "revoked" };
 
   // Lock after binding acceptance.
   const [acceptance] = await db
@@ -2155,7 +2194,7 @@ export async function selectDateOffer(
     .where(eq(customerStatusLinks.token, token))
     .limit(1);
   if (!link) return { ok: false, reason: "not_found" };
-  if (link.revokedAt) return { ok: false, reason: "revoked" };
+  if (!isLinkUsable(link)) return { ok: false, reason: "revoked" };
 
   const [offer] = await db
     .select()
@@ -2280,12 +2319,13 @@ export async function recordVisitBeacon(
       workspaceId: customerStatusLinks.workspaceId,
       dealRecordId: customerStatusLinks.dealRecordId,
       revokedAt: customerStatusLinks.revokedAt,
+      expiresAt: customerStatusLinks.expiresAt,
     })
     .from(customerStatusLinks)
     .where(eq(customerStatusLinks.token, token))
     .limit(1);
   if (!link) return { ok: false, reason: "not_found" };
-  if (link.revokedAt) return { ok: false, reason: "revoked" };
+  if (!isLinkUsable(link)) return { ok: false, reason: "revoked" };
 
   // Clamp to a sane upper bound — a single heartbeat can never represent
   // more than ~10 min of activity.

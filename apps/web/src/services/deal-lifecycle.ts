@@ -26,6 +26,7 @@ import { customerStatusLinks, kvaConfirmations } from "@/db/schema/customer-port
 import { payments, dealDocuments } from "@/db/schema/financial";
 import { objects, attributes } from "@/db/schema/objects";
 import { recordValues } from "@/db/schema/records";
+import { berlinDateString } from "@/lib/berlin-date";
 
 export type LifecycleKey =
   | "erstkontakt"
@@ -264,7 +265,7 @@ export async function getDealLifecycle(
       : paidSum > 0; // no quote on file → any payment counts
   const paidAt = paidDone ? latestPaymentDate : null;
 
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = berlinDateString();
   const moveDone = moveDate != null && moveDate <= todayIso;
 
   const milestones: LifecycleMilestone[] = [

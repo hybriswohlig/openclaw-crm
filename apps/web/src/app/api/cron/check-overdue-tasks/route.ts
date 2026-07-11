@@ -5,6 +5,7 @@ import { and, eq, lt, isNull, sql, inArray } from "drizzle-orm";
 import { sendPush } from "@/services/push";
 import { createTaskComment } from "@/services/task-comments";
 import { AGENT_PRICE_TASK_MARKER } from "@/services/agent/agent-tasks";
+import { requireCronAuth } from "@/lib/cron-auth";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -23,13 +24,8 @@ export const maxDuration = 60;
  *     the deadline is changed.
  */
 export async function GET(req: NextRequest) {
-  const secret = process.env.CRON_SECRET;
-  if (secret) {
-    const auth = req.headers.get("authorization");
-    if (auth !== `Bearer ${secret}`) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
-  }
+  const denied = requireCronAuth(req);
+  if (denied) return denied;
 
   try {
     const now = new Date();

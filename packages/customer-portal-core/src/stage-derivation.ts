@@ -71,7 +71,8 @@ function depositCleared(input: StageInputs): boolean {
   return input.paymentsReceivedCents >= input.depositRequiredCents;
 }
 
-function berlinDateString(d: Date): string {
+/** YYYY-MM-DD calendar day in Europe/Berlin (not UTC). */
+export function berlinDateString(d: Date = new Date()): string {
   // Intl with Europe/Berlin then format as YYYY-MM-DD.
   const fmt = new Intl.DateTimeFormat("sv-SE", {
     timeZone: "Europe/Berlin",

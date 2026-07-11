@@ -5,6 +5,7 @@ import { dealEmployees } from "@/db/schema";
 import { createExpense } from "@/services/financial";
 import { getEmployeePortalContextFromHeaders } from "@/lib/employee-portal-auth";
 import { unauthorized, badRequest, success } from "@/lib/api-utils";
+import { berlinDateString } from "@/lib/berlin-date";
 
 const VALID_CATEGORIES = ["fuel", "truck_rental", "equipment", "subcontractor", "toll", "other"] as const;
 type Category = (typeof VALID_CATEGORIES)[number];
@@ -40,7 +41,7 @@ export async function POST(
   const cat: Category = VALID_CATEGORIES.includes(category) ? category : "other";
 
   const row = await createExpense(ctx.workspaceId, dealId, {
-    date: new Date().toISOString().slice(0, 10),
+    date: berlinDateString(),
     amount: String(amount),
     category: cat,
     description: description ?? `Beleg (${ctx.employeeName})`,

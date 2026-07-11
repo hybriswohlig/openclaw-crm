@@ -176,6 +176,11 @@ export const payments = pgTable(
     index("payments_date_idx").on(table.date),
     index("payments_company_idx").on(table.operatingCompanyId),
     index("payments_receipt_number_idx").on(table.receiptNumber),
+    // Belegnummern must be unique per workspace when set (same as expenses).
+    uniqueIndex("payments_receipt_number_uniq").on(
+      table.workspaceId,
+      table.receiptNumber
+    ),
   ]
 );
 

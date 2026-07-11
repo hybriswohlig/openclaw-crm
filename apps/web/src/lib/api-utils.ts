@@ -57,12 +57,20 @@ export async function getAuthContext(req: NextRequest): Promise<AuthContext | nu
     .select({
       approvalStatus: users.approvalStatus,
       isAppAdmin: users.isAppAdmin,
+      role: users.role,
     })
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);
 
   if (!userRow || userRow.approvalStatus !== "approved") {
+    return null;
+  }
+
+  // Employee-portal accounts must never receive CRM workspace context.
+  // They are approved for the mobile portal only; auto-membership would
+  // escalate them to full CRM API access.
+  if (userRow.role === "employee") {
     return null;
   }
 
@@ -107,12 +115,15 @@ async function getApiKeyAuthContext(token: string): Promise<AuthContext | null> 
   }
 
   const [userRow] = await db
-    .select({ approvalStatus: users.approvalStatus })
+    .select({ approvalStatus: users.approvalStatus, role: users.role })
     .from(users)
     .where(eq(users.id, key.userId))
     .limit(1);
 
   if (!userRow || userRow.approvalStatus !== "approved") {
+    return null;
+  }
+  if (userRow.role === "employee") {
     return null;
   }
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { syncImmoscoutLeadsGlobal } from "@/services/immoscout-sync";
+import { requireCronAuth } from "@/lib/cron-auth";
 
 // Pulls ImmobilienScout24 (umzug-easy.de) relocation leads for every workspace
 // with an active integration. The IS24 *email* channel is handled separately by
@@ -11,17 +12,11 @@ export const maxDuration = 300;
 /**
  * GET /api/cron/immoscout-sync
  *
- * Hit by Vercel Cron every 15 minutes. Bearer-token auth via CRON_SECRET —
- * Vercel injects this header automatically when CRON_SECRET is set.
+ * Hit by Vercel Cron every 15 minutes. Fail-closed Bearer auth via CRON_SECRET.
  */
 export async function GET(req: NextRequest) {
-  const secret = process.env.CRON_SECRET;
-  if (secret) {
-    const auth = req.headers.get("authorization");
-    if (auth !== `Bearer ${secret}`) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
-  }
+  const denied = requireCronAuth(req);
+  if (denied) return denied;
 
   try {
     const started = Date.now();

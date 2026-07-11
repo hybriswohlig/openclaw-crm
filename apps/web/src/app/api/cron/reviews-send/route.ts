@@ -44,6 +44,7 @@ import {
 } from "@/lib/reviews/templates";
 import { isQuietHoursBerlin } from "@/lib/reviews/quiet-hours";
 import { sendSms, MessagingSendError } from "@/lib/messaging";
+import { requireCronAuth } from "@/lib/cron-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -69,18 +70,8 @@ interface CronResult {
 // uses GET, this one originally shipped as POST which silently broke the
 // Vercel cron schedule. Switched to GET as part of the [KOT-747](/KOT/issues/KOT-747) wiring sweep.
 export async function GET(req: NextRequest) {
-  // CEO required (KOT-603): auth must be fail-closed. Vercel Cron always
-  // provides the secret in production; dev opts in by setting the env var.
-  // Silent passthrough was a security hole — a missing env in prod would
-  // have left the cron endpoint open to any caller.
-  const secret = process.env.CRON_SECRET;
-  if (!secret) {
-    return NextResponse.json({ error: "cron_secret_not_configured" }, { status: 500 });
-  }
-  const auth = req.headers.get("authorization");
-  if (auth !== `Bearer ${secret}`) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const denied = requireCronAuth(req);
+  if (denied) return denied;
 
   const workspaceId = await getSingletonWorkspaceId();
   if (!workspaceId) {

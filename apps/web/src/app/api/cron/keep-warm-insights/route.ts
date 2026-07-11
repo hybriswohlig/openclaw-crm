@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { refreshInContactLeadsGlobal } from "@/services/deal-insights-auto-refresh";
+import { requireCronAuth } from "@/lib/cron-auth";
 
 // Capped at 2 deals per tick; p90 extraction is ~2 min, so two always fit.
 export const dynamic = "force-dynamic";
@@ -21,17 +22,11 @@ export const maxDuration = 300;
  *   - silent cache event (no visible activity-feed note per refresh)
  *   - VPS background lane (never competes with a user-triggered job)
  *
- * Bearer-token auth via CRON_SECRET — Vercel injects this header
- * automatically when CRON_SECRET is set as an env var.
+ * Fail-closed Bearer auth via CRON_SECRET.
  */
 export async function GET(req: NextRequest) {
-  const secret = process.env.CRON_SECRET;
-  if (secret) {
-    const auth = req.headers.get("authorization");
-    if (auth !== `Bearer ${secret}`) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
-  }
+  const denied = requireCronAuth(req);
+  if (denied) return denied;
 
   try {
     const started = Date.now();

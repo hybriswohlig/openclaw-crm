@@ -184,7 +184,8 @@ export const kvaConfirmations = pgTable(
     signedAt: timestamp("signed_at").notNull().defaultNow(),
   },
   (table) => [
-    index("kva_confirmations_deal_idx").on(table.dealRecordId),
+    // One legal acceptance per deal — also race-safe under concurrent taps.
+    uniqueIndex("kva_confirmations_deal_uniq").on(table.dealRecordId),
     index("kva_confirmations_link_idx").on(table.customerLinkId),
   ]
 );

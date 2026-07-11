@@ -1,12 +1,17 @@
 import { NextRequest } from "next/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sum } from "drizzle-orm";
 import { db } from "@/db";
-import { dealEmployees } from "@/db/schema";
+import { dealEmployees, payments, kvaConfirmations, quotations } from "@/db/schema";
 import { createPayment } from "@/services/financial";
 import { getEmployeePortalContextFromHeaders } from "@/lib/employee-portal-auth";
 import { unauthorized, badRequest, success } from "@/lib/api-utils";
+import { berlinDateString } from "@/lib/berlin-date";
 
 const VALID_METHODS = ["cash", "bank_transfer", "paypal", "card", "other"];
+/** Hard ceiling for a single on-site collection (EUR). Prevents fat-finger / fraud. */
+const MAX_PORTAL_PAYMENT_EUR = 25_000;
+/** Soft over-collection tolerance (EUR) when a quote exists. */
+const OVERPAY_TOLERANCE_EUR = 50;
 
 /**
  * The job lead records that the customer paid (Kassieren). Creates an income
@@ -34,12 +39,52 @@ export async function POST(
   if (!assigned) return badRequest("Nicht diesem Auftrag zugewiesen.");
 
   const { amount, method, notes } = await req.json();
-  if (!amount || Number(amount) <= 0) return badRequest("Betrag erforderlich.");
+  const amountNum = Number(amount);
+  if (!amount || !Number.isFinite(amountNum) || amountNum <= 0) {
+    return badRequest("Betrag erforderlich.");
+  }
+  if (amountNum > MAX_PORTAL_PAYMENT_EUR) {
+    return badRequest(
+      `Betrag zu hoch (max. ${MAX_PORTAL_PAYMENT_EUR.toLocaleString("de-DE")} € pro Buchung).`
+    );
+  }
   const paymentMethod = VALID_METHODS.includes(method) ? method : "cash";
 
+  // Cap against remaining outstanding when a quote / KVA total exists.
+  const [accept] = await db
+    .select({ confirmedTotalCents: kvaConfirmations.confirmedTotalCents })
+    .from(kvaConfirmations)
+    .where(eq(kvaConfirmations.dealRecordId, dealId))
+    .limit(1);
+  let quotedEur: number | null =
+    accept?.confirmedTotalCents != null
+      ? accept.confirmedTotalCents / 100
+      : null;
+  if (quotedEur == null) {
+    const [q] = await db
+      .select({ fixedPrice: quotations.fixedPrice })
+      .from(quotations)
+      .where(eq(quotations.dealRecordId, dealId))
+      .limit(1);
+    if (q?.fixedPrice != null) quotedEur = Number(q.fixedPrice);
+  }
+  if (quotedEur != null && quotedEur > 0) {
+    const [paid] = await db
+      .select({ total: sum(payments.amount) })
+      .from(payments)
+      .where(eq(payments.dealRecordId, dealId));
+    const paidSum = Number(paid?.total ?? 0);
+    const remaining = quotedEur - paidSum + OVERPAY_TOLERANCE_EUR;
+    if (amountNum > remaining + 0.005) {
+      return badRequest(
+        `Betrag übersteigt den offenen Restbetrag (${Math.max(0, quotedEur - paidSum).toFixed(2)} €).`
+      );
+    }
+  }
+
   const row = await createPayment(ctx.workspaceId, dealId, {
-    date: new Date().toISOString().slice(0, 10),
-    amount: String(amount),
+    date: berlinDateString(),
+    amount: String(amountNum),
     payer: ctx.employeeName,
     paymentMethod,
     notes: notes ?? "Vor Ort kassiert (Mitarbeiter-Portal)",

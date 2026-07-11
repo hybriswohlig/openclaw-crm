@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runAgentReplies } from "@/services/agent/agent-worker";
+import { requireCronAuth } from "@/lib/cron-auth";
 
 export const dynamic = "force-dynamic";
 // The vision step can call the VPS crm-tools (up to ~90s each, capped per tick).
@@ -10,13 +11,8 @@ export const maxDuration = 300;
  * the master switch ON (default OFF). Honors the per-workspace dry-run flag.
  */
 export async function GET(req: NextRequest) {
-  const secret = process.env.CRON_SECRET;
-  if (secret) {
-    const auth = req.headers.get("authorization");
-    if (auth !== `Bearer ${secret}`) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
-  }
+  const denied = requireCronAuth(req);
+  if (denied) return denied;
 
   try {
     const summary = await runAgentReplies();

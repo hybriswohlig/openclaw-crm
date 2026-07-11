@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { employeeTimeEntries, dealEmployees } from "@/db/schema";
 import { getEmployeePortalContextFromHeaders } from "@/lib/employee-portal-auth";
 import { unauthorized, badRequest, success } from "@/lib/api-utils";
+import { berlinDateString } from "@/lib/berlin-date";
 
 /** GET: the currently running (open) time entry for this employee, if any. */
 export async function GET(req: NextRequest) {
@@ -62,7 +63,7 @@ export async function POST(req: NextRequest) {
       workspaceId: ctx.workspaceId,
       dealRecordId,
       employeeId: ctx.employeeId,
-      date: now.toISOString().slice(0, 10),
+      date: berlinDateString(now),
       startAt: now,
       status: "open",
     })

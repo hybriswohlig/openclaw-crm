@@ -11,12 +11,13 @@ import {
 } from "@/db/schema";
 import { objects, attributes } from "@/db/schema/objects";
 import { recordValues } from "@/db/schema/records";
-import { eq, and, sum, sql, gte, lt, desc, inArray, isNull } from "drizzle-orm";
+import { eq, and, sum, sql, gte, lt, desc, inArray, isNull, ne } from "drizzle-orm";
 import {
   EXPENSE_CATEGORIES,
   type ExpenseTaxTreatment,
   type IncomeTaxTreatment,
 } from "@/lib/expense-categories";
+import { berlinYear } from "@/lib/berlin-date";
 
 export type PaymentMethod = "cash" | "bank_transfer" | "other";
 export type ExpenseCategory =
@@ -188,32 +189,35 @@ export async function assignDealNumber(
   workspaceId: string,
   dealRecordId: string
 ): Promise<string> {
-  const year = new Date().getFullYear();
+  const year = berlinYear();
 
-  // Atomically increment the sequence for this workspace+year.
-  const [seq] = await db
-    .insert(dealNumberSequences)
-    .values({ workspaceId, year, lastSequence: 1 })
-    .onConflictDoUpdate({
-      target: [dealNumberSequences.workspaceId, dealNumberSequences.year],
-      set: {
-        lastSequence: sql`${dealNumberSequences.lastSequence} + 1`,
-      },
-    })
-    .returning({ lastSequence: dealNumberSequences.lastSequence });
+  // Sequence increment + deal_numbers row must be one transaction so a
+  // failed insert never burns a permanent gap in YYYY-NNN.
+  return db.transaction(async (tx) => {
+    const [seq] = await tx
+      .insert(dealNumberSequences)
+      .values({ workspaceId, year, lastSequence: 1 })
+      .onConflictDoUpdate({
+        target: [dealNumberSequences.workspaceId, dealNumberSequences.year],
+        set: {
+          lastSequence: sql`${dealNumberSequences.lastSequence} + 1`,
+        },
+      })
+      .returning({ lastSequence: dealNumberSequences.lastSequence });
 
-  const sequence = seq.lastSequence;
-  const dealNumber = `${year}-${String(sequence).padStart(3, "0")}`;
+    const sequence = seq.lastSequence;
+    const dealNumber = `${year}-${String(sequence).padStart(3, "0")}`;
 
-  await db.insert(dealNumbers).values({
-    workspaceId,
-    dealRecordId,
-    year,
-    sequence,
-    dealNumber,
+    await tx.insert(dealNumbers).values({
+      workspaceId,
+      dealRecordId,
+      year,
+      sequence,
+      dealNumber,
+    });
+
+    return dealNumber;
   });
-
-  return dealNumber;
 }
 
 export async function getDealNumber(
@@ -369,27 +373,32 @@ export async function createPayment(
     (await resolveDealOperatingCompany(workspaceId, dealRecordId));
   const taxTreatment: IncomeTaxTreatment =
     input.taxTreatment ?? "betriebseinnahme";
-  const receiptNumber =
-    taxTreatment === "betriebseinnahme"
-      ? await assignReceiptNumber(db, {
-          workspaceId,
-          operatingCompanyId,
-          year: yearOfDate(input.date),
-          kind: "income",
-        })
-      : null;
-  const [row] = await db
-    .insert(payments)
-    .values({
-      workspaceId,
-      dealRecordId,
-      ...input,
-      operatingCompanyId,
-      taxTreatment,
-      receiptNumber,
-    })
-    .returning();
-  return row;
+
+  // Assign Belegnummer + insert in one transaction so a failed insert never
+  // burns a permanent gap in the legal sequence.
+  return db.transaction(async (tx) => {
+    const receiptNumber =
+      taxTreatment === "betriebseinnahme"
+        ? await assignReceiptNumber(tx, {
+            workspaceId,
+            operatingCompanyId,
+            year: yearOfDate(input.date),
+            kind: "income",
+          })
+        : null;
+    const [row] = await tx
+      .insert(payments)
+      .values({
+        workspaceId,
+        dealRecordId,
+        ...input,
+        operatingCompanyId,
+        taxTreatment,
+        receiptNumber,
+      })
+      .returning();
+    return row;
+  });
 }
 
 export type UpdatePaymentInput = Partial<{
@@ -527,30 +536,33 @@ export async function createExpense(
     taxTreatment === "teilweise"
       ? input.deductiblePercent ?? DEFAULT_PARTIAL_PERCENT
       : null;
-  const receiptNumber =
-    taxTreatment !== "nicht"
-      ? await assignReceiptNumber(db, {
-          workspaceId,
-          operatingCompanyId,
-          year: yearOfDate(input.date),
-          kind: "expense",
-        })
-      : null;
-  const [row] = await db
-    .insert(expenses)
-    .values({
-      workspaceId,
-      dealRecordId,
-      ...input,
-      operatingCompanyId,
-      taxTreatment,
-      deductiblePercent,
-      // Legacy flag kept in sync until all readers are migrated.
-      isTaxDeductible: taxTreatment !== "nicht",
-      receiptNumber,
-    })
-    .returning();
-  return row;
+
+  return db.transaction(async (tx) => {
+    const receiptNumber =
+      taxTreatment !== "nicht"
+        ? await assignReceiptNumber(tx, {
+            workspaceId,
+            operatingCompanyId,
+            year: yearOfDate(input.date),
+            kind: "expense",
+          })
+        : null;
+    const [row] = await tx
+      .insert(expenses)
+      .values({
+        workspaceId,
+        dealRecordId,
+        ...input,
+        operatingCompanyId,
+        taxTreatment,
+        deductiblePercent,
+        // Legacy flag kept in sync until all readers are migrated.
+        isTaxDeductible: taxTreatment !== "nicht",
+        receiptNumber,
+      })
+      .returning();
+    return row;
+  });
 }
 
 export type UpdateExpenseInput = Partial<{
@@ -755,31 +767,33 @@ export async function createCompanyBooking(
       input.taxTreatment === "nicht_steuerbar"
         ? "nicht_steuerbar"
         : "betriebseinnahme";
-    const receiptNumber =
-      taxTreatment === "betriebseinnahme"
-        ? await assignReceiptNumber(db, {
-            workspaceId,
-            operatingCompanyId: input.operatingCompanyId,
-            year: yearOfDate(input.date),
-            kind: "income",
-          })
-        : null;
-    const [row] = await db
-      .insert(payments)
-      .values({
-        workspaceId,
-        dealRecordId: input.dealRecordId ?? null,
-        operatingCompanyId: input.operatingCompanyId,
-        date: input.date,
-        amount: input.amount,
-        payer: input.payer ?? null,
-        paymentMethod: input.paymentMethod ?? null,
-        taxTreatment,
-        receiptNumber,
-        notes,
-      })
-      .returning();
-    return row;
+    return db.transaction(async (tx) => {
+      const receiptNumber =
+        taxTreatment === "betriebseinnahme"
+          ? await assignReceiptNumber(tx, {
+              workspaceId,
+              operatingCompanyId: input.operatingCompanyId,
+              year: yearOfDate(input.date),
+              kind: "income",
+            })
+          : null;
+      const [row] = await tx
+        .insert(payments)
+        .values({
+          workspaceId,
+          dealRecordId: input.dealRecordId ?? null,
+          operatingCompanyId: input.operatingCompanyId,
+          date: input.date,
+          amount: input.amount,
+          payer: input.payer ?? null,
+          paymentMethod: input.paymentMethod ?? null,
+          taxTreatment,
+          receiptNumber,
+          notes,
+        })
+        .returning();
+      return row;
+    });
   }
 
   const description =
@@ -797,36 +811,38 @@ export async function createCompanyBooking(
     taxTreatment === "teilweise"
       ? input.deductiblePercent ?? DEFAULT_PARTIAL_PERCENT
       : null;
-  const receiptNumber =
-    taxTreatment !== "nicht"
-      ? await assignReceiptNumber(db, {
-          workspaceId,
-          operatingCompanyId: input.operatingCompanyId,
-          year: yearOfDate(input.date),
-          kind: "expense",
-        })
-      : null;
-  const [row] = await db
-    .insert(expenses)
-    .values({
-      workspaceId,
-      dealRecordId: input.dealRecordId ?? null,
-      operatingCompanyId: input.operatingCompanyId,
-      date: input.date,
-      amount: input.amount,
-      category: input.category ?? "other",
-      description,
-      recipient: input.recipient ?? null,
-      paymentMethod: input.paymentMethod ?? null,
-      // Legacy flag kept in sync until all readers are migrated.
-      isTaxDeductible: taxTreatment !== "nicht",
-      taxTreatment,
-      deductiblePercent,
-      receiptNumber,
-      receiptFile: input.receiptFile ?? null,
-    })
-    .returning();
-  return row;
+  return db.transaction(async (tx) => {
+    const receiptNumber =
+      taxTreatment !== "nicht"
+        ? await assignReceiptNumber(tx, {
+            workspaceId,
+            operatingCompanyId: input.operatingCompanyId,
+            year: yearOfDate(input.date),
+            kind: "expense",
+          })
+        : null;
+    const [row] = await tx
+      .insert(expenses)
+      .values({
+        workspaceId,
+        dealRecordId: input.dealRecordId ?? null,
+        operatingCompanyId: input.operatingCompanyId,
+        date: input.date,
+        amount: input.amount,
+        category: input.category ?? "other",
+        description,
+        recipient: input.recipient ?? null,
+        paymentMethod: input.paymentMethod ?? null,
+        // Legacy flag kept in sync until all readers are migrated.
+        isTaxDeductible: taxTreatment !== "nicht",
+        taxTreatment,
+        deductiblePercent,
+        receiptNumber,
+        receiptFile: input.receiptFile ?? null,
+      })
+      .returning();
+    return row;
+  });
 }
 
 /**
@@ -1483,10 +1499,17 @@ export async function deletePrivateTransaction(
  * profit = total payments received - total expenses - total employee costs
  */
 export async function getProfitSummary(dealRecordId: string) {
+  // Operating revenue only — Kaution / durchlaufende Posten
+  // (taxTreatment = nicht_steuerbar) must not inflate profit.
   const [paymentsTotal] = await db
     .select({ total: sum(payments.amount) })
     .from(payments)
-    .where(eq(payments.dealRecordId, dealRecordId));
+    .where(
+      and(
+        eq(payments.dealRecordId, dealRecordId),
+        ne(payments.taxTreatment, "nicht_steuerbar")
+      )
+    );
 
   const [expensesTotal] = await db
     .select({ total: sum(expenses.amount) })
@@ -1612,11 +1635,13 @@ export async function getFinancialOverview(
     : undefined;
 
   // ── Raw rows ──────────────────────────────────────────────────────────────
+  // Income aggregates exclude nicht_steuerbar (Kaution, durchlaufende Posten).
   const paymentRows = await db
     .select({
       dealRecordId: payments.dealRecordId,
       operatingCompanyId: payments.operatingCompanyId,
       amount: payments.amount,
+      taxTreatment: payments.taxTreatment,
     })
     .from(payments)
     .where(and(eq(payments.workspaceId, workspaceId), paymentDateCond));
@@ -1783,8 +1808,9 @@ export async function getFinancialOverview(
     row.operatingCompanyId ??
     (row.dealRecordId ? dealCompanyLookup.get(row.dealRecordId) ?? null : null);
 
-  // Income → base company
+  // Income → base company (operating revenue only)
   for (const p of paymentRows) {
+    if (p.taxTreatment === "nicht_steuerbar") continue;
     bump(baseCompany(p)).income += Number(p.amount);
   }
 
@@ -1872,6 +1898,7 @@ export async function getFinancialOverview(
   const dealMap = new Map<string, { income: number; expenses: number; empCosts: number }>();
   for (const p of paymentRows) {
     if (!p.dealRecordId) continue; // deal-less bookings are not part of a deal row
+    if (p.taxTreatment === "nicht_steuerbar") continue;
     const d = dealMap.get(p.dealRecordId) ?? { income: 0, expenses: 0, empCosts: 0 };
     d.income += Number(p.amount);
     dealMap.set(p.dealRecordId, d);
@@ -1937,7 +1964,11 @@ export async function getFinancialOverview(
   }));
 
   // ── Workspace-level summary ───────────────────────────────────────────────
-  const totalIncome = paymentRows.reduce((s, p) => s + Number(p.amount), 0);
+  const totalIncome = paymentRows.reduce(
+    (s, p) =>
+      p.taxTreatment === "nicht_steuerbar" ? s : s + Number(p.amount),
+    0
+  );
   let totalDeductibleExpenses = 0;
   let totalNonDeductibleExpenses = 0;
   for (const e of expenseRows) {
@@ -2365,7 +2396,11 @@ export async function getCompanyDetails(
       bucket = { total: 0, payments: [] };
       incomePaymentsByDeal.set(key, bucket);
     }
-    bucket.total += Number(p.amount);
+    // Operating income total excludes Kaution / durchlaufende Posten;
+    // rows still appear in the payment list for audit.
+    if (p.taxTreatment !== "nicht_steuerbar") {
+      bucket.total += Number(p.amount);
+    }
     bucket.payments.push({
       id: p.id,
       date: p.date,
