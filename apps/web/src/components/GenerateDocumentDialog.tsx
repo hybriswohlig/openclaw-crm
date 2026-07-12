@@ -8,11 +8,15 @@
 // keep working anywhere in the app. Attaching the PDF to the deal happens in
 // the tray too (store-as-document), independent of this dialog's lifetime.
 //
+// Optional "Sonderhinweis / Anweisung" lets the user mark invoices as already
+// paid (cash/card/transfer) or free-text payment notes. Company master data,
+// AGB and bank stammdaten are never changed by that path.
+//
 // Inputs come from the deal page — pass `dealData` already loaded by the
 // surrounding page. The dialog does NOT re-fetch the deal.
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useBackgroundJobs } from "@/components/background-jobs";
 
 export type Firma = "kottke" | "ceylan";
@@ -118,6 +122,17 @@ export function GenerateDocumentDialog({
   const [submitting, setSubmitting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
 
+  // Optional free-text instruction for edge cases (e.g. already paid cash).
+  // Never used to change company master data / AGB — only payment wording & status.
+  const [showAnweisung, setShowAnweisung] = useState(false);
+  const [anweisung, setAnweisung] = useState("");
+  const [zahlungsstatus, setZahlungsstatus] = useState<"offen" | "bezahlt">(
+    "offen"
+  );
+  const [zahlungsweg, setZahlungsweg] = useState<
+    "bar" | "karte" | "bank_transfer" | "paypal" | null
+  >(null);
+
   const { startDocumentJob } = useBackgroundJobs();
 
   if (!open) return null;
@@ -131,8 +146,19 @@ export function GenerateDocumentDialog({
     const anzahlungBlock = {
       anzahlung_betrag_eur: anzahlungBetrag || 0,
       anzahlung_zahlungsweg: anzahlungMethod,
-      anzahlung_bar_eur: anzahlungMethod === "bar" ? (anzahlungBetrag || 0) : 0,
+      anzahlung_bar_eur: anzahlungMethod === "bar" ? anzahlungBetrag || 0 : 0,
     };
+
+    // Full-invoice payment status (RE as Quittung when already paid).
+    const paymentExtra =
+      zahlungsstatus === "bezahlt"
+        ? {
+            zahlungsstatus: "bezahlt" as const,
+            zahlungsweg: zahlungsweg || ("bar" as const),
+          }
+        : zahlungsweg
+          ? { zahlungsweg }
+          : {};
 
     if (!isKottke) {
       return {
@@ -140,6 +166,7 @@ export function GenerateDocumentDialog({
         pauschale_betrag: pauschaleBetragCeylan,
         ...anzahlungBlock,
         stammkundenrabatt,
+        ...paymentExtra,
       };
     }
     if (modell === "stundensatz") {
@@ -151,13 +178,26 @@ export function GenerateDocumentDialog({
         stundensatz_transporter_eur: transporterRate,
         mindest_stunden: mindestStunden,
         ...anzahlungBlock,
+        ...paymentExtra,
       };
     }
     return {
       modell: "pauschale" as const,
       pauschale_positionen: pauschalePositionen.filter((p) => p.titel && p.betrag > 0),
       ...anzahlungBlock,
+      ...paymentExtra,
     };
+  }
+
+  function applyChip(
+    status: "offen" | "bezahlt",
+    weg: "bar" | "karte" | "bank_transfer" | "paypal" | null,
+    text: string
+  ) {
+    setShowAnweisung(true);
+    setZahlungsstatus(status);
+    setZahlungsweg(weg);
+    setAnweisung(text);
   }
 
   async function handleGenerate() {
@@ -214,6 +254,7 @@ export function GenerateDocumentDialog({
       const kundeName = [deal.kunde.vorname, deal.kunde.nachname]
         .filter(Boolean)
         .join(" ");
+      const trimmedAnweisung = anweisung.trim();
       await startDocumentJob({
         skill: "rechnungen-und-auftragsbestaetigungen",
         params: {
@@ -222,6 +263,7 @@ export function GenerateDocumentDialog({
           kunde: deal.kunde,
           auftrag: deal.auftrag,
           preise: buildPreise(),
+          ...(trimmedAnweisung ? { anweisung: trimmedAnweisung } : {}),
           _deal_record_id: deal.dealRecordId,
           _image_attachment_ids: imageIds,
         },
@@ -377,6 +419,98 @@ export function GenerateDocumentDialog({
             )}
           </div>
 
+          {/* Optional free-text / chips: special payment cases (e.g. RE already paid) */}
+          <div className="rounded border border-dashed border-gray-300 p-3 dark:border-gray-600">
+            <button
+              type="button"
+              onClick={() => setShowAnweisung((v) => !v)}
+              className="flex w-full items-center justify-between text-left text-sm font-medium"
+            >
+              <span>
+                Sonderhinweis / Anweisung{" "}
+                <span className="font-normal text-gray-500">(optional)</span>
+              </span>
+              <span className="text-gray-400">{showAnweisung ? "▾" : "▸"}</span>
+            </button>
+            {showAnweisung && (
+              <div className="mt-3 space-y-3">
+                <p className="text-xs text-gray-500">
+                  z. B. wenn der Kunde schon bar gezahlt hat und eine Rechnung
+                  als Quittung braucht. Firma, AGB und Bankstammdaten werden
+                  nie geändert — nur Zahlungsstatus und Formulierungen.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <ChipButton
+                    active={zahlungsstatus === "bezahlt" && zahlungsweg === "bar"}
+                    onClick={() =>
+                      applyChip(
+                        "bezahlt",
+                        "bar",
+                        "Kunde hat den gesamten Betrag bereits bar bezahlt. Rechnung als Quittung ohne offene Zahlung / Überweisungsaufforderung ausstellen."
+                      )
+                    }
+                  >
+                    Bereits bar bezahlt
+                  </ChipButton>
+                  <ChipButton
+                    active={zahlungsstatus === "bezahlt" && zahlungsweg === "karte"}
+                    onClick={() =>
+                      applyChip(
+                        "bezahlt",
+                        "karte",
+                        "Kunde hat den gesamten Betrag bereits per Karte bezahlt. Rechnung als Quittung ohne offene Zahlung ausstellen."
+                      )
+                    }
+                  >
+                    Bereits per Karte
+                  </ChipButton>
+                  <ChipButton
+                    active={
+                      zahlungsstatus === "bezahlt" &&
+                      zahlungsweg === "bank_transfer"
+                    }
+                    onClick={() =>
+                      applyChip(
+                        "bezahlt",
+                        "bank_transfer",
+                        "Kunde hat den gesamten Betrag bereits per Überweisung bezahlt. Rechnung als Quittung, kein offener Betrag."
+                      )
+                    }
+                  >
+                    Bereits überwiesen
+                  </ChipButton>
+                  <ChipButton
+                    active={zahlungsstatus === "offen" && !anweisung}
+                    onClick={() => {
+                      setZahlungsstatus("offen");
+                      setZahlungsweg(null);
+                      setAnweisung("");
+                    }}
+                  >
+                    Zurücksetzen
+                  </ChipButton>
+                </div>
+                <label className="block text-sm">
+                  <span className="text-gray-600">Freitext-Anweisung</span>
+                  <textarea
+                    value={anweisung}
+                    onChange={(e) => setAnweisung(e.target.value)}
+                    rows={3}
+                    placeholder='z. B. „Kunde hat gestern bar bezahlt, bitte Quittungs-Rechnung ohne Überweisungsaufforderung.“'
+                    className="mt-1 w-full rounded border px-2 py-1.5 text-sm"
+                  />
+                </label>
+                {zahlungsstatus === "bezahlt" && (
+                  <p className="text-xs text-green-700 dark:text-green-300">
+                    ✓ Status: vollständig bezahlt
+                    {zahlungsweg ? ` (${zahlungsweg})` : ""} — PDF ohne
+                    offene Zahlung
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
           {startError && (
             <div className="rounded bg-red-50 p-3 text-sm text-red-900 dark:bg-red-900/20 dark:text-red-200">
               Start fehlgeschlagen: {startError}
@@ -424,6 +558,30 @@ export function ElapsedTimer() {
     <span>
       {mm}:{ss} min
     </span>
+  );
+}
+
+function ChipButton({
+  children,
+  onClick,
+  active,
+}: {
+  children: ReactNode;
+  onClick: () => void;
+  active?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        active
+          ? "rounded-full bg-blue-600 px-3 py-1 text-xs text-white"
+          : "rounded-full border px-3 py-1 text-xs text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+      }
+    >
+      {children}
+    </button>
   );
 }
 
