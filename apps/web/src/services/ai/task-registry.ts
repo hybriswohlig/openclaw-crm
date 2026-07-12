@@ -41,6 +41,9 @@ export interface AITaskDefinition {
   slug: AITaskSlug;
   label: string;
   description: string;
+  // Product AI runs only on the VPS (Grok Build CLI + Claude Code CLI).
+  // "openrouter" remains in the type for legacy workspace rows but is not used
+  // when CRM_TOOLS_* env is configured (see runAITask).
   defaultProvider: "openrouter" | "crm-tools";
   defaultModel: string;
   defaultFallbackModel: string | null;
@@ -60,8 +63,8 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
     description:
       "Runs over the cross-channel transcript of a deal and extracts structured fields plus open questions.",
     defaultProvider: "crm-tools",
-    defaultModel: "anthropic/claude-sonnet-4",
-    defaultFallbackModel: "openai/gpt-4o",
+    defaultModel: "grok-composer-2.5-fast",
+    defaultFallbackModel: "claude-code",
     defaultTemperature: 0.2,
     defaultMaxTokens: 4096,
     defaultDailySpendCapUsd: 5,
@@ -72,8 +75,8 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
     description:
       "Schreibt auf Knopfdruck einen Antwortentwurf in das Kompositionsfeld der Inbox, im Ton des Kunden. Sendet nie selbst.",
     defaultProvider: "crm-tools",
-    defaultModel: "anthropic/claude-sonnet-4",
-    defaultFallbackModel: null,
+    defaultModel: "grok-composer-2.5-fast",
+    defaultFallbackModel: "claude-code",
     defaultTemperature: 0.4,
     defaultMaxTokens: 1500,
     defaultDailySpendCapUsd: 2,
@@ -85,10 +88,9 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
     description:
       "Analysiert vom Kunden geschickte Fotos und erzeugt die kundengerechte Auftrags-Zusammenfassung plus erkanntes Inventar und interne Hinweise. Bilder verarbeitet nur der crm-tools-Pfad, OpenRouter verwirft Anhänge.",
     defaultProvider: "crm-tools",
-    defaultModel: "anthropic/claude-sonnet-4",
-    // No OpenRouter fallback: that path is text-only and would silently drop
-    // the photos this task exists for.
-    defaultFallbackModel: null,
+    defaultModel: "claude-code",
+    // Photo tasks keep multi-turn tools on the VPS (Claude Code CLI preferred).
+    defaultFallbackModel: "grok-build",
     defaultTemperature: 0.3,
     defaultMaxTokens: 4096,
     defaultDailySpendCapUsd: 3,
@@ -99,8 +101,8 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
     description:
       "The on/off sales assistant. Decides the next conversation turn (ask for info, hand off to a human, or no-op) and drafts the German customer message. Never names a price.",
     defaultProvider: "crm-tools",
-    defaultModel: "anthropic/claude-sonnet-4",
-    defaultFallbackModel: "openai/gpt-4o",
+    defaultModel: "grok-composer-2.5-fast",
+    defaultFallbackModel: "claude-code",
     defaultTemperature: 0.4,
     defaultMaxTokens: 1200,
     defaultDailySpendCapUsd: 5,
@@ -111,8 +113,8 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
     description:
       "Re-engages a stale lead whose move date is still in the future: one gentle nudge after a few days of silence. Never names a price.",
     defaultProvider: "crm-tools",
-    defaultModel: "anthropic/claude-sonnet-4",
-    defaultFallbackModel: null,
+    defaultModel: "grok-composer-2.5-fast",
+    defaultFallbackModel: "claude-code",
     defaultTemperature: 0.4,
     defaultMaxTokens: 800,
     defaultDailySpendCapUsd: 2,
@@ -123,8 +125,8 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
     description:
       "Composes the proactive WhatsApp opener for a fresh ImmoScout lead: references the inquiry, asks ONE easy question, proposes a call. Never names a price. Runs on crm-tools (the VPS), like everything else here.",
     defaultProvider: "crm-tools",
-    defaultModel: "anthropic/claude-sonnet-4",
-    defaultFallbackModel: null,
+    defaultModel: "grok-composer-2.5-fast",
+    defaultFallbackModel: "claude-code",
     defaultTemperature: 0.4,
     defaultMaxTokens: 800,
     defaultDailySpendCapUsd: 3,

@@ -578,10 +578,14 @@ export async function extractDealInsights(
       `# Bereits erfasster Auftrag (vom Team manuell gepflegt — autoritativ, nicht überschreiben)\n\n${auftragText}`
     );
   }
+  // Photo count is informational only for KI-Analyse. We intentionally do NOT
+  // send base64 attachments here: multi-image agent loops made Grok hit
+  // max-turns and fall back to Claude (~1–2 min). Use deal.scope-from-photos
+  // for real photo inventory analysis.
   if (images.length > 0) {
     const fileList = images.map((i) => `- ${i.fileName} (${i.mimeType})`).join("\n");
     promptParts.push(
-      `# Angehängte Bilder (${images.length})\n\nDer Kunde oder das Team hat Bilder geschickt (z. B. Fotos von Möbeln/Räumen, Grundrisse, gescannte Dokumente). Die Dateien liegen in deinem Arbeitsverzeichnis und sind dir über das Read-Tool zugänglich. Sieh dir JEDE Datei an und nutze sie, um Inventar, Volumen (volume_cbm), Stockwerk/Zugang und Sonderfälle zu erkennen:\n${fileList}`
+      `# Angehängte Bilder (${images.length} vorhanden — Dateinamen nur zur Info)\n\nEs gibt Fotos im Lead, aber sie werden in dieser schnellen Text-Analyse NICHT geöffnet. Nutze nur den Chatverlauf und die Notizen. Für Inventar aus Fotos gibt es die separate Foto-Analyse.\n${fileList}`
     );
   }
   if (scopeSnapshot) {
@@ -596,7 +600,9 @@ export async function extractDealInsights(
     );
   }
 
-  promptParts.push("Extrahiere die strukturierten Felder.");
+  promptParts.push(
+    "Extrahiere die strukturierten Felder. Antworte in EINEM Schritt nur mit dem JSON-Objekt — keine Tools, keine Erklärungen."
+  );
 
   const result = await runAITask({
     workspaceId,
@@ -604,11 +610,8 @@ export async function extractDealInsights(
     system: SYSTEM_PROMPT,
     prompt: promptParts.join("\n\n"),
     schema: InsightsSchema,
-    attachments: images.map((i) => ({
-      filename: i.fileName,
-      mime: i.mimeType,
-      contentB64: i.contentB64,
-    })),
+    // No image attachments on the extract path (speed + reliability).
+    attachments: undefined,
     background: opts.background,
   });
 

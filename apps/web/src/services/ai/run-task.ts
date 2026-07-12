@@ -46,7 +46,8 @@ const CRM_TOOLS_POLL_INTERVAL_MS = 3000;
 // never abandon a job the VPS will still finish, while staying under the
 // route's 300s function maxDuration so the function returns gracefully.
 const CRM_TOOLS_POLL_MAX_MS = 290_000;
-const CRM_TOOLS_MODEL_TAG = "claude-via-crm-tools";
+// Tag for logs: VPS runs Grok Build CLI first, Claude Code CLI as fallback.
+const CRM_TOOLS_MODEL_TAG = "grok+claude-via-crm-tools";
 // Humanizer runs as a second crm-tools job. Bound it separately so a slow
 // humanization can't double the worst-case latency of the main task.
 const HUMANIZER_POLL_MAX_MS = 90_000;
@@ -846,8 +847,20 @@ export async function runAITask<TSchema extends z.ZodTypeAny | undefined = undef
     return { ok: false, runId, error: "AI task is disabled for this workspace." };
   }
 
-  // Branch on provider. crm-tools is opt-in per task; default stays openrouter.
+  // Operational path: Grok Build CLI + Claude Code CLI on the VPS only.
+  // OpenRouter is not used for product AI (user policy). Always prefer
+  // crm-tools when configured; ignore workspace openrouter provider setting.
+  if (CRM_TOOLS_API_URL && CRM_TOOLS_AUTH_TOKEN) {
+    const result = await runViaCrmTools(input, {
+      ...cfg,
+      provider: "crm-tools",
+    });
+    return maybeHumanize(def, input, result);
+  }
+
+  // Legacy OpenRouter path only if crm-tools is not configured at all.
   if (cfg.provider === "crm-tools") {
+    // Misconfiguration: registry says crm-tools but env is missing.
     const result = await runViaCrmTools(input, cfg);
     return maybeHumanize(def, input, result);
   }
