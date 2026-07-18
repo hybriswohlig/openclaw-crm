@@ -158,6 +158,17 @@ async function ingestOne(args: {
   if (key.remoteJid === "status@broadcast") return;
   if (!msg.message) return;
 
+  // Match the JID domain, not just the digits: new-format group ids
+  // (120363…@g.us) are pure digits and would pass the numeric guard below,
+  // then surface in the CRM as digit-named fake 1:1 chats.
+  if (/@(?:g\.us|newsletter|broadcast)$/.test(key.remoteJid)) {
+    log.debug(
+      { accountId, remoteJid: key.remoteJid },
+      "[inbound] skipping group/channel thread",
+    );
+    return;
+  }
+
   const { peerWaId, peerJid, peerLid, lidPnSource } =
     await resolvePeerAddressing({ key, sock, log });
   if (!/^\d{6,20}$/.test(peerWaId)) {
@@ -228,6 +239,15 @@ async function ingestOutboundOne(args: {
   if (!key.fromMe) return;
   if (key.remoteJid === "status@broadcast") return;
   if (!msg.message) return;
+
+  // See ingestOne: new-format group ids are pure digits — match the domain.
+  if (/@(?:g\.us|newsletter|broadcast)$/.test(key.remoteJid)) {
+    log.debug(
+      { accountId, remoteJid: key.remoteJid },
+      "[outbound] skipping group/channel thread",
+    );
+    return;
+  }
 
   // remoteJid here is the *recipient* (the customer the operator is texting).
   const { peerWaId, peerJid, peerLid, lidPnSource } =

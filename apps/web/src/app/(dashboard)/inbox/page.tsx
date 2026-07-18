@@ -140,6 +140,20 @@ function looksNumeric(name: string | null | undefined): boolean {
   return !/[a-zA-ZÀ-ſ]/.test(name);
 }
 
+/**
+ * Merge-group key for the per-firma "Gesamt" view. Operating company when the
+ * channel account carries one; otherwise the firm derived from the channel
+ * name, so unconfigured accounts still group per firm instead of collapsing
+ * into one cross-firm bucket. Every place that sets or compares `mergedOc`
+ * must use this key.
+ */
+function ocKeyOf(c: Conversation): string {
+  return (
+    c.operatingCompanyRecordId ??
+    (/ceylan/i.test(c.channelName) ? "name:ceylan" : "name:kottke")
+  );
+}
+
 function groupConversationsByPerson(convs: Conversation[]): PersonGroup[] {
   const map = new Map<string, Conversation[]>();
   for (const c of convs) {
@@ -1743,15 +1757,20 @@ export default function InboxPage() {
       const threads = conversations.filter(
         (c) => (c.crmRecordId ?? `contact:${c.contactId}`) === personKey
       );
-      if (searchParams.get("merged") === "1" && threads.length > 1) {
+      // Gesamt nur, wenn die Firma dieses Chats wirklich mehrere Chats hat —
+      // für eine Firma mit genau einem Chat IST der Chat die Gesamtansicht.
+      // ?moc= trägt die Firma der tatsächlich geöffneten Gesamtansicht (die
+      // vom ?conv-Chat abweichen kann); ohne gültiges moc: Firma des Chats.
+      const mocParam = searchParams.get("moc");
+      const oc =
+        mocParam && threads.some((c) => ocKeyOf(c) === mocParam)
+          ? mocParam
+          : ocKeyOf(match);
+      const ocIds = threads.filter((c) => ocKeyOf(c) === oc).map((c) => c.id);
+      if (searchParams.get("merged") === "1" && ocIds.length > 1) {
         setMerged(true);
-        const oc = match.operatingCompanyRecordId ?? "__none__";
         setMergedOc(oc);
-        markReadLocally(
-          threads
-            .filter((c) => (c.operatingCompanyRecordId ?? "__none__") === oc)
-            .map((c) => c.id)
-        );
+        markReadLocally(ocIds);
       } else {
         setMerged(false);
         markReadLocally([match.id]);
@@ -1785,14 +1804,29 @@ export default function InboxPage() {
   useEffect(() => {
     if (!restoreDoneRef.current) return; // erst nach dem einmaligen Restore
     const url = selected
-      ? `/inbox?conv=${selected.id}${merged ? "&merged=1" : ""}`
+      ? `/inbox?conv=${selected.id}${merged ? `&merged=1&moc=${encodeURIComponent(mergedOc)}` : ""}`
       : "/inbox";
     // Poll-Reconcile tauscht das selected-Objekt aus, ohne dass sich die URL
     // ändert — identische Replaces überspringen.
     if (lastSyncedUrlRef.current === url) return;
     lastSyncedUrlRef.current = url;
     router.replace(url, { scroll: false });
-  }, [selected, merged, router]);
+  }, [selected, merged, mergedOc, router]);
+
+  // Fällt die Gesamt-Firma (Poll, Erledigen) auf einen Chat zurück, rendert
+  // die Detailansicht bereits die Einzelansicht — merged auch im State
+  // entwaffnen, sonst springt die Ansicht beim nächsten neuen Thread der
+  // Firma mitten im Tippen zurück in die schreibgeschützte Gesamt-Timeline.
+  useEffect(() => {
+    if (!merged || !selected) return;
+    const personKey = selected.crmRecordId ?? `contact:${selected.contactId}`;
+    const ocThreads = conversations.filter(
+      (c) =>
+        (c.crmRecordId ?? `contact:${c.contactId}`) === personKey &&
+        ocKeyOf(c) === mergedOc
+    );
+    if (ocThreads.length < 2) setMerged(false);
+  }, [merged, mergedOc, selected, conversations]);
 
   async function handleSync() {
     setSyncing(true);
@@ -2242,17 +2276,27 @@ export default function InboxPage() {
                   void handleSetStatus(person.conversations.map((c) => c.id), status)
                 }
                 onClick={() => {
-                  if (person.conversations.length > 1) {
+                  // Gesamt nur öffnen, wenn die Firma des jüngsten Chats mehr
+                  // als einen Chat hat — sonst direkt der einzelne Chat, ein
+                  // "Gesamt" über genau einen Chat wäre ein redundantes Duplikat.
+                  // Ungefiltert zählen/lesen: die Gesamtansicht zeigt (und liest
+                  // serverseitig) ALLE Threads der Firma, nicht nur die der
+                  // aktiven Filter — sonst bleiben Badges gefilterter Threads
+                  // bis zum nächsten Poll stehen.
+                  const oc = ocKeyOf(person.latest);
+                  const ocIds = conversations
+                    .filter(
+                      (c) =>
+                        (c.crmRecordId ?? `contact:${c.contactId}`) === person.key &&
+                        ocKeyOf(c) === oc
+                    )
+                    .map((c) => c.id);
+                  if (ocIds.length > 1) {
                     setMerged(true);
-                    const oc = person.latest.operatingCompanyRecordId ?? "__none__";
                     setMergedOc(oc);
                     // Gesamtansicht markiert sich serverseitig als gelesen —
                     // betroffen sind die Threads derselben Firma.
-                    markReadLocally(
-                      person.conversations
-                        .filter((c) => (c.operatingCompanyRecordId ?? "__none__") === oc)
-                        .map((c) => c.id)
-                    );
+                    markReadLocally(ocIds);
                   } else {
                     setMerged(false);
                     markReadLocally([person.latest.id]);
@@ -2279,11 +2323,16 @@ export default function InboxPage() {
             .filter((c) => (c.crmRecordId ?? `contact:${c.contactId}`) === personKey)
             .sort((a, b) => (b.lastMessageAt ?? "").localeCompare(a.lastMessageAt ?? ""));
           const multi = threads.length > 1;
-          const ocKey = (c: Conversation) => c.operatingCompanyRecordId ?? "__none__";
           const firma = (c: Conversation) => (/ceylan/i.test(c.channelName) ? "Ceylan" : "Kottke");
-          const companies = [...new Map(threads.map((c) => [ocKey(c), c] as const)).values()];
-          const showMerged = merged && multi;
-          const mergedIds = threads.filter((c) => ocKey(c) === mergedOc).map((c) => c.id);
+          const companies = [...new Map(threads.map((c) => [ocKeyOf(c), c] as const)).values()];
+          // "Gesamt" gibt es nur für Firmen mit mehreren Chats: bei genau
+          // einem Chat wäre die Gesamtansicht ein redundantes Duplikat davon.
+          const ocCount = (key: string) => threads.filter((c) => ocKeyOf(c) === key).length;
+          const gesamtCompanies = companies.filter((s) => ocCount(ocKeyOf(s)) > 1);
+          const mergedIds = threads.filter((c) => ocKeyOf(c) === mergedOc).map((c) => c.id);
+          // Degeneriert (Poll entfernte Threads, Firma hat nur noch 1 Chat):
+          // zurück zur Einzelansicht statt einer 1-Chat-"Gesamt"-Timeline.
+          const showMerged = merged && multi && mergedIds.length > 1;
           const sug = selected.crmRecordId ? suggestions.find((s) => s.survivorId === selected.crmRecordId || s.absorbedId === selected.crmRecordId) : undefined;
           const sugOther = sug ? (sug.survivorId === selected.crmRecordId ? sug.absorbedName : sug.survivorName) : "";
           return (
@@ -2299,24 +2348,26 @@ export default function InboxPage() {
               )}
               {multi && (
                 <div className="shrink-0 flex items-center gap-1.5 overflow-x-auto border-b border-border bg-muted/30 px-3 py-1.5 scrollbar-none">
-                  {companies.map((s) => (
+                  {gesamtCompanies.map((s) => (
                     <button
-                      key={"g" + ocKey(s)}
+                      key={"g" + ocKeyOf(s)}
                       onClick={() => {
                         setMerged(true);
-                        setMergedOc(ocKey(s));
+                        setMergedOc(ocKeyOf(s));
                         // Gesamtansicht markiert sich serverseitig als gelesen.
-                        markReadLocally(threads.filter((c) => ocKey(c) === ocKey(s)).map((c) => c.id));
+                        markReadLocally(threads.filter((c) => ocKeyOf(c) === ocKeyOf(s)).map((c) => c.id));
                       }}
                       className={cn(
                         "shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold border transition-colors",
-                        showMerged && mergedOc === ocKey(s) ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:text-foreground"
+                        showMerged && mergedOc === ocKeyOf(s) ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:text-foreground"
                       )}
                     >
                       {companies.length > 1 ? `Gesamt · ${firma(s)}` : "Gesamt"}
                     </button>
                   ))}
-                  <span className="shrink-0 mx-1 h-3 w-px bg-border" />
+                  {gesamtCompanies.length > 0 && (
+                    <span className="shrink-0 mx-1 h-3 w-px bg-border" />
+                  )}
                   {threads.map((t) => {
                     const isKa = isKleinanzeigenConv(t);
                     const label = isKa ? "Kleinanzeigen" : t.channelType === "whatsapp" ? "WhatsApp" : (t.channelType as string) === "sms" ? "SMS" : "E-Mail";
@@ -2334,7 +2385,7 @@ export default function InboxPage() {
                           !showMerged && t.id === selected.id ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:text-foreground"
                         )}
                       >
-                        {label}{when ? ` · ${when}` : ""}{t.unreadCount > 0 ? ` (${t.unreadCount})` : ""}
+                        {label}{companies.length > 1 ? ` · ${firma(t)}` : ""}{when ? ` · ${when}` : ""}{t.unreadCount > 0 ? ` (${t.unreadCount})` : ""}
                       </button>
                     );
                   })}
@@ -2406,7 +2457,13 @@ export default function InboxPage() {
           setTimeout(() => {
             setConversations((prev) => {
               const found = prev.find((c) => c.id === conversationId);
-              if (found) setSelected(found);
+              if (found) {
+                // Eine evtl. noch offene Gesamtansicht entwaffnen — sonst
+                // kapert deren mergedOc den frisch angeschriebenen Chat und
+                // zeigt die schreibgeschützte Timeline statt des Chats.
+                setMerged(false);
+                setSelected(found);
+              }
               return prev;
             });
           }, 300);

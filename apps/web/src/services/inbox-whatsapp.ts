@@ -150,11 +150,23 @@ async function upsertContact(
     .where(and(eq(inboxContacts.workspaceId, workspaceId), eq(inboxContacts.phone, waId)))
     .limit(1);
   if (existing) {
-    if (displayName && !existing.displayName) {
+    // A stored name without a single letter (any script — \p{L}, not just
+    // Latin) is the frozen wa_id/LID-digits placeholder from creation, not a
+    // human name. Only a name that itself contains letters may replace it —
+    // digits never overwrite anything.
+    const placeholder =
+      !existing.displayName || !/\p{L}/u.test(existing.displayName);
+    if (
+      displayName &&
+      /\p{L}/u.test(displayName) &&
+      placeholder &&
+      displayName !== existing.displayName
+    ) {
       await db
         .update(inboxContacts)
         .set({ displayName, updatedAt: new Date() })
         .where(eq(inboxContacts.id, existing.id));
+      return { ...existing, displayName };
     }
     return existing;
   }
@@ -205,10 +217,25 @@ async function findWhatsAppConversation(args: {
   let lidDigits = peerLid ? peerLid.slice(0, peerLid.indexOf("@")) : null;
   if (lidDigits && canonicalizePhone(lidDigits) !== null) lidDigits = null;
 
+  // `digits@lid` and `digits@hosted.lid` are the same peer (mirrors
+  // canonicalizeWaLid in inbox-crm-link.ts) — probe both spellings so a
+  // hosted-LID stanza finds the thread keyed under the plain form and
+  // vice versa, instead of relying on the contact fallback.
+  const lidTwin = (jid: string | null): string | null =>
+    jid == null
+      ? null
+      : jid.endsWith("@hosted.lid")
+        ? jid.replace(/@hosted\.lid$/, "@lid")
+        : jid.endsWith("@lid")
+          ? jid.replace(/@lid$/, "@hosted.lid")
+          : null;
+
   const candidates: string[] = [];
   for (const key of [
     peerJid,
+    lidTwin(peerJid),
     peerLid,
+    lidTwin(peerLid),
     lidDigits,
     peerWaId,
     `${peerWaId}@s.whatsapp.net`,
@@ -568,25 +595,62 @@ export async function ingestInboundWhatsAppMessage(params: {
         aiNeedsReply: triage.lane === "lead" && !declined,
         aiLastInboundAt: sentAt,
       })
+      // Two racing first-ever ingests of the same peer (e.g. message + echo)
+      // both pass the lookup miss; the loser lands here and converges on the
+      // winner's row instead of 500ing on the unique index.
+      .onConflictDoNothing({
+        target: [
+          inboxConversations.channelAccountId,
+          inboxConversations.externalThreadId,
+        ],
+      })
       .returning();
-    conv = created;
-    isNewConversation = true;
+    if (created) {
+      conv = created;
+      isNewConversation = true;
 
-    await createDealForNewConversation({
-      workspaceId: account.workspaceId,
-      conversationId: conv.id,
-      dealName: peerName || peerWaId,
-      contactId: contact.id,
-      channelAccountId: account.id,
-    });
+      await createDealForNewConversation({
+        workspaceId: account.workspaceId,
+        conversationId: conv.id,
+        dealName: peerName || peerWaId,
+        contactId: contact.id,
+        channelAccountId: account.id,
+      });
 
-    // Re-fetch to pick up dealRecordId set by createDealForNewConversation
-    [conv] = await db
-      .select()
-      .from(inboxConversations)
-      .where(eq(inboxConversations.id, conv.id))
-      .limit(1);
-  } else {
+      // Re-fetch to pick up dealRecordId set by createDealForNewConversation
+      [conv] = await db
+        .select()
+        .from(inboxConversations)
+        .where(eq(inboxConversations.id, conv.id))
+        .limit(1);
+    } else {
+      conv = await findWhatsAppConversation({
+        accountId: account.id,
+        contactId: contact.id,
+        peerWaId,
+        peerJid: peerJid ?? null,
+        peerLid: lidJid,
+      });
+      if (!conv) {
+        throw new Error(
+          "WhatsApp ingest: conversation insert conflicted but winner not found"
+        );
+      }
+      // The winner is likely still inside createDealForNewConversation —
+      // give the deal link one beat to appear so THIS message's activity
+      // event and attachments land on the deal too, not on null.
+      if (!conv.dealRecordId) {
+        await new Promise((r) => setTimeout(r, 400));
+        const [fresh] = await db
+          .select()
+          .from(inboxConversations)
+          .where(eq(inboxConversations.id, conv.id))
+          .limit(1);
+        if (fresh) conv = fresh;
+      }
+    }
+  }
+  if (conv && !isNewConversation) {
     await db
       .update(inboxConversations)
       .set({
@@ -829,24 +893,60 @@ export async function ingestOutboundWhatsAppMessage(params: {
         unreadCount: 0,
         aiNeedsReply: false,
       })
+      // See ingestInboundWhatsAppMessage: converge on the winner of a
+      // create race instead of 500ing on the unique index.
+      .onConflictDoNothing({
+        target: [
+          inboxConversations.channelAccountId,
+          inboxConversations.externalThreadId,
+        ],
+      })
       .returning();
-    conv = created;
-    isNewConversation = true;
+    if (created) {
+      conv = created;
+      isNewConversation = true;
 
-    await createDealForNewConversation({
-      workspaceId: account.workspaceId,
-      conversationId: conv.id,
-      dealName: peerWaId,
-      contactId: contact.id,
-      channelAccountId: account.id,
-    });
+      await createDealForNewConversation({
+        workspaceId: account.workspaceId,
+        conversationId: conv.id,
+        dealName: peerWaId,
+        contactId: contact.id,
+        channelAccountId: account.id,
+      });
 
-    [conv] = await db
-      .select()
-      .from(inboxConversations)
-      .where(eq(inboxConversations.id, conv.id))
-      .limit(1);
-  } else {
+      [conv] = await db
+        .select()
+        .from(inboxConversations)
+        .where(eq(inboxConversations.id, conv.id))
+        .limit(1);
+    } else {
+      conv = await findWhatsAppConversation({
+        accountId: account.id,
+        contactId: contact.id,
+        peerWaId,
+        peerJid: peerJid ?? null,
+        peerLid: lidJid,
+      });
+      if (!conv) {
+        throw new Error(
+          "WhatsApp ingest: conversation insert conflicted but winner not found"
+        );
+      }
+      // The winner is likely still inside createDealForNewConversation —
+      // give the deal link one beat to appear so THIS message's activity
+      // event and attachments land on the deal too, not on null.
+      if (!conv.dealRecordId) {
+        await new Promise((r) => setTimeout(r, 400));
+        const [fresh] = await db
+          .select()
+          .from(inboxConversations)
+          .where(eq(inboxConversations.id, conv.id))
+          .limit(1);
+        if (fresh) conv = fresh;
+      }
+    }
+  }
+  if (conv && !isNewConversation) {
     await db
       .update(inboxConversations)
       .set({
@@ -1765,9 +1865,16 @@ export async function fetchWhatsAppTemplates(
   });
 }
 
-/** Strip non-digits from a phone number. Meta expects digits-only E.164. */
+/**
+ * Digits-only E.164 for Meta. Canonicalizes first ("0151…" → "49151…",
+ * "0049…" → "49…") so a compose to a national-format number produces the
+ * SAME thread key as the wa_id the customer writes from — otherwise the two
+ * spellings mint two conversations for one person. Falls back to a plain
+ * digit-strip when the input doesn't parse as a phone number.
+ */
 export function normalizeWaPhone(input: string): string {
-  const digits = input.replace(/\D+/g, "");
+  const canonical = canonicalizePhone(input);
+  const digits = (canonical ?? input).replace(/\D+/g, "");
   if (digits.length < 7) throw new Error("Invalid phone number");
   return digits;
 }
@@ -1887,16 +1994,16 @@ export async function sendWhatsAppTemplate(params: {
   });
 
   const threadKey = waId;
-  let [conv] = await db
-    .select()
-    .from(inboxConversations)
-    .where(
-      and(
-        eq(inboxConversations.channelAccountId, account.id),
-        eq(inboxConversations.externalThreadId, threadKey)
-      )
-    )
-    .limit(1);
+  // Tolerant lookup, NOT a raw externalThreadId probe: the customer may
+  // already have this account's conversation under a `digits@lid` or
+  // `digits@s.whatsapp.net` key — a raw probe would mint a duplicate chat
+  // for an existing customer.
+  let conv = await findWhatsAppConversation({
+    accountId: account.id,
+    contactId: contact.id,
+    peerWaId: waId,
+    peerJid: null,
+  });
 
   let createdNewConversation = false;
   if (!conv) {
@@ -1913,9 +2020,31 @@ export async function sendWhatsAppTemplate(params: {
         unreadCount: 0,
         dealRecordId: dealRecordId ?? null,
       })
+      // Converge on a racing writer's row; createdNewConversation stays
+      // false then, so the Meta-failure rollback never deletes their row.
+      .onConflictDoNothing({
+        target: [
+          inboxConversations.channelAccountId,
+          inboxConversations.externalThreadId,
+        ],
+      })
       .returning();
-    conv = created;
-    createdNewConversation = true;
+    if (created) {
+      conv = created;
+      createdNewConversation = true;
+    } else {
+      conv = await findWhatsAppConversation({
+        accountId: account.id,
+        contactId: contact.id,
+        peerWaId: waId,
+        peerJid: null,
+      });
+      if (!conv) {
+        throw new Error(
+          "WhatsApp template send: conversation insert conflicted but winner not found"
+        );
+      }
+    }
   } else if (dealRecordId && !conv.dealRecordId) {
     // Back-fill link on an existing conversation that isn't yet tied to a
     // deal. Never overwrite an existing link.
@@ -2346,6 +2475,14 @@ async function loadBaileysSendContext(
     ? threadId
     : contact?.phone ?? threadId;
   if (!toWaId) throw new Error("Cannot determine recipient wa_id");
+  // Legacy rows from before the bridge's group guard can be keyed on a
+  // group/channel JID. A "reply" there would broadcast into the whole
+  // WhatsApp group while answers never ingest — refuse loudly instead.
+  if (/@(?:g\.us|newsletter|broadcast)$/.test(toWaId)) {
+    throw new Error(
+      "Conversation is keyed to a WhatsApp group/channel — CRM replies are not supported here",
+    );
+  }
 
   return { conv, account, toWaId };
 }
@@ -2615,9 +2752,31 @@ export async function sendBaileysFirstMessage(params: {
         unreadCount: 0,
         dealRecordId: dealRecordId ?? null,
       })
+      // Converge on a racing writer's row; createdNewConversation stays
+      // false then, so the send-failure rollback never deletes their row.
+      .onConflictDoNothing({
+        target: [
+          inboxConversations.channelAccountId,
+          inboxConversations.externalThreadId,
+        ],
+      })
       .returning();
-    conv = created;
-    createdNewConversation = true;
+    if (created) {
+      conv = created;
+      createdNewConversation = true;
+    } else {
+      conv = await findWhatsAppConversation({
+        accountId: account.id,
+        contactId: contact.id,
+        peerWaId: waId,
+        peerJid: null,
+      });
+      if (!conv) {
+        throw new Error(
+          "Baileys first message: conversation insert conflicted but winner not found"
+        );
+      }
+    }
   } else if (dealRecordId && !conv.dealRecordId) {
     // Back-fill the deal link on an existing conversation; never overwrite.
     await db
