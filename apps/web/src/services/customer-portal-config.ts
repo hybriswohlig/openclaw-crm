@@ -295,6 +295,8 @@ export async function verifyOperatingCompanyDomain(
 export interface EffectiveBranding {
   enabled: boolean;
   customDomain: string | null;
+  /** True only when DNS + Vercel verification completed for customDomain. */
+  domainVerified: boolean;
   branding: FirmaBranding;
 }
 
@@ -307,7 +309,7 @@ export async function loadEffectiveBranding(
   const fallback = brandingForOperatingCompany(name);
 
   if (!operatingCompanyRecordId) {
-    return { enabled: true, customDomain: null, branding: fallback };
+    return { enabled: true, customDomain: null, domainVerified: false, branding: fallback };
   }
 
   const [s] = await db
@@ -318,7 +320,7 @@ export async function loadEffectiveBranding(
     )
     .limit(1);
 
-  if (!s) return { enabled: true, customDomain: null, branding: fallback };
+  if (!s) return { enabled: true, customDomain: null, domainVerified: false, branding: fallback };
 
   const branding: FirmaBranding = {
     firmaSlug: fallback.firmaSlug,
@@ -343,6 +345,7 @@ export async function loadEffectiveBranding(
   return {
     enabled: s.enabled,
     customDomain: s.customDomain,
+    domainVerified: s.domainVerificationState === "verified",
     branding,
   };
 }

@@ -30,6 +30,17 @@ function isEmployeePortalHost(host: string): boolean {
   return h.startsWith("kottke-mitarbeiter.") || h === "mitarbeiter.localhost";
 }
 
+/**
+ * Customer status-portal domains follow the `status.<firma-website>` convention
+ * (schema comment + settings UI, e.g. status.kottke-umzuege.de). They are
+ * attached to the same Vercel project as the CRM, so without this check every
+ * CRM route — including the internal login — would be served to customers on
+ * their company's own domain.
+ */
+function isCustomerPortalHost(host: string): boolean {
+  return host.split(":")[0].toLowerCase().startsWith("status.");
+}
+
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const host = req.headers.get("host") || "";
@@ -63,6 +74,42 @@ export function middleware(req: NextRequest) {
 
     const url = req.nextUrl.clone();
     url.pathname = `/mitarbeiter${pathname === "/" ? "" : pathname}`;
+    return NextResponse.rewrite(url);
+  }
+
+  // ── Customer status-portal subdomain ─────────────────────────────────────
+  // Only the token-scoped portal and what it links to is served on status.*
+  // hosts. Everything else — the bare root a customer types by hand, /login,
+  // any unknown path — goes to the company's website (status.<apex> → <apex>)
+  // instead of exposing the internal CRM login on a customer-facing domain.
+  if (isCustomerPortalHost(host)) {
+    if (
+      pathname.startsWith("/s/") ||
+      pathname.startsWith("/api/public/") ||
+      pathname.startsWith("/legal/") ||
+      pathname.startsWith("/_next") ||
+      pathname.startsWith("/favicon") ||
+      pathname === "/__portal_health"
+    ) {
+      return NextResponse.next();
+    }
+    // The CRM's robots.txt (and its internal sitemap URL) must not leak here;
+    // portal pages are noindexed via metadata, block crawling wholesale.
+    if (pathname === "/robots.txt") {
+      return new NextResponse("User-agent: *\nDisallow: /\n", {
+        headers: { "content-type": "text/plain" },
+      });
+    }
+    const h = host.split(":")[0].toLowerCase();
+    const labels = h.split(".");
+    if (labels.length >= 3) {
+      // 307, not 308: a cached permanent redirect on the bare domain would be
+      // hard to undo for returning customers if this behavior ever changes.
+      return NextResponse.redirect(`https://${labels.slice(1).join(".")}/`, 307);
+    }
+    // No apex to derive (degenerate config) — show the neutral portal notice.
+    const url = req.nextUrl.clone();
+    url.pathname = "/s/ungueltig";
     return NextResponse.rewrite(url);
   }
 

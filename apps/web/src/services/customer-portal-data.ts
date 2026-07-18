@@ -435,7 +435,9 @@ export async function loadContextByToken(
       serverTime: now.toISOString(),
       revoked,
       featureDisabled: !effective.enabled,
-      canonicalHost: effective.customDomain,
+      // Only a VERIFIED domain may become the canonical host: a saved-but-
+      // unverified domain would 308 every /s/<token> link to a dead host.
+      canonicalHost: effective.domainVerified ? effective.customDomain : null,
     },
   };
 }
