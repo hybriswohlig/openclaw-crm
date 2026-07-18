@@ -20,7 +20,9 @@ services:
       dockerfile: apps/baileys-bridge/Dockerfile
     restart: unless-stopped
     ports:
-      - "8787:8787"
+      # Localhost only — nginx (bridge.kottke.info) fronts the bridge with
+      # TLS; 8787 must never be reachable from outside (DEPLOY.md Schritt 6).
+      - "127.0.0.1:8787:8787"
     environment:
       CRM_BASE_URL: ${CRM_BASE_URL}
       CRM_API_KEY: ${CRM_API_KEY}
