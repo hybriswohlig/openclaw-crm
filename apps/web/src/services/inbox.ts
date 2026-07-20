@@ -710,8 +710,10 @@ export async function setConversationAgentStage(
  * Returns the new deal record ID, or null if creation was skipped/failed.
  */
 // Deal stages that count as "closed" — a closed deal is NOT reused, a fresh
-// inquiry on the same person+company opens a new lead.
-const CLOSED_STAGE_RE = /gewonnen|won|verloren|lost|abgeschlossen|closed|abgesagt|storniert|abgelehnt|kein\s*interesse/i;
+// inquiry on the same person+company opens a new lead. Muss die REALE
+// Stage-Taxonomie abdecken: "Durchgeführt"/"Done"/"Paid" fehlten, wodurch
+// Wiederholungskunden an ihren abgeschlossenen Alt-Deal angehängt wurden.
+const CLOSED_STAGE_RE = /gewonnen|won|verloren|lost|abgeschlossen|closed|abgesagt|storniert|abgelehnt|kein\s*interesse|durchgef(?:ü|ue)hrt|erledigt|bezahlt|\bdone\b|\bpaid\b/i;
 
 /**
  * KOT-IDENTITY deal-reuse: find an OPEN deal that already belongs to this person
