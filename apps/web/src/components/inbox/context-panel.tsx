@@ -13,7 +13,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Calculator,
   Check,
   ChevronDown,
   Copy,
@@ -37,7 +36,7 @@ import {
   type DocumentType,
   type PrefilledPreise,
 } from "@/components/GenerateDocumentDialog";
-import { QuotationCalculator } from "@/components/quotation/quotation-calculator";
+import { QuoteCockpit } from "@/components/inbox/quote-cockpit";
 import { StatusLinkWizard } from "@/components/inbox/status-link-wizard";
 import { renderSnippet } from "@/components/inbox/customer-link-composer";
 import {
@@ -279,7 +278,6 @@ export function InboxContextPanel({
 
   // Modals
   const [wizardOpen, setWizardOpen] = useState(false);
-  const [calcOpen, setCalcOpen] = useState(false);
   const [docDialog, setDocDialog] = useState<{
     type: DocumentType;
     deal: DealData;
@@ -610,18 +608,26 @@ export function InboxContextPanel({
                   loading={docFlowLoading === "RE"}
                   onClick={() => void startDocFlow("RE")}
                 />
-                <ActionRow
-                  icon={<Calculator className="h-4 w-4" />}
-                  label="Kostenrechner"
-                  hint="Wie in der Auftragsübersicht"
-                  onClick={() => setCalcOpen(true)}
-                />
                 {analyzeError && (
                   <p className="mx-3 mb-2 rounded-md bg-destructive/10 px-2.5 py-1.5 text-[11px] text-destructive">
                     {analyzeError}
                   </p>
                 )}
               </Section>
+
+              {/* ── Quote-Cockpit: inline Kostenrechner + Route/Zeit. Nur bis
+                  zur Zahlung und nicht für verlorene Deals — danach hat der
+                  Rechner im Inbox-Kontext keinen Zweck mehr. ── */}
+              {!(lifecycle?.milestones.find((m) => m.key === "bezahlt")?.done ?? false) &&
+                stage !== "verloren" && (
+                  <Section title="Angebot & Route">
+                    <QuoteCockpit
+                      dealRecordId={dealRecordId}
+                      quotation={quotation}
+                      onSaved={() => void refresh()}
+                    />
+                  </Section>
+                )}
 
               {/* ── KI-Zusammenfassung (instant, from the durable cache) ── */}
               <Section title="KI-Zusammenfassung">
@@ -885,37 +891,6 @@ export function InboxContextPanel({
           onInsert={onInsert}
           onFinished={() => void refresh()}
         />
-      )}
-
-      {/* ── Kostenrechner modal (same component as Auftragsübersicht) ── */}
-      {calcOpen && dealRecordId && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
-          <div className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-xl border border-border bg-background shadow-xl">
-            <div className="flex items-center justify-between border-b border-border px-5 py-3">
-              <span className="flex items-center gap-2 text-sm font-semibold">
-                <Calculator className="h-4 w-4" />
-                Kostenrechner
-              </span>
-              <button
-                onClick={() => setCalcOpen(false)}
-                className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                aria-label="Schließen"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto px-5 py-4">
-              <QuotationCalculator
-                recordId={dealRecordId}
-                quotation={quotation}
-                onSaved={() => {
-                  void refresh();
-                  setCalcOpen(false);
-                }}
-              />
-            </div>
-          </div>
-        </div>
       )}
 
       {/* ── Missing-data prompt ── */}
