@@ -36,6 +36,13 @@ import { sendPush } from "@/services/push";
 import { WhatsAppSessionExpiredError } from "@/services/inbox-whatsapp";
 import { emitEvent } from "@/services/activity-events";
 import { extractDealInsights } from "@/services/deal-insights";
+import {
+  analyzeInventoryPhotos,
+  applyDealInventory,
+  extractDealInventory,
+  hasAnyInventory,
+  inventoryAttachmentIdsForMessages,
+} from "@/services/deal-inventory";
 import { applyDealInsights } from "@/services/deal-insights-apply";
 import { getRecord } from "@/services/records";
 import { getObjectBySlug } from "@/services/objects";
@@ -520,6 +527,37 @@ async function processConversation(
       }
     }
   }
+
+  // ── AI-Umzugsanalyse (Phase 2b): Inventar automatisch pflegen ──────────────
+  // Teilt sich das Vision-Budget mit der Insights-Extraktion (bounded pro Tick,
+  // sequenziell — der VPS hat MemoryMax 3G). Zwei Auto-Fälle:
+  //   1. Neue Kundenfotos in diesem Tick → nur DIESE Fotos analysieren und in
+  //      die Inventarliste matchen.
+  //   2. Deal hat noch gar kein Inventar → einmalige Erstbefüllung aus dem
+  //      Chat nach dem Quiet-Window; Re-Analysen bleiben Operator-Entscheid.
+  if (conv.dealRecordId && opts.visionBudget.left > 0) {
+    try {
+      const newPhotoIds = await inventoryAttachmentIdsForMessages(
+        conv.workspaceId,
+        unprocessedInbound.map((m) => m.id)
+      );
+      if (newPhotoIds.length > 0) {
+        opts.visionBudget.left -= 1;
+        await analyzeInventoryPhotos(conv.workspaceId, conv.dealRecordId, {
+          attachmentIds: newPhotoIds,
+        });
+      } else if (!(await hasAnyInventory(conv.workspaceId, conv.dealRecordId))) {
+        opts.visionBudget.left -= 1;
+        const inv = await extractDealInventory(conv.workspaceId, conv.dealRecordId);
+        if (inv.items && inv.items.length > 0) {
+          await applyDealInventory(conv.workspaceId, conv.dealRecordId, inv.items, null);
+        }
+      }
+    } catch (err) {
+      console.error("[agent-worker] inventory auto-analysis failed (non-blocking):", err);
+    }
+  }
+
   if (!insights && conv.dealRecordId) {
     insights = await readLatestInsights(conv.workspaceId, conv.dealRecordId);
   }

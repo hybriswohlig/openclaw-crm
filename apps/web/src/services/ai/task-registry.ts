@@ -10,6 +10,9 @@ export const AI_TASK_SLUGS = {
   // AI-Umzugsanalyse: structured per-item inventory from the chat transcript
   // (deal_inventory_items rows), Phase 2 of the Quote-Cockpit feature.
   DEAL_EXTRACT_INVENTORY: "deal.extract-inventory",
+  // AI-Umzugsanalyse Phase 2b: vision pass over customer photos — recognizes
+  // items, estimates rough dimensions, feeds the chat↔photo matching.
+  DEAL_INVENTORY_FROM_PHOTOS: "deal.inventory-from-photos",
   // The inbox "Antwort vorschlagen" button (suggest-reply endpoint).
   DEAL_DRAFT_REPLY: "deal.draft-reply",
   // Operator-triggered photo analysis: customer-facing scope summary for the
@@ -79,6 +82,20 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
       "Extrahiert eine strukturierte Item-Liste (Möbel, Kartons, Geräte) mit Größe/Gewicht/Zerlege-Flags aus dem Gesprächsverlauf eines Deals.",
     defaultProvider: "crm-tools",
     defaultModel: "grok-composer-2.5-fast",
+    defaultFallbackModel: "claude-code",
+    defaultTemperature: 0.2,
+    defaultMaxTokens: 4096,
+    defaultDailySpendCapUsd: 5,
+  },
+  [AI_TASK_SLUGS.DEAL_INVENTORY_FROM_PHOTOS]: {
+    slug: AI_TASK_SLUGS.DEAL_INVENTORY_FROM_PHOTOS,
+    label: "Inventar-Foto-Analyse (Umzugsanalyse)",
+    description:
+      "Erkennt Umzugsgut auf Kundenfotos (inkl. grober Maßschätzung) für das Matching gegen die Chat-Inventarliste. Läuft auf dem VPS mit Grok Build.",
+    defaultProvider: "crm-tools",
+    // Per Nutzer-Vorgabe immer Grok Build auf dem VPS; Claude Code nur als
+    // Ausfall-Fallback, damit ein Grok-Ausfall die Analyse nicht stilllegt.
+    defaultModel: "grok-build",
     defaultFallbackModel: "claude-code",
     defaultTemperature: 0.2,
     defaultMaxTokens: 4096,

@@ -8,7 +8,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { Package, RefreshCw, Trash2 } from "lucide-react";
+import { Camera, MessageSquarePlus, Package, RefreshCw, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface InventoryItem {
@@ -44,10 +44,19 @@ function Badge({ children, tone }: { children: React.ReactNode; tone?: "warn" | 
   );
 }
 
-export function InventorySection({ dealRecordId }: { dealRecordId: string }) {
+export function InventorySection({
+  dealRecordId,
+  onInsert,
+}: {
+  dealRecordId: string;
+  /** Fügt Text in den Antwort-Editor ein (gleicher Mechanismus wie die KI-Frage-Chips). */
+  onInsert?: (text: string) => void;
+}) {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [extracting, setExtracting] = useState(false);
+  const [analyzingPhotos, setAnalyzingPhotos] = useState(false);
+  const [photoInfo, setPhotoInfo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -85,6 +94,41 @@ export function InventorySection({ dealRecordId }: { dealRecordId: string }) {
       setItems(j.data?.items ?? []);
     } finally {
       setExtracting(false);
+    }
+  }
+
+  async function analyzePhotos() {
+    setAnalyzingPhotos(true);
+    setError(null);
+    setPhotoInfo(null);
+    try {
+      const res = await fetch(`/api/v1/deals/${dealRecordId}/inventory/analyze-photos`, {
+        method: "POST",
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        data?: {
+          items?: InventoryItem[];
+          photosAnalyzed?: number;
+          photosSkipped?: number;
+          matched?: number;
+          added?: number;
+        };
+        error?: string;
+      };
+      if (!res.ok) {
+        setError(j.error ?? `Foto-Analyse fehlgeschlagen (${res.status})`);
+        return;
+      }
+      setItems(j.data?.items ?? []);
+      const d = j.data ?? {};
+      setPhotoInfo(
+        `${d.photosAnalyzed ?? 0} Foto(s) analysiert · ${d.matched ?? 0} zugeordnet · ${d.added ?? 0} neu` +
+          ((d.photosSkipped ?? 0) > 0
+            ? ` · ${d.photosSkipped} übrig — nochmal klicken`
+            : "")
+      );
+    } finally {
+      setAnalyzingPhotos(false);
     }
   }
 
@@ -165,15 +209,31 @@ export function InventorySection({ dealRecordId }: { dealRecordId: string }) {
             ? "Noch kein Inventar erfasst"
             : `${moving.length} Position(en)${totalVolume > 0 ? ` · ca. ${totalVolume.toFixed(1)} m³` : ""}`}
         </span>
-        <button
-          onClick={() => void extract()}
-          disabled={extracting}
-          className="flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] hover:bg-muted disabled:opacity-50"
-        >
-          <RefreshCw className={cn("h-3 w-3", extracting && "animate-spin")} />
-          {extracting ? "Analysiere…" : items.length > 0 ? "Neu analysieren" : "Aus Chat analysieren"}
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => void extract()}
+            disabled={extracting || analyzingPhotos}
+            className="flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] hover:bg-muted disabled:opacity-50"
+          >
+            <RefreshCw className={cn("h-3 w-3", extracting && "animate-spin")} />
+            {extracting ? "Analysiere…" : items.length > 0 ? "Chat neu" : "Aus Chat"}
+          </button>
+          <button
+            onClick={() => void analyzePhotos()}
+            disabled={extracting || analyzingPhotos}
+            title="Kundenfotos analysieren und den Items zuordnen (Grok Build auf dem VPS)"
+            className="flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] hover:bg-muted disabled:opacity-50"
+          >
+            <Camera className={cn("h-3 w-3", analyzingPhotos && "animate-pulse")} />
+            {analyzingPhotos ? "Analysiere…" : "Fotos"}
+          </button>
+        </div>
       </div>
+      {photoInfo && (
+        <p className="mx-4 mb-1 rounded bg-muted px-2 py-1 text-[11px] text-muted-foreground">
+          {photoInfo}
+        </p>
+      )}
       {error && (
         <p className="mx-4 mb-1 rounded bg-destructive/10 px-2 py-1 text-[11px] text-destructive">
           {error}
@@ -193,6 +253,37 @@ export function InventorySection({ dealRecordId }: { dealRecordId: string }) {
               {staying.map(renderItem)}
             </>
           )}
+          {/* Foto-Nachfragen: wichtige Items ohne Foto — Chip fügt die fertige
+              deutsche Frage in den Editor ein, gesendet wird IMMER vom Operator. */}
+          {onInsert &&
+            (() => {
+              const missing = items.filter((i) => i.needsPhoto && i.moveFlag);
+              if (missing.length === 0) return null;
+              return (
+                <div className="px-4 pt-2">
+                  <p className="pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Foto-Nachfragen
+                  </p>
+                  <div className="flex flex-wrap gap-1">
+                    {missing.map((i) => (
+                      <button
+                        key={i.id}
+                        onClick={() =>
+                          onInsert(
+                            `Könnten Sie uns bitte noch ein Foto von ${i.name} schicken? Dann können wir den Transport besser einplanen.`
+                          )
+                        }
+                        title="Frage in den Antwort-Editor einfügen"
+                        className="flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] hover:bg-muted"
+                      >
+                        <MessageSquarePlus className="h-3 w-3" />
+                        {i.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
         </>
       )}
     </div>

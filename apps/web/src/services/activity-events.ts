@@ -18,6 +18,7 @@ export type ActivityEventType =
   | "call.summary_attached"
   | "ai.insights_extracted"
   | "ai.inventory_extracted"
+  | "ai.inventory_photos_analyzed"
   | "deal.scope_changed_after_quote"
   | "deal.portal_photos_curated"
   | "customer.kva_confirmed"

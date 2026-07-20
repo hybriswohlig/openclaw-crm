@@ -633,7 +633,7 @@ export function InboxContextPanel({
               {/* ── Inventar (AI-Umzugsanalyse) — auch nach Zahlung sichtbar,
                   Phase 3 (Auftragsanweisung) braucht die Liste weiterhin. ── */}
               <Section title="Inventar">
-                <InventorySection dealRecordId={dealRecordId} />
+                <InventorySection dealRecordId={dealRecordId} onInsert={onInsert} />
               </Section>
 
               {/* ── KI-Zusammenfassung (instant, from the durable cache) ── */}
