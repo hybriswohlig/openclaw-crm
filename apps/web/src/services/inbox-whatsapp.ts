@@ -610,20 +610,26 @@ export async function ingestInboundWhatsAppMessage(params: {
       conv = created;
       isNewConversation = true;
 
-      await createDealForNewConversation({
-        workspaceId: account.workspaceId,
-        conversationId: conv.id,
-        dealName: peerName || peerWaId,
-        contactId: contact.id,
-        channelAccountId: account.id,
-      });
+      // Noise-Gate: nur lead-Lanes minten einen Deal (Parität zum E-Mail-Pfad).
+      // Eine OTP-/Plattform-Benachrichtigung (lane=info) bekommt keinen —
+      // schreibt der Kontakt später eine echte Anfrage, hebt die Lane-Heilung
+      // unten die Konversation auf lead und holt den Deal nach.
+      if (triage.lane === "lead") {
+        await createDealForNewConversation({
+          workspaceId: account.workspaceId,
+          conversationId: conv.id,
+          dealName: peerName || peerWaId,
+          contactId: contact.id,
+          channelAccountId: account.id,
+        });
 
-      // Re-fetch to pick up dealRecordId set by createDealForNewConversation
-      [conv] = await db
-        .select()
-        .from(inboxConversations)
-        .where(eq(inboxConversations.id, conv.id))
-        .limit(1);
+        // Re-fetch to pick up dealRecordId set by createDealForNewConversation
+        [conv] = await db
+          .select()
+          .from(inboxConversations)
+          .where(eq(inboxConversations.id, conv.id))
+          .limit(1);
+      }
     } else {
       conv = await findWhatsAppConversation({
         accountId: account.id,
@@ -651,6 +657,17 @@ export async function ingestInboundWhatsAppMessage(params: {
       }
     }
   }
+  // Lane-Heilung: eine echte Anfrage auf einer info-Konversation (z.B. der
+  // Erstkontakt war OTP-artig) hebt die Lane wieder auf lead — außer ein
+  // Operator hat manuell klassifiziert. Der durch das Noise-Gate ausgelassene
+  // Deal wird dann nachgeholt.
+  const laneUpgrade =
+    !isNewConversation &&
+    !!conv &&
+    triage.lane === "lead" &&
+    conv.lane === "info" &&
+    conv.classifiedBy !== "manual";
+
   if (conv && !isNewConversation) {
     await db
       .update(inboxConversations)
@@ -664,9 +681,32 @@ export async function ingestInboundWhatsAppMessage(params: {
         aiLastInboundAt: sentAt,
         // Re-open resolved/spam conversations when the customer writes back
         ...(conv.status !== "open" ? { status: "open" } : {}),
+        ...(laneUpgrade
+          ? {
+              lane: "lead" as const,
+              classificationReason: triage.reason,
+              classifiedBy: triage.by,
+            }
+          : {}),
         updatedAt: new Date(),
       })
       .where(eq(inboxConversations.id, conv.id));
+
+    if (laneUpgrade && !conv.dealRecordId) {
+      await createDealForNewConversation({
+        workspaceId: account.workspaceId,
+        conversationId: conv.id,
+        dealName: peerName || peerWaId,
+        contactId: contact.id,
+        channelAccountId: account.id,
+      });
+      const [fresh] = await db
+        .select()
+        .from(inboxConversations)
+        .where(eq(inboxConversations.id, conv.id))
+        .limit(1);
+      if (fresh) conv = fresh;
+    }
   }
 
   // Record the opt-out across all engines (idempotent, non-blocking).

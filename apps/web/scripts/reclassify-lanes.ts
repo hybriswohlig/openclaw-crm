@@ -10,19 +10,21 @@
  *
  * Run: NODE_ENV=production DATABASE_URL=... pnpm --filter @openclaw-crm/web exec tsx scripts/reclassify-lanes.ts [--apply]
  */
+import "./_load-env";
 import { db } from "@/db";
 import { channelAccounts, inboxConversations, inboxContacts, inboxMessages } from "@/db/schema";
 import { and, eq, desc } from "drizzle-orm";
 import { classifyInbound, classifyMessagingBody } from "@/services/inbox-triage";
+import { cleanupNoiseDeal } from "@/services/inbox";
 
 const APPLY = process.argv.includes("--apply");
 
 async function main() {
   console.log(`\n=== Lane reclassification — ${APPLY ? "APPLY" : "DRY-RUN"} ===`);
-  const accounts = await db.select({ id: channelAccounts.id, channelType: channelAccounts.channelType }).from(channelAccounts);
+  const accounts = await db.select({ id: channelAccounts.id, channelType: channelAccounts.channelType, workspaceId: channelAccounts.workspaceId }).from(channelAccounts);
   if (accounts.length === 0) { console.log("no channel accounts"); process.exit(0); }
 
-  let moved = 0, kept = 0;
+  let moved = 0, kept = 0, dealsDeleted = 0;
   const byReason = new Map<string, number>();
   const examples: string[] = [];
 
@@ -51,6 +53,9 @@ async function main() {
       if (examples.length < 12) examples.push(`  ${res.lane.toUpperCase()}  <${msg.fromAddress}>  "${(msg.subject ?? "").slice(0, 50)}"  [${res.reason}]`);
       if (APPLY) {
         await db.update(inboxConversations).set({ lane: res.lane, classificationReason: res.reason, classifiedBy: res.by, aiNeedsReply: false, updatedAt: new Date() }).where(eq(inboxConversations.id, c.id));
+        // Unberuehrten Auto-Deal der Noise-Konversation aufraeumen (Guards im Service).
+        const cleanup = await cleanupNoiseDeal({ workspaceId: acc.workspaceId, conversationId: c.id });
+        if (cleanup.action === "deleted") dealsDeleted++;
       }
     }
   }
@@ -62,6 +67,7 @@ async function main() {
   for (const [reason, n] of [...byReason.entries()].sort((a, b) => b[1] - a[1])) console.log(`  ${n}\t${reason}`);
   console.log(`\nexamples:`);
   for (const e of examples) console.log(e);
+  if (APPLY) console.log(`\nNoise-Deals soft-geloescht: ${dealsDeleted}`);
   console.log(`\n${APPLY ? "APPLIED." : "DRY-RUN — nothing changed. Re-run with --apply."}\n`);
   process.exit(0);
 }

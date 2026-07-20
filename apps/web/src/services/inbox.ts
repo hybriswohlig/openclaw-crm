@@ -9,7 +9,8 @@ import {
 } from "@/db/schema/inbox";
 import { objects, attributes, statuses } from "@/db/schema/objects";
 import { records, recordValues } from "@/db/schema/records";
-import { eq, and, or, desc, lt, asc, isNotNull, isNull, inArray, notInArray, ilike, exists, sql } from "drizzle-orm";
+import { quotations } from "@/db/schema/quotations";
+import { eq, ne, and, or, desc, lt, asc, isNotNull, isNull, inArray, notInArray, ilike, exists, sql } from "drizzle-orm";
 import { getEmailAccountConfigs } from "@/lib/email-accounts";
 import {
   isKleinanzeigenEmail,
@@ -500,9 +501,40 @@ export async function updateConversationStatus(
   workspaceId: string,
   status: "open" | "resolved" | "spam"
 ) {
+  const [current] = await db
+    .select({ lane: inboxConversations.lane })
+    .from(inboxConversations)
+    .where(
+      and(
+        eq(inboxConversations.id, conversationId),
+        eq(inboxConversations.workspaceId, workspaceId)
+      )
+    )
+    .limit(1);
+  if (!current) return null;
+
+  // Spam-markieren ist DIE manuelle Triage-Aktion des Operators: Lane folgt
+  // dem Status (classifiedBy=manual, wird von Ingest/Skripten nie überstimmt).
+  // Wieder-Öffnen einer manuell gespamten Konversation hebt die Lane zurück.
+  const laneUpdate =
+    status === "spam"
+      ? {
+          lane: "spam" as const,
+          classifiedBy: "manual" as const,
+          classificationReason: "vom Operator als Spam markiert",
+          aiNeedsReply: false,
+        }
+      : status === "open" && current.lane === "spam"
+        ? {
+            lane: "lead" as const,
+            classifiedBy: "manual" as const,
+            classificationReason: "vom Operator wieder geöffnet",
+          }
+        : {};
+
   const [row] = await db
     .update(inboxConversations)
-    .set({ status, updatedAt: new Date() })
+    .set({ status, ...laneUpdate, updatedAt: new Date() })
     .where(
       and(
         eq(inboxConversations.id, conversationId),
@@ -510,7 +542,18 @@ export async function updateConversationStatus(
       )
     )
     .returning();
-  return row ?? null;
+  if (!row) return null;
+
+  if (status === "spam") {
+    // Aufgeräumt wird nur ein nachweislich unberührter Auto-Deal — siehe Guards
+    // in cleanupNoiseDeal. Fehler blockieren die Statusänderung nicht.
+    try {
+      await cleanupNoiseDeal({ workspaceId, conversationId });
+    } catch (err) {
+      console.error("[inbox] noise-deal cleanup failed (non-blocking):", err);
+    }
+  }
+  return row;
 }
 
 /**
@@ -904,4 +947,116 @@ export async function createDealForNewConversation(params: {
     console.error("[inbox] createDealForNewConversation failed:", err);
     return null;
   }
+}
+
+// ─── Noise-deal cleanup ───────────────────────────────────────────────────────
+
+/**
+ * Inverse of createDealForNewConversation for conversations that turn out to be
+ * noise (Operator markiert Spam, Lane-Reklassifizierung auf info/spam): soft-
+ * delete the auto-minted deal — but ONLY when it is provably untouched:
+ *   - no other conversation references it,
+ *   - its stage is still the initial "Neue Anfrage"/"Inquiry" status,
+ *   - it has no quotations.
+ * Uses the same reversible mechanism as person merge / repair-lid-splits
+ * (records.deleted_at). Never throws business errors — returns what happened.
+ */
+export async function cleanupNoiseDeal(params: {
+  workspaceId: string;
+  conversationId: string;
+  /** true = only report what would happen, mutate nothing. */
+  dryRun?: boolean;
+}): Promise<{
+  action: "deleted" | "would-delete" | "kept" | "none";
+  reason: string;
+  dealRecordId?: string;
+}> {
+  const { workspaceId, conversationId, dryRun } = params;
+
+  const [conv] = await db
+    .select({ dealRecordId: inboxConversations.dealRecordId })
+    .from(inboxConversations)
+    .where(
+      and(
+        eq(inboxConversations.id, conversationId),
+        eq(inboxConversations.workspaceId, workspaceId)
+      )
+    )
+    .limit(1);
+  if (!conv?.dealRecordId) return { action: "none", reason: "kein Deal verknüpft" };
+  const dealId = conv.dealRecordId;
+
+  const siblings = await db
+    .select({ id: inboxConversations.id })
+    .from(inboxConversations)
+    .where(
+      and(
+        eq(inboxConversations.dealRecordId, dealId),
+        ne(inboxConversations.id, conversationId)
+      )
+    );
+  if (siblings.length > 0) {
+    return {
+      action: "kept",
+      reason: `Deal hat ${siblings.length} weitere Konversation(en)`,
+      dealRecordId: dealId,
+    };
+  }
+
+  const [deal] = await db
+    .select({ objectId: records.objectId, deletedAt: records.deletedAt })
+    .from(records)
+    .where(eq(records.id, dealId))
+    .limit(1);
+  if (!deal || deal.deletedAt) return { action: "none", reason: "Deal existiert nicht mehr" };
+
+  const [stageAttr] = await db
+    .select({ id: attributes.id })
+    .from(attributes)
+    .where(and(eq(attributes.objectId, deal.objectId), eq(attributes.slug, "stage")))
+    .limit(1);
+  if (!stageAttr) {
+    return { action: "kept", reason: "Stage-Attribut nicht auflösbar (konservativ behalten)", dealRecordId: dealId };
+  }
+  const stageRows = await db
+    .select({ id: statuses.id, title: statuses.title })
+    .from(statuses)
+    .where(eq(statuses.attributeId, stageAttr.id));
+  const initialIds = new Set(
+    stageRows.filter((s) => /^(neue anfrage|inquiry)$/i.test(s.title)).map((s) => s.id)
+  );
+  const [stageVal] = await db
+    .select({ v: recordValues.textValue })
+    .from(recordValues)
+    .where(and(eq(recordValues.recordId, dealId), eq(recordValues.attributeId, stageAttr.id)))
+    .limit(1);
+  if (!stageVal?.v || !initialIds.has(stageVal.v)) {
+    return { action: "kept", reason: "Deal wurde bearbeitet (Stage nicht mehr 'Neue Anfrage')", dealRecordId: dealId };
+  }
+
+  const [quote] = await db
+    .select({ id: quotations.id })
+    .from(quotations)
+    .where(eq(quotations.dealRecordId, dealId))
+    .limit(1);
+  if (quote) return { action: "kept", reason: "Deal hat Angebote", dealRecordId: dealId };
+
+  if (dryRun) return { action: "would-delete", reason: "unberührter Noise-Deal", dealRecordId: dealId };
+
+  await db.update(records).set({ deletedAt: new Date() }).where(eq(records.id, dealId));
+  await db
+    .update(inboxConversations)
+    .set({ dealRecordId: null, updatedAt: new Date() })
+    .where(eq(inboxConversations.id, conversationId));
+  await db
+    .update(inboxMessageAttachments)
+    .set({ dealRecordId: null })
+    .where(
+      and(
+        eq(inboxMessageAttachments.conversationId, conversationId),
+        eq(inboxMessageAttachments.workspaceId, workspaceId)
+      )
+    );
+  console.log(`[inbox] Noise-Deal ${dealId} soft-gelöscht (Konversation ${conversationId})`);
+  return { action: "deleted", reason: "unberührter Noise-Deal", dealRecordId: dealId };
 }
