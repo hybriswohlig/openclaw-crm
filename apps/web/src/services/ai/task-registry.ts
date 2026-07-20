@@ -7,6 +7,9 @@
 
 export const AI_TASK_SLUGS = {
   DEAL_EXTRACT_INSIGHTS: "deal.extract-insights",
+  // AI-Umzugsanalyse: structured per-item inventory from the chat transcript
+  // (deal_inventory_items rows), Phase 2 of the Quote-Cockpit feature.
+  DEAL_EXTRACT_INVENTORY: "deal.extract-inventory",
   // The inbox "Antwort vorschlagen" button (suggest-reply endpoint).
   DEAL_DRAFT_REPLY: "deal.draft-reply",
   // Operator-triggered photo analysis: customer-facing scope summary for the
@@ -62,6 +65,18 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
     label: "Deal insights extraction",
     description:
       "Runs over the cross-channel transcript of a deal and extracts structured fields plus open questions.",
+    defaultProvider: "crm-tools",
+    defaultModel: "grok-composer-2.5-fast",
+    defaultFallbackModel: "claude-code",
+    defaultTemperature: 0.2,
+    defaultMaxTokens: 4096,
+    defaultDailySpendCapUsd: 5,
+  },
+  [AI_TASK_SLUGS.DEAL_EXTRACT_INVENTORY]: {
+    slug: AI_TASK_SLUGS.DEAL_EXTRACT_INVENTORY,
+    label: "Inventar-Extraktion (Umzugsanalyse)",
+    description:
+      "Extrahiert eine strukturierte Item-Liste (Möbel, Kartons, Geräte) mit Größe/Gewicht/Zerlege-Flags aus dem Gesprächsverlauf eines Deals.",
     defaultProvider: "crm-tools",
     defaultModel: "grok-composer-2.5-fast",
     defaultFallbackModel: "claude-code",

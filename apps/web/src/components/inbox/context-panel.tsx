@@ -37,6 +37,7 @@ import {
   type PrefilledPreise,
 } from "@/components/GenerateDocumentDialog";
 import { QuoteCockpit } from "@/components/inbox/quote-cockpit";
+import { InventorySection } from "@/components/inbox/inventory-section";
 import { StatusLinkWizard } from "@/components/inbox/status-link-wizard";
 import { renderSnippet } from "@/components/inbox/customer-link-composer";
 import {
@@ -628,6 +629,12 @@ export function InboxContextPanel({
                     />
                   </Section>
                 )}
+
+              {/* ── Inventar (AI-Umzugsanalyse) — auch nach Zahlung sichtbar,
+                  Phase 3 (Auftragsanweisung) braucht die Liste weiterhin. ── */}
+              <Section title="Inventar">
+                <InventorySection dealRecordId={dealRecordId} />
+              </Section>
 
               {/* ── KI-Zusammenfassung (instant, from the durable cache) ── */}
               <Section title="KI-Zusammenfassung">

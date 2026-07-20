@@ -1,0 +1,200 @@
+"use client";
+
+/**
+ * Inventar-Liste im Inbox-Kontextpanel (AI-Umzugsanalyse Phase 2a).
+ * Zeigt die strukturierten deal_inventory_items, lässt den Operator Zeilen
+ * abhaken (mitnehmen ja/nein) oder löschen und stößt die Chat-Extraktion an.
+ * Jede Handkorrektur stempelt source='operator' und überlebt Re-Extraktionen.
+ */
+
+import { useCallback, useEffect, useState } from "react";
+import { Package, RefreshCw, Trash2 } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+interface InventoryItem {
+  id: string;
+  name: string;
+  category: string | null;
+  quantity: number;
+  sizeClass: "klein" | "mittel" | "gross" | "sperrig" | null;
+  heavyFlag: boolean;
+  fragileFlag: boolean;
+  disassemblyRequired: boolean;
+  moveFlag: boolean;
+  dimensionsEstimate: string | null;
+  volumeCbmEstimate: string | null;
+  confidence: "hoch" | "mittel" | "niedrig" | null;
+  source: "chat" | "foto" | "operator";
+  needsPhoto: boolean;
+  notes: string | null;
+}
+
+function Badge({ children, tone }: { children: React.ReactNode; tone?: "warn" | "info" }) {
+  return (
+    <span
+      className={cn(
+        "rounded px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide",
+        tone === "warn"
+          ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+          : "bg-muted text-muted-foreground"
+      )}
+    >
+      {children}
+    </span>
+  );
+}
+
+export function InventorySection({ dealRecordId }: { dealRecordId: string }) {
+  const [items, setItems] = useState<InventoryItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [extracting, setExtracting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/v1/deals/${dealRecordId}/inventory`);
+      if (res.ok) {
+        const j = (await res.json()) as { data?: InventoryItem[] };
+        setItems(j.data ?? []);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [dealRecordId]);
+
+  useEffect(() => {
+    setLoading(true);
+    void load();
+  }, [load]);
+
+  async function extract() {
+    setExtracting(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/v1/deals/${dealRecordId}/inventory/extract`, {
+        method: "POST",
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        data?: { items?: InventoryItem[] };
+        error?: string;
+      };
+      if (!res.ok) {
+        setError(j.error ?? `Analyse fehlgeschlagen (${res.status})`);
+        return;
+      }
+      setItems(j.data?.items ?? []);
+    } finally {
+      setExtracting(false);
+    }
+  }
+
+  async function toggleMove(item: InventoryItem) {
+    setItems((prev) =>
+      prev.map((i) => (i.id === item.id ? { ...i, moveFlag: !i.moveFlag, source: "operator" } : i))
+    );
+    await fetch(`/api/v1/deals/${dealRecordId}/inventory/${item.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ moveFlag: !item.moveFlag }),
+    });
+  }
+
+  async function remove(item: InventoryItem) {
+    setItems((prev) => prev.filter((i) => i.id !== item.id));
+    await fetch(`/api/v1/deals/${dealRecordId}/inventory/${item.id}`, { method: "DELETE" });
+  }
+
+  const moving = items.filter((i) => i.moveFlag);
+  const staying = items.filter((i) => !i.moveFlag);
+  const totalVolume = moving.reduce((sum, i) => {
+    const v = i.volumeCbmEstimate != null ? Number(i.volumeCbmEstimate) : NaN;
+    return Number.isFinite(v) ? sum + v : sum;
+  }, 0);
+
+  function renderItem(item: InventoryItem) {
+    return (
+      <div key={item.id} className="group flex items-start gap-2 px-4 py-1">
+        <input
+          type="checkbox"
+          checked={item.moveFlag}
+          onChange={() => void toggleMove(item)}
+          title={item.moveFlag ? "Kommt mit — abwählen = bleibt" : "Bleibt — anwählen = kommt mit"}
+          className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-primary"
+        />
+        <div className="min-w-0 flex-1">
+          <p
+            className={cn(
+              "truncate text-xs",
+              !item.moveFlag && "text-muted-foreground line-through"
+            )}
+          >
+            {item.name}
+            {item.quantity > 1 && (
+              <span className="ml-1 text-muted-foreground">×{item.quantity}</span>
+            )}
+          </p>
+          <div className="mt-0.5 flex flex-wrap items-center gap-1">
+            {(item.sizeClass === "gross" || item.sizeClass === "sperrig") && (
+              <Badge>{item.sizeClass}</Badge>
+            )}
+            {item.heavyFlag && <Badge tone="warn">schwer</Badge>}
+            {item.fragileFlag && <Badge tone="warn">zerbrechlich</Badge>}
+            {item.disassemblyRequired && <Badge>zerlegen</Badge>}
+            {item.needsPhoto && <Badge tone="warn">Foto fehlt</Badge>}
+            {item.dimensionsEstimate && <Badge>{item.dimensionsEstimate}</Badge>}
+            {item.source === "operator" && <Badge>bestätigt</Badge>}
+            {item.confidence === "niedrig" && <Badge>unsicher</Badge>}
+          </div>
+        </div>
+        <button
+          onClick={() => void remove(item)}
+          className="invisible mt-0.5 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-destructive group-hover:visible"
+          aria-label="Zeile löschen"
+        >
+          <Trash2 className="h-3 w-3" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="pb-2">
+      <div className="flex items-center justify-between px-4 pb-1">
+        <span className="text-[11px] text-muted-foreground">
+          {items.length === 0
+            ? "Noch kein Inventar erfasst"
+            : `${moving.length} Position(en)${totalVolume > 0 ? ` · ca. ${totalVolume.toFixed(1)} m³` : ""}`}
+        </span>
+        <button
+          onClick={() => void extract()}
+          disabled={extracting}
+          className="flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] hover:bg-muted disabled:opacity-50"
+        >
+          <RefreshCw className={cn("h-3 w-3", extracting && "animate-spin")} />
+          {extracting ? "Analysiere…" : items.length > 0 ? "Neu analysieren" : "Aus Chat analysieren"}
+        </button>
+      </div>
+      {error && (
+        <p className="mx-4 mb-1 rounded bg-destructive/10 px-2 py-1 text-[11px] text-destructive">
+          {error}
+        </p>
+      )}
+      {loading ? (
+        <p className="px-4 py-1 text-[11px] text-muted-foreground">Lade…</p>
+      ) : (
+        <>
+          {moving.map(renderItem)}
+          {staying.length > 0 && (
+            <>
+              <p className="flex items-center gap-1 px-4 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <Package className="h-3 w-3" />
+                Bleibt / kommt nicht mit
+              </p>
+              {staying.map(renderItem)}
+            </>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
