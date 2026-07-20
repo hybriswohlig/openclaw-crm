@@ -759,6 +759,18 @@ export async function createDealForNewConversation(params: {
     if (contactId && channelAccountId) {
       const [contact] = await db.select({ crm: inboxContacts.crmRecordId }).from(inboxContacts).where(eq(inboxContacts.id, contactId)).limit(1);
       const [account] = await db.select({ opId: channelAccounts.operatingCompanyRecordId }).from(channelAccounts).where(eq(channelAccounts.id, channelAccountId)).limit(1);
+      if (!contact?.crm || !account?.opId) {
+        // Not an error, but the reuse gate is silently disabled in this state —
+        // every new conversation mints a fresh deal. Surface it so config
+        // drift (unassigned channel account) or a missed person link is
+        // discovered here and not via duplicate leads.
+        console.warn(
+          `[inbox] deal-reuse skipped for conversation ${conversationId}: ` +
+            `${!contact?.crm ? "contact has no CRM person link" : ""}` +
+            `${!contact?.crm && !account?.opId ? "; " : ""}` +
+            `${!account?.opId ? "channel account has no operating company" : ""}`
+        );
+      }
       if (contact?.crm && account?.opId) {
         const reuse = await findReusableOpenDeal(dealObj.id, contact.crm, account.opId);
         if (reuse) {

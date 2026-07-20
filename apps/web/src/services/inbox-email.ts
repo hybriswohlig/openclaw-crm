@@ -40,6 +40,7 @@ import { getSecret } from "./workspace-settings";
 import { isImmoscoutLeadEmail, parseImmoscoutLeadEmail } from "./inbox-immoscout";
 import { findExistingMovingLeadDeal, setDealMovingLead } from "./immoscout-sync";
 import { computeLeadName } from "./lead-name";
+import { recomputeMultiCompanyForContact } from "./multi-company";
 
 type ChannelAccountRow = typeof channelAccounts.$inferSelect;
 
@@ -87,44 +88,8 @@ async function upsertContact(
   return created;
 }
 
-// ─── Cross-company flag ───────────────────────────────────────────────────────
-
-async function checkAndFlagMultiCompany(workspaceId: string, contactId: string) {
-  const convs = await db
-    .select({ channelAccountId: inboxConversations.channelAccountId })
-    .from(inboxConversations)
-    .where(
-      and(
-        eq(inboxConversations.workspaceId, workspaceId),
-        eq(inboxConversations.contactId, contactId)
-      )
-    );
-
-  // Fetch operating company IDs for those channel accounts
-  const accountIds = [...new Set(convs.map((c) => c.channelAccountId))];
-  if (accountIds.length < 2) return;
-
-  const accounts = await db
-    .select({
-      id: channelAccounts.id,
-      opId: channelAccounts.operatingCompanyRecordId,
-    })
-    .from(channelAccounts)
-    .where(eq(channelAccounts.workspaceId, workspaceId));
-
-  const opIds = new Set(
-    accounts
-      .filter((a) => accountIds.includes(a.id) && a.opId)
-      .map((a) => a.opId)
-  );
-
-  if (opIds.size > 1) {
-    await db
-      .update(inboxContacts)
-      .set({ multiCompanyFlag: true, updatedAt: new Date() })
-      .where(eq(inboxContacts.id, contactId));
-  }
-}
+// Cross-company flag: shared recompute lives in ./multi-company (also called
+// from the WhatsApp ingest and the merge engine).
 
 // ─── Shared ingest ──────────────────────────────────────────────────────────────
 // Both transports (IMAP and Gmail API) funnel each parsed message through here so
@@ -460,7 +425,7 @@ async function ingestParsedEmail(
     );
   }
 
-  await checkAndFlagMultiCompany(account.workspaceId, contact.id);
+  await recomputeMultiCompanyForContact(account.workspaceId, contact.id);
 }
 
 // ─── Transport dispatch ─────────────────────────────────────────────────────────

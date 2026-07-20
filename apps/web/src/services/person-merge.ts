@@ -28,12 +28,12 @@ import {
   personMergeEdges,
   inboxContacts,
   inboxConversations,
-  channelAccounts,
   activityEvents,
 } from "@/db/schema";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { emitEvent } from "./activity-events";
 import { newValuesToAdd } from "@/lib/identity/survivorship";
+import { recomputeMultiCompanyForPerson } from "./multi-company";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -139,48 +139,6 @@ async function copyMultiselectValues(
     )
     .returning({ id: recordValues.id });
   return inserted.map((r) => r.id);
-}
-
-/** Recompute multi_company_flag for a person from its conversations' operating
- *  companies. Writes the people boolean record_value (source of truth) + mirrors
- *  the inbox_contacts cache. Derived, so safe to call on both merge and split. */
-async function recomputeMultiCompany(
-  tx: Tx,
-  personId: string,
-  multiFlagAttrId: string | null,
-  actorId: string | null
-): Promise<boolean> {
-  const ocRows = await tx
-    .selectDistinct({ oc: channelAccounts.operatingCompanyRecordId })
-    .from(inboxConversations)
-    .innerJoin(inboxContacts, eq(inboxConversations.contactId, inboxContacts.id))
-    .innerJoin(channelAccounts, eq(inboxConversations.channelAccountId, channelAccounts.id))
-    .where(
-      and(
-        eq(inboxContacts.crmRecordId, personId),
-        sql`${channelAccounts.operatingCompanyRecordId} is not null`
-      )
-    );
-  const distinct = new Set(ocRows.map((r) => r.oc).filter((v): v is string => !!v));
-  const flag = distinct.size >= 2;
-
-  if (multiFlagAttrId) {
-    await tx
-      .delete(recordValues)
-      .where(and(eq(recordValues.recordId, personId), eq(recordValues.attributeId, multiFlagAttrId)));
-    await tx.insert(recordValues).values({
-      recordId: personId,
-      attributeId: multiFlagAttrId,
-      booleanValue: flag,
-      sortOrder: 0,
-      createdBy: actorId,
-    });
-  }
-  await tx
-    .update(inboxContacts)
-    .set({ multiCompanyFlag: flag })
-    .where(eq(inboxContacts.crmRecordId, personId));
-  return flag;
 }
 
 export async function mergePersons(input: MergePersonsInput): Promise<MergePersonsResult> {
@@ -307,7 +265,10 @@ export async function mergePersons(input: MergePersonsInput): Promise<MergePerso
       .where(eq(records.id, absorbedId));
 
     // ── Recompute multi_company_flag on the survivor ─────────────────────────
-    await recomputeMultiCompany(tx, survivorId, peopleAttrs.multiFlagAttrId, actorId);
+    await recomputeMultiCompanyForPerson(tx, workspaceId, survivorId, {
+      multiFlagAttrId: peopleAttrs.multiFlagAttrId,
+      actorId,
+    });
 
     // ── Record the merge edge with the reversal snapshot ─────────────────────
     const snapshot: MergeSnapshot = {
@@ -427,8 +388,14 @@ export async function splitPersons(mergeEdgeId: string, actorId: string | null =
         .where(eq(inboxConversations.id, c.id));
     }
     // Recompute the derived flag for both records.
-    await recomputeMultiCompany(tx, survivor, peopleAttrs?.multiFlagAttrId ?? null, actorId);
-    await recomputeMultiCompany(tx, absorbed, peopleAttrs?.multiFlagAttrId ?? null, actorId);
+    await recomputeMultiCompanyForPerson(tx, edge.workspaceId, survivor, {
+      multiFlagAttrId: peopleAttrs?.multiFlagAttrId ?? null,
+      actorId,
+    });
+    await recomputeMultiCompanyForPerson(tx, edge.workspaceId, absorbed, {
+      multiFlagAttrId: peopleAttrs?.multiFlagAttrId ?? null,
+      actorId,
+    });
 
     await tx
       .update(personMergeEdges)

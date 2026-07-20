@@ -40,6 +40,15 @@ export async function POST(req: NextRequest) {
   if (!name || !channelType || !address) {
     return NextResponse.json({ error: "name, channelType and address are required" }, { status: 400 });
   }
+  // Everything downstream keys on this: deal stamping, KOT-IDENTITY deal
+  // reuse, the cross-company badge, offer packages, portal branding. An
+  // unassigned account silently mints duplicate leads, so refuse it here.
+  if (!operatingCompanyRecordId) {
+    return NextResponse.json(
+      { error: "operatingCompanyRecordId is required — assign the account to an operating company" },
+      { status: 400 }
+    );
+  }
 
   // Whitelist baileysBridgeProvider so the UI can't smuggle in arbitrary
   // strings. The schema column accepts free text but the dispatcher only

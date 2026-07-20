@@ -30,6 +30,7 @@ import { scanInboundReply } from "./reviews/inbound-scanner";
 import { classifyMessagingBody } from "./inbox-triage";
 import { looksDeclined, recordAgentDecline } from "./agent/agent-suppress";
 import { canonicalizePhone } from "@/lib/identity/canonical";
+import { recomputeMultiCompanyForContact } from "./multi-company";
 
 // ─── Settings keys ────────────────────────────────────────────────────────────
 // App-level values, stored once per workspace in workspace_settings (encrypted).
@@ -763,6 +764,10 @@ export async function ingestInboundWhatsAppMessage(params: {
       console.error("[whatsapp inbound] reviews scanner failed:", scanErr);
     }
   }
+
+  // Cross-company badge: same recompute the email ingest and the merge engine
+  // use. Never throws (guarded inside), so ingest cannot be blocked by it.
+  await recomputeMultiCompanyForContact(account.workspaceId, contact.id);
 
   return {
     conversationId: conv.id,

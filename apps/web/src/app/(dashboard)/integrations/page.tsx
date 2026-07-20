@@ -1258,7 +1258,15 @@ function ChannelAccountsSection({ canManage }: { canManage: boolean }) {
         return;
       }
 
-      // Create-path. Build payload from the channelType + waProvider matrix.
+      // Create-path. Ohne Betriebsgesellschaft entstehen stumm doppelte Leads
+      // (Deal-Stempel + Wiederverwendung + Cross-Company-Badge hängen daran) —
+      // der Server lehnt das inzwischen ebenfalls ab.
+      if (!form.operatingCompanyRecordId) {
+        setSaveError("Bitte eine Betriebsgesellschaft auswählen.");
+        return;
+      }
+
+      // Build payload from the channelType + waProvider matrix.
       // Baileys rows MUST omit waba/phoneNumberId — the inbox dispatcher reads
       // them as the signal for "this is a Cloud-API row, use Meta".
       const isBaileys =
@@ -1710,13 +1718,13 @@ function ChannelAccountsSection({ canManage }: { canManage: boolean }) {
 
               {companies.length > 0 && (
                 <div>
-                  <label className="text-xs text-muted-foreground mb-1 block">Betriebsgesellschaft</label>
+                  <label className="text-xs text-muted-foreground mb-1 block">Betriebsgesellschaft *</label>
                   <select
                     className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
                     value={form.operatingCompanyRecordId}
                     onChange={(e) => setForm((f) => ({ ...f, operatingCompanyRecordId: e.target.value }))}
                   >
-                    <option value="">— nicht verknüpft —</option>
+                    <option value="" disabled>— bitte wählen —</option>
                     {companies.map((c) => (
                       <option key={c.id} value={c.id}>{c.name}</option>
                     ))}
