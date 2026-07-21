@@ -121,6 +121,48 @@ export async function generateScopeFromPhotos(
   if (contextBlock) {
     promptParts.push(`# Bekannte Umzugsdaten (vom Team erfasst)\n\n${contextBlock}`);
   }
+
+  // Vorhandene Analysen sind AUTORITATIV: die Inventarliste (Chat- + Foto-
+  // Extraktion, ggf. vom Operator korrigiert) und die letzte KI-Zusammenfassung
+  // (enthält Chat-Fakten wie Wohnungsgröße). Ohne diesen Block riet die
+  // Foto-Analyse Raumtypen/Umfang neu und widersprach dem, was längst bekannt
+  // war (z. B. "16 qm" aus dem Chat).
+  try {
+    const { getDealInventory } = await import("@/services/deal-inventory");
+    const inventory = await getDealInventory(workspaceId, dealRecordId);
+    if (inventory.length > 0) {
+      const invLines = inventory
+        .map(
+          (i) =>
+            `- ${i.name}${i.quantity > 1 ? ` ×${i.quantity}` : ""}${i.moveFlag ? "" : " (kommt NICHT mit)"}`
+        )
+        .join("\n");
+      promptParts.push(
+        `# Bereits erfasste Inventarliste (autoritativ — darauf aufbauen, nicht widersprechen; Fotos ergänzen nur, was hier fehlt)\n\n${invLines}`
+      );
+    }
+    const { activityEvents } = await import("@/db/schema/activity");
+    const [latest] = await db
+      .select({ payload: activityEvents.payload })
+      .from(activityEvents)
+      .where(
+        and(
+          eq(activityEvents.workspaceId, workspaceId),
+          eq(activityEvents.recordId, dealRecordId),
+          eq(activityEvents.eventType, "ai.insights_extracted")
+        )
+      )
+      .orderBy(desc(activityEvents.createdAt))
+      .limit(1);
+    const summary = (latest?.payload as { summary?: unknown } | null)?.summary;
+    if (typeof summary === "string" && summary.trim()) {
+      promptParts.push(
+        `# Letzte KI-Zusammenfassung des Leads (Fakten aus dem Chat — z. B. Wohnungsgröße — gelten, auch wenn die Fotos anderes nahelegen)\n\n${summary.trim()}`
+      );
+    }
+  } catch (err) {
+    console.warn("[scope-from-photos] Kontext-Anreicherung fehlgeschlagen (weiter ohne):", err);
+  }
   const fileList = images.map((i) => `- ${i.fileName} (${i.mimeType})`).join("\n");
   promptParts.push(
     `# Kundenfotos (${images.length})\n\nDer Kunde hat diese Fotos geschickt. Die Dateien liegen in deinem Arbeitsverzeichnis und sind dir über das Read-Tool zugänglich. Sieh dir JEDE Datei an:\n${fileList}`

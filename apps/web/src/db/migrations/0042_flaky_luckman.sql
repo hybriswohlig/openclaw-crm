@@ -1,0 +1,1 @@
+ALTER TABLE "quotation_package_options" ADD COLUMN "addable_items" jsonb DEFAULT '[]'::jsonb NOT NULL;

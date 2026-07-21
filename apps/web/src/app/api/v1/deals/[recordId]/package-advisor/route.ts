@@ -22,6 +22,7 @@ const AdvisorResponseSchema = z.object({
             priceEur: z.coerce.number().min(0),
             includedItems: z.array(z.string()).catch([]),
             excludedItems: z.array(z.string()).catch([]),
+            addableItems: z.array(z.string()).catch([]),
             isRecommended: z.coerce.boolean().catch(false),
           })
         )
@@ -38,9 +39,12 @@ Du bekommst: die aktuellen Pakete (Preis, Enthalten-, Nicht-enthalten-Liste), di
 Regeln:
 - Antworte IMMER als JSON: {"reply": "...", "proposal": {"options":[...]} | null}.
 - reply: 1-4 deutsche Sätze — was du geändert hast und warum (kalkulatorische Begründung: Volumen, schwere Items, Etagen ohne Aufzug, Anfahrt).
-- proposal: NUR wenn der Operator eine Änderung will — dann IMMER der KOMPLETTE neue Paket-Satz (alle Pakete, auch unveränderte), Felder: catalogueSlug, displayName, shortDescription, priceEur (Zahl in Euro), includedItems[], excludedItems[], isRecommended. Reine Fragen → proposal: null.
-- Jede Leistung, die in einem Paket enthalten ist, gehört dort in includedItems; was der Kunde bewusst NICHT bekommt (z. B. "Klaviertransport", "Verpackungsservice", "Entsorgung"), in excludedItems — die Negativliste schützt rechtlich.
-- Konsistenz: eine Leistung darf nie gleichzeitig in included und excluded desselben Pakets stehen. Höhere Pakete enthalten mindestens die Leistungen der niedrigeren.
+- proposal: NUR wenn der Operator eine Änderung will — dann IMMER der KOMPLETTE neue Paket-Satz (alle Pakete, auch unveränderte), Felder: catalogueSlug, displayName, shortDescription, priceEur (Zahl in Euro), includedItems[], addableItems[], excludedItems[], isRecommended. Reine Fragen → proposal: null.
+- DREI Stufen, streng unterscheiden:
+  * includedItems = im Paketpreis enthalten (Haken).
+  * addableItems = "auf Wunsch zubuchbar" gegen Aufpreis — sagt der Operator "zubuchbar", "optional", "zusätzlich buchbar", "auf Wunsch", gehört die Leistung HIERHIN, NIEMALS in excludedItems.
+  * excludedItems = ausdrücklich ausgeschlossen, wird auch auf Wunsch nicht erbracht (durchgestrichen). Nur verwenden, wenn der Operator es klar so meint.
+- Konsistenz: eine Leistung darf nur in EINER der drei Listen desselben Pakets stehen. Höhere Pakete enthalten mindestens die Leistungen der niedrigeren; was im höheren Paket enthalten ist, ist im niedrigeren typischerweise zubuchbar oder ausgeschlossen.
 - Preise: plausibel gestaffelt, ganze Euro oder ,50. Erfinde keine Leistungen, die zum Inventar nicht passen.`;
 
 export async function POST(

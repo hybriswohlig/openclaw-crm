@@ -82,6 +82,8 @@ interface PackagePriceRow {
   includedItems: string[];
   /** Ausdrücklich NICHT enthaltene Leistungen — Portal zeigt sie mit ✗. */
   excludedItems: string[];
+  /** "Auf Wunsch zubuchbar" — Zusatzleistungen gegen Aufpreis (Portal: +). */
+  addableItems: string[];
   priceEur: string;
   isRecommended: boolean;
 }
@@ -321,6 +323,7 @@ export function StatusLinkWizard({
             shortDescription: c.shortDescription,
             includedItems: c.includedItems ?? [],
             excludedItems: [],
+            addableItems: [],
             priceEur:
               c.priceFromCents != null
                 ? (c.priceFromCents / 100).toFixed(2).replace(".", ",")
@@ -443,6 +446,7 @@ export function StatusLinkWizard({
             priceCents: parseEur(r.priceEur),
             includedItems: r.includedItems,
             excludedItems: r.excludedItems,
+            addableItems: r.addableItems,
             note: null,
             isRecommended: r.isRecommended,
           }))
@@ -1266,6 +1270,7 @@ function PackageListsEditor({
         >
           <ChevronRight className="h-3 w-3" />
           {row.includedItems.length} enthalten
+          {row.addableItems.length > 0 && ` · ${row.addableItems.length} zubuchbar`}
           {row.excludedItems.length > 0 && ` · ${row.excludedItems.length} ausgeschlossen`}
           {" — bearbeiten"}
         </button>
@@ -1278,15 +1283,27 @@ function PackageListsEditor({
             <ChevronDown className="h-3 w-3" />
             Listen einklappen
           </button>
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid gap-2 sm:grid-cols-3">
             <div>
               <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
-                Enthalten (eine Leistung pro Zeile)
+                Enthalten (pro Zeile)
               </label>
               <textarea
                 rows={4}
                 value={row.includedItems.join("\n")}
                 onChange={(e) => onChange({ includedItems: lines(e.target.value) })}
+                className="w-full rounded-md border border-input bg-transparent px-2 py-1 text-[11px]"
+              />
+            </div>
+            <div>
+              <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wider text-sky-700 dark:text-sky-400">
+                Auf Wunsch zubuchbar
+              </label>
+              <textarea
+                rows={4}
+                value={row.addableItems.join("\n")}
+                onChange={(e) => onChange({ addableItems: lines(e.target.value) })}
+                placeholder={"z. B. Malerarbeiten\nUmzugskartons"}
                 className="w-full rounded-md border border-input bg-transparent px-2 py-1 text-[11px]"
               />
             </div>
@@ -1298,7 +1315,7 @@ function PackageListsEditor({
                 rows={4}
                 value={row.excludedItems.join("\n")}
                 onChange={(e) => onChange({ excludedItems: lines(e.target.value) })}
-                placeholder={"z. B. Klaviertransport\nVerpackungsservice"}
+                placeholder={"z. B. Klaviertransport"}
                 className="w-full rounded-md border border-input bg-transparent px-2 py-1 text-[11px]"
               />
             </div>
@@ -1406,6 +1423,7 @@ function PackageAdvisorChat({
             priceEur: r.priceEur ? Number(r.priceEur.replace(",", ".")) : null,
             includedItems: r.includedItems,
             excludedItems: r.excludedItems,
+            addableItems: r.addableItems,
             isRecommended: r.isRecommended,
           })),
           assumptions: buildAssumptionsPayload(assumptions),
@@ -1422,6 +1440,7 @@ function PackageAdvisorChat({
               priceEur: number;
               includedItems: string[];
               excludedItems: string[];
+              addableItems?: string[];
               isRecommended?: boolean;
             }>;
           } | null;
@@ -1443,6 +1462,7 @@ function PackageAdvisorChat({
               shortDescription: o.shortDescription ?? null,
               includedItems: o.includedItems ?? [],
               excludedItems: o.excludedItems ?? [],
+              addableItems: o.addableItems ?? [],
               priceEur: o.priceEur.toFixed(2).replace(".", ","),
               isRecommended: !!o.isRecommended,
             }))
@@ -1488,6 +1508,7 @@ function PackageAdvisorChat({
               {proposal.map((p, i) => (
                 <p key={i} className="text-[11px] text-muted-foreground">
                   {p.displayName}: {p.priceEur} € · {p.includedItems.length} enthalten
+                  {p.addableItems.length > 0 && ` · ${p.addableItems.length} zubuchbar`}
                   {p.excludedItems.length > 0 && ` · ${p.excludedItems.length} ausgeschlossen`}
                 </p>
               ))}

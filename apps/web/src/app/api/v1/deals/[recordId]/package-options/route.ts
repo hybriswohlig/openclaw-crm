@@ -57,6 +57,7 @@ export async function GET(
       priceCents: r.priceCents,
       includedItems: r.includedItems,
       excludedItems: r.excludedItems,
+      addableItems: r.addableItems,
       note: r.note,
       isRecommended: r.isRecommended,
       sortOrder: r.sortOrder,
@@ -114,6 +115,10 @@ export async function PUT(
       ),
       excludedItems: (Array.isArray(raw.excludedItems)
         ? (raw.excludedItems as unknown[])
+        : []
+      ).filter((s): s is string => typeof s === "string"),
+      addableItems: (Array.isArray(raw.addableItems)
+        ? (raw.addableItems as unknown[])
         : []
       ).filter((s): s is string => typeof s === "string"),
       note: typeof raw.note === "string" ? raw.note : null,

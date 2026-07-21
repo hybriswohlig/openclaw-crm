@@ -176,7 +176,14 @@ export function StageOneKva({
             <CalculationAssumptionsCard a={ctx.kva.calculationAssumptions} />
           )}
 
-          <OfferInclusionsSection inclusions={ctx.inclusions} branding={ctx.branding} />
+          {/* Die generische Leistungsumfang-Karte nur zeigen, wenn KEINE
+              per-Deal-Pakete mit eigenen Listen existieren — sonst widerspricht
+              sie den Paket-Karten (z. B. "Montage zubuchbar" obwohl im
+              gewählten Paket enthalten). Die Paket-Karten sind dann die einzige
+              Wahrheit über den Leistungsumfang. */}
+          {ctx.dealPackageOffers.options.length === 0 && (
+            <OfferInclusionsSection inclusions={ctx.inclusions} branding={ctx.branding} />
+          )}
 
           {/* Detailed line-item breakdown (when variable / hourly). Sits at
               the bottom of the left column so the right-rail headline price

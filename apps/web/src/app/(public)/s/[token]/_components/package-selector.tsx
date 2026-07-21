@@ -359,38 +359,65 @@ function DealOptionCard({
           )}
         </div>
 
+        {/* Leistungsumfang pro Paket in drei Stufen: enthalten ✓, auf Wunsch
+            zubuchbar +, ausdrücklich nicht enthalten ✗ (durchgestrichen).
+            Vollständig statt gekappt — DIE Karte ist der Leistungsumfang. */}
         {option.includedItems.length > 0 && (
-          <ul className="mt-3 space-y-1.5 text-xs">
-            {option.includedItems.slice(0, 5).map((item, i) => (
-              <li key={i} className="flex items-start gap-2 leading-snug">
-                <Check
-                  className="mt-0.5 h-3 w-3 shrink-0"
-                  strokeWidth={2.5}
-                  style={{ color: accent }}
-                  aria-hidden
-                />
-                <span>{item}</span>
-              </li>
-            ))}
-            {option.includedItems.length > 5 && (
-              <li className="text-muted-foreground">
-                und {option.includedItems.length - 5} weitere
-              </li>
-            )}
-          </ul>
+          <div className="mt-3">
+            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Im Angebot enthalten
+            </p>
+            <ul className="space-y-1.5 text-xs">
+              {option.includedItems.map((item, i) => (
+                <li key={i} className="flex items-start gap-2 leading-snug">
+                  <Check
+                    className="mt-0.5 h-3 w-3 shrink-0"
+                    strokeWidth={2.5}
+                    style={{ color: accent }}
+                    aria-hidden
+                  />
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
 
-        {/* Ausdrücklich nicht enthaltene Leistungen — schwarz auf weiß,
-            damit der Leistungsumfang rechtlich eindeutig ist. */}
+        {(option.addableItems ?? []).length > 0 && (
+          <div className="mt-3">
+            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Auf Wunsch zubuchbar
+            </p>
+            <ul className="space-y-1 text-xs text-muted-foreground">
+              {(option.addableItems ?? []).map((item, i) => (
+                <li key={i} className="flex items-start gap-2 leading-snug">
+                  <span
+                    aria-hidden
+                    className="mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border text-[10px] leading-none"
+                  >
+                    +
+                  </span>
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {(option.excludedItems ?? []).length > 0 && (
-          <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
-            {(option.excludedItems ?? []).slice(0, 5).map((item, i) => (
-              <li key={i} className="flex items-start gap-2 leading-snug">
-                <span aria-hidden className="mt-0.5 shrink-0 text-[11px] leading-none">✗</span>
-                <span className="line-through decoration-muted-foreground/50">{item}</span>
-              </li>
-            ))}
-          </ul>
+          <div className="mt-3">
+            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Nicht enthalten
+            </p>
+            <ul className="space-y-1 text-xs text-muted-foreground">
+              {(option.excludedItems ?? []).map((item, i) => (
+                <li key={i} className="flex items-start gap-2 leading-snug">
+                  <span aria-hidden className="mt-0.5 shrink-0 text-[11px] leading-none">✗</span>
+                  <span className="line-through decoration-muted-foreground/50">{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
 
         {option.note && (

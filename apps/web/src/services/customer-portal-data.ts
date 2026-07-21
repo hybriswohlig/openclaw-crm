@@ -1781,6 +1781,7 @@ async function loadDealPackageOffersContext(
     priceCents: r.priceCents,
     includedItems: Array.isArray(r.includedItems) ? r.includedItems : [],
     excludedItems: Array.isArray(r.excludedItems) ? r.excludedItems : [],
+    addableItems: Array.isArray(r.addableItems) ? r.addableItems : [],
     note: r.note,
     isRecommended: r.isRecommended,
     sortOrder: r.sortOrder,
@@ -1811,6 +1812,7 @@ export interface DealPackageOptionInput {
   priceCents: number;
   includedItems: string[];
   excludedItems?: string[];
+  addableItems?: string[];
   note: string | null;
   isRecommended: boolean;
 }
@@ -1847,6 +1849,10 @@ export async function replaceDealPackageOptions(input: {
         .map((s) => s.slice(0, 200))
         .slice(0, 10),
       excludedItems: (o.excludedItems ?? [])
+        .filter((s): s is string => typeof s === "string")
+        .map((s) => s.slice(0, 200))
+        .slice(0, 10),
+      addableItems: (o.addableItems ?? [])
         .filter((s): s is string => typeof s === "string")
         .map((s) => s.slice(0, 200))
         .slice(0, 10),

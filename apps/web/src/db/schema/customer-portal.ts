@@ -433,6 +433,13 @@ export const quotationPackageOptions = pgTable(
       .$type<string[]>()
       .notNull()
       .default([]),
+    // "Auf Wunsch zubuchbar" — dritte Stufe zwischen enthalten und
+    // ausgeschlossen: Leistungen, die der Kunde gegen Aufpreis dazunehmen
+    // kann (z. B. "Malerarbeiten" nur im Premium). Nicht durchgestrichen!
+    addableItems: jsonb("addable_items")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
     note: text("note"),
     isRecommended: boolean("is_recommended").notNull().default(false),
     sortOrder: integer("sort_order").notNull().default(0),

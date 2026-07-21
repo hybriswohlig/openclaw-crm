@@ -195,6 +195,8 @@ export interface DealPackageOption {
   includedItems: string[];
   /** Ausdrücklich NICHT enthaltene Leistungen ("Nicht enthalten"-Liste). */
   excludedItems: string[];
+  /** "Auf Wunsch zubuchbar" — optionale Zusatzleistungen gegen Aufpreis. */
+  addableItems: string[];
   note: string | null;
   isRecommended: boolean;
   sortOrder: number;
