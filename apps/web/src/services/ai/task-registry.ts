@@ -69,7 +69,7 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
     description:
       "Runs over the cross-channel transcript of a deal and extracts structured fields plus open questions.",
     defaultProvider: "crm-tools",
-    defaultModel: "grok-composer-2.5-fast",
+    defaultModel: "grok-4.5",
     defaultFallbackModel: "claude-code",
     defaultTemperature: 0.2,
     defaultMaxTokens: 4096,
@@ -81,7 +81,7 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
     description:
       "Extrahiert eine strukturierte Item-Liste (Möbel, Kartons, Geräte) mit Größe/Gewicht/Zerlege-Flags aus dem Gesprächsverlauf eines Deals.",
     defaultProvider: "crm-tools",
-    defaultModel: "grok-composer-2.5-fast",
+    defaultModel: "grok-4.5",
     defaultFallbackModel: "claude-code",
     defaultTemperature: 0.2,
     defaultMaxTokens: 4096,
@@ -107,7 +107,7 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
     description:
       "Schreibt auf Knopfdruck einen Antwortentwurf in das Kompositionsfeld der Inbox, im Ton des Kunden. Sendet nie selbst.",
     defaultProvider: "crm-tools",
-    defaultModel: "grok-composer-2.5-fast",
+    defaultModel: "grok-4.5",
     defaultFallbackModel: "claude-code",
     defaultTemperature: 0.4,
     defaultMaxTokens: 1500,
@@ -133,7 +133,7 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
     description:
       "The on/off sales assistant. Decides the next conversation turn (ask for info, hand off to a human, or no-op) and drafts the German customer message. Never names a price.",
     defaultProvider: "crm-tools",
-    defaultModel: "grok-composer-2.5-fast",
+    defaultModel: "grok-4.5",
     defaultFallbackModel: "claude-code",
     defaultTemperature: 0.4,
     defaultMaxTokens: 1200,
@@ -145,7 +145,7 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
     description:
       "Re-engages a stale lead whose move date is still in the future: one gentle nudge after a few days of silence. Never names a price.",
     defaultProvider: "crm-tools",
-    defaultModel: "grok-composer-2.5-fast",
+    defaultModel: "grok-4.5",
     defaultFallbackModel: "claude-code",
     defaultTemperature: 0.4,
     defaultMaxTokens: 800,
@@ -157,7 +157,7 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
     description:
       "Composes the proactive WhatsApp opener for a fresh ImmoScout lead: references the inquiry, asks ONE easy question, proposes a call. Never names a price. Runs on crm-tools (the VPS), like everything else here.",
     defaultProvider: "crm-tools",
-    defaultModel: "grok-composer-2.5-fast",
+    defaultModel: "grok-4.5",
     defaultFallbackModel: "claude-code",
     defaultTemperature: 0.4,
     defaultMaxTokens: 800,
