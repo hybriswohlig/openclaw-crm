@@ -132,6 +132,25 @@ export function InventorySection({
     }
   }
 
+  const [newItemName, setNewItemName] = useState("");
+
+  /** Manuelles Hinzufügen fehlender Items ("Option to add additional items"):
+   *  legt direkt eine operator-Zeile an — überlebt jede Re-Extraktion. */
+  async function addManualItem() {
+    const name = newItemName.trim();
+    if (!name) return;
+    setNewItemName("");
+    const res = await fetch(`/api/v1/deals/${dealRecordId}/inventory/add`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    if (res.ok) {
+      const j = (await res.json().catch(() => ({}))) as { data?: InventoryItem };
+      if (j.data) setItems((prev) => [...prev, j.data!]);
+    }
+  }
+
   async function toggleMove(item: InventoryItem) {
     setItems((prev) =>
       prev.map((i) => (i.id === item.id ? { ...i, moveFlag: !i.moveFlag, source: "operator" } : i))
@@ -221,7 +240,7 @@ export function InventorySection({
           <button
             onClick={() => void analyzePhotos()}
             disabled={extracting || analyzingPhotos}
-            title="Kundenfotos analysieren und den Items zuordnen (Grok Build auf dem VPS)"
+            title="Kundenfotos analysieren und den Items zuordnen"
             className="flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] hover:bg-muted disabled:opacity-50"
           >
             <Camera className={cn("h-3 w-3", analyzingPhotos && "animate-pulse")} />
@@ -284,6 +303,24 @@ export function InventorySection({
                 </div>
               );
             })()}
+          <div className="flex items-center gap-1 px-4 pt-2">
+            <input
+              value={newItemName}
+              onChange={(e) => setNewItemName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void addManualItem();
+              }}
+              placeholder="Item ergänzen (z. B. Klavier)…"
+              className="h-6 min-w-0 flex-1 rounded-md border border-input bg-transparent px-2 text-[11px]"
+            />
+            <button
+              onClick={() => void addManualItem()}
+              disabled={!newItemName.trim()}
+              className="rounded-md border border-border px-2 py-0.5 text-[11px] hover:bg-muted disabled:opacity-50"
+            >
+              +
+            </button>
+          </div>
         </>
       )}
     </div>

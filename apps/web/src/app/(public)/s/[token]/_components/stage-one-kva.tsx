@@ -169,6 +169,13 @@ export function StageOneKva({
 
           <ScopeSummary scope={ctx.scope} />
 
+          {/* Kalkulationsgrundlagen: die Annahmen, auf denen der Preis beruht.
+              Werden mit der Annahme eingefroren (kva snapshot) — Abweichungen
+              am Umzugstag sind dokumentierte Abweichungen, keine Auslegung. */}
+          {ctx.kva?.calculationAssumptions && (
+            <CalculationAssumptionsCard a={ctx.kva.calculationAssumptions} />
+          )}
+
           <OfferInclusionsSection inclusions={ctx.inclusions} branding={ctx.branding} />
 
           {/* Detailed line-item breakdown (when variable / hourly). Sits at
@@ -599,4 +606,53 @@ function formatEurCents(cents: number): string {
     currency: "EUR",
     maximumFractionDigits: 0,
   }).format(cents / 100);
+}
+
+// ─── Kalkulationsgrundlagen ──────────────────────────────────────────────────
+// Renders the assumptions the price is based on. Part of the frozen KVA
+// snapshot on acceptance, so keep the wording factual and complete.
+function CalculationAssumptionsCard({
+  a,
+}: {
+  a: NonNullable<NonNullable<CustomerPortalContext["kva"]>["calculationAssumptions"]>;
+}) {
+  const rows: Array<[string, string]> = [];
+  if (a.anfahrtMinuten != null) {
+    rows.push([
+      "Anfahrt gesamt",
+      `ca. ${a.anfahrtMinuten} Min.${a.anfahrtQuelle === "manuell" ? " (Annahme)" : ""}`,
+    ]);
+  }
+  if (a.etageVon) rows.push(["Etage Beladestelle", a.etageVon]);
+  if (a.etageBis) rows.push(["Etage Entladestelle", a.etageBis]);
+  if (a.zugangVon) rows.push(["Zugang Beladestelle", a.zugangVon]);
+  if (a.zugangBis) rows.push(["Zugang Entladestelle", a.zugangBis]);
+  if (a.inventarPositionen != null) {
+    rows.push([
+      "Umfang",
+      `${a.inventarPositionen} Positionen${a.inventarVolumenCbm != null ? ` · ca. ${a.inventarVolumenCbm} m³` : ""}`,
+    ]);
+  }
+  if (rows.length === 0 && !a.hinweis) return null;
+  return (
+    <div className="overflow-hidden rounded-2xl border bg-card">
+      <div className="border-b px-6 py-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+        Kalkulationsgrundlagen
+      </div>
+      <div className="px-6 py-4">
+        <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+          {rows.map(([label, value]) => (
+            <div key={label}>
+              <dt className="text-xs text-muted-foreground">{label}</dt>
+              <dd>{value}</dd>
+            </div>
+          ))}
+        </dl>
+        <p className="mt-3 text-xs text-muted-foreground">
+          {a.hinweis ??
+            "Der Preis basiert auf diesen Angaben. Abweichende Gegebenheiten vor Ort (z. B. andere Etage, fehlender Aufzug, längere Trage- oder Anfahrtswege) können zu Mehrkosten führen."}
+        </p>
+      </div>
+    </div>
+  );
 }

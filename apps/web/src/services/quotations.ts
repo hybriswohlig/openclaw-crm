@@ -1,5 +1,6 @@
 import { db } from "@/db";
 import { quotations, quotationLineItems, dealEmployees, employees } from "@/db/schema";
+import type { CalculationAssumptions } from "@/db/schema/quotations";
 import { eq } from "drizzle-orm";
 
 export async function getQuotation(dealRecordId: string) {
@@ -38,6 +39,9 @@ export async function upsertQuotation(
     showStandardInclusions?: boolean;
     /** Selected offer package slug (per operating company). */
     selectedPackageSlug?: string | null;
+    /** Kalkulationsgrundlagen (Anfahrt, Etagen, Zugang, Inventarbasis) —
+     *  landen über loadKvaSnapshot in der eingefrorenen KVA-Bestätigung. */
+    calculationAssumptions?: CalculationAssumptions | null;
     lineItems?: Array<{
       id?: string;
       type: "helper" | "transporter" | "other";
@@ -79,6 +83,10 @@ export async function upsertQuotation(
           input.selectedPackageSlug !== undefined
             ? input.selectedPackageSlug
             : existing.selectedPackageSlug,
+        calculationAssumptions:
+          input.calculationAssumptions !== undefined
+            ? input.calculationAssumptions
+            : existing.calculationAssumptions,
         updatedAt: new Date(),
       })
       .where(eq(quotations.id, existing.id))
@@ -98,6 +106,7 @@ export async function upsertQuotation(
         summary: input.summary ?? null,
         showStandardInclusions: input.showStandardInclusions ?? true,
         selectedPackageSlug: input.selectedPackageSlug ?? null,
+        calculationAssumptions: input.calculationAssumptions ?? null,
       })
       .returning();
     quotationId = created.id;

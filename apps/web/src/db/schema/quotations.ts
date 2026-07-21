@@ -65,11 +65,34 @@ export const quotations = pgTable(
      * replaces the option set.
      */
     selectedPackageOptionId: text("selected_package_option_id"),
+    /**
+     * Kalkulationsgrundlagen des Angebots (Anfahrt, Etagen, Zugang,
+     * Inventarbasis). Wird über loadKvaSnapshot in die KVA-Bestätigung
+     * eingefroren — Abweichungen am Umzugstag sind damit dokumentierte
+     * Abweichungen von den Annahmen, nicht Auslegungssache.
+     */
+    calculationAssumptions: jsonb("calculation_assumptions").$type<CalculationAssumptions>(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => [index("quotations_deal_idx").on(table.dealRecordId)]
 );
+
+/** Annahmen, auf denen der Angebotspreis beruht (siehe quotations-Spalte). */
+export interface CalculationAssumptions {
+  /** Gesamte Fahrzeit in Minuten (Depot→Beladen→Entladen→Depot). */
+  anfahrtMinuten?: number | null;
+  /** 'berechnet' = Google-Zeitschätzung, 'manuell' = Operator-Annahme (z. B. Adresse fehlte). */
+  anfahrtQuelle?: "berechnet" | "manuell" | null;
+  etageVon?: string | null;
+  etageBis?: string | null;
+  /** z. B. "3. OG ohne Aufzug, normal breites Treppenhaus angenommen". */
+  zugangVon?: string | null;
+  zugangBis?: string | null;
+  inventarPositionen?: number | null;
+  inventarVolumenCbm?: number | null;
+  hinweis?: string | null;
+}
 
 export const quotationLineItems = pgTable(
   "quotation_line_items",

@@ -13,6 +13,10 @@ export const AI_TASK_SLUGS = {
   // AI-Umzugsanalyse Phase 2b: vision pass over customer photos — recognizes
   // items, estimates rough dimensions, feeds the chat↔photo matching.
   DEAL_INVENTORY_FROM_PHOTOS: "deal.inventory-from-photos",
+  // Status-Link wizard: conversational package tuning (prices + included/
+  // excluded lists) against inventory + assumptions. Draft-only — the operator
+  // applies the proposal, the AI never writes.
+  DEAL_PACKAGE_ADVISOR: "deal.package-advisor",
   // The inbox "Antwort vorschlagen" button (suggest-reply endpoint).
   DEAL_DRAFT_REPLY: "deal.draft-reply",
   // Operator-triggered photo analysis: customer-facing scope summary for the
@@ -100,6 +104,18 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
     defaultTemperature: 0.2,
     defaultMaxTokens: 4096,
     defaultDailySpendCapUsd: 5,
+  },
+  [AI_TASK_SLUGS.DEAL_PACKAGE_ADVISOR]: {
+    slug: AI_TASK_SLUGS.DEAL_PACKAGE_ADVISOR,
+    label: "Paket-Berater (Status-Link)",
+    description:
+      "Chat im Status-Link-Wizard: passt Paketpreise und Enthalten/Nicht-enthalten-Listen auf Zuruf an (Vorschlag mit Übernehmen-Button, schreibt nie selbst). Läuft auf dem VPS mit Grok Build.",
+    defaultProvider: "crm-tools",
+    defaultModel: "grok-build",
+    defaultFallbackModel: "claude-code",
+    defaultTemperature: 0.3,
+    defaultMaxTokens: 4096,
+    defaultDailySpendCapUsd: 3,
   },
   [AI_TASK_SLUGS.DEAL_DRAFT_REPLY]: {
     slug: AI_TASK_SLUGS.DEAL_DRAFT_REPLY,

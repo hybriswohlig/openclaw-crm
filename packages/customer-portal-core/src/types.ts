@@ -90,6 +90,25 @@ export interface KvaSnapshot {
    * False for one-off transports where decken/halteverbot are irrelevant.
    */
   showStandardInclusions: boolean;
+  /**
+   * Kalkulationsgrundlagen des Angebots (Anfahrt, Etagen, Zugang, Inventar-
+   * basis). Rendered in the portal AND frozen into kva_confirmations via the
+   * snapshot — deviations on moving day are documented deviations.
+   */
+  calculationAssumptions: KvaCalculationAssumptions | null;
+}
+
+/** Mirror of the quotations.calculation_assumptions jsonb (apps/web). */
+export interface KvaCalculationAssumptions {
+  anfahrtMinuten?: number | null;
+  anfahrtQuelle?: "berechnet" | "manuell" | null;
+  etageVon?: string | null;
+  etageBis?: string | null;
+  zugangVon?: string | null;
+  zugangBis?: string | null;
+  inventarPositionen?: number | null;
+  inventarVolumenCbm?: number | null;
+  hinweis?: string | null;
 }
 
 /**
@@ -174,6 +193,8 @@ export interface DealPackageOption {
   shortDescription: string | null;
   priceCents: number;
   includedItems: string[];
+  /** Ausdrücklich NICHT enthaltene Leistungen ("Nicht enthalten"-Liste). */
+  excludedItems: string[];
   note: string | null;
   isRecommended: boolean;
   sortOrder: number;

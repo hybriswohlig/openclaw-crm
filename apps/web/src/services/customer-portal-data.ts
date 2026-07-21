@@ -1232,6 +1232,7 @@ async function loadKvaSnapshot(dealRecordId: string): Promise<KvaSnapshot | null
     summary: q.summary ?? null,
     showStandardInclusions: q.showStandardInclusions ?? true,
     validUntil: q.validUntil ?? null,
+    calculationAssumptions: q.calculationAssumptions ?? null,
   };
 }
 
@@ -1779,6 +1780,7 @@ async function loadDealPackageOffersContext(
     shortDescription: r.shortDescription,
     priceCents: r.priceCents,
     includedItems: Array.isArray(r.includedItems) ? r.includedItems : [],
+    excludedItems: Array.isArray(r.excludedItems) ? r.excludedItems : [],
     note: r.note,
     isRecommended: r.isRecommended,
     sortOrder: r.sortOrder,
@@ -1808,6 +1810,7 @@ export interface DealPackageOptionInput {
   shortDescription: string | null;
   priceCents: number;
   includedItems: string[];
+  excludedItems?: string[];
   note: string | null;
   isRecommended: boolean;
 }
@@ -1840,6 +1843,10 @@ export async function replaceDealPackageOptions(input: {
         : null,
       priceCents: Math.round(o.priceCents),
       includedItems: (o.includedItems ?? [])
+        .filter((s): s is string => typeof s === "string")
+        .map((s) => s.slice(0, 200))
+        .slice(0, 10),
+      excludedItems: (o.excludedItems ?? [])
         .filter((s): s is string => typeof s === "string")
         .map((s) => s.slice(0, 200))
         .slice(0, 10),

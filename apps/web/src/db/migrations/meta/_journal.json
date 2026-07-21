@@ -218,6 +218,13 @@
       "when": 1784587861244,
       "tag": "0040_unique_aaron_stack",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1784651485719,
+      "tag": "0041_daffy_sentinel",
+      "breakpoints": true
     }
   ]
 }

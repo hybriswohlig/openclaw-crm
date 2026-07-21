@@ -427,6 +427,12 @@ export const quotationPackageOptions = pgTable(
       .$type<string[]>()
       .notNull()
       .default([]),
+    // Ausdrücklich NICHT enthaltene Leistungen — was der Kunde nicht gekauft
+    // hat, steht schwarz auf weiß im Portal statt implizit zu bleiben.
+    excludedItems: jsonb("excluded_items")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
     note: text("note"),
     isRecommended: boolean("is_recommended").notNull().default(false),
     sortOrder: integer("sort_order").notNull().default(0),

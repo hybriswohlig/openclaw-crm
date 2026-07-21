@@ -22,6 +22,8 @@ import {
   ArrowLeft,
   Check,
   Copy,
+  ChevronDown,
+  ChevronRight,
   Crown,
   Euro,
   Hourglass,
@@ -78,8 +80,23 @@ interface PackagePriceRow {
   displayName: string;
   shortDescription: string | null;
   includedItems: string[];
+  /** Ausdrücklich NICHT enthaltene Leistungen — Portal zeigt sie mit ✗. */
+  excludedItems: string[];
   priceEur: string;
   isRecommended: boolean;
+}
+
+/** Kalkulationsgrundlagen — gespiegelt zu CalculationAssumptions (Schema). */
+interface AssumptionsDraft {
+  anfahrtMinuten: string;
+  anfahrtQuelle: "berechnet" | "manuell" | null;
+  etageVon: string;
+  etageBis: string;
+  zugangVon: string;
+  zugangBis: string;
+  hinweis: string;
+  inventarPositionen: number | null;
+  inventarVolumenCbm: number | null;
 }
 
 interface PortalPhoto {
@@ -160,6 +177,63 @@ export function StatusLinkWizard({
 
   // Packages path
   const [packageRows, setPackageRows] = useState<PackagePriceRow[]>([]);
+  const [assumptions, setAssumptions] = useState<AssumptionsDraft>({
+    anfahrtMinuten: "",
+    anfahrtQuelle: null,
+    etageVon: "",
+    etageBis: "",
+    zugangVon: "",
+    zugangBis: "",
+    hinweis: "",
+    inventarPositionen: null,
+    inventarVolumenCbm: null,
+  });
+  const [assumptionsLoaded, setAssumptionsLoaded] = useState(false);
+
+  // Annahmen lazy befüllen, wenn der Paket-Schritt erreicht wird: Anfahrt aus
+  // der Zeitschätzung (falls berechnet), Inventarbasis aus der Item-Liste.
+  useEffect(() => {
+    if (step !== "pakete" || assumptionsLoaded) return;
+    setAssumptionsLoaded(true);
+    void (async () => {
+      try {
+        const [auftragRes, invRes] = await Promise.all([
+          fetch(`/api/v1/deals/${dealRecordId}/auftrag`),
+          fetch(`/api/v1/deals/${dealRecordId}/inventory`),
+        ]);
+        const patch: Partial<AssumptionsDraft> = {};
+        if (auftragRes.ok) {
+          const j = (await auftragRes.json()) as {
+            data?: { auftrag?: { values?: Record<string, unknown> } | null };
+          };
+          const drive = Number(j.data?.auftrag?.values?.drive_minutes_total);
+          if (Number.isFinite(drive) && drive > 0) {
+            patch.anfahrtMinuten = String(Math.round(drive));
+            patch.anfahrtQuelle = "berechnet";
+          }
+        }
+        if (invRes.ok) {
+          const j = (await invRes.json()) as {
+            data?: Array<{ moveFlag: boolean; volumeCbmEstimate: string | null }>;
+          };
+          const moving = (j.data ?? []).filter((i) => i.moveFlag);
+          if (moving.length > 0) {
+            patch.inventarPositionen = moving.length;
+            const vol = moving.reduce((s, i) => {
+              const v = Number(i.volumeCbmEstimate);
+              return Number.isFinite(v) ? s + v : s;
+            }, 0);
+            if (vol > 0) patch.inventarVolumenCbm = Math.round(vol * 10) / 10;
+          }
+        }
+        if (Object.keys(patch).length > 0) {
+          setAssumptions((prev) => ({ ...prev, ...patch }));
+        }
+      } catch {
+        /* Annahmen bleiben manuell befüllbar */
+      }
+    })();
+  }, [step, assumptionsLoaded, dealRecordId]);
 
   // Stündlich path
   const [lineItems, setLineItems] = useState<LineItem[]>([
@@ -246,6 +320,7 @@ export function StatusLinkWizard({
             displayName: c.displayName,
             shortDescription: c.shortDescription,
             includedItems: c.includedItems ?? [],
+            excludedItems: [],
             priceEur:
               c.priceFromCents != null
                 ? (c.priceFromCents / 100).toFixed(2).replace(".", ",")
@@ -367,6 +442,7 @@ export function StatusLinkWizard({
             shortDescription: r.shortDescription,
             priceCents: parseEur(r.priceEur),
             includedItems: r.includedItems,
+            excludedItems: r.excludedItems,
             note: null,
             isRecommended: r.isRecommended,
           }))
@@ -413,6 +489,9 @@ export function StatusLinkWizard({
           // Pass-through: this wizard never touches the inclusions toggle.
           showStandardInclusions: quotation?.showStandardInclusions ?? true,
           selectedPackageSlug: quotation?.selectedPackageSlug ?? null,
+          // Kalkulationsgrundlagen — werden über loadKvaSnapshot in die
+          // KVA-Bestätigung eingefroren (rechtlich dokumentierte Annahmen).
+          calculationAssumptions: buildAssumptionsPayload(assumptions),
         }),
       });
       if (!qRes.ok) throw new Error("Kostenvoranschlag konnte nicht gespeichert werden.");
@@ -647,24 +726,24 @@ export function StatusLinkWizard({
                             />
                           </div>
                         </div>
-                        {row.includedItems.length > 0 && (
-                          <ul className="mt-2 space-y-0.5 pl-10 text-[11px] text-muted-foreground">
-                            {row.includedItems.slice(0, 4).map((it, i) => (
-                              <li key={i} className="flex items-center gap-1.5">
-                                <Check className="h-3 w-3 shrink-0 text-emerald-600" />
-                                <span className="truncate">{it}</span>
-                              </li>
-                            ))}
-                            {row.includedItems.length > 4 && (
-                              <li className="text-muted-foreground/60">
-                                + {row.includedItems.length - 4} weitere
-                              </li>
-                            )}
-                          </ul>
-                        )}
+                        <PackageListsEditor
+                          row={row}
+                          onChange={(patch) =>
+                            setPackageRows((prev) =>
+                              prev.map((r, i) => (i === idx ? { ...r, ...patch } : r))
+                            )
+                          }
+                        />
                       </div>
                     );
                   })}
+                  <PackageAdvisorChat
+                    dealRecordId={dealRecordId}
+                    packageRows={packageRows}
+                    assumptions={assumptions}
+                    onApply={(rows) => setPackageRows(rows)}
+                  />
+                  <AssumptionsCard draft={assumptions} setDraft={setAssumptions} />
                   <DepositBlock
                     depositEur={depositEur}
                     setDepositEur={setDepositEur}
@@ -1145,6 +1224,309 @@ function DepositBlock({
           <option value="card">Karte</option>
         </select>
       </div>
+    </div>
+  );
+}
+
+// ─── Paket-Editor-Erweiterungen (Enthalten/Nicht-enthalten, Annahmen, KI) ────
+
+/** Draft → jsonb-Payload; null wenn komplett leer (kein Rausch-Speichern). */
+function buildAssumptionsPayload(a: AssumptionsDraft): Record<string, unknown> | null {
+  const anfahrt = a.anfahrtMinuten.trim() ? Number(a.anfahrtMinuten) : null;
+  const payload = {
+    anfahrtMinuten: Number.isFinite(anfahrt) ? anfahrt : null,
+    anfahrtQuelle: a.anfahrtMinuten.trim() ? (a.anfahrtQuelle ?? "manuell") : null,
+    etageVon: a.etageVon.trim() || null,
+    etageBis: a.etageBis.trim() || null,
+    zugangVon: a.zugangVon.trim() || null,
+    zugangBis: a.zugangBis.trim() || null,
+    inventarPositionen: a.inventarPositionen,
+    inventarVolumenCbm: a.inventarVolumenCbm,
+    hinweis: a.hinweis.trim() || null,
+  };
+  return Object.values(payload).some((v) => v != null) ? payload : null;
+}
+
+function PackageListsEditor({
+  row,
+  onChange,
+}: {
+  row: PackagePriceRow;
+  onChange: (patch: Partial<PackagePriceRow>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const lines = (v: string) =>
+    v.split("\n").map((s) => s.trim()).filter(Boolean).slice(0, 10);
+  return (
+    <div className="mt-2 pl-10">
+      {!open ? (
+        <button
+          onClick={() => setOpen(true)}
+          className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+        >
+          <ChevronRight className="h-3 w-3" />
+          {row.includedItems.length} enthalten
+          {row.excludedItems.length > 0 && ` · ${row.excludedItems.length} ausgeschlossen`}
+          {" — bearbeiten"}
+        </button>
+      ) : (
+        <div className="space-y-2">
+          <button
+            onClick={() => setOpen(false)}
+            className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+          >
+            <ChevronDown className="h-3 w-3" />
+            Listen einklappen
+          </button>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div>
+              <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+                Enthalten (eine Leistung pro Zeile)
+              </label>
+              <textarea
+                rows={4}
+                value={row.includedItems.join("\n")}
+                onChange={(e) => onChange({ includedItems: lines(e.target.value) })}
+                className="w-full rounded-md border border-input bg-transparent px-2 py-1 text-[11px]"
+              />
+            </div>
+            <div>
+              <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wider text-rose-700 dark:text-rose-400">
+                Nicht enthalten
+              </label>
+              <textarea
+                rows={4}
+                value={row.excludedItems.join("\n")}
+                onChange={(e) => onChange({ excludedItems: lines(e.target.value) })}
+                placeholder={"z. B. Klaviertransport\nVerpackungsservice"}
+                className="w-full rounded-md border border-input bg-transparent px-2 py-1 text-[11px]"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AssumptionsCard({
+  draft,
+  setDraft,
+}: {
+  draft: AssumptionsDraft;
+  setDraft: React.Dispatch<React.SetStateAction<AssumptionsDraft>>;
+}) {
+  const set = (k: keyof AssumptionsDraft) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setDraft((p) => ({
+      ...p,
+      [k]: e.target.value,
+      // Handeingabe der Anfahrt macht aus "berechnet" eine Operator-Annahme.
+      ...(k === "anfahrtMinuten" ? { anfahrtQuelle: "manuell" as const } : {}),
+    }));
+  const field =
+    "h-7 w-full rounded-md border border-input bg-transparent px-2 text-[11px]";
+  return (
+    <div className="rounded-xl border border-border bg-card p-3">
+      <p className="text-xs font-semibold">Kalkulationsgrundlagen</p>
+      <p className="mb-2 text-[10px] text-muted-foreground">
+        Wird dem Kunden angezeigt und bei Annahme rechtsverbindlich eingefroren —
+        Abweichungen am Umzugstag sind damit dokumentierte Abweichungen.
+        {draft.inventarPositionen != null &&
+          ` Basis: ${draft.inventarPositionen} Positionen${draft.inventarVolumenCbm != null ? ` · ca. ${draft.inventarVolumenCbm} m³` : ""}.`}
+      </p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div>
+          <label className="mb-0.5 block text-[10px] text-muted-foreground">
+            Anfahrt gesamt (Minuten){" "}
+            {draft.anfahrtQuelle === "berechnet" ? "— berechnet" : "— Annahme"}
+          </label>
+          <input value={draft.anfahrtMinuten} onChange={set("anfahrtMinuten")} inputMode="numeric" placeholder="z. B. 90" className={field} />
+        </div>
+        <div>
+          <label className="mb-0.5 block text-[10px] text-muted-foreground">Hinweis (optional)</label>
+          <input value={draft.hinweis} onChange={set("hinweis")} placeholder="z. B. Preis gilt bei Zugang wie angenommen" className={field} />
+        </div>
+        <div>
+          <label className="mb-0.5 block text-[10px] text-muted-foreground">Etage Beladestelle</label>
+          <input value={draft.etageVon} onChange={set("etageVon")} placeholder="z. B. 3. OG" className={field} />
+        </div>
+        <div>
+          <label className="mb-0.5 block text-[10px] text-muted-foreground">Etage Entladestelle</label>
+          <input value={draft.etageBis} onChange={set("etageBis")} placeholder="z. B. EG" className={field} />
+        </div>
+        <div>
+          <label className="mb-0.5 block text-[10px] text-muted-foreground">Zugang Beladestelle</label>
+          <input value={draft.zugangVon} onChange={set("zugangVon")} placeholder="z. B. kein Aufzug, normales Treppenhaus" className={field} />
+        </div>
+        <div>
+          <label className="mb-0.5 block text-[10px] text-muted-foreground">Zugang Entladestelle</label>
+          <input value={draft.zugangBis} onChange={set("zugangBis")} placeholder="z. B. Aufzug vorhanden" className={field} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PackageAdvisorChat({
+  dealRecordId,
+  packageRows,
+  assumptions,
+  onApply,
+}: {
+  dealRecordId: string;
+  packageRows: PackagePriceRow[];
+  assumptions: AssumptionsDraft;
+  onApply: (rows: PackagePriceRow[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [messages, setMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [proposal, setProposal] = useState<PackagePriceRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function send() {
+    const content = input.trim();
+    if (!content || busy) return;
+    const next = [...messages, { role: "user" as const, content }];
+    setMessages(next);
+    setInput("");
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/v1/deals/${dealRecordId}/package-advisor`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: next,
+          options: packageRows.map((r) => ({
+            catalogueSlug: r.catalogueSlug,
+            displayName: r.displayName,
+            shortDescription: r.shortDescription,
+            priceEur: r.priceEur ? Number(r.priceEur.replace(",", ".")) : null,
+            includedItems: r.includedItems,
+            excludedItems: r.excludedItems,
+            isRecommended: r.isRecommended,
+          })),
+          assumptions: buildAssumptionsPayload(assumptions),
+        }),
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        data?: {
+          reply?: string;
+          proposal?: {
+            options?: Array<{
+              catalogueSlug?: string | null;
+              displayName: string;
+              shortDescription?: string | null;
+              priceEur: number;
+              includedItems: string[];
+              excludedItems: string[];
+              isRecommended?: boolean;
+            }>;
+          } | null;
+        };
+        error?: string;
+      };
+      if (!res.ok || !j.data?.reply) {
+        setError(j.error ?? `Berater nicht erreichbar (${res.status})`);
+        setMessages(messages);
+        return;
+      }
+      setMessages([...next, { role: "assistant", content: j.data.reply }]);
+      const opts = j.data.proposal?.options;
+      setProposal(
+        opts && opts.length > 0
+          ? opts.map((o) => ({
+              catalogueSlug: o.catalogueSlug ?? "",
+              displayName: o.displayName,
+              shortDescription: o.shortDescription ?? null,
+              includedItems: o.includedItems ?? [],
+              excludedItems: o.excludedItems ?? [],
+              priceEur: o.priceEur.toFixed(2).replace(".", ","),
+              isRecommended: !!o.isRecommended,
+            }))
+          : null
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-3">
+      <button onClick={() => setOpen(!open)} className="flex w-full items-center gap-1.5 text-xs font-semibold">
+        <Sparkles className="h-3.5 w-3.5" />
+        Mit KI anpassen (Grok)
+        {open ? <ChevronDown className="ml-auto h-3 w-3" /> : <ChevronRight className="ml-auto h-3 w-3" />}
+      </button>
+      {open && (
+        <div className="mt-2 space-y-2">
+          <div className="max-h-48 space-y-1.5 overflow-y-auto">
+            {messages.length === 0 && (
+              <p className="text-[11px] text-muted-foreground">
+                z. B. „Klaviertransport nur in Premium, Komfort 50 € günstiger" — die KI
+                schlägt vor, übernommen wird nur per Klick.
+              </p>
+            )}
+            {messages.map((m, i) => (
+              <p
+                key={i}
+                className={m.role === "user" ? "rounded-md bg-muted px-2 py-1 text-[11px]" : "px-2 py-1 text-[11px] text-muted-foreground"}
+              >
+                {m.content}
+              </p>
+            ))}
+            {busy && <p className="px-2 text-[11px] text-muted-foreground">Grok denkt nach…</p>}
+          </div>
+          {error && (
+            <p className="rounded bg-destructive/10 px-2 py-1 text-[11px] text-destructive">{error}</p>
+          )}
+          {proposal && (
+            <div className="rounded-md border border-emerald-600/30 bg-emerald-500/5 p-2">
+              <p className="mb-1 text-[11px] font-medium">Vorschlag:</p>
+              {proposal.map((p, i) => (
+                <p key={i} className="text-[11px] text-muted-foreground">
+                  {p.displayName}: {p.priceEur} € · {p.includedItems.length} enthalten
+                  {p.excludedItems.length > 0 && ` · ${p.excludedItems.length} ausgeschlossen`}
+                </p>
+              ))}
+              <div className="mt-1.5 flex gap-1.5">
+                <button
+                  onClick={() => {
+                    onApply(proposal);
+                    setProposal(null);
+                  }}
+                  className="rounded-md bg-primary px-2 py-0.5 text-[11px] text-primary-foreground"
+                >
+                  Übernehmen
+                </button>
+                <button onClick={() => setProposal(null)} className="rounded-md border border-border px-2 py-0.5 text-[11px]">
+                  Verwerfen
+                </button>
+              </div>
+            </div>
+          )}
+          <div className="flex gap-1">
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void send();
+              }}
+              placeholder="Anweisung an den Paket-Berater…"
+              className="h-7 min-w-0 flex-1 rounded-md border border-input bg-transparent px-2 text-[11px]"
+            />
+            <button
+              onClick={() => void send()}
+              disabled={busy || !input.trim()}
+              className="rounded-md border border-border px-2 text-[11px] disabled:opacity-50"
+            >
+              Senden
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

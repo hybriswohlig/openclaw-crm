@@ -380,6 +380,19 @@ function DealOptionCard({
           </ul>
         )}
 
+        {/* Ausdrücklich nicht enthaltene Leistungen — schwarz auf weiß,
+            damit der Leistungsumfang rechtlich eindeutig ist. */}
+        {(option.excludedItems ?? []).length > 0 && (
+          <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+            {(option.excludedItems ?? []).slice(0, 5).map((item, i) => (
+              <li key={i} className="flex items-start gap-2 leading-snug">
+                <span aria-hidden className="mt-0.5 shrink-0 text-[11px] leading-none">✗</span>
+                <span className="line-through decoration-muted-foreground/50">{item}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+
         {option.note && (
           <p className="mt-3 border-t pt-2 text-[11px] text-muted-foreground">
             {option.note}
