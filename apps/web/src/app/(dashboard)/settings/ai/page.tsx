@@ -843,11 +843,11 @@ export default function AISettingsPage() {
                         className="flex h-8 w-full rounded-md border border-input bg-transparent px-2 py-1 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                       >
                         <option value="openrouter">OpenRouter (synchron, Bezahlung pro Aufruf)</option>
-                        <option value="crm-tools">crm-tools FastAPI (Claude-Max-Abo, asynchron ca. 30 bis 90 s)</option>
+                        <option value="crm-tools">Serverseitige KI (asynchron, ca. 30–90 s)</option>
                       </select>
                       {task.provider === "crm-tools" && (
                         <p className="text-[10px] text-muted-foreground">
-                          Läuft serverseitig über https://crm-tools.kottke.info → Claude Code CLI. Modell und Fallback unten werden ignoriert.
+                          Läuft serverseitig. Modell und Fallback unten werden ignoriert.
                           Nur für Hintergrundaufgaben (Cron) empfohlen; interaktive Aufrufe in der Oberfläche laden 30 bis 90 s.
                         </p>
                       )}

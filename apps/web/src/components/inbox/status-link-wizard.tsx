@@ -1477,7 +1477,7 @@ function PackageAdvisorChat({
     <div className="rounded-xl border border-border bg-card p-3">
       <button onClick={() => setOpen(!open)} className="flex w-full items-center gap-1.5 text-xs font-semibold">
         <Sparkles className="h-3.5 w-3.5" />
-        Mit KI anpassen (Grok)
+        Mit KI anpassen
         {open ? <ChevronDown className="ml-auto h-3 w-3" /> : <ChevronRight className="ml-auto h-3 w-3" />}
       </button>
       {open && (
@@ -1497,7 +1497,7 @@ function PackageAdvisorChat({
                 {m.content}
               </p>
             ))}
-            {busy && <p className="px-2 text-[11px] text-muted-foreground">Grok denkt nach…</p>}
+            {busy && <p className="px-2 text-[11px] text-muted-foreground">KI denkt nach…</p>}
           </div>
           {error && (
             <p className="rounded bg-destructive/10 px-2 py-1 text-[11px] text-destructive">{error}</p>

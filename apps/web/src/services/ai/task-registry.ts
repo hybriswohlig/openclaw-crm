@@ -95,10 +95,9 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
     slug: AI_TASK_SLUGS.DEAL_INVENTORY_FROM_PHOTOS,
     label: "Inventar-Foto-Analyse (Umzugsanalyse)",
     description:
-      "Erkennt Umzugsgut auf Kundenfotos (inkl. grober Maßschätzung) für das Matching gegen die Chat-Inventarliste. Läuft auf dem VPS mit Grok Build.",
+      "Erkennt Umzugsgut auf Kundenfotos (inkl. grober Maßschätzung) für das Matching gegen die Chat-Inventarliste.",
     defaultProvider: "crm-tools",
-    // Per Nutzer-Vorgabe immer Grok Build auf dem VPS; Claude Code nur als
-    // Ausfall-Fallback, damit ein Grok-Ausfall die Analyse nicht stilllegt.
+    // Primary vision path on crm-tools; fallback only if primary fails.
     defaultModel: "grok-build",
     defaultFallbackModel: "claude-code",
     defaultTemperature: 0.2,
@@ -109,7 +108,7 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
     slug: AI_TASK_SLUGS.DEAL_PACKAGE_ADVISOR,
     label: "Paket-Berater (Status-Link)",
     description:
-      "Chat im Status-Link-Wizard: passt Paketpreise und Enthalten/Nicht-enthalten-Listen auf Zuruf an (Vorschlag mit Übernehmen-Button, schreibt nie selbst). Läuft auf dem VPS mit Grok Build.",
+      "Chat im Status-Link-Wizard: passt Paketpreise und Enthalten/Nicht-enthalten-Listen auf Zuruf an (Vorschlag mit Übernehmen-Button, schreibt nie selbst).",
     defaultProvider: "crm-tools",
     defaultModel: "grok-build",
     defaultFallbackModel: "claude-code",
@@ -134,10 +133,10 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
     slug: AI_TASK_SLUGS.DEAL_SCOPE_FROM_PHOTOS,
     label: "Foto-Analyse Angebot",
     description:
-      "Analysiert vom Kunden geschickte Fotos und erzeugt die kundengerechte Auftrags-Zusammenfassung plus erkanntes Inventar und interne Hinweise. Bilder verarbeitet nur der crm-tools-Pfad, OpenRouter verwirft Anhänge.",
+      "Analysiert vom Kunden geschickte Fotos und erzeugt die kundengerechte Auftrags-Zusammenfassung plus erkanntes Inventar und interne Hinweise.",
     defaultProvider: "crm-tools",
     defaultModel: "claude-code",
-    // Photo tasks keep multi-turn tools on the VPS (Claude Code CLI preferred).
+    // Photo tasks keep multi-turn tools on the server path.
     defaultFallbackModel: "grok-build",
     defaultTemperature: 0.3,
     defaultMaxTokens: 4096,
@@ -171,7 +170,7 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
     slug: AI_TASK_SLUGS.LEAD_FIRST_CONTACT,
     label: "Sales agent first contact (ImmoScout)",
     description:
-      "Composes the proactive WhatsApp opener for a fresh ImmoScout lead: references the inquiry, asks ONE easy question, proposes a call. Never names a price. Runs on crm-tools (the VPS), like everything else here.",
+      "Composes the proactive WhatsApp opener for a fresh ImmoScout lead: references the inquiry, asks ONE easy question, proposes a call. Never names a price.",
     defaultProvider: "crm-tools",
     defaultModel: "grok-4.5",
     defaultFallbackModel: "claude-code",
