@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface DealRecord {
@@ -19,6 +19,9 @@ interface StageInfo {
 }
 
 const WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
+
+/** Sentinel for deals without a stage value. */
+const NO_STAGE_ID = "__no_stage__";
 
 function getMonthDays(year: number, month: number) {
   const firstDay = new Date(year, month, 1);
@@ -67,11 +70,19 @@ function normalizeRecordsPayload(data: unknown): DealRecord[] {
   return [];
 }
 
+function dealStageKey(deal: DealRecord): string {
+  const stage = deal.values.stage;
+  if (stage == null || stage === "") return NO_STAGE_ID;
+  return String(stage);
+}
+
 export default function ContractCalendarPage() {
   const [deals, setDeals] = useState<DealRecord[]>([]);
   const [stages, setStages] = useState<StageInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentDate, setCurrentDate] = useState(() => new Date());
+  /** Empty set = show all stages. Otherwise only matching stage ids. */
+  const [selectedStageIds, setSelectedStageIds] = useState<Set<string>>(() => new Set());
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
@@ -107,22 +118,55 @@ export default function ContractCalendarPage() {
 
   const monthDays = useMemo(() => getMonthDays(year, month), [year, month]);
 
+  const hasNoStageDeals = useMemo(() => {
+    return deals.some((d) => parseDateValue(d.values.move_date) && dealStageKey(d) === NO_STAGE_ID);
+  }, [deals]);
+
   const dealsByDate = useMemo(() => {
     const map = new Map<string, DealRecord[]>();
     const list = Array.isArray(deals) ? deals : [];
+    const filterActive = selectedStageIds.size > 0;
+
     for (const deal of list) {
       const moveDate = parseDateValue(deal.values.move_date);
       if (!moveDate) continue;
+
+      if (filterActive && !selectedStageIds.has(dealStageKey(deal))) {
+        continue;
+      }
+
       const existing = map.get(moveDate) || [];
       existing.push(deal);
       map.set(moveDate, existing);
     }
     return map;
-  }, [deals]);
+  }, [deals, selectedStageIds]);
 
-  function getStageInfo(stageId: unknown): StageInfo | undefined {
-    if (!stageId) return undefined;
-    return stages.find((s) => s.id === stageId);
+  const filteredCount = useMemo(() => {
+    let n = 0;
+    for (const list of dealsByDate.values()) n += list.length;
+    return n;
+  }, [dealsByDate]);
+
+  const getStageInfo = useCallback(
+    (stageId: unknown): StageInfo | undefined => {
+      if (!stageId) return undefined;
+      return stages.find((s) => s.id === stageId);
+    },
+    [stages]
+  );
+
+  function toggleStageFilter(stageId: string) {
+    setSelectedStageIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(stageId)) next.delete(stageId);
+      else next.add(stageId);
+      return next;
+    });
+  }
+
+  function clearStageFilter() {
+    setSelectedStageIds(new Set());
   }
 
   function prevMonth() {
@@ -143,6 +187,7 @@ export default function ContractCalendarPage() {
   });
 
   const today = dateKey(new Date());
+  const filterActive = selectedStageIds.size > 0;
 
   if (loading) {
     return (
@@ -170,15 +215,89 @@ export default function ContractCalendarPage() {
         </div>
       </div>
 
-      {/* Stage legend */}
+      {/* Status filter chips (also serve as legend) */}
       {stages.length > 0 && (
-        <div className="flex flex-wrap gap-3 mb-4">
-          {stages.map((s) => (
-            <div key={s.id} className="flex items-center gap-1.5 text-xs">
-              <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: s.color }} />
-              <span className="text-muted-foreground">{s.title}</span>
-            </div>
-          ))}
+        <div className="mb-4 space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium text-muted-foreground mr-1">Status:</span>
+            <button
+              type="button"
+              onClick={clearStageFilter}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors",
+                !filterActive
+                  ? "border-foreground/30 bg-foreground text-background"
+                  : "border-border bg-background text-muted-foreground hover:bg-muted"
+              )}
+            >
+              Alle
+            </button>
+            {stages.map((s) => {
+              const selected = selectedStageIds.has(s.id);
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => toggleStageFilter(s.id)}
+                  aria-pressed={selected}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors",
+                    selected
+                      ? "border-transparent shadow-sm"
+                      : "border-border bg-background text-muted-foreground hover:bg-muted opacity-80"
+                  )}
+                  style={
+                    selected
+                      ? {
+                          backgroundColor: `${s.color}28`,
+                          borderColor: s.color,
+                          color: "inherit",
+                        }
+                      : undefined
+                  }
+                >
+                  <span
+                    className="h-2.5 w-2.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: s.color }}
+                  />
+                  {s.title}
+                </button>
+              );
+            })}
+            {hasNoStageDeals && (
+              <button
+                type="button"
+                onClick={() => toggleStageFilter(NO_STAGE_ID)}
+                aria-pressed={selectedStageIds.has(NO_STAGE_ID)}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors",
+                  selectedStageIds.has(NO_STAGE_ID)
+                    ? "border-foreground/30 bg-muted text-foreground"
+                    : "border-border bg-background text-muted-foreground hover:bg-muted opacity-80"
+                )}
+              >
+                <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-muted-foreground/40" />
+                Ohne Status
+              </button>
+            )}
+            {filterActive && (
+              <button
+                type="button"
+                onClick={clearStageFilter}
+                className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              >
+                <X className="h-3 w-3" />
+                Filter zurücksetzen
+              </button>
+            )}
+          </div>
+          {filterActive && (
+            <p className="text-xs text-muted-foreground">
+              {filteredCount === 0
+                ? "Keine Einträge für die gewählten Status"
+                : `${filteredCount} Eintrag${filteredCount === 1 ? "" : "e"} mit gewähltem Status`}
+            </p>
+          )}
         </div>
       )}
 
