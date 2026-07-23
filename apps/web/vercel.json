@@ -41,6 +41,10 @@
     {
       "path": "/api/cron/agent-classify",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/transcribe-audio",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

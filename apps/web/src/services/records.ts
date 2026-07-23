@@ -425,25 +425,28 @@ export async function updateRecord(
     .set({ updatedAt: new Date() })
     .where(eq(records.id, recordId));
 
-  // Delete existing values for the attributes being updated, then insert new
-  for (const [slug, value] of Object.entries(input)) {
-    const attrInfo = bySlug.get(slug);
-    if (!attrInfo) continue;
-    void value;
+  // Delete existing values for the attributes being updated, then insert new.
+  // Runs in a transaction so a crash between delete and insert cannot lose values.
+  await db.transaction(async (tx) => {
+    for (const [slug, value] of Object.entries(input)) {
+      const attrInfo = bySlug.get(slug);
+      if (!attrInfo) continue;
+      void value;
 
-    // Delete old values for this attribute
-    await db
-      .delete(recordValues)
-      .where(
-        and(
-          eq(recordValues.recordId, recordId),
-          eq(recordValues.attributeId, attrInfo.id)
-        )
-      );
-  }
+      // Delete old values for this attribute
+      await tx
+        .delete(recordValues)
+        .where(
+          and(
+            eq(recordValues.recordId, recordId),
+            eq(recordValues.attributeId, attrInfo.id)
+          )
+        );
+    }
 
-  // Write new values
-  await writeValues(recordId, input, bySlug, updatedBy);
+    // Write new values
+    await writeValues(recordId, input, bySlug, updatedBy, tx);
+  });
 
   // Emit deal.stage_changed activity events for status attributes whose
   // value actually changed. Runs after writes so we see the post-update value.
@@ -535,12 +538,16 @@ function keyRefCheck(attrId: string, refId: string) {
   return `${attrId}::${refId}`;
 }
 
+/** db client or transaction handle, so writes can run inside a transaction */
+type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 /** Write attribute values for a record */
 async function writeValues(
   recordId: string,
   input: Record<string, unknown>,
   bySlug: Map<string, AttributeInfo>,
-  createdBy: string | null
+  createdBy: string | null,
+  executor: DbExecutor = db
 ) {
   // Pre-collect every proposed record_reference value so we can validate them
   // in one query (scope = config.targetObjectSlug).
@@ -591,7 +598,7 @@ async function writeValues(
   }
 
   if (rows.length > 0) {
-    await db.insert(recordValues).values(rows);
+    await executor.insert(recordValues).values(rows);
   }
 }
 

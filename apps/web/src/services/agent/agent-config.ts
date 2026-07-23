@@ -113,6 +113,37 @@ export async function isSalesAgentDryRun(workspaceId: string): Promise<boolean> 
   return (await getSetting(workspaceId, KEY_DRY_RUN)) !== "false";
 }
 
+// ── Per-engine dry-run decoupling (Phase 0, KI-Verkaufsassistent 2.0) ────────
+// The single shared dry-run flag meant "going live with the reply agent
+// silently armed live follow-ups and first contact too". Each engine now has
+// its own key; an UNSET engine key falls back to the shared flag, so existing
+// behavior is unchanged until an engine key is explicitly written. An engine
+// is live only when ITS key (or, if unset, the shared key) is exactly "false".
+const ENGINE_DRY_RUN_KEYS = {
+  reply: "sales_agent_dry_run_reply",
+  followup: "sales_agent_dry_run_followup",
+  first_contact: "sales_agent_dry_run_first_contact",
+} as const;
+
+export type AgentEngine = keyof typeof ENGINE_DRY_RUN_KEYS;
+
+export async function isEngineDryRun(
+  workspaceId: string,
+  engine: AgentEngine
+): Promise<boolean> {
+  const raw = await getSetting(workspaceId, ENGINE_DRY_RUN_KEYS[engine]);
+  if (raw === null || raw === "") return isSalesAgentDryRun(workspaceId);
+  return raw !== "false";
+}
+
+export async function setEngineDryRun(
+  workspaceId: string,
+  engine: AgentEngine,
+  dryRun: boolean
+): Promise<void> {
+  await setSetting(workspaceId, ENGINE_DRY_RUN_KEYS[engine], dryRun ? "true" : "false");
+}
+
 /** Follow-up engine on/off, independent of the reply agent. Default OFF. */
 export async function isSalesFollowupEnabled(workspaceId: string): Promise<boolean> {
   return (await getSetting(workspaceId, KEY_FOLLOWUP)) === "true";

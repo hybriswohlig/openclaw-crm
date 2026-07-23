@@ -313,19 +313,44 @@ async function ingestParsedEmail(
       }
     }
   } else {
+    // Lane-Heilung (Parität zum WhatsApp-Pfad, inbox-whatsapp.ts): eine echte
+    // Anfrage auf einem info-Thread hebt die Lane auf 'lead' an — nie gegen
+    // eine manuelle Einstufung — und holt für Kleinanzeigen den Deal nach.
+    const laneUpgrade =
+      triage.lane === "lead" && conv.lane === "info" && conv.classifiedBy !== "manual";
     await db
       .update(inboxConversations)
       .set({
         lastMessageAt: sentAt,
         lastMessagePreview: preview,
         unreadCount: (conv.unreadCount ?? 0) + 1,
-        aiNeedsReply: !declined,
+        // Noise-Gate (Parität zum WhatsApp-Pfad): nur echte Lead-Nachrichten
+        // re-armen den Agenten — ein Newsletter-Follow-up auf einem
+        // info-Thread darf ihn nie wecken. IS24-Absender sind no-reply.
+        aiNeedsReply: isImmoLead ? false : triage.lane === "lead" && !declined,
         aiLastInboundAt: sentAt,
         // Re-open resolved/spam conversations when the customer writes back
         ...(conv.status !== "open" ? { status: "open" } : {}),
+        ...(laneUpgrade
+          ? {
+              lane: "lead" as const,
+              classificationReason: triage.reason,
+              classifiedBy: triage.by,
+            }
+          : {}),
         updatedAt: new Date(),
       })
       .where(eq(inboxConversations.id, conv.id));
+
+    if (laneUpgrade && isKleinanzeigen && !conv.dealRecordId) {
+      await createDealForNewConversation({
+        workspaceId: account.workspaceId,
+        conversationId: conv.id,
+        dealName: contactName || fromEmail,
+        contactId: contact.id,
+        channelAccountId: account.id,
+      });
+    }
   }
 
   // Record the opt-out across all engines (idempotent, non-blocking).

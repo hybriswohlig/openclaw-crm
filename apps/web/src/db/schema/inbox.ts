@@ -10,6 +10,7 @@ import {
   uniqueIndex,
   primaryKey,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { workspaces } from "./workspace";
 import { records } from "./records";
 
@@ -374,6 +375,11 @@ export const inboxMessageAttachments = pgTable(
     // The channel-native media id (WhatsApp media_id or email Content-ID), kept
     // so we can deduplicate if the same payload is replayed.
     externalMediaId: text("external_media_id"),
+    // Voice-note transcription (Phase 0 of the agent rebuild): filled by the
+    // transcribe-audio cron for inbound audio. Empty string = attempted but
+    // failed permanently (won't be retried); transcribedAt NULL = still pending.
+    transcript: text("transcript"),
+    transcribedAt: timestamp("transcribed_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (table) => [
@@ -381,6 +387,10 @@ export const inboxMessageAttachments = pgTable(
     index("inbox_attachments_conversation_idx").on(table.conversationId),
     index("inbox_attachments_deal_idx").on(table.dealRecordId),
     index("inbox_attachments_workspace_idx").on(table.workspaceId),
+    // Transcription-worker hot query: inbound audio without a transcript yet.
+    index("inbox_attachments_untranscribed_idx")
+      .on(table.createdAt)
+      .where(sql`${table.mimeType} like 'audio/%' and ${table.transcribedAt} is null`),
   ]
 );
 

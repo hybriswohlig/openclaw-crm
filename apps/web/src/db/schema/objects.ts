@@ -84,4 +84,14 @@ export const statuses = pgTable("statuses", {
   sortOrder: integer("sort_order").notNull().default(0),
   isActive: boolean("is_active").notNull().default(true),
   celebrationEnabled: boolean("celebration_enabled").notNull().default(false),
+  // ── Machine-readable stage semantics (KI-Verkaufsassistent 2.0, Phase 0) ──
+  // 'open_new' | 'open_engaged' | 'quoted' | 'booked' | 'done_unpaid' | 'paid'
+  // | 'lost' (app-enforced). Replaces the DECIDED/ADVANCED title regexes as the
+  // agent's pipeline truth. NULL = unmapped → the agent gate FAILS CLOSED (no
+  // automated contact at this stage) until an operator assigns a category.
+  // Renaming a stage title can therefore never silently open an agent gate.
+  stageCategory: text("stage_category"),
+  // Hard stop: no automated agent contact may ever happen at this stage,
+  // regardless of message class. Backfilled true for paid/lost/done_unpaid.
+  isTerminal: boolean("is_terminal").notNull().default(false),
 });

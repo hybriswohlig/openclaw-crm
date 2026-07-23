@@ -29,6 +29,10 @@ export const AI_TASK_SLUGS = {
   LEAD_ASSISTANT_REPLY: "lead.assistant.reply",
   LEAD_FOLLOWUP: "lead.followup",
   LEAD_FIRST_CONTACT: "lead.first-contact",
+  // Voice-note transcription at ingest (Phase 0 of the agent rebuild). Runs on
+  // the transcribe-audio cron over inbound audio attachments; the transcript
+  // replaces the "[Sprachnachricht]" body so extraction reads voice like text.
+  INBOX_TRANSCRIBE_AUDIO: "inbox.transcribe-audio",
 } as const;
 
 /**
@@ -177,6 +181,20 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
     defaultTemperature: 0.4,
     defaultMaxTokens: 800,
     defaultDailySpendCapUsd: 3,
+  },
+  [AI_TASK_SLUGS.INBOX_TRANSCRIBE_AUDIO]: {
+    slug: AI_TASK_SLUGS.INBOX_TRANSCRIBE_AUDIO,
+    label: "Sprachnachricht-Transkription (Inbox)",
+    description:
+      "Transkribiert eingehende WhatsApp-Sprachnachrichten, damit der Verkaufsassistent und die KI-Analyse Sprachantworten wie Text lesen (nie erneut fragen, was per Sprachnachricht beantwortet wurde).",
+    defaultProvider: "crm-tools",
+    // Dedicated /skills/transcribe-audio endpoint on crm-tools (Whisper on the
+    // VPS); model string is informational for the config UI / run log.
+    defaultModel: "whisper",
+    defaultFallbackModel: null,
+    defaultTemperature: null,
+    defaultMaxTokens: null,
+    defaultDailySpendCapUsd: 2,
   },
 };
 

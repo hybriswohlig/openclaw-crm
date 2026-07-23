@@ -73,3 +73,6 @@ Untitled
 backups/
 _analysis/
 apps/web/_analysis/
+
+# graphify knowledge graph (regenerated locally via commit hook; ~10MB of artifacts)
+graphify-out/

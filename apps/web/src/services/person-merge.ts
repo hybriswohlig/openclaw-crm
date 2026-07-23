@@ -4,7 +4,8 @@
  * mergePersons collapses an ABSORBED people record into a SURVIVOR people record:
  * it copies the loser's clean phone/email values, rewrites every person-level
  * reference (record_values.referenced_record_id, inbox_contacts.crm_record_id,
- * person_identifiers, activity_events.record_id) to the survivor, recomputes
+ * person_identifiers, activity_events.record_id, consent_ledger.person_record_id)
+ * to the survivor, recomputes
  * multi_company_flag, coalesces the AI debounce + writes the 15-minute hold, then
  * SOFT-DELETES the loser. A full pre-merge snapshot is stored on the merge edge so
  * splitPersons can losslessly reverse it.
@@ -30,6 +31,7 @@ import {
   inboxConversations,
   activityEvents,
 } from "@/db/schema";
+import { consentLedger } from "@/db/schema/agent";
 import { and, eq, inArray } from "drizzle-orm";
 import { emitEvent } from "./activity-events";
 import { newValuesToAdd } from "@/lib/identity/survivorship";
@@ -68,6 +70,8 @@ interface MergeSnapshot {
   rewrittenContactIds: string[];
   rewrittenIdentifierIds: string[];
   rewrittenActivityIds: string[];
+  /** consent_ledger rows whose person_record_id was rewritten loser->survivor */
+  rewrittenConsentIds: string[];
   /** conversations whose AI state we touched, with their prior values */
   affectedConversations: Array<{ id: string; aiPaused: boolean; aiHoldUntil: string | null }>;
 }
@@ -239,6 +243,23 @@ export async function mergePersons(input: MergePersonsInput): Promise<MergePerso
         .where(inArray(activityEvents.id, rewrittenActivityIds));
     }
 
+    // ── Re-point consent_ledger (§7-UWG evidence — must never be lost) ───────
+    // The loser is only soft-deleted, so the ON DELETE CASCADE FK never fires;
+    // rows are moved so the gate's consent lookup on the survivor finds them.
+    // deal_agent_state and qualification_slots are DEAL-keyed and therefore
+    // unaffected by person merges.
+    const consentRows = await tx
+      .select({ id: consentLedger.id })
+      .from(consentLedger)
+      .where(eq(consentLedger.personRecordId, absorbedId));
+    const rewrittenConsentIds = consentRows.map((r) => r.id);
+    if (rewrittenConsentIds.length > 0) {
+      await tx
+        .update(consentLedger)
+        .set({ personRecordId: survivorId })
+        .where(inArray(consentLedger.id, rewrittenConsentIds));
+    }
+
     // ── AI coalesce + 15-minute hold across the survivor's conversations ─────
     const convRows = await tx
       .select({ id: inboxConversations.id, aiPaused: inboxConversations.aiPaused, aiHoldUntil: inboxConversations.aiHoldUntil })
@@ -280,6 +301,7 @@ export async function mergePersons(input: MergePersonsInput): Promise<MergePerso
       rewrittenContactIds,
       rewrittenIdentifierIds,
       rewrittenActivityIds,
+      rewrittenConsentIds,
       affectedConversations,
     };
 
@@ -379,6 +401,13 @@ export async function splitPersons(mergeEdgeId: string, actorId: string | null =
         .update(activityEvents)
         .set({ recordId: absorbed })
         .where(inArray(activityEvents.id, snap.rewrittenActivityIds));
+    }
+    // Return consent evidence to the un-merged person.
+    if (snap.rewrittenConsentIds?.length) {
+      await tx
+        .update(consentLedger)
+        .set({ personRecordId: absorbed })
+        .where(inArray(consentLedger.id, snap.rewrittenConsentIds));
     }
     // Restore each touched conversation's AI state.
     for (const c of snap.affectedConversations ?? []) {

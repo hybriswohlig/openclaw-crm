@@ -90,6 +90,24 @@ export const operatingCompanyPortalSettings = pgTable(
     agbVersion: text("agb_version"),
     agbPdfUrl: text("agb_pdf_url"),
 
+    // ── KI-Verkaufsassistent brand profile (Phase 0) ─────────────────────
+    // Per-brand agent identity as DATA. Retires the scattered
+    // `sales_agent_signature:<ocId>` workspace-settings keys; a third brand
+    // needs zero code. The agent may claim nothing outside agentFactsSheet
+    // (UWG §5 Irreführung guard).
+    /** Closing signature under agent messages. Falls back to OC record name. */
+    agentSignature: text("agent_signature"),
+    /** Free-text tone rules (register, phrases to prefer/avoid). */
+    agentToneRules: text("agent_tone_rules"),
+    /** Curated brand facts the agent may state: services, insurance, area, AGB points. */
+    agentFactsSheet: jsonb("agent_facts_sheet"),
+    /** Array of forbidden terms/patterns beyond the global price/commitment guards. */
+    agentForbiddenTerms: jsonb("agent_forbidden_terms"),
+    /** Approved no-price deflection templates for price questions. */
+    agentDeflectionTemplates: jsonb("agent_deflection_templates"),
+    /** Opt-out line appended to proactive messages; falls back to the global default. */
+    agentOptOutLine: text("agent_opt_out_line"),
+
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
