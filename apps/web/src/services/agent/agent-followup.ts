@@ -46,6 +46,9 @@ import {
   OPT_OUT_LINE,
   type AgentChannelRow,
 } from "./agent-shared";
+// Phase-1 SHADOW instrumentation: every call below is additive-only, catches
+// its own errors, and must NEVER branch engine behavior (see agent-shadow.ts).
+import { recordShadowGate, captureShadowDraft, shadowHeartbeat } from "./agent-shadow";
 
 // Wait this long after OUR last message before nudging.
 const FOLLOWUP_AFTER_DAYS = 3;
@@ -93,6 +96,9 @@ interface FollowupCandidate {
   operatingCompanyRecordId: string | null;
   contactPhone: string | null;
   contactEmail: string | null;
+  /** CRM people record linked to the inbox contact (shadow gate consent lookup). */
+  contactCrmRecordId: string | null;
+  channelAccountId: string;
 }
 
 
@@ -134,6 +140,10 @@ async function runForWorkspace(
   if (!(await isSalesFollowupEnabled(workspaceId))) return;
   summary.enabledWorkspaces += 1;
 
+  // Phase-1 shadow counters, local per workspace (the run summary is global).
+  // considered = candidates a final decision was recorded for this tick.
+  const shadow = { considered: 0, nudged: 0, skipped: 0, blockedPrice: 0, errors: 0 };
+
   const [dryRun, channels, signature, discloseAi, disclosure, optOutLine, dealsObj] = await Promise.all([
     isSalesAgentDryRun(workspaceId),
     getAgentChannels(workspaceId),
@@ -145,7 +155,10 @@ async function runForWorkspace(
   ]);
   // Fail-safe: without the deals object we cannot check move_date, so do not
   // follow up at all (better silent than nudging a passed-date lead).
-  if (!dealsObj) return;
+  if (!dealsObj) {
+    await shadowHeartbeat(workspaceId, "followup", shadow);
+    return;
+  }
 
   // Stage gate: deals that are already decided (Geplant/Durchgeführt/Bezahlt =
   // booked or done with us, Verloren = gone) never get a nudge, regardless of
@@ -168,6 +181,8 @@ async function runForWorkspace(
       operatingCompanyRecordId: channelAccounts.operatingCompanyRecordId,
       contactPhone: inboxContacts.phone,
       contactEmail: inboxContacts.email,
+      contactCrmRecordId: inboxContacts.crmRecordId,
+      channelAccountId: channelAccounts.id,
     })
     .from(inboxConversations)
     .innerJoin(channelAccounts, eq(inboxConversations.channelAccountId, channelAccounts.id))
@@ -189,31 +204,86 @@ async function runForWorkspace(
     .orderBy(asc(inboxConversations.lastMessageAt))
     .limit(MAX_PER_TICK * 4);
 
-  const candidates = rows
-    .filter(
-      (r) =>
-        r.dealRecordId &&
-        allowed.has(r.channelType) &&
-        // A follow-up is days later, so a WABA WhatsApp number is always outside
-        // the 24h window and the free-form send would throw and silently fail.
-        // Only the in-house Baileys path (no window) and email can be nudged.
-        !(r.channelType === "whatsapp" && r.waPhoneNumberId)
-    )
-    .slice(0, MAX_PER_TICK) as FollowupCandidate[];
+  // Shadow gate recorder, bound to this workspace. Returns the new gate's
+  // verdict for optional draft attachment; the engine NEVER branches on it.
+  const shadowGate = (
+    r: {
+      id: string;
+      dealRecordId: string | null;
+      contactPhone: string | null;
+      contactEmail: string | null;
+      contactCrmRecordId: string | null;
+    },
+    legacyAction: string,
+    legacyWouldSend: boolean
+  ) =>
+    recordShadowGate({
+      workspaceId,
+      engine: "followup",
+      messageClass: "followup",
+      dealRecordId: r.dealRecordId,
+      conversationId: r.id,
+      personRecordId: r.contactCrmRecordId,
+      phone: r.contactPhone,
+      email: r.contactEmail,
+      legacyAction,
+      legacyWouldSend,
+    });
+
+  // Same predicate as the original .filter(), unrolled so each deterministic
+  // exclusion is shadow-recorded exactly once. A row is kept iff no skip fires.
+  const eligible: typeof rows = [];
+  for (const r of rows) {
+    const skipReason = !r.dealRecordId
+      ? "skip_no_deal"
+      : !allowed.has(r.channelType)
+        ? "skip_channel_not_allowed"
+        : // A follow-up is days later, so a WABA WhatsApp number is always outside
+          // the 24h window and the free-form send would throw and silently fail.
+          // Only the in-house Baileys path (no window) and email can be nudged.
+          r.channelType === "whatsapp" && r.waPhoneNumberId
+          ? "skip_waba"
+          : null;
+    if (skipReason) {
+      shadow.considered += 1;
+      shadow.skipped += 1;
+      await shadowGate(r, skipReason, false);
+      continue;
+    }
+    eligible.push(r);
+  }
+  const candidates = eligible.slice(0, MAX_PER_TICK) as FollowupCandidate[];
   summary.candidates += candidates.length;
 
   for (const conv of candidates) {
     if (Date.now() > deadlineMs) break;
+    // Exactly-once guard for the shadow gate row of this candidate: the catch
+    // below only records "error" when no final decision was recorded yet.
+    let gateRecorded = false;
     try {
+      shadow.considered += 1;
       const { trailing, lastIsOutbound, transcript } = await trailingOutboundCount(conv.id);
       // Only nudge when WE are the ones waiting and we have not already nudged.
-      if (!lastIsOutbound) continue;
-      if (trailing >= MAX_TRAILING_OUTBOUND) continue;
+      if (!lastIsOutbound) {
+        shadow.skipped += 1;
+        gateRecorded = true;
+        await shadowGate(conv, "skip_not_waiting", false);
+        continue;
+      }
+      if (trailing >= MAX_TRAILING_OUTBOUND) {
+        shadow.skipped += 1;
+        gateRecorded = true;
+        await shadowGate(conv, "skip_already_nudged", false);
+        continue;
+      }
 
       // Opted out? A STOP on any thread suppresses all automated outreach
       // (Art. 21 DSGVO). Never nudge a person who declined.
       if (await isAgentSuppressed(workspaceId, { phone: conv.contactPhone, email: conv.contactEmail })) {
         summary.skipped += 1;
+        shadow.skipped += 1;
+        gateRecorded = true;
+        await shadowGate(conv, "skip_suppressed", false);
         continue;
       }
 
@@ -222,6 +292,9 @@ async function runForWorkspace(
         const stageId = await getDealStageId(dealsObj.id, conv.dealRecordId);
         if (stageId && decidedStages.has(stageId)) {
           summary.skipped += 1;
+          shadow.skipped += 1;
+          gateRecorded = true;
+          await shadowGate(conv, "skip_decided_stage", false);
           continue;
         }
       }
@@ -229,6 +302,9 @@ async function runForWorkspace(
       const deal = conv.dealRecordId ? await getRecord(dealsObj.id, conv.dealRecordId) : null;
       if (isMoveDatePast(deal)) {
         summary.skipped += 1;
+        shadow.skipped += 1;
+        gateRecorded = true;
+        await shadowGate(conv, "skip_move_date_past", false);
         continue;
       }
 
@@ -241,11 +317,17 @@ async function runForWorkspace(
       });
       if (!result.ok) {
         summary.errors += 1;
+        shadow.errors += 1;
+        gateRecorded = true;
+        await shadowGate(conv, "error", false);
         continue;
       }
       const out = result.output;
       if (!out.should_followup || !out.message_de.trim()) {
         summary.skipped += 1;
+        shadow.skipped += 1;
+        gateRecorded = true;
+        await shadowGate(conv, "skip_model_declined", false);
         continue;
       }
 
@@ -253,6 +335,23 @@ async function runForWorkspace(
       // slipped in a price or a booking commitment is never sent; flag the owner.
       if (leaksPriceOrCommitment(out.message_de)) {
         summary.skipped += 1;
+        shadow.blockedPrice += 1;
+        gateRecorded = true;
+        const gate = await shadowGate(conv, "skip_price_leak", false);
+        // The model DID compose a nudge — capture it (final text never assembled).
+        if (conv.dealRecordId) {
+          await captureShadowDraft({
+            workspaceId,
+            engine: "followup",
+            messageClass: "followup",
+            dealRecordId: conv.dealRecordId,
+            conversationId: conv.id,
+            channelAccountId: conv.channelAccountId,
+            draftText: out.message_de,
+            finalText: null,
+            gate,
+          });
+        }
         const owners = await ownerUserIds(workspaceId);
         if (owners.length > 0 && !dryRun) {
           await sendPush(
@@ -288,12 +387,31 @@ async function runForWorkspace(
       const message = optOutLine ? `${base}\n\n${OPT_OUT_LINE}` : base;
       const mode = dryRun ? "dry_run" : "live";
 
+      // Shadow: the legacy engine has fully decided to nudge. In dry-run it
+      // still WOULD have sent — that is exactly what legacyWouldSend means.
+      gateRecorded = true;
+      const gate = await shadowGate(conv, "nudge", true);
+      if (conv.dealRecordId) {
+        await captureShadowDraft({
+          workspaceId,
+          engine: "followup",
+          messageClass: "followup",
+          dealRecordId: conv.dealRecordId,
+          conversationId: conv.id,
+          channelAccountId: conv.channelAccountId,
+          draftText: out.message_de,
+          finalText: message,
+          gate,
+        });
+      }
+
       if (!dryRun) {
         await sendOnChannel(conv as AgentChannelRow, message);
         summary.sent += 1;
       } else {
         summary.dryRunPreviews += 1;
       }
+      shadow.nudged += 1;
 
       if (conv.dealRecordId) {
         await emitEvent({
@@ -314,8 +432,16 @@ async function runForWorkspace(
     } catch (err) {
       console.error("[agent-followup] conversation failed:", conv.id, err);
       summary.errors += 1;
+      shadow.errors += 1;
+      // Only if the candidate reached no recorded decision point (e.g. the
+      // transcript query or AI call threw) — never a second row per candidate.
+      if (!gateRecorded) await shadowGate(conv, "error", false);
     }
   }
+
+  // Liveness heartbeat — also fires when zero candidates were found; absence
+  // of heartbeats is how the shadow report detects silent no-op failures.
+  await shadowHeartbeat(workspaceId, "followup", shadow);
 }
 
 /** Entry point for the follow-up cron. */

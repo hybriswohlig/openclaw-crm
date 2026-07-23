@@ -11,6 +11,8 @@
     "agent:backfill-human-owned": "tsx scripts/backfill-human-owned.ts",
     "agent:seed-evals": "tsx scripts/seed-eval-cases.ts",
     "agent:eval-gate": "tsx scripts/run-eval-gate.ts",
+    "agent:shadow-report": "tsx scripts/shadow-report.ts",
+    "agent:enable-shadow": "tsx scripts/enable-shadow.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",

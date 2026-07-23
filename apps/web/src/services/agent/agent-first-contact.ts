@@ -68,6 +68,10 @@ import {
   isAgentSuppressed,
   leaksPriceOrCommitment,
 } from "./agent-shared";
+// Phase-1 SHADOW instrumentation: additive observation only. These calls never
+// throw (they catch internally) and their results NEVER branch engine logic.
+import { recordShadowGate, captureShadowDraft, shadowHeartbeat } from "./agent-shadow";
+import { agentEvents } from "@/db/schema/agent";
 
 const MAX_PER_TICK = 5;
 // Never contact leads older than this, regardless of the enable watermark. By
@@ -396,6 +400,112 @@ function buildTemplateParams(
     });
 }
 
+// ── Phase-1 shadow instrumentation (observation only, zero behavior change) ──
+
+/** Per-workspace heartbeat counters for the shadow report. */
+interface ShadowCounters extends Record<string, number> {
+  considered: number;
+  opened: number;
+  skipped: number;
+  blockedPrice: number;
+  errors: number;
+}
+
+/** Upper bound per shadow enumeration; mirrors the engine's own fetch bound. */
+const SHADOW_ENUM_LIMIT = MAX_PER_TICK * 3;
+/**
+ * skip_age rows are only recorded for leads that crossed the 48h freshness
+ * bound within this grace band. Without the band the same aged-out leads (they
+ * keep no firstContact marker forever) would be re-recorded on every tick.
+ */
+const SHADOW_AGE_GRACE_MS = 60 * 60 * 1000;
+
+/**
+ * Shadow-only enumeration for decision points where the legacy engine bails
+ * WITHOUT fetching leads (missing watermark, closed send window, daily cap) and
+ * for the 48h age-out band: records one shadow-gate row per pending lead the
+ * engine would otherwise have considered. Strictly read-only — never claims,
+ * never marks, never throws; bounded by SHADOW_ENUM_LIMIT.
+ */
+async function recordShadowSkips(
+  workspaceId: string,
+  legacyAction: string,
+  since: Date,
+  until: Date | null,
+  shadow: ShadowCounters
+): Promise<void> {
+  try {
+    // Cross-tick re-record suppression: watermark/window/cap are WORKSPACE-level
+    // states that persist across hundreds of */2-min ticks (a closed night
+    // window alone is ~360 ticks). Without this gate the same pending leads
+    // would be re-inserted into the append-only agent_events every tick and
+    // skew the report's divergence buckets. One recording per action per ~day
+    // is enough; skip_age has its own grace band instead.
+    if (legacyAction !== "skip_age") {
+      const [already] = await db
+        .select({ id: agentEvents.id })
+        .from(agentEvents)
+        .where(
+          and(
+            eq(agentEvents.workspaceId, workspaceId),
+            eq(agentEvents.engine, "first_contact"),
+            eq(agentEvents.eventType, "shadow_gate"),
+            sql`${agentEvents.gateResults}->'legacy'->>'action' = ${legacyAction}`,
+            sql`${agentEvents.createdAt} >= now() - interval '20 hours'`
+          )
+        )
+        .limit(1);
+      if (already) return;
+    }
+    const dealsObj = await getObjectBySlug(workspaceId, "deals");
+    if (!dealsObj) return;
+    const [payloadAttr] = await db
+      .select({ id: attributes.id })
+      .from(attributes)
+      .where(and(eq(attributes.objectId, dealsObj.id), eq(attributes.slug, "moving_lead_payload")))
+      .limit(1);
+    if (!payloadAttr) return;
+    const rows = (await db
+      .select({ recordId: records.id, payload: recordValues.jsonValue })
+      .from(recordValues)
+      .innerJoin(records, eq(records.id, recordValues.recordId))
+      .where(
+        and(
+          eq(records.objectId, dealsObj.id),
+          isNull(records.deletedAt),
+          eq(recordValues.attributeId, payloadAttr.id),
+          sql`${recordValues.jsonValue}->>'source' = 'immoscout24'`,
+          sql`(${recordValues.jsonValue}->>'firstContact') IS NULL`,
+          sql`${records.createdAt} >= ${since.toISOString()}::timestamptz`,
+          ...(until ? [sql`${records.createdAt} < ${until.toISOString()}::timestamptz`] : [])
+        )
+      )
+      .orderBy(asc(records.createdAt))
+      .limit(SHADOW_ENUM_LIMIT)) as unknown as Array<{
+      recordId: string;
+      payload: MovingLeadPayload | null;
+    }>;
+    for (const row of rows) {
+      const p = row.payload ?? {};
+      const phone = canonicalizePhone(p.client?.phone || p.client?.phone2 || "", "DE");
+      shadow.considered += 1;
+      shadow.skipped += 1;
+      await recordShadowGate({
+        workspaceId,
+        engine: "first_contact",
+        messageClass: "first_contact",
+        dealRecordId: row.recordId,
+        phone: phone || null,
+        email: p.client?.email || null,
+        legacyAction,
+        legacyWouldSend: false,
+      });
+    }
+  } catch (err) {
+    console.error("[agent-first-contact] shadow skip enumeration failed (non-blocking):", err);
+  }
+}
+
 // ── Core run ─────────────────────────────────────────────────────────────────
 
 interface LeadCandidate {
@@ -412,7 +522,25 @@ async function runForWorkspace(
   summary: FirstContactRunSummary
 ): Promise<void> {
   if (!(await isFirstContactEnabled(workspaceId))) return;
+  // Shadow heartbeat wrapper: one heartbeat per enabled workspace per run,
+  // ALSO when the run bails early or throws — absence of heartbeats is how the
+  // shadow report detects the silent-no-op failure class. shadowHeartbeat
+  // catches internally, so the finally block can never mask an engine error.
+  const shadow: ShadowCounters = { considered: 0, opened: 0, skipped: 0, blockedPrice: 0, errors: 0 };
+  try {
+    await runEnabledWorkspace(workspaceId, now, deadlineMs, summary, shadow);
+  } finally {
+    await shadowHeartbeat(workspaceId, "first_contact", shadow);
+  }
+}
 
+async function runEnabledWorkspace(
+  workspaceId: string,
+  now: Date,
+  deadlineMs: number,
+  summary: FirstContactRunSummary,
+  shadow: ShadowCounters
+): Promise<void> {
   const [enabledAt, accountId, dryRun] = await Promise.all([
     getFirstContactEnabledAt(workspaceId),
     getFirstContactChannelAccountId(workspaceId),
@@ -422,6 +550,15 @@ async function runForWorkspace(
   // refuse to run at all rather than risk a blast.
   if (!enabledAt) {
     console.warn("[agent-first-contact] enabled without watermark, refusing:", workspaceId);
+    // Shadow only: what would the engine have looked at? Bounded by the hard
+    // 48h freshness bound — the very backlog the watermark refusal protects.
+    await recordShadowSkips(
+      workspaceId,
+      "skip_watermark",
+      new Date(now.getTime() - MAX_LEAD_AGE_MS),
+      null,
+      shadow
+    );
     return;
   }
   if (!accountId) {
@@ -434,6 +571,14 @@ async function runForWorkspace(
   // (they only write timeline events, and the owner tests at night).
   if (!dryRun && !isWithinSendWindow(now)) {
     summary.outsideWindow += 1;
+    const freshCutoffShadow = new Date(now.getTime() - MAX_LEAD_AGE_MS);
+    await recordShadowSkips(
+      workspaceId,
+      "skip_window",
+      enabledAt > freshCutoffShadow ? enabledAt : freshCutoffShadow,
+      null,
+      shadow
+    );
     return;
   }
 
@@ -461,6 +606,14 @@ async function runForWorkspace(
   const used = await attemptsLast24h(workspaceId, now);
   if (used >= dailyCap) {
     summary.capReached += 1;
+    const freshCutoffShadow = new Date(now.getTime() - MAX_LEAD_AGE_MS);
+    await recordShadowSkips(
+      workspaceId,
+      "skip_daily_cap",
+      enabledAt > freshCutoffShadow ? enabledAt : freshCutoffShadow,
+      null,
+      shadow
+    );
     return;
   }
   const budget = Math.min(MAX_PER_TICK, dailyCap - used);
@@ -478,6 +631,19 @@ async function runForWorkspace(
   const staleCutoffIso = new Date(now.getTime() - STALE_CLAIM_MS).toISOString();
   const freshCutoff = new Date(now.getTime() - MAX_LEAD_AGE_MS);
   const watermark = enabledAt > freshCutoff ? enabledAt : freshCutoff;
+  // Shadow only: leads that aged past the 48h freshness bound since roughly the
+  // last hour (grace band). Leads created before enabledAt were never eligible,
+  // so the band starts at enabledAt at the earliest.
+  if (enabledAt < freshCutoff) {
+    const ageBandStart = new Date(freshCutoff.getTime() - SHADOW_AGE_GRACE_MS);
+    await recordShadowSkips(
+      workspaceId,
+      "skip_age",
+      enabledAt > ageBandStart ? enabledAt : ageBandStart,
+      freshCutoff,
+      shadow
+    );
+  }
   // Stage gate: if the owner already processed the lead by hand (set it to
   // Geplant/Verloren etc.) before the engine got to it, never open a thread.
   const decidedStages = await getDecidedStageIds(dealsObj.id);
@@ -513,6 +679,7 @@ async function runForWorkspace(
     if (Date.now() > deadlineMs) break;
     try {
       const p = lead.payload ?? {};
+      shadow.considered += 1;
 
       // 1. Usable phone number? (E.164 via the identity layer.)
       const rawPhone = p.client?.phone || p.client?.phone2 || "";
@@ -520,6 +687,15 @@ async function runForWorkspace(
       if (!e164) {
         if (await claimLead(lead.rvId, nowIso, staleCutoffIso)) {
           await markLead(lead.rvId, { status: "skipped_no_phone", at: nowIso });
+          await recordShadowGate({
+            workspaceId,
+            engine: "first_contact",
+            messageClass: "first_contact",
+            dealRecordId: lead.recordId,
+            email: p.client?.email || null,
+            legacyAction: "skip_no_phone",
+            legacyWouldSend: false,
+          });
           await emitEvent({
             workspaceId,
             recordId: lead.recordId,
@@ -536,6 +712,7 @@ async function runForWorkspace(
           });
         }
         summary.skipped += 1;
+        shadow.skipped += 1;
         continue;
       }
 
@@ -544,8 +721,19 @@ async function runForWorkspace(
       if (await isAgentSuppressed(workspaceId, { phone: e164, email: p.client?.email })) {
         if (await claimLead(lead.rvId, nowIso, staleCutoffIso)) {
           await markLead(lead.rvId, { status: "skipped_opted_out", at: nowIso });
+          await recordShadowGate({
+            workspaceId,
+            engine: "first_contact",
+            messageClass: "first_contact",
+            dealRecordId: lead.recordId,
+            phone: e164,
+            email: p.client?.email || null,
+            legacyAction: "skip_suppressed",
+            legacyWouldSend: false,
+          });
         }
         summary.skipped += 1;
+        shadow.skipped += 1;
         continue;
       }
 
@@ -554,8 +742,19 @@ async function runForWorkspace(
       if (desired && desired.slice(0, 10) < todayKey) {
         if (await claimLead(lead.rvId, nowIso, staleCutoffIso)) {
           await markLead(lead.rvId, { status: "skipped_past_date", at: nowIso });
+          await recordShadowGate({
+            workspaceId,
+            engine: "first_contact",
+            messageClass: "first_contact",
+            dealRecordId: lead.recordId,
+            phone: e164,
+            email: p.client?.email || null,
+            legacyAction: "skip_past_date",
+            legacyWouldSend: false,
+          });
         }
         summary.skipped += 1;
+        shadow.skipped += 1;
         continue;
       }
 
@@ -566,8 +765,19 @@ async function runForWorkspace(
         if (stageId && decidedStages.has(stageId)) {
           if (await claimLead(lead.rvId, nowIso, staleCutoffIso)) {
             await markLead(lead.rvId, { status: "skipped_stage_decided", at: nowIso });
+            await recordShadowGate({
+              workspaceId,
+              engine: "first_contact",
+              messageClass: "first_contact",
+              dealRecordId: lead.recordId,
+              phone: e164,
+              email: p.client?.email || null,
+              legacyAction: "skip_decided_stage",
+              legacyWouldSend: false,
+            });
           }
           summary.skipped += 1;
+          shadow.skipped += 1;
           continue;
         }
       }
@@ -584,6 +794,16 @@ async function runForWorkspace(
         const hint = `${name}, ${e164}, ${fromCity} nach ${toCity}`;
         const mode = dryRun ? "dry_run" : "live";
         await markLead(lead.rvId, { status: "landline_call_task", at: nowIso, mode });
+        await recordShadowGate({
+          workspaceId,
+          engine: "first_contact",
+          messageClass: "first_contact",
+          dealRecordId: lead.recordId,
+          phone: e164,
+          email: p.client?.email || null,
+          legacyAction: "skip_landline",
+          legacyWouldSend: false,
+        });
         await emitEvent({
           workspaceId,
           recordId: lead.recordId,
@@ -619,6 +839,7 @@ async function runForWorkspace(
         }
         processed += 1;
         summary.callTasks += 1;
+        shadow.skipped += 1;
         continue;
       }
 
@@ -631,7 +852,8 @@ async function runForWorkspace(
       // its scripted opener into the middle of an active conversation.
       const waId = e164.slice(1);
       const [phoneContact] = await db
-        .select({ id: inboxContacts.id })
+        // crmRecordId is read for the shadow gate only (personRecordId).
+        .select({ id: inboxContacts.id, crmRecordId: inboxContacts.crmRecordId })
         .from(inboxContacts)
         .where(
           and(
@@ -663,8 +885,21 @@ async function runForWorkspace(
             at: nowIso,
             conversationId: existingConv.id,
           });
+          await recordShadowGate({
+            workspaceId,
+            engine: "first_contact",
+            messageClass: "first_contact",
+            dealRecordId: lead.recordId,
+            conversationId: existingConv.id,
+            personRecordId: phoneContact?.crmRecordId ?? null,
+            phone: e164,
+            email: p.client?.email || null,
+            legacyAction: "skip_existing_thread",
+            legacyWouldSend: false,
+          });
         }
         summary.skipped += 1;
+        shadow.skipped += 1;
         continue;
       }
 
@@ -692,6 +927,31 @@ async function runForWorkspace(
           fullName
         );
         const preview = `[Template ${templateName}] ${bodyParams.join(" · ")}`;
+        // Shadow: final legacy decision is "send the template" (dry-run still
+        // counts as would-send). Recorded before the fork so live and dry-run
+        // produce identical shadow rows.
+        const shadowVerdict = await recordShadowGate({
+          workspaceId,
+          engine: "first_contact",
+          messageClass: "first_contact",
+          dealRecordId: lead.recordId,
+          personRecordId: phoneContact?.crmRecordId ?? null,
+          phone: e164,
+          email: p.client?.email || null,
+          legacyAction: "open_waba_template",
+          legacyWouldSend: true,
+        });
+        await captureShadowDraft({
+          workspaceId,
+          engine: "first_contact",
+          messageClass: "first_contact",
+          dealRecordId: lead.recordId,
+          channelAccountId: account.id,
+          draftText: preview,
+          gate: shadowVerdict,
+          modelTag: "waba-template",
+        });
+        shadow.opened += 1;
         if (dryRun) {
           await markLead(lead.rvId, { status: "dry_run", at: nowIso, channel: "waba" });
           await emitEvent({
@@ -764,7 +1024,19 @@ async function runForWorkspace(
       });
       if (!result.ok || !result.output.message_de.trim()) {
         await markLead(lead.rvId, { status: "error", at: nowIso, error: "llm_failed" });
+        await recordShadowGate({
+          workspaceId,
+          engine: "first_contact",
+          messageClass: "first_contact",
+          dealRecordId: lead.recordId,
+          personRecordId: phoneContact?.crmRecordId ?? null,
+          phone: e164,
+          email: p.client?.email || null,
+          legacyAction: "error_llm",
+          legacyWouldSend: false,
+        });
         summary.errors += 1;
+        shadow.errors += 1;
         continue;
       }
 
@@ -773,6 +1045,29 @@ async function runForWorkspace(
       // leaves the house (shared regex, same one the reply/follow-up agents use).
       if (leaksPriceOrCommitment(sanitized)) {
         await markLead(lead.rvId, { status: "blocked_price", at: nowIso });
+        const shadowVerdict = await recordShadowGate({
+          workspaceId,
+          engine: "first_contact",
+          messageClass: "first_contact",
+          dealRecordId: lead.recordId,
+          personRecordId: phoneContact?.crmRecordId ?? null,
+          phone: e164,
+          email: p.client?.email || null,
+          legacyAction: "blocked_price",
+          legacyWouldSend: false,
+        });
+        // Capture the blocked opener too: draft = raw model text, no finalText
+        // (the message was never assembled). The draft scanner re-flags the leak.
+        await captureShadowDraft({
+          workspaceId,
+          engine: "first_contact",
+          messageClass: "first_contact",
+          dealRecordId: lead.recordId,
+          channelAccountId: account.id,
+          draftText: result.output.message_de.trim(),
+          gate: shadowVerdict,
+        });
+        shadow.blockedPrice += 1;
         await emitEvent({
           workspaceId,
           recordId: lead.recordId,
@@ -796,6 +1091,32 @@ async function runForWorkspace(
       // Opt-out line only when the owner enabled it (default OFF = human test
       // tone). An inbound STOP is honored regardless of this flag.
       if (optOutLine) outgoing = `${outgoing}\n\n${OPT_OUT_LINE}`;
+
+      // Shadow: final legacy decision is "send the opener" (dry-run still
+      // counts as would-send; a transport failure below does not change the
+      // decision, so this records exactly once per lead).
+      const shadowVerdict = await recordShadowGate({
+        workspaceId,
+        engine: "first_contact",
+        messageClass: "first_contact",
+        dealRecordId: lead.recordId,
+        personRecordId: phoneContact?.crmRecordId ?? null,
+        phone: e164,
+        email: p.client?.email || null,
+        legacyAction: "open_baileys",
+        legacyWouldSend: true,
+      });
+      await captureShadowDraft({
+        workspaceId,
+        engine: "first_contact",
+        messageClass: "first_contact",
+        dealRecordId: lead.recordId,
+        channelAccountId: account.id,
+        draftText: result.output.message_de.trim(),
+        finalText: outgoing,
+        gate: shadowVerdict,
+      });
+      shadow.opened += 1;
 
       if (dryRun) {
         await markLead(lead.rvId, { status: "dry_run", at: nowIso, channel: "baileys" });
@@ -825,6 +1146,7 @@ async function runForWorkspace(
         await markLead(lead.rvId, { status: "error", at: nowIso, error: msg.slice(0, 300) });
         await notifyOwners(workspaceId, lead.recordId, fullName, true);
         summary.errors += 1;
+        shadow.errors += 1;
         continue;
       }
 
@@ -842,6 +1164,7 @@ async function runForWorkspace(
     } catch (err) {
       console.error("[agent-first-contact] lead failed:", lead.recordId, err);
       summary.errors += 1;
+      shadow.errors += 1;
     }
   }
 }

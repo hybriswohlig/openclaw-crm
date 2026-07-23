@@ -70,6 +70,9 @@ import {
   getDealStageId,
 } from "./agent-shared";
 import { ensureAgentPriceTask } from "./agent-tasks";
+// Phase-1 SHADOW instrumentation: parallel gate + draft capture + heartbeat.
+// Purely additive — never throws, never alters engine behavior (see agent-shadow.ts).
+import { recordShadowGate, captureShadowDraft, shadowHeartbeat } from "./agent-shadow";
 
 const MAX_CONVERSATIONS_PER_TICK = 8;
 // Cap the slow crm-tools vision extraction per tick (30 to 90s each).
@@ -140,6 +143,7 @@ interface DueConversation {
   id: string;
   workspaceId: string;
   dealRecordId: string | null;
+  channelAccountId: string;
   aiLastInboundAt: Date | null;
   aiQuietWindowSeconds: number;
   channelType: string;
@@ -160,6 +164,7 @@ async function selectDueConversations(
       id: inboxConversations.id,
       workspaceId: inboxConversations.workspaceId,
       dealRecordId: inboxConversations.dealRecordId,
+      channelAccountId: inboxConversations.channelAccountId,
       aiLastInboundAt: inboxConversations.aiLastInboundAt,
       aiQuietWindowSeconds: inboxConversations.aiQuietWindowSeconds,
       channelType: channelAccounts.channelType,
@@ -322,7 +327,7 @@ async function runTurn(
   workspaceId: string,
   system: string,
   prompt: string
-): Promise<AgentTurn | null> {
+): Promise<{ turn: AgentTurn | null; modelTag: string | null }> {
   const result = await runAITask({
     workspaceId,
     taskSlug: AI_TASK_SLUGS.LEAD_ASSISTANT_REPLY,
@@ -332,9 +337,9 @@ async function runTurn(
   });
   if (!result.ok) {
     console.error("[agent-worker] turn failed:", result.error);
-    return null;
+    return { turn: null, modelTag: null };
   }
-  return result.output;
+  return { turn: result.output, modelTag: result.model };
 }
 
 async function stampInboundProcessed(conversationId: string, now: Date): Promise<void> {
@@ -416,6 +421,22 @@ async function processConversation(
   // Claim atomically so no two ticks process (and send) the same conversation.
   if (!(await claimConversation(conv.id))) return;
 
+  // Phase-1 SHADOW: record the legacy decision + parallel new-gate verdict.
+  // Called exactly ONCE per conversation per tick, always AFTER the legacy
+  // decision is final. Never throws; the engine never branches on its result.
+  const shadowGate = (legacyAction: string, legacyWouldSend: boolean) =>
+    recordShadowGate({
+      workspaceId: conv.workspaceId,
+      engine: "reply",
+      messageClass: "reply",
+      dealRecordId: conv.dealRecordId,
+      conversationId: conv.id,
+      phone: conv.contactPhone,
+      email: conv.contactEmail,
+      legacyAction,
+      legacyWouldSend,
+    });
+
   // Advanced deal (an offer/Auftragsbestätigung already went out, or it is
   // booked/done/lost)? Then a human owns this conversation. The info-gathering
   // bot must NOT re-engage — re-asking or sending "a colleague will prepare your
@@ -425,6 +446,7 @@ async function processConversation(
     if (stageId && opts.advancedStages.has(stageId)) {
       await stampInboundProcessed(conv.id, now);
       summary.noops += 1;
+      await shadowGate("skip_advanced_stage", false);
       return;
     }
   }
@@ -434,6 +456,7 @@ async function processConversation(
   if (await isAgentSuppressed(conv.workspaceId, { phone: conv.contactPhone, email: conv.contactEmail })) {
     await stampInboundProcessed(conv.id, now);
     summary.noops += 1;
+    await shadowGate("skip_suppressed", false);
     return;
   }
 
@@ -445,6 +468,7 @@ async function processConversation(
   const last = messages[messages.length - 1];
   if (!last || last.direction !== "inbound") {
     await stampInboundProcessed(conv.id, now);
+    await shadowGate("skip_not_customer_turn", false);
     return;
   }
 
@@ -455,6 +479,7 @@ async function processConversation(
   if (unprocessedInbound.length === 0) {
     // Flag set but nothing new to answer; disarm so we don't spin on it.
     await stampInboundProcessed(conv.id, now);
+    await shadowGate("skip_no_unprocessed", false);
     return;
   }
 
@@ -464,6 +489,7 @@ async function processConversation(
   if (looksDeclined(last.body)) {
     await stampInboundProcessed(conv.id, now);
     summary.noops += 1;
+    await shadowGate("skip_declined", false);
     return;
   }
   // 2. Move date already passed -> never auto-text; flag the owner to check.
@@ -489,6 +515,7 @@ async function processConversation(
       }, "");
       await stampInboundProcessed(conv.id, now);
       summary.noops += 1;
+      await shadowGate("skip_move_date_past", false);
       return;
     }
   }
@@ -581,7 +608,11 @@ async function processConversation(
     `Heute ist ${todayStr}. Du schreibst im Namen von ${brand}.\n\n` +
     SYSTEM_PROMPT +
     disclosureClause(opts.discloseAi, brand);
-  const turn = await runTurn(conv.workspaceId, system, buildTurnPrompt(transcript, insights));
+  const { turn, modelTag } = await runTurn(
+    conv.workspaceId,
+    system,
+    buildTurnPrompt(transcript, insights)
+  );
   if (!turn) {
     // The model failed (timeout/parse). The claim already cleared aiNeedsReply,
     // so re-arm it (without stamping the inbound) so the next tick retries this
@@ -591,6 +622,7 @@ async function processConversation(
       .set({ aiNeedsReply: true, updatedAt: new Date() })
       .where(eq(inboxConversations.id, conv.id));
     summary.errors += 1;
+    await shadowGate("error", false);
     return;
   }
 
@@ -598,7 +630,11 @@ async function processConversation(
   // "ask" turn slipped in a price or a booking commitment, do not send it —
   // convert to a handoff so the customer gets the courtesy line and a human
   // takes over (owner rule 2026-06-11). The model can never override this.
+  // Shadow-only bookkeeping: remember whether the deterministic price guard
+  // converted an "ask" into a handoff (the engine itself never reads this).
+  let shadowPriceLeakConverted = false;
   if (turn.action === "ask" && leaksPriceOrCommitment(turn.message_de)) {
+    shadowPriceLeakConverted = true;
     turn.owner_note =
       `KI-Entwurf enthielt Preis/Zusage, automatisch zur Übergabe umgeleitet: "${turn.message_de.slice(0, 140)}"`;
     turn.reason = "blocked_price_or_commitment";
@@ -622,6 +658,52 @@ async function processConversation(
   } else if (turn.action === "handoff" && opts.handoffAck.trim()) {
     const humanizedAck = await humanizeGerman(opts.handoffAck);
     outgoing = withDisclosure(appendSignature(humanizedAck, brand), opts.disclosure, wantDisclose);
+  }
+
+  // Phase-1 SHADOW: the legacy decision is now final (action + fully assembled
+  // outgoing text). Record the gate comparison once and capture drafts. The
+  // engine's dry-run/live behavior below is untouched by any of this.
+  const shadowLegacyAction =
+    turn.action === "ask"
+      ? "ask"
+      : turn.action === "handoff"
+        ? shadowPriceLeakConverted
+          ? "ask_price_leak_handoff"
+          : "handoff"
+        : "no_op";
+  // "Would send if live" = a non-empty customer-facing message was assembled
+  // (ask question, or the handoff ACK actually sent to the customer).
+  const shadowWouldSend = outgoing.trim().length > 0;
+  const shadowVerdict = await shadowGate(shadowLegacyAction, shadowWouldSend);
+  if (conv.dealRecordId) {
+    if (turn.action === "ask" && turn.message_de.trim()) {
+      await captureShadowDraft({
+        workspaceId: conv.workspaceId,
+        engine: "reply",
+        messageClass: "reply",
+        dealRecordId: conv.dealRecordId,
+        conversationId: conv.id,
+        channelAccountId: conv.channelAccountId,
+        draftText: turn.message_de,
+        finalText: outgoing || null,
+        gate: shadowVerdict,
+        modelTag,
+      });
+    } else if (turn.action === "handoff" && shadowWouldSend) {
+      // The handoff ACK is a customer-facing message too — capture it.
+      await captureShadowDraft({
+        workspaceId: conv.workspaceId,
+        engine: "reply",
+        messageClass: "reply",
+        dealRecordId: conv.dealRecordId,
+        conversationId: conv.id,
+        channelAccountId: conv.channelAccountId,
+        draftText: opts.handoffAck,
+        finalText: outgoing,
+        gate: shadowVerdict,
+        modelTag,
+      });
+    }
   }
 
   if (opts.dryRun) {
@@ -750,6 +832,17 @@ async function runForWorkspace(
   const due = await selectDueConversations(workspaceId, channels, now);
   summary.due += due.length;
 
+  // Phase-1 SHADOW: snapshot the global counters so the per-workspace heartbeat
+  // can report this workspace's deltas without changing AgentRunSummary's shape.
+  const shadowBefore = {
+    processed: summary.processed,
+    sent: summary.sent,
+    handoffs: summary.handoffs,
+    noops: summary.noops,
+    dryRunPreviews: summary.dryRunPreviews,
+    errors: summary.errors,
+  };
+
   const visionBudget = { left: MAX_VISION_EXTRACTIONS_PER_TICK };
   for (const conv of due) {
     // Time budget: the vision + humanizer steps can each be slow, so bail before
@@ -769,6 +862,27 @@ async function runForWorkspace(
       summary.errors += 1;
     }
   }
+
+  // Phase-1 SHADOW: one liveness heartbeat per enabled workspace per tick, also
+  // when zero conversations were due (absence of heartbeats flags silent no-op
+  // failures). Never throws; fires after the tick's work is done.
+  const asked = summary.sent - shadowBefore.sent;
+  const handoffs = summary.handoffs - shadowBefore.handoffs;
+  const noops = summary.noops - shadowBefore.noops;
+  const dryRunPreviews = summary.dryRunPreviews - shadowBefore.dryRunPreviews;
+  const errors = summary.errors - shadowBefore.errors;
+  const processed = summary.processed - shadowBefore.processed;
+  await shadowHeartbeat(workspaceId, "reply", {
+    considered: due.length,
+    processed,
+    asked,
+    handoffs,
+    noops,
+    dryRunPreviews,
+    // Silent disarms: claim lost, not customer's turn, nothing unprocessed.
+    skipped: Math.max(0, processed - asked - handoffs - noops - dryRunPreviews - errors),
+    errors,
+  });
 }
 
 /** Entry point for the cron: run the agent across every workspace that enabled it. */
