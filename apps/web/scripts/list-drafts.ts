@@ -33,7 +33,7 @@ async function main(): Promise<void> {
       filterVerdicts: agentDrafts.filterVerdicts,
       gateResults: agentDrafts.gateResults,
       status: agentDrafts.status,
-      accountName: channelAccounts.displayName,
+      accountName: channelAccounts.name,
       preview: inboxConversations.lastMessagePreview,
     })
     .from(agentDrafts)
