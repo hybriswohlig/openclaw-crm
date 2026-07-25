@@ -47,6 +47,7 @@ import {
   markDraftConsumed,
   type DraftSuggestion,
 } from "@/components/chat/draft-suggestion-banner";
+import { ShadowDraftBanner } from "@/components/chat/shadow-draft-banner";
 import { CustomerLinkComposer } from "@/components/inbox/customer-link-composer";
 import { InboxContextPanel } from "@/components/inbox/context-panel";
 import { ChannelAvatar, type LastChannel } from "@/components/inbox/channel-logos";
@@ -1381,6 +1382,24 @@ function ConversationView({
         className="border-t border-border px-3 sm:px-4 py-2.5 sm:py-3 bg-background shrink-0 space-y-2"
         style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 0.625rem)" }}
       >
+        {canSend && (
+          <ShadowDraftBanner
+            conversationId={conv.id}
+            refreshKey={draftRefreshKey}
+            onAcceptDraft={(text) => {
+              setReply(text);
+              // Defer so the textarea has the new value before we focus it,
+              // ensuring the auto-grow effect kicks in on the same tick.
+              requestAnimationFrame(() => {
+                const el = textareaRef.current;
+                if (!el) return;
+                el.focus();
+                const end = el.value.length;
+                el.setSelectionRange(end, end);
+              });
+            }}
+          />
+        )}
         {draftBannerEnabled && canSend && conv.dealRecordId && (
           <DraftSuggestionBanner
             dealRecordId={conv.dealRecordId}
