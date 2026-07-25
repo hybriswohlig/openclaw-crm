@@ -224,7 +224,10 @@ export const agentDrafts = pgTable(
     filterVerdicts: jsonb("filter_verdicts"),
     gateResults: jsonb("gate_results"),
     // 'pending' | 'approved' | 'edited' | 'dismissed' | 'auto_queued'
-    // | 'auto_sent' | 'sent' | 'expired' | 'cancelled' | 'gate_blocked'
+    // | 'auto_sent' | 'sent' | 'send_uncertain' | 'expired' | 'cancelled'
+    // | 'gate_blocked' — 'send_uncertain' is terminal: the outbound call was
+    // dispatched but delivery could not be confirmed; only an explicit
+    // operator dismiss (after checking the thread) clears it. Never re-send.
     status: text("status").notNull().default("pending"),
     reviewerUserId: text("reviewer_user_id").references(() => users.id, { onDelete: "set null" }),
     reviewedAt: timestamp("reviewed_at"),

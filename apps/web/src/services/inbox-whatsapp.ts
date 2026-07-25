@@ -29,6 +29,7 @@ import { ensureCrmPerson } from "./inbox-crm-link";
 import { scanInboundReply } from "./reviews/inbound-scanner";
 import { classifyMessagingBody } from "./inbox-triage";
 import { looksDeclined, recordAgentDecline } from "./agent/agent-suppress";
+import { setHumanOwned } from "./agent/agent-gate";
 import { canonicalizePhone } from "@/lib/identity/canonical";
 import { recomputeMultiCompanyForContact } from "./multi-company";
 
@@ -1052,6 +1053,24 @@ export async function ingestOutboundWhatsAppMessage(params: {
         source: "phone-direct",
       },
     });
+  }
+
+  // Sticky human ownership (docs/ai-sales-agent-plan.md): the operator typed
+  // this on their phone — a human takeover of the deal. Only genuinely
+  // phone-typed messages reach here: CRM-sent echoes (incl. approved agent
+  // sends) collide with the row the send pipeline already inserted on the
+  // unique (conversationId, externalMessageId) index and return early above
+  // with messageId=null, so the agent is never muted by its own message.
+  // Best-effort — must never block the ingest.
+  if (conv.dealRecordId && messageId) {
+    try {
+      await setHumanOwned(account.workspaceId, conv.dealRecordId, null);
+    } catch (err) {
+      console.error(
+        "[inbox-whatsapp] setHumanOwned after phone-typed message failed (non-fatal):",
+        err
+      );
+    }
   }
 
   return {

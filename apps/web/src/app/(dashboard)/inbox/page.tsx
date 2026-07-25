@@ -821,6 +821,59 @@ function ConversationView({
     window.localStorage.setItem("inbox.contextPanel", open ? "1" : "0");
   }
 
+  // Phase 2 (Approval-Queue): Human-Ownership des Deals. Nach einer manuellen
+  // Antwort setzt der Server humanOwned — der schmale Hinweis über dem
+  // Composer zeigt das an und erlaubt die Freigabe zurück an den Agenten.
+  const [humanOwned, setHumanOwned] = useState(false);
+  const [releasing, setReleasing] = useState(false);
+  // Bump nach "Wieder freigeben", damit der Effekt unten neu lädt.
+  const [agentStateKey, setAgentStateKey] = useState(0);
+  // Letzte Nachrichten-ID als Refetch-Trigger: ein manueller Send hängt eine
+  // neue Nachricht an → Status neu laden (der Server hat humanOwned gesetzt).
+  const lastMessageId = messages.length > 0 ? messages[messages.length - 1].id : null;
+  useEffect(() => {
+    let cancelled = false;
+    const dealRecordId = conv.dealRecordId;
+    if (!dealRecordId) {
+      setHumanOwned(false);
+      return;
+    }
+    async function load() {
+      try {
+        const res = await fetch(
+          `/api/v1/agent-state?dealRecordId=${encodeURIComponent(dealRecordId!)}`,
+          { cache: "no-store" }
+        );
+        if (!res.ok) return;
+        const json = await res.json();
+        if (!cancelled) setHumanOwned(Boolean(json?.data?.humanOwned));
+      } catch {
+        // Best-effort — der Hinweis darf die Konversation nie blockieren.
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [conv.id, conv.dealRecordId, lastMessageId, agentStateKey]);
+
+  async function releaseHumanOwned() {
+    if (!conv.dealRecordId || releasing) return;
+    setReleasing(true);
+    try {
+      const res = await fetch("/api/v1/agent-state/release", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dealRecordId: conv.dealRecordId }),
+      });
+      if (res.ok) setAgentStateKey((k) => k + 1);
+    } catch {
+      // Best-effort: der Hinweis bleibt dann einfach stehen.
+    } finally {
+      setReleasing(false);
+    }
+  }
+
   // Reset suggestion when switching conversations
   useEffect(() => {
     setAiSuggestion(null);
@@ -1382,10 +1435,31 @@ function ConversationView({
         className="border-t border-border px-3 sm:px-4 py-2.5 sm:py-3 bg-background shrink-0 space-y-2"
         style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 0.625rem)" }}
       >
+        {humanOwned && conv.dealRecordId && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground px-0.5">
+            <span>KI pausiert für diesen Deal (von dir übernommen)</span>
+            <button
+              type="button"
+              onClick={releaseHumanOwned}
+              disabled={releasing}
+              className="font-medium text-primary hover:underline disabled:opacity-50"
+            >
+              {releasing ? "Wird freigegeben…" : "Wieder freigeben"}
+            </button>
+          </div>
+        )}
         {canSend && (
           <ShadowDraftBanner
             conversationId={conv.id}
             refreshKey={draftRefreshKey}
+            onSent={() => {
+              // Server hat den Entwurf gesendet: Nachrichten wie nach einem
+              // manuellen Send nachladen (silent + ans Ende scrollen) und die
+              // Banner neu abfragen lassen.
+              justSentRef.current = true;
+              void fetchMessages(true);
+              setDraftRefreshKey((k) => k + 1);
+            }}
             onAcceptDraft={(text) => {
               setReply(text);
               // Defer so the textarea has the new value before we focus it,
@@ -1623,6 +1697,36 @@ export default function InboxPage() {
   // KOT-IDENTITY: pending duplicate suggestions, used for an inline banner in the
   // detail so the operator can merge the person they are looking at, in place.
   const [suggestions, setSuggestions] = useState<{ survivorId: string; survivorName: string; absorbedId: string; absorbedName: string }[]>([]);
+
+  // Phase 2 (Approval-Queue): wartende KI-Entwürfe für den Filter-Chip im
+  // Listenkopf. Leer = Chip ausgeblendet; Klick filtert die Liste auf
+  // Konversationen mit wartendem Entwurf.
+  const [pendingDrafts, setPendingDrafts] = useState<
+    { id: string; conversationId: string }[]
+  >([]);
+  const [draftFilterActive, setDraftFilterActive] = useState(false);
+
+  const fetchPendingDrafts = useCallback(async () => {
+    try {
+      const res = await fetch("/api/v1/agent-drafts?scope=pending", {
+        cache: "no-store",
+      });
+      if (!res.ok) return;
+      const json = await res.json();
+      setPendingDrafts(json?.data?.drafts ?? []);
+    } catch {
+      // Best-effort — der Posteingang darf daran nie scheitern.
+    }
+  }, []);
+
+  // Beim Mount laden + alle 60 s aktualisieren (ruht bei verstecktem Tab).
+  useEffect(() => {
+    void fetchPendingDrafts();
+    const timer = setInterval(() => {
+      if (!document.hidden) void fetchPendingDrafts();
+    }, 60_000);
+    return () => clearInterval(timer);
+  }, [fetchPendingDrafts]);
 
   const fetchConversations = useCallback(async () => {
     const params = new URLSearchParams({ status: statusFilter, lane: laneFilter });
@@ -1970,11 +2074,17 @@ export default function InboxPage() {
   }
 
   const searchMode = search.trim().length > 0;
+  // Phase 2: Konversations-IDs mit wartendem KI-Entwurf (für Chip-Filter).
+  const pendingDraftConvIds = new Set(pendingDrafts.map((d) => d.conversationId));
   const filtered = (searchMode && searchResults !== null ? searchResults : conversations).filter((c) => {
     // Server-Suchergebnisse sind lane-/status-übergreifend und werden
     // ungefiltert angezeigt; der Block darunter ist die normale Ansicht
     // (plus Client-Filter als Sofort-Fallback, solange die Suche lädt).
     if (searchMode && searchResults !== null) return true;
+    // Chip "KI-Entwürfe": nur Konversationen mit wartendem Entwurf zeigen.
+    // Bei leerer Menge (Chip ausgeblendet) greift der Filter nicht mehr.
+    if (draftFilterActive && pendingDraftConvIds.size > 0 && !pendingDraftConvIds.has(c.id))
+      return false;
     const isKa = isKleinanzeigenConv(c);
     const isWa = c.channelType === "whatsapp";
     if (sourceFilter === "messaging" && !(isKa || isWa)) return false;
@@ -2110,6 +2220,24 @@ export default function InboxPage() {
               </button>
             ))}
           </div>
+
+          {/* Phase 2 (Approval-Queue): Chip erscheint nur, wenn KI-Entwürfe
+              auf Freigabe warten; Klick filtert die Liste darauf. */}
+          {pendingDrafts.length > 0 && (
+            <button
+              onClick={() => setDraftFilterActive((v) => !v)}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                draftFilterActive
+                  ? "border-emerald-600 bg-emerald-600 text-white"
+                  : "border-emerald-600/40 text-emerald-700 hover:bg-emerald-500/10"
+              )}
+              title="Nur Konversationen mit wartendem KI-Entwurf anzeigen"
+            >
+              <Bot className="h-3 w-3" />
+              KI-Entwürfe ({pendingDrafts.length})
+            </button>
+          )}
 
           {/* Duplicate merge suggestions (KOT-IDENTITY Part B) */}
           <MergeSuggestions onMerged={() => { void fetchConversations(); void fetchSuggestions(); }} />

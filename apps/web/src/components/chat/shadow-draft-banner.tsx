@@ -1,20 +1,29 @@
 "use client";
 
 /**
- * Shadow-mode draft banner (Phase 1, docs/ai-sales-agent-plan.md).
+ * Approval-queue draft banner (Phase 1+2, docs/ai-sales-agent-plan.md).
  *
  * Shows the newest PENDING row from agent_drafts for the open conversation —
- * what the KI-Verkaufsassistent WOULD have sent. Nothing sends automatically:
+ * what the KI-Verkaufsassistent would send. Nothing sends automatically:
+ * "Senden" (Phase 2) approves the draft and lets the server send it as-is,
  * "Übernehmen" copies the text into the composer (the operator remains the
- * sender), "Verwerfen" hides it. Both verdicts are stored on the draft
- * (edited/dismissed) and seed the Phase-2/4 learning loop.
+ * sender), "Verwerfen" hides it. All verdicts are stored on the draft
+ * (sent/edited/dismissed) and seed the Phase-2/4 learning loop.
  *
  * Companion to DraftSuggestionBanner (which reads the legacy note-based
  * drafts); this one reads the agent_drafts approval-queue table.
  */
 
 import { useEffect, useState } from "react";
-import { Bot, ChevronDown, ChevronUp, TriangleAlert, X } from "lucide-react";
+import {
+  Bot,
+  ChevronDown,
+  ChevronUp,
+  Loader2,
+  Send,
+  TriangleAlert,
+  X,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export interface ShadowDraft {
@@ -22,6 +31,8 @@ export interface ShadowDraft {
   messageClass: string;
   text: string;
   priceFlag: boolean;
+  /** Delivery unclear (send dispatched, outcome unknown) — warning-only state. */
+  uncertain?: boolean;
   createdAt: string;
 }
 
@@ -30,6 +41,8 @@ interface ShadowDraftBannerProps {
   /** Bump to refetch (host raises it after a send). */
   refreshKey?: number;
   onAcceptDraft: (text: string, draft: ShadowDraft) => void;
+  /** Phase 2: draft was approved and sent by the server — host reloads messages. */
+  onSent?: () => void;
 }
 
 const CLASS_LABEL: Record<string, string> = {
@@ -46,16 +59,22 @@ export function ShadowDraftBanner({
   conversationId,
   refreshKey = 0,
   onAcceptDraft,
+  onSent,
 }: ShadowDraftBannerProps) {
   const [draft, setDraft] = useState<ShadowDraft | null>(null);
   const [hidden, setHidden] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  // Phase 2: approve_and_send in flight / inline error from the last attempt.
+  const [approving, setApproving] = useState(false);
+  const [approveError, setApproveError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setDraft(null);
     setHidden(false);
     setExpanded(false);
+    setApproving(false);
+    setApproveError(null);
     async function load() {
       try {
         const res = await fetch(
@@ -104,6 +123,65 @@ export function ShadowDraftBanner({
     void verdict("dismissed");
   }
 
+  // Phase 2: approve the draft — the server sends it verbatim over the channel.
+  // On a 409 the draft stays visible with an inline German error so the
+  // operator can fall back to Übernehmen/Verwerfen.
+  async function handleApproveSend() {
+    if (approving) return;
+    setApproving(true);
+    setApproveError(null);
+    try {
+      const res = await fetch(`/api/v1/agent-drafts/${draft!.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "approve_and_send" }),
+      });
+      if (res.ok) {
+        setHidden(true);
+        onSent?.();
+        return;
+      }
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        reasons?: string[];
+        detail?: string;
+      };
+      switch (json?.error) {
+        case "gate_blocked":
+          setApproveError(`Gate blockiert: ${(json.reasons ?? []).join(", ")}`);
+          break;
+        case "price_leak":
+          setApproveError("Preis-Scanner blockiert — bitte manuell prüfen");
+          break;
+        case "session_expired":
+          setApproveError(json.detail ?? "Das Antwortfenster ist abgelaufen.");
+          break;
+        case "send_uncertain":
+          // Delivery unclear — flip the banner into the warning-only state.
+          setDraft((d) => (d ? { ...d, uncertain: true } : d));
+          setApproveError(
+            json.detail ?? "Zustellung unklar — bitte den Verlauf prüfen, nichts erneut senden."
+          );
+          break;
+        case "expired":
+          setApproveError("Entwurf abgelaufen");
+          window.setTimeout(() => setHidden(true), 1800);
+          break;
+        case "not_pending":
+          // Draft was already handled elsewhere — show why, then hide.
+          setApproveError("Bereits bearbeitet");
+          window.setTimeout(() => setHidden(true), 1800);
+          break;
+        default:
+          setApproveError("Senden fehlgeschlagen — bitte erneut versuchen.");
+      }
+    } catch {
+      setApproveError("Senden fehlgeschlagen — bitte erneut versuchen.");
+    } finally {
+      setApproving(false);
+    }
+  }
+
   return (
     <div
       className={cn(
@@ -116,9 +194,16 @@ export function ShadowDraftBanner({
         <Bot className="h-3.5 w-3.5 mt-0.5 shrink-0 text-emerald-600" />
         <div className="flex-1 min-w-0">
           <div className="text-xs font-medium text-emerald-700">
-            KI-Verkaufsassistent · {CLASS_LABEL[draft.messageClass] ?? draft.messageClass} (Testmodus
-            — sendet nie selbst)
+            KI-Verkaufsassistent · {CLASS_LABEL[draft.messageClass] ?? draft.messageClass} (sendet
+            nur nach deiner Freigabe)
           </div>
+          {draft.uncertain && (
+            <div className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 mt-1">
+              <TriangleAlert className="h-3 w-3" />
+              Zustellung unklar — prüfe im Verlauf, ob die Nachricht ankam, bevor du irgendetwas
+              erneut sendest. Verwerfen bestätigt, dass du es geprüft hast.
+            </div>
+          )}
           {draft.priceFlag && (
             <div className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 mt-1">
               <TriangleAlert className="h-3 w-3" />
@@ -158,21 +243,46 @@ export function ShadowDraftBanner({
           <X className="h-3.5 w-3.5" />
         </button>
       </div>
+      {approveError && (
+        <div className="flex items-start gap-1.5 text-xs font-medium text-red-700">
+          <TriangleAlert className="h-3 w-3 mt-0.5 shrink-0" />
+          <span>{approveError}</span>
+        </div>
+      )}
       <div className="flex items-center justify-end gap-2 pt-1">
         <button
           type="button"
           onClick={handleDiscard}
-          className="text-xs font-medium text-muted-foreground hover:text-foreground"
+          disabled={approving}
+          className="text-xs font-medium text-muted-foreground hover:text-foreground disabled:opacity-50"
         >
           Verwerfen
         </button>
-        <button
-          type="button"
-          onClick={handleAccept}
-          className="rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium px-3 py-1.5"
-        >
-          Übernehmen
-        </button>
+        {!draft.uncertain && (
+          <>
+            <button
+              type="button"
+              onClick={handleApproveSend}
+              disabled={approving}
+              className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium px-3 py-1.5 disabled:opacity-60"
+            >
+              {approving ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Send className="h-3.5 w-3.5" />
+              )}
+              Senden
+            </button>
+            <button
+              type="button"
+              onClick={handleAccept}
+              disabled={approving}
+              className="rounded-md border border-emerald-600/40 text-emerald-700 hover:bg-emerald-500/10 text-xs font-medium px-3 py-1.5 disabled:opacity-50"
+            >
+              Übernehmen
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

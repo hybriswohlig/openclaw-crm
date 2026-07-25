@@ -18,9 +18,12 @@
  */
 
 import { createHash } from "node:crypto";
+import { and, eq, gt, isNull, or } from "drizzle-orm";
 import { db } from "@/db";
 import { agentEvents, agentDrafts } from "@/db/schema/agent";
+import { sendPush } from "@/services/push";
 import { leaksPriceOrCommitment } from "./agent-suppress";
+import { ownerUserIds } from "./agent-shared";
 import {
   agentMayContact,
   type AgentMessageClass,
@@ -117,18 +120,59 @@ export interface ShadowDraftInput {
   modelTag?: string | null;
 }
 
+/** German notification labels per message class (push title). */
+const DRAFT_CLASS_LABELS: Record<AgentMessageClass, string> = {
+  reply: "Antwort",
+  slot_question: "Rückfrage",
+  ack: "Bestätigung",
+  followup: "Follow-up",
+  first_contact: "Erstkontakt",
+};
+
+/**
+ * Gate block reasons a human can plausibly act on (consent/switch/window).
+ * Drafts blocked ONLY on these are still worth a push; anything beyond
+ * (terminal stage, human-owned, suppressed, …) is informational shadow noise.
+ */
+const HUMAN_ACTIONABLE_BLOCKS: ReadonlySet<string> = new Set([
+  "no_proactive_consent",
+  "master_switch_off",
+  "outside_send_window",
+]);
+
 /**
  * Capture a dry-run draft into agent_drafts (status 'pending', 72h expiry).
  * Idempotent per (engine, thread, draft content): overlapping cron ticks or
  * re-runs never duplicate a row. Runs the deterministic price/commitment scan
  * on the most final text available and stores the verdict.
+ *
+ * A genuinely NEW row (no idempotency conflict) additionally triggers a
+ * best-effort web push to the owner users so drafts are seen without watching
+ * the inbox — never for conflict re-runs, never for gate-blocked shadow noise.
  */
 export async function captureShadowDraft(input: ShadowDraftInput): Promise<void> {
   try {
     const scanTarget = input.finalText?.trim() || input.draftText;
     const contentHash = createHash("sha1").update(scanTarget).digest("hex").slice(0, 16);
     const threadKey = input.conversationId ?? input.dealRecordId;
-    await db
+    // The repeat unit is the deal's WAITING STATE, not the LLM text: the
+    // follow-up cron re-composes a (nondeterministic) nudge for the same
+    // silent lead every day, which would insert a "new" row and re-push
+    // daily. One live pending draft per (deal, class) is the queue's contract.
+    const [alreadyPending] = await db
+      .select({ id: agentDrafts.id })
+      .from(agentDrafts)
+      .where(
+        and(
+          eq(agentDrafts.dealRecordId, input.dealRecordId),
+          eq(agentDrafts.messageClass, input.messageClass),
+          eq(agentDrafts.status, "pending"),
+          or(isNull(agentDrafts.expiresAt), gt(agentDrafts.expiresAt, new Date()))
+        )
+      )
+      .limit(1);
+    if (alreadyPending) return;
+    const inserted = await db
       .insert(agentDrafts)
       .values({
         workspaceId: input.workspaceId,
@@ -151,7 +195,37 @@ export async function captureShadowDraft(input: ShadowDraftInput): Promise<void>
         promptVersion: SHADOW_PROMPT_VERSION,
         modelTag: input.modelTag ?? null,
       })
-      .onConflictDoNothing();
+      .onConflictDoNothing()
+      .returning({ id: agentDrafts.id });
+
+    // Push ONLY on a real insert (onConflictDoNothing returns [] on conflict,
+    // so re-runs/overlapping cron ticks stay silent). Own try/catch: a push
+    // failure must never surface to engines.
+    try {
+      const gate = input.gate;
+      const pushable =
+        inserted.length > 0 &&
+        gate != null &&
+        (gate.allowed || gate.reasons.every((r) => HUMAN_ACTIONABLE_BLOCKS.has(r)));
+      if (pushable) {
+        const owners = await ownerUserIds(input.workspaceId);
+        if (owners.length > 0) {
+          await sendPush(
+            {
+              title: `KI-Entwurf: ${DRAFT_CLASS_LABELS[input.messageClass] ?? "Entwurf"}`,
+              body: scanTarget.slice(0, 80),
+              url: input.conversationId
+                ? `/inbox?conversationId=${input.conversationId}`
+                : "/inbox",
+              tag: `agent-draft-${inserted[0].id}`,
+            },
+            { workspaceId: input.workspaceId, userIds: owners }
+          );
+        }
+      }
+    } catch (err) {
+      console.error("[agent-shadow] draft push failed (non-blocking):", err);
+    }
   } catch (err) {
     console.error("[agent-shadow] captureShadowDraft failed (non-blocking):", err);
   }

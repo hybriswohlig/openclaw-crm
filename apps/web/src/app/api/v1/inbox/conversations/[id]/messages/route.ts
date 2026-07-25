@@ -12,6 +12,7 @@ import {
   BaileysBridgeNotConfiguredError,
   BaileysBridgeError,
 } from "@/services/inbox-whatsapp";
+import { setHumanOwned } from "@/services/agent/agent-gate";
 
 export async function GET(
   req: NextRequest,
@@ -53,6 +54,7 @@ export async function POST(
       channelType: channelAccounts.channelType,
       waPhoneNumberId: channelAccounts.waPhoneNumberId,
       baileysBridgeProvider: channelAccounts.baileysBridgeProvider,
+      dealRecordId: inboxConversations.dealRecordId,
     })
     .from(inboxConversations)
     .innerJoin(channelAccounts, eq(inboxConversations.channelAccountId, channelAccounts.id))
@@ -119,6 +121,21 @@ export async function POST(
           eq(inboxConversations.workspaceId, ctx.workspaceId)
         )
       );
+
+    // Sticky human ownership (deal-level, docs/ai-sales-agent-plan.md): a
+    // manual composer send is a human takeover of the DEAL — mute the agent
+    // until an explicit release via /api/v1/agent-state/release. Best-effort:
+    // a successful send must never fail because of this bookkeeping.
+    if (row.dealRecordId) {
+      try {
+        await setHumanOwned(ctx.workspaceId, row.dealRecordId, ctx.userId);
+      } catch (ownErr) {
+        console.error(
+          "[inbox] setHumanOwned after manual send failed (non-fatal):",
+          ownErr
+        );
+      }
+    }
 
     return success(msg);
   } catch (err) {
