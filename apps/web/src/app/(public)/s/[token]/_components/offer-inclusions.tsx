@@ -5,6 +5,7 @@ import type {
   FirmaBranding,
   OfferInclusions,
 } from "@openclaw-crm/customer-portal-core";
+import { useT } from "./portal-i18n";
 
 /**
  * Inclusions section shown above the acceptance card on Stage 1.
@@ -22,6 +23,7 @@ export function OfferInclusionsSection({
   inclusions: OfferInclusions;
   branding: FirmaBranding;
 }) {
+  const t = useT();
   if (inclusions.included.length === 0 && inclusions.optional.length === 0) {
     return null;
   }
@@ -32,14 +34,14 @@ export function OfferInclusionsSection({
         className="px-6 py-3 text-sm font-medium text-white"
         style={{ background: `#${branding.primaryColor}` }}
       >
-        Leistungsumfang
+        {t("inclusions.title")}
       </div>
 
       <div className="space-y-5 p-6">
         {inclusions.included.length > 0 && (
           <div>
             <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Im Angebot enthalten
+              {t("inclusions.included")}
             </h3>
             <ul className="mt-3 space-y-2">
               {inclusions.included.map((item) => (
@@ -67,11 +69,10 @@ export function OfferInclusionsSection({
         {inclusions.optional.length > 0 && (
           <div>
             <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Auf Wunsch zubuchbar
+              {t("inclusions.optional")}
             </h3>
             <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-              Diese Leistungen sind im aktuellen Angebot nicht enthalten. Sagen
-              Sie kurz Bescheid, wenn Sie etwas davon möchten.
+              {t("inclusions.optionalHint")}
             </p>
             <ul className="mt-3 space-y-2">
               {inclusions.optional.map((item) => (

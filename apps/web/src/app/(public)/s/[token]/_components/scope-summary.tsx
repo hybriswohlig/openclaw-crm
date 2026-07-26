@@ -1,4 +1,10 @@
-import type { MoveScope } from "@openclaw-crm/customer-portal-core";
+"use client";
+
+import {
+  formatDateLong,
+  type MoveScope,
+} from "@openclaw-crm/customer-portal-core";
+import { useLocale, useT } from "./portal-i18n";
 
 /**
  * Read-only summary of the move scope. Drives "you are agreeing to this"
@@ -9,6 +15,8 @@ import type { MoveScope } from "@openclaw-crm/customer-portal-core";
  * label stacks above the value so neither truncates.
  */
 export function ScopeSummary({ scope }: { scope: MoveScope }) {
+  const t = useT();
+  const locale = useLocale();
   const hasAny =
     scope.moveDate ||
     scope.fromAddress ||
@@ -22,16 +30,20 @@ export function ScopeSummary({ scope }: { scope: MoveScope }) {
     <div className="overflow-hidden rounded-2xl border border-border/60 bg-card">
       <div className="flex items-center justify-between border-b border-border/60 px-6 py-3">
         <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-          Eckdaten
+          {t("scope.title")}
         </div>
       </div>
       <dl className="divide-y divide-border/60 text-sm">
-        <Row icon="calendar" label="Termin" value={formatDate(scope.moveDate)} />
-        <Row icon="arrow-up" label="Abholung" value={scope.fromAddress} />
-        <Row icon="arrow-down" label="Ziel" value={scope.toAddress} />
+        <Row
+          icon="calendar"
+          label={t("scope.date")}
+          value={scope.moveDate ? formatDateLong(scope.moveDate, locale) : null}
+        />
+        <Row icon="arrow-up" label={t("scope.from")} value={scope.fromAddress} />
+        <Row icon="arrow-down" label={t("scope.to")} value={scope.toAddress} />
         <Row
           icon="stairs"
-          label="Etage"
+          label={t("scope.floor")}
           value={
             scope.floorsFrom != null || scope.floorsTo != null
               ? `${scope.floorsFrom ?? "?"} → ${scope.floorsTo ?? "?"}`
@@ -39,22 +51,30 @@ export function ScopeSummary({ scope }: { scope: MoveScope }) {
           }
         />
         {scope.volumeCbm != null && (
-          <Row icon="box" label="Volumen" value={`ca. ${scope.volumeCbm} m³`} />
+          <Row
+            icon="box"
+            label={t("scope.volume")}
+            value={t("scope.volumeValue", { cbm: scope.volumeCbm })}
+          />
         )}
         {scope.workerCount != null && (
           <Row
             icon="users"
-            label="Helfer"
-            value={`${scope.workerCount} Personen`}
+            label={t("scope.helpers")}
+            value={t("scope.helpersValue", { count: scope.workerCount })}
           />
         )}
         {scope.transporterName && (
-          <Row icon="truck" label="Transporter" value={scope.transporterName} />
+          <Row
+            icon="truck"
+            label={t("scope.transporter")}
+            value={scope.transporterName}
+          />
         )}
         {scope.inventoryNotes && (
           <Row
             icon="note"
-            label="Notizen"
+            label={t("scope.notes")}
             value={scope.inventoryNotes}
             multiline
           />
@@ -158,16 +178,4 @@ function Glyph({ name }: { name: IconName }) {
         </svg>
       );
   }
-}
-
-function formatDate(ymd: string | null): string | null {
-  if (!ymd) return null;
-  const d = new Date(`${ymd}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return ymd;
-  return d.toLocaleDateString("de-DE", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
 }

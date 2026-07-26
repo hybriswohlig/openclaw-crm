@@ -1,16 +1,24 @@
+"use client";
+
 import type { FirmaBranding } from "@openclaw-crm/customer-portal-core";
 import { WhatsAppContactLink } from "./whatsapp-contact-link";
+import { useT } from "./portal-i18n";
 
 export function BrandingFooter({ branding }: { branding: FirmaBranding }) {
+  const t = useT();
   if (!branding.footer && !branding.displayName) return null;
+
+  const hasLegalPages =
+    branding.firmaSlug === "kottke" || branding.firmaSlug === "ceylan";
+
   return (
     <footer className="mt-12 border-t border-border/60 pt-6">
       {branding.whatsappNumberE164 && (
         <div className="mb-6 flex flex-col items-center gap-1 text-center">
-          <p className="text-sm text-muted-foreground">Fragen zu Ihrem Umzug?</p>
+          <p className="text-sm text-muted-foreground">{t("footer.questions")}</p>
           <WhatsAppContactLink
             phoneE164={branding.whatsappNumberE164}
-            label="Per WhatsApp schreiben"
+            label={t("footer.waLabel")}
           />
         </div>
       )}
@@ -31,7 +39,7 @@ export function BrandingFooter({ branding }: { branding: FirmaBranding }) {
           </p>
         )}
       </div>
-      {(branding.firmaSlug === "kottke" || branding.firmaSlug === "ceylan") && (
+      {hasLegalPages && (
         <p className="mt-2 text-center text-[11px] text-muted-foreground">
           <a
             href={`/legal/impressum/${branding.firmaSlug}`}
@@ -39,7 +47,7 @@ export function BrandingFooter({ branding }: { branding: FirmaBranding }) {
             rel="noopener noreferrer"
             className="inline-block px-1.5 py-2.5 hover:underline"
           >
-            Impressum
+            {t("footer.impressum")}
           </a>
           {" · "}
           <a
@@ -48,8 +56,23 @@ export function BrandingFooter({ branding }: { branding: FirmaBranding }) {
             rel="noopener noreferrer"
             className="inline-block px-1.5 py-2.5 hover:underline"
           >
-            Datenschutz
+            {t("footer.datenschutz")}
           </a>
+          {/* The AGB the customer accepts on Stage 1 must stay reachable from
+              every stage afterwards, not only inside the acceptance dialog. */}
+          {branding.agbPdfUrl && (
+            <>
+              {" · "}
+              <a
+                href={branding.agbPdfUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block px-1.5 py-2.5 hover:underline"
+              >
+                {t("footer.agb")}
+              </a>
+            </>
+          )}
         </p>
       )}
     </footer>

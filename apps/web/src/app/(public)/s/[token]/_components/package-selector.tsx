@@ -3,13 +3,16 @@
 import { useState } from "react";
 import { Check, Loader2 } from "lucide-react";
 import { WhatsAppContactLink } from "./whatsapp-contact-link";
-import type {
-  DealPackageOffersContext,
-  DealPackageOption,
-  FirmaBranding,
-  OfferPackage,
-  OfferPackagesContext,
+import {
+  formatEurCentsRounded,
+  portalErrorKey,
+  type DealPackageOffersContext,
+  type DealPackageOption,
+  type FirmaBranding,
+  type OfferPackage,
+  type OfferPackagesContext,
 } from "@openclaw-crm/customer-portal-core";
+import { useLocale, useT } from "./portal-i18n";
 
 /**
  * Customer-facing package picker for Stage 1.
@@ -87,6 +90,8 @@ function DealOptionPicker({
   locked: boolean;
   onPicked: () => void;
 }) {
+  const t = useT();
+  const locale = useLocale();
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -108,12 +113,12 @@ function DealOptionPicker({
         const body = (await res.json().catch(() => ({}))) as {
           error?: { code?: string };
         };
-        setError(germanError(body.error?.code));
+        setError(t(portalErrorKey(body.error?.code)));
         return;
       }
       onPicked();
     } catch {
-      setError("Verbindungsfehler. Bitte versuchen Sie es erneut.");
+      setError(t("errors.connection"));
     } finally {
       setPendingId(null);
     }
@@ -126,12 +131,12 @@ function DealOptionPicker({
       <div className="flex items-end justify-between gap-2">
         <h2 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
           {offers.options.length === 1
-            ? "Ihr Angebot"
-            : `Wählen Sie aus ${offers.options.length} Optionen`}
+            ? t("packages.yourOffer")
+            : t("packages.chooseFrom", { count: offers.options.length })}
         </h2>
         {!locked && offers.options.length > 1 && (
           <span className="text-[10px] text-muted-foreground">
-            Antippen zum Auswählen
+            {t("packages.tapToSelect")}
           </span>
         )}
       </div>
@@ -158,17 +163,18 @@ function DealOptionPicker({
 
       {selected ? (
         <p className="text-[11px] text-muted-foreground">
-          Ihre Wahl:{" "}
+          {t("packages.yourChoice")}{" "}
           <strong className="text-foreground">{selected.displayName}</strong> ·{" "}
           <span className="tabular-nums">
-            {formatEurCents(selected.priceCents)}
+            {formatEurCentsRounded(selected.priceCents, locale)}
           </span>
-          {locked ? " (verbindlich)" : ". Sie können oben jederzeit umwählen."}
+          {locked
+            ? t("packages.bindingSuffix")
+            : t("packages.canSwitchOption")}
         </p>
       ) : (
         <p className="text-[11px] text-muted-foreground">
-          Wählen Sie eine der Optionen. Der angezeigte Gesamtpreis übernimmt
-          Ihre Auswahl automatisch.
+          {t("packages.pickOneHint")}
         </p>
       )}
     </section>
@@ -188,6 +194,8 @@ function CataloguePicker({
   locked: boolean;
   onPicked: () => void;
 }) {
+  const t = useT();
+  const locale = useLocale();
   const [pendingSlug, setPendingSlug] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -211,12 +219,12 @@ function CataloguePicker({
         const body = (await res.json().catch(() => ({}))) as {
           error?: { code?: string };
         };
-        setError(germanError(body.error?.code));
+        setError(t(portalErrorKey(body.error?.code)));
         return;
       }
       onPicked();
     } catch {
-      setError("Verbindungsfehler. Bitte versuchen Sie es erneut.");
+      setError(t("errors.connection"));
     } finally {
       setPendingSlug(null);
     }
@@ -226,11 +234,11 @@ function CataloguePicker({
     <section data-portal-section="packages" className="space-y-3">
       <div className="flex items-end justify-between gap-2">
         <h2 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-          Paket wählen
+          {t("packages.choosePackage")}
         </h2>
         {!locked && (
           <span className="text-[10px] text-muted-foreground">
-            Antippen zum Auswählen
+            {t("packages.tapToSelect")}
           </span>
         )}
       </div>
@@ -258,20 +266,19 @@ function CataloguePicker({
 
       {currentSlug ? (
         <p className="text-[11px] text-muted-foreground">
-          Ihr Angebot basiert auf dem Paket{" "}
+          {t("packages.basedOnPackage")}{" "}
           <strong className="text-foreground">
             {packages.available.find((p) => p.slug === currentSlug)
               ?.displayName ?? currentSlug}
           </strong>
           {locked
-            ? " (verbindlich)"
-            : ". Sie können oben jederzeit ein anderes Paket wählen"}
+            ? t("packages.bindingSuffix")
+            : t("packages.canSwitchPackage")}
           .
         </p>
       ) : (
         <p className="text-[11px] text-muted-foreground">
-          Wählen Sie das Paket, das am besten zu Ihrem Umzug passt. Der
-          angezeigte Gesamtpreis übernimmt Ihre Auswahl automatisch.
+          {t("packages.pickPackageHint")}
         </p>
       )}
     </section>
@@ -293,6 +300,8 @@ function DealOptionCard({
   disabled: boolean;
   onTap: () => void;
 }) {
+  const t = useT();
+  const locale = useLocale();
   return (
     <li className="relative">
       <button
@@ -317,7 +326,7 @@ function DealOptionCard({
             className="absolute -top-2.5 right-4 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white shadow-sm"
             style={{ background: accent }}
           >
-            Empfohlen
+            {t("packages.recommended")}
           </span>
         )}
 
@@ -325,10 +334,10 @@ function DealOptionCard({
         <div className="flex items-start justify-between gap-2">
           <div>
             <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-              Festpreis
+              {t("packages.fixedPrice")}
             </div>
             <div className="display mt-0.5 text-2xl font-medium tabular-nums leading-none">
-              {formatEurCents(option.priceCents)}
+              {formatEurCentsRounded(option.priceCents, locale)}
             </div>
           </div>
           {isSelected ? (
@@ -365,7 +374,7 @@ function DealOptionCard({
         {option.includedItems.length > 0 && (
           <div className="mt-3">
             <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Im Angebot enthalten
+              {t("packages.included")}
             </p>
             <ul className="space-y-1.5 text-xs">
               {option.includedItems.map((item, i) => (
@@ -386,7 +395,7 @@ function DealOptionCard({
         {(option.addableItems ?? []).length > 0 && (
           <div className="mt-3">
             <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Auf Wunsch zubuchbar
+              {t("packages.addable")}
             </p>
             <ul className="space-y-1 text-xs text-muted-foreground">
               {(option.addableItems ?? []).map((item, i) => (
@@ -407,7 +416,7 @@ function DealOptionCard({
         {(option.excludedItems ?? []).length > 0 && (
           <div className="mt-3">
             <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Nicht enthalten
+              {t("packages.excluded")}
             </p>
             <ul className="space-y-1 text-xs text-muted-foreground">
               {(option.excludedItems ?? []).map((item, i) => (
@@ -431,7 +440,7 @@ function DealOptionCard({
             className="mt-3 inline-flex items-center justify-center self-stretch rounded-lg border border-dashed px-3 py-1.5 text-[11px] font-medium text-muted-foreground transition group-hover:border-solid group-hover:text-foreground"
             style={{ borderColor: "var(--border)" }}
           >
-            {isPending ? "Wird gespeichert…" : "Diese Option wählen"}
+            {isPending ? t("packages.saving") : t("packages.selectOption")}
           </div>
         )}
       </button>
@@ -456,6 +465,8 @@ function PackageCard({
   disabled: boolean;
   onTap: () => void;
 }) {
+  const t = useT();
+  const locale = useLocale();
   const hasPrice = pkg.priceFromCents != null;
   const onRequest = !hasPrice;
   const isFixed = pkg.priceFixedFlag && hasPrice;
@@ -467,7 +478,7 @@ function PackageCard({
           className="absolute -top-2.5 right-4 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white shadow-sm"
           style={{ background: accent }}
         >
-          Beliebteste Wahl
+          {t("packages.mostPopular")}
         </span>
       )}
 
@@ -475,10 +486,16 @@ function PackageCard({
       <div className="flex items-start justify-between gap-2">
         <div>
           <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-            {onRequest ? "Auf Anfrage" : isFixed ? "Festpreis" : "ab"}
+            {onRequest
+              ? t("packages.onRequest")
+              : isFixed
+                ? t("packages.fixedPrice")
+                : t("packages.priceFrom")}
           </div>
           <div className="display mt-0.5 text-2xl font-medium tabular-nums leading-none">
-            {hasPrice ? formatEurCents(pkg.priceFromCents!) : "Individuell"}
+            {hasPrice
+              ? formatEurCentsRounded(pkg.priceFromCents!, locale)
+              : t("packages.individual")}
           </div>
         </div>
         {isSelected ? (
@@ -526,7 +543,7 @@ function PackageCard({
           ))}
           {pkg.includedItems.length > 4 && (
             <li className="text-muted-foreground">
-              und {pkg.includedItems.length - 4} weitere
+              {t("packages.andMore", { count: pkg.includedItems.length - 4 })}
             </li>
           )}
         </ul>
@@ -544,7 +561,7 @@ function PackageCard({
           className="mt-3 inline-flex items-center justify-center self-stretch rounded-lg border border-dashed px-3 py-1.5 text-[11px] font-medium text-muted-foreground transition group-hover:border-solid group-hover:text-foreground"
           style={{ borderColor: "var(--border)" }}
         >
-          {isPending ? "Wird gespeichert…" : "Dieses Paket wählen"}
+          {isPending ? t("packages.saving") : t("packages.selectPackage")}
         </div>
       )}
       {onRequest &&
@@ -555,14 +572,17 @@ function PackageCard({
           >
             <WhatsAppContactLink
               phoneE164={branding.whatsappNumberE164}
-              label="Per WhatsApp anfragen"
-              message={`Hallo ${branding.displayName}, ich interessiere mich für das Paket ${pkg.displayName}. Können Sie mir dazu ein Angebot machen?`}
+              label={t("packages.waAskLabel")}
+              message={t("packages.waAskMessage", {
+                firma: branding.displayName,
+                package: pkg.displayName,
+              })}
               className="flex h-11 w-full items-center justify-center gap-1.5 rounded-xl text-sm font-medium text-white"
             />
           </span>
         ) : (
           <div className="mt-3 inline-flex items-center justify-center self-stretch rounded-lg bg-muted px-3 py-1.5 text-[11px] font-medium text-muted-foreground">
-            Auf Anfrage. Antworten Sie uns einfach im Chat.
+            {t("packages.onRequestFallback")}
           </div>
         ))}
     </>
@@ -601,28 +621,3 @@ function PackageCard({
   );
 }
 
-function formatEurCents(cents: number): string {
-  return new Intl.NumberFormat("de-DE", {
-    style: "currency",
-    currency: "EUR",
-    maximumFractionDigits: 0,
-  }).format(cents / 100);
-}
-
-function germanError(code: string | undefined): string {
-  switch (code) {
-    case "PACKAGE_NOT_FOUND":
-    case "OPTION_NOT_FOUND":
-      return "Diese Option ist nicht mehr verfügbar. Bitte Seite neu laden.";
-    case "ALREADY_ACCEPTED":
-      return "Das Angebot wurde bereits verbindlich angenommen. Bitte kontaktieren Sie uns für eine Änderung.";
-    case "NO_OPERATING_COMPANY":
-      return "Auftrag noch nicht vollständig zugeordnet.";
-    case "REVOKED":
-      return "Dieser Link ist nicht mehr aktiv.";
-    case "NOT_FOUND":
-      return "Link nicht gefunden.";
-    default:
-      return "Es ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut.";
-  }
-}

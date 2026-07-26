@@ -11,10 +11,17 @@
  */
 import { cache } from "react";
 import type { Metadata } from "next";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
+import {
+  PORTAL_LOCALE_COOKIE,
+  resolvePortalLocale,
+  translate,
+  type PortalLocale,
+} from "@openclaw-crm/customer-portal-core";
 import { loadContextByToken, bumpView } from "@/services/customer-portal-data";
 import { StagePortal } from "./_components/stage-portal";
+import { PortalLocaleProvider } from "./_components/portal-i18n";
 import { RevokedNotice } from "./_components/revoked-notice";
 import { NotFoundNotice } from "./_components/not-found-notice";
 import { FeatureDisabledNotice } from "./_components/feature-disabled-notice";
@@ -24,6 +31,24 @@ export const dynamic = "force-dynamic";
 // Per-request dedup: generateMetadata and the page body both need the
 // context, cache() makes that a single DB round trip per request.
 const getCtx = cache(loadContextByToken);
+
+/**
+ * Resolves the language for this request: an explicit choice (cookie, then
+ * the link row) beats the browser's Accept-Language, which beats German.
+ *
+ * Doing this on the server means the very first paint is already correct —
+ * an English reader never sees a German flash.
+ */
+async function resolveLocale(
+  storedLocale: PortalLocale | null
+): Promise<PortalLocale> {
+  const [cookieStore, hdrs] = await Promise.all([cookies(), headers()]);
+  return resolvePortalLocale({
+    cookie: cookieStore.get(PORTAL_LOCALE_COOKIE)?.value ?? null,
+    stored: storedLocale,
+    acceptLanguage: hdrs.get("accept-language"),
+  });
+}
 
 /**
  * Per-firma link preview. Reads the token, pulls the operating-company
@@ -40,20 +65,27 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { token } = await params;
   const ctx = await getCtx(token).catch(() => null);
+  const locale = await resolveLocale(ctx?.preferredLocale ?? null);
 
   if (!ctx) {
     return {
-      title: "Auftrag",
-      description: "Status, Angebot und Auftragsbestätigung.",
+      title: translate(locale, "meta.fallbackTitle"),
+      description: translate(locale, "meta.fallbackDescription"),
       robots: { index: false, follow: false },
     };
   }
 
   const firma = ctx.branding.displayName;
-  const title = `${firma} · Auftrag ${ctx.dealNumber}`;
+  const title = translate(locale, "meta.title", {
+    firma,
+    dealNumber: ctx.dealNumber,
+  });
   const description = ctx.customerDisplayName
-    ? `Auftrag ${ctx.dealNumber} für ${ctx.customerDisplayName}: Angebot, Status und Bestätigung.`
-    : `Auftrag ${ctx.dealNumber}: Angebot, Status und Bestätigung.`;
+    ? translate(locale, "meta.descriptionNamed", {
+        dealNumber: ctx.dealNumber,
+        name: ctx.customerDisplayName,
+      })
+    : translate(locale, "meta.description", { dealNumber: ctx.dealNumber });
 
   return {
     title,
@@ -64,7 +96,7 @@ export async function generateMetadata({
       description,
       siteName: firma,
       type: "website",
-      locale: "de_DE",
+      locale: locale === "en" ? "en_GB" : "de_DE",
     },
     twitter: {
       card: "summary_large_image",
@@ -81,14 +113,25 @@ export default async function PublicStatusPage({
 }) {
   const { token } = await params;
   const ctx = await getCtx(token);
+  const locale = await resolveLocale(ctx?.preferredLocale ?? null);
 
   if (!ctx) {
-    return <NotFoundNotice />;
+    return (
+      <PortalLocaleProvider token={null} initialLocale={locale}>
+        <NotFoundNotice />
+      </PortalLocaleProvider>
+    );
   }
 
   // Per-OC feature toggle: short-circuit before doing anything else.
   if (ctx.meta.featureDisabled) {
-    return <FeatureDisabledNotice whatsappNumberE164={ctx.branding.whatsappNumberE164} />;
+    return (
+      <PortalLocaleProvider token={token} initialLocale={locale}>
+        <FeatureDisabledNotice
+          whatsappNumberE164={ctx.branding.whatsappNumberE164}
+        />
+      </PortalLocaleProvider>
+    );
   }
 
   // Canonical-host redirect: if the OC has its own verified custom domain
@@ -111,12 +154,18 @@ export default async function PublicStatusPage({
 
   if (ctx.meta.revoked) {
     return (
-      <RevokedNotice
-        firmaDisplayName={ctx.branding.displayName}
-        whatsappNumberE164={ctx.branding.whatsappNumberE164}
-      />
+      <PortalLocaleProvider token={null} initialLocale={locale}>
+        <RevokedNotice
+          firmaDisplayName={ctx.branding.displayName}
+          whatsappNumberE164={ctx.branding.whatsappNumberE164}
+        />
+      </PortalLocaleProvider>
     );
   }
 
-  return <StagePortal token={token} ctx={ctx} />;
+  return (
+    <PortalLocaleProvider token={token} initialLocale={locale}>
+      <StagePortal token={token} ctx={ctx} />
+    </PortalLocaleProvider>
+  );
 }

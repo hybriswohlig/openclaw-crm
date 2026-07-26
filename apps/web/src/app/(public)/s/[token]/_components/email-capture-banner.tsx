@@ -2,10 +2,12 @@
 
 import { useState } from "react";
 import { Mail, Check, Loader2 } from "lucide-react";
-import type {
-  CustomerEmailStatus,
-  FirmaBranding,
+import {
+  portalErrorKey,
+  type CustomerEmailStatus,
+  type FirmaBranding,
 } from "@openclaw-crm/customer-portal-core";
+import { useT } from "./portal-i18n";
 
 /**
  * Inline email-capture banner rendered above the acceptance card on Stage 1
@@ -30,6 +32,7 @@ export function EmailCaptureBanner({
   status: CustomerEmailStatus;
   branding: FirmaBranding;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [saving, setSaving] = useState(false);
@@ -42,12 +45,9 @@ export function EmailCaptureBanner({
       <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-200">
         <div className="flex items-center gap-2 font-medium">
           <Check className="h-4 w-4" />
-          E-Mail gespeichert
+          {t("email.savedTitle")}
         </div>
-        <p className="mt-1 text-xs leading-relaxed">
-          Wir senden Ihnen die Bestätigung und alle Unterlagen zu Ihrem Umzug an
-          diese Adresse.
-        </p>
+        <p className="mt-1 text-xs leading-relaxed">{t("email.savedBody")}</p>
       </div>
     );
   }
@@ -65,25 +65,22 @@ export function EmailCaptureBanner({
         const body = (await res.json().catch(() => ({}))) as {
           error?: { code?: string };
         };
-        setError(germanError(body.error?.code));
+        setError(t(portalErrorKey(body.error?.code)));
         return;
       }
       setSaved(true);
     } catch {
-      setError("Verbindungsfehler. Bitte versuchen Sie es erneut.");
+      setError(t("errors.connection"));
     } finally {
       setSaving(false);
     }
   }
 
-  const headline =
-    status === "kleinanzeigen_relay"
-      ? "Wir haben Sie bisher nur über Kleinanzeigen erreicht."
-      : "Wir haben noch keine E-Mail von Ihnen.";
-  const body =
-    status === "kleinanzeigen_relay"
-      ? "Damit Sie Ihre Auftragsbestätigung, Rechnung und weitere Unterlagen direkt erhalten, geben Sie uns kurz Ihre echte E-Mail-Adresse."
-      : "Damit Sie Ihre Auftragsbestätigung und Rechnung per E-Mail erhalten, hinterlegen Sie hier bitte Ihre Adresse.";
+  const isRelay = status === "kleinanzeigen_relay";
+  const headline = isRelay
+    ? t("email.headlineRelay")
+    : t("email.headlineMissing");
+  const body = isRelay ? t("email.bodyRelay") : t("email.bodyMissing");
 
   return (
     <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 dark:border-amber-900/40 dark:bg-amber-950/40">
@@ -108,7 +105,7 @@ export function EmailCaptureBanner({
               onClick={() => setOpen(true)}
               className="mt-3 inline-flex h-9 items-center rounded-lg border border-amber-300 bg-white px-3 text-xs font-medium text-amber-950 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-100"
             >
-              E-Mail hinterlegen
+              {t("email.cta")}
             </button>
           ) : (
             <div className="mt-3 space-y-2">
@@ -119,13 +116,13 @@ export function EmailCaptureBanner({
                 spellCheck={false}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="ihre.adresse@beispiel.de"
+                placeholder={t("email.placeholder")}
                 disabled={saving}
                 className="h-10 w-full rounded-lg border border-amber-300 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-offset-1 dark:border-amber-800 dark:bg-amber-950/60"
                 style={{ ["--tw-ring-color" as never]: `#${branding.primaryColor}` }}
               />
               <p className="text-xs text-muted-foreground">
-                Wir verwenden Ihre Adresse nur für Unterlagen zu diesem Umzug.
+                {t("email.privacyHint")}
               </p>
               {error && (
                 <p className="rounded-md bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
@@ -143,7 +140,7 @@ export function EmailCaptureBanner({
                   disabled={saving}
                   className="h-9 flex-1 rounded-lg border border-amber-300 bg-transparent text-xs font-medium hover:bg-amber-100/50 dark:border-amber-800 dark:hover:bg-amber-950/40"
                 >
-                  Abbrechen
+                  {t("email.cancel")}
                 </button>
                 <button
                   type="button"
@@ -153,7 +150,7 @@ export function EmailCaptureBanner({
                   style={{ background: `#${branding.primaryColor}` }}
                 >
                   {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                  Speichern
+                  {t("email.save")}
                 </button>
               </div>
             </div>
@@ -162,22 +159,4 @@ export function EmailCaptureBanner({
       </div>
     </div>
   );
-}
-
-function germanError(code: string | undefined): string {
-  switch (code) {
-    case "INVALID_EMAIL":
-      return "Bitte geben Sie eine gültige E-Mail-Adresse an.";
-    case "RELAY_NOT_ALLOWED":
-      return "Diese Adresse ist nur ein Weiterleitungs-Link. Bitte geben Sie Ihre echte Adresse an.";
-    case "NO_PEOPLE_RECORD":
-    case "NO_EMAIL_ATTRIBUTE":
-      return "Es gibt aktuell kein Kontaktprofil. Bitte melden Sie sich kurz beim Ansprechpartner.";
-    case "REVOKED":
-      return "Dieser Link ist nicht mehr aktiv.";
-    case "NOT_FOUND":
-      return "Link nicht gefunden.";
-    default:
-      return "Es ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut.";
-  }
 }

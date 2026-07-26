@@ -3,7 +3,11 @@
 import { useState } from "react";
 import Image from "next/image";
 import { ImageIcon, FileText, X } from "lucide-react";
-import type { AttachmentRef } from "@openclaw-crm/customer-portal-core";
+import {
+  formatIsoDayMonthTime,
+  type AttachmentRef,
+} from "@openclaw-crm/customer-portal-core";
+import { useLocale, useT } from "./portal-i18n";
 
 /**
  * Stage 3 chronological media feed. Images render as a grid with their
@@ -18,16 +22,21 @@ export function LiveMediaFeed({
   token,
   attachments,
   primaryColor,
-  title = "Bilder & Updates",
-  emptyText = "Noch keine Bilder von der Crew. Sobald euer Team Fotos sendet, erscheinen sie hier automatisch.",
+  title,
+  emptyText,
 }: {
   token: string;
   attachments: AttachmentRef[];
   primaryColor: string;
+  /** Defaults to the translated "Photos & updates" heading. */
   title?: string;
   emptyText?: string;
 }) {
+  const t = useT();
+  const locale = useLocale();
   const [lightbox, setLightbox] = useState<AttachmentRef | null>(null);
+  const heading = title ?? t("media.title");
+  const emptyMessage = emptyText ?? t("media.empty");
 
   const images = attachments.filter((a) => a.isImage);
   const others = attachments.filter((a) => !a.isImage);
@@ -37,7 +46,7 @@ export function LiveMediaFeed({
       <section className="rounded-2xl border border-border/50 bg-card p-5 text-sm">
         <div className="flex items-center gap-2 text-muted-foreground">
           <ImageIcon className="h-4 w-4" />
-          {emptyText}
+          {emptyMessage}
         </div>
       </section>
     );
@@ -46,7 +55,7 @@ export function LiveMediaFeed({
   return (
     <section className="space-y-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-medium">{title}</h2>
+        <h2 className="text-sm font-medium">{heading}</h2>
         <span
           className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
           style={{ background: `#${primaryColor}` }}
@@ -74,7 +83,7 @@ export function LiveMediaFeed({
                 />
               </button>
               <div className="text-[10px] text-muted-foreground">
-                {formatTime(a.sentAt)}
+                {formatIsoDayMonthTime(a.sentAt, locale)}
               </div>
               {a.caption && (
                 <p className="line-clamp-2 text-xs leading-relaxed">{a.caption}</p>
@@ -102,7 +111,7 @@ export function LiveMediaFeed({
                   {a.fileName}
                 </a>
                 <div className="text-[11px] text-muted-foreground">
-                  {formatTime(a.sentAt)}
+                  {formatIsoDayMonthTime(a.sentAt, locale)}
                   {a.caption ? ` · ${a.caption}` : ""}
                 </div>
               </div>
@@ -120,7 +129,7 @@ export function LiveMediaFeed({
             type="button"
             className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white"
             onClick={() => setLightbox(null)}
-            aria-label="Schließen"
+            aria-label={t("media.closeAria")}
           >
             <X className="h-5 w-5" />
           </button>
@@ -142,13 +151,4 @@ export function LiveMediaFeed({
       )}
     </section>
   );
-}
-
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleString("de-DE", {
-    day: "2-digit",
-    month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }

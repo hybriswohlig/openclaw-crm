@@ -2,11 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { Clock } from "lucide-react";
-import type {
-  CrewMember,
-  KvaSnapshot,
-  MoveTiming,
+import {
+  formatEur,
+  formatEurCents,
+  formatIsoTimeShort,
+  type CrewMember,
+  type KvaSnapshot,
+  type MoveTiming,
 } from "@openclaw-crm/customer-portal-core";
+import { useLocale, useT } from "./portal-i18n";
 
 /**
  * Live hourly-billing transparency widget. Shows three milestones plus a
@@ -29,6 +33,8 @@ export function HourlyClock({
   crew: CrewMember[];
   primaryColor: string;
 }) {
+  const t = useT();
+  const locale = useLocale();
   const [now, setNow] = useState<number>(() => Date.now());
 
   useEffect(() => {
@@ -58,10 +64,7 @@ export function HourlyClock({
   const runningEur = elapsedHours * hourlyRunRateEur;
 
   const elapsedLabel = formatElapsed(elapsedSec);
-  const runningLabel = new Intl.NumberFormat("de-DE", {
-    style: "currency",
-    currency: "EUR",
-  }).format(runningEur);
+  const runningLabel = formatEurCents(Math.round(runningEur * 100), locale);
 
   return (
     <section className="overflow-hidden rounded-2xl border border-border/50 bg-card">
@@ -71,28 +74,37 @@ export function HourlyClock({
       >
         <span className="inline-flex items-center gap-2">
           <Clock className="h-4 w-4" />
-          Live-Abrechnung (voraussichtlich)
+          {t("hourly.title")}
         </span>
       </div>
       <div className="space-y-4 p-6">
         <div className="grid grid-cols-3 gap-3 text-center">
-          <Milestone label="Anfahrt" iso={timing.departureAt} />
-          <Milestone label="Vor Ort" iso={timing.onsiteAt} />
-          <Milestone label="Beendet" iso={timing.finishedAt} />
+          <Milestone
+            label={t("stage3.milestoneTravel")}
+            iso={timing.departureAt}
+          />
+          <Milestone label={t("stage3.milestoneOnsite")} iso={timing.onsiteAt} />
+          <Milestone
+            label={t("stage3.milestoneFinished")}
+            iso={timing.finishedAt}
+          />
         </div>
 
         <div className="rounded-xl border border-border/50 bg-muted/30 p-4">
           <div className="flex items-baseline justify-between gap-3">
             <div className="text-xs uppercase tracking-wide text-muted-foreground">
-              Bisherige Dauer
+              {t("hourly.elapsed")}
             </div>
             <div className="text-lg font-medium tabular-nums">{elapsedLabel}</div>
           </div>
           {hourlyRunRateEur > 0 && (
             <div className="mt-1 flex items-baseline justify-between gap-3 text-xs text-muted-foreground">
               <span>
-                {helperCount} Helfer × {formatEur(helperRate)} +{" "}
-                {formatEur(transporterRate)} Transporter
+                {t("hourly.rateLine", {
+                  count: helperCount,
+                  helperRate: formatEur(helperRate, locale),
+                  transporterRate: formatEur(transporterRate, locale),
+                })}
               </span>
               <span className="font-medium tabular-nums text-foreground">
                 {runningLabel}
@@ -102,8 +114,7 @@ export function HourlyClock({
         </div>
 
         <p className="text-[11px] text-muted-foreground">
-          Diese Berechnung dient der Transparenz während des Auftrags. Verbindlich
-          ist die finale Rechnung.
+          {t("hourly.note")}
         </p>
       </div>
     </section>
@@ -111,18 +122,14 @@ export function HourlyClock({
 }
 
 function Milestone({ label, iso }: { label: string; iso: string | null }) {
+  const locale = useLocale();
   return (
     <div className="space-y-1 rounded-lg border border-border/50 px-2 py-3">
       <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
         {label}
       </div>
       <div className="text-xs tabular-nums">
-        {iso
-          ? new Date(iso).toLocaleTimeString("de-DE", {
-              hour: "2-digit",
-              minute: "2-digit",
-            })
-          : "·"}
+        {iso ? formatIsoTimeShort(iso, locale) : "·"}
       </div>
     </div>
   );
@@ -133,11 +140,4 @@ function formatElapsed(sec: number): string {
   const m = Math.floor((sec % 3600) / 60);
   if (h > 0) return `${h}h ${m.toString().padStart(2, "0")}m`;
   return `${m}m`;
-}
-
-function formatEur(v: number): string {
-  return new Intl.NumberFormat("de-DE", {
-    style: "currency",
-    currency: "EUR",
-  }).format(v);
 }

@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { PortalMessageKey } from "@openclaw-crm/customer-portal-core";
+import { useT } from "./portal-i18n";
 
 /**
  * Stage-2 preparation checklist for the waiting weeks before the move.
@@ -10,21 +12,21 @@ import { useEffect, useState } from "react";
  * Private Mode never breaks the page.
  */
 
-const ITEMS: { label: string; detail: string | null }[] = [
-  { label: "Kartons beschriften", detail: "Zielraum draufschreiben" },
-  {
-    label: "Halteverbotszone beantragen",
-    detail: "Falls nötig, 7 bis 10 Tage Vorlauf",
-  },
-  { label: "Parkplatz für den Transporter freihalten", detail: null },
-  { label: "Aufzug reservieren", detail: "Falls vorhanden" },
-  { label: "Nachsendeauftrag stellen", detail: null },
-  { label: "Zählerstände ablesen und fotografieren", detail: null },
-  { label: "Wertsachen und Dokumente separat transportieren", detail: null },
-  { label: "Kühlschrank 24 Stunden vorher abtauen", detail: null },
+// Message keys, not text: the stored tick indices must keep pointing at the
+// same item whatever language the customer switches to.
+const ITEMS: { labelKey: PortalMessageKey; detailKey: PortalMessageKey | null }[] = [
+  { labelKey: "checklist.item1", detailKey: "checklist.item1Detail" },
+  { labelKey: "checklist.item2", detailKey: "checklist.item2Detail" },
+  { labelKey: "checklist.item3", detailKey: null },
+  { labelKey: "checklist.item4", detailKey: "checklist.item4Detail" },
+  { labelKey: "checklist.item5", detailKey: null },
+  { labelKey: "checklist.item6", detailKey: null },
+  { labelKey: "checklist.item7", detailKey: null },
+  { labelKey: "checklist.item8", detailKey: null },
 ];
 
 export function MovingChecklist({ token }: { token: string }) {
+  const t = useT();
   const storageKey = `kottke.portal.checklist.${token}`;
   const [checked, setChecked] = useState<ReadonlySet<number>>(new Set());
 
@@ -69,17 +71,20 @@ export function MovingChecklist({ token }: { token: string }) {
     <div className="rounded-2xl border border-border/50 bg-card">
       <div className="flex items-center justify-between gap-3 border-b border-border/50 px-6 py-3">
         <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-          Gut vorbereitet in den Umzug
+          {t("checklist.title")}
         </div>
         <div className="shrink-0 text-xs tabular-nums text-muted-foreground">
-          {checked.size} von {ITEMS.length} erledigt
+          {t("checklist.progress", {
+            done: checked.size,
+            total: ITEMS.length,
+          })}
         </div>
       </div>
       <ul className="divide-y divide-border/50">
         {ITEMS.map((item, index) => {
           const done = checked.has(index);
           return (
-            <li key={item.label}>
+            <li key={item.labelKey}>
               <label className="flex min-h-11 cursor-pointer items-center gap-3 px-6 py-3 transition-colors hover:bg-accent/50">
                 <input
                   type="checkbox"
@@ -93,11 +98,11 @@ export function MovingChecklist({ token }: { token: string }) {
                   }
                 >
                   <span className="block text-sm font-medium">
-                    {item.label}
+                    {t(item.labelKey)}
                   </span>
-                  {item.detail && (
+                  {item.detailKey && (
                     <span className="block text-xs text-muted-foreground">
-                      {item.detail}
+                      {t(item.detailKey)}
                     </span>
                   )}
                 </span>

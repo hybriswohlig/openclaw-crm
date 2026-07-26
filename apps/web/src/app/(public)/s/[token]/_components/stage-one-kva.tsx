@@ -2,8 +2,13 @@
 
 import { useMemo, useState } from "react";
 import {
+  formatDateMedium,
+  formatEur,
+  formatEurCentsRounded,
+  formatIsoDateTimeLong,
   widerrufVerzichtRequired,
   type CustomerPortalContext,
+  type Translator,
 } from "@openclaw-crm/customer-portal-core";
 import { ConfirmKvaDialog } from "./confirm-kva-dialog";
 import { ScopeSummary } from "./scope-summary";
@@ -14,6 +19,7 @@ import { EmailCaptureBanner } from "./email-capture-banner";
 import { PackageSelector } from "./package-selector";
 import { DateOfferPicker } from "./date-offer-picker";
 import { CustomerPhotosSection } from "./customer-photos-section";
+import { useLocale, useT } from "./portal-i18n";
 
 /**
  * Stage 1 layout — desktop is a two-column grid with a sticky price/CTA
@@ -42,6 +48,8 @@ export function StageOneKva({
   ctx: CustomerPortalContext;
   onConfirmed: () => void;
 }) {
+  const t = useT();
+  const locale = useLocale();
   const [open, setOpen] = useState(false);
 
   const widerrufNeeded = useMemo(
@@ -75,9 +83,7 @@ export function StageOneKva({
   if (!ctx.kva && !hasSelectableOffers) {
     return (
       <section className="rounded-2xl border bg-card p-6 text-sm text-muted-foreground">
-        Ihr Kostenvoranschlag wird gerade erstellt. Diese Seite aktualisiert sich
-        automatisch, sobald das Angebot bereitsteht. Sie können die Seite einfach
-        kurz später erneut öffnen.
+        {t("stage1.kvaPending")}
       </section>
     );
   }
@@ -101,20 +107,17 @@ export function StageOneKva({
               <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-200">
                 <div className="flex items-center gap-2 font-medium">
                   <span aria-hidden>✓</span>
-                  Angebot angenommen
+                  {t("stage1.accepted")}
                 </div>
                 <p className="mt-1 leading-relaxed">
-                  Bestätigt am{" "}
-                  {new Date(ctx.acceptance!.signedAt).toLocaleString("de-DE", {
-                    dateStyle: "long",
-                    timeStyle: "short",
+                  {t("stage1.confirmedOn", {
+                    date: formatIsoDateTimeLong(ctx.acceptance!.signedAt, locale),
                   })}
-                  .
                 </p>
                 <p className="mt-2 leading-relaxed">
                   {ctx.payment && ctx.payment.amountCents > 0
-                    ? "Damit Ihr Termin fest reserviert ist, überweisen Sie bitte die Anzahlung. Alle Zahlungsdaten finden Sie unten."
-                    : "Sie erhalten Ihre Auftragsbestätigung in Kürze per E-Mail."}
+                    ? t("stage1.depositHint")
+                    : t("stage1.abByEmail")}
                 </p>
               </div>
             )}
@@ -134,7 +137,8 @@ export function StageOneKva({
           )}
 
           {/* Operator-written summary. Calm content card so the customer reads
-              context BEFORE the number. */}
+              context BEFORE the number. Shown exactly as typed — it is part of
+              the offer, so it is never machine-translated. */}
           {ctx.kva?.summary && ctx.kva.summary.trim().length > 0 && (
             <SummaryCard
               summary={ctx.kva.summary}
@@ -191,7 +195,7 @@ export function StageOneKva({
           {ctx.kva?.isVariable && ctx.kva.lineItems.length > 0 && (
             <div className="overflow-hidden rounded-2xl border bg-card">
               <div className="border-b px-6 py-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                Aufschlüsselung
+                {t("stage1.breakdown")}
               </div>
               <ul className="divide-y px-6">
                 {ctx.kva.lineItems.map((li, i) => (
@@ -201,13 +205,15 @@ export function StageOneKva({
                   >
                     <div>
                       <span className="font-medium">
-                        {li.description || labelForType(li.type)}
+                        {li.description || labelForType(li.type, t)}
                       </span>
                       <span className="ml-2 text-muted-foreground">
-                        {li.quantity} × {formatEur(li.unitRate)}
+                        {li.quantity} × {formatEur(li.unitRate, locale)}
                       </span>
                     </div>
-                    <span className="tabular-nums">{formatEur(li.lineTotal)}</span>
+                    <span className="tabular-nums">
+                      {formatEur(li.lineTotal, locale)}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -260,10 +266,12 @@ export function StageOneKva({
             <div className="mx-auto flex max-w-2xl items-center justify-between gap-3 px-4 py-3">
               <div className="leading-tight">
                 <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                  {ctx.kva.isVariable ? "Voraussichtlich" : "Festpreis"}
+                  {ctx.kva.isVariable
+                    ? t("stage1.estimated")
+                    : t("stage1.fixedPrice")}
                 </div>
                 <div className="display text-lg font-medium tabular-nums">
-                  {formatEurCents(ctx.kva.totalCents)}
+                  {formatEurCentsRounded(ctx.kva.totalCents, locale)}
                 </div>
               </div>
               <button
@@ -279,7 +287,9 @@ export function StageOneKva({
                 className="inline-flex h-11 flex-1 max-w-[60%] items-center justify-center rounded-xl text-sm font-medium text-white disabled:opacity-60"
                 style={{ background: `#${ctx.branding.primaryColor}` }}
               >
-                {hasOpenDateChoice ? "Termin wählen" : "Angebot annehmen"}
+                {hasOpenDateChoice
+                  ? t("stage1.mobilePickDate")
+                  : t("stage1.mobileAccept")}
               </button>
             </div>
           )}
@@ -315,12 +325,13 @@ function SummaryCard({
   summary: string;
   primaryColor: string;
 }) {
+  const t = useT();
   const [expanded, setExpanded] = useState(false);
   const isLong = summary.trim().length > 350;
   return (
     <div className="overflow-hidden rounded-2xl border bg-card">
       <div className="border-b px-6 py-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-        Was umfasst der Auftrag
+        {t("stage1.summaryTitle")}
       </div>
       <div className="px-6 pb-4 pt-6">
         <p
@@ -338,7 +349,7 @@ function SummaryCard({
             className="mt-1 inline-flex min-h-11 items-center text-sm font-medium"
             style={{ color: `#${primaryColor}` }}
           >
-            {expanded ? "Weniger anzeigen" : "Mehr anzeigen"}
+            {expanded ? t("stage1.showLess") : t("stage1.showMore")}
           </button>
         ) : (
           <div className="h-2" aria-hidden />
@@ -355,15 +366,14 @@ function SummaryCard({
  * this on the next render.
  */
 function ChooseOfferPrompt({ branding }: { branding: { primaryColor: string } }) {
+  const t = useT();
   return (
     <div className="rounded-2xl border bg-card p-5 text-sm shadow-sm">
       <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-        Ihr Angebot
+        {t("stage1.yourOffer")}
       </div>
       <p className="mt-2 leading-relaxed text-muted-foreground">
-        Bitte wählen Sie nebenan Ihr passendes Paket bzw. einen Termin. Sobald
-        Sie gewählt haben, sehen Sie hier den verbindlichen Preis und können den
-        Auftrag annehmen.
+        {t("stage1.chooseOfferBody")}
       </p>
       <button
         type="button"
@@ -376,7 +386,7 @@ function ChooseOfferPrompt({ branding }: { branding: { primaryColor: string } })
         className="mt-4 inline-flex h-10 w-full items-center justify-center rounded-xl text-sm font-medium text-white"
         style={{ background: `#${branding.primaryColor}` }}
       >
-        Angebot auswählen
+        {t("stage1.chooseOfferCta")}
       </button>
     </div>
   );
@@ -395,6 +405,8 @@ function PriceCard({
   expired: boolean;
   onAccept: () => void;
 }) {
+  const t = useT();
+  const locale = useLocale();
   const kva = ctx.kva!;
   const accent = `#${ctx.branding.primaryColor}`;
   return (
@@ -408,23 +420,24 @@ function PriceCard({
         }}
       />
       <div className="border-b px-5 pb-3 pt-4 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-        {ctx.customerDisplayName ? `Angebot für ${ctx.customerDisplayName}` : "Ihr Angebot"}
+        {ctx.customerDisplayName
+          ? t("stage1.offerFor", { name: ctx.customerDisplayName })
+          : t("stage1.yourOffer")}
       </div>
       <div className="space-y-4 px-5 py-5">
         <div>
           <div className="text-xs text-muted-foreground">
-            {kva.isVariable ? "Voraussichtlich" : "Festpreis inkl. MwSt."}
+            {kva.isVariable
+              ? t("stage1.estimated")
+              : t("stage1.fixedPriceInclVat")}
           </div>
           <div className="display mt-1 text-4xl font-medium tabular-nums leading-none tracking-tight">
-            {formatEurCents(kva.totalCents)}
+            {formatEurCentsRounded(kva.totalCents, locale)}
           </div>
           {kva.validUntil && (
             <div className="mt-2 text-[11px] text-muted-foreground">
-              Gültig bis{" "}
-              {new Date(kva.validUntil).toLocaleDateString("de-DE", {
-                day: "numeric",
-                month: "long",
-                year: "numeric",
+              {t("stage1.validUntil", {
+                date: formatDateMedium(kva.validUntil, locale),
               })}
             </div>
           )}
@@ -432,8 +445,10 @@ function PriceCard({
 
         {kva.depositRequiredCents && kva.depositRequiredCents > 0 ? (
           <div className="rounded-lg bg-muted/50 px-3 py-2 text-[11px] leading-relaxed">
-            <strong className="font-medium">Anzahlung</strong>{" "}
-            {formatEurCents(kva.depositRequiredCents)} zur Auftragsbestätigung.
+            <strong className="font-medium">{t("stage1.deposit")}</strong>{" "}
+            {t("stage1.depositLine", {
+              amount: formatEurCentsRounded(kva.depositRequiredCents, locale),
+            })}
           </div>
         ) : null}
 
@@ -441,15 +456,12 @@ function PriceCard({
           <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-200">
             <div className="flex items-center gap-2 font-medium">
               <span aria-hidden>✓</span>
-              Angebot angenommen
+              {t("stage1.accepted")}
             </div>
             <p className="mt-1 leading-relaxed">
-              Bestätigt am{" "}
-              {new Date(ctx.acceptance!.signedAt).toLocaleString("de-DE", {
-                dateStyle: "long",
-                timeStyle: "short",
+              {t("stage1.confirmedOn", {
+                date: formatIsoDateTimeLong(ctx.acceptance!.signedAt, locale),
               })}
-              .
             </p>
           </div>
         ) : expired ? (
@@ -470,20 +482,14 @@ function PriceCard({
               style={{ background: `#${ctx.branding.primaryColor}` }}
             >
               {blockedByDateChoice
-                ? "Zuerst Termin wählen"
-                : "Angebot verbindlich annehmen"}
+                ? t("stage1.pickDateFirst")
+                : t("stage1.acceptCta")}
             </button>
-            {blockedByDateChoice ? (
-              <p className="text-[10px] leading-relaxed text-muted-foreground">
-                Bitte wählen Sie oben einen Termin, damit wir den Auftrag
-                verbindlich für Sie reservieren können.
-              </p>
-            ) : (
-              <p className="text-[10px] leading-relaxed text-muted-foreground">
-                Mit einem Klick bestätigen Sie den Auftrag rechtlich verbindlich
-                (Textform gem. § 126b BGB). Sie erhalten eine Kopie per E-Mail.
-              </p>
-            )}
+            <p className="text-[10px] leading-relaxed text-muted-foreground">
+              {blockedByDateChoice
+                ? t("stage1.pickDateHint")
+                : t("stage1.acceptLegalHint")}
+            </p>
           </>
         )}
       </div>
@@ -503,15 +509,17 @@ function MobilePriceDetails({
   ctx: CustomerPortalContext;
   expired: boolean;
 }) {
+  const t = useT();
+  const locale = useLocale();
   const kva = ctx.kva!;
   return (
     <div className="space-y-3 lg:hidden">
       <div className="rounded-2xl border bg-card px-5 py-4 shadow-sm">
         <div className="text-xs text-muted-foreground">
-          {kva.isVariable ? "Voraussichtlich" : "Festpreis inkl. MwSt."}
+          {kva.isVariable ? t("stage1.estimated") : t("stage1.fixedPriceInclVat")}
         </div>
         <div className="display mt-1 text-3xl font-medium tabular-nums leading-none tracking-tight">
-          {formatEurCents(kva.totalCents)}
+          {formatEurCentsRounded(kva.totalCents, locale)}
         </div>
         {kva.validUntil && (
           <div
@@ -519,19 +527,18 @@ function MobilePriceDetails({
               expired ? "font-medium text-destructive" : "text-muted-foreground"
             }`}
           >
-            Gültig bis{" "}
-            {new Date(kva.validUntil).toLocaleDateString("de-DE", {
-              day: "numeric",
-              month: "long",
-              year: "numeric",
+            {t("stage1.validUntil", {
+              date: formatDateMedium(kva.validUntil, locale),
             })}
-            {expired && " (abgelaufen)"}
+            {expired && t("stage1.expiredSuffix")}
           </div>
         )}
         {kva.depositRequiredCents && kva.depositRequiredCents > 0 ? (
           <div className="mt-3 rounded-lg bg-muted/50 px-3 py-2 text-[11px] leading-relaxed">
-            <strong className="font-medium">Anzahlung</strong>{" "}
-            {formatEurCents(kva.depositRequiredCents)} zur Auftragsbestätigung.
+            <strong className="font-medium">{t("stage1.deposit")}</strong>{" "}
+            {t("stage1.depositLine", {
+              amount: formatEurCentsRounded(kva.depositRequiredCents, locale),
+            })}
           </div>
         ) : null}
       </div>
@@ -546,24 +553,20 @@ function MobilePriceDetails({
  * portal routes the customer back into the WhatsApp thread instead.
  */
 function OfferExpiredNotice({ ctx }: { ctx: CustomerPortalContext }) {
+  const t = useT();
   return (
     <div className="rounded-lg bg-muted/50 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
-      <p className="font-medium text-foreground">Dieses Angebot ist abgelaufen.</p>
-      <p className="mt-1">
-        Schreiben Sie uns kurz, wir prüfen die Verfügbarkeit und senden Ihnen
-        ein aktualisiertes Angebot.
-      </p>
+      <p className="font-medium text-foreground">{t("stage1.expiredTitle")}</p>
+      <p className="mt-1">{t("stage1.expiredBody")}</p>
       <div className="mt-2">
         <WhatsAppContactLink
           phoneE164={ctx.branding.whatsappNumberE164}
-          label="Kurz nachfragen"
-          message={`Guten Tag ${ctx.branding.displayName}, das Angebot zu meinem Auftrag ${ctx.dealNumber} ist abgelaufen. Können Sie mir bitte ein aktualisiertes Angebot senden?`}
-          fallback={
-            <p>
-              Antworten Sie einfach auf die Nachricht, mit der Sie diesen Link
-              erhalten haben.
-            </p>
-          }
+          label={t("stage1.expiredWaLabel")}
+          message={t("stage1.expiredWaMessage", {
+            firma: ctx.branding.displayName,
+            dealNumber: ctx.dealNumber,
+          })}
+          fallback={<p>{t("stage1.replyHint")}</p>}
         />
       </div>
     </div>
@@ -577,42 +580,28 @@ function TrustLine({
   branding: { firmaSlug: string; displayName: string };
   isVariable: boolean;
 }) {
+  const t = useT();
   return (
     <div className="px-1 text-center text-[11px] leading-relaxed text-muted-foreground">
-      {isVariable
-        ? "Versicherter Transport. Transparente Abrechnung nach Aufwand."
-        : "Versicherter Transport. Kein Aufpreis am Tag."}
+      {isVariable ? t("stage1.trustVariable") : t("stage1.trustFixed")}
       <br />
-      Persönlicher Ansprechpartner bei {branding.displayName}.
+      {t("stage1.trustContact", { firma: branding.displayName })}
     </div>
   );
 }
 
-function labelForType(type: "helper" | "transporter" | "other"): string {
+function labelForType(
+  type: "helper" | "transporter" | "other",
+  t: Translator
+): string {
   switch (type) {
     case "helper":
-      return "Umzugshelfer";
+      return t("stage1.lineHelper");
     case "transporter":
-      return "Transporter";
+      return t("stage1.lineTransporter");
     case "other":
-      return "Weitere Leistung";
+      return t("stage1.lineOther");
   }
-}
-
-function formatEur(eur: number): string {
-  return new Intl.NumberFormat("de-DE", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-  }).format(eur);
-}
-
-function formatEurCents(cents: number): string {
-  return new Intl.NumberFormat("de-DE", {
-    style: "currency",
-    currency: "EUR",
-    maximumFractionDigits: 0,
-  }).format(cents / 100);
 }
 
 // ─── Kalkulationsgrundlagen ──────────────────────────────────────────────────
@@ -623,28 +612,36 @@ function CalculationAssumptionsCard({
 }: {
   a: NonNullable<NonNullable<CustomerPortalContext["kva"]>["calculationAssumptions"]>;
 }) {
+  const t = useT();
   const rows: Array<[string, string]> = [];
   if (a.anfahrtMinuten != null) {
     rows.push([
-      "Anfahrt gesamt",
-      `ca. ${a.anfahrtMinuten} Min.${a.anfahrtQuelle === "manuell" ? " (Annahme)" : ""}`,
+      t("stage1.assumptionsTravel"),
+      t("stage1.assumptionsTravelValue", { minutes: a.anfahrtMinuten }) +
+        (a.anfahrtQuelle === "manuell"
+          ? t("stage1.assumptionsAssumedSuffix")
+          : ""),
     ]);
   }
-  if (a.etageVon) rows.push(["Etage Beladestelle", a.etageVon]);
-  if (a.etageBis) rows.push(["Etage Entladestelle", a.etageBis]);
-  if (a.zugangVon) rows.push(["Zugang Beladestelle", a.zugangVon]);
-  if (a.zugangBis) rows.push(["Zugang Entladestelle", a.zugangBis]);
+  // Access/floor values are operator-entered free text — shown as typed.
+  if (a.etageVon) rows.push([t("stage1.assumptionsFloorFrom"), a.etageVon]);
+  if (a.etageBis) rows.push([t("stage1.assumptionsFloorTo"), a.etageBis]);
+  if (a.zugangVon) rows.push([t("stage1.assumptionsAccessFrom"), a.zugangVon]);
+  if (a.zugangBis) rows.push([t("stage1.assumptionsAccessTo"), a.zugangBis]);
   if (a.inventarPositionen != null) {
     rows.push([
-      "Umfang",
-      `${a.inventarPositionen} Positionen${a.inventarVolumenCbm != null ? ` · ca. ${a.inventarVolumenCbm} m³` : ""}`,
+      t("stage1.assumptionsScope"),
+      t("stage1.assumptionsScopeValue", { count: a.inventarPositionen }) +
+        (a.inventarVolumenCbm != null
+          ? t("stage1.assumptionsVolumeSuffix", { cbm: a.inventarVolumenCbm })
+          : ""),
     ]);
   }
   if (rows.length === 0 && !a.hinweis) return null;
   return (
     <div className="overflow-hidden rounded-2xl border bg-card">
       <div className="border-b px-6 py-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-        Kalkulationsgrundlagen
+        {t("stage1.assumptionsTitle")}
       </div>
       <div className="px-6 py-4">
         <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
@@ -656,8 +653,8 @@ function CalculationAssumptionsCard({
           ))}
         </dl>
         <p className="mt-3 text-xs text-muted-foreground">
-          {a.hinweis ??
-            "Der Preis basiert auf diesen Angaben. Abweichende Gegebenheiten vor Ort (z. B. andere Etage, fehlender Aufzug, längere Trage- oder Anfahrtswege) können zu Mehrkosten führen."}
+          {/* An operator-written note wins over the generic default. */}
+          {a.hinweis ?? t("stage1.assumptionsDefaultNote")}
         </p>
       </div>
     </div>

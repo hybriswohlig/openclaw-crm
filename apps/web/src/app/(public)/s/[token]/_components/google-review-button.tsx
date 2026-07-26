@@ -1,4 +1,7 @@
+"use client";
+
 import { Star, ExternalLink } from "lucide-react";
+import { useT } from "./portal-i18n";
 
 /**
  * Big tappable Google-review button. Rendered at Stage 4 only when the
@@ -11,6 +14,7 @@ export function GoogleReviewButton({
   url: string;
   primaryColor: string;
 }) {
+  const t = useT();
   return (
     <a
       href={url}
@@ -26,10 +30,8 @@ export function GoogleReviewButton({
           <Star className="h-5 w-5 text-white" fill="currentColor" />
         </div>
         <div>
-          <div className="text-sm font-medium">Hat alles geklappt?</div>
-          <div className="text-xs text-muted-foreground">
-            Mit einer Google-Bewertung hilfst du uns sehr.
-          </div>
+          <div className="text-sm font-medium">{t("review.title")}</div>
+          <div className="text-xs text-muted-foreground">{t("review.body")}</div>
         </div>
       </div>
       <ExternalLink className="h-4 w-4 text-muted-foreground" />

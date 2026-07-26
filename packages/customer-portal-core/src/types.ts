@@ -7,6 +7,8 @@
  * code converts to Date before returning.
  */
 
+import type { PortalLocale } from "./i18n/locale";
+
 export type CustomerLinkStage = 1 | 2 | 3 | 4;
 
 export type Firma = "kottke" | "ceylan" | (string & {});
@@ -354,6 +356,14 @@ export interface CustomerPortalContext {
   /** Last few chars of the email when status === 'present', masked otherwise. */
   customerEmailMasked: string | null;
 
+  /**
+   * Language the customer picked on the portal, as stored on the link row.
+   * Null until they touch the DE|EN toggle. This is the *stored* preference,
+   * not the locale in effect: the page resolves that from cookie → this →
+   * Accept-Language → "de" (see resolvePortalLocale).
+   */
+  preferredLocale: PortalLocale | null;
+
   branding: FirmaBranding;
   scope: MoveScope;
   inclusions: OfferInclusions;
@@ -428,6 +438,13 @@ export interface ConfirmKvaPayload {
    * is unambiguous (§ 305 Abs. 2 BGB).
    */
   acceptedAgb: boolean;
+  /**
+   * Language the acceptance screen was displayed in. Recorded as evidence:
+   * the AGB themselves are German, so if an English-reading customer ever
+   * disputes what they agreed to, this says which wording they were shown.
+   * Untrusted input — the server validates it before storing.
+   */
+  locale?: PortalLocale;
   /** Only required when the move is < 14 days away. */
   widerrufVerzichtAccepted: boolean;
   /** Optional self-typed full name. Strengthens evidence. */

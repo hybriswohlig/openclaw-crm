@@ -44,8 +44,10 @@ import {
   buildPayPalUrl,
   deriveStage,
   generateToken,
+  isPortalLocale,
   validateTokenShape,
   widerrufVerzichtRequired,
+  type PortalLocale,
   type AcceptanceRecord,
   type AttachmentRef,
   type ConfirmKvaPayload,
@@ -411,6 +413,9 @@ export async function loadContextByToken(
     customerDisplayName,
     customerEmailStatus,
     customerEmailMasked,
+    preferredLocale: isPortalLocale(link.preferredLocale)
+      ? link.preferredLocale
+      : null,
     branding,
     scope,
     inclusions,
@@ -562,11 +567,57 @@ export async function confirmKvaForToken(
       confirmedTotalCents: kva.totalCents,
       agbVersion: effective.branding.agbVersion,
       acceptedAgb: body.acceptedAgb,
+      // Which language the customer read the acceptance screen in. The AGB are
+      // German regardless, so this is the record of what wording they saw.
+      locale: isPortalLocale(body.locale)
+        ? body.locale
+        : isPortalLocale(link.preferredLocale)
+          ? link.preferredLocale
+          : "de",
       acceptedFullName: body.fullName ?? null,
       widerrufVerzichtAccepted: body.widerrufVerzichtAccepted,
       ipAddress: ctx.ipAddress.slice(0, 200),
     },
   });
+
+  return { ok: true };
+}
+
+/**
+ * Persists the language the customer picked with the portal's DE|EN toggle.
+ *
+ * Deliberately quiet: no activity event, because a language switch is not
+ * something the operator needs on the deal timeline. The value shows up on
+ * the link row instead, which is where the share panel reads from.
+ *
+ * The cookie set alongside this is the primary carrier — this row makes the
+ * choice survive a device change and lets outbound messaging know which
+ * language the customer reads.
+ */
+export async function setPreferredLocaleForToken(
+  token: string,
+  locale: string
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  if (!validateTokenShape(token)) return { ok: false, reason: "invalid_token" };
+  if (!isPortalLocale(locale)) return { ok: false, reason: "invalid_input" };
+
+  const [link] = await db
+    .select({
+      id: customerStatusLinks.id,
+      revokedAt: customerStatusLinks.revokedAt,
+      expiresAt: customerStatusLinks.expiresAt,
+    })
+    .from(customerStatusLinks)
+    .where(eq(customerStatusLinks.token, token))
+    .limit(1);
+
+  if (!link) return { ok: false, reason: "not_found" };
+  if (!isLinkUsable(link)) return { ok: false, reason: "revoked" };
+
+  await db
+    .update(customerStatusLinks)
+    .set({ preferredLocale: locale satisfies PortalLocale })
+    .where(eq(customerStatusLinks.id, link.id));
 
   return { ok: true };
 }

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Camera, ChevronDown } from "lucide-react";
 import type { AttachmentRef } from "@openclaw-crm/customer-portal-core";
 import { LiveMediaFeed } from "./live-media-feed";
+import { useT } from "./portal-i18n";
 
 /**
  * Collapsible card with the curated customer photos (the pictures the
@@ -21,6 +22,7 @@ export function CustomerPhotosSection({
   photos: AttachmentRef[];
   primaryColor: string;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
 
   if (photos.length === 0) return null;
@@ -40,10 +42,10 @@ export function CustomerPhotosSection({
         />
         <span className="min-w-0 flex-1">
           <span className="block text-sm font-medium">
-            Ihre Fotos ({photos.length})
+            {t("photos.title", { count: photos.length })}
           </span>
           <span className="block text-xs text-muted-foreground">
-            Die Fotos, die Sie uns geschickt haben
+            {t("photos.subtitle")}
           </span>
         </span>
         <ChevronDown
@@ -60,7 +62,7 @@ export function CustomerPhotosSection({
             token={token}
             attachments={photos}
             primaryColor={primaryColor}
-            title="Ihre Fotos"
+            title={t("photos.feedTitle")}
           />
         </div>
       )}

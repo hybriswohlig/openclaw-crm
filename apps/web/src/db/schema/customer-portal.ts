@@ -155,6 +155,13 @@ export const customerStatusLinks = pgTable(
       .notNull()
       .default(0),
     sessionCount: integer("session_count").notNull().default(0),
+    /**
+     * Language the customer chose on the portal ('de' | 'en'). Null until they
+     * use the toggle, in which case the portal falls back to Accept-Language
+     * and then German. Stored so the choice survives a device change and is
+     * visible to the operator.
+     */
+    preferredLocale: text("preferred_locale"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     createdBy: text("created_by").references(() => users.id, {
       onDelete: "set null",

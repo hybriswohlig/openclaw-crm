@@ -4,12 +4,14 @@ import { useParams } from "next/navigation";
 import { MessageCircle } from "lucide-react";
 import {
   daysUntilMove,
+  formatDateLong,
   type CustomerPortalContext,
   type MoveScope,
 } from "@openclaw-crm/customer-portal-core";
 import { ScopeSummary } from "./scope-summary";
 import { MovingChecklist } from "./moving-checklist";
 import { PortalRequestForm } from "./portal-request-form";
+import { useLocale, useT } from "./portal-i18n";
 
 /**
  * Stage 2: the waiting weeks between the confirmed AB and the move day.
@@ -24,18 +26,18 @@ import { PortalRequestForm } from "./portal-request-form";
  * The AB PDF lives in the portal-wide documents section, not in this stage.
  */
 export function StageTwoAb({ ctx }: { ctx: CustomerPortalContext }) {
+  const t = useT();
   const params = useParams<{ token: string }>();
   const token = params?.token ?? "";
 
   return (
     <section className="space-y-5">
       <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-200">
-        <div className="font-medium">Ihr Auftrag ist bestätigt.</div>
+        <div className="font-medium">{t("stage2.confirmedTitle")}</div>
         <p className="mt-1 text-xs">
-          Wir freuen uns auf Ihren Umzug. Alle wichtigen Informationen finden
-          Sie unten.
+          {t("stage2.confirmedBody")}
           {ctx.documents.orderConfirmationUrl
-            ? " Ihre Auftragsbestätigung finden Sie unten unter Ihren Unterlagen."
+            ? t("stage2.abBelowSuffix")
             : null}
         </p>
       </div>
@@ -49,16 +51,16 @@ export function StageTwoAb({ ctx }: { ctx: CustomerPortalContext }) {
       <PortalRequestForm
         token={token}
         kind="reschedule"
-        triggerLabel="Termin passt nicht mehr? Terminänderung anfragen"
-        title="Terminänderung anfragen"
-        intro="Nennen Sie uns gern bis zu drei Wunschtermine, wir prüfen die Verfügbarkeit und melden uns."
+        triggerLabel={t("stage2.rescheduleTrigger")}
+        title={t("stage2.rescheduleTitle")}
+        intro={t("stage2.rescheduleIntro")}
         primaryColor={ctx.branding.primaryColor}
       />
 
       {ctx.crew.length > 0 && (
         <div className="rounded-2xl border border-border/50 bg-card p-5">
           <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            Ihre Crew
+            {t("stage2.yourCrew")}
           </div>
           <ul className="mt-3 flex flex-wrap gap-3">
             {ctx.crew.map((c) => (
@@ -101,8 +103,8 @@ export function StageTwoAb({ ctx }: { ctx: CustomerPortalContext }) {
       <PortalRequestForm
         token={token}
         kind="question"
-        triggerLabel="Lieber schreiben? Nachricht senden"
-        title="Nachricht an uns"
+        triggerLabel={t("stage2.questionTrigger")}
+        title={t("stage2.questionTitle")}
         primaryColor={ctx.branding.primaryColor}
       />
     </section>
@@ -122,6 +124,8 @@ function MoveDayCard({
   serverTime: string;
   primaryColor: string;
 }) {
+  const t = useT();
+  const locale = useLocale();
   if (!scope.moveDate) return null;
   const days = daysUntilMove(scope.moveDate, new Date(serverTime));
   if (days == null || days < 0) return null;
@@ -129,31 +133,36 @@ function MoveDayCard({
   return (
     <div className="rounded-2xl border border-border/50 bg-card p-5">
       <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-        Ihr Umzugstag
+        {t("stage2.moveDay")}
       </div>
       {days >= 2 ? (
         <p className="mt-2 text-base font-medium">
-          Noch{" "}
+          {t("stage2.daysUntilBefore")}{" "}
           <span
             className="display align-baseline text-5xl font-medium tracking-tight"
             style={{ color: `#${primaryColor}` }}
           >
             {days}
           </span>{" "}
-          Tage bis zu Ihrem Umzug
+          {t("stage2.daysUntilAfter")}
         </p>
       ) : (
         <p className="display mt-2 text-3xl font-medium tracking-tight">
-          {days === 1 ? "Morgen ist es so weit!" : "Heute ist Ihr Umzugstag!"}
+          {days === 1 ? t("stage2.tomorrow") : t("stage2.today")}
         </p>
       )}
       <div className="mt-3 text-sm">
-        <div className="font-medium">{formatGermanDate(scope.moveDate)}</div>
+        <div className="font-medium">
+          {formatDateLong(scope.moveDate, locale)}
+        </div>
         {scope.timeStart && (
           <div className="mt-0.5 text-muted-foreground">
             {scope.timeEnd
-              ? `Ankunft des Teams zwischen ${scope.timeStart} und ${scope.timeEnd} Uhr`
-              : `Ankunft gegen ${scope.timeStart} Uhr`}
+              ? t("stage2.arrivalBetween", {
+                  start: scope.timeStart,
+                  end: scope.timeEnd,
+                })
+              : t("stage2.arrivalAround", { start: scope.timeStart })}
           </div>
         )}
       </div>
@@ -172,8 +181,9 @@ function WhatsAppCard({
   firma: string;
   primaryColor: string;
 }) {
+  const t = useT();
   const text = encodeURIComponent(
-    `Hallo ${firma}, ich habe eine Frage zu meinem Umzug ${dealNumber}.`
+    t("stage2.waMessage", { firma, dealNumber })
   );
   const phone = phoneE164.replace(/^\+/, "").replace(/\s/g, "");
   const href = `https://wa.me/${phone}?text=${text}`;
@@ -192,22 +202,11 @@ function WhatsAppCard({
         <MessageCircle className="h-5 w-5 text-white" />
       </div>
       <div>
-        <div className="text-sm font-medium">Frage stellen</div>
+        <div className="text-sm font-medium">{t("stage2.askQuestion")}</div>
         <div className="text-xs text-muted-foreground">
-          Direkt per WhatsApp an Ihren Ansprechpartner
+          {t("stage2.askQuestionSub")}
         </div>
       </div>
     </a>
   );
-}
-
-function formatGermanDate(ymd: string): string {
-  const d = new Date(`${ymd}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return ymd;
-  return d.toLocaleDateString("de-DE", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
 }

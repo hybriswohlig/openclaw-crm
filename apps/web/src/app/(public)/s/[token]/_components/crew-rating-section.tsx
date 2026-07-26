@@ -6,6 +6,7 @@ import type {
   CrewMember,
   FirmaBranding,
 } from "@openclaw-crm/customer-portal-core";
+import { useT } from "./portal-i18n";
 
 /**
  * Lets the customer rate each crew member separately (1-5 stars + an optional
@@ -27,6 +28,7 @@ export function CrewRatingSection({
   /** ISO timestamp of a previously submitted rating, survives reloads. */
   ratedAt?: string | null;
 }) {
+  const t = useT();
   const [scores, setScores] = useState<Record<string, number>>({});
   const [comment, setComment] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -46,7 +48,7 @@ export function CrewRatingSection({
       .filter((r) => r.stars >= 1 && r.stars <= 5);
 
     if (ratings.length === 0) {
-      setError("Bitte vergeben Sie mindestens eine Bewertung.");
+      setError(t("errors.ratingRequired"));
       return;
     }
 
@@ -59,12 +61,12 @@ export function CrewRatingSection({
         body: JSON.stringify({ ratings }),
       });
       if (!res.ok) {
-        setError("Bewertung konnte nicht gespeichert werden.");
+        setError(t("errors.ratingFailed"));
         return;
       }
       setDone(true);
     } catch {
-      setError("Keine Verbindung. Bitte versuchen Sie es erneut.");
+      setError(t("errors.noConnection"));
     } finally {
       setSubmitting(false);
     }
@@ -73,16 +75,12 @@ export function CrewRatingSection({
   if (done) {
     return (
       <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-200">
-        <div className="font-medium">Danke für Ihr Feedback!</div>
-        {ratedAt && (
-          <p className="mt-1 text-xs">
-            Sie haben Ihre Bewertung bereits abgegeben. Vielen Dank!
-          </p>
-        )}
+        <div className="font-medium">{t("rating.thanks")}</div>
+        {ratedAt && <p className="mt-1 text-xs">{t("rating.already")}</p>}
         <p className="mt-1 text-xs">
           {branding.googleReviewUrl
-            ? "Wenn alles geklappt hat, freuen wir uns über eine öffentliche Google-Bewertung. Der Button dazu erscheint direkt darunter."
-            : "Wir geben Ihr Feedback an die Crew weiter."}
+            ? t("rating.googleHint")
+            : t("rating.passOn")}
         </p>
       </section>
     );
@@ -94,7 +92,7 @@ export function CrewRatingSection({
         className="px-6 py-3 text-sm font-medium text-white"
         style={{ background: `#${branding.primaryColor}` }}
       >
-        Wie war Ihre Crew?
+        {t("rating.title")}
       </div>
       <div className="space-y-4 p-6">
         <ul className="space-y-3">
@@ -137,14 +135,14 @@ export function CrewRatingSection({
 
         <label className="block">
           <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
-            Kommentar (optional)
+            {t("rating.commentLabel")}
           </span>
           <textarea
             value={comment}
             onChange={(e) => setComment(e.target.value)}
             rows={2}
             className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
-            placeholder="Was lief gut? Wo können wir besser werden?"
+            placeholder={t("rating.commentPlaceholder")}
           />
         </label>
 
@@ -162,7 +160,7 @@ export function CrewRatingSection({
           style={{ background: `#${branding.primaryColor}` }}
         >
           {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-          Bewertung abschicken
+          {t("rating.submit")}
         </button>
       </div>
     </section>
@@ -178,6 +176,7 @@ function StarPicker({
   onChange: (v: number) => void;
   primaryColor: string;
 }) {
+  const t = useT();
   return (
     <div className="flex shrink-0 items-center gap-0.5">
       {[1, 2, 3, 4, 5].map((n) => {
@@ -187,7 +186,11 @@ function StarPicker({
             key={n}
             type="button"
             onClick={() => onChange(n === value ? 0 : n)}
-            aria-label={`${n} Stern${n === 1 ? "" : "e"}`}
+            aria-label={
+              n === 1
+                ? t("rating.starAriaOne", { n })
+                : t("rating.starAriaMany", { n })
+            }
             className="p-1 transition-transform hover:scale-110"
           >
             <Star

@@ -1,4 +1,7 @@
+"use client";
+
 import { MessageCircle } from "lucide-react";
+import { useT } from "./portal-i18n";
 
 /**
  * Shared WhatsApp contact affordance for the customer portal. Customers
@@ -10,18 +13,20 @@ import { MessageCircle } from "lucide-react";
  */
 export function WhatsAppContactLink({
   phoneE164,
-  label = "Per WhatsApp schreiben",
+  label,
   message,
   className,
   fallback = null,
 }: {
   phoneE164: string | null | undefined;
+  /** Defaults to the translated "Message us on WhatsApp". */
   label?: string;
   /** Prefilled message, plain text (encoded internally). */
   message?: string;
   className?: string;
   fallback?: React.ReactNode;
 }) {
+  const t = useT();
   if (!phoneE164) return <>{fallback}</>;
   const phone = phoneE164.replace(/^\+/, "").replace(/\s/g, "");
   const href = `https://wa.me/${phone}${
@@ -38,7 +43,7 @@ export function WhatsAppContactLink({
       }
     >
       <MessageCircle className="h-4 w-4 shrink-0" aria-hidden />
-      {label}
+      {label ?? t("whatsapp.defaultLabel")}
     </a>
   );
 }

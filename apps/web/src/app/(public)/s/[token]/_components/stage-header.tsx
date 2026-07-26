@@ -1,6 +1,8 @@
 "use client";
 
 import type { CustomerPortalContext } from "@openclaw-crm/customer-portal-core";
+import { LanguageToggle } from "./language-toggle";
+import { useT } from "./portal-i18n";
 
 /**
  * Top-of-page header.
@@ -17,11 +19,12 @@ import type { CustomerPortalContext } from "@openclaw-crm/customer-portal-core";
  * raw color so it reads as premium against the muted Berlin-Blue surface.
  */
 export function StageHeader({ ctx }: { ctx: CustomerPortalContext }) {
+  const t = useT();
   const stages: Array<{ n: 1 | 2 | 3 | 4; title: string; shortTitle: string }> = [
-    { n: 1, title: "Kostenvoranschlag", shortTitle: "Angebot" },
-    { n: 2, title: "Auftragsbestätigung", shortTitle: "Bestätigt" },
-    { n: 3, title: "Während des Umzugs", shortTitle: "Umzug" },
-    { n: 4, title: "Nach dem Umzug", shortTitle: "Abschluss" },
+    { n: 1, title: t("header.stage1"), shortTitle: t("header.stage1Short") },
+    { n: 2, title: t("header.stage2"), shortTitle: t("header.stage2Short") },
+    { n: 3, title: t("header.stage3"), shortTitle: t("header.stage3Short") },
+    { n: 4, title: t("header.stage4"), shortTitle: t("header.stage4Short") },
   ];
 
   const accent = `#${ctx.branding.primaryColor}`;
@@ -51,30 +54,33 @@ export function StageHeader({ ctx }: { ctx: CustomerPortalContext }) {
             {ctx.branding.displayName}
           </div>
           <h1 className="display mt-2 truncate text-2xl font-medium tracking-tight sm:text-3xl">
-            Ihr Auftrag · {ctx.dealNumber}
+            {t("header.yourOrder")} · {ctx.dealNumber}
           </h1>
           {ctx.customerDisplayName && (
             <p className="mt-1 truncate text-sm text-muted-foreground">
-              für {ctx.customerDisplayName}
+              {t("header.forCustomer", { name: ctx.customerDisplayName })}
             </p>
           )}
         </div>
 
-        {ctx.branding.logoUrl && (
-          <div className="flex-shrink-0">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
+        {/* Language switch sits with the logo, above the fold and reachable
+            from every stage without scrolling. */}
+        <div className="flex flex-shrink-0 flex-col items-end gap-2">
+          <LanguageToggle primaryColor={ctx.branding.primaryColor} />
+          {ctx.branding.logoUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
             <img
               src={ctx.branding.logoUrl}
               alt={ctx.branding.displayName}
               className="h-9 w-auto opacity-90 sm:h-10"
             />
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       <ol
         className="mt-6 grid grid-cols-4 gap-2 sm:gap-3"
-        aria-label="Status-Schritte"
+        aria-label={t("header.stepsLabel")}
       >
         {stages.map((s) => {
           const state =

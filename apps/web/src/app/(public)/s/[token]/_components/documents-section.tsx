@@ -1,7 +1,12 @@
 "use client";
 
 import { CheckCircle2 } from "lucide-react";
-import type { CustomerPortalContext } from "@openclaw-crm/customer-portal-core";
+import {
+  formatEurCents,
+  formatIsoDateLong,
+  type CustomerPortalContext,
+} from "@openclaw-crm/customer-portal-core";
+import { useLocale, useT } from "./portal-i18n";
 
 /**
  * Collected paperwork card: the acceptance confirmation (no PDF exists, so
@@ -11,6 +16,8 @@ import type { CustomerPortalContext } from "@openclaw-crm/customer-portal-core";
  * <object type="application/pdf"> is blank on iOS Safari and in-app browsers.
  */
 export function DocumentsSection({ ctx }: { ctx: CustomerPortalContext }) {
+  const t = useT();
+  const locale = useLocale();
   const { acceptance, documents, kva, branding } = ctx;
   if (!acceptance && !documents.orderConfirmationUrl && !documents.invoiceUrl) {
     return null;
@@ -19,24 +26,24 @@ export function DocumentsSection({ ctx }: { ctx: CustomerPortalContext }) {
   return (
     <section className="rounded-2xl border border-border/50 bg-card">
       <div className="border-b border-border/50 px-6 py-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-        Ihre Unterlagen
+        {t("documents.title")}
       </div>
       <div className="divide-y divide-border/50">
         {acceptance && (
           <div className="flex items-start gap-3 px-6 py-4">
             <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400" />
             <div className="min-w-0">
-              <div className="text-sm font-medium">Angebotsannahme</div>
+              <div className="text-sm font-medium">
+                {t("documents.acceptance")}
+              </div>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                Verbindlich angenommen am{" "}
-                {new Intl.DateTimeFormat("de-DE", { dateStyle: "long" }).format(
-                  new Date(acceptance.signedAt),
-                )}
+                {t("documents.acceptedOn", {
+                  date: formatIsoDateLong(acceptance.signedAt, locale),
+                })}
                 {kva
-                  ? ` über ${new Intl.NumberFormat("de-DE", {
-                      style: "currency",
-                      currency: "EUR",
-                    }).format(kva.totalCents / 100)}`
+                  ? t("documents.acceptedAmountSuffix", {
+                      amount: formatEurCents(kva.totalCents, locale),
+                    })
                   : null}
               </p>
             </div>
@@ -44,14 +51,14 @@ export function DocumentsSection({ ctx }: { ctx: CustomerPortalContext }) {
         )}
         {documents.orderConfirmationUrl && (
           <DocumentRow
-            label="Auftragsbestätigung (PDF)"
+            label={t("documents.orderConfirmation")}
             url={documents.orderConfirmationUrl}
             primaryColor={branding.primaryColor}
           />
         )}
         {documents.invoiceUrl && (
           <DocumentRow
-            label="Rechnung (PDF)"
+            label={t("documents.invoice")}
             url={documents.invoiceUrl}
             primaryColor={branding.primaryColor}
           />
@@ -70,6 +77,7 @@ function DocumentRow({
   url: string;
   primaryColor: string;
 }) {
+  const t = useT();
   return (
     <div className="flex flex-col gap-3 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="text-sm">{label}</div>
@@ -80,7 +88,7 @@ function DocumentRow({
         className="inline-flex h-11 items-center justify-center rounded-xl px-6 text-sm font-medium text-white transition-opacity hover:opacity-90"
         style={{ background: `#${primaryColor}` }}
       >
-        Öffnen
+        {t("documents.open")}
       </a>
     </div>
   );

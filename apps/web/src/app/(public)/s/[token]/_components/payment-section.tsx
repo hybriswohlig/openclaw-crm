@@ -2,11 +2,14 @@
 
 import { useState } from "react";
 import { Copy, Check, ExternalLink, Wallet } from "lucide-react";
-import type {
-  FirmaBranding,
-  PaymentInstructions,
+import {
+  formatEurCents,
+  formatIsoDateLong,
+  type FirmaBranding,
+  type PaymentInstructions,
 } from "@openclaw-crm/customer-portal-core";
 import { GirocodeQr } from "./girocode-qr";
+import { useLocale, useT } from "./portal-i18n";
 
 /**
  * Renders the right payment widget for the deal's preferred method. Falls back
@@ -33,6 +36,8 @@ export function PaymentSection({
   /** ISO timestamp of a previously reported payment, survives reloads. */
   markedPaidAt?: string | null;
 }) {
+  const t = useT();
+  const locale = useLocale();
   const [marking, setMarking] = useState(false);
   const [marked, setMarked] = useState(() => !!markedPaidAt);
   const [markError, setMarkError] = useState(false);
@@ -62,10 +67,7 @@ export function PaymentSection({
     }
   }
 
-  const amountStr = new Intl.NumberFormat("de-DE", {
-    style: "currency",
-    currency: "EUR",
-  }).format(payment.amountCents / 100);
+  const amountStr = formatEurCents(payment.amountCents, locale);
 
   return (
     <section className="overflow-hidden rounded-2xl border border-border/50 bg-card">
@@ -73,14 +75,16 @@ export function PaymentSection({
         className="px-6 py-3 text-sm font-medium text-white"
         style={{ background: `#${branding.primaryColor}` }}
       >
-        {variant === "deposit" ? "Anzahlung" : "Zahlung"}
+        {variant === "deposit" ? t("payment.deposit") : t("payment.payment")}
       </div>
       <div className="space-y-4 p-6">
         <div className="flex items-baseline justify-between">
-          <div className="text-sm text-muted-foreground">Offener Betrag</div>
+          <div className="text-sm text-muted-foreground">
+            {t("payment.openAmount")}
+          </div>
           <div className="text-2xl font-medium tabular-nums">{amountStr}</div>
         </div>
-        <CopyField label="Verwendungszweck" value={payment.reference} />
+        <CopyField label={t("payment.reference")} value={payment.reference} />
 
         {payment.method === "bank_transfer" && payment.bank?.iban ? (
           <BankTransferBlock payment={payment} branding={branding} />
@@ -96,14 +100,12 @@ export function PaymentSection({
 
         {marked ? (
           <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-200">
-            ✓ Danke! Wir prüfen den Zahlungseingang und melden uns sobald er bei
-            uns angekommen ist.
+            ✓ {t("payment.thanks")}
             {markedPaidAt && (
               <p className="mt-1">
-                Gemeldet am{" "}
-                {new Intl.DateTimeFormat("de-DE", { dateStyle: "long" }).format(
-                  new Date(markedPaidAt),
-                )}
+                {t("payment.reportedOn", {
+                  date: formatIsoDateLong(markedPaidAt, locale),
+                })}
               </p>
             )}
           </div>
@@ -115,11 +117,11 @@ export function PaymentSection({
               disabled={marking}
               className="h-10 w-full rounded-xl border border-border bg-background text-sm font-medium hover:bg-accent disabled:opacity-50"
             >
-              {marking ? "Wird gesendet…" : "Ich habe bezahlt"}
+              {marking ? t("payment.sending") : t("payment.iPaid")}
             </button>
             {markError && (
               <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                Konnte nicht gesendet werden. Bitte versuchen Sie es erneut.
+                {t("payment.sendFailed")}
               </p>
             )}
           </>
@@ -136,6 +138,8 @@ function BankTransferBlock({
   payment: PaymentInstructions;
   branding: FirmaBranding;
 }) {
+  const t = useT();
+  const locale = useLocale();
   const bank = payment.bank!;
   return (
     <div className="space-y-4">
@@ -148,19 +152,24 @@ function BankTransferBlock({
           />
         )}
         <div className="min-w-0 flex-1 space-y-2 text-sm">
+          <p className="text-xs text-muted-foreground">{t("payment.qrHint")}</p>
           <p className="text-xs text-muted-foreground">
-            Banking-App öffnen und QR-Code scannen: IBAN, Betrag und
-            Verwendungszweck sind vorausgefüllt.
+            {t("payment.qrHintMobile")}
           </p>
-          <p className="text-xs text-muted-foreground">
-            Sie lesen das auf dem Handy? Machen Sie einen Screenshot und
-            scannen Sie den Code in Ihrer Banking-App aus der Galerie. Oder
-            kopieren Sie einfach die Felder unten.
-          </p>
-          <CopyField label="Kontoinhaber" value={bank.holder} />
-          <CopyField label="IBAN" value={formatIban(bank.iban)} copyValue={bank.iban.replace(/\s/g, "")} />
-          {bank.bic && <CopyField label="BIC" value={bank.bic} />}
-          <CopyField label="Betrag" value={new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(payment.amountCents / 100)} copyValue={(payment.amountCents / 100).toFixed(2).replace(".", ",")} />
+          <CopyField label={t("payment.accountHolder")} value={bank.holder} />
+          <CopyField
+            label={t("payment.iban")}
+            value={formatIban(bank.iban)}
+            copyValue={bank.iban.replace(/\s/g, "")}
+          />
+          {bank.bic && <CopyField label={t("payment.bic")} value={bank.bic} />}
+          {/* Copied value stays machine-parseable for banking apps: a plain
+              decimal, with the comma German banking forms expect. */}
+          <CopyField
+            label={t("payment.amount")}
+            value={formatEurCents(payment.amountCents, locale)}
+            copyValue={(payment.amountCents / 100).toFixed(2).replace(".", ",")}
+          />
         </div>
       </div>
     </div>
@@ -168,12 +177,10 @@ function BankTransferBlock({
 }
 
 function PayPalBlock({ url, branding }: { url: string; branding: FirmaBranding }) {
+  const t = useT();
   return (
     <div className="space-y-3">
-      <p className="text-xs text-muted-foreground">
-        Tippen Sie auf den Button, um die Zahlung in der PayPal-App zu öffnen.
-        Betrag und Empfänger sind vorausgefüllt.
-      </p>
+      <p className="text-xs text-muted-foreground">{t("payment.paypalHint")}</p>
       <a
         href={url}
         target="_blank"
@@ -182,7 +189,7 @@ function PayPalBlock({ url, branding }: { url: string; branding: FirmaBranding }
         style={{ background: `#${branding.primaryColor}` }}
       >
         <Wallet className="h-4 w-4" />
-        Mit PayPal bezahlen
+        {t("payment.paypalCta")}
         <ExternalLink className="h-3.5 w-3.5 opacity-70" />
       </a>
     </div>
@@ -190,35 +197,32 @@ function PayPalBlock({ url, branding }: { url: string; branding: FirmaBranding }
 }
 
 function CashBlock() {
+  const t = useT();
   return (
     <div className="rounded-md bg-muted/50 px-4 py-3 text-sm">
-      <strong className="block">Zahlung bar bei Übergabe</strong>
+      <strong className="block">{t("payment.cashTitle")}</strong>
       <p className="mt-1 text-xs text-muted-foreground">
-        Bitte halten Sie den passenden Betrag bereit. Eine Quittung erhalten
-        Sie unmittelbar nach Abschluss des Umzugs.
+        {t("payment.cashBody")}
       </p>
     </div>
   );
 }
 
 function CardComingSoonBlock() {
+  const t = useT();
   return (
     <div className="rounded-md border border-dashed border-border bg-muted/30 p-4 text-xs">
-      <strong className="block">Kartenzahlung</strong>
-      <p className="mt-1 text-muted-foreground">
-        Wir nehmen Visa, Mastercard und Girocard vor Ort entgegen. Eine
-        Online-Kartenzahlung bauen wir gerade. Bei Fragen melden Sie sich
-        bitte kurz bei Ihrem Ansprechpartner.
-      </p>
+      <strong className="block">{t("payment.cardTitle")}</strong>
+      <p className="mt-1 text-muted-foreground">{t("payment.cardBody")}</p>
     </div>
   );
 }
 
 function UnconfiguredHint() {
+  const t = useT();
   return (
     <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-200">
-      Für diesen Auftrag sind noch keine Zahldaten hinterlegt. Bitte melden
-      Sie sich kurz beim Ansprechpartner.
+      {t("payment.unconfigured")}
     </div>
   );
 }
@@ -232,6 +236,7 @@ function CopyField({
   value: string;
   copyValue?: string;
 }) {
+  const t = useT();
   const [copied, setCopied] = useState(false);
   async function copy() {
     try {
@@ -254,12 +259,12 @@ function CopyField({
         type="button"
         onClick={copy}
         className="-my-2 -mr-2 flex min-h-11 min-w-11 shrink-0 items-center justify-center text-muted-foreground hover:text-foreground"
-        aria-label={`${label} kopieren`}
+        aria-label={t("payment.copyAria", { label })}
       >
         {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
       </button>
       <span aria-live="polite" className="sr-only">
-        {copied ? `${label} kopiert` : ""}
+        {copied ? t("payment.copiedAria", { label }) : ""}
       </span>
     </div>
   );

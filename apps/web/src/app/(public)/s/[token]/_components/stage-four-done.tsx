@@ -6,6 +6,7 @@ import { CrewRatingSection } from "./crew-rating-section";
 import { GoogleReviewButton } from "./google-review-button";
 import { PortalRequestForm } from "./portal-request-form";
 import { WhatsAppContactLink } from "./whatsapp-contact-link";
+import { useT } from "./portal-i18n";
 
 /**
  * Stage 4 — after the move. Composition:
@@ -23,14 +24,15 @@ export function StageFourDone({
   token: string;
   ctx: CustomerPortalContext;
 }) {
+  const t = useT();
   return (
     <section className="space-y-5">
       <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-200">
-        <div className="font-medium">Der Umzug ist abgeschlossen.</div>
+        <div className="font-medium">{t("stage4.title")}</div>
         <p className="mt-1 text-xs">
           {ctx.customerDisplayName
-            ? `Vielen Dank für Ihr Vertrauen, ${ctx.customerDisplayName}, und einen guten Start im neuen Zuhause!`
-            : "Vielen Dank für Ihr Vertrauen und einen guten Start im neuen Zuhause!"}
+            ? t("stage4.thanksNamed", { name: ctx.customerDisplayName })
+            : t("stage4.thanks")}
         </p>
       </div>
 
@@ -55,20 +57,23 @@ export function StageFourDone({
         <PortalRequestForm
           token={token}
           kind="damage"
-          triggerLabel="Ist etwas zu Bruch gegangen oder lief etwas schief?"
-          title="Schaden oder Problem melden"
-          intro="Beschreiben Sie kurz, was passiert ist. Wir kümmern uns umgehend darum."
+          triggerLabel={t("stage4.damageTrigger")}
+          title={t("stage4.damageTitle")}
+          intro={t("stage4.damageIntro")}
           primaryColor={ctx.branding.primaryColor}
         />
         {ctx.branding.whatsappNumberE164 && (
           <div>
             <p className="text-xs text-muted-foreground">
-              Fotos vom Schaden senden Sie uns am einfachsten per WhatsApp:
+              {t("stage4.damagePhotosHint")}
             </p>
             <WhatsAppContactLink
               phoneE164={ctx.branding.whatsappNumberE164}
-              label="Fotos per WhatsApp senden"
-              message={`Hallo ${ctx.branding.displayName}, zu meinem Umzug ${ctx.dealNumber}: ich möchte einen Schaden melden. Fotos anbei.`}
+              label={t("stage4.damagePhotosCta")}
+              message={t("stage4.damageWaMessage", {
+                firma: ctx.branding.displayName,
+                dealNumber: ctx.dealNumber,
+              })}
             />
           </div>
         )}

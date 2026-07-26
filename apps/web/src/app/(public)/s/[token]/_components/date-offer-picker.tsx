@@ -1,12 +1,18 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type {
-  CustomerPortalContext,
-  DateOfferOption,
-  DateOfferSlot,
+import {
+  formatDateLong,
+  formatDateShort,
+  formatWeekday,
+  portalErrorKey,
+  type CustomerPortalContext,
+  type DateOfferOption,
+  type DateOfferSlot,
+  type PortalLocale,
 } from "@openclaw-crm/customer-portal-core";
 import { WhatsAppContactLink } from "./whatsapp-contact-link";
+import { useLocale, useT } from "./portal-i18n";
 
 /**
  * Customer-facing multi-date picker rendered on Stage 1.
@@ -28,6 +34,8 @@ export function DateOfferPicker({
   ctx: CustomerPortalContext;
   onPicked: () => void;
 }) {
+  const t = useT();
+  const locale = useLocale();
   const { options, selection } = ctx.dateOffers;
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [pendingSlot, setPendingSlot] = useState<number | null>(null);
@@ -57,10 +65,10 @@ export function DateOfferPicker({
         <div className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <div className="text-[10px] font-medium uppercase tracking-wider text-emerald-900/70 dark:text-emerald-300/80">
-              Ihr gewählter Termin
+              {t("dates.yourDate")}
             </div>
             <div className="display mt-1 text-xl font-medium text-emerald-950 dark:text-emerald-100 sm:text-2xl">
-              {formatDateLong(selection.selectedDate)}
+              {formatDateLong(selection.selectedDate, locale)}
             </div>
             {selection.slotLabel && (
               <div className="mt-0.5 text-sm text-emerald-900/90 dark:text-emerald-200/90">
@@ -73,7 +81,7 @@ export function DateOfferPicker({
             onClick={() => setEditing(true)}
             className="self-start rounded-full border border-emerald-300/80 bg-white/70 px-4 py-1.5 text-xs font-medium text-emerald-900 backdrop-blur transition hover:bg-white dark:border-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-100"
           >
-            Ändern
+            {t("dates.change")}
           </button>
         </div>
       </section>
@@ -93,7 +101,7 @@ export function DateOfferPicker({
         const body = (await res.json().catch(() => ({}))) as {
           error?: { code?: string };
         };
-        setError(germanError(body.error?.code));
+        setError(t(portalErrorKey(body.error?.code)));
         return;
       }
       setEditing(false);
@@ -101,7 +109,7 @@ export function DateOfferPicker({
       setPendingSlot(null);
       onPicked();
     } catch {
-      setError("Verbindungsfehler. Bitte versuchen Sie es erneut.");
+      setError(t("errors.connection"));
     } finally {
       setSubmitting(false);
     }
@@ -120,19 +128,18 @@ export function DateOfferPicker({
         style={{ borderColor: "var(--border)" }}
       >
         <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-          {selection ? "Termin ändern" : "Bitte Termin wählen"}
+          {selection ? t("dates.changeTitle") : t("dates.pickTitle")}
         </div>
         {options.length > 1 && (
           <div className="text-[10px] text-muted-foreground">
-            {options.length} Vorschläge
+            {t("dates.proposals", { count: options.length })}
           </div>
         )}
       </div>
 
       <div className="p-4 sm:p-6">
         <p className="mb-4 text-sm leading-relaxed text-muted-foreground sm:mb-5">
-          Wir haben Ihnen die folgenden Termine reserviert. Bitte wählen Sie
-          eine Variante, damit wir verbindlich für Sie planen können.
+          {t("dates.intro")}
         </p>
 
         <div className="grid gap-3 sm:gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -141,6 +148,7 @@ export function DateOfferPicker({
               key={opt.id}
               opt={opt}
               accent={accent}
+              locale={locale}
               pendingSlot={pendingId === opt.id ? pendingSlot : null}
               isSubmittingFor={submitting && pendingId === opt.id}
               currentSelectionDate={
@@ -163,18 +171,15 @@ export function DateOfferPicker({
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground sm:mt-5">
-          <span>Keiner der Termine passt?</span>
+          <span>{t("dates.noneFit")}</span>
           <WhatsAppContactLink
             phoneE164={ctx.branding.whatsappNumberE164}
-            label="Schreiben Sie uns kurz"
-            message={`Hallo ${ctx.branding.displayName}, die vorgeschlagenen Termine passen bei mir leider nicht. Welche Alternativen gibt es?`}
+            label={t("dates.waLabel")}
+            message={t("dates.waMessage", {
+              firma: ctx.branding.displayName,
+            })}
             className="inline-flex min-h-11 items-center gap-1.5 text-sm font-medium text-foreground underline underline-offset-4"
-            fallback={
-              <span>
-                Antworten Sie uns einfach auf die Nachricht, mit der Sie diesen
-                Link erhalten haben.
-              </span>
-            }
+            fallback={<span>{t("dates.waFallback")}</span>}
           />
         </div>
 
@@ -194,7 +199,9 @@ export function DateOfferPicker({
             }}
             className="mt-4 text-xs font-medium text-muted-foreground underline-offset-2 hover:underline"
           >
-            Abbrechen und bei {formatDateLong(selection.selectedDate)} bleiben
+            {t("dates.keepCurrent", {
+              date: formatDateLong(selection.selectedDate, locale),
+            })}
           </button>
         )}
       </div>
@@ -205,6 +212,7 @@ export function DateOfferPicker({
 function DateCard({
   opt,
   accent,
+  locale,
   pendingSlot,
   isSubmittingFor,
   currentSelectionDate,
@@ -213,12 +221,14 @@ function DateCard({
 }: {
   opt: DateOfferOption;
   accent: string;
+  locale: PortalLocale;
   pendingSlot: number | null;
   isSubmittingFor: boolean;
   currentSelectionDate: string | null;
   onSlotTap: (slotIndex: number) => void;
   onConfirm: () => void;
 }) {
+  const t = useT();
   const isPreviouslyPicked = currentSelectionDate === opt.date;
   return (
     <article
@@ -234,21 +244,21 @@ function DateCard({
           className="absolute -top-2 left-3 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white"
           style={{ background: accent }}
         >
-          Empfohlen
+          {t("dates.recommended")}
         </span>
       )}
       {isPreviouslyPicked && (
         <span className="absolute -top-2 right-3 rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white">
-          Aktuell gewählt
+          {t("dates.currentlySelected")}
         </span>
       )}
 
       <header>
         <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-          {formatWeekday(opt.date)}
+          {formatWeekday(opt.date, locale)}
         </div>
         <h3 className="display mt-0.5 text-xl font-medium leading-none">
-          {formatDateShort(opt.date)}
+          {formatDateShort(opt.date, locale)}
         </h3>
       </header>
 
@@ -290,7 +300,7 @@ function DateCard({
           className="mt-auto inline-flex h-11 items-center justify-center rounded-xl text-sm font-medium text-white transition-opacity disabled:opacity-50"
           style={{ background: accent }}
         >
-          {isSubmittingFor ? "Wird gespeichert…" : `Diesen Termin wählen`}
+          {isSubmittingFor ? t("dates.saving") : t("dates.pickThis")}
         </button>
       )}
     </article>
@@ -304,40 +314,3 @@ function formatSlot(s: DateOfferSlot): string {
   return s.label;
 }
 
-function formatDateLong(ymd: string): string {
-  const d = new Date(`${ymd}T00:00:00`);
-  return d.toLocaleDateString("de-DE", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
-}
-
-function formatDateShort(ymd: string): string {
-  const d = new Date(`${ymd}T00:00:00`);
-  return d.toLocaleDateString("de-DE", {
-    day: "numeric",
-    month: "long",
-  });
-}
-
-function formatWeekday(ymd: string): string {
-  const d = new Date(`${ymd}T00:00:00`);
-  return d.toLocaleDateString("de-DE", { weekday: "long" });
-}
-
-function germanError(code: string | undefined): string {
-  switch (code) {
-    case "OFFER_NOT_FOUND":
-      return "Dieser Termin ist nicht mehr verfügbar. Bitte Seite neu laden.";
-    case "INVALID_SLOT":
-      return "Ungültige Auswahl. Bitte erneut versuchen.";
-    case "REVOKED":
-      return "Dieser Link ist nicht mehr aktiv.";
-    case "NOT_FOUND":
-      return "Link nicht gefunden.";
-    default:
-      return "Es ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut.";
-  }
-}
