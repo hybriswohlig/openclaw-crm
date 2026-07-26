@@ -32,6 +32,12 @@ describe("stripLeadTitleDecorations", () => {
     );
   });
 
+  it("strips multi-word city routes (Weil der Stadt)", () => {
+    expect(
+      stripLeadTitleDecorations("Kyra Heiker — Weil der Stadt → Weil der Stadt")
+    ).toBe("Kyra Heiker");
+  });
+
   it("strips date suffix", () => {
     expect(stripLeadTitleDecorations("Kyra Hiker — 01.08.2026")).toBe("Kyra Hiker");
   });
@@ -64,13 +70,27 @@ describe("resolveCustomerNameForDocs", () => {
     expect(r).toEqual({ vorname: "Kyra", nachname: "Hiker" });
   });
 
+  it("sanitizes when person fields still contain the lead-title decoration", () => {
+    // Real production bug: client (or person record) had the full lead title
+    // split on spaces → vorname kept the em-dash route, nachname became "Stadt".
+    const r = resolveCustomerNameForDocs(
+      baseCtx({
+        name: "Kyra Heiker — Weil der Stadt → Weil der Stadt",
+        person_vorname: "Kyra Heiker — Weil der Stadt → Weil der",
+        person_nachname: "Stadt",
+        person_name: "Kyra Heiker — Weil der Stadt → Weil der Stadt",
+      })
+    );
+    expect(r).toEqual({ vorname: "Kyra", nachname: "Heiker" });
+  });
+
   it("falls back to cleaned lead title when no person is linked", () => {
     const r = resolveCustomerNameForDocs(
       baseCtx({
-        name: "Kyra Hiker — Freudenstadt → Stuttgart",
+        name: "Kyra Heiker — Weil der Stadt → Weil der Stadt",
       })
     );
-    expect(r).toEqual({ vorname: "Kyra", nachname: "Hiker" });
+    expect(r).toEqual({ vorname: "Kyra", nachname: "Heiker" });
   });
 
   it("does not invent a name when nothing is available", () => {

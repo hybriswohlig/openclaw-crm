@@ -49,20 +49,37 @@ export function formatLocation(v: unknown): string {
  * Handles computeLeadName formats:
  *   - "Name — FromCity → ToCity"
  *   - "Name — DD.MM.YYYY"
- * Does not try to guess bare trailing cities (too ambiguous).
+ * Also strips if the full string (or a wrongly-split vorname) still contains
+ * the route arrow / em-dash (person records sometimes stored the lead title).
+ * Does not try to guess bare trailing cities without a separator.
  */
 export function stripLeadTitleDecorations(title: string | null | undefined): string | null {
   if (!title) return null;
-  const t = title.trim();
+  let t = title.trim();
   if (!t) return null;
-  // Em-dash (—) or double-hyphen separators used by computeLeadName / migrations
-  const cut = t.split(/\s+[—–-]\s+/)[0]?.trim();
-  return cut || t;
+  // Em-dash / en-dash / spaced hyphen separators used by computeLeadName
+  t = t.split(/\s+[—–]\s+/)[0]?.trim() || t;
+  t = t.split(/\s+-\s+/)[0]?.trim() || t;
+  // If anything still has a route arrow, take the left side
+  if (/\s+→\s+/.test(t)) {
+    t = t.split(/\s+→\s+/)[0]?.trim() || t;
+  }
+  return t || null;
+}
+
+/**
+ * True when a string still looks like an auto-generated lead title rather than
+ * a real person name (city route or date decoration present).
+ */
+export function looksLikeDecoratedLeadTitle(s: string | null | undefined): boolean {
+  if (!s) return false;
+  return /\s+[—–]\s+/.test(s) || /\s+→\s+/.test(s) || /\s+-\s+\d{2}\.\d{2}\.\d{4}/.test(s);
 }
 
 /**
  * Resolve the customer name for PDF / Anweisung generation.
  * Priority: linked person (structured) → linked person full name → cleaned lead title.
+ * Always sanitizes lead-title decorations, including when they leaked into the person.
  */
 export function resolveCustomerNameForDocs(ctx: LeadContext): {
   vorname?: string;
@@ -70,16 +87,26 @@ export function resolveCustomerNameForDocs(ctx: LeadContext): {
 } | null {
   const personVor = ctx.person_vorname?.trim() || null;
   const personNach = ctx.person_nachname?.trim() || null;
-  if (personNach) {
-    return {
-      vorname: personVor || undefined,
-      nachname: personNach,
-    };
-  }
-
   const personFull = ctx.person_name?.trim() || null;
-  if (personFull) {
-    return splitFullName(personFull);
+
+  // Prefer structured person parts, but re-sanitize if they look like a lead title
+  // (e.g. vorname="Kyra Heiker — Weil der Stadt → Weil der", nachname="Stadt").
+  if (personNach || personVor || personFull) {
+    const combined =
+      personFull ||
+      [personVor, personNach].filter(Boolean).join(" ") ||
+      "";
+    if (combined && !looksLikeDecoratedLeadTitle(combined) && !looksLikeDecoratedLeadTitle(personVor)) {
+      if (personNach && !looksLikeDecoratedLeadTitle(personNach)) {
+        return {
+          vorname: personVor || undefined,
+          nachname: personNach,
+        };
+      }
+      return splitFullName(combined);
+    }
+    const cleanedPerson = stripLeadTitleDecorations(combined);
+    if (cleanedPerson) return splitFullName(cleanedPerson);
   }
 
   const cleaned = stripLeadTitleDecorations(ctx.name);
@@ -91,8 +118,9 @@ export function resolveCustomerNameForDocs(ctx: LeadContext): {
 }
 
 function splitFullName(full: string): { vorname?: string; nachname: string } {
-  const nameParts = full.trim().split(/\s+/).filter(Boolean);
-  if (nameParts.length === 0) return { nachname: full.trim() };
+  const sanitized = stripLeadTitleDecorations(full) || full.trim();
+  const nameParts = sanitized.split(/\s+/).filter(Boolean);
+  if (nameParts.length === 0) return { nachname: sanitized };
   const nachname = nameParts[nameParts.length - 1];
   const vorname =
     nameParts.length > 1 ? nameParts.slice(0, -1).join(" ") : undefined;

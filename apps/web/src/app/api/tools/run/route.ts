@@ -7,9 +7,16 @@ import { getAuthContext, unauthorized, badRequest } from "@/lib/api-utils";
 import { db } from "@/db";
 import { inboxMessageAttachments } from "@/db/schema/inbox";
 import { and, eq, inArray } from "drizzle-orm";
+import { rewriteKundeParamsFromDeal } from "@/services/doc-customer-name";
 
 const CRM_TOOLS_API_URL = process.env.CRM_TOOLS_API_URL;
 const CRM_TOOLS_AUTH_TOKEN = process.env.CRM_TOOLS_AUTH_TOKEN;
+
+/** Skills whose PDF header uses params.kunde — always rewrite from the deal. */
+const KUNDE_SKILLS = new Set([
+  "rechnungen-und-auftragsbestaetigungen",
+  "auftragsanweisung",
+]);
 
 // Cap on the base64 image payload we forward to FastAPI. Measured as the
 // JSON-encoded size (i.e. base64 string length), since that's what actually
@@ -56,7 +63,19 @@ export async function POST(req: NextRequest) {
   // upload raw image bytes here — IDs only, dereferenced under the user's
   // workspace scope. This is what gives the headless skill image context
   // (apartment photos etc.) for volume / Stockwerk / besonderheiten.
-  const params: Record<string, unknown> = { ...(body.params ?? {}) };
+  let params: Record<string, unknown> = { ...(body.params ?? {}) };
+
+  // Authoritative kunde name: never trust the browser for the PDF header.
+  // Stale client bundles (or lead-title leakage into person names) previously
+  // printed "Kyra Heiker — Weil der Stadt → …" above the address.
+  if (KUNDE_SKILLS.has(body.skill)) {
+    try {
+      params = await rewriteKundeParamsFromDeal(ctx.workspaceId, params);
+    } catch (err) {
+      console.warn("[tools/run] kunde rewrite failed, using client payload:", err);
+    }
+  }
+
   const imageIds = Array.isArray(params._image_attachment_ids)
     ? (params._image_attachment_ids as unknown[])
         .filter((x): x is string => typeof x === "string")
