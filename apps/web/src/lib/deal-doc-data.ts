@@ -6,7 +6,20 @@
 import type { DealData, Firma } from "@/components/GenerateDocumentDialog";
 
 export interface LeadContext {
+  /**
+   * Deal / lead title. Often auto-generated with city/date decoration
+   * (e.g. "Kyra Hiker — Freudenstadt → Stuttgart" or "Kyra Hiker Freudenstadt").
+   * Prefer `person_name` for documents.
+   */
   name: string | null;
+  /**
+   * Real customer name from the linked person (`associated_people`).
+   * Used as the primary source for PDF kunde fields.
+   */
+  person_name: string | null;
+  /** Structured parts from personal_name when available. */
+  person_vorname: string | null;
+  person_nachname: string | null;
   move_date: string | null;
   move_from_address: unknown;
   move_to_address: unknown;
@@ -31,20 +44,70 @@ export function formatLocation(v: unknown): string {
   return "—";
 }
 
+/**
+ * Strip auto-generated lead-title decorations so a bare person name remains.
+ * Handles computeLeadName formats:
+ *   - "Name — FromCity → ToCity"
+ *   - "Name — DD.MM.YYYY"
+ * Does not try to guess bare trailing cities (too ambiguous).
+ */
+export function stripLeadTitleDecorations(title: string | null | undefined): string | null {
+  if (!title) return null;
+  const t = title.trim();
+  if (!t) return null;
+  // Em-dash (—) or double-hyphen separators used by computeLeadName / migrations
+  const cut = t.split(/\s+[—–-]\s+/)[0]?.trim();
+  return cut || t;
+}
+
+/**
+ * Resolve the customer name for PDF / Anweisung generation.
+ * Priority: linked person (structured) → linked person full name → cleaned lead title.
+ */
+export function resolveCustomerNameForDocs(ctx: LeadContext): {
+  vorname?: string;
+  nachname: string;
+} | null {
+  const personVor = ctx.person_vorname?.trim() || null;
+  const personNach = ctx.person_nachname?.trim() || null;
+  if (personNach) {
+    return {
+      vorname: personVor || undefined,
+      nachname: personNach,
+    };
+  }
+
+  const personFull = ctx.person_name?.trim() || null;
+  if (personFull) {
+    return splitFullName(personFull);
+  }
+
+  const cleaned = stripLeadTitleDecorations(ctx.name);
+  if (cleaned) {
+    return splitFullName(cleaned);
+  }
+
+  return null;
+}
+
+function splitFullName(full: string): { vorname?: string; nachname: string } {
+  const nameParts = full.trim().split(/\s+/).filter(Boolean);
+  if (nameParts.length === 0) return { nachname: full.trim() };
+  const nachname = nameParts[nameParts.length - 1];
+  const vorname =
+    nameParts.length > 1 ? nameParts.slice(0, -1).join(" ") : undefined;
+  return { vorname, nachname };
+}
+
 export function buildDealDataForDocs(
   dealRecordId: string,
   ctx: LeadContext
 ): DealData | null {
   // Require the bare minimum the skill needs (firma + customer surname).
-  if (!ctx.operating_company || !ctx.name) return null;
+  const kunde = resolveCustomerNameForDocs(ctx);
+  if (!ctx.operating_company || !kunde) return null;
   const company = ctx.operating_company.displayName.toLowerCase();
   const firma: Firma = company.includes("ceylan") ? "ceylan" : "kottke";
-
-  const nameParts = ctx.name.trim().split(/\s+/).filter(Boolean);
-  if (nameParts.length === 0) return null;
-  const nachname = nameParts[nameParts.length - 1];
-  const vorname =
-    nameParts.length > 1 ? nameParts.slice(0, -1).join(" ") : undefined;
 
   const besonderheiten = [
     ctx.floors_from != null &&
@@ -62,8 +125,8 @@ export function buildDealDataForDocs(
     dealRecordId,
     firma,
     kunde: {
-      vorname,
-      nachname,
+      vorname: kunde.vorname,
+      nachname: kunde.nachname,
       adresse: fromAddr !== "—" ? fromAddr : undefined,
     },
     auftrag: {
@@ -86,7 +149,7 @@ export function missingDocFields(
   hasQuotation: boolean
 ): string[] {
   const missing: string[] = [];
-  if (!ctx || !ctx.name) missing.push("Kundenname");
+  if (!ctx || !resolveCustomerNameForDocs(ctx)) missing.push("Kundenname");
   if (!ctx?.operating_company) missing.push("Firma (Kottke/Ceylan)");
   if (!ctx?.move_date) missing.push("Umzugsdatum");
   if (!ctx || formatLocation(ctx.move_from_address) === "—")
