@@ -1,18 +1,19 @@
 /**
  * Photo-based scope summary for the offer.
  *
- * Takes an operator-curated selection of customer photos (inbound image
- * attachments of a deal) and asks the AI for the customer-facing
+ * Takes an operator-curated selection of deal photos (customer inbound +
+ * operator portal uploads) and asks the AI for the customer-facing
  * "Was umfasst der Auftrag" text plus the recognized inventory and internal
  * hints for the employee. Read-only, writes nothing back to the deal.
  *
- * All AI invocation is delegated to `runAITask("deal.scope-from-photos", ...)`.
- * Images are only processed on the crm-tools provider; the OpenRouter path is
- * text-only, which is why the task registry pins this task to crm-tools.
+ * Grok/Claude vision caps: max 6 images and 8 MB per run. When the operator
+ * selects more, we split into sequential batches (never parallel — VPS
+ * MemoryMax 3G) and merge summaries / inventory / hints. Up to 3 batches
+ * per call (~18 photos); leftover photos are reported in hints.
  */
 
 import { z } from "zod";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, like, or } from "drizzle-orm";
 import { db } from "@/db";
 import { inboxMessageAttachments, inboxMessages } from "@/db/schema/inbox";
 import { objects, attributes } from "@/db/schema/objects";
@@ -20,14 +21,13 @@ import { recordValues } from "@/db/schema/records";
 import { runAITask } from "./run-task";
 import { AI_TASK_SLUGS } from "./task-registry";
 
-// Same caps as getDealImageAttachments in deal-transcript.ts: keep the
-// `claude -p` run fast. Newest photos win when a cap is exceeded; dropped
-// photos are surfaced as an internal hint so the employee knows.
-const MAX_IMAGE_ATTACHMENTS = 6;
-const MAX_TOTAL_IMAGE_BYTES = 8 * 1024 * 1024; // 8 MB across all images
+const MAX_IMAGES_PER_BATCH = 6;
+const MAX_BYTES_PER_BATCH = 8 * 1024 * 1024; // 8 MB per batch
+/** Matches inventory photo analysis: keep within Vercel maxDuration ~300s. */
+const MAX_BATCHES_PER_RUN = 3;
+/** Hard upper bound for a single API request (3 batches × 6). */
+export const MAX_SCOPE_PHOTOS_PER_REQUEST = MAX_IMAGES_PER_BATCH * MAX_BATCHES_PER_RUN;
 
-// Own schema for this task. Deliberately NOT part of InsightsSchema: the
-// output is a customer-facing text block, not deal-field extraction.
 const ScopeFromPhotosSchema = z.object({
   summary: z
     .string()
@@ -61,15 +61,66 @@ export interface ScopeFromPhotosInput {
 }
 
 export type ScopeFromPhotosResult =
-  | { ok: true; summary: string; inventory: string[]; hints: string[] }
+  | {
+      ok: true;
+      summary: string;
+      inventory: string[];
+      hints: string[];
+      photosAnalyzed: number;
+      photosSkipped: number;
+      batchesRun: number;
+    }
   | { ok: false; error: "NO_PHOTOS" | "AI_FAILED" };
 
+interface ScopeImage {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  contentB64: string;
+}
+
+function splitIntoBatches(images: ScopeImage[]): ScopeImage[][] {
+  const batches: ScopeImage[][] = [];
+  let current: ScopeImage[] = [];
+  let currentBytes = 0;
+  for (const img of images) {
+    if (
+      current.length >= MAX_IMAGES_PER_BATCH ||
+      (current.length > 0 && currentBytes + img.fileSize > MAX_BYTES_PER_BATCH)
+    ) {
+      batches.push(current);
+      current = [];
+      currentBytes = 0;
+    }
+    current.push(img);
+    currentBytes += img.fileSize;
+  }
+  if (current.length > 0) batches.push(current);
+  return batches;
+}
+
+function mergeInventory(lists: string[][]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const list of lists) {
+    for (const raw of list) {
+      const item = raw.trim();
+      if (!item) continue;
+      const key = item.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(item);
+    }
+  }
+  return out;
+}
+
 /**
- * Generate the customer-facing scope summary from the given customer photos.
+ * Generate the customer-facing scope summary from the given deal photos.
  *
- * Only ids that resolve to an INBOUND image attachment of this deal are used;
- * everything else is dropped. Returns NO_PHOTOS when nothing usable remains,
- * AI_FAILED when the model run or the schema parse fails. Never throws.
+ * Accepts inbound customer images and operator portal-uploads. Batches when
+ * more than 6 images / 8 MB are selected. Never throws.
  */
 export async function generateScopeFromPhotos(
   input: ScopeFromPhotosInput
@@ -77,8 +128,6 @@ export async function generateScopeFromPhotos(
   const { workspaceId, dealRecordId, attachmentIds } = input;
   if (attachmentIds.length === 0) return { ok: false, error: "NO_PHOTOS" };
 
-  // 1) Load the requested attachments. The join enforces "inbound message of
-  //    this deal"; the mime filter runs in JS like getDealImageAttachments.
   const rows = await db
     .select({
       id: inboxMessageAttachments.id,
@@ -94,39 +143,122 @@ export async function generateScopeFromPhotos(
         eq(inboxMessageAttachments.workspaceId, workspaceId),
         eq(inboxMessageAttachments.dealRecordId, dealRecordId),
         inArray(inboxMessageAttachments.id, attachmentIds),
-        eq(inboxMessages.direction, "inbound")
+        like(inboxMessageAttachments.mimeType, "image/%"),
+        or(
+          eq(inboxMessages.direction, "inbound"),
+          like(inboxMessages.externalMessageId, "portal-upload:%")
+        )
       )
     )
     .orderBy(desc(inboxMessageAttachments.createdAt));
 
-  const images: Array<{ fileName: string; mimeType: string; contentB64: string }> = [];
-  let totalBytes = 0;
-  let skippedByCap = 0;
-  for (const r of rows) {
-    if (!r.mimeType.startsWith("image/")) continue;
-    if (images.length >= MAX_IMAGE_ATTACHMENTS || totalBytes + r.fileSize > MAX_TOTAL_IMAGE_BYTES) {
-      skippedByCap++;
-      continue;
-    }
-    totalBytes += r.fileSize;
-    images.push({ fileName: r.fileName, mimeType: r.mimeType, contentB64: r.fileContent });
+  // Preserve operator selection order where possible.
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const ordered: ScopeImage[] = [];
+  for (const id of attachmentIds) {
+    const r = byId.get(id);
+    if (!r) continue;
+    ordered.push({
+      id: r.id,
+      fileName: r.fileName,
+      mimeType: r.mimeType,
+      fileSize: r.fileSize,
+      contentB64: r.fileContent,
+    });
   }
-  if (images.length === 0) return { ok: false, error: "NO_PHOTOS" };
+  if (ordered.length === 0) return { ok: false, error: "NO_PHOTOS" };
 
-  // 2) Known move facts so the summary can anchor on them (and the model does
-  //    not have to guess addresses or dates from the photos).
+  const allBatches = splitIntoBatches(ordered);
+  const runBatches = allBatches.slice(0, MAX_BATCHES_PER_RUN);
+  const skippedByCap = allBatches
+    .slice(MAX_BATCHES_PER_RUN)
+    .reduce((n, b) => n + b.length, 0);
+
   const contextBlock = await loadDealMoveContext(workspaceId, dealRecordId);
+  const enrichment = await loadAuthoritativeContext(workspaceId, dealRecordId);
 
-  const promptParts: string[] = [];
-  if (contextBlock) {
-    promptParts.push(`# Bekannte Umzugsdaten (vom Team erfasst)\n\n${contextBlock}`);
+  const summaries: string[] = [];
+  const inventoryLists: string[][] = [];
+  const hints: string[] = [];
+  let photosAnalyzed = 0;
+
+  for (let i = 0; i < runBatches.length; i++) {
+    const batch = runBatches[i]!;
+    const promptParts: string[] = [];
+    if (contextBlock) {
+      promptParts.push(`# Bekannte Umzugsdaten (vom Team erfasst)\n\n${contextBlock}`);
+    }
+    if (enrichment) promptParts.push(enrichment);
+    if (runBatches.length > 1) {
+      promptParts.push(
+        `# Batch ${i + 1} von ${runBatches.length}\n\nDies ist ein Teil der Kundenfotos. Beschreibe nur, was in DIESEM Batch sichtbar ist; die Batches werden später zusammengeführt.`
+      );
+    }
+    const fileList = batch.map((img) => `- ${img.fileName} (${img.mimeType})`).join("\n");
+    promptParts.push(
+      `# Kundenfotos (${batch.length})\n\nDer Kunde hat diese Fotos geschickt. Die Dateien liegen in deinem Arbeitsverzeichnis und sind dir über das Read-Tool zugänglich. Sieh dir JEDE Datei an:\n${fileList}`
+    );
+    promptParts.push(
+      "Erzeuge die kundengerechte Zusammenfassung, das erkannte Inventar und die internen Hinweise."
+    );
+
+    const result = await runAITask({
+      workspaceId,
+      taskSlug: AI_TASK_SLUGS.DEAL_SCOPE_FROM_PHOTOS,
+      system: SYSTEM_PROMPT,
+      prompt: promptParts.join("\n\n"),
+      schema: ScopeFromPhotosSchema,
+      attachments: batch.map((img) => ({
+        filename: img.fileName,
+        mime: img.mimeType,
+        contentB64: img.contentB64,
+      })),
+    });
+
+    if (!result.ok) {
+      console.warn(`[scope-from-photos] ${dealRecordId} batch ${i + 1}: ${result.error}`);
+      if (photosAnalyzed === 0) return { ok: false, error: "AI_FAILED" };
+      hints.push(`Batch ${i + 1} fehlgeschlagen — bisherige Ergebnisse behalten`);
+      break;
+    }
+
+    photosAnalyzed += batch.length;
+    summaries.push(result.output.summary.trim());
+    inventoryLists.push(result.output.inventory);
+    hints.push(...result.output.hints);
   }
 
-  // Vorhandene Analysen sind AUTORITATIV: die Inventarliste (Chat- + Foto-
-  // Extraktion, ggf. vom Operator korrigiert) und die letzte KI-Zusammenfassung
-  // (enthält Chat-Fakten wie Wohnungsgröße). Ohne diesen Block riet die
-  // Foto-Analyse Raumtypen/Umfang neu und widersprach dem, was längst bekannt
-  // war (z. B. "16 qm" aus dem Chat).
+  if (summaries.length === 0) return { ok: false, error: "AI_FAILED" };
+
+  if (skippedByCap > 0) {
+    hints.push(
+      skippedByCap === 1
+        ? "1 Foto wegen des Batch-Limits nicht analysiert — bitte erneut starten"
+        : `${skippedByCap} Fotos wegen des Batch-Limits nicht analysiert — bitte erneut starten`
+    );
+  }
+  if (runBatches.length > 1) {
+    hints.push(
+      `Analyse in ${runBatches.length} Batches (max. ${MAX_IMAGES_PER_BATCH} Fotos / 8 MB pro Batch)`
+    );
+  }
+
+  return {
+    ok: true,
+    summary: summaries.join("\n\n"),
+    inventory: mergeInventory(inventoryLists),
+    hints,
+    photosAnalyzed,
+    photosSkipped: skippedByCap,
+    batchesRun: runBatches.length,
+  };
+}
+
+async function loadAuthoritativeContext(
+  workspaceId: string,
+  dealRecordId: string
+): Promise<string> {
+  const parts: string[] = [];
   try {
     const { getDealInventory } = await import("@/services/deal-inventory");
     const inventory = await getDealInventory(workspaceId, dealRecordId);
@@ -137,7 +269,7 @@ export async function generateScopeFromPhotos(
             `- ${i.name}${i.quantity > 1 ? ` ×${i.quantity}` : ""}${i.moveFlag ? "" : " (kommt NICHT mit)"}`
         )
         .join("\n");
-      promptParts.push(
+      parts.push(
         `# Bereits erfasste Inventarliste (autoritativ — darauf aufbauen, nicht widersprechen; Fotos ergänzen nur, was hier fehlt)\n\n${invLines}`
       );
     }
@@ -156,61 +288,16 @@ export async function generateScopeFromPhotos(
       .limit(1);
     const summary = (latest?.payload as { summary?: unknown } | null)?.summary;
     if (typeof summary === "string" && summary.trim()) {
-      promptParts.push(
+      parts.push(
         `# Letzte KI-Zusammenfassung des Leads (Fakten aus dem Chat — z. B. Wohnungsgröße — gelten, auch wenn die Fotos anderes nahelegen)\n\n${summary.trim()}`
       );
     }
   } catch (err) {
     console.warn("[scope-from-photos] Kontext-Anreicherung fehlgeschlagen (weiter ohne):", err);
   }
-  const fileList = images.map((i) => `- ${i.fileName} (${i.mimeType})`).join("\n");
-  promptParts.push(
-    `# Kundenfotos (${images.length})\n\nDer Kunde hat diese Fotos geschickt. Die Dateien liegen in deinem Arbeitsverzeichnis und sind dir über das Read-Tool zugänglich. Sieh dir JEDE Datei an:\n${fileList}`
-  );
-  promptParts.push(
-    "Erzeuge die kundengerechte Zusammenfassung, das erkannte Inventar und die internen Hinweise."
-  );
-
-  // JSON parsing happens inside runAITask: it strips markdown fences, slices
-  // the outermost object and salvages per-field against the schema, so a
-  // fenced or chatty response is repaired before it can fail the run.
-  const result = await runAITask({
-    workspaceId,
-    taskSlug: AI_TASK_SLUGS.DEAL_SCOPE_FROM_PHOTOS,
-    system: SYSTEM_PROMPT,
-    prompt: promptParts.join("\n\n"),
-    schema: ScopeFromPhotosSchema,
-    attachments: images.map((i) => ({
-      filename: i.fileName,
-      mime: i.mimeType,
-      contentB64: i.contentB64,
-    })),
-  });
-
-  if (!result.ok) {
-    console.warn(`[scope-from-photos] ${dealRecordId}: ${result.error}`);
-    return { ok: false, error: "AI_FAILED" };
-  }
-
-  const hints = [...result.output.hints];
-  if (skippedByCap > 0) {
-    hints.push(
-      skippedByCap === 1
-        ? "1 Foto wegen des Größenlimits nicht analysiert"
-        : `${skippedByCap} Fotos wegen des Größenlimits nicht analysiert`
-    );
-  }
-  return {
-    ok: true,
-    summary: result.output.summary,
-    inventory: result.output.inventory,
-    hints,
-  };
+  return parts.join("\n\n");
 }
 
-// Lean read of the deal's move facts (same slugs the customer portal projects,
-// but queried locally so this module never has to import the heavy
-// customer-portal-data graph).
 const DEAL_CONTEXT_SLUGS = [
   "move_date",
   "move_from_address",

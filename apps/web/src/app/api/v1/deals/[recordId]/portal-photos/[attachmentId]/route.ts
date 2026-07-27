@@ -2,12 +2,11 @@ import { NextRequest } from "next/server";
 import { getAuthContext, unauthorized, notFound } from "@/lib/api-utils";
 import { db } from "@/db";
 import { inboxMessageAttachments, inboxMessages } from "@/db/schema/inbox";
-import { eq, and, like } from "drizzle-orm";
+import { and, eq, like, or } from "drizzle-orm";
 
 /**
- * Streams one inbound image attachment of the deal for the curation UI.
- * 404s when the attachment does not belong to the deal or is not an
- * inbound image, so nothing else leaks through this route.
+ * Streams one portal photo of the deal for the curation UI.
+ * Allows inbound customer images and operator portal-uploads.
  */
 export async function GET(
   req: NextRequest,
@@ -31,8 +30,11 @@ export async function GET(
         eq(inboxMessageAttachments.id, attachmentId),
         eq(inboxMessageAttachments.workspaceId, ctx.workspaceId),
         eq(inboxMessageAttachments.dealRecordId, recordId),
-        eq(inboxMessages.direction, "inbound"),
-        like(inboxMessageAttachments.mimeType, "image/%")
+        like(inboxMessageAttachments.mimeType, "image/%"),
+        or(
+          eq(inboxMessages.direction, "inbound"),
+          like(inboxMessages.externalMessageId, "portal-upload:%")
+        )
       )
     )
     .limit(1);

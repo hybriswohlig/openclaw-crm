@@ -6,11 +6,10 @@ import type { AttachmentRef } from "@openclaw-crm/customer-portal-core";
 import { LiveMediaFeed } from "./live-media-feed";
 
 /**
- * Collapsible card with the curated customer photos (the pictures the
- * customer sent in via WhatsApp, hand-picked by the operator). Collapsed by
- * default so the gallery never dominates the offer page; the image bytes are
- * only requested once the customer opens the section because LiveMediaFeed
- * is mounted lazily.
+ * Collapsible card with all deal photos for the offer (customer-sent plus
+ * operator uploads). Collapsed by default so the gallery never dominates
+ * the offer page; the image bytes are only requested once the customer opens
+ * the section because LiveMediaFeed is mounted lazily.
  */
 export function CustomerPhotosSection({
   token,
@@ -43,7 +42,7 @@ export function CustomerPhotosSection({
             Ihre Fotos ({photos.length})
           </span>
           <span className="block text-xs text-muted-foreground">
-            Die Fotos, die Sie uns geschickt haben
+            Fotos zu Ihrem Umzug
           </span>
         </span>
         <ChevronDown

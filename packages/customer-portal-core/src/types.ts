@@ -133,6 +133,16 @@ export interface MoveScope {
 }
 
 /**
+ * Customer-facing furniture / inventory line on the offer (Stage 1).
+ * Only items marked "comes with the move" (moveFlag) are included.
+ */
+export interface FurnitureListItem {
+  name: string;
+  quantity: number;
+  category: string | null;
+}
+
+/**
  * What the customer is getting (and what they could still add) at Stage 1.
  *
  * Two-section model based on the popular Check24 / Updater pattern:
@@ -382,10 +392,17 @@ export interface CustomerPortalContext {
   attachments: AttachmentRef[];
 
   /**
-   * Vom Mitarbeiter freigegebene, vom Kunden selbst gesendete Fotos.
-   * Leeres Array, wenn noch nichts kuratiert wurde. Immer direction 'inbound'.
+   * All deal photos shown under "Ihre Fotos": customer inbound images plus
+   * operator-uploaded portal photos. Empty when none exist. Selection for
+   * AI analysis is independent and does not filter this list.
    */
   customerPhotos: AttachmentRef[];
+
+  /**
+   * Structured furniture / inventory list for the offer (moveFlag=true only).
+   * Empty when nothing has been captured yet.
+   */
+  furnitureList: FurnitureListItem[];
 
   /** Three timestamps the operator clicks during the move. */
   timing: MoveTiming;

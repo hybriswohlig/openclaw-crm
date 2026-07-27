@@ -14,6 +14,7 @@ import { EmailCaptureBanner } from "./email-capture-banner";
 import { PackageSelector } from "./package-selector";
 import { DateOfferPicker } from "./date-offer-picker";
 import { CustomerPhotosSection } from "./customer-photos-section";
+import { FurnitureListSection } from "./furniture-list-section";
 
 /**
  * Stage 1 layout — desktop is a two-column grid with a sticky price/CTA
@@ -142,14 +143,18 @@ export function StageOneKva({
             />
           )}
 
-          {/* Curated customer photos, collapsed by default. Renders nothing
-              when no photos were curated for this deal. */}
+          {/* All deal photos (customer + operator uploads), collapsed by default. */}
           <CustomerPhotosSection
             token={token}
             photos={ctx.customerPhotos}
             primaryColor={ctx.branding.primaryColor}
           />
 
+          {/* Structured furniture list from deal inventory (moveFlag=true). */}
+          <FurnitureListSection
+            items={ctx.furnitureList ?? []}
+            primaryColor={ctx.branding.primaryColor}
+          />
 
           {/* Mobile price details. The right rail is desktop only, so validity,
               deposit and trust signals need a home in the column as well. The

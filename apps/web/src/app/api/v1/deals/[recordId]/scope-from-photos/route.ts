@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthContext, unauthorized, success } from "@/lib/api-utils";
-import { generateScopeFromPhotos } from "@/services/ai/scope-from-photos";
+import {
+  generateScopeFromPhotos,
+  MAX_SCOPE_PHOTOS_PER_REQUEST,
+} from "@/services/ai/scope-from-photos";
 
 export const dynamic = "force-dynamic";
 // Same convention as the insights route: the crm-tools job is polled for up
@@ -9,14 +12,12 @@ export const maxDuration = 300;
 
 /**
  * POST = generate the customer-facing scope summary ("Was umfasst der
- * Auftrag") from selected customer photos. Operator-triggered in the deal UI.
+ * Auftrag") from selected deal photos. Operator-triggered in the deal UI.
  *
- * Body: { attachmentIds: string[] } with 1 to 6 ids of inbound image
- * attachments of this deal. Ids that do not resolve to such an attachment are
- * dropped server-side; if nothing usable remains the request fails with
- * NO_PHOTOS.
+ * Body: { attachmentIds: string[] } with 1 to MAX_SCOPE_PHOTOS_PER_REQUEST
+ * ids. More than 6 photos are analysed in sequential batches of 6 / 8 MB.
  *
- * 200 { data: { summary, inventory, hints } }
+ * 200 { data: { summary, inventory, hints, photosAnalyzed, photosSkipped, batchesRun } }
  * 400 { error: { code: "INVALID_INPUT" | "NO_PHOTOS" } }
  * 502 { error: { code: "AI_FAILED" } }
  */
@@ -40,7 +41,7 @@ export async function POST(
   if (
     !Array.isArray(attachmentIds) ||
     attachmentIds.length < 1 ||
-    attachmentIds.length > 6 ||
+    attachmentIds.length > MAX_SCOPE_PHOTOS_PER_REQUEST ||
     !attachmentIds.every((id): id is string => typeof id === "string" && id.length > 0)
   ) {
     return NextResponse.json({ error: { code: "INVALID_INPUT" } }, { status: 400 });
@@ -61,5 +62,8 @@ export async function POST(
     summary: result.summary,
     inventory: result.inventory,
     hints: result.hints,
+    photosAnalyzed: result.photosAnalyzed,
+    photosSkipped: result.photosSkipped,
+    batchesRun: result.batchesRun,
   });
 }

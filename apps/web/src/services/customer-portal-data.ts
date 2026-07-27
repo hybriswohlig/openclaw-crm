@@ -17,7 +17,7 @@
  * Outputs are the portable shapes from `@openclaw-crm/customer-portal-core`.
  */
 
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, like, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   customerStatusLinks,
@@ -39,6 +39,7 @@ import { workspaceMembers } from "@/db/schema/workspace";
 import { objects, attributes, selectOptions } from "@/db/schema/objects";
 import { records, recordValues } from "@/db/schema/records";
 import { inboxMessageAttachments, inboxMessages } from "@/db/schema/inbox";
+import { dealInventoryItems } from "@/db/schema/inventory";
 import {
   buildGirocodePayload,
   buildPayPalUrl,
@@ -58,6 +59,7 @@ import {
   type DateOfferSlot,
   type DateOffersContext,
   type DealPackageOption,
+  type FurnitureListItem,
   type DealPackageOffersContext,
   type FirmaBranding,
   type KvaLineItem,
@@ -379,10 +381,10 @@ export async function loadContextByToken(
   // Attachments (only fetched when stage >= 3 to keep Stage-1 fast).
   const attachments = stage >= 3 ? await loadAttachments(workspaceId, dealRecordId, scope.moveDate) : [];
 
-  // Curated customer photos: the operator-approved subset of the customer's
-  // own inbound pictures. Loaded for every stage, independent of the
-  // outbound-only live media feed above.
-  const customerPhotos = await loadCuratedCustomerPhotos(workspaceId, dealRecordId);
+  // All deal photos for "Ihre Fotos": customer inbound + operator portal
+  // uploads. AI selection is independent and does not filter this list.
+  const customerPhotos = await loadPortalCustomerPhotos(workspaceId, dealRecordId);
+  const furnitureList = await loadFurnitureList(workspaceId, dealRecordId);
 
   // Payment instructions are computed when:
   //   - Stage 4 (Rechnung-Zahlung), OR
@@ -428,6 +430,7 @@ export async function loadContextByToken(
     },
     attachments,
     customerPhotos,
+    furnitureList,
     timing,
     payment,
     customerSignals,
@@ -1407,36 +1410,19 @@ async function loadAttachments(
 }
 
 /**
- * Operator-curated customer photos. The newest 'deal.portal_photos_curated'
- * activity event holds the valid selection (payload.attachmentIds); every
- * re-curation writes a fresh event. Each id is re-validated against the deal's
- * inbound image attachments so deleted or re-linked files drop out silently.
- * Order follows the curated attachmentIds, not upload time.
+ * Photos shown on the status portal under "Ihre Fotos".
+ *
+ * Includes:
+ *   - every inbound image linked to the deal (customer-sent), and
+ *   - operator portal uploads (outbound messages tagged portal-upload:*)
+ *
+ * AI-selection events (`deal.portal_photos_curated`) no longer filter this
+ * list — selection is only for the KI-Zusammenfassung in the wizard.
  */
-async function loadCuratedCustomerPhotos(
+async function loadPortalCustomerPhotos(
   workspaceId: string,
   dealRecordId: string
 ): Promise<AttachmentRef[]> {
-  const [event] = await db
-    .select({ payload: activityEvents.payload })
-    .from(activityEvents)
-    .where(
-      and(
-        eq(activityEvents.workspaceId, workspaceId),
-        eq(activityEvents.recordId, dealRecordId),
-        eq(activityEvents.eventType, "deal.portal_photos_curated")
-      )
-    )
-    .orderBy(desc(activityEvents.createdAt))
-    .limit(1);
-  if (!event) return [];
-
-  const rawIds = (event.payload as Record<string, unknown> | null)?.attachmentIds;
-  const attachmentIds = Array.isArray(rawIds)
-    ? rawIds.filter((id): id is string => typeof id === "string")
-    : [];
-  if (attachmentIds.length === 0) return [];
-
   const rows = await db
     .select({
       id: inboxMessageAttachments.id,
@@ -1445,49 +1431,69 @@ async function loadCuratedCustomerPhotos(
       fileSize: inboxMessageAttachments.fileSize,
       createdAt: inboxMessageAttachments.createdAt,
       messageId: inboxMessageAttachments.messageId,
-    })
-    .from(inboxMessageAttachments)
-    .where(
-      and(
-        inArray(inboxMessageAttachments.id, attachmentIds),
-        eq(inboxMessageAttachments.workspaceId, workspaceId),
-        eq(inboxMessageAttachments.dealRecordId, dealRecordId)
-      )
-    );
-  if (rows.length === 0) return [];
-
-  const messageRows = await db
-    .select({
-      id: inboxMessages.id,
       direction: inboxMessages.direction,
       body: inboxMessages.body,
       sentAt: inboxMessages.sentAt,
-      createdAt: inboxMessages.createdAt,
+      messageCreatedAt: inboxMessages.createdAt,
+      externalMessageId: inboxMessages.externalMessageId,
     })
-    .from(inboxMessages)
-    .where(inArray(inboxMessages.id, rows.map((r) => r.messageId)));
-  const byMsg = new Map(messageRows.map((m) => [m.id, m]));
-  const byId = new Map(rows.map((r) => [r.id, r]));
+    .from(inboxMessageAttachments)
+    .innerJoin(inboxMessages, eq(inboxMessages.id, inboxMessageAttachments.messageId))
+    .where(
+      and(
+        eq(inboxMessageAttachments.workspaceId, workspaceId),
+        eq(inboxMessageAttachments.dealRecordId, dealRecordId),
+        like(inboxMessageAttachments.mimeType, "image/%"),
+        or(
+          eq(inboxMessages.direction, "inbound"),
+          like(inboxMessages.externalMessageId, "portal-upload:%")
+        )
+      )
+    )
+    .orderBy(desc(inboxMessageAttachments.createdAt));
 
-  const out: AttachmentRef[] = [];
-  for (const id of attachmentIds) {
-    const r = byId.get(id);
-    if (!r || !r.mimeType.startsWith("image/")) continue;
-    const m = byMsg.get(r.messageId);
-    if (!m || m.direction !== "inbound") continue;
-    const ts = m.sentAt ?? m.createdAt ?? r.createdAt;
-    out.push({
+  return rows.map((r) => {
+    const ts = r.sentAt ?? r.messageCreatedAt ?? r.createdAt;
+    const isPortalUpload = (r.externalMessageId ?? "").startsWith("portal-upload:");
+    return {
       id: r.id,
       fileName: r.fileName,
       mimeType: r.mimeType,
       fileSize: r.fileSize,
       sentAt: (ts ?? r.createdAt).toISOString(),
       isImage: true,
-      caption: m.body ?? "",
-      direction: "inbound",
-    });
-  }
-  return out;
+      caption: isPortalUpload ? "" : (r.body ?? ""),
+      direction: r.direction === "outbound" ? ("outbound" as const) : ("inbound" as const),
+    };
+  });
+}
+
+/** Move-flagged inventory items for the customer-facing furniture list. */
+async function loadFurnitureList(
+  workspaceId: string,
+  dealRecordId: string
+): Promise<FurnitureListItem[]> {
+  const rows = await db
+    .select({
+      name: dealInventoryItems.name,
+      quantity: dealInventoryItems.quantity,
+      category: dealInventoryItems.category,
+    })
+    .from(dealInventoryItems)
+    .where(
+      and(
+        eq(dealInventoryItems.workspaceId, workspaceId),
+        eq(dealInventoryItems.dealRecordId, dealRecordId),
+        eq(dealInventoryItems.moveFlag, true)
+      )
+    )
+    .orderBy(asc(dealInventoryItems.sortOrder), asc(dealInventoryItems.createdAt));
+
+  return rows.map((r) => ({
+    name: r.name,
+    quantity: r.quantity,
+    category: r.category,
+  }));
 }
 
 function buildPaymentInstructions(args: {

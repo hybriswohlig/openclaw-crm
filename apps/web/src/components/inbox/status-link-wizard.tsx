@@ -7,9 +7,8 @@
 //   2. Fixbetrag → ein Angebot (ein Preis) ODER Pakete aus dem
 //      offer_packages-Katalog der Firma (Preis pro Paket, gespeichert als
 //      per-Deal package options). Stündlich → Positionen wie im Kostenrechner.
-//   3. Kundenfotos (nur wenn der Deal inbound-Bilder hat): Auswahl fürs
-//      Portal kuratieren, optional KI-Zusammenfassung als Vorschlag für die
-//      Beschreibung (der Operator prüft und speichert immer selbst)
+//   3. Fotos: Upload eigener Fotos, Auswahl nur für KI (Portal zeigt alle),
+//      optionale KI-Zusammenfassung (Batches bei >6), Möbelliste pflegen
 //   4. Beschreibung (Freitext, Kunde sieht das im Portal)
 //   5. Speichern (quotation PUT mintet den Link automatisch) → Link anzeigen
 //
@@ -35,6 +34,7 @@ import {
   Star,
   Trash2,
   Truck,
+  Upload,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -108,13 +108,29 @@ interface PortalPhoto {
   fileSize: number;
   createdAt: string;
   selected: boolean;
+  source?: "customer" | "operator";
 }
 
 interface ScopeResult {
   summary: string;
   inventory: string[];
   hints: string[];
+  photosAnalyzed?: number;
+  photosSkipped?: number;
+  batchesRun?: number;
 }
+
+interface WizardInventoryItem {
+  id: string;
+  name: string;
+  quantity: number;
+  moveFlag: boolean;
+  source: "chat" | "foto" | "operator";
+}
+
+/** Vision batch cap (matches server). Above this, auto multi-batch runs. */
+const MAX_AI_PHOTOS_PER_BATCH = 6;
+const MAX_AI_PHOTOS_TOTAL = 18;
 
 type Step = "abrechnung" | "angebotsart" | "preis" | "pakete" | "stunden" | "fotos" | "beschreibung" | "fertig";
 
@@ -247,13 +263,17 @@ export function StatusLinkWizard({
   const [summary, setSummary] = useState("");
   const [summaryFromAi, setSummaryFromAi] = useState(false);
 
-  // Kundenfotos (Portal-Auswahl + KI-Zusammenfassung)
+  // Fotos (Portal zeigt alle; Auswahl = KI-Analyse) + Möbelliste
   const [photos, setPhotos] = useState<PortalPhoto[]>([]);
   const [selectedPhotoIds, setSelectedPhotoIds] = useState<string[]>([]);
+  const [uploadingPhotos, setUploadingPhotos] = useState(false);
   const [aiPending, setAiPending] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiResult, setAiResult] = useState<ScopeResult | null>(null);
   const [aiConfirm, setAiConfirm] = useState(false);
+  const [inventoryItems, setInventoryItems] = useState<WizardInventoryItem[]>([]);
+  const [newItemName, setNewItemName] = useState("");
+  const [addingItem, setAddingItem] = useState(false);
 
   // Finish
   const [saving, setSaving] = useState(false);
@@ -266,10 +286,11 @@ export function StatusLinkWizard({
     let cancelled = false;
     (async () => {
       try {
-        const [qRes, pRes, fRes] = await Promise.all([
+        const [qRes, pRes, fRes, invRes] = await Promise.all([
           fetch(`/api/v1/deals/${dealRecordId}/quotation`),
           fetch(`/api/v1/deals/${dealRecordId}/offer-packages`),
           fetch(`/api/v1/deals/${dealRecordId}/portal-photos`).catch(() => null),
+          fetch(`/api/v1/deals/${dealRecordId}/inventory`).catch(() => null),
         ]);
         if (cancelled) return;
         if (qRes.ok) {
@@ -297,8 +318,26 @@ export function StatusLinkWizard({
             | undefined;
           if (data?.photos) {
             setPhotos(data.photos);
+            const preselected = data.photos.filter((p) => p.selected).map((p) => p.id);
+            // If nothing was curated yet, pre-select all for AI convenience.
             setSelectedPhotoIds(
-              data.photos.filter((p) => p.selected).map((p) => p.id)
+              preselected.length > 0 ? preselected : data.photos.map((p) => p.id)
+            );
+          }
+        }
+        if (invRes?.ok) {
+          const data = (await invRes.json().catch(() => null))?.data as
+            | WizardInventoryItem[]
+            | undefined;
+          if (Array.isArray(data)) {
+            setInventoryItems(
+              data.map((i) => ({
+                id: i.id,
+                name: i.name,
+                quantity: i.quantity,
+                moveFlag: i.moveFlag,
+                source: i.source,
+              }))
             );
           }
         }
@@ -347,7 +386,8 @@ export function StatusLinkWizard({
     pakete: "angebotsart",
     stunden: "abrechnung",
     fotos: priceStep,
-    beschreibung: photos.length > 0 ? "fotos" : priceStep,
+    // Fotos step is always available (upload + Möbelliste).
+    beschreibung: "fotos",
   };
 
   function next(s: Step) {
@@ -368,8 +408,59 @@ export function StatusLinkWizard({
     );
   }
 
+  function selectAllPhotosForAi() {
+    setSelectedPhotoIds(photos.map((p) => p.id).slice(0, MAX_AI_PHOTOS_TOTAL));
+  }
+
+  async function handleUploadPhotos(fileList: FileList | null) {
+    if (!fileList || fileList.length === 0) return;
+    setUploadingPhotos(true);
+    try {
+      const form = new FormData();
+      Array.from(fileList).forEach((f) => form.append("files", f));
+      const res = await fetch(`/api/v1/deals/${dealRecordId}/portal-photos`, {
+        method: "POST",
+        body: form,
+      });
+      const j = (await res.json().catch(() => null)) as
+        | { data?: { photos?: PortalPhoto[] }; error?: { code?: string; message?: string } }
+        | null;
+      if (!res.ok) {
+        toast.error(
+          j?.error?.message ??
+            (j?.error?.code === "NO_CONVERSATION"
+              ? "Kein Chat am Lead — Upload nicht möglich."
+              : "Upload fehlgeschlagen.")
+        );
+        return;
+      }
+      const uploaded = j?.data?.photos ?? [];
+      if (uploaded.length === 0) return;
+      setPhotos((prev) => [...uploaded, ...prev]);
+      // New operator photos join the AI selection by default (capped).
+      setSelectedPhotoIds((prev) =>
+        [...uploaded.map((p) => p.id), ...prev].slice(0, MAX_AI_PHOTOS_TOTAL)
+      );
+      toast.success(
+        uploaded.length === 1
+          ? "1 Foto hochgeladen — erscheint im Status-Portal."
+          : `${uploaded.length} Fotos hochgeladen — erscheinen im Status-Portal.`
+      );
+    } catch {
+      toast.error("Upload fehlgeschlagen.");
+    } finally {
+      setUploadingPhotos(false);
+    }
+  }
+
   async function handleAiAnalyze() {
-    if (selectedPhotoIds.length === 0 || selectedPhotoIds.length > 6) return;
+    if (selectedPhotoIds.length === 0) return;
+    if (selectedPhotoIds.length > MAX_AI_PHOTOS_TOTAL) {
+      setAiError(
+        `Maximal ${MAX_AI_PHOTOS_TOTAL} Fotos pro Analyse. Bitte Auswahl reduzieren oder „Alle auswählen“ nutzen.`
+      );
+      return;
+    }
     setAiPending(true);
     setAiError(null);
     try {
@@ -390,6 +481,10 @@ export function StatusLinkWizard({
         setSummary(j.data.summary);
         setSummaryFromAi(true);
       }
+      // Merge AI inventory bullets into structured furniture list (operator rows).
+      if (j.data.inventory.length > 0) {
+        await mergeAiInventory(j.data.inventory);
+      }
     } catch {
       setAiError(
         "Die Analyse hat nicht geklappt. Bitte erneut versuchen oder die Beschreibung manuell verfassen."
@@ -397,6 +492,99 @@ export function StatusLinkWizard({
     } finally {
       setAiPending(false);
     }
+  }
+
+  async function mergeAiInventory(names: string[]) {
+    for (const name of names) {
+      const trimmed = name.trim();
+      if (!trimmed) continue;
+      const exists = inventoryItems.some(
+        (i) => i.name.trim().toLowerCase() === trimmed.toLowerCase()
+      );
+      if (exists) continue;
+      try {
+        const res = await fetch(`/api/v1/deals/${dealRecordId}/inventory/add`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: trimmed }),
+        });
+        if (!res.ok) continue;
+        const j = (await res.json().catch(() => null)) as { data?: WizardInventoryItem };
+        if (j?.data) {
+          setInventoryItems((prev) => {
+            if (prev.some((p) => p.id === j.data!.id)) return prev;
+            return [
+              ...prev,
+              {
+                id: j.data!.id,
+                name: j.data!.name,
+                quantity: j.data!.quantity,
+                moveFlag: j.data!.moveFlag ?? true,
+                source: j.data!.source ?? "operator",
+              },
+            ];
+          });
+        }
+      } catch {
+        // best-effort
+      }
+    }
+  }
+
+  async function addManualInventoryItem() {
+    const name = newItemName.trim();
+    if (!name || addingItem) return;
+    setAddingItem(true);
+    try {
+      const res = await fetch(`/api/v1/deals/${dealRecordId}/inventory/add`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) {
+        toast.error("Position konnte nicht hinzugefügt werden.");
+        return;
+      }
+      const j = (await res.json().catch(() => null)) as { data?: WizardInventoryItem };
+      if (j?.data) {
+        setInventoryItems((prev) => {
+          if (prev.some((p) => p.id === j.data!.id)) return prev;
+          return [
+            ...prev,
+            {
+              id: j.data!.id,
+              name: j.data!.name,
+              quantity: j.data!.quantity,
+              moveFlag: j.data!.moveFlag ?? true,
+              source: "operator",
+            },
+          ];
+        });
+        setNewItemName("");
+      }
+    } finally {
+      setAddingItem(false);
+    }
+  }
+
+  async function toggleInventoryMove(item: WizardInventoryItem) {
+    setInventoryItems((prev) =>
+      prev.map((i) =>
+        i.id === item.id ? { ...i, moveFlag: !i.moveFlag, source: "operator" } : i
+      )
+    );
+    await fetch(`/api/v1/deals/${dealRecordId}/inventory/${item.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ moveFlag: !item.moveFlag }),
+    });
+  }
+
+  async function removeInventoryItem(item: WizardInventoryItem) {
+    setInventoryItems((prev) => prev.filter((i) => i.id !== item.id));
+    await fetch(`/api/v1/deals/${dealRecordId}/inventory/${item.id}`, {
+      method: "DELETE",
+    });
   }
 
   function applyAiSummary(how: "replace" | "append") {
@@ -417,8 +605,8 @@ export function StatusLinkWizard({
       const depositCents = depositEur.trim() ? parseEur(depositEur) : null;
       const isVariable = mode === "stundensatz";
 
-      // Kuratierte Foto-Auswahl fürs Portal sichern. Fire-and-forget, damit
-      // das Quotation-Save-Verhalten unverändert bleibt.
+      // AI-Foto-Auswahl merken (Portal zeigt unabhängig ALLE Fotos).
+      // Fire-and-forget, damit das Quotation-Save-Verhalten unverändert bleibt.
       if (photos.length > 0) {
         fetch(`/api/v1/deals/${dealRecordId}/portal-photos`, {
           method: "PUT",
@@ -427,11 +615,11 @@ export function StatusLinkWizard({
         })
           .then((res) => {
             if (!res.ok) {
-              toast.error("Foto-Auswahl konnte nicht gespeichert werden.");
+              toast.error("KI-Foto-Auswahl konnte nicht gespeichert werden.");
             }
           })
           .catch(() => {
-            toast.error("Foto-Auswahl konnte nicht gespeichert werden.");
+            toast.error("KI-Foto-Auswahl konnte nicht gespeichert werden.");
           });
       }
 
@@ -879,51 +1067,105 @@ export function StatusLinkWizard({
                 </div>
               )}
 
-              {/* ── Step 4: Kundenfotos kuratieren + KI-Zusammenfassung ── */}
+              {/* ── Step 4: Fotos + KI + Möbelliste ── */}
               {step === "fotos" && (
-                <div className="space-y-3">
+                <div className="space-y-4">
                   <p className="text-sm text-muted-foreground">
-                    Fotos, die der Kunde geschickt hat. Ausgewählte Fotos sieht
-                    der Kunde im Angebot unter „Ihre Fotos".
+                    <strong className="font-medium text-foreground">Alle Fotos</strong>{" "}
+                    erscheinen im Status-Portal unter „Ihre Fotos“. Die Auswahl
+                    steuert nur die KI-Analyse (nicht die Portal-Anzeige).
                   </p>
-                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-                    {photos.map((photo) => {
-                      const selected = selectedPhotoIds.includes(photo.id);
-                      return (
-                        <button
-                          key={photo.id}
-                          type="button"
-                          aria-pressed={selected}
-                          onClick={() => togglePhoto(photo.id)}
-                          className={cn(
-                            "relative aspect-square overflow-hidden rounded-lg border-2 transition-colors",
-                            selected
-                              ? "border-foreground"
-                              : "border-border hover:border-foreground/40"
-                          )}
-                        >
-                          <img
-                            src={`/api/v1/deals/${dealRecordId}/portal-photos/${photo.id}`}
-                            alt={photo.fileName}
-                            loading="lazy"
-                            className="h-full w-full object-cover"
-                          />
-                          {selected && (
-                            <span className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-foreground text-background shadow">
-                              <Check className="h-3 w-3" />
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })}
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-md border border-border px-3 text-sm font-medium hover:bg-accent">
+                      {uploadingPhotos ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Upload className="h-4 w-4" />
+                      )}
+                      Eigene Fotos hochladen
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        className="sr-only"
+                        disabled={uploadingPhotos}
+                        onChange={(e) => {
+                          void handleUploadPhotos(e.target.files);
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
+                    {photos.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={selectAllPhotosForAi}
+                        className="inline-flex h-9 items-center rounded-md border border-border px-3 text-xs font-medium hover:bg-accent"
+                      >
+                        Alle für KI auswählen
+                        {photos.length > MAX_AI_PHOTOS_TOTAL
+                          ? ` (max. ${MAX_AI_PHOTOS_TOTAL})`
+                          : ""}
+                      </button>
+                    )}
                   </div>
+
+                  {photos.length === 0 ? (
+                    <p className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
+                      Noch keine Fotos. Laden Sie eigene hoch oder warten Sie auf
+                      Kundenfotos im Chat.
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                      {photos.map((photo) => {
+                        const selected = selectedPhotoIds.includes(photo.id);
+                        return (
+                          <button
+                            key={photo.id}
+                            type="button"
+                            aria-pressed={selected}
+                            title={
+                              selected
+                                ? "Für KI ausgewählt (klicken zum Abwählen)"
+                                : "Nicht für KI — erscheint trotzdem im Portal"
+                            }
+                            onClick={() => togglePhoto(photo.id)}
+                            className={cn(
+                              "relative aspect-square overflow-hidden rounded-lg border-2 transition-colors",
+                              selected
+                                ? "border-foreground"
+                                : "border-border hover:border-foreground/40"
+                            )}
+                          >
+                            <img
+                              src={`/api/v1/deals/${dealRecordId}/portal-photos/${photo.id}`}
+                              alt={photo.fileName}
+                              loading="lazy"
+                              className="h-full w-full object-cover"
+                            />
+                            {selected && (
+                              <span className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-foreground text-background shadow">
+                                <Check className="h-3 w-3" />
+                              </span>
+                            )}
+                            {photo.source === "operator" && (
+                              <span className="absolute bottom-1 left-1 rounded bg-background/90 px-1 py-0.5 text-[9px] font-medium text-muted-foreground">
+                                intern
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
                   <button
                     type="button"
-                    onClick={handleAiAnalyze}
+                    onClick={() => void handleAiAnalyze()}
                     disabled={
                       aiPending ||
                       selectedPhotoIds.length === 0 ||
-                      selectedPhotoIds.length > 6
+                      selectedPhotoIds.length > MAX_AI_PHOTOS_TOTAL
                     }
                     className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-md border border-border px-3 text-sm font-medium hover:bg-accent disabled:opacity-50"
                   >
@@ -932,19 +1174,33 @@ export function StatusLinkWizard({
                     ) : (
                       <Sparkles className="h-4 w-4" />
                     )}
-                    KI-Zusammenfassung aus {selectedPhotoIds.length}{" "}
-                    {selectedPhotoIds.length === 1 ? "Foto" : "Fotos"} erstellen
+                    {selectedPhotoIds.length > MAX_AI_PHOTOS_PER_BATCH
+                      ? `KI-Analyse in Batches (${selectedPhotoIds.length} Fotos)`
+                      : `KI-Zusammenfassung aus ${selectedPhotoIds.length} ${
+                          selectedPhotoIds.length === 1 ? "Foto" : "Fotos"
+                        } erstellen`}
                   </button>
-                  {selectedPhotoIds.length > 6 && (
+                  {selectedPhotoIds.length > MAX_AI_PHOTOS_PER_BATCH &&
+                    selectedPhotoIds.length <= MAX_AI_PHOTOS_TOTAL && (
+                      <p className="text-xs text-muted-foreground">
+                        Mehr als {MAX_AI_PHOTOS_PER_BATCH} Fotos: automatische
+                        Analyse in Batches (je max. {MAX_AI_PHOTOS_PER_BATCH} /
+                        8&nbsp;MB). Ergebnisse werden zusammengeführt.
+                      </p>
+                    )}
+                  {selectedPhotoIds.length > MAX_AI_PHOTOS_TOTAL && (
                     <p className="text-xs text-amber-700 dark:text-amber-300">
-                      Für die KI-Zusammenfassung bitte maximal 6 Fotos
-                      auswählen.
+                      Maximal {MAX_AI_PHOTOS_TOTAL} Fotos pro Lauf. Bitte Auswahl
+                      reduzieren.
                     </p>
                   )}
                   {aiPending && (
                     <p className="text-xs text-muted-foreground">
-                      Die KI analysiert die Fotos, das dauert bis zu zwei
-                      Minuten.
+                      Die KI analysiert die Fotos
+                      {selectedPhotoIds.length > MAX_AI_PHOTOS_PER_BATCH
+                        ? " in mehreren Durchläufen"
+                        : ""}
+                      , das kann einige Minuten dauern.
                     </p>
                   )}
                   {aiError && (
@@ -987,10 +1243,19 @@ export function StatusLinkWizard({
                   )}
                   {aiResult && !aiConfirm && (
                     <div className="space-y-2 rounded-lg border border-border bg-card p-3">
+                      {(aiResult.batchesRun ?? 0) > 1 && (
+                        <p className="text-[11px] text-muted-foreground">
+                          {aiResult.photosAnalyzed ?? selectedPhotoIds.length} Fotos in{" "}
+                          {aiResult.batchesRun} Batches analysiert
+                          {(aiResult.photosSkipped ?? 0) > 0
+                            ? ` · ${aiResult.photosSkipped} übrig (nochmal starten)`
+                            : ""}
+                        </p>
+                      )}
                       {aiResult.inventory.length > 0 && (
                         <div>
                           <p className="text-[11px] font-medium text-muted-foreground">
-                            Erkanntes Umzugsgut
+                            Erkanntes Umzugsgut (in Möbelliste übernommen)
                           </p>
                           <ul className="mt-1 space-y-0.5 text-xs">
                             {aiResult.inventory.map((item, i) => (
@@ -1016,6 +1281,89 @@ export function StatusLinkWizard({
                       )}
                     </div>
                   )}
+
+                  {/* Möbelliste fürs Portal */}
+                  <div className="space-y-2 rounded-lg border border-border p-3">
+                    <div className="flex items-center gap-2">
+                      <Package className="h-4 w-4 text-muted-foreground" />
+                      <p className="text-sm font-medium">Möbelliste im Angebot</p>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      Angekreuzte Positionen sieht der Kunde im Status-Portal.
+                      Zusätzliche Gegenstände manuell ergänzen.
+                    </p>
+                    {inventoryItems.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">
+                        Noch keine Positionen. KI-Analyse oder manuell hinzufügen.
+                      </p>
+                    ) : (
+                      <ul className="max-h-48 space-y-1 overflow-y-auto">
+                        {inventoryItems.map((item) => (
+                          <li
+                            key={item.id}
+                            className="flex items-center gap-2 rounded-md px-1 py-0.5 hover:bg-muted/50"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={item.moveFlag}
+                              onChange={() => void toggleInventoryMove(item)}
+                              className="h-3.5 w-3.5 accent-foreground"
+                              title={
+                                item.moveFlag
+                                  ? "Kommt mit — im Portal sichtbar"
+                                  : "Bleibt — nicht im Portal"
+                              }
+                            />
+                            <span
+                              className={cn(
+                                "min-w-0 flex-1 truncate text-xs",
+                                !item.moveFlag && "text-muted-foreground line-through"
+                              )}
+                            >
+                              {item.name}
+                              {item.quantity > 1 && (
+                                <span className="ml-1 text-muted-foreground">
+                                  ×{item.quantity}
+                                </span>
+                              )}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => void removeInventoryItem(item)}
+                              className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-destructive"
+                              aria-label="Position löschen"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={newItemName}
+                        onChange={(e) => setNewItemName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            void addManualInventoryItem();
+                          }
+                        }}
+                        placeholder="z. B. Kleiderschrank 3-türig"
+                        className="h-8 flex-1 rounded-md border border-input bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void addManualInventoryItem()}
+                        disabled={addingItem || !newItemName.trim()}
+                        className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2 text-xs font-medium hover:bg-accent disabled:opacity-50"
+                      >
+                        <Plus className="h-3 w-3" />
+                        Hinzufügen
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -1117,11 +1465,9 @@ export function StatusLinkWizard({
             ) : (
               <button
                 onClick={() =>
-                  next(
-                    step !== "fotos" && photos.length > 0 ? "fotos" : "beschreibung"
-                  )
+                  next(step === "fotos" ? "beschreibung" : "fotos")
                 }
-                disabled={!priceValid}
+                disabled={!priceValid && step !== "fotos"}
                 className="inline-flex h-9 items-center rounded-md bg-foreground px-4 text-sm font-medium text-background hover:opacity-90 disabled:opacity-50"
               >
                 Weiter
