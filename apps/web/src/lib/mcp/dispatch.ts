@@ -21,6 +21,26 @@ function bool(v: unknown): boolean | undefined {
   return undefined;
 }
 
+/**
+ * Coerce a request body that may have arrived as a JSON string.
+ *
+ * Body-ish params are typed `z.unknown()`, which serializes to an empty JSON
+ * Schema, so MCP clients have nothing to validate against and commonly send
+ * the value as a JSON string. Forwarding that verbatim makes the route's
+ * `req.json()` yield a string, and every field read off it comes back
+ * undefined ("skill is required" on an otherwise well-formed call).
+ */
+function asBody(v: unknown): unknown {
+  if (typeof v !== "string") return v;
+  const trimmed = v.trim();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return v;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return v;
+  }
+}
+
 function asQuery(
   obj: unknown
 ): Record<string, string | number | boolean | undefined> | undefined {
@@ -356,7 +376,7 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
         body: {
           skill: str(args.skill || "rechnungen-und-auftragsbestaetigungen"),
           params: {
-            ...(args.params as Record<string, unknown> | undefined),
+            ...(asBody(args.params) as Record<string, unknown> | undefined),
             _deal_record_id: str(args.recordId),
             ...(args.imageAttachmentIds !== undefined
               ? { _image_attachment_ids: args.imageAttachmentIds }
@@ -427,7 +447,7 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
       return client.request(path, {
         method: str(args.method || "GET").toUpperCase(),
         query: asQuery(args.query),
-        body: args.body,
+        body: asBody(args.body),
       });
     }
 
