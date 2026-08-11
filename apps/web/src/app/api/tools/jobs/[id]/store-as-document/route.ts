@@ -85,16 +85,26 @@ export async function POST(
   );
   formData.append("documentType", documentType);
 
-  const cookie = req.headers.get("cookie") ?? "";
+  // Replay whichever credential the caller used. Browsers send a session
+  // cookie, but MCP / API-key callers authenticate with a Bearer token and
+  // have no cookie at all — forwarding only the cookie left the internal
+  // upload unauthenticated, so middleware bounced it to /login and the whole
+  // store step failed with a confusing "upload failed".
+  const authHeaders: Record<string, string> = {};
+  const cookie = req.headers.get("cookie");
+  if (cookie) authHeaders.cookie = cookie;
+  const authorization = req.headers.get("authorization");
+  if (authorization) authHeaders.authorization = authorization;
+
   const proto = req.headers.get("x-forwarded-proto") ?? "https";
-  const host = req.headers.get("host");
+  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
   const uploadUrl = `${proto}://${host}/api/v1/deals/${encodeURIComponent(
     body.dealRecordId
   )}/documents`;
 
   const uploadResp = await fetch(uploadUrl, {
     method: "POST",
-    headers: { cookie },
+    headers: authHeaders,
     body: formData,
   });
 
@@ -121,7 +131,7 @@ export async function POST(
     )}`;
     const patchResp = await fetch(patchUrl, {
       method: "PATCH",
-      headers: { cookie, "Content-Type": "application/json" },
+      headers: { ...authHeaders, "Content-Type": "application/json" },
       body: JSON.stringify({ values: { rechnung_faellig_am: dueDateSet } }),
     });
     if (!patchResp.ok) {
