@@ -359,6 +359,137 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
     req
   );
 
+  // ── Deal context ────────────────────────────────────────────────────────
+  tool(
+    server,
+    "crm_get_deal_auftrag",
+    "Auftrag / lead context for a deal: customer name, both addresses, move date, floors, elevator, inventory notes, operating company, plus open customer questions. This is the source of truth for document fields — read it before generating an AB or invoice.",
+    { recordId: z.string() },
+    req
+  );
+  tool(
+    server,
+    "crm_list_deal_attachments",
+    "Attachments on a deal (customer-sent apartment photos etc.). Returns ids and mime types; pass image ids to crm_generate_document as imageAttachmentIds.",
+    { recordId: z.string() },
+    req
+  );
+  tool(
+    server,
+    "crm_get_deal_inventory",
+    "Inventory / furniture list captured for a deal.",
+    { recordId: z.string() },
+    req
+  );
+  tool(
+    server,
+    "crm_get_deal_package_options",
+    "Offer package options configured for this deal.",
+    { recordId: z.string() },
+    req
+  );
+  tool(
+    server,
+    "crm_get_deal_offer_packages",
+    "Offer packages available to this deal's operating company.",
+    { recordId: z.string() },
+    req
+  );
+  tool(
+    server,
+    "crm_get_deal_date_offers",
+    "Alternative move-date offers for a deal.",
+    { recordId: z.string() },
+    req
+  );
+
+  // ── Quotation writes ────────────────────────────────────────────────────
+  tool(
+    server,
+    "crm_update_deal_quotation",
+    "Replace a deal's quotation (PUT semantics — omitted fields are cleared, so read crm_get_deal_quotation first and merge). Saving also mints the customer portal link and anchors the scope baseline.",
+    {
+      recordId: z.string(),
+      isVariable: z.boolean().optional(),
+      fixedPrice: z.string().nullable().optional(),
+      notes: z.string().nullable().optional(),
+      depositRequiredCents: z.number().nullable().optional(),
+      paymentMethodPreference: z
+        .enum(["bank_transfer", "paypal", "cash", "card"])
+        .nullable()
+        .optional(),
+      validUntil: z.string().nullable().optional(),
+      summary: z.string().nullable().optional(),
+      showStandardInclusions: z.boolean().optional(),
+      selectedPackageSlug: z.string().nullable().optional(),
+      calculationAssumptions: z.record(z.unknown()).nullable().optional(),
+      lineItems: z.array(z.record(z.unknown())).optional(),
+    },
+    req
+  );
+  tool(
+    server,
+    "crm_set_deal_anzahlung",
+    "Set only the Anzahlung (deposit in cents) and payment method on a deal's quotation, leaving the rest of the quotation untouched.",
+    {
+      recordId: z.string(),
+      depositRequiredCents: z.number().nullable().optional(),
+      paymentMethodPreference: z
+        .enum(["bank_transfer", "paypal", "cash", "card"])
+        .nullable()
+        .optional(),
+    },
+    req
+  );
+
+  // ── Documents ───────────────────────────────────────────────────────────
+  tool(
+    server,
+    "crm_get_deal_document",
+    "Fetch one stored deal document (metadata + base64 content).",
+    { recordId: z.string(), documentId: z.string() },
+    req
+  );
+  tool(
+    server,
+    "crm_generate_document",
+    "Start a PDF render on the crm-tools VPS and return { job_id }. Async: poll crm_get_document_job until status=done, then crm_store_document_job to attach it to the deal. params mirrors the Auftrags-Tab dialog: { firma: 'kottke'|'ceylan', document_type: 'AB'|'RE', kunde: {vorname,nachname,adresse,email}, auftrag: {strecke_von,strecke_nach,datum,volumen,besonderheiten}, preise: {...}, anweisung? }. preise is either { modell:'stundensatz', helfer_anzahl, stunden_geschaetzt, helfer_rate, transporter_rate, mindest_stunden, ... } or { modell:'pauschale', pauschale_positionen:[{titel,betrag}] }. The kunde name is re-derived server-side from the linked person, so a wrong name here is corrected automatically.",
+    {
+      recordId: z.string(),
+      params: z.record(z.unknown()),
+      skill: z
+        .enum(["rechnungen-und-auftragsbestaetigungen", "auftragsanweisung"])
+        .optional(),
+      imageAttachmentIds: z.array(z.string()).optional(),
+    },
+    req
+  );
+  tool(
+    server,
+    "crm_get_document_job",
+    "Poll a document render job started by crm_generate_document.",
+    { jobId: z.string() },
+    req
+  );
+  tool(
+    server,
+    "crm_store_document_job",
+    "Attach a finished render job's PDF to a deal as a document. documentType is deduced from the filename (AB- → order_confirmation, RE- → invoice, AW- → worker_instructions) when omitted. Storing an order_confirmation or invoice notifies the customer portal.",
+    {
+      jobId: z.string(),
+      recordId: z.string(),
+      documentType: z
+        .enum([
+          "order_confirmation",
+          "invoice",
+          "payment_confirmation",
+          "worker_instructions",
+        ])
+        .optional(),
+    },
+    req
+  );
+
   tool(server, "crm_list_employees", "List employees.", empty, req);
   tool(server, "crm_get_financial_overview", "Financial overview.", empty, req);
   tool(

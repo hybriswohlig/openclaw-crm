@@ -279,6 +279,109 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
         `/api/v1/customer-link/${encodeURIComponent(str(args.dealRecordId))}`
       );
 
+    // ── Deal context: what the documents are built from ─────────────────
+    case "crm_get_deal_auftrag":
+      return client.request(
+        `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/auftrag`
+      );
+    case "crm_list_deal_attachments":
+      return client.request(
+        `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/attachments`
+      );
+    case "crm_get_deal_inventory":
+      return client.request(
+        `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/inventory`
+      );
+    case "crm_get_deal_package_options":
+      return client.request(
+        `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/package-options`
+      );
+    case "crm_get_deal_offer_packages":
+      return client.request(
+        `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/offer-packages`
+      );
+    case "crm_get_deal_date_offers":
+      return client.request(
+        `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/date-offers`
+      );
+
+    // ── Quotation writes ────────────────────────────────────────────────
+    case "crm_update_deal_quotation": {
+      // PUT replaces the quotation: omitted fields are reset, not preserved.
+      // Read crm_get_deal_quotation first and merge, or fields silently drop.
+      const body: Record<string, unknown> = {
+        isVariable: bool(args.isVariable) ?? false,
+      };
+      for (const key of [
+        "fixedPrice",
+        "notes",
+        "depositRequiredCents",
+        "paymentMethodPreference",
+        "validUntil",
+        "summary",
+        "showStandardInclusions",
+        "selectedPackageSlug",
+        "calculationAssumptions",
+        "lineItems",
+      ]) {
+        if (args[key] !== undefined) body[key] = args[key];
+      }
+      return client.request(
+        `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/quotation`,
+        { method: "PUT", body }
+      );
+    }
+    case "crm_set_deal_anzahlung": {
+      const body: Record<string, unknown> = {};
+      if (args.depositRequiredCents !== undefined) {
+        body.depositRequiredCents = args.depositRequiredCents;
+      }
+      if (args.paymentMethodPreference !== undefined) {
+        body.paymentMethodPreference = args.paymentMethodPreference;
+      }
+      return client.request(
+        `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/quotation/anzahlung`,
+        { method: "PATCH", body }
+      );
+    }
+
+    // ── Documents (PDFs rendered by crm-tools on the VPS) ────────────────
+    case "crm_get_deal_document":
+      return client.request(
+        `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/documents/${encodeURIComponent(str(args.documentId))}`
+      );
+    case "crm_generate_document":
+      return client.request("/api/tools/run", {
+        method: "POST",
+        body: {
+          skill: str(args.skill || "rechnungen-und-auftragsbestaetigungen"),
+          params: {
+            ...(args.params as Record<string, unknown> | undefined),
+            _deal_record_id: str(args.recordId),
+            ...(args.imageAttachmentIds !== undefined
+              ? { _image_attachment_ids: args.imageAttachmentIds }
+              : {}),
+          },
+        },
+      });
+    case "crm_get_document_job":
+      return client.request(
+        `/api/tools/jobs/${encodeURIComponent(str(args.jobId))}`
+      );
+    case "crm_store_document_job":
+      return client.request(
+        `/api/tools/jobs/${encodeURIComponent(str(args.jobId))}/store-as-document`,
+        {
+          method: "POST",
+          body: {
+            dealRecordId: str(args.recordId),
+            ...(args.documentType !== undefined
+              ? { documentType: args.documentType }
+              : {}),
+          },
+        }
+      );
+
     case "crm_list_employees":
       return client.request("/api/v1/employees");
     case "crm_get_financial_overview":
