@@ -193,6 +193,22 @@ openclaw-crm/
 └── Dockerfile                 # Multi-stage production build
 ```
 
+## MCP (Claude Code / Claude Desktop)
+
+Remote Model Context Protocol server is deployed with the web app:
+
+- **URL:** `https://<your-crm-host>/api/mcp`
+- **Auth:** `Authorization: Bearer oc_sk_…` (create under Settings → API Keys)
+
+```bash
+claude mcp add kottke-crm \
+  --transport http \
+  --header "Authorization: Bearer oc_sk_..." \
+  -- https://darioushkottke.online/api/mcp
+```
+
+Local stdio alternative: [`apps/mcp`](./apps/mcp/README.md).
+
 ## API
 
 REST API at `/api/v1/` with Bearer token authentication.

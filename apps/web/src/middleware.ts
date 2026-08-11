@@ -22,6 +22,11 @@ const publicPaths = [
   "/api/v1/portal/",
   // Client-error diagnostic sink (temporary).
   "/api/v1/diag/",
+  // Remote MCP (Streamable HTTP) — auth via Bearer API key inside the handler
+  // (withMcpAuth). Must not redirect to /login or Claude/mcp-remote break.
+  "/api/mcp",
+  // RFC 9728 protected-resource metadata for MCP clients
+  "/.well-known/oauth-protected-resource",
 ];
 
 /** The mobile employee portal lives on its own host (kottke-mitarbeiter.*). */
