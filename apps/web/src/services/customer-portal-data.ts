@@ -1868,8 +1868,55 @@ export async function replaceDealPackageOptions(input: {
       createdBy: input.createdBy,
     }));
 
+  let insertedRecommended:
+    | (typeof quotationPackageOptions.$inferSelect)
+    | undefined;
   if (validated.length > 0) {
-    await db.insert(quotationPackageOptions).values(validated);
+    const inserted = await db
+      .insert(quotationPackageOptions)
+      .values(validated)
+      .returning();
+    insertedRecommended =
+      inserted.find((r) => r.isRecommended) ?? inserted[0];
+  }
+
+  // Default the customer's price card to the recommended (or first) option
+  // so a first-time visitor never sees "Voraussichtlich 0 €" before picking
+  // anything — mirrors selectDealPackageOptionForToken's write shape. Only
+  // when nothing is selected yet: never clobber a choice the customer
+  // already made (e.g. the operator tweaking wording later).
+  if (insertedRecommended) {
+    const priceEur = (insertedRecommended.priceCents / 100).toFixed(2);
+    const [existingQ] = await db
+      .select({
+        id: quotations.id,
+        selectedPackageOptionId: quotations.selectedPackageOptionId,
+      })
+      .from(quotations)
+      .where(eq(quotations.dealRecordId, input.dealRecordId))
+      .limit(1);
+
+    if (existingQ && !existingQ.selectedPackageOptionId) {
+      await db
+        .update(quotations)
+        .set({
+          selectedPackageOptionId: insertedRecommended.id,
+          selectedPackageSlug: insertedRecommended.catalogueSlug,
+          fixedPrice: priceEur,
+          isVariable: false,
+          updatedAt: new Date(),
+        })
+        .where(eq(quotations.id, existingQ.id));
+    } else if (!existingQ) {
+      await db.insert(quotations).values({
+        dealRecordId: input.dealRecordId,
+        selectedPackageOptionId: insertedRecommended.id,
+        selectedPackageSlug: insertedRecommended.catalogueSlug,
+        fixedPrice: priceEur,
+        isVariable: false,
+        showStandardInclusions: true,
+      });
+    }
   }
 
   await emitEvent({
