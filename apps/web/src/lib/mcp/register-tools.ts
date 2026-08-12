@@ -406,6 +406,28 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   // ── Quotation writes ────────────────────────────────────────────────────
   tool(
     server,
+    "crm_update_deal_package_options",
+    "Replace the per-deal package options (Basis/Komfort/Premium etc. with deal-specific price) shown to the customer on Stage 1 of the portal. PUT semantics — replaces the full set for this deal; pass an empty options array to clear. At most 6 options. Each option needs a non-empty displayName and a non-negative integer priceCents; catalogueSlug (e.g. 'basic'/'komfort'/'premium' from crm_get_deal_offer_packages) is optional and only used to link back to the company catalogue. When at least one option exists for the deal, the customer portal renders these instead of the operating company's generic offer-packages catalogue.",
+    {
+      recordId: z.string(),
+      options: z.array(
+        z.object({
+          catalogueSlug: z.string().nullable().optional(),
+          displayName: z.string(),
+          shortDescription: z.string().nullable().optional(),
+          priceCents: z.number(),
+          includedItems: z.array(z.string()).optional(),
+          excludedItems: z.array(z.string()).optional(),
+          addableItems: z.array(z.string()).optional(),
+          note: z.string().nullable().optional(),
+          isRecommended: z.boolean().optional(),
+        })
+      ),
+    },
+    req
+  );
+  tool(
+    server,
     "crm_update_deal_quotation",
     "Replace a deal's quotation (PUT semantics — omitted fields are cleared, so read crm_get_deal_quotation first and merge). Saving also mints the customer portal link and anchors the scope baseline.",
     {

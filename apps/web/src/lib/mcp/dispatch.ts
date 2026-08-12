@@ -326,6 +326,15 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
       );
 
     // ── Quotation writes ────────────────────────────────────────────────
+    case "crm_update_deal_package_options": {
+      const body: Record<string, unknown> = {
+        options: asBody(args.options) ?? [],
+      };
+      return client.request(
+        `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/package-options`,
+        { method: "PUT", body }
+      );
+    }
     case "crm_update_deal_quotation": {
       // PUT replaces the quotation: omitted fields are reset, not preserved.
       // Read crm_get_deal_quotation first and merge, or fields silently drop.
