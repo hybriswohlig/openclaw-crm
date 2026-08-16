@@ -64,6 +64,21 @@ const NEEDS_PROACTIVE_CONSENT: ReadonlySet<AgentMessageClass> = new Set([
   "first_contact",
 ]);
 
+const VALID_MESSAGE_CLASSES: ReadonlySet<string> = new Set([
+  "reply",
+  "slot_question",
+  "ack",
+  "followup",
+  "first_contact",
+]);
+
+/** Map any draft message class onto the gate's vocabulary (unknown → "reply"). */
+export function toGateMessageClass(messageClass: string): AgentMessageClass {
+  return VALID_MESSAGE_CLASSES.has(messageClass)
+    ? (messageClass as AgentMessageClass)
+    : "reply";
+}
+
 /** Minimum gap between agent-initiated proactive touches on one deal. */
 export const MIN_PROACTIVE_GAP_HOURS = 20;
 

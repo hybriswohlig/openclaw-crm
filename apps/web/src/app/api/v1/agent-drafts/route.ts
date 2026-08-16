@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { and, desc, eq, gt, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { agentDrafts } from "@/db/schema/agent";
-import { getAuthContext, unauthorized, success } from "@/lib/api-utils";
+import { getAuthContext, unauthorized, success, badRequest } from "@/lib/api-utils";
+import { createAgentDraft } from "@/services/agent/agent-drafts";
 
 /**
  * Latest pending agent draft for a conversation (shadow-mode approval-queue
@@ -123,4 +124,48 @@ export async function GET(req: NextRequest) {
       createdAt: row.createdAt.toISOString(),
     },
   });
+}
+
+/**
+ * Create a pending draft from an external agent runner (Grok Bot / VPS
+ * grok-inbox-agent). Draft-only: this endpoint can never send — the existing
+ * PATCH /:id approve_and_send flow re-gates and re-filters the final text
+ * inside the send transaction. One live pending draft per (deal, class);
+ * pass the same idempotencyKey on retries.
+ */
+export async function POST(req: NextRequest) {
+  const ctx = await getAuthContext(req);
+  if (!ctx) return unauthorized();
+
+  const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  if (!body || typeof body !== "object") return badRequest("Invalid JSON body");
+
+  const opt = (v: unknown) => (typeof v === "string" && v.trim() ? v : undefined);
+  const result = await createAgentDraft({
+    workspaceId: ctx.workspaceId,
+    conversationId: opt(body.conversationId),
+    dealRecordId: opt(body.dealRecordId),
+    messageClass: typeof body.messageClass === "string" ? body.messageClass : "",
+    draftText: typeof body.draftText === "string" ? body.draftText : "",
+    reasoning: opt(body.reasoning),
+    mode: opt(body.mode),
+    source: opt(body.source),
+    modelTag: opt(body.modelTag),
+    idempotencyKey: opt(body.idempotencyKey),
+    expiresInHours:
+      typeof body.expiresInHours === "number" && Number.isFinite(body.expiresInHours)
+        ? body.expiresInHours
+        : undefined,
+  });
+
+  if (!result.ok) {
+    return NextResponse.json(
+      {
+        error: { code: result.error, message: result.message },
+        ...(result.existingDraftId ? { existingDraftId: result.existingDraftId } : {}),
+      },
+      { status: result.status }
+    );
+  }
+  return success({ draft: result.draft, created: result.created }, result.created ? 201 : 200);
 }

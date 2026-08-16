@@ -616,6 +616,30 @@ export const TOOLS: ToolDef[] = [
     description: "Get AI agent settings.",
     inputSchema: { type: "object", properties: {} },
   },
+  {
+    name: "crm_create_agent_draft",
+    description:
+      "Create a PENDING agent draft for human approval (never sends). Pass conversationId for replies; dealRecordId suffices for first_contact. One live pending draft per (deal, messageClass) — a 409 'draft_exists' returns the existingDraftId. Drafts expire after 72h. source: 'grok-bot' (hosted) or 'grok-vps'.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        conversationId: { type: "string" },
+        dealRecordId: { type: "string" },
+        messageClass: {
+          type: "string",
+          enum: ["reply", "slot_question", "ack", "followup", "first_contact", "handoff_ack"],
+        },
+        draftText: { type: "string" },
+        reasoning: { type: "string" },
+        mode: { type: "string" },
+        source: { type: "string" },
+        modelTag: { type: "string" },
+        idempotencyKey: { type: "string" },
+        expiresInHours: { type: "number" },
+      },
+      required: ["messageClass", "draftText"],
+    },
+  },
 
   // ── Escape hatch ──────────────────────────────────────────────────
   {

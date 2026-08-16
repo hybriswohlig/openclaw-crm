@@ -121,7 +121,7 @@ export interface ShadowDraftInput {
 }
 
 /** German notification labels per message class (push title). */
-const DRAFT_CLASS_LABELS: Record<AgentMessageClass, string> = {
+export const DRAFT_CLASS_LABELS: Record<AgentMessageClass, string> = {
   reply: "Antwort",
   slot_question: "Rückfrage",
   ack: "Bestätigung",
@@ -134,7 +134,7 @@ const DRAFT_CLASS_LABELS: Record<AgentMessageClass, string> = {
  * Drafts blocked ONLY on these are still worth a push; anything beyond
  * (terminal stage, human-owned, suppressed, …) is informational shadow noise.
  */
-const HUMAN_ACTIONABLE_BLOCKS: ReadonlySet<string> = new Set([
+export const HUMAN_ACTIONABLE_BLOCKS: ReadonlySet<string> = new Set([
   "no_proactive_consent",
   "master_switch_off",
   "outside_send_window",

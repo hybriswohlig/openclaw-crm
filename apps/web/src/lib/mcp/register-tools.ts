@@ -540,6 +540,31 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
 
   tool(server, "crm_list_agent_drafts", "AI agent drafts.", empty, req);
   tool(server, "crm_get_agent_settings", "AI agent settings.", empty, req);
+  tool(
+    server,
+    "crm_create_agent_draft",
+    "Create a PENDING agent draft for human approval (never sends). Pass conversationId for replies; dealRecordId suffices for first_contact. One live pending draft per (deal, messageClass) — a 409 'draft_exists' returns the existingDraftId. Drafts expire after 72h. source: 'grok-bot' (hosted) or 'grok-vps'.",
+    {
+      conversationId: z.string().optional(),
+      dealRecordId: z.string().optional(),
+      messageClass: z.enum([
+        "reply",
+        "slot_question",
+        "ack",
+        "followup",
+        "first_contact",
+        "handoff_ack",
+      ]),
+      draftText: z.string(),
+      reasoning: z.string().optional(),
+      mode: z.string().optional(),
+      source: z.string().optional(),
+      modelTag: z.string().optional(),
+      idempotencyKey: z.string().optional(),
+      expiresInHours: z.number().optional(),
+    },
+    req
+  );
 
   tool(
     server,

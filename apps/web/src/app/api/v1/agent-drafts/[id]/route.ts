@@ -4,7 +4,7 @@ import { db } from "@/db";
 import { agentDrafts, agentEvents, dealAgentState } from "@/db/schema/agent";
 import { inboxConversations, inboxContacts, channelAccounts } from "@/db/schema/inbox";
 import { getAuthContext, unauthorized, success } from "@/lib/api-utils";
-import { agentMayContact, type AgentMessageClass } from "@/services/agent/agent-gate";
+import { agentMayContact, toGateMessageClass as toGateClass } from "@/services/agent/agent-gate";
 import { sendOnChannel, type AgentChannelRow } from "@/services/agent/agent-shared";
 import { leaksPriceOrCommitment, OPT_OUT_LINE } from "@/services/agent/agent-suppress";
 import { isOptOutLineEnabled } from "@/services/agent/agent-config";
@@ -12,19 +12,6 @@ import {
   WhatsAppSessionExpiredError,
   BaileysBridgeNotConfiguredError,
 } from "@/services/inbox-whatsapp";
-
-const VALID_CLASSES: ReadonlySet<string> = new Set([
-  "reply",
-  "slot_question",
-  "ack",
-  "followup",
-  "first_contact",
-]);
-
-/** Draft message classes outside the gate's vocabulary (e.g. handoff_ack) gate as a plain reply. */
-function toGateClass(messageClass: string): AgentMessageClass {
-  return VALID_CLASSES.has(messageClass) ? (messageClass as AgentMessageClass) : "reply";
-}
 
 /** Roll a claimed draft back to 'pending' so the operator can retry. ONLY for
  * provably pre-delivery failures — see markSendUncertain for the rest. */

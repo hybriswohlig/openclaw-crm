@@ -341,6 +341,22 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
       return client.request("/api/v1/agent-drafts");
     case "crm_get_agent_settings":
       return client.request("/api/v1/agent-settings");
+    case "crm_create_agent_draft":
+      return client.request("/api/v1/agent-drafts", {
+        method: "POST",
+        body: {
+          conversationId: args.conversationId,
+          dealRecordId: args.dealRecordId,
+          messageClass: args.messageClass,
+          draftText: args.draftText,
+          reasoning: args.reasoning,
+          mode: args.mode,
+          source: args.source,
+          modelTag: args.modelTag,
+          idempotencyKey: args.idempotencyKey,
+          expiresInHours: num(args.expiresInHours),
+        },
+      });
 
     // Escape hatch
     case "crm_api": {
