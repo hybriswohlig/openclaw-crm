@@ -104,11 +104,16 @@ describe("GET /api/v1/inbox/attachments/[id]", () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body.data.id).toBe("att_abc");
-    expect(body.data.fileName).toBe("kueche.jpg");
-    expect(body.data.mimeType).toBe("image/jpeg");
+    expect(body.data).toMatchObject({
+      id: "att_abc",
+      fileName: "kueche.jpg",
+      mimeType: "image/jpeg",
+      fileSize: JPEG.length,
+      contentBase64: JPEG_BASE64,
+      conversationId: "conv_1",
+      messageId: "msg_1",
+    });
     expect(body.data.isImage).toBe(true);
-    expect(body.data.contentBase64).toBe(JPEG_BASE64);
   });
 
   it("hands back real JPEG bytes, not an HTML app shell", async () => {

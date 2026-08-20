@@ -340,4 +340,27 @@ describe("CrmClient response body handling", () => {
     expect((err as CrmApiError).code).toBe("NOT_FOUND");
     expect((err as CrmApiError).message).toBe("Attachment not found");
   });
+
+  it("parses a string-shaped JSON 404 instead of reporting INVALID_JSON", async () => {
+    // Invented deal-attachment paths now answer `{ error: "Not found" }` so
+    // crm_api must treat that as a real 404, not as a broken JSON body.
+    stubFetch(
+      new Response(JSON.stringify({ error: "Not found" }), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      })
+    );
+
+    const err = await crmClient()
+      .request("/api/v1/deals/deal-1/attachments/att-1/content")
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(CrmApiError);
+    const apiErr = err as CrmApiError;
+    expect(apiErr.status).toBe(404);
+    expect(apiErr.code).not.toBe("INVALID_JSON");
+    expect(apiErr.code).not.toBe("NOT_JSON_HTML");
+    expect(apiErr.body).toEqual({ error: "Not found" });
+  });
 });
