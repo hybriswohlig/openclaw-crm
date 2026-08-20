@@ -1,14 +1,22 @@
 import { describe, it, expect, vi } from "vitest";
-import { handleTool } from "./dispatch";
+import { handleTool, type ToolContent } from "./dispatch";
 import type { CrmClient } from "./client";
+import { MAX_MCP_INLINE_BYTES_LIMIT } from "@/lib/attachment-content";
+import type { AttachmentPayload } from "@/lib/attachment-content";
 
-/** Minimal CrmClient stand-in that records what dispatch forwarded. */
-function fakeClient() {
+/**
+ * Minimal CrmClient stand-in that records what dispatch forwarded.
+ *
+ * `response` is optional so the pre-existing call-shape tests keep the plain
+ * `{ ok: true }` stub; tools that post-process the payload (crm_get_attachment)
+ * pass the body they need to exercise.
+ */
+function fakeClient(response: unknown = { ok: true }) {
   const calls: Array<{ path: string; options: Record<string, unknown> }> = [];
   const client = {
     request: vi.fn(async (path: string, options: Record<string, unknown> = {}) => {
       calls.push({ path, options });
-      return { ok: true };
+      return response;
     }),
     context: {
       baseUrl: "https://crm.example.test",
@@ -18,6 +26,29 @@ function fakeClient() {
     },
   };
   return { client: client as unknown as CrmClient, calls };
+}
+
+/**
+ * Narrow a result to its text block.
+ *
+ * `handleTool` returns a text|image union now, so nothing may index `.text`
+ * off `content[0]` — tsconfig includes the tests, and `next build` fails on it.
+ */
+function textOf(content: ToolContent[]): string {
+  const block = content.find((c) => c.type === "text");
+  if (!block || block.type !== "text") throw new Error("no text block in result");
+  return block.text;
+}
+
+function textBlock(content: ToolContent[]): Record<string, unknown> {
+  return JSON.parse(textOf(content)) as Record<string, unknown>;
+}
+
+function imageBlock(
+  content: ToolContent[]
+): { type: "image"; data: string; mimeType: string } | undefined {
+  const block = content.find((c) => c.type === "image");
+  return block && block.type === "image" ? block : undefined;
 }
 
 describe("crm_api body coercion", () => {
@@ -82,7 +113,7 @@ describe("crm_api body coercion", () => {
     const res = await handleTool(client, "crm_api", { path: "/etc/passwd" });
 
     expect(res.isError).toBe(true);
-    expect(res.content[0].text).toContain("path must start with /api/");
+    expect(textOf(res.content)).toContain("path must start with /api/");
   });
 });
 
@@ -104,5 +135,303 @@ describe("crm_generate_document", () => {
         _deal_record_id: "deal-1",
       },
     });
+  });
+});
+
+/**
+ * Base64 of a payload that really starts with the JPEG magic number.
+ *
+ * Built from bytes rather than a hand-written literal so a test can decode it
+ * again and prove the bytes survived the round trip — the production failure
+ * was an attachment that arrived as the Next.js HTML shell, which is still
+ * perfectly valid base64 and would pass any string-only assertion.
+ */
+function jpegBase64(padding = 0): string {
+  return Buffer.concat([
+    Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
+    Buffer.alloc(padding, 0x2a),
+  ]).toString("base64");
+}
+
+/** Base64 of `bytes` bytes of non-image filler (PDF/video stand-in). */
+function fillerBase64(bytes: number): string {
+  return Buffer.alloc(bytes, 0x2a).toString("base64");
+}
+
+function attachmentPayload(over: Partial<AttachmentPayload> = {}): AttachmentPayload {
+  return {
+    id: "att-1",
+    fileName: "kueche.jpg",
+    mimeType: "image/jpeg",
+    fileSize: 4,
+    contentBase64: jpegBase64(),
+    isImage: true,
+    conversationId: "conv-1",
+    messageId: "msg-1",
+    dealRecordId: null,
+    createdAt: "2026-08-01T10:00:00.000Z",
+    ...over,
+  };
+}
+
+describe("crm_get_attachment", () => {
+  it("reads the inbox attachment route, not a deals subpath", async () => {
+    // The bug: agents reached for /api/v1/deals/{id}/attachments/{id}/content,
+    // which has no route handler, so Next.js answered with the HTML app shell.
+    const { client, calls } = fakeClient(attachmentPayload());
+
+    await handleTool(client, "crm_get_attachment", { id: "att/1" });
+
+    expect(calls[0].path).toBe("/api/v1/inbox/attachments/att%2F1");
+    expect(calls[0].path).not.toContain("/deals/");
+    expect(
+      (calls[0].options.query as Record<string, unknown>).dealRecordId
+    ).toBeUndefined();
+  });
+
+  it("forwards recordId as the dealRecordId query param", async () => {
+    const { client, calls } = fakeClient(attachmentPayload());
+
+    await handleTool(client, "crm_get_attachment", {
+      id: "att-1",
+      recordId: "deal-9",
+    });
+
+    expect(calls[0].path).toBe("/api/v1/inbox/attachments/att-1");
+    expect((calls[0].options.query as Record<string, unknown>).dealRecordId).toBe(
+      "deal-9"
+    );
+  });
+
+  it("returns real JPEG bytes in an image block plus metadata as text", async () => {
+    const base64 = jpegBase64(8);
+    const { client } = fakeClient(
+      attachmentPayload({ contentBase64: base64, fileSize: 12 })
+    );
+
+    const res = await handleTool(client, "crm_get_attachment", { id: "att-1" });
+
+    const image = imageBlock(res.content);
+    expect(image).toBeDefined();
+    expect(image!.mimeType).toBe("image/jpeg");
+    expect(image!.data).toBe(base64);
+
+    // The whole point of the fix: what the client renders has to decode to a
+    // JPEG. Before this, res.text() on the binary body handed over UTF-8
+    // replacement characters (or an HTML shell) under an image mime type.
+    const decoded = Buffer.from(image!.data, "base64");
+    expect([...decoded.subarray(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
+
+    // ImageContentSchema.data is z.string().base64() in the MCP SDK, so a
+    // "data:image/jpeg;base64," prefix is rejected client-side before the
+    // block ever reaches the model. Bare base64 only.
+    expect(image!.data).not.toMatch(/^data:/);
+    expect(image!.data).toMatch(/^[A-Za-z0-9+/]+={0,2}$/);
+
+    const meta = textBlock(res.content);
+    expect(meta.contentDelivery).toBe("image_block");
+    expect(meta.id).toBe("att-1");
+    expect(meta.fileName).toBe("kueche.jpg");
+    expect(meta.mimeType).toBe("image/jpeg");
+    expect(meta.isImage).toBe(true);
+    expect(meta.conversationId).toBe("conv-1");
+  });
+
+  it("format:'base64' returns the bytes as text and no image block", async () => {
+    const base64 = jpegBase64(8);
+    const { client } = fakeClient(attachmentPayload({ contentBase64: base64 }));
+
+    const res = await handleTool(client, "crm_get_attachment", {
+      id: "att-1",
+      format: "base64",
+    });
+
+    expect(imageBlock(res.content)).toBeUndefined();
+    expect(textBlock(res.content).contentBase64).toBe(base64);
+  });
+
+  it("format:'both' returns the image block and the base64", async () => {
+    const base64 = jpegBase64(8);
+    const { client } = fakeClient(attachmentPayload({ contentBase64: base64 }));
+
+    const res = await handleTool(client, "crm_get_attachment", {
+      id: "att-1",
+      format: "both",
+    });
+
+    expect(imageBlock(res.content)?.data).toBe(base64);
+    const meta = textBlock(res.content);
+    expect(meta.contentDelivery).toBe("image_block+base64");
+    expect(meta.contentBase64).toBe(base64);
+    // The contradiction: this hint used to tell the caller to re-call with
+    // format: 'base64' to get bytes that were already in the same result.
+    expect(String(meta.hint)).not.toContain("format: 'base64'");
+    expect(String(meta.hint)).toContain("contentBase64");
+  });
+
+  it("never builds an image block for a non-renderable mime under budget", async () => {
+    // A PDF in an image content block errors the whole tool call client-side,
+    // so it has to degrade to base64 and say why instead of silently omitting.
+    // Guards the ~95 real PDFs in the inbox against the byte budget: they are
+    // small, so tightening the budget must not stop returning their bytes.
+    const base64 = fillerBase64(64);
+    const { client } = fakeClient(
+      attachmentPayload({
+        mimeType: "application/pdf",
+        fileName: "angebot.pdf",
+        contentBase64: base64,
+        isImage: false,
+      })
+    );
+
+    const res = await handleTool(client, "crm_get_attachment", { id: "att-1" });
+
+    expect(imageBlock(res.content)).toBeUndefined();
+    const meta = textBlock(res.content);
+    expect(meta.contentDelivery).toBe("base64");
+    expect(meta.contentBase64).toBe(base64);
+    expect(meta.isImage).toBe(false);
+    expect(String(meta.hint)).toContain("application/pdf");
+    expect(String(meta.hint)).toContain("not a renderable image type");
+  });
+
+  it("renders image/jpg, the bogus mime WhatsApp sends, as image/jpeg", async () => {
+    const base64 = jpegBase64(8);
+    const { client } = fakeClient(
+      attachmentPayload({ mimeType: "image/jpg", contentBase64: base64 })
+    );
+
+    const res = await handleTool(client, "crm_get_attachment", { id: "att-1" });
+
+    const image = imageBlock(res.content);
+    expect(image).toBeDefined();
+    expect(image!.mimeType).toBe("image/jpeg");
+    // The metadata keeps what the sender claimed; only the block is normalised.
+    expect(textBlock(res.content).mimeType).toBe("image/jpg");
+  });
+
+  it("omits the bytes over the byte budget instead of erroring", async () => {
+    // maxBytes caps the whole result, not just the image block: falling back
+    // to base64 here would have inlined the payload anyway and defeated it.
+    const base64 = jpegBase64(60);
+    const { client } = fakeClient(attachmentPayload({ contentBase64: base64 }));
+
+    const res = await handleTool(client, "crm_get_attachment", {
+      id: "att-1",
+      maxBytes: 8,
+    });
+
+    expect(res.isError).toBeFalsy();
+    expect(imageBlock(res.content)).toBeUndefined();
+    const meta = textBlock(res.content);
+    expect(meta.contentDelivery).toBe("omitted_too_large");
+    expect(meta.contentBase64).toBeUndefined();
+    expect(String(meta.hint)).toContain("8-byte");
+    expect(String(meta.hint)).toContain("maxBytes");
+    expect(String(meta.hint)).toContain(String(MAX_MCP_INLINE_BYTES_LIMIT));
+    // The bytes stay reachable, so the hint has to name the uncapped route.
+    expect(String(meta.hint)).toContain("/api/v1/inbox/attachments/att-1");
+  });
+
+  it("returns no bytes at all for a non-renderable file over budget", async () => {
+    // The case that motivated the budget: the largest production attachment is
+    // a 9.1 MB video/mp4, which as base64 would be ~12 MB in one JSON-RPC
+    // result. Non-renderable must not mean "exempt from the budget".
+    const { client } = fakeClient(
+      attachmentPayload({
+        mimeType: "video/mp4",
+        fileName: "wohnung.mp4",
+        contentBase64: fillerBase64(64),
+        isImage: false,
+      })
+    );
+
+    const res = await handleTool(client, "crm_get_attachment", {
+      id: "att-1",
+      maxBytes: 8,
+    });
+
+    expect(res.isError).toBeFalsy();
+    expect(imageBlock(res.content)).toBeUndefined();
+    const meta = textBlock(res.content);
+    expect(meta.contentDelivery).toBe("omitted_too_large");
+    expect(meta.contentBase64).toBeUndefined();
+    expect(String(meta.hint)).toContain("maxBytes");
+    expect(String(meta.hint)).toContain("/api/v1/inbox/attachments/att-1");
+  });
+
+  it("stops offering a higher maxBytes past the hard ceiling", async () => {
+    // The circular-advice branch: past MAX_MCP_INLINE_BYTES_LIMIT no maxBytes
+    // can inline the payload, so repeating "raise maxBytes" would loop the
+    // caller. Synthetic filler rather than real bytes — base64ByteLength only
+    // reads .length, and allocating 24 MB of image data per run buys nothing.
+    const overCeiling = "A".repeat(
+      Math.ceil((MAX_MCP_INLINE_BYTES_LIMIT + 1024) / 3) * 4
+    );
+    const { client } = fakeClient(
+      attachmentPayload({
+        mimeType: "video/mp4",
+        fileName: "besichtigung.mp4",
+        contentBase64: overCeiling,
+        isImage: false,
+      })
+    );
+
+    const res = await handleTool(client, "crm_get_attachment", { id: "att-1" });
+
+    expect(res.isError).toBeFalsy();
+    expect(imageBlock(res.content)).toBeUndefined();
+    const meta = textBlock(res.content);
+    expect(meta.contentDelivery).toBe("omitted_too_large");
+    expect(meta.contentBase64).toBeUndefined();
+
+    const hint = String(meta.hint);
+    expect(hint).not.toContain("Re-call with maxBytes above");
+    expect(hint).toContain("hard ceiling");
+    expect(hint).toContain(String(MAX_MCP_INLINE_BYTES_LIMIT));
+    expect(hint).toContain("/api/v1/inbox/attachments/att-1");
+
+    // Under the ceiling that advice is still the fastest way out, so the two
+    // branches must not collapse into one message.
+    const under = fakeClient(attachmentPayload({ contentBase64: jpegBase64(60) }));
+    const underRes = await handleTool(under.client, "crm_get_attachment", {
+      id: "att-1",
+      maxBytes: 8,
+    });
+    const underHint = String(textBlock(underRes.content).hint);
+    expect(underHint).toContain("Re-call with maxBytes above");
+    expect(underHint).not.toBe(hint);
+  });
+
+  it("never emits an empty image block for an attachment stored with no bytes", async () => {
+    // A zero-byte fileContent yielded { type: "image", data: "" }, which most
+    // vision clients reject for the ENTIRE tool call — one broken row took out
+    // the whole result rather than just itself.
+    const { client } = fakeClient(
+      attachmentPayload({ contentBase64: "", fileSize: 0 })
+    );
+
+    const res = await handleTool(client, "crm_get_attachment", { id: "att-1" });
+
+    expect(res.isError).toBeFalsy();
+    expect(imageBlock(res.content)).toBeUndefined();
+    const meta = textBlock(res.content);
+    expect(meta.contentDelivery).toBe("base64");
+    expect(meta.byteLength).toBe(0);
+    expect(meta.contentBase64).toBe("");
+    expect(String(meta.hint)).toContain("empty content");
+    expect(String(meta.hint)).toContain("missing");
+  });
+
+  it("does not duplicate the base64 into the text block by default", async () => {
+    // Inlining it next to the image block doubles the token cost of every
+    // photo for zero gain, so the default result must carry the bytes once.
+    const { client } = fakeClient(
+      attachmentPayload({ contentBase64: jpegBase64(8) })
+    );
+
+    const res = await handleTool(client, "crm_get_attachment", { id: "att-1" });
+
+    expect(textBlock(res.content)).not.toHaveProperty("contentBase64");
   });
 });

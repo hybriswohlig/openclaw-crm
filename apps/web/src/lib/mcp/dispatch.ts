@@ -1,5 +1,13 @@
 import type { CrmClient } from "./client";
 import { formatToolError, formatToolResult } from "./client";
+import {
+  base64ByteLength,
+  isRenderableImage,
+  MAX_MCP_INLINE_BYTES_LIMIT,
+  normaliseImageMime,
+  resolveMaxBytes,
+  type AttachmentPayload,
+} from "@/lib/attachment-content";
 
 type Args = Record<string, unknown>;
 
@@ -57,13 +65,20 @@ function asQuery(
   return out;
 }
 
+export type ToolContent =
+  | { type: "text"; text: string }
+  | { type: "image"; data: string; mimeType: string };
+
 export async function handleTool(
   client: CrmClient,
   name: string,
   args: Args
-): Promise<{ content: Array<{ type: "text"; text: string }>; isError?: boolean }> {
+): Promise<{ content: ToolContent[]; isError?: boolean }> {
   try {
     const data = await dispatch(client, name, args);
+    if (name === "crm_get_attachment") {
+      return { content: attachmentContent(data as AttachmentPayload, args) };
+    }
     return { content: [{ type: "text", text: formatToolResult(data) }] };
   } catch (err) {
     return {
@@ -71,6 +86,100 @@ export async function handleTool(
       isError: true,
     };
   }
+}
+
+/**
+ * Turn one attachment into content an agent can actually use.
+ *
+ * A base64 blob inside a text block is unreadable to a vision model — it sees
+ * 300 KB of characters, not a kitchen. MCP's image content block is the only
+ * form that reaches the model as pixels, so that is the default; the metadata
+ * rides alongside as text. `format` lets a client that cannot render image
+ * blocks ask for the raw base64 instead, and the text block always says so,
+ * because a silent "no image" is what sent agents back to crm_api last time.
+ */
+function attachmentContent(payload: AttachmentPayload, args: Args): ToolContent[] {
+  const format = str(args.format || "image").toLowerCase();
+  const maxBytes = resolveMaxBytes(num(args.maxBytes));
+  const byteLength = base64ByteLength(payload.contentBase64);
+  const renderable = isRenderableImage(payload.mimeType);
+  const withinBudget = byteLength <= maxBytes;
+
+  // One budget, one meaning: the most bytes this tool result may carry, in
+  // either form. Gating only the image block would have let a 9 MB inbox video
+  // through as base64 and blown up the JSON-RPC response — the largest
+  // attachment in production is exactly that.
+  const wantImage =
+    format !== "base64" && renderable && withinBudget && byteLength > 0;
+  const wantBase64 =
+    withinBudget && (format === "base64" || format === "both" || !wantImage);
+
+  const meta: Record<string, unknown> = {
+    id: payload.id,
+    fileName: payload.fileName,
+    mimeType: payload.mimeType,
+    fileSize: payload.fileSize,
+    byteLength,
+    isImage: renderable,
+    conversationId: payload.conversationId,
+    messageId: payload.messageId,
+    dealRecordId: payload.dealRecordId,
+    createdAt: payload.createdAt,
+  };
+  if (payload.transcript) meta.transcript = payload.transcript;
+
+  if (wantImage && !wantBase64) {
+    meta.contentDelivery = "image_block";
+    meta.hint =
+      "The pixels are in the image content block of this result. If your " +
+      "client did not render it, call crm_get_attachment again with " +
+      "format: 'base64' and decode contentBase64 yourself.";
+  } else if (wantImage && wantBase64) {
+    meta.contentDelivery = "image_block+base64";
+    meta.contentBase64 = payload.contentBase64;
+    meta.hint =
+      "The pixels are in the image content block of this result; the same " +
+      "bytes are also in contentBase64 here. Nothing further to fetch.";
+  } else if (wantBase64) {
+    meta.contentDelivery = "base64";
+    meta.contentBase64 = payload.contentBase64;
+    if (!renderable) {
+      meta.hint =
+        `${payload.mimeType} is not a renderable image type, so no image block ` +
+        "was attached. Decode contentBase64 to get the original file.";
+    } else if (byteLength === 0) {
+      meta.hint =
+        "This attachment is stored with empty content — there are no bytes to " +
+        "show. Treat it as missing rather than as an empty photo.";
+    }
+  }
+  if (!withinBudget) {
+    // Say so instead of silently truncating, and name both ways out. The bytes
+    // stay reachable: GET /api/v1/inbox/attachments/{id} has no size ceiling.
+    meta.contentDelivery = "omitted_too_large";
+    // Only offer "raise maxBytes" when raising it could actually work — past
+    // the hard ceiling that advice would send the caller in a circle.
+    const raisable = byteLength <= MAX_MCP_INLINE_BYTES_LIMIT;
+    meta.hint =
+      `${byteLength} bytes exceeds the ${maxBytes}-byte budget for one tool ` +
+      "result, so no bytes were inlined. " +
+      (raisable
+        ? `Re-call with maxBytes above ${byteLength} (hard ceiling ` +
+          `${MAX_MCP_INLINE_BYTES_LIMIT}), or fetch `
+        : `This is past the ${MAX_MCP_INLINE_BYTES_LIMIT}-byte hard ceiling, so ` +
+          "no maxBytes will inline it — fetch ") +
+      `GET /api/v1/inbox/attachments/${payload.id} directly, which is uncapped.`;
+  }
+
+  const content: ToolContent[] = [{ type: "text", text: formatToolResult(meta) }];
+  if (wantImage) {
+    content.push({
+      type: "image",
+      data: payload.contentBase64,
+      mimeType: normaliseImageMime(payload.mimeType),
+    });
+  }
+  return content;
 }
 
 async function dispatch(client: CrmClient, name: string, args: Args): Promise<unknown> {
@@ -307,6 +416,18 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
     case "crm_list_deal_attachments":
       return client.request(
         `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/attachments`
+      );
+    case "crm_get_attachment":
+      // Bytes, not metadata: the JSON twin of the /content stream. recordId is
+      // optional extra scoping — the workspace filter is applied server-side
+      // either way, so a foreign id is a 404 whether or not it is passed.
+      return client.request(
+        `/api/v1/inbox/attachments/${encodeURIComponent(str(args.id))}`,
+        {
+          query: {
+            dealRecordId: args.recordId === undefined ? undefined : str(args.recordId),
+          },
+        }
       );
     case "crm_get_deal_inventory":
       return client.request(

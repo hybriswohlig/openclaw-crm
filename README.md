@@ -209,6 +209,8 @@ claude mcp add kottke-crm \
 
 Local stdio alternative: [`apps/mcp`](./apps/mcp/README.md).
 
+Customer photos: agents fetch inbox attachment bytes with the `crm_get_attachment` tool — see [`policy/mcp-attachments.md`](./policy/mcp-attachments.md).
+
 ## API
 
 REST API at `/api/v1/` with Bearer token authentication.

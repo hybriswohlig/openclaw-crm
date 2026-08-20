@@ -475,6 +475,49 @@ export async function getAttachmentsForDeal(
     .orderBy(desc(inboxMessageAttachments.createdAt));
 }
 
+/**
+ * Load ONE attachment including its bytes, scoped to the workspace.
+ *
+ * `fileContent` is stored base64 already, so this is the same payload the
+ * `/content` route decodes for `<img>` — handed back verbatim so a JSON API
+ * (and through it an MCP agent) can carry the pixels without a binary body.
+ *
+ * Pass `dealRecordId` to additionally require the attachment to belong to that
+ * deal; a mismatch is indistinguishable from "does not exist" on purpose.
+ */
+export async function getAttachmentWithContent(
+  attachmentId: string,
+  workspaceId: string,
+  opts: { dealRecordId?: string } = {}
+) {
+  const [row] = await db
+    .select({
+      id: inboxMessageAttachments.id,
+      fileName: inboxMessageAttachments.fileName,
+      mimeType: inboxMessageAttachments.mimeType,
+      fileSize: inboxMessageAttachments.fileSize,
+      fileContent: inboxMessageAttachments.fileContent,
+      transcript: inboxMessageAttachments.transcript,
+      createdAt: inboxMessageAttachments.createdAt,
+      conversationId: inboxMessageAttachments.conversationId,
+      messageId: inboxMessageAttachments.messageId,
+      dealRecordId: inboxMessageAttachments.dealRecordId,
+    })
+    .from(inboxMessageAttachments)
+    .where(
+      and(
+        eq(inboxMessageAttachments.id, attachmentId),
+        eq(inboxMessageAttachments.workspaceId, workspaceId),
+        ...(opts.dealRecordId
+          ? [eq(inboxMessageAttachments.dealRecordId, opts.dealRecordId)]
+          : [])
+      )
+    )
+    .limit(1);
+
+  return row ?? null;
+}
+
 export async function markConversationRead(conversationId: string, workspaceId: string) {
   await db
     .update(inboxMessages)

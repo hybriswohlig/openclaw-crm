@@ -370,8 +370,20 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_list_deal_attachments",
-    "Attachments on a deal (customer-sent apartment photos etc.). Returns ids and mime types; pass image ids to crm_generate_document as imageAttachmentIds.",
+    "METADATA ONLY for the attachments on a deal (customer-sent apartment photos etc.): id, fileName, mimeType, fileSize, createdAt, conversationId, messageId. It never returns file bytes. To actually SEE a photo call crm_get_attachment({ id }) — do NOT try crm_api on /api/v1/inbox/attachments/{id}/content, that route streams raw binary. Pass image ids to crm_generate_document as imageAttachmentIds to put them in a PDF.",
     { recordId: z.string() },
+    req
+  );
+  tool(
+    server,
+    "crm_get_attachment",
+    "Fetch ONE inbox attachment WITH its bytes — this is how you look at a customer photo. Kottke quotes a fixed price from photos, so read the kitchen, the volume and anything needing dismantling here rather than guessing from the file name. By default (format 'image') the pixels come back as an MCP image content block a vision model renders directly, with metadata as text alongside. format 'base64' returns contentBase64 in the JSON instead (use it if your client cannot render image blocks), 'both' returns both. Non-image types (PDF, audio) always come back as base64 with an explanatory hint, never as HTML. maxBytes caps how many bytes one result may carry in any form (default and hard ceiling 3 MB — a buffered JSON body cannot hold more); over it no bytes are inlined and the result says so. Every customer photo in production fits: the largest is 2.4 MB, the median ~250 KB. Bigger files (mail PDFs, videos) must be streamed from /api/v1/inbox/attachments/{id}/content in a browser session. Pass recordId to assert the attachment belongs to that deal. Auth required; another workspace's id is a 404.",
+    {
+      id: z.string(),
+      recordId: z.string().optional(),
+      format: z.enum(["image", "base64", "both"]).optional(),
+      maxBytes: z.number().optional(),
+    },
     req
   );
   tool(
@@ -468,7 +480,7 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_get_deal_document",
-    "Fetch one stored deal document (metadata + base64 content).",
+    "Fetch one stored deal document (a rendered AB/RE PDF). Returns { _binary: true, mimeType, byteLength, fileName, contentBase64 } — decode contentBase64 to get the file. For customer photos from the inbox use crm_get_attachment instead.",
     { recordId: z.string(), documentId: z.string() },
     req
   );
@@ -569,7 +581,7 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_api",
-    "Raw authenticated request to any /api/… path (escape hatch).",
+    "Raw authenticated request to any /api/… path (escape hatch). A binary response (image, PDF) is wrapped as { _binary: true, mimeType, byteLength, contentBase64 } rather than being parsed as JSON, and a path with no route handler reports NOT_JSON_HTML instead of dumping the Next.js app shell. For inbox attachment bytes prefer crm_get_attachment — it returns a renderable image block; crm_api only ever gives you base64.",
     {
       method: z.enum(["GET", "POST", "PATCH", "PUT", "DELETE"]).optional(),
       path: z.string(),

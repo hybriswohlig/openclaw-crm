@@ -284,6 +284,22 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
       return client.request(
         `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/profit`
       );
+    case "crm_list_deal_attachments":
+      return client.request(
+        `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/attachments`
+      );
+    case "crm_get_attachment":
+      // The stdio server has no image-content-block plumbing, so this returns
+      // base64 in JSON. The remote MCP (apps/web) additionally renders an image
+      // block; both read the same route.
+      return client.request(
+        `/api/v1/inbox/attachments/${encodeURIComponent(str(args.id))}`,
+        {
+          query: {
+            dealRecordId: args.recordId === undefined ? undefined : str(args.recordId),
+          },
+        }
+      );
     case "crm_list_deal_documents":
       return client.request(
         `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/documents`
