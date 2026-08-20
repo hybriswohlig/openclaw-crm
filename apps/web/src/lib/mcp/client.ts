@@ -1,6 +1,7 @@
 /**
  * HTTP client used by MCP tools to call the CRM REST API with the caller's auth.
  */
+import { MAX_MCP_INLINE_BYTES } from "@/lib/attachment-content";
 
 export class CrmApiError extends Error {
   constructor(
@@ -73,14 +74,43 @@ export class CrmClient {
     }
 
     const res = await fetchFollowingSelfRedirects(url, { method, headers, body });
-    const text = await res.text();
+
+    // Decide how to read the body BEFORE consuming it. Calling res.text() on a
+    // JPEG mangles the bytes beyond recovery, which is how every attempt to
+    // fetch a customer photo through crm_api ended as "INVALID_JSON" with the
+    // pixels already destroyed.
+    const contentType = res.headers.get("content-type") ?? "";
+    if (isBinaryContentType(contentType)) {
+      return (await readBinary(res, url, contentType)) as T;
+    }
+
+    // A missing content-type is exactly where a body is most likely to be
+    // binary (the crm-tools job proxy forwards the upstream header only when
+    // it is present), so decide by decoding rather than by assuming text.
+    let text: string;
+    if (!contentType) {
+      const decoded = await readUntypedBody(res, url);
+      if (typeof decoded !== "string") return decoded as T;
+      text = decoded;
+    } else {
+      text = await res.text();
+    }
     let json: unknown = null;
     if (text) {
       try {
         json = JSON.parse(text);
       } catch {
-        if (!res.ok) {
-          throw new CrmApiError(res.status, "INVALID_JSON", text.slice(0, 500));
+        // HTML is never a tool result, whatever the status. A 200 reaches here
+        // when middleware redirects an unauthenticated /api/ call to /login and
+        // the redirect is followed — returning the login page as data would be
+        // the same silent lie in a different costume.
+        if (!res.ok || looksLikeHtml(text)) {
+          throw new CrmApiError(
+            res.status,
+            looksLikeHtml(text) ? "NOT_JSON_HTML" : "INVALID_JSON",
+            nonJsonMessage(url, res.status, text),
+            undefined
+          );
         }
         return text as T;
       }
@@ -169,6 +199,162 @@ async function fetchFollowingSelfRedirects(
   }
 
   return res;
+}
+
+/**
+ * Envelope returned for a binary response body.
+ *
+ * Wrapping rather than failing is what makes `crm_api` honest about routes
+ * that stream bytes (attachment `/content`, rendered PDFs): the caller gets
+ * real base64 in real JSON instead of a parse error over a destroyed body.
+ */
+export interface BinaryResponseEnvelope {
+  _binary: true;
+  mimeType: string;
+  byteLength: number;
+  fileName?: string;
+  contentBase64: string;
+  note: string;
+}
+
+const JSON_CONTENT_TYPE = /^application\/([\w.+-]+\+)?json\b/i;
+
+/** text/* (except HTML we still want to inspect) and JSON are read as text. */
+function isBinaryContentType(contentType: string): boolean {
+  const type = contentType.split(";")[0].trim().toLowerCase();
+  if (!type) return false;
+  if (JSON_CONTENT_TYPE.test(type)) return false;
+  if (type.startsWith("text/")) return false;
+  if (type === "application/xml" || type === "application/javascript") return false;
+  return true;
+}
+
+function looksLikeHtml(text: string): boolean {
+  return /^\s*(<!doctype html|<html[\s>])/i.test(text);
+}
+
+/**
+ * Message for a response that could not be parsed as JSON.
+ *
+ * The status is left exactly as the server sent it — a Next.js app-shell 404
+ * really is a 404 — but the text now says *why* and what to call instead,
+ * rather than dumping HTML under a code the caller cannot act on.
+ */
+function nonJsonMessage(url: URL, status: number, text: string): string {
+  if (looksLikeHtml(text)) {
+    const hint = attachmentHint(url.pathname);
+    // Only a 404 licenses "this path has no route handler". A 500, a 504 or a
+    // platform 413 also answer with HTML, and telling an agent the endpoint
+    // does not exist would stop it retrying a route that is real and merely
+    // failing right now.
+    const cause =
+      status === 404
+        ? "which means this path has no route handler"
+        : "which usually means the request never reached a route handler " +
+          "(platform error, timeout, or an auth redirect) — the route may " +
+          "well exist and be failing transiently";
+    return (
+      `Got HTML, not JSON, from ${url.pathname} (HTTP ${status}), ${cause}.` +
+      (hint ? ` ${hint}` : "")
+    );
+  }
+  return `Response was not JSON (HTTP ${status}): ${text.slice(0, 500)}`;
+}
+
+/** Point attachment-shaped misses at the tool that actually returns pixels. */
+function attachmentHint(pathname: string): string | null {
+  if (!/attachment/i.test(pathname)) return null;
+  return (
+    "For inbox attachment bytes use the crm_get_attachment tool " +
+    "(or GET /api/v1/inbox/attachments/{id})."
+  );
+}
+
+/**
+ * Read a body that arrived without a content-type.
+ *
+ * Returns the decoded string when the bytes are valid UTF-8, otherwise the
+ * binary envelope. Decoding strictly is the whole point: `res.text()` would
+ * happily turn a PDF into replacement characters and lose it for good.
+ */
+async function readUntypedBody(
+  res: Response,
+  url: URL
+): Promise<string | BinaryResponseEnvelope> {
+  const buffer = Buffer.from(await res.arrayBuffer());
+  if (buffer.length === 0) return "";
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+  } catch {
+    return buildBinaryEnvelope(buffer, url, "application/octet-stream", null);
+  }
+}
+
+async function readBinary(
+  res: Response,
+  url: URL,
+  contentType: string
+): Promise<BinaryResponseEnvelope> {
+  const buffer = Buffer.from(await res.arrayBuffer());
+
+  if (!res.ok) {
+    throw new CrmApiError(
+      res.status,
+      "HTTP_ERROR",
+      `HTTP ${res.status} with a ${contentType || "binary"} body ` +
+        `(${buffer.length} bytes) from ${url.pathname}`
+    );
+  }
+
+  return buildBinaryEnvelope(
+    buffer,
+    url,
+    contentType,
+    res.headers.get("content-disposition")
+  );
+}
+
+function buildBinaryEnvelope(
+  buffer: Buffer,
+  url: URL,
+  contentType: string,
+  disposition: string | null
+): BinaryResponseEnvelope {
+  if (buffer.length > MAX_MCP_INLINE_BYTES) {
+    throw new CrmApiError(
+      413,
+      "BINARY_TOO_LARGE",
+      `${url.pathname} returned ${buffer.length} bytes of ${contentType || "binary"}, ` +
+        `over the ${MAX_MCP_INLINE_BYTES}-byte inline limit. ` +
+        (attachmentHint(url.pathname) ??
+          "Fetch it in a browser session instead of through MCP.")
+    );
+  }
+
+  return {
+    _binary: true,
+    mimeType: contentType.split(";")[0].trim() || "application/octet-stream",
+    byteLength: buffer.length,
+    ...(fileNameFromDisposition(disposition) ?? {}),
+    contentBase64: buffer.toString("base64"),
+    note:
+      "Binary response wrapped as base64. Decode contentBase64 to get the file. " +
+      "For inbox photos prefer crm_get_attachment, which also returns a " +
+      "renderable image block.",
+  };
+}
+
+function fileNameFromDisposition(
+  header: string | null
+): { fileName: string } | null {
+  if (!header) return null;
+  const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(header);
+  if (!match) return null;
+  try {
+    return { fileName: decodeURIComponent(match[1]) };
+  } catch {
+    return { fileName: match[1] };
+  }
 }
 
 export function formatToolResult(data: unknown): string {

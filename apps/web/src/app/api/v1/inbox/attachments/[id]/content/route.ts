@@ -1,12 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthContext, unauthorized } from "@/lib/api-utils";
+import { getAuthContext, unauthorized, notFound, success } from "@/lib/api-utils";
 import { db } from "@/db";
 import { inboxMessageAttachments } from "@/db/schema/inbox";
 import { and, eq } from "drizzle-orm";
+import { getAttachmentWithContent } from "@/services/inbox";
+import { toAttachmentPayload } from "@/lib/attachment-content";
 
 // Streams the base64-decoded bytes of an attachment. The inbox renders
 // <img src="/api/v1/inbox/attachments/{id}/content" /> against this route.
 // Auth is mandatory — we never expose customer attachments without a session.
+//
+// ?format=json returns the same bytes base64-wrapped in JSON instead of raw
+// binary. It exists because this URL is the one visible in the inbox markup,
+// so agents copy it and then die on the binary body; ../[id] is the canonical
+// JSON route. Anything other than format=json keeps streaming bytes, so the
+// <img> path is byte-for-byte unchanged.
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -15,6 +23,12 @@ export async function GET(
   if (!ctx) return unauthorized();
 
   const { id } = await params;
+
+  if (req.nextUrl.searchParams.get("format") === "json") {
+    const full = await getAttachmentWithContent(id, ctx.workspaceId);
+    if (!full) return notFound();
+    return success(toAttachmentPayload(full));
+  }
 
   const [row] = await db
     .select({

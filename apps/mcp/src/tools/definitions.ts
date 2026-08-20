@@ -499,6 +499,32 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "crm_list_deal_attachments",
+    description:
+      "METADATA ONLY for the inbox attachments on a deal (customer-sent apartment photos etc.): id, fileName, mimeType, fileSize, createdAt, conversationId, messageId. It never returns file bytes — call crm_get_attachment for those, and do NOT try crm_api on /api/v1/inbox/attachments/{id}/content, which streams raw binary.",
+    inputSchema: {
+      type: "object",
+      properties: { recordId: { type: "string" } },
+      required: ["recordId"],
+    },
+  },
+  {
+    name: "crm_get_attachment",
+    description:
+      "Fetch ONE inbox attachment WITH its bytes, as JSON: { id, fileName, mimeType, fileSize, contentBase64, isImage, … }. This is how you look at a customer photo — decode contentBase64. Pass recordId to assert the attachment belongs to that deal. Auth required; another workspace's id is a 404. Files over 3 MB return 413 ATTACHMENT_TOO_LARGE — stream those from /api/v1/inbox/attachments/{id}/content instead.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Attachment UUID" },
+        recordId: {
+          type: "string",
+          description: "Optional deal record id the attachment must belong to",
+        },
+      },
+      required: ["id"],
+    },
+  },
+  {
     name: "crm_list_deal_documents",
     description: "Documents attached to a deal (quotes, KVA, invoices).",
     inputSchema: {

@@ -197,6 +197,14 @@ export class CrmClient {
   }
 
   private async parseResponse<T>(res: Response): Promise<T> {
+    // Decide how to read the body before consuming it: res.text() on a JPEG or
+    // a PDF destroys the bytes, and the failure then surfaces as a JSON parse
+    // error with nothing left to recover. Mirrors apps/web/src/lib/mcp/client.ts.
+    const contentType = res.headers.get("content-type") ?? "";
+    if (isBinaryContentType(contentType)) {
+      return (await readBinary(res, contentType)) as T;
+    }
+
     const text = await res.text();
     let json: unknown = null;
     if (text) {
@@ -204,7 +212,15 @@ export class CrmClient {
         json = JSON.parse(text);
       } catch {
         if (!res.ok) {
-          throw new CrmApiError(res.status, "INVALID_JSON", text.slice(0, 500));
+          throw new CrmApiError(
+            res.status,
+            looksLikeHtml(text) ? "NOT_JSON_HTML" : "INVALID_JSON",
+            looksLikeHtml(text)
+              ? `No JSON API at ${new URL(res.url || "http://x/").pathname} — the server ` +
+                `returned an HTML page (HTTP ${res.status}), which means this path has ` +
+                "no route handler. Check the path."
+              : `Response was not JSON (HTTP ${res.status}): ${text.slice(0, 500)}`
+          );
         }
         return text as T;
       }
@@ -263,4 +279,63 @@ export function formatToolError(err: unknown): string {
     return JSON.stringify({ error: true, message: err.message }, null, 2);
   }
   return JSON.stringify({ error: true, message: String(err) }, null, 2);
+}
+
+
+/** Envelope for a binary response body, so bytes survive a JSON-only client. */
+export interface BinaryResponseEnvelope {
+  _binary: true;
+  mimeType: string;
+  byteLength: number;
+  contentBase64: string;
+  note: string;
+}
+
+/** 8 MB, matching apps/web's MCP inline ceiling. */
+const MAX_INLINE_BYTES = 8 * 1024 * 1024;
+
+const JSON_CONTENT_TYPE = /^application\/([\w.+-]+\+)?json\b/i;
+
+function isBinaryContentType(contentType: string): boolean {
+  const type = contentType.split(";")[0].trim().toLowerCase();
+  if (!type) return false;
+  if (JSON_CONTENT_TYPE.test(type)) return false;
+  if (type.startsWith("text/")) return false;
+  if (type === "application/xml" || type === "application/javascript") return false;
+  return true;
+}
+
+function looksLikeHtml(text: string): boolean {
+  return /^\s*(<!doctype html|<html[\s>])/i.test(text);
+}
+
+async function readBinary(
+  res: Response,
+  contentType: string
+): Promise<BinaryResponseEnvelope> {
+  const buffer = Buffer.from(await res.arrayBuffer());
+
+  if (!res.ok) {
+    throw new CrmApiError(
+      res.status,
+      "HTTP_ERROR",
+      `HTTP ${res.status} with a ${contentType || "binary"} body (${buffer.length} bytes)`
+    );
+  }
+  if (buffer.length > MAX_INLINE_BYTES) {
+    throw new CrmApiError(
+      413,
+      "BINARY_TOO_LARGE",
+      `Response is ${buffer.length} bytes of ${contentType || "binary"}, over the ` +
+        `${MAX_INLINE_BYTES}-byte inline limit.`
+    );
+  }
+
+  return {
+    _binary: true,
+    mimeType: contentType.split(";")[0].trim() || "application/octet-stream",
+    byteLength: buffer.length,
+    contentBase64: buffer.toString("base64"),
+    note: "Binary response wrapped as base64. Decode contentBase64 to get the file.",
+  };
 }
