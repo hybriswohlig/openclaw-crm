@@ -49,7 +49,10 @@
   --accent-soft: oklch(0.94 0.04 60);
   --accent-ink: #fbf8f3;
   --ok: oklch(0.55 0.12 150);
-  --warn: oklch(0.72 0.14 75);
+  /* I5: L=0.72 is 2.39:1 on --paper (#fbf8f3) — fails text contrast. L=0.56
+     lands at 4.48:1, level with --danger's 4.42:1. The dark-theme value below
+     keeps the original L=0.72 (8.29:1 on black — fine there). */
+  --warn: oklch(0.56 0.14 75);
   --danger: oklch(0.58 0.18 25);
   --info: oklch(0.6 0.08 230);
   --radius-card: 18px;
@@ -136,6 +139,9 @@
   --bubble-out: #2a3942;
   --bubble-out-fg: #f5f5f7;
   --bubble-in: #232325;
+
+  /* I5: dark keeps today's look — L=0.72 reads fine on black (8.29:1). */
+  --warn: oklch(0.72 0.14 75);
 }
 
 @layer base {
