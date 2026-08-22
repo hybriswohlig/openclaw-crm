@@ -8,6 +8,7 @@ import {
   normalizeMilestoneStatus,
   normalizePhaseStatus,
   normalizeProjectCategory,
+  normalizeProjectMemberRole,
   normalizeProjectStatus,
   normalizeRiskSeverity,
   normalizeRiskStatus,
@@ -375,6 +376,7 @@ import {
   projectPhases,
   projectRisks,
   projects,
+  taskAssignees,
   tasks,
   users,
 } from "@/db/schema";
@@ -697,4 +699,463 @@ export async function getProject(
     ...toProjectRowData(row, membersById.get(row.id) ?? [], favoriteIds.has(row.id)),
     stats: statsById.get(row.id)!,
   };
+}
+
+import { notifyProjectEvent, recordProjectEvent } from "./activity-events";
+import { resolveOwnerMembership } from "./project-members";
+
+/**
+ * Columns whose change must NOT produce an activity row. The Notizen tab
+ * autosaves `notesContent` every 1200 ms; a minute of typing would otherwise
+ * be a dozen "Projekt aktualisiert" rows in the Aktivitäten card.
+ */
+export const PROJECT_UPDATE_QUIET_KEYS: readonly string[] = ["notesContent"] as const;
+
+const PROJECT_SCALAR_KEYS = [
+  "name",
+  "shortDescription",
+  "category",
+  "priority",
+  "status",
+  "icon",
+  "color",
+  "ownerUserId",
+  "problemStatement",
+  "goalStatement",
+  "successCriteria",
+  "scopeIn",
+  "scopeOut",
+  "budgetPlannedCents",
+  "notesContent",
+] as const;
+
+/**
+ * Pure: parsed input → the column bag for INSERT/UPDATE. The nested wizard
+ * arrays (members/phases/milestones/risks/budgetEntries) are deliberately
+ * dropped here — they are written as their own rows, never as columns.
+ *
+ * Returns an EMPTY object when no column would actually change, so the
+ * caller can skip both the UPDATE and the activity row.
+ */
+export function projectColumnSet(
+  input: UpdateProjectInput,
+  now: Date = new Date(),
+): Record<string, unknown> {
+  const set: Record<string, unknown> = {};
+  for (const key of PROJECT_SCALAR_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(input, key)) {
+      set[key] = (input as Record<string, unknown>)[key];
+    }
+  }
+  // `date` columns in string mode — the "YYYY-MM-DD" string goes in as is.
+  // These were `new Date(...)` before Phase 1 shipped string mode.
+  if (Object.prototype.hasOwnProperty.call(input, "startDate")) {
+    set.startDate = input.startDate || null;
+  }
+  if (Object.prototype.hasOwnProperty.call(input, "endDate")) {
+    set.endDate = input.endDate || null;
+  }
+  // archived_at is a TIMESTAMP column (unlike the `date` columns above), so
+  // this one really is converted to a Date.
+  if (Object.prototype.hasOwnProperty.call(input, "archivedAt")) {
+    set.archivedAt = input.archivedAt ? new Date(input.archivedAt) : null;
+  }
+  // Nothing to write → let the caller no-op instead of bumping updated_at.
+  if (Object.keys(set).length === 0) return {};
+  // updated_at is a timestamp, so this one really is a Date.
+  set.updatedAt = now;
+  return set;
+}
+
+/**
+ * Create a project. When the wizard sends the nested plan, everything —
+ * project, members, phases, phase tasks, milestones, risks, budget rows —
+ * is written in ONE transaction (spec §8.3).
+ *
+ * The task rows inserted here are written with a consistent
+ * kind/project_id/status/is_completed tuple so invariants I1 and I3 hold
+ * without going through services/tasks.ts inside the transaction.
+ *
+ * The nested arrays carry ABSOLUTE "YYYY-MM-DD" dates, never AI day offsets.
+ * A caller holding a raw ProjectPlan turns it into this shape with
+ * `materializeProjectPlan()` (Task 20) — the canonical offset → date
+ * conversion, built on Phase 1's tested `offsetDaysToDate`. Nothing may
+ * hand-roll that arithmetic again.
+ */
+export async function createProject(
+  workspaceId: string,
+  createdBy: string,
+  input: CreateProjectInput,
+): Promise<ProjectWithStats> {
+  const now = new Date();
+  const projectId = await db.transaction(async (tx) => {
+    const [project] = await tx
+      .insert(projects)
+      .values({
+        workspaceId,
+        createdBy,
+        name: input.name,
+        shortDescription: input.shortDescription ?? null,
+        category: input.category,
+        priority: input.priority ?? "mittel",
+        status: input.status ?? "geplant",
+        icon: input.icon ?? null,
+        color: input.color ?? null,
+        // `date` columns, string mode — no conversion on the way in.
+        // `|| null` (not `?? null`) so an empty string never reaches the
+        // column: Postgres rejects '' as a date.
+        startDate: input.startDate || null,
+        endDate: input.endDate || null,
+        ownerUserId: input.ownerUserId ?? null,
+        problemStatement: input.problemStatement ?? null,
+        goalStatement: input.goalStatement ?? null,
+        successCriteria: input.successCriteria ?? null,
+        scopeIn: input.scopeIn ?? [],
+        scopeOut: input.scopeOut ?? [],
+        budgetPlannedCents: input.budgetPlannedCents ?? null,
+        notesContent: input.notesContent ?? null,
+        updatedAt: now,
+      })
+      .returning();
+
+    // The Projektleiter is ALSO a member with role 'leiter' (spec §4.4).
+    const memberRoles = new Map<string, string>();
+    if (project.ownerUserId) memberRoles.set(project.ownerUserId, "leiter");
+    for (const m of input.members ?? []) {
+      if (!m?.userId) continue;
+      if (!memberRoles.has(m.userId)) {
+        memberRoles.set(m.userId, normalizeProjectMemberRole(m.role) ?? "mitglied");
+      }
+    }
+    if (memberRoles.size > 0) {
+      await tx.insert(projectMembers).values(
+        [...memberRoles.entries()].map(([userId, role]) => ({
+          workspaceId,
+          projectId: project.id,
+          userId,
+          role,
+        })),
+      );
+    }
+
+    // `milestones[].phaseIndex` indexes the array the CALLER sent, so the
+    // mapping must be keyed by that index — not by insertion order. Skipping
+    // a nameless phase used to shift every later index by one and silently
+    // attach milestones to the wrong phase (or to none, off the end).
+    const phaseIdByInputIndex = new Map<number, string>();
+    let insertedPhaseCount = 0;
+    const phaseInputs = input.phases ?? [];
+    for (let i = 0; i < phaseInputs.length; i++) {
+      const p = phaseInputs[i];
+      if (!p?.name?.trim()) continue;
+      const [phase] = await tx
+        .insert(projectPhases)
+        .values({
+          workspaceId,
+          projectId: project.id,
+          name: p.name.trim(),
+          description: p.description ?? null,
+          startDate: p.startDate || null,
+          dueDate: p.dueDate || null,
+          status: normalizePhaseStatus(p.status) ?? "geplant",
+          position: insertedPhaseCount,
+        })
+        .returning({ id: projectPhases.id });
+      phaseIdByInputIndex.set(i, phase.id);
+      insertedPhaseCount += 1;
+
+      for (const t of p.tasks ?? []) {
+        if (!t?.content?.trim()) continue;
+        await tx.insert(tasks).values({
+          workspaceId,
+          createdBy,
+          content: t.content.trim(),
+          description: t.description ?? null,
+          // deadline is a TIMESTAMP (Date); start_date is a `date` column
+          // in string mode and goes in as "YYYY-MM-DD".
+          deadline: t.deadline ? new Date(t.deadline) : null,
+          startDate: t.startDate || null,
+          priority: normalizePriority(t.priority),
+          sprintId: t.sprintId ?? null,
+          kind: "projekt",
+          projectId: project.id,
+          phaseId: phase.id,
+          status: "geplant",
+          isCompleted: false,
+        });
+      }
+    }
+
+    const milestoneInputs = input.milestones ?? [];
+    for (let i = 0; i < milestoneInputs.length; i++) {
+      const m = milestoneInputs[i];
+      if (!m?.name?.trim()) continue;
+      const phaseId =
+        typeof m.phaseIndex === "number"
+          ? phaseIdByInputIndex.get(m.phaseIndex) ?? null
+          : null;
+      await tx.insert(projectMilestones).values({
+        workspaceId,
+        projectId: project.id,
+        phaseId,
+        name: m.name.trim(),
+        dueDate: m.dueDate || null,
+        status: normalizeMilestoneStatus(m.status) ?? "geplant",
+        position: i,
+      });
+    }
+
+    for (const r of input.risks ?? []) {
+      if (!r?.title?.trim()) continue;
+      await tx.insert(projectRisks).values({
+        workspaceId,
+        projectId: project.id,
+        title: r.title.trim(),
+        description: r.description ?? null,
+        severity: normalizeRiskSeverity(r.severity) ?? "mittel",
+        likelihood: normalizeRiskSeverity(r.likelihood),
+        status: "offen",
+        mitigation: r.mitigation ?? null,
+        ownerUserId: r.ownerUserId ?? null,
+      });
+    }
+
+    for (const b of input.budgetEntries ?? []) {
+      if (!b?.label?.trim() || !Number.isInteger(b.amountCents)) continue;
+      const kind = normalizeBudgetEntryKind(b.kind);
+      if (!kind) continue;
+      await tx.insert(projectBudgetEntries).values({
+        workspaceId,
+        projectId: project.id,
+        createdBy,
+        label: b.label.trim(),
+        amountCents: b.amountCents,
+        kind,
+        bookedAt: b.bookedAt || null,
+        note: b.note ?? null,
+      });
+    }
+
+    return project.id;
+  });
+
+  // Creation is not one of the four §10.2 notification triggers.
+  await recordProjectEvent({
+    workspaceId,
+    projectId,
+    projectName: input.name,
+    eventType: "project.created",
+    actorId: createdBy,
+    title: "Neues Projekt",
+    body: `"${input.name}" wurde angelegt.`,
+  });
+
+  const created = await getProject(workspaceId, createdBy, projectId);
+  if (!created) throw new Error("Projekt konnte nach dem Anlegen nicht gelesen werden.");
+  return created;
+}
+
+export async function updateProject(
+  workspaceId: string,
+  userId: string,
+  projectId: string,
+  updates: UpdateProjectInput,
+): Promise<ProjectWithStats | null> {
+  const [existing] = await db
+    .select({
+      id: projects.id,
+      name: projects.name,
+      status: projects.status,
+      ownerUserId: projects.ownerUserId,
+    })
+    .from(projects)
+    .where(and(eq(projects.id, projectId), eq(projects.workspaceId, workspaceId)))
+    .limit(1);
+  if (!existing) return null;
+
+  const set = projectColumnSet(updates);
+  const changedKeys = Object.keys(set).filter((k) => k !== "updatedAt");
+  const ownerChanged =
+    Object.prototype.hasOwnProperty.call(updates, "ownerUserId") &&
+    (updates.ownerUserId ?? null) !== existing.ownerUserId;
+
+  // Nothing would change → no UPDATE, no updated_at bump, no activity row.
+  if (changedKeys.length === 0 && !ownerChanged) {
+    return getProject(workspaceId, userId, projectId);
+  }
+
+  await db.transaction(async (tx) => {
+    if (Object.keys(set).length > 0) {
+      await tx.update(projects).set(set).where(eq(projects.id, projectId));
+    }
+    if (!ownerChanged) return;
+
+    // Owner handover: exactly one 'leiter' row must survive. Both reads live
+    // INSIDE the transaction — reading the roster outside it and writing
+    // inside is a TOCTOU: a concurrent addProjectMember between the two would
+    // be planned against a stale roster and could be demoted or deleted.
+    // `hasProjectWork` is the evidence for "were they on the team for more
+    // than the owner title"; project_members has no provenance column.
+    const memberRows = await tx
+      .select({ userId: projectMembers.userId, role: projectMembers.role })
+      .from(projectMembers)
+      .where(
+        and(
+          eq(projectMembers.workspaceId, workspaceId),
+          eq(projectMembers.projectId, projectId),
+        ),
+      );
+    const workerRows = await tx
+      .selectDistinct({ userId: taskAssignees.userId })
+      .from(taskAssignees)
+      .innerJoin(tasks, eq(tasks.id, taskAssignees.taskId))
+      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.projectId, projectId)));
+    const withWork = new Set(workerRows.map((r) => r.userId));
+
+    const ownerPlan = resolveOwnerMembership(
+      memberRows.map((m) => ({
+        userId: m.userId,
+        role: normalizeProjectMemberRole(m.role) ?? "mitglied",
+        hasProjectWork: withWork.has(m.userId),
+      })),
+      existing.ownerUserId,
+      updates.ownerUserId ?? null,
+    );
+
+    if (ownerPlan.remove.length > 0) {
+      await tx
+        .delete(projectMembers)
+        .where(
+          and(
+            eq(projectMembers.workspaceId, workspaceId),
+            eq(projectMembers.projectId, projectId),
+            inArray(projectMembers.userId, ownerPlan.remove),
+          ),
+        );
+    }
+    if (ownerPlan.demoteToMitglied.length > 0) {
+      await tx
+        .update(projectMembers)
+        .set({ role: "mitglied" })
+        .where(
+          and(
+            eq(projectMembers.workspaceId, workspaceId),
+            eq(projectMembers.projectId, projectId),
+            inArray(projectMembers.userId, ownerPlan.demoteToMitglied),
+          ),
+        );
+    }
+    const newLeiter = ownerPlan.upsertLeiter;
+    if (newLeiter) {
+      const alreadyMember = memberRows.some((m) => m.userId === newLeiter);
+      if (alreadyMember) {
+        await tx
+          .update(projectMembers)
+          .set({ role: "leiter" })
+          .where(
+            and(
+              eq(projectMembers.workspaceId, workspaceId),
+              eq(projectMembers.projectId, projectId),
+              eq(projectMembers.userId, newLeiter),
+            ),
+          );
+      } else {
+        await tx.insert(projectMembers).values({
+          workspaceId,
+          projectId,
+          userId: newLeiter,
+          role: "leiter",
+        });
+      }
+    }
+  });
+
+  const newName = typeof set.name === "string" ? set.name : existing.name;
+
+  if (typeof set.status === "string" && set.status !== existing.status) {
+    // One of the four §10.2 notification triggers.
+    await notifyProjectEvent({
+      workspaceId,
+      projectId,
+      projectName: newName,
+      eventType: "project.status_changed",
+      actorId: userId,
+      title: "Projektstatus geändert",
+      body: `"${newName}" ist jetzt ${set.status}.`,
+      payload: { from: existing.status, to: set.status },
+    });
+  } else {
+    // A pure Notizen autosave (1200 ms debounce) records nothing at all.
+    const loudKeys = changedKeys.filter((k) => !PROJECT_UPDATE_QUIET_KEYS.includes(k));
+    if (loudKeys.length > 0 || ownerChanged) {
+      await recordProjectEvent({
+        workspaceId,
+        projectId,
+        projectName: newName,
+        eventType: "project.updated",
+        actorId: userId,
+        title: "Projekt aktualisiert",
+        body: `"${newName}" wurde geändert.`,
+        payload: { fields: ownerChanged ? [...loudKeys, "ownerUserId"] : loudKeys },
+      });
+    }
+  }
+
+  return getProject(workspaceId, userId, projectId);
+}
+
+/**
+ * Hard delete. project_id on tasks is ON DELETE SET NULL, which alone would
+ * leave tasks with kind='projekt' and no project — a direct I1 violation. So
+ * the tasks are demoted to operative work first, in the same transaction.
+ */
+export async function deleteProject(workspaceId: string, projectId: string): Promise<boolean> {
+  const [existing] = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(and(eq(projects.id, projectId), eq(projects.workspaceId, workspaceId)))
+    .limit(1);
+  if (!existing) return false;
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(tasks)
+      .set({ kind: "operativ", projectId: null, phaseId: null })
+      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.projectId, projectId)));
+    await tx.delete(projects).where(eq(projects.id, projectId));
+  });
+  return true;
+}
+
+export async function setProjectFavorite(
+  userId: string,
+  projectId: string,
+  favorite: boolean,
+): Promise<void> {
+  const [project] = await db
+    .select({ workspaceId: projects.workspaceId })
+    .from(projects)
+    .where(eq(projects.id, projectId))
+    .limit(1);
+  if (!project) return;
+
+  if (!favorite) {
+    await db
+      .delete(projectFavorites)
+      .where(
+        and(eq(projectFavorites.userId, userId), eq(projectFavorites.projectId, projectId)),
+      );
+    return;
+  }
+
+  // The UNIQUE (user_id, project_id) constraint is the guard, not a preceding
+  // SELECT: a double-click on the star fired two PUTs, both read "not
+  // favourited", and both inserted. `onConflictDoNothing` makes the write
+  // idempotent at the database level, where the race actually lives.
+  await db
+    .insert(projectFavorites)
+    .values({ workspaceId: project.workspaceId, userId, projectId })
+    .onConflictDoNothing({
+      target: [projectFavorites.userId, projectFavorites.projectId],
+    });
 }

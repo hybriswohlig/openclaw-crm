@@ -324,3 +324,58 @@ describe("toProjectRowData", () => {
     expect(toProjectRowData(row, members, false).members).toEqual(members);
   });
 });
+
+import { projectColumnSet, PROJECT_UPDATE_QUIET_KEYS } from "./projects";
+
+describe("projectColumnSet", () => {
+  it("maps only the sent scalar fields onto columns and always bumps updatedAt", () => {
+    const now = new Date("2026-08-21T12:00:00");
+    const set = projectColumnSet({ name: "Neuer Name", status: "aktiv" }, now);
+    expect(set).toEqual({ name: "Neuer Name", status: "aktiv", updatedAt: now });
+  });
+
+  it("passes YYYY-MM-DD straight through and turns an empty date into null", () => {
+    const now = new Date("2026-08-21T12:00:00");
+    const set = projectColumnSet({ startDate: "2026-09-01", endDate: null }, now);
+    // start_date / end_date are `date` columns in string mode: never
+    // new Date() and never toISOString() on the way in.
+    expect(set.startDate).toBe("2026-09-01");
+    expect(set.endDate).toBeNull();
+    expect(set.startDate instanceof Date).toBe(false);
+  });
+
+  it("returns an EMPTY set when nothing but updatedAt would change", () => {
+    // The Notizen tab autosaves every 1200 ms. An update that touches no
+    // column must be a no-op, not an updated_at bump plus an activity row.
+    expect(projectColumnSet({}, new Date("2026-08-21T12:00:00"))).toEqual({});
+  });
+
+  it("converts archivedAt with new Date — archived_at is a TIMESTAMP, not a date column", () => {
+    const now = new Date("2026-08-21T12:00:00");
+    const set = projectColumnSet({ archivedAt: "2026-08-21T10:00:00.000Z" }, now);
+    expect(set.archivedAt).toEqual(new Date("2026-08-21T10:00:00.000Z"));
+    expect(projectColumnSet({ archivedAt: null }, now).archivedAt).toBeNull();
+  });
+
+  it("never leaks the nested wizard arrays into the UPDATE statement", () => {
+    const now = new Date("2026-08-21T12:00:00");
+    const set = projectColumnSet(
+      {
+        name: "X",
+        phases: [{ name: "P1" }],
+        risks: [{ title: "R1" }],
+        members: [{ userId: "u1" }],
+        milestones: [{ name: "M1" }],
+        budgetEntries: [{ label: "B1", amountCents: 1, kind: "ist" }],
+      } as Record<string, unknown>,
+      now,
+    );
+    expect(Object.keys(set).sort()).toEqual(["name", "updatedAt"]);
+  });
+});
+
+describe("PROJECT_UPDATE_QUIET_KEYS", () => {
+  it("marks notesContent as the autosave-only field", () => {
+    expect([...PROJECT_UPDATE_QUIET_KEYS]).toEqual(["notesContent"]);
+  });
+});
