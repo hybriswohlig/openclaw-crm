@@ -16,6 +16,8 @@ import {
   clampOffset,
   draftId,
   emptyDraft,
+  offsetToISO,
+  phaseEndISO,
   WIZARD_DRAFT_KEY,
   WIZARD_DRAFT_VERSION,
   WIZARD_STEPS,
@@ -26,6 +28,7 @@ import { StepBasics } from "./_components/step-basics";
 import { StepScope } from "./_components/step-scope";
 import { StepPlan } from "./_components/step-plan";
 import { StepTeam } from "./_components/step-team";
+import { StepReview } from "./_components/step-review";
 
 export default function NewProjectPage() {
   const router = useRouter();
@@ -208,6 +211,101 @@ export default function NewProjectPage() {
     setDraft((prev) => ({ ...prev, step: Math.min(5, prev.step + 1) }));
   }, [draft.step, draft.aiRan, runPlanGeneration]);
 
+  const submit = useCallback(async () => {
+    setSubmitting(true);
+    try {
+      const euroToCents = (v: string): number | null => {
+        const n = Number(v);
+        if (!v.trim() || Number.isNaN(n)) return null;
+        return Math.round(n * 100);
+      };
+      const iso = (offset: number) => offsetToISO(draft.startDate, offset);
+
+      const body = {
+        name: draft.name.trim(),
+        shortDescription: draft.shortDescription.trim() || null,
+        category: draft.category,
+        priority: draft.priority,
+        status: "aktiv",
+        startDate: draft.startDate || null,
+        endDate: draft.endDate || null,
+        ownerUserId: draft.ownerUserId || null,
+        problemStatement: draft.problemStatement.trim() || null,
+        goalStatement: draft.goalStatement.trim() || null,
+        successCriteria: draft.successCriteria.trim() || null,
+        scopeIn: draft.scopeIn,
+        scopeOut: draft.scopeOut,
+        budgetPlannedCents: euroToCents(draft.budgetPlannedEuros),
+        // Nested payload — the route writes all of this in one transaction.
+        members: draft.members,
+        phases: draft.phases.map((p) => ({
+          name: p.name.trim() || "Phase",
+          description: p.description.trim() || null,
+          startDate: iso(p.startOffsetDays),
+          // phaseEndISO, never `start + duration`: the shared helper is
+          // inclusive (a 14-day phase starting on the 1st ends on the 14th),
+          // and re-deriving it is how two off-by-one variants got in (R7).
+          dueDate: phaseEndISO(draft.startDate, p.startOffsetDays, p.durationDays),
+          tasks: p.tasks
+            .filter((t) => t.title.trim().length > 0)
+            .map((t) => ({
+              content: t.title.trim(),
+              description: t.description.trim() || null,
+              deadline: iso(t.offsetDays),
+              priority: t.priority,
+              sprintId: draft.sprintId || null,
+            })),
+        })),
+        milestones: draft.milestones
+          .filter((m) => m.name.trim().length > 0)
+          .map((m) => ({
+            name: m.name.trim(),
+            // The wire contract speaks in phase INDEX (the phases array above
+            // has no ids yet); resolve our stable id back to its position.
+            phaseIndex: m.phaseId ? draft.phases.findIndex((p) => p.id === m.phaseId) : null,
+            dueDate: iso(m.offsetDays),
+          }))
+          .map((m) => ({ ...m, phaseIndex: m.phaseIndex != null && m.phaseIndex >= 0 ? m.phaseIndex : null })),
+        risks: draft.risks
+          .filter((r) => r.title.trim().length > 0)
+          .map((r) => ({
+            title: r.title.trim(),
+            description: r.description.trim() || null,
+            severity: r.severity,
+            mitigation: r.mitigation.trim() || null,
+          })),
+        budgetEntries: draft.budgetEntries
+          .filter((b) => b.label.trim().length > 0 && euroToCents(b.amountEuros) != null)
+          .map((b) => ({
+            label: b.label.trim(),
+            amountCents: euroToCents(b.amountEuros) as number,
+            kind: "plan",
+          })),
+      };
+
+      const res = await fetch("/api/v1/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error?.message ?? "Projekt konnte nicht erstellt werden");
+      }
+      const json = await res.json();
+      const id = json?.data?.id as string | undefined;
+      clearDraft();
+      toast.success("Projekt erstellt");
+      router.push(id ? `/tasks/projects/${id}` : "/tasks/projects");
+    } catch (err) {
+      toast.error("Projekt konnte nicht erstellt werden", {
+        description: err instanceof Error ? err.message : undefined,
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  }, [draft, clearDraft, router]);
+
   // Default the project lead to the signed-in user. Deliberately NOT via
   // patch(): a machine-supplied default is not a user edit and must not start
   // mirroring, or it would overwrite a pending restorable draft (R1).
@@ -362,7 +460,7 @@ export default function NewProjectPage() {
             {draft.step === 2 && <StepScope draft={draft} patch={patch} />}
             {draft.step === 3 && <StepPlan draft={draft} patch={patch} />}
             {draft.step === 4 && <StepTeam draft={draft} patch={patch} />}
-            {/* Task 32: Schritt 5 */}
+            {draft.step === 5 && <StepReview draft={draft} />}
 
             {/* ── Navigation ──────────────────────────────────── */}
             <div className="mt-5 flex items-center justify-between gap-2 border-t border-border pt-4">
