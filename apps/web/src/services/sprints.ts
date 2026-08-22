@@ -93,28 +93,52 @@ async function aggregateLiveBySprint(
   return byId;
 }
 
-function toSprintData(
-  row: typeof sprints.$inferSelect,
-  live: SprintMetrics | undefined,
-): SprintData {
+/**
+ * Pure: does a sprint report its LIVE task counts or its close-time
+ * snapshot, and is that snapshot in the new unit (task counts) or the old
+ * one (Fibonacci points)?
+ *
+ * A closed sprint always reads the snapshot — carry-over already detached
+ * the unfinished tasks, so the live query can no longer reproduce the
+ * sprint's original contents. A snapshot marked "points" predates this
+ * phase; its committed/completed columns hold a point sum, not a task
+ * count, and must never be presented as one — the caller renders "–"
+ * instead of a fabricated percentage (spec §15 R6).
+ */
+export function resolveSprintMetrics(
+  row: {
+    state: string;
+    metricsBasis: string;
+    committedPoints: number | null;
+    completedPoints: number | null;
+  },
+  live: SprintMetrics,
+): { metrics: SprintMetrics; metricsBasis: "tasks" | "points" } {
   const isClosed = row.state === "abgeschlossen";
-  const liveMetrics = live ?? foldSprintMetrics([]);
-  // A sprint closed before this phase snapshotted POINTS into these columns.
-  // Reading them as task counts would print a fabricated number that nothing
-  // can reproduce, so it is labelled instead.
   const metricsBasis: "tasks" | "points" =
     isClosed && row.metricsBasis === "points" ? "points" : "tasks";
 
   // A closed sprint reads its snapshot (carry-over detached the unfinished
   // tasks). committed_points / completed_points now hold TASK COUNTS.
-  const totalTasks = isClosed ? row.committedPoints ?? liveMetrics.totalTasks : liveMetrics.totalTasks;
-  const doneTasks = isClosed ? row.completedPoints ?? liveMetrics.doneTasks : liveMetrics.doneTasks;
-  const metrics: SprintMetrics = {
-    totalTasks,
-    doneTasks,
-    openTasks: Math.max(0, totalTasks - doneTasks),
-    progressPct: progressPct(doneTasks, totalTasks),
+  const totalTasks = isClosed ? row.committedPoints ?? live.totalTasks : live.totalTasks;
+  const doneTasks = isClosed ? row.completedPoints ?? live.doneTasks : live.doneTasks;
+  return {
+    metricsBasis,
+    metrics: {
+      totalTasks,
+      doneTasks,
+      openTasks: Math.max(0, totalTasks - doneTasks),
+      progressPct: progressPct(doneTasks, totalTasks),
+    },
   };
+}
+
+function toSprintData(
+  row: typeof sprints.$inferSelect,
+  live: SprintMetrics | undefined,
+): SprintData {
+  const liveMetrics = live ?? foldSprintMetrics([]);
+  const { metrics, metricsBasis } = resolveSprintMetrics(row, liveMetrics);
 
   let daysTotal: number | null = null;
   let daysElapsed: number | null = null;
