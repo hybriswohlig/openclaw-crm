@@ -15,6 +15,12 @@ import { FilterChips, SegmentedControl } from "@/components/work/filter-chips";
 import { ProjectCard, NewProjectTile } from "@/components/work/project-card";
 import { EmptyState, ErrorLine, LoadingLine } from "@/components/work/empty-state";
 import { toast } from "sonner";
+import { ProjectIcon } from "@/components/work/project-icon";
+import { ProgressBar } from "@/components/work/progress-bar";
+import { AvatarStack } from "@/components/work/avatar-stack";
+import { ProjectStatusChip } from "@/components/work/status-chip";
+import { formatDateDE, formatEURCents } from "@/lib/work-ui";
+import { projectCategoryLabel } from "@/lib/project-constants";
 
 type StatusFilter = "alle" | (typeof PROJECT_STATUS)[number];
 type ViewMode = "karten" | "tabelle";
@@ -257,8 +263,105 @@ function ProjectsPageInner() {
           </div>
         )}
 
-        {/* Task 25: Tabellenansicht */}
+        {visible.length > 0 && view === "tabelle" && <ProjectsTable projects={visible} />}
       </div>
+    </div>
+  );
+}
+
+function ProjectsTable({ projects }: { projects: ProjectJSON[] }) {
+  return (
+    // The table gets its own horizontal scroller so the page body never
+    // scrolls sideways on a phone.
+    <div className="k-card overflow-x-auto p-0">
+      <table className="w-full border-collapse text-[13px]">
+        <thead>
+          <tr>
+            {["Projekt", "Status", "Bereich", "Fortschritt", "Aufgaben", "Überfällig", "Budget", "Ende", "Team"].map(
+              (h) => (
+                <th
+                  key={h}
+                  className="k-label whitespace-nowrap px-3 py-2.5 text-left"
+                  style={{
+                    fontSize: 10,
+                    color: "var(--muted-foreground)",
+                    borderBottom: "1px solid var(--border)",
+                  }}
+                >
+                  {h}
+                </th>
+              )
+            )}
+          </tr>
+        </thead>
+        <tbody>
+          {projects.map((p) => (
+            <tr key={p.id} className="transition-colors hover:bg-muted/50">
+              <td className="px-3 py-2.5" style={{ borderBottom: "1px solid var(--border)" }}>
+                <Link href={`/tasks/projects/${p.id}`} className="flex min-w-[180px] items-center gap-2">
+                  <ProjectIcon
+                    icon={p.icon}
+                    category={p.category}
+                    name={p.name}
+                    color={p.color}
+                    size={26}
+                  />
+                  <span className="truncate font-medium" style={{ color: "var(--foreground)" }}>
+                    {p.name}
+                  </span>
+                </Link>
+              </td>
+              <td className="whitespace-nowrap px-3 py-2.5" style={{ borderBottom: "1px solid var(--border)" }}>
+                <ProjectStatusChip status={p.status} />
+              </td>
+              <td
+                className="whitespace-nowrap px-3 py-2.5"
+                style={{ borderBottom: "1px solid var(--border)", color: "var(--muted-foreground)" }}
+              >
+                {projectCategoryLabel(p.category) || "–"}
+              </td>
+              <td className="px-3 py-2.5" style={{ borderBottom: "1px solid var(--border)", minWidth: 130 }}>
+                <ProgressBar value={p.stats.progressPct} showValue height={5} />
+              </td>
+              <td
+                className="whitespace-nowrap px-3 py-2.5 tabular-nums"
+                style={{ borderBottom: "1px solid var(--border)", color: "var(--foreground)" }}
+              >
+                {p.stats.doneTasks}/{p.stats.totalTasks}
+              </td>
+              <td
+                className="whitespace-nowrap px-3 py-2.5 tabular-nums"
+                style={{
+                  borderBottom: "1px solid var(--border)",
+                  color: p.stats.overdueTasks > 0 ? "var(--danger)" : "var(--muted-foreground)",
+                }}
+              >
+                {p.stats.overdueTasks}
+              </td>
+              <td
+                className="whitespace-nowrap px-3 py-2.5 tabular-nums"
+                style={{ borderBottom: "1px solid var(--border)", color: "var(--muted-foreground)" }}
+              >
+                {p.stats.budgetPlannedCents == null
+                  ? "–"
+                  : `${formatEURCents(p.stats.budgetSpentCents)} / ${formatEURCents(p.stats.budgetPlannedCents)}`}
+              </td>
+              <td
+                className="whitespace-nowrap px-3 py-2.5"
+                style={{ borderBottom: "1px solid var(--border)", color: "var(--muted-foreground)" }}
+              >
+                {formatDateDE(p.endDate)}
+              </td>
+              <td className="px-3 py-2.5" style={{ borderBottom: "1px solid var(--border)" }}>
+                <AvatarStack
+                  people={p.members.map((m) => ({ id: m.userId, name: m.name, image: m.image }))}
+                  max={3}
+                />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
