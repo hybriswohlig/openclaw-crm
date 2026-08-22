@@ -301,6 +301,20 @@ describe("parseDateColumn — local midnight, never UTC", () => {
     expect(d!.getMilliseconds()).toBe(0);
   });
 
+  it("parses at an epoch distinct from a UTC-midnight parse of the same string", () => {
+    // The discriminating assertion, stated as an epoch relationship instead
+    // of just checking Date components (which a UTC-pinned test runner can
+    // satisfy vacuously — see the vitest.config.ts TZ pin and its comment).
+    // A buggy `v => new Date(v)` implementation returns UTC midnight for
+    // this string: exactly `new Date("2026-08-21").getTime()`. The correct
+    // implementation must NOT match that: local midnight in Berlin summer
+    // (CEST, UTC+2) is 2026-08-20T22:00:00Z, two hours EARLIER.
+    const local = parseDateColumn("2026-08-21")!;
+    const utcMidnight = new Date("2026-08-21");
+    expect(utcMidnight.getTime() - local.getTime()).toBe(2 * 60 * 60 * 1000);
+    expect(local.getTime()).not.toBe(utcMidnight.getTime());
+  });
+
   it("round-trips every day of a month without drifting", () => {
     for (let day = 1; day <= 31; day++) {
       const iso = `2026-01-${String(day).padStart(2, "0")}`;
@@ -327,16 +341,36 @@ describe("toIsoDay — the string a `date` column is compared against", () => {
     expect(toIsoDay(new Date(2026, 0, 5, 0, 0))).toBe("2026-01-05");
   });
 
-  it("uses the LOCAL day, not the UTC day", () => {
-    // 2026-08-21 23:30 local is already 2026-08-22 in UTC east of Greenwich.
-    // A `date` column stores a calendar day, so the local day is the right one.
-    expect(toIsoDay(new Date(2026, 7, 21, 23, 30))).toBe("2026-08-21");
+  it("uses the LOCAL day, not the UTC day — discriminates specifically EAST of Greenwich", () => {
+    // Berlin is EAST of Greenwich (positive UTC offset), so the local-vs-UTC
+    // day mismatch shows up at the START of the local day, not the end. An
+    // earlier version of this test used 2026-08-21 23:30 local, on the
+    // (backwards) theory that a late evening pushes into the next UTC day —
+    // but for a positive offset, UTC is BEHIND local, so a late local time
+    // still lands on the SAME UTC day here: `new Date(2026,7,21,23,30)`
+    // is 2026-08-21T21:30Z. That version silently passed under a
+    // `d.toISOString().slice(0,10)` implementation too, so it never caught
+    // anything.
+    //
+    // An EARLY local time is what discriminates east of Greenwich: shortly
+    // after midnight, UTC is still on the PREVIOUS calendar day. Using
+    // 2026-10-25 00:30 (still CEST, the last few hours before that day's DST
+    // fallback) keeps this next to the DST-switch date used elsewhere.
+    expect(toIsoDay(new Date(2026, 9, 25, 0, 30))).toBe("2026-10-25");
+    // Spelled out: this is exactly what `toISOString().slice(0, 10)` would
+    // get wrong — one day early.
+    expect(new Date(2026, 9, 25, 0, 30).toISOString().slice(0, 10)).toBe("2026-10-24");
   });
 
   it("is the exact inverse of parseDateColumn", () => {
-    // This pair IS the contract: a value read out of a `date` column and
-    // written straight back must be unchanged, including across the March
-    // and October DST switches.
+    // Kept as a consistency check, but by itself this test CANNOT catch a
+    // UTC-based bug: a self-consistent UTC pair (`v => new Date(v)` /
+    // `d => d.toISOString().slice(0, 10)`) round-trips exactly as cleanly as
+    // the correct local pair, for every input, in any single fixed
+    // timezone — a round-trip is a logical necessity of self-consistency,
+    // not evidence of correctness. The tests that actually discriminate a
+    // UTC implementation are "parses at an epoch distinct from..." above
+    // and "uses the LOCAL day, not the UTC day" above.
     for (const iso of [
       "2026-01-01",
       "2026-02-28",
