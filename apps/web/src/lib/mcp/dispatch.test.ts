@@ -632,3 +632,33 @@ describe("crm_update_project_milestone", () => {
     });
   });
 });
+
+describe("crm_add_project_member", () => {
+  it("posts userId and role to the project's members collection", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_add_project_member", {
+      projectId: "p-1",
+      userId: "u-9",
+      role: "leiter",
+    });
+
+    expect(calls[0].path).toBe("/api/v1/projects/p-1/members");
+    expect(calls[0].options.method).toBe("POST");
+    expect(calls[0].options.body).toEqual({ userId: "u-9", role: "leiter" });
+  });
+});
+
+describe("crm_remove_project_member", () => {
+  it("DELETEs the member subresource, url-encoding the user id", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_remove_project_member", {
+      projectId: "p-1",
+      userId: "u/9",
+    });
+
+    expect(calls[0].path).toBe("/api/v1/projects/p-1/members/u%2F9");
+    expect(calls[0].options.method).toBe("DELETE");
+  });
+});

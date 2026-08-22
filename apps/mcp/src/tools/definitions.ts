@@ -938,6 +938,65 @@ export const TOOLS: ToolDef[] = [
     },
   },
 
+  // ── Mitglieder ────────────────────────────────────────────────────
+  {
+    name: "crm_list_project_members",
+    description:
+      "List the people on a project with their role ('leiter'|'mitglied'|'beobachter'), name, email and avatar. The role documents who does what — it is NOT access control: every non-employee workspace member can read and change every project regardless of membership.",
+    inputSchema: {
+      type: "object",
+      properties: { projectId: { type: "string" } },
+      required: ["projectId"],
+    },
+  },
+  {
+    name: "crm_add_project_member",
+    description:
+      "Put a workspace user on a project. userId is a workspace user id from crm_list_members, not an email and not a CRM record id. role is 'leiter', 'mitglied' or 'beobachter' and defaults to 'mitglied'. The user is notified. Adding someone who is already a member updates their role instead of creating a duplicate row.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        userId: { type: "string" },
+        role: {
+          type: "string",
+          enum: ["leiter", "mitglied", "beobachter"],
+        },
+      },
+      required: ["projectId", "userId"],
+    },
+  },
+  {
+    name: "crm_update_project_member",
+    description:
+      "Change one member's role on a project to 'leiter', 'mitglied' or 'beobachter'. This is display and responsibility information only and grants no extra permissions — do not use it to try to restrict someone's access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        userId: { type: "string" },
+        role: {
+          type: "string",
+          enum: ["leiter", "mitglied", "beobachter"],
+        },
+      },
+      required: ["projectId", "userId", "role"],
+    },
+  },
+  {
+    name: "crm_remove_project_member",
+    description:
+      "Take a user off a project. Their tasks stay assigned to them — assignment and membership are separate things, so removing a member never orphans work. Removing the last 'leiter' is allowed; the project's ownerUserId is a separate field you set with crm_update_project.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        userId: { type: "string" },
+      },
+      required: ["projectId", "userId"],
+    },
+  },
+
   // ── Escape hatch ──────────────────────────────────────────────────
   {
     name: "crm_api",

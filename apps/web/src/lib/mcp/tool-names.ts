@@ -119,6 +119,11 @@ export const CRM_TOOL_NAMES = [
   "crm_create_project_milestone",
   "crm_update_project_milestone",
   "crm_delete_project_milestone",
+  // ── Mitglieder ────────────────────────────────────────────────────
+  "crm_list_project_members",
+  "crm_add_project_member",
+  "crm_update_project_member",
+  "crm_remove_project_member",
   // ── Escape hatch ──────────────────────────────────────────────────
   "crm_api",
 ] as const;

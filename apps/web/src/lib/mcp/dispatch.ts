@@ -769,6 +769,30 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
         { method: "DELETE" }
       );
 
+    // ── Mitglieder ──────────────────────────────────────────────────────
+    case "crm_list_project_members":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/members`
+      );
+    case "crm_add_project_member": {
+      const body: Record<string, unknown> = { userId: args.userId };
+      if (args.role !== undefined) body.role = args.role;
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/members`,
+        { method: "POST", body }
+      );
+    }
+    case "crm_update_project_member":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/members/${encodeURIComponent(str(args.userId))}`,
+        { method: "PATCH", body: { role: args.role } }
+      );
+    case "crm_remove_project_member":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/members/${encodeURIComponent(str(args.userId))}`,
+        { method: "DELETE" }
+      );
+
     case "crm_api": {
       const path = str(args.path);
       if (!path.startsWith("/api/")) {
