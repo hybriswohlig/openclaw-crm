@@ -583,6 +583,116 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
         },
       });
 
+    // ── Projekte ────────────────────────────────────────────────────────
+    case "crm_list_projects":
+      return client.request("/api/v1/projects", {
+        query: {
+          status: args.status as string | undefined,
+          category: args.category as string | undefined,
+          sprintId: args.sprintId as string | undefined,
+          favoritesOnly: bool(args.favoritesOnly),
+          includeArchived: bool(args.includeArchived),
+          limit: num(args.limit),
+          offset: num(args.offset),
+        },
+      });
+    case "crm_get_project":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}`
+      );
+    case "crm_create_project": {
+      // Only forward what the caller actually sent. An explicit `undefined`
+      // survives JSON.stringify as a missing key, but building the body by
+      // hand keeps the create and update paths reading identically.
+      const body: Record<string, unknown> = { name: args.name };
+      for (const key of [
+        "shortDescription",
+        "category",
+        "priority",
+        "status",
+        "icon",
+        "color",
+        "startDate",
+        "endDate",
+        "ownerUserId",
+        "problemStatement",
+        "goalStatement",
+        "successCriteria",
+      ]) {
+        if (args[key] !== undefined) body[key] = args[key];
+      }
+      if (args.scopeIn !== undefined) body.scopeIn = asBody(args.scopeIn);
+      if (args.scopeOut !== undefined) body.scopeOut = asBody(args.scopeOut);
+      if (args.memberUserIds !== undefined) {
+        // POST /api/v1/projects reads `members: Array<{ userId, role? }>`,
+        // never a flat id list — `parseProjectInput` silently drops any
+        // other key, including `memberUserIds`, so the mapping happens here
+        // rather than trusting the route to do it. Omitting `role` lets the
+        // service default it to 'mitglied'.
+        const ids = asBody(args.memberUserIds);
+        if (Array.isArray(ids)) {
+          body.members = ids.map((userId) => ({ userId }));
+        }
+      }
+      if (args.budgetPlannedCents !== undefined) {
+        body.budgetPlannedCents =
+          args.budgetPlannedCents === null ? null : num(args.budgetPlannedCents);
+      }
+      return client.request("/api/v1/projects", { method: "POST", body });
+    }
+    case "crm_update_project": {
+      const body: Record<string, unknown> = {};
+      for (const key of [
+        "name",
+        "shortDescription",
+        "category",
+        "priority",
+        "status",
+        "icon",
+        "color",
+        "startDate",
+        "endDate",
+        "ownerUserId",
+        "problemStatement",
+        "goalStatement",
+        "successCriteria",
+        "archivedAt",
+      ]) {
+        if (args[key] !== undefined) body[key] = args[key];
+      }
+      if (args.scopeIn !== undefined) body.scopeIn = asBody(args.scopeIn);
+      if (args.scopeOut !== undefined) body.scopeOut = asBody(args.scopeOut);
+      if (args.notesContent !== undefined) {
+        body.notesContent = asBody(args.notesContent);
+      }
+      if (args.budgetPlannedCents !== undefined) {
+        body.budgetPlannedCents =
+          args.budgetPlannedCents === null ? null : num(args.budgetPlannedCents);
+      }
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}`,
+        { method: "PATCH", body }
+      );
+    }
+    case "crm_delete_project":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}`,
+        { method: "DELETE" }
+      );
+    case "crm_project_overview":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/overview`
+      );
+    case "crm_set_project_favorite": {
+      // One route, two verbs: PUT pins, DELETE unpins. Defaulting to pin
+      // matches the tool name reading as an imperative.
+      const favorite = bool(args.favorite) ?? true;
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/favorite`,
+        { method: favorite ? "PUT" : "DELETE" }
+      );
+    }
+
     case "crm_api": {
       const path = str(args.path);
       if (!path.startsWith("/api/")) {

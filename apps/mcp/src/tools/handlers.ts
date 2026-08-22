@@ -372,6 +372,106 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
         },
       });
 
+    // Projekte
+    case "crm_list_projects":
+      return client.request("/api/v1/projects", {
+        query: {
+          status: args.status as string | undefined,
+          category: args.category as string | undefined,
+          sprintId: args.sprintId as string | undefined,
+          favoritesOnly: bool(args.favoritesOnly),
+          includeArchived: bool(args.includeArchived),
+          limit: num(args.limit),
+          offset: num(args.offset),
+        },
+      });
+    case "crm_get_project":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}`
+      );
+    case "crm_create_project": {
+      const body: Record<string, unknown> = { name: args.name };
+      for (const key of [
+        "shortDescription",
+        "category",
+        "priority",
+        "status",
+        "icon",
+        "color",
+        "startDate",
+        "endDate",
+        "ownerUserId",
+        "problemStatement",
+        "goalStatement",
+        "successCriteria",
+        "scopeIn",
+        "scopeOut",
+      ]) {
+        if (args[key] !== undefined) body[key] = args[key];
+      }
+      if (args.memberUserIds !== undefined && Array.isArray(args.memberUserIds)) {
+        // POST /api/v1/projects reads `members: Array<{ userId, role? }>`,
+        // never a flat id list — mapped here rather than trusting the route
+        // to accept `memberUserIds` (it silently ignores unknown keys).
+        body.members = (args.memberUserIds as unknown[]).map((userId) => ({
+          userId,
+        }));
+      }
+      if (args.budgetPlannedCents !== undefined) {
+        body.budgetPlannedCents =
+          args.budgetPlannedCents === null ? null : num(args.budgetPlannedCents);
+      }
+      return client.request("/api/v1/projects", { method: "POST", body });
+    }
+    case "crm_update_project": {
+      const body: Record<string, unknown> = {};
+      for (const key of [
+        "name",
+        "shortDescription",
+        "category",
+        "priority",
+        "status",
+        "icon",
+        "color",
+        "startDate",
+        "endDate",
+        "ownerUserId",
+        "problemStatement",
+        "goalStatement",
+        "successCriteria",
+        "scopeIn",
+        "scopeOut",
+        "notesContent",
+        "archivedAt",
+      ]) {
+        if (args[key] !== undefined) body[key] = args[key];
+      }
+      if (args.budgetPlannedCents !== undefined) {
+        body.budgetPlannedCents =
+          args.budgetPlannedCents === null ? null : num(args.budgetPlannedCents);
+      }
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}`,
+        { method: "PATCH", body }
+      );
+    }
+    case "crm_delete_project":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}`,
+        { method: "DELETE" }
+      );
+    case "crm_project_overview":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/overview`
+      );
+    case "crm_set_project_favorite": {
+      const favorite = bool(args.favorite) ?? true;
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/favorite`,
+        { method: favorite ? "PUT" : "DELETE" }
+      );
+    }
+
     // Escape hatch
     case "crm_api": {
       const path = str(args.path);

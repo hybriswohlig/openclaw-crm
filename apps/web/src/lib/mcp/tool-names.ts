@@ -100,6 +100,14 @@ export const CRM_TOOL_NAMES = [
   "crm_list_agent_drafts",
   "crm_get_agent_settings",
   "crm_create_agent_draft",
+  // ── Projekte ──────────────────────────────────────────────────────
+  "crm_list_projects",
+  "crm_get_project",
+  "crm_create_project",
+  "crm_update_project",
+  "crm_delete_project",
+  "crm_project_overview",
+  "crm_set_project_favorite",
   // ── Escape hatch ──────────────────────────────────────────────────
   "crm_api",
 ] as const;

@@ -661,6 +661,140 @@ export const TOOLS: ToolDef[] = [
     },
   },
 
+  // ── Projekte ──────────────────────────────────────────────────────
+  {
+    name: "crm_list_projects",
+    description:
+      "List projects with their aggregated stats block (task counts, progress percentage, budget planned vs spent, open risks by severity). Filter with status ('geplant'|'aktiv'|'pausiert'|'abgeschlossen'|'abgebrochen'), category (a PROJECT_CATEGORIES value such as 'vertrieb', 'fuhrpark' or 'software'), sprintId, or favoritesOnly to get just the caller's pinned projects. Archived projects are hidden unless includeArchived is true. This is the entry point for every project question — read it before guessing a project id.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: {
+          type: "string",
+          enum: ["geplant", "aktiv", "pausiert", "abgeschlossen", "abgebrochen"],
+        },
+        category: { type: "string", description: "PROJECT_CATEGORIES value" },
+        sprintId: { type: "string" },
+        favoritesOnly: { type: "boolean" },
+        includeArchived: { type: "boolean" },
+        ...pagination,
+      },
+    },
+  },
+  {
+    name: "crm_get_project",
+    description:
+      "Get one project in full: scope in/out, problem statement, goal statement, success criteria, owner, members with their roles, planned budget and the same stats block crm_list_projects returns. Use crm_project_overview when you only need the KPI numbers, and crm_list_project_phases / crm_list_project_milestones for the plan itself — they are not inlined here.",
+    inputSchema: {
+      type: "object",
+      properties: { projectId: { type: "string" } },
+      required: ["projectId"],
+    },
+  },
+  {
+    name: "crm_create_project",
+    description:
+      "Create a project. Only name is required; everything else can be filled in later with crm_update_project. category must be one of 'leistung','vertrieb','marketing','personal','fuhrpark','standorte','gruendung','prozesse','partner','preise','qualitaet','software','finanzen' — an unknown value is rejected. priority is 'sehr_hoch','hoch','mittel' or 'niedrig'. status defaults to 'geplant'. budgetPlannedCents is integer euro cents (12.500,00 EUR is 1250000), never a float and never a formatted string. startDate and endDate are ISO 'YYYY-MM-DD'. icon and color default from the category when omitted. memberUserIds are workspace user ids from crm_list_members; each is added as a project member with role 'mitglied' — call crm_update_project_member afterwards to give one of them a different role. To draft a whole plan first, call crm_generate_project_plan and create its phases and milestones afterwards.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string" },
+        shortDescription: { type: "string" },
+        category: { type: "string", description: "PROJECT_CATEGORIES value" },
+        priority: {
+          type: "string",
+          enum: ["sehr_hoch", "hoch", "mittel", "niedrig"],
+        },
+        status: {
+          type: "string",
+          enum: ["geplant", "aktiv", "pausiert", "abgeschlossen", "abgebrochen"],
+        },
+        icon: { type: "string", description: "lucide-react icon name" },
+        color: { type: "string", description: "Hex colour, e.g. #3b82f6" },
+        startDate: { type: "string", description: "ISO YYYY-MM-DD" },
+        endDate: { type: "string", description: "ISO YYYY-MM-DD" },
+        ownerUserId: { type: "string" },
+        problemStatement: { type: "string" },
+        goalStatement: { type: "string" },
+        successCriteria: { type: "string" },
+        scopeIn: { type: "array", items: { type: "string" } },
+        scopeOut: { type: "array", items: { type: "string" } },
+        budgetPlannedCents: { type: "number", description: "Integer euro cents" },
+        memberUserIds: { type: "array", items: { type: "string" } },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "crm_update_project",
+    description:
+      "Update a project. PATCH semantics — only the fields you pass change, everything else keeps its value; pass null to clear a nullable field. Setting status to 'abgeschlossen' or 'abgebrochen' emits a status-changed activity event and notifies every workspace member, so it is not a scratch value. scopeIn and scopeOut replace the whole list, they do not append. notesContent is the TipTap JSON document behind the project's Notizen tab and replaces the stored document wholesale — read crm_get_project first if you mean to extend it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        name: { type: "string" },
+        shortDescription: { type: "string" },
+        category: { type: "string", description: "PROJECT_CATEGORIES value" },
+        priority: {
+          type: "string",
+          enum: ["sehr_hoch", "hoch", "mittel", "niedrig"],
+        },
+        status: {
+          type: "string",
+          enum: ["geplant", "aktiv", "pausiert", "abgeschlossen", "abgebrochen"],
+        },
+        icon: { type: "string" },
+        color: { type: "string" },
+        startDate: { type: "string", description: "ISO YYYY-MM-DD" },
+        endDate: { type: "string", description: "ISO YYYY-MM-DD" },
+        ownerUserId: { type: "string" },
+        problemStatement: { type: "string" },
+        goalStatement: { type: "string" },
+        successCriteria: { type: "string" },
+        scopeIn: { type: "array", items: { type: "string" } },
+        scopeOut: { type: "array", items: { type: "string" } },
+        budgetPlannedCents: { type: "number", description: "Integer euro cents" },
+        notesContent: { description: "TipTap JSON document for the Notizen tab" },
+        archivedAt: { type: "string", description: "ISO timestamp or null" },
+      },
+      required: ["projectId"],
+    },
+  },
+  {
+    name: "crm_delete_project",
+    description:
+      "Delete a project permanently. Its phases, milestones, members, risks, budget entries and documents cascade away with it. Tasks that belonged to the project survive: they fall back to kind 'operativ' with no project and no phase. There is no undo and no trash — when a project merely stopped, prefer crm_update_project with status 'abgebrochen'.",
+    inputSchema: {
+      type: "object",
+      properties: { projectId: { type: "string" } },
+      required: ["projectId"],
+    },
+  },
+  {
+    name: "crm_project_overview",
+    description:
+      "KPI bundle for one project: progress percentage, task and phase counts, overdue tasks, the next milestone, budget planned vs spent with its percentage, and open risks grouped by severity. Cheaper than crm_get_project when all you need are the numbers for a status report.",
+    inputSchema: {
+      type: "object",
+      properties: { projectId: { type: "string" } },
+      required: ["projectId"],
+    },
+  },
+  {
+    name: "crm_set_project_favorite",
+    description:
+      "Pin or unpin a project for the calling user. favorite true pins it, false unpins it. Favourites are per user, not per workspace, and are what the favoritesOnly filter of crm_list_projects reads — pinning does not change the project itself and notifies nobody.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        favorite: { type: "boolean" },
+      },
+      required: ["projectId", "favorite"],
+    },
+  },
+
   // ── Escape hatch ──────────────────────────────────────────────────
   {
     name: "crm_api",

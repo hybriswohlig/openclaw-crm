@@ -450,3 +450,126 @@ describe("removed tools", () => {
     expect(calls).toHaveLength(0);
   });
 });
+
+describe("crm_list_projects", () => {
+  it("coerces the filter booleans and numbers into the query string", async () => {
+    // MCP clients send booleans and numbers as strings often enough that a
+    // raw pass-through means ?favoritesOnly=true reaches the route as the
+    // string "true" — which its `=== true` check silently drops.
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_list_projects", {
+      status: "aktiv",
+      category: "fuhrpark",
+      favoritesOnly: "true",
+      includeArchived: "false",
+      limit: "25",
+      offset: "50",
+    });
+
+    expect(calls[0].path).toBe("/api/v1/projects");
+    expect(calls[0].options.query).toEqual({
+      status: "aktiv",
+      category: "fuhrpark",
+      sprintId: undefined,
+      favoritesOnly: true,
+      includeArchived: false,
+      limit: 25,
+      offset: 50,
+    });
+  });
+});
+
+describe("crm_create_project", () => {
+  it("posts the project body, coercing cents and stringified scope arrays", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_create_project", {
+      name: "Fuhrpark 2027",
+      category: "fuhrpark",
+      priority: "hoch",
+      startDate: "2026-09-01",
+      budgetPlannedCents: "1250000",
+      scopeIn: '["Zwei 7,5-Tonner","Telematik"]',
+      scopeOut: ["Anhaenger"],
+    });
+
+    expect(calls[0].path).toBe("/api/v1/projects");
+    expect(calls[0].options.method).toBe("POST");
+    expect(calls[0].options.body).toEqual({
+      name: "Fuhrpark 2027",
+      category: "fuhrpark",
+      priority: "hoch",
+      startDate: "2026-09-01",
+      budgetPlannedCents: 1250000,
+      scopeIn: ["Zwei 7,5-Tonner", "Telematik"],
+      scopeOut: ["Anhaenger"],
+    });
+  });
+
+  it("sends only the fields the caller passed", async () => {
+    // The route is a real PATCH/POST pair, not a PUT: a body full of
+    // explicit undefineds would blank half the project on the way in.
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_create_project", { name: "Nur Name" });
+
+    expect(calls[0].options.body).toEqual({ name: "Nur Name" });
+  });
+
+  it("maps memberUserIds to the members array the route actually reads", async () => {
+    // POST /api/v1/projects's parseProjectInput whitelists exactly
+    // members/phases/milestones/risks/budgetEntries as its nested keys and
+    // silently drops anything else — a raw `memberUserIds` key would 201
+    // with none of the requested members attached. Dispatch must translate.
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_create_project", {
+      name: "Fuhrpark 2027",
+      memberUserIds: ["u-1", "u-2"],
+    });
+
+    expect(calls[0].options.body).toEqual({
+      name: "Fuhrpark 2027",
+      members: [{ userId: "u-1" }, { userId: "u-2" }],
+    });
+  });
+});
+
+describe("crm_update_project", () => {
+  it("clears a nullable field when null is passed explicitly", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_update_project", {
+      projectId: "p-1",
+      budgetPlannedCents: null,
+      shortDescription: null,
+    });
+
+    expect(calls[0].path).toBe("/api/v1/projects/p-1");
+    expect(calls[0].options.method).toBe("PATCH");
+    expect(calls[0].options.body).toEqual({
+      shortDescription: null,
+      budgetPlannedCents: null,
+    });
+  });
+});
+
+describe("crm_set_project_favorite", () => {
+  it("PUTs to pin and DELETEs to unpin", async () => {
+    const pin = fakeClient();
+    await handleTool(pin.client, "crm_set_project_favorite", {
+      projectId: "p-1",
+      favorite: true,
+    });
+    expect(pin.calls[0].path).toBe("/api/v1/projects/p-1/favorite");
+    expect(pin.calls[0].options.method).toBe("PUT");
+
+    const unpin = fakeClient();
+    await handleTool(unpin.client, "crm_set_project_favorite", {
+      projectId: "p-1",
+      favorite: "false",
+    });
+    expect(unpin.calls[0].options.method).toBe("DELETE");
+  });
+});
