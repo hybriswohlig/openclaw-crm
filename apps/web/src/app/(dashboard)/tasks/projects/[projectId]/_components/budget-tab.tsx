@@ -23,6 +23,7 @@ export function BudgetTab({ project, reload }: { project: ProjectJSON; reload: (
   const [kind, setKind] = useState<"ist" | "plan">("ist");
   const [bookedAt, setBookedAt] = useState("");
   const [busy, setBusy] = useState(false);
+  const [frameError, setFrameError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -84,7 +85,26 @@ export function BudgetTab({ project, reload }: { project: ProjectJSON; reload: (
   }
 
   async function saveFrame(value: string) {
-    const cents = eurosToCents(value);
+    const trimmed = value.trim();
+    // I3: an empty field is a legitimate "kein Budget" — but a value that
+    // eurosToCents cannot parse (e.g. a typo, or "12.500" being read as
+    // German and not what the user meant) must never be treated the same
+    // way. Sending null for it would silently clear the frame while still
+    // showing a green success toast. So: only null out on a genuinely blank
+    // field; on anything else that fails to parse, reject the edit — no
+    // PATCH, no toast.success, just an inline error — and leave the input's
+    // rejected text in place so the user can fix it.
+    let cents: number | null;
+    if (trimmed === "") {
+      cents = null;
+    } else {
+      cents = eurosToCents(trimmed);
+      if (cents == null) {
+        setFrameError("Betrag konnte nicht gelesen werden, z. B. 12.500,00 eingeben.");
+        return;
+      }
+    }
+    setFrameError(null);
     const res = await fetch(`/api/v1/projects/${project.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -120,8 +140,14 @@ export function BudgetTab({ project, reload }: { project: ProjectJSON; reload: (
               className={inputClass}
               defaultValue={planned == null ? "" : String(planned / 100)}
               placeholder="z. B. 5000 — leer = kein Budget"
+              onChange={() => setFrameError(null)}
               onBlur={(e) => saveFrame(e.target.value)}
             />
+            {frameError && (
+              <span className="text-[12px]" style={{ color: "var(--danger)" }}>
+                {frameError}
+              </span>
+            )}
           </label>
 
           <div className="mt-4 flex flex-col gap-2">

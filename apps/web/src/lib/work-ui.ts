@@ -24,13 +24,29 @@ export function formatEURCents(cents: number | null | undefined): string {
  * The inverse of formatEURCents: a euro amount typed by a user → integer
  * cents. No float may ever reach the API (project budgets are stored as
  * cents), so this is the one place that does the euro → cent conversion.
- * Accepts a German comma decimal ("12,50") as well as a plain period
- * ("12.50"). Returns null for empty input or anything that is not a number,
- * so the caller can treat "no amount" and "unparsable amount" the same way.
+ *
+ * German number format: "." is ALWAYS the thousands separator and "," is
+ * ALWAYS the decimal separator — "12.500,00" is twelve thousand five hundred
+ * euros, never twelve point five. (I3: the previous version replaced only
+ * the first "," with a "." and left "." untouched, so "12.500,00" failed to
+ * parse at all — reported as "no budget" — and "12.500" was misread as
+ * 12.5 -> 1.250 cents, silently turning a twelve-thousand-five-hundred-euro
+ * frame into 12,50 €.) A leading/trailing "€" and surrounding whitespace are
+ * stripped before parsing.
+ *
+ * Returns null for empty input AND for anything unparseable — this function
+ * cannot tell those two apart by itself. A caller that must treat "field
+ * cleared" as a legitimate null while rejecting garbage input (I3's actual
+ * data-loss fix) has to check for a blank string itself before calling this;
+ * see budget-tab.tsx's saveFrame.
  */
 export function eurosToCents(value: string): number | null {
-  const normalized = value.replace(",", ".").trim();
-  if (!normalized) return null;
+  const stripped = value.trim().replace(/^€\s*/, "").replace(/\s*€$/, "").trim();
+  if (!stripped) return null;
+  // Thousands dots carry no numeric meaning beyond grouping — drop them —
+  // then the sole remaining comma (if any) is the decimal separator.
+  const normalized = stripped.replace(/\./g, "").replace(",", ".");
+  if (!/^-?\d+(\.\d+)?$/.test(normalized)) return null;
   const n = Number(normalized);
   if (Number.isNaN(n)) return null;
   return Math.round(n * 100);

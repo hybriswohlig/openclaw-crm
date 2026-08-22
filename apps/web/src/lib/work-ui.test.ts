@@ -356,23 +356,45 @@ describe("hasTimelineDate", () => {
 });
 
 describe("eurosToCents", () => {
+  // I3: German number format — "." is the thousands separator, "," is the
+  // decimal separator, always. The pre-fix version got this backwards: it
+  // only ever normalised the first comma, so a proper German thousands
+  // amount like "12.500,00" failed to parse (reported as "no budget"), and a
+  // plain "12.500" was misread as 12.5 -> 1250 cents, silently shrinking a
+  // twelve-thousand-five-hundred-euro frame down to 12,50 €.
   it("parses a German comma decimal", () => {
     expect(eurosToCents("12,50")).toBe(1250);
   });
 
-  it("parses a period decimal", () => {
-    expect(eurosToCents("12.50")).toBe(1250);
+  it("parses a thousands-separated amount with decimals", () => {
+    expect(eurosToCents("12.500,00")).toBe(1_250_000);
+  });
+
+  it("parses the same amount without the thousands separator", () => {
+    expect(eurosToCents("12500,00")).toBe(1_250_000);
+  });
+
+  it("parses a whole-euro amount with a thousands separator and no decimals", () => {
+    // The headline bug: this used to silently become 12,50 EUR (1250 cents).
+    expect(eurosToCents("12.500")).toBe(1_250_000);
+  });
+
+  it("parses a whole-euro amount with no separator at all", () => {
+    expect(eurosToCents("12500")).toBe(1_250_000);
+  });
+
+  it("parses an amount with multiple thousands separators", () => {
+    expect(eurosToCents("1.234.567,89")).toBe(123_456_789);
+  });
+
+  it("strips a leading or trailing € and surrounding whitespace", () => {
+    expect(eurosToCents("€ 12.500,00")).toBe(1_250_000);
+    expect(eurosToCents("12.500,00 €")).toBe(1_250_000);
+    expect(eurosToCents("  12500  ")).toBe(1_250_000);
   });
 
   it("parses a whole number with no decimal part", () => {
     expect(eurosToCents("5000")).toBe(500_000);
-  });
-
-  it("does not understand a German thousands separator", () => {
-    // "1.234,56" has BOTH a thousands dot and a comma decimal; only the
-    // comma gets normalised to a period, leaving two dots — Number() cannot
-    // parse that, so the caller must type a plain "1234,56" instead.
-    expect(eurosToCents("1.234,56")).toBeNull();
   });
 
   it("returns null for an empty or whitespace-only string", () => {
@@ -380,8 +402,14 @@ describe("eurosToCents", () => {
     expect(eurosToCents("   ")).toBeNull();
   });
 
-  it("returns null for a non-numeric string", () => {
+  it("rejects an unparseable string rather than treating it as an empty budget", () => {
+    // The other half of I3: this must NOT be conflated with "cleared" by the
+    // caller. eurosToCents still answers null for both cases — it is
+    // budget-tab.tsx's saveFrame that is responsible for telling a blank
+    // string apart from a rejected one before it decides whether to PATCH.
     expect(eurosToCents("abc")).toBeNull();
+    expect(eurosToCents("12,50,00")).toBeNull();
+    expect(eurosToCents("12,5x")).toBeNull();
   });
 
   it("rounds to the nearest cent", () => {
