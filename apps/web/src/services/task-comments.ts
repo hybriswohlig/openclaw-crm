@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { taskComments, tasks, taskAssignees, users } from "@/db/schema";
-import { and, eq, desc } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 export interface TaskCommentRow {
   id: string;
@@ -146,6 +146,3 @@ export async function commentAudience(input: {
   set.delete(input.commentAuthorId);
   return [...set];
 }
-
-// Re-export so callers can build queries without importing drizzle directly.
-export { desc };

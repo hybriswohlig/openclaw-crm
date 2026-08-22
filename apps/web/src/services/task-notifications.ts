@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { users, taskAssignees, taskRecords } from "@/db/schema";
-import { eq, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { sendPush } from "./push";
 import { batchGetRecordDisplayNames } from "./display-names";
 
@@ -189,7 +189,3 @@ export function describeTaskChange(updates: {
   if (updates.recordIds !== undefined) return "Verknüpfungen geändert";
   return undefined;
 }
-
-// Re-export so the inbox path can find a single source of truth for
-// inbox push if it ever wants to consolidate.
-export { eq, inArray };
