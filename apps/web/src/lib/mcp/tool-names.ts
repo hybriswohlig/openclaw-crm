@@ -318,20 +318,15 @@ export const WEB_ONLY_TOOL_NAMES = [
  *
  * This is a snapshot of the drift that already existed at the moment this
  * guard was added, taken directly off the two registries' source (not
- * copied from a plan doc): 42 tools, not the 40 an earlier draft of this
- * guard assumed. `crm_list_tasks` and `crm_update_task` belong on it too —
- * verified at `register-tools.ts` vs `apps/mcp/src/tools/definitions.ts`,
- * where the stdio text names the fields ("optionally hide completed",
- * "content, completed, deadline") and the web text does not.
+ * copied from a plan doc): 40 tools. `crm_list_tasks` and `crm_update_task`
+ * used to belong on it too, but commit 4c1831c made both descriptions
+ * byte-identical between the two registries, and I8's fix pass removed the
+ * now-stale entries — findStaleExemptions in registry-introspect.ts (or a
+ * dedicated test against it) asserts nothing on this list has quietly
+ * healed the way those two had, so the list cannot silently rot again.
  *
  * The list may only ever shrink, by rewriting a stdio description to match
- * the web one — never grow, to silence a new mismatch. Do not fix the
- * mismatch here as a side effect of an unrelated task: `crm_list_tasks` and
- * `crm_update_task` are expected to lose their new project fields in both
- * registries in a later task of this same phase, and whichever task makes
- * that edit owns bringing their descriptions into agreement too. When it
- * does, those two entries come out and this list drops to 40 — the shrink
- * property working as designed, not a bug to "fix" early.
+ * the web one — never grow, to silence a new mismatch.
  */
 export const LEGACY_DESCRIPTION_DRIFT = [
   "crm_status",
@@ -347,8 +342,6 @@ export const LEGACY_DESCRIPTION_DRIFT = [
   "crm_update_record",
   "crm_query_records",
   "crm_get_record_related",
-  "crm_list_tasks",
-  "crm_update_task",
   "crm_list_notes",
   "crm_update_note",
   "crm_list_lists",

@@ -311,7 +311,19 @@ export interface DashboardPayload {
   overdueTotal: number;
   activity: ActivityFeedEntry[];
   upcoming: UpcomingEntry[];
-  team: TeamMemberOverview[];
+  /**
+   * I7: `null` when there is no running sprint — per-person bars are only
+   * meaningful while a sprint is active (a closed sprint's unfinished tasks
+   * were already carried back to the backlog, see getTeamOverview). This
+   * used to fold every member to `{assigned:0, done:0, overdue:0, pct:0}`
+   * instead, which is indistinguishable from "everyone is caught up" —
+   * `teamUtilizationPct` right above it already used `null` for the same
+   * state, so a caller had to notice ONE sibling field was honest and the
+   * other was not. Same convention now applies to both: a UI (or agent)
+   * must render "kein Sprint" for `null`, never iterate an all-zero array
+   * and report nobody is overloaded.
+   */
+  team: TeamMemberOverview[] | null;
 }
 
 // ─── DB layer ────────────────────────────────────────────────────────
@@ -618,7 +630,7 @@ export async function getWorkDashboard(
     ? await getSprint(workspaceId, sprintId)
     : await getActiveSprint(workspaceId);
 
-  const [counts, activeProjects, operative, overdue, activityRows, members] =
+  const [counts, activeProjects, operative, overdue, activityRows] =
     await Promise.all([
       // The KPI integers come from ONE lean function that both this endpoint
       // and GET /api/v1/work/counts share, so the dashboard tiles and /home
@@ -661,7 +673,6 @@ export async function getWorkDashboard(
         )
         .orderBy(desc(activityEvents.createdAt))
         .limit(12),
-      listMembers(workspaceId),
     ]);
 
   // „Projekte in diesem Sprint" (spec §6) = DISTINCT project_id of the
@@ -674,14 +685,11 @@ export async function getWorkDashboard(
 
   // Per-person bars are only meaningful while the sprint is running: closing
   // it carries the unfinished tasks back to the backlog, so a closed sprint
-  // would report 100 % for everybody (see getTeamOverview).
+  // would report 100 % for everybody (see getTeamOverview). I7: `team` is
+  // `null` — not an all-zero row per member — whenever there is no running
+  // sprint, so a consumer can tell "no sprint" from "nobody has work".
   const sprintIsRunning = sprint?.state === "aktiv";
-  const team = sprintIsRunning
-    ? await getTeamOverview(workspaceId, sprint.id)
-    : foldTeamOverview(
-        members.map((m) => ({ userId: m.userId, name: m.userName, image: m.userImage })),
-        [],
-      );
+  const team = sprintIsRunning ? await getTeamOverview(workspaceId, sprint.id) : null;
 
   const projectIds = projectList.projects.map((p) => p.id);
   const projectNameById = new Map(projectList.projects.map((p) => [p.id, p.name]));
@@ -994,12 +1002,23 @@ export async function getSprintTimeline(
 export async function getTeamOverview(
   workspaceId: string,
   sprintId?: string,
-): Promise<TeamMemberOverview[]> {
+): Promise<TeamMemberOverview[] | null> {
   const now = new Date();
   const todayStart = startOfDay(now);
   const sprint = sprintId
     ? await getSprint(workspaceId, sprintId)
     : await getActiveSprint(workspaceId);
+
+  // A CLOSED sprint has had its unfinished tasks carried back to the backlog
+  // (closeSprint sets sprint_id = NULL on them), so the only rows still
+  // pointing at it are the completed ones — counting them would report
+  // "100 % done" for every member of every historical sprint. Per-person
+  // figures are not reconstructible after carry-over. I7: this used to
+  // return `foldTeamOverview(memberShapes, [])` here — every member folded
+  // to zero, indistinguishable from "nobody has any work" for a caller that
+  // only sees the array. `null` signals "no sprint to report on" instead,
+  // matching `teamUtilizationPct: null` on the KPI block right beside it.
+  if (!sprint || sprint.state !== "aktiv") return null;
 
   const members = await listMembers(workspaceId);
   const memberShapes = members.map((m) => ({
@@ -1007,13 +1026,6 @@ export async function getTeamOverview(
     name: m.userName,
     image: m.userImage,
   }));
-  // A CLOSED sprint has had its unfinished tasks carried back to the backlog
-  // (closeSprint sets sprint_id = NULL on them), so the only rows still
-  // pointing at it are the completed ones — counting them would report
-  // "100 % done" for every member of every historical sprint. Per-person
-  // figures are not reconstructible after carry-over, so return zeros and
-  // let the UI render „–".
-  if (!sprint || sprint.state !== "aktiv") return foldTeamOverview(memberShapes, []);
 
   const rows = await db
     .select({

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { registerCrmTools } from "./register-tools";
 import {
@@ -7,6 +8,7 @@ import {
   definitionDescriptions,
   definitionNames,
   findParityMismatches,
+  findStaleExemptions,
   stripComments,
   switchCases,
 } from "./registry-introspect";
@@ -94,6 +96,24 @@ describe("MCP tool-name drift guard", () => {
     expect(WEB_ONLY_TOOL_NAMES).toHaveLength(12);
   });
 
+  it("keeps TOOLS_AT_GUARD_CREATION frozen at its original 71 entries (M1)", () => {
+    // M1: nothing else pins this array's length or its contents, so a
+    // contributor could add a new tool to one registry with three edits —
+    // append the name to CRM_TOOL_NAMES, append it to WEB_ONLY_TOOL_NAMES
+    // (or LEGACY_DESCRIPTION_DRIFT), bump a `toHaveLength` here — and the
+    // "only excepts names that predate the guard" tests below would never
+    // catch it, because they check membership in THIS array. Length alone
+    // would not catch a same-length edit (one entry swapped for another,
+    // or reordered); the hash pins the exact content too.
+    expect(TOOLS_AT_GUARD_CREATION).toHaveLength(71);
+    const hash = createHash("sha256")
+      .update(JSON.stringify(TOOLS_AT_GUARD_CREATION))
+      .digest("hex");
+    expect(hash).toBe(
+      "3127e1e0191e9f5b9b1f0a20b064dd6191ace3250e0b006d76db8c02552ab014"
+    );
+  });
+
   it("only excepts web-only tools that predate the guard", () => {
     // The ratchet: WEB_ONLY_TOOL_NAMES exists to freeze drift that was
     // already there when the guard was created. A tool added after that
@@ -125,10 +145,27 @@ describe("MCP description parity", () => {
     );
   });
 
-  it("keeps the legacy description-drift list frozen at its 42 entries", () => {
+  it("keeps the legacy description-drift list frozen at its 40 entries", () => {
     // Same rule as WEB_ONLY_TOOL_NAMES: shrink it by rewriting the stdio
     // description to match, never grow it to silence a new mismatch.
-    expect(LEGACY_DESCRIPTION_DRIFT).toHaveLength(42);
+    // Dropped from 42 to 40 by I8: crm_list_tasks and crm_update_task came
+    // out once commit 4c1831c made their descriptions byte-identical.
+    expect(LEGACY_DESCRIPTION_DRIFT).toHaveLength(40);
+  });
+
+  it("fails when an exempted description pair has quietly started to agree (I8)", () => {
+    // findParityMismatches only ever SKIPS an exempted name — it never
+    // re-checks whether the exemption is still earned, so a healed
+    // mismatch (the stdio description was rewritten to match, or vice
+    // versa) is invisible to it forever. crm_list_tasks and crm_update_task
+    // sat on this list after commit 4c1831c made them byte-identical, and
+    // nothing failed until this test existed. Every remaining entry here
+    // must still actually diverge.
+    const web = webRegistry();
+    const stdio = definitionDescriptions(STDIO_DEFS);
+    expect(findStaleExemptions(web, stdio, LEGACY_DESCRIPTION_DRIFT)).toEqual(
+      []
+    );
   });
 
   it("only exempts names that really are shared tools", () => {
@@ -312,5 +349,31 @@ describe("findParityMismatches", () => {
     const web = new Map([["crm_web_only", "A"]]);
     const stdio = new Map([["crm_stdio_only", "B"]]);
     expect(findParityMismatches(web, stdio, [])).toEqual([]);
+  });
+});
+
+describe("findStaleExemptions", () => {
+  it("flags an exempted name whose values now agree", () => {
+    const web = new Map([["crm_one", "Same on both sides."]]);
+    const stdio = new Map([["crm_one", "Same on both sides."]]);
+    expect(findStaleExemptions(web, stdio, ["crm_one"])).toEqual(["crm_one"]);
+  });
+
+  it("does not flag an exemption that still genuinely diverges", () => {
+    const web = new Map([["crm_one", "House style description."]]);
+    const stdio = new Map([["crm_one", "Something else entirely."]]);
+    expect(findStaleExemptions(web, stdio, ["crm_one"])).toEqual([]);
+  });
+
+  it("ignores an exempted name missing from either map", () => {
+    const web = new Map([["crm_one", "A"]]);
+    const stdio = new Map<string, string>();
+    expect(findStaleExemptions(web, stdio, ["crm_one"])).toEqual([]);
+  });
+
+  it("ignores a name that is not in the exception list at all", () => {
+    const web = new Map([["crm_one", "Same"]]);
+    const stdio = new Map([["crm_one", "Same"]]);
+    expect(findStaleExemptions(web, stdio, [])).toEqual([]);
   });
 });

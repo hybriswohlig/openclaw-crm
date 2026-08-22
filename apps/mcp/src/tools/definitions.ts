@@ -1508,7 +1508,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "crm_work_dashboard",
     description:
-      "The whole work dashboard in one call: KPIs (overall progress, project counts, open and due-today operative tasks, overdue count, team utilisation), the running sprint, project cards with their stats, the operative task list, the overdue list, recent activity, upcoming dates and the per-member team overview. Pass sprintId to look at a specific sprint instead of the active one. Prefer this over five separate list calls whenever you are asked how work is going — it is one query and it is what the UI itself renders.",
+      "The whole work dashboard in one call: KPIs (overall progress, project counts, open and due-today operative tasks, overdue count, team utilisation), the running sprint, project cards with their stats, the operative task list, the overdue list, recent activity, upcoming dates and the per-member team overview. team is null whenever no sprint is running — that means 'no sprint', not 'nobody has work'; never read a null team as everyone being at zero. Pass sprintId to look at a specific sprint instead of the active one. Prefer this over five separate list calls whenever you are asked how work is going — it is one query and it is what the UI itself renders.",
     inputSchema: {
       type: "object",
       properties: {

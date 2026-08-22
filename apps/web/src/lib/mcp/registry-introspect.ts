@@ -174,3 +174,28 @@ export function findParityMismatches(
   }
   return mismatches;
 }
+
+/**
+ * I8: names in `exceptions` that are no longer actually diverging — present
+ * in both maps with byte-identical values.
+ *
+ * `findParityMismatches` only ever SKIPS an exempted name; it never
+ * re-asserts that the exemption is still earned. That made LEGACY_
+ * DESCRIPTION_DRIFT a permanent hole: commit 4c1831c made crm_list_tasks
+ * and crm_update_task byte-identical between the two registries, and
+ * nothing caught that their entries should have come out — the guard
+ * happily kept skipping a pair that no longer disagreed. This is the
+ * second check callers of findParityMismatches should run against the
+ * same exception list, so a healed mismatch is reported instead of quietly
+ * tolerated forever.
+ */
+export function findStaleExemptions(
+  webEntries: Map<string, string>,
+  stdioEntries: Map<string, string>,
+  exceptions: readonly string[]
+): string[] {
+  return exceptions.filter((name) => {
+    if (!webEntries.has(name) || !stdioEntries.has(name)) return false;
+    return webEntries.get(name) === stdioEntries.get(name);
+  });
+}
