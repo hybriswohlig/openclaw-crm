@@ -278,11 +278,29 @@ function ProjectDetailInner() {
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
-            <AvatarStack
-              people={project.members.map((m) => ({ id: m.userId, name: m.name, image: m.image }))}
-              max={4}
-              size="sm"
-            />
+            <button
+              type="button"
+              title="Team verwalten"
+              onClick={() => {
+                setTab("uebersicht");
+                // The tab content mounts on the next frame, so scroll after it.
+                requestAnimationFrame(() =>
+                  document.getElementById("projekt-team")?.scrollIntoView({ behavior: "smooth", block: "center" })
+                );
+              }}
+              className="rounded-full"
+            >
+              <AvatarStack
+                people={project.members.map((m) => ({ id: m.userId, name: m.name, image: m.image }))}
+                max={4}
+                size="sm"
+              />
+              {project.members.length === 0 && (
+                <span className="text-[12.5px]" style={{ color: "var(--kottke-accent)" }}>
+                  Team zuweisen
+                </span>
+              )}
+            </button>
             <button
               type="button"
               onClick={share}

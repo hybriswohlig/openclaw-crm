@@ -6,23 +6,20 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FileText, Layers } from "lucide-react";
-import type { ActivityJSON, MilestoneJSON, PhaseJSON, ProjectDocumentJSON, ProjectJSON } from "@/lib/work-types";
+import { FileText, Layers, UserMinus, UserPlus } from "lucide-react";
+import { toast } from "sonner";
+import type { ActivityJSON, MilestoneJSON, PhaseJSON, ProjectDocumentJSON, ProjectJSON, ProjectMemberJSON } from "@/lib/work-types";
 import { SectionCard } from "@/components/work/section-card";
 import { ProgressBar } from "@/components/work/progress-bar";
 import { MilestoneStatusChip, PhaseStatusChip, StatusChip } from "@/components/work/status-chip";
 import { EmptyState, LoadingLine } from "@/components/work/empty-state";
 import { AvatarStack } from "@/components/work/avatar-stack";
 import { ActivityTimeline } from "@/components/records/activity-timeline";
-import { activityTimelineType, formatDateDE, formatDayShortDE } from "@/lib/work-ui";
-import { projectCategoryLabel } from "@/lib/project-constants";
+import { activityTimelineType, formatDateDE, formatDayShortDE, readApiError } from "@/lib/work-ui";
+import { projectCategoryLabel, PROJECT_MEMBER_ROLE, projectMemberRoleLabel } from "@/lib/project-constants";
 import { priorityMeta } from "@/lib/task-priority";
+import { EmployeeAvatar } from "@/components/employees/employee-avatar";
 
-// `reload` is not read here yet — Task 43 wires the member-management
-// section into the "Projektinformationen" card and needs it there — but the
-// prop is accepted from the start because page.tsx (Task 33) already passes
-// it to every tab. Declaring it late would be a TS excess-property error at
-// the call site the moment page.tsx starts sending it.
 export function OverviewTab({ project, reload }: { project: ProjectJSON; reload: () => Promise<void> }) {
   const router = useRouter();
   const [phases, setPhases] = useState<PhaseJSON[]>([]);
@@ -234,13 +231,7 @@ export function OverviewTab({ project, reload }: { project: ProjectJSON; reload:
             <InfoRow label="Geplantes Enddatum" value={formatDateDE(project.endDate)} />
             <InfoRow label="Erstellt am" value={formatDateDE(project.createdAt)} />
           </dl>
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {project.members.map((m) => (
-              <StatusChip key={m.userId} tone={m.role === "leiter" ? "accent" : "neutral"}>
-                {m.name} · {m.role}
-              </StatusChip>
-            ))}
-          </div>
+          <ProjectTeamSection projectId={project.id} ownerUserId={project.ownerUserId} onChanged={reload} />
         </SectionCard>
 
         <SectionCard
@@ -306,6 +297,244 @@ function InfoRow({ label, value }: { label: string; value: string }) {
       <dd className="truncate text-right" style={{ color: "var(--foreground)" }}>
         {value}
       </dd>
+    </div>
+  );
+}
+
+// ── Team management ───────────────────────────────────────────────────
+// Members are their own resource (project_members), not a field on the
+// project: adding one is a POST, not a PATCH. The project lead is always a
+// member with role "leiter" (Spec §4.4) and can neither be re-roled nor
+// removed here — that happens by changing ownerUserId.
+function ProjectTeamSection({
+  projectId,
+  ownerUserId,
+  onChanged,
+}: {
+  projectId: string;
+  ownerUserId: string | null;
+  onChanged: () => Promise<void>;
+}) {
+  const [members, setMembers] = useState<ProjectMemberJSON[]>([]);
+  const [candidates, setCandidates] = useState<Array<{ userId: string; name: string; email: string }>>([]);
+  const [addUserId, setAddUserId] = useState("");
+  const [addRole, setAddRole] = useState("mitglied");
+  const [busy, setBusy] = useState(false);
+
+  const loadMembers = useCallback(async () => {
+    const res = await fetch(`/api/v1/projects/${projectId}/members`, { cache: "no-store" });
+    if (res.ok) setMembers((((await res.json())?.data ?? []) as ProjectMemberJSON[]));
+  }, [projectId]);
+
+  useEffect(() => {
+    loadMembers();
+    fetch("/api/v1/workspace-members", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((json) =>
+        setCandidates(
+          ((json?.data ?? []) as Array<{ userId: string; userName?: string; userEmail?: string }>).map((m) => ({
+            userId: m.userId,
+            name: m.userName ?? "",
+            email: m.userEmail ?? "",
+          }))
+        )
+      )
+      .catch(() => {});
+  }, [loadMembers]);
+
+  /** true on success — the add-form only clears then (defect R13). */
+  async function mutate(fn: () => Promise<Response>, okMsg: string, errMsg: string): Promise<boolean> {
+    setBusy(true);
+    try {
+      const res = await fn();
+      if (!res.ok) throw new Error(await readApiError(res, errMsg));
+      toast.success(okMsg);
+      await loadMembers();
+      // The header avatar stack and the KPI tile read from the project, so
+      // the page has to reload too.
+      await onChanged();
+      return true;
+    } catch (err) {
+      toast.error(errMsg, { description: err instanceof Error ? err.message : undefined });
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const addMember = async () => {
+    if (!addUserId) return;
+    const ok = await mutate(
+      () =>
+        fetch(`/api/v1/projects/${projectId}/members`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: addUserId, role: addRole }),
+        }),
+      "Mitglied hinzugefügt",
+      "Mitglied konnte nicht hinzugefügt werden"
+    );
+    if (ok) setAddUserId("");
+  };
+
+  /**
+   * A project created without an owner — or whose owner left the company —
+   * has no way to get one from the UI otherwise: the "…" menu only offers
+   * statuses and delete, and the rows above refuse to touch the lead (W12).
+   */
+  const changeOwner = (userId: string) =>
+    mutate(
+      () =>
+        fetch(`/api/v1/projects/${projectId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ownerUserId: userId || null }),
+        }),
+      "Projektleiter geändert",
+      "Projektleiter konnte nicht geändert werden"
+    );
+
+  const changeRole = (userId: string, role: string) =>
+    mutate(
+      () =>
+        fetch(`/api/v1/projects/${projectId}/members/${userId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ role }),
+        }),
+      "Rolle geändert",
+      "Rolle konnte nicht geändert werden"
+    );
+
+  const removeMember = (userId: string, name: string) => {
+    if (!window.confirm(`„${name}“ aus dem Projekt entfernen? Zugewiesene Aufgaben bleiben bestehen.`)) return;
+    mutate(
+      () => fetch(`/api/v1/projects/${projectId}/members/${userId}`, { method: "DELETE" }),
+      "Mitglied entfernt",
+      "Mitglied konnte nicht entfernt werden"
+    );
+  };
+
+  const assignable = candidates.filter((c) => !members.some((m) => m.userId === c.userId));
+
+  return (
+    <div id="projekt-team" className="mt-4 border-t border-border pt-3">
+      <div className="k-label mb-2" style={{ fontSize: 10, color: "var(--muted-foreground)" }}>
+        Team · {members.length}
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        {members.length === 0 && (
+          <p className="text-[12.5px]" style={{ color: "var(--muted-foreground)" }}>
+            Noch niemand zugeordnet.
+          </p>
+        )}
+        {members.map((m) => {
+          const isOwner = m.userId === ownerUserId;
+          return (
+            <div key={m.userId} className="flex items-center gap-2">
+              <EmployeeAvatar name={m.name} photoBase64={m.image} size="xs" />
+              <span
+                className="min-w-0 flex-1 truncate text-[12.5px]"
+                style={{ color: "var(--foreground)" }}
+                title={m.email}
+              >
+                {m.name}
+              </span>
+              {isOwner ? (
+                <StatusChip tone="accent">Leiter</StatusChip>
+              ) : (
+                <>
+                  <select
+                    value={m.role}
+                    disabled={busy}
+                    onChange={(e) => changeRole(m.userId, e.target.value)}
+                    aria-label={`Rolle von ${m.name}`}
+                    className="h-7 rounded-lg border border-border bg-background px-1.5 text-[12px] text-foreground disabled:opacity-50"
+                  >
+                    {PROJECT_MEMBER_ROLE.map((r) => (
+                      <option key={r} value={r}>
+                        {projectMemberRoleLabel(r)}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => removeMember(m.userId, m.name)}
+                    aria-label={`${m.name} entfernen`}
+                    className="shrink-0 rounded-lg border border-border p-1 text-muted-foreground hover:text-destructive disabled:opacity-50"
+                  >
+                    <UserMinus className="h-[13px] w-[13px]" />
+                  </button>
+                </>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-border pt-2">
+        <span className="text-[11.5px]" style={{ color: "var(--muted-foreground)" }}>
+          Projektleiter
+        </span>
+        <select
+          value={ownerUserId ?? ""}
+          disabled={busy || members.length === 0}
+          onChange={(e) => changeOwner(e.target.value)}
+          aria-label="Projektleiter ändern"
+          className="h-7 min-w-0 flex-1 rounded-lg border border-border bg-background px-1.5 text-[12px] text-foreground disabled:opacity-50"
+        >
+          <option value="">Niemand</option>
+          {members.map((m) => (
+            <option key={m.userId} value={m.userId}>
+              {m.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        <select
+          value={addUserId}
+          onChange={(e) => setAddUserId(e.target.value)}
+          disabled={busy || assignable.length === 0}
+          aria-label="Person hinzufügen"
+          className="h-7 min-w-0 flex-1 rounded-lg border border-border bg-background px-1.5 text-[12px] text-foreground disabled:opacity-50"
+        >
+          <option value="">
+            {assignable.length === 0 ? "Alle Mitglieder sind bereits im Projekt" : "Person wählen…"}
+          </option>
+          {assignable.map((c) => (
+            <option key={c.userId} value={c.userId}>
+              {c.name || c.email}
+            </option>
+          ))}
+        </select>
+        <select
+          value={addRole}
+          onChange={(e) => setAddRole(e.target.value)}
+          disabled={busy}
+          aria-label="Rolle"
+          className="h-7 rounded-lg border border-border bg-background px-1.5 text-[12px] text-foreground disabled:opacity-50"
+        >
+          {PROJECT_MEMBER_ROLE.filter((r) => r !== "leiter").map((r) => (
+            <option key={r} value={r}>
+              {projectMemberRoleLabel(r)}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={addMember}
+          disabled={!addUserId || busy}
+          className="inline-flex h-7 shrink-0 items-center gap-1 rounded-lg px-2.5 text-[12px] font-medium disabled:opacity-40"
+          style={{ background: "var(--kottke-accent)", color: "var(--accent-ink)" }}
+        >
+          <UserPlus className="h-[13px] w-[13px]" />
+          Hinzufügen
+        </button>
+      </div>
     </div>
   );
 }
