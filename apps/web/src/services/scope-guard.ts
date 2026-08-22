@@ -333,6 +333,8 @@ export async function dispatchScopeWarning(params: {
     try {
       await createTask(`Preis prüfen: Umfang nach Angebot geändert (${whatChanged})`, actorId, workspaceId, {
         recordIds: [dealRecordId],
+        kind: "operativ",
+        area: "angebot",
       });
     } catch (err) {
       console.error("[scope-guard] createTask failed:", err);

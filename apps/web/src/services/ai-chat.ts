@@ -457,6 +457,8 @@ export const toolHandlers: Record<string, ToolHandler> = {
         deadline: args.deadline as string | undefined,
         recordIds: args.record_ids as string[] | undefined,
         assigneeIds: [ctx.userId],
+        kind: "operativ",
+        area: "sonstiges",
       });
       return task;
     },
