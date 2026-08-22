@@ -22,6 +22,7 @@ import {
   type WizardDraft,
 } from "./_components/wizard-types";
 import { NextStepsRail, ProjectPreviewRail } from "./_components/wizard-rails";
+import { StepBasics } from "./_components/step-basics";
 
 export default function NewProjectPage() {
   const router = useRouter();
@@ -211,7 +212,7 @@ export default function NewProjectPage() {
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
           <div className="k-card min-w-0 p-5">
-            {/* Task 27: Schritt 1 */}
+            {draft.step === 1 && <StepBasics draft={draft} patch={patch} />}
             {/* Task 29: Schritt 2 */}
             {/* Task 30: Schritt 3 */}
             {/* Task 31: Schritt 4 */}
