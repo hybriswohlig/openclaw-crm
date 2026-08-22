@@ -228,7 +228,36 @@ REST API at `/api/v1/` with Bearer token authentication.
 | `/api/v1/lists/:id` | GET, PATCH, DELETE | List CRUD |
 | `/api/v1/lists/:id/entries` | GET, POST | List entries |
 | `/api/v1/notes` | GET, POST | Notes |
-| `/api/v1/tasks` | GET, POST | Tasks |
+| `/api/v1/tasks` | GET, POST | Tasks — filter by `kind`, `projectId`, `phaseId`, `area`, `status`, `sprintId`, `overdue`, `dueWithinDays`, `includeSubtasks` |
+| `/api/v1/tasks/:taskId` | PATCH, DELETE | Task CRUD |
+| `/api/v1/tasks/:taskId/subtasks` | GET, POST | Subtasks (inherit project and phase) |
+| `/api/v1/tasks/:taskId/comments` | GET, POST | Task comments |
+| `/api/v1/tasks/:taskId/dependencies` | GET, POST | Task dependencies (path task = successor) |
+| `/api/v1/tasks/:taskId/dependencies/:id` | DELETE | Remove a dependency |
+| `/api/v1/projects` | GET, POST | Projects with stats |
+| `/api/v1/projects/:id` | GET, PATCH, DELETE | Project CRUD |
+| `/api/v1/projects/:id/overview` | GET | Project KPI bundle |
+| `/api/v1/projects/:id/phases` | GET, POST | Phases („Arbeitsbereiche") |
+| `/api/v1/projects/:id/phases/:phaseId` | PATCH, DELETE | Phase CRUD |
+| `/api/v1/projects/:id/phases/reorder` | POST | Rewrite the phase order |
+| `/api/v1/projects/:id/milestones` | GET, POST | Milestones |
+| `/api/v1/projects/:id/milestones/:msId` | PATCH, DELETE | Milestone CRUD |
+| `/api/v1/projects/:id/members` | GET, POST | Project members |
+| `/api/v1/projects/:id/members/:userId` | PATCH, DELETE | Member role / removal |
+| `/api/v1/projects/:id/risks` | GET, POST | Risks |
+| `/api/v1/projects/:id/risks/:riskId` | PATCH, DELETE | Risk CRUD |
+| `/api/v1/projects/:id/budget` | GET, POST | Budget summary + entries (integer cents) |
+| `/api/v1/projects/:id/budget/:entryId` | PATCH, DELETE | Budget entry CRUD |
+| `/api/v1/projects/:id/documents` | GET, POST | Project documents (POST is multipart) |
+| `/api/v1/projects/:id/documents/:docId` | GET, DELETE | Document content / deletion |
+| `/api/v1/projects/:id/activity` | GET | Project activity feed |
+| `/api/v1/projects/:id/favorite` | PUT, DELETE | Pin/unpin for the calling user |
+| `/api/v1/projects/plan-generate` | POST | AI draft plan (writes nothing) |
+| `/api/v1/sprints` | GET, POST | Sprints (count-based, not story points) |
+| `/api/v1/sprints/:sprintId` | GET, PATCH, DELETE | Sprint CRUD + `action: aktivieren\|abschliessen` |
+| `/api/v1/work/dashboard` | GET | Whole work dashboard in one call |
+| `/api/v1/work/timeline` | GET | Sprint timeline + dependency edges |
+| `/api/v1/work/team-overview` | GET | Per-member assigned/done/overdue |
 | `/api/v1/search` | GET | Full-text search |
 | `/api/v1/workspace` | GET, PATCH | Workspace settings |
 | `/api/v1/workspace-members` | GET, POST | Member management |
