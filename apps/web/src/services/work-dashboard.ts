@@ -313,3 +313,702 @@ export interface DashboardPayload {
   upcoming: UpcomingEntry[];
   team: TeamMemberOverview[];
 }
+
+// ─── DB layer ────────────────────────────────────────────────────────
+
+import { db } from "@/db";
+import {
+  activityEvents,
+  attributes,
+  objects,
+  projectMilestones,
+  projectPhases,
+  projects,
+  recordValues,
+  taskAssignees,
+  tasks,
+  users,
+} from "@/db/schema";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, sql } from "drizzle-orm";
+import { computeTimelineBar, parseDateColumn, toIsoDay } from "@/lib/work-metrics";
+import { defaultProjectColor, normalizeTaskStatus } from "@/lib/project-constants";
+import { PROJECT_EVENT_TYPES } from "./activity-events";
+import { getActiveSprint, getSprint } from "./sprints";
+import { listProjects } from "./projects";
+import { listTasks, planTaskFilters } from "./tasks";
+import { listDependencies } from "./task-dependencies";
+import { listMembers } from "./workspace";
+import { toProjectMemberData } from "./project-members";
+
+const MAX_TIMELINE_DAYS = 60;
+/** Default bar cap per row (spec §15 R5). Callers may raise it. */
+const DEFAULT_MAX_BARS_PER_ROW = 12;
+/** Columns when a project has no dates at all — 28 days around today. */
+const PROJECT_FALLBACK_DAYS_BEFORE = 7;
+const PROJECT_FALLBACK_DAYS_AFTER = 20;
+/** A one-column Zeitleiste is unreadable; always show at least a week. */
+const MIN_PROJECT_WINDOW_DAYS = 7;
+
+function startOfDay(d: Date): Date {
+  const o = new Date(d);
+  o.setHours(0, 0, 0, 0);
+  return o;
+}
+
+/**
+ * Pure: the window a PROJECT's own Zeitleiste spans. Project start/end wins;
+ * otherwise the min/max of its task dates; otherwise 28 days around today.
+ * Always at least MIN_PROJECT_WINDOW_DAYS wide.
+ */
+export function projectWindowBounds(
+  projectStart: Date | null,
+  projectEnd: Date | null,
+  taskDates: Date[],
+  now: Date = new Date(),
+): { start: Date; end: Date } {
+  const candidates = [projectStart, projectEnd, ...taskDates]
+    .filter((d): d is Date => d instanceof Date && !Number.isNaN(d.getTime()))
+    .map((d) => startOfDay(d).getTime());
+
+  let start: Date;
+  let end: Date;
+  if (candidates.length > 0) {
+    start = new Date(Math.min(...candidates));
+    end = new Date(Math.max(...candidates));
+  } else {
+    start = startOfDay(now);
+    start.setDate(start.getDate() - PROJECT_FALLBACK_DAYS_BEFORE);
+    end = startOfDay(now);
+    end.setDate(end.getDate() + PROJECT_FALLBACK_DAYS_AFTER);
+  }
+
+  const spanDays = Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
+  if (spanDays < MIN_PROJECT_WINDOW_DAYS) {
+    end = new Date(start);
+    end.setDate(end.getDate() + MIN_PROJECT_WINDOW_DAYS - 1);
+  }
+  return { start, end };
+}
+
+/** Pure: the day columns of the timeline, capped at 60 (spec §15 R5). */
+export function timelineWindow(
+  sprintStart: Date | null,
+  sprintEnd: Date | null,
+  now: Date = new Date(),
+): { windowStart: Date; windowEnd: Date; days: Date[] } {
+  let windowStart: Date;
+  let windowEnd: Date;
+  if (sprintStart && sprintEnd) {
+    windowStart = startOfDay(sprintStart);
+    windowEnd = startOfDay(sprintEnd);
+    if (windowEnd.getTime() < windowStart.getTime()) windowEnd = new Date(windowStart);
+  } else {
+    windowStart = startOfDay(now);
+    windowStart.setDate(windowStart.getDate() - 3);
+    windowEnd = new Date(windowStart);
+    windowEnd.setDate(windowEnd.getDate() + 13);
+  }
+
+  const days: Date[] = [];
+  const cursor = new Date(windowStart);
+  while (days.length < MAX_TIMELINE_DAYS && cursor.getTime() <= windowEnd.getTime()) {
+    days.push(new Date(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  if (days.length === MAX_TIMELINE_DAYS) windowEnd = new Date(days[days.length - 1]);
+  return { windowStart, windowEnd, days };
+}
+
+/**
+ * Deal move dates for "Nächste Termine" (same source as home/page.tsx).
+ * `record_values.date_value` is a `date` column in string mode too
+ * (`apps/web/src/db/schema/records.ts:52`), so the cut-off is compared as a
+ * "YYYY-MM-DD" string and the result is parsed back at local midnight.
+ */
+async function loadUpcomingMoves(
+  workspaceId: string,
+  now: Date,
+): Promise<UpcomingEntry[]> {
+  const [dealObj] = await db
+    .select({ id: objects.id })
+    .from(objects)
+    .where(and(eq(objects.workspaceId, workspaceId), eq(objects.slug, "deals")))
+    .limit(1);
+  if (!dealObj) return [];
+
+  const [moveAttr] = await db
+    .select({ id: attributes.id })
+    .from(attributes)
+    .where(and(eq(attributes.objectId, dealObj.id), eq(attributes.slug, "move_date")))
+    .limit(1);
+  if (!moveAttr) return [];
+
+  const rows = await db
+    .select({ recordId: recordValues.recordId, dateValue: recordValues.dateValue })
+    .from(recordValues)
+    .where(
+      and(
+        eq(recordValues.attributeId, moveAttr.id),
+        isNotNull(recordValues.dateValue),
+        gte(recordValues.dateValue, toIsoDay(now)),
+      ),
+    )
+    // ORDER BY before LIMIT, or Postgres returns the first 20 rows the scan
+    // happens to reach and mergeUpcoming sorts a random sample — the card
+    // would show five December dates and never tomorrow's move.
+    .orderBy(asc(recordValues.dateValue))
+    .limit(20);
+
+  return rows
+    .map((r) => ({ recordId: r.recordId, date: parseDateColumn(r.dateValue) }))
+    .filter((r): r is { recordId: string; date: Date } => r.date !== null)
+    .map((r) => ({
+      id: `move-${r.recordId}`,
+      kind: "move" as const,
+      title: "Umzugstermin",
+      date: r.date,
+      subtitle: null,
+      url: `/objects/deals/${r.recordId}`,
+    }));
+}
+
+export interface WorkCounts extends DashboardKpis {
+  /**
+   * Tasks due today across ALL kinds, project and operative. Distinct from
+   * `operativeDueTodayCount`, which is scoped `kind='operativ'` — /home was
+   * adding an operative-only number to an all-kinds number and printing the
+   * sum.
+   */
+  dueTodayCount: number;
+  /** null = no sprint at all; 'planung' / 'aktiv' / 'abgeschlossen'. Lets the
+   *  caller tell „kein Sprint" from „Sprint in Planung", which a null
+   *  teamUtilizationPct alone cannot. */
+  sprintState: string | null;
+}
+
+/**
+ * The KPI integers ONLY — nine numbers, ~7 aggregate queries.
+ *
+ * `getWorkDashboard` is the heavy call: three `listProjects` (one enriching
+ * up to 200 projects with members, favourites and a five-query stats fold),
+ * four `listTasks`, the activity query, `listMembers`, `getTeamOverview` and
+ * the milestone/phase/move queries — around 30 round trips. `/home` needs two
+ * integers off that, so it gets this instead.
+ *
+ * Every figure here is a true `count(*)`, never a page length: honest totals
+ * are the entire point of the endpoint.
+ *
+ * Loads NO list, enriches NO project and touches neither documents nor
+ * activity. `getWorkDashboard` calls it rather than recomputing, so the two
+ * can never disagree.
+ */
+export async function getWorkCounts(
+  workspaceId: string,
+  sprintId?: string,
+): Promise<WorkCounts> {
+  const now = new Date();
+  const plan = planTaskFilters({ dueWithinDays: 0 }, now);
+  const sprint = sprintId
+    ? await getSprint(workspaceId, sprintId)
+    : await getActiveSprint(workspaceId);
+  const sprintIsRunning = sprint?.state === "aktiv";
+
+  const liveProject = and(
+    eq(projects.workspaceId, workspaceId),
+    isNull(projects.archivedAt),
+  );
+  const openTask = and(eq(tasks.workspaceId, workspaceId), eq(tasks.isCompleted, false));
+  const dueToday = and(
+    gte(tasks.deadline, plan.dueFrom!),
+    lte(tasks.deadline, plan.dueBefore!),
+  );
+
+  const [
+    [projectAgg],
+    [activeProjectAgg],
+    [activeTaskAgg],
+    [operativeOpenAgg],
+    [operativeDueAgg],
+    [dueTodayAgg],
+    [overdueAgg],
+  ] = await Promise.all([
+    db.select({ c: sql<number>`count(*)` }).from(projects).where(liveProject),
+    db
+      .select({ c: sql<number>`count(*)` })
+      .from(projects)
+      .where(and(liveProject, eq(projects.status, "aktiv"))),
+    // Overall progress = all tasks of all ACTIVE projects (spec §6).
+    db
+      .select({
+        total: sql<number>`count(*)`,
+        done: sql<number>`count(*) filter (where ${tasks.isCompleted})`,
+      })
+      .from(tasks)
+      .innerJoin(projects, eq(projects.id, tasks.projectId))
+      .where(and(eq(tasks.workspaceId, workspaceId), eq(projects.status, "aktiv"), isNull(projects.archivedAt))),
+    // I1: kind='operativ' ⟺ project_id IS NULL — the NULL-safe discriminator.
+    db.select({ c: sql<number>`count(*)` }).from(tasks).where(and(openTask, isNull(tasks.projectId))),
+    db
+      .select({ c: sql<number>`count(*)` })
+      .from(tasks)
+      .where(and(openTask, isNull(tasks.projectId), dueToday)),
+    db.select({ c: sql<number>`count(*)` }).from(tasks).where(and(openTask, dueToday)),
+    db
+      .select({ c: sql<number>`count(*)` })
+      .from(tasks)
+      .where(and(openTask, lt(tasks.deadline, plan.todayStart))),
+  ]);
+
+  // Team-Auslastung over DISTINCT TASKS, not assignments — summing per-person
+  // rows multiplies a task by its assignee count.
+  const [sprintAgg] = sprintIsRunning
+    ? await db
+        .select({
+          total: sql<number>`count(distinct ${tasks.id})`,
+          done: sql<number>`count(distinct ${tasks.id}) filter (where ${tasks.isCompleted})`,
+        })
+        .from(tasks)
+        .innerJoin(taskAssignees, eq(taskAssignees.taskId, tasks.id))
+        .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.sprintId, sprint.id)))
+    : [{ total: 0, done: 0 }];
+
+  const kpis = computeDashboardKpis({
+    activeProjects: [
+      { totalTasks: Number(activeTaskAgg.total), doneTasks: Number(activeTaskAgg.done) },
+    ],
+    projectTotal: Number(projectAgg.c),
+    activeProjectTotal: Number(activeProjectAgg.c),
+    operativeOpen: Number(operativeOpenAgg.c),
+    operativeDueToday: Number(operativeDueAgg.c),
+    overdue: Number(overdueAgg.c),
+    sprintAssigned: Number(sprintAgg.total),
+    sprintDone: Number(sprintAgg.done),
+    hasActiveSprint: sprintIsRunning,
+  });
+
+  return {
+    ...kpis,
+    dueTodayCount: Number(dueTodayAgg.c),
+    sprintState: sprint?.state ?? null,
+  };
+}
+
+export async function getWorkDashboard(
+  workspaceId: string,
+  userId: string,
+  sprintId?: string,
+): Promise<DashboardPayload> {
+  const now = new Date();
+  const sprint = sprintId
+    ? await getSprint(workspaceId, sprintId)
+    : await getActiveSprint(workspaceId);
+
+  const [counts, activeProjects, operative, overdue, activityRows, members] =
+    await Promise.all([
+      // The KPI integers come from ONE lean function that both this endpoint
+      // and GET /api/v1/work/counts share, so the dashboard tiles and /home
+      // can never print different numbers for the same thing.
+      getWorkCounts(workspaceId, sprintId),
+      listProjects(workspaceId, userId, { status: "aktiv", limit: 200 }),
+      // limit 200 = the server cap. These arrays are a PAGE; the `.total`
+      // beside each is the truth the UI must show. At limit 50 the KPI tile
+      // („137 offen") and the card's chips („50") contradicted each other,
+      // and because the ordering is `deadline ASC` → NULLS LAST, a workspace
+      // with 60 overdue tasks filled all 50 slots with overdue rows and the
+      // default „Heute" chip rendered 0.
+      listTasks(workspaceId, userId, { kind: "operativ", limit: 200, includeSubtasks: true }),
+      listTasks(workspaceId, userId, { overdue: true, limit: 200, includeSubtasks: true }),
+      db
+        .select({
+          id: activityEvents.id,
+          eventType: activityEvents.eventType,
+          payload: activityEvents.payload,
+          createdAt: activityEvents.createdAt,
+          actorName: users.name,
+        })
+        .from(activityEvents)
+        .leftJoin(users, eq(users.id, activityEvents.actorId))
+        .where(
+          and(
+            eq(activityEvents.workspaceId, workspaceId),
+            // Without this filter a busy inbox (deal.* / message.*) fills all
+            // 12 slots and the Aktivitäten card shows no project activity.
+            inArray(activityEvents.eventType, [...PROJECT_EVENT_TYPES]),
+          ),
+        )
+        .orderBy(desc(activityEvents.createdAt))
+        .limit(12),
+      listMembers(workspaceId),
+    ]);
+
+  // „Projekte in diesem Sprint" (spec §6) = DISTINCT project_id of the
+  // sprint's tasks. Without an active sprint there is no such set, so the
+  // card falls back to the active projects and says so through the flag.
+  const projectList = sprint
+    ? await listProjects(workspaceId, userId, { sprintId: sprint.id, limit: 200 })
+    : activeProjects;
+  const projectsAreSprintScoped = sprint !== null;
+
+  // Per-person bars are only meaningful while the sprint is running: closing
+  // it carries the unfinished tasks back to the backlog, so a closed sprint
+  // would report 100 % for everybody (see getTeamOverview).
+  const sprintIsRunning = sprint?.state === "aktiv";
+  const team = sprintIsRunning
+    ? await getTeamOverview(workspaceId, sprint.id)
+    : foldTeamOverview(
+        members.map((m) => ({ userId: m.userId, name: m.userName, image: m.userImage })),
+        [],
+      );
+
+  const projectIds = projectList.projects.map((p) => p.id);
+  const projectNameById = new Map(projectList.projects.map((p) => [p.id, p.name]));
+
+  const [milestoneRows, phaseRows, moves] = await Promise.all([
+    projectIds.length > 0
+      ? db
+          .select({
+            id: projectMilestones.id,
+            projectId: projectMilestones.projectId,
+            name: projectMilestones.name,
+            dueDate: projectMilestones.dueDate,
+          })
+          .from(projectMilestones)
+          .where(
+            and(
+              eq(projectMilestones.workspaceId, workspaceId),
+              inArray(projectMilestones.projectId, projectIds),
+              isNotNull(projectMilestones.dueDate),
+            ),
+          )
+      : Promise.resolve([]),
+    projectIds.length > 0
+      ? db
+          .select({
+            id: projectPhases.id,
+            projectId: projectPhases.projectId,
+            name: projectPhases.name,
+            dueDate: projectPhases.dueDate,
+          })
+          .from(projectPhases)
+          .where(
+            and(
+              eq(projectPhases.workspaceId, workspaceId),
+              inArray(projectPhases.projectId, projectIds),
+              isNotNull(projectPhases.dueDate),
+            ),
+          )
+      : Promise.resolve([]),
+    loadUpcomingMoves(workspaceId, now),
+  ]);
+
+  const upcoming = mergeUpcoming(
+    [
+      // project_milestones.due_date and project_phases.due_date are `date`
+      // columns in string mode → parse to a local-midnight Date first.
+      ...milestoneRows
+        .map((m) => ({ ...m, due: parseDateColumn(m.dueDate) }))
+        .filter((m): m is typeof m & { due: Date } => m.due !== null)
+        .map((m) => ({
+          id: `milestone-${m.id}`,
+          kind: "milestone" as const,
+          title: m.name,
+          date: m.due,
+          subtitle: projectNameById.get(m.projectId) ?? null,
+          url: `/tasks/projects/${m.projectId}`,
+        })),
+      ...phaseRows
+        .map((p) => ({ ...p, due: parseDateColumn(p.dueDate) }))
+        .filter((p): p is typeof p & { due: Date } => p.due !== null)
+        .map((p) => ({
+          id: `phase-${p.id}`,
+          kind: "phase" as const,
+          title: p.name,
+          date: p.due,
+          subtitle: projectNameById.get(p.projectId) ?? null,
+          url: `/tasks/projects/${p.projectId}`,
+        })),
+      ...moves,
+    ],
+    now,
+  );
+
+  return {
+    sprint: sprint
+      ? {
+          id: sprint.id,
+          name: sprint.name,
+          startDate: sprint.startDate,
+          endDate: sprint.endDate,
+          state: sprint.state,
+        }
+      : null,
+    // WorkCounts is a superset of DashboardKpis; the two extra fields are
+    // simply not read here.
+    kpis: counts,
+    projects: projectList.projects,
+    projectsAreSprintScoped,
+    operativeTasks: operative.tasks,
+    operativeTotal: operative.total,
+    overdueTasks: overdue.tasks,
+    overdueTotal: overdue.total,
+    // Same fold as GET /projects/[id]/activity — one shape, one code path.
+    activity: toActivityFeedEntries(activityRows),
+    upcoming,
+    team,
+  };
+}
+
+/**
+ * The Aktivitäten tab of one project.
+ *
+ * Returns the SAME element shape as `DashboardPayload.activity` (HTTP wire
+ * contract). The route must not hand back raw `activity_events` rows: the UI
+ * switches on `type` and would crash on `undefined` — and every project has a
+ * `project.created` row, so it crashed on the default tab of every project.
+ */
+export async function listProjectActivity(
+  workspaceId: string,
+  projectId: string,
+  limit = 50,
+): Promise<ActivityFeedEntry[]> {
+  const rows = await db
+    .select({
+      id: activityEvents.id,
+      eventType: activityEvents.eventType,
+      payload: activityEvents.payload,
+      createdAt: activityEvents.createdAt,
+      actorName: users.name,
+    })
+    .from(activityEvents)
+    .leftJoin(users, eq(users.id, activityEvents.actorId))
+    .where(
+      and(
+        eq(activityEvents.workspaceId, workspaceId),
+        eq(activityEvents.recordId, projectId),
+      ),
+    )
+    .orderBy(desc(activityEvents.createdAt))
+    .limit(Math.min(Math.max(limit, 1), 200));
+  return toActivityFeedEntries(rows);
+}
+
+export async function getSprintTimeline(
+  workspaceId: string,
+  opts: { sprintId?: string; projectId?: string; maxBarsPerRow?: number } = {},
+): Promise<TimelinePayload> {
+  const now = new Date();
+  const maxBarsPerRow = Math.max(1, Math.round(opts.maxBarsPerRow ?? DEFAULT_MAX_BARS_PER_ROW));
+
+  // Two modes:
+  //   projectId → the project's OWN Zeitleiste tab: every task of the
+  //     project, whether or not it sits in a sprint. Right after the wizard
+  //     they usually sit in none, and with no active sprint the sprint query
+  //     would return an empty tab for every project.
+  //   otherwise → the dashboard: the tasks of one sprint, across projects.
+  const sprint = opts.projectId
+    ? null
+    : opts.sprintId
+      ? await getSprint(workspaceId, opts.sprintId)
+      : await getActiveSprint(workspaceId);
+
+  const TASK_COLUMNS = {
+    id: tasks.id,
+    content: tasks.content,
+    projectId: tasks.projectId,
+    startDate: tasks.startDate,
+    deadline: tasks.deadline,
+    createdAt: tasks.createdAt,
+    status: tasks.status,
+    isCompleted: tasks.isCompleted,
+  };
+
+  // Deterministic order BEFORE the per-row cap, or which bars survive is
+  // physical row order: three reloads, three different sets of bars and
+  // arrows, with „+12 weitere" constant the whole time.
+  const TASK_ORDER = [asc(tasks.startDate), asc(tasks.deadline), asc(tasks.id)];
+
+  const taskRows = opts.projectId
+    ? await db
+        .select(TASK_COLUMNS)
+        .from(tasks)
+        .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.projectId, opts.projectId)))
+        .orderBy(...TASK_ORDER)
+    : sprint
+      ? await db
+          .select(TASK_COLUMNS)
+          .from(tasks)
+          .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.sprintId, sprint.id)))
+          .orderBy(...TASK_ORDER)
+      : [];
+
+  let windowStartRaw: Date | null = sprint?.startDate ?? null;
+  let windowEndRaw: Date | null = sprint?.endDate ?? null;
+  if (opts.projectId) {
+    const [project] = await db
+      .select({ startDate: projects.startDate, endDate: projects.endDate })
+      .from(projects)
+      .where(and(eq(projects.id, opts.projectId), eq(projects.workspaceId, workspaceId)))
+      .limit(1);
+    const taskDates: Date[] = [];
+    for (const t of taskRows) {
+      const s = parseDateColumn(t.startDate);
+      if (s) taskDates.push(s);
+      if (t.deadline) taskDates.push(t.deadline);
+    }
+    const bounds = projectWindowBounds(
+      parseDateColumn(project?.startDate ?? null),
+      parseDateColumn(project?.endDate ?? null),
+      taskDates,
+      now,
+    );
+    windowStartRaw = bounds.start;
+    windowEndRaw = bounds.end;
+  }
+
+  const { windowStart, windowEnd, days } = timelineWindow(windowStartRaw, windowEndRaw, now);
+
+  const taskIds = taskRows.map((t) => t.id);
+  const projectIds = [
+    ...new Set(taskRows.map((t) => t.projectId).filter((v): v is string => !!v)),
+  ];
+
+  const [assigneeRows, projectRows, dependencies] = await Promise.all([
+    taskIds.length > 0
+      ? db
+          .select({
+            taskId: taskAssignees.taskId,
+            userId: taskAssignees.userId,
+            name: users.name,
+            email: users.email,
+            image: users.image,
+          })
+          .from(taskAssignees)
+          .innerJoin(users, eq(users.id, taskAssignees.userId))
+          .where(inArray(taskAssignees.taskId, taskIds))
+      : Promise.resolve([]),
+    projectIds.length > 0
+      ? db
+          .select({ id: projects.id, name: projects.name, color: projects.color, category: projects.category })
+          .from(projects)
+          .where(inArray(projects.id, projectIds))
+      : Promise.resolve([]),
+    listDependencies(workspaceId, { taskIds }),
+  ]);
+
+  const assigneesByTask = new Map<string, ProjectMemberData[]>();
+  for (const a of assigneeRows) {
+    const arr = assigneesByTask.get(a.taskId) ?? [];
+    arr.push(toProjectMemberData({ ...a, role: "mitglied" }));
+    assigneesByTask.set(a.taskId, arr);
+  }
+  const projectById = new Map(projectRows.map((p) => [p.id, p]));
+
+  const rowsByProject = new Map<string, TimelineRow>();
+  for (const t of taskRows) {
+    const startDate = parseDateColumn(t.startDate);
+    const bar = computeTimelineBar(
+      {
+        id: t.id,
+        // tasks.start_date is a string-mode `date`; deadline and createdAt
+        // are timestamps and already Date.
+        startDate,
+        deadline: t.deadline,
+        createdAt: t.createdAt,
+        status: normalizeTaskStatus(t.status) ?? (t.isCompleted ? "erledigt" : "geplant"),
+      },
+      windowStart,
+      windowEnd,
+      now,
+    );
+
+    const key = t.projectId ?? "__operativ__";
+    const project = t.projectId ? projectById.get(t.projectId) : undefined;
+    const row =
+      rowsByProject.get(key) ??
+      ({
+        projectId: t.projectId,
+        projectName: project?.name ?? "Operative Aufgaben",
+        color: project?.color ?? defaultProjectColor(project?.category ?? null, project?.name ?? "Operative Aufgaben"),
+        bars: [],
+        truncatedBars: 0,
+        outOfWindowBars: 0,
+        noDateBars: 0,
+      } satisfies TimelineRow);
+
+    // Spec §15 R5: cap the row, but never drop a task without saying so. The
+    // row is created even when nothing is drawable, so a project whose tasks
+    // all fall outside the window still reports why it looks empty.
+    if (!bar) {
+      // computeTimelineBar returns null both for "no date at all" and for
+      // "outside the window". Only start_date/deadline count as a real date;
+      // created_at is a fallback every row has.
+      if (startDate !== null || t.deadline !== null) row.outOfWindowBars += 1;
+      else row.noDateBars += 1;
+    } else if (row.bars.length < maxBarsPerRow) {
+      row.bars.push({
+        ...bar,
+        title: t.content,
+        assignees: assigneesByTask.get(t.id) ?? [],
+        deadline: t.deadline,
+      });
+    } else {
+      row.truncatedBars += 1;
+    }
+    rowsByProject.set(key, row);
+  }
+
+  return {
+    windowStart,
+    windowEnd,
+    days,
+    rows: [...rowsByProject.values()].sort((a, b) =>
+      a.projectName.localeCompare(b.projectName, "de-DE"),
+    ),
+    dependencies,
+  };
+}
+
+export async function getTeamOverview(
+  workspaceId: string,
+  sprintId?: string,
+): Promise<TeamMemberOverview[]> {
+  const now = new Date();
+  const todayStart = startOfDay(now);
+  const sprint = sprintId
+    ? await getSprint(workspaceId, sprintId)
+    : await getActiveSprint(workspaceId);
+
+  const members = await listMembers(workspaceId);
+  const memberShapes = members.map((m) => ({
+    userId: m.userId,
+    name: m.userName,
+    image: m.userImage,
+  }));
+  // A CLOSED sprint has had its unfinished tasks carried back to the backlog
+  // (closeSprint sets sprint_id = NULL on them), so the only rows still
+  // pointing at it are the completed ones — counting them would report
+  // "100 % done" for every member of every historical sprint. Per-person
+  // figures are not reconstructible after carry-over, so return zeros and
+  // let the UI render „–".
+  if (!sprint || sprint.state !== "aktiv") return foldTeamOverview(memberShapes, []);
+
+  const rows = await db
+    .select({
+      userId: taskAssignees.userId,
+      isCompleted: tasks.isCompleted,
+      deadline: tasks.deadline,
+    })
+    .from(taskAssignees)
+    .innerJoin(tasks, eq(tasks.id, taskAssignees.taskId))
+    .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.sprintId, sprint.id)));
+
+  return foldTeamOverview(
+    memberShapes,
+    rows.map((r) => ({
+      userId: r.userId,
+      done: r.isCompleted,
+      overdue:
+        !r.isCompleted && r.deadline !== null && r.deadline.getTime() < todayStart.getTime(),
+    })),
+  );
+}

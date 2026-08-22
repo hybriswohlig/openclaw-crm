@@ -6,6 +6,7 @@ import {
   describeActivityEvent,
   type UpcomingEntry,
 } from "./work-dashboard";
+import { timelineWindow, projectWindowBounds } from "./work-dashboard";
 
 describe("computeDashboardKpis", () => {
   it("computes the overall progress over ACTIVE projects only", () => {
@@ -232,5 +233,79 @@ describe("describeActivityEvent", () => {
       title: "Neuer Meilenstein",
       description: "X",
     });
+  });
+});
+
+describe("projectWindowBounds — the project's own Zeitleiste tab", () => {
+  const now = new Date(2026, 7, 21, 10, 0);
+
+  it("uses the project's own start and end when both are set", () => {
+    const b = projectWindowBounds(new Date(2026, 8, 1), new Date(2026, 9, 31), [], now);
+    expect(b.start).toEqual(new Date(2026, 8, 1));
+    expect(b.end).toEqual(new Date(2026, 9, 31));
+  });
+
+  it("falls back to the min/max of the task dates", () => {
+    const b = projectWindowBounds(
+      null,
+      null,
+      [new Date(2026, 8, 10), new Date(2026, 8, 3), new Date(2026, 8, 25)],
+      now,
+    );
+    expect(b.start).toEqual(new Date(2026, 8, 3));
+    expect(b.end).toEqual(new Date(2026, 8, 25));
+  });
+
+  it("spans the project dates AND any task that falls outside them", () => {
+    const b = projectWindowBounds(
+      new Date(2026, 8, 10),
+      new Date(2026, 8, 20),
+      [new Date(2026, 8, 1), new Date(2026, 8, 30)],
+      now,
+    );
+    expect(b.start).toEqual(new Date(2026, 8, 1));
+    expect(b.end).toEqual(new Date(2026, 8, 30));
+  });
+
+  it("falls back to 28 days around today when there is no date at all", () => {
+    const b = projectWindowBounds(null, null, [], now);
+    expect(b.start).toEqual(new Date(2026, 7, 14));
+    expect(b.end).toEqual(new Date(2026, 8, 10));
+  });
+
+  it("never returns a window narrower than a week", () => {
+    const b = projectWindowBounds(new Date(2026, 8, 1), new Date(2026, 8, 2), [], now);
+    const spanDays = Math.round((b.end.getTime() - b.start.getTime()) / 86_400_000) + 1;
+    expect(spanDays).toBe(7);
+  });
+});
+
+describe("timelineWindow", () => {
+  const now = new Date("2026-08-21T10:00:00");
+
+  it("uses the sprint dates when both are set", () => {
+    const w = timelineWindow(new Date("2026-08-17T00:00:00"), new Date("2026-08-30T00:00:00"), now);
+    expect(w.windowStart).toEqual(new Date("2026-08-17T00:00:00"));
+    expect(w.windowEnd).toEqual(new Date("2026-08-30T00:00:00"));
+    expect(w.days).toHaveLength(14);
+    expect(w.days[0]).toEqual(new Date("2026-08-17T00:00:00"));
+    expect(w.days[13]).toEqual(new Date("2026-08-30T00:00:00"));
+  });
+
+  it("falls back to a two-week window around today without a sprint", () => {
+    const w = timelineWindow(null, null, now);
+    expect(w.days).toHaveLength(14);
+    expect(w.windowStart.getDate()).toBe(18);
+    expect(w.windowEnd.getDate()).toBe(31);
+  });
+
+  it("caps an absurdly long sprint at 60 columns", () => {
+    const w = timelineWindow(new Date("2026-01-01T00:00:00"), new Date("2026-12-31T00:00:00"), now);
+    expect(w.days).toHaveLength(60);
+  });
+
+  it("never returns an inverted window", () => {
+    const w = timelineWindow(new Date("2026-08-30T00:00:00"), new Date("2026-08-17T00:00:00"), now);
+    expect(w.windowEnd.getTime()).toBeGreaterThanOrEqual(w.windowStart.getTime());
   });
 });
