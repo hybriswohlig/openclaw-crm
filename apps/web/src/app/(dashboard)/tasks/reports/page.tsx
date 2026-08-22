@@ -111,7 +111,19 @@ export default function ReportsPage() {
 
         {dashboard && (
           <>
-            <SectionCard title="1 · Projektfortschritt" subtitle={`${dashboard.projects.length} Projekte`}>
+            <SectionCard
+              // I7: dashboard.projects is either every active project or —
+              // whenever a sprint is selected — just that sprint's projects
+              // (services/work-dashboard.ts sets projectsAreSprintScoped =
+              // sprint !== null). The main dashboard already says so
+              // (app/(dashboard)/tasks/page.tsx:391); this section must use
+              // the exact same German wording instead of implying "every
+              // project" regardless of scope.
+              title={`1 · Projektfortschritt — ${
+                dashboard.projectsAreSprintScoped ? "Projekte in diesem Sprint" : "Aktive Projekte"
+              }`}
+              subtitle={`${dashboard.projects.length} Projekte`}
+            >
               {dashboard.projects.length === 0 ? (
                 <EmptyState title="Keine Projekte" />
               ) : (
