@@ -21,6 +21,35 @@ function bool(v: unknown): boolean | undefined {
   return undefined;
 }
 
+/**
+ * I4: coerce an array/object argument that arrived as a JSON string.
+ *
+ * `apps/mcp` has no zod parse before dispatch — `handleTool` in index.ts
+ * passes `args` straight through, so `required`/enum in definitions.ts are
+ * advisory only, unlike the web registry where the SDK's zod parse rejects
+ * a malformed call before it reaches dispatch. The web dispatch.ts grew
+ * this same coercion (see its `asBody`) because MCP clients commonly send
+ * an array/object-typed argument as a JSON string when the schema gives
+ * them nothing stronger to validate against — but that hardening only
+ * reached the web side, so on stdio: scopeIn/scopeOut arrived as a string
+ * and iterated character-by-character (or were silently dropped),
+ * memberUserIds' `Array.isArray` check failed silently (201 with no
+ * members — the very defect once recorded as "fixed in both dispatch
+ * layers", fixed for real arrays only), recordIds/assigneeIds threw a
+ * TypeError deep in `.map()` (opaque 500), and notesContent went into the
+ * TipTap column as a raw string instead of the JSON document it holds.
+ */
+function asBody(v: unknown): unknown {
+  if (typeof v !== "string") return v;
+  const trimmed = v.trim();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return v;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return v;
+  }
+}
+
 function asQuery(obj: unknown): Record<string, string | number | boolean | undefined> | undefined {
   if (!obj || typeof obj !== "object") return undefined;
   const out: Record<string, string | number | boolean | undefined> = {};
@@ -185,10 +214,12 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
         "area",
         "sprintId",
         "parentTaskId",
-        "recordIds",
-        "assigneeIds",
       ]) {
         if (args[key] !== undefined) body[key] = args[key];
+      }
+      if (args.recordIds !== undefined) body.recordIds = asBody(args.recordIds);
+      if (args.assigneeIds !== undefined) {
+        body.assigneeIds = asBody(args.assigneeIds);
       }
       return client.request("/api/v1/tasks", { method: "POST", body });
     }
@@ -207,13 +238,15 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
         "area",
         "sprintId",
         "parentTaskId",
-        "recordIds",
-        "assigneeIds",
       ]) {
         if (args[key] !== undefined) body[key] = args[key];
       }
       if (args.isCompleted !== undefined) {
         body.isCompleted = bool(args.isCompleted);
+      }
+      if (args.recordIds !== undefined) body.recordIds = asBody(args.recordIds);
+      if (args.assigneeIds !== undefined) {
+        body.assigneeIds = asBody(args.assigneeIds);
       }
       return client.request(`/api/v1/tasks/${encodeURIComponent(str(args.taskId))}`, {
         method: "PATCH",
@@ -445,18 +478,22 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
         "problemStatement",
         "goalStatement",
         "successCriteria",
-        "scopeIn",
-        "scopeOut",
       ]) {
         if (args[key] !== undefined) body[key] = args[key];
       }
-      if (args.memberUserIds !== undefined && Array.isArray(args.memberUserIds)) {
+      if (args.scopeIn !== undefined) body.scopeIn = asBody(args.scopeIn);
+      if (args.scopeOut !== undefined) body.scopeOut = asBody(args.scopeOut);
+      if (args.memberUserIds !== undefined) {
         // POST /api/v1/projects reads `members: Array<{ userId, role? }>`,
         // never a flat id list — mapped here rather than trusting the route
         // to accept `memberUserIds` (it silently ignores unknown keys).
-        body.members = (args.memberUserIds as unknown[]).map((userId) => ({
-          userId,
-        }));
+        // I4: coerce first — a string-encoded array used to fail
+        // Array.isArray silently, so `members` was never set and the
+        // project was created with no members at all, 201 and no error.
+        const ids = asBody(args.memberUserIds);
+        if (Array.isArray(ids)) {
+          body.members = ids.map((userId) => ({ userId }));
+        }
       }
       if (args.budgetPlannedCents !== undefined) {
         body.budgetPlannedCents =
@@ -480,12 +517,14 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
         "problemStatement",
         "goalStatement",
         "successCriteria",
-        "scopeIn",
-        "scopeOut",
-        "notesContent",
         "archivedAt",
       ]) {
         if (args[key] !== undefined) body[key] = args[key];
+      }
+      if (args.scopeIn !== undefined) body.scopeIn = asBody(args.scopeIn);
+      if (args.scopeOut !== undefined) body.scopeOut = asBody(args.scopeOut);
+      if (args.notesContent !== undefined) {
+        body.notesContent = asBody(args.notesContent);
       }
       if (args.budgetPlannedCents !== undefined) {
         body.budgetPlannedCents =
@@ -552,7 +591,10 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
     case "crm_reorder_project_phases":
       return client.request(
         `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/phases/reorder`,
-        { method: "POST", body: { orderedPhaseIds: args.orderedPhaseIds ?? [] } }
+        {
+          method: "POST",
+          body: { orderedPhaseIds: asBody(args.orderedPhaseIds) ?? [] },
+        }
       );
 
     // Meilensteine
@@ -795,8 +837,9 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
       );
     case "crm_create_subtask": {
       const body: Record<string, unknown> = { content: args.content };
-      for (const key of ["deadline", "assigneeIds"]) {
-        if (args[key] !== undefined) body[key] = args[key];
+      if (args.deadline !== undefined) body.deadline = args.deadline;
+      if (args.assigneeIds !== undefined) {
+        body.assigneeIds = asBody(args.assigneeIds);
       }
       return client.request(
         `/api/v1/tasks/${encodeURIComponent(str(args.taskId))}/subtasks`,
@@ -837,11 +880,11 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
         "problemStatement",
         "goalStatement",
         "successCriteria",
-        "scopeIn",
-        "scopeOut",
       ]) {
         if (args[key] !== undefined) body[key] = args[key];
       }
+      if (args.scopeIn !== undefined) body.scopeIn = asBody(args.scopeIn);
+      if (args.scopeOut !== undefined) body.scopeOut = asBody(args.scopeOut);
       return client.request("/api/v1/projects/plan-generate", {
         method: "POST",
         body,
@@ -858,7 +901,7 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
       return client.request(path, {
         method: str(args.method || "GET").toUpperCase(),
         query: asQuery(args.query),
-        body: args.body,
+        body: asBody(args.body),
       });
     }
 
