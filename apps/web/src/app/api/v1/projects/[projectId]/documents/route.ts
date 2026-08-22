@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthContext, unauthorized, notFound, success } from "@/lib/api-utils";
+import { getAuthContext, unauthorized, notFound, badRequest, success } from "@/lib/api-utils";
 import {
   listProjectDocuments,
   createProjectDocument,
@@ -49,12 +49,23 @@ export async function POST(
   const buffer = await file.arrayBuffer();
   const base64 = Buffer.from(buffer).toString("base64");
 
-  const doc = await createProjectDocument(ctx.workspaceId, projectId, ctx.userId, {
-    fileName: file.name,
-    mimeType: file.type || "application/octet-stream",
-    fileSize: file.size,
-    fileContent: base64,
-  });
-  if (!doc) return notFound("Projekt nicht gefunden");
-  return success(doc, 201);
+  // Unlike every other create handler in this directory (risks, budget,
+  // phases, milestones, members), this call went unwrapped. The route's own
+  // pre-validation above makes createProjectDocument's internal re-check
+  // unreachable today, but the pattern must still hold: a future business
+  // rule added service-side must 400, not 500.
+  try {
+    const doc = await createProjectDocument(ctx.workspaceId, projectId, ctx.userId, {
+      fileName: file.name,
+      mimeType: file.type || "application/octet-stream",
+      fileSize: file.size,
+      fileContent: base64,
+    });
+    if (!doc) return notFound("Projekt nicht gefunden");
+    return success(doc, 201);
+  } catch (err) {
+    return badRequest(
+      err instanceof Error ? err.message : "Dokument konnte nicht hochgeladen werden.",
+    );
+  }
 }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthContext, unauthorized, badRequest, success } from "@/lib/api-utils";
-import { listTasks, createTask, type ListTaskOptions } from "@/services/tasks";
+import { listTasks, createTask, describeTaskRouteError, type ListTaskOptions } from "@/services/tasks";
 import { getActiveSprint } from "@/services/sprints";
 
 /** GET /api/v1/tasks — All tasks for current user in active workspace */
@@ -130,13 +130,10 @@ export async function POST(req: NextRequest) {
 
     return success(task, 201);
   } catch (err) {
-    if (err instanceof Error && err.message === "Phase gehört nicht zu diesem Projekt") {
-      return badRequest(err.message);
-    }
-    console.error("Failed to create task:", err);
-    return NextResponse.json(
-      { error: { code: "INTERNAL_ERROR", message: "Failed to create task" } },
-      { status: 500 },
-    );
+    // createTask throws plain Errors for every invariant it enforces (I2's
+    // phase check, I4's parent-eligibility check) — route ALL of them to a
+    // 400 with their own message, not just the one this allowlist used to
+    // name. See describeTaskRouteError in services/tasks.ts.
+    return badRequest(describeTaskRouteError(err));
   }
 }

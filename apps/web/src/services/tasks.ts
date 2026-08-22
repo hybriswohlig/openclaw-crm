@@ -992,3 +992,24 @@ export async function deleteTask(taskId: string, workspaceId: string) {
     return task;
   });
 }
+
+// ─── Route error conversion ────────────────────────────────────────────
+//
+// createTask / updateTask throw five distinct German messages, from four
+// different guards (resolvePhaseAssignment, resolveParentEligibility,
+// resolveChildEligibility, and the self-parent check in updateTask). Every
+// one of them is a plain `Error` with a message meant to be shown, not
+// logged. A route that catches by matching literal strings against a
+// hand-copied allowlist will silently 500 on any message the allowlist
+// forgot — and the next invariant this file grows would reintroduce the
+// bug. Route this through ONE conversion instead of a list.
+
+/**
+ * Pure: turn whatever createTask/updateTask threw into the message a 400
+ * response shows. NOT an allowlist — any `Error` this file throws (now or
+ * later) passes through unchanged; only a non-Error throw (a true
+ * programmer/infra failure) falls back to a generic message.
+ */
+export function describeTaskRouteError(err: unknown): string {
+  return err instanceof Error ? err.message : "Aufgabe konnte nicht verarbeitet werden.";
+}

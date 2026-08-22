@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthContext, unauthorized, notFound, badRequest, success } from "@/lib/api-utils";
-import { updateTask, deleteTask } from "@/services/tasks";
+import { updateTask, deleteTask, describeTaskRouteError } from "@/services/tasks";
 import { db } from "@/db";
 import { taskAssignees } from "@/db/schema";
 import { eq } from "drizzle-orm";
@@ -100,21 +100,12 @@ export async function PATCH(
 
     return success(task);
   } catch (err) {
-    if (
-      err instanceof Error &&
-      [
-        "Phase gehört nicht zu diesem Projekt",
-        "Übergeordnete Aufgabe nicht gefunden",
-        "Eine Aufgabe kann nicht ihre eigene Unteraufgabe sein",
-      ].includes(err.message)
-    ) {
-      return badRequest(err.message);
-    }
-    console.error("Failed to update task:", err);
-    return NextResponse.json(
-      { error: { code: "INTERNAL_ERROR", message: "Failed to update task" } },
-      { status: 500 },
-    );
+    // updateTask throws plain Errors for every invariant it enforces (I2's
+    // phase check, both halves of I4's parent/child-eligibility checks, the
+    // self-parent guard) — route ALL of them to a 400 with their own
+    // message, not just the ones this allowlist used to name. See
+    // describeTaskRouteError in services/tasks.ts.
+    return badRequest(describeTaskRouteError(err));
   }
 }
 

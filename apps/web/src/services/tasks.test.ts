@@ -9,6 +9,7 @@ import {
   planTaskFilters,
   planKindFilterClause,
   planTaskActivityEmissions,
+  describeTaskRouteError,
   type TaskPlacement,
 } from "./tasks";
 import * as taskService from "./tasks";
@@ -452,6 +453,38 @@ describe("planTaskActivityEmissions — which events an updateTask call fires", 
     // Still filed under the project it LEFT, so it shows in that project's
     // Aktivitäten tab instead of vanishing into a null recordId.
     expect(out[0].recordId).toBe("p1");
+  });
+});
+
+describe("describeTaskRouteError — every service error becomes a 400, not just an allowlist", () => {
+  // All five messages createTask/updateTask can throw, from four different
+  // guards. The point of the fix is that this is NOT a hand-copied list the
+  // routes match against — describeTaskRouteError passes ANY Error message
+  // straight through, so a new invariant added to the service starts
+  // working here for free.
+  const KNOWN_TASK_ERRORS = [
+    "Phase gehört nicht zu diesem Projekt",
+    "Übergeordnete Aufgabe nicht gefunden",
+    "Eine Aufgabe kann nicht ihre eigene Unteraufgabe sein",
+    "Unteraufgaben können keine weiteren Unteraufgaben haben",
+    "Aufgaben mit Unteraufgaben können nicht verschachtelt werden",
+  ];
+
+  it.each(KNOWN_TASK_ERRORS)("passes '%s' straight through", (message) => {
+    expect(describeTaskRouteError(new Error(message))).toBe(message);
+  });
+
+  it("passes through a message an allowlist would never have anticipated", () => {
+    // Proves this is not a disguised allowlist: a brand-new invariant added
+    // to the service tomorrow needs no route change to surface as a 400.
+    expect(describeTaskRouteError(new Error("Ein völlig neuer Fehler"))).toBe(
+      "Ein völlig neuer Fehler",
+    );
+  });
+
+  it("falls back to a generic German message for a non-Error throw", () => {
+    expect(describeTaskRouteError("weird")).toBe("Aufgabe konnte nicht verarbeitet werden.");
+    expect(describeTaskRouteError(undefined)).toBe("Aufgabe konnte nicht verarbeitet werden.");
   });
 });
 
