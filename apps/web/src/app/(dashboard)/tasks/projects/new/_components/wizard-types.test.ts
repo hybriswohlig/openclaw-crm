@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { clampDuration, clampOffset, dedupe, offsetToISO, phaseEndISO } from "./wizard-types";
+import {
+  clampDuration,
+  clampOffset,
+  dedupe,
+  isBudgetAmountValid,
+  isBudgetStepValid,
+  offsetToISO,
+  phaseEndISO,
+} from "./wizard-types";
 
 // These five functions are thin wrappers over the tested primitives in
 // lib/work-metrics.ts (offsetDaysToDate, phaseEndOffset, toIsoDay). Every
@@ -81,6 +89,64 @@ describe("clampDuration", () => {
   it("floors non-numeric input to 1", () => {
     expect(clampDuration("abc")).toBe(1);
     expect(clampDuration(null)).toBe(1);
+  });
+});
+
+describe("isBudgetAmountValid", () => {
+  // I4: this must reject exactly what eurosToCents rejects (I3's German
+  // parsing rule), never fall back to a second, weaker parser. A blank
+  // field is the one case that is fine.
+  it("accepts a blank field as 'kein Budget'", () => {
+    expect(isBudgetAmountValid("")).toBe(true);
+    expect(isBudgetAmountValid("   ")).toBe(true);
+  });
+
+  it("accepts a well-formed German amount", () => {
+    expect(isBudgetAmountValid("12.500,00")).toBe(true);
+    expect(isBudgetAmountValid("12.500")).toBe(true);
+    expect(isBudgetAmountValid("5000")).toBe(true);
+  });
+
+  it("accepts the exact amount the old bare-Number() parser used to silently drop", () => {
+    // The brief's repro: "12500,00" reviewed fine under the old wizard
+    // parser and then created a project with no budget at all, because
+    // Number("12500,00") is NaN. It must be accepted (and eurosToCents
+    // must turn it into real cents), not silently nulled.
+    expect(isBudgetAmountValid("12500,00")).toBe(true);
+  });
+
+  it("rejects unparseable input instead of treating it as empty", () => {
+    expect(isBudgetAmountValid("abc")).toBe(false);
+    expect(isBudgetAmountValid("12,50,00")).toBe(false);
+  });
+});
+
+describe("isBudgetStepValid", () => {
+  it("passes when the frame and every entry are blank or valid", () => {
+    expect(
+      isBudgetStepValid({
+        budgetPlannedEuros: "12.500,00",
+        budgetEntries: [
+          { id: "1", label: "Agentur", amountEuros: "1.500,00" },
+          { id: "2", label: "Ohne Betrag", amountEuros: "" },
+        ],
+      })
+    ).toBe(true);
+  });
+
+  it("fails when the budget frame itself does not parse", () => {
+    expect(
+      isBudgetStepValid({ budgetPlannedEuros: "12500,00,00", budgetEntries: [] })
+    ).toBe(false);
+  });
+
+  it("fails when any single entry does not parse, even if the frame is fine", () => {
+    expect(
+      isBudgetStepValid({
+        budgetPlannedEuros: "5000",
+        budgetEntries: [{ id: "1", label: "Agentur", amountEuros: "abc" }],
+      })
+    ).toBe(false);
   });
 });
 

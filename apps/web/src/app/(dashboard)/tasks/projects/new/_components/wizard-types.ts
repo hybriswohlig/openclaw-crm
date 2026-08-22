@@ -2,6 +2,7 @@
 // mirrored into localStorage on every change so a reload never loses work
 // (Spec §8.3). Nothing is written to the server before "Projekt erstellen".
 import { offsetDaysToDate, phaseEndOffset, toIsoDay } from "@/lib/work-metrics";
+import { eurosToCents } from "@/lib/work-ui";
 
 export const WIZARD_DRAFT_KEY = "kottke:projectWizardDraft";
 
@@ -177,6 +178,26 @@ export function dedupe(values: string[]): string[] {
     out.push(v.trim());
   }
   return out;
+}
+
+/**
+ * I4: a blank budget field means "kein Budget" and is fine. A non-blank one
+ * must parse under the same German rule eurosToCents enforces everywhere
+ * else (I3) — otherwise the wizard used to happily let "12500,00" sail
+ * through the Budgetrahmen field, echo it back unchanged on the review
+ * step, and then silently create the project with no budget at all once
+ * its own weak `Number()` parser choked on the comma at submit time.
+ */
+export function isBudgetAmountValid(value: string): boolean {
+  return value.trim() === "" || eurosToCents(value) != null;
+}
+
+/** Gate for leaving wizard step 3: every budget amount on the step must be valid. */
+export function isBudgetStepValid(draft: Pick<WizardDraft, "budgetPlannedEuros" | "budgetEntries">): boolean {
+  return (
+    isBudgetAmountValid(draft.budgetPlannedEuros) &&
+    draft.budgetEntries.every((b) => isBudgetAmountValid(b.amountEuros))
+  );
 }
 
 export const WIZARD_STEPS = [

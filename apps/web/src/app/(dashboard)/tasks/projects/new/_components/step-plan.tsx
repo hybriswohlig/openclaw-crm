@@ -9,7 +9,7 @@ import { useState } from "react";
 import { PRIORITIES } from "@/lib/task-priority";
 import { formatDateDE } from "@/lib/work-ui";
 import type { WizardDraft } from "./wizard-types";
-import { clampDuration, clampOffset, draftId, offsetToISO, phaseEndISO } from "./wizard-types";
+import { clampDuration, clampOffset, draftId, isBudgetAmountValid, offsetToISO, phaseEndISO } from "./wizard-types";
 import { Field, StepHeading, inputClass, textareaClass } from "./step-basics";
 
 export function StepPlan({
@@ -347,16 +347,24 @@ export function StepPlan({
         <div className="k-label mb-3" style={{ fontSize: 10.5, color: "var(--muted-foreground)" }}>
           Budget
         </div>
-        <Field label="Budgetrahmen (EUR)" hint="Leer lassen, wenn das Projekt kein Budget hat.">
+        <Field
+          label="Budgetrahmen (EUR)"
+          hint="Leer lassen, wenn das Projekt kein Budget hat. Format: 12.500,00"
+        >
           <input
-            type="number"
-            min="0"
+            type="text"
+            inputMode="decimal"
             className={inputClass}
             style={{ maxWidth: 200 }}
             value={draft.budgetPlannedEuros}
             onChange={(e) => patch({ budgetPlannedEuros: e.target.value })}
             placeholder="z. B. 5000"
           />
+          {!isBudgetAmountValid(draft.budgetPlannedEuros) && (
+            <span className="text-[11.5px]" style={{ color: "var(--danger)" }}>
+              Betrag konnte nicht gelesen werden, z. B. 12.500,00 eingeben.
+            </span>
+          )}
         </Field>
 
         <div className="mt-3 flex items-center justify-between gap-2">
@@ -375,45 +383,55 @@ export function StepPlan({
           </button>
         </div>
         <div className="mt-2 flex flex-col gap-2">
-          {draft.budgetEntries.map((b) => (
-            <div key={b.id} className="flex items-center gap-2">
-              <input
-                className={inputClass}
-                value={b.label}
-                onChange={(e) =>
-                  patch({
-                    budgetEntries: draft.budgetEntries.map((x) =>
-                      x.id === b.id ? { ...x, label: e.target.value } : x
-                    ),
-                  })
-                }
-                placeholder="z. B. Agenturkosten"
-              />
-              <input
-                type="number"
-                min="0"
-                className={inputClass}
-                style={{ width: 130 }}
-                value={b.amountEuros}
-                onChange={(e) =>
-                  patch({
-                    budgetEntries: draft.budgetEntries.map((x) =>
-                      x.id === b.id ? { ...x, amountEuros: e.target.value } : x
-                    ),
-                  })
-                }
-                placeholder="EUR"
-              />
-              <button
-                type="button"
-                onClick={() => patch({ budgetEntries: draft.budgetEntries.filter((x) => x.id !== b.id) })}
-                aria-label="Position entfernen"
-                className="shrink-0 rounded-lg border border-border p-2 text-muted-foreground transition-colors hover:text-destructive"
-              >
-                <Trash2 className="h-[14px] w-[14px]" />
-              </button>
-            </div>
-          ))}
+          {draft.budgetEntries.map((b) => {
+            const amountInvalid = !isBudgetAmountValid(b.amountEuros);
+            return (
+              <div key={b.id} className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <input
+                    className={inputClass}
+                    value={b.label}
+                    onChange={(e) =>
+                      patch({
+                        budgetEntries: draft.budgetEntries.map((x) =>
+                          x.id === b.id ? { ...x, label: e.target.value } : x
+                        ),
+                      })
+                    }
+                    placeholder="z. B. Agenturkosten"
+                  />
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    className={inputClass}
+                    style={{ width: 130 }}
+                    value={b.amountEuros}
+                    onChange={(e) =>
+                      patch({
+                        budgetEntries: draft.budgetEntries.map((x) =>
+                          x.id === b.id ? { ...x, amountEuros: e.target.value } : x
+                        ),
+                      })
+                    }
+                    placeholder="EUR"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => patch({ budgetEntries: draft.budgetEntries.filter((x) => x.id !== b.id) })}
+                    aria-label="Position entfernen"
+                    className="shrink-0 rounded-lg border border-border p-2 text-muted-foreground transition-colors hover:text-destructive"
+                  >
+                    <Trash2 className="h-[14px] w-[14px]" />
+                  </button>
+                </div>
+                {amountInvalid && (
+                  <span className="text-[11.5px]" style={{ color: "var(--danger)" }}>
+                    Betrag konnte nicht gelesen werden, z. B. 1.500,00 eingeben.
+                  </span>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

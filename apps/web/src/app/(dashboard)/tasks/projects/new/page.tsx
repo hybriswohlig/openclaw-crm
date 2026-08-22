@@ -9,7 +9,7 @@ import { ArrowLeft, ArrowRight, Loader2, RotateCcw, Sparkles, X } from "lucide-r
 import { toast } from "sonner";
 import { useSession } from "@/lib/auth-client";
 import type { PlanGenerateJSON } from "@/lib/work-types";
-import { readApiError } from "@/lib/work-ui";
+import { eurosToCents, readApiError } from "@/lib/work-ui";
 import { ModuleNav } from "@/components/work/module-nav";
 import {
   clampDuration,
@@ -17,6 +17,7 @@ import {
   dedupe,
   draftId,
   emptyDraft,
+  isBudgetStepValid,
   offsetToISO,
   phaseEndISO,
   WIZARD_DRAFT_KEY,
@@ -215,11 +216,14 @@ export default function NewProjectPage() {
   const submit = useCallback(async () => {
     setSubmitting(true);
     try {
-      const euroToCents = (v: string): number | null => {
-        const n = Number(v);
-        if (!v.trim() || Number.isNaN(n)) return null;
-        return Math.round(n * 100);
-      };
+      // I4: this used to be a second, weaker parser (bare `Number()`, no
+      // German comma handling) living only here — "12500,00" reviewed fine
+      // on step 5 and then silently created the project with no budget at
+      // all. It is now the same hardened eurosToCents I3 fixed, and
+      // `canContinue` below refuses to leave step 3 while it would reject
+      // anything the user typed, so submit() should never actually see
+      // unparseable input — but it uses the real parser regardless, not a
+      // second reimplementation of it.
       const iso = (offset: number) => offsetToISO(draft.startDate, offset);
 
       const body = {
@@ -236,7 +240,7 @@ export default function NewProjectPage() {
         successCriteria: draft.successCriteria.trim() || null,
         scopeIn: draft.scopeIn,
         scopeOut: draft.scopeOut,
-        budgetPlannedCents: euroToCents(draft.budgetPlannedEuros),
+        budgetPlannedCents: eurosToCents(draft.budgetPlannedEuros),
         // Nested payload — the route writes all of this in one transaction.
         members: draft.members,
         phases: draft.phases.map((p) => ({
@@ -276,10 +280,10 @@ export default function NewProjectPage() {
             mitigation: r.mitigation.trim() || null,
           })),
         budgetEntries: draft.budgetEntries
-          .filter((b) => b.label.trim().length > 0 && euroToCents(b.amountEuros) != null)
+          .filter((b) => b.label.trim().length > 0 && eurosToCents(b.amountEuros) != null)
           .map((b) => ({
             label: b.label.trim(),
-            amountCents: euroToCents(b.amountEuros) as number,
+            amountCents: eurosToCents(b.amountEuros) as number,
             kind: "plan",
           })),
       };
@@ -317,11 +321,15 @@ export default function NewProjectPage() {
   }, [session?.user?.id, draft.ownerUserId]);
 
   const canContinue =
-    draft.step !== 1 ||
-    (draft.name.trim().length > 0 &&
-      draft.shortDescription.trim().length > 0 &&
-      draft.category.length > 0 &&
-      draft.ownerUserId.length > 0);
+    (draft.step !== 1 ||
+      (draft.name.trim().length > 0 &&
+        draft.shortDescription.trim().length > 0 &&
+        draft.category.length > 0 &&
+        draft.ownerUserId.length > 0)) &&
+    // I4: an unparseable budget amount must be caught here, before the user
+    // ever reaches the review step — not discovered as a silently-dropped
+    // amount after "Projekt erstellen".
+    (draft.step !== 3 || isBudgetStepValid(draft));
 
   return (
     <div className="k-paper-noise min-h-full">
