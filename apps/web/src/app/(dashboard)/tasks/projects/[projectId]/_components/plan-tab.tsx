@@ -94,8 +94,18 @@ export function PlanTab({ project, reload }: { project: ProjectJSON; reload: () 
     if (ok) setNewPhase(""); // only on success (R13)
   };
 
-  const patchPhase = (phaseId: string, updates: Record<string, unknown>) =>
-    mutate(
+  /**
+   * Optimistic, same shape as risks-tab.tsx's patchRisk: a PATCH plus two
+   * reloads takes long enough that a select bound straight to the server
+   * value snaps back to the old one for that whole window — users read that
+   * as "it didn't take" and pick again, firing a second write (defect D-2,
+   * same class as R10). The pending value wins until the reload confirms it.
+   */
+  const [pendingPhase, setPendingPhase] = useState<Record<string, Partial<PhaseJSON>>>({});
+
+  const patchPhase = async (phaseId: string, updates: Partial<PhaseJSON>) => {
+    setPendingPhase((prev) => ({ ...prev, [phaseId]: { ...prev[phaseId], ...updates } }));
+    const ok = await mutate(
       () =>
         fetch(`/api/v1/projects/${project.id}/phases/${phaseId}`, {
           method: "PATCH",
@@ -105,6 +115,16 @@ export function PlanTab({ project, reload }: { project: ProjectJSON; reload: () 
       "Gespeichert",
       "Speichern fehlgeschlagen"
     );
+    setPendingPhase((prev) => {
+      const next = { ...prev };
+      delete next[phaseId];
+      return next;
+    });
+    if (!ok) await load();
+  };
+
+  /** The value to render: pending edit first, server value second. */
+  const shownPhase = (p: PhaseJSON): PhaseJSON => ({ ...p, ...(pendingPhase[p.id] ?? {}) });
 
   const deletePhase = (phaseId: string) => {
     if (!window.confirm("Arbeitsbereich löschen? Die Aufgaben bleiben im Projekt, verlieren aber ihren Bereich.")) return;
@@ -150,8 +170,11 @@ export function PlanTab({ project, reload }: { project: ProjectJSON; reload: () 
     if (ok) setNewMilestone("");
   };
 
-  const patchMilestone = (milestoneId: string, updates: Record<string, unknown>) =>
-    mutate(
+  const [pendingMilestone, setPendingMilestone] = useState<Record<string, Partial<MilestoneJSON>>>({});
+
+  const patchMilestone = async (milestoneId: string, updates: Partial<MilestoneJSON>) => {
+    setPendingMilestone((prev) => ({ ...prev, [milestoneId]: { ...prev[milestoneId], ...updates } }));
+    const ok = await mutate(
       () =>
         fetch(`/api/v1/projects/${project.id}/milestones/${milestoneId}`, {
           method: "PATCH",
@@ -161,6 +184,16 @@ export function PlanTab({ project, reload }: { project: ProjectJSON; reload: () 
       "Gespeichert",
       "Speichern fehlgeschlagen"
     );
+    setPendingMilestone((prev) => {
+      const next = { ...prev };
+      delete next[milestoneId];
+      return next;
+    });
+    if (!ok) await load();
+  };
+
+  /** The value to render: pending edit first, server value second. */
+  const shownMilestone = (m: MilestoneJSON): MilestoneJSON => ({ ...m, ...(pendingMilestone[m.id] ?? {}) });
 
   const deleteMilestone = (milestoneId: string) =>
     mutate(
@@ -195,7 +228,9 @@ export function PlanTab({ project, reload }: { project: ProjectJSON; reload: () 
           <EmptyState title="Noch kein Arbeitsbereich" hint="Ein Arbeitsbereich bündelt die Aufgaben eines Projektabschnitts." />
         ) : (
           <div className="flex flex-col gap-2">
-            {phases.map((ph, i) => (
+            {phases.map((raw, i) => {
+              const ph = shownPhase(raw);
+              return (
               <div key={ph.id} className="rounded-lg border border-border p-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <input
@@ -206,7 +241,8 @@ export function PlanTab({ project, reload }: { project: ProjectJSON; reload: () 
                   <select
                     className={inputClass}
                     value={ph.status}
-                    onChange={(e) => patchPhase(ph.id, { status: e.target.value })}
+                    disabled={busy}
+                    onChange={(e) => patchPhase(ph.id, { status: e.target.value as PhaseJSON["status"] })}
                     aria-label="Status"
                   >
                     {PHASE_STATUS.map((s) => (
@@ -297,7 +333,8 @@ export function PlanTab({ project, reload }: { project: ProjectJSON; reload: () 
                   </span>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -330,7 +367,9 @@ export function PlanTab({ project, reload }: { project: ProjectJSON; reload: () 
             <EmptyState title="Keine Meilensteine" hint="Meilensteine sind bewusst unabhängig von Phasen." />
           ) : (
             <div className="flex flex-col gap-2">
-              {milestones.map((m, i) => (
+              {milestones.map((raw, i) => {
+                const m = shownMilestone(raw);
+                return (
                 <div key={m.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-border p-2.5">
                   <span
                     className="k-mono inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border text-[11px]"
@@ -356,7 +395,8 @@ export function PlanTab({ project, reload }: { project: ProjectJSON; reload: () 
                   <select
                     className={inputClass}
                     value={m.status}
-                    onChange={(e) => patchMilestone(m.id, { status: e.target.value })}
+                    disabled={busy}
+                    onChange={(e) => patchMilestone(m.id, { status: e.target.value as MilestoneJSON["status"] })}
                     aria-label="Status"
                   >
                     {MILESTONE_STATUS.map((s) => (
@@ -368,6 +408,7 @@ export function PlanTab({ project, reload }: { project: ProjectJSON; reload: () 
                   <select
                     className={inputClass}
                     value={m.phaseId ?? ""}
+                    disabled={busy}
                     onChange={(e) => patchMilestone(m.id, { phaseId: e.target.value || null })}
                     aria-label="Phase"
                   >
@@ -388,7 +429,8 @@ export function PlanTab({ project, reload }: { project: ProjectJSON; reload: () 
                     <Trash2 className="h-[13px] w-[13px]" />
                   </button>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
 

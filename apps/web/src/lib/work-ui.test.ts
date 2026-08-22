@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  eurosToCents,
   formatEURCents,
   formatDateDE,
   formatDayShortDE,
@@ -351,6 +352,45 @@ describe("hasTimelineDate", () => {
     expect(
       hasTimelineDate({ startDate: null, deadline: "2026-09-04", createdAt: "2026-09-01T10:00:00.000Z" })
     ).toBe(true);
+  });
+});
+
+describe("eurosToCents", () => {
+  it("parses a German comma decimal", () => {
+    expect(eurosToCents("12,50")).toBe(1250);
+  });
+
+  it("parses a period decimal", () => {
+    expect(eurosToCents("12.50")).toBe(1250);
+  });
+
+  it("parses a whole number with no decimal part", () => {
+    expect(eurosToCents("5000")).toBe(500_000);
+  });
+
+  it("does not understand a German thousands separator", () => {
+    // "1.234,56" has BOTH a thousands dot and a comma decimal; only the
+    // comma gets normalised to a period, leaving two dots — Number() cannot
+    // parse that, so the caller must type a plain "1234,56" instead.
+    expect(eurosToCents("1.234,56")).toBeNull();
+  });
+
+  it("returns null for an empty or whitespace-only string", () => {
+    expect(eurosToCents("")).toBeNull();
+    expect(eurosToCents("   ")).toBeNull();
+  });
+
+  it("returns null for a non-numeric string", () => {
+    expect(eurosToCents("abc")).toBeNull();
+  });
+
+  it("rounds to the nearest cent", () => {
+    expect(eurosToCents("12,345")).toBe(1235);
+  });
+
+  it("handles zero and negative amounts", () => {
+    expect(eurosToCents("0")).toBe(0);
+    expect(eurosToCents("-5,50")).toBe(-550);
   });
 });
 

@@ -20,6 +20,22 @@ export function formatEURCents(cents: number | null | undefined): string {
   return EUR_FMT.format(cents / 100);
 }
 
+/**
+ * The inverse of formatEURCents: a euro amount typed by a user → integer
+ * cents. No float may ever reach the API (project budgets are stored as
+ * cents), so this is the one place that does the euro → cent conversion.
+ * Accepts a German comma decimal ("12,50") as well as a plain period
+ * ("12.50"). Returns null for empty input or anything that is not a number,
+ * so the caller can treat "no amount" and "unparsable amount" the same way.
+ */
+export function eurosToCents(value: string): number | null {
+  const normalized = value.replace(",", ".").trim();
+  if (!normalized) return null;
+  const n = Number(normalized);
+  if (Number.isNaN(n)) return null;
+  return Math.round(n * 100);
+}
+
 /** ISO string or Date → "14.07.2025". "–" when empty. */
 export function formatDateDE(value: string | Date | null | undefined): string {
   const d = toDate(value);

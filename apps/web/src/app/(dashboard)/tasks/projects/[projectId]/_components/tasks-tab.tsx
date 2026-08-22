@@ -242,7 +242,13 @@ export function TasksTab({ project, reload }: { project: ProjectJSON; reload: ()
         onDelete={
           editing
             ? async () => {
-                await fetch(`/api/v1/tasks/${editing.id}`, { method: "DELETE" });
+                const res = await fetch(`/api/v1/tasks/${editing.id}`, { method: "DELETE" });
+                if (!res.ok) {
+                  toast.error("Aufgabe konnte nicht gelöscht werden", {
+                    description: await readApiError(res, ""),
+                  });
+                  return;
+                }
                 toast.success("Aufgabe gelöscht");
                 await load();
                 await reload();

@@ -10,18 +10,10 @@ import { SectionCard } from "@/components/work/section-card";
 import { ProgressBar } from "@/components/work/progress-bar";
 import { StatusChip } from "@/components/work/status-chip";
 import { EmptyState, LoadingLine } from "@/components/work/empty-state";
-import { formatDateDE, formatEURCents, readApiError } from "@/lib/work-ui";
+import { eurosToCents, formatDateDE, formatEURCents, readApiError } from "@/lib/work-ui";
 
 const inputClass =
   "h-8 rounded-lg border border-border bg-background px-2 text-[13px] text-foreground outline-none placeholder:text-muted-foreground focus:border-foreground/25";
-
-function eurosToCents(value: string): number | null {
-  const normalized = value.replace(",", ".").trim();
-  if (!normalized) return null;
-  const n = Number(normalized);
-  if (Number.isNaN(n)) return null;
-  return Math.round(n * 100);
-}
 
 export function BudgetTab({ project, reload }: { project: ProjectJSON; reload: () => Promise<void> }) {
   const [budget, setBudget] = useState<BudgetSummaryJSON | null>(null);

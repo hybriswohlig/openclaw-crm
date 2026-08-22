@@ -63,6 +63,7 @@ function ProjectDetailInner() {
   const [project, setProject] = useState<ProjectJSON | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -78,13 +79,20 @@ function ProjectDetailInner() {
         setFailed(false);
         return;
       }
-      if (!res.ok) throw new Error("load failed");
+      if (!res.ok) {
+        // Surface the server's own German message rather than a fixed
+        // string — a 500 or a validation refusal on load was otherwise
+        // indistinguishable from a plain network hiccup (D-1).
+        throw new Error(await readApiError(res, "Projekt konnte nicht geladen werden."));
+      }
       const json = await res.json();
       setProject((json?.data ?? null) as ProjectJSON | null);
       setNotFound(false);
       setFailed(false);
-    } catch {
+      setLoadError(null);
+    } catch (err) {
       setFailed(true);
+      setLoadError(err instanceof Error ? err.message : null);
     } finally {
       setLoading(false);
     }
@@ -186,7 +194,7 @@ function ProjectDetailInner() {
     );
   }
   if (loading && !project) return <LoadingLine label="Projekt wird geladen…" />;
-  if (failed && !project) return <ErrorLine onRetry={reload} />;
+  if (failed && !project) return <ErrorLine label={loadError ?? undefined} onRetry={reload} />;
   if (!project) return <ErrorLine label="Projekt konnte nicht geladen werden." onRetry={reload} />;
 
   return (
