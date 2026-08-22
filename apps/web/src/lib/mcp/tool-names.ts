@@ -157,6 +157,10 @@ export const CRM_TOOL_NAMES = [
   "crm_create_subtask",
   "crm_list_task_comments",
   "crm_create_task_comment",
+  // ── Übergreifend ──────────────────────────────────────────────────
+  "crm_work_dashboard",
+  "crm_sprint_timeline",
+  "crm_generate_project_plan",
   // ── Escape hatch ──────────────────────────────────────────────────
   "crm_api",
 ] as const;

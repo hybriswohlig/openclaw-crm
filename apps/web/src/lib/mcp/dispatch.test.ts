@@ -1048,3 +1048,107 @@ describe("crm_create_task_comment", () => {
     });
   });
 });
+
+describe("crm_work_dashboard", () => {
+  it("omits sprintId entirely when none was given", async () => {
+    // An empty-string sprintId would be dropped by CrmClient anyway, but an
+    // explicit "undefined" string would not — so the arg is passed through
+    // the same cast every other optional query string uses.
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_work_dashboard", {});
+
+    expect(calls[0].path).toBe("/api/v1/work/dashboard");
+    expect((calls[0].options.query as Record<string, unknown>).sprintId).toBeUndefined();
+  });
+
+  it("scopes to one sprint when asked", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_work_dashboard", { sprintId: "s-3" });
+
+    expect((calls[0].options.query as Record<string, unknown>).sprintId).toBe("s-3");
+  });
+});
+
+describe("crm_sprint_timeline", () => {
+  it("forwards both scopes and coerces maxBarsPerRow", async () => {
+    // sprintId and projectId are different questions, not synonyms: one
+    // scopes to a sprint across projects, the other to a project across
+    // sprints. Both have to reach the route under their own key.
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_sprint_timeline", {
+      sprintId: "s-3",
+      projectId: "p-1",
+      maxBarsPerRow: "12",
+    });
+
+    expect(calls[0].path).toBe("/api/v1/work/timeline");
+    expect(calls[0].options.query).toEqual({
+      sprintId: "s-3",
+      projectId: "p-1",
+      maxBarsPerRow: 12,
+    });
+  });
+
+  it("sends no scope at all when none was given", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_sprint_timeline", {});
+
+    const query = calls[0].options.query as Record<string, unknown>;
+    expect(query.sprintId).toBeUndefined();
+    expect(query.projectId).toBeUndefined();
+    expect(query.maxBarsPerRow).toBeUndefined();
+  });
+});
+
+describe("crm_generate_project_plan", () => {
+  it("parses scope arrays that arrived as JSON strings", async () => {
+    // The wizard's own client sends real arrays; MCP clients that build the
+    // call from a text template send '["…"]'. Forwarding that verbatim made
+    // the planner see a single scope item that is a JSON blob.
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_generate_project_plan", {
+      name: "Standort Augsburg",
+      category: "standorte",
+      priority: "hoch",
+      startDate: "2026-10-01",
+      endDate: "2027-03-31",
+      problemStatement: "Keine Praesenz im Westen",
+      goalStatement: "Zweiter Standort betriebsbereit",
+      scopeIn: '["Halle mieten","Team aufbauen"]',
+      scopeOut: ["Franchise"],
+    });
+
+    expect(calls[0].path).toBe("/api/v1/projects/plan-generate");
+    expect(calls[0].options.method).toBe("POST");
+    expect(calls[0].options.body).toEqual({
+      name: "Standort Augsburg",
+      category: "standorte",
+      priority: "hoch",
+      startDate: "2026-10-01",
+      endDate: "2027-03-31",
+      problemStatement: "Keine Praesenz im Westen",
+      goalStatement: "Zweiter Standort betriebsbereit",
+      scopeIn: ["Halle mieten", "Team aufbauen"],
+      scopeOut: ["Franchise"],
+    });
+  });
+
+  it("leaves a scope string that is not JSON alone", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_generate_project_plan", {
+      name: "Test",
+      scopeIn: "Halle mieten",
+    });
+
+    expect(calls[0].options.body).toEqual({
+      name: "Test",
+      scopeIn: "Halle mieten",
+    });
+  });
+});

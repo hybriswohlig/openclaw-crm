@@ -1096,6 +1096,45 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
     req
   );
 
+  // ── Übergreifend ────────────────────────────────────────────────────────
+  tool(
+    server,
+    "crm_work_dashboard",
+    "The whole work dashboard in one call: KPIs (overall progress, project counts, open and due-today operative tasks, overdue count, team utilisation), the running sprint, project cards with their stats, the operative task list, the overdue list, recent activity, upcoming dates and the per-member team overview. Pass sprintId to look at a specific sprint instead of the active one. Prefer this over five separate list calls whenever you are asked how work is going — it is one query and it is what the UI itself renders.",
+    { sprintId: z.string().optional() },
+    req
+  );
+  tool(
+    server,
+    "crm_sprint_timeline",
+    "Gantt-style timeline: the day window, one row per project plus a row for operative work, one bar per dated task with its state ('geplant'|'in_arbeit'|'erledigt'|'ueberfaellig'), and every dependency edge between the visible tasks. The two scopes answer different questions — sprintId returns that sprint's tasks across all projects and defaults to the active sprint, while projectId returns that project's tasks regardless of sprint membership; pass both to intersect them. maxBarsPerRow caps how many bars one row renders and reports the remainder as a count, which is what keeps a project with hundreds of dated tasks from producing an unusable response. This is the only tool that returns the dependency graph as a whole — do not walk crm_list_task_dependencies task by task to rebuild it.",
+    {
+      sprintId: z.string().optional(),
+      projectId: z.string().optional(),
+      maxBarsPerRow: z.number().optional(),
+    },
+    req
+  );
+  tool(
+    server,
+    "crm_generate_project_plan",
+    "Ask the AI planner for a DRAFT project plan: scope in/out, phases with their tasks, milestones and risks. Every date comes back as an offset in days from the project start, never as an absolute date, so the plan does not depend on the model's idea of today. Nothing is written to the CRM — this returns a proposal you then create with crm_create_project, crm_create_project_phase, crm_create_project_milestone and crm_create_task. The call runs on the crm-tools runner and can take several minutes; a failure or a missing configuration is not fatal, fall back to planning manually rather than retrying in a loop.",
+    {
+      name: z.string(),
+      shortDescription: z.string().nullable().optional(),
+      category: z.string().optional(),
+      priority: z.enum(["sehr_hoch", "hoch", "mittel", "niedrig"]).optional(),
+      startDate: z.string().nullable().optional(),
+      endDate: z.string().nullable().optional(),
+      problemStatement: z.string().nullable().optional(),
+      goalStatement: z.string().nullable().optional(),
+      successCriteria: z.string().nullable().optional(),
+      scopeIn: z.array(z.string()).optional(),
+      scopeOut: z.array(z.string()).optional(),
+    },
+    req
+  );
+
   tool(
     server,
     "crm_api",
