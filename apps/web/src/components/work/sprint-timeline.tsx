@@ -111,6 +111,65 @@ export function SprintTimeline({
     else barRefs.current.delete(taskId);
   }, []);
 
+  const [arrows, setArrows] = useState<Array<{ id: string; d: string }>>([]);
+  const [overlay, setOverlay] = useState({ width: 0, height: 0 });
+
+  const recomputeArrows = useCallback(() => {
+    const root = contentRef.current;
+    if (!root || !data) {
+      setArrows([]);
+      return;
+    }
+    const base = root.getBoundingClientRect();
+    setOverlay({ width: base.width, height: base.height });
+
+    const next: Array<{ id: string; d: string }> = [];
+    for (const dep of data.dependencies) {
+      // Direction is fixed: the arrow runs FROM the predecessor TO the
+      // successor, so the arrowhead lands on the task that waits. Never swap
+      // these two lookups — `from` must be the predecessor.
+      const from = barRefs.current.get(dep.predecessorTaskId);
+      const to = barRefs.current.get(dep.successorTaskId);
+      // Only draw when BOTH bars are actually rendered (Risk R5) — a
+      // dependency onto a capped-away or out-of-window task is skipped.
+      if (!from || !to) continue;
+      const a = from.getBoundingClientRect();
+      const b = to.getBoundingClientRect();
+      // Right edge of the predecessor → left edge of the successor.
+      const x1 = a.right - base.left;
+      const y1 = a.top - base.top + a.height / 2;
+      const x2 = b.left - base.left;
+      const y2 = b.top - base.top + b.height / 2;
+      const dx = Math.max(16, Math.abs(x2 - x1) / 2);
+      next.push({
+        id: dep.id,
+        d: `M ${x1.toFixed(1)} ${y1.toFixed(1)} C ${(x1 + dx).toFixed(1)} ${y1.toFixed(1)}, ${(x2 - dx).toFixed(1)} ${y2.toFixed(1)}, ${x2.toFixed(1)} ${y2.toFixed(1)}`,
+      });
+    }
+    setArrows(next);
+  }, [data]);
+
+  // Recompute after every layout change: data swap, container resize, font
+  // load, window resize. rAF debounced so a drag-resize does not thrash.
+  useEffect(() => {
+    const root = contentRef.current;
+    if (!root) return;
+    let frame = 0;
+    const schedule = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(recomputeArrows);
+    };
+    schedule();
+    const ro = new ResizeObserver(schedule);
+    ro.observe(root);
+    window.addEventListener("resize", schedule);
+    return () => {
+      cancelAnimationFrame(frame);
+      ro.disconnect();
+      window.removeEventListener("resize", schedule);
+    };
+  }, [recomputeArrows]);
+
   // Navigation is pure scrolling — the server owns the window (it is the
   // sprint), so "‹ / ›" move the viewport by a week and "Heute" centres the
   // current column. No extra API contract needed.
@@ -260,6 +319,38 @@ export function SprintTimeline({
           </div>
 
           <div ref={contentRef} className="relative">
+            <svg
+              className="pointer-events-none absolute left-0 top-0 z-10"
+              width={overlay.width || 1}
+              height={overlay.height || 1}
+              aria-hidden
+            >
+              <defs>
+                <marker
+                  id="timeline-arrow"
+                  viewBox="0 0 8 8"
+                  refX="7"
+                  refY="4"
+                  markerWidth="6"
+                  markerHeight="6"
+                  orient="auto-start-reverse"
+                >
+                  <path d="M 0 0 L 8 4 L 0 8 z" fill="var(--muted-foreground)" />
+                </marker>
+              </defs>
+              {arrows.map((a) => (
+                <path
+                  key={a.id}
+                  d={a.d}
+                  fill="none"
+                  stroke="var(--muted-foreground)"
+                  strokeWidth={1.4}
+                  strokeDasharray="4 3"
+                  opacity={0.75}
+                  markerEnd="url(#timeline-arrow)"
+                />
+              ))}
+            </svg>
             {rows.map((row) => (
               <div
                 key={row.projectId ?? "__operativ__"}
