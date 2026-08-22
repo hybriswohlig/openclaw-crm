@@ -101,6 +101,110 @@ export default function NewProjectPage() {
     }
   }, []);
 
+  const runPlanGeneration = useCallback(async () => {
+    setAiRunning(true);
+    setAiError(null);
+    try {
+      const res = await fetch("/api/v1/projects/plan-generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: draft.name,
+          shortDescription: draft.shortDescription,
+          category: draft.category,
+          priority: draft.priority,
+          startDate: draft.startDate,
+          endDate: draft.endDate,
+          problemStatement: draft.problemStatement,
+          goalStatement: draft.goalStatement,
+          successCriteria: draft.successCriteria,
+          scopeIn: draft.scopeIn,
+          scopeOut: draft.scopeOut,
+        }),
+      });
+      if (!res.ok) {
+        setAiError(await readApiError(res, "Der Planungsdienst ist gerade nicht erreichbar."));
+        return;
+      }
+      const json = await res.json();
+      // The envelope is { data: { plan, error } } — the plan is at
+      // json.data.plan, NOT at json.data. Unwrapping one level too few gives a
+      // truthy wrapper whose every field is undefined, which looks exactly
+      // like a successful empty plan and wipes the wizard while toasting
+      // success (defect W1). The route answers 200 even on failure, so the
+      // `error` field is the only signal there is.
+      const payload = (json?.data ?? null) as PlanGenerateJSON | null;
+      const plan = payload?.plan ?? null;
+      if (!plan || payload?.error) {
+        // aiRan stays false so "Weiter" retries instead of skipping silently.
+        setAiError(payload?.error ?? "Es kam kein verwertbarer Vorschlag zurück.");
+        return;
+      }
+
+      const phaseDrafts = (plan.phases ?? []).map((ph) => ({
+        id: draftId(),
+        name: ph.name,
+        description: ph.description ?? "",
+        startOffsetDays: clampOffset(ph.startOffsetDays ?? 0),
+        durationDays: clampDuration(ph.durationDays ?? 14),
+        tasks: (ph.tasks ?? []).map((tk) => ({
+          id: draftId(),
+          title: tk.title,
+          description: tk.description ?? "",
+          offsetDays: clampOffset(tk.offsetDays ?? 0),
+          priority: tk.priority ?? "mittel",
+        })),
+      }));
+
+      setDirty(true);
+      setDraft((prev) => ({
+        ...prev,
+        // Merge, never replace: whatever the user typed in step 1 survives.
+        scopeIn: dedupe([...prev.scopeIn, ...(plan.scopeIn ?? [])]),
+        scopeOut: dedupe([...prev.scopeOut, ...(plan.scopeOut ?? [])]),
+        // Ids are minted here, once, and never derived from array position:
+        // every one of these lists has a delete button, so an index key would
+        // move DOM state (focus, caret, expanded card) onto the wrong row (R11).
+        phases: phaseDrafts,
+        // The AI names phases by INDEX; we resolve that to the id we just
+        // minted, so a later delete cannot silently re-point a milestone.
+        milestones: (plan.milestones ?? []).map((m) => ({
+          id: draftId(),
+          name: m.name,
+          phaseId:
+            typeof m.phaseIndex === "number" && phaseDrafts[m.phaseIndex]
+              ? phaseDrafts[m.phaseIndex].id
+              : null,
+          offsetDays: clampOffset(m.offsetDays ?? 0),
+        })),
+        risks: (plan.risks ?? []).map((r) => ({
+          id: draftId(),
+          title: r.title,
+          description: r.description ?? "",
+          severity: r.severity ?? "mittel",
+          mitigation: r.mitigation ?? "",
+        })),
+        aiRan: true,
+      }));
+      setAiError(null);
+      toast.success("Vorschlag übernommen — alles ist editierbar.");
+    } catch {
+      setAiError("Netzwerkfehler beim Planungsdienst.");
+    } finally {
+      setAiRunning(false);
+    }
+  }, [draft]);
+
+  const goNext = useCallback(async () => {
+    // Exactly one SUCCESSFUL AI call, at the 1 → 2 transition (Spec §8.3).
+    // A failure leaves aiRan false, so pressing "Weiter" again retries — and
+    // the wizard still advances either way, because the AI is optional.
+    if (draft.step === 1 && !draft.aiRan) {
+      await runPlanGeneration();
+    }
+    setDraft((prev) => ({ ...prev, step: Math.min(5, prev.step + 1) }));
+  }, [draft.step, draft.aiRan, runPlanGeneration]);
+
   // Default the project lead to the signed-in user. Deliberately NOT via
   // patch(): a machine-supplied default is not a user edit and must not start
   // mirroring, or it would overwrite a pending restorable draft (R1).
@@ -212,6 +316,45 @@ export default function NewProjectPage() {
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
           <div className="k-card min-w-0 p-5">
+            {aiError && draft.step >= 2 && (
+              <div
+                className="mb-4 flex items-start gap-2 rounded-lg border p-3 text-[12.5px]"
+                style={{
+                  borderColor: "color-mix(in oklch, var(--warn) 38%, transparent)",
+                  background: "color-mix(in oklch, var(--warn) 10%, transparent)",
+                  color: "var(--foreground)",
+                }}
+              >
+                <Sparkles className="mt-[2px] h-[14px] w-[14px] shrink-0" style={{ color: "var(--warn)" }} />
+                <div className="flex-1">
+                  <b style={{ fontWeight: 500 }}>Kein KI-Vorschlag verfügbar.</b> {aiError} Du kannst Scope,
+                  Phasen, Meilensteine und Risiken hier von Hand anlegen — das Projekt lässt sich genauso
+                  vollständig erstellen.
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAiError(null)}
+                  aria-label="Hinweis schliessen"
+                  className="shrink-0"
+                  style={{ color: "var(--muted-foreground)" }}
+                >
+                  <X className="h-[14px] w-[14px]" />
+                </button>
+              </div>
+            )}
+
+            {draft.step === 2 && (
+              <button
+                type="button"
+                onClick={runPlanGeneration}
+                disabled={aiRunning}
+                className="mb-4 inline-flex h-8 items-center gap-2 rounded-lg border border-border px-3 text-[12.5px] text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+              >
+                {aiRunning ? <Loader2 className="h-[13px] w-[13px] animate-spin" /> : <Sparkles className="h-[13px] w-[13px]" />}
+                Vorschlag neu generieren
+              </button>
+            )}
+
             {draft.step === 1 && <StepBasics draft={draft} patch={patch} />}
             {/* Task 29: Schritt 2 */}
             {/* Task 30: Schritt 3 */}
@@ -272,4 +415,17 @@ export default function NewProjectPage() {
       </div>
     </div>
   );
+}
+
+/** Case-insensitive de-duplication that keeps the first spelling. */
+function dedupe(values: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const v of values) {
+    const k = v.trim().toLowerCase();
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    out.push(v.trim());
+  }
+  return out;
 }
