@@ -711,6 +711,37 @@ import { resolveOwnerMembership } from "./project-members";
  */
 export const PROJECT_UPDATE_QUIET_KEYS: readonly string[] = ["notesContent"] as const;
 
+export type ProjectUpdateEffect = "notify" | "record" | "silent";
+
+/**
+ * Pure: what an `updateProject` call must produce.
+ *
+ *   - a status change is one of the four §10.2 notification triggers and
+ *     wins over everything else in the same call — even a simultaneous
+ *     owner change never escalates past "notify" into two events;
+ *   - otherwise, any other "loud" (non-quiet) field change, or an owner
+ *     change on its own, is an activity row only ("record");
+ *   - a patch that touches nothing, or touches ONLY quiet keys (today just
+ *     `notesContent`), is "silent" — nothing is written at all.
+ *
+ * Extracted because this is the same defect class Batch B already fixed
+ * twice (`isMilestoneNewlyReached`, `shouldNotifyRiskOpened`): the decision
+ * used to sit inline inside the untested async `updateProject`. Flip
+ * `loudKeys.length > 0` to `>= 0`, or drop the quiet-keys filter entirely,
+ * and the Notizen tab's 1200 ms autosave goes back to notifying (or at
+ * least recording) on every keystroke burst instead of staying silent.
+ */
+export function resolveProjectUpdateEffect(input: {
+  changedKeys: string[];
+  statusChanged: boolean;
+  ownerChanged: boolean;
+}): ProjectUpdateEffect {
+  if (input.statusChanged) return "notify";
+  const loudKeys = input.changedKeys.filter((k) => !PROJECT_UPDATE_QUIET_KEYS.includes(k));
+  if (loudKeys.length > 0 || input.ownerChanged) return "record";
+  return "silent";
+}
+
 const PROJECT_SCALAR_KEYS = [
   "name",
   "shortDescription",
@@ -886,54 +917,77 @@ export async function createProject(
       }
     }
 
+    // Milestones depend only on `phaseIdByInputIndex`, which is fully built
+    // by the time this runs — unlike phases (whose own id feeds their tasks
+    // and every later milestone), there is no cross-row dependency here, so
+    // this is one multi-row insert instead of N round-trips. `position: i`
+    // deliberately keeps the CALLER's raw array index (gaps where a blank
+    // milestone is skipped are fine — position only has to be monotonic),
+    // exactly as the row-by-row loop did before.
     const milestoneInputs = input.milestones ?? [];
-    for (let i = 0; i < milestoneInputs.length; i++) {
-      const m = milestoneInputs[i];
-      if (!m?.name?.trim()) continue;
-      const phaseId =
-        typeof m.phaseIndex === "number"
-          ? phaseIdByInputIndex.get(m.phaseIndex) ?? null
-          : null;
-      await tx.insert(projectMilestones).values({
-        workspaceId,
-        projectId: project.id,
-        phaseId,
-        name: m.name.trim(),
-        dueDate: m.dueDate || null,
-        status: normalizeMilestoneStatus(m.status) ?? "geplant",
-        position: i,
-      });
+    const milestoneValues = milestoneInputs
+      .map((m, i) => {
+        if (!m?.name?.trim()) return null;
+        const phaseId =
+          typeof m.phaseIndex === "number"
+            ? phaseIdByInputIndex.get(m.phaseIndex) ?? null
+            : null;
+        return {
+          workspaceId,
+          projectId: project.id,
+          phaseId,
+          name: m.name.trim(),
+          dueDate: m.dueDate || null,
+          status: normalizeMilestoneStatus(m.status) ?? "geplant",
+          position: i,
+        };
+      })
+      .filter((v): v is NonNullable<typeof v> => v !== null);
+    // A multi-row insert with an empty array throws in Drizzle — skip it
+    // entirely when the wizard sent no (valid) milestones.
+    if (milestoneValues.length > 0) {
+      await tx.insert(projectMilestones).values(milestoneValues);
     }
 
-    for (const r of input.risks ?? []) {
-      if (!r?.title?.trim()) continue;
-      await tx.insert(projectRisks).values({
+    // Risks reference nothing else written in this transaction — batch them.
+    const riskValues = (input.risks ?? [])
+      .filter((r) => Boolean(r?.title?.trim()))
+      .map((r) => ({
         workspaceId,
         projectId: project.id,
         title: r.title.trim(),
         description: r.description ?? null,
         severity: normalizeRiskSeverity(r.severity) ?? "mittel",
         likelihood: normalizeRiskSeverity(r.likelihood),
-        status: "offen",
+        status: "offen" as const,
         mitigation: r.mitigation ?? null,
         ownerUserId: r.ownerUserId ?? null,
-      });
+      }));
+    if (riskValues.length > 0) {
+      await tx.insert(projectRisks).values(riskValues);
     }
 
-    for (const b of input.budgetEntries ?? []) {
-      if (!b?.label?.trim() || !Number.isInteger(b.amountCents)) continue;
-      const kind = normalizeBudgetEntryKind(b.kind);
-      if (!kind) continue;
-      await tx.insert(projectBudgetEntries).values({
-        workspaceId,
-        projectId: project.id,
-        createdBy,
-        label: b.label.trim(),
-        amountCents: b.amountCents,
-        kind,
-        bookedAt: b.bookedAt || null,
-        note: b.note ?? null,
-      });
+    // Budget entries reference nothing else written in this transaction —
+    // batch them too.
+    const budgetValues = (input.budgetEntries ?? [])
+      .map((b) => {
+        if (!b?.label?.trim() || !Number.isInteger(b.amountCents)) return null;
+        const kind = normalizeBudgetEntryKind(b.kind);
+        if (!kind) return null;
+        return {
+          workspaceId,
+          projectId: project.id,
+          createdBy,
+          label: b.label.trim(),
+          amountCents: b.amountCents,
+          kind,
+          bookedAt: b.bookedAt || null,
+          note: b.note ?? null,
+        };
+      })
+      .filter((v): v is NonNullable<typeof v> => v !== null);
+    if (budgetValues.length > 0) {
+      await tx.insert(projectBudgetEntries).values(budgetValues);
     }
 
     return project.id;
@@ -1071,8 +1125,11 @@ export async function updateProject(
   });
 
   const newName = typeof set.name === "string" ? set.name : existing.name;
+  const statusChanged = typeof set.status === "string" && set.status !== existing.status;
+  const loudKeys = changedKeys.filter((k) => !PROJECT_UPDATE_QUIET_KEYS.includes(k));
+  const effect = resolveProjectUpdateEffect({ changedKeys, statusChanged, ownerChanged });
 
-  if (typeof set.status === "string" && set.status !== existing.status) {
+  if (effect === "notify") {
     // One of the four §10.2 notification triggers.
     await notifyProjectEvent({
       workspaceId,
@@ -1084,22 +1141,20 @@ export async function updateProject(
       body: `"${newName}" ist jetzt ${set.status}.`,
       payload: { from: existing.status, to: set.status },
     });
-  } else {
-    // A pure Notizen autosave (1200 ms debounce) records nothing at all.
-    const loudKeys = changedKeys.filter((k) => !PROJECT_UPDATE_QUIET_KEYS.includes(k));
-    if (loudKeys.length > 0 || ownerChanged) {
-      await recordProjectEvent({
-        workspaceId,
-        projectId,
-        projectName: newName,
-        eventType: "project.updated",
-        actorId: userId,
-        title: "Projekt aktualisiert",
-        body: `"${newName}" wurde geändert.`,
-        payload: { fields: ownerChanged ? [...loudKeys, "ownerUserId"] : loudKeys },
-      });
-    }
+  } else if (effect === "record") {
+    await recordProjectEvent({
+      workspaceId,
+      projectId,
+      projectName: newName,
+      eventType: "project.updated",
+      actorId: userId,
+      title: "Projekt aktualisiert",
+      body: `"${newName}" wurde geändert.`,
+      payload: { fields: ownerChanged ? [...loudKeys, "ownerUserId"] : loudKeys },
+    });
   }
+  // effect === "silent": a pure Notizen autosave (1200 ms debounce). Nothing
+  // is written — no activity row, no notification.
 
   return getProject(workspaceId, userId, projectId);
 }

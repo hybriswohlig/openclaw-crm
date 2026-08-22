@@ -379,3 +379,61 @@ describe("PROJECT_UPDATE_QUIET_KEYS", () => {
     expect([...PROJECT_UPDATE_QUIET_KEYS]).toEqual(["notesContent"]);
   });
 });
+
+import { resolveProjectUpdateEffect } from "./projects";
+
+describe("resolveProjectUpdateEffect", () => {
+  it("a status change notifies, even with no other field touched", () => {
+    expect(
+      resolveProjectUpdateEffect({ changedKeys: ["status"], statusChanged: true, ownerChanged: false }),
+    ).toBe("notify");
+  });
+
+  it("a status change wins over a simultaneous owner change — still exactly 'notify'", () => {
+    expect(
+      resolveProjectUpdateEffect({
+        changedKeys: ["status", "ownerUserId"],
+        statusChanged: true,
+        ownerChanged: true,
+      }),
+    ).toBe("notify");
+  });
+
+  it("a loud field change with no status change records only", () => {
+    expect(
+      resolveProjectUpdateEffect({ changedKeys: ["name"], statusChanged: false, ownerChanged: false }),
+    ).toBe("record");
+  });
+
+  it("an owner change alone still records, even with no column touched", () => {
+    expect(
+      resolveProjectUpdateEffect({ changedKeys: [], statusChanged: false, ownerChanged: true }),
+    ).toBe("record");
+  });
+
+  it("a quiet key alongside a loud key records — the loud key is enough", () => {
+    expect(
+      resolveProjectUpdateEffect({
+        changedKeys: ["notesContent", "name"],
+        statusChanged: false,
+        ownerChanged: false,
+      }),
+    ).toBe("record");
+  });
+
+  it("nothing changed at all stays silent", () => {
+    expect(
+      resolveProjectUpdateEffect({ changedKeys: [], statusChanged: false, ownerChanged: false }),
+    ).toBe("silent");
+  });
+
+  it("only notesContent (a quiet key) changed stays silent — the autosave path", () => {
+    expect(
+      resolveProjectUpdateEffect({
+        changedKeys: ["notesContent"],
+        statusChanged: false,
+        ownerChanged: false,
+      }),
+    ).toBe("silent");
+  });
+});
