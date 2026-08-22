@@ -100,12 +100,21 @@ export async function PATCH(
 
     return success(task);
   } catch (err) {
-    // updateTask throws plain Errors for every invariant it enforces (I2's
-    // phase check, both halves of I4's parent/child-eligibility checks, the
-    // self-parent guard) — route ALL of them to a 400 with their own
-    // message, not just the ones this allowlist used to name. See
+    // updateTask throws TaskInvariantError for every invariant it enforces
+    // (I2's phase check, both halves of I4's parent/child-eligibility
+    // checks, the self-parent guard) — route those to a 400 with their own
+    // message, not just the ones an allowlist used to name. Anything else
+    // (e.g. `PATCH { deadline: "01.09.2026" }` → `new Date(...)` →
+    // `Invalid Date` → the driver throws) is NOT a caller mistake to echo
+    // verbatim: log it and return a fixed German 500 instead. See
     // describeTaskRouteError in services/tasks.ts.
-    return badRequest(describeTaskRouteError(err));
+    const message = describeTaskRouteError(err);
+    if (message) return badRequest(message);
+    console.error("PATCH /api/v1/tasks/[taskId] error:", err);
+    return NextResponse.json(
+      { error: { code: "INTERNAL_ERROR", message: "Aufgabe konnte nicht aktualisiert werden." } },
+      { status: 500 }
+    );
   }
 }
 

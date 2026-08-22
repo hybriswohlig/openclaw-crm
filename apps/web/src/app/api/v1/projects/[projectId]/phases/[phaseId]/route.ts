@@ -8,7 +8,7 @@ export async function PATCH(
 ) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized();
-  const { phaseId } = await params;
+  const { projectId, phaseId } = await params;
 
   let body: Record<string, unknown>;
   try {
@@ -18,7 +18,10 @@ export async function PATCH(
   }
 
   try {
-    const phase = await updatePhase(ctx.workspaceId, ctx.userId, phaseId, body);
+    // F6: projectId now enforced in the service, not just implied by the
+    // route path — a mismatched (projectId, phaseId) pair 404s instead of
+    // silently editing another project's phase.
+    const phase = await updatePhase(ctx.workspaceId, ctx.userId, phaseId, body, projectId);
     if (!phase) return notFound("Phase nicht gefunden");
     return success(phase);
   } catch (err) {
@@ -32,9 +35,9 @@ export async function DELETE(
 ) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized();
-  const { phaseId } = await params;
+  const { projectId, phaseId } = await params;
 
-  const ok = await deletePhase(ctx.workspaceId, phaseId);
+  const ok = await deletePhase(ctx.workspaceId, phaseId, projectId);
   if (!ok) return notFound("Phase nicht gefunden");
   return success({ deleted: true });
 }

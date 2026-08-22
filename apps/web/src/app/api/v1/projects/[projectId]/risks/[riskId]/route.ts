@@ -8,7 +8,7 @@ export async function PATCH(
 ) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized();
-  const { riskId } = await params;
+  const { projectId, riskId } = await params;
 
   let body: Record<string, unknown>;
   try {
@@ -18,7 +18,10 @@ export async function PATCH(
   }
 
   try {
-    const risk = await updateRisk(ctx.workspaceId, ctx.userId, riskId, body);
+    // F6: projectId now enforced in the service, not just implied by the
+    // route path — a mismatched (projectId, riskId) pair 404s instead of
+    // silently editing another project's risk.
+    const risk = await updateRisk(ctx.workspaceId, ctx.userId, riskId, body, projectId);
     if (!risk) return notFound("Risiko nicht gefunden");
     return success(risk);
   } catch (err) {
@@ -32,9 +35,9 @@ export async function DELETE(
 ) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized();
-  const { riskId } = await params;
+  const { projectId, riskId } = await params;
 
-  const ok = await deleteRisk(ctx.workspaceId, riskId);
+  const ok = await deleteRisk(ctx.workspaceId, riskId, projectId);
   if (!ok) return notFound("Risiko nicht gefunden");
   return success({ deleted: true });
 }

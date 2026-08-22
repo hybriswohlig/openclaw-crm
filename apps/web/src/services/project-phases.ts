@@ -274,11 +274,25 @@ export async function updatePhase(
     dueDate: string | null;
     status: string;
   }>,
+  /**
+   * F6: the route's own `[projectId]` — enforced HERE (not just compared in
+   * the route) so an MCP caller passing a mismatched (projectId, phaseId)
+   * pair is covered too, not just REST callers. Without this,
+   * `PATCH /projects/<A>/phases/<phase-of-B>` silently renamed B's phase and
+   * filed the activity row under B.
+   */
+  projectId: string,
 ): Promise<PhaseData | null> {
   const [existing] = await db
     .select()
     .from(projectPhases)
-    .where(and(eq(projectPhases.id, phaseId), eq(projectPhases.workspaceId, workspaceId)))
+    .where(
+      and(
+        eq(projectPhases.id, phaseId),
+        eq(projectPhases.workspaceId, workspaceId),
+        eq(projectPhases.projectId, projectId),
+      ),
+    )
     .limit(1);
   if (!existing) return null;
 
@@ -320,12 +334,25 @@ export async function updatePhase(
   return toPhaseData(row, rollups.get(row.id));
 }
 
-/** Tasks keep their project; only phase_id is nulled (spec §4.2). */
-export async function deletePhase(workspaceId: string, phaseId: string): Promise<boolean> {
+/**
+ * Tasks keep their project; only phase_id is nulled (spec §4.2).
+ * F6: `projectId` is enforced here, not just compared by the route.
+ */
+export async function deletePhase(
+  workspaceId: string,
+  phaseId: string,
+  projectId: string,
+): Promise<boolean> {
   const [existing] = await db
     .select({ id: projectPhases.id })
     .from(projectPhases)
-    .where(and(eq(projectPhases.id, phaseId), eq(projectPhases.workspaceId, workspaceId)))
+    .where(
+      and(
+        eq(projectPhases.id, phaseId),
+        eq(projectPhases.workspaceId, workspaceId),
+        eq(projectPhases.projectId, projectId),
+      ),
+    )
     .limit(1);
   if (!existing) return false;
 

@@ -3,6 +3,7 @@ import {
   resolveTaskKind,
   resolvePhaseAssignment,
   resolveParentEligibility,
+  resolveParentFound,
   resolveChildEligibility,
   resolveInheritedPlacement,
   resolveTaskStatus,
@@ -10,6 +11,7 @@ import {
   planKindFilterClause,
   planTaskActivityEmissions,
   describeTaskRouteError,
+  TaskInvariantError,
   type TaskPlacement,
 } from "./tasks";
 import * as taskService from "./tasks";
@@ -126,6 +128,32 @@ describe("resolveParentEligibility — I4 is capped at two levels", () => {
 
   it("accepts 'no parent at all'", () => {
     expect(resolveParentEligibility(null)).toEqual({ ok: true });
+  });
+});
+
+describe("resolveParentFound — F1: a dangling parentTaskId must not silently insert", () => {
+  // tasks.parent_task_id has no FK. Before this fix, createTask with an
+  // unresolved parentTaskId inserted a row that was hidden forever by the
+  // `parentTaskId IS NULL` list filter, unreachable via the parent's
+  // subtasks route, yet still counted by getWorkCounts.operativeOpenCount.
+  it("rejects a requested parentTaskId that the lookup did not find", () => {
+    expect(resolveParentFound("does-not-exist", undefined)).toEqual({
+      ok: false,
+      error: "Übergeordnete Aufgabe nicht gefunden",
+    });
+    expect(resolveParentFound("does-not-exist", null)).toEqual({
+      ok: false,
+      error: "Übergeordnete Aufgabe nicht gefunden",
+    });
+  });
+
+  it("accepts a requested parentTaskId the lookup did find", () => {
+    expect(resolveParentFound("a", { id: "a", parentTaskId: null })).toEqual({ ok: true });
+  });
+
+  it("accepts 'no parent requested at all', regardless of what the lookup found", () => {
+    expect(resolveParentFound(null, null)).toEqual({ ok: true });
+    expect(resolveParentFound(undefined, null)).toEqual({ ok: true });
   });
 });
 
@@ -456,12 +484,14 @@ describe("planTaskActivityEmissions — which events an updateTask call fires", 
   });
 });
 
-describe("describeTaskRouteError — every service error becomes a 400, not just an allowlist", () => {
+describe("describeTaskRouteError — F2: only TaskInvariantError becomes a 400", () => {
   // All five messages createTask/updateTask can throw, from four different
-  // guards. The point of the fix is that this is NOT a hand-copied list the
-  // routes match against — describeTaskRouteError passes ANY Error message
-  // straight through, so a new invariant added to the service starts
-  // working here for free.
+  // guards, all thrown as TaskInvariantError. The point of the fix is that
+  // this is NOT a hand-copied list the routes match against —
+  // describeTaskRouteError passes ANY TaskInvariantError message straight
+  // through, so a new invariant added to the service starts working here
+  // for free — but a bare Error (a driver failure, a bad Date) is NOT a
+  // caller mistake and must NOT reach the client as a 400.
   const KNOWN_TASK_ERRORS = [
     "Phase gehört nicht zu diesem Projekt",
     "Übergeordnete Aufgabe nicht gefunden",
@@ -471,20 +501,29 @@ describe("describeTaskRouteError — every service error becomes a 400, not just
   ];
 
   it.each(KNOWN_TASK_ERRORS)("passes '%s' straight through", (message) => {
-    expect(describeTaskRouteError(new Error(message))).toBe(message);
+    expect(describeTaskRouteError(new TaskInvariantError(message))).toBe(message);
   });
 
-  it("passes through a message an allowlist would never have anticipated", () => {
+  it("passes through a message an allowlist would never have anticipated, as long as it's a TaskInvariantError", () => {
     // Proves this is not a disguised allowlist: a brand-new invariant added
-    // to the service tomorrow needs no route change to surface as a 400.
-    expect(describeTaskRouteError(new Error("Ein völlig neuer Fehler"))).toBe(
+    // to the service tomorrow needs no route change to surface as a 400,
+    // as long as it throws TaskInvariantError like every other invariant.
+    expect(describeTaskRouteError(new TaskInvariantError("Ein völlig neuer Fehler"))).toBe(
       "Ein völlig neuer Fehler",
     );
   });
 
-  it("falls back to a generic German message for a non-Error throw", () => {
-    expect(describeTaskRouteError("weird")).toBe("Aufgabe konnte nicht verarbeitet werden.");
-    expect(describeTaskRouteError(undefined)).toBe("Aufgabe konnte nicht verarbeitet werden.");
+  it("returns null for a plain Error (driver/programmer failure) — the route must 500, not 400", () => {
+    // F2: PATCH { deadline: "01.09.2026" } → new Date(...) → the driver
+    // throws a plain Error with a raw Postgres message. That must NOT pass
+    // through as a 400 the client shows verbatim.
+    expect(describeTaskRouteError(new Error("invalid input syntax for type timestamp"))).toBeNull();
+    expect(describeTaskRouteError(new TypeError("boom"))).toBeNull();
+  });
+
+  it("returns null for a non-Error throw", () => {
+    expect(describeTaskRouteError("weird")).toBeNull();
+    expect(describeTaskRouteError(undefined)).toBeNull();
   });
 });
 

@@ -34,6 +34,18 @@ export interface TaskPlacement {
   phaseId: string | null;
 }
 
+// F2: routes need to tell "the caller sent something that violates an
+// invariant" (→ 400, safe to show the German message) apart from "something
+// unexpected blew up" (→ 500, log it, show a fixed message — never a raw
+// driver/Postgres string). Every invariant guard below throws THIS class;
+// a bare `Error`/`TypeError`/driver exception is anything else.
+export class TaskInvariantError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TaskInvariantError";
+  }
+}
+
 /**
  * I1: `kind='projekt'` ⟺ `project_id IS NOT NULL`.
  * Setting a project promotes the task; clearing it (or sending
@@ -91,6 +103,25 @@ export function resolveParentEligibility(
   if (!parent) return { ok: true };
   if (parent.parentTaskId) {
     return { ok: false, error: "Unteraufgaben können keine weiteren Unteraufgaben haben" };
+  }
+  return { ok: true };
+}
+
+/**
+ * F1: `tasks.parent_task_id` has no FK, so an unresolved `parentTaskId`
+ * used to insert a row silently — hidden forever by the `parentTaskId IS
+ * NULL` list filter, unreachable via the parent's subtasks route (parent
+ * 404s), yet still counted by getWorkCounts. This is createTask's half of
+ * the check updateTask already makes on re-parent (`if (!row) throw
+ * "Übergeordnete Aufgabe nicht gefunden"`). Pure: given the id the caller
+ * asked for and what the lookup found (or didn't), decide whether to fail.
+ */
+export function resolveParentFound(
+  requestedParentTaskId: string | null | undefined,
+  parent: unknown,
+): { ok: true } | { ok: false; error: string } {
+  if (requestedParentTaskId && !parent) {
+    return { ok: false, error: "Übergeordnete Aufgabe nicht gefunden" };
   }
   return { ok: true };
 }
@@ -473,7 +504,7 @@ async function assertPhaseBelongsToProject(
     )
     .limit(1);
   const check = resolvePhaseAssignment(row?.projectId ?? null, placement.projectId);
-  if (!check.ok) throw new Error(check.error);
+  if (!check.ok) throw new TaskInvariantError(check.error);
 }
 
 // ─── CRUD ────────────────────────────────────────────────────────────
@@ -648,8 +679,12 @@ export async function createTask(
       .from(tasks)
       .where(and(eq(tasks.id, options.parentTaskId), eq(tasks.workspaceId, workspaceId)))
       .limit(1);
+    // F1: a dangling parentTaskId has no FK to catch it, and would insert a
+    // task the parentTaskId-IS-NULL list filter hides forever.
+    const found = resolveParentFound(options.parentTaskId, parent);
+    if (!found.ok) throw new TaskInvariantError(found.error);
     const eligible = resolveParentEligibility(parent ?? null);
-    if (!eligible.ok) throw new Error(eligible.error);
+    if (!eligible.ok) throw new TaskInvariantError(eligible.error);
     placement = resolveInheritedPlacement(parent ?? null, placement);
   }
   await assertPhaseBelongsToProject(workspaceId, placement);
@@ -775,7 +810,7 @@ export async function updateTask(
   if (reparented) {
     const newParentId = updates.parentTaskId || null;
     if (newParentId === taskId) {
-      throw new Error("Eine Aufgabe kann nicht ihre eigene Unteraufgabe sein");
+      throw new TaskInvariantError("Eine Aufgabe kann nicht ihre eigene Unteraufgabe sein");
     }
     let parentRow:
       | {
@@ -796,9 +831,9 @@ export async function updateTask(
         .from(tasks)
         .where(and(eq(tasks.id, newParentId), eq(tasks.workspaceId, workspaceId)))
         .limit(1);
-      if (!row) throw new Error("Übergeordnete Aufgabe nicht gefunden");
+      if (!row) throw new TaskInvariantError("Übergeordnete Aufgabe nicht gefunden");
       const eligible = resolveParentEligibility(row);
-      if (!eligible.ok) throw new Error(eligible.error);
+      if (!eligible.ok) throw new TaskInvariantError(eligible.error);
       parentRow = row;
     }
 
@@ -811,7 +846,7 @@ export async function updateTask(
         .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.parentTaskId, taskId)))
         .limit(1);
       const childEligible = resolveChildEligibility(!!child);
-      if (!childEligible.ok) throw new Error(childEligible.error);
+      if (!childEligible.ok) throw new TaskInvariantError(childEligible.error);
     }
 
     placement = resolveInheritedPlacement(parentRow, placement);
@@ -998,18 +1033,27 @@ export async function deleteTask(taskId: string, workspaceId: string) {
 // createTask / updateTask throw five distinct German messages, from four
 // different guards (resolvePhaseAssignment, resolveParentEligibility,
 // resolveChildEligibility, and the self-parent check in updateTask). Every
-// one of them is a plain `Error` with a message meant to be shown, not
-// logged. A route that catches by matching literal strings against a
+// one of them is a `TaskInvariantError` with a message meant to be shown,
+// not logged. A route that catches by matching literal strings against a
 // hand-copied allowlist will silently 500 on any message the allowlist
 // forgot — and the next invariant this file grows would reintroduce the
 // bug. Route this through ONE conversion instead of a list.
+//
+// F2: this used to pass ANY `Error` through as a 400 — which meant a driver
+// failure (bad timestamp syntax, a dropped connection) surfaced as "your
+// input was wrong" with the raw Postgres string in the response, and
+// nothing logged server-side. Only a `TaskInvariantError` is a caller
+// mistake; everything else is the route's job to log and turn into a fixed
+// 500, so `null` here is the route's signal to do that.
 
 /**
  * Pure: turn whatever createTask/updateTask threw into the message a 400
- * response shows. NOT an allowlist — any `Error` this file throws (now or
- * later) passes through unchanged; only a non-Error throw (a true
- * programmer/infra failure) falls back to a generic message.
+ * response shows, or `null` if this was NOT one of the five invariant
+ * errors (i.e. the route must log it and return a 500 instead). Only a
+ * `TaskInvariantError` passes through — that boundary is what keeps a raw
+ * driver/Postgres message from ever reaching the client as a "your input
+ * was wrong" 400.
  */
-export function describeTaskRouteError(err: unknown): string {
-  return err instanceof Error ? err.message : "Aufgabe konnte nicht verarbeitet werden.";
+export function describeTaskRouteError(err: unknown): string | null {
+  return err instanceof TaskInvariantError ? err.message : null;
 }

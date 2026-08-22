@@ -130,10 +130,19 @@ export async function POST(req: NextRequest) {
 
     return success(task, 201);
   } catch (err) {
-    // createTask throws plain Errors for every invariant it enforces (I2's
-    // phase check, I4's parent-eligibility check) — route ALL of them to a
-    // 400 with their own message, not just the one this allowlist used to
-    // name. See describeTaskRouteError in services/tasks.ts.
-    return badRequest(describeTaskRouteError(err));
+    // createTask throws TaskInvariantError for every invariant it enforces
+    // (I2's phase check, F1's/I4's parent-eligibility checks) — route those
+    // to a 400 with their own message, not just the one an allowlist used
+    // to name. Anything else (a driver failure, a bad Date, a dropped
+    // connection) is NOT the caller's fault to see verbatim: log it and
+    // return a fixed German 500 instead. See describeTaskRouteError in
+    // services/tasks.ts.
+    const message = describeTaskRouteError(err);
+    if (message) return badRequest(message);
+    console.error("POST /api/v1/tasks error:", err);
+    return NextResponse.json(
+      { error: { code: "INTERNAL_ERROR", message: "Aufgabe konnte nicht erstellt werden." } },
+      { status: 500 }
+    );
   }
 }

@@ -223,6 +223,12 @@ export async function updateBudgetEntry(
     bookedAt: string | null;
     note: string | null;
   }>,
+  /**
+   * F6: the route's own `[projectId]` — enforced HERE so an MCP caller
+   * passing a mismatched (projectId, entryId) pair is covered too, not just
+   * REST callers who happen to have it compared in the route.
+   */
+  projectId: string,
 ): Promise<BudgetEntryData | null> {
   const [existing] = await db
     .select({ id: projectBudgetEntries.id })
@@ -231,6 +237,7 @@ export async function updateBudgetEntry(
       and(
         eq(projectBudgetEntries.id, entryId),
         eq(projectBudgetEntries.workspaceId, workspaceId),
+        eq(projectBudgetEntries.projectId, projectId),
       ),
     )
     .limit(1);
@@ -255,9 +262,11 @@ export async function updateBudgetEntry(
   return row ? toEntryData(row) : null;
 }
 
+/** F6: `projectId` is enforced here, not just compared by the route. */
 export async function deleteBudgetEntry(
   workspaceId: string,
   entryId: string,
+  projectId: string,
 ): Promise<boolean> {
   const deleted = await db
     .delete(projectBudgetEntries)
@@ -265,6 +274,7 @@ export async function deleteBudgetEntry(
       and(
         eq(projectBudgetEntries.id, entryId),
         eq(projectBudgetEntries.workspaceId, workspaceId),
+        eq(projectBudgetEntries.projectId, projectId),
       ),
     )
     .returning({ id: projectBudgetEntries.id });

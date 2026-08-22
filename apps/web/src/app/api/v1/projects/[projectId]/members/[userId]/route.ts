@@ -18,15 +18,24 @@ export async function PATCH(
   }
   if (typeof body.role !== "string") return badRequest("role ist erforderlich.");
 
-  const member = await updateProjectMemberRole(
-    ctx.workspaceId,
-    projectId,
-    ctx.userId, // actor — who is changing the role
-    userId, // subject — whose role is changing
-    body.role,
-  );
-  if (!member) return notFound("Mitglied nicht gefunden oder Rolle ungültig");
-  return success(member);
+  try {
+    // F5: updateProjectMemberRole now throws (not returns null) for an
+    // invalid role, matching addProjectMember's POST sibling above — so an
+    // invalid role reads as 400, and null means only "genuinely not found".
+    const member = await updateProjectMemberRole(
+      ctx.workspaceId,
+      projectId,
+      ctx.userId, // actor — who is changing the role
+      userId, // subject — whose role is changing
+      body.role,
+    );
+    if (!member) return notFound("Mitglied nicht gefunden");
+    return success(member);
+  } catch (err) {
+    return badRequest(
+      err instanceof Error ? err.message : "Rolle konnte nicht geändert werden.",
+    );
+  }
 }
 
 export async function DELETE(

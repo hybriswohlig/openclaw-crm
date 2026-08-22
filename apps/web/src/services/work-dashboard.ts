@@ -517,7 +517,22 @@ export async function getWorkCounts(
     eq(projects.workspaceId, workspaceId),
     isNull(projects.archivedAt),
   );
-  const openTask = and(eq(tasks.workspaceId, workspaceId), eq(tasks.isCompleted, false));
+  // F4: GET /api/v1/tasks?kind=operativ&... (Phase 4's operative page)
+  // defaults `includeSubtasks` to false, so its `pagination.total` counts
+  // only top-level tasks. These aggregates used to be a bare `count(*)`
+  // with no such filter, so a task with open subtasks made the dashboard
+  // tile read higher than the list ever could — both "correct", both
+  // server-derived, disagreeing in one flow. Decision: `isNull(parentTaskId)`
+  // goes on the SHARED `openTask` fragment, not just the two aggregates the
+  // review named (operativeOpenCount, dueTodayCount, overdueCount) — it also
+  // reaches operativeDueAgg (→ operativeDueTodayCount), which is built from
+  // the exact same fragment and would otherwise carry the identical
+  // population mismatch, just unobserved so far.
+  const openTask = and(
+    eq(tasks.workspaceId, workspaceId),
+    eq(tasks.isCompleted, false),
+    isNull(tasks.parentTaskId),
+  );
   const dueToday = and(
     gte(tasks.deadline, plan.dueFrom!),
     lte(tasks.deadline, plan.dueBefore!),
@@ -616,8 +631,16 @@ export async function getWorkDashboard(
       // and because the ordering is `deadline ASC` → NULLS LAST, a workspace
       // with 60 overdue tasks filled all 50 slots with overdue rows and the
       // default „Heute" chip rendered 0.
-      listTasks(workspaceId, userId, { kind: "operativ", limit: 200, includeSubtasks: true }),
-      listTasks(workspaceId, userId, { overdue: true, limit: 200, includeSubtasks: true }),
+      //
+      // F4: includeSubtasks flipped false→ (the GET /api/v1/tasks default)
+      // to match getWorkCounts, which now excludes subtasks from its
+      // aggregates too. These two used to say `includeSubtasks: true`, which
+      // was internally consistent with the OLD (subtask-including)
+      // getWorkCounts, but disagreed with Phase 4's operative page — which
+      // calls GET /api/v1/tasks without `includeSubtasks=true` and got a
+      // smaller population than this dashboard did for the same tiles.
+      listTasks(workspaceId, userId, { kind: "operativ", limit: 200, includeSubtasks: false }),
+      listTasks(workspaceId, userId, { overdue: true, limit: 200, includeSubtasks: false }),
       db
         .select({
           id: activityEvents.id,

@@ -8,7 +8,7 @@ export async function PATCH(
 ) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized();
-  const { milestoneId } = await params;
+  const { projectId, milestoneId } = await params;
 
   let body: Record<string, unknown>;
   try {
@@ -18,7 +18,10 @@ export async function PATCH(
   }
 
   try {
-    const milestone = await updateMilestone(ctx.workspaceId, ctx.userId, milestoneId, body);
+    // F6: projectId now enforced in the service, not just implied by the
+    // route path — a mismatched (projectId, milestoneId) pair 404s instead
+    // of silently editing another project's milestone.
+    const milestone = await updateMilestone(ctx.workspaceId, ctx.userId, milestoneId, body, projectId);
     if (!milestone) return notFound("Meilenstein nicht gefunden");
     return success(milestone);
   } catch (err) {
@@ -34,9 +37,9 @@ export async function DELETE(
 ) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized();
-  const { milestoneId } = await params;
+  const { projectId, milestoneId } = await params;
 
-  const ok = await deleteMilestone(ctx.workspaceId, milestoneId);
+  const ok = await deleteMilestone(ctx.workspaceId, milestoneId, projectId);
   if (!ok) return notFound("Meilenstein nicht gefunden");
   return success({ deleted: true });
 }

@@ -224,11 +224,19 @@ export async function updateProjectMemberRole(
   memberUserId: string,
   role: string,
 ): Promise<ProjectMemberData | null> {
-  const resolvedRole = normalizeProjectMemberRole(role);
-  if (!resolvedRole) return null;
-
   const project = await loadProject(workspaceId, projectId);
   if (!project) return null;
+
+  // F5: "invalid role" and "member not found" used to collapse into the
+  // same `return null` → the route rendered both as 404 "Mitglied nicht
+  // gefunden oder Rolle ungültig". An agent sending role: "leader" got a
+  // 404, concluded the member was gone, re-listed, saw them, and retried
+  // the same bad role. addProjectMember already throws 400 for the
+  // identical mistake — resolveMemberRole + throw makes this symmetric with
+  // it; only a genuine "not found" (project or member row) returns null now.
+  const resolvedRoleResult = resolveMemberRole(role);
+  if (!resolvedRoleResult.ok) throw new Error(resolvedRoleResult.error);
+  const resolvedRole = resolvedRoleResult.role;
 
   const updated = await db
     .update(projectMembers)

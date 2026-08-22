@@ -290,7 +290,62 @@ export function parseProjectInput(
     if (has(key) && Array.isArray(raw[key])) out[key] = raw[key];
   }
 
+  // F3: createProject writes these nested arrays straight into `date`/
+  // `timestamp` columns (p.startDate/dueDate, m.dueDate, b.bookedAt into
+  // `date` columns; t.deadline into a TIMESTAMP), bypassing
+  // resolvePhaseCreate/resolveMilestoneCreate/resolveBudgetEntryCreate,
+  // which their non-nested siblings (POST /phases etc.) all go through. A
+  // malformed nested date used to reach Postgres and come back as a
+  // non-German, non-actionable 400 — reject it here instead, same as the
+  // top-level startDate/endDate check above.
+  const nestedDateError = validateNestedProjectDates(raw);
+  if (nestedDateError) return { ok: false, error: nestedDateError };
+
   return { ok: true, input: out as CreateProjectInput | UpdateProjectInput };
+}
+
+/**
+ * Pure: walks the nested wizard payload (phases incl. their tasks,
+ * milestones, budgetEntries) and rejects the first malformed date it finds.
+ * `date` columns (startDate/dueDate/bookedAt) use the same "YYYY-MM-DD"
+ * check as the top-level fields; a task's `deadline` is a TIMESTAMP, so it
+ * gets the same `new Date(...)` validity check archivedAt already uses
+ * above, not the day-string one.
+ */
+function validateNestedProjectDates(raw: Record<string, unknown>): string | null {
+  const DATE_ERROR = "Datum muss im Format JJJJ-MM-TT angegeben werden.";
+  const asRecord = (v: unknown): Record<string, unknown> => (v && typeof v === "object" ? (v as Record<string, unknown>) : {});
+
+  const phases = Array.isArray(raw.phases) ? raw.phases : [];
+  for (const p of phases) {
+    const phase = asRecord(p);
+    for (const key of ["startDate", "dueDate"] as const) {
+      const v = str(phase[key]);
+      if (v && !isDayString(v)) return DATE_ERROR;
+    }
+    const phaseTasks = Array.isArray(phase.tasks) ? phase.tasks : [];
+    for (const t of phaseTasks) {
+      const task = asRecord(t);
+      const startDate = str(task.startDate);
+      if (startDate && !isDayString(startDate)) return DATE_ERROR;
+      const deadline = str(task.deadline);
+      if (deadline && Number.isNaN(new Date(deadline).getTime())) return DATE_ERROR;
+    }
+  }
+
+  const milestones = Array.isArray(raw.milestones) ? raw.milestones : [];
+  for (const m of milestones) {
+    const dueDate = str(asRecord(m).dueDate);
+    if (dueDate && !isDayString(dueDate)) return DATE_ERROR;
+  }
+
+  const budgetEntries = Array.isArray(raw.budgetEntries) ? raw.budgetEntries : [];
+  for (const b of budgetEntries) {
+    const bookedAt = str(asRecord(b).bookedAt);
+    if (bookedAt && !isDayString(bookedAt)) return DATE_ERROR;
+  }
+
+  return null;
 }
 
 export interface ProjectStatsInput {

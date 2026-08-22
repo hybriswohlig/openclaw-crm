@@ -217,11 +217,23 @@ export async function updateRisk(
     mitigation: string | null;
     ownerUserId: string | null;
   }>,
+  /**
+   * F6: the route's own `[projectId]` — enforced HERE so an MCP caller
+   * passing a mismatched (projectId, riskId) pair is covered too, not just
+   * REST callers who happen to have it compared in the route.
+   */
+  projectId: string,
 ): Promise<RiskData | null> {
   const [existing] = await db
     .select()
     .from(projectRisks)
-    .where(and(eq(projectRisks.id, riskId), eq(projectRisks.workspaceId, workspaceId)))
+    .where(
+      and(
+        eq(projectRisks.id, riskId),
+        eq(projectRisks.workspaceId, workspaceId),
+        eq(projectRisks.projectId, projectId),
+      ),
+    )
     .limit(1);
   if (!existing) return null;
 
@@ -260,10 +272,21 @@ export async function updateRisk(
   return risk;
 }
 
-export async function deleteRisk(workspaceId: string, riskId: string): Promise<boolean> {
+/** F6: `projectId` is enforced here, not just compared by the route. */
+export async function deleteRisk(
+  workspaceId: string,
+  riskId: string,
+  projectId: string,
+): Promise<boolean> {
   const deleted = await db
     .delete(projectRisks)
-    .where(and(eq(projectRisks.id, riskId), eq(projectRisks.workspaceId, workspaceId)))
+    .where(
+      and(
+        eq(projectRisks.id, riskId),
+        eq(projectRisks.workspaceId, workspaceId),
+        eq(projectRisks.projectId, projectId),
+      ),
+    )
     .returning({ id: projectRisks.id });
   return deleted.length > 0;
 }

@@ -163,6 +163,89 @@ describe("parseProjectInput — startDate/endDate", () => {
   });
 });
 
+describe("parseProjectInput — F3: nested wizard payload dates", () => {
+  // Before the fix, phases/milestones/risks/budgetEntries were forwarded on
+  // nothing but Array.isArray — createProject then wrote straight into
+  // `date`/`timestamp` columns, bypassing resolvePhaseCreate etc., so a
+  // malformed nested date reached Postgres and came back as a non-German 400.
+  const BASE = { name: "X", category: "vertrieb" } as const;
+  const DATE_ERROR = { ok: false, error: "Datum muss im Format JJJJ-MM-TT angegeben werden." };
+
+  it("rejects a malformed phase.startDate", () => {
+    expect(
+      parseProjectInput(
+        { ...BASE, phases: [{ name: "Vorbereitung", startDate: "01.10.2026" }] },
+        "create",
+      ),
+    ).toEqual(DATE_ERROR);
+  });
+
+  it("rejects a malformed phase.dueDate", () => {
+    expect(
+      parseProjectInput({ ...BASE, phases: [{ name: "Vorbereitung", dueDate: "not-a-date" }] }, "create"),
+    ).toEqual(DATE_ERROR);
+  });
+
+  it("rejects a malformed deadline on a task nested inside a phase", () => {
+    expect(
+      parseProjectInput(
+        {
+          ...BASE,
+          phases: [{ name: "Vorbereitung", tasks: [{ content: "Kartons besorgen", deadline: "not-a-date" }] }],
+        },
+        "create",
+      ),
+    ).toEqual(DATE_ERROR);
+  });
+
+  it("rejects a malformed startDate on a task nested inside a phase", () => {
+    expect(
+      parseProjectInput(
+        {
+          ...BASE,
+          phases: [{ name: "Vorbereitung", tasks: [{ content: "Kartons besorgen", startDate: "31.10.2026" }] }],
+        },
+        "create",
+      ),
+    ).toEqual(DATE_ERROR);
+  });
+
+  it("rejects a malformed milestone.dueDate", () => {
+    expect(
+      parseProjectInput({ ...BASE, milestones: [{ name: "Pilotphase", dueDate: "31.10.2026" }] }, "create"),
+    ).toEqual(DATE_ERROR);
+  });
+
+  it("rejects a malformed budgetEntry.bookedAt", () => {
+    expect(
+      parseProjectInput(
+        { ...BASE, budgetEntries: [{ label: "Umzugswagen", amountCents: 1000, kind: "ausgabe", bookedAt: "31.10.2026" }] },
+        "create",
+      ),
+    ).toEqual(DATE_ERROR);
+  });
+
+  it("accepts a well-formed nested wizard payload untouched", () => {
+    const r = parseProjectInput(
+      {
+        ...BASE,
+        phases: [
+          {
+            name: "Vorbereitung",
+            startDate: "2026-10-01",
+            dueDate: "2026-10-15",
+            tasks: [{ content: "Kartons besorgen", deadline: "2026-10-05T10:00:00.000Z", startDate: "2026-10-02" }],
+          },
+        ],
+        milestones: [{ name: "Pilotphase", dueDate: "2026-10-20" }],
+        budgetEntries: [{ label: "Umzugswagen", amountCents: 1000, kind: "ausgabe", bookedAt: "2026-10-03" }],
+      },
+      "create",
+    );
+    expect(r.ok).toBe(true);
+  });
+});
+
 describe("foldProjectStats", () => {
   const now = new Date("2026-08-21T10:00:00");
 

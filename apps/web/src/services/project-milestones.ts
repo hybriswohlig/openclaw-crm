@@ -231,6 +231,12 @@ export async function updateMilestone(
   userId: string,
   milestoneId: string,
   updates: Partial<{ name: string; dueDate: string | null; phaseId: string | null; status: string }>,
+  /**
+   * F6: the route's own `[projectId]` — enforced HERE so an MCP caller
+   * passing a mismatched (projectId, milestoneId) pair is covered too, not
+   * just REST callers who happen to have it compared in the route.
+   */
+  projectId: string,
 ): Promise<MilestoneData | null> {
   const [existing] = await db
     .select()
@@ -239,6 +245,7 @@ export async function updateMilestone(
       and(
         eq(projectMilestones.id, milestoneId),
         eq(projectMilestones.workspaceId, workspaceId),
+        eq(projectMilestones.projectId, projectId),
       ),
     )
     .limit(1);
@@ -282,9 +289,11 @@ export async function updateMilestone(
   return milestone;
 }
 
+/** F6: `projectId` is enforced here, not just compared by the route. */
 export async function deleteMilestone(
   workspaceId: string,
   milestoneId: string,
+  projectId: string,
 ): Promise<boolean> {
   const deleted = await db
     .delete(projectMilestones)
@@ -292,6 +301,7 @@ export async function deleteMilestone(
       and(
         eq(projectMilestones.id, milestoneId),
         eq(projectMilestones.workspaceId, workspaceId),
+        eq(projectMilestones.projectId, projectId),
       ),
     )
     .returning({ id: projectMilestones.id });
