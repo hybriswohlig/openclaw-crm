@@ -1063,7 +1063,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "crm_create_project_risk",
     description:
-      "Log a risk on a project. title is required. severity and likelihood are 'niedrig', 'mittel' or 'hoch' and default to 'mittel'. A new risk with severity 'hoch' notifies every workspace member, so reserve it for things that genuinely threaten the project. Put the countermeasure in mitigation rather than burying it in description — the risk board reads that field.",
+      "Log a risk on a project. title is required. severity and likelihood are 'niedrig', 'mittel' or 'hoch'. severity defaults to 'mittel' when omitted; likelihood does NOT — an omitted or unrecognised likelihood is left unset (null), never coerced to 'mittel', because an unassessed likelihood is not a medium one. A new risk with severity 'hoch' notifies every workspace member, so reserve it for things that genuinely threaten the project. Put the countermeasure in mitigation rather than burying it in description — the risk board reads that field.",
     inputSchema: {
       type: "object",
       properties: {
