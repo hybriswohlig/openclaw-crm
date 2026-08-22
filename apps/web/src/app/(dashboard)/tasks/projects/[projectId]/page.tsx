@@ -17,6 +17,9 @@ import { ProjectStatusChip } from "@/components/work/status-chip";
 import { AvatarStack } from "@/components/work/avatar-stack";
 import { EmptyState, ErrorLine, LoadingLine } from "@/components/work/empty-state";
 import { PROJECT_STATUS, projectStatusLabel } from "@/lib/project-constants";
+import { KpiGrid, KpiTile } from "@/components/work/kpi-tile";
+import { EmployeeAvatar } from "@/components/employees/employee-avatar";
+import { formatDayShortDE, formatEURCents } from "@/lib/work-ui";
 
 export interface TabProps {
   project: ProjectJSON;
@@ -285,7 +288,7 @@ function ProjectDetailInner() {
 
         <ModuleNav />
 
-        {/* Task 34: 6 KPI-Kacheln */}
+        <ProjectKpis project={project} />
 
         <Tabs value={tab} onValueChange={setTab} className="flex min-w-0 flex-col">
           <TabsList className="flex w-full overflow-x-auto">
@@ -302,5 +305,92 @@ function ProjectDetailInner() {
         </Tabs>
       </div>
     </div>
+  );
+}
+
+function ProjectKpis({ project }: { project: ProjectJSON }) {
+  const s = project.stats;
+  const owner = project.members.find((m) => m.userId === project.ownerUserId) ?? null;
+  const riskParts = (["hoch", "mittel", "niedrig"] as const)
+    .map((sev) => `${s.risksBySeverity[sev] ?? 0} ${sev}`)
+    .join(" · ");
+
+  return (
+    <KpiGrid>
+      {/* Zero tasks is "not planned yet", not "0 % done" — fall back to the
+          phase count, which ProjectStats already carries (defect W12). */}
+      {s.totalTasks === 0 ? (
+        <KpiTile
+          label="Projektfortschritt"
+          value={s.totalPhases > 0 ? `${s.donePhases}/${s.totalPhases}` : "–"}
+          progress={s.totalPhases > 0 ? (s.donePhases / s.totalPhases) * 100 : null}
+          tone={s.totalPhases > 0 ? "info" : "neutral"}
+          sub={s.totalPhases > 0 ? "Phasen abgeschlossen · noch keine Aufgaben" : "noch nichts geplant"}
+        />
+      ) : (
+        <KpiTile
+          label="Projektfortschritt"
+          value={`${s.progressPct} %`}
+          progress={s.progressPct}
+          sub={`${s.doneTasks} von ${s.totalTasks} Aufgaben`}
+        />
+      )}
+      <KpiTile
+        label="Aufgaben"
+        value={s.totalTasks === 0 ? "–" : `${s.doneTasks}/${s.totalTasks}`}
+        tone={s.overdueTasks > 0 ? "warn" : "neutral"}
+        sub={
+          s.totalTasks === 0
+            ? "noch keine Aufgaben angelegt"
+            : s.overdueTasks > 0
+              ? `${s.overdueTasks} überfällig`
+              : "nichts überfällig"
+        }
+      />
+      <KpiTile
+        label="Meilensteine"
+        value={`${s.reachedMilestones}/${s.totalMilestones}`}
+        sub={s.nextMilestoneAt ? `nächster: ${formatDayShortDE(s.nextMilestoneAt)}` : "kein Termin offen"}
+      />
+      <KpiTile
+        label="Budget"
+        value={
+          s.budgetPlannedCents == null
+            ? "–"
+            : `${formatEURCents(s.budgetSpentCents)} / ${formatEURCents(s.budgetPlannedCents)}`
+        }
+        progress={s.budgetPct}
+        tone={s.budgetPct != null && s.budgetPct > 100 ? "danger" : "accent"}
+        sub={s.budgetPct == null ? "kein Rahmen hinterlegt" : `${s.budgetPct} % verwendet`}
+      />
+      <KpiTile
+        label="Risiken"
+        value={String(s.openRisks)}
+        tone={(s.risksBySeverity.hoch ?? 0) > 0 ? "danger" : s.openRisks > 0 ? "warn" : "ok"}
+        sub={riskParts}
+      />
+      <div className="k-card flex min-h-[104px] flex-col justify-between gap-2 p-4">
+        <div className="k-label" style={{ fontSize: 10.5, color: "var(--muted-foreground)", letterSpacing: "0.1em" }}>
+          Projektverantwortlicher
+        </div>
+        {owner ? (
+          <div className="flex items-center gap-2.5">
+            <EmployeeAvatar name={owner.name} photoBase64={owner.image} size="sm" />
+            <div className="min-w-0">
+              <div className="truncate text-[13.5px] font-medium" style={{ color: "var(--foreground)" }}>
+                {owner.name}
+              </div>
+              <div className="truncate text-[11.5px]" style={{ color: "var(--muted-foreground)" }}>
+                {owner.email}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="text-[13px]" style={{ color: "var(--muted-foreground)" }}>
+            Nicht zugewiesen
+          </div>
+        )}
+      </div>
+    </KpiGrid>
   );
 }
