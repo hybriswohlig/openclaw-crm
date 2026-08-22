@@ -5,15 +5,11 @@
 // signature for its remaining callers:
 //   - components/layout/command-palette.tsx (must not be modified)
 //   - components/tasks/record-tasks.tsx
-//   - components/tasks/task-list.tsx
-//   - components/tasks/task-kanban.tsx
-// (four call sites, not the two originally assumed by the plan — the extra
-// two, task-list.tsx and task-kanban.tsx, are the pre-Projekte task views;
-// task-kanban.tsx in particular still populates the removed fields on
-// initialData, so LegacyTaskFormData carries them as optional below purely
-// to keep that call site type-checking. They are never read.)
-// The removed fields (pointEstimate, workType, growthCategory, kanbanStatus)
-// are still passed to onSave as null so all call sites keep type-checking.
+// task-list.tsx and task-kanban.tsx — the pre-Projekte task views that used
+// to be the other two callers — were deleted in Task 48, and with them the
+// last reason to carry the four Kanban/story-point-era optional fields on
+// LegacyTaskFormData: neither remaining caller ever set them, so they are
+// gone rather than kept as dead optional fields.
 import { WorkTaskDialog } from "@/components/work/task-dialog";
 import type { TaskJSON } from "@/lib/work-types";
 
@@ -29,13 +25,7 @@ interface LegacyTaskFormData {
   priority?: string | null;
   createdBy?: string | null;
   createdAt?: string | null;
-  // Present only so task-kanban.tsx's initialData object literal (which
-  // still sets these) keeps type-checking. The new dialog does not read them.
-  pointEstimate?: number | null;
   sprintId?: string | null;
-  workType?: string | null;
-  growthCategory?: string | null;
-  kanbanStatus?: string | null;
 }
 
 export interface TaskDialogProps {
@@ -56,13 +46,9 @@ export interface TaskDialogProps {
     deadline: string | null;
     recordIds: string[];
     assigneeIds: string[];
-    pointEstimate: number | null;
     sprintId: string | null;
-    workType: string | null;
-    growthCategory: string | null;
     description: string | null;
     priority: string | null;
-    kanbanStatus?: string | null;
     kind: "projekt" | "operativ";
     area: string | null;
   }) => Promise<void>;
@@ -130,10 +116,7 @@ export function TaskDialog(props: TaskDialogProps) {
                 : null,
           recordIds: data.recordIds,
           assigneeIds: data.assigneeIds,
-          pointEstimate: null,
           sprintId: data.sprintId,
-          workType: null,
-          growthCategory: null,
           description: data.description,
           priority: data.priority,
           kind: data.kind,
