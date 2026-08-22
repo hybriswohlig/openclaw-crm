@@ -76,7 +76,11 @@ export default function SprintsPage() {
     load();
   }, [load]);
 
-  async function act(fn: () => Promise<Response>, okMsg: string, errMsg: string) {
+  /** true on success — callers that clear an input must check it, or a
+   *  failed submit clears the form and the user retypes everything
+   *  (defect R13, already fixed this way on budget-tab/overview-tab/
+   *  plan-tab/risks-tab). */
+  async function act(fn: () => Promise<Response>, okMsg: string, errMsg: string): Promise<boolean> {
     setBusy(true);
     try {
       const res = await fn();
@@ -86,8 +90,10 @@ export default function SprintsPage() {
       }
       toast.success(okMsg);
       await load();
+      return true;
     } catch (e) {
       toast.error(errMsg, { description: e instanceof Error ? e.message : undefined });
+      return false;
     } finally {
       setBusy(false);
     }
@@ -300,8 +306,12 @@ export default function SprintsPage() {
               <button
                 type="button"
                 disabled={!newName.trim() || busy}
-                onClick={() =>
-                  act(
+                onClick={async () => {
+                  // I8 (R13): only clear the fields on a confirmed success —
+                  // act() used to always resolve (it swallows the fetch
+                  // error internally), so a rejected create wiped the form
+                  // and the user had to retype the name and both dates.
+                  const ok = await act(
                     () =>
                       fetch("/api/v1/sprints", {
                         method: "POST",
@@ -314,12 +324,13 @@ export default function SprintsPage() {
                       }),
                     "Sprint angelegt",
                     "Sprint konnte nicht angelegt werden"
-                  ).then(() => {
+                  );
+                  if (ok) {
                     setNewName("");
                     setNewStart("");
                     setNewEnd("");
-                  })
-                }
+                  }
+                }}
                 className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-3 text-[12.5px] font-medium disabled:opacity-40"
                 style={{ background: "var(--kottke-accent)", color: "var(--accent-ink)" }}
               >
