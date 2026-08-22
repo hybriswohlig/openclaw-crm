@@ -74,12 +74,26 @@ export function SprintTimeline({
   const barRefs = useRef(new Map<string, HTMLElement>());
   const todayRef = useRef<HTMLDivElement>(null);
 
+  // On a phone 44 px per day would mean a 616 px track for a two-week
+  // sprint; 30 px keeps a whole week on screen without breaking the layout.
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 640px)");
+    const apply = () => setNarrow(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
+  const effectiveDayWidth = narrow ? Math.min(dayWidth, 30) : dayWidth;
+
+  const markerId = `timeline-arrow-${useId().replace(/:/g, "")}`;
+
   const days = useMemo(
     () => (data?.days ?? []).map((d) => toDate(d)).filter((d): d is Date => d !== null),
     [data]
   );
   const todayIndex = useMemo(() => todayColumnIndex(days), [days]);
-  const gridWidth = days.length * dayWidth;
+  const gridWidth = days.length * effectiveDayWidth;
 
   // Per row: sort by start, then stack into lanes so overlapping bars never
   // cover each other. The cap already happened server-side — `truncatedBars`
@@ -175,9 +189,9 @@ export function SprintTimeline({
   // current column. No extra API contract needed.
   const scrollByDays = useCallback(
     (delta: number) => {
-      scrollRef.current?.scrollBy({ left: delta * dayWidth, behavior: "smooth" });
+      scrollRef.current?.scrollBy({ left: delta * effectiveDayWidth, behavior: "smooth" });
     },
-    [dayWidth]
+    [effectiveDayWidth]
   );
 
   const scrollToToday = useCallback(() => {
@@ -185,10 +199,10 @@ export function SprintTimeline({
     const box = scrollRef.current;
     if (!el || !box) return;
     box.scrollTo({
-      left: Math.max(0, el.offsetLeft - box.clientWidth / 2 + dayWidth / 2),
+      left: Math.max(0, el.offsetLeft - box.clientWidth / 2 + effectiveDayWidth / 2),
       behavior: "smooth",
     });
-  }, [dayWidth]);
+  }, [effectiveDayWidth]);
 
   // On first paint, put today in view instead of the window start.
   useEffect(() => {
@@ -281,7 +295,7 @@ export function SprintTimeline({
                     ref={isToday ? todayRef : undefined}
                     className="shrink-0 pb-1 text-center"
                     style={{
-                      width: dayWidth,
+                      width: effectiveDayWidth,
                       background: isToday
                         ? "color-mix(in oklch, var(--kottke-accent) 10%, transparent)"
                         : isWeekend
@@ -327,7 +341,7 @@ export function SprintTimeline({
             >
               <defs>
                 <marker
-                  id="timeline-arrow"
+                  id={markerId}
                   viewBox="0 0 8 8"
                   refX="7"
                   refY="4"
@@ -347,7 +361,7 @@ export function SprintTimeline({
                   strokeWidth={1.4}
                   strokeDasharray="4 3"
                   opacity={0.75}
-                  markerEnd="url(#timeline-arrow)"
+                  markerEnd={`url(#${markerId})`}
                 />
               ))}
             </svg>
@@ -403,7 +417,7 @@ export function SprintTimeline({
                         key={i}
                         className="shrink-0"
                         style={{
-                          width: dayWidth,
+                          width: effectiveDayWidth,
                           borderRight: "1px solid var(--border)",
                           background:
                             i === todayIndex
@@ -421,7 +435,7 @@ export function SprintTimeline({
                       key={bar.taskId}
                       bar={bar}
                       lane={row.lanes[i]}
-                      dayWidth={dayWidth}
+                      dayWidth={effectiveDayWidth}
                       selected={selectedTaskId === bar.taskId}
                       onClick={(id) => {
                         onSelectTask?.(selectedTaskId === id ? null : id);
@@ -437,7 +451,27 @@ export function SprintTimeline({
         </div>
       </div>
 
-      {/* Task 18 fügt hier die Legende ein. */}
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-border pt-3">
+        {(["geplant", "in_arbeit", "erledigt", "ueberfaellig"] as const).map((state) => (
+          <span key={state} className="inline-flex items-center gap-1.5 text-[11.5px]" style={{ color: "var(--muted-foreground)" }}>
+            <span
+              className="h-[10px] w-[16px] shrink-0 rounded-[3px]"
+              style={{
+                background: `color-mix(in oklch, ${BAR_TOKEN[state]} 20%, transparent)`,
+                border: `1px solid color-mix(in oklch, ${BAR_TOKEN[state]} 48%, transparent)`,
+              }}
+            />
+            {BAR_LABEL[state]}
+          </span>
+        ))}
+        <span className="inline-flex items-center gap-1.5 text-[11.5px]" style={{ color: "var(--muted-foreground)" }}>
+          <svg width="20" height="8" aria-hidden>
+            <path d="M 0 4 L 18 4" stroke="var(--muted-foreground)" strokeWidth={1.4} strokeDasharray="4 3" />
+            <path d="M 14 1 L 20 4 L 14 7 z" fill="var(--muted-foreground)" />
+          </svg>
+          Abhängigkeit (Vorgänger → wartende Aufgabe)
+        </span>
+      </div>
     </div>
   );
 }
