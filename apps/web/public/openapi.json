@@ -211,7 +211,8 @@
           "startDate": { "type": "string", "format": "date", "nullable": true },
           "endDate": { "type": "string", "format": "date", "nullable": true },
           "capacityPoints": { "type": "integer", "nullable": true, "description": "Planned number of tasks — the column kept its points name" },
-          "metrics": { "type": "object", "properties": { "totalTasks": { "type": "integer" }, "doneTasks": { "type": "integer" }, "openTasks": { "type": "integer" }, "progressPct": { "type": "integer" } } }
+          "metrics": { "type": "object", "properties": { "totalTasks": { "type": "integer" }, "doneTasks": { "type": "integer" }, "openTasks": { "type": "integer" }, "progressPct": { "type": "integer" } } },
+          "metricsBasis": { "type": "string", "enum": ["tasks", "points"], "description": "'tasks' — metrics above are real task counts. 'points' — a sprint closed before this module's rewrite; the same fields hold a frozen legacy Fibonacci story-point sum and must never be presented as a task count." }
         }
       },
       "Note": {
@@ -1185,7 +1186,7 @@
         "tags": ["Projects"],
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Project" } } }
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Project", "required": ["name", "category"] } } }
         },
         "responses": { "201": { "description": "Project created" } }
       }
@@ -1197,7 +1198,7 @@
         "tags": ["Projects"],
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string" }, "shortDescription": { "type": "string" }, "category": { "type": "string" }, "priority": { "type": "string" }, "startDate": { "type": "string", "format": "date" }, "endDate": { "type": "string", "format": "date" }, "problemStatement": { "type": "string" }, "goalStatement": { "type": "string" }, "successCriteria": { "type": "string" }, "scopeIn": { "type": "array", "items": { "type": "string" } }, "scopeOut": { "type": "array", "items": { "type": "string" } } } } } }
+          "content": { "application/json": { "schema": { "type": "object", "required": ["name", "category"], "properties": { "name": { "type": "string" }, "shortDescription": { "type": "string" }, "category": { "type": "string", "description": "PROJECT_CATEGORIES value; missing or unknown is rejected with 400 \"Ungültiger Projektbereich.\"" }, "priority": { "type": "string" }, "startDate": { "type": "string", "format": "date" }, "endDate": { "type": "string", "format": "date" }, "problemStatement": { "type": "string" }, "goalStatement": { "type": "string" }, "successCriteria": { "type": "string" }, "scopeIn": { "type": "array", "items": { "type": "string" } }, "scopeOut": { "type": "array", "items": { "type": "string" } } } } } }
         },
         "responses": { "200": { "description": "Draft plan with day offsets relative to the project start" } }
       }

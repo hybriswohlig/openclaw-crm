@@ -253,7 +253,25 @@ export const TOOLS: ToolDef[] = [
         kind: { type: "string", enum: ["projekt", "operativ"] },
         projectId: { type: "string" },
         phaseId: { type: "string" },
-        area: { type: "string", description: "OPERATIVE_AREAS value" },
+        area: {
+          type: "string",
+          // I1: kept as a literal duplicate of OPERATIVE_AREAS (apps/web
+          // is a separate package/tsconfig) so a misspelling is rejected
+          // by MCP-side validation instead of silently normalising to
+          // null on write and silently dropping the filter on read.
+          enum: [
+            "angebot",
+            "auftrag",
+            "nachsorge",
+            "schaden",
+            "personal",
+            "fahrzeuge",
+            "beschaffung",
+            "buchhaltung",
+            "kunde",
+            "sonstiges",
+          ],
+        },
         status: {
           type: "string",
           enum: ["geplant", "in_arbeit", "erledigt"],
@@ -301,7 +319,25 @@ export const TOOLS: ToolDef[] = [
         kind: { type: "string", enum: ["projekt", "operativ"] },
         projectId: { type: "string" },
         phaseId: { type: "string" },
-        area: { type: "string", description: "OPERATIVE_AREAS value" },
+        area: {
+          type: "string",
+          // I1: kept as a literal duplicate of OPERATIVE_AREAS (apps/web
+          // is a separate package/tsconfig) so a misspelling is rejected
+          // by MCP-side validation instead of silently normalising to
+          // null on write and silently dropping the filter on read.
+          enum: [
+            "angebot",
+            "auftrag",
+            "nachsorge",
+            "schaden",
+            "personal",
+            "fahrzeuge",
+            "beschaffung",
+            "buchhaltung",
+            "kunde",
+            "sonstiges",
+          ],
+        },
         sprintId: { type: "string" },
         parentTaskId: { type: "string" },
         recordIds: { type: "array", items: { type: "string" } },
@@ -334,7 +370,25 @@ export const TOOLS: ToolDef[] = [
         kind: { type: "string", enum: ["projekt", "operativ"] },
         projectId: { type: "string" },
         phaseId: { type: "string" },
-        area: { type: "string", description: "OPERATIVE_AREAS value" },
+        area: {
+          type: "string",
+          // I1: kept as a literal duplicate of OPERATIVE_AREAS (apps/web
+          // is a separate package/tsconfig) so a misspelling is rejected
+          // by MCP-side validation instead of silently normalising to
+          // null on write and silently dropping the filter on read.
+          enum: [
+            "angebot",
+            "auftrag",
+            "nachsorge",
+            "schaden",
+            "personal",
+            "fahrzeuge",
+            "beschaffung",
+            "buchhaltung",
+            "kunde",
+            "sonstiges",
+          ],
+        },
         sprintId: { type: "string" },
         parentTaskId: { type: "string" },
         recordIds: { type: "array", items: { type: "string" } },
@@ -756,7 +810,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "crm_create_project",
     description:
-      "Create a project. Only name is required; everything else can be filled in later with crm_update_project. category must be one of 'leistung','vertrieb','marketing','personal','fuhrpark','standorte','gruendung','prozesse','partner','preise','qualitaet','software','finanzen' — an unknown value is rejected. priority is 'sehr_hoch','hoch','mittel' or 'niedrig'. status defaults to 'geplant'. budgetPlannedCents is integer euro cents (12.500,00 EUR is 1250000), never a float and never a formatted string. startDate and endDate are ISO 'YYYY-MM-DD'. icon and color default from the category when omitted. memberUserIds are workspace user ids from crm_list_members; each is added as a project member with role 'mitglied' — call crm_update_project_member afterwards to give one of them a different role. To draft a whole plan first, call crm_generate_project_plan and create its phases and milestones afterwards.",
+      "Create a project. name and category are required; everything else can be filled in later with crm_update_project. category must be one of 'leistung','vertrieb','marketing','personal','fuhrpark','standorte','gruendung','prozesse','partner','preise','qualitaet','software','finanzen' — an unknown value is rejected. priority is 'sehr_hoch','hoch','mittel' or 'niedrig'. status defaults to 'geplant'. budgetPlannedCents is integer euro cents (12.500,00 EUR is 1250000), never a float and never a formatted string. startDate and endDate are ISO 'YYYY-MM-DD'. icon and color default from the category when omitted. memberUserIds are workspace user ids from crm_list_members; each is added as a project member with role 'mitglied' — call crm_update_project_member afterwards to give one of them a different role. To draft a whole plan first, call crm_generate_project_plan and create its phases and milestones afterwards.",
     inputSchema: {
       type: "object",
       properties: {
@@ -784,7 +838,7 @@ export const TOOLS: ToolDef[] = [
         budgetPlannedCents: { type: "number", description: "Integer euro cents" },
         memberUserIds: { type: "array", items: { type: "string" } },
       },
-      required: ["name"],
+      required: ["name", "category"],
     },
   },
   {
@@ -1271,13 +1325,13 @@ export const TOOLS: ToolDef[] = [
   {
     name: "crm_list_sprints",
     description:
-      "List every sprint of the workspace, newest first, with state ('planung'|'aktiv'|'abgeschlossen'), start and end date, the day counters and live metrics. The metrics are TASK COUNTS, not story points: totalTasks, doneTasks, openTasks, progressPct. At most one sprint is 'aktiv' at a time — that is the one the work dashboard and the timeline default to.",
+      "List every sprint of the workspace, newest first, with state ('planung'|'aktiv'|'abgeschlossen'), start and end date, the day counters and live metrics. Check metricsBasis before quoting totalTasks/doneTasks/openTasks/progressPct: 'tasks' means they are real task counts, but a sprint closed before this module's rewrite carries metricsBasis 'points', where the same fields are a frozen Fibonacci story-point sum and must not be reported as a task count. At most one sprint is 'aktiv' at a time — that is the one the work dashboard and the timeline default to.",
     inputSchema: { type: "object", properties: {} },
   },
   {
     name: "crm_get_sprint",
     description:
-      "Get one sprint with its live metrics and day counters (daysTotal, daysElapsed, daysRemaining). A closed sprint returns the counts frozen at close time rather than recomputing them, so historical sprints stay stable.",
+      "Get one sprint with its live metrics and day counters (daysTotal, daysElapsed, daysRemaining). A closed sprint returns the counts frozen at close time rather than recomputing them, so historical sprints stay stable. Check metricsBasis before quoting totalTasks/doneTasks/openTasks/progressPct: 'tasks' means they are real task counts, but a sprint closed before this module's rewrite carries metricsBasis 'points', where the same fields hold a legacy Fibonacci story-point sum and must not be presented as a task count.",
     inputSchema: {
       type: "object",
       properties: { sprintId: { type: "string" } },
@@ -1368,9 +1422,35 @@ export const TOOLS: ToolDef[] = [
           description: "Target project id, or null to make the task operative",
         },
         phaseId: { type: "string", description: "Phase of the target project" },
-        area: { type: "string", description: "OPERATIVE_AREAS value" },
+        area: {
+          type: "string",
+          // I1: kept as a literal duplicate of OPERATIVE_AREAS (apps/web
+          // is a separate package/tsconfig) so a misspelling is rejected
+          // by MCP-side validation instead of silently normalising to
+          // null on write and silently dropping the filter on read.
+          enum: [
+            "angebot",
+            "auftrag",
+            "nachsorge",
+            "schaden",
+            "personal",
+            "fahrzeuge",
+            "beschaffung",
+            "buchhaltung",
+            "kunde",
+            "sonstiges",
+          ],
+        },
       },
-      required: ["taskId"],
+      // I5: register-tools.ts declares projectId required (a zod field
+      // with no .optional()); this definition used to omit it from
+      // `required`, so a stdio caller could send { taskId, phaseId } with
+      // no projectId at all — a call the web schema would reject — and
+      // the handler's `args.projectId ?? null` would silently rip the
+      // task out of its project. Kept in step with the web schema so the
+      // drift guard (which only compares names/descriptions/paths, not
+      // schemas) cannot miss a divergence like this again.
+      required: ["taskId", "projectId"],
     },
   },
 
@@ -1464,7 +1544,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "crm_generate_project_plan",
     description:
-      "Ask the AI planner for a DRAFT project plan: scope in/out, phases with their tasks, milestones and risks. Every date comes back as an offset in days from the project start, never as an absolute date, so the plan does not depend on the model's idea of today. Nothing is written to the CRM — this returns a proposal you then create with crm_create_project, crm_create_project_phase, crm_create_project_milestone and crm_create_task. The call runs on the crm-tools runner and can take several minutes; a failure or a missing configuration is not fatal, fall back to planning manually rather than retrying in a loop.",
+      "Ask the AI planner for a DRAFT project plan: scope in/out, phases with their tasks, milestones and risks. name and category are required — category must be one of 'leistung','vertrieb','marketing','personal','fuhrpark','standorte','gruendung','prozesse','partner','preise','qualitaet','software','finanzen', the same PROJECT_CATEGORIES value crm_create_project takes, and an unknown or missing value is rejected. Every date comes back as an offset in days from the project start, never as an absolute date, so the plan does not depend on the model's idea of today. Nothing is written to the CRM — this returns a proposal you then create with crm_create_project, crm_create_project_phase, crm_create_project_milestone and crm_create_task. The call runs on the crm-tools runner and can take several minutes; a failure or a missing configuration is not fatal, fall back to planning manually rather than retrying in a loop.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1483,7 +1563,7 @@ export const TOOLS: ToolDef[] = [
         scopeIn: { type: "array", items: { type: "string" } },
         scopeOut: { type: "array", items: { type: "string" } },
       },
-      required: ["name"],
+      required: ["name", "category"],
     },
   },
 

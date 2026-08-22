@@ -3,8 +3,18 @@ import { z } from "zod";
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import { CrmClient, type McpAuthContext, resolveBaseUrl } from "./client";
 import { handleTool } from "./dispatch";
+import { OPERATIVE_AREAS } from "@/lib/project-constants";
 
 type Extra = { authInfo?: AuthInfo };
+
+// I1: every sibling filter in these tools is a real z.enum; `area` used to
+// be a bare z.string(). A misspelling (or the German UI's capitalisation,
+// e.g. "Buchhaltung") normalises to null on write (silently clearing the
+// tag) and to null on read (silently dropping the filter, so
+// `area: "Buchhaltung"` on crm_list_tasks returns every operative task
+// instead of erroring). Derived from OPERATIVE_AREAS so it can never drift
+// from the values normalizeOperativeArea actually accepts.
+const OPERATIVE_AREA_VALUES = OPERATIVE_AREAS.map((a) => a.value) as [string, ...string[]];
 
 function clientFromExtra(extra: Extra, req?: Request): CrmClient {
   const info = extra.authInfo;
@@ -172,7 +182,7 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
       kind: z.enum(["projekt", "operativ"]).optional(),
       projectId: z.string().optional(),
       phaseId: z.string().optional(),
-      area: z.string().optional(),
+      area: z.enum(OPERATIVE_AREA_VALUES).optional(),
       status: z.enum(["geplant", "in_arbeit", "erledigt"]).optional(),
       sprintId: z.string().optional(),
       overdue: z.boolean().optional(),
@@ -204,7 +214,7 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
       kind: z.enum(["projekt", "operativ"]).optional(),
       projectId: z.string().nullable().optional(),
       phaseId: z.string().nullable().optional(),
-      area: z.string().nullable().optional(),
+      area: z.enum(OPERATIVE_AREA_VALUES).nullable().optional(),
       sprintId: z.string().nullable().optional(),
       parentTaskId: z.string().nullable().optional(),
       recordIds: z.array(z.string()).optional(),
@@ -228,7 +238,7 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
       kind: z.enum(["projekt", "operativ"]).optional(),
       projectId: z.string().nullable().optional(),
       phaseId: z.string().nullable().optional(),
-      area: z.string().nullable().optional(),
+      area: z.enum(OPERATIVE_AREA_VALUES).nullable().optional(),
       sprintId: z.string().nullable().optional(),
       parentTaskId: z.string().nullable().optional(),
       recordIds: z.array(z.string()).optional(),
@@ -643,11 +653,11 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_create_project",
-    "Create a project. Only name is required; everything else can be filled in later with crm_update_project. category must be one of 'leistung','vertrieb','marketing','personal','fuhrpark','standorte','gruendung','prozesse','partner','preise','qualitaet','software','finanzen' — an unknown value is rejected. priority is 'sehr_hoch','hoch','mittel' or 'niedrig'. status defaults to 'geplant'. budgetPlannedCents is integer euro cents (12.500,00 EUR is 1250000), never a float and never a formatted string. startDate and endDate are ISO 'YYYY-MM-DD'. icon and color default from the category when omitted. memberUserIds are workspace user ids from crm_list_members; each is added as a project member with role 'mitglied' — call crm_update_project_member afterwards to give one of them a different role. To draft a whole plan first, call crm_generate_project_plan and create its phases and milestones afterwards.",
+    "Create a project. name and category are required; everything else can be filled in later with crm_update_project. category must be one of 'leistung','vertrieb','marketing','personal','fuhrpark','standorte','gruendung','prozesse','partner','preise','qualitaet','software','finanzen' — an unknown value is rejected. priority is 'sehr_hoch','hoch','mittel' or 'niedrig'. status defaults to 'geplant'. budgetPlannedCents is integer euro cents (12.500,00 EUR is 1250000), never a float and never a formatted string. startDate and endDate are ISO 'YYYY-MM-DD'. icon and color default from the category when omitted. memberUserIds are workspace user ids from crm_list_members; each is added as a project member with role 'mitglied' — call crm_update_project_member afterwards to give one of them a different role. To draft a whole plan first, call crm_generate_project_plan and create its phases and milestones afterwards.",
     {
       name: z.string(),
       shortDescription: z.string().nullable().optional(),
-      category: z.string().optional(),
+      category: z.string(),
       priority: z.enum(["sehr_hoch", "hoch", "mittel", "niedrig"]).optional(),
       status: z
         .enum(["geplant", "aktiv", "pausiert", "abgeschlossen", "abgebrochen"])
@@ -994,14 +1004,14 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_list_sprints",
-    "List every sprint of the workspace, newest first, with state ('planung'|'aktiv'|'abgeschlossen'), start and end date, the day counters and live metrics. The metrics are TASK COUNTS, not story points: totalTasks, doneTasks, openTasks, progressPct. At most one sprint is 'aktiv' at a time — that is the one the work dashboard and the timeline default to.",
+    "List every sprint of the workspace, newest first, with state ('planung'|'aktiv'|'abgeschlossen'), start and end date, the day counters and live metrics. Check metricsBasis before quoting totalTasks/doneTasks/openTasks/progressPct: 'tasks' means they are real task counts, but a sprint closed before this module's rewrite carries metricsBasis 'points', where the same fields are a frozen Fibonacci story-point sum and must not be reported as a task count. At most one sprint is 'aktiv' at a time — that is the one the work dashboard and the timeline default to.",
     empty,
     req
   );
   tool(
     server,
     "crm_get_sprint",
-    "Get one sprint with its live metrics and day counters (daysTotal, daysElapsed, daysRemaining). A closed sprint returns the counts frozen at close time rather than recomputing them, so historical sprints stay stable.",
+    "Get one sprint with its live metrics and day counters (daysTotal, daysElapsed, daysRemaining). A closed sprint returns the counts frozen at close time rather than recomputing them, so historical sprints stay stable. Check metricsBasis before quoting totalTasks/doneTasks/openTasks/progressPct: 'tasks' means they are real task counts, but a sprint closed before this module's rewrite carries metricsBasis 'points', where the same fields hold a legacy Fibonacci story-point sum and must not be presented as a task count.",
     { sprintId: z.string() },
     req
   );
@@ -1063,7 +1073,7 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
       taskId: z.string(),
       projectId: z.string().nullable(),
       phaseId: z.string().nullable().optional(),
-      area: z.string().nullable().optional(),
+      area: z.enum(OPERATIVE_AREA_VALUES).nullable().optional(),
     },
     req
   );
@@ -1125,11 +1135,11 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_generate_project_plan",
-    "Ask the AI planner for a DRAFT project plan: scope in/out, phases with their tasks, milestones and risks. Every date comes back as an offset in days from the project start, never as an absolute date, so the plan does not depend on the model's idea of today. Nothing is written to the CRM — this returns a proposal you then create with crm_create_project, crm_create_project_phase, crm_create_project_milestone and crm_create_task. The call runs on the crm-tools runner and can take several minutes; a failure or a missing configuration is not fatal, fall back to planning manually rather than retrying in a loop.",
+    "Ask the AI planner for a DRAFT project plan: scope in/out, phases with their tasks, milestones and risks. name and category are required — category must be one of 'leistung','vertrieb','marketing','personal','fuhrpark','standorte','gruendung','prozesse','partner','preise','qualitaet','software','finanzen', the same PROJECT_CATEGORIES value crm_create_project takes, and an unknown or missing value is rejected. Every date comes back as an offset in days from the project start, never as an absolute date, so the plan does not depend on the model's idea of today. Nothing is written to the CRM — this returns a proposal you then create with crm_create_project, crm_create_project_phase, crm_create_project_milestone and crm_create_task. The call runs on the crm-tools runner and can take several minutes; a failure or a missing configuration is not fatal, fall back to planning manually rather than retrying in a loop.",
     {
       name: z.string(),
       shortDescription: z.string().nullable().optional(),
-      category: z.string().optional(),
+      category: z.string(),
       priority: z.enum(["sehr_hoch", "hoch", "mittel", "niedrig"]).optional(),
       startDate: z.string().nullable().optional(),
       endDate: z.string().nullable().optional(),
