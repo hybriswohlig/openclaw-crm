@@ -6,10 +6,15 @@ import { PROJECT_EVENT_TYPES, type ActivityEventType } from "./activity-events";
 // (record_id has no FK, so it can hold a projects.id — spec §10.1). This
 // guards the closed union against a silently dropped literal.
 describe("PROJECT_EVENT_TYPES", () => {
-  it("lists the 14 literals of spec §10.1 plus project.member_role_changed", () => {
+  it("lists the 14 literals of spec §10.1 plus project.member_role_changed and project.milestone_created", () => {
     // The 15th closes a spec gap: promoting somebody to 'leiter' is the
     // membership change most worth having a record of, and it was the only
     // one that left no trace at all.
+    // The 16th closes a second gap: phases, risks, budget entries and
+    // members all record an unconditional creation row; milestones were the
+    // only resource in the batch that could appear in a project leaving no
+    // trace in the Aktivitäten feed (project.milestone_reached only fires
+    // once the status later flips to 'erreicht').
     expect([...PROJECT_EVENT_TYPES]).toEqual([
       "project.created",
       "project.updated",
@@ -19,6 +24,7 @@ describe("PROJECT_EVENT_TYPES", () => {
       "project.member_role_changed",
       "project.phase_created",
       "project.phase_completed",
+      "project.milestone_created",
       "project.milestone_reached",
       "project.risk_opened",
       "project.risk_closed",

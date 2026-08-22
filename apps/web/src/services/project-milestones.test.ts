@@ -1,5 +1,32 @@
 import { describe, expect, it } from "vitest";
-import { resolveMilestoneCreate, resolveMilestoneUpdate } from "./project-milestones";
+import {
+  resolveMilestoneCreate,
+  resolveMilestoneUpdate,
+  isMilestoneNewlyReached,
+} from "./project-milestones";
+
+describe("isMilestoneNewlyReached", () => {
+  it("is true on the transition into erreicht", () => {
+    expect(isMilestoneNewlyReached("geplant", "erreicht")).toBe(true);
+    expect(isMilestoneNewlyReached("verfehlt", "erreicht")).toBe(true);
+  });
+
+  it("is false when it was already erreicht and is updated again", () => {
+    expect(isMilestoneNewlyReached("erreicht", "erreicht")).toBe(false);
+  });
+
+  it("is false when moving from erreicht back to geplant", () => {
+    expect(isMilestoneNewlyReached("erreicht", "geplant")).toBe(false);
+  });
+
+  it("is false when leaving erreicht for verfehlt", () => {
+    expect(isMilestoneNewlyReached("erreicht", "verfehlt")).toBe(false);
+  });
+
+  it("is false for a transition that never touches erreicht", () => {
+    expect(isMilestoneNewlyReached("geplant", "verfehlt")).toBe(false);
+  });
+});
 
 describe("resolveMilestoneCreate", () => {
   it("requires a name", () => {

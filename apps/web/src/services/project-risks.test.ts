@@ -1,5 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { resolveRiskCreate, resolveRiskUpdate } from "./project-risks";
+import { resolveRiskCreate, resolveRiskUpdate, shouldNotifyRiskOpened } from "./project-risks";
+
+describe("shouldNotifyRiskOpened", () => {
+  it("notifies the workspace for an open hoch risk", () => {
+    expect(shouldNotifyRiskOpened("hoch", "offen")).toBe(true);
+  });
+
+  it("notifies for a hoch risk that is only being watched", () => {
+    expect(shouldNotifyRiskOpened("hoch", "beobachtet")).toBe(true);
+  });
+
+  it("does not notify for a hoch risk created already geschlossen", () => {
+    expect(shouldNotifyRiskOpened("hoch", "geschlossen")).toBe(false);
+  });
+
+  it("does not notify for niedrig or mittel severity regardless of status", () => {
+    expect(shouldNotifyRiskOpened("niedrig", "offen")).toBe(false);
+    expect(shouldNotifyRiskOpened("mittel", "offen")).toBe(false);
+    expect(shouldNotifyRiskOpened("mittel", "geschlossen")).toBe(false);
+  });
+});
 
 describe("resolveRiskCreate", () => {
   it("requires a title", () => {

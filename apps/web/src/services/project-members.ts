@@ -58,6 +58,25 @@ export interface OwnerMembershipPlan {
 }
 
 /**
+ * Pure: validate a role for `addProjectMember`. An omitted, null or empty
+ * role defaults to 'mitglied'; an EXPLICITLY-supplied unrecognised value is
+ * rejected rather than silently coerced. `updateProjectMemberRole` already
+ * rejects a bad role (`if (!resolvedRole) return null`) — an MCP agent that
+ * sends role: "leader" (a plausible English mistake) needs the same kind of
+ * error it can act on, not a member silently created with the wrong role.
+ */
+export function resolveMemberRole(
+  role: unknown,
+): { ok: true; role: ProjectMemberRole } | { ok: false; error: string } {
+  if (role === undefined || role === null || role === "") {
+    return { ok: true, role: "mitglied" };
+  }
+  const normalized = normalizeProjectMemberRole(role);
+  if (!normalized) return { ok: false, error: "Ungültige Projektrolle." };
+  return { ok: true, role: normalized };
+}
+
+/**
  * Pure: keep exactly one 'leiter' row when projects.owner_user_id changes.
  *
  *   - the incoming owner is never demoted or removed;
@@ -137,14 +156,16 @@ export async function addProjectMember(
   const project = await loadProject(workspaceId, projectId);
   if (!project) return null;
 
+  const resolvedRoleResult = resolveMemberRole(role);
+  if (!resolvedRoleResult.ok) throw new Error(resolvedRoleResult.error);
+  const resolvedRole = resolvedRoleResult.role;
+
   const [user] = await db
     .select({ id: users.id, name: users.name, email: users.email, image: users.image })
     .from(users)
     .where(eq(users.id, memberUserId))
     .limit(1);
   if (!user) return null;
-
-  const resolvedRole = normalizeProjectMemberRole(role) ?? "mitglied";
 
   const [existing] = await db
     .select({ id: projectMembers.id })

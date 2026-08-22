@@ -18,7 +18,7 @@ import { parseDateColumn } from "@/lib/work-metrics";
 function isDayString(v: string): boolean {
   return parseDateColumn(v) !== null;
 }
-import { notifyProjectEvent } from "./activity-events";
+import { notifyProjectEvent, recordProjectEvent } from "./activity-events";
 
 export interface MilestoneData {
   id: string;
@@ -96,6 +96,21 @@ export function resolveMilestoneUpdate(
     set.reachedAt = status === "erreicht" ? now : null;
   }
   return { ok: true, set };
+}
+
+/**
+ * Pure: true only on the transition INTO 'erreicht' — not a milestone that
+ * was already there (an unrelated field edit on an already-reached
+ * milestone must not re-notify), and not one leaving it. Extracted so this
+ * guard — flip it and either a routine edit re-notifies the whole
+ * workspace, or a milestone that just got reached notifies nobody — is
+ * exercised directly instead of only inside an untested async function.
+ */
+export function isMilestoneNewlyReached(
+  previousStatus: MilestoneStatus,
+  nextStatus: MilestoneStatus,
+): boolean {
+  return previousStatus !== "erreicht" && nextStatus === "erreicht";
 }
 
 function toMilestoneData(row: typeof projectMilestones.$inferSelect): MilestoneData {
@@ -186,6 +201,27 @@ export async function createMilestone(
       .returning();
     return inserted;
   });
+
+  // Mirrors createPhase's pattern: an unconditional activity row, no
+  // fan-out. Milestone creation is not one of the four §10.2 notification
+  // triggers — only reaching one is — so recordProjectEvent, not
+  // notifyProjectEvent. Every other resource in this batch (phases, risks,
+  // budget entries, members) already records its creation; milestones were
+  // the one gap, since project.milestone_reached only fires when the status
+  // later flips to 'erreicht'. `milestoneName` and `dueDate` travel in the
+  // payload so a future describeActivityEvent case can render the line
+  // without a second lookup, same as project.member_role_changed does.
+  await recordProjectEvent({
+    workspaceId,
+    projectId,
+    projectName: project.name,
+    eventType: "project.milestone_created",
+    actorId: userId,
+    title: "Neuer Meilenstein",
+    body: `${project.name}: ${row.name}`,
+    payload: { milestoneId: row.id, milestoneName: row.name, dueDate: row.dueDate },
+  });
+
   return toMilestoneData(row);
 }
 
@@ -227,7 +263,8 @@ export async function updateMilestone(
   }
 
   const milestone = toMilestoneData(row);
-  if (existing.status !== "erreicht" && milestone.status === "erreicht") {
+  const previousStatus = normalizeMilestoneStatus(existing.status) ?? "geplant";
+  if (isMilestoneNewlyReached(previousStatus, milestone.status)) {
     const project = await loadProject(workspaceId, milestone.projectId);
     if (project) {
       await notifyProjectEvent({

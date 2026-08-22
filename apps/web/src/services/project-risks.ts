@@ -110,6 +110,19 @@ export function resolveRiskUpdate(
   return { ok: true, set };
 }
 
+/**
+ * Pure: spec §10.2 — only a risk opened at severity 'hoch' that is NOT
+ * already 'geschlossen' fans out to the whole workspace. Everything else
+ * (any other severity, or a 'hoch' risk created pre-closed) gets an activity
+ * row only. Extracted so this decision — the highest-blast-radius branch in
+ * the batch, flip it and either every trivial risk pings the workspace or a
+ * critical one stays silent — is exercised directly instead of only inside
+ * an untested async function.
+ */
+export function shouldNotifyRiskOpened(severity: RiskSeverity, status: RiskStatus): boolean {
+  return severity === "hoch" && status !== "geschlossen";
+}
+
 function toRiskData(row: typeof projectRisks.$inferSelect): RiskData {
   return {
     id: row.id,
@@ -172,7 +185,7 @@ export async function createRisk(
   // Spec §10.1 records project.risk_opened for EVERY new risk; §10.2 only
   // notifies the workspace when the severity is 'hoch'. So the activity row
   // is unconditional and the fan-out is the thing that is gated.
-  const notifyWorkspace = risk.severity === "hoch" && risk.status !== "geschlossen";
+  const notifyWorkspace = shouldNotifyRiskOpened(risk.severity, risk.status);
   const event = {
     workspaceId,
     projectId,

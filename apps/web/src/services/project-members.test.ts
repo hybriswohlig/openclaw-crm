@@ -1,5 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { toProjectMemberData, resolveOwnerMembership } from "./project-members";
+import { toProjectMemberData, resolveOwnerMembership, resolveMemberRole } from "./project-members";
+
+describe("resolveMemberRole", () => {
+  it("defaults an omitted, null, or empty role to 'mitglied'", () => {
+    expect(resolveMemberRole(undefined)).toEqual({ ok: true, role: "mitglied" });
+    expect(resolveMemberRole(null)).toEqual({ ok: true, role: "mitglied" });
+    expect(resolveMemberRole("")).toEqual({ ok: true, role: "mitglied" });
+  });
+
+  it("accepts an explicit known role", () => {
+    expect(resolveMemberRole("leiter")).toEqual({ ok: true, role: "leiter" });
+    expect(resolveMemberRole("mitglied")).toEqual({ ok: true, role: "mitglied" });
+    expect(resolveMemberRole("beobachter")).toEqual({ ok: true, role: "beobachter" });
+  });
+
+  it("rejects an explicitly-supplied unknown role instead of silently defaulting", () => {
+    // An MCP agent sending role: "leader" (English, a plausible mistake) must
+    // get an error it can correct, not a member created with the wrong role.
+    expect(resolveMemberRole("leader")).toEqual({ ok: false, error: "Ungültige Projektrolle." });
+    expect(resolveMemberRole("chef")).toEqual({ ok: false, error: "Ungültige Projektrolle." });
+  });
+});
 
 describe("toProjectMemberData", () => {
   it("maps a joined user row into the avatar-stack shape", () => {
