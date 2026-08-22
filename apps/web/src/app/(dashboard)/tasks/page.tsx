@@ -21,6 +21,8 @@ import { readApiError } from "@/lib/work-ui";
 import { toast } from "sonner";
 import { KpiGrid, KpiTile } from "@/components/work/kpi-tile";
 import { AlertTriangle, CheckCircle2, FolderKanban, ListChecks, Users } from "lucide-react";
+import { ProjectCard, NewProjectTile } from "@/components/work/project-card";
+import { EmptyState } from "@/components/work/empty-state";
 
 export default function WorkDashboardPage() {
   const { data: session } = useSession();
@@ -138,6 +140,37 @@ export default function WorkDashboardPage() {
     await load();
   }
 
+  const toggleFavorite = useCallback(
+    async (projectId: string, next: boolean) => {
+      // Optimistic: the star flips instantly, the reload confirms it.
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              projects: prev.projects.map((p) =>
+                p.id === projectId ? { ...p, isFavorite: next } : p
+              ),
+            }
+          : prev
+      );
+      // try/catch, not just !res.ok: a rejecting fetch (offline, DNS, aborted
+      // navigation) throws straight out of the handler as an unhandled
+      // rejection, leaving the star yellow with nothing saved (defect R9).
+      try {
+        const res = await fetch(`/api/v1/projects/${projectId}/favorite`, {
+          method: next ? "PUT" : "DELETE",
+        });
+        if (!res.ok) throw new Error(await readApiError(res, "Favorit konnte nicht gespeichert werden"));
+      } catch (err) {
+        toast.error("Favorit konnte nicht gespeichert werden", {
+          description: err instanceof Error ? err.message : undefined,
+        });
+        await load();
+      }
+    },
+    [load]
+  );
+
   return (
     <div className="k-paper-noise min-h-full">
       <div className="mx-auto flex max-w-7xl flex-col gap-5 px-4 py-6 sm:gap-6 sm:px-8 sm:py-8">
@@ -195,7 +228,11 @@ export default function WorkDashboardPage() {
         {data && (
           <>
             <DashboardKpis kpis={data.kpis} teamFiguresApply={hasRunningSprint} />
-            {/* Task 21: Projekte in diesem Sprint */}
+            <SprintProjects
+              projects={data.projects}
+              sprintScoped={data.projectsAreSprintScoped}
+              onToggleFavorite={toggleFavorite}
+            />
             {/* Task 22: Operative Aufgaben + Timeline */}
             {/* Task 23: vier untere Karten */}
           </>
@@ -293,5 +330,62 @@ function DashboardKpis({
         icon={<Users className="h-[15px] w-[15px]" />}
       />
     </KpiGrid>
+  );
+}
+
+function SprintProjects({
+  projects,
+  sprintScoped,
+  onToggleFavorite,
+}: {
+  projects: DashboardJSON["projects"];
+  /** false = there is no active sprint, so these are all active projects. */
+  sprintScoped: boolean;
+  onToggleFavorite: (id: string, next: boolean) => void;
+}) {
+  return (
+    <section>
+      <div className="mb-3 flex items-baseline justify-between gap-3">
+        <h2 className="k-display m-0" style={{ fontSize: 19, fontWeight: 500 }}>
+          {sprintScoped ? "Projekte in diesem Sprint" : "Aktive Projekte"}
+        </h2>
+        <Link href="/tasks/projects" className="shrink-0 text-xs" style={{ color: "var(--kottke-accent)" }}>
+          Alle Projekte anzeigen →
+        </Link>
+      </div>
+
+      {projects.length === 0 ? (
+        <div className="k-card">
+          <EmptyState
+            title={sprintScoped ? "Noch kein Projekt in diesem Sprint" : "Noch kein aktives Projekt"}
+            hint={
+              sprintScoped
+                ? "Ordne Projektaufgaben einem Sprint zu, oder leg direkt ein neues Projekt an."
+                : "Es läuft gerade kein Sprint. Leg ein Projekt an oder starte einen Sprint unter „Sprints“."
+            }
+            action={
+              <Link
+                href="/tasks/projects/new"
+                className="inline-flex h-9 items-center gap-2 rounded-lg px-3 text-[13.5px] font-medium"
+                style={{ background: "var(--kottke-accent)", color: "var(--accent-ink)" }}
+              >
+                <Plus className="h-[15px] w-[15px]" />
+                Neues Projekt
+              </Link>
+            }
+          />
+        </div>
+      ) : (
+        <div
+          className="grid gap-3"
+          style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}
+        >
+          {projects.map((p) => (
+            <ProjectCard key={p.id} project={p} onToggleFavorite={onToggleFavorite} />
+          ))}
+          <NewProjectTile />
+        </div>
+      )}
+    </section>
   );
 }
