@@ -9,7 +9,7 @@ import {
 import { db } from "@/db";
 import { tasks } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
-import { createTask, listSubtasks } from "@/services/tasks";
+import { createTask, listSubtasks, describeTaskRouteError } from "@/services/tasks";
 
 /**
  * GET /api/v1/tasks/[taskId]/subtasks — list children of a task.
@@ -83,9 +83,20 @@ export async function POST(
 
     return success(sub, 201);
   } catch (err) {
+    // I2: createTask throws TaskInvariantError for every invariant it
+    // enforces (I4's parent-eligibility checks among them — e.g. re-
+    // parenting under a task that is already a subtask), but this route
+    // used to catch everything with one opaque English 500. That left an
+    // MCP agent unable to tell "Unteraufgaben können keine weiteren
+    // Unteraufgaben haben" from the CRM being down, so it retried in a
+    // loop instead of correcting its call. Same pattern as the sibling
+    // task routes (POST /api/v1/tasks, PATCH /api/v1/tasks/[taskId]) —
+    // see describeTaskRouteError in services/tasks.ts.
+    const message = describeTaskRouteError(err);
+    if (message) return badRequest(message);
     console.error("POST subtask error:", err);
     return NextResponse.json(
-      { error: { code: "INTERNAL_ERROR", message: "Failed to create subtask" } },
+      { error: { code: "INTERNAL_ERROR", message: "Unteraufgabe konnte nicht erstellt werden." } },
       { status: 500 }
     );
   }
