@@ -738,6 +738,37 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
         }
       );
 
+    // ── Meilensteine ────────────────────────────────────────────────────
+    case "crm_list_project_milestones":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/milestones`
+      );
+    case "crm_create_project_milestone": {
+      const body: Record<string, unknown> = { name: args.name };
+      for (const key of ["dueDate", "phaseId", "status"]) {
+        if (args[key] !== undefined) body[key] = args[key];
+      }
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/milestones`,
+        { method: "POST", body }
+      );
+    }
+    case "crm_update_project_milestone": {
+      const body: Record<string, unknown> = {};
+      for (const key of ["name", "dueDate", "phaseId", "status"]) {
+        if (args[key] !== undefined) body[key] = args[key];
+      }
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/milestones/${encodeURIComponent(str(args.milestoneId))}`,
+        { method: "PATCH", body }
+      );
+    }
+    case "crm_delete_project_milestone":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/milestones/${encodeURIComponent(str(args.milestoneId))}`,
+        { method: "DELETE" }
+      );
+
     case "crm_api": {
       const path = str(args.path);
       if (!path.startsWith("/api/")) {

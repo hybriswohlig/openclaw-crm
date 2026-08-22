@@ -732,6 +732,49 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
     req
   );
 
+  // ── Meilensteine ────────────────────────────────────────────────────────
+  tool(
+    server,
+    "crm_list_project_milestones",
+    "List a project's milestones with due date, status ('geplant'|'erreicht'|'verfehlt'), the phase they are anchored to and the timestamp they were reached. Milestones are dates to hit, not work items — the work itself lives in tasks, so never model a deliverable as a milestone alone.",
+    { projectId: z.string() },
+    req
+  );
+  tool(
+    server,
+    "crm_create_project_milestone",
+    "Add a milestone to a project. name and dueDate (ISO 'YYYY-MM-DD') are what makes it useful. phaseId optionally anchors it to one phase and must belong to this project. Leave status at its default 'geplant': flipping a milestone to 'erreicht' notifies every workspace member, which is not what you want while seeding a plan.",
+    {
+      projectId: z.string(),
+      name: z.string(),
+      dueDate: z.string().nullable().optional(),
+      phaseId: z.string().nullable().optional(),
+      status: z.enum(["geplant", "erreicht", "verfehlt"]).optional(),
+    },
+    req
+  );
+  tool(
+    server,
+    "crm_update_project_milestone",
+    "Update one milestone. PATCH semantics — omitted fields keep their value, null clears a nullable one. Setting status to 'erreicht' stamps reachedAt and notifies every workspace member. Use 'verfehlt' for a date that passed without the milestone being hit; silently moving dueDate instead destroys the record of what was originally promised.",
+    {
+      projectId: z.string(),
+      milestoneId: z.string(),
+      name: z.string().optional(),
+      dueDate: z.string().nullable().optional(),
+      phaseId: z.string().nullable().optional(),
+      status: z.enum(["geplant", "erreicht", "verfehlt"]).optional(),
+    },
+    req
+  );
+  tool(
+    server,
+    "crm_delete_project_milestone",
+    "Delete a milestone permanently. Nothing else references it, so this is safe — but when the milestone happened and was missed, prefer crm_update_project_milestone with status 'verfehlt' so the project history stays readable.",
+    { projectId: z.string(), milestoneId: z.string() },
+    req
+  );
+
   tool(
     server,
     "crm_api",

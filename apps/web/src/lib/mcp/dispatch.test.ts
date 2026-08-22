@@ -612,3 +612,23 @@ describe("crm_create_project_phase", () => {
     });
   });
 });
+
+describe("crm_update_project_milestone", () => {
+  it("PATCHes the nested milestone path and clears phaseId with null", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_update_project_milestone", {
+      projectId: "p-1",
+      milestoneId: "ms 7",
+      status: "erreicht",
+      phaseId: null,
+    });
+
+    expect(calls[0].path).toBe("/api/v1/projects/p-1/milestones/ms%207");
+    expect(calls[0].options.method).toBe("PATCH");
+    expect(calls[0].options.body).toEqual({
+      status: "erreicht",
+      phaseId: null,
+    });
+  });
+});
