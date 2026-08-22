@@ -1205,6 +1205,93 @@ export const TOOLS: ToolDef[] = [
     },
   },
 
+  // ── Sprints ───────────────────────────────────────────────────────
+  {
+    name: "crm_list_sprints",
+    description:
+      "List every sprint of the workspace, newest first, with state ('planung'|'aktiv'|'abgeschlossen'), start and end date, the day counters and live metrics. The metrics are TASK COUNTS, not story points: totalTasks, doneTasks, openTasks, progressPct. At most one sprint is 'aktiv' at a time — that is the one the work dashboard and the timeline default to.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "crm_get_sprint",
+    description:
+      "Get one sprint with its live metrics and day counters (daysTotal, daysElapsed, daysRemaining). A closed sprint returns the counts frozen at close time rather than recomputing them, so historical sprints stay stable.",
+    inputSchema: {
+      type: "object",
+      properties: { sprintId: { type: "string" } },
+      required: ["sprintId"],
+    },
+  },
+  {
+    name: "crm_create_sprint",
+    description:
+      "Create a sprint. It starts in state 'planung' — creating it does not start it, call crm_activate_sprint for that. name is required; startDate and endDate are ISO 'YYYY-MM-DD'. capacityPoints is the planned number of TASKS for the sprint (the column kept its old points name after the switch to count-based sprints); leave it out when you do not have a number.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string" },
+        goal: { type: "string" },
+        startDate: { type: "string", description: "ISO YYYY-MM-DD" },
+        endDate: { type: "string", description: "ISO YYYY-MM-DD" },
+        capacityPoints: {
+          type: "number",
+          description: "Planned number of tasks for the sprint",
+        },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "crm_update_sprint",
+    description:
+      "Edit a sprint's name, goal, dates or planned task count. PATCH semantics — omitted fields keep their value. This tool never starts or closes a sprint: use crm_activate_sprint and crm_close_sprint, which are separate on purpose so a typo cannot fall through to a plain edit.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sprintId: { type: "string" },
+        name: { type: "string" },
+        goal: { type: "string" },
+        startDate: { type: "string", description: "ISO YYYY-MM-DD" },
+        endDate: { type: "string", description: "ISO YYYY-MM-DD" },
+        capacityPoints: {
+          type: "number",
+          description: "Planned number of tasks for the sprint",
+        },
+      },
+      required: ["sprintId"],
+    },
+  },
+  {
+    name: "crm_activate_sprint",
+    description:
+      "Start a sprint. Only one sprint can be 'aktiv' at a time: if another one is still running the call is rejected with a German message telling you to close it first — do not retry, close the running sprint or pick a different one. An active sprint is what crm_work_dashboard and crm_sprint_timeline default to.",
+    inputSchema: {
+      type: "object",
+      properties: { sprintId: { type: "string" } },
+      required: ["sprintId"],
+    },
+  },
+  {
+    name: "crm_close_sprint",
+    description:
+      "Close a sprint and carry its unfinished tasks over. The sprint's committed and completed task counts are frozen at this moment and its metrics stop moving, so this is not reversible by reactivating it. Returns the sprint plus a summary of what was carried. Ask the user before closing — this ends a planning period for the whole team.",
+    inputSchema: {
+      type: "object",
+      properties: { sprintId: { type: "string" } },
+      required: ["sprintId"],
+    },
+  },
+  {
+    name: "crm_delete_sprint",
+    description:
+      "Delete a sprint. Only sprints still in state 'planung' can be deleted; a running or closed sprint is refused with a German message telling you to close it instead. Tasks assigned to a deleted sprint fall back to the backlog, they are not deleted.",
+    inputSchema: {
+      type: "object",
+      properties: { sprintId: { type: "string" } },
+      required: ["sprintId"],
+    },
+  },
+
   // ── Escape hatch ──────────────────────────────────────────────────
   {
     name: "crm_api",

@@ -142,6 +142,14 @@ export const CRM_TOOL_NAMES = [
   "crm_list_task_dependencies",
   "crm_add_task_dependency",
   "crm_remove_task_dependency",
+  // ── Sprints ───────────────────────────────────────────────────────
+  "crm_list_sprints",
+  "crm_get_sprint",
+  "crm_create_sprint",
+  "crm_update_sprint",
+  "crm_activate_sprint",
+  "crm_close_sprint",
+  "crm_delete_sprint",
   // ── Escape hatch ──────────────────────────────────────────────────
   "crm_api",
 ] as const;

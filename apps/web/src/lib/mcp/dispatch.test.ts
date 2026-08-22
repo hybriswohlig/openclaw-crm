@@ -771,3 +771,46 @@ describe("crm_remove_task_dependency", () => {
     expect(calls[0].options.method).toBe("DELETE");
   });
 });
+
+describe("crm_activate_sprint", () => {
+  it("PATCHes the action verb and nothing else", async () => {
+    // The route's PATCH is overloaded: anything that is not a known action
+    // falls through to the plain edit branch, where an empty body would
+    // blank name, goal and dates. The action must be the whole body.
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_activate_sprint", { sprintId: "s-3" });
+
+    expect(calls[0].path).toBe("/api/v1/sprints/s-3");
+    expect(calls[0].options.method).toBe("PATCH");
+    expect(calls[0].options.body).toEqual({ action: "aktivieren" });
+  });
+});
+
+describe("crm_close_sprint", () => {
+  it("PATCHes the abschliessen action", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_close_sprint", { sprintId: "s-3" });
+
+    expect(calls[0].options.body).toEqual({ action: "abschliessen" });
+  });
+});
+
+describe("crm_update_sprint", () => {
+  it("never sends an action key, and coerces capacityPoints", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_update_sprint", {
+      sprintId: "s-3",
+      name: "Sprint 4",
+      capacityPoints: "18",
+    });
+
+    expect(calls[0].options.body).toEqual({
+      name: "Sprint 4",
+      capacityPoints: 18,
+    });
+    expect(calls[0].options.body).not.toHaveProperty("action");
+  });
+});

@@ -911,6 +911,56 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
         { method: "DELETE" }
       );
 
+    // ── Sprints ─────────────────────────────────────────────────────────
+    case "crm_list_sprints":
+      return client.request("/api/v1/sprints");
+    case "crm_get_sprint":
+      return client.request(
+        `/api/v1/sprints/${encodeURIComponent(str(args.sprintId))}`
+      );
+    case "crm_create_sprint": {
+      const body: Record<string, unknown> = { name: args.name };
+      for (const key of ["goal", "startDate", "endDate"]) {
+        if (args[key] !== undefined) body[key] = args[key];
+      }
+      if (args.capacityPoints !== undefined) {
+        body.capacityPoints =
+          args.capacityPoints === null ? null : num(args.capacityPoints);
+      }
+      return client.request("/api/v1/sprints", { method: "POST", body });
+    }
+    case "crm_update_sprint": {
+      // Deliberately never carries an `action` key: the route treats an
+      // unknown action as a plain edit, so a stray one would blank fields.
+      const body: Record<string, unknown> = {};
+      for (const key of ["name", "goal", "startDate", "endDate"]) {
+        if (args[key] !== undefined) body[key] = args[key];
+      }
+      if (args.capacityPoints !== undefined) {
+        body.capacityPoints =
+          args.capacityPoints === null ? null : num(args.capacityPoints);
+      }
+      return client.request(
+        `/api/v1/sprints/${encodeURIComponent(str(args.sprintId))}`,
+        { method: "PATCH", body }
+      );
+    }
+    case "crm_activate_sprint":
+      return client.request(
+        `/api/v1/sprints/${encodeURIComponent(str(args.sprintId))}`,
+        { method: "PATCH", body: { action: "aktivieren" } }
+      );
+    case "crm_close_sprint":
+      return client.request(
+        `/api/v1/sprints/${encodeURIComponent(str(args.sprintId))}`,
+        { method: "PATCH", body: { action: "abschliessen" } }
+      );
+    case "crm_delete_sprint":
+      return client.request(
+        `/api/v1/sprints/${encodeURIComponent(str(args.sprintId))}`,
+        { method: "DELETE" }
+      );
+
     case "crm_api": {
       const path = str(args.path);
       if (!path.startsWith("/api/")) {
