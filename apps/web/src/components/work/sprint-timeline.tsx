@@ -81,6 +81,36 @@ export function SprintTimeline({
   const todayIndex = useMemo(() => todayColumnIndex(days), [days]);
   const gridWidth = days.length * dayWidth;
 
+  // Per row: sort by start, then stack into lanes so overlapping bars never
+  // cover each other. The cap already happened server-side — `truncatedBars`
+  // says how many were dropped and is surfaced as "+n weitere" (Risk R5).
+  const rows = useMemo(() => {
+    return (data?.rows ?? []).map((row) => {
+      const visible = [...row.bars].sort(
+        (a, b) => a.startIndex - b.startIndex || a.endIndex - b.endIndex
+      );
+      const lanes = assignBarLanes(visible);
+      const laneCount = lanes.length === 0 ? 1 : Math.max(...lanes) + 1;
+      return {
+        ...row,
+        visible,
+        lanes,
+        hidden: row.truncatedBars,
+        // Dated tasks outside the window are a DIFFERENT number: a project
+        // with 30 dated tasks and 8 in the window has 22 here and possibly 0
+        // in truncatedBars. Showing only the cap claims a completeness the
+        // row does not have (defect W12).
+        outside: row.outOfWindowBars ?? 0,
+        height: laneCount * BAR_HEIGHT + (laneCount - 1) * LANE_GAP + ROW_PADDING * 2,
+      };
+    });
+  }, [data]);
+
+  const setBarRef = useCallback((taskId: string, el: HTMLElement | null) => {
+    if (el) barRefs.current.set(taskId, el);
+    else barRefs.current.delete(taskId);
+  }, []);
+
   // Navigation is pure scrolling — the server owns the window (it is the
   // sprint), so "‹ / ›" move the viewport by a week and "Heute" centres the
   // current column. No extra API contract needed.
@@ -229,11 +259,157 @@ export function SprintTimeline({
             </div>
           </div>
 
-          {/* Task 16 fügt hier die Projektzeilen ein, Task 17 das SVG-Overlay. */}
+          <div ref={contentRef} className="relative">
+            {rows.map((row) => (
+              <div
+                key={row.projectId ?? "__operativ__"}
+                className="flex border-t border-border"
+                style={{ height: row.height }}
+              >
+                {/* Zeilenlabel */}
+                <div
+                  style={{ width: ROW_LABEL_WIDTH }}
+                  className="flex shrink-0 items-center gap-2 pr-3"
+                >
+                  <span
+                    className="h-full w-[3px] shrink-0 rounded-full"
+                    style={{ background: row.color }}
+                  />
+                  <div className="min-w-0">
+                    <div className="truncate text-[12.5px] font-medium" style={{ color: "var(--foreground)" }}>
+                      {row.projectName}
+                    </div>
+                    {(row.hidden > 0 || row.outside > 0) && (
+                      <div
+                        className="k-mono text-[10px]"
+                        style={{ color: "var(--warn)" }}
+                        title={[
+                          row.hidden > 0
+                            ? `${row.hidden} weitere Aufgaben werden aus Platzgründen nicht gezeichnet.`
+                            : null,
+                          row.outside > 0
+                            ? `${row.outside} Aufgaben liegen ausserhalb des Zeitraums.`
+                            : null,
+                          'Im Projekt-Tab „Zeitleiste" siehst du alle.',
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
+                      >
+                        {row.hidden > 0 && <>+{row.hidden} weitere</>}
+                        {row.hidden > 0 && row.outside > 0 && " · "}
+                        {row.outside > 0 && <>{row.outside} ausserhalb</>}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Balkenspur */}
+                <div className="relative shrink-0" style={{ width: gridWidth }}>
+                  {/* Spaltenraster als Hintergrund */}
+                  <div className="pointer-events-none absolute inset-0 flex">
+                    {days.map((d, i) => (
+                      <div
+                        key={i}
+                        className="shrink-0"
+                        style={{
+                          width: dayWidth,
+                          borderRight: "1px solid var(--border)",
+                          background:
+                            i === todayIndex
+                              ? "color-mix(in oklch, var(--kottke-accent) 8%, transparent)"
+                              : d.getDay() === 0 || d.getDay() === 6
+                                ? "color-mix(in srgb, var(--muted) 55%, transparent)"
+                                : "transparent",
+                        }}
+                      />
+                    ))}
+                  </div>
+
+                  {row.visible.map((bar, i) => (
+                    <TimelineBar
+                      key={bar.taskId}
+                      bar={bar}
+                      lane={row.lanes[i]}
+                      dayWidth={dayWidth}
+                      selected={selectedTaskId === bar.taskId}
+                      onClick={(id) => {
+                        onSelectTask?.(selectedTaskId === id ? null : id);
+                        onTaskClick?.(id);
+                      }}
+                      registerRef={setBarRef}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
       {/* Task 18 fügt hier die Legende ein. */}
     </div>
+  );
+}
+
+function TimelineBar({
+  bar,
+  lane,
+  dayWidth,
+  selected = false,
+  onClick,
+  registerRef,
+}: {
+  bar: TimelineBarJSON;
+  lane: number;
+  dayWidth: number;
+  selected?: boolean;
+  onClick?: (taskId: string) => void;
+  registerRef: (taskId: string, el: HTMLElement | null) => void;
+}) {
+  const geo = timelineBarStyle(bar, dayWidth);
+  const token = BAR_TOKEN[bar.state];
+  const dl = deadlineLabel(bar.deadline, { done: bar.state === "erledigt" });
+  const wide = geo.width >= 92;
+
+  return (
+    <button
+      type="button"
+      ref={(el) => registerRef(bar.taskId, el)}
+      onClick={() => onClick?.(bar.taskId)}
+      title={`${bar.title} · ${BAR_LABEL[bar.state]} · ${dl.text}`}
+      className="absolute flex items-center gap-1.5 overflow-hidden px-2 text-left transition-transform hover:z-20 hover:scale-[1.02]"
+      style={{
+        left: geo.left,
+        width: geo.width,
+        top: ROW_PADDING + lane * (BAR_HEIGHT + LANE_GAP),
+        height: BAR_HEIGHT,
+        borderRadius: 7,
+        background: `color-mix(in oklch, ${token} ${selected ? 34 : 20}%, transparent)`,
+        border: selected
+          ? "2px solid var(--foreground)"
+          : `1px solid color-mix(in oklch, ${token} 48%, transparent)`,
+        color: token,
+        // Completed bars step back so the open work reads first.
+        opacity: bar.state === "erledigt" ? 0.72 : 1,
+      }}
+    >
+      {bar.state === "ueberfaellig" && <AlertTriangle className="h-[12px] w-[12px] shrink-0" />}
+      <span
+        className="min-w-0 flex-1 truncate text-[11.5px] font-medium"
+        style={{
+          color: "var(--foreground)",
+          textDecoration: bar.state === "erledigt" ? "line-through" : undefined,
+        }}
+      >
+        {bar.title}
+      </span>
+      {wide && bar.assignees.length > 0 && (
+        <AvatarStack
+          className="shrink-0"
+          people={bar.assignees.map((a) => ({ id: a.userId, name: a.name, image: a.image }))}
+          max={2}
+        />
+      )}
+    </button>
   );
 }
