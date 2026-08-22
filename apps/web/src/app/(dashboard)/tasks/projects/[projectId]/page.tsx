@@ -23,6 +23,7 @@ import { formatDayShortDE, formatEURCents } from "@/lib/work-ui";
 import { OverviewTab } from "./_components/overview-tab";
 import { PlanTab } from "./_components/plan-tab";
 import { TasksTab } from "./_components/tasks-tab";
+import { TimelineTab } from "./_components/timeline-tab";
 
 export interface TabProps {
   project: ProjectJSON;
@@ -312,7 +313,10 @@ function ProjectDetailInner() {
             <TabsContent value="aufgaben">
               <TasksTab project={project} reload={reload} />
             </TabsContent>
-            {/* Tasks 38–42 hängen hier ihre TabsContent ein. */}
+            <TabsContent value="zeitleiste">
+              <TimelineTab project={project} reload={reload} />
+            </TabsContent>
+            {/* Tasks 39–42 hängen hier ihre TabsContent ein. */}
           </div>
         </Tabs>
       </div>
