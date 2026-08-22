@@ -33,6 +33,11 @@ export const AI_TASK_SLUGS = {
   // the transcribe-audio cron over inbound audio attachments; the transcript
   // replaces the "[Sprachnachricht]" body so extraction reads voice like text.
   INBOX_TRANSCRIBE_AUDIO: "inbox.transcribe-audio",
+  // Projekt-Anlege-Wizard: turns the step-1 basics into scope points, phases,
+  // a first task frame, milestones and initial risks (spec §9). Structured
+  // output only — the wizard shows it as editable suggestions and never
+  // writes without the operator pressing "Projekt erstellen".
+  PROJECT_PLAN_GENERATE: "project_plan_generate",
 } as const;
 
 /**
@@ -195,6 +200,19 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
     defaultTemperature: null,
     defaultMaxTokens: null,
     defaultDailySpendCapUsd: 2,
+  },
+  [AI_TASK_SLUGS.PROJECT_PLAN_GENERATE]: {
+    slug: AI_TASK_SLUGS.PROJECT_PLAN_GENERATE,
+    label: "Projektplan-Generator (Anlege-Wizard)",
+    description:
+      "Erzeugt aus Projektname, Kurzbeschreibung, Bereich, Laufzeit und grobem Scope einen Vorschlag für Scope-Punkte, Phasen, erste Aufgaben, Meilensteine und Risiken. Alle Vorschläge sind im Wizard editierbar.",
+    defaultProvider: "crm-tools",
+    defaultModel: "grok-build",
+    defaultFallbackModel: "grok-4.6",
+    defaultTemperature: 0.3,
+    defaultMaxTokens: 6000,
+    defaultDailySpendCapUsd: 3,
+    humanizeOutput: false,
   },
 };
 
