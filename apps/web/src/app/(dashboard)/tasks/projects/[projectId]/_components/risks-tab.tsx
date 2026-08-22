@@ -9,7 +9,7 @@ import type { ProjectJSON, RiskJSON } from "@/lib/work-types";
 import { SectionCard } from "@/components/work/section-card";
 import { RiskChip, RiskStatusChip } from "@/components/work/status-chip";
 import { FilterChips } from "@/components/work/filter-chips";
-import { EmptyState, LoadingLine } from "@/components/work/empty-state";
+import { EmptyState, ErrorLine, LoadingLine } from "@/components/work/empty-state";
 import { RISK_SEVERITY, RISK_STATUS } from "@/lib/project-constants";
 import { formatDateDE, readApiError } from "@/lib/work-ui";
 
@@ -28,12 +28,20 @@ export function RisksTab({ project, reload }: { project: ProjectJSON; reload: ()
   const [title, setTitle] = useState("");
   const [severity, setSeverity] = useState("mittel");
   const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch(`/api/v1/projects/${project.id}/risks`, { cache: "no-store" });
-      if (res.ok) setRisks((((await res.json())?.data ?? []) as RiskJSON[]));
+      if (res.ok) {
+        setRisks((((await res.json())?.data ?? []) as RiskJSON[]));
+        setFailed(false);
+      } else {
+        setFailed(true);
+      }
+    } catch {
+      setFailed(true);
     } finally {
       setLoading(false);
     }
@@ -170,7 +178,9 @@ export function RisksTab({ project, reload }: { project: ProjectJSON; reload: ()
         </button>
       </div>
 
-      {visible.length === 0 ? (
+      {failed && risks.length === 0 ? (
+        <ErrorLine onRetry={load} />
+      ) : visible.length === 0 ? (
         <EmptyState title="Keine Risiken" hint="Was kann das Projekt aus der Spur werfen?" />
       ) : (
         <div className="flex flex-col gap-2">

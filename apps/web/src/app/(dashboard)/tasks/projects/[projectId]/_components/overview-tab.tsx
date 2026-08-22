@@ -12,7 +12,7 @@ import type { ActivityJSON, MilestoneJSON, PhaseJSON, ProjectDocumentJSON, Proje
 import { SectionCard } from "@/components/work/section-card";
 import { ProgressBar } from "@/components/work/progress-bar";
 import { MilestoneStatusChip, PhaseStatusChip, StatusChip } from "@/components/work/status-chip";
-import { EmptyState, LoadingLine } from "@/components/work/empty-state";
+import { EmptyState, ErrorLine, LoadingLine } from "@/components/work/empty-state";
 import { AvatarStack } from "@/components/work/avatar-stack";
 import { ActivityTimeline } from "@/components/records/activity-timeline";
 import { activityTimelineType, formatDateDE, formatDayShortDE, readApiError } from "@/lib/work-ui";
@@ -27,6 +27,10 @@ export function OverviewTab({ project, reload }: { project: ProjectJSON; reload:
   const [documents, setDocuments] = useState<ProjectDocumentJSON[]>([]);
   const [activity, setActivity] = useState<ActivityJSON[]>([]);
   const [loading, setLoading] = useState(true);
+  const [phasesFailed, setPhasesFailed] = useState(false);
+  const [milestonesFailed, setMilestonesFailed] = useState(false);
+  const [documentsFailed, setDocumentsFailed] = useState(false);
+  const [activityFailed, setActivityFailed] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -36,10 +40,30 @@ export function OverviewTab({ project, reload }: { project: ProjectJSON; reload:
       fetch(`/api/v1/projects/${project.id}/documents`, { cache: "no-store" }),
       fetch(`/api/v1/projects/${project.id}/activity?limit=10`, { cache: "no-store" }),
     ]);
-    if (ph.status === "fulfilled" && ph.value.ok) setPhases(((await ph.value.json())?.data ?? []) as PhaseJSON[]);
-    if (ms.status === "fulfilled" && ms.value.ok) setMilestones(((await ms.value.json())?.data ?? []) as MilestoneJSON[]);
-    if (docs.status === "fulfilled" && docs.value.ok) setDocuments(((await docs.value.json())?.data ?? []) as ProjectDocumentJSON[]);
-    if (act.status === "fulfilled" && act.value.ok) setActivity(((await act.value.json())?.data ?? []) as ActivityJSON[]);
+    if (ph.status === "fulfilled" && ph.value.ok) {
+      setPhases(((await ph.value.json())?.data ?? []) as PhaseJSON[]);
+      setPhasesFailed(false);
+    } else {
+      setPhasesFailed(true);
+    }
+    if (ms.status === "fulfilled" && ms.value.ok) {
+      setMilestones(((await ms.value.json())?.data ?? []) as MilestoneJSON[]);
+      setMilestonesFailed(false);
+    } else {
+      setMilestonesFailed(true);
+    }
+    if (docs.status === "fulfilled" && docs.value.ok) {
+      setDocuments(((await docs.value.json())?.data ?? []) as ProjectDocumentJSON[]);
+      setDocumentsFailed(false);
+    } else {
+      setDocumentsFailed(true);
+    }
+    if (act.status === "fulfilled" && act.value.ok) {
+      setActivity(((await act.value.json())?.data ?? []) as ActivityJSON[]);
+      setActivityFailed(false);
+    } else {
+      setActivityFailed(true);
+    }
     setLoading(false);
   }, [project.id]);
 
@@ -114,6 +138,8 @@ export function OverviewTab({ project, reload }: { project: ProjectJSON; reload:
         <SectionCard title="Meilensteine" subtitle={`${project.stats.reachedMilestones} von ${project.stats.totalMilestones} erreicht`}>
           {loading && milestones.length === 0 ? (
             <LoadingLine />
+          ) : milestonesFailed && milestones.length === 0 ? (
+            <ErrorLine onRetry={load} />
           ) : milestones.length === 0 ? (
             <EmptyState title="Keine Meilensteine" hint="Leg sie im Tab „Plan“ an." />
           ) : (
@@ -170,6 +196,8 @@ export function OverviewTab({ project, reload }: { project: ProjectJSON; reload:
       >
         {loading && phases.length === 0 ? (
           <LoadingLine />
+        ) : phasesFailed && phases.length === 0 ? (
+          <ErrorLine onRetry={load} />
         ) : phases.length === 0 ? (
           <EmptyState
             icon={<Layers className="h-5 w-5" />}
@@ -242,7 +270,9 @@ export function OverviewTab({ project, reload }: { project: ProjectJSON; reload:
             </button>
           }
         >
-          {documents.length === 0 ? (
+          {documentsFailed && documents.length === 0 ? (
+            <ErrorLine onRetry={load} />
+          ) : documents.length === 0 ? (
             <EmptyState icon={<FileText className="h-5 w-5" />} title="Keine Dokumente" hint="Lade sie im Tab „Dokumente“ hoch." />
           ) : (
             <ul className="flex flex-col">
@@ -266,7 +296,9 @@ export function OverviewTab({ project, reload }: { project: ProjectJSON; reload:
         </SectionCard>
 
         <SectionCard title="Aktivitäten">
-          {activity.length === 0 ? (
+          {activityFailed && activity.length === 0 ? (
+            <ErrorLine onRetry={load} />
+          ) : activity.length === 0 ? (
             <EmptyState title="Noch keine Aktivität" />
           ) : (
             <div className="-mx-3">

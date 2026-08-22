@@ -11,7 +11,7 @@ import type { PhaseJSON, ProjectJSON, TaskJSON, TaskListJSON } from "@/lib/work-
 import { SectionCard } from "@/components/work/section-card";
 import { TaskRow } from "@/components/work/task-row";
 import { FilterChips } from "@/components/work/filter-chips";
-import { EmptyState, LoadingLine } from "@/components/work/empty-state";
+import { EmptyState, ErrorLine, LoadingLine } from "@/components/work/empty-state";
 import { ProgressBar } from "@/components/work/progress-bar";
 import { WorkTaskDialog, type WorkTaskSavePayload } from "@/components/work/task-dialog";
 import { countLabel, readApiError } from "@/lib/work-ui";
@@ -38,6 +38,8 @@ export function TasksTab({ project, reload }: { project: ProjectJSON; reload: ()
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<TaskJSON | null>(null);
   const [presetPhaseId, setPresetPhaseId] = useState<string | null>(null);
+  const [tasksFailed, setTasksFailed] = useState(false);
+  const [phasesFailed, setPhasesFailed] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -57,9 +59,18 @@ export function TasksTab({ project, reload }: { project: ProjectJSON; reload: ()
       const payload = ((await t.value.json())?.data ?? null) as TaskListJSON | null;
       setTasks(payload?.tasks ?? []);
       setTotal(payload?.pagination?.total ?? payload?.tasks?.length ?? 0);
+      setTasksFailed(false);
+    } else {
+      // A failed tasks fetch must not be mistaken for "this phase genuinely
+      // has no tasks" — the per-phase groups below key off tasksFailed to
+      // tell those two states apart (I1).
+      setTasksFailed(true);
     }
     if (p.status === "fulfilled" && p.value.ok) {
       setPhases((((await p.value.json())?.data ?? []) as PhaseJSON[]));
+      setPhasesFailed(false);
+    } else {
+      setPhasesFailed(true);
     }
     setLoading(false);
   }, [project.id]);
@@ -152,6 +163,10 @@ export function TasksTab({ project, reload }: { project: ProjectJSON; reload: ()
         </button>
       </div>
 
+      {phasesFailed && phases.length === 0 && (
+        <ErrorLine label="Arbeitsbereiche konnten nicht geladen werden." onRetry={load} />
+      )}
+
       {groups.out.map(({ phase, tasks: phaseTasks }) => (
         <SectionCard
           key={phase.id}
@@ -170,7 +185,11 @@ export function TasksTab({ project, reload }: { project: ProjectJSON; reload: ()
         >
           <ProgressBar value={phase.progressPct} height={5} className="mb-2" />
           {phaseTasks.length === 0 ? (
-            <EmptyState title="Keine Aufgaben in diesem Bereich" />
+            tasksFailed ? (
+              <ErrorLine onRetry={load} />
+            ) : (
+              <EmptyState title="Keine Aufgaben in diesem Bereich" />
+            )
           ) : (
             <div className="-mx-2 flex flex-col divide-y divide-border">
               {phaseTasks.map((t) => (
@@ -205,7 +224,11 @@ export function TasksTab({ project, reload }: { project: ProjectJSON; reload: ()
         }
       >
         {groups.loose.length === 0 ? (
-          <EmptyState title="Alles einem Bereich zugeordnet" />
+          tasksFailed ? (
+            <ErrorLine onRetry={load} />
+          ) : (
+            <EmptyState title="Alles einem Bereich zugeordnet" />
+          )
         ) : (
           <div className="-mx-2 flex flex-col divide-y divide-border">
             {groups.loose.map((t) => (

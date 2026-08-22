@@ -11,7 +11,7 @@ import { Download, FileText, Loader2, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import type { ProjectDocumentJSON, ProjectJSON } from "@/lib/work-types";
 import { SectionCard } from "@/components/work/section-card";
-import { EmptyState, LoadingLine } from "@/components/work/empty-state";
+import { EmptyState, ErrorLine, LoadingLine } from "@/components/work/empty-state";
 import { DocumentPreviewModal } from "@/components/documents/document-preview-modal";
 import { formatDateDE, readApiError } from "@/lib/work-ui";
 
@@ -31,13 +31,21 @@ export function DocumentsTab({ project }: { project: ProjectJSON; reload: () => 
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview] = useState<ProjectDocumentJSON | null>(null);
+  const [failed, setFailed] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch(`/api/v1/projects/${project.id}/documents`, { cache: "no-store" });
-      if (res.ok) setDocs((((await res.json())?.data ?? []) as ProjectDocumentJSON[]));
+      if (res.ok) {
+        setDocs((((await res.json())?.data ?? []) as ProjectDocumentJSON[]));
+        setFailed(false);
+      } else {
+        setFailed(true);
+      }
+    } catch {
+      setFailed(true);
     } finally {
       setLoading(false);
     }
@@ -130,6 +138,8 @@ export function DocumentsTab({ project }: { project: ProjectJSON; reload: () => 
 
         {loading && docs.length === 0 ? (
           <LoadingLine />
+        ) : failed && docs.length === 0 ? (
+          <ErrorLine onRetry={load} />
         ) : docs.length === 0 ? (
           <EmptyState icon={<FileText className="h-5 w-5" />} title="Noch keine Dokumente" />
         ) : (

@@ -10,7 +10,7 @@ import type { MilestoneJSON, PhaseJSON, ProjectJSON } from "@/lib/work-types";
 import { SectionCard } from "@/components/work/section-card";
 import { ProgressBar } from "@/components/work/progress-bar";
 import { MilestoneStatusChip, PhaseStatusChip } from "@/components/work/status-chip";
-import { EmptyState, LoadingLine } from "@/components/work/empty-state";
+import { EmptyState, ErrorLine, LoadingLine } from "@/components/work/empty-state";
 import { PHASE_STATUS, MILESTONE_STATUS } from "@/lib/project-constants";
 import { formatDateDE, readApiError, toDateInputValue } from "@/lib/work-ui";
 
@@ -35,6 +35,8 @@ export function PlanTab({ project, reload }: { project: ProjectJSON; reload: () 
   const [newPhase, setNewPhase] = useState("");
   const [newMilestone, setNewMilestone] = useState("");
   const [busy, setBusy] = useState(false);
+  const [phasesFailed, setPhasesFailed] = useState(false);
+  const [milestonesFailed, setMilestonesFailed] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -42,8 +44,18 @@ export function PlanTab({ project, reload }: { project: ProjectJSON; reload: () 
       fetch(`/api/v1/projects/${project.id}/phases`, { cache: "no-store" }),
       fetch(`/api/v1/projects/${project.id}/milestones`, { cache: "no-store" }),
     ]);
-    if (ph.status === "fulfilled" && ph.value.ok) setPhases(((await ph.value.json())?.data ?? []) as PhaseJSON[]);
-    if (ms.status === "fulfilled" && ms.value.ok) setMilestones(((await ms.value.json())?.data ?? []) as MilestoneJSON[]);
+    if (ph.status === "fulfilled" && ph.value.ok) {
+      setPhases(((await ph.value.json())?.data ?? []) as PhaseJSON[]);
+      setPhasesFailed(false);
+    } else {
+      setPhasesFailed(true);
+    }
+    if (ms.status === "fulfilled" && ms.value.ok) {
+      setMilestones(((await ms.value.json())?.data ?? []) as MilestoneJSON[]);
+      setMilestonesFailed(false);
+    } else {
+      setMilestonesFailed(true);
+    }
     setLoading(false);
   }, [project.id]);
 
@@ -224,7 +236,9 @@ export function PlanTab({ project, reload }: { project: ProjectJSON; reload: () 
   return (
     <div className="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
       <SectionCard title="Arbeitsbereiche" subtitle={`${phases.length} Phasen`}>
-        {phases.length === 0 ? (
+        {phasesFailed && phases.length === 0 ? (
+          <ErrorLine onRetry={load} />
+        ) : phases.length === 0 ? (
           <EmptyState title="Noch kein Arbeitsbereich" hint="Ein Arbeitsbereich bündelt die Aufgaben eines Projektabschnitts." />
         ) : (
           <div className="flex flex-col gap-2">
@@ -363,7 +377,9 @@ export function PlanTab({ project, reload }: { project: ProjectJSON; reload: () 
 
       <div className="flex min-w-0 flex-col gap-4">
         <SectionCard title="Meilensteine" subtitle={`${milestones.length} gesamt`}>
-          {milestones.length === 0 ? (
+          {milestonesFailed && milestones.length === 0 ? (
+            <ErrorLine onRetry={load} />
+          ) : milestones.length === 0 ? (
             <EmptyState title="Keine Meilensteine" hint="Meilensteine sind bewusst unabhängig von Phasen." />
           ) : (
             <div className="flex flex-col gap-2">

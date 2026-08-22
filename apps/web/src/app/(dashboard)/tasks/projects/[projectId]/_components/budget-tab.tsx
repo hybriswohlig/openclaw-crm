@@ -9,7 +9,7 @@ import type { BudgetSummaryJSON, ProjectJSON } from "@/lib/work-types";
 import { SectionCard } from "@/components/work/section-card";
 import { ProgressBar } from "@/components/work/progress-bar";
 import { StatusChip } from "@/components/work/status-chip";
-import { EmptyState, LoadingLine } from "@/components/work/empty-state";
+import { EmptyState, ErrorLine, LoadingLine } from "@/components/work/empty-state";
 import { eurosToCents, formatDateDE, formatEURCents, readApiError } from "@/lib/work-ui";
 
 const inputClass =
@@ -24,12 +24,20 @@ export function BudgetTab({ project, reload }: { project: ProjectJSON; reload: (
   const [bookedAt, setBookedAt] = useState("");
   const [busy, setBusy] = useState(false);
   const [frameError, setFrameError] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch(`/api/v1/projects/${project.id}/budget`, { cache: "no-store" });
-      if (res.ok) setBudget((((await res.json())?.data ?? null) as BudgetSummaryJSON | null));
+      if (res.ok) {
+        setBudget((((await res.json())?.data ?? null) as BudgetSummaryJSON | null));
+        setFailed(false);
+      } else {
+        setFailed(true);
+      }
+    } catch {
+      setFailed(true);
     } finally {
       setLoading(false);
     }
@@ -122,6 +130,7 @@ export function BudgetTab({ project, reload }: { project: ProjectJSON; reload: (
   }
 
   if (loading && !budget) return <LoadingLine />;
+  if (failed && !budget) return <ErrorLine onRetry={load} />;
 
   const planned = budget?.plannedCents ?? null;
   const spent = budget?.spentCents ?? 0;
