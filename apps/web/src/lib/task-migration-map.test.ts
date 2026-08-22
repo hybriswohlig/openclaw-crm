@@ -459,11 +459,11 @@ describe("planTaskMigration — first run", () => {
   });
 
   it("does not flag AGBS updaten as an unclassified parent", () => {
-    expect(plan.warnings.join("\n")).not.toMatch(/AGBS updaten.*weder in der Projekttabelle/s);
+    expect(plan.warnings.join("\n")).not.toMatch(/AGBS updaten[\s\S]*weder in der Projekttabelle/);
   });
 
   it("warns about a container whose child count drifted from the audit", () => {
-    expect(plan.warnings.join("\n")).toMatch(/Ladungsfähige Anschrift UG.*nicht gefunden/s);
+    expect(plan.warnings.join("\n")).toMatch(/Ladungsfähige Anschrift UG[\s\S]*nicht gefunden/);
   });
 });
 
@@ -641,5 +641,76 @@ describe("toIsoDate", () => {
   it("formats in local time, so a late-evening run does not slip a day", () => {
     expect(toIsoDate(new Date("2026-08-21T23:30:00"))).toBe("2026-08-21");
     expect(toIsoDate(new Date("2026-01-05T00:10:00"))).toBe("2026-01-05");
+  });
+});
+
+import { evaluateVerification, type VerificationInput } from "./task-migration-map";
+
+const CLEAN: VerificationInput = {
+  projektWithoutProject: 0,
+  operativWithProject: 0,
+  phaseMismatch: 0,
+  statusMismatch: 0,
+  orphanParents: 0,
+  danglingProjectRefs: 0,
+  leiterMismatch: 0,
+  taskCountBefore: 222,
+  containersDeleted: 8,
+  tasksCreated: 2,
+  taskCountNow: 216,
+};
+
+describe("evaluateVerification (spec §14)", () => {
+  it("passes a clean production state and returns all eight checks", () => {
+    const result = evaluateVerification(CLEAN);
+    expect(result.checks).toHaveLength(8);
+    expect(result.checks.every((c) => c.status === "PASS")).toBe(true);
+    expect(result.passed).toBe(true);
+  });
+
+  it("fails when a projekt task has no project_id", () => {
+    const result = evaluateVerification({ ...CLEAN, projektWithoutProject: 3 });
+    expect(result.passed).toBe(false);
+    const check = result.checks.find((c) => c.name.includes("kind='projekt'"))!;
+    expect(check.status).toBe("FAIL");
+    expect(check.actual).toBe("3");
+  });
+
+  it("fails when status and is_completed disagree", () => {
+    const result = evaluateVerification({ ...CLEAN, statusMismatch: 1 });
+    expect(result.checks.find((c) => c.name.includes("is_completed"))!.status).toBe("FAIL");
+  });
+
+  it("fails when a delete orphaned children behind a missing parent", () => {
+    const result = evaluateVerification({ ...CLEAN, orphanParents: 5 });
+    expect(result.checks.find((c) => c.name.includes("Verwaiste"))!.status).toBe("FAIL");
+  });
+
+  it("fails when a project has no leiter row, or one that is not its owner", () => {
+    const result = evaluateVerification({ ...CLEAN, leiterMismatch: 8 });
+    expect(result.passed).toBe(false);
+    const check = result.checks.find((c) => c.name.includes("Projektleiter"))!;
+    expect(check.status).toBe("FAIL");
+    expect(check.actual).toBe("8");
+  });
+
+  it("does the count arithmetic 222 - 8 + 2 = 216 and reports the delta on a miss", () => {
+    expect(evaluateVerification(CLEAN).checks.at(-1)!.status).toBe("PASS");
+    const bad = evaluateVerification({ ...CLEAN, taskCountNow: 214 });
+    const check = bad.checks.at(-1)!;
+    expect(check.status).toBe("FAIL");
+    expect(check.expected).toBe("216");
+    expect(check.actual).toBe("214");
+  });
+
+  it("skips the count check without a backup baseline, and still passes", () => {
+    const result = evaluateVerification({
+      ...CLEAN,
+      taskCountBefore: null,
+      containersDeleted: null,
+      tasksCreated: null,
+    });
+    expect(result.checks.at(-1)!.status).toBe("SKIP");
+    expect(result.passed).toBe(true);
   });
 });

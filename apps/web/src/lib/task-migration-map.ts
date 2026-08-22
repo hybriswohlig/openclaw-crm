@@ -945,3 +945,88 @@ export function planSprintRotation(
     notes,
   };
 }
+
+// ─── Verification (spec §14) ──────────────────────────────────────────
+
+export interface VerificationInput {
+  /** kind='projekt' rows with a NULL project_id (I1, one direction). */
+  projektWithoutProject: number;
+  /** Non-projekt rows carrying a project_id (I1, the other direction). */
+  operativWithProject: number;
+  /** phase_id pointing at a phase of a different project (I2). */
+  phaseMismatch: number;
+  /** (status = 'erledigt') !== is_completed (I3). */
+  statusMismatch: number;
+  /** parent_task_id pointing at a row that no longer exists (no FK!). */
+  orphanParents: number;
+  /** project_id pointing at a project that does not exist. */
+  danglingProjectRefs: number;
+  /**
+   * Projects whose Projektleiter is not exactly one `project_members` row
+   * with role='leiter' whose user_id equals `projects.owner_user_id` — or,
+   * for an owner-less project, not zero such rows. Catches both the missing
+   * leader row and the duplicate that an owner handover could leave behind.
+   */
+  leiterMismatch: number;
+  /** From the newest backup file. Null => the count check is skipped. */
+  taskCountBefore: number | null;
+  containersDeleted: number | null;
+  tasksCreated: number | null;
+  taskCountNow: number;
+}
+
+export interface VerificationCheck {
+  name: string;
+  expected: string;
+  actual: string;
+  status: "PASS" | "FAIL" | "SKIP";
+}
+
+export interface VerificationResult {
+  checks: VerificationCheck[];
+  passed: boolean;
+}
+
+function zeroCheck(name: string, value: number): VerificationCheck {
+  return {
+    name,
+    expected: "0",
+    actual: String(value),
+    status: value === 0 ? "PASS" : "FAIL",
+  };
+}
+
+export function evaluateVerification(input: VerificationInput): VerificationResult {
+  const checks: VerificationCheck[] = [
+    zeroCheck("kind='projekt' ohne project_id", input.projektWithoutProject),
+    zeroCheck("project_id ohne kind='projekt'", input.operativWithProject),
+    zeroCheck("phase_id eines fremden Projekts", input.phaseMismatch),
+    zeroCheck("status/is_completed uneinig", input.statusMismatch),
+    zeroCheck("Verwaiste parent_task_id", input.orphanParents),
+    zeroCheck("project_id ohne Projekt", input.danglingProjectRefs),
+    zeroCheck("Projektleiter ohne passende leiter-Mitgliedschaft", input.leiterMismatch),
+  ];
+
+  if (
+    input.taskCountBefore === null ||
+    input.containersDeleted === null ||
+    input.tasksCreated === null
+  ) {
+    checks.push({
+      name: "Aufgabenzahl vorher = nachher",
+      expected: "kein Backup gefunden",
+      actual: String(input.taskCountNow),
+      status: "SKIP",
+    });
+  } else {
+    const expected = input.taskCountBefore - input.containersDeleted + input.tasksCreated;
+    checks.push({
+      name: "Aufgabenzahl vorher = nachher",
+      expected: String(expected),
+      actual: String(input.taskCountNow),
+      status: expected === input.taskCountNow ? "PASS" : "FAIL",
+    });
+  }
+
+  return { checks, passed: checks.every((c) => c.status !== "FAIL") };
+}
