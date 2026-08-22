@@ -94,6 +94,13 @@ describe("daysOverdue", () => {
     // 25.10.2026 is the DST switch in Europe/Berlin: that day has 25 hours.
     expect(daysOverdue(new Date(2026, 9, 23), new Date(2026, 9, 27, 12, 0))).toBe(4);
   });
+
+  it("survives the start of summer time", () => {
+    // 29.03.2026 is the DST switch in Europe/Berlin: that day has only 23
+    // hours, so 27.03. -> 31.03. is 95h = 3.9583 days. Math.floor would give
+    // 3; only Math.round gives the correct 4.
+    expect(daysOverdue(new Date(2026, 2, 27), new Date(2026, 2, 31, 12, 0))).toBe(4);
+  });
 });
 
 describe("budgetPct", () => {
@@ -122,6 +129,19 @@ describe("computeTimelineBar", () => {
     expect(
       computeTimelineBar(task({ deadline: new Date(2026, 7, 25) }), WINDOW_START, WINDOW_END, NOW)
     ).toEqual({ taskId: "t1", startIndex: 8, endIndex: 8, state: "geplant" });
+  });
+
+  it("draws a one day bar when only the start date is known", () => {
+    // Operative tasks routinely have a start and no deadline. The bar must
+    // still land on the start day instead of vanishing off the window.
+    expect(
+      computeTimelineBar(
+        task({ startDate: new Date(2026, 7, 19) }),
+        WINDOW_START,
+        WINDOW_END,
+        NOW
+      )
+    ).toEqual({ taskId: "t1", startIndex: 2, endIndex: 2, state: "geplant" });
   });
 
   it("spans from start date to deadline", () => {

@@ -57,6 +57,11 @@ export const RISK_STATUS = ["offen", "beobachtet", "geschlossen"] as const;
 export const PROJECT_MEMBER_ROLE = ["leiter", "mitglied", "beobachter"] as const;
 export const BUDGET_ENTRY_KIND = ["plan", "ist"] as const;
 export const TASK_KIND = ["projekt", "operativ"] as const;
+// What sprints.committed_points / completed_points MEAN for a given sprint:
+// 'points' sums Fibonacci story points (sprints closed before this release),
+// 'tasks' counts tasks (everything from now on). See sprints.ts for why old
+// sprints cannot simply be recomputed.
+export const SPRINT_METRICS_BASIS = ["tasks", "points"] as const;
 
 export type ProjectCategory = (typeof PROJECT_CATEGORIES)[number]["value"];
 export type OperativeArea = (typeof OPERATIVE_AREAS)[number]["value"];
@@ -69,6 +74,7 @@ export type RiskStatus = (typeof RISK_STATUS)[number];
 export type ProjectMemberRole = (typeof PROJECT_MEMBER_ROLE)[number];
 export type BudgetEntryKind = (typeof BUDGET_ENTRY_KIND)[number];
 export type TaskKind = (typeof TASK_KIND)[number];
+export type SprintMetricsBasis = (typeof SPRINT_METRICS_BASIS)[number];
 
 // ─── Normalisation ────────────────────────────────────────────────────
 // Every enum-like column is plain text in Postgres; these are the only gate.
@@ -123,6 +129,10 @@ export function normalizeBudgetEntryKind(v: unknown): BudgetEntryKind | null {
 
 export function normalizeTaskKind(v: unknown): TaskKind | null {
   return pick<TaskKind>(TASK_KIND, v);
+}
+
+export function normalizeSprintMetricsBasis(v: unknown): SprintMetricsBasis | null {
+  return pick<SprintMetricsBasis>(SPRINT_METRICS_BASIS, v);
 }
 
 // ─── Labels ───────────────────────────────────────────────────────────

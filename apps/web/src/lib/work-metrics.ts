@@ -6,7 +6,7 @@
 // Everything is count based, never point based, and parents count like any
 // other task — the old "leaf only" rule of the points system is gone.
 
-import type { TaskStatus } from "./project-constants";
+import { OVERDUE_STATE, type TaskStatus } from "./project-constants";
 
 const MS_PER_DAY = 86_400_000;
 
@@ -64,17 +64,22 @@ export interface TimelineBar {
   taskId: string;
   startIndex: number; // inclusive column index within the sprint window
   endIndex: number; // inclusive
-  state: "geplant" | "in_arbeit" | "erledigt" | "ueberfaellig";
+  state: TaskStatus | typeof OVERDUE_STATE;
 }
 
-// start = start_date ?? deadline ?? created_at, ende = deadline ?? start, both
-// clipped to the sprint window. A task with no date at all is not drawn, and
-// neither is a bar that misses the window entirely.
+// A task with neither a start date nor a deadline gets no bar at all — the
+// guard below returns null before either fallback matters. Once at least one
+// of the two is set: start = start_date ?? deadline, ende = deadline ?? start,
+// both clipped to the sprint window. `createdAt` is accepted in the input
+// type but is never read by this function; see the field comment.
 export function computeTimelineBar(
   task: {
     id: string;
     startDate: Date | null;
     deadline: Date | null;
+    // Reserved for later phases, which already pass it on every call site.
+    // Not read here — do not wire fallback logic to it (see the comment
+    // above computeTimelineBar for why the ?? createdAt idea does not apply).
     createdAt: Date;
     status: TaskStatus;
   },
@@ -104,7 +109,7 @@ export function computeTimelineBar(
     task.status === "erledigt"
       ? "erledigt"
       : overdueAt(task.deadline, task.status, now)
-        ? "ueberfaellig"
+        ? OVERDUE_STATE
         : task.status === "in_arbeit"
           ? "in_arbeit"
           : "geplant";

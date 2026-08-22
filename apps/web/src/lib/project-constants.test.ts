@@ -11,6 +11,7 @@ import {
   PROJECT_MEMBER_ROLE,
   BUDGET_ENTRY_KIND,
   TASK_KIND,
+  SPRINT_METRICS_BASIS,
   normalizeProjectCategory,
   normalizeOperativeArea,
   normalizeProjectStatus,
@@ -22,6 +23,7 @@ import {
   normalizeProjectMemberRole,
   normalizeBudgetEntryKind,
   normalizeTaskKind,
+  normalizeSprintMetricsBasis,
   projectCategoryLabel,
   operativeAreaLabel,
   projectStatusLabel,
@@ -110,6 +112,7 @@ describe("project constant lists", () => {
     expect(PROJECT_MEMBER_ROLE).toEqual(["leiter", "mitglied", "beobachter"]);
     expect(BUDGET_ENTRY_KIND).toEqual(["plan", "ist"]);
     expect(TASK_KIND).toEqual(["projekt", "operativ"]);
+    expect(SPRINT_METRICS_BASIS).toEqual(["tasks", "points"]);
   });
 });
 
@@ -126,6 +129,7 @@ describe("normalize helpers", () => {
     expect(normalizeProjectMemberRole("leiter")).toBe("leiter");
     expect(normalizeBudgetEntryKind("ist")).toBe("ist");
     expect(normalizeTaskKind("projekt")).toBe("projekt");
+    expect(normalizeSprintMetricsBasis("points")).toBe("points");
   });
 
   it("returns null for anything unknown or non-string", () => {
@@ -140,6 +144,8 @@ describe("normalize helpers", () => {
     expect(normalizeProjectMemberRole("admin")).toBeNull();
     expect(normalizeBudgetEntryKind("soll")).toBeNull();
     expect(normalizeTaskKind("operative")).toBeNull();
+    expect(normalizeSprintMetricsBasis("story_points")).toBeNull();
+    expect(normalizeSprintMetricsBasis(null)).toBeNull();
   });
 
   it("does not confuse the overlapping values of different vocabularies", () => {
