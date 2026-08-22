@@ -45,6 +45,17 @@ export const sprints = pgTable(
     committedPoints: integer("committed_points"),
     completedPoints: integer("completed_points"),
     carriedTasks: integer("carried_tasks"),
+    // 'tasks' | 'points' — what committedPoints and completedPoints MEAN for
+    // this row. This release moved sprint metrics from Fibonacci story points
+    // to task counts, and the two are not comparable. Sprints closed before
+    // the change hold point sums and are marked 'points' by 0044_projects.sql;
+    // everything from now on defaults to 'tasks'.
+    //
+    // Old sprints cannot simply be recomputed: closeSprint detaches every
+    // unfinished task (sprint_id = NULL), so the denominator — how many tasks
+    // the sprint contained — is gone. Rather than invent it, the UI renders
+    // "–" for a 'points' sprint and the stored numbers are left alone.
+    metricsBasis: text("metrics_basis").notNull().default("tasks"),
     createdBy: text("created_by").references(() => users.id, {
       onDelete: "set null",
     }),
