@@ -150,6 +150,8 @@ export const CRM_TOOL_NAMES = [
   "crm_activate_sprint",
   "crm_close_sprint",
   "crm_delete_sprint",
+  // ── Aufgabe verschieben ───────────────────────────────────────────
+  "crm_move_task",
   // ── Escape hatch ──────────────────────────────────────────────────
   "crm_api",
 ] as const;

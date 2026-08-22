@@ -166,9 +166,18 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_list_tasks",
-    "List tasks.",
+    "List tasks. With no filters this returns the open, top-level tasks of the workspace. kind splits the two halves of the work model: 'projekt' tasks belong to a project, 'operativ' tasks are day-to-day work tagged with an area. Narrow further with projectId, phaseId, area ('angebot','auftrag','nachsorge','schaden','personal','fahrzeuge','beschaffung','buchhaltung','kunde','sonstiges'), status ('geplant','in_arbeit','erledigt'), overdue, dueWithinDays, or sprintId — 'active' for the running sprint, 'none' for the backlog, or a concrete sprint id. Subtasks are hidden by default; pass includeSubtasks true when you need every row, for example to count a project's real progress.",
     {
       showCompleted: z.boolean().optional(),
+      kind: z.enum(["projekt", "operativ"]).optional(),
+      projectId: z.string().optional(),
+      phaseId: z.string().optional(),
+      area: z.string().optional(),
+      status: z.enum(["geplant", "in_arbeit", "erledigt"]).optional(),
+      sprintId: z.string().optional(),
+      overdue: z.boolean().optional(),
+      dueWithinDays: z.number().optional(),
+      includeSubtasks: z.boolean().optional(),
       limit: z.number().optional(),
       offset: z.number().optional(),
     },
@@ -177,10 +186,20 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_create_task",
-    "Create a task.",
+    "Create a task. content is the title. Passing projectId makes it a project task — kind is forced to 'projekt' server-side, so you never need to send both. Leaving projectId out makes it operative work, and then area should be one of 'angebot','auftrag','nachsorge','schaden','personal','fahrzeuge','beschaffung','buchhaltung','kunde','sonstiges' or the task lands untagged in the operative list. phaseId must belong to projectId or the call is rejected. status is 'geplant','in_arbeit' or 'erledigt' and is kept in sync with the completion flag. priority is 'sehr_hoch','hoch','mittel' or 'niedrig'. recordIds links the task to CRM records, assigneeIds to workspace users. For a child of an existing task prefer crm_create_subtask, which inherits the parent's project and phase.",
     {
       content: z.string(),
-      deadline: z.string().optional(),
+      description: z.string().nullable().optional(),
+      deadline: z.string().nullable().optional(),
+      startDate: z.string().nullable().optional(),
+      priority: z.enum(["sehr_hoch", "hoch", "mittel", "niedrig"]).optional(),
+      status: z.enum(["geplant", "in_arbeit", "erledigt"]).optional(),
+      kind: z.enum(["projekt", "operativ"]).optional(),
+      projectId: z.string().nullable().optional(),
+      phaseId: z.string().nullable().optional(),
+      area: z.string().nullable().optional(),
+      sprintId: z.string().nullable().optional(),
+      parentTaskId: z.string().nullable().optional(),
       recordIds: z.array(z.string()).optional(),
       assigneeIds: z.array(z.string()).optional(),
     },
@@ -189,12 +208,24 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_update_task",
-    "Update a task.",
+    "Update a task. PATCH semantics — only the fields you pass change. status and isCompleted are two views of one thing and are always written together: status 'erledigt' completes the task and stamps completedAt, isCompleted false reopens it as 'in_arbeit'. Setting projectId switches the task to kind 'projekt'; clearing it with null makes it operative and drops phaseId, so pass an area in the same call. A phaseId must belong to the task's project. Subtasks follow their parent automatically. assigneeIds and recordIds REPLACE the whole set — read the task first and send the merged list, or you will silently unassign people.",
     {
       taskId: z.string(),
       content: z.string().optional(),
+      description: z.string().nullable().optional(),
       isCompleted: z.boolean().optional(),
-      deadline: z.string().optional(),
+      deadline: z.string().nullable().optional(),
+      startDate: z.string().nullable().optional(),
+      priority: z.enum(["sehr_hoch", "hoch", "mittel", "niedrig"]).optional(),
+      status: z.enum(["geplant", "in_arbeit", "erledigt"]).optional(),
+      kind: z.enum(["projekt", "operativ"]).optional(),
+      projectId: z.string().nullable().optional(),
+      phaseId: z.string().nullable().optional(),
+      area: z.string().nullable().optional(),
+      sprintId: z.string().nullable().optional(),
+      parentTaskId: z.string().nullable().optional(),
+      recordIds: z.array(z.string()).optional(),
+      assigneeIds: z.array(z.string()).optional(),
     },
     req
   );
@@ -1013,6 +1044,20 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
     "crm_delete_sprint",
     "Delete a sprint. Only sprints still in state 'planung' can be deleted; a running or closed sprint is refused with a German message telling you to close it instead. Tasks assigned to a deleted sprint fall back to the backlog, they are not deleted.",
     { sprintId: z.string() },
+    req
+  );
+
+  // ── Aufgabe verschieben ─────────────────────────────────────────────────
+  tool(
+    server,
+    "crm_move_task",
+    "Move a task between projects, phases and the operative list in one call. projectId null takes it out of every project: it becomes kind 'operativ' and its phaseId is cleared, so pass an area in the same call or it lands untagged. A phaseId must belong to the target project or the move is rejected. Subtasks are moved along with their parent. Use crm_update_task when you want to change content or dates as well — this tool only moves.",
+    {
+      taskId: z.string(),
+      projectId: z.string().nullable(),
+      phaseId: z.string().nullable().optional(),
+      area: z.string().nullable().optional(),
+    },
     req
   );
 

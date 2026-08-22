@@ -244,23 +244,56 @@ export const TOOLS: ToolDef[] = [
   // ── Tasks ─────────────────────────────────────────────────────────
   {
     name: "crm_list_tasks",
-    description: "List tasks (optionally hide completed).",
+    description:
+      "List tasks. With no filters this returns the open, top-level tasks of the workspace. kind splits the two halves of the work model: 'projekt' tasks belong to a project, 'operativ' tasks are day-to-day work tagged with an area. Narrow further with projectId, phaseId, area ('angebot','auftrag','nachsorge','schaden','personal','fahrzeuge','beschaffung','buchhaltung','kunde','sonstiges'), status ('geplant','in_arbeit','erledigt'), overdue, dueWithinDays, or sprintId — 'active' for the running sprint, 'none' for the backlog, or a concrete sprint id. Subtasks are hidden by default; pass includeSubtasks true when you need every row, for example to count a project's real progress.",
     inputSchema: {
       type: "object",
       properties: {
         showCompleted: { type: "boolean", description: "Default false" },
+        kind: { type: "string", enum: ["projekt", "operativ"] },
+        projectId: { type: "string" },
+        phaseId: { type: "string" },
+        area: { type: "string", description: "OPERATIVE_AREAS value" },
+        status: {
+          type: "string",
+          enum: ["geplant", "in_arbeit", "erledigt"],
+        },
+        sprintId: {
+          type: "string",
+          description: "Sprint id, 'active' or 'none'",
+        },
+        overdue: { type: "boolean" },
+        dueWithinDays: { type: "number" },
+        includeSubtasks: { type: "boolean", description: "Default false" },
         ...pagination,
       },
     },
   },
   {
     name: "crm_create_task",
-    description: "Create a task.",
+    description:
+      "Create a task. content is the title. Passing projectId makes it a project task — kind is forced to 'projekt' server-side, so you never need to send both. Leaving projectId out makes it operative work, and then area should be one of 'angebot','auftrag','nachsorge','schaden','personal','fahrzeuge','beschaffung','buchhaltung','kunde','sonstiges' or the task lands untagged in the operative list. phaseId must belong to projectId or the call is rejected. status is 'geplant','in_arbeit' or 'erledigt' and is kept in sync with the completion flag. priority is 'sehr_hoch','hoch','mittel' or 'niedrig'. recordIds links the task to CRM records, assigneeIds to workspace users. For a child of an existing task prefer crm_create_subtask, which inherits the parent's project and phase.",
     inputSchema: {
       type: "object",
       properties: {
         content: { type: "string" },
+        description: { type: "string" },
         deadline: { type: "string", description: "ISO date/datetime" },
+        startDate: { type: "string", description: "ISO YYYY-MM-DD" },
+        priority: {
+          type: "string",
+          enum: ["sehr_hoch", "hoch", "mittel", "niedrig"],
+        },
+        status: {
+          type: "string",
+          enum: ["geplant", "in_arbeit", "erledigt"],
+        },
+        kind: { type: "string", enum: ["projekt", "operativ"] },
+        projectId: { type: "string" },
+        phaseId: { type: "string" },
+        area: { type: "string", description: "OPERATIVE_AREAS value" },
+        sprintId: { type: "string" },
+        parentTaskId: { type: "string" },
         recordIds: { type: "array", items: { type: "string" } },
         assigneeIds: { type: "array", items: { type: "string" } },
       },
@@ -269,14 +302,33 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "crm_update_task",
-    description: "Update a task (content, completed, deadline).",
+    description:
+      "Update a task. PATCH semantics — only the fields you pass change. status and isCompleted are two views of one thing and are always written together: status 'erledigt' completes the task and stamps completedAt, isCompleted false reopens it as 'in_arbeit'. Setting projectId switches the task to kind 'projekt'; clearing it with null makes it operative and drops phaseId, so pass an area in the same call. A phaseId must belong to the task's project. Subtasks follow their parent automatically. assigneeIds and recordIds REPLACE the whole set — read the task first and send the merged list, or you will silently unassign people.",
     inputSchema: {
       type: "object",
       properties: {
         taskId: { type: "string" },
         content: { type: "string" },
+        description: { type: "string" },
         isCompleted: { type: "boolean" },
-        deadline: { type: "string" },
+        deadline: { type: "string", description: "ISO date/datetime" },
+        startDate: { type: "string", description: "ISO YYYY-MM-DD" },
+        priority: {
+          type: "string",
+          enum: ["sehr_hoch", "hoch", "mittel", "niedrig"],
+        },
+        status: {
+          type: "string",
+          enum: ["geplant", "in_arbeit", "erledigt"],
+        },
+        kind: { type: "string", enum: ["projekt", "operativ"] },
+        projectId: { type: "string" },
+        phaseId: { type: "string" },
+        area: { type: "string", description: "OPERATIVE_AREAS value" },
+        sprintId: { type: "string" },
+        parentTaskId: { type: "string" },
+        recordIds: { type: "array", items: { type: "string" } },
+        assigneeIds: { type: "array", items: { type: "string" } },
       },
       required: ["taskId"],
     },
@@ -1289,6 +1341,26 @@ export const TOOLS: ToolDef[] = [
       type: "object",
       properties: { sprintId: { type: "string" } },
       required: ["sprintId"],
+    },
+  },
+
+  // ── Aufgabe verschieben ───────────────────────────────────────────
+  {
+    name: "crm_move_task",
+    description:
+      "Move a task between projects, phases and the operative list in one call. projectId null takes it out of every project: it becomes kind 'operativ' and its phaseId is cleared, so pass an area in the same call or it lands untagged. A phaseId must belong to the target project or the move is rejected. Subtasks are moved along with their parent. Use crm_update_task when you want to change content or dates as well — this tool only moves.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        taskId: { type: "string" },
+        projectId: {
+          type: "string",
+          description: "Target project id, or null to make the task operative",
+        },
+        phaseId: { type: "string", description: "Phase of the target project" },
+        area: { type: "string", description: "OPERATIVE_AREAS value" },
+      },
+      required: ["taskId"],
     },
   },
 

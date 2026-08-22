@@ -273,29 +273,75 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
       return client.request("/api/v1/tasks", {
         query: {
           showCompleted: bool(args.showCompleted),
+          kind: args.kind as string | undefined,
+          projectId: args.projectId as string | undefined,
+          phaseId: args.phaseId as string | undefined,
+          area: args.area as string | undefined,
+          status: args.status as string | undefined,
+          sprintId: args.sprintId as string | undefined,
+          overdue: bool(args.overdue),
+          dueWithinDays: num(args.dueWithinDays),
+          includeSubtasks: bool(args.includeSubtasks),
           limit: num(args.limit),
           offset: num(args.offset),
         },
       });
-    case "crm_create_task":
-      return client.request("/api/v1/tasks", {
-        method: "POST",
-        body: {
-          content: args.content,
-          deadline: args.deadline,
-          recordIds: args.recordIds,
-          assigneeIds: args.assigneeIds,
-        },
-      });
-    case "crm_update_task":
+    case "crm_create_task": {
+      const body: Record<string, unknown> = { content: args.content };
+      for (const key of [
+        "description",
+        "deadline",
+        "startDate",
+        "priority",
+        "status",
+        "kind",
+        "projectId",
+        "phaseId",
+        "area",
+        "sprintId",
+        "parentTaskId",
+      ]) {
+        if (args[key] !== undefined) body[key] = args[key];
+      }
+      if (args.recordIds !== undefined) body.recordIds = asBody(args.recordIds);
+      if (args.assigneeIds !== undefined) {
+        body.assigneeIds = asBody(args.assigneeIds);
+      }
+      return client.request("/api/v1/tasks", { method: "POST", body });
+    }
+    case "crm_update_task": {
+      const body: Record<string, unknown> = {};
+      for (const key of [
+        "content",
+        "description",
+        "deadline",
+        "startDate",
+        "priority",
+        "status",
+        "kind",
+        "projectId",
+        "phaseId",
+        "area",
+        "sprintId",
+        "parentTaskId",
+      ]) {
+        if (args[key] !== undefined) body[key] = args[key];
+      }
+      // isCompleted used to be forwarded raw — the one boolean in this file
+      // that skipped bool(). Clients send "false", which is truthy, so the
+      // tool completed tasks it was asked to reopen.
+      if (args.isCompleted !== undefined) {
+        body.isCompleted = bool(args.isCompleted);
+      }
+      if (args.recordIds !== undefined) body.recordIds = asBody(args.recordIds);
+      if (args.assigneeIds !== undefined) {
+        body.assigneeIds = asBody(args.assigneeIds);
+      }
       return client.request(`/api/v1/tasks/${encodeURIComponent(str(args.taskId))}`, {
         method: "PATCH",
-        body: {
-          content: args.content,
-          isCompleted: args.isCompleted,
-          deadline: args.deadline,
-        },
+        body,
       });
+    }
     case "crm_delete_task":
       return client.request(`/api/v1/tasks/${encodeURIComponent(str(args.taskId))}`, {
         method: "DELETE",
@@ -960,6 +1006,21 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
         `/api/v1/sprints/${encodeURIComponent(str(args.sprintId))}`,
         { method: "DELETE" }
       );
+
+    // ── Aufgabe verschieben ─────────────────────────────────────────────
+    case "crm_move_task": {
+      // projectId and phaseId are always sent, null included: an omitted
+      // projectId would make this a no-op PATCH instead of a move.
+      const body: Record<string, unknown> = {
+        projectId: args.projectId ?? null,
+        phaseId: args.phaseId ?? null,
+      };
+      if (args.area !== undefined) body.area = args.area;
+      return client.request(`/api/v1/tasks/${encodeURIComponent(str(args.taskId))}`, {
+        method: "PATCH",
+        body,
+      });
+    }
 
     case "crm_api": {
       const path = str(args.path);

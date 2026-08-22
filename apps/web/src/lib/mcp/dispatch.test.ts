@@ -814,3 +814,197 @@ describe("crm_update_sprint", () => {
     expect(calls[0].options.body).not.toHaveProperty("action");
   });
 });
+
+describe("crm_list_tasks", () => {
+  it("coerces the new filters into query values the route can read", async () => {
+    // Every one of these arrives as a string from at least one MCP client.
+    // The route compares with === true and Number(), so an uncoerced
+    // "false" is truthy and an uncoerced "7" is a string.
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_list_tasks", {
+      showCompleted: "false",
+      kind: "projekt",
+      projectId: "p-1",
+      phaseId: "ph-2",
+      area: "auftrag",
+      status: "in_arbeit",
+      sprintId: "active",
+      overdue: "true",
+      dueWithinDays: "7",
+      includeSubtasks: "true",
+      limit: "100",
+      offset: "0",
+    });
+
+    expect(calls[0].path).toBe("/api/v1/tasks");
+    expect(calls[0].options.query).toEqual({
+      showCompleted: false,
+      kind: "projekt",
+      projectId: "p-1",
+      phaseId: "ph-2",
+      area: "auftrag",
+      status: "in_arbeit",
+      sprintId: "active",
+      overdue: true,
+      dueWithinDays: 7,
+      includeSubtasks: true,
+      limit: 100,
+      offset: 0,
+    });
+  });
+
+  it("sends no filters at all when none were given", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_list_tasks", {});
+
+    const query = calls[0].options.query as Record<string, unknown>;
+    expect(query.kind).toBeUndefined();
+    expect(query.overdue).toBeUndefined();
+    expect(query.includeSubtasks).toBeUndefined();
+  });
+});
+
+describe("crm_create_task", () => {
+  it("forwards every project field of the new work model", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_create_task", {
+      content: "Angebot Telematik einholen",
+      description: "Drei Anbieter vergleichen",
+      priority: "hoch",
+      status: "in_arbeit",
+      kind: "projekt",
+      projectId: "p-1",
+      phaseId: "ph-2",
+      startDate: "2026-09-01",
+      deadline: "2026-09-15",
+      sprintId: "s-3",
+      assigneeIds: ["u-1"],
+      recordIds: ["r-1"],
+    });
+
+    expect(calls[0].path).toBe("/api/v1/tasks");
+    expect(calls[0].options.method).toBe("POST");
+    expect(calls[0].options.body).toEqual({
+      content: "Angebot Telematik einholen",
+      description: "Drei Anbieter vergleichen",
+      priority: "hoch",
+      status: "in_arbeit",
+      kind: "projekt",
+      projectId: "p-1",
+      phaseId: "ph-2",
+      startDate: "2026-09-01",
+      deadline: "2026-09-15",
+      sprintId: "s-3",
+      assigneeIds: ["u-1"],
+      recordIds: ["r-1"],
+    });
+  });
+});
+
+describe("crm_update_task", () => {
+  it("runs isCompleted through bool() instead of forwarding the raw string", async () => {
+    // The bug this test exists for: isCompleted was the only boolean in the
+    // whole dispatch that skipped bool(). "true" reached the route as a
+    // string, and "false" — which is truthy — completed the task.
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_update_task", {
+      taskId: "t-1",
+      isCompleted: "false",
+    });
+
+    expect(calls[0].path).toBe("/api/v1/tasks/t-1");
+    expect(calls[0].options.method).toBe("PATCH");
+    expect(calls[0].options.body).toEqual({ isCompleted: false });
+  });
+
+  it("passes every new field through to the PATCH body", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_update_task", {
+      taskId: "t-1",
+      content: "Neuer Titel",
+      description: "Neuer Text",
+      priority: "sehr_hoch",
+      status: "erledigt",
+      kind: "projekt",
+      projectId: "p-1",
+      phaseId: "ph-2",
+      area: null,
+      startDate: "2026-09-01",
+      deadline: "2026-09-30",
+      sprintId: "s-3",
+      parentTaskId: null,
+      assigneeIds: ["u-1", "u-2"],
+      recordIds: [],
+    });
+
+    expect(calls[0].options.body).toEqual({
+      content: "Neuer Titel",
+      description: "Neuer Text",
+      priority: "sehr_hoch",
+      status: "erledigt",
+      kind: "projekt",
+      projectId: "p-1",
+      phaseId: "ph-2",
+      area: null,
+      startDate: "2026-09-01",
+      deadline: "2026-09-30",
+      sprintId: "s-3",
+      parentTaskId: null,
+      assigneeIds: ["u-1", "u-2"],
+      recordIds: [],
+    });
+  });
+
+  it("omits fields the caller did not send", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_update_task", {
+      taskId: "t-1",
+      status: "in_arbeit",
+    });
+
+    expect(calls[0].options.body).toEqual({ status: "in_arbeit" });
+  });
+});
+
+describe("crm_move_task", () => {
+  it("always sends projectId and phaseId, even as null", async () => {
+    // A move that omits projectId is not a move. Sending null explicitly is
+    // what pulls the task out of its project and back to kind 'operativ'.
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_move_task", {
+      taskId: "t-1",
+      projectId: null,
+      area: "buchhaltung",
+    });
+
+    expect(calls[0].path).toBe("/api/v1/tasks/t-1");
+    expect(calls[0].options.method).toBe("PATCH");
+    expect(calls[0].options.body).toEqual({
+      projectId: null,
+      phaseId: null,
+      area: "buchhaltung",
+    });
+  });
+
+  it("moves into a project and phase without touching area", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_move_task", {
+      taskId: "t-1",
+      projectId: "p-2",
+      phaseId: "ph-9",
+    });
+
+    expect(calls[0].options.body).toEqual({
+      projectId: "p-2",
+      phaseId: "ph-9",
+    });
+  });
+});
