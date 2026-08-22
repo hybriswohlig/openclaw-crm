@@ -199,7 +199,6 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
     req
   );
   tool(server, "crm_delete_task", "Delete a task.", { taskId: z.string() }, req);
-  tool(server, "crm_tasks_pulse", "Task pulse summary.", empty, req);
 
   tool(
     server,

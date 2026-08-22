@@ -435,3 +435,18 @@ describe("crm_get_attachment", () => {
     expect(textBlock(res.content)).not.toHaveProperty("contentBase64");
   });
 });
+
+describe("removed tools", () => {
+  it("no longer dispatches crm_tasks_pulse", async () => {
+    // /api/v1/tasks/pulse is deleted with the Team-Pulse bar in phase 4. A
+    // tool that outlives its route answers 404-as-HTML, which is worse than
+    // an honest "Unknown tool".
+    const { client, calls } = fakeClient();
+
+    const res = await handleTool(client, "crm_tasks_pulse", {});
+
+    expect(res.isError).toBe(true);
+    expect(textOf(res.content)).toContain("Unknown tool: crm_tasks_pulse");
+    expect(calls).toHaveLength(0);
+  });
+});

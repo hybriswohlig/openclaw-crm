@@ -300,8 +300,6 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
       return client.request(`/api/v1/tasks/${encodeURIComponent(str(args.taskId))}`, {
         method: "DELETE",
       });
-    case "crm_tasks_pulse":
-      return client.request("/api/v1/tasks/pulse");
 
     case "crm_list_notes":
       return client.request("/api/v1/notes", {

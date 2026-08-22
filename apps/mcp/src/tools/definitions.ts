@@ -290,12 +290,6 @@ export const TOOLS: ToolDef[] = [
       required: ["taskId"],
     },
   },
-  {
-    name: "crm_tasks_pulse",
-    description: "Task pulse / summary for the dashboard.",
-    inputSchema: { type: "object", properties: {} },
-  },
-
   // ── Notes ─────────────────────────────────────────────────────────
   {
     name: "crm_list_notes",
