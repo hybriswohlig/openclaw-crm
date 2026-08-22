@@ -1,9 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthContext, unauthorized, notFound, badRequest, success } from "@/lib/api-utils";
-import { updateTask, deleteTask, describeTaskRouteError } from "@/services/tasks";
+import { getTask, updateTask, deleteTask, describeTaskRouteError } from "@/services/tasks";
 import { db } from "@/db";
 import { taskAssignees } from "@/db/schema";
 import { eq } from "drizzle-orm";
+
+/**
+ * GET /api/v1/tasks/[taskId] — C1: read a single task, the same enriched
+ * shape PATCH returns. Without this an agent could not read a task's
+ * current assigneeIds/recordIds before a PATCH, and crm_list_tasks (capped
+ * at 200 rows, completed tasks and subtasks hidden by default) cannot
+ * substitute — a task outside its page or default filters is simply
+ * unreachable any other way.
+ */
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ taskId: string }> }
+) {
+  const ctx = await getAuthContext(req);
+  if (!ctx) return unauthorized();
+
+  const { taskId } = await params;
+
+  try {
+    const task = await getTask(taskId, ctx.workspaceId);
+    if (!task) return notFound("Task not found");
+    return success(task);
+  } catch (err) {
+    console.error("GET /api/v1/tasks/[taskId] error:", err);
+    return NextResponse.json(
+      { error: { code: "INTERNAL_ERROR", message: "Aufgabe konnte nicht geladen werden." } },
+      { status: 500 }
+    );
+  }
+}
 
 /** PATCH /api/v1/tasks/[taskId] */
 export async function PATCH(

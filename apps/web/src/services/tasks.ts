@@ -594,6 +594,23 @@ export async function listTasks(
   return { tasks: await enrichTasks(taskRows), total: Number(countResult.count) };
 }
 
+/**
+ * C1: a single enriched task by id, workspace-scoped. This is what backs
+ * `GET /api/v1/tasks/[taskId]` and `crm_get_task` — without it an agent has
+ * no way to read the current assigneeIds/recordIds before a PATCH, even
+ * though crm_update_task's own description tells it to (both REPLACE the
+ * whole set on write).
+ */
+export async function getTask(taskId: string, workspaceId: string): Promise<TaskData | null> {
+  const [task] = await db
+    .select()
+    .from(tasks)
+    .where(and(eq(tasks.id, taskId), eq(tasks.workspaceId, workspaceId)))
+    .limit(1);
+  if (!task) return null;
+  return (await enrichTasks([task]))[0];
+}
+
 export async function getTasksForRecord(recordId: string) {
   const trRows = await db
     .select({ taskId: taskRecords.taskId })

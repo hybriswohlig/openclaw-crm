@@ -270,6 +270,16 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "crm_get_task",
+    description:
+      "Get one task by id, enriched the same way crm_update_task's response is: assignees, linked records, projectId/phaseId, area, status, priority, dates and parentTaskId. crm_list_tasks caps at 200 rows and hides completed tasks and subtasks by default, so this is the way to read a task that list would filter out. Read it before an assigneeIds or recordIds update — both REPLACE the whole set on crm_update_task, and this is where you get the current list to merge.",
+    inputSchema: {
+      type: "object",
+      properties: { taskId: { type: "string" } },
+      required: ["taskId"],
+    },
+  },
+  {
     name: "crm_create_task",
     description:
       "Create a task. content is the title. Passing projectId makes it a project task — kind is forced to 'projekt' server-side, so you never need to send both. Leaving projectId out makes it operative work, and then area should be one of 'angebot','auftrag','nachsorge','schaden','personal','fahrzeuge','beschaffung','buchhaltung','kunde','sonstiges' or the task lands untagged in the operative list. phaseId must belong to projectId or the call is rejected. status is 'geplant','in_arbeit' or 'erledigt' and is kept in sync with the completion flag. priority is 'sehr_hoch','hoch','mittel' or 'niedrig'. recordIds links the task to CRM records, assigneeIds to workspace users. For a child of an existing task prefer crm_create_subtask, which inherits the parent's project and phase.",
@@ -303,7 +313,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "crm_update_task",
     description:
-      "Update a task. PATCH semantics — only the fields you pass change. status and isCompleted are two views of one thing and are always written together: status 'erledigt' completes the task and stamps completedAt, isCompleted false reopens it as 'in_arbeit'. Setting projectId switches the task to kind 'projekt'; clearing it with null makes it operative and drops phaseId, so pass an area in the same call. A phaseId must belong to the task's project. Subtasks follow their parent automatically. assigneeIds and recordIds REPLACE the whole set — read the task first and send the merged list, or you will silently unassign people.",
+      "Update a task. PATCH semantics — only the fields you pass change. status and isCompleted are two views of one thing and are always written together: status 'erledigt' completes the task and stamps completedAt, isCompleted false reopens it as 'in_arbeit'. Setting projectId switches the task to kind 'projekt'; clearing it with null makes it operative and drops phaseId, so pass an area in the same call. A phaseId must belong to the task's project. Subtasks follow their parent automatically. assigneeIds and recordIds REPLACE the whole set — call crm_get_task first and send the merged list, or you will silently unassign people.",
     inputSchema: {
       type: "object",
       properties: {

@@ -35,6 +35,7 @@ export const CRM_TOOL_NAMES = [
   "crm_get_record_activity",
   // ── Tasks ─────────────────────────────────────────────────────────
   "crm_list_tasks",
+  "crm_get_task",
   "crm_create_task",
   "crm_update_task",
   "crm_delete_task",

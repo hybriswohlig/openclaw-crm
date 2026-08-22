@@ -286,6 +286,8 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
           offset: num(args.offset),
         },
       });
+    case "crm_get_task":
+      return client.request(`/api/v1/tasks/${encodeURIComponent(str(args.taskId))}`);
     case "crm_create_task": {
       const body: Record<string, unknown> = { content: args.content };
       for (const key of [
