@@ -786,6 +786,31 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
       });
     }
 
+    // Unteraufgaben und Kommentare
+    case "crm_list_subtasks":
+      return client.request(
+        `/api/v1/tasks/${encodeURIComponent(str(args.taskId))}/subtasks`
+      );
+    case "crm_create_subtask": {
+      const body: Record<string, unknown> = { content: args.content };
+      for (const key of ["deadline", "assigneeIds"]) {
+        if (args[key] !== undefined) body[key] = args[key];
+      }
+      return client.request(
+        `/api/v1/tasks/${encodeURIComponent(str(args.taskId))}/subtasks`,
+        { method: "POST", body }
+      );
+    }
+    case "crm_list_task_comments":
+      return client.request(
+        `/api/v1/tasks/${encodeURIComponent(str(args.taskId))}/comments`
+      );
+    case "crm_create_task_comment":
+      return client.request(
+        `/api/v1/tasks/${encodeURIComponent(str(args.taskId))}/comments`,
+        { method: "POST", body: { body: str(args.body) } }
+      );
+
     // Escape hatch
     case "crm_api": {
       const path = str(args.path);

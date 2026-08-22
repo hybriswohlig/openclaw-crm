@@ -1008,3 +1008,43 @@ describe("crm_move_task", () => {
     });
   });
 });
+
+describe("crm_create_subtask", () => {
+  it("posts to the parent's subtasks collection with the inherited fields left out", async () => {
+    // kind/projectId/phaseId are inherited from the parent (invariant I4).
+    // Sending them here would let an agent create a child in a different
+    // project than its parent, which the service then has to undo.
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_create_subtask", {
+      taskId: "t-1",
+      content: "Angebote vergleichen",
+      assigneeIds: ["u-1"],
+    });
+
+    expect(calls[0].path).toBe("/api/v1/tasks/t-1/subtasks");
+    expect(calls[0].options.method).toBe("POST");
+    expect(calls[0].options.body).toEqual({
+      content: "Angebote vergleichen",
+      assigneeIds: ["u-1"],
+    });
+  });
+});
+
+describe("crm_create_task_comment", () => {
+  it("sends the comment text under the key the route reads", async () => {
+    // The route reads body.body — the argument name is not cosmetic.
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_create_task_comment", {
+      taskId: "t-1",
+      body: "Termin steht, @Dario schaut drauf",
+    });
+
+    expect(calls[0].path).toBe("/api/v1/tasks/t-1/comments");
+    expect(calls[0].options.method).toBe("POST");
+    expect(calls[0].options.body).toEqual({
+      body: "Termin steht, @Dario schaut drauf",
+    });
+  });
+});

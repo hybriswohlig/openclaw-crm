@@ -1061,6 +1061,41 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
     req
   );
 
+  // ── Unteraufgaben und Kommentare ────────────────────────────────────────
+  tool(
+    server,
+    "crm_list_subtasks",
+    "List the children of a task, enriched like full tasks (assignees, deadline, status, priority). Subtasks are hidden from crm_list_tasks unless includeSubtasks is set, so this is the direct way to see them. They inherit kind, projectId and phaseId from their parent and always live in the same project.",
+    { taskId: z.string() },
+    req
+  );
+  tool(
+    server,
+    "crm_create_subtask",
+    "Add a subtask under a parent task. It inherits the parent's kind, project and phase automatically — do not try to set those here; if the child belongs elsewhere it is not a subtask, create it with crm_create_task instead. Without a deadline it inherits the parent's, so an overdue parent does not hide fresh-looking children.",
+    {
+      taskId: z.string(),
+      content: z.string(),
+      deadline: z.string().nullable().optional(),
+      assigneeIds: z.array(z.string()).optional(),
+    },
+    req
+  );
+  tool(
+    server,
+    "crm_list_task_comments",
+    "List the comments on a task, oldest first, with author and timestamp. Comments are the discussion thread; the task's own description field is the brief. Read this before answering 'what is the status of X' — the last comment is usually the answer.",
+    { taskId: z.string() },
+    req
+  );
+  tool(
+    server,
+    "crm_create_task_comment",
+    "Add a comment to a task. body is plain text. Posting is not silent: the task's audience (assignees plus creator, minus you) gets a push notification, and an @-mention of a workspace member pushes them separately. Do not use comments as a scratchpad or a progress log for yourself — put durable information in the task description instead.",
+    { taskId: z.string(), body: z.string() },
+    req
+  );
+
   tool(
     server,
     "crm_api",

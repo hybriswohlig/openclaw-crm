@@ -152,6 +152,11 @@ export const CRM_TOOL_NAMES = [
   "crm_delete_sprint",
   // ── Aufgabe verschieben ───────────────────────────────────────────
   "crm_move_task",
+  // ── Unteraufgaben und Kommentare ──────────────────────────────────
+  "crm_list_subtasks",
+  "crm_create_subtask",
+  "crm_list_task_comments",
+  "crm_create_task_comment",
   // ── Escape hatch ──────────────────────────────────────────────────
   "crm_api",
 ] as const;

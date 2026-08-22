@@ -1364,6 +1364,56 @@ export const TOOLS: ToolDef[] = [
     },
   },
 
+  // ── Unteraufgaben und Kommentare ──────────────────────────────────
+  {
+    name: "crm_list_subtasks",
+    description:
+      "List the children of a task, enriched like full tasks (assignees, deadline, status, priority). Subtasks are hidden from crm_list_tasks unless includeSubtasks is set, so this is the direct way to see them. They inherit kind, projectId and phaseId from their parent and always live in the same project.",
+    inputSchema: {
+      type: "object",
+      properties: { taskId: { type: "string" } },
+      required: ["taskId"],
+    },
+  },
+  {
+    name: "crm_create_subtask",
+    description:
+      "Add a subtask under a parent task. It inherits the parent's kind, project and phase automatically — do not try to set those here; if the child belongs elsewhere it is not a subtask, create it with crm_create_task instead. Without a deadline it inherits the parent's, so an overdue parent does not hide fresh-looking children.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        taskId: { type: "string", description: "Parent task id" },
+        content: { type: "string" },
+        deadline: { type: "string", description: "ISO date/datetime" },
+        assigneeIds: { type: "array", items: { type: "string" } },
+      },
+      required: ["taskId", "content"],
+    },
+  },
+  {
+    name: "crm_list_task_comments",
+    description:
+      "List the comments on a task, oldest first, with author and timestamp. Comments are the discussion thread; the task's own description field is the brief. Read this before answering 'what is the status of X' — the last comment is usually the answer.",
+    inputSchema: {
+      type: "object",
+      properties: { taskId: { type: "string" } },
+      required: ["taskId"],
+    },
+  },
+  {
+    name: "crm_create_task_comment",
+    description:
+      "Add a comment to a task. body is plain text. Posting is not silent: the task's audience (assignees plus creator, minus you) gets a push notification, and an @-mention of a workspace member pushes them separately. Do not use comments as a scratchpad or a progress log for yourself — put durable information in the task description instead.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        taskId: { type: "string" },
+        body: { type: "string", description: "Comment text" },
+      },
+      required: ["taskId", "body"],
+    },
+  },
+
   // ── Escape hatch ──────────────────────────────────────────────────
   {
     name: "crm_api",

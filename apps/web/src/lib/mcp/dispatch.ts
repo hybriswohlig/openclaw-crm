@@ -1022,6 +1022,33 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
       });
     }
 
+    // ── Unteraufgaben und Kommentare ────────────────────────────────────
+    case "crm_list_subtasks":
+      return client.request(
+        `/api/v1/tasks/${encodeURIComponent(str(args.taskId))}/subtasks`
+      );
+    case "crm_create_subtask": {
+      const body: Record<string, unknown> = { content: args.content };
+      if (args.deadline !== undefined) body.deadline = args.deadline;
+      if (args.assigneeIds !== undefined) {
+        body.assigneeIds = asBody(args.assigneeIds);
+      }
+      return client.request(
+        `/api/v1/tasks/${encodeURIComponent(str(args.taskId))}/subtasks`,
+        { method: "POST", body }
+      );
+    }
+    case "crm_list_task_comments":
+      return client.request(
+        `/api/v1/tasks/${encodeURIComponent(str(args.taskId))}/comments`
+      );
+    case "crm_create_task_comment":
+      // The route reads body.body — keep the key, it is not a typo.
+      return client.request(
+        `/api/v1/tasks/${encodeURIComponent(str(args.taskId))}/comments`,
+        { method: "POST", body: { body: str(args.body) } }
+      );
+
     case "crm_api": {
       const path = str(args.path);
       if (!path.startsWith("/api/")) {
