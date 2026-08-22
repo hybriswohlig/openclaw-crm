@@ -317,7 +317,14 @@ export interface DashboardJSON {
   overdueTasks: TaskJSON[];
   activity: ActivityJSON[];
   upcoming: UpcomingJSON[];
-  team: TeamMemberJSON[];
+  /**
+   * `null` when there is no RUNNING sprint (services/work-dashboard.ts:
+   * `DashboardPayload.team`) — per-person bars are only meaningful while a
+   * sprint is active. `null` means "no sprint", not "nobody has work"; a
+   * consumer must render a dash/empty state for `null`, never iterate an
+   * empty or all-zero array and report everyone caught up.
+   */
+  team: TeamMemberJSON[] | null;
 }
 
 export type TimelineBarState = "geplant" | "in_arbeit" | "erledigt" | "ueberfaellig";

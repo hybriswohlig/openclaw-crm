@@ -28,6 +28,12 @@ import { FilterChips } from "@/components/work/filter-chips";
 import { TaskRow } from "@/components/work/task-row";
 import { SprintTimeline } from "@/components/work/sprint-timeline";
 import { OPERATIVE_FILTERS, matchesOperativeFilter, type OperativeFilter } from "@/lib/work-ui";
+import { ActivityTimeline } from "@/components/records/activity-timeline";
+import { AvatarStack } from "@/components/work/avatar-stack";
+import { ProgressBar } from "@/components/work/progress-bar";
+import { EmployeeAvatar } from "@/components/employees/employee-avatar";
+import { activityTimelineType, formatDayShortDE } from "@/lib/work-ui";
+import { Flag, Layers, Truck } from "lucide-react";
 
 /** How many operative rows the dashboard card shows before "Alle →". */
 const DASHBOARD_OPERATIVE_ROWS = 10;
@@ -259,7 +265,17 @@ export default function WorkDashboardPage() {
                 className="min-w-0"
               />
             </div>
-            {/* Task 23: vier untere Karten */}
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <OverdueCard
+                tasks={data.overdueTasks}
+                total={data.kpis.overdueCount}
+                onOpen={openTask}
+                onChanged={load}
+              />
+              <DashboardActivityCard activity={data.activity} />
+              <UpcomingCard upcoming={data.upcoming} />
+              <TeamCard team={data.team} hasSprint={hasRunningSprint} />
+            </div>
           </>
         )}
       </div>
@@ -465,6 +481,163 @@ function OperativeCard({
         <div className="-mx-2 flex flex-col divide-y divide-border">
           {visible.slice(0, DASHBOARD_OPERATIVE_ROWS).map((t) => (
             <TaskRow key={t.id} task={t} onOpen={onOpen} onToggled={onChanged} />
+          ))}
+        </div>
+      )}
+    </SectionCard>
+  );
+}
+
+function OverdueCard({
+  tasks,
+  total,
+  onOpen,
+  onChanged,
+}: {
+  tasks: TaskJSON[];
+  /** kpis.overdueCount — the true number, not this page's length. */
+  total: number;
+  onOpen: (t: TaskJSON) => void;
+  onChanged: () => void | Promise<void>;
+}) {
+  return (
+    <SectionCard
+      title="Überfällige Aufgaben"
+      subtitle={total > 0 ? (total > tasks.length ? `${tasks.length} von ${total}` : `${total} offen`) : null}
+      actionHref="/tasks/operative?filter=ueberfaellig"
+      actionLabel="Alle"
+    >
+      {tasks.length === 0 ? (
+        <EmptyState title="Nichts überfällig" hint="Alle Fälligkeiten sind eingehalten." />
+      ) : (
+        <div className="-mx-2 flex flex-col divide-y divide-border">
+          {tasks.slice(0, 6).map((t) => (
+            <TaskRow key={t.id} task={t} onOpen={onOpen} onToggled={onChanged} dense />
+          ))}
+        </div>
+      )}
+    </SectionCard>
+  );
+}
+
+function DashboardActivityCard({ activity }: { activity: DashboardJSON["activity"] }) {
+  return (
+    <SectionCard title="Aktivitätsfeed">
+      {activity.length === 0 ? (
+        <EmptyState title="Noch keine Aktivität" hint="Änderungen an Projekten und Aufgaben erscheinen hier." />
+      ) : (
+        <div className="-mx-3">
+          <ActivityTimeline
+            activities={activity.slice(0, 8).map((a, i) => ({
+              id: a?.id ?? `activity-${i}`,
+              type: activityTimelineType(a?.type),
+              title: a?.title ? (a.actorName ? `${a.title} · ${a.actorName}` : a.title) : "Aktivität",
+              description: a?.description ?? undefined,
+              createdAt: a?.createdAt ?? new Date().toISOString(),
+            }))}
+          />
+        </div>
+      )}
+    </SectionCard>
+  );
+}
+
+const UPCOMING_ICON = {
+  milestone: Flag,
+  phase: Layers,
+  move: Truck,
+} as const;
+
+function UpcomingCard({ upcoming }: { upcoming: DashboardJSON["upcoming"] }) {
+  return (
+    <SectionCard title="Nächste Termine">
+      {upcoming.length === 0 ? (
+        <EmptyState title="Keine Termine" hint="Meilensteine, Phasenenden und Umzugstermine erscheinen hier." />
+      ) : (
+        <div className="flex flex-col">
+          {upcoming.slice(0, 6).map((u, i) => {
+            const Icon = UPCOMING_ICON[u.kind];
+            return (
+              <Link
+                key={u.id}
+                href={u.url}
+                className="flex items-center gap-3 py-2.5"
+                style={{ borderTop: i === 0 ? 0 : "1px dashed var(--border)" }}
+              >
+                <span
+                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted"
+                  style={{ color: "var(--muted-foreground)" }}
+                >
+                  <Icon className="h-[14px] w-[14px]" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[13px]" style={{ color: "var(--foreground)" }}>
+                    {u.title}
+                  </div>
+                  {u.subtitle && (
+                    <div className="truncate text-[11.5px]" style={{ color: "var(--muted-foreground)" }}>
+                      {u.subtitle}
+                    </div>
+                  )}
+                </div>
+                <span className="k-mono shrink-0 text-[11px]" style={{ color: "var(--muted-foreground)" }}>
+                  {formatDayShortDE(u.date)}
+                </span>
+              </Link>
+            );
+          })}
+        </div>
+      )}
+    </SectionCard>
+  );
+}
+
+function TeamCard({ team, hasSprint }: { team: DashboardJSON["team"]; hasSprint: boolean }) {
+  // Spec §6: without an active sprint the per-person figures are undefined,
+  // not zero — show a dash and no bars rather than a column of empty bars.
+  // Guarded on BOTH hasSprint and `!team`: DashboardJSON.team is
+  // TeamMemberJSON[] | null (services/work-dashboard.ts DashboardPayload.team),
+  // null exactly when no sprint is RUNNING, and TypeScript cannot narrow
+  // `team` from the separate `hasSprint` boolean alone.
+  if (!hasSprint || !team) {
+    return (
+      <SectionCard title="Team Übersicht" subtitle="–">
+        <EmptyState
+          title="Kein laufender Sprint"
+          hint="Die Team-Auslastung wird nur innerhalb eines laufenden Sprints berechnet. Ein Sprint in Planung zählt nicht — starte ihn unter „Sprints“."
+        />
+      </SectionCard>
+    );
+  }
+  return (
+    <SectionCard title="Team Übersicht" subtitle="im aktiven Sprint">
+      {team.length === 0 ? (
+        <EmptyState title="Keine Zuweisungen" hint="Sobald Aufgaben im Sprint zugewiesen sind, siehst du hier die Auslastung." />
+      ) : (
+        <div className="flex flex-col gap-3">
+          {team.map((m) => (
+            <div key={m.userId} className="flex items-center gap-3">
+              <EmployeeAvatar name={m.name} photoBase64={m.image} size="sm" />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="truncate text-[13px]" style={{ color: "var(--foreground)" }}>
+                    {m.name}
+                  </span>
+                  <span className="k-mono shrink-0 text-[11px] tabular-nums" style={{ color: "var(--muted-foreground)" }}>
+                    {m.done}/{m.assigned}
+                    {m.overdue > 0 && (
+                      <span style={{ color: "var(--danger)" }}> · {m.overdue} überfällig</span>
+                    )}
+                  </span>
+                </div>
+                <ProgressBar
+                  className="mt-1"
+                  value={m.pct}
+                  height={5}
+                  tone={m.overdue > 0 ? "warn" : "ok"}
+                />
+              </div>
+            </div>
           ))}
         </div>
       )}
