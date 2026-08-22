@@ -5,7 +5,8 @@
 -- idempotent (pattern: 0033_sprints.sql) so a re-run is a no-op. Every enum-like
 -- column is plain `text`; validation lives in the service layer via the
 -- normalizeX() helpers in src/lib/project-constants.ts. Money is integer cents,
--- EUR only. No `--> statement-breakpoint` markers, matching 0033.
+-- EUR only. Deliberately written without drizzle breakpoint markers, matching
+-- 0033, so the whole file runs as a single statement.
 
 -- ── projects ──────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS "projects" (
