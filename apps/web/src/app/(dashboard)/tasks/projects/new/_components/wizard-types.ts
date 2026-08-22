@@ -162,6 +162,23 @@ export function clampDuration(value: unknown): number {
   return Number.isFinite(n) && n > 1 ? n : 1;
 }
 
+/**
+ * Case-insensitive de-duplication that keeps the first spelling. Used to
+ * merge AI-suggested scope lines into the draft without creating "Angebote
+ * erstellen" / "angebote erstellen" duplicates.
+ */
+export function dedupe(values: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const v of values) {
+    const k = v.trim().toLowerCase();
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    out.push(v.trim());
+  }
+  return out;
+}
+
 export const WIZARD_STEPS = [
   { n: 1, label: "Grundlagen" },
   { n: 2, label: "Ziel & Scope" },

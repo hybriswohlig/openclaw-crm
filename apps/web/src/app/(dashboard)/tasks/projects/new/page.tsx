@@ -14,6 +14,7 @@ import { ModuleNav } from "@/components/work/module-nav";
 import {
   clampDuration,
   clampOffset,
+  dedupe,
   draftId,
   emptyDraft,
   offsetToISO,
@@ -516,17 +517,4 @@ export default function NewProjectPage() {
       </div>
     </div>
   );
-}
-
-/** Case-insensitive de-duplication that keeps the first spelling. */
-function dedupe(values: string[]): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const v of values) {
-    const k = v.trim().toLowerCase();
-    if (!k || seen.has(k)) continue;
-    seen.add(k);
-    out.push(v.trim());
-  }
-  return out;
 }
