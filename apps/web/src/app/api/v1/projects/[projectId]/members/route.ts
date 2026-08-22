@@ -38,13 +38,19 @@ export async function POST(
     return badRequest("userId ist erforderlich.");
   }
 
-  const member = await addProjectMember(
-    ctx.workspaceId,
-    projectId,
-    ctx.userId, // actor — who is doing the adding
-    body.userId, // subject — who is being added
-    typeof body.role === "string" ? body.role : null,
-  );
-  if (!member) return notFound("Projekt oder Benutzer nicht gefunden");
-  return success(member, 201);
+  try {
+    const member = await addProjectMember(
+      ctx.workspaceId,
+      projectId,
+      ctx.userId, // actor — who is doing the adding
+      body.userId, // subject — who is being added
+      typeof body.role === "string" ? body.role : null,
+    );
+    if (!member) return notFound("Projekt oder Benutzer nicht gefunden");
+    return success(member, 201);
+  } catch (err) {
+    return badRequest(
+      err instanceof Error ? err.message : "Mitglied konnte nicht hinzugefügt werden.",
+    );
+  }
 }
