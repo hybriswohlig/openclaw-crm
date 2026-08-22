@@ -263,3 +263,18 @@ describe("projects schema mirrors 0044_projects.sql", () => {
     ]);
   });
 });
+
+describe("db schema barrel", () => {
+  it("re-exports every project table so services can import from @/db/schema", async () => {
+    const schema = await import("./index");
+    expect(schema.projects).toBe(projects);
+    expect(schema.projectPhases).toBe(projectPhases);
+    expect(schema.projectMilestones).toBe(projectMilestones);
+    expect(schema.projectMembers).toBe(projectMembers);
+    expect(schema.projectRisks).toBe(projectRisks);
+    expect(schema.projectBudgetEntries).toBe(projectBudgetEntries);
+    expect(schema.projectDocuments).toBe(projectDocuments);
+    expect(schema.taskDependencies).toBe(taskDependencies);
+    expect(schema.projectFavorites).toBe(projectFavorites);
+  });
+});
