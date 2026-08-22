@@ -181,3 +181,111 @@ describe("normalizeTitle", () => {
     expect(normalizeTitle("  UG   Anmeldung:  Stuttmove ")).toBe("ug anmeldung: stuttmove");
   });
 });
+
+import { defaultProjectColor, defaultProjectIcon } from "@/lib/project-constants";
+import { MIGRATION_PROJECTS, matchesTask, matcherLabel } from "./task-migration-map";
+
+describe("MIGRATION_PROJECTS (spec §12.1)", () => {
+  it("declares exactly the eight projects, in spec order", () => {
+    expect(MIGRATION_PROJECTS.map((p) => p.name)).toEqual([
+      "IT-Transformation",
+      "Website-Relaunch kottke-umzuege.de",
+      "UG Gründung Stuttmove",
+      "Ceylan Operations Aufbau",
+      "Kunden-Tracking & Transparenz",
+      "Buchhaltung & Belegprozess",
+      "Neue Leads: Gesetzliche Betreuer",
+      "Neue Leads: Zwangsräumungen",
+    ]);
+  });
+
+  it("gives every project a category from PROJECT_CATEGORIES", () => {
+    expect(MIGRATION_PROJECTS.map((p) => p.category)).toEqual([
+      "software",
+      "marketing",
+      "gruendung",
+      "vertrieb",
+      "software",
+      "finanzen",
+      "vertrieb",
+      "vertrieb",
+    ]);
+  });
+
+  it("lists every container parent from the production audit with its child count", () => {
+    const containers = MIGRATION_PROJECTS.flatMap((p) =>
+      p.containers.map((c) => [matcherLabel(c.matcher), c.expectedChildren] as const)
+    );
+    expect(containers).toEqual([
+      ["UG Anmeldung: Stuttmove", 5],
+      ["Ladungsfähige Anschrift UG", 3],
+      ["Ceylan-operations Website", 2],
+      ["Ceylan und Kottke Connections", 2],
+      ["Tracking Möglichkeiten finden für den Kunden", 6],
+      ["Buchhaltungssystem updaten", 1],
+      ["Gesetzliche Betreuer als neue Leads", 4],
+      ["Neue Leads: Zwangsräumungen", 2],
+    ]);
+  });
+
+  it("seeds the two new tasks into IT-Transformation and nowhere else", () => {
+    const seeded = MIGRATION_PROJECTS.filter((p) => p.seedTasks.length > 0);
+    expect(seeded).toHaveLength(1);
+    expect(seeded[0].name).toBe("IT-Transformation");
+    expect(seeded[0].seedTasks.map((t) => t.content)).toEqual([
+      "Aufgabensystem zu Projekten & operativen Aufgaben umbauen",
+      "Buchhaltungssystem aktualisieren",
+    ]);
+  });
+
+  it("pins the CRM redesign task by its production id, not by title", () => {
+    const it = MIGRATION_PROJECTS[0];
+    expect(it.members[0]).toEqual({ by: "id", id: "b1517e4b-c4c1-4952-9a0a-944efbbee785" });
+  });
+
+  it("keeps every icon and colour on the category palette", () => {
+    // createProject() stores icon/color as given and the read layer defaults
+    // them via defaultProjectIcon / defaultProjectColor. The eight migrated
+    // projects set both explicitly, so this pins them to the same palette —
+    // otherwise they would be the only projects in the CRM whose colour does
+    // not follow their category.
+    for (const p of MIGRATION_PROJECTS) {
+      expect(p.icon).toBe(defaultProjectIcon(p.category));
+      expect(p.color).toBe(defaultProjectColor(p.category, p.name));
+    }
+  });
+
+  it("guards the website patterns to Sprint 2 and expects nine members", () => {
+    const website = MIGRATION_PROJECTS[1];
+    expect(website.memberGuard).toEqual({ sprintName: "Sprint 2" });
+    expect(website.members).toHaveLength(9);
+    expect(website.expectedMembers).toBe(9);
+  });
+});
+
+describe("matchesTask", () => {
+  const row = { id: "b1517e4b-c4c1-4952-9a0a-944efbbee785", content: "Überarbeitung der KI" };
+
+  it("matches by exact id", () => {
+    expect(matchesTask({ by: "id", id: row.id }, row)).toBe(true);
+    expect(matchesTask({ by: "id", id: "other" }, row)).toBe(false);
+  });
+
+  it("matches by title, whitespace- and case-insensitively", () => {
+    expect(matchesTask({ by: "title", title: "  überarbeitung   der KI " }, row)).toBe(true);
+    expect(matchesTask({ by: "title", title: "Überarbeitung" }, row)).toBe(false);
+  });
+
+  it("matches by pattern", () => {
+    expect(matchesTask({ by: "pattern", pattern: /überarbeitung/i }, row)).toBe(true);
+  });
+
+  it("does not let the exact-title matcher for Gesetzliche Betreuer swallow its container", () => {
+    expect(
+      matchesTask(
+        { by: "title", title: "Gesetzliche Betreuer" },
+        { id: "x", content: "Gesetzliche Betreuer als neue Leads" }
+      )
+    ).toBe(false);
+  });
+});

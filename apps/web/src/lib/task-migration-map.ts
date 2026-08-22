@@ -209,3 +209,250 @@ export function highestPriority(values: ReadonlyArray<string | null>): Priority 
   }
   return best;
 }
+
+// ─── Matchers ─────────────────────────────────────────────────────────
+
+export type TaskMatcher =
+  | { by: "id"; id: string }
+  | { by: "title"; title: string }
+  | { by: "pattern"; pattern: RegExp };
+
+export function matchesTask(
+  matcher: TaskMatcher,
+  row: { id: string; content: string }
+): boolean {
+  switch (matcher.by) {
+    case "id":
+      return matcher.id === row.id;
+    case "title":
+      return normalizeTitle(matcher.title) === normalizeTitle(row.content);
+    case "pattern":
+      return matcher.pattern.test(row.content);
+  }
+}
+
+/** Human label for the dry-run table and for warnings. */
+export function matcherLabel(matcher: TaskMatcher): string {
+  switch (matcher.by) {
+    case "id":
+      return matcher.id;
+    case "title":
+      return matcher.title;
+    case "pattern":
+      return String(matcher.pattern);
+  }
+}
+
+// ─── Project specs ────────────────────────────────────────────────────
+
+/** Narrows a broad pattern list to the rows it was written for. */
+export interface MemberGuard {
+  /** Only tasks sitting in a sprint with this exact name. */
+  sprintName?: string;
+  /** Only tasks carrying this legacy growth_category. */
+  growthCategory?: string;
+}
+
+/**
+ * A parent task that is really a project. Its children become project
+ * tasks (`parent_task_id = NULL`), then the parent row is deleted — in
+ * that order, because `tasks.parent_task_id` has no foreign key.
+ */
+export interface ContainerSpec {
+  matcher: TaskMatcher;
+  /** Child count observed in production on 2026-08-21. A mismatch warns. */
+  expectedChildren: number;
+}
+
+export interface MigrationProjectSpec {
+  /** Stable slug. Code and log output only — never shown to a user. */
+  key: string;
+  /** German. Also the idempotency key: matched against `projects.name`. */
+  name: string;
+  shortDescription: string;
+  category: ProjectCategory;
+  /** Used when no source task carries a priority. */
+  fallbackPriority: Priority;
+  icon: string;
+  color: string;
+  containers: ContainerSpec[];
+  /** Standalone tasks that move into the project keeping their shape. */
+  members: TaskMatcher[];
+  memberGuard?: MemberGuard;
+  /** Member count observed in production. A mismatch warns. */
+  expectedMembers?: number;
+  /** Brand-new tasks created inside the project on the first --apply. */
+  seedTasks: Array<{ content: string; description: string; priority: Priority }>;
+}
+
+/** Resolved to a user id at runtime — never hardcode the id. */
+export const MIGRATION_OWNER_EMAIL = "kontakt@kottke-umzuege.de";
+
+export const MIGRATION_PROJECTS: readonly MigrationProjectSpec[] = [
+  {
+    key: "it-transformation",
+    name: "IT-Transformation",
+    shortDescription:
+      "CRM, KI-Assistent und Chat zu einem durchgängigen System ausbauen.",
+    category: "software",
+    fallbackPriority: "hoch",
+    icon: "Cpu",
+    color: "#06b6d4",
+    containers: [],
+    members: [
+      // "Task-Setup und Projektplanung im CRM neu denken und redesignen"
+      { by: "id", id: "b1517e4b-c4c1-4952-9a0a-944efbbee785" },
+      { by: "title", title: "Überarbeitung der KI" },
+      { by: "title", title: "Chat Funktion erweitern" },
+      { by: "title", title: "Besprechung: CRM - Inbox - Darstellung" },
+    ],
+    expectedMembers: 4,
+    seedTasks: [
+      {
+        content: "Aufgabensystem zu Projekten & operativen Aufgaben umbauen",
+        description:
+          "Kanban und Story-Points ablösen: Projekte mit Phasen, Meilensteinen, Budget und Risiken, operative Aufgaben mit Bereich, Sprint-Timeline, Dashboard und MCP-Tools.",
+        priority: "hoch",
+      },
+      {
+        content: "Buchhaltungssystem aktualisieren",
+        description:
+          "Belegfluss, Buchungsexport und Kontenrahmen im CRM auf den aktuellen Stand bringen.",
+        priority: "hoch",
+      },
+    ],
+  },
+  {
+    key: "website-relaunch",
+    name: "Website-Relaunch kottke-umzuege.de",
+    shortDescription:
+      "Neue Leistungsseiten, Texte, SEO/GEO und Technik für kottke-umzuege.de.",
+    category: "marketing",
+    fallbackPriority: "hoch",
+    icon: "Megaphone",
+    color: "#8b5cf6",
+    containers: [],
+    // The nine marketing tasks that live in Sprint 2. The guard below keeps
+    // these deliberately short patterns from reaching anything else.
+    members: [
+      { by: "pattern", pattern: /leistungsseite/i },
+      { by: "pattern", pattern: /küchenseite|kuechenseite|küche\b/i },
+      { by: "pattern", pattern: /\blayout\b|\bdesign\b/i },
+      { by: "pattern", pattern: /texte|bilder|claims/i },
+      { by: "pattern", pattern: /\bseo\b|\bgeo\b/i },
+      { by: "pattern", pattern: /go-?live|technik|technisch/i },
+      { by: "pattern", pattern: /formular/i },
+      { by: "pattern", pattern: /landingpage|stadtseite|stadt-/i },
+      { by: "pattern", pattern: /sitemap/i },
+    ],
+    memberGuard: { sprintName: "Sprint 2" },
+    expectedMembers: 9,
+    seedTasks: [],
+  },
+  {
+    key: "ug-gruendung-stuttmove",
+    name: "UG Gründung Stuttmove",
+    shortDescription:
+      "Gründung, Anmeldung und ladungsfähige Anschrift der Stuttmove UG.",
+    category: "gruendung",
+    fallbackPriority: "hoch",
+    icon: "Building2",
+    color: "#f97316",
+    containers: [
+      { matcher: { by: "title", title: "UG Anmeldung: Stuttmove" }, expectedChildren: 5 },
+      { matcher: { by: "title", title: "Ladungsfähige Anschrift UG" }, expectedChildren: 3 },
+    ],
+    members: [{ by: "title", title: "UG Anmeldung" }],
+    expectedMembers: 1,
+    seedTasks: [],
+  },
+  {
+    key: "ceylan-operations",
+    name: "Ceylan Operations Aufbau",
+    shortDescription:
+      "Website, Auftritt und Verzahnung von Ceylan-operations mit Kottke.",
+    category: "vertrieb",
+    fallbackPriority: "mittel",
+    icon: "Handshake",
+    color: "#0ea5e9",
+    containers: [
+      { matcher: { by: "title", title: "Ceylan-operations Website" }, expectedChildren: 2 },
+      { matcher: { by: "title", title: "Ceylan und Kottke Connections" }, expectedChildren: 2 },
+    ],
+    members: [{ by: "title", title: "Ceylan Website fertig machen" }],
+    expectedMembers: 1,
+    seedTasks: [],
+  },
+  {
+    key: "kunden-tracking",
+    name: "Kunden-Tracking & Transparenz",
+    shortDescription:
+      "Kunden sollen den Stand ihres Umzugs jederzeit selbst nachvollziehen können.",
+    category: "software",
+    fallbackPriority: "mittel",
+    icon: "Cpu",
+    color: "#06b6d4",
+    containers: [
+      {
+        matcher: { by: "title", title: "Tracking Möglichkeiten finden für den Kunden" },
+        expectedChildren: 6,
+      },
+    ],
+    members: [],
+    expectedMembers: 0,
+    seedTasks: [],
+  },
+  {
+    key: "buchhaltung-belegprozess",
+    name: "Buchhaltung & Belegprozess",
+    shortDescription:
+      "Belege digital erfassen, zuordnen und im CRM sichtbar machen.",
+    category: "finanzen",
+    fallbackPriority: "hoch",
+    icon: "Wallet",
+    color: "#84cc16",
+    containers: [
+      { matcher: { by: "title", title: "Buchhaltungssystem updaten" }, expectedChildren: 1 },
+    ],
+    members: [
+      { by: "title", title: "Hinzügen und sichtbar machen von Belegen (PDF)" },
+    ],
+    expectedMembers: 1,
+    seedTasks: [],
+  },
+  {
+    key: "leads-gesetzliche-betreuer",
+    name: "Neue Leads: Gesetzliche Betreuer",
+    shortDescription:
+      "Gesetzliche Betreuer als wiederkehrende Auftraggeber erschließen.",
+    category: "vertrieb",
+    fallbackPriority: "mittel",
+    icon: "Handshake",
+    color: "#0ea5e9",
+    containers: [
+      {
+        matcher: { by: "title", title: "Gesetzliche Betreuer als neue Leads" },
+        expectedChildren: 4,
+      },
+    ],
+    members: [{ by: "title", title: "Gesetzliche Betreuer" }],
+    expectedMembers: 1,
+    seedTasks: [],
+  },
+  {
+    key: "leads-zwangsraeumungen",
+    name: "Neue Leads: Zwangsräumungen",
+    shortDescription:
+      "Zwangsräumungen über Gerichtsvollzieher und Verwalter als Lead-Kanal aufbauen.",
+    category: "vertrieb",
+    fallbackPriority: "mittel",
+    icon: "Handshake",
+    color: "#0ea5e9",
+    containers: [
+      { matcher: { by: "title", title: "Neue Leads: Zwangsräumungen" }, expectedChildren: 2 },
+    ],
+    members: [],
+    expectedMembers: 0,
+    seedTasks: [],
+  },
+];
