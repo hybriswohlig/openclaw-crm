@@ -10,7 +10,7 @@
  * German strings in here are user-facing (project names, descriptions,
  * seeded task titles). Identifiers and comments stay English.
  */
-import type { OperativeArea, ProjectCategory, TaskStatus } from "@/lib/project-constants";
+import { operativeAreaLabel, type OperativeArea, type ProjectCategory, type TaskStatus } from "@/lib/project-constants";
 import type { Priority } from "@/lib/task-priority";
 
 // ─── Input row shape ──────────────────────────────────────────────────
@@ -456,3 +456,391 @@ export const MIGRATION_PROJECTS: readonly MigrationProjectSpec[] = [
     seedTasks: [],
   },
 ];
+
+// ─── Plan shapes ──────────────────────────────────────────────────────
+
+export interface MigrationPlanInput {
+  tasks: MigrationTaskRow[];
+  /** Every project already in the workspace — the idempotency baseline. */
+  existingProjects: Array<{ id: string; name: string }>;
+  /** sprintId -> sprint name, for MemberGuard.sprintName. */
+  sprintNameById: Record<string, string>;
+  /** Dario, resolved by e-mail at runtime. */
+  ownerUserId: string | null;
+}
+
+export interface PlannedProject {
+  key: string;
+  name: string;
+  shortDescription: string;
+  category: ProjectCategory;
+  priority: Priority;
+  icon: string;
+  color: string;
+  ownerUserId: string | null;
+  /** Non-null => the project already exists, reuse it, do not insert. */
+  existingId: string | null;
+  sourceTaskCount: number;
+}
+
+export interface PlannedTaskUpdate {
+  taskId: string;
+  title: string;
+  /** Human destination for the dry-run mapping table. */
+  target: string;
+  kind: "projekt" | "operativ";
+  projectKey: string | null;
+  area: OperativeArea | null;
+  status: TaskStatus;
+  isCompleted: boolean;
+  /** Container child: `parent_task_id` must be nulled BEFORE the delete. */
+  clearParent: boolean;
+  /** False => the row already looks like this, the executor skips it. */
+  changed: boolean;
+}
+
+export interface PlannedDeletion {
+  taskId: string;
+  title: string;
+  projectKey: string;
+  childCount: number;
+}
+
+export interface PlannedNewTask {
+  projectKey: string;
+  content: string;
+  description: string;
+  priority: Priority;
+}
+
+export interface MigrationPlan {
+  projects: PlannedProject[];
+  updates: PlannedTaskUpdate[];
+  deletions: PlannedDeletion[];
+  newTasks: PlannedNewTask[];
+  warnings: string[];
+  counts: {
+    tasksBefore: number;
+    projectTasks: number;
+    operativeTasks: number;
+    containersDeleted: number;
+    tasksCreated: number;
+    tasksAfter: number;
+  };
+}
+
+// ─── The planner ──────────────────────────────────────────────────────
+
+function guardOk(
+  guard: MemberGuard | undefined,
+  row: MigrationTaskRow,
+  sprintNameById: Record<string, string>
+): boolean {
+  if (!guard) return true;
+  if (guard.sprintName) {
+    const name = row.sprintId ? sprintNameById[row.sprintId] : undefined;
+    if (normalizeTitle(name ?? "") !== normalizeTitle(guard.sprintName)) return false;
+  }
+  if (guard.growthCategory && row.growthCategory !== guard.growthCategory) return false;
+  return true;
+}
+
+export function planTaskMigration(input: MigrationPlanInput): MigrationPlan {
+  const { tasks, existingProjects, sprintNameById, ownerUserId } = input;
+
+  const byId = new Map(tasks.map((t) => [t.id, t]));
+  const childrenOf = new Map<string, MigrationTaskRow[]>();
+  for (const t of tasks) {
+    if (!t.parentTaskId) continue;
+    const list = childrenOf.get(t.parentTaskId);
+    if (list) list.push(t);
+    else childrenOf.set(t.parentTaskId, [t]);
+  }
+  const existingIdByName = new Map(
+    existingProjects.map((p) => [normalizeTitle(p.name), p.id])
+  );
+  const specByKey = new Map(MIGRATION_PROJECTS.map((s) => [s.key, s]));
+
+  const warnings: string[] = [];
+  const assignment = new Map<string, string>(); // taskId -> project key
+  const preAssigned = new Set<string>();
+  const containerOf = new Map<string, string>(); // container taskId -> project key
+  const clearParent = new Set<string>();
+  const sourcePriorities = new Map<string, Array<string | null>>(
+    MIGRATION_PROJECTS.map((s) => [s.key, [] as Array<string | null>])
+  );
+
+  const claim = (taskId: string, projectKey: string): boolean => {
+    if (preAssigned.has(taskId)) return false;
+    const owner = assignment.get(taskId);
+    if (owner && owner !== projectKey) {
+      warnings.push(
+        `Aufgabe "${byId.get(taskId)?.content ?? taskId}" passt auf "${owner}" und ` +
+          `"${projectKey}" — sie bleibt bei "${owner}".`
+      );
+      return false;
+    }
+    assignment.set(taskId, projectKey);
+    return true;
+  };
+
+  // Pass 0 — idempotency. A task already pointing at one of the eight
+  // projects keeps that project whatever the matchers say. Without this a
+  // second run would pull the website tasks back out, because closeSprint()
+  // carried them out of Sprint 2 and the MemberGuard stops matching.
+  const keyByProjectId = new Map<string, string>();
+  for (const spec of MIGRATION_PROJECTS) {
+    const id = existingIdByName.get(normalizeTitle(spec.name));
+    if (id) keyByProjectId.set(id, spec.key);
+  }
+  for (const t of tasks) {
+    if (!t.projectId) continue;
+    const key = keyByProjectId.get(t.projectId);
+    if (!key) continue;
+    assignment.set(t.id, key);
+    preAssigned.add(t.id);
+    sourcePriorities.get(key)!.push(t.priority);
+  }
+
+  // Pass 0.5 — completed containers. A parent with no open work left below
+  // it must not become a project (it would be an empty finished project).
+  // It stays an operative parent/child pair with area 'sonstiges'.
+  const completedContainers = new Set<string>();
+  for (const t of tasks) {
+    if (t.parentTaskId || !isCompletedContainer(t.content)) continue;
+    const kids = childrenOf.get(t.id) ?? [];
+    if (!hasOnlyCompletedChildren(t, kids)) {
+      warnings.push(
+        `"${t.content}" ist als erledigter Container gelistet, hat aber offene ` +
+          `Kinder — bitte prüfen, ob daraus doch ein Projekt werden soll.`
+      );
+      continue;
+    }
+    completedContainers.add(t.id);
+  }
+
+  // Pass 1 — containers, for every project, before any member matching.
+  for (const spec of MIGRATION_PROJECTS) {
+    const prios = sourcePriorities.get(spec.key)!;
+    for (const container of spec.containers) {
+      const hits = tasks.filter((t) => matchesTask(container.matcher, t));
+      if (hits.length === 0) {
+        warnings.push(
+          `Container "${matcherLabel(container.matcher)}" nicht gefunden — ` +
+            `bereits migriert oder umbenannt.`
+        );
+        continue;
+      }
+      if (hits.length > 1) {
+        warnings.push(
+          `Container "${matcherLabel(container.matcher)}" ${hits.length}× gefunden — ` +
+            `alle werden aufgelöst.`
+        );
+      }
+      for (const parent of hits) {
+        const kids = childrenOf.get(parent.id) ?? [];
+        // Same rule as pass 0.5, applied defensively: if a project container
+        // has been fully worked off since the audit, do not dissolve it into
+        // an empty finished project.
+        if (hasOnlyCompletedChildren(parent, kids)) {
+          warnings.push(
+            `Container "${parent.content}": alle ${kids.length} Kinder sind erledigt — ` +
+              `wird NICHT zu einem Projekt, sondern bleibt operatives Eltern/Kind-Paar ` +
+              `im Bereich "Sonstiges".`
+          );
+          completedContainers.add(parent.id);
+          continue;
+        }
+        if (kids.length !== container.expectedChildren) {
+          warnings.push(
+            `Container "${parent.content}": ${kids.length} Kinder, erwartet ` +
+              `${container.expectedChildren}. Bitte im Dry-Run prüfen.`
+          );
+        }
+        containerOf.set(parent.id, spec.key);
+        prios.push(parent.priority);
+        for (const kid of kids) {
+          if (!claim(kid.id, spec.key)) continue;
+          clearParent.add(kid.id);
+          prios.push(kid.priority);
+          // Grandchildren follow their parent into the project (I4) but
+          // keep their parent link.
+          for (const grand of childrenOf.get(kid.id) ?? []) {
+            if (claim(grand.id, spec.key)) prios.push(grand.priority);
+          }
+        }
+      }
+    }
+  }
+
+  // Pass 2 — members. Runs after every container is known so a member
+  // matcher can never claim another project's container row.
+  for (const spec of MIGRATION_PROJECTS) {
+    const prios = sourcePriorities.get(spec.key)!;
+    let matched = 0;
+    const claimedHere = new Set<string>();
+    for (const matcher of spec.members) {
+      const hits = tasks.filter(
+        (t) =>
+          !containerOf.has(t.id) &&
+          matchesTask(matcher, t) &&
+          guardOk(spec.memberGuard, t, sprintNameById)
+      );
+      for (const hit of hits) {
+        if (claimedHere.has(hit.id)) continue;
+        if (!claim(hit.id, spec.key)) continue;
+        claimedHere.add(hit.id);
+        matched += 1;
+        prios.push(hit.priority);
+        for (const kid of childrenOf.get(hit.id) ?? []) {
+          if (claim(kid.id, spec.key)) prios.push(kid.priority);
+        }
+      }
+    }
+    if (spec.expectedMembers !== undefined && matched !== spec.expectedMembers) {
+      warnings.push(
+        `Projekt "${spec.name}": ${matched} Quellaufgaben gefunden, erwartet ` +
+          `${spec.expectedMembers}. Bitte im Dry-Run prüfen.`
+      );
+    }
+  }
+
+  // Areas of top-level operative tasks, so children can inherit them.
+  const areaOfParent = new Map<string, OperativeArea>();
+  for (const t of tasks) {
+    if (t.parentTaskId || containerOf.has(t.id) || assignment.has(t.id)) continue;
+    areaOfParent.set(
+      t.id,
+      completedContainers.has(t.id) ? COMPLETED_CONTAINER_AREA : deriveOperativeArea(t)
+    );
+  }
+
+  // Parents that are neither a project container nor allowlisted: left
+  // exactly as they are, but surfaced so Dario can decide in the dry-run.
+  for (const t of tasks) {
+    if (t.parentTaskId || containerOf.has(t.id) || assignment.has(t.id)) continue;
+    const kids = childrenOf.get(t.id) ?? [];
+    if (kids.length === 0 || isChecklistParent(t.content) || completedContainers.has(t.id))
+      continue;
+    warnings.push(
+      `Elternaufgabe "${t.content}" (${kids.length} Kinder) steht weder in der ` +
+        `Projekttabelle noch in der Checklisten-Allowlist — sie bleibt unverändert ` +
+        `Eltern/Kind und wird operativ.`
+    );
+  }
+
+  // Build the updates.
+  const updates: PlannedTaskUpdate[] = [];
+  for (const t of tasks) {
+    if (containerOf.has(t.id)) continue; // deleted, never updated
+    const status = deriveTaskStatus(t);
+    const isCompleted = status === "erledigt";
+    const projectKey = assignment.get(t.id) ?? null;
+
+    if (projectKey) {
+      const spec = specByKey.get(projectKey)!;
+      const existingId = existingIdByName.get(normalizeTitle(spec.name)) ?? null;
+      const mustClear = clearParent.has(t.id);
+      const changed =
+        t.kind !== "projekt" ||
+        t.projectId === null ||
+        existingId === null ||
+        t.projectId !== existingId ||
+        t.area !== null ||
+        t.status !== status ||
+        (mustClear && t.parentTaskId !== null);
+      updates.push({
+        taskId: t.id,
+        title: t.content,
+        target: `Projekt: ${spec.name}`,
+        kind: "projekt",
+        projectKey,
+        area: null,
+        status,
+        isCompleted,
+        clearParent: mustClear,
+        changed,
+      });
+      continue;
+    }
+
+    const area = t.parentTaskId
+      ? (areaOfParent.get(t.parentTaskId) ?? deriveOperativeArea(t))
+      : (areaOfParent.get(t.id) ?? deriveOperativeArea(t));
+    const changed =
+      t.kind !== "operativ" ||
+      t.projectId !== null ||
+      t.area !== area ||
+      t.status !== status;
+    updates.push({
+      taskId: t.id,
+      title: t.content,
+      target: `Operativ: ${operativeAreaLabel(area)}`,
+      kind: "operativ",
+      projectKey: null,
+      area,
+      status,
+      isCompleted,
+      clearParent: false,
+      changed,
+    });
+  }
+
+  const deletions: PlannedDeletion[] = [...containerOf.entries()].map(
+    ([taskId, projectKey]) => ({
+      taskId,
+      title: byId.get(taskId)?.content ?? taskId,
+      projectKey,
+      childCount: (childrenOf.get(taskId) ?? []).length,
+    })
+  );
+
+  // Seeded tasks, matched by content inside the project so a rerun skips them.
+  const newTasks: PlannedNewTask[] = [];
+  for (const spec of MIGRATION_PROJECTS) {
+    const existingId = existingIdByName.get(normalizeTitle(spec.name)) ?? null;
+    for (const seed of spec.seedTasks) {
+      const alreadyThere =
+        existingId !== null &&
+        tasks.some(
+          (t) =>
+            t.projectId === existingId &&
+            normalizeTitle(t.content) === normalizeTitle(seed.content)
+        );
+      if (alreadyThere) continue;
+      newTasks.push({ projectKey: spec.key, ...seed });
+    }
+  }
+
+  const projects: PlannedProject[] = MIGRATION_PROJECTS.map((spec) => {
+    const prios = sourcePriorities.get(spec.key)!;
+    return {
+      key: spec.key,
+      name: spec.name,
+      shortDescription: spec.shortDescription,
+      category: spec.category,
+      priority: highestPriority(prios) ?? spec.fallbackPriority,
+      icon: spec.icon,
+      color: spec.color,
+      ownerUserId,
+      existingId: existingIdByName.get(normalizeTitle(spec.name)) ?? null,
+      sourceTaskCount: prios.length,
+    };
+  });
+
+  return {
+    projects,
+    updates,
+    deletions,
+    newTasks,
+    warnings,
+    counts: {
+      tasksBefore: tasks.length,
+      projectTasks: updates.filter((u) => u.kind === "projekt").length,
+      operativeTasks: updates.filter((u) => u.kind === "operativ").length,
+      containersDeleted: deletions.length,
+      tasksCreated: newTasks.length,
+      tasksAfter: tasks.length - deletions.length + newTasks.length,
+    },
+  };
+}

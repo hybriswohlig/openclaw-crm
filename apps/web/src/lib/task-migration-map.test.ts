@@ -289,3 +289,273 @@ describe("matchesTask", () => {
     ).toBe(false);
   });
 });
+
+import { planTaskMigration, type MigrationTaskRow } from "./task-migration-map";
+
+function row(
+  partial: Partial<MigrationTaskRow> & { id: string; content: string }
+): MigrationTaskRow {
+  return {
+    isCompleted: false,
+    kanbanStatus: null,
+    parentTaskId: null,
+    sprintId: null,
+    growthCategory: null,
+    priority: null,
+    kind: null,
+    projectId: null,
+    area: null,
+    status: null,
+    ...partial,
+  };
+}
+
+/** A slice of the real production board, titles verbatim. */
+function productionRows(): MigrationTaskRow[] {
+  return [
+    row({
+      id: "b1517e4b-c4c1-4952-9a0a-944efbbee785",
+      content: "Task-Setup und Projektplanung im CRM neu denken und redesignen",
+      priority: "hoch",
+      kanbanStatus: "laeuft",
+    }),
+    row({ id: "t-ki", content: "Überarbeitung der KI", priority: "mittel" }),
+    row({ id: "t-chat", content: "Chat Funktion erweitern" }),
+    row({ id: "t-inbox", content: "Besprechung: CRM - Inbox - Darstellung", isCompleted: true }),
+
+    row({ id: "t-ug", content: "UG Anmeldung: Stuttmove", isCompleted: true }),
+    row({ id: "t-ug-1", content: "Notartermin vereinbaren", parentTaskId: "t-ug" }),
+    row({ id: "t-ug-2", content: "Gesellschaftsvertrag prüfen", parentTaskId: "t-ug" }),
+    row({ id: "t-ug-3", content: "Geschäftskonto eröffnen", parentTaskId: "t-ug" }),
+    row({ id: "t-ug-4", content: "Handelsregisteranmeldung", parentTaskId: "t-ug", priority: "sehr_hoch" }),
+    row({ id: "t-ug-5", content: "Gewerbeanmeldung", parentTaskId: "t-ug" }),
+    row({ id: "t-ug-solo", content: "UG Anmeldung" }),
+
+    row({ id: "t-track", content: "Tracking Möglichkeiten finden für den Kunden", isCompleted: true }),
+    ...["a", "b", "c", "d", "e", "f"].map((s, i) =>
+      row({ id: `t-track-${s}`, content: `Tracking Baustein ${i + 1}`, parentTaskId: "t-track" })
+    ),
+
+    row({ id: "t-mk", content: "Michael Kugel" }),
+    row({ id: "t-mk-1", content: "Mitarbeiter", parentTaskId: "t-mk" }),
+    row({ id: "t-mk-2", content: "Transporter", parentTaskId: "t-mk" }),
+
+    // Spec §2.1's fifth container: completed, 3 children, none of them open.
+    row({ id: "t-agb", content: "AGBS updaten", isCompleted: true }),
+    row({ id: "t-agb-1", content: "AGB Entwurf prüfen", parentTaskId: "t-agb", isCompleted: true }),
+    row({ id: "t-agb-2", content: "AGB auf Website einbinden", parentTaskId: "t-agb", isCompleted: true }),
+    row({ id: "t-agb-3", content: "AGB im Angebot verlinken", parentTaskId: "t-agb", isCompleted: true }),
+
+    row({ id: "t-salah", content: "Salah schaden und spiegel regeln", kanbanStatus: "heute" }),
+    row({ id: "t-seo", content: "SEO/GEO Grundlagen umsetzen", sprintId: "s2", growthCategory: "marketing" }),
+    row({ id: "t-seo-elsewhere", content: "SEO Notizen sammeln", sprintId: null }),
+  ];
+}
+
+const SPRINT_NAMES = { s1: "Sprint Nr. 1", s2: "Sprint 2" };
+
+describe("planTaskMigration — first run", () => {
+  const plan = planTaskMigration({
+    tasks: productionRows(),
+    existingProjects: [],
+    sprintNameById: SPRINT_NAMES,
+    ownerUserId: "ArqJKlS5mJfeqRpchepM3bfAYHCEyOHR",
+  });
+
+  it("plans all eight projects as new and owned by Dario", () => {
+    expect(plan.projects).toHaveLength(8);
+    expect(plan.projects.every((p) => p.existingId === null)).toBe(true);
+    expect(plan.projects.every((p) => p.ownerUserId === "ArqJKlS5mJfeqRpchepM3bfAYHCEyOHR")).toBe(
+      true
+    );
+  });
+
+  it("takes the project priority from the strongest source task", () => {
+    expect(plan.projects.find((p) => p.key === "it-transformation")!.priority).toBe("hoch");
+    expect(plan.projects.find((p) => p.key === "ug-gruendung-stuttmove")!.priority).toBe(
+      "sehr_hoch"
+    );
+  });
+
+  it("dissolves the container parents and reparents their children", () => {
+    expect(plan.deletions.map((d) => d.taskId).sort()).toEqual(["t-track", "t-ug"]);
+    const ugKid = plan.updates.find((u) => u.taskId === "t-ug-4")!;
+    expect(ugKid.kind).toBe("projekt");
+    expect(ugKid.projectKey).toBe("ug-gruendung-stuttmove");
+    expect(ugKid.clearParent).toBe(true);
+    expect(ugKid.area).toBeNull();
+  });
+
+  it("never emits an update for a task it is going to delete", () => {
+    const deleted = new Set(plan.deletions.map((d) => d.taskId));
+    expect(plan.updates.some((u) => deleted.has(u.taskId))).toBe(false);
+  });
+
+  it("keeps the checklist parent intact and lets its children inherit its area", () => {
+    const parent = plan.updates.find((u) => u.taskId === "t-mk")!;
+    expect(parent.kind).toBe("operativ");
+    expect(parent.area).toBe("auftrag");
+    expect(parent.clearParent).toBe(false);
+    for (const id of ["t-mk-1", "t-mk-2"]) {
+      const kid = plan.updates.find((u) => u.taskId === id)!;
+      expect(kid.area).toBe("auftrag");
+      expect(kid.clearParent).toBe(false);
+    }
+  });
+
+  it("derives the operative area and status of a leaf task", () => {
+    const salah = plan.updates.find((u) => u.taskId === "t-salah")!;
+    expect(salah.kind).toBe("operativ");
+    expect(salah.area).toBe("schaden");
+    expect(salah.status).toBe("in_arbeit");
+  });
+
+  it("applies the Sprint-2 guard to the website patterns", () => {
+    expect(plan.updates.find((u) => u.taskId === "t-seo")!.projectKey).toBe("website-relaunch");
+    expect(plan.updates.find((u) => u.taskId === "t-seo-elsewhere")!.projectKey).toBeNull();
+  });
+
+  it("seeds the two IT-Transformation tasks", () => {
+    expect(plan.newTasks).toEqual([
+      {
+        projectKey: "it-transformation",
+        content: "Aufgabensystem zu Projekten & operativen Aufgaben umbauen",
+        description: expect.any(String),
+        priority: "hoch",
+      },
+      {
+        projectKey: "it-transformation",
+        content: "Buchhaltungssystem aktualisieren",
+        description: expect.any(String),
+        priority: "hoch",
+      },
+    ]);
+  });
+
+  it("balances the task count: before - deleted + created", () => {
+    expect(plan.counts.tasksBefore).toBe(28);
+    expect(plan.counts.containersDeleted).toBe(2);
+    expect(plan.counts.tasksCreated).toBe(2);
+    expect(plan.counts.tasksAfter).toBe(28);
+    expect(plan.updates).toHaveLength(26);
+  });
+
+  it("keeps the completed container AGBS updaten operative instead of making it a project", () => {
+    expect(plan.deletions.some((d) => d.taskId === "t-agb")).toBe(false);
+    const parent = plan.updates.find((u) => u.taskId === "t-agb")!;
+    expect(parent.kind).toBe("operativ");
+    expect(parent.projectKey).toBeNull();
+    expect(parent.area).toBe("sonstiges");
+    expect(parent.status).toBe("erledigt");
+    expect(parent.clearParent).toBe(false);
+    for (const id of ["t-agb-1", "t-agb-2", "t-agb-3"]) {
+      const kid = plan.updates.find((u) => u.taskId === id)!;
+      expect(kid.kind).toBe("operativ");
+      expect(kid.projectKey).toBeNull();
+      expect(kid.area).toBe("sonstiges");
+      expect(kid.status).toBe("erledigt");
+      expect(kid.clearParent).toBe(false);
+    }
+  });
+
+  it("does not flag AGBS updaten as an unclassified parent", () => {
+    expect(plan.warnings.join("\n")).not.toMatch(/AGBS updaten.*weder in der Projekttabelle/s);
+  });
+
+  it("warns about a container whose child count drifted from the audit", () => {
+    expect(plan.warnings.join("\n")).toMatch(/Ladungsfähige Anschrift UG.*nicht gefunden/s);
+  });
+});
+
+describe("planTaskMigration — second run is a no-op", () => {
+  it("keeps every task where it is, even after Sprint 2 was closed and carried over", () => {
+    const first = productionRows();
+    const migrated: MigrationTaskRow[] = first
+      .filter((t) => t.id !== "t-ug" && t.id !== "t-track")
+      .map((t) => {
+        const projectRows: Record<string, string> = {
+          "b1517e4b-c4c1-4952-9a0a-944efbbee785": "p-it",
+          "t-ki": "p-it",
+          "t-chat": "p-it",
+          "t-inbox": "p-it",
+          "t-ug-1": "p-ug",
+          "t-ug-2": "p-ug",
+          "t-ug-3": "p-ug",
+          "t-ug-4": "p-ug",
+          "t-ug-5": "p-ug",
+          "t-ug-solo": "p-ug",
+          "t-track-a": "p-track",
+          "t-track-b": "p-track",
+          "t-track-c": "p-track",
+          "t-track-d": "p-track",
+          "t-track-e": "p-track",
+          "t-track-f": "p-track",
+          // closeSprint() nulled the sprint on carry-over: the guard no
+          // longer matches, so only project_id can hold this task in place.
+          "t-seo": "p-web",
+        };
+        const projectId = projectRows[t.id] ?? null;
+        const isProject = projectId !== null;
+        const status = t.isCompleted
+          ? "erledigt"
+          : t.kanbanStatus === "laeuft" || t.kanbanStatus === "heute"
+            ? "in_arbeit"
+            : "geplant";
+        return {
+          ...t,
+          sprintId: t.id === "t-seo" ? null : t.sprintId,
+          parentTaskId: t.parentTaskId === "t-ug" || t.parentTaskId === "t-track" ? null : t.parentTaskId,
+          kind: isProject ? "projekt" : "operativ",
+          projectId,
+          area: isProject
+            ? null
+            : t.parentTaskId === "t-mk" || t.id === "t-mk"
+              ? "auftrag"
+              : t.id === "t-salah"
+                ? "schaden"
+                : t.id === "t-seo-elsewhere"
+                  ? "sonstiges"
+                  : "sonstiges",
+          status,
+        };
+      });
+    migrated.push(
+      row({
+        id: "t-new-1",
+        content: "Aufgabensystem zu Projekten & operativen Aufgaben umbauen",
+        kind: "projekt",
+        projectId: "p-it",
+        status: "geplant",
+      }),
+      row({
+        id: "t-new-2",
+        content: "Buchhaltungssystem aktualisieren",
+        kind: "projekt",
+        projectId: "p-it",
+        status: "geplant",
+      })
+    );
+
+    const plan = planTaskMigration({
+      tasks: migrated,
+      existingProjects: [
+        { id: "p-it", name: "IT-Transformation" },
+        { id: "p-web", name: "Website-Relaunch kottke-umzuege.de" },
+        { id: "p-ug", name: "UG Gründung Stuttmove" },
+        { id: "p-ceylan", name: "Ceylan Operations Aufbau" },
+        { id: "p-track", name: "Kunden-Tracking & Transparenz" },
+        { id: "p-buch", name: "Buchhaltung & Belegprozess" },
+        { id: "p-betreuer", name: "Neue Leads: Gesetzliche Betreuer" },
+        { id: "p-zwang", name: "Neue Leads: Zwangsräumungen" },
+      ],
+      sprintNameById: { s1: "Sprint Nr. 1", s2: "Sprint 2" },
+      ownerUserId: "ArqJKlS5mJfeqRpchepM3bfAYHCEyOHR",
+    });
+
+    expect(plan.projects.every((p) => p.existingId !== null)).toBe(true);
+    expect(plan.deletions).toEqual([]);
+    expect(plan.newTasks).toEqual([]);
+    expect(plan.updates.filter((u) => u.changed)).toEqual([]);
+    expect(plan.updates.find((u) => u.taskId === "t-seo")!.projectKey).toBe("website-relaunch");
+  });
+});
