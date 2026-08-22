@@ -25,6 +25,7 @@ import { PlanTab } from "./_components/plan-tab";
 import { TasksTab } from "./_components/tasks-tab";
 import { TimelineTab } from "./_components/timeline-tab";
 import { DocumentsTab } from "./_components/documents-tab";
+import { BudgetTab } from "./_components/budget-tab";
 
 export interface TabProps {
   project: ProjectJSON;
@@ -320,7 +321,10 @@ function ProjectDetailInner() {
             <TabsContent value="dokumente">
               <DocumentsTab project={project} reload={reload} />
             </TabsContent>
-            {/* Tasks 40–42 hängen hier ihre TabsContent ein. */}
+            <TabsContent value="budget">
+              <BudgetTab project={project} reload={reload} />
+            </TabsContent>
+            {/* Tasks 41–42 hängen hier ihre TabsContent ein. */}
           </div>
         </Tabs>
       </div>
