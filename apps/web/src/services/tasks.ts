@@ -9,6 +9,232 @@ import { eq, and, or, gte, desc, inArray, isNull, sql } from "drizzle-orm";
 import { batchGetRecordDisplayNames } from "./display-names";
 import { normalizeWorkType, normalizeGrowthCategory } from "@/lib/sprint-constants";
 import { normalizePriority } from "@/lib/task-priority";
+import {
+  normalizeOperativeArea,
+  normalizeTaskKind,
+  normalizeTaskStatus,
+  type OperativeArea,
+  type TaskKind,
+  type TaskStatus,
+} from "@/lib/project-constants";
+
+// ─── Invariants I1–I4, as pure decisions ─────────────────────────────
+//
+// Every write path in this file runs through these three helpers, which is
+// what makes I1 (kind ⟺ project_id), I3 (status ⟺ is_completed) and the
+// list filtering testable without a database.
+
+export interface TaskPlacement {
+  kind: TaskKind;
+  projectId: string | null;
+  phaseId: string | null;
+}
+
+/**
+ * I1: `kind='projekt'` ⟺ `project_id IS NOT NULL`.
+ * Setting a project promotes the task; clearing it (or sending
+ * kind='operativ') demotes it and drops the phase. An explicit `projectId`
+ * always wins over an explicit `kind`.
+ */
+export function resolveTaskKind(
+  updates: { kind?: unknown; projectId?: unknown; phaseId?: unknown },
+  current: TaskPlacement,
+): TaskPlacement {
+  const has = (k: string) => Object.prototype.hasOwnProperty.call(updates, k);
+
+  let projectId = current.projectId;
+  if (has("projectId")) {
+    projectId = typeof updates.projectId === "string" && updates.projectId ? updates.projectId : null;
+  } else if (has("kind") && normalizeTaskKind(updates.kind) === "operativ") {
+    projectId = null;
+  }
+
+  if (!projectId) return { kind: "operativ", projectId: null, phaseId: null };
+
+  let phaseId = projectId === current.projectId ? current.phaseId : null;
+  if (has("phaseId")) {
+    phaseId = typeof updates.phaseId === "string" && updates.phaseId ? updates.phaseId : null;
+  }
+  return { kind: "projekt", projectId, phaseId };
+}
+
+/**
+ * I2: `phase_id IS NOT NULL` ⟹ the phase belongs to `project_id`.
+ *
+ * Pure decision only — the async wrapper in Task 12 does the SELECT and
+ * passes `null` for `phaseProjectId` when the phase row does not exist or
+ * lives in another workspace, which is also a violation.
+ */
+export function resolvePhaseAssignment(
+  phaseProjectId: string | null,
+  targetProjectId: string | null,
+): { ok: true } | { ok: false; error: string } {
+  if (phaseProjectId === null && targetProjectId === null) return { ok: true };
+  if (phaseProjectId !== null && phaseProjectId === targetProjectId) return { ok: true };
+  return { ok: false, error: "Phase gehört nicht zu diesem Projekt" };
+}
+
+/**
+ * I4 cap: a task that is already a subtask (has a parentTaskId) cannot itself
+ * become a parent. The cascade in updateTask is `WHERE parent_task_id = <id>`,
+ * one level deep — it reaches children but not grandchildren, so allowing a
+ * subtask to acquire children would silently leave grandchildren stranded
+ * with a stale kind/project/phase whenever the middle task moves.
+ */
+export function resolveParentEligibility(
+  parent: { parentTaskId: string | null } | null,
+): { ok: true } | { ok: false; error: string } {
+  if (!parent) return { ok: true };
+  if (parent.parentTaskId) {
+    return { ok: false, error: "Unteraufgaben können keine weiteren Unteraufgaben haben" };
+  }
+  return { ok: true };
+}
+
+/**
+ * I4: a subtask inherits `kind`, `project_id` and `phase_id` from its parent,
+ * on create AND whenever it is re-parented. Also repairs a parent row whose
+ * `kind` column drifted from its `project_id` (I1).
+ */
+export function resolveInheritedPlacement(
+  parent: { kind: string | null; projectId: string | null; phaseId: string | null } | null,
+  fallback: TaskPlacement,
+): TaskPlacement {
+  if (!parent) return fallback;
+  if (!parent.projectId) return { kind: "operativ", projectId: null, phaseId: null };
+  return {
+    kind: "projekt",
+    projectId: parent.projectId,
+    phaseId: parent.phaseId ?? null,
+  };
+}
+
+export interface TaskCompletion {
+  status: TaskStatus;
+  isCompleted: boolean;
+  completedAt: Date | null;
+}
+
+/**
+ * I3: `status='erledigt'` ⟺ `is_completed = true`. `status` is the leading
+ * field, `is_completed` the compatibility mirror the other 35 files read.
+ */
+export function resolveTaskStatus(
+  updates: { status?: unknown; isCompleted?: unknown },
+  current: TaskCompletion,
+  now: Date = new Date(),
+): TaskCompletion {
+  const has = (k: string) => Object.prototype.hasOwnProperty.call(updates, k);
+
+  let status = current.status;
+  if (has("status")) {
+    status = normalizeTaskStatus(updates.status) ?? current.status;
+  } else if (has("isCompleted") && typeof updates.isCompleted === "boolean") {
+    if (updates.isCompleted) status = "erledigt";
+    else if (current.status === "erledigt") status = "geplant";
+  }
+
+  const isCompleted = status === "erledigt";
+  const completedAt = isCompleted
+    ? current.isCompleted && current.completedAt
+      ? current.completedAt
+      : now
+    : null;
+  return { status, isCompleted, completedAt };
+}
+
+export interface ListTaskOptions {
+  showCompleted?: boolean;
+  limit?: number;
+  offset?: number;
+  /** Only tasks in this sprint. */
+  sprintId?: string;
+  /** Only tasks NOT in any sprint (product backlog). */
+  noSprint?: boolean;
+  /** With showCompleted: only completed tasks finished at/after this date. */
+  completedAfter?: Date;
+  kind?: string | null;
+  projectId?: string | null;
+  phaseId?: string | null;
+  area?: string | null;
+  status?: string | null;
+  /** deadline < today 00:00 and not erledigt. */
+  overdue?: boolean;
+  /** deadline <= end of (today + n days). 0 means "heute fällig". */
+  dueWithinDays?: number;
+  /** Default false — preserves today's parentTaskId IS NULL filter. */
+  includeSubtasks?: boolean;
+}
+
+export interface TaskFilterPlan {
+  showCompleted: boolean;
+  completedAfter: Date | null;
+  topLevelOnly: boolean;
+  sprintId: string | null;
+  noSprint: boolean;
+  kind: TaskKind | null;
+  projectId: string | null;
+  phaseId: string | null;
+  area: OperativeArea | null;
+  status: TaskStatus | null;
+  overdue: boolean;
+  /**
+   * These three are compared against `tasks.deadline`, which is a TIMESTAMP
+   * column — so a JS Date is the correct binding here. Do not turn them into
+   * "YYYY-MM-DD" strings; that rule applies to the `date` columns
+   * (`tasks.start_date`, phase/milestone/budget dates) only.
+   */
+  todayStart: Date;
+  /**
+   * Lower bound, always set together with dueBefore. Without it,
+   * `deadline <= today 23:59` also matches everything already overdue and
+   * the dashboard tile „n heute fällig" would be a lie.
+   */
+  dueFrom: Date | null;
+  dueBefore: Date | null;
+  limit: number;
+  offset: number;
+}
+
+/** Pure: request options → the resolved filter decisions listTasks applies. */
+export function planTaskFilters(
+  options: ListTaskOptions,
+  now: Date = new Date(),
+): TaskFilterPlan {
+  const todayStart = new Date(now);
+  todayStart.setHours(0, 0, 0, 0);
+
+  // A due-window is ALWAYS bounded on both sides: [today 00:00, day n 23:59].
+  let dueFrom: Date | null = null;
+  let dueBefore: Date | null = null;
+  if (typeof options.dueWithinDays === "number" && Number.isFinite(options.dueWithinDays)) {
+    dueFrom = new Date(todayStart);
+    dueBefore = new Date(todayStart);
+    dueBefore.setDate(dueBefore.getDate() + Math.max(0, Math.round(options.dueWithinDays)));
+    dueBefore.setHours(23, 59, 59, 999);
+  }
+
+  const sprintId = options.sprintId ? options.sprintId : null;
+
+  return {
+    showCompleted: options.showCompleted === true,
+    completedAfter: options.completedAfter ?? null,
+    topLevelOnly: options.includeSubtasks !== true,
+    sprintId,
+    noSprint: sprintId ? false : options.noSprint === true,
+    kind: normalizeTaskKind(options.kind),
+    projectId: options.projectId ? options.projectId : null,
+    phaseId: options.phaseId ? options.phaseId : null,
+    area: normalizeOperativeArea(options.area),
+    status: normalizeTaskStatus(options.status),
+    overdue: options.overdue === true,
+    todayStart,
+    dueFrom,
+    dueBefore,
+    limit: Math.min(Math.max(options.limit ?? 50, 1), 200),
+    offset: Math.max(options.offset ?? 0, 0),
+  };
+}
 
 /** Allowed Fibonacci sizes — anything else is coerced to null. */
 export const TASK_POINT_VALUES = [1, 2, 3, 5, 8, 13] as const;
