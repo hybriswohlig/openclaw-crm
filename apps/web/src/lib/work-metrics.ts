@@ -127,3 +127,60 @@ export function offsetDaysToDate(projectStart: Date, offsetDays: number): Date {
     projectStart.getDate() + Math.round(offsetDays),
   );
 }
+
+/**
+ * Parse a Drizzle `date` column (string mode, "YYYY-MM-DD") into a Date at
+ * LOCAL midnight.
+ *
+ * `new Date("2026-08-21")` is specified to parse as UTC midnight, which in
+ * CET/CEST is 02:00 the same day — but any subsequent UTC-based formatting
+ * of such a value can render the previous day. Every date the CRM stores is
+ * a calendar day, not an instant, so we build it in local time instead.
+ *
+ * Returns null for null, empty, and unparseable input; never an Invalid Date.
+ */
+export function parseDateColumn(v: string | null | undefined): Date | null {
+  if (!v) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(v);
+  if (!m) return null;
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const d = new Date(year, month - 1, day, 0, 0, 0, 0);
+  // Reject impossible dates that JS would roll over (e.g. 2026-02-31).
+  if (d.getFullYear() !== year || d.getMonth() !== month - 1 || d.getDate() !== day) {
+    return null;
+  }
+  return d;
+}
+
+/**
+ * The exact inverse of `parseDateColumn`: a Date → the "YYYY-MM-DD" string a
+ * Drizzle `date` column (string mode) stores.
+ *
+ * Uses the LOCAL calendar day, never `toISOString().slice(0, 10)`, which is
+ * the UTC day and slips to the previous date for any evening timestamp east
+ * of Greenwich. Every SQL comparison against a `date` column goes through
+ * this: binding a JS Date compares a timestamp literal against a date and
+ * re-introduces the same off-by-one.
+ */
+export function toIsoDay(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * Day offset of a phase's LAST day, inclusive: a 14-day phase starting on
+ * the 1st ends on the 14th, not the 15th.
+ *
+ * This is the only copy of the formula. The Anlege-Wizard and
+ * `materializeProjectPlan` both call it; when each kept its own inline
+ * `start + duration - 1` they drifted by a day and the preview disagreed
+ * with what was written.
+ */
+export function phaseEndOffset(startOffsetDays: number, durationDays: number): number {
+  return startOffsetDays + Math.max(1, Math.round(durationDays)) - 1;
+}

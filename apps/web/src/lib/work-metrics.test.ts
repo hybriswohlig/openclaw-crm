@@ -6,6 +6,9 @@ import {
   budgetPct,
   computeTimelineBar,
   offsetDaysToDate,
+  parseDateColumn,
+  toIsoDay,
+  phaseEndOffset,
 } from "./work-metrics";
 
 // The sprint window used by every timeline case: Mon 17.08.2026 – Sun 30.08.2026,
@@ -270,5 +273,109 @@ describe("offsetDaysToDate", () => {
   it("crosses month and summer time boundaries", () => {
     expect(offsetDaysToDate(new Date(2026, 7, 28), 7)).toEqual(new Date(2026, 8, 4));
     expect(offsetDaysToDate(new Date(2026, 9, 24), 7)).toEqual(new Date(2026, 9, 31));
+  });
+});
+
+describe("parseDateColumn — local midnight, never UTC", () => {
+  it("returns null for null", () => {
+    expect(parseDateColumn(null)).toBeNull();
+  });
+
+  it("returns null for an empty string", () => {
+    expect(parseDateColumn("")).toBeNull();
+  });
+
+  it("parses YYYY-MM-DD at LOCAL midnight, not UTC midnight", () => {
+    const d = parseDateColumn("2026-08-21");
+    expect(d).not.toBeNull();
+    // The whole point: in CET/CEST `new Date("2026-08-21")` would be
+    // 2026-08-21T00:00Z === 02:00 local, and any later UTC-based
+    // formatting of a date built that way can slip a day. We want the
+    // calendar day the database wrote, in the viewer's own timezone.
+    expect(d!.getFullYear()).toBe(2026);
+    expect(d!.getMonth()).toBe(7); // 0-indexed August
+    expect(d!.getDate()).toBe(21);
+    expect(d!.getHours()).toBe(0);
+    expect(d!.getMinutes()).toBe(0);
+    expect(d!.getSeconds()).toBe(0);
+    expect(d!.getMilliseconds()).toBe(0);
+  });
+
+  it("round-trips every day of a month without drifting", () => {
+    for (let day = 1; day <= 31; day++) {
+      const iso = `2026-01-${String(day).padStart(2, "0")}`;
+      expect(parseDateColumn(iso)!.getDate()).toBe(day);
+    }
+  });
+
+  it("ignores a timestamp suffix and keeps the calendar day", () => {
+    expect(parseDateColumn("2026-12-31T23:30:00.000Z")!.getDate()).toBe(31);
+  });
+
+  it("returns null for a malformed value rather than an Invalid Date", () => {
+    expect(parseDateColumn("nope")).toBeNull();
+    expect(parseDateColumn("2026-13-45")).toBeNull();
+  });
+});
+
+describe("toIsoDay — the string a `date` column is compared against", () => {
+  it("formats a local date as YYYY-MM-DD", () => {
+    expect(toIsoDay(new Date(2026, 7, 21, 10, 30))).toBe("2026-08-21");
+  });
+
+  it("zero-pads month and day", () => {
+    expect(toIsoDay(new Date(2026, 0, 5, 0, 0))).toBe("2026-01-05");
+  });
+
+  it("uses the LOCAL day, not the UTC day", () => {
+    // 2026-08-21 23:30 local is already 2026-08-22 in UTC east of Greenwich.
+    // A `date` column stores a calendar day, so the local day is the right one.
+    expect(toIsoDay(new Date(2026, 7, 21, 23, 30))).toBe("2026-08-21");
+  });
+
+  it("is the exact inverse of parseDateColumn", () => {
+    // This pair IS the contract: a value read out of a `date` column and
+    // written straight back must be unchanged, including across the March
+    // and October DST switches.
+    for (const iso of [
+      "2026-01-01",
+      "2026-02-28",
+      "2026-03-29",
+      "2026-08-21",
+      "2026-10-25",
+      "2026-12-31",
+    ]) {
+      expect(toIsoDay(parseDateColumn(iso)!)).toBe(iso);
+    }
+  });
+});
+
+describe("phaseEndOffset — inclusive, and the only copy of this formula", () => {
+  it("a 14-day phase starting on day 0 ends on day 13, not day 14", () => {
+    // Inclusive: starting on the 1st, a 14-day phase ends on the 14th.
+    expect(phaseEndOffset(0, 14)).toBe(13);
+  });
+
+  it("carries the start offset through", () => {
+    expect(phaseEndOffset(7, 14)).toBe(20);
+    expect(phaseEndOffset(30, 1)).toBe(30);
+  });
+
+  it("a one-day phase starts and ends on the same day", () => {
+    expect(phaseEndOffset(5, 1)).toBe(5);
+  });
+
+  it("clamps a zero or negative duration to one day", () => {
+    // The AI generator's schema defaults durationDays to 7 and floors it at
+    // 1, but a hand-built payload can still send 0 — which without the clamp
+    // would put the end BEFORE the start.
+    expect(phaseEndOffset(5, 0)).toBe(5);
+    expect(phaseEndOffset(5, -3)).toBe(5);
+  });
+
+  it("never returns an end before the start", () => {
+    for (const d of [-10, 0, 1, 2, 90]) {
+      expect(phaseEndOffset(12, d)).toBeGreaterThanOrEqual(12);
+    }
   });
 });
