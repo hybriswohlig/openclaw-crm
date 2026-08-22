@@ -838,6 +838,44 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
         { method: "DELETE" }
       );
 
+    // ── Budget ──────────────────────────────────────────────────────────
+    case "crm_get_project_budget":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/budget`
+      );
+    case "crm_create_project_budget_entry": {
+      const body: Record<string, unknown> = {
+        label: args.label,
+        amountCents: num(args.amountCents),
+        kind: args.kind,
+      };
+      for (const key of ["bookedAt", "note"]) {
+        if (args[key] !== undefined) body[key] = args[key];
+      }
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/budget`,
+        { method: "POST", body }
+      );
+    }
+    case "crm_update_project_budget_entry": {
+      const body: Record<string, unknown> = {};
+      for (const key of ["label", "kind", "bookedAt", "note"]) {
+        if (args[key] !== undefined) body[key] = args[key];
+      }
+      if (args.amountCents !== undefined) {
+        body.amountCents = num(args.amountCents);
+      }
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/budget/${encodeURIComponent(str(args.entryId))}`,
+        { method: "PATCH", body }
+      );
+    }
+    case "crm_delete_project_budget_entry":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/budget/${encodeURIComponent(str(args.entryId))}`,
+        { method: "DELETE" }
+      );
+
     case "crm_api": {
       const path = str(args.path);
       if (!path.startsWith("/api/")) {

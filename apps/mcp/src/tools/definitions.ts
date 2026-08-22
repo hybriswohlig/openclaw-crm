@@ -1063,6 +1063,66 @@ export const TOOLS: ToolDef[] = [
     },
   },
 
+  // ── Budget ────────────────────────────────────────────────────────
+  {
+    name: "crm_get_project_budget",
+    description:
+      "Budget of one project: the planned total, the sum of the 'plan' entries, the actual spend, the resulting percentage and every entry. All amounts are integer euro cents. plannedCents is the single number set on the project itself; plannedBreakdownCents is the sum of the individual plan lines and may legitimately differ from it — do not treat a mismatch as an error.",
+    inputSchema: {
+      type: "object",
+      properties: { projectId: { type: "string" } },
+      required: ["projectId"],
+    },
+  },
+  {
+    name: "crm_create_project_budget_entry",
+    description:
+      "Add one budget line to a project. kind 'plan' is a budgeted item, kind 'ist' is money actually spent — only 'ist' entries move the spend figure and the budget percentage. amountCents is integer euro cents (2.500,00 EUR is 250000): never a float, never a string with a comma, never euros. bookedAt is the ISO 'YYYY-MM-DD' the amount applies to, not the day you enter it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        label: { type: "string" },
+        amountCents: { type: "number", description: "Integer euro cents" },
+        kind: { type: "string", enum: ["plan", "ist"] },
+        bookedAt: { type: "string", description: "ISO YYYY-MM-DD" },
+        note: { type: "string" },
+      },
+      required: ["projectId", "label", "amountCents", "kind"],
+    },
+  },
+  {
+    name: "crm_update_project_budget_entry",
+    description:
+      "Update one budget entry. PATCH semantics — omitted fields keep their value, null clears a nullable one. Switching kind between 'plan' and 'ist' immediately changes the project's spend figure and its budget percentage, so do it deliberately rather than to tidy up a label.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        entryId: { type: "string" },
+        label: { type: "string" },
+        amountCents: { type: "number", description: "Integer euro cents" },
+        kind: { type: "string", enum: ["plan", "ist"] },
+        bookedAt: { type: "string", description: "ISO YYYY-MM-DD" },
+        note: { type: "string" },
+      },
+      required: ["projectId", "entryId"],
+    },
+  },
+  {
+    name: "crm_delete_project_budget_entry",
+    description:
+      "Delete one budget entry permanently. The project's own planned total (budgetPlannedCents, set with crm_update_project) is a separate field and is not touched — deleting every plan line does not zero the budget.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        entryId: { type: "string" },
+      },
+      required: ["projectId", "entryId"],
+    },
+  },
+
   // ── Escape hatch ──────────────────────────────────────────────────
   {
     name: "crm_api",

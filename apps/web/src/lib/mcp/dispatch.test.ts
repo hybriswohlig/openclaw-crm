@@ -685,3 +685,28 @@ describe("crm_create_project_risk", () => {
     });
   });
 });
+
+describe("crm_create_project_budget_entry", () => {
+  it("coerces amountCents from a string so cents never reach the route as text", async () => {
+    // The whole money model is integer cents. A string amount would be
+    // stored as NaN or rejected, and the budget bar would silently stall.
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_create_project_budget_entry", {
+      projectId: "p-1",
+      label: "Leasingrate Mai",
+      amountCents: "89900",
+      kind: "ist",
+      bookedAt: "2026-05-02",
+    });
+
+    expect(calls[0].path).toBe("/api/v1/projects/p-1/budget");
+    expect(calls[0].options.method).toBe("POST");
+    expect(calls[0].options.body).toEqual({
+      label: "Leasingrate Mai",
+      amountCents: 89900,
+      kind: "ist",
+      bookedAt: "2026-05-02",
+    });
+  });
+});
