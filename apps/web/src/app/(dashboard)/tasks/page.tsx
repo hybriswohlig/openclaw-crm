@@ -23,6 +23,14 @@ import { KpiGrid, KpiTile } from "@/components/work/kpi-tile";
 import { AlertTriangle, CheckCircle2, FolderKanban, ListChecks, Users } from "lucide-react";
 import { ProjectCard, NewProjectTile } from "@/components/work/project-card";
 import { EmptyState } from "@/components/work/empty-state";
+import { SectionCard } from "@/components/work/section-card";
+import { FilterChips } from "@/components/work/filter-chips";
+import { TaskRow } from "@/components/work/task-row";
+import { SprintTimeline } from "@/components/work/sprint-timeline";
+import { OPERATIVE_FILTERS, matchesOperativeFilter, type OperativeFilter } from "@/lib/work-ui";
+
+/** How many operative rows the dashboard card shows before "Alle →". */
+const DASHBOARD_OPERATIVE_ROWS = 10;
 
 export default function WorkDashboardPage() {
   const { data: session } = useSession();
@@ -35,6 +43,7 @@ export default function WorkDashboardPage() {
   const [timelineFailed, setTimelineFailed] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<TaskJSON | null>(null);
+  const [opFilter, setOpFilter] = useState<OperativeFilter>("heute");
 
   // Every load carries a monotonic id and an AbortController. Without both,
   // switching the SprintPicker from a 210-task sprint to a 6-task one lets the
@@ -233,7 +242,23 @@ export default function WorkDashboardPage() {
               sprintScoped={data.projectsAreSprintScoped}
               onToggleFavorite={toggleFavorite}
             />
-            {/* Task 22: Operative Aufgaben + Timeline */}
+            <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+              <OperativeCard
+                tasks={data.operativeTasks}
+                openTotal={data.kpis.operativeOpenCount}
+                filter={opFilter}
+                onFilterChange={setOpFilter}
+                onOpen={openTask}
+                onChanged={load}
+              />
+              <SprintTimeline
+                data={timeline}
+                loading={loading && !timeline}
+                error={timelineFailed}
+                onTaskClick={openTaskById}
+                className="min-w-0"
+              />
+            </div>
             {/* Task 23: vier untere Karten */}
           </>
         )}
@@ -387,5 +412,62 @@ function SprintProjects({
         </div>
       )}
     </section>
+  );
+}
+
+function OperativeCard({
+  tasks,
+  openTotal,
+  filter,
+  onFilterChange,
+  onOpen,
+  onChanged,
+}: {
+  tasks: TaskJSON[];
+  /** kpis.operativeOpenCount — the TRUE number of open operative tasks. */
+  openTotal: number;
+  filter: OperativeFilter;
+  onFilterChange: (f: OperativeFilter) => void;
+  onOpen: (t: TaskJSON) => void;
+  onChanged: () => void | Promise<void>;
+}) {
+  // `tasks` is a bounded slice from the dashboard payload, not the whole set.
+  // Counting chips over it and printing that next to a KPI tile showing the
+  // true number makes the two disagree on screen (defect W7), so the chips are
+  // labelled as counts of what is shown and the card subtitle carries the
+  // real total.
+  const options = OPERATIVE_FILTERS.map((o) => ({
+    ...o,
+    count: tasks.filter((t) => matchesOperativeFilter(t, o.value)).length,
+  }));
+  const visible = tasks.filter((t) => matchesOperativeFilter(t, filter));
+  const truncated = openTotal > tasks.length;
+
+  return (
+    <SectionCard
+      title="Operative Aufgaben"
+      subtitle={truncated ? `${tasks.length} von ${openTotal} offen — „Alle" zeigt den Rest` : `${openTotal} offen`}
+      actionHref="/tasks/operative"
+      actionLabel="Alle"
+      className="min-w-0"
+    >
+      <FilterChips options={options} value={filter} onChange={onFilterChange} className="mb-2" />
+      {visible.length === 0 ? (
+        <EmptyState
+          title="Nichts offen"
+          hint={
+            filter === "ueberfaellig"
+              ? "Keine überfälligen operativen Aufgaben — sauber."
+              : "Für diesen Zeitraum steht nichts an."
+          }
+        />
+      ) : (
+        <div className="-mx-2 flex flex-col divide-y divide-border">
+          {visible.slice(0, DASHBOARD_OPERATIVE_ROWS).map((t) => (
+            <TaskRow key={t.id} task={t} onOpen={onOpen} onToggled={onChanged} />
+          ))}
+        </div>
+      )}
+    </SectionCard>
   );
 }
