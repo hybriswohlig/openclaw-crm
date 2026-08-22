@@ -7,6 +7,7 @@ import {
   resolveTaskStatus,
   planTaskFilters,
 } from "./tasks";
+import * as taskService from "./tasks";
 
 const OPERATIV = { kind: "operativ" as const, projectId: null, phaseId: null };
 const IN_PROJECT = { kind: "projekt" as const, projectId: "p1", phaseId: "ph1" };
@@ -302,5 +303,25 @@ describe("planTaskFilters", () => {
     expect(planTaskFilters({ limit: 5000 }, now).limit).toBe(200);
     expect(planTaskFilters({ limit: 0 }, now).limit).toBe(1);
     expect(planTaskFilters({ offset: -3 }, now).offset).toBe(0);
+  });
+});
+
+describe("services/tasks public surface after the points removal", () => {
+  it("no longer exports the Fibonacci point helpers", () => {
+    expect("normalizePoints" in taskService).toBe(false);
+    expect("TASK_POINT_VALUES" in taskService).toBe(false);
+  });
+
+  it("no longer exports the dead home-page widget helper", () => {
+    expect("getUpcomingTasks" in taskService).toBe(false);
+  });
+
+  it("still exports the CRUD surface the routes call", () => {
+    expect(typeof taskService.listTasks).toBe("function");
+    expect(typeof taskService.createTask).toBe("function");
+    expect(typeof taskService.updateTask).toBe("function");
+    expect(typeof taskService.deleteTask).toBe("function");
+    expect(typeof taskService.listSubtasks).toBe("function");
+    expect(typeof taskService.getTasksForRecord).toBe("function");
   });
 });

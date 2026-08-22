@@ -22,11 +22,7 @@ export async function PATCH(
       isCompleted?: boolean;
       recordIds?: string[];
       assigneeIds?: string[];
-      kanbanStatus?: "backlog" | "heute" | "laeuft" | "warte" | "erledigt" | null;
-      pointEstimate?: number | null;
       sprintId?: string | null;
-      workType?: string | null;
-      growthCategory?: string | null;
       description?: string | null;
       priority?: string | null;
     };

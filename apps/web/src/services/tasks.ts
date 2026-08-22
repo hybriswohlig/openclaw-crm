@@ -3,12 +3,15 @@ import {
   tasks,
   taskRecords,
   taskAssignees,
+  taskDependencies,
   users,
+  projects,
+  projectPhases,
 } from "@/db/schema";
-import { eq, and, or, gte, desc, inArray, isNull, sql } from "drizzle-orm";
+import { eq, and, or, asc, gte, lte, lt, desc, inArray, isNull, isNotNull, sql } from "drizzle-orm";
 import { batchGetRecordDisplayNames } from "./display-names";
-import { normalizeWorkType, normalizeGrowthCategory } from "@/lib/sprint-constants";
-import { normalizePriority } from "@/lib/task-priority";
+import { normalizePriority, type Priority } from "@/lib/task-priority";
+import { parseDateColumn } from "@/lib/work-metrics";
 import {
   normalizeOperativeArea,
   normalizeTaskKind,
@@ -17,6 +20,7 @@ import {
   type TaskKind,
   type TaskStatus,
 } from "@/lib/project-constants";
+import { emitEvent } from "./activity-events";
 
 // ─── Invariants I1–I4, as pure decisions ─────────────────────────────
 //
@@ -61,9 +65,9 @@ export function resolveTaskKind(
 /**
  * I2: `phase_id IS NOT NULL` ⟹ the phase belongs to `project_id`.
  *
- * Pure decision only — the async wrapper in Task 12 does the SELECT and
- * passes `null` for `phaseProjectId` when the phase row does not exist or
- * lives in another workspace, which is also a violation.
+ * Pure decision only — the async wrapper below does the SELECT and passes
+ * `null` for `phaseProjectId` when the phase row does not exist or lives in
+ * another workspace, which is also a violation.
  */
 export function resolvePhaseAssignment(
   phaseProjectId: string | null,
@@ -236,15 +240,6 @@ export function planTaskFilters(
   };
 }
 
-/** Allowed Fibonacci sizes — anything else is coerced to null. */
-export const TASK_POINT_VALUES = [1, 2, 3, 5, 8, 13] as const;
-export type TaskPointEstimate = (typeof TASK_POINT_VALUES)[number];
-
-export function normalizePoints(v: number | null | undefined): number | null {
-  if (v === null || v === undefined) return null;
-  return (TASK_POINT_VALUES as readonly number[]).includes(v) ? v : null;
-}
-
 export interface TaskData {
   id: string;
   content: string;
@@ -255,33 +250,36 @@ export interface TaskData {
   createdAt: Date;
   linkedRecords: { id: string; displayName: string; objectSlug: string }[];
   assignees: { id: string; name: string; email: string }[];
-  kanbanStatus: string | null;
-  /** Fibonacci size (1,2,3,5,8,13) or null when not estimated. */
-  pointEstimate: number | null;
-  /** Sprint membership; null = product backlog / pure flow. */
   sprintId: string | null;
-  /** 'flow' | 'build' | null (null reads as flow). */
-  workType: string | null;
-  /** Growth-category slug for build tasks, or null. */
-  growthCategory: string | null;
-  /** Free-text details beyond the title, or null. */
   description: string | null;
-  /** 'niedrig' | 'mittel' | 'hoch' | null. */
-  priority: string | null;
-  /** Parent task id for subtasks, else null. */
+  priority: Priority | null;
   parentTaskId: string | null;
+  /** 'projekt' when the task belongs to a project, else 'operativ' (I1). */
+  kind: TaskKind;
+  projectId: string | null;
+  /** Denormalised for list rendering — never written back. */
+  projectName: string | null;
+  phaseId: string | null;
+  /** Operative area tag; only meaningful for kind='operativ'. */
+  area: OperativeArea | null;
+  /** Leading status field; is_completed mirrors it (I3). */
+  status: TaskStatus;
+  /** Bar start in the sprint timeline. */
+  startDate: Date | null;
 }
 
-/** Batch-enrich an array of task rows into TaskData[] (~3 queries total) */
+/** Batch-enrich task rows into TaskData[] (~4 queries total). */
 async function enrichTasks(
-  taskRows: (typeof tasks.$inferSelect)[]
+  taskRows: (typeof tasks.$inferSelect)[],
 ): Promise<TaskData[]> {
   if (taskRows.length === 0) return [];
 
   const taskIds = taskRows.map((t) => t.id);
+  const projectIds = [
+    ...new Set(taskRows.map((t) => t.projectId).filter((v): v is string => !!v)),
+  ];
 
-  // 1. Batch get all task_records + task_assignees in parallel
-  const [allTaskRecords, allTaskAssignees] = await Promise.all([
+  const [allTaskRecords, allTaskAssignees, projectRows] = await Promise.all([
     db
       .select({ taskId: taskRecords.taskId, recordId: taskRecords.recordId })
       .from(taskRecords)
@@ -296,14 +294,21 @@ async function enrichTasks(
       .from(taskAssignees)
       .innerJoin(users, eq(taskAssignees.userId, users.id))
       .where(inArray(taskAssignees.taskId, taskIds)),
+    projectIds.length > 0
+      ? db
+          .select({ id: projects.id, name: projects.name })
+          .from(projects)
+          .where(inArray(projects.id, projectIds))
+      : Promise.resolve([] as { id: string; name: string }[]),
   ]);
 
-  // 2. Collect unique recordIds and batch-resolve display names
   const allRecordIds = [...new Set(allTaskRecords.map((tr) => tr.recordId))];
   const displayMap = await batchGetRecordDisplayNames(allRecordIds);
 
-  // 3. Group by taskId
-  const recordsByTask = new Map<string, { id: string; displayName: string; objectSlug: string }[]>();
+  const recordsByTask = new Map<
+    string,
+    { id: string; displayName: string; objectSlug: string }[]
+  >();
   for (const tr of allTaskRecords) {
     const info = displayMap.get(tr.recordId);
     const arr = recordsByTask.get(tr.taskId) || [];
@@ -322,9 +327,13 @@ async function enrichTasks(
     assigneesByTask.set(ta.taskId, arr);
   }
 
+  const projectNameById = new Map(projectRows.map((p) => [p.id, p.name]));
+
   return taskRows.map((t) => ({
     id: t.id,
     content: t.content,
+    // deadline / completedAt / createdAt are TIMESTAMP columns and already
+    // arrive as Date — only `start_date` below is a string-mode `date`.
     deadline: t.deadline,
     isCompleted: t.isCompleted,
     completedAt: t.completedAt,
@@ -332,15 +341,42 @@ async function enrichTasks(
     createdAt: t.createdAt,
     linkedRecords: recordsByTask.get(t.id) || [],
     assignees: assigneesByTask.get(t.id) || [],
-    kanbanStatus: t.kanbanStatus ?? null,
-    pointEstimate: t.pointEstimate ?? null,
     sprintId: t.sprintId ?? null,
-    workType: t.workType ?? null,
-    growthCategory: t.growthCategory ?? null,
     description: t.description ?? null,
-    priority: t.priority ?? null,
+    priority: normalizePriority(t.priority),
     parentTaskId: t.parentTaskId ?? null,
+    kind: normalizeTaskKind(t.kind) ?? (t.projectId ? "projekt" : "operativ"),
+    projectId: t.projectId ?? null,
+    projectName: t.projectId ? projectNameById.get(t.projectId) ?? null : null,
+    phaseId: t.phaseId ?? null,
+    area: normalizeOperativeArea(t.area),
+    status: normalizeTaskStatus(t.status) ?? (t.isCompleted ? "erledigt" : "geplant"),
+    startDate: parseDateColumn(t.startDate),
   }));
+}
+
+/**
+ * I2 wrapper: look the phase up, then let the PURE `resolvePhaseAssignment`
+ * decide. A missing row (unknown id / other workspace) is passed as null,
+ * which the helper treats as a violation.
+ */
+async function assertPhaseBelongsToProject(
+  workspaceId: string,
+  placement: TaskPlacement,
+): Promise<void> {
+  if (!placement.phaseId) return;
+  const [row] = await db
+    .select({ projectId: projectPhases.projectId })
+    .from(projectPhases)
+    .where(
+      and(
+        eq(projectPhases.id, placement.phaseId),
+        eq(projectPhases.workspaceId, workspaceId),
+      ),
+    )
+    .limit(1);
+  const check = resolvePhaseAssignment(row?.projectId ?? null, placement.projectId);
+  if (!check.ok) throw new Error(check.error);
 }
 
 // ─── CRUD ────────────────────────────────────────────────────────────
@@ -348,36 +384,64 @@ async function enrichTasks(
 export async function listTasks(
   workspaceId: string,
   _createdBy: string,
-  options: {
-    showCompleted?: boolean;
-    limit?: number;
-    offset?: number;
-    /** Only tasks in this sprint. */
-    sprintId?: string;
-    /** Only tasks NOT in any sprint (product backlog / flow). */
-    noSprint?: boolean;
-    /** With showCompleted: only completed tasks finished at/after this date. */
-    completedAfter?: Date;
-  } = {}
+  options: ListTaskOptions = {},
 ) {
-  const { showCompleted = false, limit = 50, offset = 0 } = options;
+  const plan = planTaskFilters(options);
 
-  // Subtasks are excluded from the top-level kanban — they show up
-  // inside their parent's TaskDialog instead. parentTaskId IS NULL means
-  // "this is a top-level task".
-  const clauses = [eq(tasks.workspaceId, workspaceId), sql`${tasks.parentTaskId} IS NULL`];
-  if (!showCompleted) {
+  const clauses = [eq(tasks.workspaceId, workspaceId)];
+  // Subtasks stay out of the top-level lists unless explicitly asked for —
+  // the project task list and the progress counters need every row.
+  if (plan.topLevelOnly) clauses.push(isNull(tasks.parentTaskId));
+  if (!plan.showCompleted) {
     clauses.push(eq(tasks.isCompleted, false));
-  } else if (options.completedAfter) {
+  } else if (plan.completedAfter) {
     clauses.push(
-      or(
-        eq(tasks.isCompleted, false),
-        gte(tasks.completedAt, options.completedAfter)
-      )!
+      or(eq(tasks.isCompleted, false), gte(tasks.completedAt, plan.completedAfter))!,
     );
   }
-  if (options.sprintId) clauses.push(eq(tasks.sprintId, options.sprintId));
-  else if (options.noSprint) clauses.push(isNull(tasks.sprintId));
+  if (plan.sprintId) clauses.push(eq(tasks.sprintId, plan.sprintId));
+  else if (plan.noSprint) clauses.push(isNull(tasks.sprintId));
+  // NULL-TOLERANCE. `kind` and `status` are nullable columns, and enrichTasks
+  // above defaults a NULL to a real value. If the WHERE clause did not do the
+  // same, a row with NULL columns would RENDER as operativ/geplant but be
+  // invisible to every filter naming those columns — `/tasks/operative` would
+  // omit it while `GET /api/v1/tasks/<id>` returned it. `ne(NULL, 'erledigt')`
+  // is NULL, i.e. "not matched", which is the same trap in the other direction.
+  //
+  // I1 says kind ⟺ project_id, so project_id is the NULL-safe discriminator.
+  if (plan.kind === "projekt") clauses.push(isNotNull(tasks.projectId));
+  else if (plan.kind === "operativ") clauses.push(isNull(tasks.projectId));
+
+  if (plan.projectId) clauses.push(eq(tasks.projectId, plan.projectId));
+  if (plan.phaseId) clauses.push(eq(tasks.phaseId, plan.phaseId));
+  // `area` has no default in the read path (NULL stays null), so a plain
+  // equality is already consistent here.
+  if (plan.area) clauses.push(eq(tasks.area, plan.area));
+
+  if (plan.status === "erledigt") {
+    clauses.push(
+      or(eq(tasks.status, "erledigt"), and(isNull(tasks.status), eq(tasks.isCompleted, true)))!,
+    );
+  } else if (plan.status === "geplant") {
+    clauses.push(
+      or(eq(tasks.status, "geplant"), and(isNull(tasks.status), eq(tasks.isCompleted, false)))!,
+    );
+  } else if (plan.status) {
+    // 'in_arbeit' is never the default of a NULL row.
+    clauses.push(eq(tasks.status, plan.status));
+  }
+
+  if (plan.overdue) {
+    clauses.push(lt(tasks.deadline, plan.todayStart));
+    // ONE source of truth for doneness in this builder: is_completed. It is
+    // NOT NULL with a default, I3 keeps it in sync with `status`, and
+    // `showCompleted` above already uses it — mixing the two columns is how
+    // the Überfällig tile and the Überfällig list disagreed.
+    clauses.push(eq(tasks.isCompleted, false));
+  }
+  // Both bounds together: "heute fällig" must not sweep in the overdue.
+  if (plan.dueFrom) clauses.push(gte(tasks.deadline, plan.dueFrom));
+  if (plan.dueBefore) clauses.push(lte(tasks.deadline, plan.dueBefore));
   const whereClause = and(...clauses);
 
   const [taskRows, [countResult]] = await Promise.all([
@@ -385,13 +449,17 @@ export async function listTasks(
       .select()
       .from(tasks)
       .where(whereClause)
-      .orderBy(tasks.deadline, desc(tasks.createdAt))
-      .limit(limit)
-      .offset(offset),
-    db
-      .select({ count: sql<number>`count(*)` })
-      .from(tasks)
-      .where(whereClause),
+      // `deadline ASC` is NULLS LAST in Postgres, so undated tasks are always
+      // last and are the first thing the cap truncates — written down in the
+      // route doc because the UI builds counters on top of it. `id` is the
+      // tiebreaker: createProject inserts every wizard task in ONE
+      // transaction and Postgres `now()` is fixed for a transaction, so a
+      // dozen rows share created_at to the microsecond and a paged sort on a
+      // degenerate key can show a row twice or never.
+      .orderBy(tasks.deadline, desc(tasks.createdAt), asc(tasks.id))
+      .limit(plan.limit)
+      .offset(plan.offset),
+    db.select({ count: sql<number>`count(*)` }).from(tasks).where(whereClause),
   ]);
 
   return { tasks: await enrichTasks(taskRows), total: Number(countResult.count) };
@@ -446,20 +514,65 @@ export async function createTask(
     assigneeIds?: string[];
     parentTaskId?: string | null;
     recurrenceRule?: "daily" | "weekly" | "monthly" | null;
-    pointEstimate?: number | null;
     sprintId?: string | null;
-    workType?: string | null;
-    growthCategory?: string | null;
     description?: string | null;
     priority?: string | null;
-  } = {}
+    kind?: string | null;
+    projectId?: string | null;
+    phaseId?: string | null;
+    area?: string | null;
+    status?: string | null;
+    startDate?: string | null;
+  } = {},
 ) {
-  const [task] = await db
+  const requested: { kind?: unknown; projectId?: unknown; phaseId?: unknown } = {};
+  if (options.kind !== undefined) requested.kind = options.kind;
+  if (options.projectId !== undefined) requested.projectId = options.projectId;
+  if (options.phaseId !== undefined) requested.phaseId = options.phaseId;
+
+  let placement = resolveTaskKind(requested, {
+    kind: "operativ",
+    projectId: null,
+    phaseId: null,
+  });
+
+  // I4: a subtask always inherits the parent's kind / project / phase, and
+  // the hierarchy is capped at two levels — the cascade in updateTask is
+  // `WHERE parent_task_id = <id>` and would not reach a grandchild.
+  if (options.parentTaskId) {
+    const [parent] = await db
+      .select({
+        kind: tasks.kind,
+        projectId: tasks.projectId,
+        phaseId: tasks.phaseId,
+        parentTaskId: tasks.parentTaskId,
+      })
+      .from(tasks)
+      .where(and(eq(tasks.id, options.parentTaskId), eq(tasks.workspaceId, workspaceId)))
+      .limit(1);
+    const eligible = resolveParentEligibility(parent ?? null);
+    if (!eligible.ok) throw new Error(eligible.error);
+    placement = resolveInheritedPlacement(parent ?? null, placement);
+  }
+  await assertPhaseBelongsToProject(workspaceId, placement);
+
+  const completion = resolveTaskStatus(
+    options.status !== undefined ? { status: options.status } : {},
+    { status: "geplant", isCompleted: false, completedAt: null },
+  );
+
+  // ONE transaction for task + record links + assignees. Unwrapped, a failed
+  // assignee insert (a user deleted since the picker loaded, an FK violation)
+  // left the task created and the links half-written, and the route 500'd.
+  const task = await db.transaction(async (tx) => {
+  const [inserted] = await tx
     .insert(tasks)
     .values({
       content,
       createdBy,
       workspaceId,
+      // deadline is a TIMESTAMP → Date; start_date is a string-mode `date`
+      // and goes in as "YYYY-MM-DD" (see below).
       deadline: options.deadline ? new Date(options.deadline) : null,
       parentTaskId: options.parentTaskId ?? null,
       recurrenceRule: options.recurrenceRule ?? null,
@@ -468,34 +581,33 @@ export async function createTask(
           ? new Date(options.deadline)
           : new Date()
         : null,
-      pointEstimate: normalizePoints(options.pointEstimate),
       sprintId: options.sprintId ?? null,
-      workType: normalizeWorkType(options.workType),
-      growthCategory: normalizeGrowthCategory(options.growthCategory),
       description: options.description?.trim() ? options.description.trim() : null,
       priority: normalizePriority(options.priority),
+      kind: placement.kind,
+      projectId: placement.projectId,
+      phaseId: placement.phaseId,
+      area: normalizeOperativeArea(options.area),
+      status: completion.status,
+      isCompleted: completion.isCompleted,
+      completedAt: completion.completedAt,
+      // `|| null` so an empty string never reaches the `date` column.
+      startDate: options.startDate || null,
     })
     .returning();
 
-  // Link records
   if (options.recordIds && options.recordIds.length > 0) {
-    await db.insert(taskRecords).values(
-      options.recordIds.map((recordId) => ({
-        taskId: task.id,
-        recordId,
-      }))
-    );
+    await tx
+      .insert(taskRecords)
+      .values(options.recordIds.map((recordId) => ({ taskId: inserted.id, recordId })));
   }
-
-  // Add assignees
   if (options.assigneeIds && options.assigneeIds.length > 0) {
-    await db.insert(taskAssignees).values(
-      options.assigneeIds.map((userId) => ({
-        taskId: task.id,
-        userId,
-      }))
-    );
+    await tx
+      .insert(taskAssignees)
+      .values(options.assigneeIds.map((userId) => ({ taskId: inserted.id, userId })));
   }
+  return inserted;
+  });
 
   return (await enrichTasks([task]))[0];
 }
@@ -510,125 +622,286 @@ export async function updateTask(
     recordIds?: string[];
     assigneeIds?: string[];
     recurrenceRule?: "daily" | "weekly" | "monthly" | null;
-    kanbanStatus?: "backlog" | "heute" | "laeuft" | "warte" | "erledigt" | null;
-    pointEstimate?: number | null;
     sprintId?: string | null;
-    workType?: string | null;
-    growthCategory?: string | null;
     description?: string | null;
     priority?: string | null;
-  }
+    kind?: string | null;
+    projectId?: string | null;
+    phaseId?: string | null;
+    area?: string | null;
+    status?: string | null;
+    startDate?: string | null;
+    /** Re-parent. Spec §11 — crm_update_task sends this. */
+    parentTaskId?: string | null;
+  },
+  /**
+   * Who performed the edit. OPTIONAL, unlike the project services: this
+   * function has pre-existing callers (`services/agent/agent-tasks.ts` and
+   * the PATCH route) and a required parameter would break them. Routes pass
+   * `ctx.userId`; a machine path may legitimately pass null.
+   */
+  actorUserId: string | null = null,
 ) {
-  // Verify task belongs to workspace
   const [existing] = await db
-    .select({ id: tasks.id })
+    .select({
+      id: tasks.id,
+      parentTaskId: tasks.parentTaskId,
+      kind: tasks.kind,
+      projectId: tasks.projectId,
+      phaseId: tasks.phaseId,
+      status: tasks.status,
+      isCompleted: tasks.isCompleted,
+      completedAt: tasks.completedAt,
+    })
     .from(tasks)
     .where(and(eq(tasks.id, taskId), eq(tasks.workspaceId, workspaceId)))
     .limit(1);
-
   if (!existing) return null;
+
+  const currentPlacement: TaskPlacement = {
+    kind: normalizeTaskKind(existing.kind) ?? (existing.projectId ? "projekt" : "operativ"),
+    projectId: existing.projectId ?? null,
+    phaseId: existing.phaseId ?? null,
+  };
+  const requested: { kind?: unknown; projectId?: unknown; phaseId?: unknown } = {};
+  if (updates.kind !== undefined) requested.kind = updates.kind;
+  if (updates.projectId !== undefined) requested.projectId = updates.projectId;
+  if (updates.phaseId !== undefined) requested.phaseId = updates.phaseId;
+  let placement = resolveTaskKind(requested, currentPlacement);
+
+  // I4 on re-parent: a task moved under a new parent inherits that parent's
+  // kind / project / phase, overriding whatever the caller sent.
+  const reparented =
+    updates.parentTaskId !== undefined &&
+    (updates.parentTaskId || null) !== (existing.parentTaskId ?? null);
+  if (reparented) {
+    const newParentId = updates.parentTaskId || null;
+    if (newParentId === taskId) {
+      throw new Error("Eine Aufgabe kann nicht ihre eigene Unteraufgabe sein");
+    }
+    let parentRow:
+      | {
+          kind: string | null;
+          projectId: string | null;
+          phaseId: string | null;
+          parentTaskId: string | null;
+        }
+      | null = null;
+    if (newParentId) {
+      const [row] = await db
+        .select({
+          kind: tasks.kind,
+          projectId: tasks.projectId,
+          phaseId: tasks.phaseId,
+          parentTaskId: tasks.parentTaskId,
+        })
+        .from(tasks)
+        .where(and(eq(tasks.id, newParentId), eq(tasks.workspaceId, workspaceId)))
+        .limit(1);
+      if (!row) throw new Error("Übergeordnete Aufgabe nicht gefunden");
+      const eligible = resolveParentEligibility(row);
+      if (!eligible.ok) throw new Error(eligible.error);
+      parentRow = row;
+    }
+
+    // A task that already HAS children cannot itself become a child, for the
+    // same reason: its children would silently become grandchildren.
+    if (newParentId) {
+      const [child] = await db
+        .select({ id: tasks.id })
+        .from(tasks)
+        .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.parentTaskId, taskId)))
+        .limit(1);
+      if (child) {
+        throw new Error("Aufgaben mit Unteraufgaben können nicht verschachtelt werden");
+      }
+    }
+
+    placement = resolveInheritedPlacement(parentRow, placement);
+  }
+
+  await assertPhaseBelongsToProject(workspaceId, placement);
+
+  const currentCompletion: TaskCompletion = {
+    status: normalizeTaskStatus(existing.status) ?? (existing.isCompleted ? "erledigt" : "geplant"),
+    isCompleted: existing.isCompleted,
+    completedAt: existing.completedAt,
+  };
+  const statusPatch: { status?: unknown; isCompleted?: unknown } = {};
+  if (updates.status !== undefined) statusPatch.status = updates.status;
+  if (updates.isCompleted !== undefined) statusPatch.isCompleted = updates.isCompleted;
+  const completion = resolveTaskStatus(statusPatch, currentCompletion);
 
   const setValues: Record<string, unknown> = {};
   if (updates.content !== undefined) setValues.content = updates.content;
   if (updates.deadline !== undefined) {
     setValues.deadline = updates.deadline ? new Date(updates.deadline) : null;
-    // Reset the overdue-notified flag so a re-scheduled task can be
-    // re-flagged once the new deadline passes.
+    // Re-arm the overdue cron for the new deadline.
     setValues.overdueNotifiedAt = null;
   }
-  if (updates.isCompleted !== undefined) {
-    setValues.isCompleted = updates.isCompleted;
-    setValues.completedAt = updates.isCompleted ? new Date() : null;
+  if (updates.startDate !== undefined) {
+    // `date` column in string mode — no conversion on the way in.
+    setValues.startDate = updates.startDate || null;
   }
-  if (updates.recurrenceRule !== undefined) {
-    setValues.recurrenceRule = updates.recurrenceRule;
-  }
-  if (updates.kanbanStatus !== undefined) {
-    setValues.kanbanStatus = updates.kanbanStatus;
-  }
-  if (updates.pointEstimate !== undefined) {
-    setValues.pointEstimate = normalizePoints(updates.pointEstimate);
-  }
+  if (updates.recurrenceRule !== undefined) setValues.recurrenceRule = updates.recurrenceRule;
   if (updates.sprintId !== undefined) {
     // Empty string from the form means "Kein Sprint".
     setValues.sprintId = updates.sprintId ? updates.sprintId : null;
   }
-  if (updates.workType !== undefined) {
-    setValues.workType = normalizeWorkType(updates.workType);
-  }
-  if (updates.growthCategory !== undefined) {
-    setValues.growthCategory = normalizeGrowthCategory(updates.growthCategory);
-  }
   if (updates.description !== undefined) {
-    setValues.description = updates.description?.trim()
-      ? updates.description.trim()
-      : null;
+    setValues.description = updates.description?.trim() ? updates.description.trim() : null;
   }
-  if (updates.priority !== undefined) {
-    setValues.priority = normalizePriority(updates.priority);
-  }
-
-  if (Object.keys(setValues).length > 0) {
-    const [updated] = await db
-      .update(tasks)
-      .set(setValues)
-      .where(eq(tasks.id, taskId))
-      .returning();
-    if (!updated) return null;
+  if (updates.priority !== undefined) setValues.priority = normalizePriority(updates.priority);
+  if (updates.area !== undefined) setValues.area = normalizeOperativeArea(updates.area);
+  if (updates.parentTaskId !== undefined) {
+    setValues.parentTaskId = updates.parentTaskId || null;
   }
 
-  // Replace linked records
-  if (updates.recordIds !== undefined) {
-    await db.delete(taskRecords).where(eq(taskRecords.taskId, taskId));
-    if (updates.recordIds.length > 0) {
-      await db.insert(taskRecords).values(
-        updates.recordIds.map((recordId) => ({ taskId, recordId }))
-      );
+  const placementChanged =
+    placement.kind !== currentPlacement.kind ||
+    placement.projectId !== currentPlacement.projectId ||
+    placement.phaseId !== currentPlacement.phaseId;
+  if (placementChanged) {
+    setValues.kind = placement.kind;
+    setValues.projectId = placement.projectId;
+    setValues.phaseId = placement.phaseId;
+  }
+
+  const completionChanged =
+    completion.status !== currentCompletion.status ||
+    completion.isCompleted !== currentCompletion.isCompleted;
+  if (completionChanged) {
+    setValues.status = completion.status;
+    setValues.isCompleted = completion.isCompleted;
+    setValues.completedAt = completion.completedAt;
+  }
+
+  // ONE transaction for the row, the I4 cascade and the two replace-lists.
+  // Delete-then-insert on assignees/records is only safe inside one: a failed
+  // insert used to leave the task with ZERO assignees, permanently.
+  const committed = await db.transaction(async (tx) => {
+    if (Object.keys(setValues).length > 0) {
+      const [updated] = await tx
+        .update(tasks)
+        .set(setValues)
+        .where(eq(tasks.id, taskId))
+        .returning({ id: tasks.id });
+      if (!updated) return false;
     }
-  }
 
-  // Replace assignees
-  if (updates.assigneeIds !== undefined) {
-    await db.delete(taskAssignees).where(eq(taskAssignees.taskId, taskId));
-    if (updates.assigneeIds.length > 0) {
-      await db.insert(taskAssignees).values(
-        updates.assigneeIds.map((userId) => ({ taskId, userId }))
-      );
+    // I4: moving a parent drags its subtasks along. Depth is capped at two
+    // levels (resolveParentEligibility), so one level of cascade is complete.
+    if (placementChanged) {
+      await tx
+        .update(tasks)
+        .set({
+          kind: placement.kind,
+          projectId: placement.projectId,
+          phaseId: placement.phaseId,
+        })
+        .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.parentTaskId, taskId)));
     }
+
+    if (updates.recordIds !== undefined) {
+      await tx.delete(taskRecords).where(eq(taskRecords.taskId, taskId));
+      if (updates.recordIds.length > 0) {
+        await tx
+          .insert(taskRecords)
+          .values(updates.recordIds.map((recordId) => ({ taskId, recordId })));
+      }
+    }
+    if (updates.assigneeIds !== undefined) {
+      await tx.delete(taskAssignees).where(eq(taskAssignees.taskId, taskId));
+      if (updates.assigneeIds.length > 0) {
+        await tx
+          .insert(taskAssignees)
+          .values(updates.assigneeIds.map((userId) => ({ taskId, userId })));
+      }
+    }
+    return true;
+  });
+  if (!committed) return null;
+
+  // Activity trail for the two task-level literals of spec §10.1. emitEvent
+  // ONLY — a task edit must never fan out to every workspace member. The
+  // event is filed under the project so it shows in the project's
+  // Aktivitäten tab; the task id travels in the payload.
+  if (placementChanged) {
+    await emitEvent({
+      workspaceId,
+      recordId: placement.projectId ?? currentPlacement.projectId,
+      objectSlug: "projects",
+      eventType: "task.moved_to_project",
+      actorId: actorUserId,
+      payload: {
+        taskId,
+        fromProjectId: currentPlacement.projectId,
+        toProjectId: placement.projectId,
+        fromPhaseId: currentPlacement.phaseId,
+        toPhaseId: placement.phaseId,
+      },
+    });
+  }
+  // Only for PROJECT tasks. activity_events.record_id is nullable, so an
+  // operative task would not throw — it would file a row that nothing can
+  // ever read: the project tab queries by projectId and the dashboard feed
+  // filters by type. Ticking off operative work would just accumulate
+  // unreadable rows.
+  if (completionChanged && placement.projectId) {
+    await emitEvent({
+      workspaceId,
+      recordId: placement.projectId,
+      objectSlug: "projects",
+      eventType: "task.status_changed",
+      actorId: actorUserId,
+      payload: { taskId, from: currentCompletion.status, to: completion.status },
+    });
   }
 
-  // Re-fetch the task to return enriched data
-  const [task] = await db
-    .select()
-    .from(tasks)
-    .where(eq(tasks.id, taskId))
-    .limit(1);
-
+  const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1);
   if (!task) return null;
   return (await enrichTasks([task]))[0];
 }
 
 export async function deleteTask(taskId: string, workspaceId: string) {
-  const [task] = await db
-    .delete(tasks)
-    .where(and(eq(tasks.id, taskId), eq(tasks.workspaceId, workspaceId)))
-    .returning();
-  return task;
-}
+  // `tasks.parent_task_id` has NO foreign key (db/schema/tasks.ts:18), so
+  // deleting a parent used to leave its children pointing at a row that no
+  // longer exists: invisible in every top-level list (the `parentTaskId IS
+  // NULL` filter hides them), still counted by computeProjectStats, and
+  // unreachable in the UI. Delete the children with the parent, in ONE
+  // transaction, together with every dependency edge that touches either.
+  return db.transaction(async (tx) => {
+    const children = await tx
+      .select({ id: tasks.id })
+      .from(tasks)
+      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.parentTaskId, taskId)));
+    const doomed = [taskId, ...children.map((c) => c.id)];
 
-/** Get tasks that are due soon (for home page widget) */
-export async function getUpcomingTasks(workspaceId: string, _createdBy: string, limit = 10) {
-  const taskRows = await db
-    .select()
-    .from(tasks)
-    .where(
-      and(
-        eq(tasks.workspaceId, workspaceId),
-        eq(tasks.isCompleted, false)
-      )
-    )
-    .orderBy(tasks.deadline, desc(tasks.createdAt))
-    .limit(limit);
+    // Belt and braces: task_dependencies.{predecessor,successor}_task_id are
+    // specified ON DELETE CASCADE (spec §4.8), but an edge surviving a missing
+    // constraint would draw a timeline arrow to a bar that does not exist.
+    await tx
+      .delete(taskDependencies)
+      .where(
+        and(
+          eq(taskDependencies.workspaceId, workspaceId),
+          or(
+            inArray(taskDependencies.predecessorTaskId, doomed),
+            inArray(taskDependencies.successorTaskId, doomed),
+          ),
+        ),
+      );
 
-  return enrichTasks(taskRows);
+    if (children.length > 0) {
+      await tx
+        .delete(tasks)
+        .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.parentTaskId, taskId)));
+    }
+
+    const [task] = await tx
+      .delete(tasks)
+      .where(and(eq(tasks.id, taskId), eq(tasks.workspaceId, workspaceId)))
+      .returning();
+    return task;
+  });
 }

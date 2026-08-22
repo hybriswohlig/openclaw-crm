@@ -61,7 +61,6 @@ export async function POST(
       content?: string;
       deadline?: string | null;
       assigneeIds?: string[];
-      pointEstimate?: number | null;
     } | null;
     const content = body?.content?.trim();
     if (!content) return badRequest("content is required");
@@ -80,8 +79,6 @@ export async function POST(
         body?.deadline ??
         (parent.deadline ? parent.deadline.toISOString() : null),
       assigneeIds: body?.assigneeIds,
-      pointEstimate:
-        typeof body?.pointEstimate === "number" ? body.pointEstimate : null,
     });
 
     return success(sub, 201);

@@ -81,12 +81,7 @@ export async function POST(req: NextRequest) {
       deadline: body.deadline as string | undefined,
       recordIds: body.recordIds as string[] | undefined,
       assigneeIds,
-      pointEstimate:
-        typeof body.pointEstimate === "number" ? body.pointEstimate : null,
       sprintId: typeof body.sprintId === "string" ? body.sprintId : null,
-      workType: typeof body.workType === "string" ? body.workType : null,
-      growthCategory:
-        typeof body.growthCategory === "string" ? body.growthCategory : null,
       description:
         typeof body.description === "string" ? body.description : null,
       priority: typeof body.priority === "string" ? body.priority : null,
