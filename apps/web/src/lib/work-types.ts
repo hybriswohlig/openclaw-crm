@@ -313,8 +313,16 @@ export interface DashboardJSON {
   projectsAreSprintScoped: boolean;
   kpis: DashboardKpisJSON;
   projects: ProjectJSON[];
+  /**
+   * I6: `operativeTasks`/`overdueTasks` are a PAGE (server cap 200). These
+   * two are the TRUE server counts (services/work-dashboard.ts:
+   * DashboardPayload.operativeTotal/overdueTotal) — Berichte must use them
+   * instead of `.length`, which silently goes wrong above 200.
+   */
   operativeTasks: TaskJSON[];
+  operativeTotal: number;
   overdueTasks: TaskJSON[];
+  overdueTotal: number;
   activity: ActivityJSON[];
   upcoming: UpcomingJSON[];
   /**

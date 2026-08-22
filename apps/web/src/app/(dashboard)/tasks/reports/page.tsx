@@ -179,9 +179,9 @@ export default function ReportsPage() {
 
             <SectionCard
               title="2 · Überfälligkeit"
-              subtitle={`${dashboard.overdueTasks.length} überfällige Aufgaben`}
+              subtitle={`${dashboard.overdueTotal} überfällige Aufgaben`}
             >
-              {dashboard.overdueTasks.length === 0 ? (
+              {dashboard.overdueTotal === 0 ? (
                 <EmptyState title="Nichts überfällig" hint="Alle Fälligkeiten sind eingehalten." />
               ) : (
                 <div className="flex flex-col gap-4">
