@@ -145,6 +145,119 @@ export const CRM_TOOL_NAMES = [
 export type CrmToolName = (typeof CRM_TOOL_NAMES)[number];
 
 /**
+ * The 71 tool names in CRM_TOOL_NAMES as they stood when the drift guard was
+ * created (commit 1137a54, before Phase 3's Projekte/Phasen/Meilensteine/
+ * Mitglieder/Risiken/Budget/Projektdokumente tools landed).
+ *
+ * Every entry of WEB_ONLY_TOOL_NAMES, LEGACY_DESCRIPTION_DRIFT and
+ * TOOLS_WITHOUT_FIXED_PATH MUST be a member of this set: those lists exist to
+ * freeze PRE-EXISTING drift, so a tool added after this point can never be
+ * excepted from parity — it must land correctly in both registries or not at
+ * all. This array is append-never. Shrinking an exception list is fine;
+ * growing one is only possible by adding a name that is already here, which
+ * by construction is not a new tool.
+ *
+ * STDIO_ONLY_TOOL_NAMES is deliberately NOT checked against this set: its two
+ * entries (crm_login, crm_logout) are transport mechanics that were never
+ * members of CRM_TOOL_NAMES in the first place (see the doc comment on
+ * STDIO_ONLY_TOOL_NAMES below) — there is no version of CRM_TOOL_NAMES, at
+ * guard creation or since, that they could be a member of. That list is
+ * instead pinned by "the stdio definitions expose CRM_TOOL_NAMES minus the
+ * frozen exceptions" in tool-names.test.ts, which checks its two names
+ * against the real stdio source directly.
+ */
+export const TOOLS_AT_GUARD_CREATION = [
+  // ── Connection ────────────────────────────────────────────────────
+  "crm_status",
+  "crm_whoami",
+  // ── Search ────────────────────────────────────────────────────────
+  "crm_search",
+  "crm_browse_records",
+  // ── Objects & schema ──────────────────────────────────────────────
+  "crm_list_objects",
+  "crm_get_object",
+  "crm_list_attributes",
+  // ── Records ───────────────────────────────────────────────────────
+  "crm_list_records",
+  "crm_get_record",
+  "crm_create_record",
+  "crm_update_record",
+  "crm_delete_record",
+  "crm_query_records",
+  "crm_get_record_related",
+  "crm_get_record_activity",
+  // ── Tasks ─────────────────────────────────────────────────────────
+  "crm_list_tasks",
+  "crm_create_task",
+  "crm_update_task",
+  "crm_delete_task",
+  // ── Notes ─────────────────────────────────────────────────────────
+  "crm_list_notes",
+  "crm_create_note",
+  "crm_update_note",
+  "crm_delete_note",
+  // ── Lists ─────────────────────────────────────────────────────────
+  "crm_list_lists",
+  "crm_get_list",
+  "crm_list_entries",
+  "crm_add_list_entry",
+  // ── Inbox ─────────────────────────────────────────────────────────
+  "crm_list_conversations",
+  "crm_get_conversation",
+  "crm_list_messages",
+  "crm_update_conversation_status",
+  "crm_link_conversation_deal",
+  "crm_suggest_reply",
+  "crm_inbox_unread_count",
+  "crm_list_channel_accounts",
+  // ── Deals ─────────────────────────────────────────────────────────
+  "crm_get_deal_insights",
+  "crm_get_deal_lifecycle",
+  "crm_get_deal_profit",
+  "crm_list_deal_documents",
+  "crm_get_deal_quotation",
+  "crm_list_deal_payments",
+  "crm_get_customer_link",
+  // ── Deal context ──────────────────────────────────────────────────
+  "crm_get_deal_auftrag",
+  "crm_list_deal_attachments",
+  "crm_get_attachment",
+  "crm_get_deal_inventory",
+  "crm_get_deal_package_options",
+  "crm_get_deal_offer_packages",
+  "crm_get_deal_date_offers",
+  // ── Quotation writes ──────────────────────────────────────────────
+  "crm_update_deal_package_options",
+  "crm_update_deal_quotation",
+  "crm_set_deal_anzahlung",
+  // ── Documents ─────────────────────────────────────────────────────
+  "crm_get_deal_document",
+  "crm_generate_document",
+  "crm_get_document_job",
+  "crm_store_document_job",
+  // ── Employees & finance ───────────────────────────────────────────
+  "crm_list_employees",
+  "crm_get_financial_overview",
+  "crm_list_financial_bookings",
+  // ── Statistics ────────────────────────────────────────────────────
+  "crm_stats_overview",
+  "crm_stats_pipeline",
+  "crm_stats_operations",
+  "crm_stats_team",
+  "crm_operations_board",
+  // ── Workspace ─────────────────────────────────────────────────────
+  "crm_list_members",
+  "crm_list_notifications",
+  "crm_list_operating_companies",
+  // ── AI agent ──────────────────────────────────────────────────────
+  "crm_list_agent_drafts",
+  "crm_get_agent_settings",
+  "crm_create_agent_draft",
+  // ── Escape hatch ──────────────────────────────────────────────────
+  "crm_api",
+] as const;
+
+/**
  * Tools only the stdio server can implement.
  *
  * The HTTP server is authenticated per request by `/api/mcp/route.ts`, so it

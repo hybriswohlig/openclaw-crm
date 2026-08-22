@@ -6,6 +6,7 @@ import {
   casePaths,
   definitionDescriptions,
   definitionNames,
+  findParityMismatches,
   stripComments,
   switchCases,
 } from "./registry-introspect";
@@ -13,6 +14,7 @@ import {
   CRM_TOOL_NAMES,
   LEGACY_DESCRIPTION_DRIFT,
   STDIO_ONLY_TOOL_NAMES,
+  TOOLS_AT_GUARD_CREATION,
   TOOLS_WITHOUT_FIXED_PATH,
   WEB_ONLY_TOOL_NAMES,
 } from "./tool-names";
@@ -92,6 +94,17 @@ describe("MCP tool-name drift guard", () => {
     expect(WEB_ONLY_TOOL_NAMES).toHaveLength(12);
   });
 
+  it("only excepts web-only tools that predate the guard", () => {
+    // The ratchet: WEB_ONLY_TOOL_NAMES exists to freeze drift that was
+    // already there when the guard was created. A tool added after that
+    // point — including everything this phase adds — is not eligible, no
+    // matter how the exception list is edited, because it cannot be a member
+    // of a set that was closed before it existed.
+    const guardSet = new Set<string>(TOOLS_AT_GUARD_CREATION);
+    const strays = WEB_ONLY_TOOL_NAMES.filter((n) => !guardSet.has(n));
+    expect(strays).toEqual([]);
+  });
+
   it("no longer knows crm_tasks_pulse anywhere", () => {
     expect(CRM_TOOL_NAMES).not.toContain("crm_tasks_pulse");
     expect(DISPATCH).not.toContain("crm_tasks_pulse");
@@ -106,13 +119,10 @@ describe("MCP description parity", () => {
     // behave differently on the same CRM.
     const web = webRegistry();
     const stdio = definitionDescriptions(STDIO_DEFS);
-    const exempt = LEGACY_DESCRIPTION_DRIFT as readonly string[];
 
-    const mismatches = sharedNames()
-      .filter((n) => !exempt.includes(n))
-      .filter((n) => web.get(n) !== stdio.get(n));
-
-    expect(mismatches).toEqual([]);
+    expect(findParityMismatches(web, stdio, LEGACY_DESCRIPTION_DRIFT)).toEqual(
+      []
+    );
   });
 
   it("keeps the legacy description-drift list frozen at its 42 entries", () => {
@@ -130,6 +140,15 @@ describe("MCP description parity", () => {
     );
     expect(strays).toEqual([]);
   });
+
+  it("only excepts descriptions that predate the guard", () => {
+    // Same ratchet as WEB_ONLY_TOOL_NAMES: this phase's 31 new tools land
+    // with matching descriptions by construction (they are copy-pasted
+    // verbatim between the two registries), so none of them may appear here.
+    const guardSet = new Set<string>(TOOLS_AT_GUARD_CREATION);
+    const strays = LEGACY_DESCRIPTION_DRIFT.filter((n) => !guardSet.has(n));
+    expect(strays).toEqual([]);
+  });
 });
 
 describe("MCP route parity", () => {
@@ -138,14 +157,16 @@ describe("MCP route parity", () => {
     // is invisible until an agent gets the Next.js HTML shell back.
     const web = casePaths(DISPATCH);
     const stdio = casePaths(STDIO_HANDLERS);
-    const exempt = TOOLS_WITHOUT_FIXED_PATH as readonly string[];
 
-    const mismatches = sharedNames()
-      .filter((n) => !exempt.includes(n))
-      .map((n) => ({ tool: n, web: web.get(n), stdio: stdio.get(n) }))
-      .filter((row) => row.web !== row.stdio);
+    expect(
+      findParityMismatches(web, stdio, TOOLS_WITHOUT_FIXED_PATH)
+    ).toEqual([]);
+  });
 
-    expect(mismatches).toEqual([]);
+  it("only excepts tools that predate the guard from the fixed-path check", () => {
+    const guardSet = new Set<string>(TOOLS_AT_GUARD_CREATION);
+    const strays = TOOLS_WITHOUT_FIXED_PATH.filter((n) => !guardSet.has(n));
+    expect(strays).toEqual([]);
   });
 
   it("finds a REST path for every tool that is not on the allowlist", () => {
@@ -213,20 +234,6 @@ describe("registry introspection helpers", () => {
     expect(map.get("crm_two")).toBe('Wrapped onto the next line, with a "quote" in it.');
   });
 
-  it("fails the parity check on a deliberately mismatched description", () => {
-    // The guard's own regression test: prove the comparison can fail.
-    const web = new Map([["crm_one", "House style description."]]);
-    const stdio = definitionDescriptions(
-      [
-        "  {",
-        '    name: "crm_one",',
-        '    description: "Something else entirely.",',
-        "  },",
-      ].join("\n")
-    );
-    expect(web.get("crm_one")).not.toBe(stdio.get("crm_one"));
-  });
-
   it("extracts the first /api path of a case and normalises interpolations", () => {
     const source = [
       "switch (name) {",
@@ -247,14 +254,63 @@ describe("registry introspection helpers", () => {
     expect(paths.get("crm_templated")).toBe("/api/v1/projects/{}/phases");
     expect(paths.has("crm_nothing")).toBe(false);
   });
+});
 
-  it("catches two registries pointing at different routes", () => {
-    const a = casePaths(
-      '  case "crm_x":\n    return client.request("/api/v1/deals/1/documents");'
+describe("findParityMismatches", () => {
+  it("returns no mismatches on the real registries", () => {
+    // Not a duplicate of the "MCP description/route parity" assertions above:
+    // this proves the extracted comparison itself is clean on real input,
+    // independent of which caller (descriptions or paths) drives it.
+    const web = webRegistry();
+    const stdio = definitionDescriptions(STDIO_DEFS);
+    expect(findParityMismatches(web, stdio, LEGACY_DESCRIPTION_DRIFT)).toEqual(
+      []
     );
-    const b = casePaths(
-      '  case "crm_x":\n    return client.request("/api/v1/deals/1/attachments");'
-    );
-    expect(a.get("crm_x")).not.toBe(b.get("crm_x"));
+  });
+
+  it("reports a deliberately divergent description and a deliberately divergent path", () => {
+    // The guard's actual regression proof. Unlike a hand-built `.not.toBe()`
+    // between two independently-constructed maps (which is trivially true
+    // and never exercises the guard's own comparison), this drives the exact
+    // function both parity assertions call and shows it can fail — for a
+    // description-shaped mismatch and a path-shaped mismatch alike, since
+    // the function is agnostic to what the string values represent.
+    const web = new Map([
+      ["crm_one", "House style description."],
+      ["crm_two", "/api/v1/deals/1/documents"],
+      ["crm_three", "same on both sides"],
+    ]);
+    const stdio = new Map([
+      ["crm_one", "Something else entirely."],
+      ["crm_two", "/api/v1/deals/1/attachments"],
+      ["crm_three", "same on both sides"],
+    ]);
+
+    const mismatches = findParityMismatches(web, stdio, []);
+
+    expect(mismatches).toEqual([
+      {
+        tool: "crm_one",
+        web: "House style description.",
+        stdio: "Something else entirely.",
+      },
+      {
+        tool: "crm_two",
+        web: "/api/v1/deals/1/documents",
+        stdio: "/api/v1/deals/1/attachments",
+      },
+    ]);
+  });
+
+  it("does not flag a name that is exempted", () => {
+    const web = new Map([["crm_one", "A"]]);
+    const stdio = new Map([["crm_one", "B"]]);
+    expect(findParityMismatches(web, stdio, ["crm_one"])).toEqual([]);
+  });
+
+  it("ignores a name that is not shared by both maps", () => {
+    const web = new Map([["crm_web_only", "A"]]);
+    const stdio = new Map([["crm_stdio_only", "B"]]);
+    expect(findParityMismatches(web, stdio, [])).toEqual([]);
   });
 });

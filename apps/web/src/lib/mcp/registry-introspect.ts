@@ -138,3 +138,39 @@ export function casePaths(source: string): Map<string, string> {
   }
   return out;
 }
+
+export interface ParityMismatch {
+  tool: string;
+  web: string | undefined;
+  stdio: string | undefined;
+}
+
+/**
+ * The comparison the drift guard actually performs, extracted so it can be
+ * exercised directly instead of only through `describe("MCP description
+ * parity", …)` / `describe("MCP route parity", …)`.
+ *
+ * A tool counts as "shared" when it has an entry in BOTH maps — a name only
+ * `webEntries` knows about (web-only) or only `stdioEntries` knows about
+ * (stdio-only) is not a disagreement, it is a different, separately-tracked
+ * kind of drift (see WEB_ONLY_TOOL_NAMES / STDIO_ONLY_TOOL_NAMES). Among the
+ * shared names, `exceptions` are pre-existing, frozen drift the guard has
+ * chosen not to fail on; everyone else must match exactly.
+ */
+export function findParityMismatches(
+  webEntries: Map<string, string>,
+  stdioEntries: Map<string, string>,
+  exceptions: readonly string[]
+): ParityMismatch[] {
+  const exempt = new Set(exceptions);
+  const mismatches: ParityMismatch[] = [];
+  for (const [name, webValue] of webEntries) {
+    if (!stdioEntries.has(name)) continue;
+    if (exempt.has(name)) continue;
+    const stdioValue = stdioEntries.get(name);
+    if (webValue !== stdioValue) {
+      mismatches.push({ tool: name, web: webValue, stdio: stdioValue });
+    }
+  }
+  return mismatches;
+}
