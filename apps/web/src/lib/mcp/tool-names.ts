@@ -134,6 +134,10 @@ export const CRM_TOOL_NAMES = [
   "crm_create_project_budget_entry",
   "crm_update_project_budget_entry",
   "crm_delete_project_budget_entry",
+  // ── Projektdokumente ──────────────────────────────────────────────
+  "crm_list_project_documents",
+  "crm_get_project_document",
+  "crm_delete_project_document",
   // ── Escape hatch ──────────────────────────────────────────────────
   "crm_api",
 ] as const;

@@ -1123,6 +1123,44 @@ export const TOOLS: ToolDef[] = [
     },
   },
 
+  // ── Projektdokumente ──────────────────────────────────────────────
+  {
+    name: "crm_list_project_documents",
+    description:
+      "METADATA ONLY for the files attached to a project: id, fileName, fileSize, mimeType, uploader and upload time. It never returns bytes. Call crm_get_project_document with one of the ids to get the content. For customer photos from the inbox use crm_get_attachment instead — these are project files, not deal attachments.",
+    inputSchema: {
+      type: "object",
+      properties: { projectId: { type: "string" } },
+      required: ["projectId"],
+    },
+  },
+  {
+    name: "crm_get_project_document",
+    description:
+      "Fetch one project document including its base64 content. Files are capped at 10 MB on upload, so anything stored here can be inlined. Uploading is deliberately not an MCP tool: the upload route takes multipart/form-data, which this client cannot build — use crm_api if an agent truly has to create one.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        documentId: { type: "string" },
+      },
+      required: ["projectId", "documentId"],
+    },
+  },
+  {
+    name: "crm_delete_project_document",
+    description:
+      "Delete one project document permanently, bytes and all. There is no trash and no undo, and the file is not recoverable from anywhere else — confirm with the user before calling this.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        documentId: { type: "string" },
+      },
+      required: ["projectId", "documentId"],
+    },
+  },
+
   // ── Escape hatch ──────────────────────────────────────────────────
   {
     name: "crm_api",

@@ -652,6 +652,21 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
         { method: "DELETE" }
       );
 
+    // Projektdokumente
+    case "crm_list_project_documents":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/documents`
+      );
+    case "crm_get_project_document":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/documents/${encodeURIComponent(str(args.documentId))}`
+      );
+    case "crm_delete_project_document":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/documents/${encodeURIComponent(str(args.documentId))}`,
+        { method: "DELETE" }
+      );
+
     // Escape hatch
     case "crm_api": {
       const path = str(args.path);

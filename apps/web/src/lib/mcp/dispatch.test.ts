@@ -710,3 +710,20 @@ describe("crm_create_project_budget_entry", () => {
     });
   });
 });
+
+describe("crm_get_project_document", () => {
+  it("reads the project document subresource, not a deals path", async () => {
+    // Project documents live under /projects, deal PDFs under /deals. The
+    // wrong prefix answers with the Next.js HTML shell, not a 404.
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_get_project_document", {
+      projectId: "p-1",
+      documentId: "doc-2",
+    });
+
+    expect(calls[0].path).toBe("/api/v1/projects/p-1/documents/doc-2");
+    expect(calls[0].path).not.toContain("/deals/");
+    expect(calls[0].options.method).toBeUndefined();
+  });
+});
