@@ -26,6 +26,21 @@ interface LegacyTaskFormData {
   createdBy?: string | null;
   createdAt?: string | null;
   sprintId?: string | null;
+  // C1 fix: these carry the record-linked task's real state through the
+  // edit round-trip. All optional so callers that only ever create tasks
+  // (command-palette.tsx) or don't know these values yet keep compiling —
+  // toTaskJSON falls back to the old hardcoded defaults only when a field is
+  // genuinely absent, never when the caller supplied it.
+  isCompleted?: boolean;
+  completedAt?: string | null;
+  parentTaskId?: string | null;
+  kind?: "projekt" | "operativ";
+  projectId?: string | null;
+  projectName?: string | null;
+  phaseId?: string | null;
+  area?: string | null;
+  status?: string | null;
+  startDate?: string | null;
 }
 
 export interface TaskDialogProps {
@@ -55,30 +70,42 @@ export interface TaskDialogProps {
   onDelete?: () => Promise<void>;
 }
 
-/** Turns the legacy form shape into the TaskJSON the new dialog expects. */
-function toTaskJSON(d: LegacyTaskFormData | undefined): TaskJSON | null {
+/**
+ * Turns the legacy form shape into the TaskJSON the new dialog expects.
+ *
+ * C1: this used to fabricate isCompleted/completedAt/sprintId/parentTaskId/
+ * kind/projectId/projectName/phaseId/area/status/startDate instead of
+ * reading them off `d`. WorkTaskDialog seeds its edit form from this object
+ * and sends every one of these fields back unconditionally on save (see its
+ * WorkTaskSavePayload), so the fabricated values silently overwrote the
+ * real ones on every edit of a record-linked task: Bereich erased, project
+ * and sprint membership dropped, and a done task reopened. Every field here
+ * must now come from `d` when the caller supplied it, falling back to the
+ * old defaults only when it did not.
+ */
+export function toTaskJSON(d: LegacyTaskFormData | undefined): TaskJSON | null {
   if (!d?.id) return null;
   return {
     id: d.id,
     content: d.content,
     deadline: d.deadline ? d.deadline.toISOString() : null,
-    isCompleted: false,
-    completedAt: null,
+    isCompleted: d.isCompleted ?? false,
+    completedAt: d.completedAt ?? null,
     createdBy: d.createdBy ?? null,
     createdAt: d.createdAt ?? new Date().toISOString(),
     linkedRecords: d.linkedRecords ?? [],
     assignees: d.assignees ?? [],
-    sprintId: null,
+    sprintId: d.sprintId ?? null,
     description: d.description ?? null,
     priority: (d.priority as TaskJSON["priority"]) ?? null,
-    parentTaskId: null,
-    kind: "operativ",
-    projectId: null,
-    projectName: null,
-    phaseId: null,
-    area: null,
-    status: "geplant",
-    startDate: null,
+    parentTaskId: d.parentTaskId ?? null,
+    kind: d.kind ?? "operativ",
+    projectId: d.projectId ?? null,
+    projectName: d.projectName ?? null,
+    phaseId: d.phaseId ?? null,
+    area: (d.area as TaskJSON["area"]) ?? null,
+    status: (d.status as TaskJSON["status"]) ?? "geplant",
+    startDate: d.startDate ?? null,
   };
 }
 

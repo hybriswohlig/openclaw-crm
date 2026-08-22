@@ -8,16 +8,33 @@ import { toast } from "sonner";
 import { TaskDialog } from "./task-dialog";
 import { isToday, isTomorrow, differenceInDays, format } from "date-fns";
 import { de } from "date-fns/locale";
+import type { TaskKind, OperativeArea, TaskStatus } from "@/lib/project-constants";
+import type { Priority } from "@/lib/task-priority";
 
+// C1: mirrors the full TaskJSON shape enrichTasks returns (services/tasks.ts)
+// so an edit round-trip through the legacy TaskDialog can carry every field
+// back into toTaskJSON instead of it fabricating them. See task-dialog.tsx.
 interface Task {
   id: string;
   content: string;
   deadline: string | null;
   isCompleted: boolean;
   completedAt: string | null;
+  createdBy: string | null;
   createdAt: string;
   linkedRecords: { id: string; displayName: string; objectSlug: string }[];
   assignees: { id: string; name: string; email: string }[];
+  sprintId: string | null;
+  description: string | null;
+  priority: Priority | null;
+  parentTaskId: string | null;
+  kind: TaskKind;
+  projectId: string | null;
+  projectName: string | null;
+  phaseId: string | null;
+  area: OperativeArea | null;
+  status: TaskStatus;
+  startDate: string | null;
 }
 
 interface RecordTasksProps {
@@ -357,6 +374,21 @@ export function RecordTasks({
                 recordIds: editingTask.linkedRecords.map((r) => r.id),
                 linkedRecords: editingTask.linkedRecords,
                 assignees: editingTask.assignees,
+                createdBy: editingTask.createdBy,
+                createdAt: editingTask.createdAt,
+                isCompleted: editingTask.isCompleted,
+                completedAt: editingTask.completedAt,
+                sprintId: editingTask.sprintId,
+                description: editingTask.description,
+                priority: editingTask.priority,
+                parentTaskId: editingTask.parentTaskId,
+                kind: editingTask.kind,
+                projectId: editingTask.projectId,
+                projectName: editingTask.projectName,
+                phaseId: editingTask.phaseId,
+                area: editingTask.area,
+                status: editingTask.status,
+                startDate: editingTask.startDate,
               }
             : undefined
         }
