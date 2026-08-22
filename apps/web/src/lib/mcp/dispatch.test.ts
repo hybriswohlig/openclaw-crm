@@ -727,3 +727,47 @@ describe("crm_get_project_document", () => {
     expect(calls[0].options.method).toBeUndefined();
   });
 });
+
+describe("crm_add_task_dependency", () => {
+  it("puts the successor in the path and the predecessor in the body", async () => {
+    // The edge reads "predecessor must finish before successor can start".
+    // Swapping the two silently inverts every arrow on the sprint timeline,
+    // so the direction is pinned by a test rather than by a comment.
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_add_task_dependency", {
+      predecessorTaskId: "t-vorher",
+      successorTaskId: "t-danach",
+    });
+
+    expect(calls[0].path).toBe("/api/v1/tasks/t-danach/dependencies");
+    expect(calls[0].options.method).toBe("POST");
+    expect(calls[0].options.body).toEqual({ predecessorTaskId: "t-vorher" });
+  });
+
+  it("url-encodes both ids", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_add_task_dependency", {
+      predecessorTaskId: "a/b",
+      successorTaskId: "c/d",
+    });
+
+    expect(calls[0].path).toBe("/api/v1/tasks/c%2Fd/dependencies");
+    expect(calls[0].options.body).toEqual({ predecessorTaskId: "a/b" });
+  });
+});
+
+describe("crm_remove_task_dependency", () => {
+  it("DELETEs the edge under the task it is listed on", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_remove_task_dependency", {
+      taskId: "t-1",
+      dependencyId: "dep-5",
+    });
+
+    expect(calls[0].path).toBe("/api/v1/tasks/t-1/dependencies/dep-5");
+    expect(calls[0].options.method).toBe("DELETE");
+  });
+});

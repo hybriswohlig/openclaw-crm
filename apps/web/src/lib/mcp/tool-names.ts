@@ -138,6 +138,10 @@ export const CRM_TOOL_NAMES = [
   "crm_list_project_documents",
   "crm_get_project_document",
   "crm_delete_project_document",
+  // ── Abhängigkeiten ────────────────────────────────────────────────
+  "crm_list_task_dependencies",
+  "crm_add_task_dependency",
+  "crm_remove_task_dependency",
   // ── Escape hatch ──────────────────────────────────────────────────
   "crm_api",
 ] as const;

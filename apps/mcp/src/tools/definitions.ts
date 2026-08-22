@@ -1161,6 +1161,50 @@ export const TOOLS: ToolDef[] = [
     },
   },
 
+  // ── Abhängigkeiten ────────────────────────────────────────────────
+  {
+    name: "crm_list_task_dependencies",
+    description:
+      "List the dependency edges attached to one task — both the tasks it waits for and the tasks waiting on it. Each edge carries its own id, which is what crm_remove_task_dependency needs. For the whole dependency graph of a sprint in one call use crm_sprint_timeline instead of walking task by task.",
+    inputSchema: {
+      type: "object",
+      properties: { taskId: { type: "string" } },
+      required: ["taskId"],
+    },
+  },
+  {
+    name: "crm_add_task_dependency",
+    description:
+      "Make one task wait for another: predecessorTaskId must be finished before successorTaskId can start. Read the direction carefully — swapping the two inverts every arrow on the sprint timeline. Both tasks must be in this workspace. A self-link, a duplicate edge, or an edge that would close a cycle is rejected with a German error message rather than created; read the message instead of retrying.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        predecessorTaskId: {
+          type: "string",
+          description: "The task that must finish first",
+        },
+        successorTaskId: {
+          type: "string",
+          description: "The task that waits",
+        },
+      },
+      required: ["predecessorTaskId", "successorTaskId"],
+    },
+  },
+  {
+    name: "crm_remove_task_dependency",
+    description:
+      "Remove one dependency edge. dependencyId comes from crm_list_task_dependencies or crm_sprint_timeline; taskId is the task the edge is listed under (either end works). Neither task is otherwise changed — no dates move, no status changes.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        taskId: { type: "string" },
+        dependencyId: { type: "string" },
+      },
+      required: ["taskId", "dependencyId"],
+    },
+  },
+
   // ── Escape hatch ──────────────────────────────────────────────────
   {
     name: "crm_api",

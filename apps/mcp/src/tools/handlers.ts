@@ -667,6 +667,25 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
         { method: "DELETE" }
       );
 
+    // Abhängigkeiten
+    case "crm_list_task_dependencies":
+      return client.request(
+        `/api/v1/tasks/${encodeURIComponent(str(args.taskId))}/dependencies`
+      );
+    case "crm_add_task_dependency":
+      return client.request(
+        `/api/v1/tasks/${encodeURIComponent(str(args.successorTaskId))}/dependencies`,
+        {
+          method: "POST",
+          body: { predecessorTaskId: str(args.predecessorTaskId) },
+        }
+      );
+    case "crm_remove_task_dependency":
+      return client.request(
+        `/api/v1/tasks/${encodeURIComponent(str(args.taskId))}/dependencies/${encodeURIComponent(str(args.dependencyId))}`,
+        { method: "DELETE" }
+      );
+
     // Escape hatch
     case "crm_api": {
       const path = str(args.path);

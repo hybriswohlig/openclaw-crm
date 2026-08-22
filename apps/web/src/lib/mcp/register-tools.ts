@@ -929,6 +929,29 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
     req
   );
 
+  // ── Abhängigkeiten ──────────────────────────────────────────────────────
+  tool(
+    server,
+    "crm_list_task_dependencies",
+    "List the dependency edges attached to one task — both the tasks it waits for and the tasks waiting on it. Each edge carries its own id, which is what crm_remove_task_dependency needs. For the whole dependency graph of a sprint in one call use crm_sprint_timeline instead of walking task by task.",
+    { taskId: z.string() },
+    req
+  );
+  tool(
+    server,
+    "crm_add_task_dependency",
+    "Make one task wait for another: predecessorTaskId must be finished before successorTaskId can start. Read the direction carefully — swapping the two inverts every arrow on the sprint timeline. Both tasks must be in this workspace. A self-link, a duplicate edge, or an edge that would close a cycle is rejected with a German error message rather than created; read the message instead of retrying.",
+    { predecessorTaskId: z.string(), successorTaskId: z.string() },
+    req
+  );
+  tool(
+    server,
+    "crm_remove_task_dependency",
+    "Remove one dependency edge. dependencyId comes from crm_list_task_dependencies or crm_sprint_timeline; taskId is the task the edge is listed under (either end works). Neither task is otherwise changed — no dates move, no status changes.",
+    { taskId: z.string(), dependencyId: z.string() },
+    req
+  );
+
   tool(
     server,
     "crm_api",
