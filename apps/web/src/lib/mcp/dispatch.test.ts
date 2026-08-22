@@ -573,3 +573,42 @@ describe("crm_set_project_favorite", () => {
     expect(unpin.calls[0].options.method).toBe("DELETE");
   });
 });
+
+describe("crm_reorder_project_phases", () => {
+  it("parses an orderedPhaseIds array that arrived as a JSON string", async () => {
+    // z.array(z.string()) serialises fine, but clients that build the call
+    // from a text template still send "[\"a\",\"b\"]". Forwarding that
+    // verbatim gives the route a string where it expects an array.
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_reorder_project_phases", {
+      projectId: "p-1",
+      orderedPhaseIds: '["ph-3","ph-1","ph-2"]',
+    });
+
+    expect(calls[0].path).toBe("/api/v1/projects/p-1/phases/reorder");
+    expect(calls[0].options.method).toBe("POST");
+    expect(calls[0].options.body).toEqual({
+      orderedPhaseIds: ["ph-3", "ph-1", "ph-2"],
+    });
+  });
+});
+
+describe("crm_create_project_phase", () => {
+  it("posts to the project's phases collection with only the passed fields", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_create_project_phase", {
+      projectId: "p-1",
+      name: "Ausschreibung",
+      dueDate: "2026-10-15",
+    });
+
+    expect(calls[0].path).toBe("/api/v1/projects/p-1/phases");
+    expect(calls[0].options.method).toBe("POST");
+    expect(calls[0].options.body).toEqual({
+      name: "Ausschreibung",
+      dueDate: "2026-10-15",
+    });
+  });
+});

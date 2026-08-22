@@ -795,6 +795,85 @@ export const TOOLS: ToolDef[] = [
     },
   },
 
+  // ── Phasen ────────────────────────────────────────────────────────
+  {
+    name: "crm_list_project_phases",
+    description:
+      "List a project's phases ('Arbeitsbereiche') in board order, each with its own task count, done count, progress percentage and the users assigned to its tasks. Phases are the second level of the plan: a task may hang directly off the project or off one of its phases, never off a phase of a different project.",
+    inputSchema: {
+      type: "object",
+      properties: { projectId: { type: "string" } },
+      required: ["projectId"],
+    },
+  },
+  {
+    name: "crm_create_project_phase",
+    description:
+      "Add a phase to a project. It is appended at the end of the current order — use crm_reorder_project_phases to move it. status is 'geplant', 'in_arbeit' or 'abgeschlossen' and defaults to 'geplant'. startDate and dueDate are ISO 'YYYY-MM-DD'; they drive the timeline display and are not validated against the project's own dates, so a phase may legitimately run past its project's end.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        name: { type: "string" },
+        description: { type: "string" },
+        startDate: { type: "string", description: "ISO YYYY-MM-DD" },
+        dueDate: { type: "string", description: "ISO YYYY-MM-DD" },
+        status: {
+          type: "string",
+          enum: ["geplant", "in_arbeit", "abgeschlossen"],
+        },
+      },
+      required: ["projectId", "name"],
+    },
+  },
+  {
+    name: "crm_update_project_phase",
+    description:
+      "Update one phase. PATCH semantics — omitted fields keep their value, null clears a nullable one. Setting status to 'abgeschlossen' emits a phase-completed activity event but does NOT complete the phase's tasks; close those with crm_update_task, or the project's progress percentage and the phase badge will disagree.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        phaseId: { type: "string" },
+        name: { type: "string" },
+        description: { type: "string" },
+        startDate: { type: "string", description: "ISO YYYY-MM-DD" },
+        dueDate: { type: "string", description: "ISO YYYY-MM-DD" },
+        status: {
+          type: "string",
+          enum: ["geplant", "in_arbeit", "abgeschlossen"],
+        },
+      },
+      required: ["projectId", "phaseId"],
+    },
+  },
+  {
+    name: "crm_delete_project_phase",
+    description:
+      "Delete a phase. Its tasks are deliberately NOT deleted: they keep their project and their phaseId becomes null, so nothing disappears from the project's progress count. Move the tasks first with crm_move_task if they belong somewhere else.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        phaseId: { type: "string" },
+      },
+      required: ["projectId", "phaseId"],
+    },
+  },
+  {
+    name: "crm_reorder_project_phases",
+    description:
+      "Rewrite the display order of a project's phases in one call. orderedPhaseIds must contain every phase id of the project exactly once, in the new order — a partial or padded list is rejected rather than partially applied. Read crm_list_project_phases first and reorder the ids it returns.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        orderedPhaseIds: { type: "array", items: { type: "string" } },
+      },
+      required: ["projectId", "orderedPhaseIds"],
+    },
+  },
+
   // ── Escape hatch ──────────────────────────────────────────────────
   {
     name: "crm_api",

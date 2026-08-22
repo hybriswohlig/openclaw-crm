@@ -108,6 +108,12 @@ export const CRM_TOOL_NAMES = [
   "crm_delete_project",
   "crm_project_overview",
   "crm_set_project_favorite",
+  // ── Phasen ────────────────────────────────────────────────────────
+  "crm_list_project_phases",
+  "crm_create_project_phase",
+  "crm_update_project_phase",
+  "crm_delete_project_phase",
+  "crm_reorder_project_phases",
   // ── Escape hatch ──────────────────────────────────────────────────
   "crm_api",
 ] as const;

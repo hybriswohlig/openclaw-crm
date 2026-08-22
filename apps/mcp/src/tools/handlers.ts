@@ -472,6 +472,48 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
       );
     }
 
+    // Phasen
+    case "crm_list_project_phases":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/phases`
+      );
+    case "crm_create_project_phase": {
+      const body: Record<string, unknown> = { name: args.name };
+      for (const key of ["description", "startDate", "dueDate", "status"]) {
+        if (args[key] !== undefined) body[key] = args[key];
+      }
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/phases`,
+        { method: "POST", body }
+      );
+    }
+    case "crm_update_project_phase": {
+      const body: Record<string, unknown> = {};
+      for (const key of [
+        "name",
+        "description",
+        "startDate",
+        "dueDate",
+        "status",
+      ]) {
+        if (args[key] !== undefined) body[key] = args[key];
+      }
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/phases/${encodeURIComponent(str(args.phaseId))}`,
+        { method: "PATCH", body }
+      );
+    }
+    case "crm_delete_project_phase":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/phases/${encodeURIComponent(str(args.phaseId))}`,
+        { method: "DELETE" }
+      );
+    case "crm_reorder_project_phases":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/phases/reorder`,
+        { method: "POST", body: { orderedPhaseIds: args.orderedPhaseIds ?? [] } }
+      );
+
     // Escape hatch
     case "crm_api": {
       const path = str(args.path);
