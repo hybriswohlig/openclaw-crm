@@ -20,6 +20,7 @@ import { PROJECT_STATUS, projectStatusLabel } from "@/lib/project-constants";
 import { KpiGrid, KpiTile } from "@/components/work/kpi-tile";
 import { EmployeeAvatar } from "@/components/employees/employee-avatar";
 import { formatDayShortDE, formatEURCents } from "@/lib/work-ui";
+import { OverviewTab } from "./_components/overview-tab";
 
 export interface TabProps {
   project: ProjectJSON;
@@ -300,7 +301,10 @@ function ProjectDetailInner() {
           </TabsList>
 
           <div className="mt-4 min-w-0">
-            {/* Tasks 35–42 hängen hier ihre TabsContent ein. */}
+            <TabsContent value="uebersicht">
+              <OverviewTab project={project} reload={reload} />
+            </TabsContent>
+            {/* Tasks 36–42 hängen hier ihre TabsContent ein. */}
           </div>
         </Tabs>
       </div>
