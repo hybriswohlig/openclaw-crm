@@ -1,176 +1,144 @@
 import { db } from "@/db";
 import { sprints, tasks } from "@/db/schema";
-import { and, eq, ne, desc, inArray, isNotNull } from "drizzle-orm";
+import { and, eq, ne, desc, inArray } from "drizzle-orm";
+import { progressPct } from "@/lib/work-metrics";
 
 // ─── Sprint service ───────────────────────────────────────────────────
 //
-// A Sprint is a thin, optional time box over the existing Aufgaben board.
-// Velocity reuses the EXACT scoring rule the Team-Pulse already runs:
-// only leaf tasks score, a null pointEstimate counts as 1. The difference
-// is the window — per sprint date range here, vs the fixed Mon..Sun window
-// in /api/v1/tasks/pulse, which we deliberately leave untouched.
+// A Sprint is a thin, optional time box over the work module. Since the
+// Projekte rewrite every sprint number is a TASK COUNT, not a story point
+// sum: progress = erledigte / alle Aufgaben des Sprints (spec §6). The
+// leaf-only rule of the old point system is gone — parents count too.
 //
 // Invariant: at most one 'aktiv' sprint per workspace. Enforced in
 // activateSprint (no DB constraint).
 
 export interface SprintMetrics {
-  /** Sum of points of all leaf tasks currently in the sprint (the forecast). */
-  committedPoints: number;
-  /** Sum of points of completed leaf tasks (the velocity so far). */
-  completedPoints: number;
-  remainingPoints: number;
   totalTasks: number;
   doneTasks: number;
+  openTasks: number;
+  progressPct: number;
 }
 
 export interface SprintData {
   id: string;
+  workspaceId: string;
   name: string;
   goal: string | null;
   state: string;
   startDate: Date | null;
   endDate: Date | null;
-  capacityPoints: number | null;
+  createdBy: string | null;
   createdAt: Date;
   completedAt: Date | null;
   metrics: SprintMetrics;
+  /**
+   * "points" = closed before this phase; `metrics` are derived from a story
+   * -point snapshot, not task counts, and must render as „–" (spec §15 R6).
+   */
+  metricsBasis: "tasks" | "points";
   /** Calendar length / progress, only when both dates are set. */
   daysTotal: number | null;
   daysElapsed: number | null;
   daysRemaining: number | null;
 }
 
-// ─── date helpers (local-time, to line up with the Kanban + pulse) ──────
+/** Pure: the sprint KPI from the tasks currently in it. */
+export function foldSprintMetrics(rows: Array<{ isCompleted: boolean }>): SprintMetrics {
+  let totalTasks = 0;
+  let doneTasks = 0;
+  for (const r of rows) {
+    totalTasks += 1;
+    if (r.isCompleted) doneTasks += 1;
+  }
+  return {
+    totalTasks,
+    doneTasks,
+    openTasks: totalTasks - doneTasks,
+    progressPct: progressPct(doneTasks, totalTasks),
+  };
+}
+
+// ─── date helpers (local time) ─────────────────────────────────────────
 function startOfDay(d: Date): Date {
   const o = new Date(d);
   o.setHours(0, 0, 0, 0);
   return o;
 }
-function endOfDay(d: Date): Date {
-  const o = new Date(d);
-  o.setHours(23, 59, 59, 999);
-  return o;
-}
 function dayDiff(a: Date, b: Date): number {
-  return Math.round(
-    (startOfDay(b).getTime() - startOfDay(a).getTime()) / 86_400_000
-  );
+  return Math.round((startOfDay(b).getTime() - startOfDay(a).getTime()) / 86_400_000);
 }
 
-/** Set of task ids that are a parent of another task (i.e. NOT a leaf). */
-async function getParentTaskIds(workspaceId: string): Promise<Set<string>> {
-  const rows = await db
-    .selectDistinct({ parentTaskId: tasks.parentTaskId })
-    .from(tasks)
-    .where(
-      and(eq(tasks.workspaceId, workspaceId), isNotNull(tasks.parentTaskId))
-    );
-  const set = new Set<string>();
-  for (const r of rows) if (r.parentTaskId) set.add(r.parentTaskId);
-  return set;
-}
-
-type LiveAgg = {
-  committed: number;
-  completed: number;
-  total: number;
-  done: number;
-};
-
-/** Aggregate the current (live) leaf-task points per sprint id. */
+/** Live task counts per sprint id. */
 async function aggregateLiveBySprint(
   workspaceId: string,
-  sprintIds: string[]
-): Promise<{ byId: Map<string, LiveAgg>; parents: Set<string> }> {
-  const byId = new Map<string, LiveAgg>();
-  if (sprintIds.length === 0) return { byId, parents: new Set() };
+  sprintIds: string[],
+): Promise<Map<string, SprintMetrics>> {
+  const byId = new Map<string, SprintMetrics>();
+  if (sprintIds.length === 0) return byId;
 
-  const [taskRows, parents] = await Promise.all([
-    db
-      .select({
-        id: tasks.id,
-        sprintId: tasks.sprintId,
-        pointEstimate: tasks.pointEstimate,
-        isCompleted: tasks.isCompleted,
-      })
-      .from(tasks)
-      .where(
-        and(
-          eq(tasks.workspaceId, workspaceId),
-          inArray(tasks.sprintId, sprintIds)
-        )
-      ),
-    getParentTaskIds(workspaceId),
-  ]);
+  const taskRows = await db
+    .select({ sprintId: tasks.sprintId, isCompleted: tasks.isCompleted })
+    .from(tasks)
+    .where(and(eq(tasks.workspaceId, workspaceId), inArray(tasks.sprintId, sprintIds)));
 
+  const grouped = new Map<string, Array<{ isCompleted: boolean }>>();
   for (const t of taskRows) {
     if (!t.sprintId) continue;
-    // Leaf-only rule, identical to the pulse: parents never score.
-    if (parents.has(t.id)) continue;
-    const pts = t.pointEstimate ?? 1;
-    const agg = byId.get(t.sprintId) ?? {
-      committed: 0,
-      completed: 0,
-      total: 0,
-      done: 0,
-    };
-    agg.committed += pts;
-    agg.total += 1;
-    if (t.isCompleted) {
-      agg.completed += pts;
-      agg.done += 1;
-    }
-    byId.set(t.sprintId, agg);
+    const arr = grouped.get(t.sprintId) ?? [];
+    arr.push({ isCompleted: t.isCompleted });
+    grouped.set(t.sprintId, arr);
   }
-  return { byId, parents };
+  for (const [sprintId, rows] of grouped) byId.set(sprintId, foldSprintMetrics(rows));
+  return byId;
 }
 
 function toSprintData(
   row: typeof sprints.$inferSelect,
-  live: LiveAgg | undefined
+  live: SprintMetrics | undefined,
 ): SprintData {
   const isClosed = row.state === "abgeschlossen";
-  const liveAgg = live ?? { committed: 0, completed: 0, total: 0, done: 0 };
+  const liveMetrics = live ?? foldSprintMetrics([]);
+  // A sprint closed before this phase snapshotted POINTS into these columns.
+  // Reading them as task counts would print a fabricated number that nothing
+  // can reproduce, so it is labelled instead.
+  const metricsBasis: "tasks" | "points" =
+    isClosed && row.metricsBasis === "points" ? "points" : "tasks";
 
-  // Closed sprints read committed/completed from the snapshot taken at
-  // close (current rows lost the unfinished ones to carry-over); live
-  // sprints compute from current tasks.
-  const committedPoints = isClosed
-    ? row.committedPoints ?? liveAgg.committed
-    : liveAgg.committed;
-  const completedPoints = isClosed
-    ? row.completedPoints ?? liveAgg.completed
-    : liveAgg.completed;
-  const remainingPoints = Math.max(0, committedPoints - completedPoints);
+  // A closed sprint reads its snapshot (carry-over detached the unfinished
+  // tasks). committed_points / completed_points now hold TASK COUNTS.
+  const totalTasks = isClosed ? row.committedPoints ?? liveMetrics.totalTasks : liveMetrics.totalTasks;
+  const doneTasks = isClosed ? row.completedPoints ?? liveMetrics.doneTasks : liveMetrics.doneTasks;
+  const metrics: SprintMetrics = {
+    totalTasks,
+    doneTasks,
+    openTasks: Math.max(0, totalTasks - doneTasks),
+    progressPct: progressPct(doneTasks, totalTasks),
+  };
 
   let daysTotal: number | null = null;
   let daysElapsed: number | null = null;
   let daysRemaining: number | null = null;
   if (row.startDate && row.endDate) {
     daysTotal = Math.max(1, dayDiff(row.startDate, row.endDate) + 1);
-    const now = new Date();
-    const elapsed = dayDiff(row.startDate, now) + 1;
+    const elapsed = dayDiff(row.startDate, new Date()) + 1;
     daysElapsed = Math.min(daysTotal, Math.max(0, elapsed));
     daysRemaining = Math.max(0, daysTotal - daysElapsed);
   }
 
   return {
     id: row.id,
+    workspaceId: row.workspaceId,
     name: row.name,
     goal: row.goal,
     state: row.state,
     startDate: row.startDate,
     endDate: row.endDate,
-    capacityPoints: row.capacityPoints,
+    createdBy: row.createdBy,
     createdAt: row.createdAt,
     completedAt: row.completedAt,
-    metrics: {
-      committedPoints,
-      completedPoints,
-      remainingPoints,
-      totalTasks: liveAgg.total,
-      doneTasks: liveAgg.done,
-    },
+    metrics,
+    metricsBasis,
     daysTotal,
     daysElapsed,
     daysRemaining,
@@ -186,16 +154,14 @@ export async function listSprints(workspaceId: string): Promise<SprintData[]> {
     .where(eq(sprints.workspaceId, workspaceId))
     .orderBy(desc(sprints.createdAt));
 
-  const { byId } = await aggregateLiveBySprint(
+  const byId = await aggregateLiveBySprint(
     workspaceId,
-    rows.map((r) => r.id)
+    rows.map((r) => r.id),
   );
   return rows.map((r) => toSprintData(r, byId.get(r.id)));
 }
 
-export async function getActiveSprint(
-  workspaceId: string
-): Promise<SprintData | null> {
+export async function getActiveSprint(workspaceId: string): Promise<SprintData | null> {
   const rows = await db
     .select()
     .from(sprints)
@@ -203,13 +169,13 @@ export async function getActiveSprint(
     .orderBy(desc(sprints.createdAt))
     .limit(1);
   if (rows.length === 0) return null;
-  const { byId } = await aggregateLiveBySprint(workspaceId, [rows[0].id]);
+  const byId = await aggregateLiveBySprint(workspaceId, [rows[0].id]);
   return toSprintData(rows[0], byId.get(rows[0].id));
 }
 
 export async function getSprint(
   workspaceId: string,
-  sprintId: string
+  sprintId: string,
 ): Promise<SprintData | null> {
   const [row] = await db
     .select()
@@ -217,7 +183,7 @@ export async function getSprint(
     .where(and(eq(sprints.id, sprintId), eq(sprints.workspaceId, workspaceId)))
     .limit(1);
   if (!row) return null;
-  const { byId } = await aggregateLiveBySprint(workspaceId, [row.id]);
+  const byId = await aggregateLiveBySprint(workspaceId, [row.id]);
   return toSprintData(row, byId.get(row.id));
 }
 
@@ -232,7 +198,7 @@ export async function createSprint(
     startDate?: string | null;
     endDate?: string | null;
     capacityPoints?: number | null;
-  }
+  },
 ): Promise<SprintData> {
   const [row] = await db
     .insert(sprints)
@@ -260,7 +226,7 @@ export async function updateSprint(
     startDate?: string | null;
     endDate?: string | null;
     capacityPoints?: number | null;
-  }
+  },
 ): Promise<SprintData | null> {
   const [existing] = await db
     .select({ id: sprints.id })
@@ -292,7 +258,7 @@ export async function updateSprint(
  */
 export async function activateSprint(
   workspaceId: string,
-  sprintId: string
+  sprintId: string,
 ): Promise<{ sprint?: SprintData; error?: string }> {
   const [row] = await db
     .select()
@@ -312,8 +278,8 @@ export async function activateSprint(
       and(
         eq(sprints.workspaceId, workspaceId),
         eq(sprints.state, "aktiv"),
-        ne(sprints.id, sprintId)
-      )
+        ne(sprints.id, sprintId),
+      ),
     )
     .limit(1);
   if (others.length > 0) {
@@ -322,30 +288,22 @@ export async function activateSprint(
     };
   }
 
-  await db
-    .update(sprints)
-    .set({ state: "aktiv" })
-    .where(eq(sprints.id, sprintId));
+  await db.update(sprints).set({ state: "aktiv" }).where(eq(sprints.id, sprintId));
   const sprint = await getSprint(workspaceId, sprintId);
   return { sprint: sprint ?? undefined };
 }
 
 /**
- * Close a sprint: snapshot the velocity numbers, then carry over every
+ * Close a sprint: snapshot the final task counts, then carry over every
  * unfinished task back to the product backlog (sprintId = null). Completed
- * tasks stay linked so the closed sprint keeps its done-points history.
+ * tasks stay linked so the closed sprint keeps its history.
  */
 export async function closeSprint(
   workspaceId: string,
-  sprintId: string
+  sprintId: string,
 ): Promise<{
   sprint?: SprintData;
-  summary?: {
-    committedPoints: number;
-    completedPoints: number;
-    doneTasks: number;
-    carriedTasks: number;
-  };
+  summary?: { totalTasks: number; doneTasks: number; carriedTasks: number };
   error?: string;
 }> {
   const [row] = await db
@@ -357,69 +315,63 @@ export async function closeSprint(
   if (row.state === "abgeschlossen")
     return { error: "Sprint ist bereits abgeschlossen." };
 
-  // Compute final metrics from the tasks currently in the sprint.
-  const [taskRows, parents] = await Promise.all([
-    db
-      .select({
-        id: tasks.id,
-        pointEstimate: tasks.pointEstimate,
-        isCompleted: tasks.isCompleted,
+  const taskRows = await db
+    .select({ isCompleted: tasks.isCompleted })
+    .from(tasks)
+    .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.sprintId, sprintId)));
+
+  const metrics = foldSprintMetrics(taskRows);
+  const carriedTasks = metrics.openTasks;
+
+  // ONE transaction. Snapshot-then-carry-over as two statements could leave a
+  // sprint marked closed with its unfinished tasks still attached — or, worse,
+  // detached with no snapshot, and the snapshot is the ONLY record of what the
+  // sprint contained, because carry-over destroys the evidence.
+  await db.transaction(async (tx) => {
+    await tx
+      .update(sprints)
+      .set({
+        state: "abgeschlossen",
+        completedAt: new Date(),
+        // Legacy column names, task counts as values (spec §7 / R6). The
+        // marker is what tells a later reader which of the two this is.
+        committedPoints: metrics.totalTasks,
+        completedPoints: metrics.doneTasks,
+        carriedTasks,
+        metricsBasis: "tasks",
       })
-      .from(tasks)
+      .where(and(eq(sprints.id, sprintId), eq(sprints.workspaceId, workspaceId)));
+
+    // Carry-over: unfinished tasks fall back to the product backlog. The
+    // workspace clause is NOT redundant — without it this UPDATE is scoped
+    // only by sprint_id, and any id reaching it from elsewhere would detach
+    // another workspace's tasks.
+    await tx
+      .update(tasks)
+      .set({ sprintId: null })
       .where(
-        and(eq(tasks.workspaceId, workspaceId), eq(tasks.sprintId, sprintId))
-      ),
-    getParentTaskIds(workspaceId),
-  ]);
-
-  let committedPoints = 0;
-  let completedPoints = 0;
-  let doneTasks = 0;
-  let carriedTasks = 0;
-  for (const t of taskRows) {
-    if (parents.has(t.id)) continue; // leaf-only
-    const pts = t.pointEstimate ?? 1;
-    committedPoints += pts;
-    if (t.isCompleted) {
-      completedPoints += pts;
-      doneTasks += 1;
-    } else {
-      carriedTasks += 1;
-    }
-  }
-
-  await db
-    .update(sprints)
-    .set({
-      state: "abgeschlossen",
-      completedAt: new Date(),
-      committedPoints,
-      completedPoints,
-      carriedTasks,
-    })
-    .where(eq(sprints.id, sprintId));
-
-  // Carry-over: unfinished tasks fall back to the product backlog.
-  await db
-    .update(tasks)
-    .set({ sprintId: null })
-    .where(
-      and(
-        eq(tasks.sprintId, sprintId),
-        eq(tasks.isCompleted, false)
-      )
-    );
+        and(
+          eq(tasks.workspaceId, workspaceId),
+          eq(tasks.sprintId, sprintId),
+          eq(tasks.isCompleted, false),
+        ),
+      );
+  });
 
   const sprint = await getSprint(workspaceId, sprintId);
   return {
     sprint: sprint ?? undefined,
-    summary: { committedPoints, completedPoints, doneTasks, carriedTasks },
+    summary: {
+      totalTasks: metrics.totalTasks,
+      doneTasks: metrics.doneTasks,
+      carriedTasks,
+    },
   };
 }
 
 export async function deleteSprint(
   workspaceId: string,
-  sprintId: string
+  sprintId: string,
 ): Promise<{ ok: boolean; error?: string }> {
   const [row] = await db
     .select({ state: sprints.state })
@@ -437,139 +389,4 @@ export async function deleteSprint(
   // tasks.sprint_id has ON DELETE SET NULL, so linked tasks fall back to flow.
   await db.delete(sprints).where(eq(sprints.id, sprintId));
   return { ok: true };
-}
-
-// ─── velocity + burndown ────────────────────────────────────────────────
-
-export interface VelocityHistoryEntry {
-  id: string;
-  name: string;
-  completedPoints: number;
-  committedPoints: number;
-  completedAt: Date | null;
-}
-
-export interface BurndownPoint {
-  date: string; // YYYY-MM-DD
-  ideal: number;
-  remaining: number;
-  isFuture: boolean;
-}
-
-export interface SprintVelocity {
-  sprint: SprintData;
-  burndown: BurndownPoint[];
-  history: VelocityHistoryEntry[];
-  forecast: { avg: number; min: number; max: number; count: number } | null;
-}
-
-function isoDate(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-/** Derived burndown — no snapshot table. Returns [] when undated. */
-async function computeBurndown(
-  workspaceId: string,
-  sprint: SprintData
-): Promise<BurndownPoint[]> {
-  if (!sprint.startDate || !sprint.endDate) return [];
-  const committed = sprint.metrics.committedPoints;
-
-  const [completedRows, parents] = await Promise.all([
-    db
-      .select({
-        id: tasks.id,
-        pointEstimate: tasks.pointEstimate,
-        completedAt: tasks.completedAt,
-      })
-      .from(tasks)
-      .where(
-        and(eq(tasks.workspaceId, workspaceId), eq(tasks.sprintId, sprint.id))
-      ),
-    getParentTaskIds(workspaceId),
-  ]);
-  const completions = completedRows
-    .filter((t) => !parents.has(t.id) && t.completedAt)
-    .map((t) => ({
-      points: t.pointEstimate ?? 1,
-      at: t.completedAt as Date,
-    }));
-
-  const start = startOfDay(sprint.startDate);
-  const end = startOfDay(sprint.endDate);
-  const totalDays = Math.max(1, dayDiff(start, end));
-  const today = startOfDay(new Date());
-
-  const points: BurndownPoint[] = [];
-  // Cap at 60 points so a mis-entered multi-year range cannot explode.
-  const span = Math.min(totalDays, 60);
-  for (let i = 0; i <= span; i++) {
-    const d = new Date(start);
-    d.setDate(start.getDate() + i);
-    const cutoff = endOfDay(d).getTime();
-    const doneByDay = completions
-      .filter((c) => c.at.getTime() <= cutoff)
-      .reduce((s, c) => s + c.points, 0);
-    points.push({
-      date: isoDate(d),
-      ideal: Math.round((committed * (1 - i / span)) * 10) / 10,
-      remaining: Math.max(0, committed - doneByDay),
-      isFuture: startOfDay(d).getTime() > today.getTime(),
-    });
-  }
-  return points;
-}
-
-export async function getSprintVelocity(
-  workspaceId: string,
-  sprintId: string
-): Promise<SprintVelocity | null> {
-  const sprint = await getSprint(workspaceId, sprintId);
-  if (!sprint) return null;
-
-  const closedRows = await db
-    .select({
-      id: sprints.id,
-      name: sprints.name,
-      completedPoints: sprints.completedPoints,
-      committedPoints: sprints.committedPoints,
-      completedAt: sprints.completedAt,
-    })
-    .from(sprints)
-    .where(
-      and(
-        eq(sprints.workspaceId, workspaceId),
-        eq(sprints.state, "abgeschlossen")
-      )
-    )
-    .orderBy(desc(sprints.completedAt))
-    .limit(5);
-
-  const history: VelocityHistoryEntry[] = closedRows
-    .map((r) => ({
-      id: r.id,
-      name: r.name,
-      completedPoints: r.completedPoints ?? 0,
-      committedPoints: r.committedPoints ?? 0,
-      completedAt: r.completedAt,
-    }))
-    .reverse(); // oldest -> newest for charting
-
-  let forecast: SprintVelocity["forecast"] = null;
-  if (history.length > 0) {
-    const vals = history.map((h) => h.completedPoints);
-    const avg = Math.round(vals.reduce((s, v) => s + v, 0) / vals.length);
-    forecast = {
-      avg,
-      min: Math.min(...vals),
-      max: Math.max(...vals),
-      count: vals.length,
-    };
-  }
-
-  const burndown = await computeBurndown(workspaceId, sprint);
-  return { sprint, burndown, history, forecast };
 }
