@@ -182,6 +182,52 @@ export function matchesOperativeFilter(
   return diff >= 0 && diff <= daysLeftInWeek;
 }
 
+/**
+ * I2: the dashboard's "Überfällig" KPI tile counts overdue tasks of EVERY
+ * kind (GET /api/v1/work/counts → overdueCount), but this page's own
+ * `tasks` population is kind=operativ only — so the chip and the tile
+ * disagreed (tile said 9, chip said 4) and the five overdue project tasks
+ * had no chip that counted them at all. Only the Überfällig chip switches to
+ * the honest all-kinds total; the other three keep counting the
+ * operativ-only population, which is correct for them.
+ */
+export function operativeFilterChipCounts<T extends { deadline: string | null; status: string }>(
+  operativeTasks: T[],
+  overdueAllKindsTotal: number,
+  now: Date = new Date()
+): Array<{ value: OperativeFilter; label: string; count: number }> {
+  return OPERATIVE_FILTERS.map((f) => ({
+    ...f,
+    count:
+      f.value === "ueberfaellig"
+        ? overdueAllKindsTotal
+        : operativeTasks.filter((t) => matchesOperativeFilter(t, f.value, now)).length,
+  }));
+}
+
+/**
+ * I2 (related): the header line ("X von Y Aufgaben im laufenden Betrieb")
+ * used `pagination.total` of the kind=operativ **showCompleted=true** fetch
+ * as Y — a figure that counts finished tasks too, so it disagreed with a
+ * list that is mostly showing open ones. `operativeOpenTotal` and
+ * `overdueAllTotal` are both true, completed-excluded server counts (the
+ * former from GET /api/v1/work/counts → operativeOpenCount, the latter from
+ * GET /api/v1/tasks?overdue=true, which already excludes completed tasks by
+ * definition — a finished task cannot be overdue).
+ */
+export function operativeHeaderTotals(input: {
+  filter: OperativeFilter;
+  loadedOperativeCount: number;
+  operativeOpenTotal: number;
+  loadedOverdueAllCount: number;
+  overdueAllTotal: number;
+}): { loaded: number; total: number } {
+  if (input.filter === "ueberfaellig") {
+    return { loaded: input.loadedOverdueAllCount, total: input.overdueAllTotal };
+  }
+  return { loaded: input.loadedOperativeCount, total: input.operativeOpenTotal };
+}
+
 /** Inclusive list of local dates from start to end — the timeline's day columns. */
 export function buildDayColumns(start: Date, end: Date): Date[] {
   const out: Date[] = [];

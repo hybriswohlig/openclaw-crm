@@ -8,11 +8,13 @@ import { useSearchParams } from "next/navigation";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
 import { useSession } from "@/lib/auth-client";
-import type { TaskJSON, TaskListJSON } from "@/lib/work-types";
+import type { TaskJSON, TaskListJSON, WorkCountsJSON } from "@/lib/work-types";
 import { OPERATIVE_AREAS, operativeAreaLabel } from "@/lib/project-constants";
 import {
   OPERATIVE_FILTERS,
   matchesOperativeFilter,
+  operativeFilterChipCounts,
+  operativeHeaderTotals,
   groupBy,
   type OperativeFilter,
 } from "@/lib/work-ui";
@@ -38,9 +40,21 @@ function OperativeInner() {
   const initialFilter = (search.get("filter") ?? "heute") as OperativeFilter;
 
   const [tasks, setTasks] = useState<TaskJSON[]>([]);
-  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
+  // I2: the honest, completed-excluded server total behind "operativeOpenCount"
+  // — used for the header line. `pagination.total` of the fetch above counts
+  // completed tasks too (it needs showCompleted=true for the "Alle" chip).
+  const [operativeOpenTotal, setOperativeOpenTotal] = useState(0);
+  // I2: overdue tasks of EVERY kind (project + operativ), matching the
+  // dashboard's "Überfällig" KPI tile exactly (GET /api/v1/tasks?overdue=true
+  // has no kind filter). This page's `tasks` is kind=operativ only, so the
+  // Überfällig chip/list switch to this population instead — otherwise the
+  // tile said 9, this page said 4, and the overdue project tasks had nowhere
+  // to be seen.
+  const [overdueAll, setOverdueAll] = useState<TaskJSON[]>([]);
+  const [overdueAllTotal, setOverdueAllTotal] = useState(0);
+  const [overdueAllFailed, setOverdueAllFailed] = useState(false);
   const [filter, setFilter] = useState<OperativeFilter>(
     OPERATIVE_FILTERS.some((f) => f.value === initialFilter) ? initialFilter : "heute"
   );
@@ -50,36 +64,76 @@ function OperativeInner() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    try {
-      const res = await fetch("/api/v1/tasks?kind=operativ&showCompleted=true&limit=200", {
-        cache: "no-store",
-      });
-      if (!res.ok) throw new Error("load failed");
-      const json = await res.json();
-      const payload = (json?.data ?? null) as TaskListJSON | null;
+    const [opRes, countsRes, overdueRes] = await Promise.allSettled([
+      fetch("/api/v1/tasks?kind=operativ&showCompleted=true&limit=200", { cache: "no-store" }),
+      fetch("/api/v1/work/counts", { cache: "no-store" }),
+      // No kind filter: I2 needs the same all-kinds population the KPI tile
+      // counted. `overdue=true` already excludes completed tasks server-side
+      // (a finished task can never be overdue).
+      fetch("/api/v1/tasks?overdue=true&limit=200", { cache: "no-store" }),
+    ]);
+
+    // Captured locally, not read back off state: state set earlier in this
+    // same call has not committed yet, so reading it here would see the
+    // value from BEFORE this load() started.
+    let fetchedOperativeTotal = 0;
+
+    if (opRes.status === "fulfilled" && opRes.value.ok) {
+      const payload = ((await opRes.value.json())?.data ?? null) as TaskListJSON | null;
+      fetchedOperativeTotal = payload?.pagination?.total ?? payload?.tasks?.length ?? 0;
       setTasks(payload?.tasks ?? []);
-      setTotal(payload?.pagination?.total ?? payload?.tasks?.length ?? 0);
       setFailed(false);
-    } catch {
+    } else {
       setFailed(true);
-    } finally {
-      setLoading(false);
     }
+
+    if (countsRes.status === "fulfilled" && countsRes.value.ok) {
+      const counts = ((await countsRes.value.json())?.data ?? null) as WorkCountsJSON | null;
+      // Best-effort: falling back to the (completed-inclusive) operativ total
+      // is a smaller lie than the header showing nothing.
+      setOperativeOpenTotal(counts?.operativeOpenCount ?? fetchedOperativeTotal);
+    } else {
+      setOperativeOpenTotal(fetchedOperativeTotal);
+    }
+
+    if (overdueRes.status === "fulfilled" && overdueRes.value.ok) {
+      const payload = ((await overdueRes.value.json())?.data ?? null) as TaskListJSON | null;
+      setOverdueAll(payload?.tasks ?? []);
+      setOverdueAllTotal(payload?.pagination?.total ?? payload?.tasks?.length ?? 0);
+      setOverdueAllFailed(false);
+    } else {
+      setOverdueAllFailed(true);
+    }
+
+    setLoading(false);
   }, []);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  const visible = useMemo(
-    () => tasks.filter((t) => matchesOperativeFilter(t, filter) && (!area || t.area === area)),
-    [tasks, filter, area]
-  );
+  const visible = useMemo(() => {
+    if (filter === "ueberfaellig") return overdueAll.filter((t) => !area || t.area === area);
+    return tasks.filter((t) => matchesOperativeFilter(t, filter) && (!area || t.area === area));
+  }, [tasks, overdueAll, filter, area]);
 
   const grouped = useMemo(
     () => groupBy(visible, (t) => t.area ?? "sonstiges"),
     [visible]
   );
+
+  const headerTotals = operativeHeaderTotals({
+    filter,
+    loadedOperativeCount: tasks.length,
+    operativeOpenTotal,
+    loadedOverdueAllCount: overdueAll.length,
+    overdueAllTotal,
+  });
+
+  // The Überfällig view has its own, independent population (all kinds) and
+  // must not be governed by the unrelated kind=operativ fetch's own
+  // failed/empty state, or vice versa.
+  const viewFailed = filter === "ueberfaellig" ? overdueAllFailed : failed;
 
   async function save(payload: WorkTaskSavePayload) {
     const url = editing ? `/api/v1/tasks/${editing.id}` : "/api/v1/tasks";
@@ -105,7 +159,8 @@ function OperativeInner() {
               Operative Aufgaben
             </h1>
             <p className="mt-1 text-[13.5px]" style={{ color: "var(--muted-foreground)" }}>
-              {visible.length} von {countLabel(tasks.length, total)} Aufgaben im laufenden Betrieb.
+              {visible.length} von {countLabel(headerTotals.loaded, headerTotals.total)}
+              {filter === "ueberfaellig" ? " überfällige Aufgaben (alle Arten)." : " Aufgaben im laufenden Betrieb."}
             </p>
           </div>
           <button
@@ -126,10 +181,7 @@ function OperativeInner() {
 
         <div className="flex flex-wrap items-center justify-between gap-3">
           <FilterChips
-            options={OPERATIVE_FILTERS.map((f) => ({
-              ...f,
-              count: tasks.filter((t) => matchesOperativeFilter(t, f.value)).length,
-            }))}
+            options={operativeFilterChipCounts(tasks, overdueAllTotal)}
             value={filter}
             onChange={setFilter}
           />
@@ -148,10 +200,10 @@ function OperativeInner() {
           </select>
         </div>
 
-        {loading && tasks.length === 0 && <LoadingLine label="Aufgaben werden geladen…" />}
-        {failed && tasks.length === 0 && <ErrorLine onRetry={load} />}
+        {loading && visible.length === 0 && <LoadingLine label="Aufgaben werden geladen…" />}
+        {!loading && viewFailed && visible.length === 0 && <ErrorLine onRetry={load} />}
 
-        {!loading && visible.length === 0 && !failed && (
+        {!loading && visible.length === 0 && !viewFailed && (
           <div className="k-card">
             <EmptyState
               title="Nichts offen"
@@ -167,7 +219,10 @@ function OperativeInner() {
                 <TaskRow
                   key={t.id}
                   task={t}
-                  showProject={false}
+                  // I2: the Überfällig view mixes in project tasks, so those
+                  // rows need the project chip to be distinguishable from
+                  // operative ones.
+                  showProject={filter === "ueberfaellig"}
                   onOpen={(task) => {
                     setEditing(task);
                     setDialogOpen(true);

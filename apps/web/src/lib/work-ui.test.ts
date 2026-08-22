@@ -7,6 +7,8 @@ import {
   deadlineLabel,
   daysBetweenDays,
   matchesOperativeFilter,
+  operativeFilterChipCounts,
+  operativeHeaderTotals,
   buildDayColumns,
   todayColumnIndex,
   timelineBarStyle,
@@ -97,6 +99,61 @@ describe("matchesOperativeFilter", () => {
 
   it("alle lets everything through, dateless tasks included", () => {
     expect(matchesOperativeFilter(task(null), "alle", now)).toBe(true);
+  });
+});
+
+describe("operativeFilterChipCounts", () => {
+  // Monday 14 Jul 2025 → the week runs through Sunday 20 Jul.
+  const now = new Date(2025, 6, 14);
+  const task = (deadline: string | null, status = "geplant") => ({ deadline, status });
+
+  it("I2: the Überfällig chip uses the honest all-kinds total, not the local operativ-only count", () => {
+    const operativeTasks = [
+      task("2025-07-10T00:00:00"), // 1 operativ task overdue locally
+    ];
+    // The dashboard tile counted 9 overdue tasks of every kind; only 1 of
+    // them is operativ. The chip must show 9, not 1.
+    const counts = operativeFilterChipCounts(operativeTasks, 9, now);
+    const ueberfaellig = counts.find((c) => c.value === "ueberfaellig");
+    expect(ueberfaellig?.count).toBe(9);
+  });
+
+  it("the other three chips keep counting the operativ-only population", () => {
+    const operativeTasks = [
+      task("2025-07-14T00:00:00"), // heute
+      task("2025-07-16T00:00:00"), // woche
+      task(null), // only "alle" catches this one
+    ];
+    const counts = operativeFilterChipCounts(operativeTasks, 9, now);
+    expect(counts.find((c) => c.value === "heute")?.count).toBe(1);
+    expect(counts.find((c) => c.value === "woche")?.count).toBe(2);
+    expect(counts.find((c) => c.value === "alle")?.count).toBe(3);
+  });
+});
+
+describe("operativeHeaderTotals", () => {
+  it("I2 (related): the header excludes completed tasks outside the Überfällig filter", () => {
+    const { loaded, total } = operativeHeaderTotals({
+      filter: "heute",
+      loadedOperativeCount: 12,
+      operativeOpenTotal: 30, // honest, completed-excluded server count
+      loadedOverdueAllCount: 0,
+      overdueAllTotal: 0,
+    });
+    expect(loaded).toBe(12);
+    expect(total).toBe(30);
+  });
+
+  it("switches to the all-kinds overdue total under the Überfällig filter, matching the KPI tile", () => {
+    const { loaded, total } = operativeHeaderTotals({
+      filter: "ueberfaellig",
+      loadedOperativeCount: 12,
+      operativeOpenTotal: 30,
+      loadedOverdueAllCount: 9,
+      overdueAllTotal: 9,
+    });
+    expect(loaded).toBe(9);
+    expect(total).toBe(9);
   });
 });
 
