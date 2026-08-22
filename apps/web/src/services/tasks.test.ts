@@ -3,9 +3,13 @@ import {
   resolveTaskKind,
   resolvePhaseAssignment,
   resolveParentEligibility,
+  resolveChildEligibility,
   resolveInheritedPlacement,
   resolveTaskStatus,
   planTaskFilters,
+  planKindFilterClause,
+  planTaskActivityEmissions,
+  type TaskPlacement,
 } from "./tasks";
 import * as taskService from "./tasks";
 
@@ -121,6 +125,23 @@ describe("resolveParentEligibility — I4 is capped at two levels", () => {
 
   it("accepts 'no parent at all'", () => {
     expect(resolveParentEligibility(null)).toEqual({ ok: true });
+  });
+});
+
+describe("resolveChildEligibility — the other half of I4's two-level cap", () => {
+  // Together with resolveParentEligibility (a subtask cannot become a
+  // parent), this is what makes a three-level task chain (A→B→C) structurally
+  // impossible: B cannot be re-parented under C once B already has A... i.e.
+  // a task with existing children cannot itself become a child.
+  it("rejects re-parenting a task that already has children", () => {
+    expect(resolveChildEligibility(true)).toEqual({
+      ok: false,
+      error: "Aufgaben mit Unteraufgaben können nicht verschachtelt werden",
+    });
+  });
+
+  it("accepts re-parenting a childless task", () => {
+    expect(resolveChildEligibility(false)).toEqual({ ok: true });
   });
 });
 
@@ -303,6 +324,134 @@ describe("planTaskFilters", () => {
     expect(planTaskFilters({ limit: 5000 }, now).limit).toBe(200);
     expect(planTaskFilters({ limit: 0 }, now).limit).toBe(1);
     expect(planTaskFilters({ offset: -3 }, now).offset).toBe(0);
+  });
+});
+
+describe("planKindFilterClause — listTasks's NULL-tolerant kind discriminator", () => {
+  it("filters kind='projekt' via projectId IS NOT NULL, never via the kind column", () => {
+    expect(planKindFilterClause("projekt")).toEqual({ column: "projectId", op: "isNotNull" });
+  });
+
+  it("filters kind='operativ' via projectId IS NULL, never via eq(kind, 'operativ')", () => {
+    // eq(tasks.kind, "operativ") would evaluate to NULL — i.e. "not
+    // matched" — for any pre-migration row whose kind column is NULL, and
+    // that row would silently vanish from every operative list.
+    expect(planKindFilterClause("operativ")).toEqual({ column: "projectId", op: "isNull" });
+  });
+
+  it("adds no clause when no kind filter was requested", () => {
+    expect(planKindFilterClause(null)).toBeNull();
+  });
+});
+
+describe("planTaskActivityEmissions — which events an updateTask call fires", () => {
+  const PLACEMENT_A: TaskPlacement = { kind: "projekt", projectId: "p1", phaseId: "ph1" };
+  const PLACEMENT_B: TaskPlacement = { kind: "projekt", projectId: "p2", phaseId: null };
+  const OPERATIVE: TaskPlacement = { kind: "operativ", projectId: null, phaseId: null };
+  const OPEN = { status: "geplant" as const, isCompleted: false, completedAt: null };
+  const DONE = { status: "erledigt" as const, isCompleted: true, completedAt: new Date("2026-08-01") };
+
+  it("emits nothing when neither placement nor completion changed", () => {
+    expect(
+      planTaskActivityEmissions({
+        taskId: "t1",
+        placementChanged: false,
+        completionChanged: false,
+        currentPlacement: PLACEMENT_A,
+        placement: PLACEMENT_A,
+        currentCompletion: OPEN,
+        completion: OPEN,
+      }),
+    ).toEqual([]);
+  });
+
+  it("emits ONLY task.moved_to_project when the placement changed and completion did not", () => {
+    const out = planTaskActivityEmissions({
+      taskId: "t1",
+      placementChanged: true,
+      completionChanged: false,
+      currentPlacement: PLACEMENT_A,
+      placement: PLACEMENT_B,
+      currentCompletion: OPEN,
+      completion: OPEN,
+    });
+    expect(out).toEqual([
+      {
+        eventType: "task.moved_to_project",
+        recordId: "p2",
+        payload: {
+          taskId: "t1",
+          fromProjectId: "p1",
+          toProjectId: "p2",
+          fromPhaseId: "ph1",
+          toPhaseId: null,
+        },
+      },
+    ]);
+  });
+
+  it("emits ONLY task.status_changed when completion changed on a project task", () => {
+    const out = planTaskActivityEmissions({
+      taskId: "t1",
+      placementChanged: false,
+      completionChanged: true,
+      currentPlacement: PLACEMENT_A,
+      placement: PLACEMENT_A,
+      currentCompletion: OPEN,
+      completion: DONE,
+    });
+    expect(out).toEqual([
+      {
+        eventType: "task.status_changed",
+        recordId: "p1",
+        payload: { taskId: "t1", from: "geplant", to: "erledigt" },
+      },
+    ]);
+  });
+
+  it("suppresses task.status_changed for an OPERATIVE task — nothing can read that row", () => {
+    // record_id is nullable on activity_events, so this would not throw; it
+    // would file an unreadable row every time an operative checkbox is
+    // ticked (the project tab queries by projectId, the dashboard feed
+    // filters by type).
+    const out = planTaskActivityEmissions({
+      taskId: "t1",
+      placementChanged: false,
+      completionChanged: true,
+      currentPlacement: OPERATIVE,
+      placement: OPERATIVE,
+      currentCompletion: OPEN,
+      completion: DONE,
+    });
+    expect(out).toEqual([]);
+  });
+
+  it("emits BOTH when a task is re-parented into a project AND completed in the same call", () => {
+    const out = planTaskActivityEmissions({
+      taskId: "t1",
+      placementChanged: true,
+      completionChanged: true,
+      currentPlacement: OPERATIVE,
+      placement: PLACEMENT_A,
+      currentCompletion: OPEN,
+      completion: DONE,
+    });
+    expect(out.map((e) => e.eventType)).toEqual(["task.moved_to_project", "task.status_changed"]);
+  });
+
+  it("falls back to the FROM project when a task is demoted out of its project entirely", () => {
+    const out = planTaskActivityEmissions({
+      taskId: "t1",
+      placementChanged: true,
+      completionChanged: false,
+      currentPlacement: PLACEMENT_A,
+      placement: OPERATIVE,
+      currentCompletion: OPEN,
+      completion: OPEN,
+    });
+    // Still filed under the project it LEFT, so it shows in that project's
+    // Aktivitäten tab instead of vanishing into a null recordId.
+    expect(out[0].recordId).toBe("p1");
   });
 });
 

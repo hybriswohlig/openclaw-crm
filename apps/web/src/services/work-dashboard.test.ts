@@ -4,6 +4,7 @@ import {
   foldTeamOverview,
   mergeUpcoming,
   describeActivityEvent,
+  toActivityFeedEntries,
   type UpcomingEntry,
 } from "./work-dashboard";
 import { timelineWindow, projectWindowBounds } from "./work-dashboard";
@@ -232,6 +233,71 @@ describe("describeActivityEvent", () => {
     expect(describeActivityEvent("project.milestone_created", { projectName: "X" })).toEqual({
       title: "Neuer Meilenstein",
       description: "X",
+    });
+  });
+
+  // Same treatment as project.milestone_created above: memberName and role
+  // travel in the payload (project-members.ts) precisely so this branch can
+  // render "<name> ist jetzt <Rolle>" without a second lookup. Deleting this
+  // branch is a surviving mutant — every other test in the 598-strong suite
+  // still passes because nothing else exercises project.member_role_changed.
+  it("renders the member name and German role label for a role change", () => {
+    expect(
+      describeActivityEvent("project.member_role_changed", {
+        projectName: "X",
+        memberName: "Nuri",
+        role: "leiter",
+      }),
+    ).toEqual({
+      title: "Rolle geändert",
+      description: "Nuri ist jetzt Projektleiter",
+    });
+  });
+
+  it("falls back to the project name when the role-change payload is incomplete", () => {
+    expect(describeActivityEvent("project.member_role_changed", { projectName: "X" })).toEqual({
+      title: "Rolle geändert",
+      description: "X",
+    });
+  });
+});
+
+describe("toActivityFeedEntries", () => {
+  it("maps a joined activity row to the wire shape via describeActivityEvent", () => {
+    const createdAt = new Date("2026-08-21T09:00:00");
+    const rows = toActivityFeedEntries([
+      {
+        id: "ev1",
+        eventType: "project.member_role_changed",
+        payload: { projectName: "X", memberName: "Nuri", role: "leiter" },
+        createdAt,
+        actorName: "Dario",
+      },
+    ]);
+    expect(rows).toEqual([
+      {
+        id: "ev1",
+        type: "project.member_role_changed",
+        title: "Rolle geändert",
+        description: "Nuri ist jetzt Projektleiter",
+        createdAt,
+        actorName: "Dario",
+      },
+    ]);
+  });
+
+  it("defaults a null payload to {} and a null actor to null", () => {
+    const createdAt = new Date("2026-08-21T09:00:00");
+    const rows = toActivityFeedEntries([
+      { id: "ev2", eventType: "project.created", payload: null, createdAt, actorName: null },
+    ]);
+    expect(rows[0]).toEqual({
+      id: "ev2",
+      type: "project.created",
+      title: "Projekt angelegt",
+      description: null,
+      createdAt,
+      actorName: null,
     });
   });
 });

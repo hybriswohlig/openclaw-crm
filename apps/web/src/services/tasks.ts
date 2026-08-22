@@ -96,6 +96,24 @@ export function resolveParentEligibility(
 }
 
 /**
+ * I4 cap, the other half of resolveParentEligibility: a task that already
+ * HAS children cannot itself become a child. The cascade in updateTask is
+ * `WHERE parent_task_id = <id>`, one level deep — allowing this would leave
+ * the existing children stranded as grandchildren the cascade cannot reach
+ * whenever this task moves. Together with resolveParentEligibility (which
+ * blocks a subtask from becoming a parent), this is what makes a three-level
+ * task chain structurally impossible.
+ */
+export function resolveChildEligibility(
+  hasExistingChildren: boolean,
+): { ok: true } | { ok: false; error: string } {
+  if (hasExistingChildren) {
+    return { ok: false, error: "Aufgaben mit Unteraufgaben können nicht verschachtelt werden" };
+  }
+  return { ok: true };
+}
+
+/**
  * I4: a subtask inherits `kind`, `project_id` and `phase_id` from its parent,
  * on create AND whenever it is re-parented. Also repairs a parent row whose
  * `kind` column drifted from its `project_id` (I1).
@@ -145,6 +163,65 @@ export function resolveTaskStatus(
       : now
     : null;
   return { status, isCompleted, completedAt };
+}
+
+export interface TaskActivityEmission {
+  eventType: "task.moved_to_project" | "task.status_changed";
+  /** activity_events.record_id — nullable, but only in theory here (see below). */
+  recordId: string | null;
+  payload: Record<string, unknown>;
+}
+
+/**
+ * Pure: which activity events (if any) a committed updateTask call should
+ * emit, and with what payload. The async wrapper just calls emitEvent once
+ * per entry this returns — nothing here decides whether the row hits the DB.
+ *
+ * Two independent gates, spec §10.1:
+ *   - task.moved_to_project fires exactly when placement (kind/project/phase)
+ *     changed — a content-only or status-only edit must NOT emit it.
+ *   - task.status_changed fires exactly when completion changed AND the
+ *     task's (new) placement has a project. activity_events.record_id is
+ *     nullable, so an operative task would not throw here — it would file a
+ *     row nothing can ever read (the project tab queries by projectId, the
+ *     dashboard feed filters by type), quietly accumulating unreadable rows
+ *     every time an operative checkbox is ticked.
+ */
+export function planTaskActivityEmissions(input: {
+  taskId: string;
+  placementChanged: boolean;
+  completionChanged: boolean;
+  currentPlacement: TaskPlacement;
+  placement: TaskPlacement;
+  currentCompletion: TaskCompletion;
+  completion: TaskCompletion;
+}): TaskActivityEmission[] {
+  const emissions: TaskActivityEmission[] = [];
+  if (input.placementChanged) {
+    emissions.push({
+      eventType: "task.moved_to_project",
+      recordId: input.placement.projectId ?? input.currentPlacement.projectId,
+      payload: {
+        taskId: input.taskId,
+        fromProjectId: input.currentPlacement.projectId,
+        toProjectId: input.placement.projectId,
+        fromPhaseId: input.currentPlacement.phaseId,
+        toPhaseId: input.placement.phaseId,
+      },
+    });
+  }
+  if (input.completionChanged && input.placement.projectId) {
+    emissions.push({
+      eventType: "task.status_changed",
+      recordId: input.placement.projectId,
+      payload: {
+        taskId: input.taskId,
+        from: input.currentCompletion.status,
+        to: input.completion.status,
+      },
+    });
+  }
+  return emissions;
 }
 
 export interface ListTaskOptions {
@@ -198,6 +275,26 @@ export interface TaskFilterPlan {
   dueBefore: Date | null;
   limit: number;
   offset: number;
+}
+
+export type KindFilterClause =
+  | { column: "projectId"; op: "isNotNull" }
+  | { column: "projectId"; op: "isNull" }
+  | null;
+
+/**
+ * NULL-TOLERANCE (see the longer comment beside its call site in listTasks):
+ * `kind` and `status` are nullable columns, and enrichTasks defaults a NULL
+ * to a real value. `eq(tasks.kind, "operativ")` evaluates to NULL — i.e.
+ * "not matched" — for any pre-migration row whose `kind` column is NULL, so
+ * that row would render as operativ but be invisible to this filter. I1 says
+ * kind ⟺ project_id, so this discriminates on the NOT-NULL-safe `projectId`
+ * column instead, never on `kind` itself.
+ */
+export function planKindFilterClause(kind: TaskKind | null): KindFilterClause {
+  if (kind === "projekt") return { column: "projectId", op: "isNotNull" };
+  if (kind === "operativ") return { column: "projectId", op: "isNull" };
+  return null;
 }
 
 /** Pure: request options → the resolved filter decisions listTasks applies. */
@@ -401,16 +498,17 @@ export async function listTasks(
   }
   if (plan.sprintId) clauses.push(eq(tasks.sprintId, plan.sprintId));
   else if (plan.noSprint) clauses.push(isNull(tasks.sprintId));
-  // NULL-TOLERANCE. `kind` and `status` are nullable columns, and enrichTasks
-  // above defaults a NULL to a real value. If the WHERE clause did not do the
-  // same, a row with NULL columns would RENDER as operativ/geplant but be
-  // invisible to every filter naming those columns — `/tasks/operative` would
-  // omit it while `GET /api/v1/tasks/<id>` returned it. `ne(NULL, 'erledigt')`
-  // is NULL, i.e. "not matched", which is the same trap in the other direction.
-  //
-  // I1 says kind ⟺ project_id, so project_id is the NULL-safe discriminator.
-  if (plan.kind === "projekt") clauses.push(isNotNull(tasks.projectId));
-  else if (plan.kind === "operativ") clauses.push(isNull(tasks.projectId));
+  // NULL-TOLERANCE — see planKindFilterClause. A row with NULL `kind` would
+  // RENDER as operativ (enrichTasks defaults it) but be invisible to a filter
+  // that names the `kind` column directly — `/tasks/operative` would omit it
+  // while `GET /api/v1/tasks/<id>` returned it. `ne(NULL, 'erledigt')` is
+  // NULL, i.e. "not matched", which is the same trap in the other direction.
+  const kindClause = planKindFilterClause(plan.kind);
+  if (kindClause) {
+    clauses.push(
+      kindClause.op === "isNotNull" ? isNotNull(tasks.projectId) : isNull(tasks.projectId),
+    );
+  }
 
   if (plan.projectId) clauses.push(eq(tasks.projectId, plan.projectId));
   if (plan.phaseId) clauses.push(eq(tasks.phaseId, plan.phaseId));
@@ -712,9 +810,8 @@ export async function updateTask(
         .from(tasks)
         .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.parentTaskId, taskId)))
         .limit(1);
-      if (child) {
-        throw new Error("Aufgaben mit Unteraufgaben können nicht verschachtelt werden");
-      }
+      const childEligible = resolveChildEligibility(!!child);
+      if (!childEligible.ok) throw new Error(childEligible.error);
     }
 
     placement = resolveInheritedPlacement(parentRow, placement);
@@ -825,36 +922,26 @@ export async function updateTask(
   // Activity trail for the two task-level literals of spec §10.1. emitEvent
   // ONLY — a task edit must never fan out to every workspace member. The
   // event is filed under the project so it shows in the project's
-  // Aktivitäten tab; the task id travels in the payload.
-  if (placementChanged) {
+  // Aktivitäten tab; the task id travels in the payload. Which events fire,
+  // on which transitions, is decided entirely by the pure
+  // planTaskActivityEmissions above — this loop just executes its output.
+  const activityEmissions = planTaskActivityEmissions({
+    taskId,
+    placementChanged,
+    completionChanged,
+    currentPlacement,
+    placement,
+    currentCompletion,
+    completion,
+  });
+  for (const emission of activityEmissions) {
     await emitEvent({
       workspaceId,
-      recordId: placement.projectId ?? currentPlacement.projectId,
+      recordId: emission.recordId,
       objectSlug: "projects",
-      eventType: "task.moved_to_project",
+      eventType: emission.eventType,
       actorId: actorUserId,
-      payload: {
-        taskId,
-        fromProjectId: currentPlacement.projectId,
-        toProjectId: placement.projectId,
-        fromPhaseId: currentPlacement.phaseId,
-        toPhaseId: placement.phaseId,
-      },
-    });
-  }
-  // Only for PROJECT tasks. activity_events.record_id is nullable, so an
-  // operative task would not throw — it would file a row that nothing can
-  // ever read: the project tab queries by projectId and the dashboard feed
-  // filters by type. Ticking off operative work would just accumulate
-  // unreadable rows.
-  if (completionChanged && placement.projectId) {
-    await emitEvent({
-      workspaceId,
-      recordId: placement.projectId,
-      objectSlug: "projects",
-      eventType: "task.status_changed",
-      actorId: actorUserId,
-      payload: { taskId, from: currentCompletion.status, to: completion.status },
+      payload: emission.payload,
     });
   }
 
