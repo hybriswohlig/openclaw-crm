@@ -246,3 +246,81 @@ describe("foldProjectStats", () => {
     });
   });
 });
+
+import { toProjectRowData } from "./projects";
+
+describe("toProjectRowData", () => {
+  const row = {
+    id: "p1",
+    // Every column of `typeof projects.$inferSelect` must be present —
+    // workspace_id is .notNull() in Phase 1's schema, so omitting it is
+    // TS2345 and breaks `next build`, not just this test.
+    workspaceId: "ws1",
+    name: "Website-Relaunch kottke-umzuege.de",
+    shortDescription: "Neue Seite bis Oktober",
+    category: "marketing",
+    priority: "hoch",
+    status: "aktiv",
+    icon: null,
+    color: null,
+    // `date` columns arrive as "YYYY-MM-DD" strings (Drizzle string mode);
+    // `createdAt` / `updatedAt` / `archivedAt` are timestamps and stay Dates.
+    startDate: "2026-08-01",
+    endDate: "2026-10-31",
+    ownerUserId: "u1",
+    problemStatement: null,
+    goalStatement: null,
+    successCriteria: null,
+    scopeIn: ["Leistungsseiten"],
+    scopeOut: ["Shop"],
+    budgetPlannedCents: 500_000,
+    notesContent: null,
+    createdBy: "u1",
+    createdAt: new Date("2026-07-01T00:00:00"),
+    updatedAt: new Date("2026-08-01T00:00:00"),
+    archivedAt: null,
+  };
+
+  it("derives icon and colour from the category when they are not set", () => {
+    const p = toProjectRowData(row, [], false);
+    expect(p.icon).toBe("Megaphone");
+    expect(typeof p.color).toBe("string");
+    expect(p.color?.startsWith("#")).toBe(true);
+  });
+
+  it("keeps an explicitly stored icon and colour", () => {
+    const p = toProjectRowData({ ...row, icon: "Rocket", color: "#123456" }, [], true);
+    expect(p.icon).toBe("Rocket");
+    expect(p.color).toBe("#123456");
+    expect(p.isFavorite).toBe(true);
+  });
+
+  it("falls back to safe enum values for junk in the columns", () => {
+    const p = toProjectRowData({ ...row, category: "quatsch", priority: "urgent", status: "laeuft" }, [], false);
+    expect(p.category).toBe("prozesse");
+    expect(p.priority).toBe("mittel");
+    expect(p.status).toBe("geplant");
+  });
+
+  it("turns the date columns into local-midnight Dates", () => {
+    const p = toProjectRowData(row, [], false);
+    expect(p.startDate?.getFullYear()).toBe(2026);
+    expect(p.startDate?.getMonth()).toBe(7); // August, 0-indexed
+    expect(p.startDate?.getDate()).toBe(1);
+    expect(p.startDate?.getHours()).toBe(0);
+    expect(p.endDate?.getDate()).toBe(31);
+  });
+
+  it("leaves an empty date column as null", () => {
+    const p = toProjectRowData({ ...row, startDate: null, endDate: null }, [], false);
+    expect(p.startDate).toBeNull();
+    expect(p.endDate).toBeNull();
+  });
+
+  it("passes the member list straight through", () => {
+    const members = [
+      { userId: "u1", role: "leiter" as const, name: "Dario", email: "d@x.de", image: null },
+    ];
+    expect(toProjectRowData(row, members, false).members).toEqual(members);
+  });
+});
