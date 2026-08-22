@@ -844,3 +844,104 @@ export function planTaskMigration(input: MigrationPlanInput): MigrationPlan {
     },
   };
 }
+
+// ─── Rule 7: sprint rotation ──────────────────────────────────────────
+
+export interface MigrationSprintRow {
+  id: string;
+  name: string;
+  state: string;
+  startDate: Date | null;
+  endDate: Date | null;
+}
+
+export interface SprintRotationPlan {
+  closeSprintId: string | null;
+  closeSprintName: string | null;
+  createSprint: {
+    name: string;
+    goal: string;
+    startDate: string;
+    endDate: string;
+  } | null;
+  activateExistingSprintId: string | null;
+  notes: string[];
+}
+
+export const NEW_SPRINT_NAME = "Sprint 3";
+export const NEW_SPRINT_LENGTH_DAYS = 14;
+export const NEW_SPRINT_GOAL = "Erster Sprint im neuen Projekt- und Aufgabenmodell.";
+
+/** YYYY-MM-DD in local time, matching the rest of the de-DE codebase. */
+export function toIsoDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * "Sprint 2" expired on 2026-08-04. Close it (the existing carry-over logic
+ * in closeSprint() returns its unfinished tasks to the backlog), then open
+ * and activate a fresh 14-day sprint. Idempotent over the sprint NAME, so a
+ * second run neither creates a duplicate nor re-closes anything.
+ */
+export function planSprintRotation(
+  sprints: MigrationSprintRow[],
+  now: Date,
+  newSprintName: string = NEW_SPRINT_NAME,
+  lengthDays: number = NEW_SPRINT_LENGTH_DAYS
+): SprintRotationPlan {
+  const notes: string[] = [];
+  const target = sprints.find(
+    (s) => normalizeTitle(s.name) === normalizeTitle(newSprintName)
+  );
+  const active = sprints.find(
+    (s) => s.state === "aktiv" && (!target || s.id !== target.id)
+  );
+
+  let closeSprintId: string | null = null;
+  let closeSprintName: string | null = null;
+  if (active) {
+    closeSprintId = active.id;
+    closeSprintName = active.name;
+    notes.push(
+      `"${active.name}" wird abgeschlossen; unerledigte Aufgaben wandern über die ` +
+        `bestehende Carry-over-Logik zurück in den Backlog.`
+    );
+  }
+
+  if (target) {
+    if (target.state === "aktiv") {
+      notes.push(`"${target.name}" läuft bereits — nichts zu tun.`);
+      return { closeSprintId, closeSprintName, createSprint: null, activateExistingSprintId: null, notes };
+    }
+    notes.push(`"${target.name}" existiert bereits und wird nur aktiviert.`);
+    return {
+      closeSprintId,
+      closeSprintName,
+      createSprint: null,
+      activateExistingSprintId: target.id,
+      notes,
+    };
+  }
+
+  // 14 calendar days inclusive: start .. start + 13.
+  const end = new Date(now);
+  end.setDate(end.getDate() + lengthDays - 1);
+  notes.push(
+    `"${newSprintName}" wird angelegt (${toIsoDate(now)} bis ${toIsoDate(end)}) und aktiviert.`
+  );
+  return {
+    closeSprintId,
+    closeSprintName,
+    createSprint: {
+      name: newSprintName,
+      goal: NEW_SPRINT_GOAL,
+      startDate: toIsoDate(now),
+      endDate: toIsoDate(end),
+    },
+    activateExistingSprintId: null,
+    notes,
+  };
+}

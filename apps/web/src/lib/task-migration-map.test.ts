@@ -559,3 +559,87 @@ describe("planTaskMigration — second run is a no-op", () => {
     expect(plan.updates.find((u) => u.taskId === "t-seo")!.projectKey).toBe("website-relaunch");
   });
 });
+
+import { planSprintRotation, toIsoDate, type MigrationSprintRow } from "./task-migration-map";
+
+const PRODUCTION_SPRINTS: MigrationSprintRow[] = [
+  {
+    id: "s1",
+    name: "Sprint Nr. 1",
+    state: "abgeschlossen",
+    startDate: new Date("2026-07-08T00:00:00"),
+    endDate: new Date("2026-07-21T23:59:59"),
+  },
+  {
+    id: "s2",
+    name: "Sprint 2",
+    state: "aktiv",
+    startDate: new Date("2026-07-22T00:00:00"),
+    endDate: new Date("2026-08-04T23:59:59"),
+  },
+];
+
+describe("planSprintRotation (spec §12.2 rule 7)", () => {
+  it("closes the expired Sprint 2 and opens a 14-day Sprint 3 from the run date", () => {
+    const plan = planSprintRotation(PRODUCTION_SPRINTS, new Date("2026-08-21T10:00:00"));
+    expect(plan.closeSprintId).toBe("s2");
+    expect(plan.closeSprintName).toBe("Sprint 2");
+    expect(plan.createSprint).toEqual({
+      name: "Sprint 3",
+      goal: "Erster Sprint im neuen Projekt- und Aufgabenmodell.",
+      startDate: "2026-08-21",
+      endDate: "2026-09-03",
+    });
+    expect(plan.activateExistingSprintId).toBeNull();
+  });
+
+  it("is a no-op once Sprint 3 exists and runs", () => {
+    const after: MigrationSprintRow[] = [
+      PRODUCTION_SPRINTS[0],
+      { ...PRODUCTION_SPRINTS[1], state: "abgeschlossen" },
+      {
+        id: "s3",
+        name: "Sprint 3",
+        state: "aktiv",
+        startDate: new Date("2026-08-21T00:00:00"),
+        endDate: new Date("2026-09-03T00:00:00"),
+      },
+    ];
+    const plan = planSprintRotation(after, new Date("2026-08-22T10:00:00"));
+    expect(plan.closeSprintId).toBeNull();
+    expect(plan.createSprint).toBeNull();
+    expect(plan.activateExistingSprintId).toBeNull();
+  });
+
+  it("activates an existing but unstarted Sprint 3 instead of creating a second one", () => {
+    const after: MigrationSprintRow[] = [
+      PRODUCTION_SPRINTS[0],
+      { ...PRODUCTION_SPRINTS[1], state: "abgeschlossen" },
+      {
+        id: "s3",
+        name: "Sprint 3",
+        state: "planung",
+        startDate: new Date("2026-08-21T00:00:00"),
+        endDate: new Date("2026-09-03T00:00:00"),
+      },
+    ];
+    const plan = planSprintRotation(after, new Date("2026-08-22T10:00:00"));
+    expect(plan.createSprint).toBeNull();
+    expect(plan.activateExistingSprintId).toBe("s3");
+  });
+
+  it("never closes a sprint that is already the target sprint", () => {
+    const plan = planSprintRotation(
+      [{ id: "s3", name: "Sprint 3", state: "aktiv", startDate: null, endDate: null }],
+      new Date("2026-08-21T10:00:00")
+    );
+    expect(plan.closeSprintId).toBeNull();
+  });
+});
+
+describe("toIsoDate", () => {
+  it("formats in local time, so a late-evening run does not slip a day", () => {
+    expect(toIsoDate(new Date("2026-08-21T23:30:00"))).toBe("2026-08-21");
+    expect(toIsoDate(new Date("2026-01-05T00:10:00"))).toBe("2026-01-05");
+  });
+});
