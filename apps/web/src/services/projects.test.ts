@@ -114,6 +114,55 @@ describe("parseProjectInput — update", () => {
   });
 });
 
+describe("parseProjectInput — startDate/endDate", () => {
+  it("accepts a well-formed date and passes it through untouched", () => {
+    const r = parseProjectInput(
+      { name: "X", category: "vertrieb", startDate: "2026-09-01", endDate: "2026-10-31" },
+      "create",
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.input.startDate).toBe("2026-09-01");
+    expect(r.input.endDate).toBe("2026-10-31");
+  });
+
+  it("rejects a malformed startDate with the shared German message instead of a 500 downstream", () => {
+    expect(
+      parseProjectInput({ name: "X", category: "vertrieb", startDate: "not-a-date" }, "create"),
+    ).toEqual({
+      ok: false,
+      error: "Datum muss im Format JJJJ-MM-TT angegeben werden.",
+    });
+  });
+
+  it("rejects a malformed endDate on update", () => {
+    expect(parseProjectInput({ endDate: "31.10.2026" }, "update")).toEqual({
+      ok: false,
+      error: "Datum muss im Format JJJJ-MM-TT angegeben werden.",
+    });
+  });
+
+  it("treats an omitted date on create as no date", () => {
+    const r = parseProjectInput({ name: "X", category: "vertrieb" }, "create");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.input.startDate).toBeNull();
+    expect(r.input.endDate).toBeNull();
+  });
+
+  it("treats a null date on update as no date and still emits the key", () => {
+    expect(parseProjectInput({ startDate: null }, "update")).toEqual({
+      ok: true,
+      input: { startDate: null },
+    });
+  });
+
+  it("leaves dates out of an update patch that never mentioned them", () => {
+    const r = parseProjectInput({ status: "aktiv" }, "update");
+    expect(r).toEqual({ ok: true, input: { status: "aktiv" } });
+  });
+});
+
 describe("foldProjectStats", () => {
   const now = new Date("2026-08-21T10:00:00");
 

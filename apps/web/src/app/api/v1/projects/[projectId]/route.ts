@@ -46,10 +46,8 @@ export async function PATCH(
     if (!project) return notFound("Projekt nicht gefunden");
     return success(project);
   } catch (err) {
-    console.error("PATCH project error:", err);
-    return NextResponse.json(
-      { error: { code: "INTERNAL_ERROR", message: "Projekt konnte nicht geändert werden." } },
-      { status: 500 },
+    return badRequest(
+      err instanceof Error ? err.message : "Projekt konnte nicht geändert werden.",
     );
   }
 }

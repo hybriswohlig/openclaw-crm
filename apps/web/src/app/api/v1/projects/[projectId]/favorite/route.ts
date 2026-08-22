@@ -33,6 +33,10 @@ export async function DELETE(
   const { projectId } = await params;
 
   try {
+    // setProjectFavorite(false) would otherwise no-op silently on a missing
+    // project — check existence here too, matching PUT.
+    const project = await getProject(ctx.workspaceId, ctx.userId, projectId);
+    if (!project) return notFound("Projekt nicht gefunden");
     await setProjectFavorite(ctx.userId, projectId, false);
     return success({ isFavorite: false });
   } catch (err) {

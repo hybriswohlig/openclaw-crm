@@ -22,5 +22,13 @@ export async function POST(
   }
 
   const ids = body.orderedPhaseIds.filter((v): v is string => typeof v === "string");
-  return success(await reorderPhases(ctx.workspaceId, projectId, ids));
+  try {
+    return success(await reorderPhases(ctx.workspaceId, projectId, ids));
+  } catch (err) {
+    // reorderPhases cannot throw today — wrapped for consistency with every
+    // sibling handler, so the pattern stays uniform.
+    return badRequest(
+      err instanceof Error ? err.message : "Phasen konnten nicht neu sortiert werden.",
+    );
+  }
 }

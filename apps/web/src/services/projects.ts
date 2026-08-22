@@ -172,6 +172,11 @@ function str(v: unknown): string | null {
   return t.length > 0 ? t : null;
 }
 
+/** Same validator as the read path uses to parse — mirrors resolvePhaseCreate/resolveMilestoneCreate. */
+function isDayString(v: string): boolean {
+  return parseDateColumn(v) !== null;
+}
+
 function stringList(v: unknown): string[] {
   if (!Array.isArray(v)) return [];
   const out: string[] = [];
@@ -245,14 +250,24 @@ export function parseProjectInput(
     "shortDescription",
     "icon",
     "color",
-    "startDate",
-    "endDate",
     "ownerUserId",
     "problemStatement",
     "goalStatement",
     "successCriteria",
   ] as const) {
     if (mode === "create" || has(key)) out[key] = str(raw[key]);
+  }
+
+  // "YYYY-MM-DD" only — same shape check the phase/milestone resolvers use,
+  // so a malformed value is rejected here instead of reaching the Postgres
+  // `date` column and throwing.
+  for (const key of ["startDate", "endDate"] as const) {
+    if (mode !== "create" && !has(key)) continue;
+    const v = str(raw[key]);
+    if (v && !isDayString(v)) {
+      return { ok: false, error: "Datum muss im Format JJJJ-MM-TT angegeben werden." };
+    }
+    out[key] = v;
   }
 
   if (has("notesContent")) out.notesContent = raw.notesContent ?? null;

@@ -82,10 +82,8 @@ export async function POST(req: NextRequest) {
     );
     return success(project, 201);
   } catch (err) {
-    console.error("POST /api/v1/projects error:", err);
-    return NextResponse.json(
-      { error: { code: "INTERNAL_ERROR", message: "Projekt konnte nicht angelegt werden." } },
-      { status: 500 },
+    return badRequest(
+      err instanceof Error ? err.message : "Projekt konnte nicht angelegt werden.",
     );
   }
 }
