@@ -34,9 +34,9 @@ export async function DELETE(
 ) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized();
-  const { documentId } = await params;
+  const { projectId, documentId } = await params;
 
-  const ok = await deleteProjectDocument(ctx.workspaceId, documentId);
+  const ok = await deleteProjectDocument(ctx.workspaceId, documentId, projectId);
   if (!ok) return notFound("Dokument nicht gefunden");
   return success({ deleted: true });
 }

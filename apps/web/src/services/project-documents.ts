@@ -118,14 +118,27 @@ export async function createProjectDocument(
   return row;
 }
 
+/**
+ * Same class of bug as F6 (phases/milestones/risks/budget, fixed in
+ * 9632da8): the lookup used to be scoped by workspaceId + documentId only,
+ * ignoring `projectId` entirely, so `DELETE /projects/<A>/documents/<doc-of-B>`
+ * deleted project B's document. `projectId` is enforced HERE (not just
+ * compared in the route) so an MCP caller passing a mismatched
+ * (projectId, documentId) pair is covered too, not just REST callers.
+ */
 export async function deleteProjectDocument(
   workspaceId: string,
   documentId: string,
+  projectId: string,
 ): Promise<boolean> {
   const deleted = await db
     .delete(projectDocuments)
     .where(
-      and(eq(projectDocuments.id, documentId), eq(projectDocuments.workspaceId, workspaceId)),
+      and(
+        eq(projectDocuments.id, documentId),
+        eq(projectDocuments.workspaceId, workspaceId),
+        eq(projectDocuments.projectId, projectId),
+      ),
     )
     .returning({ id: projectDocuments.id });
   return deleted.length > 0;
