@@ -21,6 +21,7 @@ import { KpiGrid, KpiTile } from "@/components/work/kpi-tile";
 import { EmployeeAvatar } from "@/components/employees/employee-avatar";
 import { formatDayShortDE, formatEURCents } from "@/lib/work-ui";
 import { OverviewTab } from "./_components/overview-tab";
+import { PlanTab } from "./_components/plan-tab";
 
 export interface TabProps {
   project: ProjectJSON;
@@ -304,7 +305,10 @@ function ProjectDetailInner() {
             <TabsContent value="uebersicht">
               <OverviewTab project={project} reload={reload} />
             </TabsContent>
-            {/* Tasks 36–42 hängen hier ihre TabsContent ein. */}
+            <TabsContent value="plan">
+              <PlanTab project={project} reload={reload} />
+            </TabsContent>
+            {/* Tasks 37–42 hängen hier ihre TabsContent ein. */}
           </div>
         </Tabs>
       </div>
