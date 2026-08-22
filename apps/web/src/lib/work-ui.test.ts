@@ -339,10 +339,15 @@ describe("phaseEndOffset", () => {
 });
 
 describe("hasTimelineDate", () => {
-  it("counts createdAt as a date, exactly like computeTimelineBar does", () => {
+  it("never falls back to createdAt, exactly like computeTimelineBar does not", () => {
+    // computeTimelineBar (lib/work-metrics.ts) returns null when neither
+    // startDate nor deadline is set — createdAt is reserved and unread. This
+    // predicate must agree, or a date-less task would count as "has a date"
+    // while still getting no bar, vanishing from both the chart and the
+    // "ohne Datum" tally at once.
     expect(
       hasTimelineDate({ startDate: null, deadline: null, createdAt: "2026-09-01T10:00:00.000Z" })
-    ).toBe(true);
+    ).toBe(false);
     expect(
       hasTimelineDate({ startDate: null, deadline: "2026-09-04", createdAt: "2026-09-01T10:00:00.000Z" })
     ).toBe(true);

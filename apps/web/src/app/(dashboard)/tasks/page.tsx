@@ -19,6 +19,8 @@ import { ErrorLine, LoadingLine } from "@/components/work/empty-state";
 import { WorkTaskDialog, type WorkTaskSavePayload } from "@/components/work/task-dialog";
 import { readApiError } from "@/lib/work-ui";
 import { toast } from "sonner";
+import { KpiGrid, KpiTile } from "@/components/work/kpi-tile";
+import { AlertTriangle, CheckCircle2, FolderKanban, ListChecks, Users } from "lucide-react";
 
 export default function WorkDashboardPage() {
   const { data: session } = useSession();
@@ -192,7 +194,7 @@ export default function WorkDashboardPage() {
 
         {data && (
           <>
-            {/* Task 20: KPI-Kacheln */}
+            <DashboardKpis kpis={data.kpis} teamFiguresApply={hasRunningSprint} />
             {/* Task 21: Projekte in diesem Sprint */}
             {/* Task 22: Operative Aufgaben + Timeline */}
             {/* Task 23: vier untere Karten */}
@@ -219,5 +221,77 @@ export default function WorkDashboardPage() {
         }
       />
     </div>
+  );
+}
+
+function DashboardKpis({
+  kpis,
+  teamFiguresApply,
+}: {
+  kpis: DashboardJSON["kpis"];
+  /** false when no sprint is RUNNING — see hasRunningSprint (W10). */
+  teamFiguresApply: boolean;
+}) {
+  // An empty workspace must not be told it is at 0 % and on schedule: a fresh
+  // install would show a 0 % bar and a green "alles im Zeitplan" (defect W12).
+  const empty = kpis.projectCount === 0;
+  return (
+    <KpiGrid>
+      <KpiTile
+        label="Gesamtfortschritt"
+        value={empty ? "–" : `${kpis.overallProgressPct} %`}
+        progress={empty ? null : kpis.overallProgressPct}
+        tone={empty ? "neutral" : "neutral"}
+        sub={empty ? "noch nichts geplant" : "über alle aktiven Projekte"}
+        icon={<CheckCircle2 className="h-[15px] w-[15px]" />}
+      />
+      <KpiTile
+        label="Projekte"
+        value={String(kpis.projectCount)}
+        sub={`${kpis.activeProjectCount} aktiv`}
+        icon={<FolderKanban className="h-[15px] w-[15px]" />}
+        href="/tasks/projects"
+      />
+      <KpiTile
+        label="Operative Aufgaben"
+        value={String(kpis.operativeOpenCount)}
+        sub={`${kpis.operativeDueTodayCount} heute fällig`}
+        icon={<ListChecks className="h-[15px] w-[15px]" />}
+        href="/tasks/operative"
+      />
+      <KpiTile
+        label="Überfällig"
+        value={String(kpis.overdueCount)}
+        tone={kpis.overdueCount > 0 ? "danger" : empty ? "neutral" : "ok"}
+        sub={
+          kpis.overdueCount > 0
+            ? "brauchen heute eine Entscheidung"
+            : empty
+              ? "noch nichts geplant"
+              : "alles im Zeitplan"
+        }
+        icon={<AlertTriangle className="h-[15px] w-[15px]" />}
+        href="/tasks/operative?filter=ueberfaellig"
+      />
+      {/* Spec §6: without a RUNNING sprint BOTH team figures show a dash,
+          never 0 %. Driven off the sprint's state, not its existence: the
+          picker can select a sprint in `planung`, which has no elapsed work
+          and would otherwise render a 0 % bar under a confident label (W10).
+          progress={null} also suppresses the bar. */}
+      <KpiTile
+        label="Team Auslastung"
+        value={!teamFiguresApply || kpis.teamUtilizationPct == null ? "–" : `${kpis.teamUtilizationPct} %`}
+        progress={!teamFiguresApply || kpis.teamUtilizationPct == null ? null : kpis.teamUtilizationPct}
+        tone={!teamFiguresApply || kpis.teamUtilizationPct == null ? "neutral" : "accent"}
+        sub={
+          !teamFiguresApply
+            ? "kein laufender Sprint"
+            : kpis.teamUtilizationPct == null
+              ? "keine Zuweisungen"
+              : "erledigt von zugewiesen"
+        }
+        icon={<Users className="h-[15px] w-[15px]" />}
+      />
+    </KpiGrid>
   );
 }

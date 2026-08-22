@@ -289,18 +289,21 @@ export async function readApiError(res: Response, fallback: string): Promise<str
 }
 
 /**
- * Does this task get a bar at all? The timeline draws from
- * `startDate ?? deadline ?? createdAt` (spec §6), so a task with neither
- * explicit date still gets one from its creation date. A counter that only
- * checks startDate/deadline therefore over-reports "ohne Datum" — this is the
- * single predicate both the drawing and the counting must use.
+ * Does this task get a bar at all? `computeTimelineBar` (lib/work-metrics.ts)
+ * opens with `if (!task.startDate && !task.deadline) return null` — it never
+ * falls back to `createdAt`, which is reserved for later phases and
+ * deliberately unread. A counter that treated `createdAt` as a fallback would
+ * count a date-less task as "has a date" while it still gets no bar, making
+ * the task disappear from both the chart and the "ohne Datum" tally at once.
+ * This predicate mirrors the drawing function exactly, so `createdAt` is
+ * accepted in the parameter shape but intentionally never consulted.
  */
 export function hasTimelineDate(task: {
   startDate: string | null;
   deadline: string | null;
   createdAt: string;
 }): boolean {
-  return toDate(task.startDate ?? task.deadline ?? task.createdAt) !== null;
+  return Boolean(task.startDate || task.deadline);
 }
 
 /**
