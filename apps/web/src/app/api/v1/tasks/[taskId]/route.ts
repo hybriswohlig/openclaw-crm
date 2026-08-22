@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthContext, unauthorized, notFound, success } from "@/lib/api-utils";
+import { getAuthContext, unauthorized, notFound, badRequest, success } from "@/lib/api-utils";
 import { updateTask, deleteTask } from "@/services/tasks";
 import { db } from "@/db";
 import { taskAssignees } from "@/db/schema";
@@ -25,6 +25,14 @@ export async function PATCH(
       sprintId?: string | null;
       description?: string | null;
       priority?: string | null;
+      kind?: string | null;
+      projectId?: string | null;
+      phaseId?: string | null;
+      area?: string | null;
+      status?: string | null;
+      startDate?: string | null;
+      /** Spec §11: crm_update_task re-parents a task; I4 re-inherits. */
+      parentTaskId?: string | null;
     };
 
     // Capture the previous assignee set BEFORE the update so we can tell
@@ -39,7 +47,7 @@ export async function PATCH(
       priorAssigneeIds = rows.map((r) => r.userId);
     }
 
-    const task = await updateTask(taskId, ctx.workspaceId, body);
+    const task = await updateTask(taskId, ctx.workspaceId, body, ctx.userId);
     if (!task) return notFound("Task not found");
 
     // Push notifications — split into "newly assigned" and "already on
@@ -92,10 +100,20 @@ export async function PATCH(
 
     return success(task);
   } catch (err) {
+    if (
+      err instanceof Error &&
+      [
+        "Phase gehört nicht zu diesem Projekt",
+        "Übergeordnete Aufgabe nicht gefunden",
+        "Eine Aufgabe kann nicht ihre eigene Unteraufgabe sein",
+      ].includes(err.message)
+    ) {
+      return badRequest(err.message);
+    }
     console.error("Failed to update task:", err);
     return NextResponse.json(
       { error: { code: "INTERNAL_ERROR", message: "Failed to update task" } },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
