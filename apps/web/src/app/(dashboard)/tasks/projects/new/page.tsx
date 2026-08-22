@@ -24,6 +24,7 @@ import {
 import { NextStepsRail, ProjectPreviewRail } from "./_components/wizard-rails";
 import { StepBasics } from "./_components/step-basics";
 import { StepScope } from "./_components/step-scope";
+import { StepPlan } from "./_components/step-plan";
 
 export default function NewProjectPage() {
   const router = useRouter();
@@ -358,7 +359,7 @@ export default function NewProjectPage() {
 
             {draft.step === 1 && <StepBasics draft={draft} patch={patch} />}
             {draft.step === 2 && <StepScope draft={draft} patch={patch} />}
-            {/* Task 30: Schritt 3 */}
+            {draft.step === 3 && <StepPlan draft={draft} patch={patch} />}
             {/* Task 31: Schritt 4 */}
             {/* Task 32: Schritt 5 */}
 
