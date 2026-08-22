@@ -793,6 +793,51 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
         { method: "DELETE" }
       );
 
+    // ── Risiken ─────────────────────────────────────────────────────────
+    case "crm_list_project_risks":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/risks`
+      );
+    case "crm_create_project_risk": {
+      const body: Record<string, unknown> = { title: args.title };
+      for (const key of [
+        "description",
+        "severity",
+        "likelihood",
+        "mitigation",
+        "ownerUserId",
+      ]) {
+        if (args[key] !== undefined) body[key] = args[key];
+      }
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/risks`,
+        { method: "POST", body }
+      );
+    }
+    case "crm_update_project_risk": {
+      const body: Record<string, unknown> = {};
+      for (const key of [
+        "title",
+        "description",
+        "severity",
+        "likelihood",
+        "status",
+        "mitigation",
+        "ownerUserId",
+      ]) {
+        if (args[key] !== undefined) body[key] = args[key];
+      }
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/risks/${encodeURIComponent(str(args.riskId))}`,
+        { method: "PATCH", body }
+      );
+    }
+    case "crm_delete_project_risk":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/risks/${encodeURIComponent(str(args.riskId))}`,
+        { method: "DELETE" }
+      );
+
     case "crm_api": {
       const path = str(args.path);
       if (!path.startsWith("/api/")) {

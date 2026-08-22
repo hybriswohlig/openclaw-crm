@@ -813,6 +813,54 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
     req
   );
 
+  // ── Risiken ─────────────────────────────────────────────────────────────
+  tool(
+    server,
+    "crm_list_project_risks",
+    "List a project's risks with severity ('niedrig'|'mittel'|'hoch'), likelihood on the same scale, status ('offen'|'beobachtet'|'geschlossen'), the planned mitigation and the owner. The count of open risks by severity also appears in the project's stats block, so this is the detail view behind that number.",
+    { projectId: z.string() },
+    req
+  );
+  tool(
+    server,
+    "crm_create_project_risk",
+    "Log a risk on a project. title is required. severity and likelihood are 'niedrig', 'mittel' or 'hoch' and default to 'mittel'. A new risk with severity 'hoch' notifies every workspace member, so reserve it for things that genuinely threaten the project. Put the countermeasure in mitigation rather than burying it in description — the risk board reads that field.",
+    {
+      projectId: z.string(),
+      title: z.string(),
+      description: z.string().nullable().optional(),
+      severity: z.enum(["niedrig", "mittel", "hoch"]).optional(),
+      likelihood: z.enum(["niedrig", "mittel", "hoch"]).nullable().optional(),
+      mitigation: z.string().nullable().optional(),
+      ownerUserId: z.string().nullable().optional(),
+    },
+    req
+  );
+  tool(
+    server,
+    "crm_update_project_risk",
+    "Update one risk. PATCH semantics — omitted fields keep their value, null clears a nullable one. Set status to 'geschlossen' once the risk no longer applies: that drops it out of the project's open-risk count and emits a risk-closed event. 'beobachtet' keeps it visible but no longer urgent.",
+    {
+      projectId: z.string(),
+      riskId: z.string(),
+      title: z.string().optional(),
+      description: z.string().nullable().optional(),
+      severity: z.enum(["niedrig", "mittel", "hoch"]).optional(),
+      likelihood: z.enum(["niedrig", "mittel", "hoch"]).nullable().optional(),
+      status: z.enum(["offen", "beobachtet", "geschlossen"]).optional(),
+      mitigation: z.string().nullable().optional(),
+      ownerUserId: z.string().nullable().optional(),
+    },
+    req
+  );
+  tool(
+    server,
+    "crm_delete_project_risk",
+    "Delete a risk permanently. Prefer crm_update_project_risk with status 'geschlossen' so the project keeps the record of what was considered and why it stopped mattering — a deleted risk looks like a risk nobody ever thought about.",
+    { projectId: z.string(), riskId: z.string() },
+    req
+  );
+
   tool(
     server,
     "crm_api",

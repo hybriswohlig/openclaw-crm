@@ -997,6 +997,72 @@ export const TOOLS: ToolDef[] = [
     },
   },
 
+  // ── Risiken ───────────────────────────────────────────────────────
+  {
+    name: "crm_list_project_risks",
+    description:
+      "List a project's risks with severity ('niedrig'|'mittel'|'hoch'), likelihood on the same scale, status ('offen'|'beobachtet'|'geschlossen'), the planned mitigation and the owner. The count of open risks by severity also appears in the project's stats block, so this is the detail view behind that number.",
+    inputSchema: {
+      type: "object",
+      properties: { projectId: { type: "string" } },
+      required: ["projectId"],
+    },
+  },
+  {
+    name: "crm_create_project_risk",
+    description:
+      "Log a risk on a project. title is required. severity and likelihood are 'niedrig', 'mittel' or 'hoch' and default to 'mittel'. A new risk with severity 'hoch' notifies every workspace member, so reserve it for things that genuinely threaten the project. Put the countermeasure in mitigation rather than burying it in description — the risk board reads that field.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        title: { type: "string" },
+        description: { type: "string" },
+        severity: { type: "string", enum: ["niedrig", "mittel", "hoch"] },
+        likelihood: { type: "string", enum: ["niedrig", "mittel", "hoch"] },
+        mitigation: { type: "string" },
+        ownerUserId: { type: "string" },
+      },
+      required: ["projectId", "title"],
+    },
+  },
+  {
+    name: "crm_update_project_risk",
+    description:
+      "Update one risk. PATCH semantics — omitted fields keep their value, null clears a nullable one. Set status to 'geschlossen' once the risk no longer applies: that drops it out of the project's open-risk count and emits a risk-closed event. 'beobachtet' keeps it visible but no longer urgent.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        riskId: { type: "string" },
+        title: { type: "string" },
+        description: { type: "string" },
+        severity: { type: "string", enum: ["niedrig", "mittel", "hoch"] },
+        likelihood: { type: "string", enum: ["niedrig", "mittel", "hoch"] },
+        status: {
+          type: "string",
+          enum: ["offen", "beobachtet", "geschlossen"],
+        },
+        mitigation: { type: "string" },
+        ownerUserId: { type: "string" },
+      },
+      required: ["projectId", "riskId"],
+    },
+  },
+  {
+    name: "crm_delete_project_risk",
+    description:
+      "Delete a risk permanently. Prefer crm_update_project_risk with status 'geschlossen' so the project keeps the record of what was considered and why it stopped mattering — a deleted risk looks like a risk nobody ever thought about.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        riskId: { type: "string" },
+      },
+      required: ["projectId", "riskId"],
+    },
+  },
+
   // ── Escape hatch ──────────────────────────────────────────────────
   {
     name: "crm_api",

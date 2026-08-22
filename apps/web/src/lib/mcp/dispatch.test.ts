@@ -662,3 +662,26 @@ describe("crm_remove_project_member", () => {
     expect(calls[0].options.method).toBe("DELETE");
   });
 });
+
+describe("crm_create_project_risk", () => {
+  it("posts the risk body without inventing defaults", async () => {
+    // severity/likelihood defaults belong to the service, not to dispatch —
+    // a default sent from here would override whatever the service decides.
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_create_project_risk", {
+      projectId: "p-1",
+      title: "Lieferzeit der Transporter",
+      severity: "hoch",
+      mitigation: "Zweiten Haendler anfragen",
+    });
+
+    expect(calls[0].path).toBe("/api/v1/projects/p-1/risks");
+    expect(calls[0].options.method).toBe("POST");
+    expect(calls[0].options.body).toEqual({
+      title: "Lieferzeit der Transporter",
+      severity: "hoch",
+      mitigation: "Zweiten Haendler anfragen",
+    });
+  });
+});
