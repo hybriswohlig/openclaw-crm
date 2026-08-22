@@ -49,6 +49,8 @@ export interface SprintTimelineProps {
   /** Highlighted bar — the project tab uses it to anchor the dependency panel. */
   selectedTaskId?: string | null;
   onSelectTask?: (taskId: string | null) => void;
+  /** Double click opens; single click only selects (see the project tab). */
+  onBarDoubleClick?: (taskId: string) => void;
   dayWidth?: number;
   className?: string;
 }
@@ -66,6 +68,7 @@ export function SprintTimeline({
   onTaskClick,
   selectedTaskId = null,
   onSelectTask,
+  onBarDoubleClick,
   dayWidth = DEFAULT_DAY_WIDTH,
   className,
 }: SprintTimelineProps) {
@@ -441,6 +444,7 @@ export function SprintTimeline({
                         onSelectTask?.(selectedTaskId === id ? null : id);
                         onTaskClick?.(id);
                       }}
+                      onDoubleClick={onBarDoubleClick}
                       registerRef={setBarRef}
                     />
                   ))}
@@ -482,6 +486,7 @@ function TimelineBar({
   dayWidth,
   selected = false,
   onClick,
+  onDoubleClick,
   registerRef,
 }: {
   bar: TimelineBarJSON;
@@ -489,6 +494,7 @@ function TimelineBar({
   dayWidth: number;
   selected?: boolean;
   onClick?: (taskId: string) => void;
+  onDoubleClick?: (taskId: string) => void;
   registerRef: (taskId: string, el: HTMLElement | null) => void;
 }) {
   const geo = timelineBarStyle(bar, dayWidth);
@@ -501,6 +507,7 @@ function TimelineBar({
       type="button"
       ref={(el) => registerRef(bar.taskId, el)}
       onClick={() => onClick?.(bar.taskId)}
+      onDoubleClick={() => onDoubleClick?.(bar.taskId)}
       title={`${bar.title} · ${BAR_LABEL[bar.state]} · ${dl.text}`}
       className="absolute flex items-center gap-1.5 overflow-hidden px-2 text-left transition-transform hover:z-20 hover:scale-[1.02]"
       style={{
