@@ -35,10 +35,7 @@ interface SubtaskRow {
   deadline: string | null;
   createdAt: string;
   assignees: { id: string; name: string; email: string }[];
-  pointEstimate: number | null;
 }
-
-const SIZE_OPTIONS = [1, 2, 3, 5, 8, 13] as const;
 
 function initials(name: string): string {
   const parts = (name || "?").trim().split(/\s+/).filter(Boolean);
@@ -222,11 +219,6 @@ export function TaskSubtasks({
 
                   {/* Compact meta on the right */}
                   <div className="flex shrink-0 items-center gap-1.5">
-                    {r.pointEstimate != null && (
-                      <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-emerald-700">
-                        {r.pointEstimate}p
-                      </span>
-                    )}
                     {r.assignees.slice(0, 2).map((a) => (
                       <span
                         key={a.id}
@@ -291,33 +283,6 @@ export function TaskSubtasks({
                           }
                           className="h-7 rounded-md border border-border bg-background px-2 text-[11px]"
                         />
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <span className="text-[11px] text-muted-foreground">Größe</span>
-                        <div className="inline-flex overflow-hidden rounded-md border border-border">
-                          {SIZE_OPTIONS.map((pts) => {
-                            const active = r.pointEstimate === pts;
-                            return (
-                              <button
-                                key={pts}
-                                type="button"
-                                onClick={() =>
-                                  patchSub(r.id, {
-                                    pointEstimate: active ? null : pts,
-                                  }, { pointEstimate: active ? null : pts })
-                                }
-                                className={cn(
-                                  "px-1.5 py-0.5 text-[11px] tabular-nums border-r border-border last:border-r-0",
-                                  active
-                                    ? "bg-emerald-600 text-white"
-                                    : "bg-background text-muted-foreground hover:bg-muted/50"
-                                )}
-                              >
-                                {pts}
-                              </button>
-                            );
-                          })}
-                        </div>
                       </div>
                       <button
                         type="button"

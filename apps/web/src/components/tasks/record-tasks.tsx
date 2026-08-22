@@ -99,20 +99,23 @@ export function RecordTasks({
   // re-use stale defaults.
   const [prefillContent, setPrefillContent] = useState<string | undefined>();
   const [prefillDeadline, setPrefillDeadline] = useState<Date | null>(null);
+  const [prefillArea, setPrefillArea] = useState<string | null>(null);
 
   function openCreateDialog() {
     setDialogMode("create");
     setEditingTask(null);
     setPrefillContent(undefined);
     setPrefillDeadline(null);
+    setPrefillArea(null);
     setDialogOpen(true);
   }
 
-  function openQuickAction(content: string, deadline: Date | null) {
+  function openQuickAction(content: string, deadline: Date | null, area: string | null) {
     setDialogMode("create");
     setEditingTask(null);
     setPrefillContent(content);
     setPrefillDeadline(deadline);
+    setPrefillArea(area);
     setDialogOpen(true);
   }
 
@@ -127,6 +130,8 @@ export function RecordTasks({
     deadline: string | null;
     recordIds: string[];
     assigneeIds: string[];
+    kind: "projekt" | "operativ";
+    area: string | null;
   }) {
     if (dialogMode === "create") {
       const res = await fetch("/api/v1/tasks", {
@@ -176,10 +181,11 @@ export function RecordTasks({
   // operational hot path. Each chip seeds content + a sensible default
   // deadline; user can still tweak inside the dialog before saving.
   const isDeal = objectSlug === "deals";
-  const QUICK_ACTIONS: Array<{ label: string; content: string; deadline: () => Date }> = [
+  const QUICK_ACTIONS: Array<{ label: string; content: string; area: string; deadline: () => Date }> = [
     {
       label: "📞 Rückruf",
       content: "Rückruf vereinbaren",
+      area: "kunde",
       deadline: () => {
         const d = new Date();
         d.setHours(d.getHours() + 2);
@@ -189,6 +195,7 @@ export function RecordTasks({
     {
       label: "💰 Angebot",
       content: "Angebot erstellen und senden",
+      area: "angebot",
       deadline: () => {
         const d = new Date();
         d.setDate(d.getDate() + 1);
@@ -199,6 +206,7 @@ export function RecordTasks({
     {
       label: "🚛 Crew einteilen",
       content: "Crew + Transporter für den Umzug einteilen",
+      area: "auftrag",
       deadline: () => {
         const d = new Date();
         d.setDate(d.getDate() + 3);
@@ -208,6 +216,7 @@ export function RecordTasks({
     {
       label: "✉️ Bestätigung",
       content: "Bestätigung senden",
+      area: "auftrag",
       deadline: () => {
         const d = new Date();
         d.setHours(d.getHours() + 4);
@@ -237,7 +246,7 @@ export function RecordTasks({
             <button
               key={qa.label}
               type="button"
-              onClick={() => openQuickAction(qa.content, qa.deadline())}
+              onClick={() => openQuickAction(qa.content, qa.deadline(), qa.area)}
               className="inline-flex items-center gap-1 rounded-full border border-input bg-muted/30 px-2.5 py-1 text-[12px] hover:bg-background transition-colors"
             >
               {qa.label}
@@ -335,6 +344,7 @@ export function RecordTasks({
         defaultRecordSlug={objectSlug}
         defaultContent={prefillContent}
         defaultDeadline={prefillDeadline}
+        defaultArea={prefillArea}
         initialData={
           editingTask
             ? {

@@ -345,19 +345,22 @@ function HeuteWichtig() {
     };
 
     const loadDueTasks = async () => {
-      const res = await fetch("/api/v1/tasks?limit=200");
+      // /api/v1/work/counts, NOT /api/v1/work/dashboard: the dashboard bundle
+      // runs roughly thirty round trips (three listProjects — one of which
+      // enriches up to 200 projects with members, favourites and a five-query
+      // stats fold — four listTasks, activity, members, team overview and the
+      // milestone/phase/move queries) and this tile needs two integers.
+      // Pulling that on every home render would be slower than the 200-task
+      // fetch it replaced (defect R16).
+      const res = await fetch("/api/v1/work/counts", { cache: "no-store" });
       if (!res.ok) return null;
       const json = await res.json();
-      const tasks = (json.data?.tasks ?? []) as Array<{
-        deadline: string | null;
-        isCompleted: boolean;
-      }>;
-      const endOfToday = new Date();
-      endOfToday.setHours(23, 59, 59, 999);
-      // Heute fällig inkl. überfällig: deadline bis Tagesende (lokal).
-      return tasks.filter(
-        (t) => !t.isCompleted && t.deadline && new Date(t.deadline) <= endOfToday
-      ).length;
+      const c = json?.data as { dueTodayCount?: number; overdueCount?: number } | undefined;
+      if (!c) return null;
+      // "Heute fällig" on the home page has always included overdue work.
+      // dueTodayCount covers ALL kinds — adding the operative-only figure to
+      // an all-kinds figure, as an earlier draft did, mixes two populations.
+      return (c.dueTodayCount ?? 0) + (c.overdueCount ?? 0);
     };
 
     const loadStale = async () => {

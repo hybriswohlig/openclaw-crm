@@ -50,6 +50,7 @@ export interface TaskDialogProps {
   defaultContent?: string;
   defaultDeadline?: Date | null;
   defaultSprintId?: string | null;
+  defaultArea?: string | null;
   onSave: (data: {
     content: string;
     deadline: string | null;
@@ -62,6 +63,8 @@ export interface TaskDialogProps {
     description: string | null;
     priority: string | null;
     kanbanStatus?: string | null;
+    kind: "projekt" | "operativ";
+    area: string | null;
   }) => Promise<void>;
   onDelete?: () => Promise<void>;
 }
@@ -102,6 +105,7 @@ export function TaskDialog(props: TaskDialogProps) {
       task={toTaskJSON(props.initialData)}
       currentUserId={props.currentUserId}
       defaultKind="operativ"
+      defaultArea={props.defaultArea ?? null}
       defaultSprintId={props.defaultSprintId ?? null}
       defaultContent={props.defaultContent}
       defaultDeadline={props.defaultDeadline ?? null}
@@ -132,6 +136,8 @@ export function TaskDialog(props: TaskDialogProps) {
           growthCategory: null,
           description: data.description,
           priority: data.priority,
+          kind: data.kind,
+          area: data.area,
         })
       }
       onDelete={props.onDelete}
