@@ -291,6 +291,15 @@ export interface DashboardPayload {
   kpis: DashboardKpis;
   projects: ProjectWithStats[];
   /**
+   * C4: `projects` is a PAGE (limit 200), same as `operativeTasks`/
+   * `overdueTasks` below — `projectsTotal` is the TRUE count (listProjects'
+   * real `total`, not `.length`) of whichever population `projects` holds
+   * (sprint-scoped or every active project, see `projectsAreSprintScoped`).
+   * Berichte must use this instead of `dashboard.projects.length`, the same
+   * capped-`.length` class wave B's I6 fixed for `overdueTasks`.
+   */
+  projectsTotal: number;
+  /**
    * true  → `projects` is DISTINCT project_id of the active sprint's tasks
    *         (spec §6), so the card may be headed „Projekte in diesem Sprint".
    * false → there is no active sprint; `projects` is every project with
@@ -777,6 +786,7 @@ export async function getWorkDashboard(
     // simply not read here.
     kpis: counts,
     projects: projectList.projects,
+    projectsTotal: projectList.total,
     projectsAreSprintScoped,
     operativeTasks: operative.tasks,
     operativeTotal: operative.total,

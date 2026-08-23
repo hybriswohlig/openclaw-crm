@@ -314,6 +314,14 @@ export interface DashboardJSON {
   kpis: DashboardKpisJSON;
   projects: ProjectJSON[];
   /**
+   * C4: `projects` is a PAGE (server cap 200) too — same class as
+   * `operativeTasks`/`overdueTasks` below. The TRUE server count
+   * (services/work-dashboard.ts: DashboardPayload.projectsTotal) of
+   * whichever population `projects` holds (sprint-scoped or every active
+   * project). Berichte must use this instead of `dashboard.projects.length`.
+   */
+  projectsTotal: number;
+  /**
    * I6: `operativeTasks`/`overdueTasks` are a PAGE (server cap 200). These
    * two are the TRUE server counts (services/work-dashboard.ts:
    * DashboardPayload.operativeTotal/overdueTotal) — Berichte must use them

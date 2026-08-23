@@ -122,9 +122,12 @@ export default function ReportsPage() {
               title={`1 · Projektfortschritt — ${
                 dashboard.projectsAreSprintScoped ? "Projekte in diesem Sprint" : "Aktive Projekte"
               }`}
-              subtitle={`${dashboard.projects.length} Projekte`}
+              // C4: `dashboard.projects` is a PAGE (server cap 200) — same
+              // capped-`.length` class wave B's I6 fixed for `overdueTasks`
+              // two sections below. `projectsTotal` is the true server count.
+              subtitle={`${dashboard.projectsTotal} Projekte`}
             >
-              {dashboard.projects.length === 0 ? (
+              {dashboard.projectsTotal === 0 ? (
                 <EmptyState title="Keine Projekte" />
               ) : (
                 <div className="overflow-x-auto">
