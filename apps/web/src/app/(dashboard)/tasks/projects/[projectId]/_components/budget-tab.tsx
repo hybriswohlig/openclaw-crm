@@ -48,9 +48,21 @@ export function BudgetTab({ project, reload }: { project: ProjectJSON; reload: (
   }, [load]);
 
   async function addEntry() {
-    const cents = eurosToCents(amount);
-    if (!label.trim() || cents == null) {
+    // C5: eurosToCents("") is also null, so this used to say "Betrag ist
+    // Pflicht" both for a genuinely blank field AND for a malformed one the
+    // user actually filled in (e.g. "12,50" mistyped as "12.50", which I9's
+    // stricter thousands-grouping check now rejects) — telling someone their
+    // filled-in amount was "required". Only a genuinely blank amount is a
+    // Pflicht violation; anything else that fails to parse gets the same
+    // "couldn't read this" wording saveFrame uses below.
+    const trimmedAmount = amount.trim();
+    if (!label.trim() || trimmedAmount === "") {
       toast.error("Bezeichnung und Betrag sind Pflicht");
+      return;
+    }
+    const cents = eurosToCents(trimmedAmount);
+    if (cents == null) {
+      toast.error("Betrag konnte nicht gelesen werden, z. B. 12.500,00 eingeben.");
       return;
     }
     setBusy(true);
