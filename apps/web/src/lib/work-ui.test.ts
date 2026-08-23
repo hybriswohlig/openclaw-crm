@@ -8,8 +8,11 @@ import {
   deadlineLabel,
   daysBetweenDays,
   matchesOperativeFilter,
+  matchesOverdueAreaFilter,
   operativeFilterChipCounts,
   operativeHeaderTotals,
+  taskGroupKey,
+  PROJECT_TASK_GROUP_KEY,
   buildDayColumns,
   todayColumnIndex,
   timelineBarStyle,
@@ -220,6 +223,49 @@ describe("operativeHeaderTotals", () => {
     });
     expect(loaded).toBe(9);
     expect(total).toBe(9);
+  });
+});
+
+// C6: under the Überfällig filter (the only view mixing kind="projekt" into
+// an otherwise operativ-only list), project tasks always have area=null —
+// grouping bare `t.area ?? "sonstiges"` merged them into the SAME heading
+// as genuine area="sonstiges"/area=null operativ tasks, two unrelated
+// populations under one "Sonstiges" card.
+describe("taskGroupKey", () => {
+  it("gives every project task the same dedicated group key, regardless of its area", () => {
+    expect(taskGroupKey({ kind: "projekt", area: null })).toBe(PROJECT_TASK_GROUP_KEY);
+  });
+
+  it("keeps grouping operativ tasks by area, falling back to sonstiges when unset", () => {
+    expect(taskGroupKey({ kind: "operativ", area: "kunde" })).toBe("kunde");
+    expect(taskGroupKey({ kind: "operativ", area: null })).toBe("sonstiges");
+    expect(taskGroupKey({ kind: "operativ", area: "sonstiges" })).toBe("sonstiges");
+  });
+
+  it("never lets a project task collide with the genuine sonstiges group", () => {
+    expect(taskGroupKey({ kind: "projekt", area: null })).not.toBe(
+      taskGroupKey({ kind: "operativ", area: null }),
+    );
+  });
+});
+
+// C6: picking any Bereich in the dropdown used to silently drop every
+// project task from the Überfällig view (they have no area to match
+// against), even though the header still says "(alle Arten)".
+describe("matchesOverdueAreaFilter", () => {
+  it("never filters out a project task, no matter which Bereich is selected", () => {
+    expect(matchesOverdueAreaFilter({ kind: "projekt", area: null }, "kunde")).toBe(true);
+    expect(matchesOverdueAreaFilter({ kind: "projekt", area: null }, "")).toBe(true);
+  });
+
+  it("still filters operativ tasks by the selected Bereich", () => {
+    expect(matchesOverdueAreaFilter({ kind: "operativ", area: "kunde" }, "kunde")).toBe(true);
+    expect(matchesOverdueAreaFilter({ kind: "operativ", area: "auftrag" }, "kunde")).toBe(false);
+  });
+
+  it("lets every operativ task through when no Bereich is selected", () => {
+    expect(matchesOverdueAreaFilter({ kind: "operativ", area: null }, "")).toBe(true);
+    expect(matchesOverdueAreaFilter({ kind: "operativ", area: "kunde" }, "")).toBe(true);
   });
 });
 

@@ -13,9 +13,12 @@ import { OPERATIVE_AREAS, operativeAreaLabel } from "@/lib/project-constants";
 import {
   OPERATIVE_FILTERS,
   matchesOperativeFilter,
+  matchesOverdueAreaFilter,
   operativeFilterChipCounts,
   operativeHeaderTotals,
   groupBy,
+  taskGroupKey,
+  PROJECT_TASK_GROUP_KEY,
   type OperativeFilter,
 } from "@/lib/work-ui";
 import { ModuleNav } from "@/components/work/module-nav";
@@ -121,12 +124,17 @@ function OperativeInner() {
   }, [load]);
 
   const visible = useMemo(() => {
-    if (filter === "ueberfaellig") return overdueAll.filter((t) => !area || t.area === area);
+    // C6: project tasks carry area=null (Bereich only applies to
+    // kind="operativ"), so filtering the all-kinds Überfällig population by
+    // the operativ Bereich select would silently drop every project task
+    // the moment any Bereich was picked — matchesOverdueAreaFilter exempts
+    // them instead; they stay visible under their own group (taskGroupKey).
+    if (filter === "ueberfaellig") return overdueAll.filter((t) => matchesOverdueAreaFilter(t, area));
     return tasks.filter((t) => matchesOperativeFilter(t, filter) && (!area || t.area === area));
   }, [tasks, overdueAll, filter, area]);
 
   const grouped = useMemo(
-    () => groupBy(visible, (t) => t.area ?? "sonstiges"),
+    () => groupBy(visible, taskGroupKey),
     [visible]
   );
 
@@ -199,6 +207,16 @@ function OperativeInner() {
             onChange={(e) => setArea(e.target.value)}
             className="h-8 rounded-lg border border-border bg-card px-2 text-[13px] text-foreground"
             aria-label="Bereich"
+            // C6: Bereich only applies to operativ tasks — under Überfällig,
+            // project tasks have no Bereich and are never dropped by this
+            // filter (matchesOverdueAreaFilter), so make that legible
+            // instead of leaving the reader to infer it from an unaffected
+            // "Projektaufgaben" group.
+            title={
+              filter === "ueberfaellig"
+                ? "Gilt nur für operative Aufgaben — Projektaufgaben bleiben immer sichtbar"
+                : undefined
+            }
           >
             <option value="">Alle Bereiche</option>
             {OPERATIVE_AREAS.map((a) => (
@@ -208,6 +226,12 @@ function OperativeInner() {
             ))}
           </select>
         </div>
+        {filter === "ueberfaellig" && (
+          <p className="-mt-2 text-[12px]" style={{ color: "var(--muted-foreground)" }}>
+            Der Bereich-Filter gilt nur für operative Aufgaben — Projektaufgaben haben keinen
+            Bereich und bleiben immer unter „Projektaufgaben“ sichtbar.
+          </p>
+        )}
 
         {loading && visible.length === 0 && <LoadingLine label="Aufgaben werden geladen…" />}
         {!loading && viewFailed && visible.length === 0 && <ErrorLine onRetry={load} />}
@@ -222,7 +246,15 @@ function OperativeInner() {
         )}
 
         {grouped.map((g) => (
-          <SectionCard key={g.key} title={operativeAreaLabel(g.key) || "Sonstiges"} subtitle={`${g.items.length} Aufgaben`}>
+          <SectionCard
+            key={g.key}
+            title={g.key === PROJECT_TASK_GROUP_KEY ? "Projektaufgaben" : operativeAreaLabel(g.key) || "Sonstiges"}
+            subtitle={
+              g.key === PROJECT_TASK_GROUP_KEY
+                ? `${g.items.length} Aufgaben — ohne Bereich`
+                : `${g.items.length} Aufgaben`
+            }
+          >
             <div className="-mx-2 flex flex-col divide-y divide-border">
               {g.items.map((t) => (
                 <TaskRow

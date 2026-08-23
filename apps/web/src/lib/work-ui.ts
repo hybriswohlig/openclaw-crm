@@ -306,6 +306,40 @@ export function operativeHeaderTotals(input: {
   return { loaded: input.visibleCount, total: Math.max(input.visibleCount, upperBound) };
 }
 
+/**
+ * C6: sentinel group key for project tasks under the Überfällig filter (the
+ * only view that mixes kind="projekt" into an otherwise operativ-only
+ * list). Not a real Bereich value — `OPERATIVE_AREAS` never contains it —
+ * so it can never collide with a genuine area group.
+ */
+export const PROJECT_TASK_GROUP_KEY = "__projekt__";
+
+/**
+ * C6: `t.area ?? "sonstiges"` alone merges two unrelated populations under
+ * one "Sonstiges" heading — project tasks (Bereich is only meaningful for
+ * kind="operativ", so a project task's `area` is always null) and genuine
+ * area="sonstiges"/area=null operativ tasks. Project tasks get their own
+ * group instead, everywhere this key is used — harmless outside the
+ * Überfällig view, since every other filter's population is operativ-only
+ * already.
+ */
+export function taskGroupKey(task: { kind: string; area: string | null }): string {
+  return task.kind === "projekt" ? PROJECT_TASK_GROUP_KEY : (task.area ?? "sonstiges");
+}
+
+/**
+ * C6: the Bereich dropdown is only meaningful for kind="operativ" tasks.
+ * Applying it unmodified to the Überfällig population (every kind) silently
+ * dropped every project task the instant any Bereich was picked, while the
+ * header still read "(alle Arten)". Project tasks are exempt from this
+ * filter — they stay visible under their own PROJECT_TASK_GROUP_KEY group
+ * (see taskGroupKey) regardless of which Bereich is selected.
+ */
+export function matchesOverdueAreaFilter(task: { kind: string; area: string | null }, area: string): boolean {
+  if (task.kind === "projekt") return true;
+  return !area || task.area === area;
+}
+
 /** Inclusive list of local dates from start to end — the timeline's day columns. */
 export function buildDayColumns(start: Date, end: Date): Date[] {
   const out: Date[] = [];
