@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { toTaskJSON } from "./task-dialog";
+import { toTaskJSON, buildLegacySaveData } from "./task-dialog";
+import type { WorkTaskSavePayload } from "@/components/work/task-dialog";
 
 // C1 guard test: toTaskJSON used to fabricate isCompleted/completedAt/
 // sprintId/parentTaskId/kind/projectId/projectName/phaseId/area/status/
@@ -94,5 +95,102 @@ describe("toTaskJSON", () => {
       status: "geplant",
       startDate: null,
     });
+  });
+});
+
+// C1a guard test: the outbound half of the bridge. WorkTaskDialog renders
+// live controls for status, startDate, projectId and phaseId and always
+// sends them in WorkTaskSavePayload — the bridge used to drop all four
+// before forwarding to the legacy onSave callers. Dropping status/startDate
+// silently discarded real edits (success toast, but the PATCH body never
+// carried the field). Dropping projectId/phaseId alongside kind:"projekt"
+// was the critical one: resolveTaskKind (services/tasks.ts) sees no
+// `projectId` key in the payload, falls back to the row's current
+// projectId (null), and resolves the kind back to "operativ" — the task
+// never moves to the project, and the area:null sent alongside it wipes
+// the task's Bereich.
+function baseSavePayload(overrides: Partial<WorkTaskSavePayload> = {}): WorkTaskSavePayload {
+  return {
+    content: "Rückruf vereinbaren",
+    description: null,
+    startDate: null,
+    status: "geplant",
+    priority: null,
+    kind: "operativ",
+    projectId: null,
+    phaseId: null,
+    area: "kunde",
+    sprintId: null,
+    recordIds: ["r1"],
+    assigneeIds: [],
+    ...overrides,
+  };
+}
+
+describe("buildLegacySaveData", () => {
+  it("forwards status, startDate, projectId and phaseId in the outbound payload", () => {
+    const result = buildLegacySaveData(
+      baseSavePayload({
+        status: "laeuft",
+        startDate: "2026-08-15",
+        kind: "projekt",
+        projectId: "p1",
+        phaseId: "ph1",
+        area: null,
+      }),
+      undefined,
+    );
+
+    expect(result.status).toBe("laeuft");
+    expect(result.startDate).toBe("2026-08-15");
+    expect(result.projectId).toBe("p1");
+    expect(result.phaseId).toBe("ph1");
+  });
+
+  it("switching an area=kunde operativ task to a project emits kind:projekt with a non-null projectId in the same payload", () => {
+    // Mirrors WorkTaskDialog's handleSave: isProject = kind==="projekt" &&
+    // !!projectId, which then sends area:null. The bridge must not drop
+    // projectId while forwarding that area:null, or resolveTaskKind falls
+    // back to the row's existing (null) projectId and silently resolves
+    // the kind back to "operativ" while the Bereich stays wiped.
+    const result = buildLegacySaveData(
+      baseSavePayload({
+        kind: "projekt",
+        projectId: "p1",
+        phaseId: null,
+        area: null, // WorkTaskDialog sends area:null once isProject is true
+      }),
+      undefined,
+    );
+
+    expect(result.kind).toBe("projekt");
+    expect(result.projectId).toBe("p1");
+    expect(result.projectId).not.toBeNull();
+    expect(result.area).toBeNull();
+  });
+
+  it("falls back to the seeded deadline when WorkTaskDialog omits an unchanged deadline", () => {
+    const seededDeadline = new Date("2026-09-01T10:00:00.000Z");
+    const result = buildLegacySaveData(baseSavePayload(), {
+      id: "t1",
+      content: "Rückruf vereinbaren",
+      deadline: seededDeadline,
+      assigneeIds: [],
+      recordIds: ["r1"],
+    });
+
+    expect(result.deadline).toBe(seededDeadline.toISOString());
+  });
+
+  it("sends an explicit null deadline when WorkTaskDialog reports it cleared", () => {
+    const result = buildLegacySaveData(baseSavePayload({ deadline: null }), {
+      id: "t1",
+      content: "Rückruf vereinbaren",
+      deadline: new Date("2026-09-01T10:00:00.000Z"),
+      assigneeIds: [],
+      recordIds: ["r1"],
+    });
+
+    expect(result.deadline).toBeNull();
   });
 });

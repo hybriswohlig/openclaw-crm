@@ -10,7 +10,7 @@
 // last reason to carry the four Kanban/story-point-era optional fields on
 // LegacyTaskFormData: neither remaining caller ever set them, so they are
 // gone rather than kept as dead optional fields.
-import { WorkTaskDialog } from "@/components/work/task-dialog";
+import { WorkTaskDialog, type WorkTaskSavePayload } from "@/components/work/task-dialog";
 import type { TaskJSON } from "@/lib/work-types";
 
 interface LegacyTaskFormData {
@@ -43,6 +43,27 @@ interface LegacyTaskFormData {
   startDate?: string | null;
 }
 
+// C1a: outbound half of the legacy bridge. WorkTaskDialog always sends
+// status/startDate/projectId/phaseId on save (its controls render live
+// values for all four), so the legacy onSave payload must carry them too —
+// optional here only so a hypothetical caller that predates this fix would
+// still type-check, not because the dialog ever omits them.
+export interface LegacyOnSavePayload {
+  content: string;
+  deadline: string | null;
+  recordIds: string[];
+  assigneeIds: string[];
+  sprintId: string | null;
+  description: string | null;
+  priority: string | null;
+  kind: "projekt" | "operativ";
+  area: string | null;
+  status?: string | null;
+  startDate?: string | null;
+  projectId?: string | null;
+  phaseId?: string | null;
+}
+
 export interface TaskDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -56,17 +77,7 @@ export interface TaskDialogProps {
   defaultDeadline?: Date | null;
   defaultSprintId?: string | null;
   defaultArea?: string | null;
-  onSave: (data: {
-    content: string;
-    deadline: string | null;
-    recordIds: string[];
-    assigneeIds: string[];
-    sprintId: string | null;
-    description: string | null;
-    priority: string | null;
-    kind: "projekt" | "operativ";
-    area: string | null;
-  }) => Promise<void>;
+  onSave: (data: LegacyOnSavePayload) => Promise<void>;
   onDelete?: () => Promise<void>;
 }
 
@@ -109,6 +120,56 @@ export function toTaskJSON(d: LegacyTaskFormData | undefined): TaskJSON | null {
   };
 }
 
+/**
+ * C1a: turns WorkTaskDialog's save data (WorkTaskSavePayload) into the
+ * payload the legacy onSave callers PATCH/POST. Pure and exported so the
+ * guard test can assert the outbound payload without mounting a DOM.
+ *
+ * Previously this logic lived inline in the onSave prop and dropped
+ * status/startDate/projectId/phaseId entirely. Losing status/startDate
+ * silently discarded real edits (success toast, PATCH body never contained
+ * the field, fetchTasks() repaints the old value). Losing projectId/phaseId
+ * alongside kind:"projekt" was worse: resolveTaskKind (services/tasks.ts)
+ * sees no `projectId` key in the PATCH body, falls back to the row's
+ * current projectId (null), and resolves the kind back to "operativ" — the
+ * task never moves to the project, and `area: null` (sent because the
+ * dialog now believes this is a project task) wipes the task's Bereich.
+ * Forwarding projectId/phaseId here keeps kind and projectId consistent in
+ * the same payload.
+ */
+export function buildLegacySaveData(
+  data: WorkTaskSavePayload,
+  initialData: LegacyTaskFormData | undefined,
+): LegacyOnSavePayload {
+  return {
+    content: data.content,
+    // WorkTaskSavePayload.deadline is OMITTED (undefined) when the user
+    // left it unchanged (see WorkTaskDialog's R8 comment: the server treats
+    // any present value as an edit and re-arms the overdue push). The
+    // legacy callers below always send `deadline` in their PATCH body,
+    // though, so an omitted value here must fall back to the deadline the
+    // dialog was seeded with — sending `null` instead would silently clear
+    // it on every no-op edit.
+    deadline:
+      data.deadline !== undefined
+        ? data.deadline
+        : initialData?.deadline
+          ? initialData.deadline.toISOString()
+          : null,
+    recordIds: data.recordIds,
+    assigneeIds: data.assigneeIds,
+    sprintId: data.sprintId,
+    description: data.description,
+    priority: data.priority,
+    kind: data.kind,
+    area: data.area,
+    status: data.status,
+    startDate: data.startDate,
+    projectId: data.projectId,
+    phaseId: data.phaseId,
+  };
+}
+
 export function TaskDialog(props: TaskDialogProps) {
   return (
     <WorkTaskDialog
@@ -125,31 +186,7 @@ export function TaskDialog(props: TaskDialogProps) {
       defaultRecordId={props.defaultRecordId}
       defaultRecordName={props.defaultRecordName}
       defaultRecordSlug={props.defaultRecordSlug}
-      onSave={async (data) =>
-        props.onSave({
-          content: data.content,
-          // WorkTaskSavePayload.deadline is OMITTED (undefined) when the
-          // user left it unchanged (see WorkTaskDialog's R8 comment: the
-          // server treats any present value as an edit and re-arms the
-          // overdue push). The legacy callers below always send `deadline`
-          // in their PATCH body, though, so an omitted value here must fall
-          // back to the deadline the dialog was seeded with — sending `null`
-          // instead would silently clear it on every no-op edit.
-          deadline:
-            data.deadline !== undefined
-              ? data.deadline
-              : props.initialData?.deadline
-                ? props.initialData.deadline.toISOString()
-                : null,
-          recordIds: data.recordIds,
-          assigneeIds: data.assigneeIds,
-          sprintId: data.sprintId,
-          description: data.description,
-          priority: data.priority,
-          kind: data.kind,
-          area: data.area,
-        })
-      }
+      onSave={async (data) => props.onSave(buildLegacySaveData(data, props.initialData))}
       onDelete={props.onDelete}
     />
   );
