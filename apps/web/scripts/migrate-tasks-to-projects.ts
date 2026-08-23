@@ -39,13 +39,24 @@ import { workspaces } from "@/db/schema/workspace";
 import { users } from "@/db/schema/auth";
 import { createTask } from "@/services/tasks";
 import { recordProjectEvent } from "@/services/activity-events";
+// Rule 7 (sprint rotation): closeSprint/createSprint/activateSprint fire NO
+// activity events or notifications (verified by reading services/sprints.ts
+// in full — it imports only db, the schema and drizzle-orm helpers), unlike
+// services/tasks.ts's updateTask, which is why task updates below go
+// through raw db.update() instead (see the note at applyPlan step 2). Using
+// the sprint service here is therefore safe AND reuses its already-tested
+// carry-over logic (unfinished tasks -> backlog) and metricsBasis: "tasks"
+// write instead of reimplementing them by hand.
+import { closeSprint, createSprint, activateSprint } from "@/services/sprints";
 import {
   MIGRATION_OWNER_EMAIL,
   migrationStatusColumns,
   planTaskMigration,
+  planSprintRotation,
   evaluateVerification,
   type MigrationPlan,
   type MigrationTaskRow,
+  type SprintRotationPlan,
   type VerificationInput,
 } from "@/lib/task-migration-map";
 
@@ -335,13 +346,33 @@ function printPlan(plan: MigrationPlan, workspaceName: string): void {
   ]);
 }
 
+/**
+ * C8 / spec Rule 7: print what planSprintRotation() decided, same table
+ * style as printPlan's "Zusammenfassung", so the rotation can be reviewed
+ * BEFORE --apply the same way the task table above it is.
+ */
+function printSprintRotation(rotation: SprintRotationPlan): void {
+  console.log("\n── Sprint-Rotation (Regel 7) ────────────────────────────────");
+  console.table([
+    {
+      Schliessen: rotation.closeSprintId ? rotation.closeSprintName : "(kein aktiver Sprint)",
+      Neu_anlegen: rotation.createSprint ? rotation.createSprint.name : "(keiner)",
+      Start: rotation.createSprint?.startDate ?? "–",
+      Ende: rotation.createSprint?.endDate ?? "–",
+      Vorhandenen_aktivieren: rotation.activateExistingSprintId ? "ja" : "–",
+    },
+  ]);
+  for (const n of rotation.notes) console.log(`  ${n}`);
+}
+
 // ─── apply ────────────────────────────────────────────────────────────
 
 async function applyPlan(
   workspaceId: string,
   ownerUserId: string,
   plan: MigrationPlan,
-  allRows: Awaited<ReturnType<typeof loadFullTaskRows>>
+  allRows: Awaited<ReturnType<typeof loadFullTaskRows>>,
+  sprintRotation: SprintRotationPlan
 ): Promise<void> {
   const touchedIds = new Set(plan.updates.filter((u) => u.changed).map((u) => u.taskId));
   const deletedIds = plan.deletions.map((d) => d.taskId);
@@ -519,6 +550,50 @@ async function applyPlan(
       flush();
       console.log(`  Aufgabe angelegt: ${nt.content}`);
     }
+
+    // 5. C8 / spec Rule 7: sprint rotation, AFTER the task updates above.
+    //    Close first, then create/activate — activateSprint enforces the
+    //    single-active-sprint invariant and would refuse a second "aktiv"
+    //    row if the old sprint were still running.
+    if (sprintRotation.closeSprintId) {
+      const closed = await closeSprint(workspaceId, sprintRotation.closeSprintId);
+      if (closed.error) {
+        console.warn(
+          `  Sprint-Rotation: "${sprintRotation.closeSprintName}" nicht abgeschlossen: ${closed.error}`
+        );
+      } else {
+        console.log(
+          `  Sprint abgeschlossen: ${sprintRotation.closeSprintName} ` +
+            `(${closed.summary?.carriedTasks ?? 0} unerledigte Aufgabe(n) in den Backlog zurückgetragen).`
+        );
+      }
+    }
+
+    if (sprintRotation.activateExistingSprintId) {
+      const activated = await activateSprint(workspaceId, sprintRotation.activateExistingSprintId);
+      if (activated.error) {
+        console.warn(`  Sprint-Rotation: Aktivierung fehlgeschlagen: ${activated.error}`);
+      } else {
+        console.log(`  Sprint aktiviert: ${activated.sprint?.name}`);
+      }
+    } else if (sprintRotation.createSprint) {
+      const createdSprint = await createSprint(workspaceId, ownerUserId, {
+        name: sprintRotation.createSprint.name,
+        goal: sprintRotation.createSprint.goal,
+        startDate: sprintRotation.createSprint.startDate,
+        endDate: sprintRotation.createSprint.endDate,
+      });
+      backup.createdSprintIds.push(createdSprint.id);
+      flush();
+      const activated = await activateSprint(workspaceId, createdSprint.id);
+      if (activated.error) {
+        console.warn(
+          `  Sprint-Rotation: "${createdSprint.name}" angelegt, aber Aktivierung fehlgeschlagen: ${activated.error}`
+        );
+      } else {
+        console.log(`  Sprint angelegt und aktiviert: ${createdSprint.name}`);
+      }
+    }
   } catch (err) {
     flush();
     console.error(
@@ -569,7 +644,17 @@ async function main(): Promise<void> {
       .from(projects)
       .where(eq(projects.workspaceId, workspace.id)),
     db
-      .select({ id: sprints.id, name: sprints.name })
+      // C8: state/startDate/endDate added so this same query can also feed
+      // planSprintRotation() (Rule 7) below — previously only id/name were
+      // selected, which was enough for sprintNameById but not for deciding
+      // which sprint to close/create/activate.
+      .select({
+        id: sprints.id,
+        name: sprints.name,
+        state: sprints.state,
+        startDate: sprints.startDate,
+        endDate: sprints.endDate,
+      })
       .from(sprints)
       .where(eq(sprints.workspaceId, workspace.id)),
   ]);
@@ -584,7 +669,13 @@ async function main(): Promise<void> {
     ownerUserId,
   });
 
+  // C8 / spec Rule 7: sprint rotation is planned independently of the task
+  // migration above (planSprintRotation is pure and takes only the sprint
+  // rows + "now") but printed and applied in the same run, right after it.
+  const sprintRotation = planSprintRotation(sprintRows, new Date());
+
   printPlan(plan, workspace.name);
+  printSprintRotation(sprintRotation);
 
   if (!APPLY) {
     console.log(
@@ -594,7 +685,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  await applyPlan(workspace.id, ownerUserId, plan, allRows);
+  await applyPlan(workspace.id, ownerUserId, plan, allRows, sprintRotation);
 }
 
 main()
