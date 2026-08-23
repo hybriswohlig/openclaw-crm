@@ -87,6 +87,23 @@ function isValidThousandsGrouping(intDigits: string): boolean {
   return /^\d{1,3}$/.test(first) && rest.every((g) => /^\d{3}$/.test(g));
 }
 
+/**
+ * C3: integer cents → the value an editable "…in EUR" input should be
+ * seeded with, guaranteed to round-trip through `eurosToCents`.
+ * `formatEURCents` cannot be reused for this: it rounds to whole euros
+ * (`maximumFractionDigits: 0`) for read-only display, so seeding an input
+ * with it silently drops any cents (12500,50 € → "12.501 €"). A bare
+ * `String(cents / 100)` is just as broken the other way — JS renders
+ * "12500.5" with a period decimal, which `eurosToCents` (German format:
+ * "." is ALWAYS a thousands separator) rejects outright as an invalid
+ * thousands grouping. No thousands separator is used here at all, so the
+ * dot-grouping check in `eurosToCents` never comes into play.
+ */
+export function centsToEuroInputValue(cents: number | null | undefined): string {
+  if (cents == null) return "";
+  return (cents / 100).toFixed(2).replace(".", ",");
+}
+
 /** ISO string or Date → "14.07.2025". "–" when empty. */
 export function formatDateDE(value: string | Date | null | undefined): string {
   const d = toDate(value);

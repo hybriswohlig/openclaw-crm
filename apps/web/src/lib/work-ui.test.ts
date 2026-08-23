@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   eurosToCents,
+  centsToEuroInputValue,
   formatEURCents,
   formatDateDE,
   formatDayShortDE,
@@ -569,6 +570,40 @@ describe("eurosToCents", () => {
     expect(eurosToCents("1.2345")).toBeNull();
     // A valid first group followed by a malformed one.
     expect(eurosToCents("12.500.00")).toBeNull();
+  });
+});
+
+// C3: budget-tab.tsx used to seed its "Rahmen in EUR" input with
+// `String(planned / 100)`, which for a fractional cents value (e.g.
+// 1.250.050 cents) renders a period decimal ("12500.5") — text eurosToCents
+// itself rejects, since "." is ALWAYS a German thousands separator to it.
+// Focusing the untouched, application-written field and tabbing out then
+// showed "Betrag konnte nicht gelesen werden…". centsToEuroInputValue must
+// round-trip through eurosToCents for every cents value the app can store.
+describe("centsToEuroInputValue", () => {
+  it("returns an empty string for null/undefined (no budget set)", () => {
+    expect(centsToEuroInputValue(null)).toBe("");
+    expect(centsToEuroInputValue(undefined)).toBe("");
+  });
+
+  it("round-trips through eurosToCents for a fractional amount", () => {
+    const formatted = centsToEuroInputValue(1_250_050);
+    expect(eurosToCents(formatted)).toBe(1_250_050);
+  });
+
+  it("round-trips through eurosToCents for one cent", () => {
+    const formatted = centsToEuroInputValue(1);
+    expect(eurosToCents(formatted)).toBe(1);
+  });
+
+  it("round-trips through eurosToCents for zero", () => {
+    const formatted = centsToEuroInputValue(0);
+    expect(eurosToCents(formatted)).toBe(0);
+  });
+
+  it("round-trips a whole-euro amount too", () => {
+    const formatted = centsToEuroInputValue(1_250_000);
+    expect(eurosToCents(formatted)).toBe(1_250_000);
   });
 });
 

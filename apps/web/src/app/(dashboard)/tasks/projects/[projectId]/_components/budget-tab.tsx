@@ -10,7 +10,7 @@ import { SectionCard } from "@/components/work/section-card";
 import { ProgressBar } from "@/components/work/progress-bar";
 import { StatusChip } from "@/components/work/status-chip";
 import { EmptyState, ErrorLine, LoadingLine } from "@/components/work/empty-state";
-import { eurosToCents, formatDateDE, formatEURCents, readApiError } from "@/lib/work-ui";
+import { centsToEuroInputValue, eurosToCents, formatDateDE, formatEURCents, readApiError } from "@/lib/work-ui";
 
 const inputClass =
   "h-8 rounded-lg border border-border bg-background px-2 text-[13px] text-foreground outline-none placeholder:text-muted-foreground focus:border-foreground/25";
@@ -147,7 +147,13 @@ export function BudgetTab({ project, reload }: { project: ProjectJSON; reload: (
             </span>
             <input
               className={inputClass}
-              defaultValue={planned == null ? "" : String(planned / 100)}
+              // C3: String(planned / 100) emitted a period decimal (e.g.
+              // "12500.5" for 1.250.050 cents) that eurosToCents — which
+              // treats "." as a German thousands separator — rejected as an
+              // invalid grouping. Focusing this untouched field and tabbing
+              // out then showed "Betrag konnte nicht gelesen werden…" for a
+              // value the app itself had just written.
+              defaultValue={centsToEuroInputValue(planned)}
               placeholder="z. B. 5000 — leer = kein Budget"
               onChange={() => setFrameError(null)}
               onBlur={(e) => saveFrame(e.target.value)}
