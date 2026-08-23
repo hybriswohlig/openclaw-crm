@@ -477,6 +477,34 @@ describe("eurosToCents", () => {
     expect(eurosToCents("0")).toBe(0);
     expect(eurosToCents("-5,50")).toBe(-550);
   });
+
+  // I9: a thousands group must be EXACTLY three digits. "12.500" is a valid
+  // German amount; "12.50" is not — it must be rejected (null), not
+  // reinterpreted as 12,50. Guessing turned "twelve fifty" into 1250 EUR,
+  // a hundred times too large, which is the exact data-loss class I3 was
+  // fixing in the first place.
+  it("accepts a whole thousands-grouped amount, with or without a decimal comma", () => {
+    expect(eurosToCents("12.500")).toBe(1_250_000);
+    expect(eurosToCents("12.500,00")).toBe(1_250_000);
+  });
+
+  it("accepts a plain comma decimal and a plain ungrouped integer", () => {
+    expect(eurosToCents("12,50")).toBe(1250);
+    expect(eurosToCents("12500")).toBe(1_250_000);
+  });
+
+  it("accepts multiple three-digit thousands groups", () => {
+    expect(eurosToCents("1.234.567,89")).toBe(123_456_789);
+  });
+
+  it("rejects a malformed dot-group instead of guessing it means a decimal", () => {
+    // Two digits after the dot — not a valid thousands group.
+    expect(eurosToCents("12.50")).toBeNull();
+    // Four digits after the dot.
+    expect(eurosToCents("1.2345")).toBeNull();
+    // A valid first group followed by a malformed one.
+    expect(eurosToCents("12.500.00")).toBeNull();
+  });
 });
 
 describe("groupBy / avatarOverflow", () => {

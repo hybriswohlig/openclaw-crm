@@ -34,6 +34,15 @@ export function formatEURCents(cents: number | null | undefined): string {
  * frame into 12,50 €.) A leading/trailing "€" and surrounding whitespace are
  * stripped before parsing.
  *
+ * I9: a "." is only ever a THOUSANDS separator, and a thousands group is
+ * exactly three digits — "12.500" is valid, "12.500,00" is valid,
+ * "1.234.567,89" is valid, but "12.50" is not a valid German number at all
+ * (its dot-group is two digits, not three). Blindly stripping every "."
+ * would read "12.50" as 1250 EUR — a hundred times too large — for a user
+ * who typed "twelve fifty". A malformed dot-group therefore makes the whole
+ * input unparseable (null), the same as any other garbage string; it is
+ * never silently reinterpreted as a decimal point either.
+ *
  * Returns null for empty input AND for anything unparseable — this function
  * cannot tell those two apart by itself. A caller that must treat "field
  * cleared" as a legitimate null while rejecting garbage input (I3's actual
@@ -43,13 +52,39 @@ export function formatEURCents(cents: number | null | undefined): string {
 export function eurosToCents(value: string): number | null {
   const stripped = value.trim().replace(/^€\s*/, "").replace(/\s*€$/, "").trim();
   if (!stripped) return null;
-  // Thousands dots carry no numeric meaning beyond grouping — drop them —
-  // then the sole remaining comma (if any) is the decimal separator.
-  const normalized = stripped.replace(/\./g, "").replace(",", ".");
-  if (!/^-?\d+(\.\d+)?$/.test(normalized)) return null;
+
+  const negative = stripped.startsWith("-");
+  const unsigned = negative ? stripped.slice(1) : stripped;
+
+  // "," is the sole decimal separator — split there first so the dot-group
+  // check below only ever looks at the integer part.
+  const [intDigits, decimalDigits, ...extraCommas] = unsigned.split(",");
+  if (extraCommas.length > 0) return null; // more than one comma
+  if (decimalDigits !== undefined && !/^\d+$/.test(decimalDigits)) return null;
+
+  if (!isValidThousandsGrouping(intDigits)) return null;
+
+  const normalized =
+    (negative ? "-" : "") + intDigits.replace(/\./g, "") + (decimalDigits !== undefined ? "." + decimalDigits : "");
   const n = Number(normalized);
   if (Number.isNaN(n)) return null;
   return Math.round(n * 100);
+}
+
+/**
+ * I9: the integer part of a German-formatted amount, either a bare run of
+ * digits ("12500" — any length, no grouping punctuation used at all) or
+ * dot-grouped ("12.500", "1.234.567") where the FIRST group is 1-3 digits
+ * and every group after it is EXACTLY 3 digits. Anything else — "12.50"
+ * (a 2-digit trailing group), "1.2345" (4 digits), "12.500.00" (a 2-digit
+ * trailing group after a valid one) — is not a real German thousands
+ * grouping and must be rejected rather than guessed at.
+ */
+function isValidThousandsGrouping(intDigits: string): boolean {
+  const groups = intDigits.split(".");
+  if (groups.length === 1) return /^\d+$/.test(groups[0]);
+  const [first, ...rest] = groups;
+  return /^\d{1,3}$/.test(first) && rest.every((g) => /^\d{3}$/.test(g));
 }
 
 /** ISO string or Date → "14.07.2025". "–" when empty. */
