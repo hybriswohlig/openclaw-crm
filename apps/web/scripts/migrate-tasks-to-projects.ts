@@ -14,6 +14,10 @@
  * Re-runnable: projects match by name, seeded tasks by content inside their
  * project, the sprint by name — a second --apply changes nothing.
  *
+ * --verify never writes and does not require --apply; it only reads the
+ * database (plus the newest file in .migration-backups/, if any) and prints
+ * the spec §14 checks.
+ *
  * --rollback is NOT YET IMPLEMENTED. The flag is recognised so this header
  * stays honest about the tool's target shape, but invoking it refuses to run
  * rather than silently re-running the forward migration (see the guard at
@@ -26,7 +30,7 @@
 import "./_load-env";
 import fs from "node:fs";
 import path from "node:path";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { tasks, taskAssignees, taskRecords, taskComments } from "@/db/schema/tasks";
 import { projects, projectMembers } from "@/db/schema/projects";
@@ -39,12 +43,15 @@ import {
   MIGRATION_OWNER_EMAIL,
   migrationStatusColumns,
   planTaskMigration,
+  evaluateVerification,
   type MigrationPlan,
   type MigrationTaskRow,
+  type VerificationInput,
 } from "@/lib/task-migration-map";
 
 const ARGV = process.argv.slice(2);
 const APPLY = ARGV.includes("--apply");
+const VERIFY = ARGV.includes("--verify");
 const ROLLBACK_INDEX = ARGV.indexOf("--rollback");
 const ROLLBACK_FILE = ROLLBACK_INDEX >= 0 ? (ARGV[ROLLBACK_INDEX + 1] ?? null) : null;
 const BACKUP_DIR = path.resolve(__dirname, "../.migration-backups");
@@ -115,6 +122,155 @@ function toMigrationRows(rows: Awaited<ReturnType<typeof loadFullTaskRows>>): Mi
     area: r.area,
     status: r.status,
   }));
+}
+
+// ─── verify (spec §14) ──────────────────────────────────────────────────
+//
+// Read-only by construction: every value below comes from a SELECT or from
+// reading a backup JSON file, never a write. `evaluateVerification` itself
+// is pure and unit-tested in task-migration-map.test.ts — this function's
+// only job is to gather its input and print the result.
+
+/** The newest valid backup in .migration-backups/, or null if none exists. */
+function findNewestBackup(): MigrationBackup | null {
+  if (!fs.existsSync(BACKUP_DIR)) return null;
+  const files = fs.readdirSync(BACKUP_DIR).filter((f) => f.endsWith(".json"));
+  let newest: MigrationBackup | null = null;
+  let newestTime = -Infinity;
+  for (const file of files) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(path.join(BACKUP_DIR, file), "utf8")) as MigrationBackup;
+      const t = Date.parse(parsed.createdAt);
+      if (!Number.isNaN(t) && t > newestTime) {
+        newestTime = t;
+        newest = parsed;
+      }
+    } catch {
+      // Kaputte oder fremde Datei im Backup-Ordner — überspringen, nicht abbrechen.
+      continue;
+    }
+  }
+  return newest;
+}
+
+/** A single `SELECT COUNT(*)::int AS n ...` result, unwrapped to a number. */
+async function countRows(query: ReturnType<typeof sql>): Promise<number> {
+  const rows = (await db.execute(query)) as unknown as Array<{ n: number | string | null }>;
+  return Number(rows[0]?.n ?? 0);
+}
+
+async function runVerification(workspaceId: string): Promise<void> {
+  const [
+    projektWithoutProject,
+    operativWithProject,
+    phaseMismatch,
+    statusMismatch,
+    orphanParents,
+    danglingProjectRefs,
+    leiterMismatch,
+    taskCountNow,
+  ] = await Promise.all([
+    // I1, direction 1: kind='projekt' rows must carry a project_id.
+    countRows(sql`
+      SELECT COUNT(*)::int AS n FROM tasks
+      WHERE workspace_id = ${workspaceId} AND kind = 'projekt' AND project_id IS NULL
+    `),
+    // I1, direction 2: only kind='projekt' rows may carry a project_id.
+    countRows(sql`
+      SELECT COUNT(*)::int AS n FROM tasks
+      WHERE workspace_id = ${workspaceId} AND kind <> 'projekt' AND project_id IS NOT NULL
+    `),
+    // I2: a task's phase must belong to the task's own project.
+    countRows(sql`
+      SELECT COUNT(*)::int AS n
+      FROM tasks t
+      JOIN project_phases ph ON ph.id = t.phase_id
+      WHERE t.workspace_id = ${workspaceId}
+        AND t.phase_id IS NOT NULL
+        AND (t.project_id IS NULL OR ph.project_id <> t.project_id)
+    `),
+    // I3: status='erledigt' must agree with is_completed.
+    countRows(sql`
+      SELECT COUNT(*)::int AS n FROM tasks
+      WHERE workspace_id = ${workspaceId} AND is_completed <> (status = 'erledigt')
+    `),
+    // No FK on parent_task_id — a dangling parent must be found, not assumed away.
+    countRows(sql`
+      SELECT COUNT(*)::int AS n
+      FROM tasks t
+      WHERE t.workspace_id = ${workspaceId}
+        AND t.parent_task_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM tasks p WHERE p.id = t.parent_task_id)
+    `),
+    // project_id must point at a real project.
+    countRows(sql`
+      SELECT COUNT(*)::int AS n
+      FROM tasks t
+      WHERE t.workspace_id = ${workspaceId}
+        AND t.project_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.id = t.project_id)
+    `),
+    // Exactly one project_members role='leiter' row matching owner_user_id
+    // (zero = missing leader, >1 total or a mismatched user_id = duplicate
+    // left behind by an owner handover); for an owner-less project, zero
+    // leiter rows.
+    countRows(sql`
+      SELECT COUNT(*)::int AS n FROM (
+        SELECT p.id,
+               p.owner_user_id AS owner_user_id,
+               COUNT(pm.id) AS leiter_count,
+               COUNT(pm.id) FILTER (WHERE pm.user_id = p.owner_user_id) AS matching_count
+        FROM projects p
+        LEFT JOIN project_members pm
+          ON pm.project_id = p.id AND pm.role = 'leiter'
+        WHERE p.workspace_id = ${workspaceId}
+        GROUP BY p.id, p.owner_user_id
+      ) x
+      WHERE (owner_user_id IS NOT NULL AND (leiter_count <> 1 OR matching_count <> 1))
+         OR (owner_user_id IS NULL AND leiter_count > 0)
+    `),
+    countRows(sql`SELECT COUNT(*)::int AS n FROM tasks WHERE workspace_id = ${workspaceId}`),
+  ]);
+
+  const backup = findNewestBackup();
+
+  const input: VerificationInput = {
+    projektWithoutProject,
+    operativWithProject,
+    phaseMismatch,
+    statusMismatch,
+    orphanParents,
+    danglingProjectRefs,
+    leiterMismatch,
+    taskCountBefore: backup ? backup.taskCountBefore : null,
+    containersDeleted: backup ? backup.containersDeleted : null,
+    tasksCreated: backup ? backup.tasksCreated : null,
+    taskCountNow,
+  };
+
+  const result = evaluateVerification(input);
+
+  console.log("\n=== Verifikation (spec §14, schreibgeschützt) ===\n");
+  console.log(
+    backup
+      ? `Backup verwendet für die Aufgabenzahl-Prüfung: ${backup.createdAt}`
+      : "Kein Backup in .migration-backups/ gefunden — die Aufgabenzahl-Prüfung wird als SKIP ausgewiesen."
+  );
+  console.table(
+    result.checks.map((c) => ({
+      Prüfung: c.name,
+      Erwartet: c.expected,
+      Ist: c.actual,
+      Status: c.status,
+    }))
+  );
+
+  if (result.passed) {
+    console.log("\nAlle Prüfungen bestanden.");
+  } else {
+    console.log("\nMindestens eine Prüfung ist fehlgeschlagen — siehe Tabelle oben.");
+    process.exitCode = 1;
+  }
 }
 
 // ─── dry-run output ───────────────────────────────────────────────────
@@ -398,6 +554,12 @@ async function main(): Promise<void> {
   }
 
   const workspace = await resolveWorkspace();
+
+  if (VERIFY) {
+    await runVerification(workspace.id);
+    return;
+  }
+
   const ownerUserId = await resolveOwnerUserId();
 
   const [allRows, projectRows, sprintRows] = await Promise.all([
