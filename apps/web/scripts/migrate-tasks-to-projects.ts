@@ -151,6 +151,17 @@ function findNewestBackup(): MigrationBackup | null {
   for (const file of files) {
     try {
       const parsed = JSON.parse(fs.readFileSync(path.join(BACKUP_DIR, file), "utf8")) as MigrationBackup;
+      // "Valid" has to mean "written by THIS migration", not merely "parses".
+      // Other tools write their own backups into this directory — the project
+      // reorganisation does — and those carry no counts. Accepting one made
+      // the count check read `NaN` and report FAIL on a healthy database.
+      if (
+        typeof parsed.taskCountBefore !== "number" ||
+        typeof parsed.containersDeleted !== "number" ||
+        typeof parsed.tasksCreated !== "number"
+      ) {
+        continue;
+      }
       const t = Date.parse(parsed.createdAt);
       if (!Number.isNaN(t) && t > newestTime) {
         newestTime = t;
