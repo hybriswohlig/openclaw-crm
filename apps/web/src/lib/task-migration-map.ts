@@ -332,8 +332,11 @@ export const MIGRATION_PROJECTS: readonly MigrationProjectSpec[] = [
     icon: "Megaphone",
     color: "#8b5cf6",
     containers: [],
-    // The nine marketing tasks that live in Sprint 2. The guard below keeps
-    // these deliberately short patterns from reaching anything else.
+    // The marketing tasks that live in Sprint 2: 9 patterns matching 10
+    // source tasks, because the layout/design pattern also catches the
+    // kitchen-page redesign (checked and ruled 2026-08-23, see progress.md).
+    // The guard below keeps these deliberately short patterns from reaching
+    // anything else.
     members: [
       { by: "pattern", pattern: /leistungsseite/i },
       { by: "pattern", pattern: /küchenseite|kuechenseite|küche\b/i },
@@ -346,7 +349,7 @@ export const MIGRATION_PROJECTS: readonly MigrationProjectSpec[] = [
       { by: "pattern", pattern: /sitemap/i },
     ],
     memberGuard: { sprintName: "Sprint 2" },
-    expectedMembers: 9,
+    expectedMembers: 10,
     seedTasks: [],
   },
   {

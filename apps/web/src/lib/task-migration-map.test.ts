@@ -255,11 +255,13 @@ describe("MIGRATION_PROJECTS (spec §12.1)", () => {
     }
   });
 
-  it("guards the website patterns to Sprint 2 and expects nine members", () => {
+  it("guards the website patterns to Sprint 2 and expects ten members", () => {
     const website = MIGRATION_PROJECTS[1];
     expect(website.memberGuard).toEqual({ sprintName: "Sprint 2" });
+    // 9 patterns, but the layout/design pattern matches two source tasks,
+    // so expectedMembers (matched tasks) is 10, not 9.
     expect(website.members).toHaveLength(9);
-    expect(website.expectedMembers).toBe(9);
+    expect(website.expectedMembers).toBe(10);
   });
 });
 
