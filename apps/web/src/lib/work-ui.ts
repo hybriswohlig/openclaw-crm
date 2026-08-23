@@ -225,6 +225,13 @@ export function matchesOperativeFilter(
  * had no chip that counted them at all. Only the Überfällig chip switches to
  * the honest all-kinds total; the other three keep counting the
  * operativ-only population, which is correct for them.
+ *
+ * C2 (related): because Überfällig now counts every kind while the other
+ * three chips (Alle included) stay operativ-only, a workspace with several
+ * overdue project tasks can show a LARGER Überfällig count than the "Alle"
+ * chip beside it, even though "Alle" reads as the superset on this page.
+ * The label makes the different population legible instead of silently
+ * looking like a bug.
  */
 export function operativeFilterChipCounts<T extends { deadline: string | null; status: string }>(
   operativeTasks: T[],
@@ -233,6 +240,7 @@ export function operativeFilterChipCounts<T extends { deadline: string | null; s
 ): Array<{ value: OperativeFilter; label: string; count: number }> {
   return OPERATIVE_FILTERS.map((f) => ({
     ...f,
+    label: f.value === "ueberfaellig" ? "Überfällig (alle Arten)" : f.label,
     count:
       f.value === "ueberfaellig"
         ? overdueAllKindsTotal
@@ -241,18 +249,35 @@ export function operativeFilterChipCounts<T extends { deadline: string | null; s
 }
 
 /**
- * I2 (related): the header line ("X von Y Aufgaben im laufenden Betrieb")
- * used `pagination.total` of the kind=operativ **showCompleted=true** fetch
- * as Y — a figure that counts finished tasks too, so it disagreed with a
- * list that is mostly showing open ones. `operativeOpenTotal` and
- * `overdueAllTotal` are both true, completed-excluded server counts (the
- * former from GET /api/v1/work/counts → operativeOpenCount, the latter from
- * GET /api/v1/tasks?overdue=true, which already excludes completed tasks by
- * definition — a finished task cannot be overdue).
+ * C2: the header line ("X von Y Aufgaben im laufenden Betrieb") used to mix
+ * two different populations — `loaded` counted ALL loaded operativ tasks
+ * from the kind=operativ&showCompleted=true fetch (completed included),
+ * while `total` was `operativeOpenTotal`, a true but completed-EXCLUDED
+ * count. Under the "Alle" filter, `matchesOperativeFilter` lets every task
+ * through including completed ones, so `loaded` (e.g. 12) could exceed
+ * `total` (e.g. 5) and the header printed the nonsensical "12 von 5".
+ *
+ * Fix: both numbers now always describe the SAME population as `visible`
+ * (the rows actually rendered for the active filter):
+ *  - "ueberfaellig" keeps the all-kinds server total (I2) unchanged.
+ *  - "alle" pairs `visibleCount` with `operativeAllTotal`, the true
+ *    completed-inclusive kind=operativ count (the same population "alle"
+ *    renders), so `loaded <= total` holds by construction.
+ *  - "heute"/"woche" pair `visibleCount` with `operativeOpenTotal` for the
+ *    same informative "X of the open backlog" reading as before, but
+ *    `Math.max`-clamped up to `visibleCount`: `matchesOperativeFilter`
+ *    does not exclude completed tasks for these two filters either, so a
+ *    task completed today with today's deadline could otherwise push
+ *    `visible` above the completed-excluded `operativeOpenTotal` and
+ *    reproduce the same "loaded > total" defect in a rarer shape.
  */
 export function operativeHeaderTotals(input: {
   filter: OperativeFilter;
-  loadedOperativeCount: number;
+  /** Rows actually rendered for the active filter — `visible.length`. */
+  visibleCount: number;
+  /** True, completed-inclusive kind=operativ count (same population "alle" renders). */
+  operativeAllTotal: number;
+  /** True, completed-EXCLUDED kind=operativ count. */
   operativeOpenTotal: number;
   loadedOverdueAllCount: number;
   overdueAllTotal: number;
@@ -260,7 +285,8 @@ export function operativeHeaderTotals(input: {
   if (input.filter === "ueberfaellig") {
     return { loaded: input.loadedOverdueAllCount, total: input.overdueAllTotal };
   }
-  return { loaded: input.loadedOperativeCount, total: input.operativeOpenTotal };
+  const upperBound = input.filter === "alle" ? input.operativeAllTotal : input.operativeOpenTotal;
+  return { loaded: input.visibleCount, total: Math.max(input.visibleCount, upperBound) };
 }
 
 /** Inclusive list of local dates from start to end — the timeline's day columns. */

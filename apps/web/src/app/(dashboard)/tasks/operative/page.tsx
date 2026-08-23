@@ -43,9 +43,16 @@ function OperativeInner() {
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   // I2: the honest, completed-excluded server total behind "operativeOpenCount"
-  // — used for the header line. `pagination.total` of the fetch above counts
-  // completed tasks too (it needs showCompleted=true for the "Alle" chip).
+  // — used for the header line under "heute"/"woche". `pagination.total` of
+  // the fetch above counts completed tasks too (it needs showCompleted=true
+  // for the "Alle" chip).
   const [operativeOpenTotal, setOperativeOpenTotal] = useState(0);
+  // C2: the TRUE completed-inclusive kind=operativ total (`pagination.total`
+  // of the same showCompleted=true fetch, independent of its 200-task page
+  // cap). Under filter="alle" every loaded task is rendered regardless of
+  // completion, so the header's denominator must be this — pairing it with
+  // the completed-excluded `operativeOpenTotal` above printed "12 von 5".
+  const [operativeAllTotal, setOperativeAllTotal] = useState(0);
   // I2: overdue tasks of EVERY kind (project + operativ), matching the
   // dashboard's "Überfällig" KPI tile exactly (GET /api/v1/tasks?overdue=true
   // has no kind filter). This page's `tasks` is kind=operativ only, so the
@@ -82,6 +89,7 @@ function OperativeInner() {
       const payload = ((await opRes.value.json())?.data ?? null) as TaskListJSON | null;
       fetchedOperativeTotal = payload?.pagination?.total ?? payload?.tasks?.length ?? 0;
       setTasks(payload?.tasks ?? []);
+      setOperativeAllTotal(fetchedOperativeTotal);
       setFailed(false);
     } else {
       setFailed(true);
@@ -124,7 +132,8 @@ function OperativeInner() {
 
   const headerTotals = operativeHeaderTotals({
     filter,
-    loadedOperativeCount: tasks.length,
+    visibleCount: visible.length,
+    operativeAllTotal,
     operativeOpenTotal,
     loadedOverdueAllCount: overdueAll.length,
     overdueAllTotal,

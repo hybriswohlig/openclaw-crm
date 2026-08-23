@@ -129,25 +129,90 @@ describe("operativeFilterChipCounts", () => {
     expect(counts.find((c) => c.value === "woche")?.count).toBe(2);
     expect(counts.find((c) => c.value === "alle")?.count).toBe(3);
   });
+
+  // C2 (related): the Überfällig chip's count comes from a DIFFERENT
+  // population (all kinds) than the operativ-only "Alle" chip beside it, so
+  // a workspace with several overdue project tasks can show a larger
+  // Überfällig number than "Alle" — legible via the label, not a defect.
+  it("C2: labels the Überfällig chip as an all-kinds count, leaving the other three labels untouched", () => {
+    const counts = operativeFilterChipCounts([task("2025-07-10T00:00:00")], 9, now);
+    expect(counts.find((c) => c.value === "ueberfaellig")?.label).toBe("Überfällig (alle Arten)");
+    expect(counts.find((c) => c.value === "alle")?.label).toBe("Alle");
+    expect(counts.find((c) => c.value === "heute")?.label).toBe("Heute");
+  });
 });
 
 describe("operativeHeaderTotals", () => {
-  it("I2 (related): the header excludes completed tasks outside the Überfällig filter", () => {
+  // C2: this reproduces the reported defect verbatim. 12 operativ tasks
+  // loaded (7 erledigt, 5 open); filter="alle" renders all 12 rows
+  // (matchesOperativeFilter("alle") lets completed tasks through), but the
+  // header paired that with the completed-EXCLUDED operativeOpenTotal (5)
+  // and printed "12 von 5". The true completed-inclusive total for the
+  // SAME population "alle" renders is 12, so the fix must report 12, not 5.
+  it("C2: pairs the Alle filter with the completed-inclusive total instead of the completed-excluded one", () => {
     const { loaded, total } = operativeHeaderTotals({
-      filter: "heute",
-      loadedOperativeCount: 12,
-      operativeOpenTotal: 30, // honest, completed-excluded server count
+      filter: "alle",
+      visibleCount: 12, // all 12 loaded tasks render under "alle"
+      operativeAllTotal: 12, // true, completed-inclusive kind=operativ count
+      operativeOpenTotal: 5, // true, completed-EXCLUDED count — must not be used here
       loadedOverdueAllCount: 0,
       overdueAllTotal: 0,
     });
     expect(loaded).toBe(12);
+    expect(total).toBe(12);
+    expect(loaded).toBeLessThanOrEqual(total);
+  });
+
+  it("C2: Alle still shows the 200-cap truncation when the true total exceeds what was loaded", () => {
+    const { loaded, total } = operativeHeaderTotals({
+      filter: "alle",
+      visibleCount: 200,
+      operativeAllTotal: 250,
+      operativeOpenTotal: 40,
+      loadedOverdueAllCount: 0,
+      overdueAllTotal: 0,
+    });
+    expect(loaded).toBe(200);
+    expect(total).toBe(250);
+  });
+
+  it("heute/woche keep pairing the visible rows with the true open total when nothing completed slips through", () => {
+    const { loaded, total } = operativeHeaderTotals({
+      filter: "heute",
+      visibleCount: 3,
+      operativeAllTotal: 47,
+      operativeOpenTotal: 30, // honest, completed-excluded server count
+      loadedOverdueAllCount: 0,
+      overdueAllTotal: 0,
+    });
+    expect(loaded).toBe(3);
     expect(total).toBe(30);
+  });
+
+  // C2: matchesOperativeFilter does not exclude completed tasks for
+  // "heute"/"woche" either, so a task completed today with today's deadline
+  // can push `visible` above the completed-excluded operativeOpenTotal —
+  // the same class of defect as the "alle" case, just rarer. The total must
+  // never fall below what is actually rendered.
+  it("heute/woche never report a total smaller than what is rendered, even if a completed task slips through", () => {
+    const { loaded, total } = operativeHeaderTotals({
+      filter: "woche",
+      visibleCount: 8,
+      operativeAllTotal: 47,
+      operativeOpenTotal: 5,
+      loadedOverdueAllCount: 0,
+      overdueAllTotal: 0,
+    });
+    expect(loaded).toBe(8);
+    expect(total).toBe(8);
+    expect(loaded).toBeLessThanOrEqual(total);
   });
 
   it("switches to the all-kinds overdue total under the Überfällig filter, matching the KPI tile", () => {
     const { loaded, total } = operativeHeaderTotals({
       filter: "ueberfaellig",
-      loadedOperativeCount: 12,
+      visibleCount: 12,
+      operativeAllTotal: 12,
       operativeOpenTotal: 30,
       loadedOverdueAllCount: 9,
       overdueAllTotal: 9,
