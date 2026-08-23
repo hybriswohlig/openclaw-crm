@@ -144,7 +144,12 @@ export function RecordTasks({
 
   async function handleSave(data: {
     content: string;
-    deadline: string | null;
+    // C7: absent on a no-op edit (see task-dialog.tsx's buildLegacySaveData)
+    // — JSON.stringify(data) below then drops the key entirely instead of
+    // re-sending the unchanged deadline, so the server doesn't re-arm the
+    // overdue push for a deadline that never changed. Always present on
+    // create.
+    deadline?: string | null;
     recordIds: string[];
     assigneeIds: string[];
     kind: "projekt" | "operativ";

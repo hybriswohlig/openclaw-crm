@@ -50,7 +50,13 @@ interface LegacyTaskFormData {
 // still type-check, not because the dialog ever omits them.
 export interface LegacyOnSavePayload {
   content: string;
-  deadline: string | null;
+  // C7: absent (undefined) when WorkTaskDialog left the deadline
+  // unchanged — must stay absent all the way out to the PATCH body (see
+  // buildLegacySaveData), not be reconstructed into an explicit value, or
+  // every save re-arms the workspace-wide overdue push for a deadline that
+  // never changed (services/tasks.ts: `if (updates.deadline !== undefined)
+  // ... overdueNotifiedAt = null`).
+  deadline?: string | null;
   recordIds: string[];
   assigneeIds: string[];
   sprintId: string | null;
@@ -137,25 +143,30 @@ export function toTaskJSON(d: LegacyTaskFormData | undefined): TaskJSON | null {
  * Forwarding projectId/phaseId here keeps kind and projectId consistent in
  * the same payload.
  */
-export function buildLegacySaveData(
-  data: WorkTaskSavePayload,
-  initialData: LegacyTaskFormData | undefined,
-): LegacyOnSavePayload {
+export function buildLegacySaveData(data: WorkTaskSavePayload): LegacyOnSavePayload {
   return {
     content: data.content,
-    // WorkTaskSavePayload.deadline is OMITTED (undefined) when the user
+    // C7: WorkTaskSavePayload.deadline is OMITTED (undefined) when the user
     // left it unchanged (see WorkTaskDialog's R8 comment: the server treats
-    // any present value as an edit and re-arms the overdue push). The
-    // legacy callers below always send `deadline` in their PATCH body,
-    // though, so an omitted value here must fall back to the deadline the
-    // dialog was seeded with — sending `null` instead would silently clear
-    // it on every no-op edit.
-    deadline:
-      data.deadline !== undefined
-        ? data.deadline
-        : initialData?.deadline
-          ? initialData.deadline.toISOString()
-          : null,
+    // any PRESENT value — including an unchanged one re-sent verbatim — as
+    // an edit and re-arms the overdue push). This used to reconstruct an
+    // explicit value here whenever `data.deadline` was undefined (falling
+    // back to `initialData.deadline`), which defeated that omission and
+    // re-armed the notification on every single save, changed or not.
+    //
+    // Forwarding `data.deadline` as-is is safe precisely because
+    // WorkTaskDialog already distinguishes all three cases before this
+    // function ever sees them: absent (undefined) when unchanged, `null`
+    // when the user explicitly cleared it, and an ISO string when it
+    // changed to a new value (see handleSave's `deadlineChanged`/
+    // `sameDay` logic there). The one legacy caller (record-tasks.tsx)
+    // builds its PATCH/POST body with `JSON.stringify(data)`, which drops
+    // an `undefined`-valued property from the JSON entirely — so an
+    // unchanged deadline now correctly never appears in the request body
+    // at all, matching what the four direct WorkTaskDialog callers
+    // (page.tsx, operative/page.tsx, tasks-tab.tsx, timeline-tab.tsx) that
+    // never bridge through here already do.
+    deadline: data.deadline,
     recordIds: data.recordIds,
     assigneeIds: data.assigneeIds,
     sprintId: data.sprintId,
@@ -186,7 +197,7 @@ export function TaskDialog(props: TaskDialogProps) {
       defaultRecordId={props.defaultRecordId}
       defaultRecordName={props.defaultRecordName}
       defaultRecordSlug={props.defaultRecordSlug}
-      onSave={async (data) => props.onSave(buildLegacySaveData(data, props.initialData))}
+      onSave={async (data) => props.onSave(buildLegacySaveData(data))}
       onDelete={props.onDelete}
     />
   );

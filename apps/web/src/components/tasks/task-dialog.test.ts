@@ -138,7 +138,6 @@ describe("buildLegacySaveData", () => {
         phaseId: "ph1",
         area: null,
       }),
-      undefined,
     );
 
     expect(result.status).toBe("laeuft");
@@ -160,7 +159,6 @@ describe("buildLegacySaveData", () => {
         phaseId: null,
         area: null, // WorkTaskDialog sends area:null once isProject is true
       }),
-      undefined,
     );
 
     expect(result.kind).toBe("projekt");
@@ -169,28 +167,40 @@ describe("buildLegacySaveData", () => {
     expect(result.area).toBeNull();
   });
 
-  it("falls back to the seeded deadline when WorkTaskDialog omits an unchanged deadline", () => {
-    const seededDeadline = new Date("2026-09-01T10:00:00.000Z");
-    const result = buildLegacySaveData(baseSavePayload(), {
-      id: "t1",
-      content: "Rückruf vereinbaren",
-      deadline: seededDeadline,
-      assigneeIds: [],
-      recordIds: ["r1"],
-    });
+  // C7 guard tests: task-dialog.tsx used to reconstruct an explicit deadline
+  // (falling back to the seeded value) whenever WorkTaskDialog omitted it as
+  // unchanged, so `deadline` was re-sent on every single save. The one
+  // legacy caller (record-tasks.tsx) PATCHes with JSON.stringify(data),
+  // which drops an undefined-valued property from the JSON entirely — so
+  // the bridge must forward `undefined` as `undefined`, not paper over it.
+  // services/tasks.ts resets overdueNotifiedAt whenever the `deadline` key
+  // is present in the PATCH body at all, changed or not, so a re-sent
+  // unchanged value re-arms the overdue push for nothing.
+  it("C7: omits deadline entirely when WorkTaskDialog reports it unchanged (undefined), instead of reconstructing it", () => {
+    // baseSavePayload() has no `deadline` key at all — WorkTaskSavePayload's
+    // own field is optional and WorkTaskDialog only ever sets it when
+    // `deadlineChanged` is true (see handleSave there).
+    const result = buildLegacySaveData(baseSavePayload());
 
-    expect(result.deadline).toBe(seededDeadline.toISOString());
+    expect(result.deadline).toBeUndefined();
+    // What actually reaches the server: JSON.stringify drops an
+    // undefined-valued property from the output entirely (unlike the
+    // in-memory object, which still has the key with value `undefined`),
+    // which is exactly the "omit from the PATCH" behaviour C7 requires.
+    expect(JSON.stringify(result)).not.toContain("deadline");
   });
 
-  it("sends an explicit null deadline when WorkTaskDialog reports it cleared", () => {
-    const result = buildLegacySaveData(baseSavePayload({ deadline: null }), {
-      id: "t1",
-      content: "Rückruf vereinbaren",
-      deadline: new Date("2026-09-01T10:00:00.000Z"),
-      assigneeIds: [],
-      recordIds: ["r1"],
-    });
+  it("C7: forwards an explicit null when WorkTaskDialog reports the deadline was cleared", () => {
+    const result = buildLegacySaveData(baseSavePayload({ deadline: null }));
 
     expect(result.deadline).toBeNull();
+    expect(JSON.stringify(result)).toContain('"deadline":null');
+  });
+
+  it("C7: forwards the new value when WorkTaskDialog reports the deadline changed", () => {
+    const newDeadline = "2026-09-01T21:59:00.000Z";
+    const result = buildLegacySaveData(baseSavePayload({ deadline: newDeadline }));
+
+    expect(result.deadline).toBe(newDeadline);
   });
 });
