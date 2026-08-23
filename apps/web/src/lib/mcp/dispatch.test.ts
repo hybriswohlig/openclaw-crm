@@ -435,3 +435,720 @@ describe("crm_get_attachment", () => {
     expect(textBlock(res.content)).not.toHaveProperty("contentBase64");
   });
 });
+
+describe("removed tools", () => {
+  it("no longer dispatches crm_tasks_pulse", async () => {
+    // /api/v1/tasks/pulse is deleted with the Team-Pulse bar in phase 4. A
+    // tool that outlives its route answers 404-as-HTML, which is worse than
+    // an honest "Unknown tool".
+    const { client, calls } = fakeClient();
+
+    const res = await handleTool(client, "crm_tasks_pulse", {});
+
+    expect(res.isError).toBe(true);
+    expect(textOf(res.content)).toContain("Unknown tool: crm_tasks_pulse");
+    expect(calls).toHaveLength(0);
+  });
+});
+
+describe("crm_list_projects", () => {
+  it("coerces the filter booleans and numbers into the query string", async () => {
+    // MCP clients send booleans and numbers as strings often enough that a
+    // raw pass-through means ?favoritesOnly=true reaches the route as the
+    // string "true" — which its `=== true` check silently drops.
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_list_projects", {
+      status: "aktiv",
+      category: "fuhrpark",
+      favoritesOnly: "true",
+      includeArchived: "false",
+      limit: "25",
+      offset: "50",
+    });
+
+    expect(calls[0].path).toBe("/api/v1/projects");
+    expect(calls[0].options.query).toEqual({
+      status: "aktiv",
+      category: "fuhrpark",
+      sprintId: undefined,
+      favoritesOnly: true,
+      includeArchived: false,
+      limit: 25,
+      offset: 50,
+    });
+  });
+});
+
+describe("crm_create_project", () => {
+  it("posts the project body, coercing cents and stringified scope arrays", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_create_project", {
+      name: "Fuhrpark 2027",
+      category: "fuhrpark",
+      priority: "hoch",
+      startDate: "2026-09-01",
+      budgetPlannedCents: "1250000",
+      scopeIn: '["Zwei 7,5-Tonner","Telematik"]',
+      scopeOut: ["Anhaenger"],
+    });
+
+    expect(calls[0].path).toBe("/api/v1/projects");
+    expect(calls[0].options.method).toBe("POST");
+    expect(calls[0].options.body).toEqual({
+      name: "Fuhrpark 2027",
+      category: "fuhrpark",
+      priority: "hoch",
+      startDate: "2026-09-01",
+      budgetPlannedCents: 1250000,
+      scopeIn: ["Zwei 7,5-Tonner", "Telematik"],
+      scopeOut: ["Anhaenger"],
+    });
+  });
+
+  it("sends only the fields the caller passed", async () => {
+    // The route is a real PATCH/POST pair, not a PUT: a body full of
+    // explicit undefineds would blank half the project on the way in.
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_create_project", { name: "Nur Name" });
+
+    expect(calls[0].options.body).toEqual({ name: "Nur Name" });
+  });
+
+  it("maps memberUserIds to the members array the route actually reads", async () => {
+    // POST /api/v1/projects's parseProjectInput whitelists exactly
+    // members/phases/milestones/risks/budgetEntries as its nested keys and
+    // silently drops anything else — a raw `memberUserIds` key would 201
+    // with none of the requested members attached. Dispatch must translate.
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_create_project", {
+      name: "Fuhrpark 2027",
+      memberUserIds: ["u-1", "u-2"],
+    });
+
+    expect(calls[0].options.body).toEqual({
+      name: "Fuhrpark 2027",
+      members: [{ userId: "u-1" }, { userId: "u-2" }],
+    });
+  });
+});
+
+describe("crm_update_project", () => {
+  it("clears a nullable field when null is passed explicitly", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_update_project", {
+      projectId: "p-1",
+      budgetPlannedCents: null,
+      shortDescription: null,
+    });
+
+    expect(calls[0].path).toBe("/api/v1/projects/p-1");
+    expect(calls[0].options.method).toBe("PATCH");
+    expect(calls[0].options.body).toEqual({
+      shortDescription: null,
+      budgetPlannedCents: null,
+    });
+  });
+});
+
+describe("crm_set_project_favorite", () => {
+  it("PUTs to pin and DELETEs to unpin", async () => {
+    const pin = fakeClient();
+    await handleTool(pin.client, "crm_set_project_favorite", {
+      projectId: "p-1",
+      favorite: true,
+    });
+    expect(pin.calls[0].path).toBe("/api/v1/projects/p-1/favorite");
+    expect(pin.calls[0].options.method).toBe("PUT");
+
+    const unpin = fakeClient();
+    await handleTool(unpin.client, "crm_set_project_favorite", {
+      projectId: "p-1",
+      favorite: "false",
+    });
+    expect(unpin.calls[0].options.method).toBe("DELETE");
+  });
+});
+
+describe("crm_reorder_project_phases", () => {
+  it("parses an orderedPhaseIds array that arrived as a JSON string", async () => {
+    // z.array(z.string()) serialises fine, but clients that build the call
+    // from a text template still send "[\"a\",\"b\"]". Forwarding that
+    // verbatim gives the route a string where it expects an array.
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_reorder_project_phases", {
+      projectId: "p-1",
+      orderedPhaseIds: '["ph-3","ph-1","ph-2"]',
+    });
+
+    expect(calls[0].path).toBe("/api/v1/projects/p-1/phases/reorder");
+    expect(calls[0].options.method).toBe("POST");
+    expect(calls[0].options.body).toEqual({
+      orderedPhaseIds: ["ph-3", "ph-1", "ph-2"],
+    });
+  });
+});
+
+describe("crm_create_project_phase", () => {
+  it("posts to the project's phases collection with only the passed fields", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_create_project_phase", {
+      projectId: "p-1",
+      name: "Ausschreibung",
+      dueDate: "2026-10-15",
+    });
+
+    expect(calls[0].path).toBe("/api/v1/projects/p-1/phases");
+    expect(calls[0].options.method).toBe("POST");
+    expect(calls[0].options.body).toEqual({
+      name: "Ausschreibung",
+      dueDate: "2026-10-15",
+    });
+  });
+});
+
+describe("crm_update_project_milestone", () => {
+  it("PATCHes the nested milestone path and clears phaseId with null", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_update_project_milestone", {
+      projectId: "p-1",
+      milestoneId: "ms 7",
+      status: "erreicht",
+      phaseId: null,
+    });
+
+    expect(calls[0].path).toBe("/api/v1/projects/p-1/milestones/ms%207");
+    expect(calls[0].options.method).toBe("PATCH");
+    expect(calls[0].options.body).toEqual({
+      status: "erreicht",
+      phaseId: null,
+    });
+  });
+});
+
+describe("crm_add_project_member", () => {
+  it("posts userId and role to the project's members collection", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_add_project_member", {
+      projectId: "p-1",
+      userId: "u-9",
+      role: "leiter",
+    });
+
+    expect(calls[0].path).toBe("/api/v1/projects/p-1/members");
+    expect(calls[0].options.method).toBe("POST");
+    expect(calls[0].options.body).toEqual({ userId: "u-9", role: "leiter" });
+  });
+});
+
+describe("crm_remove_project_member", () => {
+  it("DELETEs the member subresource, url-encoding the user id", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_remove_project_member", {
+      projectId: "p-1",
+      userId: "u/9",
+    });
+
+    expect(calls[0].path).toBe("/api/v1/projects/p-1/members/u%2F9");
+    expect(calls[0].options.method).toBe("DELETE");
+  });
+});
+
+describe("crm_create_project_risk", () => {
+  it("posts the risk body without inventing defaults", async () => {
+    // severity/likelihood defaults belong to the service, not to dispatch —
+    // a default sent from here would override whatever the service decides.
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_create_project_risk", {
+      projectId: "p-1",
+      title: "Lieferzeit der Transporter",
+      severity: "hoch",
+      mitigation: "Zweiten Haendler anfragen",
+    });
+
+    expect(calls[0].path).toBe("/api/v1/projects/p-1/risks");
+    expect(calls[0].options.method).toBe("POST");
+    expect(calls[0].options.body).toEqual({
+      title: "Lieferzeit der Transporter",
+      severity: "hoch",
+      mitigation: "Zweiten Haendler anfragen",
+    });
+  });
+});
+
+describe("crm_create_project_budget_entry", () => {
+  it("coerces amountCents from a string so cents never reach the route as text", async () => {
+    // The whole money model is integer cents. A string amount would be
+    // stored as NaN or rejected, and the budget bar would silently stall.
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_create_project_budget_entry", {
+      projectId: "p-1",
+      label: "Leasingrate Mai",
+      amountCents: "89900",
+      kind: "ist",
+      bookedAt: "2026-05-02",
+    });
+
+    expect(calls[0].path).toBe("/api/v1/projects/p-1/budget");
+    expect(calls[0].options.method).toBe("POST");
+    expect(calls[0].options.body).toEqual({
+      label: "Leasingrate Mai",
+      amountCents: 89900,
+      kind: "ist",
+      bookedAt: "2026-05-02",
+    });
+  });
+});
+
+describe("crm_get_project_document", () => {
+  it("reads the project document subresource, not a deals path", async () => {
+    // Project documents live under /projects, deal PDFs under /deals. The
+    // wrong prefix answers with the Next.js HTML shell, not a 404.
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_get_project_document", {
+      projectId: "p-1",
+      documentId: "doc-2",
+    });
+
+    expect(calls[0].path).toBe("/api/v1/projects/p-1/documents/doc-2");
+    expect(calls[0].path).not.toContain("/deals/");
+    expect(calls[0].options.method).toBeUndefined();
+  });
+});
+
+describe("crm_add_task_dependency", () => {
+  it("puts the successor in the path and the predecessor in the body", async () => {
+    // The edge reads "predecessor must finish before successor can start".
+    // Swapping the two silently inverts every arrow on the sprint timeline,
+    // so the direction is pinned by a test rather than by a comment.
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_add_task_dependency", {
+      predecessorTaskId: "t-vorher",
+      successorTaskId: "t-danach",
+    });
+
+    expect(calls[0].path).toBe("/api/v1/tasks/t-danach/dependencies");
+    expect(calls[0].options.method).toBe("POST");
+    expect(calls[0].options.body).toEqual({ predecessorTaskId: "t-vorher" });
+  });
+
+  it("url-encodes both ids", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_add_task_dependency", {
+      predecessorTaskId: "a/b",
+      successorTaskId: "c/d",
+    });
+
+    expect(calls[0].path).toBe("/api/v1/tasks/c%2Fd/dependencies");
+    expect(calls[0].options.body).toEqual({ predecessorTaskId: "a/b" });
+  });
+});
+
+describe("crm_remove_task_dependency", () => {
+  it("DELETEs the edge under the task it is listed on", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_remove_task_dependency", {
+      taskId: "t-1",
+      dependencyId: "dep-5",
+    });
+
+    expect(calls[0].path).toBe("/api/v1/tasks/t-1/dependencies/dep-5");
+    expect(calls[0].options.method).toBe("DELETE");
+  });
+});
+
+describe("crm_activate_sprint", () => {
+  it("PATCHes the action verb and nothing else", async () => {
+    // The route's PATCH is overloaded: anything that is not a known action
+    // falls through to the plain edit branch, where an empty body would
+    // blank name, goal and dates. The action must be the whole body.
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_activate_sprint", { sprintId: "s-3" });
+
+    expect(calls[0].path).toBe("/api/v1/sprints/s-3");
+    expect(calls[0].options.method).toBe("PATCH");
+    expect(calls[0].options.body).toEqual({ action: "aktivieren" });
+  });
+});
+
+describe("crm_close_sprint", () => {
+  it("PATCHes the abschliessen action", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_close_sprint", { sprintId: "s-3" });
+
+    expect(calls[0].options.body).toEqual({ action: "abschliessen" });
+  });
+});
+
+describe("crm_update_sprint", () => {
+  it("never sends an action key, and coerces capacityPoints", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_update_sprint", {
+      sprintId: "s-3",
+      name: "Sprint 4",
+      capacityPoints: "18",
+    });
+
+    expect(calls[0].options.body).toEqual({
+      name: "Sprint 4",
+      capacityPoints: 18,
+    });
+    expect(calls[0].options.body).not.toHaveProperty("action");
+  });
+});
+
+describe("crm_list_tasks", () => {
+  it("coerces the new filters into query values the route can read", async () => {
+    // Every one of these arrives as a string from at least one MCP client.
+    // The route compares with === true and Number(), so an uncoerced
+    // "false" is truthy and an uncoerced "7" is a string.
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_list_tasks", {
+      showCompleted: "false",
+      kind: "projekt",
+      projectId: "p-1",
+      phaseId: "ph-2",
+      area: "auftrag",
+      status: "in_arbeit",
+      sprintId: "active",
+      overdue: "true",
+      dueWithinDays: "7",
+      includeSubtasks: "true",
+      limit: "100",
+      offset: "0",
+    });
+
+    expect(calls[0].path).toBe("/api/v1/tasks");
+    expect(calls[0].options.query).toEqual({
+      showCompleted: false,
+      kind: "projekt",
+      projectId: "p-1",
+      phaseId: "ph-2",
+      area: "auftrag",
+      status: "in_arbeit",
+      sprintId: "active",
+      overdue: true,
+      dueWithinDays: 7,
+      includeSubtasks: true,
+      limit: 100,
+      offset: 0,
+    });
+  });
+
+  it("sends no filters at all when none were given", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_list_tasks", {});
+
+    const query = calls[0].options.query as Record<string, unknown>;
+    expect(query.kind).toBeUndefined();
+    expect(query.overdue).toBeUndefined();
+    expect(query.includeSubtasks).toBeUndefined();
+  });
+});
+
+describe("crm_create_task", () => {
+  it("forwards every project field of the new work model", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_create_task", {
+      content: "Angebot Telematik einholen",
+      description: "Drei Anbieter vergleichen",
+      priority: "hoch",
+      status: "in_arbeit",
+      kind: "projekt",
+      projectId: "p-1",
+      phaseId: "ph-2",
+      startDate: "2026-09-01",
+      deadline: "2026-09-15",
+      sprintId: "s-3",
+      assigneeIds: ["u-1"],
+      recordIds: ["r-1"],
+    });
+
+    expect(calls[0].path).toBe("/api/v1/tasks");
+    expect(calls[0].options.method).toBe("POST");
+    expect(calls[0].options.body).toEqual({
+      content: "Angebot Telematik einholen",
+      description: "Drei Anbieter vergleichen",
+      priority: "hoch",
+      status: "in_arbeit",
+      kind: "projekt",
+      projectId: "p-1",
+      phaseId: "ph-2",
+      startDate: "2026-09-01",
+      deadline: "2026-09-15",
+      sprintId: "s-3",
+      assigneeIds: ["u-1"],
+      recordIds: ["r-1"],
+    });
+  });
+});
+
+describe("crm_update_task", () => {
+  it("runs isCompleted through bool() instead of forwarding the raw string", async () => {
+    // The bug this test exists for: isCompleted was the only boolean in the
+    // whole dispatch that skipped bool(). "true" reached the route as a
+    // string, and "false" — which is truthy — completed the task.
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_update_task", {
+      taskId: "t-1",
+      isCompleted: "false",
+    });
+
+    expect(calls[0].path).toBe("/api/v1/tasks/t-1");
+    expect(calls[0].options.method).toBe("PATCH");
+    expect(calls[0].options.body).toEqual({ isCompleted: false });
+  });
+
+  it("passes every new field through to the PATCH body", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_update_task", {
+      taskId: "t-1",
+      content: "Neuer Titel",
+      description: "Neuer Text",
+      priority: "sehr_hoch",
+      status: "erledigt",
+      kind: "projekt",
+      projectId: "p-1",
+      phaseId: "ph-2",
+      area: null,
+      startDate: "2026-09-01",
+      deadline: "2026-09-30",
+      sprintId: "s-3",
+      parentTaskId: null,
+      assigneeIds: ["u-1", "u-2"],
+      recordIds: [],
+    });
+
+    expect(calls[0].options.body).toEqual({
+      content: "Neuer Titel",
+      description: "Neuer Text",
+      priority: "sehr_hoch",
+      status: "erledigt",
+      kind: "projekt",
+      projectId: "p-1",
+      phaseId: "ph-2",
+      area: null,
+      startDate: "2026-09-01",
+      deadline: "2026-09-30",
+      sprintId: "s-3",
+      parentTaskId: null,
+      assigneeIds: ["u-1", "u-2"],
+      recordIds: [],
+    });
+  });
+
+  it("omits fields the caller did not send", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_update_task", {
+      taskId: "t-1",
+      status: "in_arbeit",
+    });
+
+    expect(calls[0].options.body).toEqual({ status: "in_arbeit" });
+  });
+});
+
+describe("crm_move_task", () => {
+  it("always sends projectId and phaseId, even as null", async () => {
+    // A move that omits projectId is not a move. Sending null explicitly is
+    // what pulls the task out of its project and back to kind 'operativ'.
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_move_task", {
+      taskId: "t-1",
+      projectId: null,
+      area: "buchhaltung",
+    });
+
+    expect(calls[0].path).toBe("/api/v1/tasks/t-1");
+    expect(calls[0].options.method).toBe("PATCH");
+    expect(calls[0].options.body).toEqual({
+      projectId: null,
+      phaseId: null,
+      area: "buchhaltung",
+    });
+  });
+
+  it("moves into a project and phase without touching area", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_move_task", {
+      taskId: "t-1",
+      projectId: "p-2",
+      phaseId: "ph-9",
+    });
+
+    expect(calls[0].options.body).toEqual({
+      projectId: "p-2",
+      phaseId: "ph-9",
+    });
+  });
+});
+
+describe("crm_create_subtask", () => {
+  it("posts to the parent's subtasks collection with the inherited fields left out", async () => {
+    // kind/projectId/phaseId are inherited from the parent (invariant I4).
+    // Sending them here would let an agent create a child in a different
+    // project than its parent, which the service then has to undo.
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_create_subtask", {
+      taskId: "t-1",
+      content: "Angebote vergleichen",
+      assigneeIds: ["u-1"],
+    });
+
+    expect(calls[0].path).toBe("/api/v1/tasks/t-1/subtasks");
+    expect(calls[0].options.method).toBe("POST");
+    expect(calls[0].options.body).toEqual({
+      content: "Angebote vergleichen",
+      assigneeIds: ["u-1"],
+    });
+  });
+});
+
+describe("crm_create_task_comment", () => {
+  it("sends the comment text under the key the route reads", async () => {
+    // The route reads body.body — the argument name is not cosmetic.
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_create_task_comment", {
+      taskId: "t-1",
+      body: "Termin steht, @Dario schaut drauf",
+    });
+
+    expect(calls[0].path).toBe("/api/v1/tasks/t-1/comments");
+    expect(calls[0].options.method).toBe("POST");
+    expect(calls[0].options.body).toEqual({
+      body: "Termin steht, @Dario schaut drauf",
+    });
+  });
+});
+
+describe("crm_work_dashboard", () => {
+  it("omits sprintId entirely when none was given", async () => {
+    // An empty-string sprintId would be dropped by CrmClient anyway, but an
+    // explicit "undefined" string would not — so the arg is passed through
+    // the same cast every other optional query string uses.
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_work_dashboard", {});
+
+    expect(calls[0].path).toBe("/api/v1/work/dashboard");
+    expect((calls[0].options.query as Record<string, unknown>).sprintId).toBeUndefined();
+  });
+
+  it("scopes to one sprint when asked", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_work_dashboard", { sprintId: "s-3" });
+
+    expect((calls[0].options.query as Record<string, unknown>).sprintId).toBe("s-3");
+  });
+});
+
+describe("crm_sprint_timeline", () => {
+  it("forwards both scopes and coerces maxBarsPerRow", async () => {
+    // sprintId and projectId are different questions, not synonyms: one
+    // scopes to a sprint across projects, the other to a project across
+    // sprints. Both have to reach the route under their own key.
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_sprint_timeline", {
+      sprintId: "s-3",
+      projectId: "p-1",
+      maxBarsPerRow: "12",
+    });
+
+    expect(calls[0].path).toBe("/api/v1/work/timeline");
+    expect(calls[0].options.query).toEqual({
+      sprintId: "s-3",
+      projectId: "p-1",
+      maxBarsPerRow: 12,
+    });
+  });
+
+  it("sends no scope at all when none was given", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_sprint_timeline", {});
+
+    const query = calls[0].options.query as Record<string, unknown>;
+    expect(query.sprintId).toBeUndefined();
+    expect(query.projectId).toBeUndefined();
+    expect(query.maxBarsPerRow).toBeUndefined();
+  });
+});
+
+describe("crm_generate_project_plan", () => {
+  it("parses scope arrays that arrived as JSON strings", async () => {
+    // The wizard's own client sends real arrays; MCP clients that build the
+    // call from a text template send '["…"]'. Forwarding that verbatim made
+    // the planner see a single scope item that is a JSON blob.
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_generate_project_plan", {
+      name: "Standort Augsburg",
+      category: "standorte",
+      priority: "hoch",
+      startDate: "2026-10-01",
+      endDate: "2027-03-31",
+      problemStatement: "Keine Praesenz im Westen",
+      goalStatement: "Zweiter Standort betriebsbereit",
+      scopeIn: '["Halle mieten","Team aufbauen"]',
+      scopeOut: ["Franchise"],
+    });
+
+    expect(calls[0].path).toBe("/api/v1/projects/plan-generate");
+    expect(calls[0].options.method).toBe("POST");
+    expect(calls[0].options.body).toEqual({
+      name: "Standort Augsburg",
+      category: "standorte",
+      priority: "hoch",
+      startDate: "2026-10-01",
+      endDate: "2027-03-31",
+      problemStatement: "Keine Praesenz im Westen",
+      goalStatement: "Zweiter Standort betriebsbereit",
+      scopeIn: ["Halle mieten", "Team aufbauen"],
+      scopeOut: ["Franchise"],
+    });
+  });
+
+  it("leaves a scope string that is not JSON alone", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_generate_project_plan", {
+      name: "Test",
+      scopeIn: "Halle mieten",
+    });
+
+    expect(calls[0].options.body).toEqual({
+      name: "Test",
+      scopeIn: "Halle mieten",
+    });
+  });
+});

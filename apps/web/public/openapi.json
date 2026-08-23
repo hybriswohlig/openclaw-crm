@@ -136,9 +136,83 @@
         "properties": {
           "id": { "type": "string", "format": "uuid" },
           "content": { "type": "string" },
+          "description": { "type": "string", "nullable": true },
           "isCompleted": { "type": "boolean" },
+          "status": { "type": "string", "enum": ["geplant", "in_arbeit", "erledigt"] },
+          "kind": { "type": "string", "enum": ["projekt", "operativ"] },
+          "projectId": { "type": "string", "nullable": true },
+          "projectName": { "type": "string", "nullable": true },
+          "phaseId": { "type": "string", "nullable": true },
+          "area": { "type": "string", "nullable": true },
+          "priority": { "type": "string", "enum": ["sehr_hoch", "hoch", "mittel", "niedrig"], "nullable": true },
+          "sprintId": { "type": "string", "nullable": true },
+          "parentTaskId": { "type": "string", "nullable": true },
+          "startDate": { "type": "string", "format": "date", "nullable": true },
           "deadline": { "type": "string", "format": "date-time", "nullable": true },
+          "completedAt": { "type": "string", "format": "date-time", "nullable": true },
           "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Project": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "shortDescription": { "type": "string", "nullable": true },
+          "category": { "type": "string", "description": "PROJECT_CATEGORIES value" },
+          "priority": { "type": "string", "enum": ["sehr_hoch", "hoch", "mittel", "niedrig"] },
+          "status": { "type": "string", "enum": ["geplant", "aktiv", "pausiert", "abgeschlossen", "abgebrochen"] },
+          "icon": { "type": "string", "nullable": true },
+          "color": { "type": "string", "nullable": true },
+          "startDate": { "type": "string", "format": "date", "nullable": true },
+          "endDate": { "type": "string", "format": "date", "nullable": true },
+          "ownerUserId": { "type": "string", "nullable": true },
+          "problemStatement": { "type": "string", "nullable": true },
+          "goalStatement": { "type": "string", "nullable": true },
+          "successCriteria": { "type": "string", "nullable": true },
+          "scopeIn": { "type": "array", "items": { "type": "string" } },
+          "scopeOut": { "type": "array", "items": { "type": "string" } },
+          "budgetPlannedCents": { "type": "integer", "nullable": true, "description": "Integer euro cents" },
+          "archivedAt": { "type": "string", "format": "date-time", "nullable": true }
+        }
+      },
+      "ProjectPhase": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "projectId": { "type": "string" },
+          "name": { "type": "string" },
+          "description": { "type": "string", "nullable": true },
+          "position": { "type": "integer" },
+          "status": { "type": "string", "enum": ["geplant", "in_arbeit", "abgeschlossen"] },
+          "startDate": { "type": "string", "format": "date", "nullable": true },
+          "dueDate": { "type": "string", "format": "date", "nullable": true }
+        }
+      },
+      "ProjectMilestone": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "projectId": { "type": "string" },
+          "phaseId": { "type": "string", "nullable": true },
+          "name": { "type": "string" },
+          "dueDate": { "type": "string", "format": "date", "nullable": true },
+          "status": { "type": "string", "enum": ["geplant", "erreicht", "verfehlt"] },
+          "reachedAt": { "type": "string", "format": "date-time", "nullable": true }
+        }
+      },
+      "Sprint": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "goal": { "type": "string", "nullable": true },
+          "state": { "type": "string", "enum": ["planung", "aktiv", "abgeschlossen"] },
+          "startDate": { "type": "string", "format": "date", "nullable": true },
+          "endDate": { "type": "string", "format": "date", "nullable": true },
+          "capacityPoints": { "type": "integer", "nullable": true, "description": "Planned number of tasks — the column kept its points name" },
+          "metrics": { "type": "object", "properties": { "totalTasks": { "type": "integer" }, "doneTasks": { "type": "integer" }, "openTasks": { "type": "integer" }, "progressPct": { "type": "integer" } } },
+          "metricsBasis": { "type": "string", "enum": ["tasks", "points"], "description": "'tasks' — metrics above are real task counts. 'points' — a sprint closed before this module's rewrite; the same fields hold a frozen legacy Fibonacci story-point sum and must never be presented as a task count." }
         }
       },
       "Note": {
@@ -991,6 +1065,15 @@
         "tags": ["Tasks"],
         "parameters": [
           { "name": "showCompleted", "in": "query", "schema": { "type": "string", "enum": ["true", "false"] } },
+          { "name": "kind", "in": "query", "schema": { "type": "string", "enum": ["projekt", "operativ"] } },
+          { "name": "projectId", "in": "query", "schema": { "type": "string" } },
+          { "name": "phaseId", "in": "query", "schema": { "type": "string" } },
+          { "name": "area", "in": "query", "schema": { "type": "string" } },
+          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["geplant", "in_arbeit", "erledigt"] } },
+          { "name": "sprintId", "in": "query", "description": "Sprint id, 'active' or 'none'", "schema": { "type": "string" } },
+          { "name": "overdue", "in": "query", "schema": { "type": "string", "enum": ["true", "false"] } },
+          { "name": "dueWithinDays", "in": "query", "schema": { "type": "integer" } },
+          { "name": "includeSubtasks", "in": "query", "schema": { "type": "string", "enum": ["true", "false"] } },
           { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 50, "maximum": 200 } },
           { "name": "offset", "in": "query", "schema": { "type": "integer", "default": 0 } }
         ],
@@ -1011,7 +1094,17 @@
                 "required": ["content"],
                 "properties": {
                   "content": { "type": "string" },
-                  "deadline": { "type": "string", "format": "date-time" },
+                  "description": { "type": "string", "nullable": true },
+                  "deadline": { "type": "string", "format": "date-time", "nullable": true },
+                  "startDate": { "type": "string", "format": "date", "nullable": true },
+                  "priority": { "type": "string", "enum": ["sehr_hoch", "hoch", "mittel", "niedrig"] },
+                  "status": { "type": "string", "enum": ["geplant", "in_arbeit", "erledigt"] },
+                  "kind": { "type": "string", "enum": ["projekt", "operativ"] },
+                  "projectId": { "type": "string", "nullable": true },
+                  "phaseId": { "type": "string", "nullable": true },
+                  "area": { "type": "string", "nullable": true },
+                  "sprintId": { "type": "string", "nullable": true },
+                  "parentTaskId": { "type": "string", "nullable": true },
                   "recordIds": { "type": "array", "items": { "type": "string", "format": "uuid" } },
                   "assigneeIds": { "type": "array", "items": { "type": "string", "format": "uuid" } }
                 }
@@ -1039,8 +1132,20 @@
                 "type": "object",
                 "properties": {
                   "content": { "type": "string" },
+                  "description": { "type": "string", "nullable": true },
                   "isCompleted": { "type": "boolean" },
-                  "deadline": { "type": "string", "format": "date-time" }
+                  "deadline": { "type": "string", "format": "date-time", "nullable": true },
+                  "startDate": { "type": "string", "format": "date", "nullable": true },
+                  "priority": { "type": "string", "enum": ["sehr_hoch", "hoch", "mittel", "niedrig"] },
+                  "status": { "type": "string", "enum": ["geplant", "in_arbeit", "erledigt"] },
+                  "kind": { "type": "string", "enum": ["projekt", "operativ"] },
+                  "projectId": { "type": "string", "nullable": true },
+                  "phaseId": { "type": "string", "nullable": true },
+                  "area": { "type": "string", "nullable": true },
+                  "sprintId": { "type": "string", "nullable": true },
+                  "parentTaskId": { "type": "string", "nullable": true },
+                  "recordIds": { "type": "array", "items": { "type": "string", "format": "uuid" } },
+                  "assigneeIds": { "type": "array", "items": { "type": "string", "format": "uuid" } }
                 }
               }
             }
@@ -1057,6 +1162,317 @@
         "responses": {
           "200": { "description": "Deleted" }
         }
+      }
+    },
+    "/api/v1/projects": {
+      "get": {
+        "operationId": "listProjects",
+        "summary": "List projects with stats",
+        "tags": ["Projects"],
+        "parameters": [
+          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["geplant", "aktiv", "pausiert", "abgeschlossen", "abgebrochen"] } },
+          { "name": "category", "in": "query", "schema": { "type": "string" } },
+          { "name": "sprintId", "in": "query", "schema": { "type": "string" } },
+          { "name": "favoritesOnly", "in": "query", "schema": { "type": "string", "enum": ["true", "false"] } },
+          { "name": "includeArchived", "in": "query", "schema": { "type": "string", "enum": ["true", "false"] } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 50 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "default": 0 } }
+        ],
+        "responses": { "200": { "description": "Paginated projects with their stats block" } }
+      },
+      "post": {
+        "operationId": "createProject",
+        "summary": "Create a project",
+        "tags": ["Projects"],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Project", "required": ["name", "category"] } } }
+        },
+        "responses": { "201": { "description": "Project created" } }
+      }
+    },
+    "/api/v1/projects/plan-generate": {
+      "post": {
+        "operationId": "generateProjectPlan",
+        "summary": "AI draft plan (phases, tasks, milestones, risks) — writes nothing",
+        "tags": ["Projects"],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "required": ["name", "category"], "properties": { "name": { "type": "string" }, "shortDescription": { "type": "string" }, "category": { "type": "string", "description": "PROJECT_CATEGORIES value; missing or unknown is rejected with 400 \"Ungültiger Projektbereich.\"" }, "priority": { "type": "string" }, "startDate": { "type": "string", "format": "date" }, "endDate": { "type": "string", "format": "date" }, "problemStatement": { "type": "string" }, "goalStatement": { "type": "string" }, "successCriteria": { "type": "string" }, "scopeIn": { "type": "array", "items": { "type": "string" } }, "scopeOut": { "type": "array", "items": { "type": "string" } } } } } }
+        },
+        "responses": { "200": { "description": "Draft plan with day offsets relative to the project start" } }
+      }
+    },
+    "/api/v1/projects/{projectId}": {
+      "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "get": { "operationId": "getProject", "summary": "Get one project with stats", "tags": ["Projects"], "responses": { "200": { "description": "Project" } } },
+      "patch": {
+        "operationId": "updateProject",
+        "summary": "Update a project",
+        "tags": ["Projects"],
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Project" } } } },
+        "responses": { "200": { "description": "Updated project" } }
+      },
+      "delete": { "operationId": "deleteProject", "summary": "Delete a project (tasks survive as operative)", "tags": ["Projects"], "responses": { "200": { "description": "Deleted" } } }
+    },
+    "/api/v1/projects/{projectId}/overview": {
+      "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "get": { "operationId": "getProjectOverview", "summary": "KPI bundle for one project", "tags": ["Projects"], "responses": { "200": { "description": "Stats only" } } }
+    },
+    "/api/v1/projects/{projectId}/activity": {
+      "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "get": { "operationId": "getProjectActivity", "summary": "Activity feed for a project", "tags": ["Projects"], "responses": { "200": { "description": "Activity events" } } }
+    },
+    "/api/v1/projects/{projectId}/favorite": {
+      "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "put": { "operationId": "addProjectFavorite", "summary": "Pin a project for the calling user", "tags": ["Projects"], "responses": { "200": { "description": "Pinned" } } },
+      "delete": { "operationId": "removeProjectFavorite", "summary": "Unpin a project for the calling user", "tags": ["Projects"], "responses": { "200": { "description": "Unpinned" } } }
+    },
+    "/api/v1/projects/{projectId}/phases": {
+      "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "get": { "operationId": "listProjectPhases", "summary": "List phases in board order", "tags": ["Projects"], "responses": { "200": { "description": "Phases with progress" } } },
+      "post": {
+        "operationId": "createProjectPhase",
+        "summary": "Append a phase",
+        "tags": ["Projects"],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectPhase" } } } },
+        "responses": { "201": { "description": "Phase created" } }
+      }
+    },
+    "/api/v1/projects/{projectId}/phases/reorder": {
+      "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "post": {
+        "operationId": "reorderProjectPhases",
+        "summary": "Rewrite the phase order (must list every phase exactly once)",
+        "tags": ["Projects"],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["orderedPhaseIds"], "properties": { "orderedPhaseIds": { "type": "array", "items": { "type": "string" } } } } } } },
+        "responses": { "200": { "description": "Phases in the new order" } }
+      }
+    },
+    "/api/v1/projects/{projectId}/phases/{phaseId}": {
+      "parameters": [
+        { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string" } },
+        { "name": "phaseId", "in": "path", "required": true, "schema": { "type": "string" } }
+      ],
+      "patch": {
+        "operationId": "updateProjectPhase",
+        "summary": "Update a phase",
+        "tags": ["Projects"],
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectPhase" } } } },
+        "responses": { "200": { "description": "Updated phase" } }
+      },
+      "delete": { "operationId": "deleteProjectPhase", "summary": "Delete a phase (its tasks keep the project)", "tags": ["Projects"], "responses": { "200": { "description": "Deleted" } } }
+    },
+    "/api/v1/projects/{projectId}/milestones": {
+      "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "get": { "operationId": "listProjectMilestones", "summary": "List milestones", "tags": ["Projects"], "responses": { "200": { "description": "Milestones" } } },
+      "post": {
+        "operationId": "createProjectMilestone",
+        "summary": "Create a milestone",
+        "tags": ["Projects"],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectMilestone" } } } },
+        "responses": { "201": { "description": "Milestone created" } }
+      }
+    },
+    "/api/v1/projects/{projectId}/milestones/{milestoneId}": {
+      "parameters": [
+        { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string" } },
+        { "name": "milestoneId", "in": "path", "required": true, "schema": { "type": "string" } }
+      ],
+      "patch": {
+        "operationId": "updateProjectMilestone",
+        "summary": "Update a milestone",
+        "tags": ["Projects"],
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectMilestone" } } } },
+        "responses": { "200": { "description": "Updated milestone" } }
+      },
+      "delete": { "operationId": "deleteProjectMilestone", "summary": "Delete a milestone", "tags": ["Projects"], "responses": { "200": { "description": "Deleted" } } }
+    },
+    "/api/v1/projects/{projectId}/members": {
+      "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "get": { "operationId": "listProjectMembers", "summary": "List project members and their roles", "tags": ["Projects"], "responses": { "200": { "description": "Members" } } },
+      "post": {
+        "operationId": "addProjectMember",
+        "summary": "Add a workspace user to a project",
+        "tags": ["Projects"],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["userId"], "properties": { "userId": { "type": "string" }, "role": { "type": "string", "enum": ["leiter", "mitglied", "beobachter"] } } } } } },
+        "responses": { "201": { "description": "Member added" } }
+      }
+    },
+    "/api/v1/projects/{projectId}/members/{userId}": {
+      "parameters": [
+        { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string" } },
+        { "name": "userId", "in": "path", "required": true, "schema": { "type": "string" } }
+      ],
+      "patch": {
+        "operationId": "updateProjectMemberRole",
+        "summary": "Change a member's role (display only, not access control)",
+        "tags": ["Projects"],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["role"], "properties": { "role": { "type": "string", "enum": ["leiter", "mitglied", "beobachter"] } } } } } },
+        "responses": { "200": { "description": "Updated member" } }
+      },
+      "delete": { "operationId": "removeProjectMember", "summary": "Remove a member (their tasks stay assigned)", "tags": ["Projects"], "responses": { "200": { "description": "Removed" } } }
+    },
+    "/api/v1/projects/{projectId}/risks": {
+      "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "get": { "operationId": "listProjectRisks", "summary": "List risks", "tags": ["Projects"], "responses": { "200": { "description": "Risks" } } },
+      "post": {
+        "operationId": "createProjectRisk",
+        "summary": "Log a risk (severity 'hoch' notifies the workspace)",
+        "tags": ["Projects"],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["title"], "properties": { "title": { "type": "string" }, "description": { "type": "string" }, "severity": { "type": "string", "enum": ["niedrig", "mittel", "hoch"], "description": "Defaults to 'mittel' when omitted" }, "likelihood": { "type": "string", "enum": ["niedrig", "mittel", "hoch"], "description": "Left unset (null) when omitted — never defaulted to 'mittel'" }, "mitigation": { "type": "string" }, "ownerUserId": { "type": "string" } } } } } },
+        "responses": { "201": { "description": "Risk created" } }
+      }
+    },
+    "/api/v1/projects/{projectId}/risks/{riskId}": {
+      "parameters": [
+        { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string" } },
+        { "name": "riskId", "in": "path", "required": true, "schema": { "type": "string" } }
+      ],
+      "patch": {
+        "operationId": "updateProjectRisk",
+        "summary": "Update a risk",
+        "tags": ["Projects"],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "title": { "type": "string" }, "description": { "type": "string" }, "severity": { "type": "string", "enum": ["niedrig", "mittel", "hoch"] }, "likelihood": { "type": "string", "enum": ["niedrig", "mittel", "hoch"] }, "status": { "type": "string", "enum": ["offen", "beobachtet", "geschlossen"] }, "mitigation": { "type": "string" }, "ownerUserId": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Updated risk" } }
+      },
+      "delete": { "operationId": "deleteProjectRisk", "summary": "Delete a risk", "tags": ["Projects"], "responses": { "200": { "description": "Deleted" } } }
+    },
+    "/api/v1/projects/{projectId}/budget": {
+      "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "get": { "operationId": "getProjectBudget", "summary": "Budget summary and entries (integer euro cents)", "tags": ["Projects"], "responses": { "200": { "description": "Budget summary" } } },
+      "post": {
+        "operationId": "createProjectBudgetEntry",
+        "summary": "Add a budget line ('plan' budgeted, 'ist' spent)",
+        "tags": ["Projects"],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["label", "amountCents", "kind"], "properties": { "label": { "type": "string" }, "amountCents": { "type": "integer" }, "kind": { "type": "string", "enum": ["plan", "ist"] }, "bookedAt": { "type": "string", "format": "date" }, "note": { "type": "string" } } } } } },
+        "responses": { "201": { "description": "Entry created" } }
+      }
+    },
+    "/api/v1/projects/{projectId}/budget/{entryId}": {
+      "parameters": [
+        { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string" } },
+        { "name": "entryId", "in": "path", "required": true, "schema": { "type": "string" } }
+      ],
+      "patch": {
+        "operationId": "updateProjectBudgetEntry",
+        "summary": "Update a budget entry",
+        "tags": ["Projects"],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "label": { "type": "string" }, "amountCents": { "type": "integer" }, "kind": { "type": "string", "enum": ["plan", "ist"] }, "bookedAt": { "type": "string", "format": "date" }, "note": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Updated entry" } }
+      },
+      "delete": { "operationId": "deleteProjectBudgetEntry", "summary": "Delete a budget entry", "tags": ["Projects"], "responses": { "200": { "description": "Deleted" } } }
+    },
+    "/api/v1/projects/{projectId}/documents": {
+      "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "get": { "operationId": "listProjectDocuments", "summary": "List project documents (metadata only)", "tags": ["Projects"], "responses": { "200": { "description": "Document metadata" } } },
+      "post": {
+        "operationId": "uploadProjectDocument",
+        "summary": "Upload a project document (max 10 MB)",
+        "tags": ["Projects"],
+        "requestBody": { "required": true, "content": { "multipart/form-data": { "schema": { "type": "object", "properties": { "file": { "type": "string", "format": "binary" } } } } } },
+        "responses": { "201": { "description": "Document stored" } }
+      }
+    },
+    "/api/v1/projects/{projectId}/documents/{documentId}": {
+      "parameters": [
+        { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string" } },
+        { "name": "documentId", "in": "path", "required": true, "schema": { "type": "string" } }
+      ],
+      "get": { "operationId": "getProjectDocument", "summary": "Get one document including base64 content", "tags": ["Projects"], "responses": { "200": { "description": "Document with content" } } },
+      "delete": { "operationId": "deleteProjectDocument", "summary": "Delete a document permanently", "tags": ["Projects"], "responses": { "200": { "description": "Deleted" } } }
+    },
+    "/api/v1/tasks/{taskId}/subtasks": {
+      "parameters": [{ "name": "taskId", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "get": { "operationId": "listSubtasks", "summary": "List a task's children", "tags": ["Tasks"], "responses": { "200": { "description": "Subtasks" } } },
+      "post": {
+        "operationId": "createSubtask",
+        "summary": "Add a subtask (inherits kind, project and phase from the parent)",
+        "tags": ["Tasks"],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["content"], "properties": { "content": { "type": "string" }, "deadline": { "type": "string", "format": "date-time" }, "assigneeIds": { "type": "array", "items": { "type": "string" } } } } } } },
+        "responses": { "201": { "description": "Subtask created" } }
+      }
+    },
+    "/api/v1/tasks/{taskId}/comments": {
+      "parameters": [{ "name": "taskId", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "get": { "operationId": "listTaskComments", "summary": "List comments (oldest first)", "tags": ["Tasks"], "responses": { "200": { "description": "Comments" } } },
+      "post": {
+        "operationId": "createTaskComment",
+        "summary": "Add a comment (pushes the task audience and @-mentions)",
+        "tags": ["Tasks"],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["body"], "properties": { "body": { "type": "string" } } } } } },
+        "responses": { "201": { "description": "Comment created" } }
+      }
+    },
+    "/api/v1/tasks/{taskId}/dependencies": {
+      "parameters": [{ "name": "taskId", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "get": { "operationId": "listTaskDependencies", "summary": "List dependency edges on a task", "tags": ["Tasks"], "responses": { "200": { "description": "Dependencies" } } },
+      "post": {
+        "operationId": "addTaskDependency",
+        "summary": "Add a dependency — the path task is the successor",
+        "tags": ["Tasks"],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["predecessorTaskId"], "properties": { "predecessorTaskId": { "type": "string" } } } } } },
+        "responses": { "201": { "description": "Dependency created" }, "400": { "description": "Self-link, duplicate or cycle" } }
+      }
+    },
+    "/api/v1/tasks/{taskId}/dependencies/{dependencyId}": {
+      "parameters": [
+        { "name": "taskId", "in": "path", "required": true, "schema": { "type": "string" } },
+        { "name": "dependencyId", "in": "path", "required": true, "schema": { "type": "string" } }
+      ],
+      "delete": { "operationId": "removeTaskDependency", "summary": "Remove a dependency edge", "tags": ["Tasks"], "responses": { "200": { "description": "Deleted" } } }
+    },
+    "/api/v1/sprints": {
+      "get": { "operationId": "listSprints", "summary": "List sprints (newest first) with task-count metrics", "tags": ["Sprints"], "responses": { "200": { "description": "Sprints" } } },
+      "post": {
+        "operationId": "createSprint",
+        "summary": "Create a sprint (starts in state 'planung')",
+        "tags": ["Sprints"],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Sprint" } } } },
+        "responses": { "201": { "description": "Sprint created" } }
+      }
+    },
+    "/api/v1/sprints/{sprintId}": {
+      "parameters": [{ "name": "sprintId", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "get": { "operationId": "getSprint", "summary": "Sprint detail with live metrics", "tags": ["Sprints"], "responses": { "200": { "description": "Sprint" } } },
+      "patch": {
+        "operationId": "updateSprint",
+        "summary": "Edit a sprint, or send { action: 'aktivieren' | 'abschliessen' }",
+        "tags": ["Sprints"],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "action": { "type": "string", "enum": ["aktivieren", "abschliessen"] }, "name": { "type": "string" }, "goal": { "type": "string" }, "startDate": { "type": "string", "format": "date" }, "endDate": { "type": "string", "format": "date" }, "capacityPoints": { "type": "integer", "description": "Planned number of tasks" } } } } } },
+        "responses": { "200": { "description": "Updated sprint" }, "400": { "description": "Another sprint is already active" } }
+      },
+      "delete": { "operationId": "deleteSprint", "summary": "Delete a sprint (only in state 'planung')", "tags": ["Sprints"], "responses": { "200": { "description": "Deleted" } } }
+    },
+    "/api/v1/work/dashboard": {
+      "get": {
+        "operationId": "getWorkDashboard",
+        "summary": "The whole work dashboard in one call",
+        "tags": ["Work"],
+        "parameters": [{ "name": "sprintId", "in": "query", "description": "Defaults to the active sprint", "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "KPIs, projects, tasks, activity, upcoming, team" } }
+      }
+    },
+    "/api/v1/work/timeline": {
+      "get": {
+        "operationId": "getSprintTimeline",
+        "summary": "Gantt-style sprint timeline with dependency edges",
+        "tags": ["Work"],
+        "parameters": [
+          { "name": "sprintId", "in": "query", "description": "Defaults to the active sprint", "schema": { "type": "string" } },
+          { "name": "projectId", "in": "query", "description": "Scope to one project, across sprint boundaries", "schema": { "type": "string" } },
+          { "name": "maxBarsPerRow", "in": "query", "description": "Cap bars per row; the rest come back as a count", "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "Window, rows, bars, dependencies" } }
+      }
+    },
+    "/api/v1/work/team-overview": {
+      "get": {
+        "operationId": "getTeamOverview",
+        "summary": "Per-member assigned / done / overdue counts",
+        "tags": ["Work"],
+        "parameters": [{ "name": "sprintId", "in": "query", "description": "Defaults to the active sprint", "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Team overview" } }
       }
     },
     "/api/v1/workspace": {

@@ -36,6 +36,23 @@ export async function GET(
 }
 
 /**
+ * The only values `body.action` may take.
+ *
+ * PATCH is overloaded: an action, or a plain field edit. Without this list an
+ * unrecognised action silently becomes an edit with no fields, which blanks
+ * the sprint's name, goal and dates instead of reporting the typo.
+ */
+const SPRINT_ACTIONS = ["aktivieren", "abschliessen"] as const;
+type SprintAction = (typeof SPRINT_ACTIONS)[number];
+
+function isSprintAction(value: unknown): value is SprintAction {
+  return (
+    typeof value === "string" &&
+    (SPRINT_ACTIONS as readonly string[]).includes(value)
+  );
+}
+
+/**
  * PATCH /api/v1/sprints/[sprintId]
  *   - { action: "aktivieren" }   → start the sprint (single-active enforced)
  *   - { action: "abschliessen" } → close + carry over unfinished tasks
@@ -57,6 +74,15 @@ export async function PATCH(
   }
 
   try {
+    if ("action" in body && body.action !== undefined && body.action !== null) {
+      if (!isSprintAction(body.action)) {
+        return badRequest(
+          `Unbekannte Aktion: ${String(body.action)}. Erlaubt sind ` +
+            `${SPRINT_ACTIONS.join(" und ")}.`
+        );
+      }
+    }
+
     if (body.action === "aktivieren") {
       const res = await activateSprint(ctx.workspaceId, sprintId);
       if (res.error) return badRequest(res.error);

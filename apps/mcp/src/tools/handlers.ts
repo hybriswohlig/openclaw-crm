@@ -21,6 +21,35 @@ function bool(v: unknown): boolean | undefined {
   return undefined;
 }
 
+/**
+ * I4: coerce an array/object argument that arrived as a JSON string.
+ *
+ * `apps/mcp` has no zod parse before dispatch — `handleTool` in index.ts
+ * passes `args` straight through, so `required`/enum in definitions.ts are
+ * advisory only, unlike the web registry where the SDK's zod parse rejects
+ * a malformed call before it reaches dispatch. The web dispatch.ts grew
+ * this same coercion (see its `asBody`) because MCP clients commonly send
+ * an array/object-typed argument as a JSON string when the schema gives
+ * them nothing stronger to validate against — but that hardening only
+ * reached the web side, so on stdio: scopeIn/scopeOut arrived as a string
+ * and iterated character-by-character (or were silently dropped),
+ * memberUserIds' `Array.isArray` check failed silently (201 with no
+ * members — the very defect once recorded as "fixed in both dispatch
+ * layers", fixed for real arrays only), recordIds/assigneeIds threw a
+ * TypeError deep in `.map()` (opaque 500), and notesContent went into the
+ * TipTap column as a raw string instead of the JSON document it holds.
+ */
+function asBody(v: unknown): unknown {
+  if (typeof v !== "string") return v;
+  const trimmed = v.trim();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return v;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return v;
+  }
+}
+
 function asQuery(obj: unknown): Record<string, string | number | boolean | undefined> | undefined {
   if (!obj || typeof obj !== "object") return undefined;
   const out: Record<string, string | number | boolean | undefined> = {};
@@ -156,35 +185,78 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
       return client.request("/api/v1/tasks", {
         query: {
           showCompleted: bool(args.showCompleted),
+          kind: args.kind as string | undefined,
+          projectId: args.projectId as string | undefined,
+          phaseId: args.phaseId as string | undefined,
+          area: args.area as string | undefined,
+          status: args.status as string | undefined,
+          sprintId: args.sprintId as string | undefined,
+          overdue: bool(args.overdue),
+          dueWithinDays: num(args.dueWithinDays),
+          includeSubtasks: bool(args.includeSubtasks),
           limit: num(args.limit),
           offset: num(args.offset),
         },
       });
-    case "crm_create_task":
-      return client.request("/api/v1/tasks", {
-        method: "POST",
-        body: {
-          content: args.content,
-          deadline: args.deadline,
-          recordIds: args.recordIds,
-          assigneeIds: args.assigneeIds,
-        },
-      });
-    case "crm_update_task":
+    case "crm_get_task":
+      return client.request(`/api/v1/tasks/${encodeURIComponent(str(args.taskId))}`);
+    case "crm_create_task": {
+      const body: Record<string, unknown> = { content: args.content };
+      for (const key of [
+        "description",
+        "deadline",
+        "startDate",
+        "priority",
+        "status",
+        "kind",
+        "projectId",
+        "phaseId",
+        "area",
+        "sprintId",
+        "parentTaskId",
+      ]) {
+        if (args[key] !== undefined) body[key] = args[key];
+      }
+      if (args.recordIds !== undefined) body.recordIds = asBody(args.recordIds);
+      if (args.assigneeIds !== undefined) {
+        body.assigneeIds = asBody(args.assigneeIds);
+      }
+      return client.request("/api/v1/tasks", { method: "POST", body });
+    }
+    case "crm_update_task": {
+      const body: Record<string, unknown> = {};
+      for (const key of [
+        "content",
+        "description",
+        "deadline",
+        "startDate",
+        "priority",
+        "status",
+        "kind",
+        "projectId",
+        "phaseId",
+        "area",
+        "sprintId",
+        "parentTaskId",
+      ]) {
+        if (args[key] !== undefined) body[key] = args[key];
+      }
+      if (args.isCompleted !== undefined) {
+        body.isCompleted = bool(args.isCompleted);
+      }
+      if (args.recordIds !== undefined) body.recordIds = asBody(args.recordIds);
+      if (args.assigneeIds !== undefined) {
+        body.assigneeIds = asBody(args.assigneeIds);
+      }
       return client.request(`/api/v1/tasks/${encodeURIComponent(str(args.taskId))}`, {
         method: "PATCH",
-        body: {
-          content: args.content,
-          isCompleted: args.isCompleted,
-          deadline: args.deadline,
-        },
+        body,
       });
+    }
     case "crm_delete_task":
       return client.request(`/api/v1/tasks/${encodeURIComponent(str(args.taskId))}`, {
         method: "DELETE",
       });
-    case "crm_tasks_pulse":
-      return client.request("/api/v1/tasks/pulse");
 
     // Notes
     case "crm_list_notes":
@@ -374,6 +446,451 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
         },
       });
 
+    // Projekte
+    case "crm_list_projects":
+      return client.request("/api/v1/projects", {
+        query: {
+          status: args.status as string | undefined,
+          category: args.category as string | undefined,
+          sprintId: args.sprintId as string | undefined,
+          favoritesOnly: bool(args.favoritesOnly),
+          includeArchived: bool(args.includeArchived),
+          limit: num(args.limit),
+          offset: num(args.offset),
+        },
+      });
+    case "crm_get_project":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}`
+      );
+    case "crm_create_project": {
+      const body: Record<string, unknown> = { name: args.name };
+      for (const key of [
+        "shortDescription",
+        "category",
+        "priority",
+        "status",
+        "icon",
+        "color",
+        "startDate",
+        "endDate",
+        "ownerUserId",
+        "problemStatement",
+        "goalStatement",
+        "successCriteria",
+      ]) {
+        if (args[key] !== undefined) body[key] = args[key];
+      }
+      if (args.scopeIn !== undefined) body.scopeIn = asBody(args.scopeIn);
+      if (args.scopeOut !== undefined) body.scopeOut = asBody(args.scopeOut);
+      if (args.memberUserIds !== undefined) {
+        // POST /api/v1/projects reads `members: Array<{ userId, role? }>`,
+        // never a flat id list — mapped here rather than trusting the route
+        // to accept `memberUserIds` (it silently ignores unknown keys).
+        // I4: coerce first — a string-encoded array used to fail
+        // Array.isArray silently, so `members` was never set and the
+        // project was created with no members at all, 201 and no error.
+        const ids = asBody(args.memberUserIds);
+        if (Array.isArray(ids)) {
+          body.members = ids.map((userId) => ({ userId }));
+        }
+      }
+      if (args.budgetPlannedCents !== undefined) {
+        body.budgetPlannedCents =
+          args.budgetPlannedCents === null ? null : num(args.budgetPlannedCents);
+      }
+      return client.request("/api/v1/projects", { method: "POST", body });
+    }
+    case "crm_update_project": {
+      const body: Record<string, unknown> = {};
+      for (const key of [
+        "name",
+        "shortDescription",
+        "category",
+        "priority",
+        "status",
+        "icon",
+        "color",
+        "startDate",
+        "endDate",
+        "ownerUserId",
+        "problemStatement",
+        "goalStatement",
+        "successCriteria",
+        "archivedAt",
+      ]) {
+        if (args[key] !== undefined) body[key] = args[key];
+      }
+      if (args.scopeIn !== undefined) body.scopeIn = asBody(args.scopeIn);
+      if (args.scopeOut !== undefined) body.scopeOut = asBody(args.scopeOut);
+      if (args.notesContent !== undefined) {
+        body.notesContent = asBody(args.notesContent);
+      }
+      if (args.budgetPlannedCents !== undefined) {
+        body.budgetPlannedCents =
+          args.budgetPlannedCents === null ? null : num(args.budgetPlannedCents);
+      }
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}`,
+        { method: "PATCH", body }
+      );
+    }
+    case "crm_delete_project":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}`,
+        { method: "DELETE" }
+      );
+    case "crm_project_overview":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/overview`
+      );
+    case "crm_set_project_favorite": {
+      const favorite = bool(args.favorite) ?? true;
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/favorite`,
+        { method: favorite ? "PUT" : "DELETE" }
+      );
+    }
+
+    // Phasen
+    case "crm_list_project_phases":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/phases`
+      );
+    case "crm_create_project_phase": {
+      const body: Record<string, unknown> = { name: args.name };
+      for (const key of ["description", "startDate", "dueDate", "status"]) {
+        if (args[key] !== undefined) body[key] = args[key];
+      }
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/phases`,
+        { method: "POST", body }
+      );
+    }
+    case "crm_update_project_phase": {
+      const body: Record<string, unknown> = {};
+      for (const key of [
+        "name",
+        "description",
+        "startDate",
+        "dueDate",
+        "status",
+      ]) {
+        if (args[key] !== undefined) body[key] = args[key];
+      }
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/phases/${encodeURIComponent(str(args.phaseId))}`,
+        { method: "PATCH", body }
+      );
+    }
+    case "crm_delete_project_phase":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/phases/${encodeURIComponent(str(args.phaseId))}`,
+        { method: "DELETE" }
+      );
+    case "crm_reorder_project_phases":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/phases/reorder`,
+        {
+          method: "POST",
+          body: { orderedPhaseIds: asBody(args.orderedPhaseIds) ?? [] },
+        }
+      );
+
+    // Meilensteine
+    case "crm_list_project_milestones":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/milestones`
+      );
+    case "crm_create_project_milestone": {
+      const body: Record<string, unknown> = { name: args.name };
+      for (const key of ["dueDate", "phaseId", "status"]) {
+        if (args[key] !== undefined) body[key] = args[key];
+      }
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/milestones`,
+        { method: "POST", body }
+      );
+    }
+    case "crm_update_project_milestone": {
+      const body: Record<string, unknown> = {};
+      for (const key of ["name", "dueDate", "phaseId", "status"]) {
+        if (args[key] !== undefined) body[key] = args[key];
+      }
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/milestones/${encodeURIComponent(str(args.milestoneId))}`,
+        { method: "PATCH", body }
+      );
+    }
+    case "crm_delete_project_milestone":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/milestones/${encodeURIComponent(str(args.milestoneId))}`,
+        { method: "DELETE" }
+      );
+
+    // Mitglieder
+    case "crm_list_project_members":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/members`
+      );
+    case "crm_add_project_member": {
+      const body: Record<string, unknown> = { userId: args.userId };
+      if (args.role !== undefined) body.role = args.role;
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/members`,
+        { method: "POST", body }
+      );
+    }
+    case "crm_update_project_member":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/members/${encodeURIComponent(str(args.userId))}`,
+        { method: "PATCH", body: { role: args.role } }
+      );
+    case "crm_remove_project_member":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/members/${encodeURIComponent(str(args.userId))}`,
+        { method: "DELETE" }
+      );
+
+    // Risiken
+    case "crm_list_project_risks":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/risks`
+      );
+    case "crm_create_project_risk": {
+      const body: Record<string, unknown> = { title: args.title };
+      for (const key of [
+        "description",
+        "severity",
+        "likelihood",
+        "mitigation",
+        "ownerUserId",
+      ]) {
+        if (args[key] !== undefined) body[key] = args[key];
+      }
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/risks`,
+        { method: "POST", body }
+      );
+    }
+    case "crm_update_project_risk": {
+      const body: Record<string, unknown> = {};
+      for (const key of [
+        "title",
+        "description",
+        "severity",
+        "likelihood",
+        "status",
+        "mitigation",
+        "ownerUserId",
+      ]) {
+        if (args[key] !== undefined) body[key] = args[key];
+      }
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/risks/${encodeURIComponent(str(args.riskId))}`,
+        { method: "PATCH", body }
+      );
+    }
+    case "crm_delete_project_risk":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/risks/${encodeURIComponent(str(args.riskId))}`,
+        { method: "DELETE" }
+      );
+
+    // Budget
+    case "crm_get_project_budget":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/budget`
+      );
+    case "crm_create_project_budget_entry": {
+      const body: Record<string, unknown> = {
+        label: args.label,
+        amountCents: num(args.amountCents),
+        kind: args.kind,
+      };
+      for (const key of ["bookedAt", "note"]) {
+        if (args[key] !== undefined) body[key] = args[key];
+      }
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/budget`,
+        { method: "POST", body }
+      );
+    }
+    case "crm_update_project_budget_entry": {
+      const body: Record<string, unknown> = {};
+      for (const key of ["label", "kind", "bookedAt", "note"]) {
+        if (args[key] !== undefined) body[key] = args[key];
+      }
+      if (args.amountCents !== undefined) {
+        body.amountCents = num(args.amountCents);
+      }
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/budget/${encodeURIComponent(str(args.entryId))}`,
+        { method: "PATCH", body }
+      );
+    }
+    case "crm_delete_project_budget_entry":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/budget/${encodeURIComponent(str(args.entryId))}`,
+        { method: "DELETE" }
+      );
+
+    // Projektdokumente
+    case "crm_list_project_documents":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/documents`
+      );
+    case "crm_get_project_document":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/documents/${encodeURIComponent(str(args.documentId))}`
+      );
+    case "crm_delete_project_document":
+      return client.request(
+        `/api/v1/projects/${encodeURIComponent(str(args.projectId))}/documents/${encodeURIComponent(str(args.documentId))}`,
+        { method: "DELETE" }
+      );
+
+    // Abhängigkeiten
+    case "crm_list_task_dependencies":
+      return client.request(
+        `/api/v1/tasks/${encodeURIComponent(str(args.taskId))}/dependencies`
+      );
+    case "crm_add_task_dependency":
+      return client.request(
+        `/api/v1/tasks/${encodeURIComponent(str(args.successorTaskId))}/dependencies`,
+        {
+          method: "POST",
+          body: { predecessorTaskId: str(args.predecessorTaskId) },
+        }
+      );
+    case "crm_remove_task_dependency":
+      return client.request(
+        `/api/v1/tasks/${encodeURIComponent(str(args.taskId))}/dependencies/${encodeURIComponent(str(args.dependencyId))}`,
+        { method: "DELETE" }
+      );
+
+    // Sprints
+    case "crm_list_sprints":
+      return client.request("/api/v1/sprints");
+    case "crm_get_sprint":
+      return client.request(
+        `/api/v1/sprints/${encodeURIComponent(str(args.sprintId))}`
+      );
+    case "crm_create_sprint": {
+      const body: Record<string, unknown> = { name: args.name };
+      for (const key of ["goal", "startDate", "endDate"]) {
+        if (args[key] !== undefined) body[key] = args[key];
+      }
+      if (args.capacityPoints !== undefined) {
+        body.capacityPoints =
+          args.capacityPoints === null ? null : num(args.capacityPoints);
+      }
+      return client.request("/api/v1/sprints", { method: "POST", body });
+    }
+    case "crm_update_sprint": {
+      const body: Record<string, unknown> = {};
+      for (const key of ["name", "goal", "startDate", "endDate"]) {
+        if (args[key] !== undefined) body[key] = args[key];
+      }
+      if (args.capacityPoints !== undefined) {
+        body.capacityPoints =
+          args.capacityPoints === null ? null : num(args.capacityPoints);
+      }
+      return client.request(
+        `/api/v1/sprints/${encodeURIComponent(str(args.sprintId))}`,
+        { method: "PATCH", body }
+      );
+    }
+    case "crm_activate_sprint":
+      return client.request(
+        `/api/v1/sprints/${encodeURIComponent(str(args.sprintId))}`,
+        { method: "PATCH", body: { action: "aktivieren" } }
+      );
+    case "crm_close_sprint":
+      return client.request(
+        `/api/v1/sprints/${encodeURIComponent(str(args.sprintId))}`,
+        { method: "PATCH", body: { action: "abschliessen" } }
+      );
+    case "crm_delete_sprint":
+      return client.request(
+        `/api/v1/sprints/${encodeURIComponent(str(args.sprintId))}`,
+        { method: "DELETE" }
+      );
+
+    // Aufgabe verschieben
+    case "crm_move_task": {
+      const body: Record<string, unknown> = {
+        projectId: args.projectId ?? null,
+        phaseId: args.phaseId ?? null,
+      };
+      if (args.area !== undefined) body.area = args.area;
+      return client.request(`/api/v1/tasks/${encodeURIComponent(str(args.taskId))}`, {
+        method: "PATCH",
+        body,
+      });
+    }
+
+    // Unteraufgaben und Kommentare
+    case "crm_list_subtasks":
+      return client.request(
+        `/api/v1/tasks/${encodeURIComponent(str(args.taskId))}/subtasks`
+      );
+    case "crm_create_subtask": {
+      const body: Record<string, unknown> = { content: args.content };
+      if (args.deadline !== undefined) body.deadline = args.deadline;
+      if (args.assigneeIds !== undefined) {
+        body.assigneeIds = asBody(args.assigneeIds);
+      }
+      return client.request(
+        `/api/v1/tasks/${encodeURIComponent(str(args.taskId))}/subtasks`,
+        { method: "POST", body }
+      );
+    }
+    case "crm_list_task_comments":
+      return client.request(
+        `/api/v1/tasks/${encodeURIComponent(str(args.taskId))}/comments`
+      );
+    case "crm_create_task_comment":
+      return client.request(
+        `/api/v1/tasks/${encodeURIComponent(str(args.taskId))}/comments`,
+        { method: "POST", body: { body: str(args.body) } }
+      );
+
+    // Übergreifend
+    case "crm_work_dashboard":
+      return client.request("/api/v1/work/dashboard", {
+        query: { sprintId: args.sprintId as string | undefined },
+      });
+    case "crm_sprint_timeline":
+      return client.request("/api/v1/work/timeline", {
+        query: {
+          sprintId: args.sprintId as string | undefined,
+          projectId: args.projectId as string | undefined,
+          maxBarsPerRow: num(args.maxBarsPerRow),
+        },
+      });
+    case "crm_generate_project_plan": {
+      const body: Record<string, unknown> = { name: args.name };
+      for (const key of [
+        "shortDescription",
+        "category",
+        "priority",
+        "startDate",
+        "endDate",
+        "problemStatement",
+        "goalStatement",
+        "successCriteria",
+      ]) {
+        if (args[key] !== undefined) body[key] = args[key];
+      }
+      if (args.scopeIn !== undefined) body.scopeIn = asBody(args.scopeIn);
+      if (args.scopeOut !== undefined) body.scopeOut = asBody(args.scopeOut);
+      return client.request("/api/v1/projects/plan-generate", {
+        method: "POST",
+        body,
+      });
+    }
+
     // Escape hatch
     case "crm_api": {
       const path = str(args.path);
@@ -384,7 +901,7 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
       return client.request(path, {
         method: str(args.method || "GET").toUpperCase(),
         query: asQuery(args.query),
-        body: args.body,
+        body: asBody(args.body),
       });
     }
 

@@ -184,23 +184,29 @@ Full-text search across all records in the workspace. Returns matching records w
 ### Tasks
 
 \`\`\`
-GET /api/v1/tasks?showCompleted=false&limit=50&offset=0
+GET /api/v1/tasks?kind=operativ&status=in_arbeit&overdue=true&limit=50
 \`\`\`
-List tasks in the workspace. Set \`showCompleted=true\` to include completed tasks. Supports pagination.
+List tasks. Filters: \`showCompleted\`, \`kind\` (projekt|operativ), \`projectId\`,
+\`phaseId\`, \`area\`, \`status\` (geplant|in_arbeit|erledigt), \`sprintId\`
+(id, \`active\` or \`none\`), \`overdue\`, \`dueWithinDays\`, \`includeSubtasks\`.
+Subtasks are hidden unless \`includeSubtasks=true\`.
 
 \`\`\`
 POST /api/v1/tasks
 Content-Type: application/json
-{ "content": "Follow up with Acme", "deadline": "2025-03-01", "recordIds": ["uuid"], "assigneeIds": ["uuid"] }
+{ "content": "Angebot nachfassen", "kind": "operativ", "area": "angebot", "priority": "hoch", "deadline": "2026-09-01", "assigneeIds": ["uuid"] }
 \`\`\`
-Create a task. \`recordIds\` links it to records, \`assigneeIds\` assigns it to users.
+Create a task. \`projectId\` makes it a project task, \`area\` tags operative work,
+\`recordIds\` links it to records, \`assigneeIds\` assigns it to users.
 
 \`\`\`
 PATCH /api/v1/tasks/:taskId
 Content-Type: application/json
-{ "isCompleted": true }
+{ "status": "erledigt" }
 \`\`\`
-Update a task (mark complete, change content, deadline, recordIds, assigneeIds).
+Update a task. \`status\` and \`isCompleted\` are kept in sync. Setting
+\`projectId\` to null makes the task operative and clears \`phaseId\`.
+\`assigneeIds\` and \`recordIds\` replace the whole set.
 
 \`\`\`
 DELETE /api/v1/tasks/:taskId
@@ -208,9 +214,51 @@ DELETE /api/v1/tasks/:taskId
 Delete a task permanently.
 
 \`\`\`
+GET  /api/v1/tasks/:taskId/subtasks
+POST /api/v1/tasks/:taskId/subtasks
+GET  /api/v1/tasks/:taskId/comments
+POST /api/v1/tasks/:taskId/comments
+GET  /api/v1/tasks/:taskId/dependencies
+POST /api/v1/tasks/:taskId/dependencies
+\`\`\`
+Subtasks inherit the parent's project and phase. Comments take
+\`{ "body": "..." }\` and notify the task's audience. For dependencies the
+path task is the successor: \`{ "predecessorTaskId": "..." }\`.
+
+\`\`\`
 GET /api/v1/objects/:slug/records/:recordId/tasks
 \`\`\`
 Get all tasks linked to a specific record.
+
+### Projekte
+
+\`\`\`
+GET  /api/v1/projects?status=aktiv&category=fuhrpark
+POST /api/v1/projects
+GET  /api/v1/projects/:projectId
+\`\`\`
+Projects carry phases, milestones, members, risks, budget and documents,
+each as a subresource: \`/phases\`, \`/phases/reorder\`, \`/milestones\`,
+\`/members\`, \`/risks\`, \`/budget\`, \`/documents\`, \`/activity\`, \`/favorite\`
+and \`/overview\`. All money is integer euro cents.
+
+\`\`\`
+POST /api/v1/projects/plan-generate
+\`\`\`
+AI draft plan (phases, tasks, milestones, risks) as day offsets from the
+project start. Writes nothing.
+
+### Sprints & Work
+
+\`\`\`
+GET   /api/v1/sprints
+PATCH /api/v1/sprints/:sprintId   { "action": "aktivieren" | "abschliessen" }
+GET   /api/v1/work/dashboard
+GET   /api/v1/work/timeline?sprintId=
+GET   /api/v1/work/team-overview?sprintId=
+\`\`\`
+Sprints are count-based, not story points. \`/work/dashboard\` returns KPIs,
+projects, tasks, activity, upcoming dates and the team overview in one call.
 
 ### Notes
 

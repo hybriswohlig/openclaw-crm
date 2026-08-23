@@ -239,6 +239,13 @@
       "when": 1784808829712,
       "tag": "0043_agent_substrate",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1787303662518,
+      "tag": "0044_projects",
+      "breakpoints": true
     }
   ]
 }

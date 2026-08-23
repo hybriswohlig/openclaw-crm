@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { taskComments, tasks, taskAssignees, users } from "@/db/schema";
-import { and, eq, desc } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 export interface TaskCommentRow {
   id: string;
@@ -101,7 +101,19 @@ export async function createTaskComment(input: {
   };
 }
 
+/**
+ * M5: the lookup used to be scoped by workspaceId + userId + commentId
+ * only, ignoring `taskId` entirely, so `DELETE /tasks/<A>/comments/<comment-
+ * of-B>` deleted task B's comment as long as the caller was its author.
+ * Same class of bug as F6 (phases/milestones/risks/budget, fixed in
+ * 9632da8) and the project-document delete (688fb1e). `taskId` is enforced
+ * HERE, not just compared in the route, so an MCP caller passing a
+ * mismatched (taskId, commentId) pair is covered too, not just REST
+ * callers. Author-scoping alone limited the blast radius but never closed
+ * the hole: the URL's taskId claim was never actually verified.
+ */
 export async function deleteTaskComment(input: {
+  taskId: string;
   commentId: string;
   workspaceId: string;
   /** Only the author may delete their own comment via this helper. */
@@ -112,6 +124,7 @@ export async function deleteTaskComment(input: {
     .where(
       and(
         eq(taskComments.id, input.commentId),
+        eq(taskComments.taskId, input.taskId),
         eq(taskComments.workspaceId, input.workspaceId),
         eq(taskComments.userId, input.userId)
       )
@@ -146,6 +159,3 @@ export async function commentAudience(input: {
   set.delete(input.commentAuthorId);
   return [...set];
 }
-
-// Re-export so callers can build queries without importing drizzle directly.
-export { desc };

@@ -582,6 +582,8 @@ function MessageBubble({
         body: JSON.stringify({
           content: snippet ? `Klären: "${snippet}"` : "Klären: (Nachricht)",
           recordIds: conv.dealRecordId ? [conv.dealRecordId] : [],
+          kind: "operativ",
+          area: "kunde",
         }),
       });
       if (res.ok) setTaskCreated(true);

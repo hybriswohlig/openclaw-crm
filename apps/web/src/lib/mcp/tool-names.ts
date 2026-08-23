@@ -1,0 +1,382 @@
+/**
+ * The canonical list of CRM MCP tool names.
+ *
+ * Two registries expose the same tools — the zod one in `register-tools.ts` +
+ * `dispatch.ts` (served over HTTP from /api/mcp) and the JSON-Schema one in
+ * `apps/mcp/src/tools/*` (stdio). Keeping them in step by hand is risk R4 of
+ * the Projekte spec; `tool-names.test.ts` asserts both against this list,
+ * and additionally asserts that a shared tool carries the same description
+ * and points at the same REST path in both.
+ *
+ * Adding a tool means: zod shape + dispatch case + JSON-Schema ToolDef +
+ * handler case + one entry here, with the description copied verbatim
+ * between the two registries. Four of the five without the fifth fails the
+ * guard, and the fifth without the other four fails it too.
+ */
+export const CRM_TOOL_NAMES = [
+  // ── Connection ────────────────────────────────────────────────────
+  "crm_status",
+  "crm_whoami",
+  // ── Search ────────────────────────────────────────────────────────
+  "crm_search",
+  "crm_browse_records",
+  // ── Objects & schema ──────────────────────────────────────────────
+  "crm_list_objects",
+  "crm_get_object",
+  "crm_list_attributes",
+  // ── Records ───────────────────────────────────────────────────────
+  "crm_list_records",
+  "crm_get_record",
+  "crm_create_record",
+  "crm_update_record",
+  "crm_delete_record",
+  "crm_query_records",
+  "crm_get_record_related",
+  "crm_get_record_activity",
+  // ── Tasks ─────────────────────────────────────────────────────────
+  "crm_list_tasks",
+  "crm_get_task",
+  "crm_create_task",
+  "crm_update_task",
+  "crm_delete_task",
+  // ── Notes ─────────────────────────────────────────────────────────
+  "crm_list_notes",
+  "crm_create_note",
+  "crm_update_note",
+  "crm_delete_note",
+  // ── Lists ─────────────────────────────────────────────────────────
+  "crm_list_lists",
+  "crm_get_list",
+  "crm_list_entries",
+  "crm_add_list_entry",
+  // ── Inbox ─────────────────────────────────────────────────────────
+  "crm_list_conversations",
+  "crm_get_conversation",
+  "crm_list_messages",
+  "crm_update_conversation_status",
+  "crm_link_conversation_deal",
+  "crm_suggest_reply",
+  "crm_inbox_unread_count",
+  "crm_list_channel_accounts",
+  // ── Deals ─────────────────────────────────────────────────────────
+  "crm_get_deal_insights",
+  "crm_get_deal_lifecycle",
+  "crm_get_deal_profit",
+  "crm_list_deal_documents",
+  "crm_get_deal_quotation",
+  "crm_list_deal_payments",
+  "crm_get_customer_link",
+  // ── Deal context ──────────────────────────────────────────────────
+  "crm_get_deal_auftrag",
+  "crm_list_deal_attachments",
+  "crm_get_attachment",
+  "crm_get_deal_inventory",
+  "crm_get_deal_package_options",
+  "crm_get_deal_offer_packages",
+  "crm_get_deal_date_offers",
+  // ── Quotation writes ──────────────────────────────────────────────
+  "crm_update_deal_package_options",
+  "crm_update_deal_quotation",
+  "crm_set_deal_anzahlung",
+  // ── Documents ─────────────────────────────────────────────────────
+  "crm_get_deal_document",
+  "crm_generate_document",
+  "crm_get_document_job",
+  "crm_store_document_job",
+  // ── Employees & finance ───────────────────────────────────────────
+  "crm_list_employees",
+  "crm_get_financial_overview",
+  "crm_list_financial_bookings",
+  // ── Statistics ────────────────────────────────────────────────────
+  "crm_stats_overview",
+  "crm_stats_pipeline",
+  "crm_stats_operations",
+  "crm_stats_team",
+  "crm_operations_board",
+  // ── Workspace ─────────────────────────────────────────────────────
+  "crm_list_members",
+  "crm_list_notifications",
+  "crm_list_operating_companies",
+  // ── AI agent ──────────────────────────────────────────────────────
+  "crm_list_agent_drafts",
+  "crm_get_agent_settings",
+  "crm_create_agent_draft",
+  // ── Projekte ──────────────────────────────────────────────────────
+  "crm_list_projects",
+  "crm_get_project",
+  "crm_create_project",
+  "crm_update_project",
+  "crm_delete_project",
+  "crm_project_overview",
+  "crm_set_project_favorite",
+  // ── Phasen ────────────────────────────────────────────────────────
+  "crm_list_project_phases",
+  "crm_create_project_phase",
+  "crm_update_project_phase",
+  "crm_delete_project_phase",
+  "crm_reorder_project_phases",
+  // ── Meilensteine ──────────────────────────────────────────────────
+  "crm_list_project_milestones",
+  "crm_create_project_milestone",
+  "crm_update_project_milestone",
+  "crm_delete_project_milestone",
+  // ── Mitglieder ────────────────────────────────────────────────────
+  "crm_list_project_members",
+  "crm_add_project_member",
+  "crm_update_project_member",
+  "crm_remove_project_member",
+  // ── Risiken ───────────────────────────────────────────────────────
+  "crm_list_project_risks",
+  "crm_create_project_risk",
+  "crm_update_project_risk",
+  "crm_delete_project_risk",
+  // ── Budget ────────────────────────────────────────────────────────
+  "crm_get_project_budget",
+  "crm_create_project_budget_entry",
+  "crm_update_project_budget_entry",
+  "crm_delete_project_budget_entry",
+  // ── Projektdokumente ──────────────────────────────────────────────
+  "crm_list_project_documents",
+  "crm_get_project_document",
+  "crm_delete_project_document",
+  // ── Abhängigkeiten ────────────────────────────────────────────────
+  "crm_list_task_dependencies",
+  "crm_add_task_dependency",
+  "crm_remove_task_dependency",
+  // ── Sprints ───────────────────────────────────────────────────────
+  "crm_list_sprints",
+  "crm_get_sprint",
+  "crm_create_sprint",
+  "crm_update_sprint",
+  "crm_activate_sprint",
+  "crm_close_sprint",
+  "crm_delete_sprint",
+  // ── Aufgabe verschieben ───────────────────────────────────────────
+  "crm_move_task",
+  // ── Unteraufgaben und Kommentare ──────────────────────────────────
+  "crm_list_subtasks",
+  "crm_create_subtask",
+  "crm_list_task_comments",
+  "crm_create_task_comment",
+  // ── Übergreifend ──────────────────────────────────────────────────
+  "crm_work_dashboard",
+  "crm_sprint_timeline",
+  "crm_generate_project_plan",
+  // ── Escape hatch ──────────────────────────────────────────────────
+  "crm_api",
+] as const;
+
+export type CrmToolName = (typeof CRM_TOOL_NAMES)[number];
+
+/**
+ * The 71 tool names in CRM_TOOL_NAMES as they stood when the drift guard was
+ * created (commit 1137a54, before Phase 3's Projekte/Phasen/Meilensteine/
+ * Mitglieder/Risiken/Budget/Projektdokumente tools landed).
+ *
+ * Every entry of WEB_ONLY_TOOL_NAMES, LEGACY_DESCRIPTION_DRIFT and
+ * TOOLS_WITHOUT_FIXED_PATH MUST be a member of this set: those lists exist to
+ * freeze PRE-EXISTING drift, so a tool added after this point can never be
+ * excepted from parity — it must land correctly in both registries or not at
+ * all. This array is append-never. Shrinking an exception list is fine;
+ * growing one is only possible by adding a name that is already here, which
+ * by construction is not a new tool.
+ *
+ * STDIO_ONLY_TOOL_NAMES is deliberately NOT checked against this set: its two
+ * entries (crm_login, crm_logout) are transport mechanics that were never
+ * members of CRM_TOOL_NAMES in the first place (see the doc comment on
+ * STDIO_ONLY_TOOL_NAMES below) — there is no version of CRM_TOOL_NAMES, at
+ * guard creation or since, that they could be a member of. That list is
+ * instead pinned by "the stdio definitions expose CRM_TOOL_NAMES minus the
+ * frozen exceptions" in tool-names.test.ts, which checks its two names
+ * against the real stdio source directly.
+ */
+export const TOOLS_AT_GUARD_CREATION = [
+  // ── Connection ────────────────────────────────────────────────────
+  "crm_status",
+  "crm_whoami",
+  // ── Search ────────────────────────────────────────────────────────
+  "crm_search",
+  "crm_browse_records",
+  // ── Objects & schema ──────────────────────────────────────────────
+  "crm_list_objects",
+  "crm_get_object",
+  "crm_list_attributes",
+  // ── Records ───────────────────────────────────────────────────────
+  "crm_list_records",
+  "crm_get_record",
+  "crm_create_record",
+  "crm_update_record",
+  "crm_delete_record",
+  "crm_query_records",
+  "crm_get_record_related",
+  "crm_get_record_activity",
+  // ── Tasks ─────────────────────────────────────────────────────────
+  "crm_list_tasks",
+  "crm_create_task",
+  "crm_update_task",
+  "crm_delete_task",
+  // ── Notes ─────────────────────────────────────────────────────────
+  "crm_list_notes",
+  "crm_create_note",
+  "crm_update_note",
+  "crm_delete_note",
+  // ── Lists ─────────────────────────────────────────────────────────
+  "crm_list_lists",
+  "crm_get_list",
+  "crm_list_entries",
+  "crm_add_list_entry",
+  // ── Inbox ─────────────────────────────────────────────────────────
+  "crm_list_conversations",
+  "crm_get_conversation",
+  "crm_list_messages",
+  "crm_update_conversation_status",
+  "crm_link_conversation_deal",
+  "crm_suggest_reply",
+  "crm_inbox_unread_count",
+  "crm_list_channel_accounts",
+  // ── Deals ─────────────────────────────────────────────────────────
+  "crm_get_deal_insights",
+  "crm_get_deal_lifecycle",
+  "crm_get_deal_profit",
+  "crm_list_deal_documents",
+  "crm_get_deal_quotation",
+  "crm_list_deal_payments",
+  "crm_get_customer_link",
+  // ── Deal context ──────────────────────────────────────────────────
+  "crm_get_deal_auftrag",
+  "crm_list_deal_attachments",
+  "crm_get_attachment",
+  "crm_get_deal_inventory",
+  "crm_get_deal_package_options",
+  "crm_get_deal_offer_packages",
+  "crm_get_deal_date_offers",
+  // ── Quotation writes ──────────────────────────────────────────────
+  "crm_update_deal_package_options",
+  "crm_update_deal_quotation",
+  "crm_set_deal_anzahlung",
+  // ── Documents ─────────────────────────────────────────────────────
+  "crm_get_deal_document",
+  "crm_generate_document",
+  "crm_get_document_job",
+  "crm_store_document_job",
+  // ── Employees & finance ───────────────────────────────────────────
+  "crm_list_employees",
+  "crm_get_financial_overview",
+  "crm_list_financial_bookings",
+  // ── Statistics ────────────────────────────────────────────────────
+  "crm_stats_overview",
+  "crm_stats_pipeline",
+  "crm_stats_operations",
+  "crm_stats_team",
+  "crm_operations_board",
+  // ── Workspace ─────────────────────────────────────────────────────
+  "crm_list_members",
+  "crm_list_notifications",
+  "crm_list_operating_companies",
+  // ── AI agent ──────────────────────────────────────────────────────
+  "crm_list_agent_drafts",
+  "crm_get_agent_settings",
+  "crm_create_agent_draft",
+  // ── Escape hatch ──────────────────────────────────────────────────
+  "crm_api",
+] as const;
+
+/**
+ * Tools only the stdio server can implement.
+ *
+ * The HTTP server is authenticated per request by `/api/mcp/route.ts`, so it
+ * has no session of its own to log in or out of. These are transport
+ * mechanics, not CRM capabilities.
+ */
+export const STDIO_ONLY_TOOL_NAMES = ["crm_login", "crm_logout"] as const;
+
+/**
+ * FROZEN. Pre-existing drift: deal/document tools that reached the web
+ * registry and were never mirrored into the stdio one.
+ *
+ * This list may only ever shrink. Adding a name here to silence the guard
+ * defeats its entire purpose — mirror the tool instead.
+ */
+export const WEB_ONLY_TOOL_NAMES = [
+  "crm_get_deal_auftrag",
+  "crm_get_deal_inventory",
+  "crm_get_deal_package_options",
+  "crm_get_deal_offer_packages",
+  "crm_get_deal_date_offers",
+  "crm_update_deal_package_options",
+  "crm_update_deal_quotation",
+  "crm_set_deal_anzahlung",
+  "crm_get_deal_document",
+  "crm_generate_document",
+  "crm_get_document_job",
+  "crm_store_document_job",
+] as const;
+
+/**
+ * FROZEN. Shared tools whose description text differs between the two
+ * registries today — the stdio wording predates the verbose house style.
+ *
+ * This is a snapshot of the drift that already existed at the moment this
+ * guard was added, taken directly off the two registries' source (not
+ * copied from a plan doc): 40 tools. `crm_list_tasks` and `crm_update_task`
+ * used to belong on it too, but commit 4c1831c made both descriptions
+ * byte-identical between the two registries, and I8's fix pass removed the
+ * now-stale entries — findStaleExemptions in registry-introspect.ts (or a
+ * dedicated test against it) asserts nothing on this list has quietly
+ * healed the way those two had, so the list cannot silently rot again.
+ *
+ * The list may only ever shrink, by rewriting a stdio description to match
+ * the web one — never grow, to silence a new mismatch.
+ */
+export const LEGACY_DESCRIPTION_DRIFT = [
+  "crm_status",
+  "crm_whoami",
+  "crm_search",
+  "crm_browse_records",
+  "crm_list_objects",
+  "crm_get_object",
+  "crm_list_attributes",
+  "crm_list_records",
+  "crm_get_record",
+  "crm_create_record",
+  "crm_update_record",
+  "crm_query_records",
+  "crm_get_record_related",
+  "crm_list_notes",
+  "crm_update_note",
+  "crm_list_lists",
+  "crm_list_conversations",
+  "crm_get_conversation",
+  "crm_update_conversation_status",
+  "crm_link_conversation_deal",
+  "crm_inbox_unread_count",
+  "crm_list_channel_accounts",
+  "crm_get_deal_insights",
+  "crm_get_deal_lifecycle",
+  "crm_list_deal_documents",
+  "crm_get_deal_quotation",
+  "crm_list_deal_payments",
+  "crm_get_customer_link",
+  "crm_list_deal_attachments",
+  "crm_get_attachment",
+  "crm_get_financial_overview",
+  "crm_list_financial_bookings",
+  "crm_stats_overview",
+  "crm_operations_board",
+  "crm_list_members",
+  "crm_list_notifications",
+  "crm_list_operating_companies",
+  "crm_list_agent_drafts",
+  "crm_get_agent_settings",
+  "crm_api",
+] as const;
+
+/**
+ * Tools whose dispatch case has no fixed REST path to compare.
+ *
+ * `crm_status` answers from the client context without a request at all, and
+ * `crm_api` takes its path from the caller — the only `/api/` literal in its
+ * body is the `startsWith` guard, which would compare equal for the wrong
+ * reason. Both are excluded explicitly rather than by accident.
+ */
+export const TOOLS_WITHOUT_FIXED_PATH = ["crm_status", "crm_api"] as const;

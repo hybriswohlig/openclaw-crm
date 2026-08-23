@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthContext, unauthorized, badRequest, success } from "@/lib/api-utils";
-import { listTasks, createTask } from "@/services/tasks";
+import { listTasks, createTask, describeTaskRouteError, type ListTaskOptions } from "@/services/tasks";
 import { getActiveSprint } from "@/services/sprints";
 
 /** GET /api/v1/tasks — All tasks for current user in active workspace */
@@ -11,22 +11,19 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const showCompleted = searchParams.get("showCompleted") === "true";
-    const limit = Math.min(Number(searchParams.get("limit") || 50), 200);
-    const offset = Number(searchParams.get("offset") || 0);
+    // `Number("abc")` is NaN, `Math.min(NaN, 200)` is NaN, and `.limit(NaN)`
+    // is a Postgres syntax error — a 500 on a typo in the query string.
+    const rawLimit = Number(searchParams.get("limit") ?? 50);
+    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 200) : 50;
+    const rawOffset = Number(searchParams.get("offset") ?? 0);
+    const offset = Number.isFinite(rawOffset) ? Math.max(rawOffset, 0) : 0;
 
     // Optional sprint scope:
     //   ?sprintId=<id>     → only that sprint
     //   ?sprintId=active   → only the currently active sprint (empty if none)
     //   ?sprintId=none     → only the product backlog (no sprint)
     const sprintParam = searchParams.get("sprintId");
-    const listOpts: {
-      showCompleted: boolean;
-      limit: number;
-      offset: number;
-      sprintId?: string;
-      noSprint?: boolean;
-      completedAfter?: Date;
-    } = { showCompleted, limit, offset };
+    const listOpts: ListTaskOptions = { showCompleted, limit, offset };
     const completedAfterParam = searchParams.get("completedAfter");
     if (completedAfterParam) {
       const completedAfter = new Date(completedAfterParam);
@@ -34,6 +31,25 @@ export async function GET(req: NextRequest) {
         listOpts.completedAfter = completedAfter;
       }
     }
+    // New Projekte filters — every one of them is normalised in
+    // planTaskFilters, so junk simply drops out instead of 400-ing.
+    listOpts.kind = searchParams.get("kind");
+    listOpts.projectId = searchParams.get("projectId");
+    listOpts.phaseId = searchParams.get("phaseId");
+    listOpts.area = searchParams.get("area");
+    listOpts.status = searchParams.get("status");
+    listOpts.overdue = searchParams.get("overdue") === "true";
+    listOpts.includeSubtasks = searchParams.get("includeSubtasks") === "true";
+    const dueWithinDaysParam = searchParams.get("dueWithinDays");
+    if (dueWithinDaysParam !== null && dueWithinDaysParam !== "") {
+      const parsedDays = Number(dueWithinDaysParam);
+      if (Number.isFinite(parsedDays)) listOpts.dueWithinDays = parsedDays;
+    }
+
+    // UNCHANGED from today's route — the three sprint scopes stay:
+    //   ?sprintId=<id>   → that sprint
+    //   ?sprintId=active → the currently active sprint (empty when none)
+    //   ?sprintId=none   → the product backlog
     if (sprintParam === "none") {
       listOpts.noSprint = true;
     } else if (sprintParam === "active") {
@@ -81,15 +97,18 @@ export async function POST(req: NextRequest) {
       deadline: body.deadline as string | undefined,
       recordIds: body.recordIds as string[] | undefined,
       assigneeIds,
-      pointEstimate:
-        typeof body.pointEstimate === "number" ? body.pointEstimate : null,
       sprintId: typeof body.sprintId === "string" ? body.sprintId : null,
-      workType: typeof body.workType === "string" ? body.workType : null,
-      growthCategory:
-        typeof body.growthCategory === "string" ? body.growthCategory : null,
-      description:
-        typeof body.description === "string" ? body.description : null,
+      description: typeof body.description === "string" ? body.description : null,
       priority: typeof body.priority === "string" ? body.priority : null,
+      kind: typeof body.kind === "string" ? body.kind : null,
+      projectId: typeof body.projectId === "string" ? body.projectId : null,
+      phaseId: typeof body.phaseId === "string" ? body.phaseId : null,
+      area: typeof body.area === "string" ? body.area : null,
+      status: typeof body.status === "string" ? body.status : null,
+      startDate: typeof body.startDate === "string" ? body.startDate : null,
+      // Spec §11: crm_create_task sends parentTaskId. createTask then
+      // inherits kind/projectId/phaseId from that parent (I4).
+      parentTaskId: typeof body.parentTaskId === "string" ? body.parentTaskId : null,
     });
 
     // Push-notify each new assignee (excluding the creator themselves).
@@ -111,9 +130,18 @@ export async function POST(req: NextRequest) {
 
     return success(task, 201);
   } catch (err) {
-    console.error("Failed to create task:", err);
+    // createTask throws TaskInvariantError for every invariant it enforces
+    // (I2's phase check, F1's/I4's parent-eligibility checks) — route those
+    // to a 400 with their own message, not just the one an allowlist used
+    // to name. Anything else (a driver failure, a bad Date, a dropped
+    // connection) is NOT the caller's fault to see verbatim: log it and
+    // return a fixed German 500 instead. See describeTaskRouteError in
+    // services/tasks.ts.
+    const message = describeTaskRouteError(err);
+    if (message) return badRequest(message);
+    console.error("POST /api/v1/tasks error:", err);
     return NextResponse.json(
-      { error: { code: "INTERNAL_ERROR", message: "Failed to create task" } },
+      { error: { code: "INTERNAL_ERROR", message: "Aufgabe konnte nicht erstellt werden." } },
       { status: 500 }
     );
   }

@@ -634,6 +634,13 @@ const CUSTOMER_REQUEST_TASK_LABELS: Record<CustomerRequestKind, string> = {
 /** Hard cap on self-service requests per deal. Keeps the task board sane. */
 const CUSTOMER_REQUEST_MAX_PER_DEAL = 20;
 
+/** Operative area for a self-service portal request (spec §15 R3). */
+export function customerRequestArea(kind: CustomerRequestKind): "schaden" | "auftrag" | "kunde" {
+  if (kind === "damage") return "schaden";
+  if (kind === "reschedule") return "auftrag";
+  return "kunde";
+}
+
 export async function recordCustomerRequest(
   token: string,
   input: { kind: CustomerRequestKind; message: string; preferredDates?: string[] },
@@ -738,6 +745,8 @@ export async function recordCustomerRequest(
       recordIds: [link.dealRecordId],
       description,
       priority: input.kind === "damage" ? "hoch" : undefined,
+      kind: "operativ",
+      area: customerRequestArea(input.kind),
     });
   } catch (err) {
     console.error("[customer-portal] request task creation failed:", err);

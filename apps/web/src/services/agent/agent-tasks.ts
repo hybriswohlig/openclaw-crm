@@ -39,6 +39,8 @@ export async function ensureAgentPriceTask(
       deadline,
       recordIds: [dealRecordId],
       assigneeIds: owners,
+      kind: "operativ",
+      area: "angebot",
     });
   } catch (err) {
     console.error("[agent-tasks] ensureAgentPriceTask failed (non-blocking):", err);
@@ -74,6 +76,8 @@ export async function ensureAgentCallTask(
       deadline,
       recordIds: [dealRecordId],
       assigneeIds: owners,
+      kind: "operativ",
+      area: "kunde",
     });
   } catch (err) {
     console.error("[agent-tasks] ensureAgentCallTask failed (non-blocking):", err);

@@ -1,9 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthContext, unauthorized, notFound, success } from "@/lib/api-utils";
-import { updateTask, deleteTask } from "@/services/tasks";
+import { getAuthContext, unauthorized, notFound, badRequest, success } from "@/lib/api-utils";
+import { getTask, updateTask, deleteTask, describeTaskRouteError } from "@/services/tasks";
 import { db } from "@/db";
 import { taskAssignees } from "@/db/schema";
 import { eq } from "drizzle-orm";
+
+/**
+ * GET /api/v1/tasks/[taskId] — C1: read a single task, the same enriched
+ * shape PATCH returns. Without this an agent could not read a task's
+ * current assigneeIds/recordIds before a PATCH, and crm_list_tasks (capped
+ * at 200 rows, completed tasks and subtasks hidden by default) cannot
+ * substitute — a task outside its page or default filters is simply
+ * unreachable any other way.
+ */
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ taskId: string }> }
+) {
+  const ctx = await getAuthContext(req);
+  if (!ctx) return unauthorized();
+
+  const { taskId } = await params;
+
+  try {
+    const task = await getTask(taskId, ctx.workspaceId);
+    if (!task) return notFound("Task not found");
+    return success(task);
+  } catch (err) {
+    console.error("GET /api/v1/tasks/[taskId] error:", err);
+    return NextResponse.json(
+      { error: { code: "INTERNAL_ERROR", message: "Aufgabe konnte nicht geladen werden." } },
+      { status: 500 }
+    );
+  }
+}
 
 /** PATCH /api/v1/tasks/[taskId] */
 export async function PATCH(
@@ -22,13 +52,17 @@ export async function PATCH(
       isCompleted?: boolean;
       recordIds?: string[];
       assigneeIds?: string[];
-      kanbanStatus?: "backlog" | "heute" | "laeuft" | "warte" | "erledigt" | null;
-      pointEstimate?: number | null;
       sprintId?: string | null;
-      workType?: string | null;
-      growthCategory?: string | null;
       description?: string | null;
       priority?: string | null;
+      kind?: string | null;
+      projectId?: string | null;
+      phaseId?: string | null;
+      area?: string | null;
+      status?: string | null;
+      startDate?: string | null;
+      /** Spec §11: crm_update_task re-parents a task; I4 re-inherits. */
+      parentTaskId?: string | null;
     };
 
     // Capture the previous assignee set BEFORE the update so we can tell
@@ -43,7 +77,7 @@ export async function PATCH(
       priorAssigneeIds = rows.map((r) => r.userId);
     }
 
-    const task = await updateTask(taskId, ctx.workspaceId, body);
+    const task = await updateTask(taskId, ctx.workspaceId, body, ctx.userId);
     if (!task) return notFound("Task not found");
 
     // Push notifications — split into "newly assigned" and "already on
@@ -96,9 +130,19 @@ export async function PATCH(
 
     return success(task);
   } catch (err) {
-    console.error("Failed to update task:", err);
+    // updateTask throws TaskInvariantError for every invariant it enforces
+    // (I2's phase check, both halves of I4's parent/child-eligibility
+    // checks, the self-parent guard) — route those to a 400 with their own
+    // message, not just the ones an allowlist used to name. Anything else
+    // (e.g. `PATCH { deadline: "01.09.2026" }` → `new Date(...)` →
+    // `Invalid Date` → the driver throws) is NOT a caller mistake to echo
+    // verbatim: log it and return a fixed German 500 instead. See
+    // describeTaskRouteError in services/tasks.ts.
+    const message = describeTaskRouteError(err);
+    if (message) return badRequest(message);
+    console.error("PATCH /api/v1/tasks/[taskId] error:", err);
     return NextResponse.json(
-      { error: { code: "INTERNAL_ERROR", message: "Failed to update task" } },
+      { error: { code: "INTERNAL_ERROR", message: "Aufgabe konnte nicht aktualisiert werden." } },
       { status: 500 }
     );
   }

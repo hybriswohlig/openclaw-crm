@@ -11,8 +11,9 @@ export async function DELETE(
     const ctx = await getAuthContext(req);
     if (!ctx) return unauthorized();
 
-    const { commentId } = await params;
+    const { taskId, commentId } = await params;
     const ok = await deleteTaskComment({
+      taskId,
       commentId,
       workspaceId: ctx.workspaceId,
       userId: ctx.userId,

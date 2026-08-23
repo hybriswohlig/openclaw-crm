@@ -109,6 +109,10 @@ export function DealInsightsTab({ recordId }: { recordId: string }) {
         body: JSON.stringify({
           content: `Antwort an Kunde: ${question}`,
           recordIds: [recordId],
+          // New work model: agent-created tasks are operative and carry an
+          // area so they do not land unclassified in the operative list (R3).
+          kind: "operativ",
+          area: "kunde",
         }),
       });
       if (res.ok) {

@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, boolean, index, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, boolean, index, integer, date } from "drizzle-orm/pg-core";
 import { records } from "./records";
 import { users } from "./auth";
 import { workspaces } from "./workspace";
@@ -51,12 +51,39 @@ export const tasks = pgTable("tasks", {
   growthCategory: text("growth_category"),
   // Free-text details beyond the one-line title. NULL = no description.
   description: text("description"),
-  // 'niedrig' | 'mittel' | 'hoch' | NULL. Validated in the service.
+  // 'sehr_hoch' | 'hoch' | 'mittel' | 'niedrig' | NULL. Validated in the
+  // service through normalizePriority().
   priority: text("priority"),
+  // ─── Work model (spec §4.10) ────────────────────────────────────────
+  // 'projekt' | 'operativ'. Invariant I1: kind='projekt' <=> projectId IS NOT
+  // NULL, enforced in services/tasks.ts. Defaults to 'operativ' so every
+  // pre-existing row reads as running business with no project.
+  kind: text("kind").notNull().default("operativ"),
+  // The owning project. No .references() here on purpose: the FK lives in
+  // 0044_projects.sql (ON DELETE SET NULL), and keeping it out of the ORM
+  // avoids an import cycle with schema/projects.ts, which references tasks.id
+  // for task_dependencies. Same treatment as sprintId and parentTaskId.
+  projectId: text("project_id"),
+  // The phase ("Arbeitsbereich") inside that project. Invariant I2: the phase
+  // must belong to projectId, checked in the service. FK in SQL only.
+  phaseId: text("phase_id"),
+  // OPERATIVE_AREAS tag, e.g. 'auftrag' | 'schaden' | 'buchhaltung'. Only
+  // meaningful for kind='operativ'; NULL otherwise.
+  area: text("area"),
+  // 'geplant' | 'in_arbeit' | 'erledigt'. Invariant I3: status='erledigt' <=>
+  // isCompleted. `status` is the business-leading field, isCompleted the
+  // compatibility mirror that 35 existing files still read.
+  status: text("status").notNull().default("geplant"),
+  // Bar start in the sprint timeline. NULL = derive from deadline/createdAt.
+  startDate: date("start_date"),
 }, (table) => [
   index("tasks_workspace_id").on(table.workspaceId),
   index("tasks_parent_task_id").on(table.parentTaskId),
   index("tasks_sprint_id").on(table.sprintId),
+  index("tasks_project_id").on(table.projectId),
+  index("tasks_phase_id").on(table.phaseId),
+  index("tasks_workspace_kind").on(table.workspaceId, table.kind),
+  index("tasks_workspace_status").on(table.workspaceId, table.status),
 ]);
 
 export const taskRecords = pgTable(
