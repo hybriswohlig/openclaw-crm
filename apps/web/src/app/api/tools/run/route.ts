@@ -8,6 +8,7 @@ import { db } from "@/db";
 import { inboxMessageAttachments } from "@/db/schema/inbox";
 import { and, eq, inArray } from "drizzle-orm";
 import { rewriteKundeParamsFromDeal } from "@/services/doc-customer-name";
+import { attachDocumentJobContext } from "@/services/document-job-context";
 
 const CRM_TOOLS_API_URL = process.env.CRM_TOOLS_API_URL;
 const CRM_TOOLS_AUTH_TOKEN = process.env.CRM_TOOLS_AUTH_TOKEN;
@@ -22,8 +23,10 @@ const KUNDE_SKILLS = new Set([
 // JSON-encoded size (i.e. base64 string length), since that's what actually
 // goes on the wire. ~3 MB leaves headroom under the upstream FastAPI's
 // request-body limit, which rejects larger bodies with 413.
-const MAX_IMAGE_BASE64_BYTES_TOTAL = 3 * 1024 * 1024;
-const MAX_IMAGES_FORWARDED = 8;
+// Previous 8-image / 3 MB cap dropped customer photos silently. Fail visibly
+// instead of retrying without images. 12 MB still has to fit the VM body limit.
+const MAX_IMAGE_BASE64_BYTES_TOTAL = 12 * 1024 * 1024;
+const MAX_IMAGES_FORWARDED = 40;
 
 interface RunBody {
   skill: string;
@@ -74,40 +77,82 @@ export async function POST(req: NextRequest) {
     } catch (err) {
       console.warn("[tools/run] kunde rewrite failed, using client payload:", err);
     }
+    if (body.skill === "rechnungen-und-auftragsbestaetigungen") {
+      try {
+        params = await attachDocumentJobContext(ctx.workspaceId, params);
+      } catch (err) {
+        return NextResponse.json(
+          { error: err instanceof Error ? err.message : "Dokumentkontext fehlgeschlagen" },
+          { status: 400 }
+        );
+      }
+    }
   }
 
-  const imageIds = Array.isArray(params._image_attachment_ids)
-    ? (params._image_attachment_ids as unknown[])
-        .filter((x): x is string => typeof x === "string")
-        .slice(0, MAX_IMAGES_FORWARDED)
+  const requestedIds = Array.isArray(params._image_attachment_ids)
+    ? (params._image_attachment_ids as unknown[]).filter((x): x is string => typeof x === "string")
     : [];
   delete params._image_attachment_ids;
-  if (imageIds.length > 0) {
+  if (requestedIds.length > MAX_IMAGES_FORWARDED) {
+    return NextResponse.json(
+      { error: `Zu viele Fotos (${requestedIds.length}). Höchstens ${MAX_IMAGES_FORWARDED} Dateien.` },
+      { status: 400 }
+    );
+  }
+  if (requestedIds.length > 0) {
+    const dealId = typeof params._deal_record_id === "string" ? params._deal_record_id : null;
     const rows = await db
       .select({
         id: inboxMessageAttachments.id,
         fileName: inboxMessageAttachments.fileName,
         mimeType: inboxMessageAttachments.mimeType,
         fileContent: inboxMessageAttachments.fileContent,
+        dealRecordId: inboxMessageAttachments.dealRecordId,
       })
       .from(inboxMessageAttachments)
       .where(
         and(
           eq(inboxMessageAttachments.workspaceId, ctx.workspaceId),
-          inArray(inboxMessageAttachments.id, imageIds)
+          inArray(inboxMessageAttachments.id, requestedIds)
         )
       );
 
+    const byId = new Map(rows.map((r) => [r.id, r]));
     const images: { filename: string; mime: string; base64: string }[] = [];
     let totalBase64Bytes = 0;
-    for (const r of rows) {
+    for (const id of requestedIds) {
+      const r = byId.get(id);
+      if (!r) {
+        return NextResponse.json(
+          { error: `Foto ${id} gehört nicht zu diesem Workspace.` },
+          { status: 403 }
+        );
+      }
+      if (dealId && r.dealRecordId && r.dealRecordId !== dealId) {
+        return NextResponse.json(
+          { error: `Foto ${r.fileName} gehört nicht zu diesem Auftrag.` },
+          { status: 403 }
+        );
+      }
       if (!r.mimeType.startsWith("image/")) continue;
-      // r.fileContent is the base64 string we forward verbatim, so its length
-      // is what counts against the upstream's request-body limit.
       const base64Len = r.fileContent.length;
-      if (totalBase64Bytes + base64Len > MAX_IMAGE_BASE64_BYTES_TOTAL) continue;
+      if (totalBase64Bytes + base64Len > MAX_IMAGE_BASE64_BYTES_TOTAL) {
+        return NextResponse.json(
+          {
+            error:
+              "Die ausgewählten Fotos sind zu groß für den Dokumentjob. Bitte kleinere Dateien wählen. Es werden keine Dokumente ohne die angeforderten Fotos erzeugt.",
+          },
+          { status: 413 }
+        );
+      }
       totalBase64Bytes += base64Len;
       images.push({ filename: r.fileName, mime: r.mimeType, base64: r.fileContent });
+    }
+    if (images.length !== requestedIds.filter((id) => byId.get(id)?.mimeType.startsWith("image/")).length) {
+      return NextResponse.json(
+        { error: "Nicht alle angeforderten Fotos konnten geladen werden." },
+        { status: 400 }
+      );
     }
     if (images.length > 0) params._images = images;
   }
@@ -134,14 +179,16 @@ export async function POST(req: NextRequest) {
       body: buildBody(p),
     });
 
-  let upstream = await callUpstream(params);
+  const upstream = await callUpstream(params);
 
-  // If upstream rejects the body as too large, drop the image payload and
-  // retry once. The skill still produces a document, just without visual
-  // context from attachments.
   if (upstream.status === 413 && params._images) {
-    delete params._images;
-    upstream = await callUpstream(params);
+    return NextResponse.json(
+      {
+        error:
+          "Der Dokumentjob ist mit Fotos zu groß. Es wird nicht ohne Fotos wiederholt. Bitte weniger oder kleinere Dateien wählen.",
+      },
+      { status: 413 }
+    );
   }
 
   const data = await upstream.json().catch(() => ({}));

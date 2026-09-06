@@ -21,6 +21,12 @@ export function DealDocumentActions({ deal }: Props) {
   return (
     <div className="flex gap-2">
       <button
+        onClick={() => setOpenType("KV")}
+        className="rounded border bg-white px-3 py-1.5 text-sm hover:bg-gray-50 dark:bg-gray-900 dark:hover:bg-gray-800"
+      >
+        Kostenvoranschlag erstellen
+      </button>
+      <button
         onClick={() => setOpenType("AB")}
         className="rounded border bg-white px-3 py-1.5 text-sm hover:bg-gray-50 dark:bg-gray-900 dark:hover:bg-gray-800"
       >

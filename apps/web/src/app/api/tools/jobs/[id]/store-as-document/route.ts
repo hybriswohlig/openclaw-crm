@@ -19,9 +19,11 @@ const VALID_DOCUMENT_TYPES = new Set([
   "invoice",
   "payment_confirmation",
   "worker_instructions",
+  "quotation",
 ]);
 
 function deduceDocumentType(filename: string): string | null {
+  if (filename.startsWith("KV-") || filename.startsWith("MUSTER-KV-")) return "quotation";
   if (filename.startsWith("AB-")) return "order_confirmation";
   if (filename.startsWith("RE-")) return "invoice";
   if (filename.startsWith("AW-")) return "worker_instructions";

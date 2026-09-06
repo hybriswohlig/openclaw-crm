@@ -27,7 +27,7 @@ import {
 import { useRouter } from "next/navigation";
 import { Check, Loader2, Sparkles, X } from "lucide-react";
 
-export type BackgroundDocType = "AB" | "RE" | "AW";
+export type BackgroundDocType = "KV" | "AB" | "RE" | "AW";
 
 export interface DocumentJobState {
   kind: "document";
@@ -58,7 +58,7 @@ export interface InsightsJobState {
   dealRecordId: string;
   label: string;
   source: "deal-page" | "context-panel";
-  docType?: "AB" | "RE";
+  docType?: "KV" | "AB" | "RE";
   status: "running" | "done" | "error";
   result: InsightsResultPayload | null;
   error: string | null;
@@ -79,7 +79,7 @@ interface StartInsightsArgs {
   dealRecordId: string;
   label: string;
   source: "deal-page" | "context-panel";
-  docType?: "AB" | "RE";
+  docType?: "KV" | "AB" | "RE";
 }
 
 interface BackgroundJobsApi {
@@ -155,6 +155,7 @@ export function BackgroundJobsProvider({ children }: { children: React.ReactNode
           body: JSON.stringify({
             dealRecordId: job.dealRecordId,
             ...(job.docType === "AW" ? { documentType: "worker_instructions" } : {}),
+            ...(job.docType === "KV" ? { documentType: "quotation" } : {}),
           }),
         });
         const data = await resp.json().catch(() => null);
@@ -399,6 +400,7 @@ export function BackgroundJobsProvider({ children }: { children: React.ReactNode
 // ─── Tray UI ─────────────────────────────────────────────────────────────────
 
 const DOC_TYPE_TITLES: Record<BackgroundDocType, string> = {
+  KV: "Kostenvoranschlag",
   AB: "Auftragsbestätigung",
   RE: "Rechnung",
   AW: "Auftragsanweisung",

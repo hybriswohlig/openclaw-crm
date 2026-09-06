@@ -123,7 +123,7 @@ describe("crm_generate_document", () => {
 
     await handleTool(client, "crm_generate_document", {
       recordId: "deal-1",
-      params: '{"firma":"kottke","document_type":"AB"}',
+      params: '{"firma":"kottke","document_type":"KV","service_type":"move"}',
     });
 
     expect(calls[0].path).toBe("/api/tools/run");
@@ -131,7 +131,8 @@ describe("crm_generate_document", () => {
       skill: "rechnungen-und-auftragsbestaetigungen",
       params: {
         firma: "kottke",
-        document_type: "AB",
+        document_type: "KV",
+        service_type: "move",
         _deal_record_id: "deal-1",
       },
     });

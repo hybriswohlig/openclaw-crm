@@ -55,6 +55,7 @@ export async function POST(
   }
 
   const validTypes = [
+    "quotation",
     "order_confirmation",
     "invoice",
     "payment_confirmation",
@@ -77,6 +78,7 @@ export async function POST(
       workspaceId: ctx.workspaceId,
       dealRecordId: recordId,
       documentType: documentType as
+        | "quotation"
         | "order_confirmation"
         | "invoice"
         | "payment_confirmation"

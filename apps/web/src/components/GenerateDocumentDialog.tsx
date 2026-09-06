@@ -20,7 +20,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useBackgroundJobs } from "@/components/background-jobs";
 
 export type Firma = "kottke" | "ceylan";
-export type DocumentType = "AB" | "RE";
+export type DocumentType = "KV" | "AB" | "RE";
+export type ServiceType = "move" | "kitchen_installation";
 export type Preismodell = "stundensatz" | "pauschale";
 /**
  * How the customer pays the Anzahlung. "bar" is collected on-site by the
@@ -45,6 +46,7 @@ export interface DealData {
     volumen?: string;
     besonderheiten?: string;
   };
+  serviceType?: ServiceType;
 }
 
 interface PauschalePosition {
@@ -132,6 +134,13 @@ export function GenerateDocumentDialog({
   const [zahlungsweg, setZahlungsweg] = useState<
     "bar" | "karte" | "bank_transfer" | "paypal" | null
   >(null);
+  const [serviceType, setServiceType] = useState<ServiceType>(
+    deal.serviceType ?? "move"
+  );
+  const [kitchenAddress, setKitchenAddress] = useState(
+    deal.auftrag.strecke_nach ?? ""
+  );
+  const [cardAgreed, setCardAgreed] = useState(false);
 
   const { startDocumentJob } = useBackgroundJobs();
 
@@ -211,7 +220,7 @@ export function GenerateDocumentDialog({
       // right payment instructions (girocode for bank, paypal.me URL for
       // PayPal, no payment block for cash). Best-effort: failure here doesn't
       // block PDF generation.
-      if (documentType === "AB" && anzahlungBetrag > 0) {
+      if ((documentType === "AB" || documentType === "KV") && anzahlungBetrag > 0) {
         try {
           await fetch(
             `/api/v1/deals/${deal.dealRecordId}/quotation/anzahlung`,
@@ -244,7 +253,6 @@ export function GenerateDocumentDialog({
           };
           imageIds = (json.data ?? [])
             .filter((a) => a.mimeType.startsWith("image/"))
-            .slice(0, 8)
             .map((a) => a.id);
         }
       } catch {
@@ -264,6 +272,31 @@ export function GenerateDocumentDialog({
           auftrag: deal.auftrag,
           preise: buildPreise(),
           ...(trimmedAnweisung ? { anweisung: trimmedAnweisung } : {}),
+          service_type: serviceType,
+          document_details: {
+            serviceType,
+            cardAgreed,
+            ...(serviceType === "kitchen_installation"
+              ? {
+                  kitchen: {
+                    address: kitchenAddress || deal.auftrag.strecke_nach,
+                    date: deal.auftrag.datum,
+                    notes: deal.auftrag.besonderheiten,
+                    services: {
+                      installation: { owner: "company" },
+                      oldKitchenDismantling: { owner: "none" },
+                      delivery: { owner: "company" },
+                      worktop: { owner: "none" },
+                      appliances: { owner: "none" },
+                      connections: { owner: "none" },
+                      packagingRemoval: { owner: "none" },
+                      disposal: { owner: "none" },
+                    },
+                    components: [],
+                  },
+                }
+              : {}),
+          },
           _deal_record_id: deal.dealRecordId,
           _image_attachment_ids: imageIds,
         },
@@ -292,7 +325,12 @@ export function GenerateDocumentDialog({
         <div className="mb-4 flex items-start justify-between">
           <div>
             <h2 className="text-lg font-semibold">
-              {documentType === "AB" ? "Auftragsbestätigung" : "Rechnung"} erstellen
+              {documentType === "KV"
+                ? "Kostenvoranschlag"
+                : documentType === "AB"
+                  ? "Auftragsbestätigung"
+                  : "Rechnung"}{" "}
+              erstellen
             </h2>
             <p className="text-sm text-gray-500">
               {deal.firma === "kottke" ? "Kottke Dienstleistungen" : "Ceylan Umzüge"} ·{" "}
@@ -305,6 +343,48 @@ export function GenerateDocumentDialog({
         </div>
 
         <div className="space-y-4">
+          {documentType !== "RE" && (
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium">Leistung</h3>
+              <div className="flex gap-4">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    checked={serviceType === "move"}
+                    onChange={() => setServiceType("move")}
+                  />
+                  Umzug
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    checked={serviceType === "kitchen_installation"}
+                    onChange={() => setServiceType("kitchen_installation")}
+                  />
+                  Kücheneinbau
+                </label>
+              </div>
+              {serviceType === "kitchen_installation" && (
+                <label className="block text-sm">
+                  Einbauadresse
+                  <input
+                    className="mt-1 w-full rounded border px-2 py-1.5"
+                    value={kitchenAddress}
+                    onChange={(e) => setKitchenAddress(e.target.value)}
+                    placeholder="Straße, PLZ Ort"
+                  />
+                </label>
+              )}
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={cardAgreed}
+                  onChange={(e) => setCardAgreed(e.target.checked)}
+                />
+                Kartenzahlung vorab vereinbart
+              </label>
+            </div>
+          )}
           <h3 className="text-sm font-medium">Preise</h3>
 
           {isKottke && (

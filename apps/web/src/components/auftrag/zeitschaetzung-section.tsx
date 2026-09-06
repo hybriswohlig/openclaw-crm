@@ -653,6 +653,13 @@ export function ZeitschaetzungSection({
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
+                onClick={() => setDialogType("KV")}
+                className="rounded border bg-white px-3 py-1.5 text-sm hover:bg-gray-50 dark:bg-gray-900 dark:hover:bg-gray-800"
+              >
+                In Kostenvoranschlag übernehmen
+              </button>
+              <button
+                type="button"
                 onClick={() => setDialogType("AB")}
                 className="rounded border bg-white px-3 py-1.5 text-sm hover:bg-gray-50 dark:bg-gray-900 dark:hover:bg-gray-800"
               >

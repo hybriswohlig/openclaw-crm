@@ -27,6 +27,7 @@ export const dealDocumentTypeEnum = pgEnum("deal_document_type", [
   "invoice",
   "payment_confirmation",
   "worker_instructions",
+  "quotation",
 ]);
 
 // EUeR-nahe Kategorien. The first six values predate Phase 2 and must keep

@@ -113,6 +113,7 @@ const STAGE_OPTIONS: Array<{ value: AgentStage; label: string; dot: string }> = 
 ];
 
 const DOC_TYPE_LABELS: Record<string, string> = {
+  quotation: "Kostenvoranschlag",
   order_confirmation: "Auftragsbestätigung",
   invoice: "Rechnung",
   payment_confirmation: "Zahlungsbestätigung",
@@ -596,6 +597,12 @@ export function InboxContextPanel({
                   label="Status-Link erstellen"
                   hint="Kunden-Portal konfigurieren"
                   onClick={() => setWizardOpen(true)}
+                />
+                <ActionRow
+                  icon={<FileText className="h-4 w-4" />}
+                  label="Kostenvoranschlag erstellen"
+                  loading={docFlowLoading === "KV"}
+                  onClick={() => void startDocFlow("KV")}
                 />
                 <ActionRow
                   icon={<FileText className="h-4 w-4" />}

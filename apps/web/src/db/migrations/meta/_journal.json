@@ -246,6 +246,20 @@
       "when": 1787303662518,
       "tag": "0044_projects",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1788624000000,
+      "tag": "0045_kv_documents",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1788624001000,
+      "tag": "0046_document_scope",
+      "breakpoints": true
     }
   ]
 }

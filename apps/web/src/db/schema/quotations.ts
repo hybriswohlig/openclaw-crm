@@ -72,11 +72,54 @@ export const quotations = pgTable(
      * Abweichungen von den Annahmen, nicht Auslegungssache.
      */
     calculationAssumptions: jsonb("calculation_assumptions").$type<CalculationAssumptions>(),
+    /**
+     * move | kitchen_installation. Independent of brand and of KV/AB.
+     */
+    serviceType: text("service_type").notNull().default("move"),
+    /**
+     * KV/AB scope that is not already in line items: services, kitchen,
+     * inventory snapshot, card agreement, referenced KV number.
+     */
+    documentDetails: jsonb("document_details").$type<QuotationDocumentDetails>(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => [index("quotations_deal_idx").on(table.dealRecordId)]
 );
+
+export interface QuotationDocumentDetails {
+  serviceType?: "move" | "kitchen_installation";
+  services?: Record<string, { owner: "company" | "customer" | "none"; note?: string }>;
+  inventory?: Array<{
+    room?: string;
+    name: string;
+    quantity: number;
+    dismantling: "company" | "customer" | "none";
+    assembly: "company" | "customer" | "none";
+    note?: string;
+  }>;
+  kitchen?: {
+    address?: string;
+    details?: string;
+    date?: string;
+    time?: string;
+    dimensions?: string;
+    customerPrep?: string;
+    companyWork?: string;
+    excluded?: string;
+    otherContractor?: string;
+    notes?: string;
+    services?: Record<string, { owner: "company" | "customer" | "none"; note?: string }>;
+    components?: Array<{ category?: string; name: string; quantity: number; note?: string }>;
+  };
+  from?: { details?: string };
+  to?: { details?: string };
+  time?: string;
+  cardAgreed?: boolean;
+  depositDue?: string;
+  validUntil?: string;
+  reference?: string;
+}
 
 /** Annahmen, auf denen der Angebotspreis beruht (siehe quotations-Spalte). */
 export interface CalculationAssumptions {

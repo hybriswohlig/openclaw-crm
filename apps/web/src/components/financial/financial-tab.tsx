@@ -101,6 +101,7 @@ interface Employee {
 interface DealDocument {
   id: string;
   documentType:
+    | "quotation"
     | "order_confirmation"
     | "invoice"
     | "payment_confirmation"
@@ -1341,6 +1342,7 @@ function EmployeeCostsSection({
 // ─── Documents Section ────────────────────────────────────────────────────────
 
 const DOC_TYPE_LABELS: Record<string, string> = {
+  quotation: "Kostenvoranschlag",
   order_confirmation: "Auftragsbestätigung",
   invoice: "Rechnung",
   payment_confirmation: "Zahlungsbestätigung",
@@ -1409,7 +1411,7 @@ function DocumentsSection({
   }
 
   const docsByType = Object.fromEntries(
-    (["order_confirmation", "invoice", "payment_confirmation", "worker_instructions"] as const).map((t) => [
+    (["quotation", "order_confirmation", "invoice", "payment_confirmation", "worker_instructions"] as const).map((t) => [
       t,
       documents.filter((d) => d.documentType === t),
     ])
@@ -1422,7 +1424,7 @@ function DocumentsSection({
       </div>
 
       <div className="space-y-4">
-        {(["order_confirmation", "invoice", "payment_confirmation", "worker_instructions"] as const).map((docType) => {
+        {(["quotation", "order_confirmation", "invoice", "payment_confirmation", "worker_instructions"] as const).map((docType) => {
           const docs = docsByType[docType];
           const isUploading = uploading === docType;
 

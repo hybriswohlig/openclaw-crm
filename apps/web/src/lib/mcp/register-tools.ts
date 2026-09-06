@@ -527,14 +527,14 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_get_deal_document",
-    "Fetch one stored deal document (a rendered AB/RE PDF). Returns { _binary: true, mimeType, byteLength, fileName, contentBase64 } — decode contentBase64 to get the file. For customer photos from the inbox use crm_get_attachment instead.",
+    "Fetch one stored deal document (a rendered KV/AB/RE PDF). Returns { _binary: true, mimeType, byteLength, fileName, contentBase64 } — decode contentBase64 to get the file. For customer photos from the inbox use crm_get_attachment instead.",
     { recordId: z.string(), documentId: z.string() },
     req
   );
   tool(
     server,
     "crm_generate_document",
-    "Start a PDF render on the crm-tools VPS and return { job_id }. Async: poll crm_get_document_job until status=done, then crm_store_document_job to attach it to the deal. params mirrors the Auftrags-Tab dialog: { firma: 'kottke'|'ceylan', document_type: 'AB'|'RE', kunde: {vorname,nachname,adresse,email}, auftrag: {strecke_von,strecke_nach,datum,volumen,besonderheiten}, preise: {...}, anweisung? }. preise is either { modell:'stundensatz', helfer_anzahl, stunden_geschaetzt, helfer_rate, transporter_rate, mindest_stunden, ... } or { modell:'pauschale', pauschale_positionen:[{titel,betrag}] }. The kunde name is re-derived server-side from the linked person, so a wrong name here is corrected automatically.",
+    "Start a PDF render on the crm-tools VPS and return { job_id }. Async: poll crm_get_document_job until status=done, then crm_store_document_job to attach it to the deal. For a Kostenvoranschlag set params.document_type to 'KV' (store type quotation). Also supports AB and RE. params: { firma: 'kottke'|'ceylan', document_type: 'KV'|'AB'|'RE', service_type?: 'move'|'kitchen_installation', kunde: {vorname,nachname,adresse,email}, auftrag: {strecke_von,strecke_nach,datum,volumen,besonderheiten}, preise: {...}, document_details?: {serviceType, kitchen, services, inventory, cardAgreed}, anweisung? }. Prices and paid amounts are rebuilt server-side from the deal quotation and payments. The kunde name is re-derived from the linked person.",
     {
       recordId: z.string(),
       params: z.record(z.unknown()),
@@ -555,12 +555,13 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_store_document_job",
-    "Attach a finished render job's PDF to a deal as a document. documentType is deduced from the filename (AB- → order_confirmation, RE- → invoice, AW- → worker_instructions) when omitted. Storing an order_confirmation or invoice notifies the customer portal.",
+    "Attach a finished render job's PDF to a deal as a document. documentType is deduced from the filename (KV- → quotation, AB- → order_confirmation, RE- → invoice, AW- → worker_instructions) when omitted. Storing an order_confirmation or invoice notifies the customer portal. Kostenvoranschlag stores as quotation and does not unlock portal Stage 2.",
     {
       jobId: z.string(),
       recordId: z.string(),
       documentType: z
         .enum([
+          "quotation",
           "order_confirmation",
           "invoice",
           "payment_confirmation",
