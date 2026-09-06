@@ -3,11 +3,13 @@
 // Pull the result from FastAPI and write it into the CRM's dealDocuments
 // table via the existing upload endpoint.
 //
-// Body: { dealRecordId: string, documentType?: "order_confirmation" | "invoice" | "payment_confirmation" }
+// Body: { dealRecordId: string, documentType?: "quotation" | "order_confirmation" | "invoice" | "payment_confirmation" | "worker_instructions" }
 //
 // If documentType is omitted, it's deduced from the result filename:
+//   "KV-…pdf" / "MUSTER-KV-…pdf" → quotation
 //   "AB-…pdf" → order_confirmation
 //   "RE-…pdf" → invoice
+//   "AW-…pdf" → worker_instructions
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthContext, unauthorized, badRequest } from "@/lib/api-utils";
 

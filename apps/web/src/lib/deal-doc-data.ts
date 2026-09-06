@@ -174,7 +174,8 @@ export function buildDealDataForDocs(
  */
 export function missingDocFields(
   ctx: LeadContext | null,
-  hasQuotation: boolean
+  hasQuotation: boolean,
+  documentType?: "KV" | "AB" | "RE"
 ): string[] {
   const missing: string[] = [];
   if (!ctx || !resolveCustomerNameForDocs(ctx)) missing.push("Kundenname");
@@ -184,6 +185,7 @@ export function missingDocFields(
     missing.push("Auszugsadresse");
   if (!ctx || formatLocation(ctx.move_to_address) === "—")
     missing.push("Einzugsadresse");
-  if (!hasQuotation) missing.push("Kostenvoranschlag (Preis)");
+  // KV is the quote PDF. Requiring a stored quotation first is circular.
+  if (documentType !== "KV" && !hasQuotation) missing.push("Kostenvoranschlag (Preis)");
   return missing;
 }

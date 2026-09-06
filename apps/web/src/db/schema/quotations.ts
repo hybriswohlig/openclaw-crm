@@ -75,7 +75,10 @@ export const quotations = pgTable(
     /**
      * move | kitchen_installation. Independent of brand and of KV/AB.
      */
-    serviceType: text("service_type").notNull().default("move"),
+    serviceType: text("service_type")
+      .$type<"move" | "kitchen_installation">()
+      .notNull()
+      .default("move"),
     /**
      * KV/AB scope that is not already in line items: services, kitchen,
      * inventory snapshot, card agreement, referenced KV number.

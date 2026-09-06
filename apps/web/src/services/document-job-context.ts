@@ -14,6 +14,17 @@ import { dealDocuments } from "@/db/schema/financial";
 import { getQuotation } from "@/services/quotations";
 import type { QuotationDocumentDetails } from "@/db/schema/quotations";
 
+type ServiceType = "move" | "kitchen_installation";
+type InventoryOwner = "company" | "customer" | "none";
+
+function asServiceType(value: unknown): ServiceType {
+  return value === "kitchen_installation" ? "kitchen_installation" : "move";
+}
+
+function asInventoryOwner(value: unknown): InventoryOwner {
+  return value === "company" || value === "customer" ? value : "none";
+}
+
 function toCents(euros: number): number {
   if (!Number.isFinite(euros)) return 0;
   return Math.round(euros * 100);
@@ -149,11 +160,9 @@ export async function attachDocumentJobContext(
       : {};
 
   const storedDetails = (quotation?.documentDetails || {}) as QuotationDocumentDetails;
-  const serviceType =
-    clientDetails.serviceType ||
-    storedDetails.serviceType ||
-    quotation?.serviceType ||
-    "move";
+  const serviceType = asServiceType(
+    clientDetails.serviceType || storedDetails.serviceType || quotation?.serviceType
+  );
 
   const inventory = await db
     .select()
@@ -172,8 +181,8 @@ export async function attachDocumentJobContext(
       room: item.category || "",
       name: item.name,
       quantity: item.quantity,
-      dismantling: item.dismantlingOwner || "none",
-      assembly: item.assemblyOwner || "none",
+      dismantling: asInventoryOwner(item.dismantlingOwner),
+      assembly: asInventoryOwner(item.assemblyOwner),
       note: item.notes || "",
     }));
 

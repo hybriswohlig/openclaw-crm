@@ -79,8 +79,14 @@ export const dealInventoryItems = pgTable(
     needsPhoto: boolean("needs_photo").notNull().default(false),
     notes: text("notes"),
     /** company | customer | none. Independent of disassemblyRequired. */
-    dismantlingOwner: text("dismantling_owner").notNull().default("none"),
-    assemblyOwner: text("assembly_owner").notNull().default("none"),
+    dismantlingOwner: text("dismantling_owner")
+      .$type<"company" | "customer" | "none">()
+      .notNull()
+      .default("none"),
+    assemblyOwner: text("assembly_owner")
+      .$type<"company" | "customer" | "none">()
+      .notNull()
+      .default("none"),
     sortOrder: integer("sort_order").notNull().default(0),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),

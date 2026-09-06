@@ -2,7 +2,7 @@
 //
 // Zendesk-style context panel on the right side of an open inbox
 // conversation. Quick access to: Status-Link erstellen (guided wizard),
-// Auftragsbestätigung / Rechnung erstellen (with missing-data check +
+// Kostenvoranschlag / Auftragsbestätigung / Rechnung erstellen (with missing-data check +
 // KI-Analyse), Kostenrechner (same mechanism as the Auftragsübersicht), and
 // the deal's generated documents.
 //
@@ -446,7 +446,7 @@ export function InboxContextPanel({
         ? ((await res.json()) as { data?: { leadContext?: LeadContext | null } })
         : null;
       const leadContext = j?.data?.leadContext ?? null;
-      const missing = missingDocFields(leadContext, !!quotation);
+      const missing = missingDocFields(leadContext, !!quotation, type);
       if (missing.length > 0) {
         setMissingDialog({ type, missing, leadContext });
         return;
@@ -913,7 +913,11 @@ export function InboxContextPanel({
           <div className="w-full max-w-md rounded-xl border border-border bg-background p-5 shadow-xl">
             <h3 className="text-sm font-semibold">
               Es fehlen noch Angaben für die{" "}
-              {missingDialog.type === "AB" ? "Auftragsbestätigung" : "Rechnung"}
+              {missingDialog.type === "KV"
+                ? "Kostenvoranschlag"
+                : missingDialog.type === "AB"
+                  ? "Auftragsbestätigung"
+                  : "Rechnung"}
             </h3>
             <ul className="mt-3 space-y-1.5">
               {missingDialog.missing.map((m) => (
@@ -974,7 +978,12 @@ export function InboxContextPanel({
               </h3>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 Auswahl wird in den Lead übernommen, dann geht es weiter zur{" "}
-                {suggestions.type === "AB" ? "Auftragsbestätigung" : "Rechnung"}.
+                {suggestions.type === "KV"
+                  ? "Kostenvoranschlag"
+                  : suggestions.type === "AB"
+                    ? "Auftragsbestätigung"
+                    : "Rechnung"}
+                .
               </p>
             </div>
             <div className="flex-1 space-y-1 overflow-y-auto px-3 py-2">
