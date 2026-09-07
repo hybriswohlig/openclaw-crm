@@ -350,6 +350,10 @@ export type CustomerEmailStatus = "present" | "missing" | "kleinanzeigen_relay";
 export interface CustomerPortalContext {
   /** Computed every request from underlying data. */
   stage: CustomerLinkStage;
+  /** Optional for backwards compatibility. Missing flags mean disabled. */
+  features?: { liveTracking: boolean; payments: boolean };
+  /** Operator-recorded receipts, never inferred from customer payment reports. */
+  paymentStatus?: { receivedCents: number; remainingCents: number | null; paid: boolean } | null;
   /** Always set — used for human reference and Verwendungszweck. */
   dealNumber: string;
   /** Customer's display name as the operator stored it. */
@@ -384,6 +388,7 @@ export interface CustomerPortalContext {
 
   /** Documents that already exist as PDFs. URLs are public-token-scoped. */
   documents: {
+    quotationUrl?: string | null;
     orderConfirmationUrl: string | null;
     invoiceUrl: string | null;
   };

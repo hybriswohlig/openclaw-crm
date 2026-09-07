@@ -1,26 +1,22 @@
 /**
- * Customer-portal transactional emails.
+ * Customer-portal transactional confirmation after KVA accept.
  *
- * Today: one function, sendKvaAcceptanceEmail, fired (fire-and-forget) right
- * after the customer accepts the KVA on the portal. Lives in its own file so
- * the data adapter stays DB-only and never depends on nodemailer.
- *
- * Transport: same path the operator-facing inbox uses, i.e. SMTP credentials
- * stored on `channel_accounts` for the operating company. We pick the email
- * channel that is linked to the deal's operating company. No new env vars
- * needed: Gmail App Password + IMAP_SERVER / SMTP_SERVER are already wired.
+ * WhatsApp first (most customers arrived via chat and have no usable email),
+ * transactional email as additional copy when an address is on file. Lives
+ * in its own file so the data adapter stays DB-only.
  */
 
 import nodemailer from "nodemailer";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { channelAccounts } from "@/db/schema/inbox";
+import { channelAccounts, inboxConversations } from "@/db/schema/inbox";
 import { objects, attributes } from "@/db/schema/objects";
 import { records, recordValues } from "@/db/schema/records";
 import { dealNumbers } from "@/db/schema/financial";
 import { customerStatusLinks } from "@/db/schema/customer-portal";
 import { isKleinanzeigenRelayAddress } from "./inbox-kleinanzeigen";
 import { loadEffectiveBranding } from "./customer-portal-config";
+import { sendBaileysReply, sendWhatsAppReply } from "./inbox-whatsapp";
 import type {
   FirmaBranding,
   KvaSnapshot,
@@ -35,27 +31,59 @@ export interface KvaAcceptanceEmailInput {
   snapshot: KvaSnapshot;
   /** ISO timestamp of when the customer clicked accept. */
   signedAt: string;
+  /** Per-deal package the customer bound, if any. */
+  optionDisplayName?: string | null;
 }
 
 /**
- * Build and send the customer-facing confirmation. Resolves the customer's
- * email and the firma's SMTP credentials, never throws (errors are logged
- * and swallowed so the API response stays fast).
+ * Build and send the customer-facing confirmation. WhatsApp into the deal's
+ * existing thread first, email as additional copy. Never throws (errors are
+ * logged and swallowed so the API response stays fast).
  */
 export async function sendKvaAcceptanceEmail(
   input: KvaAcceptanceEmailInput
 ): Promise<{ sent: boolean; reason: string | null }> {
   try {
-    // 1.-2. Customer email + the operating company's SMTP channel + branding.
-    const resolved = await resolveCustomerEmailTransport(input.workspaceId, input.dealRecordId);
-    if (!resolved.ok) return { sent: false, reason: resolved.reason };
-    const { customerEmail, account, branding } = resolved;
-
-    // 3. Resolve portal URL + deal number.
+    const opCoId = await loadOperatingCompanyRecordId(input.workspaceId, input.dealRecordId);
+    const branding = opCoId
+      ? (await loadEffectiveBranding(opCoId)).branding
+      : null;
     const portalUrl = await loadPortalUrl(input.customerLinkId, branding);
     const dealNumber = await loadDealNumberFor(input.dealRecordId);
 
-    // 4. Render the email body.
+    const waSent = await trySendAcceptanceWhatsApp({
+      workspaceId: input.workspaceId,
+      dealRecordId: input.dealRecordId,
+      branding,
+      portalUrl,
+      dealNumber,
+      snapshot: input.snapshot,
+      optionDisplayName: input.optionDisplayName ?? null,
+      acceptedFullName: input.acceptedFullName,
+    });
+
+    const emailResult = await trySendAcceptanceEmail(input, branding, portalUrl, dealNumber);
+
+    if (waSent || emailResult.sent) return { sent: true, reason: null };
+    return { sent: false, reason: emailResult.reason ?? "no_channel" };
+  } catch (err) {
+    console.error("[customer-portal-emails] send failed:", err);
+    return { sent: false, reason: "send_error" };
+  }
+}
+
+async function trySendAcceptanceEmail(
+  input: KvaAcceptanceEmailInput,
+  brandingHint: FirmaBranding | null,
+  portalUrl: string,
+  dealNumber: string | null
+): Promise<{ sent: boolean; reason: string | null }> {
+  try {
+    const resolved = await resolveCustomerEmailTransport(input.workspaceId, input.dealRecordId);
+    if (!resolved.ok) return { sent: false, reason: resolved.reason };
+    const { customerEmail, account, branding } = resolved;
+    void brandingHint;
+
     const { subject, text, html } = renderEmail({
       branding,
       snapshot: input.snapshot,
@@ -64,9 +92,9 @@ export async function sendKvaAcceptanceEmail(
       acceptedFullName: input.acceptedFullName,
       signedAt: input.signedAt,
       widerrufVerzicht: input.widerrufVerzichtAccepted,
+      optionDisplayName: input.optionDisplayName ?? null,
     });
 
-    // 5. Send.
     const transporter = nodemailer.createTransport({
       host: account.smtpHost ?? "smtp.gmail.com",
       port: 587,
@@ -80,11 +108,79 @@ export async function sendKvaAcceptanceEmail(
       text,
       html,
     });
-
     return { sent: true, reason: null };
   } catch (err) {
-    console.error("[customer-portal-emails] send failed:", err);
+    console.error("[customer-portal-emails] email confirmation failed:", err);
     return { sent: false, reason: "send_error" };
+  }
+}
+
+async function trySendAcceptanceWhatsApp(input: {
+  workspaceId: string;
+  dealRecordId: string;
+  branding: FirmaBranding | null;
+  portalUrl: string;
+  dealNumber: string | null;
+  snapshot: KvaSnapshot;
+  optionDisplayName: string | null;
+  acceptedFullName: string | null;
+}): Promise<boolean> {
+  const totalStr = new Intl.NumberFormat("de-DE", {
+    style: "currency",
+    currency: "EUR",
+  }).format(input.snapshot.totalCents / 100);
+  const first = input.acceptedFullName?.trim().split(/\s+/)[0] || null;
+  const greeting = first ? `Hallo ${first},` : "Hallo,";
+  const firma = input.branding?.displayName ?? "Ihr Umzugsteam";
+  const ref = input.dealNumber ? `Auftrag ${input.dealNumber}` : "Ihr Umzug";
+  const choice = input.optionDisplayName
+    ? `Ihre Wahl: ${input.optionDisplayName} · ${totalStr}`
+    : `Gesamtbetrag: ${totalStr}`;
+  const body = `${greeting}\n\nVielen Dank, Ihr Angebot ist angenommen (${ref}).\n\n${choice}\n\nAlle Details zu Ihrem Auftrag finden Sie hier:\n${input.portalUrl}\n\nViele Grüße\n${firma}`;
+
+  const [thread] = await db
+    .select({
+      conversationId: inboxConversations.id,
+      waPhoneNumberId: channelAccounts.waPhoneNumberId,
+      baileysBridgeProvider: channelAccounts.baileysBridgeProvider,
+    })
+    .from(inboxConversations)
+    .innerJoin(channelAccounts, eq(inboxConversations.channelAccountId, channelAccounts.id))
+    .where(
+      and(
+        eq(inboxConversations.workspaceId, input.workspaceId),
+        eq(inboxConversations.dealRecordId, input.dealRecordId),
+        eq(channelAccounts.channelType, "whatsapp"),
+        sql`(${inboxConversations.aiHoldUntil} IS NULL OR ${inboxConversations.aiHoldUntil} <= now())`
+      )
+    )
+    .orderBy(
+      sql`COALESCE(${inboxConversations.lastMessageAt}, ${inboxConversations.createdAt}) DESC`
+    )
+    .limit(1);
+
+  if (!thread) return false;
+
+  try {
+    if (thread.waPhoneNumberId) {
+      await sendWhatsAppReply({
+        conversationId: thread.conversationId,
+        workspaceId: input.workspaceId,
+        body,
+      });
+    } else if (thread.baileysBridgeProvider === "inhouse") {
+      await sendBaileysReply({
+        conversationId: thread.conversationId,
+        workspaceId: input.workspaceId,
+        body,
+      });
+    } else {
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error("[customer-portal-emails] whatsapp confirmation failed:", err);
+    return false;
   }
 }
 
@@ -158,9 +254,10 @@ type CustomerEmailTransport =
  * (Kleinanzeigen relays excluded), the deal's operating company, its active
  * SMTP channel account and the effective branding.
  */
-async function resolveCustomerEmailTransport(
+export async function resolveCustomerEmailTransport(
   workspaceId: string,
-  dealRecordId: string
+  dealRecordId: string,
+  allowGmail = false
 ): Promise<CustomerEmailTransport> {
   const customerEmail = await loadCustomerEmail(workspaceId, dealRecordId);
   if (!customerEmail) {
@@ -185,7 +282,7 @@ async function resolveCustomerEmailTransport(
     )
     .limit(1);
 
-  if (!account || !account.credential) {
+  if (!account || (!account.credential && !(allowGmail && account.emailProvider === "gmail_api"))) {
     return { ok: false, reason: "no_email_channel_account" };
   }
 
@@ -193,7 +290,7 @@ async function resolveCustomerEmailTransport(
   return {
     ok: true,
     customerEmail,
-    account: { ...account, credential: account.credential },
+    account: { ...account, credential: account.credential ?? "" },
     branding: effective.branding,
   };
 }
@@ -312,7 +409,7 @@ async function loadDealNumberFor(dealRecordId: string): Promise<string | null> {
 
 async function loadPortalUrl(
   customerLinkId: string,
-  branding: FirmaBranding
+  branding: FirmaBranding | null
 ): Promise<string> {
   const [row] = await db
     .select({ token: customerStatusLinks.token })
@@ -321,7 +418,7 @@ async function loadPortalUrl(
     .limit(1);
   const token = row?.token ?? "";
   const envUrl = process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/+$/, "");
-  const origin = `https://${branding.firmaSlug ? "" : ""}`;
+  const origin = `https://${branding?.firmaSlug ? "" : ""}`;
   // Prefer the env URL; portal page itself canonical-redirects to the firma
   // domain when one is verified, so customers still land on the brand.
   void origin;
@@ -336,6 +433,7 @@ interface RenderInput {
   acceptedFullName: string | null;
   signedAt: string;
   widerrufVerzicht: boolean;
+  optionDisplayName: string | null;
 }
 
 function renderEmail(input: RenderInput): {
@@ -343,7 +441,7 @@ function renderEmail(input: RenderInput): {
   text: string;
   html: string;
 } {
-  const { branding, snapshot, portalUrl, dealNumber, signedAt, widerrufVerzicht } = input;
+  const { branding, snapshot, portalUrl, dealNumber, signedAt, widerrufVerzicht, optionDisplayName } = input;
   const ref = dealNumber ? `Auftrag ${dealNumber}` : "Ihr Umzug";
   const totalStr = new Intl.NumberFormat("de-DE", {
     style: "currency",
@@ -367,6 +465,7 @@ function renderEmail(input: RenderInput): {
     `Angenommen am: ${signedAtStr}`,
     "",
     snapshot.summary ? `Auftragsumfang:\n${snapshot.summary}\n` : "",
+    optionDisplayName ? `Ihre Wahl: ${optionDisplayName}` : "",
     `Gesamtbetrag: ${totalStr}`,
     snapshot.lineItems.length > 0 ? `\nLeistungen:\n${lineItemsText}` : "",
     snapshot.notes ? `\nHinweise: ${snapshot.notes}` : "",
@@ -391,7 +490,7 @@ function renderEmail(input: RenderInput): {
     .filter((line) => line !== "")
     .join("\n");
 
-  const html = renderHtml({ ...input, totalStr, signedAtStr, ref });
+  const html = renderHtml({ ...input, totalStr, signedAtStr, ref, optionDisplayName });
 
   return { subject, text, html };
 }
@@ -404,8 +503,9 @@ function renderHtml(args: {
   totalStr: string;
   signedAtStr: string;
   widerrufVerzicht: boolean;
+  optionDisplayName: string | null;
 }): string {
-  const { branding, snapshot, portalUrl, ref, totalStr, signedAtStr, widerrufVerzicht } = args;
+  const { branding, snapshot, portalUrl, ref, totalStr, signedAtStr, widerrufVerzicht, optionDisplayName } = args;
   const color = `#${branding.primaryColor}`;
   const safeFooter = escapeHtml(branding.footer ?? "");
 
@@ -452,6 +552,7 @@ Wir bestätigen Ihre verbindliche Annahme des Angebots <strong>${escapeHtml(ref)
 <div style="display:block;border:1px solid #e6e3dc;border-radius:12px;padding:16px;margin:16px 0;">
 <div style="font-size:12px;text-transform:uppercase;color:#888;letter-spacing:1px;">Gesamtbetrag</div>
 <div style="font-size:28px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:4px;">${escapeHtml(totalStr)}</div>
+${optionDisplayName ? `<div style="font-size:14px;color:#555;margin-top:8px;">Ihre Wahl: <strong>${escapeHtml(optionDisplayName)}</strong></div>` : ""}
 ${snapshot.summary ? `<div style="font-size:13px;color:#555;background:#f7f5f1;border-radius:8px;padding:10px 12px;margin:0 0 12px 0;white-space:pre-wrap;">${escapeHtml(snapshot.summary)}</div>` : ""}
 ${lineItemsHtml}
 ${snapshot.notes ? `<div style="font-size:13px;color:#555;background:#f7f5f1;border-radius:8px;padding:10px 12px;margin-top:8px;">${escapeHtml(snapshot.notes)}</div>` : ""}

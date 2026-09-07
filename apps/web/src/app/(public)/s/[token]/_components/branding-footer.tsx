@@ -1,57 +1,9 @@
 import type { FirmaBranding } from "@openclaw-crm/customer-portal-core";
-import { WhatsAppContactLink } from "./whatsapp-contact-link";
 
 export function BrandingFooter({ branding }: { branding: FirmaBranding }) {
-  if (!branding.footer && !branding.displayName) return null;
-  return (
-    <footer className="mt-12 border-t border-border/60 pt-6">
-      {branding.whatsappNumberE164 && (
-        <div className="mb-6 flex flex-col items-center gap-1 text-center">
-          <p className="text-sm text-muted-foreground">Fragen zu Ihrem Umzug?</p>
-          <WhatsAppContactLink
-            phoneE164={branding.whatsappNumberE164}
-            label="Per WhatsApp schreiben"
-          />
-        </div>
-      )}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div
-          className="inline-flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground"
-          style={{ color: `#${branding.primaryColor}` }}
-        >
-          <span
-            className="inline-block h-1.5 w-1.5 rounded-full"
-            style={{ background: `#${branding.primaryColor}` }}
-          />
-          {branding.displayName}
-        </div>
-        {branding.footer && (
-          <p className="text-[11px] leading-relaxed text-muted-foreground sm:text-right sm:text-xs">
-            {branding.footer}
-          </p>
-        )}
-      </div>
-      {(branding.firmaSlug === "kottke" || branding.firmaSlug === "ceylan") && (
-        <p className="mt-2 text-center text-[11px] text-muted-foreground">
-          <a
-            href={`/legal/impressum/${branding.firmaSlug}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-block px-1.5 py-2.5 hover:underline"
-          >
-            Impressum
-          </a>
-          {" · "}
-          <a
-            href={`/legal/datenschutz/${branding.firmaSlug}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-block px-1.5 py-2.5 hover:underline"
-          >
-            Datenschutz
-          </a>
-        </p>
-      )}
-    </footer>
-  );
+  return <footer className="portal-footer">
+    <strong>{branding.displayName}</strong><span className="portal-footer-rule" aria-hidden />
+    {branding.footer && <p>{branding.footer}</p>}
+    {(branding.firmaSlug === "kottke" || branding.firmaSlug === "ceylan") && <nav aria-label="Rechtliche Informationen"><a href={`/legal/impressum/${branding.firmaSlug}`} target="_blank" rel="noopener noreferrer">Impressum</a><a href={`/legal/datenschutz/${branding.firmaSlug}`} target="_blank" rel="noopener noreferrer">Datenschutz</a></nav>}
+  </footer>;
 }

@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Copy, Check, ExternalLink, Wallet } from "lucide-react";
+import { Copy, Check, ExternalLink, Wallet, CreditCard } from "lucide-react";
 import type {
   FirmaBranding,
   PaymentInstructions,
 } from "@openclaw-crm/customer-portal-core";
+import { PanelHeading } from "./portal-ui";
 import { GirocodeQr } from "./girocode-qr";
 
 /**
@@ -68,15 +69,10 @@ export function PaymentSection({
   }).format(payment.amountCents / 100);
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-border/50 bg-card">
-      <div
-        className="px-6 py-3 text-sm font-medium text-white"
-        style={{ background: `#${branding.primaryColor}` }}
-      >
-        {variant === "deposit" ? "Anzahlung" : "Zahlung"}
-      </div>
-      <div className="space-y-4 p-6">
-        <div className="flex items-baseline justify-between">
+    <section className="portal-panel">
+      <PanelHeading icon={CreditCard} title={variant === "deposit" ? "Anzahlung" : "Zahlung"} />
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
           <div className="text-sm text-muted-foreground">Offener Betrag</div>
           <div className="text-2xl font-medium tabular-nums">{amountStr}</div>
         </div>

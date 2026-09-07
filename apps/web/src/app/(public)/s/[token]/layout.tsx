@@ -4,7 +4,7 @@ import "./portal.css";
 /**
  * Overrides the root layout's viewport for the portal segment: customers
  * may pinch-zoom here (the CRM locks zoom for its app chrome), and the
- * browser UI tint follows the Berlin Blue palette from portal.css instead
+ * browser UI tint follows the portal palette from portal.css instead
  * of the CRM theme colours.
  */
 export const viewport: Viewport = {
@@ -14,8 +14,8 @@ export const viewport: Viewport = {
   userScalable: true,
   viewportFit: "cover",
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f7f8fa" },
-    { media: "(prefers-color-scheme: dark)", color: "#0b111b" },
+    { media: "(prefers-color-scheme: light)", color: "#fbfdff" },
+    { media: "(prefers-color-scheme: dark)", color: "#0d1728" },
   ],
 };
 
@@ -38,7 +38,7 @@ export const metadata: Metadata = {
  * Stage 1-4 components can paint into.
  *
  * The `kottke-portal` class swaps every Tailwind colour token (background,
- * foreground, primary, muted, …) for the Berlin Blue palette defined in
+ * foreground, primary, muted, …) for the portal palette defined in
  * portal.css. The CRM dashboard keeps its warm-paper palette untouched.
  */
 export default function CustomerPortalLayout({

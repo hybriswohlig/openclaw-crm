@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
-import { Check, Loader2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Check, Loader2, Package, Star, X, Plus, FileText } from "lucide-react";
 import { WhatsAppContactLink } from "./whatsapp-contact-link";
+import { formatPortalMoney } from "./portal-presentation";
+import { pickDefaultDealOption } from "@openclaw-crm/customer-portal-core";
 import type {
   DealPackageOffersContext,
   DealPackageOption,
@@ -47,7 +49,7 @@ export function PackageSelector({
   dealOffers: DealPackageOffersContext;
   branding: FirmaBranding;
   locked: boolean;
-  onPicked: () => void;
+  onPicked: () => void | Promise<void>;
 }) {
   // Per-deal options always win when present — that's the operator's
   // intentional "here are exactly these prices for THIS Auftrag" gesture.
@@ -85,17 +87,28 @@ function DealOptionPicker({
   offers: DealPackageOffersContext;
   branding: FirmaBranding;
   locked: boolean;
-  onPicked: () => void;
+  onPicked: () => void | Promise<void>;
 }) {
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const accent = `#${branding.primaryColor}`;
-  const currentId = offers.selectedOptionId;
+  const defaulted = pickDefaultDealOption(offers.options, offers.selectedOptionId);
+  const currentId = defaulted?.id ?? offers.selectedOptionId;
+
+  // Persist the visual default so a first visit never leaves the price card
+  // at 0 € with nothing clicked. Skip when already bound or locked.
+  useEffect(() => {
+    if (locked) return;
+    if (!defaulted) return;
+    if (defaulted.id === offers.selectedOptionId) return;
+    void pick(defaulted.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locked, defaulted?.id, offers.selectedOptionId]);
 
   async function pick(optionId: string) {
-    if (locked) return;
-    if (optionId === currentId) return;
+    if (locked || pendingId) return;
+    if (optionId === offers.selectedOptionId) return;
     setPendingId(optionId);
     setError(null);
     try {
@@ -111,7 +124,7 @@ function DealOptionPicker({
         setError(germanError(body.error?.code));
         return;
       }
-      onPicked();
+      await onPicked();
     } catch {
       setError("Verbindungsfehler. Bitte versuchen Sie es erneut.");
     } finally {
@@ -120,38 +133,44 @@ function DealOptionPicker({
   }
 
   const selected = offers.options.find((o) => o.id === currentId);
+  const visibleOptions =
+    locked && selected
+      ? offers.options.filter((o) => o.id === selected.id)
+      : offers.options;
 
   return (
     <section data-portal-section="packages" className="space-y-3">
       <div className="flex items-end justify-between gap-2">
         <h2 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-          {offers.options.length === 1
-            ? "Ihr Angebot"
-            : `Wählen Sie aus ${offers.options.length} Optionen`}
+          {locked && selected
+            ? "Ihr angenommenes Angebot"
+            : visibleOptions.length === 1
+              ? "Ihr Angebot"
+              : `Wählen Sie aus ${visibleOptions.length} Optionen`}
         </h2>
-        {!locked && offers.options.length > 1 && (
+        {!locked && visibleOptions.length > 1 && (
           <span className="text-[10px] text-muted-foreground">
             Antippen zum Auswählen
           </span>
         )}
       </div>
 
-      <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {offers.options.map((o) => (
+      <ul className={`portal-package-list ${visibleOptions.length === 1 ? "portal-single-offer" : ""}`}>
+        {visibleOptions.map((o) => (
           <DealOptionCard
             key={o.id}
             option={o}
             accent={accent}
             isSelected={o.id === currentId}
             isPending={pendingId === o.id}
-            disabled={locked || (pendingId != null && pendingId !== o.id)}
+            disabled={locked || pendingId != null}
             onTap={() => pick(o.id)}
           />
         ))}
       </ul>
 
       {error && (
-        <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
+        <p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
           {error}
         </p>
       )}
@@ -163,7 +182,7 @@ function DealOptionPicker({
           <span className="tabular-nums">
             {formatEurCents(selected.priceCents)}
           </span>
-          {locked ? " (verbindlich)" : ". Sie können oben jederzeit umwählen."}
+          {locked ? " (verbindlich angenommen)" : visibleOptions.length > 1 ? ". Sie können Ihre Auswahl jederzeit ändern." : "."}
         </p>
       ) : (
         <p className="text-[11px] text-muted-foreground">
@@ -186,7 +205,7 @@ function CataloguePicker({
   packages: OfferPackagesContext;
   branding: FirmaBranding;
   locked: boolean;
-  onPicked: () => void;
+  onPicked: () => void | Promise<void>;
 }) {
   const [pendingSlug, setPendingSlug] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -197,7 +216,7 @@ function CataloguePicker({
   const currentSlug = packages.selectedSlug;
 
   async function pick(slug: string) {
-    if (locked) return;
+    if (locked || pendingSlug) return;
     if (slug === currentSlug) return;
     setPendingSlug(slug);
     setError(null);
@@ -214,7 +233,7 @@ function CataloguePicker({
         setError(germanError(body.error?.code));
         return;
       }
-      onPicked();
+      await onPicked();
     } catch {
       setError("Verbindungsfehler. Bitte versuchen Sie es erneut.");
     } finally {
@@ -235,7 +254,7 @@ function CataloguePicker({
         )}
       </div>
 
-      <ul className="grid gap-3 sm:grid-cols-3">
+      <ul className={`portal-package-list ${packages.available.length === 1 ? "portal-single-offer" : ""}`}>
         {packages.available.map((p) => (
           <PackageCard
             key={p.slug}
@@ -244,14 +263,14 @@ function CataloguePicker({
             branding={branding}
             isSelected={p.slug === currentSlug}
             isPending={pendingSlug === p.slug}
-            disabled={locked || (pendingSlug != null && pendingSlug !== p.slug)}
+            disabled={locked || pendingSlug != null}
             onTap={() => pick(p.slug)}
           />
         ))}
       </ul>
 
       {error && (
-        <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
+        <p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
           {error}
         </p>
       )}
@@ -278,336 +297,46 @@ function CataloguePicker({
   );
 }
 
-function DealOptionCard({
-  option,
-  accent,
-  isSelected,
-  isPending,
-  disabled,
-  onTap,
-}: {
-  option: DealPackageOption;
-  accent: string;
-  isSelected: boolean;
-  isPending: boolean;
-  disabled: boolean;
-  onTap: () => void;
+function DealOptionCard({ option, isSelected, isPending, disabled, onTap }: {
+  option: DealPackageOption; accent: string; isSelected: boolean; isPending: boolean; disabled: boolean; onTap: () => void;
 }) {
-  return (
-    <li className="relative">
-      <button
-        type="button"
-        onClick={onTap}
-        disabled={disabled}
-        aria-pressed={isSelected}
-        className="group relative flex h-full w-full flex-col rounded-2xl border bg-card p-4 text-left transition-all hover:border-foreground/30 hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-70"
-        style={
-          isSelected
-            ? {
-                borderColor: accent,
-                borderWidth: 2,
-                padding: 15,
-                boxShadow: `0 0 0 3px ${accent}1a`,
-              }
-            : undefined
-        }
-      >
-        {option.isRecommended && (
-          <span
-            className="absolute -top-2.5 right-4 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white shadow-sm"
-            style={{ background: accent }}
-          >
-            Empfohlen
-          </span>
-        )}
-
-        {/* Price first, large and tabular. */}
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-              Festpreis
-            </div>
-            <div className="display mt-0.5 text-2xl font-medium tabular-nums leading-none">
-              {formatEurCents(option.priceCents)}
-            </div>
-          </div>
-          {isSelected ? (
-            <span
-              className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
-              style={{ background: accent }}
-              aria-hidden
-            >
-              <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />
-            </span>
-          ) : isPending ? (
-            <span
-              className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border"
-              style={{ borderColor: accent, color: accent }}
-              aria-hidden
-            >
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            </span>
-          ) : null}
-        </div>
-
-        <div className="mt-3">
-          <div className="text-sm font-medium">{option.displayName}</div>
-          {option.shortDescription && (
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              {option.shortDescription}
-            </p>
-          )}
-        </div>
-
-        {/* Leistungsumfang pro Paket in drei Stufen: enthalten ✓, auf Wunsch
-            zubuchbar +, ausdrücklich nicht enthalten ✗ (durchgestrichen).
-            Vollständig statt gekappt — DIE Karte ist der Leistungsumfang. */}
-        {option.includedItems.length > 0 && (
-          <div className="mt-3">
-            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Im Angebot enthalten
-            </p>
-            <ul className="space-y-1.5 text-xs">
-              {option.includedItems.map((item, i) => (
-                <li key={i} className="flex items-start gap-2 leading-snug">
-                  <Check
-                    className="mt-0.5 h-3 w-3 shrink-0"
-                    strokeWidth={2.5}
-                    style={{ color: accent }}
-                    aria-hidden
-                  />
-                  <span>{item}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {(option.addableItems ?? []).length > 0 && (
-          <div className="mt-3">
-            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Auf Wunsch zubuchbar
-            </p>
-            <ul className="space-y-1 text-xs text-muted-foreground">
-              {(option.addableItems ?? []).map((item, i) => (
-                <li key={i} className="flex items-start gap-2 leading-snug">
-                  <span
-                    aria-hidden
-                    className="mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border text-[10px] leading-none"
-                  >
-                    +
-                  </span>
-                  <span>{item}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {(option.excludedItems ?? []).length > 0 && (
-          <div className="mt-3">
-            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Nicht enthalten
-            </p>
-            <ul className="space-y-1 text-xs text-muted-foreground">
-              {(option.excludedItems ?? []).map((item, i) => (
-                <li key={i} className="flex items-start gap-2 leading-snug">
-                  <span aria-hidden className="mt-0.5 shrink-0 text-[11px] leading-none">✗</span>
-                  <span className="line-through decoration-muted-foreground/50">{item}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {option.note && (
-          <p className="mt-3 border-t pt-2 text-[11px] text-muted-foreground">
-            {option.note}
-          </p>
-        )}
-
-        {!isSelected && (
-          <div
-            className="mt-3 inline-flex items-center justify-center self-stretch rounded-lg border border-dashed px-3 py-1.5 text-[11px] font-medium text-muted-foreground transition group-hover:border-solid group-hover:text-foreground"
-            style={{ borderColor: "var(--border)" }}
-          >
-            {isPending ? "Wird gespeichert…" : "Diese Option wählen"}
-          </div>
-        )}
-      </button>
-    </li>
-  );
+  const Icon = option.isRecommended ? Star : Package;
+  return <li>
+    <button type="button" onClick={onTap} disabled={disabled} aria-pressed={isSelected} aria-busy={isPending} className="portal-package-card">
+      {option.isRecommended && <span className="portal-package-badge">Empfohlen</span>}
+      <div className="portal-package-title"><span className="portal-package-icon"><Icon size={28} aria-hidden /></span><div><strong>{option.displayName}</strong>{option.shortDescription && <p>{option.shortDescription}</p>}</div></div>
+      <div className="portal-package-price-wrap"><div className="portal-price portal-package-price">{formatPortalMoney(option.priceCents)}</div><p className="portal-package-price-label">Festpreis</p></div>
+      <ul className="portal-package-features">
+        {option.includedItems.map((item, i) => <li key={`in-${i}`}><Check aria-hidden /><span>{item}</span></li>)}
+        {(option.excludedItems ?? []).map((item, i) => <li className="excluded" key={`out-${i}`}><X aria-hidden /><span><span className="sr-only">Nicht enthalten: </span>{item}</span></li>)}
+        {(option.addableItems ?? []).map((item, i) => <li key={`add-${i}`}><Plus aria-hidden /><span>{item} <span className="text-muted-foreground">(zubuchbar)</span></span></li>)}
+      </ul>
+      {option.note && <p className="mb-3 text-xs text-muted-foreground">{option.note}</p>}
+      <div className="portal-package-cta"><span className={`portal-button ${isSelected ? "" : "portal-button-secondary"}`}>
+        {isPending ? <Loader2 size={17} className="animate-spin" aria-hidden /> : isSelected ? <Check size={17} aria-hidden /> : <FileText size={17} aria-hidden />}
+        {isPending ? "Wird gespeichert…" : isSelected ? "Aktuell ausgewählt" : "Angebot auswählen"}
+      </span></div>
+    </button>
+  </li>;
 }
 
-function PackageCard({
-  pkg,
-  accent,
-  branding,
-  isSelected,
-  isPending,
-  disabled,
-  onTap,
-}: {
-  pkg: OfferPackage;
-  accent: string;
-  branding: FirmaBranding;
-  isSelected: boolean;
-  isPending: boolean;
-  disabled: boolean;
-  onTap: () => void;
+function PackageCard({ pkg, branding, isSelected, isPending, disabled, onTap }: {
+  pkg: OfferPackage; accent: string; branding: FirmaBranding; isSelected: boolean; isPending: boolean; disabled: boolean; onTap: () => void;
 }) {
   const hasPrice = pkg.priceFromCents != null;
-  const onRequest = !hasPrice;
-  const isFixed = pkg.priceFixedFlag && hasPrice;
-
-  const cardBody = (
-    <>
-      {pkg.isRecommended && (
-        <span
-          className="absolute -top-2.5 right-4 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white shadow-sm"
-          style={{ background: accent }}
-        >
-          Beliebteste Wahl
-        </span>
-      )}
-
-      {/* Price block — calmest, biggest. Reads first. */}
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-            {onRequest ? "Auf Anfrage" : isFixed ? "Festpreis" : "ab"}
-          </div>
-          <div className="display mt-0.5 text-2xl font-medium tabular-nums leading-none">
-            {hasPrice ? formatEurCents(pkg.priceFromCents!) : "Individuell"}
-          </div>
-        </div>
-        {isSelected ? (
-          <span
-            className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
-            style={{ background: accent }}
-            aria-hidden
-          >
-            <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />
-          </span>
-        ) : isPending ? (
-          <span
-            className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border"
-            style={{ borderColor: accent, color: accent }}
-            aria-hidden
-          >
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          </span>
-        ) : null}
-      </div>
-
-      {/* Name + short description */}
-      <div className="mt-3">
-        <div className="text-sm font-medium">{pkg.displayName}</div>
-        {pkg.shortDescription && (
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            {pkg.shortDescription}
-          </p>
-        )}
-      </div>
-
-      {/* Included lines */}
-      {pkg.includedItems.length > 0 && (
-        <ul className="mt-3 space-y-1.5 text-xs">
-          {pkg.includedItems.slice(0, 4).map((item, i) => (
-            <li key={i} className="flex items-start gap-2 leading-snug">
-              <Check
-                className="mt-0.5 h-3 w-3 shrink-0"
-                strokeWidth={2.5}
-                style={{ color: accent }}
-                aria-hidden
-              />
-              <span>{item}</span>
-            </li>
-          ))}
-          {pkg.includedItems.length > 4 && (
-            <li className="text-muted-foreground">
-              und {pkg.includedItems.length - 4} weitere
-            </li>
-          )}
-        </ul>
-      )}
-
-      {pkg.targetSegment && (
-        <p className="mt-3 border-t pt-2 text-[11px] text-muted-foreground">
-          {pkg.targetSegment}
-        </p>
-      )}
-
-      {/* Bottom-anchored CTA hint */}
-      {!isSelected && !onRequest && (
-        <div
-          className="mt-3 inline-flex items-center justify-center self-stretch rounded-lg border border-dashed px-3 py-1.5 text-[11px] font-medium text-muted-foreground transition group-hover:border-solid group-hover:text-foreground"
-          style={{ borderColor: "var(--border)" }}
-        >
-          {isPending ? "Wird gespeichert…" : "Dieses Paket wählen"}
-        </div>
-      )}
-      {onRequest &&
-        (branding.whatsappNumberE164 ? (
-          <span
-            className="mt-3 block self-stretch rounded-xl"
-            style={{ background: accent }}
-          >
-            <WhatsAppContactLink
-              phoneE164={branding.whatsappNumberE164}
-              label="Per WhatsApp anfragen"
-              message={`Hallo ${branding.displayName}, ich interessiere mich für das Paket ${pkg.displayName}. Können Sie mir dazu ein Angebot machen?`}
-              className="flex h-11 w-full items-center justify-center gap-1.5 rounded-xl text-sm font-medium text-white"
-            />
-          </span>
-        ) : (
-          <div className="mt-3 inline-flex items-center justify-center self-stretch rounded-lg bg-muted px-3 py-1.5 text-[11px] font-medium text-muted-foreground">
-            Auf Anfrage. Antworten Sie uns einfach im Chat.
-          </div>
-        ))}
-    </>
-  );
-
-  return (
-    <li className="relative">
-      {onRequest ? (
-        // On-request cards are never selectable. Render a plain container,
-        // because a link inside a disabled button would not be tappable.
-        <div className="relative flex h-full w-full flex-col rounded-2xl border bg-card p-4 text-left">
-          {cardBody}
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={onTap}
-          disabled={disabled}
-          aria-pressed={isSelected}
-          className="group relative flex h-full w-full flex-col rounded-2xl border bg-card p-4 text-left transition-all hover:border-foreground/30 hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-70"
-          style={
-            isSelected
-              ? {
-                  borderColor: accent,
-                  borderWidth: 2,
-                  padding: 15,
-                  boxShadow: `0 0 0 3px ${accent}1a`,
-                }
-              : undefined
-          }
-        >
-          {cardBody}
-        </button>
-      )}
-    </li>
-  );
+  const Icon = pkg.isRecommended ? Star : Package;
+  const body = <>
+    {pkg.isRecommended && <span className="portal-package-badge">Empfohlen</span>}
+    <div className="portal-package-title"><span className="portal-package-icon"><Icon size={28} aria-hidden /></span><div><strong>{pkg.displayName}</strong>{pkg.shortDescription && <p>{pkg.shortDescription}</p>}</div></div>
+    <div className="portal-package-price-wrap"><div className="portal-price portal-package-price">{hasPrice ? formatPortalMoney(pkg.priceFromCents!) : "Auf Anfrage"}</div><p className="portal-package-price-label">{hasPrice ? pkg.priceFixedFlag ? "Festpreis" : "Ab-Preis, individuelles Angebot folgt" : "Individuelles Angebot"}</p></div>
+    <ul className="portal-package-features">{pkg.includedItems.map((item, i) => <li key={i}><Check aria-hidden /><span>{item}</span></li>)}</ul>
+    {pkg.targetSegment && <p className="mb-3 text-xs text-muted-foreground">{pkg.targetSegment}</p>}
+    <div className="portal-package-cta">{hasPrice ? <span className={`portal-button ${isSelected ? "" : "portal-button-secondary"}`}>{isPending ? <Loader2 size={17} className="animate-spin" aria-hidden /> : isSelected ? <Check size={17} aria-hidden /> : <FileText size={17} aria-hidden />}{isPending ? "Wird gespeichert…" : isSelected ? "Aktuell ausgewählt" : "Paket auswählen"}</span> : <WhatsAppContactLink phoneE164={branding.whatsappNumberE164} label="Angebot anfragen" message={`Hallo ${branding.displayName}, ich interessiere mich für das Paket ${pkg.displayName}.`} className="portal-button portal-button-secondary" fallback={<span className="text-xs text-muted-foreground">Antworten Sie uns für ein Angebot im bestehenden Chat.</span>} />}</div>
+  </>;
+  return <li>{hasPrice ? <button type="button" className="portal-package-card" onClick={onTap} disabled={disabled} aria-pressed={isSelected} aria-busy={isPending}>{body}</button> : <div className="portal-package-card">{body}</div>}</li>;
 }
 
-function formatEurCents(cents: number): string {
-  return new Intl.NumberFormat("de-DE", {
-    style: "currency",
-    currency: "EUR",
-    maximumFractionDigits: 0,
-  }).format(cents / 100);
-}
+function formatEurCents(cents: number): string { return formatPortalMoney(cents); }
 
 function germanError(code: string | undefined): string {
   switch (code) {
