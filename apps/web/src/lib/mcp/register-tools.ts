@@ -555,7 +555,7 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_store_document_job",
-    "Attach a finished render job's PDF to a deal as a document. documentType is deduced from the filename (KV- → quotation, AB- → order_confirmation, RE- → invoice, AW- → worker_instructions) when omitted. Storing an order_confirmation or invoice notifies the customer portal. Kostenvoranschlag stores as quotation and does not unlock portal Stage 2.",
+    "Attach a finished render job's PDF to a deal as a document. Sends only jobId + recordId — the server pulls the PDF from the render VPS and writes it in-process (do not upload PDF bytes). Application cap 10 MB; larger jobs stay on the VPS download URL. documentType is deduced from the filename (KV- → quotation, AB- → order_confirmation, RE- → invoice, AW- → worker_instructions) when omitted. Storing an order_confirmation or invoice notifies the customer portal. Kostenvoranschlag stores as quotation and does not unlock portal Stage 2.",
     {
       jobId: z.string(),
       recordId: z.string(),
