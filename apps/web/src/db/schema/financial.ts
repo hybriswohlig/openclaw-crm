@@ -353,7 +353,8 @@ export const employeeTransactions = pgTable(
 
 // ─── Deal Documents ───────────────────────────────────────────────────────────
 // File attachments for a deal: Auftragsbestätigung, Rechnung, Zahlungsbestätigung.
-// File content is stored as base64 text (suitable for documents up to ~5 MB).
+// File content is stored as base64 text (application cap 10 MB). Render-job
+// store goes in-process; do not POST the PDF through a Vercel request body.
 
 export const dealDocuments = pgTable(
   "deal_documents",

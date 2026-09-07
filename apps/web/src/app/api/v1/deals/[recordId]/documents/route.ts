@@ -3,9 +3,10 @@ import { getAuthContext, unauthorized, success } from "@/lib/api-utils";
 import { db } from "@/db";
 import { dealDocuments } from "@/db/schema/financial";
 import { eq, and } from "drizzle-orm";
-import { maybeNotifyPortalEvent } from "@/services/customer-portal-notifications";
-
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+import {
+  createDealDocument,
+  validateDealDocumentUpload,
+} from "@/services/deal-documents";
 
 export async function GET(
   req: NextRequest,
@@ -54,56 +55,25 @@ export async function POST(
     return NextResponse.json({ error: "file and documentType are required" }, { status: 400 });
   }
 
-  const validTypes = [
-    "quotation",
-    "order_confirmation",
-    "invoice",
-    "payment_confirmation",
-    "worker_instructions",
-  ];
-  if (!validTypes.includes(documentType)) {
-    return NextResponse.json({ error: "Invalid documentType" }, { status: 400 });
-  }
-
-  if (file.size > MAX_FILE_SIZE) {
-    return NextResponse.json({ error: "File too large (max 10 MB)" }, { status: 413 });
+  const check = validateDealDocumentUpload({
+    fileName: file.name,
+    fileSize: file.size,
+    documentType,
+  });
+  if (!check.ok) {
+    return NextResponse.json({ error: check.error }, { status: check.status });
   }
 
   const buffer = await file.arrayBuffer();
-  const base64 = Buffer.from(buffer).toString("base64");
-
-  const [doc] = await db
-    .insert(dealDocuments)
-    .values({
-      workspaceId: ctx.workspaceId,
-      dealRecordId: recordId,
-      documentType: documentType as
-        | "quotation"
-        | "order_confirmation"
-        | "invoice"
-        | "payment_confirmation"
-        | "worker_instructions",
-      fileName: file.name,
-      fileSize: file.size,
-      mimeType: file.type || "application/octet-stream",
-      fileContent: base64,
-    })
-    .returning({
-      id: dealDocuments.id,
-      documentType: dealDocuments.documentType,
-      fileName: dealDocuments.fileName,
-      fileSize: dealDocuments.fileSize,
-      mimeType: dealDocuments.mimeType,
-      uploadedAt: dealDocuments.uploadedAt,
-    });
-
-  // Fire-and-forget customer notification (never blocks the response).
-  if (documentType === "order_confirmation" || documentType === "invoice") {
-    void maybeNotifyPortalEvent(
-      documentType === "order_confirmation" ? "ab_ready" : "invoice_ready",
-      { workspaceId: ctx.workspaceId, dealRecordId: recordId }
-    ).catch(() => {});
-  }
+  const doc = await createDealDocument({
+    workspaceId: ctx.workspaceId,
+    dealRecordId: recordId,
+    documentType: check.documentType,
+    fileName: file.name,
+    fileSize: file.size,
+    mimeType: file.type || "application/octet-stream",
+    fileContent: Buffer.from(buffer).toString("base64"),
+  });
 
   return success(doc);
 }
