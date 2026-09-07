@@ -39,7 +39,9 @@ export async function POST(
           ? 410
           : result.reason === "invalid_token"
             ? 400
-            : 422;
+            : result.reason === "option_required" || result.reason === "zero_price"
+              ? 422
+              : 422;
     return NextResponse.json(
       { error: { code: result.reason.toUpperCase() } },
       { status }

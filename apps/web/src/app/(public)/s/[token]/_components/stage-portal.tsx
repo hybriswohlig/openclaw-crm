@@ -7,7 +7,7 @@ import { StageOneKva } from "./stage-one-kva";
 import { StageTwoAb } from "./stage-two-ab";
 import { StageThreeLive } from "./stage-three-live";
 import { StageFourDone } from "./stage-four-done";
-import { DocumentsSection } from "./documents-section";
+import { portalBrandStyle } from "./portal-presentation";
 import { BrandingFooter } from "./branding-footer";
 import { useVisitTracker } from "./use-visit-tracker";
 
@@ -40,34 +40,31 @@ export function StagePortal({
     }
   }, [token]);
 
-  // Auto-refresh every 30 s during the active move (Stage 3) and on Stage 1
-  // while the customer waits for the KVA: the waiting card promises that the
-  // page updates itself. Polling is cheap because /state is cached for 0
-  // seconds but indexed reads.
-  const shouldPoll = ctx.stage === 3 || (ctx.stage === 1 && !ctx.kva);
+  // Keep acceptance, document preparation and move-day transitions current.
+  // Only poll while visible; returning to the tab refreshes immediately.
+  const shouldPoll = ctx.stage < 4;
   useEffect(() => {
     if (!shouldPoll) return;
-    const i = window.setInterval(refresh, 30_000);
-    return () => window.clearInterval(i);
+    const refreshVisible = () => { if (document.visibilityState === "visible") void refresh(); };
+    const i = window.setInterval(refreshVisible, 30_000);
+    document.addEventListener("visibilitychange", refreshVisible);
+    return () => {
+      window.clearInterval(i);
+      document.removeEventListener("visibilitychange", refreshVisible);
+    };
   }, [shouldPoll, refresh]);
 
   return (
-    <main className="mx-auto flex min-h-svh w-full max-w-5xl flex-col px-4 pb-16 pt-8 sm:px-6 md:pt-12 lg:pt-14">
+    <main className="portal-shell" style={{ ...portalBrandStyle(ctx.branding.primaryColor), "--portal-highlight": ctx.branding.firmaSlug === "kottke" ? "#ff8200" : `#${ctx.branding.primaryColor}` } as React.CSSProperties}>
+      <a className="portal-skip" href="#portal-content">Zum Auftragsinhalt</a>
       <StageHeader ctx={ctx} />
 
-      <div className="mt-8 flex flex-1 flex-col gap-5 sm:mt-10">
+      <div id="portal-content" className="portal-content">
         {ctx.stage === 1 && <StageOneKva token={token} ctx={ctx} onConfirmed={refresh} />}
-        {ctx.stage === 2 && <StageTwoAb ctx={ctx} />}
+        {ctx.stage === 2 && <StageTwoAb token={token} ctx={ctx} />}
         {ctx.stage === 3 && <StageThreeLive token={token} ctx={ctx} />}
         {ctx.stage === 4 && <StageFourDone token={token} ctx={ctx} />}
       </div>
-
-      {/* Stage 1 shows the offer live, so the paperwork card starts at Stage 2. */}
-      {ctx.stage >= 2 && (
-        <div className="mt-5">
-          <DocumentsSection ctx={ctx} />
-        </div>
-      )}
 
       <BrandingFooter branding={ctx.branding} />
     </main>

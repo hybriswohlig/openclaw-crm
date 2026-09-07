@@ -45,6 +45,10 @@ import {
   buildPayPalUrl,
   deriveStage,
   generateToken,
+  offerAcceptanceBlockReason,
+  pickDefaultDealOption,
+  portalFeatures,
+  resolveSelectedPackageAfterReplace,
   validateTokenShape,
   widerrufVerzichtRequired,
   type AcceptanceRecord,
@@ -280,6 +284,7 @@ export async function loadContextByToken(
   // constants happens inside loadEffectiveBranding for any unconfigured firma.
   const effective = await loadEffectiveBranding(ocId);
   const branding: FirmaBranding = effective.branding;
+  const features = portalFeatures(effective);
 
   // Customer display name from associated_people (first only, lightweight)
   const customerDisplayName = await loadCustomerDisplayName(dealValues, dealAttrs);
@@ -298,6 +303,11 @@ export async function loadContextByToken(
     .where(eq(dealNumbers.dealRecordId, dealRecordId))
     .limit(1);
   const dealNumber = dealNumberRow?.dealNumber ?? dealRecordId.slice(0, 8);
+
+  // Heal stale/missing package selections before we read the price card.
+  // Existing links that were sent before the default-option write would
+  // otherwise render 0 € with nothing clicked.
+  await ensureDefaultPackageSelection(dealRecordId);
 
   // Quotation + line items
   const kva = await loadKvaSnapshot(dealRecordId);
@@ -332,16 +342,21 @@ export async function loadContextByToken(
 
   // Documents (presence only — the public route streams them through a scoped URL)
   const docRows = await db
-    .select({ id: dealDocuments.id, type: dealDocuments.documentType })
+    .select({ id: dealDocuments.id, type: dealDocuments.documentType, uploadedAt: dealDocuments.uploadedAt })
     .from(dealDocuments)
     .where(
       and(
         eq(dealDocuments.workspaceId, workspaceId),
         eq(dealDocuments.dealRecordId, dealRecordId)
       )
-    );
+    ).orderBy(desc(dealDocuments.uploadedAt));
   const orderConfirmationDoc = docRows.find((d) => d.type === "order_confirmation");
   const invoiceDoc = docRows.find((d) => d.type === "invoice");
+
+  const [quotationVersion] = await db.select({ updatedAt: quotations.updatedAt }).from(quotations)
+    .where(eq(quotations.dealRecordId, dealRecordId)).limit(1);
+  const quotationDoc = docRows.find(d => d.type === "quotation" &&
+    (!quotationVersion || d.uploadedAt >= quotationVersion.updatedAt));
 
   // Move timing
   const [timingRow] = await db
@@ -379,7 +394,7 @@ export async function loadContextByToken(
   });
 
   // Attachments (only fetched when stage >= 3 to keep Stage-1 fast).
-  const attachments = stage >= 3 ? await loadAttachments(workspaceId, dealRecordId, scope.moveDate) : [];
+  const attachments = features.liveTracking && stage >= 3 ? await loadAttachments(workspaceId, dealRecordId, scope.moveDate) : [];
 
   // All deal photos for "Ihre Fotos": customer inbound + operator portal
   // uploads. AI selection is independent and does not filter this list.
@@ -391,14 +406,14 @@ export async function loadContextByToken(
   //   - Stage 1 with a deposit required.
   let payment: PaymentInstructions | null = null;
   const quotationMethod = await loadPaymentMethodPreference(dealRecordId);
-  if (stage === 4 && kva) {
+  if (features.payments && stage === 4 && kva && !kva.isVariable) {
     payment = buildPaymentInstructions({
       method: quotationMethod,
       amountCents: Math.max(0, kva.totalCents - paymentsReceivedCents),
       reference: `Rechnung ${dealNumber}`,
       branding,
     });
-  } else if (stage === 1 && kva?.depositRequiredCents && kva.depositRequiredCents > 0) {
+  } else if (features.payments && stage === 1 && kva?.depositRequiredCents && kva.depositRequiredCents > 0) {
     payment = buildPaymentInstructions({
       method: quotationMethod,
       amountCents: Math.max(0, kva.depositRequiredCents - paymentsReceivedCents),
@@ -409,6 +424,12 @@ export async function loadContextByToken(
 
   return {
     stage,
+    features,
+    paymentStatus: features.payments && kva ? {
+      receivedCents: paymentsReceivedCents,
+      remainingCents: kva.isVariable ? null : Math.max(0, kva.totalCents - paymentsReceivedCents),
+      paid: !kva.isVariable && kva.totalCents > 0 && paymentsReceivedCents >= kva.totalCents,
+    } : null,
     dealNumber,
     customerDisplayName,
     customerEmailStatus,
@@ -423,6 +444,7 @@ export async function loadContextByToken(
     kva,
     acceptance,
     documents: {
+      quotationUrl: quotationDoc ? `/api/public/${token}/documents/${quotationDoc.id}` : null,
       orderConfirmationUrl: orderConfirmationDoc
         ? `/api/public/${token}/documents/${orderConfirmationDoc.id}`
         : null,
@@ -431,9 +453,9 @@ export async function loadContextByToken(
     attachments,
     customerPhotos,
     furnitureList,
-    timing,
+    timing: features.liveTracking ? timing : { departureAt: null, onsiteAt: null, finishedAt: null },
     payment,
-    customerSignals,
+    customerSignals: features.payments ? customerSignals : { ...customerSignals, markedPaidDepositAt: null, markedPaidFinalAt: null },
     meta: {
       serverTime: now.toISOString(),
       revoked,
@@ -482,8 +504,28 @@ export async function confirmKvaForToken(
     return { ok: false, reason: "missing_acknowledgement" };
   }
 
+  // Bind a default option before reading the price, so a first accept on a
+  // freshly sent package offer cannot lock in 0 € / "nothing selected".
+  await ensureDefaultPackageSelection(link.dealRecordId);
+
   const kva = await loadKvaSnapshot(link.dealRecordId);
   if (!kva) return { ok: false, reason: "no_quotation" };
+
+  // Per-deal options must have a real, priced selection — otherwise the
+  // customer can bind a 0 € contract because nothing was pre-selected.
+  const dealOffers = await loadDealPackageOffersContext(link.dealRecordId);
+  const acceptBlock = offerAcceptanceBlockReason({
+    dealOptions: dealOffers.options,
+    selectedOptionId: dealOffers.selectedOptionId,
+    totalCents: kva.totalCents,
+    isVariable: kva.isVariable,
+    hasOpenDateChoice: false,
+  });
+  if (acceptBlock === "option") return { ok: false, reason: "option_required" };
+  if (acceptBlock === "zero_price") return { ok: false, reason: "zero_price" };
+  const selectedOption = dealOffers.options.find(
+    (o) => o.id === dealOffers.selectedOptionId
+  );
 
   // Expired offers can no longer be accepted. Day-based comparison: only a
   // validUntil strictly before today blocks; on the day itself it still works.
@@ -543,7 +585,8 @@ export async function confirmKvaForToken(
   }
   if (!inserted) return { ok: true };
 
-  // Fire-and-forget confirmation email. Never throws — failures log + drop.
+  // Fire-and-forget confirmation: WhatsApp first (how most customers arrived),
+  // email as additional copy. Never throws — failures log + drop.
   void sendKvaAcceptanceEmail({
     workspaceId: link.workspaceId,
     dealRecordId: link.dealRecordId,
@@ -552,8 +595,9 @@ export async function confirmKvaForToken(
     widerrufVerzichtAccepted: body.widerrufVerzichtAccepted,
     snapshot: kva,
     signedAt: signedAt.toISOString(),
+    optionDisplayName: selectedOption?.displayName ?? null,
   }).catch((err) => {
-    console.error("[customer-portal] email dispatch failed:", err);
+    console.error("[customer-portal] confirmation dispatch failed:", err);
   });
 
   await emitEvent({
@@ -593,6 +637,12 @@ export async function recordMarkedPaid(
     .limit(1);
   if (!link) return { ok: false, reason: "not_found" };
   if (!isLinkUsable(link)) return { ok: false, reason: "revoked" };
+
+  const portal = await loadContextByToken(token);
+  if (!portal || portal.meta.featureDisabled || portal.features?.payments !== true) return { ok: false, reason: "feature_disabled" };
+  if (!portal.payment || portal.payment.amountCents <= 0 || body.amountCents !== portal.payment.amountCents || body.method !== portal.payment.method || body.variant !== (portal.stage === 1 ? "deposit" : "final")) {
+    return { ok: false, reason: "payment_changed" };
+  }
 
   await emitEvent({
     workspaceId: link.workspaceId,
@@ -1227,8 +1277,21 @@ async function loadKvaSnapshot(dealRecordId: string): Promise<KvaSnapshot | null
     };
   });
 
+  const optionRows = await db
+    .select({
+      id: quotationPackageOptions.id,
+      priceCents: quotationPackageOptions.priceCents,
+      isRecommended: quotationPackageOptions.isRecommended,
+    })
+    .from(quotationPackageOptions)
+    .where(eq(quotationPackageOptions.dealRecordId, dealRecordId))
+    .orderBy(quotationPackageOptions.sortOrder);
+  const boundOption = pickDefaultDealOption(optionRows, q.selectedPackageOptionId);
+
   let totalCents = 0;
-  if (q.isVariable && lineItems.length > 0) {
+  if (boundOption && !q.isVariable) {
+    totalCents = boundOption.priceCents;
+  } else if (q.isVariable && lineItems.length > 0) {
     totalCents = lineItems.reduce((s, li) => s + toCents(li.lineTotal), 0);
   } else if (q.fixedPrice) {
     totalCents = toCents(Number(q.fixedPrice));
@@ -1815,6 +1878,63 @@ async function loadDealPackageOffersContext(
 }
 
 /**
+ * Persist a default option + matching price when options exist but the
+ * quotation has no valid selection. Self-heals offers that were sent
+ * before the default-bind write, so the first portal view is never 0 €.
+ */
+async function ensureDefaultPackageSelection(dealRecordId: string): Promise<void> {
+  const rows = await db
+    .select()
+    .from(quotationPackageOptions)
+    .where(eq(quotationPackageOptions.dealRecordId, dealRecordId))
+    .orderBy(quotationPackageOptions.sortOrder);
+  if (rows.length === 0) return;
+
+  const [q] = await db
+    .select({
+      id: quotations.id,
+      selectedPackageOptionId: quotations.selectedPackageOptionId,
+      isVariable: quotations.isVariable,
+      fixedPrice: quotations.fixedPrice,
+    })
+    .from(quotations)
+    .where(eq(quotations.dealRecordId, dealRecordId))
+    .limit(1);
+
+  const chosen = pickDefaultDealOption(rows, q?.selectedPackageOptionId ?? null);
+  if (!chosen) return;
+
+  const priceEur = (chosen.priceCents / 100).toFixed(2);
+  const alreadyBound =
+    q?.selectedPackageOptionId === chosen.id &&
+    q?.isVariable === false &&
+    q?.fixedPrice === priceEur;
+  if (alreadyBound) return;
+
+  if (q) {
+    await db
+      .update(quotations)
+      .set({
+        selectedPackageOptionId: chosen.id,
+        selectedPackageSlug: chosen.catalogueSlug,
+        fixedPrice: priceEur,
+        isVariable: false,
+        updatedAt: new Date(),
+      })
+      .where(eq(quotations.id, q.id));
+  } else {
+    await db.insert(quotations).values({
+      dealRecordId,
+      selectedPackageOptionId: chosen.id,
+      selectedPackageSlug: chosen.catalogueSlug,
+      fixedPrice: priceEur,
+      isVariable: false,
+      showStandardInclusions: true,
+    });
+  }
+}
+
+/**
  * Operator-side write. Replaces the deal's full set of options. Any
  * customer selection that no longer points at a surviving option is
  * cleared (FK ON DELETE SET NULL handles it automatically because we
@@ -1838,6 +1958,16 @@ export async function replaceDealPackageOptions(input: {
   createdBy: string | null;
   options: DealPackageOptionInput[];
 }): Promise<{ count: number }> {
+  const [existingQ] = await db
+    .select({
+      id: quotations.id,
+      selectedPackageSlug: quotations.selectedPackageSlug,
+    })
+    .from(quotations)
+    .where(eq(quotations.dealRecordId, input.dealRecordId))
+    .limit(1);
+  const previousSlug = existingQ?.selectedPackageSlug ?? null;
+
   await db
     .delete(quotationPackageOptions)
     .where(eq(quotationPackageOptions.dealRecordId, input.dealRecordId));
@@ -1877,50 +2007,37 @@ export async function replaceDealPackageOptions(input: {
       createdBy: input.createdBy,
     }));
 
-  let insertedRecommended:
-    | (typeof quotationPackageOptions.$inferSelect)
-    | undefined;
+  let inserted: Array<typeof quotationPackageOptions.$inferSelect> = [];
   if (validated.length > 0) {
-    const inserted = await db
+    inserted = await db
       .insert(quotationPackageOptions)
       .values(validated)
       .returning();
-    insertedRecommended =
-      inserted.find((r) => r.isRecommended) ?? inserted[0];
   }
 
-  // Default the customer's price card to the recommended (or first) option
-  // so a first-time visitor never sees "Voraussichtlich 0 €" before picking
-  // anything — mirrors selectDealPackageOptionForToken's write shape. Only
-  // when nothing is selected yet: never clobber a choice the customer
-  // already made (e.g. the operator tweaking wording later).
-  if (insertedRecommended) {
-    const priceEur = (insertedRecommended.priceCents / 100).toFixed(2);
-    const [existingQ] = await db
-      .select({
-        id: quotations.id,
-        selectedPackageOptionId: quotations.selectedPackageOptionId,
-      })
-      .from(quotations)
-      .where(eq(quotations.dealRecordId, input.dealRecordId))
-      .limit(1);
-
-    if (existingQ && !existingQ.selectedPackageOptionId) {
+  // After DELETE+INSERT every option id is new. Always rebind the quotation
+  // to a surviving row (keep the previous catalogue slug when it still
+  // exists, otherwise recommended / first) so the portal never opens with
+  // "nothing selected" and a 0 € price card.
+  const chosen = resolveSelectedPackageAfterReplace(inserted, previousSlug);
+  if (chosen) {
+    const priceEur = (chosen.priceCents / 100).toFixed(2);
+    if (existingQ) {
       await db
         .update(quotations)
         .set({
-          selectedPackageOptionId: insertedRecommended.id,
-          selectedPackageSlug: insertedRecommended.catalogueSlug,
+          selectedPackageOptionId: chosen.id,
+          selectedPackageSlug: chosen.catalogueSlug,
           fixedPrice: priceEur,
           isVariable: false,
           updatedAt: new Date(),
         })
         .where(eq(quotations.id, existingQ.id));
-    } else if (!existingQ) {
+    } else {
       await db.insert(quotations).values({
         dealRecordId: input.dealRecordId,
-        selectedPackageOptionId: insertedRecommended.id,
-        selectedPackageSlug: insertedRecommended.catalogueSlug,
+        selectedPackageOptionId: chosen.id,
+        selectedPackageSlug: chosen.catalogueSlug,
         fixedPrice: priceEur,
         isVariable: false,
         showStandardInclusions: true,
@@ -2545,4 +2662,10 @@ export async function loadVisitTelemetry(
       stageAtOpen: r.stageAtOpen,
     })),
   };
+}
+
+/** Public facade: document delivery is implemented separately from data reads. */
+export async function emailPortalDocument(token: string, documentId: string) {
+  const { sendPortalDocumentEmail } = await import("./customer-portal-document-email");
+  return sendPortalDocumentEmail(token, documentId);
 }

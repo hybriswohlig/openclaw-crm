@@ -53,6 +53,11 @@ export async function PUT(
     return badRequest("Invalid JSON body");
   }
 
+  if (!body || typeof body !== "object" || Array.isArray(body)) return badRequest("Ungültige Einstellungen.");
+  for (const key of ["enabled", "liveTrackingEnabled", "paymentsEnabled"] as const) {
+    if (key in body && typeof body[key] !== "boolean") return badRequest(`${key} muss ein Boolean sein.`);
+  }
+
   // Lightweight validation: a domain must look like a hostname.
   if (body.customDomain != null && body.customDomain !== "") {
     const d = body.customDomain.toLowerCase();

@@ -35,6 +35,8 @@ export const operatingCompanyPortalSettings = pgTable(
     // Feature toggle — when false, no customer link is auto-created for this
     // OC's deals and existing links return a "feature disabled" message.
     enabled: boolean("enabled").notNull().default(true),
+    liveTrackingEnabled: boolean("live_tracking_enabled").notNull().default(false),
+    paymentsEnabled: boolean("payments_enabled").notNull().default(false),
 
     // Custom subdomain, e.g. "status.kottke-umzuege.de". Unique across the
     // whole workspace so different OCs can't accidentally claim the same host.
@@ -505,3 +507,14 @@ export const customerDateSelections = pgTable(
     index("customer_date_selections_link_idx").on(table.customerLinkId),
   ]
 );
+
+// One atomic throttle per deal across all its public links and documents.
+export const portalDocumentEmailRequests = pgTable("portal_document_email_requests", {
+  dealRecordId: text("deal_record_id").primaryKey().references(() => records.id, { onDelete: "cascade" }),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  requestedAt: timestamp("requested_at").notNull().defaultNow(),
+  windowStartedAt: timestamp("window_started_at").notNull().defaultNow(),
+  requestCount: integer("request_count").notNull().default(1),
+  status: text("status").notNull().default("sending"),
+  sentAt: timestamp("sent_at"),
+});

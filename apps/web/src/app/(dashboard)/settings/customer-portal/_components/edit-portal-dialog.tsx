@@ -96,6 +96,10 @@ export function EditPortalDialog({
         </div>
 
         <div className="mt-6 space-y-6">
+          <Section title="Funktionen im Kundenportal">
+            <label className="flex items-start gap-3 rounded-lg border p-3"><input type="checkbox" className="mt-1" checked={form.liveTrackingEnabled === true} onChange={(e) => set("liveTrackingEnabled", e.target.checked)} /><span><strong className="text-sm">Live-Status anzeigen</strong><span className="block text-xs text-muted-foreground">Erfasste Einsatzzeiten und Live-Updates für Kunden sichtbar machen. Ohne Aktivierung werden nur Termin, Adressen, Team und Dokumente angezeigt.</span></span></label>
+            <label className="flex items-start gap-3 rounded-lg border p-3"><input type="checkbox" className="mt-1" checked={form.paymentsEnabled === true} onChange={(e) => set("paymentsEnabled", e.target.checked)} /><span><strong className="text-sm">Zahlungsanzeige aktivieren</strong><span className="block text-xs text-muted-foreground">Zahlungsanweisungen, erfasste Zahlungseingänge und „Ich habe bezahlt“ im Portal anzeigen. Die interne Buchhaltung bleibt unabhängig davon aktiv.</span></span></label>
+          </Section>
           <Section title="Domain">
             <Field
               label="Subdomain (z. B. status.kottke-umzuege.de)"
@@ -243,6 +247,8 @@ export function EditPortalDialog({
 function snapshotOf(s: OperatingCompanyPortalSettings): PortalSettingsUpdate {
   return {
     enabled: s.enabled,
+    liveTrackingEnabled: s.liveTrackingEnabled ?? false,
+    paymentsEnabled: s.paymentsEnabled ?? false,
     customDomain: s.customDomain,
     displayName: s.displayName,
     primaryColor: s.primaryColor,

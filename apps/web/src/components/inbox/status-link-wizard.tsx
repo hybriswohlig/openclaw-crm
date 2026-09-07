@@ -651,13 +651,26 @@ export function StatusLinkWizard({
       }
 
       // Quotation save — this also auto-mints the status link on the backend.
-      const recommendedCents =
+      // Only priced (> 0) rows count: a recommended 0 € row must not overwrite
+      // the default option's real price that replaceDealPackageOptions just wrote.
+      const pricedRows = packageRows.filter((r) => {
+        const cents = parseEur(r.priceEur);
+        return cents != null && cents > 0;
+      });
+      const recommendedRow =
         offerKind === "packages"
-          ? packageRows
-              .filter((r) => parseEur(r.priceEur) != null)
-              .sort((a, b) => Number(b.isRecommended) - Number(a.isRecommended))
-              .map((r) => parseEur(r.priceEur)!)[0] ?? null
+          ? [...pricedRows].sort(
+              (a, b) => Number(b.isRecommended) - Number(a.isRecommended)
+            )[0] ?? null
           : null;
+      // Same rule as replaceDealPackageOptions: keep the previous catalogue
+      // slug when it still has a price, otherwise the recommended / first row.
+      const boundRow =
+        offerKind === "packages"
+          ? pricedRows.find((r) => r.catalogueSlug === quotation?.selectedPackageSlug) ??
+            recommendedRow
+          : null;
+      const boundCents = boundRow != null ? parseEur(boundRow.priceEur) : null;
 
       const qRes = await fetch(`/api/v1/deals/${dealRecordId}/quotation`, {
         method: "PUT",
@@ -667,8 +680,8 @@ export function StatusLinkWizard({
           fixedPrice: isVariable
             ? null
             : offerKind === "packages"
-              ? recommendedCents != null
-                ? (recommendedCents / 100).toFixed(2)
+              ? boundCents != null && boundCents > 0
+                ? (boundCents / 100).toFixed(2)
                 : null
               : fixedPrice || null,
           notes: quotation?.notes ?? null,
@@ -680,7 +693,10 @@ export function StatusLinkWizard({
           summary: summary.trim() || null,
           // Pass-through: this wizard never touches the inclusions toggle.
           showStandardInclusions: quotation?.showStandardInclusions ?? true,
-          selectedPackageSlug: quotation?.selectedPackageSlug ?? null,
+          selectedPackageSlug:
+            offerKind === "packages"
+              ? boundRow?.catalogueSlug ?? quotation?.selectedPackageSlug ?? null
+              : quotation?.selectedPackageSlug ?? null,
           // Kalkulationsgrundlagen — werden über loadKvaSnapshot in die
           // KVA-Bestätigung eingefroren (rechtlich dokumentierte Annahmen).
           calculationAssumptions: buildAssumptionsPayload(assumptions),
@@ -693,8 +709,8 @@ export function StatusLinkWizard({
         mode === "stundensatz"
           ? lineTotal
           : offerKind === "packages"
-            ? recommendedCents != null
-              ? recommendedCents / 100
+            ? boundCents != null
+              ? boundCents / 100
               : 0
             : Number(fixedPrice || 0);
       if (amount > 0) {

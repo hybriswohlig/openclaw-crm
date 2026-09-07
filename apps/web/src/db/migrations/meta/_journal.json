@@ -260,6 +260,13 @@
       "when": 1788624001000,
       "tag": "0046_document_scope",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1788717600000,
+      "tag": "0047_portal_features_document_email",
+      "breakpoints": true
     }
   ]
 }

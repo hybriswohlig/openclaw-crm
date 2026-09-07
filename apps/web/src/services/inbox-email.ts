@@ -841,10 +841,16 @@ export async function sendNewEmail(params: {
   to: string;
   subject: string;
   body: string;
+  dealRecordId?: string;
+  attachments?: Array<{ filename: string; contentType: string; content: Buffer }>;
 }): Promise<{ conversationId: string | null }> {
   const { workspaceId, channelAccountId, body } = params;
   const toAddress = params.to.trim().toLowerCase();
   const subject = params.subject.trim();
+  const attachments = params.attachments ?? [];
+  if (attachments.length > 5 || attachments.reduce((sum, a) => sum + a.content.length, 0) > 10 * 1024 * 1024) {
+    throw new EmailUserError("Anhänge sind zu groß (maximal 10 MB)");
+  }
 
   // Exactly one recipient, no address-list / header punctuation. The regex alone
   // would accept commas etc. (it only bans '@' and whitespace), so reject the
@@ -864,7 +870,7 @@ export async function sendNewEmail(params: {
       )
     )
     .limit(1);
-  if (!account || account.channelType !== "email") {
+  if (!account || account.channelType !== "email" || !account.isActive) {
     throw new EmailUserError("Kein gültiges E-Mail-Konto");
   }
 
@@ -889,6 +895,7 @@ export async function sendNewEmail(params: {
       subject,
       text: body,
       messageId: ownMessageId,
+      attachments,
     });
     await gmail.users.messages.send({ userId: "me", requestBody: { raw } });
   } else {
@@ -897,6 +904,9 @@ export async function sendNewEmail(params: {
       host: account.smtpHost ?? "smtp.gmail.com",
       port: 587,
       secure: false,
+      connectionTimeout: 15_000,
+      greetingTimeout: 15_000,
+      socketTimeout: 60_000,
       auth: { user: account.address, pass: account.credential },
     });
     await transporter.sendMail({
@@ -905,6 +915,7 @@ export async function sendNewEmail(params: {
       subject,
       text: body,
       messageId: ownMessageId,
+      attachments,
     });
   }
 
@@ -922,6 +933,7 @@ export async function sendNewEmail(params: {
         workspaceId,
         channelAccountId: account.id,
         contactId: contact.id,
+        dealRecordId: params.dealRecordId ?? null,
         externalThreadId: ownMessageId,
         subject: subject || null,
         status: "open",
@@ -936,7 +948,7 @@ export async function sendNewEmail(params: {
       })
       .returning();
 
-    await db.insert(inboxMessages).values({
+    const [message] = await db.insert(inboxMessages).values({
       workspaceId,
       conversationId: conv.id,
       direction: "outbound",
@@ -948,7 +960,15 @@ export async function sendNewEmail(params: {
       body,
       isRead: true,
       sentAt: new Date(),
-    });
+    }).returning({ id: inboxMessages.id });
+    for (const attachment of attachments) {
+      await db.insert(inboxMessageAttachments).values({
+        workspaceId, messageId: message.id, conversationId: conv.id,
+        dealRecordId: params.dealRecordId ?? null,
+        fileName: attachment.filename, mimeType: attachment.contentType,
+        fileSize: attachment.content.length, fileContent: attachment.content.toString("base64"),
+      });
+    }
 
     return { conversationId: conv.id };
   } catch (persistErr) {
@@ -1053,6 +1073,7 @@ async function buildRawEmail(opts: {
   messageId?: string;
   inReplyTo?: string;
   references?: string[];
+  attachments?: Array<{ filename: string; contentType: string; content: Buffer }>;
 }): Promise<string> {
   const headers: Record<string, string> = {};
   if (opts.inReplyTo) headers["In-Reply-To"] = opts.inReplyTo;
@@ -1065,6 +1086,7 @@ async function buildRawEmail(opts: {
     text: opts.text,
     messageId: opts.messageId,
     headers,
+    attachments: opts.attachments,
   });
 
   const message: Buffer = await new Promise((resolve, reject) => {

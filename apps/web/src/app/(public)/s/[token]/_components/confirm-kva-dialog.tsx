@@ -6,6 +6,7 @@ import type {
   ConfirmKvaPayload,
   CustomerPortalContext,
 } from "@openclaw-crm/customer-portal-core";
+import { portalBrandStyle } from "./portal-presentation";
 import { PaymentSection } from "./payment-section";
 
 /**
@@ -26,6 +27,8 @@ export function ConfirmKvaDialog({
   onOpenChange,
   ctx,
   widerrufNeeded,
+  displayTotalCents,
+  selectedOptionName,
   onAccepted,
 }: {
   token: string;
@@ -33,9 +36,11 @@ export function ConfirmKvaDialog({
   onOpenChange: (open: boolean) => void;
   ctx: CustomerPortalContext;
   widerrufNeeded: boolean;
+  displayTotalCents: number;
+  selectedOptionName: string | null;
   /** Fires once the accept POST succeeded. Refreshes the context in the
       background; the dialog stays open and moves to the done step. */
-  onAccepted: () => void;
+  onAccepted: () => void | Promise<void>;
 }) {
   const [step, setStep] = useState<"form" | "done">("form");
   const [accOffer, setAccOffer] = useState(false);
@@ -96,8 +101,8 @@ export function ConfirmKvaDialog({
         setError(germanError(body.error?.code));
         return;
       }
+      await Promise.resolve(onAccepted());
       setStep("done");
-      onAccepted();
     } catch {
       setError("Verbindungsfehler. Bitte versuchen Sie es erneut.");
     } finally {
@@ -108,11 +113,12 @@ export function ConfirmKvaDialog({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={handleOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-slate-950/45 backdrop-blur-sm" />
         {/* Radix portals to document.body, outside the .kottke-portal wrapper.
             The class on the content re-scopes the portal palette variables. */}
         <DialogPrimitive.Content
-          className="kottke-portal fixed bottom-0 left-1/2 z-50 max-h-[92svh] w-full max-w-lg -translate-x-1/2 overflow-y-auto rounded-t-3xl bg-background p-6 shadow-2xl sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2 sm:rounded-2xl"
+          style={portalBrandStyle(ctx.branding.primaryColor)}
+          className="kottke-portal portal-accept-dialog fixed bottom-0 left-1/2 z-50 max-h-[92svh] w-full max-w-lg -translate-x-1/2 overflow-y-auto rounded-t-3xl bg-background p-6 shadow-2xl sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2 sm:rounded-2xl"
           onEscapeKeyDown={(e) => {
             if (step === "form" && submitting) e.preventDefault();
           }}
@@ -121,15 +127,21 @@ export function ConfirmKvaDialog({
           }}
         >
           {step === "done" ? (
-            <DoneStep token={token} ctx={ctx} onClose={() => handleOpenChange(false)} />
+            <DoneStep
+              token={token}
+              ctx={ctx}
+              selectedOptionName={selectedOptionName}
+              displayTotalCents={displayTotalCents}
+              onClose={() => handleOpenChange(false)}
+            />
           ) : (
             <>
-          <DialogPrimitive.Title className="text-lg font-medium">
+          <DialogPrimitive.Title className="text-2xl font-bold tracking-tight">
             Verbindliche Annahme
           </DialogPrimitive.Title>
           <DialogPrimitive.Description className="mt-1 text-xs text-muted-foreground">
-            Bitte bestätigen Sie die folgenden Punkte. Eine Kopie der Annahme
-            geht Ihnen anschließend per E-Mail zu.
+            Bitte bestätigen Sie die folgenden Punkte. Eine Bestätigung geht
+            Ihnen anschließend per WhatsApp oder E-Mail zu.
           </DialogPrimitive.Description>
 
           {/* Preis-Recap unmittelbar vor der Annahme (§ 312j Abs. 2 BGB). */}
@@ -139,11 +151,16 @@ export function ConfirmKvaDialog({
                 <div className="text-xs text-muted-foreground">
                   {ctx.kva.isVariable
                     ? "Voraussichtlicher Gesamtbetrag"
-                    : "Festpreis inkl. MwSt."}
+                    : "Festpreis"}
                 </div>
                 <div className="mt-1 text-2xl font-medium tabular-nums leading-none tracking-tight">
-                  {formatEurCents(ctx.kva.totalCents)}
+                  {formatEurCents(displayTotalCents)}
                 </div>
+                {selectedOptionName && (
+                  <div className="mt-2 text-sm font-medium">
+                    {selectedOptionName}
+                  </div>
+                )}
                 {ctx.scope.moveDate && (
                   <div className="mt-2 text-xs text-muted-foreground">
                     Umzugstermin: {formatGermanDate(ctx.scope.moveDate)}
@@ -295,13 +312,17 @@ export function ConfirmKvaDialog({
 function DoneStep({
   token,
   ctx,
+  selectedOptionName,
+  displayTotalCents,
   onClose,
 }: {
   token: string;
   ctx: CustomerPortalContext;
+  selectedOptionName: string | null;
+  displayTotalCents: number;
   onClose: () => void;
 }) {
-  const hasDeposit = !!ctx.payment && ctx.payment.amountCents > 0;
+  const hasDeposit = ctx.features?.payments === true && !!ctx.payment && ctx.payment.amountCents > 0;
   return (
     <div aria-live="polite">
       <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-200">
@@ -310,7 +331,10 @@ function DoneStep({
           Angebot angenommen
         </DialogPrimitive.Title>
         <DialogPrimitive.Description className="mt-1 leading-relaxed">
-          Eine Kopie geht Ihnen per E-Mail zu.
+          {selectedOptionName
+            ? `Ihre Wahl: ${selectedOptionName} · ${formatEurCents(displayTotalCents)}.`
+            : `Gesamtbetrag: ${formatEurCents(displayTotalCents)}.`}{" "}
+          Eine Bestätigung geht Ihnen per WhatsApp oder E-Mail zu.
         </DialogPrimitive.Description>
       </div>
 
@@ -332,7 +356,9 @@ function DoneStep({
         </>
       ) : (
         <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
-          Sie erhalten Ihre Auftragsbestätigung in Kürze per E-Mail.
+          Sie erhalten Ihre Auftragsbestätigung in Kürze per WhatsApp oder
+          E-Mail. Unten auf der Seite sehen Sie weiterhin Ihr Angebot und was
+          Sie angenommen haben.
         </p>
       )}
 
@@ -405,6 +431,10 @@ function germanError(code: string | undefined): string {
       return "Für Termine innerhalb von 14 Tagen ist der Widerrufs-Verzicht erforderlich.";
     case "NO_QUOTATION":
       return "Es liegt aktuell kein Angebot vor. Bitte kontaktieren Sie uns.";
+    case "OPTION_REQUIRED":
+      return "Bitte wählen Sie zuerst eine der angebotenen Optionen.";
+    case "ZERO_PRICE":
+      return "Für dieses Angebot ist noch kein Preis hinterlegt. Bitte kontaktieren Sie uns.";
     case "OFFER_EXPIRED":
       return "Dieses Angebot ist inzwischen abgelaufen. Schreiben Sie uns kurz, wir prüfen die Verfügbarkeit und senden Ihnen ein aktualisiertes Angebot.";
     case "REVOKED":

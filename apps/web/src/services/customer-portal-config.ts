@@ -20,6 +20,7 @@ import { objects, attributes } from "@/db/schema/objects";
 import { records, recordValues } from "@/db/schema/records";
 import {
   brandingForOperatingCompany,
+  portalFeatures,
   type FirmaBranding,
 } from "@openclaw-crm/customer-portal-core";
 import { checkDomain, type DnsCheckResult } from "./dns-verify";
@@ -45,6 +46,8 @@ export interface OperatingCompanyPortalSettings {
   /** Live name from the records table (for the settings list). */
   operatingCompanyName: string;
   enabled: boolean;
+  liveTrackingEnabled: boolean;
+  paymentsEnabled: boolean;
   customDomain: string | null;
   publicUrlPreview: string | null;
 
@@ -73,6 +76,8 @@ export interface OperatingCompanyPortalSettings {
 
 export interface PortalSettingsUpdate {
   enabled?: boolean;
+  liveTrackingEnabled?: boolean;
+  paymentsEnabled?: boolean;
   customDomain?: string | null;
   displayName?: string | null;
   primaryColor?: string | null;
@@ -294,6 +299,8 @@ export async function verifyOperatingCompanyDomain(
  */
 export interface EffectiveBranding {
   enabled: boolean;
+  liveTrackingEnabled: boolean;
+  paymentsEnabled: boolean;
   customDomain: string | null;
   /** True only when DNS + Vercel verification completed for customDomain. */
   domainVerified: boolean;
@@ -309,7 +316,7 @@ export async function loadEffectiveBranding(
   const fallback = brandingForOperatingCompany(name);
 
   if (!operatingCompanyRecordId) {
-    return { enabled: true, customDomain: null, domainVerified: false, branding: fallback };
+    return { enabled: true, liveTrackingEnabled: false, paymentsEnabled: false, customDomain: null, domainVerified: false, branding: fallback };
   }
 
   const [s] = await db
@@ -320,7 +327,7 @@ export async function loadEffectiveBranding(
     )
     .limit(1);
 
-  if (!s) return { enabled: true, customDomain: null, domainVerified: false, branding: fallback };
+  if (!s) return { enabled: true, liveTrackingEnabled: false, paymentsEnabled: false, customDomain: null, domainVerified: false, branding: fallback };
 
   const branding: FirmaBranding = {
     firmaSlug: fallback.firmaSlug,
@@ -344,6 +351,8 @@ export async function loadEffectiveBranding(
 
   return {
     enabled: s.enabled,
+    liveTrackingEnabled: portalFeatures(s).liveTracking,
+    paymentsEnabled: portalFeatures(s).payments,
     customDomain: s.customDomain,
     domainVerified: s.domainVerificationState === "verified",
     branding,
@@ -412,6 +421,8 @@ function cleanPatch(patch: PortalSettingsUpdate): PortalSettingsUpdate {
   const out: PortalSettingsUpdate = {};
   const fields: Array<keyof PortalSettingsUpdate> = [
     "enabled",
+    "liveTrackingEnabled",
+    "paymentsEnabled",
     "customDomain",
     "displayName",
     "primaryColor",
@@ -501,6 +512,8 @@ function shapeSettings(
     operatingCompanyRecordId: ocId,
     operatingCompanyName: ocName ?? "Unbenannt",
     enabled: s?.enabled ?? true,
+    liveTrackingEnabled: portalFeatures(s).liveTracking,
+    paymentsEnabled: portalFeatures(s).payments,
     customDomain,
     publicUrlPreview,
     domainVerificationState: (s?.domainVerificationState ?? "unconfigured") as DomainVerificationState,

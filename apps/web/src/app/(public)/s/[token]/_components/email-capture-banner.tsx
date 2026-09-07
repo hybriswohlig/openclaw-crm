@@ -25,10 +25,12 @@ export function EmailCaptureBanner({
   token,
   status,
   branding,
+  onSaved,
 }: {
   token: string;
   status: CustomerEmailStatus;
   branding: FirmaBranding;
+  onSaved?: (masked: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
@@ -68,7 +70,9 @@ export function EmailCaptureBanner({
         setError(germanError(body.error?.code));
         return;
       }
+      const result = await res.json();
       setSaved(true);
+      onSaved?.(result.data?.masked ?? "Ihre hinterlegte E-Mail-Adresse");
     } catch {
       setError("Verbindungsfehler. Bitte versuchen Sie es erneut.");
     } finally {

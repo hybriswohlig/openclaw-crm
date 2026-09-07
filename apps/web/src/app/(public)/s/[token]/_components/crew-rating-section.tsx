@@ -89,19 +89,13 @@ export function CrewRatingSection({
   }
 
   return (
-    <section className="rounded-2xl border border-border/50 bg-card">
-      <div
-        className="px-6 py-3 text-sm font-medium text-white"
-        style={{ background: `#${branding.primaryColor}` }}
-      >
-        Wie war Ihre Crew?
-      </div>
-      <div className="space-y-4 p-6">
+    <section aria-label="Ihr Umzugsteam bewerten">
+      <div className="space-y-4">
         <ul className="space-y-3">
           {crew.map((c) => (
             <li
               key={c.employeeId}
-              className="flex items-center justify-between gap-3 rounded-xl border border-border/50 px-3 py-2"
+              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/50 px-3 py-3"
             >
               <div className="flex min-w-0 items-center gap-3">
                 {c.photoBase64DataUrl ? (
