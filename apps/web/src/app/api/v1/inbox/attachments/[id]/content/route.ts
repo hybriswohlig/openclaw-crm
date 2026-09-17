@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthContext, unauthorized, notFound, success } from "@/lib/api-utils";
-import { db } from "@/db";
-import { inboxMessageAttachments } from "@/db/schema/inbox";
-import { and, eq } from "drizzle-orm";
+import { getAuthContext, unauthorized, success } from "@/lib/api-utils";
 import { getAttachmentWithContent } from "@/services/inbox";
 import { toAttachmentPayload } from "@/lib/attachment-content";
 
@@ -15,6 +12,9 @@ import { toAttachmentPayload } from "@/lib/attachment-content";
 // so agents copy it and then die on the binary body; ../[id] is the canonical
 // JSON route. Anything other than format=json keeps streaming bytes, so the
 // <img> path is byte-for-byte unchanged.
+//
+// Missing / foreign-workspace rows answer JSON `{ error: "Not found" }` rather
+// than the Next.js HTML app shell, so crm_api can report a real 404.
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -23,30 +23,13 @@ export async function GET(
   if (!ctx) return unauthorized();
 
   const { id } = await params;
-
-  if (req.nextUrl.searchParams.get("format") === "json") {
-    const full = await getAttachmentWithContent(id, ctx.workspaceId);
-    if (!full) return notFound();
-    return success(toAttachmentPayload(full));
-  }
-
-  const [row] = await db
-    .select({
-      fileName: inboxMessageAttachments.fileName,
-      mimeType: inboxMessageAttachments.mimeType,
-      fileContent: inboxMessageAttachments.fileContent,
-    })
-    .from(inboxMessageAttachments)
-    .where(
-      and(
-        eq(inboxMessageAttachments.id, id),
-        eq(inboxMessageAttachments.workspaceId, ctx.workspaceId)
-      )
-    )
-    .limit(1);
-
+  const row = await getAttachmentWithContent(id, ctx.workspaceId);
   if (!row) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  if (req.nextUrl.searchParams.get("format") === "json") {
+    return success(toAttachmentPayload(row));
   }
 
   const bytes = Buffer.from(row.fileContent, "base64");
