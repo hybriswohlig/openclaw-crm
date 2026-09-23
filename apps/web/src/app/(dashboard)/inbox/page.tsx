@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { upload } from "@vercel/blob/client";
+import { INBOX_DIRECT_UPLOAD_MAX_BYTES } from "@/lib/inbox-media-upload";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Loader2,
@@ -1074,13 +1076,39 @@ function ConversationView({
     setSending(true);
     setSendError(null);
     try {
-      const fd = new FormData();
-      fd.append("file", pendingAttachment);
-      if (reply.trim()) fd.append("caption", reply.trim());
-      const res = await fetch(
-        `/api/v1/inbox/conversations/${conv.id}/messages/media`,
-        { method: "POST", body: fd }
-      );
+      let res: Response;
+      if (pendingAttachment.size > INBOX_DIRECT_UPLOAD_MAX_BYTES) {
+        const safeName =
+          pendingAttachment.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-80) || "datei";
+        const uploaded = await upload(
+          `inbox/conv/${conv.id}/${safeName}`,
+          pendingAttachment,
+          {
+            access: "private",
+            handleUploadUrl: "/api/v1/inbox/media-upload",
+            contentType: pendingAttachment.type || "application/octet-stream",
+            multipart: pendingAttachment.size > 8 * 1024 * 1024,
+          }
+        );
+        res = await fetch(`/api/v1/inbox/conversations/${conv.id}/messages/media`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            blobUrl: uploaded.url,
+            filename: pendingAttachment.name,
+            mimeType: pendingAttachment.type || "application/octet-stream",
+            caption: reply.trim() || undefined,
+          }),
+        });
+      } else {
+        const fd = new FormData();
+        fd.append("file", pendingAttachment);
+        if (reply.trim()) fd.append("caption", reply.trim());
+        res = await fetch(
+          `/api/v1/inbox/conversations/${conv.id}/messages/media`,
+          { method: "POST", body: fd }
+        );
+      }
       if (res.ok) {
         const data = await res.json();
         justSentRef.current = true;
@@ -1097,9 +1125,23 @@ function ConversationView({
         }
       } else {
         const err = await res.json().catch(() => ({}));
-        const errObj = typeof err.error === "object" ? err.error : { message: err.error };
+        const errObj =
+          typeof err.error === "object" && err.error
+            ? err.error
+            : {
+                message:
+                  typeof err.error === "string" && err.error
+                    ? err.error
+                    : res.status === 413
+                      ? "Die Datei ist zu groß für den direkten Versand."
+                      : `Senden fehlgeschlagen (HTTP ${res.status}).`,
+              };
         setSendError(errObj);
       }
+    } catch (err) {
+      setSendError({
+        message: err instanceof Error ? err.message : "Senden fehlgeschlagen",
+      });
     } finally {
       setSending(false);
     }
