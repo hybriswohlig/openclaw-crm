@@ -180,7 +180,7 @@ function KasseProKanal({ ledger }: { ledger: NonNullable<Insights["ledger"]> }) 
         <table className="w-full text-[13px]" style={{ borderCollapse: "collapse", minWidth: 760 }}>
           <thead>
             <tr style={{ color: "var(--ink-muted)", textAlign: "left" }}>
-              {["Kanal", "Besuche", "Kontakt-Klick", "Lead im CRM", "Gewonnen", "Umsatz"].map((h, i) => (
+              {["Kanal", "Besuche", "Besuche mit Kontakt-Klick", "Lead im CRM", "Gewonnen", "Umsatz"].map((h, i) => (
                 <th key={h} className="font-normal" style={{ padding: "10px 12px", textAlign: i === 5 ? "right" : "left", borderBottom: "1px solid var(--line)" }}>
                   {h}
                 </th>

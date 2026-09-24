@@ -309,10 +309,13 @@ export async function getChannelLedger(workspaceId: string, days: number, site: 
 
   const unbekannt: LedgerLead[] = [];
   const attributedDids = new Set<string>();
+  let counted = 0;
   for (const d of deals) {
     const a = attribution.get(d.id);
-    // Eine Website-Herkunft von einer anderen Website als dem Filter zählt nicht.
-    if (!a || (site && a.site && a.site !== site)) {
+    // Kam der Lead nachweislich über eine andere Website als den Filter, gehört er nicht in diese Ansicht.
+    if (a && site && a.site && a.site !== site) continue;
+    counted += 1;
+    if (!a) {
       unbekannt.push(toLead(d));
       continue;
     }
@@ -340,8 +343,8 @@ export async function getChannelLedger(workspaceId: string, days: number, site: 
     totals: {
       umsatz,
       gewonnen: list.reduce((s, r) => s + r.gewonnen, 0),
-      leadsMitHerkunft: deals.length - unbekannt.length,
-      leadsGesamt: deals.length,
+      leadsMitHerkunft: counted - unbekannt.length,
+      leadsGesamt: counted,
     },
   };
 }
