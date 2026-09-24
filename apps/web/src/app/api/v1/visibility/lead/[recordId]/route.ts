@@ -3,6 +3,7 @@ import { getAuthContext, unauthorized, notFound, badRequest, success } from "@/l
 import { getObjectBySlug } from "@/services/objects";
 import { getRecord } from "@/services/records";
 import { getLeadWebHistory, isLinkableVisit, linkLeadWebVisit, unlinkLeadWebVisit } from "@/services/website-analytics";
+import { getChannelHeat } from "@/services/website-insights";
 
 type Params = { params: Promise<{ recordId: string }> };
 
@@ -24,7 +25,11 @@ export async function GET(req: NextRequest, { params }: Params) {
   if (at && Number.isNaN(at.getTime())) return badRequest("Ungültiger Zeitpunkt");
 
   try {
-    return success(await getLeadWebHistory(ctx.workspaceId, recordId, at));
+    const history = await getLeadWebHistory(ctx.workspaceId, recordId, at);
+    const quelle = history.match?.erstquelle ?? history.match?.quelle ?? null;
+    // Wie oft Leads aus diesem Kanal gewonnen werden: Einordnung vor dem Rückruf.
+    const heat = quelle ? await getChannelHeat(ctx.workspaceId, quelle, history.sites).catch(() => null) : null;
+    return success({ ...history, heat });
   } catch (err) {
     console.error("[visibility] lead history failed:", err);
     return Response.json(

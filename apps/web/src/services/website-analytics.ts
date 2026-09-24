@@ -46,9 +46,9 @@ const COMPANY_SITES: { match: RegExp; sites: SiteKey[] }[] = [
 ];
 
 /** Kontakt-Events aus tracking.js. */
-const CONTACT_EVENTS = ["kontakt_whatsapp", "kontakt_anruf", "kontakt_mail", "anfrage_gesendet"];
+export const CONTACT_EVENTS = ["kontakt_whatsapp", "kontakt_anruf", "kontakt_mail", "anfrage_gesendet"];
 /** Testbesuche (utm_source=claude_test / test) nie mitzählen. */
-const NOT_TEST = "coalesce(properties.quelle, '') NOT IN ('claude_test', 'test')";
+export const NOT_TEST = "coalesce(properties.quelle, '') NOT IN ('claude_test', 'test')";
 
 export class PosthogNotConfiguredError extends Error {
   constructor() {
@@ -68,13 +68,13 @@ export function dashboardUrl(): string {
   return `${POSTHOG_HOST}/project/${POSTHOG_PROJECT_ID}/dashboard/972373`;
 }
 
-type Row = unknown[];
+export type Row = unknown[];
 
 /**
  * HogQL-Abfrage. Werte aus Nutzereingaben immer über `values` übergeben
  * ({name} im Query), nie in den Query-Text einsetzen.
  */
-async function hogql(query: string, values: Record<string, string | number> = {}): Promise<Row[]> {
+export async function hogql(query: string, values: Record<string, string | number> = {}): Promise<Row[]> {
   const key = process.env.POSTHOG_PERSONAL_API_KEY;
   if (!key) throw new PosthogNotConfiguredError();
   const res = await fetch(`${POSTHOG_HOST}/api/projects/${POSTHOG_PROJECT_ID}/query/`, {
@@ -91,22 +91,22 @@ async function hogql(query: string, values: Record<string, string | number> = {}
   return json.results ?? [];
 }
 
-function num(v: unknown): number {
+export function num(v: unknown): number {
   const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) ? n : 0;
 }
 
-function str(v: unknown): string {
+export function str(v: unknown): string {
   return v == null ? "" : String(v);
 }
 
 /** "YYYY-MM-DD HH:MM:SS" in UTC, passend zu toDateTime(x, 'UTC'). */
-function utcString(d: Date): string {
+export function utcString(d: Date): string {
   return d.toISOString().slice(0, 19).replace("T", " ");
 }
 
 /** Filter auf eine oder mehrere Websites. Nur bekannte Kennungen, daher als Literale sicher. */
-function siteFilter(sites: readonly string[] | null): { clause: string; values: Record<string, string> } {
+export function siteFilter(sites: readonly string[] | null): { clause: string; values: Record<string, string> } {
   const known = (sites ?? []).filter((s) => WEBSITES.some((w) => w.site === s));
   if (known.length === 0) return { clause: "", values: {} };
   return { clause: `AND properties.site IN (${known.map((s) => `'${s}'`).join(", ")})`, values: {} };
@@ -236,7 +236,7 @@ export async function getVisibilityOverview(days: number, site: string | null): 
 // ─── Lead ↔ Website-Besuch ───────────────────────────────────────────────────
 
 /** "Anfrage-Nr. 4FKV6E" aus tracking.js (5 oder 6 Zeichen, ohne 0/O/1/I/L). */
-const REF_PATTERN = /Anfrage-Nr\.?\s*([A-HJ-KM-NP-Z2-9]{5,6})\b/i;
+export const REF_PATTERN = /Anfrage-Nr\.?\s*([A-HJ-KM-NP-Z2-9]{5,6})\b/i;
 
 export function extractVisitorRef(text: string): string | null {
   const m = REF_PATTERN.exec(text || "");
@@ -285,6 +285,11 @@ export interface LeadWebHistory {
         minutesOnSite: number | null;
         recordingUrl: string;
         timeline: WebTimelineItem[];
+        /** Abschnitte mit Anzahl Besuche, in denen sie gesehen wurden. */
+        gesehen: { abschnitt: string; mal: number }[];
+        paket: string | null;
+        empfehlung: string | null;
+        gespraech: { beobachtung: string; frage: string };
       }
     | null;
   candidates: WebCandidate[];
@@ -401,8 +406,6 @@ async function buildMatch(
   // Neueste 200 Events laden (damit der Kontakt sicher dabei ist), dann chronologisch anzeigen.
   const items: WebTimelineItem[] = [...timeline]
     .reverse()
-    // Abschnitte nur, wenn sie verkaufsrelevant sind, sonst wird der Verlauf zu lang.
-    .filter((r) => r[1] !== "abschnitt_gesehen" || /preis|paket|rechner|kosten|bewertung/i.test(str(r[3])))
     .map((r) => {
       const event = str(r[1]);
       const detail =
@@ -421,6 +424,24 @@ async function buildMatch(
                     : null;
       return { at: str(r[0]), event, label: EVENT_LABELS[event] ?? event, detail, sessionId: str(r[5]) || null };
     });
+  // Was hat die Person sich angesehen? Grundlage für den Gesprächseinstieg.
+  const seenBySection = new Map<string, Set<string>>();
+  let paket: string | null = null;
+  let empfehlung: string | null = null;
+  for (const t of items) {
+    if (t.event === "abschnitt_gesehen" && t.detail) {
+      const set = seenBySection.get(t.detail) ?? new Set<string>();
+      set.add(t.sessionId ?? "");
+      seenBySection.set(t.detail, set);
+    }
+    if (t.event === "package_click" && t.detail) paket = t.detail;
+    if (t.event === "paketfinder_submit" && t.detail) empfehlung = t.detail;
+  }
+  const gesehen = [...seenBySection.entries()]
+    .map(([abschnitt, set]) => ({ abschnitt, mal: set.size }))
+    .sort((a, b) => b.mal - a.mal);
+  const gespraech = conversationStarter(gesehen, paket, empfehlung);
+
   const firstSeen = s[0] ? str(s[0]) : null;
   // maxIf liefert ohne Treffer 1970-01-01, deshalb über den Zähler absichern.
   const contactAt = num(s[6]) > 0 && s[7] ? str(s[7]) : null;
@@ -440,7 +461,34 @@ async function buildMatch(
     minutesOnSite,
     recordingUrl: recordingUrl(sessionId),
     timeline: items,
+    gesehen,
+    paket,
+    empfehlung,
+    gespraech,
   };
+}
+
+/** Regelbasiert, ohne KI: Beobachtung und eine mögliche erste Frage. */
+export function conversationStarter(
+  gesehen: { abschnitt: string; mal: number }[],
+  paket: string | null,
+  empfehlung: string | null
+): { beobachtung: string; frage: string } {
+  const find = (re: RegExp) => gesehen.find((g) => re.test(g.abschnitt));
+  const preise = find(/preis|paket|kosten|rechner/i);
+  const bewertungen = find(/bewertung/i);
+  const teile: string[] = [];
+  if (preise) teile.push(preise.mal > 1 ? `Kennt die Preise schon (in ${preise.mal} Besuchen angesehen).` : "Kennt die Preise schon.");
+  if (empfehlung) teile.push(`Der Paket-Finder hat „${empfehlung}“ empfohlen.`);
+  if (paket) teile.push(`Hat „${paket}“ angeklickt.`);
+  teile.push(bewertungen ? "Hat die Bewertungen gelesen." : "Bewertungen nicht angesehen.");
+  const wunsch = paket ?? empfehlung;
+  const frage = wunsch
+    ? `„Sie hatten sich ${wunsch} angesehen. Passt das so, oder sollen wir etwas weglassen oder dazunehmen?“`
+    : preise
+      ? "„Sie kennen unsere Preise schon. Was ist Ihnen beim Umzug am wichtigsten?“"
+      : "„Was ist Ihnen bei Ihrem Umzug am wichtigsten, und bis wann soll es erledigt sein?“";
+  return { beobachtung: teile.join(" "), frage };
 }
 
 /**
