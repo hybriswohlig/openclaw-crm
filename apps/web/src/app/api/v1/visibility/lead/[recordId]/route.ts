@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { getAuthContext, unauthorized, notFound, badRequest, success } from "@/lib/api-utils";
 import { getObjectBySlug } from "@/services/objects";
 import { getRecord } from "@/services/records";
-import { getLeadWebHistory, linkLeadWebVisit, unlinkLeadWebVisit } from "@/services/website-analytics";
+import { getLeadWebHistory, isLinkableVisit, linkLeadWebVisit, unlinkLeadWebVisit } from "@/services/website-analytics";
 
 type Params = { params: Promise<{ recordId: string }> };
 
@@ -46,7 +46,15 @@ export async function POST(req: NextRequest, { params }: Params) {
   const distinctId = typeof body?.distinctId === "string" ? body.distinctId.slice(0, 200) : "";
   if (!sessionId || !distinctId) return badRequest("sessionId und distinctId fehlen");
 
-  await linkLeadWebVisit({ workspaceId: ctx.workspaceId, dealId: recordId, sessionId, distinctId, actorId: ctx.userId });
+  try {
+    if (!(await isLinkableVisit(ctx.workspaceId, recordId, sessionId, distinctId))) {
+      return badRequest("Dieser Besuch hat keinen Kontakt-Klick auf der Website des Betriebs.");
+    }
+    await linkLeadWebVisit({ workspaceId: ctx.workspaceId, dealId: recordId, sessionId, distinctId, actorId: ctx.userId });
+  } catch (err) {
+    console.error("[visibility] link failed:", err);
+    return Response.json({ error: { code: "LINK_FAILED", message: "Zuordnung konnte nicht gespeichert werden." } }, { status: 500 });
+  }
   return success({ ok: true });
 }
 
@@ -57,6 +65,11 @@ export async function DELETE(req: NextRequest, { params }: Params) {
   const { recordId } = await params;
   if (!(await loadDeal(ctx.workspaceId, recordId))) return notFound("Lead nicht gefunden");
 
-  await unlinkLeadWebVisit({ workspaceId: ctx.workspaceId, dealId: recordId, actorId: ctx.userId });
+  try {
+    await unlinkLeadWebVisit({ workspaceId: ctx.workspaceId, dealId: recordId, actorId: ctx.userId });
+  } catch (err) {
+    console.error("[visibility] unlink failed:", err);
+    return Response.json({ error: { code: "UNLINK_FAILED", message: "Zuordnung konnte nicht gelöst werden." } }, { status: 500 });
+  }
   return success({ ok: true });
 }

@@ -15,12 +15,11 @@
  */
 
 import { db } from "@/db";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { records, recordValues } from "@/db/schema/records";
 import { attributes, objects } from "@/db/schema/objects";
 import { channelAccounts, inboxConversations, inboxMessages } from "@/db/schema/inbox";
 import { activityEvents } from "@/db/schema/activity";
-import { emitEvent } from "@/services/activity-events";
 import { resolveDealOperatingCompany } from "@/services/financial";
 
 const POSTHOG_HOST = process.env.POSTHOG_HOST || "https://eu.posthog.com";
@@ -89,6 +88,11 @@ function str(v: unknown): string {
   return v == null ? "" : String(v);
 }
 
+/** "YYYY-MM-DD HH:MM:SS" in UTC, passend zu toDateTime(x, 'UTC'). */
+function utcString(d: Date): string {
+  return d.toISOString().slice(0, 19).replace("T", " ");
+}
+
 function siteFilter(site: string | null): { clause: string; values: Record<string, string> } {
   if (!site) return { clause: "", values: {} };
   return { clause: "AND properties.site = {site}", values: { site } };
@@ -113,7 +117,8 @@ export interface VisibilityOverview {
 }
 
 function quote(part: number, total: number): number | null {
-  return total > 0 ? Math.round((part / total) * 1000) / 10 : null;
+  // Kontakt- und Seitenaufruf-Sitzungen werden getrennt gezählt; an Zeitraumgrenzen kann part > total sein.
+  return total > 0 ? Math.min(100, Math.round((part / total) * 1000) / 10) : null;
 }
 
 export async function getVisibilityOverview(days: number, site: string | null): Promise<VisibilityOverview> {
@@ -310,7 +315,7 @@ async function firstInboundContact(dealId: string) {
     })
     .from(inboxMessages)
     .where(and(inArray(inboxMessages.conversationId, convs.map((c) => c.id)), eq(inboxMessages.direction, "inbound")))
-    .orderBy(asc(inboxMessages.createdAt))
+    .orderBy(asc(sql`coalesce(${inboxMessages.sentAt}, ${inboxMessages.createdAt})`))
     .limit(20);
   if (msgs.length === 0) return null;
   const first = msgs[0];
@@ -332,9 +337,10 @@ async function latestLink(workspaceId: string, dealId: string) {
     )
     .orderBy(desc(activityEvents.createdAt))
     .limit(1);
-  if (!ev || ev.type !== "website.visit_linked") return null;
+  if (!ev) return null;
+  if (ev.type !== "website.visit_linked") return { unlinked: true as const };
   const p = ev.payload as { sessionId?: string; distinctId?: string };
-  return p.sessionId && p.distinctId ? { sessionId: p.sessionId, distinctId: p.distinctId } : null;
+  return p.sessionId && p.distinctId ? { unlinked: false as const, sessionId: p.sessionId, distinctId: p.distinctId } : null;
 }
 
 const EVENT_LABELS: Record<string, string> = {
@@ -355,13 +361,14 @@ async function buildMatch(
   distinctId: string,
   sessionId: string
 ): Promise<NonNullable<LeadWebHistory["match"]>> {
-  const values = { did: distinctId };
+  const values = { did: distinctId, sid: sessionId };
   const [summary, timeline] = await Promise.all([
     hogql(
       `SELECT min(timestamp), uniq(properties.$session_id),
          argMin(properties.erstquelle, timestamp), argMax(properties.quelle, timestamp),
          argMax(properties.geraet, timestamp), argMax(properties.$geoip_city_name, timestamp),
-         maxIf(timestamp, event IN (${CONTACT_EVENTS.map((e) => `'${e}'`).join(", ")}))
+         countIf(event IN (${CONTACT_EVENTS.map((e) => `'${e}'`).join(", ")}) AND properties.$session_id = {sid}),
+         maxIf(timestamp, event IN (${CONTACT_EVENTS.map((e) => `'${e}'`).join(", ")}) AND properties.$session_id = {sid})
        FROM events WHERE distinct_id = {did} AND timestamp >= now() - INTERVAL 180 DAY`,
       values
     ),
@@ -371,12 +378,14 @@ async function buildMatch(
        FROM events
        WHERE distinct_id = {did} AND timestamp >= now() - INTERVAL 180 DAY
          AND event IN ('$pageview', 'abschnitt_gesehen', 'formular_gestartet', 'paketfinder_submit', 'package_click', 'seite_verlassen', ${CONTACT_EVENTS.map((e) => `'${e}'`).join(", ")})
-       ORDER BY timestamp ASC LIMIT 200`,
+       ORDER BY timestamp DESC LIMIT 200`,
       values
     ),
   ]);
   const s = summary[0] ?? [];
-  const items: WebTimelineItem[] = timeline
+  // Neueste 200 Events laden (damit der Kontakt sicher dabei ist), dann chronologisch anzeigen.
+  const items: WebTimelineItem[] = [...timeline]
+    .reverse()
     // Abschnitte nur, wenn sie verkaufsrelevant sind, sonst wird der Verlauf zu lang.
     .filter((r) => r[1] !== "abschnitt_gesehen" || /preis|paket|rechner|kosten|bewertung/i.test(str(r[3])))
     .map((r) => {
@@ -398,7 +407,8 @@ async function buildMatch(
       return { at: str(r[0]), event, label: EVENT_LABELS[event] ?? event, detail, sessionId: str(r[5]) || null };
     });
   const firstSeen = s[0] ? str(s[0]) : null;
-  const contactAt = s[6] ? str(s[6]) : null;
+  // maxIf liefert ohne Treffer 1970-01-01, deshalb über den Zähler absichern.
+  const contactAt = num(s[6]) > 0 && s[7] ? str(s[7]) : null;
   const minutesOnSite =
     firstSeen && contactAt ? Math.max(0, Math.round((Date.parse(contactAt) - Date.parse(firstSeen)) / 60000)) : null;
   return {
@@ -458,20 +468,31 @@ export async function getLeadWebHistory(
 
   if (!result.configured) return result;
 
-  // 1) Von Hand bestätigte Zuordnung
+  // 1) Von Hand bestätigte Zuordnung. Wurde sie gelöst, keine automatische Zuordnung mehr.
   const linked = await latestLink(workspaceId, dealId);
-  if (linked) {
+  if (linked && !linked.unlinked) {
     result.match = await buildMatch("bestaetigt", linked.distinctId, linked.sessionId);
     return result;
   }
 
-  // 2) Anfrage-Nr. aus der WhatsApp-Nachricht
-  if (result.ref) {
+  // 2) Anfrage-Nr. aus der WhatsApp-Nachricht, nur auf der Website des Betriebs
+  //    und bis zu 30 Tage vor dem Kontakt; die Sitzung am nächsten am Kontakt gewinnt.
+  if (result.ref && !linked?.unlinked && result.anchorAt) {
+    const anchor = new Date(result.anchorAt);
+    const f = siteFilter(site);
     const rows = await hogql(
-      `SELECT distinct_id, argMax(properties.$session_id, timestamp)
-       FROM events WHERE properties.besucher_ref = {ref} AND timestamp >= now() - INTERVAL 180 DAY
-       GROUP BY distinct_id ORDER BY max(timestamp) DESC LIMIT 1`,
-      { ref: result.ref }
+      `SELECT distinct_id, properties.$session_id AS sid, max(timestamp) AS t
+       FROM events
+       WHERE properties.besucher_ref = {ref} ${f.clause}
+         AND timestamp >= toDateTime({from}, 'UTC') AND timestamp <= toDateTime({to}, 'UTC')
+       GROUP BY distinct_id, sid ORDER BY abs(dateDiff('second', t, toDateTime({anchor}, 'UTC'))) ASC LIMIT 1`,
+      {
+        ref: result.ref,
+        ...f.values,
+        from: utcString(new Date(anchor.getTime() - 30 * 24 * 60 * 60 * 1000)),
+        to: utcString(new Date(anchor.getTime() + 24 * 60 * 60 * 1000)),
+        anchor: utcString(anchor),
+      }
     );
     if (rows[0]) {
       result.match = await buildMatch("anfrage_nr", str(rows[0][0]), str(rows[0][1]));
@@ -495,7 +516,7 @@ export async function getLeadWebHistory(
          AND ${NOT_TEST} ${f.clause}
        GROUP BY properties.$session_id, distinct_id, properties.site, event
        ORDER BY t DESC LIMIT 20`,
-      { ...f.values, from: from.toISOString().slice(0, 19).replace("T", " "), to: to.toISOString().slice(0, 19).replace("T", " ") }
+      { ...f.values, from: utcString(from), to: utcString(to) }
     );
     const channelLabel: Record<string, string> = {
       kontakt_whatsapp: "WhatsApp",
@@ -523,6 +544,47 @@ export async function getLeadWebHistory(
   return result;
 }
 
+/**
+ * Prüft, dass die Sitzung wirklich einen Kontakt-Klick auf der Website des
+ * Betriebs hatte, damit niemand beliebige Besucher an einen Lead hängt.
+ */
+export async function isLinkableVisit(
+  workspaceId: string,
+  dealId: string,
+  sessionId: string,
+  distinctId: string
+): Promise<boolean> {
+  const site = siteForCompanyName(await dealOperatingCompanyName(workspaceId, dealId));
+  const f = siteFilter(site);
+  const rows = await hogql(
+    `SELECT count() FROM events
+     WHERE distinct_id = {did} AND properties.$session_id = {sid} ${f.clause}
+       AND event IN (${CONTACT_EVENTS.map((e) => `'${e}'`).join(", ")})
+       AND timestamp >= now() - INTERVAL 180 DAY`,
+    { ...f.values, did: distinctId, sid: sessionId }
+  );
+  return num(rows[0]?.[0]) > 0;
+}
+
+async function writeLinkEvent(input: {
+  workspaceId: string;
+  dealId: string;
+  type: "website.visit_linked" | "website.visit_unlinked";
+  payload: Record<string, unknown>;
+  actorId: string | null;
+}): Promise<void> {
+  // Direkt schreiben statt emitEvent: hier ist das Event der gespeicherte Zustand,
+  // ein Fehler darf nicht verschluckt werden.
+  await db.insert(activityEvents).values({
+    workspaceId: input.workspaceId,
+    recordId: input.dealId,
+    objectSlug: "deals",
+    eventType: input.type,
+    payload: input.payload,
+    actorId: input.actorId,
+  });
+}
+
 export async function linkLeadWebVisit(input: {
   workspaceId: string;
   dealId: string;
@@ -530,23 +592,15 @@ export async function linkLeadWebVisit(input: {
   distinctId: string;
   actorId: string | null;
 }): Promise<void> {
-  await emitEvent({
+  await writeLinkEvent({
     workspaceId: input.workspaceId,
-    recordId: input.dealId,
-    objectSlug: "deals",
-    eventType: "website.visit_linked",
+    dealId: input.dealId,
+    type: "website.visit_linked",
     payload: { sessionId: input.sessionId, distinctId: input.distinctId },
     actorId: input.actorId,
   });
 }
 
 export async function unlinkLeadWebVisit(input: { workspaceId: string; dealId: string; actorId: string | null }): Promise<void> {
-  await emitEvent({
-    workspaceId: input.workspaceId,
-    recordId: input.dealId,
-    objectSlug: "deals",
-    eventType: "website.visit_unlinked",
-    payload: {},
-    actorId: input.actorId,
-  });
+  await writeLinkEvent({ workspaceId: input.workspaceId, dealId: input.dealId, type: "website.visit_unlinked", payload: {}, actorId: input.actorId });
 }

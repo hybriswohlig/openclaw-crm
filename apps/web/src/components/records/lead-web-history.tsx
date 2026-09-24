@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 // Mirror of LeadWebHistory in services/website-analytics.ts
 interface TimelineItem {
@@ -86,21 +86,26 @@ export function LeadWebHistory({ recordId }: { recordId: string }) {
   const [state, setState] = useState<"loading" | "ok" | "error">("loading");
   const [at, setAt] = useState<string>("");
   const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  // Nur die Antwort der letzten Anfrage übernehmen, ältere Suchen verwerfen.
+  const requestId = useRef(0);
 
   const load = useCallback(
     async (atOverride?: string) => {
+      const id = ++requestId.current;
       setState("loading");
       const params = atOverride ? `?at=${encodeURIComponent(new Date(atOverride).toISOString())}` : "";
       try {
         const res = await fetch(`/api/v1/visibility/lead/${recordId}${params}`);
         if (!res.ok) throw new Error(String(res.status));
         const json = await res.json();
+        if (id !== requestId.current) return;
         const d = json.data as LeadWebHistory;
         setData(d);
         if (!atOverride) setAt(toLocalInput(d.anchorAt));
         setState("ok");
       } catch {
-        setState("error");
+        if (id === requestId.current) setState("error");
       }
     },
     [recordId]
@@ -110,23 +115,31 @@ export function LeadWebHistory({ recordId }: { recordId: string }) {
     load();
   }, [load]);
 
-  const link = async (c: Candidate) => {
+  const mutate = async (init: RequestInit, fallback: string) => {
     setBusy(true);
-    await fetch(`/api/v1/visibility/lead/${recordId}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId: c.sessionId, distinctId: c.distinctId }),
-    }).catch(() => null);
-    setBusy(false);
-    load();
+    setActionError(null);
+    try {
+      const res = await fetch(`/api/v1/visibility/lead/${recordId}`, init);
+      if (!res.ok) {
+        const json = await res.json().catch(() => null);
+        setActionError(json?.error?.message ?? fallback);
+        return;
+      }
+      load();
+    } catch {
+      setActionError(fallback);
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const unlink = async () => {
-    setBusy(true);
-    await fetch(`/api/v1/visibility/lead/${recordId}`, { method: "DELETE" }).catch(() => null);
-    setBusy(false);
-    load();
-  };
+  const link = (c: Candidate) =>
+    mutate(
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId: c.sessionId, distinctId: c.distinctId }) },
+      "Zuordnung konnte nicht gespeichert werden."
+    );
+
+  const unlink = () => mutate({ method: "DELETE" }, "Zuordnung konnte nicht gelöst werden.");
 
   if (state === "error") return <Note color="#ef4444">Website-Daten konnten nicht geladen werden.</Note>;
   if (!data) return <Note>Lade Website-Verlauf …</Note>;
@@ -140,6 +153,7 @@ export function LeadWebHistory({ recordId }: { recordId: string }) {
         {data.anchorSource ? ` (${ANCHOR_LABEL[data.anchorSource] ?? data.anchorSource})` : ""}
         {data.ref ? ` · Anfrage-Nr. ${data.ref}` : ""}
       </div>
+      {actionError && <Note color="#ef4444">{actionError}</Note>}
 
       {data.match ? (
         <MatchView match={data.match} onUnlink={unlink} busy={busy} />
