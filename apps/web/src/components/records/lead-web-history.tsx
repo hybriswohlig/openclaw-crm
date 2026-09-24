@@ -38,7 +38,7 @@ interface Match {
 }
 interface LeadWebHistory {
   configured: boolean;
-  site: string | null;
+  sites: string[] | null;
   anchorAt: string | null;
   anchorSource: string | null;
   ref: string | null;
@@ -67,7 +67,11 @@ const ANCHOR_LABEL: Record<string, string> = {
   manuell: "von Hand gesetzt",
 };
 
-const SITE_LABEL: Record<string, string> = { kottke: "kottke-umzuege.de", ruempeltuerken: "ruempeltuerken.de" };
+const SITE_LABEL: Record<string, string> = {
+  kottke: "kottke-umzuege.de",
+  ruempeltuerken: "ruempeltuerken.de",
+  ceylan: "ceylan-umzuege.de",
+};
 
 function when(iso: string | null): string {
   if (!iso) return "·";
@@ -148,7 +152,10 @@ export function LeadWebHistory({ recordId }: { recordId: string }) {
   return (
     <div className="flex flex-col gap-4" style={{ opacity: state === "loading" ? 0.6 : 1 }}>
       <div className="text-[13px]" style={{ color: "var(--ink-muted)" }}>
-        Website: <strong style={{ color: "var(--ink)" }}>{data.site ? SITE_LABEL[data.site] ?? data.site : "keinem Betrieb zugeordnet"}</strong>
+        {data.sites && data.sites.length > 1 ? "Websites" : "Website"}:{" "}
+        <strong style={{ color: "var(--ink)" }}>
+          {data.sites ? data.sites.map((s) => SITE_LABEL[s] ?? s).join(", ") : "alle (Betrieb unbekannt)"}
+        </strong>
         {" · "}Kontaktzeitpunkt: {when(data.anchorAt)}
         {data.anchorSource ? ` (${ANCHOR_LABEL[data.anchorSource] ?? data.anchorSource})` : ""}
         {data.ref ? ` · Anfrage-Nr. ${data.ref}` : ""}
@@ -200,7 +207,7 @@ export function LeadWebHistory({ recordId }: { recordId: string }) {
                       {c.minutesBeforeContact >= 0 ? `${c.minutesBeforeContact} Min. vorher` : `${-c.minutesBeforeContact} Min. danach`}
                       {" · "}
                       {SOURCE_LABEL[c.quelle] ?? (c.quelle || "Quelle unbekannt")} · {c.geraet || "Gerät unbekannt"}
-                      {c.site && !data.site ? ` · ${SITE_LABEL[c.site] ?? c.site}` : ""}
+                      {c.site && (!data.sites || data.sites.length > 1) ? ` · ${SITE_LABEL[c.site] ?? c.site}` : ""}
                     </span>
                   </div>
                   <button

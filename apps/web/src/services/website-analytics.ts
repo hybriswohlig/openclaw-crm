@@ -25,13 +25,25 @@ import { resolveDealOperatingCompany } from "@/services/financial";
 const POSTHOG_HOST = process.env.POSTHOG_HOST || "https://eu.posthog.com";
 const POSTHOG_PROJECT_ID = process.env.POSTHOG_PROJECT_ID || "283184";
 
-/** Website-Kennung (`site` in PostHog) ↔ Betrieb im CRM. */
+/** Website-Kennungen (`site` in PostHog). */
 export const WEBSITES = [
-  { site: "kottke", domain: "kottke-umzuege.de", companyMatch: /kottke/i },
-  { site: "ruempeltuerken", domain: "ruempeltuerken.de", companyMatch: /ceylan|r(ü|ue)mpel/i },
+  { site: "kottke", domain: "kottke-umzuege.de" },
+  { site: "ruempeltuerken", domain: "ruempeltuerken.de" },
+  { site: "ceylan", domain: "ceylan-umzuege.de" },
 ] as const;
 
 export type SiteKey = (typeof WEBSITES)[number]["site"];
+
+/**
+ * Betrieb im CRM → Websites, auf denen seine Leads gesucht werden. Rümpel Türken
+ * teilt sich die WhatsApp-Nummer mit Ceylan, daher landen Rümpel-Anfragen oft
+ * als Ceylan-Leads: Ceylan sucht deshalb auf beiden Websites. Erster Treffer gilt.
+ */
+const COMPANY_SITES: { match: RegExp; sites: SiteKey[] }[] = [
+  { match: /r(ü|ue)mpel/i, sites: ["ruempeltuerken"] },
+  { match: /kottke/i, sites: ["kottke"] },
+  { match: /ceylan/i, sites: ["ceylan", "ruempeltuerken"] },
+];
 
 /** Kontakt-Events aus tracking.js. */
 const CONTACT_EVENTS = ["kontakt_whatsapp", "kontakt_anruf", "kontakt_mail", "anfrage_gesendet"];
@@ -93,9 +105,11 @@ function utcString(d: Date): string {
   return d.toISOString().slice(0, 19).replace("T", " ");
 }
 
-function siteFilter(site: string | null): { clause: string; values: Record<string, string> } {
-  if (!site) return { clause: "", values: {} };
-  return { clause: "AND properties.site = {site}", values: { site } };
+/** Filter auf eine oder mehrere Websites. Nur bekannte Kennungen, daher als Literale sicher. */
+function siteFilter(sites: readonly string[] | null): { clause: string; values: Record<string, string> } {
+  const known = (sites ?? []).filter((s) => WEBSITES.some((w) => w.site === s));
+  if (known.length === 0) return { clause: "", values: {} };
+  return { clause: `AND properties.site IN (${known.map((s) => `'${s}'`).join(", ")})`, values: {} };
 }
 
 // ─── Übersicht /sichtbarkeit ────────────────────────────────────────────────
@@ -139,7 +153,7 @@ export async function getVisibilityOverview(days: number, site: string | null): 
   };
   if (!base.configured) return base;
 
-  const f = siteFilter(site);
+  const f = siteFilter(site ? [site] : null);
   const values = { ...f.values, days };
   const window = `timestamp >= now() - toIntervalDay({days}) AND ${NOT_TEST} ${f.clause}`;
   const contactIn = `event IN (${CONTACT_EVENTS.map((e) => `'${e}'`).join(", ")})`;
@@ -251,7 +265,8 @@ export interface WebTimelineItem {
 
 export interface LeadWebHistory {
   configured: boolean;
-  site: string | null;
+  /** Websites des Betriebs; null = Betrieb unbekannt, dann wird überall gesucht. */
+  sites: string[] | null;
   anchorAt: string | null;
   anchorSource: "whatsapp" | "email" | "sms" | "nachricht" | "lead_angelegt" | "manuell" | null;
   ref: string | null;
@@ -293,9 +308,9 @@ async function dealOperatingCompanyName(workspaceId: string, dealId: string): Pr
   return row?.text ?? null;
 }
 
-export function siteForCompanyName(name: string | null): SiteKey | null {
+export function sitesForCompanyName(name: string | null): SiteKey[] | null {
   if (!name) return null;
-  return WEBSITES.find((w) => w.companyMatch.test(name))?.site ?? null;
+  return COMPANY_SITES.find((c) => c.match.test(name))?.sites ?? null;
 }
 
 /** Erster eingehender Kontakt zum Lead: Zeitpunkt, Kanal und Text (für die Anfrage-Nr.). */
@@ -438,10 +453,10 @@ export async function getLeadWebHistory(
   atOverride: Date | null
 ): Promise<LeadWebHistory> {
   const companyName = await dealOperatingCompanyName(workspaceId, dealId);
-  const site = siteForCompanyName(companyName);
+  const sites = sitesForCompanyName(companyName);
   const result: LeadWebHistory = {
     configured: isPosthogConfigured(),
-    site,
+    sites,
     anchorAt: null,
     anchorSource: null,
     ref: null,
@@ -479,7 +494,7 @@ export async function getLeadWebHistory(
   //    und bis zu 30 Tage vor dem Kontakt; die Sitzung am nächsten am Kontakt gewinnt.
   if (result.ref && !linked?.unlinked && result.anchorAt) {
     const anchor = new Date(result.anchorAt);
-    const f = siteFilter(site);
+    const f = siteFilter(sites);
     const rows = await hogql(
       `SELECT distinct_id, properties.$session_id AS sid, max(timestamp) AS t
        FROM events
@@ -505,7 +520,7 @@ export async function getLeadWebHistory(
     const anchor = new Date(result.anchorAt);
     const from = new Date(anchor.getTime() - 60 * 60 * 1000);
     const to = new Date(anchor.getTime() + 10 * 60 * 1000);
-    const f = siteFilter(site);
+    const f = siteFilter(sites);
     // Zeiten als UTC übergeben; ohne Zeitzone liest HogQL sie in der Projektzeit (Berlin).
     const rows = await hogql(
       `SELECT properties.$session_id, distinct_id, coalesce(properties.site, ''), event, max(timestamp) AS t,
@@ -554,8 +569,7 @@ export async function isLinkableVisit(
   sessionId: string,
   distinctId: string
 ): Promise<boolean> {
-  const site = siteForCompanyName(await dealOperatingCompanyName(workspaceId, dealId));
-  const f = siteFilter(site);
+  const f = siteFilter(sitesForCompanyName(await dealOperatingCompanyName(workspaceId, dealId)));
   const rows = await hogql(
     `SELECT count() FROM events
      WHERE distinct_id = {did} AND properties.$session_id = {sid} ${f.clause}
