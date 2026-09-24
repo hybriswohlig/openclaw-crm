@@ -34,6 +34,7 @@ import {
   Search,
   LogOut,
   BarChart3,
+  Globe,
   ChevronRight,
 } from "lucide-react";
 import { useTheme } from "next-themes";
@@ -53,6 +54,7 @@ const objectNav = [
 
 const moreNav = [
   { href: "/statistics", label: "Statistiken", icon: BarChart3 },
+  { href: "/sichtbarkeit", label: "Sichtbarkeit", icon: Globe },
   { href: "/notes", label: "Notizen", icon: StickyNote },
   { href: "/objects/companies", label: "Firmen", icon: Building2 },
   { href: "/integrations", label: "Integrationen", icon: Plug },

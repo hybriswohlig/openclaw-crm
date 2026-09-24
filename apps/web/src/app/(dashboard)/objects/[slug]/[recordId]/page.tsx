@@ -15,6 +15,7 @@ import { MediaTab } from "@/components/media/media-tab";
 import { DealInsightsTab } from "@/components/deal-insights/deal-insights-tab";
 import { AuftragTab } from "@/components/auftrag/auftrag-tab";
 import { RecordConversations } from "@/components/records/record-conversations";
+import { LeadWebHistory } from "@/components/records/lead-web-history";
 import { ShareLinkPanel } from "@/components/customer-link/share-link-panel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -588,6 +589,9 @@ export default function RecordDetailPage() {
                 <TabsTrigger value="conversations">Chats</TabsTrigger>
               )}
               {slug === "deals" && (
+                <TabsTrigger value="website">Website</TabsTrigger>
+              )}
+              {slug === "deals" && (
                 <TabsTrigger value="quotation">Angebot</TabsTrigger>
               )}
               {slug === "deals" && (
@@ -634,6 +638,12 @@ export default function RecordDetailPage() {
             {(slug === "deals" || slug === "people") && (
               <TabsContent value="conversations">
                 <RecordConversations objectSlug={slug} recordId={recordId} />
+              </TabsContent>
+            )}
+
+            {slug === "deals" && (
+              <TabsContent value="website">
+                <LeadWebHistory recordId={recordId} />
               </TabsContent>
             )}
 

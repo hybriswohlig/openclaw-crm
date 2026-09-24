@@ -57,7 +57,9 @@ export type ActivityEventType =
   | "project.document_uploaded"
   | "project.budget_entry_added"
   | "task.moved_to_project"
-  | "task.status_changed";
+  | "task.status_changed"
+  | "website.visit_linked"
+  | "website.visit_unlinked";
 
 export interface EmitEventInput {
   workspaceId: string;
