@@ -27,7 +27,7 @@ async function fileFromBlob(conversationId: string, body: unknown) {
     throw new Error("Ungültige Datei-Adresse.");
   }
   const downloaded = await get(blobUrl, { access: "private" });
-  if (downloaded.statusCode !== 200) {
+  if (!downloaded || downloaded.statusCode !== 200) {
     throw new Error("Datei konnte nicht gelesen werden.");
   }
   if (!isInboxMediaBlobPath(downloaded.blob.pathname, conversationId)) {
