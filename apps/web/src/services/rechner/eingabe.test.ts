@@ -51,4 +51,16 @@ describe("rechnerAnfrageAus", () => {
     expect(eingabeHash({ a: "1", b: "2" })).toBe(eingabeHash({ b: "2", a: "1" }));
     expect(eingabeHash({ a: "1" })).not.toBe(eingabeHash({ a: "2" }));
   });
+  it("'innerhalb X' ohne Zieladresse: Zielseite aktiv, der Rechner nimmt denselben Ort (Review Sol)", () => {
+    expect(rechnerAnfrageAus({ ...leer, von: "innerhalb Böblingen" })).toMatchObject({ nach_vorhanden: "on" });
+  });
+  it("Zieletage oder Zielzugang ohne Zieladresse: Zielseite aktiv, Angaben gehen mit (Review Sol)", () => {
+    expect(rechnerAnfrageAus({ ...leer, von: "Böblingen", etageNach: 2, zugangNach: "Treppe" }))
+      .toMatchObject({ nach_vorhanden: "on", nach_etage: "2", nach_aufzug: "keiner" });
+  });
+  it("Einpackservice ohne Kartonzahl wird markiert statt still weggelassen (Review Sol)", () => {
+    const a = rechnerAnfrageAus({ ...leer, packService: true, kartons: null });
+    expect(a).not.toHaveProperty("einpack_kartons");
+    expect(a.einpack_ohne_anzahl).toBe("on");
+  });
 });

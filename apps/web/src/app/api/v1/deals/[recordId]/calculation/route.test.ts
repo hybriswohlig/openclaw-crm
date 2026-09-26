@@ -4,6 +4,8 @@ import { NextRequest } from "next/server";
 const mocks = vi.hoisted(() => ({
   getAuthContext: vi.fn(),
   ensureDealCalculation: vi.fn(),
+  aktuelleKalkulation: vi.fn(),
+  hatPaketoptionen: vi.fn(),
   getQuotation: vi.fn(),
   upsertQuotation: vi.fn(),
   ensureCustomerStatusLink: vi.fn(),
@@ -16,7 +18,8 @@ vi.mock("@/lib/api-utils", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api-utils")>();
   return { ...actual, getAuthContext: mocks.getAuthContext };
 });
-vi.mock("@/services/rechner/kalkulation", () => ({ ensureDealCalculation: mocks.ensureDealCalculation }));
+vi.mock("@/services/rechner/kalkulation", () => ({ ensureDealCalculation: mocks.ensureDealCalculation, aktuelleKalkulation: mocks.aktuelleKalkulation }));
+vi.mock("@/services/rechner/pakete", () => ({ hatPaketoptionen: mocks.hatPaketoptionen }));
 vi.mock("@/services/rechner/speicher", () => ({ dbSpeicher: { lesen: mocks.lesen, speichern: vi.fn() } }));
 vi.mock("@/services/quotations", () => ({ getQuotation: mocks.getQuotation, upsertQuotation: mocks.upsertQuotation }));
 vi.mock("@/services/customer-portal-data", () => ({ ensureCustomerStatusLink: mocks.ensureCustomerStatusLink }));
@@ -40,6 +43,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.getAuthContext.mockResolvedValue(CTX);
   mocks.ensureCustomerStatusLink.mockResolvedValue(undefined);
+  mocks.hatPaketoptionen.mockResolvedValue(false);
 });
 
 describe("GET/POST /calculation", () => {
@@ -77,7 +81,7 @@ describe("GET/POST /calculation", () => {
 
 describe("POST /calculation/apply", () => {
   it("nur Spanne ohne Bestätigung: 400, Angebot unverändert", async () => {
-    mocks.lesen.mockResolvedValue(zeile({ schaetzung: { festpreisVon: 900, festpreisBis: 1800, annahmen: [] } }));
+    mocks.aktuelleKalkulation.mockResolvedValue({ ok: true, kalkulation: zeile({ schaetzung: { festpreisVon: 900, festpreisBis: 1800, annahmen: [] } }) });
     mocks.getQuotation.mockResolvedValue(null);
     const res = await APPLY(req({}), { params });
     expect(res.status).toBe(400);
@@ -85,7 +89,7 @@ describe("POST /calculation/apply", () => {
   });
 
   it("Festpreis: setzt fixedPrice, übergibt vorhandene Notizen, keine lineItems, Nachlauf wie beim Speichern", async () => {
-    mocks.lesen.mockResolvedValue(zeile({ preis: { festpreis: 1490 }, schaetzung: null }));
+    mocks.aktuelleKalkulation.mockResolvedValue({ ok: true, kalkulation: zeile({ preis: { festpreis: 1490 }, schaetzung: null }) });
     mocks.getQuotation.mockResolvedValue({ notes: "Klavier", isVariable: true });
     mocks.upsertQuotation.mockResolvedValue({ fixedPrice: "1490" });
     const res = await APPLY(req({}), { params });
@@ -99,9 +103,27 @@ describe("POST /calculation/apply", () => {
   });
 
   it("Kalkulation eines anderen Workspace wird nicht übernommen", async () => {
-    mocks.lesen.mockResolvedValue({ ...zeile({ preis: { festpreis: 1 } }), workspaceId: "ws_fremd" });
+    mocks.aktuelleKalkulation.mockResolvedValue({ ok: true, kalkulation: { ...zeile({ preis: { festpreis: 1 } }), workspaceId: "ws_fremd" } });
     const res = await APPLY(req({}), { params });
     expect(res.status).toBe(400);
+    expect(mocks.upsertQuotation).not.toHaveBeenCalled();
+  });
+
+  it("übernimmt nur eine aktuelle Kalkulation; Rechnerfehler → 400 mit Grund (Review Sol/Grok)", async () => {
+    mocks.aktuelleKalkulation.mockResolvedValue({ ok: false, fehler: "Rechner nicht erreichbar." });
+    const res = await APPLY(req({}), { params });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.message).toMatch(/nicht erreichbar/);
+    expect(mocks.aktuelleKalkulation).toHaveBeenCalledWith("ws_1", "deal_1");
+    expect(mocks.upsertQuotation).not.toHaveBeenCalled();
+  });
+
+  it("Lead mit Paketoptionen: keine Übernahme, weil der Paketpreis den Festpreis im Portal überschreiben würde (Review Grok)", async () => {
+    mocks.hatPaketoptionen.mockResolvedValue(true);
+    mocks.aktuelleKalkulation.mockResolvedValue({ ok: true, kalkulation: zeile({ preis: { festpreis: 1490 }, schaetzung: null }) });
+    const res = await APPLY(req({}), { params });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.message).toMatch(/Paket/);
     expect(mocks.upsertQuotation).not.toHaveBeenCalled();
   });
 });

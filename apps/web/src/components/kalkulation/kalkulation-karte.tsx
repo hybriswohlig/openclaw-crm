@@ -52,9 +52,19 @@ export function KalkulationKarte({ recordId, onUebernommen }: { recordId: string
   const [details, setDetails] = useState(false);
 
   const laden = useCallback(async (neu: boolean) => {
-    const res = await fetch(`/api/v1/deals/${recordId}/calculation`, { method: neu ? "POST" : "GET" });
-    const body = res.ok ? await res.json() : null;
-    setAntwort(body?.data ?? { status: "fehler", kalkulation: null });
+    try {
+      const res = await fetch(`/api/v1/deals/${recordId}/calculation`, { method: neu ? "POST" : "GET" });
+      const body = res.ok ? await res.json() : null;
+      if (body?.data) {
+        setAntwort(body.data);
+        return;
+      }
+    } catch {
+      // Netzwerkfehler: unten wie ein Serverfehler behandelt.
+    }
+    // Letzten Stand behalten, nur den Status auf Fehler setzen.
+    setAntwort((vorher) => ({ status: "fehler", kalkulation: vorher?.kalkulation ?? null }));
+    if (neu) toast.error("Kalkulation konnte nicht geladen werden");
   }, [recordId]);
 
   useEffect(() => {
@@ -86,6 +96,10 @@ export function KalkulationKarte({ recordId, onUebernommen }: { recordId: string
         const body = await res.json().catch(() => null);
         toast.error(body?.error?.message ?? body?.error ?? "Übernahme fehlgeschlagen");
       }
+      // Die Übernahme rechnet bei Bedarf neu: angezeigten Stand auffrischen.
+      await laden(false);
+    } catch {
+      toast.error("Übernahme fehlgeschlagen (keine Verbindung)");
     } finally {
       setArbeitet(null);
     }

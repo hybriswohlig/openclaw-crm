@@ -1,5 +1,5 @@
 /** Datenbank-Speicher für Kalkulationen (Tabelle deal_calculations). */
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { dealCalculations } from "@/db/schema/deal-calculations";
 import type { RechnerErgebnis } from "./client";
@@ -28,6 +28,11 @@ export const dbSpeicher: KalkulationsSpeicher = {
     await db
       .insert(dealCalculations)
       .values({ dealRecordId: z.dealRecordId, ...werte })
-      .onConflictDoUpdate({ target: dealCalculations.dealRecordId, set: werte });
+      .onConflictDoUpdate({
+        target: dealCalculations.dealRecordId,
+        set: werte,
+        // Eine früher begonnene Rechnung überschreibt nie eine später begonnene (parallele Instanzen).
+        setWhere: sql`${dealCalculations.computedAt} <= excluded.computed_at`,
+      });
   },
 };

@@ -47,11 +47,33 @@ export async function ensureDealCalculation(
   dealRecordId: string,
   opts: KalkulationsOptionen = {}
 ): Promise<{ status: KalkulationsStatus; kalkulation: KalkulationsZeile | null }> {
-  const bereits = laufend.get(dealRecordId);
-  if (bereits) return bereits;
-  const lauf = rechne(workspaceId, dealRecordId, opts).finally(() => laufend.delete(dealRecordId));
-  laufend.set(dealRecordId, lauf);
+  // Schlüssel mit Workspace: eine laufende Rechnung wird nie mit einem anderen Workspace geteilt.
+  const schluessel = `${workspaceId}:${dealRecordId}`;
+  const bereits = laufend.get(schluessel);
+  if (bereits && !opts.force) return bereits;
+  // "Neu kalkulieren" hängt sich nicht an einen laufenden normalen Lauf, sondern rechnet danach selbst.
+  if (bereits) await bereits.catch(() => undefined);
+  const lauf = rechne(workspaceId, dealRecordId, opts).finally(() => {
+    if (laufend.get(schluessel) === lauf) laufend.delete(schluessel);
+  });
+  laufend.set(schluessel, lauf);
   return lauf;
+}
+
+/**
+ * Kalkulation zur aktuellen Eingabe, für die Übernahme ins Angebot: nie ein
+ * veralteter Preis. Ist die gespeicherte Kalkulation nicht aktuell (auch wenn
+ * gedrosselt), wird sofort neu gerechnet; scheitert das, gibt es einen Fehler.
+ */
+export async function aktuelleKalkulation(
+  workspaceId: string, dealRecordId: string, opts: KalkulationsOptionen = {}
+): Promise<{ ok: true; kalkulation: KalkulationsZeile } | { ok: false; fehler: string }> {
+  let r = await ensureDealCalculation(workspaceId, dealRecordId, { ...opts, force: false });
+  if (r.status === "gedrosselt") r = await ensureDealCalculation(workspaceId, dealRecordId, { ...opts, force: true });
+  if ((r.status === "neu" || r.status === "unveraendert") && r.kalkulation && r.kalkulation.error === null) {
+    return { ok: true, kalkulation: r.kalkulation };
+  }
+  return { ok: false, fehler: r.kalkulation?.error ?? "Kalkulation nicht verfügbar." };
 }
 
 async function rechne(
@@ -74,10 +96,12 @@ async function rechne(
     if (jetzt().getTime() - vorher.computedAt.getTime() < DROSSEL_MS) return { status: "gedrosselt", kalkulation: vorher };
   }
 
+  // Zeitpunkt des Starts: der Speicher lässt eine später begonnene Rechnung nicht von einer älteren überschreiben.
+  const start = jetzt();
   const antwort = await rechner(anfrage);
   const zeile: KalkulationsZeile = antwort.ok
-    ? { dealRecordId, workspaceId, inputHash: hash, request: anfrage, result: antwort.ergebnis, error: null, computedAt: jetzt() }
-    : { dealRecordId, workspaceId, inputHash: hash, request: anfrage, result: vorher?.result ?? null, error: antwort.fehler, computedAt: jetzt() };
+    ? { dealRecordId, workspaceId, inputHash: hash, request: anfrage, result: antwort.ergebnis, error: null, computedAt: start }
+    : { dealRecordId, workspaceId, inputHash: hash, request: anfrage, result: vorher?.result ?? null, error: antwort.fehler, computedAt: start };
   await speicher.speichern(zeile);
   return { status: antwort.ok ? "neu" : "fehler", kalkulation: zeile };
 }

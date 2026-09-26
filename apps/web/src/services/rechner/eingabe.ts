@@ -65,12 +65,18 @@ export function rechnerAnfrageAus(lead: LeadDaten): RechnerAnfrage {
     setze(`${seite}_aufzug`, z.aufzug);
     setze(`${seite}_tragestrecke`, tragestrecke);
   }
-  if (lead.nach) a.nach_vorhanden = "on";
+  // Zielseite aktiv, sobald es Angaben zum Ziel gibt oder der Umzug "innerhalb" eines Ortes ist
+  // (der Rechner nimmt dann denselben Ort als Ziel bzw. meldet die fehlende Adresse).
+  const ortsintern = !!lead.von && /^(umzug\s+)?innerhalb\s/i.test(lead.von.trim());
+  if (lead.nach || ortsintern || lead.etageNach !== null || lead.zugangNach !== null) a.nach_vorhanden = "on";
   setze("umzugsdatum", lead.umzugsdatum);
   setze("wohnflaeche_qm", lead.wohnflaecheQm);
   setze("zimmer", lead.zimmer);
   if (lead.halteverbot) a.von_halteverbot = "on";
   if (lead.packService && lead.kartons) setze("einpack_kartons", lead.kartons);
+  // Einpackservice gebucht, aber keine Kartonzahl: nicht still weglassen, sondern kenntlich machen
+  // (der Rechner ignoriert das Feld, die Karte im CRM warnt).
+  if (lead.packService && !lead.kartons) a.einpack_ohne_anzahl = "on";
 
   const zeilen = lead.inventar.filter((z) => z.mitnehmen && z.menge > 0 && z.name.trim() !== "");
   if (zeilen.length > 0) {

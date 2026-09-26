@@ -4,11 +4,12 @@ import { getQuotation, upsertQuotation } from "@/services/quotations";
 import { ensureCustomerStatusLink } from "@/services/customer-portal-data";
 import { captureScopeSnapshot } from "@/services/scope-guard";
 import { completeAgentPriceTasks } from "@/services/agent/agent-tasks";
-import { dbSpeicher } from "@/services/rechner/speicher";
+import { aktuelleKalkulation } from "@/services/rechner/kalkulation";
+import { hatPaketoptionen } from "@/services/rechner/pakete";
 import { angebotsUebernahme } from "@/services/rechner/uebernahme";
 
 /**
- * POST → übernimmt die gespeicherte Kalkulation ins Angebot (Festpreis und
+ * POST → übernimmt die aktuelle Kalkulation ins Angebot (Festpreis und
  * Kalkulationsannahmen). Bei einer Spanne nur mit { bestaetigtSpanne: true },
  * dann die Obergrenze. Positionen und Notizen des Angebots bleiben erhalten.
  * Danach dieselben Schritte wie beim normalen Speichern des Angebots.
@@ -19,8 +20,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rec
   const { recordId } = await params;
   const body = (await req.json().catch(() => ({}))) as { bestaetigtSpanne?: boolean };
 
-  const zeile = await dbSpeicher.lesen(recordId);
-  const eigene = zeile && zeile.workspaceId === ctx.workspaceId ? zeile : null;
+  if (await hatPaketoptionen(recordId)) {
+    return badRequest(
+      "Dieser Lead hat Paketoptionen: der Preis kommt aus dem gewählten Paket und würde einen übernommenen Festpreis im Kundenportal überschreiben. Paketpreise anpassen oder die Kalkulation als Orientierung nutzen."
+    );
+  }
+  // Nur eine Kalkulation zur aktuellen Eingabe übernehmen, nie einen veralteten Preis.
+  const aktuell = await aktuelleKalkulation(ctx.workspaceId, recordId);
+  if (!aktuell.ok) return badRequest(`Kalkulation nicht aktuell: ${aktuell.fehler}`);
+  const eigene = aktuell.kalkulation.workspaceId === ctx.workspaceId ? aktuell.kalkulation : null;
   const vorhanden = await getQuotation(recordId);
   const uebernahme = angebotsUebernahme(
     eigene,

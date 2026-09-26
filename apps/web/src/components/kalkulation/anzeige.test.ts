@@ -41,4 +41,12 @@ describe("kartenAnzeige", () => {
     const a = kartenAnzeige("fehler", null);
     expect(a).toMatchObject({ art: "fehler", preisText: "Kalkulation derzeit nicht verfügbar", kannUebernehmen: false });
   });
+  it("gedrosselt: Hinweis, dass die Eingabe geändert wurde (Review Grok)", () => {
+    const a = kartenAnzeige("gedrosselt", { ...basis, result: { preis: { festpreis: 700 }, schaetzung: null } });
+    expect(a.warnung).toMatch(/geändert/);
+  });
+  it("Einpackservice ohne Kartonzahl: Warnung (Review Sol)", () => {
+    const a = kartenAnzeige("neu", { ...basis, request: { einpack_ohne_anzahl: "on" }, result: { preis: { festpreis: 700 }, schaetzung: null } });
+    expect(a.warnung).toMatch(/Einpackservice/);
+  });
 });

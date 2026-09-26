@@ -7,7 +7,7 @@ vi.mock("next/server", async (importOriginal) => {
 });
 vi.mock("./kalkulation", () => ({ ensureDealCalculation: mocks.ensureDealCalculation }));
 
-import { kalkulationAnstossen } from "./ausloeser";
+import { dealReferenz, kalkulationAnstossen } from "./ausloeser";
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -39,5 +39,29 @@ describe("kalkulationAnstossen", () => {
   it("ohne Lead-ID passiert nichts", () => {
     kalkulationAnstossen("ws_1", "");
     expect(mocks.after).not.toHaveBeenCalled();
+  });
+  it("mehrere Anstöße laufen nacheinander, nicht gleichzeitig (Review Sol: Cron-Spitzen)", async () => {
+    let aktiv = 0, maxAktiv = 0;
+    mocks.ensureDealCalculation.mockImplementation(async () => {
+      aktiv += 1; maxAktiv = Math.max(maxAktiv, aktiv);
+      await new Promise((r) => setTimeout(r, 5));
+      aktiv -= 1;
+      return { status: "neu", kalkulation: null };
+    });
+    kalkulationAnstossen("ws", "d1");
+    kalkulationAnstossen("ws", "d2");
+    kalkulationAnstossen("ws", "d3");
+    await Promise.all(mocks.after.mock.calls.map((c) => c[0]()));
+    expect(maxAktiv).toBe(1);
+    expect(mocks.ensureDealCalculation).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("dealReferenz", () => {
+  it("liest die Lead-ID aus dem deal-Feld eines Auftrags (Review Sol)", () => {
+    expect(dealReferenz({ deal: "d1" })).toBe("d1");
+    expect(dealReferenz({ deal: { id: "d2", title: "Lead" } })).toBe("d2");
+    expect(dealReferenz({ deal: [{ id: "d3" }] })).toBe("d3");
+    expect(dealReferenz({})).toBeNull();
   });
 });

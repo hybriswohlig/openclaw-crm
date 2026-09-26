@@ -658,7 +658,7 @@ export async function applyDealInsights(
   }
 
   // Geänderte Lead-Daten → Angebotsrechner neu fragen (nur bei geänderter Eingabe).
-  if (result.fieldsUpdated.length > 0) kalkulationAnstossen(workspaceId, dealRecordId);
+  if (result.fieldsUpdated.length > 0 || result.auftragUpdated.length > 0) kalkulationAnstossen(workspaceId, dealRecordId);
   return result;
 }
 

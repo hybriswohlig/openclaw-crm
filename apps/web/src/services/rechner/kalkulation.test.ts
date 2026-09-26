@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { LeadDaten } from "./eingabe";
 import type { RechnerAntwort } from "./client";
-import { ensureDealCalculation, type KalkulationsSpeicher, type KalkulationsZeile } from "./kalkulation";
+import { aktuelleKalkulation, ensureDealCalculation, type KalkulationsSpeicher, type KalkulationsZeile } from "./kalkulation";
 
 const lead = (zimmer: number): LeadDaten => ({
   von: "Böblingen", nach: null, etageVon: 0, etageNach: null, zugangVon: null, zugangNach: null,
@@ -103,5 +103,57 @@ describe("ensureDealCalculation", () => {
     const r = await ensureDealCalculation("ws", "deal1", { ...t.deps, ladeLead: async () => null });
     expect(r).toEqual({ status: "fehler", kalkulation: null });
     expect(t.aufrufe).toBe(0);
+  });
+
+  it("gleiche Lead-ID in zwei Workspaces teilt sich keine laufende Rechnung (Review Sol)", async () => {
+    const t = aufbau();
+    await Promise.all([ensureDealCalculation("ws_a", "deal1", t.deps), ensureDealCalculation("ws_b", "deal1", t.deps)]);
+    expect(t.aufrufe).toBe(2);
+  });
+
+  it("force hängt sich nicht an einen laufenden normalen Lauf (Review Grok)", async () => {
+    const t = aufbau();
+    const normal = ensureDealCalculation("ws", "deal1", t.deps);
+    const erzwungen = ensureDealCalculation("ws", "deal1", { ...t.deps, force: true });
+    await Promise.all([normal, erzwungen]);
+    expect(t.aufrufe).toBe(2);
+  });
+
+  it("computedAt ist der Start der Rechnung, nicht ihr Ende (ältere Rechnung überschreibt keine neuere)", async () => {
+    const t = aufbau();
+    const start = new Date("2026-10-01T08:00:00Z");
+    await ensureDealCalculation("ws", "deal1", { ...t.deps, rechner: async () => { t.spaeter(30); return { ok: true, ergebnis: {} }; } });
+    expect(t.zeilen.get("deal1")!.computedAt).toEqual(start);
+  });
+});
+
+describe("aktuelleKalkulation (für die Übernahme ins Angebot)", () => {
+  it("unveränderte Eingabe: vorhandene Kalkulation, kein neuer Aufruf", async () => {
+    const t = aufbau();
+    await ensureDealCalculation("ws", "deal1", t.deps);
+    t.spaeter(600);
+    const r = await aktuelleKalkulation("ws", "deal1", t.deps);
+    expect(r.ok).toBe(true);
+    expect(t.aufrufe).toBe(1);
+  });
+
+  it("geänderte Eingabe innerhalb der Drossel: rechnet trotzdem neu, statt den alten Preis zu liefern (Review Sol/Grok)", async () => {
+    const t = aufbau();
+    await ensureDealCalculation("ws", "deal1", t.deps);
+    t.spaeter(10);
+    t.setzeLead(lead(5));
+    t.setzeAntwort({ ok: true, ergebnis: { preis: { festpreis: 1300 } } });
+    const r = await aktuelleKalkulation("ws", "deal1", t.deps);
+    expect(r.ok && r.kalkulation.result).toEqual({ preis: { festpreis: 1300 } });
+    expect(t.aufrufe).toBe(2);
+  });
+
+  it("Rechnerfehler: keine Übernahme eines alten Preises", async () => {
+    const t = aufbau();
+    await ensureDealCalculation("ws", "deal1", t.deps);
+    t.spaeter(10);
+    t.setzeLead(lead(5));
+    t.setzeAntwort({ ok: false, fehler: "Rechner nicht erreichbar." });
+    expect(await aktuelleKalkulation("ws", "deal1", t.deps)).toEqual({ ok: false, fehler: "Rechner nicht erreichbar." });
   });
 });

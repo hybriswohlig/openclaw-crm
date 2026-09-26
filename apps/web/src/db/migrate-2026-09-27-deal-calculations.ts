@@ -7,6 +7,12 @@ import { normalizeDatabaseUrl } from "./normalize-database-url";
  * Umzugsgut-Angebotsrechner). Idempotent: ein zweiter Lauf ändert nichts.
  * Berührt keine andere Tabelle.
  *
+ * Bewusst kein drizzle-kit-Journal: die Migrationshistorie (bis 0047) hinkt dem
+ * Schema weit hinterher, ein neues `drizzle-kit generate` würde ohnehin viele
+ * fremde Änderungen enthalten. Mit `drizzle-kit push` ist die Tabelle
+ * kompatibel (Schema in src/db/schema/deal-calculations.ts). Vor dem ersten
+ * Deploy, der die Kalkulation nutzt, einmal gegen die Ziel-DB ausführen.
+ *
  * Usage: DATABASE_URL=... npx tsx src/db/migrate-2026-09-27-deal-calculations.ts
  */
 async function migrate() {

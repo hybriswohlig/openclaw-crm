@@ -49,7 +49,11 @@ export function kartenAnzeige(status: KalkulationsStatus, k: KalkulationJson | n
     ? `${s.name}, Anfahrt ${Math.round(s.anfahrtMin)} Min (${s.quelle === "google" ? "Google Maps" : "angenommen"})`
     : null;
   const hinweisTexte = (e.hinweise ?? []).map((h) => h.text);
-  const fehlerText = k?.error ? `Letzte Neuberechnung fehlgeschlagen: ${k.error}` : null;
+  const fehlerText = [
+    k?.error ? `Letzte Neuberechnung fehlgeschlagen: ${k.error}` : null,
+    status === "gedrosselt" ? "Lead-Daten wurden gerade geändert, die Kalkulation wird in Kürze aktualisiert (oder jetzt neu kalkulieren)." : null,
+    k?.request?.einpack_ohne_anzahl === "on" ? "Einpackservice gebucht, aber keine Kartonzahl: Packzeit ist nicht eingerechnet." : null,
+  ].filter(Boolean).join(" ") || null;
   const annahmen = [...(e.schaetzung?.annahmen ?? []), ...(e.annahmen ?? [])];
 
   const sp = e.schaetzung;
