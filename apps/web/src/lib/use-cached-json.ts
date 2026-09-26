@@ -48,7 +48,8 @@ export function useCachedJson<T>(url: string | null): { data: T | null; loading:
     if (hit && Date.now() - hit.at <= FRESH_MS) return;
     load(url)
       .then((data) => !cancelled && setState({ url, data: data as T, loading: false, error: false }))
-      .catch(() => !cancelled && setState((s) => ({ ...s, loading: false, error: !s.data })));
+      // Fehler: veraltete Daten derselben URL dürfen bleiben, Daten einer anderen URL nicht.
+      .catch(() => !cancelled && setState({ url, data: hit ? (hit.data as T) : null, loading: false, error: !hit }));
     return () => {
       cancelled = true;
     };

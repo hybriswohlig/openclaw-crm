@@ -60,14 +60,26 @@ export async function getVisitorSessions(
     { ...f.values, ...ff.values, days }
   );
 
-  // Leads aus dem Zeitraum (plus Puffer) ihren Besuchern zuordnen
-  const deals = await loadDeals(workspaceId, new Date(Date.now() - (days + 30) * 86400000));
+  // Nur Leads ab dem ältesten angezeigten Besuch laden (die Liste hat höchstens 100 Besuche).
+  const earliest = rows.reduce((min, r) => Math.min(min, Date.parse(str(r[2])) || min), Date.now());
+  const deals = rows.length ? await loadDeals(workspaceId, new Date(earliest - 86400000)) : [];
   const attribution = await attributeDeals(workspaceId, deals.map((d) => d.id));
-  const leadByDistinct = new Map<string, { id: string; name: string; stage: string }>();
+  // Ein Besucher kann mehrere Leads haben: je Besuch den ersten Lead, der danach angelegt wurde.
+  const leadsByDistinct = new Map<string, { id: string; name: string; stage: string; at: number }[]>();
   for (const d of deals) {
     const a = attribution.get(d.id);
-    if (a) leadByDistinct.set(a.distinctId, { id: d.id, name: d.name, stage: d.stage });
+    if (!a) continue;
+    const list = leadsByDistinct.get(a.distinctId) ?? [];
+    list.push({ id: d.id, name: d.name, stage: d.stage, at: d.createdAt.getTime() });
+    leadsByDistinct.set(a.distinctId, list.sort((x, y) => x.at - y.at));
   }
+  const leadFor = (distinctId: string, start: string) => {
+    const list = leadsByDistinct.get(distinctId);
+    if (!list) return null;
+    const t = Date.parse(start);
+    const hit = list.find((l) => l.at >= t - 5 * 60000) ?? list[list.length - 1];
+    return { id: hit.id, name: hit.name, stage: hit.stage };
+  };
 
   return {
     configured: true,
@@ -87,7 +99,7 @@ export async function getVisitorSessions(
         stadt: r[8] ? str(r[8]) : null,
         ref: r[9] ? str(r[9]) : null,
         ziele,
-        lead: leadByDistinct.get(str(r[1])) ?? null,
+        lead: leadFor(str(r[1]), start),
         recordingUrl: recordingUrl(str(r[0])),
       };
     }),

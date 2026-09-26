@@ -242,11 +242,12 @@ export async function getVisibilityOverview(
 
   const f = siteFilter(site ? [site] : null);
   const ff = filterClause(filters);
-  const values = { ...f.values, ...ff.values, days };
-  const window = `timestamp >= now() - toIntervalDay({days}) AND ${NOT_TEST} ${f.clause} ${ff.clause}`;
-  // Ziele ohne den Ziel-Filter selbst zählen, sonst hätte nur das gewählte Ziel Werte.
-  const ffGoals = filterClause({ ...filters, ziel: undefined });
-  const goalWindow = `timestamp >= now() - toIntervalDay({days}) AND ${NOT_TEST} ${f.clause} ${ffGoals.clause}`;
+  const values = { ...f.values, ...ff.values, days, ph_start: `${POSTHOG_START} 00:00:00` };
+  // Vor dem PostHog-Start zählt Plausible; so kann sich nichts überschneiden.
+  const window = `timestamp >= now() - toIntervalDay({days}) AND timestamp >= toDateTime({ph_start}, 'Europe/Berlin') AND ${NOT_TEST} ${f.clause} ${ff.clause}`;
+  // Ziele mit allen Filtern zählen: bei "Ziel: WhatsApp" zeigen die anderen Kacheln,
+  // wie viele dieser Besuche zusätzlich das andere Ziel erreicht haben.
+  const goalWindow = window;
   const contactIn = `event IN (${CONTACT_EVENTS.map((e) => `'${e}'`).join(", ")})`;
   const sessionsWith = (cond: string) => `uniqIf(properties.$session_id, ${cond})`;
 
@@ -310,7 +311,7 @@ export async function getVisibilityOverview(
         .map(([k, z]) => `uniqIf(properties.$session_id, event = '${z.event}') AS ${k}`)
         .join(", ")}
        FROM events WHERE ${goalWindow}`,
-      { ...values, ...ffGoals.values }
+      values
     ),
     wantPlausible ? getPlausibleHistory(days) : Promise.resolve(null),
   ]);
@@ -362,7 +363,7 @@ export async function getPlausibleHistory(days: number): Promise<PlausibleHistor
     hogql(`SELECT entry_page, sum(visits) AS v FROM plausible.entry_pages WHERE ${win} GROUP BY entry_page ORDER BY v DESC LIMIT 12`, values),
     hogql(`SELECT device, sum(visits) AS v FROM plausible.devices WHERE ${win} GROUP BY device ORDER BY v DESC`, values),
     hogql(`SELECT goal, sum(events), sum(visitors) FROM plausible.goals WHERE ${win} GROUP BY goal ORDER BY sum(events) DESC`, values),
-  ]).catch(() => [[], [], [], [], [], []] as Row[][]);
+  ]);
   if (daily.length === 0) return null;
   const t = totals[0] ?? [];
   return {
