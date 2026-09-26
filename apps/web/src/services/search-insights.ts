@@ -67,36 +67,40 @@ export async function getSearchOverview(days: number): Promise<SearchOverview> {
   };
   if (!empty.configured) return empty;
 
-  const values = { days, days2: days * 2 };
+  // Google liefert 2 bis 3 Tage verzögert: Zeiträume ab dem letzten Tag mit Daten rechnen,
+  // sonst hat der aktuelle Zeitraum weniger volle Tage als der Vergleichszeitraum.
+  const [last] = await hogql(`SELECT toString(max(date)) FROM ${GSC}.search_analytics_by_date WHERE search_type = 'web'`);
+  const bis = last?.[0] ? str(last[0]) : new Date().toISOString().slice(0, 10);
+  const values = { days, days2: days * 2, bis };
   // Position immer nach Impressionen gewichten: ein Begriff mit 2 Anzeigen auf Platz 1 soll nicht zählen wie einer mit 200.
   const [period, weeks, queries, pages, plausible, posthog] = await Promise.all([
     hogql(
       `SELECT
-         sumIf(clicks, date >= today() - {days}), sumIf(impressions, date >= today() - {days}),
-         sumIf(position * impressions, date >= today() - {days}),
-         sumIf(clicks, date < today() - {days}), sumIf(impressions, date < today() - {days}),
-         sumIf(position * impressions, date < today() - {days}),
+         sumIf(clicks, date > toDate({bis}) - {days}), sumIf(impressions, date > toDate({bis}) - {days}),
+         sumIf(position * impressions, date > toDate({bis}) - {days}),
+         sumIf(clicks, date <= toDate({bis}) - {days}), sumIf(impressions, date <= toDate({bis}) - {days}),
+         sumIf(position * impressions, date <= toDate({bis}) - {days}),
          toString(max(date))
        FROM ${GSC}.search_analytics_by_date
-       WHERE date >= today() - {days2} AND search_type = 'web'`,
+       WHERE date > toDate({bis}) - {days2} AND search_type = 'web'`,
       values
     ),
     hogql(
       `SELECT toString(toStartOfWeek(date, 1)) AS w, sum(clicks), sum(impressions), sum(position * impressions)
        FROM ${GSC}.search_analytics_by_date
-       WHERE date >= today() - greatest({days}, 182) AND search_type = 'web'
+       WHERE date > toDate({bis}) - greatest({days}, 182) AND search_type = 'web'
        GROUP BY w ORDER BY w`,
       values
     ),
     hogql(
       `SELECT query,
-         sumIf(clicks, date >= today() - {days}) AS k,
-         sumIf(impressions, date >= today() - {days}) AS i,
-         sumIf(position * impressions, date >= today() - {days}) AS pw,
-         sumIf(impressions, date < today() - {days}) AS i0,
-         sumIf(position * impressions, date < today() - {days}) AS pw0
+         sumIf(clicks, date > toDate({bis}) - {days}) AS k,
+         sumIf(impressions, date > toDate({bis}) - {days}) AS i,
+         sumIf(position * impressions, date > toDate({bis}) - {days}) AS pw,
+         sumIf(impressions, date <= toDate({bis}) - {days}) AS i0,
+         sumIf(position * impressions, date <= toDate({bis}) - {days}) AS pw0
        FROM ${GSC}.search_analytics_by_query
-       WHERE date >= today() - {days2} AND search_type = 'web'
+       WHERE date > toDate({bis}) - {days2} AND search_type = 'web'
        GROUP BY query HAVING i > 0
        ORDER BY i DESC LIMIT 150`,
       values
@@ -104,7 +108,7 @@ export async function getSearchOverview(days: number): Promise<SearchOverview> {
     hogql(
       `SELECT page, sum(clicks) AS k, sum(impressions) AS i, sum(position * impressions) AS pw
        FROM ${GSC}.search_analytics_by_page
-       WHERE date >= today() - {days} AND search_type = 'web'
+       WHERE date > toDate({bis}) - {days} AND search_type = 'web'
        GROUP BY page ORDER BY i DESC LIMIT 30`,
       values
     ),
@@ -154,7 +158,7 @@ export async function getSearchOverview(days: number): Promise<SearchOverview> {
   });
 
   empty.pages = pages.map((r) => ({
-    page: str(r[0]).replace(/^https?:\/\/[^/]+/, "") || "/",
+    page: str(r[0]) || "/",
     klicks: num(r[1]),
     impressionen: num(r[2]),
     position: pos(num(r[3]), num(r[2])) ?? 0,

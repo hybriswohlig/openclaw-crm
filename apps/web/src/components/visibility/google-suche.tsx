@@ -53,7 +53,7 @@ const shortWeek = (iso: string) => {
   return `${d}.${m}.`;
 };
 
-export function GoogleSuche({ days }: { days: number }) {
+export function GoogleSuche({ days, site }: { days: number; site: string }) {
   const [data, setData] = useState<SearchOverview | null>(null);
   const [state, setState] = useState<"loading" | "ok" | "error">("loading");
   const [filter, setFilter] = useState("");
@@ -99,6 +99,8 @@ export function GoogleSuche({ days }: { days: number }) {
     return showAll || filter ? list : list.slice(0, 20);
   }, [data, filter, showAll]);
 
+  if (site === "ruempeltuerken")
+    return <Hint>Die Search Console ist bisher nur für kottke-umzuege.de verbunden. Für ruempeltuerken.de die Property in Google verifizieren und in PostHog als zweite Quelle anlegen.</Hint>;
   if (state === "error") return <Hint tone="bad">Suchdaten konnten nicht geladen werden.</Hint>;
   if (!data) return <Hint>Lade Google-Daten …</Hint>;
   if (!data.configured) return <Hint>PostHog ist noch nicht verbunden.</Hint>;
@@ -140,7 +142,14 @@ export function GoogleSuche({ days }: { days: number }) {
           <HeroStat
             label="Ø Position"
             value={t.position == null ? "·" : de(t.position)}
-            delta={t.position != null && v.position != null ? `${t.position <= v.position ? "besser" : "schlechter"} um ${de(Math.abs(t.position - v.position))}` : null}
+            delta={
+              t.position != null && v.position != null
+                ? Math.abs(t.position - v.position) < 0.05
+                  ? "unverändert"
+                  : `${t.position < v.position ? "besser" : "schlechter"} um ${de(Math.abs(t.position - v.position))}`
+                : null
+            }
+            neutral={t.position != null && v.position != null && Math.abs(t.position - v.position) < 0.05}
             good={t.position != null && v.position != null && t.position <= v.position}
             note="1 = ganz oben, ab 11 Seite 2"
           />
@@ -342,7 +351,21 @@ function delta(now: number, before: number): string | null {
   return `${p >= 0 ? "+" : "−"}${Math.abs(p)} %`;
 }
 
-function HeroStat({ label, value, delta: d, good, note }: { label: string; value: string; delta: string | null; good: boolean; note?: string }) {
+function HeroStat({
+  label,
+  value,
+  delta: d,
+  good,
+  neutral,
+  note,
+}: {
+  label: string;
+  value: string;
+  delta: string | null;
+  good: boolean;
+  neutral?: boolean;
+  note?: string;
+}) {
   return (
     <div>
       <div className="text-[12px]" style={{ color: "#94a3b8" }}>
@@ -352,8 +375,9 @@ function HeroStat({ label, value, delta: d, good, note }: { label: string; value
         {value}
       </div>
       {d && (
-        <div className="mt-1 text-[12px]" style={{ color: good ? "#86efac" : "#fca5a5" }}>
-          {good ? "▲" : "▼"} {d}
+        <div className="mt-1 text-[12px]" style={{ color: neutral ? "#94a3b8" : good ? "#86efac" : "#fca5a5" }}>
+          {neutral ? "" : good ? "▲ " : "▼ "}
+          {d}
         </div>
       )}
       {note && (

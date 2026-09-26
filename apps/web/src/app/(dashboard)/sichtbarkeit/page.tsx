@@ -44,7 +44,7 @@ export default function SichtbarkeitPage() {
       </header>
 
       <Tabs value={tab} onValueChange={setTab} className="flex flex-1 flex-col">
-        <TabsList>
+        <TabsList className="max-w-full overflow-x-auto">
           <TabsTrigger value="ueberblick">Überblick</TabsTrigger>
           <TabsTrigger value="suche">Google-Suche</TabsTrigger>
           <TabsTrigger value="abschnitte">Website-Abschnitte</TabsTrigger>
@@ -55,7 +55,7 @@ export default function SichtbarkeitPage() {
             <Ueberblick days={days} site={site} onShowSections={() => setTab("abschnitte")} />
           </TabsContent>
           <TabsContent value="suche">
-            <GoogleSuche days={days} />
+            <GoogleSuche days={days} site={site} />
           </TabsContent>
           <TabsContent value="abschnitte">
             <Abschnitte days={days} site={site} />
