@@ -5,6 +5,7 @@ import { getRecord, updateRecord, deleteRecord } from "@/services/records";
 import { db } from "@/db";
 import { payments, expenses, employeeLedger } from "@/db/schema";
 import { eq, sql } from "drizzle-orm";
+import { kalkulationAnstossen } from "@/services/rechner/ausloeser";
 
 /**
  * Deals with financial bookings must not be deleted: payments/expenses would
@@ -67,6 +68,8 @@ export async function PATCH(
   const record = await updateRecord(obj.id, recordId, values, ctx.userId);
   if (!record) return notFound("Record not found");
 
+  // Lead bearbeitet (Adresse, Etage, Wohnfläche …) → Kalkulation aktualisieren.
+  if (slug === "deals") kalkulationAnstossen(ctx.workspaceId, recordId);
   return success(record);
 }
 

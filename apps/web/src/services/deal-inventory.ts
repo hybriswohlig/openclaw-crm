@@ -18,6 +18,7 @@ import { getDealTranscript, formatTranscriptForLLM } from "./deal-transcript";
 import { runAITask } from "./ai/run-task";
 import { AI_TASK_SLUGS } from "./ai/task-registry";
 import { emitEvent } from "./activity-events";
+import { kalkulationAnstossen } from "@/services/rechner/ausloeser";
 
 const SIZE_CLASSES = ["klein", "mittel", "gross", "sperrig"] as const;
 const CONFIDENCES = ["hoch", "mittel", "niedrig"] as const;
@@ -165,6 +166,7 @@ export async function applyDealInventory(
     actorId,
   });
 
+  kalkulationAnstossen(workspaceId, dealRecordId);
   return { inserted: fresh.length, kept: keptRows.length };
 }
 
@@ -477,5 +479,6 @@ export async function analyzeInventoryPhotos(
     actorId: null,
   });
 
+  if (matched + added > 0) kalkulationAnstossen(workspaceId, dealRecordId);
   return { dealRecordId, photosAnalyzed: analyzed, photosSkipped: skipped, matched, added };
 }

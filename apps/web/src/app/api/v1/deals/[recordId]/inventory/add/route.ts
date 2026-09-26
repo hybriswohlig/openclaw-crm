@@ -3,6 +3,7 @@ import { getAuthContext, unauthorized, success } from "@/lib/api-utils";
 import { db } from "@/db";
 import { dealInventoryItems } from "@/db/schema/inventory";
 import { and, eq, sql } from "drizzle-orm";
+import { kalkulationAnstossen } from "@/services/rechner/ausloeser";
 
 /**
  * Manuelles Item ("weiß ich, steht aber nirgends im Chat"). source='operator',
@@ -64,5 +65,6 @@ export async function POST(
       sortOrder: Number(maxSort) + 1,
     })
     .returning();
+  kalkulationAnstossen(ctx.workspaceId, recordId);
   return success(row);
 }

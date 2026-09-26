@@ -30,6 +30,7 @@ import {
   type ScopeData,
 } from "./scope-guard";
 import type { DealInsights } from "./deal-insights";
+import { kalkulationAnstossen } from "@/services/rechner/ausloeser";
 
 export interface ApplyInsightsInput {
   workspaceId: string;
@@ -656,6 +657,8 @@ export async function applyDealInsights(
     result.errors.push(err instanceof Error ? err.message : String(err));
   }
 
+  // Geänderte Lead-Daten → Angebotsrechner neu fragen (nur bei geänderter Eingabe).
+  if (result.fieldsUpdated.length > 0) kalkulationAnstossen(workspaceId, dealRecordId);
   return result;
 }
 

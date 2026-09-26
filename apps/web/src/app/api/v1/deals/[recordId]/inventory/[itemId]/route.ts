@@ -3,6 +3,7 @@ import { getAuthContext, unauthorized, notFound, success } from "@/lib/api-utils
 import { db } from "@/db";
 import { dealInventoryItems } from "@/db/schema/inventory";
 import { and, eq } from "drizzle-orm";
+import { kalkulationAnstossen } from "@/services/rechner/ausloeser";
 
 /**
  * Operator-Korrekturen an einzelnen Inventar-Zeilen. Jede Änderung stempelt
@@ -47,6 +48,7 @@ export async function PATCH(
     )
     .returning();
   if (!row) return notFound("Inventar-Zeile nicht gefunden");
+  kalkulationAnstossen(ctx.workspaceId, recordId);
   return success(row);
 }
 
@@ -69,5 +71,6 @@ export async function DELETE(
     )
     .returning({ id: dealInventoryItems.id });
   if (!row) return notFound("Inventar-Zeile nicht gefunden");
+  kalkulationAnstossen(ctx.workspaceId, recordId);
   return success({ deleted: row.id });
 }
