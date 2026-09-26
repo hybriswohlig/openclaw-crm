@@ -114,6 +114,8 @@ const FIELD_LABELS: Record<string, { label: string; format: (v: unknown) => stri
   move_to_address: { label: "Zieladresse", format: (v) => String(v) },
   floors_from: { label: "Stockwerk (Abholung)", format: (v) => String(v) },
   floors_to: { label: "Stockwerk (Ziel)", format: (v) => String(v) },
+  living_area_sqm: { label: "Wohnfläche", format: (v) => `${v} m²` },
+  rooms: { label: "Zimmer", format: (v) => String(v) },
   elevator_from: { label: "Zugang (Abholung)", format: (v) => String(v) },
   elevator_to: { label: "Zugang (Ziel)", format: (v) => String(v) },
   // ── Auftrag-level ──

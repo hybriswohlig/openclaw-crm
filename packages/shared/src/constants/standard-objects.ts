@@ -158,6 +158,8 @@ export const STANDARD_OBJECTS: StandardObject[] = [
       { slug: "move_to_address", title: "Zieladresse", type: "location", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       { slug: "floors_from", title: "Stockwerk (Abholung)", type: "number", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       { slug: "floors_to", title: "Stockwerk (Ziel)", type: "number", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      { slug: "wohnflaeche_qm", title: "Wohnfläche (m²)", type: "number", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      { slug: "zimmer", title: "Zimmer", type: "number", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       {
         slug: "elevator_from",
         title: "Zugang Abholung",

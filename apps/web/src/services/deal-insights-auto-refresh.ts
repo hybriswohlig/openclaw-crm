@@ -44,6 +44,8 @@ const AUTO_REFRESH_DEAL_FIELDS = [
   "move_to_address",
   "floors_from",
   "floors_to",
+  "living_area_sqm",
+  "rooms",
   "elevator_from",
   "elevator_to",
 ];

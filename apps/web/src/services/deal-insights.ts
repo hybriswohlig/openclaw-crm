@@ -179,6 +179,12 @@ const ExtractedDealSchema = z.object({
   floors_to: nullNum.describe(
     "Floor number at the destination address. Null if not stated."
   ),
+  living_area_sqm: nullNum.describe(
+    "Living area of the current home in square meters, only if the customer or the listing states it. Null otherwise."
+  ),
+  rooms: nullNum.describe(
+    "Number of rooms of the current home (e.g. 3 for a 3-Zimmer-Wohnung), only if stated. Null otherwise."
+  ),
   elevator_from: ElevatorAccessEnum.describe(
     "Access at the origin: 'Aufzug' if elevator exists, 'Treppe' if only stairs, 'Erdgeschoss' if ground floor, 'Nicht nötig (Einfamilienhaus)' if single-family house with only one floor. Null if unclear."
   ),
@@ -457,6 +463,7 @@ WICHTIG zum JSON-Format:
 
 Auftragsübersicht (für die Monteure am Umzugstag):
 - floors_from / floors_to: Stockwerk als Zahl (Erdgeschoss = 0).
+- living_area_sqm / rooms: Wohnfläche in m² bzw. Zimmerzahl der jetzigen Wohnung, nur wenn genannt (z. B. "3-Zimmer-Wohnung, 70 m²" → rooms 3, living_area_sqm 70). Nie schätzen.
 - elevator_from / elevator_to: GENAU einer der Strings "Aufzug", "Treppe", "Erdgeschoss", "Nicht nötig (Einfamilienhaus)". Niemals ein Array, niemals "kein Aufzug" (das wäre "Treppe").
 - volume_cbm nur setzen, wenn jemand wirklich eine Zahl genannt hat ("ca. 30 Kubikmeter", "2-Zimmer-Wohnung ~25m³"). Sonst null.
 - piano_transport: true, sobald "Klavier", "Flügel" oder "Piano" im Verlauf auftaucht und mit transportiert werden soll.
@@ -690,6 +697,8 @@ async function loadPriorState(
     push("Zieladresse", v.move_to_address);
     push("Stockwerk Abholung", v.floors_from);
     push("Stockwerk Ziel", v.floors_to);
+    push("Wohnfläche (m²)", v.wohnflaeche_qm);
+    push("Zimmer", v.zimmer);
     push("Angebotswert", v.value);
   }
 

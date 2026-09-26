@@ -86,7 +86,7 @@ export interface ApplyInsightsResult {
 }
 
 /** Map of extracted field key → deal attribute slug (deal-level attributes only) */
-const DEAL_FIELD_TO_SLUG: Record<string, { slug: string; label: string }> = {
+export const DEAL_FIELD_TO_SLUG: Record<string, { slug: string; label: string }> = {
   inventory_notes: { slug: "inventory_notes", label: "Inventar" },
   move_date: { slug: "move_date", label: "Umzugsdatum" },
   estimated_value_eur: { slug: "value", label: "Angebotswert" },
@@ -94,6 +94,8 @@ const DEAL_FIELD_TO_SLUG: Record<string, { slug: string; label: string }> = {
   move_to_address: { slug: "move_to_address", label: "Zieladresse" },
   floors_from: { slug: "floors_from", label: "Stockwerk Abholung" },
   floors_to: { slug: "floors_to", label: "Stockwerk Ziel" },
+  living_area_sqm: { slug: "wohnflaeche_qm", label: "Wohnfläche" },
+  rooms: { slug: "zimmer", label: "Zimmer" },
   elevator_from: { slug: "elevator_from", label: "Zugang Abholung" },
   elevator_to: { slug: "elevator_to", label: "Zugang Ziel" },
 };
@@ -414,6 +416,14 @@ export async function applyDealInsights(
     if (selected.has("floors_to") && ext.floors_to != null && canWriteDeal("floors_to")) {
       input.floors_to = ext.floors_to;
       result.fieldsUpdated.push("Stockwerk Ziel");
+    }
+    if (selected.has("living_area_sqm") && ext.living_area_sqm != null && ext.living_area_sqm > 0 && canWriteDeal("wohnflaeche_qm")) {
+      input.wohnflaeche_qm = ext.living_area_sqm;
+      result.fieldsUpdated.push("Wohnfläche");
+    }
+    if (selected.has("rooms") && ext.rooms != null && ext.rooms > 0 && canWriteDeal("zimmer")) {
+      input.zimmer = Math.round(ext.rooms);
+      result.fieldsUpdated.push("Zimmer");
     }
 
     // Elevator select — resolve option ID by title, because select attributes store the option ID.
