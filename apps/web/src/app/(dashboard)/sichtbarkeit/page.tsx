@@ -5,6 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AlleZahlen, Segmented } from "@/components/visibility/alle-zahlen";
 import { Ueberblick } from "@/components/visibility/ueberblick";
 import { Abschnitte } from "@/components/visibility/abschnitte";
+import { GoogleSuche } from "@/components/visibility/google-suche";
 
 const SITES = [
   { value: "", label: "Alle Websites" },
@@ -45,12 +46,16 @@ export default function SichtbarkeitPage() {
       <Tabs value={tab} onValueChange={setTab} className="flex flex-1 flex-col">
         <TabsList>
           <TabsTrigger value="ueberblick">Überblick</TabsTrigger>
+          <TabsTrigger value="suche">Google-Suche</TabsTrigger>
           <TabsTrigger value="abschnitte">Website-Abschnitte</TabsTrigger>
           <TabsTrigger value="zahlen">Alle Zahlen</TabsTrigger>
         </TabsList>
         <div className="mt-4 flex-1">
           <TabsContent value="ueberblick">
             <Ueberblick days={days} site={site} onShowSections={() => setTab("abschnitte")} />
+          </TabsContent>
+          <TabsContent value="suche">
+            <GoogleSuche days={days} />
           </TabsContent>
           <TabsContent value="abschnitte">
             <Abschnitte days={days} site={site} />
