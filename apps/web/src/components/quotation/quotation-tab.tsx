@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { QuotationCalculator } from "./quotation-calculator";
 import { EmployeeAssignment } from "./employee-assignment";
+import { KalkulationKarte } from "@/components/kalkulation/kalkulation-karte";
 import { Loader2 } from "lucide-react";
 
 interface LineItem {
@@ -58,6 +59,7 @@ export function QuotationTab({ recordId }: { recordId: string }) {
 
   return (
     <div className="space-y-6 py-4">
+      <KalkulationKarte recordId={recordId} onUebernommen={refresh} />
       <QuotationCalculator
         recordId={recordId}
         quotation={quotation}

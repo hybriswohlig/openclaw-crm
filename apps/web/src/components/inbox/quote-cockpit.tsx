@@ -16,6 +16,7 @@ import { useCallback, useState } from "react";
 import { Calculator, ChevronDown, ChevronRight, RefreshCw, Route } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { QuotationCalculator } from "@/components/quotation/quotation-calculator";
+import { KalkulationKarte } from "@/components/kalkulation/kalkulation-karte";
 
 type QuotationProp = React.ComponentProps<typeof QuotationCalculator>["quotation"];
 
@@ -220,6 +221,9 @@ export function QuoteCockpit({
               </p>
             )}
           </div>
+
+          {/* ── Kalkulation des Angebotsrechners (Spanne oder Festpreisvorschlag) ── */}
+          <KalkulationKarte recordId={dealRecordId} onUebernommen={onSaved} />
 
           {/* ── Preis-Formular (identisch zur Auftragsübersicht) ── */}
           <QuotationCalculator recordId={dealRecordId} quotation={quotation} onSaved={onSaved} />
