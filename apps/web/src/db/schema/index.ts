@@ -25,3 +25,4 @@ export * from "./reviews";
 export * from "./identity";
 export * from "./agent";
 export * from "./inventory";
+export * from "./deal-calculations";
