@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCachedJson } from "@/lib/use-cached-json";
+import { useState } from "react";
 import { Muted, fmt, pct } from "./alle-zahlen";
 import { sectionLabel } from "@/lib/section-labels";
 
@@ -32,28 +33,9 @@ const MIN_FOR_PATTERN = 8;
  */
 export function Abschnitte({ days, site }: { days: number; site: string }) {
   const [page, setPage] = useState("/");
-  const [data, setData] = useState<SectionBand | null>(null);
-  const [state, setState] = useState<"loading" | "ok" | "error">("loading");
-
-  useEffect(() => {
-    let cancelled = false;
-    setState("loading");
-    const params = new URLSearchParams({ days: String(days), page });
-    if (site) params.set("site", site);
-    fetch(`/api/v1/visibility/sections?${params}`)
-      .then(async (res) => {
-        if (!res.ok) throw new Error(String(res.status));
-        const json = await res.json();
-        if (!cancelled) {
-          setData(json.data as SectionBand);
-          setState("ok");
-        }
-      })
-      .catch(() => !cancelled && setState("error"));
-    return () => {
-      cancelled = true;
-    };
-  }, [days, site, page]);
+  const url = `/api/v1/visibility/sections?${new URLSearchParams({ days: String(days), page, ...(site ? { site } : {}) })}`;
+  const { data, loading, error } = useCachedJson<SectionBand>(url);
+  const state = error ? "error" : loading ? "loading" : "ok";
 
   if (state === "error") return <Muted color="#ef4444">Daten konnten nicht geladen werden.</Muted>;
   if (!data) return <Muted>Lade Abschnitte …</Muted>;

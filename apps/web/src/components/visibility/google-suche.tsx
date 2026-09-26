@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCachedJson } from "@/lib/use-cached-json";
+import { useMemo, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -54,28 +55,11 @@ const shortWeek = (iso: string) => {
 };
 
 export function GoogleSuche({ days, site }: { days: number; site: string }) {
-  const [data, setData] = useState<SearchOverview | null>(null);
-  const [state, setState] = useState<"loading" | "ok" | "error">("loading");
+  const url = `/api/v1/visibility/search?days=${days}`;
+  const { data, loading, error } = useCachedJson<SearchOverview>(url);
+  const state = error ? "error" : loading ? "loading" : "ok";
   const [filter, setFilter] = useState("");
   const [showAll, setShowAll] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    setState("loading");
-    fetch(`/api/v1/visibility/search?days=${days}`)
-      .then(async (res) => {
-        if (!res.ok) throw new Error(String(res.status));
-        const json = await res.json();
-        if (!cancelled) {
-          setData(json.data as SearchOverview);
-          setState("ok");
-        }
-      })
-      .catch(() => !cancelled && setState("error"));
-    return () => {
-      cancelled = true;
-    };
-  }, [days]);
 
   const chance = useMemo(
     () =>

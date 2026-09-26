@@ -1,7 +1,7 @@
 "use client";
 
+import { useCachedJson } from "@/lib/use-cached-json";
 import Link from "next/link";
-import { useEffect, useState } from "react";
 import { Muted, SOURCE_LABEL, fmt } from "./alle-zahlen";
 
 // Mirror of services/website-insights.ts
@@ -45,29 +45,20 @@ interface Insights {
 const eur = (n: number) => `${fmt(Math.round(n))} €`;
 const TONE: Record<Finding["tone"], string> = { gut: "#15803d", achtung: "#b45309", info: "var(--ink-muted)" };
 
-export function Ueberblick({ days, site, onShowSections }: { days: number; site: string; onShowSections: () => void }) {
-  const [data, setData] = useState<Insights | null>(null);
-  const [state, setState] = useState<"loading" | "ok" | "error">("loading");
-
-  useEffect(() => {
-    let cancelled = false;
-    setState("loading");
-    const params = new URLSearchParams({ days: String(days) });
-    if (site) params.set("site", site);
-    fetch(`/api/v1/visibility/insights?${params}`)
-      .then(async (res) => {
-        if (!res.ok) throw new Error(String(res.status));
-        const json = await res.json();
-        if (!cancelled) {
-          setData(json.data as Insights);
-          setState("ok");
-        }
-      })
-      .catch(() => !cancelled && setState("error"));
-    return () => {
-      cancelled = true;
-    };
-  }, [days, site]);
+export function Ueberblick({
+  days,
+  site,
+  onShowSections,
+  onShowSearch,
+}: {
+  days: number;
+  site: string;
+  onShowSections: () => void;
+  onShowSearch: () => void;
+}) {
+  const url = `/api/v1/visibility/insights?${new URLSearchParams({ days: String(days), ...(site ? { site } : {}) })}`;
+  const { data, loading, error } = useCachedJson<Insights>(url);
+  const state = error ? "error" : loading ? "loading" : "ok";
 
   if (state === "error") return <Muted color="#ef4444">Daten konnten nicht geladen werden.</Muted>;
   if (!data) return <Muted>Lade Auswertung …</Muted>;
@@ -76,6 +67,7 @@ export function Ueberblick({ days, site, onShowSections }: { days: number; site:
   return (
     <div className="flex flex-col" style={{ gap: 28, opacity: state === "loading" ? 0.6 : 1 }}>
       <Befunde findings={data.findings ?? []} zuWenig={data.zuWenig ?? []} onShowSections={onShowSections} />
+      {site !== "ruempeltuerken" && <GoogleKarte days={days} onShowSearch={onShowSearch} />}
       {data.ledger && <KasseProKanal ledger={data.ledger} />}
     </div>
   );
@@ -319,5 +311,59 @@ function UnitDots({ n, color, size, border }: { n: number; color: string; size: 
         <span key={i} style={{ display: "inline-block", width: size, height: size, borderRadius: 99, background: color, border: border ? `1.5px solid ${border}` : "none" }} />
       ))}
     </div>
+  );
+}
+
+// ─── Google-Suche kompakt ───────────────────────────────────────────────────
+
+interface SearchLite {
+  configured: boolean;
+  days: number;
+  totals: { klicks: number; impressionen: number; ctr: number | null; position: number | null };
+  vorher: { klicks: number; impressionen: number };
+  queries: { query: string; klicks: number; impressionen: number; position: number }[];
+}
+
+function GoogleKarte({ days, onShowSearch }: { days: number; onShowSearch: () => void }) {
+  const { data } = useCachedJson<SearchLite>(`/api/v1/visibility/search?days=${days}`);
+  if (!data || !data.configured || data.totals.impressionen === 0) return null;
+  const t = data.totals;
+  const de1 = (n: number) => n.toLocaleString("de-DE", { maximumFractionDigits: 1 });
+  const trend = data.vorher.impressionen > 0 ? Math.round(((t.impressionen - data.vorher.impressionen) / data.vorher.impressionen) * 100) : null;
+  return (
+    <section className="rounded-xl" style={{ background: "linear-gradient(135deg, #0f172a, #1e3a8a)", color: "#f8fafc", padding: "16px 20px" }}>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div className="text-[12px]" style={{ letterSpacing: "0.08em", textTransform: "uppercase", color: "#93c5fd" }}>
+          Google-Suche · kottke-umzuege.de · letzte {data.days} Tage
+        </div>
+        <button type="button" onClick={onShowSearch} className="text-[12.5px] underline" style={{ color: "#bfdbfe" }}>
+          Alle Suchbegriffe ansehen →
+        </button>
+      </div>
+      <div className="mt-3 grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))" }}>
+        {[
+          ["In Google angezeigt", fmt(t.impressionen) + (trend != null ? `  (${trend >= 0 ? "+" : "−"}${Math.abs(trend)} %)` : "")],
+          ["Klicks", fmt(t.klicks)],
+          ["Klickrate", t.ctr == null ? "·" : `${de1(t.ctr * 100)} %`],
+          ["Ø Position", t.position == null ? "·" : de1(t.position)],
+        ].map(([k, v]) => (
+          <div key={k}>
+            <div className="text-[11.5px]" style={{ color: "#94a3b8" }}>
+              {k}
+            </div>
+            <div className="k-display" style={{ fontSize: 24 }}>
+              {v}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 flex flex-wrap text-[12px]" style={{ gap: 6 }}>
+        {data.queries.slice(0, 6).map((q) => (
+          <span key={q.query} className="rounded-full" style={{ background: "rgba(255,255,255,.1)", padding: "3px 10px" }}>
+            {q.query} · {fmt(q.impressionen)}× · Pos. {de1(q.position)}
+          </span>
+        ))}
+      </div>
+    </section>
   );
 }

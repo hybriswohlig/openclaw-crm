@@ -128,6 +128,86 @@ export interface VisibilityOverview {
   hours: { stunde: number; besuche: number; mitKontakt: number }[];
   exits: { seite: string; abschnitt: string; besuche: number; medianSekunden: number }[];
   pages: { seite: string; besuche: number }[];
+  /** Ziele (wie in Plausible): Besuche, in denen das Ziel erreicht wurde. Klickbar als Filter. */
+  goals: { ziel: ZielKey; label: string; besuche: number }[];
+  filters: VisibilityFilters;
+  /** Plausible-Daten vor dem PostHog-Start, nur Kottke und nur ohne Filter auswertbar. */
+  plausible: PlausibleHistory | null;
+}
+
+export interface PlausibleHistory {
+  bis: string;
+  daily: { tag: string; besuche: number }[];
+  totals: { besuche: number; besucher: number; seitenaufrufe: number };
+  sources: { quelle: string; besuche: number }[];
+  entryPages: { seite: string; besuche: number }[];
+  devices: { geraet: string; besuche: number }[];
+  goals: { ziel: string; anzahl: number; besucher: number }[];
+}
+
+/** Ab diesem Tag misst PostHog; davor gibt es für Kottke nur Plausible. */
+export const POSTHOG_START = "2026-09-24";
+
+export const ZIELE = {
+  whatsapp: { event: "kontakt_whatsapp", label: "WhatsApp geklickt" },
+  anruf: { event: "kontakt_anruf", label: "Anrufen geklickt" },
+  mail: { event: "kontakt_mail", label: "E-Mail geklickt" },
+  formular: { event: "anfrage_gesendet", label: "Formular gesendet" },
+  paketfinder: { event: "paketfinder_submit", label: "Paket-Finder genutzt" },
+  paket: { event: "package_click", label: "Paket angeklickt" },
+} as const;
+export type ZielKey = keyof typeof ZIELE;
+
+export interface VisibilityFilters {
+  ziel?: ZielKey;
+  quelle?: string;
+  geraet?: string;
+  seite?: string;
+}
+
+/** Filter aus der URL lesen; nur bekannte Ziele, Textwerte gekürzt. */
+export function parseFilters(params: URLSearchParams): VisibilityFilters {
+  const f: VisibilityFilters = {};
+  const ziel = params.get("ziel");
+  if (ziel && ziel in ZIELE) f.ziel = ziel as ZielKey;
+  for (const key of ["quelle", "geraet", "seite"] as const) {
+    const v = params.get(key);
+    if (v) f[key] = v.slice(0, 200);
+  }
+  return f;
+}
+
+/**
+ * Filter als HogQL-Bedingung. Textwerte gehen über `values` ({f_quelle} …),
+ * Ziel-Events kommen aus der festen Liste oben.
+ */
+export function filterClause(filters: VisibilityFilters): { clause: string; values: Record<string, string> } {
+  const parts: string[] = [];
+  const values: Record<string, string> = {};
+  if (filters.quelle) {
+    parts.push("coalesce(properties.quelle, 'unbekannt') = {f_quelle}");
+    values.f_quelle = filters.quelle;
+  }
+  if (filters.geraet) {
+    parts.push("coalesce(properties.geraet, properties.$device_type, 'unbekannt') = {f_geraet}");
+    values.f_geraet = filters.geraet;
+  }
+  const sessionConds: string[] = [];
+  if (filters.ziel) sessionConds.push(`event = '${ZIELE[filters.ziel].event}'`);
+  if (filters.seite) {
+    sessionConds.push("event = '$pageview' AND properties.$pathname = {f_seite}");
+    values.f_seite = filters.seite;
+  }
+  for (const cond of sessionConds) {
+    parts.push(
+      `properties.$session_id IN (SELECT properties.$session_id FROM events WHERE timestamp >= now() - toIntervalDay({days}) AND ${cond})`
+    );
+  }
+  return { clause: parts.map((p) => `AND ${p}`).join(" "), values };
+}
+
+function hasFilters(f: VisibilityFilters) {
+  return Boolean(f.ziel || f.quelle || f.geraet || f.seite);
 }
 
 function quote(part: number, total: number): number | null {
@@ -135,7 +215,11 @@ function quote(part: number, total: number): number | null {
   return total > 0 ? Math.min(100, Math.round((part / total) * 1000) / 10) : null;
 }
 
-export async function getVisibilityOverview(days: number, site: string | null): Promise<VisibilityOverview> {
+export async function getVisibilityOverview(
+  days: number,
+  site: string | null,
+  filters: VisibilityFilters = {}
+): Promise<VisibilityOverview> {
   const base: VisibilityOverview = {
     configured: isPosthogConfigured(),
     days,
@@ -150,16 +234,24 @@ export async function getVisibilityOverview(days: number, site: string | null): 
     hours: [],
     exits: [],
     pages: [],
+    goals: [],
+    filters,
+    plausible: null,
   };
   if (!base.configured) return base;
 
   const f = siteFilter(site ? [site] : null);
-  const values = { ...f.values, days };
-  const window = `timestamp >= now() - toIntervalDay({days}) AND ${NOT_TEST} ${f.clause}`;
+  const ff = filterClause(filters);
+  const values = { ...f.values, ...ff.values, days };
+  const window = `timestamp >= now() - toIntervalDay({days}) AND ${NOT_TEST} ${f.clause} ${ff.clause}`;
+  // Ziele ohne den Ziel-Filter selbst zählen, sonst hätte nur das gewählte Ziel Werte.
+  const ffGoals = filterClause({ ...filters, ziel: undefined });
+  const goalWindow = `timestamp >= now() - toIntervalDay({days}) AND ${NOT_TEST} ${f.clause} ${ffGoals.clause}`;
   const contactIn = `event IN (${CONTACT_EVENTS.map((e) => `'${e}'`).join(", ")})`;
   const sessionsWith = (cond: string) => `uniqIf(properties.$session_id, ${cond})`;
 
-  const [totals, perSite, daily, sources, ways, devices, hours, exits, pages] = await Promise.all([
+  const wantPlausible = (!site || site === "kottke") && !hasFilters(filters) && Date.now() - days * 86400000 < Date.parse(POSTHOG_START);
+  const [totals, perSite, daily, sources, ways, devices, hours, exits, pages, goals, plausible] = await Promise.all([
     hogql(
       `SELECT ${sessionsWith("event = '$pageview'")}, uniqIf(person_id, event = '$pageview'), ${sessionsWith(contactIn)}
        FROM events WHERE ${window}`,
@@ -213,6 +305,14 @@ export async function getVisibilityOverview(days: number, site: string | null): 
        FROM events WHERE ${window} AND event = '$pageview' GROUP BY p ORDER BY b DESC LIMIT 15`,
       values
     ),
+    hogql(
+      `SELECT ${Object.entries(ZIELE)
+        .map(([k, z]) => `uniqIf(properties.$session_id, event = '${z.event}') AS ${k}`)
+        .join(", ")}
+       FROM events WHERE ${goalWindow}`,
+      { ...values, ...ffGoals.values }
+    ),
+    wantPlausible ? getPlausibleHistory(days) : Promise.resolve(null),
   ]);
 
   const [t] = totals;
@@ -230,7 +330,50 @@ export async function getVisibilityOverview(days: number, site: string | null): 
   base.hours = hours.map((r) => ({ stunde: num(r[0]), besuche: num(r[1]), mitKontakt: num(r[2]) }));
   base.exits = exits.map((r) => ({ seite: str(r[0]), abschnitt: str(r[1]), besuche: num(r[2]), medianSekunden: num(r[3]) }));
   base.pages = pages.map((r) => ({ seite: str(r[0]), besuche: num(r[1]) }));
+  const g = goals[0] ?? [];
+  base.goals = (Object.keys(ZIELE) as ZielKey[])
+    .map((k, i) => ({ ziel: k, label: ZIELE[k].label, besuche: num(g[i]) }))
+    .filter((x) => x.besuche > 0 || x.ziel === filters.ziel);
+  base.plausible = plausible;
   return base;
+}
+
+// ─── Plausible-Historie (Kottke, vor dem PostHog-Start) ──────────────────────
+
+const PLAUSIBLE_SOURCE: Record<string, string> = {
+  Google: "google_organisch",
+  "Direct / None": "direkt",
+  ChatGPT: "ki_assistent",
+  DuckDuckGo: "andere_suche",
+  Bing: "bing",
+  Ecosia: "andere_suche",
+  Facebook: "facebook_instagram",
+  Instagram: "facebook_instagram",
+};
+
+export async function getPlausibleHistory(days: number): Promise<PlausibleHistory | null> {
+  const values = { days, start: POSTHOG_START };
+  // Nur Tage vor dem PostHog-Start, damit nichts doppelt zählt.
+  const win = "toDate(date) >= today() - {days} AND toDate(date) < toDate({start})";
+  const [daily, totals, sources, entries, devices, goals] = await Promise.all([
+    hogql(`SELECT date, sum(visits) FROM plausible.timeseries WHERE ${win} GROUP BY date ORDER BY date`, values),
+    hogql(`SELECT sum(visits), sum(visitors), sum(pageviews) FROM plausible.timeseries WHERE ${win}`, values),
+    hogql(`SELECT source, sum(visits) AS v FROM plausible.sources WHERE ${win} GROUP BY source ORDER BY v DESC LIMIT 12`, values),
+    hogql(`SELECT entry_page, sum(visits) AS v FROM plausible.entry_pages WHERE ${win} GROUP BY entry_page ORDER BY v DESC LIMIT 12`, values),
+    hogql(`SELECT device, sum(visits) AS v FROM plausible.devices WHERE ${win} GROUP BY device ORDER BY v DESC`, values),
+    hogql(`SELECT goal, sum(events), sum(visitors) FROM plausible.goals WHERE ${win} GROUP BY goal ORDER BY sum(events) DESC`, values),
+  ]).catch(() => [[], [], [], [], [], []] as Row[][]);
+  if (daily.length === 0) return null;
+  const t = totals[0] ?? [];
+  return {
+    bis: POSTHOG_START,
+    daily: daily.map((r) => ({ tag: str(r[0]), besuche: num(r[1]) })),
+    totals: { besuche: num(t[0]), besucher: num(t[1]), seitenaufrufe: num(t[2]) },
+    sources: sources.map((r) => ({ quelle: PLAUSIBLE_SOURCE[str(r[0])] ?? str(r[0]), besuche: num(r[1]) })),
+    entryPages: entries.map((r) => ({ seite: str(r[0]), besuche: num(r[1]) })),
+    devices: devices.map((r) => ({ geraet: str(r[0]), besuche: num(r[1]) })),
+    goals: goals.map((r) => ({ ziel: str(r[0]), anzahl: num(r[1]), besucher: num(r[2]) })),
+  };
 }
 
 // ─── Lead ↔ Website-Besuch ───────────────────────────────────────────────────

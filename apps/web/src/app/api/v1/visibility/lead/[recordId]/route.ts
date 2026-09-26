@@ -3,7 +3,14 @@ import { getAuthContext, unauthorized, notFound, badRequest, success } from "@/l
 import { getObjectBySlug } from "@/services/objects";
 import { getRecord } from "@/services/records";
 import { getLeadWebHistory, isLinkableVisit, linkLeadWebVisit, unlinkLeadWebVisit } from "@/services/website-analytics";
+import { unstable_cache } from "next/cache";
 import { getChannelHeat } from "@/services/website-insights";
+
+const cachedHeat = unstable_cache(
+  (workspaceId: string, quelle: string, sites: string[] | null) => getChannelHeat(workspaceId, quelle, sites),
+  ["visibility-heat-v1"],
+  { revalidate: 600 }
+);
 
 type Params = { params: Promise<{ recordId: string }> };
 
@@ -28,7 +35,7 @@ export async function GET(req: NextRequest, { params }: Params) {
     const history = await getLeadWebHistory(ctx.workspaceId, recordId, at);
     const quelle = history.match?.erstquelle ?? history.match?.quelle ?? null;
     // Wie oft Leads aus diesem Kanal gewonnen werden: Einordnung vor dem Rückruf.
-    const heat = quelle ? await getChannelHeat(ctx.workspaceId, quelle, history.sites).catch(() => null) : null;
+    const heat = quelle ? await cachedHeat(ctx.workspaceId, quelle, history.sites).catch(() => null) : null;
     return success({ ...history, heat });
   } catch (err) {
     console.error("[visibility] lead history failed:", err);

@@ -59,7 +59,7 @@ interface DealRow {
   value: number;
 }
 
-async function loadDeals(workspaceId: string, since: Date): Promise<DealRow[]> {
+export async function loadDeals(workspaceId: string, since: Date): Promise<DealRow[]> {
   const [dealObj] = await db
     .select({ id: objects.id })
     .from(objects)
@@ -152,7 +152,7 @@ interface Attribution {
 }
 
 /** Website-Herkunft für eine Menge Leads (bestätigte Zuordnung vor Anfrage-Nr.). */
-async function attributeDeals(workspaceId: string, dealIds: string[]): Promise<Map<string, Attribution>> {
+export async function attributeDeals(workspaceId: string, dealIds: string[]): Promise<Map<string, Attribution>> {
   const out = new Map<string, Attribution>();
   if (dealIds.length === 0 || !isPosthogConfigured()) return out;
 

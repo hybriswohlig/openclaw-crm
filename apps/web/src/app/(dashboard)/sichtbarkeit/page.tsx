@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { prefetchJson } from "@/lib/use-cached-json";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AlleZahlen, Segmented } from "@/components/visibility/alle-zahlen";
 import { Ueberblick } from "@/components/visibility/ueberblick";
@@ -17,6 +18,15 @@ export default function SichtbarkeitPage() {
   const [days, setDays] = useState(30);
   const [site, setSite] = useState("");
   const [tab, setTab] = useState("ueberblick");
+
+  // Andere Reiter im Hintergrund vorladen, damit der Wechsel sofort geht.
+  useEffect(() => {
+    const q = new URLSearchParams({ days: String(days), ...(site ? { site } : {}) });
+    prefetchJson(`/api/v1/visibility/search?days=${days}`);
+    prefetchJson(`/api/v1/visibility/overview?${q}`);
+    prefetchJson(`/api/v1/visibility/sessions?${q}`);
+    prefetchJson(`/api/v1/visibility/sections?${new URLSearchParams({ days: String(days), page: "/", ...(site ? { site } : {}) })}`);
+  }, [days, site]);
 
   return (
     <div className="flex h-full flex-col overflow-auto" style={{ padding: "24px 28px", gap: 18 }}>
@@ -38,6 +48,7 @@ export default function SichtbarkeitPage() {
               { value: "7", label: "7 Tage" },
               { value: "30", label: "30 Tage" },
               { value: "90", label: "90 Tage" },
+              { value: "365", label: "365 Tage" },
             ]}
           />
         </div>
@@ -48,11 +59,11 @@ export default function SichtbarkeitPage() {
           <TabsTrigger value="ueberblick">Überblick</TabsTrigger>
           <TabsTrigger value="suche">Google-Suche</TabsTrigger>
           <TabsTrigger value="abschnitte">Website-Abschnitte</TabsTrigger>
-          <TabsTrigger value="zahlen">Alle Zahlen</TabsTrigger>
+          <TabsTrigger value="zahlen">Analyse</TabsTrigger>
         </TabsList>
         <div className="mt-4 flex-1">
           <TabsContent value="ueberblick">
-            <Ueberblick days={days} site={site} onShowSections={() => setTab("abschnitte")} />
+            <Ueberblick days={days} site={site} onShowSections={() => setTab("abschnitte")} onShowSearch={() => setTab("suche")} />
           </TabsContent>
           <TabsContent value="suche">
             <GoogleSuche days={days} site={site} />
