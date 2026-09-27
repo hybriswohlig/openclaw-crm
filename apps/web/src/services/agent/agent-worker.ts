@@ -38,11 +38,10 @@ import { emitEvent } from "@/services/activity-events";
 import { extractDealInsights } from "@/services/deal-insights";
 import {
   analyzeInventoryPhotos,
-  applyDealInventory,
-  extractDealInventory,
   hasAnyInventory,
   inventoryAttachmentIdsForMessages,
 } from "@/services/deal-inventory";
+import { inventarErstbefuellen } from "@/services/inventar-wiederholung-lauf";
 import { applyDealInsights } from "@/services/deal-insights-apply";
 import { getRecord } from "@/services/records";
 import { getObjectBySlug } from "@/services/objects";
@@ -575,10 +574,8 @@ async function processConversation(
         });
       } else if (!(await hasAnyInventory(conv.workspaceId, conv.dealRecordId))) {
         opts.visionBudget.left -= 1;
-        const inv = await extractDealInventory(conv.workspaceId, conv.dealRecordId);
-        if (inv.items && inv.items.length > 0) {
-          await applyDealInventory(conv.workspaceId, conv.dealRecordId, inv.items, null);
-        }
+        // Fehlschläge werden vermerkt; /api/cron/retry-inventory versucht es erneut.
+        await inventarErstbefuellen(conv.workspaceId, conv.dealRecordId);
       }
     } catch (err) {
       console.error("[agent-worker] inventory auto-analysis failed (non-blocking):", err);

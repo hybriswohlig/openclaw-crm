@@ -70,6 +70,8 @@ export interface DealInventoryResult {
   dealRecordId: string;
   items: ExtractedInventoryItem[] | null;
   error?: string;
+  /** false: ein neuer Versuch ändert nichts (z. B. noch kein Chatverlauf) */
+  retryable?: boolean;
 }
 
 export async function extractDealInventory(
@@ -79,7 +81,7 @@ export async function extractDealInventory(
 ): Promise<DealInventoryResult> {
   const transcript = await getDealTranscript(workspaceId, dealRecordId);
   if (transcript.messageCount === 0) {
-    return { dealRecordId, items: null, error: "kein Chatverlauf — nichts zu analysieren" };
+    return { dealRecordId, items: null, error: "kein Chatverlauf — nichts zu analysieren", retryable: false };
   }
   const { text } = formatTranscriptForLLM(transcript, null);
 

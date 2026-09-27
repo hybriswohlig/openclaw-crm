@@ -19,6 +19,10 @@
       "schedule": "*/10 6-21 * * *"
     },
     {
+      "path": "/api/cron/retry-inventory",
+      "schedule": "7,22,37,52 6-21 * * *"
+    },
+    {
       "path": "/api/cron/check-overdue-tasks",
       "schedule": "*/15 * * * *"
     },

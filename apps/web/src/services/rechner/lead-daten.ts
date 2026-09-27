@@ -9,7 +9,7 @@ import { records, recordValues } from "@/db/schema/records";
 import { getRecord } from "@/services/records";
 import { getDealInventory } from "@/services/deal-inventory";
 import type { LeadDaten } from "./eingabe";
-import { datumText, inventarAusZeilen, ortText, zahlOderNull } from "./lead-daten-helfer";
+import { datumText, groesseAusLead, inventarAusZeilen, ortText, zahlOderNull } from "./lead-daten-helfer";
 
 async function objektId(workspaceId: string, slug: string): Promise<string | null> {
   const [o] = await db
@@ -66,8 +66,7 @@ export async function ladeLeadDaten(workspaceId: string, dealRecordId: string): 
     zugangVon: await optionsTitel(dv.elevator_from),
     zugangNach: await optionsTitel(dv.elevator_to),
     umzugsdatum: datumText(dv.move_date),
-    wohnflaecheQm: zahlOderNull(dv.wohnflaeche_qm),
-    zimmer: zahlOderNull(dv.zimmer),
+    ...groesseAusLead(dv),
     tragestreckeVonM: zahlOderNull(av.walking_distance_from_m),
     tragestreckeNachM: zahlOderNull(av.walking_distance_to_m),
     halteverbot: av.parking_halteverbot_needed === true,

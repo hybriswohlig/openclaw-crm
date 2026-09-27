@@ -191,6 +191,19 @@ export async function GET(
           createdBy: ev.actorId ?? undefined,
         };
       }
+      if (ev.eventType === "ai.inventory_extract_attempt") {
+        // Nur Fehlschläge zeigen; laufende und geglückte Versuche sind Steuerdaten.
+        if (payload.status !== "fehler") return null;
+        const versuch = typeof payload.versuch === "number" ? payload.versuch : 1;
+        return {
+          id: `event-${ev.id}`,
+          type: "event" as const,
+          title: "KI-Inventar aus dem Chat fehlgeschlagen",
+          description: versuch < 3 ? `Versuch ${versuch} von 3, wird automatisch wiederholt` : "Versuch 3 von 3, keine weiteren automatischen Versuche",
+          createdAt: ev.createdAt.toISOString(),
+          createdBy: ev.actorId ?? undefined,
+        };
+      }
       if (ev.eventType === "message.sent") {
         const channel = typeof payload.channelType === "string" ? payload.channelType : "";
         return {
