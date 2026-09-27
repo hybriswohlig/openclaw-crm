@@ -2,8 +2,8 @@
  * Google-Suche (Search Console) und Besuchshistorie (Plausible) für /sichtbarkeit.
  *
  * Beide Quellen sind in PostHog als Data-Warehouse-Quellen angebunden und werden
- * dort täglich synchronisiert. Die Search-Console-Quelle gehört derzeit zur
- * Property sc-domain:kottke-umzuege.de, Plausible zu kottke-umzuege.de.
+ * dort täglich synchronisiert. Pro Website eine Search-Console-Quelle (siehe
+ * SEARCH_SITES); Plausible gibt es nur für kottke-umzuege.de.
  */
 
 import { hogql, isPosthogConfigured, num, str } from "@/services/website-analytics";
@@ -46,17 +46,28 @@ export interface SearchOverview {
   history: { woche: string; plausible: number | null; posthog: number | null }[];
 }
 
-const GSC = "googlesearchconsole";
+/** Search-Console-Quelle je Website; der Schlüssel entspricht properties.site im Tracker. */
+const SEARCH_SITES = {
+  kottke: { gsc: "googlesearchconsole", property: "kottke-umzuege.de", plausible: true },
+  ruempeltuerken: { gsc: "googlesearchconsole.ruempel", property: "ruempeltuerken.de", plausible: false },
+} as const;
+
+export type SearchSite = keyof typeof SEARCH_SITES;
+
+export function isSearchSite(value: string): value is SearchSite {
+  return Object.hasOwn(SEARCH_SITES, value);
+}
 
 function ratio(a: number, b: number): number | null {
   return b > 0 ? a / b : null;
 }
 
-export async function getSearchOverview(days: number): Promise<SearchOverview> {
+export async function getSearchOverview(days: number, site: SearchSite = "kottke"): Promise<SearchOverview> {
+  const { gsc: GSC, property, plausible: hasPlausible } = SEARCH_SITES[site];
   const empty: SearchOverview = {
     configured: isPosthogConfigured(),
     days,
-    property: "kottke-umzuege.de",
+    property,
     datenBis: null,
     totals: { klicks: 0, impressionen: 0, ctr: null, position: null },
     vorher: { klicks: 0, impressionen: 0, ctr: null, position: null },
@@ -69,9 +80,16 @@ export async function getSearchOverview(days: number): Promise<SearchOverview> {
 
   // Google liefert 2 bis 3 Tage verzögert: Zeiträume ab dem letzten Tag mit Daten rechnen,
   // sonst hat der aktuelle Zeitraum weniger volle Tage als der Vergleichszeitraum.
-  const [last] = await hogql(`SELECT toString(max(date)) FROM ${GSC}.search_analytics_by_date WHERE search_type = 'web'`);
+  let last: unknown[] | undefined;
+  try {
+    [last] = await hogql(`SELECT toString(max(date)) FROM ${GSC}.search_analytics_by_date WHERE search_type = 'web'`);
+  } catch (err) {
+    // Neu angelegte Quelle: bis zur ersten Synchronisation gibt es die Tabelle noch nicht.
+    if (String(err).includes("Unknown table")) return empty;
+    throw err;
+  }
   const bis = last?.[0] ? str(last[0]) : new Date().toISOString().slice(0, 10);
-  const values = { days, days2: days * 2, bis };
+  const values = { days, days2: days * 2, bis, site };
   // Position immer nach Impressionen gewichten: ein Begriff mit 2 Anzeigen auf Platz 1 soll nicht zählen wie einer mit 200.
   const [period, weeks, queries, pages, plausible, posthog] = await Promise.all([
     hogql(
@@ -112,19 +130,21 @@ export async function getSearchOverview(days: number): Promise<SearchOverview> {
        GROUP BY page ORDER BY i DESC LIMIT 30`,
       values
     ),
-    hogql(
-      `SELECT toString(toStartOfWeek(toDate(date), 1)) AS w, sum(visits)
-       FROM plausible.timeseries
-       WHERE toDate(date) >= today() - greatest({days}, 182)
-       GROUP BY w ORDER BY w`,
-      values
-    ),
+    hasPlausible
+      ? hogql(
+          `SELECT toString(toStartOfWeek(toDate(date), 1)) AS w, sum(visits)
+           FROM plausible.timeseries
+           WHERE toDate(date) >= today() - greatest({days}, 182)
+           GROUP BY w ORDER BY w`,
+          values
+        )
+      : Promise.resolve([]),
     hogql(
       `SELECT toString(toStartOfWeek(toDate(toTimeZone(timestamp, 'Europe/Berlin')), 1)) AS w,
          uniqIf(properties.$session_id, event = '$pageview')
        FROM events
        WHERE timestamp >= now() - toIntervalDay(greatest({days}, 182))
-         AND properties.site = 'kottke'
+         AND properties.site = {site}
          AND coalesce(properties.quelle, '') NOT IN ('claude_test', 'test')
        GROUP BY w ORDER BY w`,
       values

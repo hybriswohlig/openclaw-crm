@@ -67,7 +67,7 @@ export function Ueberblick({
   return (
     <div className="flex flex-col" style={{ gap: 28, opacity: state === "loading" ? 0.6 : 1 }}>
       <Befunde findings={data.findings ?? []} zuWenig={data.zuWenig ?? []} onShowSections={onShowSections} />
-      {site !== "ruempeltuerken" && <GoogleKarte days={days} onShowSearch={onShowSearch} />}
+      <GoogleKarte days={days} site={site} onShowSearch={onShowSearch} />
       {data.ledger && <KasseProKanal ledger={data.ledger} />}
     </div>
   );
@@ -319,13 +319,14 @@ function UnitDots({ n, color, size, border }: { n: number; color: string; size: 
 interface SearchLite {
   configured: boolean;
   days: number;
+  property: string;
   totals: { klicks: number; impressionen: number; ctr: number | null; position: number | null };
   vorher: { klicks: number; impressionen: number };
   queries: { query: string; klicks: number; impressionen: number; position: number }[];
 }
 
-function GoogleKarte({ days, onShowSearch }: { days: number; onShowSearch: () => void }) {
-  const { data } = useCachedJson<SearchLite>(`/api/v1/visibility/search?days=${days}`);
+function GoogleKarte({ days, site, onShowSearch }: { days: number; site: string; onShowSearch: () => void }) {
+  const { data } = useCachedJson<SearchLite>(`/api/v1/visibility/search?${new URLSearchParams({ days: String(days), ...(site ? { site } : {}) })}`);
   if (!data || !data.configured || data.totals.impressionen === 0) return null;
   const t = data.totals;
   const de1 = (n: number) => n.toLocaleString("de-DE", { maximumFractionDigits: 1 });
@@ -334,7 +335,7 @@ function GoogleKarte({ days, onShowSearch }: { days: number; onShowSearch: () =>
     <section className="rounded-xl" style={{ background: "linear-gradient(135deg, #0f172a, #1e3a8a)", color: "#f8fafc", padding: "16px 20px" }}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div className="text-[12px]" style={{ letterSpacing: "0.08em", textTransform: "uppercase", color: "#93c5fd" }}>
-          Google-Suche · kottke-umzuege.de · letzte {data.days} Tage
+          Google-Suche · {data.property} · letzte {data.days} Tage
         </div>
         <button type="button" onClick={onShowSearch} className="text-[12.5px] underline" style={{ color: "#bfdbfe" }}>
           Alle Suchbegriffe ansehen →

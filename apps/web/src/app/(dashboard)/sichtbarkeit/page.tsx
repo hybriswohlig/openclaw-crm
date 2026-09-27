@@ -22,7 +22,7 @@ export default function SichtbarkeitPage() {
   // Andere Reiter im Hintergrund vorladen, damit der Wechsel sofort geht.
   useEffect(() => {
     const q = new URLSearchParams({ days: String(days), ...(site ? { site } : {}) });
-    prefetchJson(`/api/v1/visibility/search?days=${days}`);
+    prefetchJson(`/api/v1/visibility/search?${q}`);
     prefetchJson(`/api/v1/visibility/overview?${q}`);
     prefetchJson(`/api/v1/visibility/sessions?${q}`);
     prefetchJson(`/api/v1/visibility/sections?${new URLSearchParams({ days: String(days), page: "/", ...(site ? { site } : {}) })}`);

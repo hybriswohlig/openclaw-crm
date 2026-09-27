@@ -55,7 +55,7 @@ const shortWeek = (iso: string) => {
 };
 
 export function GoogleSuche({ days, site }: { days: number; site: string }) {
-  const url = `/api/v1/visibility/search?days=${days}`;
+  const url = `/api/v1/visibility/search?${new URLSearchParams({ days: String(days), ...(site ? { site } : {}) })}`;
   const { data, loading, error } = useCachedJson<SearchOverview>(url);
   const state = error ? "error" : loading ? "loading" : "ok";
   const [filter, setFilter] = useState("");
@@ -83,8 +83,6 @@ export function GoogleSuche({ days, site }: { days: number; site: string }) {
     return showAll || filter ? list : list.slice(0, 20);
   }, [data, filter, showAll]);
 
-  if (site === "ruempeltuerken")
-    return <Hint>Die Search Console ist bisher nur für kottke-umzuege.de verbunden. Für ruempeltuerken.de die Property in Google verifizieren und in PostHog als zweite Quelle anlegen.</Hint>;
   if (state === "error") return <Hint tone="bad">Suchdaten konnten nicht geladen werden.</Hint>;
   if (!data) return <Hint>Lade Google-Daten …</Hint>;
   if (!data.configured) return <Hint>PostHog ist noch nicht verbunden.</Hint>;
@@ -92,6 +90,7 @@ export function GoogleSuche({ days, site }: { days: number; site: string }) {
 
   const t = data.totals;
   const v = data.vorher;
+  const hasPlausible = data.history.some((h) => h.plausible != null);
   const maxImpr = Math.max(1, ...ladder.map((q) => q.impressionen));
   const monthFactor = 30 / data.days;
   // Feste Achsenschritte für die Position: 1, 10, 20 … bis knapp über den schlechtesten Wochenwert.
@@ -309,7 +308,10 @@ export function GoogleSuche({ days, site }: { days: number; site: string }) {
             })}
           </div>
         </Card>
-        <Card title="Besuche pro Woche, auch vor PostHog" sub="Plausible bis heute, PostHog seit dem 24.09. Beide zählen etwas unterschiedlich.">
+        <Card
+          title={hasPlausible ? "Besuche pro Woche, auch vor PostHog" : "Besuche pro Woche"}
+          sub={hasPlausible ? "Plausible bis heute, PostHog seit dem 24.09. Beide zählen etwas unterschiedlich." : "Gezählt mit PostHog."}
+        >
           <Chart height={230}>
             <LineChart data={data.history} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid vertical={false} stroke="var(--line)" />
@@ -317,7 +319,7 @@ export function GoogleSuche({ days, site }: { days: number; site: string }) {
               <YAxis fontSize={11} width={28} allowDecimals={false} tickLine={false} axisLine={false} />
               <Tooltip labelFormatter={(w) => `Woche ab ${shortWeek(String(w))}`} formatter={(x, n) => [x == null ? "·" : fmt(Number(x)), n]} />
               <Legend iconType="plainline" wrapperStyle={{ fontSize: 12 }} />
-              <Line name="Plausible" type="monotone" dataKey="plausible" stroke={AMBER} strokeWidth={2} dot={false} connectNulls />
+              {hasPlausible && <Line name="Plausible" type="monotone" dataKey="plausible" stroke={AMBER} strokeWidth={2} dot={false} connectNulls />}
               <Line name="PostHog" type="monotone" dataKey="posthog" stroke={BLUE} strokeWidth={2} dot={{ r: 3 }} connectNulls />
             </LineChart>
           </Chart>
