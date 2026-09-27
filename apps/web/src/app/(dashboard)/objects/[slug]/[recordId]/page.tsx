@@ -136,6 +136,8 @@ const FIELD_LABELS: Record<string, { label: string; format: (v: unknown) => stri
   equipment_needed: { label: "Werkzeug / Material", format: fmtList },
   walking_distance_from_m: { label: "Laufweg Abholung (m)", format: (v) => `${v} m` },
   walking_distance_to_m: { label: "Laufweg Ziel (m)", format: (v) => `${v} m` },
+  stairwell_from: { label: "Treppenhaus Abholung", format: (v) => String(v) },
+  stairwell_to: { label: "Treppenhaus Ziel", format: (v) => String(v) },
   contact_pickup_name: { label: "Kontakt Abholort", format: (v) => String(v) },
   contact_pickup_phone: { label: "Kontakt Abholort (Tel.)", format: (v) => String(v) },
   contact_dropoff_name: { label: "Kontakt Zielort", format: (v) => String(v) },

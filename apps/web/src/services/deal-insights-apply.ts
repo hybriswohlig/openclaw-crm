@@ -120,6 +120,8 @@ const AUFTRAG_FIELD_KEYS: string[] = [
   "equipment_needed",
   "walking_distance_from_m",
   "walking_distance_to_m",
+  "stairwell_from",
+  "stairwell_to",
   "contact_pickup_name",
   "contact_pickup_phone",
   "contact_dropoff_name",
@@ -145,6 +147,8 @@ const AUFTRAG_FIELD_LABELS: Record<string, string> = {
   equipment_needed: "Werkzeug / Material",
   walking_distance_from_m: "Laufweg Abholung",
   walking_distance_to_m: "Laufweg Ziel",
+  stairwell_from: "Treppenhaus Abholung",
+  stairwell_to: "Treppenhaus Ziel",
   contact_pickup_name: "Kontakt Abholort",
   contact_pickup_phone: "Kontakt Abholort (Telefon)",
   contact_dropoff_name: "Kontakt Zielort",
@@ -981,6 +985,19 @@ async function upsertAuftragForDeal(params: {
         input.transporter = optId;
         updatedFields.push("Transporter");
       }
+    }
+  }
+
+  // stairwell_from / stairwell_to → resolve select option ID
+  for (const [slug, label] of [["stairwell_from", "Treppenhaus Abholung"], ["stairwell_to", "Treppenhaus Ziel"]] as const) {
+    const title = ext[slug];
+    if (!selected.has(slug) || !title || !canWriteAuftrag(slug)) continue;
+    const attr = auftragAttrBySlug.get(slug);
+    if (!attr) continue;
+    const optId = await resolveSelectOptionId(attr.id, title, (t) => skipped.push(`${label} nicht erkannt: "${t}"`));
+    if (optId) {
+      input[slug] = optId;
+      updatedFields.push(label);
     }
   }
 

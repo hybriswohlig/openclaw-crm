@@ -388,6 +388,34 @@ export const STANDARD_OBJECTS: StandardObject[] = [
       { slug: "parking_halteverbot_needed", title: "Halteverbot benötigt", type: "checkbox", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       { slug: "walking_distance_from_m", title: "Laufweg Abholung (m)", type: "number", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       { slug: "walking_distance_to_m", title: "Laufweg Ziel (m)", type: "number", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      {
+        slug: "stairwell_from",
+        title: "Treppenhaus Abholung",
+        type: "select",
+        isSystem: true,
+        isRequired: false,
+        isUnique: false,
+        isMultiselect: false,
+        selectOptions: [
+          { title: "Normal", color: "#22c55e" },
+          { title: "Eng", color: "#eab308" },
+          { title: "Wendeltreppe", color: "#ef4444" },
+        ],
+      },
+      {
+        slug: "stairwell_to",
+        title: "Treppenhaus Ziel",
+        type: "select",
+        isSystem: true,
+        isRequired: false,
+        isUnique: false,
+        isMultiselect: false,
+        selectOptions: [
+          { title: "Normal", color: "#22c55e" },
+          { title: "Eng", color: "#eab308" },
+          { title: "Wendeltreppe", color: "#ef4444" },
+        ],
+      },
 
       // ── Umfang ──────────────────────────────────────────────────
       { slug: "volume_cbm", title: "Volumen (m³)", type: "number", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },

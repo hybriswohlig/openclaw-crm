@@ -65,6 +65,8 @@ interface DealInsights {
     customer_email: string | null;
     volume_cbm: number | null;
     transporter: string | null;
+    stairwell_from?: string | null;
+    stairwell_to?: string | null;
     worker_count: number | null;
     payment_method: string | null;
   };
@@ -292,6 +294,8 @@ export function DealInsightsTab({ recordId }: { recordId: string }) {
               <Field label="Stockwerk (Ziel)" value={numOrNull(insights.extracted.floors_to)} />
               <Field label="Zugang (Abholung)" value={insights.extracted.elevator_from} />
               <Field label="Zugang (Ziel)" value={insights.extracted.elevator_to} />
+              <Field label="Treppenhaus (Abholung)" value={insights.extracted.stairwell_from ?? null} />
+              <Field label="Treppenhaus (Ziel)" value={insights.extracted.stairwell_to ?? null} />
               <Field label="Volumen (m³)" value={numOrNull(insights.extracted.volume_cbm)} />
               <Field label="Transporter" value={insights.extracted.transporter} />
               <Field label="Anzahl Arbeiter" value={numOrNull(insights.extracted.worker_count)} />

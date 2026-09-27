@@ -15,6 +15,9 @@ export interface LeadDaten {
   /** Optionstitel von elevator_from / elevator_to */
   zugangVon: string | null;
   zugangNach: string | null;
+  /** Optionstitel von stairwell_from / stairwell_to am Auftrag ("Normal", "Eng", "Wendeltreppe") */
+  treppenhausVon?: string | null;
+  treppenhausNach?: string | null;
   /** YYYY-MM-DD */
   umzugsdatum: string | null;
   wohnflaecheQm: number | null;
@@ -49,26 +52,29 @@ function zugang(titel: string | null): { aufzug?: "keiner" | "klein" | "gross"; 
   }
 }
 
+const TREPPENHAUS: Record<string, "normal" | "eng" | "wendel"> = { normal: "normal", eng: "eng", wendeltreppe: "wendel" };
+
 export function rechnerAnfrageAus(lead: LeadDaten): RechnerAnfrage {
   const a: RechnerAnfrage = {};
   const setze = (feld: string, wert: string | number | null | undefined) => {
     if (wert !== null && wert !== undefined && wert !== "") a[feld] = String(wert);
   };
 
-  for (const [seite, adresse, etage, zugangTitel, tragestrecke] of [
-    ["von", lead.von, lead.etageVon, lead.zugangVon, lead.tragestreckeVonM],
-    ["nach", lead.nach, lead.etageNach, lead.zugangNach, lead.tragestreckeNachM],
+  for (const [seite, adresse, etage, zugangTitel, tragestrecke, treppenhaus] of [
+    ["von", lead.von, lead.etageVon, lead.zugangVon, lead.tragestreckeVonM, lead.treppenhausVon],
+    ["nach", lead.nach, lead.etageNach, lead.zugangNach, lead.tragestreckeNachM, lead.treppenhausNach],
   ] as const) {
     const z = zugang(zugangTitel);
     setze(`${seite}_adresse`, adresse);
     setze(`${seite}_etage`, etage ?? z.etage);
     setze(`${seite}_aufzug`, z.aufzug);
     setze(`${seite}_tragestrecke`, tragestrecke);
+    setze(`${seite}_treppenhaus`, TREPPENHAUS[(treppenhaus ?? "").trim().toLowerCase()]);
   }
   // Zielseite aktiv, sobald es Angaben zum Ziel gibt oder der Umzug "innerhalb" eines Ortes ist
   // (der Rechner nimmt dann denselben Ort als Ziel bzw. meldet die fehlende Adresse).
   const ortsintern = !!lead.von && /^(umzug\s+)?innerhalb\s/i.test(lead.von.trim());
-  if (lead.nach || ortsintern || lead.etageNach !== null || lead.zugangNach !== null) a.nach_vorhanden = "on";
+  if (lead.nach || ortsintern || lead.etageNach !== null || lead.zugangNach !== null || a.nach_treppenhaus) a.nach_vorhanden = "on";
   setze("umzugsdatum", lead.umzugsdatum);
   setze("wohnflaeche_qm", lead.wohnflaecheQm);
   setze("zimmer", lead.zimmer);

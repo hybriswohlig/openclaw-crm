@@ -279,6 +279,16 @@ const ExtractedDealSchema = z.object({
   walking_distance_to_m: nullNum.describe(
     "Same for the destination. Null if not discussed."
   ),
+  stairwell_from: z
+    .preprocess(unwrapScalar, z.enum(["Normal", "Eng", "Wendeltreppe"]).nullable())
+    .default(null)
+    .describe(
+      "Stairwell at the pickup: 'Wendeltreppe' if a spiral staircase must be used (also inside a maisonette), 'Eng' for a narrow/winding stairwell, 'Normal' only if explicitly described as normal/wide. Null if not discussed."
+    ),
+  stairwell_to: z
+    .preprocess(unwrapScalar, z.enum(["Normal", "Eng", "Wendeltreppe"]).nullable())
+    .default(null)
+    .describe("Same for the destination. Null if not discussed."),
   contact_pickup_name: nullStr.describe(
     "Alternate contact at pickup address on move day, if the customer names one (e.g. 'mein Vater Peter macht auf'). Null if customer is the contact."
   ),
@@ -473,6 +483,7 @@ Auftragsübersicht (für die Monteure am Umzugstag):
 - storage_required: true, bei Einlagerung.
 - parking_halteverbot_needed: true, wenn enge Straße / Innenstadt / kein Ladehof erwähnt werden, oder der Kunde explizit nach Halteverbot fragt.
 - time_window_start / time_window_end: nur setzen, wenn eine Uhrzeit vereinbart wurde.
+- stairwell_from / stairwell_to: "Wendeltreppe", sobald Möbel über eine Wendeltreppe müssen (auch innerhalb einer Maisonette), "Eng" bei engem oder verwinkeltem Treppenhaus, sonst null. Ist eine Wendeltreppe genannt, aber unklar, welche Möbel oberhalb stehen und darüber müssen, gehört in "criticalMissing" (field: "stairwell_from" bzw. "stairwell_to") eine Frage wie: "Welche Möbel stehen oberhalb der Wendeltreppe und müssten darüber transportiert werden?"
 - special_requests: besondere Wünsche in einem deutschen Satz zusammenfassen.
 - payment_method: nur bei klarer Aussage ("ich zahle bar", "per Überweisung", "habe schon bezahlt").
 
@@ -832,6 +843,8 @@ const AUFTRAG_FIELD_LABELS: Record<string, string> = {
   parking_halteverbot_needed: "Halteverbot beantragen?",
   walking_distance_from_m: "Tragweg Abholung (m)",
   walking_distance_to_m: "Tragweg Ziel (m)",
+  stairwell_from: "Treppenhaus Abholung",
+  stairwell_to: "Treppenhaus Ziel",
   // Umfang
   volume_cbm: "Volumen (m³)",
   boxes_needed: "Umzugskartons benötigt",

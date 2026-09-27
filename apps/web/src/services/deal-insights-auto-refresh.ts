@@ -66,6 +66,8 @@ const AUTO_REFRESH_AUFTRAG_FIELDS = [
   "equipment_needed",
   "walking_distance_from_m",
   "walking_distance_to_m",
+  "stairwell_from",
+  "stairwell_to",
   "contact_pickup_name",
   "contact_pickup_phone",
   "contact_dropoff_name",

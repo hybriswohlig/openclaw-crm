@@ -24,6 +24,18 @@ describe("rechnerAnfrageAus", () => {
   it("Einfamilienhaus: Etage 0, kein Aufzug", () => {
     expect(rechnerAnfrageAus({ ...leer, zugangVon: "Nicht nötig (Einfamilienhaus)" })).toMatchObject({ von_etage: "0", von_aufzug: "keiner" });
   });
+  it("Treppenhaus: Normal/Eng/Wendeltreppe → normal/eng/wendel, sonst nichts", () => {
+    expect(rechnerAnfrageAus({ ...leer, treppenhausVon: "Wendeltreppe", treppenhausNach: "Eng" }))
+      .toMatchObject({ von_treppenhaus: "wendel", nach_treppenhaus: "eng" });
+    expect(rechnerAnfrageAus({ ...leer, treppenhausVon: "Normal" })).toMatchObject({ von_treppenhaus: "normal" });
+    const a = rechnerAnfrageAus({ ...leer, treppenhausVon: "irgendwas" });
+    expect(a).not.toHaveProperty("von_treppenhaus");
+    expect(rechnerAnfrageAus(leer)).not.toHaveProperty("von_treppenhaus");
+  });
+  it("Wendeltreppe nur am Ziel aktiviert die Zielseite (Review Grok)", () => {
+    expect(rechnerAnfrageAus({ ...leer, von: "Filderstadt", treppenhausNach: "Wendeltreppe" }))
+      .toMatchObject({ nach_treppenhaus: "wendel", nach_vorhanden: "on" });
+  });
   it("unbekannte Zugangsart setzt nichts", () => {
     const a = rechnerAnfrageAus({ ...leer, zugangVon: "irgendwas" });
     expect(a).not.toHaveProperty("von_aufzug");

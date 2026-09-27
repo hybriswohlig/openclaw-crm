@@ -67,6 +67,8 @@ export async function ladeLeadDaten(workspaceId: string, dealRecordId: string): 
     zugangNach: await optionsTitel(dv.elevator_to),
     umzugsdatum: datumText(dv.move_date),
     ...groesseAusLead(dv),
+    treppenhausVon: await optionsTitel(av.stairwell_from),
+    treppenhausNach: await optionsTitel(av.stairwell_to),
     tragestreckeVonM: zahlOderNull(av.walking_distance_from_m),
     tragestreckeNachM: zahlOderNull(av.walking_distance_to_m),
     halteverbot: av.parking_halteverbot_needed === true,

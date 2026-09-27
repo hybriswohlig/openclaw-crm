@@ -210,6 +210,8 @@ const SECTIONS: { title: string; slugs: string[] }[] = [
       "parking_halteverbot_needed",
       "walking_distance_from_m",
       "walking_distance_to_m",
+      "stairwell_from",
+      "stairwell_to",
     ],
   },
   {
