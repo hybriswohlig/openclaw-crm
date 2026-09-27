@@ -66,7 +66,7 @@ export default function SichtbarkeitPage() {
             <Ueberblick days={days} site={site} onShowSections={() => setTab("abschnitte")} onShowSearch={() => setTab("suche")} />
           </TabsContent>
           <TabsContent value="suche">
-            <GoogleSuche days={days} site={site} />
+            <GoogleSuche key={site} days={days} site={site} />
           </TabsContent>
           <TabsContent value="abschnitte">
             <Abschnitte days={days} site={site} />

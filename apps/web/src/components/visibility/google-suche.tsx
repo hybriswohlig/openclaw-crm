@@ -141,7 +141,7 @@ export function GoogleSuche({ days, site }: { days: number; site: string }) {
 
       {/* ── Verlauf: drei kleine Diagramme, jede Größe mit eigener Achse ── */}
       <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))" }}>
-        <Card title="Anzeigen pro Woche" sub="Wie oft Kottke in den Suchergebnissen stand">
+        <Card title="Anzeigen pro Woche" sub={`Wie oft ${data.property} in den Suchergebnissen stand`}>
           <Chart>
             <AreaChart data={data.weeks} margin={{ top: 6, right: 6, left: 0, bottom: 0 }}>
               <defs>

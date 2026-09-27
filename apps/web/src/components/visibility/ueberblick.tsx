@@ -327,7 +327,9 @@ interface SearchLite {
 
 function GoogleKarte({ days, site, onShowSearch }: { days: number; site: string; onShowSearch: () => void }) {
   const { data } = useCachedJson<SearchLite>(`/api/v1/visibility/search?${new URLSearchParams({ days: String(days), ...(site ? { site } : {}) })}`);
-  if (!data || !data.configured || data.totals.impressionen === 0) return null;
+  // Beim Website-Wechsel nicht kurz die Zahlen der vorigen Website zeigen.
+  const expected = site === "ruempeltuerken" ? "ruempeltuerken.de" : "kottke-umzuege.de";
+  if (!data || data.property !== expected || !data.configured || data.totals.impressionen === 0) return null;
   const t = data.totals;
   const de1 = (n: number) => n.toLocaleString("de-DE", { maximumFractionDigits: 1 });
   const trend = data.vorher.impressionen > 0 ? Math.round(((t.impressionen - data.vorher.impressionen) / data.vorher.impressionen) * 100) : null;
