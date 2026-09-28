@@ -356,6 +356,21 @@ export async function createAgentDraft(
     console.error("[agent-drafts] draft push failed (non-blocking):", err);
   }
 
+  // Freigabe per WhatsApp an die internen Nummern (fängt eigene Fehler ab).
+  {
+    const { freigabeAnfragen } = await import("@/services/intern/freigabe");
+    await freigabeAnfragen({
+      workspaceId: input.workspaceId,
+      draftId,
+      dealRecordId,
+      conversationId,
+      channelAccountId: channelAccountId ?? null,
+      messageClass: input.messageClass,
+      text: draftText,
+      gate: gate ? { allowed: gate.allowed, reasons: gate.reasons } : null,
+    });
+  }
+
   return {
     ok: true,
     created: true,

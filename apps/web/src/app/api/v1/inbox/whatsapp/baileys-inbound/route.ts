@@ -16,6 +16,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { findeInterne, ladeInterneNummern } from "@/services/intern/interne-nummern";
+import { verarbeiteInterneNachricht } from "@/services/intern/freigabe";
 import { db } from "@/db";
 import { channelAccounts, inboxMessageAttachments } from "@/db/schema/inbox";
 import { eq, and, isNull } from "drizzle-orm";
@@ -208,6 +209,11 @@ export async function POST(req: NextRequest) {
   const intern = findeInterne(await ladeInterneNummern(account.workspaceId), { peerWaId, peerJid, peerLid });
   if (intern) {
     console.log(`[baileys-inbound] interne Nummer (${intern.name}), nicht ins CRM übernommen`);
+    try {
+      await verarbeiteInterneNachricht({ workspaceId: account.workspaceId, kontoId: account.id, absender: intern, text: payload.body ?? "" });
+    } catch (err) {
+      console.error("[baileys-inbound] Freigabe-Befehl fehlgeschlagen:", err);
+    }
     return NextResponse.json({ ok: true, intern: true });
   }
 

@@ -22,7 +22,7 @@ import { and, eq, inArray, isNull } from "drizzle-orm";
 import { objects, attributes, statuses } from "@/db/schema/objects";
 import { recordValues, records } from "@/db/schema/records";
 import { inboxConversations } from "@/db/schema/inbox";
-import { agentSuppressions, dealAgentState, consentLedger } from "@/db/schema/agent";
+import { agentDrafts, agentSuppressions, dealAgentState, consentLedger } from "@/db/schema/agent";
 import { canonicalizePhone, canonicalizeEmail } from "@/lib/identity/canonical";
 import { isSalesAgentEnabled } from "./agent-config";
 
@@ -363,6 +363,13 @@ export async function setHumanOwned(
         updatedAt: new Date(),
       },
     });
+  // Ein Mensch hat selbst geantwortet: offene und freigegebene, noch nicht
+  // gesendete KI-Entwürfe dieses Deals sind überholt. Sonst würde eine spätere
+  // Freigabe eine veraltete Antwort senden.
+  await db
+    .update(agentDrafts)
+    .set({ status: "cancelled", updatedAt: new Date() })
+    .where(and(eq(agentDrafts.dealRecordId, dealRecordId), inArray(agentDrafts.status, ["pending", "approved"])));
 }
 
 /** Explicit UI release action — the only path back to agent eligibility. */

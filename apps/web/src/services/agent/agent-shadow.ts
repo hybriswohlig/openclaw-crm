@@ -226,6 +226,20 @@ export async function captureShadowDraft(input: ShadowDraftInput): Promise<void>
     } catch (err) {
       console.error("[agent-shadow] draft push failed (non-blocking):", err);
     }
+    // Freigabe per WhatsApp an die internen Nummern (fängt eigene Fehler ab).
+    if (inserted.length > 0) {
+      const { freigabeAnfragen } = await import("@/services/intern/freigabe");
+      await freigabeAnfragen({
+        workspaceId: input.workspaceId,
+        draftId: inserted[0].id,
+        dealRecordId: input.dealRecordId,
+        conversationId: input.conversationId ?? null,
+        channelAccountId: input.channelAccountId ?? null,
+        messageClass: input.messageClass,
+        text: scanTarget,
+        gate: input.gate ? { allowed: input.gate.allowed, reasons: input.gate.reasons } : null,
+      });
+    }
   } catch (err) {
     console.error("[agent-shadow] captureShadowDraft failed (non-blocking):", err);
   }
