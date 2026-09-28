@@ -1,15 +1,18 @@
 /**
  * Befehle, mit denen die internen Nummern Entwürfe per WhatsApp freigeben:
- *   ok CODE              senden (auch "ja")
- *   ändern CODE: Text    eigene Fassung senden (auch "aendern")
- *   nein CODE            verwerfen (auch "verwerfen")
+ *   ok CODE                 Entwurf senden (auch "ja")
+ *   ändern CODE: Anweisung  KI überarbeitet den Entwurf, neue Fassung kommt
+ *                           mit neuem Code zur Freigabe zurück (auch "aendern")
+ *   senden CODE: Text       genau dieser Text geht an den Kunden
+ *   nein CODE               verwerfen (auch "verwerfen")
  * Der Code ist Pflicht: ein "ok" als Antwort auf einen Alarm oder im normalen
  * Chat darf nie einen Entwurf auslösen. Alles andere ist kein Befehl.
  */
 export type FreigabeBefehl =
   | { aktion: "ok"; code: string }
   | { aktion: "nein"; code: string }
-  | { aktion: "aendern"; code: string; text: string };
+  | { aktion: "ueberarbeiten"; code: string; anweisung: string }
+  | { aktion: "senden"; code: string; text: string };
 
 /** Kurzcode einer Freigabe: die ersten vier Zeichen der Entwurfs-ID. */
 export function freigabeCode(draftId: string): string {
@@ -28,11 +31,14 @@ export function befehlAus(nachricht: string): FreigabeBefehl | null {
     return { aktion, code: kurz[2]!.toUpperCase() };
   }
 
-  const aendern = new RegExp(String.raw`^(?:ändern|aendern)\s+${CODE}\s*:\s*([\s\S]*)$`, "i").exec(t);
-  if (aendern) {
-    const text = (aendern[2] ?? "").trim();
-    if (!text) return null;
-    return { aktion: "aendern", code: aendern[1]!.toUpperCase(), text };
+  const mitText = new RegExp(String.raw`^(ändern|aendern|senden)\s+${CODE}\s*:\s*([\s\S]*)$`, "i").exec(t);
+  if (mitText) {
+    const inhalt = (mitText[3] ?? "").trim();
+    if (!inhalt) return null;
+    const code = mitText[2]!.toUpperCase();
+    return /^senden$/i.test(mitText[1]!)
+      ? { aktion: "senden", code, text: inhalt }
+      : { aktion: "ueberarbeiten", code, anweisung: inhalt };
   }
   return null;
 }

@@ -4,13 +4,16 @@
  * 1. freigabeAnfragen: nach dem Anlegen eines Entwurfs geht er an alle
  *    internen Nummern, über das WhatsApp-Konto der Firma, um die es beim Lead
  *    geht (Fallback: erstes verbundenes Konto), mit Kurzcode.
- * 2. verarbeiteInterneNachricht: "ok" / "ändern: …" / "nein" von einer
- *    internen Nummer; wer zuerst antwortet, entscheidet für beide. Gesendet
+ * 2. verarbeiteInterneNachricht: "ok" / "ändern: Anweisung" / "senden: Text" /
+ *    "nein" von einer internen Nummer; wer zuerst antwortet, entscheidet für
+ *    beide. "ändern" lässt die KI den Entwurf nach der Anweisung überarbeiten;
+ *    die neue Fassung kommt mit neuem Code zur Freigabe zurück. Gesendet
  *    wird über entwurfFreigebenUndSenden (Sicherheitsprüfung zum Sendezeitpunkt,
  *    Preisfilter, Schutz gegen doppeltes Senden). Eine menschliche Freigabe hebt
  *    nur "Hauptschalter aus" und "Deal gehört einem Menschen" auf.
  */
-import { and, desc, eq, gt, inArray, isNull, or } from "drizzle-orm";
+import { createHash } from "node:crypto";
+import { and, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { agentDrafts, agentEvents } from "@/db/schema/agent";
 import { channelAccounts, inboxMessages } from "@/db/schema/inbox";
@@ -18,6 +21,9 @@ import { attributes } from "@/db/schema/objects";
 import { recordValues } from "@/db/schema/records";
 import { entwurfFreigebenUndSenden, type FreigabeErgebnis } from "@/services/agent/draft-senden";
 import { DRAFT_CLASS_LABELS } from "@/services/agent/agent-shadow";
+import { leaksPriceOrCommitment } from "@/services/agent/agent-suppress";
+import { runAITask } from "@/services/ai/run-task";
+import { AI_TASK_SLUGS } from "@/services/ai/task-registry";
 import { toGateMessageClass } from "@/services/agent/agent-gate";
 import { befehlAus, freigabeCode } from "./freigabe-befehle";
 import { sendeAnInterne } from "./intern-senden";
@@ -68,6 +74,8 @@ export async function freigabeAnfragen(input: {
   messageClass: string;
   text: string;
   gate: { allowed: boolean; reasons: string[] } | null;
+  /** Code des Entwurfs, aus dem diese Fassung per "ändern" entstanden ist */
+  ueberarbeitetAus?: string | null;
 }): Promise<void> {
   try {
     const g = input.gate;
@@ -89,33 +97,34 @@ export async function freigabeAnfragen(input: {
     const klasse = DRAFT_CLASS_LABELS[toGateMessageClass(input.messageClass) as keyof typeof DRAFT_CLASS_LABELS] ?? "Entwurf";
     const kunde = (letzte[0]?.body ?? "").trim();
     const nachricht = [
-      `📝 Freigabe #${code} · ${firma ?? "Firma unbekannt"} · ${klasse}`,
+      `📝 Freigabe #${code} · ${firma ?? "Firma unbekannt"} · ${klasse}${input.ueberarbeitetAus ? ` · überarbeitet aus #${input.ueberarbeitetAus}` : ""}`,
       deal ?? "Lead ohne Namen",
       kunde ? `Kunde: „${kunde.length > 300 ? `${kunde.slice(0, 300)}…` : kunde}“` : null,
       "",
       "Entwurf:",
       input.text,
       "",
-      `ok ${code} · ändern ${code}: neuer Text · nein ${code}`,
+      `ok ${code} · ändern ${code}: Wunsch · senden ${code}: eigener Text · nein ${code}`,
     ]
       .filter((z) => z !== null)
       .join("\n");
 
+    // Erst vormerken, dann senden: der Entwurf ist per Code auffindbar, auch
+    // wenn die Zustellung scheitert (erneutes Anfragen schreibt kein zweites Event).
+    await db
+      .insert(agentEvents)
+      .values({
+        workspaceId: input.workspaceId,
+        dealRecordId: input.dealRecordId,
+        conversationId: input.conversationId,
+        engine: "freigabe_whatsapp",
+        eventType: "freigabe_angefragt",
+        payload: { draftId: input.draftId, code },
+        idempotencyKey: `freigabe-angefragt:${input.draftId}`,
+      })
+      .onConflictDoNothing();
     const { zugestellt } = await sendeAnInterne(input.workspaceId, nachricht, { kontoId: input.channelAccountId });
-    if (zugestellt.length > 0) {
-      await db
-        .insert(agentEvents)
-        .values({
-          workspaceId: input.workspaceId,
-          dealRecordId: input.dealRecordId,
-          conversationId: input.conversationId,
-          engine: "freigabe_whatsapp",
-          eventType: "freigabe_angefragt",
-          payload: { draftId: input.draftId, code, an: zugestellt },
-          idempotencyKey: `freigabe-angefragt:${input.draftId}`,
-        })
-        .onConflictDoNothing();
-    }
+    if (zugestellt.length === 0) console.error(`[freigabe] #${code} an niemanden zugestellt`);
   } catch (err) {
     console.error("[freigabe] Anfrage fehlgeschlagen (nicht blockierend):", err);
   }
@@ -204,13 +213,182 @@ export async function verarbeiteInterneNachricht(input: {
     return;
   }
 
+  if (befehl.aktion === "ueberarbeiten") {
+    await entwurfUeberarbeiten({ workspaceId: input.workspaceId, draftId: entwurf.id, code, anweisung: befehl.anweisung, absender: input.absender, antworten });
+    return;
+  }
+
   const r = await entwurfFreigebenUndSenden({
     workspaceId: input.workspaceId,
     userId: null,
     draftId: entwurf.id,
-    finalText: befehl.aktion === "aendern" ? befehl.text : undefined,
+    finalText: befehl.aktion === "senden" ? befehl.text : undefined,
     ueberstimmbar: UEBERSTIMMBAR,
     freigegebenVon: `${input.absender.name} per WhatsApp`,
   });
   await antworten(ergebnisText(code, deal, input.absender.name, r));
+}
+
+const UEBERARBEITEN_SYSTEM = `Du überarbeitest den Antwortentwurf eines deutschen Umzugsunternehmens an einen Kunden nach der Anweisung des Inhabers.
+Regeln:
+- Setze die Anweisung genau um, ändere sonst so wenig wie möglich.
+- Behalte die Anrede (Du oder Sie) und die Signatur bei, außer die Anweisung sagt etwas anderes.
+- Erfinde keine Preise, Rabatte, Termine oder Zusagen, die nicht in der Anweisung stehen.
+- Schreibe natürlich und knapp, ohne Gedankenstriche.
+- Antworte NUR mit dem fertigen Nachrichtentext, ohne Anführungszeichen und ohne Erklärung.`;
+
+/**
+ * "ändern CODE: Anweisung": die KI überarbeitet den Entwurf, die neue Fassung
+ * kommt mit neuem Code zur Freigabe zurück. Der alte Entwurf wird erst nach der
+ * KI-Antwort gesperrt: hat inzwischen jemand anderes entschieden, wird die
+ * Überarbeitung verworfen statt doppelt zur Freigabe zu gehen.
+ */
+async function entwurfUeberarbeiten(input: {
+  workspaceId: string;
+  draftId: string;
+  code: string;
+  anweisung: string;
+  absender: InterneNummer;
+  antworten: (t: string) => Promise<unknown>;
+}): Promise<void> {
+  const { workspaceId, draftId, code, anweisung, absender, antworten } = input;
+
+  // Dieselbe Anweisung nur einmal umsetzen: fertig ist sie erst, wenn der neue
+  // Entwurf existiert. Ein laufender Versuch sperrt 6 Minuten; danach (z. B.
+  // KI-Fehler oder abgebrochene Funktion) darf dieselbe Anweisung erneut laufen.
+  const schluessel = createHash("sha1").update(`${draftId}:${anweisung}`).digest("hex").slice(0, 16);
+  const [frueher] = await db
+    .select({ id: agentDrafts.id, status: agentDrafts.status, draftText: agentDrafts.draftText })
+    .from(agentDrafts)
+    .where(sql`${agentDrafts.idempotencyKey} like ${`ueberarbeitung:${schluessel}%`}`)
+    .orderBy(desc(agentDrafts.createdAt))
+    .limit(1);
+  if (frueher?.status === "pending") {
+    // Die neue Fassung gibt es schon (z. B. Zustellung an euch fehlgeschlagen): erneut zur Freigabe schicken.
+    const [alt] = await db.select().from(agentDrafts).where(eq(agentDrafts.id, draftId)).limit(1);
+    await freigabeAnfragen({
+      workspaceId,
+      draftId: frueher.id,
+      dealRecordId: alt?.dealRecordId ?? null,
+      conversationId: alt?.conversationId ?? null,
+      channelAccountId: alt?.channelAccountId ?? null,
+      messageClass: alt?.messageClass ?? "reply",
+      text: frueher.draftText,
+      gate: { allowed: true, reasons: [] },
+      ueberarbeitetAus: code,
+    });
+    return;
+  }
+  if (frueher && frueher.status !== "cancelled") {
+    await antworten(`Die Überarbeitung von #${code} ist schon erledigt.`);
+    return;
+  }
+  const ersatzSchluessel = `ueberarbeitung:${schluessel}:${Date.now()}`;
+  const [laeuft] = await db
+    .select({ id: agentEvents.id })
+    .from(agentEvents)
+    .where(
+      and(
+        eq(agentEvents.workspaceId, workspaceId),
+        eq(agentEvents.eventType, "ueberarbeitung_angefragt"),
+        sql`${agentEvents.payload}->>'schluessel' = ${schluessel}`,
+        gt(agentEvents.createdAt, new Date(Date.now() - 6 * 60_000))
+      )
+    )
+    .limit(1);
+  if (laeuft) return;
+  await db.insert(agentEvents).values({
+    workspaceId,
+    engine: "freigabe_whatsapp",
+    eventType: "ueberarbeitung_angefragt",
+    payload: { draftId, code, schluessel, anweisung: anweisung.slice(0, 500), von: absender.name },
+    idempotencyKey: `ueberarbeitung-start:${schluessel}:${Date.now()}`,
+  });
+
+  const [alt] = await db.select().from(agentDrafts).where(eq(agentDrafts.id, draftId)).limit(1);
+  if (!alt || alt.status !== "pending") {
+    await antworten(`#${code} war schon erledigt, nichts überarbeitet.`);
+    return;
+  }
+  await antworten(`✏️ #${code} wird überarbeitet (${absender.name}), die neue Fassung kommt in 1 bis 2 Minuten.`);
+
+  const verlauf = alt.conversationId
+    ? (
+        await db
+          .select({ direction: inboxMessages.direction, body: inboxMessages.body })
+          .from(inboxMessages)
+          .where(eq(inboxMessages.conversationId, alt.conversationId))
+          .orderBy(desc(inboxMessages.sentAt))
+          .limit(8)
+      )
+        .reverse()
+        .map((m) => `${m.direction === "inbound" ? "Kunde" : "Wir"}: ${(m.body ?? "").trim()}`)
+        .join("\n")
+    : "";
+  const bisher = alt.finalText?.trim() || alt.draftText;
+
+  const r = await runAITask({
+    workspaceId,
+    taskSlug: AI_TASK_SLUGS.DEAL_REVISE_DRAFT,
+    system: UEBERARBEITEN_SYSTEM,
+    prompt: `${verlauf ? `Letzte Nachrichten:\n${verlauf}\n\n` : ""}Bisheriger Entwurf:\n${bisher}\n\nAnweisung des Inhabers:\n${anweisung}\n\nÜberarbeiteter Entwurf:`,
+  });
+  const text = r.ok ? String(r.output ?? "").trim().replace(/^["„“]|["“”]$/g, "").trim() : "";
+  if (!text) {
+    await antworten(`⚠️ #${code} konnte nicht überarbeitet werden (KI-Fehler). Der alte Entwurf bleibt offen, oder mit "senden ${code}: Text" selbst formulieren.`);
+    return;
+  }
+  if (leaksPriceOrCommitment(text)) {
+    await antworten(`⚠️ #${code}: Die überarbeitete Fassung enthält einen Preis oder eine Zusage und darf nicht über die Freigabe raus. Bitte selbst im Chat schreiben. Der alte Entwurf bleibt offen.`);
+    return;
+  }
+
+  // Erst den neuen Entwurf anlegen, dann den alten sperren: bricht der Lauf
+  // dazwischen ab, bleibt der alte Entwurf freigebbar.
+  const [ersatz] = await db
+    .insert(agentDrafts)
+    .values({
+      workspaceId,
+      dealRecordId: alt.dealRecordId,
+      conversationId: alt.conversationId,
+      channelAccountId: alt.channelAccountId,
+      messageClass: alt.messageClass,
+      draftText: text,
+      finalText: null,
+      filterVerdicts: { priceOrCommitmentLeak: false, ueberarbeitetAus: draftId, anweisung: anweisung.slice(0, 500) },
+      gateResults: alt.gateResults,
+      status: "pending",
+      idempotencyKey: ersatzSchluessel,
+      expiresAt: new Date(Date.now() + 72 * 3600_000),
+      promptVersion: "whatsapp-ueberarbeitung",
+      modelTag: alt.modelTag,
+    })
+    .onConflictDoNothing()
+    .returning({ id: agentDrafts.id });
+  if (!ersatz) return;
+
+  const gesperrt = await db
+    .update(agentDrafts)
+    .set({ status: "edited", finalText: text, reviewedAt: new Date(), updatedAt: new Date() })
+    .where(and(eq(agentDrafts.id, draftId), eq(agentDrafts.status, "pending")))
+    .returning({ id: agentDrafts.id });
+  if (gesperrt.length === 0) {
+    await db.update(agentDrafts).set({ status: "cancelled", updatedAt: new Date() }).where(eq(agentDrafts.id, ersatz.id));
+    await antworten(`#${code} wurde inzwischen anders erledigt, die Überarbeitung wird verworfen.`);
+    return;
+  }
+
+  await freigabeAnfragen({
+    workspaceId,
+    draftId: ersatz.id,
+    dealRecordId: alt.dealRecordId,
+    conversationId: alt.conversationId,
+    channelAccountId: alt.channelAccountId,
+    messageClass: alt.messageClass,
+    text,
+    // Ein Mensch hat die Überarbeitung angestoßen: immer zur Freigabe schicken;
+    // die Sicherheitsprüfung läuft beim Senden trotzdem erneut.
+    gate: { allowed: true, reasons: [] },
+    ueberarbeitetAus: code,
+  });
 }

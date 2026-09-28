@@ -14,7 +14,7 @@
  * The endpoint is idempotent on `(channelAccountId, externalMessageId)` so
  * OpenClaw can safely retry on transient failures.
  */
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { findeInterne, ladeInterneNummern } from "@/services/intern/interne-nummern";
 import { verarbeiteInterneNachricht } from "@/services/intern/freigabe";
 import { db } from "@/db";
@@ -22,6 +22,9 @@ import { channelAccounts, inboxMessageAttachments } from "@/db/schema/inbox";
 import { eq, and, isNull } from "drizzle-orm";
 import { getAuthContext, unauthorized } from "@/lib/api-utils";
 import { ingestInboundWhatsAppMessage } from "@/services/inbox-whatsapp";
+
+// Freigabe-Befehle laufen per after() weiter (KI-Überarbeitung bis ~2 Minuten).
+export const maxDuration = 300;
 
 export const dynamic = "force-dynamic";
 
@@ -209,11 +212,16 @@ export async function POST(req: NextRequest) {
   const intern = findeInterne(await ladeInterneNummern(account.workspaceId), { peerWaId, peerJid, peerLid });
   if (intern) {
     console.log(`[baileys-inbound] interne Nummer (${intern.name}), nicht ins CRM übernommen`);
-    try {
-      await verarbeiteInterneNachricht({ workspaceId: account.workspaceId, kontoId: account.id, absender: intern, text: payload.body ?? "" });
-    } catch (err) {
-      console.error("[baileys-inbound] Freigabe-Befehl fehlgeschlagen:", err);
-    }
+    // Nach der Antwort an die Brücke verarbeiten: eine KI-Überarbeitung dauert
+    // bis zu 2 Minuten, so lange darf die Brücke nicht warten (sonst Wiederholung).
+    const befehlsText = payload.body ?? "";
+    after(async () => {
+      try {
+        await verarbeiteInterneNachricht({ workspaceId: account.workspaceId, kontoId: account.id, absender: intern, text: befehlsText });
+      } catch (err) {
+        console.error("[baileys-inbound] Freigabe-Befehl fehlgeschlagen:", err);
+      }
+    });
     return NextResponse.json({ ok: true, intern: true });
   }
 
