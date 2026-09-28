@@ -20,7 +20,7 @@
  */
 
 import { db } from "@/db";
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
   inboxConversations,
   inboxMessages,
@@ -228,9 +228,11 @@ async function loadRecentMessages(conversationId: string): Promise<RecentMessage
     })
     .from(inboxMessages)
     .where(eq(inboxMessages.conversationId, conversationId))
-    .orderBy(asc(inboxMessages.sentAt), asc(inboxMessages.createdAt))
-    .limit(200);
-  return rows.slice(-MAX_TRANSCRIPT_MESSAGES) as RecentMessage[];
+    // Neueste zuerst holen, dann wieder chronologisch drehen: aufsteigend mit
+    // Limit hätte bei langen Chats die ältesten statt der neuesten geliefert.
+    .orderBy(desc(inboxMessages.sentAt), desc(inboxMessages.createdAt))
+    .limit(MAX_TRANSCRIPT_MESSAGES);
+  return rows.reverse() as RecentMessage[];
 }
 
 function formatTranscript(messages: RecentMessage[]): string {

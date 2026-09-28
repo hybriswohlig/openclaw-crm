@@ -15,6 +15,7 @@
  * Auth: Bearer token (api_keys table), same as `/baileys-inbound`.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { findeInterne, ladeInterneNummern } from "@/services/intern/interne-nummern";
 import { db } from "@/db";
 import { channelAccounts, inboxMessageAttachments } from "@/db/schema/inbox";
 import { eq, and, isNull } from "drizzle-orm";
@@ -152,6 +153,14 @@ export async function POST(req: NextRequest) {
     if (typeof a.mimeType !== "string" || !a.mimeType) return badRequest("attachment.mimeType required");
     if (typeof a.fileSize !== "number" || a.fileSize < 0) return badRequest("attachment.fileSize must be a non-negative number");
     if (typeof a.fileContentBase64 !== "string" || !a.fileContentBase64) return badRequest("attachment.fileContentBase64 required");
+  }
+
+  // Interne Nummern (Inhaber, Partner) werden nie als Kontakt, Chat oder Lead
+  // angelegt. Eingehende Befehle (Freigaben) verarbeitet später der Freigabe-Kanal.
+  const intern = findeInterne(await ladeInterneNummern(account.workspaceId), { peerWaId, peerJid, peerLid });
+  if (intern) {
+    console.log(`[baileys-outbound] interne Nummer (${intern.name}), nicht ins CRM übernommen`);
+    return NextResponse.json({ ok: true, intern: true });
   }
 
   try {

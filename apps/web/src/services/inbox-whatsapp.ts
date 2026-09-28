@@ -2551,6 +2551,20 @@ async function loadBaileysSendContext(
   return { conv, account, toWaId };
 }
 
+/**
+ * Text über ein Baileys-Konto direkt an eine Nummer senden, OHNE Chat im CRM
+ * anzulegen oder zu speichern. Nur für interne Nachrichten (Freigaben, Alarme)
+ * an die Nummern aus `intern_whatsapp_nummern`; Kundennachrichten laufen immer
+ * über sendBaileysReply mit Konversation.
+ */
+export async function sendBaileysDirektText(params: {
+  accountId: string;
+  peerWaId: string;
+  text: string;
+}): Promise<{ externalMessageId: string }> {
+  return callBridgeSend(params.accountId, { kind: "text", peerWaId: params.peerWaId, text: params.text });
+}
+
 export async function sendBaileysReply(params: {
   conversationId: string;
   workspaceId: string;

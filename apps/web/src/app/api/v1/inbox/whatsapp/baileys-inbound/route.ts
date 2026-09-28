@@ -15,6 +15,7 @@
  * OpenClaw can safely retry on transient failures.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { findeInterne, ladeInterneNummern } from "@/services/intern/interne-nummern";
 import { db } from "@/db";
 import { channelAccounts, inboxMessageAttachments } from "@/db/schema/inbox";
 import { eq, and, isNull } from "drizzle-orm";
@@ -200,6 +201,14 @@ export async function POST(req: NextRequest) {
     if (typeof a.fileContentBase64 !== "string" || !a.fileContentBase64) {
       return badRequest("attachment.fileContentBase64 required");
     }
+  }
+
+  // Interne Nummern (Inhaber, Partner) werden nie als Kontakt, Chat oder Lead
+  // angelegt. Eingehende Befehle (Freigaben) verarbeitet später der Freigabe-Kanal.
+  const intern = findeInterne(await ladeInterneNummern(account.workspaceId), { peerWaId, peerJid, peerLid });
+  if (intern) {
+    console.log(`[baileys-inbound] interne Nummer (${intern.name}), nicht ins CRM übernommen`);
+    return NextResponse.json({ ok: true, intern: true });
   }
 
   try {
