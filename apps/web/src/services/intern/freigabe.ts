@@ -22,6 +22,7 @@ import { recordValues } from "@/db/schema/records";
 import { entwurfFreigebenUndSenden, type FreigabeErgebnis } from "@/services/agent/draft-senden";
 import { DRAFT_CLASS_LABELS } from "@/services/agent/agent-shadow";
 import { leaksPriceOrCommitment } from "@/services/agent/agent-suppress";
+import { ohnePreisPhrase } from "@/services/agent/preis-entwurf";
 import { runAITask } from "@/services/ai/run-task";
 import { AI_TASK_SLUGS } from "@/services/ai/task-registry";
 import { toGateMessageClass } from "@/services/agent/agent-gate";
@@ -76,6 +77,8 @@ export async function freigabeAnfragen(input: {
   gate: { allowed: boolean; reasons: string[] } | null;
   /** Code des Entwurfs, aus dem diese Fassung per "ändern" entstanden ist */
   ueberarbeitetAus?: string | null;
+  /** Preis-Satz aus dem Angebotsrechner, falls der Entwurf einen enthält */
+  preisPhrase?: string | null;
 }): Promise<void> {
   try {
     const g = input.gate;
@@ -99,6 +102,7 @@ export async function freigabeAnfragen(input: {
     const nachricht = [
       `📝 Freigabe #${code} · ${firma ?? "Firma unbekannt"} · ${klasse}${input.ueberarbeitetAus ? ` · überarbeitet aus #${input.ueberarbeitetAus}` : ""}`,
       deal ?? "Lead ohne Namen",
+      input.preisPhrase ? `💶 Preis aus dem Angebotsrechner: ${input.preisPhrase} (Kalkulation im CRM prüfen)` : null,
       kunde ? `Kunde: „${kunde.length > 300 ? `${kunde.slice(0, 300)}…` : kunde}“` : null,
       "",
       "Entwurf:",
@@ -234,7 +238,7 @@ const UEBERARBEITEN_SYSTEM = `Du überarbeitest den Antwortentwurf eines deutsch
 Regeln:
 - Setze die Anweisung genau um, ändere sonst so wenig wie möglich.
 - Behalte die Anrede (Du oder Sie) und die Signatur bei, außer die Anweisung sagt etwas anderes.
-- Erfinde keine Preise, Rabatte, Termine oder Zusagen, die nicht in der Anweisung stehen.
+- Erfinde keine Preise, Rabatte, Termine oder Zusagen. Steht im Entwurf ein Preis ("ca. … €"), übernimm diese Preisangabe Zeichen für Zeichen unverändert.
 - Schreibe natürlich und knapp, ohne Gedankenstriche.
 - Antworte NUR mit dem fertigen Nachrichtentext, ohne Anführungszeichen und ohne Erklärung.`;
 
@@ -339,8 +343,9 @@ async function entwurfUeberarbeiten(input: {
     await antworten(`⚠️ #${code} konnte nicht überarbeitet werden (KI-Fehler). Der alte Entwurf bleibt offen, oder mit "senden ${code}: Text" selbst formulieren.`);
     return;
   }
-  if (leaksPriceOrCommitment(text)) {
-    await antworten(`⚠️ #${code}: Die überarbeitete Fassung enthält einen Preis oder eine Zusage und darf nicht über die Freigabe raus. Bitte selbst im Chat schreiben. Der alte Entwurf bleibt offen.`);
+  const preisPhrase = (alt.filterVerdicts as { preisPhrase?: string } | null)?.preisPhrase ?? null;
+  if (leaksPriceOrCommitment(ohnePreisPhrase(text, preisPhrase))) {
+    await antworten(`⚠️ #${code}: Die überarbeitete Fassung enthält einen anderen Preis als den aus dem Rechner oder eine Zusage und darf nicht über die Freigabe raus. Bitte selbst im Chat schreiben. Der alte Entwurf bleibt offen.`);
     return;
   }
 
@@ -356,7 +361,12 @@ async function entwurfUeberarbeiten(input: {
       messageClass: alt.messageClass,
       draftText: text,
       finalText: null,
-      filterVerdicts: { priceOrCommitmentLeak: false, ueberarbeitetAus: draftId, anweisung: anweisung.slice(0, 500) },
+      filterVerdicts: {
+        priceOrCommitmentLeak: false,
+        ueberarbeitetAus: draftId,
+        anweisung: anweisung.slice(0, 500),
+        ...(preisPhrase && text.includes(preisPhrase) ? { preisPhrase } : {}),
+      },
       gateResults: alt.gateResults,
       status: "pending",
       idempotencyKey: ersatzSchluessel,
@@ -391,6 +401,7 @@ async function entwurfUeberarbeiten(input: {
     // die Sicherheitsprüfung läuft beim Senden trotzdem erneut.
     gate: { allowed: true, reasons: [] },
     ueberarbeitetAus: code,
+    preisPhrase: preisPhrase && text.includes(preisPhrase) ? preisPhrase : null,
   });
 }
 
@@ -437,6 +448,7 @@ async function nachfolgerErneutAnfragen(
     text: nachfolger.draftText,
     gate: { allowed: true, reasons: [] },
     ueberarbeitetAus: code,
+    preisPhrase: (nachfolger.filterVerdicts as { preisPhrase?: string } | null)?.preisPhrase ?? null,
   });
   return true;
 }

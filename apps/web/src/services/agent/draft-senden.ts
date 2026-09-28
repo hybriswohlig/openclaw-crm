@@ -11,6 +11,7 @@ import { agentMayContact, toGateMessageClass as toGateClass } from "@/services/a
 import { sendOnChannel, type AgentChannelRow } from "@/services/agent/agent-shared";
 import { leaksPriceOrCommitment, OPT_OUT_LINE } from "@/services/agent/agent-suppress";
 import { isOptOutLineEnabled } from "@/services/agent/agent-config";
+import { ohnePreisPhrase } from "@/services/agent/preis-entwurf";
 import {
   WhatsAppSessionExpiredError,
   BaileysBridgeNotConfiguredError,
@@ -216,7 +217,8 @@ export async function entwurfFreigebenUndSenden(input: {
     }
 
     // e) Price/commitment guard on the FINAL text (L4 re-scan).
-    if (leaksPriceOrCommitment(text)) {
+    const preisPhrase = (draft.filterVerdicts as { preisPhrase?: string } | null)?.preisPhrase ?? null;
+    if (leaksPriceOrCommitment(ohnePreisPhrase(text, preisPhrase))) {
       const verdicts = {
         ...((draft.filterVerdicts ?? {}) as Record<string, unknown>),
         priceOrCommitmentLeak: true,

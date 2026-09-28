@@ -42,6 +42,7 @@ import {
   inventoryAttachmentIdsForMessages,
 } from "@/services/deal-inventory";
 import { inventarErstbefuellen } from "@/services/inventar-wiederholung-lauf";
+import { baueAngebotsEntwurf } from "./preis-entwurf-lauf";
 import { applyDealInsights } from "@/services/deal-insights-apply";
 import { getRecord } from "@/services/records";
 import { getObjectBySlug } from "@/services/objects";
@@ -101,6 +102,9 @@ const AgentTurnSchema = z.object({
   // Internal note for the owner (shown on handoff). Never sent to the customer.
   owner_note: z.string().default(""),
   reason: z.string().default(""),
+  // Warum übergeben wird: bei "preis"/"vollstaendig" entsteht ein Entwurf mit
+  // der Preisspanne aus dem Angebotsrechner (nur als Entwurf zur Freigabe).
+  handoff_grund: z.enum(["preis", "vollstaendig", "mensch", "sonstiges"]).catch("sonstiges").default("sonstiges"),
 });
 
 type AgentTurn = z.infer<typeof AgentTurnSchema>;
@@ -123,12 +127,13 @@ DEINE AUFGABE: die nötigen Infos für ein Festpreisangebot sammeln. Pflichtanga
 HARTE REGELN
 - NENNE NIEMALS EINEN PREIS und mache KEIN Angebot. Du sammelst nur Infos. Den Preis macht ein Mensch.
 - Wenn der Kunde nach Preis, Angebot oder einer verbindlichen Buchung fragt, ODER wenn alle Pflichtangaben vorliegen, ODER wenn die Lage einen Menschen braucht (Beschwerde, Sonderfall, Verhandlung): setze action = "handoff". Sende dann KEINE Nachricht mit Preis, schreibe stattdessen eine kurze interne Notiz in owner_note (was vorliegt, was der Kunde will).
+- Bei action = "handoff" setze handoff_grund: "preis" wenn der Kunde nach Preis oder Angebot fragt, "vollstaendig" wenn alle Pflichtangaben vorliegen, "mensch" bei Beschwerde, Sonderfall, Verhandlung oder Buchungswunsch, sonst "sonstiges".
 - Wenn noch Pflichtangaben fehlen und der Kunde im Gespräch ist: action = "ask" und schreibe in message_de genau EINE kurze Nachricht, die die wichtigsten fehlenden Punkte erfragt.
 - KEIN echter Umzugs-Lead: Bewerbungen (jemand bewirbt sich als Mitarbeiter), Angebote von Lieferanten oder Partnern, Werbung, Spam oder reines Danke/Smalltalk -> action = "no_op". Schreibe in owner_note kurz, worum es geht (z.B. "Bewerbung, kein Kunde"). Sende NICHTS.
 - Abgesagt oder bereits bedient: Wenn der Kunde abgesagt hat, kein Interesse mehr hat, oder bereits ein ausführliches Angebot bzw. eine Antwort von uns erhalten hat und nichts Neues fragt -> action = "no_op". Reaktiviere NIE abgeschlossene oder abgelehnte Gespräche.
 - Vergangener Termin: Schlage NIE einen Umzugstermin vor und bestätige keinen, der vor dem heutigen Datum (oben angegeben) liegt. Liegt der besprochene Wunschtermin in der Vergangenheit, frage NICHT danach, sondern kurz, ob der Umzug noch ansteht und welcher Termin jetzt gilt, oder setze action = "handoff" mit einer Notiz.
 
-AUSGABE: NUR ein JSON-Objekt mit { action, message_de, owner_note, reason }. message_de ist die fertige Kundennachricht (nur bei action=ask), inklusive einer kurzen Grußzeile am Ende. Erfinde KEINEN persönlichen Namen; die Signatur wird separat angehängt.`;
+AUSGABE: NUR ein JSON-Objekt mit { action, message_de, owner_note, reason, handoff_grund }. message_de ist die fertige Kundennachricht (nur bei action=ask), inklusive einer kurzen Grußzeile am Ende. Erfinde KEINEN persönlichen Namen; die Signatur wird separat angehängt.`;
 
 /** Style guidance appended to the system prompt, depending on the disclosure toggle. */
 function disclosureClause(discloseAi: boolean, brand: string): string {
@@ -512,7 +517,7 @@ async function processConversation(
         }
       }
       await emitAgentEvent(conv, opts.dryRun ? "dry_run" : "live", {
-        action: "no_op", message_de: "", owner_note: "Wunschtermin liegt in der Vergangenheit", reason: "past_move_date",
+        action: "no_op", message_de: "", owner_note: "Wunschtermin liegt in der Vergangenheit", reason: "past_move_date", handoff_grund: "sonstiges",
       }, "");
       await stampInboundProcessed(conv.id, now);
       summary.noops += 1;
@@ -689,6 +694,16 @@ async function processConversation(
         modelTag,
       });
     } else if (turn.action === "handoff" && shadowWouldSend) {
+      // Preisfrage oder alles beisammen: Entwurf mit der Spanne aus dem
+      // Angebotsrechner statt der Übergabe-Floskel. NUR als Entwurf zur Freigabe;
+      // was die Engine live sendet (outgoing), bleibt unverändert.
+      const preis =
+        turn.handoff_grund === "preis" || turn.handoff_grund === "vollstaendig"
+          ? await baueAngebotsEntwurf(conv.workspaceId, conv.dealRecordId, {
+              frage: insights?.criticalMissing[0]?.question ?? null,
+              verlauf: messages.map((m) => m.body ?? ""),
+            })
+          : null;
       // The handoff ACK is a customer-facing message too — capture it.
       await captureShadowDraft({
         workspaceId: conv.workspaceId,
@@ -697,10 +712,11 @@ async function processConversation(
         dealRecordId: conv.dealRecordId,
         conversationId: conv.id,
         channelAccountId: conv.channelAccountId,
-        draftText: opts.handoffAck,
-        finalText: outgoing,
+        draftText: preis ? preis.text : opts.handoffAck,
+        finalText: preis ? appendSignature(preis.text, brand) : outgoing,
         gate: shadowVerdict,
         modelTag,
+        preisPhrase: preis?.phrase ?? null,
       });
     }
   }

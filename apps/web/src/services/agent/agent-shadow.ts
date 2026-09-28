@@ -22,6 +22,7 @@ import { and, eq, gt, isNull, or } from "drizzle-orm";
 import { db } from "@/db";
 import { agentEvents, agentDrafts } from "@/db/schema/agent";
 import { sendPush } from "@/services/push";
+import { ohnePreisPhrase } from "./preis-entwurf";
 import { leaksPriceOrCommitment } from "./agent-suppress";
 import { ownerUserIds } from "./agent-shared";
 import {
@@ -106,6 +107,8 @@ export async function recordShadowGate(input: ShadowGateInput): Promise<GateVerd
 }
 
 export interface ShadowDraftInput {
+  /** Freigegebener Preis-Satz aus dem Angebotsrechner; der Preisfilter lässt genau ihn durch. */
+  preisPhrase?: string | null;
   workspaceId: string;
   engine: ShadowEngine;
   messageClass: AgentMessageClass;
@@ -183,8 +186,9 @@ export async function captureShadowDraft(input: ShadowDraftInput): Promise<void>
         draftText: input.draftText,
         finalText: input.finalText ?? null,
         filterVerdicts: {
-          priceOrCommitmentLeak: leaksPriceOrCommitment(scanTarget),
+          priceOrCommitmentLeak: leaksPriceOrCommitment(ohnePreisPhrase(scanTarget, input.preisPhrase)),
           scannedText: input.finalText ? "final" : "draft",
+          ...(input.preisPhrase ? { preisPhrase: input.preisPhrase } : {}),
         },
         gateResults: input.gate
           ? { allowed: input.gate.allowed, reasons: input.gate.reasons }
@@ -238,6 +242,7 @@ export async function captureShadowDraft(input: ShadowDraftInput): Promise<void>
         messageClass: input.messageClass,
         text: scanTarget,
         gate: input.gate ? { allowed: input.gate.allowed, reasons: input.gate.reasons } : null,
+        preisPhrase: input.preisPhrase ?? null,
       });
     }
   } catch (err) {

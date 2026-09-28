@@ -36,7 +36,7 @@ export interface RechnerErgebnis {
     anfahrtKm: number; anfahrtMin: number; rueckfahrtKm: number; rueckfahrtMin: number;
   } | null;
   stationsVergleich?: Array<{ name: string; festpreis: number | null; selbstkosten: number | null; gewaehlt: boolean }>;
-  positionen?: Array<{ name: string; menge: number; volumenCbm: number }>;
+  positionen?: Array<{ name: string; menge: number; volumenCbm: number; zerlegt?: boolean }>;
   hinweise?: Array<{ typ: string; text: string }>;
   annahmen?: string[];
   fahrzeitHinweis?: string | null;
