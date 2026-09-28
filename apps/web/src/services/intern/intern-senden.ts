@@ -57,13 +57,19 @@ export async function sendeAnInterne(
     return { zugestellt: [], fehlgeschlagen: empfaenger.map((e) => e.name) };
   }
   for (const e of empfaenger) {
-    try {
-      await sendBaileysDirektText({ accountId: konto, peerWaId: e.lids[0] ? `${e.lids[0]}@lid` : e.ziffern, text });
-      ergebnis.zugestellt.push(e.name);
-    } catch (err) {
-      console.error(`[intern-senden] an ${e.name} fehlgeschlagen:`, err instanceof Error ? err.message : err);
-      ergebnis.fehlgeschlagen.push(e.name);
+    // Erst an die hinterlegte LID, bei Fehler an die Telefonnummer.
+    const ziele = e.lids[0] ? [`${e.lids[0]}@lid`, e.ziffern] : [e.ziffern];
+    let ok = false;
+    for (const ziel of ziele) {
+      try {
+        await sendBaileysDirektText({ accountId: konto, peerWaId: ziel, text });
+        ok = true;
+        break;
+      } catch (err) {
+        console.error(`[intern-senden] an ${e.name} (${ziel.includes("@lid") ? "LID" : "Nummer"}) fehlgeschlagen:`, err instanceof Error ? err.message : err);
+      }
     }
+    (ok ? ergebnis.zugestellt : ergebnis.fehlgeschlagen).push(e.name);
   }
   return ergebnis;
 }

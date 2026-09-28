@@ -185,6 +185,7 @@ export async function verarbeiteInterneNachricht(input: {
           );
 
   const treffer = offen.filter((d) => freigabeCode(d.id) === befehl.code);
+  if (treffer.length === 0 && (await nachfolgerErneutAnfragen(input.workspaceId, ids, befehl.code, antworten))) return;
   if (treffer.length === 0) {
     await antworten(`Keine offene Freigabe #${befehl.code} (schon erledigt, abgelaufen oder Tippfehler).`);
     return;
@@ -391,4 +392,51 @@ async function entwurfUeberarbeiten(input: {
     gate: { allowed: true, reasons: [] },
     ueberarbeitetAus: code,
   });
+}
+
+/**
+ * Ein Code gehört zu einem schon überarbeiteten Entwurf: die neue Fassung
+ * erneut zur Freigabe schicken (z. B. wenn deren Nachricht nie ankam).
+ * Liefert true, wenn so ein Nachfolger gefunden wurde.
+ */
+async function nachfolgerErneutAnfragen(
+  workspaceId: string,
+  angefragteIds: readonly string[],
+  code: string,
+  antworten: (t: string) => Promise<unknown>
+): Promise<boolean> {
+  if (angefragteIds.length === 0) return false;
+  const bearbeitet = (
+    await db
+      .select({ id: agentDrafts.id })
+      .from(agentDrafts)
+      .where(and(eq(agentDrafts.workspaceId, workspaceId), inArray(agentDrafts.id, [...angefragteIds]), eq(agentDrafts.status, "edited")))
+  ).filter((d) => freigabeCode(d.id) === code);
+  if (bearbeitet.length !== 1) return false;
+  const [nachfolger] = await db
+    .select()
+    .from(agentDrafts)
+    .where(
+      and(
+        eq(agentDrafts.workspaceId, workspaceId),
+        eq(agentDrafts.status, "pending"),
+        sql`${agentDrafts.filterVerdicts}->>'ueberarbeitetAus' = ${bearbeitet[0]!.id}`
+      )
+    )
+    .orderBy(desc(agentDrafts.createdAt))
+    .limit(1);
+  if (!nachfolger) return false;
+  await antworten(`#${code} wurde schon überarbeitet, die neue Fassung ist #${freigabeCode(nachfolger.id)} und kommt gleich noch einmal.`);
+  await freigabeAnfragen({
+    workspaceId,
+    draftId: nachfolger.id,
+    dealRecordId: nachfolger.dealRecordId,
+    conversationId: nachfolger.conversationId,
+    channelAccountId: nachfolger.channelAccountId,
+    messageClass: nachfolger.messageClass,
+    text: nachfolger.draftText,
+    gate: { allowed: true, reasons: [] },
+    ueberarbeitetAus: code,
+  });
+  return true;
 }

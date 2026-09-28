@@ -21,7 +21,8 @@ import {
   inboxMessageAttachments,
   whatsappTemplateMetadata,
 } from "@/db/schema/inbox";
-import { eq, and, desc, isNull, sql } from "drizzle-orm";
+import { eq, and, desc, gt, inArray, isNull, or, sql } from "drizzle-orm";
+import { agentDrafts } from "@/db/schema/agent";
 import { createDealForNewConversation } from "./inbox";
 import { emitEvent } from "./activity-events";
 import { getSecret } from "./workspace-settings";
@@ -1062,7 +1063,32 @@ export async function ingestOutboundWhatsAppMessage(params: {
   // unique (conversationId, externalMessageId) index and return early above
   // with messageId=null, so the agent is never muted by its own message.
   // Best-effort — must never block the ingest.
+  // Echo-Wettlauf: das Echo einer gerade freigegebenen KI-Nachricht kann vor
+  // der Zeile aus sendBaileysReply ankommen und sähe dann wie eine Handy-
+  // Nachricht aus. Ist in diesem Chat ein Entwurf mit genau diesem Text gerade
+  // im Versand, ist es kein Mensch.
+  let agentEcho = false;
   if (conv.dealRecordId && messageId) {
+    const [imVersand] = await db
+      .select({ id: agentDrafts.id })
+      .from(agentDrafts)
+      .where(
+        and(
+          eq(agentDrafts.conversationId, conv.id),
+          inArray(agentDrafts.status, ["approved", "sent", "send_uncertain"]),
+          gt(agentDrafts.updatedAt, new Date(Date.now() - 10 * 60_000)),
+          // Beim Senden kann eine Abmelde-Zeile angehängt werden: Anfang vergleichen.
+          or(
+            sql`position(${agentDrafts.finalText} in ${body}) = 1`,
+            sql`position(${agentDrafts.draftText} in ${body}) = 1`
+          )
+        )
+      )
+      .limit(1);
+    agentEcho = !!imVersand;
+  }
+
+  if (conv.dealRecordId && messageId && !agentEcho) {
     try {
       await setHumanOwned(account.workspaceId, conv.dealRecordId, null);
     } catch (err) {
