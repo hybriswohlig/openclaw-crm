@@ -109,6 +109,8 @@ export async function recordShadowGate(input: ShadowGateInput): Promise<GateVerd
 export interface ShadowDraftInput {
   /** Freigegebener Preis-Satz aus dem Angebotsrechner; der Preisfilter lässt genau ihn durch. */
   preisPhrase?: string | null;
+  /** Rechenweg zum Preis (nur intern, für die Freigabe-Nachricht) */
+  preisDetails?: string | null;
   workspaceId: string;
   engine: ShadowEngine;
   messageClass: AgentMessageClass;
@@ -189,6 +191,7 @@ export async function captureShadowDraft(input: ShadowDraftInput): Promise<void>
           priceOrCommitmentLeak: leaksPriceOrCommitment(ohnePreisPhrase(scanTarget, input.preisPhrase)),
           scannedText: input.finalText ? "final" : "draft",
           ...(input.preisPhrase ? { preisPhrase: input.preisPhrase } : {}),
+          ...(input.preisDetails ? { preisDetails: input.preisDetails.slice(0, 2500) } : {}),
         },
         gateResults: input.gate
           ? { allowed: input.gate.allowed, reasons: input.gate.reasons }
@@ -243,6 +246,7 @@ export async function captureShadowDraft(input: ShadowDraftInput): Promise<void>
         text: scanTarget,
         gate: input.gate ? { allowed: input.gate.allowed, reasons: input.gate.reasons } : null,
         preisPhrase: input.preisPhrase ?? null,
+        preisDetails: input.preisDetails ?? null,
       });
     }
   } catch (err) {

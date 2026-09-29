@@ -23,6 +23,10 @@ export const AI_TASK_SLUGS = {
   // nach der Anweisung des Inhabers. Ohne Humanizer (setzt die Anweisung genau
   // um und spart bis zu 90 s im 300-s-Budget der Route).
   DEAL_REVISE_DRAFT: "deal.revise-draft",
+  // Lernschleife: leitet aus Korrekturen der Inhaber (ändern, nein-Gründe,
+  // umgeschriebene Texte) Regelvorschläge ab. Nur Vorschläge; aktiv werden
+  // sie erst nach Bestätigung per WhatsApp ("regel 1 ja").
+  DEAL_DISTILL_RULES: "deal.distill-rules",
   // Operator-triggered photo analysis: customer-facing scope summary for the
   // offer, generated from curated customer photos (scope-from-photos endpoint).
   DEAL_SCOPE_FROM_PHOTOS: "deal.scope-from-photos",
@@ -152,6 +156,19 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
     defaultFallbackModel: "claude-code",
     defaultTemperature: 0.3,
     defaultMaxTokens: 1500,
+    defaultDailySpendCapUsd: 2,
+    humanizeOutput: false,
+  },
+  [AI_TASK_SLUGS.DEAL_DISTILL_RULES]: {
+    slug: AI_TASK_SLUGS.DEAL_DISTILL_RULES,
+    label: "Regelvorschläge aus Korrekturen (Lernschleife)",
+    description:
+      "Leitet aus den Korrekturen der Inhaber an KI-Entwürfen höchstens fünf allgemeine Stilregeln ab. Nur Vorschläge, die per WhatsApp einzeln bestätigt werden.",
+    defaultProvider: "crm-tools",
+    defaultModel: "grok-4.6",
+    defaultFallbackModel: "claude-code",
+    defaultTemperature: 0.2,
+    defaultMaxTokens: 2000,
     defaultDailySpendCapUsd: 2,
     humanizeOutput: false,
   },

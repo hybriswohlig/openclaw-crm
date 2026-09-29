@@ -50,6 +50,8 @@ import {
 // its own errors, and must NEVER branch engine behavior (see agent-shadow.ts).
 import { recordShadowGate, captureShadowDraft, shadowHeartbeat } from "./agent-shadow";
 import { anredeAnweisung, anredeAus, begruessung, saeubern, stimmeAusSignatur, STIL_REGELN } from "./stimme";
+import { inhaberRegelBlock } from "@/services/intern/regeln";
+import { ladeInhaberRegeln } from "@/services/intern/regeln-lauf";
 
 // Wait this long after OUR last message before nudging.
 const FOLLOWUP_AFTER_DAYS = 3;
@@ -318,7 +320,7 @@ async function runForWorkspace(
       const result = await runAITask({
         workspaceId,
         taskSlug: AI_TASK_SLUGS.LEAD_FOLLOWUP,
-        system: FOLLOWUP_SYSTEM,
+        system: FOLLOWUP_SYSTEM + inhaberRegelBlock(await ladeInhaberRegeln(workspaceId)),
         prompt: `# Gesprächsverlauf\n${transcript || "(leer)"}\n\n# Auftrag\n${anredeAnweisung(anrede, begruessung(anrede, {}))}\nNur EIN offener Punkt, keine Aufzählung.\nEntscheide, ob ein Nachfassen sinnvoll ist, und liefere das JSON.`,
         schema: FollowupSchema,
       });

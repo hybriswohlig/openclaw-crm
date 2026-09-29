@@ -73,6 +73,8 @@ import {
 import { recordShadowGate, captureShadowDraft, shadowHeartbeat } from "./agent-shadow";
 import { agentEvents } from "@/db/schema/agent";
 import { anredeAnweisung, begruessung, saeubern, stimmeAusSignatur, STIL_REGELN } from "./stimme";
+import { inhaberRegelBlock } from "@/services/intern/regeln";
+import { ladeInhaberRegeln } from "@/services/intern/regeln-lauf";
 
 const MAX_PER_TICK = 5;
 // Never contact leads older than this, regardless of the enable watermark. By
@@ -1011,7 +1013,7 @@ async function runEnabledWorkspace(
       const result = await runAITask({
         workspaceId,
         taskSlug: AI_TASK_SLUGS.LEAD_FIRST_CONTACT,
-        system: `Heute ist ${todayStr}.\n\n${buildFirstContactSystem(persona, stimme.marke)}`,
+        system: `Heute ist ${todayStr}.\n\n${buildFirstContactSystem(persona, stimme.marke)}${inhaberRegelBlock(await ladeInhaberRegeln(workspaceId))}`,
         prompt,
         schema: FirstContactSchema,
       });

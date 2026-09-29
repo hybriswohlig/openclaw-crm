@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { leistungenText, ohnePreisPhrase, preisEntwurfText, preisPhrase } from "./preis-entwurf";
+import { leistungenText, ohnePreisPhrase, preisDetailsText, preisEntwurfText, preisPhrase } from "./preis-entwurf";
 import { leaksPriceOrCommitment } from "./agent-suppress";
 
 describe("preisPhrase", () => {
@@ -58,5 +58,79 @@ describe("preisEntwurfText", () => {
     expect(leaksPriceOrCommitment(ohnePreisPhrase(t, phrase))).toBe(false);
     expect(leaksPriceOrCommitment(ohnePreisPhrase(`${t} Oder 900 €?`, phrase))).toBe(true);
     expect(ohnePreisPhrase(t, null)).toBe(t);
+  });
+});
+
+describe("preisDetailsText", () => {
+  const e = {
+    preis: {
+      festpreis: 1110, festpreisRoh: 1106.21, margeEur: 471.53, margeProzent: 42.48,
+      posten: [
+        { bezeichnung: "Arbeitsstunden (ohne Küche)", menge: 19.126, einheit: "Std", satz: 35, betrag: 669.41 },
+        { bezeichnung: "Fahrzeugpauschale", menge: 1, einheit: "Fahrzeugtag", satz: 150, betrag: 150 },
+        { bezeichnung: "Kilometer", menge: 136.8, einheit: "km", satz: 1, betrag: 136.8 },
+        { bezeichnung: "Halteverbotszone", menge: 1, einheit: "Stück", satz: 150, betrag: 150 },
+      ],
+    },
+    kosten: {
+      selbstkosten: 638.47, personenH: 19.126,
+      posten: [
+        { bezeichnung: "Personal (Arbeit, Fahrzeugübergabe, Fahrzeit, Puffer)", menge: 19.126, einheit: "Std", satz: 22.5, betrag: 430.33 },
+        { bezeichnung: "Boxer L3H2: Kraftstoff (137 km × 10 l/100 km)", menge: 13.68, einheit: "l", satz: 1.75, betrag: 23.94 },
+        { bezeichnung: "Boxer L3H2: Miete", menge: 1, einheit: "Tag", satz: 55, betrag: 55 },
+        { bezeichnung: "Halteverbotszone", menge: 1, einheit: "Stück", satz: 120, betrag: 120 },
+      ],
+    },
+    volumen: { nettoCbm: 10.25, gewichtKg: 1069 },
+    team: { groesse: 3 },
+    zeiten: { fahrtMin: 138, uhrzeitMin: 415.5 },
+    mietstation: { name: "SIXT Tübingen", anbieter: "Sixt", adresse: "x", quelle: "google", anfahrtKm: 27.4, anfahrtMin: 24, rueckfahrtKm: 52.7, rueckfahrtMin: 56 },
+    fahrzeugoptionen: [{ id: "b", name: "Boxer L3H2", fahrten: 1, km: 136.8, fahrtMin: 138, teamgroesse: 3, uhrzeitMin: 415.5 }],
+    empfehlungOptionId: "b",
+    hinweise: [
+      { typ: "demontage", text: "Bett mit Matratze: Demontage empfohlen (Beladeadresse: Wendeltreppe)" },
+      { typ: "ungeprueft", text: "Duschtür: ohne Katalogtreffer, Volumen und Zeit geschätzt" },
+      { typ: "passt_nicht", text: "Sofa: passt evtl. nicht am Stück (Beladeadresse: Wendeltreppe), Außenaufzug oder Alternative prüfen" },
+      { typ: "ungeprueft", text: "Klappbett: ohne Katalogtreffer, Volumen und Zeit geschätzt" },
+      { typ: "halteverbot", text: "Halteverbot an der Beladeadresse beantragen" },
+    ],
+    annahmen: ["Position \"Duschtür\" ohne Katalogtreffer: 0.2 m³ (vorgegeben) und 120 kg (Standard der Größenklasse sperrig) je Stück.", "Das gesamte Team fährt im Fahrzeug mit."],
+    schaetzung: null,
+  };
+  const anfrage = { von_adresse: "Mörikestraße 34/1, 70794 Filderstadt", nach_adresse: "Mönchweg 1, 72525 Münsingen" };
+
+  it("Strecke, Kilometer, Team, Fahrzeug, Station", () => {
+    const t = preisDetailsText(e, anfrage);
+    expect(t).toContain("Filderstadt → Münsingen ca. 57 km");
+    expect(t).toContain("gesamt 137 km, Fahrzeit 2 Std 18 Min");
+    expect(t).toContain("Mietstation SIXT Tübingen (hin 27 km, zurück 53 km)");
+    expect(t).toContain("3 Personen, Boxer L3H2, 1 Fahrt, Einsatz ca. 6,9 Std");
+    expect(t).toContain("10,3 m³, 1.069 kg");
+  });
+  it("Selbstkosten und Verkaufspreis mit Posten und Marge", () => {
+    const t = preisDetailsText(e, anfrage);
+    expect(t).toContain("Selbstkosten 638 €");
+    expect(t).toContain("• Personal 19,1 Std × 22,50 € = 430 €");
+    expect(t).toContain("• Boxer L3H2: Miete 55 €");
+    expect(t).toContain("Verkaufspreis 1.110 € (Marge 472 €, 42 %)");
+    expect(t).toContain("• Kilometer 136,8 km × 1,00 € = 137 €");
+  });
+  it("Risiken zuerst, Geschätztes in einer Zeile, ohne Selbstverständliches", () => {
+    const t = preisDetailsText(e, anfrage);
+    const risiken = t.slice(t.indexOf("Risiken und Annahmen:"));
+    expect(risiken.split("\n")[1]).toContain("Sofa: passt evtl. nicht am Stück");
+    expect(t).toContain("Ohne Katalogtreffer geschätzt: Duschtür, Klappbett");
+    expect(t).not.toContain("Demontage empfohlen");
+    expect(t).not.toContain("Das gesamte Team fährt");
+    expect(t).not.toContain("Halteverbot an der Beladeadresse beantragen");
+  });
+  it("Spanne: Hinweis, dass die Aufstellung den ungünstigen Fall zeigt", () => {
+    const t = preisDetailsText({ ...e, schaetzung: { festpreisVon: 980, festpreisBis: 1110, annahmen: ["Etage unbekannt: günstig EG, ungünstig 3. OG."] } }, anfrage);
+    expect(t).toContain("ungünstigen Fall der Spanne");
+    expect(t).toContain("Etage unbekannt");
+  });
+  it("fehlende Werte: kein Absturz, kein 'undefined'", () => {
+    const t = preisDetailsText({ preis: { festpreis: 340 } }, {});
+    expect(t).not.toMatch(/undefined|NaN/);
   });
 });
