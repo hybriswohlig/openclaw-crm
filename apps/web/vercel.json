@@ -19,6 +19,10 @@
       "schedule": "*/10 6-21 * * *"
     },
     {
+      "path": "/api/cron/fotos-analysieren",
+      "schedule": "3,13,23,33,43,53 6-21 * * *"
+    },
+    {
       "path": "/api/cron/regeln-lernen",
       "schedule": "0 7 * * 1"
     },
