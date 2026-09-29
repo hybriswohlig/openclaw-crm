@@ -20,7 +20,9 @@
  */
 
 import { db } from "@/db";
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
+import { agentEvents } from "@/db/schema/agent";
+import { fotosVormerken } from "@/services/inventar-fotos";
 import {
   inboxConversations,
   inboxMessages,
@@ -37,7 +39,6 @@ import { WhatsAppSessionExpiredError } from "@/services/inbox-whatsapp";
 import { emitEvent } from "@/services/activity-events";
 import { extractDealInsights } from "@/services/deal-insights";
 import {
-  analyzeInventoryPhotos,
   hasAnyInventory,
   inventoryAttachmentIdsForMessages,
 } from "@/services/deal-inventory";
@@ -81,6 +82,10 @@ import { ladeInhaberRegeln } from "@/services/intern/regeln-lauf";
 const MAX_CONVERSATIONS_PER_TICK = 8;
 // Cap the slow crm-tools vision extraction per tick (30 to 90s each).
 const MAX_VISION_EXTRACTIONS_PER_TICK = 3;
+/** Auffangnetz: Anstöße je Nachrichten-Schub */
+const MAX_WIEDER_ANSTOSS = 2;
+/** Mindestrestzeit vor einer Übernahme: ein Entwurf dauert bis etwa 80 s */
+const ENTWURF_RESERVE_MS = 100_000;
 const MAX_TRANSCRIPT_MESSAGES = 30;
 // Only act on conversations whose last customer message is recent. This is the
 // guard against a stale backlog: turning the agent on must never drain weeks of
@@ -369,6 +374,81 @@ async function stampInboundProcessed(conversationId: string, now: Date): Promise
     );
 }
 
+/**
+ * Auffangnetz: Die Übernahme löscht das Signal "Antwort nötig" sofort. Wird der
+ * Lauf danach abgebrochen (Zeitlimit), hängt die Unterhaltung. Hier werden solche
+ * Unterhaltungen erkannt (jüngste Kundennachricht unbearbeitet, älter als 10
+ * Minuten, nicht pausiert, keine Antwort von uns danach) und höchstens zweimal je
+ * Nachrichten-Schub wieder angestoßen. updated_at älter als 6 Minuten heißt: kein
+ * Lauf ist gerade dran (die Übernahme setzt updated_at, ein Lauf endet nach 300 s).
+ */
+async function wiederAnstossen(workspaceId: string, now: Date): Promise<number> {
+  const kandidaten = (await db.execute(sql`
+    SELECT c.id, c.ai_last_inbound_at
+    FROM inbox_conversations c
+    WHERE c.workspace_id = ${workspaceId}
+      AND c.ai_needs_reply = false AND c.ai_paused = false AND c.lane = 'lead'
+      AND c.ai_last_inbound_at IS NOT NULL
+      AND c.ai_last_inbound_at >= ${new Date(now.getTime() - MAX_LEAD_AGE_MS).toISOString()}::timestamptz
+      AND c.ai_last_inbound_at <= ${new Date(now.getTime() - 10 * 60_000).toISOString()}::timestamptz
+      AND (c.ai_hold_until IS NULL OR c.ai_hold_until <= ${now.toISOString()}::timestamptz)
+      AND c.updated_at <= ${new Date(now.getTime() - 6 * 60_000).toISOString()}::timestamptz
+      AND NOT EXISTS (
+        SELECT 1 FROM inbox_messages o
+        WHERE o.conversation_id = c.id AND o.direction = 'outbound' AND o.sent_at > c.ai_last_inbound_at
+      )
+      AND EXISTS (
+        SELECT 1 FROM inbox_messages m
+        WHERE m.conversation_id = c.id AND m.direction = 'inbound' AND m.ai_processed_at IS NULL
+          AND m.sent_at >= c.ai_last_inbound_at - interval '1 minute'
+      )
+    LIMIT 5`)) as unknown as Array<{ id: string; ai_last_inbound_at: string | Date }>;
+  let angestossen = 0;
+  for (const k of kandidaten) {
+    const schub = new Date(k.ai_last_inbound_at).toISOString();
+    let neu: Array<{ id: number }> = [];
+    for (let versuch = 1; versuch <= MAX_WIEDER_ANSTOSS && neu.length === 0; versuch++) {
+      neu = await db
+        .insert(agentEvents)
+        .values({
+          workspaceId,
+          conversationId: k.id,
+          engine: "reply",
+          eventType: "wieder_angestossen",
+          payload: { schub, versuch },
+          idempotencyKey: `wieder:${k.id}:${schub}:${versuch}`,
+        })
+        .onConflictDoNothing()
+        .returning({ id: agentEvents.id });
+    }
+    if (neu.length === 0) continue; // dieser Schub hatte schon alle Versuche
+    await db
+      .update(inboxConversations)
+      .set({ aiNeedsReply: true, updatedAt: new Date() })
+      .where(and(eq(inboxConversations.id, k.id), eq(inboxConversations.aiNeedsReply, false)));
+    angestossen++;
+  }
+  return angestossen;
+}
+
+/** Hat das Auffangnetz genau diesen Nachrichten-Schub angestoßen? Dann ohne Zusatzschritte. */
+async function kuerzlichWiederAngestossen(conversationId: string, aiLastInboundAt: Date | null): Promise<boolean> {
+  if (!aiLastInboundAt) return false;
+  const [e] = await db
+    .select({ id: agentEvents.id })
+    .from(agentEvents)
+    .where(
+      and(
+        eq(agentEvents.conversationId, conversationId),
+        eq(agentEvents.eventType, "wieder_angestossen"),
+        gt(agentEvents.createdAt, new Date(Date.now() - 30 * 60_000)),
+        sql`${agentEvents.payload}->>'schub' = ${new Date(aiLastInboundAt).toISOString()}`
+      )
+    )
+    .limit(1);
+  return !!e;
+}
+
 async function clearNeedsReply(conversationId: string, pause: boolean): Promise<void> {
   await db
     .update(inboxConversations)
@@ -428,6 +508,8 @@ async function processConversation(
     dealsObjId: string | null;
     advancedStages: Set<string>;
     visionBudget: { left: number };
+    /** Zeitpunkt (ms), bis zu dem dieser Lauf sicher fertig sein muss (Vercel-Grenze minus Puffer) */
+    hartesEnde: number;
   },
   now: Date,
   summary: AgentRunSummary
@@ -537,8 +619,43 @@ async function processConversation(
   // Fold any newly received customer photos into the structured slots first,
   // using the existing extraction brain (it reads images via the VPS crm-tools
   // provider). Bounded per tick because that call is slow.
+  // Zeitbudget (Lead "Patrick", 2026-09-29): Lead-Auswertung (~100 s), Foto-
+  // analyse (bis 270 s) und der Entwurf (~80 s) sprengten zusammen Vercels
+  // 300-Sekunden-Grenze. Der Lauf wurde abgebrochen, nachdem die Übernahme das
+  // Signal schon gelöscht hatte, und der Kunde bekam nie einen Entwurf. Jetzt
+  // hat der Entwurf Vorrang: Zusatzschritte nur, wenn danach noch Zeit bleibt,
+  // Fotos analysiert ein eigener Cron (inventar-fotos.ts).
+  const zeitFuer = (sekunden: number) => Date.now() + sekunden * 1000 < opts.hartesEnde;
+  const ohneExtras = await kuerzlichWiederAngestossen(conv.id, conv.aiLastInboundAt);
+
+  // ── Inventar: Chat-Liste zuerst (schnell, macht den Preis genau), Fotos vormerken ──
+  if (conv.dealRecordId) {
+    try {
+      const newPhotoIds = await inventoryAttachmentIdsForMessages(
+        conv.workspaceId,
+        unprocessedInbound.map((m) => m.id)
+      );
+      if (newPhotoIds.length > 0) {
+        await fotosVormerken(conv.workspaceId, conv.dealRecordId, conv.id, newPhotoIds);
+      }
+      // Auch nach dem Auffangnetz: die Chat-Liste ist schnell und macht den Preis genau.
+      if (
+        opts.visionBudget.left > 0 &&
+        zeitFuer(190) &&
+        !(await hasAnyInventory(conv.workspaceId, conv.dealRecordId))
+      ) {
+        opts.visionBudget.left -= 1;
+        // Fehlschläge werden vermerkt; /api/cron/retry-inventory versucht es erneut.
+        await inventarErstbefuellen(conv.workspaceId, conv.dealRecordId);
+      }
+    } catch (err) {
+      console.error("[agent-worker] inventory auto-analysis failed (non-blocking):", err);
+    }
+  }
+
+  // ── Lead-Auswertung bei neuen Bildern, nur wenn danach der Entwurf noch sicher passt ──
   let insights: InsightsContext | null = null;
-  if (conv.dealRecordId && opts.visionBudget.left > 0) {
+  if (conv.dealRecordId && !ohneExtras && opts.visionBudget.left > 0 && zeitFuer(210)) {
     const hasImages = await hasUnprocessedInboundImages(
       conv.id,
       unprocessedInbound.map((m) => m.id)
@@ -566,34 +683,6 @@ async function processConversation(
       } catch (err) {
         console.error("[agent-worker] vision extraction failed (non-blocking):", err);
       }
-    }
-  }
-
-  // ── AI-Umzugsanalyse (Phase 2b): Inventar automatisch pflegen ──────────────
-  // Teilt sich das Vision-Budget mit der Insights-Extraktion (bounded pro Tick,
-  // sequenziell — der VPS hat MemoryMax 3G). Zwei Auto-Fälle:
-  //   1. Neue Kundenfotos in diesem Tick → nur DIESE Fotos analysieren und in
-  //      die Inventarliste matchen.
-  //   2. Deal hat noch gar kein Inventar → einmalige Erstbefüllung aus dem
-  //      Chat nach dem Quiet-Window; Re-Analysen bleiben Operator-Entscheid.
-  if (conv.dealRecordId && opts.visionBudget.left > 0) {
-    try {
-      const newPhotoIds = await inventoryAttachmentIdsForMessages(
-        conv.workspaceId,
-        unprocessedInbound.map((m) => m.id)
-      );
-      if (newPhotoIds.length > 0) {
-        opts.visionBudget.left -= 1;
-        await analyzeInventoryPhotos(conv.workspaceId, conv.dealRecordId, {
-          attachmentIds: newPhotoIds,
-        });
-      } else if (!(await hasAnyInventory(conv.workspaceId, conv.dealRecordId))) {
-        opts.visionBudget.left -= 1;
-        // Fehlschläge werden vermerkt; /api/cron/retry-inventory versucht es erneut.
-        await inventarErstbefuellen(conv.workspaceId, conv.dealRecordId);
-      }
-    } catch (err) {
-      console.error("[agent-worker] inventory auto-analysis failed (non-blocking):", err);
     }
   }
 
@@ -857,6 +946,7 @@ async function runForWorkspace(
   workspaceId: string,
   now: Date,
   deadlineMs: number,
+  hartesEnde: number,
   summary: AgentRunSummary
 ): Promise<void> {
   const [enabled, dryRun, channels, signature, discloseAi, disclosure, handoffAck, dealsObj] =
@@ -878,6 +968,15 @@ async function runForWorkspace(
   // AB-signed conversation.
   const advancedStages = dealsObjId ? await getAdvancedStageIds(dealsObjId) : new Set<string>();
 
+  // Auffangnetz: Unterhaltungen, deren letzte Kundennachrichten seit über 10
+  // Minuten unbearbeitet sind, obwohl das Signal aus ist (abgebrochener Lauf),
+  // werden einmal wieder angestoßen, dann ohne Zusatzschritte.
+  try {
+    const wieder = await wiederAnstossen(workspaceId, now);
+    if (wieder > 0) console.log(`[agent-worker] ${wieder} hängende Unterhaltung(en) wieder angestoßen`);
+  } catch (err) {
+    console.error("[agent-worker] Auffangnetz fehlgeschlagen:", err);
+  }
   const due = await selectDueConversations(workspaceId, channels, now);
   summary.due += due.length;
 
@@ -896,12 +995,13 @@ async function runForWorkspace(
   for (const conv of due) {
     // Time budget: the vision + humanizer steps can each be slow, so bail before
     // the cron times out. Unprocessed conversations keep aiNeedsReply and are
-    // picked up on the next tick.
-    if (Date.now() > deadlineMs) break;
+    // picked up on the next tick. Keine Übernahme mehr, wenn der Entwurf nicht
+    // mehr sicher vor Vercels Grenze fertig wird (die Übernahme löscht das Signal).
+    if (Date.now() > deadlineMs || Date.now() + ENTWURF_RESERVE_MS > hartesEnde) break;
     try {
       await processConversation(
         conv,
-        { dryRun, signature, discloseAi, disclosure, handoffAck, dealsObjId, advancedStages, visionBudget },
+        { dryRun, signature, discloseAi, disclosure, handoffAck, dealsObjId, advancedStages, visionBudget, hartesEnde },
         now,
         summary
       );
@@ -939,6 +1039,8 @@ export async function runAgentReplies(): Promise<AgentRunSummary> {
   const now = new Date();
   // Leave headroom under the route's maxDuration (300s) for slow vision/humanize.
   const deadlineMs = now.getTime() + 240_000;
+  // Harte Grenze für Zusatzschritte innerhalb einer Unterhaltung (Route maxDuration 300 s).
+  const hartesEnde = now.getTime() + 285_000;
   const summary: AgentRunSummary = {
     workspaces: 0,
     enabledWorkspaces: 0,
@@ -959,7 +1061,7 @@ export async function runAgentReplies(): Promise<AgentRunSummary> {
   for (const w of wsRows) {
     if (Date.now() > deadlineMs) break;
     try {
-      await runForWorkspace(w.id, now, deadlineMs, summary);
+      await runForWorkspace(w.id, now, deadlineMs, hartesEnde, summary);
     } catch (err) {
       console.error("[agent-worker] workspace failed:", w.id, err);
       summary.errors += 1;
