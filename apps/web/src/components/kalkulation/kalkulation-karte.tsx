@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Calculator, ChevronDown, ChevronRight, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { KostenPosten } from "@/services/rechner/client";
+import { reglerZustand } from "./regler";
 import { euroText, kartenAnzeige, type KalkulationJson, type KalkulationsStatus } from "./anzeige";
 
 interface Antwort {
@@ -50,6 +51,8 @@ export function KalkulationKarte({ recordId, onUebernommen }: { recordId: string
   const [laedt, setLaedt] = useState(true);
   const [arbeitet, setArbeitet] = useState<"neu" | "uebernehmen" | null>(null);
   const [details, setDetails] = useState(false);
+  // Reglerwert gehört zu genau einer Berechnung (computedAt): eine neue Rechnung setzt ihn ohne Effekt auf den Vorschlag zurück.
+  const [reglerWahl, setReglerWahl] = useState<{ fuer: string | null; wert: number | null }>({ fuer: null, wert: null });
 
   const laden = useCallback(async (neu: boolean) => {
     try {
@@ -80,14 +83,14 @@ export function KalkulationKarte({ recordId, onUebernommen }: { recordId: string
     }
   }
 
-  async function uebernehmen(spanne: boolean, obergrenze: string) {
+  async function uebernehmen(spanne: boolean, obergrenze: string, margeProzent: number | null) {
     if (spanne && !window.confirm(`Nur eine Spanne vorhanden. Obergrenze ${obergrenze} als Festpreis ins Angebot übernehmen?`)) return;
     setArbeitet("uebernehmen");
     try {
       const res = await fetch(`/api/v1/deals/${recordId}/calculation/apply`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ bestaetigtSpanne: spanne }),
+        body: JSON.stringify({ bestaetigtSpanne: spanne, ...(margeProzent !== null ? { margeProzent } : {}) }),
       });
       if (res.ok) {
         toast.success("Festpreis und Annahmen ins Angebot übernommen");
@@ -116,7 +119,11 @@ export function KalkulationKarte({ recordId, onUebernommen }: { recordId: string
   const k = antwort?.kalkulation ?? null;
   const a = kartenAnzeige(antwort?.status ?? "fehler", k);
   const e = k?.result ?? null;
-  const obergrenze = e?.schaetzung?.festpreisBis;
+  const marge = reglerWahl.fuer === (k?.computedAt ?? null) ? reglerWahl.wert : null;
+  const setMarge = (wert: number | null) => setReglerWahl({ fuer: k?.computedAt ?? null, wert });
+  const z = reglerZustand(e, marge);
+  // Bei verfügbarem Regler ist der Reglerpreis der Festpreis, auch bei einer Spanne (Obergrenze mit gewählter Marge).
+  const obergrenze = z.verfuegbar ? z.festpreis : e?.schaetzung?.festpreisBis;
 
   return (
     <div className="rounded-lg border border-border p-4">
@@ -134,6 +141,39 @@ export function KalkulationKarte({ recordId, onUebernommen }: { recordId: string
               {e.preis.margeProzent != null && `, Marge ${e.preis.margeProzent.toLocaleString("de-DE", { maximumFractionDigits: 1 })} %`}
             </div>
           )}
+          {z.verfuegbar && e?.preis && (
+            <div className="mt-3 space-y-2">
+              {e.preis.selbstkosten != null && (
+                <div className="text-xs text-muted-foreground">Selbstkosten {euroText(e.preis.selbstkosten)} (intern)</div>
+              )}
+              <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                <span className="font-medium">Vorschlag {z.startMarge} %</span>
+                {z.gruende.map((g, i) => (
+                  <span key={i} className="rounded-full border px-2 py-0.5 text-[11px]">
+                    {g.text} {g.punkte > 0 ? `+${g.punkte}` : g.punkte < 0 ? `\u2212${Math.abs(g.punkte)}` : "0"}
+                  </span>
+                ))}
+              </div>
+              <input
+                type="range"
+                min={30}
+                max={60}
+                step={1}
+                value={marge ?? z.startMarge}
+                onChange={(ev) => setMarge(Number(ev.target.value))}
+                aria-label="Marge in Prozent"
+                className="w-full"
+              />
+              <div className="text-sm">
+                Festpreis {a.spanne && z.festpreisVon != null ? `${euroText(z.festpreisVon)} bis ${euroText(z.festpreis ?? 0)}` : euroText(z.festpreis ?? 0)}
+                , Marge {euroText(z.margeEur ?? 0)} ({z.margeProzent} %)
+              </div>
+              {z.listenpreis != null && <div className="text-xs text-muted-foreground">nach Preisliste {euroText(z.listenpreis)}</div>}
+              {marge !== null && marge !== z.startMarge && (
+                <Button variant="ghost" size="sm" onClick={() => setMarge(null)}>auf Vorschlag zurück</Button>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
           <Button variant="outline" size="sm" onClick={neuKalkulieren} disabled={arbeitet !== null}>
@@ -141,13 +181,19 @@ export function KalkulationKarte({ recordId, onUebernommen }: { recordId: string
             Neu kalkulieren
           </Button>
           {a.kannUebernehmen && (
-            <Button size="sm" onClick={() => uebernehmen(a.spanne, obergrenze != null ? euroText(obergrenze) : "")} disabled={arbeitet !== null}>
+            <Button size="sm" onClick={() => uebernehmen(a.spanne, obergrenze != null ? euroText(obergrenze) : "", z.verfuegbar ? marge ?? z.startMarge : null)} disabled={arbeitet !== null}>
               {arbeitet === "uebernehmen" && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
               In Angebot übernehmen
             </Button>
           )}
         </div>
       </div>
+
+      {z.veraltet && (
+        <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+          Diese Kalkulation stammt von vor der Margen-Umstellung. Bitte neu rechnen, dann erscheint der Regler.
+        </div>
+      )}
 
       {a.warnung && (
         <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
@@ -169,7 +215,7 @@ export function KalkulationKarte({ recordId, onUebernommen }: { recordId: string
             <div className="mt-2 space-y-3">
               {a.spanne && <p className="text-xs text-muted-foreground">Die Aufstellung zeigt den ungünstigen Fall der Spanne.</p>}
               <PostenListe titel="Selbstkosten" posten={e.kosten?.posten ?? []} summe={e.kosten?.selbstkosten} />
-              <PostenListe titel="Verkaufspreis nach Stunden" posten={e.preis?.posten ?? []} summe={e.preis?.festpreisRoh} />
+              <PostenListe titel="Nach Preisliste (nur Vergleich)" posten={e.preis?.posten ?? []} summe={e.preis?.listenpreis ?? e.preis?.festpreisRoh} />
               {a.annahmen.length > 0 && (
                 <div>
                   <div className="mb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">Annahmen</div>
