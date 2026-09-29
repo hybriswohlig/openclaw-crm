@@ -29,6 +29,8 @@ import { AI_TASK_SLUGS } from "@/services/ai/task-registry";
 import { toGateMessageClass } from "@/services/agent/agent-gate";
 import { befehlAus, freigabeCode } from "./freigabe-befehle";
 import { sendeAnInterne } from "./intern-senden";
+import { inhaberRegelBlock, regelListeText } from "./regeln";
+import { entscheideRegel, ladeInhaberRegeln, loescheRegel, schlageRegelnVor } from "./regeln-lauf";
 import type { InterneNummer } from "./interne-nummern";
 
 /** Sperrgründe, bei denen trotzdem um Freigabe gefragt wird (ein Mensch entscheidet). */
@@ -80,6 +82,8 @@ export async function freigabeAnfragen(input: {
   ueberarbeitetAus?: string | null;
   /** Preis-Satz aus dem Angebotsrechner, falls der Entwurf einen enthält */
   preisPhrase?: string | null;
+  /** Rechenweg zum Preis (Strecke, Kosten, Marge, Risiken) */
+  preisDetails?: string | null;
 }): Promise<void> {
   try {
     const g = input.gate;
@@ -100,7 +104,8 @@ export async function freigabeAnfragen(input: {
     ]);
     const klasse = DRAFT_CLASS_LABELS[toGateMessageClass(input.messageClass) as keyof typeof DRAFT_CLASS_LABELS] ?? "Entwurf";
     const kunde = (letzte[0]?.body ?? "").trim();
-    const nachricht = [
+    // WhatsApp-Grenze ~4096 Zeichen: zuerst den Rechenweg kürzen, die Befehlszeile bleibt immer.
+    const baue = (details: string | null | undefined) => [
       `📝 Freigabe #${code} · ${firma ?? "Firma unbekannt"} · ${klasse}${input.ueberarbeitetAus ? ` · überarbeitet aus #${input.ueberarbeitetAus}` : ""}`,
       deal ?? "Lead ohne Namen",
       input.preisPhrase ? `💶 Preis aus dem Angebotsrechner: ${input.preisPhrase} (Kalkulation im CRM prüfen)` : null,
@@ -108,11 +113,22 @@ export async function freigabeAnfragen(input: {
       "",
       "Entwurf:",
       input.text,
+      details ? `\n${details}` : null,
       "",
       `ok ${code} · ändern ${code}: Wunsch · senden ${code}: eigener Text · nein ${code}: Grund`,
     ]
       .filter((z) => z !== null)
       .join("\n");
+    let nachricht = baue(input.preisDetails);
+    if (nachricht.length > 3800 && input.preisDetails) {
+      const platz = Math.max(0, input.preisDetails.length - (nachricht.length - 3800) - 40);
+      nachricht = baue(platz > 200 ? `${input.preisDetails.slice(0, platz)}\n… (vollständig in der Kalkulation im CRM)` : null);
+    }
+    if (nachricht.length > 3800) {
+      const zeilen = nachricht.split("\n");
+      const befehle = zeilen.pop()!;
+      nachricht = `${zeilen.join("\n").slice(0, 3700)}\n… (gekürzt, vollständig im CRM)\n\n${befehle}`;
+    }
 
     // Erst vormerken, dann senden: der Entwurf ist per Code auffindbar, auch
     // wenn die Zustellung scheitert (erneutes Anfragen schreibt kein zweites Event).
@@ -162,9 +178,27 @@ export async function verarbeiteInterneNachricht(input: {
   absender: InterneNummer;
   text: string;
 }): Promise<void> {
-  const befehl = befehlAus(input.text);
-  if (!befehl) return;
+  const erkannt = befehlAus(input.text);
+  if (!erkannt) return;
   const antworten = (t: string) => sendeAnInterne(input.workspaceId, t, { kontoId: input.kontoId });
+
+  // Regel-Befehle der Lernschleife (ohne Entwurfs-Code)
+  switch (erkannt.aktion) {
+    case "regel_ja":
+    case "regel_nein":
+      await antworten(await entscheideRegel(input.workspaceId, erkannt.paket, erkannt.nr, erkannt.aktion === "regel_ja", input.absender.name));
+      return;
+    case "regel_loeschen":
+      await antworten(await loescheRegel(input.workspaceId, erkannt.nr, input.absender.name));
+      return;
+    case "regeln_liste":
+      await antworten(regelListeText(await ladeInhaberRegeln(input.workspaceId)));
+      return;
+    case "regeln_vorschlagen":
+      await schlageRegelnVor(input.workspaceId, { erzwingen: true, kontoId: input.kontoId });
+      return;
+  }
+  const befehl = erkannt;
 
   // Offene Entwürfe, zu denen eine Freigabe per WhatsApp angefragt wurde.
   const angefragt = await db
@@ -346,7 +380,7 @@ async function entwurfUeberarbeiten(input: {
   const r = await runAITask({
     workspaceId,
     taskSlug: AI_TASK_SLUGS.DEAL_REVISE_DRAFT,
-    system: UEBERARBEITEN_SYSTEM,
+    system: UEBERARBEITEN_SYSTEM + inhaberRegelBlock(await ladeInhaberRegeln(workspaceId)),
     prompt: `${verlauf ? `Letzte Nachrichten:\n${verlauf}\n\n` : ""}Bisheriger Entwurf:\n${bisher}\n\nAnweisung des Inhabers:\n${anweisung}\n\nÜberarbeiteter Entwurf:`,
   });
   const text = r.ok ? String(r.output ?? "").trim().replace(/^["„“]|["“”]$/g, "").trim() : "";
@@ -376,7 +410,9 @@ async function entwurfUeberarbeiten(input: {
         priceOrCommitmentLeak: false,
         ueberarbeitetAus: draftId,
         anweisung: anweisung.slice(0, 500),
-        ...(preisPhrase && text.includes(preisPhrase) ? { preisPhrase } : {}),
+        ...(preisPhrase && text.includes(preisPhrase)
+          ? { preisPhrase, preisDetails: (alt.filterVerdicts as { preisDetails?: string } | null)?.preisDetails ?? null }
+          : {}),
       },
       gateResults: alt.gateResults,
       status: "pending",
@@ -413,6 +449,7 @@ async function entwurfUeberarbeiten(input: {
     gate: { allowed: true, reasons: [] },
     ueberarbeitetAus: code,
     preisPhrase: preisPhrase && text.includes(preisPhrase) ? preisPhrase : null,
+    preisDetails: preisPhrase && text.includes(preisPhrase) ? ((alt.filterVerdicts as { preisDetails?: string } | null)?.preisDetails ?? null) : null,
   });
 }
 
@@ -460,6 +497,7 @@ async function nachfolgerErneutAnfragen(
     gate: { allowed: true, reasons: [] },
     ueberarbeitetAus: code,
     preisPhrase: (nachfolger.filterVerdicts as { preisPhrase?: string } | null)?.preisPhrase ?? null,
+    preisDetails: (nachfolger.filterVerdicts as { preisDetails?: string } | null)?.preisDetails ?? null,
   });
   return true;
 }

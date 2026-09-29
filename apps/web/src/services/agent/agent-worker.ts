@@ -75,6 +75,8 @@ import { ensureAgentPriceTask } from "./agent-tasks";
 // Phase-1 SHADOW instrumentation: parallel gate + draft capture + heartbeat.
 // Purely additive — never throws, never alters engine behavior (see agent-shadow.ts).
 import { recordShadowGate, captureShadowDraft, shadowHeartbeat, HUMAN_ACTIONABLE_BLOCKS } from "./agent-shadow";
+import { inhaberRegelBlock } from "@/services/intern/regeln";
+import { ladeInhaberRegeln } from "@/services/intern/regeln-lauf";
 
 const MAX_CONVERSATIONS_PER_TICK = 8;
 // Cap the slow crm-tools vision extraction per tick (30 to 90s each).
@@ -620,7 +622,8 @@ async function processConversation(
   const system =
     `Heute ist ${todayStr}. Du schreibst im Namen von ${stimme.marke}${stimme.absender ? ` (Absender: ${stimme.absender})` : ""}.\n\n` +
     SYSTEM_PROMPT +
-    disclosureClause(opts.discloseAi, stimme.marke);
+    disclosureClause(opts.discloseAi, stimme.marke) +
+    inhaberRegelBlock(await ladeInhaberRegeln(conv.workspaceId));
   const { turn, modelTag } = await runTurn(
     conv.workspaceId,
     system,
@@ -727,6 +730,7 @@ async function processConversation(
           gate: shadowVerdict,
           modelTag,
           preisPhrase: preis.phrase,
+          preisDetails: preis.details,
         });
       } else {
         // Nur wenn wir den Kunden überhaupt anschreiben dürften (kein STOP, kein

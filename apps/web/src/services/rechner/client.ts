@@ -39,7 +39,7 @@ export interface RechnerErgebnis {
     margeVorschlag?: MargeVorschlag | null;
   };
   kosten?: { selbstkosten: number; posten?: KostenPosten[]; personenH?: number };
-  volumen?: { nettoCbm: number; ladeCbm?: number };
+  volumen?: { nettoCbm: number; ladeCbm?: number; gewichtKg?: number };
   zeiten?: { fahrtMin?: number; uhrzeitMin?: number; einsatztage?: number };
   team?: { groesse: number };
   schaetzung?: {
@@ -56,6 +56,11 @@ export interface RechnerErgebnis {
   hinweise?: Array<{ typ: string; text: string }>;
   annahmen?: string[];
   fahrzeitHinweis?: string | null;
+  fahrzeugoptionen?: Array<{
+    id: string; name: string; fahrten: number; km: number; fahrtMin: number;
+    teamgroesse: number; uhrzeitMin?: number; auslastung?: number;
+  }>;
+  empfehlungOptionId?: string | null;
 }
 
 export type RechnerAntwort = { ok: true; ergebnis: RechnerErgebnis } | { ok: false; fehler: string };

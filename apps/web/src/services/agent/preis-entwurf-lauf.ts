@@ -2,14 +2,14 @@
 import { aktuelleKalkulation } from "@/services/rechner/kalkulation";
 import { hatPaketoptionen } from "@/services/rechner/pakete";
 import { getQuotation } from "@/services/quotations";
-import { angebotsPhrase, leistungenText, preisEntwurfText } from "./preis-entwurf";
+import { angebotsHinweis, angebotsPhrase, leistungenText, preisDetailsText, preisEntwurfText } from "./preis-entwurf";
 import { anredeAus } from "./stimme";
 
 export async function baueAngebotsEntwurf(
   workspaceId: string,
   dealRecordId: string,
   opts: { frage: string | null; verlauf: ReadonlyArray<{ eingehend: boolean; text: string }> }
-): Promise<{ text: string; phrase: string } | null> {
+): Promise<{ text: string; phrase: string; details: string } | null> {
   try {
     const k = await aktuelleKalkulation(workspaceId, dealRecordId);
     if (!k.ok || !k.kalkulation.result) return null;
@@ -24,7 +24,11 @@ export async function baueAngebotsEntwurf(
       frage: opts.frage,
       du: anredeAus(opts.verlauf) === "du",
     });
-    return { text, phrase };
+    // Nennt der Entwurf den Angebotspreis statt des Rechnerpreises, steht das in der Freigabe vor dem Rechenweg.
+    const details = [angebotsHinweis(e, angebot, hatPakete), preisDetailsText(e, k.kalkulation.request as Record<string, unknown>)]
+      .filter((t): t is string => !!t)
+      .join("\n\n");
+    return { text, phrase, details };
   } catch (err) {
     console.error("[preis-entwurf] fehlgeschlagen (nicht blockierend):", err);
     return null;
