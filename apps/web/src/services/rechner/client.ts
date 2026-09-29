@@ -44,7 +44,7 @@ export interface RechnerErgebnis {
   team?: { groesse: number };
   schaetzung?: {
     festpreisVon: number | null; festpreisBis: number | null; annahmen: string[];
-    selbstkostenVon?: number | null; selbstkostenBis?: number | null; margeProzent?: number;
+    selbstkostenVon?: number | null; selbstkostenBis?: number | null; margeProzent?: number | null;
   } | null;
   margeVorschlag?: MargeVorschlag | null;
   mietstation?: {

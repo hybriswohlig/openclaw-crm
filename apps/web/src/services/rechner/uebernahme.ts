@@ -41,31 +41,35 @@ export function angebotsUebernahme(
     return { ok: false, fehler: `Marge muss zwischen ${MARGE_MIN_PROZENT} und ${MARGE_MAX_PROZENT} % liegen.` };
   }
   const p = ergebnis.preis;
-  if (m !== null && (p?.selbstkosten == null || p?.rundungEur == null)) return { ok: false, fehler: "Kalkulation veraltet, bitte neu rechnen." };
-
   const spanne = ergebnis.schaetzung ?? null;
-  let preis: number | null;
-  let selbstkosten: number | null = p?.selbstkosten ?? ergebnis.kosten?.selbstkosten ?? null;
-  if (spanne) {
-    if (!opts.bestaetigtSpanne) return { ok: false, fehler: "Nur eine Spanne vorhanden. Obergrenze übernehmen? (bestaetigtSpanne)" };
-    if (m !== null && spanne.selbstkostenBis != null) {
-      selbstkosten = spanne.selbstkostenBis;
-      preis = preisBeiMarge(spanne.selbstkostenBis, m, p!.rundungEur!);
-    } else {
-      preis = spanne.festpreisBis;
-    }
-  } else {
-    preis = m !== null ? preisBeiMarge(p!.selbstkosten!, m, p!.rundungEur!) : p?.festpreis ?? null;
-  }
-  if (preis === null) {
-    const grund = ergebnis.preis?.nichtKalkulierbarGrund;
+  if (spanne && !opts.bestaetigtSpanne) return { ok: false, fehler: "Nur eine Spanne vorhanden. Obergrenze übernehmen? (bestaetigtSpanne)" };
+
+  // Zuerst der Basispreis des Rechners: ohne ihn gibt es nichts zu übernehmen, auch nicht mit Marge.
+  const basisPreis = spanne ? spanne.festpreisBis : p?.festpreis ?? null;
+  if (basisPreis === null || basisPreis === undefined) {
+    const grund = p?.nichtKalkulierbarGrund;
     return { ok: false, fehler: grund ? `Kein Preis kalkulierbar: ${grund}` : "Kein Preis kalkulierbar." };
   }
+
+  let preis: number = basisPreis;
+  let selbstkosten: number | null = spanne?.selbstkostenBis ?? p?.selbstkosten ?? ergebnis.kosten?.selbstkosten ?? null;
+  let spanneVon: number | null = spanne?.festpreisVon ?? null;
+  if (m !== null) {
+    if (p?.rundungEur == null || (spanne ? spanne.selbstkostenBis == null : p.selbstkosten == null)) {
+      return { ok: false, fehler: "Kalkulation veraltet, bitte neu rechnen." };
+    }
+    selbstkosten = spanne ? spanne.selbstkostenBis! : p.selbstkosten!;
+    preis = preisBeiMarge(selbstkosten, m, p.rundungEur);
+    if (spanne && spanne.selbstkostenVon != null) spanneVon = preisBeiMarge(spanne.selbstkostenVon, m, p.rundungEur);
+  } else if (selbstkosten != null && selbstkosten > 0 && p?.rundungEur != null && preis < preisBeiMarge(selbstkosten, MARGE_MIN_PROZENT, p.rundungEur)) {
+    return { ok: false, fehler: `Preis liegt unter der Mindestmarge von ${MARGE_MIN_PROZENT} %, bitte neu rechnen.` };
+  }
+  const margeGewaehlt = m ?? (spanne ? spanne.margeProzent ?? null : null) ?? p?.margeWirksamProzent ?? null;
 
   const station = ergebnis.mietstation;
   const hinweisTeile = [
     station ? `Mietstation ${station.name} (Anfahrt ${Math.round(station.anfahrtMin)} Min, Rückfahrt ${Math.round(station.rueckfahrtMin)} Min).` : null,
-    spanne ? `Schnellschätzung ${spanne.festpreisVon ?? "?"} bis ${spanne.festpreisBis ?? "?"} €, übernommen: Obergrenze.` : null,
+    spanne ? `Schnellschätzung ${spanneVon ?? "?"} bis ${preis} €, übernommen: Obergrenze.` : null,
     ...(spanne?.annahmen ?? []),
     ...(ergebnis.annahmen ?? []),
   ].filter((t): t is string => !!t);
@@ -94,7 +98,7 @@ export function angebotsUebernahme(
         selbstkosten,
         margeVorschlagProzent: p?.margeVorschlag?.prozent ?? null,
         margeGruende: p?.margeVorschlag?.gruende ?? null,
-        margeGewaehltProzent: m ?? p?.margeWirksamProzent ?? null,
+        margeGewaehltProzent: margeGewaehlt,
         margeTatsaechlichProzent: preis && selbstkosten != null ? Math.round(((preis - selbstkosten) / preis) * 1000) / 10 : null,
         uebernommenVon: opts.uebernommenVon ?? "mensch",
         uebernommenAm: (opts.jetzt ?? new Date()).toISOString(),

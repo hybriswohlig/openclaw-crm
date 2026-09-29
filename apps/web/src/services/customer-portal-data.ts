@@ -31,7 +31,7 @@ import {
   quotationPackageOptions,
   customerDateSelections,
 } from "@/db/schema/customer-portal";
-import { quotations, quotationLineItems } from "@/db/schema/quotations";
+import { quotations, quotationLineItems, kundenAnnahmen } from "@/db/schema/quotations";
 import { activityEvents } from "@/db/schema/activity";
 import { dealDocuments, payments, dealNumbers } from "@/db/schema/financial";
 import { dealEmployees, employees } from "@/db/schema/employees";
@@ -1307,7 +1307,7 @@ async function loadKvaSnapshot(dealRecordId: string): Promise<KvaSnapshot | null
     summary: q.summary ?? null,
     showStandardInclusions: q.showStandardInclusions ?? true,
     validUntil: q.validUntil ?? null,
-    calculationAssumptions: q.calculationAssumptions ?? null,
+    calculationAssumptions: kundenAnnahmen(q.calculationAssumptions),
   };
 }
 
