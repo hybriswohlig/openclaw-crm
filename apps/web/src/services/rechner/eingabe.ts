@@ -5,6 +5,7 @@
  * Der Rechner macht aus fehlenden Angaben selbst eine Schnellschätzung.
  */
 import { createHash } from "node:crypto";
+import type { LeadQuelle, Marke } from "./quelle";
 
 export interface LeadDaten {
   /** Adresse als Text (formatLocation), auch reine Ortsangaben wie "71032 Böblingen" */
@@ -27,6 +28,10 @@ export interface LeadDaten {
   halteverbot: boolean;
   packService: boolean;
   kartons: number | null;
+  /** Firma des Leads, für den Margenvorschlag */
+  marke?: Marke | null;
+  /** Herkunft des Leads, für den Margenvorschlag */
+  quelle?: LeadQuelle | null;
   inventar: Array<{ name: string; menge: number; groessenklasse: string | null; volumenCbm: number | null; mitnehmen: boolean }>;
 }
 
@@ -54,7 +59,7 @@ function zugang(titel: string | null): { aufzug?: "keiner" | "klein" | "gross"; 
 
 const TREPPENHAUS: Record<string, "normal" | "eng" | "wendel"> = { normal: "normal", eng: "eng", wendeltreppe: "wendel" };
 
-export function rechnerAnfrageAus(lead: LeadDaten): RechnerAnfrage {
+export function rechnerAnfrageAus(lead: LeadDaten, opts: { heute?: string } = {}): RechnerAnfrage {
   const a: RechnerAnfrage = {};
   const setze = (feld: string, wert: string | number | null | undefined) => {
     if (wert !== null && wert !== undefined && wert !== "") a[feld] = String(wert);
@@ -76,6 +81,10 @@ export function rechnerAnfrageAus(lead: LeadDaten): RechnerAnfrage {
   const ortsintern = !!lead.von && /^(umzug\s+)?innerhalb\s/i.test(lead.von.trim());
   if (lead.nach || ortsintern || lead.etageNach !== null || lead.zugangNach !== null || a.nach_treppenhaus) a.nach_vorhanden = "on";
   setze("umzugsdatum", lead.umzugsdatum);
+  setze("marke", lead.marke);
+  setze("quelle", lead.quelle);
+  // heute gehört in die Anfrage, damit sich der Hash täglich ändert und die Eilregel nicht veraltet.
+  setze("heute", opts.heute);
   setze("wohnflaeche_qm", lead.wohnflaecheQm);
   setze("zimmer", lead.zimmer);
   if (lead.halteverbot) a.von_halteverbot = "on";

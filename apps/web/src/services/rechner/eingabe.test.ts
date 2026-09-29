@@ -76,3 +76,19 @@ describe("rechnerAnfrageAus", () => {
     expect(a.einpack_ohne_anzahl).toBe("on");
   });
 });
+
+describe("Marke, Quelle und heute", () => {
+  it("schickt Marke, Quelle und heute mit; heute ändert den Hash", () => {
+    const a = rechnerAnfrageAus({ ...leer, marke: "kottke", quelle: "vergleichsportal" }, { heute: "2026-09-28" });
+    expect(a.marke).toBe("kottke");
+    expect(a.quelle).toBe("vergleichsportal");
+    expect(a.heute).toBe("2026-09-28");
+    const b = rechnerAnfrageAus({ ...leer, marke: "kottke", quelle: "vergleichsportal" }, { heute: "2026-09-29" });
+    expect(eingabeHash(a)).not.toBe(eingabeHash(b));
+  });
+  it("ohne Marke und Quelle: Felder fehlen", () => {
+    const a = rechnerAnfrageAus(leer);
+    expect(a.marke).toBeUndefined();
+    expect(a.quelle).toBeUndefined();
+  });
+});

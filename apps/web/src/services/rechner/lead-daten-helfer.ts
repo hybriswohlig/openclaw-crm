@@ -100,3 +100,14 @@ export function groesseAusLead(werte: Record<string, unknown>): { wohnflaecheQm:
     zimmer: zimmerZahl(werte.zimmer) ?? zimmerZahl(von.rooms) ?? zimmerZahl(ausNotiz("Zimmer")),
   };
 }
+
+/** ID aus einem Referenzwert: String oder { id } bzw. { referencedRecordId }. */
+export function referenzId(wert: unknown): string | null {
+  if (typeof wert === "string" && wert !== "") return wert;
+  if (wert && typeof wert === "object") {
+    const o = wert as { id?: unknown; referencedRecordId?: unknown };
+    if (typeof o.id === "string") return o.id;
+    if (typeof o.referencedRecordId === "string") return o.referencedRecordId;
+  }
+  return null;
+}

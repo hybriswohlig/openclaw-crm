@@ -12,6 +12,7 @@
  */
 import type { RechnerAntwort, RechnerErgebnis } from "./client";
 import { eingabeHash, rechnerAnfrageAus, type LeadDaten, type RechnerAnfrage } from "./eingabe";
+import { heuteBerlin } from "./quelle";
 
 export const DROSSEL_MS = 60_000;
 
@@ -87,7 +88,7 @@ async function rechne(
   const lead = await ladeLead(workspaceId, dealRecordId);
   if (!lead) return { status: "fehler", kalkulation: null };
 
-  const anfrage = rechnerAnfrageAus(lead);
+  const anfrage = rechnerAnfrageAus(lead, { heute: heuteBerlin() });
   const hash = eingabeHash(anfrage);
   const vorher = await speicher.lesen(dealRecordId);
 

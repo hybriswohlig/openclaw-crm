@@ -5,11 +5,13 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { attributes, objects, selectOptions } from "@/db/schema/objects";
+import { inboxContacts, inboxConversations } from "@/db/schema/inbox";
 import { records, recordValues } from "@/db/schema/records";
 import { getRecord } from "@/services/records";
 import { getDealInventory } from "@/services/deal-inventory";
 import type { LeadDaten } from "./eingabe";
-import { datumText, groesseAusLead, inventarAusZeilen, ortText, zahlOderNull } from "./lead-daten-helfer";
+import { leadQuelle, markeAusFirmenname } from "./quelle";
+import { datumText, groesseAusLead, inventarAusZeilen, ortText, referenzId, zahlOderNull } from "./lead-daten-helfer";
 
 async function objektId(workspaceId: string, slug: string): Promise<string | null> {
   const [o] = await db
@@ -57,6 +59,16 @@ export async function ladeLeadDaten(workspaceId: string, dealRecordId: string): 
   const dv = deal.values as Record<string, unknown>;
   const av = await auftragWerte(workspaceId, dealRecordId);
   const inventar = await getDealInventory(workspaceId, dealRecordId);
+  // Marke aus der Betriebsfirma des Deals, Quelle aus Portal-Import und verknüpften Konversationen.
+  const firmaId = referenzId(dv.operating_company);
+  const firmenObj = firmaId ? await objektId(workspaceId, "operating_companies") : null;
+  const firma = firmenObj && firmaId ? await getRecord(firmenObj, firmaId) : null;
+  const konversationen = await db
+    .select({ kontaktEmail: inboxContacts.email, betreff: inboxConversations.subject })
+    .from(inboxConversations)
+    .leftJoin(inboxContacts, eq(inboxContacts.id, inboxConversations.contactId))
+    .where(and(eq(inboxConversations.workspaceId, workspaceId), eq(inboxConversations.dealRecordId, dealRecordId)));
+  const payload = dv.moving_lead_payload as { source?: unknown } | undefined;
 
   return {
     von: ortText(dv.move_from_address),
@@ -75,5 +87,7 @@ export async function ladeLeadDaten(workspaceId: string, dealRecordId: string): 
     packService: av.packing_service === true,
     kartons: zahlOderNull(av.boxes_needed),
     inventar: inventarAusZeilen(inventar),
+    marke: markeAusFirmenname(typeof firma?.values?.name === "string" ? firma.values.name : null),
+    quelle: leadQuelle({ payloadSource: typeof payload?.source === "string" ? payload.source : null, konversationen }),
   };
 }

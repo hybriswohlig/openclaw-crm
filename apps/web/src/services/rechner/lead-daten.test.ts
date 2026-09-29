@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { datumText, groesseAusLead, inventarAusZeilen, ortText, zahlOderNull, zimmerZahl } from "./lead-daten-helfer";
+import { datumText, groesseAusLead, inventarAusZeilen, ortText, referenzId, zahlOderNull, zimmerZahl } from "./lead-daten-helfer";
 
 describe("ortText", () => {
   it("Straße, PLZ Ort", () => {
@@ -83,5 +83,15 @@ describe("groesseAusLead", () => {
     expect(groesseAusLead({ wohnflaeche_qm: "-57" })).toEqual({ wohnflaecheQm: null, zimmer: null });
     expect(groesseAusLead({ wohnflaeche_qm: 0, moving_lead_payload: { from: { livingSpace: 0 } } }))
       .toEqual({ wohnflaecheQm: null, zimmer: null });
+  });
+});
+
+describe("referenzId", () => {
+  it("String, { id }, { referencedRecordId }, sonst null", () => {
+    expect(referenzId("a")).toBe("a");
+    expect(referenzId({ id: "b" })).toBe("b");
+    expect(referenzId({ referencedRecordId: "c" })).toBe("c");
+    expect(referenzId(null)).toBeNull();
+    expect(referenzId("")).toBeNull();
   });
 });
