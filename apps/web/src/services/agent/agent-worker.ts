@@ -30,7 +30,7 @@ import {
 } from "@/db/schema/inbox";
 import { activityEvents } from "@/db/schema";
 import { z } from "zod";
-import { runAITask, humanizeGerman } from "@/services/ai/run-task";
+import { runAITask } from "@/services/ai/run-task";
 import { AI_TASK_SLUGS } from "@/services/ai/task-registry";
 import { sendPush } from "@/services/push";
 import { WhatsAppSessionExpiredError } from "@/services/inbox-whatsapp";
@@ -43,6 +43,8 @@ import {
 } from "@/services/deal-inventory";
 import { inventarErstbefuellen } from "@/services/inventar-wiederholung-lauf";
 import { baueAngebotsEntwurf } from "./preis-entwurf-lauf";
+import { anredeAnweisung, anredeAus, begruessung, saeubern, stimmeAusSignatur, STIL_REGELN } from "./stimme";
+import { uebergabeInfo } from "@/services/intern/freigabe";
 import { applyDealInsights } from "@/services/deal-insights-apply";
 import { getRecord } from "@/services/records";
 import { getObjectBySlug } from "@/services/objects";
@@ -72,7 +74,7 @@ import {
 import { ensureAgentPriceTask } from "./agent-tasks";
 // Phase-1 SHADOW instrumentation: parallel gate + draft capture + heartbeat.
 // Purely additive — never throws, never alters engine behavior (see agent-shadow.ts).
-import { recordShadowGate, captureShadowDraft, shadowHeartbeat } from "./agent-shadow";
+import { recordShadowGate, captureShadowDraft, shadowHeartbeat, HUMAN_ACTIONABLE_BLOCKS } from "./agent-shadow";
 
 const MAX_CONVERSATIONS_PER_TICK = 8;
 // Cap the slow crm-tools vision extraction per tick (30 to 90s each).
@@ -113,10 +115,11 @@ const SYSTEM_PROMPT = `Du bist Mitarbeiter im Vertrieb eines Umzugsunternehmens 
 
 STIL
 - Deutsch, kurz, freundlich, sachlich-warm. Schreib natürlich und persönlich, nicht maschinell.
-- ANREDE: Übernimm die Form des bisherigen Gesprächsverlaufs. Haben WIR den Kunden bisher geduzt oder duzt der Kunde uns, bleib konsequent beim Du. Sonst Sie-Form. Wechsle NIE die Anrede innerhalb eines Gesprächs und mische nie Du und Sie im selben Text.
-- Keine Gedankenstriche (keine "-" als Satzzeichen), keine Bot-Floskeln, keine Emojis-Flut. Erfinde KEINEN menschlichen Namen und gib dich nicht als bestimmte Person aus.
-- Frage in EINER Nachricht nur die 1 bis 3 wichtigsten noch fehlenden Punkte ab, nicht alles auf einmal (zu viele Fragen schrecken ab).
-- Wenn Umfang/Volumen unklar ist, bitte freundlich um 5 bis 10 Fotos der Möbel und Räume.
+- ANREDE und Begrüßung sind unten im Auftrag vorgegeben. Halte dich genau daran und mische nie Du und Sie.
+- Erfinde KEINEN menschlichen Namen und gib dich nicht als bestimmte Person aus.
+- Wenn Umfang/Volumen unklar ist, bitte um Fotos (siehe STIMME).
+
+${STIL_REGELN}
 
 DEINE AUFGABE: die nötigen Infos für ein Festpreisangebot sammeln. Pflichtangaben:
 - genaue Auszugs- und Einzugsadresse (Ort, Stockwerk, Aufzug ja/nein)
@@ -133,7 +136,7 @@ HARTE REGELN
 - Abgesagt oder bereits bedient: Wenn der Kunde abgesagt hat, kein Interesse mehr hat, oder bereits ein ausführliches Angebot bzw. eine Antwort von uns erhalten hat und nichts Neues fragt -> action = "no_op". Reaktiviere NIE abgeschlossene oder abgelehnte Gespräche.
 - Vergangener Termin: Schlage NIE einen Umzugstermin vor und bestätige keinen, der vor dem heutigen Datum (oben angegeben) liegt. Liegt der besprochene Wunschtermin in der Vergangenheit, frage NICHT danach, sondern kurz, ob der Umzug noch ansteht und welcher Termin jetzt gilt, oder setze action = "handoff" mit einer Notiz.
 
-AUSGABE: NUR ein JSON-Objekt mit { action, message_de, owner_note, reason, handoff_grund }. message_de ist die fertige Kundennachricht (nur bei action=ask), inklusive einer kurzen Grußzeile am Ende. Erfinde KEINEN persönlichen Namen; die Signatur wird separat angehängt.`;
+AUSGABE: NUR ein JSON-Objekt mit { action, message_de, owner_note, reason, handoff_grund }. message_de ist die fertige Kundennachricht (nur bei action=ask), OHNE Grußformel und OHNE Signatur (beides wird angehängt).`;
 
 /** Style guidance appended to the system prompt, depending on the disclosure toggle. */
 function disclosureClause(discloseAi: boolean, brand: string): string {
@@ -303,11 +306,13 @@ async function readLatestInsights(
   };
 }
 
-function buildTurnPrompt(transcript: string, insights: InsightsContext | null): string {
+function buildTurnPrompt(transcript: string, insights: InsightsContext | null, anredeZeile: string): string {
   const parts: string[] = [];
   parts.push("# Gesprächsverlauf\n" + (transcript || "(noch keine Nachrichten)"));
+  // Bewusst KEIN Block "Bisheriger Stand" mit allen Details mehr: den hat das
+  // Modell als Zusammenfassung zurückgespiegelt (Hauptgrund für verworfene
+  // Entwürfe, Auswertung 2026-09-29). Nur die offenen Punkte.
   if (insights) {
-    if (insights.summary) parts.push("# Bisheriger Stand\n" + insights.summary);
     if (insights.criticalMissing.length > 0) {
       parts.push(
         "# Noch kritisch fehlende Angaben\n" +
@@ -323,6 +328,7 @@ function buildTurnPrompt(transcript: string, insights: InsightsContext | null): 
       );
     }
   }
+  parts.push("# Auftrag\n" + anredeZeile + "\nFrag höchstens die drei wichtigsten fehlenden Punkte.");
   parts.push(
     "Entscheide die nächste Aktion (ask / handoff / no_op) und liefere das JSON."
   );
@@ -608,14 +614,17 @@ async function processConversation(
   });
 
   const transcript = formatTranscript(messages);
+  const stimme = stimmeAusSignatur(brand);
+  const anrede = anredeAus(messages.map((m) => ({ eingehend: m.direction === "inbound", text: m.body ?? "" })));
+  const anredeZeile = anredeAnweisung(anrede, begruessung(anrede, {}));
   const system =
-    `Heute ist ${todayStr}. Du schreibst im Namen von ${brand}.\n\n` +
+    `Heute ist ${todayStr}. Du schreibst im Namen von ${stimme.marke}${stimme.absender ? ` (Absender: ${stimme.absender})` : ""}.\n\n` +
     SYSTEM_PROMPT +
-    disclosureClause(opts.discloseAi, brand);
+    disclosureClause(opts.discloseAi, stimme.marke);
   const { turn, modelTag } = await runTurn(
     conv.workspaceId,
     system,
-    buildTurnPrompt(transcript, insights)
+    buildTurnPrompt(transcript, insights, anredeZeile)
   );
   if (!turn) {
     // The model failed (timeout/parse). The claim already cleared aiNeedsReply,
@@ -657,12 +666,12 @@ async function processConversation(
   // humanizer, then the signature, then the optional first-message disclosure.
   let outgoing = "";
   if (turn.action === "ask" && turn.message_de.trim()) {
-    const humanized = await humanizeGerman(turn.message_de);
+    const humanized = saeubern(turn.message_de, stimme);
     outgoing = withDisclosure(appendSignature(humanized, brand), opts.disclosure, wantDisclose);
-  } else if (turn.action === "handoff" && opts.handoffAck.trim()) {
-    const humanizedAck = await humanizeGerman(opts.handoffAck);
-    outgoing = withDisclosure(appendSignature(humanizedAck, brand), opts.disclosure, wantDisclose);
   }
+  // Übergabe: KEINE Floskel an den Kunden ("Ein Kollege meldet sich"), weder im
+  // Entwurf noch live (Owner-Entscheidung 2026-09-29). Die Inhaber bekommen
+  // Push, Aufgabe und die WhatsApp-Info; opts.handoffAck bleibt ungenutzt.
 
   // Phase-1 SHADOW: the legacy decision is now final (action + fully assembled
   // outgoing text). Record the gate comparison once and capture drafts. The
@@ -693,31 +702,52 @@ async function processConversation(
         gate: shadowVerdict,
         modelTag,
       });
-    } else if (turn.action === "handoff" && shadowWouldSend) {
+    } else if (turn.action === "handoff") {
       // Preisfrage oder alles beisammen: Entwurf mit der Spanne aus dem
-      // Angebotsrechner statt der Übergabe-Floskel. NUR als Entwurf zur Freigabe;
-      // was die Engine live sendet (outgoing), bleibt unverändert.
+      // Angebotsrechner. Sonst KEIN Kundenentwurf (die Übergabe-Floskel wurde
+      // immer verworfen, Owner-Entscheidung 2026-09-29), sondern eine Info an
+      // die Inhaber. Was die Engine live sendet (outgoing), bleibt unverändert.
       const preis =
         turn.handoff_grund === "preis" || turn.handoff_grund === "vollstaendig"
           ? await baueAngebotsEntwurf(conv.workspaceId, conv.dealRecordId, {
               frage: insights?.criticalMissing[0]?.question ?? null,
-              verlauf: messages.map((m) => m.body ?? ""),
+              verlauf: messages.map((m) => ({ eingehend: m.direction === "inbound", text: m.body ?? "" })),
             })
           : null;
-      // The handoff ACK is a customer-facing message too — capture it.
-      await captureShadowDraft({
-        workspaceId: conv.workspaceId,
-        engine: "reply",
-        messageClass: "reply",
-        dealRecordId: conv.dealRecordId,
-        conversationId: conv.id,
-        channelAccountId: conv.channelAccountId,
-        draftText: preis ? preis.text : opts.handoffAck,
-        finalText: preis ? appendSignature(preis.text, brand) : outgoing,
-        gate: shadowVerdict,
-        modelTag,
-        preisPhrase: preis?.phrase ?? null,
-      });
+      if (preis) {
+        await captureShadowDraft({
+          workspaceId: conv.workspaceId,
+          engine: "reply",
+          messageClass: "reply",
+          dealRecordId: conv.dealRecordId,
+          conversationId: conv.id,
+          channelAccountId: conv.channelAccountId,
+          draftText: preis.text,
+          finalText: appendSignature(preis.text, brand),
+          gate: shadowVerdict,
+          modelTag,
+          preisPhrase: preis.phrase,
+        });
+      } else {
+        // Nur wenn wir den Kunden überhaupt anschreiben dürften (kein STOP, kein
+        // abgeschlossener Auftrag) und kein Mensch den Deal schon betreut, und nur
+        // zu einer echten Kundennachricht (sonst würde jeder Lauf erneut melden).
+        const gruende = shadowVerdict?.reasons ?? [];
+        const letzteEingehend = [...messages].reverse().find((m) => m.direction === "inbound");
+        const melden =
+          !!shadowVerdict &&
+          !!letzteEingehend &&
+          !gruende.includes("human_owned") &&
+          (shadowVerdict.allowed || gruende.every((r) => HUMAN_ACTIONABLE_BLOCKS.has(r)));
+        if (melden) await uebergabeInfo({
+          workspaceId: conv.workspaceId,
+          dealRecordId: conv.dealRecordId,
+          conversationId: conv.id,
+          channelAccountId: conv.channelAccountId,
+          notiz: turn.owner_note || turn.reason || "Kunde braucht eine persönliche Antwort.",
+          ausloeserId: letzteEingehend!.id,
+        });
+      }
     }
   }
 

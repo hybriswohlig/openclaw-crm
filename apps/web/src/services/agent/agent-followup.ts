@@ -13,10 +13,10 @@
  */
 
 import { db } from "@/db";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { inboxConversations, inboxMessages, inboxContacts, channelAccounts } from "@/db/schema/inbox";
 import { z } from "zod";
-import { runAITask, humanizeGerman } from "@/services/ai/run-task";
+import { runAITask } from "@/services/ai/run-task";
 import { AI_TASK_SLUGS } from "@/services/ai/task-registry";
 import { emitEvent } from "@/services/activity-events";
 import { sendPush } from "@/services/push";
@@ -49,6 +49,7 @@ import {
 // Phase-1 SHADOW instrumentation: every call below is additive-only, catches
 // its own errors, and must NEVER branch engine behavior (see agent-shadow.ts).
 import { recordShadowGate, captureShadowDraft, shadowHeartbeat } from "./agent-shadow";
+import { anredeAnweisung, anredeAus, begruessung, saeubern, stimmeAusSignatur, STIL_REGELN } from "./stimme";
 
 // Wait this long after OUR last message before nudging.
 const FOLLOWUP_AFTER_DAYS = 3;
@@ -77,11 +78,13 @@ const FollowupSchema = z.object({
 
 const FOLLOWUP_SYSTEM = `Du bist Mitarbeiter im Vertrieb eines Umzugsunternehmens (kein Chatbot). Ein Interessent hat sich nach unserer letzten Nachricht einige Tage nicht mehr gemeldet. Schreibe HÖCHSTENS eine kurze, freundliche Nachfass-Nachricht.
 
-STIL: Deutsch, kurz, locker, kein Druck, keine Gedankenstriche, keine Bot-Floskeln. ANREDE: übernimm die Form des bisherigen Verlaufs (haben wir den Kunden geduzt oder duzt er uns, bleib beim Du, sonst Sie; nie wechseln oder mischen). Erfinde KEINEN menschlichen Namen und gib dich nicht als bestimmte Person aus. Die Signatur und die nötige KI-Kennzeichnung werden separat angehängt.
+STIL: Deutsch, kurz, freundlich, kein Druck. Die ANREDE und Begrüßung sind im Auftrag vorgegeben, halte dich genau daran. Erfinde KEINEN menschlichen Namen und gib dich nicht als bestimmte Person aus. Signatur und KI-Kennzeichnung werden separat angehängt.
+
+${STIL_REGELN}
 
 REGELN
 - NENNE KEINEN PREIS und mache KEIN Angebot.
-- Frage einfach freundlich nach, ob der Umzug noch ansteht und ob wir mit den Infos weitermachen sollen. Optional kurz an die noch fehlende Angabe erinnern.
+- Knüpf an den tatsächlich offenen Punkt an (z. B. die Fotos oder die Etage, nach denen wir gefragt haben) und frag leicht beantwortbar, ob der Umzug noch ansteht.
 - Wenn der Verlauf zeigt, dass der Kunde ABGESAGT hat, kein Interesse mehr hat, bereits woanders gebucht hat, oder es gar kein echter Umzugs-Lead ist: setze should_followup = false und lass message_de leer.
 
 AUSGABE: NUR ein JSON-Objekt { should_followup, message_de, reason }.`;
@@ -106,6 +109,7 @@ async function trailingOutboundCount(conversationId: string): Promise<{
   trailing: number;
   lastIsOutbound: boolean;
   transcript: string;
+  anrede: "du" | "sie";
 }> {
   const rows = await db
     .select({
@@ -116,9 +120,11 @@ async function trailingOutboundCount(conversationId: string): Promise<{
     })
     .from(inboxMessages)
     .where(eq(inboxMessages.conversationId, conversationId))
-    .orderBy(asc(inboxMessages.sentAt), asc(inboxMessages.createdAt))
-    .limit(200);
-  const recent = rows.slice(-MAX_TRANSCRIPT_MESSAGES);
+    // Neueste zuerst holen und wieder drehen: aufsteigend mit Limit lieferte
+    // bei langen Chats die ältesten statt der neuesten Nachrichten.
+    .orderBy(desc(inboxMessages.sentAt), desc(inboxMessages.createdAt))
+    .limit(MAX_TRANSCRIPT_MESSAGES);
+  const recent = rows.reverse();
   let trailing = 0;
   for (let i = recent.length - 1; i >= 0; i--) {
     if (recent[i].direction === "outbound") trailing++;
@@ -128,7 +134,8 @@ async function trailingOutboundCount(conversationId: string): Promise<{
     .map((m) => `${m.direction === "inbound" ? "Kunde" : "Wir"}: ${(m.body ?? "").trim()}`)
     .filter((l) => l.length > 7)
     .join("\n");
-  return { trailing, lastIsOutbound: recent.length > 0 && recent[recent.length - 1].direction === "outbound", transcript };
+  const anrede = anredeAus(recent.map((m) => ({ eingehend: m.direction === "inbound", text: m.body ?? "" })));
+  return { trailing, lastIsOutbound: recent.length > 0 && recent[recent.length - 1].direction === "outbound", transcript, anrede };
 }
 
 async function runForWorkspace(
@@ -262,7 +269,7 @@ async function runForWorkspace(
     let gateRecorded = false;
     try {
       shadow.considered += 1;
-      const { trailing, lastIsOutbound, transcript } = await trailingOutboundCount(conv.id);
+      const { trailing, lastIsOutbound, transcript, anrede } = await trailingOutboundCount(conv.id);
       // Only nudge when WE are the ones waiting and we have not already nudged.
       if (!lastIsOutbound) {
         shadow.skipped += 1;
@@ -312,7 +319,7 @@ async function runForWorkspace(
         workspaceId,
         taskSlug: AI_TASK_SLUGS.LEAD_FOLLOWUP,
         system: FOLLOWUP_SYSTEM,
-        prompt: `# Gesprächsverlauf\n${transcript || "(leer)"}\n\nEntscheide, ob ein Nachfassen sinnvoll ist, und liefere das JSON.`,
+        prompt: `# Gesprächsverlauf\n${transcript || "(leer)"}\n\n# Auftrag\n${anredeAnweisung(anrede, begruessung(anrede, {}))}\nNur EIN offener Punkt, keine Aufzählung.\nEntscheide, ob ein Nachfassen sinnvoll ist, und liefere das JSON.`,
         schema: FollowupSchema,
       });
       if (!result.ok) {
@@ -378,7 +385,7 @@ async function runForWorkspace(
         conv.operatingCompanyRecordId,
         signature
       );
-      const humanized = await humanizeGerman(out.message_de);
+      const humanized = saeubern(out.message_de, stimmeAusSignatur(brand));
       const base = withDisclosure(
         appendSignature(humanized, brand),
         disclosure,

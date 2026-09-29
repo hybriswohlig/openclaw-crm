@@ -35,7 +35,7 @@ import { attributes } from "@/db/schema/objects";
 import { inboxConversations, inboxContacts, channelAccounts } from "@/db/schema/inbox";
 import { activityEvents } from "@/db/schema";
 import { z } from "zod";
-import { runAITask, humanizeGerman } from "@/services/ai/run-task";
+import { runAITask } from "@/services/ai/run-task";
 import { AI_TASK_SLUGS } from "@/services/ai/task-registry";
 import { emitEvent } from "@/services/activity-events";
 import { sendPush } from "@/services/push";
@@ -72,6 +72,7 @@ import {
 // throw (they catch internally) and their results NEVER branch engine logic.
 import { recordShadowGate, captureShadowDraft, shadowHeartbeat } from "./agent-shadow";
 import { agentEvents } from "@/db/schema/agent";
+import { anredeAnweisung, begruessung, saeubern, stimmeAusSignatur, STIL_REGELN } from "./stimme";
 
 const MAX_PER_TICK = 5;
 // Never contact leads older than this, regardless of the enable watermark. By
@@ -100,39 +101,30 @@ const FirstContactSchema = z.object({
 });
 
 /**
- * The opener's voice (owner style decision 2026-06-11): casual Du-Form modeled
- * on the owner's own real first-contact messages, with the humanizer-de core
- * rules baked into generation (Modalpartikel ok, no bot phrases, no Trikolon,
- * varied sentence length, no Nominalstil). The result still passes through the
- * humanizer-de skill on crm-tools afterwards (humanizeGerman), belt and braces.
+ * The opener's voice: owner decision 2026-09-29 replaces the Du-Form of
+ * 2026-06-11. Sie by default (the customer has not written yet), shared voice
+ * rules from stimme.ts, no invented example lead (the model copied its facts).
+ * The result passes through the deterministic cleanup (saeubern in stimme.ts)
+ * instead of the humanizer, which bent the voice.
  */
 function buildFirstContactSystem(persona: string | null, companyBrand: string): string {
+  const intro = persona ? `hier ist ${persona} von ${companyBrand}` : `hier ist ${companyBrand}`;
   const personaLine = persona
-    ? `Du heißt ${persona} und stellst dich im ersten Halbsatz kurz vor ("ich bin ${persona} von ${companyBrand}").`
-    : `Erfinde KEINEN menschlichen Namen; stell dich nur mit der Firma vor ("hier ist ${companyBrand}").`;
-  const exampleIntro = persona ? `ich bin ${persona} von ${companyBrand}` : `hier ist ${companyBrand}`;
+    ? `Du schreibst als ${persona} und stellst dich im ersten Satz kurz vor ("${intro}").`
+    : `Erfinde KEINEN menschlichen Namen; stell dich nur mit der Firma vor ("${intro}").`;
   return `Du bist Vertriebsmitarbeiter des Umzugsunternehmens ${companyBrand} (ein Mensch am Handy, kein Chatbot). Ein Interessent hat soeben über ImmobilienScout24 eine Umzugsanfrage gestellt und dabei seine Telefonnummer angegeben. Du schreibst ihm jetzt die ALLERERSTE WhatsApp-Nachricht. Bis zu 4 Mitbewerber erhalten dieselbe Anfrage; wer zuerst ein echtes Gespräch eröffnet, gewinnt meistens. ${personaLine}
 
-STIL (der Kunde soll einen Menschen spüren, keinen Bot)
-- Deutsch, DU-Form mit Vorname ("Hey Max,"). Locker, direkt, professionell.
-- 40 bis 70 Wörter, 3 bis 5 kurze Zeilen. Satzlängen variieren, gern Telegrammstil bei den Fakten ("Magstadt nach Besigheim, 1-2 Zimmer, 1. September. Passt.").
-- Umgangssprachliche Kurzformen sind gut ("Hab", "sowas", "wann's", "kriegen wir hin"). Modalpartikel (mal, eben, halt, schon) sind erwünscht, aber sparsam.
-- VERBOTEN: Bot-Floskeln ("Gerne helfen wir dir weiter", "zögere nicht", "Wir freuen uns auf deine Rückmeldung"), Werbesprache und Superlative, Emojis, Gedankenstriche, Dreier-Aufzählungen, "nicht nur ... sondern auch", Nominalstil ("zur Durchführung deines Umzugs" -> "für deinen Umzug").
+${STIL_REGELN}
 
-AUFBAU (wie das Stil-Beispiel unten)
-1. "Hey {Vorname}," plus wer du bist, ein Halbsatz. Kein Vorname bekannt? Dann nur "Hey," oder "Hallo," und NIE einen Namen raten.
-2. Bezug: du hast die Anfrage auf ImmoScout24 gesehen. Bestätige knapp 1 bis 2 echte Details (Strecke, Termin, Größe), damit klar ist, dass es um SEINE Anfrage geht.
-3. GENAU EINE leicht beantwortbare Frage. Erlaubt ist nur eine dieser zwei Formen:
-   a) Telefonat oder Chat anbieten ("Willst du kurz telefonieren, oder regelst du sowas lieber per Chat? Beides kein Problem."). Beim Telefonat darfst du die zwei unten vorgegebenen Zeitfenster als Orientierung nennen oder ihn einfach die Zeit nennen lassen.
-   b) Die EINE wichtigste fehlende Angabe als kurze geschlossene Frage (z.B. "Steht der Termin am 15.07. schon fest, oder bist du noch flexibel?").
+AUFBAU
+1. Begrüßung genau wie im Auftrag vorgegeben, dann in einem Halbsatz, wer schreibt ("${intro}").
+2. Bezug auf seine Anfrage bei ImmoScout24 in einem Satz, mit höchstens EINEM Detail zur Wiedererkennung (Strecke oder Termin). Das ist die einzige Ausnahme von "Wiederhole keine Kundendaten"; keine Aufzählung seiner Angaben.
+3. GENAU EINE leicht beantwortbare Frage, eine dieser zwei Formen:
+   a) Telefonat oder Chat anbieten ("Sollen wir kurz telefonieren, oder ist Ihnen der Chat lieber?"). Die zwei unten vorgegebenen Zeitfenster darfst du als unverbindlichen Vorschlag für einen ANRUF nennen; das ist die einzige erlaubte Zeitangabe, keine Zusage zum Umzug.
+   b) Die EINE wichtigste fehlende Angabe als kurze Frage mit Grund ("Steht der Termin schon fest? Das hilft uns bei der Planung.").
+   Keine zweite Frage, keine Aufzählung.
    Im Zweifel Form a.
-4. Kurzer Abschluss ("Grüße"). KEINE Signatur darunter, die wird separat angehängt.
-
-STIL-BEISPIEL (so soll es klingen; Inhalt an den echten Lead anpassen, nicht wörtlich kopieren):
-"Hey Gerrit, ${exampleIntro}.
-Hab deine Anfrage auf ImmoScout24 gesehen. Magstadt nach Besigheim, 1-2 Zimmer, 1. September. Passt.
-Willst du kurz telefonieren, oder regelst du sowas lieber per Chat? Beides kein Problem. Falls Anruf, sag mir einfach wann's bei dir passt.
-Grüße"
+4. Etwa 30 bis 60 Wörter. Keine Grußformel und keine Signatur, beides wird angehängt.
 
 HARTE REGELN
 - NENNE NIEMALS EINEN PREIS, keine Preisspanne, keine Stundensätze. Kein Angebot, keine Rabatte.
@@ -140,14 +132,9 @@ HARTE REGELN
 - Nur Inhalte, die sich direkt auf DIESE Anfrage beziehen (rechtlich Pflicht: reine Anfrage-Antwort, keine Werbung).
 - Schlage NIE ein Datum in der Vergangenheit vor.
 
-AUSGABE: NUR ein JSON-Objekt { message_de, reason }. message_de ist die fertige Nachricht ohne Signatur.`;
+AUSGABE: NUR ein JSON-Objekt { message_de, reason }. message_de ist die fertige Nachricht ohne Grußformel und ohne Signatur.`;
 }
 
-/** "Dario von Kottke-Umzügen (…)" -> "Dario"; no leading name pattern -> null. */
-function personaFromSignature(signature: string): string | null {
-  const m = signature.trim().match(/^([A-ZÄÖÜ][a-zäöüß]+)\s+von\s+/);
-  return m ? m[1] : null;
-}
 
 // ── Berlin-time helpers ──────────────────────────────────────────────────────
 
@@ -998,13 +985,19 @@ async function runEnabledWorkspace(
         month: "long",
         day: "numeric",
       });
-      const fcSignature = await getFirstContactSignature(workspaceId);
-      const persona = personaFromSignature(fcSignature);
+      // Signatur der Marke ("Beste Grüße / Dario / Kottke Umzüge"); ein
+      // ImmoScout-Partnerhinweis aus der Erstkontakt-Signatur bleibt darunter stehen.
+      const fcAlt = await getFirstContactSignature(workspaceId);
+      const partnerHinweis = /\(([^)]*Scout[^)]*)\)/i.exec(fcAlt)?.[1] ?? null;
+      const fcSignature = partnerHinweis ? `${brand}\n(${partnerHinweis})` : brand;
+      const stimme = stimmeAusSignatur(brand);
+      const persona = stimme.absender;
       const anrede = p.client?.salutation ?? "";
+      const gruss = begruessung("sie", { anrede, nachname: p.client?.lastName ?? null });
       const prompt = [
         `# Lead-Daten aus der ImmoScout24-Anfrage`,
         `Name: ${anrede ? anrede + " " : ""}${fullName}`,
-        `Vorname für die Anrede: ${p.client?.firstName?.trim() || "(unbekannt, neutral grüßen)"}`,
+        anredeAnweisung("sie", gruss),
         ...facts.map((f) => `- ${f}`),
         missing.length
           ? `\n# Noch fehlende Angaben für ein Festpreisangebot\n${missing.map((m) => `- ${m}`).join("\n")}`
@@ -1018,7 +1011,7 @@ async function runEnabledWorkspace(
       const result = await runAITask({
         workspaceId,
         taskSlug: AI_TASK_SLUGS.LEAD_FIRST_CONTACT,
-        system: `Heute ist ${todayStr}.\n\n${buildFirstContactSystem(persona, brand)}`,
+        system: `Heute ist ${todayStr}.\n\n${buildFirstContactSystem(persona, stimme.marke)}`,
         prompt,
         schema: FirstContactSchema,
       });
@@ -1086,7 +1079,7 @@ async function runEnabledWorkspace(
         getAgentDisclosure(workspaceId),
         isOptOutLineEnabled(workspaceId),
       ]);
-      const humanized = await humanizeGerman(sanitized);
+      const humanized = saeubern(sanitized, stimme);
       let outgoing = withDisclosure(appendSignature(humanized, fcSignature), disclosure, discloseAi);
       // Opt-out line only when the owner enabled it (default OFF = human test
       // tone). An inbound STOP is honored regardless of this flag.

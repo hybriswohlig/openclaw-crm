@@ -4,7 +4,7 @@ import { db } from "@/db";
 import { aiTaskRuns, workspaces } from "@/db/schema";
 import { getSetting, setSetting } from "@/services/workspace-settings";
 import { bewerteKiLage, type WaechterStatus } from "./ki-waechter";
-import { sendeAnInterne } from "./intern-senden";
+import { nachholenAusstehend, sendeAnInterne } from "./intern-senden";
 import { ladeInterneNummern } from "./interne-nummern";
 
 const STATUS_KEY = "ki_waechter_status";
@@ -30,6 +30,12 @@ export async function kiWaechterLauf(jetzt = new Date()) {
   const vorDrei = new Date(jetzt.getTime() - 3 * 60 * 60_000);
 
   for (const ws of wsListe) {
+    try {
+      const nachgeholt = await nachholenAusstehend(ws.id, jetzt);
+      if (nachgeholt > 0) console.log(`[ki-waechter] ${nachgeholt} interne Nachricht(en) nachgeholt`);
+    } catch (err) {
+      console.error("[ki-waechter] Nachholen fehlgeschlagen:", err);
+    }
     const zaehle = async (seit: Date) => {
       const [r] = await db
         .select({

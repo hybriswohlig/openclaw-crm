@@ -1,11 +1,12 @@
 /** Preis-Entwurf aus der aktuellen Kalkulation eines Deals (Logik in preis-entwurf.ts). */
 import { aktuelleKalkulation } from "@/services/rechner/kalkulation";
-import { duzen, leistungenText, preisEntwurfText, preisPhrase } from "./preis-entwurf";
+import { leistungenText, preisEntwurfText, preisPhrase } from "./preis-entwurf";
+import { anredeAus } from "./stimme";
 
 export async function baueAngebotsEntwurf(
   workspaceId: string,
   dealRecordId: string,
-  opts: { frage: string | null; verlauf: readonly string[] }
+  opts: { frage: string | null; verlauf: ReadonlyArray<{ eingehend: boolean; text: string }> }
 ): Promise<{ text: string; phrase: string } | null> {
   try {
     const k = await aktuelleKalkulation(workspaceId, dealRecordId);
@@ -17,7 +18,7 @@ export async function baueAngebotsEntwurf(
       phrase,
       leistungen: leistungenText(e, k.kalkulation.request as Record<string, unknown>),
       frage: opts.frage,
-      du: duzen(opts.verlauf),
+      du: anredeAus(opts.verlauf) === "du",
     });
     return { text, phrase };
   } catch (err) {

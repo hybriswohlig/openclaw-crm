@@ -4,10 +4,11 @@
  * `intern_absender_account_id`, sonst das erste verbundene Baileys-Konto.
  * Fehler je Empfänger werden geloggt, nie geworfen.
  */
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, gt, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { channelAccounts } from "@/db/schema/inbox";
 import { getSetting } from "@/services/workspace-settings";
+import { agentEvents } from "@/db/schema/agent";
 import { sendBaileysDirektText } from "@/services/inbox-whatsapp";
 import { ladeInterneNummern } from "./interne-nummern";
 
@@ -42,7 +43,19 @@ async function absenderKonto(workspaceId: string, kontoId?: string | null): Prom
 export async function sendeAnInterne(
   workspaceId: string,
   text: string,
-  opts: { kontoId?: string | null; nurAn?: readonly string[] } = {}
+  opts: { kontoId?: string | null; nurAn?: readonly string[]; nachholen?: boolean } = {}
+): Promise<{ zugestellt: string[]; fehlgeschlagen: string[] }> {
+  const ergebnis = await sendeEinmal(workspaceId, text, opts);
+  if (opts.nachholen && ergebnis.fehlgeschlagen.length > 0) {
+    await vormerken(workspaceId, { text, an: ergebnis.fehlgeschlagen, kontoId: opts.kontoId ?? null });
+  }
+  return ergebnis;
+}
+
+async function sendeEinmal(
+  workspaceId: string,
+  text: string,
+  opts: { kontoId?: string | null; nurAn?: readonly string[] }
 ): Promise<{ zugestellt: string[]; fehlgeschlagen: string[] }> {
   const alle = await ladeInterneNummern(workspaceId);
   const empfaenger = opts.nurAn ? alle.filter((e) => opts.nurAn!.includes(e.name)) : alle;
@@ -72,4 +85,83 @@ export async function sendeAnInterne(
     (ok ? ergebnis.zugestellt : ergebnis.fehlgeschlagen).push(e.name);
   }
   return ergebnis;
+}
+
+// ─── Nachhol-Warteschlange ──────────────────────────────────────────────────
+// Interne Nachrichten (Freigaben, Übergabe-Infos), die einen Empfänger nicht
+// erreicht haben, werden als Ereignis vorgemerkt und vom KI-Wächter-Cron
+// (alle 15 Minuten) erneut versucht, höchstens 24 Stunden lang. agent_events
+// ist nur anhängbar: Vormerken und Erledigt sind je eine eigene Zeile, so geht
+// bei gleichzeitigen Läufen nichts verloren (kein Zurückschreiben einer Liste).
+const NACHHOLEN_MAX_MS = 24 * 60 * 60_000;
+
+async function vormerken(
+  workspaceId: string,
+  eintrag: { text: string; an: string[]; kontoId: string | null }
+): Promise<void> {
+  try {
+    await db.insert(agentEvents).values({
+      workspaceId,
+      engine: "intern",
+      eventType: "intern_nachholen",
+      payload: eintrag,
+      idempotencyKey: `nachholen:${crypto.randomUUID()}`,
+    });
+  } catch (err) {
+    console.error("[intern-senden] Vormerken fehlgeschlagen:", err);
+  }
+}
+
+/** Offene interne Nachrichten erneut senden; liefert, wie viele jetzt ankamen. */
+export async function nachholenAusstehend(workspaceId: string, jetzt = new Date()): Promise<number> {
+  const offen = await db
+    .select({ id: agentEvents.id, payload: agentEvents.payload })
+    .from(agentEvents)
+    .where(
+      and(
+        eq(agentEvents.workspaceId, workspaceId),
+        eq(agentEvents.eventType, "intern_nachholen"),
+        gt(agentEvents.createdAt, new Date(jetzt.getTime() - NACHHOLEN_MAX_MS))
+      )
+    );
+  if (offen.length === 0) return 0;
+  const erledigt = new Set(
+    (
+      await db
+        .select({ payload: agentEvents.payload })
+        .from(agentEvents)
+        .where(
+          and(
+            eq(agentEvents.workspaceId, workspaceId),
+            eq(agentEvents.eventType, "intern_nachgeholt"),
+            gt(agentEvents.createdAt, new Date(jetzt.getTime() - NACHHOLEN_MAX_MS))
+          )
+        )
+    ).map((e) => {
+      const p = e.payload as { bezug?: number; name?: string };
+      return `${p.bezug}:${p.name}`;
+    })
+  );
+  let angekommen = 0;
+  for (const e of offen) {
+    const p = e.payload as { text?: string; an?: string[]; kontoId?: string | null };
+    if (!p.text || !Array.isArray(p.an)) continue;
+    const noch = p.an.filter((n) => !erledigt.has(`${e.id}:${n}`));
+    if (noch.length === 0) continue;
+    const { zugestellt } = await sendeEinmal(workspaceId, p.text, { kontoId: p.kontoId ?? null, nurAn: noch });
+    for (const name of zugestellt) {
+      await db
+        .insert(agentEvents)
+        .values({
+          workspaceId,
+          engine: "intern",
+          eventType: "intern_nachgeholt",
+          payload: { bezug: e.id, name },
+          idempotencyKey: `nachgeholt:${e.id}:${name}`,
+        })
+        .onConflictDoNothing();
+      angekommen++;
+    }
+  }
+  return angekommen;
 }

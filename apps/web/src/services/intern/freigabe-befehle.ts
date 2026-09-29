@@ -4,13 +4,13 @@
  *   ändern CODE: Anweisung  KI überarbeitet den Entwurf, neue Fassung kommt
  *                           mit neuem Code zur Freigabe zurück (auch "aendern")
  *   senden CODE: Text       genau dieser Text geht an den Kunden
- *   nein CODE               verwerfen (auch "verwerfen")
+ *   nein CODE[: Grund]      verwerfen (auch "verwerfen"); der Grund hilft beim Lernen
  * Der Code ist Pflicht: ein "ok" als Antwort auf einen Alarm oder im normalen
  * Chat darf nie einen Entwurf auslösen. Alles andere ist kein Befehl.
  */
 export type FreigabeBefehl =
   | { aktion: "ok"; code: string }
-  | { aktion: "nein"; code: string }
+  | { aktion: "nein"; code: string; grund?: string }
   | { aktion: "ueberarbeiten"; code: string; anweisung: string }
   | { aktion: "senden"; code: string; text: string };
 
@@ -25,10 +25,13 @@ export function befehlAus(nachricht: string): FreigabeBefehl | null {
   const t = nachricht.trim();
   if (!t) return null;
 
-  const kurz = new RegExp(String.raw`^(ok|ja|nein|verwerfen)\s+${CODE}\s*[.!]?$`, "i").exec(t);
-  if (kurz) {
-    const aktion = /^(ok|ja)$/i.test(kurz[1]!) ? "ok" : "nein";
-    return { aktion, code: kurz[2]!.toUpperCase() };
+  const kurz = new RegExp(String.raw`^(ok|ja)\s+${CODE}\s*[.!]?$`, "i").exec(t);
+  if (kurz) return { aktion: "ok", code: kurz[2]!.toUpperCase() };
+
+  const nein = new RegExp(String.raw`^(nein|verwerfen)\s+${CODE}(?:\s*[.!]?\s*$|\s*:\s*([\s\S]+)$)`, "i").exec(t);
+  if (nein) {
+    const grund = (nein[3] ?? "").trim();
+    return grund ? { aktion: "nein", code: nein[2]!.toUpperCase(), grund } : { aktion: "nein", code: nein[2]!.toUpperCase() };
   }
 
   const mitText = new RegExp(String.raw`^(ändern|aendern|senden)\s+${CODE}\s*:\s*([\s\S]*)$`, "i").exec(t);

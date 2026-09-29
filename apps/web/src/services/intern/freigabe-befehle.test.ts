@@ -9,6 +9,9 @@ describe("befehlAus", () => {
   it("nein / verwerfen nur mit Code", () => {
     expect(befehlAus("Nein A1B2")).toEqual({ aktion: "nein", code: "A1B2" });
     expect(befehlAus("verwerfen a1b2")).toEqual({ aktion: "nein", code: "A1B2" });
+    expect(befehlAus("nein A1B2: zu lang und wir haben das Angebot schon geschickt")).toEqual({
+      aktion: "nein", code: "A1B2", grund: "zu lang und wir haben das Angebot schon geschickt",
+    });
   });
   it("ändern = Anweisung an die KI, nur mit Code, Doppelpunkt und Text", () => {
     expect(befehlAus("ändern A7F2: kürzer und frag nach dem Stockwerk")).toEqual({

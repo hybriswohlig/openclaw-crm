@@ -23,6 +23,7 @@ import { entwurfFreigebenUndSenden, type FreigabeErgebnis } from "@/services/age
 import { DRAFT_CLASS_LABELS } from "@/services/agent/agent-shadow";
 import { leaksPriceOrCommitment } from "@/services/agent/agent-suppress";
 import { ohnePreisPhrase } from "@/services/agent/preis-entwurf";
+import { STIL_REGELN_UEBERARBEITUNG } from "@/services/agent/stimme";
 import { runAITask } from "@/services/ai/run-task";
 import { AI_TASK_SLUGS } from "@/services/ai/task-registry";
 import { toGateMessageClass } from "@/services/agent/agent-gate";
@@ -108,7 +109,7 @@ export async function freigabeAnfragen(input: {
       "Entwurf:",
       input.text,
       "",
-      `ok ${code} · ändern ${code}: Wunsch · senden ${code}: eigener Text · nein ${code}`,
+      `ok ${code} · ändern ${code}: Wunsch · senden ${code}: eigener Text · nein ${code}: Grund`,
     ]
       .filter((z) => z !== null)
       .join("\n");
@@ -127,8 +128,8 @@ export async function freigabeAnfragen(input: {
         idempotencyKey: `freigabe-angefragt:${input.draftId}`,
       })
       .onConflictDoNothing();
-    const { zugestellt } = await sendeAnInterne(input.workspaceId, nachricht, { kontoId: input.channelAccountId });
-    if (zugestellt.length === 0) console.error(`[freigabe] #${code} an niemanden zugestellt`);
+    const { zugestellt } = await sendeAnInterne(input.workspaceId, nachricht, { kontoId: input.channelAccountId, nachholen: true });
+    if (zugestellt.length === 0) console.error(`[freigabe] #${code} an niemanden zugestellt, wird nachgeholt`);
   } catch (err) {
     console.error("[freigabe] Anfrage fehlgeschlagen (nicht blockierend):", err);
   }
@@ -207,7 +208,14 @@ export async function verarbeiteInterneNachricht(input: {
   if (befehl.aktion === "nein") {
     const verworfen = await db
       .update(agentDrafts)
-      .set({ status: "dismissed", reviewedAt: new Date(), updatedAt: new Date() })
+      .set({
+        status: "dismissed",
+        reviewedAt: new Date(),
+        updatedAt: new Date(),
+        ...(befehl.grund
+          ? { filterVerdicts: sql`coalesce(${agentDrafts.filterVerdicts}, '{}'::jsonb) || ${JSON.stringify({ neinGrund: befehl.grund.slice(0, 500), neinVon: input.absender.name })}::jsonb` }
+          : {}),
+      })
       .where(and(eq(agentDrafts.id, entwurf.id), eq(agentDrafts.status, "pending")))
       .returning({ id: agentDrafts.id });
     await antworten(
@@ -239,8 +247,11 @@ Regeln:
 - Setze die Anweisung genau um, ändere sonst so wenig wie möglich.
 - Behalte die Anrede (Du oder Sie) und die Signatur bei, außer die Anweisung sagt etwas anderes.
 - Erfinde keine Preise, Rabatte, Termine oder Zusagen. Steht im Entwurf ein Preis ("ca. … €"), übernimm diese Preisangabe Zeichen für Zeichen unverändert.
-- Schreibe natürlich und knapp, ohne Gedankenstriche.
-- Antworte NUR mit dem fertigen Nachrichtentext, ohne Anführungszeichen und ohne Erklärung.`;
+- Antworte NUR mit dem fertigen Nachrichtentext, ohne Anführungszeichen und ohne Erklärung.
+
+Die folgenden Stilregeln gelten nur für die Teile, die du wegen der Anweisung ohnehin änderst. Die Anweisung des Inhabers hat immer Vorrang, baue den Entwurf nicht darüber hinaus um.
+
+${STIL_REGELN_UEBERARBEITUNG}`;
 
 /**
  * "ändern CODE: Anweisung": die KI überarbeitet den Entwurf, die neue Fassung
@@ -451,4 +462,50 @@ async function nachfolgerErneutAnfragen(
     preisPhrase: (nachfolger.filterVerdicts as { preisPhrase?: string } | null)?.preisPhrase ?? null,
   });
   return true;
+}
+
+/**
+ * Übergabe ohne Preis-Entwurf (Kunde will verhandeln, Beschwerde, Sonderfall,
+ * keine Kalkulation): kein Kundenentwurf, nur eine Info an die internen Nummern.
+ * Höchstens eine Info je auslösender Kundennachricht.
+ */
+export async function uebergabeInfo(input: {
+  workspaceId: string;
+  dealRecordId: string;
+  conversationId: string;
+  channelAccountId: string | null;
+  notiz: string;
+  ausloeserId: string;
+}): Promise<void> {
+  try {
+    const schluessel = `uebergabe-info:${input.conversationId}:${input.ausloeserId}`;
+    const [schon] = await db
+      .select({ id: agentEvents.id })
+      .from(agentEvents)
+      .where(eq(agentEvents.idempotencyKey, schluessel))
+      .limit(1);
+    if (schon) return;
+    const [firma, deal] = await Promise.all([firmaVonKonto(input.channelAccountId), textWert(input.dealRecordId, "name")]);
+    // Nicht erreichte Empfänger holt der KI-Wächter-Cron nach; deshalb wird der
+    // Schlüssel in jedem Fall vermerkt (keine zweite Info zur selben Nachricht).
+    const { zugestellt } = await sendeAnInterne(
+      input.workspaceId,
+      [`ℹ️ Übergabe · ${firma ?? "Firma unbekannt"}`, deal ?? "Lead ohne Namen", input.notiz.slice(0, 500), "Bitte selbst antworten (im CRM oder direkt im Chat)."].join("\n"),
+      { kontoId: input.channelAccountId, nachholen: true }
+    );
+    await db
+      .insert(agentEvents)
+      .values({
+        workspaceId: input.workspaceId,
+        dealRecordId: input.dealRecordId,
+        conversationId: input.conversationId,
+        engine: "freigabe_whatsapp",
+        eventType: "uebergabe_info",
+        payload: { notiz: input.notiz.slice(0, 500), an: zugestellt },
+        idempotencyKey: schluessel,
+      })
+      .onConflictDoNothing();
+  } catch (err) {
+    console.error("[freigabe] Übergabe-Info fehlgeschlagen (nicht blockierend):", err);
+  }
 }

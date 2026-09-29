@@ -34,7 +34,7 @@ import {
 export type ShadowEngine = "reply" | "followup" | "first_contact";
 
 /** Marks every shadow row so the report can filter cleanly. */
-const SHADOW_PROMPT_VERSION = "shadow-v1";
+const SHADOW_PROMPT_VERSION = "stimme-v1";
 
 export interface ShadowGateInput {
   workspaceId: string;

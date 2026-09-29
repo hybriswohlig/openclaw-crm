@@ -47,11 +47,6 @@ export function leistungenText(
   return teile.join(", ");
 }
 
-/** Duzen wir uns im Verlauf? Sonst Sie (Standard). */
-export function duzen(texte: readonly string[]): boolean {
-  return texte.some((t) => /\b(du|dich|dir|dein|deine|deinen|deinem|deiner|euch|euer|eure)\b/i.test(t));
-}
-
 export function preisEntwurfText(input: { phrase: string; leistungen: string; frage: string | null; du: boolean }): string {
   const { phrase, leistungen, frage, du } = input;
   const zeilen = du

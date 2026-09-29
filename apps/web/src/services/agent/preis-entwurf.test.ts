@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { duzen, leistungenText, ohnePreisPhrase, preisEntwurfText, preisPhrase } from "./preis-entwurf";
+import { leistungenText, ohnePreisPhrase, preisEntwurfText, preisPhrase } from "./preis-entwurf";
 import { leaksPriceOrCommitment } from "./agent-suppress";
 
 describe("preisPhrase", () => {
@@ -37,14 +37,6 @@ describe("leistungenText", () => {
   });
   it("ohne Details: nur das Grundsätzliche", () => {
     expect(leistungenText({}, {})).toBe("Transporter mit Team, Anfahrt und alle Kilometer");
-  });
-});
-
-describe("duzen", () => {
-  it("erkennt Du im Verlauf, sonst Sie", () => {
-    expect(duzen(["Hallo, kannst du mir ein Angebot machen?"])).toBe(true);
-    expect(duzen(["Guten Tag, können Sie mir ein Angebot machen?"])).toBe(false);
-    expect(duzen(["Danke dir!"])).toBe(true);
   });
 });
 
