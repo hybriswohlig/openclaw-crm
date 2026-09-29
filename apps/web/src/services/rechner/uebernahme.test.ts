@@ -49,3 +49,55 @@ describe("angebotsUebernahme", () => {
     expect(r.ok && r.eingabe.calculationAssumptions?.anfahrtQuelle).toBe("manuell");
   });
 });
+
+const mitMarge = {
+  ...festpreisErgebnis,
+  kosten: { selbstkosten: 700 },
+  preis: {
+    festpreis: 1170, selbstkosten: 700, rundungEur: 10, margeWirksamProzent: 40, margeQuelle: "vorschlag" as const,
+    margeVorschlag: { prozent: 40, gruende: [{ text: "Basis Kottke", punkte: 40 }] }, nichtKalkulierbarGrund: null,
+  },
+};
+const jetzt = new Date("2026-09-28T10:00:00Z");
+
+describe("angebotsUebernahme mit Marge", () => {
+  it("gewählte Marge: Preis wird serverseitig aus Selbstkosten gerechnet, Annahmen dokumentieren die Wahl", () => {
+    const r = angebotsUebernahme({ result: mitMarge, request: anfrage }, null, { margeProzent: 30, uebernommenVon: "mensch", jetzt });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.eingabe.fixedPrice).toBe("1000");
+    expect(r.eingabe.calculationAssumptions).toMatchObject({
+      selbstkosten: 700, margeVorschlagProzent: 40, margeGewaehltProzent: 30, margeTatsaechlichProzent: 30,
+      margeGruende: [{ text: "Basis Kottke", punkte: 40 }], uebernommenVon: "mensch", uebernommenAm: "2026-09-28T10:00:00.000Z",
+    });
+  });
+
+  it("ohne gewählte Marge: Vorschlag des Rechners", () => {
+    const r = angebotsUebernahme({ result: mitMarge, request: anfrage }, null, { jetzt });
+    expect(r.ok && r.eingabe.fixedPrice).toBe("1170");
+  });
+
+  it("Marge unter 30 oder über 60 wird abgelehnt", () => {
+    for (const m of [25, 29.9, 61, Number.NaN]) {
+      expect(angebotsUebernahme({ result: mitMarge, request: anfrage }, null, { margeProzent: m })).toEqual({ ok: false, fehler: "Marge muss zwischen 30 und 60 % liegen." });
+    }
+  });
+
+  it("alte Kalkulation ohne Selbstkosten/Rundung im Preis: Marge nicht übernehmbar", () => {
+    expect(angebotsUebernahme({ result: festpreisErgebnis, request: anfrage }, null, { margeProzent: 35 }))
+      .toEqual({ ok: false, fehler: "Kalkulation veraltet, bitte neu rechnen." });
+  });
+
+  it("Spanne mit gewählter Marge: Obergrenze aus selbstkostenBis", () => {
+    const spanne = { ...mitMarge, schaetzung: { festpreisVon: 800, festpreisBis: 1170, selbstkostenVon: 480, selbstkostenBis: 700, margeProzent: 40, annahmen: [] } };
+    const r = angebotsUebernahme({ result: spanne, request: {} }, null, { bestaetigtSpanne: true, margeProzent: 35, jetzt });
+    // 700 ÷ 0,65 = 1.076,92 → 1.080
+    expect(r.ok && r.eingabe.fixedPrice).toBe("1080");
+  });
+
+  it("Review Focus 4: ein inkonsistenter gespeicherter Festpreis wird ignoriert, der Preis kommt aus den Selbstkosten", () => {
+    const manipuliert = { ...mitMarge, preis: { ...mitMarge.preis, festpreis: 5000 } };
+    const r = angebotsUebernahme({ result: manipuliert, request: anfrage }, null, { margeProzent: 30, jetzt });
+    expect(r.ok && r.eingabe.fixedPrice).toBe("1000");
+  });
+});

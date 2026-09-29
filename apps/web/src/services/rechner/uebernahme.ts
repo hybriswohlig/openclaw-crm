@@ -7,6 +7,7 @@
 import type { CalculationAssumptions } from "@/db/schema/quotations";
 import type { RechnerErgebnis } from "./client";
 import type { RechnerAnfrage } from "./eingabe";
+import { MARGE_MAX_PROZENT, MARGE_MIN_PROZENT, preisBeiMarge } from "./marge";
 
 const AUFZUG_TEXT: Record<string, string> = { keiner: "ohne Aufzug", klein: "kleiner Aufzug", gross: "großer Aufzug" };
 
@@ -30,18 +31,31 @@ function text(anfrage: RechnerAnfrage, feld: string): string | null {
 export function angebotsUebernahme(
   kalkulation: { result: RechnerErgebnis | null; request: RechnerAnfrage } | null,
   vorhandenesAngebot: { notes: string | null; isVariable: boolean } | null,
-  opts: { bestaetigtSpanne?: boolean }
+  opts: { bestaetigtSpanne?: boolean; margeProzent?: number | null; uebernommenVon?: "mensch" | "agent"; jetzt?: Date }
 ): UebernahmeErgebnis {
   const ergebnis = kalkulation?.result;
   if (!kalkulation || !ergebnis) return { ok: false, fehler: "Noch keine Kalkulation vorhanden." };
 
+  const m = opts.margeProzent ?? null;
+  if (m !== null && (!Number.isFinite(m) || m < MARGE_MIN_PROZENT || m > MARGE_MAX_PROZENT)) {
+    return { ok: false, fehler: `Marge muss zwischen ${MARGE_MIN_PROZENT} und ${MARGE_MAX_PROZENT} % liegen.` };
+  }
+  const p = ergebnis.preis;
+  if (m !== null && (p?.selbstkosten == null || p?.rundungEur == null)) return { ok: false, fehler: "Kalkulation veraltet, bitte neu rechnen." };
+
   const spanne = ergebnis.schaetzung ?? null;
   let preis: number | null;
+  let selbstkosten: number | null = p?.selbstkosten ?? ergebnis.kosten?.selbstkosten ?? null;
   if (spanne) {
     if (!opts.bestaetigtSpanne) return { ok: false, fehler: "Nur eine Spanne vorhanden. Obergrenze übernehmen? (bestaetigtSpanne)" };
-    preis = spanne.festpreisBis;
+    if (m !== null && spanne.selbstkostenBis != null) {
+      selbstkosten = spanne.selbstkostenBis;
+      preis = preisBeiMarge(spanne.selbstkostenBis, m, p!.rundungEur!);
+    } else {
+      preis = spanne.festpreisBis;
+    }
   } else {
-    preis = ergebnis.preis?.festpreis ?? null;
+    preis = m !== null ? preisBeiMarge(p!.selbstkosten!, m, p!.rundungEur!) : p?.festpreis ?? null;
   }
   if (preis === null) {
     const grund = ergebnis.preis?.nichtKalkulierbarGrund;
@@ -77,6 +91,13 @@ export function angebotsUebernahme(
         inventarPositionen: (ergebnis.positionen ?? []).reduce((summe, p) => summe + p.menge, 0),
         inventarVolumenCbm: ergebnis.volumen?.nettoCbm ?? null,
         hinweis: hinweisTeile.join(" "),
+        selbstkosten,
+        margeVorschlagProzent: p?.margeVorschlag?.prozent ?? null,
+        margeGruende: p?.margeVorschlag?.gruende ?? null,
+        margeGewaehltProzent: m ?? p?.margeWirksamProzent ?? null,
+        margeTatsaechlichProzent: preis && selbstkosten != null ? Math.round(((preis - selbstkosten) / preis) * 1000) / 10 : null,
+        uebernommenVon: opts.uebernommenVon ?? "mensch",
+        uebernommenAm: (opts.jetzt ?? new Date()).toISOString(),
       },
     },
   };

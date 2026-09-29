@@ -11,14 +11,19 @@ import { angebotsUebernahme } from "@/services/rechner/uebernahme";
 /**
  * POST → übernimmt die aktuelle Kalkulation ins Angebot (Festpreis und
  * Kalkulationsannahmen). Bei einer Spanne nur mit { bestaetigtSpanne: true },
- * dann die Obergrenze. Positionen und Notizen des Angebots bleiben erhalten.
+ * dann die Obergrenze. Optional { margeProzent } (30 bis 60): der Preis wird
+ * serverseitig aus den gespeicherten Selbstkosten neu gerechnet. Positionen und Notizen des Angebots bleiben erhalten.
  * Danach dieselben Schritte wie beim normalen Speichern des Angebots.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ recordId: string }> }) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized();
   const { recordId } = await params;
-  const body = (await req.json().catch(() => ({}))) as { bestaetigtSpanne?: boolean };
+  const body = (await req.json().catch(() => ({}))) as { bestaetigtSpanne?: boolean; margeProzent?: unknown };
+  // Ein Client-Preis wird nie gelesen. Nicht-numerische Marge (z. B. "25") wird über NaN abgelehnt.
+  const margeProzent = typeof body.margeProzent === "number" ? body.margeProzent : body.margeProzent == null ? null : Number.NaN;
+  // API-Schlüssel = Agenten; Sitzung = Mensch.
+  const uebernommenVon = ctx.authMethod === "api_key" ? "agent" : "mensch";
 
   if (await hatPaketoptionen(recordId)) {
     return badRequest(
@@ -33,7 +38,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rec
   const uebernahme = angebotsUebernahme(
     eigene,
     vorhanden ? { notes: vorhanden.notes, isVariable: vorhanden.isVariable } : null,
-    { bestaetigtSpanne: body.bestaetigtSpanne === true }
+    { bestaetigtSpanne: body.bestaetigtSpanne === true, margeProzent, uebernommenVon }
   );
   if (!uebernahme.ok) return badRequest(uebernahme.fehler);
 

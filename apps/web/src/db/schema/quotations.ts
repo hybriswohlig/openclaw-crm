@@ -138,6 +138,15 @@ export interface CalculationAssumptions {
   inventarPositionen?: number | null;
   inventarVolumenCbm?: number | null;
   hinweis?: string | null;
+  /** Selbstkosten, auf denen der übernommene Preis beruht. */
+  selbstkosten?: number | null;
+  margeVorschlagProzent?: number | null;
+  margeGruende?: Array<{ text: string; punkte: number }> | null;
+  margeGewaehltProzent?: number | null;
+  /** Tatsächliche Marge nach Rundung: (Preis - Selbstkosten) / Preis. */
+  margeTatsaechlichProzent?: number | null;
+  uebernommenVon?: "mensch" | "agent" | null;
+  uebernommenAm?: string | null;
 }
 
 export const quotationLineItems = pgTable(

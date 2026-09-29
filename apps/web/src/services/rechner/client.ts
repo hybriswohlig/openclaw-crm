@@ -15,6 +15,11 @@ export interface KostenPosten {
   betrag: number;
 }
 
+export interface MargeVorschlag {
+  prozent: number;
+  gruende: Array<{ text: string; punkte: number }>;
+}
+
 /** Die Felder der Rechner-Antwort, die das CRM nutzt (siehe Rechner, POST /api/kalkulation). */
 export interface RechnerErgebnis {
   preis?: {
@@ -25,12 +30,23 @@ export interface RechnerErgebnis {
     margeProzent?: number;
     posten?: KostenPosten[];
     nichtKalkulierbarGrund?: string | null;
+    listenpreis?: number;
+    festpreisBeiMindestmarge?: number;
+    selbstkosten?: number;
+    margeWirksamProzent?: number;
+    margeQuelle?: "vorschlag" | "anfrage";
+    rundungEur?: number;
+    margeVorschlag?: MargeVorschlag | null;
   };
   kosten?: { selbstkosten: number; posten?: KostenPosten[]; personenH?: number };
   volumen?: { nettoCbm: number; ladeCbm?: number };
   zeiten?: { fahrtMin?: number; uhrzeitMin?: number; einsatztage?: number };
   team?: { groesse: number };
-  schaetzung?: { festpreisVon: number | null; festpreisBis: number | null; annahmen: string[] } | null;
+  schaetzung?: {
+    festpreisVon: number | null; festpreisBis: number | null; annahmen: string[];
+    selbstkostenVon?: number | null; selbstkostenBis?: number | null; margeProzent?: number;
+  } | null;
+  margeVorschlag?: MargeVorschlag | null;
   mietstation?: {
     name: string; anbieter: string | null; adresse: string; quelle: string;
     anfahrtKm: number; anfahrtMin: number; rueckfahrtKm: number; rueckfahrtMin: number;
