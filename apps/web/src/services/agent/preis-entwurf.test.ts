@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { leistungenText, ohnePreisPhrase, preisEntwurfText, preisPhrase } from "./preis-entwurf";
+import { gewaehlteMarge, leistungenText, ohnePreisPhrase, preisEntwurfText, preisPhrase } from "./preis-entwurf";
 import { leaksPriceOrCommitment } from "./agent-suppress";
 
 describe("preisPhrase", () => {
@@ -58,5 +58,41 @@ describe("preisEntwurfText", () => {
     expect(leaksPriceOrCommitment(ohnePreisPhrase(t, phrase))).toBe(false);
     expect(leaksPriceOrCommitment(ohnePreisPhrase(`${t} Oder 900 €?`, phrase))).toBe(true);
     expect(ohnePreisPhrase(t, null)).toBe(t);
+  });
+});
+
+describe("gewaehlteMarge", () => {
+  it("liest margeGewaehltProzent aus den Kalkulationsannahmen des Angebots", () => {
+    expect(gewaehlteMarge({ margeGewaehltProzent: 33 })).toBe(33);
+  });
+  it("fehlend, keine Zahl oder außerhalb 30 bis 60: null", () => {
+    expect(gewaehlteMarge(null)).toBeNull();
+    expect(gewaehlteMarge({})).toBeNull();
+    expect(gewaehlteMarge({ margeGewaehltProzent: "33" })).toBeNull();
+    expect(gewaehlteMarge({ margeGewaehltProzent: 25 })).toBeNull();
+    expect(gewaehlteMarge({ margeGewaehltProzent: 61 })).toBeNull();
+  });
+});
+
+describe("preisPhrase mit übernommener Marge", () => {
+  const preis = { festpreis: 1170, selbstkosten: 700, rundungEur: 10, margeWirksamProzent: 40, nichtKalkulierbarGrund: null };
+  it("Festpreis: Marge aus dem Angebot statt Vorschlag", () => {
+    expect(preisPhrase({ preis, schaetzung: null }, 30)).toBe("ca. 1.000 €");
+  });
+  it("Spanne: beide Enden mit der Marge aus dem Angebot", () => {
+    const schaetzung = { festpreisVon: 800, festpreisBis: 1170, selbstkostenVon: 480, selbstkostenBis: 700, margeProzent: 40, annahmen: [] };
+    // 480 ÷ 0,7 = 685,71 → 690; 700 ÷ 0,7 = 1.000
+    expect(preisPhrase({ preis, schaetzung }, 30)).toBe("ca. 690 bis 1.000 €");
+  });
+  it("ohne Marge: Vorschlag wie bisher", () => {
+    expect(preisPhrase({ preis, schaetzung: null }, null)).toBe("ca. 1.170 €");
+    expect(preisPhrase({ preis, schaetzung: null })).toBe("ca. 1.170 €");
+  });
+  it("alte Kalkulation ohne Selbstkosten/Rundung oder Spanne ohne Selbstkosten-Enden: wie bisher", () => {
+    expect(preisPhrase({ preis: { festpreis: 1110 }, schaetzung: null }, 30)).toBe("ca. 1.110 €");
+    expect(preisPhrase({ preis, schaetzung: { festpreisVon: 980, festpreisBis: 1110, annahmen: [] } }, 30)).toBe("ca. 980 bis 1.110 €");
+  });
+  it("nicht kalkulierbar bleibt null, auch mit Marge", () => {
+    expect(preisPhrase({ preis: { festpreis: null, selbstkosten: 0, rundungEur: 10, nichtKalkulierbarGrund: "x" }, schaetzung: null }, 30)).toBeNull();
   });
 });

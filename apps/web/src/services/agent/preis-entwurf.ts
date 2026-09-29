@@ -8,6 +8,7 @@
  * durch und blockt jede andere Zahl. Jeder Entwurf geht zur Freigabe.
  */
 import type { RechnerErgebnis } from "@/services/rechner/client";
+import { MARGE_MAX_PROZENT, MARGE_MIN_PROZENT, preisBeiMarge } from "@/services/rechner/marge";
 
 export const PREIS_ZUSATZ = "unverbindliche Orientierung, Festpreis nach Besichtigung oder Fotos";
 
@@ -15,16 +16,46 @@ function euro(n: number): string {
   return `${Math.round(n).toLocaleString("de-DE")}`;
 }
 
-/** "ca. 980 bis 1.110 €" aus der Schnellschätzung, "ca. 1.110 €" aus einem Festpreis, sonst null. */
-export function preisPhrase(e: Pick<RechnerErgebnis, "schaetzung" | "preis">): string | null {
+function betragText(von: number, bis: number): string {
+  return von === bis ? `ca. ${euro(bis)} €` : `ca. ${euro(von)} bis ${euro(bis)} €`;
+}
+
+/** Im Angebot übernommene Marge (Regler oder Agent), nur 30 bis 60 %, sonst null. */
+export function gewaehlteMarge(annahmen: unknown): number | null {
+  const m = (annahmen as { margeGewaehltProzent?: unknown } | null | undefined)?.margeGewaehltProzent;
+  return typeof m === "number" && Number.isFinite(m) && m >= MARGE_MIN_PROZENT && m <= MARGE_MAX_PROZENT ? m : null;
+}
+
+/** Preis mit der übernommenen Marge auf den aktuellen Selbstkosten; null, wenn die Kalkulation dafür zu alt ist. */
+function phraseMitMarge(e: Pick<RechnerErgebnis, "schaetzung" | "preis">, m: number): string | null {
+  const p = e.preis;
+  if (!p || p.rundungEur == null) return null;
+  const sp = e.schaetzung;
+  if (sp) {
+    if (sp.selbstkostenVon == null || sp.selbstkostenBis == null || sp.selbstkostenVon <= 0 || sp.selbstkostenBis <= 0) return null;
+    return betragText(preisBeiMarge(sp.selbstkostenVon, m, p.rundungEur), preisBeiMarge(sp.selbstkostenBis, m, p.rundungEur));
+  }
+  if (p.festpreis == null || p.selbstkosten == null || p.selbstkosten <= 0) return null;
+  const preis = preisBeiMarge(p.selbstkosten, m, p.rundungEur);
+  return betragText(preis, preis);
+}
+
+/**
+ * "ca. 980 bis 1.110 €" aus der Schnellschätzung, "ca. 1.110 €" aus einem Festpreis, sonst null.
+ * Mit margeProzent (im Angebot übernommen) wird auf den Selbstkosten mit dieser Marge gerechnet,
+ * sofern die Kalkulation Selbstkosten und Rundung enthält; sonst gilt der Vorschlag des Rechners.
+ */
+export function preisPhrase(e: Pick<RechnerErgebnis, "schaetzung" | "preis">, margeProzent: number | null = null): string | null {
+  if (margeProzent !== null) {
+    const mit = phraseMitMarge(e, margeProzent);
+    if (mit) return mit;
+  }
   const sp = e.schaetzung;
   if (sp && sp.festpreisVon != null && sp.festpreisBis != null && sp.festpreisVon > 0 && sp.festpreisBis > 0) {
-    return sp.festpreisVon === sp.festpreisBis
-      ? `ca. ${euro(sp.festpreisBis)} €`
-      : `ca. ${euro(sp.festpreisVon)} bis ${euro(sp.festpreisBis)} €`;
+    return betragText(sp.festpreisVon, sp.festpreisBis);
   }
   const fp = e.preis?.festpreis;
-  return fp != null && fp > 0 ? `ca. ${euro(fp)} €` : null;
+  return fp != null && fp > 0 ? betragText(fp, fp) : null;
 }
 
 function aufzaehlen(teile: readonly string[]): string {
