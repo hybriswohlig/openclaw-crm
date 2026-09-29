@@ -3,9 +3,10 @@
  *
  * Fragt ein Kunde nach dem Preis und es gibt eine Kalkulation des
  * Angebotsrechners, entsteht statt "ein Kollege meldet sich" ein Entwurf mit
- * der Spanne. Die Zahlen kommen ausschließlich aus dem Rechner und stehen in
- * einem festen Satz (preisPhrase); der Preisfilter lässt genau diesen Satz
- * durch und blockt jede andere Zahl. Jeder Entwurf geht zur Freigabe.
+ * der Spanne. Die Zahlen kommen ausschließlich aus dem Rechner oder aus dem
+ * Festpreis des Angebots und stehen in einem festen Satz (angebotsPhrase);
+ * der Preisfilter lässt genau diesen Satz durch und blockt jede andere Zahl.
+ * Jeder Entwurf geht zur Freigabe.
  */
 import type { RechnerErgebnis } from "@/services/rechner/client";
 import { MARGE_MAX_PROZENT, MARGE_MIN_PROZENT, preisBeiMarge } from "@/services/rechner/marge";
@@ -26,36 +27,55 @@ export function gewaehlteMarge(annahmen: unknown): number | null {
   return typeof m === "number" && Number.isFinite(m) && m >= MARGE_MIN_PROZENT && m <= MARGE_MAX_PROZENT ? m : null;
 }
 
-/** Preis mit der übernommenen Marge auf den aktuellen Selbstkosten; null, wenn die Kalkulation dafür zu alt ist. */
-function phraseMitMarge(e: Pick<RechnerErgebnis, "schaetzung" | "preis">, m: number): string | null {
+/** Spanne mit der übernommenen Marge auf den aktuellen Selbstkosten; null, wenn die Kalkulation dafür zu alt ist. */
+function spanneMitMarge(e: Pick<RechnerErgebnis, "schaetzung" | "preis">, m: number): { von: number; bis: number } | null {
   const p = e.preis;
   if (!p || p.rundungEur == null) return null;
   const sp = e.schaetzung;
   if (sp) {
     if (sp.selbstkostenVon == null || sp.selbstkostenBis == null || sp.selbstkostenVon <= 0 || sp.selbstkostenBis <= 0) return null;
-    return betragText(preisBeiMarge(sp.selbstkostenVon, m, p.rundungEur), preisBeiMarge(sp.selbstkostenBis, m, p.rundungEur));
+    return { von: preisBeiMarge(sp.selbstkostenVon, m, p.rundungEur), bis: preisBeiMarge(sp.selbstkostenBis, m, p.rundungEur) };
   }
   if (p.festpreis == null || p.selbstkosten == null || p.selbstkosten <= 0) return null;
   const preis = preisBeiMarge(p.selbstkosten, m, p.rundungEur);
-  return betragText(preis, preis);
+  return { von: preis, bis: preis };
 }
 
-/**
- * "ca. 980 bis 1.110 €" aus der Schnellschätzung, "ca. 1.110 €" aus einem Festpreis, sonst null.
- * Mit margeProzent (im Angebot übernommen) wird auf den Selbstkosten mit dieser Marge gerechnet,
- * sofern die Kalkulation Selbstkosten und Rundung enthält; sonst gilt der Vorschlag des Rechners.
- */
-export function preisPhrase(e: Pick<RechnerErgebnis, "schaetzung" | "preis">, margeProzent: number | null = null): string | null {
-  if (margeProzent !== null) {
-    const mit = phraseMitMarge(e, margeProzent);
-    if (mit) return mit;
-  }
+/** "ca. 980 bis 1.110 €" aus der Schnellschätzung, "ca. 1.110 €" aus einem Festpreis, sonst null (Vorschlag des Rechners). */
+export function preisPhrase(e: Pick<RechnerErgebnis, "schaetzung" | "preis">): string | null {
   const sp = e.schaetzung;
   if (sp && sp.festpreisVon != null && sp.festpreisBis != null && sp.festpreisVon > 0 && sp.festpreisBis > 0) {
     return betragText(sp.festpreisVon, sp.festpreisBis);
   }
   const fp = e.preis?.festpreis;
   return fp != null && fp > 0 ? betragText(fp, fp) : null;
+}
+
+export interface AngebotFuerPhrase {
+  fixedPrice: string | number | null;
+  isVariable: boolean;
+  calculationAssumptions: unknown;
+}
+
+/**
+ * Preis-Satz für den Entwurf, der einem festen Angebot nie widerspricht.
+ * Steht im Angebot ein Festpreis (nicht variabel, ohne Paketoptionen), nennt der
+ * Entwurf genau diesen Preis: als Spanne mit der übernommenen Marge, wenn deren
+ * Obergrenze dem Festpreis entspricht, sonst den Festpreis selbst (von Hand
+ * geändert, Margenfelder fehlen, Selbstkosten seither verändert). Ohne solches
+ * Angebot gilt der Vorschlag des Rechners.
+ */
+export function angebotsPhrase(
+  e: Pick<RechnerErgebnis, "schaetzung" | "preis">,
+  angebot: AngebotFuerPhrase | null,
+  hatPakete: boolean
+): string | null {
+  const festpreis = angebot && !angebot.isVariable && !hatPakete ? Number(angebot.fixedPrice) : Number.NaN;
+  if (!Number.isFinite(festpreis) || festpreis <= 0) return preisPhrase(e);
+  const m = gewaehlteMarge(angebot?.calculationAssumptions);
+  const spanne = m !== null ? spanneMitMarge(e, m) : null;
+  if (spanne && spanne.bis === festpreis) return betragText(spanne.von, spanne.bis);
+  return betragText(festpreis, festpreis);
 }
 
 function aufzaehlen(teile: readonly string[]): string {

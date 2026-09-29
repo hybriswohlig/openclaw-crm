@@ -149,25 +149,6 @@ export interface CalculationAssumptions {
   uebernommenAm?: string | null;
 }
 
-/**
- * Whitelist für alles, was den Kunden erreicht (Portal, Dokumente, E-Mails).
- * Selbstkosten, Marge und Übernahme-Metadaten sind intern und bleiben draußen.
- */
-export function kundenAnnahmen(a: CalculationAssumptions | null | undefined): CalculationAssumptions | null {
-  if (!a) return null;
-  return {
-    anfahrtMinuten: a.anfahrtMinuten,
-    anfahrtQuelle: a.anfahrtQuelle,
-    etageVon: a.etageVon,
-    etageBis: a.etageBis,
-    zugangVon: a.zugangVon,
-    zugangBis: a.zugangBis,
-    inventarPositionen: a.inventarPositionen,
-    inventarVolumenCbm: a.inventarVolumenCbm,
-    hinweis: a.hinweis,
-  };
-}
-
 export const quotationLineItems = pgTable(
   "quotation_line_items",
   {

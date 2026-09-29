@@ -1,7 +1,8 @@
 /** Preis-Entwurf aus der aktuellen Kalkulation eines Deals (Logik in preis-entwurf.ts). */
 import { aktuelleKalkulation } from "@/services/rechner/kalkulation";
+import { hatPaketoptionen } from "@/services/rechner/pakete";
 import { getQuotation } from "@/services/quotations";
-import { gewaehlteMarge, leistungenText, preisEntwurfText, preisPhrase } from "./preis-entwurf";
+import { angebotsPhrase, leistungenText, preisEntwurfText } from "./preis-entwurf";
 import { anredeAus } from "./stimme";
 
 export async function baueAngebotsEntwurf(
@@ -13,9 +14,9 @@ export async function baueAngebotsEntwurf(
     const k = await aktuelleKalkulation(workspaceId, dealRecordId);
     if (!k.ok || !k.kalkulation.result) return null;
     const e = k.kalkulation.result;
-    // Wurde eine Marge ins Angebot übernommen (Regler oder Agent), nennt der Entwurf diesen Preis, nicht den Vorschlag.
-    const angebot = await getQuotation(dealRecordId);
-    const phrase = preisPhrase(e, gewaehlteMarge(angebot?.calculationAssumptions));
+    // Steht im Angebot schon ein Festpreis, nennt der Entwurf genau diesen Preis, nie einen anderen.
+    const [angebot, hatPakete] = await Promise.all([getQuotation(dealRecordId), hatPaketoptionen(dealRecordId)]);
+    const phrase = angebotsPhrase(e, angebot, hatPakete);
     if (!phrase) return null;
     const text = preisEntwurfText({
       phrase,

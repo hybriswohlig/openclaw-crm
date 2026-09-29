@@ -1,6 +1,7 @@
 import { db } from "@/db";
 import { quotations, quotationLineItems, dealEmployees, employees } from "@/db/schema";
 import type { CalculationAssumptions } from "@/db/schema/quotations";
+import { annahmenZusammenfuehren } from "@/lib/kunden-annahmen";
 import { eq } from "drizzle-orm";
 
 export async function getQuotation(dealRecordId: string) {
@@ -83,9 +84,10 @@ export async function upsertQuotation(
           input.selectedPackageSlug !== undefined
             ? input.selectedPackageSlug
             : existing.selectedPackageSlug,
+        // Interne Felder (Selbstkosten, Marge, Übernahme) bleiben erhalten, wenn nur Kundenfelder kommen.
         calculationAssumptions:
           input.calculationAssumptions !== undefined
-            ? input.calculationAssumptions
+            ? annahmenZusammenfuehren(existing.calculationAssumptions, input.calculationAssumptions)
             : existing.calculationAssumptions,
         updatedAt: new Date(),
       })

@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Calculator, ChevronDown, ChevronRight, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { KostenPosten } from "@/services/rechner/client";
-import { reglerZustand } from "./regler";
+import { prozentText, punkteText, reglerTexte, reglerZustand } from "./regler";
 import { euroText, kartenAnzeige, type KalkulationJson, type KalkulationsStatus } from "./anzeige";
 
 interface Antwort {
@@ -122,6 +122,8 @@ export function KalkulationKarte({ recordId, onUebernommen }: { recordId: string
   const marge = reglerWahl.fuer === (k?.computedAt ?? null) ? reglerWahl.wert : null;
   const setMarge = (wert: number | null) => setReglerWahl({ fuer: k?.computedAt ?? null, wert });
   const z = reglerZustand(e, marge);
+  // Bei verfügbarem Regler steht der Reglerpreis groß oben: genau der Preis, den "In Angebot übernehmen" speichert.
+  const t = reglerTexte(z);
   // Bei verfügbarem Regler ist der Reglerpreis der Festpreis, auch bei einer Spanne (Obergrenze mit gewählter Marge).
   const obergrenze = z.verfuegbar ? z.festpreis : e?.schaetzung?.festpreisBis;
 
@@ -133,24 +135,24 @@ export function KalkulationKarte({ recordId, onUebernommen }: { recordId: string
             <Calculator className="h-3.5 w-3.5" />
             Kalkulation {a.spanne ? "(Schnellschätzung)" : a.art === "festpreis" ? "(Festpreisvorschlag)" : ""}
           </div>
-          <div className="mt-1 text-2xl font-semibold tabular-nums">{a.preisText}</div>
+          <div className="mt-1 text-2xl font-semibold tabular-nums">{t ? t.preis : a.preisText}</div>
           {a.station && <div className="mt-0.5 text-xs text-muted-foreground">{a.station}</div>}
-          {e?.kosten && e.preis?.festpreis != null && !a.spanne && (
+          {!z.verfuegbar && e?.kosten && e.preis?.festpreis != null && !a.spanne && (
             <div className="mt-0.5 text-xs text-muted-foreground">
               Selbstkosten {euroText(e.kosten.selbstkosten)}
               {e.preis.margeProzent != null && `, Marge ${e.preis.margeProzent.toLocaleString("de-DE", { maximumFractionDigits: 1 })} %`}
             </div>
           )}
-          {z.verfuegbar && e?.preis && (
+          {t && e?.preis && (
             <div className="mt-3 space-y-2">
               {e.preis.selbstkosten != null && (
                 <div className="text-xs text-muted-foreground">Selbstkosten {euroText(e.preis.selbstkosten)} (intern)</div>
               )}
               <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                <span className="font-medium">Vorschlag {z.startMarge} %</span>
+                <span className="font-medium">Vorschlag {prozentText(z.startMarge)}</span>
                 {z.gruende.map((g, i) => (
                   <span key={i} className="rounded-full border px-2 py-0.5 text-[11px]">
-                    {g.text} {g.punkte > 0 ? `+${g.punkte}` : g.punkte < 0 ? `\u2212${Math.abs(g.punkte)}` : "0"}
+                    {g.text} {punkteText(g.punkte)}
                   </span>
                 ))}
               </div>
@@ -162,11 +164,12 @@ export function KalkulationKarte({ recordId, onUebernommen }: { recordId: string
                 value={marge ?? z.startMarge}
                 onChange={(ev) => setMarge(Number(ev.target.value))}
                 aria-label="Marge in Prozent"
+                aria-valuetext={t.aria}
                 className="w-full"
               />
               <div className="text-sm">
-                Festpreis {a.spanne && z.festpreisVon != null ? `${euroText(z.festpreisVon)} bis ${euroText(z.festpreis ?? 0)}` : euroText(z.festpreis ?? 0)}
-                , Marge {euroText(z.margeEur ?? 0)} ({z.margeProzent} %)
+                <span className="font-medium">{t.marge}</span>
+                <span className="text-muted-foreground">, {t.margeDetail}</span>
               </div>
               {z.listenpreis != null && <div className="text-xs text-muted-foreground">nach Preisliste {euroText(z.listenpreis)}</div>}
               {marge !== null && marge !== z.startMarge && (

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { gewaehlteMarge, leistungenText, ohnePreisPhrase, preisEntwurfText, preisPhrase } from "./preis-entwurf";
+import { angebotsPhrase, gewaehlteMarge, leistungenText, ohnePreisPhrase, preisEntwurfText, preisPhrase } from "./preis-entwurf";
 import { leaksPriceOrCommitment } from "./agent-suppress";
 
 describe("preisPhrase", () => {
@@ -74,25 +74,58 @@ describe("gewaehlteMarge", () => {
   });
 });
 
-describe("preisPhrase mit übernommener Marge", () => {
+describe("angebotsPhrase (Entwurf widerspricht keinem Festpreis im Angebot)", () => {
   const preis = { festpreis: 1170, selbstkosten: 700, rundungEur: 10, margeWirksamProzent: 40, nichtKalkulierbarGrund: null };
-  it("Festpreis: Marge aus dem Angebot statt Vorschlag", () => {
-    expect(preisPhrase({ preis, schaetzung: null }, 30)).toBe("ca. 1.000 €");
+  const e = { preis, schaetzung: null };
+  const schaetzung = { festpreisVon: 800, festpreisBis: 1170, selbstkostenVon: 480, selbstkostenBis: 700, margeProzent: 40, annahmen: [] };
+  const mitMarge = (m: number) => ({ anfahrtMinuten: 55, hinweis: "x", selbstkosten: 700, margeVorschlagProzent: 40, margeGewaehltProzent: m });
+  const angebot = (fixedPrice: string | number | null, calculationAssumptions: unknown, isVariable = false) => ({ fixedPrice, isVariable, calculationAssumptions });
+
+  it("1. kein Angebot: Vorschlag des Rechners", () => {
+    expect(angebotsPhrase(e, null, false)).toBe("ca. 1.170 €");
   });
-  it("Spanne: beide Enden mit der Marge aus dem Angebot", () => {
-    const schaetzung = { festpreisVon: 800, festpreisBis: 1170, selbstkostenVon: 480, selbstkostenBis: 700, margeProzent: 40, annahmen: [] };
+  it("2. Festpreis aus der Übernahme mit 30 %: dieser Preis", () => {
+    expect(angebotsPhrase(e, angebot("1000", mitMarge(30)), false)).toBe("ca. 1.000 €");
+  });
+  it("3. Spanne: beide Enden mit der Marge, wenn die Obergrenze dem Festpreis entspricht", () => {
     // 480 ÷ 0,7 = 685,71 → 690; 700 ÷ 0,7 = 1.000
-    expect(preisPhrase({ preis, schaetzung }, 30)).toBe("ca. 690 bis 1.000 €");
+    expect(angebotsPhrase({ preis, schaetzung }, angebot("1000", mitMarge(30)), false)).toBe("ca. 690 bis 1.000 €");
   });
-  it("ohne Marge: Vorschlag wie bisher", () => {
-    expect(preisPhrase({ preis, schaetzung: null }, null)).toBe("ca. 1.170 €");
-    expect(preisPhrase({ preis, schaetzung: null })).toBe("ca. 1.170 €");
+  it("4. Preis von Hand geändert: der Festpreis aus dem Angebot", () => {
+    expect(angebotsPhrase(e, angebot("950", mitMarge(30)), false)).toBe("ca. 950 €");
   });
-  it("alte Kalkulation ohne Selbstkosten/Rundung oder Spanne ohne Selbstkosten-Enden: wie bisher", () => {
-    expect(preisPhrase({ preis: { festpreis: 1110 }, schaetzung: null }, 30)).toBe("ca. 1.110 €");
-    expect(preisPhrase({ preis, schaetzung: { festpreisVon: 980, festpreisBis: 1110, annahmen: [] } }, 30)).toBe("ca. 980 bis 1.110 €");
+  it("5. Assistent hat die Margenfelder entfernt: der Festpreis aus dem Angebot", () => {
+    const nurKunde = { anfahrtMinuten: 55, anfahrtQuelle: "berechnet", etageVon: "3", hinweis: "x" };
+    expect(angebotsPhrase(e, angebot("1000", nurKunde), false)).toBe("ca. 1.000 €");
   });
-  it("nicht kalkulierbar bleibt null, auch mit Marge", () => {
-    expect(preisPhrase({ preis: { festpreis: null, selbstkosten: 0, rundungEur: 10, nichtKalkulierbarGrund: "x" }, schaetzung: null }, 30)).toBeNull();
+  it("6. Selbstkosten seit der Übernahme gestiegen: der Festpreis aus dem Angebot", () => {
+    // 710 ÷ 0,7 = 1.014,29 → 1.020, das Angebot sagt 1.000
+    expect(angebotsPhrase({ preis: { ...preis, selbstkosten: 710 }, schaetzung: null }, angebot("1000", mitMarge(30)), false)).toBe("ca. 1.000 €");
+  });
+  it("7. variables Angebot oder kein Festpreis: Vorschlag des Rechners", () => {
+    expect(angebotsPhrase(e, angebot("1000", mitMarge(30), true), false)).toBe("ca. 1.170 €");
+    expect(angebotsPhrase(e, angebot(null, mitMarge(30)), false)).toBe("ca. 1.170 €");
+    expect(angebotsPhrase(e, angebot("0", mitMarge(30)), false)).toBe("ca. 1.170 €");
+    expect(angebotsPhrase(e, angebot("abc", mitMarge(30)), false)).toBe("ca. 1.170 €");
+  });
+  it("8. Paketoptionen vorhanden: Vorschlag des Rechners", () => {
+    expect(angebotsPhrase(e, angebot("1000", mitMarge(30)), true)).toBe("ca. 1.170 €");
+  });
+  it("9. der Satz aus Fall 3 kommt durch den Preisfilter, jede andere Zahl nicht", () => {
+    const phrase = angebotsPhrase({ preis, schaetzung }, angebot("1000", mitMarge(30)), false)!;
+    const t = preisEntwurfText({ phrase, leistungen: "Team", frage: null, du: false });
+    expect(leaksPriceOrCommitment(t)).toBe(true);
+    expect(leaksPriceOrCommitment(ohnePreisPhrase(t, phrase))).toBe(false);
+    expect(leaksPriceOrCommitment(ohnePreisPhrase(`${t} Oder 900 €?`, phrase))).toBe(true);
+  });
+  it("Festpreis als Zahl und mit Nachkommastellen aus der Datenbank", () => {
+    expect(angebotsPhrase(e, angebot(1000, mitMarge(30)), false)).toBe("ca. 1.000 €");
+    expect(angebotsPhrase(e, angebot("1000.00", mitMarge(30)), false)).toBe("ca. 1.000 €");
+  });
+  it("alte Kalkulation ohne Selbstkosten und Rundung: der Festpreis aus dem Angebot", () => {
+    expect(angebotsPhrase({ preis: { festpreis: 1110 }, schaetzung: null }, angebot("1000", mitMarge(30)), false)).toBe("ca. 1.000 €");
+  });
+  it("nicht kalkulierbar und kein Festpreis im Angebot: null", () => {
+    expect(angebotsPhrase({ preis: { festpreis: null, selbstkosten: 0, rundungEur: 10, nichtKalkulierbarGrund: "x" }, schaetzung: null }, null, false)).toBeNull();
   });
 });

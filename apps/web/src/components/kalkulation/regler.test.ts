@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RechnerErgebnis } from "@/services/rechner/client";
-import { reglerZustand } from "./regler";
+import { prozentText, punkteText, reglerTexte, reglerZustand } from "./regler";
 
 const teil = (x: unknown) => x as RechnerErgebnis;
 
@@ -33,6 +33,47 @@ describe("reglerZustand", () => {
   it("nicht kalkulierbar oder kein Ergebnis: nicht verfügbar", () => {
     expect(reglerZustand(null, null).verfuegbar).toBe(false);
     expect(reglerZustand(teil({ preis: { festpreis: null, nichtKalkulierbarGrund: "x" } }), null).verfuegbar).toBe(false);
+  });
+});
+
+describe("reglerTexte (Karte zeigt den Reglerpreis groß)", () => {
+  it("Festpreis: Preis wie die Überschrift, gewählte Marge mit Vorschlag, Marge in € und nach Rundung", () => {
+    // 700 ÷ 0,65 = 1.076,92 → 1.080; Marge 380 € = 35,2 % vom Preis
+    expect(reglerTexte(reglerZustand(e, 35))).toEqual({
+      preis: "1.080 €",
+      marge: "Marge 35 % (Vorschlag 40 %)",
+      margeDetail: "380 € Marge, nach Rundung 35,2 %",
+      aria: "35 % Marge",
+    });
+  });
+  it("ohne Reglerwahl: der Vorschlag", () => {
+    expect(reglerTexte(reglerZustand(e, null))).toMatchObject({ preis: "1.170 €", marge: "Marge 40 % (Vorschlag 40 %)", aria: "40 % Marge" });
+  });
+  it("30 %: genau der Preis, den der Knopf übernimmt", () => {
+    expect(reglerTexte(reglerZustand(e, 30))).toMatchObject({ preis: "1.000 €", margeDetail: "300 € Marge, nach Rundung 30 %" });
+  });
+  it("Spanne: beide Enden mit der gewählten Marge", () => {
+    const s = teil({ ...e, schaetzung: { festpreisVon: 800, festpreisBis: 1170, selbstkostenVon: 480, selbstkostenBis: 700, margeProzent: 40, annahmen: [] } });
+    expect(reglerTexte(reglerZustand(s, 30))?.preis).toBe("690 € bis 1.000 €");
+  });
+  it("Regler nicht verfügbar: null (Überschrift bleibt wie bisher)", () => {
+    expect(reglerTexte(reglerZustand(null, null))).toBeNull();
+    expect(reglerTexte(reglerZustand(teil({ kosten: { selbstkosten: 700 }, preis: { festpreis: 1000, nichtKalkulierbarGrund: null } }), null))).toBeNull();
+  });
+});
+
+describe("prozentText und punkteText", () => {
+  it("deutsches Dezimalkomma, kein Punkt", () => {
+    expect(prozentText(35)).toBe("35 %");
+    expect(prozentText(35.25)).toBe("35,3 %");
+    expect(prozentText(42.5)).toBe("42,5 %");
+  });
+  it("Punkte mit Vorzeichen, Minus als U+2212", () => {
+    expect(punkteText(5)).toBe("+5");
+    expect(punkteText(-3)).toBe("\u22123");
+    expect(punkteText(0)).toBe("0");
+    expect(punkteText(2.5)).toBe("+2,5");
+    expect(punkteText(-1.5)).toBe("\u22121,5");
   });
 });
 

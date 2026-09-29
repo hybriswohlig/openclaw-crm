@@ -31,7 +31,8 @@ import {
   quotationPackageOptions,
   customerDateSelections,
 } from "@/db/schema/customer-portal";
-import { quotations, quotationLineItems, kundenAnnahmen } from "@/db/schema/quotations";
+import { quotations, quotationLineItems } from "@/db/schema/quotations";
+import { kundenAnnahmen } from "@/lib/kunden-annahmen";
 import { activityEvents } from "@/db/schema/activity";
 import { dealDocuments, payments, dealNumbers } from "@/db/schema/financial";
 import { dealEmployees, employees } from "@/db/schema/employees";

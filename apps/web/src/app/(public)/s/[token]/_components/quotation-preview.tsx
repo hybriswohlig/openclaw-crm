@@ -5,6 +5,7 @@ import { pickDefaultDealOption, type CustomerPortalContext } from "@openclaw-crm
 import { EmailDocumentButton } from "./email-document-button";
 import { PanelHeading } from "./portal-ui";
 import { formatPortalDate, formatPortalMoney } from "./portal-presentation";
+import { kundenAnnahmen } from "@/lib/kunden-annahmen";
 
 /** Current stored PDF, with a printable data-backed fallback while it is being prepared. */
 export function QuotationPreview({ ctx, token }: { ctx: CustomerPortalContext; token: string }) {
@@ -40,7 +41,7 @@ export function QuotationPreview({ ctx, token }: { ctx: CustomerPortalContext; t
       {!!ctx.kva.depositRequiredCents && <p className="mt-3">Vereinbarte Anzahlung: {formatPortalMoney(ctx.kva.depositRequiredCents)}</p>}
       {ctx.kva.validUntil && <p className="mt-3">Gültig bis: {formatPortalDate(ctx.kva.validUntil)}</p>}
       {(ctx.scope.specialRequests || ctx.scope.inventoryNotes) && <p className="mt-4 whitespace-pre-line"><strong>Besonderheiten</strong><br />{[ctx.scope.specialRequests, ctx.scope.inventoryNotes].filter(Boolean).join("\n")}</p>}
-      {ctx.kva.calculationAssumptions && <div className="mt-4"><strong>Kalkulationsgrundlagen</strong><ul>{Object.entries(ctx.kva.calculationAssumptions).filter(([, value]) => value != null && value !== "").map(([key, value]) => <li key={key}>{({ anfahrtMinuten: "Anfahrt gesamt (Minuten)", anfahrtQuelle: "Grundlage der Anfahrt", etageVon: "Etage Abholung", etageBis: "Etage Ziel", zugangVon: "Zugang Abholung", zugangBis: "Zugang Ziel", inventarPositionen: "Inventarpositionen", inventarVolumenCbm: "Inventarvolumen (m³)", hinweis: "Hinweis" } as Record<string, string>)[key] ?? key}: {String(value)}</li>)}</ul></div>}
+      {ctx.kva.calculationAssumptions && <div className="mt-4"><strong>Kalkulationsgrundlagen</strong><ul>{Object.entries(kundenAnnahmen(ctx.kva.calculationAssumptions) ?? {}).filter(([, value]) => value != null && value !== "").map(([key, value]) => <li key={key}>{({ anfahrtMinuten: "Anfahrt gesamt (Minuten)", anfahrtQuelle: "Grundlage der Anfahrt", etageVon: "Etage Abholung", etageBis: "Etage Ziel", zugangVon: "Zugang Abholung", zugangBis: "Zugang Ziel", inventarPositionen: "Inventarpositionen", inventarVolumenCbm: "Inventarvolumen (m³)", hinweis: "Hinweis" } as Record<string, string>)[key] ?? key}: {String(value)}</li>)}</ul></div>}
       {ctx.branding.agbPdfUrl && <p className="mt-4"><a href={ctx.branding.agbPdfUrl} className="underline">Allgemeine Geschäftsbedingungen</a></p>}
       {ctx.kva.notes && <p className="mt-4 whitespace-pre-line">{ctx.kva.notes}</p>}
     </article></div>
