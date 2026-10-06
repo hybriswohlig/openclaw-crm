@@ -1,4 +1,5 @@
-import type { WiderrufModus } from "./annahme-recht";
+import type { AnnahmeRegeln, WiderrufModus } from "./annahme-recht";
+import type { FirmaKontakt } from "./rechtstexte";
 /**
  * Portable types shared between the CRM's public API and the customer portal
  * UI. Keep these stable — they form the public contract.
@@ -395,6 +396,11 @@ export interface CustomerPortalContext {
 
   /** Was the KVA already accepted? Drives Stage 2 visibility. */
   acceptance: AcceptanceRecord | null;
+
+  /** Rechtsregeln der Annahme; Dialog und Server nutzen dieselben Werte. */
+  annahmeRecht: AnnahmeRegeln & { kontakt: FirmaKontakt };
+  /** Eine frühere Annahme wurde aufgehoben: Kunde soll das neue Angebot prüfen. */
+  fruehereAnnahmeAufgehoben: boolean;
 
   /** Documents that already exist as PDFs. URLs are public-token-scoped. */
   documents: {

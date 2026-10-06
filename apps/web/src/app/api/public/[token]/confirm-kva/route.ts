@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { confirmKvaForToken } from "@/services/customer-portal-data";
 import type { ConfirmKvaPayload } from "@openclaw-crm/customer-portal-core";
 
@@ -32,21 +32,22 @@ export async function POST(
   });
 
   if (!result.ok) {
-    const status =
-      result.reason === "not_found"
-        ? 404
-        : result.reason === "revoked" || result.reason === "offer_expired"
-          ? 410
-          : result.reason === "invalid_token"
-            ? 400
-            : result.reason === "option_required" || result.reason === "zero_price"
-              ? 422
-              : 422;
+    const status: Record<string, number> = {
+      not_found: 404,
+      revoked: 410,
+      offer_expired: 410,
+      invalid_token: 400,
+      price_changed: 409,
+      agb_unavailable: 503,
+    };
     return NextResponse.json(
       { error: { code: result.reason.toUpperCase() } },
-      { status }
+      { status: status[result.reason] ?? 422 }
     );
   }
+
+  // Bestätigung an den Kunden und Team-Alarm laufen nach der Antwort weiter.
+  if (result.nachlauf) after(result.nachlauf);
 
   return NextResponse.json({ data: { ok: true } });
 }

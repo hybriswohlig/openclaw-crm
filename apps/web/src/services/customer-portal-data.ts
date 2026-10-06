@@ -51,7 +51,12 @@ import {
   portalFeatures,
   resolveSelectedPackageAfterReplace,
   validateTokenShape,
-  widerrufVerzichtRequired,
+  annahmeRegeln,
+  annahmeSperrgrund,
+  berlinDateString,
+  erwarteterGesamtpreis,
+  firmaKontakt,
+  type ServiceArt,
   type AcceptanceRecord,
   type AttachmentRef,
   type ConfirmKvaPayload,
@@ -81,8 +86,15 @@ import { isKleinanzeigenRelayAddress } from "./inbox-kleinanzeigen";
 import { loadEffectiveBranding } from "./customer-portal-config";
 import { emitEvent } from "./activity-events";
 import { createTask } from "./tasks";
-import { sendKvaAcceptanceEmail } from "./customer-portal-emails";
-import { aktivBedingung, annahmeAusZeile, ladeAktiveAnnahme } from "./kva-annahme";
+import { annahmeNachlauf } from "./kva-bestaetigung";
+import {
+  aktivBedingung,
+  aktuellesKvDokument,
+  annahmeAusZeile,
+  hatAufgehobeneAnnahme,
+  ladeAgbFuerAnnahme,
+  ladeAktiveAnnahme,
+} from "./kva-annahme";
 
 // ─── Token / link lifecycle ────────────────────────────────────────────────────
 
@@ -341,6 +353,19 @@ export async function loadContextByToken(
 
   // Confirmation
   const acceptance = await loadLatestAcceptance(dealRecordId);
+  const fruehereAnnahmeAufgehoben = !acceptance && (await hatAufgehobeneAnnahme(dealRecordId));
+
+  // Rechtsregeln der Annahme; Dialog und confirmKvaForToken nutzen dieselben.
+  const serviceType = await loadServiceType(dealRecordId);
+  const annahmeRecht = {
+    ...annahmeRegeln({
+      serviceType,
+      moveDate: scope.moveDate,
+      hasOpenDateChoice: dateOffers.options.length > 0 && !dateOffers.selection,
+      now,
+    }),
+    kontakt: firmaKontakt(branding.firmaSlug),
+  };
 
   // Documents (presence only — the public route streams them through a scoped URL)
   const docRows = await db
@@ -359,6 +384,10 @@ export async function loadContextByToken(
     .where(eq(quotations.dealRecordId, dealRecordId)).limit(1);
   const quotationDoc = docRows.find(d => d.type === "quotation" &&
     (!quotationVersion || d.uploadedAt >= quotationVersion.updatedAt));
+  // Nach der Annahme zeigt das Portal genau das angenommene PDF.
+  const quotationDocShown = acceptance
+    ? docRows.find((d) => d.id === acceptance.quotationDocumentId) ?? null
+    : quotationDoc;
 
   // Move timing
   const [timingRow] = await db
@@ -445,8 +474,10 @@ export async function loadContextByToken(
     crew,
     kva,
     acceptance,
+    annahmeRecht,
+    fruehereAnnahmeAufgehoben,
     documents: {
-      quotationUrl: quotationDoc ? `/api/public/${token}/documents/${quotationDoc.id}` : null,
+      quotationUrl: quotationDocShown ? `/api/public/${token}/documents/${quotationDocShown.id}` : null,
       orderConfirmationUrl: orderConfirmationDoc
         ? `/api/public/${token}/documents/${orderConfirmationDoc.id}`
         : null,
@@ -480,127 +511,110 @@ export async function confirmKvaForToken(
   token: string,
   body: ConfirmKvaPayload,
   ctx: ConfirmKvaContext
-): Promise<{ ok: true } | { ok: false; reason: string }> {
+): Promise<{ ok: true; nachlauf: (() => Promise<void>) | null } | { ok: false; reason: string }> {
   if (!validateTokenShape(token)) return { ok: false, reason: "invalid_token" };
-
-  const [link] = await db
-    .select()
-    .from(customerStatusLinks)
-    .where(eq(customerStatusLinks.token, token))
-    .limit(1);
-
+  const [link] = await db.select().from(customerStatusLinks).where(eq(customerStatusLinks.token, token)).limit(1);
   if (!link) return { ok: false, reason: "not_found" };
   if (!isLinkUsable(link)) return { ok: false, reason: "revoked" };
 
-  // Idempotent on double-submit: a second tap must not write a second
-  // confirmation row or fire a second email. The first acceptance stands.
-  const [alreadyConfirmed] = await db
-    .select({ id: kvaConfirmations.id })
-    .from(kvaConfirmations)
-    .where(aktivBedingung(link.dealRecordId))
-    .limit(1);
-  if (alreadyConfirmed) return { ok: true };
-
-  // Re-validate gates server-side so the client can't lie.
-  if (!body.acceptedOffer || !body.acceptedBindingNature) {
-    return { ok: false, reason: "missing_acknowledgement" };
+  // Doppelklick: keine zweite Zeile. Fehlt die Bestätigung, wird sie nachgeholt.
+  const vorhanden = await ladeAktiveAnnahme(link.dealRecordId);
+  if (vorhanden) {
+    return {
+      ok: true,
+      nachlauf: vorhanden.confirmationSentAt ? null : () => annahmeNachlauf(vorhanden.id, { mitTeamAlarm: false }),
+    };
   }
 
-  // Bind a default option before reading the price, so a first accept on a
-  // freshly sent package offer cannot lock in 0 € / "nothing selected".
   await ensureDefaultPackageSelection(link.dealRecordId);
-
   const kva = await loadKvaSnapshot(link.dealRecordId);
   if (!kva) return { ok: false, reason: "no_quotation" };
 
-  // Per-deal options must have a real, priced selection — otherwise the
-  // customer can bind a 0 € contract because nothing was pre-selected.
   const dealOffers = await loadDealPackageOffersContext(link.dealRecordId);
+  const dateOffers = await loadDateOffersContext(link.dealRecordId);
+  const hasOpenDateChoice = dateOffers.options.length > 0 && !dateOffers.selection;
   const acceptBlock = offerAcceptanceBlockReason({
     dealOptions: dealOffers.options,
     selectedOptionId: dealOffers.selectedOptionId,
     totalCents: kva.totalCents,
     isVariable: kva.isVariable,
-    hasOpenDateChoice: false,
+    hasOpenDateChoice,
   });
+  if (acceptBlock === "date") return { ok: false, reason: "date_required" };
   if (acceptBlock === "option") return { ok: false, reason: "option_required" };
   if (acceptBlock === "zero_price") return { ok: false, reason: "zero_price" };
-  const selectedOption = dealOffers.options.find(
-    (o) => o.id === dealOffers.selectedOptionId
-  );
+  if (kva.totalCents <= 0) return { ok: false, reason: "zero_price" };
+  const selectedOption = dealOffers.options.find((o) => o.id === dealOffers.selectedOptionId) ?? null;
 
-  // Expired offers can no longer be accepted. Day-based comparison: only a
-  // validUntil strictly before today blocks; on the day itself it still works.
-  if (kva.validUntil && kva.validUntil < new Date().toISOString().slice(0, 10)) {
+  if (kva.validUntil && kva.validUntil < berlinDateString(new Date())) {
     return { ok: false, reason: "offer_expired" };
   }
 
   const dealAttrs = await loadDealAttributeMap(link.workspaceId);
   const dealValues = await loadValuesForRecord(link.dealRecordId);
   const scope = projectMoveScope(dealAttrs, dealValues);
-  if (widerrufVerzichtRequired(scope.moveDate, new Date()) && !body.widerrufVerzichtAccepted) {
-    return { ok: false, reason: "widerruf_required" };
-  }
-
   const ocId = await refValue(dealValues, dealAttrs.bySlug.get("operating_company")?.id);
   const effective = await loadEffectiveBranding(ocId);
-  if (!effective.enabled) {
-    return { ok: false, reason: "feature_disabled" };
-  }
+  if (!effective.enabled) return { ok: false, reason: "feature_disabled" };
 
-  // AGB must be explicitly accepted whenever the firma publishes AGB
-  // (separate, unambiguous consent — § 305 Abs. 2 BGB). The recorded
-  // agbVersionAccepted below then proves which AGB version was accepted.
-  if (effective.branding.agbPdfUrl && !body.acceptedAgb) {
-    return { ok: false, reason: "missing_acknowledgement" };
-  }
+  const serviceType = await loadServiceType(link.dealRecordId);
+  const regeln = annahmeRegeln({ serviceType, moveDate: scope.moveDate, hasOpenDateChoice, now: new Date() });
+  const preisCents = erwarteterGesamtpreis({
+    dealOptions: dealOffers.options,
+    selectedOptionId: dealOffers.selectedOptionId,
+    totalCents: kva.totalCents,
+  });
+  const sperre = annahmeSperrgrund({
+    payload: body,
+    regeln,
+    agbVorhanden: !!effective.branding.agbPdfUrl,
+    aktuellerPreisCents: preisCents,
+  });
+  if (sperre) return { ok: false, reason: sperre };
 
+  // AGB in dem Stand speichern, den der Kunde abrufen konnte. Nicht abrufbar = keine Annahme.
+  const agb = effective.branding.agbPdfUrl ? await ladeAgbFuerAnnahme(effective.branding.firmaSlug) : null;
+  if (effective.branding.agbPdfUrl && !agb) return { ok: false, reason: "agb_unavailable" };
+
+  const kvDokument = await aktuellesKvDokument(link.workspaceId, link.dealRecordId);
   const signedAt = new Date();
-  // Unique on deal_record_id makes concurrent double-taps race-safe:
-  // second insert hits unique violation and is treated as idempotent success.
-  let inserted = true;
+  let confirmationId: string | null = null;
   try {
-    await db.insert(kvaConfirmations).values({
+    const [row] = await db.insert(kvaConfirmations).values({
       workspaceId: link.workspaceId,
       dealRecordId: link.dealRecordId,
       customerLinkId: link.id,
       quotationSnapshot: kva,
-      confirmedTotalCents: kva.totalCents,
+      confirmedTotalCents: preisCents,
       agbVersionAccepted: effective.branding.agbVersion,
-      widerrufVerzichtAccepted: body.widerrufVerzichtAccepted,
+      widerrufVerzichtAccepted: false,
       ipAddress: ctx.ipAddress.slice(0, 200),
       userAgent: ctx.userAgent.slice(0, 1000),
-      acceptedFullName: body.fullName ?? null,
+      acceptedFullName: body.fullName?.trim().slice(0, 200) || null,
       signedAt,
-    });
+      serviceType,
+      widerrufModus: regeln.widerrufModus,
+      vorzeitigerBeginnVerlangt: regeln.vorzeitigerBeginnErforderlich && body.vorzeitigerBeginnVerlangt,
+      haftungshinweisBestaetigt: regeln.haftungshinweisErforderlich && body.haftungshinweisBestaetigt,
+      versicherungGewuenscht: regeln.haftungshinweisErforderlich && body.versicherungGewuenscht,
+      selectedOptionId: selectedOption?.id ?? null,
+      selectedOptionName: selectedOption?.displayName ?? null,
+      moveDate: scope.moveDate,
+      fromAddress: scope.fromAddress,
+      toAddress: scope.toAddress,
+      quotationDocumentId: kvDokument?.id ?? null,
+      quotationDocumentSha256: kvDokument?.sha256 ?? null,
+      agbTextSha256: agb?.sha256 ?? null,
+      agbText: agb?.text ?? null,
+    }).returning({ id: kvaConfirmations.id });
+    confirmationId = row.id;
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    const code =
-      err && typeof err === "object" && "code" in err
-        ? String((err as { code: unknown }).code)
-        : "";
-    if (code === "23505" || /unique|duplicate/i.test(msg)) {
-      inserted = false;
-    } else {
-      throw err;
+    const code = err && typeof err === "object" && "code" in err ? String((err as { code: unknown }).code) : "";
+    if (code === "23505" || /unique|duplicate/i.test(err instanceof Error ? err.message : String(err))) {
+      return { ok: true, nachlauf: null };
     }
+    throw err;
   }
-  if (!inserted) return { ok: true };
-
-  // Fire-and-forget confirmation: WhatsApp first (how most customers arrived),
-  // email as additional copy. Never throws — failures log + drop.
-  void sendKvaAcceptanceEmail({
-    workspaceId: link.workspaceId,
-    dealRecordId: link.dealRecordId,
-    customerLinkId: link.id,
-    acceptedFullName: body.fullName ?? null,
-    widerrufVerzichtAccepted: body.widerrufVerzichtAccepted,
-    snapshot: kva,
-    signedAt: signedAt.toISOString(),
-    optionDisplayName: selectedOption?.displayName ?? null,
-  }).catch((err) => {
-    console.error("[customer-portal] confirmation dispatch failed:", err);
-  });
 
   await emitEvent({
     workspaceId: link.workspaceId,
@@ -608,16 +622,20 @@ export async function confirmKvaForToken(
     objectSlug: "deals",
     eventType: "customer.kva_confirmed",
     payload: {
-      confirmedTotalCents: kva.totalCents,
+      confirmationId,
+      confirmedTotalCents: preisCents,
       agbVersion: effective.branding.agbVersion,
-      acceptedAgb: body.acceptedAgb,
+      agbTextSha256: agb?.sha256 ?? null,
+      quotationDocumentId: kvDokument?.id ?? null,
+      widerrufModus: regeln.widerrufModus,
+      versicherungGewuenscht: regeln.haftungshinweisErforderlich && body.versicherungGewuenscht,
       acceptedFullName: body.fullName ?? null,
-      widerrufVerzichtAccepted: body.widerrufVerzichtAccepted,
       ipAddress: ctx.ipAddress.slice(0, 200),
     },
   });
 
-  return { ok: true };
+  const id = confirmationId;
+  return { ok: true, nachlauf: () => annahmeNachlauf(id, { mitTeamAlarm: true }) };
 }
 
 /**
@@ -1351,6 +1369,15 @@ async function loadCrew(dealRecordId: string): Promise<CrewMember[]> {
   }));
 }
 
+async function loadServiceType(dealRecordId: string): Promise<ServiceArt> {
+  const [q] = await db
+    .select({ serviceType: quotations.serviceType })
+    .from(quotations)
+    .where(eq(quotations.dealRecordId, dealRecordId))
+    .limit(1);
+  return q?.serviceType === "kitchen_installation" ? "kitchen_installation" : "move";
+}
+
 async function loadLatestAcceptance(
   dealRecordId: string
 ): Promise<AcceptanceRecord | null> {
@@ -1874,6 +1901,8 @@ async function loadDealPackageOffersContext(
  * before the default-bind write, so the first portal view is never 0 €.
  */
 async function ensureDefaultPackageSelection(dealRecordId: string): Promise<void> {
+  // Nach der Annahme ist das Angebot eingefroren; ein GET schreibt nichts mehr.
+  if (await ladeAktiveAnnahme(dealRecordId)) return;
   const rows = await db
     .select()
     .from(quotationPackageOptions)
