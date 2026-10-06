@@ -11,11 +11,11 @@ pnpm --filter @openclaw-crm/web exec tsc --noEmit -p e2e/portal-preview/tsconfig
 pnpm --filter @openclaw-crm/web test -- src/lib/portal-presentation.test.ts src/lib/portal-offer-selection.test.ts
 ```
 
-Open `http://127.0.0.1:4178/`. Query options: `single`, `stage=2`, `stage=3`, `stage=3&live`, `stage=4` (payments off), `stage=4&payments`, `otherbrand`, `dark`, `expired`, `empty`.
+Open `http://127.0.0.1:4178/`. Query options: `single`, `stage=2`, `stage=3`, `stage=3&live`, `stage=4` (payments off), `stage=4&payments`, `otherbrand`, `dark`, `expired`, `empty`, `kitchen` (Küchenmontage in 5 Tagen: Widerrufsbelehrung und vorzeitiger Beginn), `nodate` (Umzug ohne Termin), `agb`, `aufgehoben` (frühere Annahme aufgehoben).
 
 The check covers desktop/mobile overflow, single/multiple options, live-state absence, branding, consent and acceptance, expiry, missing quotes and unverified payment reports. Screenshots go to `/tmp/portal-redesign`, or `PORTAL_SCREENSHOT_DIR`.
 
-Current production contract limitations: no quotation PDF URL, no independent live-tracking toggle, no verified paid status. The UI therefore offers a printable quotation, displays only recorded live events, and keeps payment reports distinct from verified receipt. Existing AB/invoice PDFs have previews and download links. Existing selection, deposit and stage rules are retained.
+Current production contract limitations: no independent live-tracking toggle, no verified paid status. The UI therefore offers a printable quotation, displays only recorded live events, and keeps payment reports distinct from verified receipt. Existing AB/invoice PDFs have previews and download links. Existing selection, deposit and stage rules are retained.
 
 On 2026-09-06, repository node_modules and .next contained macOS dataless placeholders that timed out on read. Validation used copies of these exact portal sources under `/tmp/kottke-portal-validation` with fresh dependencies; no repository lockfile or application dependencies were changed.
 

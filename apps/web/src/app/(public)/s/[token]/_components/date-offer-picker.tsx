@@ -23,10 +23,13 @@ export function DateOfferPicker({
   token,
   ctx,
   onPicked,
+  locked = false,
 }: {
   token: string;
   ctx: CustomerPortalContext;
   onPicked: () => void;
+  /** Nach der Annahme ist der Termin festgelegt. */
+  locked?: boolean;
 }) {
   const { options, selection } = ctx.dateOffers;
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -68,13 +71,19 @@ export function DateOfferPicker({
               </div>
             )}
           </div>
-          <button
-            type="button"
-            onClick={() => setEditing(true)}
-            className="self-start rounded-full border border-emerald-300/80 bg-white/70 px-4 py-1.5 text-xs font-medium text-emerald-900 backdrop-blur transition hover:bg-white dark:border-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-100"
-          >
-            Ändern
-          </button>
+          {locked ? (
+            <p className="self-start text-xs text-emerald-900/80 dark:text-emerald-200/80">
+              Termin mit der Annahme festgelegt. Änderungen bitte per WhatsApp.
+            </p>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="self-start rounded-full border border-emerald-300/80 bg-white/70 px-4 py-1.5 text-xs font-medium text-emerald-900 backdrop-blur transition hover:bg-white dark:border-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-100"
+            >
+              Ändern
+            </button>
+          )}
         </div>
       </section>
     );

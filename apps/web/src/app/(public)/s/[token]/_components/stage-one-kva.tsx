@@ -4,10 +4,12 @@ import { useMemo, useState } from "react";
 import {
   offerAcceptanceBlockReason,
   pickDefaultDealOption,
-  widerrufVerzichtRequired,
   type CustomerPortalContext,
   type OfferAcceptanceBlockReason,
 } from "@openclaw-crm/customer-portal-core";
+
+/** "termin_offen": Umzug ohne festen Termin und ohne Terminangebot. */
+type AnnahmeBlock = OfferAcceptanceBlockReason | "termin_offen";
 import { ConfirmKvaDialog } from "./confirm-kva-dialog";
 import { FileText, Info, ArrowRight, CheckCircle2 } from "lucide-react";
 import { PanelHeading, OrderDetails, ContactPanel } from "./portal-ui";
@@ -51,11 +53,6 @@ export function StageOneKva({
 }) {
   const [open, setOpen] = useState(false);
 
-  const widerrufNeeded = useMemo(
-    () => widerrufVerzichtRequired(ctx.scope.moveDate, new Date(ctx.meta.serverTime)),
-    [ctx.scope.moveDate, ctx.meta.serverTime]
-  );
-
   // Day-based validity check anchored to server time (the server rejects an
   // accept on an expired offer with OFFER_EXPIRED; the UI should never let
   // the customer run into that).
@@ -98,11 +95,17 @@ export function StageOneKva({
     ctx.dealPackageOffers.options,
     ctx.dealPackageOffers.selectedOptionId
   );
+  // Nach der Annahme gilt der angenommene Stand, nicht der aktuelle.
   const displayTotalCents =
-    defaultOption && defaultOption.priceCents > 0
-      ? defaultOption.priceCents
-      : ctx.kva?.totalCents ?? 0;
-  const acceptBlock = offerAcceptanceBlockReason({
+    alreadyAccepted && ctx.acceptance!.confirmedTotalCents > 0
+      ? ctx.acceptance!.confirmedTotalCents
+      : defaultOption && defaultOption.priceCents > 0
+        ? defaultOption.priceCents
+        : ctx.kva?.totalCents ?? 0;
+  const acceptedOptionName =
+    (alreadyAccepted ? ctx.acceptance!.selectedOptionName : null) ?? defaultOption?.displayName ?? null;
+  const terminOffen = !alreadyAccepted && ctx.annahmeRecht.terminFehlt && !hasOpenDateChoice;
+  const acceptBlock: AnnahmeBlock | null = terminOffen ? "termin_offen" : offerAcceptanceBlockReason({
     dealOptions: ctx.dealPackageOffers.options,
     selectedOptionId: defaultOption?.id ?? ctx.dealPackageOffers.selectedOptionId,
     totalCents: displayTotalCents,
@@ -115,8 +118,9 @@ export function StageOneKva({
       <div className="portal-columns">
         <div className="portal-stack">
           <EmailCaptureBanner token={token} status={ctx.customerEmailStatus} branding={ctx.branding} />
-          <div aria-live="polite" className="empty:hidden">{alreadyAccepted && <section className="portal-panel"><PanelHeading icon={CheckCircle2} title="Ihr Angebot wurde angenommen"><p>Vielen Dank für Ihr Vertrauen. Ihre Auftragsbestätigung erscheint hier, sobald sie bereitsteht.</p></PanelHeading><p className="text-sm text-muted-foreground">{defaultOption?.displayName ?? "Ihr Angebot"} · {formatPortalMoney(displayTotalCents)} · Angenommen am {new Date(ctx.acceptance!.signedAt).toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" })}</p>{ctx.features?.payments === true && ctx.payment && ctx.payment.amountCents > 0 && <p className="mt-2 text-sm text-muted-foreground">Die Angaben zur vereinbarten Anzahlung finden Sie weiter unten.</p>}</section>}</div>
-          {ctx.dateOffers.options.length > 0 && <DateOfferPicker token={token} ctx={ctx} onPicked={onConfirmed} />}
+          {ctx.fruehereAnnahmeAufgehoben && !alreadyAccepted && <section className="portal-panel portal-note"><PanelHeading icon={Info} title="Ihr Angebot wurde aktualisiert"><p>Wir haben Ihr Angebot angepasst. Bitte prüfen Sie es und nehmen Sie es erneut an.</p></PanelHeading></section>}
+          <div aria-live="polite" className="empty:hidden">{alreadyAccepted && <section className="portal-panel"><PanelHeading icon={CheckCircle2} title="Ihr Angebot wurde angenommen"><p>Vielen Dank für Ihr Vertrauen. Ihre Auftragsbestätigung erscheint hier, sobald sie bereitsteht.</p></PanelHeading><p className="text-sm text-muted-foreground">{acceptedOptionName ?? "Ihr Angebot"} · {formatPortalMoney(displayTotalCents)} · Angenommen am {new Date(ctx.acceptance!.signedAt).toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" })}</p>{ctx.features?.payments === true && ctx.payment && ctx.payment.amountCents > 0 && <p className="mt-2 text-sm text-muted-foreground">Die Angaben zur vereinbarten Anzahlung finden Sie weiter unten.</p>}</section>}</div>
+          {ctx.dateOffers.options.length > 0 && <DateOfferPicker token={token} ctx={ctx} onPicked={onConfirmed} locked={alreadyAccepted} />}
           <section className="portal-panel">
             <div className="portal-offer-intro"><PanelHeading icon={FileText} title={(ctx.dealPackageOffers.options.length || ctx.packages.available.length) > 1 ? "Unsere Angebote für Sie" : "Ihr persönliches Angebot"}>
               <p>{(ctx.dealPackageOffers.options.length || ctx.packages.available.length) > 1 ? "Wir haben die Optionen für Ihren Umzug erstellt. Wählen Sie das passende Angebot für sich aus." : "Hier finden Sie Ihr Angebot mit allen vereinbarten Leistungen für Ihren Umzug."}</p>
@@ -134,7 +138,7 @@ export function StageOneKva({
           {alreadyAccepted && ctx.features?.payments === true && ctx.payment && ctx.payment.amountCents > 0 && <PaymentSection token={token} payment={ctx.payment} branding={ctx.branding} variant="deposit" markedPaidAt={ctx.customerSignals.markedPaidDepositAt} />}
         </div>
         <aside className="portal-stack">
-          <div className="hidden lg:block">{ctx.kva ? <PriceCard ctx={ctx} alreadyAccepted={alreadyAccepted} displayTotalCents={displayTotalCents} selectedOptionName={defaultOption?.displayName ?? ctx.packages.available.find(p => p.slug === ctx.packages.selectedSlug)?.displayName ?? null} acceptBlock={alreadyAccepted ? null : acceptBlock} expired={offerExpired} onAccept={() => setOpen(true)} /> : <ChooseOfferPrompt branding={ctx.branding} />}</div>
+          <div className="hidden lg:block">{ctx.kva ? <PriceCard ctx={ctx} alreadyAccepted={alreadyAccepted} displayTotalCents={displayTotalCents} selectedOptionName={acceptedOptionName ?? ctx.packages.available.find(p => p.slug === ctx.packages.selectedSlug)?.displayName ?? null} acceptBlock={alreadyAccepted ? null : acceptBlock} expired={offerExpired} onAccept={() => setOpen(true)} /> : <ChooseOfferPrompt branding={ctx.branding} />}</div>
           {(ctx.dealPackageOffers.options.length || ctx.packages.available.length) > 1 && !alreadyAccepted && <div className="portal-panel portal-note"><PanelHeading icon={Info} title="Hinweis" /><p>Sie können zwischen den Angeboten wechseln. Der angezeigte Kostenvoranschlag passt sich Ihrer Auswahl an.</p></div>}
           {!hasMultipleOffers && <div className="hidden lg:block"><OrderDetails ctx={ctx} token={token} /></div>}
           <ContactPanel ctx={ctx} token={token} title="Fragen zum Angebot?" />
@@ -165,7 +169,9 @@ export function StageOneKva({
               </div>
               <button
                 type="button"
+                disabled={acceptBlock === "termin_offen"}
                 onClick={() => {
+                  if (acceptBlock === "termin_offen") return;
                   if (acceptBlock === "date") {
                     const el = document.querySelector("[data-portal-section='date-picker']");
                     el?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -181,7 +187,9 @@ export function StageOneKva({
                 className="inline-flex h-11 flex-1 max-w-[60%] items-center justify-center rounded-xl text-sm font-medium text-white disabled:opacity-60"
                 style={{ background: `#${ctx.branding.primaryColor}` }}
               >
-                {acceptBlock === "date"
+                {acceptBlock === "termin_offen"
+                  ? "Termin wird abgestimmt"
+                  : acceptBlock === "date"
                   ? "Termin wählen"
                   : acceptBlock === "option"
                     ? "Angebot wählen"
@@ -202,7 +210,6 @@ export function StageOneKva({
         open={open && !offerExpired && !acceptBlock}
         onOpenChange={setOpen}
         ctx={ctx}
-        widerrufNeeded={widerrufNeeded}
         displayTotalCents={displayTotalCents}
         selectedOptionName={defaultOption?.displayName ?? null}
         onAccepted={onConfirmed}
@@ -258,7 +265,7 @@ function PriceCard({
   alreadyAccepted: boolean;
   displayTotalCents: number;
   selectedOptionName: string | null;
-  acceptBlock: OfferAcceptanceBlockReason | null;
+  acceptBlock: AnnahmeBlock | null;
   expired: boolean;
   onAccept: () => void;
 }) {
@@ -332,7 +339,9 @@ function PriceCard({
           <>
             <button
               type="button"
+              disabled={acceptBlock === "termin_offen"}
               onClick={() => {
+                if (acceptBlock === "termin_offen") return;
                 if (acceptBlock === "date") {
                   const el = document.querySelector("[data-portal-section='date-picker']");
                   el?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -348,7 +357,9 @@ function PriceCard({
               className="inline-flex h-11 w-full items-center justify-center rounded-xl text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
               style={{ background: `#${ctx.branding.primaryColor}` }}
             >
-              {acceptBlock === "date"
+              {acceptBlock === "termin_offen"
+                ? "Termin wird noch abgestimmt"
+                : acceptBlock === "date"
                 ? "Zuerst Termin wählen"
                 : acceptBlock === "option"
                   ? "Zuerst Angebot wählen"
@@ -357,7 +368,12 @@ function PriceCard({
                     : "Angebot verbindlich annehmen"}
               {!acceptBlock && <ArrowRight size={17} className="ml-2 shrink-0" aria-hidden />}
             </button>
-            {acceptBlock === "date" ? (
+            {acceptBlock === "termin_offen" ? (
+              <p className="text-[10px] leading-relaxed text-muted-foreground">
+                Der Termin wird noch mit Ihnen abgestimmt. Danach können Sie
+                das Angebot hier annehmen.
+              </p>
+            ) : acceptBlock === "date" ? (
               <p className="text-[10px] leading-relaxed text-muted-foreground">
                 Bitte wählen Sie oben einen Termin, damit wir den Auftrag
                 verbindlich für Sie reservieren können.

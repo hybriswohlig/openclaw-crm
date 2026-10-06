@@ -1,6 +1,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { StagePortal } from "../../src/app/(public)/s/[token]/_components/stage-portal";
+import { annahmeRegeln, firmaKontakt } from "@openclaw-crm/customer-portal-core";
 import { portalFixture } from "./fixture";
 import "../../src/app/globals.css";
 import "../../src/app/(public)/s/[token]/portal.css";
@@ -13,6 +14,12 @@ if (params.has("otherbrand")) ctx.branding = { ...ctx.branding, firmaSlug: "ceyl
 if (params.has("expired")) ctx.kva!.validUntil = "2026-01-01";
 if (params.has("empty")) { ctx.kva = null; ctx.dealPackageOffers.options = []; }
 if (params.has("dark")) document.documentElement.classList.add("dark");
+// Küchenmontage in 5 Tagen: Belehrung plus vorzeitiger Beginn.
+if (params.has("kitchen")) { ctx.scope.moveDate = "2026-09-11"; ctx.annahmeRecht = { ...annahmeRegeln({ serviceType: "kitchen_installation", moveDate: "2026-09-11", hasOpenDateChoice: false, now: new Date(ctx.meta.serverTime) }), kontakt: firmaKontakt("ceylan") }; }
+// Umzug ohne Termin: Annahme gesperrt, Hinweis auf Terminabstimmung.
+if (params.has("nodate")) { ctx.scope.moveDate = null; ctx.annahmeRecht = { ...annahmeRegeln({ serviceType: "move", moveDate: null, hasOpenDateChoice: false, now: new Date(ctx.meta.serverTime) }), kontakt: firmaKontakt("kottke") }; }
+if (params.has("agb")) ctx.branding = { ...ctx.branding, agbPdfUrl: "/legal/agb/kottke" };
+if (params.has("aufgehoben")) ctx.fruehereAnnahmeAufgehoben = true;
 // Block all mutations at this local fixture boundary. No customer API is reached.
 window.fetch = async (input, init) => {
   const url = String(input);
@@ -22,7 +29,7 @@ window.fetch = async (input, init) => {
     const option = ctx.dealPackageOffers.options.find(o => o.id === optionId)!;
     ctx = { ...ctx, dealPackageOffers: { ...ctx.dealPackageOffers, selectedOptionId: optionId }, kva: { ...ctx.kva!, totalCents: option.priceCents, fixedPriceCents: option.priceCents } };
   }
-  if (url.endsWith("/confirm-kva")) ctx = { ...ctx, stage: 2, acceptance: { signedAt: ctx.meta.serverTime, acceptedFullName: "Alex Beispiel", agbVersionAccepted: "preview", widerrufVerzichtAccepted: false } };
+  if (url.endsWith("/confirm-kva")) ctx = { ...ctx, stage: 2, acceptance: { signedAt: ctx.meta.serverTime, acceptedFullName: "Alex Beispiel", agbVersionAccepted: "preview", widerrufVerzichtAccepted: false, confirmedTotalCents: ctx.kva!.totalCents, selectedOptionName: ctx.dealPackageOffers.options.find(o => o.id === ctx.dealPackageOffers.selectedOptionId)?.displayName ?? null, widerrufModus: ctx.annahmeRecht.widerrufModus, vorzeitigerBeginnVerlangt: ctx.annahmeRecht.vorzeitigerBeginnErforderlich, quotationDocumentId: null } };
   return Response.json({ data: ctx });
 };
 Object.defineProperty(navigator, "sendBeacon", { value: () => true });

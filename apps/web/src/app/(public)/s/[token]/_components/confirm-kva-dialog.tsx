@@ -2,19 +2,27 @@
 
 import { useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import type {
-  ConfirmKvaPayload,
-  CustomerPortalContext,
+import {
+  BUTTON_ZAHLUNGSPFLICHTIG,
+  HAFTUNGSHINWEIS_451G,
+  HAFTUNG_CHECKBOX,
+  VERSICHERUNG_CHECKBOX,
+  VORZEITIGER_BEGINN_CHECKBOX,
+  abschlussHinweis,
+  keinWiderrufHinweis,
+  widerrufsbelehrung,
+  type ConfirmKvaPayload,
+  type CustomerPortalContext,
 } from "@openclaw-crm/customer-portal-core";
 import { portalBrandStyle } from "./portal-presentation";
 import { PaymentSection } from "./payment-section";
 
 /**
- * Acceptance flow. The two top checkboxes are mandatory always; the
- * Widerruf-Verzicht checkbox is mandatory only when the move date is < 14
- * days away (§ 356 Abs. 4 BGB).
- *
- * Server re-validates all three gates — the client cannot bypass them.
+ * Annahme-Dialog. Pflicht: Angebot, AGB (falls vorhanden), bei Umzug der
+ * Haftungshinweis nach § 451g HGB, bei Küchenmontage unter 14 Tagen der
+ * verlangte vorzeitige Beginn. Welche Häkchen gelten, steht in
+ * ctx.annahmeRecht; der Server prüft mit denselben Core-Regeln nach.
+ * Der Button nennt die Zahlungspflicht (§ 312j Abs. 3 BGB).
  *
  * After a successful accept the sheet stays open and switches to a "done"
  * step that shows the deposit payment widget right away (ctx.payment is
@@ -26,7 +34,6 @@ export function ConfirmKvaDialog({
   open,
   onOpenChange,
   ctx,
-  widerrufNeeded,
   displayTotalCents,
   selectedOptionName,
   onAccepted,
@@ -35,7 +42,6 @@ export function ConfirmKvaDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   ctx: CustomerPortalContext;
-  widerrufNeeded: boolean;
   displayTotalCents: number;
   selectedOptionName: string | null;
   /** Fires once the accept POST succeeded. Refreshes the context in the
@@ -45,8 +51,9 @@ export function ConfirmKvaDialog({
   const [step, setStep] = useState<"form" | "done">("form");
   const [accOffer, setAccOffer] = useState(false);
   const [accAgb, setAccAgb] = useState(false);
-  const [accBinding, setAccBinding] = useState(false);
-  const [accWiderruf, setAccWiderruf] = useState(false);
+  const [accHaftung, setAccHaftung] = useState(false);
+  const [accVersicherung, setAccVersicherung] = useState(false);
+  const [accBeginn, setAccBeginn] = useState(false);
   const [fullName, setFullName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -59,8 +66,9 @@ export function ConfirmKvaDialog({
       setStep("form");
       setAccOffer(false);
       setAccAgb(false);
-      setAccBinding(false);
-      setAccWiderruf(false);
+      setAccHaftung(false);
+      setAccVersicherung(false);
+      setAccBeginn(false);
       setFullName("");
       setError(null);
     }
@@ -70,11 +78,12 @@ export function ConfirmKvaDialog({
   const agbHref = ctx.branding.agbPdfUrl;
   const hasAgb = !!agbHref;
 
+  const r = ctx.annahmeRecht;
   const ready =
     accOffer &&
-    accBinding &&
     (!hasAgb || accAgb) &&
-    (!widerrufNeeded || accWiderruf) &&
+    (!r.haftungshinweisErforderlich || accHaftung) &&
+    (!r.vorzeitigerBeginnErforderlich || accBeginn) &&
     !submitting;
 
   async function submit() {
@@ -84,8 +93,10 @@ export function ConfirmKvaDialog({
     const payload: ConfirmKvaPayload = {
       acceptedOffer: accOffer,
       acceptedAgb: accAgb,
-      acceptedBindingNature: accBinding,
-      widerrufVerzichtAccepted: accWiderruf,
+      haftungshinweisBestaetigt: accHaftung,
+      versicherungGewuenscht: accVersicherung,
+      vorzeitigerBeginnVerlangt: accBeginn,
+      expectedTotalCents: displayTotalCents,
       fullName: fullName.trim() || null,
     };
     try {
@@ -99,6 +110,8 @@ export function ConfirmKvaDialog({
           error?: { code?: string };
         };
         setError(germanError(body.error?.code));
+        // Neuer Preis: Kontext neu laden, damit der Kunde ihn sieht.
+        if (body.error?.code === "PRICE_CHANGED") void onAccepted();
         return;
       }
       await Promise.resolve(onAccepted());
@@ -137,7 +150,7 @@ export function ConfirmKvaDialog({
           ) : (
             <>
           <DialogPrimitive.Title className="text-2xl font-bold tracking-tight">
-            Verbindliche Annahme
+            Auftrag erteilen
           </DialogPrimitive.Title>
           <DialogPrimitive.Description className="mt-1 text-xs text-muted-foreground">
             Bitte bestätigen Sie die folgenden Punkte. Eine Bestätigung geht
@@ -163,7 +176,15 @@ export function ConfirmKvaDialog({
                 )}
                 {ctx.scope.moveDate && (
                   <div className="mt-2 text-xs text-muted-foreground">
-                    Umzugstermin: {formatGermanDate(ctx.scope.moveDate)}
+                    {r.serviceType === "move" ? "Umzugstermin" : "Termin"}:{" "}
+                    {formatGermanDate(ctx.scope.moveDate)}
+                  </div>
+                )}
+                {(ctx.scope.fromAddress || ctx.scope.toAddress) && (
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {ctx.scope.fromAddress && <>Von {ctx.scope.fromAddress}</>}
+                    {ctx.scope.fromAddress && ctx.scope.toAddress && <br />}
+                    {ctx.scope.toAddress && <>Nach {ctx.scope.toAddress}</>}
                   </div>
                 )}
                 {ctx.kva.depositRequiredCents != null &&
@@ -217,28 +238,56 @@ export function ConfirmKvaDialog({
               </CheckboxRow>
             )}
 
-            <CheckboxRow
-              id="acc-binding"
-              checked={accBinding}
-              onCheckedChange={setAccBinding}
-            >
-              Mir ist bewusst, dass dies eine{" "}
-              <strong>verbindliche Beauftragung</strong> darstellt.
-            </CheckboxRow>
-
-            {widerrufNeeded && (
-              <CheckboxRow
-                id="acc-widerruf"
-                checked={accWiderruf}
-                onCheckedChange={setAccWiderruf}
+            {r.haftungshinweisErforderlich && (
+              <div
+                role="note"
+                className="rounded-xl border-2 bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-950 dark:bg-amber-950/30 dark:text-amber-100"
+                style={{ borderColor: `#${ctx.branding.primaryColor}` }}
               >
-                <span>
-                  Ich verzichte ausdrücklich auf mein Widerrufsrecht und stimme
-                  zu, dass mit der Erbringung der Dienstleistung{" "}
-                  <strong>vor Ablauf der Widerrufsfrist</strong> begonnen wird
-                  (§ 356 Abs. 4 BGB). Der Umzugstermin liegt innerhalb von 14
-                  Tagen.
-                </span>
+                <p className="text-sm font-semibold">{HAFTUNGSHINWEIS_451G.titel}</p>
+                {HAFTUNGSHINWEIS_451G.absaetze.map((a) => (
+                  <p key={a} className="mt-1.5">{a}</p>
+                ))}
+              </div>
+            )}
+
+            {r.haftungshinweisErforderlich && (
+              <CheckboxRow id="acc-haftung" checked={accHaftung} onCheckedChange={setAccHaftung}>
+                {HAFTUNG_CHECKBOX}
+              </CheckboxRow>
+            )}
+
+            {r.haftungshinweisErforderlich && (
+              <CheckboxRow id="acc-versicherung" checked={accVersicherung} onCheckedChange={setAccVersicherung}>
+                {VERSICHERUNG_CHECKBOX}
+              </CheckboxRow>
+            )}
+
+            {r.widerrufModus === "ausgeschlossen" ? (
+              <p className="text-xs leading-relaxed text-muted-foreground">{keinWiderrufHinweis()}</p>
+            ) : (
+              <details className="rounded-xl border border-border/50 bg-card px-4 py-3 text-xs leading-relaxed">
+                <summary className="cursor-pointer text-sm font-medium">Widerrufsbelehrung</summary>
+                {widerrufsbelehrung(r.kontakt).absaetze.map((a) => (
+                  <p key={a} className="mt-2">{a}</p>
+                ))}
+                <p className="mt-2">
+                  <a
+                    href={`/legal/widerruf/${ctx.branding.firmaSlug}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium underline underline-offset-2"
+                    style={{ color: `#${ctx.branding.primaryColor}` }}
+                  >
+                    Muster-Widerrufsformular
+                  </a>
+                </p>
+              </details>
+            )}
+
+            {r.vorzeitigerBeginnErforderlich && (
+              <CheckboxRow id="acc-beginn" checked={accBeginn} onCheckedChange={setAccBeginn}>
+                {VORZEITIGER_BEGINN_CHECKBOX}
               </CheckboxRow>
             )}
 
@@ -279,7 +328,7 @@ export function ConfirmKvaDialog({
               className="h-11 flex-1 rounded-xl text-sm font-medium text-white transition-opacity disabled:opacity-40"
               style={{ background: `#${ctx.branding.primaryColor}` }}
             >
-              {submitting ? "Wird gesendet…" : "Verbindlich annehmen"}
+              {submitting ? "Wird gesendet…" : BUTTON_ZAHLUNGSPFLICHTIG}
             </button>
           </div>
 
@@ -290,11 +339,7 @@ export function ConfirmKvaDialog({
           )}
 
           <p className="mt-4 text-[10px] leading-relaxed text-muted-foreground">
-            Mit Klick auf „Verbindlich annehmen" kommt ein verbindlicher Vertrag
-            über die vereinbarten Umzugsleistungen in Textform (§ 126b BGB)
-            zwischen Ihnen und {ctx.branding.displayName} zustande.
-            Zur Dokumentation werden Zeitpunkt, IP-Adresse und Browser-Kennung
-            gespeichert.
+            {abschlussHinweis(ctx.branding.displayName)}
           </p>
             </>
           )}
@@ -356,9 +401,9 @@ function DoneStep({
         </>
       ) : (
         <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
-          Sie erhalten Ihre Auftragsbestätigung in Kürze per WhatsApp oder
-          E-Mail. Unten auf der Seite sehen Sie weiterhin Ihr Angebot und was
-          Sie angenommen haben.
+          Ihre Auftragsbestätigung folgt nach unserer Einsatzplanung. Unten
+          auf der Seite sehen Sie weiterhin Ihr Angebot und was Sie
+          angenommen haben.
         </p>
       )}
 
@@ -427,8 +472,16 @@ function germanError(code: string | undefined): string {
   switch (code) {
     case "MISSING_ACKNOWLEDGEMENT":
       return "Bitte bestätigen Sie alle erforderlichen Punkte.";
-    case "WIDERRUF_REQUIRED":
-      return "Für Termine innerhalb von 14 Tagen ist der Widerrufs-Verzicht erforderlich.";
+    case "DATE_REQUIRED":
+      return "Bitte wählen Sie zuerst einen Termin. Ohne festen Termin können wir den Auftrag noch nicht annehmen.";
+    case "PRICE_CHANGED":
+      return "Das Angebot wurde gerade aktualisiert. Bitte prüfen Sie den neuen Preis und bestätigen Sie erneut.";
+    case "AGB_UNAVAILABLE":
+      return "Unsere AGB sind gerade nicht abrufbar. Bitte versuchen Sie es in ein paar Minuten erneut.";
+    case "HAFTUNGSHINWEIS_REQUIRED":
+      return "Bitte bestätigen Sie den Haftungshinweis.";
+    case "VORZEITIGER_BEGINN_REQUIRED":
+      return "Ihr Termin liegt innerhalb der Widerrufsfrist. Bitte bestätigen Sie, dass wir vorher beginnen sollen.";
     case "NO_QUOTATION":
       return "Es liegt aktuell kein Angebot vor. Bitte kontaktieren Sie uns.";
     case "OPTION_REQUIRED":
