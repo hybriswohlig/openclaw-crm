@@ -20,8 +20,8 @@ const FALLBACK_HTML = `<!DOCTYPE html><html lang="de"><head><meta charset="utf-8
 <title>Allgemeine Geschäftsbedingungen</title></head>
 <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:640px;margin:40px auto;padding:0 20px;line-height:1.55">
 <h1>AGB derzeit nicht abrufbar</h1>
-<p>Die Allgemeinen Geschäftsbedingungen können momentan nicht geladen werden.
-Bitte versuchen Sie es in Kürze erneut oder fordern Sie die AGB per E-Mail an.</p>
+<p>Die AGB können gerade nicht geladen werden. Eine Annahme ist in dieser Zeit nicht möglich.
+Bitte versuchen Sie es in ein paar Minuten erneut.</p>
 </body></html>`;
 
 export async function GET(
@@ -49,7 +49,7 @@ export async function GET(
   } catch (err) {
     console.error(`[legal/agb] failed to load AGB for "${slug}":`, err);
     return new Response(FALLBACK_HTML, {
-      status: 200,
+      status: 503,
       headers: { "content-type": "text/html; charset=utf-8" },
     });
   }

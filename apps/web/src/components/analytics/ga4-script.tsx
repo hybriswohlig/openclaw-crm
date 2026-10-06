@@ -2,11 +2,14 @@
 
 import { useEffect, useState } from "react";
 import Script from "next/script";
+import { usePathname } from "next/navigation";
+import { istPortalPfad } from "@/lib/portal-pfad";
 
 const GA4_ID = "G-SFDKGVNMS4";
 
 export function GA4Script() {
   const [hasConsent, setHasConsent] = useState(false);
+  const pathname = usePathname();
 
   useEffect(() => {
     const consent = localStorage.getItem("cookie-consent");
@@ -22,7 +25,7 @@ export function GA4Script() {
       window.removeEventListener("cookie-consent-update", handleConsent);
   }, []);
 
-  if (!hasConsent) return null;
+  if (!hasConsent || istPortalPfad(pathname)) return null;
 
   return (
     <>

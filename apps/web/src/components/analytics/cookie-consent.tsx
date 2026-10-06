@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
+import { istPortalPfad } from "@/lib/portal-pfad";
 
 export function CookieConsent() {
   const [visible, setVisible] = useState(false);
@@ -27,7 +28,8 @@ export function CookieConsent() {
     setVisible(false);
   }
 
-  if (!visible) return null;
+  // Im Kundenportal läuft kein Analyse-Dienst, also braucht es keinen Banner.
+  if (!visible || istPortalPfad(pathname)) return null;
 
   return (
     <div

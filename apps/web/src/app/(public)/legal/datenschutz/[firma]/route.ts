@@ -4,8 +4,9 @@
 // Rendered locally from per-firma constants that mirror the stammdaten in
 // packages/customer-portal-core/src/stamm.ts. The sections describe what the
 // portal actually does: Vercel hosting, token status link, first-party visit
-// tracking (use-visit-tracker.ts + /api/public/[token]/track), the analytics
-// scripts in the root layout, the email capture and the WhatsApp contact.
+// tracking (use-visit-tracker.ts + /api/public/[token]/track), no third-party
+// analytics on portal paths (lib/portal-pfad.ts), the KV acceptance record,
+// the email capture and the WhatsApp contact.
 
 import type { NextRequest } from "next/server";
 
@@ -94,7 +95,10 @@ function renderHtml(a: Anbieter): string {
   <p>Wenn Sie das Portal öffnen, erfassen wir, ob und wann Ihr Status-Link geöffnet wurde, die aktive Lesezeit, den Kanal des Aufrufs (zum Beispiel WhatsApp, E-Mail oder SMS), Geräteinformationen sowie Ihre IP-Adresse. Dazu wird eine zufällige Sitzungskennung im Speicher Ihres Browsers abgelegt. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO; unser berechtigtes Interesse liegt in der reibungslosen Abwicklung Ihres Auftrags, insbesondere darin nachzuvollziehen, ob unsere Unterlagen und Angebote Sie erreicht haben.</p>
 
   <h2>Cookies und Webanalyse</h2>
-  <p>Zur Verbesserung des Portals setzen wir Webanalyse-Dienste ein. Google Analytics (Google Ireland Limited) laden wir nur, wenn Sie über den Cookie-Banner eingewilligt haben (Art. 6 Abs. 1 lit. a DSGVO, § 25 Abs. 1 TDDDG). Ihre Entscheidung speichern wir in Ihrem Browser; Sie können sie jederzeit mit Wirkung für die Zukunft ändern, indem Sie die Website-Daten dieses Portals in Ihrem Browser löschen, der Banner erscheint dann erneut. Daneben setzen wir Plausible (cookielose, aggregierte Reichweitenmessung) und Amplitude (Analyse der Portal-Nutzung) ein; Rechtsgrundlage ist insoweit Art. 6 Abs. 1 lit. f DSGVO. Bei Google Analytics und Amplitude kann eine Übermittlung in die USA stattfinden.</p>
+  <p>Im Kundenportal setzen wir keine Webanalyse- oder Tracking-Dienste Dritter ein und speichern keine Cookies zu Analysezwecken.</p>
+
+  <h2>Annahme des Angebots</h2>
+  <p>Wenn Sie ein Angebot im Portal annehmen, speichern wir als Nachweis des Vertragsschlusses den Zeitpunkt, Ihre IP-Adresse, die Browser-Kennung, Ihren Namen (falls angegeben), den angenommenen Stand des Angebots und die Fassung unserer AGB. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b und lit. f DSGVO; unser berechtigtes Interesse ist der Nachweis des Vertragsschlusses. Wir speichern diese Daten, solange Ansprüche aus dem Vertrag geltend gemacht werden können, und darüber hinaus nach den handels- und steuerrechtlichen Aufbewahrungsfristen.</p>
 
   <h2>E-Mail-Adresse</h2>
   <p>Wenn Sie im Portal Ihre E-Mail-Adresse hinterlegen, verwenden wir diese ausschließlich, um Ihnen Unterlagen zu Ihrem Auftrag zuzusenden, zum Beispiel Auftragsbestätigung und Rechnung. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO.</p>
