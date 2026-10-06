@@ -5,5 +5,7 @@ export * from "./offer-selection";
 export * from "./girocode";
 export * from "./paypal";
 export * from "./stamm";
+export * from "./annahme-recht";
+export * from "./rechtstexte";
 
 export * from "./features";

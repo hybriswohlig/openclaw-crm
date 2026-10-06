@@ -441,17 +441,18 @@ export interface CustomerPortalContext {
  * Payload posted from the KVA acceptance dialog.
  */
 export interface ConfirmKvaPayload {
-  /** Both must be true. */
+  /** Angebot gelesen und angenommen. */
   acceptedOffer: boolean;
-  acceptedBindingNature: boolean;
-  /**
-   * AGB explicitly accepted. Required by the server whenever the firma has an
-   * AGB (branding.agbPdfUrl set). Separate from acceptedOffer so the consent
-   * is unambiguous (§ 305 Abs. 2 BGB).
-   */
+  /** Pflicht, sobald die Firma AGB hat (§ 305 Abs. 2 BGB). */
   acceptedAgb: boolean;
-  /** Only required when the move is < 14 days away. */
-  widerrufVerzichtAccepted: boolean;
+  /** Pflicht bei Umzug: § 451g HGB gelesen. */
+  haftungshinweisBestaetigt: boolean;
+  /** Freiwillig: Angebot für Höherhaftung oder Versicherung gewünscht. */
+  versicherungGewuenscht: boolean;
+  /** Küchenmontage unter 14 Tagen: Beginn vor Fristende verlangt (§ 357a Abs. 2 BGB). */
+  vorzeitigerBeginnVerlangt: boolean;
+  /** Preis, den der Kunde im Dialog gesehen hat. Abweichung = price_changed. */
+  expectedTotalCents: number;
   /** Optional self-typed full name. Strengthens evidence. */
   fullName: string | null;
 }
