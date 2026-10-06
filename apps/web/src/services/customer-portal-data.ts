@@ -94,6 +94,7 @@ import {
   hatAufgehobeneAnnahme,
   ladeAgbFuerAnnahme,
   ladeAktiveAnnahme,
+  pruefeNichtAngenommen,
 } from "./kva-annahme";
 
 // ─── Token / link lifecycle ────────────────────────────────────────────────────
@@ -1978,6 +1979,7 @@ export async function replaceDealPackageOptions(input: {
   createdBy: string | null;
   options: DealPackageOptionInput[];
 }): Promise<{ count: number }> {
+  await pruefeNichtAngenommen(input.dealRecordId);
   const [existingQ] = await db
     .select({
       id: quotations.id,
@@ -2335,6 +2337,7 @@ export async function replaceDateOffers(input: {
   createdBy: string | null;
   offers: DateOfferInput[];
 }): Promise<{ count: number }> {
+  await pruefeNichtAngenommen(input.dealRecordId);
   // Wipe + re-insert. Done in two steps because Drizzle's pg dialect doesn't
   // have a tidy multi-row-upsert helper here and the data is small.
   const existingSel = await db
@@ -2409,6 +2412,8 @@ export async function selectDateOffer(
     .limit(1);
   if (!link) return { ok: false, reason: "not_found" };
   if (!isLinkUsable(link)) return { ok: false, reason: "revoked" };
+  // Der Termin ist mit der Annahme festgelegt.
+  if (await ladeAktiveAnnahme(link.dealRecordId)) return { ok: false, reason: "already_accepted" };
 
   const [offer] = await db
     .select()

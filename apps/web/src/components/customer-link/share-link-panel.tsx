@@ -18,6 +18,7 @@ import {
   Download,
   Eye,
 } from "lucide-react";
+import { toast } from "sonner";
 import { DateOfferComposer } from "./date-offer-composer";
 import { PackageOptionsComposer } from "./package-options-composer";
 
@@ -58,6 +59,7 @@ export function ShareLinkPanel({ dealRecordId }: { dealRecordId: string }) {
   const [creating, setCreating] = useState(false);
   const [copied, setCopied] = useState(false);
   const [telemetryOpen, setTelemetryOpen] = useState(false);
+  const [annahmeAktiv, setAnnahmeAktiv] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -331,11 +333,125 @@ export function ShareLinkPanel({ dealRecordId }: { dealRecordId: string }) {
         </div>
       </div>
 
+      <KvaAnnahmeBlock dealRecordId={dealRecordId} onChange={setAnnahmeAktiv} />
+
       {!revoked && <CustomerVisibleDocuments dealRecordId={dealRecordId} />}
 
-      {!revoked && <PackageOptionsComposer dealRecordId={dealRecordId} />}
+      {!revoked && !annahmeAktiv && <PackageOptionsComposer dealRecordId={dealRecordId} />}
 
-      {!revoked && <DateOfferComposer dealRecordId={dealRecordId} />}
+      {!revoked && !annahmeAktiv && <DateOfferComposer dealRecordId={dealRecordId} />}
+
+      {!revoked && annahmeAktiv && (
+        <p className="rounded-xl border border-dashed border-border bg-muted/30 px-4 py-3 text-xs text-muted-foreground">
+          Angebot, Pakete und Termine sind seit der Annahme gesperrt. Für Änderungen zuerst die Annahme aufheben.
+        </p>
+      )}
+    </div>
+  );
+}
+
+interface AktiveAnnahme {
+  signedAt: string;
+  acceptedFullName: string | null;
+  confirmedTotalCents: number;
+  selectedOptionName: string | null;
+  moveDate: string | null;
+  versicherungGewuenscht: boolean;
+  confirmationSentAt: string | null;
+}
+
+/**
+ * Zeigt die aktive Kundenannahme und erlaubt Admins, sie aufzuheben. Danach
+ * sind Angebot, Pakete und Termine wieder änderbar, und der Kunde muss neu
+ * annehmen. Die aufgehobene Annahme bleibt als Nachweis gespeichert.
+ */
+function KvaAnnahmeBlock({
+  dealRecordId,
+  onChange,
+}: {
+  dealRecordId: string;
+  onChange: (aktiv: boolean) => void;
+}) {
+  const [annahme, setAnnahme] = useState<AktiveAnnahme | null>(null);
+  const [arbeitet, setArbeitet] = useState(false);
+
+  const laden = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/v1/deals/${dealRecordId}/kva-annahme`);
+      if (!res.ok) return;
+      const j = (await res.json()) as { data?: { aktiv: AktiveAnnahme | null } };
+      const aktiv = j.data?.aktiv ?? null;
+      setAnnahme(aktiv);
+      onChange(!!aktiv);
+    } catch {
+      // Anzeige ist optional; ohne Antwort bleibt der Block leer.
+    }
+  }, [dealRecordId, onChange]);
+
+  useEffect(() => {
+    void laden();
+  }, [laden]);
+
+  async function aufheben() {
+    const grund = window.prompt("Grund für das Aufheben (der Kunde muss danach neu annehmen):");
+    if (!grund || grund.trim().length < 3) return;
+    setArbeitet(true);
+    try {
+      const res = await fetch(`/api/v1/deals/${dealRecordId}/kva-annahme`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ grund: grund.trim() }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => null);
+        toast.error(j?.error?.message ?? "Annahme konnte nicht aufgehoben werden.");
+        return;
+      }
+      toast.success("Annahme aufgehoben. Der Kunde muss das Angebot neu annehmen.");
+      await laden();
+    } finally {
+      setArbeitet(false);
+    }
+  }
+
+  if (!annahme) return null;
+  const euro = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(
+    annahme.confirmedTotalCents / 100
+  );
+  return (
+    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-100">
+      <div className="font-medium">
+        Vom Kunden angenommen am{" "}
+        {new Date(annahme.signedAt).toLocaleString("de-DE", {
+          dateStyle: "medium",
+          timeStyle: "short",
+          timeZone: "Europe/Berlin",
+        })}
+      </div>
+      <div className="mt-1 text-xs leading-relaxed">
+        {[
+          annahme.acceptedFullName,
+          euro,
+          annahme.selectedOptionName,
+          annahme.moveDate
+            ? `Termin ${new Date(`${annahme.moveDate}T12:00:00`).toLocaleDateString("de-DE")}`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" · ")}
+      </div>
+      <div className="mt-1 text-xs">
+        {annahme.confirmationSentAt ? "Bestätigung an den Kunden verschickt." : "Bestätigung noch nicht verschickt."}
+        {annahme.versicherungGewuenscht && " Versicherungswunsch: ja."}
+      </div>
+      <button
+        type="button"
+        onClick={aufheben}
+        disabled={arbeitet}
+        className="mt-3 rounded-lg border border-emerald-300 bg-white/70 px-3 py-1.5 text-xs font-medium hover:bg-white disabled:opacity-50 dark:border-emerald-800 dark:bg-emerald-900/40"
+      >
+        {arbeitet ? "Wird aufgehoben…" : "Annahme aufheben"}
+      </button>
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { annahmeSperrAntwort } from "@/services/kva-annahme";
 import { getAuthContext, unauthorized, badRequest, success } from "@/lib/api-utils";
 import { getQuotation, upsertQuotation } from "@/services/quotations";
 import { ensureCustomerStatusLink } from "@/services/customer-portal-data";
@@ -42,7 +43,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rec
   );
   if (!uebernahme.ok) return badRequest(uebernahme.fehler);
 
-  const data = await upsertQuotation(recordId, uebernahme.eingabe);
+  let data: Awaited<ReturnType<typeof upsertQuotation>>;
+  try {
+    data = await upsertQuotation(recordId, uebernahme.eingabe);
+  } catch (err) {
+    const gesperrt = annahmeSperrAntwort(err);
+    if (gesperrt) return gesperrt;
+    throw err;
+  }
   await ensureCustomerStatusLink({ workspaceId: ctx.workspaceId, dealRecordId: recordId, createdBy: ctx.userId }).catch(() => {
     // Darf die Übernahme nicht blockieren (wie beim normalen Speichern).
   });

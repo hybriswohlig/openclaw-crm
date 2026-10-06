@@ -702,7 +702,10 @@ export function StatusLinkWizard({
           calculationAssumptions: buildAssumptionsPayload(assumptions),
         }),
       });
-      if (!qRes.ok) throw new Error("Kostenvoranschlag konnte nicht gespeichert werden.");
+      if (!qRes.ok) {
+        const j = await qRes.json().catch(() => ({}));
+        throw new Error(j?.error?.message ?? "Kostenvoranschlag konnte nicht gespeichert werden.");
+      }
 
       // Mirror the calculator: keep the deal amount in sync.
       const amount =

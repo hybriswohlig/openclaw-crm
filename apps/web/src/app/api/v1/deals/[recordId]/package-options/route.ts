@@ -9,6 +9,7 @@
  * must be a non-negative integer.
  */
 import { NextRequest } from "next/server";
+import { annahmeSperrAntwort } from "@/services/kva-annahme";
 import { eq } from "drizzle-orm";
 import {
   getAuthContext,
@@ -126,14 +127,19 @@ export async function PUT(
     });
   }
 
-  const result = await replaceDealPackageOptions({
-    workspaceId: ctx.workspaceId,
-    dealRecordId: recordId,
-    createdBy: ctx.userId,
-    options,
-  });
-
-  return success({ count: result.count });
+  try {
+    const result = await replaceDealPackageOptions({
+      workspaceId: ctx.workspaceId,
+      dealRecordId: recordId,
+      createdBy: ctx.userId,
+      options,
+    });
+    return success({ count: result.count });
+  } catch (err) {
+    const gesperrt = annahmeSperrAntwort(err);
+    if (gesperrt) return gesperrt;
+    throw err;
+  }
 }
 
 export async function DELETE(
@@ -143,11 +149,17 @@ export async function DELETE(
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized();
   const { recordId } = await params;
-  await replaceDealPackageOptions({
-    workspaceId: ctx.workspaceId,
-    dealRecordId: recordId,
-    createdBy: ctx.userId,
-    options: [],
-  });
-  return success({ cleared: true });
+  try {
+    await replaceDealPackageOptions({
+      workspaceId: ctx.workspaceId,
+      dealRecordId: recordId,
+      createdBy: ctx.userId,
+      options: [],
+    });
+    return success({ cleared: true });
+  } catch (err) {
+    const gesperrt = annahmeSperrAntwort(err);
+    if (gesperrt) return gesperrt;
+    throw err;
+  }
 }

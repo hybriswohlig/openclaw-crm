@@ -60,7 +60,9 @@ export async function POST(
           ? 410
           : result.reason === "invalid_token"
             ? 400
-            : 422;
+            : result.reason === "already_accepted"
+              ? 409
+              : 422;
     return NextResponse.json(
       { error: { code: result.reason.toUpperCase() } },
       { status }

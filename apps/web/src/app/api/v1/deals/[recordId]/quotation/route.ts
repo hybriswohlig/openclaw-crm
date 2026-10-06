@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { annahmeSperrAntwort } from "@/services/kva-annahme";
 import { getAuthContext, unauthorized, success } from "@/lib/api-utils";
 import { getQuotation, upsertQuotation } from "@/services/quotations";
 import { ensureCustomerStatusLink } from "@/services/customer-portal-data";
@@ -26,7 +27,14 @@ export async function PUT(
 
   const { recordId } = await params;
   const body = await req.json();
-  const data = await upsertQuotation(recordId, body);
+  let data: Awaited<ReturnType<typeof upsertQuotation>>;
+  try {
+    data = await upsertQuotation(recordId, body);
+  } catch (err) {
+    const gesperrt = annahmeSperrAntwort(err);
+    if (gesperrt) return gesperrt;
+    throw err;
+  }
 
   // The moment we have a quotation we have something worth showing the
   // customer — auto-mint the status link. Idempotent: re-saving the

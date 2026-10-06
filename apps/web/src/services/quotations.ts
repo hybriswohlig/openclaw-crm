@@ -3,6 +3,7 @@ import { quotations, quotationLineItems, dealEmployees, employees } from "@/db/s
 import type { CalculationAssumptions } from "@/db/schema/quotations";
 import { annahmenZusammenfuehren } from "@/lib/kunden-annahmen";
 import { eq } from "drizzle-orm";
+import { pruefeNichtAngenommen } from "./kva-annahme";
 
 export async function getQuotation(dealRecordId: string) {
   const [q] = await db
@@ -53,6 +54,8 @@ export async function upsertQuotation(
     }>;
   }
 ) {
+  // Nach der Kundenannahme ist das Angebot eingefroren (erst „Annahme aufheben“).
+  await pruefeNichtAngenommen(dealRecordId);
   const existing = await getQuotation(dealRecordId);
 
   let quotationId: string;

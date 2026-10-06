@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Plus, Trash2, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
 interface LineItem {
   type: "helper" | "transporter" | "other";
@@ -157,7 +158,7 @@ export function QuotationCalculator({ recordId, quotation, onSaved }: Props) {
       const depositCents = depositEur.trim()
         ? Math.round(Number(depositEur) * 100)
         : null;
-      await fetch(`/api/v1/deals/${recordId}/quotation`, {
+      const res = await fetch(`/api/v1/deals/${recordId}/quotation`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -178,6 +179,11 @@ export function QuotationCalculator({ recordId, quotation, onSaved }: Props) {
           selectedPackageSlug: selectedPackageSlug || null,
         }),
       });
+      if (!res.ok) {
+        const j = await res.json().catch(() => null);
+        toast.error(j?.error?.message ?? "Angebot konnte nicht gespeichert werden.");
+        return;
+      }
 
       await fetch(`/api/v1/objects/deals/records/${recordId}`, {
         method: "PATCH",

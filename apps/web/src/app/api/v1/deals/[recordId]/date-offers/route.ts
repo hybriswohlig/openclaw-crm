@@ -12,6 +12,7 @@
  * GET returns the current set so the composer can hydrate.
  */
 import { NextRequest } from "next/server";
+import { annahmeSperrAntwort } from "@/services/kva-annahme";
 import { eq } from "drizzle-orm";
 import { getAuthContext, unauthorized, success, badRequest } from "@/lib/api-utils";
 import { db } from "@/db";
@@ -115,14 +116,19 @@ export async function PUT(
     });
   }
 
-  const result = await replaceDateOffers({
-    workspaceId: ctx.workspaceId,
-    dealRecordId: recordId,
-    createdBy: ctx.userId,
-    offers,
-  });
-
-  return success({ count: result.count });
+  try {
+    const result = await replaceDateOffers({
+      workspaceId: ctx.workspaceId,
+      dealRecordId: recordId,
+      createdBy: ctx.userId,
+      offers,
+    });
+    return success({ count: result.count });
+  } catch (err) {
+    const gesperrt = annahmeSperrAntwort(err);
+    if (gesperrt) return gesperrt;
+    throw err;
+  }
 }
 
 export async function DELETE(
@@ -132,11 +138,17 @@ export async function DELETE(
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized();
   const { recordId } = await params;
-  await replaceDateOffers({
-    workspaceId: ctx.workspaceId,
-    dealRecordId: recordId,
-    createdBy: ctx.userId,
-    offers: [],
-  });
-  return success({ cleared: true });
+  try {
+    await replaceDateOffers({
+      workspaceId: ctx.workspaceId,
+      dealRecordId: recordId,
+      createdBy: ctx.userId,
+      offers: [],
+    });
+    return success({ cleared: true });
+  } catch (err) {
+    const gesperrt = annahmeSperrAntwort(err);
+    if (gesperrt) return gesperrt;
+    throw err;
+  }
 }
