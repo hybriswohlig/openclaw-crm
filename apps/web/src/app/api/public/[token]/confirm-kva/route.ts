@@ -1,6 +1,6 @@
 import { after, NextRequest, NextResponse } from "next/server";
 import { confirmKvaForToken } from "@/services/customer-portal-data";
-import type { ConfirmKvaPayload } from "@openclaw-crm/customer-portal-core";
+import { parseConfirmKvaPayload } from "@openclaw-crm/customer-portal-core";
 
 export const dynamic = "force-dynamic";
 
@@ -16,10 +16,18 @@ export async function POST(
 ) {
   const { token } = await params;
 
-  let body: ConfirmKvaPayload;
+  let raw: unknown;
   try {
-    body = (await req.json()) as ConfirmKvaPayload;
+    raw = await req.json();
   } catch {
+    return NextResponse.json(
+      { error: { code: "BAD_REQUEST", message: "Invalid JSON body" } },
+      { status: 400 }
+    );
+  }
+
+  const body = parseConfirmKvaPayload(raw);
+  if (!body) {
     return NextResponse.json(
       { error: { code: "BAD_REQUEST", message: "Invalid JSON body" } },
       { status: 400 }

@@ -40,6 +40,11 @@ async function migrate() {
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS kva_confirmations_deal_aktiv_uniq
       ON kva_confirmations (deal_record_id) WHERE superseded_at IS NULL`;
   await sql`DROP INDEX IF EXISTS kva_confirmations_deal_uniq`;
+  // Altbestand wurde vom alten Weg bereits bestätigt: als verschickt markieren,
+  // damit weder das Panel „nicht verschickt“ zeigt noch etwas nachgesendet wird.
+  await sql`UPDATE kva_confirmations
+      SET confirmation_sent_at = signed_at, confirmation_channels = 'altbestand'
+      WHERE widerruf_modus IS NULL AND confirmation_sent_at IS NULL`;
 
   const [{ anzahl }] = await sql`SELECT count(*)::int AS anzahl FROM kva_confirmations`;
   console.log(`kva_confirmations bereit (${anzahl} Zeilen).`);

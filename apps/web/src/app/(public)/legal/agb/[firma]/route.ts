@@ -5,15 +5,16 @@
 //
 // Single source of truth: firmen/<firma>/agb.md on crm-tools. This route is a
 // thin, cached proxy of the public crm-tools endpoint GET /legal/agb/{firma}.
-// Caching (revalidate) keeps the AGB available even if crm-tools is briefly
-// down; on a cold-cache failure we serve a graceful fallback.
+// It loads through ladeAgbHtml, the same function and cache lifetime the KV
+// acceptance uses for its AGB snapshot, so the stored text matches this page.
+// On a cold-cache failure we serve a fallback with 503.
 
 import type { NextRequest } from "next/server";
+import { ladeAgbHtml } from "@/services/agb";
 
-export const revalidate = 86400; // 24h
+export const revalidate = 300; // wie AGB_CACHE_SEKUNDEN in services/agb.ts
 
 const ALLOWED = new Set(["kottke", "ceylan"]);
-const BASE = process.env.CRM_TOOLS_API_URL ?? "https://crm-tools.kottke.info";
 
 const FALLBACK_HTML = `<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -34,23 +35,18 @@ export async function GET(
     return new Response("Not found", { status: 404 });
   }
 
-  try {
-    const res = await fetch(`${BASE}/legal/agb/${slug}`, {
-      next: { revalidate: 86400 },
-    });
-    if (!res.ok) throw new Error(`upstream ${res.status}`);
-    const htmlBody = await res.text();
+  const htmlBody = await ladeAgbHtml(slug);
+  if (htmlBody) {
     return new Response(htmlBody, {
       headers: {
         "content-type": "text/html; charset=utf-8",
-        "cache-control": "public, max-age=3600, s-maxage=86400",
+        "cache-control": "public, max-age=300, s-maxage=300",
       },
     });
-  } catch (err) {
-    console.error(`[legal/agb] failed to load AGB for "${slug}":`, err);
-    return new Response(FALLBACK_HTML, {
-      status: 503,
-      headers: { "content-type": "text/html; charset=utf-8" },
-    });
   }
+  console.error(`[legal/agb] failed to load AGB for "${slug}"`);
+  return new Response(FALLBACK_HTML, {
+    status: 503,
+    headers: { "content-type": "text/html; charset=utf-8" },
+  });
 }

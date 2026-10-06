@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { getAuthContext, unauthorized, success, badRequest, requireAdmin } from "@/lib/api-utils";
 import { annahmeAufheben, annahmeAusZeile, ladeAktiveAnnahme } from "@/services/kva-annahme";
+import { bestaetigungVerschickt } from "@/services/kva-bestaetigung";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ reco
     aktiv: {
       ...annahmeAusZeile(row),
       versicherungGewuenscht: row.versicherungGewuenscht,
-      confirmationSentAt: row.confirmationSentAt?.toISOString() ?? null,
+      confirmationSentAt: bestaetigungVerschickt(row) ? row.confirmationSentAt!.toISOString() : null,
       moveDate: row.moveDate,
     },
   });

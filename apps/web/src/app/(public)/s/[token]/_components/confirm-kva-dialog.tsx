@@ -110,8 +110,9 @@ export function ConfirmKvaDialog({
           error?: { code?: string };
         };
         setError(germanError(body.error?.code));
-        // Neuer Preis: Kontext neu laden, damit der Kunde ihn sieht.
-        if (body.error?.code === "PRICE_CHANGED") void onAccepted();
+        // Server sieht einen anderen Stand (Preis, Termin, Fristen): Kontext neu
+        // laden, damit Preis und nötige Häkchen sichtbar werden.
+        if (NEU_LADEN_BEI.has(body.error?.code ?? "")) void onAccepted();
         return;
       }
       await Promise.resolve(onAccepted());
@@ -467,6 +468,13 @@ function formatGermanDate(ymd: string): string {
     year: "numeric",
   });
 }
+
+const NEU_LADEN_BEI = new Set([
+  "PRICE_CHANGED",
+  "DATE_REQUIRED",
+  "HAFTUNGSHINWEIS_REQUIRED",
+  "VORZEITIGER_BEGINN_REQUIRED",
+]);
 
 function germanError(code: string | undefined): string {
   switch (code) {

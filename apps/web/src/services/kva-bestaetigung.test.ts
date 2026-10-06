@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bestaetigungsMailText, bestaetigungsTextWhatsApp, teamAlarmText, type BestaetigungsDaten } from "./kva-bestaetigung";
+import { agbAlsText, bestaetigungVerschickt, bestaetigungsMailText, bestaetigungsTextWhatsApp, nachlaufNoetig, teamAlarmText, type BestaetigungsDaten } from "./kva-bestaetigung";
 import { firmaKontakt } from "@openclaw-crm/customer-portal-core";
 
 const umzug: BestaetigungsDaten = {
@@ -49,5 +49,53 @@ describe("teamAlarmText", () => {
     expect(t).toContain("K-1042");
     expect(t).toContain("Max Muster");
     expect(t).toContain("Versicherung");
+  });
+});
+
+describe("Fix-Durchgang Bestätigung", () => {
+  const kueche: BestaetigungsDaten = { ...umzug, widerrufModus: "belehrung", haftung: false, versicherungGewuenscht: false, kontakt: firmaKontakt("ceylan") };
+  it("Küche per WhatsApp: volle Belehrung und Formular, unter 4096 Zeichen", () => {
+    const t = bestaetigungsTextWhatsApp(kueche);
+    expect(t).toContain("binnen vierzehn Tagen");
+    expect(t).toContain("Muster-Widerrufsformular");
+    expect(t).not.toContain("in der E-Mail");
+    expect(t.length).toBeLessThan(4096);
+  });
+  it("variables Angebot: voraussichtlich statt Endpreis", () => {
+    const t = bestaetigungsTextWhatsApp({ ...umzug, voraussichtlich: true });
+    expect(t).toContain("voraussichtlich");
+    expect(t).not.toContain("Endpreis");
+    expect(bestaetigungsMailText({ ...umzug, voraussichtlich: true })).not.toContain("Endpreis");
+  });
+  it("Mail ohne PDF und ohne AGB: keine Anhang-Behauptung, Verweis aufs Portal", () => {
+    const t = bestaetigungsMailText({ ...umzug, pdfDabei: false, agbDabei: false });
+    expect(t).not.toContain("Im Anhang");
+    expect(t).toContain(umzug.portalUrl);
+  });
+  it("Mail mit PDF und AGB: nennt beide Anhänge", () => {
+    expect(bestaetigungsMailText({ ...umzug, pdfDabei: true, agbDabei: true })).toContain("Im Anhang finden Sie das angenommene Angebot als PDF und unsere AGB");
+  });
+});
+
+describe("bestaetigungVerschickt / nachlaufNoetig", () => {
+  it("Altbestand ohne Widerrufsmodus: kein Nachlauf", () => {
+    expect(nachlaufNoetig({ widerrufModus: null, confirmationSentAt: null, confirmationChannels: null })).toBe(false);
+  });
+  it("neue Annahme ohne Versand: Nachlauf nötig", () => {
+    expect(nachlaufNoetig({ widerrufModus: "ausgeschlossen", confirmationSentAt: null, confirmationChannels: null })).toBe(true);
+  });
+  it("laufender Versand gilt nicht als verschickt", () => {
+    expect(bestaetigungVerschickt({ confirmationSentAt: new Date(), confirmationChannels: "sending" })).toBe(false);
+    expect(bestaetigungVerschickt({ confirmationSentAt: new Date(), confirmationChannels: "whatsapp" })).toBe(true);
+  });
+});
+
+describe("agbAlsText", () => {
+  it("macht aus der AGB-Seite lesbaren Text", () => {
+    const t = agbAlsText("<html><head><style>p{}</style></head><body><h1>AGB</h1><p>§ 1 Geltung &amp; Umfang</p><p>„Text“</p></body></html>");
+    expect(t).toContain("AGB");
+    expect(t).toContain("§ 1 Geltung & Umfang");
+    expect(t).not.toContain("<p>");
+    expect(t).not.toContain("p{}");
   });
 });

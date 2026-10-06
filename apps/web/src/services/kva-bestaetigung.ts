@@ -3,11 +3,11 @@
  * dauerhafter Datenträger: Text mit allen Eckdaten plus das angenommene PDF)
  * und Alarm ans Team. Läuft über after() nach der Antwort; wirft nie.
  */
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { kvaConfirmations, customerStatusLinks } from "@/db/schema/customer-portal";
 import { channelAccounts, inboxConversations } from "@/db/schema/inbox";
-import { dealDocuments } from "@/db/schema/financial";
+import { dealDocuments, dealNumbers } from "@/db/schema/financial";
 import {
   HAFTUNGSHINWEIS_451G,
   VORZEITIGER_BEGINN_CHECKBOX,
@@ -49,6 +49,10 @@ export interface BestaetigungsDaten {
   portalUrl: string;
   signedAt: string;
   pdfDabei: boolean;
+  /** Angebot nach Aufwand: Betrag ist eine Schätzung, kein Festpreis. */
+  voraussichtlich?: boolean;
+  /** AGB-Fassung der Annahme liegt der Mail bei. */
+  agbDabei?: boolean;
 }
 
 const euro = (c: number) =>
@@ -60,19 +64,25 @@ function eckdaten(d: BestaetigungsDaten): string[] {
   return [
     `Auftrag ${d.dealNumber}`,
     d.optionName ? `Leistung: ${d.optionName}` : null,
-    `Preis: ${euro(d.preisCents)} (Endpreis)`,
+    d.voraussichtlich
+      ? `Preis: ${euro(d.preisCents)} (voraussichtlich, Abrechnung nach tatsächlichem Aufwand)`
+      : `Preis: ${euro(d.preisCents)} (Endpreis)`,
     d.moveDate ? `Termin: ${datum(d.moveDate)}` : null,
     d.fromAddress ? `Von: ${d.fromAddress}` : null,
     d.toAddress ? `Nach: ${d.toAddress}` : null,
   ].filter((z): z is string => !!z);
 }
 
-function widerrufKurz(d: BestaetigungsDaten): string[] {
+/**
+ * Widerrufsteil der WhatsApp-Bestätigung. Bei Belehrung steht der volle
+ * Text samt Formular in der Nachricht selbst: Viele Kunden haben nur
+ * WhatsApp, und die Nachricht ist der dauerhafte Datenträger (§ 312f BGB).
+ */
+function widerrufTeil(d: BestaetigungsDaten): string[] {
   if (d.widerrufModus === "ausgeschlossen") return [keinWiderrufHinweis()];
-  const zeilen = [
-    "Widerrufsbelehrung: Sie können diesen Vertrag binnen vierzehn Tagen ab Vertragsschluss ohne Angabe von Gründen widerrufen. Die vollständige Widerrufsbelehrung und das Muster-Widerrufsformular finden Sie in der E-Mail und im Kundenportal.",
-  ];
-  if (d.vorzeitigerBeginn) zeilen.push(`Sie haben verlangt, dass wir vor Ende der Widerrufsfrist beginnen: ${VORZEITIGER_BEGINN_CHECKBOX}`);
+  const b = widerrufsbelehrung(d.kontakt);
+  const zeilen = [[b.titel, ...b.absaetze].join("\n"), musterWiderrufsformular(d.kontakt).join("\n")];
+  if (d.vorzeitigerBeginn) zeilen.push(`Ihre Erklärung bei der Annahme: ${VORZEITIGER_BEGINN_CHECKBOX}`);
   return zeilen;
 }
 
@@ -82,7 +92,7 @@ export function bestaetigungsTextWhatsApp(d: BestaetigungsDaten): string {
     vorname ? `Hallo ${vorname},` : "Hallo,",
     `vielen Dank, Ihr Auftrag ist verbindlich erteilt. Hier die Bestätigung von ${d.firma}:`,
     eckdaten(d).join("\n"),
-    ...widerrufKurz(d),
+    ...widerrufTeil(d),
     d.haftung ? `${HAFTUNGSHINWEIS_451G.titel}: ${HAFTUNGSHINWEIS_451G.absaetze.join(" ")}` : null,
     d.pdfDabei ? "Das angenommene Angebot mit unseren AGB schicken wir Ihnen als PDF mit." : `Das angenommene Angebot mit unseren AGB finden Sie hier: ${d.portalUrl}`,
     `Viele Grüße\n${d.firma}`,
@@ -94,7 +104,7 @@ export function bestaetigungsMailText(d: BestaetigungsDaten): string {
     d.kunde ? `Guten Tag ${d.kunde},` : "Guten Tag,",
     `vielen Dank für Ihren Auftrag. Hiermit bestätigen wir den Vertrag, den Sie am ${new Date(d.signedAt).toLocaleString("de-DE", { dateStyle: "long", timeStyle: "short", timeZone: "Europe/Berlin" })} Uhr im Kundenportal geschlossen haben.`,
     eckdaten(d).join("\n"),
-    "Im Anhang finden Sie das angenommene Angebot als PDF und unsere AGB in der Fassung, die Sie bei der Annahme akzeptiert haben.",
+    anhangSatz(d),
   ];
   if (d.haftung) teile.push([HAFTUNGSHINWEIS_451G.titel, ...HAFTUNGSHINWEIS_451G.absaetze].join("\n"));
   if (d.versicherungGewuenscht) teile.push("Sie haben ein Angebot für eine weitergehende Haftung oder Versicherung gewünscht. Wir melden uns dazu vor dem Umzug.");
@@ -107,6 +117,51 @@ export function bestaetigungsMailText(d: BestaetigungsDaten): string {
   }
   teile.push(`Ihr Kundenportal: ${d.portalUrl}`, `Freundliche Grüße\n${d.firma}`);
   return teile.join("\n\n");
+}
+
+function anhangSatz(d: BestaetigungsDaten): string {
+  if (d.pdfDabei && d.agbDabei) {
+    return "Im Anhang finden Sie das angenommene Angebot als PDF und unsere AGB in der Fassung, die Sie bei der Annahme akzeptiert haben.";
+  }
+  if (d.pdfDabei) return `Im Anhang finden Sie das angenommene Angebot als PDF. Unsere AGB finden Sie in Ihrem Kundenportal: ${d.portalUrl}`;
+  if (d.agbDabei) return `Im Anhang finden Sie unsere AGB in der Fassung, die Sie bei der Annahme akzeptiert haben. Das angenommene Angebot finden Sie in Ihrem Kundenportal: ${d.portalUrl}`;
+  return `Das angenommene Angebot und unsere AGB finden Sie in Ihrem Kundenportal: ${d.portalUrl}`;
+}
+
+/** Versand gilt erst als erledigt, wenn er abgeschlossen ist (nicht nur beansprucht). */
+export function bestaetigungVerschickt(row: { confirmationSentAt: Date | null; confirmationChannels: string | null }): boolean {
+  return !!row.confirmationSentAt && row.confirmationChannels !== "sending";
+}
+
+/**
+ * Nachholen nur für Annahmen mit neuem Nachweis. Altbestand (vor 2026-10,
+ * ohne Widerrufsmodus) wurde vom alten Weg bestätigt und kennt Termin,
+ * Adressen und Auftragsart nicht.
+ */
+export function nachlaufNoetig(row: {
+  widerrufModus: string | null;
+  confirmationSentAt: Date | null;
+  confirmationChannels: string | null;
+}): boolean {
+  return row.widerrufModus != null && !bestaetigungVerschickt(row);
+}
+
+/** AGB-Seite (HTML) als schlichter Text für den Mail-Anhang. */
+export function agbAlsText(html: string): string {
+  return html
+    .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, "")
+    .replace(/<\/(p|h[1-6]|li|div|tr)>/gi, "\n\n")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 export function teamAlarmText(d: BestaetigungsDaten): string {
@@ -205,132 +260,215 @@ async function teamAufgabe(workspaceId: string, dealRecordId: string, dealNumber
 }
 
 /**
- * Bestätigung an den Kunden (WhatsApp und/oder E-Mail, jeweils mit dem
- * angenommenen PDF) und optional Alarm ans Team. Wirft nie.
+ * Versand beanspruchen: nur eine Ausführung sendet. Eine hängengebliebene
+ * Beanspruchung (Abbruch mitten im Versand) wird nach 10 Minuten frei.
+ * Altbestand ohne Widerrufsmodus und aufgehobene Annahmen sendet nichts.
  */
-export async function annahmeNachlauf(
-  confirmationId: string,
-  opts: { mitTeamAlarm: boolean }
-): Promise<void> {
-  try {
-    const [row] = await db.select().from(kvaConfirmations).where(eq(kvaConfirmations.id, confirmationId)).limit(1);
-    if (!row || row.supersededAt) return;
-    const [link] = await db
-      .select({ token: customerStatusLinks.token })
-      .from(customerStatusLinks)
-      .where(eq(customerStatusLinks.id, row.customerLinkId))
+async function versandBeanspruchen(id: string): Promise<KvaRow | null> {
+  const [row] = await db
+    .update(kvaConfirmations)
+    .set({ confirmationChannels: "sending", confirmationSentAt: new Date() })
+    .where(
+      and(
+        eq(kvaConfirmations.id, id),
+        isNull(kvaConfirmations.supersededAt),
+        isNotNull(kvaConfirmations.widerrufModus),
+        or(
+          isNull(kvaConfirmations.confirmationSentAt),
+          and(
+            eq(kvaConfirmations.confirmationChannels, "sending"),
+            lt(kvaConfirmations.confirmationSentAt, sql`now() - interval '10 minutes'`)
+          )
+        )
+      )
+    )
+    .returning();
+  return row ?? null;
+}
+
+type KvaRow = typeof kvaConfirmations.$inferSelect;
+
+async function ladeDealNummer(dealRecordId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ dealNumber: dealNumbers.dealNumber })
+    .from(dealNumbers)
+    .where(eq(dealNumbers.dealRecordId, dealRecordId))
+    .limit(1);
+  return row?.dealNumber ?? null;
+}
+
+/** Bestätigung an den Kunden senden. Liefert die erfolgreichen Kanäle. */
+async function kundeBestaetigen(row: KvaRow): Promise<{ kanaele: string[]; pdf: boolean; daten: BestaetigungsDaten | null }> {
+  const [link] = await db
+    .select({ token: customerStatusLinks.token })
+    .from(customerStatusLinks)
+    .where(eq(customerStatusLinks.id, row.customerLinkId))
+    .limit(1);
+  if (!link) return { kanaele: [], pdf: false, daten: null };
+  const ctx = await loadContextByToken(link.token);
+  if (!ctx) return { kanaele: [], pdf: false, daten: null };
+
+  const origin = await resolveCustomerLinkOrigin(
+    row.dealRecordId,
+    row.workspaceId,
+    process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/+$/, "") || null
+  );
+  const snapshot = row.quotationSnapshot as { isVariable?: boolean } | null;
+  const daten: BestaetigungsDaten = {
+    firma: ctx.branding.displayName,
+    kontakt: firmaKontakt(ctx.branding.firmaSlug),
+    dealNumber: ctx.dealNumber,
+    kunde: row.acceptedFullName || ctx.customerDisplayName,
+    preisCents: row.confirmedTotalCents,
+    optionName: row.selectedOptionName,
+    moveDate: row.moveDate,
+    fromAddress: row.fromAddress,
+    toAddress: row.toAddress,
+    widerrufModus: row.widerrufModus === "belehrung" ? "belehrung" : "ausgeschlossen",
+    vorzeitigerBeginn: row.vorzeitigerBeginnVerlangt,
+    haftung: row.haftungshinweisBestaetigt || row.serviceType === "move",
+    versicherungGewuenscht: row.versicherungGewuenscht,
+    portalUrl: `${origin}/s/${link.token}`,
+    signedAt: row.signedAt.toISOString(),
+    pdfDabei: false,
+    voraussichtlich: snapshot?.isVariable === true,
+  };
+
+  let pdf: { buf: Buffer; filename: string } | null = null;
+  if (row.quotationDocumentId) {
+    const [doc] = await db
+      .select({ fileContent: dealDocuments.fileContent, fileName: dealDocuments.fileName })
+      .from(dealDocuments)
+      .where(eq(dealDocuments.id, row.quotationDocumentId))
       .limit(1);
-    if (!link) return;
-    const ctx = await loadContextByToken(link.token);
-    if (!ctx) return;
-
-    const origin = await resolveCustomerLinkOrigin(
-      row.dealRecordId,
-      row.workspaceId,
-      process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/+$/, "") || null
-    );
-    const daten: BestaetigungsDaten = {
-      firma: ctx.branding.displayName,
-      kontakt: firmaKontakt(ctx.branding.firmaSlug),
-      dealNumber: ctx.dealNumber,
-      kunde: row.acceptedFullName || ctx.customerDisplayName,
-      preisCents: row.confirmedTotalCents,
-      optionName: row.selectedOptionName,
-      moveDate: row.moveDate,
-      fromAddress: row.fromAddress,
-      toAddress: row.toAddress,
-      widerrufModus: row.widerrufModus === "belehrung" ? "belehrung" : "ausgeschlossen",
-      vorzeitigerBeginn: row.vorzeitigerBeginnVerlangt,
-      haftung: row.haftungshinweisBestaetigt || row.serviceType === "move",
-      versicherungGewuenscht: row.versicherungGewuenscht,
-      portalUrl: `${origin}/s/${link.token}`,
-      signedAt: row.signedAt.toISOString(),
-      pdfDabei: false,
-    };
-
-    let pdf: { buf: Buffer; filename: string } | null = null;
-    if (row.quotationDocumentId) {
-      const [doc] = await db
-        .select({ fileContent: dealDocuments.fileContent, fileName: dealDocuments.fileName })
-        .from(dealDocuments)
-        .where(eq(dealDocuments.id, row.quotationDocumentId))
-        .limit(1);
-      if (doc) {
-        pdf = {
-          buf: Buffer.from(doc.fileContent, "base64"),
-          filename: doc.fileName.replace(/[\\/\r\n]/g, "_").slice(0, 180) || `Angebot-${ctx.dealNumber}.pdf`,
-        };
-      }
+    if (doc) {
+      pdf = {
+        buf: Buffer.from(doc.fileContent, "base64"),
+        filename: doc.fileName.replace(/[\\/\r\n]/g, "_").slice(0, 180) || `Angebot-${ctx.dealNumber}.pdf`,
+      };
     }
+  }
 
-    const kanaele: string[] = [];
-    let pdfZugestellt = false;
+  const kanaele: string[] = [];
+  let pdfZugestellt = false;
 
+  try {
     const thread = await ladeWaThread(row.workspaceId, row.dealRecordId);
     if (thread) {
       const wa = await sendeWhatsApp(row.workspaceId, thread, daten, pdf);
       if (wa.ok) kanaele.push("whatsapp");
       pdfZugestellt ||= wa.pdf;
     }
+  } catch (err) {
+    console.error("[kva-bestaetigung] WhatsApp fehlgeschlagen:", err);
+  }
 
-    try {
-      const transport = await resolveCustomerEmailTransport(row.workspaceId, row.dealRecordId, true);
-      if (transport.ok) {
-        const attachments: Array<{ filename: string; contentType: string; content: Buffer }> = [];
-        if (pdf && pdf.buf.length <= 8 * 1024 * 1024) {
-          attachments.push({ filename: pdf.filename, contentType: "application/pdf", content: pdf.buf });
-        }
-        if (row.agbText) {
-          attachments.push({
-            filename: `AGB-${ctx.branding.firmaSlug}.html`,
-            contentType: "text/html; charset=utf-8",
-            content: Buffer.from(row.agbText, "utf-8"),
-          });
-        }
-        await sendNewEmail({
-          workspaceId: row.workspaceId,
-          channelAccountId: transport.account.id,
-          dealRecordId: row.dealRecordId,
-          to: transport.customerEmail,
-          subject: `Bestätigung Ihres Auftrags ${ctx.dealNumber} bei ${ctx.branding.displayName}`,
-          body: bestaetigungsMailText({ ...daten, pdfDabei: attachments.some((a) => a.contentType === "application/pdf") }),
-          attachments,
+  try {
+    const transport = await resolveCustomerEmailTransport(row.workspaceId, row.dealRecordId, true);
+    if (transport.ok) {
+      const attachments: Array<{ filename: string; contentType: string; content: Buffer }> = [];
+      if (pdf && pdf.buf.length <= 8 * 1024 * 1024) {
+        attachments.push({ filename: pdf.filename, contentType: "application/pdf", content: pdf.buf });
+      }
+      if (row.agbText) {
+        attachments.push({
+          filename: `AGB-${ctx.branding.firmaSlug}.txt`,
+          contentType: "text/plain; charset=utf-8",
+          content: Buffer.from(agbAlsText(row.agbText), "utf-8"),
         });
-        kanaele.push("email");
-        pdfZugestellt ||= attachments.some((a) => a.contentType === "application/pdf");
       }
-    } catch (err) {
-      console.error("[kva-bestaetigung] E-Mail fehlgeschlagen:", err);
-    }
-
-    if (kanaele.length > 0) {
-      await db
-        .update(kvaConfirmations)
-        .set({ confirmationSentAt: new Date(), confirmationChannels: kanaele.join(",") })
-        .where(eq(kvaConfirmations.id, row.id));
-    }
-    await emitEvent({
-      workspaceId: row.workspaceId,
-      recordId: row.dealRecordId,
-      objectSlug: "deals",
-      eventType: "customer.kva_confirmation_sent",
-      payload: { confirmationId: row.id, channels: kanaele, pdf: pdfZugestellt },
-    });
-
-    if (opts.mitTeamAlarm) {
-      const text = teamAlarmText(daten);
-      try {
-        await sendeAnInterne(row.workspaceId, kanaele.length === 0 ? `${text}\nAchtung: Bestätigung an den Kunden ging nicht raus.` : text, { nachholen: true });
-      } catch (err) {
-        console.error("[kva-bestaetigung] Team-Alarm fehlgeschlagen:", err);
-      }
-      try {
-        await teamAufgabe(row.workspaceId, row.dealRecordId, ctx.dealNumber, text);
-      } catch (err) {
-        console.error("[kva-bestaetigung] Aufgabe fehlgeschlagen:", err);
-      }
+      const pdfDabei = attachments.some((a) => a.contentType === "application/pdf");
+      await sendNewEmail({
+        workspaceId: row.workspaceId,
+        channelAccountId: transport.account.id,
+        dealRecordId: row.dealRecordId,
+        to: transport.customerEmail,
+        subject: `Bestätigung Ihres Auftrags ${ctx.dealNumber} bei ${ctx.branding.displayName}`,
+        body: bestaetigungsMailText({ ...daten, pdfDabei, agbDabei: !!row.agbText }),
+        attachments,
+      });
+      kanaele.push("email");
+      pdfZugestellt ||= pdfDabei;
     }
   } catch (err) {
-    console.error("[kva-bestaetigung] Nachlauf fehlgeschlagen:", err);
+    console.error("[kva-bestaetigung] E-Mail fehlgeschlagen:", err);
+  }
+
+  return { kanaele, pdf: pdfZugestellt, daten };
+}
+
+/**
+ * Nach der Annahme: Bestätigung an den Kunden (WhatsApp und/oder E-Mail,
+ * jeweils mit dem angenommenen PDF) und optional Alarm ans Team. Jeder
+ * Schritt hat seinen eigenen Fehlerfang; der Team-Alarm geht auch dann
+ * raus, wenn der Kundenversand scheitert. Wirft nie.
+ */
+export async function annahmeNachlauf(
+  confirmationId: string,
+  opts: { mitTeamAlarm: boolean }
+): Promise<void> {
+  let row: KvaRow | null = null;
+  try {
+    row = await versandBeanspruchen(confirmationId);
+  } catch (err) {
+    console.error("[kva-bestaetigung] Beanspruchen fehlgeschlagen:", err);
+  }
+
+  let ergebnis: { kanaele: string[]; pdf: boolean; daten: BestaetigungsDaten | null } = { kanaele: [], pdf: false, daten: null };
+  if (row) {
+    try {
+      ergebnis = await kundeBestaetigen(row);
+    } catch (err) {
+      console.error("[kva-bestaetigung] Kundenbestätigung fehlgeschlagen:", err);
+    }
+    try {
+      await db
+        .update(kvaConfirmations)
+        .set(
+          ergebnis.kanaele.length > 0
+            ? { confirmationSentAt: new Date(), confirmationChannels: ergebnis.kanaele.join(",") }
+            : { confirmationSentAt: null, confirmationChannels: null }
+        )
+        .where(eq(kvaConfirmations.id, row.id));
+    } catch (err) {
+      console.error("[kva-bestaetigung] Versandstatus nicht gespeichert:", err);
+    }
+    try {
+      await emitEvent({
+        workspaceId: row.workspaceId,
+        recordId: row.dealRecordId,
+        objectSlug: "deals",
+        eventType: "customer.kva_confirmation_sent",
+        payload: { confirmationId: row.id, channels: ergebnis.kanaele, pdf: ergebnis.pdf },
+      });
+    } catch (err) {
+      console.error("[kva-bestaetigung] Event fehlgeschlagen:", err);
+    }
+  }
+
+  if (!opts.mitTeamAlarm) return;
+  try {
+    const [basis] = row
+      ? [row]
+      : await db.select().from(kvaConfirmations).where(eq(kvaConfirmations.id, confirmationId)).limit(1);
+    if (!basis) return;
+    const dealNumber = ergebnis.daten?.dealNumber ?? (await ladeDealNummer(basis.dealRecordId)) ?? "ohne Nummer";
+    const text = ergebnis.daten
+      ? teamAlarmText(ergebnis.daten)
+      : `Angebot angenommen: Auftrag ${dealNumber}, ${new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(basis.confirmedTotalCents / 100)}.`;
+    const mitWarnung =
+      ergebnis.kanaele.length === 0 ? `${text}\nAchtung: Bestätigung an den Kunden ging nicht raus.` : text;
+    try {
+      await sendeAnInterne(basis.workspaceId, mitWarnung, { nachholen: true });
+    } catch (err) {
+      console.error("[kva-bestaetigung] Team-Alarm fehlgeschlagen:", err);
+    }
+    try {
+      await teamAufgabe(basis.workspaceId, basis.dealRecordId, dealNumber, mitWarnung);
+    } catch (err) {
+      console.error("[kva-bestaetigung] Aufgabe fehlgeschlagen:", err);
+    }
+  } catch (err) {
+    console.error("[kva-bestaetigung] Team-Benachrichtigung fehlgeschlagen:", err);
   }
 }

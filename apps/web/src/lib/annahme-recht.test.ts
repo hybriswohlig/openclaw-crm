@@ -109,3 +109,44 @@ describe("firmaKontakt", () => {
     expect(firmaKontakt("kottke").email).toBe("kontakt@kottke-umzuege.de");
   });
 });
+
+describe("Fix-Durchgang: 14-Tage-Grenze mit Puffer", () => {
+  const k = (moveDate: string) =>
+    annahmeRegeln({ serviceType: "kitchen_installation", moveDate, hasOpenDateChoice: false, now });
+  it("Termin genau 14 Tage nach Vertragsschluss liegt noch in der Frist", () => {
+    expect(k("2026-10-20").vorzeitigerBeginnErforderlich).toBe(true);
+  });
+  it("Puffer für Wochenende und Feiertag bis 17 Tage", () => {
+    expect(k("2026-10-23").vorzeitigerBeginnErforderlich).toBe(true);
+  });
+  it("ab 18 Tagen kein vorzeitiger Beginn nötig", () => {
+    expect(k("2026-10-24").vorzeitigerBeginnErforderlich).toBe(false);
+  });
+});
+
+describe("Fix-Durchgang: parseConfirmKvaPayload", () => {
+  it("null oder kein Objekt: null", async () => {
+    const { parseConfirmKvaPayload } = await import("@openclaw-crm/customer-portal-core");
+    expect(parseConfirmKvaPayload(null)).toBeNull();
+    expect(parseConfirmKvaPayload("x")).toBeNull();
+  });
+  it("nur echtes true zählt, Name nur als String", async () => {
+    const { parseConfirmKvaPayload } = await import("@openclaw-crm/customer-portal-core");
+    const p = parseConfirmKvaPayload({ acceptedOffer: "true", acceptedAgb: true, haftungshinweisBestaetigt: 1, expectedTotalCents: 5, fullName: 42 });
+    expect(p).toEqual({
+      acceptedOffer: false,
+      acceptedAgb: true,
+      haftungshinweisBestaetigt: false,
+      versicherungGewuenscht: false,
+      vorzeitigerBeginnVerlangt: false,
+      expectedTotalCents: 5,
+      fullName: null,
+    });
+  });
+  it("fehlender Preis (alter Browser-Stand) führt zu price_changed", async () => {
+    const { parseConfirmKvaPayload } = await import("@openclaw-crm/customer-portal-core");
+    const p = parseConfirmKvaPayload({ acceptedOffer: true, acceptedAgb: true, haftungshinweisBestaetigt: true })!;
+    const regeln = annahmeRegeln({ serviceType: "move", moveDate: "2026-11-01", hasOpenDateChoice: false, now });
+    expect(annahmeSperrgrund({ payload: p, regeln, agbVorhanden: true, aktuellerPreisCents: 120000 })).toBe("price_changed");
+  });
+});

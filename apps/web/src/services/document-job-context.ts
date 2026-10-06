@@ -12,7 +12,8 @@ import { dealInventoryItems } from "@/db/schema/inventory";
 import { kvaConfirmations } from "@/db/schema/customer-portal";
 import { dealDocuments } from "@/db/schema/financial";
 import { getQuotation } from "@/services/quotations";
-import type { QuotationDocumentDetails } from "@/db/schema/quotations";
+import { quotations, type QuotationDocumentDetails } from "@/db/schema/quotations";
+import { serviceTypeZuSpeichern } from "@/lib/portal-dokumente";
 import { aktivBedingung } from "./kva-annahme";
 
 type ServiceType = "move" | "kitchen_installation";
@@ -161,9 +162,25 @@ export async function attachDocumentJobContext(
       : {};
 
   const storedDetails = (quotation?.documentDetails || {}) as QuotationDocumentDetails;
+  // Auch das Top-Level-Feld service_type zählt (MCP-Werkzeug setzt nur das).
   const serviceType = asServiceType(
-    clientDetails.serviceType || storedDetails.serviceType || quotation?.serviceType
+    clientDetails.serviceType || next.service_type || storedDetails.serviceType || quotation?.serviceType
   );
+
+  // Die beim KV gewählte Auftragsart steuert im Portal Widerruf und § 451g.
+  // Ohne Speichern bliebe jedes Angebot auf „move“ (Spalten-Default).
+  const neueArt = quotation
+    ? serviceTypeZuSpeichern({
+        documentType: next.document_type,
+        gewaehlt: serviceType,
+        gespeichert: quotation.serviceType,
+        angenommen: !!accepted,
+      })
+    : null;
+  if (quotation && neueArt) {
+    // Ohne updatedAt: das ist keine neue Angebotsfassung.
+    await db.update(quotations).set({ serviceType: neueArt }).where(eq(quotations.id, quotation.id));
+  }
 
   const inventory = await db
     .select()

@@ -86,12 +86,13 @@ import { isKleinanzeigenRelayAddress } from "./inbox-kleinanzeigen";
 import { loadEffectiveBranding } from "./customer-portal-config";
 import { emitEvent } from "./activity-events";
 import { createTask } from "./tasks";
-import { annahmeNachlauf } from "./kva-bestaetigung";
+import { annahmeNachlauf, nachlaufNoetig } from "./kva-bestaetigung";
+import { angezeigtesKvDokument, gueltigeAuftragsbestaetigung } from "@/lib/portal-dokumente";
 import {
   aktivBedingung,
   aktuellesKvDokument,
   annahmeAusZeile,
-  hatAufgehobeneAnnahme,
+  ladeLetzteAufhebung,
   ladeAgbFuerAnnahme,
   ladeAktiveAnnahme,
   pruefeNichtAngenommen,
@@ -354,7 +355,9 @@ export async function loadContextByToken(
 
   // Confirmation
   const acceptance = await loadLatestAcceptance(dealRecordId);
-  const fruehereAnnahmeAufgehoben = !acceptance && (await hatAufgehobeneAnnahme(dealRecordId));
+  // Nach „Annahme aufheben“ gilt der alte Stand nicht mehr (auch nicht seine AB).
+  const aufgehobenAm = acceptance ? null : await ladeLetzteAufhebung(dealRecordId);
+  const fruehereAnnahmeAufgehoben = !!aufgehobenAm;
 
   // Rechtsregeln der Annahme; Dialog und confirmKvaForToken nutzen dieselben.
   const serviceType = await loadServiceType(dealRecordId);
@@ -378,17 +381,24 @@ export async function loadContextByToken(
         eq(dealDocuments.dealRecordId, dealRecordId)
       )
     ).orderBy(desc(dealDocuments.uploadedAt));
-  const orderConfirmationDoc = docRows.find((d) => d.type === "order_confirmation");
+  const orderConfirmationDoc = gueltigeAuftragsbestaetigung(
+    docRows.find((d) => d.type === "order_confirmation"),
+    aufgehobenAm
+  );
   const invoiceDoc = docRows.find((d) => d.type === "invoice");
 
   const [quotationVersion] = await db.select({ updatedAt: quotations.updatedAt }).from(quotations)
     .where(eq(quotations.dealRecordId, dealRecordId)).limit(1);
   const quotationDoc = docRows.find(d => d.type === "quotation" &&
     (!quotationVersion || d.uploadedAt >= quotationVersion.updatedAt));
-  // Nach der Annahme zeigt das Portal genau das angenommene PDF.
-  const quotationDocShown = acceptance
-    ? docRows.find((d) => d.id === acceptance.quotationDocumentId) ?? null
-    : quotationDoc;
+  // Nach der Annahme zeigt das Portal das angenommene PDF; ohne gebundenes
+  // PDF (Altbestand) gilt die normale Regel weiter.
+  const quotationDocShown = angezeigtesKvDokument({
+    quotationDocumentId: acceptance?.quotationDocumentId ?? null,
+    angenommen: !!acceptance,
+    docRows,
+    aktuellesKv: quotationDoc ?? null,
+  });
 
   // Move timing
   const [timingRow] = await db
@@ -508,6 +518,11 @@ export interface ConfirmKvaContext {
   userAgent: string;
 }
 
+/** Bestätigung nachholen, wenn sie für eine neue Annahme noch fehlt. */
+function nachholenFuer(row: { id: string; widerrufModus: string | null; confirmationSentAt: Date | null; confirmationChannels: string | null }) {
+  return nachlaufNoetig(row) ? () => annahmeNachlauf(row.id, { mitTeamAlarm: false }) : null;
+}
+
 export async function confirmKvaForToken(
   token: string,
   body: ConfirmKvaPayload,
@@ -520,12 +535,7 @@ export async function confirmKvaForToken(
 
   // Doppelklick: keine zweite Zeile. Fehlt die Bestätigung, wird sie nachgeholt.
   const vorhanden = await ladeAktiveAnnahme(link.dealRecordId);
-  if (vorhanden) {
-    return {
-      ok: true,
-      nachlauf: vorhanden.confirmationSentAt ? null : () => annahmeNachlauf(vorhanden.id, { mitTeamAlarm: false }),
-    };
-  }
+  if (vorhanden) return { ok: true, nachlauf: nachholenFuer(vorhanden) };
 
   await ensureDefaultPackageSelection(link.dealRecordId);
   const kva = await loadKvaSnapshot(link.dealRecordId);
@@ -612,7 +622,9 @@ export async function confirmKvaForToken(
   } catch (err) {
     const code = err && typeof err === "object" && "code" in err ? String((err as { code: unknown }).code) : "";
     if (code === "23505" || /unique|duplicate/i.test(err instanceof Error ? err.message : String(err))) {
-      return { ok: true, nachlauf: null };
+      // Paralleler Klick hat gewonnen; dessen Versand ist beansprucht, sonst holen wir nach.
+      const gewinner = await ladeAktiveAnnahme(link.dealRecordId);
+      return { ok: true, nachlauf: gewinner ? nachholenFuer(gewinner) : null };
     }
     throw err;
   }

@@ -2,10 +2,18 @@
  * Rechtsregeln der KV-Annahme. Dialog (Client) und confirmKvaForToken (Server)
  * rufen dieselben Funktionen auf, damit beide nie auseinanderlaufen.
  */
-import { widerrufVerzichtRequired } from "./stage-derivation";
+import { daysUntilMove } from "./stage-derivation";
 import type { ConfirmKvaPayload } from "./types";
 
 export type ServiceArt = "move" | "kitchen_installation";
+
+/**
+ * Bis zu so vielen Tagen zwischen Vertragsschluss und Termin liegt der Beginn
+ * in der Widerrufsfrist. Die Frist endet mit Ablauf des 14. Tages (§§ 187,
+ * 188 BGB); fällt das Ende auf Wochenende oder Feiertag, verschiebt es sich
+ * (§ 193 BGB). 17 deckt Wochenende plus Feiertag ab; zu oft fragen schadet nicht.
+ */
+export const VORZEITIGER_BEGINN_TAGE = 17;
 export type WiderrufModus = "ausgeschlossen" | "belehrung";
 
 /** Umzug mit festem Termin: § 312g Abs. 2 S. 1 Nr. 9 BGB. Sonst Belehrung. */
@@ -35,10 +43,36 @@ export function annahmeRegeln(input: {
     serviceType: input.serviceType,
     widerrufModus: modus,
     haftungshinweisErforderlich: input.serviceType === "move",
-    vorzeitigerBeginnErforderlich:
-      modus === "belehrung" && widerrufVerzichtRequired(input.moveDate, input.now),
+    vorzeitigerBeginnErforderlich: modus === "belehrung" && beginntInWiderrufsfrist(input.moveDate, input.now),
     terminFehlt:
       input.hasOpenDateChoice || (input.serviceType === "move" && !input.moveDate),
+  };
+}
+
+function beginntInWiderrufsfrist(moveDate: string | null, now: Date): boolean {
+  const tage = daysUntilMove(moveDate, now);
+  return tage != null && tage >= 0 && tage <= VORZEITIGER_BEGINN_TAGE;
+}
+
+/**
+ * Body der Annahme-Route prüfen. Nur echtes `true` zählt als Häkchen; ein
+ * fehlender Preis (alter Browser-Stand) wird NaN und führt zu price_changed.
+ */
+export function parseConfirmKvaPayload(raw: unknown): ConfirmKvaPayload | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const b = raw as Record<string, unknown>;
+  const name = typeof b.fullName === "string" ? b.fullName.trim().slice(0, 200) : "";
+  return {
+    acceptedOffer: b.acceptedOffer === true,
+    acceptedAgb: b.acceptedAgb === true,
+    haftungshinweisBestaetigt: b.haftungshinweisBestaetigt === true,
+    versicherungGewuenscht: b.versicherungGewuenscht === true,
+    vorzeitigerBeginnVerlangt: b.vorzeitigerBeginnVerlangt === true,
+    expectedTotalCents:
+      typeof b.expectedTotalCents === "number" && Number.isFinite(b.expectedTotalCents)
+        ? b.expectedTotalCents
+        : Number.NaN,
+    fullName: name || null,
   };
 }
 

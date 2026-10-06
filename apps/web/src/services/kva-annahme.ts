@@ -4,12 +4,13 @@
  */
 import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { kvaConfirmations } from "@/db/schema/customer-portal";
 import { quotations } from "@/db/schema/quotations";
 import { dealDocuments } from "@/db/schema/financial";
 import { emitEvent } from "./activity-events";
+import { ladeAgbHtml } from "./agb";
 import type { AcceptanceRecord, WiderrufModus } from "@openclaw-crm/customer-portal-core";
 
 export type KvaConfirmationRow = typeof kvaConfirmations.$inferSelect;
@@ -23,14 +24,15 @@ export async function ladeAktiveAnnahme(dealRecordId: string): Promise<KvaConfir
   return row ?? null;
 }
 
-export async function hatAufgehobeneAnnahme(dealRecordId: string): Promise<boolean> {
+/** Zeitpunkt der letzten aufgehobenen Annahme, null wenn es keine gibt. */
+export async function ladeLetzteAufhebung(dealRecordId: string): Promise<Date | null> {
   const [row] = await db
-    .select({ id: kvaConfirmations.id })
+    .select({ supersededAt: kvaConfirmations.supersededAt })
     .from(kvaConfirmations)
-    .where(eq(kvaConfirmations.dealRecordId, dealRecordId))
-    .orderBy(desc(kvaConfirmations.signedAt))
+    .where(and(eq(kvaConfirmations.dealRecordId, dealRecordId), isNotNull(kvaConfirmations.supersededAt)))
+    .orderBy(desc(kvaConfirmations.supersededAt))
     .limit(1);
-  return !!row && !(await ladeAktiveAnnahme(dealRecordId));
+  return row?.supersededAt ?? null;
 }
 
 export class AngebotAngenommenError extends Error {
@@ -97,22 +99,10 @@ export function sha256Hex(data: string | Buffer): string {
   return createHash("sha256").update(data).digest("hex");
 }
 
-const AGB_BASE = () => process.env.CRM_TOOLS_API_URL ?? "https://crm-tools.kottke.info";
-
 /** AGB, wie sie der Kunde in diesem Moment abrufen kann. null = nicht abrufbar. */
 export async function ladeAgbFuerAnnahme(firmaSlug: string): Promise<{ text: string; sha256: string } | null> {
-  try {
-    const res = await fetch(`${AGB_BASE()}/legal/agb/${firmaSlug}`, {
-      signal: AbortSignal.timeout(5000),
-      next: { revalidate: 300 },
-    });
-    if (!res.ok) return null;
-    const text = await res.text();
-    if (text.length < 500) return null;
-    return { text, sha256: sha256Hex(text) };
-  } catch {
-    return null;
-  }
+  const text = await ladeAgbHtml(firmaSlug);
+  return text ? { text, sha256: sha256Hex(text) } : null;
 }
 
 /**
