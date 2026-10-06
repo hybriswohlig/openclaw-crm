@@ -25,7 +25,7 @@ const ANBIETER: Record<string, Anbieter> = {
     strasse: "Marktstr. 8",
     ort: "72218 Wildberg",
     telefon: "+49 175 9498475",
-    email: null,
+    email: "kontakt@kottke-umzuege.de",
   },
   ceylan: {
     firma: "Ceylan Umzüge & Transporte",

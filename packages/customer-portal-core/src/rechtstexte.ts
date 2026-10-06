@@ -34,7 +34,7 @@ export interface FirmaKontakt {
 }
 
 const KONTAKT: Record<string, FirmaKontakt> = {
-  kottke: { firma: "Kottke Dienstleistungen", inhaber: "Darioush Kottke", strasse: "Marktstr. 8", ort: "72218 Wildberg", telefon: "+49 175 9498475", email: null },
+  kottke: { firma: "Kottke Dienstleistungen", inhaber: "Darioush Kottke", strasse: "Marktstr. 8", ort: "72218 Wildberg", telefon: "+49 175 9498475", email: "kontakt@kottke-umzuege.de" },
   ceylan: { firma: "Ceylan Umzüge & Transporte", inhaber: "Nurullah Ceylan", strasse: "Kapellenberg 13", ort: "72218 Wildberg", telefon: null, email: "info@ceylan-operations.de" },
 };
 

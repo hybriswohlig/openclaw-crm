@@ -103,3 +103,9 @@ describe("rechtstexte", () => {
     expect(text).not.toMatch(/[—–]/);
   });
 });
+
+describe("firmaKontakt", () => {
+  it("Kottke hat eine E-Mail für Widerruf und Impressum (§ 5 DDG)", () => {
+    expect(firmaKontakt("kottke").email).toBe("kontakt@kottke-umzuege.de");
+  });
+});
