@@ -27,6 +27,7 @@ import { payments, dealDocuments } from "@/db/schema/financial";
 import { objects, attributes } from "@/db/schema/objects";
 import { recordValues } from "@/db/schema/records";
 import { berlinDateString } from "@/lib/berlin-date";
+import { aktivBedingung } from "./kva-annahme";
 
 export type LifecycleKey =
   | "erstkontakt"
@@ -144,7 +145,7 @@ export async function getDealStageSignals(
         )
       )
       .limit(1),
-    db.select({ id: kvaConfirmations.id }).from(kvaConfirmations).where(eq(kvaConfirmations.dealRecordId, dealRecordId)).limit(1),
+    db.select({ id: kvaConfirmations.id }).from(kvaConfirmations).where(aktivBedingung(dealRecordId)).limit(1),
   ]);
   return {
     offerSent: quote.length > 0 || link.length > 0 || ab.length > 0,
@@ -238,7 +239,7 @@ export async function getDealLifecycle(
   const [accept] = await db
     .select({ signedAt: kvaConfirmations.signedAt, confirmedTotalCents: kvaConfirmations.confirmedTotalCents })
     .from(kvaConfirmations)
-    .where(eq(kvaConfirmations.dealRecordId, dealRecordId))
+    .where(aktivBedingung(dealRecordId))
     .orderBy(asc(kvaConfirmations.signedAt))
     .limit(1);
   const acceptedAt = iso(accept?.signedAt ?? null);

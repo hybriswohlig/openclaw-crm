@@ -11,6 +11,7 @@ import {
   index,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { workspaces } from "./workspace";
 import { records } from "./records";
 import { employees } from "./employees";
@@ -202,10 +203,34 @@ export const kvaConfirmations = pgTable(
     /** Optional self-typed full name. Strengthens evidence. */
     acceptedFullName: text("accepted_full_name"),
     signedAt: timestamp("signed_at").notNull().defaultNow(),
+    /** Gesetzt, wenn ein Admin die Annahme aufhebt. Die Zeile bleibt als Nachweis. */
+    supersededAt: timestamp("superseded_at"),
+    supersededBy: text("superseded_by"),
+    supersededReason: text("superseded_reason"),
+    serviceType: text("service_type"),
+    /** "ausgeschlossen" | "belehrung"; NULL bei Annahmen vor 2026-10. */
+    widerrufModus: text("widerruf_modus"),
+    vorzeitigerBeginnVerlangt: boolean("vorzeitiger_beginn_verlangt").notNull().default(false),
+    haftungshinweisBestaetigt: boolean("haftungshinweis_bestaetigt").notNull().default(false),
+    versicherungGewuenscht: boolean("versicherung_gewuenscht").notNull().default(false),
+    selectedOptionId: text("selected_option_id"),
+    selectedOptionName: text("selected_option_name"),
+    /** YYYY-MM-DD, gebundener Termin. */
+    moveDate: text("move_date"),
+    fromAddress: text("from_address"),
+    toAddress: text("to_address"),
+    quotationDocumentId: text("quotation_document_id"),
+    quotationDocumentSha256: text("quotation_document_sha256"),
+    agbTextSha256: text("agb_text_sha256"),
+    agbText: text("agb_text"),
+    confirmationSentAt: timestamp("confirmation_sent_at"),
+    confirmationChannels: text("confirmation_channels"),
   },
   (table) => [
-    // One legal acceptance per deal — also race-safe under concurrent taps.
-    uniqueIndex("kva_confirmations_deal_uniq").on(table.dealRecordId),
+    // Eine aktive Annahme je Deal; aufgehobene bleiben daneben stehen.
+    uniqueIndex("kva_confirmations_deal_aktiv_uniq")
+      .on(table.dealRecordId)
+      .where(sql`superseded_at IS NULL`),
     index("kva_confirmations_link_idx").on(table.customerLinkId),
   ]
 );

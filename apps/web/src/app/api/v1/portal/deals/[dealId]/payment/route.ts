@@ -6,6 +6,7 @@ import { createPayment } from "@/services/financial";
 import { getEmployeePortalContextFromHeaders } from "@/lib/employee-portal-auth";
 import { unauthorized, badRequest, success } from "@/lib/api-utils";
 import { berlinDateString } from "@/lib/berlin-date";
+import { aktivBedingung } from "@/services/kva-annahme";
 
 const VALID_METHODS = ["cash", "bank_transfer", "paypal", "card", "other"];
 /** Hard ceiling for a single on-site collection (EUR). Prevents fat-finger / fraud. */
@@ -54,7 +55,7 @@ export async function POST(
   const [accept] = await db
     .select({ confirmedTotalCents: kvaConfirmations.confirmedTotalCents })
     .from(kvaConfirmations)
-    .where(eq(kvaConfirmations.dealRecordId, dealId))
+    .where(aktivBedingung(dealId))
     .limit(1);
   let quotedEur: number | null =
     accept?.confirmedTotalCents != null

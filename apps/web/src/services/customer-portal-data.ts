@@ -82,6 +82,7 @@ import { loadEffectiveBranding } from "./customer-portal-config";
 import { emitEvent } from "./activity-events";
 import { createTask } from "./tasks";
 import { sendKvaAcceptanceEmail } from "./customer-portal-emails";
+import { aktivBedingung, annahmeAusZeile, ladeAktiveAnnahme } from "./kva-annahme";
 
 // ─── Token / link lifecycle ────────────────────────────────────────────────────
 
@@ -496,7 +497,7 @@ export async function confirmKvaForToken(
   const [alreadyConfirmed] = await db
     .select({ id: kvaConfirmations.id })
     .from(kvaConfirmations)
-    .where(eq(kvaConfirmations.dealRecordId, link.dealRecordId))
+    .where(aktivBedingung(link.dealRecordId))
     .limit(1);
   if (alreadyConfirmed) return { ok: true };
 
@@ -1353,19 +1354,8 @@ async function loadCrew(dealRecordId: string): Promise<CrewMember[]> {
 async function loadLatestAcceptance(
   dealRecordId: string
 ): Promise<AcceptanceRecord | null> {
-  const [row] = await db
-    .select()
-    .from(kvaConfirmations)
-    .where(eq(kvaConfirmations.dealRecordId, dealRecordId))
-    .orderBy(desc(kvaConfirmations.signedAt))
-    .limit(1);
-  if (!row) return null;
-  return {
-    signedAt: row.signedAt.toISOString(),
-    acceptedFullName: row.acceptedFullName,
-    widerrufVerzichtAccepted: row.widerrufVerzichtAccepted,
-    agbVersionAccepted: row.agbVersionAccepted,
-  };
+  const row = await ladeAktiveAnnahme(dealRecordId);
+  return row ? annahmeAusZeile(row) : null;
 }
 
 /**
@@ -2080,7 +2070,7 @@ export async function selectDealPackageOptionForToken(
   const [acceptance] = await db
     .select({ id: kvaConfirmations.id })
     .from(kvaConfirmations)
-    .where(eq(kvaConfirmations.dealRecordId, link.dealRecordId))
+    .where(aktivBedingung(link.dealRecordId))
     .limit(1);
   if (acceptance) return { ok: false, reason: "already_accepted" };
 
@@ -2170,7 +2160,7 @@ export async function selectPackageForToken(
   const [acceptance] = await db
     .select({ id: kvaConfirmations.id })
     .from(kvaConfirmations)
-    .where(eq(kvaConfirmations.dealRecordId, link.dealRecordId))
+    .where(aktivBedingung(link.dealRecordId))
     .limit(1);
   if (acceptance) return { ok: false, reason: "already_accepted" };
 

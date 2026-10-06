@@ -23,6 +23,8 @@ export type ActivityEventType =
   | "deal.scope_changed_after_quote"
   | "deal.portal_photos_curated"
   | "customer.kva_confirmed"
+  | "customer.kva_confirmation_sent"
+  | "kva.annahme_aufgehoben"
   | "customer.marked_paid"
   | "customer.rated_crew"
   | "customer.date_offers_set"

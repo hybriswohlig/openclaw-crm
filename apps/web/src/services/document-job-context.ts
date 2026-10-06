@@ -13,6 +13,7 @@ import { kvaConfirmations } from "@/db/schema/customer-portal";
 import { dealDocuments } from "@/db/schema/financial";
 import { getQuotation } from "@/services/quotations";
 import type { QuotationDocumentDetails } from "@/db/schema/quotations";
+import { aktivBedingung } from "./kva-annahme";
 
 type ServiceType = "move" | "kitchen_installation";
 type InventoryOwner = "company" | "customer" | "none";
@@ -149,7 +150,7 @@ export async function attachDocumentJobContext(
     .where(
       and(
         eq(kvaConfirmations.workspaceId, workspaceId),
-        eq(kvaConfirmations.dealRecordId, dealRecordId)
+        aktivBedingung(dealRecordId)
       )
     )
     .limit(1);

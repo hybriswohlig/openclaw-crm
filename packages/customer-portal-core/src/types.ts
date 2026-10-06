@@ -1,3 +1,4 @@
+import type { WiderrufModus } from "./annahme-recht";
 /**
  * Portable types shared between the CRM's public API and the customer portal
  * UI. Keep these stable — they form the public contract.
@@ -311,8 +312,17 @@ export interface PaymentInstructions {
 export interface AcceptanceRecord {
   signedAt: string;
   acceptedFullName: string | null;
-  widerrufVerzichtAccepted: boolean;
   agbVersionAccepted: string;
+  /** Angenommener Preis. Das Portal zeigt diesen Wert, nicht den aktuellen. */
+  confirmedTotalCents: number;
+  selectedOptionName: string | null;
+  /** null bei Annahmen vor 2026-10 (Altbestand). */
+  widerrufModus: WiderrufModus | null;
+  vorzeitigerBeginnVerlangt: boolean;
+  /** Altbestand: früheres Verzichts-Häkchen. */
+  widerrufVerzichtAccepted: boolean;
+  /** Gebundenes KV-PDF; das Portal zeigt nach der Annahme genau dieses. */
+  quotationDocumentId: string | null;
 }
 
 /**

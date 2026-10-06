@@ -28,6 +28,7 @@ import { createNotification } from "./notifications";
 import { listMembers } from "./workspace";
 import { sendPush } from "./push";
 import { createTask } from "./tasks";
+import { aktivBedingung } from "./kva-annahme";
 
 export type CommitmentTier = "link_issued" | "kva_accepted";
 
@@ -220,7 +221,7 @@ export async function getCommitmentTier(dealRecordId: string): Promise<Commitmen
     const [kva] = await db
       .select({ id: kvaConfirmations.id })
       .from(kvaConfirmations)
-      .where(eq(kvaConfirmations.dealRecordId, dealRecordId))
+      .where(aktivBedingung(dealRecordId))
       .limit(1);
     return kva ? "kva_accepted" : "link_issued";
   } catch {
