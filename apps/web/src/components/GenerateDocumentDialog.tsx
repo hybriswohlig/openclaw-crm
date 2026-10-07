@@ -79,6 +79,11 @@ interface Props {
   documentType: DocumentType;
   deal: DealData;
   prefill?: PrefilledPreise;
+  /** Nicht blockierende Hinweise aus der Vorprüfung (Umzugsgut, Preis). */
+  hinweise?: Array<{ art: "umzugsgut" | "preis"; text: string }>;
+  /** Sprungziele, die es in der aufrufenden Ansicht gibt. */
+  ziele?: Array<"umzugsgut" | "preis">;
+  onZiel?: (ziel: "umzugsgut" | "preis") => void;
 }
 
 export function GenerateDocumentDialog({
@@ -87,6 +92,9 @@ export function GenerateDocumentDialog({
   documentType,
   deal,
   prefill,
+  hinweise = [],
+  ziele = [],
+  onZiel,
 }: Props) {
   const isKottke = deal.firma === "kottke";
   const [modell, setModell] = useState<Preismodell>(
@@ -341,6 +349,28 @@ export function GenerateDocumentDialog({
             ✕
           </button>
         </div>
+
+        {hinweise.length > 0 && (
+          <div className="mb-4 space-y-2">
+            {hinweise.map((h) => (
+              <div
+                key={h.art}
+                className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:bg-amber-950/30 dark:text-amber-100"
+              >
+                {h.text}
+                {onZiel && ziele.includes(h.art) && (
+                  <button
+                    type="button"
+                    onClick={() => onZiel(h.art)}
+                    className="ml-1 font-medium underline underline-offset-2"
+                  >
+                    {h.art === "umzugsgut" ? "Umzugsgut öffnen" : "Kalkulation öffnen"}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
 
         <div className="space-y-4">
           {documentType !== "RE" && (

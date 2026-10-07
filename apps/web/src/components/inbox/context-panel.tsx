@@ -42,9 +42,10 @@ import { StatusLinkWizard } from "@/components/inbox/status-link-wizard";
 import { renderSnippet } from "@/components/inbox/customer-link-composer";
 import {
   buildDealDataForDocs,
-  missingDocFields,
   type LeadContext,
 } from "@/lib/deal-doc-data";
+import { KvVorpruefungDialog } from "@/components/kv-vorpruefung-dialog";
+import { kvVorpruefung, type HinweisArt, type KvHinweisDaten } from "@/lib/kv-vorpruefung";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -284,14 +285,15 @@ export function InboxContextPanel({
     type: DocumentType;
     deal: DealData;
     prefill?: PrefilledPreise;
+    hinweise: Array<{ art: HinweisArt; text: string }>;
   } | null>(null);
 
   // AB/RE missing-data flow
   const [docFlowLoading, setDocFlowLoading] = useState<DocumentType | null>(null);
   const [missingDialog, setMissingDialog] = useState<{
     type: DocumentType;
-    missing: string[];
     leadContext: LeadContext | null;
+    daten: KvHinweisDaten | null;
   } | null>(null);
 
   // KI-Analyse mini flow (runs via the global background job center)
@@ -441,23 +443,36 @@ export function InboxContextPanel({
     setDocFlowLoading(type);
     setAnalyzeError(null);
     try {
-      const res = await fetch(`/api/v1/deals/${dealRecordId}/auftrag`);
-      const j = res.ok
-        ? ((await res.json()) as { data?: { leadContext?: LeadContext | null } })
-        : null;
-      const leadContext = j?.data?.leadContext ?? null;
-      const missing = missingDocFields(leadContext, !!quotation, type);
-      if (missing.length > 0) {
-        setMissingDialog({ type, missing, leadContext });
-        return;
-      }
-      openDocDialog(type, leadContext);
+      const { leadContext, daten } = await ladeAuftragsdaten();
+      pruefenUndOeffnen(type, leadContext, daten);
     } finally {
       setDocFlowLoading(null);
     }
   }
 
-  function openDocDialog(type: DocumentType, leadContext: LeadContext | null) {
+  async function ladeAuftragsdaten(): Promise<{ leadContext: LeadContext | null; daten: KvHinweisDaten | null }> {
+    const res = await fetch(`/api/v1/deals/${dealRecordId}/auftrag`);
+    const j = res.ok
+      ? ((await res.json()) as { data?: { leadContext?: LeadContext | null; kvHinweise?: KvHinweisDaten | null } })
+      : null;
+    return { leadContext: j?.data?.leadContext ?? null, daten: j?.data?.kvHinweise ?? null };
+  }
+
+  /** Fehlt eine Pflichtangabe, erst das Fenster zum Nachtragen, sonst direkt der Dialog. */
+  function pruefenUndOeffnen(type: DocumentType, leadContext: LeadContext | null, daten: KvHinweisDaten | null) {
+    const pruefung = kvVorpruefung({ ctx: leadContext, daten, documentType: type });
+    if (!pruefung.bereit) {
+      setMissingDialog({ type, leadContext, daten });
+      return;
+    }
+    openDocDialog(type, leadContext, pruefung.hinweise);
+  }
+
+  function openDocDialog(
+    type: DocumentType,
+    leadContext: LeadContext | null,
+    hinweise: Array<{ art: HinweisArt; text: string }> = []
+  ) {
     if (!dealRecordId) return;
     const deal =
       (leadContext ? buildDealDataForDocs(dealRecordId, leadContext) : null) ??
@@ -465,7 +480,20 @@ export function InboxContextPanel({
     if (!deal) return;
     setMissingDialog(null);
     setSuggestions(null);
-    setDocDialog({ type, deal, prefill: prefillFromQuotation(quotation, firma) });
+    setDocDialog({ type, deal, prefill: prefillFromQuotation(quotation, firma), hinweise });
+  }
+
+  /** Sprung aus dem Fenster oder Dialog zum passenden Abschnitt im Panel. */
+  const cockpitSichtbar =
+    !(lifecycle?.milestones.find((m) => m.key === "bezahlt")?.done ?? false) && stage !== "verloren";
+  const kvZiele: HinweisArt[] = cockpitSichtbar ? ["umzugsgut", "preis"] : ["umzugsgut"];
+  function springeZu(ziel: HinweisArt) {
+    setMissingDialog(null);
+    setDocDialog(null);
+    const id = ziel === "umzugsgut" ? "kv-ziel-umzugsgut" : "kv-ziel-kalkulation";
+    requestAnimationFrame(() =>
+      document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" })
+    );
   }
 
   /** KI-Analyse: runs as a global background job, so the user can answer
@@ -544,12 +572,9 @@ export function InboxContextPanel({
           fingerprint: suggestions.fingerprint,
         }),
       });
-      // Re-fetch lead context and continue into the document dialog.
-      const res = await fetch(`/api/v1/deals/${dealRecordId}/auftrag`);
-      const j = res.ok
-        ? ((await res.json()) as { data?: { leadContext?: LeadContext | null } })
-        : null;
-      openDocDialog(suggestions.type, j?.data?.leadContext ?? null);
+      // Re-fetch lead context; still missing → back to the form, else the dialog.
+      const { leadContext, daten } = await ladeAuftragsdaten();
+      pruefenUndOeffnen(suggestions.type, leadContext, daten);
     } finally {
       setApplying(false);
     }
@@ -628,7 +653,7 @@ export function InboxContextPanel({
                   Rechner im Inbox-Kontext keinen Zweck mehr. ── */}
               {!(lifecycle?.milestones.find((m) => m.key === "bezahlt")?.done ?? false) &&
                 stage !== "verloren" && (
-                  <Section title="Angebot & Route">
+                  <Section title="Angebot & Route" id="kv-ziel-kalkulation">
                     <QuoteCockpit
                       dealRecordId={dealRecordId}
                       quotation={quotation}
@@ -639,7 +664,7 @@ export function InboxContextPanel({
 
               {/* ── Inventar (AI-Umzugsanalyse) — auch nach Zahlung sichtbar,
                   Phase 3 (Auftragsanweisung) braucht die Liste weiterhin. ── */}
-              <Section title="Inventar">
+              <Section title="Inventar" id="kv-ziel-umzugsgut">
                 <InventorySection dealRecordId={dealRecordId} onInsert={onInsert} />
               </Section>
 
@@ -907,64 +932,33 @@ export function InboxContextPanel({
         />
       )}
 
-      {/* ── Missing-data prompt ── */}
-      {missingDialog && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-xl border border-border bg-background p-5 shadow-xl">
-            <h3 className="text-sm font-semibold">
-              Es fehlen noch Angaben für die{" "}
-              {missingDialog.type === "KV"
-                ? "Kostenvoranschlag"
-                : missingDialog.type === "AB"
-                  ? "Auftragsbestätigung"
-                  : "Rechnung"}
-            </h3>
-            <ul className="mt-3 space-y-1.5">
-              {missingDialog.missing.map((m) => (
-                <li key={m} className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
-                  {m}
-                </li>
-              ))}
-            </ul>
-            {analyzeError && (
-              <p className="mt-3 rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                {analyzeError}
-              </p>
-            )}
-            <div className="mt-5 space-y-2">
-              <button
-                onClick={() => void runAnalyze(missingDialog.type)}
-                disabled={analyzing}
-                className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-foreground text-sm font-medium text-background hover:opacity-90 disabled:opacity-50"
-              >
-                {analyzing ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Sparkles className="h-4 w-4" />
-                )}
-                {analyzing ? "Analysiere Chat…" : "KI-Analyse aus Chat starten"}
-              </button>
-              <button
-                onClick={() =>
-                  openDocDialog(missingDialog.type, missingDialog.leadContext)
-                }
-                className="inline-flex h-9 w-full items-center justify-center rounded-md border border-border text-sm font-medium hover:bg-accent"
-              >
-                Trotzdem manuell fortfahren
-              </button>
-              <button
-                onClick={() => {
-                  setMissingDialog(null);
-                  setAnalyzeError(null);
-                }}
-                className="inline-flex h-9 w-full items-center justify-center rounded-md text-sm text-muted-foreground hover:bg-muted"
-              >
-                Abbrechen
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* ── Fehlende Angaben direkt nachtragen ── */}
+      {missingDialog && dealRecordId && (
+        <KvVorpruefungDialog
+          documentType={missingDialog.type}
+          dealRecordId={dealRecordId}
+          leadContext={missingDialog.leadContext}
+          hinweisDaten={missingDialog.daten}
+          ziele={kvZiele}
+          onZiel={springeZu}
+          onWeiter={(ctx, daten) => pruefenUndOeffnen(missingDialog.type, ctx, daten)}
+          onAbbrechen={() => {
+            setMissingDialog(null);
+            setAnalyzeError(null);
+          }}
+        >
+          {analyzeError && (
+            <p className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">{analyzeError}</p>
+          )}
+          <button
+            onClick={() => void runAnalyze(missingDialog.type)}
+            disabled={analyzing}
+            className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-border text-sm font-medium hover:bg-accent disabled:opacity-50"
+          >
+            {analyzing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+            {analyzing ? "Analysiere Chat…" : "Stattdessen KI-Analyse aus Chat"}
+          </button>
+        </KvVorpruefungDialog>
       )}
 
       {/* ── KI-Analyse suggestions approval ── */}
@@ -1045,6 +1039,9 @@ export function InboxContextPanel({
           documentType={docDialog.type}
           deal={docDialog.deal}
           prefill={docDialog.prefill}
+          hinweise={docDialog.hinweise}
+          ziele={kvZiele}
+          onZiel={springeZu}
           onClose={() => {
             setDocDialog(null);
             void refresh();
@@ -1057,9 +1054,9 @@ export function InboxContextPanel({
 
 // ─── Small pieces ────────────────────────────────────────────────────────────
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, id, children }: { title: string; id?: string; children: React.ReactNode }) {
   return (
-    <div className="border-b border-border/60">
+    <div id={id} className="scroll-mt-2 border-b border-border/60">
       <div className="px-4 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
         {title}
       </div>

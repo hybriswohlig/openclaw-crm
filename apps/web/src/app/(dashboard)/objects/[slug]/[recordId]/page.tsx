@@ -164,6 +164,16 @@ export default function RecordDetailPage() {
   const { slug, recordId } = params;
 
   const [object, setObject] = useState<ObjectData | null>(null);
+  // Gesteuerte Tabs, damit z. B. das KV-Fenster in den Angebot-Tab springen kann.
+  const [aktiverTab, setAktiverTab] = useState("attributes");
+  useEffect(() => {
+    const wechsel = (e: Event) => {
+      const ziel = (e as CustomEvent<string>).detail;
+      if (typeof ziel === "string") setAktiverTab(ziel);
+    };
+    window.addEventListener("deal-tab", wechsel);
+    return () => window.removeEventListener("deal-tab", wechsel);
+  }, []);
   const [record, setRecord] = useState<RecordData | null>(null);
   const [related, setRelated] = useState<{ related: any[]; forward: any[] }>({
     related: [],
@@ -568,7 +578,7 @@ export default function RecordDetailPage() {
 
         {/* Tabs */}
         <div className="px-6 py-4">
-          <Tabs defaultValue="attributes">
+          <Tabs value={aktiverTab} onValueChange={setAktiverTab}>
             <TabsList>
               <TabsTrigger value="attributes">Attribute</TabsTrigger>
               <TabsTrigger value="notes">Notizen</TabsTrigger>

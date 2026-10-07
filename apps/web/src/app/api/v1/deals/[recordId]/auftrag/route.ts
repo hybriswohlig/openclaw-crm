@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { and, desc, eq } from "drizzle-orm";
+import { and, count, desc, eq } from "drizzle-orm";
 import { getAuthContext, success, unauthorized } from "@/lib/api-utils";
 import { db } from "@/db";
 import { objects, attributes } from "@/db/schema/objects";
@@ -7,6 +7,11 @@ import { records, recordValues } from "@/db/schema/records";
 import { activityEvents } from "@/db/schema/activity";
 import { createRecord, getRecord } from "@/services/records";
 import { DEFAULT_AUFTRAG_CHECKLIST } from "@openclaw-crm/shared";
+import { dealInventoryItems } from "@/db/schema/inventory";
+import { inboxConversations } from "@/db/schema/inbox";
+import { getQuotation } from "@/services/quotations";
+import { offeneFotoStapel } from "@/services/inventar-fotos";
+import type { KvHinweisDaten } from "@/lib/kv-vorpruefung";
 
 export const dynamic = "force-dynamic";
 
@@ -119,10 +124,12 @@ export async function GET(
   // worker on-site. We surface them read-only on the Auftragsübersicht so the
   // worker sees everything in one view without hopping to the Attributes tab.
   const leadContext = await loadLeadContext(ctx.workspaceId, dealRecordId);
+  const kvHinweise = await loadKvHinweise(ctx.workspaceId, dealRecordId);
 
   return success({
     auftrag,
     leadContext,
+    kvHinweise,
     criticalMissing: Array.isArray(insightPayload.criticalMissing)
       ? insightPayload.criticalMissing
       : [],
@@ -316,5 +323,45 @@ async function loadPrimaryPersonName(personRecordId: string | null): Promise<{
     fullName: text,
     vorname: parts.length > 1 ? parts.slice(0, -1).join(" ") : null,
     nachname: parts.length > 0 ? parts[parts.length - 1] : null,
+  };
+}
+
+/**
+ * Daten für die Hinweise im Fenster „Es fehlen noch Angaben“ (KV): Umzugsgut,
+ * laufende Foto-Auswertung, Angebot und ob der Preis nur ein Festpreis ist.
+ */
+async function loadKvHinweise(workspaceId: string, dealRecordId: string): Promise<KvHinweisDaten> {
+  const [inv] = await db
+    .select({ n: count() })
+    .from(dealInventoryItems)
+    .where(
+      and(
+        eq(dealInventoryItems.workspaceId, workspaceId),
+        eq(dealInventoryItems.dealRecordId, dealRecordId),
+        eq(dealInventoryItems.moveFlag, true)
+      )
+    );
+  const q = await getQuotation(dealRecordId);
+  // Gleiche Regel wie preiseFromQuotation: ohne bepreiste Posten wird der
+  // Festpreis zu einer einzigen Zeile „Pauschale“.
+  const bepreistePosten = q?.lineItems.filter((li) => Number(li.unitRate) > 0).length ?? 0;
+  const stundenModell =
+    !!q?.isVariable &&
+    q.lineItems.some((li) => li.type === "helper") &&
+    q.lineItems.some((li) => li.type === "transporter");
+  const festpreisCents =
+    q && q.fixedPrice && bepreistePosten === 0 && !stundenModell ? Math.round(Number(q.fixedPrice) * 100) : null;
+  const [conv] = await db
+    .select({ id: inboxConversations.id })
+    .from(inboxConversations)
+    .where(and(eq(inboxConversations.workspaceId, workspaceId), eq(inboxConversations.dealRecordId, dealRecordId)))
+    .orderBy(desc(inboxConversations.lastMessageAt))
+    .limit(1);
+  return {
+    umzugsgutAnzahl: Number(inv?.n ?? 0),
+    fotoStapelOffen: await offeneFotoStapel(dealRecordId).catch(() => 0),
+    hatAngebot: !!q,
+    festpreisCents,
+    conversationId: conv?.id ?? null,
   };
 }

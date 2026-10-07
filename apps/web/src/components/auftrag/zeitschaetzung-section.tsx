@@ -33,6 +33,9 @@ import {
   AddressAutocomplete,
   type LocationValue,
 } from "@/components/maps/AddressAutocomplete";
+import { KvVorpruefungDialog } from "@/components/kv-vorpruefung-dialog";
+import { buildDealDataForDocs, type LeadContext } from "@/lib/deal-doc-data";
+import { kvVorpruefung, type HinweisArt, type KvHinweisDaten } from "@/lib/kv-vorpruefung";
 
 interface DriveLeg {
   fromLabel: string;
@@ -158,7 +161,59 @@ export function ZeitschaetzungSection({
   const [manualLoadUnload, setManualLoadUnload] = useState(false);
   const [manualLoadUnloadMin, setManualLoadUnloadMin] = useState(60);
 
-  const [dialogType, setDialogType] = useState<DocumentType | null>(null);
+  const [docDialog, setDocDialog] = useState<{
+    type: DocumentType;
+    deal: DealData;
+    hinweise: Array<{ art: HinweisArt; text: string }>;
+    ziele: HinweisArt[];
+    daten: KvHinweisDaten | null;
+  } | null>(null);
+  const [vorpruefung, setVorpruefung] = useState<{
+    type: DocumentType;
+    leadContext: LeadContext | null;
+    daten: KvHinweisDaten | null;
+  } | null>(null);
+  const [docStart, setDocStart] = useState<DocumentType | null>(null);
+
+  /** Sprungziele auf der Deal-Seite: Angebot-Tab, Umzugsgut im Posteingang. */
+  function zieleFuer(daten: KvHinweisDaten | null): HinweisArt[] {
+    return daten?.conversationId ? ["preis", "umzugsgut"] : ["preis"];
+  }
+  function springeZu(ziel: HinweisArt, daten: KvHinweisDaten | null) {
+    setVorpruefung(null);
+    setDocDialog(null);
+    if (ziel === "preis") {
+      window.dispatchEvent(new CustomEvent("deal-tab", { detail: "quotation" }));
+    } else if (daten?.conversationId) {
+      window.location.href = `/inbox?conv=${daten.conversationId}`;
+    }
+  }
+
+  function pruefenUndOeffnen(type: DocumentType, leadContext: LeadContext | null, daten: KvHinweisDaten | null) {
+    const pruefung = kvVorpruefung({ ctx: leadContext, daten, documentType: type });
+    const deal = (leadContext ? buildDealDataForDocs(recordId, leadContext) : null) ?? dealData;
+    if (!pruefung.bereit || !deal) {
+      setVorpruefung({ type, leadContext, daten });
+      return;
+    }
+    setVorpruefung(null);
+    setDocDialog({ type, deal, hinweise: pruefung.hinweise, ziele: zieleFuer(daten), daten });
+  }
+
+  /** Klick auf „In KV/AB/RE übernehmen“: erst prüfen, dann Fenster oder Dialog. */
+  async function startDokument(type: DocumentType) {
+    if (docStart) return;
+    setDocStart(type);
+    try {
+      const res = await fetch(`/api/v1/deals/${recordId}/auftrag`);
+      const j = res.ok
+        ? ((await res.json()) as { data?: { leadContext?: LeadContext | null; kvHinweise?: KvHinweisDaten | null } })
+        : null;
+      pruefenUndOeffnen(type, j?.data?.leadContext ?? null, j?.data?.kvHinweise ?? null);
+    } finally {
+      setDocStart(null);
+    }
+  }
 
   // Re-seed sliders whenever a fresh estimate lands. Auto-derive starting
   // stunden from total minutes: round up to next half hour. When trip count
@@ -648,47 +703,54 @@ export function ZeitschaetzungSection({
             </div>
           </div>
 
-          {/* ── Übernehmen-Buttons ───────────────────────── */}
-          {dealData && (
-            <div className="flex flex-wrap gap-2">
+          {/* ── Übernehmen-Buttons: fehlende Angaben trägt das Fenster nach ── */}
+          <div className="flex flex-wrap gap-2">
+            {(["KV", "AB", "RE"] as const).map((typ) => (
               <button
+                key={typ}
                 type="button"
-                onClick={() => setDialogType("KV")}
-                className="rounded border bg-white px-3 py-1.5 text-sm hover:bg-gray-50 dark:bg-gray-900 dark:hover:bg-gray-800"
+                disabled={!!docStart}
+                onClick={() => void startDokument(typ)}
+                className="inline-flex items-center gap-1.5 rounded border bg-white px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-60 dark:bg-gray-900 dark:hover:bg-gray-800"
               >
-                In Kostenvoranschlag übernehmen
+                {docStart === typ && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                {typ === "KV"
+                  ? "In Kostenvoranschlag übernehmen"
+                  : typ === "AB"
+                    ? "In Auftragsbestätigung übernehmen"
+                    : "In Rechnung übernehmen"}
               </button>
-              <button
-                type="button"
-                onClick={() => setDialogType("AB")}
-                className="rounded border bg-white px-3 py-1.5 text-sm hover:bg-gray-50 dark:bg-gray-900 dark:hover:bg-gray-800"
-              >
-                In Auftragsbestätigung übernehmen
-              </button>
-              <button
-                type="button"
-                onClick={() => setDialogType("RE")}
-                className="rounded border bg-white px-3 py-1.5 text-sm hover:bg-gray-50 dark:bg-gray-900 dark:hover:bg-gray-800"
-              >
-                In Rechnung übernehmen
-              </button>
-            </div>
-          )}
-          {!dealData && (
-            <p className="text-[11px] text-muted-foreground">
-              Setze <strong>ausführende Firma</strong> und <strong>Kundenname</strong> am Lead, um in eine AB/RE zu übernehmen.
-            </p>
-          )}
+            ))}
+          </div>
         </>
       )}
 
-      {dealData && dialogType && (
+      {vorpruefung && (
+        <KvVorpruefungDialog
+          documentType={vorpruefung.type}
+          dealRecordId={recordId}
+          leadContext={vorpruefung.leadContext}
+          hinweisDaten={vorpruefung.daten}
+          ziele={zieleFuer(vorpruefung.daten)}
+          onZiel={(ziel) => springeZu(ziel, vorpruefung.daten)}
+          onWeiter={(ctx, daten) => {
+            onLeadUpdated?.();
+            pruefenUndOeffnen(vorpruefung.type, ctx, daten);
+          }}
+          onAbbrechen={() => setVorpruefung(null)}
+        />
+      )}
+
+      {docDialog && (
         <GenerateDocumentDialog
           open
-          documentType={dialogType}
-          deal={dealData}
+          documentType={docDialog.type}
+          deal={docDialog.deal}
           prefill={buildPrefill()}
-          onClose={() => setDialogType(null)}
+          hinweise={docDialog.hinweise}
+          ziele={docDialog.ziele}
+          onZiel={(ziel) => springeZu(ziel, docDialog.daten)}
+          onClose={() => setDocDialog(null)}
         />
       )}
     </section>
