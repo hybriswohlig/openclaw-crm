@@ -40,9 +40,10 @@ export function MobileTopBar({ onMenuClick }: { onMenuClick?: () => void }) {
 
   return (
     <header
-      className="md:hidden"
+      // Wie die Tab-Leiste: Klasse statt Inline-display, sonst überstimmt
+      // der Inline-Style md:hidden und die Leiste erscheint am Desktop.
+      className="flex md:hidden"
       style={{
-        display: "flex",
         alignItems: "center",
         gap: 6,
         padding: "12px 10px 8px",
