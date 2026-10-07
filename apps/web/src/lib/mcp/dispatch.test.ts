@@ -139,6 +139,24 @@ describe("crm_generate_document", () => {
   });
 });
 
+describe("crm_store_document_job", () => {
+  it("forwards an explicit invoice due date", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_store_document_job", {
+      recordId: "deal-1",
+      jobId: "job-1",
+      dueDate: "2026-10-13",
+    });
+
+    expect(calls[0].path).toBe("/api/tools/jobs/job-1/store-as-document");
+    expect(calls[0].options.body).toEqual({
+      dealRecordId: "deal-1",
+      dueDate: "2026-10-13",
+    });
+  });
+});
+
 /**
  * Base64 of a payload that really starts with the JPEG magic number.
  *

@@ -574,6 +574,7 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
             ...(args.documentType !== undefined
               ? { documentType: args.documentType }
               : {}),
+            ...(args.dueDate !== undefined ? { dueDate: args.dueDate } : {}),
           },
         }
       );

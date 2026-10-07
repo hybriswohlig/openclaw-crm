@@ -122,6 +122,24 @@ export interface QuotationDocumentDetails {
   depositDue?: string;
   validUntil?: string;
   reference?: string;
+  /** Service title / document subtitle. Overrides household-move boilerplate. */
+  leistungstitel?: string;
+  /** Line-item body. Printed in full. */
+  leistungsbeschreibung?: string;
+  /** Salutation override, e.g. "Sehr geehrte Damen und Herren". */
+  anrede?: string;
+  /** Contact printed as "z. Hd. …". */
+  ansprechpartner?: string;
+  /** Free payment-block text. Replaces the block built from the payment method. */
+  paymentTerms?: string;
+  /** ISO date or TT.MM.JJJJ. Invoice due date. */
+  faelligkeitsdatum?: string;
+  dueDate?: string;
+  /** Shown in parentheses after the due date, e.g. "vor Einsatz". */
+  faelligkeitshinweis?: string;
+  invoiceKind?: "deposit" | "final";
+  invoice_kind?: "deposit" | "final";
+  zahlungsbedingungen?: string;
 }
 
 /** Annahmen, auf denen der Angebotspreis beruht (siehe quotations-Spalte). */
