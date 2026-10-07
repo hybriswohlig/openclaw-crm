@@ -31,6 +31,7 @@ import {
 } from "./scope-guard";
 import type { DealInsights } from "./deal-insights";
 import { kalkulationAnstossen } from "@/services/rechner/ausloeser";
+import { addressStringToLocationValue } from "@/lib/adresse";
 
 export interface ApplyInsightsInput {
   workspaceId: string;
@@ -183,31 +184,6 @@ function toSafeTimestamp(raw: unknown): string | null {
   const s = raw.trim();
   if (!s) return null;
   return isNaN(new Date(s).getTime()) ? null : s;
-}
-
-/**
- * Parse a freeform German address ("Straße Nr, PLZ Ort") into the canonical
- * location shape { line1, postcode, city }. Falls back to line1-only when the
- * format is not recognized, so downstream consumers (depot PLZ-auto-pick, CSV
- * export) get structured city/postcode when available.
- */
-function addressStringToLocationValue(text: string): Record<string, unknown> {
-  const raw = text.trim();
-  const result: Record<string, unknown> = { line1: raw };
-  const parts = raw.split(",").map((p) => p.trim()).filter(Boolean);
-  if (parts.length >= 2) {
-    result.line1 = parts[0];
-    for (let i = 1; i < parts.length; i++) {
-      const m = parts[i].match(/\b(\d{5})\b\s*(.*)/);
-      if (m) {
-        result.postcode = m[1];
-        if (m[2]?.trim()) result.city = m[2].trim();
-        break;
-      }
-    }
-    if (!result.postcode && !result.city) result.city = parts[1];
-  }
-  return result;
 }
 
 /**

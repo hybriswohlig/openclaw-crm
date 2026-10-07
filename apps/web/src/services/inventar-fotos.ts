@@ -78,6 +78,46 @@ export function planeLauf(input: {
   };
 }
 
+/** Offene Stapel eines Deals (für den Hinweis im KV-Fenster). */
+export function zaehleOffeneStapel(input: {
+  offen: OffenerStapel[];
+  spaeter: SpaeteresEreignis[];
+  dealRecordId: string;
+}): number {
+  const erledigt = new Set<number>();
+  const versuche = new Map<number, number>();
+  for (const e of input.spaeter) {
+    const bezug = (e.payload as { bezug?: number }).bezug;
+    if (typeof bezug !== "number") continue;
+    if (e.eventType === "fotos_erledigt" || e.eventType === "fotos_aufgegeben") erledigt.add(bezug);
+    else if (e.eventType === "fotos_versuch") versuche.set(bezug, (versuche.get(bezug) ?? 0) + 1);
+  }
+  return input.offen.filter(
+    (o) => o.dealRecordId === input.dealRecordId && !erledigt.has(o.id) && (versuche.get(o.id) ?? 0) < MAX_VERSUCHE
+  ).length;
+}
+
+/** Offene Foto-Stapel eines Deals aus der Datenbank (24-Stunden-Fenster). */
+export async function offeneFotoStapel(dealRecordId: string, jetzt = new Date()): Promise<number> {
+  const seit = new Date(jetzt.getTime() - FENSTER_MS);
+  const offen = await db
+    .select({ id: agentEvents.id, workspaceId: agentEvents.workspaceId, dealRecordId: agentEvents.dealRecordId, payload: agentEvents.payload })
+    .from(agentEvents)
+    .where(and(eq(agentEvents.dealRecordId, dealRecordId), eq(agentEvents.eventType, "fotos_offen"), gt(agentEvents.createdAt, seit)));
+  if (offen.length === 0) return 0;
+  const spaeter = await db
+    .select({ eventType: agentEvents.eventType, payload: agentEvents.payload })
+    .from(agentEvents)
+    .where(
+      and(
+        eq(agentEvents.dealRecordId, dealRecordId),
+        inArray(agentEvents.eventType, ["fotos_versuch", "fotos_erledigt", "fotos_aufgegeben"]),
+        gt(agentEvents.createdAt, seit)
+      )
+    );
+  return zaehleOffeneStapel({ offen, spaeter, dealRecordId });
+}
+
 export function alarmText(input: { bezeichnung: string; fotos: number; fehler: string | null }): string {
   return [
     `Fotos zu ${input.bezeichnung} (${input.fotos} Fotos) konnten nach ${MAX_VERSUCHE} Versuchen nicht ausgewertet werden${input.fehler ? ` (${input.fehler})` : ""}.`,

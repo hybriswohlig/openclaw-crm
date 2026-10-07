@@ -66,3 +66,15 @@ describe("alarmText", () => {
     expect(t).not.toMatch(/[—–]/);
   });
 });
+
+describe("zaehleOffeneStapel", () => {
+  it("zählt nur Stapel des Deals, die weder erledigt noch aufgegeben sind", async () => {
+    const { zaehleOffeneStapel } = await import("./inventar-fotos");
+    const n = zaehleOffeneStapel({
+      offen: [offen(1, 2, "d1"), offen(2, 2, "d1"), offen(3, 2, "d1"), offen(4, 2, "d2")],
+      spaeter: [ev("fotos_erledigt", 1), ev("fotos_versuch", 2), ev("fotos_versuch", 2), ev("fotos_aufgegeben", 2)],
+      dealRecordId: "d1",
+    });
+    expect(n).toBe(1);
+  });
+});
