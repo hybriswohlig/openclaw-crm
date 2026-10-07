@@ -15,9 +15,13 @@ function getDrizzle(): DrizzleDb {
     if (!connectionString) {
       throw new Error("DATABASE_URL is missing or empty");
     }
-    sql = postgres(connectionString, {
-      ssl: process.env.NODE_ENV === "production" ? "require" : undefined,
-    });
+    // Only set `ssl` in production: an explicit `ssl: undefined` makes
+    // postgres.js ignore `sslmode=require` in the URL, so local dev against
+    // Neon fails with "connection is insecure".
+    sql = postgres(
+      connectionString,
+      process.env.NODE_ENV === "production" ? { ssl: "require" } : {},
+    );
     instance = drizzle(sql, { schema });
   }
   return instance;
