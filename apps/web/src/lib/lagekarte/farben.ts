@@ -99,12 +99,14 @@ export interface BrettFarben {
 
 export const BRETT_FARBEN: Record<Thema, BrettFarben> = {
   hell: {
-    hintergrund: "#efe8dc",
-    ausserhalb: "#e6ddcd",
-    kreis: "#f7f2ea",
-    kreisAktiv: "#fbf6ec",
-    kreisKante: "#cbbda5",
-    kreisLinie: "#c9bca6",
+    hintergrund: "#e7dfd0",
+    ausserhalb: "#e1d7c5",
+    // Inaktive Kreise sandig, aktive Kreise "beleuchtet" (deutlich heller),
+    // damit die Regionen mit Anfragen auf einen Blick hervortreten.
+    kreis: "#efe8dc",
+    kreisAktiv: "#fdfaf4",
+    kreisKante: "#c4b398",
+    kreisLinie: "#d3c5ae",
     landLinie: "#221d16",
     beschriftung: "#5a5046",
     beschriftungHalo: "#fbf8f3",
@@ -116,8 +118,8 @@ export const BRETT_FARBEN: Record<Thema, BrettFarben> = {
   dunkel: {
     hintergrund: "#0b1018",
     ausserhalb: "#0e1520",
-    kreis: "#151d2a",
-    kreisAktiv: "#1b2738",
+    kreis: "#131a26",
+    kreisAktiv: "#1f2d44",
     kreisKante: "#05080d",
     kreisLinie: "#2a3a54",
     landLinie: "#8fa3c7",
