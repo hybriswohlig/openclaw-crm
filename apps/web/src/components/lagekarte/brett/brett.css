@@ -1,0 +1,100 @@
+/* Lagekarte, Spielbrett: nur was Tailwind nicht sauber abbildet
+   (MapLibre-Steuerelemente, Auswahl-Marker, Tooltip-Einblendung).
+   Farben aus lagekarte.css (--lk-*), Wurzel .lagekarte setzt der Container. */
+
+.lk-brett .maplibregl-map {
+  font: inherit;
+}
+
+/* Tastaturfokus auf der Karte sichtbar machen */
+.lk-brett .maplibregl-canvas:focus {
+  outline: none;
+}
+.lk-brett .maplibregl-canvas:focus-visible {
+  outline: 2px solid var(--lk-akzent);
+  outline-offset: -2px;
+}
+
+/* Quellenangabe kompakt, im Thema */
+.lk-brett .maplibregl-ctrl.maplibregl-ctrl-attrib {
+  background-color: color-mix(in oklab, var(--lk-panel) 82%, transparent);
+  color: var(--lk-text-leise);
+  font-size: 11px;
+  line-height: 18px;
+}
+.lk-brett .maplibregl-ctrl-attrib.maplibregl-compact {
+  border: 1px solid var(--lk-panel-rand);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+.lk-brett .maplibregl-ctrl-attrib a {
+  color: inherit;
+}
+.lk-brett .maplibregl-ctrl-attrib-button:focus-visible {
+  box-shadow: 0 0 0 2px var(--lk-akzent);
+}
+.lagekarte--dunkel .lk-brett .maplibregl-ctrl-attrib-button {
+  filter: invert(1);
+}
+
+/* Auswahl-Marker: 0×0-Anker, Ringe ohne transform zentriert (lk-puls animiert transform) */
+.lk-brett-auswahl {
+  position: relative;
+  width: 0;
+  height: 0;
+}
+.lk-brett-auswahl__ring,
+.lk-brett-auswahl__puls {
+  position: absolute;
+  left: -17px;
+  top: -17px;
+  width: 34px;
+  height: 34px;
+  border-radius: 9999px;
+  border: 2px solid var(--lk-brett-auswahl);
+}
+.lk-brett-auswahl__ring {
+  box-shadow:
+    0 0 0 3px color-mix(in oklab, var(--lk-panel) 75%, transparent),
+    0 4px 14px -4px rgba(0, 0, 0, 0.35);
+}
+.lk-brett-auswahl__puls {
+  opacity: 0;
+}
+.lk-brett-auswahl__schild {
+  position: absolute;
+  left: 0;
+  bottom: 24px;
+  transform: translateX(-50%);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  background: var(--lk-brett-auswahl);
+  color: var(--lk-panel);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+  box-shadow: 0 6px 16px -6px rgba(0, 0, 0, 0.4);
+}
+
+/* Tooltip und Cluster-Liste: nur Deckkraft einblenden (Position steckt im transform) */
+@keyframes lk-brett-ein {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.lk-brett-ein {
+  animation: lk-brett-ein 120ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lk-brett-ein {
+    animation: none;
+  }
+}
