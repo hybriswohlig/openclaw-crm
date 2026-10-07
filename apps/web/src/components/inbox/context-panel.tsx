@@ -462,6 +462,8 @@ export function InboxContextPanel({
   function pruefenUndOeffnen(type: DocumentType, leadContext: LeadContext | null, daten: KvHinweisDaten | null) {
     const pruefung = kvVorpruefung({ ctx: leadContext, daten, documentType: type });
     if (!pruefung.bereit) {
+      // KI-Vorschläge schließen, sonst liegen sie über dem Formular.
+      setSuggestions(null);
       setMissingDialog({ type, leadContext, daten });
       return;
     }

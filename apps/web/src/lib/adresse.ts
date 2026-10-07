@@ -35,3 +35,24 @@ export function locationValueToText(v: unknown): string {
   const ort = [str(o.postcode), str(o.city)].filter(Boolean).join(" ");
   return [str(o.line1), ort].filter(Boolean).join(", ");
 }
+
+/** Ort in der Form der Adress-Autovervollständigung. */
+export interface OrtWert {
+  line1?: string;
+  postcode?: string;
+  city?: string;
+  countryCode?: string;
+}
+
+/**
+ * Gespeicherte Adresse (jsonb oder Text) als Wert für das Formular. Text wird
+ * zerlegt statt verworfen; ohne Straße gilt die Adresse als fehlend.
+ */
+export function alsOrtWert(v: unknown): OrtWert | null {
+  if (!v) return null;
+  const o = (typeof v === "string" ? addressStringToLocationValue(v) : v) as Record<string, unknown>;
+  if (typeof o !== "object") return null;
+  const s = (x: unknown) => (typeof x === "string" && x.trim() ? x.trim() : undefined);
+  const ort: OrtWert = { line1: s(o.line1), postcode: s(o.postcode), city: s(o.city), countryCode: s(o.countryCode) };
+  return ort.line1 ? ort : null;
+}

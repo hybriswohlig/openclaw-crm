@@ -84,16 +84,18 @@ export function zaehleOffeneStapel(input: {
   spaeter: SpaeteresEreignis[];
   dealRecordId: string;
 }): number {
+  // Ein Versuch wird vor der Analyse gebucht: zwei Versuche ohne Ergebnis heißt
+  // „läuft noch“ (oder wird beim nächsten Lauf gemeldet), nicht „fertig“.
   const erledigt = new Set<number>();
-  const versuche = new Map<number, number>();
+  const fehler = new Map<number, number>();
   for (const e of input.spaeter) {
     const bezug = (e.payload as { bezug?: number }).bezug;
     if (typeof bezug !== "number") continue;
     if (e.eventType === "fotos_erledigt" || e.eventType === "fotos_aufgegeben") erledigt.add(bezug);
-    else if (e.eventType === "fotos_versuch") versuche.set(bezug, (versuche.get(bezug) ?? 0) + 1);
+    else if (e.eventType === "fotos_fehler") fehler.set(bezug, (fehler.get(bezug) ?? 0) + 1);
   }
   return input.offen.filter(
-    (o) => o.dealRecordId === input.dealRecordId && !erledigt.has(o.id) && (versuche.get(o.id) ?? 0) < MAX_VERSUCHE
+    (o) => o.dealRecordId === input.dealRecordId && !erledigt.has(o.id) && (fehler.get(o.id) ?? 0) < MAX_VERSUCHE
   ).length;
 }
 
@@ -111,7 +113,7 @@ export async function offeneFotoStapel(dealRecordId: string, jetzt = new Date())
     .where(
       and(
         eq(agentEvents.dealRecordId, dealRecordId),
-        inArray(agentEvents.eventType, ["fotos_versuch", "fotos_erledigt", "fotos_aufgegeben"]),
+        inArray(agentEvents.eventType, ["fotos_erledigt", "fotos_fehler", "fotos_aufgegeben"]),
         gt(agentEvents.createdAt, seit)
       )
     );

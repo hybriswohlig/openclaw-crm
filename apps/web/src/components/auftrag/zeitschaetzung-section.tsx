@@ -174,6 +174,15 @@ export function ZeitschaetzungSection({
     daten: KvHinweisDaten | null;
   } | null>(null);
   const [docStart, setDocStart] = useState<DocumentType | null>(null);
+  // Nach dem Nachtragen erst beim Schließen neu laden: das Neuladen der
+  // Auftragsübersicht hängt diese Karte samt offenem Dialog aus.
+  const [leadGeaendert, setLeadGeaendert] = useState(false);
+  function nachSchliessen() {
+    if (leadGeaendert) {
+      setLeadGeaendert(false);
+      onLeadUpdated?.();
+    }
+  }
 
   /** Sprungziele auf der Deal-Seite: Angebot-Tab, Umzugsgut im Posteingang. */
   function zieleFuer(daten: KvHinweisDaten | null): HinweisArt[] {
@@ -183,6 +192,7 @@ export function ZeitschaetzungSection({
     setVorpruefung(null);
     setDocDialog(null);
     if (ziel === "preis") {
+      nachSchliessen();
       window.dispatchEvent(new CustomEvent("deal-tab", { detail: "quotation" }));
     } else if (daten?.conversationId) {
       window.location.href = `/inbox?conv=${daten.conversationId}`;
@@ -734,10 +744,13 @@ export function ZeitschaetzungSection({
           ziele={zieleFuer(vorpruefung.daten)}
           onZiel={(ziel) => springeZu(ziel, vorpruefung.daten)}
           onWeiter={(ctx, daten) => {
-            onLeadUpdated?.();
+            setLeadGeaendert(true);
             pruefenUndOeffnen(vorpruefung.type, ctx, daten);
           }}
-          onAbbrechen={() => setVorpruefung(null)}
+          onAbbrechen={() => {
+            setVorpruefung(null);
+            nachSchliessen();
+          }}
         />
       )}
 
@@ -750,7 +763,10 @@ export function ZeitschaetzungSection({
           hinweise={docDialog.hinweise}
           ziele={docDialog.ziele}
           onZiel={(ziel) => springeZu(ziel, docDialog.daten)}
-          onClose={() => setDocDialog(null)}
+          onClose={() => {
+            setDocDialog(null);
+            nachSchliessen();
+          }}
         />
       )}
     </section>

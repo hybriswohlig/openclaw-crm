@@ -12,6 +12,7 @@ import { useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 import type { LeadContext } from "@/lib/deal-doc-data";
 import { AddressAutocomplete, type LocationValue } from "@/components/maps/AddressAutocomplete";
+import { alsOrtWert } from "@/lib/adresse";
 import {
   kvVorpruefung,
   type DokumentArt,
@@ -66,9 +67,12 @@ export function KvVorpruefungDialog({
   const [werte, setWerte] = useState<Record<PflichtFeld, string>>(start);
   // Adressen strukturiert über die Google-Vorschläge, wie in der Auftragsübersicht.
   const [orte, setOrte] = useState<{ auszug: LocationValue | null; einzug: LocationValue | null }>(() => ({
-    auszug: alsOrt(leadContext?.move_from_address),
-    einzug: alsOrt(leadContext?.move_to_address),
+    auszug: alsOrtWert(leadContext?.move_from_address),
+    einzug: alsOrtWert(leadContext?.move_to_address),
   }));
+  // Ausweg, wenn Google eine Adresse nicht findet oder nicht erreichbar ist.
+  const [vonHand, setVonHand] = useState<{ auszug: boolean; einzug: boolean }>({ auszug: false, einzug: false });
+  const [handText, setHandText] = useState<{ auszug: string; einzug: string }>({ auszug: "", einzug: "" });
   const [speichert, setSpeichert] = useState(false);
   const [fehler, setFehler] = useState<string | null>(null);
 
@@ -87,7 +91,7 @@ export function KvVorpruefungDialog({
         if (f.feld === "auszug" || f.feld === "einzug") {
           const ort = orte[f.feld];
           const vorher = f.feld === "auszug" ? leadContext?.move_from_address : leadContext?.move_to_address;
-          if (ort && JSON.stringify(ohneFormat(ort)) !== JSON.stringify(ohneFormat(alsOrt(vorher)))) {
+          if (ort && JSON.stringify(ohneFormat(ort)) !== JSON.stringify(ohneFormat(alsOrtWert(vorher)))) {
             values[f.feld === "auszug" ? "move_from_address" : "move_to_address"] = ohneFormat(ort);
           }
           continue;
@@ -114,7 +118,12 @@ export function KvVorpruefungDialog({
       const j = res.ok
         ? ((await res.json()) as { data?: { leadContext?: LeadContext | null; kvHinweise?: KvHinweisDaten | null } })
         : null;
-      onWeiter(j?.data?.leadContext ?? null, j?.data?.kvHinweise ?? null);
+      if (!j?.data?.leadContext) {
+        // Gespeichert ist es; ohne frischen Stand nicht mit leeren Daten weiter.
+        setFehler("Gespeichert, aber der neue Stand konnte nicht geladen werden. Bitte noch einmal klicken.");
+        return;
+      }
+      onWeiter(j.data.leadContext, j.data.kvHinweise ?? null);
     } catch {
       setFehler("Verbindungsfehler beim Speichern.");
     } finally {
@@ -137,12 +146,40 @@ export function KvVorpruefungDialog({
           {pruefung.felder.map((f) =>
             f.feld === "auszug" || f.feld === "einzug" ? (
               <div key={f.feld} className={leer(f.feld) ? "rounded-md ring-1 ring-destructive/50" : ""}>
-                <AddressAutocomplete
-                  label={leer(f.feld) ? `${f.label} (fehlt)` : f.label}
-                  value={orte[f.feld]}
-                  onChange={(loc) => setOrte((o) => ({ ...o, [f.feld]: loc }))}
-                  placeholder="Adresse suchen und Vorschlag wählen…"
-                />
+                {vonHand[f.feld] ? (
+                  <label className="block">
+                    <span className="text-xs font-medium">{leer(f.feld) ? `${f.label} (fehlt)` : f.label}</span>
+                    <input
+                      type="text"
+                      value={handText[f.feld]}
+                      onChange={(e) => {
+                        const text = e.target.value;
+                        setHandText((h) => ({ ...h, [f.feld]: text }));
+                        setOrte((o) => ({ ...o, [f.feld]: alsOrtWert(text) }));
+                      }}
+                      placeholder="Straße Nr, PLZ Ort"
+                      className="mt-1 h-9 w-full rounded-md border border-border bg-background px-2.5 text-sm"
+                    />
+                  </label>
+                ) : (
+                  <AddressAutocomplete
+                    label={leer(f.feld) ? `${f.label} (fehlt)` : f.label}
+                    value={orte[f.feld]}
+                    onChange={(loc) => setOrte((o) => ({ ...o, [f.feld]: loc }))}
+                    placeholder="Adresse suchen und Vorschlag wählen…"
+                  />
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const feld = f.feld as "auszug" | "einzug";
+                    setVonHand((v) => ({ ...v, [feld]: !v[feld] }));
+                    if (!vonHand[feld]) setHandText((h) => ({ ...h, [feld]: f.wert }));
+                  }}
+                  className="mt-1 text-[11px] text-muted-foreground underline underline-offset-2"
+                >
+                  {vonHand[f.feld] ? "Zur Adresssuche" : "Adresse nicht gefunden? Von Hand eingeben"}
+                </button>
               </div>
             ) : (
               <label key={f.feld} className="block">
@@ -225,15 +262,6 @@ export function KvVorpruefungDialog({
       </div>
     </div>
   );
-}
-
-/** Gespeicherten Ort (jsonb) als Wert für die Autovervollständigung. */
-function alsOrt(v: unknown): LocationValue | null {
-  if (!v || typeof v !== "object") return null;
-  const o = v as Record<string, unknown>;
-  const s = (x: unknown) => (typeof x === "string" && x.trim() ? x.trim() : undefined);
-  const ort: LocationValue = { line1: s(o.line1), postcode: s(o.postcode), city: s(o.city), countryCode: s(o.countryCode) };
-  return ort.line1 ? ort : null;
 }
 
 /** Wie in der Auftragsübersicht: nur die Felder speichern, die der Lead kennt. */

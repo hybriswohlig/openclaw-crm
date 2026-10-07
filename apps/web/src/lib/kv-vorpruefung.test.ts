@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { LeadContext } from "./deal-doc-data";
 import { kvVorpruefung, type KvHinweisDaten } from "./kv-vorpruefung";
-import { addressStringToLocationValue } from "./adresse";
+import { addressStringToLocationValue, alsOrtWert } from "./adresse";
 
 function ctx(over: Partial<LeadContext> = {}): LeadContext {
   return {
@@ -67,6 +67,14 @@ describe("kvVorpruefung", () => {
     });
     expect(c.hinweise).toEqual([]);
   });
+  it("Fotos noch in Arbeit, Umzugsgut schon teilweise da: trotzdem Hinweis", () => {
+    const r = kvVorpruefung({ ctx: ctx(), daten: daten({ umzugsgutAnzahl: 5, fotoStapelOffen: 3 }), documentType: "KV" });
+    expect(r.hinweise).toEqual([{ art: "umzugsgut", text: "Umzugsgut hat 5 Einträge, 3 Foto-Stapel werden noch ausgewertet." }]);
+  });
+  it("Adresse als Text gespeichert: zählt als vorhanden", () => {
+    const r = kvVorpruefung({ ctx: ctx({ move_from_address: "Hauptstr. 1, 72218 Wildberg" }), daten: daten(), documentType: "KV" });
+    expect(r.felder.find((f) => f.feld === "auszug")).toMatchObject({ fehlt: false });
+  });
   it("AB ohne Angebot: Preis fehlt blockiert; Hinweise nur beim KV", () => {
     const r = kvVorpruefung({ ctx: ctx(), daten: daten({ hatAngebot: false, umzugsgutAnzahl: 0 }), documentType: "AB" });
     expect(r.preisFehlt).toBe(true);
@@ -87,5 +95,18 @@ describe("addressStringToLocationValue", () => {
   });
   it("ohne Komma bleibt alles in line1", () => {
     expect(addressStringToLocationValue("Hauptstr. 1 Wildberg")).toEqual({ line1: "Hauptstr. 1 Wildberg" });
+  });
+});
+
+describe("alsOrtWert", () => {
+  it("strukturierte Adresse bleibt erhalten", () => {
+    expect(alsOrtWert({ line1: "Hauptstr. 1", postcode: "72218", city: "Wildberg" })).toEqual({ line1: "Hauptstr. 1", postcode: "72218", city: "Wildberg", countryCode: undefined });
+  });
+  it("Adresse als Text wird zerlegt statt verworfen", () => {
+    expect(alsOrtWert("Hauptstr. 1, 72218 Wildberg")).toMatchObject({ line1: "Hauptstr. 1", postcode: "72218", city: "Wildberg" });
+  });
+  it("leer oder ohne Straße: null", () => {
+    expect(alsOrtWert(null)).toBeNull();
+    expect(alsOrtWert({ city: "Calw" })).toBeNull();
   });
 });

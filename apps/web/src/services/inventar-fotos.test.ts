@@ -78,3 +78,14 @@ describe("zaehleOffeneStapel", () => {
     expect(n).toBe(1);
   });
 });
+
+describe("zaehleOffeneStapel, laufender letzter Versuch", () => {
+  it("zwei Versuche ohne Ergebnis: läuft noch oder wird gleich gemeldet, zählt also mit", async () => {
+    const { zaehleOffeneStapel } = await import("./inventar-fotos");
+    expect(zaehleOffeneStapel({ offen: [offen(1, 2, "d1")], spaeter: [ev("fotos_versuch", 1), ev("fotos_versuch", 1)], dealRecordId: "d1" })).toBe(1);
+  });
+  it("zwei Fehlschläge: zählt nicht mehr", async () => {
+    const { zaehleOffeneStapel } = await import("./inventar-fotos");
+    expect(zaehleOffeneStapel({ offen: [offen(1, 2, "d1")], spaeter: [ev("fotos_versuch", 1), ev("fotos_fehler", 1), ev("fotos_versuch", 1), ev("fotos_fehler", 1)], dealRecordId: "d1" })).toBe(0);
+  });
+});

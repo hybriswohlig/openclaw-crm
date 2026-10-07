@@ -76,6 +76,12 @@ export function kvVorpruefung(input: {
             ? `Umzugsgut ist noch leer, ${daten.fotoStapelOffen} Foto-Stapel werden gerade ausgewertet.`
             : "Umzugsgut ist leer. Im KV steht dann keine Liste.",
       });
+    } else if (daten.fotoStapelOffen > 0) {
+      // Teilweise gefüllt: sonst sähe eine halbe Liste fertig aus.
+      hinweise.push({
+        art: "umzugsgut",
+        text: `Umzugsgut hat ${daten.umzugsgutAnzahl} Einträge, ${daten.fotoStapelOffen} Foto-Stapel werden noch ausgewertet.`,
+      });
     }
     const ceylan = /ceylan/i.test(ctx?.operating_company?.displayName ?? "");
     if (daten.festpreisCents != null && !ceylan) {
