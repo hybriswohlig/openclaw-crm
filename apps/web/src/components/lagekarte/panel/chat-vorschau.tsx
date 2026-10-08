@@ -28,10 +28,10 @@ type Zustand =
   | { status: "ok"; daten: ChatVorschauAntwort };
 
 const KNOPF =
-  "inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-[var(--lk-panel-rand)] bg-[var(--lk-panel)] px-3 text-[13px] font-medium text-[var(--lk-text)] transition-colors hover:bg-[var(--lk-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--lk-akzent)]";
+  "inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-[var(--lk-panel-rand)] bg-[var(--lk-panel)] px-3 text-[13px] font-medium text-[var(--lk-text)] transition-colors hover:bg-[var(--lk-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--lk-akzent)] max-lg:min-h-11";
 
 const KNOPF_PRIMAER =
-  "inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg px-3 text-[13px] font-medium transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--lk-akzent)]";
+  "inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg px-3 text-[13px] font-medium transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--lk-akzent)] max-lg:min-h-11";
 
 function zeitText(iso: string, jetzt: Date): string {
   const d = parseISO(iso);
@@ -120,7 +120,7 @@ export default function ChatVorschau({ lead, chatId, onChatWechsel, jetzt, onGel
                   type="button"
                   aria-pressed={aktiv}
                   onClick={() => onChatWechsel(c.id)}
-                  className="inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-[12px] font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--lk-akzent)]"
+                  className="inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-[12px] font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--lk-akzent)] max-lg:min-h-11"
                   style={
                     aktiv
                       ? {

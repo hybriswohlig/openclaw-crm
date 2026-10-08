@@ -70,23 +70,23 @@ const WERT_ART_LABEL: Record<WertArt, string> = {
 };
 
 const AKTION =
-  "inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-[var(--lk-panel-rand)] bg-[var(--lk-panel)] px-3 text-[13px] font-medium text-[var(--lk-text)] transition-colors hover:bg-[var(--lk-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--lk-akzent)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-[var(--lk-panel)]";
+  "inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-[var(--lk-panel-rand)] bg-[var(--lk-panel)] px-3 text-[13px] font-medium text-[var(--lk-text)] transition-colors hover:bg-[var(--lk-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--lk-akzent)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-[var(--lk-panel)] max-lg:min-h-11";
 
 const AKTION_PRIMAER =
-  "inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-transparent px-3 text-[13px] font-medium transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--lk-akzent)]";
+  "inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-transparent px-3 text-[13px] font-medium transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--lk-akzent)] max-lg:min-h-11";
 
 const ICON_KNOPF =
-  "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[var(--lk-text-leise)] transition-colors hover:bg-[var(--lk-hover)] hover:text-[var(--lk-text)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--lk-akzent)]";
+  "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[var(--lk-text-leise)] transition-colors hover:bg-[var(--lk-hover)] hover:text-[var(--lk-text)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--lk-akzent)] max-lg:size-11";
 
 /** Tasten, mit denen jemand den Panel-Rumpf selbst scrollt (dann nicht mehr ans Chat-Ende springen). */
 const SCROLL_TASTEN = new Set(["PageUp", "PageDown", "ArrowUp", "ArrowDown", "Home", "End"]);
 
 /**
  * Menüeintrag im Stufen-Dropdown. Überschreibt die shadcn-Standardfarben
- * (bg-accent, text-sm) mit den Lagekarte-Variablen; Höhe >= 36 px.
+ * (bg-accent, text-sm) mit den Lagekarte-Variablen; Höhe >= 36 px, mobil 44 px.
  */
 const STUFE_EINTRAG =
-  "min-h-9 cursor-pointer rounded-md pr-3 text-[13px] text-[var(--lk-text)] focus:bg-[var(--lk-hover)] focus:text-[var(--lk-text)] data-[state=checked]:font-semibold";
+  "min-h-9 cursor-pointer rounded-md pr-3 text-[13px] text-[var(--lk-text)] focus:bg-[var(--lk-hover)] focus:text-[var(--lk-text)] data-[state=checked]:font-semibold max-lg:min-h-11";
 
 /** wartet.chatId → neuester WhatsApp → neuester Thread (chats sind neueste zuerst sortiert). */
 export function standardChatId(lead: LeadPunkt): string | null {
@@ -178,16 +178,19 @@ export default function LeadPanel({
   const leadIdRef = useRef(lead.id);
   leadIdRef.current = lead.id;
 
-  /* ── Chat-Tab zeigt die neueste Nachricht ──
-     Fakten, Aktionen und Chat teilen sich einen Scrollbereich (den Rumpf). Sobald der
-     Chat geladen ist, scrollt der Rumpf ans Ende: die Tabs bleiben oben kleben, darunter
-     stehen die neuesten Nachrichten und die Fußzeile. Hat jemand inzwischen selbst
-     gescrollt, springt nichts mehr. */
+  /* ── Scrollposition je Tab ──
+     Fakten, Aktionen und alle Tabs teilen sich einen Scrollbereich (den Rumpf).
+     „Chat“ zeigt die neueste Nachricht: sobald der Chat geladen ist, scrollt der Rumpf
+     ans Ende (die Tabs kleben oben, darunter die neuesten Nachrichten und die Fußzeile).
+     Hat jemand inzwischen selbst gescrollt, springt nichts mehr.
+     „Angebot“ und „Verlauf“ beginnen oben (Fakten, Anrufen, KV, Stufe sichtbar) und
+     bekommen beim Zurückkehren ihre eigene Position wieder, nie die des Chats. */
   const rumpfRef = useRef<HTMLDivElement>(null);
   const tabRef = useRef(tab);
   tabRef.current = tab;
   const chatGeladenRef = useRef(false);
   const selbstGescrolltRef = useRef(false);
+  const positionenRef = useRef<Partial<Record<PanelTab, number>>>({});
 
   const zumChatEnde = useCallback(() => {
     const rumpf = rumpfRef.current;
@@ -208,12 +211,21 @@ export default function LeadPanel({
   useLayoutEffect(() => {
     chatGeladenRef.current = false;
     selbstGescrolltRef.current = false;
+    positionenRef.current = {};
     if (rumpfRef.current) rumpfRef.current.scrollTop = 0;
   }, [lead.id]);
 
-  // Zurück auf den Chat-Tab: wieder die neueste Nachricht.
+  // Tab gewechselt (der neue Inhalt steht schon im DOM, noch nicht gezeichnet):
+  // Chat ans Ende, sobald geladen; sonst die gemerkte Position des Tabs, beim ersten Mal oben.
   useLayoutEffect(() => {
-    if (tab === "chat" && chatGeladenRef.current) zumChatEnde();
+    const rumpf = rumpfRef.current;
+    if (!rumpf) return;
+    if (tab === "chat") {
+      if (chatGeladenRef.current) zumChatEnde();
+      else rumpf.scrollTop = positionenRef.current.chat ?? 0;
+      return;
+    }
+    rumpf.scrollTop = positionenRef.current[tab] ?? 0;
   }, [tab, zumChatEnde]);
 
   // Neuer Lead oder neuer Start-Tab: Zustand zurücksetzen, Fokus auf Überschrift.
@@ -262,6 +274,8 @@ export default function LeadPanel({
   const stufeFarbe = gewaehlteStufe?.farbe ?? lead.stufe?.farbe ?? null;
 
   function tabWaehlen(naechster: PanelTab) {
+    // Position des bisherigen Tabs merken, bevor sein Inhalt verschwindet.
+    if (naechster !== tab && rumpfRef.current) positionenRef.current[tab] = rumpfRef.current.scrollTop;
     if (naechster === "chat") selbstGescrolltRef.current = false;
     setTab(naechster);
     setBesucht((alt) => (alt.has(naechster) ? alt : new Set(alt).add(naechster)));
@@ -343,7 +357,7 @@ export default function LeadPanel({
             type="button"
             onClick={onSchliessen}
             aria-label="Panel schließen"
-            className="flex h-9 w-full shrink-0 items-center justify-center focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--lk-akzent)]"
+            className="flex h-11 w-full shrink-0 items-center justify-center focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--lk-akzent)]"
           >
             <span className="h-1.5 w-10 rounded-full" style={{ background: "var(--lk-text-schwach)", opacity: 0.5 }} />
           </button>
@@ -573,7 +587,7 @@ export default function LeadPanel({
                   tabIndex={aktiv ? 0 : -1}
                   onClick={() => tabWaehlen(t.id)}
                   onKeyDown={tabTastatur}
-                  className="relative inline-flex min-h-10 items-center gap-1.5 px-3 text-[13px] transition-colors focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--lk-akzent)]"
+                  className="relative inline-flex min-h-10 items-center gap-1.5 px-3 text-[13px] transition-colors focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--lk-akzent)] max-lg:min-h-11"
                   style={{
                     color: aktiv ? "var(--lk-text)" : "var(--lk-text-leise)",
                     fontWeight: aktiv ? 600 : 500,

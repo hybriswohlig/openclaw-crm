@@ -174,7 +174,7 @@ function SchalterListe(p: Pick<HudProps, "ansicht" | "onAnsicht" | "onListe" | "
         p.schliessen();
       }}
       className={cn(
-        "flex h-10 w-full items-center gap-2.5 rounded-lg px-3 text-left text-[13px] font-medium transition-colors hover:bg-[var(--lk-hover)]",
+        "flex h-10 w-full items-center gap-2.5 rounded-lg px-3 text-left text-[13px] font-medium transition-colors hover:bg-[var(--lk-hover)] max-lg:h-11",
         aktiv ? "text-[var(--lk-text)]" : "text-[var(--lk-text-leise)]",
         FOKUS,
       )}

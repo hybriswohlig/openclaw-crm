@@ -7,6 +7,7 @@ import {
   filterAusUrl,
   filterZuUrl,
   filtereLeads,
+  weitereFilterAktiv,
   zaehleStatus,
   type KartenFilter,
 } from "./filter";
@@ -269,5 +270,23 @@ describe("behalteAuswahl", () => {
   it("liefert für unbekannte oder fehlende IDs null", () => {
     expect(behalteAuswahl("gibt-es-nicht", leads, gefiltert)).toEqual({ lead: null, imFilter: false });
     expect(behalteAuswahl(null, leads, gefiltert)).toEqual({ lead: null, imFilter: false });
+  });
+});
+
+describe("weitereFilterAktiv (Zahl am Knopf „Filter“ der schmalen Legende)", () => {
+  it("ist 0 im Standard und wenn nur Status, Wartet oder Suche abweichen", () => {
+    expect(weitereFilterAktiv(STANDARD_FILTER)).toBe(0);
+    expect(weitereFilterAktiv(filter({ status: ["neu"], nurWartet: true, suche: "müller" }))).toBe(0);
+  });
+
+  it("zählt Firma, Eingang und Wert je einmal", () => {
+    expect(weitereFilterAktiv(filter({ firmen: ["a", "ohne"] }))).toBe(1);
+    expect(weitereFilterAktiv(filter({ zeitraum: "30" }))).toBe(1);
+    expect(weitereFilterAktiv(filter({ wertAbEuro: 1500 }))).toBe(1);
+    expect(weitereFilterAktiv(filter({ firmen: ["a"], zeitraum: "365", wertAbEuro: 500 }))).toBe(3);
+  });
+
+  it("zählt einen Mindestwert von 0 € als gesetzt", () => {
+    expect(weitereFilterAktiv(filter({ wertAbEuro: 0 }))).toBe(1);
   });
 });

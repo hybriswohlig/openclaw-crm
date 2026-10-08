@@ -40,6 +40,18 @@ export const STANDARD_FILTER: KartenFilter = {
   suche: "",
 };
 
+/**
+ * Wie viele der Filter, die die schmale Legende hinter dem Knopf „Filter“
+ * zusammenfasst (Firma, Eingang, Wert), weichen vom Standard ab? Je Art 1.
+ */
+export function weitereFilterAktiv(f: KartenFilter): number {
+  return (
+    (f.firmen.length > 0 ? 1 : 0) +
+    (f.zeitraum !== STANDARD_FILTER.zeitraum ? 1 : 0) +
+    (f.wertAbEuro !== STANDARD_FILTER.wertAbEuro ? 1 : 0)
+  );
+}
+
 /** URL-Schlüssel, die dieses Modul besitzt. */
 const FILTER_SCHLUESSEL = ["status", "wartet", "firma", "zeit", "wert", "q"] as const;
 

@@ -305,6 +305,7 @@ function LagekarteInhalt({ onListe }: LagekarteProps) {
       thema={thema}
       trefferGesamt={leadsGefiltert.length}
       trefferMitOrt={trefferMitOrt}
+      mobil={mobil}
     />
   );
 
