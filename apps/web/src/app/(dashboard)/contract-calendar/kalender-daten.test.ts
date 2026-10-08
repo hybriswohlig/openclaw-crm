@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { SEITENGROESSE, alleSeitenLaden } from "./kalender-daten";
+import {
+  SEITENGROESSE,
+  alleSeitenLaden,
+  gleicheAuswahl,
+  standardStufenAuswahl,
+  verloreneStufenIds,
+} from "./kalender-daten";
 
 /** Records-API wie im Betrieb: höchstens 200 pro Abruf, total über alles. */
 function api(anzahl: number) {
@@ -70,5 +76,49 @@ describe("alleSeitenLaden", () => {
     });
     expect(aufrufe).toBe(50);
     expect(r.vollstaendig).toBe(false);
+  });
+});
+
+/** Stufen wie im Betrieb, mit dem englischen Duplikat „Lost“ ohne gepflegte Kategorie */
+const stufen = [
+  { id: "neu", title: "Neue Anfrage", stageCategory: "open_new" },
+  { id: "geplant", title: "Geplant", stageCategory: "booked" },
+  { id: "verloren", title: "Verloren", stageCategory: "lost" },
+  { id: "lost", title: "Lost", stageCategory: null },
+  { id: "bezahlt", title: "Bezahlt (Abgeschlossen)" },
+];
+
+describe("verloreneStufenIds", () => {
+  it("findet „Verloren“ über die Kategorie und „Lost“ über den Titel", () => {
+    expect(verloreneStufenIds(stufen)).toEqual(new Set(["verloren", "lost"]));
+  });
+
+  it("nimmt die gepflegte Kategorie vor dem Titel", () => {
+    expect(verloreneStufenIds([{ id: "x", title: "Abgesagt", stageCategory: "lost" }])).toEqual(new Set(["x"]));
+    expect(verloreneStufenIds([{ id: "y", title: "Lost", stageCategory: "open_new" }])).toEqual(new Set());
+  });
+});
+
+describe("standardStufenAuswahl", () => {
+  it("wählt alles außer den verlorenen Stufen", () => {
+    expect(standardStufenAuswahl(stufen, [])).toEqual(new Set(["neu", "geplant", "bezahlt"]));
+  });
+
+  it("lässt Aufträge ohne Status oder mit unbekannter Stufe sichtbar", () => {
+    const auswahl = standardStufenAuswahl(stufen, ["__no_stage__", "geloescht", "lost", "geplant"]);
+    expect(auswahl).toEqual(new Set(["neu", "geplant", "bezahlt", "__no_stage__", "geloescht"]));
+  });
+
+  it("bleibt leer (= Alle), wenn es keine verlorene Stufe gibt", () => {
+    expect(standardStufenAuswahl([{ id: "neu", title: "Neue Anfrage" }], ["neu", "__no_stage__"])).toEqual(new Set());
+  });
+});
+
+describe("gleicheAuswahl", () => {
+  it("vergleicht Mengen unabhängig von der Reihenfolge", () => {
+    expect(gleicheAuswahl(new Set(["a", "b"]), new Set(["b", "a"]))).toBe(true);
+    expect(gleicheAuswahl(new Set(), new Set())).toBe(true);
+    expect(gleicheAuswahl(new Set(["a"]), new Set(["a", "b"]))).toBe(false);
+    expect(gleicheAuswahl(new Set(["a", "c"]), new Set(["a", "b"]))).toBe(false);
   });
 });

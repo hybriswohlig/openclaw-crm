@@ -6,7 +6,13 @@ import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { SEITENGROESSE, alleSeitenLaden, type Seite } from "./kalender-daten";
+import {
+  SEITENGROESSE,
+  alleSeitenLaden,
+  gleicheAuswahl,
+  standardStufenAuswahl,
+  type Seite,
+} from "./kalender-daten";
 
 interface DealRecord {
   id: string;
@@ -18,6 +24,7 @@ interface StageInfo {
   title: string;
   color: string;
   isActive: boolean;
+  stageCategory?: string | null;
 }
 
 const WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
@@ -99,6 +106,8 @@ export default function ContractCalendarPage() {
   const [currentDate, setCurrentDate] = useState(() => new Date());
   /** Empty set = show all stages. Otherwise only matching stage ids. */
   const [selectedStageIds, setSelectedStageIds] = useState<Set<string>>(() => new Set());
+  /** Auswahl beim Öffnen: alles außer verlorenen Stufen (leer, wenn es keine gibt). */
+  const [standardAuswahl, setStandardAuswahl] = useState<Set<string>>(() => new Set());
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
@@ -116,6 +125,7 @@ export default function ContractCalendarPage() {
         if (!geladen.vollstaendig) {
           toast.error("Nicht alle Aufträge konnten geladen werden. Bitte die Seite neu laden.");
         }
+        let geladeneStufen: StageInfo[] = [];
         if (objRes.ok) {
           const objData = await objRes.json();
           const attrs = objData.data?.attributes;
@@ -124,8 +134,13 @@ export default function ContractCalendarPage() {
             (a: { slug?: string; type?: string }) => a.slug === "stage" && a.type === "status"
           );
           const statuses = stageAttr?.statuses;
-          setStages(Array.isArray(statuses) ? statuses : []);
+          geladeneStufen = Array.isArray(statuses) ? statuses : [];
         }
+        setStages(geladeneStufen);
+        // Verlorene Aufträge (auch Stufe „Lost“) sind anfangs ausgeblendet.
+        const standard = standardStufenAuswahl(geladeneStufen, geladen.records.map(dealStageKey));
+        setStandardAuswahl(standard);
+        setSelectedStageIds(new Set(standard));
       } finally {
         setLoading(false);
       }
@@ -186,6 +201,11 @@ export default function ContractCalendarPage() {
     setSelectedStageIds(new Set());
   }
 
+  /** Zurück zur Auswahl beim Öffnen (ohne verlorene Aufträge). */
+  function resetStageFilter() {
+    setSelectedStageIds(new Set(standardAuswahl));
+  }
+
   function prevMonth() {
     setCurrentDate(new Date(year, month - 1, 1));
   }
@@ -205,6 +225,7 @@ export default function ContractCalendarPage() {
 
   const today = dateKey(new Date());
   const filterActive = selectedStageIds.size > 0;
+  const isDefaultFilter = gleicheAuswahl(selectedStageIds, standardAuswahl);
 
   if (loading) {
     return (
@@ -297,10 +318,10 @@ export default function ContractCalendarPage() {
                 Ohne Status
               </button>
             )}
-            {filterActive && (
+            {!isDefaultFilter && (
               <button
                 type="button"
-                onClick={clearStageFilter}
+                onClick={resetStageFilter}
                 className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
               >
                 <X className="h-3 w-3" />
@@ -313,6 +334,7 @@ export default function ContractCalendarPage() {
               {filteredCount === 0
                 ? "Keine Einträge für die gewählten Status"
                 : `${filteredCount} Eintrag${filteredCount === 1 ? "" : "e"} mit gewähltem Status`}
+              {isDefaultFilter && ", verlorene Aufträge ausgeblendet"}
             </p>
           )}
         </div>

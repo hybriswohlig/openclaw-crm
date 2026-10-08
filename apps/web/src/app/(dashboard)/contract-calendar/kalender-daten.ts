@@ -1,6 +1,7 @@
 /**
  * Daten für den Auftragskalender, reine Funktionen ohne React.
  */
+import { stufenKategorie } from "@/services/lagekarte/status";
 
 /** Obergrenze pro Abruf von GET /api/v1/objects/:slug/records (größere limit-Werte werden gekürzt). */
 export const SEITENGROESSE = 200;
@@ -42,4 +43,47 @@ export async function alleSeitenLaden<T extends { id: string }>(
     }
   }
   return { records, vollstaendig: false };
+}
+
+/** Stufe, wie GET /api/v1/objects/deals sie liefert (Zeile aus statuses). */
+export interface KalenderStufe {
+  id: string;
+  title: string;
+  stageCategory?: string | null;
+}
+
+/**
+ * Ids der verlorenen Stufen, auch des englischen Duplikats „Lost“. Gleiche
+ * Einordnung wie auf der Lagekarte: gepflegte Kategorie, sonst der Titel.
+ */
+export function verloreneStufenIds(stufen: readonly KalenderStufe[]): Set<string> {
+  return new Set(
+    stufen
+      .filter((s) => stufenKategorie({ titel: s.title, kategorie: s.stageCategory ?? null }) === "lost")
+      .map((s) => s.id)
+  );
+}
+
+/**
+ * Anfangsauswahl des Statusfilters: alle Stufen außer den verlorenen. Dazu
+ * kommen die Stufen-Schlüssel der Aufträge selbst (ohne Status oder mit einer
+ * Stufe, die es nicht mehr gibt), damit wirklich nur verlorene Aufträge
+ * fehlen. Gibt es keine verlorene Stufe, bleibt die Auswahl leer, also „Alle“.
+ */
+export function standardStufenAuswahl(
+  stufen: readonly KalenderStufe[],
+  auftragsStufen: Iterable<string>
+): Set<string> {
+  const verloren = verloreneStufenIds(stufen);
+  if (verloren.size === 0) return new Set();
+  const auswahl = new Set<string>();
+  for (const stufe of stufen) if (!verloren.has(stufe.id)) auswahl.add(stufe.id);
+  for (const key of auftragsStufen) if (!verloren.has(key)) auswahl.add(key);
+  return auswahl;
+}
+
+export function gleicheAuswahl(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const id of a) if (!b.has(id)) return false;
+  return true;
 }
