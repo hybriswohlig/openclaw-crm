@@ -22,6 +22,7 @@ import {
   Plug,
   Settings,
 } from "lucide-react";
+import { mehrKachelSpalte } from "./mehr-raster";
 
 const primary = [
   { href: "/home", icon: Home, label: "Heute" },
@@ -197,8 +198,9 @@ export function MobileTabBar() {
                 <X size={20} />
               </button>
             </div>
-            <div className="grid grid-cols-3 gap-2">
-              {mehrItems.map((it) => {
+            {/* Sechs Spalten, jede Kachel zwei breit: eine unvollständige letzte Reihe steht mittig. */}
+            <div className="grid grid-cols-6 gap-2">
+              {mehrItems.map((it, i) => {
                 const Ico = it.icon;
                 return (
                   <Link
@@ -206,6 +208,7 @@ export function MobileTabBar() {
                     href={it.href}
                     onClick={() => setSheetOpen(false)}
                     style={{
+                      gridColumn: mehrKachelSpalte(i, mehrItems.length),
                       display: "flex",
                       flexDirection: "column",
                       alignItems: "center",
