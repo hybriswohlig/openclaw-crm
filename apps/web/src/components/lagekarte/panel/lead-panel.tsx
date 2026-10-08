@@ -1,7 +1,7 @@
 "use client";
 /**
  * Lagekarte: Lead-Panel. Desktop rechts andockend (400 px, volle Höhe unter
- * dem HUD), mobil als Bottom-Sheet (82 vh). Kopf mit Status, Fakten,
+ * dem HUD), mobil als Bottom-Sheet (65 % der Höhe, oben bleibt Karte sichtbar). Kopf mit Status, Fakten,
  * Schnellaktionen und die Tabs Chat | Angebot | Verlauf.
  *
  * Einzige Schreibaktion: Stufe ändern (PATCH records). Alles andere liest.
@@ -360,7 +360,8 @@ export default function LeadPanel({
     : null;
 
   const wurzelKlasse = mobil
-    ? "lk-glas absolute inset-x-0 bottom-0 z-30 flex h-[82vh] max-h-[calc(100%-8px)] flex-col pb-[env(safe-area-inset-bottom)]"
+    ? // Höchstens 65 %: oben bleiben HUD, Quellenzeile und ein Streifen Karte mit dem Marker sichtbar.
+      "lk-glas absolute inset-x-0 bottom-0 z-30 flex h-[65%] flex-col pb-[env(safe-area-inset-bottom)]"
     : "lk-glas absolute right-3 top-[var(--lk-oben,96px)] bottom-3 z-30 flex w-[400px] max-w-[calc(100%-24px)] flex-col";
   // .lk-glas ist unlayered und schlägt Tailwind-Utilities, deshalb die Sheet-Ecken inline.
   const wurzelStil = mobil ? { borderBottomLeftRadius: 0, borderBottomRightRadius: 0 } : undefined;

@@ -86,13 +86,11 @@
   .lk-sheet { transition: none; }
 }
 
-/* Quellenangabe der Karte oben rechts, unter dem HUD (--lk-oben misst der
-   Container); mit offenem Panel daneben (--lk-attr-rechts). */
-.lagekarte .lk-brett .maplibregl-ctrl-top-right {
-  top: calc(var(--lk-oben, 96px) - 10px);
-  right: var(--lk-attr-rechts, 0px);
-}
-/* Mit offenem Panel bleibt zwischen Leiste und Panel wenig Platz: Text umbrechen. */
-.lagekarte[data-panel="offen"] .lk-brett .maplibregl-ctrl-attrib.maplibregl-compact-show {
-  max-width: 300px;
+/* Quellenvermerk (quellenangabe.tsx): kleine Glas-Zeile unter dem HUD, immer sichtbar. */
+.lk-quelle {
+  background: color-mix(in oklab, var(--lk-panel) 84%, transparent);
+  color: var(--lk-text-leise);
+  border: 1px solid var(--lk-panel-rand);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
 }

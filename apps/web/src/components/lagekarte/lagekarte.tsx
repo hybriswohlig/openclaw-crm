@@ -21,6 +21,7 @@ import Ladebild, { BrettSilhouette } from "./ladebild";
 import Leiste, { type LeistenTab } from "./leiste";
 import Legende from "./legende";
 import LeadPanel, { type PanelTab } from "./panel/lead-panel";
+import Quellenangabe from "./quellenangabe";
 import { ThemaKontext } from "./thema";
 import { useKartenFilter } from "./use-karten-filter";
 import { useLagekarteDaten } from "./use-lagekarte-daten";
@@ -48,6 +49,15 @@ const PANEL_RAUM_PX = 424;
 /** Abstand der Leiste und des Panels unter dem HUD (HUD-Höhe wird gemessen). */
 const HUD_OBEN_PX = 12;
 const HUD_ABSTAND_PX = 8;
+/**
+ * Quellenvermerk (dl-de/by-2-0): eine Zeile (16 px plus Rand) direkt unter dem HUD, darunter
+ * beginnen Leiste, Panel und das aufgeklappte Sheet. So verdeckt ihn kein Layout.
+ */
+const QUELLE_ABSTAND_PX = 4;
+/** Einzeilig (gemessen wird trotzdem: auf sehr schmalen Geräten bricht der Vermerk um). */
+const QUELLE_HOEHE_PX = 18;
+/** Mobiles Lead-Panel: höchstens 65 % der Höhe, oben bleiben mindestens 35 % der Karte sichtbar. */
+const MOBIL_PANEL_ANTEIL = 0.65;
 const SUCHE_VERZOEGERUNG_MS = 250;
 
 const KEINE_LEADS: LeadPunkt[] = [];
@@ -118,9 +128,9 @@ function useHoehe(): [(el: HTMLElement | null) => void, number] {
   return [setEl, hoehe];
 }
 
-/** Mobiles Lead-Panel: 82vh, aber nie höher als der Container minus 8 px (wie seine CSS-Klasse). */
+/** Höhe des mobilen Lead-Panels (seine CSS-Klasse h-[65%] rechnet genauso). */
 function mobilPanelHoehe(containerHoehe: number): number {
-  return Math.max(0, Math.min(window.innerHeight * 0.82, containerHoehe - 8));
+  return Math.round(containerHoehe * MOBIL_PANEL_ANTEIL);
 }
 
 function useMedienAbfrage(abfrage: string): boolean {
@@ -274,7 +284,11 @@ function LagekarteInhalt({ onListe }: LagekarteProps) {
     beobachter.observe(hudEl);
     return () => beobachter.disconnect();
   }, [hudEl]);
-  const obenPx = HUD_OBEN_PX + hudHoehe + HUD_ABSTAND_PX;
+  // Mit Karte steht unter dem HUD noch die Quellenzeile (ohne WebGL gibt es keine Karte).
+  const [setQuelleEl, quelleHoehe] = useHoehe();
+  const quelleObenPx = HUD_OBEN_PX + hudHoehe + QUELLE_ABSTAND_PX;
+  const obenPx =
+    HUD_OBEN_PX + hudHoehe + HUD_ABSTAND_PX + (ohneKarte ? 0 : QUELLE_ABSTAND_PX + (quelleHoehe || QUELLE_HOEHE_PX));
   // Aufgeklapptes Sheet endet oben 8 px unter dem (gemessenen) HUD.
   const sheetOffenHoehe = `min(72vh, calc(100% - ${obenPx}px))`;
 
@@ -356,12 +370,8 @@ function LagekarteInhalt({ onListe }: LagekarteProps) {
       right: panelOffen ? PANEL_RAUM_PX : 12,
     };
   }, [mobil, panelOffen, wurzelHoehe, sheetHoehe, legendeMobilSichtbar, legendeHoehe, obenPx]);
-  // --lk-oben: Oberkante von Leiste, Panel und Quellenangabe (unter dem HUD).
-  // --lk-attr-rechts: Quellenangabe (oben rechts) neben das offene Panel schieben.
-  const wurzelStil = {
-    "--lk-oben": `${obenPx}px`,
-    "--lk-attr-rechts": !mobil && panelOffen ? `${PANEL_RAUM_PX - 12}px` : "0px",
-  } as CSSProperties;
+  // --lk-oben: Oberkante von Leiste und Panel (unter HUD und Quellenzeile).
+  const wurzelStil = { "--lk-oben": `${obenPx}px` } as CSSProperties;
 
   const wurzelKlasse = `lagekarte ${thema === "dunkel" ? "lagekarte--dunkel" : ""} relative isolate h-full w-full overflow-hidden`;
 
@@ -373,7 +383,6 @@ function LagekarteInhalt({ onListe }: LagekarteProps) {
         style={wurzelStil}
         data-testid="lagekarte"
         data-ansicht={ansicht}
-        data-panel={!mobil && panelOffen ? "offen" : undefined}
       >
         {/* Karte füllt alles */}
         {!ohneKarte && (
@@ -517,6 +526,19 @@ function LagekarteInhalt({ onListe }: LagekarteProps) {
             onGeaendert={() => void neuLaden()}
             mobil={mobil}
           />
+        )}
+
+        {/* Quellenvermerk: immer sichtbar unter dem HUD (z-20: unter HUD-Menü, über Leiste und Sheet;
+            aufgeklappt über dem Panel). */}
+        {daten && !ohneKarte && (
+          <div
+            className="pointer-events-none absolute right-3 left-3 z-20 flex justify-end has-[[aria-expanded=true]]:z-[35]"
+            style={{ top: quelleObenPx }}
+          >
+            <div className="pointer-events-auto max-w-full">
+              <Quellenangabe zeileRef={setQuelleEl} />
+            </div>
+          </div>
         )}
 
         {/* Erstes Laden: Skelett mit Brett-Silhouette (Karte baut sich darunter schon auf) */}

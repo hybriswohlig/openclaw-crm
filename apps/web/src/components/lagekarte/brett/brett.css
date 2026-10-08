@@ -15,28 +15,6 @@
   outline-offset: -2px;
 }
 
-/* Quellenangabe kompakt, im Thema */
-.lk-brett .maplibregl-ctrl.maplibregl-ctrl-attrib {
-  background-color: color-mix(in oklab, var(--lk-panel) 82%, transparent);
-  color: var(--lk-text-leise);
-  font-size: 11px;
-  line-height: 18px;
-}
-.lk-brett .maplibregl-ctrl-attrib.maplibregl-compact {
-  border: 1px solid var(--lk-panel-rand);
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
-}
-.lk-brett .maplibregl-ctrl-attrib a {
-  color: inherit;
-}
-.lk-brett .maplibregl-ctrl-attrib-button:focus-visible {
-  box-shadow: 0 0 0 2px var(--lk-akzent);
-}
-.lagekarte--dunkel .lk-brett .maplibregl-ctrl-attrib-button {
-  filter: invert(1);
-}
-
 /* Auswahl-Marker: 0×0-Anker, Ringe ohne transform zentriert (lk-puls animiert transform) */
 .lk-brett-auswahl {
   position: relative;
