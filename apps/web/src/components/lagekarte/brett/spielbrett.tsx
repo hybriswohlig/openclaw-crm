@@ -108,7 +108,13 @@ const PLATZ_START: AuswahlPlatz = { seite: "oben", stapel: null };
  * andere Figuren zu verdecken, und welche Cluster-Zahl unter dem Auswahlring
  * verschwände (Bildschirm-Pixel, siehe schild.ts).
  */
-function auswahlPlatzFuer(map: MaplibreMap, ort: KartenOrt, eigeneId: string, schildBreite: number): AuswahlPlatz {
+function auswahlPlatzFuer(
+  map: MaplibreMap,
+  ort: KartenOrt,
+  eigeneId: string,
+  schildBreite: number,
+  verdeckt: Rand,
+): AuswahlPlatz {
   const p = map.project([ort.lng, ort.lat]);
   const reichweite = schildBreite + SCHILD_SEITE_ABSTAND_PX + 40;
   const layers = SCHILD_HINDERNIS_EBENEN.filter((id) => map.getLayer(id));
@@ -138,8 +144,14 @@ function auswahlPlatzFuer(map: MaplibreMap, ort: KartenOrt, eigeneId: string, sc
       figuren.push({ x: q.x - p.x, y: q.y - p.y, r: FIGUR_RADIUS_PX, gewicht: 1 });
     }
   }
+  // Sichtbar ist nur die freie Fläche zwischen HUD, Quellenzeile, Leiste, Panel und Legende/Sheet.
   const c = map.getContainer();
-  const grenze = { links: -p.x, oben: -p.y, rechts: c.clientWidth - p.x, unten: c.clientHeight - p.y };
+  const grenze = {
+    links: verdeckt.left - p.x,
+    oben: verdeckt.top - p.y,
+    rechts: c.clientWidth - verdeckt.right - p.x,
+    unten: c.clientHeight - verdeckt.bottom - p.y,
+  };
   return auswahlPlatz(cluster, figuren, schildBreite, grenze);
 }
 
@@ -586,7 +598,7 @@ export default function Spielbrett({
   /** Nach jeder Fahrt und jedem neuen Datenstand (Cluster ändern sich): Schild und Plakette neu setzen. */
   function beiRuhe(ev: MapEvent) {
     if (!auswahl?.ort) return;
-    const neu = auswahlPlatzFuer(ev.target, auswahl.ort, auswahl.id, schildRef.current?.offsetWidth ?? 160);
+    const neu = auswahlPlatzFuer(ev.target, auswahl.ort, auswahl.id, schildRef.current?.offsetWidth ?? 160, randJetzt());
     setPlatz((alt) => (alt.seite === neu.seite && alt.stapel === neu.stapel ? alt : neu));
   }
 
