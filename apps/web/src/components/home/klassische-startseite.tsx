@@ -166,7 +166,7 @@ function computeProgress(deal: {
 
 // ─── Page ────────────────────────────────────────────────────────────────
 
-export default function HomePage() {
+export default function KlassischeStartseite() {
   const { data: session } = useSession();
 
   const [deals, setDeals] = useState<OpsDeal[]>([]);
