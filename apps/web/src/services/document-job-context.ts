@@ -68,7 +68,14 @@ function quotationTotalCents(q: {
   return undefined;
 }
 
-function preiseFromQuotation(
+/**
+ * Preisblock für den VPS-Renderer (KV und AB). Beim Festpreis kommen die Posten
+ * nur ins Dokument, wenn ihre Summe genau der Festpreis ist (Kern + Hebel aus
+ * der Übernahme). Sonst gibt es eine Zeile „Pauschale“, damit Posten und
+ * Gesamtbetrag nie auseinanderlaufen, etwa wenn der Preis geändert wurde und
+ * Posten eines älteren Stands übrig sind. Der Stundensatz bleibt wie er war.
+ */
+export function preiseFromQuotation(
   firma: string,
   q: {
     isVariable: boolean;
@@ -106,7 +113,11 @@ function preiseFromQuotation(
       titel: i.description || "Leistung",
       betrag: Number(i.unitRate) * i.quantity,
     }));
-  if (positionen.length) {
+  const passtZumFestpreis =
+    q.isVariable ||
+    !q.fixedPrice ||
+    positionen.reduce((sum, p) => sum + toCents(p.betrag), 0) === toCents(Number(q.fixedPrice));
+  if (positionen.length && passtZumFestpreis) {
     return { modell: "pauschale" as const, pauschale_positionen: positionen };
   }
   if (q.fixedPrice) {
