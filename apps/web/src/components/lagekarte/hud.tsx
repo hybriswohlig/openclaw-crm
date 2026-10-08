@@ -19,7 +19,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { format, isValid } from "date-fns";
 import { de } from "date-fns/locale";
-import { AlertTriangle, Box, Crosshair, List, Map as MapIcon, SlidersHorizontal, Square } from "lucide-react";
+import { AlertTriangle, Box, Crosshair, List, Map as MapIcon, RotateCw, SlidersHorizontal, Square } from "lucide-react";
 import type { Kennzahlen } from "@/lib/lagekarte/typen";
 import { euroAusCent } from "@/lib/lagekarte/farben";
 import { cn } from "@/lib/utils";
@@ -39,6 +39,8 @@ export interface HudProps {
   onWartetKlick: () => void;
   /** Vorschau mit erfundenen Daten (nur Entwicklung): kleines Etikett am HUD. */
   vorschau?: boolean;
+  /** Nach „Aktualisierung fehlgeschlagen“: sofort erneut laden statt bis zu 60 s zu warten (M-6). */
+  onNeuLaden?: () => void;
 }
 
 const FOKUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lk-akzent)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--lk-panel)]";
@@ -264,18 +266,34 @@ export default function Hud(p: HudProps) {
   const angenommenLabel = `Angenommen ${monatKurz(k.angenommenMonat.monat)}`;
 
   const standZeile = (
-    <span
-      role={aktualisiertFehler ? "alert" : "status"}
-      className="k-mono inline-flex items-center gap-1 text-[11px] tracking-wide whitespace-nowrap"
-      style={{ color: aktualisiertFehler ? "var(--lk-wartet)" : "var(--lk-text-schwach)" }}
-    >
-      {aktualisiertFehler ? (
-        <>
-          <AlertTriangle className="size-3" aria-hidden="true" />
-          Aktualisierung fehlgeschlagen
-        </>
-      ) : (
-        standText
+    <span className="inline-flex flex-col items-start gap-1">
+      <span
+        role={aktualisiertFehler ? "alert" : "status"}
+        className="k-mono inline-flex items-center gap-1 text-[11px] tracking-wide whitespace-nowrap"
+        style={{ color: aktualisiertFehler ? "var(--lk-wartet)" : "var(--lk-text-schwach)" }}
+      >
+        {aktualisiertFehler ? (
+          <>
+            <AlertTriangle className="size-3" aria-hidden="true" />
+            Aktualisierung fehlgeschlagen
+          </>
+        ) : (
+          standText
+        )}
+      </span>
+      {aktualisiertFehler && p.onNeuLaden && (
+        <button
+          type="button"
+          onClick={p.onNeuLaden}
+          className={cn(
+            "k-mono inline-flex min-h-11 items-center gap-1 rounded-full px-3 text-[11px] @min-[68.75rem]:min-h-6 @min-[68.75rem]:px-2 font-medium whitespace-nowrap transition-colors hover:bg-[var(--lk-hover)]",
+            FOKUS,
+          )}
+          style={{ color: "var(--lk-text)", border: "1px solid var(--lk-panel-rand)" }}
+        >
+          <RotateCw className="size-3" aria-hidden="true" />
+          Erneut laden
+        </button>
       )}
     </span>
   );

@@ -436,6 +436,7 @@ function LagekarteInhalt({ onListe }: LagekarteProps) {
               onKamera={fahre}
               onWartetKlick={beiWartetKlick}
               vorschau={vorschau}
+              onNeuLaden={() => void neuLaden()}
             />
           </div>
         )}
