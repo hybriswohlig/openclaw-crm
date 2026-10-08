@@ -235,6 +235,45 @@ export const kvaConfirmations = pgTable(
   ]
 );
 
+// ─── KVA Widerrufe ────────────────────────────────────────────────────────────
+// Widerruf über den Portal-Button (§ 356a BGB). Eine Zeile je Annahme; die
+// Annahme selbst wird dabei aufgehoben (superseded_reason „Widerruf …“).
+
+export const kvaWiderrufe = pgTable(
+  "kva_widerrufe",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    dealRecordId: text("deal_record_id")
+      .notNull()
+      .references(() => records.id, { onDelete: "cascade" }),
+    confirmationId: text("confirmation_id")
+      .notNull()
+      .references(() => kvaConfirmations.id, { onDelete: "cascade" }),
+    /** Angaben nach § 356a Abs. 2 BGB, wie der Kunde sie bestätigt hat. */
+    name: text("name").notNull(),
+    vertrag: text("vertrag").notNull(),
+    /** "email" | "whatsapp" | "email_neu" */
+    kanal: text("kanal").notNull(),
+    /** Neu eingegebene E-Mail-Adresse (nur bei email_neu). */
+    email: text("email"),
+    eingegangenAt: timestamp("eingegangen_at").notNull().defaultNow(),
+    ipAddress: text("ip_address").notNull(),
+    userAgent: text("user_agent").notNull(),
+    /** Eingangsbestätigung (§ 356a Abs. 4 BGB); "sending" = Versand läuft. */
+    bestaetigungSentAt: timestamp("bestaetigung_sent_at"),
+    bestaetigungKanaele: text("bestaetigung_kanaele"),
+  },
+  (table) => [
+    uniqueIndex("kva_widerrufe_confirmation_uniq").on(table.confirmationId),
+    index("kva_widerrufe_deal_idx").on(table.dealRecordId),
+  ]
+);
+
 // ─── Move Time Entries ────────────────────────────────────────────────────────
 // Three timestamps the operator clicks during a move. Drives Stage-3 visibility
 // (departureAt → unlock live view; finishedAt → flip to Stage 4).

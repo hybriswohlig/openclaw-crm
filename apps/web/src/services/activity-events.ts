@@ -25,6 +25,7 @@ export type ActivityEventType =
   | "customer.kva_confirmed"
   | "customer.kva_confirmation_sent"
   | "kva.annahme_aufgehoben"
+  | "customer.kva_widerrufen"
   | "customer.marked_paid"
   | "customer.rated_crew"
   | "customer.date_offers_set"

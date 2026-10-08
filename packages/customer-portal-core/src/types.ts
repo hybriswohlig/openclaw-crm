@@ -310,6 +310,22 @@ export interface PaymentInstructions {
   girocodePayload: string | null;
 }
 
+export interface WiderrufKontext {
+  /** Button „Vertrag widerrufen“ zeigen: Annahme mit Widerrufsrecht, Frist läuft. */
+  aktiv: boolean;
+  /** Letzter Tag der Frist (YYYY-MM-DD), wenn aktiv. */
+  fristEnde: string | null;
+  /** Vorbelegung der Angaben nach § 356a Abs. 2 BGB. */
+  name: string | null;
+  vertrag: string | null;
+  /** Bekannte E-Mail (maskiert), null = keine bekannt. */
+  emailMaskiert: string | null;
+  /** WhatsApp-Chat mit dem Kunden vorhanden. */
+  whatsapp: boolean;
+  /** Eingegangener Widerruf, solange danach keine neue Annahme kam. */
+  eingegangen: { at: string; vertrag: string } | null;
+}
+
 export interface AcceptanceRecord {
   signedAt: string;
   acceptedFullName: string | null;
@@ -401,6 +417,8 @@ export interface CustomerPortalContext {
   annahmeRecht: AnnahmeRegeln & { kontakt: FirmaKontakt };
   /** Eine frühere Annahme wurde aufgehoben: Kunde soll das neue Angebot prüfen. */
   fruehereAnnahmeAufgehoben: boolean;
+  /** Widerrufs-Button (§ 356a BGB) oder Hinweis auf einen eingegangenen Widerruf. */
+  widerruf: WiderrufKontext;
 
   /** Documents that already exist as PDFs. URLs are public-token-scoped. */
   documents: {

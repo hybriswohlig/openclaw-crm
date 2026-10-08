@@ -1,8 +1,9 @@
 // apps/web/src/app/(public)/legal/widerruf/[firma]/route.ts
 //
 // Widerrufsbelehrung und Muster-Widerrufsformular einer Firma auf der
-// Portal-Domain. Gilt für Leistungen mit Widerrufsrecht (Küchenmontage);
-// der Annahme-Dialog und die Bestätigungs-Mail verlinken hierher. Die Texte
+// Portal-Domain. Gilt für Leistungen mit Widerrufsrecht (Küchenmontage,
+// Entrümpelung); der Annahme-Dialog und die Bestätigungs-Mail verlinken
+// hierher. Den Button „Vertrag widerrufen“ gibt es im Kundenportal. Die Texte
 // kommen aus packages/customer-portal-core/src/rechtstexte.ts.
 import type { NextRequest } from "next/server";
 import {

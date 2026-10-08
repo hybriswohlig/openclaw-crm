@@ -87,6 +87,7 @@ import { loadEffectiveBranding } from "./customer-portal-config";
 import { emitEvent } from "./activity-events";
 import { createTask } from "./tasks";
 import { annahmeNachlauf, nachlaufNoetig } from "./kva-bestaetigung";
+import { ladeWiderrufKontext } from "./kva-widerruf";
 import { angezeigtesKvDokument, gueltigeAuftragsbestaetigung } from "@/lib/portal-dokumente";
 import {
   aktivBedingung,
@@ -358,7 +359,18 @@ export async function loadContextByToken(
   const acceptance = await loadLatestAcceptance(dealRecordId);
   // Nach „Annahme aufheben“ gilt der alte Stand nicht mehr (auch nicht seine AB).
   const aufgehobenAm = acceptance ? null : await ladeLetzteAufhebung(dealRecordId);
-  const fruehereAnnahmeAufgehoben = !!aufgehobenAm;
+  // Widerrufs-Button (§ 356a BGB) oder Hinweis auf einen eingegangenen Widerruf.
+  const widerruf = await ladeWiderrufKontext({
+    workspaceId,
+    dealRecordId,
+    dealNumber,
+    kundeName: customerDisplayName,
+    emailMaskiert: customerEmailStatus === "missing" ? null : customerEmailMasked,
+    aufgehobenAm,
+    now,
+  });
+  // Nach einem Widerruf kein „Bitte prüfen Sie das neue Angebot“.
+  const fruehereAnnahmeAufgehoben = !!aufgehobenAm && !widerruf.eingegangen;
 
   // Rechtsregeln der Annahme; Dialog und confirmKvaForToken nutzen dieselben.
   const serviceType = await loadServiceType(dealRecordId);
@@ -488,6 +500,7 @@ export async function loadContextByToken(
     acceptance,
     annahmeRecht,
     fruehereAnnahmeAufgehoben,
+    widerruf,
     documents: {
       quotationUrl: quotationDocShown ? `/api/public/${token}/documents/${quotationDocShown.id}` : null,
       orderConfirmationUrl: orderConfirmationDoc
@@ -1395,7 +1408,7 @@ async function loadServiceType(dealRecordId: string): Promise<ServiceArt> {
     .from(quotations)
     .where(eq(quotations.dealRecordId, dealRecordId))
     .limit(1);
-  return q?.serviceType === "kitchen_installation" ? "kitchen_installation" : "move";
+  return q?.serviceType === "kitchen_installation" || q?.serviceType === "clearance" ? q.serviceType : "move";
 }
 
 async function loadLatestAcceptance(

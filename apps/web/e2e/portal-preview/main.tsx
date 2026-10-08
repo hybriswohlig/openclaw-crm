@@ -20,6 +20,11 @@ if (params.has("kitchen")) { ctx.scope.moveDate = "2026-09-11"; ctx.annahmeRecht
 if (params.has("nodate")) { ctx.scope.moveDate = null; ctx.annahmeRecht = { ...annahmeRegeln({ serviceType: "move", moveDate: null, hasOpenDateChoice: false, now: new Date(ctx.meta.serverTime) }), kontakt: firmaKontakt("kottke") }; }
 if (params.has("agb")) ctx.branding = { ...ctx.branding, agbPdfUrl: "/legal/agb/kottke" };
 if (params.has("aufgehoben")) ctx.fruehereAnnahmeAufgehoben = true;
+// Entrümpelung angenommen, Widerrufsfrist läuft: Button „Vertrag widerrufen“ (mit stage=2).
+if (params.has("widerruf") && ctx.acceptance) {
+  ctx.acceptance = { ...ctx.acceptance, widerrufModus: "belehrung" };
+  ctx.widerruf = { aktiv: true, fristEnde: "2026-09-21", name: "Alex Beispiel", vertrag: "Auftrag VORSCHAU-2026, Entrümpelung, angenommen am 6. September 2026", emailMaskiert: "a***@example.invalid", whatsapp: true, eingegangen: null };
+}
 // Block all mutations at this local fixture boundary. No customer API is reached.
 window.fetch = async (input, init) => {
   const url = String(input);
@@ -28,6 +33,10 @@ window.fetch = async (input, init) => {
     const { optionId } = JSON.parse(String(init?.body));
     const option = ctx.dealPackageOffers.options.find(o => o.id === optionId)!;
     ctx = { ...ctx, dealPackageOffers: { ...ctx.dealPackageOffers, selectedOptionId: optionId }, kva: { ...ctx.kva!, totalCents: option.priceCents, fixedPriceCents: option.priceCents } };
+  }
+  if (url.endsWith("/widerruf")) {
+    ctx = { ...ctx, stage: 1, acceptance: null, widerruf: { ...ctx.widerruf, aktiv: false, eingegangen: { at: ctx.meta.serverTime, vertrag: ctx.widerruf.vertrag ?? "" } } };
+    return Response.json({ data: { eingegangenAt: ctx.meta.serverTime } });
   }
   if (url.endsWith("/confirm-kva")) ctx = { ...ctx, stage: 2, acceptance: { signedAt: ctx.meta.serverTime, acceptedFullName: "Alex Beispiel", agbVersionAccepted: "preview", widerrufVerzichtAccepted: false, confirmedTotalCents: ctx.kva!.totalCents, selectedOptionName: ctx.dealPackageOffers.options.find(o => o.id === ctx.dealPackageOffers.selectedOptionId)?.displayName ?? null, widerrufModus: ctx.annahmeRecht.widerrufModus, vorzeitigerBeginnVerlangt: ctx.annahmeRecht.vorzeitigerBeginnErforderlich, quotationDocumentId: null } };
   return Response.json({ data: ctx });

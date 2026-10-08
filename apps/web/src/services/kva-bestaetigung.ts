@@ -6,7 +6,9 @@
 import { and, eq, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { kvaConfirmations, customerStatusLinks } from "@/db/schema/customer-portal";
-import { channelAccounts, inboxConversations } from "@/db/schema/inbox";
+import { channelAccounts, inboxContacts, inboxConversations } from "@/db/schema/inbox";
+import { attributes, objects } from "@/db/schema/objects";
+import { recordValues } from "@/db/schema/records";
 import { dealDocuments, dealNumbers } from "@/db/schema/financial";
 import {
   HAFTUNGSHINWEIS_451G,
@@ -80,7 +82,7 @@ function eckdaten(d: BestaetigungsDaten): string[] {
  */
 function widerrufTeil(d: BestaetigungsDaten): string[] {
   if (d.widerrufModus === "ausgeschlossen") return [keinWiderrufHinweis()];
-  const b = widerrufsbelehrung(d.kontakt);
+  const b = widerrufsbelehrung(d.kontakt, { portalUrl: d.portalUrl });
   const zeilen = [[b.titel, ...b.absaetze].join("\n"), musterWiderrufsformular(d.kontakt).join("\n")];
   if (d.vorzeitigerBeginn) zeilen.push(`Ihre Erklärung bei der Annahme: ${VORZEITIGER_BEGINN_CHECKBOX}`);
   return zeilen;
@@ -110,7 +112,7 @@ export function bestaetigungsMailText(d: BestaetigungsDaten): string {
   if (d.versicherungGewuenscht) teile.push("Sie haben ein Angebot für eine weitergehende Haftung oder Versicherung gewünscht. Wir melden uns dazu vor dem Umzug.");
   if (d.widerrufModus === "ausgeschlossen") teile.push(keinWiderrufHinweis());
   else {
-    const b = widerrufsbelehrung(d.kontakt);
+    const b = widerrufsbelehrung(d.kontakt, { portalUrl: d.portalUrl });
     teile.push([b.titel, ...b.absaetze].join("\n"));
     teile.push(musterWiderrufsformular(d.kontakt).join("\n"));
     if (d.vorzeitigerBeginn) teile.push(`Ihre Erklärung bei der Annahme: ${VORZEITIGER_BEGINN_CHECKBOX}`);
@@ -174,21 +176,53 @@ export function teamAlarmText(d: BestaetigungsDaten): string {
 
 // ─── Versand ──────────────────────────────────────────────────────────────────
 
-interface WaThread {
+export interface WaThread {
   conversationId: string;
   cloudApi: boolean;
 }
 
-/** Jüngster WhatsApp-Thread des Deals (Cloud-API oder hauseigenes Baileys). */
-async function ladeWaThread(workspaceId: string, dealRecordId: string): Promise<WaThread | null> {
-  const [thread] = await db
+/**
+ * Chat der Kundenperson des Deals vor allen anderen (Vermieter, Angehörige),
+ * sonst der neueste. Erwartet die Threads nach Aktualität sortiert.
+ */
+export function waThreadWaehlen(
+  threads: Array<WaThread & { kontaktPersonId: string | null }>,
+  kundePersonId: string | null
+): WaThread | null {
+  const wahl = (kundePersonId && threads.find((t) => t.kontaktPersonId === kundePersonId)) || threads[0];
+  return wahl ? { conversationId: wahl.conversationId, cloudApi: wahl.cloudApi } : null;
+}
+
+/** Erste verknüpfte Person des Deals (associated_people), wie beim E-Mail-Versand. */
+async function ladeKundenPersonId(workspaceId: string, dealRecordId: string): Promise<string | null> {
+  const [attr] = await db
+    .select({ id: attributes.id })
+    .from(attributes)
+    .innerJoin(objects, eq(attributes.objectId, objects.id))
+    .where(and(eq(objects.workspaceId, workspaceId), eq(objects.slug, "deals"), eq(attributes.slug, "associated_people")))
+    .limit(1);
+  if (!attr) return null;
+  const [link] = await db
+    .select({ personId: recordValues.referencedRecordId })
+    .from(recordValues)
+    .where(and(eq(recordValues.recordId, dealRecordId), eq(recordValues.attributeId, attr.id)))
+    .orderBy(recordValues.sortOrder)
+    .limit(1);
+  return link?.personId ?? null;
+}
+
+/** WhatsApp-Thread für Kundennachrichten (Cloud-API oder hauseigenes Baileys). */
+export async function ladeWaThread(workspaceId: string, dealRecordId: string): Promise<WaThread | null> {
+  const rows = await db
     .select({
       conversationId: inboxConversations.id,
       waPhoneNumberId: channelAccounts.waPhoneNumberId,
       baileysBridgeProvider: channelAccounts.baileysBridgeProvider,
+      kontaktPersonId: inboxContacts.crmRecordId,
     })
     .from(inboxConversations)
     .innerJoin(channelAccounts, eq(inboxConversations.channelAccountId, channelAccounts.id))
+    .leftJoin(inboxContacts, eq(inboxConversations.contactId, inboxContacts.id))
     .where(
       and(
         eq(inboxConversations.workspaceId, workspaceId),
@@ -197,11 +231,26 @@ async function ladeWaThread(workspaceId: string, dealRecordId: string): Promise<
       )
     )
     .orderBy(sql`COALESCE(${inboxConversations.lastMessageAt}, ${inboxConversations.createdAt}) DESC`)
-    .limit(1);
-  if (!thread) return null;
-  if (thread.waPhoneNumberId) return { conversationId: thread.conversationId, cloudApi: true };
-  if (thread.baileysBridgeProvider === "inhouse") return { conversationId: thread.conversationId, cloudApi: false };
-  return null;
+    .limit(20);
+  const sendbar = rows.flatMap((r) =>
+    r.waPhoneNumberId
+      ? [{ conversationId: r.conversationId, cloudApi: true, kontaktPersonId: r.kontaktPersonId }]
+      : r.baileysBridgeProvider === "inhouse"
+        ? [{ conversationId: r.conversationId, cloudApi: false, kontaktPersonId: r.kontaktPersonId }]
+        : []
+  );
+  if (sendbar.length === 0) return null;
+  const kundePersonId = sendbar.length > 1 ? await ladeKundenPersonId(workspaceId, dealRecordId) : null;
+  return waThreadWaehlen(sendbar, kundePersonId);
+}
+
+/** Reiner Text in den gewählten Thread. Wirft bei Fehlern. */
+export async function sendeWhatsAppText(workspaceId: string, thread: WaThread, body: string): Promise<void> {
+  if (thread.cloudApi) {
+    await sendWhatsAppReply({ conversationId: thread.conversationId, workspaceId, body });
+  } else {
+    await sendBaileysReply({ conversationId: thread.conversationId, workspaceId, body });
+  }
 }
 
 async function sendeWhatsApp(
@@ -231,12 +280,7 @@ async function sendeWhatsApp(
     }
   }
   try {
-    const body = bestaetigungsTextWhatsApp({ ...daten, pdfDabei: pdfGesendet });
-    if (thread.cloudApi) {
-      await sendWhatsAppReply({ conversationId: thread.conversationId, workspaceId, body });
-    } else {
-      await sendBaileysReply({ conversationId: thread.conversationId, workspaceId, body });
-    }
+    await sendeWhatsAppText(workspaceId, thread, bestaetigungsTextWhatsApp({ ...daten, pdfDabei: pdfGesendet }));
     return { ok: true, pdf: pdfGesendet };
   } catch (err) {
     console.error("[kva-bestaetigung] WhatsApp-Text fehlgeschlagen:", err);
@@ -244,7 +288,8 @@ async function sendeWhatsApp(
   }
 }
 
-async function teamAufgabe(workspaceId: string, dealRecordId: string, dealNumber: string, beschreibung: string) {
+/** Aufgabe für den ersten Admin des Workspace, am Deal verknüpft. */
+export async function adminAufgabe(workspaceId: string, dealRecordId: string, titel: string, beschreibung: string) {
   const [admin] = await db
     .select({ userId: workspaceMembers.userId })
     .from(workspaceMembers)
@@ -252,7 +297,7 @@ async function teamAufgabe(workspaceId: string, dealRecordId: string, dealNumber
     .orderBy(workspaceMembers.createdAt)
     .limit(1);
   if (!admin) return;
-  await createTask(`AB erstellen: Auftrag ${dealNumber}`, admin.userId, workspaceId, {
+  await createTask(titel, admin.userId, workspaceId, {
     recordIds: [dealRecordId],
     description: beschreibung,
     kind: "operativ",
@@ -464,7 +509,7 @@ export async function annahmeNachlauf(
       console.error("[kva-bestaetigung] Team-Alarm fehlgeschlagen:", err);
     }
     try {
-      await teamAufgabe(basis.workspaceId, basis.dealRecordId, dealNumber, mitWarnung);
+      await adminAufgabe(basis.workspaceId, basis.dealRecordId, `AB erstellen: Auftrag ${dealNumber}`, mitWarnung);
     } catch (err) {
       console.error("[kva-bestaetigung] Aufgabe fehlgeschlagen:", err);
     }

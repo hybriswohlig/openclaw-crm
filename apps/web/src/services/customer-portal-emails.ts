@@ -87,9 +87,11 @@ type CustomerEmailTransport =
 export async function resolveCustomerEmailTransport(
   workspaceId: string,
   dealRecordId: string,
-  allowGmail = false
+  allowGmail = false,
+  /** Andere Zieladresse, z. B. die beim Widerruf eingegebene. */
+  zielEmail: string | null = null
 ): Promise<CustomerEmailTransport> {
-  const customerEmail = await loadCustomerEmail(workspaceId, dealRecordId);
+  const customerEmail = zielEmail ?? (await loadCustomerEmail(workspaceId, dealRecordId));
   if (!customerEmail) {
     return { ok: false, reason: "no_customer_email" };
   }
@@ -125,7 +127,7 @@ export async function resolveCustomerEmailTransport(
   };
 }
 
-async function loadCustomerEmail(
+export async function loadCustomerEmail(
   workspaceId: string,
   dealRecordId: string
 ): Promise<string | null> {

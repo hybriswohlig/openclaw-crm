@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agbAlsText, bestaetigungVerschickt, bestaetigungsMailText, bestaetigungsTextWhatsApp, nachlaufNoetig, teamAlarmText, type BestaetigungsDaten } from "./kva-bestaetigung";
+import { agbAlsText, bestaetigungVerschickt, bestaetigungsMailText, bestaetigungsTextWhatsApp, nachlaufNoetig, teamAlarmText, waThreadWaehlen, type BestaetigungsDaten } from "./kva-bestaetigung";
 import { firmaKontakt } from "@openclaw-crm/customer-portal-core";
 
 const umzug: BestaetigungsDaten = {
@@ -97,5 +97,34 @@ describe("agbAlsText", () => {
     expect(t).toContain("§ 1 Geltung & Umfang");
     expect(t).not.toContain("<p>");
     expect(t).not.toContain("p{}");
+  });
+});
+
+describe("Widerrufs-Button in der Bestätigung (§ 356a BGB)", () => {
+  const kueche: BestaetigungsDaten = { ...umzug, widerrufModus: "belehrung", haftung: false, versicherungGewuenscht: false };
+  it("WhatsApp und Mail nennen den Portal-Link für den Online-Widerruf", () => {
+    const satz = "Sie können Ihr Widerrufsrecht auch online in Ihrem Kundenportal unter https://status.kottke-umzuege.de/s/abc";
+    expect(bestaetigungsTextWhatsApp(kueche)).toContain(satz);
+    expect(bestaetigungsMailText(kueche)).toContain(satz);
+  });
+  it("WhatsApp mit vorzeitigem Beginn bleibt unter 4096 Zeichen", () => {
+    expect(bestaetigungsTextWhatsApp({ ...kueche, vorzeitigerBeginn: true, kontakt: firmaKontakt("kottke") }).length).toBeLessThan(4096);
+  });
+});
+
+describe("waThreadWaehlen: Chat des Kunden vor neuestem Thread", () => {
+  const threads = [
+    { conversationId: "neu-fremd", cloudApi: true, kontaktPersonId: "p-vermieter" },
+    { conversationId: "alt-kunde", cloudApi: false, kontaktPersonId: "p-kunde" },
+  ];
+  it("nimmt den Chat der Kundenperson, auch wenn er älter ist", () => {
+    expect(waThreadWaehlen(threads, "p-kunde")).toEqual({ conversationId: "alt-kunde", cloudApi: false });
+  });
+  it("ohne passenden Chat oder ohne Kundenperson: neuester Thread", () => {
+    expect(waThreadWaehlen(threads, "p-andere")).toEqual({ conversationId: "neu-fremd", cloudApi: true });
+    expect(waThreadWaehlen(threads, null)).toEqual({ conversationId: "neu-fremd", cloudApi: true });
+  });
+  it("keine Threads: null", () => {
+    expect(waThreadWaehlen([], "p-kunde")).toBeNull();
   });
 });

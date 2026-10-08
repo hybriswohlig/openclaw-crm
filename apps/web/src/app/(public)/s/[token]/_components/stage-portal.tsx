@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { CustomerPortalContext } from "@openclaw-crm/customer-portal-core";
 import { StageHeader } from "./stage-header";
+import { WiderrufPanel } from "./widerruf-panel";
 import { StageOneKva } from "./stage-one-kva";
 import { StageTwoAb } from "./stage-two-ab";
 import { StageThreeLive } from "./stage-three-live";
@@ -58,6 +59,7 @@ export function StagePortal({
     <main className="portal-shell" style={{ ...portalBrandStyle(ctx.branding.primaryColor), "--portal-highlight": ctx.branding.firmaSlug === "kottke" ? "#ff8200" : `#${ctx.branding.primaryColor}` } as React.CSSProperties}>
       <a className="portal-skip" href="#portal-content">Zum Auftragsinhalt</a>
       <StageHeader ctx={ctx} />
+      <WiderrufPanel token={token} ctx={ctx} onWiderrufen={refresh} />
 
       <div id="portal-content" className="portal-content">
         {ctx.stage === 1 && <StageOneKva token={token} ctx={ctx} onConfirmed={refresh} />}

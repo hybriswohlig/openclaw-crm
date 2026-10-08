@@ -11,7 +11,7 @@ pnpm --filter @openclaw-crm/web exec tsc --noEmit -p e2e/portal-preview/tsconfig
 pnpm --filter @openclaw-crm/web test -- src/lib/portal-presentation.test.ts src/lib/portal-offer-selection.test.ts
 ```
 
-Open `http://127.0.0.1:4178/`. Query options: `single`, `stage=2`, `stage=3`, `stage=3&live`, `stage=4` (payments off), `stage=4&payments`, `otherbrand`, `dark`, `expired`, `empty`, `kitchen` (Küchenmontage in 5 Tagen: Widerrufsbelehrung und vorzeitiger Beginn), `nodate` (Umzug ohne Termin), `agb`, `aufgehoben` (frühere Annahme aufgehoben).
+Open `http://127.0.0.1:4178/`. Query options: `single`, `stage=2`, `stage=3`, `stage=3&live`, `stage=4` (payments off), `stage=4&payments`, `otherbrand`, `dark`, `expired`, `empty`, `kitchen` (Küchenmontage in 5 Tagen: Widerrufsbelehrung und vorzeitiger Beginn), `nodate` (Umzug ohne Termin), `agb`, `aufgehoben` (frühere Annahme aufgehoben), `stage=2&widerruf` (Entrümpelung in der Widerrufsfrist: Button „Vertrag widerrufen“).
 
 The check covers desktop/mobile overflow, single/multiple options, live-state absence, branding, consent and acceptance, expiry, missing quotes and unverified payment reports. Screenshots go to `/tmp/portal-redesign`, or `PORTAL_SCREENSHOT_DIR`.
 

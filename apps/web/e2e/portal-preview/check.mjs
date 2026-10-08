@@ -65,6 +65,30 @@ try {
   assert.equal(await kSubmit.isEnabled(), true);
   await page.screenshot({ path: `${out}/acceptance-dialog-kitchen.png` });
   console.log("PASS kitchen: Widerrufsbelehrung and early-start gate");
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto("http://127.0.0.1:4178/?stage=2&widerruf", { waitUntil: "networkidle" });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `widerruf overflows at ${width}px`);
+    await page.screenshot({ path: `${out}/widerruf-${width}.png`, fullPage: true });
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByRole("button", { name: "Vertrag widerrufen", exact: true }).click();
+  await page.getByRole("dialog").waitFor();
+  assert.match(await page.getByRole("dialog").innerText(), /Hiermit widerrufe ich den folgenden Vertrag/);
+  const wSubmit = page.getByRole("dialog").getByRole("button", { name: "Widerruf bestätigen", exact: true });
+  assert.equal(await wSubmit.isEnabled(), true, "Name und bekannte E-Mail sind vorbelegt");
+  await page.locator("#widerruf-kanal-neu").check();
+  assert.equal(await wSubmit.isDisabled(), true, "neue E-Mail-Adresse fehlt");
+  await page.locator("#widerruf-email").fill("alex@example.invalid");
+  await page.screenshot({ path: `${out}/widerruf-dialog.png` });
+  await wSubmit.click();
+  await page.getByRole("heading", { name: "Widerruf eingegangen" }).waitFor();
+  await page.getByRole("button", { name: "Schließen", exact: true }).click();
+  await page.getByRole("heading", { name: "Ihr Widerruf ist eingegangen" }).waitFor();
+  await page.screenshot({ path: `${out}/widerruf-eingegangen.png`, fullPage: true });
+  console.log("PASS withdrawal function: two steps, channel choice, receipt notice");
+  await page.goto("http://127.0.0.1:4178/?stage=2", { waitUntil: "networkidle" });
+  assert.equal(await page.getByRole("button", { name: "Vertrag widerrufen", exact: true }).count(), 0, "Umzug: kein Widerrufs-Button");
   await page.goto("http://127.0.0.1:4178/?nodate", { waitUntil: "networkidle" });
   assert.equal(await page.getByRole("button", { name: "Termin wird noch abgestimmt", exact: true }).isDisabled(), true);
   console.log("PASS move without date cannot be accepted");
