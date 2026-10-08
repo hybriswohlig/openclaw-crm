@@ -91,32 +91,6 @@
   color: var(--ink-muted);
 }
 
-.topbarMeta {
-  font-family: var(--f-mono, "JetBrains Mono"), ui-monospace, monospace;
-  font-size: 11px;
-  color: var(--ink-muted);
-  letter-spacing: 0.02em;
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.pulse {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #4e8a5e;
-  display: inline-block;
-  box-shadow: 0 0 0 0 rgba(78, 138, 94, 0.5);
-  animation: pulse 2.4s ease-out infinite;
-}
-
-@keyframes pulse {
-  0% { box-shadow: 0 0 0 0 rgba(78, 138, 94, 0.4); }
-  70% { box-shadow: 0 0 0 8px rgba(78, 138, 94, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(78, 138, 94, 0); }
-}
-
 /* ── Main split ─────────────────────────────────── */
 .stage {
   display: grid;
@@ -143,7 +117,7 @@
   display: flex;
   flex-direction: column;
   gap: 32px;
-  justify-content: space-between;
+  justify-content: center;
   min-height: 520px;
 }
 
@@ -199,51 +173,6 @@
   color: var(--ink-soft);
   text-wrap: pretty;
 }
-
-.crew {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding-top: 8px;
-}
-
-.avatars {
-  display: inline-flex;
-}
-
-.avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: var(--paper-2);
-  border: 1.5px solid var(--paper);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--f-display, "Fraunces"), serif;
-  font-weight: 500;
-  font-size: 12px;
-  color: var(--ink);
-  margin-left: -8px;
-}
-
-.avatar:first-child { margin-left: 0; }
-.a1 { background: oklch(0.88 0.06 60); }
-.a2 { background: oklch(0.85 0.04 140); }
-.a3 { background: oklch(0.86 0.05 20); }
-
-.crewText {
-  font-size: 13px;
-  color: var(--ink-soft);
-  line-height: 1.4;
-}
-
-.crewText b {
-  color: var(--ink);
-  font-weight: 500;
-}
-
-.crewMuted { color: var(--ink-muted); }
 
 /* ── Right: login card ──────────────────────────── */
 .cardwrap {
@@ -502,12 +431,6 @@
   color: var(--ink-muted);
   letter-spacing: 0.02em;
   border-top: 1px dashed var(--line);
-}
-
-.loc {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
 }
 
 @media (max-width: 620px) {
