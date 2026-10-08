@@ -47,10 +47,11 @@ export interface KartenOrt {
 
 /**
  * Warum ein Lead auf uns wartet. Nur belastbare Signale:
- * - antwort: offener WhatsApp-Thread, letzte Nachricht kam vom Kunden, und diese
+ * - antwort: offener WhatsApp-Thread, letzte Nachricht kam vom Kunden (nach unserer
+ *   letzten GESENDETEN Antwort; pending/failed zählen nicht, Ruling 15), und diese
  *   letzte Kundennachricht ist höchstens 14 Tage alt (Ruling 9). Ältere offene
  *   Threads warten nicht, sie stehen in LeadPunkt.alterChat (Mission „chat_aufraeumen“).
- * - neu_pruefen: Status "neu", keine ausgehende Nachricht, jünger als 7 Tage.
+ * - neu_pruefen: Status "neu", keine gesendete ausgehende Nachricht, jünger als 7 Tage.
  * E-Mail zählt bewusst NICHT (Antworten laufen über Gmail und sind im CRM unsichtbar);
  * ungelesene E-Mails stehen separat in LeadPunkt.emailUngelesen.
  */
@@ -116,7 +117,10 @@ export interface ChatKurz {
   /** Vorschau der letzten Nachricht ("Du: …" bei ausgehend), max. 140 Zeichen. */
   vorschau: string | null;
   ungelesen: number;
-  /** Letzte Nachricht kam vom Kunden (nur für WhatsApp belastbar). */
+  /**
+   * Kunde schrieb nach unserer letzten gesendeten Antwort (nur für WhatsApp belastbar).
+   * Ungesendete Nachrichten (Status pending, failed) zählen nicht als Antwort (Ruling 15).
+   */
   kundeZuletzt: boolean;
 }
 
@@ -148,7 +152,9 @@ export interface LeadPunkt {
   emailUngelesen: number;
   /**
    * Ältester offener WhatsApp-Thread, in dem der Kunde zuletzt schrieb, aber vor mehr als
-   * 14 Tagen (wartet deshalb nicht). seit = erste offene Kundennachricht (ISO). Sonst null.
+   * 14 Tagen (wartet deshalb nicht). Bei Status „verloren“ jeder offene WhatsApp-Thread mit
+   * Kunde zuletzt, ohne 14-Tage-Fenster (Mission „WhatsApp nach Verloren“).
+   * seit = erste offene Kundennachricht (ISO). Sonst null.
    */
   alterChat: { chatId: string; seit: string } | null;
   /** Lead-Threads, neueste zuerst; offene vor erledigten. */

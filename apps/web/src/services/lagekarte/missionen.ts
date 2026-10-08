@@ -1,13 +1,14 @@
 /**
  * Lagekarte: Missionen (nächste beste Aktion) nur aus belastbaren Signalen.
- * Reine Funktion, keine DB. Verlorene Leads erzeugen nie Missionen.
+ * Reine Funktion, keine DB. Verlorene Leads erzeugen nur „Chat aufräumen“,
+ * wenn der Kunde im offenen WhatsApp-Chat zuletzt schrieb (Grok 4).
+ * Ruling 14: keine Obergrenze, die Leiste gruppiert nach Art.
  */
 import { berlinDateString } from "@/lib/berlin-date";
 import { euroAusCent } from "@/lib/lagekarte/farben";
 import { plausiblerCent, type LeadPunkt, type Mission } from "@/lib/lagekarte/typen";
 
 const TAG_MS = 24 * 60 * 60 * 1000;
-const MAX_MISSIONEN = 12;
 
 /** Kalendertage von a nach b (beide YYYY-MM-DD), rein kalendarisch. */
 function kalenderTage(von: string, bis: string): number {
@@ -30,7 +31,6 @@ export function erzeugeMissionen(leads: LeadPunkt[], jetzt: Date): Mission[] {
   const kandidaten: Kandidat[] = [];
 
   for (const l of leads) {
-    if (l.status === "verloren") continue;
     const neu = (art: Mission["art"], titel: string, dringlichkeit: Mission["dringlichkeit"], anlassIso: string) =>
       kandidaten.push({
         id: `${art}:${l.id}`,
@@ -40,6 +40,16 @@ export function erzeugeMissionen(leads: LeadPunkt[], jetzt: Date): Mission[] {
         dringlichkeit,
         anlass: new Date(anlassIso).getTime(),
       });
+
+    if (l.status === "verloren") {
+      // Kunde schrieb nach „Verloren“ (oder vorher, unbeantwortet): Chat beantworten oder schließen.
+      if (l.alterChat) {
+        const n = kalenderTage(berlinDateString(new Date(l.alterChat.seit)), heute);
+        const wann = n <= 0 ? "heute" : n === 1 ? "gestern" : `vor ${n} Tagen`;
+        neu("chat_aufraeumen", `WhatsApp nach Verloren: Kunde schrieb ${wann}`, 3, l.alterChat.seit);
+      }
+      continue;
+    }
 
     if (l.statusHinweis?.startsWith("KV angenommen")) {
       neu("auftrag_stufe", "KV angenommen, Stufe auf „Geplant“ setzen", 1, l.kv.angenommenAm ?? l.angelegtAm);
@@ -90,6 +100,5 @@ export function erzeugeMissionen(leads: LeadPunkt[], jetzt: Date): Mission[] {
 
   return kandidaten
     .sort((a, b) => a.dringlichkeit - b.dringlichkeit || a.anlass - b.anlass || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-    .slice(0, MAX_MISSIONEN)
     .map(({ anlass: _anlass, ...mission }) => mission);
 }

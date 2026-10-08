@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ANTWORT_FENSTER_TAGE, wartetAuf, type ThreadSignal } from "./wartet";
+import { ANTWORT_FENSTER_TAGE, ANTWORT_STATUS, kundeSchriebZuletzt, wartetAuf, zaehltAlsAntwort, type ThreadSignal } from "./wartet";
 
 const jetzt = new Date("2026-10-08T09:00:00+02:00");
 const h = (stunden: number) => new Date(jetzt.getTime() - stunden * 3600_000);
@@ -187,9 +187,50 @@ describe("wartetAuf", () => {
       }
     });
 
-    it("verloren: kein alter Chat", () => {
-      const r = wartetAuf({ status: "verloren", angelegtAm: h(1000), jetzt, threads: [t({ letzteEingehend: h(20 * TAG_H) })] });
-      expect(r.alterOffenerChat).toBeNull();
+    describe("verloren (Grok 4): offener WhatsApp-Chat mit Kunde zuletzt wird alter Chat, ohne 14-Tage-Fenster", () => {
+      it("frische Kundennachricht nach Verloren: wartet nicht, alter Chat ab erster offener Kundennachricht", () => {
+        const r = wartetAuf({
+          status: "verloren",
+          angelegtAm: h(1000),
+          jetzt,
+          threads: [t({ letzteAusgehend: h(30 * TAG_H), ersteEingehendNachAusgehend: h(5), letzteEingehend: h(2) })],
+        });
+        expect(r).toEqual({ wartet: null, veraltet: false, emailUngelesen: 0, alterOffenerChat: { chatId: "t1", seit: h(5).toISOString() } });
+      });
+
+      it("auch ältere Kundennachrichten (über 14 Tage) zählen", () => {
+        const r = wartetAuf({ status: "verloren", angelegtAm: h(1000), jetzt, threads: [t({ letzteEingehend: h(20 * TAG_H) })] });
+        expect(r.wartet).toBeNull();
+        expect(r.alterOffenerChat).toEqual({ chatId: "t1", seit: h(20 * TAG_H).toISOString() });
+      });
+
+      it("mehrere offene Chats: der älteste gewinnt", () => {
+        const r = wartetAuf({
+          status: "verloren",
+          angelegtAm: h(1000),
+          jetzt,
+          threads: [
+            t({ id: "frisch", letzteEingehend: h(2), ersteEingehendNachAusgehend: h(2) }),
+            t({ id: "alt", letzteEingehend: h(20 * TAG_H), ersteEingehendNachAusgehend: h(20 * TAG_H) }),
+          ],
+        });
+        expect(r.alterOffenerChat).toEqual({ chatId: "alt", seit: h(20 * TAG_H).toISOString() });
+      });
+
+      it("beantwortete, erledigte, Spam-, E-Mail- und SMS-Threads bleiben außen vor", () => {
+        const faelle: Array<Partial<ThreadSignal>> = [
+          { letzteEingehend: h(5), letzteAusgehend: h(1) },
+          { status: "resolved", letzteEingehend: h(5) },
+          { lane: "spam", letzteEingehend: h(5) },
+          { kanal: "email", letzteEingehend: h(5) },
+          { kanal: "sms", letzteEingehend: h(5) },
+        ];
+        for (const f of faelle) {
+          const r = wartetAuf({ status: "verloren", angelegtAm: h(1000), jetzt, threads: [t(f)] });
+          expect(r.alterOffenerChat).toBeNull();
+          expect(r.wartet).toBeNull();
+        }
+      });
     });
 
     it("neue Anfrage mit altem WhatsApp-Thread: neu_pruefen bleibt, alter Chat wird gemeldet", () => {
@@ -197,5 +238,26 @@ describe("wartetAuf", () => {
       expect(r.wartet?.art).toBe("neu_pruefen");
       expect(r.alterOffenerChat).toEqual({ chatId: "t1", seit: h(20 * TAG_H).toISOString() });
     });
+  });
+});
+
+describe("Antwort nur, wenn gesendet (Ruling 15)", () => {
+  it("nur sent, delivered und read zählen als Antwort", () => {
+    expect([...ANTWORT_STATUS].sort()).toEqual(["delivered", "read", "sent"]);
+    for (const status of ["sent", "delivered", "read"]) expect(zaehltAlsAntwort({ direction: "outbound", status })).toBe(true);
+    for (const status of ["pending", "failed", "received"]) expect(zaehltAlsAntwort({ direction: "outbound", status })).toBe(false);
+    expect(zaehltAlsAntwort({ direction: "inbound", status: "received" })).toBe(false);
+  });
+
+  it("kundeSchriebZuletzt (neueste zuerst): fehlgeschlagene oder wartende Sendungen nach der Kundennachricht zählen nicht", () => {
+    const ein = { direction: "inbound" as const, status: "received" };
+    const aus = (status: string) => ({ direction: "outbound" as const, status });
+    expect(kundeSchriebZuletzt([ein, aus("read")])).toBe(true);
+    expect(kundeSchriebZuletzt([aus("failed"), ein, aus("read")])).toBe(true);
+    expect(kundeSchriebZuletzt([aus("pending"), aus("failed"), ein])).toBe(true);
+    expect(kundeSchriebZuletzt([aus("delivered"), ein])).toBe(false);
+    expect(kundeSchriebZuletzt([aus("failed"), aus("sent"), ein])).toBe(false);
+    expect(kundeSchriebZuletzt([aus("failed")])).toBe(false);
+    expect(kundeSchriebZuletzt([])).toBe(false);
   });
 });

@@ -12,6 +12,29 @@ export interface ThreadSignal {
   ungelesen: number;
 }
 
+/**
+ * Ruling 15: Eine ausgehende Nachricht gilt nur als Antwort, wenn sie wirklich
+ * rausging. pending (in der Warteschlange) und failed (Zustellung gescheitert)
+ * zählen nicht, sonst fällt ein Kunde aus „Wartet“, der nie eine Antwort bekam.
+ * laden.ts nutzt dieselbe Liste in SQL.
+ */
+export const ANTWORT_STATUS = ["sent", "delivered", "read"] as const;
+
+export function zaehltAlsAntwort(m: { direction: "inbound" | "outbound"; status: string }): boolean {
+  return m.direction === "outbound" && (ANTWORT_STATUS as readonly string[]).includes(m.status);
+}
+
+/**
+ * Nachrichten neueste zuerst: Kam nach unserer letzten gesendeten Antwort noch
+ * etwas vom Kunden? Ungesendete Nachrichten (pending, failed) werden übersprungen.
+ */
+export function kundeSchriebZuletzt(
+  neuesteZuerst: Array<{ direction: "inbound" | "outbound"; status: string }>,
+): boolean {
+  const letzte = neuesteZuerst.find((m) => m.direction === "inbound" || zaehltAlsAntwort(m));
+  return letzte?.direction === "inbound";
+}
+
 /** Nach so vielen Tagen ohne Bearbeitung gilt eine neue Anfrage als veraltet. */
 export const NEU_PRUEFEN_TAGE = 7;
 
@@ -23,7 +46,10 @@ export const ANTWORT_FENSTER_TAGE = 14;
 
 const TAG_MS = 24 * 60 * 60 * 1000;
 
-/** Kunde hat zuletzt geschrieben (oder wir haben nie geantwortet). */
+/**
+ * Kunde hat zuletzt geschrieben (oder wir haben nie geantwortet). letzteAusgehend
+ * zählt nur gesendete Antworten (sent, delivered, read; laden.ts, Ruling 15).
+ */
 function kundeZuletzt(t: ThreadSignal): boolean {
   if (!t.letzteEingehend) return false;
   return !t.letzteAusgehend || t.letzteEingehend.getTime() > t.letzteAusgehend.getTime();
@@ -39,6 +65,8 @@ function kundeZuletzt(t: ThreadSignal): boolean {
  *
  * alterOffenerChat: ältester offener WhatsApp-Thread mit Kunde zuletzt, dessen letzte
  * Kundennachricht älter als 14 Tage ist (Mission „chat_aufraeumen“ statt Warten).
+ * Bei „verloren“ wartet nie etwas, aber jeder offene WhatsApp-Thread mit Kunde
+ * zuletzt ist ein alter Chat, unabhängig vom 14-Tage-Fenster (Grok 4).
  */
 export function wartetAuf(input: {
   status: KartenStatus;
@@ -57,8 +85,7 @@ export function wartetAuf(input: {
     .filter((t) => t.kanal === "email" && kundeZuletzt(t))
     .reduce((summe, t) => summe + t.ungelesen, 0);
 
-  if (input.status === "verloren") return { wartet: null, veraltet: false, emailUngelesen, alterOffenerChat: null };
-
+  const verloren = input.status === "verloren";
   const nieBeantwortet = input.status === "neu" && !input.threads.some((t) => t.letzteAusgehend);
   const imFenster = input.jetzt.getTime() - input.angelegtAm.getTime() <= NEU_PRUEFEN_TAGE * TAG_MS;
   const veraltet = nieBeantwortet && !imFenster;
@@ -69,7 +96,7 @@ export function wartetAuf(input: {
   for (const t of relevant) {
     if (t.kanal !== "whatsapp" || !kundeZuletzt(t) || !t.letzteEingehend) continue;
     const seit = t.ersteEingehendNachAusgehend ?? t.letzteEingehend;
-    const frisch = input.jetzt.getTime() - t.letzteEingehend.getTime() <= ANTWORT_FENSTER_TAGE * TAG_MS;
+    const frisch = !verloren && input.jetzt.getTime() - t.letzteEingehend.getTime() <= ANTWORT_FENSTER_TAGE * TAG_MS;
     const bisher = frisch ? antwort : alt;
     if (!bisher || seit.getTime() < bisher.seit.getTime()) {
       if (frisch) antwort = { seit, chatId: t.id };
@@ -77,6 +104,8 @@ export function wartetAuf(input: {
     }
   }
   const alterOffenerChat = alt ? { chatId: alt.chatId, seit: alt.seit.toISOString() } : null;
+
+  if (verloren) return { wartet: null, veraltet: false, emailUngelesen, alterOffenerChat };
 
   if (antwort) {
     return {

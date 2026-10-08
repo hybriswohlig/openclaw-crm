@@ -220,7 +220,7 @@ describe("erzeugeMissionen", () => {
     expect(m.map((x) => x.art).sort()).toEqual(["adresse_fehlt", "stufe_pflegen", "termin_ohne_auftrag"]);
   });
 
-  it("verlorene Leads erzeugen nie Missionen", () => {
+  it("verlorene Leads ohne offenen WhatsApp-Chat erzeugen keine Missionen", () => {
     expect(
       erzeugeMissionen(
         [
@@ -238,7 +238,7 @@ describe("erzeugeMissionen", () => {
     ).toEqual([]);
   });
 
-  describe("Sortierung und Begrenzung", () => {
+  describe("Sortierung und Vollständigkeit", () => {
     it("sortiert nach Dringlichkeit, dann ältester Anlass zuerst", () => {
       const spaet = lead({ status: "neu", veraltet: true, angelegtAm: vor(9), ort: basis.ort });
       const frueh = lead({ status: "neu", veraltet: true, angelegtAm: vor(20), ort: basis.ort });
@@ -260,12 +260,14 @@ describe("erzeugeMissionen", () => {
       expect(erzeugeMissionen([spaet, frueh], jetzt).map((x) => x.leadId)).toEqual([frueh.id, spaet.id]);
     });
 
-    it("liefert höchstens 12 Missionen und behält die dringlichsten", () => {
+    it("liefert alle Missionen ohne Obergrenze (Ruling 14), dringlichste zuerst", () => {
       const leichte = Array.from({ length: 15 }, (_, i) => lead({ status: "neu", veraltet: true, angelegtAm: vor(10 + i), ort: basis.ort }));
+      const alteChats = Array.from({ length: 5 }, (_, i) => lead({ status: "kontakt", alterChat: { chatId: `c${i}`, seit: vor(20 + i) } }));
       const dringend = lead({ status: "auftrag", statusHinweis: "KV angenommen, Stufe x" });
-      const m = erzeugeMissionen([...leichte, dringend], jetzt);
-      expect(m).toHaveLength(12);
+      const m = erzeugeMissionen([...leichte, ...alteChats, dringend], jetzt);
+      expect(m).toHaveLength(21);
       expect(m[0].leadId).toBe(dringend.id);
+      expect(m.filter((x) => x.art === "chat_aufraeumen")).toHaveLength(5);
     });
 
     it("ist unabhängig von der Eingabereihenfolge", () => {
@@ -295,10 +297,8 @@ describe("erzeugeMissionen", () => {
       );
     });
 
-    it("ohne alten Chat keine Mission, verlorene Leads nie", () => {
+    it("ohne alten Chat keine Mission", () => {
       expect(erzeugeMissionen([lead({ status: "kontakt" })], jetzt).find((x) => x.art === "chat_aufraeumen")).toBeUndefined();
-      const verloren = lead({ status: "verloren", alterChat: { chatId: "c1", seit: vor(20) } });
-      expect(erzeugeMissionen([verloren], jetzt)).toEqual([]);
     });
 
     it("steht hinter dringlicheren Missionen, ältester alter Chat zuerst", () => {
@@ -306,6 +306,51 @@ describe("erzeugeMissionen", () => {
       const alt = lead({ status: "kontakt", alterChat: { chatId: "b", seit: vor(40) } });
       const zahlung = lead({ status: "erledigt", zahlungOffen: true });
       expect(erzeugeMissionen([jung, alt, zahlung], jetzt).map((x) => x.leadId)).toEqual([zahlung.id, alt.id, jung.id]);
+    });
+  });
+
+  describe("chat_aufraeumen nach Verloren (Grok 4)", () => {
+    // jetzt = 2026-10-08 07:30 Berlin; Kalendertage in Europe/Berlin.
+    const verloren = (seit: string, p: Partial<LeadPunkt> = {}) =>
+      lead({ status: "verloren", alterChat: { chatId: "c-v", seit }, ...p });
+
+    it("verlorener Lead mit offenem WhatsApp-Chat bekommt genau die Mission „Chat aufräumen“", () => {
+      const l = verloren("2026-10-03T18:00:00+02:00");
+      expect(erzeugeMissionen([l], jetzt)).toEqual([
+        {
+          id: `chat_aufraeumen:${l.id}`,
+          art: "chat_aufraeumen",
+          titel: "WhatsApp nach Verloren: Kunde schrieb vor 5 Tagen",
+          leadId: l.id,
+          dringlichkeit: 3,
+        },
+      ]);
+    });
+
+    it("heute und gestern statt „vor 0/1 Tagen“ (Berliner Kalendertage)", () => {
+      const titel = (seit: string) => erzeugeMissionen([verloren(seit)], jetzt)[0]?.titel;
+      expect(titel("2026-10-08T06:00:00+02:00")).toBe("WhatsApp nach Verloren: Kunde schrieb heute");
+      expect(titel("2026-10-08T00:10:00+02:00")).toBe("WhatsApp nach Verloren: Kunde schrieb heute");
+      expect(titel("2026-10-07T23:50:00+02:00")).toBe("WhatsApp nach Verloren: Kunde schrieb gestern");
+      expect(titel("2026-10-06T08:00:00+02:00")).toBe("WhatsApp nach Verloren: Kunde schrieb vor 2 Tagen");
+    });
+
+    it("andere Signale eines verlorenen Leads bleiben ohne Mission", () => {
+      const l = verloren(vor(3), {
+        zahlungOffen: true,
+        veraltet: true,
+        ort: null,
+        umzugAm: "2026-10-09",
+        statusHinweis: "KV angenommen, Stufe noch „In Kontakt“",
+        wert: { cent: 1_000_000_000, art: "bestaetigt" },
+      });
+      expect(erzeugeMissionen([l], jetzt).map((x) => x.art)).toEqual(["chat_aufraeumen"]);
+    });
+
+    it("steht nach Anlass sortiert zwischen den anderen alten Chats", () => {
+      const aktiv = lead({ status: "kontakt", alterChat: { chatId: "a", seit: vor(20) } });
+      const weg = verloren(vor(3));
+      expect(erzeugeMissionen([weg, aktiv], jetzt).map((x) => x.leadId)).toEqual([aktiv.id, weg.id]);
     });
   });
 });

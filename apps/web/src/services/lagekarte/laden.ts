@@ -29,6 +29,7 @@ import { attributes, objects, statuses } from "@/db/schema/objects";
 import { quotationLineItems, quotations } from "@/db/schema/quotations";
 import { records, recordValues } from "@/db/schema/records";
 import type { StufeOption } from "@/lib/lagekarte/typen";
+import { ANTWORT_STATUS } from "./wartet";
 
 /** Deal-Attribute, die die Lagekarte liest. */
 export const DEAL_ATTRIBUTE = [
@@ -77,9 +78,12 @@ export interface ThreadRoh {
 export interface ThreadAggregatRoh {
   conversationId: string;
   letzteEingehend: Date | null;
+  /** Letzte gesendete Antwort (Status sent, delivered, read; Ruling 15). pending/failed zählen nicht. */
   letzteAusgehend: Date | null;
-  /** min(Zeit) eingehend nach der letzten ausgehenden (ohne ausgehende: erste eingehende). */
+  /** min(Zeit) eingehend nach der letzten gesendeten Antwort (ohne Antwort: erste eingehende). */
   ersteEingehendNachAusgehend: Date | null;
+  /** Letzte Nachricht überhaupt, jede Richtung und jeder Status (nur Anzeige und Sortierung). */
+  letzteNachricht: Date | null;
 }
 
 export interface LagekarteRoh {
@@ -266,7 +270,7 @@ export async function ladeLagekarteRoh(workspaceId: string): Promise<LagekarteRo
       .from(dealCalculations)
       .where(and(eq(dealCalculations.workspaceId, workspaceId), inArray(dealCalculations.dealRecordId, dealIds))),
     ladeThreads(workspaceId, dealIds),
-    ladeThreadAggregate(workspaceId, dealIds),
+    threadAggregatAbfrage(workspaceId, dealIds),
     db
       .selectDistinct({ dealRecordId: agentDrafts.dealRecordId })
       .from(agentDrafts)
@@ -384,22 +388,23 @@ async function ladeThreads(workspaceId: string, dealIds: SQLWrapper): Promise<Th
 
 /**
  * Nachrichten-Aggregat je Thread in EINER Query (GROUP BY conversation_id).
- * Zeit = coalesce(sent_at, created_at). Die letzte ausgehende Zeit wird per
+ * Zeit = coalesce(sent_at, created_at). Antwort = ausgehend UND gesendet
+ * (ANTWORT_STATUS, Ruling 15). Die Zeit der letzten Antwort wird per
  * Fensterfunktion an jede Zeile gehängt, damit "erste eingehende nach unserer
  * letzten Antwort" im selben GROUP BY berechnet werden kann.
+ * Exportiert ohne await, damit der Test das SQL prüfen kann.
  */
-async function ladeThreadAggregate(
-  workspaceId: string,
-  dealIds: SQLWrapper,
-): Promise<ThreadAggregatRoh[]> {
+export function threadAggregatAbfrage(workspaceId: string, dealIds: SQLWrapper) {
   const zeit = sql`coalesce(${inboxMessages.sentAt}, ${inboxMessages.createdAt})`;
+  const istAntwort = sql`(${inboxMessages.direction} = 'outbound' and ${inArray(inboxMessages.status, [...ANTWORT_STATUS])})`;
   const n = db
     .select({
       conversationId: inboxMessages.conversationId,
       richtung: inboxMessages.direction,
+      antwort: sql<boolean>`${istAntwort}`.as("antwort"),
       zeit: sql<string>`${zeit}`.as("zeit"),
-      letzteAus: sql<string | null>`max(${zeit}) filter (where ${inboxMessages.direction} = 'outbound') over (partition by ${inboxMessages.conversationId})`.as(
-        "letzte_aus",
+      letzteAntwort: sql<string | null>`max(${zeit}) filter (where ${istAntwort}) over (partition by ${inboxMessages.conversationId})`.as(
+        "letzte_antwort",
       ),
     })
     .from(inboxMessages)
@@ -418,10 +423,11 @@ async function ladeThreadAggregate(
     .select({
       conversationId: n.conversationId,
       letzteEingehend: sql`max(${n.zeit}) filter (where ${n.richtung} = 'inbound')`.mapWith(inboxMessages.sentAt),
-      letzteAusgehend: sql`max(${n.zeit}) filter (where ${n.richtung} = 'outbound')`.mapWith(inboxMessages.sentAt),
-      ersteEingehendNachAusgehend: sql`min(${n.zeit}) filter (where ${n.richtung} = 'inbound' and ${n.zeit} > coalesce(${n.letzteAus}, '-infinity'::timestamp))`.mapWith(
+      letzteAusgehend: sql`max(${n.zeit}) filter (where ${n.antwort})`.mapWith(inboxMessages.sentAt),
+      ersteEingehendNachAusgehend: sql`min(${n.zeit}) filter (where ${n.richtung} = 'inbound' and ${n.zeit} > coalesce(${n.letzteAntwort}, '-infinity'::timestamp))`.mapWith(
         inboxMessages.sentAt,
       ),
+      letzteNachricht: sql`max(${n.zeit})`.mapWith(inboxMessages.sentAt),
     })
     .from(n)
     .groupBy(n.conversationId);

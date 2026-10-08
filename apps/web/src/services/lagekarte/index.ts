@@ -29,7 +29,7 @@ import {
 } from "./laden";
 import { erzeugeMissionen } from "./missionen";
 import { kartenStatus } from "./status";
-import { wartetAuf, type ThreadSignal } from "./wartet";
+import { kundeSchriebZuletzt, wartetAuf, type ThreadSignal } from "./wartet";
 import { bezahltCent, leadWert, type AngebotRoh } from "./wert";
 
 const VORSCHAU_MAX = 140;
@@ -74,7 +74,8 @@ export async function ladeChatVorschau(
     letzteNachrichtAm: iso(neueste ? zeitVon(neueste) : t.lastMessageAt),
     vorschau: t.lastMessagePreview === null ? null : kuerze(t.lastMessagePreview, VORSCHAU_MAX),
     ungelesen: t.unreadCount,
-    kundeZuletzt: neueste?.direction === "inbound",
+    // Ruling 15: ungesendete Nachrichten (pending, failed) sind keine Antwort.
+    kundeZuletzt: kundeSchriebZuletzt(roh.nachrichten),
   };
 
   return { chat, nachrichten, mehr: roh.nachrichten.length > CHAT_LIMIT };
@@ -311,12 +312,12 @@ function threadSignal(t: ThreadRoh, a: ThreadAggregatRoh | undefined): ThreadSig
   };
 }
 
-/** Letzte Aktivität laut Nachrichten (coalesce(sent_at, created_at)), sonst last_message_at. */
+/**
+ * Letzte Aktivität laut Nachrichten (coalesce(sent_at, created_at), jede Richtung,
+ * auch ungesendete), sonst last_message_at.
+ */
 function letzteNachricht(t: ThreadRoh, a: ThreadAggregatRoh | undefined): Date | null {
-  const ein = a?.letzteEingehend ?? null;
-  const aus = a?.letzteAusgehend ?? null;
-  if (ein && aus) return ein.getTime() >= aus.getTime() ? ein : aus;
-  return ein ?? aus ?? t.lastMessageAt;
+  return a?.letzteNachricht ?? t.lastMessageAt;
 }
 
 function chatKurz(t: ThreadRoh, a: ThreadAggregatRoh | undefined): ChatKurz {
