@@ -1,7 +1,7 @@
 "use client";
 
 // The one progress bar of the module. Geometry copied from
-// home/page.tsx:620-648 (6 px tall, radius 3); the track uses --muted
+// components/home/klassische-startseite.tsx:620-648 (6 px tall, radius 3); the track uses --muted
 // instead of an --ink tint so it stays visible in dark mode (R1).
 import type { Tone } from "@/lib/work-ui";
 import { cn } from "@/lib/utils";

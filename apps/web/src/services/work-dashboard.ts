@@ -441,7 +441,7 @@ export function timelineWindow(
 }
 
 /**
- * Deal move dates for "Nächste Termine" (same source as home/page.tsx).
+ * Deal move dates for "Nächste Termine" (same source as components/home/klassische-startseite.tsx).
  * `record_values.date_value` is a `date` column in string mode too
  * (`apps/web/src/db/schema/records.ts:52`), so the cut-off is compared as a
  * "YYYY-MM-DD" string and the result is parsed back at local midnight.

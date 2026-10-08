@@ -2,7 +2,7 @@
 
 // KPI tile, structure from statistics/page.tsx:217-279 (label over a large
 // k-display number), extended with the progress bar and the optional link
-// affordance from home/page.tsx WichtigTile. The row uses the house grid
+// affordance from components/home/klassische-startseite.tsx WichtigTile. The row uses the house grid
 // `repeat(auto-fit, minmax(200px, 1fr))`.
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";

@@ -1,0 +1,137 @@
+/* Lagekarte, Spielbrett: nur was Tailwind nicht sauber abbildet
+   (MapLibre-Steuerelemente, Auswahl-Marker, Tooltip-Einblendung).
+   Farben aus lagekarte.css (--lk-*), Wurzel .lagekarte setzt der Container. */
+
+.lk-brett .maplibregl-map {
+  font: inherit;
+}
+
+/* Tastaturfokus auf der Karte sichtbar machen */
+.lk-brett .maplibregl-canvas:focus {
+  outline: none;
+}
+.lk-brett .maplibregl-canvas:focus-visible {
+  outline: 2px solid var(--lk-akzent);
+  outline-offset: -2px;
+}
+
+/* Auswahl-Marker: 0×0-Anker, Ringe ohne transform zentriert (lk-puls animiert transform) */
+.lk-brett-auswahl {
+  position: relative;
+  width: 0;
+  height: 0;
+}
+.lk-brett-auswahl__ring,
+.lk-brett-auswahl__puls {
+  position: absolute;
+  left: -17px;
+  top: -17px;
+  width: 34px;
+  height: 34px;
+  border-radius: 9999px;
+  border: 2px solid var(--lk-brett-auswahl);
+}
+.lk-brett-auswahl__ring {
+  box-shadow:
+    0 0 0 3px color-mix(in oklab, var(--lk-panel) 75%, transparent),
+    0 4px 14px -4px rgba(0, 0, 0, 0.35);
+}
+.lk-brett-auswahl__puls {
+  opacity: 0;
+}
+.lk-brett-auswahl__schild {
+  position: absolute;
+  left: 0;
+  bottom: 24px;
+  transform: translateX(-50%);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  background: var(--lk-brett-auswahl);
+  color: var(--lk-panel);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+  box-shadow: 0 6px 16px -6px rgba(0, 0, 0, 0.4);
+}
+
+/* Plakette: Zahl des Clusters unter dem Ring (schild.ts: STAPEL_MITTE -18/10, Radius 11) */
+.lk-brett-auswahl__stapel {
+  position: absolute;
+  left: -29px;
+  top: -1px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background: var(--lk-brett-stapel);
+  color: var(--lk-brett-stapel-text);
+  /* Wie der Cluster-Spielstein: Ring 1,5 px, leichter Schatten. */
+  box-shadow:
+    0 0 0 1.5px var(--lk-brett-stapel-rand),
+    0 2px 4px -1px rgba(0, 0, 0, 0.35);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Schild weicht Clustern und Figuren aus (data-seite, berechnet in schild.ts;
+   Abstände dort als SCHILD_ABSTAND_PX, SCHILD_SEITE_ABSTAND_PX, SCHILD_VERSATZ_PX). */
+.lk-brett-auswahl[data-seite="unten"] .lk-brett-auswahl__schild {
+  bottom: auto;
+  top: 24px;
+}
+.lk-brett-auswahl[data-seite="rechts"] .lk-brett-auswahl__schild {
+  bottom: auto;
+  top: 0;
+  left: 22px;
+  transform: translateY(-50%);
+}
+.lk-brett-auswahl[data-seite="links"] .lk-brett-auswahl__schild {
+  bottom: auto;
+  top: 0;
+  left: auto;
+  right: 22px;
+  transform: translateY(-50%);
+}
+.lk-brett-auswahl[data-seite^="oben-"] .lk-brett-auswahl__schild,
+.lk-brett-auswahl[data-seite^="unten-"] .lk-brett-auswahl__schild {
+  transform: none;
+}
+.lk-brett-auswahl[data-seite^="unten-"] .lk-brett-auswahl__schild {
+  bottom: auto;
+  top: 24px;
+}
+.lk-brett-auswahl[data-seite$="-rechts"] .lk-brett-auswahl__schild {
+  left: -10px;
+}
+.lk-brett-auswahl[data-seite$="-links"] .lk-brett-auswahl__schild {
+  left: auto;
+  right: -10px;
+}
+
+/* Tooltip und Cluster-Liste: nur Deckkraft einblenden (Position steckt im transform) */
+@keyframes lk-brett-ein {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.lk-brett-ein {
+  animation: lk-brett-ein 120ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lk-brett-ein {
+    animation: none;
+  }
+}

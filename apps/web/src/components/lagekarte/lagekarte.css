@@ -1,0 +1,96 @@
+/* Lagekarte: seitenspezifische Tokens. Wurzel-Element trägt .lagekarte,
+   im Dunkelmodus zusätzlich .lagekarte--dunkel (gesetzt vom Container). */
+.lagekarte {
+  --lk-bg: #efe8dc;
+  --lk-panel: #fbf8f3;
+  --lk-panel-2: #f5efe5;
+  --lk-panel-rand: rgba(34, 29, 22, 0.1);
+  --lk-schatten: 0 1px 0 rgba(255, 255, 255, 0.6) inset, 0 10px 30px -12px rgba(34, 29, 22, 0.28), 0 2px 6px -2px rgba(34, 29, 22, 0.12);
+  --lk-text: #221d16;
+  --lk-text-leise: #5a5046;
+  --lk-text-schwach: #8a7f72;
+  --lk-akzent: oklch(0.58 0.12 45);
+  --lk-wartet: #d55e00;
+  --lk-ok: #008760;
+  --lk-warn: #a86f00;
+  --lk-hover: rgba(34, 29, 22, 0.05);
+  --lk-aktiv: rgba(34, 29, 22, 0.08);
+  --lk-blase-ein: #f5efe5;
+  --lk-blase-aus: #221d16;
+  --lk-blase-aus-text: #fbf8f3;
+  color: var(--lk-text);
+  background: var(--lk-bg);
+}
+
+.lagekarte.lagekarte--dunkel {
+  --lk-bg: #0b1018;
+  --lk-panel: #111826;
+  --lk-panel-2: #172033;
+  --lk-panel-rand: rgba(159, 176, 204, 0.16);
+  --lk-schatten: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 12px 32px -12px rgba(0, 0, 0, 0.7);
+  --lk-text: #e8eefb;
+  --lk-text-leise: #9fb0cc;
+  --lk-text-schwach: #6f7f9c;
+  --lk-akzent: oklch(0.72 0.12 55);
+  --lk-wartet: #ff7a3d;
+  --lk-ok: #2bc497;
+  --lk-warn: #f5b13d;
+  --lk-hover: rgba(232, 238, 251, 0.05);
+  --lk-aktiv: rgba(232, 238, 251, 0.09);
+  --lk-blase-ein: #172033;
+  --lk-blase-aus: #e8eefb;
+  --lk-blase-aus-text: #0b1018;
+}
+
+/* Schwebendes Glas-Panel (HUD, Leiste, Legende, Panel) */
+.lk-glas {
+  background: color-mix(in oklab, var(--lk-panel) 86%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  backdrop-filter: blur(14px) saturate(1.2);
+  border: 1px solid var(--lk-panel-rand);
+  box-shadow: var(--lk-schatten);
+  border-radius: 16px;
+}
+
+@keyframes lk-puls {
+  0% { transform: scale(0.6); opacity: 0.9; }
+  100% { transform: scale(2.1); opacity: 0; }
+}
+.lk-puls { animation: lk-puls 1.6s ease-out 3; }
+
+@media (prefers-reduced-motion: reduce) {
+  .lk-puls { animation: none; }
+}
+
+/* Ladeskelett: Silhouette atmet leise (aus bei reduzierter Bewegung). */
+@keyframes lk-atmen {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+.lk-skelett { animation: lk-atmen 1.8s ease-in-out infinite; }
+
+/* Mobiles Bottom-Sheet der Leiste: Höhe wechselt zwischen Peek und offen. */
+.lk-sheet {
+  transition: height 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* Schwebender Knopf „Zur Lagekarte“ auf der klassischen Startseite. */
+.lk-zur-karte {
+  box-shadow: 0 10px 24px -10px rgba(34, 29, 22, 0.45), 0 2px 6px -2px rgba(34, 29, 22, 0.2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lk-skelett { animation: none; }
+  .lk-sheet { transition: none; }
+}
+
+/* Quellenvermerk (quellenangabe.tsx): kleine Glas-Zeile unter dem HUD, immer sichtbar. */
+.lk-quelle {
+  background: color-mix(in oklab, var(--lk-panel) 84%, transparent);
+  color: var(--lk-text-leise);
+  border: 1px solid var(--lk-panel-rand);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
