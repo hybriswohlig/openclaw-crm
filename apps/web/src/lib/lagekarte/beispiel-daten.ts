@@ -104,6 +104,7 @@ export function beispielAntwort(jetzt: Date = new Date("2026-10-08T07:30:00+02:0
           : null,
       veraltet: status === "neu" && i >= 10,
       emailUngelesen: i % 6 === 2 ? 2 : 0,
+      alterChat: null,
       chats:
         i % 7 === 5
           ? []

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { wartetAuf, type ThreadSignal } from "./wartet";
+import { ANTWORT_FENSTER_TAGE, wartetAuf, type ThreadSignal } from "./wartet";
 
 const jetzt = new Date("2026-10-08T09:00:00+02:00");
 const h = (stunden: number) => new Date(jetzt.getTime() - stunden * 3600_000);
@@ -93,10 +93,109 @@ describe("wartetAuf", () => {
   it("verloren wartet nie, zählt aber ungelesene E-Mails", () => {
     expect(wartetAuf({ status: "verloren", angelegtAm: h(30), jetzt, threads: [t({ letzteEingehend: h(1) })] }).wartet).toBeNull();
     const r = wartetAuf({ status: "verloren", angelegtAm: h(30), jetzt, threads: [t({ kanal: "email", letzteEingehend: h(1), ungelesen: 3 })] });
-    expect(r).toEqual({ wartet: null, veraltet: false, emailUngelesen: 3 });
+    expect(r).toEqual({ wartet: null, veraltet: false, emailUngelesen: 3, alterOffenerChat: null });
   });
   it("mehrere wartende WhatsApp-Threads: ältestes Warten gewinnt", () => {
     const r = wartetAuf({ status: "kontakt", angelegtAm: h(100), jetzt, threads: [t({ id: "a", letzteEingehend: h(1), ersteEingehendNachAusgehend: h(1) }), t({ id: "b", letzteEingehend: h(2), ersteEingehendNachAusgehend: h(6) })] });
     expect(r.wartet?.chatId).toBe("b");
+  });
+
+  describe("Warte-Fenster (Ruling 9): letzte Kundennachricht höchstens 14 Tage alt", () => {
+    const TAG_H = 24;
+    const fenster = ANTWORT_FENSTER_TAGE * TAG_H;
+
+    it("Fenster ist 14 Tage", () => {
+      expect(ANTWORT_FENSTER_TAGE).toBe(14);
+    });
+
+    it("genau 14 Tage alte letzte Kundennachricht wartet noch", () => {
+      const r = wartetAuf({ status: "kontakt", angelegtAm: h(1000), jetzt, threads: [t({ letzteEingehend: h(fenster), ersteEingehendNachAusgehend: h(fenster) })] });
+      expect(r.wartet).toEqual({ art: "antwort", seit: h(fenster).toISOString(), chatId: "t1" });
+      expect(r.alterOffenerChat).toBeNull();
+    });
+
+    it("eine Millisekunde älter: wartet nicht, sondern alter offener Chat", () => {
+      const alt = new Date(jetzt.getTime() - ANTWORT_FENSTER_TAGE * 24 * 3600_000 - 1);
+      const r = wartetAuf({ status: "kontakt", angelegtAm: h(1000), jetzt, threads: [t({ letzteEingehend: alt, ersteEingehendNachAusgehend: alt })] });
+      expect(r.wartet).toBeNull();
+      expect(r.alterOffenerChat).toEqual({ chatId: "t1", seit: alt.toISOString() });
+    });
+
+    it("seit bleibt die erste offene Kundennachricht, auch wenn sie älter als 14 Tage ist", () => {
+      const r = wartetAuf({
+        status: "angebot",
+        angelegtAm: h(1000),
+        jetzt,
+        threads: [t({ letzteAusgehend: h(40 * TAG_H), ersteEingehendNachAusgehend: h(30 * TAG_H), letzteEingehend: h(2 * TAG_H) })],
+      });
+      expect(r.wartet).toEqual({ art: "antwort", seit: h(30 * TAG_H).toISOString(), chatId: "t1" });
+      expect(r.alterOffenerChat).toBeNull();
+    });
+
+    it("alter Chat: seit = erste offene Kundennachricht (sonst letzte eingehende)", () => {
+      const mitErster = wartetAuf({
+        status: "kontakt",
+        angelegtAm: h(1000),
+        jetzt,
+        threads: [t({ letzteAusgehend: h(40 * TAG_H), ersteEingehendNachAusgehend: h(30 * TAG_H), letzteEingehend: h(20 * TAG_H) })],
+      });
+      expect(mitErster.alterOffenerChat).toEqual({ chatId: "t1", seit: h(30 * TAG_H).toISOString() });
+      const ohneErste = wartetAuf({ status: "kontakt", angelegtAm: h(1000), jetzt, threads: [t({ letzteEingehend: h(20 * TAG_H) })] });
+      expect(ohneErste.alterOffenerChat).toEqual({ chatId: "t1", seit: h(20 * TAG_H).toISOString() });
+    });
+
+    it("mehrere alte Chats: der älteste gewinnt", () => {
+      const r = wartetAuf({
+        status: "kontakt",
+        angelegtAm: h(1000),
+        jetzt,
+        threads: [
+          t({ id: "a", letzteEingehend: h(20 * TAG_H), ersteEingehendNachAusgehend: h(20 * TAG_H) }),
+          t({ id: "b", letzteEingehend: h(16 * TAG_H), ersteEingehendNachAusgehend: h(50 * TAG_H) }),
+        ],
+      });
+      expect(r.alterOffenerChat).toEqual({ chatId: "b", seit: h(50 * TAG_H).toISOString() });
+    });
+
+    it("frischer und alter Chat am selben Lead: wartet wegen des frischen, der alte ist trotzdem gemeldet", () => {
+      const r = wartetAuf({
+        status: "kontakt",
+        angelegtAm: h(1000),
+        jetzt,
+        threads: [
+          t({ id: "frisch", letzteEingehend: h(3), ersteEingehendNachAusgehend: h(3) }),
+          t({ id: "alt", letzteEingehend: h(20 * TAG_H), ersteEingehendNachAusgehend: h(20 * TAG_H) }),
+        ],
+      });
+      expect(r.wartet).toEqual({ art: "antwort", seit: h(3).toISOString(), chatId: "frisch" });
+      expect(r.alterOffenerChat).toEqual({ chatId: "alt", seit: h(20 * TAG_H).toISOString() });
+    });
+
+    it("nur offene WhatsApp-Lead-Threads mit Kunde zuletzt zählen als alter Chat", () => {
+      const alt = h(20 * TAG_H);
+      const faelle: Array<Partial<ThreadSignal>> = [
+        { kanal: "email", letzteEingehend: alt },
+        { kanal: "sms", letzteEingehend: alt },
+        { status: "resolved", letzteEingehend: alt },
+        { lane: "spam", letzteEingehend: alt },
+        { letzteEingehend: alt, letzteAusgehend: h(19 * TAG_H) },
+      ];
+      for (const f of faelle) {
+        const r = wartetAuf({ status: "kontakt", angelegtAm: h(1000), jetzt, threads: [t(f)] });
+        expect(r.alterOffenerChat).toBeNull();
+        expect(r.wartet).toBeNull();
+      }
+    });
+
+    it("verloren: kein alter Chat", () => {
+      const r = wartetAuf({ status: "verloren", angelegtAm: h(1000), jetzt, threads: [t({ letzteEingehend: h(20 * TAG_H) })] });
+      expect(r.alterOffenerChat).toBeNull();
+    });
+
+    it("neue Anfrage mit altem WhatsApp-Thread: neu_pruefen bleibt, alter Chat wird gemeldet", () => {
+      const r = wartetAuf({ status: "neu", angelegtAm: h(30), jetzt, threads: [t({ letzteEingehend: h(20 * TAG_H) })] });
+      expect(r.wartet?.art).toBe("neu_pruefen");
+      expect(r.alterOffenerChat).toEqual({ chatId: "t1", seit: h(20 * TAG_H).toISOString() });
+    });
   });
 });

@@ -47,7 +47,9 @@ export interface KartenOrt {
 
 /**
  * Warum ein Lead auf uns wartet. Nur belastbare Signale:
- * - antwort: offener WhatsApp-Thread, letzte Nachricht kam vom Kunden.
+ * - antwort: offener WhatsApp-Thread, letzte Nachricht kam vom Kunden, und diese
+ *   letzte Kundennachricht ist höchstens 14 Tage alt (Ruling 9). Ältere offene
+ *   Threads warten nicht, sie stehen in LeadPunkt.alterChat (Mission „chat_aufraeumen“).
  * - neu_pruefen: Status "neu", keine ausgehende Nachricht, jünger als 7 Tage.
  * E-Mail zählt bewusst NICHT (Antworten laufen über Gmail und sind im CRM unsichtbar);
  * ungelesene E-Mails stehen separat in LeadPunkt.emailUngelesen.
@@ -144,6 +146,11 @@ export interface LeadPunkt {
   veraltet: boolean;
   /** Anzahl ungelesener E-Mail-Nachrichten in offenen Lead-Threads (Antwortstatus unbekannt). */
   emailUngelesen: number;
+  /**
+   * Ältester offener WhatsApp-Thread, in dem der Kunde zuletzt schrieb, aber vor mehr als
+   * 14 Tagen (wartet deshalb nicht). seit = erste offene Kundennachricht (ISO). Sonst null.
+   */
+  alterChat: { chatId: string; seit: string } | null;
   /** Lead-Threads, neueste zuerst; offene vor erledigten. */
   chats: ChatKurz[];
   kv: KvInfo;
@@ -193,7 +200,8 @@ export type MissionArt =
   | "zahlung_offen"
   | "adresse_fehlt"
   | "stufe_pflegen"
-  | "wert_pruefen";
+  | "wert_pruefen"
+  | "chat_aufraeumen";
 
 export interface Mission {
   /** Stabil: `${art}:${leadId}` */

@@ -21,6 +21,7 @@ const lead = (p: Partial<LeadPunkt>): LeadPunkt => ({
   zahlungOffen: false,
   veraltet: false,
   emailUngelesen: 0,
+  alterChat: null,
   ...p,
   kv: { ...basis.kv, ...(p.kv ?? {}) },
 });
@@ -271,6 +272,40 @@ describe("erzeugeMissionen", () => {
       const a = lead({ status: "neu", veraltet: true, angelegtAm: vor(10), ort: basis.ort });
       const b = lead({ status: "neu", veraltet: true, angelegtAm: vor(10), ort: basis.ort });
       expect(erzeugeMissionen([a, b], jetzt)).toEqual(erzeugeMissionen([b, a], jetzt));
+    });
+  });
+
+  describe("chat_aufraeumen (Ruling 9)", () => {
+    it("alter offener WhatsApp-Chat: antworten oder schließen, Dringlichkeit 3", () => {
+      const l = lead({ status: "kontakt", alterChat: { chatId: "c1", seit: vor(20) } });
+      const m = erzeugeMissionen([l], jetzt).find((x) => x.art === "chat_aufraeumen");
+      expect(m).toEqual({
+        id: `chat_aufraeumen:${l.id}`,
+        art: "chat_aufraeumen",
+        titel: "WhatsApp seit 20 Tagen offen: antworten oder Chat schließen",
+        leadId: l.id,
+        dringlichkeit: 3,
+      });
+    });
+
+    it("Tage zählen ab der ersten offenen Kundennachricht, angefangene Tage nicht", () => {
+      const l = lead({ status: "angebot", alterChat: { chatId: "c1", seit: new Date(jetzt.getTime() - 15.5 * TAG).toISOString() } });
+      expect(erzeugeMissionen([l], jetzt).find((x) => x.art === "chat_aufraeumen")?.titel).toBe(
+        "WhatsApp seit 15 Tagen offen: antworten oder Chat schließen",
+      );
+    });
+
+    it("ohne alten Chat keine Mission, verlorene Leads nie", () => {
+      expect(erzeugeMissionen([lead({ status: "kontakt" })], jetzt).find((x) => x.art === "chat_aufraeumen")).toBeUndefined();
+      const verloren = lead({ status: "verloren", alterChat: { chatId: "c1", seit: vor(20) } });
+      expect(erzeugeMissionen([verloren], jetzt)).toEqual([]);
+    });
+
+    it("steht hinter dringlicheren Missionen, ältester alter Chat zuerst", () => {
+      const jung = lead({ status: "kontakt", alterChat: { chatId: "a", seit: vor(16) } });
+      const alt = lead({ status: "kontakt", alterChat: { chatId: "b", seit: vor(40) } });
+      const zahlung = lead({ status: "erledigt", zahlungOffen: true });
+      expect(erzeugeMissionen([jung, alt, zahlung], jetzt).map((x) => x.leadId)).toEqual([zahlung.id, alt.id, jung.id]);
     });
   });
 });

@@ -140,7 +140,7 @@ function baueLagekarte(roh: LagekarteRoh, jetzt: Date): LagekarteAntwort {
 
     const dealThreads = threads.get(deal.id) ?? [];
     const signale = dealThreads.map((t) => threadSignal(t, aggregate.get(t.id)));
-    const { wartet, veraltet, emailUngelesen } = wartetAuf({
+    const { wartet, veraltet, emailUngelesen, alterOffenerChat } = wartetAuf({
       status,
       angelegtAm: deal.createdAt,
       threads: signale,
@@ -175,6 +175,7 @@ function baueLagekarte(roh: LagekarteRoh, jetzt: Date): LagekarteAntwort {
       wartet,
       veraltet,
       emailUngelesen,
+      alterChat: alterOffenerChat,
       chats: sortiereChats(chats),
       kv: {
         angebotErstellt: angebot !== null,

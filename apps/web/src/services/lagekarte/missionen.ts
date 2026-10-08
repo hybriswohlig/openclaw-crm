@@ -81,6 +81,11 @@ export function erzeugeMissionen(leads: LeadPunkt[], jetzt: Date): Mission[] {
     if (l.veraltet) {
       neu("stufe_pflegen", `Seit ${alterTage(l.angelegtAm)} Tagen „Neue Anfrage“: Stufe pflegen`, 3, l.angelegtAm);
     }
+
+    // Ruling 9: offene WhatsApp-Frage älter als 14 Tage wartet nicht mehr, sie gehört aufgeräumt.
+    if (l.alterChat) {
+      neu("chat_aufraeumen", `WhatsApp seit ${alterTage(l.alterChat.seit)} Tagen offen: antworten oder Chat schließen`, 3, l.alterChat.seit);
+    }
   }
 
   return kandidaten

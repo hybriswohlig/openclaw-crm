@@ -40,6 +40,7 @@ function lead(teil: Partial<LeadPunkt> & { id: string }): LeadPunkt {
     wartet: null,
     veraltet: false,
     emailUngelesen: 0,
+    alterChat: null,
     chats: [],
     kv: {
       angebotErstellt: false,
