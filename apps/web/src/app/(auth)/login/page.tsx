@@ -4,6 +4,7 @@ import { Suspense, useState, type SVGProps } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { signIn } from "@/lib/auth-client";
 import { trackEvent } from "@/lib/analytics";
+import { safeRedirectPath } from "@/lib/safe-redirect";
 import styles from "./login.module.css";
 
 const Icon = {
@@ -54,7 +55,8 @@ const Icon = {
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirectTo = searchParams.get("redirect") || "/home";
+  // Nur eigene Pfade: ?redirect= darf nicht auf fremde Seiten führen.
+  const redirectTo = safeRedirectPath(searchParams.get("redirect"), "/home");
   const registered = searchParams.get("registered");
   const reason = searchParams.get("reason");
 
