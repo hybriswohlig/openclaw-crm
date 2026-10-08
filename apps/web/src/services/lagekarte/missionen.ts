@@ -79,8 +79,14 @@ export function erzeugeMissionen(leads: LeadPunkt[], jetzt: Date): Mission[] {
 
     if (l.zahlungOffen) {
       const wertCent = plausiblerCent(l.wert);
-      const rest = wertCent !== null ? wertCent - l.bezahltCent : 0;
-      const titel = rest > 0 ? `Durchgeführt, Zahlung offen · ${euroAusCent(rest)} offen` : "Durchgeführt, Zahlung offen";
+      const rest = wertCent !== null ? wertCent - l.bezahltCent : null;
+      // M-3: decken die Zahlungen den Wert, fehlt nur noch die Stufe.
+      const titel =
+        rest === null
+          ? "Durchgeführt, Zahlung offen"
+          : rest > 0
+            ? `Durchgeführt, Zahlung offen · ${euroAusCent(rest)} offen`
+            : "Zahlung erfasst, Stufe auf „Bezahlt“ setzen";
       neu("zahlung_offen", titel, 2, l.umzugAm ? `${l.umzugAm.slice(0, 10)}T00:00:00Z` : l.angelegtAm);
     }
 

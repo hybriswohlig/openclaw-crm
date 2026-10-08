@@ -135,8 +135,16 @@ describe("erzeugeMissionen", () => {
     it("ohne Wert nur der Grundtext", () => {
       expect(zahlung({ wert: null })?.titel).toBe("Durchgeführt, Zahlung offen");
     });
-    it("ist der Wert schon gedeckt, nur der Grundtext", () => {
-      expect(zahlung({ wert: { cent: 50000, art: "bestaetigt" }, bezahltCent: 50000 })?.titel).toBe("Durchgeführt, Zahlung offen");
+    it("ist der Wert schon gedeckt, Stufe auf „Bezahlt“ setzen (M-3)", () => {
+      expect(zahlung({ wert: { cent: 50000, art: "bestaetigt" }, bezahltCent: 50000 })?.titel).toBe(
+        "Zahlung erfasst, Stufe auf „Bezahlt“ setzen",
+      );
+      expect(zahlung({ wert: { cent: 50000, art: "bestaetigt" }, bezahltCent: 60000 })?.titel).toBe(
+        "Zahlung erfasst, Stufe auf „Bezahlt“ setzen",
+      );
+    });
+    it("mit unbekanntem Wert bleibt es „Zahlung offen“, auch wenn schon etwas erfasst ist", () => {
+      expect(zahlung({ wert: null, bezahltCent: 30000 })?.titel).toBe("Durchgeführt, Zahlung offen");
     });
     it("ohne Flag keine Mission", () => {
       expect(zahlung({ zahlungOffen: false })).toBeUndefined();
