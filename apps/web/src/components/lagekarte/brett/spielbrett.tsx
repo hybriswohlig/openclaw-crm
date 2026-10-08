@@ -724,6 +724,10 @@ export default function Spielbrett({
           maxZoom={MAX_ZOOM}
           maxBounds={MAX_GRENZEN}
           renderWorldCopies={false}
+          // Kein Überblenden der Symbole (Standard 300 ms): Beim Zoomen tauscht die Cluster-Quelle
+          // ihre Kacheln. Kreise wechseln sofort, Zahlen und Namen alter Kacheln würden aber noch
+          // ausblenden und stünden kurz ohne Spielstein auf dem Brett (Produktions-Smoke-Test, N0).
+          fadeDuration={0}
           attributionControl={false}
           maplibreLogo={false}
           locale={LOCALE}
