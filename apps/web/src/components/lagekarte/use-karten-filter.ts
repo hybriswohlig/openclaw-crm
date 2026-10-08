@@ -2,10 +2,13 @@
 
 /**
  * Lagekarte: Filter und Auswahl liegen in der URL (teilbar, überlebt Reload).
- * Schreiben per router.replace ohne Scroll und ohne History-Eintrag.
+ * Schreiben per window.history.replaceState: ohne History-Eintrag, ohne Scroll
+ * und ohne Server-Rundlauf. Next.js (ab 14.1) gleicht useSearchParams damit ab;
+ * router.replace hätte je Klick die Seite neu vom Server geholt (spürbare
+ * Verzögerung bei Chips und Lead-Auswahl).
  */
 import { useCallback, useMemo, useRef } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { filterAusUrl, filterZuUrl, type KartenFilter } from "./filter";
 
 const AUSWAHL_SCHLUESSEL = "lead";
@@ -17,7 +20,6 @@ export function useKartenFilter(): {
   auswahlId: string | null;
   waehle: (id: string | null) => void;
 } {
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const query = searchParams?.toString() ?? "";
@@ -36,9 +38,9 @@ export function useKartenFilter(): {
     (params: URLSearchParams) => {
       aktuell.current = { gesehen: aktuell.current.gesehen, params };
       const text = params.toString();
-      router.replace(text ? `${pathname}?${text}` : pathname, { scroll: false });
+      window.history.replaceState(null, "", text ? `${pathname}?${text}` : pathname);
     },
-    [router, pathname],
+    [pathname],
   );
 
   const setzeFilter = useCallback(

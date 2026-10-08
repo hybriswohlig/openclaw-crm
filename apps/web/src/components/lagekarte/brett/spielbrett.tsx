@@ -462,6 +462,20 @@ export default function Spielbrett({
     registriereIcons(map, firmen);
   }, [geladen, firmenSchluessel, firmen]);
 
+  // Quellenangabe eingeklappt starten, wenn sie nicht bequem passt: schmal (Sheet-Layout) immer,
+  // auf dem Desktop, wenn der Text nicht neben die linke Leiste (12 + 340 px + Rand) passt.
+  // Der (i)-Knopf klappt sie jederzeit auf. Nicht in beimLaden: „load“ kann vor dem Einhängen
+  // des AttributionControl kommen.
+  useEffect(() => {
+    const map = karte();
+    if (!geladen || !map) return;
+    const attribution = map.getContainer().querySelector<HTMLElement>(".maplibregl-ctrl-attrib.maplibregl-compact-show");
+    if (!attribution) return;
+    const schmal = window.matchMedia("(max-width: 1023.98px)").matches;
+    const passtNicht = map.getContainer().clientWidth - 380 < attribution.offsetWidth;
+    if (schmal || passtNicht) attribution.classList.remove("maplibregl-compact-show");
+  }, [geladen]);
+
   // Hintergrund ist Teil des Inline-Stils, die übrigen Ebenen aktualisiert <Layer>.
   useEffect(() => {
     const map = karte();
@@ -607,7 +621,8 @@ export default function Spielbrett({
               </div>
             </Marker>
           )}
-          <AttributionControl compact position="bottom-right" customAttribution={ATTRIBUTION} />
+          {/* Oben rechts unter dem HUD: unten liegen Legende und mobil das Sheet darüber. */}
+          <AttributionControl compact position="top-right" customAttribution={ATTRIBUTION} />
         </MapLibreKarte>
       </KartenGrenze>
 

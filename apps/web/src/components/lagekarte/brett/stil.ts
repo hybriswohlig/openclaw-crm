@@ -46,6 +46,32 @@ const WARTET: ExpressionSpecification = ["==", ["get", "wartet"], true];
 /** Unbekannter Wert (null) zählt für die Größe wie 0, bleibt in den Daten aber null. */
 const WERT: ExpressionSpecification = ["coalesce", ["get", "wertCent"], 0];
 
+/**
+ * 3D-Höhen schrumpfen beim Hineinzoomen. Symbole (Icons, Ringe, Namen) liegen
+ * immer auf Bodenhöhe; bei voller Plättchenhöhe (bis 6000 m) stünden sie bei
+ * Zoom 10 weit unter den Plättchen und die Säulen weit über ihren Icons.
+ * Übersicht (Zoom <= 7,5): volle Höhen wie geplant; ab Zoom 10 fast flach
+ * (Plättchen 8 %, Säulen 45 %), dazwischen linear. Ganz nah (Zoom 12) werden
+ * die Säulen weiter gestaucht und durchscheinend, sonst verdecken sie alles.
+ */
+const ZOOM_VOLL = 7.5;
+const ZOOM_FLACH = 10;
+const ZOOM_NAH = 12;
+const KREIS_FAKTOR_NAH = 0.08;
+const SAEULE_FAKTOR_FLACH = 0.45;
+const SAEULE_FAKTOR_NAH = 0.18;
+const KREIS_HOEHE_M: ExpressionSpecification = ["+", KREIS_BASIS_M, ["*", KREIS_STUFE_M, ["min", AKTIVITAET, KREIS_STUFEN_MAX]]];
+
+function nachZoom(
+  voll: ExpressionSpecification,
+  flach: ExpressionSpecification,
+  nah: ExpressionSpecification = flach,
+): ExpressionSpecification {
+  return ["interpolate", ["linear"], ["zoom"], ZOOM_VOLL, voll, ZOOM_FLACH, flach, ZOOM_NAH, nah];
+}
+
+const SOCKEL_NAH: ExpressionSpecification = ["*", KREIS_FAKTOR_NAH, ["get", "basisM"]];
+
 type Ebene = LayerProps & { id: string };
 
 /** Alle Ebenen in Zeichenreihenfolge, gruppiert nach Quelle (Quelle setzt <Source>). */
@@ -78,7 +104,7 @@ export function ebenen(thema: Thema, ansicht: Ansicht) {
         layout: { visibility: in3d },
         paint: {
           "fill-extrusion-color": kreisFarbe,
-          "fill-extrusion-height": ["+", KREIS_BASIS_M, ["*", KREIS_STUFE_M, ["min", AKTIVITAET, KREIS_STUFEN_MAX]]],
+          "fill-extrusion-height": nachZoom(KREIS_HOEHE_M, ["*", KREIS_FAKTOR_NAH, KREIS_HOEHE_M]),
           "fill-extrusion-base": 0,
           "fill-extrusion-opacity": 0.95,
         },
@@ -242,9 +268,14 @@ export function ebenen(thema: Thema, ansicht: Ansicht) {
         layout: { visibility: in3d },
         paint: {
           "fill-extrusion-color": auftrag,
-          "fill-extrusion-base": ["get", "basisM"],
-          "fill-extrusion-height": ["+", ["get", "basisM"], ["get", "hoeheM"]],
-          "fill-extrusion-opacity": 0.9,
+          // Sockel = Plättchenhöhe mit demselben Zoomfaktor, damit die Säule oben auf dem Plättchen steht.
+          "fill-extrusion-base": nachZoom(["get", "basisM"], SOCKEL_NAH),
+          "fill-extrusion-height": nachZoom(
+            ["+", ["get", "basisM"], ["get", "hoeheM"]],
+            ["+", SOCKEL_NAH, ["*", SAEULE_FAKTOR_FLACH, ["get", "hoeheM"]]],
+            ["+", SOCKEL_NAH, ["*", SAEULE_FAKTOR_NAH, ["get", "hoeheM"]]],
+          ),
+          "fill-extrusion-opacity": ["interpolate", ["linear"], ["zoom"], ZOOM_FLACH + 0.5, 0.9, ZOOM_NAH, 0.55],
         },
       },
     ] satisfies Ebene[],

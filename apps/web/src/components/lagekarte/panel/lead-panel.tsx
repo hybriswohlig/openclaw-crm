@@ -25,7 +25,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
-import type { Firma, KartenOrt, LeadPunkt, StufeOption, WertArt } from "@/lib/lagekarte/typen";
+import { plausiblerCent, type Firma, type KartenOrt, type LeadPunkt, type StufeOption, type WertArt } from "@/lib/lagekarte/typen";
 import { STATUS_STIL, WARTET_LABEL, euroAusCent } from "@/lib/lagekarte/farben";
 import { StatusForm } from "@/components/lagekarte/status-form";
 import { useLagekarteThema } from "@/components/lagekarte/thema";
@@ -288,8 +288,8 @@ export default function LeadPanel({
     : null;
 
   const wurzelKlasse = mobil
-    ? "lk-glas absolute inset-x-0 bottom-0 z-30 flex h-[82vh] flex-col pb-[env(safe-area-inset-bottom)]"
-    : "lk-glas absolute right-3 top-24 bottom-3 z-30 flex w-[400px] max-w-[calc(100%-24px)] flex-col";
+    ? "lk-glas absolute inset-x-0 bottom-0 z-30 flex h-[82vh] max-h-[calc(100%-8px)] flex-col pb-[env(safe-area-inset-bottom)]"
+    : "lk-glas absolute right-3 top-[var(--lk-oben,96px)] bottom-3 z-30 flex w-[400px] max-w-[calc(100%-24px)] flex-col";
   // .lk-glas ist unlayered und schlägt Tailwind-Utilities, deshalb die Sheet-Ecken inline.
   const wurzelStil = mobil ? { borderBottomLeftRadius: 0, borderBottomRightRadius: 0 } : undefined;
 
@@ -361,6 +361,13 @@ export default function LeadPanel({
             <p className="mt-2 flex items-start gap-1.5 text-[12.5px] leading-snug" style={{ color: "var(--lk-warn)" }}>
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
               <span>{lead.statusHinweis}</span>
+            </p>
+          )}
+
+          {lead.wert && plausiblerCent(lead.wert) === null && (
+            <p className="mt-2 flex items-start gap-1.5 text-[12.5px] leading-snug" style={{ color: "var(--lk-warn)" }}>
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <span>Wert ungewöhnlich hoch: {euroAusCent(lead.wert.cent)}, bitte prüfen</span>
             </p>
           )}
 

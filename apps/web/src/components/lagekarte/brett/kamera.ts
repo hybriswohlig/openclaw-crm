@@ -39,9 +39,12 @@ const AUSREISSER_ANTEIL = 0.1;
 /** Rand in Pixeln (wie maplibre PaddingOptions, aber alle Seiten gesetzt). */
 export type Rand = { top: number; bottom: number; left: number; right: number };
 
-const PADDING_DESKTOP: Rand = { top: 96, bottom: 120, left: 360, right: 80 };
-const PADDING_MOBIL: Rand = { top: 72, bottom: 150, left: 24, right: 24 };
-const MOBIL_BIS_PX = 768;
+// Desktop: HUD oben (~120 px), Leiste links (12 + 340), Legende unten (bis 3 Zeilen).
+const PADDING_DESKTOP: Rand = { top: 136, bottom: 170, left: 380, right: 60 };
+// Mobil: kompaktes HUD oben, unten Bottom-Sheet (Peek 168 px) plus Legenden-Leiste.
+const PADDING_MOBIL: Rand = { top: 100, bottom: 240, left: 28, right: 28 };
+/** Gleiche Grenze wie das Container-Layout (Leiste als Sheet unter lg, Fensterbreite). */
+const DESKTOP_ABFRAGE = "(min-width: 1024px)";
 
 function quantil(sortiert: number[], q: number): number {
   const pos = (sortiert.length - 1) * q;
@@ -84,9 +87,9 @@ export function alleGrenzen(leads: LeadPunkt[]): Grenzen {
   ];
 }
 
-/** Platz für Leiste (links), HUD (oben) und Legende (unten); mobil schmal. */
-export function kameraPadding(breite: number, hoehe: number): Rand {
-  const p = breite >= MOBIL_BIS_PX ? PADDING_DESKTOP : PADDING_MOBIL;
+/** Platz für Leiste (links), HUD (oben) und Legende (unten); mobil HUD und Sheet. */
+export function kameraPadding(breite: number, hoehe: number, desktop: boolean): Rand {
+  const p = desktop ? PADDING_DESKTOP : PADDING_MOBIL;
   // Höchstens 70 % der Fläche als Rand, sonst kann fitBounds nicht einpassen.
   const fx = Math.min(1, (breite * 0.7) / (p.left + p.right));
   const fy = Math.min(1, (hoehe * 0.7) / (p.top + p.bottom));
@@ -96,7 +99,7 @@ export function kameraPadding(breite: number, hoehe: number): Rand {
 function fahreZuGrenzen(map: MaplibreMap, grenzen: Grenzen, ansicht: Ansicht): void {
   const c = map.getContainer();
   map.fitBounds(grenzen, {
-    padding: kameraPadding(c.clientWidth, c.clientHeight),
+    padding: kameraPadding(c.clientWidth, c.clientHeight, window.matchMedia(DESKTOP_ABFRAGE).matches),
     duration: FAHRT_MS,
     maxZoom: GRENZEN_MAX_ZOOM,
     // fitBounds setzt sonst die Drehung auf 0 zurück.

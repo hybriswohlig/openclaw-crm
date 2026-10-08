@@ -2,8 +2,10 @@
 /**
  * Lagekarte: Legende = Filter. Schwebt unten mittig über der Karte. Status-
  * Chips (Form plus Farbe), „Wartet“-Chip, Firmen-Chips, Zeitraum-Segment,
- * „Wert ab“-Popover, Zurücksetzen und Trefferzeile. Auf dem Desktop
- * umbrechend, mobil eine einzeilige Scroll-Leiste.
+ * „Wert ab“-Popover, Zurücksetzen und Trefferzeile. Mit genug Platz
+ * umbrechend und zentriert, schmal eine einzeilige Scroll-Leiste. Maßgeblich
+ * ist der Platz, den der Container gibt (`@container` am Rahmen), nicht die
+ * Fensterbreite: mit offenem Panel bleibt in der Mitte oft wenig übrig.
  */
 import { useEffect, useId, useRef, useState } from "react";
 import { Euro, RotateCcw, X } from "lucide-react";
@@ -30,7 +32,7 @@ export interface LegendeProps {
 const FOKUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lk-akzent)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--lk-panel)]";
 
 const CHIP =
-  "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-[12.5px] font-medium whitespace-nowrap transition-colors " +
+  "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-2 text-[12.5px] font-medium whitespace-nowrap transition-colors " +
   "hover:bg-[var(--lk-hover)] active:bg-[var(--lk-aktiv)] " +
   FOKUS;
 
@@ -147,7 +149,9 @@ function WertPopover({
       id={id}
       role="dialog"
       aria-label="Wert ab"
-      className="lk-glas absolute right-2 bottom-full left-2 z-20 mb-2 p-3 lg:left-auto lg:w-72"
+      className="lk-glas absolute right-2 bottom-full left-2 z-20 mb-2 p-3 @2xl:left-auto @2xl:w-72"
+      // Deckend: die Legende ist Backdrop-Root (backdrop-filter), Weichzeichnen sähe die Karte nicht.
+      style={{ background: "var(--lk-panel)" }}
       onKeyDown={(e) => {
         if (e.key === "Escape") {
           e.stopPropagation();
@@ -302,12 +306,12 @@ export default function Legende(p: LegendeProps) {
   ];
 
   return (
-    <div ref={wurzelRef} className="lk-glas relative px-2 py-1.5 lg:px-3 lg:py-2" aria-label="Legende und Filter">
+    <div ref={wurzelRef} className="lk-glas relative px-2 py-1.5 @2xl:px-3 @2xl:py-2" aria-label="Legende und Filter">
       <div
-        className="-m-1 flex items-center gap-1.5 overflow-x-auto p-1 [scrollbar-width:none] lg:flex-wrap lg:justify-center lg:overflow-visible [&::-webkit-scrollbar]:hidden"
+        className="-m-1 flex items-center gap-1.5 overflow-x-auto p-1 [scrollbar-width:none] @2xl:flex-wrap @2xl:justify-center @2xl:overflow-visible [&::-webkit-scrollbar]:hidden"
       >
         {/* Status-Chips */}
-        <div role="group" aria-label="Status" className="flex shrink-0 items-center gap-1">
+        <div role="group" aria-label="Status" className="flex shrink-0 items-center gap-1 @2xl:shrink @2xl:flex-wrap @2xl:justify-center">
           {KARTEN_STATUS_REIHENFOLGE.map((s) => {
             const aktiv = filter.status.includes(s);
             const stil = STATUS_STIL[s];
@@ -331,29 +335,31 @@ export default function Legende(p: LegendeProps) {
               </button>
             );
           })}
-          <button
-            type="button"
-            aria-pressed={filter.nurWartet}
-            title="Nur Leads, die auf uns warten"
-            onClick={() => setzeFilter({ nurWartet: !filter.nurWartet })}
-            className={CHIP}
-            style={{
-              borderColor: filter.nurWartet ? wartetFarbe : "transparent",
-              background: filter.nurWartet ? `color-mix(in oklab, ${wartetFarbe} 12%, transparent)` : "transparent",
-              color: filter.nurWartet ? wartetFarbe : "var(--lk-text-leise)",
-            }}
-          >
-            <svg width={14} height={14} viewBox="0 0 14 14" aria-hidden="true" style={{ flex: "none" }}>
-              <circle cx={7} cy={7} r={5.2} fill="none" stroke={wartetFarbe} strokeWidth={2} />
-            </svg>
-            Wartet
-          </button>
         </div>
+
+        {/* „Wartet“ ist ein Overlay, kein Status: eigener Chip, bricht mit den Firmen um. */}
+        <button
+          type="button"
+          aria-pressed={filter.nurWartet}
+          title="Nur Leads, die auf uns warten"
+          onClick={() => setzeFilter({ nurWartet: !filter.nurWartet })}
+          className={CHIP}
+          style={{
+            borderColor: filter.nurWartet ? wartetFarbe : "transparent",
+            background: filter.nurWartet ? `color-mix(in oklab, ${wartetFarbe} 12%, transparent)` : "transparent",
+            color: filter.nurWartet ? wartetFarbe : "var(--lk-text-leise)",
+          }}
+        >
+          <svg width={14} height={14} viewBox="0 0 14 14" aria-hidden="true" style={{ flex: "none" }}>
+            <circle cx={7} cy={7} r={5.2} fill="none" stroke={wartetFarbe} strokeWidth={2} />
+          </svg>
+          Wartet
+        </button>
 
         <Trenner />
 
         {/* Firmen-Chips */}
-        <div role="group" aria-label="Firma" className="flex shrink-0 items-center gap-1">
+        <div role="group" aria-label="Firma" className="flex shrink-0 items-center gap-1 @2xl:shrink @2xl:flex-wrap @2xl:justify-center">
           {firmenChips.map((c) => {
             const aktiv = firmaAktiv(c.id);
             return (
