@@ -6,7 +6,7 @@
  */
 import { berlinDateString } from "@/lib/berlin-date";
 import { euroAusCent } from "@/lib/lagekarte/farben";
-import { plausiblerCent, type LeadPunkt, type Mission } from "@/lib/lagekarte/typen";
+import { abholortFehlt, plausiblerCent, type LeadPunkt, type Mission } from "@/lib/lagekarte/typen";
 
 const TAG_MS = 24 * 60 * 60 * 1000;
 
@@ -84,8 +84,9 @@ export function erzeugeMissionen(leads: LeadPunkt[], jetzt: Date): Mission[] {
       neu("zahlung_offen", titel, 2, l.umzugAm ? `${l.umzugAm.slice(0, 10)}T00:00:00Z` : l.angelegtAm);
     }
 
-    if (l.ort === null && (l.status === "neu" || l.status === "kontakt") && alterMs(l.angelegtAm) <= 30 * TAG_MS) {
-      neu("adresse_fehlt", "Abholadresse fehlt für den KV", 3, l.angelegtAm);
+    if (abholortFehlt(l) && (l.status === "neu" || l.status === "kontakt") && alterMs(l.angelegtAm) <= 30 * TAG_MS) {
+      const titel = l.ort ? "Abholadresse fehlt für den KV, nur Ziel bekannt" : "Abholadresse fehlt für den KV";
+      neu("adresse_fehlt", titel, 3, l.angelegtAm);
     }
 
     if (l.veraltet) {

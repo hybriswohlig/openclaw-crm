@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { beispielAntwort } from "@/lib/lagekarte/beispiel-daten";
 import type { LeadPunkt, Mission, MissionArt } from "@/lib/lagekarte/typen";
 import { berechneKennzahlen } from "@/services/lagekarte/kennzahlen";
-import { arbeitslisten, gruppiereMissionen, heuteUndMorgen, MISSION_ART_LABEL } from "./arbeitslisten";
+import { arbeitslisten, gruppiereMissionen, heuteUndMorgen, MISSION_ART_LABEL, ohneOrtHinweis } from "./arbeitslisten";
 import { filtereLeads, STANDARD_FILTER } from "./filter";
 
 const JETZT = new Date("2026-10-08T07:30:00+02:00");
@@ -52,7 +52,9 @@ describe("arbeitslisten (Ruling 13: unabhängig vom Kartenfilter, ohne Verlorene
   const morgen = lead({ id: "m", umzugAm: "2026-10-09", status: "angebot" });
   const uebermorgen = lead({ id: "u", umzugAm: "2026-10-10", status: "auftrag" });
   const ohneOrt = lead({ id: "o", ort: null });
-  const alle = [verloren, wartetNeu, wartetAlt, email, heute, morgen, uebermorgen, ohneOrt];
+  if (!basis.ort) throw new Error("Beispiel-Lead ohne Ort");
+  const nurZiel = lead({ id: "z", ort: { ...basis.ort, quelle: "zieladresse" }, angelegtAm: "2026-10-01T10:00:00Z" });
+  const alle = [verloren, wartetNeu, wartetAlt, email, heute, morgen, uebermorgen, ohneOrt, nurZiel];
 
   it("Wartet: alle wartenden Leads, älteste zuerst, nie verlorene", () => {
     expect(arbeitslisten(alle, JETZT).wartend.map((l) => l.id)).toEqual(["w-alt", "w-neu"]);
@@ -66,8 +68,13 @@ describe("arbeitslisten (Ruling 13: unabhängig vom Kartenfilter, ohne Verlorene
     expect(arbeitslisten(alle, JETZT).heute.map((l) => l.id)).toEqual(["h", "m"]);
   });
 
-  it("Ohne Ort: ohne verlorene", () => {
-    expect(arbeitslisten(alle, JETZT).ohneOrt.map((l) => l.id)).toEqual(["o"]);
+  it("Ohne Ort: ohne verlorene, auch Leads, die nur am Ziel stehen (M-2)", () => {
+    expect(arbeitslisten(alle, JETZT).ohneOrt.map((l) => l.id)).toEqual(["o", "z"]);
+  });
+
+  it("Ohne-Ort-Hinweis: „nur Ziel bekannt“ oder „keine Adresse“", () => {
+    expect(ohneOrtHinweis(nurZiel)).toBe(`nur Ziel bekannt: ${basis.ort?.ortsname}`);
+    expect(ohneOrtHinweis(ohneOrt)).toBe("keine Adresse");
   });
 
   it("stimmt mit den HUD-Kennzahlen überein, auch wenn die Karte gefiltert ist", () => {
@@ -76,7 +83,9 @@ describe("arbeitslisten (Ruling 13: unabhängig vom Kartenfilter, ohne Verlorene
     const listen = arbeitslisten(leads, JETZT);
     expect(listen.wartend.length).toBe(k.wartet.gesamt);
     expect(listen.emailUngelesen.length).toBe(k.emailUngelesen.leads);
-    expect(listen.ohneOrt.length).toBe(k.verortet.gesamt - k.verortet.mitOrt);
+    // „Ohne Ort“ = nicht verortet plus nur am Ziel verortet (stehen auf der Karte, Abholort fehlt).
+    const nurZielAnzahl = leads.filter((l) => l.status !== "verloren" && l.ort?.quelle === "zieladresse").length;
+    expect(listen.ohneOrt.length).toBe(k.verortet.gesamt - k.verortet.mitOrt + nurZielAnzahl);
     // Ein Kartenfilter, der fast alles ausblendet, ändert die Arbeitslisten nicht.
     const gefiltert = filtereLeads(leads, { ...STANDARD_FILTER, suche: "zzz-nichts" }, JETZT);
     expect(gefiltert).toHaveLength(0);

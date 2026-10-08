@@ -197,6 +197,13 @@ describe("erzeugeMissionen", () => {
     it("nicht, wenn ein Ort bekannt ist", () => {
       expect(adresse({ status: "neu", ort: basis.ort })).toBeUndefined();
     });
+    it("auch, wenn der Lead nur am Ziel steht (M-2)", () => {
+      if (!basis.ort) throw new Error("Beispiel-Lead ohne Ort");
+      expect(adresse({ status: "kontakt", ort: { ...basis.ort, quelle: "zieladresse" } })).toMatchObject({
+        titel: "Abholadresse fehlt für den KV, nur Ziel bekannt",
+        dringlichkeit: 3,
+      });
+    });
   });
 
   describe("stufe_pflegen", () => {

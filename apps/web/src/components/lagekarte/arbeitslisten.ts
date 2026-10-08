@@ -8,7 +8,7 @@
  * Ruling 14: Missionen werden je Art gruppiert, nichts wird abgeschnitten.
  */
 import { berlinDateString } from "@/lib/berlin-date";
-import type { LeadPunkt, Mission, MissionArt } from "@/lib/lagekarte/typen";
+import { abholortFehlt, type LeadPunkt, type Mission, type MissionArt } from "@/lib/lagekarte/typen";
 
 export type WartenderLead = LeadPunkt & { wartet: NonNullable<LeadPunkt["wartet"]> };
 
@@ -39,6 +39,11 @@ function neuesteZuerst(a: LeadPunkt, b: LeadPunkt): number {
   return b.angelegtAm.localeCompare(a.angelegtAm);
 }
 
+/** Zweite Zeile im Tab „Ohne Ort“. */
+export function ohneOrtHinweis(lead: Pick<LeadPunkt, "ort">): string {
+  return lead.ort ? `nur Ziel bekannt: ${lead.ort.ortsname}` : "keine Adresse";
+}
+
 export function arbeitslisten(alle: readonly LeadPunkt[], jetzt: Date): Arbeitslisten {
   const aktive = alle.filter((l) => l.status !== "verloren");
   const { heute, morgen } = heuteUndMorgen(jetzt);
@@ -54,7 +59,8 @@ export function arbeitslisten(alle: readonly LeadPunkt[], jetzt: Date): Arbeitsl
         (a, b) =>
           rang(a) - rang(b) || (a.umzugAm ?? "").localeCompare(b.umzugAm ?? "") || a.name.localeCompare(b.name, "de"),
       ),
-    ohneOrt: aktive.filter((l) => l.ort === null).sort(neuesteZuerst),
+    // M-2: auch Leads, die nur am Ziel stehen (Abholadresse fehlt für den KV).
+    ohneOrt: aktive.filter(abholortFehlt).sort(neuesteZuerst),
   };
 }
 

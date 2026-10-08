@@ -86,6 +86,14 @@ export function plausiblerCent(wert: LeadWert | null): number | null {
   return wert.cent;
 }
 
+/**
+ * Abholort fehlt: kein Ort oder nur das Ziel bekannt (der Lead steht dann am Ziel auf der Karte,
+ * für den KV fehlt aber die Abholadresse). Gilt für die Mission „adresse_fehlt“ und „Ohne Ort“.
+ */
+export function abholortFehlt(lead: Pick<LeadPunkt, "ort">): boolean {
+  return lead.ort === null || lead.ort.quelle === "zieladresse";
+}
+
 /** Welches KV-PDF "KV ansehen" öffnet. */
 export type KvDokumentStand = "angenommen" | "aktuell" | "veraltet" | "keins";
 

@@ -18,7 +18,7 @@ import { StatusForm } from "@/components/lagekarte/status-form";
 import { useLagekarteThema } from "@/components/lagekarte/thema";
 import { telefonFuerLink } from "@/lib/lagekarte/telefon";
 import { warteText } from "@/lib/lagekarte/warte-text";
-import { arbeitslisten, gruppiereMissionen, heuteUndMorgen } from "./arbeitslisten";
+import { arbeitslisten, gruppiereMissionen, heuteUndMorgen, ohneOrtHinweis } from "./arbeitslisten";
 
 export type LeistenTab = "wartet" | "heute" | "alle" | "ohne_ort";
 
@@ -710,7 +710,7 @@ type LeadZeileProps = { lead: LeadPunkt; jetzt: Date; ohneOrt?: boolean } & Omit
 /** Zeile für „Alle“ und „Ohne Ort“: Statusform, Name, Nummer, Status und Ort, Eingang rechts. */
 function LeadZeile({ lead, jetzt, ohneOrt = false, ...rest }: LeadZeileProps) {
   const thema = useLagekarteThema();
-  const ort = ohneOrt ? (lead.ziel ? `Ziel ${lead.ziel.ortsname}` : "keine Adresse") : ortText(lead);
+  const ort = ohneOrt ? ohneOrtHinweis(lead) : ortText(lead);
   return (
     <Zeile {...rest}>
       <StatusForm status={lead.status} thema={thema} groesse={16} wartet={lead.wartet !== null} />
