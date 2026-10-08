@@ -350,6 +350,12 @@ export function ShareLinkPanel({ dealRecordId }: { dealRecordId: string }) {
   );
 }
 
+interface Widerrufen {
+  eingegangenAt: string;
+  name: string;
+  bestaetigt: boolean;
+}
+
 interface AktiveAnnahme {
   abweichungen: Array<{ feld: "Termin" | "Auszug" | "Einzug"; angenommen: string; aktuell: string | null }>;
   signedAt: string;
@@ -374,6 +380,7 @@ function KvaAnnahmeBlock({
   onChange: (aktiv: boolean) => void;
 }) {
   const [annahme, setAnnahme] = useState<AktiveAnnahme | null>(null);
+  const [widerrufen, setWiderrufen] = useState<Widerrufen | null>(null);
   const [darfAufheben, setDarfAufheben] = useState(false);
   const [arbeitet, setArbeitet] = useState(false);
 
@@ -381,9 +388,12 @@ function KvaAnnahmeBlock({
     try {
       const res = await fetch(`/api/v1/deals/${dealRecordId}/kva-annahme`);
       if (!res.ok) return;
-      const j = (await res.json()) as { data?: { aktiv: AktiveAnnahme | null; darfAufheben?: boolean } };
+      const j = (await res.json()) as {
+        data?: { aktiv: AktiveAnnahme | null; widerrufen?: Widerrufen | null; darfAufheben?: boolean };
+      };
       const aktiv = j.data?.aktiv ?? null;
       setAnnahme(aktiv);
+      setWiderrufen(j.data?.widerrufen ?? null);
       setDarfAufheben(j.data?.darfAufheben === true);
       onChange(!!aktiv);
     } catch {
@@ -417,6 +427,27 @@ function KvaAnnahmeBlock({
     }
   }
 
+  if (!annahme && widerrufen) {
+    return (
+      <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-950 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-100">
+        <div className="font-medium">
+          Vom Kunden widerrufen am{" "}
+          {new Date(widerrufen.eingegangenAt).toLocaleString("de-DE", {
+            dateStyle: "medium",
+            timeStyle: "short",
+            timeZone: "Europe/Berlin",
+          })}
+        </div>
+        <div className="mt-1 text-xs leading-relaxed">
+          {widerrufen.name} hat über den Statuslink widerrufen. Termin freigeben und bereits gezahlte Beträge binnen 14
+          Tagen erstatten.{" "}
+          {widerrufen.bestaetigt
+            ? "Die Eingangsbestätigung ist verschickt."
+            : "Die Eingangsbestätigung ist noch nicht verschickt, bitte selbst schicken."}
+        </div>
+      </div>
+    );
+  }
   if (!annahme) return null;
   const euro = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(
     annahme.confirmedTotalCents / 100

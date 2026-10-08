@@ -3,6 +3,7 @@ import { getAuthContext, unauthorized, success, badRequest, forbidden } from "@/
 import { abweichungenVonAnnahme, annahmeAufheben, annahmeAusZeile, ladeAktiveAnnahme } from "@/services/kva-annahme";
 import { bestaetigungVerschickt } from "@/services/kva-bestaetigung";
 import { ladeUmzugsrahmen } from "@/services/customer-portal-data";
+import { ladeLetztenWiderruf } from "@/services/kva-widerruf";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +12,19 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ reco
   if (!ctx) return unauthorized();
   const { recordId } = await params;
   const row = await ladeAktiveAnnahme(recordId);
-  if (!row || row.workspaceId !== ctx.workspaceId) return success({ aktiv: null });
+  if (!row || row.workspaceId !== ctx.workspaceId) {
+    // Kein aktiver Vertrag: Hat der Kunde über das Portal widerrufen, sieht das Team es hier.
+    const w = row ? null : await ladeLetztenWiderruf(recordId);
+    const widerrufen =
+      w && w.workspaceId === ctx.workspaceId
+        ? {
+            eingegangenAt: w.eingegangenAt.toISOString(),
+            name: w.name,
+            bestaetigt: !!w.bestaetigungSentAt && !!w.bestaetigungKanaele && w.bestaetigungKanaele !== "sending",
+          }
+        : null;
+    return success({ aktiv: null, widerrufen });
+  }
   const aktuell = await ladeUmzugsrahmen(ctx.workspaceId, recordId);
   return success({
     aktiv: {

@@ -178,25 +178,29 @@ export async function ladeWiderrufKontext(input: {
     };
   }
   if (!input.aufgehobenAm) return KEIN_WIDERRUF;
+  const w = await ladeLetztenWiderruf(input.dealRecordId);
+  return w ? { ...KEIN_WIDERRUF, eingegangen: { at: w.eingegangenAt.toISOString(), vertrag: w.vertrag } } : KEIN_WIDERRUF;
+}
+
+/**
+ * Widerruf der zuletzt aufgehobenen Annahme, wenn diese durch den Widerruf
+ * (und nicht ein späteres Admin-Aufheben) endete. Für Portal und CRM.
+ * Fehlt die Tabelle (Migration nicht gelaufen), null.
+ */
+export async function ladeLetztenWiderruf(dealRecordId: string): Promise<WiderrufRow | null> {
   try {
-    // Nur wenn die zuletzt aufgehobene Annahme die widerrufene ist (nicht ein Admin-Aufheben danach).
     const [letzte] = await db
       .select({ id: kvaConfirmations.id })
       .from(kvaConfirmations)
-      .where(and(eq(kvaConfirmations.dealRecordId, input.dealRecordId), isNotNull(kvaConfirmations.supersededAt)))
+      .where(and(eq(kvaConfirmations.dealRecordId, dealRecordId), isNotNull(kvaConfirmations.supersededAt)))
       .orderBy(desc(kvaConfirmations.supersededAt))
       .limit(1);
-    if (!letzte) return KEIN_WIDERRUF;
-    const [w] = await db
-      .select({ eingegangenAt: kvaWiderrufe.eingegangenAt, vertrag: kvaWiderrufe.vertrag })
-      .from(kvaWiderrufe)
-      .where(eq(kvaWiderrufe.confirmationId, letzte.id))
-      .limit(1);
-    if (!w) return KEIN_WIDERRUF;
-    return { ...KEIN_WIDERRUF, eingegangen: { at: w.eingegangenAt.toISOString(), vertrag: w.vertrag } };
+    if (!letzte) return null;
+    const [w] = await db.select().from(kvaWiderrufe).where(eq(kvaWiderrufe.confirmationId, letzte.id)).limit(1);
+    return w ?? null;
   } catch (err) {
     console.error("[kva-widerruf] Widerruf nicht lesbar:", err);
-    return KEIN_WIDERRUF;
+    return null;
   }
 }
 
