@@ -81,7 +81,8 @@ export default function MembersPage() {
         prev.map((m) => (m.id === memberId ? { ...m, role } : m))
       );
     } else {
-      const data = await res.json();
+      // z. B. „Der letzte Admin kann nicht zum Mitglied gemacht werden.“
+      const data = await res.json().catch(() => ({}));
       setError(data.error?.message ?? "Rolle konnte nicht geändert werden");
     }
   }

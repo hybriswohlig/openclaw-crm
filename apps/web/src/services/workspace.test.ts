@@ -7,13 +7,14 @@ import { apiKeys, sessions, users, workspaceMembers, workspaces } from "@/db/sch
 // freigegebene Benutzer bei der nächsten Anfrage wieder als Mitglied an, der
 // Zugang blieb also. Diese Tests prüfen gegen eine aufzeichnende Fake-
 // Transaktion, dass removeMember den Zugang wirklich entzieht und die Sperren
-// für die eigene Person und den letzten Admin greifen. Dazu updateWorkspace:
-// Der Client bekommt die Einstellungen ohne OpenRouter-Schlüssel und darf ihn
-// beim Zurückschreiben nicht löschen.
+// für die eigene Person, den letzten Admin und den letzten App-Admin greifen.
+// Den letzten Admin zum Mitglied machen darf auch updateMemberRole nicht.
+// Dazu updateWorkspace: Der Client bekommt die Einstellungen ohne
+// OpenRouter-Schlüssel und darf ihn beim Zurückschreiben nicht löschen.
 const mock = vi.hoisted(() => ({ transaction: vi.fn() }));
 vi.mock("@/db", () => ({ db: { transaction: mock.transaction } }));
 
-import { removeMember, revokeUserAccess, updateWorkspace } from "./workspace";
+import { removeMember, revokeUserAccess, updateMemberRole, updateWorkspace } from "./workspace";
 
 const dialect = new PgDialect();
 function alsSql(bedingung: SQL) {
@@ -190,14 +191,70 @@ describe("removeMember", () => {
     erwarteZugangEntzogen(schreibvorgaenge, "usr_jonas");
   });
 
-  it("zählt bei einem normalen Mitglied keine Admins", async () => {
-    const { tx, lesebedingungen, sperren } = fakeTx([[mitglied()]]);
+  it("zählt bei einem normalen Mitglied ohne Freigaberecht keine Admins", async () => {
+    const { tx, lesebedingungen, sperren } = fakeTx([[mitglied()], [{ isAppAdmin: false }]]);
     mitTransaktion(tx);
 
     await removeMember(WORKSPACE, "mem_jonas", AKTEUR);
 
-    expect(lesebedingungen).toHaveLength(1);
+    // Gelesen werden nur die Mitgliedschaft und das Konto, gesperrt wird nichts.
+    expect(lesebedingungen).toHaveLength(2);
+    expect(alsSql(lesebedingungen[1])).toEqual({
+      sql: '"users"."id" = $1',
+      params: ["usr_jonas"],
+    });
     expect(sperren).toEqual([]);
+  });
+
+  it("lehnt es ab, den letzten Admin für Benutzer-Freigaben zu entfernen, und schreibt nichts", async () => {
+    const { tx, schreibvorgaenge, lesebedingungen, sperren } = fakeTx([
+      [mitglied()],
+      [{ isAppAdmin: true }],
+      [{ id: "usr_jonas" }],
+    ]);
+    mitTransaktion(tx);
+
+    await expect(removeMember(WORKSPACE, "mem_jonas", AKTEUR)).rejects.toThrow(
+      "Der letzte Admin für Benutzer-Freigaben kann nicht entfernt werden."
+    );
+    expect(schreibvorgaenge).toEqual([]);
+    // Gezählt werden nur freigegebene App-Admins, ihre Konten gesperrt (FOR UPDATE).
+    expect(sperren).toEqual(["update"]);
+    expect(alsSql(lesebedingungen[2])).toEqual({
+      sql: '("users"."is_app_admin" = $1 and "users"."approval_status" = $2)',
+      params: [true, "approved"],
+    });
+  });
+
+  it("entfernt einen App-Admin, solange ein weiterer freigegebener App-Admin bleibt", async () => {
+    const zeile = mitglied();
+    const { tx, schreibvorgaenge, sperren } = fakeTx([
+      [zeile],
+      [{ isAppAdmin: true }],
+      [{ id: "usr_jonas" }, { id: AKTEUR }],
+    ]);
+    mitTransaktion(tx);
+
+    await expect(removeMember(WORKSPACE, "mem_jonas", AKTEUR)).resolves.toEqual(zeile);
+
+    expect(sperren).toEqual(["update"]);
+    erwarteZugangEntzogen(schreibvorgaenge, "usr_jonas");
+  });
+
+  it("prüft bei einem Admin, der auch Konten freigibt, beide Regeln", async () => {
+    const { tx, schreibvorgaenge, sperren } = fakeTx([
+      [mitglied({ role: "admin" })],
+      [{ id: "mem_jonas" }, { id: "mem_dario" }],
+      [{ isAppAdmin: true }],
+      [{ id: "usr_jonas" }],
+    ]);
+    mitTransaktion(tx);
+
+    await expect(removeMember(WORKSPACE, "mem_jonas", AKTEUR)).rejects.toThrow(
+      "Der letzte Admin für Benutzer-Freigaben kann nicht entfernt werden."
+    );
+    expect(sperren).toEqual(["update", "update"]);
+    expect(schreibvorgaenge).toEqual([]);
   });
 
   it("gibt null zurück, wenn es die Mitgliedschaft in diesem Workspace nicht gibt", async () => {
@@ -205,6 +262,80 @@ describe("removeMember", () => {
     mitTransaktion(tx);
 
     await expect(removeMember(WORKSPACE, "mem_fremd", AKTEUR)).resolves.toBeNull();
+    expect(schreibvorgaenge).toEqual([]);
+  });
+});
+
+describe("updateMemberRole", () => {
+  const ROLLE_SQL = {
+    sql: '("workspace_members"."workspace_id" = $1 and "workspace_members"."role" = $2)',
+    params: [WORKSPACE, "admin"],
+  };
+
+  it("macht einen Admin zum Mitglied, solange ein weiterer Admin bleibt", async () => {
+    const { tx, schreibvorgaenge, lesebedingungen, sperren } = fakeTx([
+      [{ id: "mem_jonas", role: "admin" }],
+      [{ id: "mem_jonas" }, { id: "mem_dario" }],
+    ]);
+    mitTransaktion(tx);
+
+    await expect(updateMemberRole(WORKSPACE, "mem_jonas", "member")).resolves.toMatchObject({
+      role: "member",
+    });
+
+    expect(mock.transaction).toHaveBeenCalledTimes(1);
+    expect(alsSql(lesebedingungen[0])).toEqual({
+      sql: '("workspace_members"."id" = $1 and "workspace_members"."workspace_id" = $2)',
+      params: ["mem_jonas", WORKSPACE],
+    });
+    expect(sperren).toEqual(["update"]);
+    expect(alsSql(lesebedingungen[1])).toEqual(ROLLE_SQL);
+    expect(schreibvorgaenge).toHaveLength(1);
+    const [schreiben] = schreibvorgaenge;
+    expect(schreiben.tabelle).toBe(workspaceMembers);
+    expect(schreiben.art === "update" && schreiben.werte).toEqual({ role: "member" });
+    expect(schreiben.art === "update" && alsSql(schreiben.bedingung)).toEqual({
+      sql: '("workspace_members"."id" = $1 and "workspace_members"."workspace_id" = $2)',
+      params: ["mem_jonas", WORKSPACE],
+    });
+  });
+
+  it("lehnt es ab, den letzten Admin zum Mitglied zu machen, und schreibt nichts", async () => {
+    const { tx, schreibvorgaenge, sperren } = fakeTx([
+      [{ id: "mem_jonas", role: "admin" }],
+      [{ id: "mem_jonas" }],
+    ]);
+    mitTransaktion(tx);
+
+    await expect(updateMemberRole(WORKSPACE, "mem_jonas", "member")).rejects.toThrow(
+      "Der letzte Admin kann nicht zum Mitglied gemacht werden."
+    );
+    expect(sperren).toEqual(["update"]);
+    expect(schreibvorgaenge).toEqual([]);
+  });
+
+  it("zählt keine Admins, wenn niemand Admin verliert", async () => {
+    for (const [vorher, nachher] of [
+      ["member", "admin"],
+      ["admin", "admin"],
+      ["member", "member"],
+    ] as const) {
+      const { tx, schreibvorgaenge, lesebedingungen, sperren } = fakeTx([[{ id: "mem_jonas", role: vorher }]]);
+      mitTransaktion(tx);
+
+      await expect(updateMemberRole(WORKSPACE, "mem_jonas", nachher)).resolves.toMatchObject({ role: nachher });
+
+      expect(lesebedingungen).toHaveLength(1);
+      expect(sperren).toEqual([]);
+      expect(schreibvorgaenge).toHaveLength(1);
+    }
+  });
+
+  it("gibt null zurück, wenn es die Mitgliedschaft in diesem Workspace nicht gibt", async () => {
+    const { tx, schreibvorgaenge } = fakeTx([[]]);
+    mitTransaktion(tx);
+
+    await expect(updateMemberRole(WORKSPACE, "mem_fremd", "member")).resolves.toBeNull();
     expect(schreibvorgaenge).toEqual([]);
   });
 });

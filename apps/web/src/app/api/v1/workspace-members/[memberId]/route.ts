@@ -42,7 +42,13 @@ export async function PATCH(
     if (body.role !== "admin" && body.role !== "member") {
       return badRequest("role must be 'admin' or 'member'");
     }
-    updated = await updateMemberRole(ctx.workspaceId, memberId, body.role);
+    try {
+      // Den letzten Admin zum Mitglied zu machen lehnt updateMemberRole ab.
+      updated = await updateMemberRole(ctx.workspaceId, memberId, body.role);
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Failed to change member role";
+      return badRequest(message);
+    }
     if (!updated) return notFound("Member not found");
   }
 
@@ -84,7 +90,8 @@ export async function DELETE(
 
   try {
     // Entfernen entzieht den Zugang ganz (Freigabe, Sitzungen, API-Schlüssel);
-    // sich selbst und den letzten Admin lehnt removeMember ab.
+    // sich selbst, den letzten Admin und den letzten App-Admin lehnt
+    // removeMember ab.
     const removed = await removeMember(ctx.workspaceId, memberId, ctx.userId);
     if (!removed) return notFound("Member not found");
     return success(removed);

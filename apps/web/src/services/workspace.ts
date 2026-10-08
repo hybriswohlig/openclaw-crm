@@ -275,22 +275,50 @@ export async function addMemberByEmail(
   };
 }
 
+/**
+ * Ändert die Rolle eines Mitglieds, macht aber nie den letzten Admin zum
+ * Mitglied: sonst könnte niemand mehr das Team verwalten. Gibt die geänderte
+ * Mitgliedschaft zurück, oder null, wenn es sie in diesem Workspace nicht gibt.
+ */
 export async function updateMemberRole(
   workspaceId: string,
   memberId: string,
   role: "admin" | "member"
 ) {
-  const [updated] = await db
-    .update(workspaceMembers)
-    .set({ role })
-    .where(
-      and(
-        eq(workspaceMembers.id, memberId),
-        eq(workspaceMembers.workspaceId, workspaceId)
+  return db.transaction(async (tx) => {
+    const [member] = await tx
+      .select({ id: workspaceMembers.id, role: workspaceMembers.role })
+      .from(workspaceMembers)
+      .where(
+        and(
+          eq(workspaceMembers.id, memberId),
+          eq(workspaceMembers.workspaceId, workspaceId)
+        )
       )
-    )
-    .returning();
-  return updated ?? null;
+      .limit(1);
+
+    if (!member) return null;
+
+    if (
+      member.role === "admin" &&
+      role !== "admin" &&
+      !(await bleibtEinAdmin(tx, workspaceId, member.id))
+    ) {
+      throw new Error("Der letzte Admin kann nicht zum Mitglied gemacht werden.");
+    }
+
+    const [updated] = await tx
+      .update(workspaceMembers)
+      .set({ role })
+      .where(
+        and(
+          eq(workspaceMembers.id, memberId),
+          eq(workspaceMembers.workspaceId, workspaceId)
+        )
+      )
+      .returning();
+    return updated ?? null;
+  });
 }
 
 /**
@@ -363,8 +391,9 @@ export async function revokeUserAccess(
 
 /**
  * Entfernt ein Mitglied und nimmt ihm damit den Zugang (revokeUserAccess).
- * Sich selbst und den letzten Admin kann niemand entfernen. Gibt die gelöschte
- * Mitgliedschaft zurück, oder null, wenn es sie in diesem Workspace nicht gibt.
+ * Sich selbst, den letzten Admin und den letzten App-Admin (gibt Konten frei)
+ * kann niemand entfernen. Gibt die gelöschte Mitgliedschaft zurück, oder null,
+ * wenn es sie in diesem Workspace nicht gibt.
  */
 export async function removeMember(
   workspaceId: string,
@@ -389,25 +418,68 @@ export async function removeMember(
       throw new Error("Du kannst dich nicht selbst entfernen.");
     }
 
-    if (member.role === "admin") {
-      // FOR UPDATE: Entfernen sich zwei Admins gleichzeitig gegenseitig,
-      // wartet der zweite und sieht danach nur noch einen Admin.
-      const admins = await tx
-        .select({ id: workspaceMembers.id })
-        .from(workspaceMembers)
-        .where(
-          and(
-            eq(workspaceMembers.workspaceId, workspaceId),
-            eq(workspaceMembers.role, "admin")
-          )
-        )
-        .for("update");
-      if (admins.length <= 1) {
-        throw new Error("Der letzte Admin kann nicht entfernt werden.");
-      }
+    if (
+      member.role === "admin" &&
+      !(await bleibtEinAdmin(tx, workspaceId, member.id))
+    ) {
+      throw new Error("Der letzte Admin kann nicht entfernt werden.");
+    }
+
+    // Nur App-Admins geben Konten frei, auch gesperrte wieder. Ginge der
+    // letzte, käme niemand mehr an „Benutzer-Freigaben“.
+    const [konto] = await tx
+      .select({ isAppAdmin: users.isAppAdmin })
+      .from(users)
+      .where(eq(users.id, member.userId))
+      .limit(1);
+    if (konto?.isAppAdmin && !(await bleibtEinAppAdmin(tx, member.userId))) {
+      throw new Error(
+        "Der letzte Admin für Benutzer-Freigaben kann nicht entfernt werden."
+      );
     }
 
     await revokeUserAccess(tx, member.userId);
     return member;
   });
+}
+
+/**
+ * Sperrt die Admin-Zeilen des Workspace (FOR UPDATE) und sagt, ob außer
+ * diesem Mitglied noch ein Admin bleibt. Entfernen oder herabstufen sich zwei
+ * Admins gleichzeitig gegenseitig, wartet die zweite Transaktion und sieht
+ * danach nur noch einen Admin.
+ */
+async function bleibtEinAdmin(
+  executor: DbExecutor,
+  workspaceId: string,
+  memberId: string
+): Promise<boolean> {
+  const admins = await executor
+    .select({ id: workspaceMembers.id })
+    .from(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, workspaceId),
+        eq(workspaceMembers.role, "admin")
+      )
+    )
+    .for("update");
+  return admins.some((a) => a.id !== memberId);
+}
+
+/**
+ * Sperrt die Konten aller freigegebenen App-Admins (FOR UPDATE) und sagt, ob
+ * außer diesem Benutzer noch einer bleibt. Gesperrte App-Admins zählen nicht,
+ * getAppAdminFromRequest lässt sie nicht herein.
+ */
+async function bleibtEinAppAdmin(
+  executor: DbExecutor,
+  userId: string
+): Promise<boolean> {
+  const appAdmins = await executor
+    .select({ id: users.id })
+    .from(users)
+    .where(and(eq(users.isAppAdmin, true), eq(users.approvalStatus, "approved")))
+    .for("update");
+  return appAdmins.some((a) => a.id !== userId);
 }
