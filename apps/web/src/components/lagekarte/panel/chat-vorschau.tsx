@@ -4,8 +4,12 @@
  * (GET /api/v1/lagekarte/chat/{id}, ohne Gelesen-Markierung). Kanal-Chips
  * zum Umschalten, Blasen, Hinweise, Fußzeile „Im Posteingang antworten“.
  * Kein Antwortfeld: Antworten laufen über den Posteingang.
+ *
+ * Die Nachrichten stehen chronologisch, die neueste unten. Nach dem Laden
+ * meldet `onGeladen` das dem Panel, das dann ans Ende scrollt (sonst stünde
+ * die älteste der 20 Nachrichten im Blick statt der, auf die der Kunde wartet).
  */
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { format, isSameDay, parseISO } from "date-fns";
 import { de } from "date-fns/locale";
@@ -45,11 +49,20 @@ interface ChatVorschauProps {
   chatId: string | null;
   onChatWechsel: (chatId: string) => void;
   jetzt: Date;
+  /** Nachrichten eines Threads stehen im DOM (vor dem Zeichnen): Panel scrollt zur neuesten. */
+  onGeladen?: () => void;
 }
 
-export default function ChatVorschau({ lead, chatId, onChatWechsel, jetzt }: ChatVorschauProps) {
+export default function ChatVorschau({ lead, chatId, onChatWechsel, jetzt, onGeladen }: ChatVorschauProps) {
   const [zustand, setZustand] = useState<Zustand>({ status: "laedt" });
   const [versuch, setVersuch] = useState(0);
+  const onGeladenRef = useRef(onGeladen);
+  onGeladenRef.current = onGeladen;
+
+  // Layout-Effekt: das Panel scrollt, bevor der Browser die Liste oben zeichnet (kein Springen).
+  useLayoutEffect(() => {
+    if (zustand.status === "ok") onGeladenRef.current?.();
+  }, [zustand]);
 
   useEffect(() => {
     if (!chatId) return;

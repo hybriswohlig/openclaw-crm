@@ -8,7 +8,7 @@
  * Der Container rendert das Panel direkt in seiner `relative`-Wurzel; das
  * Panel positioniert sich selbst.
  */
-import { useEffect, useId, useMemo, useRef, useState, type JSX, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type JSX, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { format, formatDistanceStrict, parseISO } from "date-fns";
@@ -77,6 +77,9 @@ const AKTION_PRIMAER =
 
 const ICON_KNOPF =
   "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[var(--lk-text-leise)] transition-colors hover:bg-[var(--lk-hover)] hover:text-[var(--lk-text)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--lk-akzent)]";
+
+/** Tasten, mit denen jemand den Panel-Rumpf selbst scrollt (dann nicht mehr ans Chat-Ende springen). */
+const SCROLL_TASTEN = new Set(["PageUp", "PageDown", "ArrowUp", "ArrowDown", "Home", "End"]);
 
 /**
  * Menüeintrag im Stufen-Dropdown. Überschreibt die shadcn-Standardfarben
@@ -175,6 +178,44 @@ export default function LeadPanel({
   const leadIdRef = useRef(lead.id);
   leadIdRef.current = lead.id;
 
+  /* ── Chat-Tab zeigt die neueste Nachricht ──
+     Fakten, Aktionen und Chat teilen sich einen Scrollbereich (den Rumpf). Sobald der
+     Chat geladen ist, scrollt der Rumpf ans Ende: die Tabs bleiben oben kleben, darunter
+     stehen die neuesten Nachrichten und die Fußzeile. Hat jemand inzwischen selbst
+     gescrollt, springt nichts mehr. */
+  const rumpfRef = useRef<HTMLDivElement>(null);
+  const tabRef = useRef(tab);
+  tabRef.current = tab;
+  const chatGeladenRef = useRef(false);
+  const selbstGescrolltRef = useRef(false);
+
+  const zumChatEnde = useCallback(() => {
+    const rumpf = rumpfRef.current;
+    if (rumpf) rumpf.scrollTop = rumpf.scrollHeight;
+  }, []);
+
+  const beiChatGeladen = useCallback(() => {
+    chatGeladenRef.current = true;
+    if (tabRef.current === "chat" && !selbstGescrolltRef.current) zumChatEnde();
+  }, [zumChatEnde]);
+
+  const chatWechseln = useCallback((id: string) => {
+    selbstGescrolltRef.current = false;
+    setChatId(id);
+  }, []);
+
+  // Neuer Lead: Rumpf nach oben, bis sein Chat geladen ist (vor dem Tab-Effekt, im selben Commit).
+  useLayoutEffect(() => {
+    chatGeladenRef.current = false;
+    selbstGescrolltRef.current = false;
+    if (rumpfRef.current) rumpfRef.current.scrollTop = 0;
+  }, [lead.id]);
+
+  // Zurück auf den Chat-Tab: wieder die neueste Nachricht.
+  useLayoutEffect(() => {
+    if (tab === "chat" && chatGeladenRef.current) zumChatEnde();
+  }, [tab, zumChatEnde]);
+
   // Neuer Lead oder neuer Start-Tab: Zustand zurücksetzen, Fokus auf Überschrift.
   useEffect(() => {
     setTab(startTab);
@@ -221,6 +262,7 @@ export default function LeadPanel({
   const stufeFarbe = gewaehlteStufe?.farbe ?? lead.stufe?.farbe ?? null;
 
   function tabWaehlen(naechster: PanelTab) {
+    if (naechster === "chat") selbstGescrolltRef.current = false;
     setTab(naechster);
     setBesucht((alt) => (alt.has(naechster) ? alt : new Set(alt).add(naechster)));
   }
@@ -391,7 +433,19 @@ export default function LeadPanel({
         </header>
 
         {/* Rumpf */}
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div
+          ref={rumpfRef}
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+          onWheel={() => {
+            selbstGescrolltRef.current = true;
+          }}
+          onTouchMove={() => {
+            selbstGescrolltRef.current = true;
+          }}
+          onKeyDown={(e) => {
+            if (!e.defaultPrevented && SCROLL_TASTEN.has(e.key)) selbstGescrolltRef.current = true;
+          }}
+        >
           {/* Fakten */}
           <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-[var(--lk-panel-rand)] px-4 py-3">
             <Fakt label="Von" wert={ortText(lead.ort)} hinweis={vonHinweis(lead.ort)} />
@@ -553,7 +607,9 @@ export default function LeadPanel({
                 aria-labelledby={`${basisId}-tab-${t.id}`}
                 hidden={t.id !== tab}
               >
-                {t.id === "chat" && <ChatVorschau lead={lead} chatId={chatId} onChatWechsel={setChatId} jetzt={jetzt} />}
+                {t.id === "chat" && (
+                  <ChatVorschau lead={lead} chatId={chatId} onChatWechsel={chatWechseln} jetzt={jetzt} onGeladen={beiChatGeladen} />
+                )}
                 {t.id === "angebot" && <KvKarte lead={lead} onKvAnsehen={() => setKvOffen(true)} />}
                 {t.id === "verlauf" && <Verlauf leadId={lead.id} />}
               </div>

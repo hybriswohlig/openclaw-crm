@@ -4,6 +4,7 @@ import {
   auftraegeZuGeoJson,
   auftragsSaeulen,
   auswahlLinie,
+  auswahlZuGeoJson,
   iconName,
   kreisAktivitaet,
   kreisHoeheM,
@@ -107,6 +108,33 @@ describe("leadsZuGeoJson", () => {
   it("baut Iconnamen wie in icons.ts registriert", () => {
     expect(iconName("erledigt", "hell")).toBe("lk-erledigt-hell");
     expect(iconName("auftrag", "dunkel", "C")).toBe("lk-auftrag-dunkel-C");
+  });
+
+  it("lässt den gewählten Lead aus der Cluster-Quelle weg (er steht in der Auswahl-Quelle)", () => {
+    const leads = [lead({ id: "a" }), lead({ id: "b", status: "angebot" }), lead({ id: "c" })];
+    expect(leadsZuGeoJson(leads, "hell", [], "b").features.map((f) => f.properties?.id)).toEqual(["a", "c"]);
+    expect(leadsZuGeoJson(leads, "hell", [], null).features.map((f) => f.properties?.id)).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("auswahlZuGeoJson", () => {
+  it("zeichnet den gewählten Lead einzeln, mit Form, Firma und Wartet-Ring wie in der Cluster-Quelle", () => {
+    const l = lead({
+      id: "b",
+      status: "angebot",
+      firmaId: "firma-kottke",
+      wartet: { art: "antwort", seit: "2026-10-08T05:00:00.000Z", chatId: "c1" },
+    });
+    const fc = auswahlZuGeoJson(l, "hell", FIRMEN);
+    expect(fc.features).toHaveLength(1);
+    expect(fc.features[0].properties).toEqual(leadsZuGeoJson([l], "hell", FIRMEN).features[0].properties);
+    expect(fc.features[0].geometry).toEqual({ type: "Point", coordinates: [9.1686, 48.7718] });
+  });
+
+  it("ist leer ohne Auswahl, ohne Ort und für Aufträge (die stehen nie im Cluster)", () => {
+    expect(auswahlZuGeoJson(null, "hell").features).toEqual([]);
+    expect(auswahlZuGeoJson(lead({ id: "a", ort: null }), "hell").features).toEqual([]);
+    expect(auswahlZuGeoJson(lead({ id: "a", status: "auftrag" }), "hell").features).toEqual([]);
   });
 });
 

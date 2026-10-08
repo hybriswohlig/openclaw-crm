@@ -31,17 +31,20 @@ import { Clock, X } from "lucide-react";
 import { StatusForm } from "@/components/lagekarte/status-form";
 import { BRETT_FARBEN, STATUS_STIL, WARTET_LABEL, type Thema } from "@/lib/lagekarte/farben";
 import type { Firma, KartenOrt, LeadPunkt } from "@/lib/lagekarte/typen";
-import { auftraegeZuGeoJson, auftragsSaeulen, auswahlLinie, kreisAktivitaet, leadsZuGeoJson } from "./geojson";
+import { auftraegeZuGeoJson, auftragsSaeulen, auswahlLinie, auswahlZuGeoJson, kreisAktivitaet, leadsZuGeoJson } from "./geojson";
 import { registriereIcons } from "./icons";
 import { fahreKamera, MAX_GRENZEN, MAX_ZOOM, MIN_ZOOM, setzeNeigung, START_ANSICHT, type Ansicht, type KameraZiel } from "./kamera";
+import { auswahlPlatz, SCHILD_SEITE_ABSTAND_PX, type ClusterKandidat, type Hindernis, type SchildSeite } from "./schild";
 import {
   basisStil,
   CLUSTER_EIGENSCHAFTEN,
   CLUSTER_MAX_ZOOM,
   CLUSTER_RADIUS,
+  clusterRadiusPx,
   ebenen,
   HINTERGRUND_EBENE,
   INTERAKTIVE_EBENEN,
+  SCHILD_HINDERNIS_EBENEN,
 } from "./stil";
 import "./brett.css";
 
@@ -75,6 +78,54 @@ const START = { ...START_ANSICHT, pitch: 0, bearing: 0 };
 
 /** Quellen, ohne die das Brett leer bliebe: Ladefehler hier melden. */
 const BRETT_QUELLEN = new Set(["kreise", "land", "kreis-punkte"]);
+
+/** Figuren-Radius für die Schild-Platzierung (Icons 32 px, Form ~20 px plus Firmen-Badge). */
+const FIGUR_RADIUS_PX = 12;
+/** Cluster: Kreis plus Rand und Wartet-Punkt oben rechts. */
+const CLUSTER_RAND_PX = 6;
+
+type AuswahlPlatz = { seite: SchildSeite; stapel: number | null };
+const PLATZ_START: AuswahlPlatz = { seite: "oben", stapel: null };
+
+/**
+ * Wohin das Namensschild des gewählten Leads passt, ohne Cluster-Zahlen oder
+ * andere Figuren zu verdecken, und welche Cluster-Zahl unter dem Auswahlring
+ * verschwände (Bildschirm-Pixel, siehe schild.ts).
+ */
+function auswahlPlatzFuer(map: MaplibreMap, ort: KartenOrt, eigeneId: string, schildBreite: number): AuswahlPlatz {
+  const p = map.project([ort.lng, ort.lat]);
+  const reichweite = schildBreite + SCHILD_SEITE_ABSTAND_PX + 40;
+  const layers = SCHILD_HINDERNIS_EBENEN.filter((id) => map.getLayer(id));
+  let features: MapGeoJSONFeature[] = [];
+  try {
+    features = layers.length
+      ? map.queryRenderedFeatures(
+          [
+            [p.x - reichweite, p.y - reichweite],
+            [p.x + reichweite, p.y + reichweite],
+          ],
+          { layers },
+        )
+      : [];
+  } catch {
+    return PLATZ_START;
+  }
+  const cluster: ClusterKandidat[] = [];
+  const figuren: Hindernis[] = [];
+  for (const f of features) {
+    if (f.geometry.type !== "Point" || f.properties?.id === eigeneId) continue;
+    const q = map.project(f.geometry.coordinates as [number, number]);
+    if (f.layer.id === "cluster-kreis") {
+      const anzahl = Number(f.properties?.point_count) || 0;
+      cluster.push({ x: q.x - p.x, y: q.y - p.y, r: clusterRadiusPx(anzahl) + CLUSTER_RAND_PX, anzahl });
+    } else {
+      figuren.push({ x: q.x - p.x, y: q.y - p.y, r: FIGUR_RADIUS_PX, gewicht: 1 });
+    }
+  }
+  const c = map.getContainer();
+  const grenze = { links: -p.x, oben: -p.y, rechts: c.clientWidth - p.x, unten: c.clientHeight - p.y };
+  return auswahlPlatz(cluster, figuren, schildBreite, grenze);
+}
 
 /** Trefferfläche um den Mauszeiger (Icons ~22 px, so mindestens ~40 px). */
 const TREFFER_RADIUS = 10;
@@ -317,6 +368,8 @@ export default function Spielbrett({
   const [defekt, setDefekt] = useState(false);
   const [hover, setHover] = useState<Hover | null>(null);
   const [liste, setListe] = useState<ClusterListeZustand | null>(null);
+  const [platz, setPlatz] = useState<AuswahlPlatz>(PLATZ_START);
+  const schildRef = useRef<HTMLSpanElement>(null);
 
   // Der Stil wird einmal gebaut; Themawechsel laufen über setPaintProperty.
   const [stil] = useState(() => basisStil(thema));
@@ -324,7 +377,18 @@ export default function Spielbrett({
   const leadNachId = useMemo(() => new Map(leads.map((l) => [l.id, l])), [leads]);
   const auswahl = auswahlId ? (leadNachId.get(auswahlId) ?? null) : null;
 
-  const leadsGeo = useMemo(() => leadsZuGeoJson(leads, thema, firmen), [leads, thema, firmen]);
+  // Neuer Lead: Schild zuerst oben, nach der Fahrt (onIdle) an den freien Platz.
+  useEffect(() => {
+    setPlatz(PLATZ_START);
+  }, [auswahlId]);
+
+  // Der gewählte Lead steht nie im Cluster, sondern einzeln in der Auswahl-Quelle (eigene Ebenen obenauf).
+  const auswahlIdMitOrt = auswahl?.ort ? auswahl.id : null;
+  const leadsGeo = useMemo(
+    () => leadsZuGeoJson(leads, thema, firmen, auswahlIdMitOrt),
+    [leads, thema, firmen, auswahlIdMitOrt],
+  );
+  const auswahlGeo = useMemo(() => auswahlZuGeoJson(auswahl, thema, firmen), [auswahl, thema, firmen]);
   const auftraegeGeo = useMemo(() => auftraegeZuGeoJson(leads, thema, firmen), [leads, thema, firmen]);
   const saeulenGeo = useMemo(() => auftragsSaeulen(leads), [leads]);
   const linieGeo = useMemo(() => auswahlLinie(auswahl), [auswahl]);
@@ -418,6 +482,13 @@ export default function Spielbrett({
       const q = map.project([t.lead.ort.lng, t.lead.ort.lat]);
       setHover({ art: "lead", lead: t.lead, x: q.x, y: q.y, breite: map.getContainer().clientWidth });
     }
+  }
+
+  /** Nach jeder Fahrt und jedem neuen Datenstand (Cluster ändern sich): Schild und Plakette neu setzen. */
+  function beiRuhe(ev: MapEvent) {
+    if (!auswahl?.ort) return;
+    const neu = auswahlPlatzFuer(ev.target, auswahl.ort, auswahl.id, schildRef.current?.offsetWidth ?? 160);
+    setPlatz((alt) => (alt.seite === neu.seite && alt.stapel === neu.stapel ? alt : neu));
   }
 
   function beiMausRaus() {
@@ -530,6 +601,12 @@ export default function Spielbrett({
   }, [liste, leadNachId]);
 
   const auswahlFarbe = BRETT_FARBEN[thema].auswahl;
+  const auswahlStil = {
+    "--lk-brett-auswahl": auswahlFarbe,
+    "--lk-brett-stapel": BRETT_FARBEN[thema].clusterFuellung,
+    "--lk-brett-stapel-text": BRETT_FARBEN[thema].clusterText,
+    "--lk-brett-halo": BRETT_FARBEN[thema].markerHalo,
+  } as CSSProperties;
 
   return (
     <div className="lk-brett relative h-full w-full overflow-hidden" style={{ background: BRETT_FARBEN[thema].hintergrund }}>
@@ -558,6 +635,7 @@ export default function Spielbrett({
           onMouseMove={beiMausBewegung}
           onMouseOut={beiMausRaus}
           onClick={beiKlick}
+          onIdle={beiRuhe}
         >
           {geladen && (
             <>
@@ -604,6 +682,12 @@ export default function Spielbrett({
                   <Layer key={l.id} {...l} />
                 ))}
               </Source>
+              {/* Zuletzt: der gewählte Lead liegt über allen Figuren und Clustern. */}
+              <Source id="auswahl-lead" type="geojson" data={auswahlGeo}>
+                {schichten.auswahlLead.map((l) => (
+                  <Layer key={l.id} {...l} />
+                ))}
+              </Source>
             </>
           )}
           {auswahl?.ort && (
@@ -614,10 +698,14 @@ export default function Spielbrett({
               anchor="center"
               style={{ pointerEvents: "none", zIndex: 3 }}
             >
-              <div className="lk-brett-auswahl" style={{ "--lk-brett-auswahl": auswahlFarbe } as CSSProperties} aria-hidden="true">
+              <div className="lk-brett-auswahl" data-seite={platz.seite} style={auswahlStil} aria-hidden="true">
                 <span className="lk-brett-auswahl__puls lk-puls" />
                 <span className="lk-brett-auswahl__ring" />
-                <span className="lk-brett-auswahl__schild">{auswahl.name}</span>
+                {/* Zahl des Clusters, den Ring und Figur verdecken (gleiche Leads wie dort). */}
+                {platz.stapel !== null && <span className="lk-brett-auswahl__stapel">{platz.stapel}</span>}
+                <span ref={schildRef} className="lk-brett-auswahl__schild">
+                  {auswahl.name}
+                </span>
               </div>
             </Marker>
           )}

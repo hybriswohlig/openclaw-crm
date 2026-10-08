@@ -406,7 +406,9 @@ export default function Leiste(p: LeisteProps) {
                 tabIndex={aktiv ? 0 : -1}
                 onClick={() => onTab(t.id)}
                 className={
-                  "flex h-9 min-w-0 flex-col items-center justify-center rounded-lg px-1 leading-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lk-akzent)] " +
+                  // Mobil (Sheet) 44 px Trefferfläche, Desktop kompakt 36 px.
+                  (kompakt ? "min-h-11 " : "h-9 ") +
+                  "flex min-w-0 flex-col items-center justify-center rounded-lg px-1 leading-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lk-akzent)] " +
                   (aktiv
                     ? "bg-[var(--lk-panel)] text-[var(--lk-text)] shadow-[0_1px_2px_rgba(0,0,0,0.08)]"
                     : "text-[var(--lk-text-leise)] hover:bg-[var(--lk-hover)] hover:text-[var(--lk-text)]")

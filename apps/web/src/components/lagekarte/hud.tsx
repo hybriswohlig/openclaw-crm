@@ -8,11 +8,18 @@
  * Breiten über Container-Queries: der Container setzt `@container` auf den
  * HUD-Rahmen. Maßgeblich ist der Platz für das HUD (Seitenleiste der App,
  * Fensterbreite), nicht die Fensterbreite allein.
+ *
+ * Der Umschalter „Karte | Liste“ (zur klassischen Startseite) steht immer mit
+ * Text da, sobald das HUD ihn neben den Kennzahlen unterbringt (ab 928 px
+ * HUD-Breite, Spec 8: „gut sichtbar“); nur schmaler (Handy, kleines Tablet)
+ * steckt er im Menü. Platz dafür: Kamera-Knöpfe nur als Icon (Text erst ab
+ * 1440 px), Titel „Lage“ erst ab @7xl, Kachel „Verortet“ zwischen 1100 und
+ * 1160 px ausgeblendet (dieselbe Zahl steht in der Legende und im Tab „Ohne Ort“).
  */
 import { useEffect, useId, useRef, useState } from "react";
 import { format, isValid } from "date-fns";
 import { de } from "date-fns/locale";
-import { AlertTriangle, Box, Crosshair, List, Map as MapIcon, MapPinned, SlidersHorizontal, Square } from "lucide-react";
+import { AlertTriangle, Box, Crosshair, List, Map as MapIcon, SlidersHorizontal, Square } from "lucide-react";
 import type { Kennzahlen } from "@/lib/lagekarte/typen";
 import { euroAusCent } from "@/lib/lagekarte/farben";
 import { cn } from "@/lib/utils";
@@ -63,9 +70,10 @@ interface KachelProps {
   akzent?: boolean;
   onClick?: () => void;
   ariaLabel?: string;
+  className?: string;
 }
 
-function Kachel({ label, wert, unterzeile, akzent = false, onClick, ariaLabel }: KachelProps) {
+function Kachel({ label, wert, unterzeile, akzent = false, onClick, ariaLabel, className }: KachelProps) {
   const inhalt = (
     <>
       <Label>{label}</Label>
@@ -82,7 +90,7 @@ function Kachel({ label, wert, unterzeile, akzent = false, onClick, ariaLabel }:
       )}
     </>
   );
-  const basis = "relative min-w-[108px] shrink-0 snap-start rounded-xl px-3 py-2 text-left";
+  const basis = cn("relative min-w-[108px] shrink-0 snap-start rounded-xl px-3 py-2 text-left", className);
   if (onClick) {
     return (
       <button
@@ -139,6 +147,19 @@ function Segment({
         </button>
       ))}
     </div>
+  );
+}
+
+/** Karte | Liste: Wechsel zur klassischen Startseite, immer mit Text (Spec 8). */
+function AnsichtSchalter({ onListe }: Pick<HudProps, "onListe">) {
+  return (
+    <Segment
+      label="Startseite"
+      kinder={[
+        { key: "karte", inhalt: "Karte", aktiv: true, onClick: () => undefined, title: "Lagekarte (aktuelle Ansicht)" },
+        { key: "liste", inhalt: "Liste", aktiv: false, onClick: onListe, title: "Zur klassischen Startseite" },
+      ]}
+    />
   );
 }
 
@@ -260,8 +281,8 @@ export default function Hud(p: HudProps) {
     >
       {/* Links: Titel, Datum, Stand (ab 1100 px HUD-Breite; die Kacheln brauchen ~700 px, die Schalter ~290 px) */}
       <div className="hidden shrink-0 @min-[68.75rem]:flex @min-[68.75rem]:items-baseline @min-[68.75rem]:gap-3">
-        {/* Unter @6xl nur für Screenreader: der Platz gehört dann den Kennzahlen. */}
-        <h1 className="k-display sr-only text-[30px] leading-none @6xl:not-sr-only" style={{ color: "var(--lk-text)" }}>
+        {/* Unter @7xl nur für Screenreader: der Platz gehört dann Kennzahlen und „Karte | Liste“. */}
+        <h1 className="k-display sr-only text-[30px] leading-none @7xl:not-sr-only" style={{ color: "var(--lk-text)" }}>
           Lage
         </h1>
         <div className="flex flex-col gap-0.5">
@@ -298,6 +319,7 @@ export default function Hud(p: HudProps) {
         <Kachel label="Umzüge 7 Tage" wert={k.umzuegeNaechste7Tage} />
         <Kachel
           label="Verortet"
+          className="@min-[68.75rem]:@max-[72.5rem]:hidden"
           wert={
             <>
               {k.verortet.mitOrt}
@@ -309,37 +331,9 @@ export default function Hud(p: HudProps) {
         />
       </div>
 
-      {/* Rechts: Schalter (ab 1100 px HUD-Breite; Beschriftungen erst ab @7xl, darunter nur Icons) */}
+      {/* Rechts: Schalter (ab 1100 px HUD-Breite). „Karte | Liste“ immer mit Text, Kamera erst ab 1440 px. */}
       <div className="hidden shrink-0 items-center gap-2 @min-[68.75rem]:flex">
-        <Segment
-          label="Ansicht"
-          kinder={[
-            {
-              key: "karte",
-              inhalt: (
-                <>
-                  <MapPinned className="size-3.5" aria-hidden="true" /> <span className="hidden @7xl:inline">Karte</span>
-                </>
-              ),
-              aktiv: true,
-              onClick: () => undefined,
-              ariaLabel: "Karte",
-              title: "Lagekarte",
-            },
-            {
-              key: "liste",
-              inhalt: (
-                <>
-                  <List className="size-3.5" aria-hidden="true" /> <span className="hidden @7xl:inline">Liste</span>
-                </>
-              ),
-              aktiv: false,
-              onClick: p.onListe,
-              ariaLabel: "Liste",
-              title: "Zur klassischen Startseite",
-            },
-          ]}
-        />
+        <AnsichtSchalter onListe={p.onListe} />
         <Segment
           label="Darstellung"
           kinder={[
@@ -364,15 +358,20 @@ export default function Hud(p: HudProps) {
           style={{ borderColor: "var(--lk-panel-rand)" }}
         >
           <button type="button" onClick={() => p.onKamera("kern")} className={cn(KNOPF, "h-8")} title="Kamera auf das Kerngebiet" aria-label="Kerngebiet">
-            <Crosshair className="size-3.5" aria-hidden="true" /> <span className="hidden @7xl:inline">Kerngebiet</span>
+            <Crosshair className="size-3.5" aria-hidden="true" /> <span className="hidden @min-[90rem]:inline">Kerngebiet</span>
           </button>
           <button type="button" onClick={() => p.onKamera("bw")} className={cn(KNOPF, "h-8")} title="Kamera auf ganz Baden-Württemberg" aria-label="Ganz BW">
-            <MapIcon className="size-3.5" aria-hidden="true" /> <span className="hidden @7xl:inline">Ganz BW</span>
+            <MapIcon className="size-3.5" aria-hidden="true" /> <span className="hidden @min-[90rem]:inline">Ganz BW</span>
           </button>
         </div>
       </div>
 
-      {/* Schmal: kleines Menü mit den Schaltern */}
+      {/* Kompakt, aber breit genug (z. B. 1280-px-Fenster): „Karte | Liste“ sichtbar neben dem Menü. */}
+      <div className="hidden shrink-0 items-center @min-[58rem]:flex @min-[68.75rem]:hidden">
+        <AnsichtSchalter onListe={p.onListe} />
+      </div>
+
+      {/* Schmal: kleines Menü mit den Schaltern (44 px Trefferfläche, einziger mobiler Weg zu 2D/3D und Kamera) */}
       <div ref={menueRef} className="relative flex shrink-0 items-center @min-[68.75rem]:hidden">
         <button
           type="button"
@@ -381,7 +380,7 @@ export default function Hud(p: HudProps) {
           aria-label={aktualisiertFehler ? "Ansicht und Kamera. Aktualisierung fehlgeschlagen" : "Ansicht und Kamera"}
           onClick={() => setMenueOffen((o) => !o)}
           className={cn(
-            "relative inline-flex size-10 items-center justify-center rounded-full transition-colors hover:bg-[var(--lk-hover)]",
+            "relative inline-flex size-11 items-center justify-center rounded-full transition-colors hover:bg-[var(--lk-hover)]",
             menueOffen && "bg-[var(--lk-aktiv)]",
             FOKUS,
           )}

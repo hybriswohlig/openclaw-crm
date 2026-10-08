@@ -35,9 +35,13 @@ type Ansicht = "2d" | "3d";
 
 const ANSICHT_SCHLUESSEL = "kottke:lagekarte-ansicht";
 const MOBIL_ABFRAGE = "(max-width: 1023.98px)";
-/** Mobiles Sheet: Peek-Höhe in px, aufgeklappt 72vh (nie über das HUD). */
-const SHEET_PEEK_PX = 168;
-const SHEET_OFFEN = "min(72vh, calc(100% - 96px))";
+/**
+ * Mobiles Sheet: Peek-Höhe in px, aufgeklappt 72vh, aber nie unter das HUD
+ * (sonst deckt das HUD den oberen Teil des Griffs ab; siehe sheetOffenHoehe).
+ * 184 statt 168: Griff und Tabs haben 44-px-Trefferflächen, darunter bleibt
+ * wie vorher die Überschrift der Liste als Hinweis sichtbar.
+ */
+const SHEET_PEEK_PX = 184;
 /** Desktop: Leiste links (12 + 340 + 12), Panel rechts (12 + 400 + 12). */
 const LEISTE_RAUM_PX = 364;
 const PANEL_RAUM_PX = 424;
@@ -245,6 +249,8 @@ function LagekarteInhalt({ onListe }: LagekarteProps) {
     return () => beobachter.disconnect();
   }, [hudEl]);
   const obenPx = HUD_OBEN_PX + hudHoehe + HUD_ABSTAND_PX;
+  // Aufgeklapptes Sheet endet oben 8 px unter dem (gemessenen) HUD.
+  const sheetOffenHoehe = `min(72vh, calc(100% - ${obenPx}px))`;
 
   /* ── Mobiles Sheet ── */
   const [sheetOffen, setSheetOffen] = useState(false);
@@ -402,7 +408,7 @@ function LagekarteInhalt({ onListe }: LagekarteProps) {
             <section
               aria-label="Leadliste"
               className="lk-glas lk-sheet absolute inset-x-0 bottom-0 z-20 flex flex-col"
-              style={{ height: sheetOffen ? SHEET_OFFEN : SHEET_PEEK_PX }}
+              style={{ height: sheetOffen ? sheetOffenHoehe : SHEET_PEEK_PX }}
               onFocusCapture={(e) => {
                 if ((e.target as HTMLElement).tagName === "INPUT") setSheetOffen(true);
               }}
@@ -420,7 +426,7 @@ function LagekarteInhalt({ onListe }: LagekarteProps) {
                   setSheetOffen((o) => !o);
                 }}
                 onPointerDown={(e) => {
-                  // Fangen: der Finger verlässt beim Wischen den 28 px hohen Griff sofort.
+                  // Fangen: der Finger verlässt beim Wischen den Griff sofort.
                   e.currentTarget.setPointerCapture(e.pointerId);
                   wischStart.current = e.clientY;
                   gewischt.current = false;
@@ -435,7 +441,9 @@ function LagekarteInhalt({ onListe }: LagekarteProps) {
                     setSheetOffen(dy < 0);
                   }
                 }}
-                className="flex h-7 w-full shrink-0 touch-none items-center justify-center focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--lk-akzent)]"
+                // 44 px Trefferfläche, Balken optisch wie vorher oben; die unteren 8 px liegen
+                // (z-10) über dem leeren oberen Polster der Leiste, nicht über der Suche.
+                className="relative z-10 -mb-2 flex h-11 w-full shrink-0 touch-none items-start justify-center pt-[11px] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--lk-akzent)]"
               >
                 <span className="h-1.5 w-10 rounded-full" style={{ background: "var(--lk-text-schwach)", opacity: 0.5 }} />
               </button>

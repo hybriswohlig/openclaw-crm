@@ -80,6 +80,62 @@
   box-shadow: 0 6px 16px -6px rgba(0, 0, 0, 0.4);
 }
 
+/* Plakette: Zahl des Clusters unter dem Ring (schild.ts: STAPEL_MITTE -18/10, Radius 11) */
+.lk-brett-auswahl__stapel {
+  position: absolute;
+  left: -29px;
+  top: -1px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background: var(--lk-brett-stapel);
+  color: var(--lk-brett-stapel-text);
+  box-shadow: 0 0 0 2px var(--lk-brett-halo);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Schild weicht Clustern und Figuren aus (data-seite, berechnet in schild.ts;
+   Abstände dort als SCHILD_ABSTAND_PX, SCHILD_SEITE_ABSTAND_PX, SCHILD_VERSATZ_PX). */
+.lk-brett-auswahl[data-seite="unten"] .lk-brett-auswahl__schild {
+  bottom: auto;
+  top: 24px;
+}
+.lk-brett-auswahl[data-seite="rechts"] .lk-brett-auswahl__schild {
+  bottom: auto;
+  top: 0;
+  left: 22px;
+  transform: translateY(-50%);
+}
+.lk-brett-auswahl[data-seite="links"] .lk-brett-auswahl__schild {
+  bottom: auto;
+  top: 0;
+  left: auto;
+  right: 22px;
+  transform: translateY(-50%);
+}
+.lk-brett-auswahl[data-seite^="oben-"] .lk-brett-auswahl__schild,
+.lk-brett-auswahl[data-seite^="unten-"] .lk-brett-auswahl__schild {
+  transform: none;
+}
+.lk-brett-auswahl[data-seite^="unten-"] .lk-brett-auswahl__schild {
+  bottom: auto;
+  top: 24px;
+}
+.lk-brett-auswahl[data-seite$="-rechts"] .lk-brett-auswahl__schild {
+  left: -10px;
+}
+.lk-brett-auswahl[data-seite$="-links"] .lk-brett-auswahl__schild {
+  left: auto;
+  right: -10px;
+}
+
 /* Tooltip und Cluster-Liste: nur Deckkraft einblenden (Position steckt im transform) */
 @keyframes lk-brett-ein {
   from {

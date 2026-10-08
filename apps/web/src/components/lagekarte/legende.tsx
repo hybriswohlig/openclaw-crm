@@ -6,6 +6,9 @@
  * umbrechend und zentriert, schmal eine einzeilige Scroll-Leiste. Maßgeblich
  * ist der Platz, den der Container gibt (`@container` am Rahmen), nicht die
  * Fensterbreite: mit offenem Panel bleibt in der Mitte oft wenig übrig.
+ *
+ * Mobil (Fenster unter lg, wie das Container-Layout) sind alle Chips und
+ * Eingang-Knöpfe 44 px hoch (Touch-Ziele).
  */
 import { useEffect, useId, useRef, useState } from "react";
 import { Euro, RotateCcw, X } from "lucide-react";
@@ -32,7 +35,7 @@ export interface LegendeProps {
 const FOKUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lk-akzent)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--lk-panel)]";
 
 const CHIP =
-  "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-2 text-[12.5px] font-medium whitespace-nowrap transition-colors " +
+  "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-2 text-[12.5px] font-medium whitespace-nowrap transition-colors max-lg:h-11 max-lg:px-3 " +
   "hover:bg-[var(--lk-hover)] active:bg-[var(--lk-aktiv)] " +
   FOKUS;
 
@@ -389,11 +392,12 @@ export default function Legende(p: LegendeProps) {
         <Trenner />
 
         {/* Zeitraum */}
+        {/* Rand als Innenschatten: die Knöpfe füllen die Höhe ohne Rand genau aus (h-9 = 2 + 32 + 2, mobil 2 + 44 + 2). */}
         <div
           role="radiogroup"
           aria-label="Eingang"
-          className="inline-flex h-9 shrink-0 items-center rounded-full border p-0.5"
-          style={{ background: "var(--lk-panel-2)", borderColor: "var(--lk-panel-rand)" }}
+          className="inline-flex h-9 shrink-0 items-center rounded-full p-0.5 max-lg:h-12"
+          style={{ background: "var(--lk-panel-2)", boxShadow: "inset 0 0 0 1px var(--lk-panel-rand)" }}
         >
           <span className="k-label pr-1 pl-2.5" style={{ color: "var(--lk-text-schwach)" }} aria-hidden="true">
             Eingang
@@ -409,7 +413,7 @@ export default function Legende(p: LegendeProps) {
                 title={z.title}
                 onClick={() => setzeFilter({ zeitraum: z.wert })}
                 className={cn(
-                  "inline-flex h-8 items-center rounded-full px-2.5 text-[12.5px] font-medium whitespace-nowrap tabular-nums transition-colors",
+                  "inline-flex h-8 items-center rounded-full px-2.5 text-[12.5px] font-medium whitespace-nowrap tabular-nums transition-colors max-lg:h-11 max-lg:min-w-11 max-lg:justify-center max-lg:px-3",
                   aktiv
                     ? "bg-[var(--lk-panel)] text-[var(--lk-text)] shadow-[0_1px_2px_rgba(0,0,0,0.12)]"
                     : "text-[var(--lk-text-leise)] hover:text-[var(--lk-text)]",
@@ -461,7 +465,7 @@ export default function Legende(p: LegendeProps) {
         {/* Treffer */}
         <span
           aria-live="polite"
-          className="inline-flex h-9 shrink-0 items-center gap-1.5 pr-1 pl-1 text-[12.5px] whitespace-nowrap tabular-nums"
+          className="inline-flex h-9 shrink-0 items-center gap-1.5 pr-1 pl-1 text-[12.5px] whitespace-nowrap tabular-nums max-lg:h-11"
           style={{ color: "var(--lk-text-leise)" }}
         >
           <strong className="font-semibold" style={{ color: "var(--lk-text)" }}>

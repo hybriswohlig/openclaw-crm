@@ -20,15 +20,28 @@ export const CLUSTER_EIGENSCHAFTEN = {
   wartet: ["+", ["case", ["get", "wartet"], 1, 0]],
 } as const satisfies Record<string, unknown>;
 
-/** Ebenen, auf die Klick und Hover reagieren (Cluster, Leads, Aufträge, Säulen). */
+/** Ebenen, auf die Klick und Hover reagieren (Cluster, Leads, Aufträge, gewählter Lead, Säulen). */
 export const INTERAKTIVE_EBENEN = [
   "cluster-kreis",
   "lead-wartet-ring",
   "lead-icons",
   "auftrag-wartet-ring",
   "auftrag-icons",
+  "auswahl-lead-ring",
+  "auswahl-lead-icon",
   "saeulen-3d",
 ];
+
+/** Figuren, die das Namensschild des gewählten Leads nicht verdecken soll (siehe schild.ts). */
+export const SCHILD_HINDERNIS_EBENEN = ["cluster-kreis", "lead-icons", "auftrag-icons"];
+
+/** Radius der Cluster-Kreise je Anzahl, wie im Ausdruck unten (für die Schild-Platzierung). */
+export function clusterRadiusPx(anzahl: number): number {
+  if (anzahl >= 50) return 22;
+  if (anzahl >= 25) return 19;
+  if (anzahl >= 10) return 16;
+  return 14;
+}
 
 export function basisStil(thema: Thema): StyleSpecification {
   return {
@@ -82,6 +95,13 @@ export function ebenen(thema: Thema, ansicht: Ansicht) {
   const in2d = ansicht === "2d" ? "visible" : "none";
   const in3d = ansicht === "3d" ? "visible" : "none";
   const kreisFarbe: ExpressionSpecification = ["case", [">", AKTIVITAET, 0], f.kreisAktiv, f.kreis];
+  const wartetRing = {
+    "circle-radius": 13,
+    "circle-color": "rgba(0, 0, 0, 0)",
+    "circle-stroke-color": wartet,
+    "circle-stroke-width": 2.5,
+    "circle-pitch-alignment": "viewport",
+  } as const;
 
   return {
     kreise: [
@@ -178,6 +198,7 @@ export function ebenen(thema: Thema, ansicht: Ansicht) {
         paint: {
           "circle-color": f.clusterFuellung,
           "circle-opacity": 0.94,
+          // Gleiche Stufen wie clusterRadiusPx.
           "circle-radius": ["step", ["get", "point_count"], 14, 10, 16, 25, 19, 50, 22],
           "circle-stroke-color": f.markerHalo,
           "circle-stroke-width": 2,
@@ -216,13 +237,7 @@ export function ebenen(thema: Thema, ansicht: Ansicht) {
         id: "lead-wartet-ring",
         type: "circle",
         filter: ["all", KEIN_CLUSTER, WARTET],
-        paint: {
-          "circle-radius": 13,
-          "circle-color": "rgba(0, 0, 0, 0)",
-          "circle-stroke-color": wartet,
-          "circle-stroke-width": 2.5,
-          "circle-pitch-alignment": "viewport",
-        },
+        paint: wartetRing,
       },
       {
         id: "lead-icons",
@@ -258,6 +273,28 @@ export function ebenen(thema: Thema, ansicht: Ansicht) {
           "icon-size": ["interpolate", ["linear"], WERT, 0, 0.9, 500000, 1.35],
           "icon-allow-overlap": true,
           "symbol-sort-key": WERT,
+        },
+      },
+    ] satisfies Ebene[],
+    /**
+     * Der gewählte Lead in eigener, nie geclusterter Quelle (Aufträge stehen
+     * ohnehin einzeln): Form, Firma und Wartet-Ring bleiben auch dort sichtbar,
+     * wo seine Nachbarn noch geclustert sind. Liegt über allen anderen Figuren.
+     */
+    auswahlLead: [
+      {
+        id: "auswahl-lead-ring",
+        type: "circle",
+        filter: WARTET,
+        paint: wartetRing,
+      },
+      {
+        id: "auswahl-lead-icon",
+        type: "symbol",
+        layout: {
+          "icon-image": ["get", "icon"],
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true,
         },
       },
     ] satisfies Ebene[],

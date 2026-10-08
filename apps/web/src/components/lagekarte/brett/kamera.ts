@@ -41,8 +41,8 @@ export type Rand = { top: number; bottom: number; left: number; right: number };
 
 // Desktop: HUD oben (~120 px), Leiste links (12 + 340), Legende unten (bis 3 Zeilen).
 const PADDING_DESKTOP: Rand = { top: 136, bottom: 170, left: 380, right: 60 };
-// Mobil: kompaktes HUD oben, unten Bottom-Sheet (Peek 168 px) plus Legenden-Leiste.
-const PADDING_MOBIL: Rand = { top: 100, bottom: 240, left: 28, right: 28 };
+// Mobil: kompaktes HUD oben, unten Bottom-Sheet (Peek 184 px) plus Legenden-Leiste (44-px-Chips).
+const PADDING_MOBIL: Rand = { top: 100, bottom: 270, left: 28, right: 28 };
 /** Gleiche Grenze wie das Container-Layout (Leiste als Sheet unter lg, Fensterbreite). */
 const DESKTOP_ABFRAGE = "(min-width: 1024px)";
 

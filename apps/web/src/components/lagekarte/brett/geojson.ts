@@ -64,20 +64,37 @@ function eigenschaften(l: LeadPunkt, thema: Thema, kurz: Map<string, string>): L
 
 /**
  * Geclusterte Lead-Quelle: alle Leads mit Ort AUSSER Aufträgen
- * (die haben eine eigene, nie geclusterte Quelle, siehe auftraegeZuGeoJson).
+ * (die haben eine eigene, nie geclusterte Quelle, siehe auftraegeZuGeoJson)
+ * und außer dem gewählten Lead (`ohneId`): der steht einzeln in der
+ * Auswahl-Quelle, damit er nie in einem Cluster verschwindet.
  */
 export function leadsZuGeoJson(
   leads: LeadPunkt[],
   thema: Thema,
   firmen: Firma[] = [],
+  ohneId: string | null = null,
 ): GeoJSON.FeatureCollection<GeoJSON.Point, LeadEigenschaften> {
   const kurz = kurzNachFirma(firmen);
   const features: GeoJSON.Feature<GeoJSON.Point, LeadEigenschaften>[] = [];
   for (const l of leads) {
-    if (!l.ort || l.status === "auftrag") continue;
+    if (!l.ort || l.status === "auftrag" || l.id === ohneId) continue;
     features.push(punkt(l.ort, eigenschaften(l, thema, kurz)));
   }
   return { type: "FeatureCollection", features };
+}
+
+/**
+ * Ungeclusterte Quelle nur für den gewählten Lead (gleiche Eigenschaften wie in
+ * der Cluster-Quelle). Leer ohne Auswahl, ohne Ort und für Aufträge, die
+ * ohnehin einzeln in der Auftrags-Quelle stehen.
+ */
+export function auswahlZuGeoJson(
+  lead: LeadPunkt | null,
+  thema: Thema,
+  firmen: Firma[] = [],
+): GeoJSON.FeatureCollection<GeoJSON.Point, LeadEigenschaften> {
+  if (!lead?.ort || lead.status === "auftrag") return { type: "FeatureCollection", features: [] };
+  return { type: "FeatureCollection", features: [punkt(lead.ort, eigenschaften(lead, thema, kurzNachFirma(firmen)))] };
 }
 
 /** Ungeclusterte Auftrags-Quelle (Status auftrag mit Ort). */
