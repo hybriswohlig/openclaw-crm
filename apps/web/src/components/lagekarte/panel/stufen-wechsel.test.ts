@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { erstelleStufenProtokoll, leseStufe, pruefeRueckgaengig, stufeNachlesen, stufenName } from "./stufen-wechsel";
+import {
+  angezeigteStufe,
+  erstelleStufenProtokoll,
+  leseStufe,
+  pruefeRueckgaengig,
+  stufeNachlesen,
+  stufenName,
+} from "./stufen-wechsel";
 
 describe("erstelleStufenProtokoll", () => {
   it("nur die jüngste Änderung je Lead gilt (zwei Änderungen hintereinander)", () => {
@@ -62,6 +69,30 @@ describe("pruefeRueckgaengig", () => {
 
   it("bricht ab, wenn die Stufe inzwischen entfernt wurde", () => {
     expect(pruefeRueckgaengig(true, null, "verloren")).toEqual({ ok: false, grund: "fremd", gespeichert: null });
+  });
+});
+
+describe("angezeigteStufe", () => {
+  const stufen = [
+    { id: "s1", titel: "In Kontakt", farbe: "#111" },
+    { id: "s2", titel: "Verloren", farbe: "#222" },
+  ];
+  const leadStufe = { id: "alt", titel: "Archiv", farbe: "#999" };
+
+  it("zeigt die ausgewählte Stufe aus der Liste", () => {
+    expect(angezeigteStufe("s2", stufen, leadStufe)).toEqual({ titel: "Verloren", farbe: "#222" });
+  });
+
+  it("nimmt die Stufe des Leads, wenn genau sie ausgewählt ist und in der Liste fehlt", () => {
+    expect(angezeigteStufe("alt", stufen, leadStufe)).toEqual({ titel: "Archiv", farbe: "#999" });
+  });
+
+  it("leere Auswahl (keine Stufe) fällt nicht auf die alte Stufe des Leads zurück", () => {
+    expect(angezeigteStufe("", stufen, { id: "s2", titel: "Verloren", farbe: "#222" })).toBeNull();
+  });
+
+  it("unbekannte Auswahl liefert null statt einer fremden Stufe", () => {
+    expect(angezeigteStufe("weg", stufen, leadStufe)).toBeNull();
   });
 });
 

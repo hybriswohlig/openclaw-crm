@@ -67,6 +67,21 @@ export function pruefeRueckgaengig(juengste: boolean, gespeichert: string | null
   return { ok: true };
 }
 
+/**
+ * Was das Stufenfeld zeigt: die ausgewählte Stufe aus der Liste, sonst die Stufe des Leads,
+ * wenn genau sie ausgewählt ist (z. B. eine Stufe, die die Liste nicht enthält). Eine leere
+ * Auswahl heißt „keine Stufe“ und fällt nie auf die vielleicht veraltete Stufe des Leads zurück.
+ */
+export function angezeigteStufe(
+  auswahl: string,
+  stufen: ReadonlyArray<{ id: string; titel: string; farbe: string }>,
+  leadStufe: { id: string; titel: string; farbe: string } | null,
+): { titel: string; farbe: string } | null {
+  if (auswahl === "") return null;
+  const stufe = stufen.find((s) => s.id === auswahl) ?? (leadStufe?.id === auswahl ? leadStufe : null);
+  return stufe ? { titel: stufe.titel, farbe: stufe.farbe } : null;
+}
+
 /** Anzeigename einer Stufe für Toasts; null = Lead hatte keine Stufe. */
 export function stufenName(id: string | null, stufen: ReadonlyArray<{ id: string; titel: string }>): string {
   if (id === null) return "keine Stufe";

@@ -45,6 +45,7 @@ import { telefonFuerLink } from "@/lib/lagekarte/telefon";
 import { warteText } from "@/lib/lagekarte/warte-text";
 import { chatLuecke, startScrollFuerTab } from "./tab-scroll";
 import {
+  angezeigteStufe,
   erstelleStufenProtokoll,
   leseStufe,
   pruefeRueckgaengig,
@@ -384,9 +385,9 @@ export default function LeadPanel({
   }, [stufen, lead.stufe]);
 
   const ungelesenGesamt = lead.chats.reduce((n, c) => n + c.ungelesen, 0);
-  const gewaehlteStufe = stufen.find((s) => s.id === stufeAuswahl) ?? null;
-  const stufeTitel = gewaehlteStufe?.titel ?? lead.stufe?.titel ?? "Stufe wählen";
-  const stufeFarbe = gewaehlteStufe?.farbe ?? lead.stufe?.farbe ?? null;
+  const gewaehlteStufe = angezeigteStufe(stufeAuswahl, stufen, lead.stufe);
+  const stufeTitel = gewaehlteStufe?.titel ?? (stufeAuswahl === "" ? "Stufe wählen" : "Unbekannte Stufe");
+  const stufeFarbe = gewaehlteStufe?.farbe ?? null;
 
   function tabWaehlen(naechster: PanelTab) {
     // Position des bisherigen Tabs merken, bevor sein Inhalt verschwindet.
@@ -474,9 +475,10 @@ export default function LeadPanel({
       const fehler = await speichereStufe(leadId, statusId);
       if (fehler) {
         toast.error(fehler, { description: leadName });
-        anzeigen(von);
-        // Die gelesene Stufe kann neuer sein als die Kartendaten (Änderung von jemand anderem).
-        if (von !== (lead.stufe?.id ?? null)) await neuLadenAbwarten();
+        // Die Route kann nach dem Schreiben noch scheitern (Aktivität, Antwort): gespeicherte Stufe nachlesen.
+        const jetzt = await stufeNachlesen(leadId);
+        anzeigen(jetzt === undefined ? von : jetzt);
+        await neuLadenAbwarten();
         return;
       }
       await neuLadenAbwarten();
