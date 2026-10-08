@@ -8,6 +8,11 @@
  * Die Nachrichten stehen chronologisch, die neueste unten. Nach dem Laden
  * meldet `onGeladen` das dem Panel, das dann ans Ende scrollt (sonst stünde
  * die älteste der 20 Nachrichten im Blick statt der, auf die der Kunde wartet).
+ *
+ * Aktualisierung: Ändern sich beim Polling `letzteNachrichtAm` oder `ungelesen`
+ * des gewählten Threads, lädt die Vorschau leise neu (ohne Ladeskelett). Das
+ * Panel lässt die Scrollposition stehen, außer der Nutzer war ganz unten
+ * (`istGanzUnten` vor dem Austausch gemessen): dann ans neue Ende.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -27,7 +32,28 @@ const KANAL_LABEL: Record<ChatKanal, string> = {
 type Zustand =
   | { status: "laedt" }
   | { status: "fehler"; meldung: string }
-  | { status: "ok"; daten: ChatVorschauAntwort };
+  | { status: "ok"; daten: ChatVorschauAntwort; chatId: string };
+
+/** Was nach dem Laden ans Panel geht: leise = Hintergrund-Aktualisierung desselben Threads. */
+export type ChatGeladen = { leise: false } | { leise: true; warUnten: boolean };
+
+/** Ändert sich dieser Schlüssel beim Polling, ist im Thread etwas passiert. */
+function threadStand(chat: ChatKurz | undefined): string {
+  return chat ? `${chat.letzteNachrichtAm ?? ""}|${chat.ungelesen}` : "";
+}
+
+async function ladeChat(chatId: string, signal: AbortSignal): Promise<Zustand> {
+  const res = await fetch(`/api/v1/lagekarte/chat/${encodeURIComponent(chatId)}`, { signal });
+  if (!res.ok) {
+    return {
+      status: "fehler",
+      meldung: res.status === 404 ? "Chat nicht gefunden" : `Chat konnte nicht geladen werden (${res.status})`,
+    };
+  }
+  const body = (await res.json()) as { data?: ChatVorschauAntwort };
+  if (!body.data || !Array.isArray(body.data.nachrichten)) return { status: "fehler", meldung: "Chat ist leer" };
+  return { status: "ok", daten: body.data, chatId };
+}
 
 const KNOPF =
   "inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-[var(--lk-panel-rand)] bg-[var(--lk-panel)] px-3 text-[13px] font-medium text-[var(--lk-text)] transition-colors hover:bg-[var(--lk-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--lk-akzent)] max-lg:min-h-11";
@@ -52,55 +78,81 @@ interface ChatVorschauProps {
   onChatWechsel: (chatId: string) => void;
   jetzt: Date;
   /** Nachrichten eines Threads stehen im DOM (vor dem Zeichnen): Panel scrollt zur neuesten. */
-  onGeladen?: () => void;
+  onGeladen?: (art: ChatGeladen) => void;
+  /** Steht der Scrollbereich gerade ganz unten? (vor einer leisen Aktualisierung gefragt) */
+  istGanzUnten?: () => boolean;
+  /** Mobil: ohne klebende Fußzeile (der Posteingang-Knopf steht dort im Panelkopf). */
+  ohneFuss?: boolean;
 }
 
-export default function ChatVorschau({ lead, chatId, onChatWechsel, jetzt, onGeladen }: ChatVorschauProps) {
+export default function ChatVorschau({ lead, chatId, onChatWechsel, jetzt, onGeladen, istGanzUnten, ohneFuss = false }: ChatVorschauProps) {
   const vorschau = useVorschau();
-  const [zustand, setZustand] = useState<Zustand>({ status: "laedt" });
+  const [zustandRoh, setZustand] = useState<Zustand>({ status: "laedt" });
+  // Nach einem Chip-Wechsel zeigt der alte Thread nie unter dem neuen Chip (bis der Effekt lädt).
+  const zustand: Zustand = zustandRoh.status === "ok" && zustandRoh.chatId !== chatId ? { status: "laedt" } : zustandRoh;
   const [versuch, setVersuch] = useState(0);
   const onGeladenRef = useRef(onGeladen);
   onGeladenRef.current = onGeladen;
+  const istGanzUntenRef = useRef(istGanzUnten);
+  istGanzUntenRef.current = istGanzUnten;
+  /** Gesetzt, wenn der nächste Datenstand eine leise Aktualisierung ist. */
+  const leiseRef = useRef<{ warUnten: boolean } | null>(null);
+  const zustandRef = useRef(zustand);
+  zustandRef.current = zustand;
+
+  const stand = threadStand(lead.chats.find((c) => c.id === chatId));
+  /** Thread-Stand, zu dem die angezeigten Nachrichten gehören (bzw. gerade geladen werden). */
+  const geladenerStand = useRef(stand);
 
   // Layout-Effekt: das Panel scrollt, bevor der Browser die Liste oben zeichnet (kein Springen).
   useLayoutEffect(() => {
-    if (zustand.status === "ok") onGeladenRef.current?.();
-  }, [zustand]);
+    if (zustandRoh.status !== "ok") return;
+    const leise = leiseRef.current;
+    leiseRef.current = null;
+    onGeladenRef.current?.(leise ? { leise: true, warUnten: leise.warUnten } : { leise: false });
+  }, [zustandRoh]);
 
   useEffect(() => {
     if (!chatId) return;
+    geladenerStand.current = stand;
+    leiseRef.current = null;
     // Vorschau: erfundene Nachrichten, kein Abruf.
     if (vorschau) {
-      setZustand({ status: "ok", daten: beispielChatVorschau(chatId) });
+      setZustand({ status: "ok", daten: beispielChatVorschau(chatId), chatId });
       return;
     }
     const ac = new AbortController();
     setZustand({ status: "laedt" });
-    (async () => {
-      try {
-        const res = await fetch(`/api/v1/lagekarte/chat/${encodeURIComponent(chatId)}`, {
-          signal: ac.signal,
-        });
-        if (!res.ok) {
-          setZustand({
-            status: "fehler",
-            meldung: res.status === 404 ? "Chat nicht gefunden" : `Chat konnte nicht geladen werden (${res.status})`,
-          });
-          return;
-        }
-        const body = (await res.json()) as { data?: ChatVorschauAntwort };
-        if (!body.data || !Array.isArray(body.data.nachrichten)) {
-          setZustand({ status: "fehler", meldung: "Chat ist leer" });
-          return;
-        }
-        setZustand({ status: "ok", daten: body.data });
-      } catch {
-        if (ac.signal.aborted) return;
-        setZustand({ status: "fehler", meldung: "Chat konnte nicht geladen werden" });
-      }
-    })();
+    ladeChat(chatId, ac.signal)
+      .then((z) => {
+        if (!ac.signal.aborted) setZustand(z);
+      })
+      .catch(() => {
+        if (!ac.signal.aborted) setZustand({ status: "fehler", meldung: "Chat konnte nicht geladen werden" });
+      });
     return () => ac.abort();
+    // stand nur als Startwert, eine Änderung lädt leise (Effekt unten)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatId, versuch, vorschau]);
+
+  // Polling hat im gewählten Thread etwas Neues gemeldet: leise nachladen, ohne Skelett.
+  useEffect(() => {
+    if (!chatId || vorschau || stand === geladenerStand.current) return;
+    if (zustandRef.current.status !== "ok") return; // erstes Laden läuft oder Fehler: dort bleibt es
+    geladenerStand.current = stand;
+    const ac = new AbortController();
+    ladeChat(chatId, ac.signal)
+      .then((z) => {
+        if (ac.signal.aborted || z.status !== "ok") return; // Fehler beim Nachladen: alter Stand bleibt
+        // Vor dem Austausch messen: stand der Nutzer ganz unten, folgt die Ansicht dem neuen Ende.
+        leiseRef.current = { warUnten: istGanzUntenRef.current?.() ?? false };
+        setZustand(z);
+      })
+      .catch(() => {
+        /* Netzfehler beim Nachladen: alter Stand bleibt sichtbar */
+      });
+    return () => ac.abort();
+  }, [chatId, vorschau, stand]);
 
   if (lead.chats.length === 0 || !chatId) {
     return (
@@ -181,8 +233,8 @@ export default function ChatVorschau({ lead, chatId, onChatWechsel, jetzt, onGel
         </div>
       )}
 
-      {/* Nachrichten */}
-      <div className="px-4 py-3">
+      {/* Nachrichten (mobil ohne Fußzeile etwas enger, damit drei Blasen passen) */}
+      <div className={`px-4 ${ohneFuss ? "py-2" : "py-3"}`}>
         {zustand.status === "laedt" && (
           <div className="space-y-3" aria-busy="true" aria-label="Chat wird geladen">
             {[72, 48, 64, 40].map((w, i) => (
@@ -221,11 +273,11 @@ export default function ChatVorschau({ lead, chatId, onChatWechsel, jetzt, onGel
             {zustand.daten.nachrichten.length === 0 ? (
               <p className="py-6 text-center text-[13px] text-[var(--lk-text-schwach)]">Noch keine Nachrichten.</p>
             ) : (
-              <ol className="space-y-2" aria-label="Nachrichten">
+              <ol className={ohneFuss ? "space-y-1.5" : "space-y-2"} aria-label="Nachrichten">
                 {zustand.daten.nachrichten.map((n) => {
                   const eingehend = n.richtung === "inbound";
                   return (
-                    <li key={n.id} className={`flex flex-col ${eingehend ? "items-start" : "items-end"}`}>
+                    <li key={n.id} data-blase className={`flex flex-col ${eingehend ? "items-start" : "items-end"}`}>
                       <div
                         className={`max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-3 py-2 text-[13px] leading-snug ${
                           eingehend ? "rounded-bl-md" : "rounded-br-md"
@@ -266,8 +318,15 @@ export default function ChatVorschau({ lead, chatId, onChatWechsel, jetzt, onGel
         )}
       </div>
 
+      {/* Lücke am Ende: das Panel setzt ihre Höhe so, dass oben keine Blase unter der Tab-Leiste angeschnitten ist. */}
+      <div data-chat-luecke aria-hidden="true" style={{ height: 0 }} />
+
       {/* Fußzeile */}
-      <div className="sticky bottom-0 border-t border-[var(--lk-panel-rand)] px-4 py-3" style={{ background: "var(--lk-panel)" }}>
+      <div
+        data-chat-fuss
+        className={`sticky bottom-0 border-t border-[var(--lk-panel-rand)] px-4 py-3 ${ohneFuss ? "hidden" : ""}`}
+        style={{ background: "var(--lk-panel)" }}
+      >
         {vorschau ? (
           <button
             type="button"

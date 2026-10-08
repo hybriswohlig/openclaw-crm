@@ -38,10 +38,12 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import ChatVorschau from "./chat-vorschau";
+import ChatVorschau, { type ChatGeladen } from "./chat-vorschau";
 import KvKarte from "./kv-karte";
 import { useVorschau, VORSCHAU_TITEL } from "../vorschau";
-import { startScrollFuerTab } from "./tab-scroll";
+import { telefonFuerLink } from "@/lib/lagekarte/telefon";
+import { warteText } from "@/lib/lagekarte/warte-text";
+import { chatLuecke, startScrollFuerTab } from "./tab-scroll";
 import Verlauf from "./verlauf";
 
 export type PanelTab = "chat" | "angebot" | "verlauf";
@@ -127,10 +129,6 @@ function vonHinweis(ort: KartenOrt | null): string {
   return ort.genauigkeit === "plz" ? "PLZ-Gebiet, keine genaue Adresse" : "Ort, keine genaue Adresse";
 }
 
-function telefonHref(telefon: string): string {
-  return `tel:${telefon.replace(/[^\d+]/g, "")}`;
-}
-
 function Fakt({
   label,
   wert,
@@ -211,15 +209,47 @@ export default function LeadPanel({
   const selbstGescrolltRef = useRef(false);
   const positionenRef = useRef<Partial<Record<PanelTab, number>>>({});
 
+  /** Ans Chat-Ende; die oberste sichtbare Blase rastet unter der klebenden Tab-Leiste ein (chatLuecke). */
   const zumChatEnde = useCallback(() => {
     const rumpf = rumpfRef.current;
-    if (rumpf) rumpf.scrollTop = rumpf.scrollHeight;
-  }, []);
+    if (!rumpf) return;
+    const chat = rumpf.querySelector<HTMLElement>(`[id="${basisId}-panel-chat"]`);
+    const luecke = chat?.querySelector<HTMLElement>("[data-chat-luecke]") ?? null;
+    if (luecke) luecke.style.height = "0px";
+    rumpf.scrollTop = rumpf.scrollHeight;
+    const tabs = tabsRef.current;
+    if (!chat || !luecke || !tabs) return;
+    const blasen = [...chat.querySelectorAll<HTMLElement>("[data-blase]")].map((b) => {
+      const r = b.getBoundingClientRect();
+      return { oben: r.top, unten: r.bottom };
+    });
+    const hoehe = chatLuecke(blasen, tabs.getBoundingClientRect().bottom);
+    if (hoehe > 0) {
+      luecke.style.height = `${hoehe}px`;
+      rumpf.scrollTop = rumpf.scrollHeight;
+    }
+  }, [basisId]);
 
-  const beiChatGeladen = useCallback(() => {
-    chatGeladenRef.current = true;
-    if (tabRef.current === "chat" && !selbstGescrolltRef.current) zumChatEnde();
-  }, [zumChatEnde]);
+  const beiChatGeladen = useCallback(
+    (art: ChatGeladen) => {
+      chatGeladenRef.current = true;
+      if (tabRef.current !== "chat") return;
+      // Leise Aktualisierung (Polling): Position bleibt, außer der Nutzer stand ganz unten.
+      if (art.leise) {
+        if (art.warUnten) zumChatEnde();
+        return;
+      }
+      if (!selbstGescrolltRef.current) zumChatEnde();
+    },
+    [zumChatEnde],
+  );
+
+  /** Ganz unten = höchstens ein paar Pixel bis zum Ende (Rundung, Zoom). Nur im Chat-Tab sinnvoll. */
+  const istGanzUnten = useCallback(() => {
+    const rumpf = rumpfRef.current;
+    if (!rumpf || tabRef.current !== "chat") return false;
+    return rumpf.scrollHeight - rumpf.scrollTop - rumpf.clientHeight <= 8;
+  }, []);
 
   const chatWechseln = useCallback((id: string) => {
     selbstGescrolltRef.current = false;
@@ -369,9 +399,78 @@ export default function LeadPanel({
   }
 
   const inboxHref = chatId ? `/inbox?conv=${encodeURIComponent(chatId)}` : null;
+  const telefonNummer = lead.telefon ? telefonFuerLink(lead.telefon) : null;
   const kvUrl = lead.kv.dokumentId
     ? `/api/v1/deals/${encodeURIComponent(lead.id)}/documents/${encodeURIComponent(lead.kv.dokumentId)}`
     : null;
+
+  /* Kopf-Bausteine: Desktop im Kopf, mobil oben im Rumpf. */
+  const statusChips = (
+    <div className="flex flex-wrap items-center gap-2">
+      <span
+        className="inline-flex min-h-6 items-center gap-1.5 rounded-full border px-2 text-[11.5px] font-medium"
+        style={{
+          color: statusFarbe,
+          borderColor: `color-mix(in oklab, ${statusFarbe} 35%, transparent)`,
+          background: `color-mix(in oklab, ${statusFarbe} 12%, transparent)`,
+        }}
+      >
+        <StatusForm status={lead.status} thema={thema} groesse={14} wartet={Boolean(lead.wartet)} />
+        {stil.label}
+      </span>
+      {lead.nummer && <span className="k-mono text-[12px] tabular-nums text-[var(--lk-text-schwach)]">{lead.nummer}</span>}
+      {firma && (
+        <span
+          className="inline-flex h-6 items-center gap-1.5 rounded-full pl-1 pr-2 text-[11.5px] font-medium text-[var(--lk-text-leise)]"
+          style={{ background: "var(--lk-aktiv)" }}
+          title={firma.name}
+        >
+          <span
+            className="k-mono inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold text-white"
+            style={{ background: firma.farbe }}
+            aria-hidden="true"
+          >
+            {firma.kurz}
+          </span>
+          {firma.name}
+        </span>
+      )}
+    </div>
+  );
+
+  const hinweise = (
+    <>
+      {lead.statusHinweis && (
+        <p className="mt-2 flex items-start gap-1.5 text-[12.5px] leading-snug" style={{ color: "var(--lk-warn)" }}>
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span>{lead.statusHinweis}</span>
+        </p>
+      )}
+
+      {lead.wert && plausiblerCent(lead.wert) === null && (
+        <p className="mt-2 flex items-start gap-1.5 text-[12.5px] leading-snug" style={{ color: "var(--lk-warn)" }}>
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span>Wert ungewöhnlich hoch: {euroAusCent(lead.wert.cent)}, bitte prüfen</span>
+        </p>
+      )}
+
+      {lead.wartet && (
+        <div
+          className="mt-2 flex items-center gap-2 rounded-lg px-3 py-2 text-[12.5px] font-medium"
+          style={{
+            color: "var(--lk-wartet)",
+            background: "color-mix(in oklab, var(--lk-wartet) 12%, transparent)",
+          }}
+        >
+          <Clock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span>{WARTET_LABEL[lead.wartet.art]}</span>
+          <span className="k-mono ml-auto text-[11px] font-normal tabular-nums">{warteText(lead.wartet.seit, jetzt)}</span>
+        </div>
+      )}
+
+      {!imFilter && <p className="mt-2 text-[12px] text-[var(--lk-text-schwach)]">Nicht im aktuellen Filter</p>}
+    </>
+  );
 
   const wurzelKlasse = mobil
     ? // Höchstens 65 %: oben bleiben HUD, Quellenzeile und ein Streifen Karte mit dem Marker sichtbar.
@@ -383,99 +482,80 @@ export default function LeadPanel({
   return (
     <>
       <section aria-labelledby={`${basisId}-titel`} className={wurzelKlasse} style={wurzelStil} data-testid="lead-panel">
+        {/* Mobil: Griff liegt über dem Kopf (kein eigener 44-px-Streifen); Schließen (44 px) steht im Kopf. */}
         {mobil && (
           <button
             type="button"
             onClick={onSchliessen}
             aria-label="Panel schließen"
-            className="flex h-11 w-full shrink-0 items-center justify-center focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--lk-akzent)]"
+            className="absolute top-0 left-1/2 z-20 flex h-6 w-24 -translate-x-1/2 items-start justify-center pt-1.5 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--lk-akzent)]"
           >
-            <span className="h-1.5 w-10 rounded-full" style={{ background: "var(--lk-text-schwach)", opacity: 0.5 }} />
+            <span className="h-1 w-10 rounded-full" style={{ background: "var(--lk-text-schwach)", opacity: 0.5 }} />
           </button>
         )}
 
-        {/* Kopf */}
-        <header className={`shrink-0 px-4 pb-3 ${mobil ? "pt-1" : "pt-4"}`}>
-          <div className="flex items-start gap-3">
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <span
-                  className="inline-flex min-h-6 items-center gap-1.5 rounded-full border px-2 text-[11.5px] font-medium"
-                  style={{
-                    color: statusFarbe,
-                    borderColor: `color-mix(in oklab, ${statusFarbe} 35%, transparent)`,
-                    background: `color-mix(in oklab, ${statusFarbe} 12%, transparent)`,
-                  }}
-                >
-                  <StatusForm status={lead.status} thema={thema} groesse={14} wartet={Boolean(lead.wartet)} />
-                  {stil.label}
-                </span>
-                {lead.nummer && (
-                  <span className="k-mono text-[12px] tabular-nums text-[var(--lk-text-schwach)]">{lead.nummer}</span>
-                )}
-                {firma && (
-                  <span
-                    className="inline-flex h-6 items-center gap-1.5 rounded-full pl-1 pr-2 text-[11.5px] font-medium text-[var(--lk-text-leise)]"
-                    style={{ background: "var(--lk-aktiv)" }}
-                    title={firma.name}
-                  >
-                    <span
-                      className="k-mono inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold text-white"
-                      style={{ background: firma.farbe }}
-                      aria-hidden="true"
-                    >
-                      {firma.kurz}
-                    </span>
-                    {firma.name}
-                  </span>
-                )}
-              </div>
+        {/* Kopf. Mobil nur eine Zeile (Status, Name, Wartezeit, Posteingang, Schließen); Status-Chips
+            und Hinweise stehen dort oben im Rumpf und scrollen mit, damit im Chat mindestens drei
+            Blasen Platz haben (Kontrolle). */}
+        {mobil ? (
+          <header className="shrink-0 pt-2.5 pr-2 pb-0.5 pl-4">
+            <div className="flex min-h-11 items-center gap-2">
+              <StatusForm status={lead.status} thema={thema} groesse={16} wartet={Boolean(lead.wartet)} />
               <h2
                 id={`${basisId}-titel`}
                 ref={ueberschriftRef}
                 tabIndex={-1}
-                className="k-display mt-1.5 break-words text-[22px] leading-tight text-[var(--lk-text)] outline-none focus-visible:underline focus-visible:decoration-[var(--lk-akzent)] focus-visible:underline-offset-4"
+                className="k-display min-w-0 flex-1 truncate text-[19px] leading-tight text-[var(--lk-text)] outline-none focus-visible:underline focus-visible:decoration-[var(--lk-akzent)] focus-visible:underline-offset-4"
               >
                 {lead.name}
               </h2>
+              {lead.wartet && (
+                <span className="k-mono shrink-0 text-[11px] tabular-nums" style={{ color: "var(--lk-wartet)" }}>
+                  {warteText(lead.wartet.seit, jetzt)}
+                </span>
+              )}
+              {/* Ohne Chat-Fußzeile: „Im Posteingang antworten“ als Symbol im Kopf. */}
+              {inboxHref && !vorschau ? (
+                <Link href={inboxHref} aria-label="Im Posteingang antworten" title="Im Posteingang antworten" className={ICON_KNOPF}>
+                  <MessageSquare className="h-4.5 w-4.5" aria-hidden="true" />
+                </Link>
+              ) : (
+                <button
+                  type="button"
+                  disabled
+                  aria-label="Im Posteingang antworten"
+                  title={vorschau ? VORSCHAU_TITEL : "Kein Chat vorhanden"}
+                  className={`${ICON_KNOPF} cursor-not-allowed opacity-50 hover:bg-transparent`}
+                >
+                  <MessageSquare className="h-4.5 w-4.5" aria-hidden="true" />
+                </button>
+              )}
+              <button type="button" onClick={onSchliessen} aria-label="Schließen (Esc)" title="Schließen (Esc)" className={ICON_KNOPF}>
+                <X className="h-4.5 w-4.5" aria-hidden="true" />
+              </button>
             </div>
-            <button type="button" onClick={onSchliessen} aria-label="Schließen (Esc)" title="Schließen (Esc)" className={ICON_KNOPF}>
-              <X className="h-4.5 w-4.5" aria-hidden="true" />
-            </button>
-          </div>
-
-          {lead.statusHinweis && (
-            <p className="mt-2 flex items-start gap-1.5 text-[12.5px] leading-snug" style={{ color: "var(--lk-warn)" }}>
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              <span>{lead.statusHinweis}</span>
-            </p>
-          )}
-
-          {lead.wert && plausiblerCent(lead.wert) === null && (
-            <p className="mt-2 flex items-start gap-1.5 text-[12.5px] leading-snug" style={{ color: "var(--lk-warn)" }}>
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              <span>Wert ungewöhnlich hoch: {euroAusCent(lead.wert.cent)}, bitte prüfen</span>
-            </p>
-          )}
-
-          {lead.wartet && (
-            <div
-              className="mt-2 flex items-center gap-2 rounded-lg px-3 py-2 text-[12.5px] font-medium"
-              style={{
-                color: "var(--lk-wartet)",
-                background: "color-mix(in oklab, var(--lk-wartet) 12%, transparent)",
-              }}
-            >
-              <Clock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              <span>{WARTET_LABEL[lead.wartet.art]}</span>
-              <span className="k-mono ml-auto text-[11px] font-normal tabular-nums">seit {relativ(lead.wartet.seit, jetzt, false)}</span>
+          </header>
+        ) : (
+          <header className="shrink-0 px-4 pt-4 pb-3">
+            <div className="flex items-start gap-3">
+              <div className="min-w-0 flex-1">
+                {statusChips}
+                <h2
+                  id={`${basisId}-titel`}
+                  ref={ueberschriftRef}
+                  tabIndex={-1}
+                  className="k-display mt-1.5 break-words text-[22px] leading-tight text-[var(--lk-text)] outline-none focus-visible:underline focus-visible:decoration-[var(--lk-akzent)] focus-visible:underline-offset-4"
+                >
+                  {lead.name}
+                </h2>
+              </div>
+              <button type="button" onClick={onSchliessen} aria-label="Schließen (Esc)" title="Schließen (Esc)" className={ICON_KNOPF}>
+                <X className="h-4.5 w-4.5" aria-hidden="true" />
+              </button>
             </div>
-          )}
-
-          {!imFilter && (
-            <p className="mt-2 text-[12px] text-[var(--lk-text-schwach)]">Nicht im aktuellen Filter</p>
-          )}
-        </header>
+            {hinweise}
+          </header>
+        )}
 
         {/* Rumpf */}
         <div
@@ -492,6 +572,13 @@ export default function LeadPanel({
             if (!e.defaultPrevented && SCROLL_TASTEN.has(e.key)) selbstGescrolltRef.current = true;
           }}
         >
+          {mobil && (
+            <div className="border-t border-[var(--lk-panel-rand)] px-4 pt-2.5 pb-3">
+              {statusChips}
+              {hinweise}
+            </div>
+          )}
+
           {/* Fakten */}
           <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-[var(--lk-panel-rand)] px-4 py-3">
             <Fakt label="Von" wert={ortText(lead.ort)} hinweis={vonHinweis(lead.ort)} />
@@ -549,8 +636,8 @@ export default function LeadPanel({
                     Im Posteingang antworten
                   </button>
                 )}
-                {lead.telefon && (
-                  <a href={telefonHref(lead.telefon)} className={AKTION} title={lead.telefon}>
+                {lead.telefon && telefonNummer && (
+                  <a href={`tel:${telefonNummer}`} className={AKTION} title={lead.telefon}>
                     <Phone className="h-4 w-4" aria-hidden="true" />
                     Anrufen
                   </a>
@@ -686,7 +773,15 @@ export default function LeadPanel({
                 className={t.id === "chat" ? undefined : "min-h-[calc(100%-42px)] max-lg:min-h-[calc(100%-46px)]"}
               >
                 {t.id === "chat" && (
-                  <ChatVorschau lead={lead} chatId={chatId} onChatWechsel={chatWechseln} jetzt={jetzt} onGeladen={beiChatGeladen} />
+                  <ChatVorschau
+                    lead={lead}
+                    chatId={chatId}
+                    onChatWechsel={chatWechseln}
+                    jetzt={jetzt}
+                    onGeladen={beiChatGeladen}
+                    istGanzUnten={istGanzUnten}
+                    ohneFuss={mobil}
+                  />
                 )}
                 {t.id === "angebot" && <KvKarte lead={lead} onKvAnsehen={() => setKvOffen(true)} />}
                 {t.id === "verlauf" && <Verlauf leadId={lead.id} />}
