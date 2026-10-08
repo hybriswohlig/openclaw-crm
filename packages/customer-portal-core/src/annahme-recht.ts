@@ -5,7 +5,8 @@
 import { daysUntilMove } from "./stage-derivation";
 import type { ConfirmKvaPayload } from "./types";
 
-export type ServiceArt = "move" | "kitchen_installation";
+/** clearance = Entrümpelung, Haushaltsauflösung (Werkvertrag, nicht Beförderung). */
+export type ServiceArt = "move" | "kitchen_installation" | "clearance";
 
 /**
  * Bis zu so vielen Tagen zwischen Vertragsschluss und Termin liegt der Beginn
@@ -16,7 +17,11 @@ export type ServiceArt = "move" | "kitchen_installation";
 export const VORZEITIGER_BEGINN_TAGE = 17;
 export type WiderrufModus = "ausgeschlossen" | "belehrung";
 
-/** Umzug mit festem Termin: § 312g Abs. 2 S. 1 Nr. 9 BGB. Sonst Belehrung. */
+/**
+ * Umzug mit festem Termin: § 312g Abs. 2 S. 1 Nr. 9 BGB. Sonst Belehrung,
+ * auch bei Entrümpelung: Hauptleistung ist Räumen und Entsorgen, die
+ * Ausnahme für Beförderung wird eng ausgelegt.
+ */
 export function widerrufModus(serviceType: ServiceArt): WiderrufModus {
   return serviceType === "move" ? "ausgeschlossen" : "belehrung";
 }

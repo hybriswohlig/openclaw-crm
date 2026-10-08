@@ -4,6 +4,9 @@
  */
 
 export const BUTTON_ZAHLUNGSPFLICHTIG = "Zahlungspflichtig beauftragen";
+/** Wortlaut nach § 356a Abs. 1 S. 2 und Abs. 3 S. 2 BGB. */
+export const BUTTON_VERTRAG_WIDERRUFEN = "Vertrag widerrufen";
+export const BUTTON_WIDERRUF_BESTAETIGEN = "Widerruf bestätigen";
 
 export const HAFTUNGSHINWEIS_451G = {
   titel: "Wichtiger Haftungshinweis nach § 451g HGB",
@@ -50,8 +53,16 @@ function kontaktZeile(k: FirmaKontakt): string {
   ].filter(Boolean).join(", ");
 }
 
-/** Muster nach Anlage 1 zu Art. 246a § 1 Abs. 2 S. 2 EGBGB, Dienstleistung. */
-export function widerrufsbelehrung(k: FirmaKontakt): { titel: string; absaetze: string[] } {
+/**
+ * Muster nach Anlage 1 zu Art. 246a § 1 Abs. 2 S. 2 EGBGB, Dienstleistung,
+ * mit Gestaltungshinweis 3 (Online-Widerruf, § 356a BGB). Der Vertrag kommt
+ * im Kundenportal zustande, dort steht auch der Button.
+ */
+export function widerrufsbelehrung(
+  k: FirmaKontakt,
+  opts: { portalUrl?: string | null } = {}
+): { titel: string; absaetze: string[] } {
+  const ort = `in Ihrem Kundenportal${opts.portalUrl ? ` unter ${opts.portalUrl}` : ""} über die Schaltfläche „${BUTTON_VERTRAG_WIDERRUFEN}“`;
   return {
     titel: "Widerrufsbelehrung",
     absaetze: [
@@ -59,6 +70,7 @@ export function widerrufsbelehrung(k: FirmaKontakt): { titel: string; absaetze: 
       "Sie haben das Recht, binnen vierzehn Tagen ohne Angabe von Gründen diesen Vertrag zu widerrufen.",
       "Die Widerrufsfrist beträgt vierzehn Tage ab dem Tag des Vertragsabschlusses.",
       `Um Ihr Widerrufsrecht auszuüben, müssen Sie uns (${kontaktZeile(k)}) mittels einer eindeutigen Erklärung (z. B. ein mit der Post versandter Brief oder E-Mail) über Ihren Entschluss, diesen Vertrag zu widerrufen, informieren. Sie können dafür das beigefügte Muster-Widerrufsformular verwenden, das jedoch nicht vorgeschrieben ist.`,
+      `Sie können Ihr Widerrufsrecht auch online ${ort} ausüben. Wenn Sie diese Online-Funktion nutzen, übermitteln wir Ihnen auf einem dauerhaften Datenträger (z. B. durch eine E-Mail) unverzüglich eine Eingangsbestätigung mit Informationen zum Inhalt der Widerrufserklärung sowie dem Datum und der Uhrzeit ihres Eingangs.`,
       "Zur Wahrung der Widerrufsfrist reicht es aus, dass Sie die Mitteilung über die Ausübung des Widerrufsrechts vor Ablauf der Widerrufsfrist absenden.",
       "Folgen des Widerrufs",
       "Wenn Sie diesen Vertrag widerrufen, haben wir Ihnen alle Zahlungen, die wir von Ihnen erhalten haben, einschließlich der Lieferkosten (mit Ausnahme der zusätzlichen Kosten, die sich daraus ergeben, dass Sie eine andere Art der Lieferung als die von uns angebotene, günstigste Standardlieferung gewählt haben), unverzüglich und spätestens binnen vierzehn Tagen ab dem Tag zurückzuzahlen, an dem die Mitteilung über Ihren Widerruf dieses Vertrags bei uns eingegangen ist. Für diese Rückzahlung verwenden wir dasselbe Zahlungsmittel, das Sie bei der ursprünglichen Transaktion eingesetzt haben, es sei denn, mit Ihnen wurde ausdrücklich etwas anderes vereinbart; in keinem Fall werden Ihnen wegen dieser Rückzahlung Entgelte berechnet.",
