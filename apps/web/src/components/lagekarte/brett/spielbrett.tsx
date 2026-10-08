@@ -633,7 +633,13 @@ export default function Spielbrett({
     const map = karte();
     if (!geladen || !map || iconSchluessel.current === firmenSchluessel) return;
     iconSchluessel.current = firmenSchluessel;
-    registriereIcons(map, firmen);
+    // Wie in beimLaden: ein Fehler beim Zeichnen (alte Browser) darf nie bis zur globalen
+    // Fehlerseite durchschlagen; die Karte zeigt dann nur die Grund-Icons.
+    try {
+      registriereIcons(map, firmen);
+    } catch (err) {
+      console.warn("[Lagekarte] Icons konnten nicht erzeugt werden", err);
+    }
   }, [geladen, firmenSchluessel, firmen]);
 
   // Hintergrund ist Teil des Inline-Stils, die übrigen Ebenen aktualisiert <Layer>.

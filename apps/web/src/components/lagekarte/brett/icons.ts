@@ -51,9 +51,27 @@ function pfadForm(ctx: CanvasRenderingContext2D, form: MarkerForm): void {
       ctx.lineTo(c - 5, c + 5);
       break;
     case "quadrat":
-      ctx.roundRect(c - 6.5, c - 6.5, 13, 13, 2.5);
+      abgerundetesRechteck(ctx, c - 6.5, c - 6.5, 13, 13, 2.5);
       break;
   }
+}
+
+/** Die Pfad-Methoden, die abgerundetesRechteck braucht (für den Test ohne Canvas). */
+export type RechteckPfad = Pick<CanvasRenderingContext2D, "moveTo" | "arcTo" | "closePath">;
+
+/**
+ * Abgerundetes Rechteck als offener Teilpfad mit arcTo statt ctx.roundRect: roundRect fehlt in
+ * Safari unter 16 (iOS 15) und würde dort beim Registrieren der Icons werfen. Der Radius wird
+ * auf die halbe kürzere Seite begrenzt.
+ */
+export function abgerundetesRechteck(ctx: RechteckPfad, x: number, y: number, b: number, h: number, r: number): void {
+  const rr = Math.max(0, Math.min(r, b / 2, h / 2));
+  ctx.moveTo(x + rr, y);
+  ctx.arcTo(x + b, y, x + b, y + h, rr);
+  ctx.arcTo(x + b, y + h, x, y + h, rr);
+  ctx.arcTo(x, y + h, x, y, rr);
+  ctx.arcTo(x, y, x + b, y, rr);
+  ctx.closePath();
 }
 
 function zeichneForm(ctx: CanvasRenderingContext2D, form: MarkerForm, farbe: string, halo: string, thema: Thema): void {
