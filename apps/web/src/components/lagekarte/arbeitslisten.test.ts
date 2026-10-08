@@ -121,6 +121,39 @@ describe("gruppiereMissionen (Ruling 14)", () => {
     expect(gruppen.find((g) => g.art === "zahlung_offen")?.missionen.map((m) => m.leadId)).toEqual(["a", "b"]);
   });
 
+  it("sortiert nie nach Titel: der nächste Umzug bleibt vorn, wie vom Server geliefert (I-1)", () => {
+    // Server-Reihenfolge: Dringlichkeit, dann Anlass (nächster Umzug zuerst). Alphabetisch stünde
+    // „Umzug heute“ vor „Umzug in 10 Tagen“ vor „Umzug in 2 Tagen“ vor „Umzug morgen“.
+    const server: Mission[] = [
+      mission("termin_ohne_auftrag", "a", 1, "Umzug morgen, kein Auftrag"),
+      mission("termin_ohne_auftrag", "b", 1, "Umzug in 2 Tagen, kein Auftrag"),
+      mission("kv_nachfassen", "c", 2, "KV seit 10 Tagen ungesehen"),
+      mission("kv_nachfassen", "d", 2, "KV seit 4 Tagen ungesehen"),
+      mission("termin_ohne_auftrag", "c", 2, "Umzug in 10 Tagen, kein Auftrag"),
+      mission("termin_ohne_auftrag", "d", 2, "Umzug heute, kein Auftrag"),
+    ];
+    const gruppen = gruppiereMissionen(server, leadIds);
+    expect(gruppen.map((g) => [g.art, g.dringlichkeit])).toEqual([
+      ["termin_ohne_auftrag", 1],
+      ["kv_nachfassen", 2],
+    ]);
+    expect(gruppen[0].missionen.map((m) => m.titel)).toEqual([
+      "Umzug morgen, kein Auftrag",
+      "Umzug in 2 Tagen, kein Auftrag",
+      "Umzug in 10 Tagen, kein Auftrag",
+      "Umzug heute, kein Auftrag",
+    ]);
+    expect(gruppen[1].missionen.map((m) => m.leadId)).toEqual(["c", "d"]);
+  });
+
+  it("hält Arten gleicher Dringlichkeit in fester Reihenfolge, unabhängig von der Eingangsfolge", () => {
+    const umgekehrt = gruppiereMissionen(
+      [mission("stufe_pflegen", "a", 3), mission("chat_aufraeumen", "b", 3), mission("adresse_fehlt", "c", 3)],
+      leadIds,
+    );
+    expect(umgekehrt.map((g) => g.art)).toEqual(["adresse_fehlt", "stufe_pflegen", "chat_aufraeumen"]);
+  });
+
   it("hat für jede Art eine Beschriftung", () => {
     for (const label of Object.values(MISSION_ART_LABEL)) expect(label.length).toBeGreaterThan(0);
     expect(MISSION_ART_LABEL.chat_aufraeumen).toBe("Chat aufräumen");
