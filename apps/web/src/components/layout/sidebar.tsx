@@ -22,7 +22,6 @@ import {
   Settings,
   Sun,
   Moon,
-  Database,
   CalendarDays,
   HardHat,
   Banknote,
@@ -86,7 +85,6 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const [accountName, setAccountName] = useState<string | null>(null);
   const [accountLogo, setAccountLogo] = useState<string | null>(null);
   const [workspaceRole, setWorkspaceRole] = useState<string | null>(null);
-  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [notifUnread, setNotifUnread] = useState(0);
   const inboxUnread = useInboxUnread();
   const { theme, setTheme } = useTheme();
@@ -116,15 +114,6 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     const base = match ? `${match.label} | Umzug-Suite` : "Umzug-Suite";
     document.title = inboxUnread > 0 ? `(${inboxUnread}) ${base}` : base;
   }, [pathname, inboxUnread]);
-
-  useEffect(() => {
-    fetch("/api/admin/db/me")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data?.data?.admin) setIsPlatformAdmin(true);
-      })
-      .catch(() => {});
-  }, []);
 
   useEffect(() => {
     fetch("/api/v1/lists")
@@ -373,16 +362,6 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             label="Einstellungen"
             icon={Settings}
             active={pathname.startsWith("/settings")}
-            onClick={onNavigate}
-          />
-        )}
-
-        {isPlatformAdmin && (
-          <NavItem
-            href="/admin/database"
-            label="Database admin"
-            icon={Database}
-            active={pathname.startsWith("/admin/database")}
             onClick={onNavigate}
           />
         )}

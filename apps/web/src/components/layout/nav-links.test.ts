@@ -6,8 +6,8 @@ import { fileURLToPath } from "node:url";
 // Wächter für die Navigation (Sidebar, mobile Tab-Leiste und Kopfzeile,
 // Befehlspalette, Topbar): Jeder Link und jeder API-Aufruf in diesem Ordner
 // muss auf eine Seite bzw. Route zeigen, die es im App-Router wirklich gibt.
-// Wird eine Seite entfernt (zuletzt der KI-Chat), bleibt so kein Eintrag
-// stehen, der ins Leere führt. Die Dateien werden als Text gelesen wie in
+// Wird eine Seite entfernt (zuletzt der KI-Chat und der Datenbank-Admin),
+// bleibt so kein Eintrag stehen, der ins Leere führt. Die Dateien werden als Text gelesen wie in
 // lib/mcp/tool-names.test.ts, damit der Test keine Client-Komponenten lädt.
 
 const LAYOUT_DIR = fileURLToPath(new URL("./", import.meta.url));
@@ -141,5 +141,15 @@ describe("Navigation zeigt nur auf vorhandene Seiten und Routen", () => {
       /^\/(?:api\/v1\/)?chat(?:[/?#]|$)/.test(f.ziel)
     );
     expect(zumChat).toEqual([]);
+  });
+
+  it("kein Eintrag führt mehr zum entfernten Datenbank-Admin, die KI-Aufgaben bleiben", () => {
+    expect(existiert(SEITEN, "/admin/database")).toBe(false);
+    expect(existiert(API_ROUTEN, "/api/admin/db/me")).toBe(false);
+    expect(existiert(SEITEN, "/admin/ai-tasks")).toBe(true);
+    const zumAdmin = [...SEITEN_FUNDE, ...API_FUNDE].filter((f) =>
+      /^\/(?:admin\/database|api\/admin\/db)(?:[/?#]|$)/.test(f.ziel)
+    );
+    expect(zumAdmin).toEqual([]);
   });
 });
