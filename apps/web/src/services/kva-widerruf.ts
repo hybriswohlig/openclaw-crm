@@ -147,13 +147,18 @@ export async function ladeWiderrufKontext(input: {
   }
   if (!input.aufgehobenAm) return KEIN_WIDERRUF;
   try {
-    // Nur wenn die letzte Aufhebung der Widerruf war (nicht ein Admin-Aufheben danach).
+    // Nur wenn die zuletzt aufgehobene Annahme die widerrufene ist (nicht ein Admin-Aufheben danach).
+    const [letzte] = await db
+      .select({ id: kvaConfirmations.id })
+      .from(kvaConfirmations)
+      .where(and(eq(kvaConfirmations.dealRecordId, input.dealRecordId), isNotNull(kvaConfirmations.supersededAt)))
+      .orderBy(desc(kvaConfirmations.supersededAt))
+      .limit(1);
+    if (!letzte) return KEIN_WIDERRUF;
     const [w] = await db
       .select({ eingegangenAt: kvaWiderrufe.eingegangenAt, vertrag: kvaWiderrufe.vertrag })
       .from(kvaWiderrufe)
-      .innerJoin(kvaConfirmations, eq(kvaWiderrufe.confirmationId, kvaConfirmations.id))
-      .where(and(eq(kvaWiderrufe.dealRecordId, input.dealRecordId), eq(kvaConfirmations.supersededAt, input.aufgehobenAm)))
-      .orderBy(desc(kvaWiderrufe.eingegangenAt))
+      .where(eq(kvaWiderrufe.confirmationId, letzte.id))
       .limit(1);
     if (!w) return KEIN_WIDERRUF;
     return { ...KEIN_WIDERRUF, eingegangen: { at: w.eingegangenAt.toISOString(), vertrag: w.vertrag } };
