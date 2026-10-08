@@ -189,7 +189,9 @@ export function middleware(req: NextRequest) {
 
 export const config = {
   matcher: [
-    // Match all paths except static files
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    // Match all paths except static files. geojson/pbf: offene Kartendaten der
+    // Lagekarte (/geo/*.geojson, /map/fonts/**/*.pbf), ohne Sitzungsprüfung und
+    // mit Cache-Headern aus next.config.ts.
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|geojson|pbf)$).*)",
   ],
 };
