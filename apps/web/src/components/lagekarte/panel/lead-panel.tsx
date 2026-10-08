@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import ChatVorschau from "./chat-vorschau";
 import KvKarte from "./kv-karte";
+import { startScrollFuerTab } from "./tab-scroll";
 import Verlauf from "./verlauf";
 
 export type PanelTab = "chat" | "angebot" | "verlauf";
@@ -183,9 +184,13 @@ export default function LeadPanel({
      „Chat“ zeigt die neueste Nachricht: sobald der Chat geladen ist, scrollt der Rumpf
      ans Ende (die Tabs kleben oben, darunter die neuesten Nachrichten und die Fußzeile).
      Hat jemand inzwischen selbst gescrollt, springt nichts mehr.
-     „Angebot“ und „Verlauf“ beginnen oben (Fakten, Anrufen, KV, Stufe sichtbar) und
-     bekommen beim Zurückkehren ihre eigene Position wieder, nie die des Chats. */
+     „Angebot“ und „Verlauf“ beginnen oben (Fakten, Anrufen, KV, Stufe sichtbar), wenn ihr
+     Inhalt dann noch sichtbar anfängt; sonst (mobil, wenig Höhe) klebt die Tab-Leiste oben und
+     der Inhalt steht direkt darunter (tab-scroll.ts). Beim Zurückkehren bekommen sie ihre
+     eigene Position wieder, nie die des Chats. */
   const rumpfRef = useRef<HTMLDivElement>(null);
+  const aktionenRef = useRef<HTMLDivElement>(null);
+  const tabsRef = useRef<HTMLDivElement>(null);
   const tabRef = useRef(tab);
   tabRef.current = tab;
   const chatGeladenRef = useRef(false);
@@ -215,8 +220,9 @@ export default function LeadPanel({
     if (rumpfRef.current) rumpfRef.current.scrollTop = 0;
   }, [lead.id]);
 
-  // Tab gewechselt (der neue Inhalt steht schon im DOM, noch nicht gezeichnet):
-  // Chat ans Ende, sobald geladen; sonst die gemerkte Position des Tabs, beim ersten Mal oben.
+  // Tab gewechselt oder neuer Lead (der neue Inhalt steht schon im DOM, noch nicht gezeichnet):
+  // Chat ans Ende, sobald geladen; sonst die gemerkte Position des Tabs, beim ersten Mal oben,
+  // solange der Inhalt dann sichtbar beginnt, sonst mit klebender Tab-Leiste.
   useLayoutEffect(() => {
     const rumpf = rumpfRef.current;
     if (!rumpf) return;
@@ -225,8 +231,18 @@ export default function LeadPanel({
       else rumpf.scrollTop = positionenRef.current.chat ?? 0;
       return;
     }
-    rumpf.scrollTop = positionenRef.current[tab] ?? 0;
-  }, [tab, zumChatEnde]);
+    const gemerkt = positionenRef.current[tab];
+    if (gemerkt !== undefined) {
+      rumpf.scrollTop = gemerkt;
+      return;
+    }
+    const aktionen = aktionenRef.current;
+    const tabs = tabsRef.current;
+    // Natürliche Oberkante der Tab-Leiste = Unterkante der Aktionen (die Leiste selbst klebt evtl.).
+    rumpf.scrollTop = aktionen && tabs
+      ? startScrollFuerTab(aktionen.offsetTop + aktionen.offsetHeight, tabs.offsetHeight, rumpf.clientHeight)
+      : 0;
+  }, [tab, lead.id, zumChatEnde]);
 
   // Neuer Lead oder neuer Start-Tab: Zustand zurücksetzen, Fokus auf Überschrift.
   useEffect(() => {
@@ -449,7 +465,8 @@ export default function LeadPanel({
         {/* Rumpf */}
         <div
           ref={rumpfRef}
-          className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+          // relative: offsetTop der Kinder zählt ab der Rumpf-Oberkante (Tab-Start, siehe oben).
+          className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain"
           onWheel={() => {
             selbstGescrolltRef.current = true;
           }}
@@ -475,7 +492,7 @@ export default function LeadPanel({
           </dl>
 
           {/* Schnellaktionen */}
-          <div className="flex flex-wrap gap-2 border-t border-[var(--lk-panel-rand)] px-4 py-3">
+          <div ref={aktionenRef} className="flex flex-wrap gap-2 border-t border-[var(--lk-panel-rand)] px-4 py-3">
             {inboxHref ? (
               <Link
                 href={inboxHref}
@@ -564,6 +581,7 @@ export default function LeadPanel({
 
           {/* Tabs */}
           <div
+            ref={tabsRef}
             role="tablist"
             aria-label="Lead-Bereiche"
             className="sticky top-0 z-10 flex border-y border-[var(--lk-panel-rand)] px-2"
@@ -620,6 +638,9 @@ export default function LeadPanel({
                 role="tabpanel"
                 aria-labelledby={`${basisId}-tab-${t.id}`}
                 hidden={t.id !== tab}
+                // Mindestens Rumpf minus Tab-Leiste (42 px, mobil 46 px): auch kurzer Inhalt (Verlauf
+                // lädt noch) lässt die Tab-Leiste oben kleben, statt die Scrollposition zu kappen.
+                className={t.id === "chat" ? undefined : "min-h-[calc(100%-42px)] max-lg:min-h-[calc(100%-46px)]"}
               >
                 {t.id === "chat" && (
                   <ChatVorschau lead={lead} chatId={chatId} onChatWechsel={chatWechseln} jetzt={jetzt} onGeladen={beiChatGeladen} />
