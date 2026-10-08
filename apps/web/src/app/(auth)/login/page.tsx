@@ -66,7 +66,9 @@ function LoginForm() {
     setError("");
     setPending(true);
     try {
-      const result = await signIn.email({ email, password: pw });
+      // Ohne Haken endet die Sitzung mit dem Schließen des Browsers, spätestens
+      // nach einem Tag (better-auth); mit Haken gilt das Jahr aus lib/auth.ts.
+      const result = await signIn.email({ email, password: pw, rememberMe: remember });
       if (result.error) {
         setError(result.error.message || "E-Mail oder Passwort ungültig");
       } else {
@@ -165,10 +167,7 @@ function LoginForm() {
 
             <div className={styles.field}>
               <label htmlFor="pw" className={styles.fieldLabel}>
-                <span>Passwort</span>
-                <span className={styles.hint}>
-                  <a href="#">Vergessen?</a>
-                </span>
+                Passwort
               </label>
               <div className={styles.inputWrap}>
                 <Icon.Lock className={styles.inputIcon} />
@@ -178,6 +177,7 @@ function LoginForm() {
                   className={styles.input}
                   placeholder="••••••••"
                   autoComplete="current-password"
+                  aria-describedby="pw-hinweis"
                   value={pw}
                   onChange={(e) => setPw(e.target.value)}
                   required
@@ -195,6 +195,9 @@ function LoginForm() {
                   )}
                 </button>
               </div>
+              <p id="pw-hinweis" className={styles.fieldNote}>
+                Passwort vergessen? Bitte an die Teamleitung wenden.
+              </p>
             </div>
 
             <div className={styles.row}>
