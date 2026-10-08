@@ -143,13 +143,14 @@ export const BRETT_FARBEN: Record<Thema, BrettFarben> = {
 /** Fallback-Firmenfarben, falls im Portal keine primary_color gepflegt ist. */
 export const FIRMEN_FALLBACK_FARBE = "#5a5046";
 
-/** Euro-Anzeige aus Cent, deutsch, ohne Nachkommastellen ab 1.000 €. */
+/** Euro-Anzeige aus Cent, deutsch: ganze Beträge ohne, alle anderen mit zwei Nachkommastellen. */
 export function euroAusCent(cent: number): string {
-  const euro = cent / 100;
+  // M-4: ganze Beträge ohne Nachkommastellen („1.890 €“), sonst immer zwei („1.249,50 €“).
+  const stellen = Math.round(cent) % 100 === 0 ? 0 : 2;
   return new Intl.NumberFormat("de-DE", {
     style: "currency",
     currency: "EUR",
-    maximumFractionDigits: Math.abs(euro) >= 1000 ? 0 : 2,
-    minimumFractionDigits: 0,
-  }).format(euro);
+    maximumFractionDigits: stellen,
+    minimumFractionDigits: stellen,
+  }).format(cent / 100);
 }
