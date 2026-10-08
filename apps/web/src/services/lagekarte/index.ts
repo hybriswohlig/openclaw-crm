@@ -83,7 +83,8 @@ export async function ladeChatVorschau(
 
 // ─── Zusammenbau ────────────────────────────────────────────────────────────
 
-function baueLagekarte(roh: LagekarteRoh, jetzt: Date): LagekarteAntwort {
+/** Exportiert nur für den Verdrahtungstest (index.test.ts); Aufrufer nutzen ladeLagekarte. */
+export function baueLagekarte(roh: LagekarteRoh, jetzt: Date): LagekarteAntwort {
   const firmen = baueFirmen(roh.firmen);
   const bekannteFirmen = new Set(firmen.map((f) => f.id));
   const stufeNachId = new Map(roh.stufen.map((s) => [s.id, s]));
