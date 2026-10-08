@@ -12,6 +12,7 @@ import { inboxConversations } from "@/db/schema/inbox";
 import { getQuotation } from "@/services/quotations";
 import { offeneFotoStapel } from "@/services/inventar-fotos";
 import { leistungsartVorschlag, type KvHinweisDaten } from "@/lib/kv-vorpruefung";
+import { festpreisAlsPauschale } from "@/lib/festpreis-posten";
 
 export const dynamic = "force-dynamic";
 
@@ -342,15 +343,9 @@ async function loadKvHinweise(workspaceId: string, dealRecordId: string): Promis
       )
     );
   const q = await getQuotation(dealRecordId);
-  // Gleiche Regel wie preiseFromQuotation: ohne bepreiste Posten wird der
-  // Festpreis zu einer einzigen Zeile „Pauschale“.
-  const bepreistePosten = q?.lineItems.filter((li) => Number(li.unitRate) > 0).length ?? 0;
-  const stundenModell =
-    !!q?.isVariable &&
-    q.lineItems.some((li) => li.type === "helper") &&
-    q.lineItems.some((li) => li.type === "transporter");
-  const festpreisCents =
-    q && q.fixedPrice && bepreistePosten === 0 && !stundenModell ? Math.round(Number(q.fixedPrice) * 100) : null;
+  // Dieselbe Entscheidung wie preiseFromQuotation: ohne bepreiste Posten, oder
+  // wenn sie den Festpreis nicht ergeben, steht im KV eine Zeile „Pauschale“.
+  const festpreisCents = q && festpreisAlsPauschale(q) ? Math.round(Number(q.fixedPrice) * 100) : null;
   const [conv] = await db
     .select({ id: inboxConversations.id })
     .from(inboxConversations)

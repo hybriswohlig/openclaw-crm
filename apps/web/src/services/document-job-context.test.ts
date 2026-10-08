@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { preiseFromQuotation } from "./document-job-context";
+import { festpreisAlsPauschale } from "@/lib/festpreis-posten";
 import { angebotsUebernahme } from "./rechner/uebernahme";
 import type { RechnerErgebnis } from "./rechner/client";
 
@@ -95,5 +96,68 @@ describe("preiseFromQuotation", () => {
       modell: "pauschale",
       pauschale_betrag: 1720,
     });
+  });
+});
+
+describe("Hinweis „Pauschale“ im KV-Fenster und KV", () => {
+  // loadKvHinweise setzt den Hinweis mit festpreisAlsPauschale. Er muss genau
+  // dann kommen, wenn der KV die eine Zeile „Pauschale“ druckt, sonst sagt das
+  // Fenster etwas anderes, als im Dokument steht.
+  type Quelle = Parameters<typeof preiseFromQuotation>[1];
+  const faelle: Array<{ fall: string; q: Quelle; pauschale: boolean }> = [
+    { fall: "Festpreis ohne Posten", q: { isVariable: false, fixedPrice: "890", lineItems: [] }, pauschale: true },
+    {
+      fall: "Festpreis mit passenden Posten",
+      q: { isVariable: false, fixedPrice: "1720.00", lineItems: kernUndHebel },
+      pauschale: false,
+    },
+    {
+      fall: "Festpreis mit Posten eines älteren Stands",
+      q: { isVariable: false, fixedPrice: "1800.00", lineItems: kernUndHebel },
+      pauschale: true,
+    },
+    {
+      fall: "Festpreis mit Posten ohne Preis",
+      q: {
+        isVariable: false,
+        fixedPrice: "890",
+        lineItems: [{ type: "other", description: "Möbelschutz inklusive", quantity: 1, unitRate: "0" }],
+      },
+      pauschale: true,
+    },
+    {
+      fall: "Stundensatz mit gespeichertem Festpreis",
+      q: {
+        isVariable: true,
+        fixedPrice: "500.00",
+        lineItems: [
+          { type: "helper", description: "Helfer", quantity: 3, unitRate: "45" },
+          { type: "transporter", description: "Transporter", quantity: 4, unitRate: "30" },
+        ],
+      },
+      pauschale: false,
+    },
+    {
+      fall: "variabel ohne Helfer und Transporter",
+      q: {
+        isVariable: true,
+        fixedPrice: "500.00",
+        lineItems: [{ type: "other", description: "Klaviertransport", quantity: 1, unitRate: "300" }],
+      },
+      pauschale: false,
+    },
+    { fall: "variabel ohne Posten", q: { isVariable: true, fixedPrice: "500.00", lineItems: [] }, pauschale: true },
+    { fall: "ohne Festpreis", q: { isVariable: false, fixedPrice: null, lineItems: kernUndHebel }, pauschale: false },
+  ];
+
+  /** Druckt der KV (Kottke) den Festpreis als die eine Zeile „Pauschale“? */
+  function druecktPauschale(q: Quelle): boolean {
+    const zeilen = preiseFromQuotation("kottke", q)?.pauschale_positionen;
+    return zeilen?.length === 1 && zeilen[0].titel === "Pauschale" && zeilen[0].betrag === Number(q.fixedPrice);
+  }
+
+  it.each(faelle)("$fall", ({ q, pauschale }) => {
+    expect(druecktPauschale(q)).toBe(pauschale);
+    expect(festpreisAlsPauschale(q)).toBe(pauschale);
   });
 });

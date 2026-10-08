@@ -3,6 +3,7 @@
  * Angebot (kva_confirmations.quotation_snapshot). Gleiche Form wie die
  * Angebotszeile, damit die AB dieselbe Preisaufbereitung nutzt wie der KV.
  */
+import { postenErgebenFestpreis } from "./festpreis-posten";
 
 export interface PreisQuelle {
   isVariable: boolean;
@@ -48,12 +49,10 @@ export function preisQuelleAusAnnahme(snapshot: unknown): PreisQuelle | null {
     };
   }
 
-  const summeCents = posten
-    .filter((l) => Number(l.unitRate) > 0)
-    .reduce((sum, l) => sum + Math.round(Number(l.unitRate) * l.quantity * 100), 0);
+  const fixedPrice = (s.totalCents / 100).toFixed(2);
   return {
     isVariable: false,
-    fixedPrice: (s.totalCents / 100).toFixed(2),
-    lineItems: summeCents === s.totalCents ? posten : [],
+    fixedPrice,
+    lineItems: postenErgebenFestpreis(posten, fixedPrice) ? posten : [],
   };
 }

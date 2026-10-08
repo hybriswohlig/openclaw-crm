@@ -17,6 +17,7 @@ import { serviceTypeZuSpeichern, vpsLeistungsart } from "@/lib/portal-dokumente"
 import type { ServiceArt } from "@openclaw-crm/customer-portal-core";
 import { aktivBedingung } from "./kva-annahme";
 import { preisQuelleAusAnnahme, type PreisQuelle } from "@/lib/ab-preise";
+import { festpreisAlsPauschale, istBepreist } from "@/lib/festpreis-posten";
 
 type ServiceType = ServiceArt;
 type InventoryOwner = "company" | "customer" | "none";
@@ -74,6 +75,8 @@ function quotationTotalCents(q: {
  * der Übernahme). Sonst gibt es eine Zeile „Pauschale“, damit Posten und
  * Gesamtbetrag nie auseinanderlaufen, etwa wenn der Preis geändert wurde und
  * Posten eines älteren Stands übrig sind. Der Stundensatz bleibt wie er war.
+ * Die Entscheidung trifft festpreisAlsPauschale, dieselbe wie für den Hinweis
+ * im Fenster „Es fehlen noch Angaben“.
  */
 export function preiseFromQuotation(
   firma: string,
@@ -107,24 +110,18 @@ export function preiseFromQuotation(
       };
     }
   }
-  const positionen = q.lineItems
-    .filter((i) => Number(i.unitRate) > 0)
-    .map((i) => ({
-      titel: i.description || "Leistung",
-      betrag: Number(i.unitRate) * i.quantity,
-    }));
-  const passtZumFestpreis =
-    q.isVariable ||
-    !q.fixedPrice ||
-    positionen.reduce((sum, p) => sum + toCents(p.betrag), 0) === toCents(Number(q.fixedPrice));
-  if (positionen.length && passtZumFestpreis) {
-    return { modell: "pauschale" as const, pauschale_positionen: positionen };
-  }
-  if (q.fixedPrice) {
+  if (festpreisAlsPauschale(q)) {
     return {
       modell: "pauschale" as const,
       pauschale_positionen: [{ titel: "Pauschale", betrag: Number(q.fixedPrice) }],
     };
+  }
+  const positionen = q.lineItems.filter(istBepreist).map((i) => ({
+    titel: i.description || "Leistung",
+    betrag: Number(i.unitRate) * i.quantity,
+  }));
+  if (positionen.length) {
+    return { modell: "pauschale" as const, pauschale_positionen: positionen };
   }
   return null;
 }
