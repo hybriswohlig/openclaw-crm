@@ -9,12 +9,28 @@ import { apiKeys, sessions, users, workspaceMembers, workspaces } from "@/db/sch
 // Transaktion, dass removeMember den Zugang wirklich entzieht und die Sperren
 // für die eigene Person, den letzten Admin und den letzten App-Admin greifen.
 // Den letzten Admin zum Mitglied machen darf auch updateMemberRole nicht.
-// Dazu updateWorkspace: Der Client bekommt die Einstellungen ohne
-// OpenRouter-Schlüssel und darf ihn beim Zurückschreiben nicht löschen.
-const mock = vi.hoisted(() => ({ transaction: vi.fn() }));
-vi.mock("@/db", () => ({ db: { transaction: mock.transaction } }));
+// Gesperrte Konten lassen sich unter Benutzer-Freigaben wieder freigeben
+// (listRejectedUsers, approveUser); nach der nächsten Anmeldung legt
+// ensureUserWorkspaceAccess die Mitgliedschaft wieder an. Dazu updateWorkspace:
+// Der Client bekommt die Einstellungen ohne OpenRouter-Schlüssel und darf ihn
+// beim Zurückschreiben nicht löschen.
+const mock = vi.hoisted(() => ({
+  transaction: vi.fn(),
+  select: vi.fn(),
+  update: vi.fn(),
+  insert: vi.fn(),
+}));
+vi.mock("@/db", () => ({ db: mock }));
 
-import { removeMember, revokeUserAccess, updateMemberRole, updateWorkspace } from "./workspace";
+import {
+  approveUser,
+  ensureUserWorkspaceAccess,
+  listRejectedUsers,
+  removeMember,
+  revokeUserAccess,
+  updateMemberRole,
+  updateWorkspace,
+} from "./workspace";
 
 const dialect = new PgDialect();
 function alsSql(bedingung: SQL) {
@@ -26,27 +42,36 @@ type Schreibvorgang =
   | { art: "update"; tabelle: unknown; werte: Record<string, unknown>; bedingung: SQL }
   | { art: "delete"; tabelle: unknown; bedingung: SQL };
 
-/** Fake-Transaktion: liefert die Lese-Antworten der Reihe nach und zeichnet alle Schreibvorgänge auf. */
+/**
+ * Fake-Transaktion (oder Fake-db): liefert die Lese-Antworten der Reihe nach
+ * und zeichnet alle Schreibvorgänge auf.
+ */
 function fakeTx(leseAntworten: unknown[][]) {
   const schreibvorgaenge: Schreibvorgang[] = [];
+  const eingefuegt: Array<{ tabelle: unknown; werte: Record<string, unknown> }> = [];
   const lesebedingungen: SQL[] = [];
   const sperren: string[] = [];
   let leseNr = 0;
   const tx = {
     select: () => ({
-      from: () => ({
-        where: (bedingung: SQL) => {
-          lesebedingungen.push(bedingung);
-          const zeilen = leseAntworten[leseNr++] ?? [];
-          return {
-            limit: async () => zeilen,
-            for: async (staerke: string) => {
-              sperren.push(staerke);
-              return zeilen;
-            },
-          };
-        },
-      }),
+      from: () => {
+        const zeilen = leseAntworten[leseNr++] ?? [];
+        // Verkettbar wie bei Drizzle (where, orderBy, limit, for); await liefert die Zeilen.
+        const abfrage = {
+          where: (bedingung: SQL) => {
+            lesebedingungen.push(bedingung);
+            return abfrage;
+          },
+          orderBy: () => abfrage,
+          limit: () => abfrage,
+          for: (staerke: string) => {
+            sperren.push(staerke);
+            return abfrage;
+          },
+          then: <T>(weiter: (z: unknown[]) => T) => Promise.resolve(zeilen).then(weiter),
+        };
+        return abfrage;
+      },
     }),
     update: (tabelle: unknown) => ({
       set: (werte: Record<string, unknown>) => ({
@@ -63,12 +88,24 @@ function fakeTx(leseAntworten: unknown[][]) {
         schreibvorgaenge.push({ art: "delete", tabelle, bedingung });
       },
     }),
+    insert: (tabelle: unknown) => ({
+      values: async (werte: Record<string, unknown>) => {
+        eingefuegt.push({ tabelle, werte });
+      },
+    }),
   };
-  return { tx, schreibvorgaenge, lesebedingungen, sperren };
+  return { tx, schreibvorgaenge, eingefuegt, lesebedingungen, sperren };
 }
 
 function mitTransaktion(tx: unknown) {
   mock.transaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
+}
+
+/** Für Funktionen, die ohne Transaktion direkt über db lesen und schreiben. */
+function alsDb({ tx }: ReturnType<typeof fakeTx>) {
+  mock.select.mockImplementation(tx.select);
+  mock.update.mockImplementation(tx.update);
+  mock.insert.mockImplementation(tx.insert);
 }
 
 const WORKSPACE = "ws_kottke";
@@ -337,6 +374,97 @@ describe("updateMemberRole", () => {
 
     await expect(updateMemberRole(WORKSPACE, "mem_fremd", "member")).resolves.toBeNull();
     expect(schreibvorgaenge).toEqual([]);
+  });
+});
+
+describe("listRejectedUsers", () => {
+  it("liefert gesperrte CRM-Konten, ohne Konten fürs Mitarbeiterportal", async () => {
+    const gesperrt = [{ id: "usr_jonas", name: "Jonas", email: "jonas@kottke-umzuege.de" }];
+    const fake = fakeTx([gesperrt]);
+    alsDb(fake);
+
+    await expect(listRejectedUsers()).resolves.toEqual(gesperrt);
+
+    expect(alsSql(fake.lesebedingungen[0])).toEqual({
+      sql: '("users"."approval_status" = $1 and "users"."role" <> $2)',
+      params: ["rejected", "employee"],
+    });
+  });
+});
+
+describe("approveUser", () => {
+  const jetzt = new Date("2026-10-08T19:00:00Z");
+
+  it.each(["rejected", "pending"])("gibt ein Konto mit Freigabe „%s“ frei", async (vorher) => {
+    const fake = fakeTx([[{ approvalStatus: vorher }]]);
+    alsDb(fake);
+
+    await expect(approveUser("usr_jonas", jetzt)).resolves.toEqual({
+      id: "usr_jonas",
+      approvalStatus: "approved",
+    });
+
+    expect(alsSql(fake.lesebedingungen[0])).toEqual({ sql: '"users"."id" = $1', params: ["usr_jonas"] });
+    expect(fake.schreibvorgaenge).toHaveLength(1);
+    const [schreiben] = fake.schreibvorgaenge;
+    expect(schreiben.tabelle).toBe(users);
+    expect(schreiben.art === "update" && schreiben.werte).toEqual({
+      approvalStatus: "approved",
+      updatedAt: jetzt,
+    });
+    expect(schreiben.art === "update" && alsSql(schreiben.bedingung)).toEqual({
+      sql: '"users"."id" = $1',
+      params: ["usr_jonas"],
+    });
+  });
+
+  it("lässt ein freigegebenes Konto unverändert", async () => {
+    const fake = fakeTx([[{ approvalStatus: "approved" }]]);
+    alsDb(fake);
+
+    await expect(approveUser("usr_jonas", jetzt)).resolves.toEqual({
+      id: "usr_jonas",
+      approvalStatus: "approved",
+    });
+    expect(fake.schreibvorgaenge).toEqual([]);
+  });
+
+  it("gibt null zurück, wenn es das Konto nicht gibt", async () => {
+    const fake = fakeTx([[]]);
+    alsDb(fake);
+
+    await expect(approveUser("usr_fremd", jetzt)).resolves.toBeNull();
+    expect(fake.schreibvorgaenge).toEqual([]);
+  });
+});
+
+describe("ensureUserWorkspaceAccess nach „Wieder freigeben“", () => {
+  // Entfernen löscht die Mitgliedschaft. Ist das Konto wieder freigegeben,
+  // legt der erste Aufruf nach der Anmeldung (getAuthContext) sie neu an.
+  it("legt die Mitgliedschaft neu an, als Mitglied", async () => {
+    const fake = fakeTx([[{ id: WORKSPACE }], [], [{ count: 3 }]]);
+    alsDb(fake);
+
+    await expect(ensureUserWorkspaceAccess("usr_jonas", false)).resolves.toEqual({
+      workspaceId: WORKSPACE,
+      role: "member",
+      permissions: {},
+    });
+
+    expect(fake.schreibvorgaenge).toEqual([]);
+    expect(fake.eingefuegt).toEqual([
+      { tabelle: workspaceMembers, werte: { workspaceId: WORKSPACE, userId: "usr_jonas", role: "member" } },
+    ]);
+  });
+
+  it("App-Admins kommen als Admin zurück", async () => {
+    const fake = fakeTx([[{ id: WORKSPACE }], [], [{ count: 3 }]]);
+    alsDb(fake);
+
+    await expect(ensureUserWorkspaceAccess("usr_jonas", true)).resolves.toMatchObject({ role: "admin" });
+    expect(fake.eingefuegt).toEqual([
+      { tabelle: workspaceMembers, werte: { workspaceId: WORKSPACE, userId: "usr_jonas", role: "admin" } },
+    ]);
   });
 });
 

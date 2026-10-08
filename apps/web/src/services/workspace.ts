@@ -11,7 +11,7 @@ import {
   selectOptions,
 } from "@/db/schema";
 import type { MemberPermissions } from "@/db/schema/workspace";
-import { eq, and, asc, sql, isNull } from "drizzle-orm";
+import { eq, and, asc, desc, ne, sql, isNull } from "drizzle-orm";
 import { STANDARD_OBJECTS, DEAL_STAGES } from "@openclaw-crm/shared";
 import { keepStoredSecrets } from "@/lib/workspace-secrets";
 
@@ -482,4 +482,48 @@ async function bleibtEinAppAdmin(
     .where(and(eq(users.isAppAdmin, true), eq(users.approvalStatus, "approved")))
     .for("update");
   return appAdmins.some((a) => a.id !== userId);
+}
+
+// ─── Freigaben ───────────────────────────────────────────────────────
+
+/**
+ * Gesperrte Konten für „Benutzer-Freigaben“: abgelehnte Registrierungen und
+ * aus dem Team entfernte Mitglieder (beides „rejected“), zuletzt gesperrte
+ * zuerst. Konten fürs Mitarbeiterportal fehlen, sie bekommen nie Zugang zum CRM.
+ */
+export async function listRejectedUsers() {
+  return db
+    .select({ id: users.id, name: users.name, email: users.email })
+    .from(users)
+    .where(and(eq(users.approvalStatus, "rejected"), ne(users.role, "employee")))
+    .orderBy(desc(users.updatedAt));
+}
+
+/**
+ * Gibt eine neue Registrierung („pending“) frei oder ein gesperrtes Konto
+ * („rejected“) wieder frei. Mehr braucht es nicht: Nach der nächsten Anmeldung
+ * legt getAuthContext die Mitgliedschaft an (ensureUserWorkspaceAccess).
+ * Sitzungen und API-Schlüssel von vor der Sperre bleiben gelöscht bzw. gesperrt.
+ * Gibt null zurück, wenn es das Konto nicht gibt.
+ */
+export async function approveUser(
+  userId: string,
+  now: Date = new Date()
+): Promise<{ id: string; approvalStatus: "approved" } | null> {
+  const [konto] = await db
+    .select({ approvalStatus: users.approvalStatus })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  if (!konto) return null;
+
+  if (konto.approvalStatus !== "approved") {
+    await db
+      .update(users)
+      .set({ approvalStatus: "approved", updatedAt: now })
+      .where(eq(users.id, userId));
+  }
+
+  return { id: userId, approvalStatus: "approved" };
 }
