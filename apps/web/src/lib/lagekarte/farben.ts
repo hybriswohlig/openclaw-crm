@@ -3,7 +3,7 @@
  * deshalb liegen die Werte hier als TS-Konstanten (Legende und Karte teilen sie).
  * Palette auf Basis Okabe-Ito (farbfehlsichtig-tauglich), Farbe immer mit Form.
  */
-import type { KartenStatus, WarteArt } from "./typen";
+import type { KartenStatus, WarteArt, WertArt } from "./typen";
 
 export type Thema = "hell" | "dunkel";
 
@@ -78,6 +78,13 @@ export const WARTET_FARBE: Record<Thema, string> = { hell: "#D55E00", dunkel: "#
 export const WARTET_LABEL: Record<WarteArt, string> = {
   antwort: "Antwort ausstehend",
   neu_pruefen: "Neue Anfrage prüfen",
+};
+
+/** Herkunft des Lead-Werts, kurz (Panel: Fakt „Wert“ und Wertblock im Angebot-Tab). */
+export const WERT_ART_LABEL: Record<WertArt, string> = {
+  bestaetigt: "angenommen",
+  angebot: "laut Angebot",
+  schaetzung: "geschätzt",
 };
 
 /** Spielbrett (Kreise) und Kulisse. */

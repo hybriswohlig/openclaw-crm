@@ -6,18 +6,10 @@
  */
 import { berlinDateString } from "@/lib/berlin-date";
 import { euroAusCent } from "@/lib/lagekarte/farben";
+import { kalenderTage } from "@/lib/lagekarte/kalender";
 import { abholortFehlt, plausiblerCent, type LeadPunkt, type Mission } from "@/lib/lagekarte/typen";
 
 const TAG_MS = 24 * 60 * 60 * 1000;
-
-/** Kalendertage von a nach b (beide YYYY-MM-DD), rein kalendarisch. */
-function kalenderTage(von: string, bis: string): number {
-  const ms = (d: string) => {
-    const [j, m, t] = d.split("-").map(Number);
-    return Date.UTC(j, m - 1, t);
-  };
-  return Math.round((ms(bis) - ms(von)) / TAG_MS);
-}
 
 interface Kandidat extends Mission {
   /** Zeitpunkt des Anlasses (ms), kleiner = älter = zuerst. */

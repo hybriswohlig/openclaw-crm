@@ -14,6 +14,7 @@ import type {
 } from "@/lib/lagekarte/typen";
 import { anhangArt, nachrichtText } from "./anhang";
 import { loeseOrte, type AdressRoh, type ImmoscoutRoh } from "./geo";
+import { alsObjekt } from "./json";
 import { berechneKennzahlen } from "./kennzahlen";
 import { kvDokument } from "./kv";
 import {
@@ -265,10 +266,6 @@ function werteJeDeal(zeilen: WertRoh[]): Map<string, Map<DealAttribut, WertRoh>>
     if (!werte.has(z.slug)) werte.set(z.slug, z);
   }
   return ergebnis;
-}
-
-function alsObjekt(v: unknown): Record<string, unknown> | null {
-  return v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
 }
 
 function alsText(v: unknown): string | null {

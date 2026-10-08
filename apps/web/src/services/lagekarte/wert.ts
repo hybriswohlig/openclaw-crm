@@ -6,6 +6,7 @@
  */
 import { pickDefaultDealOption } from "@openclaw-crm/customer-portal-core";
 import type { LeadWert } from "@/lib/lagekarte/typen";
+import { alsObjekt } from "./json";
 
 /** Euro (String oder Zahl) in ganze Cent. null bei leer oder nicht numerisch. */
 export function euroZuCent(v: string | number | null | undefined): number | null {
@@ -53,10 +54,6 @@ function positiveEuro(v: unknown): number | null {
   if (typeof v !== "number" && typeof v !== "string") return null;
   const cent = euroZuCent(v);
   return cent !== null && cent > 0 ? cent : null;
-}
-
-function alsObjekt(v: unknown): Record<string, unknown> | null {
-  return v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
 }
 
 /**

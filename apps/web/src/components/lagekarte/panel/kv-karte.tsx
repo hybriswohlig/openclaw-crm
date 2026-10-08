@@ -9,15 +9,9 @@ import { format, parseISO } from "date-fns";
 import { de } from "date-fns/locale";
 import { AlertTriangle, Check, Copy, FileText, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { plausiblerCent, type KvDokumentStand, type LeadPunkt, type WertArt } from "@/lib/lagekarte/typen";
-import { euroAusCent } from "@/lib/lagekarte/farben";
+import { plausiblerCent, type KvDokumentStand, type LeadPunkt } from "@/lib/lagekarte/typen";
+import { euroAusCent, WERT_ART_LABEL } from "@/lib/lagekarte/farben";
 import { useVorschau, VORSCHAU_TITEL } from "../vorschau";
-
-const WERT_ART_LABEL: Record<WertArt, string> = {
-  bestaetigt: "angenommen",
-  angebot: "laut Angebot",
-  schaetzung: "geschätzt",
-};
 
 const STAND_LABEL: Record<KvDokumentStand, string> = {
   angenommen: "angenommene Fassung",

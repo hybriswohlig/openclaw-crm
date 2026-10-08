@@ -26,6 +26,7 @@ import { ThemaKontext } from "./thema";
 import { useKartenFilter } from "./use-karten-filter";
 import { useLagekarteDaten } from "./use-lagekarte-daten";
 import { istVorschau, VorschauKontext } from "./vorschau";
+import { istEingabeAktiv } from "@/lib/lagekarte/tastatur";
 import "./lagekarte.css";
 
 export interface LagekarteProps {
@@ -110,15 +111,6 @@ function hatWebgl2(): boolean {
   } catch {
     return false;
   }
-}
-
-function istEingabeAktiv(): boolean {
-  const el = document.activeElement as HTMLElement | null;
-  if (!el) return false;
-  const tag = el.tagName;
-  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
-  if (el.isContentEditable) return true;
-  return el.getAttribute("role") === "textbox";
 }
 
 /** Wartende sehen zuerst den Chat, Angebote und Aufträge das Angebot. */

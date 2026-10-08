@@ -25,8 +25,8 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
-import { plausiblerCent, type Firma, type KartenOrt, type LeadPunkt, type StufeOption, type WertArt } from "@/lib/lagekarte/typen";
-import { STATUS_STIL, WARTET_LABEL, euroAusCent } from "@/lib/lagekarte/farben";
+import { plausiblerCent, type Firma, type KartenOrt, type LeadPunkt, type StufeOption } from "@/lib/lagekarte/typen";
+import { STATUS_STIL, WARTET_LABEL, WERT_ART_LABEL, euroAusCent } from "@/lib/lagekarte/farben";
 import { StatusForm } from "@/components/lagekarte/status-form";
 import { useLagekarteThema } from "@/components/lagekarte/thema";
 import { DocumentPreviewModal } from "@/components/documents/document-preview-modal";
@@ -66,12 +66,6 @@ const TABS: Array<{ id: PanelTab; label: string }> = [
   { id: "angebot", label: "Angebot" },
   { id: "verlauf", label: "Verlauf" },
 ];
-
-const WERT_ART_LABEL: Record<WertArt, string> = {
-  bestaetigt: "angenommen",
-  angebot: "laut Angebot",
-  schaetzung: "geschätzt",
-};
 
 const AKTION =
   "inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-[var(--lk-panel-rand)] bg-[var(--lk-panel)] px-3 text-[13px] font-medium text-[var(--lk-text)] transition-colors hover:bg-[var(--lk-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--lk-akzent)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-[var(--lk-panel)] max-lg:min-h-11";

@@ -8,6 +8,7 @@
  * Ruling 14: Missionen werden je Art gruppiert, nichts wird abgeschnitten.
  */
 import { berlinDateString } from "@/lib/berlin-date";
+import { plusTage } from "@/lib/lagekarte/kalender";
 import { abholortFehlt, type LeadPunkt, type Mission, type MissionArt } from "@/lib/lagekarte/typen";
 
 export type WartenderLead = LeadPunkt & { wartet: NonNullable<LeadPunkt["wartet"]> };
@@ -23,16 +24,10 @@ export interface Arbeitslisten {
   ohneOrt: LeadPunkt[];
 }
 
-/** YYYY-MM-DD plus ein Kalendertag (UTC-Rechnung, keine Sommerzeit-Effekte; wie kennzahlen.ts). */
-function naechsterTag(datum: string): string {
-  const [j, m, t] = datum.split("-").map(Number);
-  return new Date(Date.UTC(j, m - 1, t + 1)).toISOString().slice(0, 10);
-}
-
 /** Heute und morgen als Berliner Kalendertage (nicht jetzt + 24 h). */
 export function heuteUndMorgen(jetzt: Date): { heute: string; morgen: string } {
   const heute = berlinDateString(jetzt);
-  return { heute, morgen: naechsterTag(heute) };
+  return { heute, morgen: plusTage(heute, 1) };
 }
 
 function neuesteZuerst(a: LeadPunkt, b: LeadPunkt): number {

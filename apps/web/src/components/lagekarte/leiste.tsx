@@ -16,6 +16,7 @@ import type { Firma, LeadPunkt, Mission, MissionArt } from "@/lib/lagekarte/type
 import { FIRMEN_FALLBACK_FARBE, STATUS_STIL, WARTET_LABEL } from "@/lib/lagekarte/farben";
 import { StatusForm } from "@/components/lagekarte/status-form";
 import { useLagekarteThema } from "@/components/lagekarte/thema";
+import { istEingabeAktiv } from "@/lib/lagekarte/tastatur";
 import { telefonFuerLink } from "@/lib/lagekarte/telefon";
 import { warteText } from "@/lib/lagekarte/warte-text";
 import { arbeitslisten, gruppiereMissionen, heuteUndMorgen, ohneOrtHinweis } from "./arbeitslisten";
@@ -63,16 +64,6 @@ const TABS: Array<{ id: LeistenTab; label: string }> = [
 const STUNDE_MS = 60 * 60 * 1000;
 
 /* ───────────── Hilfsfunktionen (rein) ───────────── */
-
-function istEingabeAktiv(): boolean {
-  if (typeof document === "undefined") return false;
-  const el = document.activeElement as HTMLElement | null;
-  if (!el) return false;
-  const tag = el.tagName;
-  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
-  if (el.isContentEditable) return true;
-  return el.getAttribute("role") === "textbox";
-}
 
 function wartetLange(seitIso: string, jetzt: Date): boolean {
   return jetzt.getTime() - new Date(seitIso).getTime() >= 24 * STUNDE_MS;

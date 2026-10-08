@@ -3,13 +3,8 @@
  * Reine Funktion, keine DB. Datums- und Monatsgrenzen in Europe/Berlin.
  */
 import { berlinDateString } from "@/lib/berlin-date";
+import { plusTage } from "@/lib/lagekarte/kalender";
 import { plausiblerCent, type Kennzahlen, type LeadPunkt } from "@/lib/lagekarte/typen";
-
-/** YYYY-MM-DD plus n Kalendertage, rein kalendarisch (UTC-Rechnung, keine Sommerzeit-Effekte). */
-function plusTage(datum: string, tage: number): string {
-  const [j, m, t] = datum.split("-").map(Number);
-  return new Date(Date.UTC(j, m - 1, t + tage)).toISOString().slice(0, 10);
-}
 
 export function berechneKennzahlen(leads: LeadPunkt[], jetzt: Date): Kennzahlen {
   const heute = berlinDateString(jetzt);
