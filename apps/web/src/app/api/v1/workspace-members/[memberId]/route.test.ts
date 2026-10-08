@@ -2,10 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 // DELETE muss den Aufrufer an removeMember weitergeben, sonst greift die
-// Sperre „sich selbst entfernen“ nicht. PATCH muss die Ablehnung „letzter
-// Admin“ aus updateMemberRole als 400 zeigen statt als Serverfehler. Gleiche
+// Sperre „sich selbst entfernen“ nicht. Die Ablehnung „letzter Admin“
+// (LetzterAdminError) zeigen DELETE und PATCH als 409 mit deutschem Text,
+// andere Ablehnungen wie bisher als 400, nie als Serverfehler. Gleiche
 // Technik wie die anderen Route-Tests: nur die Service-Naht mocken, die
-// echten Antwort-Helfer aus @/lib/api-utils behalten.
+// echten Antwort-Helfer aus @/lib/api-utils und die echte Fehlerklasse
+// behalten.
 const mocks = vi.hoisted(() => ({
   getAuthContext: vi.fn(),
   removeMember: vi.fn(),
@@ -18,12 +20,17 @@ vi.mock("@/lib/api-utils", async (importOriginal) => {
   return { ...actual, getAuthContext: mocks.getAuthContext };
 });
 
-vi.mock("@/services/workspace", () => ({
-  removeMember: mocks.removeMember,
-  updateMemberRole: mocks.updateMemberRole,
-  updateMemberPermissions: mocks.updateMemberPermissions,
-}));
+vi.mock("@/services/workspace", async (importOriginal) => {
+  const { LetzterAdminError } = await importOriginal<typeof import("@/services/workspace")>();
+  return {
+    LetzterAdminError,
+    removeMember: mocks.removeMember,
+    updateMemberRole: mocks.updateMemberRole,
+    updateMemberPermissions: mocks.updateMemberPermissions,
+  };
+});
 
+import { LetzterAdminError } from "@/services/workspace";
 import { DELETE, PATCH } from "./route";
 
 const WORKSPACE_ID = "ws_kottke_prod";
@@ -82,6 +89,19 @@ describe("DELETE /api/v1/workspace-members/[memberId]", () => {
     expect(body.error.message).toBe("Du kannst dich nicht selbst entfernen.");
   });
 
+  it.each([
+    "Der letzte Admin kann nicht entfernt werden.",
+    "Der letzte Admin für Benutzer-Freigaben kann nicht entfernt werden.",
+  ])("zeigt „%s“ als 409 mit deutschem Text", async (text) => {
+    mocks.removeMember.mockRejectedValue(new LetzterAdminError(text));
+
+    const res = await callDelete();
+    const body = await res.json();
+
+    expect(res.status).toBe(409);
+    expect(body.error).toEqual({ code: "CONFLICT", message: text });
+  });
+
   it("antwortet 404, wenn es die Mitgliedschaft nicht gibt", async () => {
     mocks.removeMember.mockResolvedValue(null);
 
@@ -121,17 +141,25 @@ describe("PATCH /api/v1/workspace-members/[memberId] (Rolle)", () => {
     expect(mocks.updateMemberRole).toHaveBeenCalledWith(WORKSPACE_ID, "mem_jonas", "member");
   });
 
-  it("zeigt „letzter Admin“ als 400 mit deutschem Text und ändert auch keine Berechtigungen", async () => {
+  it("zeigt „letzter Admin“ als 409 mit deutschem Text und ändert auch keine Berechtigungen", async () => {
     mocks.updateMemberRole.mockRejectedValue(
-      new Error("Der letzte Admin kann nicht zum Mitglied gemacht werden.")
+      new LetzterAdminError("Der letzte Admin kann nicht zum Mitglied gemacht werden.")
     );
 
     const res = await callPatch({ role: "member", permissions: { manageChannels: true } });
     const body = await res.json();
 
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(409);
     expect(body.error.message).toBe("Der letzte Admin kann nicht zum Mitglied gemacht werden.");
     expect(mocks.updateMemberPermissions).not.toHaveBeenCalled();
+  });
+
+  it("zeigt andere Fehler beim Rollenwechsel weiter als 400", async () => {
+    mocks.updateMemberRole.mockRejectedValue(new Error("unerwartet"));
+
+    const res = await callPatch({ role: "member" });
+
+    expect(res.status).toBe(400);
   });
 
   it("antwortet 404, wenn es die Mitgliedschaft nicht gibt", async () => {

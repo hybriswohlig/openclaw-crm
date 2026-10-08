@@ -1,10 +1,7 @@
 import { NextRequest } from "next/server";
-import { db } from "@/db";
-import { users } from "@/db/schema";
-import { eq } from "drizzle-orm";
-import { success, forbidden, notFound, badRequest } from "@/lib/api-utils";
+import { success, forbidden, notFound, badRequest, conflict } from "@/lib/api-utils";
 import { getAppAdminFromRequest } from "@/lib/require-app-admin";
-import { revokeUserAccess } from "@/services/workspace";
+import { LetzterAdminError, rejectUser } from "@/services/workspace";
 
 export async function POST(
   req: NextRequest,
@@ -20,19 +17,18 @@ export async function POST(
     return badRequest("Cannot reject your own account");
   }
 
-  const [target] = await db
-    .select()
-    .from(users)
-    .where(eq(users.id, userId))
-    .limit(1);
-
-  if (!target) {
-    return notFound("User not found");
+  try {
+    // Gleicher Ablauf wie „Mitglied entfernen“: Freigabe, Sitzungen, Push-Abos,
+    // Mitgliedschaften und API-Schlüssel in einer Transaktion. Den letzten
+    // Admin eines Workspace und den letzten App-Admin lehnt rejectUser mit 409
+    // ab, auch wenn der ablehnende App-Admin im Team nur Mitglied ist.
+    const rejected = await rejectUser(userId);
+    if (!rejected) {
+      return notFound("User not found");
+    }
+    return success(rejected);
+  } catch (e: unknown) {
+    if (e instanceof LetzterAdminError) return conflict(e.message);
+    throw e;
   }
-
-  // Gleicher Ablauf wie „Mitglied entfernen“: Freigabe, Sitzungen, Push-Abos,
-  // Mitgliedschaften und API-Schlüssel in einem Rutsch.
-  await db.transaction((tx) => revokeUserAccess(tx, userId));
-
-  return success({ id: userId, approvalStatus: "rejected" });
 }

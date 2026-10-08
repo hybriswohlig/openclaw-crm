@@ -6,10 +6,12 @@ import { apiKeys, pushSubscriptions, sessions, users, workspaceMembers, workspac
 // „Mitglied entfernen“ löschte nur die Mitgliedschaft. getAuthContext legte
 // freigegebene Benutzer bei der nächsten Anfrage wieder als Mitglied an, der
 // Zugang blieb also. Diese Tests prüfen gegen eine aufzeichnende Fake-
-// Transaktion, dass removeMember den Zugang wirklich entzieht (auch die
-// Push-Abos: Pushes zeigen Kundennamen) und die Sperren
-// für die eigene Person, den letzten Admin und den letzten App-Admin greifen.
-// Den letzten Admin zum Mitglied machen darf auch updateMemberRole nicht.
+// Transaktion, dass removeMember und rejectUser den Zugang wirklich entziehen
+// (auch die Push-Abos: Pushes zeigen Kundennamen) und dass dabei jeder
+// Workspace einen Admin und das CRM einen App-Admin behält. Das gilt beim
+// Entfernen, beim Ablehnen unter Benutzer-Freigaben und beim Herabstufen
+// (updateMemberRole); entschieden wird erst nach dem Sperren der Admin-Zeilen
+// (FOR UPDATE), sich selbst entfernen geht ohnehin nicht.
 // Gesperrte Konten lassen sich unter Benutzer-Freigaben wieder freigeben
 // (listRejectedUsers, approveUser); nach der nächsten Anmeldung legt
 // ensureUserWorkspaceAccess die Mitgliedschaft wieder an. Dazu updateWorkspace:
@@ -26,7 +28,9 @@ vi.mock("@/db", () => ({ db: mock }));
 import {
   approveUser,
   ensureUserWorkspaceAccess,
+  LetzterAdminError,
   listRejectedUsers,
+  rejectUser,
   removeMember,
   revokeUserAccess,
   updateMemberRole,
@@ -174,6 +178,56 @@ function erwarteZugangEntzogen(schreibvorgaenge: Schreibvorgang[], userId: strin
   });
 }
 
+// Abfragen der Admin-Prüfung in revokeUserAccess (pruefeAdminsBleiben).
+const MITGLIEDSCHAFTEN_VON = (userId: string) => ({
+  sql: '"workspace_members"."user_id" = $1',
+  params: [userId],
+});
+const ADMIN_ZEILEN = {
+  sql: '("workspace_members"."workspace_id" = $1 and "workspace_members"."role" = $2)',
+  params: [WORKSPACE, "admin"],
+};
+const KONTO_VON = (userId: string) => ({ sql: '"users"."id" = $1', params: [userId] });
+const APP_ADMIN_ZEILEN = {
+  sql: '("users"."is_app_admin" = $1 and "users"."approval_status" = $2)',
+  params: [true, "approved"],
+};
+
+/**
+ * Lese-Antworten der Admin-Prüfung in revokeUserAccess, in Abfragereihenfolge:
+ * Workspaces des Benutzers (hier nur WORKSPACE), dessen gesperrte Admins, das
+ * Konto und, nur bei App-Admins, die gesperrten freigegebenen App-Admins.
+ */
+function adminPruefung({
+  admins,
+  appAdmin = false,
+  appAdmins = [],
+}: {
+  /** Benutzer-IDs der Admins in WORKSPACE */
+  admins: string[];
+  /** Ist der Betroffene selbst App-Admin? */
+  appAdmin?: boolean;
+  /** Benutzer-IDs der freigegebenen App-Admins */
+  appAdmins?: string[];
+}): unknown[][] {
+  return [
+    [{ workspaceId: WORKSPACE }],
+    admins.map((userId) => ({ id: userId.replace("usr_", "mem_"), userId })),
+    [{ isAppAdmin: appAdmin }],
+    ...(appAdmin ? [appAdmins.map((id) => ({ id }))] : []),
+  ];
+}
+
+/** Erwartet die Ablehnung „letzter Admin“ mit genau diesem Text; die Routen machen 409 daraus. */
+async function erwarteLetzterAdmin(aufruf: Promise<unknown>, text: string) {
+  const fehler = await aufruf.then(
+    () => null,
+    (e: unknown) => e
+  );
+  expect(fehler).toBeInstanceOf(LetzterAdminError);
+  expect((fehler as Error).message).toBe(text);
+}
+
 beforeEach(() => {
   vi.resetAllMocks();
 });
@@ -181,7 +235,10 @@ beforeEach(() => {
 describe("removeMember", () => {
   it("entzieht einem Mitglied den Zugang ganz: Freigabe, Sitzungen, API-Schlüssel, Push-Abos, Mitgliedschaft", async () => {
     const zeile = mitglied();
-    const { tx, schreibvorgaenge, lesebedingungen } = fakeTx([[zeile]]);
+    const { tx, schreibvorgaenge, lesebedingungen } = fakeTx([
+      [zeile],
+      ...adminPruefung({ admins: [AKTEUR] }),
+    ]);
     mitTransaktion(tx);
 
     await expect(removeMember(WORKSPACE, "mem_jonas", AKTEUR)).resolves.toEqual(zeile);
@@ -199,20 +256,24 @@ describe("removeMember", () => {
     const { tx, schreibvorgaenge } = fakeTx([[mitglied({ userId: AKTEUR, role: "admin" })]]);
     mitTransaktion(tx);
 
-    await expect(removeMember(WORKSPACE, "mem_jonas", AKTEUR)).rejects.toThrow(
-      "Du kannst dich nicht selbst entfernen."
-    );
+    const fehler = await removeMember(WORKSPACE, "mem_jonas", AKTEUR).catch((e: unknown) => e);
+
+    // Kein „letzter Admin“: Die Route antwortet hier mit 400, nicht mit 409.
+    expect(fehler).toBeInstanceOf(Error);
+    expect(fehler).not.toBeInstanceOf(LetzterAdminError);
+    expect((fehler as Error).message).toBe("Du kannst dich nicht selbst entfernen.");
     expect(schreibvorgaenge).toEqual([]);
   });
 
   it("lehnt es ab, den letzten Admin zu entfernen, und schreibt nichts", async () => {
     const { tx, schreibvorgaenge, sperren } = fakeTx([
       [mitglied({ role: "admin" })],
-      [{ id: "mem_jonas" }],
+      ...adminPruefung({ admins: ["usr_jonas"] }),
     ]);
     mitTransaktion(tx);
 
-    await expect(removeMember(WORKSPACE, "mem_jonas", AKTEUR)).rejects.toThrow(
+    await erwarteLetzterAdmin(
+      removeMember(WORKSPACE, "mem_jonas", AKTEUR),
       "Der letzte Admin kann nicht entfernt werden."
     );
     expect(schreibvorgaenge).toEqual([]);
@@ -223,80 +284,95 @@ describe("removeMember", () => {
     const zeile = mitglied({ role: "admin" });
     const { tx, schreibvorgaenge, lesebedingungen, sperren } = fakeTx([
       [zeile],
-      [{ id: "mem_jonas" }, { id: "mem_dario" }],
+      ...adminPruefung({ admins: ["usr_jonas", AKTEUR] }),
     ]);
     mitTransaktion(tx);
 
     await expect(removeMember(WORKSPACE, "mem_jonas", AKTEUR)).resolves.toEqual(zeile);
 
+    // Erst die Workspaces des Benutzers, dann deren Admin-Zeilen (FOR UPDATE).
     expect(sperren).toEqual(["update"]);
-    expect(alsSql(lesebedingungen[1])).toEqual({
-      sql: '("workspace_members"."workspace_id" = $1 and "workspace_members"."role" = $2)',
-      params: [WORKSPACE, "admin"],
-    });
+    expect(alsSql(lesebedingungen[1])).toEqual(MITGLIEDSCHAFTEN_VON("usr_jonas"));
+    expect(alsSql(lesebedingungen[2])).toEqual(ADMIN_ZEILEN);
     erwarteZugangEntzogen(schreibvorgaenge, "usr_jonas");
   });
 
-  it("zählt bei einem normalen Mitglied ohne Freigaberecht keine Admins", async () => {
-    const { tx, lesebedingungen, sperren } = fakeTx([[mitglied()], [{ isAppAdmin: false }]]);
+  it("entscheidet nach den gesperrten Admin-Zeilen, nicht nach der Lesung davor", async () => {
+    // Gelesen als Mitglied. Bis die Admin-Zeilen gesperrt sind, ist Jonas
+    // Admin geworden und der andere Admin zum Mitglied gemacht: Jetzt ist er
+    // der letzte Admin und darf nicht gehen.
+    const { tx, schreibvorgaenge } = fakeTx([
+      [mitglied({ role: "member" })],
+      ...adminPruefung({ admins: ["usr_jonas"] }),
+    ]);
+    mitTransaktion(tx);
+
+    await erwarteLetzterAdmin(
+      removeMember(WORKSPACE, "mem_jonas", AKTEUR),
+      "Der letzte Admin kann nicht entfernt werden."
+    );
+    expect(schreibvorgaenge).toEqual([]);
+  });
+
+  it("sperrt bei einem Mitglied ohne Freigaberecht die Admin-Zeilen, aber keine Konten", async () => {
+    const { tx, lesebedingungen, sperren } = fakeTx([
+      [mitglied()],
+      ...adminPruefung({ admins: [AKTEUR] }),
+    ]);
     mitTransaktion(tx);
 
     await removeMember(WORKSPACE, "mem_jonas", AKTEUR);
 
-    // Gelesen werden nur die Mitgliedschaft und das Konto, gesperrt wird nichts.
-    expect(lesebedingungen).toHaveLength(2);
-    expect(alsSql(lesebedingungen[1])).toEqual({
-      sql: '"users"."id" = $1',
-      params: ["usr_jonas"],
-    });
-    expect(sperren).toEqual([]);
+    // Das Konto wird nur gelesen; App-Admins zählt nur, wer selbst einer ist.
+    expect(sperren).toEqual(["update"]);
+    expect(lesebedingungen).toHaveLength(4);
+    expect(alsSql(lesebedingungen[3])).toEqual(KONTO_VON("usr_jonas"));
   });
 
   it("lehnt es ab, den letzten Admin für Benutzer-Freigaben zu entfernen, und schreibt nichts", async () => {
     const { tx, schreibvorgaenge, lesebedingungen, sperren } = fakeTx([
       [mitglied()],
-      [{ isAppAdmin: true }],
-      [{ id: "usr_jonas" }],
+      ...adminPruefung({ admins: [AKTEUR], appAdmin: true, appAdmins: ["usr_jonas"] }),
     ]);
     mitTransaktion(tx);
 
-    await expect(removeMember(WORKSPACE, "mem_jonas", AKTEUR)).rejects.toThrow(
+    await erwarteLetzterAdmin(
+      removeMember(WORKSPACE, "mem_jonas", AKTEUR),
       "Der letzte Admin für Benutzer-Freigaben kann nicht entfernt werden."
     );
     expect(schreibvorgaenge).toEqual([]);
     // Gezählt werden nur freigegebene App-Admins, ihre Konten gesperrt (FOR UPDATE).
-    expect(sperren).toEqual(["update"]);
-    expect(alsSql(lesebedingungen[2])).toEqual({
-      sql: '("users"."is_app_admin" = $1 and "users"."approval_status" = $2)',
-      params: [true, "approved"],
-    });
+    expect(sperren).toEqual(["update", "update"]);
+    expect(alsSql(lesebedingungen[4])).toEqual(APP_ADMIN_ZEILEN);
   });
 
   it("entfernt einen App-Admin, solange ein weiterer freigegebener App-Admin bleibt", async () => {
     const zeile = mitglied();
     const { tx, schreibvorgaenge, sperren } = fakeTx([
       [zeile],
-      [{ isAppAdmin: true }],
-      [{ id: "usr_jonas" }, { id: AKTEUR }],
+      ...adminPruefung({ admins: [AKTEUR], appAdmin: true, appAdmins: ["usr_jonas", AKTEUR] }),
     ]);
     mitTransaktion(tx);
 
     await expect(removeMember(WORKSPACE, "mem_jonas", AKTEUR)).resolves.toEqual(zeile);
 
-    expect(sperren).toEqual(["update"]);
+    expect(sperren).toEqual(["update", "update"]);
     erwarteZugangEntzogen(schreibvorgaenge, "usr_jonas");
   });
 
   it("prüft bei einem Admin, der auch Konten freigibt, beide Regeln", async () => {
     const { tx, schreibvorgaenge, sperren } = fakeTx([
       [mitglied({ role: "admin" })],
-      [{ id: "mem_jonas" }, { id: "mem_dario" }],
-      [{ isAppAdmin: true }],
-      [{ id: "usr_jonas" }],
+      ...adminPruefung({
+        admins: ["usr_jonas", AKTEUR],
+        appAdmin: true,
+        appAdmins: ["usr_jonas"],
+      }),
     ]);
     mitTransaktion(tx);
 
-    await expect(removeMember(WORKSPACE, "mem_jonas", AKTEUR)).rejects.toThrow(
+    await erwarteLetzterAdmin(
+      removeMember(WORKSPACE, "mem_jonas", AKTEUR),
       "Der letzte Admin für Benutzer-Freigaben kann nicht entfernt werden."
     );
     expect(sperren).toEqual(["update", "update"]);
@@ -313,15 +389,13 @@ describe("removeMember", () => {
 });
 
 describe("updateMemberRole", () => {
-  const ROLLE_SQL = {
-    sql: '("workspace_members"."workspace_id" = $1 and "workspace_members"."role" = $2)',
-    params: [WORKSPACE, "admin"],
-  };
-
   it("macht einen Admin zum Mitglied, solange ein weiterer Admin bleibt", async () => {
     const { tx, schreibvorgaenge, lesebedingungen, sperren } = fakeTx([
-      [{ id: "mem_jonas", role: "admin" }],
-      [{ id: "mem_jonas" }, { id: "mem_dario" }],
+      [{ id: "mem_jonas" }],
+      [
+        { id: "mem_jonas", userId: "usr_jonas" },
+        { id: "mem_admin", userId: AKTEUR },
+      ],
     ]);
     mitTransaktion(tx);
 
@@ -335,7 +409,7 @@ describe("updateMemberRole", () => {
       params: ["mem_jonas", WORKSPACE],
     });
     expect(sperren).toEqual(["update"]);
-    expect(alsSql(lesebedingungen[1])).toEqual(ROLLE_SQL);
+    expect(alsSql(lesebedingungen[1])).toEqual(ADMIN_ZEILEN);
     expect(schreibvorgaenge).toHaveLength(1);
     const [schreiben] = schreibvorgaenge;
     expect(schreiben.tabelle).toBe(workspaceMembers);
@@ -347,42 +421,154 @@ describe("updateMemberRole", () => {
   });
 
   it("lehnt es ab, den letzten Admin zum Mitglied zu machen, und schreibt nichts", async () => {
+    // Entscheidend sind die gesperrten Admin-Zeilen: Jonas ist der einzige.
     const { tx, schreibvorgaenge, sperren } = fakeTx([
-      [{ id: "mem_jonas", role: "admin" }],
       [{ id: "mem_jonas" }],
+      [{ id: "mem_jonas", userId: "usr_jonas" }],
     ]);
     mitTransaktion(tx);
 
-    await expect(updateMemberRole(WORKSPACE, "mem_jonas", "member")).rejects.toThrow(
+    await erwarteLetzterAdmin(
+      updateMemberRole(WORKSPACE, "mem_jonas", "member"),
       "Der letzte Admin kann nicht zum Mitglied gemacht werden."
     );
     expect(sperren).toEqual(["update"]);
     expect(schreibvorgaenge).toEqual([]);
   });
 
-  it("zählt keine Admins, wenn niemand Admin verliert", async () => {
-    for (const [vorher, nachher] of [
-      ["member", "admin"],
-      ["admin", "admin"],
-      ["member", "member"],
-    ] as const) {
-      const { tx, schreibvorgaenge, lesebedingungen, sperren } = fakeTx([[{ id: "mem_jonas", role: vorher }]]);
-      mitTransaktion(tx);
+  it("lässt ein Mitglied, das kein Admin ist, Mitglied sein, sperrt aber vorher", async () => {
+    const { tx, schreibvorgaenge, sperren } = fakeTx([
+      [{ id: "mem_jonas" }],
+      [{ id: "mem_admin", userId: AKTEUR }],
+    ]);
+    mitTransaktion(tx);
 
-      await expect(updateMemberRole(WORKSPACE, "mem_jonas", nachher)).resolves.toMatchObject({ role: nachher });
+    await expect(updateMemberRole(WORKSPACE, "mem_jonas", "member")).resolves.toMatchObject({
+      role: "member",
+    });
+    // Ob Jonas Admin ist, sagen erst die gesperrten Zeilen.
+    expect(sperren).toEqual(["update"]);
+    expect(schreibvorgaenge).toHaveLength(1);
+  });
 
-      expect(lesebedingungen).toHaveLength(1);
-      expect(sperren).toEqual([]);
-      expect(schreibvorgaenge).toHaveLength(1);
-    }
+  it("sperrt nichts, wenn jemand Admin wird", async () => {
+    const { tx, schreibvorgaenge, lesebedingungen, sperren } = fakeTx([[{ id: "mem_jonas" }]]);
+    mitTransaktion(tx);
+
+    await expect(updateMemberRole(WORKSPACE, "mem_jonas", "admin")).resolves.toMatchObject({
+      role: "admin",
+    });
+
+    expect(lesebedingungen).toHaveLength(1);
+    expect(sperren).toEqual([]);
+    expect(schreibvorgaenge).toHaveLength(1);
   });
 
   it("gibt null zurück, wenn es die Mitgliedschaft in diesem Workspace nicht gibt", async () => {
-    const { tx, schreibvorgaenge } = fakeTx([[]]);
+    const { tx, schreibvorgaenge, sperren } = fakeTx([[]]);
     mitTransaktion(tx);
 
     await expect(updateMemberRole(WORKSPACE, "mem_fremd", "member")).resolves.toBeNull();
     expect(schreibvorgaenge).toEqual([]);
+    expect(sperren).toEqual([]);
+  });
+});
+
+describe("rejectUser", () => {
+  const jetzt = new Date("2026-10-08T21:00:00Z");
+
+  it("nimmt dem Konto in einer Transaktion den Zugang ganz", async () => {
+    const { tx, schreibvorgaenge, lesebedingungen } = fakeTx([
+      [{ id: "usr_jonas" }],
+      ...adminPruefung({ admins: [AKTEUR] }),
+    ]);
+    mitTransaktion(tx);
+
+    await expect(rejectUser("usr_jonas", jetzt)).resolves.toEqual({
+      id: "usr_jonas",
+      approvalStatus: "rejected",
+    });
+
+    expect(mock.transaction).toHaveBeenCalledTimes(1);
+    expect(alsSql(lesebedingungen[0])).toEqual(KONTO_VON("usr_jonas"));
+    erwarteZugangEntzogen(schreibvorgaenge, "usr_jonas");
+    const freigabe = schreibvorgaenge.find((s) => s.tabelle === users);
+    expect(freigabe?.art === "update" && freigabe.werte.updatedAt).toBe(jetzt);
+  });
+
+  it("lehnt den einzigen Admin des Teams nicht ab, auch nicht für einen App-Admin, der dort nur Mitglied ist", async () => {
+    // Ablehnen darf jeder App-Admin, egal welche Rolle er im Team hat. Jonas
+    // ist der einzige Admin des Workspace.
+    const { tx, schreibvorgaenge, lesebedingungen, sperren } = fakeTx([
+      [{ id: "usr_jonas" }],
+      ...adminPruefung({ admins: ["usr_jonas"] }),
+    ]);
+    mitTransaktion(tx);
+
+    await erwarteLetzterAdmin(
+      rejectUser("usr_jonas", jetzt),
+      "Der letzte Admin kann nicht abgelehnt werden."
+    );
+    expect(schreibvorgaenge).toEqual([]);
+    // In derselben Transaktion, mit gesperrten Admin-Zeilen.
+    expect(mock.transaction).toHaveBeenCalledTimes(1);
+    expect(sperren).toEqual(["update"]);
+    expect(alsSql(lesebedingungen[1])).toEqual(MITGLIEDSCHAFTEN_VON("usr_jonas"));
+    expect(alsSql(lesebedingungen[2])).toEqual(ADMIN_ZEILEN);
+  });
+
+  it("lehnt den letzten freigegebenen App-Admin nicht ab", async () => {
+    // App-Admin ohne Mitgliedschaft, etwa vor seiner ersten Anmeldung im CRM.
+    const { tx, schreibvorgaenge, lesebedingungen, sperren } = fakeTx([
+      [{ id: "usr_jonas" }],
+      [],
+      [{ isAppAdmin: true }],
+      [{ id: "usr_jonas" }],
+    ]);
+    mitTransaktion(tx);
+
+    await erwarteLetzterAdmin(
+      rejectUser("usr_jonas", jetzt),
+      "Der letzte Admin für Benutzer-Freigaben kann nicht abgelehnt werden."
+    );
+    expect(schreibvorgaenge).toEqual([]);
+    expect(sperren).toEqual(["update"]);
+    expect(alsSql(lesebedingungen[3])).toEqual(APP_ADMIN_ZEILEN);
+  });
+
+  it("prüft jeden Workspace, in dem das Konto Mitglied ist", async () => {
+    // revokeUserAccess löscht alle Mitgliedschaften. Im zweiten Workspace ist
+    // Jonas der einzige Admin.
+    const { tx, schreibvorgaenge, lesebedingungen, sperren } = fakeTx([
+      [{ id: "usr_jonas" }],
+      [{ workspaceId: WORKSPACE }, { workspaceId: "ws_zweit" }],
+      [
+        { id: "mem_jonas", userId: "usr_jonas" },
+        { id: "mem_admin", userId: AKTEUR },
+      ],
+      [{ id: "mem_jonas_zweit", userId: "usr_jonas" }],
+    ]);
+    mitTransaktion(tx);
+
+    await erwarteLetzterAdmin(
+      rejectUser("usr_jonas", jetzt),
+      "Der letzte Admin kann nicht abgelehnt werden."
+    );
+    expect(schreibvorgaenge).toEqual([]);
+    expect(sperren).toEqual(["update", "update"]);
+    expect(alsSql(lesebedingungen[3])).toEqual({
+      sql: ADMIN_ZEILEN.sql,
+      params: ["ws_zweit", "admin"],
+    });
+  });
+
+  it("gibt null zurück, wenn es das Konto nicht gibt", async () => {
+    const { tx, schreibvorgaenge, sperren } = fakeTx([[]]);
+    mitTransaktion(tx);
+
+    await expect(rejectUser("usr_fremd", jetzt)).resolves.toBeNull();
+    expect(schreibvorgaenge).toEqual([]);
+    expect(sperren).toEqual([]);
   });
 });
 
@@ -478,11 +664,13 @@ describe("ensureUserWorkspaceAccess nach „Wieder freigeben“", () => {
 });
 
 describe("revokeUserAccess", () => {
+  const alsTx = (tx: unknown) => tx as Parameters<typeof revokeUserAccess>[0];
+
   it("setzt Freigabe und Sperrzeitpunkt auf den übergebenen Zeitpunkt", async () => {
-    const { tx, schreibvorgaenge } = fakeTx([]);
+    const { tx, schreibvorgaenge } = fakeTx(adminPruefung({ admins: [AKTEUR] }));
     const jetzt = new Date("2026-10-08T18:30:00Z");
 
-    await revokeUserAccess(tx as unknown as Parameters<typeof revokeUserAccess>[0], "usr_mia", jetzt);
+    await revokeUserAccess(alsTx(tx), "usr_mia", "entfernt", jetzt);
 
     erwarteZugangEntzogen(schreibvorgaenge, "usr_mia");
     const freigabe = schreibvorgaenge.find((s) => s.tabelle === users);
@@ -492,9 +680,9 @@ describe("revokeUserAccess", () => {
   });
 
   it("löscht auch alle Push-Abos des Benutzers, über die übergebene Transaktion", async () => {
-    const { tx, schreibvorgaenge } = fakeTx([]);
+    const { tx, schreibvorgaenge } = fakeTx(adminPruefung({ admins: [AKTEUR] }));
 
-    await revokeUserAccess(tx as unknown as Parameters<typeof revokeUserAccess>[0], "usr_mia");
+    await revokeUserAccess(alsTx(tx), "usr_mia", "entfernt");
 
     // Sonst kämen auf seinen Geräten weiter Kundennamen und Vorschauen an. Die
     // Fake-db kann gar nicht löschen: Der Eintrag stammt aus der Transaktion.
@@ -505,6 +693,19 @@ describe("revokeUserAccess", () => {
       sql: '"push_subscriptions"."user_id" = $1',
       params: ["usr_mia"],
     });
+  });
+
+  it("prüft die Admin-Regeln selbst, bevor sie etwas schreibt", async () => {
+    // Die Route „Ablehnen“ rief revokeUserAccess ohne diese Prüfung auf. Jetzt
+    // steckt sie hier drin, kein Aufrufer kann sie vergessen.
+    const { tx, schreibvorgaenge, sperren } = fakeTx(adminPruefung({ admins: ["usr_mia"] }));
+
+    await erwarteLetzterAdmin(
+      revokeUserAccess(alsTx(tx), "usr_mia", "abgelehnt"),
+      "Der letzte Admin kann nicht abgelehnt werden."
+    );
+    expect(sperren).toEqual(["update"]);
+    expect(schreibvorgaenge).toEqual([]);
   });
 });
 
