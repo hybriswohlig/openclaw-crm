@@ -44,3 +44,39 @@ describe("annahmeSperrAntwort", () => {
     expect(annahmeSperrAntwort(new Error("x"))).toBeNull();
   });
 });
+
+describe("abweichungenVonAnnahme", () => {
+  const gebunden = { moveDate: "2026-11-12", fromAddress: "Marktstr. 8, 72218, Wildberg", toAddress: "Hauptstr. 1, 70173, Stuttgart" };
+
+  it("gleicher Stand ergibt keine Abweichung", async () => {
+    const { abweichungenVonAnnahme } = await import("./kva-annahme");
+    expect(abweichungenVonAnnahme(gebunden, { ...gebunden })).toEqual([]);
+  });
+
+  it("geänderter Termin wird mit beiden Werten gemeldet", async () => {
+    const { abweichungenVonAnnahme } = await import("./kva-annahme");
+    expect(abweichungenVonAnnahme(gebunden, { ...gebunden, moveDate: "2026-11-19" })).toEqual([
+      { feld: "Termin", angenommen: "2026-11-12", aktuell: "2026-11-19" },
+    ]);
+  });
+
+  it("gelöschte Einzugsadresse zählt als Abweichung", async () => {
+    const { abweichungenVonAnnahme } = await import("./kva-annahme");
+    expect(abweichungenVonAnnahme(gebunden, { ...gebunden, toAddress: null })).toEqual([
+      { feld: "Einzug", angenommen: "Hauptstr. 1, 70173, Stuttgart", aktuell: null },
+    ]);
+  });
+
+  it("Altannahme ohne gebundene Werte meldet nichts", async () => {
+    const { abweichungenVonAnnahme } = await import("./kva-annahme");
+    const alt = { moveDate: null, fromAddress: null, toAddress: null };
+    expect(abweichungenVonAnnahme(alt, gebunden)).toEqual([]);
+  });
+
+  it("Leerzeichen und Groß-/Kleinschreibung sind keine Abweichung", async () => {
+    const { abweichungenVonAnnahme } = await import("./kva-annahme");
+    expect(
+      abweichungenVonAnnahme(gebunden, { ...gebunden, fromAddress: " marktstr. 8,  72218, Wildberg " })
+    ).toEqual([]);
+  });
+});

@@ -97,6 +97,7 @@ import {
   ladeAktiveAnnahme,
   pruefeNichtAngenommen,
 } from "./kva-annahme";
+import type { Umzugsrahmen } from "./kva-annahme";
 
 // ─── Token / link lifecycle ────────────────────────────────────────────────────
 
@@ -1044,6 +1045,12 @@ function projectMoveScope(
     specialRequests: null,
     inventoryNotes: textOrNull(get("inventory_notes")?.textValue),
   };
+}
+
+/** Termin und Adressen, wie sie jetzt am Deal stehen, im Format der Annahme. */
+export async function ladeUmzugsrahmen(workspaceId: string, dealRecordId: string): Promise<Umzugsrahmen> {
+  const scope = projectMoveScope(await loadDealAttributeMap(workspaceId), await loadValuesForRecord(dealRecordId));
+  return { moveDate: scope.moveDate, fromAddress: scope.fromAddress, toAddress: scope.toAddress };
 }
 
 function extractLocation(v: unknown): string | null {

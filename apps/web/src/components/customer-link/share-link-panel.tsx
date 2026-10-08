@@ -201,12 +201,12 @@ export function ShareLinkPanel({ dealRecordId }: { dealRecordId: string }) {
           )}
         </div>
 
-        <div className="mt-3 flex items-center gap-2">
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           <input
             readOnly
             value={link.url}
             onClick={(e) => e.currentTarget.select()}
-            className="h-9 flex-1 truncate rounded-lg border border-border bg-background px-3 text-xs text-muted-foreground"
+            className="h-9 min-w-[10rem] flex-1 truncate rounded-lg border border-border bg-background px-3 text-xs text-muted-foreground"
           />
           <button
             type="button"
@@ -351,6 +351,7 @@ export function ShareLinkPanel({ dealRecordId }: { dealRecordId: string }) {
 }
 
 interface AktiveAnnahme {
+  abweichungen: Array<{ feld: "Termin" | "Auszug" | "Einzug"; angenommen: string; aktuell: string | null }>;
   signedAt: string;
   acceptedFullName: string | null;
   confirmedTotalCents: number;
@@ -373,15 +374,17 @@ function KvaAnnahmeBlock({
   onChange: (aktiv: boolean) => void;
 }) {
   const [annahme, setAnnahme] = useState<AktiveAnnahme | null>(null);
+  const [darfAufheben, setDarfAufheben] = useState(false);
   const [arbeitet, setArbeitet] = useState(false);
 
   const laden = useCallback(async () => {
     try {
       const res = await fetch(`/api/v1/deals/${dealRecordId}/kva-annahme`);
       if (!res.ok) return;
-      const j = (await res.json()) as { data?: { aktiv: AktiveAnnahme | null } };
+      const j = (await res.json()) as { data?: { aktiv: AktiveAnnahme | null; darfAufheben?: boolean } };
       const aktiv = j.data?.aktiv ?? null;
       setAnnahme(aktiv);
+      setDarfAufheben(j.data?.darfAufheben === true);
       onChange(!!aktiv);
     } catch {
       // Anzeige ist optional; ohne Antwort bleibt der Block leer.
@@ -444,16 +447,40 @@ function KvaAnnahmeBlock({
         {annahme.confirmationSentAt ? "Bestätigung an den Kunden verschickt." : "Bestätigung noch nicht verschickt."}
         {annahme.versicherungGewuenscht && " Versicherungswunsch: ja."}
       </div>
-      <button
-        type="button"
-        onClick={aufheben}
-        disabled={arbeitet}
-        className="mt-3 rounded-lg border border-emerald-300 bg-white/70 px-3 py-1.5 text-xs font-medium hover:bg-white disabled:opacity-50 dark:border-emerald-800 dark:bg-emerald-900/40"
-      >
-        {arbeitet ? "Wird aufgehoben…" : "Annahme aufheben"}
-      </button>
+      {annahme.abweichungen?.length > 0 && (
+        <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-950 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-100">
+          <div className="font-medium">Seit der Annahme geändert</div>
+          <ul className="mt-1 space-y-0.5">
+            {annahme.abweichungen.map((a) => (
+              <li key={a.feld}>
+                {a.feld}: angenommen {anzeigeWert(a.feld, a.angenommen)}, jetzt {a.aktuell ? anzeigeWert(a.feld, a.aktuell) : "leer"}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1">
+            Der Kunde sieht im Portal den neuen Stand. Die Änderung schriftlich bestätigen lassen (z. B. per WhatsApp)
+            {darfAufheben
+              ? " oder die Annahme aufheben und neu annehmen lassen."
+              : " oder einen Admin bitten, die Annahme aufzuheben, damit der Kunde neu annimmt."}
+          </p>
+        </div>
+      )}
+      {darfAufheben && (
+        <button
+          type="button"
+          onClick={aufheben}
+          disabled={arbeitet}
+          className="mt-3 rounded-lg border border-emerald-300 bg-white/70 px-3 py-1.5 text-xs font-medium hover:bg-white disabled:opacity-50 dark:border-emerald-800 dark:bg-emerald-900/40"
+        >
+          {arbeitet ? "Wird aufgehoben…" : "Annahme aufheben"}
+        </button>
+      )}
     </div>
   );
+}
+
+function anzeigeWert(feld: "Termin" | "Auszug" | "Einzug", wert: string): string {
+  return feld === "Termin" ? new Date(`${wert}T12:00:00`).toLocaleDateString("de-DE") : wert;
 }
 
 interface DealDocumentMeta {

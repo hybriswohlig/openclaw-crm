@@ -15,6 +15,7 @@ import { getQuotation } from "@/services/quotations";
 import { quotations, type QuotationDocumentDetails } from "@/db/schema/quotations";
 import { serviceTypeZuSpeichern } from "@/lib/portal-dokumente";
 import { aktivBedingung } from "./kva-annahme";
+import { preisQuelleAusAnnahme, type PreisQuelle } from "@/lib/ab-preise";
 
 type ServiceType = "move" | "kitchen_installation";
 type InventoryOwner = "company" | "customer" | "none";
@@ -207,8 +208,11 @@ export async function attachDocumentJobContext(
   let totalCents = quotation ? quotationTotalCents(quotation) : undefined;
   let reference: string | undefined = clientDetails.reference || storedDetails.reference;
   let snapshotDetails: QuotationDocumentDetails = {};
+  // Die AB rechnet mit dem angenommenen Stand, nicht mit dem aktuellen Angebot.
+  let abPreise: PreisQuelle | null = null;
 
   if (next.document_type === "AB" && accepted) {
+    abPreise = preisQuelleAusAnnahme(accepted.quotationSnapshot);
     totalCents = accepted.confirmedTotalCents;
     const snap = accepted.quotationSnapshot as {
       totalCents?: number;
@@ -267,9 +271,10 @@ export async function attachDocumentJobContext(
   };
 
   if (quotation) {
+    const preisQuelle = abPreise ?? quotation;
     const rebuilt = preiseFromQuotation(
       String(next.firma || "kottke"),
-      quotation
+      preisQuelle
     );
     if (rebuilt) {
       const prev = (next.preise && typeof next.preise === "object" ? next.preise : {}) as Record<

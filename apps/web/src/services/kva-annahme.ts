@@ -95,6 +95,36 @@ export function annahmeAusZeile(row: ZeileFuerRecord): AcceptanceRecord {
   };
 }
 
+export interface Umzugsrahmen {
+  moveDate: string | null;
+  fromAddress: string | null;
+  toAddress: string | null;
+}
+
+export interface AbweichungVonAnnahme {
+  feld: "Termin" | "Auszug" | "Einzug";
+  angenommen: string;
+  aktuell: string | null;
+}
+
+/**
+ * Was am Deal seit der Annahme anders ist als im angenommenen Stand. Das
+ * Portal zeigt den aktuellen Stand; das Team soll sehen, wenn er vom Vertrag
+ * abweicht. Altannahmen ohne gebundene Werte melden nichts.
+ */
+export function abweichungenVonAnnahme(gebunden: Umzugsrahmen, aktuell: Umzugsrahmen): AbweichungVonAnnahme[] {
+  const gleich = (a: string, b: string | null) =>
+    b !== null && a.replace(/\s+/g, " ").trim().toLowerCase() === b.replace(/\s+/g, " ").trim().toLowerCase();
+  const felder = [
+    ["Termin", gebunden.moveDate, aktuell.moveDate],
+    ["Auszug", gebunden.fromAddress, aktuell.fromAddress],
+    ["Einzug", gebunden.toAddress, aktuell.toAddress],
+  ] as const;
+  return felder
+    .filter(([, a, b]) => a !== null && !gleich(a, b))
+    .map(([feld, a, b]) => ({ feld, angenommen: a!, aktuell: b }));
+}
+
 export function sha256Hex(data: string | Buffer): string {
   return createHash("sha256").update(data).digest("hex");
 }

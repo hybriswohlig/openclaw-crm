@@ -197,12 +197,17 @@ export function StageOneKva({
               </button>
             </div>
           )}
+          {!offerExpired && acceptBlock === "termin_offen" && (
+            <p className="mx-auto -mt-1 max-w-2xl px-4 pb-1 text-[11px] leading-relaxed text-muted-foreground">
+              Der Termin wird noch mit Ihnen abgestimmt. Danach können Sie das Angebot hier annehmen.
+            </p>
+          )}
         </div>
       )}
 
       {/* Spacer so the last content card isn't covered by the sticky bar. */}
       {!alreadyAccepted && ctx.kva && (
-        <div className={offerExpired ? "h-48 lg:hidden" : "h-20 lg:hidden"} aria-hidden />
+        <div className={offerExpired ? "h-48 lg:hidden" : acceptBlock === "termin_offen" ? "h-36 lg:hidden" : "h-20 lg:hidden"} aria-hidden />
       )}
 
       <ConfirmKvaDialog
