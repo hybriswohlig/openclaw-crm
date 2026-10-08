@@ -123,6 +123,8 @@ function inZwischenablage(urlVersprechen: Promise<string>): Promise<void> {
   return urlVersprechen.then((url) => zwischenablage.writeText(url));
 }
 
+const LINK_WIDERRUFEN = "Link ist widerrufen, im Lead neu aktivieren";
+
 export default function KvKarte({ lead, onKvAnsehen }: KvKarteProps) {
   const vorschau = useVorschau();
   const { kv, wert, bezahltCent } = lead;
@@ -133,6 +135,12 @@ export default function KvKarte({ lead, onKvAnsehen }: KvKarteProps) {
 
   function linkKopieren() {
     if (linkLaedt) return;
+    // M-9: Ein widerrufener Link wird nie kopiert (er könnte sonst beim Kunden landen). Laut
+    // Kartendaten widerrufen (Link angelegt, aber nicht aktiv): gar nicht erst laden.
+    if (!kv.linkAktiv && kv.linkErstelltAm) {
+      toast.warning(LINK_WIDERRUFEN);
+      return;
+    }
     setLinkLaedt(true);
 
     let geladen: Kundenlink | null = null;
@@ -151,16 +159,22 @@ export default function KvKarte({ lead, onKvAnsehen }: KvKarteProps) {
     // der Fehler wird unten über das Ergebnis des Clipboard-Schreibens ausgewertet.
     linkVersprechen.catch(() => undefined);
 
-    // Synchron im Klick starten (siehe inZwischenablage).
-    inZwischenablage(linkVersprechen.then((link) => link.url))
+    // Synchron im Klick starten (siehe inZwischenablage). Ist der Link inzwischen widerrufen,
+    // lehnt das URL-Versprechen ab und die Zwischenablage bleibt unverändert.
+    inZwischenablage(
+      linkVersprechen.then((link) => {
+        if (link.revokedAt) throw new Error("Kundenlink widerrufen");
+        return link.url;
+      }),
+    )
       .then(() => {
-        const link = geladen;
-        if (!link) throw new Error("Kundenlink ohne Ergebnis");
-        if (link.revokedAt) toast.warning("Kundenlink kopiert, der Link ist aber widerrufen");
-        else toast.success("Kundenlink kopiert");
+        if (!geladen) throw new Error("Kundenlink ohne Ergebnis");
+        toast.success("Kundenlink kopiert");
       })
       .catch(() => {
-        if (ladeFehler instanceof KundenlinkFehler) {
+        if (geladen?.revokedAt) {
+          toast.warning(LINK_WIDERRUFEN);
+        } else if (ladeFehler instanceof KundenlinkFehler) {
           if (ladeFehler.keinLink) toast(ladeFehler.message);
           else toast.error(ladeFehler.message);
         } else if (ladeFehler) {
