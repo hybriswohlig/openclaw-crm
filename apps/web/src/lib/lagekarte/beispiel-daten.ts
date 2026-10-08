@@ -1,7 +1,15 @@
 /**
  * Lagekarte: erfundene Beispieldaten (keine echten Kunden) für Vorschau,
  * Komponentenentwicklung und Tests. Deterministisch.
+ *
+ * Die Daten folgen den Server-Regeln (beispiel-daten.test.ts prüft das gegen
+ * wartetAuf): „antwort“ nur in WhatsApp-Threads, „neu_pruefen“ nur bei neuen
+ * Anfragen unter 7 Tagen ohne Antwort, ein alter Chat (aktiv und nach
+ * „Verloren“). Missionen und Kennzahlen rechnen dieselben reinen Funktionen
+ * wie GET /api/v1/lagekarte.
  */
+import { berechneKennzahlen } from "@/services/lagekarte/kennzahlen";
+import { erzeugeMissionen } from "@/services/lagekarte/missionen";
 import type {
   ChatKurz,
   ChatNachricht,
@@ -9,7 +17,6 @@ import type {
   KartenStatus,
   LagekarteAntwort,
   LeadPunkt,
-  Mission,
   VerlaufAntwort,
   VerlaufMeilenstein,
 } from "./typen";
@@ -50,29 +57,87 @@ const STATUS_FOLGE: KartenStatus[] = [
 ];
 
 const TAG = 24 * 60 * 60 * 1000;
+const MINUTE = 60 * 1000;
+const STUNDE = 60 * MINUTE;
+
+/** Lead mit offenem WhatsApp-Chat, Kunde schrieb vor 18 Tagen: alter Chat (Ruling 9). */
+const ALTER_CHAT = 10;
+/** Verlorener Lead, Kunde schrieb vor 2 Tagen im offenen WhatsApp-Chat (Grok 4). */
+const CHAT_NACH_VERLOREN = 11;
+/** Abholadresse fehlt bei einer jungen Anfrage (Mission „Adresse fehlt“). */
+const OHNE_ADRESSE = 2;
+/** Tippfehler im Wert, Faktor 100 (Ruling 7, Mission „Wert prüfen“). */
+const WERT_TIPPFEHLER = 9;
+
+const TEXT_ANFRAGE = "3 Zimmer, 2. Stock ohne Aufzug. Dazu kommt ein Kellerabteil.";
+const TEXT_KUNDE = "Vielen Dank, sieht gut aus. Wann können Sie zur Besichtigung kommen?";
+const TEXT_NACH_VERLOREN = "Hallo, gilt Ihr Angebot noch? Wir würden doch gern mit Ihnen umziehen.";
+const TEXT_WIR = "Gern, wir melden uns morgen.";
 
 function isoTag(jetzt: Date, tage: number): string {
   return new Date(jetzt.getTime() + tage * TAG).toISOString().slice(0, 10);
 }
 
+interface ChatPlan {
+  kanal: ChatKurz["kanal"];
+  kundeZuletzt: boolean;
+  /** ms vor jetzt */
+  vor: number;
+  ungelesen: number;
+  vorschau: string;
+}
+
+/**
+ * Welcher Thread zu Lead i gehört. Regeln wie auf dem Server: Wer auf Antwort
+ * wartet, hat einen offenen WhatsApp-Thread mit Kunde zuletzt (höchstens 14 Tage);
+ * neue Anfragen sind unbeantwortet (E-Mail, Kunde zuletzt); ungelesene E-Mails
+ * nur, wenn der Kunde zuletzt schrieb.
+ */
+function chatPlan(i: number, status: KartenStatus, angelegt: Date, jetzt: Date): ChatPlan | null {
+  if (i % 7 === 5) return null;
+  const standardVor = (i + 1) * 47 * MINUTE;
+  if (status === "neu") {
+    // Die Anfrage selbst, kurz nach dem Anlegen; nie beantwortet.
+    return { kanal: "email", kundeZuletzt: true, vor: jetzt.getTime() - angelegt.getTime() - 5 * MINUTE, ungelesen: 1, vorschau: TEXT_ANFRAGE };
+  }
+  if (i === ALTER_CHAT) return { kanal: "whatsapp", kundeZuletzt: true, vor: 18 * TAG, ungelesen: 1, vorschau: TEXT_KUNDE };
+  if (i === CHAT_NACH_VERLOREN) {
+    return { kanal: "whatsapp", kundeZuletzt: true, vor: 2 * TAG + 3 * STUNDE, ungelesen: 1, vorschau: TEXT_NACH_VERLOREN };
+  }
+  if ((status === "kontakt" || status === "angebot") && i % 4 === 1) {
+    return { kanal: "whatsapp", kundeZuletzt: true, vor: standardVor, ungelesen: 1, vorschau: TEXT_KUNDE };
+  }
+  if (i % 6 === 2) return { kanal: "email", kundeZuletzt: true, vor: standardVor, ungelesen: 2, vorschau: TEXT_KUNDE };
+  return { kanal: i % 2 === 0 ? "whatsapp" : "email", kundeZuletzt: false, vor: standardVor, ungelesen: 0, vorschau: `Du: ${TEXT_WIR}` };
+}
+
 export function beispielAntwort(jetzt: Date = new Date("2026-10-08T07:30:00+02:00")): LagekarteAntwort {
   const leads: LeadPunkt[] = NAMEN.map((name, i) => {
     const status = STATUS_FOLGE[i % STATUS_FOLGE.length];
-    const ortRoh = i % 7 === 6 ? null : ORTE[i % ORTE.length];
+    const ortRoh = i % 7 === 6 || i === OHNE_ADRESSE ? null : ORTE[i % ORTE.length];
     const zielRoh = ORTE[(i * 5 + 3) % ORTE.length];
     const firma = FIRMEN[i % 3 === 2 ? 1 : 0];
     const angelegt = new Date(jetzt.getTime() - (i * 2.3 + 0.2) * TAG);
     const wertCent =
-      status === "auftrag" || status === "erledigt"
+      i === WERT_TIPPFEHLER
+        ? (89000 + i * 13700) * 100
+        : status === "auftrag" || status === "erledigt"
         ? 89000 + i * 13700
         : status === "angebot"
           ? 64000 + i * 9100
           : i % 3 === 0
             ? 120000
             : null;
-    const wartetAntwort = (status === "kontakt" || status === "angebot") && i % 4 === 1;
-    const wartetNeu = status === "neu" && i < 10;
     const chatId = `chat-${i}`;
+    const plan = chatPlan(i, status, angelegt, jetzt);
+    const chatAm = plan ? new Date(jetzt.getTime() - plan.vor).toISOString() : null;
+    const kundeOffen = plan !== null && plan.kanal === "whatsapp" && plan.kundeZuletzt && status !== "verloren";
+    const wartetAntwort = kundeOffen && plan.vor <= 14 * TAG;
+    const imNeuFenster = jetzt.getTime() - angelegt.getTime() <= 7 * TAG;
+    const alterChat =
+      plan !== null && plan.kanal === "whatsapp" && plan.kundeZuletzt && (status === "verloren" || plan.vor > 14 * TAG)
+        ? { chatId, seit: chatAm! }
+        : null;
     const versatz = ((i * 37) % 11) / 1000;
     return {
       id: `lead-${i}`,
@@ -108,29 +173,28 @@ export function beispielAntwort(jetzt: Date = new Date("2026-10-08T07:30:00+02:0
       wert: wertCent === null ? null : { cent: wertCent, art: status === "auftrag" || status === "erledigt" ? "bestaetigt" : status === "angebot" ? "angebot" : "schaetzung" },
       bezahltCent: status === "erledigt" && i % 2 === 1 ? 89000 + i * 13700 : 0,
       wartet: wartetAntwort
-        ? { art: "antwort", seit: new Date(jetzt.getTime() - (i + 1) * 47 * 60 * 1000).toISOString(), chatId }
-        : wartetNeu
-          ? { art: "neu_pruefen", seit: angelegt.toISOString(), chatId: null }
+        ? { art: "antwort", seit: chatAm!, chatId }
+        : status === "neu" && imNeuFenster
+          ? { art: "neu_pruefen", seit: angelegt.toISOString(), chatId: plan ? chatId : null }
           : null,
-      veraltet: status === "neu" && i >= 10,
-      emailUngelesen: i % 6 === 2 ? 2 : 0,
-      alterChat: null,
-      chats:
-        i % 7 === 5
-          ? []
-          : [
-              {
-                id: chatId,
-                kanal: i % 2 === 0 ? "whatsapp" : "email",
-                kontoName: i % 2 === 0 ? `${firma.name.split(" ")[0]} WhatsApp` : `${firma.name.split(" ")[0]} E-Mail`,
-                firmaId: firma.id,
-                status: "open",
-                letzteNachrichtAm: new Date(jetzt.getTime() - (i + 1) * 47 * 60 * 1000).toISOString(),
-                vorschau: wartetAntwort ? "Hallo, wann können Sie zur Besichtigung kommen?" : "Du: Gern, wir melden uns morgen.",
-                ungelesen: wartetAntwort ? 1 : 0,
-                kundeZuletzt: wartetAntwort,
-              },
-            ],
+      veraltet: status === "neu" && !imNeuFenster,
+      emailUngelesen: plan?.kanal === "email" && plan.kundeZuletzt ? plan.ungelesen : 0,
+      alterChat,
+      chats: plan
+        ? [
+            {
+              id: chatId,
+              kanal: plan.kanal,
+              kontoName: `${firma.name.split(" ")[0]} ${plan.kanal === "whatsapp" ? "WhatsApp" : "E-Mail"}`,
+              firmaId: firma.id,
+              status: "open",
+              letzteNachrichtAm: chatAm,
+              vorschau: plan.vorschau,
+              ungelesen: plan.ungelesen,
+              kundeZuletzt: plan.kundeZuletzt,
+            },
+          ]
+        : [],
       kv: {
         angebotErstellt: status === "angebot" || status === "auftrag" || status === "erledigt",
         angebotErstelltAm: status === "angebot" || status === "auftrag" ? new Date(angelegt.getTime() + TAG).toISOString() : null,
@@ -147,12 +211,6 @@ export function beispielAntwort(jetzt: Date = new Date("2026-10-08T07:30:00+02:0
     };
   });
 
-  const missionen: Mission[] = leads
-    .filter((l) => l.status === "angebot" && l.kv.linkAngesehenAnzahl === 0)
-    .slice(0, 2)
-    .map((l) => ({ id: `kv_nachfassen:${l.id}`, art: "kv_nachfassen", titel: "KV seit 5 Tagen ungesehen: nachfassen", leadId: l.id, dringlichkeit: 1 }));
-
-  const wartende = leads.filter((l) => l.wartet);
   return {
     stand: jetzt.toISOString(),
     firmen: FIRMEN,
@@ -165,28 +223,10 @@ export function beispielAntwort(jetzt: Date = new Date("2026-10-08T07:30:00+02:0
       { id: "st-verloren", titel: "Verloren", farbe: "#ef4444", kategorie: "lost", aktiv: true, reihenfolge: 5 },
     ],
     leads,
-    kennzahlen: {
-      wartet: {
-        gesamt: wartende.length,
-        antwort: wartende.filter((l) => l.wartet?.art === "antwort").length,
-        neuPruefen: wartende.filter((l) => l.wartet?.art === "neu_pruefen").length,
-        aeltesteSeit: wartende.map((l) => l.wartet!.seit).sort()[0] ?? null,
-      },
-      emailUngelesen: { leads: leads.filter((l) => l.emailUngelesen > 0).length },
-      angeboteOffen: {
-        anzahl: leads.filter((l) => l.status === "angebot").length,
-        ungesehen: leads.filter((l) => l.status === "angebot" && l.kv.linkAngesehenAnzahl === 0).length,
-      },
-      angenommenMonat: { anzahl: 3, cent: 412000, monat: "2026-10" },
-      umzuegeNaechste7Tage: leads.filter((l) => l.umzugAm && (l.status === "auftrag" || l.status === "erledigt")).length,
-      verortet: { mitOrt: leads.filter((l) => l.ort).length, gesamt: leads.length },
-    },
-    missionen,
+    kennzahlen: berechneKennzahlen(leads, jetzt),
+    missionen: erzeugeMissionen(leads, jetzt),
   };
 }
-
-const MINUTE = 60 * 1000;
-const STUNDE = 60 * MINUTE;
 
 /**
  * Verlauf einer erfundenen Anfrage: [Richtung, Text, Abstand vor der letzten Nachricht].
@@ -206,41 +246,51 @@ const VERLAUF_TEXTE: Array<[ChatNachricht["richtung"], string, number]> = [
   ],
 ];
 
-/** Chat-Kopf aus beispielAntwort(); unbekannte IDs bekommen einen plausiblen WhatsApp-Chat. */
-function beispielChat(chatId: string, jetzt: Date): ChatKurz {
+/**
+ * Chat-Kopf aus beispielAntwort() und ob der Thread nie beantwortet wurde (neue
+ * Anfrage); unbekannte IDs bekommen einen plausiblen WhatsApp-Chat.
+ */
+function beispielChat(chatId: string, jetzt: Date): { chat: ChatKurz; nieBeantwortet: boolean } {
   for (const lead of beispielAntwort(jetzt).leads) {
     const chat = lead.chats.find((c) => c.id === chatId);
-    if (chat) return chat;
+    if (chat) return { chat, nieBeantwortet: lead.status === "neu" };
   }
   return {
-    id: chatId,
-    kanal: "whatsapp",
-    kontoName: "Kottke-Umzüge WhatsApp",
-    firmaId: FIRMEN[0].id,
-    status: "open",
-    letzteNachrichtAm: new Date(jetzt.getTime() - 2 * STUNDE).toISOString(),
-    vorschau: "Hallo, wann können Sie zur Besichtigung kommen?",
-    ungelesen: 1,
-    kundeZuletzt: true,
+    chat: {
+      id: chatId,
+      kanal: "whatsapp",
+      kontoName: "Kottke-Umzüge WhatsApp",
+      firmaId: FIRMEN[0].id,
+      status: "open",
+      letzteNachrichtAm: new Date(jetzt.getTime() - 2 * STUNDE).toISOString(),
+      vorschau: TEXT_KUNDE,
+      ungelesen: 1,
+      kundeZuletzt: true,
+    },
+    nieBeantwortet: false,
   };
 }
 
 /**
  * Lesende Chat-Vorschau für die Vorschau mit Beispieldaten (Form wie
- * GET /api/v1/lagekarte/chat/{id}): 7 bis 8 erfundene Nachrichten, älteste zuerst,
- * eine davon nur mit zwei Fotos; die letzte passt zu Richtung und Zeit des Chats
- * aus beispielAntwort().
+ * GET /api/v1/lagekarte/chat/{id}), älteste zuerst. Beantwortete Threads: 7 bis 8
+ * erfundene Nachrichten, eine nur mit zwei Fotos, eine mit KV-Link. Neue Anfragen
+ * (nie beantwortet): nur Kundennachrichten. Die letzte Nachricht passt zu Richtung,
+ * Zeit und Vorschautext des Chats aus beispielAntwort().
  */
 export function beispielChatVorschau(chatId: string, jetzt: Date = new Date()): ChatVorschauAntwort {
-  const chat = beispielChat(chatId, jetzt);
+  const { chat, nieBeantwortet } = beispielChat(chatId, jetzt);
   const letzte = new Date(chat.letzteNachrichtAm ?? jetzt.toISOString()).getTime();
-  const zeilen: Array<[ChatNachricht["richtung"], string, number]> = [
-    ...VERLAUF_TEXTE,
-    chat.kundeZuletzt
-      ? ["inbound", "Vielen Dank, sieht gut aus. Wann können Sie zur Besichtigung kommen?", 0]
-      : ["inbound", "Vielen Dank, sieht gut aus. Wann können Sie zur Besichtigung kommen?", 3 * STUNDE],
-  ];
-  if (!chat.kundeZuletzt) zeilen.push(["outbound", "Gern, wir melden uns morgen.", 0]);
+  const letzterText = chat.vorschau?.replace(/^Du: /, "") ?? TEXT_KUNDE;
+  const zeilen: Array<[ChatNachricht["richtung"], string, number]> = nieBeantwortet
+    ? [
+        ["inbound", VERLAUF_TEXTE[0][1], 6 * MINUTE],
+        ["inbound", "", 3 * MINUTE],
+        ["inbound", letzterText, 0],
+      ]
+    : chat.kundeZuletzt
+      ? [...VERLAUF_TEXTE, ["inbound", letzterText, 0]]
+      : [...VERLAUF_TEXTE, ["inbound", TEXT_KUNDE, 3 * STUNDE], ["outbound", letzterText, 0]];
 
   const nachrichten: ChatNachricht[] = zeilen.map(([richtung, text, vorher], i) => ({
     id: `${chatId}-n${i + 1}`,
