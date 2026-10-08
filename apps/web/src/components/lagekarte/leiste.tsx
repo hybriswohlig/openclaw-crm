@@ -19,6 +19,7 @@ import { useLagekarteThema } from "@/components/lagekarte/thema";
 import { telefonFuerLink } from "@/lib/lagekarte/telefon";
 import { warteText } from "@/lib/lagekarte/warte-text";
 import { arbeitslisten, gruppiereMissionen, heuteUndMorgen, ohneOrtHinweis } from "./arbeitslisten";
+import { useVorschau, VORSCHAU_TITEL } from "./vorschau";
 
 export type LeistenTab = "wartet" | "heute" | "alle" | "ohne_ort";
 
@@ -152,6 +153,8 @@ export default function Leiste(p: LeisteProps) {
     kompakt = false,
   } = p;
   const thema = useLagekarteThema();
+  // M-12: In der Vorschau keine echten Anruf-Links (Beispielnummern sind erfunden).
+  const vorschau = useVorschau();
   const sucheRef = useRef<HTMLInputElement>(null);
   const listeRef = useRef<HTMLDivElement>(null);
   /** Aufgeklappte Missionsarten (Ruling 14: eingeklappt steht je Art eine Zeile mit Anzahl). */
@@ -550,7 +553,17 @@ export default function Leiste(p: LeisteProps) {
                         />
                         {firma && <FirmaBadge firma={firma} />}
                       </Zeile>
-                      {l.telefon && nummer && (
+                      {l.telefon && nummer && vorschau && (
+                        <span
+                          aria-label={`${l.name} anrufen (${VORSCHAU_TITEL})`}
+                          title={VORSCHAU_TITEL}
+                          className="mr-2 flex w-10 shrink-0 cursor-not-allowed items-center justify-center self-center rounded-lg text-[var(--lk-text-schwach)] opacity-60"
+                          style={{ height: 40 }}
+                        >
+                          <Phone className="size-4" aria-hidden="true" />
+                        </span>
+                      )}
+                      {l.telefon && nummer && !vorschau && (
                         <a
                           href={`tel:${nummer}`}
                           aria-label={`${l.name} anrufen`}

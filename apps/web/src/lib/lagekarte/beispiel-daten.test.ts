@@ -187,3 +187,11 @@ describe("beispielVerlauf", () => {
     expect(v2.milestones.find((m) => m.key === "angenommen")).toMatchObject({ done: true, at: auftrag.kv.angenommenAm });
   });
 });
+
+describe("beispielAntwort: erfundene Telefonnummern (M-12)", () => {
+  it("nutzt nur eindeutig fiktive Nummern +49 000 000 …", () => {
+    const nummern = beispielAntwort(jetzt).leads.flatMap((l) => (l.telefon ? [l.telefon] : []));
+    expect(nummern.length).toBeGreaterThan(0);
+    for (const n of nummern) expect(n).toMatch(/^\+49 000 000 \d{2}$/);
+  });
+});

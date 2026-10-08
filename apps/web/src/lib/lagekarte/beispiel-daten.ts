@@ -207,7 +207,8 @@ export function beispielAntwort(jetzt: Date = new Date("2026-10-08T07:30:00+02:0
         dokumentStand: status === "auftrag" ? "angenommen" : status === "angebot" ? "aktuell" : "keins",
       },
       kiEntwurfWartet: i === 4,
-      telefon: i % 5 === 3 ? null : `+49 170 ${String(1000000 + i * 7919).slice(0, 7)}`,
+      // M-12: eindeutig erfundene Nummern (keine echte Mobilvorwahl).
+      telefon: i % 5 === 3 ? null : `+49 000 000 ${String(i + 1).padStart(2, "0")}`,
     };
   });
 
