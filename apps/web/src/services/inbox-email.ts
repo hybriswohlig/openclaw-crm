@@ -35,7 +35,7 @@ import { emitEvent } from "./activity-events";
 import { ensureCrmPerson, resolveOrCreatePerson } from "./inbox-crm-link";
 import { extractPhonesFromText } from "@/lib/identity/canonical";
 import { inboxKonversationUrl } from "@/lib/inbox-link";
-import { classifyInbound } from "./inbox-triage";
+import { classifyInbound, sollInboxPushSenden } from "./inbox-triage";
 import { looksDeclined, recordAgentDecline } from "./agent/agent-suppress";
 import { getSecret } from "./workspace-settings";
 import { isImmoscoutLeadEmail, parseImmoscoutLeadEmail } from "./inbox-immoscout";
@@ -240,6 +240,11 @@ async function ingestParsedEmail(
   // from a no-reply address, so only treat real two-way threads as opt-outs.
   const declined = !isImmoLead && looksDeclined(body);
 
+  // Push nur für echte Anfragen (sollInboxPushSenden): entschieden mit der
+  // Lane nach dieser Nachricht und dem Status vor ihr, denn das Update unten
+  // öffnet gespamte Chats wieder.
+  let pushSenden: boolean;
+
   if (!conv) {
     const [created] = await db
       .insert(inboxConversations)
@@ -263,6 +268,7 @@ async function ingestParsedEmail(
       })
       .returning();
     conv = created;
+    pushSenden = sollInboxPushSenden({ lane: triage.lane, statusVorher: null });
 
     // Auto-create a deal in stage "Neue Anfrage" for brand-new Kleinanzeigen
     // inquiries that are real leads (not platform notifications), and link it
@@ -319,6 +325,10 @@ async function ingestParsedEmail(
     // eine manuelle Einstufung — und holt für Kleinanzeigen den Deal nach.
     const laneUpgrade =
       triage.lane === "lead" && conv.lane === "info" && conv.classifiedBy !== "manual";
+    pushSenden = sollInboxPushSenden({
+      lane: laneUpgrade ? "lead" : conv.lane,
+      statusVorher: conv.status,
+    });
     await db
       .update(inboxConversations)
       .set({
@@ -434,7 +444,7 @@ async function ingestParsedEmail(
     });
   }
 
-  if (storedMessage) {
+  if (storedMessage && pushSenden) {
     // Don't block ingest on push delivery, but keep the function alive
     // long enough for the request to Apple/Google to finish — see the
     // matching pattern in inbox-whatsapp.ts for the rationale.

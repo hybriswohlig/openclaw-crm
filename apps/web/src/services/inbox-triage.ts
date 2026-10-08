@@ -147,3 +147,21 @@ export function classifyMessagingBody(body: string | null | undefined, displayNa
   }
   return { lane: "lead", reason: "Nachricht (kein Noise-Signal)", by: "heuristic" };
 }
+
+// ─── Push bei eingehenden Nachrichten ─────────────────────────────────────────
+// Ein Inbox-Push geht an alle im Workspace. Deshalb klingeln nur echte
+// Anfragen: Newsletter, Plattform-Benachrichtigungen und OTP-Codes (Lane info)
+// sowie Spam landen still in ihrer Lane.
+
+/**
+ * `lane` ist die Lane NACH dieser Nachricht, also nach einer Lane-Heilung
+ * info → lead. `statusVorher` ist der Status der Konversation VOR dieser
+ * Nachricht (null bei einer neuen): der Ingest öffnet einen als Spam markierten
+ * Chat wieder, die neue Nachricht darauf soll trotzdem niemanden anpingen.
+ */
+export function sollInboxPushSenden(input: {
+  lane: ConversationLane;
+  statusVorher: "open" | "resolved" | "spam" | null;
+}): boolean {
+  return input.lane === "lead" && input.statusVorher !== "spam";
+}
