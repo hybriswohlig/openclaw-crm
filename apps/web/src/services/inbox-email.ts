@@ -35,7 +35,12 @@ import { emitEvent } from "./activity-events";
 import { ensureCrmPerson, resolveOrCreatePerson } from "./inbox-crm-link";
 import { extractPhonesFromText } from "@/lib/identity/canonical";
 import { inboxKonversationUrl } from "@/lib/inbox-link";
-import { classifyInbound, sollInboxPushSenden } from "./inbox-triage";
+import {
+  classifyInbound,
+  istVomCrmGestartet,
+  sollInboxPushSenden,
+  VOM_CRM_GESTARTET_GRUND,
+} from "./inbox-triage";
 import { looksDeclined, recordAgentDecline } from "./agent/agent-suppress";
 import { getSecret } from "./workspace-settings";
 import { isImmoscoutLeadEmail, parseImmoscoutLeadEmail } from "./inbox-immoscout";
@@ -328,6 +333,10 @@ async function ingestParsedEmail(
     pushSenden = sollInboxPushSenden({
       lane: laneUpgrade ? "lead" : conv.lane,
       statusVorher: conv.status,
+      // Antwort auf eine Mail aus sendNewEmail (IMAP, per In-Reply-To): die
+      // Konversation bleibt in info, die echte Antwort klingelt trotzdem.
+      vomCrmGestartet: istVomCrmGestartet(conv),
+      triageLane: triage.lane,
     });
     await db
       .update(inboxConversations)
@@ -938,6 +947,8 @@ export async function sendNewEmail(params: {
 
     // New conversation keyed by our Message-ID, parked in the 'info' lane so the
     // lead assistant never treats an operator-initiated thread as an inbound lead.
+    // The classification reason marks it as started by the CRM, so the
+    // customer's reply still pushes (istVomCrmGestartet, sollInboxPushSenden).
     const [conv] = await db
       .insert(inboxConversations)
       .values({
@@ -952,7 +963,7 @@ export async function sendNewEmail(params: {
         lastMessagePreview: `Du: ${body.slice(0, 100)}`,
         unreadCount: 0,
         lane: "info",
-        classificationReason: "Manuell verfasste E-Mail",
+        classificationReason: VOM_CRM_GESTARTET_GRUND,
         classifiedBy: "manual",
         aiNeedsReply: false,
         aiPaused: true,

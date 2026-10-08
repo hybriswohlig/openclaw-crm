@@ -148,6 +148,23 @@ export function classifyMessagingBody(body: string | null | undefined, displayNa
   return { lane: "lead", reason: "Nachricht (kein Noise-Signal)", by: "heuristic" };
 }
 
+// ─── Vom CRM gestartete E-Mail-Konversationen ─────────────────────────────────
+// sendNewEmail (Composer, KVA-Bestätigung, Portal-Dokument, Widerruf) legt die
+// Konversation selbst an und parkt sie manuell eingestuft in der Lane info,
+// damit der Lead-Assistent sie nie als Anfrage behandelt. Dieser
+// Einstufungsgrund markiert sie als vom CRM gestartet. Der Text bleibt, weil
+// bestehende Konversationen ihn schon tragen. Markiert der Operator den Chat
+// als Spam oder öffnet ihn wieder, überschreibt updateConversationStatus den
+// Grund, und die Markierung entfällt.
+export const VOM_CRM_GESTARTET_GRUND = "Manuell verfasste E-Mail";
+
+export function istVomCrmGestartet(conv: {
+  classifiedBy: ClassifiedBy | null;
+  classificationReason: string | null;
+}): boolean {
+  return conv.classifiedBy === "manual" && conv.classificationReason === VOM_CRM_GESTARTET_GRUND;
+}
+
 // ─── Push bei eingehenden Nachrichten ─────────────────────────────────────────
 // Ein Inbox-Push geht an alle im Workspace. Deshalb klingeln nur echte
 // Anfragen: Newsletter, Plattform-Benachrichtigungen und OTP-Codes (Lane info)
@@ -158,10 +175,22 @@ export function classifyMessagingBody(body: string | null | undefined, displayNa
  * info → lead. `statusVorher` ist der Status der Konversation VOR dieser
  * Nachricht (null bei einer neuen): der Ingest öffnet einen als Spam markierten
  * Chat wieder, die neue Nachricht darauf soll trotzdem niemanden anpingen.
+ *
+ * `vomCrmGestartet` (istVomCrmGestartet) und `triageLane`, die Triage der
+ * Nachricht selbst, betreffen Antworten auf Mails, die das CRM verschickt hat.
+ * Über IMAP landet die Antwort per In-Reply-To in der info-Konversation aus
+ * sendNewEmail, und die Lane-Heilung überspringt manuelle Einstufungen. Ist die
+ * Antwort eine echte Nachricht (Triage lead), klingelt sie trotzdem; eine
+ * Abwesenheitsnotiz (Triage info) bleibt still. Über die Gmail-API öffnet die
+ * Antwort ohnehin eine neue Konversation mit ihrer eigenen Triage.
  */
 export function sollInboxPushSenden(input: {
   lane: ConversationLane;
   statusVorher: "open" | "resolved" | "spam" | null;
+  vomCrmGestartet?: boolean;
+  triageLane?: ConversationLane;
 }): boolean {
-  return input.lane === "lead" && input.statusVorher !== "spam";
+  if (input.statusVorher === "spam") return false;
+  if (input.lane === "lead") return true;
+  return input.lane === "info" && input.vomCrmGestartet === true && input.triageLane === "lead";
 }

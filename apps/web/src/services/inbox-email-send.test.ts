@@ -11,13 +11,13 @@ vi.mock("./inbox", () => ({}));
 vi.mock("./activity-events", () => ({}));
 vi.mock("./inbox-crm-link", () => ({}));
 vi.mock("@/lib/identity/canonical", () => ({}));
-vi.mock("./inbox-triage", () => ({}));
 vi.mock("./agent/agent-suppress", () => ({}));
 vi.mock("./inbox-immoscout", () => ({}));
 vi.mock("./immoscout-sync", () => ({}));
 vi.mock("./lead-name", () => ({}));
 vi.mock("./multi-company", () => ({}));
 import { sendNewEmail } from "./inbox-email";
+import { istVomCrmGestartet } from "./inbox-triage";
 
 let account: Record<string, unknown>;
 const values = vi.fn();
@@ -53,6 +53,12 @@ describe("new CRM email with binary attachments", () => {
     await expect(sendNewEmail(input)).rejects.toThrow("Kein gültiges E-Mail-Konto");
     await expect(sendNewEmail({ ...input, attachments: [{ ...input.attachments[0], content: Buffer.alloc(10 * 1024 * 1024 + 1) }] })).rejects.toThrow("Anhänge sind zu groß");
     expect(mock.sendMail).not.toHaveBeenCalled();
+  });
+  it("marks the conversation as started by the CRM so the customer's reply still pushes", async () => {
+    await sendNewEmail(input);
+    const conv = values.mock.calls.map(([row]) => row).find((row) => "lane" in row);
+    expect(conv).toMatchObject({ lane: "info", classifiedBy: "manual", aiPaused: true });
+    expect(istVomCrmGestartet(conv)).toBe(true);
   });
   it("does not create an inbox record on transport failure", async () => {
     mock.sendMail.mockRejectedValue(new Error("provider unavailable"));
