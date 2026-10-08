@@ -61,7 +61,8 @@ const QUELLE_ABSTAND_PX = 4;
 const QUELLE_HOEHE_PX = 18;
 /** Mobiles Lead-Panel: höchstens 65 % der Höhe, oben bleiben mindestens 35 % der Karte sichtbar. */
 const MOBIL_PANEL_ANTEIL = 0.65;
-const SUCHE_VERZOEGERUNG_MS = 250;
+/** Suchtext je Browser-Tab (Ruling 12: nie in der URL). */
+const SUCHE_SCHLUESSEL = "kottke:lagekarte-suche";
 
 const KEINE_LEADS: LeadPunkt[] = [];
 const KEINE_FIRMEN: Firma[] = [];
@@ -71,6 +72,23 @@ function leseAnsicht(): Ansicht {
     return window.localStorage.getItem(ANSICHT_SCHLUESSEL) === "3d" ? "3d" : "2d";
   } catch {
     return "2d";
+  }
+}
+
+function leseSuche(): string {
+  try {
+    return window.sessionStorage.getItem(SUCHE_SCHLUESSEL) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function speichereSuche(text: string) {
+  try {
+    if (text) window.sessionStorage.setItem(SUCHE_SCHLUESSEL, text);
+    else window.sessionStorage.removeItem(SUCHE_SCHLUESSEL);
+  } catch {
+    /* ohne Speicher: Suche gilt nur bis zum Neuladen */
   }
 }
 
@@ -170,26 +188,12 @@ function LagekarteInhalt({ onListe }: LagekarteProps) {
   // Vorschau mit Beispieldaten: nur Entwicklung und demo=1 (in Produktion nie, siehe vorschau.ts).
   const [vorschau] = useState(() => istVorschau(window.location.search, process.env.NODE_ENV));
   const { daten, fehler, neuLaden } = useLagekarteDaten(vorschau);
-  const { filter: urlFilter, setzeFilter, zuruecksetzen, auswahlId, waehle } = useKartenFilter();
+  const { filter: urlFilter, setzeFilter, zuruecksetzen, auswahlId, waehle, alteSuche } = useKartenFilter();
 
-  /* ── Suche: sofort lokal, entprellt in die URL (sonst springt der Cursor beim Tippen) ── */
-  const [suche, setSuche] = useState(urlFilter.suche);
-  const geschriebeneSuche = useRef(urlFilter.suche);
-  useEffect(() => {
-    // Von außen geändert (Zurücksetzen, Zurück-Taste): übernehmen.
-    if (urlFilter.suche !== geschriebeneSuche.current) {
-      geschriebeneSuche.current = urlFilter.suche;
-      setSuche(urlFilter.suche);
-    }
-  }, [urlFilter.suche]);
-  useEffect(() => {
-    if (suche.trim() === geschriebeneSuche.current) return;
-    const t = setTimeout(() => {
-      geschriebeneSuche.current = suche.trim();
-      setzeFilter({ suche });
-    }, SUCHE_VERZOEGERUNG_MS);
-    return () => clearTimeout(t);
-  }, [suche, setzeFilter]);
+  /* ── Suche (Ruling 12): nur im Zustand und für den Tab in sessionStorage, nie in der URL.
+     Ein alter Link mit ?q= gibt den Startwert (der Hook entfernt q sofort aus der Adresse). ── */
+  const [suche, setSuche] = useState(() => alteSuche ?? leseSuche());
+  useEffect(() => speichereSuche(suche.trim()), [suche]);
 
   const filterSchluessel = `${JSON.stringify(urlFilter)}\u0000${suche}`;
   // Nur bei inhaltlicher Änderung ein neues Objekt (z. B. nicht bei Auswahlwechsel in der URL),
@@ -201,7 +205,6 @@ function LagekarteInhalt({ onListe }: LagekarteProps) {
   );
 
   const zuruecksetzenAlles = useCallback(() => {
-    geschriebeneSuche.current = "";
     setSuche("");
     zuruecksetzen();
   }, [zuruecksetzen]);
@@ -271,7 +274,8 @@ function LagekarteInhalt({ onListe }: LagekarteProps) {
 
   /* ── WebGL-Rückfall: Liste in voller Breite ── */
   const [ohneKarte, setOhneKarte] = useState(() => !hatWebgl2());
-  const [tab, setTab] = useState<LeistenTab>(() => (ohneKarte ? "alle" : "wartet"));
+  // Gemerkte Suche (Tab neu geladen): Treffer stehen in „Alle“.
+  const [tab, setTab] = useState<LeistenTab>(() => (ohneKarte || suche.trim() ? "alle" : "wartet"));
   const beiKartenFehler = useCallback((grund: "webgl" | "sonst", meldung: string) => {
     if (grund === "webgl") {
       setOhneKarte(true);
@@ -313,6 +317,12 @@ function LagekarteInhalt({ onListe }: LagekarteProps) {
     [mobil],
   );
 
+  // Die Suche filtert Karte und „Alle“ (Ruling 13): wer tippt, sieht die Treffer im Tab „Alle“.
+  const beiSuche = useCallback((text: string) => {
+    setSuche(text);
+    if (text.trim()) setTab("alle");
+  }, []);
+
   const beiWartetKlick = useCallback(() => {
     setTab("wartet");
     if (mobil) {
@@ -326,6 +336,7 @@ function LagekarteInhalt({ onListe }: LagekarteProps) {
 
   const leiste = (kompakt: boolean) => (
     <Leiste
+      leadsAlle={alle}
       leadsGefiltert={leadsGefiltert}
       missionen={daten?.missionen ?? []}
       firmen={firmen}
@@ -333,7 +344,7 @@ function LagekarteInhalt({ onListe }: LagekarteProps) {
       auswahlId={auswahlId}
       onWaehle={waehle}
       suche={suche}
-      onSuche={setSuche}
+      onSuche={beiSuche}
       tab={tab}
       onTab={beiTab}
       kompakt={kompakt}

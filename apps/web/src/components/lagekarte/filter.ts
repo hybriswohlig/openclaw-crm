@@ -1,10 +1,15 @@
 /**
  * Lagekarte: Filter als reine Funktionen (kein React, kein DOM). Der Zustand
- * lebt in der URL, siehe use-karten-filter.ts.
+ * lebt in der URL, siehe use-karten-filter.ts; nur die Suche nicht.
  *
  * URL-Schlüssel: status (kommagetrennt), wartet=1, firma (kommagetrennt,
- * "ohne" = Leads ohne Firma), zeit, wert (Euro), q. Andere Schlüssel (lead,
+ * "ohne" = Leads ohne Firma), zeit, wert (Euro). Andere Schlüssel (lead,
  * ansicht) gehören nicht zum Filter und bleiben beim Schreiben erhalten.
+ *
+ * Ruling 12: Der Suchtext (Kundennamen) steht nie in der URL, weil
+ * Analyse-Werkzeuge die volle Seitenadresse mitsenden. Er lebt im Zustand
+ * des Containers (für den Tab in sessionStorage). Alte Links mit `q=` liest
+ * alteSucheAusUrl einmal aus; filterZuUrl entfernt `q` beim Schreiben.
  */
 import { STATUS_STIL } from "@/lib/lagekarte/farben";
 import { KARTEN_STATUS_REIHENFOLGE, type KartenStatus, type LeadPunkt } from "@/lib/lagekarte/typen";
@@ -52,8 +57,11 @@ export function weitereFilterAktiv(f: KartenFilter): number {
   );
 }
 
-/** URL-Schlüssel, die dieses Modul besitzt. */
-const FILTER_SCHLUESSEL = ["status", "wartet", "firma", "zeit", "wert", "q"] as const;
+/** Schlüssel alter Links für den Suchtext (wird nur noch gelesen und entfernt). */
+export const ALTE_SUCHE_SCHLUESSEL = "q";
+
+/** URL-Schlüssel, die dieses Modul besitzt (q nur, um es zu entfernen). */
+const FILTER_SCHLUESSEL = ["status", "wartet", "firma", "zeit", "wert", ALTE_SUCHE_SCHLUESSEL] as const;
 
 function istStatus(wert: string): wert is KartenStatus {
   return (KARTEN_STATUS_REIHENFOLGE as string[]).includes(wert);
@@ -83,7 +91,8 @@ function gleicheStatus(a: readonly KartenStatus[], b: readonly KartenStatus[]): 
 }
 
 /**
- * Liest den Filter aus der URL. Unbekannte Werte werden ignoriert.
+ * Liest den Filter aus der URL. Unbekannte Werte werden ignoriert, die Suche
+ * ist immer leer (Ruling 12, siehe alteSucheAusUrl).
  * Sonderfall status: fehlt der Schlüssel oder ist kein Wert gültig, gilt der
  * Standard; ein ausdrücklich leerer Wert ("status=") heißt "kein Status".
  */
@@ -112,13 +121,20 @@ export function filterAusUrl(params: URLSearchParams): KartenFilter {
     firmen: liste(params.get("firma") ?? ""),
     zeitraum,
     wertAbEuro,
-    suche: (params.get("q") ?? "").trim(),
+    suche: "",
   };
+}
+
+/** Suchtext eines alten Links mit `q=` (getrimmt), sonst null. Nur beim Laden lesen. */
+export function alteSucheAusUrl(params: URLSearchParams): string | null {
+  const roh = params.get(ALTE_SUCHE_SCHLUESSEL);
+  return roh === null ? null : roh.trim();
 }
 
 /**
  * Schreibt den Filter in eine URL. Standardwerte entfallen, fremde Parameter
- * aus `basis` bleiben erhalten (basis wird nicht verändert).
+ * aus `basis` bleiben erhalten (basis wird nicht verändert). Die Suche wird
+ * nie geschrieben, ein altes `q` entfernt.
  */
 export function filterZuUrl(f: KartenFilter, basis?: URLSearchParams): URLSearchParams {
   const params = new URLSearchParams(basis);
@@ -129,8 +145,6 @@ export function filterZuUrl(f: KartenFilter, basis?: URLSearchParams): URLSearch
   if (f.firmen.length > 0) params.set("firma", [...new Set(f.firmen)].join(","));
   if (f.zeitraum !== STANDARD_FILTER.zeitraum) params.set("zeit", f.zeitraum);
   if (f.wertAbEuro !== null && Number.isFinite(f.wertAbEuro) && f.wertAbEuro > 0) params.set("wert", String(f.wertAbEuro));
-  const suche = f.suche.trim();
-  if (suche) params.set("q", suche);
   return params;
 }
 

@@ -6,10 +6,21 @@
  * und ohne Server-Rundlauf. Next.js (ab 14.1) gleicht useSearchParams damit ab;
  * router.replace hätte je Klick die Seite neu vom Server geholt (spürbare
  * Verzögerung bei Chips und Lead-Auswahl).
+ *
+ * Router-Zustand (Grok 3, geprüft in Next 15.5.12, app-router.js): Next patcht
+ * replaceState und kopiert bei fremdem `data` selbst `__NA` und den Router-Baum
+ * aus dem aktuellen Eintrag (copyNextJsInternalHistoryState), deshalb bleibt
+ * „Zurück“ (z. B. von „Aufgaben“ auf /home) clientseitig. NICHT
+ * `window.history.state` übergeben: Ein Objekt mit `__NA` hält Next für einen
+ * eigenen Aufruf und gleicht useSearchParams dann nicht ab (Filter und Auswahl
+ * reagierten nicht mehr). Deshalb ein leeres Objekt.
+ *
+ * Der Suchtext gehört nicht in die URL (Ruling 12): `alteSuche` liefert den
+ * Suchtext eines alten Links mit `q=` einmal, das `q` verschwindet sofort.
  */
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { filterAusUrl, filterZuUrl, type KartenFilter } from "./filter";
+import { ALTE_SUCHE_SCHLUESSEL, alteSucheAusUrl, filterAusUrl, filterZuUrl, type KartenFilter } from "./filter";
 
 const AUSWAHL_SCHLUESSEL = "lead";
 
@@ -19,6 +30,8 @@ export function useKartenFilter(): {
   zuruecksetzen: () => void;
   auswahlId: string | null;
   waehle: (id: string | null) => void;
+  /** Suchtext aus einem alten Link (`?q=`), beim ersten Rendern gelesen; sonst null. */
+  alteSuche: string | null;
 } {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -31,6 +44,8 @@ export function useKartenFilter(): {
     aktuell.current = { gesehen: query, params: new URLSearchParams(query) };
   }
 
+  const [alteSuche] = useState(() => alteSucheAusUrl(new URLSearchParams(query)));
+
   const filter = useMemo(() => filterAusUrl(new URLSearchParams(query)), [query]);
   const auswahlId = useMemo(() => new URLSearchParams(query).get(AUSWAHL_SCHLUESSEL) || null, [query]);
 
@@ -38,10 +53,19 @@ export function useKartenFilter(): {
     (params: URLSearchParams) => {
       aktuell.current = { gesehen: aktuell.current.gesehen, params };
       const text = params.toString();
-      window.history.replaceState(null, "", text ? `${pathname}?${text}` : pathname);
+      window.history.replaceState({}, "", text ? `${pathname}?${text}` : pathname);
     },
     [pathname],
   );
+
+  // Alter Link mit Suchtext: q sofort aus der Adresse nehmen (der Container hat ihn übernommen).
+  const hatAlteSuche = new URLSearchParams(query).has(ALTE_SUCHE_SCHLUESSEL);
+  useEffect(() => {
+    if (!hatAlteSuche) return;
+    const params = new URLSearchParams(aktuell.current.params);
+    params.delete(ALTE_SUCHE_SCHLUESSEL);
+    schreibe(params);
+  }, [hatAlteSuche, schreibe]);
 
   const setzeFilter = useCallback(
     (teil: Partial<KartenFilter>) => {
@@ -67,5 +91,5 @@ export function useKartenFilter(): {
     [schreibe],
   );
 
-  return { filter, setzeFilter, zuruecksetzen, auswahlId, waehle };
+  return { filter, setzeFilter, zuruecksetzen, auswahlId, waehle, alteSuche };
 }

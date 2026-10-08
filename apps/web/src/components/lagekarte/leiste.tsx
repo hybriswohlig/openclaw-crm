@@ -3,20 +3,29 @@
  * Lagekarte: linke Leiste. Suche, Tabs (Wartet, Heute, Alle, Ohne Ort),
  * Listen mit Tastaturnavigation (j/k, Pfeile, Enter). Rein darstellend:
  * Auswahl, Suche und Tab kommen vom Container.
+ *
+ * Ruling 13: Wartet, Heute, Ohne Ort und die Missionen bauen auf allen Leads
+ * auf (ohne verlorene, arbeitslisten.ts); nur „Alle“ folgt dem Kartenfilter
+ * und der Suche. Ruling 14: Missionen je Art gruppiert und aufklappbar.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, Clock, Mail, MapPinOff, Phone, Search, Target, X } from "lucide-react";
-import { differenceInMinutes, format, formatDistanceStrict } from "date-fns";
+import { ChevronDown, ChevronRight, Clock, Mail, MapPinOff, Phone, Search, Target, X } from "lucide-react";
+import { format, formatDistanceStrict } from "date-fns";
 import { de } from "date-fns/locale";
-import type { Firma, LeadPunkt, Mission } from "@/lib/lagekarte/typen";
+import type { Firma, LeadPunkt, Mission, MissionArt } from "@/lib/lagekarte/typen";
 import { FIRMEN_FALLBACK_FARBE, STATUS_STIL, WARTET_LABEL } from "@/lib/lagekarte/farben";
 import { StatusForm } from "@/components/lagekarte/status-form";
 import { useLagekarteThema } from "@/components/lagekarte/thema";
-import { berlinDateString } from "@/lib/berlin-date";
+import { telefonFuerLink } from "@/lib/lagekarte/telefon";
+import { warteText } from "@/lib/lagekarte/warte-text";
+import { arbeitslisten, gruppiereMissionen, heuteUndMorgen } from "./arbeitslisten";
 
 export type LeistenTab = "wartet" | "heute" | "alle" | "ohne_ort";
 
 export interface LeisteProps {
+  /** Alle Leads (ungefiltert): Grundlage für Wartet, Heute, Ohne Ort und Missionen. */
+  leadsAlle: LeadPunkt[];
+  /** Leads im Kartenfilter inklusive Suche: Grundlage für „Alle“. */
   leadsGefiltert: LeadPunkt[];
   missionen: Mission[];
   firmen: Firma[];
@@ -50,7 +59,6 @@ const TABS: Array<{ id: LeistenTab; label: string }> = [
   { id: "ohne_ort", label: "Ohne Ort" },
 ];
 
-const MISSIONEN_SICHTBAR = 6;
 const STUNDE_MS = 60 * 60 * 1000;
 
 /* ───────────── Hilfsfunktionen (rein) ───────────── */
@@ -63,17 +71,6 @@ function istEingabeAktiv(): boolean {
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
   if (el.isContentEditable) return true;
   return el.getAttribute("role") === "textbox";
-}
-
-/** „seit 12 Min.“, „seit 2 Std.“, „seit 3 Tagen“ */
-function wartezeitText(seitIso: string, jetzt: Date): string {
-  const min = Math.max(0, differenceInMinutes(jetzt, new Date(seitIso)));
-  if (min < 1) return "seit kurzem";
-  if (min < 60) return `seit ${min} Min.`;
-  const std = Math.floor(min / 60);
-  if (std < 24) return `seit ${std} Std.`;
-  const tage = Math.floor(std / 24);
-  return tage === 1 ? "seit 1 Tag" : `seit ${tage} Tagen`;
 }
 
 function wartetLange(seitIso: string, jetzt: Date): boolean {
@@ -110,6 +107,12 @@ function neuesteZuerst(a: LeadPunkt, b: LeadPunkt): number {
   return b.angelegtAm.localeCompare(a.angelegtAm);
 }
 
+const DRINGLICHKEIT_FARBE: Record<Mission["dringlichkeit"], string> = {
+  1: "text-[var(--lk-wartet)]",
+  2: "text-[var(--lk-warn)]",
+  3: "text-[var(--lk-text-schwach)]",
+};
+
 /** Zielindex beim Blättern: ohne aktuelle Zeile springt j auf die erste, k auf die letzte;
  *  am Rand bleibt die Auswahl stehen (kein Umlauf). */
 export function zielIndex(anzahl: number, aktuell: number, richtung: 1 | -1): number {
@@ -135,6 +138,7 @@ export function kanonischeZeile(
 
 export default function Leiste(p: LeisteProps) {
   const {
+    leadsAlle,
     leadsGefiltert,
     missionen,
     firmen,
@@ -150,45 +154,23 @@ export default function Leiste(p: LeisteProps) {
   const thema = useLagekarteThema();
   const sucheRef = useRef<HTMLInputElement>(null);
   const listeRef = useRef<HTMLDivElement>(null);
-  const [alleMissionen, setAlleMissionen] = useState(false);
+  /** Aufgeklappte Missionsarten (Ruling 14: eingeklappt steht je Art eine Zeile mit Anzahl). */
+  const [offeneArten, setOffeneArten] = useState<ReadonlySet<MissionArt>>(() => new Set());
 
   const firmenMap = useMemo(() => new Map(firmen.map((f) => [f.id, f])), [firmen]);
-  const leadMap = useMemo(() => new Map(leadsGefiltert.map((l) => [l.id, l])), [leadsGefiltert]);
+  const leadMap = useMemo(() => new Map(leadsAlle.map((l) => [l.id, l])), [leadsAlle]);
 
-  const heute = berlinDateString(jetzt);
-  const morgen = berlinDateString(new Date(jetzt.getTime() + 24 * STUNDE_MS));
+  const { heute } = heuteUndMorgen(jetzt);
 
-  const wartend = useMemo(
-    () =>
-      leadsGefiltert
-        .filter((l): l is LeadPunkt & { wartet: NonNullable<LeadPunkt["wartet"]> } => l.wartet !== null)
-        .sort((a, b) => a.wartet.seit.localeCompare(b.wartet.seit)),
-    [leadsGefiltert],
-  );
-  const emailUngelesen = useMemo(
-    () => leadsGefiltert.filter((l) => l.emailUngelesen > 0).sort((a, b) => b.emailUngelesen - a.emailUngelesen),
-    [leadsGefiltert],
-  );
-  const missionenSichtbar = useMemo(
-    () =>
-      missionen
-        .filter((m) => leadMap.has(m.leadId))
-        .sort((a, b) => a.dringlichkeit - b.dringlichkeit || a.titel.localeCompare(b.titel, "de")),
+  // Ruling 13: Arbeitslisten aus allen Leads, unabhängig vom Kartenfilter.
+  const listen = useMemo(() => arbeitslisten(leadsAlle, jetzt), [leadsAlle, jetzt]);
+  const { wartend, emailUngelesen, heute: heuteListe, ohneOrt: ohneOrtListe } = listen;
+  const missionsGruppen = useMemo(
+    () => gruppiereMissionen(missionen, new Set(leadMap.keys())),
     [missionen, leadMap],
   );
-  const heuteListe = useMemo(() => {
-    const rang = (l: LeadPunkt) => (l.status === "auftrag" || l.status === "erledigt" ? 0 : 1);
-    return leadsGefiltert
-      .filter((l) => l.umzugAm === heute || l.umzugAm === morgen)
-      .sort(
-        (a, b) =>
-          rang(a) - rang(b) ||
-          (a.umzugAm ?? "").localeCompare(b.umzugAm ?? "") ||
-          a.name.localeCompare(b.name, "de"),
-      );
-  }, [leadsGefiltert, heute, morgen]);
+  const missionenAnzahl = missionsGruppen.reduce((n, g) => n + g.missionen.length, 0);
   const alleListe = useMemo(() => [...leadsGefiltert].sort(neuesteZuerst), [leadsGefiltert]);
-  const ohneOrtListe = useMemo(() => leadsGefiltert.filter((l) => !l.ort).sort(neuesteZuerst), [leadsGefiltert]);
 
   const zahlen: Record<LeistenTab, number> = {
     wartet: wartend.length,
@@ -197,12 +179,20 @@ export default function Leiste(p: LeisteProps) {
     ohne_ort: ohneOrtListe.length,
   };
 
-  /* Missionen: eingeklappt nur die ersten 6. Dieselbe Scheibe wird gerendert
-     und für j/k benutzt, damit nie eine unsichtbare Zeile gewählt wird. */
+  /* Missionen: nur aufgeklappte Arten werden gerendert; dieselbe Auswahl gilt
+     für j/k, damit nie eine unsichtbare Zeile gewählt wird. */
   const missionenGerendert = useMemo(
-    () => (alleMissionen ? missionenSichtbar : missionenSichtbar.slice(0, MISSIONEN_SICHTBAR)),
-    [alleMissionen, missionenSichtbar],
+    () => missionsGruppen.flatMap((g) => (offeneArten.has(g.art) ? g.missionen : [])),
+    [missionsGruppen, offeneArten],
   );
+  const schalteArt = useCallback((art: MissionArt) => {
+    setOffeneArten((alt) => {
+      const neu = new Set(alt);
+      if (neu.has(art)) neu.delete(art);
+      else neu.add(art);
+      return neu;
+    });
+  }, []);
 
   /** Alle gerenderten Zeilen des aktuellen Tabs in Reihenfolge, Schlüssel `abschnitt:id`.
    *  Im Tab Wartet: Wartende, dann E-Mails, dann Missionen (ein Lead darf mehrfach vorkommen). */
@@ -458,6 +448,7 @@ export default function Leiste(p: LeisteProps) {
                     <Zeile key={l.id} {...zeilenProps({ key: `wartet:${l.id}`, leadId: l.id })}>
                       <StatusForm status={l.status} thema={thema} groesse={16} wartet />
                       <ZeilenText titel={l.name} unten={`${wartetGrund(l)} · ${ortText(l)}`} />
+                      <FirmaVon lead={l} firmenMap={firmenMap} />
                       <Wartezeit seit={l.wartet.seit} jetzt={jetzt} />
                     </Zeile>
                   ))}
@@ -475,6 +466,7 @@ export default function Leiste(p: LeisteProps) {
                         titel={l.name}
                         unten={`${l.emailUngelesen} ungelesen · ${ortText(l)}`}
                       />
+                      <FirmaVon lead={l} firmenMap={firmenMap} />
                       <Mail className="size-4 shrink-0 text-[var(--lk-text-schwach)]" aria-hidden="true" />
                     </Zeile>
                   ))}
@@ -482,46 +474,49 @@ export default function Leiste(p: LeisteProps) {
               </Abschnitt>
             )}
 
-            {missionenSichtbar.length > 0 && (
-              <Abschnitt titel="Missionen" anzahl={missionenSichtbar.length}>
-                <div role="listbox" aria-label="Missionen">
-                  {missionenGerendert.map((m) => {
-                    const lead = leadMap.get(m.leadId);
-                    if (!lead) return null;
-                    return (
-                      <Zeile key={m.id} {...zeilenProps({ key: `mission:${m.id}`, leadId: m.leadId })}>
-                        <span
-                          aria-hidden="true"
-                          className={
-                            "flex size-4 shrink-0 items-center justify-center " +
-                            (m.dringlichkeit === 1 ? "text-[var(--lk-wartet)]" : m.dringlichkeit === 2 ? "text-[var(--lk-warn)]" : "text-[var(--lk-text-schwach)]")
-                          }
-                        >
-                          <Target className="size-4" />
+            {missionsGruppen.length > 0 && (
+              <Abschnitt titel="Missionen" anzahl={missionenAnzahl}>
+                {missionsGruppen.map((g) => {
+                  const offen = offeneArten.has(g.art);
+                  const listenId = `lk-missionen-${g.art}`;
+                  return (
+                    <div key={g.art}>
+                      <button
+                        type="button"
+                        onClick={() => schalteArt(g.art)}
+                        aria-expanded={offen}
+                        aria-controls={offen ? listenId : undefined}
+                        data-mission-art={g.art}
+                        className="flex h-11 w-full items-center gap-3 px-4 text-left transition-colors hover:bg-[var(--lk-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--lk-akzent)]"
+                      >
+                        <Target className={`size-4 shrink-0 ${DRINGLICHKEIT_FARBE[g.dringlichkeit]}`} aria-hidden="true" />
+                        <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-[var(--lk-text)]">
+                          {g.label} <span className="k-mono tabular-nums text-[var(--lk-text-leise)]">({g.missionen.length})</span>
                         </span>
-                        <ZeilenText titel={m.titel} unten={`${lead.name} · ${ortText(lead)}`} />
-                      </Zeile>
-                    );
-                  })}
-                </div>
-                {missionenSichtbar.length > MISSIONEN_SICHTBAR && (
-                  <button
-                    type="button"
-                    onClick={() => setAlleMissionen((v) => !v)}
-                    aria-expanded={alleMissionen}
-                    className="mx-3 mt-1 flex h-9 items-center gap-1.5 rounded-lg px-2 text-[12.5px] font-medium text-[var(--lk-text-leise)] hover:bg-[var(--lk-hover)] hover:text-[var(--lk-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lk-akzent)]"
-                  >
-                    {alleMissionen ? (
-                      <>
-                        <ChevronUp className="size-4" aria-hidden="true" /> Weniger anzeigen
-                      </>
-                    ) : (
-                      <>
-                        <ChevronDown className="size-4" aria-hidden="true" /> Alle anzeigen ({missionenSichtbar.length})
-                      </>
-                    )}
-                  </button>
-                )}
+                        {offen ? (
+                          <ChevronDown className="size-4 shrink-0 text-[var(--lk-text-schwach)]" aria-hidden="true" />
+                        ) : (
+                          <ChevronRight className="size-4 shrink-0 text-[var(--lk-text-schwach)]" aria-hidden="true" />
+                        )}
+                      </button>
+                      {offen && (
+                        <div id={listenId} role="listbox" aria-label={g.label} className="pb-1">
+                          {g.missionen.map((m) => {
+                            const lead = leadMap.get(m.leadId);
+                            if (!lead) return null;
+                            return (
+                              <Zeile key={m.id} {...zeilenProps({ key: `mission:${m.id}`, leadId: m.leadId })} className="pl-8">
+                                <StatusForm status={lead.status} thema={thema} groesse={16} wartet={lead.wartet !== null} />
+                                <ZeilenText titel={m.titel} unten={`${lead.name} · ${ortText(lead)}`} />
+                                <FirmaVon lead={lead} firmenMap={firmenMap} />
+                              </Zeile>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </Abschnitt>
             )}
           </>
@@ -536,6 +531,7 @@ export default function Leiste(p: LeisteProps) {
                 {heuteListe.map((l) => {
                   const wann = l.umzugAm === heute ? "Heute" : "Morgen";
                   const firma = l.firmaId ? firmenMap.get(l.firmaId) : undefined;
+                  const nummer = l.telefon ? telefonFuerLink(l.telefon) : null;
                   return (
                     <div key={l.id} className="flex items-stretch">
                       <Zeile {...zeilenProps({ key: `heute:${l.id}`, leadId: l.id })} className="min-w-0 flex-1">
@@ -554,9 +550,9 @@ export default function Leiste(p: LeisteProps) {
                         />
                         {firma && <FirmaBadge firma={firma} />}
                       </Zeile>
-                      {l.telefon && (
+                      {l.telefon && nummer && (
                         <a
-                          href={`tel:${l.telefon.replace(/\s+/g, "")}`}
+                          href={`tel:${nummer}`}
                           aria-label={`${l.name} anrufen`}
                           title={l.telefon}
                           className="mr-2 flex w-10 shrink-0 items-center justify-center self-center rounded-lg text-[var(--lk-ok)] hover:bg-[var(--lk-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lk-akzent)]"
@@ -684,9 +680,15 @@ function Wartezeit({ seit, jetzt }: { seit: string; jetzt: Date }) {
         (lange ? "font-semibold text-[var(--lk-wartet)]" : "text-[var(--lk-text-leise)]")
       }
     >
-      {wartezeitText(seit, jetzt)}
+      {warteText(seit, jetzt)}
     </span>
   );
+}
+
+/** Firmen-Badge des Leads, falls er einer Firma gehört (Arbeitslisten ignorieren den Firmenfilter). */
+function FirmaVon({ lead, firmenMap }: { lead: LeadPunkt; firmenMap: Map<string, Firma> }) {
+  const firma = lead.firmaId ? firmenMap.get(lead.firmaId) : undefined;
+  return firma ? <FirmaBadge firma={firma} /> : null;
 }
 
 function FirmaBadge({ firma }: { firma: Firma }) {

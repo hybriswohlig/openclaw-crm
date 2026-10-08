@@ -3,6 +3,7 @@ import { beispielAntwort } from "@/lib/lagekarte/beispiel-daten";
 import { KARTEN_STATUS_REIHENFOLGE, type LeadPunkt } from "@/lib/lagekarte/typen";
 import {
   STANDARD_FILTER,
+  alteSucheAusUrl,
   behalteAuswahl,
   filterAusUrl,
   filterZuUrl,
@@ -44,16 +45,38 @@ describe("URL-Zustand", () => {
     expect(filterAusUrl(new URLSearchParams())).toEqual(STANDARD_FILTER);
   });
 
-  it("macht einen Roundtrip über filterZuUrl und filterAusUrl", () => {
+  it("macht einen Roundtrip über filterZuUrl und filterAusUrl (ohne Suche, Ruling 12)", () => {
     const f: KartenFilter = {
       status: ["angebot", "verloren"],
       nurWartet: true,
       firmen: ["firma-kottke", "ohne"],
       zeitraum: "90",
       wertAbEuro: 1500,
-      suche: "70176 Müller",
+      suche: "",
     };
     expect(filterAusUrl(filterZuUrl(f))).toEqual(f);
+  });
+
+  it("schreibt den Suchtext nie in die URL (Ruling 12)", () => {
+    const url = filterZuUrl(filter({ suche: "70176 Müller" }));
+    expect(url.has("q")).toBe(false);
+    expect(url.toString()).not.toContain("M%C3%BCller");
+    expect(filterAusUrl(url).suche).toBe("");
+  });
+
+  it("liest q aus der URL nicht als Filter, entfernt es beim Schreiben", () => {
+    const basis = new URLSearchParams("q=M%C3%BCller&lead=lead-3&wartet=1");
+    expect(filterAusUrl(basis).suche).toBe("");
+    const url = filterZuUrl(filterAusUrl(basis), basis);
+    expect(url.has("q")).toBe(false);
+    expect(url.get("lead")).toBe("lead-3");
+    expect(url.get("wartet")).toBe("1");
+  });
+
+  it("liest den Suchtext alter Links mit q= genau einmal aus (alteSucheAusUrl)", () => {
+    expect(alteSucheAusUrl(new URLSearchParams("q=%20M%C3%BCller%20&lead=x"))).toBe("Müller");
+    expect(alteSucheAusUrl(new URLSearchParams("lead=x"))).toBeNull();
+    expect(alteSucheAusUrl(new URLSearchParams("q="))).toBe("");
   });
 
   it("schreibt die dokumentierten Schlüssel", () => {
@@ -65,7 +88,7 @@ describe("URL-Zustand", () => {
     expect(url.get("firma")).toBe("a,ohne");
     expect(url.get("zeit")).toBe("30");
     expect(url.get("wert")).toBe("1000");
-    expect(url.get("q")).toBe("stutt");
+    expect(url.has("q")).toBe(false);
   });
 
   it("lässt Standardwerte weg und behält fremde Parameter", () => {
