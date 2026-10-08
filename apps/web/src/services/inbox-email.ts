@@ -34,6 +34,7 @@ import { createDealForNewConversation } from "./inbox";
 import { emitEvent } from "./activity-events";
 import { ensureCrmPerson, resolveOrCreatePerson } from "./inbox-crm-link";
 import { extractPhonesFromText } from "@/lib/identity/canonical";
+import { inboxKonversationUrl } from "@/lib/inbox-link";
 import { classifyInbound } from "./inbox-triage";
 import { looksDeclined, recordAgentDecline } from "./agent/agent-suppress";
 import { getSecret } from "./workspace-settings";
@@ -1107,7 +1108,7 @@ async function notifyInboxPushEmail(input: {
     {
       title: input.title,
       body: input.body.slice(0, 140),
-      url: `/inbox?conversationId=${input.conversationId}`,
+      url: inboxKonversationUrl(input.conversationId),
       tag: `inbox-${input.conversationId}`,
     },
     { workspaceId: input.workspaceId }

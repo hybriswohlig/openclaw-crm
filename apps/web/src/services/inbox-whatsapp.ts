@@ -32,6 +32,7 @@ import { classifyMessagingBody } from "./inbox-triage";
 import { looksDeclined, recordAgentDecline } from "./agent/agent-suppress";
 import { setHumanOwned } from "./agent/agent-gate";
 import { canonicalizePhone } from "@/lib/identity/canonical";
+import { inboxKonversationUrl } from "@/lib/inbox-link";
 import { recomputeMultiCompanyForContact } from "./multi-company";
 
 // ─── Settings keys ────────────────────────────────────────────────────────────
@@ -1119,7 +1120,7 @@ async function notifyInboxPush(input: {
     {
       title: input.title,
       body: input.body,
-      url: `/inbox?conversationId=${input.conversationId}`,
+      url: inboxKonversationUrl(input.conversationId),
       tag: `inbox-${input.conversationId}`,
     },
     { workspaceId: input.workspaceId }
