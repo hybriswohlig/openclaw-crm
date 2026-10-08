@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Firma, KartenOrt, LeadPunkt } from "@/lib/lagekarte/typen";
+import { WERT_PLAUSIBEL_MAX_CENT, type Firma, type KartenOrt, type LeadPunkt } from "@/lib/lagekarte/typen";
 import {
   auftraegeZuGeoJson,
   auftragsSaeulen,
@@ -8,6 +8,7 @@ import {
   kreisAktivitaet,
   kreisHoeheM,
   leadsZuGeoJson,
+  SAEULE_MIN_M,
   saeulenHoeheM,
 } from "./geojson";
 import { BW_GRENZEN, alleGrenzen, kernGrenzen } from "./kamera";
@@ -125,6 +126,24 @@ describe("auftraegeZuGeoJson", () => {
     expect(fc.features.map((f) => f.properties?.wertCent)).toEqual([189000, null]);
     expect(fc.features[0].properties?.icon).toBe("lk-auftrag-hell-C");
     expect(fc.features[1].properties?.icon).toBe("lk-auftrag-hell");
+  });
+});
+
+describe("unplausible Werte (Ruling 7)", () => {
+  it("Aufträge über 50.000 € gelten für die Markergröße als unbekannt", () => {
+    const fc = auftraegeZuGeoJson(
+      [
+        lead({ id: "a", status: "auftrag", wert: { cent: 1_000_000_000, art: "bestaetigt" } }),
+        lead({ id: "b", status: "auftrag", wert: { cent: WERT_PLAUSIBEL_MAX_CENT, art: "bestaetigt" } }),
+      ],
+      "hell",
+    );
+    expect(fc.features.map((f) => f.properties?.wertCent)).toEqual([null, WERT_PLAUSIBEL_MAX_CENT]);
+  });
+
+  it("Säulen mit unplausiblem Wert bekommen die Mindesthöhe", () => {
+    const fc = auftragsSaeulen([lead({ id: "a", status: "auftrag", wert: { cent: 1_000_000_000, art: "bestaetigt" } })]);
+    expect(fc.features[0].properties?.hoeheM).toBe(SAEULE_MIN_M);
   });
 });
 

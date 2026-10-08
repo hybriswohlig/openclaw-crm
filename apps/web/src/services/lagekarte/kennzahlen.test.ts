@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { beispielAntwort } from "@/lib/lagekarte/beispiel-daten";
-import type { LeadPunkt } from "@/lib/lagekarte/typen";
+import { WERT_PLAUSIBEL_MAX_CENT, type LeadPunkt } from "@/lib/lagekarte/typen";
 import { berechneKennzahlen } from "./kennzahlen";
 
 const jetzt = new Date("2026-10-08T07:30:00+02:00");
@@ -169,5 +169,24 @@ describe("berechneKennzahlen", () => {
     );
     expect(basis.ort).not.toBeNull();
     expect(k.verortet).toEqual({ mitOrt: 1, gesamt: 2 });
+  });
+});
+
+describe("berechneKennzahlen: Plausibilität (Ruling 7)", () => {
+  const angenommen = (cent: number) =>
+    lead({ status: "auftrag", wert: { cent, art: "bestaetigt" }, kv: { ...basis.kv, angenommenAm: "2026-10-02T10:00:00+02:00" } });
+
+  it("Grenze liegt bei 50.000 €", () => {
+    expect(WERT_PLAUSIBEL_MAX_CENT).toBe(5_000_000);
+  });
+
+  it("unplausible Werte zählen nicht in die Monatssumme, die Annahme zählt aber mit", () => {
+    const k = berechneKennzahlen([angenommen(1_000_000_000), angenommen(250_000)], jetzt);
+    expect(k.angenommenMonat).toEqual({ anzahl: 2, cent: 250_000, monat: "2026-10" });
+  });
+
+  it("genau 50.000 € sind noch plausibel", () => {
+    const k = berechneKennzahlen([angenommen(WERT_PLAUSIBEL_MAX_CENT)], jetzt);
+    expect(k.angenommenMonat.cent).toBe(WERT_PLAUSIBEL_MAX_CENT);
   });
 });

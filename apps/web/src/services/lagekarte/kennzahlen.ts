@@ -3,7 +3,7 @@
  * Reine Funktion, keine DB. Datums- und Monatsgrenzen in Europe/Berlin.
  */
 import { berlinDateString } from "@/lib/berlin-date";
-import type { Kennzahlen, LeadPunkt } from "@/lib/lagekarte/typen";
+import { plausiblerCent, type Kennzahlen, type LeadPunkt } from "@/lib/lagekarte/typen";
 
 /** YYYY-MM-DD plus n Kalendertage, rein kalendarisch (UTC-Rechnung, keine Sommerzeit-Effekte). */
 function plusTage(datum: string, tage: number): string {
@@ -43,7 +43,8 @@ export function berechneKennzahlen(leads: LeadPunkt[], jetzt: Date): Kennzahlen 
     },
     angenommenMonat: {
       anzahl: angenommen.length,
-      cent: angenommen.reduce((summe, l) => summe + (l.wert?.art === "bestaetigt" ? l.wert.cent : 0), 0),
+      // Unplausibel hohe Werte (Tippfehler) zählen nicht in die Summe, die Annahme selbst schon.
+      cent: angenommen.reduce((summe, l) => summe + (l.wert?.art === "bestaetigt" ? (plausiblerCent(l.wert) ?? 0) : 0), 0),
       monat,
     },
     umzuegeNaechste7Tage: leads.filter(

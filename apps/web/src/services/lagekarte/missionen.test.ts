@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { beispielAntwort } from "@/lib/lagekarte/beispiel-daten";
-import type { LeadPunkt } from "@/lib/lagekarte/typen";
+import { WERT_PLAUSIBEL_MAX_CENT, type LeadPunkt } from "@/lib/lagekarte/typen";
 import { erzeugeMissionen } from "./missionen";
 
 const jetzt = new Date("2026-10-08T07:30:00+02:00");
@@ -139,6 +139,39 @@ describe("erzeugeMissionen", () => {
     });
     it("ohne Flag keine Mission", () => {
       expect(zahlung({ zahlungOffen: false })).toBeUndefined();
+    });
+  });
+
+  describe("wert_pruefen (Ruling 7)", () => {
+    const pruefen = (p: Partial<LeadPunkt>) =>
+      erzeugeMissionen([lead(p)], jetzt).find((x) => x.art === "wert_pruefen");
+
+    it("Wert über 50.000 € erzeugt „Wert prüfen“ mit Dringlichkeit 2", () => {
+      const l = lead({ status: "auftrag", wert: { cent: 1_000_000_000, art: "bestaetigt" } });
+      expect(erzeugeMissionen([l], jetzt).find((x) => x.art === "wert_pruefen")).toEqual({
+        id: `wert_pruefen:${l.id}`,
+        art: "wert_pruefen",
+        titel: "Wert prüfen: 10.000.000\u00a0€",
+        leadId: l.id,
+        dringlichkeit: 2,
+      });
+    });
+    it("gilt auch für Schätzungen", () => {
+      expect(pruefen({ status: "kontakt", wert: { cent: 6_000_000, art: "schaetzung" } })?.titel).toBe("Wert prüfen: 60.000\u00a0€");
+    });
+    it("genau 50.000 € und unbekannte Werte erzeugen nichts", () => {
+      expect(pruefen({ wert: { cent: WERT_PLAUSIBEL_MAX_CENT, art: "angebot" } })).toBeUndefined();
+      expect(pruefen({ wert: null })).toBeUndefined();
+    });
+    it("verlorene Leads erzeugen keine Wert-Mission", () => {
+      expect(pruefen({ status: "verloren", wert: { cent: 1_000_000_000, art: "bestaetigt" } })).toBeUndefined();
+    });
+    it("offene Zahlung mit unplausiblem Wert nennt keinen Restbetrag", () => {
+      const m = erzeugeMissionen(
+        [lead({ status: "erledigt", zahlungOffen: true, wert: { cent: 1_000_000_000, art: "bestaetigt" }, bezahltCent: 0 })],
+        jetzt,
+      );
+      expect(m.find((x) => x.art === "zahlung_offen")?.titel).toBe("Durchgeführt, Zahlung offen");
     });
   });
 

@@ -3,7 +3,7 @@
  * Bewusst ohne maplibre-Import, damit vitest es direkt testen kann.
  */
 import type { Thema } from "@/lib/lagekarte/farben";
-import type { Firma, KartenOrt, KartenStatus, LeadPunkt } from "@/lib/lagekarte/typen";
+import { plausiblerCent, type Firma, type KartenOrt, type KartenStatus, type LeadPunkt } from "@/lib/lagekarte/typen";
 
 /** Kreisplättchen in 3D: Grundhöhe plus eine Stufe je Lead, gedeckelt. */
 export const KREIS_BASIS_M = 600;
@@ -28,7 +28,7 @@ export interface LeadEigenschaften {
 }
 
 export interface AuftragEigenschaften extends LeadEigenschaften {
-  /** Bestätigter bzw. bester bekannter Wert in Cent, unbekannt = null. */
+  /** Bestätigter bzw. bester bekannter Wert in Cent; unbekannt oder unplausibel hoch = null. */
   wertCent: number | null;
 }
 
@@ -90,7 +90,8 @@ export function auftraegeZuGeoJson(
   const features: GeoJSON.Feature<GeoJSON.Point, AuftragEigenschaften>[] = [];
   for (const l of leads) {
     if (!l.ort || l.status !== "auftrag") continue;
-    features.push(punkt(l.ort, { ...eigenschaften(l, thema, kurz), wertCent: l.wert?.cent ?? null }));
+    // Unplausibel hohe Werte (Tippfehler) gelten für die Größe als unbekannt.
+    features.push(punkt(l.ort, { ...eigenschaften(l, thema, kurz), wertCent: plausiblerCent(l.wert) }));
   }
   return { type: "FeatureCollection", features };
 }
@@ -146,7 +147,7 @@ export function auftragsSaeulen(
       type: "Feature",
       properties: {
         id: l.id,
-        hoeheM: saeulenHoeheM(l.wert?.cent ?? null),
+        hoeheM: saeulenHoeheM(plausiblerCent(l.wert)),
         basisM: ags && ags.startsWith("08") ? kreisHoeheM(aktivitaet[ags] ?? 0) : 0,
       },
       geometry: { type: "Polygon", coordinates: [sechseck(l.ort, radiusM)] },

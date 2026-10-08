@@ -4,7 +4,7 @@
  */
 import { berlinDateString } from "@/lib/berlin-date";
 import { euroAusCent } from "@/lib/lagekarte/farben";
-import type { LeadPunkt, Mission } from "@/lib/lagekarte/typen";
+import { plausiblerCent, type LeadPunkt, type Mission } from "@/lib/lagekarte/typen";
 
 const TAG_MS = 24 * 60 * 60 * 1000;
 const MAX_MISSIONEN = 12;
@@ -63,8 +63,13 @@ export function erzeugeMissionen(leads: LeadPunkt[], jetzt: Date): Mission[] {
       }
     }
 
+    if (l.wert && plausiblerCent(l.wert) === null) {
+      neu("wert_pruefen", `Wert prüfen: ${euroAusCent(l.wert.cent)}`, 2, l.kv.angenommenAm ?? l.angelegtAm);
+    }
+
     if (l.zahlungOffen) {
-      const rest = l.wert ? l.wert.cent - l.bezahltCent : 0;
+      const wertCent = plausiblerCent(l.wert);
+      const rest = wertCent !== null ? wertCent - l.bezahltCent : 0;
       const titel = rest > 0 ? `Durchgeführt, Zahlung offen · ${euroAusCent(rest)} offen` : "Durchgeführt, Zahlung offen";
       neu("zahlung_offen", titel, 2, l.umzugAm ? `${l.umzugAm.slice(0, 10)}T00:00:00Z` : l.angelegtAm);
     }

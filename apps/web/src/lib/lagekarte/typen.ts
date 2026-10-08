@@ -70,6 +70,19 @@ export interface LeadWert {
   art: WertArt;
 }
 
+/**
+ * Plausibilitätsgrenze je Lead: 50.000 € (größter echter Auftrag rund 5.000 €).
+ * Darüber ist es fast sicher ein Tippfehler: nicht in Summen, nicht in
+ * Markergröße oder Säulenhöhe, sichtbarer Hinweis im Panel, Mission „Wert prüfen“.
+ */
+export const WERT_PLAUSIBEL_MAX_CENT = 5_000_000;
+
+/** Wert für Rechnungen und Größen: unplausibel hohe Werte gelten als unbekannt (null). */
+export function plausiblerCent(wert: LeadWert | null): number | null {
+  if (wert === null || wert.cent > WERT_PLAUSIBEL_MAX_CENT) return null;
+  return wert.cent;
+}
+
 /** Welches KV-PDF "KV ansehen" öffnet. */
 export type KvDokumentStand = "angenommen" | "aktuell" | "veraltet" | "keins";
 
@@ -179,7 +192,8 @@ export type MissionArt =
   | "auftrag_stufe"
   | "zahlung_offen"
   | "adresse_fehlt"
-  | "stufe_pflegen";
+  | "stufe_pflegen"
+  | "wert_pruefen";
 
 export interface Mission {
   /** Stabil: `${art}:${leadId}` */
