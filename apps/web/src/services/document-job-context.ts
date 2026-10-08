@@ -13,15 +13,16 @@ import { kvaConfirmations } from "@/db/schema/customer-portal";
 import { dealDocuments } from "@/db/schema/financial";
 import { getQuotation } from "@/services/quotations";
 import { quotations, type QuotationDocumentDetails } from "@/db/schema/quotations";
-import { serviceTypeZuSpeichern } from "@/lib/portal-dokumente";
+import { serviceTypeZuSpeichern, vpsLeistungsart } from "@/lib/portal-dokumente";
+import type { ServiceArt } from "@openclaw-crm/customer-portal-core";
 import { aktivBedingung } from "./kva-annahme";
 import { preisQuelleAusAnnahme, type PreisQuelle } from "@/lib/ab-preise";
 
-type ServiceType = "move" | "kitchen_installation";
+type ServiceType = ServiceArt;
 type InventoryOwner = "company" | "customer" | "none";
 
 function asServiceType(value: unknown): ServiceType {
-  return value === "kitchen_installation" ? "kitchen_installation" : "move";
+  return value === "kitchen_installation" || value === "clearance" ? value : "move";
 }
 
 function asInventoryOwner(value: unknown): InventoryOwner {
@@ -251,17 +252,19 @@ export async function attachDocumentJobContext(
     parkingDestination: { owner: "none" as const },
     materials: { owner: "none" as const },
   };
+  // Am Angebot zählt die gewählte Art (Widerruf im Portal), der VPS rendert Entrümpelung als Umzug.
+  const vpsArt = vpsLeistungsart(serviceType);
   const details: QuotationDocumentDetails = {
     ...storedDetails,
     ...snapshotDetails,
     ...clientDetails,
-    serviceType,
+    serviceType: vpsArt,
     reference,
     inventory: clientDetails.inventory || storedDetails.inventory || inventoryRows,
     services:
       clientDetails.services ||
       storedDetails.services ||
-      (serviceType === "move" ? defaultMoveServices : undefined),
+      (vpsArt === "move" ? defaultMoveServices : undefined),
     kitchen: clientDetails.kitchen || storedDetails.kitchen,
     cardAgreed:
       clientDetails.cardAgreed ??
@@ -299,7 +302,7 @@ export async function attachDocumentJobContext(
   }
 
   next.document_details = details;
-  next.service_type = serviceType;
+  next.service_type = vpsArt;
   next._document_context = { paidCents, totalCents };
   return next;
 }

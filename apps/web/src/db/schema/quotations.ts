@@ -73,10 +73,11 @@ export const quotations = pgTable(
      */
     calculationAssumptions: jsonb("calculation_assumptions").$type<CalculationAssumptions>(),
     /**
-     * move | kitchen_installation. Independent of brand and of KV/AB.
+     * move | kitchen_installation | clearance (Entrümpelung). Independent of
+     * brand and of KV/AB. clearance rendert auf dem VPS im Umzugs-Layout.
      */
     serviceType: text("service_type")
-      .$type<"move" | "kitchen_installation">()
+      .$type<"move" | "kitchen_installation" | "clearance">()
       .notNull()
       .default("move"),
     /**
@@ -91,7 +92,7 @@ export const quotations = pgTable(
 );
 
 export interface QuotationDocumentDetails {
-  serviceType?: "move" | "kitchen_installation";
+  serviceType?: "move" | "kitchen_installation" | "clearance";
   services?: Record<string, { owner: "company" | "customer" | "none"; note?: string }>;
   inventory?: Array<{
     room?: string;

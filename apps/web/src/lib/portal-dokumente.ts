@@ -46,3 +46,8 @@ export function serviceTypeZuSpeichern(input: {
   if (input.documentType !== "KV" || input.angenommen) return null;
   return input.gespeichert === input.gewaehlt ? null : input.gewaehlt;
 }
+
+/** Der VPS kennt nur Umzug und Küche; Entrümpelung rendert im Umzugs-Layout. */
+export function vpsLeistungsart(art: ServiceArt): "move" | "kitchen_installation" {
+  return art === "kitchen_installation" ? "kitchen_installation" : "move";
+}

@@ -11,7 +11,7 @@ import { dealInventoryItems } from "@/db/schema/inventory";
 import { inboxConversations } from "@/db/schema/inbox";
 import { getQuotation } from "@/services/quotations";
 import { offeneFotoStapel } from "@/services/inventar-fotos";
-import type { KvHinweisDaten } from "@/lib/kv-vorpruefung";
+import { leistungsartVorschlag, type KvHinweisDaten } from "@/lib/kv-vorpruefung";
 
 export const dynamic = "force-dynamic";
 
@@ -357,7 +357,26 @@ async function loadKvHinweise(workspaceId: string, dealRecordId: string): Promis
     .where(and(eq(inboxConversations.workspaceId, workspaceId), eq(inboxConversations.dealRecordId, dealRecordId)))
     .orderBy(desc(inboxConversations.lastMessageAt))
     .limit(1);
+  // Anfrageart aus dem Portal-Import (z. B. ImmoScout „entruempelung“).
+  const [payloadWert] = await db
+    .select({ json: recordValues.jsonValue })
+    .from(recordValues)
+    .innerJoin(attributes, eq(recordValues.attributeId, attributes.id))
+    .innerJoin(objects, eq(attributes.objectId, objects.id))
+    .where(
+      and(
+        eq(recordValues.recordId, dealRecordId),
+        eq(attributes.slug, "moving_lead_payload"),
+        eq(objects.workspaceId, workspaceId)
+      )
+    )
+    .limit(1);
+  const leadType = (payloadWert?.json as { leadType?: unknown } | null)?.leadType;
   return {
+    leistungsart: leistungsartVorschlag({
+      gespeichert: q?.serviceType ?? null,
+      leadType: typeof leadType === "string" ? leadType : null,
+    }),
     umzugsgutAnzahl: Number(inv?.n ?? 0),
     fotoStapelOffen: await offeneFotoStapel(dealRecordId).catch(() => 0),
     hatAngebot: !!q,

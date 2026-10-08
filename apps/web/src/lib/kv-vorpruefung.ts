@@ -8,6 +8,7 @@
  */
 import { resolveCustomerNameForDocs, type LeadContext } from "./deal-doc-data";
 import { locationValueToText } from "./adresse";
+import type { ServiceArt } from "@openclaw-crm/customer-portal-core";
 
 export type DokumentArt = "KV" | "AB" | "RE";
 export type PflichtFeld = "kundenname" | "auszug" | "einzug" | "datum";
@@ -22,6 +23,18 @@ export interface KvHinweisDaten {
   festpreisCents: number | null;
   /** Neueste Unterhaltung des Deals, für den Sprung in den Posteingang. */
   conversationId: string | null;
+  /** Vorbelegung der Leistung im KV-Dialog (fehlt bei älteren Antworten). */
+  leistungsart?: ServiceArt;
+}
+
+/**
+ * Leistung im KV-Dialog vorbelegen: gespeicherte Küche oder Entrümpelung
+ * zuerst, sonst eine Entrümpelungs-Anfrage als Entrümpelung, sonst Umzug.
+ * „move“ ist der Spalten-Default und zählt deshalb nicht als Wahl.
+ */
+export function leistungsartVorschlag(input: { gespeichert: string | null; leadType: string | null }): ServiceArt {
+  if (input.gespeichert === "kitchen_installation" || input.gespeichert === "clearance") return input.gespeichert;
+  return input.leadType?.toLowerCase() === "entruempelung" ? "clearance" : "move";
 }
 
 export interface Vorpruefung {

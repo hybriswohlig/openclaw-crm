@@ -207,7 +207,13 @@ export function ZeitschaetzungSection({
       return;
     }
     setVorpruefung(null);
-    setDocDialog({ type, deal, hinweise: pruefung.hinweise, ziele: zieleFuer(daten), daten });
+    setDocDialog({
+      type,
+      deal: daten?.leistungsart ? { ...deal, serviceType: daten.leistungsart } : deal,
+      hinweise: pruefung.hinweise,
+      ziele: zieleFuer(daten),
+      daten,
+    });
   }
 
   /** Klick auf „In KV/AB/RE übernehmen“: erst prüfen, dann Fenster oder Dialog. */

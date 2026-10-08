@@ -46,6 +46,7 @@ import {
 } from "@/lib/deal-doc-data";
 import { KvVorpruefungDialog } from "@/components/kv-vorpruefung-dialog";
 import { kvVorpruefung, type HinweisArt, type KvHinweisDaten } from "@/lib/kv-vorpruefung";
+import type { ServiceArt } from "@openclaw-crm/customer-portal-core";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -467,13 +468,14 @@ export function InboxContextPanel({
       setMissingDialog({ type, leadContext, daten });
       return;
     }
-    openDocDialog(type, leadContext, pruefung.hinweise);
+    openDocDialog(type, leadContext, pruefung.hinweise, daten?.leistungsart);
   }
 
   function openDocDialog(
     type: DocumentType,
     leadContext: LeadContext | null,
-    hinweise: Array<{ art: HinweisArt; text: string }> = []
+    hinweise: Array<{ art: HinweisArt; text: string }> = [],
+    leistungsart?: ServiceArt
   ) {
     if (!dealRecordId) return;
     const deal =
@@ -482,7 +484,12 @@ export function InboxContextPanel({
     if (!deal) return;
     setMissingDialog(null);
     setSuggestions(null);
-    setDocDialog({ type, deal, prefill: prefillFromQuotation(quotation, firma), hinweise });
+    setDocDialog({
+      type,
+      deal: leistungsart ? { ...deal, serviceType: leistungsart } : deal,
+      prefill: prefillFromQuotation(quotation, firma),
+      hinweise,
+    });
   }
 
   /** Sprung aus dem Fenster oder Dialog zum passenden Abschnitt im Panel. */

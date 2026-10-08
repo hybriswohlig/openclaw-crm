@@ -42,3 +42,16 @@ describe("serviceTypeZuSpeichern", () => {
     expect(serviceTypeZuSpeichern({ documentType: "AB", gewaehlt: "kitchen_installation", gespeichert: "move", angenommen: false })).toBeNull();
   });
 });
+
+describe("Entrümpelung: Leistungsart im CRM, Umzugs-Layout auf dem VPS", () => {
+  it("der VPS bekommt für Entrümpelung das Umzugs-Layout", async () => {
+    const { vpsLeistungsart } = await import("./portal-dokumente");
+    expect(vpsLeistungsart("clearance")).toBe("move");
+    expect(vpsLeistungsart("move")).toBe("move");
+    expect(vpsLeistungsart("kitchen_installation")).toBe("kitchen_installation");
+  });
+  it("beim KV wird Entrümpelung am Angebot gespeichert", async () => {
+    const { serviceTypeZuSpeichern } = await import("./portal-dokumente");
+    expect(serviceTypeZuSpeichern({ documentType: "KV", gewaehlt: "clearance", gespeichert: "move", angenommen: false })).toBe("clearance");
+  });
+});

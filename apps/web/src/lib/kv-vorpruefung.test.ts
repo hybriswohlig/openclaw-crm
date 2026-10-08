@@ -110,3 +110,21 @@ describe("alsOrtWert", () => {
     expect(alsOrtWert({ city: "Calw" })).toBeNull();
   });
 });
+
+describe("leistungsartVorschlag", () => {
+  it("gespeicherte Küche oder Entrümpelung gewinnt", async () => {
+    const { leistungsartVorschlag } = await import("./kv-vorpruefung");
+    expect(leistungsartVorschlag({ gespeichert: "kitchen_installation", leadType: "entruempelung" })).toBe("kitchen_installation");
+    expect(leistungsartVorschlag({ gespeichert: "clearance", leadType: "umzug" })).toBe("clearance");
+  });
+  it("Entrümpelungs-Anfrage ohne gespeicherte Sonderart: Entrümpelung", async () => {
+    const { leistungsartVorschlag } = await import("./kv-vorpruefung");
+    expect(leistungsartVorschlag({ gespeichert: "move", leadType: "entruempelung" })).toBe("clearance");
+    expect(leistungsartVorschlag({ gespeichert: null, leadType: "Entruempelung" })).toBe("clearance");
+  });
+  it("sonst Umzug", async () => {
+    const { leistungsartVorschlag } = await import("./kv-vorpruefung");
+    expect(leistungsartVorschlag({ gespeichert: null, leadType: null })).toBe("move");
+    expect(leistungsartVorschlag({ gespeichert: "move", leadType: "fmz" })).toBe("move");
+  });
+});

@@ -18,10 +18,11 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { useBackgroundJobs } from "@/components/background-jobs";
+import type { ServiceArt } from "@openclaw-crm/customer-portal-core";
 
 export type Firma = "kottke" | "ceylan";
 export type DocumentType = "KV" | "AB" | "RE";
-export type ServiceType = "move" | "kitchen_installation";
+export type ServiceType = ServiceArt;
 export type Preismodell = "stundensatz" | "pauschale";
 /**
  * How the customer pays the Anzahlung. "bar" is collected on-site by the
@@ -392,6 +393,14 @@ export function GenerateDocumentDialog({
                     onChange={() => setServiceType("kitchen_installation")}
                   />
                   Kücheneinbau
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    checked={serviceType === "clearance"}
+                    onChange={() => setServiceType("clearance")}
+                  />
+                  Entrümpelung
                 </label>
               </div>
               {serviceType === "kitchen_installation" && (
