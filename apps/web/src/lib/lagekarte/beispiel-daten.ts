@@ -124,7 +124,7 @@ export function beispielAntwort(jetzt: Date = new Date("2026-10-08T07:30:00+02:0
         : status === "auftrag" || status === "erledigt"
         ? 89000 + i * 13700
         : status === "angebot"
-          ? 64000 + i * 9100
+          ? 64050 + i * 9100 // krumme Angebotssummen (… ,50 €), damit die Vorschau Cent zeigt
           : i % 3 === 0
             ? 120000
             : null;
