@@ -52,16 +52,21 @@ export function findePlzImText(text: string | null | undefined): string | null {
 // ---------------------------------------------------------------------------
 
 function normalisiere(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/ä/g, "ae")
-    .replace(/ö/g, "oe")
-    .replace(/ü/g, "ue")
-    .replace(/ß/g, "ss")
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
+  return (
+    text
+      // Zuerst zusammensetzen: ein zerlegtes „ö“ (o + U+0308) wird sonst zu „o“ statt „oe“ (M-13).
+      .normalize("NFC")
+      .toLowerCase()
+      .replace(/ä/g, "ae")
+      .replace(/ö/g, "oe")
+      .replace(/ü/g, "ue")
+      .replace(/ß/g, "ss")
+      // Übrige Akzente (é, è, …) abtrennen und entfernen: U+0300 bis U+036F.
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim()
+  );
 }
 
 interface IndexEintrag {

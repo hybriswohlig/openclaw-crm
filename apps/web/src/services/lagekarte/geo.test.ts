@@ -44,6 +44,12 @@ describe("findeOrtsname", () => {
     expect(findeOrtsname("Boeblingen")?.ags).toBe("08115");
     expect(findeOrtsname("Böblingen")?.ags).toBe("08115");
   });
+  it("findet auch zerlegte Umlaute (NFD, z. B. aus macOS-Eingaben) (M-13)", () => {
+    const zerlegt = "Bo\u0308blingen";
+    expect(zerlegt).not.toBe("Böblingen");
+    expect(findeOrtsname(zerlegt)?.ags).toBe("08115");
+    expect(findeOrtsname("Tu\u0308bingen")?.name).toBe("Tübingen");
+  });
   it("liefert den Ortsnamen in Originalschreibweise", () => {
     expect(findeOrtsname("boeblingen")?.name).toBe("Böblingen");
   });
