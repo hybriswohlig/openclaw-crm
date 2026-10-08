@@ -44,6 +44,14 @@ import { useVorschau, VORSCHAU_TITEL } from "../vorschau";
 import { telefonFuerLink } from "@/lib/lagekarte/telefon";
 import { warteText } from "@/lib/lagekarte/warte-text";
 import { chatLuecke, startScrollFuerTab } from "./tab-scroll";
+import {
+  erstelleStufenProtokoll,
+  leseStufe,
+  pruefeRueckgaengig,
+  stufeNachlesen,
+  stufenName,
+  type Schreibung,
+} from "./stufen-wechsel";
 import Verlauf from "./verlauf";
 
 export type PanelTab = "chat" | "angebot" | "verlauf";
@@ -56,8 +64,8 @@ export interface LeadPanelProps {
   jetzt: Date;
   startTab: PanelTab;
   onSchliessen: () => void;
-  /** Nach einer Stufenänderung: Daten neu laden. */
-  onGeaendert: () => void;
+  /** Nach einer Stufenänderung: Daten neu laden. Das Panel wartet darauf (höchstens NEU_LADEN_MAX_MS). */
+  onGeaendert: () => Promise<void> | void;
   mobil?: boolean;
 }
 
@@ -85,6 +93,35 @@ const SCROLL_TASTEN = new Set(["PageUp", "PageDown", "ArrowUp", "ArrowDown", "Ho
  */
 const STUFE_EINTRAG =
   "min-h-9 cursor-pointer rounded-md pr-3 text-[13px] text-[var(--lk-text)] focus:bg-[var(--lk-hover)] focus:text-[var(--lk-text)] data-[state=checked]:font-semibold max-lg:min-h-11";
+
+/** So lange wartet eine Stufenänderung höchstens auf die neu geladene Karte, dann ist das Menü wieder frei. */
+const NEU_LADEN_MAX_MS = 4000;
+const RUECKGAENGIG_MS = 8000;
+
+/** Für alle Panels dieses Tabs: Das Panel kann schließen, während ein Toast noch „Rückgängig“ anbietet. */
+const stufenProtokoll = erstelleStufenProtokoll();
+/** Nur der Toast der letzten Änderung bietet „Rückgängig“ an. */
+let rueckgaengigToast: string | null = null;
+
+function rueckgaengigToastSchliessen() {
+  if (rueckgaengigToast !== null) toast.dismiss(rueckgaengigToast);
+  rueckgaengigToast = null;
+}
+
+/** Toast-Text für Ausnahmen; fetch meldet fehlende Verbindung als TypeError. */
+function ausnahmeText(err: unknown, wobei: string): string {
+  return err instanceof Error && !(err instanceof TypeError) ? err.message : `${wobei} (keine Verbindung)`;
+}
+
+/** Eine erfolgreiche Änderung aus dem Panel, die der Toast rückgängig machen kann. */
+interface Aenderung {
+  schreibung: Schreibung;
+  leadId: string;
+  leadName: string;
+  /** Gespeicherte Stufe direkt vor der Änderung (null = keine). */
+  von: string | null;
+  nach: string;
+}
 
 /** wartet.chatId → neuester WhatsApp → neuester Thread (chats sind neueste zuerst sortiert). */
 export function standardChatId(lead: LeadPunkt): string | null {
@@ -162,7 +199,7 @@ function Fakt({
  * Schreibt die Stufe über dieselbe Route und Form wie die Deal-Seite. Liefert null bei Erfolg,
  * sonst die Fehlermeldung für den Toast. Netzwerkfehler werfen (Aufrufer fängt sie).
  */
-async function speichereStufe(leadId: string, statusId: string): Promise<string | null> {
+async function speichereStufe(leadId: string, statusId: string | null): Promise<string | null> {
   const res = await fetch(`/api/v1/objects/deals/records/${encodeURIComponent(leadId)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -201,7 +238,9 @@ export default function LeadPanel({
   const [besucht, setBesucht] = useState<Set<PanelTab>>(() => new Set([startTab]));
   const [chatId, setChatId] = useState<string | null>(() => standardChatId(lead));
   const [kvOffen, setKvOffen] = useState(false);
-  const [stufeSpeichert, setStufeSpeichert] = useState(false);
+  // Leads mit laufender Stufenänderung aus diesem Panel; das Menü sperrt nur für den gezeigten Lead.
+  const [speichert, setSpeichert] = useState<ReadonlySet<string>>(() => new Set());
+  const stufeSpeichert = speichert.has(lead.id);
   const [stufeAuswahl, setStufeAuswahl] = useState<string>(lead.stufe?.id ?? "");
   // Aktuelle Lead-ID für laufende Stufenänderungen (Lead kann währenddessen wechseln).
   const leadIdRef = useRef(lead.id);
@@ -370,79 +409,162 @@ export default function LeadPanel({
     document.getElementById(`${basisId}-tab-${TABS[ziel].id}`)?.focus();
   }
 
+  function sperre(leadId: string, an: boolean) {
+    setSpeichert((alt) => {
+      if (alt.has(leadId) === an) return alt;
+      const neu = new Set(alt);
+      if (an) neu.add(leadId);
+      else neu.delete(leadId);
+      return neu;
+    });
+  }
+
+  /** Wartet auf die neu geladene Karte, höchstens NEU_LADEN_MAX_MS (Ladefehler zeigt das HUD). */
+  async function neuLadenAbwarten() {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        Promise.resolve(onGeaendert()),
+        new Promise<void>((fertig) => {
+          timer = setTimeout(fertig, NEU_LADEN_MAX_MS);
+        }),
+      ]);
+    } catch {
+      /* Ladefehler meldet das HUD */
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   /**
    * Wird nur bei ausdrücklicher Auswahl eines Menüeintrags aufgerufen (Klick,
    * Enter, Leertaste). Pfeiltasten bewegen im Radix-Menü nur den Fokus und
    * lösen keinen Schreibzugriff aus.
+   *
+   * Ablauf (stufen-wechsel.ts): gespeicherte Stufe lesen (das „vorher“ für Rückgängig),
+   * schreiben, Karte neu laden; erst dann ist das Menü wieder frei und der Toast bietet
+   * „Rückgängig“ an. Eine neue Änderung schließt den Toast der vorigen.
    */
   async function stufeAendern(statusId: string) {
-    if (vorschau || !statusId || statusId === lead.stufe?.id || stufeSpeichert) return;
-    const leadIdBeimStart = lead.id;
-    const vorherigeStufe = lead.stufe?.id ?? "";
-    const vorherigerTitel = lead.stufe?.titel ?? null;
-    // Nur zurücksetzen, wenn inzwischen kein anderer Lead ausgewählt wurde.
-    const zuruecksetzen = () => {
-      if (leadIdRef.current === leadIdBeimStart) setStufeAuswahl(vorherigeStufe);
+    if (vorschau || !statusId || statusId === stufeAuswahl || stufeSpeichert) return;
+    const leadId = lead.id;
+    const leadName = lead.name;
+    if (stufenProtokoll.laeuft(leadId)) {
+      toast.info("Stufe wird gerade noch gespeichert", { description: leadName });
+      return;
+    }
+    rueckgaengigToastSchliessen();
+    const schreibung = stufenProtokoll.beginne(leadId);
+    // Nur anzeigen, solange dieser Lead offen ist und keine neuere Änderung läuft.
+    const anzeigen = (id: string | null) => {
+      if (leadIdRef.current === leadId && stufenProtokoll.istJuengste(schreibung)) setStufeAuswahl(id ?? "");
     };
+    const angezeigtVorher = stufeAuswahl;
     setStufeAuswahl(statusId);
-    setStufeSpeichert(true);
+    sperre(leadId, true);
+    let von: string | null | undefined;
     try {
-      const fehler = await speichereStufe(leadIdBeimStart, statusId);
-      if (fehler) {
-        toast.error(fehler);
-        zuruecksetzen();
+      von = await leseStufe(leadId);
+      if (von === statusId) {
+        toast.info(`Stufe ist bereits „${stufenName(statusId, stufen)}“`, { description: leadName });
+        await neuLadenAbwarten();
+        anzeigen(statusId);
         return;
       }
+      const fehler = await speichereStufe(leadId, statusId);
+      if (fehler) {
+        toast.error(fehler, { description: leadName });
+        anzeigen(von);
+        // Die gelesene Stufe kann neuer sein als die Kartendaten (Änderung von jemand anderem).
+        if (von !== (lead.stufe?.id ?? null)) await neuLadenAbwarten();
+        return;
+      }
+      await neuLadenAbwarten();
+      anzeigen(statusId);
+      if (!stufenProtokoll.istJuengste(schreibung)) return;
       // M-8: Ein Klick schreibt sofort (auch „Verloren“, „Bezahlt“); der Toast bietet den Rückweg an.
-      // Ohne vorherige Stufe gibt es nichts zurückzusetzen.
-      toast.success(
-        "Stufe geändert",
-        vorherigeStufe
-          ? {
-              duration: 8000,
-              action: {
-                label: "Rückgängig",
-                onClick: () => void stufeZurueck(leadIdBeimStart, vorherigeStufe, vorherigerTitel, statusId),
-              },
-            }
-          : undefined,
-      );
-      onGeaendert();
-    } catch {
-      toast.error("Stufe konnte nicht geändert werden (keine Verbindung)");
-      zuruecksetzen();
+      const aenderung: Aenderung = { schreibung, leadId, leadName, von, nach: statusId };
+      const toastId = `lagekarte-stufe-${schreibung.nr}`;
+      rueckgaengigToast = toastId;
+      toast.success("Stufe geändert", {
+        id: toastId,
+        description: `${leadName}: „${stufenName(von, stufen)}“ → „${stufenName(statusId, stufen)}“`,
+        duration: RUECKGAENGIG_MS,
+        action: { label: "Rückgängig", onClick: () => void stufeZurueck(aenderung) },
+      });
+    } catch (err) {
+      toast.error(ausnahmeText(err, "Stufe konnte nicht geändert werden"), { description: leadName });
+      if (von === undefined) {
+        // Schon das Lesen scheiterte: nichts geschrieben.
+        anzeigen(angezeigtVorher);
+      } else {
+        // Schreiben ohne Antwort: ob es ankam, ist unklar, also nachlesen.
+        const jetzt = await stufeNachlesen(leadId);
+        anzeigen(jetzt === undefined ? von : jetzt);
+        await neuLadenAbwarten();
+      }
     } finally {
-      setStufeSpeichert(false);
+      stufenProtokoll.beende(schreibung);
+      sperre(leadId, false);
     }
   }
 
-  /** Rückgängig aus dem Erfolgs-Toast: setzt die vorherige Stufe wieder (gleiche Route wie oben). */
-  async function stufeZurueck(leadId: string, stufeId: string, titel: string | null, vonStufeId: string) {
-    const sichtbar = () => leadIdRef.current === leadId;
-    // Schlägt das Zurücksetzen fehl, zeigt das Feld wieder die Stufe, die gespeichert bleibt.
-    const auswahlBehalten = () => {
-      if (sichtbar()) setStufeAuswahl(vonStufeId);
-    };
-    if (sichtbar()) {
-      setStufeAuswahl(stufeId);
-      setStufeSpeichert(true);
+  /**
+   * Rückgängig aus dem Erfolgs-Toast. Schreibt nur, wenn dies noch die jüngste Änderung des
+   * Leads ist und die gespeicherte Stufe noch die damals geschriebene; sonst bleibt alles stehen.
+   */
+  async function stufeZurueck(a: Aenderung) {
+    if (rueckgaengigToast === `lagekarte-stufe-${a.schreibung.nr}`) rueckgaengigToast = null;
+    if (!stufenProtokoll.istJuengste(a.schreibung)) {
+      toast.error("Rückgängig nicht mehr möglich: Die Stufe wurde danach erneut geändert.", { description: a.leadName });
+      return;
     }
+    // Ab hier ist die ursprüngliche Änderung veraltet: ein zweiter Klick schreibt nichts.
+    const rueck = stufenProtokoll.beginne(a.leadId);
+    const anzeigen = (id: string | null) => {
+      if (leadIdRef.current === a.leadId && stufenProtokoll.istJuengste(rueck)) setStufeAuswahl(id ?? "");
+    };
+    // Gescheitert: gespeicherte Stufe neu lesen und zeigen, sonst sagen, dass die Anzeige veraltet sein kann.
+    const scheitern = async (fehler: string) => {
+      const gespeichert = await stufeNachlesen(a.leadId);
+      if (gespeichert !== undefined) anzeigen(gespeichert);
+      toast.error(`Rückgängig fehlgeschlagen: ${fehler}`, {
+        description:
+          gespeichert === undefined
+            ? `${a.leadName} · Angezeigte Stufe kann veraltet sein`
+            : `${a.leadName} · Gespeichert ist „${stufenName(gespeichert, stufen)}“`,
+      });
+      await neuLadenAbwarten();
+    };
+    sperre(a.leadId, true);
     try {
-      const fehler = await speichereStufe(leadId, stufeId);
-      if (fehler) {
-        toast.error(`Rückgängig fehlgeschlagen: ${fehler}`);
-        auswahlBehalten();
-        onGeaendert();
+      const gespeichert = await leseStufe(a.leadId);
+      const pruefung = pruefeRueckgaengig(stufenProtokoll.istJuengste(rueck), gespeichert, a.nach);
+      if (!pruefung.ok) {
+        toast.error(
+          pruefung.grund === "fremd"
+            ? `Rückgängig abgebrochen: Die Stufe ist inzwischen „${stufenName(pruefung.gespeichert, stufen)}“.`
+            : "Rückgängig nicht mehr möglich: Die Stufe wurde danach erneut geändert.",
+          { description: a.leadName },
+        );
+        anzeigen(gespeichert);
+        await neuLadenAbwarten();
         return;
       }
-      toast.success(titel ? `Stufe zurück auf „${titel}“` : "Stufe zurückgesetzt");
-      onGeaendert();
-    } catch {
-      toast.error("Rückgängig fehlgeschlagen (keine Verbindung)");
-      auswahlBehalten();
-      onGeaendert();
+      anzeigen(a.von);
+      const fehler = await speichereStufe(a.leadId, a.von);
+      if (fehler) {
+        await scheitern(fehler);
+        return;
+      }
+      await neuLadenAbwarten();
+      anzeigen(a.von);
+      toast.success(`Stufe zurück auf „${stufenName(a.von, stufen)}“`, { description: a.leadName });
+    } catch (err) {
+      await scheitern(ausnahmeText(err, "Stufe konnte nicht gespeichert werden"));
     } finally {
-      if (sichtbar()) setStufeSpeichert(false);
+      stufenProtokoll.beende(rueck);
+      sperre(a.leadId, false);
     }
   }
 

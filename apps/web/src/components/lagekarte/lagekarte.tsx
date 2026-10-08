@@ -547,7 +547,7 @@ function LagekarteInhalt({ onListe }: LagekarteProps) {
             jetzt={jetzt}
             startTab={startTab}
             onSchliessen={schliesseAuswahl}
-            onGeaendert={() => void neuLaden()}
+            onGeaendert={neuLaden}
             mobil={mobil}
           />
         )}
