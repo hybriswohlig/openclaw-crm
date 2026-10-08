@@ -4,7 +4,9 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, Loader2, X } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { SEITENGROESSE, alleSeitenLaden, type Seite } from "./kalender-daten";
 
 interface DealRecord {
   id: string;
@@ -76,6 +78,20 @@ function dealStageKey(deal: DealRecord): string {
   return String(stage);
 }
 
+async function ladeDealSeite(offset: number): Promise<Seite<DealRecord> | null> {
+  try {
+    const res = await fetch(`/api/v1/objects/deals/records?limit=${SEITENGROESSE}&offset=${offset}`);
+    if (!res.ok) return null;
+    const json = await res.json();
+    return {
+      records: normalizeRecordsPayload(json.data),
+      total: Number(json.data?.pagination?.total ?? 0),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export default function ContractCalendarPage() {
   const [deals, setDeals] = useState<DealRecord[]>([]);
   const [stages, setStages] = useState<StageInfo[]>([]);
@@ -91,13 +107,14 @@ export default function ContractCalendarPage() {
     async function load() {
       setLoading(true);
       try {
-        const [recRes, objRes] = await Promise.all([
-          fetch("/api/v1/objects/deals/records?limit=500"),
+        // Die Records-API liefert höchstens 200 pro Abruf: alle Seiten laden.
+        const [geladen, objRes] = await Promise.all([
+          alleSeitenLaden(ladeDealSeite),
           fetch("/api/v1/objects/deals"),
         ]);
-        if (recRes.ok) {
-          const json = await recRes.json();
-          setDeals(normalizeRecordsPayload(json.data));
+        setDeals(geladen.records);
+        if (!geladen.vollstaendig) {
+          toast.error("Nicht alle Aufträge konnten geladen werden. Bitte die Seite neu laden.");
         }
         if (objRes.ok) {
           const objData = await objRes.json();
