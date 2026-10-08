@@ -1,8 +1,20 @@
 import { db } from "@/db";
-import { workspaces, workspaceMembers, users, objects, attributes, statuses, selectOptions } from "@/db/schema";
+import {
+  workspaces,
+  workspaceMembers,
+  users,
+  sessions,
+  apiKeys,
+  objects,
+  attributes,
+  statuses,
+  selectOptions,
+} from "@/db/schema";
 import type { MemberPermissions } from "@/db/schema/workspace";
-import { eq, and, asc, sql } from "drizzle-orm";
+import { eq, and, asc, sql, isNull } from "drizzle-orm";
 import { STANDARD_OBJECTS, DEAL_STAGES } from "@openclaw-crm/shared";
+
+type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 // ─── Workspace ───────────────────────────────────────────────────────
 
@@ -307,39 +319,79 @@ export async function updateMemberPermissions(
   return updated ?? null;
 }
 
-export async function removeMember(workspaceId: string, memberId: string) {
-  const rows = await db
-    .select()
-    .from(workspaceMembers)
-    .where(
-      and(
-        eq(workspaceMembers.id, memberId),
-        eq(workspaceMembers.workspaceId, workspaceId)
-      )
-    )
-    .limit(1);
+/**
+ * Nimmt einem Benutzer den Zugang zum CRM, wie beim Ablehnen einer
+ * Registrierung: Freigabe auf „rejected“, Sitzungen und Mitgliedschaften
+ * gelöscht, offene API-Schlüssel gesperrt. Die Freigabe ist der entscheidende
+ * Teil: getAuthContext legt freigegebene Benutzer ohne Mitgliedschaft bei der
+ * nächsten Anfrage automatisch wieder als Mitglied an (ensureUserWorkspaceAccess).
+ */
+export async function revokeUserAccess(
+  executor: DbExecutor,
+  userId: string,
+  now: Date = new Date()
+): Promise<void> {
+  await executor
+    .update(users)
+    .set({ approvalStatus: "rejected", updatedAt: now })
+    .where(eq(users.id, userId));
+  await executor.delete(sessions).where(eq(sessions.userId, userId));
+  await executor
+    .update(apiKeys)
+    .set({ revokedAt: now })
+    .where(and(eq(apiKeys.userId, userId), isNull(apiKeys.revokedAt)));
+  await executor
+    .delete(workspaceMembers)
+    .where(eq(workspaceMembers.userId, userId));
+}
 
-  if (rows.length === 0) return null;
-
-  // Don't allow removing the last admin
-  if (rows[0].role === "admin") {
-    const adminCount = await db
+/**
+ * Entfernt ein Mitglied und nimmt ihm damit den Zugang (revokeUserAccess).
+ * Sich selbst und den letzten Admin kann niemand entfernen. Gibt die gelöschte
+ * Mitgliedschaft zurück, oder null, wenn es sie in diesem Workspace nicht gibt.
+ */
+export async function removeMember(
+  workspaceId: string,
+  memberId: string,
+  actorUserId: string
+) {
+  return db.transaction(async (tx) => {
+    const [member] = await tx
       .select()
       .from(workspaceMembers)
       .where(
         and(
-          eq(workspaceMembers.workspaceId, workspaceId),
-          eq(workspaceMembers.role, "admin")
+          eq(workspaceMembers.id, memberId),
+          eq(workspaceMembers.workspaceId, workspaceId)
         )
-      );
-    if (adminCount.length <= 1) {
-      throw new Error("Cannot remove the last admin");
+      )
+      .limit(1);
+
+    if (!member) return null;
+
+    if (member.userId === actorUserId) {
+      throw new Error("Du kannst dich nicht selbst entfernen.");
     }
-  }
 
-  await db
-    .delete(workspaceMembers)
-    .where(eq(workspaceMembers.id, memberId));
+    if (member.role === "admin") {
+      // FOR UPDATE: Entfernen sich zwei Admins gleichzeitig gegenseitig,
+      // wartet der zweite und sieht danach nur noch einen Admin.
+      const admins = await tx
+        .select({ id: workspaceMembers.id })
+        .from(workspaceMembers)
+        .where(
+          and(
+            eq(workspaceMembers.workspaceId, workspaceId),
+            eq(workspaceMembers.role, "admin")
+          )
+        )
+        .for("update");
+      if (admins.length <= 1) {
+        throw new Error("Der letzte Admin kann nicht entfernt werden.");
+      }
+    }
 
-  return rows[0];
+    await revokeUserAccess(tx, member.userId);
+    return member;
+  });
 }

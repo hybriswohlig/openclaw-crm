@@ -1,9 +1,10 @@
 import { NextRequest } from "next/server";
 import { db } from "@/db";
-import { users, sessions, workspaceMembers } from "@/db/schema";
+import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { success, forbidden, notFound, badRequest } from "@/lib/api-utils";
 import { getAppAdminFromRequest } from "@/lib/require-app-admin";
+import { revokeUserAccess } from "@/services/workspace";
 
 export async function POST(
   req: NextRequest,
@@ -29,17 +30,9 @@ export async function POST(
     return notFound("User not found");
   }
 
-  await db.delete(sessions).where(eq(sessions.userId, userId));
-
-  await db.delete(workspaceMembers).where(eq(workspaceMembers.userId, userId));
-
-  await db
-    .update(users)
-    .set({
-      approvalStatus: "rejected",
-      updatedAt: new Date(),
-    })
-    .where(eq(users.id, userId));
+  // Gleicher Ablauf wie „Mitglied entfernen“: Freigabe, Sitzungen,
+  // Mitgliedschaften und API-Schlüssel in einem Rutsch.
+  await db.transaction((tx) => revokeUserAccess(tx, userId));
 
   return success({ id: userId, approvalStatus: "rejected" });
 }

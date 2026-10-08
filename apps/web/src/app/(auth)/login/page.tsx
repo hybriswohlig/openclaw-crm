@@ -138,7 +138,7 @@ function LoginForm() {
             )}
             {reason === "rejected" && (
               <div className={styles.errorBox}>
-                Deine Registrierung wurde nicht genehmigt. Bitte wende dich an
+                Dein Zugang zum CRM ist nicht freigegeben. Bitte wende dich an
                 einen Administrator.
               </div>
             )}

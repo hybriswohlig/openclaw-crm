@@ -83,7 +83,9 @@ export async function DELETE(
   const { memberId } = await params;
 
   try {
-    const removed = await removeMember(ctx.workspaceId, memberId);
+    // Entfernen entzieht den Zugang ganz (Freigabe, Sitzungen, API-Schlüssel);
+    // sich selbst und den letzten Admin lehnt removeMember ab.
+    const removed = await removeMember(ctx.workspaceId, memberId, ctx.userId);
     if (!removed) return notFound("Member not found");
     return success(removed);
   } catch (e: unknown) {
