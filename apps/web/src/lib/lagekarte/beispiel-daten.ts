@@ -197,7 +197,8 @@ const VERLAUF_TEXTE: Array<[ChatNachricht["richtung"], string, number]> = [
   ["outbound", "Guten Tag! Sehr gern. Wie viele Zimmer sind es ungefähr, und gibt es einen Aufzug?", 73 * STUNDE],
   ["inbound", "3 Zimmer, 2. Stock ohne Aufzug. Dazu kommt ein Kellerabteil.", 72 * STUNDE],
   ["outbound", "Danke! Schicken Sie uns gern ein paar Fotos vom Keller, dann wird der Kostenvoranschlag genauer.", 50 * STUNDE],
-  ["inbound", "Mache ich heute Abend, danke für die schnelle Antwort.", 48 * STUNDE],
+  // Fotos vom Keller: ohne Text, zwei Bild-Anhänge (Anzeige „2 Fotos“).
+  ["inbound", "", 48 * STUNDE],
   [
     "outbound",
     "Hier ist Ihr Kostenvoranschlag zum Ansehen und Annehmen: https://kv.beispiel.invalid/2026-0041",
@@ -227,7 +228,8 @@ function beispielChat(chatId: string, jetzt: Date): ChatKurz {
 /**
  * Lesende Chat-Vorschau für die Vorschau mit Beispieldaten (Form wie
  * GET /api/v1/lagekarte/chat/{id}): 7 bis 8 erfundene Nachrichten, älteste zuerst,
- * die letzte passt zu Richtung und Zeit des Chats aus beispielAntwort().
+ * eine davon nur mit zwei Fotos; die letzte passt zu Richtung und Zeit des Chats
+ * aus beispielAntwort().
  */
 export function beispielChatVorschau(chatId: string, jetzt: Date = new Date()): ChatVorschauAntwort {
   const chat = beispielChat(chatId, jetzt);
@@ -243,9 +245,11 @@ export function beispielChatVorschau(chatId: string, jetzt: Date = new Date()): 
   const nachrichten: ChatNachricht[] = zeilen.map(([richtung, text, vorher], i) => ({
     id: `${chatId}-n${i + 1}`,
     richtung,
-    text,
+    text: text || "2 Fotos",
     zeit: new Date(letzte - vorher).toISOString(),
     status: richtung === "outbound" ? "read" : "received",
+    anhaenge: text ? 0 : 2,
+    anhangArt: text ? null : "foto",
   }));
   return { chat, nachrichten, mehr: false };
 }

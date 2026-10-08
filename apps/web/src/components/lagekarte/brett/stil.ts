@@ -192,16 +192,30 @@ export function ebenen(thema: Thema, ansicht: Ansicht) {
     ] satisfies Ebene[],
     leads: [
       {
+        // Spielstein-Schatten: etwas größer, nach unten versetzt, weich (unter dem Stein).
+        id: "cluster-schatten",
+        type: "circle",
+        filter: IST_CLUSTER,
+        paint: {
+          "circle-color": f.clusterSchatten,
+          "circle-radius": ["step", ["get", "point_count"], 15, 10, 17, 25, 20, 50, 23],
+          "circle-blur": 0.55,
+          "circle-translate": [0, 2.5],
+          "circle-translate-anchor": "viewport",
+          "circle-pitch-alignment": "viewport",
+        },
+      },
+      {
+        // Spielstein: hell Papier mit Tintenring, dunkel tiefblauer Stein mit hellem Ring.
         id: "cluster-kreis",
         type: "circle",
         filter: IST_CLUSTER,
         paint: {
           "circle-color": f.clusterFuellung,
-          "circle-opacity": 0.94,
           // Gleiche Stufen wie clusterRadiusPx.
           "circle-radius": ["step", ["get", "point_count"], 14, 10, 16, 25, 19, 50, 22],
-          "circle-stroke-color": f.markerHalo,
-          "circle-stroke-width": 2,
+          "circle-stroke-color": f.clusterRand,
+          "circle-stroke-width": 1.5,
           "circle-pitch-alignment": "viewport",
         },
       },

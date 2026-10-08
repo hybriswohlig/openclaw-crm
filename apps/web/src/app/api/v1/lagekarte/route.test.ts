@@ -48,8 +48,9 @@ const VORSCHAU: ChatVorschauAntwort = {
     kundeZuletzt: true,
   },
   nachrichten: [
-    { id: "m1", richtung: "outbound", text: "Guten Tag!", zeit: "2026-10-07T16:00:00.000Z", status: "read" },
-    { id: "m2", richtung: "inbound", text: "Hallo, passt der Termin?", zeit: "2026-10-08T05:12:00.000Z", status: "received" },
+    { id: "m1", richtung: "outbound", text: "Guten Tag!", zeit: "2026-10-07T16:00:00.000Z", status: "read", anhaenge: 0, anhangArt: null },
+    { id: "m2", richtung: "inbound", text: "Hallo, passt der Termin?", zeit: "2026-10-08T05:12:00.000Z", status: "received", anhaenge: 0, anhangArt: null },
+    { id: "m3", richtung: "inbound", text: "2 Fotos", zeit: "2026-10-08T05:13:00.000Z", status: "received", anhaenge: 2, anhangArt: "foto" },
   ],
   mehr: false,
 };

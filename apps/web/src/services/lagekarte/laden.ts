@@ -18,7 +18,13 @@ import {
 } from "@/db/schema/customer-portal";
 import { dealCalculations } from "@/db/schema/deal-calculations";
 import { dealDocuments, dealNumbers, payments } from "@/db/schema/financial";
-import { channelAccounts, inboxContacts, inboxConversations, inboxMessages } from "@/db/schema/inbox";
+import {
+  channelAccounts,
+  inboxContacts,
+  inboxConversations,
+  inboxMessageAttachments,
+  inboxMessages,
+} from "@/db/schema/inbox";
 import { attributes, objects, statuses } from "@/db/schema/objects";
 import { quotationLineItems, quotations } from "@/db/schema/quotations";
 import { records, recordValues } from "@/db/schema/records";
@@ -445,11 +451,31 @@ export interface ChatRoh {
     status: string;
     sentAt: Date | null;
     createdAt: Date;
+    /** Anzahl Anhänge und davon Bilder (nur Metadaten aus inbox_message_attachments). */
+    anhaenge: number;
+    bilder: number;
   }>;
 }
 
 /** Thread per id UND workspace_id, dazu die neuesten Nachrichten. Rein lesend. */
 export async function ladeChatRoh(workspaceId: string, conversationId: string): Promise<ChatRoh | null> {
+  // Anhänge je Nachricht dieses Threads: nur zählen (Index auf conversation_id), nie file_content.
+  const anhaenge = db
+    .select({
+      messageId: inboxMessageAttachments.messageId,
+      anzahl: sql<number>`count(*)`.as("anzahl"),
+      bilder: sql<number>`count(*) filter (where ${inboxMessageAttachments.mimeType} like 'image/%')`.as("bilder"),
+    })
+    .from(inboxMessageAttachments)
+    .where(
+      and(
+        eq(inboxMessageAttachments.conversationId, conversationId),
+        eq(inboxMessageAttachments.workspaceId, workspaceId),
+      ),
+    )
+    .groupBy(inboxMessageAttachments.messageId)
+    .as("anhaenge");
+
   const [threadZeilen, nachrichten] = await Promise.all([
     db
       .select({
@@ -475,8 +501,11 @@ export async function ladeChatRoh(workspaceId: string, conversationId: string): 
         status: inboxMessages.status,
         sentAt: inboxMessages.sentAt,
         createdAt: inboxMessages.createdAt,
+        anhaenge: sql<number>`coalesce(${anhaenge.anzahl}, 0)`.mapWith(Number),
+        bilder: sql<number>`coalesce(${anhaenge.bilder}, 0)`.mapWith(Number),
       })
       .from(inboxMessages)
+      .leftJoin(anhaenge, eq(anhaenge.messageId, inboxMessages.id))
       .where(and(eq(inboxMessages.conversationId, conversationId), eq(inboxMessages.workspaceId, workspaceId)))
       .orderBy(desc(sql`coalesce(${inboxMessages.sentAt}, ${inboxMessages.createdAt})`), desc(inboxMessages.id))
       .limit(CHAT_LIMIT + 1),

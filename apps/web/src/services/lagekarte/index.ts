@@ -12,6 +12,7 @@ import type {
   LagekarteAntwort,
   LeadPunkt,
 } from "@/lib/lagekarte/typen";
+import { anhangArt, nachrichtText } from "./anhang";
 import { loeseOrte, type AdressRoh, type ImmoscoutRoh } from "./geo";
 import { berechneKennzahlen } from "./kennzahlen";
 import { kvDokument } from "./kv";
@@ -50,13 +51,18 @@ export async function ladeChatVorschau(
   const nachrichten: ChatNachricht[] = roh.nachrichten
     .slice(0, CHAT_LIMIT)
     .reverse()
-    .map((m) => ({
-      id: m.id,
-      richtung: m.direction,
-      text: kuerze(nachrichtText(m.body, m.subject), NACHRICHT_MAX),
-      zeit: zeitVon(m).toISOString(),
-      status: m.status,
-    }));
+    .map((m) => {
+      const art = anhangArt(m.anhaenge, m.bilder);
+      return {
+        id: m.id,
+        richtung: m.direction,
+        text: kuerze(nachrichtText(m.body, m.subject, m.anhaenge, art), NACHRICHT_MAX),
+        zeit: zeitVon(m).toISOString(),
+        status: m.status,
+        anhaenge: m.anhaenge,
+        anhangArt: art,
+      };
+    });
 
   const t = roh.thread;
   const chat: ChatKurz = {
@@ -356,12 +362,6 @@ function telefonDesNeuestenThreads(
 }
 
 // ─── Kleinkram ──────────────────────────────────────────────────────────────
-
-function nachrichtText(body: string, subject: string | null): string {
-  if (body.trim()) return body;
-  if (subject?.trim()) return subject;
-  return "(ohne Text)";
-}
 
 /** Kürzt auf höchstens max Zeichen (Codepoints, Emojis bleiben ganz), mit „…“ am Ende. */
 function kuerze(text: string, max: number): string {

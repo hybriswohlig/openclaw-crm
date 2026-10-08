@@ -72,7 +72,10 @@
   border-radius: 9999px;
   background: var(--lk-brett-stapel);
   color: var(--lk-brett-stapel-text);
-  box-shadow: 0 0 0 2px var(--lk-brett-halo);
+  /* Wie der Cluster-Spielstein: Ring 1,5 px, leichter Schatten. */
+  box-shadow:
+    0 0 0 1.5px var(--lk-brett-stapel-rand),
+    0 2px 4px -1px rgba(0, 0, 0, 0.35);
   font-size: 11px;
   font-weight: 600;
   line-height: 1;

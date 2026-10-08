@@ -223,13 +223,20 @@ export interface LagekarteAntwort {
   missionen: Mission[];
 }
 
+/** Anhänge einer Nachricht: nur Bilder = foto, sonst datei. */
+export type AnhangArt = "foto" | "datei";
+
 export interface ChatNachricht {
   id: string;
   richtung: "inbound" | "outbound";
+  /** Text, sonst Betreff; ohne beides „Foto“/„Anhang“ (mit Anzahl) bzw. „(ohne Text)“. */
   text: string;
   /** ISO (sent_at, sonst created_at) */
   zeit: string;
   status: string;
+  /** Anzahl der Anhänge (nur Metadaten). */
+  anhaenge: number;
+  anhangArt?: AnhangArt | null;
 }
 
 export interface ChatVorschauAntwort {

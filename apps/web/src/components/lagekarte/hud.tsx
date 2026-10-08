@@ -23,6 +23,7 @@ import { AlertTriangle, Box, Crosshair, List, Map as MapIcon, SlidersHorizontal,
 import type { Kennzahlen } from "@/lib/lagekarte/typen";
 import { euroAusCent } from "@/lib/lagekarte/farben";
 import { cn } from "@/lib/utils";
+import { randMaske, useUeberlaufKanten } from "./ueberlauf";
 
 export interface HudProps {
   kennzahlen: Kennzahlen;
@@ -232,6 +233,9 @@ export default function Hud(p: HudProps) {
   const [menueOffen, setMenueOffen] = useState(false);
   const menueRef = useRef<HTMLDivElement>(null);
   const menueId = useId();
+  // Schmal scrollen die Kennzahlen seitlich: Maske zeigt, dass rechts (bzw. links) noch etwas kommt.
+  const kachelRef = useRef<HTMLDivElement>(null);
+  const kanten = useUeberlaufKanten(kachelRef, true);
 
   useEffect(() => {
     if (!menueOffen) return;
@@ -307,7 +311,11 @@ export default function Hud(p: HudProps) {
 
       {/* Mitte: Kennzahlen, mobil als Scroll-Leiste */}
       <div
+        ref={kachelRef}
         className="-m-1 flex min-w-0 flex-1 snap-x snap-mandatory items-stretch gap-1 overflow-x-auto p-1 [scrollbar-width:none] justify-center-safe @min-[68.75rem]:snap-none [&::-webkit-scrollbar]:hidden"
+        style={randMaske(kanten.links, kanten.rechts)}
+        data-rand-links={kanten.links || undefined}
+        data-rand-rechts={kanten.rechts || undefined}
         aria-label="Kennzahlen"
       >
         <Kachel
@@ -381,6 +389,23 @@ export default function Hud(p: HudProps) {
       {/* Kompakt, aber breit genug (z. B. 1280-px-Fenster): „Karte | Liste“ sichtbar neben dem Menü. */}
       <div className="hidden shrink-0 items-center @min-[58rem]:flex @min-[68.75rem]:hidden">
         <AnsichtSchalter onListe={p.onListe} />
+      </div>
+
+      {/* Schmal (Handy, kleines Tablet): „Liste“ als eigener Knopf neben dem Menü, nicht nur im Menü. */}
+      <div className="flex shrink-0 items-center @min-[58rem]:hidden">
+        <button
+          type="button"
+          onClick={p.onListe}
+          title="Zur klassischen Startseite"
+          className={cn(
+            "inline-flex h-11 items-center gap-1.5 rounded-full px-2.5 text-[12.5px] font-medium transition-colors hover:bg-[var(--lk-hover)]",
+            FOKUS,
+          )}
+          style={{ color: "var(--lk-text)" }}
+        >
+          <List className="size-4" aria-hidden="true" />
+          Liste
+        </button>
       </div>
 
       {/* Schmal: kleines Menü mit den Schaltern (44 px Trefferfläche, einziger mobiler Weg zu 2D/3D und Kamera) */}

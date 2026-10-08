@@ -7,9 +7,9 @@
 import { useState } from "react";
 import { format, parseISO } from "date-fns";
 import { de } from "date-fns/locale";
-import { Check, Copy, FileText, Loader2 } from "lucide-react";
+import { AlertTriangle, Check, Copy, FileText, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import type { KvDokumentStand, LeadPunkt, WertArt } from "@/lib/lagekarte/typen";
+import { plausiblerCent, type KvDokumentStand, type LeadPunkt, type WertArt } from "@/lib/lagekarte/typen";
 import { euroAusCent } from "@/lib/lagekarte/farben";
 import { useVorschau, VORSCHAU_TITEL } from "../vorschau";
 
@@ -128,6 +128,8 @@ export default function KvKarte({ lead, onKvAnsehen }: KvKarteProps) {
   const { kv, wert, bezahltCent } = lead;
   const [linkLaedt, setLinkLaedt] = useState(false);
   const schritte = schritteAus(kv);
+  // Ruling 7: unplausibel hoher Wert (Tippfehler) wird gedämpft gezeigt und zur Prüfung markiert.
+  const unplausibel = wert !== null && plausiblerCent(wert) === null;
 
   function linkKopieren() {
     if (linkLaedt) return;
@@ -181,12 +183,22 @@ export default function KvKarte({ lead, onKvAnsehen }: KvKarteProps) {
           Wert
         </div>
         {wert ? (
-          <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-            <span className="k-display text-[32px] leading-none text-[var(--lk-text)]">
-              {euroAusCent(wert.cent)}
-            </span>
-            <span className="text-[12.5px] text-[var(--lk-text-leise)]">{WERT_ART_LABEL[wert.art]}</span>
-          </div>
+          <>
+            <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+              <span
+                className={`k-display leading-none ${unplausibel ? "text-[24px] text-[var(--lk-text-schwach)]" : "text-[32px] text-[var(--lk-text)]"}`}
+              >
+                {euroAusCent(wert.cent)}
+              </span>
+              <span className="text-[12.5px] text-[var(--lk-text-leise)]">{WERT_ART_LABEL[wert.art]}</span>
+            </div>
+            {unplausibel && (
+              <p className="mt-2 flex items-start gap-1.5 text-[12.5px] leading-snug" style={{ color: "var(--lk-warn)" }}>
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span>Wert ungewöhnlich hoch, bitte prüfen</span>
+              </p>
+            )}
+          </>
         ) : (
           <div className="k-display mt-1 text-[24px] leading-none text-[var(--lk-text-schwach)]">unbekannt</div>
         )}

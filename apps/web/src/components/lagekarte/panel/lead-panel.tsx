@@ -135,11 +135,14 @@ function Fakt({
   label,
   wert,
   hinweis,
+  warnung,
   mono,
 }: {
   label: string;
   wert: string;
   hinweis?: string;
+  /** Gedämpfter Wert mit Warnzeile (z. B. unplausibel hoher Betrag). */
+  warnung?: string;
   mono?: boolean;
 }) {
   return (
@@ -147,9 +150,17 @@ function Fakt({
       <dt className="k-label" style={{ color: "var(--lk-text-schwach)" }}>
         {label}
       </dt>
-      <dd className={`mt-0.5 break-words text-[14px] leading-snug text-[var(--lk-text)] ${mono ? "k-mono tabular-nums" : ""}`}>
+      <dd
+        className={`mt-0.5 break-words text-[14px] leading-snug ${warnung ? "text-[var(--lk-text-schwach)]" : "text-[var(--lk-text)]"} ${mono ? "k-mono tabular-nums" : ""}`}
+      >
         {wert}
         {hinweis && <span className="mt-0.5 block text-[11.5px] leading-snug text-[var(--lk-text-schwach)]">{hinweis}</span>}
+        {warnung && (
+          <span className="mt-0.5 flex items-start gap-1 text-[11.5px] leading-snug" style={{ color: "var(--lk-warn)" }}>
+            <AlertTriangle className="mt-px h-3 w-3 shrink-0" aria-hidden="true" />
+            {warnung}
+          </span>
+        )}
       </dd>
     </div>
   );
@@ -490,6 +501,7 @@ export default function LeadPanel({
               label="Wert"
               wert={lead.wert ? euroAusCent(lead.wert.cent) : "unbekannt"}
               hinweis={lead.wert ? WERT_ART_LABEL[lead.wert.art] : undefined}
+              warnung={lead.wert && plausiblerCent(lead.wert) === null ? "Wert ungewöhnlich hoch, bitte prüfen" : undefined}
             />
             {lead.bezahltCent > 0 && <Fakt label="Bezahlt" wert={euroAusCent(lead.bezahltCent)} />}
             <Fakt label="Eingang" wert={relativ(lead.angelegtAm, jetzt, true)} />

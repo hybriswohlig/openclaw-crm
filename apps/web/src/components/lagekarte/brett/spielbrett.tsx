@@ -693,6 +693,7 @@ export default function Spielbrett({
     "--lk-brett-auswahl": auswahlFarbe,
     "--lk-brett-stapel": BRETT_FARBEN[thema].clusterFuellung,
     "--lk-brett-stapel-text": BRETT_FARBEN[thema].clusterText,
+    "--lk-brett-stapel-rand": BRETT_FARBEN[thema].clusterRand,
     "--lk-brett-halo": BRETT_FARBEN[thema].markerHalo,
   } as CSSProperties;
 

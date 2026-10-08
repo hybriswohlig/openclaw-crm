@@ -91,8 +91,12 @@ export interface BrettFarben {
   landLinie: string;
   beschriftung: string;
   beschriftungHalo: string;
+  /** Cluster als Spielstein: hell Papier mit Tintenring, dunkel tiefblauer Stein mit hellem Ring. */
   clusterFuellung: string;
   clusterText: string;
+  clusterRand: string;
+  /** Weicher Schatten unter dem Stein (eigene Kreis-Ebene darunter). */
+  clusterSchatten: string;
   markerHalo: string;
   auswahl: string;
 }
@@ -110,8 +114,10 @@ export const BRETT_FARBEN: Record<Thema, BrettFarben> = {
     landLinie: "#221d16",
     beschriftung: "#5a5046",
     beschriftungHalo: "#fbf8f3",
-    clusterFuellung: "#221d16",
-    clusterText: "#fbf8f3",
+    clusterFuellung: "#fbf8f3",
+    clusterText: "#221d16",
+    clusterRand: "#221d16",
+    clusterSchatten: "rgba(34, 29, 22, 0.32)",
     markerHalo: "#ffffff",
     auswahl: "#221d16",
   },
@@ -125,8 +131,10 @@ export const BRETT_FARBEN: Record<Thema, BrettFarben> = {
     landLinie: "#8fa3c7",
     beschriftung: "#9fb0cc",
     beschriftungHalo: "#0b1018",
-    clusterFuellung: "#e8eefb",
-    clusterText: "#0b1018",
+    clusterFuellung: "#1d3557",
+    clusterText: "#e8eefb",
+    clusterRand: "#c9d6ee",
+    clusterSchatten: "rgba(0, 0, 0, 0.6)",
     markerHalo: "#0b1018",
     auswahl: "#ffffff",
   },

@@ -13,7 +13,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { format, isSameDay, parseISO } from "date-fns";
 import { de } from "date-fns/locale";
-import { MessageSquare, RefreshCw, Sparkles } from "lucide-react";
+import { Image as BildIcon, MessageSquare, Paperclip, RefreshCw, Sparkles } from "lucide-react";
 import { beispielChatVorschau } from "@/lib/lagekarte/beispiel-daten";
 import type { ChatKanal, ChatKurz, ChatVorschauAntwort, LeadPunkt } from "@/lib/lagekarte/typen";
 import { useVorschau, VORSCHAU_TITEL } from "../vorschau";
@@ -236,7 +236,19 @@ export default function ChatVorschau({ lead, chatId, onChatWechsel, jetzt, onGel
                             : { background: "var(--lk-blase-aus)", color: "var(--lk-blase-aus-text)" }
                         }
                       >
-                        {n.text}
+                        {n.anhaenge > 0 ? (
+                          // Anhänge: Symbol vor dem Text (ohne Text steht dort „Foto“ bzw. „Anhang“).
+                          <span className="inline-flex items-start gap-1.5">
+                            {n.anhangArt === "foto" ? (
+                              <BildIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 opacity-70" aria-label="Foto" role="img" />
+                            ) : (
+                              <Paperclip className="mt-0.5 h-3.5 w-3.5 shrink-0 opacity-70" aria-label="Anhang" role="img" />
+                            )}
+                            <span className="min-w-0">{n.text}</span>
+                          </span>
+                        ) : (
+                          n.text
+                        )}
                       </div>
                       <time
                         dateTime={n.zeit}

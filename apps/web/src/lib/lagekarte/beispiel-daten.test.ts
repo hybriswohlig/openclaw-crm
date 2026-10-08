@@ -31,6 +31,11 @@ describe("beispielChatVorschau", () => {
     }
   });
 
+  it("eine Nachricht nur mit Fotos (wie die echte Vorschau: Text „2 Fotos“)", () => {
+    const fotos = beispielChatVorschau(wartend.chats[0].id, jetzt).nachrichten.filter((n) => n.anhaenge > 0);
+    expect(fotos).toEqual([expect.objectContaining({ anhaenge: 2, anhangArt: "foto", text: "2 Fotos", richtung: "inbound" })]);
+  });
+
   it("Links zeigen nie auf echte Domains", () => {
     const texte = beispielChatVorschau(wartend.chats[0].id, jetzt).nachrichten.map((n) => n.text).join(" ");
     for (const url of texte.match(/https?:\/\/[^\s]+/g) ?? []) expect(new URL(url).hostname.endsWith(".invalid")).toBe(true);

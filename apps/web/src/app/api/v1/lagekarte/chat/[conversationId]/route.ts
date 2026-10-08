@@ -7,7 +7,8 @@ export const dynamic = "force-dynamic";
 /**
  * GET /api/v1/lagekarte/chat/{conversationId}: letzte Nachrichten eines
  * Threads für das Lagekarte-Panel. Nur lesen: markiert nichts als gelesen
- * (anders als /api/v1/inbox/conversations/{id}/messages).
+ * (anders als /api/v1/inbox/conversations/{id}/messages). Anhänge nur als
+ * Anzahl und Art (Foto/Datei), nie Inhalte.
  */
 export async function GET(
   req: NextRequest,

@@ -37,6 +37,8 @@ type Ansicht = "2d" | "3d";
 
 const ANSICHT_SCHLUESSEL = "kottke:lagekarte-ansicht";
 const MOBIL_ABFRAGE = "(max-width: 1023.98px)";
+/** Desktop unter 1280 px: mit offenem Panel klappt die Leiste ein, damit Karte sichtbar bleibt. */
+const SCHMAL_ABFRAGE = "(max-width: 1279.98px)";
 /**
  * Mobiles Sheet: Peek-Höhe in px, aufgeklappt 72vh, aber nie unter das HUD
  * (sonst deckt das HUD den oberen Teil des Griffs ab; siehe sheetOffenHoehe).
@@ -163,6 +165,7 @@ function LagekarteInhalt({ onListe }: LagekarteProps) {
   const { resolvedTheme } = useTheme();
   const thema: Thema = resolvedTheme === "dark" ? "dunkel" : "hell";
   const mobil = useMedienAbfrage(MOBIL_ABFRAGE);
+  const schmal = useMedienAbfrage(SCHMAL_ABFRAGE);
 
   // Vorschau mit Beispieldaten: nur Entwicklung und demo=1 (in Produktion nie, siehe vorschau.ts).
   const [vorschau] = useState(() => istVorschau(window.location.search, process.env.NODE_ENV));
@@ -353,6 +356,10 @@ function LagekarteInhalt({ onListe }: LagekarteProps) {
   );
 
   const legendeMobilSichtbar = mobil && !panelOffen && !sheetOffen;
+  // Unter 1280 px blieben neben Leiste (364 px) und Panel (424 px) kaum Karte: Leiste einklappen,
+  // solange das Panel offen ist; beim Schließen kommt sie zurück (bleibt gemountet, Zustand bleibt).
+  const leisteEingeklappt = !mobil && panelOffen && schmal;
+  const leisteRaum = leisteEingeklappt ? 12 : LEISTE_RAUM_PX;
 
   /* ── Verdeckte Kartenränder für die Kamera (Ruling 10): offenes Panel rechts, Legende bzw.
      Sheet unten, HUD oben, Leiste links. „Ganz BW“, „Kerngebiet“ und Auswahl passen in den Rest. ── */
@@ -369,10 +376,10 @@ function LagekarteInhalt({ onListe }: LagekarteProps) {
     return {
       top: obenPx,
       bottom: 12 + legendeHoehe,
-      left: LEISTE_RAUM_PX,
+      left: leisteRaum,
       right: panelOffen ? PANEL_RAUM_PX : 12,
     };
-  }, [mobil, panelOffen, wurzelHoehe, sheetHoehe, legendeMobilSichtbar, legendeHoehe, obenPx]);
+  }, [mobil, panelOffen, wurzelHoehe, sheetHoehe, legendeMobilSichtbar, legendeHoehe, obenPx, leisteRaum]);
   // --lk-oben: Oberkante von Leiste und Panel (unter HUD und Quellenzeile).
   const wurzelStil = { "--lk-oben": `${obenPx}px` } as CSSProperties;
 
@@ -448,12 +455,20 @@ function LagekarteInhalt({ onListe }: LagekarteProps) {
         {/* Desktop: Leiste links, Legende unten mittig */}
         {daten && !ohneKarte && !mobil && (
           <>
-            <div className="absolute bottom-3 left-3 z-10 w-[340px]" style={{ top: "var(--lk-oben)" }}>
+            <div
+              className={`absolute bottom-3 left-3 z-10 w-[340px] transition-[translate,opacity] duration-200 ease-out motion-reduce:transition-none ${
+                leisteEingeklappt ? "pointer-events-none -translate-x-[calc(100%+24px)] opacity-0" : ""
+              }`}
+              style={{ top: "var(--lk-oben)" }}
+              inert={leisteEingeklappt}
+              data-eingeklappt={leisteEingeklappt || undefined}
+              data-testid="leiste-rahmen"
+            >
               {leiste(false)}
             </div>
             <div
               className="@container pointer-events-none absolute bottom-3 z-10 flex justify-center"
-              style={{ left: LEISTE_RAUM_PX, right: panelOffen ? PANEL_RAUM_PX : 12 }}
+              style={{ left: leisteRaum, right: panelOffen ? PANEL_RAUM_PX : 12 }}
             >
               <div ref={setLegendeEl} className="pointer-events-auto max-w-full">
                 {legende}

@@ -264,16 +264,25 @@ export default function Leiste(p: LeisteProps) {
   }, [schritt]);
 
   /* Gewählte Zeile in Sicht halten (Fokus folgt, wenn er schon in der Liste war);
-     beim Tabwechsel ohne sichtbare Auswahl nach oben. */
+     beim Tabwechsel ohne sichtbare Auswahl nach oben. Beim ersten Mal (Reload mit ?lead=)
+     und wenn die Zeile ganz außer Sicht liegt (Auswahl auf der Karte), steht sie mittig;
+     sonst (j/k, Pfeiltasten) nur so weit wie nötig. Nur die Liste scrollt, nie die Seite. */
   const vorigerTab = useRef(tab);
+  const erstesMal = useRef(true);
   useEffect(() => {
     const liste = listeRef.current;
     if (!liste) return;
     const tabGewechselt = vorigerTab.current !== tab;
     vorigerTab.current = tab;
+    const erst = erstesMal.current;
+    erstesMal.current = false;
     const zeile = aktiveKey ? liste.querySelector<HTMLElement>(`[data-zeile="${CSS.escape(aktiveKey)}"]`) : null;
     if (zeile) {
-      zeile.scrollIntoView({ block: "nearest" });
+      const lb = liste.getBoundingClientRect();
+      const zb = zeile.getBoundingClientRect();
+      const ausserSicht = zb.bottom <= lb.top || zb.top >= lb.bottom;
+      if (erst || ausserSicht) liste.scrollTop += zb.top - lb.top - (lb.height - zb.height) / 2;
+      else zeile.scrollIntoView({ block: "nearest" });
       if (liste.contains(document.activeElement) && document.activeElement !== zeile) zeile.focus({ preventScroll: true });
     } else if (tabGewechselt) {
       liste.scrollTop = 0;
