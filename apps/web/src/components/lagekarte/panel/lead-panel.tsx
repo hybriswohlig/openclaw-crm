@@ -164,6 +164,28 @@ function Fakt({
   );
 }
 
+/**
+ * Schreibt die Stufe über dieselbe Route und Form wie die Deal-Seite. Liefert null bei Erfolg,
+ * sonst die Fehlermeldung für den Toast. Netzwerkfehler werfen (Aufrufer fängt sie).
+ */
+async function speichereStufe(leadId: string, statusId: string): Promise<string | null> {
+  const res = await fetch(`/api/v1/objects/deals/records/${encodeURIComponent(leadId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ values: { stage: statusId } }),
+  });
+  if (res.ok) return null;
+  let meldung = `Stufe konnte nicht geändert werden (${res.status})`;
+  try {
+    const body = (await res.json()) as { error?: { message?: string } | string };
+    if (typeof body.error === "string") meldung = body.error;
+    else if (typeof body.error?.message === "string") meldung = body.error.message;
+  } catch {
+    /* Antwort ohne JSON */
+  }
+  return meldung;
+}
+
 export default function LeadPanel({
   lead,
   firmen,
@@ -363,6 +385,7 @@ export default function LeadPanel({
     if (vorschau || !statusId || statusId === lead.stufe?.id || stufeSpeichert) return;
     const leadIdBeimStart = lead.id;
     const vorherigeStufe = lead.stufe?.id ?? "";
+    const vorherigerTitel = lead.stufe?.titel ?? null;
     // Nur zurücksetzen, wenn inzwischen kein anderer Lead ausgewählt wurde.
     const zuruecksetzen = () => {
       if (leadIdRef.current === leadIdBeimStart) setStufeAuswahl(vorherigeStufe);
@@ -370,31 +393,56 @@ export default function LeadPanel({
     setStufeAuswahl(statusId);
     setStufeSpeichert(true);
     try {
-      const res = await fetch(`/api/v1/objects/deals/records/${encodeURIComponent(leadIdBeimStart)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ values: { stage: statusId } }),
-      });
-      if (!res.ok) {
-        let meldung = `Stufe konnte nicht geändert werden (${res.status})`;
-        try {
-          const body = (await res.json()) as { error?: { message?: string } | string };
-          if (typeof body.error === "string") meldung = body.error;
-          else if (typeof body.error?.message === "string") meldung = body.error.message;
-        } catch {
-          /* Antwort ohne JSON */
-        }
-        toast.error(meldung);
+      const fehler = await speichereStufe(leadIdBeimStart, statusId);
+      if (fehler) {
+        toast.error(fehler);
         zuruecksetzen();
         return;
       }
-      toast.success("Stufe geändert");
+      // M-8: Ein Klick schreibt sofort (auch „Verloren“, „Bezahlt“); der Toast bietet den Rückweg an.
+      // Ohne vorherige Stufe gibt es nichts zurückzusetzen.
+      toast.success(
+        "Stufe geändert",
+        vorherigeStufe
+          ? {
+              duration: 8000,
+              action: {
+                label: "Rückgängig",
+                onClick: () => void stufeZurueck(leadIdBeimStart, vorherigeStufe, vorherigerTitel),
+              },
+            }
+          : undefined,
+      );
       onGeaendert();
     } catch {
       toast.error("Stufe konnte nicht geändert werden (keine Verbindung)");
       zuruecksetzen();
     } finally {
       setStufeSpeichert(false);
+    }
+  }
+
+  /** Rückgängig aus dem Erfolgs-Toast: setzt die vorherige Stufe wieder (gleiche Route wie oben). */
+  async function stufeZurueck(leadId: string, stufeId: string, titel: string | null) {
+    const sichtbar = () => leadIdRef.current === leadId;
+    if (sichtbar()) {
+      setStufeAuswahl(stufeId);
+      setStufeSpeichert(true);
+    }
+    try {
+      const fehler = await speichereStufe(leadId, stufeId);
+      if (fehler) {
+        toast.error(`Rückgängig fehlgeschlagen: ${fehler}`);
+        onGeaendert();
+        return;
+      }
+      toast.success(titel ? `Stufe zurück auf „${titel}“` : "Stufe zurückgesetzt");
+      onGeaendert();
+    } catch {
+      toast.error("Rückgängig fehlgeschlagen (keine Verbindung)");
+      onGeaendert();
+    } finally {
+      if (sichtbar()) setStufeSpeichert(false);
     }
   }
 
