@@ -20,7 +20,6 @@ import {
   HardHat,
   Banknote,
   Plug,
-  MessageSquare,
   Settings,
 } from "lucide-react";
 
@@ -37,7 +36,6 @@ const mehrItems = [
   { href: "/contract-calendar", icon: CalendarDays, label: "Kalender" },
   { href: "/notes", icon: StickyNote, label: "Notizen" },
   { href: "/notifications", icon: Bell, label: "Benachrichtigungen" },
-  { href: "/chat", icon: MessageSquare, label: "Chat" },
   { href: "/objects/people", icon: Users, label: "Kunden" },
   { href: "/objects/companies", icon: Building2, label: "Firmen" },
   { href: "/employees", icon: HardHat, label: "Mitarbeiter" },

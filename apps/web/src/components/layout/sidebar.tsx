@@ -11,7 +11,6 @@ import { signOut, useSession } from "@/lib/auth-client";
 import { useRouter } from "next/navigation";
 import {
   Home,
-  MessageSquare,
   CheckSquare,
   StickyNote,
   Bell,
@@ -41,7 +40,6 @@ import { useTheme } from "next-themes";
 
 const mainNav = [
   { href: "/home", label: "Heute", icon: Home },
-  { href: "/chat", label: "Chat", icon: MessageSquare },
   { href: "/tasks", label: "Aufgaben", icon: CheckSquare },
   { href: "/contract-calendar", label: "Kalender", icon: CalendarDays },
   { href: "/notifications", label: "Benachrichtigungen", icon: Bell },

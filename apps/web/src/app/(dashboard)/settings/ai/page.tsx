@@ -264,7 +264,7 @@ export default function AISettingsPage() {
       <div>
         <h1 className="text-2xl font-bold">KI-Agent</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Konfigurieren Sie den KI-Assistenten, der Fragen zu Ihren CRM-Daten beantwortet und in Ihrem Auftrag Aktionen ausführt.
+          Konfigurieren Sie den KI-Verkaufsassistenten, den OpenRouter-Zugang und die einzelnen KI-Aufgaben.
         </p>
       </div>
 
