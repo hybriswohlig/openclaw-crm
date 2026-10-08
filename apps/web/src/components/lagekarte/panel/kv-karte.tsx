@@ -11,6 +11,7 @@ import { Check, Copy, FileText, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import type { KvDokumentStand, LeadPunkt, WertArt } from "@/lib/lagekarte/typen";
 import { euroAusCent } from "@/lib/lagekarte/farben";
+import { useVorschau, VORSCHAU_TITEL } from "../vorschau";
 
 const WERT_ART_LABEL: Record<WertArt, string> = {
   bestaetigt: "angenommen",
@@ -123,6 +124,7 @@ function inZwischenablage(urlVersprechen: Promise<string>): Promise<void> {
 }
 
 export default function KvKarte({ lead, onKvAnsehen }: KvKarteProps) {
+  const vorschau = useVorschau();
   const { kv, wert, bezahltCent } = lead;
   const [linkLaedt, setLinkLaedt] = useState(false);
   const schritte = schritteAus(kv);
@@ -240,14 +242,27 @@ export default function KvKarte({ lead, onKvAnsehen }: KvKarteProps) {
           type="button"
           className={KNOPF}
           onClick={onKvAnsehen}
-          disabled={!kv.dokumentId}
-          title={kv.dokumentId ? `KV-PDF ansehen (${STAND_LABEL[kv.dokumentStand]})` : STAND_LABEL[kv.dokumentStand]}
+          disabled={!kv.dokumentId || vorschau}
+          title={
+            vorschau
+              ? VORSCHAU_TITEL
+              : kv.dokumentId
+                ? `KV-PDF ansehen (${STAND_LABEL[kv.dokumentStand]})`
+                : STAND_LABEL[kv.dokumentStand]
+          }
         >
           <FileText className="h-4 w-4" aria-hidden="true" />
           <span>KV-PDF</span>
           <span className="text-[11.5px] font-normal text-[var(--lk-text-schwach)]">{STAND_LABEL[kv.dokumentStand]}</span>
         </button>
-        <button type="button" className={KNOPF} onClick={linkKopieren} disabled={linkLaedt} aria-busy={linkLaedt}>
+        <button
+          type="button"
+          className={KNOPF}
+          onClick={linkKopieren}
+          disabled={linkLaedt || vorschau}
+          aria-busy={linkLaedt}
+          title={vorschau ? VORSCHAU_TITEL : undefined}
+        >
           {linkLaedt ? (
             <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
           ) : (

@@ -4,8 +4,12 @@
  * Lagekarte: lädt GET /api/v1/lagekarte. Polling alle 60 s, solange der Tab
  * sichtbar ist (visibilitychange pausiert); bei Rückkehr sofort neu. Fehler
  * behalten die letzten Daten (Banner im HUD statt leerer Karte).
+ *
+ * Vorschau (vorschau.ts, nur Entwicklung mit demo=1): sofort beispielAntwort(),
+ * kein Abruf, kein Polling.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { beispielAntwort } from "@/lib/lagekarte/beispiel-daten";
 import type { LagekarteAntwort } from "@/lib/lagekarte/typen";
 
 const POLL_MS = 60_000;
@@ -34,17 +38,18 @@ async function holeLage(signal: AbortSignal): Promise<LagekarteAntwort> {
   return body.data;
 }
 
-export function useLagekarteDaten(): {
+export function useLagekarteDaten(vorschau = false): {
   daten: LagekarteAntwort | null;
   laedt: boolean;
   fehler: string | null;
   neuLaden: () => Promise<void>;
   letzterErfolg: Date | null;
 } {
-  const [daten, setDaten] = useState<LagekarteAntwort | null>(null);
-  const [laedt, setLaedt] = useState(true);
+  // Vorschau: Beispieldaten ab dem ersten Rendern, nie ein Netzwerkaufruf.
+  const [daten, setDaten] = useState<LagekarteAntwort | null>(() => (vorschau ? beispielAntwort(new Date()) : null));
+  const [laedt, setLaedt] = useState(!vorschau);
   const [fehler, setFehler] = useState<string | null>(null);
-  const [letzterErfolg, setLetzterErfolg] = useState<Date | null>(null);
+  const [letzterErfolg, setLetzterErfolg] = useState<Date | null>(() => (vorschau ? new Date() : null));
 
   const laufend = useRef<{ ctrl: AbortController; versprechen: Promise<void> } | null>(null);
   const aktiv = useRef(true);
@@ -55,6 +60,7 @@ export function useLagekarteDaten(): {
    * damit keine Antwort von vor der Änderung das Ergebnis überschreibt.
    */
   const laden = useCallback((erzwingen: boolean): Promise<void> => {
+    if (vorschau) return Promise.resolve();
     if (laufend.current) {
       if (!erzwingen) return laufend.current.versprechen;
       laufend.current.ctrl.abort();
@@ -80,12 +86,13 @@ export function useLagekarteDaten(): {
       });
     laufend.current = { ctrl, versprechen };
     return versprechen;
-  }, []);
+  }, [vorschau]);
 
   const neuLaden = useCallback(() => laden(true), [laden]);
 
   useEffect(() => {
     aktiv.current = true;
+    if (vorschau) return; // kein Abruf, kein Polling
     let timer: ReturnType<typeof setInterval> | null = null;
     const sichtbar = () => typeof document === "undefined" || document.visibilityState === "visible";
 
@@ -119,7 +126,7 @@ export function useLagekarteDaten(): {
       laufend.current?.ctrl.abort();
       laufend.current = null;
     };
-  }, [laden]);
+  }, [laden, vorschau]);
 
   return { daten, laedt, fehler, neuLaden, letzterErfolg };
 }

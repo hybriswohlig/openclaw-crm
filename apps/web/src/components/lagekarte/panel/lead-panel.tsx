@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import ChatVorschau from "./chat-vorschau";
 import KvKarte from "./kv-karte";
+import { useVorschau, VORSCHAU_TITEL } from "../vorschau";
 import { startScrollFuerTab } from "./tab-scroll";
 import Verlauf from "./verlauf";
 
@@ -166,6 +167,8 @@ export default function LeadPanel({
   mobil = false,
 }: LeadPanelProps): JSX.Element {
   const thema = useLagekarteThema();
+  // Vorschau: alles Schreibende oder nach außen Führende gesperrt (erfundene IDs und Nummern).
+  const vorschau = useVorschau();
   const basisId = useId();
   const ueberschriftRef = useRef<HTMLHeadingElement>(null);
 
@@ -316,7 +319,7 @@ export default function LeadPanel({
    * lösen keinen Schreibzugriff aus.
    */
   async function stufeAendern(statusId: string) {
-    if (!statusId || statusId === lead.stufe?.id || stufeSpeichert) return;
+    if (vorschau || !statusId || statusId === lead.stufe?.id || stufeSpeichert) return;
     const leadIdBeimStart = lead.id;
     const vorherigeStufe = lead.stufe?.id ?? "";
     // Nur zurücksetzen, wenn inzwischen kein anderer Lead ausgewählt wurde.
@@ -494,37 +497,64 @@ export default function LeadPanel({
 
           {/* Schnellaktionen */}
           <div ref={aktionenRef} className="flex flex-wrap gap-2 border-t border-[var(--lk-panel-rand)] px-4 py-3">
-            {inboxHref ? (
-              <Link
-                href={inboxHref}
-                className={AKTION_PRIMAER}
-                style={{ background: "var(--lk-blase-aus)", color: "var(--lk-blase-aus-text)" }}
-              >
-                <MessageSquare className="h-4 w-4" aria-hidden="true" />
-                Im Posteingang antworten
-              </Link>
+            {vorschau ? (
+              <>
+                <button type="button" className={AKTION_PRIMAER} disabled title={VORSCHAU_TITEL} style={{ background: "var(--lk-aktiv)", color: "var(--lk-text-schwach)", cursor: "not-allowed" }}>
+                  <MessageSquare className="h-4 w-4" aria-hidden="true" />
+                  Im Posteingang antworten
+                </button>
+                {lead.telefon && (
+                  <button type="button" className={AKTION} disabled title={VORSCHAU_TITEL}>
+                    <Phone className="h-4 w-4" aria-hidden="true" />
+                    Anrufen
+                  </button>
+                )}
+                {kvUrl && (
+                  <button type="button" className={AKTION} disabled title={VORSCHAU_TITEL}>
+                    <FileText className="h-4 w-4" aria-hidden="true" />
+                    KV ansehen
+                  </button>
+                )}
+                <button type="button" className={AKTION} disabled title={VORSCHAU_TITEL}>
+                  <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                  Lead öffnen
+                </button>
+              </>
             ) : (
-              <button type="button" className={AKTION_PRIMAER} disabled title="Kein Chat vorhanden" style={{ background: "var(--lk-aktiv)", color: "var(--lk-text-schwach)", cursor: "not-allowed" }}>
-                <MessageSquare className="h-4 w-4" aria-hidden="true" />
-                Im Posteingang antworten
-              </button>
+              <>
+                {inboxHref ? (
+                  <Link
+                    href={inboxHref}
+                    className={AKTION_PRIMAER}
+                    style={{ background: "var(--lk-blase-aus)", color: "var(--lk-blase-aus-text)" }}
+                  >
+                    <MessageSquare className="h-4 w-4" aria-hidden="true" />
+                    Im Posteingang antworten
+                  </Link>
+                ) : (
+                  <button type="button" className={AKTION_PRIMAER} disabled title="Kein Chat vorhanden" style={{ background: "var(--lk-aktiv)", color: "var(--lk-text-schwach)", cursor: "not-allowed" }}>
+                    <MessageSquare className="h-4 w-4" aria-hidden="true" />
+                    Im Posteingang antworten
+                  </button>
+                )}
+                {lead.telefon && (
+                  <a href={telefonHref(lead.telefon)} className={AKTION} title={lead.telefon}>
+                    <Phone className="h-4 w-4" aria-hidden="true" />
+                    Anrufen
+                  </a>
+                )}
+                {kvUrl && (
+                  <button type="button" className={AKTION} onClick={() => setKvOffen(true)}>
+                    <FileText className="h-4 w-4" aria-hidden="true" />
+                    KV ansehen
+                  </button>
+                )}
+                <Link href={`/objects/deals/${encodeURIComponent(lead.id)}`} className={AKTION}>
+                  <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                  Lead öffnen
+                </Link>
+              </>
             )}
-            {lead.telefon && (
-              <a href={telefonHref(lead.telefon)} className={AKTION} title={lead.telefon}>
-                <Phone className="h-4 w-4" aria-hidden="true" />
-                Anrufen
-              </a>
-            )}
-            {kvUrl && (
-              <button type="button" className={AKTION} onClick={() => setKvOffen(true)}>
-                <FileText className="h-4 w-4" aria-hidden="true" />
-                KV ansehen
-              </button>
-            )}
-            <Link href={`/objects/deals/${encodeURIComponent(lead.id)}`} className={AKTION}>
-              <ExternalLink className="h-4 w-4" aria-hidden="true" />
-              Lead öffnen
-            </Link>
             {/* Stufe: Radix-Menü statt nativem <select>, damit Pfeiltasten nur den
                 Fokus bewegen und erst Klick/Enter/Leertaste die Stufe schreibt. */}
             <DropdownMenu>
@@ -532,8 +562,8 @@ export default function LeadPanel({
                 <button
                   type="button"
                   className={`${AKTION} pr-2.5`}
-                  disabled={stufeSpeichert || stufenOptionen.length === 0}
-                  title="Stufe ändern"
+                  disabled={stufeSpeichert || stufenOptionen.length === 0 || vorschau}
+                  title={vorschau ? VORSCHAU_TITEL : "Stufe ändern"}
                 >
                   <span className="sr-only">Stufe: </span>
                   {stufeSpeichert ? (
@@ -656,6 +686,7 @@ export default function LeadPanel({
 
       {kvOffen &&
         kvUrl &&
+        !vorschau &&
         createPortal(
           <DocumentPreviewModal
             url={kvUrl}

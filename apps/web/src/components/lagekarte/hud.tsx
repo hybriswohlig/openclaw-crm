@@ -36,6 +36,8 @@ export interface HudProps {
   onKamera: (z: "kern" | "bw") => void;
   /** Öffnet den Tab „Wartet“ in der Leiste, setzt nurWartet nicht. */
   onWartetKlick: () => void;
+  /** Vorschau mit erfundenen Daten (nur Entwicklung): kleines Etikett am HUD. */
+  vorschau?: boolean;
 }
 
 const FOKUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lk-akzent)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--lk-panel)]";
@@ -277,8 +279,18 @@ export default function Hud(p: HudProps) {
   return (
     <header
       aria-label="Lage-HUD"
-      className="lk-glas flex items-stretch gap-2 px-2 py-1.5 @min-[68.75rem]:items-center @min-[68.75rem]:gap-4 @min-[68.75rem]:px-4 @min-[68.75rem]:py-2"
+      className="lk-glas relative flex items-stretch gap-2 px-2 py-1.5 @min-[68.75rem]:items-center @min-[68.75rem]:gap-4 @min-[68.75rem]:px-4 @min-[68.75rem]:py-2"
     >
+      {/* Vorschau: Etikett auf der Oberkante, kostet keinen Platz und ist in jeder Breite sichtbar. */}
+      {p.vorschau && (
+        <span
+          className="k-mono pointer-events-none absolute -top-2 left-4 z-10 rounded-full px-2 text-[10px] leading-4 font-medium tracking-wide whitespace-nowrap"
+          style={{ background: "var(--lk-akzent)", color: "var(--lk-panel)" }}
+          data-testid="vorschau-etikett"
+        >
+          Vorschau mit Beispieldaten
+        </span>
+      )}
       {/* Links: Titel, Datum, Stand (ab 1100 px HUD-Breite; die Kacheln brauchen ~700 px, die Schalter ~290 px) */}
       <div className="hidden shrink-0 @min-[68.75rem]:flex @min-[68.75rem]:items-baseline @min-[68.75rem]:gap-3">
         {/* Unter @7xl nur für Screenreader: der Platz gehört dann Kennzahlen und „Karte | Liste“. */}

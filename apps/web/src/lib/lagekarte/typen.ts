@@ -239,3 +239,18 @@ export interface ChatVorschauAntwort {
   /** Es gibt ältere Nachrichten als die gelieferten. */
   mehr: boolean;
 }
+
+/** Meilenstein wie GET /api/v1/deals/{id}/lifecycle (services/deal-lifecycle.ts) ihn liefert. */
+export interface VerlaufMeilenstein {
+  key: string;
+  label: string;
+  /** ISO-Zeitstempel oder YYYY-MM-DD, null wenn nicht erreicht. */
+  at: string | null;
+  done: boolean;
+}
+
+export interface VerlaufAntwort {
+  milestones: VerlaufMeilenstein[];
+  /** Meilenstein, an dem gerade gearbeitet wird (erster nicht erreichter). */
+  current: string | null;
+}

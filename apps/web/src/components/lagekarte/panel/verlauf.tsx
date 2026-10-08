@@ -8,19 +8,9 @@ import { useEffect, useState } from "react";
 import { format, parseISO } from "date-fns";
 import { de } from "date-fns/locale";
 import { Check, RefreshCw } from "lucide-react";
-
-interface Meilenstein {
-  key: string;
-  label: string;
-  /** ISO-Zeitstempel oder YYYY-MM-DD, null wenn nicht erreicht. */
-  at: string | null;
-  done: boolean;
-}
-
-interface Lifecycle {
-  milestones: Meilenstein[];
-  current: string | null;
-}
+import { beispielVerlauf } from "@/lib/lagekarte/beispiel-daten";
+import type { VerlaufAntwort as Lifecycle } from "@/lib/lagekarte/typen";
+import { useVorschau } from "../vorschau";
 
 type Zustand =
   | { status: "laedt" }
@@ -39,10 +29,16 @@ function datumText(at: string): string {
 }
 
 export default function Verlauf({ leadId }: { leadId: string }) {
+  const vorschau = useVorschau();
   const [zustand, setZustand] = useState<Zustand>({ status: "laedt" });
   const [versuch, setVersuch] = useState(0);
 
   useEffect(() => {
+    // Vorschau: erfundene Meilensteine, kein Abruf.
+    if (vorschau) {
+      setZustand({ status: "ok", daten: beispielVerlauf(leadId) });
+      return;
+    }
     const ac = new AbortController();
     setZustand({ status: "laedt" });
     (async () => {
@@ -66,7 +62,7 @@ export default function Verlauf({ leadId }: { leadId: string }) {
       }
     })();
     return () => ac.abort();
-  }, [leadId, versuch]);
+  }, [leadId, versuch, vorschau]);
 
   if (zustand.status === "laedt") {
     return (

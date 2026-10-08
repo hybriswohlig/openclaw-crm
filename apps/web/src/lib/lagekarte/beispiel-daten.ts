@@ -2,7 +2,17 @@
  * Lagekarte: erfundene Beispieldaten (keine echten Kunden) für Vorschau,
  * Komponentenentwicklung und Tests. Deterministisch.
  */
-import type { KartenStatus, LagekarteAntwort, LeadPunkt, Mission } from "./typen";
+import type {
+  ChatKurz,
+  ChatNachricht,
+  ChatVorschauAntwort,
+  KartenStatus,
+  LagekarteAntwort,
+  LeadPunkt,
+  Mission,
+  VerlaufAntwort,
+  VerlaufMeilenstein,
+} from "./typen";
 
 const FIRMEN = [
   { id: "firma-kottke", name: "Kottke-Umzüge", kurz: "K", farbe: "#1f3a5f" },
@@ -173,4 +183,112 @@ export function beispielAntwort(jetzt: Date = new Date("2026-10-08T07:30:00+02:0
     },
     missionen,
   };
+}
+
+const MINUTE = 60 * 1000;
+const STUNDE = 60 * MINUTE;
+
+/**
+ * Verlauf einer erfundenen Anfrage: [Richtung, Text, Abstand vor der letzten Nachricht].
+ * Eine Nachricht enthält den KV-Link (Domain .invalid, führt nirgendwohin).
+ */
+const VERLAUF_TEXTE: Array<[ChatNachricht["richtung"], string, number]> = [
+  ["inbound", "Hallo, wir ziehen Ende Oktober von Stuttgart-West nach Böblingen. Können Sie uns ein Angebot machen?", 74 * STUNDE],
+  ["outbound", "Guten Tag! Sehr gern. Wie viele Zimmer sind es ungefähr, und gibt es einen Aufzug?", 73 * STUNDE],
+  ["inbound", "3 Zimmer, 2. Stock ohne Aufzug. Dazu kommt ein Kellerabteil.", 72 * STUNDE],
+  ["outbound", "Danke! Schicken Sie uns gern ein paar Fotos vom Keller, dann wird der Kostenvoranschlag genauer.", 50 * STUNDE],
+  ["inbound", "Mache ich heute Abend, danke für die schnelle Antwort.", 48 * STUNDE],
+  [
+    "outbound",
+    "Hier ist Ihr Kostenvoranschlag zum Ansehen und Annehmen: https://kv.beispiel.invalid/2026-0041",
+    20 * STUNDE,
+  ],
+];
+
+/** Chat-Kopf aus beispielAntwort(); unbekannte IDs bekommen einen plausiblen WhatsApp-Chat. */
+function beispielChat(chatId: string, jetzt: Date): ChatKurz {
+  for (const lead of beispielAntwort(jetzt).leads) {
+    const chat = lead.chats.find((c) => c.id === chatId);
+    if (chat) return chat;
+  }
+  return {
+    id: chatId,
+    kanal: "whatsapp",
+    kontoName: "Kottke-Umzüge WhatsApp",
+    firmaId: FIRMEN[0].id,
+    status: "open",
+    letzteNachrichtAm: new Date(jetzt.getTime() - 2 * STUNDE).toISOString(),
+    vorschau: "Hallo, wann können Sie zur Besichtigung kommen?",
+    ungelesen: 1,
+    kundeZuletzt: true,
+  };
+}
+
+/**
+ * Lesende Chat-Vorschau für die Vorschau mit Beispieldaten (Form wie
+ * GET /api/v1/lagekarte/chat/{id}): 7 bis 8 erfundene Nachrichten, älteste zuerst,
+ * die letzte passt zu Richtung und Zeit des Chats aus beispielAntwort().
+ */
+export function beispielChatVorschau(chatId: string, jetzt: Date = new Date()): ChatVorschauAntwort {
+  const chat = beispielChat(chatId, jetzt);
+  const letzte = new Date(chat.letzteNachrichtAm ?? jetzt.toISOString()).getTime();
+  const zeilen: Array<[ChatNachricht["richtung"], string, number]> = [
+    ...VERLAUF_TEXTE,
+    chat.kundeZuletzt
+      ? ["inbound", "Vielen Dank, sieht gut aus. Wann können Sie zur Besichtigung kommen?", 0]
+      : ["inbound", "Vielen Dank, sieht gut aus. Wann können Sie zur Besichtigung kommen?", 3 * STUNDE],
+  ];
+  if (!chat.kundeZuletzt) zeilen.push(["outbound", "Gern, wir melden uns morgen.", 0]);
+
+  const nachrichten: ChatNachricht[] = zeilen.map(([richtung, text, vorher], i) => ({
+    id: `${chatId}-n${i + 1}`,
+    richtung,
+    text,
+    zeit: new Date(letzte - vorher).toISOString(),
+    status: richtung === "outbound" ? "read" : "received",
+  }));
+  return { chat, nachrichten, mehr: false };
+}
+
+const MEILENSTEIN_LABEL: Array<[string, string]> = [
+  ["erstkontakt", "Erstkontakt"],
+  ["infos_erhalten", "Infos erhalten"],
+  ["angebot", "Angebot gemacht"],
+  ["angenommen", "Angebot angenommen"],
+  ["umzugstermin", "Umzugstermin"],
+  ["bezahlt", "Zahlung erhalten"],
+  ["bewertung", "Bewertung anfragen"],
+];
+
+/**
+ * Verlauf (Meilensteine) für die Vorschau mit Beispieldaten, in der Form von
+ * GET /api/v1/deals/{id}/lifecycle, abgeleitet aus dem erfundenen Lead.
+ */
+export function beispielVerlauf(leadId: string, jetzt: Date = new Date()): VerlaufAntwort {
+  const lead = beispielAntwort(jetzt).leads.find((l) => l.id === leadId) ?? null;
+  const angelegt = lead ? new Date(lead.angelegtAm).getTime() : jetzt.getTime() - 2 * TAG;
+  const status = lead?.status ?? "neu";
+  const nach = (ms: number) => new Date(angelegt + ms).toISOString();
+  const heute = jetzt.toISOString().slice(0, 10);
+  const angebot = lead?.kv.angebotErstellt ? (lead.kv.angebotErstelltAm ?? nach(TAG)) : null;
+  const angenommen = lead?.kv.angenommenAm ?? (status === "erledigt" ? nach(2 * TAG) : null);
+  const umzug = lead?.umzugAm ?? null;
+  const umzugErledigt = umzug !== null && (status === "erledigt" || ((status === "auftrag") && umzug < heute));
+  const bezahlt = lead && lead.bezahltCent > 0 && umzug ? `${umzug}T16:00:00.000Z` : null;
+
+  const erreicht: Record<string, string | null> = {
+    erstkontakt: lead?.angelegtAm ?? nach(0),
+    infos_erhalten: status === "neu" ? null : nach(2 * STUNDE),
+    angebot,
+    angenommen,
+    umzugstermin: umzug,
+    bezahlt,
+    bewertung: null,
+  };
+  const milestones: VerlaufMeilenstein[] = MEILENSTEIN_LABEL.map(([key, label]) => {
+    const at = erreicht[key];
+    const done = key === "umzugstermin" ? umzugErledigt : key === "bewertung" ? false : at !== null;
+    return { key, label, at, done };
+  });
+  return { milestones, current: milestones.find((m) => !m.done)?.key ?? null };
 }

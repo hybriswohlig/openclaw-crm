@@ -14,7 +14,9 @@ import Link from "next/link";
 import { format, isSameDay, parseISO } from "date-fns";
 import { de } from "date-fns/locale";
 import { MessageSquare, RefreshCw, Sparkles } from "lucide-react";
+import { beispielChatVorschau } from "@/lib/lagekarte/beispiel-daten";
 import type { ChatKanal, ChatKurz, ChatVorschauAntwort, LeadPunkt } from "@/lib/lagekarte/typen";
+import { useVorschau, VORSCHAU_TITEL } from "../vorschau";
 
 const KANAL_LABEL: Record<ChatKanal, string> = {
   whatsapp: "WhatsApp",
@@ -54,6 +56,7 @@ interface ChatVorschauProps {
 }
 
 export default function ChatVorschau({ lead, chatId, onChatWechsel, jetzt, onGeladen }: ChatVorschauProps) {
+  const vorschau = useVorschau();
   const [zustand, setZustand] = useState<Zustand>({ status: "laedt" });
   const [versuch, setVersuch] = useState(0);
   const onGeladenRef = useRef(onGeladen);
@@ -66,6 +69,11 @@ export default function ChatVorschau({ lead, chatId, onChatWechsel, jetzt, onGel
 
   useEffect(() => {
     if (!chatId) return;
+    // Vorschau: erfundene Nachrichten, kein Abruf.
+    if (vorschau) {
+      setZustand({ status: "ok", daten: beispielChatVorschau(chatId) });
+      return;
+    }
     const ac = new AbortController();
     setZustand({ status: "laedt" });
     (async () => {
@@ -92,7 +100,7 @@ export default function ChatVorschau({ lead, chatId, onChatWechsel, jetzt, onGel
       }
     })();
     return () => ac.abort();
-  }, [chatId, versuch]);
+  }, [chatId, versuch, vorschau]);
 
   if (lead.chats.length === 0 || !chatId) {
     return (
@@ -200,7 +208,7 @@ export default function ChatVorschau({ lead, chatId, onChatWechsel, jetzt, onGel
 
         {zustand.status === "ok" && (
           <>
-            {zustand.daten.mehr && (
+            {zustand.daten.mehr && !vorschau && (
               <div className="mb-3 text-center">
                 <Link
                   href={inboxHref}
@@ -248,14 +256,27 @@ export default function ChatVorschau({ lead, chatId, onChatWechsel, jetzt, onGel
 
       {/* Fußzeile */}
       <div className="sticky bottom-0 border-t border-[var(--lk-panel-rand)] px-4 py-3" style={{ background: "var(--lk-panel)" }}>
-        <Link
-          href={inboxHref}
-          className={`${KNOPF_PRIMAER} w-full`}
-          style={{ background: "var(--lk-blase-aus)", color: "var(--lk-blase-aus-text)" }}
-        >
-          <MessageSquare className="h-4 w-4" aria-hidden="true" />
-          Im Posteingang antworten
-        </Link>
+        {vorschau ? (
+          <button
+            type="button"
+            disabled
+            title={VORSCHAU_TITEL}
+            className={`${KNOPF_PRIMAER} w-full cursor-not-allowed opacity-60`}
+            style={{ background: "var(--lk-blase-aus)", color: "var(--lk-blase-aus-text)" }}
+          >
+            <MessageSquare className="h-4 w-4" aria-hidden="true" />
+            Im Posteingang antworten
+          </button>
+        ) : (
+          <Link
+            href={inboxHref}
+            className={`${KNOPF_PRIMAER} w-full`}
+            style={{ background: "var(--lk-blase-aus)", color: "var(--lk-blase-aus-text)" }}
+          >
+            <MessageSquare className="h-4 w-4" aria-hidden="true" />
+            Im Posteingang antworten
+          </Link>
+        )}
       </div>
     </div>
   );

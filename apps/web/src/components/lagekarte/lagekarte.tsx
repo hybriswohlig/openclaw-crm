@@ -25,6 +25,7 @@ import Quellenangabe from "./quellenangabe";
 import { ThemaKontext } from "./thema";
 import { useKartenFilter } from "./use-karten-filter";
 import { useLagekarteDaten } from "./use-lagekarte-daten";
+import { istVorschau, VorschauKontext } from "./vorschau";
 import "./lagekarte.css";
 
 export interface LagekarteProps {
@@ -163,7 +164,9 @@ function LagekarteInhalt({ onListe }: LagekarteProps) {
   const thema: Thema = resolvedTheme === "dark" ? "dunkel" : "hell";
   const mobil = useMedienAbfrage(MOBIL_ABFRAGE);
 
-  const { daten, fehler, neuLaden } = useLagekarteDaten();
+  // Vorschau mit Beispieldaten: nur Entwicklung und demo=1 (in Produktion nie, siehe vorschau.ts).
+  const [vorschau] = useState(() => istVorschau(window.location.search, process.env.NODE_ENV));
+  const { daten, fehler, neuLaden } = useLagekarteDaten(vorschau);
   const { filter: urlFilter, setzeFilter, zuruecksetzen, auswahlId, waehle } = useKartenFilter();
 
   /* ── Suche: sofort lokal, entprellt in die URL (sonst springt der Cursor beim Tippen) ── */
@@ -377,6 +380,7 @@ function LagekarteInhalt({ onListe }: LagekarteProps) {
 
   return (
     <ThemaKontext.Provider value={thema}>
+      <VorschauKontext.Provider value={vorschau}>
       <div
         ref={setWurzelEl}
         className={wurzelKlasse}
@@ -413,6 +417,7 @@ function LagekarteInhalt({ onListe }: LagekarteProps) {
               onListe={onListe}
               onKamera={fahre}
               onWartetKlick={beiWartetKlick}
+              vorschau={vorschau}
             />
           </div>
         )}
@@ -582,6 +587,7 @@ function LagekarteInhalt({ onListe }: LagekarteProps) {
           </div>
         )}
       </div>
+      </VorschauKontext.Provider>
     </ThemaKontext.Provider>
   );
 }
