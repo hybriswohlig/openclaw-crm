@@ -19,9 +19,8 @@ import Link from "next/link";
 import { format, isSameDay, parseISO } from "date-fns";
 import { de } from "date-fns/locale";
 import { Image as BildIcon, MessageSquare, Paperclip, RefreshCw, Sparkles } from "lucide-react";
-import { beispielChatVorschau } from "@/lib/lagekarte/beispiel-daten";
 import type { ChatKanal, ChatKurz, ChatVorschauAntwort, LeadPunkt } from "@/lib/lagekarte/typen";
-import { useVorschau, VORSCHAU_TITEL } from "../vorschau";
+import { ladeBeispielDaten, useVorschau, VORSCHAU_TITEL } from "../vorschau";
 
 const KANAL_LABEL: Record<ChatKanal, string> = {
   whatsapp: "WhatsApp",
@@ -116,10 +115,16 @@ export default function ChatVorschau({ lead, chatId, onChatWechsel, jetzt, onGel
     if (!chatId) return;
     geladenerStand.current = stand;
     leiseRef.current = null;
-    // Vorschau: erfundene Nachrichten, kein Abruf.
+    // Vorschau: erfundene Nachrichten (Modul nur außerhalb von Produktion), kein Abruf.
     if (vorschau) {
-      setZustand({ status: "ok", daten: beispielChatVorschau(chatId), chatId });
-      return;
+      let abgebrochen = false;
+      setZustand({ status: "laedt" });
+      void ladeBeispielDaten().then((beispiel) => {
+        if (!abgebrochen && beispiel) setZustand({ status: "ok", daten: beispiel.beispielChatVorschau(chatId), chatId });
+      });
+      return () => {
+        abgebrochen = true;
+      };
     }
     const ac = new AbortController();
     setZustand({ status: "laedt" });

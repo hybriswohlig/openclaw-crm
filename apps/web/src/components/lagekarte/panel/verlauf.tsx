@@ -8,9 +8,8 @@ import { useEffect, useState } from "react";
 import { format, parseISO } from "date-fns";
 import { de } from "date-fns/locale";
 import { Check, RefreshCw } from "lucide-react";
-import { beispielVerlauf } from "@/lib/lagekarte/beispiel-daten";
 import type { VerlaufAntwort as Lifecycle } from "@/lib/lagekarte/typen";
-import { useVorschau } from "../vorschau";
+import { ladeBeispielDaten, useVorschau } from "../vorschau";
 
 type Zustand =
   | { status: "laedt" }
@@ -34,10 +33,16 @@ export default function Verlauf({ leadId }: { leadId: string }) {
   const [versuch, setVersuch] = useState(0);
 
   useEffect(() => {
-    // Vorschau: erfundene Meilensteine, kein Abruf.
+    // Vorschau: erfundene Meilensteine (Modul nur außerhalb von Produktion), kein Abruf.
     if (vorschau) {
-      setZustand({ status: "ok", daten: beispielVerlauf(leadId) });
-      return;
+      let abgebrochen = false;
+      setZustand({ status: "laedt" });
+      void ladeBeispielDaten().then((beispiel) => {
+        if (!abgebrochen && beispiel) setZustand({ status: "ok", daten: beispiel.beispielVerlauf(leadId) });
+      });
+      return () => {
+        abgebrochen = true;
+      };
     }
     const ac = new AbortController();
     setZustand({ status: "laedt" });
