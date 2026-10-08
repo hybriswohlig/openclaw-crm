@@ -35,8 +35,8 @@ export function WiderrufPanel({
       <section className="portal-panel portal-widerruf mb-4" aria-live="polite">
         <PanelHeading icon={CheckCircle2} title="Ihr Widerruf ist eingegangen">
           <p>
-            Eingegangen am {datumZeit(at)}. Die Eingangsbestätigung haben wir Ihnen geschickt. Wegen bereits
-            geleisteter Zahlungen melden wir uns bei Ihnen.
+            Eingegangen am {datumZeit(at)}. Eine Eingangsbestätigung geht Ihnen per E-Mail oder WhatsApp zu.
+            Wegen bereits geleisteter Zahlungen melden wir uns bei Ihnen.
           </p>
         </PanelHeading>
         <p className="text-sm text-muted-foreground">{w.eingegangen.vertrag}</p>
@@ -115,11 +115,13 @@ function WiderrufDialog({
       const res = await fetch(`/api/public/${token}/widerruf`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), kanal, email: kanal === "email_neu" ? email.trim() : null }),
+        body: JSON.stringify({ name: name.trim(), kanal, email: kanal === "email_neu" ? email.trim() : null, annahmeAm: w.annahmeAm }),
       });
       const body = (await res.json().catch(() => ({}))) as { data?: { eingegangenAt?: string }; error?: { code?: string } };
       if (!res.ok || !body.data?.eingegangenAt) {
         setError(fehlerText(body.error?.code));
+        // Server sieht einen anderen Stand (neue Annahme, Frist vorbei): Seite neu laden.
+        if (NEU_LADEN_BEI.has(body.error?.code ?? "")) void onWiderrufen();
         return;
       }
       setEingegangenAt(body.data.eingegangenAt);
@@ -270,8 +272,14 @@ function datumZeit(d: Date): string {
   return `${datum} um ${zeit} Uhr`;
 }
 
+const NEU_LADEN_BEI = new Set(["ANGEBOT_GEAENDERT", "FRIST_ABGELAUFEN", "KEINE_ANNAHME", "KEIN_WIDERRUFSRECHT"]);
+
 function fehlerText(code: string | undefined): string {
   switch (code) {
+    case "ANGEBOT_GEAENDERT":
+      return "Ihr Auftrag wurde inzwischen geändert. Bitte prüfen Sie die Seite und widerrufen Sie bei Bedarf erneut.";
+    case "KEIN_WIDERRUFSRECHT":
+      return "Für diesen Auftrag besteht kein gesetzliches Widerrufsrecht. Bei Fragen schreiben Sie uns gern.";
     case "FRIST_ABGELAUFEN":
       return "Die Widerrufsfrist ist abgelaufen. Bei Fragen schreiben Sie uns gern.";
     case "KANAL_UNAVAILABLE":

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agbAlsText, bestaetigungVerschickt, bestaetigungsMailText, bestaetigungsTextWhatsApp, nachlaufNoetig, teamAlarmText, waThreadWaehlen, type BestaetigungsDaten } from "./kva-bestaetigung";
+import { agbAlsText, bestaetigungVerschickt, bestaetigungsMailText, bestaetigungsTextWhatsApp, nachlaufNoetig, teamAlarmText, waThreadWaehlen, kundenThread, type BestaetigungsDaten } from "./kva-bestaetigung";
 import { firmaKontakt } from "@openclaw-crm/customer-portal-core";
 
 const umzug: BestaetigungsDaten = {
@@ -126,5 +126,20 @@ describe("waThreadWaehlen: Chat des Kunden vor neuestem Thread", () => {
   });
   it("keine Threads: null", () => {
     expect(waThreadWaehlen([], "p-kunde")).toBeNull();
+  });
+});
+
+describe("kundenThread: Widerrufs-Bestätigung nur in den Chat der Kundenperson", () => {
+  const threads = [
+    { conversationId: "neu-fremd", cloudApi: true, kontaktPersonId: "p-vermieter" },
+    { conversationId: "alt-kunde", cloudApi: false, kontaktPersonId: "p-kunde" },
+  ];
+  it("nimmt nur den Chat der Kundenperson", () => {
+    expect(kundenThread(threads, "p-kunde")).toEqual({ conversationId: "alt-kunde", cloudApi: false });
+  });
+  it("kein passender Chat, keine Kundenperson oder nur fremde Chats: null", () => {
+    expect(kundenThread(threads, "p-andere")).toBeNull();
+    expect(kundenThread(threads, null)).toBeNull();
+    expect(kundenThread([threads[0]], "p-kunde")).toBeNull();
   });
 });

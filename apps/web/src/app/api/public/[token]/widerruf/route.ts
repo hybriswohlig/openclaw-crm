@@ -29,6 +29,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
       not_found: 404,
       revoked: 410,
       keine_annahme: 409,
+      kein_widerrufsrecht: 409,
+      angebot_geaendert: 409,
       frist_abgelaufen: 410,
       kanal_unavailable: 422,
     };
@@ -36,6 +38,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
   }
 
   // Eingangsbestätigung und Team-Alarm laufen nach der Antwort weiter.
-  if (result.nachlauf) after(result.nachlauf);
+  after(result.nachlauf);
   return NextResponse.json({ data: { eingegangenAt: result.eingegangenAt } });
 }

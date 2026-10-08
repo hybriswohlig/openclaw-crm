@@ -23,7 +23,7 @@ if (params.has("aufgehoben")) ctx.fruehereAnnahmeAufgehoben = true;
 // Entrümpelung angenommen, Widerrufsfrist läuft: Button „Vertrag widerrufen“ (mit stage=2).
 if (params.has("widerruf") && ctx.acceptance) {
   ctx.acceptance = { ...ctx.acceptance, widerrufModus: "belehrung" };
-  ctx.widerruf = { aktiv: true, fristEnde: "2026-09-21", name: "Alex Beispiel", vertrag: "Auftrag VORSCHAU-2026, Entrümpelung, angenommen am 6. September 2026", emailMaskiert: "a***@example.invalid", whatsapp: true, eingegangen: null };
+  ctx.widerruf = { aktiv: true, fristEnde: "2026-09-21", name: "Alex Beispiel", vertrag: "Auftrag VORSCHAU-2026, Entrümpelung, angenommen am 6. September 2026", emailMaskiert: "a***@example.invalid", whatsapp: true, annahmeAm: ctx.acceptance.signedAt, eingegangen: null };
 }
 // Block all mutations at this local fixture boundary. No customer API is reached.
 window.fetch = async (input, init) => {

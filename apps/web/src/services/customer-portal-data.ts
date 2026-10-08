@@ -359,18 +359,6 @@ export async function loadContextByToken(
   const acceptance = await loadLatestAcceptance(dealRecordId);
   // Nach „Annahme aufheben“ gilt der alte Stand nicht mehr (auch nicht seine AB).
   const aufgehobenAm = acceptance ? null : await ladeLetzteAufhebung(dealRecordId);
-  // Widerrufs-Button (§ 356a BGB) oder Hinweis auf einen eingegangenen Widerruf.
-  const widerruf = await ladeWiderrufKontext({
-    workspaceId,
-    dealRecordId,
-    dealNumber,
-    kundeName: customerDisplayName,
-    emailMaskiert: customerEmailStatus === "missing" ? null : customerEmailMasked,
-    aufgehobenAm,
-    now,
-  });
-  // Nach einem Widerruf kein „Bitte prüfen Sie das neue Angebot“.
-  const fruehereAnnahmeAufgehoben = !!aufgehobenAm && !widerruf.eingegangen;
 
   // Rechtsregeln der Annahme; Dialog und confirmKvaForToken nutzen dieselben.
   const serviceType = await loadServiceType(dealRecordId);
@@ -477,6 +465,19 @@ export async function loadContextByToken(
     });
   }
 
+
+  // Widerrufs-Button (§ 356a BGB) oder Hinweis auf einen eingegangenen Widerruf.
+  const widerruf = await ladeWiderrufKontext({
+    workspaceId,
+    dealRecordId,
+    dealNumber,
+    kundeName: customerDisplayName,
+    leistungErbracht: !!timing.finishedAt,
+    aufgehobenAm,
+    now,
+  });
+  // Nach einem Widerruf kein „Bitte prüfen Sie das neue Angebot“.
+  const fruehereAnnahmeAufgehoben = !!aufgehobenAm && !widerruf.eingegangen;
   return {
     stage,
     features,

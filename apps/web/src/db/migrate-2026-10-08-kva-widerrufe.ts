@@ -27,8 +27,13 @@ async function migrate() {
       ip_address text NOT NULL,
       user_agent text NOT NULL,
       bestaetigung_sent_at timestamp,
-      bestaetigung_kanaele text
+      bestaetigung_kanaele text,
+      bestaetigung_versuche integer NOT NULL DEFAULT 0,
+      team_alarm_at timestamp
     )`;
+  await sql`ALTER TABLE kva_widerrufe
+      ADD COLUMN IF NOT EXISTS bestaetigung_versuche integer NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS team_alarm_at timestamp`;
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS kva_widerrufe_confirmation_uniq
       ON kva_widerrufe (confirmation_id)`;
   await sql`CREATE INDEX IF NOT EXISTS kva_widerrufe_deal_idx

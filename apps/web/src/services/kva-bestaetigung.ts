@@ -25,6 +25,7 @@ import { createTask } from "./tasks";
 import { workspaceMembers } from "@/db/schema/workspace";
 import { sendNewEmail } from "./inbox-email";
 import {
+  isWithinCustomerServiceWindow,
   sendBaileysMediaReply,
   sendBaileysReply,
   sendWhatsAppMediaReply,
@@ -211,8 +212,16 @@ async function ladeKundenPersonId(workspaceId: string, dealRecordId: string): Pr
   return link?.personId ?? null;
 }
 
-/** WhatsApp-Thread für Kundennachrichten (Cloud-API oder hauseigenes Baileys). */
-export async function ladeWaThread(workspaceId: string, dealRecordId: string): Promise<WaThread | null> {
+type WaKandidat = WaThread & { kontaktPersonId: string | null };
+
+/** Nur der Chat der Kundenperson selbst, kein Rückfall auf Dritte. */
+export function kundenThread(threads: WaKandidat[], kundePersonId: string | null): WaThread | null {
+  const t = kundePersonId ? threads.find((x) => x.kontaktPersonId === kundePersonId) : undefined;
+  return t ? { conversationId: t.conversationId, cloudApi: t.cloudApi } : null;
+}
+
+/** Sendbare WhatsApp-Threads des Deals (Cloud-API oder hauseigenes Baileys), neueste zuerst. */
+async function ladeWaKandidaten(workspaceId: string, dealRecordId: string): Promise<WaKandidat[]> {
   const rows = await db
     .select({
       conversationId: inboxConversations.id,
@@ -232,16 +241,35 @@ export async function ladeWaThread(workspaceId: string, dealRecordId: string): P
     )
     .orderBy(sql`COALESCE(${inboxConversations.lastMessageAt}, ${inboxConversations.createdAt}) DESC`)
     .limit(20);
-  const sendbar = rows.flatMap((r) =>
+  return rows.flatMap((r): WaKandidat[] =>
     r.waPhoneNumberId
       ? [{ conversationId: r.conversationId, cloudApi: true, kontaktPersonId: r.kontaktPersonId }]
       : r.baileysBridgeProvider === "inhouse"
         ? [{ conversationId: r.conversationId, cloudApi: false, kontaktPersonId: r.kontaktPersonId }]
         : []
   );
+}
+
+/** WhatsApp-Thread für die Annahme-Bestätigung: Kunden-Chat, sonst der neueste. */
+export async function ladeWaThread(workspaceId: string, dealRecordId: string): Promise<WaThread | null> {
+  const sendbar = await ladeWaKandidaten(workspaceId, dealRecordId);
   if (sendbar.length === 0) return null;
   const kundePersonId = sendbar.length > 1 ? await ladeKundenPersonId(workspaceId, dealRecordId) : null;
   return waThreadWaehlen(sendbar, kundePersonId);
+}
+
+/**
+ * Für Nachrichten, die nicht bei Dritten landen dürfen (Widerruf): nur der
+ * Chat der Kundenperson, bei der Cloud-API nur im 24-Stunden-Fenster, weil
+ * freier Text sonst abgelehnt wird.
+ */
+export async function ladeKundenWaThread(workspaceId: string, dealRecordId: string): Promise<WaThread | null> {
+  const sendbar = await ladeWaKandidaten(workspaceId, dealRecordId);
+  if (sendbar.length === 0) return null;
+  const thread = kundenThread(sendbar, await ladeKundenPersonId(workspaceId, dealRecordId));
+  if (!thread) return null;
+  if (thread.cloudApi && !(await isWithinCustomerServiceWindow(thread.conversationId))) return null;
+  return thread;
 }
 
 /** Reiner Text in den gewählten Thread. Wirft bei Fehlern. */

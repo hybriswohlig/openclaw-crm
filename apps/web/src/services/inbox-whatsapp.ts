@@ -1307,7 +1307,7 @@ export class WhatsAppSessionExpiredError extends Error {
   }
 }
 
-async function isWithinCustomerServiceWindow(conversationId: string): Promise<boolean> {
+export async function isWithinCustomerServiceWindow(conversationId: string): Promise<boolean> {
   const [lastInbound] = await db
     .select({ sentAt: inboxMessages.sentAt, createdAt: inboxMessages.createdAt })
     .from(inboxMessages)

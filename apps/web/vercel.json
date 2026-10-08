@@ -35,6 +35,10 @@
       "schedule": "7,22,37,52 6-21 * * *"
     },
     {
+      "path": "/api/cron/widerruf-nachholen",
+      "schedule": "*/10 * * * *"
+    },
+    {
       "path": "/api/cron/check-overdue-tasks",
       "schedule": "*/15 * * * *"
     },

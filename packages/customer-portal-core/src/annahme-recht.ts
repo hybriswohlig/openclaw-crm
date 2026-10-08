@@ -4,6 +4,7 @@
  */
 import { daysUntilMove } from "./stage-derivation";
 import type { ConfirmKvaPayload } from "./types";
+import { widerrufsfristEnde } from "./widerruf";
 
 /** clearance = Entrümpelung, Haushaltsauflösung (Werkvertrag, nicht Beförderung). */
 export type ServiceArt = "move" | "kitchen_installation" | "clearance";
@@ -33,7 +34,11 @@ export interface AnnahmeRegeln {
   haftungshinweisErforderlich: boolean;
   /** Belehrung und Leistungsbeginn vor Ende der 14-Tage-Frist. */
   vorzeitigerBeginnErforderlich: boolean;
-  /** Umzug ohne festen Termin oder mit offener Terminwahl: keine Annahme. */
+  /**
+   * Umzug oder Entrümpelung ohne festen Termin oder mit offener Terminwahl:
+   * keine Annahme. Bei der Entrümpelung fehlte sonst das Verlangen nach
+   * vorzeitigem Beginn, wenn der Termin später in die Frist fällt.
+   */
   terminFehlt: boolean;
 }
 
@@ -50,13 +55,15 @@ export function annahmeRegeln(input: {
     haftungshinweisErforderlich: input.serviceType === "move",
     vorzeitigerBeginnErforderlich: modus === "belehrung" && beginntInWiderrufsfrist(input.moveDate, input.now),
     terminFehlt:
-      input.hasOpenDateChoice || (input.serviceType === "move" && !input.moveDate),
+      input.hasOpenDateChoice || ((input.serviceType === "move" || input.serviceType === "clearance") && !input.moveDate),
   };
 }
 
+/** Pauschal 17 Tage oder bis zum echten Fristende, je nachdem was länger ist (Ostern). */
 function beginntInWiderrufsfrist(moveDate: string | null, now: Date): boolean {
   const tage = daysUntilMove(moveDate, now);
-  return tage != null && tage >= 0 && tage <= VORZEITIGER_BEGINN_TAGE;
+  if (tage == null || tage < 0 || !moveDate) return false;
+  return tage <= VORZEITIGER_BEGINN_TAGE || moveDate <= widerrufsfristEnde(now);
 }
 
 /**

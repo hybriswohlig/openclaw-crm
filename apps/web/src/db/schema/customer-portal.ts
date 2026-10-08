@@ -267,6 +267,10 @@ export const kvaWiderrufe = pgTable(
     /** Eingangsbestätigung (§ 356a Abs. 4 BGB); "sending" = Versand läuft. */
     bestaetigungSentAt: timestamp("bestaetigung_sent_at"),
     bestaetigungKanaele: text("bestaetigung_kanaele"),
+    /** Höchstens drei Versuche, der Cron holt nach. */
+    bestaetigungVersuche: integer("bestaetigung_versuche").notNull().default(0),
+    /** Alarm ans Team verschickt; NULL = Cron holt nach. */
+    teamAlarmAt: timestamp("team_alarm_at"),
   },
   (table) => [
     uniqueIndex("kva_widerrufe_confirmation_uniq").on(table.confirmationId),

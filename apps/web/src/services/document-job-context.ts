@@ -166,7 +166,8 @@ export async function attachDocumentJobContext(
   const storedDetails = (quotation?.documentDetails || {}) as QuotationDocumentDetails;
   // Auch das Top-Level-Feld service_type zählt (MCP-Werkzeug setzt nur das).
   const serviceType = asServiceType(
-    clientDetails.serviceType || next.service_type || storedDetails.serviceType || quotation?.serviceType
+    // Die Spalte ist die gespeicherte Wahl; ältere Detaildaten tragen oft nur „move“.
+    clientDetails.serviceType || next.service_type || quotation?.serviceType || storedDetails.serviceType
   );
 
   // Die beim KV gewählte Auftragsart steuert im Portal Widerruf und § 451g.

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  bestaetigungFehlgeschlagenText,
+  bestaetigungsWege,
   eingangsbestaetigungText,
   kanalVerfuegbar,
   leistungLabel,
@@ -45,19 +47,42 @@ describe("eingangsbestaetigungText (§ 356a Abs. 4 BGB)", () => {
 });
 
 describe("teamAlarmWiderrufText", () => {
-  it("nennt Auftrag, Kunde, Rückzahlung und warnt bei fehlender Bestätigung", () => {
-    const t = teamAlarmWiderrufText({ dealNumber: "K-1042", name: "Anna Muster", eingegangenAt, bestaetigt: false, preisCents: 89000, vorzeitigerBeginn: true });
+  it("nennt Auftrag, Kunde, Betrag, Rückzahlung und bei vorzeitigem Beginn den Wertersatz", () => {
+    const t = teamAlarmWiderrufText({ dealNumber: "K-1042", name: "Anna Muster", eingegangenAt, preisCents: 89000, vorzeitigerBeginn: true });
     expect(t).toContain("Widerruf");
     expect(t).toContain("K-1042");
     expect(t).toContain("Anna Muster");
+    expect(t).toContain("890,00");
     expect(t).toContain("Rückzahlung");
     expect(t).toContain("Wertersatz");
-    expect(t).toContain("Eingangsbestätigung ging nicht raus");
   });
-  it("mit Bestätigung keine Warnung, ohne vorzeitigen Beginn kein Wertersatz", () => {
-    const t = teamAlarmWiderrufText({ dealNumber: "K-1042", name: "Anna Muster", eingegangenAt, bestaetigt: true, preisCents: 89000, vorzeitigerBeginn: false });
-    expect(t).not.toContain("ging nicht raus");
+  it("ohne vorzeitigen Beginn kein Wertersatz", () => {
+    const t = teamAlarmWiderrufText({ dealNumber: "K-1042", name: "Anna Muster", eingegangenAt, preisCents: 89000, vorzeitigerBeginn: false });
     expect(t).not.toContain("Wertersatz");
+  });
+});
+
+describe("bestaetigungFehlgeschlagenText", () => {
+  it("sagt, dass die Eingangsbestätigung von Hand raus muss, und wohin", () => {
+    const t = bestaetigungFehlgeschlagenText({ dealNumber: "K-1042", name: "Anna Muster", ziel: "anna@example.de" });
+    expect(t).toContain("Eingangsbestätigung");
+    expect(t).toContain("ging nicht raus");
+    expect(t).toContain("anna@example.de");
+    expect(t).toContain("K-1042");
+  });
+});
+
+describe("bestaetigungsWege", () => {
+  it("WhatsApp gewählt: erst WhatsApp, dann die bekannte E-Mail als Ersatz", () => {
+    expect(bestaetigungsWege({ kanal: "whatsapp", email: null, bekannteEmail: "a@x.de" })).toEqual([{ art: "whatsapp" }, { art: "email", an: "a@x.de" }]);
+    expect(bestaetigungsWege({ kanal: "whatsapp", email: null, bekannteEmail: null })).toEqual([{ art: "whatsapp" }]);
+  });
+  it("E-Mail gewählt: genau diese Adresse", () => {
+    expect(bestaetigungsWege({ kanal: "email", email: "a@x.de", bekannteEmail: "a@x.de" })).toEqual([{ art: "email", an: "a@x.de" }]);
+    expect(bestaetigungsWege({ kanal: "email_neu", email: "neu@x.de", bekannteEmail: "a@x.de" })).toEqual([{ art: "email", an: "neu@x.de" }]);
+  });
+  it("E-Mail ohne Adresse: kein Weg", () => {
+    expect(bestaetigungsWege({ kanal: "email", email: null, bekannteEmail: null })).toEqual([]);
   });
 });
 

@@ -7,6 +7,7 @@ import { RecordDetail } from "@/components/records/record-detail";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import type { ServiceArt } from "@openclaw-crm/customer-portal-core";
 import { DealDocumentActions } from "@/components/DealDocumentActions";
 import {
   buildDealDataForDocs,
@@ -258,6 +259,8 @@ export function AuftragTab({ recordId }: { recordId: string }) {
   const [criticalMissing, setCriticalMissing] = useState<CriticalMissing[]>([]);
   const [openQuestions, setOpenQuestions] = useState<string[]>([]);
   const [leadContext, setLeadContext] = useState<LeadContext | null>(null);
+  // Vorbelegung der Leistung im KV-Dialog (Küche, Entrümpelung), sonst kippt ein neuer KV auf Umzug.
+  const [leistungsart, setLeistungsart] = useState<ServiceArt | undefined>(undefined);
   const [needsSync, setNeedsSync] = useState(false);
   const [anweisungOpen, setAnweisungOpen] = useState(false);
 
@@ -280,6 +283,7 @@ export function AuftragTab({ recordId }: { recordId: string }) {
           setCriticalMissing(d?.criticalMissing ?? []);
           setOpenQuestions(d?.openCustomerQuestions ?? []);
           setLeadContext(d?.leadContext ?? null);
+          setLeistungsart(d?.kvHinweise?.leistungsart ?? undefined);
         }
       }
       if (objRes.ok) {
@@ -468,7 +472,7 @@ export function AuftragTab({ recordId }: { recordId: string }) {
                 Vorausgefüllt aus dem Lead — Preise im Modal nachtragen
               </span>
             </div>
-            <DealDocumentActions deal={dealData} />
+            <DealDocumentActions deal={leistungsart ? { ...dealData, serviceType: leistungsart } : dealData} />
             {anweisungCtx && (
               <div className="border-t border-border pt-3">
                 <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">

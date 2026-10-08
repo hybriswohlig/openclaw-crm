@@ -322,6 +322,8 @@ export interface WiderrufKontext {
   emailMaskiert: string | null;
   /** WhatsApp-Chat mit dem Kunden vorhanden. */
   whatsapp: boolean;
+  /** Zeitpunkt der Annahme, die widerrufen würde (ISO); geht im Widerruf mit. */
+  annahmeAm: string | null;
   /** Eingegangener Widerruf, solange danach keine neue Annahme kam. */
   eingegangen: { at: string; vertrag: string } | null;
 }
