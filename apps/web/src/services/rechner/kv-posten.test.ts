@@ -110,3 +110,29 @@ describe("Hilfen", () => {
     expect(strasseAus(null)).toBeNull();
   });
 });
+
+describe("kvBausteine: Cent-genau und ohne unsinnige Sätze (Review Codex 2026-10-08)", () => {
+  const summe = (posten: Array<{ unitRate: number; quantity: number }>) =>
+    posten.reduce((s, p) => s + Math.round(p.unitRate * 100) * p.quantity, 0) / 100;
+  it("Sätze mit Bruchteilen von Cent: Posten ergeben trotzdem genau den Festpreis", () => {
+    const krumm = {
+      ...ergebnis,
+      preis: { ...ergebnis.preis, posten: ergebnis.preis.posten.map((p) => (p.bezeichnung === "Halteverbotszone" ? { ...p, satz: 150.005 } : p)) },
+    };
+    const kv = kvBausteine({ festpreis: 1000, ergebnis: krumm, anfrage });
+    expect(summe(kv.posten)).toBe(1000);
+    expect(kv.posten.every((p) => Number.isInteger(Math.round(p.unitRate * 100)) && Math.abs(p.unitRate * 100 - Math.round(p.unitRate * 100)) < 1e-9)).toBe(true);
+  });
+  it("negativer oder leerer Halteverbotssatz: kein eigener Posten, Kern trägt den Festpreis", () => {
+    for (const satz of [-150, 0]) {
+      const kaputt = {
+        ...ergebnis,
+        preis: { ...ergebnis.preis, posten: ergebnis.preis.posten.map((p) => (p.bezeichnung === "Halteverbotszone" ? { ...p, satz } : p)) },
+      };
+      const kv = kvBausteine({ festpreis: 1730, ergebnis: kaputt, anfrage });
+      expect(kv.posten.every((p) => p.unitRate > 0)).toBe(true);
+      expect(kv.hebel.some((h) => h.art === "halteverbot")).toBe(false);
+      expect(summe(kv.posten)).toBe(1730);
+    }
+  });
+});

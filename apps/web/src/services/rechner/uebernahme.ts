@@ -43,7 +43,7 @@ function text(anfrage: RechnerAnfrage, feld: string): string | null {
 
 export function angebotsUebernahme(
   kalkulation: { result: RechnerErgebnis | null; request: RechnerAnfrage } | null,
-  vorhandenesAngebot: { notes: string | null; isVariable: boolean } | null,
+  vorhandenesAngebot: { notes: string | null; isVariable: boolean; validUntil?: string | null } | null,
   opts: {
     bestaetigtSpanne?: boolean;
     margeProzent?: number | null;
@@ -107,9 +107,16 @@ export function angebotsUebernahme(
   ) {
     return { ok: false, fehler: `Preis liegt unter der Mindestmarge von ${MARGE_MIN_PROZENT} %.` };
   }
+  if (!(kv.summe > 0)) return { ok: false, fehler: "Ungültiger Preis." };
   preis = kv.summe;
   const jetzt = opts.jetzt ?? new Date();
-  const gueltig = kvGueltigBis(heuteBerlin(jetzt), kalkulation.request.umzugsdatum);
+  const heute = heuteBerlin(jetzt);
+  // Eine noch gültige Frist bleibt (z. B. von Hand verlängert); neu nur ohne oder nach Ablauf.
+  const vorhandeneFrist = vorhandenesAngebot?.validUntil ?? null;
+  const gueltig =
+    vorhandeneFrist && vorhandeneFrist >= heute
+      ? { datum: vorhandeneFrist, hinweis: null }
+      : kvGueltigBis(heute, kalkulation.request.umzugsdatum);
 
   const station = ergebnis.mietstation;
   const hinweisTeile = [
@@ -137,7 +144,8 @@ export function angebotsUebernahme(
         unitRate: p.unitRate.toFixed(2),
         sortOrder: i,
       })),
-      documentDetails: { serviceType: "move", services: kv.leistungen, validUntil: gueltig.datum },
+      // Ohne serviceType: die Auftragsart steuert quotations.service_type (Küche bleibt Küche).
+      documentDetails: { services: kv.leistungen, validUntil: gueltig.datum },
       validUntil: gueltig.datum,
       isVariable: false,
       notes: vorhandenesAngebot?.notes ?? null,

@@ -40,7 +40,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rec
   const vorhanden = await getQuotation(recordId);
   const uebernahme = angebotsUebernahme(
     eigene,
-    vorhanden ? { notes: vorhanden.notes, isVariable: vorhanden.isVariable } : null,
+    vorhanden ? { notes: vorhanden.notes, isVariable: vorhanden.isVariable, validUntil: vorhanden.validUntil } : null,
     { bestaetigtSpanne: body.bestaetigtSpanne === true, margeProzent, uebernommenVon }
   );
   if (!uebernahme.ok) return badRequest(uebernahme.fehler);

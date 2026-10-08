@@ -53,6 +53,9 @@ const HALTEVERBOT_STANDARD = 150;
 const KERN_MIN_ANTEIL = 0.5;
 
 const auf10 = (n: number) => Math.ceil(n / 10) * 10;
+/** Auf ganze Cent; Posten werden mit zwei Nachkommastellen gespeichert. */
+const cent = (n: number) => Math.round(n * 100) / 100;
+const inCent = (n: number) => Math.round(n * 100);
 
 export function aufzaehlen(teile: readonly string[]): string {
   if (teile.length <= 1) return teile.join("");
@@ -117,7 +120,7 @@ export function kvBausteine(input: {
       posten: {
         description: `Halteverbotszone inkl. Beantragung und Schildern (${aufzaehlen(zonen)})`,
         quantity: zonen.length,
-        unitRate: satz,
+        unitRate: cent(satz),
       },
     });
   }
@@ -136,6 +139,13 @@ export function kvBausteine(input: {
     });
   }
 
+  // Ein Hebel ohne sinnvollen Satz (0, negativ, kaputt) wird kein eigener Posten:
+  // er bleibt im Kern, sonst verschöbe er die Summe im KV.
+  for (let i = kandidaten.length - 1; i >= 0; i--) {
+    const r = kandidaten[i].posten.unitRate;
+    if (!Number.isFinite(r) || r <= 0) kandidaten.splice(i, 1);
+  }
+
   const weg = (art: HebelArt) => (art === "montage" && opt.ohneMontage) || (art === "halteverbot" && opt.ohneHalteverbot);
   // Kosten, die wirklich wegfallen: Zonen zum Kostensatz, Montagezeit zum internen Stundensatz.
   const kostenPosten = e.kosten?.posten ?? [];
@@ -148,9 +158,10 @@ export function kvBausteine(input: {
       : 0);
   const betrag = (p: KvPosten) => p.unitRate * p.quantity;
   const abzug = input.festpreisIstEndpreis ? 0 : kandidaten.filter((k) => weg(k.art)).reduce((s, k) => s + betrag(k.posten), 0);
-  const summe = input.festpreis - abzug;
+  const summe = cent(input.festpreis - abzug);
   let hebel = kandidaten.filter((k) => !weg(k.art));
-  let kern = summe - hebel.reduce((s, k) => s + betrag(k.posten), 0);
+  // Kern als Rest in ganzen Cent: so ergeben die gespeicherten Posten genau den Festpreis.
+  let kern = (inCent(summe) - hebel.reduce((s, k) => s + inCent(k.posten.unitRate) * k.posten.quantity, 0)) / 100;
 
   // ── Kernposten ──
   const option = e.fahrzeugoptionen?.find((o) => o.id === e.empfehlungOptionId) ?? null;

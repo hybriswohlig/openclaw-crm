@@ -191,3 +191,28 @@ describe("angebotsUebernahme für den KV", () => {
     expect(angebotsUebernahme({ result: mitHebeln, request: req }, null, { endpreis: 1200, jetzt })).toEqual({ ok: false, fehler: "Preis liegt unter der Mindestmarge von 30 %." });
   });
 });
+
+describe("angebotsUebernahme: Review Codex 2026-10-08", () => {
+  const ergebnis: RechnerErgebnis = {
+    preis: { festpreis: 1730, selbstkosten: 1100, rundungEur: 10, posten: [{ bezeichnung: "Halteverbotszone", menge: 2, einheit: "Stück", satz: 150, betrag: 300 }] },
+    kosten: { selbstkosten: 1100, posten: [] },
+    zeiten: {},
+    schaetzung: null,
+  };
+  const req = { von_adresse: "Lerchenstraße 78, 70176 Stuttgart", von_halteverbot: "on", umzugsdatum: "2026-12-01" };
+  const jetzt = new Date("2026-10-08T10:00:00Z");
+
+  it("setzt keine Auftragsart: die steuert quotations.service_type (Küche bleibt Küche)", () => {
+    const r = angebotsUebernahme({ result: ergebnis, request: req }, null, { jetzt });
+    expect(r.ok && r.eingabe.documentDetails).not.toHaveProperty("serviceType");
+  });
+  it("noch gültige, vorhandene Gültigkeit bleibt (z. B. von Hand verlängert)", () => {
+    const r = angebotsUebernahme({ result: ergebnis, request: req }, { notes: null, isVariable: false, validUntil: "2026-11-20" }, { jetzt });
+    expect(r.ok && r.eingabe.validUntil).toBe("2026-11-20");
+    expect(r.ok && r.eingabe.documentDetails.validUntil).toBe("2026-11-20");
+  });
+  it("abgelaufene Gültigkeit wird neu gesetzt (7 Tage)", () => {
+    const r = angebotsUebernahme({ result: ergebnis, request: req }, { notes: null, isVariable: false, validUntil: "2026-10-01" }, { jetzt });
+    expect(r.ok && r.eingabe.validUntil).toBe("2026-10-15");
+  });
+});
