@@ -108,6 +108,10 @@ describe("firmaKontakt", () => {
   it("Kottke hat eine E-Mail für Widerruf und Impressum (§ 5 DDG)", () => {
     expect(firmaKontakt("kottke").email).toBe("kontakt@kottke-umzuege.de");
   });
+  it("Ceylan hat eine Telefonnummer (Gestaltungshinweis 2 der Muster-Belehrung)", () => {
+    expect(firmaKontakt("ceylan").telefon).toBe("+49 156 78305579");
+    expect(widerrufsbelehrung(firmaKontakt("ceylan")).absaetze.join(" ")).toContain("Telefon +49 156 78305579");
+  });
 });
 
 describe("Fix-Durchgang: 14-Tage-Grenze mit Puffer", () => {
