@@ -5,7 +5,7 @@
  * überträgt sie per setPaintProperty, die Karte bleibt bestehen.
  */
 import type { LayerProps } from "@vis.gl/react-maplibre";
-import type { ExpressionSpecification, StyleSpecification } from "maplibre-gl";
+import type { ExpressionSpecification, StyleSpecification, VariableAnchorOffsetCollectionSpecification } from "maplibre-gl";
 import { BRETT_FARBEN, STATUS_STIL, WARTET_FARBE, type Thema } from "@/lib/lagekarte/farben";
 import { KREIS_BASIS_M, KREIS_STUFE_M, KREIS_STUFEN_MAX } from "./geojson";
 import type { Ansicht } from "./kamera";
@@ -87,6 +87,23 @@ const SOCKEL_NAH: ExpressionSpecification = ["*", KREIS_FAKTOR_NAH, ["get", "bas
 
 type Ebene = LayerProps & { id: string };
 
+/** Kandidaten für die Kreisnamen: Anker plus Versatz in em (positiv = rechts bzw. unten). */
+const NAMEN_ANKER: VariableAnchorOffsetCollectionSpecification = [
+  "center", [0, 0],
+  "top", [0, 1.1],
+  "bottom", [0, -1.1],
+  "left", [1.2, 0],
+  "right", [-1.2, 0],
+  "top-left", [0.9, 0.9],
+  "top-right", [-0.9, 0.9],
+  "bottom-left", [0.9, -0.9],
+  "bottom-right", [-0.9, -0.9],
+  "top", [0, 2.4],
+  "bottom", [0, -2.4],
+  "left", [2.6, 0],
+  "right", [-2.6, 0],
+];
+
 /** Alle Ebenen in Zeichenreihenfolge, gruppiert nach Quelle (Quelle setzt <Source>). */
 export function ebenen(thema: Thema, ansicht: Ansicht) {
   const f = BRETT_FARBEN[thema];
@@ -147,6 +164,13 @@ export function ebenen(thema: Thema, ansicht: Ansicht) {
         paint: { "line-color": f.landLinie, "line-width": 2 },
       },
     ] satisfies Ebene[],
+    /**
+     * Kreisnamen (Kontrolle M11): Die Ebene liegt ÜBER den Figuren (spielbrett.tsx rendert die
+     * Quelle nach Aufträgen und Säulen). So platziert MapLibre sie vor Icons und Cluster-Zahlen
+     * (Icons blockieren sie nicht mehr) und zeichnet sie darüber, mit Halo lesbar. Nur die
+     * unsichtbare Cluster-Sperre darüber zählt vorher: der Name weicht einem Cluster-Stein seitlich
+     * aus (variable Anker), statt dessen Zahl zu überdecken.
+     */
     kreisPunkte: [
       {
         id: "kreis-namen",
@@ -159,14 +183,54 @@ export function ebenen(thema: Thema, ansicht: Ansicht) {
           "text-transform": "none",
           "text-letter-spacing": 0.04,
           "text-max-width": 8,
-          "text-padding": 4,
+          "text-padding": 2,
+          // Erst mittig, dann in zwei Abständen rundum (Einheit em): findet auch zwischen dicht
+          // stehenden Cluster-Steinen (Stuttgart) einen freien Platz.
+          "text-variable-anchor-offset": NAMEN_ANKER,
+          "text-justify": "auto",
         },
         paint: {
           "text-color": f.beschriftung,
           "text-halo-color": f.beschriftungHalo,
-          "text-halo-width": 1.4,
-          "text-halo-blur": 0.2,
+          "text-halo-width": 2,
+          "text-halo-blur": 0.3,
         },
+      },
+    ] satisfies Ebene[],
+    /**
+     * Unsichtbare Sperrfläche je Cluster-Stein (Quelle „leads“, liegt über den Kreisnamen und wird
+     * daher vor ihnen platziert): ein Glyph etwa so groß wie der Stein, immer platziert, nie
+     * sichtbar. Cluster-Zahl und Stein selbst blockieren nichts (ignore-placement bzw. Kreis-Ebene).
+     */
+    clusterSperre: [
+      {
+        id: "cluster-sperre",
+        type: "symbol",
+        source: "leads",
+        filter: IST_CLUSTER,
+        layout: {
+          // „W“: Kasten etwa 0,9 × 1,2 Schriftgröße, so etwa der Stein-Durchmesser (28 bis 44 px).
+          "text-field": "W",
+          "text-font": SCHRIFT,
+          "text-size": ["step", ["get", "point_count"], 24, 10, 27, 25, 32, 50, 37],
+          "text-padding": 0,
+          "text-allow-overlap": true,
+        },
+        paint: { "text-opacity": 0 },
+      },
+      {
+        // Dasselbe für die Auftrags-Sechsecke (stehen nie im Cluster): Namen weichen ihnen aus.
+        id: "auftrag-sperre",
+        type: "symbol",
+        source: "auftraege",
+        layout: {
+          "text-field": "W",
+          "text-font": SCHRIFT,
+          "text-size": 20,
+          "text-padding": 0,
+          "text-allow-overlap": true,
+        },
+        paint: { "text-opacity": 0 },
       },
     ] satisfies Ebene[],
     auswahl: [

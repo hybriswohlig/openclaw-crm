@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { beispielAntwort } from "@/lib/lagekarte/beispiel-daten";
 import {
   auswahlVersatz,
+  DIORAMA,
+  DIORAMA_MS,
+  dioramaKamera,
   INTRO_FAHRT_MS,
   INTRO_VERZOEGERUNG_MS,
   KERN_MAX_ZOOM,
@@ -75,5 +79,33 @@ describe("auswahlVersatz", () => {
   it("kein freier Platz zwischen oben und unten: Mitte über der unteren Abdeckung", () => {
     const [, y] = auswahlVersatz(390, 531, { top: 104, bottom: 500, left: 12, right: 12 });
     expect(y).toBeCloseTo(31 / 2 - 265.5, 5);
+  });
+});
+
+describe("Diorama (Ruling 16)", () => {
+  const verdeckt: Rand = { top: 140, bottom: 160, left: 364, right: 12 };
+
+  it("fährt beim Umschalten auf 3D in eine Übersicht: Zoom ~8,3, Neigung ~52°, Drehung ~-18°, höchstens 1,2 s", () => {
+    expect(DIORAMA.zoom).toBeCloseTo(8.3, 1);
+    expect(DIORAMA.pitch).toBeCloseTo(52, 0);
+    expect(DIORAMA.bearing).toBeCloseTo(-18, 0);
+    expect(DIORAMA_MS).toBeLessThanOrEqual(1200);
+  });
+
+  it("zielt auf die Mitte des Kerngebiets und in die Mitte der freien Fläche", () => {
+    const leads = beispielAntwort(new Date("2026-10-08T07:30:00+02:00")).leads;
+    const k = dioramaKamera(leads, 1440, 900, verdeckt);
+    // Kerngebiet der Beispieldaten liegt um Stuttgart/Böblingen.
+    expect(k.center[0]).toBeGreaterThan(8.6);
+    expect(k.center[0]).toBeLessThan(9.4);
+    expect(k.center[1]).toBeGreaterThan(48.4);
+    expect(k.center[1]).toBeLessThan(49.0);
+    expect(k).toMatchObject({ zoom: DIORAMA.zoom, pitch: DIORAMA.pitch, bearing: DIORAMA.bearing });
+    expect(k.offset).toEqual(auswahlVersatz(1440, 900, verdeckt));
+  });
+
+  it("ohne verortete Leads: Mitte von ganz BW", () => {
+    const k = dioramaKamera([], 1440, 900, verdeckt);
+    expect(k.center).toEqual([9, 48.65]);
   });
 });

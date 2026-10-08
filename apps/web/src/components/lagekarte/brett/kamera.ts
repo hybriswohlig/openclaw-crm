@@ -46,9 +46,17 @@ export function startModus(z: { reduziert: boolean; schonGeflogen: boolean }): "
   return z.reduziert || z.schonGeflogen ? "direkt" : "flug";
 }
 
+/**
+ * Ruling 16: 3D ist ein Diorama. Beim Umschalten fährt die Kamera (höchstens 1,2 s, bei
+ * reduzierter Bewegung sofort) auf eine Übersicht des Kerngebiets, schräg und leicht gedreht,
+ * sodass mehrere Auftrags-Türme auf ihren angehobenen Kreisen gleichzeitig zu sehen sind.
+ */
+export const DIORAMA = { zoom: 8.3, pitch: 52, bearing: -18 } as const;
+export const DIORAMA_MS = 1100;
+
 export const NEIGUNG: Record<Ansicht, { pitch: number; bearing: number }> = {
   "2d": { pitch: 0, bearing: 0 },
-  "3d": { pitch: 48, bearing: -12 },
+  "3d": { pitch: DIORAMA.pitch, bearing: DIORAMA.bearing },
 };
 
 /** Ab so vielen BW-Leads werden je Achse die äußeren 10 % als Ausreißer ignoriert. */
@@ -203,8 +211,38 @@ export function fahreKamera(
   }
 }
 
+/** Diorama-Kamera: Mitte des Kerngebiets, in der Mitte der freien Fläche (Ruling 16). */
+export function dioramaKamera(
+  leads: LeadPunkt[],
+  breite: number,
+  hoehe: number,
+  verdeckt: Rand,
+): { center: [number, number]; zoom: number; pitch: number; bearing: number; offset: [number, number] } {
+  const [[w, s], [o, n]] = kernGrenzen(leads);
+  return {
+    center: [(w + o) / 2, (s + n) / 2],
+    zoom: DIORAMA.zoom,
+    pitch: DIORAMA.pitch,
+    bearing: DIORAMA.bearing,
+    offset: auswahlVersatz(breite, hoehe, verdeckt),
+  };
+}
+
 /** 2D/3D-Wechsel: Neigung und Drehung weich (sofort = ohne Animation, z. B. beim Aufbau). */
 export function setzeNeigung(map: MaplibreMap, ansicht: Ansicht, sofort = false): void {
   if (sofort) map.jumpTo(NEIGUNG[ansicht]);
   else map.easeTo({ ...NEIGUNG[ansicht], duration: NEIGUNG_MS });
+}
+
+/**
+ * Umschalten durch den Nutzer: 3D fährt ins Diorama, 2D legt das Brett wieder flach (Mitte und
+ * Zoom bleiben). Ohne `essential`: bei prefers-reduced-motion springt MapLibre sofort.
+ */
+export function wechsleAnsicht(map: MaplibreMap, ansicht: Ansicht, leads: LeadPunkt[], verdeckt: Rand = standardVerdeckt()): void {
+  if (ansicht === "2d") {
+    setzeNeigung(map, "2d");
+    return;
+  }
+  const c = map.getContainer();
+  map.flyTo({ ...dioramaKamera(leads, c.clientWidth, c.clientHeight, verdeckt), duration: DIORAMA_MS });
 }

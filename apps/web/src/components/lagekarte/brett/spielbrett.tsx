@@ -24,12 +24,11 @@ import {
   type ViewStateChangeEvent,
 } from "@vis.gl/react-maplibre";
 import { Component, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { formatDistanceToNowStrict } from "date-fns";
-import { de } from "date-fns/locale";
 import { Clock, X } from "lucide-react";
 import { StatusForm } from "@/components/lagekarte/status-form";
 import { BRETT_FARBEN, STATUS_STIL, WARTET_LABEL, type Thema } from "@/lib/lagekarte/farben";
 import type { Firma, KartenOrt, LeadPunkt } from "@/lib/lagekarte/typen";
+import { warteText } from "@/lib/lagekarte/warte-text";
 import { auftraegeZuGeoJson, auftragsSaeulen, auswahlLinie, auswahlZuGeoJson, kreisAktivitaet, leadsZuGeoJson } from "./geojson";
 import { registriereIcons } from "./icons";
 import {
@@ -44,6 +43,7 @@ import {
   standardVerdeckt,
   START_ANSICHT,
   startModus,
+  wechsleAnsicht,
   type Ansicht,
   type KameraZiel,
   type Rand,
@@ -259,14 +259,6 @@ function ortText(o: KartenOrt): string {
   return o.quelle === "zieladresse" ? `${text} (Zieladresse)` : text;
 }
 
-/** „seit 3 Stunden“: date-fns liefert mit addSuffix den Dativ („vor 3 Tagen“). */
-function seitText(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  if (d.getTime() > Date.now() - 60_000) return "seit gerade eben";
-  return formatDistanceToNowStrict(d, { locale: de, addSuffix: true }).replace(/^vor /, "seit ");
-}
-
 const FOKUS =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lk-akzent)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--lk-panel)]";
 
@@ -299,7 +291,7 @@ function Tooltip({ lead, x, y, breite, thema }: { lead: LeadPunkt; x: number; y:
         <div className="mt-1 flex items-center gap-1 text-[12px] leading-snug font-medium" style={{ color: "var(--lk-wartet)" }}>
           <Clock className="size-3.5 shrink-0" aria-hidden="true" />
           <span>
-            {WARTET_LABEL[lead.wartet.art]}, {seitText(lead.wartet.seit)}
+            {WARTET_LABEL[lead.wartet.art]}, {warteText(lead.wartet.seit, new Date())}
           </span>
         </div>
       )}
@@ -659,12 +651,16 @@ export default function Spielbrett({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [geladen, aktivitaet]);
 
-  // 2D/3D: Neigung weich umstellen (nicht beim Aufbau, das erledigt beimLaden).
+  // 2D/3D (nicht beim Aufbau, das erledigt beimLaden): 3D fährt ins Diorama, 2D wieder flach (Ruling 16).
   useEffect(() => {
     const map = karte();
     if (!geladen || !map || letzteAnsicht.current === ansicht) return;
     letzteAnsicht.current = ansicht;
-    setzeNeigung(map, ansicht);
+    // Der Nutzer schaltet: ein noch wartender Startflug entfällt.
+    startOffen.current = false;
+    stoppeIntro();
+    wechsleAnsicht(map, ansicht, aktuell.current.leads, randJetzt());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [geladen, ansicht]);
 
   // Kamera-Befehle: nur eine Änderung von kamera.n löst eine Fahrt aus (der Startflug entfällt dann).
@@ -750,11 +746,6 @@ export default function Spielbrett({
                   <Layer key={l.id} {...l} />
                 ))}
               </Source>
-              <Source id="kreis-punkte" type="geojson" data="/geo/bw-kreise-punkte.geojson">
-                {schichten.kreisPunkte.map((l) => (
-                  <Layer key={l.id} {...l} />
-                ))}
-              </Source>
               <Source id="auswahl-linie" type="geojson" data={linieGeo}>
                 {schichten.auswahl.map((l) => (
                   <Layer key={l.id} {...l} />
@@ -783,6 +774,16 @@ export default function Spielbrett({
                   <Layer key={l.id} {...l} />
                 ))}
               </Source>
+              {/* Kreisnamen über den Figuren (Platzierung vor Icons, siehe stil.ts), darüber die
+                  unsichtbare Cluster-Sperre (wird vor den Namen platziert). */}
+              <Source id="kreis-punkte" type="geojson" data="/geo/bw-kreise-punkte.geojson">
+                {schichten.kreisPunkte.map((l) => (
+                  <Layer key={l.id} {...l} />
+                ))}
+              </Source>
+              {schichten.clusterSperre.map((l) => (
+                <Layer key={l.id} {...l} />
+              ))}
               {/* Zuletzt: der gewählte Lead liegt über allen Figuren und Clustern. */}
               <Source id="auswahl-lead" type="geojson" data={auswahlGeo}>
                 {schichten.auswahlLead.map((l) => (
