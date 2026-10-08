@@ -15,6 +15,8 @@ import { getQuotation } from "@/services/quotations";
 import { quotations, type QuotationDocumentDetails } from "@/db/schema/quotations";
 import { serviceTypeZuSpeichern } from "@/lib/portal-dokumente";
 import { aktivBedingung } from "./kva-annahme";
+import { applyDocumentCopy } from "./document-copy";
+import { loadDealRenderContext } from "./document-deal-facts";
 
 type ServiceType = "move" | "kitchen_installation";
 type InventoryOwner = "company" | "customer" | "none";
@@ -296,5 +298,30 @@ export async function attachDocumentJobContext(
   next.document_details = details;
   next.service_type = serviceType;
   next._document_context = { paidCents, totalCents };
-  return next;
+
+  const render = await loadDealRenderContext(dealRecordId);
+  const totalEur = totalCents != null ? totalCents / 100 : null;
+  return applyDocumentCopy(next, {
+    serviceType,
+    showStandardInclusions: quotation?.showStandardInclusions,
+    summary: quotation?.summary,
+    notes: quotation?.notes,
+    depositEur:
+      quotation?.depositRequiredCents != null ? quotation.depositRequiredCents / 100 : null,
+    totalEur,
+    paidEur: paidCents / 100,
+    paymentMethod: quotation?.paymentMethodPreference,
+    lineItems: quotation?.lineItems.map((item) => ({
+      description: item.description,
+      quantity: item.quantity,
+      unitRate: Number(item.unitRate),
+      type: item.type,
+    })),
+    moveDate: render.moveDate,
+    fromAddress: render.fromAddress,
+    toAddress: render.toAddress,
+    toCity: render.toCity,
+    inventoryNotes: render.inventoryNotes,
+    party: render.party,
+  });
 }

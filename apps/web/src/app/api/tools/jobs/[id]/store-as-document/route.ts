@@ -44,9 +44,13 @@ export async function POST(
   const body = (await req.json()) as {
     dealRecordId?: string;
     documentType?: string;
+    dueDate?: string;
   };
 
   if (!body.dealRecordId) return badRequest("dealRecordId is required");
+  if (body.dueDate !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(body.dueDate)) {
+    return badRequest("dueDate must be YYYY-MM-DD");
+  }
 
   // 1) Pull result from FastAPI (outbound fetch — not a Vercel body limit).
   const upstream = await fetch(
@@ -105,9 +109,15 @@ export async function POST(
   // in one place.
   let dueDateSet: string | null = null;
   if (documentType === "invoice") {
-    const due = new Date();
-    due.setDate(due.getDate() + 7);
-    dueDateSet = due.toISOString().slice(0, 10); // YYYY-MM-DD
+    // Explicit due date (deposit before the job). Otherwise the team-facing
+    // default stays today + 7 days.
+    if (body.dueDate) {
+      dueDateSet = body.dueDate;
+    } else {
+      const due = new Date();
+      due.setDate(due.getDate() + 7);
+      dueDateSet = due.toISOString().slice(0, 10);
+    }
     const proto = req.headers.get("x-forwarded-proto") ?? "https";
     const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
     const authHeaders: Record<string, string> = {

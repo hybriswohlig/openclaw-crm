@@ -133,6 +133,34 @@ describe("POST /api/tools/jobs/[id]/store-as-document", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("stamps an explicit invoice due date instead of today+7", async () => {
+    const pdf = Buffer.from("%PDF-1.7\n", "binary");
+    fetchMock
+      .mockResolvedValueOnce(vpsPdfResponse(pdf, "RE-KO-20261007-GMB-2.pdf"))
+      .mockResolvedValueOnce(new Response("{}", { status: 200 }));
+
+    const res = await callStore({
+      dealRecordId: DEAL_ID,
+      documentType: "invoice",
+      dueDate: "2026-10-13",
+    });
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.rechnungFaelligAm).toBe("2026-10-13");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const patch = fetchMock.mock.calls[1][1] as RequestInit;
+    expect(JSON.parse(String(patch.body))).toEqual({
+      values: { rechnung_faellig_am: "2026-10-13" },
+    });
+  });
+
+  it("rejects a due date that is not YYYY-MM-DD before pulling the PDF", async () => {
+    const res = await callStore({ dealRecordId: DEAL_ID, dueDate: "13.10.2026" });
+    expect(res.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("passes through an explicit documentType and does not hop the PDF", async () => {
     const pdf = Buffer.from("%PDF-1.7\n", "binary");
     fetchMock.mockResolvedValueOnce(vpsPdfResponse(pdf, "custom.pdf"));

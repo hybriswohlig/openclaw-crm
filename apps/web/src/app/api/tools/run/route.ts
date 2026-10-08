@@ -198,5 +198,9 @@ export async function POST(req: NextRequest) {
       { status: upstream.status }
     );
   }
+  const copy = params.document_copy;
+  if (copy && data && typeof data === "object" && !Array.isArray(data)) {
+    return NextResponse.json({ ...data, document_copy: copy });
+  }
   return NextResponse.json(data);
 }
