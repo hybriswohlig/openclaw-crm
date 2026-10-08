@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SQL } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
-import { apiKeys, sessions, users, workspaceMembers, workspaces } from "@/db/schema";
+import { apiKeys, pushSubscriptions, sessions, users, workspaceMembers, workspaces } from "@/db/schema";
 
 // „Mitglied entfernen“ löschte nur die Mitgliedschaft. getAuthContext legte
 // freigegebene Benutzer bei der nächsten Anfrage wieder als Mitglied an, der
 // Zugang blieb also. Diese Tests prüfen gegen eine aufzeichnende Fake-
-// Transaktion, dass removeMember den Zugang wirklich entzieht und die Sperren
+// Transaktion, dass removeMember den Zugang wirklich entzieht (auch die
+// Push-Abos: Pushes zeigen Kundennamen) und die Sperren
 // für die eigene Person, den letzten Admin und den letzten App-Admin greifen.
 // Den letzten Admin zum Mitglied machen darf auch updateMemberRole nicht.
 // Gesperrte Konten lassen sich unter Benutzer-Freigaben wieder freigeben
@@ -125,7 +126,7 @@ function mitglied(over: Partial<{ id: string; userId: string; role: "admin" | "m
 
 /** Prüft, dass genau dieser Benutzer gesperrt wurde, und nur er. */
 function erwarteZugangEntzogen(schreibvorgaenge: Schreibvorgang[], userId: string) {
-  expect(schreibvorgaenge).toHaveLength(4);
+  expect(schreibvorgaenge).toHaveLength(5);
 
   const freigabe = schreibvorgaenge.find((s) => s.tabelle === users);
   expect(freigabe?.art).toBe("update");
@@ -157,6 +158,14 @@ function erwarteZugangEntzogen(schreibvorgaenge: Schreibvorgang[], userId: strin
     params: [userId],
   });
 
+  // Seine Geräte bekommen keine Pushes mehr (Kundennamen, Nachrichtenvorschau).
+  const pushAbos = schreibvorgaenge.find((s) => s.tabelle === pushSubscriptions);
+  expect(pushAbos?.art).toBe("delete");
+  expect(alsSql(pushAbos!.bedingung)).toEqual({
+    sql: '"push_subscriptions"."user_id" = $1',
+    params: [userId],
+  });
+
   const mitgliedschaften = schreibvorgaenge.find((s) => s.tabelle === workspaceMembers);
   expect(mitgliedschaften?.art).toBe("delete");
   expect(alsSql(mitgliedschaften!.bedingung)).toEqual({
@@ -170,7 +179,7 @@ beforeEach(() => {
 });
 
 describe("removeMember", () => {
-  it("entzieht einem Mitglied den Zugang ganz: Freigabe, Sitzungen, API-Schlüssel, Mitgliedschaft", async () => {
+  it("entzieht einem Mitglied den Zugang ganz: Freigabe, Sitzungen, API-Schlüssel, Push-Abos, Mitgliedschaft", async () => {
     const zeile = mitglied();
     const { tx, schreibvorgaenge, lesebedingungen } = fakeTx([[zeile]]);
     mitTransaktion(tx);
@@ -480,6 +489,22 @@ describe("revokeUserAccess", () => {
     const schluessel = schreibvorgaenge.find((s) => s.tabelle === apiKeys);
     expect(freigabe?.art === "update" && freigabe.werte.updatedAt).toBe(jetzt);
     expect(schluessel?.art === "update" && schluessel.werte.revokedAt).toBe(jetzt);
+  });
+
+  it("löscht auch alle Push-Abos des Benutzers, über die übergebene Transaktion", async () => {
+    const { tx, schreibvorgaenge } = fakeTx([]);
+
+    await revokeUserAccess(tx as unknown as Parameters<typeof revokeUserAccess>[0], "usr_mia");
+
+    // Sonst kämen auf seinen Geräten weiter Kundennamen und Vorschauen an. Die
+    // Fake-db kann gar nicht löschen: Der Eintrag stammt aus der Transaktion.
+    const pushAbos = schreibvorgaenge.filter((s) => s.tabelle === pushSubscriptions);
+    expect(pushAbos).toHaveLength(1);
+    expect(pushAbos[0].art).toBe("delete");
+    expect(alsSql(pushAbos[0].bedingung)).toEqual({
+      sql: '"push_subscriptions"."user_id" = $1',
+      params: ["usr_mia"],
+    });
   });
 });
 

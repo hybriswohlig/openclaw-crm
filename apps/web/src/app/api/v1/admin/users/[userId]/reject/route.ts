@@ -30,7 +30,7 @@ export async function POST(
     return notFound("User not found");
   }
 
-  // Gleicher Ablauf wie „Mitglied entfernen“: Freigabe, Sitzungen,
+  // Gleicher Ablauf wie „Mitglied entfernen“: Freigabe, Sitzungen, Push-Abos,
   // Mitgliedschaften und API-Schlüssel in einem Rutsch.
   await db.transaction((tx) => revokeUserAccess(tx, userId));
 

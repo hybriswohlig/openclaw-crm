@@ -5,6 +5,7 @@ import {
   users,
   sessions,
   apiKeys,
+  pushSubscriptions,
   objects,
   attributes,
   statuses,
@@ -365,10 +366,12 @@ export async function updateMemberPermissions(
 
 /**
  * Nimmt einem Benutzer den Zugang zum CRM, wie beim Ablehnen einer
- * Registrierung: Freigabe auf „rejected“, Sitzungen und Mitgliedschaften
- * gelöscht, offene API-Schlüssel gesperrt. Die Freigabe ist der entscheidende
- * Teil: getAuthContext legt freigegebene Benutzer ohne Mitgliedschaft bei der
- * nächsten Anfrage automatisch wieder als Mitglied an (ensureUserWorkspaceAccess).
+ * Registrierung: Freigabe auf „rejected“, Sitzungen, Push-Abos und
+ * Mitgliedschaften gelöscht, offene API-Schlüssel gesperrt. Die Freigabe ist
+ * der entscheidende Teil: getAuthContext legt freigegebene Benutzer ohne
+ * Mitgliedschaft bei der nächsten Anfrage automatisch wieder als Mitglied an
+ * (ensureUserWorkspaceAccess). Die Push-Abos gehören dazu, weil Pushes
+ * Kundennamen und Nachrichtenvorschauen zeigen.
  */
 export async function revokeUserAccess(
   executor: DbExecutor,
@@ -384,6 +387,9 @@ export async function revokeUserAccess(
     .update(apiKeys)
     .set({ revokedAt: now })
     .where(and(eq(apiKeys.userId, userId), isNull(apiKeys.revokedAt)));
+  await executor
+    .delete(pushSubscriptions)
+    .where(eq(pushSubscriptions.userId, userId));
   await executor
     .delete(workspaceMembers)
     .where(eq(workspaceMembers.userId, userId));
