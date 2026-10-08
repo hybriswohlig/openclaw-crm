@@ -385,7 +385,9 @@ export const STANDARD_OBJECTS: StandardObject[] = [
       { slug: "worker_count", title: "Anzahl Arbeiter", type: "number", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       { slug: "time_window_start", title: "Start (geplant)", type: "timestamp", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       { slug: "time_window_end", title: "Ende (geplant)", type: "timestamp", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
-      { slug: "parking_halteverbot_needed", title: "Halteverbot benötigt", type: "checkbox", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      // parking_halteverbot_needed ist das Halteverbot am Abholort (Slug historisch).
+      { slug: "parking_halteverbot_needed", title: "Halteverbot Abholung", type: "checkbox", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      { slug: "parking_halteverbot_to", title: "Halteverbot Ziel", type: "checkbox", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       { slug: "walking_distance_from_m", title: "Laufweg Abholung (m)", type: "number", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       { slug: "walking_distance_to_m", title: "Laufweg Ziel (m)", type: "number", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       {

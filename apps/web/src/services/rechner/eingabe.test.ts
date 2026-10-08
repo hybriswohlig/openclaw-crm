@@ -36,6 +36,14 @@ describe("rechnerAnfrageAus", () => {
     expect(rechnerAnfrageAus({ ...leer, von: "Filderstadt", treppenhausNach: "Wendeltreppe" }))
       .toMatchObject({ nach_treppenhaus: "wendel", nach_vorhanden: "on" });
   });
+  it("Halteverbot je Adresse: Abholung → von, Ziel → nach (Patrick wollte zwei Zonen)", () => {
+    expect(rechnerAnfrageAus({ ...leer, von: "Stuttgart", nach: "Stuttgart", halteverbot: true, halteverbotNach: true }))
+      .toMatchObject({ von_halteverbot: "on", nach_halteverbot: "on" });
+    const nurZiel = rechnerAnfrageAus({ ...leer, von: "Stuttgart", halteverbotNach: true });
+    expect(nurZiel).toMatchObject({ nach_halteverbot: "on", nach_vorhanden: "on" });
+    expect(nurZiel).not.toHaveProperty("von_halteverbot");
+    expect(rechnerAnfrageAus(leer)).not.toHaveProperty("nach_halteverbot");
+  });
   it("unbekannte Zugangsart setzt nichts", () => {
     const a = rechnerAnfrageAus({ ...leer, zugangVon: "irgendwas" });
     expect(a).not.toHaveProperty("von_aufzug");

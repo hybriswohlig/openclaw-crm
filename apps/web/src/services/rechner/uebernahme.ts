@@ -1,13 +1,18 @@
 /**
  * Übernahme einer Kalkulation ins Angebot ("In Angebot übernehmen"). Reine
- * Funktion: baut die Eingabe für upsertQuotation. Positionen (lineItems)
- * bleiben unangetastet; vorhandene Notizen werden ausdrücklich weitergegeben,
- * weil upsertQuotation fehlende Notizen sonst leert.
+ * Funktion: baut die Eingabe für upsertQuotation. Seit 2026-09-29 schreibt sie
+ * auch die Posten (Kern + Hebel, Summe = Festpreis), die Leistungen für den KV
+ * und die Gültigkeit: vorher stand im KV nur "Pauschale" und als Leistung nur
+ * der Transport, auch wenn Halteverbot und Montage eingerechnet waren.
+ * Vorhandene Notizen werden ausdrücklich weitergegeben, weil upsertQuotation
+ * fehlende Notizen sonst leert.
  */
-import type { CalculationAssumptions } from "@/db/schema/quotations";
+import type { CalculationAssumptions, QuotationDocumentDetails } from "@/db/schema/quotations";
 import type { RechnerErgebnis } from "./client";
 import type { RechnerAnfrage } from "./eingabe";
+import { kvBausteine, kvGueltigBis, type KvOptionen } from "./kv-posten";
 import { MARGE_MAX_PROZENT, MARGE_MIN_PROZENT, preisBeiMarge } from "./marge";
+import { heuteBerlin } from "./quelle";
 
 const AUFZUG_TEXT: Record<string, string> = { keiner: "ohne Aufzug", klein: "kleiner Aufzug", gross: "großer Aufzug" };
 
@@ -19,7 +24,15 @@ export type UebernahmeErgebnis =
         isVariable: false;
         notes: string | null;
         calculationAssumptions: CalculationAssumptions;
+        lineItems: Array<{ type: "other"; description: string; quantity: number; unitRate: string; sortOrder: number }>;
+        documentDetails: QuotationDocumentDetails;
+        /** YYYY-MM-DD */
+        validUntil: string;
       };
+      /** Hinweis zur Gültigkeit (Umzug bald, Datum vorbei), sonst null */
+      gueltigkeitHinweis: string | null;
+      /** Möbel, die laut Kalkulation zerlegt werden, und wer das macht */
+      montage: { moebel: string[]; durchUns: boolean };
     }
   | { ok: false; fehler: string };
 
@@ -31,7 +44,16 @@ function text(anfrage: RechnerAnfrage, feld: string): string | null {
 export function angebotsUebernahme(
   kalkulation: { result: RechnerErgebnis | null; request: RechnerAnfrage } | null,
   vorhandenesAngebot: { notes: string | null; isVariable: boolean } | null,
-  opts: { bestaetigtSpanne?: boolean; margeProzent?: number | null; uebernommenVon?: "mensch" | "agent"; jetzt?: Date }
+  opts: {
+    bestaetigtSpanne?: boolean;
+    margeProzent?: number | null;
+    uebernommenVon?: "mensch" | "agent";
+    jetzt?: Date;
+    /** Vom Inhaber vorgegebener Endpreis (KV-Freigabe per WhatsApp), ersetzt Rechner- und Margenpreis */
+    endpreis?: number | null;
+    /** Hebel weglassen (KV-Freigabe "ohne montage" / "ohne halteverbot") */
+    optionen?: KvOptionen;
+  }
 ): UebernahmeErgebnis {
   const ergebnis = kalkulation?.result;
   if (!kalkulation || !ergebnis) return { ok: false, fehler: "Noch keine Kalkulation vorhanden." };
@@ -66,6 +88,29 @@ export function angebotsUebernahme(
   }
   const margeGewaehlt = m ?? (spanne ? spanne.margeProzent ?? null : null) ?? p?.margeWirksamProzent ?? null;
 
+  const endpreis = opts.endpreis ?? null;
+  if (endpreis !== null && (!Number.isFinite(endpreis) || endpreis <= 0)) return { ok: false, fehler: "Ungültiger Preis." };
+  const kv = kvBausteine({
+    festpreis: endpreis ?? preis,
+    ergebnis,
+    anfrage: kalkulation.request,
+    optionen: opts.optionen,
+    festpreisIstEndpreis: endpreis !== null,
+  });
+  // Nie unter der Mindestmarge, auch nicht mit Vorgabe oder "ohne …": gemessen an den
+  // Selbstkosten ohne die weggelassenen Leistungen (nicht am gesenkten Verkaufspreis).
+  if (
+    selbstkosten != null &&
+    selbstkosten > 0 &&
+    p?.rundungEur != null &&
+    kv.summe < preisBeiMarge(Math.max(0, selbstkosten - kv.entfalleneKosten), MARGE_MIN_PROZENT, p.rundungEur)
+  ) {
+    return { ok: false, fehler: `Preis liegt unter der Mindestmarge von ${MARGE_MIN_PROZENT} %.` };
+  }
+  preis = kv.summe;
+  const jetzt = opts.jetzt ?? new Date();
+  const gueltig = kvGueltigBis(heuteBerlin(jetzt), kalkulation.request.umzugsdatum);
+
   const station = ergebnis.mietstation;
   const hinweisTeile = [
     station ? `Mietstation ${station.name} (Anfahrt ${Math.round(station.anfahrtMin)} Min, Rückfahrt ${Math.round(station.rueckfahrtMin)} Min).` : null,
@@ -81,8 +126,19 @@ export function angebotsUebernahme(
 
   return {
     ok: true,
+    gueltigkeitHinweis: gueltig.hinweis,
+    montage: { moebel: kv.montageMoebel, durchUns: kv.montageDurchUns },
     eingabe: {
       fixedPrice: String(preis),
+      lineItems: kv.posten.map((p, i) => ({
+        type: "other" as const,
+        description: p.description,
+        quantity: p.quantity,
+        unitRate: p.unitRate.toFixed(2),
+        sortOrder: i,
+      })),
+      documentDetails: { serviceType: "move", services: kv.leistungen, validUntil: gueltig.datum },
+      validUntil: gueltig.datum,
       isVariable: false,
       notes: vorhandenesAngebot?.notes ?? null,
       calculationAssumptions: {
@@ -101,7 +157,7 @@ export function angebotsUebernahme(
         margeGewaehltProzent: margeGewaehlt,
         margeTatsaechlichProzent: preis && selbstkosten != null ? Math.round(((preis - selbstkosten) / preis) * 1000) / 10 : null,
         uebernommenVon: opts.uebernommenVon ?? "mensch",
-        uebernommenAm: (opts.jetzt ?? new Date()).toISOString(),
+        uebernommenAm: jetzt.toISOString(),
       },
     },
   };

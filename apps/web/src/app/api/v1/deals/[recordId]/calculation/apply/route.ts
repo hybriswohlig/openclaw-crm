@@ -13,7 +13,9 @@ import { angebotsUebernahme } from "@/services/rechner/uebernahme";
  * POST → übernimmt die aktuelle Kalkulation ins Angebot (Festpreis und
  * Kalkulationsannahmen). Bei einer Spanne nur mit { bestaetigtSpanne: true },
  * dann die Obergrenze. Optional { margeProzent } (30 bis 60): der Preis wird
- * serverseitig aus den gespeicherten Selbstkosten neu gerechnet. Positionen und Notizen des Angebots bleiben erhalten.
+ * serverseitig aus den gespeicherten Selbstkosten neu gerechnet. Seit 2026-10-08
+ * schreibt die Übernahme auch die Posten (Kern + Hebel, Summe = Festpreis), die
+ * Leistungen für den KV und die Gültigkeit. Notizen des Angebots bleiben erhalten.
  * Danach dieselben Schritte wie beim normalen Speichern des Angebots.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ recordId: string }> }) {
@@ -56,5 +58,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rec
   });
   await captureScopeSnapshot(ctx.workspaceId, recordId, "issue");
   await completeAgentPriceTasks(ctx.workspaceId, recordId);
-  return success(data);
+  // Hinweis zur Gültigkeit (Umzug bald, Datum vorbei) für die Kalkulationskarte.
+  return success({ ...data, gueltigkeitHinweis: uebernahme.gueltigkeitHinweis });
 }

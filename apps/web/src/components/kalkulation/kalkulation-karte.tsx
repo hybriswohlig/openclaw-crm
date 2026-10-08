@@ -93,7 +93,9 @@ export function KalkulationKarte({ recordId, onUebernommen }: { recordId: string
         body: JSON.stringify({ bestaetigtSpanne: spanne, ...(margeProzent !== null ? { margeProzent } : {}) }),
       });
       if (res.ok) {
-        toast.success("Festpreis und Annahmen ins Angebot übernommen");
+        const ok = (await res.json().catch(() => null)) as { data?: { gueltigkeitHinweis?: string | null } } | null;
+        toast.success("Festpreis, Posten und Leistungen ins Angebot übernommen");
+        if (ok?.data?.gueltigkeitHinweis) toast.warning(ok.data.gueltigkeitHinweis);
         onUebernommen?.();
       } else {
         const body = await res.json().catch(() => null);

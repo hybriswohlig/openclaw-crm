@@ -14,12 +14,14 @@ const festpreisErgebnis: RechnerErgebnis = {
 const anfrage = { von_etage: "3", von_aufzug: "keiner", nach_etage: "0", nach_aufzug: "klein" };
 
 describe("angebotsUebernahme", () => {
-  it("Festpreis wird übernommen, Notizen bleiben, Positionen werden nicht angefasst", () => {
+  it("Festpreis wird übernommen, Notizen bleiben, Posten ergeben genau den Festpreis (Stand 2026-09-29)", () => {
     const r = angebotsUebernahme({ result: festpreisErgebnis, request: anfrage }, { notes: "Klavier im Keller", isVariable: true }, {});
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.eingabe).toMatchObject({ fixedPrice: "1490", isVariable: false, notes: "Klavier im Keller" });
-    expect(r.eingabe).not.toHaveProperty("lineItems");
+    // Früher blieben alte Positionen stehen; der KV rechnete dann mit einer anderen Summe als dem Festpreis.
+    expect(r.eingabe.lineItems.reduce((s, li) => s + Number(li.unitRate) * li.quantity, 0)).toBe(1490);
+    expect(r.eingabe.documentDetails.services?.transport).toMatchObject({ owner: "company" });
     expect(r.eingabe.calculationAssumptions).toMatchObject({
       anfahrtMinuten: 55, anfahrtQuelle: "berechnet", etageVon: "3", etageBis: "0",
       zugangVon: "ohne Aufzug", zugangBis: "kleiner Aufzug", inventarPositionen: 3, inventarVolumenCbm: 18.4,
@@ -142,5 +144,50 @@ describe("angebotsUebernahme mit Marge", () => {
       .toEqual({ ok: false, fehler: "Preis liegt unter der Mindestmarge von 30 %, bitte neu rechnen." });
     const genau = { ...mitMarge, preis: { ...mitMarge.preis, festpreis: 1000 } };
     expect(angebotsUebernahme({ result: genau, request: anfrage }, null, { jetzt }).ok).toBe(true);
+  });
+});
+
+describe("angebotsUebernahme für den KV", () => {
+  const mitHebeln: RechnerErgebnis = {
+    preis: { festpreis: 1730, selbstkosten: 1100, rundungEur: 10, posten: [{ bezeichnung: "Halteverbotszone", menge: 2, einheit: "Stück", satz: 150, betrag: 300 }] },
+    kosten: { selbstkosten: 1100, posten: [{ bezeichnung: "Halteverbotszone", menge: 2, einheit: "Stück", satz: 120, betrag: 240 }] },
+    zeiten: { demontage: 84, montage: 114 },
+    team: { groesse: 4 },
+    positionen: [{ name: "Boxspringbett", menge: 1, volumenCbm: 2, zerlegt: true }],
+    schaetzung: null,
+  };
+  const req = { von_adresse: "Lerchenstraße 78, 70176 Stuttgart", nach_adresse: "Friedenstraße 5, 70190 Stuttgart", von_halteverbot: "on", nach_halteverbot: "on", umzugsdatum: "2026-10-02" };
+  const jetzt = new Date("2026-09-29T10:00:00Z");
+
+  it("Endpreis vom Inhaber, Gültigkeit bis zum Tag vor dem Umzug", () => {
+    const r = angebotsUebernahme({ result: mitHebeln, request: req }, null, { endpreis: 2260, jetzt });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.eingabe.fixedPrice).toBe("2260");
+    expect(r.eingabe.validUntil).toBe("2026-10-01");
+    expect(r.gueltigkeitHinweis).toContain("3 Tagen");
+    expect(r.montage).toEqual({ moebel: ["Boxspringbett"], durchUns: true });
+    expect(r.eingabe.documentDetails.services?.parkingDestination).toMatchObject({ owner: "company" });
+  });
+
+  it("ohne Halteverbot senkt den Rechnerpreis um die Zonen", () => {
+    const r = angebotsUebernahme({ result: mitHebeln, request: req }, null, { optionen: { ohneHalteverbot: true }, jetzt });
+    expect(r.ok && r.eingabe.fixedPrice).toBe("1430");
+  });
+
+  it("Review Astra: ohne ... prüft die Marge an den verbleibenden Kosten, nicht am gesenkten Preis", () => {
+    // 1.100 € Selbstkosten, davon 2 × 120 € Halteverbot: ohne Zonen bleiben 860 €, Mindestpreis 1.230 €.
+    const knapp: RechnerErgebnis = {
+      ...mitHebeln,
+      preis: { ...mitHebeln.preis!, festpreis: 1580 },
+      kosten: { selbstkosten: 1100, posten: [{ bezeichnung: "Halteverbotszone", menge: 2, einheit: "Stück", satz: 120, betrag: 240 }] },
+    };
+    expect(angebotsUebernahme({ result: knapp, request: req }, null, { optionen: { ohneHalteverbot: true }, jetzt }).ok).toBe(true); // 1.280 €
+    // Ohne Kostenposten fällt nichts weg: 1.280 € < 1.580 € Mindestpreis.
+    expect(angebotsUebernahme({ result: { ...knapp, kosten: { selbstkosten: 1100 } }, request: req }, null, { optionen: { ohneHalteverbot: true }, jetzt }).ok).toBe(false);
+  });
+
+  it("Endpreis unter der Mindestmarge wird abgelehnt", () => {
+    expect(angebotsUebernahme({ result: mitHebeln, request: req }, null, { endpreis: 1200, jetzt })).toEqual({ ok: false, fehler: "Preis liegt unter der Mindestmarge von 30 %." });
   });
 });

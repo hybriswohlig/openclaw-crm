@@ -84,6 +84,7 @@ export async function ladeLeadDaten(workspaceId: string, dealRecordId: string): 
     tragestreckeVonM: zahlOderNull(av.walking_distance_from_m),
     tragestreckeNachM: zahlOderNull(av.walking_distance_to_m),
     halteverbot: av.parking_halteverbot_needed === true,
+    halteverbotNach: av.parking_halteverbot_to === true,
     packService: av.packing_service === true,
     kartons: zahlOderNull(av.boxes_needed),
     inventar: inventarAusZeilen(inventar),

@@ -88,7 +88,7 @@ describe("POST /calculation/apply", () => {
     expect(mocks.upsertQuotation).not.toHaveBeenCalled();
   });
 
-  it("Festpreis: setzt fixedPrice, übergibt vorhandene Notizen, keine lineItems, Nachlauf wie beim Speichern", async () => {
+  it("Festpreis: setzt fixedPrice, übergibt vorhandene Notizen, Posten mit genau dieser Summe, Nachlauf wie beim Speichern", async () => {
     mocks.aktuelleKalkulation.mockResolvedValue({ ok: true, kalkulation: zeile({ preis: { festpreis: 1490 }, schaetzung: null }) });
     mocks.getQuotation.mockResolvedValue({ notes: "Klavier", isVariable: true });
     mocks.upsertQuotation.mockResolvedValue({ fixedPrice: "1490" });
@@ -97,7 +97,7 @@ describe("POST /calculation/apply", () => {
     const [dealId, eingabe] = mocks.upsertQuotation.mock.calls[0]!;
     expect(dealId).toBe("deal_1");
     expect(eingabe).toMatchObject({ fixedPrice: "1490", isVariable: false, notes: "Klavier" });
-    expect(eingabe).not.toHaveProperty("lineItems");
+    expect((eingabe as { lineItems: Array<{ unitRate: string; quantity: number }> }).lineItems.reduce((s, li) => s + Number(li.unitRate) * li.quantity, 0)).toBe(1490);
     expect(mocks.captureScopeSnapshot).toHaveBeenCalledWith("ws_1", "deal_1", "issue");
     expect(mocks.completeAgentPriceTasks).toHaveBeenCalledWith("ws_1", "deal_1");
   });

@@ -40,7 +40,8 @@ export interface RechnerErgebnis {
   };
   kosten?: { selbstkosten: number; posten?: KostenPosten[]; personenH?: number };
   volumen?: { nettoCbm: number; ladeCbm?: number; gewichtKg?: number };
-  zeiten?: { fahrtMin?: number; uhrzeitMin?: number; einsatztage?: number };
+  /** Personenminuten je Tätigkeit (demontage, montage, packen) und Fahrzeiten */
+  zeiten?: { fahrtMin?: number; uhrzeitMin?: number; einsatztage?: number; demontage?: number; montage?: number; packen?: number };
   team?: { groesse: number };
   schaetzung?: {
     festpreisVon: number | null; festpreisBis: number | null; annahmen: string[];

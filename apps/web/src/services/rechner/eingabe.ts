@@ -25,7 +25,10 @@ export interface LeadDaten {
   zimmer: number | null;
   tragestreckeVonM: number | null;
   tragestreckeNachM: number | null;
+  /** Halteverbot am Abholort (Auftragsfeld parking_halteverbot_needed) */
   halteverbot: boolean;
+  /** Halteverbot am Zielort (Auftragsfeld parking_halteverbot_to) */
+  halteverbotNach?: boolean;
   packService: boolean;
   kartons: number | null;
   /** Firma des Leads, für den Margenvorschlag */
@@ -79,7 +82,7 @@ export function rechnerAnfrageAus(lead: LeadDaten, opts: { heute?: string } = {}
   // Zielseite aktiv, sobald es Angaben zum Ziel gibt oder der Umzug "innerhalb" eines Ortes ist
   // (der Rechner nimmt dann denselben Ort als Ziel bzw. meldet die fehlende Adresse).
   const ortsintern = !!lead.von && /^(umzug\s+)?innerhalb\s/i.test(lead.von.trim());
-  if (lead.nach || ortsintern || lead.etageNach !== null || lead.zugangNach !== null || a.nach_treppenhaus) a.nach_vorhanden = "on";
+  if (lead.nach || ortsintern || lead.etageNach !== null || lead.zugangNach !== null || a.nach_treppenhaus || lead.halteverbotNach) a.nach_vorhanden = "on";
   setze("umzugsdatum", lead.umzugsdatum);
   setze("marke", lead.marke);
   setze("quelle", lead.quelle);
@@ -88,6 +91,7 @@ export function rechnerAnfrageAus(lead: LeadDaten, opts: { heute?: string } = {}
   setze("wohnflaeche_qm", lead.wohnflaecheQm);
   setze("zimmer", lead.zimmer);
   if (lead.halteverbot) a.von_halteverbot = "on";
+  if (lead.halteverbotNach) a.nach_halteverbot = "on";
   if (lead.packService && lead.kartons) setze("einpack_kartons", lead.kartons);
   // Einpackservice gebucht, aber keine Kartonzahl: nicht still weglassen, sondern kenntlich machen
   // (der Rechner ignoriert das Feld, die Karte im CRM warnt).

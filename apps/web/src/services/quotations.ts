@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { quotations, quotationLineItems, dealEmployees, employees } from "@/db/schema";
-import type { CalculationAssumptions } from "@/db/schema/quotations";
+import type { CalculationAssumptions, QuotationDocumentDetails } from "@/db/schema/quotations";
 import { annahmenZusammenfuehren } from "@/lib/kunden-annahmen";
 import { eq } from "drizzle-orm";
 import { pruefeNichtAngenommen } from "./kva-annahme";
@@ -44,6 +44,8 @@ export async function upsertQuotation(
     /** Kalkulationsgrundlagen (Anfahrt, Etagen, Zugang, Inventarbasis) —
      *  landen über loadKvaSnapshot in der eingefrorenen KVA-Bestätigung. */
     calculationAssumptions?: CalculationAssumptions | null;
+    /** Angaben für den KV (Leistungen, Gültigkeit); wird mit dem Bestand zusammengeführt. */
+    documentDetails?: QuotationDocumentDetails | null;
     lineItems?: Array<{
       id?: string;
       type: "helper" | "transporter" | "other";
@@ -92,6 +94,12 @@ export async function upsertQuotation(
           input.calculationAssumptions !== undefined
             ? annahmenZusammenfuehren(existing.calculationAssumptions, input.calculationAssumptions)
             : existing.calculationAssumptions,
+        documentDetails:
+          input.documentDetails !== undefined
+            ? input.documentDetails === null
+              ? null
+              : { ...((existing.documentDetails ?? {}) as QuotationDocumentDetails), ...input.documentDetails }
+            : existing.documentDetails,
         updatedAt: new Date(),
       })
       .where(eq(quotations.id, existing.id))
@@ -112,6 +120,7 @@ export async function upsertQuotation(
         showStandardInclusions: input.showStandardInclusions ?? true,
         selectedPackageSlug: input.selectedPackageSlug ?? null,
         calculationAssumptions: input.calculationAssumptions ?? null,
+        documentDetails: input.documentDetails ?? null,
       })
       .returning();
     quotationId = created.id;
