@@ -13,6 +13,7 @@ import {
 import type { MemberPermissions } from "@/db/schema/workspace";
 import { eq, and, asc, sql, isNull } from "drizzle-orm";
 import { STANDARD_OBJECTS, DEAL_STAGES } from "@openclaw-crm/shared";
+import { keepStoredSecrets } from "@/lib/workspace-secrets";
 
 type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -31,16 +32,31 @@ export async function updateWorkspace(
   workspaceId: string,
   input: { name?: string; settings?: Record<string, unknown> }
 ) {
-  const [updated] = await db
-    .update(workspaces)
-    .set({
-      ...(input.name !== undefined && { name: input.name }),
-      ...(input.settings !== undefined && { settings: input.settings }),
-      updatedAt: new Date(),
-    })
-    .where(eq(workspaces.id, workspaceId))
-    .returning();
-  return updated;
+  return db.transaction(async (tx) => {
+    let settings = input.settings;
+    if (settings !== undefined) {
+      // Clients sehen geheime Felder nie (toPublicWorkspace) und schicken die
+      // Einstellungen ohne sie zurück. Ohne das würde jedes Speichern der
+      // allgemeinen Einstellungen den OpenRouter-Schlüssel löschen.
+      const [current] = await tx
+        .select({ settings: workspaces.settings })
+        .from(workspaces)
+        .where(eq(workspaces.id, workspaceId))
+        .for("update");
+      settings = keepStoredSecrets(settings, current?.settings);
+    }
+
+    const [updated] = await tx
+      .update(workspaces)
+      .set({
+        ...(input.name !== undefined && { name: input.name }),
+        ...(settings !== undefined && { settings }),
+        updatedAt: new Date(),
+      })
+      .where(eq(workspaces.id, workspaceId))
+      .returning();
+    return updated;
+  });
 }
 
 /** The single CRM workspace for this deployment (oldest row). */

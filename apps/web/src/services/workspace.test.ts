@@ -1,17 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SQL } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
-import { apiKeys, sessions, users, workspaceMembers } from "@/db/schema";
+import { apiKeys, sessions, users, workspaceMembers, workspaces } from "@/db/schema";
 
 // „Mitglied entfernen“ löschte nur die Mitgliedschaft. getAuthContext legte
 // freigegebene Benutzer bei der nächsten Anfrage wieder als Mitglied an, der
 // Zugang blieb also. Diese Tests prüfen gegen eine aufzeichnende Fake-
 // Transaktion, dass removeMember den Zugang wirklich entzieht und die Sperren
-// für die eigene Person und den letzten Admin greifen.
+// für die eigene Person und den letzten Admin greifen. Dazu updateWorkspace:
+// Der Client bekommt die Einstellungen ohne OpenRouter-Schlüssel und darf ihn
+// beim Zurückschreiben nicht löschen.
 const mock = vi.hoisted(() => ({ transaction: vi.fn() }));
 vi.mock("@/db", () => ({ db: { transaction: mock.transaction } }));
 
-import { removeMember, revokeUserAccess } from "./workspace";
+import { removeMember, revokeUserAccess, updateWorkspace } from "./workspace";
 
 const dialect = new PgDialect();
 function alsSql(bedingung: SQL) {
@@ -47,8 +49,11 @@ function fakeTx(leseAntworten: unknown[][]) {
     }),
     update: (tabelle: unknown) => ({
       set: (werte: Record<string, unknown>) => ({
-        where: async (bedingung: SQL) => {
+        where: (bedingung: SQL) => {
           schreibvorgaenge.push({ art: "update", tabelle, werte, bedingung });
+          return Object.assign(Promise.resolve(), {
+            returning: async () => [{ id: "ws_zeile", ...werte }],
+          });
         },
       }),
     }),
@@ -216,5 +221,63 @@ describe("revokeUserAccess", () => {
     const schluessel = schreibvorgaenge.find((s) => s.tabelle === apiKeys);
     expect(freigabe?.art === "update" && freigabe.werte.updatedAt).toBe(jetzt);
     expect(schluessel?.art === "update" && schluessel.werte.revokedAt).toBe(jetzt);
+  });
+});
+
+describe("updateWorkspace", () => {
+  const SCHLUESSEL = "sk-or-v1-geheim-1234567890";
+  const gespeichert = {
+    logo: "<svg>alt</svg>",
+    openrouterApiKey: SCHLUESSEL,
+    openrouterModel: "anthropic/claude-sonnet-4",
+  };
+
+  it("behält den OpenRouter-Schlüssel, wenn die allgemeinen Einstellungen gespeichert werden", async () => {
+    const { tx, schreibvorgaenge, lesebedingungen, sperren } = fakeTx([[{ settings: gespeichert }]]);
+    mitTransaktion(tx);
+
+    // So schickt es die Seite „Allgemein“: { ...settings, logo } mit den
+    // Einstellungen aus GET /api/v1/workspace, also ohne Schlüssel.
+    const ergebnis = await updateWorkspace(WORKSPACE, {
+      name: "Kottke Umzüge",
+      settings: { logo: "<svg>neu</svg>", openrouterModel: "anthropic/claude-sonnet-4" },
+    });
+
+    expect(sperren).toEqual(["update"]);
+    expect(alsSql(lesebedingungen[0])).toEqual({
+      sql: '"workspaces"."id" = $1',
+      params: [WORKSPACE],
+    });
+    expect(schreibvorgaenge).toHaveLength(1);
+    const [schreiben] = schreibvorgaenge;
+    expect(schreiben.tabelle).toBe(workspaces);
+    expect(schreiben.art === "update" && schreiben.werte).toEqual({
+      name: "Kottke Umzüge",
+      settings: {
+        logo: "<svg>neu</svg>",
+        openrouterApiKey: SCHLUESSEL,
+        openrouterModel: "anthropic/claude-sonnet-4",
+      },
+      updatedAt: expect.any(Date),
+    });
+    expect(alsSql(schreiben.bedingung)).toEqual({
+      sql: '"workspaces"."id" = $1',
+      params: [WORKSPACE],
+    });
+    expect(ergebnis).toMatchObject({ name: "Kottke Umzüge" });
+  });
+
+  it("liest bei einer reinen Namensänderung nichts und lässt die Einstellungen stehen", async () => {
+    const { tx, schreibvorgaenge, lesebedingungen } = fakeTx([]);
+    mitTransaktion(tx);
+
+    await updateWorkspace(WORKSPACE, { name: "Kottke Umzüge GmbH" });
+
+    expect(lesebedingungen).toEqual([]);
+    expect(schreibvorgaenge).toHaveLength(1);
+    expect(schreibvorgaenge[0].art === "update" && schreibvorgaenge[0].werte).toEqual({
+      name: "Kottke Umzüge GmbH",
+      updatedAt: expect.any(Date),
+    });
   });
 });
