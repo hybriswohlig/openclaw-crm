@@ -402,7 +402,7 @@ export default function LeadPanel({
               duration: 8000,
               action: {
                 label: "Rückgängig",
-                onClick: () => void stufeZurueck(leadIdBeimStart, vorherigeStufe, vorherigerTitel),
+                onClick: () => void stufeZurueck(leadIdBeimStart, vorherigeStufe, vorherigerTitel, statusId),
               },
             }
           : undefined,
@@ -417,8 +417,12 @@ export default function LeadPanel({
   }
 
   /** Rückgängig aus dem Erfolgs-Toast: setzt die vorherige Stufe wieder (gleiche Route wie oben). */
-  async function stufeZurueck(leadId: string, stufeId: string, titel: string | null) {
+  async function stufeZurueck(leadId: string, stufeId: string, titel: string | null, vonStufeId: string) {
     const sichtbar = () => leadIdRef.current === leadId;
+    // Schlägt das Zurücksetzen fehl, zeigt das Feld wieder die Stufe, die gespeichert bleibt.
+    const auswahlBehalten = () => {
+      if (sichtbar()) setStufeAuswahl(vonStufeId);
+    };
     if (sichtbar()) {
       setStufeAuswahl(stufeId);
       setStufeSpeichert(true);
@@ -427,6 +431,7 @@ export default function LeadPanel({
       const fehler = await speichereStufe(leadId, stufeId);
       if (fehler) {
         toast.error(`Rückgängig fehlgeschlagen: ${fehler}`);
+        auswahlBehalten();
         onGeaendert();
         return;
       }
@@ -434,6 +439,7 @@ export default function LeadPanel({
       onGeaendert();
     } catch {
       toast.error("Rückgängig fehlgeschlagen (keine Verbindung)");
+      auswahlBehalten();
       onGeaendert();
     } finally {
       if (sichtbar()) setStufeSpeichert(false);
