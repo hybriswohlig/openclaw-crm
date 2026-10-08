@@ -1,7 +1,7 @@
 "use client";
 
 // Card with a serif heading and an optional right-hand action — the
-// "Alle →" pattern from home/page.tsx:810-825 (literal arrow, text-xs,
+// "Alle →" pattern from components/home/klassische-startseite.tsx:810-825 (literal arrow, text-xs,
 // accent colour).
 import Link from "next/link";
 import { cn } from "@/lib/utils";

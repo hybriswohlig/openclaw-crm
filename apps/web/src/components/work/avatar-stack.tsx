@@ -1,6 +1,6 @@
 "use client";
 
-// Overlapping avatar row, overlap -6 px exactly as home/page.tsx:909-924.
+// Overlapping avatar row, overlap -6 px exactly as components/home/klassische-startseite.tsx:909-924.
 // Anything beyond `max` collapses into a "+n" bubble whose title lists the
 // hidden names, so nothing is lost on hover.
 import { EmployeeAvatar } from "@/components/employees/employee-avatar";
