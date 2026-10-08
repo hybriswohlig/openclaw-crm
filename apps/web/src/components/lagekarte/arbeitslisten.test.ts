@@ -20,7 +20,7 @@ function lead(teil: Partial<LeadPunkt> & { id: string }): LeadPunkt {
   };
 }
 
-function mission(art: MissionArt, leadId: string, dringlichkeit: Mission["dringlichkeit"], titel = art): Mission {
+function mission(art: MissionArt, leadId: string, dringlichkeit: Mission["dringlichkeit"], titel: string = art): Mission {
   return { id: `${art}:${leadId}`, art, titel, leadId, dringlichkeit };
 }
 
