@@ -8,13 +8,13 @@
  * Tastatur: die Leiste besitzt „/“, „j“, „k“, das Panel „Esc“; hier nur „3“
  * (2D/3D umschalten).
  */
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { useTheme } from "next-themes";
 import { AlertTriangle, LayoutList, RotateCw } from "lucide-react";
 import type { Thema } from "@/lib/lagekarte/farben";
 import type { Firma, LeadPunkt } from "@/lib/lagekarte/typen";
 import Spielbrett from "./brett/spielbrett";
-import type { KameraZiel } from "./brett/kamera";
+import type { KameraZiel, Rand } from "./brett/kamera";
 import { behalteAuswahl, FIRMA_OHNE, filtereLeads, zaehleStatus, type KartenFilter } from "./filter";
 import Hud from "./hud";
 import Ladebild, { BrettSilhouette } from "./ladebild";
@@ -95,6 +95,32 @@ function startTabFuer(lead: LeadPunkt): PanelTab {
   if (lead.wartet) return "chat";
   if (lead.status === "auftrag" || lead.status === "angebot") return "angebot";
   return "chat";
+}
+
+/**
+ * Höhe eines Elements in px (0 ohne Element). Erste Messung im Layout-Effekt, also vor dem
+ * Zeichnen; danach per ResizeObserver. Kamerafahrten lesen sie (verdeckte Ränder).
+ */
+function useHoehe(): [(el: HTMLElement | null) => void, number] {
+  const [el, setEl] = useState<HTMLElement | null>(null);
+  const [hoehe, setHoehe] = useState(0);
+  useLayoutEffect(() => {
+    if (!el) {
+      setHoehe(0);
+      return;
+    }
+    const messen = () => setHoehe(Math.round(el.getBoundingClientRect().height));
+    messen();
+    const beobachter = new ResizeObserver(messen);
+    beobachter.observe(el);
+    return () => beobachter.disconnect();
+  }, [el]);
+  return [setEl, hoehe];
+}
+
+/** Mobiles Lead-Panel: 82vh, aber nie höher als der Container minus 8 px (wie seine CSS-Klasse). */
+function mobilPanelHoehe(containerHoehe: number): number {
+  return Math.max(0, Math.min(window.innerHeight * 0.82, containerHoehe - 8));
 }
 
 function useMedienAbfrage(abfrage: string): boolean {
@@ -310,6 +336,26 @@ function LagekarteInhalt({ onListe }: LagekarteProps) {
   );
 
   const legendeMobilSichtbar = mobil && !panelOffen && !sheetOffen;
+
+  /* ── Verdeckte Kartenränder für die Kamera (Ruling 10): offenes Panel rechts, Legende bzw.
+     Sheet unten, HUD oben, Leiste links. „Ganz BW“, „Kerngebiet“ und Auswahl passen in den Rest. ── */
+  const [setWurzelEl, wurzelHoehe] = useHoehe();
+  const [setLegendeEl, legendeHoehe] = useHoehe();
+  const [setSheetEl, sheetHoehe] = useHoehe();
+  const verdeckt = useMemo<Rand>(() => {
+    if (mobil) {
+      const unten = panelOffen
+        ? mobilPanelHoehe(wurzelHoehe)
+        : (sheetHoehe || SHEET_PEEK_PX) + (legendeMobilSichtbar && legendeHoehe > 0 ? legendeHoehe + 8 : 0);
+      return { top: obenPx, bottom: unten, left: 12, right: 12 };
+    }
+    return {
+      top: obenPx,
+      bottom: 12 + legendeHoehe,
+      left: LEISTE_RAUM_PX,
+      right: panelOffen ? PANEL_RAUM_PX : 12,
+    };
+  }, [mobil, panelOffen, wurzelHoehe, sheetHoehe, legendeMobilSichtbar, legendeHoehe, obenPx]);
   // --lk-oben: Oberkante von Leiste, Panel und Quellenangabe (unter dem HUD).
   // --lk-attr-rechts: Quellenangabe (oben rechts) neben das offene Panel schieben.
   const wurzelStil = {
@@ -322,6 +368,7 @@ function LagekarteInhalt({ onListe }: LagekarteProps) {
   return (
     <ThemaKontext.Provider value={thema}>
       <div
+        ref={setWurzelEl}
         className={wurzelKlasse}
         style={wurzelStil}
         data-testid="lagekarte"
@@ -339,6 +386,7 @@ function LagekarteInhalt({ onListe }: LagekarteProps) {
               auswahlId={auswahlId}
               onWaehle={waehle}
               kamera={kamera}
+              verdeckt={verdeckt}
               onFehler={beiKartenFehler}
             />
           </div>
@@ -393,7 +441,9 @@ function LagekarteInhalt({ onListe }: LagekarteProps) {
               className="@container pointer-events-none absolute bottom-3 z-10 flex justify-center"
               style={{ left: LEISTE_RAUM_PX, right: panelOffen ? PANEL_RAUM_PX : 12 }}
             >
-              <div className="pointer-events-auto max-w-full">{legende}</div>
+              <div ref={setLegendeEl} className="pointer-events-auto max-w-full">
+                {legende}
+              </div>
             </div>
           </>
         )}
@@ -402,11 +452,12 @@ function LagekarteInhalt({ onListe }: LagekarteProps) {
         {daten && !ohneKarte && mobil && !panelOffen && (
           <>
             {legendeMobilSichtbar && (
-              <div className="@container absolute right-3 left-3 z-10" style={{ bottom: SHEET_PEEK_PX + 8 }}>
+              <div ref={setLegendeEl} className="@container absolute right-3 left-3 z-10" style={{ bottom: SHEET_PEEK_PX + 8 }}>
                 {legende}
               </div>
             )}
             <section
+              ref={setSheetEl}
               aria-label="Leadliste"
               className="lk-glas lk-sheet absolute inset-x-0 bottom-0 z-20 flex flex-col"
               style={{ height: sheetOffen ? sheetOffenHoehe : SHEET_PEEK_PX }}

@@ -33,7 +33,22 @@ import { BRETT_FARBEN, STATUS_STIL, WARTET_LABEL, type Thema } from "@/lib/lagek
 import type { Firma, KartenOrt, LeadPunkt } from "@/lib/lagekarte/typen";
 import { auftraegeZuGeoJson, auftragsSaeulen, auswahlLinie, auswahlZuGeoJson, kreisAktivitaet, leadsZuGeoJson } from "./geojson";
 import { registriereIcons } from "./icons";
-import { fahreKamera, MAX_GRENZEN, MAX_ZOOM, MIN_ZOOM, setzeNeigung, START_ANSICHT, type Ansicht, type KameraZiel } from "./kamera";
+import {
+  fahreKamera,
+  INTRO_FAHRT_MS,
+  INTRO_SCHLUESSEL,
+  INTRO_VERZOEGERUNG_MS,
+  MAX_GRENZEN,
+  MAX_ZOOM,
+  MIN_ZOOM,
+  setzeNeigung,
+  standardVerdeckt,
+  START_ANSICHT,
+  startModus,
+  type Ansicht,
+  type KameraZiel,
+  type Rand,
+} from "./kamera";
 import { auswahlPlatz, SCHILD_SEITE_ABSTAND_PX, type ClusterKandidat, type Hindernis, type SchildSeite } from "./schild";
 import {
   basisStil,
@@ -60,6 +75,11 @@ export interface SpielbrettProps {
   onWaehle: (id: string | null) => void;
   /** Kamera-Befehl; Änderung von `kamera.n` löst Fahrt aus */
   kamera: { ziel: KameraZiel; n: number };
+  /**
+   * Vom Layout verdeckte Kartenränder in px (HUD und Quellenzeile oben, Leiste links, offenes
+   * Panel rechts, Legende bzw. Sheet unten). Alle Kamerafahrten passen in die freie Fläche.
+   */
+  verdeckt?: Rand;
   onBereit?: () => void;
   onFehler?: (grund: "webgl" | "sonst", meldung: string) => void;
 }
@@ -125,6 +145,30 @@ function auswahlPlatzFuer(map: MaplibreMap, ort: KartenOrt, eigeneId: string, sc
   const c = map.getContainer();
   const grenze = { links: -p.x, oben: -p.y, rechts: c.clientWidth - p.x, unten: c.clientHeight - p.y };
   return auswahlPlatz(cluster, figuren, schildBreite, grenze);
+}
+
+function reduzierteBewegung(): boolean {
+  try {
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  } catch {
+    return false;
+  }
+}
+
+function introSchonGeflogen(): boolean {
+  try {
+    return window.sessionStorage.getItem(INTRO_SCHLUESSEL) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function merkeIntro(): void {
+  try {
+    window.sessionStorage.setItem(INTRO_SCHLUESSEL, "1");
+  } catch {
+    /* ohne Speicher: dann eben bei jedem Laden */
+  }
 }
 
 /** Trefferfläche um den Mauszeiger (Icons ~22 px, so mindestens ~40 px). */
@@ -360,6 +404,7 @@ export default function Spielbrett({
   auswahlId,
   onWaehle,
   kamera,
+  verdeckt,
   onBereit,
   onFehler,
 }: SpielbrettProps) {
@@ -398,8 +443,18 @@ export default function Spielbrett({
   const geladenRef = useRef(false);
   const letzteKameraN = useRef(kamera.n);
   const letzteAnsicht = useRef<Ansicht>(ansicht);
-  /** Erster „kern“ lief ohne verortete Leads: einmal nachholen, solange niemand die Karte bewegt hat. */
-  const kernOffen = useRef(false);
+  /**
+   * Start ins Kerngebiet steht noch aus (Ruling 10): beim Aufbau ohne verortete Leads oder
+   * während der kurzen Pause vor dem Flug. Bewegt jemand die Karte oder kommt ein
+   * Kamera-Befehl (z. B. Flug zur Auswahl), entfällt er.
+   */
+  const startOffen = useRef(false);
+  const startModusRef = useRef<"flug" | "direkt">("direkt");
+  const introTimer = useRef<number | null>(null);
+  // Für den verzögerten Flug: immer die neuesten Leads, Ansicht und Ränder.
+  const verdecktJetzt = verdeckt ?? null;
+  const aktuell = useRef({ leads, ansicht, verdeckt: verdecktJetzt });
+  aktuell.current = { leads, ansicht, verdeckt: verdecktJetzt };
   const hoverSchluessel = useRef<string | null>(null);
   const klickNr = useRef(0);
   const iconSchluessel = useRef<string | null>(null);
@@ -426,6 +481,44 @@ export default function Spielbrett({
     gesetzteAgs.current = new Set(Object.keys(aktivitaet));
   }
 
+  function stoppeIntro() {
+    if (introTimer.current !== null) {
+      window.clearTimeout(introTimer.current);
+      introTimer.current = null;
+    }
+  }
+
+  /** Ränder für die nächste Fahrt: gemessen vom Container, sonst Standard. */
+  function randJetzt(): Rand {
+    return aktuell.current.verdeckt ?? standardVerdeckt();
+  }
+
+  /**
+   * Ins Kerngebiet, sobald verortete Leads da sind: „direkt“ springt, „flug“ zeigt ganz BW,
+   * wartet kurz und fliegt dann (einmal je Sitzung). Erst im nächsten Task: Legende und Sheet
+   * kommen mit denselben Daten und sind dann gemessen (verdeckte Ränder stimmen).
+   */
+  function starteKern(map: MaplibreMap) {
+    startOffen.current = false;
+    stoppeIntro();
+    const flug = startModusRef.current === "flug";
+    introTimer.current = window.setTimeout(() => {
+      const { leads: jetzt, ansicht: a } = aktuell.current;
+      if (!flug) {
+        introTimer.current = null;
+        fahreKamera(map, "kern", jetzt, null, a, randJetzt(), 0);
+        return;
+      }
+      fahreKamera(map, "bw", jetzt, null, a, randJetzt(), 0);
+      introTimer.current = window.setTimeout(() => {
+        introTimer.current = null;
+        merkeIntro();
+        const neu = aktuell.current;
+        fahreKamera(map, "kern", neu.leads, null, neu.ansicht, randJetzt(), INTRO_FAHRT_MS);
+      }, INTRO_VERZOEGERUNG_MS);
+    }, 0);
+  }
+
   function beimLaden(ev: MapEvent) {
     const map = ev.target;
     try {
@@ -436,8 +529,14 @@ export default function Spielbrett({
     }
     if (ansicht === "3d") setzeNeigung(map, "3d", true);
     letzteAnsicht.current = ansicht;
-    fahreKamera(map, "kern", leads, null, ansicht);
-    kernOffen.current = !leads.some((l) => l.ort);
+    // Nur in der Entwicklung: Prüfskripte (Playwright) lesen Kamera und Projektion.
+    if (process.env.NODE_ENV !== "production") (window as unknown as { __lagekarteKarte?: MaplibreMap }).__lagekarteKarte = map;
+    // Ruling 10: zuerst ganz BW (mit den Layout-Rändern), dann einmal je Sitzung der Flug ins
+    // Kerngebiet; bei reduzierter Bewegung oder schon geflogen gleich das Kerngebiet.
+    startModusRef.current = startModus({ reduziert: reduzierteBewegung(), schonGeflogen: introSchonGeflogen() });
+    fahreKamera(map, "bw", leads, null, ansicht, randJetzt(), 0);
+    startOffen.current = true;
+    if (leads.some((l) => l.ort)) starteKern(map);
     geladenRef.current = true;
     setGeladen(true);
     onBereit?.();
@@ -464,7 +563,11 @@ export default function Spielbrett({
   }
 
   function beiBewegungsstart(ev: ViewStateChangeEvent) {
-    if (ev.originalEvent) kernOffen.current = false;
+    // Wer selbst schiebt oder zoomt, bekommt keinen Startflug mehr.
+    if (ev.originalEvent) {
+      startOffen.current = false;
+      stoppeIntro();
+    }
     hoverSchluessel.current = null;
     setHover(null);
     setListe(null);
@@ -570,25 +673,28 @@ export default function Spielbrett({
     setzeNeigung(map, ansicht);
   }, [geladen, ansicht]);
 
-  // Kamera-Befehle: nur eine Änderung von kamera.n löst eine Fahrt aus.
+  // Kamera-Befehle: nur eine Änderung von kamera.n löst eine Fahrt aus (der Startflug entfällt dann).
   useEffect(() => {
     const map = karte();
     if (!geladen || !map || letzteKameraN.current === kamera.n) return;
     letzteKameraN.current = kamera.n;
-    kernOffen.current = false;
-    fahreKamera(map, kamera.ziel, leads, auswahl, ansicht);
+    startOffen.current = false;
+    stoppeIntro();
+    fahreKamera(map, kamera.ziel, leads, auswahl, ansicht, randJetzt());
     // bewusst nur an kamera.n gebunden
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [geladen, kamera.n]);
 
-  // Kamen die Leads erst nach dem Aufbau, den ersten „kern“ einmal nachholen.
+  // Kamen die Leads erst nach dem Aufbau, den Start ins Kerngebiet einmal nachholen.
   useEffect(() => {
     const map = karte();
-    if (!geladen || !map || !kernOffen.current || !leads.some((l) => l.ort)) return;
-    kernOffen.current = false;
-    fahreKamera(map, "kern", leads, null, ansicht);
+    if (!geladen || !map || !startOffen.current || !leads.some((l) => l.ort)) return;
+    starteKern(map);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [geladen, leads]);
+
+  // Abbau: wartender Startflug darf nicht auf eine entfernte Karte zugreifen.
+  useEffect(() => stoppeIntro, []);
 
   const listenLeads = useMemo(() => {
     if (!liste) return [];
