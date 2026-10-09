@@ -92,8 +92,10 @@ describe("PhotoInventorySchema", () => {
   it("ein kaputtes Item leert nicht die ganze Liste", () => {
     expect(PhotoInventorySchema.parse({ items: [{ name: "" }, { name: "Sofa", quantity: 1 }, "kaputt"] }).items.map((i) => i.name)).toEqual(["Sofa"]);
   });
-  it("keine Liste: leer", () => {
-    expect(PhotoInventorySchema.parse({ items: "Sofa" }).items).toEqual([]);
+  it("keine Liste: Formatfehler, damit das Foto wiederholt wird statt still leer zu bleiben", () => {
+    expect(PhotoInventorySchema.safeParse({ items: "Sofa" }).success).toBe(false);
+    expect(PhotoInventorySchema.safeParse({}).success).toBe(false);
+    expect(PhotoInventorySchema.parse({ items: [] }).items).toEqual([]);
   });
 });
 

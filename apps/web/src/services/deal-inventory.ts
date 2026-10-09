@@ -236,10 +236,10 @@ const PhotoItemSchema = z.object({
 
 export const PhotoInventorySchema = z.object({
   // Je Item einzeln prüfen: ein kaputtes Item (z. B. leerer Name) leerte sonst
-  // die ganze Liste, und das Foto galt trotzdem als ausgewertet.
+  // die ganze Liste, und das Foto galt trotzdem als ausgewertet. Ist items gar
+  // keine Liste, scheitert die Prüfung, und das Foto kommt erneut dran.
   items: z
     .array(z.unknown())
-    .catch([])
     .transform((roh) =>
       roh.flatMap((x) => {
         const r = PhotoItemSchema.safeParse(x);
