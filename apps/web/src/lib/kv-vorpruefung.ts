@@ -17,7 +17,10 @@ export type HinweisArt = "umzugsgut" | "preis";
 /** Zusatzdaten aus GET /api/v1/deals/:id/auftrag (kvHinweise). */
 export interface KvHinweisDaten {
   umzugsgutAnzahl: number;
-  fotoStapelOffen: number;
+  /** Fotos, die gerade ausgewertet werden oder noch drankommen. */
+  fotosOffen: number;
+  /** Fotos, die nicht ausgewertet werden konnten (fehlt bei älteren Antworten). */
+  fotosGescheitert?: number;
   hatAngebot: boolean;
   /** Gesetzt, wenn das Angebot nur einen Festpreis ohne Posten hat. */
   festpreisCents: number | null;
@@ -81,19 +84,28 @@ export function kvVorpruefung(input: {
 
   const hinweise: Vorpruefung["hinweise"] = [];
   if (input.documentType === "KV" && daten) {
+    const fotos = (n: number, eins: string, viele: string) => `${n} ${n === 1 ? eins : viele}`;
+    const offen = fotos(daten.fotosOffen, "Foto wird", "Fotos werden");
     if (daten.umzugsgutAnzahl === 0) {
       hinweise.push({
         art: "umzugsgut",
         text:
-          daten.fotoStapelOffen > 0
-            ? `Umzugsgut ist noch leer, ${daten.fotoStapelOffen} Foto-Stapel werden gerade ausgewertet.`
+          daten.fotosOffen > 0
+            ? `Umzugsgut ist noch leer, ${offen} gerade ausgewertet.`
             : "Umzugsgut ist leer. Im KV steht dann keine Liste.",
       });
-    } else if (daten.fotoStapelOffen > 0) {
+    } else if (daten.fotosOffen > 0) {
       // Teilweise gefüllt: sonst sähe eine halbe Liste fertig aus.
       hinweise.push({
         art: "umzugsgut",
-        text: `Umzugsgut hat ${daten.umzugsgutAnzahl} Einträge, ${daten.fotoStapelOffen} Foto-Stapel werden noch ausgewertet.`,
+        text: `Umzugsgut hat ${daten.umzugsgutAnzahl} Einträge, ${offen} noch ausgewertet.`,
+      });
+    }
+    const gescheitert = daten.fotosGescheitert ?? 0;
+    if (gescheitert > 0) {
+      hinweise.push({
+        art: "umzugsgut",
+        text: `${fotos(gescheitert, "Foto konnte", "Fotos konnten")} nicht ausgewertet werden. Bitte das Umzugsgut mit den Fotos im Posteingang vergleichen.`,
       });
     }
     const ceylan = /ceylan/i.test(ctx?.operating_company?.displayName ?? "");
