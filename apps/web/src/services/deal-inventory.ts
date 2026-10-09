@@ -234,8 +234,18 @@ const PhotoItemSchema = z.object({
   notes: z.string().nullish(),
 });
 
-const PhotoInventorySchema = z.object({
-  items: z.array(PhotoItemSchema).catch([]),
+export const PhotoInventorySchema = z.object({
+  // Je Item einzeln prüfen: ein kaputtes Item (z. B. leerer Name) leerte sonst
+  // die ganze Liste, und das Foto galt trotzdem als ausgewertet.
+  items: z
+    .array(z.unknown())
+    .catch([])
+    .transform((roh) =>
+      roh.flatMap((x) => {
+        const r = PhotoItemSchema.safeParse(x);
+        return r.success ? [r.data] : [];
+      })
+    ),
 });
 
 /**
@@ -342,6 +352,8 @@ export interface PhotoAnalysisResult {
   matched: number;
   added: number;
   error?: string;
+  /** Attachment-IDs der tatsächlich ausgewerteten Fotos. */
+  analyzedIds?: string[];
 }
 
 const BILD_ENDUNG = /^image\/([a-z0-9]+)$/i;
@@ -371,7 +383,7 @@ export function fotoZuordnen(photoFile: string | null | undefined, namen: readon
 export type ErkanntesFotoItem = z.infer<typeof PhotoItemSchema> & { attachmentId: string | null };
 
 export type FotoErkennung =
-  | { ok: true; items: ErkanntesFotoItem[]; analyzed: number; skipped: number }
+  | { ok: true; items: ErkanntesFotoItem[]; analyzed: number; skipped: number; analyzedIds: string[] }
   | { ok: false; error: string; skipped: number };
 
 /**
@@ -407,6 +419,7 @@ export async function fotosErkennen(
 
   // Sequenziell — nie parallel gegen den VPS (MemoryMax 3G).
   const photoItems: ErkanntesFotoItem[] = [];
+  const analyzedIds: string[] = [];
   let analyzed = 0;
   for (const batch of runBatches) {
     const namen = fotoDateinamen(batch);
@@ -432,6 +445,7 @@ export async function fotosErkennen(
       break;
     }
     analyzed += batch.length;
+    analyzedIds.push(...ids);
     // Batch-übergreifende Duplikate zusammenfassen (max quantity gewinnt).
     for (const item of result.output.items) {
       const dup = photoItems.find((p) => namesMatch(p.name, item.name));
@@ -445,7 +459,13 @@ export async function fotosErkennen(
       }
     }
   }
-  return { ok: true, items: photoItems, analyzed, skipped };
+  return { ok: true, items: photoItems, analyzed, skipped, analyzedIds };
+}
+
+function groesseresVolumen(alt: string | null, neu: number | null | undefined): string | null {
+  if (neu == null) return alt;
+  const bisher = alt != null ? Number(alt) : NaN;
+  return Number.isFinite(bisher) && bisher >= neu ? alt : String(neu);
 }
 
 /**
@@ -472,15 +492,20 @@ export async function fotoItemsUebernehmen(
     const hit = existing.find((e) => namesMatch(e.name, item.name));
     if (hit) {
       matched++;
+      // Foto-Zeile von einem anderen Foto: größere Menge und größeres Volumen
+      // gewinnen, wie innerhalb eines Stapels. Chat- und Büro-Zeilen behalten ihre Menge.
+      const fotoZeile = hit.source === "foto";
       await db
         .update(dealInventoryItems)
         .set({
           photoAttachmentId: hit.photoAttachmentId ?? attachmentId,
           needsPhoto: false,
           dimensionsEstimate: hit.dimensionsEstimate ?? item.dimensions_estimate?.trim() ?? null,
-          volumeCbmEstimate:
-            hit.volumeCbmEstimate ??
-            (item.volume_cbm_estimate != null ? String(item.volume_cbm_estimate) : null),
+          volumeCbmEstimate: fotoZeile
+            ? groesseresVolumen(hit.volumeCbmEstimate, item.volume_cbm_estimate)
+            : (hit.volumeCbmEstimate ??
+              (item.volume_cbm_estimate != null ? String(item.volume_cbm_estimate) : null)),
+          ...(fotoZeile ? { quantity: Math.max(hit.quantity, item.quantity) } : {}),
           ...(hit.source === "chat" ? { confidence: "hoch" as const } : {}),
           updatedAt: new Date(),
         })
@@ -546,5 +571,5 @@ export async function analyzeInventoryPhotos(
   }
   const { matched, added } = await fotoItemsUebernehmen(workspaceId, dealRecordId, erkannt.items, erkannt);
   if (matched + added > 0) kalkulationAnstossen(workspaceId, dealRecordId);
-  return { dealRecordId, photosAnalyzed: erkannt.analyzed, photosSkipped: erkannt.skipped, matched, added };
+  return { dealRecordId, photosAnalyzed: erkannt.analyzed, photosSkipped: erkannt.skipped, matched, added, analyzedIds: erkannt.analyzedIds };
 }

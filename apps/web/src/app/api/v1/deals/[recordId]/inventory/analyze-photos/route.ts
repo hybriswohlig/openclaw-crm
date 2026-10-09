@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthContext, unauthorized, success } from "@/lib/api-utils";
 import { analyzeInventoryPhotos, getDealInventory } from "@/services/deal-inventory";
+import { fotosManuellAusgewertet } from "@/services/inventar-fotos";
 
 // Bis zu 3 sequenzielle Vision-Batches à 30–90 s (Grok Build auf dem VPS).
 export const maxDuration = 300;
@@ -24,6 +25,10 @@ export async function POST(
   if (result.error && result.photosAnalyzed === 0) {
     return NextResponse.json({ error: result.error }, { status: 422 });
   }
+  // Sonst warnt das KV-Fenster weiter vor Fotos, die der Cron nicht geschafft hat.
+  await fotosManuellAusgewertet(ctx.workspaceId, recordId, result.analyzedIds ?? []).catch((err) =>
+    console.error("[analyze-photos] Vermerk fehlgeschlagen:", err)
+  );
 
   const items = await getDealInventory(ctx.workspaceId, recordId);
   return success({

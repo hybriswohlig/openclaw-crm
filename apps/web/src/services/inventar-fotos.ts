@@ -30,6 +30,12 @@ const FENSTER_MS = 24 * 60 * 60_000;
 const STAND_FENSTER_MS = 30 * 24 * 60 * 60_000;
 /** Ein Versuch ohne Ergebnis gilt so lange als laufend (Lauf höchstens 300 s). */
 const LAEUFT_MS = 6 * 60_000;
+/**
+ * Nach einem Fehlschlag kommt das Foto erst so viel später wieder dran: fällt
+ * der VPS kurz aus, sollen nicht alle Fotos in zwei Läufen ihre Versuche
+ * verbrauchen und aufgegeben werden.
+ */
+const WIEDERHOLEN_NACH_MS = 30 * 60_000;
 const MAX_VERSUCHE = 2;
 /** Fotos je Analyse-Stapel, siehe Kopfkommentar. */
 export const FOTOS_JE_LAUF = 1;
@@ -110,7 +116,8 @@ function abwechselndJeLead<T extends OffenerStapel>(stapel: readonly T[]): T[] {
 /**
  * Was dieser Lauf tut: gescheiterte Einzelfotos melden, Mehrfoto-Stapel (alte
  * oder gescheiterte) in Einzelfotos aufteilen, dann bis zu GLEICHZEITIG
- * Einzelfotos erkennen. Stapel mit einem laufenden Versuch bleiben unberührt.
+ * Einzelfotos erkennen, ein zweiter Versuch frühestens 30 Minuten nach dem
+ * ersten. Stapel mit einem laufenden Versuch bleiben unberührt.
  */
 export function planeLauf<T extends OffenerStapel>(input: {
   offen: T[];
@@ -127,7 +134,12 @@ export function planeLauf<T extends OffenerStapel>(input: {
   return {
     aufgeben: einzeln.filter((o) => lage(o.id).versuche >= MAX_VERSUCHE && !lage(o.id).gemeldet),
     aufteilen: offen.filter((o) => fotoIds(o).length > FOTOS_JE_LAUF),
-    naechste: abwechselndJeLead(einzeln.filter((o) => lage(o.id).versuche < MAX_VERSUCHE)).slice(0, GLEICHZEITIG),
+    naechste: abwechselndJeLead(
+      einzeln.filter((o) => {
+        const l = lage(o.id);
+        return l.versuche < MAX_VERSUCHE && (l.versuche === 0 || input.jetzt.getTime() - l.letzterVersuch >= WIEDERHOLEN_NACH_MS);
+      })
+    ).slice(0, GLEICHZEITIG),
   };
 }
 
@@ -198,8 +210,9 @@ export function nacheinanderJe() {
 }
 
 export function alarmText(input: { bezeichnung: string; fotos: number; fehler: string | null }): string {
+  const fotos = input.fotos === 1 ? "1 Foto" : `${input.fotos} Fotos`;
   return [
-    `Fotos zu ${input.bezeichnung} (${input.fotos} Fotos) konnten nach ${MAX_VERSUCHE} Versuchen nicht ausgewertet werden${input.fehler ? ` (${input.fehler})` : ""}.`,
+    `${fotos} zu ${input.bezeichnung} ${input.fotos === 1 ? "konnte" : "konnten"} nach ${MAX_VERSUCHE} Versuchen nicht ausgewertet werden${input.fehler ? ` (${input.fehler})` : ""}.`,
     "Bitte das Umzugsgut von Hand prüfen oder ergänzen, bevor ein KV rausgeht.",
   ].join("\n");
 }
@@ -241,6 +254,42 @@ export async function fotosVormerken(
     .onConflictDoNothing();
 }
 
+/**
+ * Fotos, die das Büro über „Fotos analysieren“ von Hand ausgewertet hat, als
+ * erledigten Stapel vermerken; sonst warnte das KV-Fenster weiter vor ihnen.
+ */
+export async function fotosManuellAusgewertet(
+  workspaceId: string,
+  dealRecordId: string,
+  attachmentIds: readonly string[]
+): Promise<void> {
+  if (attachmentIds.length === 0) return;
+  await db.transaction(async (tx) => {
+    const [stapel] = await tx
+      .insert(agentEvents)
+      .values({
+        workspaceId,
+        dealRecordId,
+        engine: "inventar",
+        eventType: "fotos_offen",
+        payload: { attachmentIds: [...attachmentIds], manuell: true },
+      })
+      .returning({ id: agentEvents.id });
+    if (!stapel) return;
+    await tx
+      .insert(agentEvents)
+      .values({
+        workspaceId,
+        dealRecordId,
+        engine: "inventar",
+        eventType: "fotos_erledigt",
+        payload: { bezug: stapel.id, manuell: true, analysiert: attachmentIds.length },
+        idempotencyKey: `fotos-erledigt:${stapel.id}`,
+      })
+      .onConflictDoNothing();
+  });
+}
+
 /** „Auftrag 2026-074, Beatrice Fallscheer“ für die interne Meldung. */
 async function dealBezeichnung(dealRecordId: string): Promise<string> {
   const [nr] = await db
@@ -258,24 +307,29 @@ async function dealBezeichnung(dealRecordId: string): Promise<string> {
   return teile.length > 1 ? teile.join(", ") : `Lead ${dealRecordId.slice(0, 8)}`;
 }
 
-/** Gescheiterten Stapel einmalig melden. */
-async function aufgebenUndMelden(stapel: OffenerStapel, fehler: string | null): Promise<void> {
-  const gebucht = await db
-    .insert(agentEvents)
-    .values({
-      workspaceId: stapel.workspaceId,
-      dealRecordId: stapel.dealRecordId,
-      engine: "inventar",
-      eventType: "fotos_aufgegeben",
-      payload: { bezug: stapel.id },
-      idempotencyKey: `fotos-aufgegeben:${stapel.id}`,
-    })
-    .onConflictDoNothing()
-    .returning({ id: agentEvents.id });
-  if (gebucht.length === 0) return;
+/** Gescheiterte Stapel eines Leads einmalig melden, eine Nachricht für alle. */
+async function aufgebenUndMelden(stapelListe: readonly OffenerStapel[], fehler: string | null): Promise<void> {
+  let fotos = 0;
+  for (const stapel of stapelListe) {
+    const gebucht = await db
+      .insert(agentEvents)
+      .values({
+        workspaceId: stapel.workspaceId,
+        dealRecordId: stapel.dealRecordId,
+        engine: "inventar",
+        eventType: "fotos_aufgegeben",
+        payload: { bezug: stapel.id },
+        idempotencyKey: `fotos-aufgegeben:${stapel.id}`,
+      })
+      .onConflictDoNothing()
+      .returning({ id: agentEvents.id });
+    if (gebucht.length > 0) fotos += fotoIds(stapel).length;
+  }
+  const erster = stapelListe[0];
+  if (fotos === 0 || !erster) return;
   try {
-    const bezeichnung = await dealBezeichnung(stapel.dealRecordId!);
-    await sendeAnInterne(stapel.workspaceId, alarmText({ bezeichnung, fotos: fotoIds(stapel).length, fehler }), { nachholen: true });
+    const bezeichnung = await dealBezeichnung(erster.dealRecordId!);
+    await sendeAnInterne(erster.workspaceId, alarmText({ bezeichnung, fotos, fehler }), { nachholen: true });
   } catch (err) {
     console.error("[inventar-fotos] Meldung fehlgeschlagen:", err);
   }
@@ -341,12 +395,17 @@ export async function fotosAbarbeiten(jetzt = new Date()): Promise<Ergebnis[]> {
     );
   const plan = planeLauf({ offen, spaeter, jetzt });
 
+  const aufgebenJeLead = new Map<string, OffenerStapel[]>();
   for (const stapel of plan.aufgeben) {
+    aufgebenJeLead.set(stapel.dealRecordId!, [...(aufgebenJeLead.get(stapel.dealRecordId!) ?? []), stapel]);
+  }
+  for (const liste of aufgebenJeLead.values()) {
+    const ids = new Set(liste.map((o) => o.id));
     const fehler = spaeter
-      .filter((e) => e.eventType === "fotos_fehler" && bezugVon(e) === stapel.id)
+      .filter((e) => e.eventType === "fotos_fehler" && ids.has(bezugVon(e) ?? -1))
       .map((e) => String((e.payload as { error?: string }).error ?? ""))
       .pop();
-    await aufgebenUndMelden(stapel, fehler ? fehler.slice(0, 120) : null);
+    await aufgebenUndMelden(liste, fehler ? fehler.slice(0, 120) : null);
   }
   for (const stapel of plan.aufteilen) await aufteilen(stapel);
 
@@ -354,57 +413,68 @@ export async function fotosAbarbeiten(jetzt = new Date()): Promise<Ergebnis[]> {
   const geaendert = new Map<string, string>();
   const ergebnisse = await Promise.all(
     plan.naechste.map(async (stapel): Promise<Ergebnis | null> => {
-      const versuch = spaeter.filter((e) => e.eventType === "fotos_versuch" && bezugVon(e) === stapel.id).length + 1;
-      const gebucht = await db
-        .insert(agentEvents)
-        .values({
-          workspaceId: stapel.workspaceId,
-          dealRecordId: stapel.dealRecordId,
-          engine: "inventar",
-          eventType: "fotos_versuch",
-          payload: { bezug: stapel.id, versuch },
-          idempotencyKey: `fotos-versuch:${stapel.id}:${versuch}`,
-        })
-        .onConflictDoNothing()
-        .returning({ id: agentEvents.id });
-      // Ein anderer Lauf hat diesen Versuch schon gebucht.
-      if (gebucht.length === 0) return null;
-
-      const dealRecordId = stapel.dealRecordId!;
-      let fehler: string | null = null;
-      let r: { analysiert: number; zugeordnet: number; neu: number } | null = null;
       try {
-        const fotos = await loadDealInventoryPhotos(stapel.workspaceId, dealRecordId, fotoIds(stapel));
-        const erkannt = fotos.length === 0
-          ? ({ ok: false, error: "keine Kundenfotos am Lead", skipped: 0 } as const)
-          // Nicht background: die Hintergrundspur des VPS hat einen Platz, vier
-          // Fotos warteten aufeinander bis über die 290 s des Abrufs. Gemessen:
-          // vier Grok-Fotojobs lassen die CPU zu 75 bis 94 % frei.
-          : await fotosErkennen(stapel.workspaceId, fotos, {});
-        if (!erkannt.ok) fehler = erkannt.error;
-        else {
-          const u = await nacheinander(dealRecordId, () => fotoItemsUebernehmen(stapel.workspaceId, dealRecordId, erkannt.items, erkannt));
-          r = { analysiert: erkannt.analyzed, zugeordnet: u.matched, neu: u.added };
-          if (u.matched + u.added > 0) geaendert.set(dealRecordId, stapel.workspaceId);
-        }
+        return await stapelAbarbeiten(stapel);
       } catch (err) {
-        fehler = err instanceof Error ? err.message : String(err);
+        // Ein Datenbankfehler bei einem Foto hält die anderen und die Kalkulation nicht auf;
+        // ohne gebuchtes Ergebnis kommt das Foto nach der Wartezeit wieder dran.
+        console.error("[inventar-fotos] Stapel", stapel.id, err);
+        return { stapel: stapel.id, ergebnis: `fehler: ${(err instanceof Error ? err.message : String(err)).slice(0, 80)}` };
       }
-      await db
-        .insert(agentEvents)
-        .values({
-          workspaceId: stapel.workspaceId,
-          dealRecordId,
-          engine: "inventar",
-          eventType: fehler || !r ? "fotos_fehler" : "fotos_erledigt",
-          payload: { bezug: stapel.id, ...(fehler || !r ? { error: (fehler ?? "").slice(0, 300), versuch } : r) },
-          idempotencyKey: fehler || !r ? `fotos-fehler:${stapel.id}:${versuch}` : `fotos-erledigt:${stapel.id}`,
-        })
-        .onConflictDoNothing();
-      return { stapel: stapel.id, ergebnis: fehler || !r ? `fehler: ${(fehler ?? "").slice(0, 80)}` : `${r.analysiert} Fotos, ${r.zugeordnet} zugeordnet, ${r.neu} neu` };
     })
   );
   // Einmal je Lead neu rechnen, nicht je Foto.
   for (const [dealRecordId, workspaceId] of geaendert) kalkulationAnstossen(workspaceId, dealRecordId);
   return ergebnisse.filter((e): e is Ergebnis => e !== null);
+
+  async function stapelAbarbeiten(stapel: (typeof plan.naechste)[number]): Promise<Ergebnis | null> {
+    const versuch = spaeter.filter((e) => e.eventType === "fotos_versuch" && bezugVon(e) === stapel.id).length + 1;
+    const gebucht = await db
+      .insert(agentEvents)
+      .values({
+        workspaceId: stapel.workspaceId,
+        dealRecordId: stapel.dealRecordId,
+        engine: "inventar",
+        eventType: "fotos_versuch",
+        payload: { bezug: stapel.id, versuch },
+        idempotencyKey: `fotos-versuch:${stapel.id}:${versuch}`,
+      })
+      .onConflictDoNothing()
+      .returning({ id: agentEvents.id });
+    // Ein anderer Lauf hat diesen Versuch schon gebucht.
+    if (gebucht.length === 0) return null;
+
+    const dealRecordId = stapel.dealRecordId!;
+    let fehler: string | null = null;
+    let r: { analysiert: number; zugeordnet: number; neu: number } | null = null;
+    try {
+      const fotos = await loadDealInventoryPhotos(stapel.workspaceId, dealRecordId, fotoIds(stapel));
+      const erkannt = fotos.length === 0
+        ? ({ ok: false, error: "keine Kundenfotos am Lead", skipped: 0 } as const)
+        // Nicht background: die Hintergrundspur des VPS hat einen Platz, vier
+        // Fotos warteten aufeinander bis über die 290 s des Abrufs. Gemessen:
+        // vier Grok-Fotojobs lassen die CPU zu 75 bis 94 % frei.
+        : await fotosErkennen(stapel.workspaceId, fotos, {});
+      if (!erkannt.ok) fehler = erkannt.error;
+      else {
+        const u = await nacheinander(dealRecordId, () => fotoItemsUebernehmen(stapel.workspaceId, dealRecordId, erkannt.items, erkannt));
+        r = { analysiert: erkannt.analyzed, zugeordnet: u.matched, neu: u.added };
+        if (u.matched + u.added > 0) geaendert.set(dealRecordId, stapel.workspaceId);
+      }
+    } catch (err) {
+      fehler = err instanceof Error ? err.message : String(err);
+    }
+    await db
+      .insert(agentEvents)
+      .values({
+        workspaceId: stapel.workspaceId,
+        dealRecordId,
+        engine: "inventar",
+        eventType: fehler || !r ? "fotos_fehler" : "fotos_erledigt",
+        payload: { bezug: stapel.id, ...(fehler || !r ? { error: (fehler ?? "").slice(0, 300), versuch } : r) },
+        idempotencyKey: fehler || !r ? `fotos-fehler:${stapel.id}:${versuch}` : `fotos-erledigt:${stapel.id}`,
+      })
+      .onConflictDoNothing();
+    return { stapel: stapel.id, ergebnis: fehler || !r ? `fehler: ${(fehler ?? "").slice(0, 80)}` : `${r.analysiert} Fotos, ${r.zugeordnet} zugeordnet, ${r.neu} neu` };
+  }
 }

@@ -68,9 +68,16 @@ describe("planeLauf", () => {
     expect(p.aufgeben).toEqual([]);
     expect(p.aufteilen).toEqual([]);
   });
-  it("abgebrochener Versuch ohne Ergebnis wird nach der Sperrzeit wiederholt", () => {
-    const p = plan([offen(1, 1)], [ev("fotos_versuch", 1, vor(10))]);
-    expect(p.naechste.map((o) => o.id)).toEqual([1]);
+  it("abgebrochener Versuch ohne Ergebnis wird später wiederholt", () => {
+    expect(plan([offen(1, 1)], [ev("fotos_versuch", 1, vor(10))]).naechste).toEqual([]);
+    expect(plan([offen(1, 1)], [ev("fotos_versuch", 1, vor(40))]).naechste.map((o) => o.id)).toEqual([1]);
+  });
+  it("nach einem Fehlschlag wartet das Foto 30 Minuten, ein kurzer VPS-Ausfall verbrennt nicht alle Versuche", () => {
+    const p = plan([offen(1, 1), offen(2, 1)], [ev("fotos_versuch", 1, vor(10)), ev("fotos_fehler", 1, vor(9))]);
+    expect(p.naechste.map((o) => o.id)).toEqual([2]);
+    expect(p.aufgeben).toEqual([]);
+    const spaeter = plan([offen(1, 1)], [ev("fotos_versuch", 1, vor(35)), ev("fotos_fehler", 1, vor(34))]);
+    expect(spaeter.naechste.map((o) => o.id)).toEqual([1]);
   });
   it("schon gemeldet oder erledigt: nichts mehr tun", () => {
     const p = plan(
@@ -149,5 +156,10 @@ describe("alarmText", () => {
     expect(t).toContain("13 Fotos");
     expect(t).toContain("Umzugsgut");
     expect(t).not.toMatch(/[—–]/);
+  });
+  it("ein Foto: Einzahl", () => {
+    const t = alarmText({ bezeichnung: "Lead Jonas", fotos: 1, fehler: null });
+    expect(t).toContain("1 Foto zu Lead Jonas konnte");
+    expect(t).not.toContain("1 Fotos");
   });
 });
