@@ -259,6 +259,10 @@ Regeln:
 
 Antworte NUR mit dem JSON-Objekt {"items":[...]}.`;
 
+/** Format-Hinweis am Ende des Prompts, passend zur knappen Antwort. */
+const PHOTO_SCHEMA_HINT = `{"items":[{"name": string, "category": string, "quantity": number, "size_class": "klein"|"mittel"|"gross"|"sperrig", "heavy": true, "fragile": true, "disassembly_required": true, "volume_cbm_estimate": number, "photo_file": string, "notes": string}]}
+Felder, die null, false oder leer wären, weglassen.`;
+
 export interface DealPhotoRow {
   id: string;
   fileName: string;
@@ -414,6 +418,7 @@ export async function fotosErkennen(
       system: PHOTO_SYSTEM_PROMPT,
       prompt: `# Kundenfotos (${batch.length})\n\nDie Dateien liegen in deinem Arbeitsverzeichnis und sind dir über das Read-Tool zugänglich. Sieh dir JEDE Datei an:\n${fileList}\n\nListe das sichtbare Umzugsgut. Antworte nur mit dem JSON-Objekt.`,
       schema: PhotoInventorySchema,
+      schemaHint: PHOTO_SCHEMA_HINT,
       attachments: batch.map((p, i) => ({
         filename: namen[i]!,
         mime: p.mimeType,

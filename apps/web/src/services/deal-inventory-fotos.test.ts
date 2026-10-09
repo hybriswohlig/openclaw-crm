@@ -60,6 +60,10 @@ describe("fotosErkennen", () => {
     expect(aufruf.attachments.map((a: { filename: string }) => a.filename)).toEqual(["foto-1.jpeg"]);
     expect(aufruf.prompt).toContain("- foto-1.jpeg (image/jpeg)");
     expect(aufruf.background).toBe(true);
+    // Eigener Format-Hinweis: der automatische sagte `"items": string`.
+    expect(aufruf.schemaHint).toContain('"items":[');
+    expect(aufruf.schemaHint).toContain("volume_cbm_estimate");
+    expect(aufruf.schemaHint).not.toContain("dimensions_estimate");
     expect(r).toMatchObject({ ok: true, analyzed: 1, skipped: 0 });
     expect(r.ok && r.items[0]).toMatchObject({ name: "Ecksofa", attachmentId: "att-9" });
   });

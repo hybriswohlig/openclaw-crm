@@ -377,7 +377,10 @@ export async function fotosAbarbeiten(jetzt = new Date()): Promise<Ergebnis[]> {
         const fotos = await loadDealInventoryPhotos(stapel.workspaceId, dealRecordId, fotoIds(stapel));
         const erkannt = fotos.length === 0
           ? ({ ok: false, error: "keine Kundenfotos am Lead", skipped: 0 } as const)
-          : await fotosErkennen(stapel.workspaceId, fotos, { background: true });
+          // Nicht background: die Hintergrundspur des VPS hat einen Platz, vier
+          // Fotos warteten aufeinander bis über die 290 s des Abrufs. Gemessen:
+          // vier Grok-Fotojobs lassen die CPU zu 75 bis 94 % frei.
+          : await fotosErkennen(stapel.workspaceId, fotos, {});
         if (!erkannt.ok) fehler = erkannt.error;
         else {
           const u = await nacheinander(dealRecordId, () => fotoItemsUebernehmen(stapel.workspaceId, dealRecordId, erkannt.items, erkannt));
