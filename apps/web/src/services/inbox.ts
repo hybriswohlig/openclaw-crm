@@ -10,7 +10,7 @@ import {
 import { objects, attributes, statuses } from "@/db/schema/objects";
 import { records, recordValues } from "@/db/schema/records";
 import { quotations } from "@/db/schema/quotations";
-import { eq, ne, and, or, desc, lt, asc, isNotNull, isNull, inArray, notInArray, ilike, exists, sql } from "drizzle-orm";
+import { eq, ne, and, or, desc, lt, isNotNull, isNull, inArray, notInArray, ilike, exists, sql } from "drizzle-orm";
 import { getEmailAccountConfigs } from "@/lib/email-accounts";
 import {
   isKleinanzeigenEmail,
@@ -18,6 +18,7 @@ import {
   stripKleinanzeigenSuffix,
 } from "./inbox-kleinanzeigen";
 import { createRecord, updateRecord } from "./records";
+import { neueAnfrageStufeId } from "./stufen-wahl";
 import { extractDealInsights } from "./deal-insights";
 import { applyDealInsights } from "./deal-insights-apply";
 
@@ -875,42 +876,22 @@ export async function createDealForNewConversation(params: {
       }
     }
 
-    // 2. Resolve the `stage` attribute on the deals object.
-    const [stageAttr] = await db
-      .select({ id: attributes.id })
-      .from(attributes)
-      .where(and(eq(attributes.objectId, dealObj.id), eq(attributes.slug, "stage")))
-      .limit(1);
-    if (!stageAttr) {
-      console.warn(`[inbox] deals has no 'stage' attribute in workspace ${workspaceId}`);
+    // 2. Startstufe „Neue Anfrage“ (dieselbe Auswahl wie im ImmoScout-Abgleich).
+    const inquiryId = await neueAnfrageStufeId(dealObj.id);
+    if (!inquiryId) {
+      console.warn(`[inbox] no deal stage available in workspace ${workspaceId}`);
       return null;
     }
 
-    // 3. Find the "Neue Anfrage" status (fallback: legacy "Inquiry" rename,
-    //    then any active status with the lowest sortOrder).
-    const stageRows = await db
-      .select()
-      .from(statuses)
-      .where(eq(statuses.attributeId, stageAttr.id))
-      .orderBy(asc(statuses.sortOrder));
-    const inquiry =
-      stageRows.find((s) => /^(neue anfrage|inquiry)$/i.test(s.title)) ??
-      stageRows.find((s) => s.isActive) ??
-      stageRows[0];
-    if (!inquiry) {
-      console.warn(`[inbox] no statuses defined for deal stage in workspace ${workspaceId}`);
-      return null;
-    }
-
-    // 4. Create the deal record.
+    // 3. Create the deal record.
     const deal = await createRecord(
       dealObj.id,
-      { name: dealName, stage: inquiry.id },
+      { name: dealName, stage: inquiryId },
       null
     );
     if (!deal) return null;
 
-    // 5. Link Person + operating company to the deal (best-effort).
+    // 4. Link Person + operating company to the deal (best-effort).
     const linkUpdates: Record<string, unknown> = {};
 
     if (contactId) {
@@ -941,7 +922,7 @@ export async function createDealForNewConversation(params: {
       await updateRecord(dealObj.id, deal.id, linkUpdates, null);
     }
 
-    // 6. Link the conversation to the new deal.
+    // 5. Link the conversation to the new deal.
     await db
       .update(inboxConversations)
       .set({ dealRecordId: deal.id, updatedAt: new Date() })
@@ -966,7 +947,7 @@ export async function createDealForNewConversation(params: {
         )
       );
 
-    // 7. Fire-and-forget: extract AI insights from the first message and
+    // 6. Fire-and-forget: extract AI insights from the first message and
     // post an initial activity note. Only the note is auto-applied — field
     // updates are left for the user to review via the KI-Analyse panel.
     extractDealInsights(workspaceId, deal.id)

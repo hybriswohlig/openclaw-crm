@@ -11,6 +11,7 @@ import {
   DEFAULT_TRANSPORT_DEPOTS,
 } from "@openclaw-crm/shared";
 import { normalizeDatabaseUrl } from "./normalize-database-url";
+import { fehlendeSeedStufen } from "./seed-stufen";
 
 // Mirror drizzle.config.ts — load env from both the web dir and the repo root,
 // since `vercel env pull` writes the file at the repo root.
@@ -138,9 +139,9 @@ async function syncStandardObjects() {
             .select()
             .from(schema.statuses)
             .where(eq(schema.statuses.attributeId, attribute.id));
-          const existingStageTitles = new Set(existingStages.map((s) => s.title.toLowerCase()));
-          for (const stage of DEAL_STAGES) {
-            if (existingStageTitles.has(stage.title.toLowerCase())) continue;
+          // Gleicher Titel oder gleiche Bedeutung zählt als vorhanden, sonst
+          // käme neben „Geplant“ wieder ein englisches „Planned“ dazu.
+          for (const stage of fehlendeSeedStufen(existingStages, DEAL_STAGES)) {
             await db.insert(schema.statuses).values({
               attributeId: attribute.id,
               title: stage.title,
