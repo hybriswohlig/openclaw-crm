@@ -3,6 +3,7 @@ import { getAuthContext, unauthorized, notFound, badRequest, success } from "@/l
 import { getObjectBySlug } from "@/services/objects";
 import { listRecords, createRecord } from "@/services/records";
 import { assignDealNumber } from "@/services/financial";
+import { mitStartStufe } from "@/services/stufen-wahl";
 
 export async function GET(
   req: NextRequest,
@@ -45,7 +46,7 @@ export async function POST(
     return badRequest("values object is required");
   }
 
-  const record = await createRecord(obj.id, values, ctx.userId);
+  const record = await createRecord(obj.id, await mitStartStufe(slug, obj.id, values), ctx.userId);
 
   if (slug === "deals" && record) {
     await assignDealNumber(ctx.workspaceId, record.id);

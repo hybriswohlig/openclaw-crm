@@ -332,9 +332,13 @@ function StatusEditor({ value, statuses, onSave, onCancel }: {
     return () => document.removeEventListener("mousedown", handle);
   }, [onCancel]);
 
+  // Inaktive Stufen (etwa alte englische Seed-Dubletten) nicht mehr anbieten,
+  // wie Kanban und Lagekarte; die aktuelle bleibt sichtbar.
+  const auswahl = statuses.filter((s) => s.isActive || s.id === value);
+
   return (
     <div ref={ref} className="absolute z-50 mt-1 max-h-48 w-48 overflow-auto rounded-md border bg-popover p-1 shadow-lg">
-      {statuses.map((s) => (
+      {auswahl.map((s) => (
         <button
           key={s.id}
           onClick={() => onSave(s.id)}

@@ -46,6 +46,7 @@ import { getSecret } from "./workspace-settings";
 import { isImmoscoutLeadEmail, parseImmoscoutLeadEmail } from "./inbox-immoscout";
 import { findExistingMovingLeadDeal, setDealMovingLead } from "./immoscout-sync";
 import { computeLeadName } from "./lead-name";
+import { startStufeNachtragen } from "./stufen-wahl";
 import { recomputeMultiCompanyForContact } from "./multi-company";
 
 type ChannelAccountRow = typeof channelAccounts.$inferSelect;
@@ -299,6 +300,10 @@ async function ingestParsedEmail(
           .update(inboxConversations)
           .set({ dealRecordId: existingDeal, updatedAt: new Date() })
           .where(eq(inboxConversations.id, conv.id));
+        // Der API-Abgleich kann den Lead vor dieser E-Mail ohne Stufe angelegt haben.
+        await startStufeNachtragen(account.workspaceId, existingDeal).catch((err) =>
+          console.error("[inbox-email] Startstufe nachtragen fehlgeschlagen:", err)
+        );
       } else {
         const dealName = computeLeadName({
           customerName: immo!.dealNameParts.customerName,
