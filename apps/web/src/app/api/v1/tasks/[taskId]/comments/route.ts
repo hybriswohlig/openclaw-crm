@@ -10,6 +10,7 @@ import {
   createTaskComment,
   commentAudience,
 } from "@/services/task-comments";
+import { taskLinkUrl } from "@/lib/task-link";
 
 /** GET /api/v1/tasks/[taskId]/comments — list comments (oldest first) */
 export async function GET(
@@ -89,7 +90,7 @@ export async function POST(
             {
               title: `Neuer Kommentar von ${authorName}`,
               body: preview,
-              url: `/tasks?taskId=${taskId}`,
+              url: taskLinkUrl(taskId),
               tag: `task-${taskId}`,
             },
             { workspaceId: ctx.workspaceId, userIds: audience }
@@ -103,7 +104,7 @@ export async function POST(
             {
               title: `${authorName} hat dich erwähnt`,
               body: preview,
-              url: `/tasks?taskId=${taskId}`,
+              url: taskLinkUrl(taskId),
               tag: `task-${taskId}-mention`,
             },
             { workspaceId: ctx.workspaceId, userIds: mentionTargets }

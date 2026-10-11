@@ -12,7 +12,6 @@ import {
   Truck,
   List,
   Home,
-  MessageSquare,
   CheckSquare,
   CalendarDays,
   Bell,
@@ -42,7 +41,6 @@ const OBJECT_ICONS: Record<string, React.ComponentType<{ className?: string }>> 
 // Icons, damit Tippen-zum-Finden mit der Sidebar übereinstimmt.
 const PAGE_ITEMS = [
   { id: "home", label: "Heute", icon: Home, url: "/home" },
-  { id: "chat", label: "Chat", icon: MessageSquare, url: "/chat" },
   { id: "tasks", label: "Aufgaben", icon: CheckSquare, url: "/tasks" },
   { id: "calendar", label: "Kalender", icon: CalendarDays, url: "/contract-calendar" },
   { id: "notifications", label: "Benachrichtigungen", icon: Bell, url: "/notifications" },

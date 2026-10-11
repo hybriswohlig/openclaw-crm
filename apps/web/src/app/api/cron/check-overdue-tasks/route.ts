@@ -6,6 +6,7 @@ import { sendPush } from "@/services/push";
 import { createTaskComment } from "@/services/task-comments";
 import { AGENT_PRICE_TASK_MARKER } from "@/services/agent/agent-tasks";
 import { requireCronAuth } from "@/lib/cron-auth";
+import { taskLinkUrl } from "@/lib/task-link";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -91,7 +92,7 @@ export async function GET(req: NextRequest) {
         {
           title: "⚠️ Aufgabe überfällig",
           body: `${preview} · Verantwortlich: ${respName}`,
-          url: `/tasks?taskId=${t.id}`,
+          url: taskLinkUrl(t.id),
           tag: `overdue-${t.id}`,
         },
         { workspaceId: t.workspaceId }

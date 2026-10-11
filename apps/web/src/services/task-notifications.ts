@@ -3,6 +3,7 @@ import { users, taskAssignees, taskRecords } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { sendPush } from "./push";
 import { batchGetRecordDisplayNames } from "./display-names";
+import { taskLinkUrl } from "@/lib/task-link";
 
 /**
  * Push-notify task assignees when their work changes. Two flavours:
@@ -115,8 +116,9 @@ export async function notifyTaskAssigned(input: {
         body,
         // Deep-link to the linked record when there is one — the assignee
         // lands directly in the Lead/Kunde context instead of the generic
-        // task kanban. Falls back to the task list if no link exists.
-        url: context?.url ?? `/tasks?taskId=${input.taskId}`,
+        // task kanban. Without a record the work dashboard opens the task
+        // itself (lib/task-link.ts).
+        url: context?.url ?? taskLinkUrl(input.taskId),
         tag: `task-${input.taskId}`,
       },
       { workspaceId: input.workspaceId, userIds: targets }
@@ -163,7 +165,7 @@ export async function notifyTaskUpdated(input: {
       {
         title: `${name} hat eine Aufgabe aktualisiert`,
         body,
-        url: context?.url ?? `/tasks?taskId=${input.taskId}`,
+        url: context?.url ?? taskLinkUrl(input.taskId),
         tag: `task-${input.taskId}`,
       },
       { workspaceId: input.workspaceId, userIds: targets }

@@ -34,7 +34,13 @@ import { createDealForNewConversation } from "./inbox";
 import { emitEvent } from "./activity-events";
 import { ensureCrmPerson, resolveOrCreatePerson } from "./inbox-crm-link";
 import { extractPhonesFromText } from "@/lib/identity/canonical";
-import { classifyInbound } from "./inbox-triage";
+import { inboxKonversationUrl } from "@/lib/inbox-link";
+import {
+  classifyInbound,
+  istVomCrmGestartet,
+  sollInboxPushSenden,
+  VOM_CRM_GESTARTET_GRUND,
+} from "./inbox-triage";
 import { looksDeclined, recordAgentDecline } from "./agent/agent-suppress";
 import { getSecret } from "./workspace-settings";
 import { isImmoscoutLeadEmail, parseImmoscoutLeadEmail } from "./inbox-immoscout";
@@ -239,6 +245,11 @@ async function ingestParsedEmail(
   // from a no-reply address, so only treat real two-way threads as opt-outs.
   const declined = !isImmoLead && looksDeclined(body);
 
+  // Push nur für echte Anfragen (sollInboxPushSenden): entschieden mit der
+  // Lane nach dieser Nachricht und dem Status vor ihr, denn das Update unten
+  // öffnet gespamte Chats wieder.
+  let pushSenden: boolean;
+
   if (!conv) {
     const [created] = await db
       .insert(inboxConversations)
@@ -262,6 +273,7 @@ async function ingestParsedEmail(
       })
       .returning();
     conv = created;
+    pushSenden = sollInboxPushSenden({ lane: triage.lane, statusVorher: null });
 
     // Auto-create a deal in stage "Neue Anfrage" for brand-new Kleinanzeigen
     // inquiries that are real leads (not platform notifications), and link it
@@ -318,6 +330,14 @@ async function ingestParsedEmail(
     // eine manuelle Einstufung — und holt für Kleinanzeigen den Deal nach.
     const laneUpgrade =
       triage.lane === "lead" && conv.lane === "info" && conv.classifiedBy !== "manual";
+    pushSenden = sollInboxPushSenden({
+      lane: laneUpgrade ? "lead" : conv.lane,
+      statusVorher: conv.status,
+      // Antwort auf eine Mail aus sendNewEmail (IMAP, per In-Reply-To): die
+      // Konversation bleibt in info, die echte Antwort klingelt trotzdem.
+      vomCrmGestartet: istVomCrmGestartet(conv),
+      triageLane: triage.lane,
+    });
     await db
       .update(inboxConversations)
       .set({
@@ -433,7 +453,7 @@ async function ingestParsedEmail(
     });
   }
 
-  if (storedMessage) {
+  if (storedMessage && pushSenden) {
     // Don't block ingest on push delivery, but keep the function alive
     // long enough for the request to Apple/Google to finish — see the
     // matching pattern in inbox-whatsapp.ts for the rationale.
@@ -927,6 +947,8 @@ export async function sendNewEmail(params: {
 
     // New conversation keyed by our Message-ID, parked in the 'info' lane so the
     // lead assistant never treats an operator-initiated thread as an inbound lead.
+    // The classification reason marks it as started by the CRM, so the
+    // customer's reply still pushes (istVomCrmGestartet, sollInboxPushSenden).
     const [conv] = await db
       .insert(inboxConversations)
       .values({
@@ -941,7 +963,7 @@ export async function sendNewEmail(params: {
         lastMessagePreview: `Du: ${body.slice(0, 100)}`,
         unreadCount: 0,
         lane: "info",
-        classificationReason: "Manuell verfasste E-Mail",
+        classificationReason: VOM_CRM_GESTARTET_GRUND,
         classifiedBy: "manual",
         aiNeedsReply: false,
         aiPaused: true,
@@ -1107,7 +1129,7 @@ async function notifyInboxPushEmail(input: {
     {
       title: input.title,
       body: input.body.slice(0, 140),
-      url: `/inbox?conversationId=${input.conversationId}`,
+      url: inboxKonversationUrl(input.conversationId),
       tag: `inbox-${input.conversationId}`,
     },
     { workspaceId: input.workspaceId }

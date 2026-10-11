@@ -22,7 +22,10 @@ export interface KvHinweisDaten {
   /** Fotos, die nicht ausgewertet werden konnten (fehlt bei älteren Antworten). */
   fotosGescheitert?: number;
   hatAngebot: boolean;
-  /** Gesetzt, wenn das Angebot nur einen Festpreis ohne Posten hat. */
+  /**
+   * Gesetzt, wenn der KV den Festpreis als eine Zeile „Pauschale“ druckt
+   * (festpreisAlsPauschale): ohne bepreiste Posten oder wenn sie ihn nicht ergeben.
+   */
   festpreisCents: number | null;
   /** Neueste Unterhaltung des Deals, für den Sprung in den Posteingang. */
   conversationId: string | null;

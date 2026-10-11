@@ -1,7 +1,7 @@
 import webpush from "web-push";
 import { db } from "@/db";
-import { pushSubscriptions } from "@/db/schema";
-import { eq, and, inArray } from "drizzle-orm";
+import { pushSubscriptions, users, workspaceMembers } from "@/db/schema";
+import { eq, and, inArray, ne } from "drizzle-orm";
 
 let configured = false;
 
@@ -27,15 +27,21 @@ export interface PushPayload {
 
 interface SendOptions {
   workspaceId: string;
-  /** If set, push goes only to these userIds (otherwise: all members in workspace) */
+  /**
+   * If set, push goes only to these userIds (otherwise: all members in workspace).
+   * Auch dann nur an Benutzer, die gerade freigegebene CRM-Mitglieder sind.
+   */
   userIds?: string[];
   /** Don't send to this user (e.g., the one who triggered the event) */
   excludeUserId?: string;
 }
 
 /**
- * Sends a push notification to every active subscription in the workspace.
+ * Sends a push notification to the workspace's subscriptions.
  * Subscriptions that respond 404/410 are pruned automatically.
+ *
+ * Nur an aktuelle CRM-Mitglieder: Abos entfernter oder abgelehnter Benutzer
+ * und von Konten fürs Mitarbeiterportal bekommen nichts (siehe Abfrage).
  *
  * Returns the number of successful deliveries. Silently returns 0 if VAPID
  * is not configured — pushes are an enhancement, never a hard dependency.
@@ -49,15 +55,38 @@ export async function sendPush(
     return 0;
   }
 
-  const filters = [eq(pushSubscriptions.workspaceId, options.workspaceId)];
-  if (options.userIds && options.userIds.length > 0) {
-    filters.push(inArray(pushSubscriptions.userId, options.userIds));
-  }
-
+  // Pushes zeigen Kundennamen und Nachrichtenvorschauen. Darum zählt nicht,
+  // ob ein Abo noch in der Tabelle steht, sondern ob sein Benutzer jetzt noch
+  // freigegebenes CRM-Mitglied dieses Workspace ist, auch wenn userIds ihn
+  // ausdrücklich nennt. Wer entfernt oder abgelehnt wurde oder nur ein Konto
+  // fürs Mitarbeiterportal hat, bekommt nichts.
   const rows = await db
-    .select()
+    .select({
+      id: pushSubscriptions.id,
+      userId: pushSubscriptions.userId,
+      endpoint: pushSubscriptions.endpoint,
+      p256dh: pushSubscriptions.p256dh,
+      auth: pushSubscriptions.auth,
+    })
     .from(pushSubscriptions)
-    .where(and(...filters));
+    .innerJoin(
+      workspaceMembers,
+      and(
+        eq(workspaceMembers.workspaceId, pushSubscriptions.workspaceId),
+        eq(workspaceMembers.userId, pushSubscriptions.userId)
+      )
+    )
+    .innerJoin(users, eq(users.id, pushSubscriptions.userId))
+    .where(
+      and(
+        eq(pushSubscriptions.workspaceId, options.workspaceId),
+        eq(users.approvalStatus, "approved"),
+        ne(users.role, "employee"),
+        options.userIds && options.userIds.length > 0
+          ? inArray(pushSubscriptions.userId, options.userIds)
+          : undefined
+      )
+    );
 
   const targets = options.excludeUserId
     ? rows.filter((r) => r.userId !== options.excludeUserId)

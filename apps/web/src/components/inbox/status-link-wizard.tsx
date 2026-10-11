@@ -39,6 +39,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { postenFuerSpeichern } from "@/lib/angebot-posten";
 import { renderSnippet } from "@/components/inbox/customer-link-composer";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -671,21 +672,24 @@ export function StatusLinkWizard({
             recommendedRow
           : null;
       const boundCents = boundRow != null ? parseEur(boundRow.priceEur) : null;
+      const festpreis = isVariable
+        ? null
+        : offerKind === "packages"
+          ? boundCents != null && boundCents > 0
+            ? (boundCents / 100).toFixed(2)
+            : null
+          : fixedPrice || null;
 
       const qRes = await fetch(`/api/v1/deals/${dealRecordId}/quotation`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           isVariable,
-          fixedPrice: isVariable
-            ? null
-            : offerKind === "packages"
-              ? boundCents != null && boundCents > 0
-                ? (boundCents / 100).toFixed(2)
-                : null
-              : fixedPrice || null,
+          fixedPrice: festpreis,
           notes: quotation?.notes ?? null,
-          lineItems: isVariable ? lineItems.map((li, i) => ({ ...li, sortOrder: i })) : [],
+          // Festpreis: Posten (Kern + Hebel aus der Übernahme) bleiben, solange
+          // Modus und Preis unverändert sind.
+          ...postenFuerSpeichern({ isVariable, fixedPrice: festpreis, lineItems, geladen: quotation }),
           depositRequiredCents:
             depositCents != null && depositCents > 0 ? depositCents : null,
           paymentMethodPreference: paymentMethod,

@@ -53,17 +53,6 @@ OpenClaw CRM plugs directly into your [OpenClaw Bot](https://openclaw-crm.402box
 - **Dark & Light Mode**: theme support throughout
 - **Responsive**: mobile-friendly with collapsible sidebar
 
-### Built-in AI Chat Agent
-
-Talk to your CRM data in plain English. Powered by [OpenRouter](https://openrouter.ai) with support for Claude, GPT-4o, Llama, Gemini, and more.
-
-- 8 read tools (auto-execute): search records, list objects, get record details, list tasks, get notes, browse lists
-- 5 write tools (require confirmation): create/update/delete records, create tasks, create notes
-- Streaming responses with token-by-token output
-- Multi-round tool calling (up to 10 rounds per message)
-- Dynamic system prompt built from your workspace schema
-- Configurable model selection per workspace
-
 ## Tech Stack
 
 | Layer | Technology |
@@ -158,13 +147,6 @@ docker compose -f docker-compose.prod.yml up --build -d
 
 See `.env.example` for all configurable environment variables.
 
-## AI Chat Setup
-
-1. Get an API key from [OpenRouter](https://openrouter.ai)
-2. Go to **Settings > AI** in the app
-3. Enter your OpenRouter API key and select a model
-4. Navigate to **/chat** and start talking to your data
-
 ## Project Structure
 
 ```
@@ -174,7 +156,6 @@ openclaw-crm/
 │   │   ├── app/               # App Router pages & API routes
 │   │   │   ├── (auth)/        # Login, Register
 │   │   │   ├── (dashboard)/   # All authenticated pages
-│   │   │   ├── chat/          # AI chat interface
 │   │   │   ├── docs/          # Documentation page
 │   │   │   └── api/v1/        # REST API endpoints
 │   │   ├── components/        # React components
@@ -263,9 +244,6 @@ REST API at `/api/v1/` with Bearer token authentication.
 | `/api/v1/workspace-members` | GET, POST | Member management |
 | `/api/v1/notifications` | GET | Notifications |
 | `/api/v1/api-keys` | GET, POST | API key management |
-| `/api/v1/chat/completions` | POST | AI chat (SSE stream) |
-| `/api/v1/chat/conversations` | GET, POST | Chat conversations |
-| `/api/v1/chat/tool-confirm` | POST | Approve/reject AI writes |
 
 Full API documentation at [`/llms-api.txt`](https://openclaw-crm.402box.io/llms-api.txt) and [`/openapi.json`](https://openclaw-crm.402box.io/openapi.json).
 

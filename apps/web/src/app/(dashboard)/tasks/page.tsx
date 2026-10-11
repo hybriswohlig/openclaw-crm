@@ -3,12 +3,13 @@
 // Work dashboard (Mockup 1 / Spec §8.1). Exactly two fetches: the dashboard
 // bundle and the sprint timeline. The old Kanban board, the Sprint-Bar and
 // the Team-Pulse strip are gone (Spec §7).
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Plus } from "lucide-react";
 import { useSession } from "@/lib/auth-client";
 import type { DashboardJSON, TaskJSON, TimelineJSON } from "@/lib/work-types";
+import { TASK_LINK_PARAM, fetchLinkedTask } from "@/lib/task-link";
 import { ModuleNav } from "@/components/work/module-nav";
 import {
   SprintPicker,
@@ -280,6 +281,8 @@ export default function WorkDashboardPage() {
         )}
       </div>
 
+      <TaskLinkOpener onOpen={openTask} />
+
       <WorkTaskDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
@@ -300,6 +303,50 @@ export default function WorkDashboardPage() {
       />
     </div>
   );
+}
+
+/**
+ * Task pushes link to /tasks?taskId=<id> (lib/task-link.ts); this opens that
+ * task's dialog. The task is fetched on its own because it need not be in any
+ * list this page loaded. Own Suspense boundary, same as ModuleNav:
+ * useSearchParams() needs one or Next 15 fails prerendering the page.
+ */
+function TaskLinkOpener({ onOpen }: { onOpen: (task: TaskJSON) => void }) {
+  return (
+    <Suspense fallback={null}>
+      <TaskLinkOpenerInner onOpen={onOpen} />
+    </Suspense>
+  );
+}
+
+function TaskLinkOpenerInner({ onOpen }: { onOpen: (task: TaskJSON) => void }) {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const taskId = searchParams.get(TASK_LINK_PARAM);
+  // One fetch per link: StrictMode's second effect run (and any re-render
+  // before the URL below is cleaned) must not open the dialog twice.
+  const handledRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!taskId) {
+      handledRef.current = null;
+      return;
+    }
+    if (handledRef.current === taskId) return;
+    handledRef.current = taskId;
+    // Drop the parameter right away, like the inbox compose deep link: a
+    // reload after closing the dialog must not open it again.
+    router.replace("/tasks", { scroll: false });
+    fetchLinkedTask(taskId).then(
+      (task) => {
+        if (task) onOpen(task);
+        else toast.error("Aufgabe nicht gefunden");
+      },
+      () => toast.error("Aufgabe konnte nicht geöffnet werden")
+    );
+  }, [taskId, onOpen, router]);
+
+  return null;
 }
 
 function DashboardKpis({

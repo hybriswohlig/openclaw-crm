@@ -6,8 +6,7 @@
     "CRM_ADMIN_EMAILS",
     "NEXT_PUBLIC_APP_URL",
     "TRUSTED_ORIGINS",
-    "AUTH_TRUSTED_HOSTS",
-    "DATABASE_TARGET_URL"
+    "AUTH_TRUSTED_HOSTS"
   ],
   "tasks": {
     "build": {

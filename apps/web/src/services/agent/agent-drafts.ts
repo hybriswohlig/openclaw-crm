@@ -24,6 +24,7 @@ import { leaksPriceOrCommitment } from "./agent-suppress";
 import { ownerUserIds } from "./agent-shared";
 import { DRAFT_CLASS_LABELS, HUMAN_ACTIONABLE_BLOCKS } from "./agent-shadow";
 import { sendPush } from "@/services/push";
+import { inboxKonversationUrl } from "@/lib/inbox-link";
 
 /** Message classes accepted from external runners (the drafts table's vocabulary). */
 const DRAFT_CLASSES: ReadonlySet<string> = new Set([
@@ -345,7 +346,7 @@ export async function createAgentDraft(
           {
             title: `KI-Entwurf: ${DRAFT_CLASS_LABELS[gateClass] ?? "Entwurf"}`,
             body: draftText.slice(0, 80),
-            url: conversationId ? `/inbox?conversationId=${conversationId}` : "/inbox",
+            url: inboxKonversationUrl(conversationId),
             tag: `agent-draft-${draftId}`,
           },
           { workspaceId: input.workspaceId, userIds: owners }

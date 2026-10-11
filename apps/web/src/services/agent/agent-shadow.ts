@@ -22,6 +22,7 @@ import { and, eq, gt, isNull, or } from "drizzle-orm";
 import { db } from "@/db";
 import { agentEvents, agentDrafts } from "@/db/schema/agent";
 import { sendPush } from "@/services/push";
+import { inboxKonversationUrl } from "@/lib/inbox-link";
 import { ohnePreisPhrase } from "./preis-entwurf";
 import { leaksPriceOrCommitment } from "./agent-suppress";
 import { ownerUserIds } from "./agent-shared";
@@ -221,9 +222,7 @@ export async function captureShadowDraft(input: ShadowDraftInput): Promise<void>
             {
               title: `KI-Entwurf: ${DRAFT_CLASS_LABELS[input.messageClass] ?? "Entwurf"}`,
               body: scanTarget.slice(0, 80),
-              url: input.conversationId
-                ? `/inbox?conversationId=${input.conversationId}`
-                : "/inbox",
+              url: inboxKonversationUrl(input.conversationId),
               tag: `agent-draft-${inserted[0].id}`,
             },
             { workspaceId: input.workspaceId, userIds: owners }

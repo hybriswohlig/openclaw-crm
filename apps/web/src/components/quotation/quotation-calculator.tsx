@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Plus, Trash2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { postenFuerSpeichern } from "@/lib/angebot-posten";
 
 interface LineItem {
   type: "helper" | "transporter" | "other";
@@ -158,16 +159,17 @@ export function QuotationCalculator({ recordId, quotation, onSaved }: Props) {
       const depositCents = depositEur.trim()
         ? Math.round(Number(depositEur) * 100)
         : null;
+      const festpreis = isVariable ? null : fixedPrice || null;
       const res = await fetch(`/api/v1/deals/${recordId}/quotation`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           isVariable,
-          fixedPrice: isVariable ? null : fixedPrice || null,
+          fixedPrice: festpreis,
           notes: notes || null,
-          lineItems: isVariable
-            ? lineItems.map((li, i) => ({ ...li, sortOrder: i }))
-            : [],
+          // Festpreis: Posten (Kern + Hebel aus der Übernahme) bleiben, solange
+          // Modus und Preis unverändert sind.
+          ...postenFuerSpeichern({ isVariable, fixedPrice: festpreis, lineItems, geladen: quotation }),
           depositRequiredCents:
             depositCents != null && Number.isFinite(depositCents) && depositCents > 0
               ? depositCents

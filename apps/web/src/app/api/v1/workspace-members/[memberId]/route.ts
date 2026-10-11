@@ -1,9 +1,17 @@
 import { NextRequest } from "next/server";
-import { getAuthContext, unauthorized, notFound, badRequest, success } from "@/lib/api-utils";
+import {
+  getAuthContext,
+  unauthorized,
+  notFound,
+  badRequest,
+  conflict,
+  success,
+} from "@/lib/api-utils";
 import {
   updateMemberRole,
   updateMemberPermissions,
   removeMember,
+  LetzterAdminError,
 } from "@/services/workspace";
 import type { MemberPermissions } from "@/db/schema/workspace";
 
@@ -42,7 +50,14 @@ export async function PATCH(
     if (body.role !== "admin" && body.role !== "member") {
       return badRequest("role must be 'admin' or 'member'");
     }
-    updated = await updateMemberRole(ctx.workspaceId, memberId, body.role);
+    try {
+      // Den letzten Admin zum Mitglied zu machen lehnt updateMemberRole ab (409).
+      updated = await updateMemberRole(ctx.workspaceId, memberId, body.role);
+    } catch (e: unknown) {
+      if (e instanceof LetzterAdminError) return conflict(e.message);
+      const message = e instanceof Error ? e.message : "Failed to change member role";
+      return badRequest(message);
+    }
     if (!updated) return notFound("Member not found");
   }
 
@@ -83,10 +98,14 @@ export async function DELETE(
   const { memberId } = await params;
 
   try {
-    const removed = await removeMember(ctx.workspaceId, memberId);
+    // Entfernen entzieht den Zugang ganz (Freigabe, Sitzungen, API-Schlüssel,
+    // Push-Abos). Lehnt removeMember ab, wird „sich selbst entfernen“ ein 400,
+    // „letzter Admin“ oder „letzter App-Admin“ ein 409 (LetzterAdminError).
+    const removed = await removeMember(ctx.workspaceId, memberId, ctx.userId);
     if (!removed) return notFound("Member not found");
     return success(removed);
   } catch (e: unknown) {
+    if (e instanceof LetzterAdminError) return conflict(e.message);
     const message = e instanceof Error ? e.message : "Failed to remove member";
     return badRequest(message);
   }

@@ -8,7 +8,6 @@ const TITLE_MAP: Array<[RegExp, string]> = [
   [/^\/operations/, "Aufträge"],
   [/^\/inbox/, "Inbox"],
   [/^\/tasks/, "Aufgaben"],
-  [/^\/chat/, "Chat"],
   [/^\/contract-calendar/, "Kalender"],
   [/^\/notes/, "Notizen"],
   [/^\/notifications/, "Mitteilungen"],
