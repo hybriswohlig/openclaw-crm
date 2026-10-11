@@ -72,6 +72,11 @@ export interface RunAITaskInput<TSchema extends z.ZodTypeAny | undefined = undef
    */
   attachments?: Array<{ filename: string; mime: string; contentB64: string }>;
   /**
+   * Ersetzt die automatische Schema-Beschreibung im Prompt. describeSchema
+   * kennt .catch() nicht und macht aus einer Item-Liste `"items": string`.
+   */
+  schemaHint?: string;
+  /**
    * Background jobs (keep-warm crons etc.) are serialized through a 1-slot
    * lane on the VPS runner so they never compete with a user-triggered job
    * for the single vCPU. Interactive calls leave this unset.
@@ -286,6 +291,11 @@ function describeObject(schema: any, depth: number): string {
   return `{\n${fields.join(",\n")}\n${closeIndent}}`;
 }
 
+/** Schema-Text für den Prompt: eigener Hinweis der Aufgabe, sonst aus dem Zod-Schema. */
+export function schemaText(schema: ZodTypeAny, schemaHint?: string): string {
+  return schemaHint?.trim() || describeSchema(schema);
+}
+
 function describeSchema(schema: ZodTypeAny): string {
   try {
     const label = zodTypeLabel(schema, 0);
@@ -397,7 +407,7 @@ async function callModel<TSchema extends z.ZodTypeAny | undefined>(
   // For structured output, instruct the model to return JSON matching the schema.
   const useJsonMode = !!input.schema;
   if (input.schema) {
-    const schemaDesc = describeSchema(input.schema);
+    const schemaDesc = schemaText(input.schema, input.schemaHint);
     userPrompt += `\n\nIMPORTANT: Respond ONLY with valid JSON matching this schema (no markdown, no explanation):\n${schemaDesc}`;
   }
 
@@ -509,7 +519,7 @@ async function runViaCrmTools<TSchema extends z.ZodTypeAny | undefined>(
   // Build the user prompt with schema hint, matching the OpenRouter path.
   let userPrompt = input.prompt;
   if (input.schema) {
-    const schemaDesc = describeSchema(input.schema);
+    const schemaDesc = schemaText(input.schema, input.schemaHint);
     userPrompt = `${input.prompt}\n\nReturn a JSON object with this exact shape:\n${schemaDesc}`;
   }
 

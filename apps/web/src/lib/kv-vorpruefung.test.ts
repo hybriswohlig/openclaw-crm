@@ -23,7 +23,8 @@ function ctx(over: Partial<LeadContext> = {}): LeadContext {
 }
 const daten = (over: Partial<KvHinweisDaten> = {}): KvHinweisDaten => ({
   umzugsgutAnzahl: 12,
-  fotoStapelOffen: 0,
+  fotosOffen: 0,
+  fotosGescheitert: 0,
   hatAngebot: true,
   festpreisCents: null,
   conversationId: "conv-1",
@@ -52,9 +53,9 @@ describe("kvVorpruefung", () => {
     expect(r.felder.every((f) => f.fehlt)).toBe(true);
   });
   it("leeres Umzugsgut mit laufender Foto-Auswertung: Hinweis, blockiert nicht", () => {
-    const r = kvVorpruefung({ ctx: ctx(), daten: daten({ umzugsgutAnzahl: 0, fotoStapelOffen: 7 }), documentType: "KV" });
+    const r = kvVorpruefung({ ctx: ctx(), daten: daten({ umzugsgutAnzahl: 0, fotosOffen: 7 }), documentType: "KV" });
     expect(r.bereit).toBe(true);
-    expect(r.hinweise).toEqual([{ art: "umzugsgut", text: "Umzugsgut ist noch leer, 7 Foto-Stapel werden gerade ausgewertet." }]);
+    expect(r.hinweise).toEqual([{ art: "umzugsgut", text: "Umzugsgut ist noch leer, 7 Fotos werden gerade ausgewertet." }]);
   });
   it("nur Festpreis bei Kottke: Pauschale-Hinweis; bei Ceylan nicht", () => {
     const k = kvVorpruefung({ ctx: ctx(), daten: daten({ festpreisCents: 172000 }), documentType: "KV" });
@@ -68,8 +69,21 @@ describe("kvVorpruefung", () => {
     expect(c.hinweise).toEqual([]);
   });
   it("Fotos noch in Arbeit, Umzugsgut schon teilweise da: trotzdem Hinweis", () => {
-    const r = kvVorpruefung({ ctx: ctx(), daten: daten({ umzugsgutAnzahl: 5, fotoStapelOffen: 3 }), documentType: "KV" });
-    expect(r.hinweise).toEqual([{ art: "umzugsgut", text: "Umzugsgut hat 5 Einträge, 3 Foto-Stapel werden noch ausgewertet." }]);
+    const r = kvVorpruefung({ ctx: ctx(), daten: daten({ umzugsgutAnzahl: 5, fotosOffen: 1 }), documentType: "KV" });
+    expect(r.hinweise).toEqual([{ art: "umzugsgut", text: "Umzugsgut hat 5 Einträge, 1 Foto wird noch ausgewertet." }]);
+  });
+  it("Fotos nicht auswertbar: eigener Hinweis, auch neben laufender Auswertung (Fall Jonas)", () => {
+    const r = kvVorpruefung({ ctx: ctx(), daten: daten({ umzugsgutAnzahl: 35, fotosOffen: 2, fotosGescheitert: 4 }), documentType: "KV" });
+    expect(r.bereit).toBe(true);
+    expect(r.hinweise).toEqual([
+      { art: "umzugsgut", text: "Umzugsgut hat 35 Einträge, 2 Fotos werden noch ausgewertet." },
+      { art: "umzugsgut", text: "4 Fotos konnten nicht ausgewertet werden. Bitte das Umzugsgut mit den Fotos im Posteingang vergleichen." },
+    ]);
+    const eins = kvVorpruefung({ ctx: ctx(), daten: daten({ umzugsgutAnzahl: 0, fotosGescheitert: 1 }), documentType: "KV" });
+    expect(eins.hinweise.map((h) => h.text)).toEqual([
+      "Umzugsgut ist leer. Im KV steht dann keine Liste.",
+      "1 Foto konnte nicht ausgewertet werden. Bitte das Umzugsgut mit den Fotos im Posteingang vergleichen.",
+    ]);
   });
   it("Adresse als Text gespeichert: zählt als vorhanden", () => {
     const r = kvVorpruefung({ ctx: ctx({ move_from_address: "Hauptstr. 1, 72218 Wildberg" }), daten: daten(), documentType: "KV" });

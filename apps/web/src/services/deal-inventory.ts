@@ -207,9 +207,12 @@ export async function hasAnyInventory(
 // Gleiche Transportcaps wie scope-from-photos (VPS: Claude/Grok lesen die
 // Dateien im Job-Arbeitsverzeichnis): max 6 Bilder / 8 MB pro Batch. Mehr
 // Fotos werden in SEQUENZIELLE Batches zerlegt — der VPS hat 3 GB MemoryMax
-// und eine OOM-Vorgeschichte, parallel wäre fahrlässig. Pro Aufruf höchstens
-// MAX_BATCHES_PER_RUN Batches (Vercel maxDuration 300 s, ~30–90 s pro Job);
-// Übriges meldet die Antwort als "skipped" und der nächste Klick macht weiter.
+// und eine OOM-Vorgeschichte. Pro Aufruf höchstens MAX_BATCHES_PER_RUN Batches
+// (Vercel maxDuration 300 s, ~30–90 s pro Job); Übriges meldet die Antwort als
+// "skipped" und der nächste Klick macht weiter. Ausnahme ist der Foto-Cron
+// (inventar-fotos.ts): er lässt bis zu 4 Einzelfotos gleichzeitig erkennen.
+// Gemessen 2026-10-09: ein Grok-Fotojob braucht ~90 MB, der Dienst selbst
+// 160 MB, seit 06.09. kein OOM.
 
 const MAX_IMAGES_PER_BATCH = 6;
 const MAX_BYTES_PER_BATCH = 8 * 1024 * 1024;
@@ -231,25 +234,46 @@ const PhotoItemSchema = z.object({
   notes: z.string().nullish(),
 });
 
-const PhotoInventorySchema = z.object({
-  items: z.array(PhotoItemSchema).catch([]),
+export const PhotoInventorySchema = z.object({
+  // Je Item einzeln prüfen: ein kaputtes Item (z. B. leerer Name) leerte sonst
+  // die ganze Liste, und das Foto galt trotzdem als ausgewertet. Ist items gar
+  // keine Liste, scheitert die Prüfung, und das Foto kommt erneut dran.
+  items: z
+    .array(z.unknown())
+    .transform((roh) =>
+      roh.flatMap((x) => {
+        const r = PhotoItemSchema.safeParse(x);
+        return r.success ? [r.data] : [];
+      })
+    ),
 });
 
-const PHOTO_SYSTEM_PROMPT = `Du bist Assistent eines deutschen Umzugsunternehmens. Du analysierst Kundenfotos (Möbel, Räume, Keller, Kartons) und listest das sichtbare UMZUGSGUT als JSON.
+/**
+ * Knapp gehalten (2026-10-09, Lead „Jonas“): Mit allen elf Feldern schrieb Grok
+ * für 2 Fotos 22 Items und 7,6 KB JSON in 122 bis 281 s, die Hälfte der Jobs
+ * lief in die 270-s-Grenze. Ohne leere Felder und Maße: 28 bis 67 s je Foto,
+ * Volumen, Größe, schwer und Abbau bleiben (die braucht der Kostenrechner).
+ */
+export const PHOTO_SYSTEM_PROMPT = `Du bist Assistent eines deutschen Umzugsunternehmens. Du analysierst Kundenfotos (Möbel, Räume, Keller, Kartons) und listest das sichtbare UMZUGSGUT als JSON.
 
 Regeln:
-- Jeder erkennbare Gegenstand ein Item: {"name","category","quantity","size_class","heavy","fragile","disassembly_required","dimensions_estimate","volume_cbm_estimate","photo_file","notes"}.
-- name: kurzer deutscher Name ("Kleiderschrank 3-türig", "Waschmaschine"). Gleiche Gegenstände auf mehreren Fotos = EIN Item, photo_file = das beste Foto.
+- Jeder erkennbare Gegenstand ein Item: {"name","category","quantity","size_class","heavy","fragile","disassembly_required","volume_cbm_estimate","photo_file","notes"}.
+- KURZ ANTWORTEN: Felder, die null, false oder leer wären, weglassen.
+- name: kurzer deutscher Name ("Kleiderschrank 3-türig", "Waschmaschine"). Gleiche Gegenstände auf mehreren Fotos = EIN Item.
 - size_class: klein/mittel/gross/sperrig. heavy/fragile/disassembly_required wie es ein Umzugsprofi einschätzen würde.
-- dimensions_estimate: NUR wenn eine Referenz im Bild ist (Türrahmen ~200 cm, Zimmertür ~80 cm breit, Person). Format "ca. B×T×H cm (geschätzt)". Ohne Referenz null — NIEMALS raten.
-- volume_cbm_estimate: grobe konservative m³-Schätzung pro Item, quantity eingerechnet; null wenn unklar.
-- notes: Besonderheiten für den Umzug ("steht im Keller", "muss durch enges Treppenhaus", "viele Kleinteile im Regal").
-- Ignoriere fest verbaute Dinge (Einbauküche nur wenn eindeutig Umzugsgut), Deko-Kleinkram einzeln NICHT listen — fasse zusammen ("Karton Deko/Kleinteile").
+- volume_cbm_estimate: grobe konservative m³-Schätzung pro Item, quantity eingerechnet.
+- photo_file: nur bei mehreren Fotos, der Dateiname aus der Liste, auf dem das Item am besten zu sehen ist.
+- notes: nur echte Umzugs-Besonderheiten, höchstens 6 Wörter ("steht im Keller", "viele Kleinteile im Regal").
+- Ignoriere fest verbaute Dinge (Einbauküche nur wenn eindeutig Umzugsgut). Kleinkram und Deko nicht einzeln listen, sondern zu wenigen Sammel-Items zusammenfassen ("Karton Deko/Kleinteile").
 - Kein sichtbares Umzugsgut → {"items":[]}.
 
 Antworte NUR mit dem JSON-Objekt {"items":[...]}.`;
 
-interface DealPhotoRow {
+/** Format-Hinweis am Ende des Prompts, passend zur knappen Antwort. */
+const PHOTO_SCHEMA_HINT = `{"items":[{"name": string, "category": string, "quantity": number, "size_class": "klein"|"mittel"|"gross"|"sperrig", "heavy": true, "fragile": true, "disassembly_required": true, "volume_cbm_estimate": number, "photo_file": string, "notes": string}]}
+Felder, die null, false oder leer wären, weglassen.`;
+
+export interface DealPhotoRow {
   id: string;
   fileName: string;
   mimeType: string;
@@ -257,7 +281,7 @@ interface DealPhotoRow {
   fileContent: string;
 }
 
-async function loadDealInventoryPhotos(
+export async function loadDealInventoryPhotos(
   workspaceId: string,
   dealRecordId: string,
   attachmentIds?: string[]
@@ -328,30 +352,50 @@ export interface PhotoAnalysisResult {
   matched: number;
   added: number;
   error?: string;
+  /** Attachment-IDs der tatsächlich ausgewerteten Fotos. */
+  analyzedIds?: string[];
+}
+
+const BILD_ENDUNG = /^image\/([a-z0-9]+)$/i;
+
+/**
+ * Eindeutige Dateinamen je Stapel ("foto-1.jpeg", "foto-2.png"). WhatsApp
+ * schickt jedes Foto als "image.jpeg", der VPS legt sie als "00_image.jpeg",
+ * "01_image.jpeg" ab; über den Originalnamen fand keine Zeile ihr Foto wieder
+ * (Lead „Jonas“: 35 Einträge, 0 mit Foto).
+ */
+export function fotoDateinamen(fotos: readonly Pick<DealPhotoRow, "mimeType">[]): string[] {
+  return fotos.map((f, i) => `foto-${i + 1}.${BILD_ENDUNG.exec(f.mimeType)?.[1]?.toLowerCase() ?? "jpg"}`);
 }
 
 /**
- * Analysiert Kundenfotos (alle oder die übergebenen Attachment-IDs), matcht
- * die erkannten Items gegen die bestehende Inventarliste und persistiert:
- *   - Match: Foto-Link setzen, needs_photo löschen, leere Maße/Volumen füllen,
- *     Chat-Konfidenz auf 'hoch' heben. Operator-Zeilen behalten alle Werte,
- *     bekommen aber ebenfalls Foto-Link + needs_photo=false.
- *   - Kein Match: neue Zeile source='foto' — das ist das "auf dem Foto gesehen,
- *     im Chat nie erwähnt"-Signal (vergessene Gegenstände).
+ * Attachment-ID zum photo_file der KI. Ein Foto im Stapel: immer dieses. Sonst
+ * der Name aus der Liste, auch mit Pfad oder Nummer davor ("01_foto-2.jpeg").
  */
-export async function analyzeInventoryPhotos(
-  workspaceId: string,
-  dealRecordId: string,
-  opts: { attachmentIds?: string[]; background?: boolean } = {}
-): Promise<PhotoAnalysisResult> {
-  const photos = await loadDealInventoryPhotos(workspaceId, dealRecordId, opts.attachmentIds);
-  if (photos.length === 0) {
-    return {
-      dealRecordId, photosAnalyzed: 0, photosSkipped: 0, matched: 0, added: 0,
-      error: "keine Kundenfotos am Lead",
-    };
-  }
+export function fotoZuordnen(photoFile: string | null | undefined, namen: readonly string[], ids: readonly string[]): string | null {
+  if (ids.length === 1) return ids[0] ?? null;
+  if (!photoFile) return null;
+  const name = (photoFile.split("/").pop() ?? "").replace(/^\d{2}_/, "").trim().toLowerCase();
+  const i = namen.findIndex((n) => n.toLowerCase() === name);
+  return i >= 0 ? (ids[i] ?? null) : null;
+}
 
+export type ErkanntesFotoItem = z.infer<typeof PhotoItemSchema> & { attachmentId: string | null };
+
+export type FotoErkennung =
+  | { ok: true; items: ErkanntesFotoItem[]; analyzed: number; skipped: number; analyzedIds: string[] }
+  | { ok: false; error: string; skipped: number };
+
+/**
+ * Nur die KI-Erkennung, ohne Schreiben: der Foto-Cron lässt mehrere Fotos
+ * gleichzeitig erkennen und übernimmt die Ergebnisse danach je Lead
+ * nacheinander (sonst legten zwei Fotos desselben Sofas zwei Zeilen an).
+ */
+export async function fotosErkennen(
+  workspaceId: string,
+  photos: readonly DealPhotoRow[],
+  opts: { background?: boolean }
+): Promise<FotoErkennung> {
   // Batches schneiden: ≤6 Bilder und ≤8 MB je Batch.
   const batches: DealPhotoRow[][] = [];
   let current: DealPhotoRow[] = [];
@@ -374,18 +418,22 @@ export async function analyzeInventoryPhotos(
   const skipped = batches.slice(MAX_BATCHES_PER_RUN).reduce((n, b) => n + b.length, 0);
 
   // Sequenziell — nie parallel gegen den VPS (MemoryMax 3G).
-  const photoItems: Array<z.infer<typeof PhotoItemSchema>> = [];
+  const photoItems: ErkanntesFotoItem[] = [];
+  const analyzedIds: string[] = [];
   let analyzed = 0;
   for (const batch of runBatches) {
-    const fileList = batch.map((p) => `- ${p.fileName} (${p.mimeType})`).join("\n");
+    const namen = fotoDateinamen(batch);
+    const ids = batch.map((p) => p.id);
+    const fileList = batch.map((p, i) => `- ${namen[i]} (${p.mimeType})`).join("\n");
     const result = await runAITask({
       workspaceId,
       taskSlug: AI_TASK_SLUGS.DEAL_INVENTORY_FROM_PHOTOS,
       system: PHOTO_SYSTEM_PROMPT,
       prompt: `# Kundenfotos (${batch.length})\n\nDie Dateien liegen in deinem Arbeitsverzeichnis und sind dir über das Read-Tool zugänglich. Sieh dir JEDE Datei an:\n${fileList}\n\nListe das sichtbare Umzugsgut. Antworte nur mit dem JSON-Objekt.`,
       schema: PhotoInventorySchema,
-      attachments: batch.map((p) => ({
-        filename: p.fileName,
+      schemaHint: PHOTO_SCHEMA_HINT,
+      attachments: batch.map((p, i) => ({
+        filename: namen[i]!,
         mime: p.mimeType,
         contentB64: p.fileContent,
       })),
@@ -393,15 +441,11 @@ export async function analyzeInventoryPhotos(
     });
     if (!result.ok) {
       // Batch-Fehler beendet den Lauf, bereits analysierte Batches zählen.
-      if (analyzed === 0) {
-        return {
-          dealRecordId, photosAnalyzed: 0, photosSkipped: skipped, matched: 0, added: 0,
-          error: result.error,
-        };
-      }
+      if (analyzed === 0) return { ok: false, error: result.error, skipped };
       break;
     }
     analyzed += batch.length;
+    analyzedIds.push(...ids);
     // Batch-übergreifende Duplikate zusammenfassen (max quantity gewinnt).
     for (const item of result.output.items) {
       const dup = photoItems.find((p) => namesMatch(p.name, item.name));
@@ -411,35 +455,57 @@ export async function analyzeInventoryPhotos(
           dup.dimensions_estimate = item.dimensions_estimate;
         }
       } else {
-        photoItems.push(item);
+        photoItems.push({ ...item, attachmentId: fotoZuordnen(item.photo_file, namen, ids) });
       }
     }
   }
+  return { ok: true, items: photoItems, analyzed, skipped, analyzedIds };
+}
 
-  // Foto-Dateiname → Attachment-ID (erster Treffer gewinnt).
-  const byFileName = new Map<string, string>();
-  for (const p of photos) {
-    if (!byFileName.has(p.fileName)) byFileName.set(p.fileName, p.id);
-  }
+function groesseresVolumen(alt: string | null, neu: number | null | undefined): string | null {
+  if (neu == null) return alt;
+  const bisher = alt != null ? Number(alt) : NaN;
+  return Number.isFinite(bisher) && bisher >= neu ? alt : String(neu);
+}
 
+/**
+ * Erkannte Foto-Items gegen die bestehende Inventarliste matchen und speichern:
+ *   - Match: Foto-Link setzen, needs_photo löschen, leere Maße/Volumen füllen,
+ *     Chat-Konfidenz auf 'hoch' heben. Operator-Zeilen behalten alle Werte,
+ *     bekommen aber ebenfalls Foto-Link + needs_photo=false.
+ *   - Kein Match: neue Zeile source='foto' — das ist das "auf dem Foto gesehen,
+ *     im Chat nie erwähnt"-Signal (vergessene Gegenstände).
+ * Stößt die Kalkulation nicht an, das macht der Aufrufer.
+ */
+export async function fotoItemsUebernehmen(
+  workspaceId: string,
+  dealRecordId: string,
+  photoItems: readonly ErkanntesFotoItem[],
+  info: { analyzed: number; skipped: number }
+): Promise<{ matched: number; added: number }> {
   const existing = await getDealInventory(workspaceId, dealRecordId);
   let matched = 0;
   let added = 0;
   let sortOrder = existing.length;
   for (const item of photoItems) {
-    const attachmentId = item.photo_file ? (byFileName.get(item.photo_file) ?? null) : null;
+    const attachmentId = item.attachmentId;
     const hit = existing.find((e) => namesMatch(e.name, item.name));
     if (hit) {
       matched++;
+      // Foto-Zeile von einem anderen Foto: größere Menge und größeres Volumen
+      // gewinnen, wie innerhalb eines Stapels. Chat- und Büro-Zeilen behalten ihre Menge.
+      const fotoZeile = hit.source === "foto";
       await db
         .update(dealInventoryItems)
         .set({
           photoAttachmentId: hit.photoAttachmentId ?? attachmentId,
           needsPhoto: false,
           dimensionsEstimate: hit.dimensionsEstimate ?? item.dimensions_estimate?.trim() ?? null,
-          volumeCbmEstimate:
-            hit.volumeCbmEstimate ??
-            (item.volume_cbm_estimate != null ? String(item.volume_cbm_estimate) : null),
+          volumeCbmEstimate: fotoZeile
+            ? groesseresVolumen(hit.volumeCbmEstimate, item.volume_cbm_estimate)
+            : (hit.volumeCbmEstimate ??
+              (item.volume_cbm_estimate != null ? String(item.volume_cbm_estimate) : null)),
+          ...(fotoZeile ? { quantity: Math.max(hit.quantity, item.quantity) } : {}),
           ...(hit.source === "chat" ? { confidence: "hoch" as const } : {}),
           updatedAt: new Date(),
         })
@@ -477,10 +543,33 @@ export async function analyzeInventoryPhotos(
     recordId: dealRecordId,
     objectSlug: "deals",
     eventType: "ai.inventory_photos_analyzed",
-    payload: { photosAnalyzed: analyzed, photosSkipped: skipped, matched, added },
+    payload: { photosAnalyzed: info.analyzed, photosSkipped: info.skipped, matched, added },
     actorId: null,
   });
+  return { matched, added };
+}
 
+/** Kundenfotos (alle oder die übergebenen Attachment-IDs) erkennen und übernehmen. */
+export async function analyzeInventoryPhotos(
+  workspaceId: string,
+  dealRecordId: string,
+  opts: { attachmentIds?: string[]; background?: boolean } = {}
+): Promise<PhotoAnalysisResult> {
+  const photos = await loadDealInventoryPhotos(workspaceId, dealRecordId, opts.attachmentIds);
+  if (photos.length === 0) {
+    return {
+      dealRecordId, photosAnalyzed: 0, photosSkipped: 0, matched: 0, added: 0,
+      error: "keine Kundenfotos am Lead",
+    };
+  }
+  const erkannt = await fotosErkennen(workspaceId, photos, { background: opts.background });
+  if (!erkannt.ok) {
+    return {
+      dealRecordId, photosAnalyzed: 0, photosSkipped: erkannt.skipped, matched: 0, added: 0,
+      error: erkannt.error,
+    };
+  }
+  const { matched, added } = await fotoItemsUebernehmen(workspaceId, dealRecordId, erkannt.items, erkannt);
   if (matched + added > 0) kalkulationAnstossen(workspaceId, dealRecordId);
-  return { dealRecordId, photosAnalyzed: analyzed, photosSkipped: skipped, matched, added };
+  return { dealRecordId, photosAnalyzed: erkannt.analyzed, photosSkipped: erkannt.skipped, matched, added, analyzedIds: erkannt.analyzedIds };
 }

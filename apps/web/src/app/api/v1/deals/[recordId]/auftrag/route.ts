@@ -10,7 +10,7 @@ import { DEFAULT_AUFTRAG_CHECKLIST } from "@openclaw-crm/shared";
 import { dealInventoryItems } from "@/db/schema/inventory";
 import { inboxConversations } from "@/db/schema/inbox";
 import { getQuotation } from "@/services/quotations";
-import { offeneFotoStapel } from "@/services/inventar-fotos";
+import { fotoStand } from "@/services/inventar-fotos";
 import { leistungsartVorschlag, type KvHinweisDaten } from "@/lib/kv-vorpruefung";
 import { festpreisAlsPauschale } from "@/lib/festpreis-posten";
 
@@ -373,7 +373,9 @@ async function loadKvHinweise(workspaceId: string, dealRecordId: string): Promis
       leadType: typeof leadType === "string" ? leadType : null,
     }),
     umzugsgutAnzahl: Number(inv?.n ?? 0),
-    fotoStapelOffen: await offeneFotoStapel(dealRecordId).catch(() => 0),
+    ...(await fotoStand(dealRecordId)
+      .then((s) => ({ fotosOffen: s.offen, fotosGescheitert: s.gescheitert }))
+      .catch(() => ({ fotosOffen: 0, fotosGescheitert: 0 }))),
     hatAngebot: !!q,
     festpreisCents,
     conversationId: conv?.id ?? null,
