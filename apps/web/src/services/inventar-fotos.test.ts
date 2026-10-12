@@ -142,32 +142,43 @@ describe("einsammelPlan", () => {
 describe("einsammelAbfrage", () => {
   const abfrage = () => einsammelAbfrage(JETZT).toSQL();
   const iso = (minuten: number) => vor(minuten).toISOString();
+  /** Wert des Parameters direkt hinter einem SQL-Stück, damit vertauschte Grenzen auffallen. */
+  const wertHinter = (stueck: string) => {
+    const { sql, params } = abfrage();
+    const stelle = sql.indexOf(stueck);
+    expect(stelle, stueck).toBeGreaterThanOrEqual(0);
+    expect(sql.indexOf(stueck, stelle + 1), `${stueck} nur einmal`).toBe(-1);
+    const nr = /^\$(\d+)/.exec(sql.slice(stelle + stueck.length));
+    expect(nr, stueck).not.toBeNull();
+    return params[Number(nr![1]) - 1];
+  };
 
   it("eingehende Bilder an Leads, egal ob pausiert oder schon beantwortet (Kern: 10 von 12 Leads seit 30.09. pausiert)", () => {
-    const { sql, params } = abfrage();
-    expect(sql).toMatch(/"inbox_messages"\."direction" = \$\d+/);
-    expect(sql).toMatch(/"inbox_conversations"\."lane" = \$\d+/);
-    expect(sql).toMatch(/"inbox_message_attachments"\."deal_record_id" is not null/);
-    expect(sql).toMatch(/"inbox_message_attachments"\."mime_type" like \$\d+/);
-    expect(params).toEqual(expect.arrayContaining(["inbound", "lead", "image/%"]));
-    expect(sql).not.toMatch(/ai_paused|ai_needs_reply|ai_processed_at/);
+    expect(wertHinter(`"inbox_messages"."direction" = `)).toBe("inbound");
+    expect(wertHinter(`"inbox_conversations"."lane" = `)).toBe("lead");
+    expect(wertHinter(`"inbox_message_attachments"."mime_type" like `)).toBe("image/%");
+    expect(abfrage().sql).toContain(`"inbox_message_attachments"."deal_record_id" is not null`);
+    expect(abfrage().sql).not.toMatch(/ai_paused|ai_needs_reply|ai_processed_at/);
   });
-  it("ab 20 KB, 3 Minuten bis 24 Stunden alt, höchstens 100, neueste zuerst", () => {
-    const { sql, params } = abfrage();
-    expect(sql).toMatch(/"inbox_message_attachments"\."file_size" >= \$\d+/);
-    expect(sql).toMatch(/"inbox_message_attachments"\."created_at" > \$\d+/);
-    expect(sql).toMatch(/"inbox_message_attachments"\."created_at" <= \$\d+/);
-    expect(params).toEqual(expect.arrayContaining([20_000, iso(24 * 60), iso(3), 100]));
-    expect(sql).toMatch(/order by "inbox_message_attachments"\."created_at" desc limit \$\d+$/);
+  it("ab 20 KB, älter als 3 Minuten, jünger als 24 Stunden, neueste zuerst", () => {
+    expect(wertHinter(`"inbox_message_attachments"."file_size" >= `)).toBe(20_000);
+    expect(wertHinter(`"inbox_message_attachments"."created_at" > `)).toBe(iso(24 * 60));
+    expect(wertHinter(`"inbox_message_attachments"."created_at" <= `)).toBe(iso(3));
+    expect(abfrage().sql).toMatch(/order by "inbox_message_attachments"\."created_at" desc limit \$\d+$/);
   });
-  it("schon vorgemerkt in irgendeinem fotos_offen der letzten 30 Tage, auch von Hand ausgewertet: übersprungen", () => {
-    const { sql, params } = abfrage();
+  it("Grenze weit über einem Tag Kundenfotos: neuere Fotos fortgeschrittener Leads bleiben 24 Stunden Kandidaten und dürfen ein älteres nicht verdrängen", () => {
+    expect(wertHinter("limit ")).toBeGreaterThanOrEqual(1000);
+  });
+  it("schon vorgemerkt für diesen Lead in einem fotos_offen der letzten 25 Stunden, auch von Hand ausgewertet: übersprungen", () => {
+    const { sql } = abfrage();
     expect(sql).toContain(
-      `not exists (select 1 from "agent_events" where ("agent_events"."workspace_id" = "inbox_message_attachments"."workspace_id"`
+      `not exists (select 1 from "agent_events" where ("agent_events"."workspace_id" = "inbox_message_attachments"."workspace_id"` +
+        ` and "agent_events"."deal_record_id" = "inbox_message_attachments"."deal_record_id"`
     );
-    expect(sql).toMatch(/"agent_events"\."event_type" = \$\d+ and "agent_events"\."created_at" > \$\d+/);
+    expect(wertHinter(`"agent_events"."event_type" = `)).toBe("fotos_offen");
+    // Ein Stapel, der das Foto nennt, ist jünger als das Foto (höchstens 24 Stunden), eine Stunde Puffer.
+    expect(wertHinter(`"agent_events"."created_at" > `)).toBe(iso(25 * 60));
     expect(sql).toContain(`"agent_events"."payload" -> 'attachmentIds' @> jsonb_build_array("inbox_message_attachments"."id")`);
-    expect(params).toEqual(expect.arrayContaining(["fotos_offen", iso(30 * 24 * 60)]));
     // Kein Filter auf manuell: von Hand ausgewertete Fotos stehen als fotos_offen mit manuell: true.
     expect(sql).not.toContain("manuell");
   });
