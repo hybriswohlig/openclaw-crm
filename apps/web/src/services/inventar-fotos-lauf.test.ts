@@ -1,8 +1,15 @@
+import { getTableName, type Table } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mock = vi.hoisted(() => ({
   selects: [] as unknown[],
+  /** Antworten auf die Abfrage des Einsammelns (inbox_message_attachments), getrennt von den übrigen. */
+  kandidaten: [] as unknown[],
   inserts: [] as Array<Record<string, unknown>>,
+  /** Reihenfolge der Zugriffe, z. B. "insert:fotos_offen" vor "select:agent_events". */
+  log: [] as string[],
+  stufen: {} as Record<string, string | null>,
+  stufeLesen: vi.fn(),
   erkennen: vi.fn(),
   uebernehmen: vi.fn(),
   kalkulation: vi.fn(),
@@ -10,20 +17,32 @@ const mock = vi.hoisted(() => ({
   insertFehler: null as null | ((v: Record<string, unknown>) => boolean),
 }));
 
-function kette(ergebnis: unknown) {
+function kette() {
+  let tabelle = "";
   const k: Record<string, unknown> = {};
-  for (const m of ["from", "where", "orderBy", "limit", "innerJoin"]) k[m] = () => k;
-  k.then = (ok: (v: unknown) => unknown, nein: (e: unknown) => unknown) => Promise.resolve(ergebnis).then(ok, nein);
+  k.from = (t: Table) => {
+    tabelle = getTableName(t);
+    return k;
+  };
+  for (const m of ["where", "orderBy", "limit", "innerJoin"]) k[m] = () => k;
+  k.then = (ok: (v: unknown) => unknown, nein: (e: unknown) => unknown) => {
+    mock.log.push(`select:${tabelle}`);
+    const ergebnis = tabelle === "inbox_message_attachments" ? (mock.kandidaten.shift() ?? []) : mock.selects.shift();
+    return (ergebnis instanceof Error ? Promise.reject(ergebnis) : Promise.resolve(ergebnis)).then(ok, nein);
+  };
   return k;
 }
 
 vi.mock("@/db", () => {
   const db = {
-    select: () => kette(mock.selects.shift()),
+    select: () => kette(),
     insert: () => ({
-      values: (v: Record<string, unknown>) => {
-        if (mock.insertFehler?.(v)) throw new Error("Verbindung abgebrochen");
-        mock.inserts.push(v);
+      values: (v: Record<string, unknown> | Array<Record<string, unknown>>) => {
+        for (const zeile of [v].flat()) {
+          if (mock.insertFehler?.(zeile)) throw new Error("Verbindung abgebrochen");
+          mock.inserts.push(zeile);
+          mock.log.push(`insert:${String(zeile.eventType)}`);
+        }
         const r = Object.assign(Promise.resolve(undefined), { returning: async () => [{ id: mock.inserts.length }] });
         return Object.assign(r, { onConflictDoNothing: () => r });
       },
@@ -39,13 +58,32 @@ vi.mock("./deal-inventory", () => ({
 }));
 vi.mock("./rechner/ausloeser", () => ({ kalkulationAnstossen: mock.kalkulation }));
 vi.mock("./intern/intern-senden", () => ({ sendeAnInterne: mock.senden }));
-import { fotosAbarbeiten, fotosManuellAusgewertet } from "./inventar-fotos";
+vi.mock("./objects", () => ({
+  getObjectBySlug: async (ws: string, slug: string) => (slug === "deals" ? { id: `deals-${ws}` } : null),
+}));
+vi.mock("./agent/agent-shared", () => ({
+  getAdvancedStageIds: async (dealsObjekt: string) => new Set(dealsObjekt === "deals-ws" ? ["angebot-raus"] : []),
+  getDealStageId: mock.stufeLesen,
+}));
+import { fotosAbarbeiten, fotosEinsammeln, fotosManuellAusgewertet, fotosVormerken } from "./inventar-fotos";
 
+const JETZT = new Date("2026-10-09T12:00:00Z");
 const stapel = (id: number, deal: string) => ({ id, workspaceId: "ws", dealRecordId: deal, payload: { attachmentIds: [`foto-${id}`] } });
+const kandidat = (id: string, deal: string, conv: string) => ({
+  id,
+  workspaceId: "ws",
+  dealRecordId: deal,
+  conversationId: conv,
+  mimeType: "image/jpeg",
+  fileSize: 250_000,
+  createdAt: new Date(JETZT.getTime() - 10 * 60_000),
+});
 
 describe("fotosAbarbeiten", () => {
   beforeEach(() => {
     mock.inserts.length = 0;
+    mock.log.length = 0;
+    mock.kandidaten = [];
     mock.erkennen.mockReset();
     mock.uebernehmen.mockReset();
     mock.kalkulation.mockReset();
@@ -115,6 +153,77 @@ describe("fotosAbarbeiten", () => {
     expect(ergebnis.find((e) => e.stapel === 1)?.ergebnis).toContain("Verbindung abgebrochen");
     expect(ergebnis.find((e) => e.stapel === 2)?.ergebnis).toBe("1 Fotos, 0 zugeordnet, 1 neu");
     expect(mock.kalkulation.mock.calls.map((c) => c[1]).sort()).toEqual(["d1", "d2"]);
+  });
+});
+
+describe("fotosEinsammeln", () => {
+  beforeEach(() => {
+    mock.inserts.length = 0;
+    mock.log.length = 0;
+    mock.kandidaten = [];
+    mock.stufen = {};
+    mock.stufeLesen.mockReset();
+    mock.stufeLesen.mockImplementation(async (_objekt: string, deal: string) => mock.stufen[deal] ?? null);
+    mock.erkennen.mockReset();
+    mock.erkennen.mockResolvedValue({ ok: true, items: [{ name: "Sofa" }], analyzed: 1, skipped: 0 });
+    mock.uebernehmen.mockReset();
+    mock.uebernehmen.mockResolvedValue({ matched: 0, added: 1 });
+    mock.kalkulation.mockReset();
+    mock.insertFehler = null;
+  });
+
+  it("Foto einer pausierten Unterhaltung wird vorgemerkt und im selben Lauf erkannt (10 von 12 Leads seit 30.09.)", async () => {
+    // Bei pausierten Unterhaltungen kommt der Agent nie bis zum Vormerken; nur der Cron sieht das Foto.
+    mock.kandidaten = [[kandidat("foto-p", "d1", "conv-pausiert")]];
+    mock.selects = [[{ ...stapel(1, "d1"), payload: { attachmentIds: ["foto-p"] } }], []];
+
+    const ergebnis = await fotosAbarbeiten(JETZT);
+
+    expect(mock.inserts.filter((v) => v.eventType === "fotos_offen")).toEqual([
+      expect.objectContaining({ workspaceId: "ws", dealRecordId: "d1", conversationId: "conv-pausiert", payload: { attachmentIds: ["foto-p"] } }),
+    ]);
+    // Erst einsammeln, dann die Warteschlange lesen: das Foto kommt im selben Lauf dran.
+    expect(mock.log.indexOf("insert:fotos_offen")).toBeGreaterThanOrEqual(0);
+    expect(mock.log.indexOf("insert:fotos_offen")).toBeLessThan(mock.log.indexOf("select:agent_events"));
+    expect(ergebnis).toEqual([{ stapel: 1, ergebnis: "1 Fotos, 0 zugeordnet, 1 neu" }]);
+  });
+
+  it("Lead in fortgeschrittener Stufe wird nicht vorgemerkt, Stufe gelesen wie beim Agenten", async () => {
+    mock.kandidaten = [[kandidat("foto-a", "d-angebot", "c1"), kandidat("foto-b", "d-neu", "c2")]];
+    mock.stufen = { "d-angebot": "angebot-raus", "d-neu": "neue-anfrage" };
+
+    expect(await fotosEinsammeln(JETZT)).toBe(1);
+
+    expect(mock.inserts.filter((v) => v.eventType === "fotos_offen").map((v) => v.dealRecordId)).toEqual(["d-neu"]);
+    expect(mock.stufeLesen).toHaveBeenCalledWith("deals-ws", "d-angebot");
+  });
+
+  it("scheitert das Einsammeln, werden schon vorgemerkte Fotos trotzdem erkannt", async () => {
+    mock.kandidaten = [new Error("Abfrage abgebrochen")];
+    mock.selects = [[stapel(1, "d1")], []];
+    const fehler = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const ergebnis = await fotosAbarbeiten(JETZT);
+    const fehlerAufrufe = [...fehler.mock.calls];
+    fehler.mockRestore();
+
+    expect(ergebnis).toEqual([{ stapel: 1, ergebnis: "1 Fotos, 0 zugeordnet, 1 neu" }]);
+    expect(fehlerAufrufe).toContainEqual([expect.stringContaining("Einsammeln"), expect.any(Error)]);
+  });
+
+  it("dasselbe Foto aus Agent und Cron ergibt denselben Schlüssel, also nur einen Stapel", async () => {
+    // Gleichzeitig: die Abfrage des Crons lief, bevor der Agent sein Vormerken gebucht hatte.
+    await fotosVormerken("ws", "d1", "c1", ["foto-b", "foto-a"]);
+    mock.kandidaten = [[kandidat("foto-a", "d1", "c1")]];
+    await fotosEinsammeln(JETZT);
+
+    const offen = mock.inserts.filter((v) => v.eventType === "fotos_offen");
+    const schluesselVon = (foto: string) =>
+      offen.filter((v) => (v.payload as { attachmentIds: string[] }).attachmentIds.join() === foto).map((v) => v.idempotencyKey);
+    expect(offen).toHaveLength(3);
+    expect(schluesselVon("foto-a")).toHaveLength(2);
+    expect(new Set(schluesselVon("foto-a")).size).toBe(1);
+    expect(new Set(offen.map((v) => v.idempotencyKey)).size).toBe(2);
   });
 });
 

@@ -12,7 +12,9 @@ export const maxDuration = 300;
  * Vercel Cron, tagsüber alle 5 Minuten. Ein Lauf dauert höchstens 300 s;
  * überlappt er doch, überspringt der nächste Fotos mit laufendem Versuch.
  * Analysiert Kundenfotos, die der Agent vorgemerkt hat, und ordnet sie der
- * Inventarliste zu; danach rechnet die Kalkulation neu.
+ * Inventarliste zu; danach rechnet die Kalkulation neu. Seit 2026-10-12 sammelt
+ * er vorher auch Fotos ein, die der Agent nie vorgemerkt hat (pausierte
+ * Unterhaltung, Büro hat schon geantwortet).
  * Fail-closed Bearer auth via CRON_SECRET.
  */
 export async function GET(req: NextRequest) {
