@@ -50,7 +50,7 @@ export interface InboundPayload {
   attachments?: InboundAttachment[];
 }
 
-/** Outbound = messages the operator typed on the linked phone, not via the CRM. */
+/** Outbound = messages the operator typed on the linked phone, or a bridge send being recorded. */
 export interface OutboundPayload {
   accountId: string;
   peerWaId: string;
@@ -63,6 +63,11 @@ export interface OutboundPayload {
   previewLabel?: string | null;
   externalMessageId: string;
   sentAt?: string;
+  /**
+   * `bridge-send` = this process just sent the message and is recording it.
+   * Omitted for phone-typed echoes (`messages.upsert` type notify).
+   */
+  origin?: "bridge-send";
   rawHeaders?: Record<string, unknown> | null;
   attachments?: InboundAttachment[];
 }
@@ -159,11 +164,17 @@ export class CrmClient {
     });
   }
 
-  async postOutbound(p: OutboundPayload): Promise<void> {
-    await this.fetch("/api/v1/inbox/whatsapp/baileys-outbound", {
+  /** @returns false when the CRM refused the row (the WhatsApp send already happened). */
+  async postOutbound(p: OutboundPayload): Promise<boolean> {
+    const res = await this.fetch("/api/v1/inbox/whatsapp/baileys-outbound", {
       method: "POST",
       body: JSON.stringify(p),
     });
+    if (!res.ok) return false;
+    // 2xx includes the internal-number no-op (`{ intern: true }`), which is
+    // an intentional skip rather than a failed record.
+    await res.json().catch(() => ({}));
+    return true;
   }
 
   async postPairing(p: PairingPayload): Promise<void> {

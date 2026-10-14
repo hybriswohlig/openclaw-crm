@@ -21,6 +21,7 @@ import { channelAccounts, inboxMessageAttachments } from "@/db/schema/inbox";
 import { eq, and, isNull } from "drizzle-orm";
 import { getAuthContext, unauthorized } from "@/lib/api-utils";
 import { ingestOutboundWhatsAppMessage } from "@/services/inbox-whatsapp";
+import type { WhatsAppOutboundOrigin } from "@/services/whatsapp-outbound-policy";
 
 export const dynamic = "force-dynamic";
 
@@ -56,6 +57,13 @@ interface BaileysOutboundPayload {
   sentAt?: string;
   /** Optional metadata preserved in raw_headers. */
   rawHeaders?: Record<string, unknown> | null;
+  /**
+   * `bridge-send` when the bridge is recording a message it just delivered
+   * via POST /accounts/:id/send. Anything else is a phone-typed echo.
+   * `backfill` is rejected here — that origin is only the backfill route,
+   * which cannot send.
+   */
+  origin?: string;
   /** Inline attachments, already downloaded + base64-encoded by the bridge. */
   attachments?: BaileysOutboundAttachment[];
 }
@@ -102,7 +110,7 @@ export async function POST(req: NextRequest) {
     )
     .limit(1);
 
-  if (!account) {
+  if (!account || account.id !== payload.accountId || account.workspaceId !== ctx.workspaceId) {
     return NextResponse.json(
       {
         error: "channel_account_not_baileys_or_not_found",
@@ -111,6 +119,16 @@ export async function POST(req: NextRequest) {
       { status: 404 }
     );
   }
+
+  // Live echo only. Historical import goes to /baileys-backfill, which has
+  // no send path. Treating "backfill" as a phone echo would take over the deal.
+  if (payload.origin === "backfill") {
+    return badRequest("origin backfill is not accepted on the live outbound route");
+  }
+  const origin: WhatsAppOutboundOrigin =
+    payload.origin === "bridge-send" || payload.rawHeaders?.source === "bridge-send"
+      ? "bridge-send"
+      : "phone";
 
   const peerWaId = payload.peerWaId
     .replace(/@.*$/, "")
@@ -173,7 +191,12 @@ export async function POST(req: NextRequest) {
       previewLabel: payload.previewLabel ?? null,
       externalMessageId: payload.externalMessageId,
       sentAt,
-      rawHeaders: { provider: "baileys", source: "phone-direct", ...(payload.rawHeaders ?? {}) },
+      rawHeaders: {
+        provider: "baileys",
+        ...(payload.rawHeaders ?? {}),
+        source: origin === "bridge-send" ? "bridge-send" : "phone-direct",
+      },
+      origin,
     });
 
     if (result.messageId && attachments.length > 0) {
@@ -206,8 +229,7 @@ export async function POST(req: NextRequest) {
       messageId: result.messageId,
       isNewConversation: result.isNewConversation,
       attachmentsPersisted: result.messageId && attachments.length > 0 ? attachments.length : 0,
-      // messageId === null + !isNewConversation = duplicate echo (CRM-sent + bridge-echoed same id)
-      duplicate: result.messageId === null && !result.isNewConversation ? true : undefined,
+      duplicate: result.duplicate ? true : undefined,
     });
   } catch (err) {
     console.error("[baileys-outbound] ingest failed:", err);

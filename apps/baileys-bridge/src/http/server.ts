@@ -8,12 +8,38 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { Logger } from "../lib/logger.js";
+import type { BridgeSendRecord } from "../outbound/record-send.js";
 import type { SocketManager } from "../sockets/socket-manager.js";
+
+/** The control-plane surface the HTTP server needs. SocketManager satisfies it. */
+export interface BridgeControl {
+  start(accountId: string): Promise<void>;
+  stop(accountId: string): Promise<void>;
+  sendText(
+    accountId: string,
+    peerWaId: string,
+    body: string,
+  ): Promise<{ keyId: string }>;
+  sendMedia(
+    accountId: string,
+    peerWaId: string,
+    media: {
+      kind: "image" | "video" | "audio" | "document";
+      mediaBase64: string;
+      mimeType: string;
+      fileName?: string;
+      caption?: string;
+    },
+  ): Promise<{ keyId: string }>;
+  health(): ReturnType<SocketManager["health"]>;
+  /** Persist a send that already succeeded. Must not call sendMessage. */
+  recordBridgeSend(args: BridgeSendRecord): Promise<boolean>;
+}
 
 export interface ServerOptions {
   port: number;
   bridgeSecret: string;
-  manager: SocketManager;
+  manager: BridgeControl;
   log: Logger;
 }
 
@@ -99,7 +125,14 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
       try {
         if (body.kind === "text") {
           const r = await opts.manager.sendText(id, body.peerWaId, body.text);
-          return { ok: true, externalMessageId: r.keyId };
+          const recorded = await recordAfterSend(opts, {
+            accountId: id,
+            peerWaId: body.peerWaId,
+            externalMessageId: r.keyId,
+            kind: "text",
+            body: body.text,
+          });
+          return { ok: true, externalMessageId: r.keyId, recorded };
         }
         const r = await opts.manager.sendMedia(id, body.peerWaId, {
           kind: body.kind,
@@ -108,7 +141,27 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
           fileName: body.fileName,
           caption: body.caption,
         });
-        return { ok: true, externalMessageId: r.keyId };
+        const caption = body.caption?.trim() ?? "";
+        const recorded = await recordAfterSend(opts, {
+          accountId: id,
+          peerWaId: body.peerWaId,
+          externalMessageId: r.keyId,
+          kind: body.kind,
+          body: caption,
+          previewLabel: caption
+            ? null
+            : body.kind === "image"
+              ? "📷 Bild"
+              : body.kind === "video"
+                ? "🎞️ Video"
+                : body.kind === "audio"
+                  ? "🎤 Sprachnachricht"
+                  : "📎 Dokument",
+          mimeType: body.mimeType,
+          fileName: body.fileName,
+          mediaBase64: body.mediaBase64,
+        });
+        return { ok: true, externalMessageId: r.keyId, recorded };
       } catch (err) {
         opts.log.error({ err, accountId: id }, "[http] send failed");
         return reply.code(500).send({
@@ -130,4 +183,24 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
   );
 
   return app;
+}
+
+/**
+ * CRM history write for a send that WhatsApp already accepted.
+ * Swallows recorder failures: the message is on the wire, and a 500 would
+ * make the caller retry and deliver it twice.
+ */
+async function recordAfterSend(
+  opts: ServerOptions,
+  args: BridgeSendRecord,
+): Promise<boolean> {
+  try {
+    return await opts.manager.recordBridgeSend(args);
+  } catch (err) {
+    opts.log.error(
+      { err, accountId: args.accountId, externalMessageId: args.externalMessageId },
+      "[http] CRM record threw after a successful send",
+    );
+    return false;
+  }
 }
