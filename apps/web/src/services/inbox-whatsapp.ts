@@ -33,6 +33,12 @@ import { looksDeclined, recordAgentDecline } from "./agent/agent-suppress";
 import { setHumanOwned } from "./agent/agent-gate";
 import { canonicalizePhone } from "@/lib/identity/canonical";
 import { recomputeMultiCompanyForContact } from "./multi-company";
+import {
+  insertOnce,
+  isSameAccountMessage,
+  outboundIngestPolicy,
+  type WhatsAppOutboundOrigin,
+} from "./whatsapp-outbound-policy";
 
 // ─── Settings keys ────────────────────────────────────────────────────────────
 // App-level values, stored once per workspace in workspace_settings (encrypted).
@@ -839,6 +845,64 @@ export async function ingestInboundWhatsAppMessage(params: {
  *   - emits `message.sent` instead of `message.received`
  *   - preview prefixed with "Du:" matching the CRM-internal outbound convention
  */
+/**
+ * A WhatsApp id already stored on this channel account. Scoped by
+ * channelAccountId AND workspaceId so a Ceylan row can never satisfy a
+ * Kottke event (or the reverse), even when the ids collide.
+ */
+async function findStoredWhatsAppMessage(
+  accountId: string,
+  workspaceId: string,
+  externalMessageId: string,
+): Promise<{
+  id: string;
+  conversationId: string;
+  dealRecordId: string | null;
+  channelAccountId: string;
+  externalMessageId: string;
+} | null> {
+  const [row] = await db
+    .select({
+      id: inboxMessages.id,
+      conversationId: inboxMessages.conversationId,
+      dealRecordId: inboxConversations.dealRecordId,
+      channelAccountId: inboxConversations.channelAccountId,
+      externalMessageId: inboxMessages.externalMessageId,
+    })
+    .from(inboxMessages)
+    .innerJoin(
+      inboxConversations,
+      eq(inboxMessages.conversationId, inboxConversations.id),
+    )
+    .where(
+      and(
+        eq(inboxConversations.channelAccountId, accountId),
+        eq(inboxConversations.workspaceId, workspaceId),
+        eq(inboxMessages.externalMessageId, externalMessageId),
+      ),
+    )
+    .limit(1);
+  if (!row?.externalMessageId) return null;
+  if (
+    !isSameAccountMessage(
+      {
+        accountId: row.channelAccountId,
+        externalMessageId: row.externalMessageId,
+      },
+      { accountId, externalMessageId },
+    )
+  ) {
+    return null;
+  }
+  return {
+    id: row.id,
+    conversationId: row.conversationId,
+    dealRecordId: row.dealRecordId,
+    channelAccountId: row.channelAccountId,
+    externalMessageId: row.externalMessageId,
+  };
+}
+
 export async function ingestOutboundWhatsAppMessage(params: {
   account: typeof channelAccounts.$inferSelect;
   peerWaId: string;
@@ -851,16 +915,44 @@ export async function ingestOutboundWhatsAppMessage(params: {
   externalMessageId: string;
   sentAt: Date;
   rawHeaders?: Record<string, unknown> | null;
+  /**
+   * phone: typed on the linked handset (fromMe notify).
+   * bridge-send: POST /accounts/:id/send just delivered this message.
+   * backfill: historical import. Never sends, never takes over the deal.
+   */
+  origin?: WhatsAppOutboundOrigin;
 }): Promise<{
   conversationId: string;
   dealRecordId: string | null;
   messageId: string | null;
   isNewConversation: boolean;
+  /** True when this externalMessageId was already stored on this account. */
+  duplicate: boolean;
 }> {
   const {
     account, peerWaId, peerJid, body, previewLabel,
     externalMessageId, sentAt, rawHeaders,
   } = params;
+  const origin: WhatsAppOutboundOrigin = params.origin ?? "phone";
+  const policy = outboundIngestPolicy(origin);
+
+  // Already stored on THIS account (CRM send, an earlier bridge record, or
+  // a previous backfill). Return before any contact/deal side effect so a
+  // replay cannot mute the agent or rewind another company's thread.
+  const already = await findStoredWhatsAppMessage(
+    account.id,
+    account.workspaceId,
+    externalMessageId,
+  );
+  if (already) {
+    return {
+      conversationId: already.conversationId,
+      dealRecordId: already.dealRecordId,
+      messageId: null,
+      isNewConversation: false,
+      duplicate: true,
+    };
+  }
 
   const previewText = body.trim() || previewLabel || "";
   const preview = `Du: ${previewText}`.slice(0, 120).replace(/\s+/g, " ");
@@ -993,54 +1085,67 @@ export async function ingestOutboundWhatsAppMessage(params: {
       }
     }
   }
-  if (conv && !isNewConversation) {
-    await db
-      .update(inboxConversations)
-      .set({
-        lastMessageAt: sentAt,
-        lastMessagePreview: preview,
-        aiNeedsReply: false,
-        aiLastInboundAt: null,
-        updatedAt: new Date(),
-      })
-      .where(eq(inboxConversations.id, conv.id));
+  if (!conv) {
+    throw new Error("WhatsApp ingest: conversation missing before message insert");
   }
+  const inserted = await insertOnce({
+    insert: async () => {
+      const [stored] = await db
+        .insert(inboxMessages)
+        .values({
+          workspaceId: account.workspaceId,
+          conversationId: conv.id,
+          direction: "outbound",
+          status: "sent",
+          externalMessageId,
+          fromAddress: account.baileysOwnJid?.replace(/@.*$/, "") ?? account.address,
+          toAddress: peerWaId,
+          subject: null,
+          body,
+          isRead: true,
+          rawHeaders: rawHeaders ? JSON.stringify(rawHeaders) : null,
+          sentAt,
+        })
+        .returning({ id: inboxMessages.id });
+      return stored?.id ?? null;
+    },
+    loadExisting: async () => null,
+  });
+  // Duplicate delivery — the CRM send path or an earlier record won the
+  // (conversationId, externalMessageId) race. No second row, no takeover.
+  if (inserted.duplicate) {
+    return {
+      conversationId: conv.id,
+      dealRecordId: conv.dealRecordId ?? null,
+      messageId: null,
+      isNewConversation,
+      duplicate: true,
+    };
+  }
+  const messageId = inserted.row;
 
-  let messageId: string | null = null;
-  try {
-    const [stored] = await db
-      .insert(inboxMessages)
-      .values({
-        workspaceId: account.workspaceId,
-        conversationId: conv.id,
-        direction: "outbound",
-        status: "sent",
-        externalMessageId,
-        fromAddress: account.baileysOwnJid?.replace(/@.*$/, "") ?? account.address,
-        toAddress: peerWaId,
-        subject: null,
-        body,
-        isRead: true,
-        rawHeaders: rawHeaders ? JSON.stringify(rawHeaders) : null,
-        sentAt,
-      })
-      .returning({ id: inboxMessages.id });
-    messageId = stored?.id ?? null;
-  } catch (err) {
-    // Duplicate delivery — most commonly the CRM-side send pipeline already
-    // wrote this row via the bridge's send API. Swallow and return.
-    if (err instanceof Error && /duplicate key|unique/i.test(err.message)) {
-      return {
-        conversationId: conv.id,
-        dealRecordId: conv.dealRecordId ?? null,
-        messageId: null,
-        isNewConversation,
-      };
+  if (conv && !isNewConversation && messageId) {
+    const currentMs = conv.lastMessageAt
+      ? new Date(conv.lastMessageAt).getTime()
+      : 0;
+    const advance =
+      !policy.previewOnlyIfNewer || sentAt.getTime() >= currentMs;
+    if (advance) {
+      await db
+        .update(inboxConversations)
+        .set({
+          lastMessageAt: sentAt,
+          lastMessagePreview: preview,
+          updatedAt: new Date(),
+          ...(policy.clearAiNeedsReply
+            ? { aiNeedsReply: false, aiLastInboundAt: null }
+            : {}),
+        })
+        .where(eq(inboxConversations.id, conv.id));
     }
-    throw err;
   }
 
-  if (conv.dealRecordId && messageId) {
+  if (policy.emitSentEvent && conv.dealRecordId && messageId) {
     await emitEvent({
       workspaceId: account.workspaceId,
       recordId: conv.dealRecordId,
@@ -1051,24 +1156,21 @@ export async function ingestOutboundWhatsAppMessage(params: {
         channelType: "whatsapp",
         toAddress: peerWaId,
         externalMessageId,
-        source: "phone-direct",
+        source: origin === "bridge-send" ? "bridge-send" : "phone-direct",
       },
     });
   }
 
   // Sticky human ownership (docs/ai-sales-agent-plan.md): the operator typed
-  // this on their phone — a human takeover of the deal. Only genuinely
-  // phone-typed messages reach here: CRM-sent echoes (incl. approved agent
-  // sends) collide with the row the send pipeline already inserted on the
-  // unique (conversationId, externalMessageId) index and return early above
-  // with messageId=null, so the agent is never muted by its own message.
-  // Best-effort — must never block the ingest.
+  // this on their phone — a human takeover of the deal. Bridge sends and
+  // backfill do not take over: the composer route does that for a human
+  // typing in the CRM, and the agent's own sends must not mute it.
   // Echo-Wettlauf: das Echo einer gerade freigegebenen KI-Nachricht kann vor
   // der Zeile aus sendBaileysReply ankommen und sähe dann wie eine Handy-
   // Nachricht aus. Ist in diesem Chat ein Entwurf mit genau diesem Text gerade
   // im Versand, ist es kein Mensch.
   let agentEcho = false;
-  if (conv.dealRecordId && messageId) {
+  if (policy.takeHumanOwnership && conv.dealRecordId && messageId) {
     const [imVersand] = await db
       .select({ id: agentDrafts.id })
       .from(agentDrafts)
@@ -1088,7 +1190,7 @@ export async function ingestOutboundWhatsAppMessage(params: {
     agentEcho = !!imVersand;
   }
 
-  if (conv.dealRecordId && messageId && !agentEcho) {
+  if (policy.takeHumanOwnership && conv.dealRecordId && messageId && !agentEcho) {
     try {
       await setHumanOwned(account.workspaceId, conv.dealRecordId, null);
     } catch (err) {
@@ -1104,6 +1206,7 @@ export async function ingestOutboundWhatsAppMessage(params: {
     dealRecordId: conv.dealRecordId ?? null,
     messageId,
     isNewConversation,
+    duplicate: false,
   };
 }
 
@@ -2583,6 +2686,49 @@ async function loadBaileysSendContext(
  * an die Nummern aus `intern_whatsapp_nummern`; Kundennachrichten laufen immer
  * über sendBaileysReply mit Konversation.
  */
+/**
+ * Store the row for a bridge send that already returned an id.
+ * A conflict (the bridge recorded the same id a moment earlier, possibly on
+ * the sibling LID thread of this same account) is success: one row, no second
+ * `message.sent`. Does not call the bridge.
+ */
+async function persistBaileysSendRow(args: {
+  accountId: string;
+  workspaceId: string;
+  values: typeof inboxMessages.$inferInsert;
+}): Promise<{ row: typeof inboxMessages.$inferSelect | null; duplicate: boolean }> {
+  const externalMessageId = args.values.externalMessageId ?? null;
+  const load = async () => {
+    if (!externalMessageId) return null;
+    const found = await findStoredWhatsAppMessage(
+      args.accountId,
+      args.workspaceId,
+      externalMessageId,
+    );
+    if (!found) return null;
+    const [row] = await db
+      .select()
+      .from(inboxMessages)
+      .where(eq(inboxMessages.id, found.id))
+      .limit(1);
+    return row ?? null;
+  };
+  if (externalMessageId) {
+    const existing = await load();
+    if (existing) return { row: existing, duplicate: true };
+  }
+  return insertOnce({
+    insert: async () => {
+      const [row] = await db
+        .insert(inboxMessages)
+        .values(args.values)
+        .returning();
+      return row ?? null;
+    },
+    loadExisting: load,
+  });
+}
+
 export async function sendBaileysDirektText(params: {
   accountId: string;
   peerWaId: string;
@@ -2608,9 +2754,10 @@ export async function sendBaileysReply(params: {
     text: body,
   });
 
-  const [stored] = await db
-    .insert(inboxMessages)
-    .values({
+  const { row: stored, duplicate } = await persistBaileysSendRow({
+    accountId: account.id,
+    workspaceId,
+    values: {
       workspaceId,
       conversationId,
       direction: "outbound",
@@ -2622,8 +2769,8 @@ export async function sendBaileysReply(params: {
       body,
       isRead: true,
       sentAt: new Date(),
-    })
-    .returning();
+    },
+  });
 
   await db
     .update(inboxConversations)
@@ -2634,7 +2781,7 @@ export async function sendBaileysReply(params: {
     })
     .where(eq(inboxConversations.id, conversationId));
 
-  if (conv.dealRecordId) {
+  if (conv.dealRecordId && !duplicate) {
     await emitEvent({
       workspaceId,
       recordId: conv.dealRecordId,
@@ -2700,9 +2847,10 @@ export async function sendBaileysMediaReply(params: {
           ? "🎤 Audio"
           : `📎 ${file.filename}`;
 
-  const [stored] = await db
-    .insert(inboxMessages)
-    .values({
+  const { row: stored, duplicate } = await persistBaileysSendRow({
+    accountId: account.id,
+    workspaceId,
+    values: {
       workspaceId,
       conversationId,
       direction: "outbound",
@@ -2714,10 +2862,10 @@ export async function sendBaileysMediaReply(params: {
       body: bodyText,
       isRead: true,
       sentAt: new Date(),
-    })
-    .returning();
+    },
+  });
 
-  if (stored) {
+  if (stored && !duplicate) {
     try {
       await db.insert(inboxMessageAttachments).values({
         workspaceId,
@@ -2747,7 +2895,7 @@ export async function sendBaileysMediaReply(params: {
     })
     .where(eq(inboxConversations.id, conversationId));
 
-  if (conv.dealRecordId) {
+  if (conv.dealRecordId && !duplicate) {
     await emitEvent({
       workspaceId,
       recordId: conv.dealRecordId,
@@ -2916,9 +3064,10 @@ export async function sendBaileysFirstMessage(params: {
     throw err;
   }
 
-  const [stored] = await db
-    .insert(inboxMessages)
-    .values({
+  const { row: stored, duplicate } = await persistBaileysSendRow({
+    accountId: account.id,
+    workspaceId,
+    values: {
       workspaceId,
       conversationId: conv.id,
       direction: "outbound",
@@ -2930,8 +3079,8 @@ export async function sendBaileysFirstMessage(params: {
       body,
       isRead: true,
       sentAt: new Date(),
-    })
-    .returning();
+    },
+  });
 
   await db
     .update(inboxConversations)
@@ -2955,7 +3104,7 @@ export async function sendBaileysFirstMessage(params: {
     });
   }
 
-  if (conv.dealRecordId) {
+  if (conv.dealRecordId && !duplicate) {
     await emitEvent({
       workspaceId,
       recordId: conv.dealRecordId,

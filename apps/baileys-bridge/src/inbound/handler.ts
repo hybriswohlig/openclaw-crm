@@ -8,10 +8,17 @@
  *                              CRM timeline stays mirrored with the actual
  *                              phone. Messages that the CRM itself sent come
  *                              back here too as `fromMe`; the CRM endpoint
- *                              dedupes by (conversationId, externalMessageId).
+ *                              dedupes by (channel account, externalMessageId).
+ *
+ * Own sends from `POST /accounts/:id/send` are NOT recorded here. Baileys
+ * emits those as `messages.upsert` type `append` (see messages-send.js,
+ * `emitOwnEvents`), and this handler ignores every non-`notify` upsert so a
+ * history sync cannot recreate old leads. The HTTP send handler posts the
+ * row itself (`origin: "bridge-send"`) after `sendMessage` returns.
  *
  * Idempotency on both sides is enforced server-side by the unique constraint
- * on (conversation_id, external_message_id) so retries / echo are safe.
+ * on (conversation_id, external_message_id) plus an account-scoped lookup, so
+ * retries / echo are safe.
  */
 import type { WAMessage, WAMessageKey, WASocket } from "baileys";
 import { isHostedLidUser, isHostedPnUser, isLidUser, isPnUser } from "baileys";
@@ -123,9 +130,11 @@ export function attachInboundHandler(args: InboundHandlerArgs): void {
   const { accountId, sock, crm, log } = args;
 
   sock.ev.on("messages.upsert", async ({ messages, type }) => {
-    // 'notify' = real-time delivery; 'append' = history sync (older). We
-    // only ingest 'notify' here — history sync would re-create old leads
-    // every time the device re-pairs.
+    // 'notify' = real-time delivery (inbound, and fromMe typed on the phone).
+    // 'append' = history sync AND the local echo of sock.sendMessage
+    // (Baileys emitOwnEvents). History must not recreate old leads, so
+    // append stays dropped. Bridge sends are recorded by the HTTP send
+    // handler instead — see outbound/record-send.ts.
     if (type !== "notify") return;
     for (const msg of messages) {
       try {

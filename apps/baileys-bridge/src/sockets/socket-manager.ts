@@ -19,6 +19,11 @@ import {
 } from "../auth-state/crm-auth-state.js";
 import { attachInboundHandler } from "../inbound/handler.js";
 import { attachStatusHandler } from "../inbound/status-handler.js";
+import {
+  peerJidFor,
+  postBridgeSendRecord,
+  type BridgeSendRecord,
+} from "../outbound/record-send.js";
 import { classifyDisconnect, pushPairingUpdate } from "./lifecycle.js";
 
 interface Entry {
@@ -198,6 +203,46 @@ export class SocketManager {
     return { keyId: result.key.id };
   }
 
+  /**
+   * Tell the CRM about a message `sendText` / `sendMedia` already delivered.
+   * Never sends. A CRM failure is logged and reported as `false` so the HTTP
+   * handler can still return the WhatsApp id (a 500 here would retry and
+   * deliver a second copy).
+   */
+  async recordBridgeSend(args: BridgeSendRecord): Promise<boolean> {
+    try {
+      const result = await postBridgeSendRecord(this.crm, args);
+      if (result === "skipped") {
+        this.log.info(
+          { accountId: args.accountId, peer: args.peerWaId },
+          "[send] skip CRM record for non-1:1 peer",
+        );
+        return false;
+      }
+      if (result === "rejected") {
+        this.log.error(
+          {
+            accountId: args.accountId,
+            externalMessageId: args.externalMessageId,
+          },
+          "[send] CRM rejected outbound record",
+        );
+        return false;
+      }
+      return true;
+    } catch (err) {
+      this.log.error(
+        {
+          err,
+          accountId: args.accountId,
+          externalMessageId: args.externalMessageId,
+        },
+        "[send] CRM record failed",
+      );
+      return false;
+    }
+  }
+
   // ── private ───────────────────────────────────────────────────────────
 
   private async spawnSocket(entry: Entry): Promise<void> {
@@ -316,22 +361,3 @@ export class SocketManager {
   }
 }
 
-// Accepts either a digits-only WA id (legacy CRM call path, defaults to
-// `@s.whatsapp.net`) or a full JID with explicit domain (`@lid`,
-// `@s.whatsapp.net`, ...). The explicit-JID form is required for contacts
-// whose Meta identity has migrated to LID-routing — defaulting them to
-// `@s.whatsapp.net` makes WhatsApp's USync return empty, the message stays
-// pending, and the customer never receives it.
-function peerJidFor(peerWaId: string): string {
-  if (peerWaId.includes("@")) {
-    const at = peerWaId.indexOf("@");
-    const local = peerWaId
-      .slice(0, at)
-      .replace(/^\+/, "")
-      .replace(/:.*$/, "")
-      .replace(/\s+/g, "");
-    return `${local}${peerWaId.slice(at)}`;
-  }
-  const digits = peerWaId.replace(/\D+/g, "");
-  return `${digits}@s.whatsapp.net`;
-}
