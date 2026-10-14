@@ -644,6 +644,47 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "crm_upload_deal_document",
+    description:
+      "Upload an existing file onto a deal as a deal document, for example a hand-corrected invoice PDF. Posts JSON to POST /api/v1/deals/{recordId}/documents with fileName, documentType, contentBase64, optional mimeType (default application/pdf) and optional notifyCustomer (default false). documentType is one of quotation, order_confirmation, invoice, payment_confirmation, worker_instructions. contentBase64 is standard base64; a data-URL prefix is stripped. Decoded size must be at most 3 MB (3145728 bytes) so the base64 body stays under Vercel's ~4.5 MB request limit; above that the call errors and stores nothing. The 10 MB application cap is also enforced. Customer-facing effects of the stored row, which this tool cannot turn off: quotation is shown in the customer portal as the Kostenvoranschlag when it is the current or accepted PDF, and it does not unlock stage 2. order_confirmation is published on the portal and unlocks stage 2 only when the customer would otherwise still be on stage 1 and no Anzahlung is required or the Anzahlung is already paid. invoice is published on the portal and forces stage 4. payment_confirmation and worker_instructions are internal: they are not published on the customer portal and do not change the stage. Messages: this tool sends no WhatsApp and no email unless notifyCustomer is true. That opt-in runs the existing portal notifier only for order_confirmation (ab_ready) and invoice (invoice_ready): WhatsApp into an existing thread, otherwise a transactional email, and only when workspace setting portal_notifications_enabled is on. quotation, payment_confirmation and worker_instructions never notify. This upload does not set rechnung_faellig_am.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        recordId: { type: "string", description: "Deal record UUID" },
+        fileName: {
+          type: "string",
+          description: "Stored file name, e.g. RE-korrigiert.pdf",
+        },
+        documentType: {
+          type: "string",
+          enum: [
+            "quotation",
+            "order_confirmation",
+            "invoice",
+            "payment_confirmation",
+            "worker_instructions",
+          ],
+          description:
+            "quotation, order_confirmation, invoice, payment_confirmation, or worker_instructions",
+        },
+        mimeType: {
+          type: "string",
+          description: "Defaults to application/pdf when omitted or blank",
+        },
+        contentBase64: {
+          type: "string",
+          description: "Standard base64 of the file. A data-URL prefix is stripped.",
+        },
+        notifyCustomer: {
+          type: "boolean",
+          description:
+            "Default false. true opts in to the portal WhatsApp/email notifier for order_confirmation and invoice only.",
+        },
+      },
+      required: ["recordId", "fileName", "documentType", "contentBase64"],
+    },
+  },
+  {
     name: "crm_get_deal_quotation",
     description: "Quotation / offer data for a deal.",
     inputSchema: {

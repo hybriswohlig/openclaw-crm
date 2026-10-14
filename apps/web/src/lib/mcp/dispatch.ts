@@ -8,6 +8,10 @@ import {
   resolveMaxBytes,
   type AttachmentPayload,
 } from "@/lib/attachment-content";
+import {
+  jsonUploadDecodedBytes,
+  oversizedJsonDealDocumentError,
+} from "@/lib/deal-document-upload";
 
 type Args = Record<string, unknown>;
 
@@ -441,6 +445,25 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
       return client.request(
         `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/documents`
       );
+    case "crm_upload_deal_document": {
+      const contentBase64 = str(args.contentBase64);
+      const tooBig = oversizedJsonDealDocumentError(jsonUploadDecodedBytes(contentBase64));
+      if (tooBig) throw new Error(tooBig);
+      const mimeType = str(args.mimeType).trim();
+      return client.request(
+        `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/documents`,
+        {
+          method: "POST",
+          body: {
+            fileName: str(args.fileName),
+            documentType: str(args.documentType),
+            mimeType: mimeType || "application/pdf",
+            contentBase64,
+            notifyCustomer: bool(args.notifyCustomer) === true,
+          },
+        }
+      );
+    }
     case "crm_get_deal_quotation":
       return client.request(
         `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/quotation`

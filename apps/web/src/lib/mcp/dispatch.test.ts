@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { handleTool, type ToolContent } from "./dispatch";
 import type { CrmClient } from "./client";
-import { MAX_MCP_INLINE_BYTES_LIMIT } from "@/lib/attachment-content";
+import { MAX_JSON_INLINE_BYTES, MAX_MCP_INLINE_BYTES_LIMIT } from "@/lib/attachment-content";
+import { jsonDealDocumentTooLargeMessage } from "@/lib/deal-document-upload";
 import type { AttachmentPayload } from "@/lib/attachment-content";
 
 /**
@@ -1151,5 +1152,67 @@ describe("crm_generate_project_plan", () => {
       name: "Test",
       scopeIn: "Halle mieten",
     });
+  });
+});
+
+describe("crm_upload_deal_document", () => {
+  it("posts JSON base64 and leaves customer notification off", async () => {
+    const { client, calls } = fakeClient();
+    const contentBase64 = Buffer.from("%PDF-1.4").toString("base64");
+
+    const result = await handleTool(client, "crm_upload_deal_document", {
+      recordId: "deal-1",
+      fileName: "RE-korrigiert.pdf",
+      documentType: "invoice",
+      contentBase64,
+    });
+
+    expect(result.isError).toBeUndefined();
+    expect(calls).toEqual([
+      {
+        path: "/api/v1/deals/deal-1/documents",
+        options: {
+          method: "POST",
+          body: {
+            fileName: "RE-korrigiert.pdf",
+            documentType: "invoice",
+            mimeType: "application/pdf",
+            contentBase64,
+            notifyCustomer: false,
+          },
+        },
+      },
+    ]);
+  });
+
+  it("forwards notifyCustomer only when it is true", async () => {
+    const { client, calls } = fakeClient();
+    await handleTool(client, "crm_upload_deal_document", {
+      recordId: "deal-1",
+      fileName: "AB.pdf",
+      documentType: "order_confirmation",
+      mimeType: "application/pdf",
+      contentBase64: Buffer.from("%PDF").toString("base64"),
+      notifyCustomer: true,
+    });
+    expect(calls[0].options.body).toEqual(
+      expect.objectContaining({ notifyCustomer: true, mimeType: "application/pdf" })
+    );
+  });
+
+  it("refuses a payload over the JSON cap before calling the API", async () => {
+    const { client, calls } = fakeClient();
+    const contentBase64 = "A".repeat(Math.ceil((MAX_JSON_INLINE_BYTES + 1) / 3) * 4);
+
+    const result = await handleTool(client, "crm_upload_deal_document", {
+      recordId: "deal-1",
+      fileName: "zu-gross.pdf",
+      documentType: "invoice",
+      contentBase64,
+    });
+
+    expect(calls).toEqual([]);
+    expect(result.isError).toBe(true);
+    expect(textOf(result.content)).toContain(jsonDealDocumentTooLargeMessage());
   });
 });

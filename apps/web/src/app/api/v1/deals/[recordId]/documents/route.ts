@@ -3,10 +3,8 @@ import { getAuthContext, unauthorized, success } from "@/lib/api-utils";
 import { db } from "@/db";
 import { dealDocuments } from "@/db/schema/financial";
 import { eq, and } from "drizzle-orm";
-import {
-  createDealDocument,
-  validateDealDocumentUpload,
-} from "@/services/deal-documents";
+import { prepareJsonDealDocument, validateDealDocumentUpload } from "@/lib/deal-document-upload";
+import { createDealDocument } from "@/services/deal-documents";
 
 export async function GET(
   req: NextRequest,
@@ -46,7 +44,64 @@ export async function POST(
   if (!ctx) return unauthorized();
 
   const { recordId } = await params;
+  const contentType = (req.headers.get("content-type") ?? "").toLowerCase();
 
+  // MCP clients send JSON only. The staff UI keeps sending multipart.
+  if (contentType.includes("application/json")) {
+    return postDealDocumentJson(req, ctx.workspaceId, recordId);
+  }
+  return postDealDocumentMultipart(req, ctx.workspaceId, recordId);
+}
+
+/**
+ * JSON/base64 upload used by crm_upload_deal_document.
+ * notifyCustomer defaults to false: storing an invoice or order confirmation
+ * must not WhatsApp or email the customer unless the caller opts in.
+ */
+async function postDealDocumentJson(
+  req: NextRequest,
+  workspaceId: string,
+  recordId: string
+) {
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+  const record = body as Record<string, unknown>;
+  const prepared = prepareJsonDealDocument({
+    fileName: record.fileName,
+    documentType: record.documentType,
+    mimeType: record.mimeType,
+    contentBase64: record.contentBase64,
+  });
+  if (!prepared.ok) {
+    return NextResponse.json({ error: prepared.error }, { status: prepared.status });
+  }
+
+  const doc = await createDealDocument({
+    workspaceId,
+    dealRecordId: recordId,
+    documentType: prepared.documentType,
+    fileName: prepared.fileName,
+    fileSize: prepared.fileSize,
+    mimeType: prepared.mimeType,
+    fileContent: prepared.fileContent,
+    notifyCustomer: record.notifyCustomer === true,
+  });
+
+  return success(doc);
+}
+
+async function postDealDocumentMultipart(
+  req: NextRequest,
+  workspaceId: string,
+  recordId: string
+) {
   const formData = await req.formData();
   const file = formData.get("file") as File | null;
   const documentType = formData.get("documentType") as string | null;
@@ -66,7 +121,7 @@ export async function POST(
 
   const buffer = await file.arrayBuffer();
   const doc = await createDealDocument({
-    workspaceId: ctx.workspaceId,
+    workspaceId,
     dealRecordId: recordId,
     documentType: check.documentType,
     fileName: file.name,

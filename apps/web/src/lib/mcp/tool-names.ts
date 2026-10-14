@@ -83,6 +83,7 @@ export const CRM_TOOL_NAMES = [
   "crm_generate_document",
   "crm_get_document_job",
   "crm_store_document_job",
+  "crm_upload_deal_document",
   // ── Employees & finance ───────────────────────────────────────────
   "crm_list_employees",
   "crm_get_financial_overview",

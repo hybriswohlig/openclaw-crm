@@ -4,22 +4,34 @@
 // the PDF back through POST /api/v1/deals/:id/documents is an inbound Vercel
 // request and dies at the platform ~4.5 MB body limit (HTTP 413, empty
 // upstream JSON) long before this 10 MB application cap.
+//
+// crm_upload_deal_document is the exception that does post to that route:
+// the MCP client can only send JSON. The size rules for that body live in
+// lib/deal-document-upload.ts (3 MB decoded, under the platform limit).
 
 import { db } from "@/db";
 import { dealDocuments } from "@/db/schema/financial";
+import {
+  shouldNotifyDealDocument,
+  validateDealDocumentUpload,
+  type DealDocumentType,
+} from "@/lib/deal-document-upload";
 import { maybeNotifyPortalEvent } from "./customer-portal-notifications";
 
-export const DEAL_DOCUMENT_TYPES = [
-  "quotation",
-  "order_confirmation",
-  "invoice",
-  "payment_confirmation",
-  "worker_instructions",
-] as const;
-
-export type DealDocumentType = (typeof DEAL_DOCUMENT_TYPES)[number];
-
-export const MAX_DEAL_DOCUMENT_SIZE = 10 * 1024 * 1024;
+export {
+  DEAL_DOCUMENT_TYPES,
+  MAX_DEAL_DOCUMENT_SIZE,
+  isDealDocumentType,
+  jsonDealDocumentTooLargeMessage,
+  jsonUploadDecodedBytes,
+  normalisedDealDocumentBase64,
+  oversizedJsonDealDocumentError,
+  prepareJsonDealDocument,
+  shouldNotifyDealDocument,
+  validateDealDocumentUpload,
+  type DealDocumentType,
+  type PreparedJsonDealDocument,
+} from "@/lib/deal-document-upload";
 
 export interface DealDocumentMeta {
   id: string;
@@ -28,31 +40,6 @@ export interface DealDocumentMeta {
   fileSize: number;
   mimeType: string;
   uploadedAt: Date;
-}
-
-export function isDealDocumentType(value: string): value is DealDocumentType {
-  return (DEAL_DOCUMENT_TYPES as readonly string[]).includes(value);
-}
-
-/** Pure: upload guard, with the HTTP status the route should answer. */
-export function validateDealDocumentUpload(input: {
-  fileName: string;
-  fileSize: number;
-  documentType: string;
-}): { ok: true; documentType: DealDocumentType } | { ok: false; status: 400 | 413; error: string } {
-  if (!input.fileName.trim()) {
-    return { ok: false, status: 400, error: "file and documentType are required" };
-  }
-  if (!isDealDocumentType(input.documentType)) {
-    return { ok: false, status: 400, error: "Invalid documentType" };
-  }
-  if (!Number.isFinite(input.fileSize) || input.fileSize <= 0) {
-    return { ok: false, status: 400, error: "file and documentType are required" };
-  }
-  if (input.fileSize > MAX_DEAL_DOCUMENT_SIZE) {
-    return { ok: false, status: 413, error: "File too large (max 10 MB)" };
-  }
-  return { ok: true, documentType: input.documentType };
 }
 
 /**
@@ -95,6 +82,11 @@ export async function createDealDocument(input: {
   fileSize: number;
   mimeType: string;
   fileContent: string;
+  /**
+   * false skips the portal WhatsApp/email for order_confirmation and invoice.
+   * Omit it to keep the staff-upload and render-job behaviour.
+   */
+  notifyCustomer?: boolean;
 }): Promise<DealDocumentMeta> {
   const check = validateDealDocumentUpload(input);
   if (!check.ok) throw new Error(check.error);
@@ -112,7 +104,7 @@ export async function createDealDocument(input: {
     })
     .returning(META_COLUMNS);
 
-  if (check.documentType === "order_confirmation" || check.documentType === "invoice") {
+  if (shouldNotifyDealDocument(check.documentType, input.notifyCustomer)) {
     void maybeNotifyPortalEvent(
       check.documentType === "order_confirmation" ? "ab_ready" : "invoice_ready",
       { workspaceId: input.workspaceId, dealRecordId: input.dealRecordId }
