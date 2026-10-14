@@ -554,6 +554,40 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   );
   tool(
     server,
+    "crm_upload_deal_document",
+    "Upload an existing file onto a deal as a deal document, for example a hand-corrected invoice PDF. Posts JSON to POST /api/v1/deals/{recordId}/documents with fileName, documentType, contentBase64, optional mimeType (default application/pdf) and optional notifyCustomer (default false). documentType is one of quotation, order_confirmation, invoice, payment_confirmation, worker_instructions. contentBase64 is standard base64; a data-URL prefix is stripped. Decoded size must be at most 3 MB (3145728 bytes) so the base64 body stays under Vercel's ~4.5 MB request limit; above that the call errors and stores nothing. The 10 MB application cap is also enforced. Customer-facing effects of the stored row, which this tool cannot turn off: quotation is shown in the customer portal as the Kostenvoranschlag when it is the current or accepted PDF, and it does not unlock stage 2. order_confirmation is published on the portal and unlocks stage 2 only when the customer would otherwise still be on stage 1 and no Anzahlung is required or the Anzahlung is already paid. invoice is published on the portal and forces stage 4. payment_confirmation and worker_instructions are internal: they are not published on the customer portal and do not change the stage. Messages: this tool sends no WhatsApp and no email unless notifyCustomer is true. That opt-in runs the existing portal notifier only for order_confirmation (ab_ready) and invoice (invoice_ready): WhatsApp into an existing thread, otherwise a transactional email, and only when workspace setting portal_notifications_enabled is on. quotation, payment_confirmation and worker_instructions never notify. This upload does not set rechnung_faellig_am.",
+    {
+      recordId: z.string().describe("Deal record UUID"),
+      fileName: z.string().describe("Stored file name, e.g. RE-korrigiert.pdf"),
+      documentType: z
+        .enum([
+          "quotation",
+          "order_confirmation",
+          "invoice",
+          "payment_confirmation",
+          "worker_instructions",
+        ])
+        .describe(
+          "quotation, order_confirmation, invoice, payment_confirmation, or worker_instructions"
+        ),
+      mimeType: z
+        .string()
+        .optional()
+        .describe("Defaults to application/pdf when omitted or blank"),
+      contentBase64: z
+        .string()
+        .describe("Standard base64 of the file. A data-URL prefix is stripped."),
+      notifyCustomer: z
+        .boolean()
+        .optional()
+        .describe(
+          "Default false. true opts in to the portal WhatsApp/email notifier for order_confirmation and invoice only."
+        ),
+    },
+    req
+  );
+  tool(
+    server,
     "crm_store_document_job",
     "Attach a finished render job's PDF to a deal as a document. Sends only jobId + recordId — the server pulls the PDF from the render VPS and writes it in-process (do not upload PDF bytes). Application cap 10 MB; larger jobs stay on the VPS download URL. documentType is deduced from the filename (KV- → quotation, AB- → order_confirmation, RE- → invoice, AW- → worker_instructions) when omitted. Storing an order_confirmation or invoice notifies the customer portal. Kostenvoranschlag stores as quotation and does not unlock portal Stage 2.",
     {
