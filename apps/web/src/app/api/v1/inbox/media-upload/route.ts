@@ -4,6 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { inboxConversations } from "@/db/schema/inbox";
 import { getAuthContext } from "@/lib/api-utils";
+import { describeInboxMediaUploadError } from "@/lib/inbox-media-upload-error";
 import {
   INBOX_BLOB_MAX_BYTES,
   isInboxMediaBlobPath,
@@ -32,9 +33,19 @@ const ALLOWED_TYPES = [
  * Client-upload token for a WhatsApp attachment. The phone sends the bytes
  * straight to Blob so an 8 MB PDF never hits Vercel's 4.5 MB function limit.
  */
+function rejectUpload(err: unknown): NextResponse {
+  const failure = describeInboxMediaUploadError(err);
+  // Message plus the check that failed. The token value is already redacted.
+  console.error(`[inbox/media-upload] check=${failure.check} message=${failure.message}`);
+  return NextResponse.json({ error: failure.clientMessage }, { status: 400 });
+}
+
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  const body = (await req.json()) as HandleUploadBody;
   try {
+    if (!process.env.BLOB_READ_WRITE_TOKEN?.trim()) {
+      throw new Error("BLOB_READ_WRITE_TOKEN is not set");
+    }
+    const body = (await req.json()) as HandleUploadBody;
     const json = await handleUpload({
       body,
       request: req,
@@ -71,9 +82,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     });
     return NextResponse.json(json);
   } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Upload fehlgeschlagen" },
-      { status: 400 }
-    );
+    return rejectUpload(err);
   }
 }

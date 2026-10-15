@@ -43,6 +43,15 @@ export interface ServerOptions {
   log: Logger;
 }
 
+/**
+ * 20 MB attachments arrive as base64 JSON (~26.7 MB) plus a small envelope.
+ * Fastify's default bodyLimit is 1 MiB, so anything over about 750 KB was a
+ * 413. 30 MiB covers that file and stays under nginx `client_max_body_size 50m`
+ * on the bridge host. The CRM guard uses the same number
+ * (`INBOX_BRIDGE_BODY_LIMIT_BYTES`).
+ */
+export const BRIDGE_BODY_LIMIT_BYTES = 30 * 1024 * 1024;
+
 // Either a digits-only WA id (legacy path, defaults to `@s.whatsapp.net`)
 // or a full JID `digits[:N]@(lid|hosted.lid|hosted|s.whatsapp.net|c.us|g.us)`.
 // The CRM passes the full JID for contacts whose Meta identity has migrated
@@ -72,7 +81,7 @@ const SendBody = z.discriminatedUnion("kind", [
 ]);
 
 export async function buildServer(opts: ServerOptions): Promise<FastifyInstance> {
-  const app = Fastify({ logger: false });
+  const app = Fastify({ logger: false, bodyLimit: BRIDGE_BODY_LIMIT_BYTES });
 
   app.addHook("onRequest", async (req, reply) => {
     if (req.routeOptions.url === "/healthz") return;

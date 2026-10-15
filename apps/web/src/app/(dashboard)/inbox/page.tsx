@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { upload } from "@vercel/blob/client";
-import { INBOX_DIRECT_UPLOAD_MAX_BYTES } from "@/lib/inbox-media-upload";
+import {
+  INBOX_DIRECT_UPLOAD_MAX_BYTES,
+  uploadInboxMediaBlob,
+} from "@/lib/inbox-media-upload";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Loader2,
@@ -1080,16 +1082,12 @@ function ConversationView({
       if (pendingAttachment.size > INBOX_DIRECT_UPLOAD_MAX_BYTES) {
         const safeName =
           pendingAttachment.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-80) || "datei";
-        const uploaded = await upload(
-          `inbox/conv/${conv.id}/${safeName}`,
-          pendingAttachment,
-          {
-            access: "private",
-            handleUploadUrl: "/api/v1/inbox/media-upload",
-            contentType: pendingAttachment.type || "application/octet-stream",
-            multipart: pendingAttachment.size > 8 * 1024 * 1024,
-          }
-        );
+        const uploaded = await uploadInboxMediaBlob({
+          pathname: `inbox/conv/${conv.id}/${safeName}`,
+          file: pendingAttachment,
+          contentType: pendingAttachment.type || "application/octet-stream",
+          multipart: pendingAttachment.size > 8 * 1024 * 1024,
+        });
         res = await fetch(`/api/v1/inbox/conversations/${conv.id}/messages/media`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },

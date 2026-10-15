@@ -14,6 +14,7 @@ import {
   sendBaileysMediaReply,
   WhatsAppSessionExpiredError,
   WhatsAppMediaTooLargeError,
+  BaileysMediaTooLargeError,
   BaileysBridgeNotConfiguredError,
   BaileysBridgeError,
 } from "@/services/inbox-whatsapp";
@@ -182,6 +183,12 @@ export async function POST(
         { status: 413 }
       );
     }
+    if (err instanceof BaileysMediaTooLargeError) {
+      return NextResponse.json(
+        { error: { code: "BAILEYS_MEDIA_TOO_LARGE", message: err.message } },
+        { status: 413 }
+      );
+    }
     if (err instanceof BaileysBridgeNotConfiguredError) {
       return NextResponse.json(
         {
@@ -202,7 +209,7 @@ export async function POST(
             message: err.message,
           },
         },
-        { status: 502 }
+        { status: err.status === 413 ? 413 : 502 }
       );
     }
     return NextResponse.json(
