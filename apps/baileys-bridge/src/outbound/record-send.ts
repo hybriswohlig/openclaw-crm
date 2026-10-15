@@ -91,6 +91,9 @@ export function bridgeSendOutboundPayload(
   };
 
   if (args.kind !== "text" && args.mediaBase64) {
+    // This body is posted to a Vercel function. Above ~4.5 MB the platform
+    // rejects it before the route runs (a ~3 MB file, base64-encoded).
+    // recordAfterSend swallows that; the CRM send path stores the attachment.
     const bytes = Buffer.from(args.mediaBase64, "base64");
     payload.attachments = [
       {

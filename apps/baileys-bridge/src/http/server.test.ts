@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createLogger } from "../lib/logger.js";
 import type { BridgeSendRecord } from "../outbound/record-send.js";
-import { buildServer, type BridgeControl } from "./server.js";
+import { BRIDGE_BODY_LIMIT_BYTES, buildServer, type BridgeControl } from "./server.js";
 
 const KOTTKE = "acc-kottke";
 
@@ -109,6 +109,35 @@ describe("POST /accounts/:id/send", () => {
     assert.equal(res.json().externalMessageId, "BAE5SENT");
     assert.equal(fake.sends.length, 1);
     assert.equal(fake.records.length, 1);
+    await app.close();
+  });
+
+  it("accepts a media body larger than Fastify's 1 MiB default", async () => {
+    const fake = fakeManager();
+    const app = await buildServer({
+      port: 0,
+      bridgeSecret: "secret",
+      manager: fake.manager,
+      log: createLogger("silent"),
+    });
+    assert.equal(app.initialConfig.bodyLimit, BRIDGE_BODY_LIMIT_BYTES);
+    assert.equal(BRIDGE_BODY_LIMIT_BYTES, 30 * 1024 * 1024);
+    const mediaBase64 = "A".repeat(1_500_000);
+    const res = await app.inject({
+      method: "POST",
+      url: `/accounts/${KOTTKE}/send`,
+      headers: { "x-bridge-secret": "secret", "content-type": "application/json" },
+      payload: {
+        kind: "document",
+        peerWaId: "491511112233",
+        mediaBase64,
+        mimeType: "application/pdf",
+        fileName: "angebot.pdf",
+      },
+    });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.json().externalMessageId, "BAE5MEDIA");
+    assert.equal(fake.sends.length, 1);
     await app.close();
   });
 

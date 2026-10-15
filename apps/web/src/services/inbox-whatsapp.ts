@@ -32,6 +32,10 @@ import { classifyMessagingBody } from "./inbox-triage";
 import { looksDeclined, recordAgentDecline } from "./agent/agent-suppress";
 import { setHumanOwned } from "./agent/agent-gate";
 import { canonicalizePhone } from "@/lib/identity/canonical";
+import {
+  INBOX_BRIDGE_BODY_LIMIT_BYTES,
+  inboxMediaFitsBridge,
+} from "@/lib/inbox-media-upload";
 import { recomputeMultiCompanyForContact } from "./multi-company";
 import {
   insertOnce,
@@ -2575,6 +2579,18 @@ export class BaileysBridgeError extends Error {
   }
 }
 
+/** The base64 JSON body would exceed the bridge Fastify bodyLimit. */
+export class BaileysMediaTooLargeError extends Error {
+  constructor(bytes: number) {
+    const mb = (bytes / 1024 / 1024).toFixed(1);
+    const limitMb = INBOX_BRIDGE_BODY_LIMIT_BYTES / 1024 / 1024;
+    super(
+      `Die Datei ist zu groß für die WhatsApp-Bridge (${mb} MB). Sie wird base64-kodiert geschickt und darf damit ${limitMb} MB JSON nicht überschreiten.`,
+    );
+    this.name = "BaileysMediaTooLargeError";
+  }
+}
+
 interface BridgeSendResponse {
   ok: boolean;
   externalMessageId?: string;
@@ -2600,9 +2616,12 @@ async function callBridgeSend(
   });
   const json = (await res.json().catch(() => ({}))) as BridgeSendResponse;
   if (!res.ok || !json.ok) {
+    const mediaTooLarge = res.status === 413 && "mediaBase64" in body;
     throw new BaileysBridgeError(
       res.status,
-      json.message ?? json.error ?? `bridge returned ${res.status}`,
+      mediaTooLarge
+        ? "Die Datei ist zu groß für die WhatsApp-Bridge (der JSON-Body überschreitet das Limit)."
+        : (json.message ?? json.error ?? `bridge returned ${res.status}`),
     );
   }
   if (!json.externalMessageId) {
@@ -2818,7 +2837,6 @@ export async function sendBaileysMediaReply(params: {
   );
 
   const buffer = Buffer.from(await file.blob.arrayBuffer());
-  const mediaBase64 = buffer.toString("base64");
   const kind: "image" | "video" | "audio" | "document" = (() => {
     const m = file.mimeType.toLowerCase();
     if (m.startsWith("image/")) return "image";
@@ -2826,6 +2844,23 @@ export async function sendBaileysMediaReply(params: {
     if (m.startsWith("audio/")) return "audio";
     return "document";
   })();
+  const captionText = caption?.trim() || undefined;
+  // Same object the bridge will parse. Measure it with an empty media field
+  // so a file that cannot fit is rejected before we allocate the base64.
+  const envelopeBytes = Buffer.byteLength(
+    JSON.stringify({
+      kind,
+      peerWaId: toWaId,
+      mediaBase64: "",
+      mimeType: file.mimeType,
+      fileName: file.filename,
+      caption: captionText,
+    }),
+  );
+  if (!inboxMediaFitsBridge(buffer.length, envelopeBytes)) {
+    throw new BaileysMediaTooLargeError(buffer.length);
+  }
+  const mediaBase64 = buffer.toString("base64");
 
   const sendResult = await callBridgeSend(account.id, {
     kind,
@@ -2833,7 +2868,7 @@ export async function sendBaileysMediaReply(params: {
     mediaBase64,
     mimeType: file.mimeType,
     fileName: file.filename,
-    caption: caption?.trim() || undefined,
+    caption: captionText,
   });
 
   const bodyText = caption?.trim() ?? "";
