@@ -15,14 +15,21 @@ COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY apps/baileys-bridge/package.json apps/baileys-bridge/package.json
 RUN pnpm install --filter @openclaw-crm/baileys-bridge... --frozen-lockfile
 
-# Patch baileys 7.0.0-rc11 migrateSession bug — see WhiskeySockets/Baileys#2548.
-# The `device-list` lookup in libsignal.js reads from a different key format than
-# what auth-state actually writes, so outbound messages silently fail to deliver
-# (no `messages.upsert`, infinite retry loop, recipient never sees the message).
-# Forcing `userDevices = null` makes the function bail out early and restores
-# the pre-rc.10 send behaviour. Drop this when upstream ships a fix.
+# Patch baileys migrateSession bug — see WhiskeySockets/Baileys#2548.
+# Still required on 7.0.0-rc14: the `device-list` lookup in libsignal.js reads
+# from a different key format than what auth-state actually writes, so outbound
+# messages silently fail to deliver (no `messages.upsert`, infinite retry loop,
+# recipient never sees the message). Forcing `userDevices = null` makes the
+# function bail out early and restores the pre-rc.10 send behaviour. Drop this
+# when upstream ships a fix.
 RUN find /app/node_modules -path '*baileys/lib/Signal/libsignal.js' -not -path '*/types*' \
     -exec sed -i "s|const { \[user\]: userDevices } = await parsedKeys.get('device-list', \[user\]);|const { [user]: userDevices } = { [user]: null }; /* patched: #2548 */|g" {} +
+
+# WhatsApp's companion_reg_refresh (July 2026) retires the adv secret inside
+# an unpaired QR. rc14 ignores it, so every scan dies with
+# "Check your connection again". Drop this when Baileys#2765 ships.
+COPY apps/baileys-bridge/scripts/patch-companion-reg.mjs /tmp/patch-companion-reg.mjs
+RUN node /tmp/patch-companion-reg.mjs /app
 
 FROM node:20-slim AS build
 WORKDIR /app

@@ -18,6 +18,7 @@ import {
   type CrmAuthStateHandle,
 } from "../auth-state/crm-auth-state.js";
 import { attachInboundHandler } from "../inbound/handler.js";
+import { historyCatchupConfig } from "../inbound/history.js";
 import { attachStatusHandler } from "../inbound/status-handler.js";
 import {
   peerJidFor,
@@ -54,6 +55,8 @@ export class SocketManager {
   private readonly entries = new Map<string, Entry>();
   private readonly crm: CrmClient;
   private readonly log: Logger;
+  /** WhatsApp ids this process just sent. History catch-up must not re-ingest them. */
+  private readonly bridgeSendIds = new Set<string>();
 
   constructor(opts: SocketManagerOptions) {
     this.crm = opts.crm;
@@ -141,6 +144,7 @@ export class SocketManager {
     if (!result?.key?.id) {
       throw new Error("sendMessage returned no key.id");
     }
+    this.rememberBridgeSend(result.key.id);
     return { keyId: result.key.id };
   }
 
@@ -200,6 +204,7 @@ export class SocketManager {
     if (!result?.key?.id) {
       throw new Error("sendMessage returned no key.id");
     }
+    this.rememberBridgeSend(result.key.id);
     return { keyId: result.key.id };
   }
 
@@ -245,6 +250,13 @@ export class SocketManager {
 
   // ── private ───────────────────────────────────────────────────────────
 
+  private rememberBridgeSend(id: string): void {
+    this.bridgeSendIds.add(id);
+    if (this.bridgeSendIds.size <= 4000) return;
+    const oldest = this.bridgeSendIds.values().next().value;
+    if (oldest) this.bridgeSendIds.delete(oldest);
+  }
+
   private async spawnSocket(entry: Entry): Promise<void> {
     const { accountId } = entry;
     const accountLog = this.log.child({ accountId });
@@ -257,18 +269,50 @@ export class SocketManager {
       });
       entry.authState = authState;
 
+      const cursor = await this.crm.getHistoryCursor(accountId);
+      // `registered` stays false on restored sessions in this deployment.
+      // A missing `me` id is the fresh-pair case that still needs a QR.
+      const freshPair = !authState.state.creds.me?.id;
+      // postToCrm stays false unless the CRM opted in. A 404 cursor (the
+      // web app today) spools a fresh pair and leaves a restored session
+      // with no catch-up, so reconnect does not replay history.
+      const history = historyCatchupConfig({
+        freshPair,
+        cursorSupported: cursor.supported,
+        historySince: cursor.historySince,
+      });
+      const requestFullHistory = freshPair;
+      if (history) {
+        accountLog.info(
+          {
+            cutoff: new Date(history.cutoffMs).toISOString(),
+            requestFullHistory,
+            postToCrm: history.postToCrm,
+          },
+          "[manager] history catch-up armed",
+        );
+      }
+
       const sock = makeWASocket({
         auth: authState.state,
         logger: accountLog as never,
         printQRInTerminal: false,
         markOnlineOnConnect: false,
+        syncFullHistory: requestFullHistory,
       });
       entry.sock = sock;
       entry.status = "starting";
 
       sock.ev.on("creds.update", () => authState.markDirty());
 
-      attachInboundHandler({ accountId, sock, crm: this.crm, log: accountLog });
+      attachInboundHandler({
+        accountId,
+        sock,
+        crm: this.crm,
+        log: accountLog,
+        history,
+        isBridgeSend: (id) => this.bridgeSendIds.has(id),
+      });
       attachStatusHandler({ accountId, sock, crm: this.crm, log: accountLog });
 
       sock.ev.on("connection.update", async (update) => {

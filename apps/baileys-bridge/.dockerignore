@@ -1,0 +1,6 @@
+node_modules
+dist
+src.bak.*
+package.json.bak.*
+._*
+*.md

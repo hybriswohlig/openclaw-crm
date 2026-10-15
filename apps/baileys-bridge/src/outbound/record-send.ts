@@ -19,11 +19,12 @@ export async function postBridgeSendRecord(
  * CRM record for a message this bridge just sent with `sock.sendMessage`.
  *
  * Baileys 7 emits that local echo as `messages.upsert` type `append`
- * (`upsertMessage(fullMsg, 'append')` in messages-send.js, behind
- * `emitOwnEvents`). The inbound handler ignores non-`notify` upserts so a
- * history sync cannot recreate old leads — which also drops the echo of our
- * own send. Phone-typed messages still arrive as `notify` and are mirrored
- * from there. This payload is the send path's own notice to the CRM.
+ * (`upsertMessage(fullMsg, 'append')` on nextTick in messages-send.js, behind
+ * `emitOwnEvents`). Live ingest only handles `notify`, so the echo is not
+ * stored as a phone-typed message. A history catch-up may also see `append`,
+ * but it skips ids this process just sent. Phone-typed messages still arrive
+ * as `notify` and are mirrored from there. This payload is the send path's
+ * own notice to the CRM.
  *
  * The payload is history only. Nothing in here calls `sendMessage`.
  */
