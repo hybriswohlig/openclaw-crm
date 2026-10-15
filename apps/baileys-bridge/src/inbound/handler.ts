@@ -11,15 +11,18 @@
  *                              dedupes by (channel account, externalMessageId).
  *
  * Own sends from `POST /accounts/:id/send` are NOT recorded here. Baileys
- * emits those as `messages.upsert` type `append` (see messages-send.js,
- * `emitOwnEvents`), and this handler ignores every non-`notify` upsert so a
- * history sync cannot recreate old leads. The HTTP send handler posts the
- * row itself (`origin: "bridge-send"`) after `sendMessage` returns.
+ * emits those as `messages.upsert` type `append` on `nextTick` (see
+ * messages-send.js, `emitOwnEvents`). Live ingest only handles `notify`, so
+ * the echo is not stored as a phone-typed message. The HTTP send handler
+ * posts the row itself (`origin: "bridge-send"`) after `sendMessage` returns.
+ * A history catch-up may also see `append`, but it skips ids this process
+ * just sent and does not post unless the CRM opted in (`postToCrm`).
  *
  * Idempotency on both sides is enforced server-side by the unique constraint
  * on (conversation_id, external_message_id) plus an account-scoped lookup, so
  * retries / echo are safe.
  */
+import { appendFile } from "node:fs/promises";
 import type { WAMessage, WAMessageKey, WASocket } from "baileys";
 import { isHostedLidUser, isHostedPnUser, isLidUser, isPnUser } from "baileys";
 import type { Logger } from "../lib/logger.js";
@@ -37,12 +40,25 @@ import {
   jidToPeerJid,
 } from "./envelope.js";
 import { tryDownloadAttachment } from "./media-downloader.js";
+import { shouldKeepHistoryMessage } from "./history.js";
 
 export interface InboundHandlerArgs {
   accountId: string;
   sock: WASocket;
   crm: CrmClient;
   log: Logger;
+  /**
+   * Set for a fresh pair, and for any socket once the CRM can store a
+   * catch-up safely. `postToCrm` is false until that confirmation: the
+   * rows are spooled on disk instead of being sent through the live
+   * ingest path, which would arm the sales agent.
+   */
+  history: { cutoffMs: number; postToCrm: boolean } | null;
+  /**
+   * Ids this process just sent via `POST /accounts/:id/send`. Their append
+   * echo must not be stored again as catch-up.
+   */
+  isBridgeSend?: (externalMessageId: string) => boolean;
 }
 
 /**
@@ -126,31 +142,193 @@ async function resolvePeerAddressing(args: {
   return { peerWaId, peerJid, peerLid, lidPnSource };
 }
 
-export function attachInboundHandler(args: InboundHandlerArgs): void {
-  const { accountId, sock, crm, log } = args;
+const HISTORY_SPOOL = "/tmp/baileys-history-catchup.jsonl";
 
-  sock.ev.on("messages.upsert", async ({ messages, type }) => {
+export function attachInboundHandler(args: InboundHandlerArgs): void {
+  const { accountId, sock, crm, log, history, isBridgeSend } = args;
+
+  sock.ev.on("messages.upsert", ({ messages, type }) => {
     // 'notify' = real-time delivery (inbound, and fromMe typed on the phone).
-    // 'append' = history sync AND the local echo of sock.sendMessage
-    // (Baileys emitOwnEvents). History must not recreate old leads, so
-    // append stays dropped. Bridge sends are recorded by the HTTP send
-    // handler instead — see outbound/record-send.ts.
-    if (type !== "notify") return;
-    for (const msg of messages) {
-      try {
-        if (msg?.key?.fromMe) {
-          await ingestOutboundOne({ accountId, msg, sock, crm, log });
-        } else {
-          await ingestOne({ accountId, msg, sock, crm, log });
-        }
-      } catch (err) {
-        log.error(
-          { err, accountId, msgId: msg?.key?.id, fromMe: !!msg?.key?.fromMe },
-          "[inbound] ingest failed",
-        );
-      }
+    // 'append' is offline catch-up AND the local echo of sock.sendMessage
+    // (Baileys emitOwnEvents, scheduled on nextTick). Without an armed
+    // catch-up, append stays dropped so a history sync cannot recreate old
+    // leads and a bridge send is recorded only by the HTTP handler.
+    if (type === "notify") {
+      void ingestBatch({
+        accountId,
+        messages,
+        sock,
+        crm,
+        log,
+        historySync: false,
+        postToCrm: true,
+      });
+      return;
+    }
+    if (type === "append" && history) {
+      const batch = messages.slice();
+      // The echo is queued on nextTick inside sendMessage, which runs before
+      // sendText/sendMedia can remember the id. Wait until that continuation
+      // has marked the id, then drop it from the catch-up.
+      setImmediate(() => {
+        void ingestHistory({
+          accountId,
+          messages: batch,
+          sock,
+          crm,
+          log,
+          cutoffMs: history.cutoffMs,
+          postToCrm: history.postToCrm,
+          source: "append",
+          isBridgeSend,
+        });
+      });
     }
   });
+
+  if (!history) return;
+
+  sock.ev.on("messaging-history.set", ({ messages, progress, isLatest }) => {
+    log.info(
+      {
+        accountId,
+        count: messages?.length ?? 0,
+        progress: progress ?? null,
+        isLatest: isLatest ?? null,
+      },
+      "[history] chunk",
+    );
+    void ingestHistory({
+      accountId,
+      messages: messages ?? [],
+      sock,
+      crm,
+      log,
+      cutoffMs: history.cutoffMs,
+      postToCrm: history.postToCrm,
+      source: "messaging-history.set",
+      isBridgeSend,
+    });
+  });
+}
+
+function messageSentAtMs(msg: WAMessage): number {
+  const raw = msg.messageTimestamp;
+  const seconds = typeof raw === "number" ? raw : Number(raw ?? 0);
+  if (!Number.isFinite(seconds) || seconds <= 0) return 0;
+  return seconds * 1000;
+}
+
+async function ingestBatch(args: {
+  accountId: string;
+  messages: WAMessage[];
+  sock: WASocket;
+  crm: CrmClient;
+  log: Logger;
+  historySync: boolean;
+  /** History rows default to spool-only. Live notify passes true. */
+  postToCrm?: boolean;
+}): Promise<void> {
+  const {
+    accountId,
+    messages,
+    sock,
+    crm,
+    log,
+    historySync,
+    postToCrm = false,
+  } = args;
+  for (const msg of messages) {
+    try {
+      if (msg?.key?.fromMe) {
+        await ingestOutboundOne({
+          accountId,
+          msg,
+          sock,
+          crm,
+          log,
+          historySync,
+          postToCrm,
+        });
+      } else {
+        await ingestOne({
+          accountId,
+          msg,
+          sock,
+          crm,
+          log,
+          historySync,
+          postToCrm,
+        });
+      }
+    } catch (err) {
+      log.error(
+        { err, accountId, msgId: msg?.key?.id, fromMe: !!msg?.key?.fromMe },
+        "[inbound] ingest failed",
+      );
+    }
+  }
+}
+
+async function ingestHistory(args: {
+  accountId: string;
+  messages: WAMessage[];
+  sock: WASocket;
+  crm: CrmClient;
+  log: Logger;
+  cutoffMs: number;
+  postToCrm: boolean;
+  source: string;
+  isBridgeSend?: (externalMessageId: string) => boolean;
+}): Promise<void> {
+  const {
+    accountId,
+    messages,
+    sock,
+    crm,
+    log,
+    cutoffMs,
+    postToCrm,
+    source,
+    isBridgeSend,
+  } = args;
+  const inWindow = messages
+    .filter((msg) =>
+      shouldKeepHistoryMessage(
+        messageSentAtMs(msg),
+        cutoffMs,
+        msg.key?.id,
+        isBridgeSend,
+      ),
+    )
+    .sort((a, b) => messageSentAtMs(a) - messageSentAtMs(b));
+  if (inWindow.length === 0) {
+    log.info(
+      { accountId, source, received: messages.length, cutoffMs },
+      "[history] nothing inside the catch-up window",
+    );
+    return;
+  }
+  log.info(
+    { accountId, source, received: messages.length, ingesting: inWindow.length },
+    "[history] ingesting catch-up",
+  );
+  await ingestBatch({
+    accountId,
+    messages: inWindow,
+    sock,
+    crm,
+    log,
+    historySync: true,
+    postToCrm,
+  });
+}
+
+async function spoolHistory(
+  kind: "in" | "out",
+  payload: InboundPayload | OutboundPayload,
+): Promise<void> {
+  await appendFile(HISTORY_SPOOL, JSON.stringify({ kind, payload }) + "\n");
 }
 
 async function ingestOne(args: {
@@ -159,8 +337,19 @@ async function ingestOne(args: {
   sock: WASocket;
   crm: CrmClient;
   log: Logger;
+  historySync?: boolean;
+  /** Default false so a catch-up cannot post unless the caller opts in. */
+  postToCrm?: boolean;
 }): Promise<void> {
-  const { accountId, msg, sock, crm, log } = args;
+  const {
+    accountId,
+    msg,
+    sock,
+    crm,
+    log,
+    historySync = false,
+    postToCrm = false,
+  } = args;
   const key = msg.key;
   if (!key?.id || !key?.remoteJid) return;
   if (key.fromMe) return;
@@ -192,9 +381,14 @@ async function ingestOne(args: {
   const body = textOf(msg.message);
   const kind = mediaKindOf(msg.message);
   const previewLabel = previewLabelFor(kind);
+  // Protocol, reaction, and other non-content history rows would mint empty
+  // threads. Live notify keeps its previous behaviour.
+  if (historySync && !body.trim() && !kind) return;
 
   const attachments: InboundAttachment[] = [];
-  if (kind) {
+  // Catch-up can be hundreds of media messages. Downloading every byte has
+  // OOM'd this process before. Store the preview; the file stays on the phone.
+  if (kind && !historySync) {
     const att = await tryDownloadAttachment({ msg, sock, log });
     if (att) attachments.push(att);
   }
@@ -217,16 +411,19 @@ async function ingestOne(args: {
     previewLabel,
     externalMessageId: key.id,
     sentAt,
+    historySync: historySync || undefined,
     rawHeaders: {
       provider: "baileys-inhouse",
       messageType: kind ?? "text",
       participant: key.participant ?? null,
+      ...(historySync ? { source: "history-sync" } : {}),
       ...(peerLid ? { lid: peerLid, lidPnSource } : {}),
     },
     attachments: attachments.length > 0 ? attachments : undefined,
   };
 
-  await crm.postInbound(payload);
+  if (historySync && !postToCrm) await spoolHistory("in", payload);
+  else await crm.postInbound(payload);
 }
 
 /**
@@ -241,8 +438,19 @@ async function ingestOutboundOne(args: {
   sock: WASocket;
   crm: CrmClient;
   log: Logger;
+  historySync?: boolean;
+  /** Default false so a catch-up cannot post unless the caller opts in. */
+  postToCrm?: boolean;
 }): Promise<void> {
-  const { accountId, msg, sock, crm, log } = args;
+  const {
+    accountId,
+    msg,
+    sock,
+    crm,
+    log,
+    historySync = false,
+    postToCrm = false,
+  } = args;
   const key = msg.key;
   if (!key?.id || !key?.remoteJid) return;
   if (!key.fromMe) return;
@@ -272,9 +480,10 @@ async function ingestOutboundOne(args: {
   const body = textOf(msg.message);
   const kind = mediaKindOf(msg.message);
   const previewLabel = previewLabelFor(kind);
+  if (historySync && !body.trim() && !kind) return;
 
   const attachments: InboundAttachment[] = [];
-  if (kind) {
+  if (kind && !historySync) {
     const att = await tryDownloadAttachment({ msg, sock, log });
     if (att) attachments.push(att);
   }
@@ -296,14 +505,16 @@ async function ingestOutboundOne(args: {
     previewLabel,
     externalMessageId: key.id,
     sentAt,
+    historySync: historySync || undefined,
     rawHeaders: {
       provider: "baileys-inhouse",
-      source: "phone-direct",
+      source: historySync ? "history-sync" : "phone-direct",
       messageType: kind ?? "text",
       ...(peerLid ? { lid: peerLid, lidPnSource } : {}),
     },
     attachments: attachments.length > 0 ? attachments : undefined,
   };
 
-  await crm.postOutbound(payload);
+  if (historySync && !postToCrm) await spoolHistory("out", payload);
+  else await crm.postOutbound(payload);
 }

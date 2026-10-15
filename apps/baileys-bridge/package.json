@@ -9,10 +9,10 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "lint": "tsc --noEmit",
-    "test": "node --import tsx --test src/outbound/record-send.test.ts src/http/server.test.ts"
+    "test": "node --import tsx --test src/inbound/history.test.ts src/lib/crm-client.test.ts src/outbound/record-send.test.ts src/http/server.test.ts"
   },
   "dependencies": {
-    "baileys": "7.0.0-rc11",
+    "baileys": "7.0.0-rc14",
     "fastify": "^5.2.1",
     "link-preview-js": "^3.0.0",
     "pino": "^9.5.0",

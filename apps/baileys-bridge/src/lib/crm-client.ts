@@ -48,6 +48,12 @@ export interface InboundPayload {
   sentAt?: string;
   rawHeaders?: Record<string, unknown> | null;
   attachments?: InboundAttachment[];
+  /**
+   * True for rows recovered from a re-pair history sync. The CRM stores
+   * them on the timeline and does not arm the sales agent or push.
+   * Omitted on the live path. Not posted while the cursor route is absent.
+   */
+  historySync?: boolean;
 }
 
 /** Outbound = messages the operator typed on the linked phone, or a bridge send being recorded. */
@@ -70,6 +76,8 @@ export interface OutboundPayload {
   origin?: "bridge-send";
   rawHeaders?: Record<string, unknown> | null;
   attachments?: InboundAttachment[];
+  /** See InboundPayload.historySync. */
+  historySync?: boolean;
 }
 
 export interface PairingPayload {
@@ -106,6 +114,7 @@ export class CrmClient {
   private async fetch(
     path: string,
     init: RequestInit & { method: string },
+    opts?: { quietStatuses?: number[] },
   ): Promise<Response> {
     const url = `${this.baseUrl}${path}`;
     const headers = new Headers(init.headers);
@@ -114,7 +123,7 @@ export class CrmClient {
       headers.set("Content-Type", "application/json");
     }
     const res = await fetch(url, { ...init, headers });
-    if (!res.ok) {
+    if (!res.ok && !opts?.quietStatuses?.includes(res.status)) {
       const text = await res.text().catch(() => "");
       this.log.warn(
         { status: res.status, path, body: text.slice(0, 500) },
@@ -122,6 +131,46 @@ export class CrmClient {
       );
     }
     return res;
+  }
+
+  /**
+   * Newest message already stored for this account, plus a flag that the
+   * deployed CRM knows how to accept a history catch-up safely. A non-OK
+   * response means the CRM is older than this bridge: callers must skip
+   * posting history rather than send it through the live ingest path.
+   *
+   * The route 404s on the web app today. That absence is expected and is
+   * not logged; callers treat it as "not supported".
+   */
+  async getHistoryCursor(
+    accountId: string,
+  ): Promise<{ supported: boolean; historySince: string | null }> {
+    let res: Response;
+    try {
+      res = await this.fetch(
+        `/api/v1/inbox/whatsapp/baileys-history-cursor/${accountId}`,
+        { method: "GET" },
+        { quietStatuses: [404] },
+      );
+    } catch (err) {
+      this.log.warn(
+        { err, accountId },
+        "[crm-client] history cursor lookup failed",
+      );
+      return { supported: false, historySince: null };
+    }
+    if (!res.ok) return { supported: false, historySince: null };
+    const json = (await res.json()) as {
+      historySyncSupported?: boolean;
+      historySince?: string | null;
+    };
+    if (json.historySyncSupported !== true) {
+      return { supported: false, historySince: null };
+    }
+    return {
+      supported: true,
+      historySince: typeof json.historySince === "string" ? json.historySince : null,
+    };
   }
 
   async listInhouseAccounts(): Promise<InhouseAccount[]> {

@@ -1,0 +1,12 @@
+# Shared by the bridge image (apps/baileys-bridge/docker-compose.yml, context
+# is the repo root) and the web image (docker-compose.yml). Do not ignore
+# apps/web: the root Dockerfile copies it.
+**/node_modules
+**/.git
+**/dist
+**/.next
+**/src.bak.*
+**/package.json.bak.*
+**/._*
+apps/graphify-out
+graphify-out
