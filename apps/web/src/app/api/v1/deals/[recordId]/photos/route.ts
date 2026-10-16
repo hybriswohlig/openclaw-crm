@@ -9,9 +9,9 @@ import { uploadInternalDealPhotos } from "@/services/deal-photos";
  * Bearer oc_sk_* is accepted by getAuthContext. Body is either one photo
  * `{ filename, contentType, dataBase64 }` or `{ photos: [...] }`.
  *
- * Stored as inbox attachments (same table as portal photos) tagged
- * internal-photo:*. They show on the deal and are not published to the
- * customer portal, not sent, and do not create a customer-facing message.
+ * Stored on the deal (deal_internal_photos), including when the deal has
+ * no chat. They show under Medien and on the deal photo step, stay
+ * customerVisible false, and do not create a message or a bridge send.
  * A content hash that already exists on the deal is skipped.
  */
 export async function POST(

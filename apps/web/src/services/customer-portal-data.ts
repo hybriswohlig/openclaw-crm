@@ -1549,8 +1549,9 @@ async function loadAttachments(
  *   - every inbound image linked to the deal (customer-sent), and
  *   - operator portal uploads (outbound messages tagged portal-upload:*)
  *
- * Agent JSON uploads (internal-photo:*) are internal and must stay out of
- * this list. Do not widen the filter to every image on the deal.
+ * Agent JSON uploads are internal and must stay out of this list: both
+ * historical internal-photo:* inbox rows and deal_internal_photos. This
+ * query only reads inbox messages. Do not widen it to every image on the deal.
  *
  * AI-selection events (`deal.portal_photos_curated`) no longer filter this
  * list — selection is only for the KI-Zusammenfassung in the wizard.

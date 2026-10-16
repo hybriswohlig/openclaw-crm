@@ -3,6 +3,7 @@ import { getAuthContext, unauthorized, notFound, success } from "@/lib/api-utils
 import { db } from "@/db";
 import { inboxMessageAttachments } from "@/db/schema/inbox";
 import { and, eq } from "drizzle-orm";
+import { findDealInternalPhoto } from "@/services/deal-photos";
 import { getAttachmentWithContent } from "@/services/inbox";
 import { toAttachmentPayload } from "@/lib/attachment-content";
 
@@ -46,7 +47,20 @@ export async function GET(
     .limit(1);
 
   if (!row) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
+    const internal = await findDealInternalPhoto(ctx.workspaceId, id);
+    if (!internal) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    const bytes = Buffer.from(internal.fileContent, "base64");
+    return new NextResponse(new Uint8Array(bytes), {
+      status: 200,
+      headers: {
+        "Content-Type": internal.mimeType,
+        "Content-Length": String(bytes.length),
+        "Content-Disposition": `inline; filename="${encodeURIComponent(internal.fileName)}"`,
+        "Cache-Control": "private, max-age=3600",
+      },
+    });
   }
 
   const bytes = Buffer.from(row.fileContent, "base64");

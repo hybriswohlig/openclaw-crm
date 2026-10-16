@@ -1,12 +1,16 @@
-// Store agent-uploaded deal photos next to portal photos, without telling
-// the customer. The inbox row exists only because attachments require a
-// message; it is not sent, and callers must hide internal-photo:* rows from
-// chat, reply-state and the public portal.
+// Agent-uploaded deal photos live on the deal, not in a chat.
+// inbox_message_attachments requires a message and a conversation, which
+// ImmoScout leads often do not have. New uploads go to deal_internal_photos.
+// Older internal-photo:* inbox rows stay readable and stay hidden from chat,
+// reply-state and the public portal.
 
 import { createHash } from "node:crypto";
-import { and, desc, eq, like, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, like, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { inboxConversations, inboxMessageAttachments, inboxMessages } from "@/db/schema/inbox";
+import { dealInternalPhotos } from "@/db/schema/deal-internal-photos";
+import { inboxMessageAttachments, inboxMessages } from "@/db/schema/inbox";
+import { objects } from "@/db/schema/objects";
+import { records } from "@/db/schema/records";
 import { normaliseBase64 } from "@/lib/attachment-content";
 import {
   INTERNAL_PHOTO_PREFIX,
@@ -15,10 +19,14 @@ import {
 } from "@/lib/deal-photo-upload";
 
 /**
- * Not an outbound send. `received` is outside ANTWORT_STATUS, so the row
- * does not clear „wartet auf Antwort“.
+ * Not an outbound send. `received` is outside ANTWORT_STATUS, so historical
+ * internal-photo:* rows do not clear „wartet auf Antwort“. New uploads do
+ * not create a message at all.
  */
 export const INTERNAL_PHOTO_MESSAGE_STATUS = "received" as const;
+
+/** Synthetic source marker for deal-table rows. Not a message id. */
+const DEAL_TABLE_PHOTO_MARKER = `${INTERNAL_PHOTO_PREFIX}deal`;
 
 /** SQL predicate: drop storage rows that are not conversation messages. */
 export function excludeInternalPhotoMessages() {
@@ -60,19 +68,54 @@ export type UploadInternalDealPhotosResult =
       photos: StoredInternalDealPhoto[];
       skipped: SkippedDuplicateDealPhoto[];
     }
-  | { ok: false; status: 400; code: "NO_CONVERSATION"; error: string };
+  | { ok: false; status: 404; code: "NOT_FOUND"; error: string };
+
+export interface DealInternalPhotoMeta {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  createdAt: Date;
+  dealRecordId: string;
+}
+
+export interface DealInternalPhotoFile extends DealInternalPhotoMeta {
+  fileContent: string;
+}
 
 /**
- * Write internal photos onto the deal's newest conversation.
- * Does not notify, does not update the conversation, and does not send.
- * Same content hash as an image already on the deal is skipped.
+ * Write internal photos onto the deal itself.
+ * No conversation, no inbox message, no bridge send.
+ * Same content hash as an image already on the deal (inbox or this table) is skipped.
+ * A later customer chat does not move or hide these rows.
  */
 export async function uploadInternalDealPhotos(input: {
   workspaceId: string;
   dealRecordId: string;
   photos: PreparedDealPhoto[];
 }): Promise<UploadInternalDealPhotosResult> {
-  const existing = await db
+  const [deal] = await db
+    .select({ id: records.id })
+    .from(records)
+    .innerJoin(objects, eq(records.objectId, objects.id))
+    .where(
+      and(
+        eq(records.id, input.dealRecordId),
+        eq(objects.workspaceId, input.workspaceId),
+        isNull(records.deletedAt)
+      )
+    )
+    .limit(1);
+  if (!deal) {
+    return {
+      ok: false,
+      status: 404,
+      code: "NOT_FOUND",
+      error: "Deal not found.",
+    };
+  }
+
+  const existingInbox = await db
     .select({
       id: inboxMessageAttachments.id,
       fileContent: inboxMessageAttachments.fileContent,
@@ -87,8 +130,26 @@ export async function uploadInternalDealPhotos(input: {
       )
     );
 
+  const existingDeal = await db
+    .select({
+      id: dealInternalPhotos.id,
+      contentSha256: dealInternalPhotos.contentSha256,
+    })
+    .from(dealInternalPhotos)
+    .where(
+      and(
+        eq(dealInternalPhotos.workspaceId, input.workspaceId),
+        eq(dealInternalPhotos.dealRecordId, input.dealRecordId)
+      )
+    );
+
   const hashes = new Map<string, string>();
-  for (const row of existing) {
+  for (const row of existingDeal) {
+    if (/^[a-f0-9]{64}$/.test(row.contentSha256) && !hashes.has(row.contentSha256)) {
+      hashes.set(row.contentSha256, row.id);
+    }
+  }
+  for (const row of existingInbox) {
     const hash = hashOfStoredPhoto(row.fileContent, row.externalMediaId);
     if (hash && !hashes.has(hash)) hashes.set(hash, row.id);
   }
@@ -109,7 +170,6 @@ export async function uploadInternalDealPhotos(input: {
       continue;
     }
     if (batchHashes.has(photo.contentSha256)) {
-      // Resolved to the stored id after insert.
       skipped.push({
         fileName: photo.fileName,
         contentSha256: photo.contentSha256,
@@ -127,78 +187,63 @@ export async function uploadInternalDealPhotos(input: {
     return { ok: true, photos: [], skipped };
   }
 
-  const [conv] = await db
-    .select({ id: inboxConversations.id })
-    .from(inboxConversations)
-    .where(
-      and(
-        eq(inboxConversations.workspaceId, input.workspaceId),
-        eq(inboxConversations.dealRecordId, input.dealRecordId)
-      )
-    )
-    .orderBy(desc(inboxConversations.lastMessageAt))
-    .limit(1);
-  if (!conv) {
-    return {
-      ok: false,
-      status: 400,
-      code: "NO_CONVERSATION",
-      error: "No conversation on this deal — photos cannot be stored.",
-    };
-  }
-
   const stored: StoredInternalDealPhoto[] = [];
   const storedIds = new Map<string, string>();
   await db.transaction(async (tx) => {
     for (const photo of toInsert) {
-      const externalMessageId = `${INTERNAL_PHOTO_PREFIX}${crypto.randomUUID()}`;
-      const [msg] = await tx
-        .insert(inboxMessages)
-        .values({
-          workspaceId: input.workspaceId,
-          conversationId: conv.id,
-          direction: "outbound",
-          status: INTERNAL_PHOTO_MESSAGE_STATUS,
-          externalMessageId,
-          body: "",
-          isRead: true,
-          sentAt: new Date(),
-        })
-        .returning({ id: inboxMessages.id });
+      try {
+        const [att] = await tx
+          .insert(dealInternalPhotos)
+          .values({
+            workspaceId: input.workspaceId,
+            dealRecordId: input.dealRecordId,
+            fileName: photo.fileName,
+            mimeType: photo.mimeType,
+            fileSize: photo.fileSize,
+            fileContent: photo.fileContent,
+            contentSha256: photo.contentSha256,
+          })
+          .returning({
+            id: dealInternalPhotos.id,
+            fileName: dealInternalPhotos.fileName,
+            mimeType: dealInternalPhotos.mimeType,
+            fileSize: dealInternalPhotos.fileSize,
+            createdAt: dealInternalPhotos.createdAt,
+          });
 
-      const [att] = await tx
-        .insert(inboxMessageAttachments)
-        .values({
-          workspaceId: input.workspaceId,
-          messageId: msg.id,
-          conversationId: conv.id,
-          dealRecordId: input.dealRecordId,
-          fileName: photo.fileName,
-          mimeType: photo.mimeType,
-          fileSize: photo.fileSize,
-          fileContent: photo.fileContent,
-          externalMediaId: `sha256:${photo.contentSha256}`,
-        })
-        .returning({
-          id: inboxMessageAttachments.id,
-          fileName: inboxMessageAttachments.fileName,
-          mimeType: inboxMessageAttachments.mimeType,
-          fileSize: inboxMessageAttachments.fileSize,
-          createdAt: inboxMessageAttachments.createdAt,
+        storedIds.set(photo.contentSha256, att.id);
+        stored.push({
+          id: att.id,
+          fileName: att.fileName,
+          mimeType: att.mimeType,
+          fileSize: att.fileSize,
+          contentSha256: photo.contentSha256,
+          createdAt: att.createdAt.toISOString(),
+          source: "internal",
+          customerVisible: false,
+          skipped: false,
         });
-
-      storedIds.set(photo.contentSha256, att.id);
-      stored.push({
-        id: att.id,
-        fileName: att.fileName,
-        mimeType: att.mimeType,
-        fileSize: att.fileSize,
-        contentSha256: photo.contentSha256,
-        createdAt: att.createdAt.toISOString(),
-        source: "internal",
-        customerVisible: false,
-        skipped: false,
-      });
+      } catch (error) {
+        if (!isUniqueViolation(error)) throw error;
+        const [existing] = await tx
+          .select({ id: dealInternalPhotos.id })
+          .from(dealInternalPhotos)
+          .where(
+            and(
+              eq(dealInternalPhotos.workspaceId, input.workspaceId),
+              eq(dealInternalPhotos.dealRecordId, input.dealRecordId),
+              eq(dealInternalPhotos.contentSha256, photo.contentSha256)
+            )
+          )
+          .limit(1);
+        skipped.push({
+          fileName: photo.fileName,
+          contentSha256: photo.contentSha256,
+          duplicateOf: existing?.id ?? "",
+          skipped: true,
+          reason: "duplicate",
+        });
+      }
     }
   });
 
@@ -209,6 +254,149 @@ export async function uploadInternalDealPhotos(input: {
   }
 
   return { ok: true, photos: stored, skipped };
+}
+
+/** Metadata for Medien and the deal photo step. Bytes stay out of this list. */
+export async function listDealInternalPhotos(
+  workspaceId: string,
+  dealRecordId: string
+): Promise<DealInternalPhotoMeta[]> {
+  return db
+    .select({
+      id: dealInternalPhotos.id,
+      fileName: dealInternalPhotos.fileName,
+      mimeType: dealInternalPhotos.mimeType,
+      fileSize: dealInternalPhotos.fileSize,
+      createdAt: dealInternalPhotos.createdAt,
+      dealRecordId: dealInternalPhotos.dealRecordId,
+    })
+    .from(dealInternalPhotos)
+    .where(
+      and(
+        eq(dealInternalPhotos.workspaceId, workspaceId),
+        eq(dealInternalPhotos.dealRecordId, dealRecordId)
+      )
+    )
+    .orderBy(desc(dealInternalPhotos.createdAt));
+}
+
+/** Image bytes for KI scope and deal analysis. Optional id filter. */
+export async function listDealInternalPhotoFiles(
+  workspaceId: string,
+  dealRecordId: string,
+  ids?: string[]
+): Promise<DealInternalPhotoFile[]> {
+  if (ids && ids.length === 0) return [];
+  return db
+    .select({
+      id: dealInternalPhotos.id,
+      fileName: dealInternalPhotos.fileName,
+      mimeType: dealInternalPhotos.mimeType,
+      fileSize: dealInternalPhotos.fileSize,
+      fileContent: dealInternalPhotos.fileContent,
+      createdAt: dealInternalPhotos.createdAt,
+      dealRecordId: dealInternalPhotos.dealRecordId,
+    })
+    .from(dealInternalPhotos)
+    .where(
+      and(
+        eq(dealInternalPhotos.workspaceId, workspaceId),
+        eq(dealInternalPhotos.dealRecordId, dealRecordId),
+        like(dealInternalPhotos.mimeType, "image/%"),
+        ...(ids ? [inArray(dealInternalPhotos.id, ids)] : [])
+      )
+    )
+    .orderBy(desc(dealInternalPhotos.createdAt));
+}
+
+export async function findDealInternalPhoto(
+  workspaceId: string,
+  photoId: string,
+  opts: { dealRecordId?: string } = {}
+): Promise<DealInternalPhotoFile | null> {
+  const [row] = await db
+    .select({
+      id: dealInternalPhotos.id,
+      fileName: dealInternalPhotos.fileName,
+      mimeType: dealInternalPhotos.mimeType,
+      fileSize: dealInternalPhotos.fileSize,
+      fileContent: dealInternalPhotos.fileContent,
+      createdAt: dealInternalPhotos.createdAt,
+      dealRecordId: dealInternalPhotos.dealRecordId,
+    })
+    .from(dealInternalPhotos)
+    .where(
+      and(
+        eq(dealInternalPhotos.id, photoId),
+        eq(dealInternalPhotos.workspaceId, workspaceId),
+        ...(opts.dealRecordId
+          ? [eq(dealInternalPhotos.dealRecordId, opts.dealRecordId)]
+          : [])
+      )
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+/** Workspace-scoped lookup for explicit photo ids (document jobs, content). */
+export async function findDealInternalPhotosByIds(
+  workspaceId: string,
+  ids: string[],
+  dealRecordId?: string
+): Promise<DealInternalPhotoFile[]> {
+  if (ids.length === 0) return [];
+  return db
+    .select({
+      id: dealInternalPhotos.id,
+      fileName: dealInternalPhotos.fileName,
+      mimeType: dealInternalPhotos.mimeType,
+      fileSize: dealInternalPhotos.fileSize,
+      fileContent: dealInternalPhotos.fileContent,
+      createdAt: dealInternalPhotos.createdAt,
+      dealRecordId: dealInternalPhotos.dealRecordId,
+    })
+    .from(dealInternalPhotos)
+    .where(
+      and(
+        eq(dealInternalPhotos.workspaceId, workspaceId),
+        inArray(dealInternalPhotos.id, ids),
+        ...(dealRecordId ? [eq(dealInternalPhotos.dealRecordId, dealRecordId)] : [])
+      )
+    );
+}
+
+/** Ids from `ids` that are internal photos on this deal. */
+export async function filterDealInternalPhotoIds(
+  workspaceId: string,
+  dealRecordId: string,
+  ids: string[]
+): Promise<string[]> {
+  if (ids.length === 0) return [];
+  const rows = await db
+    .select({ id: dealInternalPhotos.id })
+    .from(dealInternalPhotos)
+    .where(
+      and(
+        eq(dealInternalPhotos.workspaceId, workspaceId),
+        eq(dealInternalPhotos.dealRecordId, dealRecordId),
+        inArray(dealInternalPhotos.id, ids),
+        like(dealInternalPhotos.mimeType, "image/%")
+      )
+    );
+  return rows.map((row) => row.id);
+}
+
+/** Map a deal-table photo onto the shape the portal grid already understands. */
+export function asDealSurfacePhoto(row: DealInternalPhotoMeta) {
+  return {
+    id: row.id,
+    fileName: row.fileName,
+    mimeType: row.mimeType,
+    fileSize: row.fileSize,
+    createdAt: row.createdAt,
+    direction: "outbound" as const,
+    externalMessageId: DEAL_TABLE_PHOTO_MARKER,
+  };
 }
 
 function hashOfStoredPhoto(fileContent: string, externalMediaId: string | null): string | null {
@@ -223,4 +411,15 @@ function hashOfStoredPhoto(fileContent: string, externalMediaId: string | null):
   } catch {
     return null;
   }
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  while (current && typeof current === "object" && !seen.has(current)) {
+    seen.add(current);
+    if ("code" in current && (current as { code?: unknown }).code === "23505") return true;
+    current = "cause" in current ? (current as { cause?: unknown }).cause : undefined;
+  }
+  return false;
 }

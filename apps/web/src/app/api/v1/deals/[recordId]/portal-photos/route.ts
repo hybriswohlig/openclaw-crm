@@ -8,7 +8,12 @@ import {
 } from "@/db/schema/inbox";
 import { activityEvents } from "@/db/schema/activity";
 import { emitEvent } from "@/services/activity-events";
-import { dealSurfacePhotoMessageMatch } from "@/services/deal-photos";
+import {
+  asDealSurfacePhoto,
+  dealSurfacePhotoMessageMatch,
+  filterDealInternalPhotoIds,
+  listDealInternalPhotos,
+} from "@/services/deal-photos";
 import { dealPhotoSource } from "@/lib/deal-photo-upload";
 import { and, desc, eq, inArray, like } from "drizzle-orm";
 
@@ -42,7 +47,7 @@ function invalidInput(code = "INVALID_INPUT") {
 
 /** Inbound images, portal-uploads, and internal agent photos on the deal. */
 async function loadDealPortalPhotos(workspaceId: string, recordId: string) {
-  return db
+  const inboxRows = await db
     .select({
       id: inboxMessageAttachments.id,
       fileName: inboxMessageAttachments.fileName,
@@ -63,6 +68,14 @@ async function loadDealPortalPhotos(workspaceId: string, recordId: string) {
       )
     )
     .orderBy(desc(inboxMessageAttachments.createdAt));
+
+  const internal = (await listDealInternalPhotos(workspaceId, recordId))
+    .filter((row) => row.mimeType.startsWith("image/"))
+    .map(asDealSurfacePhoto);
+
+  return [...inboxRows, ...internal].sort(
+    (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
+  );
 }
 
 export async function GET(
@@ -148,6 +161,12 @@ export async function PUT(
         )
       );
     const validIds = new Set(valid.map((v) => v.id));
+    const internalIds = await filterDealInternalPhotoIds(
+      ctx.workspaceId,
+      recordId,
+      attachmentIds
+    );
+    for (const id of internalIds) validIds.add(id);
     if (!attachmentIds.every((id) => validIds.has(id))) {
       return invalidInput();
     }

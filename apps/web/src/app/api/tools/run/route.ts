@@ -7,6 +7,7 @@ import { getAuthContext, unauthorized, badRequest } from "@/lib/api-utils";
 import { db } from "@/db";
 import { inboxMessageAttachments } from "@/db/schema/inbox";
 import { and, eq, inArray } from "drizzle-orm";
+import { findDealInternalPhotosByIds } from "@/services/deal-photos";
 import { rewriteKundeParamsFromDeal } from "@/services/doc-customer-name";
 import { attachDocumentJobContext } from "@/services/document-job-context";
 
@@ -118,6 +119,23 @@ export async function POST(req: NextRequest) {
       );
 
     const byId = new Map(rows.map((r) => [r.id, r]));
+    const missing = requestedIds.filter((id) => !byId.has(id));
+    if (missing.length > 0) {
+      const internal = await findDealInternalPhotosByIds(
+        ctx.workspaceId,
+        missing,
+        dealId ?? undefined
+      );
+      for (const photo of internal) {
+        byId.set(photo.id, {
+          id: photo.id,
+          fileName: photo.fileName,
+          mimeType: photo.mimeType,
+          fileContent: photo.fileContent,
+          dealRecordId: photo.dealRecordId,
+        });
+      }
+    }
     const images: { filename: string; mime: string; base64: string }[] = [];
     let totalBase64Bytes = 0;
     for (const id of requestedIds) {

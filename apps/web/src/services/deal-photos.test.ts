@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
 function query(rows: unknown[]) {
   const chain = {
     from: () => chain,
+    innerJoin: () => chain,
     where: () => chain,
     orderBy: () => chain,
     limit: () => Promise.resolve(rows),
@@ -78,8 +79,8 @@ describe("uploadInternalDealPhotos", () => {
     ).toBe(false);
   });
 
-  it("stores an internal photo without a customer-facing message", async () => {
-    mocks.selects.push([], [{ id: "conv-1" }]);
+  it("stores an internal photo on the deal when there is no conversation", async () => {
+    mocks.selects.push([{ id: "deal-1" }], [], []);
     const photos = prepared();
 
     const result = await uploadInternalDealPhotos({
@@ -101,32 +102,33 @@ describe("uploadInternalDealPhotos", () => {
         contentSha256: photos[0]!.contentSha256,
       }),
     ]);
-    expect(mocks.inserts).toHaveLength(2);
-    expect(mocks.inserts[0]).toMatchObject({
-      conversationId: "conv-1",
-      direction: "outbound",
-      status: "received",
-      body: "",
-      isRead: true,
-    });
-    expect(String(mocks.inserts[0]!.externalMessageId)).toMatch(/^internal-photo:/);
-    expect(mocks.inserts[1]).toMatchObject({
-      dealRecordId: "deal-1",
-      fileName: "kueche.jpg",
-      mimeType: "image/jpeg",
-      externalMediaId: `sha256:${photos[0]!.contentSha256}`,
-    });
+    expect(mocks.inserts).toEqual([
+      expect.objectContaining({
+        workspaceId: "ws-1",
+        dealRecordId: "deal-1",
+        fileName: "kueche.jpg",
+        mimeType: "image/jpeg",
+        fileContent: photos[0]!.fileContent,
+        contentSha256: photos[0]!.contentSha256,
+      }),
+    ]);
+    expect(mocks.inserts[0]).not.toHaveProperty("conversationId");
+    expect(mocks.inserts[0]).not.toHaveProperty("messageId");
   });
 
   it("skips a photo whose bytes are already on the deal", async () => {
     const photos = prepared();
-    mocks.selects.push([
-      {
-        id: "existing-1",
-        fileContent: photos[0]!.fileContent,
-        externalMediaId: null,
-      },
-    ]);
+    mocks.selects.push(
+      [{ id: "deal-1" }],
+      [
+        {
+          id: "existing-1",
+          fileContent: photos[0]!.fileContent,
+          externalMediaId: null,
+        },
+      ],
+      []
+    );
 
     const result = await uploadInternalDealPhotos({
       workspaceId: "ws-1",
@@ -153,9 +155,11 @@ describe("uploadInternalDealPhotos", () => {
   it("skips a photo that matches a stored content hash", async () => {
     const bytes = jpeg();
     const hash = contentSha256Hex(bytes);
-    mocks.selects.push([
-      { id: "existing-2", fileContent: "", externalMediaId: `sha256:${hash}` },
-    ]);
+    mocks.selects.push(
+      [{ id: "deal-1" }],
+      [{ id: "existing-2", fileContent: "", externalMediaId: `sha256:${hash}` }],
+      []
+    );
 
     const result = await uploadInternalDealPhotos({
       workspaceId: "ws-1",
@@ -169,8 +173,25 @@ describe("uploadInternalDealPhotos", () => {
     expect(mocks.inserts).toEqual([]);
   });
 
+  it("skips a photo that matches a hash already stored on the deal", async () => {
+    const bytes = jpeg();
+    const hash = contentSha256Hex(bytes);
+    mocks.selects.push([{ id: "deal-1" }], [], [{ id: "deal-photo-1", contentSha256: hash }]);
+
+    const result = await uploadInternalDealPhotos({
+      workspaceId: "ws-1",
+      dealRecordId: "deal-1",
+      photos: prepared(bytes),
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.skipped[0]?.duplicateOf).toBe("deal-photo-1");
+    expect(mocks.inserts).toEqual([]);
+  });
+
   it("skips a second copy of the same photo in one request", async () => {
-    mocks.selects.push([], [{ id: "conv-1" }]);
+    mocks.selects.push([{ id: "deal-1" }], [], []);
     const photos = [...prepared(), ...prepared()];
 
     const result = await uploadInternalDealPhotos({
@@ -191,14 +212,14 @@ describe("uploadInternalDealPhotos", () => {
     expect(mocks.inserts.filter((row) => row.fileName)).toHaveLength(1);
   });
 
-  it("refuses to store when the deal has no conversation", async () => {
-    mocks.selects.push([], []);
+  it("refuses to store when the deal is not in the workspace", async () => {
+    mocks.selects.push([]);
     const result = await uploadInternalDealPhotos({
       workspaceId: "ws-1",
       dealRecordId: "deal-1",
       photos: prepared(),
     });
-    expect(result).toMatchObject({ ok: false, status: 400, code: "NO_CONVERSATION" });
+    expect(result).toMatchObject({ ok: false, status: 404, code: "NOT_FOUND" });
     expect(mocks.inserts).toEqual([]);
   });
 });

@@ -14,7 +14,7 @@
 
 import { z } from "zod";
 import { and, desc, eq, inArray, like } from "drizzle-orm";
-import { dealSurfacePhotoMessageMatch } from "@/services/deal-photos";
+import { dealSurfacePhotoMessageMatch, listDealInternalPhotoFiles } from "@/services/deal-photos";
 import { db } from "@/db";
 import { inboxMessageAttachments, inboxMessages } from "@/db/schema/inbox";
 import { objects, attributes } from "@/db/schema/objects";
@@ -151,8 +151,24 @@ export async function generateScopeFromPhotos(
     )
     .orderBy(desc(inboxMessageAttachments.createdAt));
 
+  const found = new Set(rows.map((r) => r.id));
+  const missing = attachmentIds.filter((id) => !found.has(id));
+  const internalRows =
+    missing.length > 0
+      ? await listDealInternalPhotoFiles(workspaceId, dealRecordId, missing)
+      : [];
+
   // Preserve operator selection order where possible.
-  const byId = new Map(rows.map((r) => [r.id, r]));
+  const byId = new Map<string, (typeof rows)[number]>(rows.map((r) => [r.id, r]));
+  for (const row of internalRows) {
+    byId.set(row.id, {
+      id: row.id,
+      fileName: row.fileName,
+      mimeType: row.mimeType,
+      fileSize: row.fileSize,
+      fileContent: row.fileContent,
+    });
+  }
   const ordered: ScopeImage[] = [];
   for (const id of attachmentIds) {
     const r = byId.get(id);
