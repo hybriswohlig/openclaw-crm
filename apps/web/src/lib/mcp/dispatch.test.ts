@@ -184,6 +184,52 @@ describe("crm_generate_document", () => {
       },
     });
   });
+
+  it("keeps the VPS job when renderer is omitted and switches only for crm", async () => {
+    const vps = fakeClient();
+    await handleTool(vps.client, "crm_generate_document", {
+      recordId: "deal-1",
+      renderer: "vps",
+      params: { document_type: "RE" },
+    });
+    expect(vps.calls[0].path).toBe("/api/tools/run");
+
+    const crm = fakeClient();
+    await handleTool(crm.client, "crm_generate_document", {
+      recordId: "deal-1",
+      renderer: "crm",
+      params: {
+        document_type: "KV",
+        document_copy: { intro: "Guten Tag" },
+        notes: "INTERN-NOTIZ-GEHEIM-4711",
+      },
+    });
+    expect(crm.calls[0].path).toBe("/api/v1/deals/deal-1/documents/render");
+    expect(crm.calls[0].options.body).toEqual({
+      renderer: "crm",
+      documentType: "KV",
+      copy: { intro: "Guten Tag" },
+      notifyCustomer: false,
+    });
+  });
+});
+
+describe("crm_render_document", () => {
+  it("posts renderer crm and does not start a VPS job", async () => {
+    const { client, calls } = fakeClient();
+    await handleTool(client, "crm_render_document", {
+      recordId: "deal-9",
+      documentType: "RE",
+      document_copy: '{"remarks":"Hof einfahrt"}',
+    });
+    expect(calls[0].path).toBe("/api/v1/deals/deal-9/documents/render");
+    expect(calls[0].options.body).toEqual({
+      renderer: "crm",
+      documentType: "RE",
+      copy: { remarks: "Hof einfahrt" },
+      notifyCustomer: false,
+    });
+  });
 });
 
 /**

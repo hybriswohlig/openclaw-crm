@@ -17,7 +17,11 @@ for (const filePath of [
 }
 
 const nextConfig: NextConfig = {
-  transpilePackages: ["@openclaw-crm/shared", "@openclaw-crm/customer-portal-core"],
+  transpilePackages: [
+    "@openclaw-crm/shared",
+    "@openclaw-crm/customer-portal-core",
+    "@openclaw-crm/document-templates",
+  ],
   // output: "standalone" is set via NEXT_OUTPUT in Dockerfile for Docker builds
   ...(process.env.NEXT_OUTPUT === "standalone" ? { output: "standalone" as const } : {}),
   // Offene Kartendaten der Lagekarte (Kreisgrenzen, Schrift-Glyphen): einen Tag
