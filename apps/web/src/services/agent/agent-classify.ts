@@ -16,6 +16,7 @@ import type {
   AgentPriority,
 } from "@/db/schema/inbox";
 import { AGENT_STAGE_RANK, normalizeAgentStage } from "@/db/schema/inbox";
+import { normalisiereAnrede } from "./agent-suppress";
 import { activityEvents } from "@/db/schema";
 import { getObjectBySlug } from "@/services/objects";
 import { getRecord } from "@/services/records";
@@ -208,9 +209,12 @@ async function classifyOne(
     now,
   });
 
+  // A stored form of address lives on the same JSON blob. Reclassification
+  // replaces the blob, so keep the register or the opt-out footer loses it.
+  const register = normalisiereAnrede(conv.agentState?.register);
   await db
     .update(inboxConversations)
-    .set({ agentState: flags, updatedAt: new Date() })
+    .set({ agentState: register ? { ...flags, register } : flags, updatedAt: new Date() })
     .where(eq(inboxConversations.id, conv.id));
 }
 

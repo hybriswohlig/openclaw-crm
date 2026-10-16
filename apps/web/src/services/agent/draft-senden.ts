@@ -9,7 +9,7 @@ import { agentDrafts, agentEvents, dealAgentState } from "@/db/schema/agent";
 import { inboxConversations, inboxContacts, channelAccounts } from "@/db/schema/inbox";
 import { agentMayContact, toGateMessageClass as toGateClass } from "@/services/agent/agent-gate";
 import { sendOnChannel, type AgentChannelRow } from "@/services/agent/agent-shared";
-import { leaksPriceOrCommitment, OPT_OUT_LINE } from "@/services/agent/agent-suppress";
+import { leaksPriceOrCommitment, ladeGespeicherteAnrede, mitOptOutZeile } from "@/services/agent/agent-suppress";
 import { isOptOutLineEnabled } from "@/services/agent/agent-config";
 import { ohnePreisPhrase } from "@/services/agent/preis-entwurf";
 import {
@@ -282,12 +282,20 @@ export async function entwurfFreigebenUndSenden(input: {
     // d) Final text: operator edit wins over the engine's assembled text.
     const bodyFinal = typeof body.finalText === "string" ? body.finalText.trim() : "";
     text = bodyFinal || draft.finalText?.trim() || draft.draftText;
+    // Opt-out footer only on proactive classes, and only when the owner enabled
+    // the line. Replies stay without it. mitOptOutZeile skips a second line
+    // when the text already contains a STOP hint.
     if (
       (gateClass === "followup" || gateClass === "first_contact") &&
-      (await isOptOutLineEnabled(workspaceId)) &&
-      !text.includes("STOP")
+      (await isOptOutLineEnabled(workspaceId))
     ) {
-      text = `${text}\n\n${OPT_OUT_LINE}`;
+      text = mitOptOutZeile(
+        text,
+        await ladeGespeicherteAnrede({
+          dealRecordId: draft.dealRecordId,
+          conversationId: conv.id,
+        })
+      );
     }
 
     // e) Price/commitment guard on the FINAL text (L4 re-scan).

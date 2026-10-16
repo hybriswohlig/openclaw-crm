@@ -28,7 +28,7 @@ const KEY_FOLLOWUP = "sales_followup_enabled";
 const KEY_DISCLOSE_AI = "sales_agent_disclose_ai";
 const KEY_DISCLOSURE = "sales_agent_disclosure";
 const KEY_HANDOFF_ACK = "sales_agent_handoff_ack";
-// Appends "...antworte mit STOP" to proactive messages (opener + nudges).
+// Appends a STOP line to proactive messages (opener + nudges), in Du or Sie.
 // Default OFF so the test system reads human; turn ON before real customers
 // for §7 UWG / Art. 21 DSGVO compliance.
 const KEY_OPTOUT_LINE = "sales_agent_optout_line";
@@ -188,7 +188,7 @@ export async function getAgentHandoffAck(workspaceId: string): Promise<string> {
 }
 
 /**
- * Whether to append the "antworte mit STOP" opt-out line to proactive messages
+ * Whether to append the STOP opt-out line to proactive messages
  * (first-contact opener + follow-up nudges). Default OFF so the test system
  * reads human; the owner turns it ON before serving real customers (then it is
  * the §7 UWG / Art. 21 DSGVO safe path). Inbound STOP is ALWAYS honored either
