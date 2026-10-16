@@ -26,6 +26,8 @@ export {
   PRICE_RE,
   COMMITMENT_RE,
   OPT_OUT_LINE,
+  mitOptOutZeile,
+  ladeGespeicherteAnrede,
   recordAgentDecline,
   isAgentSuppressed,
 } from "./agent-suppress";

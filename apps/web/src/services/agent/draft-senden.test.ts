@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   gate: vi.fn(),
   send: vi.fn(),
   leak: vi.fn(),
+  optOut: vi.fn(async () => false),
 }));
 
 function chain(result: unknown) {
@@ -52,13 +53,18 @@ vi.mock("@/services/agent/agent-shared", () => ({
   sendOnChannel: (...args: unknown[]) => mocks.send(...args),
 }));
 
-vi.mock("@/services/agent/agent-suppress", () => ({
-  leaksPriceOrCommitment: (text: string) => mocks.leak(text),
-  OPT_OUT_LINE: "STOP",
-}));
+vi.mock("@/services/agent/agent-suppress", async () => {
+  const actual = await vi.importActual<typeof import("@/services/agent/agent-suppress")>(
+    "@/services/agent/agent-suppress"
+  );
+  return {
+    ...actual,
+    leaksPriceOrCommitment: (text: string) => mocks.leak(text),
+  };
+});
 
 vi.mock("@/services/agent/agent-config", () => ({
-  isOptOutLineEnabled: async () => false,
+  isOptOutLineEnabled: () => mocks.optOut(),
 }));
 
 vi.mock("@/services/inbox-whatsapp", () => {
@@ -108,7 +114,9 @@ function reset() {
   mocks.gate.mockReset();
   mocks.send.mockReset();
   mocks.leak.mockReset();
+  mocks.optOut.mockReset();
   mocks.leak.mockReturnValue(false);
+  mocks.optOut.mockResolvedValue(false);
   mocks.send.mockResolvedValue(undefined);
 }
 
@@ -266,5 +274,108 @@ describe("entwurfFreigebenUndSenden human approval", () => {
       humanApproved: true,
     });
     expect(session).toMatchObject({ ok: false, fehler: "session_expired" });
+  });
+});
+
+describe("entwurfFreigebenUndSenden opt-out footer", () => {
+  const SIE_TEXT = "Guten Tag, wir erstellen Ihnen das Angebot, sobald die Fotos da sind.";
+  const DU_TEXT = "Hallo, kannst du uns noch die Fotos schicken?";
+  const OFFEN = "Guten Tag, kurze Nachfrage zum Umzug.";
+
+  function freigabe(draft: typeof DRAFT) {
+    mocks.updateReturns = [[draft], [], []];
+    mocks.gate.mockResolvedValue({ allowed: true, reasons: [], context: {} });
+    mocks.optOut.mockResolvedValue(true);
+  }
+
+  it("hängt bei einer Sie-Nachricht die Sie-Zeile an", async () => {
+    freigabe({ ...DRAFT, messageClass: "followup", draftText: SIE_TEXT });
+    mocks.selects = [CONV, [{ register: null }], [{ agentState: null }], [{ status: "approved" }]];
+
+    const result = await entwurfFreigebenUndSenden({
+      workspaceId: "ws",
+      userId: "user-1",
+      draftId: "draft-1",
+      humanApproved: true,
+      overrideConsent: true,
+    });
+
+    expect(result.ok).toBe(true);
+    const text = mocks.send.mock.calls[0]?.[1] as string;
+    expect(text).toContain("Wenn Sie keine Nachrichten mehr von uns wünschen, antworten Sie einfach mit STOP.");
+    expect(text).not.toContain("Wenn du keine Nachrichten mehr");
+  });
+
+  it("hängt bei einer Du-Nachricht die Du-Zeile an", async () => {
+    freigabe({ ...DRAFT, messageClass: "first_contact", draftText: DU_TEXT });
+    mocks.selects = [CONV, [{ register: "sie" }], [{ agentState: { register: "sie" } }], [{ status: "approved" }]];
+
+    await entwurfFreigebenUndSenden({
+      workspaceId: "ws",
+      userId: "user-1",
+      draftId: "draft-1",
+      humanApproved: true,
+    });
+
+    const text = mocks.send.mock.calls[0]?.[1] as string;
+    expect(text).toContain("Wenn du keine Nachrichten mehr von uns willst, antworte einfach mit STOP.");
+  });
+
+  it("nimmt die gespeicherte Anrede, wenn der Text keine Pronomen hat", async () => {
+    freigabe({ ...DRAFT, messageClass: "followup", draftText: OFFEN });
+    mocks.selects = [CONV, [{ register: "du" }], [{ agentState: null }], [{ status: "approved" }]];
+
+    await entwurfFreigebenUndSenden({
+      workspaceId: "ws",
+      userId: "user-1",
+      draftId: "draft-1",
+      humanApproved: true,
+      overrideConsent: true,
+    });
+
+    const text = mocks.send.mock.calls[0]?.[1] as string;
+    expect(text).toContain("Wenn du keine Nachrichten mehr von uns willst");
+  });
+
+  it("hängt die Zeile nicht doppelt an und nicht an Antworten", async () => {
+    const schon = `${SIE_TEXT}\n\nPS: Wenn Sie keine Nachrichten mehr von uns wünschen, antworten Sie einfach mit STOP.`;
+    freigabe({ ...DRAFT, messageClass: "followup", draftText: schon });
+    mocks.selects = [CONV, [{ register: null }], [{ agentState: null }], [{ status: "approved" }]];
+
+    await entwurfFreigebenUndSenden({
+      workspaceId: "ws",
+      userId: "user-1",
+      draftId: "draft-1",
+      humanApproved: true,
+      overrideConsent: true,
+    });
+    expect(mocks.send.mock.calls[0]?.[1]).toBe(schon);
+
+    reset();
+    freigabe({ ...DRAFT, messageClass: "reply", draftText: SIE_TEXT });
+    mocks.selects = [CONV, [{ status: "approved" }]];
+    await entwurfFreigebenUndSenden({
+      workspaceId: "ws",
+      userId: "user-1",
+      draftId: "draft-1",
+      humanApproved: true,
+    });
+    expect(mocks.send.mock.calls[0]?.[1]).toBe(SIE_TEXT);
+  });
+
+  it("hängt ohne eingeschaltete Opt-out-Zeile nichts an", async () => {
+    mocks.updateReturns = [[{ ...DRAFT, messageClass: "followup", draftText: SIE_TEXT }], [], []];
+    mocks.selects = [CONV, [{ status: "approved" }]];
+    mocks.gate.mockResolvedValue({ allowed: true, reasons: [], context: {} });
+    mocks.optOut.mockResolvedValue(false);
+
+    await entwurfFreigebenUndSenden({
+      workspaceId: "ws",
+      userId: "user-1",
+      draftId: "draft-1",
+      humanApproved: true,
+      overrideConsent: true,
+    });
+    expect(mocks.send.mock.calls[0]?.[1]).toBe(SIE_TEXT);
   });
 });
