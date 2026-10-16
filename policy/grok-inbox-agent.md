@@ -71,3 +71,24 @@ Chatbot — und du sendest NIEMALS selbst.
 
 Kein Repo-Zugriff? Stopp und an Dario melden — NICHT mit halbem oder
 auswendig erinnertem Regelwerk arbeiten.
+
+## Freigabe (nicht dieser Bot)
+
+Dieser Bot ruft weder `approve_and_send` noch `dismiss` auf. Ein Mensch gibt
+frei über `crm_update_agent_draft` bzw. `PATCH /api/v1/agent-drafts/{id}`:
+
+- `approve_and_send` mit `humanApproved: true` (optional `approvedBy` und
+  `note`, gespeichert am Entwurf und im Audit-Log) hebt nur die
+  Auto-Send-Gates `human_owned` und `ai_paused` auf. `price_leak`, Ablauf,
+  `not_pending` und Session-/Sendefehler bleiben blockierend.
+  `no_proactive_consent` bleibt blockierend, außer `overrideConsent: true`
+  steht zusätzlich — das wird protokolliert und wirkt nur zusammen mit
+  `humanApproved`. Die Freigabe setzt `ai_paused` und `human_owned` nicht
+  auf false zurück.
+- `dismiss` oder `mark_taken` (Alias `mark_sent_manually`) schließt einen
+  pending Entwurf ohne Versand. Idempotent: ein schon geschlossener Entwurf
+  liefert `updated: true`.
+- Ein manueller Versand über `POST /api/v1/inbox/conversations/{id}/messages`
+  oder `POST /api/v1/inbox/whatsapp/send-baileys` schließt offene pending
+  Entwürfe derselben Konversation oder desselben Deals als `superseded`.
+  Danach kein `approve_and_send` mehr auf denselben Entwurf.

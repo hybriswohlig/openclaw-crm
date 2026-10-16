@@ -13,6 +13,7 @@ import {
   BaileysBridgeError,
 } from "@/services/inbox-whatsapp";
 import { setHumanOwned } from "@/services/agent/agent-gate";
+import { supersedePendingDrafts } from "@/services/agent/draft-schliessen";
 
 export async function GET(
   req: NextRequest,
@@ -121,6 +122,24 @@ export async function POST(
           eq(inboxConversations.workspaceId, ctx.workspaceId)
         )
       );
+
+    // The human just wrote the reply. Retire pending drafts on this thread
+    // and this deal so a later approve_and_send cannot double-send. Match
+    // either id: a draft may be linked to the conversation, the deal, or both.
+    try {
+      await supersedePendingDrafts({
+        workspaceId: ctx.workspaceId,
+        conversationId: id,
+        dealRecordId: row.dealRecordId,
+        userId: ctx.userId,
+        supersededBy: "manual_send",
+      });
+    } catch (draftErr) {
+      console.error(
+        "[inbox] supersede drafts after manual send failed (non-fatal):",
+        draftErr
+      );
+    }
 
     // Sticky human ownership (deal-level, docs/ai-sales-agent-plan.md): a
     // manual composer send is a human takeover of the DEAL — mute the agent

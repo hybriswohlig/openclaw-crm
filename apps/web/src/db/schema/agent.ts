@@ -225,7 +225,9 @@ export const agentDrafts = pgTable(
     gateResults: jsonb("gate_results"),
     // 'pending' | 'approved' | 'edited' | 'dismissed' | 'auto_queued'
     // | 'auto_sent' | 'sent' | 'send_uncertain' | 'expired' | 'cancelled'
-    // | 'gate_blocked' — 'send_uncertain' is terminal: the outbound call was
+    // | 'superseded' | 'gate_blocked' — 'superseded' means a human already
+    // replied (or marked the draft taken) so approve_and_send must not send
+    // it. 'send_uncertain' is terminal: the outbound call was
     // dispatched but delivery could not be confirmed; only an explicit
     // operator dismiss (after checking the thread) clears it. Never re-send.
     status: text("status").notNull().default("pending"),

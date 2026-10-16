@@ -3,7 +3,7 @@
  * (api/v1/agent-drafts/[id]) und die Freigabe per WhatsApp (services/intern/
  * freigabe.ts). Liefert ein Ergebnis statt einer HTTP-Antwort.
  */
-import { and, eq, gt, isNull, lt, or } from "drizzle-orm";
+import { and, eq, gt, isNull, lt, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { agentDrafts, agentEvents, dealAgentState } from "@/db/schema/agent";
 import { inboxConversations, inboxContacts, channelAccounts } from "@/db/schema/inbox";
@@ -12,6 +12,13 @@ import { sendOnChannel, type AgentChannelRow } from "@/services/agent/agent-shar
 import { leaksPriceOrCommitment, OPT_OUT_LINE } from "@/services/agent/agent-suppress";
 import { isOptOutLineEnabled } from "@/services/agent/agent-config";
 import { ohnePreisPhrase } from "@/services/agent/preis-entwurf";
+import {
+  gateReasonsBlockingSend,
+  humanApprovalRecord,
+  optionalText,
+  outboundStateTouch,
+  type HumanApprovalRecord,
+} from "@/services/agent/draft-freigabe";
 import {
   WhatsAppSessionExpiredError,
   BaileysBridgeNotConfiguredError,
@@ -97,10 +104,31 @@ export async function entwurfFreigebenUndSenden(input: {
   ueberstimmbar?: ReadonlySet<string>;
   /** Wer freigegeben hat (z. B. "Dario per WhatsApp"), für das Protokoll */
   freigegebenVon?: string | null;
+  /**
+   * Ein Mensch hat diesen einen Versand ausdrücklich freigegeben.
+   * Hebt nur human_owned und ai_paused auf. Setzt diese Flags nicht zurück.
+   */
+  humanApproved?: boolean;
+  approvedBy?: string | null;
+  note?: string | null;
+  /**
+   * Hebt no_proactive_consent auf. Wirkt nur zusammen mit humanApproved
+   * und wird im Entwurf und im Audit-Log festgehalten.
+   */
+  overrideConsent?: boolean;
 }): Promise<FreigabeErgebnis> {
   const { workspaceId, userId, draftId: id } = input;
   const body = { finalText: input.finalText };
   const ueberstimmbar = input.ueberstimmbar ?? STANDARD_UEBERSTIMMBAR;
+  const humanApproved = input.humanApproved === true;
+  const overrideConsent = humanApproved && input.overrideConsent === true;
+  const approval: HumanApprovalRecord | null = humanApproved
+    ? humanApprovalRecord({
+        approvedBy: optionalText(input.approvedBy) ?? optionalText(input.freigegebenVon),
+        note: input.note,
+        overrideConsent,
+      })
+    : null;
   // a) CLAIM: pending → approved, exactly once — and only while unexpired.
   const [draft] = await db
     .update(agentDrafts)
@@ -109,6 +137,11 @@ export async function entwurfFreigebenUndSenden(input: {
       reviewerUserId: userId,
       reviewedAt: new Date(),
       updatedAt: new Date(),
+      ...(approval
+        ? {
+            filterVerdicts: sql`coalesce(${agentDrafts.filterVerdicts}, '{}'::jsonb) || ${JSON.stringify({ humanApproval: approval })}::jsonb`,
+          }
+        : {}),
     })
     .where(
       and(
@@ -139,6 +172,36 @@ export async function entwurfFreigebenUndSenden(input: {
     return { ok: false, fehler: "not_pending" };
   }
 
+  // Die Freigabe am Entwurf festhalten, auch wenn RETURNING den JSON-Merge
+  // noch nicht widerspiegelt: ein späteres Zurück auf pending darf sie nicht
+  // verlieren. Sie hebt beim nächsten Versuch nichts von allein auf.
+  if (approval) {
+    const prev = (draft.filterVerdicts ?? {}) as Record<string, unknown>;
+    draft.filterVerdicts = { ...prev, humanApproval: approval };
+    // Audit-Log der Freigabe, unabhängig davon, ob der Versand danach blockt.
+    try {
+      await db
+        .insert(agentEvents)
+        .values({
+          workspaceId,
+          dealRecordId: draft.dealRecordId,
+          conversationId: draft.conversationId,
+          engine: "send_worker",
+          eventType: "human_approved",
+          payload: {
+            draftId: id,
+            approvedBy: approval.approvedBy,
+            note: approval.note,
+            overrideConsent: approval.overrideConsent,
+          },
+          idempotencyKey: `human-approved:${id}:${approval.at}`,
+        })
+        .onConflictDoNothing();
+    } catch (err) {
+      console.error("[agent-drafts] human approval audit insert failed (non-blocking):", id, err);
+    }
+  }
+
   // Steps b–e run in one guard: any unexpected throw here happened BEFORE any
   // network dispatch, so reverting to 'pending' is provably safe — and without
   // the guard a transient DB error would strand the draft in 'approved'.
@@ -154,6 +217,7 @@ export async function entwurfFreigebenUndSenden(input: {
   let conv: ConvRow | undefined;
   let verdict: Awaited<ReturnType<typeof agentMayContact>>;
   let text: string;
+  let consentOverridden = false;
   const gateClass = toGateClass(draft.messageClass);
   try {
     // b) Resolve the draft's conversation, channel account and contact — the
@@ -188,8 +252,11 @@ export async function entwurfFreigebenUndSenden(input: {
       return { ok: false, fehler: "no_conversation" };
     }
 
-    // c) Deterministic gate AT SEND TIME. A human approval overrides only the
-    //    autonomy master switch — every other reason still blocks.
+    // c) Deterministic gate AT SEND TIME. A recorded human approval lifts only
+    //    human_owned and ai_paused (auto-send gates). no_proactive_consent stays
+    //    unless overrideConsent was set together with that approval. Price,
+    //    expiry, and every other reason still block. The approval does not
+    //    clear ai_paused or human_owned on the thread.
     verdict = await agentMayContact({
       workspaceId,
       dealRecordId: draft.dealRecordId,
@@ -199,7 +266,14 @@ export async function entwurfFreigebenUndSenden(input: {
       phone: conv.contactPhone,
       email: conv.contactEmail,
     });
-    const blockingReasons = verdict.reasons.filter((r) => !ueberstimmbar.has(r));
+    const gated = gateReasonsBlockingSend({
+      reasons: verdict.reasons,
+      overridable: ueberstimmbar,
+      humanApproved,
+      overrideConsent,
+    });
+    consentOverridden = gated.consentOverridden;
+    const blockingReasons = gated.blocking;
     if (blockingReasons.length > 0) {
       await revertToPending(id, { gateResults: verdict });
       return { ok: false, fehler: "gate_blocked", reasons: blockingReasons };
@@ -290,17 +364,30 @@ export async function entwurfFreigebenUndSenden(input: {
         engine: "send_worker",
         eventType: "sent",
         gateResults: verdict,
-        payload: { draftId: id, messageClass: draft.messageClass, freigegebenVon: input.freigegebenVon ?? null },
+        payload: {
+          draftId: id,
+          messageClass: draft.messageClass,
+          freigegebenVon: input.freigegebenVon ?? approval?.approvedBy ?? null,
+          humanApproved,
+          approvedBy: approval?.approvedBy ?? null,
+          note: approval?.note ?? null,
+          // Protokoll: nur wahr, wenn humanApproved und overrideConsent zusammen kamen.
+          overrideConsent: approval?.overrideConsent === true,
+          consentOverridden,
+        },
         idempotencyKey: `sent:${id}`,
       })
       .onConflictDoNothing();
     const now = new Date();
+    // Nur den Sendezeitpunkt schreiben. humanOwned und aiPaused bleiben, wie
+    // sie sind — eine menschliche Freigabe gibt die Konversation nicht an die
+    // KI zurück.
     await db
       .insert(dealAgentState)
       .values({ dealRecordId: draft.dealRecordId, workspaceId, lastOutboundAt: now })
       .onConflictDoUpdate({
         target: dealAgentState.dealRecordId,
-        set: { lastOutboundAt: now, updatedAt: now },
+        set: outboundStateTouch(now),
       });
   } catch (err) {
     console.error("[agent-drafts] post-send bookkeeping failed (message WAS sent):", id, err);

@@ -818,7 +818,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "crm_create_agent_draft",
     description:
-      "Create a PENDING agent draft for human approval (never sends). Pass conversationId for replies; dealRecordId suffices for first_contact. One live pending draft per (deal, messageClass) — a 409 'draft_exists' returns the existingDraftId. Drafts expire after 72h. source: 'grok-bot' (hosted) or 'grok-vps'.",
+      "Create a PENDING agent draft for human approval (never sends). Pass conversationId for replies; dealRecordId suffices for first_contact. One live pending draft per (deal, messageClass) — a 409 'draft_exists' returns the existingDraftId. Drafts expire after 72h. source: 'grok-bot' (hosted) or 'grok-vps'. To approve, dismiss, or mark a draft taken, use crm_update_agent_draft.",
     inputSchema: {
       type: "object",
       properties: {
@@ -837,6 +837,34 @@ export const TOOLS: ToolDef[] = [
         expiresInHours: { type: "number" },
       },
       required: ["messageClass", "draftText"],
+    },
+  },
+  {
+    name: "crm_update_agent_draft",
+    description:
+      "Update one AI agent draft. draftId is required. action approve_and_send claims a pending draft, re-checks the send-time gate and the price filter, then sends. Pass humanApproved true when a human explicitly approved (optional approvedBy and note are stored on the draft and in the audit log). humanApproved lifts only the auto-send gates human_owned and ai_paused; it does not clear ai_paused or human_owned on the conversation or deal. price_leak, expired, not_pending, and session or send errors still block. no_proactive_consent stays blocking unless overrideConsent true is also set together with humanApproved; that consent override is stored and logged, and overrideConsent alone does nothing. action dismiss closes a pending draft, or a send_uncertain one, without sending. action mark_taken and mark_sent_manually close a pending draft as superseded without sending (use after a human already replied). dismiss and mark_taken are idempotent: an already closed draft returns updated true.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        draftId: { type: "string" },
+        action: {
+          type: "string",
+          enum: [
+            "approve_and_send",
+            "dismiss",
+            "dismissed",
+            "mark_taken",
+            "mark_sent_manually",
+            "taken",
+          ],
+        },
+        finalText: { type: "string" },
+        humanApproved: { type: "boolean" },
+        approvedBy: { type: "string" },
+        note: { type: "string" },
+        overrideConsent: { type: "boolean" },
+      },
+      required: ["draftId", "action"],
     },
   },
 
