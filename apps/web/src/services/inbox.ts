@@ -20,7 +20,7 @@ import {
 import { createRecord, updateRecord } from "./records";
 import { extractDealInsights } from "./deal-insights";
 import { applyDealInsights } from "./deal-insights-apply";
-import { excludeInternalPhotoMessages } from "./deal-photos";
+import { excludeInternalPhotoMessages, findDealInternalPhoto, listDealInternalPhotos } from "./deal-photos";
 import { isInternalPhotoCarrier } from "@/lib/deal-photo-upload";
 
 // ─── Channel account management ───────────────────────────────────────────────
@@ -485,11 +485,27 @@ export async function getAttachmentsForDeal(
     )
     .orderBy(desc(inboxMessageAttachments.createdAt));
 
-  return rows.map(({ externalMessageId, ...row }) => ({
-    ...row,
-    // Agent JSON uploads stay on the deal and are not shown in the customer portal.
-    customerVisible: !isInternalPhotoCarrier(externalMessageId),
-  }));
+  const internal = await listDealInternalPhotos(workspaceId, dealRecordId);
+
+  const mapped = [
+    ...rows.map(({ externalMessageId, ...row }) => ({
+      ...row,
+      // Agent JSON uploads stay on the deal and are not shown in the customer portal.
+      customerVisible: !isInternalPhotoCarrier(externalMessageId),
+    })),
+    ...internal.map((row) => ({
+      id: row.id,
+      fileName: row.fileName,
+      mimeType: row.mimeType,
+      fileSize: row.fileSize,
+      createdAt: row.createdAt,
+      conversationId: "",
+      messageId: "",
+      customerVisible: false as const,
+    })),
+  ];
+  mapped.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  return mapped;
 }
 
 /**
@@ -532,7 +548,22 @@ export async function getAttachmentWithContent(
     )
     .limit(1);
 
-  return row ?? null;
+  if (row) return row;
+
+  const internal = await findDealInternalPhoto(workspaceId, attachmentId, opts);
+  if (!internal) return null;
+  return {
+    id: internal.id,
+    fileName: internal.fileName,
+    mimeType: internal.mimeType,
+    fileSize: internal.fileSize,
+    fileContent: internal.fileContent,
+    transcript: null,
+    createdAt: internal.createdAt,
+    conversationId: "",
+    messageId: "",
+    dealRecordId: internal.dealRecordId,
+  };
 }
 
 export async function markConversationRead(conversationId: string, workspaceId: string) {

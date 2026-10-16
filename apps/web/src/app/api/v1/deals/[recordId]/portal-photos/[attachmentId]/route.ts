@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { getAuthContext, unauthorized, notFound } from "@/lib/api-utils";
 import { db } from "@/db";
 import { inboxMessageAttachments, inboxMessages } from "@/db/schema/inbox";
-import { dealSurfacePhotoMessageMatch } from "@/services/deal-photos";
+import { dealSurfacePhotoMessageMatch, findDealInternalPhoto } from "@/services/deal-photos";
 import { and, eq, like } from "drizzle-orm";
 
 /**
@@ -36,14 +36,18 @@ export async function GET(
       )
     )
     .limit(1);
-  if (!att) return notFound();
+  const internal = att
+    ? null
+    : await findDealInternalPhoto(ctx.workspaceId, attachmentId, { dealRecordId: recordId });
+  const photo = att ?? internal;
+  if (!photo) return notFound();
 
-  const bytes = Buffer.from(att.fileContent, "base64");
+  const bytes = Buffer.from(photo.fileContent, "base64");
   return new Response(bytes, {
     status: 200,
     headers: {
-      "Content-Type": att.mimeType,
-      "Content-Disposition": `inline; filename="${att.fileName.replace(/[\\"]/g, "_")}"`,
+      "Content-Type": photo.mimeType,
+      "Content-Disposition": `inline; filename="${photo.fileName.replace(/[\\"]/g, "_")}"`,
       "Cache-Control": "private, max-age=3600",
     },
   });

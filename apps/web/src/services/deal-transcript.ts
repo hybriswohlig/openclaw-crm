@@ -21,7 +21,7 @@ import {
 import { recordValues } from "@/db/schema/records";
 import { attributes } from "@/db/schema/objects";
 import { parseKleinanzeigenBody, isKleinanzeigenEmail } from "./inbox-kleinanzeigen";
-import { excludeInternalPhotoMessages } from "./deal-photos";
+import { excludeInternalPhotoMessages, listDealInternalPhotoFiles } from "./deal-photos";
 
 export interface TranscriptMessage {
   id: string;
@@ -266,19 +266,38 @@ export async function getDealImageAttachments(
       mimeType: inboxMessageAttachments.mimeType,
       fileSize: inboxMessageAttachments.fileSize,
       fileContent: inboxMessageAttachments.fileContent,
+      createdAt: inboxMessageAttachments.createdAt,
     })
     .from(inboxMessageAttachments)
     .where(and(eq(inboxMessageAttachments.workspaceId, workspaceId), scope))
     .orderBy(desc(inboxMessageAttachments.createdAt));
 
+  const internal = await listDealInternalPhotoFiles(workspaceId, dealRecordId);
+  const ranked = [
+    ...rows.map((r) => ({
+      fileName: r.fileName,
+      mimeType: r.mimeType,
+      fileSize: r.fileSize,
+      contentB64: r.fileContent,
+      createdAt: r.createdAt,
+    })),
+    ...internal.map((r) => ({
+      fileName: r.fileName,
+      mimeType: r.mimeType,
+      fileSize: r.fileSize,
+      contentB64: r.fileContent,
+      createdAt: r.createdAt,
+    })),
+  ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
   const out: DealImageAttachment[] = [];
   let total = 0;
-  for (const r of rows) {
+  for (const r of ranked) {
     if (!r.mimeType.startsWith("image/")) continue;
     if (out.length >= MAX_IMAGE_ATTACHMENTS) break;
     if (total + r.fileSize > MAX_TOTAL_IMAGE_BYTES) continue;
     total += r.fileSize;
-    out.push({ fileName: r.fileName, mimeType: r.mimeType, contentB64: r.fileContent });
+    out.push({ fileName: r.fileName, mimeType: r.mimeType, contentB64: r.contentB64 });
   }
   return out;
 }
