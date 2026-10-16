@@ -588,6 +588,22 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   );
   tool(
     server,
+    "crm_upload_deal_photo",
+    "Upload one image onto a deal without sending it to the customer. Posts JSON to POST /api/v1/deals/{dealId}/photos with filename, contentType and dataBase64. contentType must be image/jpeg, image/png, image/webp, image/gif, image/heic or image/heif (image/jpg is accepted as jpeg); the decoded bytes must match that image type, and a non-image is rejected and not stored. dataBase64 is standard base64; a data-URL prefix is stripped. Decoded size must be at most 3 MB (3145728 bytes) so the base64 body stays under Vercel's ~4.5 MB request limit; above that the call errors and stores nothing. The photo is stored in the same inbox-attachment table as existing deal and portal photos and appears on the deal (Medien tab and the deal photo step) marked internal and customerVisible false. It is not a portal upload, so it does not appear in the customer status portal under Ihre Fotos, and the public attachment URL does not serve it. A SHA-256 match of an image already on the deal is skipped and nothing new is stored. This tool sends no WhatsApp, no email and no customer-facing inbox message, and the stored row does not count as a reply.",
+    {
+      dealId: z.string().describe("Deal record UUID"),
+      filename: z.string().describe("Stored file name, e.g. kuche.jpg"),
+      contentType: z
+        .string()
+        .describe("Image mime type: image/jpeg, image/png, image/webp, image/gif, image/heic or image/heif"),
+      dataBase64: z
+        .string()
+        .describe("Standard base64 of the image. A data-URL prefix is stripped."),
+    },
+    req
+  );
+  tool(
+    server,
     "crm_store_document_job",
     "Attach a finished render job's PDF to a deal as a document. Sends only jobId + recordId — the server pulls the PDF from the render VPS and writes it in-process (do not upload PDF bytes). Application cap 10 MB; larger jobs stay on the VPS download URL. documentType is deduced from the filename (KV- → quotation, AB- → order_confirmation, RE- → invoice, AW- → worker_instructions) when omitted. Storing an order_confirmation or invoice notifies the customer portal. Kostenvoranschlag stores as quotation and does not unlock portal Stage 2.",
     {

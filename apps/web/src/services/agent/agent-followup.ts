@@ -19,6 +19,7 @@ import { z } from "zod";
 import { runAITask } from "@/services/ai/run-task";
 import { AI_TASK_SLUGS } from "@/services/ai/task-registry";
 import { emitEvent } from "@/services/activity-events";
+import { excludeInternalPhotoMessages } from "@/services/deal-photos";
 import { sendPush } from "@/services/push";
 import { getObjectBySlug } from "@/services/objects";
 import { getRecord } from "@/services/records";
@@ -121,7 +122,9 @@ async function trailingOutboundCount(conversationId: string): Promise<{
       createdAt: inboxMessages.createdAt,
     })
     .from(inboxMessages)
-    .where(eq(inboxMessages.conversationId, conversationId))
+    .where(
+      and(eq(inboxMessages.conversationId, conversationId), excludeInternalPhotoMessages())
+    )
     // Neueste zuerst holen und wieder drehen: aufsteigend mit Limit lieferte
     // bei langen Chats die ältesten statt der neuesten Nachrichten.
     .orderBy(desc(inboxMessages.sentAt), desc(inboxMessages.createdAt))

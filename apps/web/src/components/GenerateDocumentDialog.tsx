@@ -258,10 +258,10 @@ export function GenerateDocumentDialog({
         const res = await fetch(`/api/v1/deals/${deal.dealRecordId}/attachments`);
         if (res.ok) {
           const json = (await res.json()) as {
-            data?: { id: string; mimeType: string }[];
+            data?: { id: string; mimeType: string; customerVisible?: boolean }[];
           };
           imageIds = (json.data ?? [])
-            .filter((a) => a.mimeType.startsWith("image/"))
+            .filter((a) => a.mimeType.startsWith("image/") && a.customerVisible !== false)
             .map((a) => a.id);
         }
       } catch {

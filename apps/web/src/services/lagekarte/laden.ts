@@ -28,6 +28,7 @@ import {
 import { attributes, objects, statuses } from "@/db/schema/objects";
 import { quotationLineItems, quotations } from "@/db/schema/quotations";
 import { records, recordValues } from "@/db/schema/records";
+import { excludeInternalPhotoMessages } from "@/services/deal-photos";
 import type { StufeOption } from "@/lib/lagekarte/typen";
 import { ANTWORT_STATUS } from "./wartet";
 
@@ -414,6 +415,7 @@ export function threadAggregatAbfrage(workspaceId: string, dealIds: SQLWrapper) 
         eq(inboxMessages.workspaceId, workspaceId),
         eq(inboxConversations.workspaceId, workspaceId),
         inArray(inboxConversations.dealRecordId, dealIds),
+        excludeInternalPhotoMessages(),
       ),
     )
     .as("n");
@@ -512,7 +514,13 @@ export async function ladeChatRoh(workspaceId: string, conversationId: string): 
       })
       .from(inboxMessages)
       .leftJoin(anhaenge, eq(anhaenge.messageId, inboxMessages.id))
-      .where(and(eq(inboxMessages.conversationId, conversationId), eq(inboxMessages.workspaceId, workspaceId)))
+      .where(
+        and(
+          eq(inboxMessages.conversationId, conversationId),
+          eq(inboxMessages.workspaceId, workspaceId),
+          excludeInternalPhotoMessages(),
+        ),
+      )
       .orderBy(desc(sql`coalesce(${inboxMessages.sentAt}, ${inboxMessages.createdAt})`), desc(inboxMessages.id))
       .limit(CHAT_LIMIT + 1),
   ]);

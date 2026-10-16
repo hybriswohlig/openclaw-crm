@@ -40,6 +40,7 @@ import { workspaceMembers } from "@/db/schema/workspace";
 import { objects, attributes, selectOptions } from "@/db/schema/objects";
 import { records, recordValues } from "@/db/schema/records";
 import { inboxMessageAttachments, inboxMessages } from "@/db/schema/inbox";
+import { isInternalPhotoCarrier } from "@/lib/deal-photo-upload";
 import { dealInventoryItems } from "@/db/schema/inventory";
 import {
   buildGirocodePayload,
@@ -984,8 +985,10 @@ export async function getScopedAttachment(
       mimeType: inboxMessageAttachments.mimeType,
       fileName: inboxMessageAttachments.fileName,
       fileContent: inboxMessageAttachments.fileContent,
+      externalMessageId: inboxMessages.externalMessageId,
     })
     .from(inboxMessageAttachments)
+    .innerJoin(inboxMessages, eq(inboxMessages.id, inboxMessageAttachments.messageId))
     .where(
       and(
         eq(inboxMessageAttachments.id, attachmentId),
@@ -993,8 +996,11 @@ export async function getScopedAttachment(
       )
     )
     .limit(1);
+  // Agent uploads are internal. The public URL must not serve them even if
+  // the attachment id is known.
+  if (!att || isInternalPhotoCarrier(att.externalMessageId)) return null;
 
-  return att ?? null;
+  return { mimeType: att.mimeType, fileName: att.fileName, fileContent: att.fileContent };
 }
 
 // ─── Helpers (kept internal — never imported outside this file) ────────────────
@@ -1503,6 +1509,7 @@ async function loadAttachments(
       body: inboxMessages.body,
       sentAt: inboxMessages.sentAt,
       createdAt: inboxMessages.createdAt,
+      externalMessageId: inboxMessages.externalMessageId,
     })
     .from(inboxMessages)
     .where(inArray(inboxMessages.id, messageIds));
@@ -1516,6 +1523,8 @@ async function loadAttachments(
     const m = byMsg.get(r.messageId);
     if (!m) continue;
     if (m.direction !== "outbound") continue;
+    // internal-photo:* is an agent upload stored on the deal, not move-day media.
+    if (isInternalPhotoCarrier(m.externalMessageId)) continue;
     const ts = m.sentAt ?? m.createdAt ?? r.createdAt;
     if (moveStart && ts && ts < moveStart) continue;
     out.push({
@@ -1539,6 +1548,9 @@ async function loadAttachments(
  * Includes:
  *   - every inbound image linked to the deal (customer-sent), and
  *   - operator portal uploads (outbound messages tagged portal-upload:*)
+ *
+ * Agent JSON uploads (internal-photo:*) are internal and must stay out of
+ * this list. Do not widen the filter to every image on the deal.
  *
  * AI-selection events (`deal.portal_photos_curated`) no longer filter this
  * list — selection is only for the KI-Zusammenfassung in the wizard.

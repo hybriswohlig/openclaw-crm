@@ -4,6 +4,10 @@ import {
   jsonUploadDecodedBytes,
   oversizedJsonDealDocumentError,
 } from "../lib/deal-document-upload.js";
+import {
+  jsonUploadDecodedBytes as photoDecodedBytes,
+  oversizedJsonDealPhotoError,
+} from "../lib/deal-photo-upload.js";
 
 type Args = Record<string, unknown>;
 
@@ -395,6 +399,22 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
             mimeType: mimeType || "application/pdf",
             contentBase64,
             notifyCustomer: bool(args.notifyCustomer) === true,
+          },
+        }
+      );
+    }
+    case "crm_upload_deal_photo": {
+      const dataBase64 = str(args.dataBase64);
+      const tooBig = oversizedJsonDealPhotoError(photoDecodedBytes(dataBase64));
+      if (tooBig) throw new Error(tooBig);
+      return client.request(
+        `/api/v1/deals/${encodeURIComponent(str(args.dealId))}/photos`,
+        {
+          method: "POST",
+          body: {
+            filename: str(args.filename),
+            contentType: str(args.contentType),
+            dataBase64,
           },
         }
       );

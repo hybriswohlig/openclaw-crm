@@ -2,11 +2,12 @@ import { NextRequest } from "next/server";
 import { getAuthContext, unauthorized, notFound } from "@/lib/api-utils";
 import { db } from "@/db";
 import { inboxMessageAttachments, inboxMessages } from "@/db/schema/inbox";
-import { and, eq, like, or } from "drizzle-orm";
+import { dealSurfacePhotoMessageMatch } from "@/services/deal-photos";
+import { and, eq, like } from "drizzle-orm";
 
 /**
  * Streams one portal photo of the deal for the curation UI.
- * Allows inbound customer images and operator portal-uploads.
+ * Allows inbound customer images, operator portal-uploads, and internal agent photos.
  */
 export async function GET(
   req: NextRequest,
@@ -31,10 +32,7 @@ export async function GET(
         eq(inboxMessageAttachments.workspaceId, ctx.workspaceId),
         eq(inboxMessageAttachments.dealRecordId, recordId),
         like(inboxMessageAttachments.mimeType, "image/%"),
-        or(
-          eq(inboxMessages.direction, "inbound"),
-          like(inboxMessages.externalMessageId, "portal-upload:%")
-        )
+        dealSurfacePhotoMessageMatch()
       )
     )
     .limit(1);

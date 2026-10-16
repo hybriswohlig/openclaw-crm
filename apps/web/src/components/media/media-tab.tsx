@@ -13,6 +13,8 @@ interface DealAttachment {
   createdAt: string;
   conversationId: string;
   messageId: string;
+  /** false for agent uploads that stay off the customer portal. */
+  customerVisible?: boolean;
 }
 
 function formatFileSize(bytes: number): string {
@@ -108,6 +110,11 @@ export function MediaTab({ recordId }: { recordId: string }) {
                   className="h-full w-full object-cover transition-transform group-hover:scale-105"
                   loading="lazy"
                 />
+                {img.customerVisible === false && (
+                  <span className="absolute left-1 top-1 rounded bg-background/90 px-1 py-0.5 text-[9px] font-medium text-muted-foreground">
+                    nicht im Portal
+                  </span>
+                )}
                 <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent p-2 opacity-0 group-hover:opacity-100 transition-opacity">
                   <p className="text-[10px] text-white truncate">
                     {formatDate(img.createdAt)}
