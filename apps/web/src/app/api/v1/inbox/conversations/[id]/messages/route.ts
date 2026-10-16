@@ -11,9 +11,17 @@ import {
   WhatsAppSessionExpiredError,
   BaileysBridgeNotConfiguredError,
   BaileysBridgeError,
+  BaileysMediaTooLargeError,
 } from "@/services/inbox-whatsapp";
+import { sendConversationDocuments } from "@/services/baileys-document-send";
+import {
+  WhatsAppDocumentInputError,
+  parseWhatsAppSendPayload,
+} from "@/services/whatsapp-document";
 import { setHumanOwned } from "@/services/agent/agent-gate";
 import { supersedePendingDrafts } from "@/services/agent/draft-schliessen";
+
+export const maxDuration = 60;
 
 export async function GET(
   req: NextRequest,
@@ -36,9 +44,18 @@ export async function POST(
   if (!ctx) return unauthorized();
 
   const { id } = await params;
-  const { body } = await req.json();
+  let parsed;
+  try {
+    parsed = parseWhatsAppSendPayload(await req.json());
+  } catch (err) {
+    if (err instanceof WhatsAppDocumentInputError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+  const body = parsed.body;
 
-  if (!body?.trim()) {
+  if (!body && parsed.attachments.length === 0) {
     return NextResponse.json({ error: "body is required" }, { status: 400 });
   }
 
@@ -71,9 +88,39 @@ export async function POST(
     return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
   }
 
+  if (parsed.attachments.length > 0) {
+    const baileys =
+      row.channelType === "whatsapp" &&
+      !row.waPhoneNumberId &&
+      row.baileysBridgeProvider === "inhouse";
+    if (!baileys) {
+      return NextResponse.json(
+        {
+          error: {
+            code: "BAILEYS_DOCUMENTS_ONLY",
+            message:
+              "Document attachments on this endpoint are sent only through the in-house Baileys bridge.",
+          },
+        },
+        { status: 400 }
+      );
+    }
+  }
+
   try {
     let msg;
-    if (row.channelType === "whatsapp") {
+    if (parsed.attachments.length > 0) {
+      const sent = await sendConversationDocuments({
+        conversationId: id,
+        workspaceId: ctx.workspaceId,
+        dealRecordId: row.dealRecordId,
+        body,
+        attachments: parsed.attachments,
+        bodyDelivery: parsed.bodyDelivery,
+        idempotencyKey: parsed.idempotencyKey,
+      });
+      msg = { ...sent.message, deduped: sent.deduped, messages: sent.messages };
+    } else if (row.channelType === "whatsapp") {
       if (row.waPhoneNumberId) {
         msg = await sendWhatsAppReply({
           conversationId: id,
@@ -173,6 +220,15 @@ export async function POST(
           },
         },
         { status: 503 }
+      );
+    }
+    if (err instanceof WhatsAppDocumentInputError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
+    if (err instanceof BaileysMediaTooLargeError) {
+      return NextResponse.json(
+        { error: { code: "BAILEYS_MEDIA_TOO_LARGE", message: err.message } },
+        { status: 413 }
       );
     }
     if (err instanceof BaileysBridgeError) {

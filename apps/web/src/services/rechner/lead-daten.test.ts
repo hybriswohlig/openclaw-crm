@@ -20,11 +20,30 @@ describe("ortText", () => {
 describe("inventarAusZeilen", () => {
   it("rechnet das Zeilenvolumen auf je Stück um", () => {
     expect(inventarAusZeilen([{ name: "Kleiderschrank", quantity: 2, sizeClass: "gross", volumeCbmEstimate: "3.6", moveFlag: true }]))
-      .toEqual([{ name: "Kleiderschrank", menge: 2, groessenklasse: "gross", volumenCbm: 1.8, mitnehmen: true }]);
+      .toEqual([{ name: "Kleiderschrank", menge: 2, groessenklasse: "gross", volumenCbm: 1.8, mitnehmen: true, abbau: "none", aufbau: "none" }]);
   });
   it("ohne Volumen oder Größe: null, bleibt-da wird übernommen (Filter macht die Anfrage)", () => {
     expect(inventarAusZeilen([{ name: "Küche", quantity: 1, sizeClass: null, volumeCbmEstimate: null, moveFlag: false }]))
-      .toEqual([{ name: "Küche", menge: 1, groessenklasse: null, volumenCbm: null, mitnehmen: false }]);
+      .toEqual([{ name: "Küche", menge: 1, groessenklasse: null, volumenCbm: null, mitnehmen: false, abbau: "none", aufbau: "none" }]);
+  });
+  it("übernimmt Abbau und Aufbau, Unbekanntes wird none", () => {
+    expect(inventarAusZeilen([{
+      name: "Schrank",
+      quantity: 1,
+      sizeClass: "gross",
+      volumeCbmEstimate: null,
+      moveFlag: true,
+      dismantlingOwner: "company",
+      assemblyOwner: "customer",
+    }])).toEqual([{
+      name: "Schrank",
+      menge: 1,
+      groessenklasse: "gross",
+      volumenCbm: null,
+      mitnehmen: true,
+      abbau: "company",
+      aufbau: "customer",
+    }]);
   });
 });
 

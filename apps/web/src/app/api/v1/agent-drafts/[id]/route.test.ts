@@ -110,4 +110,30 @@ describe("PATCH agent draft", () => {
     expect(mocks.send).not.toHaveBeenCalled();
     expect(mocks.close).not.toHaveBeenCalled();
   });
+
+  it("rejects a bad attachment before claiming the draft", async () => {
+    const res = await patch({
+      action: "approve_and_send",
+      attachments: [{ filename: "angebot.pdf" }],
+    });
+    expect(res.status).toBe(400);
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+
+  it("forwards document attachments on approve_and_send", async () => {
+    mocks.send.mockResolvedValue({ ok: true, text: "Hallo" });
+    const res = await patch({
+      action: "approve_and_send",
+      humanApproved: true,
+      attachments: [{ dealDocumentId: "doc-1" }],
+      idempotencyKey: "send-1",
+    });
+    expect(res.status).toBe(200);
+    expect(mocks.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attachments: [{ kind: "dealDocument", dealDocumentId: "doc-1" }],
+        idempotencyKey: "send-1",
+      })
+    );
+  });
 });

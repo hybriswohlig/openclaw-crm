@@ -73,6 +73,82 @@ function an(anfrage: RechnerAnfrage, feld: string): boolean {
   return anfrage[feld] === "on";
 }
 
+type Owner = "company" | "customer" | "none";
+
+interface ExpliziteMontage {
+  explicit: boolean;
+  customerOnly: boolean;
+  companyNames: string[];
+  dismantleCompany: string[];
+  dismantleCustomer: string[];
+  assembleCompany: string[];
+  assembleCustomer: string[];
+}
+
+function istOwner(wert: unknown): wert is Owner {
+  return wert === "company" || wert === "customer" || wert === "none";
+}
+
+/** Owners carried on positionen_freitext. Missing keys are not explicit. */
+function expliziteMontage(anfrage: RechnerAnfrage): ExpliziteMontage {
+  const leer: ExpliziteMontage = {
+    explicit: false,
+    customerOnly: false,
+    companyNames: [],
+    dismantleCompany: [],
+    dismantleCustomer: [],
+    assembleCompany: [],
+    assembleCustomer: [],
+  };
+  const rows = anfrage.positionen_freitext;
+  if (!Array.isArray(rows)) return leer;
+  const dismantleCompany: string[] = [];
+  const dismantleCustomer: string[] = [];
+  const assembleCompany: string[] = [];
+  const assembleCustomer: string[] = [];
+  const companyNames: string[] = [];
+  let explicit = false;
+  for (const row of rows) {
+    const name = typeof row.name === "string" ? row.name.trim() : "";
+    if (!name) continue;
+    const abbauRaw = row.abbau;
+    const aufbauRaw = row.aufbau;
+    const sentAbbau = istOwner(abbauRaw);
+    const sentAufbau = istOwner(aufbauRaw);
+    if (!sentAbbau && !sentAufbau) continue;
+    const abbau: Owner = sentAbbau ? abbauRaw : "none";
+    const aufbau: Owner = sentAufbau ? aufbauRaw : "none";
+    if (abbau === "none" && aufbau === "none") continue;
+    explicit = true;
+    if (abbau === "company") dismantleCompany.push(name);
+    if (abbau === "customer") dismantleCustomer.push(name);
+    if (aufbau === "company") assembleCompany.push(name);
+    if (aufbau === "customer") assembleCustomer.push(name);
+    if (abbau === "company" || aufbau === "company") companyNames.push(name);
+  }
+  const uniq = (xs: string[]) => [...new Set(xs)];
+  const companies = uniq(companyNames);
+  return {
+    explicit,
+    customerOnly: explicit && companies.length === 0,
+    companyNames: companies,
+    dismantleCompany: uniq(dismantleCompany),
+    dismantleCustomer: uniq(dismantleCustomer),
+    assembleCompany: uniq(assembleCompany),
+    assembleCustomer: uniq(assembleCustomer),
+  };
+}
+
+function ownerLeistung(
+  company: readonly string[],
+  customer: readonly string[],
+  customerNote: string
+): { owner: LeistungsTraeger; note?: string } {
+  if (company.length > 0) return { owner: "company", note: `${aufzaehlen(company)}.` };
+  if (customer.length > 0) return { owner: "customer", note: customerNote };
+  return { owner: "none" };
+}
+
 function moebelText(namen: readonly string[]): string {
   if (namen.length <= 4) return aufzaehlen(namen);
   return `${namen.slice(0, 3).join(", ")} und ${namen.length - 3} weitere Möbel`;
@@ -98,7 +174,11 @@ export function kvBausteine(input: {
 
   // ── Hebel ──
   const kandidaten: Array<{ art: HebelArt; posten: KvPosten }> = [];
-  const montageMoebel = [...new Set((e.positionen ?? []).filter((p) => p.zerlegt).map((p) => p.name.trim()).filter(Boolean))];
+  const besitzer = expliziteMontage(anfrage);
+  let montageMoebel = [...new Set((e.positionen ?? []).filter((p) => p.zerlegt).map((p) => p.name.trim()).filter(Boolean))];
+  if (besitzer.explicit && besitzer.companyNames.length > 0) {
+    montageMoebel = besitzer.companyNames;
+  }
   const montagePm = (zeiten.demontage ?? 0) + (zeiten.montage ?? 0);
   if (montageMoebel.length > 0 && montagePm > 0) {
     kandidaten.push({
@@ -146,7 +226,8 @@ export function kvBausteine(input: {
     if (!Number.isFinite(r) || r <= 0) kandidaten.splice(i, 1);
   }
 
-  const weg = (art: HebelArt) => (art === "montage" && opt.ohneMontage) || (art === "halteverbot" && opt.ohneHalteverbot);
+  const montageWeg = opt.ohneMontage || besitzer.customerOnly;
+  const weg = (art: HebelArt) => (art === "montage" && montageWeg) || (art === "halteverbot" && opt.ohneHalteverbot);
   // Kosten, die wirklich wegfallen: Zonen zum Kostensatz, Montagezeit zum internen Stundensatz.
   const kostenPosten = e.kosten?.posten ?? [];
   const entfalleneKosten =
@@ -178,7 +259,7 @@ export function kvBausteine(input: {
   }
 
   // ── Leistungen im KV ──
-  const montageDabei = montageMoebel.length > 0 && !opt.ohneMontage;
+  const montageDabei = montageMoebel.length > 0 && !montageWeg;
   const leistungen: KvLeistungen = {
     transport: {
       owner: "company",
@@ -192,6 +273,18 @@ export function kvBausteine(input: {
     unpacking: { owner: "customer" },
     materials: Number.isFinite(kartons) && kartons > 0 ? { owner: "company" } : { owner: "none" },
   };
+  if (besitzer.explicit) {
+    leistungen.dismantling = ownerLeistung(
+      besitzer.dismantleCompany,
+      besitzer.dismantleCustomer,
+      "Den Abbau übernehmen Sie selbst."
+    );
+    leistungen.assembly = ownerLeistung(
+      besitzer.assembleCompany,
+      besitzer.assembleCustomer,
+      "Den Aufbau übernehmen Sie selbst."
+    );
+  }
 
   return {
     posten: [kernPosten, ...hebel.map((k) => k.posten)],

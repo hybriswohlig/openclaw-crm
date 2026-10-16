@@ -89,6 +89,32 @@ function aufzaehlen(teile: readonly string[]): string {
   return `${teile.slice(0, -1).join(", ")} und ${teile[teile.length - 1]}`;
 }
 
+function istOwner(wert: unknown): wert is "company" | "customer" | "none" {
+  return wert === "company" || wert === "customer" || wert === "none";
+}
+
+/** Company furniture named on the calculator request. explicit means an owner was set. */
+function firmenMontage(anfrage: Record<string, unknown>): { explicit: boolean; company: string[] } {
+  const rows = anfrage.positionen_freitext;
+  if (!Array.isArray(rows)) return { explicit: false, company: [] };
+  const company: string[] = [];
+  let explicit = false;
+  for (const row of rows) {
+    if (!row || typeof row !== "object") continue;
+    const item = row as Record<string, unknown>;
+    const name = typeof item.name === "string" ? item.name.trim() : "";
+    const abbau = item.abbau;
+    const aufbau = item.aufbau;
+    if (!istOwner(abbau) && !istOwner(aufbau)) continue;
+    const a = istOwner(abbau) ? abbau : "none";
+    const b = istOwner(aufbau) ? aufbau : "none";
+    if (a === "none" && b === "none") continue;
+    explicit = true;
+    if (name && (a === "company" || b === "company")) company.push(name);
+  }
+  return { explicit, company: [...new Set(company)] };
+}
+
 /** Was im Preis steckt, aus der Kalkulation (nichts erfunden). */
 export function leistungenText(
   e: Pick<RechnerErgebnis, "team" | "kosten" | "positionen">,
@@ -98,8 +124,13 @@ export function leistungenText(
   const team = e.team?.groesse;
   teile.push(team ? `Team mit ${team} Personen und Transporter` : "Transporter mit Team");
   teile.push("Anfahrt und alle Kilometer");
-  const zerlegt = (e.positionen ?? []).filter((p) => p.zerlegt).map((p) => p.name);
-  if (zerlegt.length > 0) teile.push(`Abbau und Aufbau von ${aufzaehlen(zerlegt)}`);
+  const ausBesitz = firmenMontage(anfrage);
+  if (ausBesitz.explicit) {
+    if (ausBesitz.company.length > 0) teile.push(`Abbau und Aufbau von ${aufzaehlen(ausBesitz.company)}`);
+  } else {
+    const zerlegt = (e.positionen ?? []).filter((p) => p.zerlegt).map((p) => p.name);
+    if (zerlegt.length > 0) teile.push(`Abbau und Aufbau von ${aufzaehlen(zerlegt)}`);
+  }
   if (anfrage.von_halteverbot === "on" || anfrage.nach_halteverbot === "on") teile.push("Halteverbotszone");
   return teile.join(", ");
 }

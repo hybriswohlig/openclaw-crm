@@ -5,6 +5,7 @@
  * Der Rechner macht aus fehlenden Angaben selbst eine Schnellschätzung.
  */
 import { createHash } from "node:crypto";
+import type { InventoryOwner } from "@/services/inventory-owner";
 import type { LeadQuelle, Marke } from "./quelle";
 
 export interface LeadDaten {
@@ -35,7 +36,16 @@ export interface LeadDaten {
   marke?: Marke | null;
   /** Herkunft des Leads, für den Margenvorschlag */
   quelle?: LeadQuelle | null;
-  inventar: Array<{ name: string; menge: number; groessenklasse: string | null; volumenCbm: number | null; mitnehmen: boolean }>;
+  inventar: Array<{
+    name: string;
+    menge: number;
+    groessenklasse: string | null;
+    volumenCbm: number | null;
+    mitnehmen: boolean;
+    /** Omitted or none on both sides leaves the calculator request unchanged. */
+    abbau?: InventoryOwner;
+    aufbau?: InventoryOwner;
+  }>;
 }
 
 export type RechnerAnfrage = Record<string, string | Array<Record<string, unknown>>>;
@@ -99,12 +109,22 @@ export function rechnerAnfrageAus(lead: LeadDaten, opts: { heute?: string } = {}
 
   const zeilen = lead.inventar.filter((z) => z.mitnehmen && z.menge > 0 && z.name.trim() !== "");
   if (zeilen.length > 0) {
-    a.positionen_freitext = zeilen.map((z) => ({
-      name: z.name.trim(),
-      menge: z.menge,
-      ...(z.groessenklasse && GROESSENKLASSEN.has(z.groessenklasse) ? { groessenklasse: z.groessenklasse } : {}),
-      ...(z.volumenCbm && z.volumenCbm > 0 ? { volumenCbm: z.volumenCbm } : {}),
-    }));
+    a.positionen_freitext = zeilen.map((z) => {
+      const abbau = z.abbau ?? "none";
+      const aufbau = z.aufbau ?? "none";
+      const gesetzt = abbau !== "none" || aufbau !== "none";
+      // zerlegt: we take at least one side. customer on a side and company on
+      // neither means the customer does that work, so the calculator must not
+      // price our montage for it.
+      const zerlegt = abbau === "company" || aufbau === "company";
+      return {
+        name: z.name.trim(),
+        menge: z.menge,
+        ...(z.groessenklasse && GROESSENKLASSEN.has(z.groessenklasse) ? { groessenklasse: z.groessenklasse } : {}),
+        ...(z.volumenCbm && z.volumenCbm > 0 ? { volumenCbm: z.volumenCbm } : {}),
+        ...(gesetzt ? { abbau, aufbau, zerlegt } : {}),
+      };
+    });
   }
   return a;
 }

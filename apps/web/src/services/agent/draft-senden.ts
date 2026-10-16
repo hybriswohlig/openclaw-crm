@@ -9,6 +9,13 @@ import { agentDrafts, agentEvents, dealAgentState } from "@/db/schema/agent";
 import { inboxConversations, inboxContacts, channelAccounts } from "@/db/schema/inbox";
 import { agentMayContact, toGateMessageClass as toGateClass } from "@/services/agent/agent-gate";
 import { sendOnChannel, type AgentChannelRow } from "@/services/agent/agent-shared";
+import { sendConversationDocuments } from "@/services/baileys-document-send";
+import {
+  WHATSAPP_DOCUMENT_CAPTION_MAX,
+  WhatsAppDocumentInputError,
+  type BodyDelivery,
+  type WhatsAppAttachmentDescriptor,
+} from "@/services/whatsapp-document";
 import { leaksPriceOrCommitment, OPT_OUT_LINE } from "@/services/agent/agent-suppress";
 import { isOptOutLineEnabled } from "@/services/agent/agent-config";
 import { ohnePreisPhrase } from "@/services/agent/preis-entwurf";
@@ -22,6 +29,7 @@ import {
 import {
   WhatsAppSessionExpiredError,
   BaileysBridgeNotConfiguredError,
+  BaileysMediaTooLargeError,
 } from "@/services/inbox-whatsapp";
 
 export type FreigabeErgebnis =
@@ -30,9 +38,12 @@ export type FreigabeErgebnis =
       ok: false;
       fehler:
         | "expired" | "not_pending" | "no_conversation" | "gate_blocked" | "price_leak"
+        | "attachment_invalid"
         | "internal_error" | "session_expired" | "send_failed" | "send_uncertain";
       reasons?: string[];
       detail?: string;
+      /** HTTP status for attachment_invalid (400, 404 or 413). */
+      status?: number;
     };
 
 /** Sperrgründe, die eine menschliche Freigabe aufhebt (Standard: nur der Hauptschalter). */
@@ -82,6 +93,8 @@ async function markSendUncertain(
 function isProvablyPreDelivery(err: unknown): boolean {
   if (err instanceof WhatsAppSessionExpiredError) return true;
   if (err instanceof BaileysBridgeNotConfiguredError) return true;
+  if (err instanceof WhatsAppDocumentInputError) return true;
+  if (err instanceof BaileysMediaTooLargeError) return true;
   return err instanceof Error && /receive-only/i.test(err.message);
 }
 
@@ -116,6 +129,14 @@ export async function entwurfFreigebenUndSenden(input: {
    * und wird im Entwurf und im Audit-Log festgehalten.
    */
   overrideConsent?: boolean;
+  /**
+   * WhatsApp documents for approve_and_send. Resolved and sent only after
+   * the gate and the price filter, and only on the in-house Baileys bridge.
+   * They do not lift any gate.
+   */
+  attachments?: WhatsAppAttachmentDescriptor[];
+  bodyDelivery?: BodyDelivery;
+  idempotencyKey?: string;
 }): Promise<FreigabeErgebnis> {
   const { workspaceId, userId, draftId: id } = input;
   const body = { finalText: input.finalText };
@@ -329,8 +350,46 @@ export async function entwurfFreigebenUndSenden(input: {
     return { ok: false, fehler: "not_pending" };
   }
   try {
-    await sendOnChannel(channelRow, text);
+    const attachments = input.attachments ?? [];
+    if (attachments.length > 0) {
+      const baileys =
+        channelRow.channelType === "whatsapp" &&
+        !channelRow.waPhoneNumberId &&
+        channelRow.baileysBridgeProvider === "inhouse";
+      if (!baileys) {
+        throw new WhatsAppDocumentInputError(
+          "Document attachments on this endpoint are sent only through the in-house Baileys bridge.",
+          400
+        );
+      }
+      if (input.bodyDelivery === "caption" && text.length > WHATSAPP_DOCUMENT_CAPTION_MAX) {
+        throw new WhatsAppDocumentInputError(
+          `body is longer than ${WHATSAPP_DOCUMENT_CAPTION_MAX} characters; pass bodyDelivery separate so it is sent as its own text`,
+          400
+        );
+      }
+      await sendConversationDocuments({
+        conversationId: channelRow.id,
+        workspaceId,
+        dealRecordId: draft.dealRecordId,
+        body: text,
+        attachments,
+        bodyDelivery: input.bodyDelivery,
+        idempotencyKey: input.idempotencyKey,
+      });
+    } else {
+      await sendOnChannel(channelRow, text);
+    }
   } catch (err) {
+    if (err instanceof WhatsAppDocumentInputError || err instanceof BaileysMediaTooLargeError) {
+      await revertToPending(id);
+      return {
+        ok: false,
+        fehler: "attachment_invalid",
+        detail: err.message,
+        status: err instanceof WhatsAppDocumentInputError ? err.status : 413,
+      };
+    }
     if (isProvablyPreDelivery(err)) {
       await revertToPending(id);
       if (err instanceof WhatsAppSessionExpiredError) {

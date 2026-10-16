@@ -56,6 +56,23 @@ describe("rechnerAnfrageAus", () => {
     ] });
     expect(a.positionen_freitext).toEqual([{ name: "Sofa", menge: 1, groessenklasse: "gross", volumenCbm: 1.5 }]);
   });
+  it("Abbau und Aufbau gehen nur mit, wenn sie nicht beide none sind", () => {
+    const basis = rechnerAnfrageAus({
+      ...leer,
+      inventar: [{ name: "Sofa", menge: 1, groessenklasse: "gross", volumenCbm: 1.5, mitnehmen: true, abbau: "none", aufbau: "none" }],
+    });
+    expect(basis.positionen_freitext).toEqual([{ name: "Sofa", menge: 1, groessenklasse: "gross", volumenCbm: 1.5 }]);
+    const firma = rechnerAnfrageAus({
+      ...leer,
+      inventar: [{ name: "Schrank", menge: 1, groessenklasse: null, volumenCbm: null, mitnehmen: true, abbau: "company", aufbau: "customer" }],
+    });
+    expect(firma.positionen_freitext).toEqual([{ name: "Schrank", menge: 1, abbau: "company", aufbau: "customer", zerlegt: true }]);
+    const kunde = rechnerAnfrageAus({
+      ...leer,
+      inventar: [{ name: "Regal", menge: 1, groessenklasse: null, volumenCbm: null, mitnehmen: true, abbau: "customer", aufbau: "none" }],
+    });
+    expect(kunde.positionen_freitext).toEqual([{ name: "Regal", menge: 1, abbau: "customer", aufbau: "none", zerlegt: false }]);
+  });
   it("unbekannte Größenklasse wird nicht mitgeschickt (der Rechner würde sie ablehnen)", () => {
     const a = rechnerAnfrageAus({ ...leer, inventar: [{ name: "Kiste", menge: 2, groessenklasse: "riesig", volumenCbm: null, mitnehmen: true }] });
     expect(a.positionen_freitext).toEqual([{ name: "Kiste", menge: 2 }]);

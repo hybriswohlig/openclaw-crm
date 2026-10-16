@@ -73,6 +73,53 @@ describe("kvBausteine", () => {
     expect(k.leistungen.dismantling).toEqual({ owner: "none" });
   });
 
+  it("expliziter Kunden-Abbau nimmt den Montage-Hebel aus dem Preis", () => {
+    const k = kvBausteine({
+      festpreis: 2260,
+      ergebnis,
+      anfrage: {
+        ...anfrage,
+        positionen_freitext: [
+          { name: "Schreibtisch", abbau: "customer", aufbau: "customer" },
+          { name: "Boxspringbett", abbau: "customer", aufbau: "customer" },
+          { name: "Esstisch", abbau: "customer", aufbau: "customer" },
+        ],
+      },
+    });
+    expect(k.posten.some((p) => p.description.startsWith("Demontage"))).toBe(false);
+    expect(k.summe).toBe(2140);
+    expect(k.abzug).toBe(120);
+    expect(k.leistungen.dismantling).toEqual({ owner: "customer", note: "Den Abbau übernehmen Sie selbst." });
+    expect(k.leistungen.assembly).toEqual({ owner: "customer", note: "Den Aufbau übernehmen Sie selbst." });
+    expect(k.montageDurchUns).toBe(false);
+  });
+
+  it("explizite Firmen-Namen ersetzen die Montage-Liste, ohne einen Preis zu erfinden", () => {
+    const mitZeit = kvBausteine({
+      festpreis: 2260,
+      ergebnis,
+      anfrage: {
+        ...anfrage,
+        positionen_freitext: [{ name: "Kleiderschrank", abbau: "company", aufbau: "company" }],
+      },
+    });
+    expect(mitZeit.posten.find((p) => p.description.startsWith("Demontage"))?.description).toBe(
+      "Demontage & Montage (Kleiderschrank)"
+    );
+    expect(mitZeit.leistungen.dismantling).toEqual({ owner: "company", note: "Kleiderschrank." });
+    expect(mitZeit.summe).toBe(2260);
+
+    const ohneZeit = kvBausteine({
+      festpreis: 900,
+      ergebnis: { ...ergebnis, positionen: [], zeiten: {} },
+      anfrage: { positionen_freitext: [{ name: "Schrank", abbau: "company", aufbau: "none" }] },
+    });
+    expect(ohneZeit.posten).toHaveLength(1);
+    expect(ohneZeit.summe).toBe(900);
+    expect(ohneZeit.leistungen.dismantling).toEqual({ owner: "company", note: "Schrank." });
+    expect(ohneZeit.leistungen.assembly).toEqual({ owner: "none" });
+  });
+
   it("Einpackservice als Hebel, wenn Kartons und Packzeit da sind", () => {
     const k = kvBausteine({ festpreis: 2500, ergebnis: { ...ergebnis, zeiten: { ...ergebnis.zeiten, packen: 300 } }, anfrage: { ...anfrage, einpack_kartons: "40" } });
     expect(k.posten.find((p) => p.description === "Einpackservice (40 Kartons)")?.unitRate).toBe(180);

@@ -2829,6 +2829,10 @@ export async function sendBaileysMediaReply(params: {
     size: number;
   };
   caption?: string;
+  /** Force a WhatsApp document bubble (filename), including when the mime is an image. */
+  asDocument?: boolean;
+  /** CRM-only marker (idempotency key, content hash). Never sent to the customer or the bridge. */
+  rawHeaders?: string | null;
 }) {
   const { conversationId, workspaceId, file, caption } = params;
   const { conv, account, toWaId } = await loadBaileysSendContext(
@@ -2837,13 +2841,15 @@ export async function sendBaileysMediaReply(params: {
   );
 
   const buffer = Buffer.from(await file.blob.arrayBuffer());
-  const kind: "image" | "video" | "audio" | "document" = (() => {
-    const m = file.mimeType.toLowerCase();
-    if (m.startsWith("image/")) return "image";
-    if (m.startsWith("video/")) return "video";
-    if (m.startsWith("audio/")) return "audio";
-    return "document";
-  })();
+  const kind: "image" | "video" | "audio" | "document" = params.asDocument
+    ? "document"
+    : (() => {
+        const m = file.mimeType.toLowerCase();
+        if (m.startsWith("image/")) return "image";
+        if (m.startsWith("video/")) return "video";
+        if (m.startsWith("audio/")) return "audio";
+        return "document";
+      })();
   const captionText = caption?.trim() || undefined;
   // Same object the bridge will parse. Measure it with an empty media field
   // so a file that cannot fit is rejected before we allocate the base64.
@@ -2897,6 +2903,7 @@ export async function sendBaileysMediaReply(params: {
       body: bodyText,
       isRead: true,
       sentAt: new Date(),
+      ...(params.rawHeaders ? { rawHeaders: params.rawHeaders } : {}),
     },
   });
 
@@ -2951,27 +2958,21 @@ export async function sendBaileysMediaReply(params: {
 }
 
 /**
- * First-contact send over the in-house Baileys bridge.
- *
- * The WABA composer can only open a conversation through an approved template
- * (Meta rule). Baileys is personal WhatsApp, so it has no template requirement
- * and no 24h window — we can send a free-form text to a brand-new recipient.
- * This bootstraps the contact + conversation (mirroring `sendWhatsAppTemplate`)
- * and then sends the first message through the bridge.
+ * Contact + conversation for a personal-WhatsApp first send, without calling
+ * the bridge. Document sends reuse this so a PDF-only opening does not have
+ * to invent a text body.
  */
-export async function sendBaileysFirstMessage(params: {
+export async function bootstrapBaileysConversation(params: {
   workspaceId: string;
   channelAccountId: string;
   toPhone: string;
   customerName: string;
-  body: string;
-  /** Optional deal/lead to link this conversation to. */
+  /** Shown in the conversation list until the real send updates it. */
+  preview: string;
   dealRecordId?: string | null;
 }) {
-  const { workspaceId, channelAccountId, toPhone, customerName, dealRecordId } =
-    params;
-  const body = params.body.trim();
-  if (!body) throw new Error("Message body is required");
+  const { workspaceId, channelAccountId, toPhone, customerName, dealRecordId } = params;
+  const preview = params.preview.trim() || "Nachricht";
 
   const [account] = await db
     .select()
@@ -3035,7 +3036,7 @@ export async function sendBaileysFirstMessage(params: {
         externalThreadId: threadKey,
         subject: null,
         lastMessageAt: new Date(),
-        lastMessagePreview: `Du: ${body.slice(0, 100)}`,
+        lastMessagePreview: `Du: ${preview.slice(0, 100)}`,
         unreadCount: 0,
         dealRecordId: dealRecordId ?? null,
       })
@@ -3080,6 +3081,40 @@ export async function sendBaileysFirstMessage(params: {
   const sendTo = conv.externalThreadId?.includes("@")
     ? conv.externalThreadId
     : waId;
+
+  return {
+    conv,
+    account,
+    sendTo,
+    createdNewConversation,
+    contactId: contact.id,
+    waId,
+  };
+}
+
+/**
+ * First-contact send over the in-house Baileys bridge.
+ *
+ * The WABA composer can only open a conversation through an approved template
+ * (Meta rule). Baileys is personal WhatsApp, so it has no template requirement
+ * and no 24h window — we can send a free-form text to a brand-new recipient.
+ * This bootstraps the contact + conversation (mirroring `sendWhatsAppTemplate`)
+ * and then sends the first message through the bridge.
+ */
+export async function sendBaileysFirstMessage(params: {
+  workspaceId: string;
+  channelAccountId: string;
+  toPhone: string;
+  customerName: string;
+  body: string;
+  /** Optional deal/lead to link this conversation to. */
+  dealRecordId?: string | null;
+}) {
+  const body = params.body.trim();
+  if (!body) throw new Error("Message body is required");
+  const { workspaceId, customerName } = params;
+  const opened = await bootstrapBaileysConversation({ ...params, preview: body });
+  const { conv, account, sendTo, createdNewConversation, waId } = opened;
 
   let sendResult: { externalMessageId: string };
   try {
@@ -3134,7 +3169,7 @@ export async function sendBaileysFirstMessage(params: {
       workspaceId,
       conversationId: conv.id,
       dealName: customerName || waId,
-      contactId: contact.id,
+      contactId: opened.contactId,
       channelAccountId: account.id,
     });
   }

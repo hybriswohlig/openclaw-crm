@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   conflictSets: [] as Record<string, unknown>[],
   gate: vi.fn(),
   send: vi.fn(),
+  docs: vi.fn(),
   leak: vi.fn(),
 }));
 
@@ -52,6 +53,10 @@ vi.mock("@/services/agent/agent-shared", () => ({
   sendOnChannel: (...args: unknown[]) => mocks.send(...args),
 }));
 
+vi.mock("@/services/baileys-document-send", () => ({
+  sendConversationDocuments: (...args: unknown[]) => mocks.docs(...args),
+}));
+
 vi.mock("@/services/agent/agent-suppress", () => ({
   leaksPriceOrCommitment: (text: string) => mocks.leak(text),
   OPT_OUT_LINE: "STOP",
@@ -69,7 +74,8 @@ vi.mock("@/services/inbox-whatsapp", () => {
     }
   }
   class BaileysBridgeNotConfiguredError extends Error {}
-  return { WhatsAppSessionExpiredError, BaileysBridgeNotConfiguredError };
+  class BaileysMediaTooLargeError extends Error {}
+  return { WhatsAppSessionExpiredError, BaileysBridgeNotConfiguredError, BaileysMediaTooLargeError };
 });
 
 import { entwurfFreigebenUndSenden } from "./draft-senden";
@@ -107,6 +113,8 @@ function reset() {
   mocks.conflictSets = [];
   mocks.gate.mockReset();
   mocks.send.mockReset();
+  mocks.docs.mockReset();
+  mocks.docs.mockResolvedValue({ message: { id: "doc" }, messages: [], deduped: false, conversationId: "conv-1" });
   mocks.leak.mockReset();
   mocks.leak.mockReturnValue(false);
   mocks.send.mockResolvedValue(undefined);
@@ -252,6 +260,7 @@ describe("entwurfFreigebenUndSenden human approval", () => {
     });
     expect(leak).toEqual({ ok: false, fehler: "price_leak" });
     expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.docs).not.toHaveBeenCalled();
 
     reset();
     mocks.updateReturns = [[{ ...DRAFT }], []];
@@ -266,5 +275,49 @@ describe("entwurfFreigebenUndSenden human approval", () => {
       humanApproved: true,
     });
     expect(session).toMatchObject({ ok: false, fehler: "session_expired" });
+  });
+
+  it("does not send attachments when the final text leaks a price", async () => {
+    mocks.updateReturns = [[{ ...DRAFT, draftText: "Festpreis 1.200 €" }], []];
+    mocks.selects = [CONV];
+    mocks.gate.mockResolvedValue({ allowed: true, reasons: [], context: {} });
+    mocks.leak.mockReturnValue(true);
+
+    const leak = await entwurfFreigebenUndSenden({
+      workspaceId: "ws",
+      userId: "user-1",
+      draftId: "draft-1",
+      humanApproved: true,
+      attachments: [{ kind: "dealDocument", dealDocumentId: "doc-1" }],
+    });
+    expect(leak).toEqual({ ok: false, fehler: "price_leak" });
+    expect(mocks.docs).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+
+  it("sends documents only after the gate, and not as a plain text", async () => {
+    mocks.updateReturns = [[{ ...DRAFT }], [], []];
+    mocks.selects = [CONV, [{ status: "approved" }]];
+    mocks.gate.mockResolvedValue({ allowed: true, reasons: [], context: {} });
+
+    const sent = await entwurfFreigebenUndSenden({
+      workspaceId: "ws",
+      userId: "user-1",
+      draftId: "draft-1",
+      humanApproved: true,
+      attachments: [{ kind: "dealDocument", dealDocumentId: "doc-1" }],
+      idempotencyKey: "k1",
+    });
+    expect(sent.ok).toBe(true);
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.docs).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: "conv-1",
+        dealRecordId: "deal-1",
+        body: DRAFT.draftText,
+        idempotencyKey: "k1",
+        attachments: [{ kind: "dealDocument", dealDocumentId: "doc-1" }],
+      })
+    );
   });
 });

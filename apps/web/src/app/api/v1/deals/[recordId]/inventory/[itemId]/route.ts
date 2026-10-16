@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { dealInventoryItems } from "@/db/schema/inventory";
 import { and, eq } from "drizzle-orm";
 import { kalkulationAnstossen } from "@/services/rechner/ausloeser";
+import { parseInventoryOwnerPatch } from "@/services/inventory-owner";
 
 /**
  * Operator-Korrekturen an einzelnen Inventar-Zeilen. Jede Änderung stempelt
@@ -18,12 +19,11 @@ export async function PATCH(
   if (!ctx) return unauthorized();
 
   const { recordId, itemId } = await params;
-  const body = (await req.json().catch(() => ({}))) as {
-    moveFlag?: boolean;
-    quantity?: number;
-    name?: string;
-    needsPhoto?: boolean;
-  };
+  const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+  const owners = parseInventoryOwnerPatch(body);
+  if (!owners.ok) {
+    return NextResponse.json({ error: owners.error }, { status: 400 });
+  }
 
   const updates: Record<string, unknown> = { updatedAt: new Date(), source: "operator" };
   if (typeof body.moveFlag === "boolean") updates.moveFlag = body.moveFlag;
@@ -32,6 +32,16 @@ export async function PATCH(
     updates.quantity = body.quantity;
   }
   if (typeof body.name === "string" && body.name.trim()) updates.name = body.name.trim();
+  if (owners.patch.dismantlingOwner) {
+    updates.dismantlingOwner = owners.patch.dismantlingOwner;
+  }
+  if (owners.patch.assemblyOwner) {
+    updates.assemblyOwner = owners.patch.assemblyOwner;
+  }
+  // company means we take the piece apart or put it back together.
+  if (owners.patch.dismantlingOwner === "company" || owners.patch.assemblyOwner === "company") {
+    updates.disassemblyRequired = true;
+  }
   if (Object.keys(updates).length === 2) {
     return NextResponse.json({ error: "keine änderbaren Felder im Body" }, { status: 400 });
   }

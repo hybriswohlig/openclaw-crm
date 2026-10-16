@@ -3,6 +3,7 @@
  * die Form zu bringen, die der Angebotsrechner erwartet. Ohne Datenbank.
  */
 import type { LeadDaten } from "./eingabe";
+import { isInventoryOwner, type InventoryOwner } from "@/services/inventory-owner";
 
 /**
  * Adresse als Text für den Rechner: "Straße, PLZ Ort", ohne Straße nur "PLZ Ort".
@@ -42,6 +43,12 @@ export interface InventarRohzeile {
   /** Volumen der ganzen Zeile (Menge eingerechnet), so schätzt es die CRM-KI */
   volumeCbmEstimate: string | null;
   moveFlag: boolean;
+  dismantlingOwner?: InventoryOwner | null;
+  assemblyOwner?: InventoryOwner | null;
+}
+
+function besitzer(wert: unknown): InventoryOwner {
+  return isInventoryOwner(wert) ? wert : "none";
 }
 
 /** Inventarzeilen des CRM → Rechner-Inventar; Volumen je Stück. */
@@ -55,6 +62,8 @@ export function inventarAusZeilen(zeilen: readonly InventarRohzeile[]): LeadDate
       groessenklasse: z.sizeClass,
       volumenCbm: gesamt !== null && gesamt > 0 ? Math.round((gesamt / menge) * 1000) / 1000 : null,
       mitnehmen: z.moveFlag,
+      abbau: besitzer(z.dismantlingOwner),
+      aufbau: besitzer(z.assemblyOwner),
     };
   });
 }

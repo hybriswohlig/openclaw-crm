@@ -4,10 +4,15 @@ import {
   base64ByteLength,
   isRenderableImage,
   MAX_MCP_INLINE_BYTES_LIMIT,
+  normaliseBase64,
   normaliseImageMime,
   resolveMaxBytes,
   type AttachmentPayload,
 } from "@/lib/attachment-content";
+import {
+  inlineWhatsAppDocumentTooLargeMessage,
+  MAX_INLINE_WHATSAPP_DOCUMENT_BYTES,
+} from "@/services/whatsapp-document";
 import {
   jsonUploadDecodedBytes,
   oversizedJsonDealDocumentError,
@@ -51,6 +56,22 @@ function asBody(v: unknown): unknown {
     return JSON.parse(trimmed);
   } catch {
     return v;
+  }
+}
+
+const DATA_URL_PREFIX = /^data:[^,]*,/i;
+
+/** Stop a multi-megabyte inline PDF before it is posted to a Vercel function. */
+function rejectOversizedInlineDocuments(attachments: unknown): void {
+  if (!Array.isArray(attachments)) return;
+  for (const item of attachments) {
+    if (!item || typeof item !== "object") continue;
+    const data = (item as { dataBase64?: unknown }).dataBase64;
+    if (typeof data !== "string" || !data.trim()) continue;
+    const decoded = base64ByteLength(normaliseBase64(data.trim().replace(DATA_URL_PREFIX, "")));
+    if (decoded > MAX_INLINE_WHATSAPP_DOCUMENT_BYTES) {
+      throw new Error(inlineWhatsAppDocumentTooLargeMessage());
+    }
   }
 }
 
@@ -519,6 +540,21 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
       return client.request(
         `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/inventory`
       );
+    case "crm_update_deal_inventory_item": {
+      const body: Record<string, unknown> = {};
+      if (args.moveFlag !== undefined) body.moveFlag = bool(args.moveFlag);
+      if (args.needsPhoto !== undefined) body.needsPhoto = bool(args.needsPhoto);
+      if (args.quantity !== undefined) body.quantity = num(args.quantity);
+      if (args.name !== undefined) body.name = args.name;
+      if (args.dismantlingOwner !== undefined) body.dismantlingOwner = args.dismantlingOwner;
+      if (args.assemblyOwner !== undefined) body.assemblyOwner = args.assemblyOwner;
+      if (args.abbau !== undefined) body.abbau = args.abbau;
+      if (args.aufbau !== undefined) body.aufbau = args.aufbau;
+      return client.request(
+        `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/inventory/${encodeURIComponent(str(args.itemId))}`,
+        { method: "PATCH", body }
+      );
+    }
     case "crm_get_deal_package_options":
       return client.request(
         `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/package-options`
@@ -670,21 +706,56 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
           expiresInHours: num(args.expiresInHours),
         },
       });
-    case "crm_update_agent_draft":
+    case "crm_update_agent_draft": {
+      const attachments = asBody(args.attachments);
+      rejectOversizedInlineDocuments(attachments);
+      const body: Record<string, unknown> = {
+        action: args.action,
+        finalText: args.finalText,
+        humanApproved: bool(args.humanApproved),
+        approvedBy: args.approvedBy,
+        note: args.note,
+        overrideConsent: bool(args.overrideConsent),
+      };
+      if (attachments !== undefined) body.attachments = attachments;
+      if (args.bodyDelivery !== undefined) body.bodyDelivery = args.bodyDelivery;
+      if (args.idempotencyKey !== undefined) body.idempotencyKey = args.idempotencyKey;
       return client.request(
         `/api/v1/agent-drafts/${encodeURIComponent(str(args.draftId))}`,
-        {
-          method: "PATCH",
-          body: {
-            action: args.action,
-            finalText: args.finalText,
-            humanApproved: bool(args.humanApproved),
-            approvedBy: args.approvedBy,
-            note: args.note,
-            overrideConsent: bool(args.overrideConsent),
-          },
-        }
+        { method: "PATCH", body }
       );
+    }
+    case "crm_send_conversation_message": {
+      const attachments = asBody(args.attachments);
+      rejectOversizedInlineDocuments(attachments);
+      const body: Record<string, unknown> = {};
+      if (args.body !== undefined) body.body = args.body;
+      if (attachments !== undefined) body.attachments = attachments;
+      if (args.bodyDelivery !== undefined) body.bodyDelivery = args.bodyDelivery;
+      if (args.idempotencyKey !== undefined) body.idempotencyKey = args.idempotencyKey;
+      return client.request(
+        `/api/v1/inbox/conversations/${encodeURIComponent(str(args.conversationId))}/messages`,
+        { method: "POST", body }
+      );
+    }
+    case "crm_send_baileys_message": {
+      const attachments = asBody(args.attachments);
+      rejectOversizedInlineDocuments(attachments);
+      const body: Record<string, unknown> = {
+        channelAccountId: str(args.channelAccountId),
+        toPhone: str(args.toPhone),
+      };
+      if (args.body !== undefined) body.body = args.body;
+      if (args.customerName !== undefined) body.customerName = args.customerName;
+      if (args.dealRecordId !== undefined) body.dealRecordId = args.dealRecordId;
+      if (attachments !== undefined) body.attachments = attachments;
+      if (args.bodyDelivery !== undefined) body.bodyDelivery = args.bodyDelivery;
+      if (args.idempotencyKey !== undefined) body.idempotencyKey = args.idempotencyKey;
+      return client.request("/api/v1/inbox/whatsapp/send-baileys", {
+        method: "POST",
+        body,
+      });
+    }
 
     // ── Projekte ────────────────────────────────────────────────────────
     case "crm_list_projects":
