@@ -18,7 +18,7 @@ await page.route("**/*", route => {
   return route.continue();
 });
 try {
-  for (const [name, query] of [["offers", ""], ["single", "single"], ["confirmed", "stage=2"], ["move-default", "stage=3"], ["move-live", "stage=3&live"], ["done", "stage=4"], ["done-payments", "stage=4&payments"], ["otherbrand", "otherbrand"], ["dark", "dark"]]) {
+  for (const [name, query] of [["offers", ""], ["single", "single"], ["festangebot", "festangebot"], ["confirmed", "stage=2"], ["move-default", "stage=3"], ["move-live", "stage=3&live"], ["done", "stage=4"], ["done-payments", "stage=4&payments"], ["otherbrand", "otherbrand"], ["dark", "dark"]]) {
     for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: 1000 });
       await page.goto(`http://127.0.0.1:4178/?${query}`, { waitUntil: "networkidle" });
@@ -89,6 +89,34 @@ try {
   console.log("PASS withdrawal function: two steps, channel choice, receipt notice");
   await page.goto("http://127.0.0.1:4178/?stage=2", { waitUntil: "networkidle" });
   assert.equal(await page.getByRole("button", { name: "Vertrag widerrufen", exact: true }).count(), 0, "Umzug: kein Widerrufs-Button");
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto("http://127.0.0.1:4178/?festangebot", { waitUntil: "networkidle" });
+    await page.locator("[data-portal-view=festangebot]").waitFor();
+    const text = await page.locator("body").innerText();
+    assert.equal(text.includes("Unsere Angebote für Sie"), false, "Festangebot must not offer company packages");
+    assert.equal(text.includes("Sie können zwischen den Angeboten wechseln"), false);
+    assert.equal(text.includes("Interne Kalkulation"), false, "internal quotation notes stay hidden");
+    assert.equal(text.includes("Komfort"), false);
+    assert.equal(text.includes("Umzugspauschale laut Besichtigung"), true);
+    assert.equal(text.includes("Festpreis"), true);
+    assert.equal(text.includes("Anzahlung"), true);
+    assert.equal(text.includes("Gültig bis"), true);
+    assert.equal(text.includes("6. OG"), true);
+    assert.equal(text.includes("Aufzug vorhanden"), true);
+    assert.equal((text.match(/850\s*€/g) || []).length, 1, `price should appear once at ${width}px:\n${text}`);
+    assert.equal(await page.locator(".portal-package-card").count(), 0);
+    assert.equal(await page.locator("summary", { hasText: "Standardleistungen" }).count(), 1);
+    assert.match(await page.locator(".portal-progress [aria-current=step]").innerText(), /Angebot/);
+    assert.equal(await page.locator("h1").innerText(), "Auftrag AU-850");
+    await page.screenshot({ path: `${out}/festangebot-after-${width}.png`, fullPage: true });
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByRole("button", { name: "Angebot verbindlich annehmen", exact: true }).click();
+  await page.getByRole("dialog").waitFor();
+  const posts = await page.evaluate(() => window.__portalPosts || []);
+  assert.equal(posts.some(url => url.endsWith("/select-package")), false, "accepting a Festangebot must not store a package slug");
+  console.log("PASS festangebot without catalogue, internal notes or a repeated price");
   await page.goto("http://127.0.0.1:4178/?nodate", { waitUntil: "networkidle" });
   assert.equal(await page.getByRole("button", { name: "Termin wird noch abgestimmt", exact: true }).isDisabled(), true);
   console.log("PASS move without date cannot be accepted");

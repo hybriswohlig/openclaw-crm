@@ -3,6 +3,9 @@ import {
   pickDefaultDealOption,
   resolveSelectedPackageAfterReplace,
   offerAcceptanceBlockReason,
+  resolvePortalOfferView,
+  acceptanceMayWritePackageSlug,
+  festangebotStatusStep,
 } from "@openclaw-crm/customer-portal-core";
 
 describe("pickDefaultDealOption", () => {
@@ -60,6 +63,124 @@ describe("resolveSelectedPackageAfterReplace", () => {
     expect(
       resolveSelectedPackageAfterReplace(inserted, null)?.catalogueSlug
     ).toBe("komfort");
+  });
+});
+
+describe("resolvePortalOfferView", () => {
+  it("is festangebot when the quote has a fixed price and no deal options", () => {
+    expect(
+      resolvePortalOfferView({
+        hasOffer: true,
+        fixedPriceCents: 85000,
+        isVariable: false,
+        dealOptionCount: 0,
+      })
+    ).toBe("festangebot");
+  });
+
+  it("stays festangebot when only the company catalogue exists beside the fixed price", () => {
+    expect(
+      resolvePortalOfferView({
+        hasOffer: true,
+        fixedPriceCents: 85000,
+        isVariable: false,
+        dealOptionCount: 0,
+      })
+    ).toBe("festangebot");
+  });
+
+  it("is paketauswahl when deal-specific options exist, even with a fixed price", () => {
+    expect(
+      resolvePortalOfferView({
+        hasOffer: true,
+        fixedPriceCents: 85000,
+        isVariable: false,
+        dealOptionCount: 3,
+      })
+    ).toBe("paketauswahl");
+  });
+
+  it("is paketauswahl when deal options exist and the quotation is not created yet", () => {
+    expect(
+      resolvePortalOfferView({
+        hasOffer: false,
+        fixedPriceCents: null,
+        isVariable: false,
+        dealOptionCount: 1,
+      })
+    ).toBe("paketauswahl");
+  });
+
+  it("is allgemeine_pakete only when no offer exists", () => {
+    expect(
+      resolvePortalOfferView({
+        hasOffer: false,
+        fixedPriceCents: null,
+        isVariable: false,
+        dealOptionCount: 0,
+      })
+    ).toBe("allgemeine_pakete");
+  });
+
+  it("does not fall back to company packages for a variable quotation", () => {
+    expect(
+      resolvePortalOfferView({
+        hasOffer: true,
+        fixedPriceCents: null,
+        isVariable: true,
+        dealOptionCount: 0,
+      })
+    ).toBe("einzelangebot");
+  });
+
+  it("does not treat a zero fixed price as a Festangebot or as company packages", () => {
+    expect(
+      resolvePortalOfferView({
+        hasOffer: true,
+        fixedPriceCents: 0,
+        isVariable: false,
+        dealOptionCount: 0,
+      })
+    ).toBe("einzelangebot");
+  });
+
+  it("ignores a variable flag paired with a stored fixed price", () => {
+    expect(
+      resolvePortalOfferView({
+        hasOffer: true,
+        fixedPriceCents: 85000,
+        isVariable: true,
+        dealOptionCount: 0,
+      })
+    ).toBe("einzelangebot");
+  });
+});
+
+describe("acceptanceMayWritePackageSlug", () => {
+  it("does not write a package slug when a Festangebot is accepted", () => {
+    expect(acceptanceMayWritePackageSlug("festangebot")).toBe(false);
+    expect(acceptanceMayWritePackageSlug("allgemeine_pakete")).toBe(false);
+    expect(acceptanceMayWritePackageSlug("einzelangebot")).toBe(false);
+  });
+
+  it("writes the chosen deal option when the customer is picking packages", () => {
+    expect(acceptanceMayWritePackageSlug("paketauswahl")).toBe(true);
+  });
+});
+
+describe("festangebotStatusStep", () => {
+  it("marks the offer while it is not accepted", () => {
+    expect(festangebotStatusStep({ accepted: false, stage: 1 })).toBe("angebot");
+  });
+
+  it("marks acceptance once the customer has signed and confirmation is still pending", () => {
+    expect(festangebotStatusStep({ accepted: true, stage: 1 })).toBe("annahme");
+  });
+
+  it("marks confirmation on stage 2 and the move from stage 3", () => {
+    expect(festangebotStatusStep({ accepted: true, stage: 2 })).toBe("bestaetigung");
+    expect(festangebotStatusStep({ accepted: true, stage: 3 })).toBe("umzug");
+    expect(festangebotStatusStep({ accepted: true, stage: 4 })).toBe("umzug");
   });
 });
 

@@ -2,13 +2,13 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { StagePortal } from "../../src/app/(public)/s/[token]/_components/stage-portal";
 import { annahmeRegeln, firmaKontakt } from "@openclaw-crm/customer-portal-core";
-import { portalFixture } from "./fixture";
+import { festangebotFixture, portalFixture } from "./fixture";
 import "../../src/app/globals.css";
 import "../../src/app/(public)/s/[token]/portal.css";
 
 const params = new URLSearchParams(location.search);
 const stage = Math.min(4, Math.max(1, Number(params.get("stage") ?? 1))) as 1 | 2 | 3 | 4;
-let ctx = portalFixture(stage, params.has("single"), params.has("live"));
+let ctx = params.has("festangebot") ? festangebotFixture() : portalFixture(stage, params.has("single"), params.has("live"));
 if (params.has("payments")) ctx.features!.payments = true;
 if (params.has("otherbrand")) ctx.branding = { ...ctx.branding, firmaSlug: "ceylan", displayName: "Ceylan Umzüge", primaryColor: "3A567F", logoUrl: null };
 if (params.has("expired")) ctx.kva!.validUntil = "2026-01-01";
@@ -26,8 +26,10 @@ if (params.has("widerruf") && ctx.acceptance) {
   ctx.widerruf = { aktiv: true, fristEnde: "2026-09-21", name: "Alex Beispiel", vertrag: "Auftrag VORSCHAU-2026, Entrümpelung, angenommen am 6. September 2026", emailMaskiert: "a***@example.invalid", whatsapp: true, annahmeAm: ctx.acceptance.signedAt, eingegangen: null };
 }
 // Block all mutations at this local fixture boundary. No customer API is reached.
+(window as Window & { __portalPosts?: string[] }).__portalPosts = [];
 window.fetch = async (input, init) => {
   const url = String(input);
+  if ((init?.method ?? "GET").toUpperCase() === "POST") (window as Window & { __portalPosts?: string[] }).__portalPosts?.push(url);
   if (url.endsWith("/state")) return Response.json({ data: ctx });
   if (url.endsWith("/select-package-option")) {
     const { optionId } = JSON.parse(String(init?.body));
