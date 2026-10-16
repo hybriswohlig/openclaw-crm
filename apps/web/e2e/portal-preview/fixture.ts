@@ -1,4 +1,4 @@
-import { annahmeRegeln, firmaKontakt, type CustomerPortalContext } from "@openclaw-crm/customer-portal-core";
+import { annahmeRegeln, firmaKontakt, type CustomerPortalContext, type OfferPackage } from "@openclaw-crm/customer-portal-core";
 
 /** Synthetic browser-test data. Never loaded by a production route. */
 export function portalFixture(stage: 1 | 2 | 3 | 4, single = false, live = false): CustomerPortalContext {
@@ -24,4 +24,59 @@ export function portalFixture(stage: 1 | 2 | 3 | 4, single = false, live = false
     payment: stage === 4 ? { method: "cash", amountCents: 163049, reference: "VORSCHAU-2026", bank: null, paypalUrl: null, girocodePayload: null } : null,
     customerSignals: { markedPaidDepositAt: null, markedPaidFinalAt: null, crewRatedAt: null }, meta: { serverTime: "2026-09-06T10:00:00Z", revoked: false, featureDisabled: false, canonicalHost: null },
   };
+}
+
+/**
+ * Finished fixed-price quotation without deal-specific options, while the
+ * company catalogue (Basis/Komfort/Premium, partly unpriced) is still present.
+ * The portal must show the Festangebot, not those catalogue cards.
+ */
+export function festangebotFixture(): CustomerPortalContext {
+  const ctx = portalFixture(1);
+  const catalogue: OfferPackage[] = [
+    { slug: "basis", displayName: "Basis", shortDescription: "Nur Transport", targetSegment: null, priceFromCents: null, priceFixedFlag: false, includedItems: ["Transport laut Angebot"], isRecommended: false, sortOrder: 0 },
+    { slug: "komfort", displayName: "Komfort", shortDescription: "Mit Verpackung", targetSegment: null, priceFromCents: 129000, priceFixedFlag: true, includedItems: ["Transport", "Verpackung"], isRecommended: true, sortOrder: 1 },
+    { slug: "premium", displayName: "Premium", shortDescription: "Rundum", targetSegment: null, priceFromCents: null, priceFixedFlag: false, includedItems: ["Alles aus Komfort"], isRecommended: false, sortOrder: 2 },
+  ];
+  ctx.dealNumber = "AU-850";
+  ctx.customerDisplayName = "Alex Beispiel";
+  ctx.packages = { available: catalogue, selectedSlug: null };
+  ctx.dealPackageOffers = { options: [], selectedOptionId: null };
+  ctx.scope = {
+    ...ctx.scope,
+    moveDate: "2026-11-27",
+    timeStart: "08:00",
+    timeEnd: null,
+    fromAddress: "Beispielstraße 16, 70806 Kornwestheim",
+    toAddress: "Musterstraße 15, 74382 Neckarwestheim",
+    floorsFrom: 6,
+    floorsTo: 0,
+    accessFrom: "Aufzug vorhanden",
+    accessTo: "Halteverbotszone",
+    volumeCbm: null,
+    workerCount: null,
+    specialRequests: "Die Küche bleibt vor Ort.",
+    inventoryNotes: null,
+  };
+  ctx.inclusions = {
+    included: [
+      { key: "blankets", label: "Decken und Polstermaterial", detail: null },
+      { key: "tools", label: "Werkzeug (Sackkarre, Gurte, Möbelhund)", detail: null },
+      { key: "load_unload", label: "An- und Abladen", detail: null },
+    ],
+    optional: [{ key: "packing", label: "Einpackservice", detail: null }],
+  };
+  ctx.kva = {
+    isVariable: false,
+    fixedPriceCents: 85000,
+    lineItems: [{ type: "other", description: "Umzugspauschale laut Besichtigung", quantity: 1, unitRate: 850, lineTotal: 850 }],
+    notes: "Interne Kalkulation: nicht an den Kunden. Marge 18 %.",
+    totalCents: 85000,
+    depositRequiredCents: 10000,
+    validUntil: "2026-11-20",
+    summary: "Umzug der Wohnung inklusive Transport der besprochenen Möbel.",
+    showStandardInclusions: true,
+    calculationAssumptions: { etageVon: "6. OG", etageBis: "EG", zugangVon: "Aufzug vorhanden", zugangBis: "Halteverbotszone", hinweis: null },
+  };
+  return ctx;
 }

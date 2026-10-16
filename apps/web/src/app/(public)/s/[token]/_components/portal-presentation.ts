@@ -1,4 +1,4 @@
-import type { CustomerPortalContext, MoveTiming } from "@openclaw-crm/customer-portal-core";
+import { resolvePortalOfferView, type CustomerPortalContext, type MoveTiming, type PortalOfferView } from "@openclaw-crm/customer-portal-core";
 
 export function formatPortalMoney(cents: number): string {
   const digits = cents % 100 === 0 ? 0 : 2;
@@ -19,9 +19,28 @@ export function recordedMoveStatus(timing: MoveTiming): string | null {
   return null;
 }
 
+export function portalOfferView(ctx: CustomerPortalContext): PortalOfferView {
+  return resolvePortalOfferView({
+    hasOffer: ctx.kva != null,
+    fixedPriceCents: bindingFixedPriceCents(ctx),
+    isVariable: ctx.kva?.isVariable ?? false,
+    dealOptionCount: ctx.dealPackageOffers.options.length,
+  });
+}
+
+function bindingFixedPriceCents(ctx: CustomerPortalContext): number | null {
+  const kva = ctx.kva;
+  if (!kva || kva.isVariable) return null;
+  if ((kva.fixedPriceCents ?? 0) > 0) return kva.fixedPriceCents;
+  return kva.totalCents > 0 ? kva.totalCents : 0;
+}
+
 export function selectedPortalPackage(ctx: CustomerPortalContext) {
-  return ctx.dealPackageOffers.options.find(o => o.id === ctx.dealPackageOffers.selectedOptionId)
-    ?? (ctx.dealPackageOffers.options.length === 0 ? ctx.packages.available.find(p => p.slug === ctx.packages.selectedSlug) : undefined);
+  if (ctx.dealPackageOffers.options.length > 0) {
+    return ctx.dealPackageOffers.options.find(o => o.id === ctx.dealPackageOffers.selectedOptionId);
+  }
+  if (portalOfferView(ctx) === "festangebot") return undefined;
+  return ctx.packages.available.find(p => p.slug === ctx.packages.selectedSlug);
 }
 
 export function portalBrandStyle(color: string) {

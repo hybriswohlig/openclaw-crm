@@ -47,8 +47,10 @@ import {
   buildPayPalUrl,
   deriveStage,
   generateToken,
+  acceptanceMayWritePackageSlug,
   offerAcceptanceBlockReason,
   pickDefaultDealOption,
+  resolvePortalOfferView,
   portalFeatures,
   resolveSelectedPackageAfterReplace,
   validateTokenShape,
@@ -1970,6 +1972,15 @@ async function ensureDefaultPackageSelection(dealRecordId: string): Promise<void
 
   const chosen = pickDefaultDealOption(rows, q?.selectedPackageOptionId ?? null);
   if (!chosen) return;
+  // Only a deal-specific package selection may persist a catalogue slug.
+  // A Festangebot has no such rows and must stay without one on accept.
+  const offerView = resolvePortalOfferView({
+    hasOffer: !!q,
+    fixedPriceCents: q && !q.isVariable && q.fixedPrice != null ? toCents(Number(q.fixedPrice)) : null,
+    isVariable: q?.isVariable ?? false,
+    dealOptionCount: rows.length,
+  });
+  if (!acceptanceMayWritePackageSlug(offerView)) return;
 
   const priceEur = (chosen.priceCents / 100).toFixed(2);
   const alreadyBound =
@@ -2262,11 +2273,28 @@ export async function selectPackageForToken(
     .limit(1);
   if (!pkg) return { ok: false, reason: "package_not_found" };
 
+  const optionRows = await db
+    .select({ id: quotationPackageOptions.id })
+    .from(quotationPackageOptions)
+    .where(eq(quotationPackageOptions.dealRecordId, link.dealRecordId));
   const [existingQ] = await db
-    .select({ id: quotations.id })
+    .select({ id: quotations.id, isVariable: quotations.isVariable, fixedPrice: quotations.fixedPrice })
     .from(quotations)
     .where(eq(quotations.dealRecordId, link.dealRecordId))
     .limit(1);
+  const offerView = resolvePortalOfferView({
+    hasOffer: !!existingQ,
+    fixedPriceCents:
+      existingQ && !existingQ.isVariable && existingQ.fixedPrice != null
+        ? toCents(Number(existingQ.fixedPrice))
+        : null,
+    isVariable: existingQ?.isVariable ?? false,
+    dealOptionCount: optionRows.length,
+  });
+  // Catalogue clicks must not overwrite a finished fixed price or attach its slug.
+  if (offerView === "festangebot" || offerView === "einzelangebot") {
+    return { ok: false, reason: "fixed_offer" };
+  }
 
   if (existingQ) {
     // Update existing quotation. Only touch fixed_price when the package
