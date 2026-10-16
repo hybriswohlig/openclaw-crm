@@ -42,6 +42,7 @@
     "@modelcontextprotocol/sdk": "1.12.1",
     "@neondatabase/serverless": "^0.10.0",
     "@openclaw-crm/customer-portal-core": "workspace:*",
+    "@openclaw-crm/document-templates": "workspace:*",
     "@openclaw-crm/shared": "workspace:*",
     "@radix-ui/react-avatar": "^1.1.0",
     "@radix-ui/react-checkbox": "^1.1.0",

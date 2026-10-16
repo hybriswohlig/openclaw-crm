@@ -420,6 +420,35 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
         }
       );
     }
+    case "crm_render_document": {
+      const copy = asBody(args.copy ?? args.document_copy);
+      return client.request(
+        `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/documents/render`,
+        {
+          method: "POST",
+          body: {
+            renderer: "crm",
+            documentType: str(args.documentType),
+            ...(copy && typeof copy === "object" ? { copy } : {}),
+            notifyCustomer: bool(args.notifyCustomer) === true,
+          },
+        }
+      );
+    }
+    case "crm_preview_document": {
+      const copy = asBody(args.copy ?? args.document_copy);
+      return client.request(
+        `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/documents/preview`,
+        {
+          method: "POST",
+          body: {
+            documentType: str(args.documentType),
+            format: "json",
+            ...(copy && typeof copy === "object" ? { copy } : {}),
+          },
+        }
+      );
+    }
     case "crm_get_deal_quotation":
       return client.request(
         `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/quotation`

@@ -552,7 +552,7 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_generate_document",
-    "Start a PDF render on the crm-tools VPS and return { job_id }. Async: poll crm_get_document_job until status=done, then crm_store_document_job to attach it to the deal. For a Kostenvoranschlag set params.document_type to 'KV' (store type quotation). Also supports AB and RE. params: { firma: 'kottke'|'ceylan', document_type: 'KV'|'AB'|'RE', service_type?: 'move'|'kitchen_installation'|'clearance' (clearance = Entrümpelung, mit Widerrufsrecht im Portal, PDF im Umzugs-Layout), kunde: {vorname,nachname,adresse,email}, auftrag: {strecke_von,strecke_nach,datum,volumen,besonderheiten}, preise: {...}, document_details?: {serviceType, kitchen, services, inventory, cardAgreed}, anweisung? }. Prices and paid amounts are rebuilt server-side from the deal quotation and payments. The kunde name is re-derived from the linked person.",
+    "Start a PDF render on the crm-tools VPS and return { job_id }. Async: poll crm_get_document_job until status=done, then crm_store_document_job to attach it to the deal. For a Kostenvoranschlag set params.document_type to 'KV' (store type quotation). Also supports AB and RE. params: { firma: 'kottke'|'ceylan', document_type: 'KV'|'AB'|'RE', service_type?: 'move'|'kitchen_installation'|'clearance' (clearance = Entrümpelung, mit Widerrufsrecht im Portal, PDF im Umzugs-Layout), kunde: {vorname,nachname,adresse,email}, auftrag: {strecke_von,strecke_nach,datum,volumen,besonderheiten}, preise: {...}, document_details?: {serviceType, kitchen, services, inventory, cardAgreed}, anweisung? }. Prices and paid amounts are rebuilt server-side from the deal quotation and payments. The kunde name is re-derived from the linked person. renderer defaults to vps. Pass renderer \"crm\" (or params.renderer) to render with the CRM template instead and store the PDF immediately; optional copy or params.document_copy is { intro, closing, remarks } plain text and does not change prices. notifyCustomer defaults to false on that path.",
     {
       recordId: z.string(),
       params: z.record(z.unknown()),
@@ -560,6 +560,10 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
         .enum(["rechnungen-und-auftragsbestaetigungen", "auftragsanweisung"])
         .optional(),
       imageAttachmentIds: z.array(z.string()).optional(),
+      renderer: z.enum(["vps", "crm"]).optional(),
+      documentType: z.enum(["KV", "AB", "RE"]).optional(),
+      copy: z.record(z.unknown()).optional(),
+      notifyCustomer: z.boolean().optional(),
     },
     req
   );
@@ -617,6 +621,31 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
       dataBase64: z
         .string()
         .describe("Standard base64 of the image. A data-URL prefix is stripped."),
+    },
+    req
+  );
+  tool(
+    server,
+    "crm_render_document",
+    "Render a KV, AB or RE PDF with the CRM template and store it on the deal. This opts into the new renderer; crm_generate_document without renderer still starts the VPS job. documentType is KV, AB or RE. Prices, positions, deposit, validity and payment method come only from the stored quotation; an AB uses the accepted snapshot when one exists. Customer, addresses and the service date come from the deal. Quotation notes are never printed. Optional copy or document_copy is { intro, closing, remarks } as plain text, at most 4000 characters each, and does not change prices. notifyCustomer defaults to false, so this sends no WhatsApp and no email. Returns the stored deal document and templateVersion.",
+    {
+      recordId: z.string(),
+      documentType: z.enum(["KV", "AB", "RE"]),
+      copy: z.record(z.unknown()).optional(),
+      document_copy: z.record(z.unknown()).optional(),
+      notifyCustomer: z.boolean().optional(),
+    },
+    req
+  );
+  tool(
+    server,
+    "crm_preview_document",
+    "HTML preview of the CRM template for a KV, AB or RE. Does not store a file and does not message the customer. documentType is KV, AB or RE. Optional copy or document_copy is { intro, closing, remarks } as plain text. Prices come from the stored quotation and quotation notes are never included. Returns { html, templateVersion, fileName, documentType }.",
+    {
+      recordId: z.string(),
+      documentType: z.enum(["KV", "AB", "RE"]),
+      copy: z.record(z.unknown()).optional(),
+      document_copy: z.record(z.unknown()).optional(),
     },
     req
   );

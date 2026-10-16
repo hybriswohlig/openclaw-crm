@@ -1430,11 +1430,22 @@ function DocumentsSection({
 
           return (
             <div key={docType} className="rounded-lg border border-border p-4">
-              <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center justify-between mb-3 gap-2">
                 <div className="flex items-center gap-2">
                   <FileText className="h-4 w-4 text-muted-foreground" />
                   <span className="text-sm font-medium">{DOC_TYPE_LABELS[docType]}</span>
                 </div>
+                <div className="flex items-center gap-2">
+                {docType === "quotation" || docType === "order_confirmation" || docType === "invoice" ? (
+                  <a
+                    href={`/api/v1/deals/${recordId}/documents/preview?documentType=${docType === "quotation" ? "KV" : docType === "order_confirmation" ? "AB" : "RE"}&format=html`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium border border-border hover:bg-muted"
+                  >
+                    Vorlage
+                  </a>
+                ) : null}
                 <label className="cursor-pointer">
                   <input
                     type="file"
@@ -1462,6 +1473,7 @@ function DocumentsSection({
                     Hochladen
                   </span>
                 </label>
+                </div>
               </div>
 
               {docs.length === 0 ? (
@@ -1583,6 +1595,15 @@ export function FinancialTab({ recordId }: { recordId: string }) {
   useEffect(() => {
     fetchAll();
   }, [fetchAll]);
+
+  useEffect(() => {
+    const onStored = (event: Event) => {
+      const detail = (event as CustomEvent<string>).detail;
+      if (!detail || detail === recordId) refresh();
+    };
+    window.addEventListener("crm-deal-document-stored", onStored);
+    return () => window.removeEventListener("crm-deal-document-stored", onStored);
+  }, [recordId]);
 
   function refresh() {
     setRefreshKey((k) => k + 1);

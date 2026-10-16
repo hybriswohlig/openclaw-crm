@@ -146,6 +146,13 @@ export function GenerateDocumentDialog({
   const [serviceType, setServiceType] = useState<ServiceType>(
     deal.serviceType ?? "move"
   );
+  // Opt-in CRM template. Unchecked keeps the VPS job.
+  const [useCrmRenderer, setUseCrmRenderer] = useState(false);
+  const [intro, setIntro] = useState("");
+  const [closing, setClosing] = useState("");
+  const [remarks, setRemarks] = useState("");
+  const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+  const [previewing, setPreviewing] = useState(false);
   const [kitchenAddress, setKitchenAddress] = useState(
     deal.auftrag.strecke_nach ?? ""
   );
@@ -272,6 +279,36 @@ export function GenerateDocumentDialog({
         .filter(Boolean)
         .join(" ");
       const trimmedAnweisung = anweisung.trim();
+      if (useCrmRenderer) {
+        const res = await fetch(
+          `/api/v1/deals/${deal.dealRecordId}/documents/render`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              renderer: "crm",
+              documentType,
+              copy: copyPayload(),
+              notifyCustomer: false,
+            }),
+          }
+        );
+        const json = (await res.json().catch(() => ({}))) as {
+          error?: { message?: string } | string;
+        };
+        if (!res.ok) {
+          const message =
+            typeof json.error === "string"
+              ? json.error
+              : json.error?.message || "CRM-Vorlage konnte nicht erzeugt werden.";
+          throw new Error(message);
+        }
+        window.dispatchEvent(
+          new CustomEvent("crm-deal-document-stored", { detail: deal.dealRecordId })
+        );
+        handleClose();
+        return;
+      }
       await startDocumentJob({
         skill: "rechnungen-und-auftragsbestaetigungen",
         params: {
@@ -323,8 +360,61 @@ export function GenerateDocumentDialog({
     }
   }
 
+  function copyPayload() {
+    const introText = intro.trim();
+    const closingText = closing.trim();
+    const remarksText = remarks.trim();
+    if (!introText && !closingText && !remarksText) return undefined;
+    return {
+      ...(introText ? { intro: introText } : {}),
+      ...(closingText ? { closing: closingText } : {}),
+      ...(remarksText ? { remarks: remarksText } : {}),
+    };
+  }
+
+  async function handlePreview(format: "html" | "pdf") {
+    setPreviewing(true);
+    setStartError(null);
+    try {
+      const res = await fetch(
+        `/api/v1/deals/${deal.dealRecordId}/documents/preview`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            documentType,
+            format,
+            copy: copyPayload(),
+          }),
+        }
+      );
+      if (!res.ok) {
+        const json = (await res.json().catch(() => ({}))) as {
+          error?: { message?: string } | string;
+        };
+        const message =
+          typeof json.error === "string"
+            ? json.error
+            : json.error?.message || "Vorschau fehlgeschlagen.";
+        throw new Error(message);
+      }
+      if (format === "pdf") {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        window.open(url, "_blank", "noopener");
+        return;
+      }
+      setPreviewHtml(await res.text());
+    } catch (e) {
+      setStartError((e as Error).message);
+    } finally {
+      setPreviewing(false);
+    }
+  }
+
   function handleClose() {
     setStartError(null);
+    setPreviewHtml(null);
     onClose();
   }
 
@@ -630,6 +720,73 @@ export function GenerateDocumentDialog({
             )}
           </div>
 
+          <div className="rounded border border-dashed border-gray-300 p-3 dark:border-gray-600">
+            <label className="flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={useCrmRenderer}
+                onChange={(e) => setUseCrmRenderer(e.target.checked)}
+              />
+              <span>
+                <span className="font-medium">Mit CRM-Vorlage speichern</span>
+                <span className="mt-1 block text-xs text-gray-500">
+                  Standard bleibt der bisherige Server. Ist das angehakt, erzeugt das CRM das PDF
+                  selbst. Preise, Anzahlung, Gültigkeit und Zahlungsart kommen aus dem gespeicherten
+                  Angebot, nicht aus den Feldern oben. Interne Notizen erscheinen nicht. Es geht keine
+                  Nachricht an den Kunden.
+                </span>
+              </span>
+            </label>
+            <div className="mt-3 space-y-2">
+              <label className="block text-sm">
+                <span className="text-gray-600">Einleitung (optional)</span>
+                <textarea
+                  value={intro}
+                  onChange={(e) => setIntro(e.target.value)}
+                  rows={2}
+                  className="mt-1 w-full rounded border px-2 py-1.5 text-sm"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="text-gray-600">Hinweise (optional)</span>
+                <textarea
+                  value={remarks}
+                  onChange={(e) => setRemarks(e.target.value)}
+                  rows={2}
+                  className="mt-1 w-full rounded border px-2 py-1.5 text-sm"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="text-gray-600">Schluss (optional)</span>
+                <textarea
+                  value={closing}
+                  onChange={(e) => setClosing(e.target.value)}
+                  rows={2}
+                  className="mt-1 w-full rounded border px-2 py-1.5 text-sm"
+                />
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => handlePreview("html")}
+                  disabled={previewing}
+                  className="rounded border px-3 py-1.5 text-xs"
+                >
+                  {previewing ? "Vorschau…" : "HTML-Vorschau"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handlePreview("pdf")}
+                  disabled={previewing}
+                  className="rounded border px-3 py-1.5 text-xs"
+                >
+                  PDF-Vorschau
+                </button>
+              </div>
+            </div>
+          </div>
+
           {startError && (
             <div className="rounded bg-red-50 p-3 text-sm text-red-900 dark:bg-red-900/20 dark:text-red-200">
               Start fehlgeschlagen: {startError}
@@ -637,9 +794,9 @@ export function GenerateDocumentDialog({
           )}
 
           <p className="text-xs text-gray-500">
-            Das PDF wird im Hintergrund erstellt (normalerweise unter 30
-            Sekunden). Sie können währenddessen weiterarbeiten; unten rechts
-            erscheint eine Meldung, sobald es fertig ist und am Lead hängt.
+            {useCrmRenderer
+              ? "Die CRM-Vorlage wird sofort gespeichert. Der Kunde wird nicht benachrichtigt."
+              : "Das PDF wird im Hintergrund erstellt (normalerweise unter 30 Sekunden). Sie können währenddessen weiterarbeiten; unten rechts erscheint eine Meldung, sobald es fertig ist und am Lead hängt."}
           </p>
 
           <div className="flex justify-end gap-2 pt-2">
@@ -651,11 +808,32 @@ export function GenerateDocumentDialog({
               disabled={submitting}
               className="rounded bg-blue-600 px-4 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {submitting ? "Wird gestartet…" : "PDF erstellen"}
+              {submitting
+                ? "Wird gestartet…"
+                : useCrmRenderer
+                  ? "Mit CRM-Vorlage speichern"
+                  : "PDF erstellen"}
             </button>
           </div>
         </div>
       </div>
+      {previewHtml && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
+          <div className="flex h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-lg bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b px-4 py-2">
+              <p className="text-sm font-medium">Vorschau der CRM-Vorlage</p>
+              <button
+                type="button"
+                onClick={() => setPreviewHtml(null)}
+                className="text-sm text-gray-500"
+              >
+                Schließen
+              </button>
+            </div>
+            <iframe title="Dokumentvorschau" className="h-full w-full bg-white" srcDoc={previewHtml} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -622,13 +622,36 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
       return client.request(
         `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/documents/${encodeURIComponent(str(args.documentId))}`
       );
-    case "crm_generate_document":
+    case "crm_generate_document": {
+      const params = asBody(args.params);
+      const paramObj =
+        params && typeof params === "object" && !Array.isArray(params)
+          ? (params as Record<string, unknown>)
+          : {};
+      const renderer = str(args.renderer || paramObj.renderer || "vps");
+      if (renderer === "crm") {
+        const copy = asBody(args.copy ?? paramObj.copy ?? paramObj.document_copy);
+        return client.request(
+          `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/documents/render`,
+          {
+            method: "POST",
+            body: {
+              renderer: "crm",
+              documentType: str(
+                args.documentType || paramObj.document_type || paramObj.documentType
+              ),
+              ...(copy && typeof copy === "object" ? { copy } : {}),
+              notifyCustomer: bool(args.notifyCustomer) === true,
+            },
+          }
+        );
+      }
       return client.request("/api/tools/run", {
         method: "POST",
         body: {
           skill: str(args.skill || "rechnungen-und-auftragsbestaetigungen"),
           params: {
-            ...(asBody(args.params) as Record<string, unknown> | undefined),
+            ...paramObj,
             _deal_record_id: str(args.recordId),
             ...(args.imageAttachmentIds !== undefined
               ? { _image_attachment_ids: args.imageAttachmentIds }
@@ -636,6 +659,36 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
           },
         },
       });
+    }
+    case "crm_render_document": {
+      const copy = asBody(args.copy ?? args.document_copy);
+      return client.request(
+        `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/documents/render`,
+        {
+          method: "POST",
+          body: {
+            renderer: "crm",
+            documentType: str(args.documentType),
+            ...(copy && typeof copy === "object" ? { copy } : {}),
+            notifyCustomer: bool(args.notifyCustomer) === true,
+          },
+        }
+      );
+    }
+    case "crm_preview_document": {
+      const copy = asBody(args.copy ?? args.document_copy);
+      return client.request(
+        `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/documents/preview`,
+        {
+          method: "POST",
+          body: {
+            documentType: str(args.documentType),
+            format: "json",
+            ...(copy && typeof copy === "object" ? { copy } : {}),
+          },
+        }
+      );
+    }
     case "crm_get_document_job":
       return client.request(
         `/api/tools/jobs/${encodeURIComponent(str(args.jobId))}`

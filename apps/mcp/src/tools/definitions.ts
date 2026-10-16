@@ -707,6 +707,60 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "crm_render_document",
+    description:
+      "Render a KV, AB or RE PDF with the CRM template and store it on the deal. This opts into the new renderer; crm_generate_document without renderer still starts the VPS job. documentType is KV, AB or RE. Prices, positions, deposit, validity and payment method come only from the stored quotation; an AB uses the accepted snapshot when one exists. Customer, addresses and the service date come from the deal. Quotation notes are never printed. Optional copy or document_copy is { intro, closing, remarks } as plain text, at most 4000 characters each, and does not change prices. notifyCustomer defaults to false, so this sends no WhatsApp and no email. Returns the stored deal document and templateVersion.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        recordId: { type: "string", description: "Deal record UUID" },
+        documentType: {
+          type: "string",
+          enum: ["KV", "AB", "RE"],
+          description: "KV, AB or RE",
+        },
+        copy: {
+          type: "object",
+          description: "Optional { intro, closing, remarks } plain text",
+        },
+        document_copy: {
+          type: "object",
+          description: "Alias of copy. Nested KV/AB/RE objects are accepted.",
+        },
+        notifyCustomer: {
+          type: "boolean",
+          description: "Default false. true opts in to the portal notifier for AB and RE only.",
+        },
+      },
+      required: ["recordId", "documentType"],
+    },
+  },
+  {
+    name: "crm_preview_document",
+    description:
+      "HTML preview of the CRM template for a KV, AB or RE. Does not store a file and does not message the customer. documentType is KV, AB or RE. Optional copy or document_copy is { intro, closing, remarks } as plain text. Prices come from the stored quotation and quotation notes are never included. Returns { html, templateVersion, fileName, documentType }.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        recordId: { type: "string", description: "Deal record UUID" },
+        documentType: {
+          type: "string",
+          enum: ["KV", "AB", "RE"],
+          description: "KV, AB or RE",
+        },
+        copy: {
+          type: "object",
+          description: "Optional { intro, closing, remarks } plain text",
+        },
+        document_copy: {
+          type: "object",
+          description: "Alias of copy. Nested KV/AB/RE objects are accepted.",
+        },
+      },
+      required: ["recordId", "documentType"],
+    },
+  },
+  {
     name: "crm_get_deal_quotation",
     description: "Quotation / offer data for a deal.",
     inputSchema: {
