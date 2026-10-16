@@ -13,7 +13,8 @@
  */
 
 import { z } from "zod";
-import { and, desc, eq, inArray, like, or } from "drizzle-orm";
+import { and, desc, eq, inArray, like } from "drizzle-orm";
+import { dealSurfacePhotoMessageMatch } from "@/services/deal-photos";
 import { db } from "@/db";
 import { inboxMessageAttachments, inboxMessages } from "@/db/schema/inbox";
 import { objects, attributes } from "@/db/schema/objects";
@@ -119,7 +120,8 @@ function mergeInventory(lists: string[][]): string[] {
 /**
  * Generate the customer-facing scope summary from the given deal photos.
  *
- * Accepts inbound customer images and operator portal-uploads. Batches when
+ * Accepts inbound customer images, operator portal-uploads, and internal
+ * agent photos (those stay off the customer portal). Batches when
  * more than 6 images / 8 MB are selected. Never throws.
  */
 export async function generateScopeFromPhotos(
@@ -144,10 +146,7 @@ export async function generateScopeFromPhotos(
         eq(inboxMessageAttachments.dealRecordId, dealRecordId),
         inArray(inboxMessageAttachments.id, attachmentIds),
         like(inboxMessageAttachments.mimeType, "image/%"),
-        or(
-          eq(inboxMessages.direction, "inbound"),
-          like(inboxMessages.externalMessageId, "portal-upload:%")
-        )
+        dealSurfacePhotoMessageMatch()
       )
     )
     .orderBy(desc(inboxMessageAttachments.createdAt));

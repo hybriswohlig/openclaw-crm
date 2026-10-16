@@ -23,6 +23,7 @@ import { db } from "@/db";
 import { and, asc, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import { agentEvents } from "@/db/schema/agent";
 import { fotosVormerken } from "@/services/inventar-fotos";
+import { excludeInternalPhotoMessages } from "@/services/deal-photos";
 import {
   inboxConversations,
   inboxMessages,
@@ -242,7 +243,9 @@ async function loadRecentMessages(conversationId: string): Promise<RecentMessage
       createdAt: inboxMessages.createdAt,
     })
     .from(inboxMessages)
-    .where(eq(inboxMessages.conversationId, conversationId))
+    .where(
+      and(eq(inboxMessages.conversationId, conversationId), excludeInternalPhotoMessages())
+    )
     // Neueste zuerst holen, dann wieder chronologisch drehen: aufsteigend mit
     // Limit hätte bei langen Chats die ältesten statt der neuesten geliefert.
     .orderBy(desc(inboxMessages.sentAt), desc(inboxMessages.createdAt))

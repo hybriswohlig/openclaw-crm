@@ -8,14 +8,18 @@ import {
 } from "@/db/schema/inbox";
 import { activityEvents } from "@/db/schema/activity";
 import { emitEvent } from "@/services/activity-events";
-import { and, desc, eq, inArray, like, or } from "drizzle-orm";
+import { dealSurfacePhotoMessageMatch } from "@/services/deal-photos";
+import { dealPhotoSource } from "@/lib/deal-photo-upload";
+import { and, desc, eq, inArray, like } from "drizzle-orm";
 
 /**
  * Portal photos for a deal.
  *
- * GET  — all inbound customer images + operator portal-uploads, with a
- *        `selected` flag from the newest AI-curation event (selection is
- *        for KI-Zusammenfassung only; the public portal shows every photo).
+ * GET  — inbound customer images, operator portal-uploads, and internal
+ *        agent photos (source "internal", not shown in the customer portal),
+ *        with a `selected` flag from the newest AI-curation event (selection
+ *        is for KI-Zusammenfassung only; the public portal shows customer
+ *        and portal-upload photos, never internal-photo:*).
  * PUT  — persist AI-selection attachment ids (activity event).
  * POST — multipart upload of operator-owned photos for the status portal.
  */
@@ -36,7 +40,7 @@ function invalidInput(code = "INVALID_INPUT") {
   return NextResponse.json({ error: { code } }, { status: 400 });
 }
 
-/** Inbound images + operator portal-uploads linked to the deal. */
+/** Inbound images, portal-uploads, and internal agent photos on the deal. */
 async function loadDealPortalPhotos(workspaceId: string, recordId: string) {
   return db
     .select({
@@ -55,10 +59,7 @@ async function loadDealPortalPhotos(workspaceId: string, recordId: string) {
         eq(inboxMessageAttachments.workspaceId, workspaceId),
         eq(inboxMessageAttachments.dealRecordId, recordId),
         like(inboxMessageAttachments.mimeType, "image/%"),
-        or(
-          eq(inboxMessages.direction, "inbound"),
-          like(inboxMessages.externalMessageId, "portal-upload:%")
-        )
+        dealSurfacePhotoMessageMatch()
       )
     )
     .orderBy(desc(inboxMessageAttachments.createdAt));
@@ -100,10 +101,8 @@ export async function GET(
       fileSize: r.fileSize,
       createdAt: r.createdAt.toISOString(),
       selected: selected.has(r.id),
-      source:
-        r.direction === "outbound" || (r.externalMessageId ?? "").startsWith("portal-upload:")
-          ? ("operator" as const)
-          : ("customer" as const),
+      source: dealPhotoSource(r),
+      customerVisible: dealPhotoSource(r) !== "internal",
     })),
   });
 }
@@ -133,7 +132,7 @@ export async function PUT(
   }
   const attachmentIds = rawIds;
 
-  // Ids must belong to this deal's portal photo pool (inbound or portal-upload).
+  // Ids must belong to this deal's photo pool (inbound, portal-upload, or internal).
   if (attachmentIds.length > 0) {
     const valid = await db
       .select({ id: inboxMessageAttachments.id })
@@ -145,10 +144,7 @@ export async function PUT(
           eq(inboxMessageAttachments.workspaceId, ctx.workspaceId),
           eq(inboxMessageAttachments.dealRecordId, recordId),
           like(inboxMessageAttachments.mimeType, "image/%"),
-          or(
-            eq(inboxMessages.direction, "inbound"),
-            like(inboxMessages.externalMessageId, "portal-upload:%")
-          )
+          dealSurfacePhotoMessageMatch()
         )
       );
     const validIds = new Set(valid.map((v) => v.id));

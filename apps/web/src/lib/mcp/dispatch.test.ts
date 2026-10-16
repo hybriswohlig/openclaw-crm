@@ -3,6 +3,7 @@ import { handleTool, type ToolContent } from "./dispatch";
 import type { CrmClient } from "./client";
 import { MAX_JSON_INLINE_BYTES, MAX_MCP_INLINE_BYTES_LIMIT } from "@/lib/attachment-content";
 import { jsonDealDocumentTooLargeMessage } from "@/lib/deal-document-upload";
+import { jsonDealPhotoTooLargeMessage } from "@/lib/deal-photo-upload";
 import type { AttachmentPayload } from "@/lib/attachment-content";
 
 /**
@@ -1214,5 +1215,50 @@ describe("crm_upload_deal_document", () => {
     expect(calls).toEqual([]);
     expect(result.isError).toBe(true);
     expect(textOf(result.content)).toContain(jsonDealDocumentTooLargeMessage());
+  });
+});
+
+describe("crm_upload_deal_photo", () => {
+  it("posts JSON base64 and does not notify the customer", async () => {
+    const { client, calls } = fakeClient();
+    const dataBase64 = Buffer.from([0xff, 0xd8, 0xff, 0xe0]).toString("base64");
+
+    const result = await handleTool(client, "crm_upload_deal_photo", {
+      dealId: "deal-1",
+      filename: "kueche.jpg",
+      contentType: "image/jpeg",
+      dataBase64,
+    });
+
+    expect(result.isError).toBeUndefined();
+    expect(calls).toEqual([
+      {
+        path: "/api/v1/deals/deal-1/photos",
+        options: {
+          method: "POST",
+          body: {
+            filename: "kueche.jpg",
+            contentType: "image/jpeg",
+            dataBase64,
+          },
+        },
+      },
+    ]);
+  });
+
+  it("refuses a photo over the JSON cap before calling the API", async () => {
+    const { client, calls } = fakeClient();
+    const dataBase64 = "A".repeat(Math.ceil((MAX_JSON_INLINE_BYTES + 1) / 3) * 4);
+
+    const result = await handleTool(client, "crm_upload_deal_photo", {
+      dealId: "deal-1",
+      filename: "zu-gross.jpg",
+      contentType: "image/jpeg",
+      dataBase64,
+    });
+
+    expect(calls).toEqual([]);
+    expect(result.isError).toBe(true);
+    expect(textOf(result.content)).toContain(jsonDealPhotoTooLargeMessage());
   });
 });

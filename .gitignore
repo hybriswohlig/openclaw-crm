@@ -58,8 +58,10 @@ apps/web/cleanup-notes.mjs
 apps/web/test-api-output.mjs
 apps/web/test-db.mjs
 
-# Reference photos
+# Reference photos (any photos/ dump). The deal photo API is source and stays tracked.
 photos/
+!apps/web/src/app/api/v1/deals/*/photos/
+!apps/web/src/app/api/v1/deals/*/photos/**
 
 # Misc
 *.log

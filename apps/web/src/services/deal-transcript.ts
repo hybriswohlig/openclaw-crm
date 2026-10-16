@@ -21,6 +21,7 @@ import {
 import { recordValues } from "@/db/schema/records";
 import { attributes } from "@/db/schema/objects";
 import { parseKleinanzeigenBody, isKleinanzeigenEmail } from "./inbox-kleinanzeigen";
+import { excludeInternalPhotoMessages } from "./deal-photos";
 
 export interface TranscriptMessage {
   id: string;
@@ -181,7 +182,8 @@ export async function getDealTranscript(
     .where(
       and(
         eq(inboxMessages.workspaceId, workspaceId),
-        inArray(inboxMessages.conversationId, convIds)
+        inArray(inboxMessages.conversationId, convIds),
+        excludeInternalPhotoMessages()
       )
     )
     .orderBy(asc(inboxMessages.sentAt), asc(inboxMessages.createdAt));

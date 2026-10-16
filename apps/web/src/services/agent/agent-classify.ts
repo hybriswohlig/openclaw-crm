@@ -21,6 +21,7 @@ import { getObjectBySlug } from "@/services/objects";
 import { getRecord } from "@/services/records";
 import { getDealStageSignals } from "@/services/deal-lifecycle";
 import { looksDeclined, isMoveDatePast } from "./agent-shared";
+import { excludeInternalPhotoMessages } from "@/services/deal-photos";
 
 const URGENCY = /(dringend|kurzfristig|schnellstmöglich|asap|diese woche|nächste woche|sofort|eilt|so schnell wie möglich)/i;
 const MAX_CLASSIFY_PER_TICK = 60;
@@ -164,7 +165,7 @@ async function classifyOne(
   const msgs = await db
     .select({ direction: inboxMessages.direction, body: inboxMessages.body })
     .from(inboxMessages)
-    .where(eq(inboxMessages.conversationId, conv.id))
+    .where(and(eq(inboxMessages.conversationId, conv.id), excludeInternalPhotoMessages()))
     .orderBy(desc(inboxMessages.sentAt), desc(inboxMessages.createdAt))
     .limit(8);
   const lastDirection = (msgs[0]?.direction as "inbound" | "outbound" | undefined) ?? null;

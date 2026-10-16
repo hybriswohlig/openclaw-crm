@@ -108,7 +108,8 @@ interface PortalPhoto {
   fileSize: number;
   createdAt: string;
   selected: boolean;
-  source?: "customer" | "operator";
+  source?: "customer" | "operator" | "internal";
+  customerVisible?: boolean;
 }
 
 interface ScopeResult {
@@ -1090,9 +1091,9 @@ export function StatusLinkWizard({
               {step === "fotos" && (
                 <div className="space-y-4">
                   <p className="text-sm text-muted-foreground">
-                    <strong className="font-medium text-foreground">Alle Fotos</strong>{" "}
-                    erscheinen im Status-Portal unter „Ihre Fotos“. Die Auswahl
-                    steuert nur die KI-Analyse (nicht die Portal-Anzeige).
+                    Kundenfotos und Portal-Uploads erscheinen im Status-Portal unter
+                    „Ihre Fotos“. Fotos mit dem Hinweis „nicht im Portal“ bleiben nur
+                    im Deal sichtbar. Die Auswahl steuert nur die KI-Analyse.
                   </p>
 
                   <div className="flex flex-wrap items-center gap-2">
@@ -1138,15 +1139,19 @@ export function StatusLinkWizard({
                     <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
                       {photos.map((photo) => {
                         const selected = selectedPhotoIds.includes(photo.id);
+                        const internalOnly =
+                          photo.source === "internal" || photo.customerVisible === false;
                         return (
                           <button
                             key={photo.id}
                             type="button"
                             aria-pressed={selected}
                             title={
-                              selected
-                                ? "Für KI ausgewählt (klicken zum Abwählen)"
-                                : "Nicht für KI — erscheint trotzdem im Portal"
+                              internalOnly
+                                ? "Nur intern im Deal — nicht im Kundenportal"
+                                : selected
+                                  ? "Für KI ausgewählt (klicken zum Abwählen)"
+                                  : "Nicht für KI — erscheint trotzdem im Portal"
                             }
                             onClick={() => togglePhoto(photo.id)}
                             className={cn(
@@ -1167,11 +1172,15 @@ export function StatusLinkWizard({
                                 <Check className="h-3 w-3" />
                               </span>
                             )}
-                            {photo.source === "operator" && (
+                            {internalOnly ? (
+                              <span className="absolute bottom-1 left-1 rounded bg-background/90 px-1 py-0.5 text-[9px] font-medium text-muted-foreground">
+                                nicht im Portal
+                              </span>
+                            ) : photo.source === "operator" ? (
                               <span className="absolute bottom-1 left-1 rounded bg-background/90 px-1 py-0.5 text-[9px] font-medium text-muted-foreground">
                                 intern
                               </span>
-                            )}
+                            ) : null}
                           </button>
                         );
                       })}

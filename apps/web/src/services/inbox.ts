@@ -20,6 +20,8 @@ import {
 import { createRecord, updateRecord } from "./records";
 import { extractDealInsights } from "./deal-insights";
 import { applyDealInsights } from "./deal-insights-apply";
+import { excludeInternalPhotoMessages } from "./deal-photos";
+import { isInternalPhotoCarrier } from "@/lib/deal-photo-upload";
 
 // ─── Channel account management ───────────────────────────────────────────────
 
@@ -334,7 +336,8 @@ export async function getMessages(conversationId: string, workspaceId: string) {
     .where(
       and(
         eq(inboxMessages.conversationId, conversationId),
-        eq(inboxMessages.workspaceId, workspaceId)
+        eq(inboxMessages.workspaceId, workspaceId),
+        excludeInternalPhotoMessages()
       )
     )
     .orderBy(inboxMessages.sentAt, inboxMessages.createdAt);
@@ -415,7 +418,13 @@ export async function getPersonMessages(workspaceId: string, conversationIds: st
     .from(inboxMessages)
     .innerJoin(inboxConversations, eq(inboxMessages.conversationId, inboxConversations.id))
     .innerJoin(channelAccounts, eq(inboxConversations.channelAccountId, channelAccounts.id))
-    .where(and(eq(inboxMessages.workspaceId, workspaceId), inArray(inboxMessages.conversationId, conversationIds)))
+    .where(
+      and(
+        eq(inboxMessages.workspaceId, workspaceId),
+        inArray(inboxMessages.conversationId, conversationIds),
+        excludeInternalPhotoMessages()
+      )
+    )
     .orderBy(inboxMessages.sentAt, inboxMessages.createdAt);
 
   const attRows = await db
@@ -455,7 +464,7 @@ export async function getAttachmentsForDeal(
   dealRecordId: string,
   workspaceId: string
 ) {
-  return db
+  const rows = await db
     .select({
       id: inboxMessageAttachments.id,
       fileName: inboxMessageAttachments.fileName,
@@ -464,8 +473,10 @@ export async function getAttachmentsForDeal(
       createdAt: inboxMessageAttachments.createdAt,
       conversationId: inboxMessageAttachments.conversationId,
       messageId: inboxMessageAttachments.messageId,
+      externalMessageId: inboxMessages.externalMessageId,
     })
     .from(inboxMessageAttachments)
+    .innerJoin(inboxMessages, eq(inboxMessages.id, inboxMessageAttachments.messageId))
     .where(
       and(
         eq(inboxMessageAttachments.workspaceId, workspaceId),
@@ -473,6 +484,12 @@ export async function getAttachmentsForDeal(
       )
     )
     .orderBy(desc(inboxMessageAttachments.createdAt));
+
+  return rows.map(({ externalMessageId, ...row }) => ({
+    ...row,
+    // Agent JSON uploads stay on the deal and are not shown in the customer portal.
+    customerVisible: !isInternalPhotoCarrier(externalMessageId),
+  }));
 }
 
 /**

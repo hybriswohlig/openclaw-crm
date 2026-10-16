@@ -37,6 +37,11 @@ describe("threadAggregatAbfrage (Ruling 15: nur gesendete Antworten)", () => {
     expect(abfrage.sql).toMatch(/max\("zeit"\)(?! filter)/);
   });
 
+  it("lässt interne Agent-Fotos aus dem Nachrichtenaggregat", () => {
+    expect(abfrage.params).toContain("internal-photo:%");
+    expect(abfrage.sql).toMatch(/not like/i);
+  });
+
   it("bleibt im Workspace", () => {
     expect(abfrage.params).toContain("ws-test");
     expect(abfrage.sql).toMatch(/"inbox_messages"\."workspace_id" = \$\d+/);
