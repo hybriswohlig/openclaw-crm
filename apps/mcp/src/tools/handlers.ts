@@ -8,6 +8,7 @@ import {
   jsonUploadDecodedBytes as photoDecodedBytes,
   oversizedJsonDealPhotoError,
 } from "../lib/deal-photo-upload.js";
+import { rejectOversizedInlineDocuments } from "../lib/whatsapp-inline-limit.js";
 
 type Args = Record<string, unknown>;
 
@@ -488,21 +489,71 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
           expiresInHours: num(args.expiresInHours),
         },
       });
-    case "crm_update_agent_draft":
+    case "crm_update_agent_draft": {
+      const attachments = asBody(args.attachments);
+      rejectOversizedInlineDocuments(attachments);
+      const body: Record<string, unknown> = {
+        action: args.action,
+        finalText: args.finalText,
+        humanApproved: bool(args.humanApproved),
+        approvedBy: args.approvedBy,
+        note: args.note,
+        overrideConsent: bool(args.overrideConsent),
+      };
+      if (attachments !== undefined) body.attachments = attachments;
+      if (args.bodyDelivery !== undefined) body.bodyDelivery = args.bodyDelivery;
+      if (args.idempotencyKey !== undefined) body.idempotencyKey = args.idempotencyKey;
       return client.request(
         `/api/v1/agent-drafts/${encodeURIComponent(str(args.draftId))}`,
-        {
-          method: "PATCH",
-          body: {
-            action: args.action,
-            finalText: args.finalText,
-            humanApproved: bool(args.humanApproved),
-            approvedBy: args.approvedBy,
-            note: args.note,
-            overrideConsent: bool(args.overrideConsent),
-          },
-        }
+        { method: "PATCH", body }
       );
+    }
+    case "crm_send_conversation_message": {
+      const attachments = asBody(args.attachments);
+      rejectOversizedInlineDocuments(attachments);
+      const body: Record<string, unknown> = {};
+      if (args.body !== undefined) body.body = args.body;
+      if (attachments !== undefined) body.attachments = attachments;
+      if (args.bodyDelivery !== undefined) body.bodyDelivery = args.bodyDelivery;
+      if (args.idempotencyKey !== undefined) body.idempotencyKey = args.idempotencyKey;
+      return client.request(
+        `/api/v1/inbox/conversations/${encodeURIComponent(str(args.conversationId))}/messages`,
+        { method: "POST", body }
+      );
+    }
+    case "crm_send_baileys_message": {
+      const attachments = asBody(args.attachments);
+      rejectOversizedInlineDocuments(attachments);
+      const body: Record<string, unknown> = {
+        channelAccountId: str(args.channelAccountId),
+        toPhone: str(args.toPhone),
+      };
+      if (args.body !== undefined) body.body = args.body;
+      if (args.customerName !== undefined) body.customerName = args.customerName;
+      if (args.dealRecordId !== undefined) body.dealRecordId = args.dealRecordId;
+      if (attachments !== undefined) body.attachments = attachments;
+      if (args.bodyDelivery !== undefined) body.bodyDelivery = args.bodyDelivery;
+      if (args.idempotencyKey !== undefined) body.idempotencyKey = args.idempotencyKey;
+      return client.request("/api/v1/inbox/whatsapp/send-baileys", {
+        method: "POST",
+        body,
+      });
+    }
+    case "crm_update_deal_inventory_item": {
+      const body: Record<string, unknown> = {};
+      if (args.moveFlag !== undefined) body.moveFlag = bool(args.moveFlag);
+      if (args.needsPhoto !== undefined) body.needsPhoto = bool(args.needsPhoto);
+      if (args.quantity !== undefined) body.quantity = num(args.quantity);
+      if (args.name !== undefined) body.name = args.name;
+      if (args.dismantlingOwner !== undefined) body.dismantlingOwner = args.dismantlingOwner;
+      if (args.assemblyOwner !== undefined) body.assemblyOwner = args.assemblyOwner;
+      if (args.abbau !== undefined) body.abbau = args.abbau;
+      if (args.aufbau !== undefined) body.aufbau = args.aufbau;
+      return client.request(
+        `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/inventory/${encodeURIComponent(str(args.itemId))}`,
+        { method: "PATCH", body }
+      );
+    }
 
     // Projekte
     case "crm_list_projects":

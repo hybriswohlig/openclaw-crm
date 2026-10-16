@@ -35,6 +35,15 @@ describe("leistungenText", () => {
     );
     expect(t).toBe("Team mit 3 Personen und Transporter, Anfahrt und alle Kilometer, Abbau und Aufbau von Bett mit Matratze und Esstisch, Halteverbotszone");
   });
+  it("bevorzugt explizite Firmen-Möbel und lässt den Satz weg, wenn der Kunde abbaut", () => {
+    const e = { positionen: [{ name: "Bett", menge: 1, volumenCbm: 1, zerlegt: true }] };
+    expect(
+      leistungenText(e, { positionen_freitext: [{ name: "Schrank", abbau: "company", aufbau: "none" }] })
+    ).toBe("Transporter mit Team, Anfahrt und alle Kilometer, Abbau und Aufbau von Schrank");
+    expect(
+      leistungenText(e, { positionen_freitext: [{ name: "Schrank", abbau: "customer", aufbau: "customer" }] })
+    ).toBe("Transporter mit Team, Anfahrt und alle Kilometer");
+  });
   it("ohne Details: nur das Grundsätzliche", () => {
     expect(leistungenText({}, {})).toBe("Transporter mit Team, Anfahrt und alle Kilometer");
   });

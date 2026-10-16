@@ -71,6 +71,7 @@ export const CRM_TOOL_NAMES = [
   "crm_list_deal_attachments",
   "crm_get_attachment",
   "crm_get_deal_inventory",
+  "crm_update_deal_inventory_item",
   "crm_get_deal_package_options",
   "crm_get_deal_offer_packages",
   "crm_get_deal_date_offers",
@@ -104,6 +105,8 @@ export const CRM_TOOL_NAMES = [
   "crm_get_agent_settings",
   "crm_create_agent_draft",
   "crm_update_agent_draft",
+  "crm_send_conversation_message",
+  "crm_send_baileys_message",
   // ── Projekte ──────────────────────────────────────────────────────
   "crm_list_projects",
   "crm_get_project",

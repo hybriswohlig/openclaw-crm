@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   sendBaileysReply: vi.fn(),
   sendWhatsAppReply: vi.fn(),
   sendEmailReply: vi.fn(),
+  documents: vi.fn(),
   setHumanOwned: vi.fn(),
   supersede: vi.fn(),
   updates: [] as Record<string, unknown>[],
@@ -50,14 +51,20 @@ vi.mock("@/services/inbox-whatsapp", () => {
   class BaileysBridgeError extends Error {
     status = 502;
   }
+  class BaileysMediaTooLargeError extends Error {}
   return {
     sendWhatsAppReply: (...args: unknown[]) => mocks.sendWhatsAppReply(...args),
     sendBaileysReply: (...args: unknown[]) => mocks.sendBaileysReply(...args),
     WhatsAppSessionExpiredError,
     BaileysBridgeNotConfiguredError,
     BaileysBridgeError,
+    BaileysMediaTooLargeError,
   };
 });
+
+vi.mock("@/services/baileys-document-send", () => ({
+  sendConversationDocuments: (...args: unknown[]) => mocks.documents(...args),
+}));
 
 vi.mock("@/services/agent/agent-gate", () => ({
   setHumanOwned: (...args: unknown[]) => mocks.setHumanOwned(...args),
@@ -71,12 +78,12 @@ import { POST } from "./route";
 
 const CONV = "6e9256ac-a253-4b4e-b49d-0a7845e9f940";
 
-function send(body: string) {
+function send(body: string | Record<string, unknown>) {
   return POST(
     new NextRequest(`https://crm.test/api/v1/inbox/conversations/${CONV}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ body }),
+      body: JSON.stringify(typeof body === "string" ? { body } : body),
     }),
     { params: Promise.resolve({ id: CONV }) }
   );
@@ -126,5 +133,49 @@ describe("POST conversation message", () => {
     expect(res.status).toBe(500);
     expect(mocks.supersede).not.toHaveBeenCalled();
     expect(mocks.setHumanOwned).not.toHaveBeenCalled();
+  });
+
+  it("rejects documents unless the thread is in-house Baileys", async () => {
+    mocks.limit.mockResolvedValue([
+      {
+        channelType: "email",
+        waPhoneNumberId: null,
+        baileysBridgeProvider: null,
+        dealRecordId: "deal-1",
+      },
+    ]);
+    const res = await send({
+      body: "siehe Anhang",
+      attachments: [{ dealDocumentId: "doc-1" }],
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.code).toBe("BAILEYS_DOCUMENTS_ONLY");
+    expect(mocks.documents).not.toHaveBeenCalled();
+    expect(mocks.sendEmailReply).not.toHaveBeenCalled();
+  });
+
+  it("sends a deal document on the Baileys thread and still takes the deal over", async () => {
+    mocks.documents.mockResolvedValue({
+      message: { id: "msg-doc" },
+      messages: [{ id: "msg-doc" }],
+      deduped: false,
+      conversationId: CONV,
+    });
+    const res = await send({
+      attachments: [{ dealDocumentId: "doc-1", filename: "Angebot.pdf" }],
+      idempotencyKey: "send-1",
+    });
+    expect(res.status).toBe(200);
+    expect(mocks.documents).toHaveBeenCalledWith({
+      conversationId: CONV,
+      workspaceId: "ws_kottke",
+      dealRecordId: "deal-1",
+      body: "",
+      attachments: [{ kind: "dealDocument", dealDocumentId: "doc-1", filename: "Angebot.pdf" }],
+      bodyDelivery: undefined,
+      idempotencyKey: "send-1",
+    });
+    expect(mocks.sendBaileysReply).not.toHaveBeenCalled();
+    expect(mocks.setHumanOwned).toHaveBeenCalledWith("ws_kottke", "deal-1", "usr_dario");
   });
 });

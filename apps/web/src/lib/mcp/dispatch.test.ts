@@ -162,6 +162,69 @@ describe("crm_update_agent_draft", () => {
     expect(body.humanApproved).toBeUndefined();
     expect(body.overrideConsent).toBeUndefined();
   });
+
+  it("forwards document attachments and refuses an inline file over 3 MB", async () => {
+    const { client, calls } = fakeClient();
+    await handleTool(client, "crm_update_agent_draft", {
+      draftId: "draft-3",
+      action: "approve_and_send",
+      attachments: JSON.stringify([{ dealDocumentId: "doc-1" }]),
+      bodyDelivery: "separate",
+      idempotencyKey: "k1",
+    });
+    expect(calls[0].options).toMatchObject({
+      method: "PATCH",
+      body: {
+        action: "approve_and_send",
+        attachments: [{ dealDocumentId: "doc-1" }],
+        bodyDelivery: "separate",
+        idempotencyKey: "k1",
+      },
+    });
+
+    const huge = "A".repeat(Math.ceil((MAX_JSON_INLINE_BYTES + 1) / 3) * 4);
+    const blocked = await handleTool(client, "crm_send_conversation_message", {
+      conversationId: "conv-1",
+      attachments: [{ filename: "big.pdf", contentType: "application/pdf", dataBase64: huge }],
+    });
+    expect(blocked.isError).toBe(true);
+    expect(textOf(blocked.content)).toMatch(/dealDocumentId/);
+    expect(calls).toHaveLength(1);
+  });
+});
+
+describe("crm_send_baileys_message and inventory owners", () => {
+  it("posts the opening send and the inventory patch", async () => {
+    const { client, calls } = fakeClient();
+    await handleTool(client, "crm_send_baileys_message", {
+      channelAccountId: "ch-1",
+      toPhone: "+491701234567",
+      dealRecordId: "deal-1",
+      attachments: [{ dealDocumentId: "doc-1" }],
+    });
+    expect(calls[0].path).toBe("/api/v1/inbox/whatsapp/send-baileys");
+    expect(calls[0].options).toMatchObject({
+      method: "POST",
+      body: {
+        channelAccountId: "ch-1",
+        toPhone: "+491701234567",
+        dealRecordId: "deal-1",
+        attachments: [{ dealDocumentId: "doc-1" }],
+      },
+    });
+
+    await handleTool(client, "crm_update_deal_inventory_item", {
+      recordId: "deal 1",
+      itemId: "item/2",
+      abbau: "company",
+      aufbau: "customer",
+    });
+    expect(calls[1].path).toBe("/api/v1/deals/deal%201/inventory/item%2F2");
+    expect(calls[1].options).toMatchObject({
+      method: "PATCH",
+      body: { abbau: "company", aufbau: "customer" },
+    });
+  });
 });
 
 describe("crm_generate_document", () => {

@@ -842,7 +842,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "crm_update_agent_draft",
     description:
-      "Update one AI agent draft. draftId is required. action approve_and_send claims a pending draft, re-checks the send-time gate and the price filter, then sends. Pass humanApproved true when a human explicitly approved (optional approvedBy and note are stored on the draft and in the audit log). humanApproved lifts only the auto-send gates human_owned and ai_paused; it does not clear ai_paused or human_owned on the conversation or deal. price_leak, expired, not_pending, and session or send errors still block. no_proactive_consent stays blocking unless overrideConsent true is also set together with humanApproved; that consent override is stored and logged, and overrideConsent alone does nothing. action dismiss closes a pending draft, or a send_uncertain one, without sending. action mark_taken and mark_sent_manually close a pending draft as superseded without sending (use after a human already replied). dismiss and mark_taken are idempotent: an already closed draft returns updated true.",
+      "Update one AI agent draft. draftId is required. action approve_and_send claims a pending draft, re-checks the send-time gate and the price filter, then sends. Pass humanApproved true when a human explicitly approved (optional approvedBy and note are stored on the draft and in the audit log). humanApproved lifts only the auto-send gates human_owned and ai_paused; it does not clear ai_paused or human_owned on the conversation or deal. price_leak, expired, not_pending, and session or send errors still block. no_proactive_consent stays blocking unless overrideConsent true is also set together with humanApproved; that consent override is stored and logged, and overrideConsent alone does nothing. action dismiss closes a pending draft, or a send_uncertain one, without sending. action mark_taken and mark_sent_manually close a pending draft as superseded without sending (use after a human already replied). dismiss and mark_taken are idempotent: an already closed draft returns updated true. approve_and_send also accepts optional attachments, each either inline {filename, contentType, dataBase64} (decoded at most 3 MB) or {dealDocumentId} read from deal storage, plus bodyDelivery caption or separate and idempotencyKey. Attachments go out as WhatsApp documents on the in-house Baileys bridge only. They do not lift price_leak, consent, humanApproved or any other gate; the text is still price-filtered before anything is sent.",
     inputSchema: {
       type: "object",
       properties: {
@@ -863,8 +863,76 @@ export const TOOLS: ToolDef[] = [
         approvedBy: { type: "string" },
         note: { type: "string" },
         overrideConsent: { type: "boolean" },
+        attachments: {
+          description:
+            "WhatsApp documents: {filename, contentType, dataBase64} or {dealDocumentId}",
+        },
+        bodyDelivery: { type: "string", enum: ["caption", "separate"] },
+        idempotencyKey: { type: "string" },
       },
       required: ["draftId", "action"],
+    },
+  },
+  {
+    name: "crm_send_conversation_message",
+    description:
+      "Send a message on an existing inbox conversation. conversationId is required. body is the text and may be empty when attachments are present. Optional attachments are WhatsApp documents through the in-house Baileys bridge only. Each attachment is either inline {filename, contentType, dataBase64} or {dealDocumentId}. dataBase64 is standard base64, a data-URL prefix is stripped, and the decoded file must be at most 3 MB (3145728 bytes). A larger PDF must already be stored on the deal and passed as dealDocumentId so the server reads it from storage. bodyDelivery is caption (text on the first document, at most 1024 characters) or separate (its own text message). When bodyDelivery is omitted, a short or empty body is the caption and a longer body is sent as a separate text. idempotencyKey is 1 to 200 characters of letters, digits, dot, colon, underscore or hyphen and returns the earlier send instead of delivering again. The same document bytes to the same conversation are also skipped for 10 minutes. WABA, email and OpenClaw reject attachments with BAILEYS_DOCUMENTS_ONLY. A successful send pauses the AI on that thread, supersedes pending drafts, and marks the deal human-owned, the same as a text reply.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        conversationId: { type: "string" },
+        body: { type: "string" },
+        attachments: {
+          description:
+            "Array of {filename, contentType, dataBase64} or {dealDocumentId}",
+        },
+        bodyDelivery: { type: "string", enum: ["caption", "separate"] },
+        idempotencyKey: { type: "string" },
+      },
+      required: ["conversationId"],
+    },
+  },
+  {
+    name: "crm_send_baileys_message",
+    description:
+      "Open or reuse a personal WhatsApp conversation on an in-house Baileys channel and send a first message. channelAccountId and toPhone are required. body is optional when attachments are present. customerName and dealRecordId are optional. Attachments are WhatsApp documents: inline {filename, contentType, dataBase64} or {dealDocumentId}. dealDocumentId is read from that deal, so dealRecordId is required for it. Inline dataBase64 must decode to at most 3 MB; larger PDFs are stored on the deal first. bodyDelivery caption or separate matches crm_send_conversation_message, and a caption longer than 1024 characters is rejected. idempotencyKey and a 10-minute identical-document dedupe stop a double send. A successful send supersedes pending drafts on the new conversation and on dealRecordId.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        channelAccountId: { type: "string" },
+        toPhone: { type: "string" },
+        body: { type: "string" },
+        customerName: { type: "string" },
+        dealRecordId: { type: "string" },
+        attachments: {
+          description:
+            "Array of {filename, contentType, dataBase64} or {dealDocumentId}",
+        },
+        bodyDelivery: { type: "string", enum: ["caption", "separate"] },
+        idempotencyKey: { type: "string" },
+      },
+      required: ["channelAccountId", "toPhone"],
+    },
+  },
+  {
+    name: "crm_update_deal_inventory_item",
+    description:
+      "Update one inventory row on a deal. recordId and itemId are required. Only the fields you pass change. moveFlag and needsPhoto are booleans. quantity is an integer of at least 1. name is a non-empty string. dismantlingOwner and assemblyOwner, or the German aliases abbau and aufbau, are company, customer or none. company means we dismantle or assemble that piece, customer means the customer does it, none means it is not part of the job. Pass the English field or the German alias, not both with different values. An invalid value rejects the whole update and writes nothing. Setting either owner to company also marks the row as needing disassembly. Every accepted change stamps source operator and recalculates the deal, so Abbau and Aufbau flow into the quotation.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        recordId: { type: "string" },
+        itemId: { type: "string" },
+        moveFlag: { type: "boolean" },
+        needsPhoto: { type: "boolean" },
+        quantity: { type: "number" },
+        name: { type: "string" },
+        dismantlingOwner: { type: "string", enum: ["company", "customer", "none"] },
+        assemblyOwner: { type: "string", enum: ["company", "customer", "none"] },
+        abbau: { type: "string", enum: ["company", "customer", "none"] },
+        aufbau: { type: "string", enum: ["company", "customer", "none"] },
+      },
+      required: ["recordId", "itemId"],
     },
   },
 
