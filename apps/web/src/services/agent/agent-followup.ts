@@ -44,7 +44,8 @@ import {
   getDealStageId,
   leaksPriceOrCommitment,
   isAgentSuppressed,
-  OPT_OUT_LINE,
+  mitOptOutZeile,
+  ladeGespeicherteAnrede,
   type AgentChannelRow,
 } from "./agent-shared";
 // Phase-1 SHADOW instrumentation: every call below is additive-only, catches
@@ -382,8 +383,9 @@ async function runForWorkspace(
       // Humanize the nudge (crm-tools humanizer-de) and add the AI disclosure if
       // the agent has not yet sent a customer message on this deal. Brand is
       // routed by the conversation's channel company. The opt-out line is only
-      // appended when the owner enabled it (OFF by default = human test tone);
-      // an inbound STOP is honored regardless.
+      // appended when the owner enabled it (OFF by default = human test tone)
+      // and matches the message's form of address. An inbound STOP is honored
+      // regardless.
       const isFirst = !(await agentHasSentCustomerMessage(workspaceId, conv.dealRecordId));
       const brand = await resolveBrandSignature(
         workspaceId,
@@ -396,7 +398,15 @@ async function runForWorkspace(
         disclosure,
         discloseAi && isFirst
       );
-      const message = optOutLine ? `${base}\n\n${OPT_OUT_LINE}` : base;
+      const message = optOutLine
+        ? mitOptOutZeile(
+            base,
+            await ladeGespeicherteAnrede({
+              dealRecordId: conv.dealRecordId,
+              conversationId: conv.id,
+            })
+          )
+        : base;
       const mode = dryRun ? "dry_run" : "live";
 
       // Shadow: the legacy engine has fully decided to nudge. In dry-run it

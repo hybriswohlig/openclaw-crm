@@ -7,7 +7,8 @@
 
 import { db } from "@/db";
 import { and, eq, inArray } from "drizzle-orm";
-import { agentSuppressions } from "@/db/schema/agent";
+import { agentSuppressions, dealAgentState } from "@/db/schema/agent";
+import { inboxConversations } from "@/db/schema/inbox";
 import { canonicalizePhone, canonicalizeEmail } from "@/lib/identity/canonical";
 
 // Conservative: only clear, unambiguous declines, to avoid silencing real leads.
@@ -48,13 +49,148 @@ export function leaksPriceOrCommitment(text: string | null | undefined): boolean
 
 // ─── Opt-out line (shared) ───────────────────────────────────────────────────
 /**
- * Deterministic opt-out line appended to every proactive (business-initiated)
- * agent message: the first-contact opener and every follow-up nudge. Du-form to
- * match the casual register. An objection is absolute (Art. 21 DSGVO), so the
- * wording must make declining trivial.
+ * Deterministic opt-out line for proactive (business-initiated) agent messages:
+ * the first-contact opener and every follow-up nudge. An objection is absolute
+ * (Art. 21 DSGVO), so the wording must make declining trivial. The line follows
+ * the message's form of address; when that is unclear it stays Sie.
+ * OPT_OUT_LINE remains the Du wording for existing imports. Append via
+ * mitOptOutZeile so the form and the duplicate check stay in one place.
  */
-export const OPT_OUT_LINE =
+export const OPT_OUT_LINE_DU =
   "PS: Wenn du keine Nachrichten mehr von uns willst, antworte einfach mit STOP.";
+export const OPT_OUT_LINE_SIE =
+  "PS: Wenn Sie keine Nachrichten mehr von uns wünschen, antworten Sie einfach mit STOP.";
+export const OPT_OUT_LINE = OPT_OUT_LINE_DU;
+
+export type AnredeForm = "du" | "sie";
+
+/** Stored form of address, when a conversation or deal has one. */
+export interface OptOutAnredeQuellen {
+  konversation?: string | null;
+  deal?: string | null;
+}
+
+export function normalisiereAnrede(wert: unknown): AnredeForm | null {
+  if (typeof wert !== "string") return null;
+  const v = wert.trim().toLowerCase();
+  if (v === "du" || v === "sie") return v;
+  return null;
+}
+
+// Du: the pronouns the user named (du/dir/dein and their inflections) plus the
+// 2nd-person verbs and plural "ihr könnt". A bare lowercase "ihr" is not enough
+// ("ich helfe ihr" is third person).
+const DU_PRONOMEN =
+  /\b(du|dich|dir|dein(?:e(?:n|m|r|s)?)?|deins|euch|euer|eure(?:n|m|r|s)?)\b/i;
+const DU_VERB = /\b(kannst|könnt|habt|seid|wollt|hast|bist|willst|musst|dürft|sollt|müsst)\b/i;
+const IHR_DU = /\bihr\s+(?:könnt|habt|seid|wollt|dürft|sollt|müsst|wisst)\b/i;
+
+// Sie: capital (or all-caps) Sie/Ihnen/Ihr. Sentence-initial "Sie sind …" is
+// "they", not an address, so a bare "Sie" only counts mid-sentence or in a
+// verb-first question ("Können Sie"). "Ihr Angebot" is formal, including at
+// the start of a sentence; "Ihr könnt" is the informal plural.
+const SIE_IHNEN = /\b(?:Ihnen|IHNEN)\b/;
+const SIE_MITTE = /(?:[^.!?\n]\s)(?:Sie|SIE)\b/;
+const SIE_FRAGE =
+  /^(?:Können|Könnten|Haben|Sind|Würden|Wären|Hätten|Möchten|Dürfen|Sollen|Werden|Wollen)\s+(?:Sie|SIE)\b/m;
+const SIE_IHR =
+  /\b(?:Ihr(?:e(?:m|n|r|s)?|es)?|IHRE(?:M|N|R|S)?|IHR)\b(?!\s+(?:könnt|habt|seid|wollt|dürft|sollt|müsst|wisst|KÖNNT|HABT|SEID|WOLLT|DÜRFT|SOLLT|MÜSST|WISST)\b)/;
+
+function hatDu(text: string): boolean {
+  return DU_PRONOMEN.test(text) || DU_VERB.test(text) || IHR_DU.test(text);
+}
+
+function hatSie(text: string): boolean {
+  return SIE_IHNEN.test(text) || SIE_MITTE.test(text) || SIE_FRAGE.test(text) || SIE_IHR.test(text);
+}
+
+/**
+ * Form of address in one message. Null when the text has no clear signal
+ * (then the caller falls back to a stored setting, and finally to Sie).
+ * Both signals at once count as doubt and resolve to Sie.
+ */
+export function erkenneAnrede(text: string | null | undefined): AnredeForm | null {
+  if (!text) return null;
+  const sie = hatSie(text);
+  const du = hatDu(text);
+  if (sie && du) return "sie";
+  if (sie) return "sie";
+  if (du) return "du";
+  return null;
+}
+
+/** Text signal wins. Otherwise a stored conversation or deal form. Conflict or silence → Sie. */
+export function anredeFuerOptOut(text: string, quellen?: OptOutAnredeQuellen | null): AnredeForm {
+  const ausText = erkenneAnrede(text);
+  if (ausText) return ausText;
+  const konv = normalisiereAnrede(quellen?.konversation);
+  const deal = normalisiereAnrede(quellen?.deal);
+  if (konv && deal && konv !== deal) return "sie";
+  return konv ?? deal ?? "sie";
+}
+
+export function optOutZeile(anrede: AnredeForm): string {
+  return anrede === "du" ? OPT_OUT_LINE_DU : OPT_OUT_LINE_SIE;
+}
+
+/** A STOP hint is the word STOP/STOPP, not a substring such as "Stopover". */
+export function textHatStopHinweis(text: string): boolean {
+  return /\bstop+\b/i.test(text);
+}
+
+/**
+ * Append the opt-out line in the matching form. Does nothing when the text
+ * already contains a STOP hint, so the line is never doubled. Callers decide
+ * whether a footer is required at all (proactive class + opt-out setting).
+ */
+export function mitOptOutZeile(text: string, quellen?: OptOutAnredeQuellen | null): string {
+  if (textHatStopHinweis(text)) return text;
+  const basis = text.replace(/\s+$/u, "");
+  if (!basis.trim()) return text;
+  return `${basis}\n\n${optOutZeile(anredeFuerOptOut(basis, quellen))}`;
+}
+
+function registerAusAgentState(state: unknown): string | null {
+  if (!state || typeof state !== "object") return null;
+  const register = (state as { register?: unknown }).register;
+  return typeof register === "string" ? register : null;
+}
+
+/**
+ * Stored form of address, if one was saved. Deal: deal_agent_state.register.
+ * Conversation: inbox agent_state.register. Missing rows and DB errors yield
+ * empty sources (the footer then follows the text, or Sie).
+ */
+export async function ladeGespeicherteAnrede(input: {
+  dealRecordId?: string | null;
+  conversationId?: string | null;
+}): Promise<OptOutAnredeQuellen> {
+  try {
+    const [deal, conv] = await Promise.all([
+      input.dealRecordId
+        ? db
+            .select({ register: dealAgentState.register })
+            .from(dealAgentState)
+            .where(eq(dealAgentState.dealRecordId, input.dealRecordId))
+            .limit(1)
+        : Promise.resolve([]),
+      input.conversationId
+        ? db
+            .select({ agentState: inboxConversations.agentState })
+            .from(inboxConversations)
+            .where(eq(inboxConversations.id, input.conversationId))
+            .limit(1)
+        : Promise.resolve([]),
+    ]);
+    return {
+      deal: deal[0]?.register ?? null,
+      konversation: registerAusAgentState(conv[0]?.agentState),
+    };
+  } catch (err) {
+    console.error("[agent-suppress] ladeGespeicherteAnrede failed (footer falls back to the text):", err);
+    return {};
+  }
+}
 
 // ─── Per-person suppression list (opt-out across all engines) ────────────────
 /**

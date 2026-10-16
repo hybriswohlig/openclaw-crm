@@ -64,7 +64,8 @@ import {
   resolveBrandSignature,
   getDecidedStageIds,
   getDealStageId,
-  OPT_OUT_LINE,
+  mitOptOutZeile,
+  ladeGespeicherteAnrede,
   isAgentSuppressed,
   leaksPriceOrCommitment,
 } from "./agent-shared";
@@ -1084,8 +1085,14 @@ async function runEnabledWorkspace(
       const humanized = saeubern(sanitized, stimme);
       let outgoing = withDisclosure(appendSignature(humanized, fcSignature), disclosure, discloseAi);
       // Opt-out line only when the owner enabled it (default OFF = human test
-      // tone). An inbound STOP is honored regardless of this flag.
-      if (optOutLine) outgoing = `${outgoing}\n\n${OPT_OUT_LINE}`;
+      // tone). The wording follows the opener's form of address. An inbound
+      // STOP is honored regardless of this flag.
+      if (optOutLine) {
+        outgoing = mitOptOutZeile(
+          outgoing,
+          await ladeGespeicherteAnrede({ dealRecordId: lead.recordId })
+        );
+      }
 
       // Shadow: final legacy decision is "send the opener" (dry-run still
       // counts as would-send; a transport failure below does not change the

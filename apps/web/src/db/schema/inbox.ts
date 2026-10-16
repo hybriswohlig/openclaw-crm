@@ -214,6 +214,11 @@ export interface AgentConversationState {
   nextAction?: string;
   /** ISO timestamp of the last classification. */
   classifiedAt: string;
+  /**
+   * Stored form of address for this thread ('sie' | 'du'). Absent means unset.
+   * The opt-out footer reads it when the outgoing text itself has no pronoun.
+   */
+  register?: "du" | "sie" | null;
 }
 
 export const inboxConversations = pgTable(

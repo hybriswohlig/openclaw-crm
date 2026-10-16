@@ -97,7 +97,8 @@ export const dealAgentState = pgTable(
     stopReason: text("stop_reason"),
     // ── Conversation register ───────────────────────────────────────────────
     language: text("language").notNull().default("de"),
-    // 'sie' | 'du' — locked to how the customer writes; checked on drafts.
+    // 'sie' | 'du' — locked to how the customer writes. The opt-out footer
+    // uses this when the outgoing text has no clear pronoun.
     register: text("register"),
     // WhatsApp 24h customer-service window (WABA; informational on Baileys).
     windowExpiresAt: timestamp("window_expires_at"),

@@ -7,6 +7,8 @@ import {
   type CustomerPortalContext,
   type OfferAcceptanceBlockReason,
 } from "@openclaw-crm/customer-portal-core";
+import { portalOfferView } from "./portal-presentation";
+import { FestangebotView } from "./festangebot-view";
 
 /** "termin_offen": Umzug ohne festen Termin und ohne Terminangebot. */
 type AnnahmeBlock = OfferAcceptanceBlockReason | "termin_offen";
@@ -86,7 +88,15 @@ export function StageOneKva({
     );
   }
 
-  const hasMultipleOffers = (ctx.dealPackageOffers.options.length || ctx.packages.available.length) > 1;
+  const offerView = portalOfferView(ctx);
+  if (offerView === "festangebot" && ctx.kva) {
+    return <FestangebotView token={token} ctx={ctx} onConfirmed={onConfirmed} />;
+  }
+
+  const hasMultipleOffers =
+    offerView === "paketauswahl"
+      ? ctx.dealPackageOffers.options.length > 1
+      : offerView === "allgemeine_pakete" && ctx.packages.available.length > 1;
   const alreadyAccepted = !!ctx.acceptance;
   const offerExpired = expired && !alreadyAccepted;
   const hasOpenDateChoice =
@@ -122,11 +132,11 @@ export function StageOneKva({
           <div aria-live="polite" className="empty:hidden">{alreadyAccepted && <section className="portal-panel"><PanelHeading icon={CheckCircle2} title="Ihr Angebot wurde angenommen"><p>Vielen Dank für Ihr Vertrauen. Ihre Auftragsbestätigung erscheint hier, sobald sie bereitsteht.</p></PanelHeading><p className="text-sm text-muted-foreground">{acceptedOptionName ?? "Ihr Angebot"} · {formatPortalMoney(displayTotalCents)} · Angenommen am {new Date(ctx.acceptance!.signedAt).toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" })}</p>{ctx.acceptance!.widerrufModus === "belehrung" && <p className="mt-2 text-sm"><a href={`/legal/widerruf/${ctx.branding.firmaSlug}`} target="_blank" rel="noopener noreferrer" className="font-medium underline underline-offset-2">Widerrufsbelehrung und Muster-Widerrufsformular</a></p>}{ctx.features?.payments === true && ctx.payment && ctx.payment.amountCents > 0 && <p className="mt-2 text-sm text-muted-foreground">Die Angaben zur vereinbarten Anzahlung finden Sie weiter unten.</p>}</section>}</div>
           {ctx.dateOffers.options.length > 0 && <DateOfferPicker token={token} ctx={ctx} onPicked={onConfirmed} locked={alreadyAccepted} />}
           <section className="portal-panel">
-            <div className="portal-offer-intro"><PanelHeading icon={FileText} title={(ctx.dealPackageOffers.options.length || ctx.packages.available.length) > 1 ? "Unsere Angebote für Sie" : "Ihr persönliches Angebot"}>
-              <p>{(ctx.dealPackageOffers.options.length || ctx.packages.available.length) > 1 ? "Wir haben die Optionen für Ihren Umzug erstellt. Wählen Sie das passende Angebot für sich aus." : "Hier finden Sie Ihr Angebot mit allen vereinbarten Leistungen für Ihren Umzug."}</p>
+            <div className="portal-offer-intro"><PanelHeading icon={FileText} title={hasMultipleOffers ? "Unsere Angebote für Sie" : "Ihr persönliches Angebot"}>
+              <p>{hasMultipleOffers ? "Wir haben die Optionen für Ihren Umzug erstellt. Wählen Sie das passende Angebot für sich aus." : "Hier finden Sie Ihr Angebot mit allen vereinbarten Leistungen für Ihren Umzug."}</p>
             </PanelHeading><span>Auftragsnummer: <strong>{ctx.dealNumber}</strong></span></div>
-            <PackageSelector token={token} packages={ctx.packages} dealOffers={ctx.dealPackageOffers} branding={ctx.branding} locked={alreadyAccepted} onPicked={onConfirmed} />
-            {ctx.dealPackageOffers.options.length === 0 && ctx.packages.available.length === 0 && ctx.kva && <div className="portal-note rounded-lg p-5"><strong>{ctx.kva.isVariable ? "Individuelles Angebot nach Aufwand" : "Ihr individuelles Angebot"}</strong><div className="portal-price text-4xl">{formatPortalMoney(displayTotalCents)}</div>{ctx.kva.summary && <p className="mt-3 whitespace-pre-line">{ctx.kva.summary}</p>}</div>}
+            {offerView !== "einzelangebot" && <PackageSelector token={token} packages={ctx.packages} dealOffers={ctx.dealPackageOffers} branding={ctx.branding} locked={alreadyAccepted} onPicked={onConfirmed} />}
+            {offerView === "einzelangebot" && ctx.kva && <div className="portal-note rounded-lg p-5"><strong>{ctx.kva.isVariable ? "Individuelles Angebot nach Aufwand" : "Ihr individuelles Angebot"}</strong><div className="portal-price text-4xl">{formatPortalMoney(displayTotalCents)}</div>{ctx.kva.summary && <p className="mt-3 whitespace-pre-line">{ctx.kva.summary}</p>}</div>}
           </section>
           {ctx.kva && !alreadyAccepted && <MobilePriceDetails ctx={ctx} expired={offerExpired} displayTotalCents={displayTotalCents} selectedOptionName={defaultOption?.displayName ?? null} />}
           <QuotationPreview ctx={ctx} token={token} />
@@ -138,7 +148,7 @@ export function StageOneKva({
           {alreadyAccepted && ctx.features?.payments === true && ctx.payment && ctx.payment.amountCents > 0 && <PaymentSection token={token} payment={ctx.payment} branding={ctx.branding} variant="deposit" markedPaidAt={ctx.customerSignals.markedPaidDepositAt} />}
         </div>
         <aside className="portal-stack">
-          <div className="hidden lg:block">{ctx.kva ? <PriceCard ctx={ctx} alreadyAccepted={alreadyAccepted} displayTotalCents={displayTotalCents} selectedOptionName={acceptedOptionName ?? ctx.packages.available.find(p => p.slug === ctx.packages.selectedSlug)?.displayName ?? null} acceptBlock={alreadyAccepted ? null : acceptBlock} expired={offerExpired} onAccept={() => setOpen(true)} /> : <ChooseOfferPrompt branding={ctx.branding} />}</div>
+          <div className="hidden lg:block">{ctx.kva ? <PriceCard ctx={ctx} alreadyAccepted={alreadyAccepted} displayTotalCents={displayTotalCents} selectedOptionName={acceptedOptionName} acceptBlock={alreadyAccepted ? null : acceptBlock} expired={offerExpired} onAccept={() => setOpen(true)} /> : <ChooseOfferPrompt branding={ctx.branding} />}</div>
           {(ctx.dealPackageOffers.options.length || ctx.packages.available.length) > 1 && !alreadyAccepted && <div className="portal-panel portal-note"><PanelHeading icon={Info} title="Hinweis" /><p>Sie können zwischen den Angeboten wechseln. Der angezeigte Kostenvoranschlag passt sich Ihrer Auswahl an.</p></div>}
           {!hasMultipleOffers && <div className="hidden lg:block"><OrderDetails ctx={ctx} token={token} /></div>}
           <ContactPanel ctx={ctx} token={token} title="Fragen zum Angebot?" />

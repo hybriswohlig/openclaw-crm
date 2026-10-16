@@ -333,7 +333,7 @@ export default function AISettingsPage() {
             <div className="min-w-0">
               <p className="text-sm font-medium">STOP-Hinweis in proaktiven Nachrichten</p>
               <p className="text-xs text-muted-foreground">
-                Hängt an Erstansprache und Nachfass-Nachrichten eine Zeile {'"...antworte mit STOP"'}.
+                Hängt an Erstansprache und Nachfass-Nachrichten eine STOP-Zeile an, in der Anrede der Nachricht.
                 Für ein menschliches Testsystem aus lassen. Vor echten Kunden einschalten
                 (rechtlich sauberer, §7 UWG / Art. 21 DSGVO). Ein eingehendes STOP wird in jedem
                 Fall respektiert, auch wenn dieser Hinweis aus ist.
