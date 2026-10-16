@@ -118,6 +118,51 @@ describe("crm_api body coercion", () => {
   });
 });
 
+describe("crm_update_agent_draft", () => {
+  it("patches the draft with human approval and a close action", async () => {
+    const { client, calls } = fakeClient();
+
+    await handleTool(client, "crm_update_agent_draft", {
+      draftId: "draft 1",
+      action: "approve_and_send",
+      humanApproved: true,
+      approvedBy: "Dario",
+      note: "freigegeben",
+      overrideConsent: true,
+      finalText: "Hallo",
+    });
+
+    expect(calls[0].path).toBe("/api/v1/agent-drafts/draft%201");
+    expect(calls[0].options).toMatchObject({
+      method: "PATCH",
+      body: {
+        action: "approve_and_send",
+        humanApproved: true,
+        approvedBy: "Dario",
+        note: "freigegeben",
+        overrideConsent: true,
+        finalText: "Hallo",
+      },
+    });
+  });
+
+  it("forwards mark_taken without treating a missing approval as true", async () => {
+    const { client, calls } = fakeClient();
+    await handleTool(client, "crm_update_agent_draft", {
+      draftId: "draft-2",
+      action: "mark_taken",
+    });
+    expect(calls[0].path).toBe("/api/v1/agent-drafts/draft-2");
+    expect(calls[0].options).toMatchObject({
+      method: "PATCH",
+      body: { action: "mark_taken" },
+    });
+    const body = calls[0].options.body as Record<string, unknown>;
+    expect(body.humanApproved).toBeUndefined();
+    expect(body.overrideConsent).toBeUndefined();
+  });
+});
+
 describe("crm_generate_document", () => {
   it("accepts stringified params and injects the deal id", async () => {
     const { client, calls } = fakeClient();

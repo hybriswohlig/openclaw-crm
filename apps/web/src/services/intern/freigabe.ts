@@ -10,7 +10,9 @@
  *    die neue Fassung kommt mit neuem Code zur Freigabe zurück. Gesendet
  *    wird über entwurfFreigebenUndSenden (Sicherheitsprüfung zum Sendezeitpunkt,
  *    Preisfilter, Schutz gegen doppeltes Senden). Eine menschliche Freigabe hebt
- *    nur "Hauptschalter aus" und "Deal gehört einem Menschen" auf.
+ *    "Hauptschalter aus", "Deal gehört einem Menschen" und "KI pausiert" auf.
+ *    Die Einwilligung zum Nachfassen bleibt; ai_paused und human_owned werden
+ *    nicht zurückgesetzt.
  */
 import { createHash } from "node:crypto";
 import { and, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
@@ -272,6 +274,11 @@ export async function verarbeiteInterneNachricht(input: {
     finalText: befehl.aktion === "senden" ? befehl.text : undefined,
     ueberstimmbar: UEBERSTIMMBAR,
     freigegebenVon: `${input.absender.name} per WhatsApp`,
+    // "ok" von einer internen Nummer ist eine ausdrückliche Freigabe. Hebt
+    // human_owned und ai_paused auf, nicht die Einwilligung.
+    humanApproved: true,
+    approvedBy: input.absender.name,
+    overrideConsent: false,
   });
   await antworten(ergebnisText(code, deal, input.absender.name, r));
 }

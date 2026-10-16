@@ -653,6 +653,21 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
           expiresInHours: num(args.expiresInHours),
         },
       });
+    case "crm_update_agent_draft":
+      return client.request(
+        `/api/v1/agent-drafts/${encodeURIComponent(str(args.draftId))}`,
+        {
+          method: "PATCH",
+          body: {
+            action: args.action,
+            finalText: args.finalText,
+            humanApproved: bool(args.humanApproved),
+            approvedBy: args.approvedBy,
+            note: args.note,
+            overrideConsent: bool(args.overrideConsent),
+          },
+        }
+      );
 
     // ── Projekte ────────────────────────────────────────────────────────
     case "crm_list_projects":

@@ -102,6 +102,7 @@ export const CRM_TOOL_NAMES = [
   "crm_list_agent_drafts",
   "crm_get_agent_settings",
   "crm_create_agent_draft",
+  "crm_update_agent_draft",
   // ── Projekte ──────────────────────────────────────────────────────
   "crm_list_projects",
   "crm_get_project",

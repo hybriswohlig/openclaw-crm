@@ -134,7 +134,7 @@ export function ShadowDraftBanner({
       const res = await fetch(`/api/v1/agent-drafts/${draft!.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "approve_and_send" }),
+        body: JSON.stringify({ action: "approve_and_send", humanApproved: true }),
       });
       if (res.ok) {
         setHidden(true);

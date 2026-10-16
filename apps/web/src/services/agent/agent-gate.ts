@@ -23,6 +23,7 @@ import { objects, attributes, statuses } from "@/db/schema/objects";
 import { recordValues, records } from "@/db/schema/records";
 import { inboxConversations } from "@/db/schema/inbox";
 import { agentDrafts, agentSuppressions, dealAgentState, consentLedger } from "@/db/schema/agent";
+import { supersedePendingDrafts } from "@/services/agent/draft-schliessen";
 import { canonicalizePhone, canonicalizeEmail } from "@/lib/identity/canonical";
 import { isSalesAgentEnabled } from "./agent-config";
 
@@ -363,13 +364,19 @@ export async function setHumanOwned(
         updatedAt: new Date(),
       },
     });
-  // Ein Mensch hat selbst geantwortet: offene und freigegebene, noch nicht
-  // gesendete KI-Entwürfe dieses Deals sind überholt. Sonst würde eine spätere
-  // Freigabe eine veraltete Antwort senden.
+  // Ein Mensch hat selbst geantwortet: pending Entwürfe dieses Deals sind
+  // überholt (superseded, kein Doppelversand). Ein bereits geclaimter Versand
+  // (approved) wird abgebrochen, bevor die Nachricht rausgeht.
+  await supersedePendingDrafts({
+    workspaceId,
+    dealRecordId,
+    userId: userId ?? null,
+    supersededBy: "human_owned",
+  });
   await db
     .update(agentDrafts)
     .set({ status: "cancelled", updatedAt: new Date() })
-    .where(and(eq(agentDrafts.dealRecordId, dealRecordId), inArray(agentDrafts.status, ["pending", "approved"])));
+    .where(and(eq(agentDrafts.dealRecordId, dealRecordId), eq(agentDrafts.status, "approved")));
 }
 
 /** Explicit UI release action — the only path back to agent eligibility. */
