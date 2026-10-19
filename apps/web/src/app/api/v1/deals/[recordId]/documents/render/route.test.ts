@@ -48,7 +48,7 @@ beforeEach(() => {
     permissions: {},
   });
   mocks.storeCommercialDocument.mockResolvedValue({
-    templateVersion: "kv-ab-re/1",
+    templateVersion: "kv-ab-re/2",
     fileName: "KV-kottke-2026-10-16-abcd1234.pdf",
     document: { id: "doc_1", documentType: "quotation" },
   });
@@ -71,7 +71,7 @@ describe("POST documents/render", () => {
     const body = await res.json();
     expect(res.status).toBe(200);
     expect(body.data.renderer).toBe("crm");
-    expect(body.data.templateVersion).toBe("kv-ab-re/1");
+    expect(body.data.templateVersion).toBe("kv-ab-re/2");
     expect(mocks.storeCommercialDocument).toHaveBeenCalledWith({
       workspaceId: "ws_kottke_prod",
       dealRecordId: DEAL_ID,

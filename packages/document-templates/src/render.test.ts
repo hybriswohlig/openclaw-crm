@@ -249,7 +249,7 @@ describe("template version", () => {
       deal: { ...deal, firma: "ceylan" },
       quotation: quotation({ paymentMethodPreference: "bank_transfer" }),
     });
-    expect(TEMPLATE_VERSION).toBe("kv-ab-re/1");
+    expect(TEMPLATE_VERSION).toBe("kv-ab-re/2");
     expect(html).toContain(`content="${TEMPLATE_VERSION}"`);
     expect(html).toContain(`Vorlage ${TEMPLATE_VERSION}`);
     expect(text).toContain(TEMPLATE_VERSION);

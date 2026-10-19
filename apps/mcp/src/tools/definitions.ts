@@ -709,7 +709,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "crm_render_document",
     description:
-      "Render a KV, AB or RE PDF with the CRM template and store it on the deal. This opts into the new renderer; crm_generate_document without renderer still starts the VPS job. documentType is KV, AB or RE. Prices, positions, deposit, validity and payment method come only from the stored quotation; an AB uses the accepted snapshot when one exists. Customer, addresses and the service date come from the deal. Quotation notes are never printed. Optional copy or document_copy is { intro, closing, remarks } as plain text, at most 4000 characters each, and does not change prices. notifyCustomer defaults to false, so this sends no WhatsApp and no email. Returns the stored deal document and templateVersion.",
+      "Render a KV, AB or RE PDF with the CRM template and store it on the deal. This opts into the new renderer; crm_generate_document without renderer still starts the VPS job. documentType is KV, AB or RE. Prices, positions, deposit, validity and payment method come only from the stored quotation; an AB uses the accepted snapshot when one exists. Customer, addresses and the service date come from the deal. The default intro, closing and payment-due sentence follow the service (quotation service type, lead type, one-off transport, piano or storage) and the Sie/du register from the conversation and the deal. Quotation notes are never printed. Optional copy or document_copy is { intro, closing, remarks } as plain text, at most 4000 characters each: those replace the matching default and do not change prices. notifyCustomer defaults to false, so this sends no WhatsApp and no email. Returns the stored deal document and templateVersion.",
     inputSchema: {
       type: "object",
       properties: {
@@ -738,7 +738,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "crm_preview_document",
     description:
-      "HTML preview of the CRM template for a KV, AB or RE. Does not store a file and does not message the customer. documentType is KV, AB or RE. Optional copy or document_copy is { intro, closing, remarks } as plain text. Prices come from the stored quotation and quotation notes are never included. Returns { html, templateVersion, fileName, documentType }.",
+      "HTML preview of the CRM template for a KV, AB or RE. Does not store a file and does not message the customer. documentType is KV, AB or RE. The preview shows the service-specific default text (Umzug, Entrümpelung, Küchenmontage, Transport, Einlagerung or sonstige Leistung), the Sie/du greeting, and the payment-due sentence. Optional copy or document_copy is { intro, closing, remarks } as plain text and replaces that default. Prices come from the stored quotation and quotation notes are never included. Returns { html, templateVersion, fileName, documentType }.",
     inputSchema: {
       type: "object",
       properties: {

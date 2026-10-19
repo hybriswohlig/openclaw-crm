@@ -225,6 +225,7 @@ export async function renderPdf(model: DocumentModel): Promise<Uint8Array> {
   if (model.paymentMethodLabel) w.text(`Zahlungsart: ${model.paymentMethodLabel}`, { size: 10, gap: 1 });
   if (model.paidLabel) w.text(`Bereits gebucht: ${model.paidLabel}`, { size: 10, gap: 1 });
   if (model.openLabel) w.text(`Offen: ${model.openLabel}`, { size: 10, gap: 4 });
+  if (model.paymentTerms) w.text(model.paymentTerms, { size: 10, gap: 6 });
 
   if (model.remarks) {
     w.text("Hinweise", { font: bold, size: 11, gap: 2 });
