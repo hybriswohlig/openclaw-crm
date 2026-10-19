@@ -12,6 +12,8 @@ import {
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { Phone, Route as RouteIcon } from "lucide-react";
+import { pickDefaultDealIndex } from "@/components/operations/list-anchor";
+import { berlinDateString } from "@/lib/berlin-date";
 
 export interface MapDeal {
   dealId: string;
@@ -111,7 +113,7 @@ function buildIcon(tone: ReturnType<typeof stageToTone>) {
   });
 }
 
-export function MapView({ deals }: { deals: MapDeal[] }) {
+export function MapView({ deals, today }: { deals: MapDeal[]; today?: string }) {
   const [cache, setCache] = useState<Record<string, LatLng>>(() => readCache());
   const queueRef = useRef<string[]>([]);
   const runningRef = useRef(false);
@@ -180,11 +182,16 @@ export function MapView({ deals }: { deals: MapDeal[] }) {
     return { lat: avgLat, lng: avgLng };
   }, [pins]);
 
-  // Focus deal: live first, else first deal
-  const focus = useMemo(
-    () => pins.find((p) => p.tone === "live") ?? pins[0] ?? null,
-    [pins]
-  );
+  // Focus deal: a live job, otherwise today or the next upcoming one.
+  // The pin list follows the API's oldest-first order, which used to open the card on May.
+  const focus = useMemo(() => {
+    const day = today ?? berlinDateString();
+    const index = pickDefaultDealIndex(
+      pins.map((pin) => ({ moveDate: pin.deal.moveDate, live: pin.tone === "live" })),
+      day,
+    );
+    return index >= 0 ? pins[index] : null;
+  }, [pins, today]);
 
   const totalToGeocode = addresses.filter((a) => !cache[a]).length;
 

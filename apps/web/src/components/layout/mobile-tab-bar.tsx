@@ -22,29 +22,36 @@ import {
   Plug,
   MessageSquare,
   Settings,
+  type LucideIcon,
 } from "lucide-react";
+import {
+  isMobileNavActive,
+  mobileMehrContains,
+  mobileMehrItems,
+  mobilePrimaryTabs,
+} from "./mobile-nav";
 
-const primary = [
-  { href: "/home", icon: Home, label: "Heute" },
-  { href: "/operations", icon: Truck, label: "Aufträge" },
-  { href: "/inbox", icon: InboxIcon, label: "Inbox", showBadge: true },
-  { href: "/objects/deals", icon: Handshake, label: "Leads" },
-];
+const ICONS: Record<string, LucideIcon> = {
+  "/home": Home,
+  "/operations": Truck,
+  "/inbox": InboxIcon,
+  "/contract-calendar": CalendarDays,
+  "/email": Mail,
+  "/tasks": CheckSquare,
+  "/objects/deals": Handshake,
+  "/notes": StickyNote,
+  "/notifications": Bell,
+  "/chat": MessageSquare,
+  "/objects/people": Users,
+  "/objects/companies": Building2,
+  "/employees": HardHat,
+  "/financial": Banknote,
+  "/integrations": Plug,
+  "/settings": Settings,
+};
 
-const mehrItems = [
-  { href: "/email", icon: Mail, label: "E-Mail" },
-  { href: "/tasks", icon: CheckSquare, label: "Aufgaben" },
-  { href: "/contract-calendar", icon: CalendarDays, label: "Kalender" },
-  { href: "/notes", icon: StickyNote, label: "Notizen" },
-  { href: "/notifications", icon: Bell, label: "Benachrichtigungen" },
-  { href: "/chat", icon: MessageSquare, label: "Chat" },
-  { href: "/objects/people", icon: Users, label: "Kunden" },
-  { href: "/objects/companies", icon: Building2, label: "Firmen" },
-  { href: "/employees", icon: HardHat, label: "Mitarbeiter" },
-  { href: "/financial", icon: Banknote, label: "Finanzen" },
-  { href: "/integrations", icon: Plug, label: "Integrationen" },
-  { href: "/settings", icon: Settings, label: "Einstellungen" },
-];
+const primary = mobilePrimaryTabs.map((item) => ({ ...item, icon: ICONS[item.href] }));
+const mehrItems = mobileMehrItems.map((item) => ({ ...item, icon: ICONS[item.href] }));
 
 export function MobileTabBar() {
   const pathname = usePathname();
@@ -68,8 +75,10 @@ export function MobileTabBar() {
   }, []);
 
   function isActive(href: string) {
-    return pathname === href || pathname.startsWith(`${href}/`);
+    return isMobileNavActive(pathname, href);
   }
+
+  const mehrActive = sheetOpen || mobileMehrContains(pathname);
 
   return (
     <>
@@ -97,6 +106,7 @@ export function MobileTabBar() {
             <Link
               key={it.href}
               href={it.href}
+              aria-current={active ? "page" : undefined}
               style={{
                 display: "flex",
                 flexDirection: "column",
@@ -149,7 +159,7 @@ export function MobileTabBar() {
             border: 0,
             background: "transparent",
             cursor: "pointer",
-            color: sheetOpen ? "var(--paper)" : "#a79b8a",
+            color: mehrActive ? "var(--paper)" : "#a79b8a",
             flex: 1,
           }}
         >
@@ -202,10 +212,12 @@ export function MobileTabBar() {
             <div className="grid grid-cols-3 gap-2">
               {mehrItems.map((it) => {
                 const Ico = it.icon;
+                const active = isActive(it.href);
                 return (
                   <Link
                     key={it.href}
                     href={it.href}
+                    aria-current={active ? "page" : undefined}
                     onClick={() => setSheetOpen(false)}
                     style={{
                       display: "flex",
@@ -213,14 +225,14 @@ export function MobileTabBar() {
                       alignItems: "center",
                       gap: 6,
                       padding: "14px 8px",
-                      background: "#fff",
-                      border: "1px solid var(--line)",
+                      background: active ? "var(--ink)" : "#fff",
+                      border: active ? "1px solid var(--ink)" : "1px solid var(--line)",
                       borderRadius: 12,
-                      color: "var(--ink)",
+                      color: active ? "var(--paper)" : "var(--ink)",
                       textAlign: "center",
                     }}
                   >
-                    <Ico size={20} style={{ color: "var(--ink-soft)" }} />
+                    <Ico size={20} style={{ color: active ? "var(--paper)" : "var(--ink-soft)" }} />
                     <span style={{ fontSize: 12, lineHeight: 1.2 }}>
                       {it.label}
                     </span>

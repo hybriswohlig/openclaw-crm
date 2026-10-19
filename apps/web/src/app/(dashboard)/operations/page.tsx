@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import {
@@ -48,6 +48,13 @@ import {
   Plus,
 } from "lucide-react";
 import { EmployeeAvatar } from "@/components/employees/employee-avatar";
+import {
+  UNSCHEDULED_KEY,
+  compareByToday,
+  groupByDay,
+  resolveListAnchor,
+} from "@/components/operations/list-anchor";
+import { berlinDateString } from "@/lib/berlin-date";
 import { cn } from "@/lib/utils";
 
 interface AssignedEmployee {
@@ -93,8 +100,6 @@ interface OperationsData {
   allEmployees: OpsEmployee[];
 }
 
-const UNSCHEDULED_KEY = "__unscheduled__";
-
 function formatDayHeader(iso: string): string {
   const d = new Date(iso + "T00:00:00");
   return d.toLocaleDateString("de-DE", {
@@ -111,6 +116,43 @@ function formatTime(iso: string | null): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function motionBehavior(): ScrollBehavior {
+  if (typeof window === "undefined") return "auto";
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+}
+
+function scrollableAncestor(el: HTMLElement): HTMLElement | null {
+  let node = el.parentElement;
+  while (node) {
+    const overflow = getComputedStyle(node).overflowY;
+    if (
+      (overflow === "auto" || overflow === "scroll" || overflow === "overlay") &&
+      node.scrollHeight > node.clientHeight + 1
+    ) {
+      return node;
+    }
+    node = node.parentElement;
+  }
+  return null;
+}
+
+/** Prefer the list pane. Fall back to whichever ancestor actually scrolls (usually <main>). */
+function activeScroller(preferred: HTMLElement | null, child: HTMLElement): HTMLElement | null {
+  if (preferred && preferred.contains(child) && preferred.scrollHeight > preferred.clientHeight + 1) {
+    return preferred;
+  }
+  return scrollableAncestor(child) ?? preferred;
+}
+
+function scrollChildToTop(scroller: HTMLElement, child: HTMLElement, behavior: ScrollBehavior) {
+  const top = Math.max(
+    0,
+    child.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop - 8,
+  );
+  if (behavior === "auto") scroller.scrollTop = top;
+  else scroller.scrollTo({ top, behavior });
 }
 
 type OpsView = "list" | "pipeline" | "map";
@@ -143,27 +185,65 @@ export default function OperationsPage() {
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
-  // Group by day
+  // Group by day. Order stays chronological; the list opens on today by scrolling.
   const grouped = useMemo(() => {
     if (!data) return [] as { dayKey: string; label: string; deals: OpsDeal[] }[];
-    const buckets = new Map<string, OpsDeal[]>();
-    for (const d of data.deals) {
-      const key = d.moveDate ?? UNSCHEDULED_KEY;
-      const arr = buckets.get(key) ?? [];
-      arr.push(d);
-      buckets.set(key, arr);
-    }
-    const keys = Array.from(buckets.keys()).sort((a, b) => {
-      if (a === UNSCHEDULED_KEY) return 1;
-      if (b === UNSCHEDULED_KEY) return -1;
-      return a.localeCompare(b);
-    });
-    return keys.map((k) => ({
-      dayKey: k,
-      label: k === UNSCHEDULED_KEY ? "Ohne Datum" : formatDayHeader(k),
-      deals: buckets.get(k)!,
+    return groupByDay(data.deals, (deal) => deal.moveDate).map((group) => ({
+      dayKey: group.dayKey,
+      label: group.dayKey === UNSCHEDULED_KEY ? "Ohne Datum" : formatDayHeader(group.dayKey),
+      deals: group.items,
     }));
   }, [data]);
+
+  const today = berlinDateString();
+  const anchor = useMemo(
+    () => resolveListAnchor(grouped.map((group) => group.dayKey), today),
+    [grouped, today],
+  );
+  const pastJobCount = useMemo(
+    () =>
+      grouped.reduce(
+        (count, group) =>
+          group.dayKey !== UNSCHEDULED_KEY && group.dayKey < today ? count + group.deals.length : count,
+        0,
+      ),
+    [grouped, today],
+  );
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const anchorRef = useRef<HTMLDivElement>(null);
+  const pendingAnchor = useRef(true);
+
+  const scrollToAnchor = useCallback((behavior: ScrollBehavior) => {
+    const child = anchorRef.current;
+    const scroller = child ? activeScroller(scrollRef.current, child) : null;
+    if (!child || !scroller) return;
+    scrollChildToTop(scroller, child, behavior);
+  }, []);
+
+  const scrollToPast = useCallback((behavior: ScrollBehavior) => {
+    const child = anchorRef.current;
+    const scroller = (child && activeScroller(scrollRef.current, child)) || scrollRef.current;
+    scroller?.scrollTo({ top: 0, behavior });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (view !== "list" || !pendingAnchor.current || !anchorRef.current) return;
+    scrollToAnchor("auto");
+    pendingAnchor.current = false;
+    // Webfonts finish after the first layout and push the anchor down.
+    // Realign once the frame and the font load have settled.
+    let alive = true;
+    const realign = () => {
+      if (alive) scrollToAnchor("auto");
+    };
+    const frame = requestAnimationFrame(realign);
+    const fonts = document.fonts?.ready.then(realign);
+    return () => {
+      alive = false;
+      cancelAnimationFrame(frame);
+      void fonts;
+    };
+  }, [view, grouped, loading, scrollToAnchor]);
 
   const handleDragEnd = useCallback(
     async (event: DragEndEvent) => {
@@ -248,7 +328,7 @@ export default function OperationsPage() {
     [load]
   );
 
-  if (loading) {
+  if (loading && !data) {
     return (
       <div className="flex h-full items-center justify-center">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -266,10 +346,10 @@ export default function OperationsPage() {
 
   return (
     <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-      <div className="flex h-full">
-        {/* Main column */}
-        <div className="flex-1 overflow-auto">
-          <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-border flex items-start sm:items-end justify-between gap-3">
+      <div className="flex h-full min-h-0">
+        {/* Main column. The toolbar stays put; the list pane is what scrolls. */}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <div className="flex shrink-0 flex-wrap items-start justify-between gap-3 border-b border-border px-4 py-4 sm:items-end sm:px-6 sm:py-5">
             <div className="min-w-0">
               <div className="k-label hidden sm:block" style={{ fontSize: 11 }}>
                 Operations
@@ -291,7 +371,17 @@ export default function OperationsPage() {
                 {data.deals.length} aktiv · Ansicht wechseln mit dem Umschalter.
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {view === "list" && grouped.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => scrollToAnchor(motionBehavior())}
+                  className="rounded-[10px] border px-3 py-[5px] text-[12.5px] font-medium"
+                  style={{ borderColor: "var(--line)", background: "#fff", color: "var(--ink)" }}
+                >
+                  Heute
+                </button>
+              )}
               <div
                 className="inline-flex rounded-[10px] p-[3px]"
                 style={{ background: "#fff", border: "1px solid var(--line)" }}
@@ -303,7 +393,10 @@ export default function OperationsPage() {
                 ] as const).map((o) => (
                   <button
                     key={o.k}
-                    onClick={() => setView(o.k)}
+                    onClick={() => {
+                      if (o.k === "list") pendingAnchor.current = true;
+                      setView(o.k);
+                    }}
                     className="rounded-[7px] px-3 py-[5px] text-[12.5px] font-medium transition"
                     style={{
                       background: view === o.k ? "var(--ink)" : "transparent",
@@ -317,13 +410,15 @@ export default function OperationsPage() {
             </div>
           </div>
 
+          <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
           {view === "map" ? (
             <div className="p-4 sm:p-6 pb-24 lg:pb-6">
-              <MapView deals={data.deals} />
+              <MapView deals={data.deals} today={today} />
             </div>
           ) : view === "pipeline" ? (
             <PipelineView
               deals={data.deals}
+              today={today}
               busyDealId={busyDealId}
               onCardClick={() => {}}
               transporterOptions={data.transporterOptions}
@@ -332,38 +427,21 @@ export default function OperationsPage() {
               onAddEmployee={(dealId) => setAddEmployeeForDealId(dealId)}
             />
           ) : (
-          <div className="p-4 sm:p-6 pb-24 lg:pb-6 space-y-6 sm:space-y-8">
-            {grouped.length === 0 && (
-              <div className="text-center text-sm text-muted-foreground py-12">
-                Keine offenen Aufträge.
-              </div>
-            )}
-            {grouped.map((g) => (
-              <section key={g.dayKey}>
-                <div className="flex items-center gap-2 mb-3">
-                  <Calendar className="h-4 w-4 text-muted-foreground" />
-                  <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-                    {g.label}
-                  </h2>
-                  <span className="text-xs text-muted-foreground">· {g.deals.length}</span>
-                </div>
-                <div className="space-y-3">
-                  {g.deals.map((deal) => (
-                    <OpsCard
-                      key={deal.dealId}
-                      deal={deal}
-                      transporterOptions={data.transporterOptions}
-                      busy={busyDealId === deal.dealId}
-                      onUnassign={(asgId) => handleUnassign(deal.dealId, asgId)}
-                      onPatchAuftrag={(patch) => ensureAuftragAndPatch(deal, patch)}
-                      onAddEmployee={() => setAddEmployeeForDealId(deal.dealId)}
-                    />
-                  ))}
-                </div>
-              </section>
-            ))}
-          </div>
+          <OpsDayList
+            grouped={grouped}
+            today={today}
+            anchor={anchor}
+            pastJobCount={pastJobCount}
+            anchorRef={anchorRef}
+            onShowPast={() => scrollToPast(motionBehavior())}
+            transporterOptions={data.transporterOptions}
+            busyDealId={busyDealId}
+            onUnassign={handleUnassign}
+            onPatchAuftrag={ensureAuftragAndPatch}
+            onAddEmployee={setAddEmployeeForDealId}
+          />
           )}
+          </div>
         </div>
 
         {/* Right sidebar: draggable employees — desktop / large only */}
@@ -720,10 +798,145 @@ function OpsCard({
   );
 }
 
+// ─── Date-grouped list ──────────────────────────────────────────────
+
+function OpsDayList({
+  grouped,
+  today,
+  anchor,
+  pastJobCount,
+  anchorRef,
+  onShowPast,
+  transporterOptions,
+  busyDealId,
+  onUnassign,
+  onPatchAuftrag,
+  onAddEmployee,
+}: {
+  grouped: { dayKey: string; label: string; deals: OpsDeal[] }[];
+  today: string;
+  anchor: ReturnType<typeof resolveListAnchor>;
+  pastJobCount: number;
+  anchorRef: React.RefObject<HTMLDivElement | null>;
+  onShowPast: () => void;
+  transporterOptions: TransporterOption[];
+  busyDealId: string | null;
+  onUnassign: (dealId: string, assignmentId: string) => void;
+  onPatchAuftrag: (deal: OpsDeal, patch: Record<string, unknown>) => void;
+  onAddEmployee: (dealId: string) => void;
+}) {
+  const dated = grouped.filter((group) => group.dayKey !== UNSCHEDULED_KEY);
+  const unscheduled = grouped.find((group) => group.dayKey === UNSCHEDULED_KEY) ?? null;
+
+  function cards(deals: OpsDeal[]) {
+    return (
+      <div className="space-y-3">
+        {deals.map((deal) => (
+          <OpsCard
+            key={deal.dealId}
+            deal={deal}
+            transporterOptions={transporterOptions}
+            busy={busyDealId === deal.dealId}
+            onUnassign={(assignmentId) => onUnassign(deal.dealId, assignmentId)}
+            onPatchAuftrag={(patch) => onPatchAuftrag(deal, patch)}
+            onAddEmployee={() => onAddEmployee(deal.dealId)}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 p-4 pb-24 sm:space-y-8 sm:p-6 lg:pb-6">
+      {grouped.length === 0 && (
+        <div className="py-12 text-center text-sm text-muted-foreground">Keine offenen Aufträge.</div>
+      )}
+      {dated.map((group) => (
+        <Fragment key={group.dayKey}>
+          {anchor.marker === "before-next" && group.dayKey === anchor.anchorDayKey && (
+            <div ref={anchorRef} id="ops-heute">
+              <PastJump count={pastJobCount} onClick={onShowPast} />
+              <HeuteMarker label={formatDayHeader(today)} />
+            </div>
+          )}
+          <div
+            ref={anchor.marker === "on-today" && group.dayKey === today ? anchorRef : undefined}
+            id={group.dayKey === today ? "ops-heute" : undefined}
+          >
+            {anchor.marker === "on-today" && group.dayKey === today && (
+              <PastJump count={pastJobCount} onClick={onShowPast} />
+            )}
+            <DayHeading label={group.label} count={group.deals.length} today={group.dayKey === today} />
+            {cards(group.deals)}
+          </div>
+        </Fragment>
+      ))}
+      {anchor.marker === "after-past" && grouped.length > 0 && (
+        <div ref={anchorRef} id="ops-heute">
+          <PastJump count={pastJobCount} onClick={onShowPast} />
+          <HeuteMarker label={formatDayHeader(today)} />
+        </div>
+      )}
+      {unscheduled && (
+        <section>
+          <DayHeading label={unscheduled.label} count={unscheduled.deals.length} today={false} />
+          {cards(unscheduled.deals)}
+        </section>
+      )}
+      {/* Lets Heute reach the top even when little follows it. */}
+      <div aria-hidden="true" className="h-[55vh]" />
+    </div>
+  );
+}
+
+function DayHeading({ label, count, today }: { label: string; count: number; today: boolean }) {
+  return (
+    <div className="mb-3 flex items-center gap-2">
+      <Calendar className="h-4 w-4 text-muted-foreground" />
+      <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">{label}</h2>
+      {today && <HeutePill />}
+      <span className="text-xs text-muted-foreground">· {count}</span>
+    </div>
+  );
+}
+
+function HeutePill() {
+  return (
+    <span className="inline-flex items-center rounded-full bg-foreground px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-background">
+      Heute
+    </span>
+  );
+}
+
+function HeuteMarker({ label }: { label: string }) {
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-dashed border-border bg-muted/30 px-3 py-2.5">
+      <Calendar className="h-4 w-4 text-muted-foreground" />
+      <HeutePill />
+      <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">{label}</h2>
+      <span className="text-xs text-muted-foreground">Keine Aufträge an diesem Tag.</span>
+    </div>
+  );
+}
+
+function PastJump({ count, onClick }: { count: number; onClick: () => void }) {
+  if (count <= 0) return null;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="mb-3 inline-flex items-center rounded-full border border-border bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
+    >
+      Vergangene anzeigen · {count}
+    </button>
+  );
+}
+
 // ─── Pipeline view (kanban-by-stage) ────────────────────────────────
 
 function PipelineView({
   deals,
+  today,
   busyDealId,
   transporterOptions,
   onPatchAuftrag,
@@ -731,6 +944,7 @@ function PipelineView({
   onAddEmployee,
 }: {
   deals: OpsDeal[];
+  today: string;
   busyDealId: string | null;
   onCardClick: (dealId: string) => void;
   transporterOptions: TransporterOption[];
@@ -738,7 +952,8 @@ function PipelineView({
   onUnassign: (dealId: string, assignmentId: string) => void;
   onAddEmployee: (dealId: string) => void;
 }) {
-  // Group deals by stage.title, preserving the first-seen stage color.
+  // Columns stay in first-seen stage order. Within a column, today and later
+  // come first so the lane does not open on the oldest job.
   const columns = useMemo(() => {
     const byStage = new Map<
       string,
@@ -754,8 +969,11 @@ function PipelineView({
       }
       col.deals.push(d);
     }
+    for (const col of byStage.values()) {
+      col.deals.sort((a, b) => compareByToday(a.moveDate, b.moveDate, today));
+    }
     return Array.from(byStage.values());
-  }, [deals]);
+  }, [deals, today]);
 
   void transporterOptions;
   void onPatchAuftrag;
