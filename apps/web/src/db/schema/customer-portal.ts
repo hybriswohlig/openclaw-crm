@@ -74,6 +74,11 @@ export const operatingCompanyPortalSettings = pgTable(
     footerText: text("footer_text"),
 
     // ── Contact / review ─────────────────────────────────────────────────
+    /**
+     * Public Google review link for this company. The post-move review SMS
+     * reads this first and falls back to REVIEWS_GBP_URL_* when it is empty.
+     * Same value the customer-portal thank-you page already uses.
+     */
     googleReviewUrl: text("google_review_url"),
     /** E.164 without leading +. */
     whatsappNumberE164: text("whatsapp_number_e164"),

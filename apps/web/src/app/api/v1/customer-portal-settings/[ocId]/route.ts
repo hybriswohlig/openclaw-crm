@@ -18,6 +18,7 @@ import {
   upsertOperatingCompanyPortalSettings,
   type PortalSettingsUpdate,
 } from "@/services/customer-portal-config";
+import { googleReviewUrlFieldError, parseReviewUrl } from "@/lib/reviews/review-url";
 
 export const dynamic = "force-dynamic";
 
@@ -74,6 +75,16 @@ export async function PUT(
   if (body.whatsappNumberE164 != null && body.whatsappNumberE164 !== "") {
     if (!/^\+?\d{6,20}$/.test(body.whatsappNumberE164.replace(/\s/g, ""))) {
       return badRequest("Ungültige WhatsApp-Nummer (E.164 erwartet).");
+    }
+  }
+  if ("googleReviewUrl" in body) {
+    const urlError = googleReviewUrlFieldError(body.googleReviewUrl);
+    if (urlError) return badRequest(urlError);
+    if (typeof body.googleReviewUrl !== "string") {
+      body.googleReviewUrl = null;
+    } else {
+      const parsed = parseReviewUrl(body.googleReviewUrl);
+      body.googleReviewUrl = parsed.ok ? parsed.url : null;
     }
   }
 

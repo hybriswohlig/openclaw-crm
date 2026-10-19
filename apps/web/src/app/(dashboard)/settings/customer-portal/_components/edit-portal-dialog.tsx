@@ -161,6 +161,10 @@ export function EditPortalDialog({
                 placeholder="https://g.page/r/.../review"
               />
             </Row>
+            <p className="text-[11px] text-muted-foreground">
+              Dieselbe Adresse steht in der Bewertungs-SMS nach dem Umzug. Leer lassen,
+              dann gilt die hinterlegte Umgebungsvariable. Nur http(s)-Adressen.
+            </p>
           </Section>
 
           <Section title="Zahldaten">
