@@ -17,6 +17,9 @@ const publicPaths = [
   // Customer status portal — token-scoped, no session
   "/s/",
   "/api/public/",
+  // iCal subscription. The secret is the token in the path; Google Calendar
+  // and phones have no CRM session.
+  "/api/calendar/ics/",
   // Employee portal APIs — they enforce employee auth in the handler
   // (getEmployeePortalContextFromHeaders) or are token-based (set-password).
   "/api/v1/portal/",
