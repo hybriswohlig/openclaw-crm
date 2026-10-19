@@ -1,6 +1,7 @@
 -- Nachfass-Bot: Zustand pro Deal, Auto-Send-Schalter pro Regel und Firma
 -- (Default AUS, keine Zeile wird eingeschaltet) und Tageszähler.
--- Additiv und idempotent.
+-- Additiv und idempotent. Hängt nur an records und workspaces, nicht an
+-- den Tabellen der Deal-Anreicherung.
 
 CREATE TABLE IF NOT EXISTS "nachfass_deal_state" (
   "deal_record_id" text PRIMARY KEY NOT NULL,
