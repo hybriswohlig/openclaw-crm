@@ -374,12 +374,13 @@ export interface PipelineStats {
   avgTimeToCloseDays: number | null;
   avgQuoteValueOpen: number | null;
   avgQuoteValueWon: number | null;
+  bySource: { title: string; count: number }[];
 }
 
 export async function getPipelineStats(workspaceId: string): Promise<PipelineStats> {
   const meta = await loadDealMeta(workspaceId);
   if (!meta.dealObjectId) {
-    return { stages: [], staleDeals: [], avgTimeToCloseDays: null, avgQuoteValueOpen: null, avgQuoteValueWon: null };
+    return { stages: [], staleDeals: [], avgTimeToCloseDays: null, avgQuoteValueOpen: null, avgQuoteValueWon: null, bySource: [] };
   }
 
   const allDeals = await db
@@ -391,8 +392,9 @@ export async function getPipelineStats(workspaceId: string): Promise<PipelineSta
   const stageAttr = meta.attrBySlug.get("stage");
   const valueAttr = meta.attrBySlug.get("value");
   const nameAttr = meta.attrBySlug.get("name");
+  const sourceAttr = meta.attrBySlug.get("source_channel");
 
-  const interestedIds = [stageAttr?.id, valueAttr?.id, nameAttr?.id].filter((x): x is string => !!x);
+  const interestedIds = [stageAttr?.id, valueAttr?.id, nameAttr?.id, sourceAttr?.id].filter((x): x is string => !!x);
   const byRecord = await loadDealValues(dealIds, interestedIds);
 
   // Build stage buckets
@@ -505,13 +507,40 @@ export async function getPipelineStats(workspaceId: string): Promise<PipelineSta
     }
   }
 
+  const bySource = await pipelineBySource(sourceAttr?.id, byRecord, allDeals.map((deal) => deal.id));
+
   return {
     stages,
     staleDeals: staleDeals.slice(0, 20),
     avgTimeToCloseDays,
     avgQuoteValueOpen: openCnt > 0 ? Math.round(openSum / openCnt) : null,
     avgQuoteValueWon: wonCnt > 0 ? Math.round(wonSum / wonCnt) : null,
+    bySource,
   };
+}
+
+async function pipelineBySource(
+  sourceAttrId: string | undefined,
+  byRecord: { get(dealId: string): { get(attrId: string): { textValue: string | null } | undefined } | undefined },
+  dealIds: string[]
+): Promise<{ title: string; count: number }[]> {
+  if (!sourceAttrId) return [];
+  const options = await db
+    .select({ id: selectOptions.id, title: selectOptions.title, sortOrder: selectOptions.sortOrder })
+    .from(selectOptions)
+    .where(eq(selectOptions.attributeId, sourceAttrId))
+    .orderBy(selectOptions.sortOrder);
+  const counts = new Map(options.map((option) => [option.id, 0]));
+  let none = 0;
+  for (const dealId of dealIds) {
+    const sourceId = byRecord.get(dealId)?.get(sourceAttrId)?.textValue ?? null;
+    if (sourceId && counts.has(sourceId)) counts.set(sourceId, (counts.get(sourceId) ?? 0) + 1);
+    else none++;
+  }
+  return [
+    ...options.map((option) => ({ title: option.title, count: counts.get(option.id) ?? 0 })),
+    { title: "Ohne Quelle", count: none },
+  ];
 }
 
 // ─── Operations ──────────────────────────────────────────────────────────────

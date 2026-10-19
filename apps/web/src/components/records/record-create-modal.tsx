@@ -33,6 +33,8 @@ interface RecordCreateModalProps {
   onSubmit: (values: Record<string, unknown>) => void;
   attributes: AttributeDef[];
   objectName: string;
+  /** Slugs the operator form requires even when the attribute is optional for the API. */
+  extraRequiredSlugs?: string[];
 }
 
 export function RecordCreateModal({
@@ -41,6 +43,7 @@ export function RecordCreateModal({
   onSubmit,
   attributes,
   objectName,
+  extraRequiredSlugs,
 }: RecordCreateModalProps) {
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -75,6 +78,7 @@ export function RecordCreateModal({
               attr={attr}
               value={values[attr.slug]}
               onChange={(val) => setValue(attr.slug, val)}
+              forceRequired={extraRequiredSlugs?.includes(attr.slug)}
             />
           ))}
           <DialogFooter>
@@ -95,12 +99,15 @@ function FieldInput({
   attr,
   value,
   onChange,
+  forceRequired,
 }: {
   attr: AttributeDef;
   value: unknown;
   onChange: (val: unknown) => void;
+  forceRequired?: boolean;
 }) {
-  const { type, title, isRequired, slug } = attr;
+  const { type, title, slug } = attr;
+  const isRequired = attr.isRequired || !!forceRequired;
 
   return (
     <div className="space-y-1.5">

@@ -267,6 +267,13 @@
       "when": 1788717600000,
       "tag": "0047_portal_features_document_email",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1792368000000,
+      "tag": "0048_deal_source_and_loss_reason",
+      "breakpoints": true
     }
   ]
 }

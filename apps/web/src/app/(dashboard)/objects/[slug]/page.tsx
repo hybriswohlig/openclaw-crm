@@ -13,6 +13,13 @@ import { SortBuilder } from "@/components/filters/sort-builder";
 import { Popover } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { CSVImportModal } from "@/components/records/csv-import-modal";
+import { LossReasonDialog } from "@/components/records/loss-reason-dialog";
+import {
+  CRM_UI_CLIENT_HEADER,
+  CRM_UI_CLIENT_VALUE,
+  needsLossReasonPrompt,
+  SOURCE_CHANNEL_SLUG,
+} from "@/lib/deal-source";
 import { generateCSV, downloadCSV } from "@/lib/csv-utils";
 import { objectPluralLabel, objectSingularLabel } from "@/lib/object-labels";
 import {
@@ -67,6 +74,7 @@ export default function ObjectPage() {
   const [view, setView] = useState<"table" | "board">("table");
   const [createOpen, setCreateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [lossPrompt, setLossPrompt] = useState<{ recordId: string; stageId: string; attrSlug: string } | null>(null);
   const [filterOpen, setFilterOpen] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -139,6 +147,57 @@ export default function ObjectPage() {
   // Auto-detect if board view is available (has a status attribute)
   const statusAttr = object?.attributes.find((a) => a.type === "status");
   const hasBoardView = !!statusAttr;
+  const stageStatuses = (object?.attributes.find((attr) => attr.slug === "stage")?.statuses ?? []) as Array<{
+    id: string;
+    title: string;
+    stageCategory?: string | null;
+  }>;
+  const lossOptions = (object?.attributes.find((attr) => attr.slug === "loss_reason")?.options ?? []) as Array<{
+    id: string;
+    title: string;
+  }>;
+
+  async function changeStage(recordId: string, attrSlug: string, stageId: string) {
+    const current = records.find((row) => row.id === recordId);
+    if (
+      slug === "deals" &&
+      attrSlug === "stage" &&
+      needsLossReasonPrompt({
+        statuses: stageStatuses,
+        nextStageId: stageId,
+        currentLossReason: current?.values?.loss_reason,
+      })
+    ) {
+      setLossPrompt({ recordId, stageId, attrSlug });
+      return;
+    }
+    await updateRecord(recordId, attrSlug, stageId);
+  }
+
+  async function confirmLoss(reasonId: string, note: string) {
+    if (!lossPrompt) return;
+    const res = await fetch(`/api/v1/objects/${slug}/records/${lossPrompt.recordId}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        [CRM_UI_CLIENT_HEADER]: CRM_UI_CLIENT_VALUE,
+      },
+      body: JSON.stringify({
+        values: {
+          [lossPrompt.attrSlug]: lossPrompt.stageId,
+          loss_reason: reasonId,
+          loss_reason_note: note || null,
+        },
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      const message = typeof body?.error?.message === "string" ? body.error.message : "Speichern fehlgeschlagen";
+      throw new Error(message);
+    }
+    setLossPrompt(null);
+    await fetchData();
+  }
 
   if (loading && !object) {
     return (
@@ -383,7 +442,12 @@ export default function ObjectPage() {
           <RecordTable
             attributes={object.attributes as any}
             records={records}
-            onUpdateRecord={updateRecord}
+            onUpdateRecord={(recordId, attrSlug, value) => {
+              if (attrSlug === "stage" && typeof value === "string") {
+                return changeStage(recordId, attrSlug, value);
+              }
+              return updateRecord(recordId, attrSlug, value);
+            }}
             onCreateRecord={() => setCreateOpen(true)}
             objectSlug={slug}
           />
@@ -393,7 +457,7 @@ export default function ObjectPage() {
             records={records}
             statusAttributeSlug={statusAttr!.slug}
             onMoveRecord={(recordId, newStatusId) =>
-              updateRecord(recordId, statusAttr!.slug, newStatusId)
+              changeStage(recordId, statusAttr!.slug, newStatusId)
             }
             onReorder={(orderedIds) => {
               // Optimistic local reorder: sort records in orderedIds
@@ -453,6 +517,14 @@ export default function ObjectPage() {
         onSubmit={createRecord}
         attributes={object.attributes as any}
         objectName={singularLabel}
+        extraRequiredSlugs={slug === "deals" ? [SOURCE_CHANNEL_SLUG] : undefined}
+      />
+
+      <LossReasonDialog
+        open={!!lossPrompt}
+        options={lossOptions}
+        onCancel={() => setLossPrompt(null)}
+        onConfirm={confirmLoss}
       />
 
       {/* Import modal */}

@@ -6,6 +6,8 @@ import { db } from "@/db";
 import { payments, expenses, employeeLedger } from "@/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { dealReferenz, kalkulationAnstossen } from "@/services/rechner/ausloeser";
+import { lossReasonUpdateProblem, resolveDealSelectInputs } from "@/services/deal-attribution";
+import { CRM_UI_CLIENT_HEADER, CRM_UI_CLIENT_VALUE } from "@/lib/deal-source";
 
 /**
  * Deals with financial bookings must not be deleted: payments/expenses would
@@ -59,10 +61,23 @@ export async function PATCH(
   if (!obj) return notFound("Object not found");
 
   const body = await req.json();
-  const { values } = body;
+  let { values } = body;
 
   if (!values || typeof values !== "object") {
     return badRequest("values object is required");
+  }
+
+  if (slug === "deals") {
+    values = await resolveDealSelectInputs(obj.id, values);
+    const problem = await lossReasonUpdateProblem({
+      objectId: obj.id,
+      recordId,
+      values,
+      enforce: req.headers.get(CRM_UI_CLIENT_HEADER) === CRM_UI_CLIENT_VALUE,
+    });
+    if (problem) {
+      return NextResponse.json({ error: { code: "LOSS_REASON_REQUIRED", message: problem } }, { status: 400 });
+    }
   }
 
   const record = await updateRecord(obj.id, recordId, values, ctx.userId);

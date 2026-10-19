@@ -112,21 +112,21 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_get_record",
-    "Get a single record by ID.",
+    "Get a single record by ID. Deal records include source_channel (Quelle / Kanal), source_detail (Anzeige / Detail), source_received_at, first_reply_at, loss_reason (Verlustgrund) and loss_reason_note. Select values come back as option ids.",
     { slug: z.string(), recordId: z.string() },
     req
   );
   tool(
     server,
     "crm_create_record",
-    "Create a record. values = map of attribute slug → value.",
+    "Create a record. values = map of attribute slug → value. For deals, source_channel is optional for API and bots (the operator form requires it). Titles or option ids: Website-Formular, WhatsApp, Telefon, Google-Profil (GBP), ImmoScout24 / umzugsfirmen-check, Kleinanzeigen, Empfehlung, Sonstiges. loss_reason titles: zu teuer, anderer Anbieter, Selbstumzug, Termin passt nicht, keine Rückmeldung, Umzug abgesagt, Sonstiges. Sonstiges requires loss_reason_note. Moving stage to lost requires loss_reason only when the request sends header X-CRM-Client: ui; bots may omit it.",
     { slug: z.string(), values: z.record(z.unknown()) },
     req
   );
   tool(
     server,
     "crm_update_record",
-    "Update record attribute values.",
+    "Update record attribute values. Deal source_channel and loss_reason accept an option title or id. Sonstiges requires loss_reason_note. A stage change to lost returns LOSS_REASON_REQUIRED only when header X-CRM-Client: ui is set and loss_reason is missing; API and bots may omit the reason. first_reply_at is stamped by the first outbound message and should not be backfilled.",
     {
       slug: z.string(),
       recordId: z.string(),
@@ -144,7 +144,7 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_query_records",
-    "Filter/sort records or assert (find-or-create).",
+    "Filter/sort records or assert (find-or-create). Deal filters can use source_channel and loss_reason option ids.",
     {
       slug: z.string(),
       filter: z.record(z.unknown()).optional(),

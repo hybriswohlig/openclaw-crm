@@ -20,6 +20,10 @@ vi.mock("./customer-portal-notifications", () => ({
   maybeNotifyPortalEvent: mocks.maybeNotifyPortalEvent,
 }));
 
+vi.mock("./deal-attribution", () => ({
+  advanceDealToQuotedIfEarlier: vi.fn().mockResolvedValue(undefined),
+}));
+
 import {
   MAX_DEAL_DOCUMENT_SIZE,
   createDealDocument,

@@ -111,5 +111,19 @@ export async function createDealDocument(input: {
     ).catch(() => {});
   }
 
+  if (check.documentType === "quotation") {
+    void import("./deal-attribution")
+      .then((mod) =>
+        mod.advanceDealToQuotedIfEarlier({
+          workspaceId: input.workspaceId,
+          dealRecordId: input.dealRecordId,
+          reason: "Kostenvoranschlag gespeichert",
+        })
+      )
+      .catch((err) => {
+        console.error("[deal-documents] quoted advance failed:", err);
+      });
+  }
+
   return doc;
 }

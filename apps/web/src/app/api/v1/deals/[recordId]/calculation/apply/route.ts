@@ -8,6 +8,8 @@ import { completeAgentPriceTasks } from "@/services/agent/agent-tasks";
 import { aktuelleKalkulation } from "@/services/rechner/kalkulation";
 import { hatPaketoptionen } from "@/services/rechner/pakete";
 import { angebotsUebernahme } from "@/services/rechner/uebernahme";
+import { advanceDealToQuotedIfEarlier } from "@/services/deal-attribution";
+import { QUOTED_REASONS } from "@/lib/deal-source";
 
 /**
  * POST → übernimmt die aktuelle Kalkulation ins Angebot (Festpreis und
@@ -58,6 +60,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rec
   });
   await captureScopeSnapshot(ctx.workspaceId, recordId, "issue");
   await completeAgentPriceTasks(ctx.workspaceId, recordId);
+  await advanceDealToQuotedIfEarlier({
+    workspaceId: ctx.workspaceId,
+    dealRecordId: recordId,
+    reason: QUOTED_REASONS.calculationApply,
+  });
   // Hinweis zur Gültigkeit (Umzug bald, Datum vorbei) für die Kalkulationskarte.
   return success({ ...data, gueltigkeitHinweis: uebernahme.gueltigkeitHinweis });
 }
