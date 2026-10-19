@@ -24,6 +24,7 @@ import {
 import { eq, and, desc, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import { agentDrafts } from "@/db/schema/agent";
 import { createDealForNewConversation } from "./inbox";
+import { noteOutboundToCustomer } from "./deal-attribution";
 import { emitEvent } from "./activity-events";
 import { getSecret } from "./workspace-settings";
 import { ensureCrmPerson } from "./inbox-crm-link";
@@ -633,6 +634,7 @@ export async function ingestInboundWhatsAppMessage(params: {
           dealName: peerName || peerWaId,
           contactId: contact.id,
           channelAccountId: account.id,
+          sourceReceivedAt: sentAt,
         });
 
         // Re-fetch to pick up dealRecordId set by createDealForNewConversation
@@ -711,6 +713,7 @@ export async function ingestInboundWhatsAppMessage(params: {
         dealName: peerName || peerWaId,
         contactId: contact.id,
         channelAccountId: account.id,
+        sourceReceivedAt: sentAt,
       });
       const [fresh] = await db
         .select()
@@ -1055,6 +1058,7 @@ export async function ingestOutboundWhatsAppMessage(params: {
         dealName: peerWaId,
         contactId: contact.id,
         channelAccountId: account.id,
+        sourceReceivedAt: sentAt,
       });
 
       [conv] = await db
@@ -1203,6 +1207,15 @@ export async function ingestOutboundWhatsAppMessage(params: {
         err
       );
     }
+  }
+
+  if (params.origin !== "backfill" && messageId && conv.dealRecordId) {
+    await noteOutboundToCustomer({
+      workspaceId: account.workspaceId,
+      dealRecordId: conv.dealRecordId,
+      sentAt,
+      body,
+    });
   }
 
   return {
@@ -1542,6 +1555,12 @@ export async function sendWhatsAppReply(params: {
         externalMessageId: externalId,
       },
     });
+    await noteOutboundToCustomer({
+      workspaceId,
+      dealRecordId: conv.dealRecordId,
+      sentAt: new Date(),
+      body,
+    });
   }
 
   return stored;
@@ -1773,6 +1792,12 @@ export async function sendWhatsAppMediaReply(params: {
         externalMessageId: externalId,
         mediaKind: kind,
       },
+    });
+    await noteOutboundToCustomer({
+      workspaceId,
+      dealRecordId: conv.dealRecordId,
+      sentAt: new Date(),
+      body: bodyText,
     });
   }
 
@@ -2360,8 +2385,9 @@ export async function sendWhatsAppTemplate(params: {
 
   // Only mint a deal when the caller did NOT hand one in (see the Baileys
   // first-message path for the rationale).
+  let linkedDealId = conv.dealRecordId;
   if (createdNewConversation && !conv.dealRecordId) {
-    await createDealForNewConversation({
+    linkedDealId = await createDealForNewConversation({
       workspaceId,
       conversationId: conv.id,
       dealName: customerName || waId,
@@ -2370,10 +2396,16 @@ export async function sendWhatsAppTemplate(params: {
     });
   }
 
-  if (conv.dealRecordId) {
+  if (linkedDealId) {
+    await noteOutboundToCustomer({
+      workspaceId,
+      dealRecordId: linkedDealId,
+      sentAt: new Date(),
+      body: bodyText,
+    });
     await emitEvent({
       workspaceId,
-      recordId: conv.dealRecordId,
+      recordId: linkedDealId,
       objectSlug: "deals",
       eventType: "message.sent",
       payload: {
@@ -2801,6 +2833,12 @@ export async function sendBaileysReply(params: {
     .where(eq(inboxConversations.id, conversationId));
 
   if (conv.dealRecordId && !duplicate) {
+    await noteOutboundToCustomer({
+      workspaceId,
+      dealRecordId: conv.dealRecordId,
+      sentAt: new Date(),
+      body,
+    });
     await emitEvent({
       workspaceId,
       recordId: conv.dealRecordId,
@@ -2938,6 +2976,12 @@ export async function sendBaileysMediaReply(params: {
     .where(eq(inboxConversations.id, conversationId));
 
   if (conv.dealRecordId && !duplicate) {
+    await noteOutboundToCustomer({
+      workspaceId,
+      dealRecordId: conv.dealRecordId,
+      sentAt: new Date(),
+      body: bodyText,
+    });
     await emitEvent({
       workspaceId,
       recordId: conv.dealRecordId,
@@ -3164,8 +3208,9 @@ export async function sendBaileysFirstMessage(params: {
   // Only mint a deal when the caller did NOT hand one in: a conversation opened
   // for an existing lead (e.g. the ImmoScout first-contact agent) must stay
   // linked to that deal, never get a duplicate.
+  let linkedDealId = conv.dealRecordId;
   if (createdNewConversation && !conv.dealRecordId) {
-    await createDealForNewConversation({
+    linkedDealId = await createDealForNewConversation({
       workspaceId,
       conversationId: conv.id,
       dealName: customerName || waId,
@@ -3174,10 +3219,16 @@ export async function sendBaileysFirstMessage(params: {
     });
   }
 
-  if (conv.dealRecordId && !duplicate) {
+  if (linkedDealId && !duplicate) {
+    await noteOutboundToCustomer({
+      workspaceId,
+      dealRecordId: linkedDealId,
+      sentAt: new Date(),
+      body,
+    });
     await emitEvent({
       workspaceId,
-      recordId: conv.dealRecordId,
+      recordId: linkedDealId,
       objectSlug: "deals",
       eventType: "message.sent",
       payload: {

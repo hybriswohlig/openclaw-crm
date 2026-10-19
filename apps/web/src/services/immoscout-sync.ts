@@ -23,6 +23,7 @@ import { eq, and, sql } from "drizzle-orm";
 import { createRecord, updateRecord } from "./records";
 import { resolveOrCreatePerson } from "./inbox-crm-link";
 import { assignDealNumber } from "./financial";
+import { stampDealSourceIfEmpty } from "./deal-attribution";
 import { computeLeadName } from "./lead-name";
 import { updateIntegration } from "./integrations";
 
@@ -500,6 +501,10 @@ export async function syncImmoscoutLeads(
       const dealRecord = await createRecord(dealsObj.id, dealInput, null);
       if (dealRecord) {
         await assignDealNumber(workspaceId, dealRecord.id);
+        await stampDealSourceIfEmpty({
+          dealRecordId: dealRecord.id,
+          sourceTitle: "ImmoScout24 / umzugsfirmen-check",
+        });
       }
 
       // Mark as imported on umzug-easy side

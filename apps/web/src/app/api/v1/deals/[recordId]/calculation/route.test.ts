@@ -25,6 +25,7 @@ vi.mock("@/services/quotations", () => ({ getQuotation: mocks.getQuotation, upse
 vi.mock("@/services/customer-portal-data", () => ({ ensureCustomerStatusLink: mocks.ensureCustomerStatusLink }));
 vi.mock("@/services/scope-guard", () => ({ captureScopeSnapshot: mocks.captureScopeSnapshot }));
 vi.mock("@/services/agent/agent-tasks", () => ({ completeAgentPriceTasks: mocks.completeAgentPriceTasks }));
+vi.mock("@/services/deal-attribution", () => ({ advanceDealToQuotedIfEarlier: vi.fn().mockResolvedValue(undefined) }));
 
 import { GET, POST } from "./route";
 import { POST as APPLY } from "./apply/route";

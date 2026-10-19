@@ -154,10 +154,11 @@ export async function GET(
       }
       if (ev.eventType === "deal.stage_changed") {
         const attrSlug = typeof payload.attributeSlug === "string" ? payload.attributeSlug : "stage";
+        const reason = typeof payload.reason === "string" && payload.reason ? ` — ${payload.reason}` : "";
         return {
           id: `event-${ev.id}`,
           type: "stage_changed" as const,
-          title: `${attrSlug} changed`,
+          title: `${attrSlug} changed${reason}`,
           createdAt: ev.createdAt.toISOString(),
           createdBy: ev.actorId ?? undefined,
         };

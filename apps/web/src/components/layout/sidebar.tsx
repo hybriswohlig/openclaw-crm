@@ -18,6 +18,7 @@ import {
   Users,
   Building2,
   Handshake,
+  Zap,
   List,
   Plus,
   Settings,
@@ -50,6 +51,7 @@ const mainNav = [
 const objectNav = [
   { href: "/objects/people", label: "Kunden", icon: Users },
   { href: "/objects/deals", label: "Leads", icon: Handshake },
+  { href: "/leads/speed-to-lead", label: "Speed-to-Lead", icon: Zap },
 ];
 
 const moreNav = [

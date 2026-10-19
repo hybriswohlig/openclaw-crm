@@ -143,6 +143,52 @@ export const STANDARD_OBJECTS: StandardObject[] = [
         config: { targetObjectSlug: "operating_companies" },
       },
       { slug: "stage", title: "Stage", type: "status", isSystem: true, isRequired: true, isUnique: false, isMultiselect: false },
+      // Deal channel is its own attribute. People and companies already use
+      // `lead_source` with a different option list (ImmobilienScout, Check24, …).
+      // Do not reuse that slug: a deal can arrive on a channel that is not the
+      // person's historical lead source. isRequired stays false so API, MCP,
+      // and inbound bots can omit it; the deal create form requires it.
+      {
+        slug: "source_channel",
+        title: "Quelle / Kanal",
+        type: "select",
+        isSystem: true,
+        isRequired: false,
+        isUnique: false,
+        isMultiselect: false,
+        selectOptions: [
+          { title: "Website-Formular", color: "#0ea5e9" },
+          { title: "WhatsApp", color: "#16a34a" },
+          { title: "Telefon", color: "#6366f1" },
+          { title: "Google-Profil (GBP)", color: "#2563eb" },
+          { title: "ImmoScout24 / umzugsfirmen-check", color: "#f97316" },
+          { title: "Kleinanzeigen", color: "#ca8a04" },
+          { title: "Empfehlung", color: "#7c3aed" },
+          { title: "Sonstiges", color: "#6b7280" },
+        ],
+      },
+      { slug: "source_detail", title: "Anzeige / Detail", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      { slug: "source_received_at", title: "Eingegangen am", type: "timestamp", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      { slug: "first_reply_at", title: "Erste Antwort", type: "timestamp", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      {
+        slug: "loss_reason",
+        title: "Verlustgrund",
+        type: "select",
+        isSystem: true,
+        isRequired: false,
+        isUnique: false,
+        isMultiselect: false,
+        selectOptions: [
+          { title: "zu teuer", color: "#dc2626" },
+          { title: "anderer Anbieter", color: "#ea580c" },
+          { title: "Selbstumzug", color: "#d97706" },
+          { title: "Termin passt nicht", color: "#ca8a04" },
+          { title: "keine Rückmeldung", color: "#6b7280" },
+          { title: "Umzug abgesagt", color: "#7c3aed" },
+          { title: "Sonstiges", color: "#64748b" },
+        ],
+      },
+      { slug: "loss_reason_note", title: "Verlustgrund (Freitext)", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       { slug: "value", title: "Quote value", type: "currency", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       {
         slug: "expected_close_date",

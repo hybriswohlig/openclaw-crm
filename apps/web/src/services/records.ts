@@ -382,7 +382,8 @@ export async function updateRecord(
   objectId: string,
   recordId: string,
   input: Record<string, unknown>,
-  updatedBy: string | null
+  updatedBy: string | null,
+  options?: { activity?: Record<string, unknown> }
 ) {
   const { bySlug } = await loadAttributes(objectId);
 
@@ -471,6 +472,7 @@ export async function updateRecord(
             attributeSlug: change.slug,
             fromStatusId: change.fromValue,
             toStatusId: toValue,
+            ...(options?.activity ?? {}),
           },
           actorId: updatedBy,
         });

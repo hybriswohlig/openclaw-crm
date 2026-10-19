@@ -38,6 +38,8 @@ import {
 import { extractPersonalName } from "@/lib/display-name";
 import { objectPluralLabel, objectSingularLabel } from "@/lib/object-labels";
 import { useBackgroundJobs } from "@/components/background-jobs";
+import { LossReasonDialog } from "@/components/records/loss-reason-dialog";
+import { CRM_UI_CLIENT_HEADER, CRM_UI_CLIENT_VALUE, needsLossReasonPrompt } from "@/lib/deal-source";
 
 interface ObjectData {
   id: string;
@@ -175,6 +177,7 @@ export default function RecordDetailPage() {
     return () => window.removeEventListener("deal-tab", wechsel);
   }, []);
   const [record, setRecord] = useState<RecordData | null>(null);
+  const [lossPrompt, setLossPrompt] = useState<{ stageId: string } | null>(null);
   const [related, setRelated] = useState<{ related: any[]; forward: any[] }>({
     related: [],
     forward: [],
@@ -252,6 +255,26 @@ export default function RecordDetailPage() {
 
   const handleUpdate = useCallback(
     async (attrSlug: string, value: unknown) => {
+      if (
+        slug === "deals" &&
+        attrSlug === "stage" &&
+        typeof value === "string" &&
+        object &&
+        record &&
+        needsLossReasonPrompt({
+          statuses: (object.attributes.find((attr) => attr.slug === "stage")?.statuses ?? []) as Array<{
+            id: string;
+            title: string;
+            stageCategory?: string | null;
+          }>,
+          nextStageId: value,
+          currentLossReason: record.values.loss_reason,
+        })
+      ) {
+        setLossPrompt({ stageId: value });
+        return;
+      }
+
       let snapshot: RecordData | undefined;
       setRecord((prev) => {
         if (!prev) return prev;
@@ -286,8 +309,32 @@ export default function RecordDetailPage() {
         });
       }
     },
-    [slug, recordId]
+    [slug, recordId, object, record]
   );
+
+  async function confirmLoss(reasonId: string, note: string) {
+    if (!lossPrompt) return;
+    const res = await fetch(`/api/v1/objects/${slug}/records/${recordId}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        [CRM_UI_CLIENT_HEADER]: CRM_UI_CLIENT_VALUE,
+      },
+      body: JSON.stringify({
+        values: {
+          stage: lossPrompt.stageId,
+          loss_reason: reasonId,
+          loss_reason_note: note || null,
+        },
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new Error(typeof body?.error?.message === "string" ? body.error.message : "Speichern fehlgeschlagen");
+    }
+    setLossPrompt(null);
+    await fetchData();
+  }
 
   const handleDelete = useCallback(async () => {
     if (!confirm("Diesen Eintrag wirklich löschen? Das kann nicht rückgängig gemacht werden.")) return;
@@ -892,6 +939,12 @@ export default function RecordDetailPage() {
           </div>
         </>
       )}
+      <LossReasonDialog
+        open={!!lossPrompt}
+        options={(object?.attributes.find((attr) => attr.slug === "loss_reason")?.options ?? []) as Array<{ id: string; title: string }>}
+        onCancel={() => setLossPrompt(null)}
+        onConfirm={confirmLoss}
+      />
     </div>
   );
 }

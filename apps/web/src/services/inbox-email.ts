@@ -31,6 +31,8 @@ import {
   parseKleinanzeigenBody,
 } from "./inbox-kleinanzeigen";
 import { createDealForNewConversation } from "./inbox";
+import { stampDealSourceIfEmpty, noteOutboundToCustomer } from "./deal-attribution";
+import { extractKleinanzeigenDetail } from "@/lib/deal-source";
 import { emitEvent } from "./activity-events";
 import { ensureCrmPerson, resolveOrCreatePerson } from "./inbox-crm-link";
 import { extractPhonesFromText } from "@/lib/identity/canonical";
@@ -273,6 +275,9 @@ async function ingestParsedEmail(
         dealName: contactName || fromEmail,
         contactId: contact.id,
         channelAccountId: account.id,
+        sourceChannel: "Kleinanzeigen",
+        sourceDetail: extractKleinanzeigenDetail(subject, body),
+        sourceReceivedAt: sentAt,
       });
     } else if (isImmoLead) {
       // IS24 relocation request → structured deal. Dedup over the shared IS24
@@ -287,6 +292,11 @@ async function ingestParsedEmail(
           .update(inboxConversations)
           .set({ dealRecordId: existingDeal, updatedAt: new Date() })
           .where(eq(inboxConversations.id, conv.id));
+        await stampDealSourceIfEmpty({
+          dealRecordId: existingDeal,
+          sourceTitle: "ImmoScout24 / umzugsfirmen-check",
+          receivedAt: sentAt,
+        });
       } else {
         const dealName = computeLeadName({
           customerName: immo!.dealNameParts.customerName,
@@ -300,6 +310,8 @@ async function ingestParsedEmail(
           dealName,
           contactId: contact.id,
           channelAccountId: account.id,
+          sourceChannel: "ImmoScout24 / umzugsfirmen-check",
+          sourceReceivedAt: sentAt,
         });
         if (dealId) {
           await setDealMovingLead({
@@ -349,6 +361,9 @@ async function ingestParsedEmail(
         dealName: contactName || fromEmail,
         contactId: contact.id,
         channelAccountId: account.id,
+        sourceChannel: "Kleinanzeigen",
+        sourceDetail: extractKleinanzeigenDetail(subject, body),
+        sourceReceivedAt: sentAt,
       });
     }
   }
@@ -820,6 +835,13 @@ export async function sendEmailReply(params: {
     })
     .where(eq(inboxConversations.id, conversationId));
 
+  await noteOutboundToCustomer({
+    workspaceId,
+    dealRecordId: conv.dealRecordId,
+    sentAt: new Date(),
+    body,
+  });
+
   return stored;
 }
 
@@ -969,6 +991,13 @@ export async function sendNewEmail(params: {
         fileSize: attachment.content.length, fileContent: attachment.content.toString("base64"),
       });
     }
+
+    await noteOutboundToCustomer({
+      workspaceId,
+      dealRecordId: params.dealRecordId,
+      sentAt: new Date(),
+      body,
+    });
 
     return { conversationId: conv.id };
   } catch (persistErr) {

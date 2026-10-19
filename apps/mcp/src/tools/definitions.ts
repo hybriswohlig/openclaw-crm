@@ -131,7 +131,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "crm_get_record",
-    description: "Get a single record by ID with all attribute values.",
+    description: "Get a single record by ID with all attribute values. Deal records include source_channel, source_detail, source_received_at, first_reply_at, loss_reason and loss_reason_note. Select values are option ids.",
     inputSchema: {
       type: "object",
       properties: {
@@ -144,7 +144,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "crm_create_record",
     description:
-      "Create a record. values is a map of attribute slug → value (formats per attribute type).",
+      "Create a record. values is a map of attribute slug → value (formats per attribute type). For deals, source_channel is optional for API and bots. Titles or option ids: Website-Formular, WhatsApp, Telefon, Google-Profil (GBP), ImmoScout24 / umzugsfirmen-check, Kleinanzeigen, Empfehlung, Sonstiges. loss_reason: zu teuer, anderer Anbieter, Selbstumzug, Termin passt nicht, keine Rückmeldung, Umzug abgesagt, Sonstiges (loss_reason_note required). Moving stage to lost requires loss_reason only with header X-CRM-Client: ui.",
     inputSchema: {
       type: "object",
       properties: {
@@ -160,7 +160,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "crm_update_record",
-    description: "Patch record attribute values.",
+    description: "Patch record attribute values. Deal source_channel and loss_reason accept a title or option id. Sonstiges requires loss_reason_note. Stage → lost returns LOSS_REASON_REQUIRED only when header X-CRM-Client: ui is set and the reason is missing.",
     inputSchema: {
       type: "object",
       properties: {
@@ -186,7 +186,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "crm_query_records",
     description:
-      "Filter and sort records. filter: { operator: and|or, conditions: [{ attribute, operator, value }] }. operators: equals, not_equals, contains, starts_with, ends_with, is_empty, is_not_empty, gt, gte, lt, lte. mode assert: find-or-create.",
+      "Filter and sort records. filter: { operator: and|or, conditions: [{ attribute, operator, value }] }. operators: equals, not_equals, contains, starts_with, ends_with, is_empty, is_not_empty, gt, gte, lt, lte. mode assert: find-or-create. Deal source_channel and loss_reason filters use option ids.",
     inputSchema: {
       type: "object",
       properties: {

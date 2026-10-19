@@ -3,6 +3,8 @@ import { getAuthContext, unauthorized, notFound, badRequest, success } from "@/l
 import { getObjectBySlug } from "@/services/objects";
 import { listRecords, createRecord } from "@/services/records";
 import { assignDealNumber } from "@/services/financial";
+import { resolveDealSelectInputs } from "@/services/deal-attribution";
+import { SOURCE_CHANNEL_SLUG, sourceFromMovingLeadPayload } from "@/lib/deal-source";
 
 export async function GET(
   req: NextRequest,
@@ -39,10 +41,18 @@ export async function POST(
   if (!obj) return notFound("Object not found");
 
   const body = await req.json();
-  const { values } = body;
+  let { values } = body;
 
   if (!values || typeof values !== "object") {
     return badRequest("values object is required");
+  }
+
+  if (slug === "deals") {
+    if (!values[SOURCE_CHANNEL_SLUG]) {
+      const derived = sourceFromMovingLeadPayload(values.moving_lead_payload);
+      if (derived) values = { ...values, [SOURCE_CHANNEL_SLUG]: derived };
+    }
+    values = await resolveDealSelectInputs(obj.id, values);
   }
 
   const record = await createRecord(obj.id, values, ctx.userId);

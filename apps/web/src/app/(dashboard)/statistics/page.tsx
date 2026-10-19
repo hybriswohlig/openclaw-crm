@@ -59,6 +59,7 @@ interface PipelineStats {
   avgTimeToCloseDays: number | null;
   avgQuoteValueOpen: number | null;
   avgQuoteValueWon: number | null;
+  bySource: { title: string; count: number }[];
 }
 
 interface OperationsStats {
@@ -426,6 +427,17 @@ function PipelineTab() {
             </Bar>
           </BarChart>
         </ResponsiveContainer>
+      </Panel>
+
+      <Panel title="Quelle / Kanal">
+        <ul className="space-y-1 text-sm">
+          {(data.bySource ?? []).map((row) => (
+            <li key={row.title} className="flex items-center justify-between gap-3">
+              <span>{row.title}</span>
+              <span className="tabular-nums text-muted-foreground">{row.count}</span>
+            </li>
+          ))}
+        </ul>
       </Panel>
 
       <Panel title="Pipeline-Wert pro Stage">

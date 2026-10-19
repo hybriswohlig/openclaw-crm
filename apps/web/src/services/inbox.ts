@@ -18,6 +18,7 @@ import {
   stripKleinanzeigenSuffix,
 } from "./inbox-kleinanzeigen";
 import { createRecord, updateRecord } from "./records";
+import { classifyAndStampFromConversation, stampDealSourceIfEmpty } from "./deal-attribution";
 import { extractDealInsights } from "./deal-insights";
 import { applyDealInsights } from "./deal-insights-apply";
 import { excludeInternalPhotoMessages, findDealInternalPhoto, listDealInternalPhotos } from "./deal-photos";
@@ -695,6 +696,8 @@ export async function linkConversationToDeal(
       )
     );
 
+  await classifyAndStampFromConversation(conversationId, dealRecordId);
+
   return { conversation: row };
 }
 
@@ -875,6 +878,12 @@ export async function createDealForNewConversation(params: {
   dealName: string;
   contactId?: string;
   channelAccountId?: string;
+  /** Quelle title, e.g. "Kleinanzeigen". Empty stays empty rather than failing. */
+  sourceChannel?: string | null;
+  /** Ad title / id or `[variant|stadtteil|brand]` tag. */
+  sourceDetail?: string | null;
+  /** Inbound capture time. Not overwritten when Quelle is already set. */
+  sourceReceivedAt?: Date | null;
 }): Promise<string | null> {
   const { workspaceId, conversationId, dealName, contactId, channelAccountId } = params;
   try {
@@ -918,6 +927,7 @@ export async function createDealForNewConversation(params: {
             .update(inboxMessageAttachments)
             .set({ dealRecordId: reuse })
             .where(and(eq(inboxMessageAttachments.conversationId, conversationId), eq(inboxMessageAttachments.workspaceId, workspaceId)));
+          await stampSourceForConversationDeal(params, reuse);
           return reuse;
         }
       }
@@ -1014,6 +1024,8 @@ export async function createDealForNewConversation(params: {
         )
       );
 
+    await stampSourceForConversationDeal(params, deal.id);
+
     // 7. Fire-and-forget: extract AI insights from the first message and
     // post an initial activity note. Only the note is auto-applied — field
     // updates are left for the user to review via the KI-Analyse panel.
@@ -1040,6 +1052,38 @@ export async function createDealForNewConversation(params: {
     console.error("[inbox] createDealForNewConversation failed:", err);
     return null;
   }
+}
+
+/** Quelle is written only while empty. WhatsApp is inferred from the channel account. */
+async function stampSourceForConversationDeal(
+  params: {
+    channelAccountId?: string;
+    sourceChannel?: string | null;
+    sourceDetail?: string | null;
+    sourceReceivedAt?: Date | null;
+  },
+  dealRecordId: string
+) {
+  let title = params.sourceChannel ?? null;
+  let receivedAt = params.sourceReceivedAt ?? null;
+  if (!title && params.channelAccountId) {
+    const [account] = await db
+      .select({ channelType: channelAccounts.channelType })
+      .from(channelAccounts)
+      .where(eq(channelAccounts.id, params.channelAccountId))
+      .limit(1);
+    if (account?.channelType === "whatsapp") {
+      title = "WhatsApp";
+      if (!receivedAt) receivedAt = new Date();
+    }
+  }
+  if (!title) return;
+  await stampDealSourceIfEmpty({
+    dealRecordId,
+    sourceTitle: title,
+    sourceDetail: params.sourceDetail,
+    receivedAt,
+  });
 }
 
 // ─── Noise-deal cleanup ───────────────────────────────────────────────────────
