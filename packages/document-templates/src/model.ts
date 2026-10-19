@@ -1,6 +1,7 @@
+import { composeDocumentCopy } from "./copy";
 import { issuerFor } from "./issuers";
 import { formatEur, formatGermanDate } from "./money";
-import { paymentMethodLabel, resolveDocumentPrices, serviceLabel } from "./prices";
+import { paymentMethodLabel, resolveDocumentPrices } from "./prices";
 import { TEMPLATE_VERSION } from "./version";
 import type { DocKind, DocumentCopy, DocumentModel, RenderInput } from "./types";
 
@@ -10,41 +11,14 @@ const TITLES: Record<DocKind, string> = {
   RE: "Rechnung",
 };
 
-const BOILERPLATE: Record<DocKind, string> = {
-  KV: "Vielen Dank für Ihre Anfrage. Wir unterbreiten Ihnen folgendes Angebot.",
-  AB: "Vielen Dank für Ihren Auftrag. Wir bestätigen die folgenden Konditionen.",
-  RE: "Wir berechnen Ihnen die vereinbarten Leistungen wie folgt.",
-};
-
 function cleanCopy(value: string | undefined): string | undefined {
   const trimmed = value?.replace(/\u0000/g, "").trim();
   return trimmed ? trimmed : undefined;
 }
 
-function paymentSentence(input: {
-  kind: DocKind;
-  method: string;
-  openCents: number | null;
-}): string | null {
-  if (input.kind === "RE" && input.openCents === 0) {
-    return "Der Betrag ist ausgeglichen. Diese Rechnung gilt als Quittung.";
-  }
-  if (input.method === "Bar") {
-    return input.kind === "RE"
-      ? "Der offene Betrag ist bar zu entrichten."
-      : "Die Anzahlung bzw. der Rechnungsbetrag ist bar zu entrichten.";
-  }
-  if (input.method === "Karte") return "Die Zahlung erfolgt per Karte.";
-  if (input.method === "PayPal") return "Die Zahlung erfolgt per PayPal.";
-  if (input.kind === "RE" || input.method === "Überweisung") {
-    return "Bitte überweisen Sie den offenen Betrag auf das unten genannte Konto.";
-  }
-  return null;
-}
-
 /**
  * Build the view model. Prices come from `resolveDocumentPrices`.
- * Optional copy is appended as text and cannot change the total.
+ * Optional intro, closing and remarks replace the service default and cannot change the total.
  */
 export function buildDocumentModel(input: RenderInput): DocumentModel {
   const prices = resolveDocumentPrices({
@@ -75,15 +49,20 @@ export function buildDocumentModel(input: RenderInput): DocumentModel {
   const remainderCents =
     depositCents != null && depositCents <= totalCents ? totalCents - depositCents : null;
 
-  const intro = [copy.intro, BOILERPLATE[input.kind]].filter(
-    (line): line is string => !!line
-  );
-  const sentence = paymentSentence({
+  const wording = composeDocumentCopy({
     kind: input.kind,
-    method: method.label,
+    serviceType: input.quotation.serviceType,
+    signals: input.service,
+    addressForm: input.deal.addressForm,
+    customerName: input.deal.customerName,
+    givenName: input.deal.givenName,
+    serviceDate: input.deal.serviceDate,
+    dueDate: input.deal.dueDate,
+    methodLabel: method.label,
+    hasDeposit: depositCents != null,
     openCents,
+    copy,
   });
-  const closing = [sentence, copy.closing].filter((line): line is string => !!line);
 
   const showBank = input.kind === "RE" || method.label === "Überweisung";
   const date = formatGermanDate(input.deal.documentDate);
@@ -103,12 +82,14 @@ export function buildDocumentModel(input: RenderInput): DocumentModel {
     serviceDateLabel: input.deal.serviceDate
       ? formatGermanDate(input.deal.serviceDate)
       : undefined,
-    serviceLabel: serviceLabel(input.quotation.serviceType),
+    serviceKind: wording.service.kind,
+    serviceLabel: wording.service.label,
+    addressForm: wording.addressForm,
     validUntilLabel:
       input.kind !== "RE" && input.quotation.validUntil
         ? formatGermanDate(input.quotation.validUntil)
         : undefined,
-    intro,
+    intro: wording.intro,
     summary: input.quotation.summary ?? undefined,
     scopeLines: prices.scopeLines,
     positions: prices.positions,
@@ -119,10 +100,11 @@ export function buildDocumentModel(input: RenderInput): DocumentModel {
     depositLabel: depositCents != null ? formatEur(depositCents) : undefined,
     remainderLabel: remainderCents != null ? formatEur(remainderCents) : undefined,
     paymentMethodLabel: method.label,
+    paymentTerms: wording.paymentTerms ?? undefined,
     paidLabel: paidCents != null && paidCents > 0 ? formatEur(paidCents) : undefined,
     openLabel: openCents != null ? formatEur(openCents) : undefined,
     remarks: copy.remarks,
-    closing,
+    closing: wording.closing,
     taxNote: "Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.",
     showBank,
   };

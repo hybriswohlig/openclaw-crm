@@ -2,6 +2,35 @@ export type DocKind = "KV" | "AB" | "RE";
 export type FirmaSlug = "kottke" | "ceylan";
 export type ServiceType = "move" | "kitchen_installation" | "clearance";
 
+/**
+ * Printed service. `move` covers a household move and a Fernumzug.
+ * `transport` covers one-off transports, Klaviertransport and Beiladung.
+ * `other` is any stored service that is none of the known ones.
+ */
+export type DocumentServiceKind =
+  | "move"
+  | "clearance"
+  | "kitchen"
+  | "transport"
+  | "storage"
+  | "other";
+
+/** Sie or du, same two values as the opt-out footer. */
+export type AddressForm = "sie" | "du";
+
+/**
+ * Signals besides `quotations.service_type`. The quotation type is passed
+ * separately. `showStandardInclusions: false` is how one-off transports are
+ * stored (the column default is true). Lead type comes from the deal's
+ * moving-lead payload. Piano and storage flags live on the linked Auftrag.
+ */
+export interface ServiceSignals {
+  showStandardInclusions?: boolean | null;
+  leadType?: string | null;
+  pianoTransport?: boolean | null;
+  storageRequired?: boolean | null;
+}
+
 export interface PriceLine {
   type: string;
   description: string | null;
@@ -49,6 +78,15 @@ export interface DealFacts {
   serviceDate?: string;
   /** ISO date printed as the document date. */
   documentDate: string;
+  /** First name, used only for a du greeting. */
+  givenName?: string;
+  /** From the conversation and the deal. Omitted means Sie. */
+  addressForm?: AddressForm;
+  /**
+   * ISO due date from the deal or the quotation. Never filled with the
+   * service date.
+   */
+  dueDate?: string;
 }
 
 /** Optional plain text. Never a price source. */
@@ -75,6 +113,8 @@ export interface RenderInput {
   packageOption?: PackageOptionPrice | null;
   /** Booked payments in cents. Used on a Rechnung as the amount already paid. */
   paidCents?: number;
+  /** Deal and Auftrag signals. The quotation's serviceType is read from `quotation`. */
+  service?: ServiceSignals;
   copy?: DocumentCopy;
 }
 
@@ -107,7 +147,9 @@ export interface DocumentModel {
   fromAddress?: string;
   toAddress?: string;
   serviceDateLabel?: string;
+  serviceKind: DocumentServiceKind;
   serviceLabel: string;
+  addressForm: AddressForm;
   validUntilLabel?: string;
   intro: string[];
   summary?: string;
@@ -120,6 +162,8 @@ export interface DocumentModel {
   depositLabel?: string;
   remainderLabel?: string;
   paymentMethodLabel?: string;
+  /** Due-date and method sentence. Amounts stay in the price block. */
+  paymentTerms?: string;
   paidLabel?: string;
   openLabel?: string;
   remarks?: string;

@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import {
   MissingPriceError,
   buildDocumentModel,
@@ -14,7 +14,9 @@ import {
   type PackageOptionPrice,
 } from "@openclaw-crm/document-templates";
 import { db } from "@/db";
-import { objects } from "@/db/schema/objects";
+import { attributes, objects } from "@/db/schema/objects";
+import { records, recordValues } from "@/db/schema/records";
+import { inboxConversations, inboxMessages } from "@/db/schema/inbox";
 import { payments } from "@/db/schema/financial";
 import { kvaConfirmations, quotationPackageOptions } from "@/db/schema/customer-portal";
 import { formatLocation } from "@/lib/deal-doc-data";
@@ -29,6 +31,7 @@ import {
   type DealDocumentMeta,
   type DealDocumentType,
 } from "@/services/deal-documents";
+import { anredeFuerOptOut, ladeGespeicherteAnrede } from "@/services/agent/agent-suppress";
 import { aktivBedingung } from "@/services/kva-annahme";
 
 export class CommercialDocumentError extends Error {
@@ -72,8 +75,138 @@ function addressLine(value: unknown): string | undefined {
 }
 
 function isoDay(value: unknown): string | undefined {
-  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
-  return undefined;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  const iso = /^(\d{4}-\d{2}-\d{2})/.exec(trimmed);
+  if (iso) return iso[1];
+  const de = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(trimmed);
+  if (!de) return undefined;
+  return `${de[3]}-${de[2].padStart(2, "0")}-${de[1].padStart(2, "0")}`;
+}
+
+/**
+ * Due date printed on the document. The job date is intentionally not a
+ * fallback: a missing due date stays missing.
+ */
+export function documentDueDate(rechnungFaelligAm: unknown, depositDue: unknown): string | undefined {
+  return isoDay(rechnungFaelligAm) ?? isoDay(depositDue);
+}
+
+/** Same rule as the opt-out footer: the latest customer text, else the stored register, else Sie. */
+export function documentAddressForm(
+  latestInbound: string | null | undefined,
+  sources?: { deal?: string | null; conversation?: string | null }
+): "sie" | "du" {
+  return anredeFuerOptOut(latestInbound ?? "", {
+    deal: sources?.deal,
+    konversation: sources?.conversation,
+  });
+}
+
+export function leadTypeFromPayload(value: unknown): string | null {
+  let parsed = value;
+  if (typeof parsed === "string") {
+    const trimmed = parsed.trim();
+    if (!trimmed) return null;
+    try {
+      parsed = JSON.parse(trimmed) as unknown;
+    } catch {
+      return null;
+    }
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const record = parsed as Record<string, unknown>;
+  const raw = record.leadType ?? record.LeadType;
+  return typeof raw === "string" && raw.trim() ? raw.trim() : null;
+}
+
+function flag(value: unknown): boolean {
+  return value === true || value === 1 || value === "true" || value === "1";
+}
+
+async function loadAddressForm(workspaceId: string, dealRecordId: string): Promise<"sie" | "du"> {
+  try {
+    const [conv] = await db
+      .select({ id: inboxConversations.id })
+      .from(inboxConversations)
+      .where(
+        and(
+          eq(inboxConversations.workspaceId, workspaceId),
+          eq(inboxConversations.dealRecordId, dealRecordId)
+        )
+      )
+      .orderBy(desc(inboxConversations.lastMessageAt))
+      .limit(1);
+    const stored = await ladeGespeicherteAnrede({
+      dealRecordId,
+      conversationId: conv?.id ?? null,
+    });
+    let inbound = "";
+    if (conv) {
+      const [message] = await db
+        .select({ body: inboxMessages.body })
+        .from(inboxMessages)
+        .where(
+          and(eq(inboxMessages.conversationId, conv.id), eq(inboxMessages.direction, "inbound"))
+        )
+        .orderBy(desc(inboxMessages.createdAt))
+        .limit(1);
+      inbound = message?.body ?? "";
+    }
+    return documentAddressForm(inbound, {
+      deal: stored.deal,
+      conversation: stored.konversation,
+    });
+  } catch (err) {
+    console.error("[commercial-documents] address form fell back to Sie", err);
+    return "sie";
+  }
+}
+
+async function loadServiceFlags(
+  workspaceId: string,
+  dealRecordId: string
+): Promise<{ pianoTransport: boolean; storageRequired: boolean }> {
+  const empty = { pianoTransport: false, storageRequired: false };
+  try {
+    const [auftragObj] = await db
+      .select({ id: objects.id })
+      .from(objects)
+      .where(and(eq(objects.workspaceId, workspaceId), eq(objects.slug, "auftraege")))
+      .limit(1);
+    if (!auftragObj) return empty;
+    const [dealRef] = await db
+      .select({ id: attributes.id })
+      .from(attributes)
+      .where(and(eq(attributes.objectId, auftragObj.id), eq(attributes.slug, "deal")))
+      .limit(1);
+    if (!dealRef) return empty;
+    const [ref] = await db
+      .select({ recordId: recordValues.recordId })
+      .from(recordValues)
+      .innerJoin(records, eq(records.id, recordValues.recordId))
+      .where(
+        and(
+          eq(records.objectId, auftragObj.id),
+          eq(recordValues.attributeId, dealRef.id),
+          eq(recordValues.referencedRecordId, dealRecordId)
+        )
+      )
+      .limit(1);
+    if (!ref) return empty;
+    const rec = await getRecord(auftragObj.id, ref.recordId);
+    const values = rec?.values ?? {};
+    return {
+      pianoTransport: flag(values.piano_transport),
+      storageRequired: flag(values.storage_required),
+    };
+  } catch (err) {
+    console.error("[commercial-documents] service flags unavailable", err);
+    return empty;
+  }
 }
 
 /** AB prices follow the accepted snapshot. Deposit and the rest stay on the quotation row. */
@@ -175,13 +308,15 @@ export async function loadCommercialModel(input: {
       ? String((people[0] as { id: string }).id)
       : null;
 
-  const [email, customerAddress, paidRow] = await Promise.all([
+  const [email, customerAddress, paidRow, flags, addressForm] = await Promise.all([
     loadCustomerEmail(workspaceId, dealRecordId),
     personId ? loadPersonAddress(workspaceId, personId) : Promise.resolve(undefined),
     db
       .select({ paid: sql<string>`coalesce(sum(${payments.amount}), 0)` })
       .from(payments)
       .where(and(eq(payments.workspaceId, workspaceId), eq(payments.dealRecordId, dealRecordId))),
+    loadServiceFlags(workspaceId, dealRecordId),
+    loadAddressForm(workspaceId, dealRecordId),
   ]);
 
   const paidCents = Math.round(Number(paidRow[0]?.paid ?? 0) * 100);
@@ -198,6 +333,18 @@ export async function loadCommercialModel(input: {
         toAddress: addressLine(deal.values.move_to_address),
         serviceDate: isoDay(deal.values.move_date),
         documentDate: berlinToday(input.now),
+        givenName: customer.vorname,
+        addressForm,
+        dueDate: documentDueDate(
+          deal.values.rechnung_faellig_am,
+          quotation.documentDetails?.depositDue
+        ),
+      },
+      service: {
+        showStandardInclusions: quotation.showStandardInclusions,
+        leadType: leadTypeFromPayload(deal.values.moving_lead_payload),
+        pianoTransport: flags.pianoTransport,
+        storageRequired: flags.storageRequired,
       },
       quotation: priceSourceFromStored(quotation),
       accepted: acceptedPriceFor(kind, accepted?.quotationSnapshot),

@@ -63,7 +63,7 @@ export function renderHtml(model: DocumentModel): string {
 </style>
 </head>
 <body>
-<main>
+<main data-service="${escapeHtml(model.serviceKind)}" data-address="${escapeHtml(model.addressForm)}">
   <header>
     <div>
       <p class="brand">${escapeHtml(model.issuer.displayName)}</p>
@@ -97,6 +97,7 @@ export function renderHtml(model: DocumentModel): string {
     ${row("Bereits gebucht", model.paidLabel)}
     ${row("Offen", model.openLabel)}
   </div>
+  ${model.paymentTerms ? `<p>${textBlock(model.paymentTerms)}</p>` : ""}
   ${model.remarks ? `<h2>Hinweise</h2><p>${textBlock(model.remarks)}</p>` : ""}
   ${model.closing.map((p) => `<p>${textBlock(p)}</p>`).join("")}
   <p class="muted">${escapeHtml(model.taxNote)}</p>
