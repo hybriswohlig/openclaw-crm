@@ -24,6 +24,7 @@ export * from "./customer-portal";
 export * from "./reviews";
 export * from "./identity";
 export * from "./agent";
+export * from "./nachfass";
 export * from "./inventory";
 export * from "./deal-calculations";
 export * from "./deal-internal-photos";

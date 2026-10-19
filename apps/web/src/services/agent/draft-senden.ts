@@ -26,6 +26,8 @@ import {
   outboundStateTouch,
   type HumanApprovalRecord,
 } from "@/services/agent/draft-freigabe";
+import { nachfassNachVersand } from "@/services/nachfass/abschluss";
+import { SEQUENZ_ID } from "@/services/nachfass/konstanten";
 import {
   WhatsAppSessionExpiredError,
   BaileysBridgeNotConfiguredError,
@@ -456,6 +458,19 @@ export async function entwurfFreigebenUndSenden(input: {
         target: dealAgentState.dealRecordId,
         set: outboundStateTouch(now),
       });
+    if (draft.sequenceId === SEQUENZ_ID) {
+      await nachfassNachVersand({
+        workspaceId,
+        dealRecordId: draft.dealRecordId,
+        draftId: id,
+        sequenceStep: draft.sequenceStep,
+        channelAccountId: draft.channelAccountId,
+        draftText: draft.draftText,
+        finalText: text,
+        filterVerdicts: draft.filterVerdicts,
+        conversationId: conv.id,
+      });
+    }
   } catch (err) {
     console.error("[agent-drafts] post-send bookkeeping failed (message WAS sent):", id, err);
   }
