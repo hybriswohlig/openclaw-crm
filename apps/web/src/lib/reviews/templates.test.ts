@@ -162,4 +162,38 @@ describe("resolveDestination — env-driven URL with fail-loud missing config", 
     expect(() => resolveDestination("kottke")).toThrow(/REVIEWS_GBP_URL_KOTTKE/);
     expect(() => resolveDestination("ceylan")).toThrow(/REVIEWS_GBP_URL_CEYLAN/);
   });
+
+  it("prefers the per-company override over the env var", () => {
+    process.env.REVIEWS_GBP_URL_KOTTKE = "https://env.example/kottke";
+    expect(resolveDestination("kottke", "https://oc.example/kottke")).toEqual({
+      kind: "google_kottke",
+      url: "https://oc.example/kottke",
+    });
+  });
+
+  it("trims whitespace from the per-company override", () => {
+    expect(resolveDestination("ceylan", "   https://oc.example/ceylan   ")).toEqual({
+      kind: "google_ceylan",
+      url: "https://oc.example/ceylan",
+    });
+  });
+
+  it("falls back to the env var when the override is empty, whitespace, or null", () => {
+    process.env.REVIEWS_GBP_URL_KOTTKE = "https://env.example/kottke";
+    expect(resolveDestination("kottke", null).url).toBe("https://env.example/kottke");
+    expect(resolveDestination("kottke", "").url).toBe("https://env.example/kottke");
+    expect(resolveDestination("kottke", "   ").url).toBe("https://env.example/kottke");
+    expect(resolveDestination("kottke", undefined).url).toBe("https://env.example/kottke");
+  });
+
+  it("rejects an invalid override instead of sending it or falling back", () => {
+    process.env.REVIEWS_GBP_URL_KOTTKE = "https://env.example/kottke";
+    expect(() => resolveDestination("kottke", "javascript:alert(1)")).toThrow(/http\(s\)/);
+    expect(() => resolveDestination("kottke", "not a url")).toThrow(/http\(s\)/);
+  });
+
+  it("rejects an env var that is not an http(s) URL", () => {
+    process.env.REVIEWS_GBP_URL_CEYLAN = "g.page/r/ceylan";
+    expect(() => resolveDestination("ceylan")).toThrow(/REVIEWS_GBP_URL_CEYLAN/);
+  });
 });

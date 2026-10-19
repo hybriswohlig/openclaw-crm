@@ -31,6 +31,7 @@ import {
   reviewEvents,
   reviewTokens,
   inboxContacts,
+  operatingCompanyPortalSettings,
   statuses,
 } from "@/db/schema";
 import { getSingletonWorkspaceId } from "@/services/workspace";
@@ -181,6 +182,18 @@ async function runReviewsCron(
     return result;
   }
 
+  // Per-company Google review URL (Settings → Gesellschaften / Kunden-Portal).
+  // Loaded once per tick. The sender prefers this over REVIEWS_GBP_URL_*.
+  const operatingCompanyAttr = attrBySlug.get("operating_company");
+  const portalSettingsRows = await db
+    .select({
+      ocId: operatingCompanyPortalSettings.operatingCompanyRecordId,
+      url: operatingCompanyPortalSettings.googleReviewUrl,
+    })
+    .from(operatingCompanyPortalSettings)
+    .where(eq(operatingCompanyPortalSettings.workspaceId, workspaceId));
+  const reviewUrlByOc = new Map(portalSettingsRows.map((r) => [r.ocId, r.url] as const));
+
   // 4) Find candidate deals: move_completed_at in the 4–24h window.
   const now = new Date();
   const earliest = new Date(now.getTime() - SEND_WINDOW_END_MS);
@@ -304,11 +317,19 @@ async function runReviewsCron(
       continue;
     }
     const brand = brandTitle as Brand;
+    const ocId = operatingCompanyAttr
+      ? (valByAttr.get(operatingCompanyAttr.id)?.referencedRecordId ?? null)
+      : null;
+    const ocReviewUrl = ocId ? (reviewUrlByOc.get(ocId) ?? null) : null;
     let destination: ReturnType<typeof resolveDestination>;
     try {
-      destination = resolveDestination(brand);
-    } catch {
-      // No GBP url configured — mark failed and move on.
+      destination = resolveDestination(brand, ocReviewUrl);
+    } catch (err) {
+      // Missing or invalid review URL — mark failed and move on. Do not send.
+      console.warn("[cron/reviews-send] review URL missing or invalid", {
+        dealId,
+        err: err instanceof Error ? err.message : String(err),
+      });
       result.failed++;
       await markFailed({ workspaceId, dealId, statusByTitle, reviewStatusAttr });
       continue;

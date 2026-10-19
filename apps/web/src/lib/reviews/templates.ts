@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { parseReviewUrl } from "./review-url";
 
 // Variant assignment + German message bodies for the post-move reviews
 // engine. Pure helpers, no DB and no I/O. Used by the cron job (KOT-622)
@@ -48,19 +49,40 @@ export function assignVariant(dealId: string): Variant {
   return digest.readUInt32BE(0) % 2 === 0 ? "A" : "B";
 }
 
-// Brand → review destination URL. Read from env so we can rotate the
-// destination without a deploy (e.g. if Google flips the GBP review
-// link format). The cron job catches the throw and marks the deal
-// `failed` rather than sending a malformed link.
-export function resolveDestination(brand: Brand): ReviewDestination {
-  if (brand === "kottke") {
-    const url = process.env.REVIEWS_GBP_URL_KOTTKE;
-    if (!url) throw new Error("REVIEWS_GBP_URL_KOTTKE env var is not set");
-    return { kind: "google_kottke", url };
+// Brand → review destination URL. `urlOverride` is the operating company's
+// `operating_company_portal_settings.google_review_url` — the admin-editable
+// source of truth (Settings → Gesellschaften, and the Kunden-Portal dialog).
+// A non-empty override must be an http(s) URL. Empty / missing falls back to
+// REVIEWS_GBP_URL_KOTTKE or REVIEWS_GBP_URL_CEYLAN. The cron catches the throw
+// and marks the deal `failed` rather than sending a malformed link.
+export function resolveDestination(
+  brand: Brand,
+  urlOverride?: string | null,
+): ReviewDestination {
+  const kind: ReviewDestinationKind =
+    brand === "kottke" ? "google_kottke" : "google_ceylan";
+  const envKey = brand === "kottke" ? "REVIEWS_GBP_URL_KOTTKE" : "REVIEWS_GBP_URL_CEYLAN";
+
+  if (urlOverride != null && urlOverride.trim() !== "") {
+    const parsed = parseReviewUrl(urlOverride);
+    if (!parsed.ok) {
+      throw new Error(
+        `Google review URL for brand '${brand}' is not a valid http(s) URL.`,
+      );
+    }
+    return { kind, url: parsed.url };
   }
-  const url = process.env.REVIEWS_GBP_URL_CEYLAN;
-  if (!url) throw new Error("REVIEWS_GBP_URL_CEYLAN env var is not set");
-  return { kind: "google_ceylan", url };
+
+  const parsedEnv = parseReviewUrl(process.env[envKey]);
+  if (!parsedEnv.ok) {
+    if (parsedEnv.reason === "invalid") {
+      throw new Error(`${envKey} is not a valid http(s) URL.`);
+    }
+    throw new Error(
+      `No review URL configured for brand '${brand}'. Set it on the operating company, or the ${envKey} env var.`,
+    );
+  }
+  return { kind, url: parsedEnv.url };
 }
 
 export interface VariantAArgs {
