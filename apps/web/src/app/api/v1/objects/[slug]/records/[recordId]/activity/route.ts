@@ -205,6 +205,27 @@ export async function GET(
           createdBy: ev.actorId ?? undefined,
         };
       }
+      if (ev.eventType === "ai.field_enrichment") {
+        const fieldLabel = typeof payload.fieldLabel === "string" ? payload.fieldLabel : "Feld";
+        const valueLabel = typeof payload.valueLabel === "string" ? payload.valueLabel : "";
+        const reason = typeof payload.reason === "string" ? payload.reason : "";
+        const quote = typeof payload.quote === "string" ? payload.quote : "";
+        const mode = payload.mode === "suggestion"
+          ? "Vorschlag"
+          : payload.mode === "accepted"
+            ? "übernommen"
+            : payload.mode === "rejected"
+              ? "abgelehnt"
+              : "gesetzt";
+        return {
+          id: `event-${ev.id}`,
+          type: "ai_enrichment" as const,
+          title: `KI · ${fieldLabel}${valueLabel ? ` → ${valueLabel}` : ""} · ${mode}`,
+          description: [reason, quote ? `„${quote}“` : ""].filter(Boolean).join(" · "),
+          createdAt: ev.createdAt.toISOString(),
+          createdBy: ev.actorId ?? undefined,
+        };
+      }
       if (ev.eventType === "message.sent") {
         const channel = typeof payload.channelType === "string" ? payload.channelType : "";
         return {

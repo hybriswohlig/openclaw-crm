@@ -17,6 +17,7 @@ import { AuftragTab } from "@/components/auftrag/auftrag-tab";
 import { RecordConversations } from "@/components/records/record-conversations";
 import { LeadWebHistory } from "@/components/records/lead-web-history";
 import { ShareLinkPanel } from "@/components/customer-link/share-link-panel";
+import { DealEnrichmentSuggestions } from "@/components/records/deal-enrichment-suggestions";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import {
@@ -539,7 +540,8 @@ export default function RecordDetailPage() {
         </div>
 
         {slug === "deals" && (
-          <div className="px-6 pt-4">
+          <div className="space-y-3 px-6 pt-4">
+            <DealEnrichmentSuggestions dealRecordId={recordId} onApplied={() => void fetchData()} />
             <ShareLinkPanel dealRecordId={recordId} />
           </div>
         )}
