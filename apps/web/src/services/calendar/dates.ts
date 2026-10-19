@@ -19,6 +19,33 @@ export function daysBetween(a: string, b: string): number {
   return Math.round((utcMs(b) - utcMs(a)) / DAY_MS);
 }
 
+/** YYYY-MM-DD civil date in Europe/Berlin. Independent of the host timezone. */
+export function berlinTodayKey(now: Date = new Date()): string {
+  return berlinDateAndTime(now).date;
+}
+
+/**
+ * Local Date whose calendar fields are the Europe/Berlin civil date of `now`.
+ * Noon avoids a DST gap landing on the wrong local day.
+ */
+export function berlinWallDate(now: Date = new Date()): Date {
+  const [year, month, day] = berlinTodayKey(now).split("-").map(Number);
+  return new Date(year, month - 1, day, 12, 0, 0, 0);
+}
+
+/**
+ * Agenda rows for the open month or week. Today stays listed when it has no
+ * events, so the open view can mark and scroll to it.
+ */
+export function agendaVisibleDays(
+  days: readonly string[],
+  today: string,
+  focusDate: string | null,
+  hasEvents: (day: string) => boolean,
+): string[] {
+  return days.filter((day) => day === today || day === focusDate || hasEvents(day));
+}
+
 export function berlinDateAndTime(d: Date): { date: string; time: string } {
   const fmt = new Intl.DateTimeFormat("en-GB", {
     timeZone: BERLIN_TZ,

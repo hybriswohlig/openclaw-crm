@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, Copy, Link2, Loader2, RefreshCw } from "lucide-react";
+import { agendaVisibleDays, berlinTodayKey, berlinWallDate } from "@/services/calendar/dates";
 import { cn } from "@/lib/utils";
 
 interface CalendarEvent {
@@ -117,7 +118,7 @@ function sameIds(a: string[], b: string[]): boolean {
 }
 
 export default function ContractCalendarPage() {
-  const [cursor, setCursor] = useState(() => new Date());
+  const [cursor, setCursor] = useState(() => berlinWallDate());
   const [view, setView] = useState<"month" | "week">("month");
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [companies, setCompanies] = useState<CalendarCompany[]>([]);
@@ -130,6 +131,8 @@ export default function ContractCalendarPage() {
   const [subBusy, setSubBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [focusDate, setFocusDate] = useState<string | null>(null);
+  const agendaTodayRef = useRef<HTMLElement | null>(null);
+  const scrolledAgendaFor = useRef<string | null>(null);
 
   const year = cursor.getFullYear();
   const month = cursor.getMonth();
@@ -222,10 +225,40 @@ export default function ContractCalendarPage() {
       ? `${weekDays[0].toLocaleDateString("de-DE", { day: "numeric", month: "short" })} – ${weekDays[6].toLocaleDateString("de-DE", { day: "numeric", month: "short", year: "numeric" })}`
       : new Date(year, month, 1).toLocaleDateString("de-DE", { month: "long", year: "numeric" });
 
-  const today = dateKey(new Date());
+  const today = berlinTodayKey();
   const agendaDays = (view === "week" ? weekDays : monthDays.filter((day) => day.isCurrentMonth).map((day) => day.date))
     .map((date) => dateKey(date))
     .filter((key, index, all) => all.indexOf(key) === index);
+  const visibleAgendaDays = useMemo(
+    () => agendaVisibleDays(agendaDays, today, focusDate, (day) => events.some((event) => covers(event, day))),
+    [agendaDays, today, focusDate, events],
+  );
+
+  useLayoutEffect(() => {
+    if (loading) return;
+    if (today < range.from || today > range.to) return;
+    const key = `${view}:${range.from}:${range.to}`;
+    if (scrolledAgendaFor.current === key) return;
+    const align = () => {
+      const el = agendaTodayRef.current;
+      // Desktop draws the month/week grid; the agenda is display:none and must not steal the scroll.
+      if (!el || el.getClientRects().length === 0) return;
+      el.scrollIntoView({ block: "start" });
+    };
+    align();
+    scrolledAgendaFor.current = key;
+    let alive = true;
+    const realign = () => {
+      if (alive) align();
+    };
+    const frame = requestAnimationFrame(realign);
+    const fonts = document.fonts?.ready.then(realign);
+    return () => {
+      alive = false;
+      cancelAnimationFrame(frame);
+      void fonts;
+    };
+  }, [loading, range.from, range.to, today, view]);
 
   const subscriptionUrl = useMemo(() => {
     if (!subscription?.path || typeof window === "undefined") return null;
@@ -275,7 +308,7 @@ export default function ContractCalendarPage() {
 
   return (
     <div className="flex h-full flex-col p-4 md:p-6">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="sticky top-0 z-10 -mx-4 mb-4 flex flex-wrap items-center justify-between gap-3 bg-background px-4 py-2 md:-mx-6 md:px-6">
         <div>
           <h1 className="text-2xl font-semibold">Kalender</h1>
           <p className="text-sm text-muted-foreground">Einsätze von Kottke-Umzüge und Ceylan Operations</p>
@@ -289,7 +322,7 @@ export default function ContractCalendarPage() {
               Woche
             </ViewButton>
           </div>
-          <Button variant="outline" size="sm" onClick={() => setCursor(new Date())}>
+          <Button variant="outline" size="sm" onClick={() => setCursor(berlinWallDate())}>
             Heute
           </Button>
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => shift(-1)} aria-label="Zurück">
@@ -360,7 +393,13 @@ export default function ContractCalendarPage() {
           </div>
         )}
         <div className="md:hidden">
-          <Agenda days={agendaDays} events={events} today={today} onFocus={setFocusDate} focusDate={focusDate} />
+          <Agenda
+            days={visibleAgendaDays}
+            events={events}
+            today={today}
+            onFocus={setFocusDate}
+            todayRef={agendaTodayRef}
+          />
         </div>
         <div className="hidden md:block">
           {view === "month" ? (
@@ -510,12 +549,14 @@ function MonthGrid({
               <button
                 type="button"
                 onClick={() => onFocus(key)}
+                aria-current={key === today ? "date" : undefined}
                 className={cn(
                   "mb-0.5 flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium",
                   key === today && "bg-foreground text-background",
                   !isCurrentMonth && "text-muted-foreground"
                 )}
               >
+                {key === today && <span className="sr-only">Heute </span>}
                 {date.getDate()}
               </button>
               <div className="space-y-0.5">
@@ -560,12 +601,13 @@ function WeekGrid({ days, events, today }: { days: Date[]; events: CalendarEvent
         return (
           <div key={key} className="min-h-[420px] border-r border-border p-1 last:border-r-0">
             <div
+              aria-current={key === today ? "date" : undefined}
               className={cn(
                 "mb-2 flex h-7 w-7 items-center justify-center rounded-full text-xs font-medium",
                 key === today && "bg-foreground text-background"
               )}
             >
-              <span className="sr-only">{WEEKDAYS[(date.getDay() + 6) % 7]} </span>
+              <span className="sr-only">{key === today ? "Heute, " : ""}{WEEKDAYS[(date.getDay() + 6) % 7]} </span>
               {date.getDate()}
             </div>
             <div className="mb-1 text-center text-[10px] text-muted-foreground">
@@ -583,36 +625,45 @@ function Agenda({
   days,
   events,
   today,
-  focusDate,
   onFocus,
+  todayRef,
 }: {
   days: string[];
   events: CalendarEvent[];
   today: string;
-  focusDate: string | null;
   onFocus: (date: string) => void;
+  todayRef: RefObject<HTMLElement | null>;
 }) {
-  const visible = days.filter((day) => events.some((event) => covers(event, day)) || day === focusDate);
-  if (visible.length === 0) return null;
+  if (days.length === 0) return null;
   return (
     <div className="space-y-4">
-      {visible.map((day) => (
-        <section key={day}>
+      {days.map((day) => (
+        <section
+          key={day}
+          id={day === today ? "calendar-today" : undefined}
+          ref={day === today ? todayRef : undefined}
+          className={day === today ? "scroll-mt-32" : undefined}
+        >
           <button
             type="button"
             onClick={() => onFocus(day)}
             className={cn(
-              "mb-1 text-sm font-medium",
-              day === today && "underline decoration-foreground/40"
+              "mb-1 flex items-center gap-2 text-sm font-medium",
+              day === today && "text-foreground"
             )}
           >
+            {day === today && (
+              <span className="inline-flex items-center rounded-full bg-foreground px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-background">
+                Heute
+              </span>
+            )}
             {parseKey(day).toLocaleDateString("de-DE", {
               weekday: "long",
               day: "numeric",
               month: "long",
             })}
           </button>
-          <DayEvents date={day} events={events} />
+          <DayEvents date={day} events={events} empty={day === today ? "Keine Einsätze heute" : undefined} />
         </section>
       ))}
     </div>
