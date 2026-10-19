@@ -483,6 +483,23 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
       return client.request("/api/v1/statistics/team");
     case "crm_operations_board":
       return client.request("/api/v1/operations");
+    case "crm_list_calendar_events": {
+      const company = Array.isArray(args.companyIds)
+        ? args.companyIds.map((id) => String(id)).filter(Boolean).join(",")
+        : args.companyIds;
+      const stage = Array.isArray(args.stageIds)
+        ? args.stageIds.map((id) => String(id)).filter(Boolean).join(",")
+        : args.stageIds;
+      return client.request("/api/v1/calendar/events", {
+        query: {
+          from: str(args.from),
+          to: str(args.to),
+          company: company ? String(company) : undefined,
+          stage: stage ? String(stage) : undefined,
+          includeClosed: bool(args.includeClosed),
+        },
+      });
+    }
 
     // Workspace
     case "crm_list_members":

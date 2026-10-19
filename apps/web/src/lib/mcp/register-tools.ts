@@ -684,6 +684,19 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(server, "crm_stats_operations", "Operations statistics.", empty, req);
   tool(server, "crm_stats_team", "Team statistics.", empty, req);
   tool(server, "crm_operations_board", "Operations board data.", empty, req);
+  tool(
+    server,
+    "crm_list_calendar_events",
+    "List move and appointment calendar events for a date range. from and to are YYYY-MM-DD in Europe/Berlin. Excludes lost and cancelled stages unless includeClosed is true. companyIds and stageIds are optional comma-separated ids.",
+    {
+      from: z.string(),
+      to: z.string(),
+      companyIds: z.string().optional(),
+      stageIds: z.string().optional(),
+      includeClosed: z.boolean().optional(),
+    },
+    req
+  );
 
   tool(server, "crm_list_members", "Workspace members.", empty, req);
   tool(

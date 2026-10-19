@@ -834,6 +834,21 @@ export const TOOLS: ToolDef[] = [
     description: "Operations board data (GET /api/v1/operations).",
     inputSchema: { type: "object", properties: {} },
   },
+  {
+    name: "crm_list_calendar_events",
+    description: "List move and appointment calendar events for a date range. from and to are YYYY-MM-DD in Europe/Berlin. Excludes lost and cancelled stages unless includeClosed is true. companyIds and stageIds are optional comma-separated ids.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from: { type: "string" },
+        to: { type: "string" },
+        companyIds: { type: "string" },
+        stageIds: { type: "string" },
+        includeClosed: { type: "boolean" },
+      },
+      required: ["from", "to"],
+    },
+  },
 
   // ── Workspace ─────────────────────────────────────────────────────
   {

@@ -98,6 +98,7 @@ export const CRM_TOOL_NAMES = [
   "crm_stats_operations",
   "crm_stats_team",
   "crm_operations_board",
+  "crm_list_calendar_events",
   // ── Workspace ─────────────────────────────────────────────────────
   "crm_list_members",
   "crm_list_notifications",
