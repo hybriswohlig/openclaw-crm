@@ -27,6 +27,8 @@ import {
   effectiveEnrichmentSwitches,
   readEnrichmentSettings,
 } from "@/services/deal-enrichment-settings";
+import { applyKontaktart } from "@/services/kontaktart";
+import { bewerberQuote, isLeadKunde, type Kontaktart } from "@/lib/kontaktart";
 import {
   ENRICHMENT_FIELD_LABELS,
   ENRICHMENT_FIELDS,
@@ -65,8 +67,8 @@ const ProposalSchema = z.object({
 
 const SCHEMA_HINT = `{
   "proposals": [{
-    "field": "source_channel | source_detail | loss_reason | loss_reason_note | stage",
-    "value": "existing option id or exact option title; free text for source_detail and loss_reason_note",
+    "field": "source_channel | source_detail | loss_reason | loss_reason_note | stage | kontaktart",
+    "value": "existing option id or exact option title; free text for source_detail and loss_reason_note; kontaktart is lead_kunde | bewerber | team_helfer | partner_vermittler | privat | spam_werbung",
     "confidence": 0.0,
     "reason": "one short sentence",
     "evidenceQuote": "verbatim substring of one source",
@@ -165,6 +167,13 @@ async function loadDeal(workspaceId: string, dealRecordId: string, interne: Inte
   }
   const operatingCompanyId =
     valueRows.find((value) => value.attributeId === attributeIds.operating_company)?.referencedRecordId ?? null;
+
+  const conversationRows = await db
+    .select({ kontaktart: inboxConversations.kontaktart })
+    .from(inboxConversations)
+    .where(and(eq(inboxConversations.workspaceId, workspaceId), eq(inboxConversations.dealRecordId, dealRecordId)));
+  const nonLead = conversationRows.map((row) => row.kontaktart).find((value) => !isLeadKunde(value));
+  currentValues.kontaktart = nonLead ?? conversationRows[0]?.kontaktart ?? null;
 
   const channelAttributeIds = [attributeIds.source_channel, attributeIds.loss_reason].filter(
     (id): id is string => !!id
@@ -410,10 +419,12 @@ async function insertSuggestion(
 }
 
 function hasWork(deal: LoadedDeal): boolean {
-  if (!deal.currentValues.source_channel || !deal.currentValues.source_detail) return true;
   const stage = deal.stages.find((item) => item.id === deal.currentValues.stage) ?? null;
+  const lost = !!stage && /verloren|lost/i.test(stage.title);
+  if (isLeadKunde(deal.currentValues.kontaktart) && (isOpenStage(stage) || lost)) return true;
+  if (!deal.currentValues.source_channel || !deal.currentValues.source_detail) return true;
   if (isOpenStage(stage)) return true;
-  if (!deal.currentValues.loss_reason && stage && /verloren|lost/i.test(stage.title)) return true;
+  if (!deal.currentValues.loss_reason && lost) return true;
   return false;
 }
 
@@ -430,6 +441,7 @@ function promptFor(deal: LoadedDeal): string {
     deal.selectOptions[field].map((option) => `${option.id} = ${option.title}`).join("\n") || "(keine)";
   const stageList = deal.stages.map((stage) => `${stage.id} = ${stage.title}`).join("\n") || "(keine)";
   const empty = ENRICHMENT_FIELDS.filter((field) => {
+    if (field === "kontaktart") return isLeadKunde(deal.currentValues.kontaktart);
     if (field === "stage") return isOpenStage(deal.stages.find((stage) => stage.id === deal.currentValues.stage) ?? null);
     return !deal.currentValues[field];
   });
@@ -449,6 +461,14 @@ function promptFor(deal: LoadedDeal): string {
     "Phase, erlaubte Werte:",
     stageList,
     "",
+    "Kontaktart, erlaubte Werte (nur setzen, wenn der Text kein Umzugs-Lead ist):",
+    "bewerber = Bewerber (Bewerbung, Lebenslauf, Initiativbewerbung, Jobsuche)",
+    "team_helfer = Team/Helfer (eigene Helfer, Schicht, interne Einsatzplanung)",
+    "partner_vermittler = Partner/Vermittler (Jobbörse, Partnerfirma, Vermittlung)",
+    "privat = Privat (privater Kontakt, kein Auftrag)",
+    "spam_werbung = Spam/Werbung",
+    "lead_kunde ist der Default und wird nicht vorgeschlagen.",
+    "",
     "Quellen (Zitat muss wortwörtlich aus genau einer Quelle stammen):",
     transcript || "(leer)",
   ].join("\n");
@@ -462,6 +482,7 @@ Regeln:
 - evidenceQuote ist ein wortwörtliches Zitat aus genau einer Quelle. evidenceSourceId ist die ID in eckigen Klammern.
 - confidence zwischen 0 und 1. reason ein kurzer Satz auf Deutsch.
 - Phase Verloren nur, wenn der Kunde ausdrücklich absagt oder schon jemanden hat (eingehende Nachricht oder Notiz).
+- kontaktart bewerber, wenn der Text eine Bewerbung ist (Bewerbung, Lebenslauf, Initiativbewerbung, Jobsuche). Das ist kein verlorener Auftrag.
 - Erfinde nichts. Wenn nichts belegt ist, gib {"proposals":[]} zurück.
 - Sende keine Nachricht und schlage keinen Versand vor.`;
 
@@ -476,6 +497,28 @@ async function applyModelDecisions(deal: LoadedDeal, decisions: AppliedDecision[
   );
 
   for (const decision of ordered) {
+    if (decision.field === "kontaktart") {
+      if (decision.action === "suggest") {
+        if (await insertSuggestion(deal, { ...decision, action: "suggest" }, "pending", null)) {
+          suggested += 1;
+          await recordActivity(deal, decision, "suggestion");
+        }
+        continue;
+      }
+      const slug = decision.value as Kontaktart;
+      if (!isLeadKunde(deal.currentValues.kontaktart)) continue;
+      await applyKontaktart({
+        workspaceId: deal.workspaceId,
+        kontaktart: slug,
+        dealRecordId: deal.dealRecordId,
+      });
+      deal.currentValues.kontaktart = slug;
+      if (await insertSuggestion(deal, decision, "auto_applied", null)) {
+        auto += 1;
+        await recordActivity(deal, decision, "auto");
+      }
+      continue;
+    }
     const lossField = decision.field === "loss_reason" || decision.field === "loss_reason_note";
     const waitForStage = lossField && !!stageDecision && !alreadyLost && !stageWritten;
     if (decision.action === "suggest" || waitForStage) {
@@ -573,7 +616,7 @@ export async function processDealEnrichment(
   }
 
   const policy = evaluateDealEnrichment({
-    proposals: ai.output.proposals,
+    proposals: [...ai.output.proposals, ...bewerberProposals(deal.sources)],
     currentValues: deal.currentValues,
     selectOptions: deal.selectOptions,
     stages: deal.stages,
@@ -807,6 +850,26 @@ export async function listDealEnrichmentSuggestions(
   }));
 }
 
+function bewerberProposals(sources: PolicySource[]): PolicyProposal[] {
+  for (const source of sources) {
+    if (source.kind === "message" && source.direction === "outbound") continue;
+    const quote = bewerberQuote(source.text);
+    if (!quote) continue;
+    return [
+      {
+        field: "kontaktart",
+        value: "bewerber",
+        confidence: 0.93,
+        reason: "Der Text ist eine Bewerbung.",
+        evidenceQuote: quote,
+        evidenceSourceId: source.id,
+        evidenceSourceKind: source.kind,
+      },
+    ];
+  }
+  return [];
+}
+
 function suggestionToProposal(row: typeof dealFieldSuggestions.$inferSelect): PolicyProposal {
   return {
     field: row.fieldSlug,
@@ -918,6 +981,27 @@ export async function decideDealEnrichmentSuggestion(input: {
 
   const applied: string[] = [];
   for (const decision of bundle) {
+    if (decision.field === "kontaktart") {
+      if (!isLeadKunde(deal.currentValues.kontaktart)) {
+        return { ok: false, status: 409, error: "Feld ist nicht mehr leer" };
+      }
+      await applyKontaktart({
+        workspaceId: deal.workspaceId,
+        kontaktart: decision.value as Kontaktart,
+        dealRecordId: deal.dealRecordId,
+        actorId: input.userId,
+      });
+      const match = pending.find((row) => row.fieldSlug === decision.field && row.evidenceKey === decision.evidenceKey);
+      if (match) {
+        await db
+          .update(dealFieldSuggestions)
+          .set({ status: "accepted", decidedAt: new Date(), decidedBy: input.userId })
+          .where(eq(dealFieldSuggestions.id, match.id));
+      }
+      await recordActivity(deal, decision, "accepted");
+      applied.push(decision.field);
+      continue;
+    }
     const attributeId = deal.attributeIds[decision.field];
     if (!attributeId) continue;
     const wrote = await writeField(

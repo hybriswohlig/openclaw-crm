@@ -38,6 +38,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
+import { DEFAULT_KONTAKTART, KONTAKTART_LABELS, KONTAKTART_VALUES, type Kontaktart } from "@/lib/kontaktart";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -110,7 +111,8 @@ interface Conversation {
   multiCompanyFlag: boolean;
   subject: string | null;
   status: ConversationStatus;
-  lane?: "lead" | "info" | "spam" | "review";
+  lane?: "lead" | "info" | "spam" | "review" | "kein_lead";
+  kontaktart?: string;
   lastMessageAt: string | null;
   lastMessagePreview: string | null;
   unreadCount: number;
@@ -748,6 +750,7 @@ function ConversationView({
   onSetStatus,
   onAiPausedChange,
   onDealLinked,
+  onKontaktartChange,
 }: {
   conv: Conversation;
   onBack: () => void;
@@ -759,6 +762,7 @@ function ConversationView({
   onAiPausedChange?: (paused: boolean) => void;
   /** Vom Kontext-Panel: Konversation wurde mit einem Lead verknüpft. */
   onDealLinked?: (dealRecordId: string) => void;
+  onKontaktartChange?: (next: { kontaktart: string; lane?: Conversation["lane"] }) => void;
 }) {
   const router = useRouter();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -784,6 +788,49 @@ function ConversationView({
   // in sync when switching conversations.
   const [aiPaused, setAiPaused] = useState<boolean>(conv.aiPaused ?? false);
   const [aiToggling, setAiToggling] = useState(false);
+  const [kontaktart, setKontaktart] = useState<Kontaktart>(
+    (KONTAKTART_VALUES as readonly string[]).includes(conv.kontaktart ?? "")
+      ? (conv.kontaktart as Kontaktart)
+      : DEFAULT_KONTAKTART
+  );
+  const [kontaktartSaving, setKontaktartSaving] = useState(false);
+  useEffect(() => {
+    setKontaktart(
+      (KONTAKTART_VALUES as readonly string[]).includes(conv.kontaktart ?? "")
+        ? (conv.kontaktart as Kontaktart)
+        : DEFAULT_KONTAKTART
+    );
+  }, [conv.id, conv.kontaktart]);
+  async function saveKontaktart(next: string) {
+    if (!(KONTAKTART_VALUES as readonly string[]).includes(next) || next === kontaktart) return;
+    const previous = kontaktart;
+    setKontaktart(next as Kontaktart);
+    setKontaktartSaving(true);
+    try {
+      const res = await fetch(`/api/v1/inbox/conversations/${conv.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kontaktart: next }),
+      });
+      if (!res.ok) {
+        setKontaktart(previous);
+        toast.error("Kontaktart konnte nicht gespeichert werden");
+        return;
+      }
+      const json = (await res.json()) as { data?: { kontaktart?: string; lane?: Conversation["lane"] } };
+      const saved = (KONTAKTART_VALUES as readonly string[]).includes(json.data?.kontaktart ?? "")
+        ? (json.data!.kontaktart as Kontaktart)
+        : (next as Kontaktart);
+      setKontaktart(saved);
+      onKontaktartChange?.({ kontaktart: saved, lane: json.data?.lane });
+      toast.success("Kontaktart gespeichert");
+    } catch {
+      setKontaktart(previous);
+      toast.error("Kontaktart konnte nicht gespeichert werden");
+    } finally {
+      setKontaktartSaving(false);
+    }
+  }
   useEffect(() => {
     setAiPaused(conv.aiPaused ?? false);
   }, [conv.id, conv.aiPaused]);
@@ -1218,6 +1265,23 @@ function ConversationView({
                 <span className="truncate">{conv.contactPhone}</span>
               </>
             )}
+            <span className="hidden sm:inline">·</span>
+            <label className="inline-flex items-center gap-1">
+              <span className="sr-only">Kontaktart</span>
+              <select
+                aria-label="Kontaktart"
+                value={kontaktart}
+                disabled={kontaktartSaving}
+                onChange={(event) => void saveKontaktart(event.target.value)}
+                className="max-w-[11rem] rounded-md border border-input bg-background px-1.5 py-0.5 text-xs text-foreground disabled:opacity-50"
+              >
+                {KONTAKTART_VALUES.map((slug) => (
+                  <option key={slug} value={slug}>
+                    {KONTAKTART_LABELS[slug]}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
         </div>
 
@@ -1720,7 +1784,7 @@ export default function InboxPage() {
   const [sourceFilter, setSourceFilter] = useState<"messaging" | "kleinanzeigen" | "whatsapp" | "other">("messaging");
   // KOT-IDENTITY Phase 6: triage lane. Default 'lead' keeps ads / newsletters /
   // platform notifications out of the inbox; 'info' shows them, 'all' shows both.
-  const [laneFilter, setLaneFilter] = useState<"lead" | "info" | "all">("lead");
+  const [laneFilter, setLaneFilter] = useState<"lead" | "info" | "kein_lead" | "all">("lead");
   const [search, setSearch] = useState("");
   // Nachrichtensuche (Paket 3): Serverseitige Suche über alle Nachrichten-
   // Inhalte, unabhängig von Lane/Status. null = keine Server-Ergebnisse
@@ -2098,6 +2162,21 @@ export default function InboxPage() {
     );
   }
 
+  function handleKontaktartChange(convId: string, next: { kontaktart: string; lane?: Conversation["lane"] }) {
+    const leavesLane = laneFilter !== "all" && !!next.lane && next.lane !== laneFilter;
+    setConversations((list) => {
+      const updated = list.map((c) =>
+        c.id === convId ? { ...c, kontaktart: next.kontaktart, lane: next.lane ?? c.lane } : c
+      );
+      return leavesLane ? updated.filter((c) => c.id !== convId) : updated;
+    });
+    setSelected((current) => {
+      if (!current || current.id !== convId) return current;
+      if (leavesLane) return null;
+      return { ...current, kontaktart: next.kontaktart, lane: next.lane ?? current.lane };
+    });
+  }
+
   // Nach manueller Antwort oder Toggle: aiPaused in Liste + selected spiegeln.
   function handleAiPausedChange(convId: string, paused: boolean) {
     setConversations((prev) =>
@@ -2245,6 +2324,7 @@ export default function InboxPage() {
           <div className="flex rounded-lg bg-muted p-0.5 text-xs">
             {([
               { key: "lead", label: "Leads" },
+              { key: "kein_lead", label: "Kein Lead" },
               { key: "info", label: "Info / Werbung" },
               { key: "all", label: "Alle" },
             ] as const).map((l) => (
@@ -2598,6 +2678,7 @@ export default function InboxPage() {
                     onSetStatus={(status) => void handleSetStatus([selected.id], status)}
                     onAiPausedChange={(paused) => handleAiPausedChange(selected.id, paused)}
                     onDealLinked={(dealRecordId) => handleDealLinked(selected.id, dealRecordId)}
+                    onKontaktartChange={(next) => handleKontaktartChange(selected.id, next)}
                   />
                 )}
               </div>

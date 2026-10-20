@@ -800,6 +800,7 @@ async function baueLage(
       aiPaused: inboxConversations.aiPaused,
       aiNeedsReply: inboxConversations.aiNeedsReply,
       lane: inboxConversations.lane,
+      kontaktart: inboxConversations.kontaktart,
       kontoId: channelAccounts.id,
       kanal: channelAccounts.channelType,
       adresse: channelAccounts.address,
@@ -980,6 +981,10 @@ async function baueLage(
       email: gewaehlt?.email ?? null,
     }),
     b2b: istB2B({ firmaGesetzt: Boolean(feld.get("company")?.ref), text: textGesamt }),
+    keinLead:
+      stage === "kein_lead" ||
+      konvs.some((konv) => konv.kontaktart != null && konv.kontaktart !== "lead_kunde") ||
+      konvs.some((konv) => konv.lane === "kein_lead"),
     chatSperre: sperreAusText(inboundText),
     vomKunden: kundenVerlustgrund(inboundText),
     anredeUnklar: !anredeSignale,

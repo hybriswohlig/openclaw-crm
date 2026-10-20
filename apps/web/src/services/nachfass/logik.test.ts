@@ -68,6 +68,7 @@ function lage(p: Partial<NachfassLage> = {}): NachfassLage {
     istDuplikat: false,
     portalOhneKontakt: false,
     b2b: false,
+    keinLead: false,
     chatSperre: null,
     vomKunden: null,
     anredeUnklar: false,
@@ -83,6 +84,22 @@ function lage(p: Partial<NachfassLage> = {}): NachfassLage {
 function msg(p: Partial<NachfassNachricht> & Pick<NachfassNachricht, "direction" | "body">): NachfassNachricht {
   return { at: angebot, ...p };
 }
+
+describe("kein Lead", () => {
+  it("nimmt Bewerber und andere Nicht-Leads aus dem Nachfass, auch wenn sonst ein Entwurf fällig wäre", () => {
+    // Same instant as FU1 at day 2, 10:00 Berlin: a real draft, inside the send window.
+    const jetzt = new Date(angebot.getTime() + 2 * TAG + (10 - 9) * 60 * 60 * 1000);
+    expect(entscheideNachfass(lage(), jetzt).art).toBe("entwurf");
+    expect(entscheideNachfass(lage({ keinLead: true }), jetzt)).toEqual({ art: "nichts", grund: "kein_lead" });
+    expect(entscheideNachfass(lage({ stageKategorie: "kein_lead" }), jetzt)).toEqual({
+      art: "nichts",
+      grund: "kein_lead",
+    });
+    expect(entscheideNachfass(lage({ keinLead: true, triage: null, sequenzBegonnen: false }), jetzt).art).not.toBe(
+      "triage_verloren"
+    );
+  });
+});
 
 describe("ohne Antwort", () => {
   it("ignoriert Lesebestätigungen, Reaktionen, leere und Systemzeilen", () => {

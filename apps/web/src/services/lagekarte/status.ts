@@ -7,7 +7,8 @@ export type StufenKategorie =
   | "booked"
   | "done_unpaid"
   | "paid"
-  | "lost";
+  | "lost"
+  | "kein_lead";
 
 const GUELTIGE_KATEGORIEN: ReadonlySet<string> = new Set<StufenKategorie>([
   "open_new",
@@ -17,6 +18,7 @@ const GUELTIGE_KATEGORIEN: ReadonlySet<string> = new Set<StufenKategorie>([
   "done_unpaid",
   "paid",
   "lost",
+  "kein_lead",
 ]);
 
 /** Titel (klein, ohne Klammerzusatz am Ende) → Kategorie. */
@@ -36,6 +38,7 @@ const TITEL_MAPPING: Record<string, StufenKategorie> = {
   paid: "paid",
   verloren: "lost",
   lost: "lost",
+  "kein lead": "kein_lead",
 };
 
 export function stufenKategorie(
@@ -69,6 +72,9 @@ export function kartenStatus(e: {
     zahlungOffen,
   });
 
+  if (kategorie === "kein_lead") {
+    return ergebnis("unbekannt", "Kein Lead");
+  }
   if (kategorie === "lost") {
     return ergebnis("verloren", e.kvaAktiv ? "KV-Annahme aktiv, Stufe „Verloren“" : null);
   }

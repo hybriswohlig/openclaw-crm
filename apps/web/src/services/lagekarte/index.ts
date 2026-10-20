@@ -29,7 +29,7 @@ import {
   type WertRoh,
 } from "./laden";
 import { erzeugeMissionen } from "./missionen";
-import { kartenStatus } from "./status";
+import { kartenStatus, stufenKategorie } from "./status";
 import { kundeSchriebZuletzt, wartetAuf, type ThreadSignal } from "./wartet";
 import { bezahltCent, leadWert, type AngebotRoh } from "./wert";
 
@@ -104,7 +104,11 @@ export function baueLagekarte(roh: LagekarteRoh, jetzt: Date): LagekarteAntwort 
   const aggregate = new Map(roh.aggregate.map((a) => [a.conversationId, a]));
   const entwurfDeals = new Set(roh.entwurfDeals.map((e) => e.dealRecordId));
 
-  const leads: LeadPunkt[] = roh.deals.map((deal) => {
+  const leads: LeadPunkt[] = roh.deals.filter((deal) => {
+    const stufeId = werte.get(deal.id)?.get("stage")?.textValue ?? null;
+    const stufe = stufeId ? (stufeNachId.get(stufeId) ?? null) : null;
+    return stufenKategorie(stufe ? { titel: stufe.titel, kategorie: stufe.kategorie } : null) !== "kein_lead";
+  }).map((deal) => {
     const w = werte.get(deal.id);
     const stufeId = w?.get("stage")?.textValue ?? null;
     const stufe = stufeId ? (stufeNachId.get(stufeId) ?? null) : null;

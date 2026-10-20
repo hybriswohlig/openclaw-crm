@@ -37,6 +37,7 @@ interface OverviewStats {
   movesThisWeek: number;
   revenueSeries8w: number[];
   newLeadsSeries8w: number[];
+  nonLeadsByMonth: { month: string; kontaktart: string; label: string; count: number }[];
 }
 
 interface PipelineStageBucket {
@@ -337,6 +338,7 @@ function OverviewTab() {
         )} %`;
 
   return (
+    <div className="space-y-5">
     <div
       className="grid gap-3"
       style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}
@@ -362,6 +364,33 @@ function OverviewTab() {
         value={fmtEUR(data.outstandingAmount)}
       />
       <KpiCard label="Aufträge diese Woche" value={fmtNum(data.movesThisWeek)} />
+    </div>
+    {data.nonLeadsByMonth.length > 0 && (
+      <div className="rounded-xl border border-border bg-card p-4">
+        <h2 className="text-sm font-semibold">Kein Lead</h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Kontakte außerhalb der Lead-KPIs, nach Kontaktart und Monat.
+        </p>
+        <table className="mt-3 w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs text-muted-foreground">
+              <th className="py-1 font-medium">Monat</th>
+              <th className="py-1 font-medium">Kontaktart</th>
+              <th className="py-1 text-right font-medium">Anzahl</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.nonLeadsByMonth.map((row) => (
+              <tr key={`${row.month}-${row.kontaktart}`} className="border-t border-border">
+                <td className="py-1.5 font-mono">{row.month}</td>
+                <td className="py-1.5">{row.label}</td>
+                <td className="py-1.5 text-right font-mono">{fmtNum(row.count)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )}
     </div>
   );
 }

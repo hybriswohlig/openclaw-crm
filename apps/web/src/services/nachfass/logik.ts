@@ -36,7 +36,8 @@ export type StageKategorie =
   | "booked"
   | "done_unpaid"
   | "paid"
-  | "lost";
+  | "lost"
+  | "kein_lead";
 
 export type Triage = "frei" | "verloren" | "markiert";
 
@@ -88,6 +89,8 @@ export interface NachfassLage {
   istDuplikat: boolean;
   portalOhneKontakt: boolean;
   b2b: boolean;
+  /** Kontaktart ist kein Lead/Kunde, oder die Stufe ist Kein Lead. */
+  keinLead: boolean;
   /** complaint | legal | optout | price | deposit | null */
   chatSperre: string | null;
   /** Vom Kunden genannter Verlustgrund, falls der Chat einen hergibt. */
@@ -496,6 +499,9 @@ function kundenEntwurf(
 }
 
 export function entscheideNachfass(lage: NachfassLage, jetzt: Date): Entscheidung {
+  if (lage.keinLead || lage.stageKategorie === "kein_lead") {
+    return { art: "nichts", grund: "kein_lead" };
+  }
   if (lage.gestoppt) return { art: "nichts", grund: "gestoppt" };
   if (!lage.serviceUmzug) return { art: "nichts", grund: "kein_umzug" };
 

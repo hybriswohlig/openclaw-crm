@@ -93,8 +93,9 @@ export default function DealEnrichmentSettingsPage() {
       <div>
         <h1 className="text-xl font-semibold">KI-Felder</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Leere Quelle, Anzeige, Verlustgrund und die Phase aus dem Gespräch. Es wird nie eine Nachricht
-          gesendet und nie ein gesetzter Wert überschrieben.
+          Leere Quelle, Anzeige, Verlustgrund, die Phase und die Kontaktart aus dem Gespräch. Bewerbungen
+          werden als Bewerber vorgeschlagen. Es wird nie eine Nachricht gesendet und nie ein gesetzter
+          Wert überschrieben. Die Standard-Kontaktart Lead/Kunde gilt als leer und darf ersetzt werden.
         </p>
       </div>
 
