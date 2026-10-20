@@ -14,7 +14,7 @@ export async function GET(
   { params }: { params: Promise<{ recordId: string; attachmentId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { recordId, attachmentId } = await params;
 

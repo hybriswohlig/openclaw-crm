@@ -24,6 +24,8 @@ export interface McpAuthContext {
   workspaceId: string;
   workspaceRole: "admin" | "member";
   baseUrl: string;
+  /** Set when the caller authenticated with a read-only oc_sk_ key. */
+  readOnly?: boolean;
 }
 
 export interface RequestOptions {

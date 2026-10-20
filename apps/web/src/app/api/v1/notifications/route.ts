@@ -4,7 +4,7 @@ import { listNotifications, getUnreadCount } from "@/services/notifications";
 
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const unreadOnly = req.nextUrl.searchParams.get("unreadOnly") === "true";
   const limit = Math.min(

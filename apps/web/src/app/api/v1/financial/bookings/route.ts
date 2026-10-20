@@ -90,7 +90,7 @@ async function dealExists(workspaceId: string, dealRecordId: string): Promise<bo
  */
 export async function POST(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const body = await req.json();
   const {
@@ -223,7 +223,7 @@ export async function POST(req: NextRequest) {
  */
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const searchParams = req.nextUrl.searchParams;
   const month = searchParams.get("month");

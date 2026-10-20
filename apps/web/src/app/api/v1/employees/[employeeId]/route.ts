@@ -13,7 +13,7 @@ export async function GET(
   { params }: { params: Promise<{ employeeId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { employeeId } = await params;
   const employee = await getEmployee(ctx.workspaceId, employeeId);
@@ -31,7 +31,7 @@ export async function PATCH(
   { params }: { params: Promise<{ employeeId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { employeeId } = await params;
   const body = await req.json();
@@ -47,7 +47,7 @@ export async function DELETE(
   { params }: { params: Promise<{ employeeId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { employeeId } = await params;
   const deleted = await deleteEmployee(ctx.workspaceId, employeeId);

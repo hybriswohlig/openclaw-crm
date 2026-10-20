@@ -18,7 +18,7 @@ export async function GET(
 ) {
   try {
     const ctx = await getAuthContext(req);
-    if (!ctx) return unauthorized();
+    if (!ctx) return unauthorized(req);
 
     const { taskId } = await params;
     const rows = await listTaskComments(taskId, ctx.workspaceId);
@@ -39,7 +39,7 @@ export async function POST(
 ) {
   try {
     const ctx = await getAuthContext(req);
-    if (!ctx) return unauthorized();
+    if (!ctx) return unauthorized(req);
 
     const { taskId } = await params;
 

@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthContext, unauthorized, success, requireChannelManager } from "@/lib/api-utils";
+import { getAuthContext, isReadOnlyApiKey, unauthorized, success, requireChannelManager } from "@/lib/api-utils";
 import { getChannelAccounts, createChannelAccount, seedEmailAccountsFromEnv } from "@/services/inbox";
 
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
-  await seedEmailAccountsFromEnv(ctx.workspaceId);
+  // Seeding from env inserts channel accounts. Skip it for a read-only key
+  // and return whatever is already stored.
+  if (!isReadOnlyApiKey(ctx)) {
+    await seedEmailAccountsFromEnv(ctx.workspaceId);
+  }
 
   const rows = await getChannelAccounts(ctx.workspaceId);
   // Strip credentials from non-admin responses
@@ -18,7 +22,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const deny = requireChannelManager(ctx);
   if (deny) return deny;
 

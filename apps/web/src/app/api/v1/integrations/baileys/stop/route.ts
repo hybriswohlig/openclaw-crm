@@ -23,7 +23,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const deny = requireChannelManager(ctx);
   if (deny) return deny;
 

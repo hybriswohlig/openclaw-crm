@@ -8,7 +8,7 @@ export async function GET(
   { params }: { params: Promise<{ noteId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { noteId } = await params;
   if (!(await verifyNoteWorkspace(noteId, ctx.workspaceId))) {
@@ -27,7 +27,7 @@ export async function PATCH(
   { params }: { params: Promise<{ noteId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { noteId } = await params;
   if (!(await verifyNoteWorkspace(noteId, ctx.workspaceId))) {
@@ -47,7 +47,7 @@ export async function DELETE(
   { params }: { params: Promise<{ noteId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { noteId } = await params;
   if (!(await verifyNoteWorkspace(noteId, ctx.workspaceId))) {

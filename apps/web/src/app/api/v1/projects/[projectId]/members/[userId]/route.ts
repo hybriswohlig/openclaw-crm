@@ -7,7 +7,7 @@ export async function PATCH(
   { params }: { params: Promise<{ projectId: string; userId: string }> },
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const { projectId, userId } = await params;
 
   let body: { role?: unknown };
@@ -43,7 +43,7 @@ export async function DELETE(
   { params }: { params: Promise<{ projectId: string; userId: string }> },
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const { projectId, userId } = await params;
 
   const ok = await removeProjectMember(ctx.workspaceId, projectId, ctx.userId, userId);

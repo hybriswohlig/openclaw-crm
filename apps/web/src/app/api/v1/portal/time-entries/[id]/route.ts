@@ -16,7 +16,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const ctx = await getEmployeePortalContextFromHeaders(req.headers);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const { id } = await params;
 
   const [entry] = await db

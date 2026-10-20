@@ -20,7 +20,7 @@ export async function GET(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { slug } = await params;
   const obj = await getObjectBySlug(ctx.workspaceId, slug);
@@ -35,7 +35,7 @@ export async function POST(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { slug: objectSlug } = await params;
   const obj = await getObjectBySlug(ctx.workspaceId, objectSlug);
@@ -96,7 +96,7 @@ export async function PATCH(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const body = await req.json();
   const { attributeId, ...input } = body;
@@ -122,7 +122,7 @@ export async function DELETE(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { searchParams } = new URL(req.url);
   const attributeId = searchParams.get("attributeId");

@@ -37,7 +37,7 @@ export async function GET(
   { params }: { params: Promise<{ slug: string; recordId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { slug, recordId } = await params;
   const obj = await getObjectBySlug(ctx.workspaceId, slug);
@@ -54,7 +54,7 @@ export async function PATCH(
   { params }: { params: Promise<{ slug: string; recordId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { slug, recordId } = await params;
   const obj = await getObjectBySlug(ctx.workspaceId, slug);
@@ -98,7 +98,7 @@ export async function DELETE(
   { params }: { params: Promise<{ slug: string; recordId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { slug, recordId } = await params;
   const obj = await getObjectBySlug(ctx.workspaceId, slug);

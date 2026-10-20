@@ -6,7 +6,7 @@ import { and, eq, sql } from "drizzle-orm";
 
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const [row] = await db
     .select({

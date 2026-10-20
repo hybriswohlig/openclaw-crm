@@ -22,7 +22,7 @@ import { QUOTED_REASONS } from "@/lib/deal-source";
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ recordId: string }> }) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const { recordId } = await params;
   const body = (await req.json().catch(() => ({}))) as { bestaetigtSpanne?: boolean; margeProzent?: unknown };
   // Ein Client-Preis wird nie gelesen. Nicht-numerische Marge (z. B. "25") wird über NaN abgelehnt.

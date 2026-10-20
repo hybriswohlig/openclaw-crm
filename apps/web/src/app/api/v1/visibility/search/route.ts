@@ -9,7 +9,7 @@ const cachedSearch = unstable_cache((days: number, site: SearchSite) => getSearc
 /** Google-Suche (Search Console) und Besuchshistorie (Plausible + PostHog). */
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const daysParam = Number(req.nextUrl.searchParams.get("days") ?? 90);
   const days = [7, 30, 90, 365].includes(daysParam) ? daysParam : 90;

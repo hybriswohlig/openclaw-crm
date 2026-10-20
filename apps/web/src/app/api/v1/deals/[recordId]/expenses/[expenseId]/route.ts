@@ -24,7 +24,7 @@ export async function PUT(
   { params }: { params: Promise<{ recordId: string; expenseId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { expenseId } = await params;
   const body = await req.json();
@@ -105,7 +105,7 @@ export async function DELETE(
   { params }: { params: Promise<{ recordId: string; expenseId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { expenseId } = await params;
   const row = await deleteExpense(expenseId, ctx.workspaceId);

@@ -6,7 +6,7 @@ import { listUserWorkspaces } from "@/services/workspace";
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
   if (!ctx) {
-    return unauthorized();
+    return unauthorized(req);
   }
 
   const workspaces = await listUserWorkspaces(ctx.userId);

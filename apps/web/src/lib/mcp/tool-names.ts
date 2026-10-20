@@ -10,8 +10,10 @@
  *
  * Adding a tool means: zod shape + dispatch case + JSON-Schema ToolDef +
  * handler case + one entry here, with the description copied verbatim
- * between the two registries. Four of the five without the fifth fails the
- * guard, and the fifth without the other four fails it too.
+ * between the two registries, plus a read-or-mutating classification in
+ * `read-only-tools.ts`. Four of the five without the fifth fails the
+ * guard, and the fifth without the other four fails it too. An unclassified
+ * tool is denied for read-only API keys.
  */
 export const CRM_TOOL_NAMES = [
   // ── Connection ────────────────────────────────────────────────────

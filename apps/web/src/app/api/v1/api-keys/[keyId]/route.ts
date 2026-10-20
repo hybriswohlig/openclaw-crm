@@ -8,7 +8,7 @@ export async function DELETE(
   { params }: { params: Promise<{ keyId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const adminCheck = requireAdmin(ctx);
   if (adminCheck) return adminCheck;

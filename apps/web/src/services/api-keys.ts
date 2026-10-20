@@ -2,6 +2,7 @@ import { db } from "@/db";
 import { apiKeys } from "@/db/schema";
 import { eq, and, isNull } from "drizzle-orm";
 import { createHash, randomBytes } from "crypto";
+import { readApiKeyScopes } from "@/lib/api-key-scopes";
 
 function hashKey(key: string): string {
   return createHash("sha256").update(key).digest("hex");
@@ -29,7 +30,12 @@ export async function createApiKey(
       name: options.name,
       workspaceId,
       userId,
-      scopes: JSON.stringify(options.scopes ?? ["*"]),
+      // Array, not JSON.stringify. The jsonb encoder serializes once.
+      // Stringifying first stored a jsonb string ("[\"*\"]") and left new
+      // read-only keys dependent on the reader unwrapping that string.
+      // Omitted scopes stay full access (`["*"]`). `[]` is stored as-is
+      // and is also full access. Existing rows are not rewritten.
+      scopes: options.scopes ?? ["*"],
       expiresAt: options.expiresAt ?? null,
     })
     .returning();
@@ -39,7 +45,7 @@ export async function createApiKey(
     key: fullKey,
     keyPrefix,
     name: created.name,
-    scopes: JSON.parse(created.scopes),
+    scopes: readApiKeyScopes(created.scopes),
     expiresAt: created.expiresAt,
     createdAt: created.createdAt,
   };
@@ -62,7 +68,7 @@ export async function listApiKeys(workspaceId: string) {
 
   return keys.map((k) => ({
     ...k,
-    scopes: JSON.parse(k.scopes),
+    scopes: readApiKeyScopes(k.scopes),
   }));
 }
 

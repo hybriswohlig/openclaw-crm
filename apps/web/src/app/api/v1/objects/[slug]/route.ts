@@ -7,7 +7,7 @@ export async function GET(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { slug } = await params;
   const obj = await getObjectWithAttributes(ctx.workspaceId, slug);
@@ -21,7 +21,7 @@ export async function PATCH(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { slug } = await params;
   const body = await req.json();
@@ -37,7 +37,7 @@ export async function DELETE(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const adminCheck = requireAdmin(ctx);
   if (adminCheck) return adminCheck;
 

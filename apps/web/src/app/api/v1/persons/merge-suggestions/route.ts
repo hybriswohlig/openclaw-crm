@@ -7,13 +7,13 @@ import { getMergeSuggestions, acceptMergeSuggestion, rejectMergeSuggestion } fro
 
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   return success(await getMergeSuggestions(ctx.workspaceId));
 }
 
 export async function POST(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const body = (await req.json().catch(() => ({}))) as { action?: string; idA?: string; idB?: string };
   if (!body.idA || !body.idB) return badRequest("idA and idB are required");
   try {

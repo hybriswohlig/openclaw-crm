@@ -34,7 +34,7 @@ export async function GET(
   { params }: { params: Promise<{ recordId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const { recordId } = await params;
 
   const rows = await db
@@ -72,7 +72,7 @@ export async function PUT(
   { params }: { params: Promise<{ recordId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const { recordId } = await params;
 
   let body: { options?: unknown };
@@ -147,7 +147,7 @@ export async function DELETE(
   { params }: { params: Promise<{ recordId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const { recordId } = await params;
   try {
     await replaceDealPackageOptions({

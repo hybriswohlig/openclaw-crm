@@ -4,7 +4,7 @@ import { listEmployees, createEmployee } from "@/services/employees";
 
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const data = await listEmployees(ctx.workspaceId);
   return success(data);
@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const body = await req.json();
   const { name, experience, hourlyRate, photoBase64 } = body;

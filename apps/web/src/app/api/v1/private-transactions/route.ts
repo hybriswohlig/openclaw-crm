@@ -17,14 +17,14 @@ const isValidDate = (v: unknown) =>
 
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const data = await listPrivateTransactions(ctx.workspaceId);
   return success(data);
 }
 
 export async function POST(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const body = await req.json();
   const {

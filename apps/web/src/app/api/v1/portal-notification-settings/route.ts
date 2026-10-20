@@ -12,7 +12,7 @@ const KEY_ENABLED = "portal_notifications_enabled";
 /** Read the portal notification switch. Admin only. */
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const gate = requireAdmin(ctx);
   if (gate) return gate;
 
@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
 /** Update the portal notification switch. Admin only. */
 export async function PATCH(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const gate = requireAdmin(ctx);
   if (gate) return gate;
 

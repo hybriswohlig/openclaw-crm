@@ -11,7 +11,7 @@ import { and, eq } from "drizzle-orm";
  */
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const dealRecordId = req.nextUrl.searchParams.get("dealRecordId");
   if (!dealRecordId) {

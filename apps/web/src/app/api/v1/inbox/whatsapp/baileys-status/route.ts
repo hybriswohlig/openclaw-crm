@@ -54,7 +54,7 @@ const ALLOWED_STATUS: ReadonlySet<BaileysStatus> = new Set([
 
 export async function POST(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   let payload: Payload;
   try {

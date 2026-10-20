@@ -37,7 +37,7 @@ interface RunBody {
 
 export async function POST(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   if (!CRM_TOOLS_API_URL || !CRM_TOOLS_AUTH_TOKEN) {
     return NextResponse.json(

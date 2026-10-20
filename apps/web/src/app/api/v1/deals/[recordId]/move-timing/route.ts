@@ -31,7 +31,7 @@ export async function GET(
   { params }: { params: Promise<{ recordId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const { recordId } = await params;
   const [row] = await db
     .select()
@@ -53,7 +53,7 @@ export async function POST(
   { params }: { params: Promise<{ recordId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const { recordId } = await params;
 
   let body: { milestone?: string; clear?: boolean };

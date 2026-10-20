@@ -5,7 +5,7 @@ import { listSpeedToLead } from "@/services/speed-to-lead";
 /** Open leads with no outbound reply yet, oldest first. */
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const { searchParams } = new URL(req.url);
   const data = await listSpeedToLead(ctx.workspaceId, {
     source: searchParams.get("source"),

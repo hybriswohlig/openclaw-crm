@@ -42,6 +42,8 @@ async function verifyToken(
       cookie,
       baseUrl: resolveBaseUrl(req),
       authMethod: ctx.authMethod,
+      apiKeyAccess: ctx.apiKeyAccess,
+      readOnly: ctx.apiKeyAccess === "read",
     },
   };
 }

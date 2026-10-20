@@ -5,7 +5,7 @@ import { listNotes, createNote } from "@/services/notes";
 /** GET /api/v1/notes — All notes in workspace */
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { searchParams } = new URL(req.url);
   const limit = Math.min(Number(searchParams.get("limit") || 50), 200);
@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
 /** POST /api/v1/notes — Create a new note */
 export async function POST(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const body = await req.json();
   const { recordId, title, content } = body;

@@ -12,7 +12,7 @@ import {
 
 export async function POST(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const body = await req.json().catch(() => ({}));
   const { recordId } = body as { recordId?: string };

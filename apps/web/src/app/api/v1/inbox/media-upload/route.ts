@@ -3,7 +3,7 @@ import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { inboxConversations } from "@/db/schema/inbox";
-import { getAuthContext } from "@/lib/api-utils";
+import { consumeApiKeyScopeDenial, getAuthContext } from "@/lib/api-utils";
 import { describeInboxMediaUploadError } from "@/lib/inbox-media-upload-error";
 import {
   INBOX_BLOB_MAX_BYTES,
@@ -45,12 +45,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (!process.env.BLOB_READ_WRITE_TOKEN?.trim()) {
       throw new Error("BLOB_READ_WRITE_TOKEN is not set");
     }
+    // The blob handshake reports auth failures as 400. A read-only key must
+    // get 403 before a client token is minted. Unauthenticated calls still
+    // fail inside onBeforeGenerateToken.
+    const pre = await getAuthContext(req);
+    if (!pre) {
+      const denied = consumeApiKeyScopeDenial(req);
+      if (denied) return denied;
+    }
     const body = (await req.json()) as HandleUploadBody;
     const json = await handleUpload({
       body,
       request: req,
       onBeforeGenerateToken: async (pathname) => {
-        const ctx = await getAuthContext(req);
+        const ctx = pre ?? (await getAuthContext(req));
         if (!ctx) throw new Error("Nicht angemeldet.");
         const conversationId = pathname.split("/")[2] ?? "";
         if (!isInboxMediaBlobPath(pathname, conversationId)) {

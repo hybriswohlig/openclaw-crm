@@ -61,7 +61,7 @@ export async function GET(
   { params }: { params: Promise<{ accountId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { accountId } = await params;
   const account = await resolveAccount(ctx.workspaceId, accountId);
@@ -99,7 +99,7 @@ export async function PUT(
   { params }: { params: Promise<{ accountId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { accountId } = await params;
   const account = await resolveAccount(ctx.workspaceId, accountId);

@@ -7,7 +7,7 @@ export async function DELETE(
   { params }: { params: Promise<{ taskId: string; dependencyId: string }> },
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const { dependencyId } = await params;
 
   const ok = await removeDependency(ctx.workspaceId, dependencyId);

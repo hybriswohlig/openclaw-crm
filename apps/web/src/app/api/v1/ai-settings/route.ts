@@ -11,7 +11,7 @@ interface WorkspaceSettings {
 
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const [workspace] = await db
     .select({ settings: workspaces.settings })
@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const adminCheck = requireAdmin(ctx);
   if (adminCheck) return adminCheck;

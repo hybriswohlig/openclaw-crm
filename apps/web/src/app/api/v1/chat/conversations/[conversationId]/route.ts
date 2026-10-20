@@ -12,7 +12,7 @@ export async function GET(
   { params }: { params: Promise<{ conversationId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { conversationId } = await params;
   const conv = await getConversation(conversationId, ctx.userId);
@@ -28,7 +28,7 @@ export async function PATCH(
   { params }: { params: Promise<{ conversationId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { conversationId } = await params;
   const body = await req.json();
@@ -45,7 +45,7 @@ export async function DELETE(
   { params }: { params: Promise<{ conversationId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { conversationId } = await params;
   const deleted = await deleteConversation(conversationId, ctx.userId);

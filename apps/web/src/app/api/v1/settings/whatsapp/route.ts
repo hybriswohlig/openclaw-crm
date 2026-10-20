@@ -23,7 +23,7 @@ import {
 
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const deny = requireAdmin(ctx);
   if (deny) return deny;
 
@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const deny = requireAdmin(ctx);
   if (deny) return deny;
 

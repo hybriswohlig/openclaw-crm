@@ -5,7 +5,7 @@ import { syncImmoscoutLeads } from "@/services/immoscout-sync";
 
 export async function POST(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const deny = requireAdmin(ctx);
   if (deny) return deny;
 

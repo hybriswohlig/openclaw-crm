@@ -5,7 +5,7 @@ import { syncAllEmailAccounts } from "@/services/inbox-email";
 
 export async function POST(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   try {
     await seedEmailAccountsFromEnv(ctx.workspaceId);

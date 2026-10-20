@@ -1,5 +1,6 @@
 import type { CrmClient } from "./client";
 import { formatToolError, formatToolResult } from "./client";
+import { readOnlyMcpToolError } from "./read-only-tools";
 import {
   base64ByteLength,
   isRenderableImage,
@@ -100,6 +101,12 @@ export async function handleTool(
   name: string,
   args: Args
 ): Promise<{ content: ToolContent[]; isError?: boolean }> {
+  if (client.context.readOnly) {
+    const message = readOnlyMcpToolError(name, args);
+    if (message) {
+      return { content: [{ type: "text", text: message }], isError: true };
+    }
+  }
   try {
     const data = await dispatch(client, name, args);
     if (name === "crm_get_attachment") {

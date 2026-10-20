@@ -22,7 +22,7 @@ export async function GET(
   { params }: { params: Promise<{ slug: string; recordId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { slug, recordId } = await params;
 

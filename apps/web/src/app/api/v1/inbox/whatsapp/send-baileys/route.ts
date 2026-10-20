@@ -22,7 +22,7 @@ export const maxDuration = 60;
  */
 export async function POST(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const payload = await req.json().catch(() => ({}));
   const { channelAccountId, toPhone, customerName, dealRecordId } = payload as {

@@ -7,7 +7,7 @@ export async function GET(
   { params }: { params: Promise<{ companyId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { companyId: rawId } = await params;
   // The "Nicht zugewiesen" bucket has no id — we encode it as "unassigned".

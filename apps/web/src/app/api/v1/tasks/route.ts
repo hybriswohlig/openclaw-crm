@@ -7,7 +7,7 @@ import { getActiveSprint } from "@/services/sprints";
 export async function GET(req: NextRequest) {
   try {
     const ctx = await getAuthContext(req);
-    if (!ctx) return unauthorized();
+    if (!ctx) return unauthorized(req);
 
     const { searchParams } = new URL(req.url);
     const showCompleted = searchParams.get("showCompleted") === "true";
@@ -80,7 +80,7 @@ export async function GET(req: NextRequest) {
 /** POST /api/v1/tasks — Create task */
 export async function POST(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   let body: Record<string, unknown>;
   try {

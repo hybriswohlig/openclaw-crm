@@ -27,7 +27,7 @@ export async function GET(
   { params }: { params: Promise<{ ocId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const denied = requireAdmin(ctx);
   if (denied) return denied;
 
@@ -42,7 +42,7 @@ export async function PUT(
   { params }: { params: Promise<{ ocId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const denied = requireAdmin(ctx);
   if (denied) return denied;
 

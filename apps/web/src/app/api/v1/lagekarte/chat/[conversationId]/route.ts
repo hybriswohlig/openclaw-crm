@@ -15,7 +15,7 @@ export async function GET(
   { params }: { params: Promise<{ conversationId: string }> },
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { conversationId } = await params;
   const vorschau = await ladeChatVorschau(ctx.workspaceId, conversationId);

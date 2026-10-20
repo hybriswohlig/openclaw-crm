@@ -8,7 +8,7 @@ export async function GET(
   { params }: { params: Promise<{ projectId: string; documentId: string }> },
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const { projectId, documentId } = await params;
 
   const doc = await getProjectDocument(ctx.workspaceId, documentId);
@@ -33,7 +33,7 @@ export async function DELETE(
   { params }: { params: Promise<{ projectId: string; documentId: string }> },
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const { projectId, documentId } = await params;
 
   const ok = await deleteProjectDocument(ctx.workspaceId, documentId, projectId);

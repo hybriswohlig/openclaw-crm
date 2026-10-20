@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthContext, unauthorized, success } from "@/lib/api-utils";
+import { getAuthContext, isReadOnlyApiKey, unauthorized, success } from "@/lib/api-utils";
 import { db } from "@/db";
 import { channelAccounts, inboxConversations } from "@/db/schema/inbox";
 import { and, eq } from "drizzle-orm";
@@ -28,11 +28,14 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { id } = await params;
   const msgs = await getMessages(id, ctx.workspaceId);
-  await markConversationRead(id, ctx.workspaceId);
+  // Opening the thread marks it read for a person. A read-only key only fetches.
+  if (!isReadOnlyApiKey(ctx)) {
+    await markConversationRead(id, ctx.workspaceId);
+  }
   return success(msgs);
 }
 
@@ -41,7 +44,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { id } = await params;
   let parsed;

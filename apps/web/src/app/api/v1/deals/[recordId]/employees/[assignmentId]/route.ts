@@ -13,7 +13,7 @@ export async function PATCH(
   { params }: { params: Promise<{ assignmentId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { assignmentId } = await params;
   const { role } = await req.json();
@@ -33,7 +33,7 @@ export async function DELETE(
   { params }: { params: Promise<{ assignmentId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { assignmentId } = await params;
   const deleted = await unassignEmployeeFromDeal(assignmentId);

@@ -13,7 +13,7 @@ import { eq, and } from "drizzle-orm";
  */
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   // 1. Find the operating_companies object.
   const [obj] = await db

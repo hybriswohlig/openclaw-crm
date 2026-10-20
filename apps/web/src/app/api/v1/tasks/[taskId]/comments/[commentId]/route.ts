@@ -9,7 +9,7 @@ export async function DELETE(
 ) {
   try {
     const ctx = await getAuthContext(req);
-    if (!ctx) return unauthorized();
+    if (!ctx) return unauthorized(req);
 
     const { taskId, commentId } = await params;
     const ok = await deleteTaskComment({

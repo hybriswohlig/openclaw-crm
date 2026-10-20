@@ -11,7 +11,7 @@ import { listSprints, createSprint } from "@/services/sprints";
 export async function GET(req: NextRequest) {
   try {
     const ctx = await getAuthContext(req);
-    if (!ctx) return unauthorized();
+    if (!ctx) return unauthorized(req);
     const sprints = await listSprints(ctx.workspaceId);
     return success({ sprints });
   } catch (err) {
@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
 /** POST /api/v1/sprints — create a sprint (starts in Planung). */
 export async function POST(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   let body: Record<string, unknown>;
   try {
