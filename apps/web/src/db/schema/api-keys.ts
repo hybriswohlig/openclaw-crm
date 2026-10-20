@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { users } from "./auth";
 import { workspaces } from "./workspace";
 
@@ -15,7 +15,12 @@ export const apiKeys = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    scopes: text("scopes").notNull().default('["*"]'),
+    // Production stores a jsonb string ("[\"*\"]"), because inserts passed
+    // JSON.stringify(array) and the jsonb encoder stringifies again.
+    // Insert a string[] so the encoder serializes once and Postgres stores
+    // an array. No migration: existing rows stay strings and are unwrapped
+    // on read. The column default below matches the historical '["*"]'.
+    scopes: jsonb("scopes").$type<string[]>().notNull().default(["*"]),
     expiresAt: timestamp("expires_at"),
     lastUsedAt: timestamp("last_used_at"),
     revokedAt: timestamp("revoked_at"),

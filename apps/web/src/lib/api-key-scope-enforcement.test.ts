@@ -194,6 +194,37 @@ describe("read-only API keys", () => {
     expect(mocks.revokeApiKey).not.toHaveBeenCalled();
   });
 
+  it("enforces the double-encoded production string and a real array", async () => {
+    primeKey('["*"]');
+    const fullString = await markReadPost(
+      call("https://crm.test/api/v1/notifications/mark-all-read", "POST", "oc_sk_full")
+    );
+    expect(fullString.status).toBe(200);
+    expect(mocks.markAllAsRead).toHaveBeenCalledTimes(1);
+
+    primeKey(["*"]);
+    const fullArray = await markReadPost(
+      call("https://crm.test/api/v1/notifications/mark-all-read", "POST", "oc_sk_full")
+    );
+    expect(fullArray.status).toBe(200);
+
+    primeKey('["read"]');
+    const readString = await markReadPost(
+      call("https://crm.test/api/v1/notifications/mark-all-read", "POST", "oc_sk_read")
+    );
+    expect(readString.status).toBe(403);
+    expect(await readString.json()).toMatchObject({
+      error: { code: "INSUFFICIENT_SCOPE" },
+    });
+
+    primeKey(["read"]);
+    const readArray = await markReadPost(
+      call("https://crm.test/api/v1/notifications/mark-all-read", "POST", "oc_sk_read")
+    );
+    expect(readArray.status).toBe(403);
+    expect(mocks.markAllAsRead).toHaveBeenCalledTimes(2);
+  });
+
   it("still authenticates read-only keys on the MCP endpoint", async () => {
     primeKey('["read"]');
     const ctx = await getAuthContext(

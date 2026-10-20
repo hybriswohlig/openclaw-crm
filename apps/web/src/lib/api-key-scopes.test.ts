@@ -8,6 +8,7 @@ import {
   isSafeHttpMethod,
   isWriteCapableScope,
   parseApiKeyScopes,
+  readApiKeyScopes,
 } from "./api-key-scopes";
 
 describe("API key scope semantics", () => {
@@ -58,6 +59,20 @@ describe("API key scope semantics", () => {
     }
     expect(isWriteCapableScope("read")).toBe(false);
     expect(isWriteCapableScope("*")).toBe(true);
+  });
+
+  it("unwraps the double-encoded production string", () => {
+    // jsonb string "[\"*\"]" / "[\"read\"]" arrives as a JavaScript string.
+    expect(parseApiKeyScopes('["*"]')).toEqual(["*"]);
+    expect(isReadOnlyApiKeyScopes('["*"]')).toBe(false);
+    expect(parseApiKeyScopes('["read"]')).toEqual(["read"]);
+    expect(isReadOnlyApiKeyScopes('["read"]')).toBe(true);
+    // One more encoding layer: the raw text of that jsonb string.
+    expect(isReadOnlyApiKeyScopes(JSON.stringify('["*"]'))).toBe(false);
+    expect(isReadOnlyApiKeyScopes(JSON.stringify('["read"]'))).toBe(true);
+    expect(readApiKeyScopes('["read"]')).toEqual(["read"]);
+    expect(readApiKeyScopes(["read"])).toEqual(["read"]);
+    expect(readApiKeyScopes("not-json")).toEqual([]);
   });
 
   it("treats GET, HEAD, and OPTIONS as safe methods", () => {

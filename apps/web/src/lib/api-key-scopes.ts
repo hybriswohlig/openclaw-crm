@@ -1,8 +1,12 @@
 /**
  * Scope semantics for `oc_sk_` API keys.
  *
- * Stored as a JSON text column (`api_keys.scopes`). Enforcement is deliberately
- * fail-open for anything that is not an explicit non-write scope list, because
+ * Stored in `api_keys.scopes`. Production rows are double-encoded: the jsonb
+ * value is a string whose content is the array (`"[\"*\"]"`), not an array.
+ * The driver therefore returns a JavaScript string such as `'["*"]'`. New
+ * keys are inserted as a real array. Enforcement accepts both shapes.
+ *
+ * Fail-open for anything that is not an explicit non-write scope list, because
  * live keys (MCP connector, OpenClaw agents, WhatsApp bridge) were created
  * before scopes were checked.
  *
@@ -23,11 +27,15 @@
  * - a scope equal to, or segmented by `: . _ -` or whitespace into,
  *   `admin`, `full`, or `all`
  *
- * Values this repo actually writes when creating a key:
+ * Values this repo actually writes when creating a key (a real array; the
+ * column encoder serializes it once):
  * - UI “Voller Zugriff” and the server default when `scopes` is omitted: `["*"]`
  * - UI “Nur lesen”: `["read"]`
  * - DB column default, if a row is inserted without the column: `["*"]`
  * - `POST /api/v1/api-keys` may store any string array the caller sends
+ *
+ * Existing rows are not rewritten. A stored string `'["*"]'` stays full
+ * access; a stored string `'["read"]'` is read-only.
  */
 
 export const API_KEY_FULL_SCOPES = ["*"] as const;
@@ -51,10 +59,15 @@ export function isWriteCapableScope(scope: string): boolean {
  * Parse a stored scopes value.
  * `null` means “not an explicit scope list” — the caller must treat that as
  * full access.
+ *
+ * Strings are JSON-parsed (production stores a jsonb string such as
+ * `'["*"]'`). If that parse yields another string, it is parsed once more,
+ * so a double-encoded value still becomes the array. A bare string, or
+ * anything that is not a string array after that, stays full access.
  */
 export function parseApiKeyScopes(raw: unknown): string[] | null {
   let value = raw;
-  if (typeof value === "string") {
+  for (let depth = 0; depth < 2 && typeof value === "string"; depth++) {
     const trimmed = value.trim();
     if (!trimmed) return null;
     try {
@@ -77,4 +90,13 @@ export function isReadOnlyApiKeyScopes(raw: unknown): boolean {
   const scopes = parseApiKeyScopes(raw);
   if (!scopes || scopes.length === 0) return false;
   return !scopes.some(isWriteCapableScope);
+}
+
+/**
+ * Scopes to show in API responses. Unparseable values become `[]`, which
+ * `isReadOnlyApiKeyScopes` treats as full access — the same fail-open rule
+ * as enforcement. Never throws on a driver-returned array or JSON string.
+ */
+export function readApiKeyScopes(raw: unknown): string[] {
+  return parseApiKeyScopes(raw) ?? [];
 }
