@@ -131,7 +131,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "crm_get_record",
-    description: "Get a single record by ID with all attribute values. Deal records include source_channel, source_detail, source_received_at, first_reply_at, loss_reason and loss_reason_note. Select values are option ids.",
+    description: "Get a single record by ID. Deal records include source_channel (Quelle / Kanal), source_detail (Anzeige / Detail), source_received_at, first_reply_at, loss_reason (Verlustgrund) and loss_reason_note. People include kontaktart (Kontaktart). Select values come back as option ids.",
     inputSchema: {
       type: "object",
       properties: {
@@ -144,7 +144,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "crm_create_record",
     description:
-      "Create a record. values is a map of attribute slug → value (formats per attribute type). For deals, source_channel is optional for API and bots. Titles or option ids: Website-Formular, WhatsApp, Telefon, Google-Profil (GBP), ImmoScout24 / umzugsfirmen-check, Kleinanzeigen, Empfehlung, Sonstiges. loss_reason: zu teuer, anderer Anbieter, Selbstumzug, Termin passt nicht, keine Rückmeldung, Umzug abgesagt, Sonstiges (loss_reason_note required). Moving stage to lost requires loss_reason only with header X-CRM-Client: ui.",
+      "Create a record. values = map of attribute slug → value. For deals, source_channel is optional for API and bots (the operator form requires it). Titles or option ids: Website-Formular, WhatsApp, Telefon, Google-Profil (GBP), ImmoScout24 / umzugsfirmen-check, Kleinanzeigen, Empfehlung, Sonstiges. loss_reason titles: zu teuer, anderer Anbieter, Selbstumzug, Termin passt nicht, keine Rückmeldung, Umzug abgesagt, Sonstiges. Sonstiges requires loss_reason_note. Moving stage to lost requires loss_reason only when the request sends header X-CRM-Client: ui; bots may omit it. People kontaktart accepts lead_kunde, bewerber, team_helfer, partner_vermittler, privat, spam_werbung or the German labels (Lead/Kunde, Bewerber, Team/Helfer, Partner/Vermittler, Privat, Spam/Werbung). A non-lead value moves that person's conversations to lane kein_lead and their open or lost deals to stage Kein Lead.",
     inputSchema: {
       type: "object",
       properties: {
@@ -160,7 +160,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "crm_update_record",
-    description: "Patch record attribute values. Deal source_channel and loss_reason accept a title or option id. Sonstiges requires loss_reason_note. Stage → lost returns LOSS_REASON_REQUIRED only when header X-CRM-Client: ui is set and the reason is missing.",
+    description: "Update record attribute values. Deal source_channel and loss_reason accept an option title or id. Sonstiges requires loss_reason_note. A stage change to lost returns LOSS_REASON_REQUIRED only when header X-CRM-Client: ui is set and loss_reason is missing; API and bots may omit the reason. first_reply_at is stamped by the first outbound message and should not be backfilled. People kontaktart accepts lead_kunde, bewerber, team_helfer, partner_vermittler, privat, spam_werbung (or the German label Lead/Kunde, Bewerber, Team/Helfer, Partner/Vermittler, Privat, Spam/Werbung, or the option id). A non-lead value moves that person's conversations to lane kein_lead and their open or lost deals to stage Kein Lead.",
     inputSchema: {
       type: "object",
       properties: {
@@ -497,12 +497,26 @@ export const TOOLS: ToolDef[] = [
   {
     name: "crm_list_conversations",
     description:
-      "List inbox conversations (email/WhatsApp). Default status=open, lane=lead.",
+      "List inbox conversations (default status=open, lane=lead). Each row includes kontaktart (lead_kunde, bewerber, team_helfer, partner_vermittler, privat, spam_werbung). lane=kein_lead is the non-lead inbox. kontaktart filters to one of those slugs.",
     inputSchema: {
       type: "object",
       properties: {
         status: { type: "string", enum: ["open", "resolved", "spam"] },
-        lane: { type: "string", enum: ["lead", "info", "spam", "review", "all"] },
+        lane: {
+          type: "string",
+          enum: ["lead", "info", "spam", "review", "kein_lead", "all"],
+        },
+        kontaktart: {
+          type: "string",
+          enum: [
+            "lead_kunde",
+            "bewerber",
+            "team_helfer",
+            "partner_vermittler",
+            "privat",
+            "spam_werbung",
+          ],
+        },
         channelType: { type: "string", enum: ["email", "whatsapp"] },
         channelAccountId: { type: "string" },
         operatingCompanyRecordId: { type: "string" },
@@ -538,14 +552,31 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "crm_update_conversation_status",
-    description: "Set conversation status (open/resolved/spam).",
+    description:
+      "Set conversation status, Kontaktart, and/or lane. status stays optional when kontaktart or lane is sent. kontaktart: lead_kunde | bewerber | team_helfer | partner_vermittler | privat | spam_werbung (German labels work too). A non-lead Kontaktart sets lane to kein_lead and the linked deal stage to Kein Lead. lane: lead | info | spam | review | kein_lead.",
     inputSchema: {
       type: "object",
       properties: {
         conversationId: { type: "string" },
         status: { type: "string", enum: ["open", "resolved", "spam"] },
+        kontaktart: {
+          type: "string",
+          enum: [
+            "lead_kunde",
+            "bewerber",
+            "team_helfer",
+            "partner_vermittler",
+            "privat",
+            "spam_werbung",
+          ],
+        },
+        lane: {
+          type: "string",
+          enum: ["lead", "info", "spam", "review", "kein_lead"],
+        },
       },
-      required: ["conversationId", "status"],
+      required: ["conversationId"],
+      additionalProperties: false,
     },
   },
   {
@@ -738,7 +769,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "crm_preview_document",
     description:
-      "HTML preview of the CRM template for a KV, AB or RE. Does not store a file and does not message the customer. documentType is KV, AB or RE. The preview shows the service-specific default text (Umzug, Entrümpelung, Küchenmontage, Transport, Einlagerung or sonstige Leistung), the Sie/du greeting, and the payment-due sentence. Optional copy or document_copy is { intro, closing, remarks } as plain text and replaces that default. Prices come from the stored quotation and quotation notes are never included. Returns { html, templateVersion, fileName, documentType }.",
+      "HTML preview of the CRM template for a KV, AB or RE. Does not store a file and does not message the customer. documentType is KV, AB or RE. The preview shows the service-specific default text (Umzug, Entrümpelung, Küchenmontage, Transport, Klaviertransport, Beiladung, Einlagerung or sonstige Leistung), the Sie/du greeting, and the payment-due sentence. Optional copy or document_copy is { intro, closing, remarks } as plain text and replaces that default. Prices come from the stored quotation and quotation notes are never included. Returns { html, templateVersion, fileName, documentType }.",
     inputSchema: {
       type: "object",
       properties: {
@@ -816,17 +847,17 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "crm_stats_pipeline",
-    description: "Pipeline statistics.",
+    description: "Pipeline statistics for lead_kunde deals. Stage Kein Lead is omitted and does not count as lost.",
     inputSchema: { type: "object", properties: {} },
   },
   {
     name: "crm_stats_operations",
-    description: "Operations statistics.",
+    description: "Operations statistics. Move counts exclude deals whose Kontaktart is not lead_kunde and deals in stage Kein Lead.",
     inputSchema: { type: "object", properties: {} },
   },
   {
     name: "crm_stats_team",
-    description: "Team statistics.",
+    description: "Team statistics. Deal and new-lead counts per owner include only lead_kunde.",
     inputSchema: { type: "object", properties: {} },
   },
   {

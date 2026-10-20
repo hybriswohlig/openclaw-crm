@@ -145,12 +145,13 @@ describe("MCP description parity", () => {
     );
   });
 
-  it("keeps the legacy description-drift list frozen at its 40 entries", () => {
+  it("keeps the legacy description-drift list frozen at its 35 entries", () => {
     // Same rule as WEB_ONLY_TOOL_NAMES: shrink it by rewriting the stdio
     // description to match, never grow it to silence a new mismatch.
-    // Dropped from 42 to 40 by I8: crm_list_tasks and crm_update_task came
-    // out once commit 4c1831c made their descriptions byte-identical.
-    expect(LEGACY_DESCRIPTION_DRIFT).toHaveLength(40);
+    // Dropped from 42 to 40 by I8, then to 35 when Kontaktart made
+    // crm_get_record, crm_create_record, crm_update_record,
+    // crm_list_conversations and crm_update_conversation_status identical.
+    expect(LEGACY_DESCRIPTION_DRIFT).toHaveLength(35);
   });
 
   it("fails when an exempted description pair has quietly started to agree (I8)", () => {
