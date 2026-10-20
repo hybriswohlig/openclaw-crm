@@ -1799,7 +1799,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "crm_api",
     description:
-      "Raw authenticated request to any CRM path (escape hatch). path e.g. /api/v1/inbox/sync. Prefer specific tools when available.",
+      "Raw authenticated request to any CRM path (escape hatch). path e.g. /api/v1/inbox/sync. Prefer specific tools when available. Deal-field KI suggestions: GET /api/v1/deals/enrichment-suggestions and POST /api/v1/deals/{recordId}/enrichment-suggestions/{suggestionId} with {action:accept|reject}.",
     inputSchema: {
       type: "object",
       properties: {
