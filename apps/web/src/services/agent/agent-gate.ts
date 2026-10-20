@@ -26,6 +26,7 @@ import { agentDrafts, agentSuppressions, dealAgentState, consentLedger } from "@
 import { supersedePendingDrafts } from "@/services/agent/draft-schliessen";
 import { canonicalizePhone, canonicalizeEmail } from "@/lib/identity/canonical";
 import { isSalesAgentEnabled } from "./agent-config";
+import { istNuriGespraech } from "@/services/nachfass/konstanten";
 
 // ─── Message classes and their allowed stage categories ──────────────────────
 
@@ -55,7 +56,9 @@ const STAGE_ALLOWED: Record<AgentMessageClass, ReadonlySet<StageCategory>> = {
   reply: new Set(["open_new", "open_engaged"]),
   slot_question: new Set(["open_new", "open_engaged"]),
   ack: new Set(["open_new", "open_engaged"]),
-  followup: new Set(["open_new", "open_engaged"]),
+  // Quoted stays open for follow-up: the Nachfass rules A1–A3 run after the offer.
+  // Reply / slot questions still stop at quoted (the human owns that turn).
+  followup: new Set(["open_new", "open_engaged", "quoted"]),
   first_contact: new Set(["open_new"]),
 };
 
@@ -74,6 +77,14 @@ const VALID_MESSAGE_CLASSES: ReadonlySet<string> = new Set([
 ]);
 
 /** Map any draft message class onto the gate's vocabulary (unknown → "reply"). */
+export function stageAllowsMessage(
+  messageClass: AgentMessageClass,
+  category: StageCategory | null
+): boolean {
+  if (!category) return false;
+  return STAGE_ALLOWED[messageClass].has(category);
+}
+
 export function toGateMessageClass(messageClass: string): AgentMessageClass {
   return VALID_MESSAGE_CLASSES.has(messageClass)
     ? (messageClass as AgentMessageClass)
@@ -225,6 +236,16 @@ export async function agentMayContact(input: GateInput): Promise<GateVerdict> {
   const now = input.now ?? new Date();
   const reasons: string[] = [];
   const context: Record<string, unknown> = { messageClass: input.messageClass };
+
+  // The Nuri thread is the internal team channel for rule B. It is never a
+  // customer send, so customer gates (stage, consent, quiet hours) do not apply.
+  if (istNuriGespraech(input.conversationId)) {
+    return {
+      allowed: true,
+      reasons: [],
+      context: { ...context, internalTeamReminder: true },
+    };
+  }
 
   // 1) Master switch (per-engine dry-run is enforced by the engines; the gate
   //    only cares whether the agent system is on at all).

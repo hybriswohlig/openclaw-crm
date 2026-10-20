@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isWithinSendWindow } from "./agent-gate";
+import { isWithinSendWindow, stageAllowsMessage } from "./agent-gate";
 
 // July dates: Europe/Berlin = UTC+2 (CEST). The offsets below encode Berlin
 // wall-clock times directly, so the assertions read as Berlin hours.
@@ -45,5 +45,17 @@ describe("isWithinSendWindow — Mon–Sat 08–20, Sun 10–19, Europe/Berlin",
     expect(isWithinSendWindow(new Date("2026-01-19T07:30:00Z"))).toBe(true);
     // Monday 2026-01-19 07:30 Berlin = 06:30 UTC → closed.
     expect(isWithinSendWindow(new Date("2026-01-19T06:30:00Z"))).toBe(false);
+  });
+});
+
+describe("stageAllowsMessage", () => {
+  it("allows Nachfass follow-ups on quoted deals and still blocks replies", () => {
+    expect(stageAllowsMessage("followup", "quoted")).toBe(true);
+    expect(stageAllowsMessage("reply", "quoted")).toBe(false);
+    expect(stageAllowsMessage("slot_question", "quoted")).toBe(false);
+    expect(stageAllowsMessage("ack", "quoted")).toBe(false);
+    expect(stageAllowsMessage("followup", "booked")).toBe(false);
+    expect(stageAllowsMessage("followup", "lost")).toBe(false);
+    expect(stageAllowsMessage("followup", null)).toBe(false);
   });
 });

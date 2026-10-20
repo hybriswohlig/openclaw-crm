@@ -57,6 +57,12 @@ export interface CreateAgentDraftInput {
   /** Caller-supplied idempotency key; defaults to a content-hash key. */
   idempotencyKey?: string;
   expiresInHours?: number;
+  /** Keep the passed deal when the conversation belongs to someone else (team reminder). */
+  pinDeal?: boolean;
+  sequenceId?: string | null;
+  sequenceStep?: number | null;
+  /** Merged into filterVerdicts so send-time bookkeeping can see the rule. */
+  meta?: Record<string, unknown>;
 }
 
 export type CreateAgentDraftResult =
@@ -156,7 +162,9 @@ export async function createAgentDraft(
       };
     }
     conversationId = conv.id;
-    dealRecordId = conv.dealRecordId ?? dealRecordId;
+    if (!(input.pinDeal && dealRecordId)) {
+      dealRecordId = conv.dealRecordId ?? dealRecordId;
+    }
     channelAccountId = conv.channelAccountId;
     personRecordId = conv.personRecordId;
     contactPhone = conv.contactPhone;
@@ -260,9 +268,12 @@ export async function createAgentDraft(
         scannedText: "draft",
         ...(reasoning ? { reasoning } : {}),
         ...(mode ? { mode } : {}),
+        ...(input.meta ?? {}),
       },
       gateResults: gate ? { allowed: gate.allowed, reasons: gate.reasons } : null,
       status: "pending",
+      sequenceId: input.sequenceId ?? null,
+      sequenceStep: input.sequenceStep ?? null,
       idempotencyKey,
       expiresAt,
       promptVersion,
