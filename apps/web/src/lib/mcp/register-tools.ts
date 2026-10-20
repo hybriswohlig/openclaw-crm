@@ -310,10 +310,13 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_list_conversations",
-    "List inbox conversations (default status=open, lane=lead). Each row includes kontaktart (lead_kunde, bewerber, team_helfer, partner_vermittler, privat, spam_werbung). lane=kein_lead is the non-lead inbox.",
+    "List inbox conversations (default status=open, lane=lead). Each row includes kontaktart (lead_kunde, bewerber, team_helfer, partner_vermittler, privat, spam_werbung). lane=kein_lead is the non-lead inbox. kontaktart filters to one of those slugs.",
     {
       status: z.enum(["open", "resolved", "spam"]).optional(),
       lane: z.enum(["lead", "info", "spam", "review", "kein_lead", "all"]).optional(),
+      kontaktart: z
+        .enum(["lead_kunde", "bewerber", "team_helfer", "partner_vermittler", "privat", "spam_werbung"])
+        .optional(),
       channelType: z.enum(["email", "whatsapp"]).optional(),
       channelAccountId: z.string().optional(),
       operatingCompanyRecordId: z.string().optional(),

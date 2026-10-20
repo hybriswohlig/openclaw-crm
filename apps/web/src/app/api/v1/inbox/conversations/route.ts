@@ -37,6 +37,7 @@ export async function GET(req: NextRequest) {
   // Free-text search over contact/subject/message bodies. When set,
   // listConversations ignores the status and lane filters.
   const q = (searchParams.get("q") ?? "").trim().slice(0, 200) || undefined;
+  const kontaktart = searchParams.get("kontaktart") ?? undefined;
 
   const rows = await listConversations(ctx.workspaceId, {
     channelAccountId,
@@ -44,6 +45,7 @@ export async function GET(req: NextRequest) {
     channelType,
     status,
     lane,
+    kontaktart,
     excludeLanes: excludeLanes.length ? excludeLanes : undefined,
     q,
     limit,

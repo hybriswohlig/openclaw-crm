@@ -23,6 +23,7 @@ import { extractDealInsights } from "./deal-insights";
 import { applyDealInsights } from "./deal-insights-apply";
 import { excludeInternalPhotoMessages, findDealInternalPhoto, listDealInternalPhotos } from "./deal-photos";
 import { isInternalPhotoCarrier } from "@/lib/deal-photo-upload";
+import { isKontaktart } from "@/lib/kontaktart";
 
 // ─── Channel account management ───────────────────────────────────────────────
 
@@ -176,6 +177,8 @@ export async function listConversations(
     status?: "open" | "resolved" | "spam";
     /** Triage lane (KOT-IDENTITY Phase 6). 'all' = no lane filter. */
     lane?: "lead" | "info" | "spam" | "review" | "kein_lead" | "all";
+    /** Kontaktart slug. Only applied when it is one of the six known values. */
+    kontaktart?: string;
     /**
      * Lanes to EXCLUDE. The dedicated /email area passes ['lead'] so the lead
      * pipeline (owned by the main Inbox) never duplicates into the mail client.
@@ -248,6 +251,9 @@ export async function listConversations(
           : undefined,
         !qPattern && opts.lane && opts.lane !== "all"
           ? eq(inboxConversations.lane, opts.lane)
+          : undefined,
+        !qPattern && opts.kontaktart && isKontaktart(opts.kontaktart)
+          ? eq(inboxConversations.kontaktart, opts.kontaktart)
           : undefined,
         !qPattern && opts.excludeLanes && opts.excludeLanes.length > 0
           ? notInArray(inboxConversations.lane, opts.excludeLanes)
