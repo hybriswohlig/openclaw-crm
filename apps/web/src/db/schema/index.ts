@@ -29,3 +29,4 @@ export * from "./inventory";
 export * from "./deal-calculations";
 export * from "./deal-internal-photos";
 export * from "./calendar-feeds";
+export * from "./deal-enrichment";

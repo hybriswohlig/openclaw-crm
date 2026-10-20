@@ -17,6 +17,7 @@ export type ActivityEventType =
   | "call.received"
   | "call.summary_attached"
   | "ai.insights_extracted"
+  | "ai.field_enrichment"
   | "ai.inventory_extracted"
   | "ai.inventory_extract_attempt"
   | "ai.inventory_photos_analyzed"
@@ -87,6 +88,19 @@ export async function emitEvent(input: EmitEventInput): Promise<void> {
   } catch (err) {
     // Never block the caller on telemetry failures.
     console.error("[activity-events] emit failed:", err);
+  }
+
+  if (
+    input.recordId &&
+    input.objectSlug === "deals" &&
+    (input.eventType === "message.received" || input.eventType === "message.sent")
+  ) {
+    try {
+      const { enqueueDealEnrichment } = await import("@/services/deal-enrichment-queue");
+      await enqueueDealEnrichment(input.workspaceId, input.recordId);
+    } catch (err) {
+      console.error("[activity-events] enrichment enqueue failed:", err);
+    }
   }
 }
 

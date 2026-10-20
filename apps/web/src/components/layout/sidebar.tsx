@@ -19,6 +19,7 @@ import {
   Building2,
   Handshake,
   Zap,
+  Sparkles,
   List,
   Plus,
   Settings,
@@ -52,6 +53,7 @@ const objectNav = [
   { href: "/objects/people", label: "Kunden", icon: Users },
   { href: "/objects/deals", label: "Leads", icon: Handshake },
   { href: "/leads/speed-to-lead", label: "Speed-to-Lead", icon: Zap },
+  { href: "/leads/feld-vorschlaege", label: "KI-Vorschläge", icon: Sparkles },
 ];
 
 const moreNav = [

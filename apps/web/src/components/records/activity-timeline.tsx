@@ -4,7 +4,7 @@ import { StickyNote, CheckSquare, UserPlus, Clock, Mail, ArrowRight, Sparkles, S
 
 interface ActivityItem {
   id: string;
-  type: "created" | "note" | "task" | "message_received" | "message_sent" | "stage_changed" | "ai_insights" | "event";
+  type: "created" | "note" | "task" | "message_received" | "message_sent" | "stage_changed" | "ai_insights" | "ai_enrichment" | "event";
   title: string;
   description?: string;
   createdAt: string;
@@ -66,6 +66,7 @@ function ActivityIcon({ type }: { type: ActivityItem["type"] }) {
     case "stage_changed":
       return <ArrowRight className="h-3 w-3 text-amber-500" />;
     case "ai_insights":
+    case "ai_enrichment":
       return <Sparkles className="h-3 w-3 text-violet-500" />;
     default:
       return <Clock className="h-3 w-3 text-muted-foreground" />;

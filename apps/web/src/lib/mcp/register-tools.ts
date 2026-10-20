@@ -1320,7 +1320,7 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_api",
-    "Raw authenticated request to any /api/… path (escape hatch). A binary response (image, PDF) is wrapped as { _binary: true, mimeType, byteLength, contentBase64 } rather than being parsed as JSON, and a path with no route handler reports NOT_JSON_HTML instead of dumping the Next.js app shell. For inbox attachment bytes prefer crm_get_attachment — it returns a renderable image block; crm_api only ever gives you base64.",
+    "Raw authenticated request to any /api/… path (escape hatch). A binary response (image, PDF) is wrapped as { _binary: true, mimeType, byteLength, contentBase64 } rather than being parsed as JSON, and a path with no route handler reports NOT_JSON_HTML instead of dumping the Next.js app shell. For inbox attachment bytes prefer crm_get_attachment — it returns a renderable image block; crm_api only ever gives you base64. Deal-field KI suggestions: GET /api/v1/deals/enrichment-suggestions and POST /api/v1/deals/{recordId}/enrichment-suggestions/{suggestionId} with {action:accept|reject}.",
     {
       method: z.enum(["GET", "POST", "PATCH", "PUT", "DELETE"]).optional(),
       path: z.string(),

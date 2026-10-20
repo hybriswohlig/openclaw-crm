@@ -112,6 +112,14 @@ export async function createNote(
     .insert(notes)
     .values({ recordId, title, content, createdBy })
     .returning();
+  if (note) {
+    try {
+      const { enqueueDealRecordIfDeal } = await import("@/services/deal-enrichment-queue");
+      await enqueueDealRecordIfDeal(recordId);
+    } catch (err) {
+      console.error("[notes] enrichment enqueue failed:", err);
+    }
+  }
   return note;
 }
 
@@ -124,6 +132,14 @@ export async function updateNote(
     .set({ ...updates, updatedAt: new Date() })
     .where(eq(notes.id, noteId))
     .returning();
+  if (note) {
+    try {
+      const { enqueueDealRecordIfDeal } = await import("@/services/deal-enrichment-queue");
+      await enqueueDealRecordIfDeal(note.recordId);
+    } catch (err) {
+      console.error("[notes] enrichment enqueue failed:", err);
+    }
+  }
   return note;
 }
 
