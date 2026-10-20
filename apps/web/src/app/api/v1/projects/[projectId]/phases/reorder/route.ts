@@ -8,7 +8,7 @@ export async function POST(
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const { projectId } = await params;
 
   let body: { orderedPhaseIds?: unknown };

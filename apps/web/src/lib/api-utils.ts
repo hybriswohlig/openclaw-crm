@@ -6,6 +6,10 @@ import type { MemberPermissions } from "@/db/schema/workspace";
 import { eq, and, isNull } from "drizzle-orm";
 import { createHash } from "crypto";
 import {
+  isReadOnlyApiKeyScopes,
+  isSafeHttpMethod,
+} from "@/lib/api-key-scopes";
+import {
   ensureUserWorkspaceAccess,
   getSingletonWorkspaceId,
 } from "@/services/workspace";
@@ -22,6 +26,54 @@ export interface AuthContext {
    */
   permissions: MemberPermissions;
   authMethod?: "cookie" | "api_key";
+  /**
+   * Set for API-key auth. `"read"` means the key's scopes are an explicit
+   * list with no write-capable scope. Session auth leaves this unset.
+   * Omitted or `"full"` keeps today's unrestricted key behaviour.
+   */
+  apiKeyAccess?: "full" | "read";
+}
+
+/**
+ * Scope denials have to surface as 403 from the existing
+ * `if (!ctx) return unauthorized(req)` pattern. The denial is stored on the
+ * request object so concurrent requests cannot pick up each other's response.
+ * `unauthorized(req)` consumes it.
+ */
+const scopeDenials = new WeakMap<NextRequest, NextResponse>();
+
+function rememberApiKeyScopeDenial(req: NextRequest, response: NextResponse) {
+  scopeDenials.set(req, response);
+}
+
+export function consumeApiKeyScopeDenial(req?: NextRequest): NextResponse | null {
+  if (!req) return null;
+  const denied = scopeDenials.get(req) ?? null;
+  if (denied) scopeDenials.delete(req);
+  return denied;
+}
+
+export function isReadOnlyApiKey(ctx: AuthContext): boolean {
+  return ctx.authMethod === "api_key" && ctx.apiKeyAccess === "read";
+}
+
+export function apiKeyScopeForbidden(message: string) {
+  return NextResponse.json(
+    { error: { code: "INSUFFICIENT_SCOPE", message } },
+    { status: 403 }
+  );
+}
+
+function methodScopeForbidden(method: string) {
+  return apiKeyScopeForbidden(
+    `This API key is read-only and cannot call ${method}. Read-only keys may only use GET, HEAD, and OPTIONS.`
+  );
+}
+
+/** MCP tool calls are all POST. Scope is enforced per tool, not on this route. */
+function isMcpEndpoint(req: NextRequest): boolean {
+  const pathname = req.nextUrl?.pathname ?? "";
+  return pathname === "/api/mcp" || pathname.startsWith("/api/mcp/");
 }
 
 function hashApiKey(key: string): string {
@@ -38,7 +90,7 @@ export async function getAuthContext(req: NextRequest): Promise<AuthContext | nu
   if (authHeader?.startsWith("Bearer ")) {
     const token = authHeader.slice(7);
     if (token.startsWith("oc_sk_")) {
-      return getApiKeyAuthContext(token);
+      return getApiKeyAuthContext(token, req);
     }
   }
 
@@ -88,7 +140,10 @@ export async function getAuthContext(req: NextRequest): Promise<AuthContext | nu
   };
 }
 
-async function getApiKeyAuthContext(token: string): Promise<AuthContext | null> {
+async function getApiKeyAuthContext(
+  token: string,
+  req: NextRequest
+): Promise<AuthContext | null> {
   const keyHash = hashApiKey(token);
 
   const keys = await db
@@ -96,6 +151,7 @@ async function getApiKeyAuthContext(token: string): Promise<AuthContext | null> 
       id: apiKeys.id,
       userId: apiKeys.userId,
       workspaceId: apiKeys.workspaceId,
+      scopes: apiKeys.scopes,
       expiresAt: apiKeys.expiresAt,
       lastUsedAt: apiKeys.lastUsedAt,
     })
@@ -129,6 +185,15 @@ async function getApiKeyAuthContext(token: string): Promise<AuthContext | null> 
 
   const singletonId = await getSingletonWorkspaceId();
   if (!singletonId || key.workspaceId !== singletonId) {
+    return null;
+  }
+
+  const readOnly = isReadOnlyApiKeyScopes(key.scopes);
+  const method = (req.method || "GET").toUpperCase();
+  // /api/mcp is POST for every tool, including reads. Mutating tools are
+  // rejected in the MCP dispatcher; blocking the route would also block reads.
+  if (readOnly && !isSafeHttpMethod(method) && !isMcpEndpoint(req)) {
+    rememberApiKeyScopeDenial(req, methodScopeForbidden(method));
     return null;
   }
 
@@ -173,11 +238,18 @@ async function getApiKeyAuthContext(token: string): Promise<AuthContext | null> 
     workspaceRole: role,
     permissions,
     authMethod: "api_key",
+    apiKeyAccess: readOnly ? "read" : "full",
   };
 }
 
-/** Return a 401 JSON response */
-export function unauthorized() {
+/**
+ * 401 when the caller is not authenticated.
+ * 403 with `INSUFFICIENT_SCOPE` when the immediately preceding
+ * `getAuthContext` rejected a read-only API key for a non-safe method.
+ */
+export function unauthorized(req?: NextRequest) {
+  const denied = consumeApiKeyScopeDenial(req);
+  if (denied) return denied;
   return NextResponse.json(
     { error: { code: "UNAUTHORIZED", message: "Authentication required" } },
     { status: 401 }

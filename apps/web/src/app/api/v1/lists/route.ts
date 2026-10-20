@@ -6,7 +6,7 @@ import { getObjectBySlug } from "@/services/objects";
 /** GET /api/v1/lists — List all lists in workspace */
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const result = await listLists(ctx.workspaceId);
   return success(result);
@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
 /** POST /api/v1/lists — Create a new list */
 export async function POST(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const body = await req.json();
   const { name, objectSlug, isPrivate } = body;

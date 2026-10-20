@@ -14,6 +14,11 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Loader2, Plus, Trash2, Copy, Check, AlertTriangle } from "lucide-react";
+import {
+  API_KEY_FULL_SCOPES,
+  API_KEY_READ_SCOPES,
+  isReadOnlyApiKeyScopes,
+} from "@/lib/api-key-scopes";
 
 interface ApiKey {
   id: string;
@@ -33,6 +38,7 @@ export default function ApiKeysPage() {
   // Create dialog
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
+  const [access, setAccess] = useState<"full" | "read">("full");
   const [creating, setCreating] = useState(false);
 
   // Key reveal dialog
@@ -69,12 +75,16 @@ export default function ApiKeysPage() {
       const res = await fetch("/api/v1/api-keys", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newName.trim() }),
+        body: JSON.stringify({
+          name: newName.trim(),
+          scopes: access === "read" ? [...API_KEY_READ_SCOPES] : [...API_KEY_FULL_SCOPES],
+        }),
       });
       if (res.ok) {
         const data = await res.json();
         setRevealedKey(data.data.key);
         setNewName("");
+        setAccess("full");
         setShowCreate(false);
         fetchKeys();
       } else {
@@ -122,7 +132,12 @@ export default function ApiKeysPage() {
             API-Schlüssel für den programmatischen Zugriff verwalten. Die Schlüssel nutzen Bearer-Token-Authentifizierung.
           </p>
         </div>
-        <Button onClick={() => setShowCreate(true)}>
+        <Button
+          onClick={() => {
+            setAccess("full");
+            setShowCreate(true);
+          }}
+        >
           <Plus className="mr-1 h-4 w-4" />
           Schlüssel erstellen
         </Button>
@@ -161,6 +176,13 @@ export default function ApiKeysPage() {
                 <tr key={key.id} className="border-b last:border-0">
                   <td className="px-4 py-3">
                     <span className="font-medium">{key.name}</span>
+                    <Badge
+                      variant="outline"
+                      className="ml-2 text-xs"
+                      title={JSON.stringify(key.scopes)}
+                    >
+                      {isReadOnlyApiKeyScopes(key.scopes) ? "Nur lesen" : "Voller Zugriff"}
+                    </Badge>
                     {key.expiresAt && (
                       <Badge variant="outline" className="ml-2 text-xs">
                         Läuft ab am {new Date(key.expiresAt).toLocaleDateString("de-DE")}
@@ -223,6 +245,41 @@ export default function ApiKeysPage() {
                   autoFocus
                 />
               </div>
+              <fieldset className="space-y-2">
+                <legend className="text-sm font-medium">Zugriff</legend>
+                <label className="flex cursor-pointer items-start gap-3 rounded-md border p-3">
+                  <input
+                    type="radio"
+                    name="key-access"
+                    value="full"
+                    checked={access === "full"}
+                    onChange={() => setAccess("full")}
+                    className="mt-1"
+                  />
+                  <span>
+                    <span className="block text-sm font-medium">Voller Zugriff</span>
+                    <span className="block text-xs text-muted-foreground">
+                      Lesen und Schreiben. Standard für den MCP-Connector, OpenClaw und die WhatsApp-Brücke.
+                    </span>
+                  </span>
+                </label>
+                <label className="flex cursor-pointer items-start gap-3 rounded-md border p-3">
+                  <input
+                    type="radio"
+                    name="key-access"
+                    value="read"
+                    checked={access === "read"}
+                    onChange={() => setAccess("read")}
+                    className="mt-1"
+                  />
+                  <span>
+                    <span className="block text-sm font-medium">Nur lesen</span>
+                    <span className="block text-xs text-muted-foreground">
+                      Nur GET, HEAD und OPTIONS. Für Dashboards wie Hangar. Keine Änderungen an Daten.
+                    </span>
+                  </span>
+                </label>
+              </fieldset>
             </div>
             <DialogFooter>
               <Button

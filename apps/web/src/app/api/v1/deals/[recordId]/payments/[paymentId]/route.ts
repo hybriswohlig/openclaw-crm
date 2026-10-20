@@ -15,7 +15,7 @@ export async function PUT(
   { params }: { params: Promise<{ recordId: string; paymentId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { paymentId } = await params;
   const body = await req.json();
@@ -49,7 +49,7 @@ export async function DELETE(
   { params }: { params: Promise<{ recordId: string; paymentId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { paymentId } = await params;
   const row = await deletePayment(paymentId, ctx.workspaceId);

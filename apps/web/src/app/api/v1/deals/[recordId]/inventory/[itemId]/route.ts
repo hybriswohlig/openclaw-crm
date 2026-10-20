@@ -16,7 +16,7 @@ export async function PATCH(
   { params }: { params: Promise<{ recordId: string; itemId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { recordId, itemId } = await params;
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
@@ -67,7 +67,7 @@ export async function DELETE(
   { params }: { params: Promise<{ recordId: string; itemId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { recordId, itemId } = await params;
   const [row] = await db

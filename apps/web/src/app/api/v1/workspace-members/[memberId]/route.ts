@@ -17,7 +17,7 @@ export async function PATCH(
   { params }: { params: Promise<{ memberId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   if (ctx.workspaceRole !== "admin") {
     return badRequest("Only admins can change member roles or permissions");
@@ -74,7 +74,7 @@ export async function DELETE(
   { params }: { params: Promise<{ memberId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   if (ctx.workspaceRole !== "admin") {
     return badRequest("Only admins can remove members");

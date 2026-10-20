@@ -18,7 +18,7 @@ export async function GET(
   { params }: { params: Promise<{ taskId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { taskId } = await params;
 
@@ -41,7 +41,7 @@ export async function PATCH(
   { params }: { params: Promise<{ taskId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { taskId } = await params;
 
@@ -154,7 +154,7 @@ export async function DELETE(
   { params }: { params: Promise<{ taskId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { taskId } = await params;
 

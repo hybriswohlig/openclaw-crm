@@ -5,7 +5,7 @@ import { getAgentSettings, setAgentSettings } from "@/services/agent/agent-confi
 /** Read the sales agent control state (master switch, dry-run, channels, signature). */
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const gate = requireAdmin(ctx);
   if (gate) return gate;
   return success(await getAgentSettings(ctx.workspaceId));
@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
 /** Update the sales agent control state. Admin only. */
 export async function PATCH(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const gate = requireAdmin(ctx);
   if (gate) return gate;
 

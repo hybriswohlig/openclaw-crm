@@ -8,7 +8,7 @@ export async function GET(
   { params }: { params: Promise<{ listId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { listId } = await params;
   if (!(await verifyListWorkspace(listId, ctx.workspaceId))) {
@@ -27,7 +27,7 @@ export async function PATCH(
   { params }: { params: Promise<{ listId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { listId } = await params;
   if (!(await verifyListWorkspace(listId, ctx.workspaceId))) {
@@ -47,7 +47,7 @@ export async function DELETE(
   { params }: { params: Promise<{ listId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { listId } = await params;
   if (!(await verifyListWorkspace(listId, ctx.workspaceId))) {

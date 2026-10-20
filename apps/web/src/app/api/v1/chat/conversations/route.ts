@@ -4,7 +4,7 @@ import { listConversations, createConversation } from "@/services/ai-chat";
 
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const convs = await listConversations(ctx.userId, ctx.workspaceId);
   return success(convs);
@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const body = await req.json().catch(() => ({}));
   const { title, model } = body as { title?: string; model?: string };

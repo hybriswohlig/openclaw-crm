@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { and, count, desc, eq } from "drizzle-orm";
-import { getAuthContext, success, unauthorized } from "@/lib/api-utils";
+import { getAuthContext, isReadOnlyApiKey, success, unauthorized } from "@/lib/api-utils";
 import { db } from "@/db";
 import { objects, attributes } from "@/db/schema/objects";
 import { records, recordValues } from "@/db/schema/records";
@@ -26,7 +26,7 @@ export async function GET(
   { params }: { params: Promise<{ recordId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const { recordId: dealRecordId } = await params;
 
   const [auftragObj] = await db
@@ -67,8 +67,9 @@ export async function GET(
     auftragRecordId = refRows[0]?.recordId ?? null;
   }
 
-  // Create on demand with checklist template + copied operating_company + name
-  if (!auftragRecordId) {
+  // Create on demand with checklist template + copied operating_company + name.
+  // A read-only key must not insert an Auftrag; it gets null until one exists.
+  if (!auftragRecordId && !isReadOnlyApiKey(ctx)) {
     const [dealObj] = await db
       .select({ id: objects.id })
       .from(objects)

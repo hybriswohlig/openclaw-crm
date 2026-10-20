@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
   });
 
   if (!session?.user?.id) {
-    return unauthorized();
+    return unauthorized(req);
   }
 
   const [user] = await db
@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
     .limit(1);
 
   if (!user) {
-    return unauthorized();
+    return unauthorized(req);
   }
 
   return success({

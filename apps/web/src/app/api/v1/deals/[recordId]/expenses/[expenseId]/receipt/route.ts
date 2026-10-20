@@ -15,7 +15,7 @@ export async function GET(
   { params }: { params: Promise<{ expenseId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { expenseId } = await params;
 

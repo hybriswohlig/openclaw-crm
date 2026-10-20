@@ -66,7 +66,7 @@ function present(settings: EnrichmentSettings, names: Map<string, string>) {
 /** GET /api/v1/settings/deal-enrichment — workspace and per-company kill switches. */
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const admin = requireAdmin(ctx);
   if (admin) return admin;
   const settings = await readEnrichmentSettings(ctx.workspaceId);
@@ -76,7 +76,7 @@ export async function GET(req: NextRequest) {
 /** PATCH /api/v1/settings/deal-enrichment */
 export async function PATCH(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const admin = requireAdmin(ctx);
   if (admin) return admin;
 

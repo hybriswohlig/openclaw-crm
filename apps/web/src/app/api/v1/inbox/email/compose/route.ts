@@ -8,7 +8,7 @@ import { sendNewEmail, EmailUserError } from "@/services/inbox-email";
  */
 export async function POST(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { channelAccountId, to, subject, body } = await req.json().catch(() => ({}));
   if (!channelAccountId || !to?.trim() || !body?.trim()) {

@@ -7,7 +7,7 @@ export async function PATCH(
   { params }: { params: Promise<{ notificationId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { notificationId } = await params;
   const updated = await markAsRead(notificationId, ctx.userId);

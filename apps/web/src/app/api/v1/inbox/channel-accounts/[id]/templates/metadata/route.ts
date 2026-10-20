@@ -15,7 +15,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const { id } = await params;
   try {
     const rows = await getTemplateMetadataForAccount(id, ctx.workspaceId);
@@ -32,7 +32,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
   const { templateName, languageCode, variableLabels, headerImageUrl } =

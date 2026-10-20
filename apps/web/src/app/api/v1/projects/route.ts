@@ -19,7 +19,7 @@ import { normalizeProjectCategory, normalizeProjectStatus } from "@/lib/project-
 export async function GET(req: NextRequest) {
   try {
     const ctx = await getAuthContext(req);
-    if (!ctx) return unauthorized();
+    if (!ctx) return unauthorized(req);
 
     const { searchParams } = new URL(req.url);
     // `Number("abc")` is NaN, `Math.min(NaN, 200)` is NaN, and `.limit(NaN)`
@@ -62,7 +62,7 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   let body: unknown;
   try {

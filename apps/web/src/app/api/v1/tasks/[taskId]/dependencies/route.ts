@@ -8,7 +8,7 @@ export async function GET(
   { params }: { params: Promise<{ taskId: string }> },
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const { taskId } = await params;
   try {
     return success(await listDependencies(ctx.workspaceId, { taskIds: [taskId] }));
@@ -38,7 +38,7 @@ export async function POST(
   { params }: { params: Promise<{ taskId: string }> },
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const { taskId: successorTaskId } = await params;
 
   let body: { predecessorTaskId?: unknown };

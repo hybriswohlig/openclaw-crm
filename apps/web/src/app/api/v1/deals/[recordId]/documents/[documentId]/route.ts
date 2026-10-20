@@ -9,7 +9,7 @@ export async function GET(
   { params }: { params: Promise<{ recordId: string; documentId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { recordId, documentId } = await params;
 
@@ -51,7 +51,7 @@ export async function DELETE(
   { params }: { params: Promise<{ recordId: string; documentId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { recordId, documentId } = await params;
 

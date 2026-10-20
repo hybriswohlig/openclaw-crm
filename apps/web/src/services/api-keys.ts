@@ -29,6 +29,8 @@ export async function createApiKey(
       name: options.name,
       workspaceId,
       userId,
+      // Omitted scopes stay full access (`["*"]`), matching keys created
+      // before scope enforcement. `[]` is stored as-is and is also full access.
       scopes: JSON.stringify(options.scopes ?? ["*"]),
       expiresAt: options.expiresAt ?? null,
     })

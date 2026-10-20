@@ -21,7 +21,7 @@ export async function POST(
   { params }: { params: Promise<{ employeeId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { employeeId } = await params;
   const emp = await getEmployee(ctx.workspaceId, employeeId);

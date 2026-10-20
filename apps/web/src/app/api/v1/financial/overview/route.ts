@@ -4,7 +4,7 @@ import { getFinancialOverview, getIncomeSeries } from "@/services/financial";
 
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { searchParams } = new URL(req.url);
   // e.g. ?month=2026-03  — omit for all-time overview

@@ -26,7 +26,7 @@ export const maxDuration = 60;
  */
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const { id } = await params;
   const body = (await req.json().catch(() => ({}))) as {
     action?: unknown;

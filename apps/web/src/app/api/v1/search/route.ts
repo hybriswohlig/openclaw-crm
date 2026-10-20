@@ -4,7 +4,7 @@ import { globalSearch } from "@/services/search";
 
 export async function GET(req: NextRequest) {
   const auth = await getAuthContext(req);
-  if (!auth) return unauthorized();
+  if (!auth) return unauthorized(req);
 
   const q = req.nextUrl.searchParams.get("q") ?? "";
   if (!q.trim()) return badRequest("Query parameter 'q' is required");

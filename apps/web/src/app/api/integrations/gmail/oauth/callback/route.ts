@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eq, and } from "drizzle-orm";
 import { google } from "googleapis";
-import { getAuthContext, unauthorized, requireChannelManager } from "@/lib/api-utils";
+import {
+  apiKeyScopeForbidden,
+  getAuthContext,
+  isReadOnlyApiKey,
+  requireChannelManager,
+  unauthorized,
+} from "@/lib/api-utils";
 import { db } from "@/db";
 import { channelAccounts } from "@/db/schema/inbox";
 import { makeOAuthClient, getAppBaseUrl } from "@/lib/gmail/client";
@@ -28,7 +34,13 @@ function backTo(params: Record<string, string>): NextResponse {
  */
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
+  // This GET exchanges an OAuth code and stores a refresh token.
+  if (isReadOnlyApiKey(ctx)) {
+    return apiKeyScopeForbidden(
+      "This API key is read-only and cannot connect a Gmail account."
+    );
+  }
   const deny = requireChannelManager(ctx);
   if (deny) return deny;
 

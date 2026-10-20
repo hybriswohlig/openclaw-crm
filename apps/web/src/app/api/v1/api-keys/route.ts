@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthContext, unauthorized, badRequest, success, requireAdmin } from "@/lib/api-utils";
+import { API_KEY_FULL_SCOPES } from "@/lib/api-key-scopes";
 import { createApiKey, listApiKeys } from "@/services/api-keys";
 
 /** GET /api/v1/api-keys — List all API keys for workspace */
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const adminCheck = requireAdmin(ctx);
   if (adminCheck) return adminCheck;
@@ -17,7 +18,7 @@ export async function GET(req: NextRequest) {
 /** POST /api/v1/api-keys — Create a new API key (admin only) */
 export async function POST(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const adminCheck = requireAdmin(ctx);
   if (adminCheck) return adminCheck;
@@ -33,10 +34,18 @@ export async function POST(req: NextRequest) {
     return badRequest("name is required");
   }
 
+  let scopes: string[] | undefined;
+  if (body.scopes !== undefined) {
+    if (!Array.isArray(body.scopes) || body.scopes.some((scope) => typeof scope !== "string")) {
+      return badRequest("scopes must be an array of strings");
+    }
+    scopes = body.scopes;
+  }
+
   try {
     const result = await createApiKey(ctx.workspaceId, ctx.userId, {
       name: body.name,
-      scopes: body.scopes as string[] | undefined,
+      scopes: scopes ?? [...API_KEY_FULL_SCOPES],
       expiresAt: body.expiresAt ? new Date(body.expiresAt as string) : undefined,
     });
 

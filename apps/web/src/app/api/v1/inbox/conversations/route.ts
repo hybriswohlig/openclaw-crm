@@ -4,7 +4,7 @@ import { listConversations } from "@/services/inbox";
 
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { searchParams } = new URL(req.url);
   const channelAccountId = searchParams.get("channelAccountId") ?? undefined;

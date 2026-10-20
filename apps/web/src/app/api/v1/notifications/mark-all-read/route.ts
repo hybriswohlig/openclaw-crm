@@ -4,7 +4,7 @@ import { markAllAsRead } from "@/services/notifications";
 
 export async function POST(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   await markAllAsRead(ctx.workspaceId, ctx.userId);
   return success({ ok: true });

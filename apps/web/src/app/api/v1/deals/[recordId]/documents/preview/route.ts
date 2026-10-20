@@ -57,7 +57,7 @@ export async function GET(
   { params }: { params: Promise<{ recordId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const { recordId } = await params;
   const kind = parseKind(req.nextUrl.searchParams.get("documentType"));
   if (!kind) return badRequest("documentType must be KV, AB or RE");
@@ -82,7 +82,7 @@ export async function POST(
   { params }: { params: Promise<{ recordId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const { recordId } = await params;
 
   let body: unknown;

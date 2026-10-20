@@ -17,7 +17,7 @@ import { isPosthogConfigured } from "@/services/website-analytics";
 /** Befunde + Kasse pro Kanal für den Überblick auf /sichtbarkeit. */
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const daysParam = Number(req.nextUrl.searchParams.get("days") ?? 30);
   const days = [7, 30, 90, 365].includes(daysParam) ? daysParam : 30;

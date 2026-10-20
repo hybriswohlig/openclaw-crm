@@ -7,7 +7,7 @@ export async function PUT(
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const { projectId } = await params;
 
   try {
@@ -29,7 +29,7 @@ export async function DELETE(
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const { projectId } = await params;
 
   try {

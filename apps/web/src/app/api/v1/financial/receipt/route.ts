@@ -25,7 +25,7 @@ const MIME_RE = /^[\w.+-]+\/[\w.+-]+$/;
  */
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const searchParams = req.nextUrl.searchParams;
   const type = searchParams.get("type");

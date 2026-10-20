@@ -30,7 +30,7 @@ export async function PATCH(
   { params }: { params: Promise<{ ocId: string; packageId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const denied = requireAdmin(ctx);
   if (denied) return denied;
   const { ocId, packageId } = await params;
@@ -51,7 +51,7 @@ export async function DELETE(
   { params }: { params: Promise<{ ocId: string; packageId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const denied = requireAdmin(ctx);
   if (denied) return denied;
   const { ocId, packageId } = await params;

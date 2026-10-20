@@ -96,7 +96,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const type = parseType(req);
   if (!type) return badRequest("Query-Parameter type muss income oder expense sein");
@@ -232,7 +232,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const type = parseType(req);
   if (!type) return badRequest("Query-Parameter type muss income oder expense sein");

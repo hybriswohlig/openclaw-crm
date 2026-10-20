@@ -4,7 +4,7 @@ import { getTeamStats } from "@/services/statistics";
 
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const data = await getTeamStats(ctx.workspaceId);
   return success(data);

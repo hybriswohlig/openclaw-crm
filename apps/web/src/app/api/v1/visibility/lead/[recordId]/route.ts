@@ -23,7 +23,7 @@ async function loadDeal(workspaceId: string, recordId: string) {
 
 export async function GET(req: NextRequest, { params }: Params) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const { recordId } = await params;
   if (!(await loadDeal(ctx.workspaceId, recordId))) return notFound("Lead nicht gefunden");
 
@@ -49,7 +49,7 @@ export async function GET(req: NextRequest, { params }: Params) {
 /** Kandidaten bestätigen: { sessionId, distinctId } */
 export async function POST(req: NextRequest, { params }: Params) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const { recordId } = await params;
   if (!(await loadDeal(ctx.workspaceId, recordId))) return notFound("Lead nicht gefunden");
 
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest, { params }: Params) {
 /** Zuordnung wieder lösen. */
 export async function DELETE(req: NextRequest, { params }: Params) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const { recordId } = await params;
   if (!(await loadDeal(ctx.workspaceId, recordId))) return notFound("Lead nicht gefunden");
 

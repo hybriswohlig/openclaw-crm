@@ -28,7 +28,7 @@ export async function POST(
 ) {
   try {
     const ctx = await getAuthContext(req);
-    if (!ctx) return unauthorized();
+    if (!ctx) return unauthorized(req);
 
     const { id } = await params;
 

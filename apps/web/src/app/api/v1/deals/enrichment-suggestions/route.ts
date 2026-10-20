@@ -8,7 +8,7 @@ import { listDealEnrichmentSuggestions } from "@/services/deal-enrichment";
  */
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const status = req.nextUrl.searchParams.get("status") ?? "pending";
   const suggestions = await listDealEnrichmentSuggestions(ctx.workspaceId, { status });

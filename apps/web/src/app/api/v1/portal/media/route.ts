@@ -24,7 +24,7 @@ type Category = (typeof VALID_CATEGORIES)[number];
  */
 export async function POST(req: NextRequest) {
   const ctx = await getEmployeePortalContextFromHeaders(req.headers);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const body = await req.json();
   const { pathname, dealRecordId, category, caption, capturedAt } = body;

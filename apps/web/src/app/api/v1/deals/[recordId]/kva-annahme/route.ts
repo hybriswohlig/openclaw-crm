@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ recordId: string }> }) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const { recordId } = await params;
   const row = await ladeAktiveAnnahme(recordId);
   if (!row || row.workspaceId !== ctx.workspaceId) {
@@ -43,7 +43,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ reco
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ recordId: string }> }) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   if (ctx.workspaceRole !== "admin") return forbidden("Nur Admins können eine Annahme aufheben.");
   const { recordId } = await params;
   const body = (await req.json().catch(() => ({}))) as { grund?: unknown };

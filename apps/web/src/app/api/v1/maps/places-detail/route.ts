@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const placeId = req.nextUrl.searchParams.get("placeId");
   const sessionToken = req.nextUrl.searchParams.get("sessionToken");

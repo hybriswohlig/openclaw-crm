@@ -8,7 +8,7 @@ import { extractPersonalName } from "@/lib/display-name";
 /** GET /api/v1/records/browse — Browse recent records across all objects */
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const limit = Math.min(
     Number(req.nextUrl.searchParams.get("limit") || 20),

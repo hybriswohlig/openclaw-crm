@@ -20,7 +20,7 @@ export async function PATCH(
   { params }: { params: Promise<{ taskSlug: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const adminCheck = requireAdmin(ctx);
   if (adminCheck) return adminCheck;

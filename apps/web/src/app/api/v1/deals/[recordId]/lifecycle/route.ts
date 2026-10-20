@@ -16,7 +16,7 @@ export async function GET(
   { params }: { params: Promise<{ recordId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { recordId } = await params;
   const data = await getDealLifecycle(ctx.workspaceId, recordId);

@@ -23,7 +23,7 @@ interface SubscribeBody {
 export async function POST(req: NextRequest) {
   try {
     const ctx = await getAuthContext(req);
-    if (!ctx) return unauthorized();
+    if (!ctx) return unauthorized(req);
 
     const body = (await req.json().catch(() => null)) as SubscribeBody | null;
     const sub = body?.subscription;
@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   try {
     const ctx = await getAuthContext(req);
-    if (!ctx) return unauthorized();
+    if (!ctx) return unauthorized(req);
 
     const url = new URL(req.url);
     const endpoint = url.searchParams.get("endpoint");
@@ -112,7 +112,7 @@ export async function DELETE(req: NextRequest) {
 export async function GET(req: NextRequest) {
   try {
     const ctx = await getAuthContext(req);
-    if (!ctx) return unauthorized();
+    if (!ctx) return unauthorized(req);
 
     const rows = await db
       .select({

@@ -20,6 +20,7 @@ function clientFromExtra(extra: Extra, req?: Request): CrmClient {
   const info = extra.authInfo;
   const bag = (info?.extra ?? {}) as Partial<McpAuthContext> & {
     authorizationHeader?: string | null;
+    readOnly?: boolean;
   };
 
   if (!info?.extra || !bag.userId || !bag.workspaceId) {
@@ -41,6 +42,7 @@ function clientFromExtra(extra: Extra, req?: Request): CrmClient {
     workspaceId: bag.workspaceId,
     workspaceRole: bag.workspaceRole ?? "member",
     baseUrl: bag.baseUrl || resolveBaseUrl(req),
+    readOnly: bag.readOnly === true,
   });
 }
 

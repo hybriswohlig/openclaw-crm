@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 /** GET — list all registered AI tasks with per-workspace config overrides. */
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const definitions = listTaskDefinitions();
 

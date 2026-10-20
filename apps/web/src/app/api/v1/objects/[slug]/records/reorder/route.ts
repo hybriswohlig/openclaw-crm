@@ -8,7 +8,7 @@ export async function POST(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { slug } = await params;
   const obj = await getObjectBySlug(ctx.workspaceId, slug);

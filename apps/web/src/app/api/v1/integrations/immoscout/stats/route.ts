@@ -24,7 +24,7 @@ function emptyStat(): ChannelStat {
  */
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const empty = { email: emptyStat(), api: emptyStat() };
 

@@ -9,7 +9,7 @@ import { berlinDateString } from "@/lib/berlin-date";
 /** GET: the currently running (open) time entry for this employee, if any. */
 export async function GET(req: NextRequest) {
   const ctx = await getEmployeePortalContextFromHeaders(req.headers);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const [open] = await db
     .select()
     .from(employeeTimeEntries)
@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
 /** POST: clock in. Body: { dealRecordId }. Refuses if a session is already open. */
 export async function POST(req: NextRequest) {
   const ctx = await getEmployeePortalContextFromHeaders(req.headers);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const { dealRecordId } = await req.json();
   if (!dealRecordId) return badRequest("dealRecordId required");
 

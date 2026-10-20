@@ -12,7 +12,7 @@ export async function POST(
   { params }: { params: Promise<{ recordId: string; suggestionId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { recordId, suggestionId } = await params;
   const body = (await req.json().catch(() => null)) as { action?: string } | null;

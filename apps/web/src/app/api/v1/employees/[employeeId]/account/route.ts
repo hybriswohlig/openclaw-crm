@@ -14,7 +14,7 @@ export async function POST(
   { params }: { params: Promise<{ employeeId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const { employeeId } = await params;
   const { username } = await req.json();
   if (!username) return badRequest("Username erforderlich.");

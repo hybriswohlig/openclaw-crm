@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { and, desc, eq, gt, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { agentDrafts } from "@/db/schema/agent";
-import { getAuthContext, unauthorized, success, badRequest } from "@/lib/api-utils";
+import { getAuthContext, isReadOnlyApiKey, unauthorized, success, badRequest } from "@/lib/api-utils";
 import { createAgentDraft } from "@/services/agent/agent-drafts";
 
 /**
@@ -12,27 +12,30 @@ import { createAgentDraft } from "@/services/agent/agent-drafts";
  */
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const conversationId = req.nextUrl.searchParams.get("conversationId");
   // Workspace-wide approval queue (Phase-2 review UI): all pending drafts,
   // newest first, with a short text preview per row.
   if (!conversationId && req.nextUrl.searchParams.get("scope") === "pending") {
     // Opportunistic expiry sweep so the queue drains (expiresAt is otherwise
     // enforced only at claim time). Best-effort — a sweep failure must not
-    // break the list.
-    try {
-      await db
-        .update(agentDrafts)
-        .set({ status: "expired", updatedAt: new Date() })
-        .where(
-          and(
-            eq(agentDrafts.workspaceId, ctx.workspaceId),
-            eq(agentDrafts.status, "pending"),
-            lt(agentDrafts.expiresAt, new Date())
-          )
-        );
-    } catch (err) {
-      console.error("[agent-drafts] expiry sweep failed (non-blocking):", err);
+    // break the list. A read-only API key must not write, so it only sees
+    // the current rows (claim-time expiry still applies later).
+    if (!isReadOnlyApiKey(ctx)) {
+      try {
+        await db
+          .update(agentDrafts)
+          .set({ status: "expired", updatedAt: new Date() })
+          .where(
+            and(
+              eq(agentDrafts.workspaceId, ctx.workspaceId),
+              eq(agentDrafts.status, "pending"),
+              lt(agentDrafts.expiresAt, new Date())
+            )
+          );
+      } catch (err) {
+        console.error("[agent-drafts] expiry sweep failed (non-blocking):", err);
+      }
     }
     const rows = await db
       .select({
@@ -135,7 +138,7 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body || typeof body !== "object") return badRequest("Invalid JSON body");

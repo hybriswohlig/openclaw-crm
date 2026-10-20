@@ -4,7 +4,7 @@ import { listMembers, addMemberByEmail } from "@/services/workspace";
 
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const members = await listMembers(ctx.workspaceId);
   return success(members);
@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   if (ctx.workspaceRole !== "admin") {
     return badRequest("Only admins can add members");

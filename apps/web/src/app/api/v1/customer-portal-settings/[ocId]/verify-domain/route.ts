@@ -21,7 +21,7 @@ export async function POST(
   { params }: { params: Promise<{ ocId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const denied = requireAdmin(ctx);
   if (denied) return denied;
 

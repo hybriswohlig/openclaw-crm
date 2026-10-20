@@ -9,7 +9,7 @@ export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   let body: Record<string, unknown>;
   try {

@@ -22,7 +22,7 @@ export async function GET(
 ) {
   try {
     const ctx = await getAuthContext(req);
-    if (!ctx) return unauthorized();
+    if (!ctx) return unauthorized(req);
 
     const { taskId } = await params;
 
@@ -53,7 +53,7 @@ export async function POST(
 ) {
   try {
     const ctx = await getAuthContext(req);
-    if (!ctx) return unauthorized();
+    if (!ctx) return unauthorized(req);
 
     const { taskId } = await params;
 

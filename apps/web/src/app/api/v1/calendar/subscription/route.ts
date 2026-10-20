@@ -14,21 +14,21 @@ function payload(token: string | null, createdAt: Date | null) {
 
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const active = await calendarFeeds.getActive(ctx.workspaceId, ctx.userId);
   return success(payload(active?.token ?? null, active?.createdAt ?? null));
 }
 
 export async function POST(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const row = await calendarFeeds.getOrCreate(ctx.workspaceId, ctx.userId);
   return success(payload(row.token, row.createdAt));
 }
 
 export async function DELETE(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   await calendarFeeds.revokeActive(ctx.workspaceId, ctx.userId);
   return success(payload(null, null));
 }

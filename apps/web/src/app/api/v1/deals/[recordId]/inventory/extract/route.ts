@@ -19,7 +19,7 @@ export async function POST(
   { params }: { params: Promise<{ recordId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const { recordId } = await params;
   const result = await extractDealInventory(ctx.workspaceId, recordId, {

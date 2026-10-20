@@ -9,7 +9,7 @@ import { getEmployeeLiabilities } from "@/services/employees";
  */
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
 
   const data = await getEmployeeLiabilities(ctx.workspaceId);
   return success(data);

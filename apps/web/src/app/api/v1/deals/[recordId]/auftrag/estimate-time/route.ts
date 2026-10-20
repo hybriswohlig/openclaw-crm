@@ -36,7 +36,7 @@ export async function POST(
   { params }: { params: Promise<{ recordId: string }> }
 ) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   const { recordId: dealRecordId } = await params;
 
   const body = (await req.json().catch(() => ({}))) as { depotRecordId?: string };

@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 /** GET /api/v1/work/dashboard — the whole dashboard in ONE call (spec §10). */
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
-  if (!ctx) return unauthorized();
+  if (!ctx) return unauthorized(req);
   try {
     const sprintId = req.nextUrl.searchParams.get("sprintId") || undefined;
     return success(await getWorkDashboard(ctx.workspaceId, ctx.userId, sprintId));
