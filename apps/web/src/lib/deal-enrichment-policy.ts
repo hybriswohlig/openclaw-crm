@@ -10,6 +10,11 @@
 
 import { createHash } from "crypto";
 import { lossReasonProblem } from "@/lib/deal-source";
+import {
+  isLeadKunde,
+  KONTAKTART_LABELS,
+  normalizeKontaktart,
+} from "@/lib/kontaktart";
 import { stufenKategorie, type StufenKategorie } from "@/services/lagekarte/status";
 
 export const ENRICHMENT_FIELDS = [
@@ -18,6 +23,7 @@ export const ENRICHMENT_FIELDS = [
   "loss_reason",
   "loss_reason_note",
   "stage",
+  "kontaktart",
 ] as const;
 
 export type EnrichmentField = (typeof ENRICHMENT_FIELDS)[number];
@@ -28,6 +34,7 @@ export const ENRICHMENT_FIELD_LABELS: Record<EnrichmentField, string> = {
   loss_reason: "Verlustgrund",
   loss_reason_note: "Verlustgrund (Freitext)",
   stage: "Phase",
+  kontaktart: "Kontaktart",
 };
 
 export const DEFAULT_CONFIDENCE_THRESHOLD = 0.85;
@@ -46,6 +53,7 @@ const OPEN_RANK: Record<StufenKategorie, number> = {
   done_unpaid: 4,
   paid: 5,
   lost: 6,
+  kein_lead: 7,
 };
 
 const WON_OR_PAID = new Set<StufenKategorie>(["done_unpaid", "paid"]);
@@ -289,13 +297,24 @@ function considerProposal(
   }
 
   const current = input.currentValues[field] ?? null;
-  if (field !== "stage" && !isEmpty(current)) {
+  if (field === "kontaktart") {
+    if (!isLeadKunde(current)) {
+      return { action: "drop", field, reason: "not_empty", evidenceKey };
+    }
+  } else if (field !== "stage" && !isEmpty(current)) {
     return { action: "drop", field, reason: "not_empty", evidenceKey };
   }
 
   let value = proposal.value.trim();
   let label = value;
-  if (field === "stage") {
+  if (field === "kontaktart") {
+    const slug = normalizeKontaktart(value);
+    if (!slug || isLeadKunde(slug)) {
+      return { action: "drop", field, reason: "not_a_non_lead", evidenceKey };
+    }
+    value = slug;
+    label = KONTAKTART_LABELS[slug];
+  } else if (field === "stage") {
     const stage = resolveStage(value, input.stages);
     if (!stage) return { action: "drop", field, reason: "unknown_option", evidenceKey };
     const stageDrop = stageMoveProblem(stage, current, input.stages, quote, source);
@@ -481,5 +500,26 @@ export function evaluateDealEnrichment(input: DealEnrichmentPolicyInput): Policy
     });
   }
 
-  return { decisions: coupleLoss(preliminary, input) };
+  return { decisions: suppressLossWhenNonLead(coupleLoss(preliminary, input)) };
+}
+
+/** A job application is not a lost customer. Drop Verloren when Kontaktart is a non-lead. */
+function suppressLossWhenNonLead(decisions: FieldDecision[]): FieldDecision[] {
+  const kontaktart = decisions.find((decision) => decision.field === "kontaktart" && decision.action !== "drop");
+  if (!kontaktart || kontaktart.action === "drop" || isLeadKunde(kontaktart.value)) return decisions;
+  return decisions.map((decision) => {
+    if (decision.action === "drop") return decision;
+    if (decision.field === "stage" && /^(verloren|lost)$/i.test(decision.label.trim())) {
+      return { action: "drop", field: "stage", reason: "non_lead_not_a_loss", evidenceKey: decision.evidenceKey };
+    }
+    if (decision.field === "loss_reason" || decision.field === "loss_reason_note") {
+      return {
+        action: "drop",
+        field: decision.field,
+        reason: "non_lead_not_a_loss",
+        evidenceKey: decision.evidenceKey,
+      };
+    }
+    return decision;
+  });
 }

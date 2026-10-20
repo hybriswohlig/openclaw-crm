@@ -151,7 +151,8 @@ export interface ConversationListItem {
   multiCompanyFlag: boolean;
   subject: string | null;
   status: "open" | "resolved" | "spam";
-  lane: "lead" | "info" | "spam" | "review";
+  lane: "lead" | "info" | "spam" | "review" | "kein_lead";
+  kontaktart: string;
   lastMessageAt: Date | null;
   lastMessagePreview: string | null;
   unreadCount: number;
@@ -174,12 +175,12 @@ export async function listConversations(
     channelType?: "email" | "whatsapp";
     status?: "open" | "resolved" | "spam";
     /** Triage lane (KOT-IDENTITY Phase 6). 'all' = no lane filter. */
-    lane?: "lead" | "info" | "spam" | "review" | "all";
+    lane?: "lead" | "info" | "spam" | "review" | "kein_lead" | "all";
     /**
      * Lanes to EXCLUDE. The dedicated /email area passes ['lead'] so the lead
      * pipeline (owned by the main Inbox) never duplicates into the mail client.
      */
-    excludeLanes?: ("lead" | "info" | "spam" | "review")[];
+    excludeLanes?: ("lead" | "info" | "spam" | "review" | "kein_lead")[];
     /**
      * Free-text search over contact name, subject, peer identifier and message
      * bodies. When set, the status/lane filters are IGNORED — the operator is
@@ -221,6 +222,7 @@ export async function listConversations(
       subject: inboxConversations.subject,
       status: inboxConversations.status,
       lane: inboxConversations.lane,
+      kontaktart: inboxConversations.kontaktart,
       externalThreadId: inboxConversations.externalThreadId,
       lastMessageAt: inboxConversations.lastMessageAt,
       lastMessagePreview: inboxConversations.lastMessagePreview,
@@ -594,7 +596,7 @@ export async function updateConversationStatus(
   status: "open" | "resolved" | "spam"
 ) {
   const [current] = await db
-    .select({ lane: inboxConversations.lane })
+    .select({ lane: inboxConversations.lane, kontaktart: inboxConversations.kontaktart })
     .from(inboxConversations)
     .where(
       and(
@@ -618,7 +620,9 @@ export async function updateConversationStatus(
         }
       : status === "open" && current.lane === "spam"
         ? {
-            lane: "lead" as const,
+            lane: (current.kontaktart && current.kontaktart !== "lead_kunde" ? "kein_lead" : "lead") as
+              | "lead"
+              | "kein_lead",
             classifiedBy: "manual" as const,
             classificationReason: "vom Operator wieder geöffnet",
           }

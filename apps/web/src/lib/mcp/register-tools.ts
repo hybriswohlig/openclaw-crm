@@ -114,21 +114,21 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_get_record",
-    "Get a single record by ID. Deal records include source_channel (Quelle / Kanal), source_detail (Anzeige / Detail), source_received_at, first_reply_at, loss_reason (Verlustgrund) and loss_reason_note. Select values come back as option ids.",
+    "Get a single record by ID. Deal records include source_channel (Quelle / Kanal), source_detail (Anzeige / Detail), source_received_at, first_reply_at, loss_reason (Verlustgrund) and loss_reason_note. People include kontaktart (Kontaktart). Select values come back as option ids.",
     { slug: z.string(), recordId: z.string() },
     req
   );
   tool(
     server,
     "crm_create_record",
-    "Create a record. values = map of attribute slug → value. For deals, source_channel is optional for API and bots (the operator form requires it). Titles or option ids: Website-Formular, WhatsApp, Telefon, Google-Profil (GBP), ImmoScout24 / umzugsfirmen-check, Kleinanzeigen, Empfehlung, Sonstiges. loss_reason titles: zu teuer, anderer Anbieter, Selbstumzug, Termin passt nicht, keine Rückmeldung, Umzug abgesagt, Sonstiges. Sonstiges requires loss_reason_note. Moving stage to lost requires loss_reason only when the request sends header X-CRM-Client: ui; bots may omit it.",
+    "Create a record. values = map of attribute slug → value. For deals, source_channel is optional for API and bots (the operator form requires it). Titles or option ids: Website-Formular, WhatsApp, Telefon, Google-Profil (GBP), ImmoScout24 / umzugsfirmen-check, Kleinanzeigen, Empfehlung, Sonstiges. loss_reason titles: zu teuer, anderer Anbieter, Selbstumzug, Termin passt nicht, keine Rückmeldung, Umzug abgesagt, Sonstiges. Sonstiges requires loss_reason_note. Moving stage to lost requires loss_reason only when the request sends header X-CRM-Client: ui; bots may omit it. People kontaktart accepts lead_kunde, bewerber, team_helfer, partner_vermittler, privat, spam_werbung or the German labels (Lead/Kunde, Bewerber, Team/Helfer, Partner/Vermittler, Privat, Spam/Werbung). A non-lead value moves that person's conversations to lane kein_lead and their open or lost deals to stage Kein Lead.",
     { slug: z.string(), values: z.record(z.unknown()) },
     req
   );
   tool(
     server,
     "crm_update_record",
-    "Update record attribute values. Deal source_channel and loss_reason accept an option title or id. Sonstiges requires loss_reason_note. A stage change to lost returns LOSS_REASON_REQUIRED only when header X-CRM-Client: ui is set and loss_reason is missing; API and bots may omit the reason. first_reply_at is stamped by the first outbound message and should not be backfilled.",
+    "Update record attribute values. Deal source_channel and loss_reason accept an option title or id. Sonstiges requires loss_reason_note. A stage change to lost returns LOSS_REASON_REQUIRED only when header X-CRM-Client: ui is set and loss_reason is missing; API and bots may omit the reason. first_reply_at is stamped by the first outbound message and should not be backfilled. People kontaktart accepts lead_kunde, bewerber, team_helfer, partner_vermittler, privat, spam_werbung (or the German label Lead/Kunde, Bewerber, Team/Helfer, Partner/Vermittler, Privat, Spam/Werbung, or the option id). A non-lead value moves that person's conversations to lane kein_lead and their open or lost deals to stage Kein Lead.",
     {
       slug: z.string(),
       recordId: z.string(),
@@ -310,10 +310,10 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_list_conversations",
-    "List inbox conversations (default status=open, lane=lead).",
+    "List inbox conversations (default status=open, lane=lead). Each row includes kontaktart (lead_kunde, bewerber, team_helfer, partner_vermittler, privat, spam_werbung). lane=kein_lead is the non-lead inbox.",
     {
       status: z.enum(["open", "resolved", "spam"]).optional(),
-      lane: z.enum(["lead", "info", "spam", "review", "all"]).optional(),
+      lane: z.enum(["lead", "info", "spam", "review", "kein_lead", "all"]).optional(),
       channelType: z.enum(["email", "whatsapp"]).optional(),
       channelAccountId: z.string().optional(),
       operatingCompanyRecordId: z.string().optional(),
@@ -340,10 +340,14 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_update_conversation_status",
-    "Set conversation status.",
+    "Set conversation status, Kontaktart, and/or lane. status stays optional when kontaktart or lane is sent. kontaktart: lead_kunde | bewerber | team_helfer | partner_vermittler | privat | spam_werbung (German labels work too). A non-lead Kontaktart sets lane to kein_lead and the linked deal stage to Kein Lead. lane: lead | info | spam | review | kein_lead.",
     {
       conversationId: z.string(),
-      status: z.enum(["open", "resolved", "spam"]),
+      status: z.enum(["open", "resolved", "spam"]).optional(),
+      kontaktart: z
+        .enum(["lead_kunde", "bewerber", "team_helfer", "partner_vermittler", "privat", "spam_werbung"])
+        .optional(),
+      lane: z.enum(["lead", "info", "spam", "review", "kein_lead"]).optional(),
     },
     req
   );
@@ -681,10 +685,34 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
     req
   );
 
-  tool(server, "crm_stats_overview", "CRM statistics overview.", empty, req);
-  tool(server, "crm_stats_pipeline", "Pipeline statistics.", empty, req);
-  tool(server, "crm_stats_operations", "Operations statistics.", empty, req);
-  tool(server, "crm_stats_team", "Team statistics.", empty, req);
+  tool(
+    server,
+    "crm_stats_overview",
+    "CRM statistics overview. Lead counts, win rate and moves include only Kontaktart lead_kunde. nonLeadsByMonth counts the other Kontaktarten per month. Revenue is unchanged.",
+    empty,
+    req
+  );
+  tool(
+    server,
+    "crm_stats_pipeline",
+    "Pipeline statistics for lead_kunde deals. Stage Kein Lead is omitted and does not count as lost.",
+    empty,
+    req
+  );
+  tool(
+    server,
+    "crm_stats_operations",
+    "Operations statistics. Move counts exclude deals whose Kontaktart is not lead_kunde and deals in stage Kein Lead.",
+    empty,
+    req
+  );
+  tool(
+    server,
+    "crm_stats_team",
+    "Team statistics. Deal and new-lead counts per owner include only lead_kunde.",
+    empty,
+    req
+  );
   tool(server, "crm_operations_board", "Operations board data.", empty, req);
   tool(
     server,

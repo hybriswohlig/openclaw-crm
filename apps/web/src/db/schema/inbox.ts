@@ -49,6 +49,8 @@ export const conversationLaneEnum = pgEnum("conversation_lane", [
   "info",
   "spam",
   "review",
+  // Not a customer request. Set with Kontaktart, kept out of the lead inbox.
+  "kein_lead",
 ]);
 
 // Which of the 4 triage layers assigned the lane.
@@ -260,6 +262,9 @@ export const inboxConversations = pgTable(
     aiPaused: boolean("ai_paused").notNull().default(false),
     // ── Inbound triage (classifyInbound, KOT-IDENTITY) ────────────────────────
     lane: conversationLaneEnum("lane").notNull().default("lead"),
+    // lead_kunde | bewerber | team_helfer | partner_vermittler | privat | spam_werbung.
+    // Default lead_kunde so existing threads stay in the lead KPIs.
+    kontaktart: text("kontaktart").notNull().default("lead_kunde"),
     classificationReason: text("classification_reason"),
     classifiedBy: conversationClassifiedByEnum("classified_by"),
     // ── D1 outbound side-effect hold ──────────────────────────────────────────
@@ -285,6 +290,7 @@ export const inboxConversations = pgTable(
     index("inbox_conv_last_msg_idx").on(table.lastMessageAt),
     index("inbox_conv_deal_idx").on(table.dealRecordId),
     index("inbox_conv_lane_idx").on(table.workspaceId, table.lane),
+    index("inbox_conv_kontaktart_idx").on(table.workspaceId, table.kontaktart),
     index("inbox_conv_ai_hold_idx").on(table.aiHoldUntil),
     uniqueIndex("inbox_conv_channel_thread_idx").on(
       table.channelAccountId,

@@ -288,6 +288,20 @@
       "when": 1792540800000,
       "tag": "0050_nachfass_bot",
       "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1792627200000,
+      "tag": "0051_conversation_lane_kein_lead",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1792713600000,
+      "tag": "0052_kontaktart",
+      "breakpoints": true
     }
   ]
 }

@@ -37,7 +37,7 @@ interface EmailConversation {
   contactEmail: string | null;
   subject: string | null;
   status: "open" | "resolved" | "spam";
-  lane: "lead" | "info" | "spam" | "review";
+  lane: "lead" | "info" | "spam" | "review" | "kein_lead";
   lastMessageAt: string | null;
   lastMessagePreview: string | null;
   unreadCount: number;

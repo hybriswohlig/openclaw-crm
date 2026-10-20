@@ -99,8 +99,11 @@ export function isLostOrCancelledStage(stage: {
   title: string;
   stageCategory?: string | null;
 }): boolean {
-  if ((stage.stageCategory ?? "").toLowerCase() === "lost") return true;
-  return CLOSED_STAGE.test(stage.title.trim().toLowerCase());
+  const category = (stage.stageCategory ?? "").toLowerCase();
+  if (category === "lost" || category === "kein_lead") return true;
+  const title = stage.title.trim().toLowerCase();
+  if (title === "kein lead") return true;
+  return CLOSED_STAGE.test(title);
 }
 
 export function classifyDealDateAttribute(

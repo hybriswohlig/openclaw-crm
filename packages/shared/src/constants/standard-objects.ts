@@ -59,6 +59,23 @@ export const STANDARD_OBJECTS: StandardObject[] = [
         ],
       },
       { slug: "description", title: "Description", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      {
+        slug: "kontaktart",
+        title: "Kontaktart",
+        type: "select",
+        isSystem: true,
+        isRequired: false,
+        isUnique: false,
+        isMultiselect: false,
+        selectOptions: [
+          { title: "Lead/Kunde", color: "#16a34a" },
+          { title: "Bewerber", color: "#2563eb" },
+          { title: "Team/Helfer", color: "#0ea5e9" },
+          { title: "Partner/Vermittler", color: "#7c3aed" },
+          { title: "Privat", color: "#d97706" },
+          { title: "Spam/Werbung", color: "#64748b" },
+        ],
+      },
       // KOT-IDENTITY: set automatically when the same person has Vorgaenge with more
       // than one operating company. Recomputed on every merge/split. Source of truth
       // for multi-company is this person attribute; inbox_contacts.multi_company_flag

@@ -7,13 +7,15 @@
  */
 
 import { db } from "@/db";
-import { and, eq, gte, lt, inArray, sum, sql } from "drizzle-orm";
+import { and, eq, gte, lt, inArray, notInArray, sum, sql } from "drizzle-orm";
 import { objects, attributes, statuses, selectOptions } from "@/db/schema/objects";
 import { records, recordValues } from "@/db/schema/records";
 import { payments, expenses } from "@/db/schema/financial";
 import { employeeLedger } from "@/db/schema/employee-ledger";
 import { tasks } from "@/db/schema/tasks";
 import { inboxConversations, channelAccounts, inboxContacts } from "@/db/schema/inbox";
+import { bucketNonLeadsByMonth, isLeadKunde, type NonLeadMonthBucket } from "@/lib/kontaktart";
+import { loadNonLeadDealIds } from "@/services/kontaktart";
 
 // ─── Period helpers ──────────────────────────────────────────────────────────
 
@@ -47,6 +49,21 @@ function startOfIsoWeek(d: Date): Date {
   return date;
 }
 
+/** Empty sets must not become `NOT IN ()`. Undefined is dropped by drizzle `and()`. */
+function omitNonLeadDeals(nonLeadIds: Set<string>) {
+  return nonLeadIds.size > 0 ? notInArray(records.id, [...nonLeadIds]) : undefined;
+}
+
+function omitNonLeadValueRows(nonLeadIds: Set<string>) {
+  return nonLeadIds.size > 0 ? notInArray(recordValues.recordId, [...nonLeadIds]) : undefined;
+}
+
+function isKeinLeadStageInfo(stage: { title: string; category: string | null } | undefined): boolean {
+  if (!stage) return false;
+  if (stage.category === "kein_lead") return true;
+  return stage.title.trim().toLowerCase() === "kein lead";
+}
+
 function isoWeekKey(d: Date): string {
   // YYYY-Www
   const week = startOfIsoWeek(d);
@@ -60,10 +77,18 @@ function isoWeekKey(d: Date): string {
 
 // ─── Metadata loader: deals + auftraege attributes & lookups ────────────────
 
+interface StageInfo {
+  title: string;
+  color: string;
+  sortOrder: number;
+  isActive: boolean;
+  category: string | null;
+}
+
 interface DealMeta {
   dealObjectId: string | null;
   attrBySlug: Map<string, { id: string; type: string }>;
-  stageById: Map<string, { title: string; color: string; sortOrder: number; isActive: boolean }>;
+  stageById: Map<string, StageInfo>;
   stageByLowerTitle: Map<string, string>; // title → id
 }
 
@@ -90,12 +115,21 @@ async function loadDealMeta(workspaceId: string): Promise<DealMeta> {
   const attrBySlug = new Map(attrs.map((a) => [a.slug, { id: a.id, type: a.type as string }]));
 
   const stageAttr = attrBySlug.get("stage");
-  let stageById = new Map<string, { title: string; color: string; sortOrder: number; isActive: boolean }>();
+  let stageById = new Map<string, StageInfo>();
   const stageByLowerTitle = new Map<string, string>();
   if (stageAttr) {
     const rows = await db.select().from(statuses).where(eq(statuses.attributeId, stageAttr.id));
     stageById = new Map(
-      rows.map((s) => [s.id, { title: s.title, color: s.color, sortOrder: s.sortOrder, isActive: s.isActive }])
+      rows.map((s) => [
+        s.id,
+        {
+          title: s.title,
+          color: s.color,
+          sortOrder: s.sortOrder,
+          isActive: s.isActive,
+          category: s.stageCategory,
+        },
+      ])
     );
     for (const s of rows) stageByLowerTitle.set(s.title.toLowerCase(), s.id);
   }
@@ -166,10 +200,13 @@ export interface OverviewStats {
   movesThisWeek: number;
   revenueSeries8w: number[];
   newLeadsSeries8w: number[];
+  /** Non-lead conversations in the last six months, per Kontaktart. */
+  nonLeadsByMonth: NonLeadMonthBucket[];
 }
 
 export async function getOverviewStats(workspaceId: string): Promise<OverviewStats> {
   const now = new Date();
+  const nonLeadIds = await loadNonLeadDealIds(workspaceId);
   const year = now.getUTCFullYear();
   const monthStart = startOfMonthUtc(year, now.getUTCMonth());
   const yearStart = startOfMonthUtc(year, 0);
@@ -228,7 +265,13 @@ export async function getOverviewStats(workspaceId: string): Promise<OverviewSta
     const [{ cnt }] = await db
       .select({ cnt: sql<number>`count(*)::int` })
       .from(records)
-      .where(and(eq(records.objectId, meta.dealObjectId), gte(records.createdAt, thirtyAgo)));
+      .where(
+        and(
+          eq(records.objectId, meta.dealObjectId),
+          gte(records.createdAt, thirtyAgo),
+          omitNonLeadDeals(nonLeadIds)
+        )
+      );
     newLeads30d = Number(cnt ?? 0);
 
     // 8-week new-leads series
@@ -238,7 +281,13 @@ export async function getOverviewStats(workspaceId: string): Promise<OverviewSta
         cnt: sql<number>`count(*)::int`,
       })
       .from(records)
-      .where(and(eq(records.objectId, meta.dealObjectId), gte(records.createdAt, eightWeeksAgo)))
+      .where(
+        and(
+          eq(records.objectId, meta.dealObjectId),
+          gte(records.createdAt, eightWeeksAgo),
+          omitNonLeadDeals(nonLeadIds)
+        )
+      )
       .groupBy(sql`date_trunc('week', ${records.createdAt})`);
     newLeadsSeries8w = bucketBy8Weeks(
       eightWeekLeadRows.map((r) => ({ week: r.week, value: Number(r.cnt ?? 0) })),
@@ -270,6 +319,7 @@ export async function getOverviewStats(workspaceId: string): Promise<OverviewSta
       let paid = 0;
       let lost = 0;
       for (const r of rows) {
+        if (nonLeadIds.has(r.recordId)) continue;
         if (r.stageId === paidStageId) paid++;
         else if (r.stageId === lostStageId) lost++;
       }
@@ -312,12 +362,26 @@ export async function getOverviewStats(workspaceId: string): Promise<OverviewSta
           and(
             eq(recordValues.attributeId, moveDateAttr.id),
             gte(recordValues.dateValue, isoDate(wkStart)),
-            lt(recordValues.dateValue, isoDate(wkEnd))
+            lt(recordValues.dateValue, isoDate(wkEnd)),
+            omitNonLeadValueRows(nonLeadIds)
           )
         );
       movesThisWeek = Number(weekCnt ?? 0);
     }
   }
+
+  const sixMonthsAgoConv = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 5, 1));
+  const nonLeadConvRows = await db
+    .select({ kontaktart: inboxConversations.kontaktart, at: inboxConversations.createdAt })
+    .from(inboxConversations)
+    .where(
+      and(
+        eq(inboxConversations.workspaceId, workspaceId),
+        sql`${inboxConversations.kontaktart} <> 'lead_kunde'`,
+        gte(inboxConversations.createdAt, sixMonthsAgoConv)
+      )
+    );
+  const nonLeadsByMonth = bucketNonLeadsByMonth(nonLeadConvRows, now);
 
   return {
     revenueYtd,
@@ -329,6 +393,7 @@ export async function getOverviewStats(workspaceId: string): Promise<OverviewSta
     movesThisWeek,
     revenueSeries8w,
     newLeadsSeries8w,
+    nonLeadsByMonth,
   };
 }
 
@@ -383,10 +448,13 @@ export async function getPipelineStats(workspaceId: string): Promise<PipelineSta
     return { stages: [], staleDeals: [], avgTimeToCloseDays: null, avgQuoteValueOpen: null, avgQuoteValueWon: null, bySource: [] };
   }
 
-  const allDeals = await db
-    .select({ id: records.id, createdAt: records.createdAt, updatedAt: records.updatedAt })
-    .from(records)
-    .where(eq(records.objectId, meta.dealObjectId));
+  const nonLeadIds = await loadNonLeadDealIds(workspaceId);
+  const allDeals = (
+    await db
+      .select({ id: records.id, createdAt: records.createdAt, updatedAt: records.updatedAt })
+      .from(records)
+      .where(eq(records.objectId, meta.dealObjectId))
+  ).filter((deal) => !nonLeadIds.has(deal.id));
   const dealIds = allDeals.map((d) => d.id);
 
   const stageAttr = meta.attrBySlug.get("stage");
@@ -400,6 +468,7 @@ export async function getPipelineStats(workspaceId: string): Promise<PipelineSta
   // Build stage buckets
   const buckets = new Map<string, PipelineStageBucket>();
   for (const [stageId, s] of meta.stageById.entries()) {
+    if (isKeinLeadStageInfo(s)) continue;
     buckets.set(stageId, {
       stageId,
       title: s.title,
@@ -425,7 +494,11 @@ export async function getPipelineStats(workspaceId: string): Promise<PipelineSta
   // Stale deals: not updated in 14 days, still in an active stage
   const staleThreshold = new Date();
   staleThreshold.setUTCDate(staleThreshold.getUTCDate() - 14);
-  const activeStageIds = new Set([...meta.stageById.entries()].filter(([_, s]) => s.isActive).map(([id]) => id));
+  const activeStageIds = new Set(
+    [...meta.stageById.entries()]
+      .filter(([_, s]) => s.isActive && !isKeinLeadStageInfo(s))
+      .map(([id]) => id)
+  );
 
   const staleDeals: StaleDeal[] = [];
   for (const d of allDeals) {
@@ -461,8 +534,9 @@ export async function getPipelineStats(workspaceId: string): Promise<PipelineSta
           gte(records.updatedAt, ninetyAgo)
         )
       );
-    if (paidDealRows.length > 0) {
-      const paidDealIds = paidDealRows.map((r) => r.recordId);
+    const leadPaidRows = paidDealRows.filter((row) => !nonLeadIds.has(row.recordId));
+    if (leadPaidRows.length > 0) {
+      const paidDealIds = leadPaidRows.map((r) => r.recordId);
       const firstPayments = await db
         .select({
           dealId: payments.dealRecordId,
@@ -473,7 +547,7 @@ export async function getPipelineStats(workspaceId: string): Promise<PipelineSta
         .groupBy(payments.dealRecordId);
       const firstByDeal = new Map(firstPayments.map((r) => [r.dealId, r.first]));
       const diffs: number[] = [];
-      for (const d of paidDealRows) {
+      for (const d of leadPaidRows) {
         const fp = firstByDeal.get(d.recordId);
         if (!fp) continue;
         const diff = (new Date(fp).getTime() - d.createdAt.getTime()) / 86400000;
@@ -487,7 +561,9 @@ export async function getPipelineStats(workspaceId: string): Promise<PipelineSta
 
   // Avg quote value open (active stages) vs. won (Paid)
   const activeIds = new Set<string>();
-  for (const [id, s] of meta.stageById.entries()) if (s.isActive) activeIds.add(id);
+  for (const [id, s] of meta.stageById.entries()) {
+    if (s.isActive && !isKeinLeadStageInfo(s)) activeIds.add(id);
+  }
 
   let openSum = 0;
   let openCnt = 0;
@@ -565,6 +641,7 @@ export async function getOperationsStats(workspaceId: string): Promise<Operation
   const utilizationByWeek: { weekStart: string; count: number }[] = [];
 
   if (meta.dealObjectId) {
+    const nonLeadIds = await loadNonLeadDealIds(workspaceId);
     const stageAttr = meta.attrBySlug.get("stage");
     const moveDateAttr = meta.attrBySlug.get("move_date");
     const doneStageId = meta.stageByLowerTitle.get("done") ?? meta.stageByLowerTitle.get("durchgeführt");
@@ -579,7 +656,7 @@ export async function getOperationsStats(workspaceId: string): Promise<Operation
         .select({ recordId: recordValues.recordId })
         .from(recordValues)
         .where(and(eq(recordValues.attributeId, stageAttr.id), inArray(recordValues.textValue, completedStageIds)));
-      const completedIds = completedDealRows.map((r) => r.recordId);
+      const completedIds = completedDealRows.map((r) => r.recordId).filter((id) => !nonLeadIds.has(id));
 
       if (completedIds.length > 0) {
         const monthRows = await db
@@ -621,7 +698,8 @@ export async function getOperationsStats(workspaceId: string): Promise<Operation
           and(
             eq(recordValues.attributeId, moveDateAttr.id),
             gte(recordValues.dateValue, isoDate(today)),
-            lt(recordValues.dateValue, isoDate(in14))
+            lt(recordValues.dateValue, isoDate(in14)),
+            omitNonLeadValueRows(nonLeadIds)
           )
         )
         .groupBy(recordValues.dateValue)
@@ -642,7 +720,8 @@ export async function getOperationsStats(workspaceId: string): Promise<Operation
           and(
             eq(recordValues.attributeId, moveDateAttr.id),
             gte(recordValues.dateValue, isoDate(wkStart)),
-            lt(recordValues.dateValue, isoDate(eightWeeks))
+            lt(recordValues.dateValue, isoDate(eightWeeks)),
+            omitNonLeadValueRows(nonLeadIds)
           )
         )
         .groupBy(sql`date_trunc('week', ${recordValues.dateValue}::date)`);
@@ -798,6 +877,7 @@ export async function getTeamStats(workspaceId: string): Promise<TeamStats> {
   const newLeadsByOwner30d: { ownerId: string; count: number }[] = [];
 
   const ownerAttr = meta.attrBySlug.get("owner");
+  const nonLeadIds = await loadNonLeadDealIds(workspaceId);
   if (meta.dealObjectId && ownerAttr) {
     const allRows = await db
       .select({ ownerId: recordValues.actorId, cnt: sql<number>`count(*)::int` })
@@ -807,7 +887,8 @@ export async function getTeamStats(workspaceId: string): Promise<TeamStats> {
         and(
           eq(recordValues.attributeId, ownerAttr.id),
           eq(records.objectId, meta.dealObjectId),
-          sql`${recordValues.actorId} IS NOT NULL`
+          sql`${recordValues.actorId} IS NOT NULL`,
+          omitNonLeadDeals(nonLeadIds)
         )
       )
       .groupBy(recordValues.actorId);
@@ -826,7 +907,8 @@ export async function getTeamStats(workspaceId: string): Promise<TeamStats> {
           eq(recordValues.attributeId, ownerAttr.id),
           eq(records.objectId, meta.dealObjectId),
           gte(records.createdAt, thirtyAgo),
-          sql`${recordValues.actorId} IS NOT NULL`
+          sql`${recordValues.actorId} IS NOT NULL`,
+          omitNonLeadDeals(nonLeadIds)
         )
       )
       .groupBy(recordValues.actorId);
@@ -957,6 +1039,7 @@ export async function getCompanyComparison(
 
   const meta = await loadDealMeta(workspaceId);
   if (!meta.dealObjectId) return [];
+  const nonLeadIds = await loadNonLeadDealIds(workspaceId);
 
   const ocAttr = meta.attrBySlug.get("operating_company");
   const stageAttr = meta.attrBySlug.get("stage");
@@ -1135,6 +1218,7 @@ export async function getCompanyComparison(
     }
 
     for (const d of decisionRows) {
+      if (nonLeadIds.has(d.dealId)) continue;
       const oc = dealToOc.get(d.dealId);
       if (!oc) continue;
       const r = bump(oc);
@@ -1157,7 +1241,7 @@ export async function getCompanyComparison(
       .where(
         and(eq(recordValues.attributeId, stageAttr.id), inArray(recordValues.textValue, completedStageIds))
       );
-    const completedIds = completedDealRows.map((r) => r.recordId);
+    const completedIds = completedDealRows.map((r) => r.recordId).filter((id) => !nonLeadIds.has(id));
 
     if (completedIds.length > 0) {
       const moveDateRows = await db
@@ -1207,6 +1291,7 @@ export async function getCompanyComparison(
       channelType: channelAccounts.channelType,
       contactEmail: inboxContacts.email,
       createdAt: inboxConversations.createdAt,
+      kontaktart: inboxConversations.kontaktart,
     })
     .from(inboxConversations)
     .innerJoin(channelAccounts, eq(channelAccounts.id, inboxConversations.channelAccountId))
@@ -1226,6 +1311,7 @@ export async function getCompanyComparison(
 
   for (const c of convoRows) {
     if (!c.ocId) continue;
+    if (!isLeadKunde(c.kontaktart)) continue;
     const key = `${c.ocId}|${c.contactId}|${c.channelType}`;
     const createdIso = c.createdAt instanceof Date ? c.createdAt.toISOString().slice(0, 10) : null;
     const source = classifyLeadSource(c.channelType, c.contactEmail, c.subject);

@@ -336,4 +336,89 @@ describe("deal enrichment policy", () => {
       value: "Sofa | Stuttgart | Kottke",
     });
   });
+
+  it("writes Kontaktart bewerber when the quote is in the application and confidence is high", () => {
+    const text = "Guten Tag, anbei meine Bewerbung als Möbelpacker mit Lebenslauf.";
+    const result = run({
+      sources: [{ id: "m1", kind: "message", text, direction: "inbound" }],
+      proposals: [
+        proposal({
+          field: "kontaktart",
+          value: "bewerber",
+          evidenceQuote: "Bewerbung",
+          confidence: 0.93,
+          reason: "Der Text ist eine Bewerbung.",
+        }),
+      ],
+    });
+    expect(result.decisions.find((decision) => decision.field === "kontaktart")).toMatchObject({
+      action: "auto_write",
+      value: "bewerber",
+      label: "Bewerber",
+    });
+  });
+
+  it("suggests Kontaktart below the threshold and drops it when the switch is off", () => {
+    const text = "Guten Tag, anbei meine Bewerbung als Möbelpacker.";
+    const application = proposal({
+      field: "kontaktart",
+      value: "Bewerber",
+      evidenceQuote: "Bewerbung",
+      confidence: 0.6,
+      reason: "Klingt nach Bewerbung.",
+    });
+    expect(
+      run({
+        sources: [{ id: "m1", kind: "message", text, direction: "inbound" }],
+        proposals: [application],
+      }).decisions[0]
+    ).toMatchObject({ action: "suggest", value: "bewerber" });
+    expect(
+      run({
+        suggestionsEnabled: false,
+        autoWriteEnabled: false,
+        sources: [{ id: "m1", kind: "message", text, direction: "inbound" }],
+        proposals: [application],
+      }).skipped?.reason
+    ).toBe("kill_switch");
+  });
+
+  it("does not overwrite a Kontaktart that was already set, and does not mark a Bewerber as lost", () => {
+    const text = "Guten Tag, anbei meine Bewerbung als Möbelpacker.";
+    const kept = run({
+      currentValues: { kontaktart: "team_helfer" },
+      sources: [{ id: "m1", kind: "message", text, direction: "inbound" }],
+      proposals: [proposal({ field: "kontaktart", value: "bewerber", evidenceQuote: "Bewerbung" })],
+    });
+    expect(kept.decisions[0]).toMatchObject({ action: "drop", reason: "not_empty" });
+
+    const bothText = "Guten Tag, anbei meine Bewerbung. Wir haben schon jemanden gefunden.";
+    const both = run({
+      currentValues: { stage: "new" },
+      sources: [{ id: "m1", kind: "message", text: bothText, direction: "inbound" }],
+      proposals: [
+        proposal({ field: "kontaktart", value: "bewerber", evidenceQuote: "Bewerbung", confidence: 0.95 }),
+        proposal({
+          field: "stage",
+          value: "Verloren",
+          evidenceQuote: "Wir haben schon jemanden gefunden",
+          confidence: 0.95,
+        }),
+        proposal({
+          field: "loss_reason",
+          value: "anderer Anbieter",
+          evidenceQuote: "Wir haben schon jemanden gefunden",
+          confidence: 0.95,
+        }),
+      ],
+    });
+    expect(both.decisions.find((decision) => decision.field === "kontaktart")).toMatchObject({
+      action: "auto_write",
+      value: "bewerber",
+    });
+    expect(both.decisions.find((decision) => decision.field === "stage")).toMatchObject({
+      action: "drop",
+      reason: "non_lead_not_a_loss",
+    });
+  });
 });

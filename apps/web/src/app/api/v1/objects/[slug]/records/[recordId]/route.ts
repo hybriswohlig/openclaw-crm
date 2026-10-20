@@ -8,6 +8,8 @@ import { eq, sql } from "drizzle-orm";
 import { dealReferenz, kalkulationAnstossen } from "@/services/rechner/ausloeser";
 import { lossReasonUpdateProblem, resolveDealSelectInputs } from "@/services/deal-attribution";
 import { CRM_UI_CLIENT_HEADER, CRM_UI_CLIENT_VALUE } from "@/lib/deal-source";
+import { DEFAULT_KONTAKTART, KONTAKTART_SLUG } from "@/lib/kontaktart";
+import { applyKontaktart, kontaktartFromPeopleInput, resolvePeopleKontaktartInput } from "@/services/kontaktart";
 
 /**
  * Deals with financial bookings must not be deleted: payments/expenses would
@@ -80,8 +82,27 @@ export async function PATCH(
     }
   }
 
+  const kontaktartRaw = slug === "people" ? values[KONTAKTART_SLUG] : undefined;
+  if (slug === "people" && typeof kontaktartRaw === "string") {
+    values = await resolvePeopleKontaktartInput(obj.id, values);
+  }
+
   const record = await updateRecord(obj.id, recordId, values, ctx.userId);
   if (!record) return notFound("Record not found");
+
+  if (slug === "people" && Object.prototype.hasOwnProperty.call(body.values ?? {}, KONTAKTART_SLUG)) {
+    const slugValue = await kontaktartFromPeopleInput(obj.id, kontaktartRaw);
+    const cleared = kontaktartRaw == null || kontaktartRaw === "";
+    if (slugValue || cleared) {
+      await applyKontaktart({
+        workspaceId: ctx.workspaceId,
+        kontaktart: slugValue ?? DEFAULT_KONTAKTART,
+        personRecordId: recordId,
+        actorId: ctx.userId,
+        personAlreadyWritten: true,
+      });
+    }
+  }
 
   // Lead bearbeitet (Adresse, Etage, Wohnfläche …) → Kalkulation aktualisieren.
   if (slug === "deals") kalkulationAnstossen(ctx.workspaceId, recordId);

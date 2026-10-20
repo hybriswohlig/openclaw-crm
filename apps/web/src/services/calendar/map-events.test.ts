@@ -207,6 +207,7 @@ describe("company filter and closed stages", () => {
     expect(isLostOrCancelledStage({ title: "abgesagt" })).toBe(true);
     expect(isLostOrCancelledStage({ title: "Done", stageCategory: "paid" })).toBe(false);
     expect(isLostOrCancelledStage({ title: "Bezahlt", stageCategory: "lost" })).toBe(true);
+    expect(isLostOrCancelledStage({ title: "Kein Lead", stageCategory: "kein_lead" })).toBe(true);
 
     const hidden = filterCalendarEvents(events, { ...range, companyIds: [] });
     expect(hidden.map((event) => event.dealId)).not.toContain("c");

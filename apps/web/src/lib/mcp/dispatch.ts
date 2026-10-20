@@ -438,11 +438,23 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
         `/api/v1/inbox/conversations/${encodeURIComponent(str(args.conversationId))}/messages`,
         { query: { limit: num(args.limit) } }
       );
-    case "crm_update_conversation_status":
-      return client.request(
-        `/api/v1/inbox/conversations/${encodeURIComponent(str(args.conversationId))}/status`,
-        { method: "PATCH", body: { status: args.status } }
-      );
+    case "crm_update_conversation_status": {
+      const conversationId = encodeURIComponent(str(args.conversationId));
+      if (args.kontaktart != null || args.lane != null) {
+        return client.request(`/api/v1/inbox/conversations/${conversationId}`, {
+          method: "PATCH",
+          body: {
+            status: args.status,
+            kontaktart: args.kontaktart,
+            lane: args.lane,
+          },
+        });
+      }
+      return client.request(`/api/v1/inbox/conversations/${conversationId}/status`, {
+        method: "PATCH",
+        body: { status: args.status },
+      });
+    }
     case "crm_link_conversation_deal":
       return client.request(
         `/api/v1/inbox/conversations/${encodeURIComponent(str(args.conversationId))}/link-deal`,
