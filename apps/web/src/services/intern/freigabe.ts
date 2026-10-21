@@ -167,9 +167,11 @@ function ergebnisText(code: string, deal: string | null, name: string, r: Freiga
             ? "Text enthält einen Preis oder eine Zusage, bitte im CRM senden"
             : r.fehler === "session_expired"
               ? "WhatsApp-Fenster abgelaufen"
-              : r.fehler === "send_uncertain"
-                ? "Zustellung unklar, bitte den Chat prüfen und NICHT erneut senden"
-                : "Versand fehlgeschlagen, später nochmal ok";
+              : r.fehler === "invalid_recipient"
+                ? (r.detail || "Keine gültige Kunden-E-Mail, Versand abgebrochen")
+                : r.fehler === "send_uncertain"
+                  ? "Zustellung unklar, bitte den Chat prüfen und NICHT erneut senden"
+                  : "Versand fehlgeschlagen, später nochmal ok";
   return `⚠️ #${code} nicht gesendet (${wer}): ${grund}.`;
 }
 

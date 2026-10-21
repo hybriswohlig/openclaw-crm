@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthContext, isReadOnlyApiKey, unauthorized, success } from "@/lib/api-utils";
+import { getAuthContext, isReadOnlyApiKey, unauthorized, success, badRequest } from "@/lib/api-utils";
 import { db } from "@/db";
 import { channelAccounts, inboxConversations } from "@/db/schema/inbox";
 import { and, eq } from "drizzle-orm";
 import { getMessages, markConversationRead } from "@/services/inbox";
-import { sendEmailReply } from "@/services/inbox-email";
+import { sendEmailReply, EmailUserError } from "@/services/inbox-email";
 import {
   sendWhatsAppReply,
   sendBaileysReply,
@@ -208,6 +208,7 @@ export async function POST(
 
     return success(msg);
   } catch (err) {
+    if (err instanceof EmailUserError) return badRequest(err.message);
     if (err instanceof WhatsAppSessionExpiredError) {
       return NextResponse.json(
         { error: { code: "WA_SESSION_EXPIRED", message: err.message } },

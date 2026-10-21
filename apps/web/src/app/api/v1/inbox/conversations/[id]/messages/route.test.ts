@@ -1,17 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
-const mocks = vi.hoisted(() => ({
-  getAuthContext: vi.fn(),
-  limit: vi.fn(),
-  sendBaileysReply: vi.fn(),
-  sendWhatsAppReply: vi.fn(),
-  sendEmailReply: vi.fn(),
-  documents: vi.fn(),
-  setHumanOwned: vi.fn(),
-  supersede: vi.fn(),
-  updates: [] as Record<string, unknown>[],
-}));
+const mocks = vi.hoisted(() => {
+  class EmailUserError extends Error {
+    constructor(message: string) {
+      super(message);
+      this.name = "EmailUserError";
+    }
+  }
+  return {
+    getAuthContext: vi.fn(),
+    limit: vi.fn(),
+    sendBaileysReply: vi.fn(),
+    sendWhatsAppReply: vi.fn(),
+    sendEmailReply: vi.fn(),
+    documents: vi.fn(),
+    setHumanOwned: vi.fn(),
+    supersede: vi.fn(),
+    updates: [] as Record<string, unknown>[],
+    EmailUserError,
+  };
+});
 
 vi.mock("@/lib/api-utils", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api-utils")>();
@@ -43,6 +52,7 @@ vi.mock("@/services/inbox", () => ({
 
 vi.mock("@/services/inbox-email", () => ({
   sendEmailReply: (...args: unknown[]) => mocks.sendEmailReply(...args),
+  EmailUserError: mocks.EmailUserError,
 }));
 
 vi.mock("@/services/inbox-whatsapp", () => {
@@ -177,5 +187,28 @@ describe("POST conversation message", () => {
     });
     expect(mocks.sendBaileysReply).not.toHaveBeenCalled();
     expect(mocks.setHumanOwned).toHaveBeenCalledWith("ws_kottke", "deal-1", "usr_dario");
+  });
+
+  it("aborts an email reply when the recipient is not a customer address", async () => {
+    mocks.limit.mockResolvedValue([
+      {
+        channelType: "email",
+        waPhoneNumberId: null,
+        baileysBridgeProvider: null,
+        dealRecordId: "deal-1",
+      },
+    ]);
+    mocks.sendEmailReply.mockRejectedValue(
+      new mocks.EmailUserError(
+        "Kein gültiger Empfänger. Antworten gehen nur an die Kunden-E-Mail (Reply-To oder From der letzten eingehenden Nachricht), nie an eine Message-ID und nie an die eigene Adresse. Versand abgebrochen."
+      )
+    );
+    const res = await send("Kurze Rückmeldung zum Umzug.");
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.message).toMatch(/Message-ID/);
+    expect(body.error.message).toMatch(/abgebrochen/i);
+    expect(mocks.supersede).not.toHaveBeenCalled();
+    expect(mocks.setHumanOwned).not.toHaveBeenCalled();
   });
 });
