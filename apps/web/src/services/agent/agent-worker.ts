@@ -37,6 +37,7 @@ import { runAITask } from "@/services/ai/run-task";
 import { AI_TASK_SLUGS } from "@/services/ai/task-registry";
 import { sendPush } from "@/services/push";
 import { WhatsAppSessionExpiredError } from "@/services/inbox-whatsapp";
+import { EmailUserError } from "@/services/inbox-email";
 import { emitEvent } from "@/services/activity-events";
 import { extractDealInsights } from "@/services/deal-insights";
 import {
@@ -868,6 +869,16 @@ async function processConversation(
       await sendOnChannel(conv, outgoing);
       summary.sent += 1;
     } catch (err) {
+      if (err instanceof EmailUserError) {
+        // Permanent: the thread has no customer mailbox. Re-arming would
+        // retry every minute and never send. The inbox reply returns the
+        // same error to a person.
+        console.error("[agent-worker] email reply refused, no valid recipient:", err.message);
+        await stampInboundProcessed(conv.id, now);
+        await clearNeedsReply(conv.id, false);
+        summary.errors += 1;
+        return;
+      }
       if (err instanceof WhatsAppSessionExpiredError) {
         // WABA 24h customer-service window is closed: a free-form retry can
         // never succeed until the customer writes again (which re-arms the flag

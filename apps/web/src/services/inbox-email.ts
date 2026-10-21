@@ -43,6 +43,11 @@ import { isImmoscoutLeadEmail, parseImmoscoutLeadEmail } from "./inbox-immoscout
 import { findExistingMovingLeadDeal, setDealMovingLead } from "./immoscout-sync";
 import { computeLeadName } from "./lead-name";
 import { recomputeMultiCompanyForContact } from "./multi-company";
+import {
+  EMAIL_REPLY_NO_RECIPIENT,
+  resolveEmailReplyRecipient,
+  resolveReplyThreading,
+} from "./email-reply-recipient";
 
 type ChannelAccountRow = typeof channelAccounts.$inferSelect;
 
@@ -51,7 +56,12 @@ type ChannelAccountRow = typeof channelAccounts.$inferSelect;
  * empty body, account not connected). Transport/library errors are NOT this
  * type, so the route can surface these verbatim but hide raw infra errors.
  */
-export class EmailUserError extends Error {}
+export class EmailUserError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "EmailUserError";
+  }
+}
 
 // Same cap as deal_documents — base64 expands ~33%, so a 10 MB image is
 // ~13 MB in the row. Images exceeding this limit are dropped but the rest
@@ -771,11 +781,51 @@ export async function sendEmailReply(params: {
     .limit(1)
     .then((r) => r[0]);
 
-  const toAddress = conv.externalThreadId?.includes("@")
-    ? conv.externalThreadId // Kleinanzeigen relay address
-    : contact?.email ?? "";
+  // Latest inbound supplies From / Reply-To and the Message-ID we thread
+  // against. external_thread_id is NOT a recipient: on IMAP and on threads
+  // composed in the CRM it is a Message-ID (`<…@mail.gmail.com>`).
+  const [lastInbound] = await db
+    .select({
+      fromAddress: inboxMessages.fromAddress,
+      externalMessageId: inboxMessages.externalMessageId,
+      rawHeaders: inboxMessages.rawHeaders,
+    })
+    .from(inboxMessages)
+    .where(
+      and(
+        eq(inboxMessages.conversationId, conv.id),
+        eq(inboxMessages.direction, "inbound")
+      )
+    )
+    .orderBy(desc(inboxMessages.sentAt))
+    .limit(1);
 
-  if (!toAddress) throw new Error("Cannot determine reply-to address");
+  const [lastOutbound] = await db
+    .select({ toAddress: inboxMessages.toAddress })
+    .from(inboxMessages)
+    .where(
+      and(
+        eq(inboxMessages.conversationId, conv.id),
+        eq(inboxMessages.direction, "outbound")
+      )
+    )
+    .orderBy(desc(inboxMessages.sentAt))
+    .limit(1);
+
+  const resolved = resolveEmailReplyRecipient({
+    ownAddress: account.address,
+    contactEmail: contact?.email,
+    externalThreadId: conv.externalThreadId,
+    lastInbound: lastInbound ?? null,
+    lastOutboundTo: lastOutbound?.toAddress,
+  });
+  if (!resolved) throw new EmailUserError(EMAIL_REPLY_NO_RECIPIENT);
+  const toAddress = resolved.address;
+
+  const threading = resolveReplyThreading({
+    externalMessageId: lastInbound?.externalMessageId,
+    rawHeaders: lastInbound?.rawHeaders,
+  });
 
   const subject = conv.subject
     ? `Re: ${conv.subject.replace(/^Re:\s*/i, "")}`
@@ -784,7 +834,15 @@ export async function sendEmailReply(params: {
   let externalMessageId: string | null;
 
   if (account.emailProvider === "gmail_api") {
-    externalMessageId = await sendViaGmail({ account, conv, toAddress, subject, body });
+    externalMessageId = await sendViaGmail({
+      account,
+      conv,
+      toAddress,
+      subject,
+      body,
+      inReplyTo: threading.inReplyTo,
+      references: threading.references,
+    });
   } else {
     if (!account.credential) throw new Error("Channel account not configured");
     const transporter = nodemailer.createTransport({
@@ -794,15 +852,16 @@ export async function sendEmailReply(params: {
       auth: { user: account.address, pass: account.credential },
     });
 
+    const headers: Record<string, string> = {};
+    if (threading.inReplyTo) headers["In-Reply-To"] = threading.inReplyTo;
+    if (threading.references.length) headers["References"] = threading.references.join(" ");
+
     const info = await transporter.sendMail({
       from: account.address,
       to: toAddress,
       subject,
       text: body,
-      headers: {
-        "In-Reply-To": conv.externalThreadId ?? "",
-        References: conv.externalThreadId ?? "",
-      },
+      headers,
     });
     externalMessageId = info.messageId ?? null;
   }
@@ -1017,8 +1076,10 @@ async function sendViaGmail(params: {
   toAddress: string;
   subject: string;
   body: string;
+  inReplyTo?: string;
+  references: string[];
 }): Promise<string> {
-  const { account, conv, toAddress, subject, body } = params;
+  const { account, conv, toAddress, subject, body, inReplyTo, references } = params;
 
   const refreshToken = await getSecret(
     account.workspaceId,
@@ -1029,39 +1090,6 @@ async function sendViaGmail(params: {
   }
   const { gmailFromRefreshToken } = await import("@/lib/gmail/client");
   const gmail = gmailFromRefreshToken(account.address, refreshToken);
-
-  // Build the RFC822 threading headers from the latest inbound message in this
-  // conversation: In-Reply-To = its Message-ID, References = its References chain
-  // PLUS that Message-ID. This is what threads the reply in the CUSTOMER's inbox
-  // — the Gmail threadId only groups the copy in OUR mailbox.
-  const [lastInbound] = await db
-    .select({
-      externalMessageId: inboxMessages.externalMessageId,
-      rawHeaders: inboxMessages.rawHeaders,
-    })
-    .from(inboxMessages)
-    .where(
-      and(
-        eq(inboxMessages.conversationId, conv.id),
-        eq(inboxMessages.direction, "inbound")
-      )
-    )
-    .orderBy(desc(inboxMessages.sentAt))
-    .limit(1);
-
-  const references: string[] = [];
-  if (lastInbound?.rawHeaders) {
-    try {
-      const headers = JSON.parse(lastInbound.rawHeaders) as Record<string, unknown>;
-      const ref = headers["references"];
-      if (typeof ref === "string") references.push(...ref.split(/\s+/).filter(Boolean));
-      else if (Array.isArray(ref)) references.push(...ref.map(String));
-    } catch {
-      /* malformed header json — fall back to In-Reply-To only */
-    }
-  }
-  const inReplyTo = lastInbound?.externalMessageId ?? undefined;
-  if (inReplyTo && !references.includes(inReplyTo)) references.push(inReplyTo);
 
   // Our own Message-ID so the customer's later replies chain back to us.
   const domain = account.address.split("@")[1] ?? "localhost";

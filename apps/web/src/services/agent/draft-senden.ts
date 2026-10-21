@@ -41,7 +41,8 @@ export type FreigabeErgebnis =
       fehler:
         | "expired" | "not_pending" | "no_conversation" | "gate_blocked" | "price_leak"
         | "attachment_invalid"
-        | "internal_error" | "session_expired" | "send_failed" | "send_uncertain";
+        | "internal_error" | "session_expired" | "send_failed" | "send_uncertain"
+        | "invalid_recipient";
       reasons?: string[];
       detail?: string;
       /** HTTP status for attachment_invalid (400, 404 or 413). */
@@ -91,8 +92,14 @@ async function markSendUncertain(
     .where(eq(agentDrafts.id, id));
 }
 
+/** Thrown by sendEmailReply before any SMTP/Gmail call when To is not a customer mailbox. */
+function isInvalidRecipient(err: unknown): err is Error {
+  return err instanceof Error && err.name === "EmailUserError";
+}
+
 /** Errors thrown BEFORE any network dispatch — nothing can have reached the customer. */
 function isProvablyPreDelivery(err: unknown): boolean {
+  if (isInvalidRecipient(err)) return true;
   if (err instanceof WhatsAppSessionExpiredError) return true;
   if (err instanceof BaileysBridgeNotConfiguredError) return true;
   if (err instanceof WhatsAppDocumentInputError) return true;
@@ -391,6 +398,10 @@ export async function entwurfFreigebenUndSenden(input: {
       await sendOnChannel(channelRow, text);
     }
   } catch (err) {
+    if (isInvalidRecipient(err)) {
+      await revertToPending(id);
+      return { ok: false, fehler: "invalid_recipient", detail: err.message, status: 400 };
+    }
     if (err instanceof WhatsAppDocumentInputError || err instanceof BaileysMediaTooLargeError) {
       await revertToPending(id);
       return {

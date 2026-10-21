@@ -285,6 +285,27 @@ describe("entwurfFreigebenUndSenden human approval", () => {
     expect(session).toMatchObject({ ok: false, fehler: "session_expired" });
   });
 
+  it("reverts a draft when the email recipient is not a customer address", async () => {
+    mocks.updateReturns = [[{ ...DRAFT }], []];
+    mocks.selects = [CONV, [{ status: "approved" }]];
+    mocks.gate.mockResolvedValue({ allowed: true, reasons: [], context: {} });
+    const refused = new Error(
+      "Kein gültiger Empfänger. Antworten gehen nur an die Kunden-E-Mail (Reply-To oder From der letzten eingehenden Nachricht), nie an eine Message-ID und nie an die eigene Adresse. Versand abgebrochen."
+    );
+    refused.name = "EmailUserError";
+    mocks.send.mockRejectedValue(refused);
+
+    const result = await entwurfFreigebenUndSenden({
+      workspaceId: "ws",
+      userId: "user-1",
+      draftId: "draft-1",
+      humanApproved: true,
+    });
+    expect(result).toMatchObject({ ok: false, fehler: "invalid_recipient", status: 400 });
+    expect(mocks.sets.some((set) => set.status === "pending")).toBe(true);
+    expect(mocks.sets.some((set) => set.status === "send_uncertain")).toBe(false);
+  });
+
   it("does not send attachments when the final text leaks a price", async () => {
     mocks.updateReturns = [[{ ...DRAFT, draftText: "Festpreis 1.200 €" }], []];
     mocks.selects = [CONV];
