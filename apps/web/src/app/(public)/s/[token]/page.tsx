@@ -14,6 +14,7 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { loadContextByToken, bumpView } from "@/services/customer-portal-data";
+import { portalPreview } from "@/lib/portal-preview";
 import { StagePortal } from "./_components/stage-portal";
 import { RevokedNotice } from "./_components/revoked-notice";
 import { NotFoundNotice } from "./_components/not-found-notice";
@@ -39,9 +40,9 @@ export async function generateMetadata({
   params: Promise<{ token: string }>;
 }): Promise<Metadata> {
   const { token } = await params;
-  const ctx = await getCtx(token).catch(() => null);
+  const preview = portalPreview(await getCtx(token).catch(() => null));
 
-  if (!ctx) {
+  if (preview.neutral) {
     return {
       title: "Auftrag",
       description: "Status, Angebot und Auftragsbestätigung.",
@@ -49,11 +50,11 @@ export async function generateMetadata({
     };
   }
 
-  const firma = ctx.branding.displayName;
-  const title = `${firma} · Auftrag ${ctx.dealNumber}`;
-  const description = ctx.customerDisplayName
-    ? `Auftrag ${ctx.dealNumber} für ${ctx.customerDisplayName}: Angebot, Status und Bestätigung.`
-    : `Auftrag ${ctx.dealNumber}: Angebot, Status und Bestätigung.`;
+  const firma = preview.firma;
+  const title = `${firma} · Auftrag ${preview.dealNumber}`;
+  const description = preview.customerName
+    ? `Auftrag ${preview.dealNumber} für ${preview.customerName}: Angebot, Status und Bestätigung.`
+    : `Auftrag ${preview.dealNumber}: Angebot, Status und Bestätigung.`;
 
   return {
     title,

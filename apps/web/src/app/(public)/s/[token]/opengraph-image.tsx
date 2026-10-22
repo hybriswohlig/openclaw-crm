@@ -15,6 +15,7 @@
  */
 import { ImageResponse } from "next/og";
 import { loadContextByToken } from "@/services/customer-portal-data";
+import { portalPreview } from "@/lib/portal-preview";
 
 export const runtime = "nodejs";
 export const alt = "Auftragsstatus";
@@ -27,14 +28,14 @@ export default async function OpenGraphImage({
   params: Promise<{ token: string }>;
 }) {
   const { token } = await params;
-  const ctx = await loadContextByToken(token).catch(() => null);
+  const preview = portalPreview(await loadContextByToken(token).catch(() => null));
 
-  const firma = ctx?.branding.displayName ?? "Auftrag";
-  const dealNumber = ctx?.dealNumber ?? "";
-  const hex = sanitizeHex(ctx?.branding.primaryColor) ?? "1e3a5f";
+  const firma = preview.firma;
+  const dealNumber = preview.dealNumber;
+  const hex = sanitizeHex(preview.primaryColor) ?? "1e3a5f";
   const accent = `#${hex}`;
   const accentTint = `${accent}1f`;
-  const customerName = ctx?.customerDisplayName ?? "";
+  const customerName = preview.customerName;
 
   return new ImageResponse(
     (

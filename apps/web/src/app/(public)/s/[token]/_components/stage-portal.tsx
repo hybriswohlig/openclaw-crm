@@ -33,6 +33,12 @@ export function StagePortal({
   const refresh = useCallback(async () => {
     try {
       const res = await fetch(`/api/public/${token}/state`, { cache: "no-store" });
+      // Link revoked or portal switched off meanwhile: reload so the server
+      // renders the notice instead of the last loaded data.
+      if (res.status === 410) {
+        window.location.reload();
+        return;
+      }
       if (!res.ok) return;
       const json = (await res.json()) as { data: CustomerPortalContext };
       setCtx(json.data);
