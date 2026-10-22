@@ -19,6 +19,8 @@ export {
 export { buildDocumentModel } from "./model";
 export { escapeHtml, renderHtml } from "./html";
 export { renderPdf, toWinAnsi } from "./pdf";
+export { annahmeSeiteZeilen, baueVertragsmappe, umbrechen } from "./vertragsmappe";
+export type { VertragsmappeDaten } from "./vertragsmappe";
 export type {
   AcceptedPrice,
   AddressForm,
