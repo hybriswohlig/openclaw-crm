@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthContext, unauthorized, notFound, success } from "@/lib/api-utils";
 import { getProjectDocument, deleteProjectDocument } from "@/services/project-documents";
+import { fileResponseHeaders } from "@/lib/file-response";
 
 /** GET — streams the file. ?download=1 forces the save dialog. */
 export async function GET(
@@ -16,12 +17,10 @@ export async function GET(
 
   const buffer = Buffer.from(doc.fileContent, "base64");
   const wantDownload = req.nextUrl.searchParams.get("download") === "1";
-  const disposition = wantDownload ? "attachment" : "inline";
 
   return new NextResponse(new Uint8Array(buffer), {
     headers: {
-      "Content-Type": doc.mimeType,
-      "Content-Disposition": `${disposition}; filename="${encodeURIComponent(doc.fileName)}"`,
+      ...fileResponseHeaders({ mimeType: doc.mimeType, fileName: doc.fileName, download: wantDownload }),
       "Content-Length": String(buffer.length),
       "Cache-Control": "private, max-age=3600",
     },

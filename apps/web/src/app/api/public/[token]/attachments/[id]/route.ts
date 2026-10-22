@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { getScopedAttachment } from "@/services/customer-portal-data";
+import { fileResponseHeaders } from "@/lib/file-response";
 
 export const dynamic = "force-dynamic";
 
@@ -15,8 +16,7 @@ export async function GET(
   return new Response(bytes, {
     status: 200,
     headers: {
-      "Content-Type": att.mimeType,
-      "Content-Disposition": `inline; filename="${att.fileName.replace(/[\\"]/g, "_")}"`,
+      ...fileResponseHeaders({ mimeType: att.mimeType, fileName: att.fileName }),
       "Cache-Control": "private, max-age=86400",
     },
   });

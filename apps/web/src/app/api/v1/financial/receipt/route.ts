@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthContext, unauthorized, badRequest, notFound } from "@/lib/api-utils";
 import { getBookingReceipt, getLedgerReceipt } from "@/services/financial";
+import { fileResponseHeaders } from "@/lib/file-response";
 
 const VALID_TYPES = ["income", "expense", "ledger"] as const;
 type ReceiptType = (typeof VALID_TYPES)[number];
@@ -57,16 +58,12 @@ export async function GET(req: NextRequest) {
 
   const ext = MIME_EXT[mime] ?? "bin";
   const filename = receipt.receiptName || `beleg-${id}.${ext}`;
-  // ASCII-Fallback plus RFC-5987-Encoding, damit Umlaute im Belegnamen ankommen.
-  const asciiName = filename.replace(/"/g, "'").replace(/[^\x20-\x7e]/g, "_");
-  const contentDisposition = `inline; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
 
   return new NextResponse(new Uint8Array(buffer), {
     status: 200,
     headers: {
-      "Content-Type": mime,
+      ...fileResponseHeaders({ mimeType: mime, fileName: filename }),
       "Content-Length": String(buffer.length),
-      "Content-Disposition": contentDisposition,
       "Cache-Control": "private, no-store",
     },
   });

@@ -3,6 +3,7 @@ import { getAuthContext, unauthorized } from "@/lib/api-utils";
 import { db } from "@/db";
 import { employeeLedger } from "@/db/schema/employee-ledger";
 import { eq, and } from "drizzle-orm";
+import { fileResponseHeaders } from "@/lib/file-response";
 
 /**
  * Serves the receipt/invoice attached to an employee_ledger row.
@@ -42,14 +43,12 @@ export async function GET(
   const buffer = Buffer.from(m[2], "base64");
 
   const wantDownload = req.nextUrl.searchParams.get("download") === "1";
-  const disposition = wantDownload ? "attachment" : "inline";
   const ext = mimeType.split("/")[1] ?? "bin";
   const fileName = `beleg-${entryId.slice(0, 8)}.${ext}`;
 
   return new NextResponse(new Uint8Array(buffer), {
     headers: {
-      "Content-Type": mimeType,
-      "Content-Disposition": `${disposition}; filename="${fileName}"`,
+      ...fileResponseHeaders({ mimeType, fileName, download: wantDownload }),
       "Content-Length": String(buffer.length),
       "Cache-Control": "private, max-age=3600",
     },

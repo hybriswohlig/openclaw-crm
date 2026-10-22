@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { inboxMessageAttachments, inboxMessages } from "@/db/schema/inbox";
 import { dealSurfacePhotoMessageMatch, findDealInternalPhoto } from "@/services/deal-photos";
 import { and, eq, like } from "drizzle-orm";
+import { fileResponseHeaders } from "@/lib/file-response";
 
 /**
  * Streams one portal photo of the deal for the curation UI.
@@ -46,8 +47,7 @@ export async function GET(
   return new Response(bytes, {
     status: 200,
     headers: {
-      "Content-Type": photo.mimeType,
-      "Content-Disposition": `inline; filename="${photo.fileName.replace(/[\\"]/g, "_")}"`,
+      ...fileResponseHeaders({ mimeType: photo.mimeType, fileName: photo.fileName }),
       "Cache-Control": "private, max-age=3600",
     },
   });

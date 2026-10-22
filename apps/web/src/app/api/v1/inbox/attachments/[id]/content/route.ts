@@ -6,6 +6,7 @@ import { and, eq } from "drizzle-orm";
 import { findDealInternalPhoto } from "@/services/deal-photos";
 import { getAttachmentWithContent } from "@/services/inbox";
 import { toAttachmentPayload } from "@/lib/attachment-content";
+import { fileResponseHeaders } from "@/lib/file-response";
 
 // Streams the base64-decoded bytes of an attachment. The inbox renders
 // <img src="/api/v1/inbox/attachments/{id}/content" /> against this route.
@@ -55,9 +56,8 @@ export async function GET(
     return new NextResponse(new Uint8Array(bytes), {
       status: 200,
       headers: {
-        "Content-Type": internal.mimeType,
+        ...fileResponseHeaders({ mimeType: internal.mimeType, fileName: internal.fileName }),
         "Content-Length": String(bytes.length),
-        "Content-Disposition": `inline; filename="${encodeURIComponent(internal.fileName)}"`,
         "Cache-Control": "private, max-age=3600",
       },
     });
@@ -67,9 +67,8 @@ export async function GET(
   return new NextResponse(new Uint8Array(bytes), {
     status: 200,
     headers: {
-      "Content-Type": row.mimeType,
+      ...fileResponseHeaders({ mimeType: row.mimeType, fileName: row.fileName }),
       "Content-Length": String(bytes.length),
-      "Content-Disposition": `inline; filename="${encodeURIComponent(row.fileName)}"`,
       "Cache-Control": "private, max-age=3600",
     },
   });

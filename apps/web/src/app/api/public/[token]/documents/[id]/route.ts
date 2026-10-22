@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { getScopedDocument } from "@/services/customer-portal-data";
+import { fileResponseHeaders } from "@/lib/file-response";
 
 export const dynamic = "force-dynamic";
 
@@ -15,13 +16,8 @@ export async function GET(
   return new Response(bytes, {
     status: 200,
     headers: {
-      "Content-Type": doc.mimeType,
-      "Content-Disposition": `inline; filename="${encodeFilename(doc.fileName)}"`,
+      ...fileResponseHeaders({ mimeType: doc.mimeType, fileName: doc.fileName }),
       "Cache-Control": "private, max-age=300",
     },
   });
-}
-
-function encodeFilename(name: string): string {
-  return name.replace(/[\\"]/g, "_");
 }
