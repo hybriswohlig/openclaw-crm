@@ -7,6 +7,7 @@ import { getEmployeePortalContextFromHeaders } from "@/lib/employee-portal-auth"
 import { unauthorized, badRequest, success } from "@/lib/api-utils";
 import { berlinDateString } from "@/lib/berlin-date";
 import { aktivBedingung } from "@/services/kva-annahme";
+import { portalPaymentCap } from "@/lib/portal-payment-cap";
 
 const VALID_METHODS = ["cash", "bank_transfer", "paypal", "card", "other"];
 /** Hard ceiling for a single on-site collection (EUR). Prevents fat-finger / fraud. */
@@ -57,26 +58,25 @@ export async function POST(
     .from(kvaConfirmations)
     .where(aktivBedingung(dealId))
     .limit(1);
+  const [q] = await db
+    .select({ fixedPrice: quotations.fixedPrice, isVariable: quotations.isVariable })
+    .from(quotations)
+    .where(eq(quotations.dealRecordId, dealId))
+    .limit(1);
   let quotedEur: number | null =
     accept?.confirmedTotalCents != null
       ? accept.confirmedTotalCents / 100
       : null;
-  if (quotedEur == null) {
-    const [q] = await db
-      .select({ fixedPrice: quotations.fixedPrice })
-      .from(quotations)
-      .where(eq(quotations.dealRecordId, dealId))
-      .limit(1);
-    if (q?.fixedPrice != null) quotedEur = Number(q.fixedPrice);
-  }
-  if (quotedEur != null && quotedEur > 0) {
+  if (quotedEur == null && q?.fixedPrice != null) quotedEur = Number(q.fixedPrice);
+  const isVariable = q?.isVariable ?? false;
+  if (!isVariable && quotedEur != null && quotedEur > 0) {
     const [paid] = await db
       .select({ total: sum(payments.amount) })
       .from(payments)
       .where(eq(payments.dealRecordId, dealId));
     const paidSum = Number(paid?.total ?? 0);
-    const remaining = quotedEur - paidSum + OVERPAY_TOLERANCE_EUR;
-    if (amountNum > remaining + 0.005) {
+    const cap = portalPaymentCap({ quotedEur, paidEur: paidSum, isVariable, toleranceEur: OVERPAY_TOLERANCE_EUR });
+    if (cap != null && amountNum > cap + 0.005) {
       return badRequest(
         `Betrag übersteigt den offenen Restbetrag (${Math.max(0, quotedEur - paidSum).toFixed(2)} €).`
       );

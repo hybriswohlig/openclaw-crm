@@ -43,8 +43,10 @@ export default function PaymentCollect({
   const [outstanding, setOutstanding] = useState<number>(payment.outstanding);
   const [paidSoFar, setPaidSoFar] = useState<number>(payment.paid);
   const [method, setMethod] = useState<PaymentMethod>("cash");
+  // Hourly jobs: the stored total is only an estimate, the crew types the
+  // real amount from the hours worked.
   const [amount, setAmount] = useState<string>(
-    payment.outstanding > 0 ? payment.outstanding.toFixed(2) : ""
+    priceModel === "fixed" && payment.outstanding > 0 ? payment.outstanding.toFixed(2) : ""
   );
   const [warningDismissed, setWarningDismissed] = useState<boolean>(false);
   const [submitting, setSubmitting] = useState<boolean>(false);
