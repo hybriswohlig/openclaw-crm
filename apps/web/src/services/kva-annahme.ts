@@ -11,7 +11,7 @@ import { quotations } from "@/db/schema/quotations";
 import { dealDocuments } from "@/db/schema/financial";
 import { emitEvent } from "./activity-events";
 import { ladeAgbHtml } from "./agb";
-import type { AcceptanceRecord, WiderrufModus } from "@openclaw-crm/customer-portal-core";
+import type { AcceptanceRecord, UnterschriftArt, WiderrufModus } from "@openclaw-crm/customer-portal-core";
 
 export type KvaConfirmationRow = typeof kvaConfirmations.$inferSelect;
 
@@ -79,6 +79,7 @@ type ZeileFuerRecord = Pick<
   | "signedAt" | "acceptedFullName" | "agbVersionAccepted" | "confirmedTotalCents"
   | "widerrufVerzichtAccepted" | "selectedOptionName" | "widerrufModus"
   | "vorzeitigerBeginnVerlangt" | "quotationDocumentId"
+  | "unterschriftAt" | "unterschriftName" | "unterschriftArt" | "vertragDocumentId"
 >;
 
 export function annahmeAusZeile(row: ZeileFuerRecord): AcceptanceRecord {
@@ -92,8 +93,15 @@ export function annahmeAusZeile(row: ZeileFuerRecord): AcceptanceRecord {
     vorzeitigerBeginnVerlangt: row.vorzeitigerBeginnVerlangt,
     widerrufVerzichtAccepted: row.widerrufVerzichtAccepted,
     quotationDocumentId: row.quotationDocumentId,
-    // Platzhalter bis Task 4 (Spalten aus Task 2).
-    unterschrift: null,
+    // Eine Reservierung ohne abgelegten Vertrag ist noch keine Unterschrift.
+    unterschrift:
+      row.unterschriftAt && row.vertragDocumentId && row.unterschriftName
+        ? {
+            at: row.unterschriftAt.toISOString(),
+            name: row.unterschriftName,
+            art: (row.unterschriftArt === "gezeichnet" ? "gezeichnet" : "getippt") as UnterschriftArt,
+          }
+        : null,
   };
 }
 
