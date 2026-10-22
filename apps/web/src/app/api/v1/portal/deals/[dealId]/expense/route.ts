@@ -6,6 +6,7 @@ import { createExpense } from "@/services/financial";
 import { getEmployeePortalContextFromHeaders } from "@/lib/employee-portal-auth";
 import { unauthorized, badRequest, success } from "@/lib/api-utils";
 import { berlinDateString } from "@/lib/berlin-date";
+import { parsePortalAmountEur } from "@/lib/portal-amount";
 
 const VALID_CATEGORIES = ["fuel", "truck_rental", "equipment", "subcontractor", "toll", "other"] as const;
 type Category = (typeof VALID_CATEGORIES)[number];
@@ -36,8 +37,9 @@ export async function POST(
   if (!assigned) return badRequest("Nicht diesem Auftrag zugewiesen.");
 
   const body = await req.json();
-  const { amount, category, description, jobMediaId } = body;
-  if (!amount || Number(amount) <= 0) return badRequest("Betrag erforderlich.");
+  const { category, description, jobMediaId } = body;
+  const amount = parsePortalAmountEur(body.amount);
+  if (amount == null) return badRequest("Betrag erforderlich.");
   const cat: Category = VALID_CATEGORIES.includes(category) ? category : "other";
 
   const row = await createExpense(ctx.workspaceId, dealId, {
