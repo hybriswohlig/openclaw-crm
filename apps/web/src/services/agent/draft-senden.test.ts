@@ -84,7 +84,7 @@ vi.mock("@/services/inbox-whatsapp", () => {
   return { WhatsAppSessionExpiredError, BaileysBridgeNotConfiguredError, BaileysMediaTooLargeError };
 });
 
-import { entwurfFreigebenUndSenden } from "./draft-senden";
+import { entwurfFreigebenUndSenden, entwurfVeraltet } from "./draft-senden";
 import { WhatsAppSessionExpiredError } from "@/services/inbox-whatsapp";
 
 const DRAFT = {
@@ -451,5 +451,50 @@ describe("entwurfFreigebenUndSenden opt-out footer", () => {
     expect(body.body).toContain(SIE_TEXT);
     expect(body.body).toContain("Wenn Sie keine Nachrichten mehr von uns wünschen, antworten Sie einfach mit STOP.");
     expect(body.body).not.toContain("Wenn du keine Nachrichten mehr");
+  });
+});
+
+// A pending draft answers the customer message it was written for. If the
+// customer wrote again before someone approved it, sending it answers a
+// question they have moved past (or asks again what they already said).
+describe("entwurfVeraltet", () => {
+  const um = (hhmm: string) => new Date(`2026-10-23T${hhmm}:00Z`);
+  it("is stale when the customer wrote after the draft", () => {
+    expect(entwurfVeraltet(um("10:00"), um("10:05"))).toBe(true);
+  });
+  it("is fresh when the latest customer message is older", () => {
+    expect(entwurfVeraltet(um("10:05"), um("10:00"))).toBe(false);
+  });
+  it("is fresh when a timestamp is missing", () => {
+    expect(entwurfVeraltet(null, um("10:05"))).toBe(false);
+    expect(entwurfVeraltet(um("10:00"), null)).toBe(false);
+  });
+});
+
+describe("entwurfFreigebenUndSenden freshness", () => {
+  const ALLOWED = { allowed: true, reasons: [], context: {} };
+
+  it("refuses a draft older than the latest customer message", async () => {
+    mocks.updateReturns = [[{ ...DRAFT, createdAt: new Date("2026-10-23T10:00:00Z") }], []];
+    mocks.selects = [[{ ...CONV[0], lastInboundAt: new Date("2026-10-23T10:05:00Z") }]];
+    mocks.gate.mockResolvedValue(ALLOWED);
+
+    const result = await entwurfFreigebenUndSenden({ workspaceId: "ws", userId: "user-1", draftId: "draft-1" });
+
+    expect(result).toEqual({ ok: false, fehler: "stale" });
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.sets.some((set) => set.status === "superseded")).toBe(true);
+    expect(mocks.sets.some((set) => set.status === "pending")).toBe(false);
+  });
+
+  it("sends when no newer customer message", async () => {
+    mocks.updateReturns = [[{ ...DRAFT, createdAt: new Date("2026-10-23T10:00:00Z") }], [], []];
+    mocks.selects = [[{ ...CONV[0], lastInboundAt: new Date("2026-10-23T09:55:00Z") }], [{ status: "approved" }]];
+    mocks.gate.mockResolvedValue(ALLOWED);
+
+    const result = await entwurfFreigebenUndSenden({ workspaceId: "ws", userId: "user-1", draftId: "draft-1" });
+
+    expect(result.ok).toBe(true);
+    expect(mocks.send).toHaveBeenCalledOnce();
   });
 });

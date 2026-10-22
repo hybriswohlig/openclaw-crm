@@ -167,6 +167,11 @@ export function ShadowDraftBanner({
           setApproveError("Entwurf abgelaufen");
           window.setTimeout(() => setHidden(true), 1800);
           break;
+        case "stale":
+          // The customer wrote again; the next agent run drafts a new answer.
+          setApproveError("Kunde hat neu geschrieben, Entwurf ist überholt");
+          window.setTimeout(() => setHidden(true), 1800);
+          break;
         case "not_pending":
           // Draft was already handled elsewhere — show why, then hide.
           setApproveError("Bereits bearbeitet");

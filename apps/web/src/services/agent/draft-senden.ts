@@ -41,7 +41,8 @@ export type FreigabeErgebnis =
       fehler:
         | "expired" | "not_pending" | "no_conversation" | "gate_blocked" | "price_leak"
         | "attachment_invalid"
-        | "internal_error" | "session_expired" | "send_failed" | "send_uncertain";
+        | "internal_error" | "session_expired" | "send_failed" | "send_uncertain"
+        | "stale";
       reasons?: string[];
       detail?: string;
       /** HTTP status for attachment_invalid (400, 404 or 413). */
@@ -98,6 +99,18 @@ function isProvablyPreDelivery(err: unknown): boolean {
   if (err instanceof WhatsAppDocumentInputError) return true;
   if (err instanceof BaileysMediaTooLargeError) return true;
   return err instanceof Error && /receive-only/i.test(err.message);
+}
+
+/**
+ * A draft answers the customer message it was written for. When the customer
+ * wrote again after the draft was created, it answers an outdated state.
+ */
+export function entwurfVeraltet(
+  entwurfAm: Date | null | undefined,
+  letzteKundennachricht: Date | null | undefined
+): boolean {
+  if (!entwurfAm || !letzteKundennachricht) return false;
+  return letzteKundennachricht.getTime() > entwurfAm.getTime();
 }
 
 /**
@@ -236,6 +249,7 @@ export async function entwurfFreigebenUndSenden(input: {
     contactPhone: string | null;
     contactEmail: string | null;
     personRecordId: string | null;
+    lastInboundAt: Date | null;
   }
   let conv: ConvRow | undefined;
   let verdict: Awaited<ReturnType<typeof agentMayContact>>;
@@ -257,6 +271,7 @@ export async function entwurfFreigebenUndSenden(input: {
               contactPhone: inboxContacts.phone,
               contactEmail: inboxContacts.email,
               personRecordId: inboxContacts.crmRecordId,
+              lastInboundAt: inboxConversations.aiLastInboundAt,
             })
             .from(inboxConversations)
             .innerJoin(channelAccounts, eq(inboxConversations.channelAccountId, channelAccounts.id))
@@ -273,6 +288,24 @@ export async function entwurfFreigebenUndSenden(input: {
     if (!conv || !draft.dealRecordId) {
       await revertToPending(id);
       return { ok: false, fehler: "no_conversation" };
+    }
+
+    // The customer wrote again after this draft: it answers an outdated state.
+    // Do not send it; the next agent run drafts against the new message.
+    if (entwurfVeraltet(draft.createdAt, conv.lastInboundAt)) {
+      const now = new Date();
+      await db
+        .update(agentDrafts)
+        .set({
+          status: "superseded",
+          updatedAt: now,
+          filterVerdicts: sql`coalesce(${agentDrafts.filterVerdicts}, '{}'::jsonb) || ${JSON.stringify({
+            supersededBy: "newer_inbound",
+            supersededAt: now.toISOString(),
+          })}::jsonb`,
+        })
+        .where(eq(agentDrafts.id, id));
+      return { ok: false, fehler: "stale" };
     }
 
     // c) Deterministic gate AT SEND TIME. A recorded human approval lifts only

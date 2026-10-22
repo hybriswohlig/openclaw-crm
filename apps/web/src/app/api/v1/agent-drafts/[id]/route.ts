@@ -65,7 +65,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
 const FEHLER_STATUS: Record<string, number> = {
   expired: 409, not_pending: 409, no_conversation: 409, gate_blocked: 409, price_leak: 409,
-  session_expired: 409, send_uncertain: 409, internal_error: 500, send_failed: 500,
+  session_expired: 409, send_uncertain: 409, stale: 409, internal_error: 500, send_failed: 500,
 };
 
 async function approveAndSend(

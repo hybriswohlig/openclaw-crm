@@ -169,7 +169,9 @@ function ergebnisText(code: string, deal: string | null, name: string, r: Freiga
               ? "WhatsApp-Fenster abgelaufen"
               : r.fehler === "send_uncertain"
                 ? "Zustellung unklar, bitte den Chat prüfen und NICHT erneut senden"
-                : "Versand fehlgeschlagen, später nochmal ok";
+                : r.fehler === "stale"
+                  ? "Kunde hat inzwischen neu geschrieben, Entwurf ist überholt"
+                  : "Versand fehlgeschlagen, später nochmal ok";
   return `⚠️ #${code} nicht gesendet (${wer}): ${grund}.`;
 }
 
