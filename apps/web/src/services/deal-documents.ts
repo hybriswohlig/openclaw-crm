@@ -125,5 +125,6 @@ export async function createDealDocument(input: {
       });
   }
 
-  return doc;
+  // Die Tabelle kennt auch signed_contract; dieser Weg schreibt nur geprüfte Upload-Typen.
+  return { ...doc, documentType: check.documentType };
 }
