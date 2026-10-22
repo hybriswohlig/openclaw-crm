@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { workspaces, workspaceMembers, users, objects, attributes, statuses, selectOptions } from "@/db/schema";
+import { workspaces, workspaceMembers, users, sessions, objects, attributes, statuses, selectOptions } from "@/db/schema";
 import type { MemberPermissions } from "@/db/schema/workspace";
 import { eq, and, asc, sql } from "drizzle-orm";
 import { STANDARD_OBJECTS, DEAL_STAGES } from "@openclaw-crm/shared";
@@ -307,7 +307,13 @@ export async function updateMemberPermissions(
   return updated ?? null;
 }
 
-export async function removeMember(workspaceId: string, memberId: string) {
+/**
+ * Removes a member AND ends their access. In this single-workspace deployment
+ * ensureUserWorkspaceAccess re-creates a missing membership for any approved
+ * user, so deleting the row alone did nothing. Same end state as the admin
+ * "reject" route: user rejected (also blocks their API keys), sessions gone.
+ */
+export async function removeMember(workspaceId: string, memberId: string, actorUserId: string) {
   const rows = await db
     .select()
     .from(workspaceMembers)
@@ -320,6 +326,11 @@ export async function removeMember(workspaceId: string, memberId: string) {
     .limit(1);
 
   if (rows.length === 0) return null;
+
+  // Removing yourself would now lock you out.
+  if (rows[0].userId === actorUserId) {
+    throw new Error("Cannot remove yourself");
+  }
 
   // Don't allow removing the last admin
   if (rows[0].role === "admin") {
@@ -337,9 +348,15 @@ export async function removeMember(workspaceId: string, memberId: string) {
     }
   }
 
-  await db
-    .delete(workspaceMembers)
-    .where(eq(workspaceMembers.id, memberId));
+  const userId = rows[0].userId;
+  await db.transaction(async (tx) => {
+    await tx.delete(workspaceMembers).where(eq(workspaceMembers.id, memberId));
+    await tx.delete(sessions).where(eq(sessions.userId, userId));
+    await tx
+      .update(users)
+      .set({ approvalStatus: "rejected", updatedAt: new Date() })
+      .where(eq(users.id, userId));
+  });
 
   return rows[0];
 }
