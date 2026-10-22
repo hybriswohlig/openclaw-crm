@@ -361,7 +361,10 @@ export async function loadContextByToken(
   // Confirmation
   const acceptance = await loadLatestAcceptance(dealRecordId);
   // Nach „Annahme aufheben“ gilt der alte Stand nicht mehr (auch nicht seine AB).
-  const aufgehobenAm = acceptance ? null : await ladeLetzteAufhebung(dealRecordId);
+  // Für die AB zählt die letzte Aufhebung auch nach einer neuen Annahme: sonst
+  // erscheint die alte AB (alter Preis), bis die neue hochgeladen ist.
+  const letzteAufhebung = await ladeLetzteAufhebung(dealRecordId);
+  const aufgehobenAm = acceptance ? null : letzteAufhebung;
 
   // Rechtsregeln der Annahme; Dialog und confirmKvaForToken nutzen dieselben.
   const serviceType = await loadServiceType(dealRecordId);
@@ -387,7 +390,7 @@ export async function loadContextByToken(
     ).orderBy(desc(dealDocuments.uploadedAt));
   const orderConfirmationDoc = gueltigeAuftragsbestaetigung(
     docRows.find((d) => d.type === "order_confirmation"),
-    aufgehobenAm
+    letzteAufhebung
   );
   const invoiceDoc = docRows.find((d) => d.type === "invoice");
 
