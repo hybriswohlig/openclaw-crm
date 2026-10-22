@@ -1,7 +1,7 @@
 import { db } from "@/db";
-import { workspaces, workspaceMembers, users, sessions, objects, attributes, statuses, selectOptions } from "@/db/schema";
+import { workspaces, workspaceMembers, users, sessions, pushSubscriptions, calendarFeedTokens, objects, attributes, statuses, selectOptions } from "@/db/schema";
 import type { MemberPermissions } from "@/db/schema/workspace";
-import { eq, and, asc, sql } from "drizzle-orm";
+import { eq, and, asc, isNull, sql } from "drizzle-orm";
 import { STANDARD_OBJECTS, DEAL_STAGES } from "@openclaw-crm/shared";
 
 // ─── Workspace ───────────────────────────────────────────────────────
@@ -307,11 +307,32 @@ export async function updateMemberPermissions(
   return updated ?? null;
 }
 
+type DbOrTx = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * Ends every way a user still gets CRM data: login (rejected also blocks their
+ * API keys and MCP), open sessions, push notifications with customer
+ * previews, and the calendar feed with customer addresses. Shared by member
+ * removal and the app-admin "reject" route.
+ */
+export async function endUserAccess(tx: DbOrTx, userId: string) {
+  await tx.delete(sessions).where(eq(sessions.userId, userId));
+  await tx.delete(pushSubscriptions).where(eq(pushSubscriptions.userId, userId));
+  await tx
+    .update(calendarFeedTokens)
+    .set({ revokedAt: new Date() })
+    .where(and(eq(calendarFeedTokens.userId, userId), isNull(calendarFeedTokens.revokedAt)));
+  await tx
+    .update(users)
+    .set({ approvalStatus: "rejected", updatedAt: new Date() })
+    .where(eq(users.id, userId));
+}
+
 /**
  * Removes a member AND ends their access. In this single-workspace deployment
  * ensureUserWorkspaceAccess re-creates a missing membership for any approved
- * user, so deleting the row alone did nothing. Same end state as the admin
- * "reject" route: user rejected (also blocks their API keys), sessions gone.
+ * user, so deleting the row alone did nothing. App admins are not removable
+ * here: only another app admin can reject them (and re-approve them).
  */
 export async function removeMember(workspaceId: string, memberId: string, actorUserId: string) {
   const rows = await db
@@ -327,9 +348,18 @@ export async function removeMember(workspaceId: string, memberId: string, actorU
 
   if (rows.length === 0) return null;
 
-  // Removing yourself would now lock you out.
+  // Removing yourself would lock you out.
   if (rows[0].userId === actorUserId) {
-    throw new Error("Cannot remove yourself");
+    throw new Error("Du kannst dich nicht selbst entfernen.");
+  }
+
+  const [target] = await db
+    .select({ isAppAdmin: users.isAppAdmin })
+    .from(users)
+    .where(eq(users.id, rows[0].userId))
+    .limit(1);
+  if (target?.isAppAdmin) {
+    throw new Error("App-Admins lassen sich hier nicht entfernen.");
   }
 
   // Don't allow removing the last admin
@@ -344,18 +374,14 @@ export async function removeMember(workspaceId: string, memberId: string, actorU
         )
       );
     if (adminCount.length <= 1) {
-      throw new Error("Cannot remove the last admin");
+      throw new Error("Der letzte Admin kann nicht entfernt werden.");
     }
   }
 
   const userId = rows[0].userId;
   await db.transaction(async (tx) => {
     await tx.delete(workspaceMembers).where(eq(workspaceMembers.id, memberId));
-    await tx.delete(sessions).where(eq(sessions.userId, userId));
-    await tx
-      .update(users)
-      .set({ approvalStatus: "rejected", updatedAt: new Date() })
-      .where(eq(users.id, userId));
+    await endUserAccess(tx, userId);
   });
 
   return rows[0];

@@ -15,6 +15,7 @@ import {
   unauthorized,
   badRequest,
   notFound,
+  requireChannelManager,
 } from "@/lib/api-utils";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +23,9 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized(req);
+  // Same gate as starting/stopping pairing: the live QR links a phone.
+  const deny = requireChannelManager(ctx);
+  if (deny) return deny;
 
   const accountId = req.nextUrl.searchParams.get("accountId");
   if (!accountId) return badRequest("accountId query param required");

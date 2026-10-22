@@ -116,6 +116,15 @@ export default function MembersPage() {
   }
 
   async function handleRemove(memberId: string) {
+    const member = members.find((m) => m.id === memberId);
+    const who = member?.userName || member?.userEmail || "Dieses Mitglied";
+    if (
+      !confirm(
+        `${who} entfernen? Die Person wird sofort abgemeldet und verliert den Zugang zum CRM, auch über API-Schlüssel, Push-Nachrichten und den Kalender. Nur ein App-Admin kann sie wieder freischalten.`
+      )
+    ) {
+      return;
+    }
     const res = await fetch(`/api/v1/workspace-members/${memberId}`, {
       method: "DELETE",
     });

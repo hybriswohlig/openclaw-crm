@@ -88,7 +88,7 @@ export default function PaymentCollect({
       setPaidSoFar(newPaid);
       setOutstanding(newOutstanding);
       setSuccessAmount(parsed);
-      setAmount(newOutstanding > 0 ? newOutstanding.toFixed(2) : "");
+      setAmount(priceModel === "fixed" && newOutstanding > 0 ? newOutstanding.toFixed(2) : "");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Zahlung konnte nicht erfasst werden.");
     } finally {

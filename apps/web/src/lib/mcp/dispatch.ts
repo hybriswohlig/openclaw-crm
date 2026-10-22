@@ -26,6 +26,24 @@ function str(v: unknown): string {
   return String(v ?? "");
 }
 
+/**
+ * The Baileys bridge routes hand out and replace the WhatsApp device session.
+ * Agents reading customer messages must never reach them through crm_api,
+ * however the path is spelled (dot segments, double slashes, %-escapes).
+ */
+function isBridgeOnlyPath(path: string): boolean {
+  let normalized: string;
+  try {
+    normalized = decodeURIComponent(new URL(path, "http://x.invalid").pathname);
+  } catch {
+    return true;
+  }
+  return normalized
+    .toLowerCase()
+    .replace(/\/{2,}/g, "/")
+    .startsWith("/api/v1/inbox/whatsapp/baileys-");
+}
+
 function num(v: unknown): number | undefined {
   if (v === undefined || v === null || v === "") return undefined;
   const n = Number(v);
@@ -1302,6 +1320,9 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
       const path = str(args.path);
       if (!path.startsWith("/api/")) {
         throw new Error("path must start with /api/");
+      }
+      if (isBridgeOnlyPath(path)) {
+        throw new Error("This path is reserved for the WhatsApp bridge");
       }
       return client.request(path, {
         method: str(args.method || "GET").toUpperCase(),

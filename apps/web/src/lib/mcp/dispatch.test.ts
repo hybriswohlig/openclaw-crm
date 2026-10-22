@@ -53,6 +53,35 @@ function imageBlock(
   return block && block.type === "image" ? block : undefined;
 }
 
+describe("crm_api keeps the WhatsApp bridge routes out of reach", () => {
+  // Those routes hand out and replace the WhatsApp device session. An agent
+  // that reads customer messages could be prompt-injected into fetching it;
+  // only the bridge itself may call them, never through the generic proxy.
+  it.each([
+    "/api/v1/inbox/whatsapp/baileys-creds/acc",
+    "/api/v1/inbox/whatsapp/baileys-pairing",
+    "/api/v1/inbox/whatsapp/x/../baileys-creds/acc",
+    "/api/v1/inbox/whatsapp/baileys%2Dcreds/acc",
+    "/api/v1/inbox//whatsapp/baileys-status",
+  ])("refuses %s", async (path) => {
+    const { client, calls } = fakeClient();
+    const res = await handleTool(client, "crm_api", { path, method: "GET" });
+    expect(res.isError).toBe(true);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("still allows the normal WhatsApp send route", async () => {
+    const { client, calls } = fakeClient();
+    const res = await handleTool(client, "crm_api", {
+      path: "/api/v1/inbox/whatsapp/send-baileys",
+      method: "POST",
+      body: { conversationId: "c1", text: "Hallo" },
+    });
+    expect(res.isError).toBeFalsy();
+    expect(calls[0].path).toBe("/api/v1/inbox/whatsapp/send-baileys");
+  });
+});
+
 describe("crm_api body coercion", () => {
   it("parses a body that arrived as a JSON string", async () => {
     // z.unknown() serializes to an empty JSON Schema, so MCP clients have

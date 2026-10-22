@@ -1,9 +1,10 @@
 import { NextRequest } from "next/server";
 import { db } from "@/db";
-import { users, sessions, workspaceMembers } from "@/db/schema";
+import { users, workspaceMembers } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { success, forbidden, notFound, badRequest } from "@/lib/api-utils";
 import { getAppAdminFromRequest } from "@/lib/require-app-admin";
+import { endUserAccess } from "@/services/workspace";
 
 export async function POST(
   req: NextRequest,
@@ -29,17 +30,10 @@ export async function POST(
     return notFound("User not found");
   }
 
-  await db.delete(sessions).where(eq(sessions.userId, userId));
-
-  await db.delete(workspaceMembers).where(eq(workspaceMembers.userId, userId));
-
-  await db
-    .update(users)
-    .set({
-      approvalStatus: "rejected",
-      updatedAt: new Date(),
-    })
-    .where(eq(users.id, userId));
+  await db.transaction(async (tx) => {
+    await tx.delete(workspaceMembers).where(eq(workspaceMembers.userId, userId));
+    await endUserAccess(tx, userId);
+  });
 
   return success({ id: userId, approvalStatus: "rejected" });
 }
