@@ -117,6 +117,8 @@ interface Conversation {
   lastMessagePreview: string | null;
   unreadCount: number;
   dealRecordId: string | null;
+  pendingDealSuggestionId?: string | null;
+  crossCompanyNotice?: string | null;
   aiPaused?: boolean;
   agentState?: {
     stage?: string;
@@ -794,6 +796,27 @@ function ConversationView({
       : DEFAULT_KONTAKTART
   );
   const [kontaktartSaving, setKontaktartSaving] = useState(false);
+  const [dealBusy, setDealBusy] = useState(false);
+  async function acceptDealSuggestion() {
+    if (!conv.pendingDealSuggestionId || conv.dealRecordId || dealBusy) return;
+    setDealBusy(true);
+    try {
+      const res = await fetch(`/api/v1/inbox/deal-suggestions/${conv.pendingDealSuggestionId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "accept" }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok) {
+        toast.error(json?.error?.message || "Deal konnte nicht angelegt werden");
+        return;
+      }
+      const dealId = json?.data?.dealRecordId as string | null | undefined;
+      if (dealId) onDealLinked?.(dealId);
+    } finally {
+      setDealBusy(false);
+    }
+  }
   useEffect(() => {
     setKontaktart(
       (KONTAKTART_VALUES as readonly string[]).includes(conv.kontaktart ?? "")
@@ -1285,6 +1308,18 @@ function ConversationView({
           </div>
         </div>
 
+        {conv.pendingDealSuggestionId && !conv.dealRecordId && (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={dealBusy}
+            onClick={() => void acceptDealSuggestion()}
+          >
+            {dealBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+            Deal anlegen
+          </Button>
+        )}
+
         {/* Sales-agent per-conversation toggle */}
         <button
           onClick={toggleAiPaused}
@@ -1405,6 +1440,12 @@ function ConversationView({
           )}
         </div>
       </div>
+
+      {conv.crossCompanyNotice && (
+        <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/30 text-xs text-amber-900 shrink-0">
+          {conv.crossCompanyNotice}
+        </div>
+      )}
 
       {/* Subject bar (email/kleinanzeigen only) */}
       {conv.subject && !isWa && (
@@ -1852,6 +1893,8 @@ export default function InboxPage() {
           fresh.aiPaused === s.aiPaused &&
           fresh.unreadCount === s.unreadCount &&
           fresh.dealRecordId === s.dealRecordId &&
+          fresh.pendingDealSuggestionId === s.pendingDealSuggestionId &&
+          fresh.crossCompanyNotice === s.crossCompanyNotice &&
           fresh.status === s.status &&
           JSON.stringify(fresh.agentState ?? null) === JSON.stringify(s.agentState ?? null)
         ) {
@@ -1862,6 +1905,8 @@ export default function InboxPage() {
           aiPaused: fresh.aiPaused,
           unreadCount: fresh.unreadCount,
           dealRecordId: fresh.dealRecordId,
+          pendingDealSuggestionId: fresh.pendingDealSuggestionId,
+          crossCompanyNotice: fresh.crossCompanyNotice,
           status: fresh.status,
           agentState: fresh.agentState,
         };
@@ -2189,9 +2234,11 @@ export default function InboxPage() {
   // in Liste + selected setzen, damit Panel und Listen-Badge sofort stimmen.
   function handleDealLinked(convId: string, dealRecordId: string) {
     setConversations((prev) =>
-      prev.map((c) => (c.id === convId ? { ...c, dealRecordId } : c))
+      prev.map((c) => (c.id === convId ? { ...c, dealRecordId, pendingDealSuggestionId: null } : c))
     );
-    setSelected((s) => (s && s.id === convId ? { ...s, dealRecordId } : s));
+    setSelected((s) =>
+      s && s.id === convId ? { ...s, dealRecordId, pendingDealSuggestionId: null } : s
+    );
   }
 
   const searchMode = search.trim().length > 0;

@@ -11,12 +11,16 @@ interface CompanySwitch {
   name: string;
   suggestionsEnabled: boolean;
   autoWriteEnabled: boolean;
+  emailSuggestionsEnabled: boolean;
+  emailAutoWriteEnabled: boolean;
 }
 
 interface Settings {
   suggestionsEnabled: boolean;
   autoWriteEnabled: boolean;
   confidenceThreshold: number;
+  emailSuggestionsEnabled: boolean;
+  emailAutoWriteEnabled: boolean;
   operatingCompanies: CompanySwitch[];
 }
 
@@ -61,12 +65,16 @@ export default function DealEnrichmentSettingsPage() {
           suggestionsEnabled: settings.suggestionsEnabled,
           autoWriteEnabled: settings.autoWriteEnabled,
           confidenceThreshold: settings.confidenceThreshold,
+          emailSuggestionsEnabled: settings.emailSuggestionsEnabled,
+          emailAutoWriteEnabled: settings.emailAutoWriteEnabled,
           operatingCompanies: Object.fromEntries(
             settings.operatingCompanies.map((company) => [
               company.id,
               {
                 suggestionsEnabled: company.suggestionsEnabled,
                 autoWriteEnabled: company.autoWriteEnabled,
+                emailSuggestionsEnabled: company.emailSuggestionsEnabled,
+                emailAutoWriteEnabled: company.emailAutoWriteEnabled,
               },
             ])
           ),
@@ -94,8 +102,10 @@ export default function DealEnrichmentSettingsPage() {
         <h1 className="text-xl font-semibold">KI-Felder</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Leere Quelle, Anzeige, Verlustgrund, die Phase und die Kontaktart aus dem Gespräch. Bewerbungen
-          werden als Bewerber vorgeschlagen. Es wird nie eine Nachricht gesendet und nie ein gesetzter
-          Wert überschrieben. Die Standard-Kontaktart Lead/Kunde gilt als leer und darf ersetzt werden.
+          werden als Bewerber vorgeschlagen. Direkte E-Mails werden nur bei einer sicheren Kundenanfrage
+          zum Deal; unsichere Fälle bleiben ein Vorschlag. Es wird nie eine Nachricht gesendet und nie ein
+          gesetzter Wert überschrieben. Die Standard-Kontaktart Lead/Kunde gilt als leer und darf ersetzt
+          werden.
         </p>
       </div>
 
@@ -130,6 +140,30 @@ export default function DealEnrichmentSettingsPage() {
         />
       </div>
 
+      <div className="space-y-3 border-t pt-4">
+        <h2 className="text-sm font-semibold">Deals aus direkten E-Mails</h2>
+        <p className="text-sm text-muted-foreground">
+          Gilt pro Gesellschaft, zusätzlich zu den Schaltern oben. Portal-Leads (Kleinanzeigen, ImmoScout,
+          Möbeltransport24, Website-Formular) bleiben davon unabhängig.
+        </p>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={settings.emailSuggestionsEnabled}
+            onChange={(event) => setSettings({ ...settings, emailSuggestionsEnabled: event.target.checked })}
+          />
+          Vorschlag „Deal anlegen“
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={settings.emailAutoWriteEnabled}
+            onChange={(event) => setSettings({ ...settings, emailAutoWriteEnabled: event.target.checked })}
+          />
+          Deal automatisch anlegen ab der Schwelle
+        </label>
+      </div>
+
       <div className="space-y-3">
         <h2 className="text-sm font-semibold">Gesellschaften</h2>
         {settings.operatingCompanies.map((company) => (
@@ -151,6 +185,22 @@ export default function DealEnrichmentSettingsPage() {
                   onChange={(event) => patchCompany(company.id, { autoWriteEnabled: event.target.checked })}
                 />
                 Automatisch schreiben
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={company.emailSuggestionsEnabled}
+                  onChange={(event) => patchCompany(company.id, { emailSuggestionsEnabled: event.target.checked })}
+                />
+                E-Mail-Deal vorschlagen
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={company.emailAutoWriteEnabled}
+                  onChange={(event) => patchCompany(company.id, { emailAutoWriteEnabled: event.target.checked })}
+                />
+                E-Mail-Deal automatisch
               </label>
             </div>
           </div>

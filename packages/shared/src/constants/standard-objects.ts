@@ -181,6 +181,8 @@ export const STANDARD_OBJECTS: StandardObject[] = [
           { title: "ImmoScout24 / umzugsfirmen-check", color: "#f97316" },
           { title: "Kleinanzeigen", color: "#ca8a04" },
           { title: "Empfehlung", color: "#7c3aed" },
+          { title: "E-Mail", color: "#0284c7" },
+          { title: "Möbeltransport24", color: "#0f766e" },
           { title: "Sonstiges", color: "#6b7280" },
         ],
       },

@@ -44,6 +44,8 @@ export const AI_TASK_SLUGS = {
   // Background enrichment of empty deal fields (Quelle, Verlustgrund, Phase).
   // On/off lives in the deal-enrichment settings, not the generic task toggle.
   DEAL_ENRICH_FIELDS: "deal.enrich-fields",
+  // Direct email → deal. On/off lives in the KI-Felder email-deal switches.
+  EMAIL_LEAD_CLASSIFY: "inbox.email-lead-classify",
   // Projekt-Anlege-Wizard: turns the step-1 basics into scope points, phases,
   // a first task frame, milestones and initial risks (spec §9). Structured
   // output only — the wizard shows it as editable suggestions and never
@@ -64,6 +66,7 @@ export const ENGINE_OWNED_TASKS: ReadonlySet<string> = new Set([
   AI_TASK_SLUGS.LEAD_FOLLOWUP,
   AI_TASK_SLUGS.LEAD_FIRST_CONTACT,
   AI_TASK_SLUGS.DEAL_ENRICH_FIELDS,
+  AI_TASK_SLUGS.EMAIL_LEAD_CLASSIFY,
 ]);
 
 export type AITaskSlug = (typeof AI_TASK_SLUGS)[keyof typeof AI_TASK_SLUGS];
@@ -249,6 +252,19 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
     defaultFallbackModel: "claude-code",
     defaultTemperature: 0.1,
     defaultMaxTokens: 2000,
+    defaultDailySpendCapUsd: 2,
+    humanizeOutput: false,
+  },
+  [AI_TASK_SLUGS.EMAIL_LEAD_CLASSIFY]: {
+    slug: AI_TASK_SLUGS.EMAIL_LEAD_CLASSIFY,
+    label: "E-Mail als Kundenanfrage prüfen",
+    description:
+      "Prüft eine direkte E-Mail, ob sie eine neue Umzugs- oder Entrümpelungsanfrage ist. Legt bei hoher Sicherheit einen Deal an, sonst einen Vorschlag. Sendet nie eine Nachricht.",
+    defaultProvider: "crm-tools",
+    defaultModel: "grok-4.6",
+    defaultFallbackModel: "claude-code",
+    defaultTemperature: 0.1,
+    defaultMaxTokens: 800,
     defaultDailySpendCapUsd: 2,
     humanizeOutput: false,
   },
