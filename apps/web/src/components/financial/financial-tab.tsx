@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { prepareReceiptDataUrl } from "@/lib/receipt-image";
+import { currencyAmount } from "@/lib/currency-value";
 import { EXPENSE_CATEGORIES, EXPENSE_TAX_TREATMENT_LABELS } from "@/lib/expense-categories";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -1583,9 +1584,8 @@ export function FinancialTab({ recordId }: { recordId: string }) {
       if (ocRes.ok) setOperatingCompanies(await ocRes.json().then((r) => r.data));
       if (dealRes.ok) {
         const dealJson = await dealRes.json();
-        const valueAttr = dealJson?.data?.values?.value;
-        const n = valueAttr != null ? Number(valueAttr) : NaN;
-        setDealValue(Number.isFinite(n) ? n : null);
+        // `value` is a currency attribute: {amount, currencyCode}.
+        setDealValue(currencyAmount(dealJson?.data?.values?.value));
       }
     } finally {
       setLoading(false);

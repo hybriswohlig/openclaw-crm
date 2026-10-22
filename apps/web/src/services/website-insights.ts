@@ -12,6 +12,7 @@
  */
 
 import { db } from "@/db";
+import { currencyAmount } from "@/lib/currency-value";
 import { and, desc, eq, gte, inArray } from "drizzle-orm";
 import { records, recordValues } from "@/db/schema/records";
 import { attributes, objects, statuses } from "@/db/schema/objects";
@@ -139,7 +140,7 @@ export async function loadDeals(workspaceId: string, since: Date): Promise<DealR
       sites: sitesForCompanyName(companyName),
       stage: classifyStage(title),
       stageTitle: title,
-      value: Number(m?.get(attrId("value"))?.numberValue ?? 0) || 0,
+      value: currencyAmount(m?.get(attrId("value"))?.jsonValue ?? m?.get(attrId("value"))?.numberValue) ?? 0,
     };
   });
 }

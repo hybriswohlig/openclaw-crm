@@ -7,6 +7,7 @@
  */
 
 import { db } from "@/db";
+import { currencyAmount } from "@/lib/currency-value";
 import { and, eq, gte, lt, inArray, notInArray, sum, sql } from "drizzle-orm";
 import { objects, attributes, statuses, selectOptions } from "@/db/schema/objects";
 import { records, recordValues } from "@/db/schema/records";
@@ -336,10 +337,10 @@ export async function getOverviewStats(workspaceId: string): Promise<OverviewSta
       const doneDealIds = doneDealRows.map((r) => r.recordId);
       if (doneDealIds.length > 0) {
         const valueRows = await db
-          .select({ recordId: recordValues.recordId, num: recordValues.numberValue })
+          .select({ recordId: recordValues.recordId, num: recordValues.numberValue, json: recordValues.jsonValue })
           .from(recordValues)
           .where(and(eq(recordValues.attributeId, valueAttr.id), inArray(recordValues.recordId, doneDealIds)));
-        const valueSum = valueRows.reduce((s, r) => s + Number(r.num ?? 0), 0);
+        const valueSum = valueRows.reduce((s, r) => s + (currencyAmount(r.json ?? r.num) ?? 0), 0);
 
         const paidRows = await db
           .select({ total: sum(payments.amount) })
@@ -481,7 +482,8 @@ export async function getPipelineStats(workspaceId: string): Promise<PipelineSta
   for (const d of allDeals) {
     const v = byRecord.get(d.id);
     const stageId = v?.get(stageAttr?.id ?? "")?.textValue ?? null;
-    const valNum = Number(v?.get(valueAttr?.id ?? "")?.numberValue ?? 0);
+    const valRow = v?.get(valueAttr?.id ?? "");
+    const valNum = currencyAmount(valRow?.jsonValue ?? valRow?.numberValue) ?? 0;
     if (stageId && buckets.has(stageId)) {
       const b = buckets.get(stageId)!;
       b.count++;
@@ -572,7 +574,8 @@ export async function getPipelineStats(workspaceId: string): Promise<PipelineSta
   for (const d of allDeals) {
     const v = byRecord.get(d.id);
     const stageId = v?.get(stageAttr?.id ?? "")?.textValue ?? null;
-    const valNum = Number(v?.get(valueAttr?.id ?? "")?.numberValue ?? 0);
+    const valRow = v?.get(valueAttr?.id ?? "");
+    const valNum = currencyAmount(valRow?.jsonValue ?? valRow?.numberValue) ?? 0;
     if (!stageId || valNum <= 0) continue;
     if (activeIds.has(stageId)) {
       openSum += valNum;
@@ -1206,7 +1209,7 @@ export async function getCompanyComparison(
     let valueByDeal = new Map<string, number>();
     if (valueAttr && decisionRows.length > 0) {
       const valueRows = await db
-        .select({ dealId: recordValues.recordId, num: recordValues.numberValue })
+        .select({ dealId: recordValues.recordId, num: recordValues.numberValue, json: recordValues.jsonValue })
         .from(recordValues)
         .where(
           and(
@@ -1214,7 +1217,7 @@ export async function getCompanyComparison(
             inArray(recordValues.recordId, decisionRows.map((r) => r.dealId))
           )
         );
-      valueByDeal = new Map(valueRows.map((r) => [r.dealId, Number(r.num ?? 0)]));
+      valueByDeal = new Map(valueRows.map((r) => [r.dealId, currencyAmount(r.json ?? r.num) ?? 0]));
     }
 
     for (const d of decisionRows) {
