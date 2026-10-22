@@ -17,6 +17,22 @@ import { inboxConversations, channelAccounts, inboxContacts } from "@/db/schema/
 import { bucketNonLeadsByMonth, isLeadKunde, type NonLeadMonthBucket } from "@/lib/kontaktart";
 import { loadNonLeadDealIds } from "@/services/kontaktart";
 
+// ─── Currency values ─────────────────────────────────────────────────────────
+
+/**
+ * `value` is a currency attribute: the amount lives in json_value as
+ * { amount, currencyCode } (attribute-types.ts). Older rows may still carry a
+ * bare number_value, so both are read; json wins.
+ */
+export function amountOf(numberValue: unknown, jsonValue: unknown): number {
+  if (jsonValue && typeof jsonValue === "object" && "amount" in jsonValue) {
+    const amount = Number((jsonValue as { amount?: unknown }).amount);
+    if (Number.isFinite(amount)) return amount;
+  }
+  const fallback = Number(numberValue ?? 0);
+  return Number.isFinite(fallback) ? fallback : 0;
+}
+
 // ─── Period helpers ──────────────────────────────────────────────────────────
 
 export type Period = "30d" | "90d" | "365d" | "ytd";
@@ -336,10 +352,10 @@ export async function getOverviewStats(workspaceId: string): Promise<OverviewSta
       const doneDealIds = doneDealRows.map((r) => r.recordId);
       if (doneDealIds.length > 0) {
         const valueRows = await db
-          .select({ recordId: recordValues.recordId, num: recordValues.numberValue })
+          .select({ recordId: recordValues.recordId, num: recordValues.numberValue, json: recordValues.jsonValue })
           .from(recordValues)
           .where(and(eq(recordValues.attributeId, valueAttr.id), inArray(recordValues.recordId, doneDealIds)));
-        const valueSum = valueRows.reduce((s, r) => s + Number(r.num ?? 0), 0);
+        const valueSum = valueRows.reduce((s, r) => s + amountOf(r.num, r.json), 0);
 
         const paidRows = await db
           .select({ total: sum(payments.amount) })
@@ -481,7 +497,8 @@ export async function getPipelineStats(workspaceId: string): Promise<PipelineSta
   for (const d of allDeals) {
     const v = byRecord.get(d.id);
     const stageId = v?.get(stageAttr?.id ?? "")?.textValue ?? null;
-    const valNum = Number(v?.get(valueAttr?.id ?? "")?.numberValue ?? 0);
+    const valueRow = v?.get(valueAttr?.id ?? "");
+    const valNum = amountOf(valueRow?.numberValue, valueRow?.jsonValue);
     if (stageId && buckets.has(stageId)) {
       const b = buckets.get(stageId)!;
       b.count++;
@@ -572,7 +589,8 @@ export async function getPipelineStats(workspaceId: string): Promise<PipelineSta
   for (const d of allDeals) {
     const v = byRecord.get(d.id);
     const stageId = v?.get(stageAttr?.id ?? "")?.textValue ?? null;
-    const valNum = Number(v?.get(valueAttr?.id ?? "")?.numberValue ?? 0);
+    const valueRow = v?.get(valueAttr?.id ?? "");
+    const valNum = amountOf(valueRow?.numberValue, valueRow?.jsonValue);
     if (!stageId || valNum <= 0) continue;
     if (activeIds.has(stageId)) {
       openSum += valNum;
@@ -1206,7 +1224,7 @@ export async function getCompanyComparison(
     let valueByDeal = new Map<string, number>();
     if (valueAttr && decisionRows.length > 0) {
       const valueRows = await db
-        .select({ dealId: recordValues.recordId, num: recordValues.numberValue })
+        .select({ dealId: recordValues.recordId, num: recordValues.numberValue, json: recordValues.jsonValue })
         .from(recordValues)
         .where(
           and(
@@ -1214,7 +1232,7 @@ export async function getCompanyComparison(
             inArray(recordValues.recordId, decisionRows.map((r) => r.dealId))
           )
         );
-      valueByDeal = new Map(valueRows.map((r) => [r.dealId, Number(r.num ?? 0)]));
+      valueByDeal = new Map(valueRows.map((r) => [r.dealId, amountOf(r.num, r.json)]));
     }
 
     for (const d of decisionRows) {
