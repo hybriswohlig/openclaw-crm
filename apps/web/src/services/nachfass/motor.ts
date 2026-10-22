@@ -44,6 +44,7 @@ import {
   type NachfassRegel,
 } from "./konstanten";
 import {
+  angebotsWert,
   autoSendErlaubt,
   berlinTeile,
   entscheideNachfass,
@@ -831,7 +832,7 @@ async function baueLage(
       zaehltAlsKundeninhalt(m) === "outbound" &&
       (isCustomerOfferMessage(m.body) || /\b(festpreis|kostenvoranschlag)\b/i.test(m.body))
   );
-  const wert = Number(feld.get("value")?.num ?? quote?.fixedPrice ?? 0);
+  const wert = angebotsWert(feld.get("value"), quote?.fixedPrice);
   const hatAngebot = wert > 0 || dokumente.length > 0 || Boolean(angebotNachricht);
   const angebotAm = angebotNachricht?.at ?? pdfAm ?? (hatAngebot ? stille.letzteOutbound : null);
 

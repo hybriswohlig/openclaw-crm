@@ -3,6 +3,7 @@
  * Prüfreihenfolge: Ausschluss, dann Zustand, dann Regel.
  */
 import { looksDeclined } from "@/services/agent/agent-suppress";
+import { currencyAmount } from "@/lib/currency-value";
 import type { LossReasonTitle } from "@/lib/deal-source";
 import {
   ABSCHLUSS_NACH_MS,
@@ -133,6 +134,17 @@ const TERMINAL: ReadonlySet<StageKategorie> = new Set([
 
 const QUITTUNG =
   /^(gelesen|zugestellt|empfangen|read|delivered|seen)([ .!]*|$)|\[(gelesen|zugestellt|read|delivered|reaction|reaktion|system|bridge|typing)\]|^(reaction|reaktion):/i;
+
+/**
+ * Angebotswert eines Deals: das Währungsfeld `value` (steht als
+ * {amount, …} in json_value, alte Zeilen als Zahl), sonst der Festpreis.
+ */
+export function angebotsWert(
+  feld: { json?: unknown; num?: unknown } | undefined,
+  festpreis: string | number | null | undefined
+): number {
+  return currencyAmount(feld?.json ?? feld?.num) ?? (Number(festpreis ?? 0) || 0);
+}
 
 export function berlinTeile(now: Date): {
   year: number;

@@ -11,6 +11,12 @@ describe("namesMatch", () => {
     ["Kleiderschrank", "Kleiderschrank 3-türig"],
     ["Waschmaschine", "waschmaschine"],
     ["Couchtisch (Glas)", "Couchtisch"],
+    // Chat prompt uses plurals ("Umzugskartons"), photo prompt singulars.
+    ["Umzugskartons", "Umzugskarton"],
+    ["Kartons", "Karton"],
+    ["Lampen", "Lampe"],
+    ["Regale", "Regal"],
+    ["Matratzen", "Matratze"],
   ])("merges %s and %s", (a, b) => {
     expect(namesMatch(a, b)).toBe(true);
     expect(namesMatch(b, a)).toBe(true);
@@ -22,6 +28,11 @@ describe("namesMatch", () => {
     ["Stuhl", "Bürostuhl"],
     ["Schrank", "Schuhschrank"],
     ["Karton", "Bücherkarton"],
+    // A short word in front of a hyphen is a modifier, not the item.
+    ["TV", "TV-Board"],
+    ["TV", "TV-Schrank"],
+    ["PC", "PC-Tisch"],
+    ["Sofa", "Sofa-Tisch"],
   ])("keeps %s and %s apart", (a, b) => {
     expect(namesMatch(a, b)).toBe(false);
     expect(namesMatch(b, a)).toBe(false);

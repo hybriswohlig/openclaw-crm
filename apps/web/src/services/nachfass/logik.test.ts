@@ -7,6 +7,7 @@ import {
 } from "./konstanten";
 import {
   altBatchErreicht,
+  angebotsWert,
   autoSendErlaubt,
   berlinTeile,
   entscheideNachfass,
@@ -501,5 +502,26 @@ describe("Team-Erinnerung und Form", () => {
     expect(ohneDoppeltenGruss("Hallo Anna, kurze Frage zum Angebot.", true)).toBe("kurze Frage zum Angebot.");
     expect(ohneDoppeltenGruss("Guten Tag, der Termin ist noch frei.", true).toLowerCase()).not.toMatch(/^guten tag/);
     expect(ohneDoppeltenGruss("Hallo, ich melde mich zum Umzug.", false)).toMatch(/^Hallo/);
+  });
+});
+
+// Der Dealwert ist ein Währungsfeld und steht in json_value ({amount, …}).
+// motor.ts las nur die Zahlenspalte: ohne Angebots-PDF galt der Deal als
+// „ohne Angebot“, die Team-Erinnerung lief los und FU1/FU2 blieben aus.
+describe("angebotsWert", () => {
+  it("liest das Währungsfeld", () => {
+    expect(angebotsWert({ json: { amount: 1080, currencyCode: "EUR" }, num: null }, null)).toBe(1080);
+  });
+
+  it("nimmt alte Zahlenwerte weiter", () => {
+    expect(angebotsWert({ json: null, num: "950.00" }, null)).toBe(950);
+  });
+
+  it("fällt auf den Festpreis des Angebots zurück", () => {
+    expect(angebotsWert(undefined, "1200")).toBe(1200);
+  });
+
+  it("ist 0 ohne Wert und Festpreis", () => {
+    expect(angebotsWert(undefined, null)).toBe(0);
   });
 });
