@@ -51,6 +51,8 @@ import {
 // Phase-1 SHADOW instrumentation: every call below is additive-only, catches
 // its own errors, and must NEVER branch engine behavior (see agent-shadow.ts).
 import { recordShadowGate, captureShadowDraft, shadowHeartbeat } from "./agent-shadow";
+import { isHumanOwned } from "./agent-gate";
+import { zustellweg } from "./zustellweg";
 import { anredeAnweisung, anredeAus, begruessung, saeubern, stimmeAusSignatur, STIL_REGELN } from "./stimme";
 import { inhaberRegelBlock } from "@/services/intern/regeln";
 import { ladeInhaberRegeln } from "@/services/intern/regeln-lauf";
@@ -300,6 +302,19 @@ async function runForWorkspace(
         continue;
       }
 
+      // An operator took the deal over: no nudge until the deal is released.
+      const weg = zustellweg({
+        dryRun,
+        humanOwned: conv.dealRecordId ? await isHumanOwned(conv.dealRecordId) : false,
+      });
+      if (weg === "ueberspringen") {
+        summary.skipped += 1;
+        shadow.skipped += 1;
+        gateRecorded = true;
+        await shadowGate(conv, "skip_human_owned", false);
+        continue;
+      }
+
       // Decided deal (booked/done/paid or lost)? Leave them alone.
       if (decidedStages.size > 0 && conv.dealRecordId) {
         const stageId = await getDealStageId(dealsObj.id, conv.dealRecordId);
@@ -413,7 +428,8 @@ async function runForWorkspace(
       // still WOULD have sent — that is exactly what legacyWouldSend means.
       gateRecorded = true;
       const gate = await shadowGate(conv, "nudge", true);
-      if (conv.dealRecordId) {
+      // Live sends below; a queued draft would ask for approval and send twice.
+      if (weg === "entwurf" && conv.dealRecordId) {
         await captureShadowDraft({
           workspaceId,
           engine: "followup",
@@ -427,7 +443,7 @@ async function runForWorkspace(
         });
       }
 
-      if (!dryRun) {
+      if (weg === "senden") {
         await sendOnChannel(conv as AgentChannelRow, message);
         summary.sent += 1;
       } else {
