@@ -6,12 +6,9 @@ import { getSetting, setSetting } from "@/services/workspace-settings";
 import { bewerteKiLage, type WaechterStatus } from "./ki-waechter";
 import { nachholenAusstehend, sendeAnInterne } from "./intern-senden";
 import { ladeInterneNummern } from "./interne-nummern";
+import { berlinHour } from "@/lib/berlin-date";
 
 const STATUS_KEY = "ki_waechter_status";
-
-function berlinStunde(d: Date): number {
-  return Number(new Intl.DateTimeFormat("de-DE", { timeZone: "Europe/Berlin", hour: "2-digit", hourCycle: "h23" }).format(d));
-}
 
 function statusAus(roh: string | null): WaechterStatus {
   try {
@@ -66,7 +63,7 @@ export async function kiWaechterLauf(jetzt = new Date()) {
       },
       status,
       jetzt,
-      berlinStunde(jetzt),
+      berlinHour(jetzt),
       namen
     );
     const neu = { ...r.neuerStatus };
