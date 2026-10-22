@@ -29,6 +29,7 @@ import {
   isKleinanzeigenEmail,
   stripKleinanzeigenSuffix,
   parseKleinanzeigenBody,
+  replyAddressForThread,
 } from "./inbox-kleinanzeigen";
 import { createDealForNewConversation } from "./inbox";
 import { stampDealSourceIfEmpty, noteOutboundToCustomer } from "./deal-attribution";
@@ -771,9 +772,7 @@ export async function sendEmailReply(params: {
     .limit(1)
     .then((r) => r[0]);
 
-  const toAddress = conv.externalThreadId?.includes("@")
-    ? conv.externalThreadId // Kleinanzeigen relay address
-    : contact?.email ?? "";
+  const toAddress = replyAddressForThread(conv.externalThreadId, contact?.email);
 
   if (!toAddress) throw new Error("Cannot determine reply-to address");
 

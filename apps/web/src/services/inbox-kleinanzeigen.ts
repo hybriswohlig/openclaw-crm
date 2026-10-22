@@ -22,6 +22,20 @@ export function isKleinanzeigenRelayAddress(address: string | null | undefined):
   return KLEINANZEIGEN_RELAY_RE.test(address);
 }
 
+/**
+ * Where an email reply goes. Only Kleinanzeigen threads are keyed by the
+ * address to answer (the relay); Gmail thread ids, IMAP Message-IDs and our
+ * own Message-ID on CRM-composed threads are not addresses, even though
+ * Message-IDs contain "@". Those reply to the contact.
+ */
+export function replyAddressForThread(
+  externalThreadId: string | null | undefined,
+  contactEmail: string | null | undefined
+): string {
+  if (externalThreadId && isKleinanzeigenRelayAddress(externalThreadId)) return externalThreadId;
+  return contactEmail ?? "";
+}
+
 /** "RamonaOstd über Kleinanzeigen" → "RamonaOstd". */
 export function stripKleinanzeigenSuffix(name: string): string {
   return name.replace(/\s*(?:über|ueber|via)\s+Kleinanzeigen\s*$/i, "").trim();
