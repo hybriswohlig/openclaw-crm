@@ -18,13 +18,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { channelAccounts } from "@/db/schema/inbox";
 import { and, eq, isNull } from "drizzle-orm";
-import { getAuthContext, unauthorized } from "@/lib/api-utils";
+import { getAuthContext, unauthorized, requireBridgeApiKey } from "@/lib/api-utils";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized(req);
+  const bridgeDenied = requireBridgeApiKey(ctx);
+  if (bridgeDenied) return bridgeDenied;
 
   const rows = await db
     .select({

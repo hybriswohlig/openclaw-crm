@@ -21,7 +21,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { channelAccounts } from "@/db/schema/inbox";
 import { and, eq, isNull } from "drizzle-orm";
-import { getAuthContext, unauthorized, badRequest } from "@/lib/api-utils";
+import { getAuthContext, unauthorized, badRequest, requireBridgeApiKey } from "@/lib/api-utils";
 import {
   getSecret,
   setSecret,
@@ -62,6 +62,8 @@ export async function GET(
 ) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized(req);
+  const bridgeDenied = requireBridgeApiKey(ctx);
+  if (bridgeDenied) return bridgeDenied;
 
   const { accountId } = await params;
   const account = await resolveAccount(ctx.workspaceId, accountId);
@@ -100,6 +102,8 @@ export async function PUT(
 ) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized(req);
+  const bridgeDenied = requireBridgeApiKey(ctx);
+  if (bridgeDenied) return bridgeDenied;
 
   const { accountId } = await params;
   const account = await resolveAccount(ctx.workspaceId, accountId);

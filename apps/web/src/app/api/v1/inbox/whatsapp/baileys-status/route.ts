@@ -21,7 +21,7 @@ import {
   inboxMessages,
 } from "@/db/schema/inbox";
 import { and, eq, isNull, sql } from "drizzle-orm";
-import { getAuthContext, unauthorized, badRequest } from "@/lib/api-utils";
+import { getAuthContext, unauthorized, badRequest, requireBridgeApiKey } from "@/lib/api-utils";
 import {
   MESSAGE_STATUS_RANK,
   messageStatusRankSql,
@@ -55,6 +55,8 @@ const ALLOWED_STATUS: ReadonlySet<BaileysStatus> = new Set([
 export async function POST(req: NextRequest) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized(req);
+  const bridgeDenied = requireBridgeApiKey(ctx);
+  if (bridgeDenied) return bridgeDenied;
 
   let payload: Payload;
   try {

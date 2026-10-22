@@ -19,7 +19,7 @@ import { findeInterne, ladeInterneNummern } from "@/services/intern/interne-numm
 import { db } from "@/db";
 import { channelAccounts, inboxMessageAttachments } from "@/db/schema/inbox";
 import { eq, and, isNull } from "drizzle-orm";
-import { getAuthContext, unauthorized } from "@/lib/api-utils";
+import { getAuthContext, unauthorized, requireBridgeApiKey } from "@/lib/api-utils";
 import { ingestOutboundWhatsAppMessage } from "@/services/inbox-whatsapp";
 import type { WhatsAppOutboundOrigin } from "@/services/whatsapp-outbound-policy";
 
@@ -75,6 +75,8 @@ function badRequest(message: string, extra?: Record<string, unknown>) {
 export async function POST(req: NextRequest) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized(req);
+  const bridgeDenied = requireBridgeApiKey(ctx);
+  if (bridgeDenied) return bridgeDenied;
 
   let payload: BaileysOutboundPayload;
   try {

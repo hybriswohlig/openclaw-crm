@@ -280,6 +280,19 @@ export function requireAdmin(ctx: AuthContext): NextResponse | null {
   return null;
 }
 
+/**
+ * Machine endpoints of the Baileys bridge (auth state, pairing, inbound,
+ * outbound echo, status). Only the bridge's full `oc_sk_*` API key may call
+ * them; a member's browser session or a read-only key must not read or
+ * replace the WhatsApp device credentials.
+ */
+export function requireBridgeApiKey(ctx: AuthContext): NextResponse | null {
+  if (ctx.authMethod !== "api_key" || ctx.apiKeyAccess === "read") {
+    return forbidden("Bridge endpoint requires a full API key");
+  }
+  return null;
+}
+
 /** Admin OR member with the `manageChannels` permission. */
 export function canManageChannels(ctx: AuthContext): boolean {
   return ctx.workspaceRole === "admin" || ctx.permissions?.manageChannels === true;

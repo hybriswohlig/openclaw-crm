@@ -17,7 +17,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { channelAccounts } from "@/db/schema/inbox";
 import { and, eq, isNull } from "drizzle-orm";
-import { getAuthContext, unauthorized, badRequest } from "@/lib/api-utils";
+import { getAuthContext, unauthorized, badRequest, requireBridgeApiKey } from "@/lib/api-utils";
 import { deleteSetting } from "@/services/workspace-settings";
 
 export const dynamic = "force-dynamic";
@@ -59,6 +59,8 @@ const ALLOWED_STATUS: ReadonlySet<PairingStatus> = new Set([
 export async function POST(req: NextRequest) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized(req);
+  const bridgeDenied = requireBridgeApiKey(ctx);
+  if (bridgeDenied) return bridgeDenied;
 
   let payload: Payload;
   try {

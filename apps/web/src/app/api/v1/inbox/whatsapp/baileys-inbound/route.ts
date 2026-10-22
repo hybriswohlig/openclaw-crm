@@ -20,7 +20,7 @@ import { verarbeiteInterneNachricht } from "@/services/intern/freigabe";
 import { db } from "@/db";
 import { channelAccounts, inboxMessageAttachments } from "@/db/schema/inbox";
 import { eq, and, isNull } from "drizzle-orm";
-import { getAuthContext, unauthorized } from "@/lib/api-utils";
+import { getAuthContext, unauthorized, requireBridgeApiKey } from "@/lib/api-utils";
 import { ingestInboundWhatsAppMessage } from "@/services/inbox-whatsapp";
 
 // Freigabe-Befehle laufen per after() weiter (KI-Überarbeitung bis ~2 Minuten).
@@ -95,6 +95,8 @@ function badRequest(message: string, extra?: Record<string, unknown>) {
 export async function POST(req: NextRequest) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized(req);
+  const bridgeDenied = requireBridgeApiKey(ctx);
+  if (bridgeDenied) return bridgeDenied;
 
   let payload: BaileysInboundPayload;
   try {
