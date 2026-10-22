@@ -31,6 +31,7 @@ import {
   parseKleinanzeigenBody,
   replyAddressForThread,
 } from "./inbox-kleinanzeigen";
+import { aiProcessedAtBeimEingang } from "./agent/ingest-arming";
 import { createDealForNewConversation } from "./inbox";
 import { stampDealSourceIfEmpty, noteOutboundToCustomer } from "./deal-attribution";
 import { extractKleinanzeigenDetail } from "@/lib/deal-source";
@@ -241,6 +242,9 @@ async function ingestParsedEmail(
   // Opt-out: a STOP / clear decline must never arm the agent. IS24 mails come
   // from a no-reply address, so only treat real two-way threads as opt-outs.
   const declined = !isImmoLead && looksDeclined(body);
+  // Arms the reply agent? Un-armed messages are stamped processed at insert so
+  // the reply worker's safety net leaves them alone.
+  const armiert = isImmoLead ? false : triage.lane === "lead" && !declined;
 
   if (!conv) {
     const [created] = await db
@@ -260,7 +264,7 @@ async function ingestParsedEmail(
         // IS24 leads land in the lead lane but get NO auto-reply: the sender is
         // a no-reply notification address, not a channel back to the customer.
         // The team works the lead from the created deal (phone/email in the body).
-        aiNeedsReply: isImmoLead ? false : triage.lane === "lead" && !declined,
+        aiNeedsReply: armiert,
         aiLastInboundAt: sentAt,
       })
       .returning();
@@ -340,7 +344,7 @@ async function ingestParsedEmail(
         // Noise-Gate (Parität zum WhatsApp-Pfad): nur echte Lead-Nachrichten
         // re-armen den Agenten — ein Newsletter-Follow-up auf einem
         // info-Thread darf ihn nie wecken. IS24-Absender sind no-reply.
-        aiNeedsReply: isImmoLead ? false : triage.lane === "lead" && !declined,
+        aiNeedsReply: armiert,
         aiLastInboundAt: sentAt,
         // Re-open resolved/spam conversations when the customer writes back
         ...(conv.status !== "open" ? { status: "open" } : {}),
@@ -395,6 +399,7 @@ async function ingestParsedEmail(
       isRead: false,
       rawHeaders: JSON.stringify(Object.fromEntries(parsed.headers ?? [])),
       sentAt,
+      aiProcessedAt: aiProcessedAtBeimEingang(armiert, sentAt),
     })
     .returning({ id: inboxMessages.id });
 

@@ -32,6 +32,7 @@ import { scanInboundReply } from "./reviews/inbound-scanner";
 import { classifyMessagingBody } from "./inbox-triage";
 import { looksDeclined, recordAgentDecline } from "./agent/agent-suppress";
 import { setHumanOwned } from "./agent/agent-gate";
+import { aiProcessedAtBeimEingang } from "./agent/ingest-arming";
 import { canonicalizePhone } from "@/lib/identity/canonical";
 import {
   INBOX_BRIDGE_BODY_LIMIT_BYTES,
@@ -590,6 +591,9 @@ export async function ingestInboundWhatsAppMessage(params: {
   // Opt-out: a STOP / clear decline must never arm the agent and must suppress
   // all future automated outreach to this person (recorded below once conv exists).
   const declined = looksDeclined(body) || looksDeclined(previewText);
+  // Arms the reply agent? Un-armed messages are stamped processed below so the
+  // worker's safety net leaves them alone.
+  const armiert = triage.lane === "lead" && !declined;
 
   if (!conv) {
     const [created] = await db
@@ -606,7 +610,7 @@ export async function ingestInboundWhatsAppMessage(params: {
         lane: triage.lane,
         classificationReason: triage.reason,
         classifiedBy: triage.by,
-        aiNeedsReply: triage.lane === "lead" && !declined,
+        aiNeedsReply: armiert,
         aiLastInboundAt: sentAt,
       })
       // Two racing first-ever ingests of the same peer (e.g. message + echo)
@@ -691,7 +695,7 @@ export async function ingestInboundWhatsAppMessage(params: {
         unreadCount: (conv.unreadCount ?? 0) + 1,
         // Only arm the agent for real lead messages; an OTP-style follow-up on an
         // existing thread should not trigger a reply. A STOP/decline never arms it.
-        aiNeedsReply: triage.lane === "lead" && !declined,
+        aiNeedsReply: armiert,
         aiLastInboundAt: sentAt,
         // Re-open resolved/spam conversations when the customer writes back
         ...(conv.status !== "open" ? { status: "open" } : {}),
@@ -750,6 +754,7 @@ export async function ingestInboundWhatsAppMessage(params: {
         isRead: false,
         rawHeaders: rawHeaders ? JSON.stringify(rawHeaders) : null,
         sentAt,
+        aiProcessedAt: aiProcessedAtBeimEingang(armiert, sentAt),
       })
       .returning({ id: inboxMessages.id });
     messageId = stored?.id ?? null;
