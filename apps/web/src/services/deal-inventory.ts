@@ -19,6 +19,7 @@ import { runAITask } from "./ai/run-task";
 import { AI_TASK_SLUGS } from "./ai/task-registry";
 import { emitEvent } from "./activity-events";
 import { kalkulationAnstossen } from "@/services/rechner/ausloeser";
+import { namesMatch } from "@/lib/inventar-namen";
 
 const SIZE_CLASSES = ["klein", "mittel", "gross", "sperrig"] as const;
 const CONFIDENCES = ["hoch", "mittel", "niedrig"] as const;
@@ -330,19 +331,6 @@ export async function inventoryAttachmentIdsForMessages(
       )
     );
   return rows.filter((r) => r.mimeType.startsWith("image/")).map((r) => r.id);
-}
-
-const normName = (s: string) => s.trim().toLowerCase();
-
-/** Fuzzy-Match Chat-Item ↔ Foto-Item: exakt oder Enthaltensein (min. 4 Zeichen,
- *  damit "Bett" nicht "Bettwäsche-Karton" frisst, aber "Sofa" ↔ "3-Sitzer-Sofa" matcht). */
-function namesMatch(a: string, b: string): boolean {
-  const na = normName(a);
-  const nb = normName(b);
-  if (na === nb) return true;
-  if (na.length >= 4 && nb.includes(na)) return true;
-  if (nb.length >= 4 && na.includes(nb)) return true;
-  return false;
 }
 
 export interface PhotoAnalysisResult {
