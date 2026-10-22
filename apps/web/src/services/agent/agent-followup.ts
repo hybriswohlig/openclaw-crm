@@ -302,18 +302,12 @@ async function runForWorkspace(
         continue;
       }
 
-      // An operator took the deal over: no nudge until the deal is released.
+      // An operator took the deal over: never nudge automatically, only as a
+      // draft for approval (owner decision ccc542a).
       const weg = zustellweg({
         dryRun,
         humanOwned: conv.dealRecordId ? await isHumanOwned(conv.dealRecordId) : false,
       });
-      if (weg === "ueberspringen") {
-        summary.skipped += 1;
-        shadow.skipped += 1;
-        gateRecorded = true;
-        await shadowGate(conv, "skip_human_owned", false);
-        continue;
-      }
 
       // Decided deal (booked/done/paid or lost)? Leave them alone.
       if (decidedStages.size > 0 && conv.dealRecordId) {
@@ -443,9 +437,18 @@ async function runForWorkspace(
         });
       }
 
-      if (weg === "senden") {
+      // The model call takes a while: the customer may have answered or an
+      // operator may have taken over meanwhile. Re-check right before sending.
+      const nochDran =
+        weg === "senden" &&
+        (await trailingOutboundCount(conv.id)).lastIsOutbound &&
+        !(conv.dealRecordId && (await isHumanOwned(conv.dealRecordId)));
+      if (nochDran) {
         await sendOnChannel(conv as AgentChannelRow, message);
         summary.sent += 1;
+      } else if (weg === "senden") {
+        summary.skipped += 1;
+        continue;
       } else {
         summary.dryRunPreviews += 1;
       }

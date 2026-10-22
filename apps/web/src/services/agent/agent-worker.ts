@@ -20,7 +20,7 @@
  */
 
 import { db } from "@/db";
-import { and, asc, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm";
 import { agentEvents } from "@/db/schema/agent";
 import { fotosVormerken } from "@/services/inventar-fotos";
 import { excludeInternalPhotoMessages } from "@/services/deal-photos";
@@ -454,10 +454,45 @@ async function kuerzlichWiederAngestossen(conversationId: string, aiLastInboundA
   return !!e;
 }
 
-async function clearNeedsReply(conversationId: string, pause: boolean): Promise<void> {
+/**
+ * End of a turn: mark only the customer messages the turn actually saw (sent
+ * up to `bis`). A message that arrived while the model was composing stays
+ * unprocessed and keeps the conversation armed, so the next tick answers it
+ * instead of it being stamped unseen. `pause` hands the thread to a human.
+ */
+async function turnAbschliessen(
+  conversationId: string,
+  now: Date,
+  bis: Date | null,
+  pause: boolean
+): Promise<void> {
+  await db
+    .update(inboxMessages)
+    .set({ aiProcessedAt: now })
+    .where(
+      and(
+        eq(inboxMessages.conversationId, conversationId),
+        eq(inboxMessages.direction, "inbound"),
+        isNull(inboxMessages.aiProcessedAt),
+        ...(bis ? [lte(inboxMessages.sentAt, bis)] : [])
+      )
+    );
+  const [neuer] = pause
+    ? []
+    : await db
+        .select({ id: inboxMessages.id })
+        .from(inboxMessages)
+        .where(
+          and(
+            eq(inboxMessages.conversationId, conversationId),
+            eq(inboxMessages.direction, "inbound"),
+            isNull(inboxMessages.aiProcessedAt)
+          )
+        )
+        .limit(1);
   await db
     .update(inboxConversations)
-    .set({ aiNeedsReply: false, ...(pause ? { aiPaused: true } : {}), updatedAt: new Date() })
+    .set({ aiNeedsReply: !!neuer, ...(pause ? { aiPaused: true } : {}), updatedAt: new Date() })
     .where(eq(inboxConversations.id, conversationId));
 }
 
@@ -561,16 +596,10 @@ async function processConversation(
     return;
   }
 
-  // An operator took this deal over (inbox send or typed on the phone): the
-  // agent stays out, also in live mode, until the deal is released.
+  // An operator took this deal over (inbox send or typed on the phone): never
+  // send automatically. Drafts with approval requests stay (owner decision).
   const humanOwned = conv.dealRecordId ? await isHumanOwned(conv.dealRecordId) : false;
   const weg = zustellweg({ dryRun: opts.dryRun, humanOwned });
-  if (weg === "ueberspringen") {
-    await stampInboundProcessed(conv.id, now);
-    summary.noops += 1;
-    await shadowGate("skip_human_owned", false);
-    return;
-  }
 
   const messages = await loadRecentMessages(conv.id);
 
@@ -811,6 +840,7 @@ async function processConversation(
         finalText: outgoing || null,
         gate: shadowVerdict,
         modelTag,
+        basisInbound: { id: last.id, sentAt: last.sentAt },
       });
     } else if (turn.action === "handoff") {
       // Preisfrage oder alles beisammen: Entwurf mit der Spanne aus dem
@@ -836,6 +866,7 @@ async function processConversation(
           finalText: appendSignature(preis.text, brand),
           gate: shadowVerdict,
           modelTag,
+          basisInbound: { id: last.id, sentAt: last.sentAt },
           preisPhrase: preis.phrase,
           preisDetails: preis.details,
         });
@@ -862,11 +893,10 @@ async function processConversation(
     }
   }
 
-  if (opts.dryRun) {
+  if (weg === "entwurf") {
     // Decide and record a visible preview, but never send/push/pause.
     await emitAgentEvent(conv, "dry_run", turn, outgoing || turn.owner_note || turn.message_de);
-    await stampInboundProcessed(conv.id, now);
-    await clearNeedsReply(conv.id, false);
+    await turnAbschliessen(conv.id, now, last.sentAt, false);
     summary.dryRunPreviews += 1;
     return;
   }
@@ -874,8 +904,7 @@ async function processConversation(
   // Live mode.
   if (turn.action === "ask") {
     if (!outgoing) {
-      await stampInboundProcessed(conv.id, now);
-      await clearNeedsReply(conv.id, false);
+      await turnAbschliessen(conv.id, now, last.sentAt, false);
       summary.noops += 1;
       return;
     }
@@ -915,8 +944,7 @@ async function processConversation(
       return;
     }
     await emitAgentEvent(conv, "live", turn, outgoing);
-    await stampInboundProcessed(conv.id, now);
-    await clearNeedsReply(conv.id, false);
+    await turnAbschliessen(conv.id, now, last.sentAt, false);
     return;
   }
 
@@ -947,16 +975,14 @@ async function processConversation(
       await ensureAgentPriceTask(conv.workspaceId, conv.dealRecordId, turn.owner_note);
     }
     await emitAgentEvent(conv, "live", turn, outgoing);
-    await stampInboundProcessed(conv.id, now);
     // Hand the thread to the human: pause the agent until it is handed back.
-    await clearNeedsReply(conv.id, true);
+    await turnAbschliessen(conv.id, now, last.sentAt, true);
     summary.handoffs += 1;
     return;
   }
 
   // no_op
-  await stampInboundProcessed(conv.id, now);
-  await clearNeedsReply(conv.id, false);
+  await turnAbschliessen(conv.id, now, last.sentAt, false);
   summary.noops += 1;
 }
 

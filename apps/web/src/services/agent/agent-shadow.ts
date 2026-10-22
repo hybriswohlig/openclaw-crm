@@ -18,7 +18,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { and, eq, gt, isNull, ne, or, sql } from "drizzle-orm";
+import { and, eq, gt, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { agentEvents, agentDrafts } from "@/db/schema/agent";
 import { sendPush } from "@/services/push";
@@ -123,6 +123,12 @@ export interface ShadowDraftInput {
   finalText?: string | null;
   gate?: GateVerdict | null;
   modelTag?: string | null;
+  /**
+   * The newest customer message this reply draft answers. It keys the draft
+   * per message burst (identical text for a NEW message is a new draft) and is
+   * what the approval-time freshness check compares against.
+   */
+  basisInbound?: { id: string; sentAt: Date | null } | null;
 }
 
 /** German notification labels per message class (push title). */
@@ -160,6 +166,7 @@ export async function captureShadowDraft(input: ShadowDraftInput): Promise<void>
     const scanTarget = input.finalText?.trim() || input.draftText;
     const contentHash = createHash("sha1").update(scanTarget).digest("hex").slice(0, 16);
     const threadKey = input.conversationId ?? input.dealRecordId;
+    const basis = input.basisInbound ?? null;
     // The repeat unit is the deal's WAITING STATE, not the LLM text: the
     // follow-up cron re-composes a (nondeterministic) nudge for the same
     // silent lead every day, which would insert a "new" row and re-push
@@ -195,6 +202,7 @@ export async function captureShadowDraft(input: ShadowDraftInput): Promise<void>
         filterVerdicts: {
           priceOrCommitmentLeak: leaksPriceOrCommitment(ohnePreisPhrase(scanTarget, input.preisPhrase)),
           scannedText: input.finalText ? "final" : "draft",
+          ...(basis?.sentAt ? { basisInboundAt: basis.sentAt.toISOString() } : {}),
           ...(input.preisPhrase ? { preisPhrase: input.preisPhrase } : {}),
           ...(input.preisDetails ? { preisDetails: input.preisDetails.slice(0, 2500) } : {}),
         },
@@ -202,13 +210,15 @@ export async function captureShadowDraft(input: ShadowDraftInput): Promise<void>
           ? { allowed: input.gate.allowed, reasons: input.gate.reasons }
           : null,
         status: "pending",
-        idempotencyKey: `shadow:${input.engine}:${threadKey}:${contentHash}`,
+        idempotencyKey: basis
+          ? `shadow:${input.engine}:${threadKey}:${basis.id}:${contentHash}`
+          : `shadow:${input.engine}:${threadKey}:${contentHash}`,
         expiresAt: new Date(Date.now() + 72 * 3600_000),
         promptVersion: SHADOW_PROMPT_VERSION,
         modelTag: input.modelTag ?? null,
       })
       .onConflictDoNothing()
-      .returning({ id: agentDrafts.id });
+      .returning({ id: agentDrafts.id, createdAt: agentDrafts.createdAt });
 
     // Only after a real insert (a re-run with identical text conflicts and
     // must leave the pending draft alone): older pending reply drafts of this
@@ -230,7 +240,10 @@ export async function captureShadowDraft(input: ShadowDraftInput): Promise<void>
             eq(agentDrafts.dealRecordId, input.dealRecordId),
             eq(agentDrafts.messageClass, "reply"),
             eq(agentDrafts.status, "pending"),
-            ne(agentDrafts.id, inserted[0].id)
+            ne(agentDrafts.id, inserted[0].id),
+            // Only OLDER drafts: two overlapping runs (email + WhatsApp thread of
+            // one deal) must not retire each other's draft.
+            lt(agentDrafts.createdAt, inserted[0].createdAt)
           )
         );
     }

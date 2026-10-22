@@ -79,7 +79,7 @@ describe("captureShadowDraft", () => {
 
   it("newer reply supersedes the pending one", async () => {
     state.pending = [{ id: "old" }];
-    state.insertReturn = [{ id: "new" }];
+    state.insertReturn = [{ id: "new", createdAt: new Date("2026-10-23T10:00:00Z") }];
     await captureShadowDraft(input("reply"));
 
     expect(state.inserts).toHaveLength(1);
@@ -97,6 +97,24 @@ describe("captureShadowDraft", () => {
 
     expect(state.updates.some((u) => u.set.status === "superseded")).toBe(false);
     expect(state.freigabe).not.toHaveBeenCalled();
+  });
+
+  it("a new message burst with identical text gets its own draft", async () => {
+    state.insertReturn = [{ id: "new", createdAt: new Date("2026-10-23T10:00:00Z") }];
+    const basisSentAt = new Date("2026-10-23T09:56:00Z");
+    await captureShadowDraft({ ...input("reply"), basisInbound: { id: "msg-2", sentAt: basisSentAt } });
+
+    expect(String(state.inserts[0].idempotencyKey)).toContain("msg-2");
+    expect(state.inserts[0].filterVerdicts).toMatchObject({ basisInboundAt: basisSentAt.toISOString() });
+  });
+
+  it("only supersedes reply drafts older than the new one", async () => {
+    state.insertReturn = [{ id: "new", createdAt: new Date("2026-10-23T10:00:00Z") }];
+    await captureShadowDraft({ ...input("reply"), basisInbound: { id: "msg-2", sentAt: null } });
+
+    const supersede = state.updates.find((u) => u.set.status === "superseded");
+    const params = JSON.stringify(dialect.sqlToQuery(supersede!.where!).params);
+    expect(params).toContain("2026-10-23T10:00:00.000");
   });
 
   it("follow-up keeps one pending draft", async () => {

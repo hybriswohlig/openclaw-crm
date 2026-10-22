@@ -31,7 +31,7 @@ import {
   parseKleinanzeigenBody,
   replyAddressForThread,
 } from "./inbox-kleinanzeigen";
-import { aiProcessedAtBeimEingang } from "./agent/ingest-arming";
+import { agentFelderBeimEingang, aiProcessedAtBeimEingang } from "./agent/ingest-arming";
 import { createDealForNewConversation } from "./inbox";
 import { stampDealSourceIfEmpty, noteOutboundToCustomer } from "./deal-attribution";
 import { extractKleinanzeigenDetail } from "@/lib/deal-source";
@@ -264,8 +264,7 @@ async function ingestParsedEmail(
         // IS24 leads land in the lead lane but get NO auto-reply: the sender is
         // a no-reply notification address, not a channel back to the customer.
         // The team works the lead from the created deal (phone/email in the body).
-        aiNeedsReply: armiert,
-        aiLastInboundAt: sentAt,
+        ...agentFelderBeimEingang({ armiert, declined, sentAt }),
       })
       .returning();
     conv = created;
@@ -344,8 +343,7 @@ async function ingestParsedEmail(
         // Noise-Gate (Parität zum WhatsApp-Pfad): nur echte Lead-Nachrichten
         // re-armen den Agenten — ein Newsletter-Follow-up auf einem
         // info-Thread darf ihn nie wecken. IS24-Absender sind no-reply.
-        aiNeedsReply: armiert,
-        aiLastInboundAt: sentAt,
+        ...agentFelderBeimEingang({ armiert, declined, sentAt }),
         // Re-open resolved/spam conversations when the customer writes back
         ...(conv.status !== "open" ? { status: "open" } : {}),
         ...(laneUpgrade

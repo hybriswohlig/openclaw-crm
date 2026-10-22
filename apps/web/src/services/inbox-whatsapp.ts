@@ -32,7 +32,7 @@ import { scanInboundReply } from "./reviews/inbound-scanner";
 import { classifyMessagingBody } from "./inbox-triage";
 import { looksDeclined, recordAgentDecline } from "./agent/agent-suppress";
 import { setHumanOwned } from "./agent/agent-gate";
-import { aiProcessedAtBeimEingang } from "./agent/ingest-arming";
+import { agentFelderBeimEingang, aiProcessedAtBeimEingang } from "./agent/ingest-arming";
 import { canonicalizePhone } from "@/lib/identity/canonical";
 import {
   INBOX_BRIDGE_BODY_LIMIT_BYTES,
@@ -610,8 +610,7 @@ export async function ingestInboundWhatsAppMessage(params: {
         lane: triage.lane,
         classificationReason: triage.reason,
         classifiedBy: triage.by,
-        aiNeedsReply: armiert,
-        aiLastInboundAt: sentAt,
+        ...agentFelderBeimEingang({ armiert, declined, sentAt }),
       })
       // Two racing first-ever ingests of the same peer (e.g. message + echo)
       // both pass the lookup miss; the loser lands here and converges on the
@@ -695,8 +694,7 @@ export async function ingestInboundWhatsAppMessage(params: {
         unreadCount: (conv.unreadCount ?? 0) + 1,
         // Only arm the agent for real lead messages; an OTP-style follow-up on an
         // existing thread should not trigger a reply. A STOP/decline never arms it.
-        aiNeedsReply: armiert,
-        aiLastInboundAt: sentAt,
+        ...agentFelderBeimEingang({ armiert, declined, sentAt }),
         // Re-open resolved/spam conversations when the customer writes back
         ...(conv.status !== "open" ? { status: "open" } : {}),
         ...(laneUpgrade

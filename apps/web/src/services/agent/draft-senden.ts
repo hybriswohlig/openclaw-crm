@@ -114,6 +114,20 @@ export function entwurfVeraltet(
 }
 
 /**
+ * The customer message a draft answers: reply drafts carry it
+ * (`filterVerdicts.basisInboundAt`, the message's send time), older drafts fall
+ * back to their creation time.
+ */
+function entwurfBasis(draft: { createdAt?: Date | null; filterVerdicts?: unknown }): Date | null {
+  const iso = (draft.filterVerdicts as { basisInboundAt?: unknown } | null)?.basisInboundAt;
+  if (typeof iso === "string") {
+    const d = new Date(iso);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  return draft.createdAt ?? null;
+}
+
+/**
  * Phase-2 approve-and-send: a human approves a pending draft and the server
  * sends it on the draft's own conversation/channel. The claim UPDATE is the
  * double-tap lock; the gate and the price filter re-run on the FINAL text at
@@ -290,9 +304,11 @@ export async function entwurfFreigebenUndSenden(input: {
       return { ok: false, fehler: "no_conversation" };
     }
 
-    // The customer wrote again after this draft: it answers an outdated state.
-    // Do not send it; the next agent run drafts against the new message.
-    if (entwurfVeraltet(draft.createdAt, conv.lastInboundAt)) {
+    // The customer wrote again after the message this draft answers: it is
+    // outdated. Do not send it; the agent drafts against the new message.
+    // A text the approver wrote themselves is theirs to send.
+    const eigenerText = typeof body.finalText === "string" && body.finalText.trim() !== "";
+    if (!eigenerText && entwurfVeraltet(entwurfBasis(draft), conv.lastInboundAt)) {
       const now = new Date();
       await db
         .update(agentDrafts)
@@ -304,7 +320,7 @@ export async function entwurfFreigebenUndSenden(input: {
             supersededAt: now.toISOString(),
           })}::jsonb`,
         })
-        .where(eq(agentDrafts.id, id));
+        .where(and(eq(agentDrafts.id, id), eq(agentDrafts.status, "approved")));
       return { ok: false, fehler: "stale" };
     }
 

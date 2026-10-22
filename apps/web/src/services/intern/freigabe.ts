@@ -419,6 +419,12 @@ async function entwurfUeberarbeiten(input: {
         priceOrCommitmentLeak: false,
         ueberarbeitetAus: draftId,
         anweisung: anweisung.slice(0, 500),
+        // Same customer message as the original: a revision must not make an
+        // outdated draft look fresh again.
+        basisInboundAt:
+          (alt.filterVerdicts as { basisInboundAt?: string } | null)?.basisInboundAt ??
+          alt.createdAt?.toISOString() ??
+          null,
         ...(preisPhrase && text.includes(preisPhrase)
           ? { preisPhrase, preisDetails: (alt.filterVerdicts as { preisDetails?: string } | null)?.preisDetails ?? null }
           : {}),

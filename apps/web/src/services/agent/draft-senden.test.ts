@@ -498,3 +498,38 @@ describe("entwurfFreigebenUndSenden freshness", () => {
     expect(mocks.send).toHaveBeenCalledOnce();
   });
 });
+
+describe("entwurfFreigebenUndSenden freshness against the answered message", () => {
+  const ALLOWED = { allowed: true, reasons: [], context: {} };
+
+  it("a message that arrived while the draft was generated makes it stale", async () => {
+    mocks.updateReturns = [[{
+      ...DRAFT,
+      createdAt: new Date("2026-10-23T10:03:00Z"),
+      filterVerdicts: { priceOrCommitmentLeak: false, basisInboundAt: "2026-10-23T10:00:00.000Z" },
+    }], []];
+    mocks.selects = [[{ ...CONV[0], lastInboundAt: new Date("2026-10-23T10:02:00Z") }]];
+    mocks.gate.mockResolvedValue(ALLOWED);
+
+    const result = await entwurfFreigebenUndSenden({ workspaceId: "ws", userId: "user-1", draftId: "draft-1" });
+
+    expect(result).toEqual({ ok: false, fehler: "stale" });
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+
+  it("a text written by a human is not refused as stale", async () => {
+    mocks.updateReturns = [[{ ...DRAFT, createdAt: new Date("2026-10-23T10:00:00Z") }], [], []];
+    mocks.selects = [[{ ...CONV[0], lastInboundAt: new Date("2026-10-23T10:05:00Z") }], [{ status: "approved" }]];
+    mocks.gate.mockResolvedValue(ALLOWED);
+
+    const result = await entwurfFreigebenUndSenden({
+      workspaceId: "ws",
+      userId: "user-1",
+      draftId: "draft-1",
+      finalText: "Selbst geschrieben, passt zur neuen Nachricht.",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(mocks.send).toHaveBeenCalledOnce();
+  });
+});
