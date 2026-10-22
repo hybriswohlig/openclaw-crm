@@ -232,6 +232,7 @@ interface RecentMessage {
   body: string;
   aiProcessedAt: Date | null;
   sentAt: Date | null;
+  createdAt: Date;
 }
 
 async function loadRecentMessages(conversationId: string): Promise<RecentMessage[]> {
@@ -454,16 +455,34 @@ async function kuerzlichWiederAngestossen(conversationId: string, aiLastInboundA
   return !!e;
 }
 
+/** Did an armed customer message arrive after the turn loaded its transcript? */
+async function neueKundennachricht(conversationId: string, bis: Date): Promise<boolean> {
+  const [neu] = await db
+    .select({ id: inboxMessages.id })
+    .from(inboxMessages)
+    .where(
+      and(
+        eq(inboxMessages.conversationId, conversationId),
+        eq(inboxMessages.direction, "inbound"),
+        isNull(inboxMessages.aiProcessedAt),
+        gt(inboxMessages.createdAt, bis)
+      )
+    )
+    .limit(1);
+  return !!neu;
+}
+
 /**
- * End of a turn: mark only the customer messages the turn actually saw (sent
- * up to `bis`). A message that arrived while the model was composing stays
- * unprocessed and keeps the conversation armed, so the next tick answers it
- * instead of it being stamped unseen. `pause` hands the thread to a human.
+ * End of a turn: mark only the customer messages that existed when the turn
+ * loaded its transcript (inserted up to `bis`). A message that arrived while
+ * the model was composing stays unprocessed and keeps the conversation armed,
+ * so the next tick answers it instead of it being stamped unseen. `pause`
+ * hands the thread to a human.
  */
 async function turnAbschliessen(
   conversationId: string,
   now: Date,
-  bis: Date | null,
+  bis: Date,
   pause: boolean
 ): Promise<void> {
   await db
@@ -474,7 +493,7 @@ async function turnAbschliessen(
         eq(inboxMessages.conversationId, conversationId),
         eq(inboxMessages.direction, "inbound"),
         isNull(inboxMessages.aiProcessedAt),
-        ...(bis ? [lte(inboxMessages.sentAt, bis)] : [])
+        lte(inboxMessages.createdAt, bis)
       )
     );
   const [neuer] = pause
@@ -607,6 +626,12 @@ async function processConversation(
   // a human already responded), it is not our turn, so do nothing. This stops the
   // agent re-engaging threads a human already handled.
   const last = messages[messages.length - 1];
+  // Rows inserted after this point were not seen by this turn (insertion time,
+  // not send time: a late-synced email can carry an older Date header).
+  const gesehenBis = messages.reduce(
+    (max, m) => (m.createdAt > max ? m.createdAt : max),
+    messages[0]?.createdAt ?? now
+  );
   if (!last || last.direction !== "inbound") {
     await stampInboundProcessed(conv.id, now);
     await shadowGate("skip_not_customer_turn", false);
@@ -896,7 +921,7 @@ async function processConversation(
   if (weg === "entwurf") {
     // Decide and record a visible preview, but never send/push/pause.
     await emitAgentEvent(conv, "dry_run", turn, outgoing || turn.owner_note || turn.message_de);
-    await turnAbschliessen(conv.id, now, last.sentAt, false);
+    await turnAbschliessen(conv.id, now, gesehenBis, false);
     summary.dryRunPreviews += 1;
     return;
   }
@@ -904,7 +929,14 @@ async function processConversation(
   // Live mode.
   if (turn.action === "ask") {
     if (!outgoing) {
-      await turnAbschliessen(conv.id, now, last.sentAt, false);
+      await turnAbschliessen(conv.id, now, gesehenBis, false);
+      summary.noops += 1;
+      return;
+    }
+    // The customer wrote again while the model was composing: this answer is
+    // already outdated. Send nothing; the next tick answers the whole burst.
+    if (await neueKundennachricht(conv.id, gesehenBis)) {
+      await turnAbschliessen(conv.id, now, gesehenBis, false);
       summary.noops += 1;
       return;
     }
@@ -944,7 +976,7 @@ async function processConversation(
       return;
     }
     await emitAgentEvent(conv, "live", turn, outgoing);
-    await turnAbschliessen(conv.id, now, last.sentAt, false);
+    await turnAbschliessen(conv.id, now, gesehenBis, false);
     return;
   }
 
@@ -976,13 +1008,13 @@ async function processConversation(
     }
     await emitAgentEvent(conv, "live", turn, outgoing);
     // Hand the thread to the human: pause the agent until it is handed back.
-    await turnAbschliessen(conv.id, now, last.sentAt, true);
+    await turnAbschliessen(conv.id, now, gesehenBis, true);
     summary.handoffs += 1;
     return;
   }
 
   // no_op
-  await turnAbschliessen(conv.id, now, last.sentAt, false);
+  await turnAbschliessen(conv.id, now, gesehenBis, false);
   summary.noops += 1;
 }
 
