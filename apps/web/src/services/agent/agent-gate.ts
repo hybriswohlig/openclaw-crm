@@ -400,6 +400,16 @@ export async function setHumanOwned(
     .where(and(eq(agentDrafts.dealRecordId, dealRecordId), eq(agentDrafts.status, "approved")));
 }
 
+/** Has an operator taken this deal over (sticky until released)? */
+export async function isHumanOwned(dealRecordId: string): Promise<boolean> {
+  const [state] = await db
+    .select({ humanOwned: dealAgentState.humanOwned })
+    .from(dealAgentState)
+    .where(eq(dealAgentState.dealRecordId, dealRecordId))
+    .limit(1);
+  return state?.humanOwned === true;
+}
+
 /** Explicit UI release action — the only path back to agent eligibility. */
 export async function releaseHumanOwnership(
   workspaceId: string,

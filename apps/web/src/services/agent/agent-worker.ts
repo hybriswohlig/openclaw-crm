@@ -74,6 +74,8 @@ import {
   getDealStageId,
 } from "./agent-shared";
 import { ensureAgentPriceTask } from "./agent-tasks";
+import { isHumanOwned } from "./agent-gate";
+import { zustellweg } from "./zustellweg";
 // Phase-1 SHADOW instrumentation: parallel gate + draft capture + heartbeat.
 // Purely additive — never throws, never alters engine behavior (see agent-shadow.ts).
 import { recordShadowGate, captureShadowDraft, shadowHeartbeat, HUMAN_ACTIONABLE_BLOCKS } from "./agent-shadow";
@@ -559,6 +561,17 @@ async function processConversation(
     return;
   }
 
+  // An operator took this deal over (inbox send or typed on the phone): the
+  // agent stays out, also in live mode, until the deal is released.
+  const humanOwned = conv.dealRecordId ? await isHumanOwned(conv.dealRecordId) : false;
+  const weg = zustellweg({ dryRun: opts.dryRun, humanOwned });
+  if (weg === "ueberspringen") {
+    await stampInboundProcessed(conv.id, now);
+    summary.noops += 1;
+    await shadowGate("skip_human_owned", false);
+    return;
+  }
+
   const messages = await loadRecentMessages(conv.id);
 
   // Only reply if the CUSTOMER wrote last. If our last message is outbound (we or
@@ -784,7 +797,9 @@ async function processConversation(
   const shadowWouldSend = outgoing.trim().length > 0;
   const shadowVerdict = await shadowGate(shadowLegacyAction, shadowWouldSend);
   if (conv.dealRecordId) {
-    if (turn.action === "ask" && turn.message_de.trim()) {
+    // Live sends the question directly below; queuing it as well would ask the
+    // owners to approve it and send it a second time.
+    if (weg === "entwurf" && turn.action === "ask" && turn.message_de.trim()) {
       await captureShadowDraft({
         workspaceId: conv.workspaceId,
         engine: "reply",
