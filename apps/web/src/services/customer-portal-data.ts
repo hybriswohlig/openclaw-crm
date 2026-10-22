@@ -60,7 +60,6 @@ import {
   erwarteterGesamtpreis,
   firmaKontakt,
   type ServiceArt,
-  type AcceptanceRecord,
   type AttachmentRef,
   type ConfirmKvaPayload,
   type CrewMember,
@@ -91,7 +90,7 @@ import { emitEvent } from "./activity-events";
 import { createTask } from "./tasks";
 import { annahmeNachlauf, nachlaufNoetig } from "./kva-bestaetigung";
 import { ladeWiderrufKontext } from "./kva-widerruf";
-import { angezeigtesKvDokument, gueltigeAuftragsbestaetigung } from "@/lib/portal-dokumente";
+import { angezeigtesKvDokument, gueltigeAuftragsbestaetigung, oeffentlichAbrufbar, vertragUrl } from "@/lib/portal-dokumente";
 import {
   aktivBedingung,
   aktuellesKvDokument,
@@ -359,7 +358,9 @@ export async function loadContextByToken(
   const customerSignals = await loadCustomerSignals(workspaceId, dealRecordId);
 
   // Confirmation
-  const acceptance = await loadLatestAcceptance(dealRecordId);
+  // Zeile behalten: AcceptanceRecord trägt kein vertragDocumentId.
+  const annahmeZeile = await ladeAktiveAnnahme(dealRecordId);
+  const acceptance = annahmeZeile ? annahmeAusZeile(annahmeZeile) : null;
   // Nach „Annahme aufheben“ gilt der alte Stand nicht mehr (auch nicht seine AB).
   // Für die AB zählt die letzte Aufhebung auch nach einer neuen Annahme: sonst
   // erscheint die alte AB (alter Preis), bis die neue hochgeladen ist.
@@ -514,7 +515,7 @@ export async function loadContextByToken(
         ? `/api/public/${token}/documents/${orderConfirmationDoc.id}`
         : null,
       invoiceUrl: invoiceDoc ? `/api/public/${token}/documents/${invoiceDoc.id}` : null,
-      signedContractUrl: null,
+      signedContractUrl: vertragUrl({ token, angenommen: !!annahmeZeile, vertragDocumentId: annahmeZeile?.vertragDocumentId ?? null }),
     },
     attachments,
     customerPhotos,
@@ -953,6 +954,7 @@ export async function getScopedDocument(
 
   const [doc] = await db
     .select({
+      documentType: dealDocuments.documentType,
       mimeType: dealDocuments.mimeType,
       fileName: dealDocuments.fileName,
       fileContent: dealDocuments.fileContent,
@@ -966,7 +968,9 @@ export async function getScopedDocument(
     )
     .limit(1);
 
-  return doc ?? null;
+  // Interne Dokumente (Auftragsanweisung, Zahlungsbestätigung) nie über den Kundenlink.
+  if (!doc || !oeffentlichAbrufbar(doc.documentType)) return null;
+  return { mimeType: doc.mimeType, fileName: doc.fileName, fileContent: doc.fileContent };
 }
 
 export async function getScopedAttachment(
@@ -1422,13 +1426,6 @@ async function loadServiceType(dealRecordId: string): Promise<ServiceArt> {
     .where(eq(quotations.dealRecordId, dealRecordId))
     .limit(1);
   return q?.serviceType === "kitchen_installation" || q?.serviceType === "clearance" ? q.serviceType : "move";
-}
-
-async function loadLatestAcceptance(
-  dealRecordId: string
-): Promise<AcceptanceRecord | null> {
-  const row = await ladeAktiveAnnahme(dealRecordId);
-  return row ? annahmeAusZeile(row) : null;
 }
 
 /**

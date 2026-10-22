@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { angezeigtesKvDokument, gueltigeAuftragsbestaetigung, serviceTypeZuSpeichern } from "./portal-dokumente";
+import { angezeigtesKvDokument, gueltigeAuftragsbestaetigung, oeffentlichAbrufbar, serviceTypeZuSpeichern, vertragUrl } from "./portal-dokumente";
 
 const doc = (id: string, uploadedAt: string) => ({ id, uploadedAt: new Date(uploadedAt) });
 
@@ -53,5 +53,20 @@ describe("Entrümpelung: Leistungsart im CRM, Umzugs-Layout auf dem VPS", () => 
   it("beim KV wird Entrümpelung am Angebot gespeichert", async () => {
     const { serviceTypeZuSpeichern } = await import("./portal-dokumente");
     expect(serviceTypeZuSpeichern({ documentType: "KV", gewaehlt: "clearance", gespeichert: "move", angenommen: false })).toBe("clearance");
+  });
+});
+
+describe("oeffentlichAbrufbar", () => {
+  it("nur KV, AB, Rechnung und unterschriebener Vertrag", () => {
+    for (const t of ["quotation", "order_confirmation", "invoice", "signed_contract"]) expect(oeffentlichAbrufbar(t)).toBe(true);
+    for (const t of ["worker_instructions", "payment_confirmation", "", "foo"]) expect(oeffentlichAbrufbar(t)).toBe(false);
+  });
+});
+
+describe("vertragUrl", () => {
+  it("nur bei aktiver Annahme mit Dokument", () => {
+    expect(vertragUrl({ token: "t", angenommen: true, vertragDocumentId: "d1" })).toBe("/api/public/t/documents/d1");
+    expect(vertragUrl({ token: "t", angenommen: false, vertragDocumentId: "d1" })).toBeNull();
+    expect(vertragUrl({ token: "t", angenommen: true, vertragDocumentId: null })).toBeNull();
   });
 });

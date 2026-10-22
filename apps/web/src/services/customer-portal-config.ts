@@ -301,6 +301,7 @@ export interface EffectiveBranding {
   enabled: boolean;
   liveTrackingEnabled: boolean;
   paymentsEnabled: boolean;
+  signatureEnabled: boolean;
   customDomain: string | null;
   /** True only when DNS + Vercel verification completed for customDomain. */
   domainVerified: boolean;
@@ -316,7 +317,7 @@ export async function loadEffectiveBranding(
   const fallback = brandingForOperatingCompany(name);
 
   if (!operatingCompanyRecordId) {
-    return { enabled: true, liveTrackingEnabled: false, paymentsEnabled: false, customDomain: null, domainVerified: false, branding: fallback };
+    return { enabled: true, liveTrackingEnabled: false, paymentsEnabled: false, signatureEnabled: false, customDomain: null, domainVerified: false, branding: fallback };
   }
 
   const [s] = await db
@@ -327,7 +328,7 @@ export async function loadEffectiveBranding(
     )
     .limit(1);
 
-  if (!s) return { enabled: true, liveTrackingEnabled: false, paymentsEnabled: false, customDomain: null, domainVerified: false, branding: fallback };
+  if (!s) return { enabled: true, liveTrackingEnabled: false, paymentsEnabled: false, signatureEnabled: false, customDomain: null, domainVerified: false, branding: fallback };
 
   const branding: FirmaBranding = {
     firmaSlug: fallback.firmaSlug,
@@ -353,6 +354,7 @@ export async function loadEffectiveBranding(
     enabled: s.enabled,
     liveTrackingEnabled: portalFeatures(s).liveTracking,
     paymentsEnabled: portalFeatures(s).payments,
+    signatureEnabled: portalFeatures(s).signature,
     customDomain: s.customDomain,
     domainVerified: s.domainVerificationState === "verified",
     branding,
