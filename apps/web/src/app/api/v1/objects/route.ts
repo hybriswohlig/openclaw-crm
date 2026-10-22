@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { getAuthContext, unauthorized, badRequest, success } from "@/lib/api-utils";
+import { getAuthContext, unauthorized, badRequest, success, requireAdmin } from "@/lib/api-utils";
 import { listObjects, createObject } from "@/services/objects";
 
 export async function GET(req: NextRequest) {
@@ -13,6 +13,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized(req);
+  const adminCheck = requireAdmin(ctx);
+  if (adminCheck) return adminCheck;
 
   const body = await req.json();
   const { slug, singularName, pluralName, icon } = body;

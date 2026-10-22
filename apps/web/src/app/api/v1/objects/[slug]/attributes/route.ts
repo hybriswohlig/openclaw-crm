@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { getAuthContext, unauthorized, notFound, badRequest, success } from "@/lib/api-utils";
+import { getAuthContext, unauthorized, notFound, badRequest, success, requireAdmin } from "@/lib/api-utils";
 import { getObjectBySlug } from "@/services/objects";
 import {
   listAttributes,
@@ -36,6 +36,8 @@ export async function POST(
 ) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized(req);
+  const adminCheck = requireAdmin(ctx);
+  if (adminCheck) return adminCheck;
 
   const { slug: objectSlug } = await params;
   const obj = await getObjectBySlug(ctx.workspaceId, objectSlug);
@@ -97,6 +99,8 @@ export async function PATCH(
 ) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized(req);
+  const adminCheck = requireAdmin(ctx);
+  if (adminCheck) return adminCheck;
 
   const body = await req.json();
   const { attributeId, ...input } = body;
@@ -123,6 +127,8 @@ export async function DELETE(
 ) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized(req);
+  const adminCheck = requireAdmin(ctx);
+  if (adminCheck) return adminCheck;
 
   const { searchParams } = new URL(req.url);
   const attributeId = searchParams.get("attributeId");

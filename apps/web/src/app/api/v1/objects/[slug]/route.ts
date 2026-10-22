@@ -22,6 +22,8 @@ export async function PATCH(
 ) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized(req);
+  const adminCheck = requireAdmin(ctx);
+  if (adminCheck) return adminCheck;
 
   const { slug } = await params;
   const body = await req.json();
