@@ -53,7 +53,6 @@ export interface CockpitItem {
   /** Offener Rest auf das Angebot nach allen Betriebseinnahmen, null ohne Angebot. */
   paymentOpenCents: number | null;
   task: { title: string; dueAt: string } | null;
-  secondOpinion: { requestedAt: string; answeredAt: string | null; text: string | null } | null;
   recentMessages: { at: string; direction: CockpitDirection; text: string }[];
   urls: { deal: string | null; conversation: string | null };
   updatedAt: string;
@@ -216,7 +215,6 @@ export function assembleCockpit(input: CockpitInput): CockpitResponse {
       lastOffer: offerAt ? { at: offerAt.toISOString(), cents: quotation?.fixedPriceEur != null ? Math.round(quotation.fixedPriceEur * 100) : null } : null,
       paymentOpenCents,
       task: null,
-      secondOpinion: null,
       recentMessages: messages.map((message) => ({
         at: stamp(message).toISOString(),
         direction: message.direction === "inbound" ? "in" : "out",
