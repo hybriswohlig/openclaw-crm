@@ -10,6 +10,7 @@ import {
   writeEnrichmentSettings,
   type CompanySwitch,
   type EnrichmentSettings,
+  type EnrichmentSettingsPatch,
 } from "@/services/deal-enrichment-settings";
 
 async function companyNames(workspaceId: string): Promise<Map<string, string>> {
@@ -50,14 +51,19 @@ function present(settings: EnrichmentSettings, names: Map<string, string>) {
     suggestionsEnabled: settings.suggestionsEnabled,
     autoWriteEnabled: settings.autoWriteEnabled,
     confidenceThreshold: settings.confidenceThreshold,
+    emailSuggestionsEnabled: settings.emailDeals.suggestionsEnabled,
+    emailAutoWriteEnabled: settings.emailDeals.autoWriteEnabled,
     operatingCompanies: [...ids].map((id) => {
       const stored = settings.operatingCompanies[id] ?? {};
+      const email = settings.emailDeals.operatingCompanies[id] ?? {};
       const known = KNOWN_OPERATING_COMPANIES.find((company) => company.id === id);
       return {
         id,
         name: names.get(id) || known?.fallbackName || id,
         suggestionsEnabled: stored.suggestionsEnabled !== false,
         autoWriteEnabled: stored.autoWriteEnabled !== false,
+        emailSuggestionsEnabled: email.suggestionsEnabled !== false,
+        emailAutoWriteEnabled: email.autoWriteEnabled !== false,
       };
     }),
   };
@@ -80,17 +86,30 @@ export async function PATCH(req: NextRequest) {
   const admin = requireAdmin(ctx);
   if (admin) return admin;
 
-  const body = (await req.json().catch(() => null)) as Partial<EnrichmentSettings> | null;
+  const body = (await req.json().catch(() => null)) as
+    | (EnrichmentSettingsPatch & {
+        emailSuggestionsEnabled?: boolean;
+        emailAutoWriteEnabled?: boolean;
+        operatingCompanies?: Record<
+          string,
+          CompanySwitch & { emailSuggestionsEnabled?: boolean; emailAutoWriteEnabled?: boolean }
+        >;
+      })
+    | null;
   if (!body || typeof body !== "object") return badRequest("JSON body required");
+  const patch: EnrichmentSettingsPatch = {};
+  if (typeof body.suggestionsEnabled === "boolean") patch.suggestionsEnabled = body.suggestionsEnabled;
+  if (typeof body.autoWriteEnabled === "boolean") patch.autoWriteEnabled = body.autoWriteEnabled;
   if (body.confidenceThreshold !== undefined) {
     const threshold = Number(body.confidenceThreshold);
     if (!Number.isFinite(threshold) || threshold <= 0 || threshold > 1) {
       return badRequest("confidenceThreshold must be between 0 and 1");
     }
-    body.confidenceThreshold = threshold;
+    patch.confidenceThreshold = threshold;
   }
   if (body.operatingCompanies) {
     const cleaned: Record<string, CompanySwitch> = {};
+    const emailCompanies: Record<string, CompanySwitch> = {};
     for (const [id, value] of Object.entries(body.operatingCompanies)) {
       if (!value || typeof value !== "object") continue;
       cleaned[id] = {
@@ -98,9 +117,25 @@ export async function PATCH(req: NextRequest) {
           typeof value.suggestionsEnabled === "boolean" ? value.suggestionsEnabled : undefined,
         autoWriteEnabled: typeof value.autoWriteEnabled === "boolean" ? value.autoWriteEnabled : undefined,
       };
+      emailCompanies[id] = {
+        suggestionsEnabled:
+          typeof value.emailSuggestionsEnabled === "boolean" ? value.emailSuggestionsEnabled : undefined,
+        autoWriteEnabled:
+          typeof value.emailAutoWriteEnabled === "boolean" ? value.emailAutoWriteEnabled : undefined,
+      };
     }
-    body.operatingCompanies = cleaned;
+    patch.operatingCompanies = cleaned;
+    patch.emailDeals = { ...(patch.emailDeals ?? {}), operatingCompanies: emailCompanies };
   }
-  const settings = await writeEnrichmentSettings(ctx.workspaceId, body);
+  if (typeof body.emailSuggestionsEnabled === "boolean" || typeof body.emailAutoWriteEnabled === "boolean") {
+    patch.emailDeals = {
+      suggestionsEnabled:
+        typeof body.emailSuggestionsEnabled === "boolean" ? body.emailSuggestionsEnabled : patch.emailDeals?.suggestionsEnabled,
+      autoWriteEnabled:
+        typeof body.emailAutoWriteEnabled === "boolean" ? body.emailAutoWriteEnabled : patch.emailDeals?.autoWriteEnabled,
+      operatingCompanies: patch.emailDeals?.operatingCompanies ?? {},
+    };
+  }
+  const settings = await writeEnrichmentSettings(ctx.workspaceId, patch);
   return success(present(settings, await companyNames(ctx.workspaceId)));
 }

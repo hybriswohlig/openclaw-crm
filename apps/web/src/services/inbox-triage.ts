@@ -6,12 +6,16 @@
  * Pure + dependency-free → unit-testable and safe to call at ingest. Layers run
  * cheapest-first, stop at the first decisive verdict:
  *   0. Kleinanzeigen sub-rule (relay buyer inquiry = lead; platform notice = info)
+ *   0b. ImmobilienScout24, Möbeltransport24 and Formspree before the noreply deny list
  *   1. RFC bulk/automation headers (List-Unsubscribe, Precedence, Auto-Submitted…)
  *   2. sender deny list (no-reply / newsletter / ESP domains)
  *   3. light content heuristic (image/link/offer heavy → promotional)
  *   default: lead.
  * (Layer 4, an LLM on the ambiguous remainder, is intentionally not wired yet.)
  */
+
+import { isFormspreeEmail, parseFormspreeEmail } from "./inbox-formspree";
+import { isMoebeltransportSender, parseMoebeltransportLeadEmail } from "./inbox-moebeltransport";
 
 export type ConversationLane = "lead" | "info" | "spam" | "review";
 export type ClassifiedBy = "header" | "senderlist" | "heuristic" | "llm" | "manual";
@@ -83,6 +87,24 @@ export function classifyInbound(input: ClassifyInput): ClassifyResult {
       return { lane: "lead", reason: "ImmobilienScout24 Umzugsanfrage", by: "senderlist" };
     }
     return { lane: "info", reason: "ImmobilienScout24 Benachrichtigung", by: "senderlist" };
+  }
+
+  // ── Layer 0c: Möbeltransport24 ─────────────────────────────────────────────
+  // Collective sender, subject "Angebotsanfrage NNNNN". Runs before the noreply
+  // deny list. A newsletter from the same domain stays info.
+  if (isMoebeltransportSender(from) || /angebotsanfrage\s+\d{4,}/i.test(subject)) {
+    const lead = parseMoebeltransportLeadEmail(subject, body, from);
+    if (lead) return { lane: "lead", reason: "Möbeltransport24 Angebotsanfrage", by: "senderlist" };
+    if (isMoebeltransportSender(from)) {
+      return { lane: "info", reason: "Möbeltransport24 Benachrichtigung", by: "senderlist" };
+    }
+  }
+
+  // ── Layer 0d: Formspree website forms ──────────────────────────────────────
+  if (isFormspreeEmail({ from: from, subject, body, headers: h })) {
+    const lead = parseFormspreeEmail({ from, subject, body, headers: h });
+    if (lead) return { lane: "lead", reason: "Website-Formular (Formspree)", by: "senderlist" };
+    return { lane: "info", reason: "Formspree ohne Anfrage", by: "senderlist" };
   }
 
   // ── Layer 1: RFC bulk/automation headers ──────────────────────────────────

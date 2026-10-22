@@ -3,6 +3,7 @@ import {
   channelAccounts,
   inboxConversations,
   inboxContacts,
+  inboxDealSuggestions,
   inboxMessages,
   inboxMessageAttachments,
   type AgentConversationState,
@@ -165,6 +166,10 @@ export interface ConversationListItem {
   agentState: AgentConversationState | null;
   /** True for Kleinanzeigen relay threads — lets the email area keep them separate. */
   isKleinanzeigen: boolean;
+  /** Open "Deal anlegen" suggestion, when the classifier was not sure. */
+  pendingDealSuggestionId: string | null;
+  /** Same inquiry text reached another operating company within a few minutes. */
+  crossCompanyNotice: string | null;
 }
 
 export async function listConversations(
@@ -234,10 +239,19 @@ export async function listConversations(
       aiPaused: inboxConversations.aiPaused,
       aiNeedsReply: inboxConversations.aiNeedsReply,
       agentState: inboxConversations.agentState,
+      crossCompanyNotice: inboxConversations.crossCompanyNotice,
+      pendingDealSuggestionId: inboxDealSuggestions.id,
     })
     .from(inboxConversations)
     .innerJoin(channelAccounts, eq(inboxConversations.channelAccountId, channelAccounts.id))
     .innerJoin(inboxContacts, eq(inboxConversations.contactId, inboxContacts.id))
+    .leftJoin(
+      inboxDealSuggestions,
+      and(
+        eq(inboxDealSuggestions.conversationId, inboxConversations.id),
+        eq(inboxDealSuggestions.status, "pending")
+      )
+    )
     .where(
       and(
         eq(inboxConversations.workspaceId, workspaceId),

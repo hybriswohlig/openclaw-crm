@@ -6,6 +6,7 @@ import {
   boolean,
   timestamp,
   jsonb,
+  numeric,
   index,
   uniqueIndex,
   primaryKey,
@@ -279,6 +280,14 @@ export const inboxConversations = pgTable(
     // priority, missing slots, eligibility, next action. Maintained by the
     // classify cron and the reply worker. NULL = not classified yet.
     agentState: jsonb("agent_state").$type<AgentConversationState>(),
+    // Direct-email deal review. Only rows marked pending at ingest are
+    // classified. Old conversations stay null, so nothing is backfilled.
+    // pending | decided. run_after delays a retry after a model error.
+    emailDealState: text("email_deal_state"),
+    emailDealRunAfter: timestamp("email_deal_run_after"),
+    // Set when the same customer text arrives at another operating company
+    // within a few minutes. Shown in the conversation. Never a sent message.
+    crossCompanyNotice: text("cross_company_notice"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -292,10 +301,48 @@ export const inboxConversations = pgTable(
     index("inbox_conv_lane_idx").on(table.workspaceId, table.lane),
     index("inbox_conv_kontaktart_idx").on(table.workspaceId, table.kontaktart),
     index("inbox_conv_ai_hold_idx").on(table.aiHoldUntil),
+    index("inbox_conv_email_deal_idx").on(table.emailDealState, table.emailDealRunAfter),
     uniqueIndex("inbox_conv_channel_thread_idx").on(
       table.channelAccountId,
       table.externalThreadId
     ),
+  ]
+);
+
+// ─── Deal suggestions for conversations that do not have a deal yet ───────────
+// The field-suggestion table requires a deal. "Deal anlegen" is the step before
+// that, so it lives on the conversation. Accept creates the deal. Reject sticks.
+
+export const inboxDealSuggestions = pgTable(
+  "inbox_deal_suggestions",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => inboxConversations.id, { onDelete: "cascade" }),
+    status: text("status").notNull(),
+    confidence: numeric("confidence", { precision: 4, scale: 3 }).notNull(),
+    reason: text("reason").notNull(),
+    evidenceQuote: text("evidence_quote").notNull(),
+    dealName: text("deal_name").notNull(),
+    sourceChannel: text("source_channel").notNull(),
+    sourceDetail: text("source_detail"),
+    evidenceKey: text("evidence_key").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    decidedAt: timestamp("decided_at"),
+    decidedBy: text("decided_by"),
+  },
+  (table) => [
+    uniqueIndex("inbox_deal_suggestions_evidence_idx").on(table.conversationId, table.evidenceKey),
+    uniqueIndex("inbox_deal_suggestions_pending_idx")
+      .on(table.conversationId)
+      .where(sql`${table.status} = 'pending'`),
+    index("inbox_deal_suggestions_status_idx").on(table.workspaceId, table.status, table.createdAt),
   ]
 );
 

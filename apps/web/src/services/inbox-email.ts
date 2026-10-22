@@ -43,6 +43,9 @@ import { isImmoscoutLeadEmail, parseImmoscoutLeadEmail } from "./inbox-immoscout
 import { findExistingMovingLeadDeal, setDealMovingLead } from "./immoscout-sync";
 import { computeLeadName } from "./lead-name";
 import { recomputeMultiCompanyForContact } from "./multi-company";
+import { isPortalEnvelope, planStructuredEmailLead } from "@/lib/structured-email-lead";
+import { referencedMessageIds } from "@/lib/email-deal-policy";
+import { createStructuredEmailDeal, markDirectEmailForDealReview, noteCrossCompanyDuplicate } from "./email-lead-deals";
 
 type ChannelAccountRow = typeof channelAccounts.$inferSelect;
 
@@ -137,17 +140,8 @@ async function ingestParsedEmail(
     : null;
   const isImmoLead = !!(immo && immo.externalId);
 
-  // Thread key: Kleinanzeigen → the relay address; IS24 lead → the request id
-  // (all leads share the same noreply@ sender, so threading by sender would
-  // collapse them into one conversation); otherwise the native thread id
-  // (Gmail) or the In-Reply-To/Message-ID chain (IMAP).
-  const threadKey = isKleinanzeigen
-    ? fromEmail
-    : isImmoLead
-      ? `is24:${immo!.externalId}`
-      : nativeThreadId ?? parsed.inReplyTo ?? messageId;
-
-  // Extract body
+  // Extract body first. Portal parsers and the thread key need the text, and
+  // HTML-only form mail would otherwise stay empty.
   const rawHtml = typeof parsed.html === "string" ? parsed.html : null;
   let body = parsed.text ?? "";
   // KOT-IDENTITY: rescue the buyer's phone from the Kleinanzeigen
@@ -166,11 +160,41 @@ async function ingestParsedEmail(
       .replace(/<style[\s\S]*?<\/style>/gi, "")
       .replace(/<script[\s\S]*?<\/script>/gi, "")
       .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/t[dh]>/gi, "\n")
+      .replace(/<\/tr>/gi, "\n")
       .replace(/<\/(p|div|li|tr|h[1-6])>/gi, "\n")
       .replace(/<[^>]+>/g, "")
       .replace(/\n{3,}/g, "\n\n")
       .trim();
   }
+
+  const headerMap = Object.fromEntries(parsed.headers ?? []);
+  const replyTo = firstAddress(parsed.replyTo).address;
+  // Möbeltransport24 and Formspree: one customer per inquiry, not the shared
+  // noreply sender. Direct mail keeps the From address and is classified later.
+  const plan = !isKleinanzeigen && !isImmoLead
+    ? planStructuredEmailLead({
+        from: fromEmail,
+        subject,
+        body,
+        messageId,
+        replyTo,
+        headers: headerMap,
+      })
+    : null;
+  const portalEnvelope =
+    !!plan || isPortalEnvelope({ from: fromEmail, subject, body, headers: headerMap });
+
+  // Thread key: Kleinanzeigen → the relay address; IS24 / Möbeltransport24 →
+  // the request id; Formspree → sender + message id (a second submission must
+  // not collapse into the shared noreply thread). Otherwise the native thread.
+  const threadKey = isKleinanzeigen
+    ? fromEmail
+    : isImmoLead
+      ? `is24:${immo!.externalId}`
+      : plan
+        ? plan.threadKey
+        : nativeThreadId ?? parsed.inReplyTo ?? messageId;
 
   // Upsert contact. For Kleinanzeigen strip the "über Kleinanzeigen" suffix; for
   // IS24 leads use the real customer parsed from the body (NOT the shared
@@ -180,10 +204,14 @@ async function ingestParsedEmail(
     ? stripKleinanzeigenSuffix(fromName)
     : isImmoLead
       ? immo!.customer.fullName || fromName
-      : fromName;
+      : plan
+        ? plan.contactName
+        : fromName;
   const contactEmailKey = isImmoLead
     ? immo!.customer.email ?? `is24-${immo!.externalId}@is24.lead`
-    : fromEmail;
+    : plan
+      ? plan.contactEmail
+      : fromEmail;
   const contact = await upsertContact(account.workspaceId, contactEmailKey, contactName);
 
   // Auto-create / resolve the golden CRM Person (idempotent). IS24 leads route
@@ -200,6 +228,18 @@ async function ingestParsedEmail(
       leadSource: "ImmobilienScout",
       source: "import",
       trust: "verified",
+    });
+  } else if (plan) {
+    await resolveOrCreatePerson({
+      workspaceId: account.workspaceId,
+      contactId: contact.id,
+      displayName: contactName || plan.contactEmail,
+      email: plan.customerEmail,
+      phone: plan.customerPhone,
+      extraPhones: plan.customerPhone ? [plan.customerPhone] : [],
+      leadSource: plan.leadSource,
+      source: "import",
+      trust: plan.kind === "moebeltransport24" ? "verified" : "claimed",
     });
   } else {
     await ensureCrmPerson({
@@ -239,7 +279,10 @@ async function ingestParsedEmail(
 
   // Opt-out: a STOP / clear decline must never arm the agent. IS24 mails come
   // from a no-reply address, so only treat real two-way threads as opt-outs.
-  const declined = !isImmoLead && looksDeclined(body);
+  const declined = !isImmoLead && !portalEnvelope && looksDeclined(body);
+  // Portal envelopes (IS24, Möbeltransport24, Formspree) are not a reply channel.
+  const aiNeedsReply = portalEnvelope || isImmoLead ? false : triage.lane === "lead" && !declined;
+  let queueDirectReview = false;
 
   if (!conv) {
     const [created] = await db
@@ -259,17 +302,16 @@ async function ingestParsedEmail(
         // IS24 leads land in the lead lane but get NO auto-reply: the sender is
         // a no-reply notification address, not a channel back to the customer.
         // The team works the lead from the created deal (phone/email in the body).
-        aiNeedsReply: isImmoLead ? false : triage.lane === "lead" && !declined,
+        aiNeedsReply,
         aiLastInboundAt: sentAt,
       })
       .returning();
     conv = created;
 
-    // Auto-create a deal in stage "Neue Anfrage" for brand-new Kleinanzeigen
-    // inquiries that are real leads (not platform notifications), and link it
-    // to this conversation. Other channels can reuse the same deal later.
+    // Structured portals are certain. A plain lead lane is not: direct mail is
+    // queued for the classifier (sure → deal, unsure → suggestion).
     if (isKleinanzeigen && triage.lane === "lead") {
-      await createDealForNewConversation({
+      const dealId = await createDealForNewConversation({
         workspaceId: account.workspaceId,
         conversationId: conv.id,
         dealName: contactName || fromEmail,
@@ -279,6 +321,7 @@ async function ingestParsedEmail(
         sourceDetail: extractKleinanzeigenDetail(subject, body),
         sourceReceivedAt: sentAt,
       });
+      if (dealId) conv.dealRecordId = dealId;
     } else if (isImmoLead) {
       // IS24 relocation request → structured deal. Dedup over the shared IS24
       // request id so an email never duplicates a umzug-easy API import (and
@@ -292,6 +335,7 @@ async function ingestParsedEmail(
           .update(inboxConversations)
           .set({ dealRecordId: existingDeal, updatedAt: new Date() })
           .where(eq(inboxConversations.id, conv.id));
+        conv.dealRecordId = existingDeal;
         await stampDealSourceIfEmpty({
           dealRecordId: existingDeal,
           sourceTitle: "ImmoScout24 / umzugsfirmen-check",
@@ -314,6 +358,7 @@ async function ingestParsedEmail(
           sourceReceivedAt: sentAt,
         });
         if (dealId) {
+          conv.dealRecordId = dealId;
           await setDealMovingLead({
             workspaceId: account.workspaceId,
             dealRecordId: dealId,
@@ -323,11 +368,23 @@ async function ingestParsedEmail(
           });
         }
       }
+    } else if (plan) {
+      const dealId = await createStructuredEmailDeal({
+        workspaceId: account.workspaceId,
+        conversationId: conv.id,
+        contactId: contact.id,
+        channelAccountId: account.id,
+        plan,
+        receivedAt: sentAt,
+      });
+      if (dealId) conv.dealRecordId = dealId;
+    } else if (!portalEnvelope) {
+      queueDirectReview = true;
     }
   } else {
     // Lane-Heilung (Parität zum WhatsApp-Pfad, inbox-whatsapp.ts): eine echte
     // Anfrage auf einem info-Thread hebt die Lane auf 'lead' an — nie gegen
-    // eine manuelle Einstufung — und holt für Kleinanzeigen den Deal nach.
+    // eine manuelle Einstufung — und holt den Deal mit derselben Logik nach.
     const laneUpgrade =
       triage.lane === "lead" && conv.lane === "info" && conv.classifiedBy !== "manual";
     await db
@@ -338,8 +395,8 @@ async function ingestParsedEmail(
         unreadCount: (conv.unreadCount ?? 0) + 1,
         // Noise-Gate (Parität zum WhatsApp-Pfad): nur echte Lead-Nachrichten
         // re-armen den Agenten — ein Newsletter-Follow-up auf einem
-        // info-Thread darf ihn nie wecken. IS24-Absender sind no-reply.
-        aiNeedsReply: isImmoLead ? false : triage.lane === "lead" && !declined,
+        // info-Thread darf ihn nie wecken. Portal-Absender sind no-reply.
+        aiNeedsReply,
         aiLastInboundAt: sentAt,
         // Re-open resolved/spam conversations when the customer writes back
         ...(conv.status !== "open" ? { status: "open" } : {}),
@@ -354,17 +411,33 @@ async function ingestParsedEmail(
       })
       .where(eq(inboxConversations.id, conv.id));
 
-    if (laneUpgrade && isKleinanzeigen && !conv.dealRecordId) {
-      await createDealForNewConversation({
-        workspaceId: account.workspaceId,
-        conversationId: conv.id,
-        dealName: contactName || fromEmail,
-        contactId: contact.id,
-        channelAccountId: account.id,
-        sourceChannel: "Kleinanzeigen",
-        sourceDetail: extractKleinanzeigenDetail(subject, body),
-        sourceReceivedAt: sentAt,
-      });
+    if (laneUpgrade && !conv.dealRecordId) {
+      if (isKleinanzeigen) {
+        const dealId = await createDealForNewConversation({
+          workspaceId: account.workspaceId,
+          conversationId: conv.id,
+          dealName: contactName || fromEmail,
+          contactId: contact.id,
+          channelAccountId: account.id,
+          sourceChannel: "Kleinanzeigen",
+          sourceDetail: extractKleinanzeigenDetail(subject, body),
+          sourceReceivedAt: sentAt,
+        });
+        if (dealId) conv.dealRecordId = dealId;
+      } else if (plan) {
+        const dealId = await createStructuredEmailDeal({
+          workspaceId: account.workspaceId,
+          conversationId: conv.id,
+          contactId: contact.id,
+          channelAccountId: account.id,
+          plan,
+          receivedAt: sentAt,
+        });
+        if (dealId) conv.dealRecordId = dealId;
+      } else if (!portalEnvelope) {
+        conv.lane = "lead";
+        queueDirectReview = true;
+      }
     }
   }
 
@@ -396,6 +469,29 @@ async function ingestParsedEmail(
       sentAt,
     })
     .returning({ id: inboxMessages.id });
+
+  // Direct customer mail is not a deal yet. The classifier runs later, off the
+  // ingest path. Portal leads already created their deal above.
+  if (queueDirectReview && conv) {
+    await markDirectEmailForDealReview({
+      workspaceId: account.workspaceId,
+      conversationId: conv.id,
+      referencedIds: referencedMessageIds({
+        inReplyTo: parsed.inReplyTo,
+        references: parsed.references,
+      }),
+    });
+  }
+  if (conv) {
+    await noteCrossCompanyDuplicate({
+      workspaceId: account.workspaceId,
+      conversationId: conv.id,
+      body,
+      sentAt,
+      operatingCompanyId: account.operatingCompanyRecordId,
+      channelLabel: account.name || account.address,
+    });
+  }
 
   // Store attachments (images, PDFs, ...). Cap per-file size so a rogue
   // email can't blow up the DB; anything larger is silently skipped —

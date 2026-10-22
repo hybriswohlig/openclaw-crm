@@ -8,6 +8,8 @@
  */
 import { isKleinanzeigenEmail } from "@/services/inbox-kleinanzeigen";
 import { isImmoscoutLeadEmail } from "@/services/inbox-immoscout";
+import { isFormspreeEmail } from "@/services/inbox-formspree";
+import { isMoebeltransportLeadEmail } from "@/services/inbox-moebeltransport";
 
 export const SOURCE_CHANNEL_SLUG = "source_channel";
 export const SOURCE_DETAIL_SLUG = "source_detail";
@@ -27,6 +29,8 @@ export const SOURCE_CHANNEL_OPTIONS = [
   "ImmoScout24 / umzugsfirmen-check",
   "Kleinanzeigen",
   "Empfehlung",
+  "E-Mail",
+  "Möbeltransport24",
   "Sonstiges",
 ] as const;
 
@@ -104,6 +108,16 @@ function norm(value: string | null | undefined): string {
 /** Map an inbound signal set to one Quelle, or null when nothing is unambiguous. */
 export function classifyInboundDealSource(signals: InboundSourceSignals): SourceChannelTitle | null {
   if (norm(signals.channelType) === "whatsapp") return "WhatsApp";
+  if (isMoebeltransportLeadEmail(signals.fromEmail, signals.subject, signals.body)) return "Möbeltransport24";
+  if (
+    isFormspreeEmail({
+      from: signals.fromEmail,
+      subject: signals.subject,
+      body: signals.body,
+    })
+  ) {
+    return "Website-Formular";
+  }
 
   const payload = norm(signals.payloadSource);
   const from = norm(signals.fromEmail);

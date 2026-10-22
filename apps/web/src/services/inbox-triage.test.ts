@@ -37,6 +37,29 @@ describe("classifyInbound — ImmobilienScout24", () => {
   });
 });
 
+describe("classifyInbound — Formspree and Möbeltransport24", () => {
+  it("a Formspree submission is a LEAD despite noreply", () => {
+    const r = classifyInbound({
+      fromAddr: "noreply@formspree.io",
+      subject: "New submission",
+      body: "Name: Elif Demir\nEmail: elif@example.de\nMessage: Bitte um ein Umzugsangebot von Stuttgart nach München.",
+    });
+    expect(r.lane).toBe("lead");
+  });
+  it("a Möbeltransport24 Angebotsanfrage is a LEAD and a newsletter is INFO", () => {
+    expect(
+      classifyInbound({
+        fromAddr: "noreply@moebeltransport24.de",
+        subject: "Angebotsanfrage 482913",
+        body: "Name: Elif Yilmaz\nE-Mail: elif@example.de\nVon: Hauptstraße 4, 70173 Stuttgart",
+      }).lane
+    ).toBe("lead");
+    expect(
+      classifyInbound({ fromAddr: "noreply@moebeltransport24.de", subject: "Ihr Wochenrückblick" }).lane
+    ).toBe("info");
+  });
+});
+
 describe("classifyInbound — bots / bulk senders go to INFO", () => {
   it("Google no-reply", () => {
     expect(classifyInbound({ fromAddr: "no-reply@accounts.google.com", subject: "Security alert" }).lane).toBe("info");

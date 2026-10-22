@@ -79,6 +79,23 @@ describe("classifyInboundDealSource", () => {
     );
   });
 
+  it("stamps Möbeltransport24 and a Formspree form", () => {
+    expect(
+      classifyInboundDealSource({
+        fromEmail: "anfrage@moebeltransport24.de",
+        subject: "Angebotsanfrage 482913",
+        body: "Name: Elif\nE-Mail: elif@example.de",
+      })
+    ).toBe("Möbeltransport24");
+    expect(
+      classifyInboundDealSource({
+        fromEmail: "noreply@formspree.io",
+        subject: "New submission",
+        body: "Name: Elif\nEmail: elif@example.de",
+      })
+    ).toBe("Website-Formular");
+  });
+
   it("leaves generic mail and mixed signals empty", () => {
     expect(classifyInboundDealSource({ fromEmail: "ada@example.com", subject: "Umzug", body: "Hallo" })).toBeNull();
     expect(
