@@ -9,7 +9,7 @@
  * `assembleCockpit` ist rein und getestet; `loadCockpitInput` holt die Rohdaten.
  */
 
-import { and, desc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lte, notInArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { objects, attributes, statuses } from "@/db/schema/objects";
 import { records, recordValues } from "@/db/schema/records";
@@ -45,9 +45,13 @@ export interface CockpitItem {
   price: CockpitPrice | null;
   deposit: CockpitDeposit;
   lastMessage: { at: string; direction: CockpitDirection; preview: string } | null;
+  /** Letzte Kundennachricht, auch wenn wir danach geantwortet haben. */
+  lastCustomerMessageAt: string | null;
   unansweredSince: string | null;
   draft: { id: string; code: string; text: string; kind: "reply" | "price" | "kv" | "followup" | "other"; createdAt: string; expiresAt: string | null } | null;
   lastOffer: { at: string; cents: number | null } | null;
+  /** Offener Rest auf das Angebot nach allen Betriebseinnahmen, null ohne Angebot. */
+  paymentOpenCents: number | null;
   task: { title: string; dueAt: string } | null;
   secondOpinion: { requestedAt: string; answeredAt: string | null; text: string | null } | null;
   recentMessages: { at: string; direction: CockpitDirection; text: string }[];
@@ -102,10 +106,12 @@ const PREVIEW_MAX = 160;
 const MESSAGE_MAX = 500;
 const RECENT_MESSAGES = 3;
 const OWN_PREFIX = /^Du:\s*/;
-// Stufen, die kein offener Vorgang mehr sind.
-const CLOSED_STAGE = /bezahlt|verloren|durchgef|abgeschlossen|kein lead|spam|done|paid|lost/i;
+// Stufen, die kein offener Vorgang mehr sind. "Durchgeführt" bleibt offen: Umzug erledigt, Schlusszahlung offen.
+const CLOSED_STAGE = /\b(bezahlt|verloren|kein lead|spam|paid|lost)\b/i;
 const DEFAULT_LIMIT = 200;
+const CONVERSATION_FETCH_LIMIT = 500;
 const DEALS_WITHOUT_CHAT_LIMIT = 150;
+const DEALS_WITHOUT_CHAT_FETCH_LIMIT = 600;
 
 /** Der Freigabe-Code der WhatsApp-Befehle (services/intern/freigabe-befehle.ts), hier nur gespiegelt. */
 export function cockpitDraftCode(draftId: string): string {
@@ -165,13 +171,16 @@ export function assembleCockpit(input: CockpitInput): CockpitResponse {
     let deposit: CockpitDeposit = "unknown";
     if (quotation?.depositRequiredCents != null) deposit = paidCents >= quotation.depositRequiredCents ? "paid" : "open";
 
+    // Richtung und Vorschau aus derselben Nachricht: der jüngsten echten, sonst aus der Konversation.
     let lastMessage: CockpitItem["lastMessage"] = null;
     if (conversation?.lastMessageAt) {
-      const rawPreview = conversation.lastMessagePreview ?? newest?.body ?? "";
-      const own = OWN_PREFIX.test(rawPreview);
+      const fromConversation = conversation.lastMessagePreview ?? "";
+      const own = OWN_PREFIX.test(fromConversation);
       const direction: CockpitDirection = newest ? (newest.direction === "inbound" ? "in" : "out") : own ? "out" : "in";
-      lastMessage = { at: conversation.lastMessageAt.toISOString(), direction, preview: clip(rawPreview.replace(OWN_PREFIX, ""), PREVIEW_MAX) };
+      const rawPreview = newest?.body?.trim() || fromConversation;
+      lastMessage = { at: (newest ? stamp(newest) : conversation.lastMessageAt).toISOString(), direction, preview: clip(rawPreview.replace(OWN_PREFIX, ""), PREVIEW_MAX) };
     }
+    const paymentOpenCents = quotation?.fixedPriceEur != null ? Math.max(0, Math.round(quotation.fixedPriceEur * 100) - paidCents) : null;
 
     const offerAt = earliest([quotation?.createdAt ?? null, dealId ? linkByDeal.get(dealId) ?? null : null]);
     const updated = Math.max(conversation?.lastMessageAt?.getTime() ?? 0, deal?.updatedAt.getTime() ?? 0, draft?.createdAt.getTime() ?? 0, 0);
@@ -192,6 +201,7 @@ export function assembleCockpit(input: CockpitInput): CockpitResponse {
       price,
       deposit,
       lastMessage,
+      lastCustomerMessageAt: conversation?.aiLastInboundAt?.toISOString() ?? null,
       unansweredSince: conversation?.aiNeedsReply ? (conversation.aiLastInboundAt ?? conversation.lastMessageAt)?.toISOString() ?? null : null,
       draft: draft
         ? {
@@ -204,6 +214,7 @@ export function assembleCockpit(input: CockpitInput): CockpitResponse {
           }
         : null,
       lastOffer: offerAt ? { at: offerAt.toISOString(), cents: quotation?.fixedPriceEur != null ? Math.round(quotation.fixedPriceEur * 100) : null } : null,
+      paymentOpenCents,
       task: null,
       secondOpinion: null,
       recentMessages: messages.map((message) => ({
@@ -358,13 +369,16 @@ export async function loadCockpitInput(workspaceId: string, opts: { company?: st
       )
     )
     .orderBy(desc(inboxConversations.lastMessageAt))
-    .limit(limit);
+    .limit(Math.max(limit, CONVERSATION_FETCH_LIMIT));
 
+  // Nicht-Leads erst verwerfen, dann kürzen: sonst belegen sie Plätze und ältere echte Leads fehlen.
   const nonLeadIds = await loadNonLeadDealIds(workspaceId);
-  const conversations = conversationRows.filter((row) => !row.dealRecordId || !nonLeadIds.has(row.dealRecordId));
-  const dealIds = new Set(conversations.map((row) => row.dealRecordId).filter((id): id is string => Boolean(id)));
+  const conversations = conversationRows.filter((row) => !row.dealRecordId || !nonLeadIds.has(row.dealRecordId)).slice(0, limit);
+  const chatDealIds = new Set(conversations.map((row) => row.dealRecordId).filter((id): id is string => Boolean(id)));
+  const dealIds = new Set(chatDealIds);
 
-  // Offene Deals ohne Chat
+  // Offene Deals ohne Chat: Deals mit Chat schon in SQL ausschließen, mehr holen, nach dem Firmenfilter kürzen.
+  const withoutChatCandidates: string[] = [];
   if (dealObj && stageAttrId && activeStageIds.length > 0) {
     const rows = await db
       .select({ recordId: recordValues.recordId })
@@ -375,16 +389,26 @@ export async function loadCockpitInput(workspaceId: string, opts: { company?: st
           eq(recordValues.attributeId, stageAttrId),
           inArray(recordValues.textValue, activeStageIds),
           eq(records.objectId, dealObj.id),
-          isNull(records.deletedAt)
+          isNull(records.deletedAt),
+          chatDealIds.size ? notInArray(records.id, [...chatDealIds]) : undefined
         )
       )
       .orderBy(desc(records.updatedAt))
-      .limit(DEALS_WITHOUT_CHAT_LIMIT);
+      .limit(DEALS_WITHOUT_CHAT_FETCH_LIMIT);
     for (const row of rows) {
-      if (!nonLeadIds.has(row.recordId)) dealIds.add(row.recordId);
+      if (!nonLeadIds.has(row.recordId)) withoutChatCandidates.push(row.recordId);
     }
   }
-  const ids = [...dealIds];
+  for (const id of withoutChatCandidates) dealIds.add(id);
+
+  // Nur lebende Deals dieses Objekts: zusammengeführte oder fremde IDs aus Chats fallen hier raus.
+  const liveRows = dealObj && dealIds.size
+    ? await db
+        .select({ id: records.id, updatedAt: records.updatedAt })
+        .from(records)
+        .where(and(inArray(records.id, [...dealIds]), eq(records.objectId, dealObj.id), isNull(records.deletedAt)))
+    : [];
+  const ids = liveRows.map((row) => row.id);
 
   // Deal-Werte
   const wanted = ["name", "stage", "move_date", "move_from_address", "move_to_address", "operating_company"]
@@ -399,7 +423,7 @@ export async function loadCockpitInput(workspaceId: string, opts: { company?: st
     map.set(row.attributeId, row);
     valuesByRecord.set(row.recordId, map);
   }
-  const recordRows = ids.length ? await db.select({ id: records.id, updatedAt: records.updatedAt }).from(records).where(inArray(records.id, ids)) : [];
+  const recordRows = liveRows;
   const value = (dealId: string, slug: string): ValueRow | undefined => {
     const attrId = attrBySlug.get(slug);
     return attrId ? valuesByRecord.get(dealId)?.get(attrId) : undefined;
@@ -419,12 +443,14 @@ export async function loadCockpitInput(workspaceId: string, opts: { company?: st
       updatedAt: row.updatedAt,
     };
   });
-  const filteredDeals = opts.company
-    ? deals.filter((deal) => {
-        if (deal.operatingCompanyRecordId) return deal.operatingCompanyRecordId === opts.company;
-        return conversations.some((row) => row.dealRecordId === deal.id);
-      })
-    : deals;
+  const filteredDeals = (opts.company
+    ? deals.filter((deal) => deal.operatingCompanyRecordId === opts.company || chatDealIds.has(deal.id))
+    : deals
+  ).filter((deal, _index, list) => {
+    if (chatDealIds.has(deal.id)) return true;
+    const rank = list.filter((other) => !chatDealIds.has(other.id)).indexOf(deal);
+    return rank < DEALS_WITHOUT_CHAT_LIMIT;
+  });
 
   const convIds = conversations.map((row) => row.id);
   const [quotationRows, paymentRows, calculationRows, draftRows, linkRows, bridgeRows] = await Promise.all([
@@ -438,7 +464,7 @@ export async function loadCockpitInput(workspaceId: string, opts: { company?: st
       ? db
           .select({ dealRecordId: payments.dealRecordId, amount: payments.amount })
           .from(payments)
-          .where(and(eq(payments.workspaceId, workspaceId), inArray(payments.dealRecordId, ids)))
+          .where(and(eq(payments.workspaceId, workspaceId), inArray(payments.dealRecordId, ids), eq(payments.taxTreatment, "betriebseinnahme")))
       : Promise.resolve([]),
     ids.length
       ? db.select({ dealRecordId: dealCalculations.dealRecordId, result: dealCalculations.result }).from(dealCalculations).where(inArray(dealCalculations.dealRecordId, ids))

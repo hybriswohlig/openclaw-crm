@@ -26,8 +26,11 @@ import { loadNonLeadDealIds } from "@/services/kontaktart";
  */
 export function amountOf(numberValue: unknown, jsonValue: unknown): number {
   if (jsonValue && typeof jsonValue === "object" && "amount" in jsonValue) {
-    const amount = Number((jsonValue as { amount?: unknown }).amount);
-    if (Number.isFinite(amount)) return amount;
+    const raw = (jsonValue as { amount?: unknown }).amount;
+    if (raw !== null && raw !== undefined && raw !== "") {
+      const amount = Number(raw);
+      if (Number.isFinite(amount)) return amount;
+    }
   }
   const fallback = Number(numberValue ?? 0);
   return Number.isFinite(fallback) ? fallback : 0;

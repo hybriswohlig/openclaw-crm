@@ -114,10 +114,13 @@ describe("Cockpit-Aggregat", () => {
       price: { kind: "fixed", cents: 105000 },
       deposit: "open",
       lastMessage: { direction: "out", preview: "Angebot ist raus." },
+      lastCustomerMessageAt: ago(40).toISOString(),
       unansweredSince: null,
       lastOffer: { at: ago(30).toISOString(), cents: 105000 },
+      paymentOpenCents: 90000,
       draft: null,
     });
+    expect(berger.paymentOpenCents).toBeNull();
 
     const fischer = out.items.find((item) => item.id === "deal:deal-3")!;
     expect(fischer).toMatchObject({ conversationId: null, customer: "Anfrage Website Fischer", lastMessage: null, price: null, deposit: "unknown", urls: { conversation: null } });
@@ -145,6 +148,19 @@ describe("Cockpit-Aggregat", () => {
     expect(out.items.find((item) => item.id === "conv-1")?.draft?.text).toBe("Samstag passt.");
     const none = assembleCockpit(input({ drafts: [old] }));
     expect(none.items.find((item) => item.id === "conv-1")?.draft).toBeNull();
+  });
+
+  it("behält Deals der Stufe Durchgeführt mit offener Schlusszahlung", () => {
+    const out = assembleCockpit(
+      input({
+        deals: [{ id: "deal-9", name: "Familie Fertig", stageTitle: "Durchgeführt", moveDate: "2026-10-18", fromShort: "A", toShort: "B", operatingCompanyRecordId: "oc-k", updatedAt: ago(40) }],
+        conversations: [],
+        quotations: [{ dealRecordId: "deal-9", fixedPriceEur: 900, depositRequiredCents: 20000, createdAt: ago(300) }],
+        payments: [{ dealRecordId: "deal-9", amountEur: 200 }],
+      }),
+    );
+    expect(out.items.map((item) => item.id)).toEqual(["deal:deal-9"]);
+    expect(out.items[0]).toMatchObject({ stage: "Durchgeführt", deposit: "paid", paymentOpenCents: 70000 });
   });
 
   it("meldet die Bridge je Konto mit Firma", () => {

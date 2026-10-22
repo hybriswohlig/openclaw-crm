@@ -8,6 +8,8 @@ describe("amountOf: Währungswerte aus json_value", () => {
     expect(amountOf("99", null)).toBe(99);
     expect(amountOf("99", { currencyCode: "EUR" })).toBe(99);
     expect(amountOf(null, null)).toBe(0);
+    expect(amountOf("42", { amount: null, currencyCode: "EUR" })).toBe(42);
+    expect(amountOf("42", { amount: "" })).toBe(42);
     expect(amountOf("abc", { amount: "nope" })).toBe(0);
   });
 });
