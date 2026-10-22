@@ -4,6 +4,7 @@ import { username } from "better-auth/plugins";
 import { db } from "@/db";
 import * as schema from "@/db/schema";
 import { getBootstrapAdminEmails } from "@/lib/bootstrap-admins";
+import { userAdditionalFields } from "@/lib/auth-user-fields";
 
 /** Normalize origin: trim, no trailing slash. */
 function addOrigin(set: Set<string>, value: string | undefined) {
@@ -97,18 +98,7 @@ export const auth = betterAuth({
   // Employees sign in with a username (no email). Staff keep email/password.
   plugins: [username({ minUsernameLength: 3, maxUsernameLength: 40 })],
   user: {
-    additionalFields: {
-      approvalStatus: {
-        type: "string",
-        required: false,
-        defaultValue: "pending",
-      },
-      isAppAdmin: {
-        type: "boolean",
-        required: false,
-        defaultValue: false,
-      },
-    },
+    additionalFields: userAdditionalFields,
   },
   databaseHooks: {
     user: {
