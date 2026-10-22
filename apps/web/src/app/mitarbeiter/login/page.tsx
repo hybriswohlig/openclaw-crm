@@ -4,6 +4,7 @@ import { useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
+import { safeRedirectPath } from "@/lib/safe-redirect";
 
 function LoginForm() {
   const searchParams = useSearchParams();
@@ -36,7 +37,7 @@ function LoginForm() {
         return;
       }
 
-      window.location.href = redirectParam || "/";
+      window.location.href = safeRedirectPath(redirectParam, "/");
     } catch {
       setError("Anmeldung fehlgeschlagen. Bitte erneut versuchen.");
       setLoading(false);
