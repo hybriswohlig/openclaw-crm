@@ -18,6 +18,11 @@ describe("safeRedirectPath", () => {
     ["\\/evil.example"],
     ["\t/home"],
     ["/home\\..\\x"],
+    // Dot segments collapse during URL parsing into a protocol-relative
+    // `//host` (found in review by GPT-6 Astra and the Opus reviewer).
+    ["/.//evil.example"],
+    ["/a/..//evil.example"],
+    ["/%2e%2e//evil.example"],
     [""],
   ])("falls back for %j", (value) => {
     expect(safeRedirectPath(value, "/home")).toBe("/home");

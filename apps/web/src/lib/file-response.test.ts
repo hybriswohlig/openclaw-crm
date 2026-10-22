@@ -48,6 +48,20 @@ describe("fileResponseHeaders", () => {
     ).toMatch(/^inline;/);
   });
 
+  it("keeps iPhone HEIC/HEIF photos inline", () => {
+    for (const mimeType of ["image/heic", "image/heif"]) {
+      const h = fileResponseHeaders({ mimeType, fileName: "IMG_0001.HEIC" });
+      expect(h["Content-Type"]).toBe(mimeType);
+      expect(h["Content-Disposition"]).toMatch(/^inline;/);
+    }
+  });
+
+  it("serves the legacy application/x-pdf label as an inline pdf", () => {
+    const h = fileResponseHeaders({ mimeType: "application/x-pdf", fileName: "rechnung.pdf" });
+    expect(h["Content-Type"]).toBe("application/pdf");
+    expect(h["Content-Disposition"]).toMatch(/^inline;/);
+  });
+
   it("always sets nosniff", () => {
     for (const mimeType of ["image/jpeg", "image/svg+xml", null]) {
       expect(fileResponseHeaders({ mimeType, fileName: "f" })["X-Content-Type-Options"]).toBe(

@@ -17,13 +17,17 @@ const INLINE_SAFE = new Set([
   "image/gif",
   "image/webp",
   "image/avif",
+  "image/heic",
+  "image/heif",
   "application/pdf",
 ]);
 
 const MEDIA_RE = /^(audio|video)\/[a-z0-9.+-]+$/;
 
 function normalizeMime(mimeType: string | null | undefined): string {
-  return (mimeType ?? "").split(";")[0].trim().toLowerCase();
+  const mime = (mimeType ?? "").split(";")[0].trim().toLowerCase();
+  // Older mail clients label PDFs with the legacy x- type.
+  return mime === "application/x-pdf" ? "application/pdf" : mime;
 }
 
 /** RFC 5987 value for `filename*`; encodeURIComponent leaves '()* unescaped. */

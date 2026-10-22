@@ -18,5 +18,8 @@ export function safeRedirectPath(value: string | null | undefined, fallback: str
     return fallback;
   }
   if (url.origin !== BASE) return fallback;
+  // Dot segments collapse during parsing: "/a/..//evil.example" becomes
+  // "//evil.example", which the browser reads as another host.
+  if (url.pathname.startsWith("//")) return fallback;
   return url.pathname + url.search + url.hash;
 }
