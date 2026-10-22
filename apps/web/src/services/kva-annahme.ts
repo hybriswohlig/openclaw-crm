@@ -92,6 +92,8 @@ export function annahmeAusZeile(row: ZeileFuerRecord): AcceptanceRecord {
     vorzeitigerBeginnVerlangt: row.vorzeitigerBeginnVerlangt,
     widerrufVerzichtAccepted: row.widerrufVerzichtAccepted,
     quotationDocumentId: row.quotationDocumentId,
+    // Platzhalter bis Task 4 (Spalten aus Task 2).
+    unterschrift: null,
   };
 }
 

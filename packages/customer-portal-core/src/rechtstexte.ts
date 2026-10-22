@@ -8,6 +8,16 @@ export const BUTTON_ZAHLUNGSPFLICHTIG = "Zahlungspflichtig beauftragen";
 export const BUTTON_VERTRAG_WIDERRUFEN = "Vertrag widerrufen";
 export const BUTTON_WIDERRUF_BESTAETIGEN = "Widerruf bestätigen";
 
+/** Unterschrift im Portal nach der Annahme (freiwillig, Vertragsurkunde). */
+export const BUTTON_VERTRAG_UNTERSCHREIBEN = "Vertrag unterschreiben";
+export const BUTTON_UNTERSCHRIFT_BESTAETIGEN = "Unterschrift bestätigen";
+export const UNTERSCHRIFT_HINWEIS =
+  "Ihr Auftrag ist bereits verbindlich erteilt. Die Unterschrift ist freiwillig und dient als Vertragsurkunde.";
+
+export function unterschriftErklaerung(datumText: string): string {
+  return `Mit meiner Unterschrift bestätige ich den oben bezeichneten Vertrag, den ich am ${datumText} im Kundenportal geschlossen habe.`;
+}
+
 export const HAFTUNGSHINWEIS_451G = {
   titel: "Wichtiger Haftungshinweis nach § 451g HGB",
   absaetze: [

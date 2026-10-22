@@ -514,6 +514,7 @@ export async function loadContextByToken(
         ? `/api/public/${token}/documents/${orderConfirmationDoc.id}`
         : null,
       invoiceUrl: invoiceDoc ? `/api/public/${token}/documents/${invoiceDoc.id}` : null,
+      signedContractUrl: null,
     },
     attachments,
     customerPhotos,
