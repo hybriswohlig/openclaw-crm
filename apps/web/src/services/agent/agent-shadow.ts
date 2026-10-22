@@ -18,7 +18,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { and, eq, gt, isNull, or } from "drizzle-orm";
+import { and, eq, gt, isNull, ne, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { agentEvents, agentDrafts } from "@/db/schema/agent";
 import { sendPush } from "@/services/push";
@@ -164,19 +164,24 @@ export async function captureShadowDraft(input: ShadowDraftInput): Promise<void>
     // follow-up cron re-composes a (nondeterministic) nudge for the same
     // silent lead every day, which would insert a "new" row and re-push
     // daily. One live pending draft per (deal, class) is the queue's contract.
-    const [alreadyPending] = await db
-      .select({ id: agentDrafts.id })
-      .from(agentDrafts)
-      .where(
-        and(
-          eq(agentDrafts.dealRecordId, input.dealRecordId),
-          eq(agentDrafts.messageClass, input.messageClass),
-          eq(agentDrafts.status, "pending"),
-          or(isNull(agentDrafts.expiresAt), gt(agentDrafts.expiresAt, new Date()))
+    // Replies are different: a reply draft answers a customer message, so a
+    // newer message makes the pending one outdated and the newest draft wins.
+    const neuesteGewinnt = input.messageClass === "reply";
+    if (!neuesteGewinnt) {
+      const [alreadyPending] = await db
+        .select({ id: agentDrafts.id })
+        .from(agentDrafts)
+        .where(
+          and(
+            eq(agentDrafts.dealRecordId, input.dealRecordId),
+            eq(agentDrafts.messageClass, input.messageClass),
+            eq(agentDrafts.status, "pending"),
+            or(isNull(agentDrafts.expiresAt), gt(agentDrafts.expiresAt, new Date()))
+          )
         )
-      )
-      .limit(1);
-    if (alreadyPending) return;
+        .limit(1);
+      if (alreadyPending) return;
+    }
     const inserted = await db
       .insert(agentDrafts)
       .values({
@@ -204,6 +209,31 @@ export async function captureShadowDraft(input: ShadowDraftInput): Promise<void>
       })
       .onConflictDoNothing()
       .returning({ id: agentDrafts.id });
+
+    // Only after a real insert (a re-run with identical text conflicts and
+    // must leave the pending draft alone): older pending reply drafts of this
+    // deal are outdated. Their approval codes stop working.
+    if (neuesteGewinnt && inserted.length > 0) {
+      const now = new Date();
+      await db
+        .update(agentDrafts)
+        .set({
+          status: "superseded",
+          updatedAt: now,
+          filterVerdicts: sql`coalesce(${agentDrafts.filterVerdicts}, '{}'::jsonb) || ${JSON.stringify({
+            supersededBy: "newer_reply",
+            supersededAt: now.toISOString(),
+          })}::jsonb`,
+        })
+        .where(
+          and(
+            eq(agentDrafts.dealRecordId, input.dealRecordId),
+            eq(agentDrafts.messageClass, "reply"),
+            eq(agentDrafts.status, "pending"),
+            ne(agentDrafts.id, inserted[0].id)
+          )
+        );
+    }
 
     // Push ONLY on a real insert (onConflictDoNothing returns [] on conflict,
     // so re-runs/overlapping cron ticks stay silent). Own try/catch: a push
