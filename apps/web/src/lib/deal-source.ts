@@ -96,7 +96,8 @@ export interface StageRef {
   title: string;
   sortOrder: number;
   stageCategory?: string | null;
-  isActive?: boolean | null;
+  /** Pflicht: eine ausgeblendete Stufe ist nie Ziel (aktiveZielStufe). */
+  isActive: boolean | null;
 }
 
 function norm(value: string | null | undefined): string {

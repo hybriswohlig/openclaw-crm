@@ -16,12 +16,12 @@ import {
 } from "./deal-source";
 
 const stages = [
-  { id: "inquiry", title: "Inquiry", sortOrder: 0, stageCategory: "open_new" },
-  { id: "contacted", title: "Contacted", sortOrder: 1, stageCategory: "open_engaged" },
-  { id: "quoted", title: "Quoted", sortOrder: 3, stageCategory: "quoted" },
-  { id: "booked", title: "Planned", sortOrder: 4, stageCategory: "booked" },
-  { id: "paid", title: "Paid", sortOrder: 6, stageCategory: "paid" },
-  { id: "lost", title: "Lost", sortOrder: 7, stageCategory: "lost" },
+  { id: "inquiry", title: "Inquiry", sortOrder: 0, isActive: true, stageCategory: "open_new" },
+  { id: "contacted", title: "Contacted", sortOrder: 1, isActive: true, stageCategory: "open_engaged" },
+  { id: "quoted", title: "Quoted", sortOrder: 3, isActive: true, stageCategory: "quoted" },
+  { id: "booked", title: "Planned", sortOrder: 4, isActive: true, stageCategory: "booked" },
+  { id: "paid", title: "Paid", sortOrder: 6, isActive: true, stageCategory: "paid" },
+  { id: "lost", title: "Lost", sortOrder: 7, isActive: true, stageCategory: "lost" },
 ];
 
 describe("deal source options match the standard object", () => {
@@ -153,7 +153,7 @@ describe("decideQuotedAdvance", () => {
     expect(decideQuotedAdvance({ stages, currentStageId: "lost" })).toBeNull();
     expect(
       decideQuotedAdvance({
-        stages: [{ id: "won", title: "Gewonnen", sortOrder: 1, stageCategory: null }],
+        stages: [{ id: "won", title: "Gewonnen", sortOrder: 1, isActive: true, stageCategory: null }],
         currentStageId: "won",
       })
     ).toBeNull();

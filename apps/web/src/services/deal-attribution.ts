@@ -196,6 +196,7 @@ export async function advanceDealToQuotedIfEarlier(input: {
         title: stage.title,
         sortOrder: stage.sortOrder,
         stageCategory: stage.stageCategory,
+        isActive: stage.isActive,
       })),
       currentStageId: current?.textValue ?? null,
     });
