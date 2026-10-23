@@ -12,13 +12,13 @@
  * Die Entscheidungen (Code, mehrdeutig, abgelaufen) liegen rein und getestet
  * in rueckfragen-befehle.ts; hier nur Datenbank und Versand.
  */
-import { and, asc, eq, gte, inArray, lt, ne } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lt, ne, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { internRueckfragen, type RueckfrageStatus } from "@/db/schema/intern";
 import { getSetting } from "@/services/workspace-settings";
 import { sendeAnInterne } from "./intern-senden";
 import { ladeInterneNummern } from "./interne-nummern";
-import { antwortEntscheidung, neuerCode, rueckfrageNachricht, type RueckfrageAnfrage } from "./rueckfragen-befehle";
+import { antwortEntscheidung, neuerCode, rueckfrageNachricht, teileAnfrage, type RueckfrageAnfrage } from "./rueckfragen-befehle";
 
 export const RUECKFRAGEN_EMPFAENGER_KEY = "intern_rueckfragen_empfaenger";
 const BEKANNT_TAGE = 60;
@@ -77,7 +77,26 @@ export async function erstelleRueckfragen(
         .where(and(eq(internRueckfragen.workspaceId, workspaceId), gte(internRueckfragen.createdAt, new Date(now.getTime() - BEKANNT_TAGE * TAG_MS))))
     ).map((row) => row.code)
   );
-  const zeilen = anfrage.fragen.map((frage) => {
+  // Schon offene Fragen derselben Quelle zur selben Buchung behalten ihren Code und gehen nicht noch einmal raus.
+  const txIds = anfrage.fragen.map((frage) => frage.payload?.tx_id).filter((id): id is string => typeof id === "string");
+  const vorhanden = new Map<string, string>();
+  if (txIds.length > 0) {
+    const offen = await db
+      .select({ code: internRueckfragen.code, txId: sql<string>`${internRueckfragen.payload}->>'tx_id'` })
+      .from(internRueckfragen)
+      .where(
+        and(
+          eq(internRueckfragen.workspaceId, workspaceId),
+          eq(internRueckfragen.quelle, anfrage.quelle),
+          eq(internRueckfragen.status, "offen"),
+          inArray(sql<string>`${internRueckfragen.payload}->>'tx_id'`, txIds)
+        )
+      );
+    for (const row of offen) if (row.txId) vorhanden.set(row.txId, row.code);
+  }
+  const { codes, neu } = teileAnfrage(anfrage.fragen, vorhanden);
+  if (neu.length === 0) return { codes: codes as string[], zugestellt: true };
+  const zeilen = neu.map((index) => anfrage.fragen[index]!).map((frage) => {
     const code = neuerCode(vergeben);
     vergeben.add(code);
     return {
@@ -94,11 +113,14 @@ export async function erstelleRueckfragen(
     };
   });
   const ids = (await db.insert(internRueckfragen).values(zeilen).returning({ id: internRueckfragen.id })).map((row) => row.id);
+  neu.forEach((index, position) => {
+    codes[index] = zeilen[position]!.code;
+  });
   const text = rueckfrageNachricht(anfrage.quelle, zeilen);
   const ergebnis = await sendeAnInterne(workspaceId, text, { kontoId, nurAn: [empfaenger], nachholen: true });
   // Zugestellt oder vorgemerkt: beides zählt als gesendet, das CRM holt nach.
   await db.update(internRueckfragen).set({ sentAt: now }).where(inArray(internRueckfragen.id, ids));
-  return { codes: zeilen.map((zeile) => zeile.code), zugestellt: ergebnis.zugestellt.includes(empfaenger) };
+  return { codes: codes as string[], zugestellt: ergebnis.zugestellt.includes(empfaenger) };
 }
 
 export async function markiereAbgelaufen(workspaceId: string, now = new Date()): Promise<number> {
@@ -160,13 +182,23 @@ export async function beantworteRueckfrage(workspaceId: string, absenderName: st
     .select({ code: internRueckfragen.code, status: internRueckfragen.status })
     .from(internRueckfragen)
     .where(and(eigene, ne(internRueckfragen.status, "offen"), gte(internRueckfragen.createdAt, new Date(now.getTime() - BEKANNT_TAGE * TAG_MS))));
-  const entscheidung = antwortEntscheidung(text, offene, bekannte);
-  if (entscheidung.aktion === "ignorieren") return null;
-  if (entscheidung.aktion === "melden") return entscheidung.text;
-  const gespeichert = await db
-    .update(internRueckfragen)
-    .set({ status: "beantwortet", antwort: entscheidung.antwort, antwortVon: absenderName, answeredAt: now })
-    .where(and(eq(internRueckfragen.id, entscheidung.id), eq(internRueckfragen.status, "offen")))
-    .returning({ id: internRueckfragen.id });
-  return gespeichert.length > 0 ? `Danke, #${entscheidung.code} notiert.` : `#${entscheidung.code} ist schon beantwortet.`;
+  const entscheidungen = antwortEntscheidung(text, offene, bekannte);
+  if (entscheidungen.length === 0) return null;
+  const notiert: string[] = [];
+  const meldungen: string[] = [];
+  for (const entscheidung of entscheidungen) {
+    if (entscheidung.aktion === "melden") {
+      meldungen.push(entscheidung.text);
+      continue;
+    }
+    const gespeichert = await db
+      .update(internRueckfragen)
+      .set({ status: "beantwortet", antwort: entscheidung.antwort, antwortVon: absenderName, answeredAt: now })
+      .where(and(eq(internRueckfragen.id, entscheidung.id), eq(internRueckfragen.status, "offen")))
+      .returning({ id: internRueckfragen.id });
+    if (gespeichert.length > 0) notiert.push(`#${entscheidung.code}`);
+    else meldungen.push(`#${entscheidung.code} ist schon beantwortet.`);
+  }
+  const danke = notiert.length ? [`Danke, ${notiert.join(notiert.length === 2 ? " und " : ", ")} notiert.`] : [];
+  return [...danke, ...meldungen].join("\n");
 }

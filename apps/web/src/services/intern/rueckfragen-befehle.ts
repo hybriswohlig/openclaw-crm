@@ -107,36 +107,78 @@ export function validiereRueckfragen(body: unknown): { ok: true; value: Rueckfra
 
 export type AntwortEntscheidung =
   | { aktion: "speichern"; id: string; code: string; antwort: string }
-  | { aktion: "melden"; text: string }
-  | { aktion: "ignorieren" };
+  | { aktion: "melden"; text: string };
 
 /**
- * Was mit einer Nachricht des Empfängers passiert: speichern, kurz melden
- * oder wie bisher verwerfen. `bekannte` sind Fragen desselben Empfängers, die
- * nicht mehr offen sind (abgelaufen oder beantwortet).
+ * Was mit einer Nachricht des Empfängers passiert: je Antwort speichern oder kurz
+ * melden; eine leere Liste heißt: wie bisher verwerfen. `bekannte` sind Fragen
+ * desselben Empfängers, die nicht mehr offen sind (abgelaufen oder beantwortet).
+ *
+ * Eine Nachricht darf mehrere Antworten enthalten: jede Zeile, die mit einem
+ * offenen oder bekannten Code beginnt, startet eine neue Antwort; Folgezeilen
+ * ohne Code gehören zur Antwort darüber, Zeilen vor dem ersten Code entfallen.
  */
 export function antwortEntscheidung(
   text: string,
   offene: ReadonlyArray<{ id: string; code: string }>,
   bekannte: ReadonlyArray<{ code: string; status: string }>
-): AntwortEntscheidung {
-  const parsed = antwortAus(
-    text,
-    offene.map((frage) => frage.code),
-    bekannte.map((frage) => frage.code)
-  );
-  if (!parsed) return { aktion: "ignorieren" };
-  if (parsed.code && !offene.some((frage) => frage.code === parsed.code)) {
-    const alt = bekannte.find((frage) => frage.code === parsed.code);
-    if (alt?.status === "beantwortet") return { aktion: "melden", text: `#${parsed.code} ist schon beantwortet.` };
-    return { aktion: "melden", text: `#${parsed.code} ist abgelaufen, die Frage kommt bei Bedarf neu.` };
+): AntwortEntscheidung[] {
+  const offeneCodes = offene.map((frage) => frage.code);
+  const bekannteCodes = bekannte.map((frage) => frage.code);
+  const abschnitte: Array<{ code: string; antwort: string }> = [];
+  for (const zeile of text.split(/\r?\n/)) {
+    const parsed = antwortAus(zeile, offeneCodes, bekannteCodes);
+    if (parsed?.code) abschnitte.push({ code: parsed.code, antwort: parsed.antwort });
+    else if (abschnitte.length > 0 && zeile.trim()) {
+      const letzter = abschnitte[abschnitte.length - 1]!;
+      letzter.antwort = letzter.antwort ? `${letzter.antwort}\n${zeile.trim()}` : zeile.trim();
+    }
   }
+  if (abschnitte.length > 0) return abschnitte.map(({ code, antwort }) => entscheideMitCode(code, antwort, offene, bekannte));
+  const parsed = antwortAus(text, offeneCodes, bekannteCodes);
+  if (!parsed) return [];
   const wahl = waehleRueckfrage(offene, parsed);
   if ("fehler" in wahl) {
-    if (wahl.fehler === "mehrdeutig") return { aktion: "melden", text: `Bitte mit Code antworten (offen: ${offene.map((frage) => frage.code).join(", ")}).` };
-    if (wahl.fehler === "kein_treffer") return { aktion: "melden", text: `Keine offene Rückfrage #${parsed.code}.` };
-    return { aktion: "ignorieren" };
+    if (wahl.fehler === "mehrdeutig") return [{ aktion: "melden", text: `Bitte mit Code antworten (offen: ${offeneCodes.join(", ")}).` }];
+    return [];
   }
-  if (!parsed.antwort) return { aktion: "melden", text: `Bitte nach dem Code die Antwort schreiben, zum Beispiel: ${wahl.treffer.code} privat` };
-  return { aktion: "speichern", id: wahl.treffer.id, code: wahl.treffer.code, antwort: parsed.antwort };
+  return [entscheideMitCode(wahl.treffer.code, parsed.antwort, offene, bekannte)];
+}
+
+function entscheideMitCode(
+  code: string,
+  antwort: string,
+  offene: ReadonlyArray<{ id: string; code: string }>,
+  bekannte: ReadonlyArray<{ code: string; status: string }>
+): AntwortEntscheidung {
+  const offen = offene.find((frage) => frage.code === code);
+  if (!offen) {
+    const alt = bekannte.find((frage) => frage.code === code);
+    if (alt?.status === "beantwortet") return { aktion: "melden", text: `#${code} ist schon beantwortet.` };
+    if (alt) return { aktion: "melden", text: `#${code} ist abgelaufen, die Frage kommt bei Bedarf neu.` };
+    return { aktion: "melden", text: `Keine offene Rückfrage #${code}.` };
+  }
+  if (!antwort) return { aktion: "melden", text: `Bitte nach dem Code die Antwort schreiben, zum Beispiel: ${code} privat` };
+  return { aktion: "speichern", id: offen.id, code, antwort };
+}
+
+/**
+ * Fragen einer Anfrage, zu deren Buchung (payload.tx_id) schon eine offene Frage
+ * derselben Quelle existiert, bekommen deren Code und werden nicht noch einmal
+ * gesendet. Schützt vor doppelten Fragen, wenn die Antwort auf einen POST verloren
+ * ging und die Quelle ihn wiederholt.
+ */
+export function teileAnfrage(
+  fragen: RueckfrageAnfrage["fragen"],
+  vorhandene: ReadonlyMap<string, string>
+): { codes: Array<string | null>; neu: number[] } {
+  const codes: Array<string | null> = [];
+  const neu: number[] = [];
+  fragen.forEach((frage, index) => {
+    const txId = typeof frage.payload?.tx_id === "string" ? frage.payload.tx_id : null;
+    const code = txId ? vorhandene.get(txId) ?? null : null;
+    codes.push(code);
+    if (!code) neu.push(index);
+  });
+  return { codes, neu };
 }
