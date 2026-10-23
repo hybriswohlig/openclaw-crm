@@ -58,7 +58,7 @@ for (const width of [1440, 390]) {
   });
   assert.ok(nachInhalt, `Panel steht nach dem Auftragsinhalt (${width})`);
   await b.locator("section:has-text('Vertrag unterschreiben') button:has-text('Vertrag unterschreiben')").click();
-  await b.locator("button[aria-pressed]:has-text('Tippen')").click();
+  await b.getByRole("button", { name: "Lieber tippen", exact: true }).click();
   await b.screenshot({ path: `${out}/b-${width}-getippt.png`, fullPage: false });
   await b.locator("button:has-text('Unterschrift bestätigen')").click();
   await b.getByText("Unterschriebener Vertrag als PDF herunterladen", { exact: true }).waitFor();
@@ -67,6 +67,16 @@ for (const width of [1440, 390]) {
   assert.equal(await b.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `B overflow ${width}`);
   await b.close();
 
+  // D: Festangebot schon angenommen, später über das Panel unterschreiben: die Bestätigung bleibt sichtbar.
+  const d = await seite(width);
+  await d.goto("http://127.0.0.1:4178/?festangebot&angenommen&unterschrift", { waitUntil: "networkidle" });
+  await d.locator("section:has-text('Vertrag unterschreiben') button:has-text('Vertrag unterschreiben')").click();
+  await d.getByRole("button", { name: "Lieber tippen", exact: true }).click();
+  await d.locator("button:has-text('Unterschrift bestätigen')").click();
+  await d.locator("text=Vielen Dank, Ihr Vertrag ist unterschrieben.").waitFor();
+  await d.waitForTimeout(1500); // nach dem Neuladen des Kontexts
+  assert.equal(await d.locator("text=Vielen Dank, Ihr Vertrag ist unterschrieben.").isVisible(), true, `Bestätigung nach Panel-Unterschrift bleibt (${width})`);
+  await d.close();
   // C: ohne Einschalten kein Panel
   const c = await seite(width);
   await c.goto("http://127.0.0.1:4178/?stage=2", { waitUntil: "networkidle" });

@@ -248,5 +248,8 @@ describe("company colors", () => {
     expect(companyColor(CEYLAN, "Ceylan Operations", null)).toBe("#ea580c");
     expect(companyColor(CEYLAN, "Ceylan Operations", "112233")).toBe("#112233");
     expect(companyColor("other", "Nachbarfirma", null)).toBe("#64748b");
+    // Interne Ansichten behalten ihre Firmenfarben, auch wenn das Portal-Branding orange ist.
+    expect(companyColor("andere-id", "Kottke-Umzüge", null)).toBe("#1f3a5f");
+    expect(companyColor("andere-id", "Ceylan Operations", null)).toBe("#ea580c");
   });
 });

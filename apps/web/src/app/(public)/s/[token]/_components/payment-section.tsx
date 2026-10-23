@@ -91,7 +91,7 @@ export function PaymentSection({
         )}
 
         {marked ? (
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-200">
+          <div className="rounded-lg border border-border bg-[var(--portal-brand-tint)] px-4 py-3 text-xs text-foreground">
             ✓ Danke! Wir prüfen den Zahlungseingang und melden uns sobald er bei
             uns angekommen ist.
             {markedPaidAt && (
@@ -212,7 +212,7 @@ function CardComingSoonBlock() {
 
 function UnconfiguredHint() {
   return (
-    <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-200">
+    <div className="rounded-md border border-border bg-[var(--portal-brand-tint)] px-4 py-3 text-xs text-foreground">
       Für diesen Auftrag sind noch keine Zahldaten hinterlegt. Bitte melden
       Sie sich kurz beim Ansprechpartner.
     </div>

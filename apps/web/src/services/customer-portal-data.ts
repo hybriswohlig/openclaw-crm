@@ -17,6 +17,7 @@
  * Outputs are the portable shapes from `@openclaw-crm/customer-portal-core`.
  */
 
+import { nameAusWert } from "@/lib/personen-name";
 import { and, asc, desc, eq, inArray, like, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
@@ -1120,11 +1121,12 @@ async function loadRecordNameText(recordId: string): Promise<string | null> {
     .limit(1);
   if (!nameAttr) return null;
   const [val] = await db
-    .select({ textValue: recordValues.textValue })
+    .select({ textValue: recordValues.textValue, jsonValue: recordValues.jsonValue })
     .from(recordValues)
     .where(and(eq(recordValues.recordId, recordId), eq(recordValues.attributeId, nameAttr.id)))
     .limit(1);
-  return val?.textValue ?? null;
+  // Personen speichern den Namen als personal_name-JSON, nicht als Text.
+  return val ? nameAusWert(val.textValue, val.jsonValue) : null;
 }
 
 async function loadCustomerDisplayName(
@@ -1137,10 +1139,7 @@ async function loadCustomerDisplayName(
   if (!v?.referencedRecordId) return null;
   // For multi-select record references the schema stores one row per linked
   // record; we grab the first. Good enough for a customer headline.
-  const name = await loadRecordNameText(v.referencedRecordId);
-  if (name) return name;
-  // Fallback: try the `name` (personal_name JSON) on the people record.
-  return null;
+  return loadRecordNameText(v.referencedRecordId);
 }
 
 interface CustomerEmailInfo {

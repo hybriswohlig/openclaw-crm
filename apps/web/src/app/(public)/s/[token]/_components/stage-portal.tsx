@@ -63,7 +63,7 @@ export function StagePortal({
   }, [shouldPoll, refresh]);
 
   return (
-    <main className="portal-shell" style={{ ...portalBrandStyle(ctx.branding.primaryColor), "--portal-highlight": ctx.branding.firmaSlug === "kottke" ? "#ff8200" : `#${ctx.branding.primaryColor}` } as React.CSSProperties}>
+    <main className="portal-shell" style={portalBrandStyle(ctx.branding.primaryColor)}>
       <a className="portal-skip" href="#portal-content">Zum Auftragsinhalt</a>
       <StageHeader ctx={ctx} />
       <WiderrufPanel token={token} ctx={ctx} onWiderrufen={refresh} />

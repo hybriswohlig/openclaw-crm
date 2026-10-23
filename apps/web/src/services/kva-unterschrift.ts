@@ -312,6 +312,12 @@ export async function unterschriftFuerToken(
       versicherungGewuenscht: row.versicherungGewuenscht,
       erklaerung: unterschriftErklaerung(datumLang(row.signedAt)),
       unterschrift: { art: payload.art, name: payload.name, bildPng, at: unterschriftAt, ip: ctx.ipAddress.slice(0, 200) },
+      marke: {
+        firmaSlug: portal.branding.firmaSlug,
+        akzentHex: portal.branding.primaryColor,
+        ansprechpartner: portal.branding.ansprechpartner?.name ?? null,
+        fusszeile: portal.branding.footer,
+      },
     };
     const pdf = Buffer.from(await baueVertragsmappe(new Uint8Array(kvBytes), daten));
     vertragSha256 = sha256Hex(pdf);

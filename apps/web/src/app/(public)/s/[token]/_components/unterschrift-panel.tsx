@@ -9,6 +9,7 @@ import {
   type CustomerPortalContext,
 } from "@openclaw-crm/customer-portal-core";
 import { PanelHeading } from "./portal-ui";
+import { portalOfferView } from "./portal-presentation";
 import { UnterschriftForm } from "./unterschrift-form";
 
 /**
@@ -27,11 +28,14 @@ export function UnterschriftPanel({
   onSigned: () => void | Promise<void>;
 }) {
   const [offen, setOffen] = useState(false);
+  // Gerade hier unterschrieben: Bestätigung stehen lassen, auch wenn der neu geladene Kontext keine Unterschrift mehr anbietet.
+  const [gerade, setGerade] = useState(false);
   const moeglich = unterschriftMoeglich({ acceptance: ctx.acceptance, signatureEnabled: ctx.features?.signature === true });
   const vertragUrl = ctx.documents.signedContractUrl;
 
-  if (!moeglich) {
-    if (!vertragUrl || !ctx.acceptance?.unterschrift || ctx.stage > 1) return null;
+  if (!moeglich && !gerade) {
+    // Im Festangebot-Brief steht der Vertrag schon an der Zeile „Ihre Annahme“.
+    if (!vertragUrl || !ctx.acceptance?.unterschrift || ctx.stage > 1 || portalOfferView(ctx) === "festangebot") return null;
     return (
       <section className="portal-panel mt-6" aria-live="polite">
         <PanelHeading icon={PenLine} title="Ihr unterschriebener Vertrag">
@@ -58,7 +62,14 @@ export function UnterschriftPanel({
         {!offen && <p>{UNTERSCHRIFT_HINWEIS}</p>}
       </PanelHeading>
       {offen ? (
-        <UnterschriftForm token={token} ctx={ctx} onSigned={onSigned} />
+        <UnterschriftForm
+          token={token}
+          ctx={ctx}
+          onSigned={async () => {
+            setGerade(true);
+            await onSigned();
+          }}
+        />
       ) : (
         <button type="button" onClick={() => setOffen(true)} className="portal-button portal-button-secondary">
           <PenLine size={17} aria-hidden />

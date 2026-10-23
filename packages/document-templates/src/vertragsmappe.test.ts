@@ -1,6 +1,7 @@
 import { PDFDocument } from "pdf-lib";
 import { describe, expect, it } from "vitest";
-import { annahmeSeiteZeilen, baueVertragsmappe, umbrechen, type VertragsmappeDaten } from "./vertragsmappe";
+import { PDFDict, PDFName, PDFRawStream } from "pdf-lib";
+import { annahmeSeiteModell, annahmeSeiteZeilen, passendeGroesse, baueVertragsmappe, umbrechen, type VertragsmappeDaten } from "./vertragsmappe";
 
 async function miniKv(seiten: number): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
@@ -19,7 +20,83 @@ const basis: VertragsmappeDaten = {
   haftungshinweis: true, versicherungGewuenscht: false,
   erklaerung: "Mit meiner Unterschrift bestätige ich den oben bezeichneten Vertrag, den ich am 22. Oktober 2026 im Kundenportal geschlossen habe.",
   unterschrift: { art: "getippt", name: "Anna Muster", bildPng: null, at: new Date("2026-10-22T08:20:00Z"), ip: "203.0.113.5" },
+  marke: { firmaSlug: "kottke", akzentHex: "c2570c", ansprechpartner: "Dario Kottke", fusszeile: "Kottke Dienstleistungen · Marktstr. 8 · 72218 Wildberg" },
 };
+
+/** Schriftnamen aller eingebetteten Fonts. */
+function schriften(doc: PDFDocument): string[] {
+  return doc.context
+    .enumerateIndirectObjects()
+    .map(([, o]) => o)
+    .filter((o): o is PDFDict => o instanceof PDFDict && o.get(PDFName.of("Type")) === PDFName.of("Font"))
+    .map((o) => String(o.get(PDFName.of("BaseFont")) ?? ""));
+}
+
+/** Anzahl Bilder auf einer Seite. */
+function bilder(doc: PDFDocument, seite: number): number {
+  const xo = doc.getPage(seite).node.Resources()?.lookup(PDFName.of("XObject"));
+  if (!(xo instanceof PDFDict)) return 0;
+  return xo.keys().filter((k) => {
+    const o = doc.context.lookup(xo.get(k));
+    return o instanceof PDFRawStream && o.dict.get(PDFName.of("Subtype")) === PDFName.of("Image");
+  }).length;
+}
+
+describe("annahmeSeiteModell", () => {
+  it("stempelt ANGENOMMEN mit Datum und legt IP und Prüfsummen in den Prüfvermerk", () => {
+    const m = annahmeSeiteModell(basis);
+    expect(m.titel).toBe("Annahme und Unterschrift");
+    expect(m.stempel).toEqual({ text: "ANGENOMMEN", datum: "22.10.2026" });
+    expect(m.eckdaten).toContainEqual({ label: "Festpreis", wert: "1.750,00 €", gross: true });
+    expect(m.eckdaten.map((e) => e.label)).toEqual(["Kunde", "Leistung", "Festpreis", "Termin", "Von", "Nach"]);
+    expect(m.strecke).toBe(true);
+    const pruef = m.pruefvermerk.join("\n");
+    expect(pruef).toContain(`SHA-256 ${"cd".repeat(32)}`);
+    expect(pruef).toContain("203.0.113.5");
+    expect(pruef).toContain("AGB-Fassung: kottke-2026-10");
+    expect(m.rechtstexte.join("\n")).not.toContain("203.0.113.5");
+    expect(m.rechtstexte.join("\n")).toContain("§ 451g HGB");
+    expect(m.rechtstexte.at(-1)).toBe(basis.erklaerung);
+    expect(m.unterschrift.beschriftung).toBe("Unterschrift Kunde");
+  });
+  it("nennt den Ansprechpartner nur in der Fußzeile, nie an der Unterschrift", () => {
+    const m = annahmeSeiteModell(basis);
+    const ohneFuss = JSON.stringify({ ...m, fusszeilen: [] });
+    expect(ohneFuss).not.toContain("Dario");
+    expect(m.fusszeilen.join(" ")).toContain("Ihr Ansprechpartner: Dario Kottke");
+  });
+  it("nach Aufwand und ohne Adressen: voraussichtlich, keine Strecke", () => {
+    const m = annahmeSeiteModell({ ...basis, voraussichtlich: true, fromAddress: null });
+    expect(m.eckdaten).toContainEqual({ label: "Voraussichtlich", wert: "1.750,00 €", gross: true });
+    expect(m.rechtstexte).toContain("Die Abrechnung erfolgt nach tatsächlichem Aufwand. Verbindlich ist die finale Rechnung.");
+    expect(m.strecke).toBe(false);
+  });
+});
+
+describe("Annahmeseite im Kottke-Look", () => {
+  it("bettet Inter und Plus Jakarta Sans und das Logo ein", async () => {
+    const doc = await PDFDocument.load(await baueVertragsmappe(await miniKv(1), basis));
+    const namen = schriften(doc).join(" ");
+    expect(namen).toMatch(/Inter/);
+    expect(namen).toMatch(/PlusJakartaSans/);
+    expect(namen).not.toMatch(/Helvetica/);
+    expect(bilder(doc, 1)).toBe(1); // Logo, getippte Unterschrift ohne Bild
+  });
+  it("gezeichnete Unterschrift kommt als zweites Bild dazu", async () => {
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
+    const doc = await PDFDocument.load(
+      await baueVertragsmappe(await miniKv(1), { ...basis, unterschrift: { ...basis.unterschrift, art: "gezeichnet", bildPng: new Uint8Array(png) } }),
+    );
+    expect(bilder(doc, 1)).toBe(2);
+  });
+  it("unbekannte Firma: kein Logo, kein Fehler, gleiche Seitenzahl", async () => {
+    const doc = await PDFDocument.load(
+      await baueVertragsmappe(await miniKv(2), { ...basis, marke: { firmaSlug: "unbekannt", akzentHex: "3a567f", ansprechpartner: null, fusszeile: null } }),
+    );
+    expect(doc.getPageCount()).toBe(4);
+    expect(bilder(doc, 2)).toBe(0);
+  });
+});
 
 describe("umbrechen", () => {
   it("bricht an Wortgrenzen und erhält Absätze", () => {
@@ -76,5 +153,14 @@ describe("baueVertragsmappe", () => {
   it("Umlaute und Sonderzeichen werfen nicht", async () => {
     const out = await baueVertragsmappe(await miniKv(1), { ...basis, kunde: "Jürgen Ößlér", agbText: "Größe – „Test“ ✓" });
     expect((await PDFDocument.load(out)).getPageCount()).toBe(3);
+  });
+});
+
+describe("passendeGroesse", () => {
+  it("verkleinert den getippten Namen, bis er ins Unterschriftsfeld passt", () => {
+    const breiteBei = (size: number) => size * 20; // 20 pt Breite je pt Schriftgröße
+    expect(passendeGroesse(breiteBei, 600)).toBe(22);
+    expect(passendeGroesse(breiteBei, 260)).toBe(13);
+    expect(passendeGroesse(breiteBei, 50)).toBe(10);
   });
 });
