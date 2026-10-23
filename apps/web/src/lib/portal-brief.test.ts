@@ -7,6 +7,7 @@ import {
   grussZeilen,
   stempel,
   strecke,
+  vorgangsSchritte,
   type BriefZustand,
 } from "../app/(public)/s/[token]/_components/brief";
 
@@ -84,5 +85,27 @@ describe("Brief im Portal", () => {
       grussZeilen(CEYLAN_BRANDING).name ?? "",
     ];
     for (const t of texte) expect(t).not.toMatch(/[—–]/);
+  });
+
+  it("ordnet die Vorgangszeile und hängt das Annahmedatum an „Annahme“", () => {
+    const T = ["Angebot", "Annahme", "Bestätigung", "Umzug"];
+    expect(vorgangsSchritte({ titel: T, aktuellIndex: 0, angenommenAm: null }).map((s) => s.zustand)).toEqual([
+      "aktuell",
+      "offen",
+      "offen",
+      "offen",
+    ]);
+    expect(vorgangsSchritte({ titel: T, aktuellIndex: 0, angenommenAm: null }).every((s) => s.datum === null)).toBe(true);
+    expect(vorgangsSchritte({ titel: T, aktuellIndex: 1, angenommenAm: "23.10.2026" })).toEqual([
+      { titel: "Angebot", zustand: "erledigt", datum: null },
+      { titel: "Annahme", zustand: "aktuell", datum: "23.10.2026" },
+      { titel: "Bestätigung", zustand: "offen", datum: null },
+      { titel: "Umzug", zustand: "offen", datum: null },
+    ]);
+    expect(vorgangsSchritte({ titel: T, aktuellIndex: 2, angenommenAm: "23.10.2026" })[1]).toEqual({
+      titel: "Annahme",
+      zustand: "erledigt",
+      datum: "23.10.2026",
+    });
   });
 });

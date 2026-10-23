@@ -52,3 +52,14 @@ export function strecke(
   if (to?.trim()) zeilen.push({ label: "Nach", adresse: to.trim() });
   return zeilen.length ? { zeilen, mitLinie: zeilen.length === 2 } : null;
 }
+
+export type VorgangsSchritt = { titel: string; zustand: "erledigt" | "aktuell" | "offen"; datum: string | null };
+
+/** Die Zeile mit den vier Schritten im Briefkopf; das Annahmedatum steht bei „Annahme“. */
+export function vorgangsSchritte(i: { titel: readonly string[]; aktuellIndex: number; angenommenAm: string | null }): VorgangsSchritt[] {
+  return i.titel.map((titel, n) => ({
+    titel,
+    zustand: n < i.aktuellIndex ? "erledigt" : n === i.aktuellIndex ? "aktuell" : "offen",
+    datum: titel === "Annahme" ? i.angenommenAm : null,
+  }));
+}

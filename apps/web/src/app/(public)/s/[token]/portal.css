@@ -48,22 +48,6 @@
 .kottke-portal .rounded-2xl { border-radius: 8px; }
 .kottke-portal .rounded-xl { border-radius: 6px; }
 .portal-shell { max-width: 1360px; margin: auto; min-height: 100svh; padding: 32px 28px 16px; display: flex; flex-direction: column; }
-.portal-header-top { display: grid; grid-template-columns: 190px 1fr auto; align-items: start; gap: 38px; }
-.portal-logo { min-height: 64px; display: flex; align-items: center; font-size: 22px; font-weight: 800; color: var(--portal-brand); }
-.portal-logo img { width: 180px; height: 65px; object-fit: contain; }
-.portal-heading h1 { font-size: clamp(24px, 2.6vw, 36px); font-weight: 800; letter-spacing: -.04em; line-height: 1.2; overflow-wrap: anywhere; }
-.portal-heading p { margin-top: 6px; font-size: 13px; color: var(--muted-foreground); max-width: 680px; }
-.portal-header-note { text-align: right; font-size: 12px; padding-top: 4px; }
-.portal-header-note span { font-size: 11px; color: var(--muted-foreground); }
-.portal-progress { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 0; margin: 28px 4% 26px 10%; list-style: none; }
-.portal-progress li { position: relative; text-align: center; display: flex; flex-direction: column; align-items: center; font-size: 12px; }
-.portal-progress li::before { content: ''; position: absolute; height: 2px; background: var(--border); top: 16px; right: 50%; width: 100%; }
-.portal-progress li:first-child::before { display: none; }
-.portal-progress li[data-state='done']::before, .portal-progress li[data-state='active']::before { background: var(--portal-brand); }
-.portal-step-number { position: relative; z-index: 1; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--border); font-weight: 700; margin-bottom: 6px; box-shadow: 0 0 0 4px var(--background); }
-.portal-progress li[data-state='active'] .portal-step-number, .portal-progress li[data-state='done'] .portal-step-number { background: var(--portal-brand); color: white; }
-.portal-progress li[data-state='active'] .portal-step-title { font-weight: 750; }
-.portal-step-status { font-size: 11px; color: var(--muted-foreground); margin-top: 2px; }
 .portal-content { flex: 1; min-width: 0; }
 .portal-columns { display: grid; grid-template-columns: minmax(0, 2.12fr) minmax(285px, 1fr); gap: 16px; align-items: start; }
 .portal-stack { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
@@ -163,8 +147,6 @@
 .portal-note { background: var(--portal-tint); font-size: 13px; color: var(--muted-foreground); }
 .portal-note strong { display: block; color: var(--foreground); margin-bottom: 5px; }
 .portal-accept-dialog { border: 1px solid var(--border); }
-.portal-header-fest .portal-header-top { align-items: center; }
-.portal-header-status { margin: 0; font-size: 13px; font-weight: 750; color: var(--portal-brand); text-align: right; white-space: nowrap; }
 .portal-festangebot { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .portal-fest-title { font-size: 18px; font-weight: 750; letter-spacing: -.03em; line-height: 1.3; }
 .portal-fest-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 28px; }
@@ -197,7 +179,7 @@
 @media (min-width: 1500px) { .portal-shell { padding-top: 40px; } }
 @media (max-width: 1100px) { .portal-header-top { grid-template-columns: 155px 1fr; gap: 24px; } .portal-header-note { display: none; } .portal-logo img { width: 150px; } .portal-single-offer .portal-package-card { grid-template-columns: 1fr 1fr; } .portal-single-offer .portal-package-features { grid-column: 1 / -1; border: 0; padding: 0; } }
 @media (max-width: 1100px) and (min-width: 641px) { .portal-header-fest .portal-header-top { grid-template-columns: 140px minmax(0, 1fr) auto; } }
-@media (max-width: 1023px) { .portal-columns { grid-template-columns: 1fr; } .portal-progress { margin-left: 0; margin-right: 0; } .portal-package-list { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); } .portal-order-details .portal-details-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 1023px) { .portal-columns { grid-template-columns: 1fr; } .portal-package-list { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); } .portal-order-details .portal-details-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 640px) {
   .portal-shell { padding: 18px 14px 24px; }
   .portal-header-top { grid-template-columns: 1fr; gap: 16px; }
@@ -206,7 +188,6 @@
   .portal-schedule-grid { grid-template-columns: 1fr; }
   .portal-logo { min-height: 40px; } .portal-logo img { width: 138px; height: 48px; }
   .portal-heading h1 { font-size: 25px; } .portal-heading p { font-size: 12px; }
-  .portal-progress { margin-top: 24px; margin-bottom: 22px; } .portal-step-title { font-size: 10px; } .portal-step-status { font-size: 9px; }
   .portal-panel { padding: 17px; } .portal-panel-heading { gap: 12px; } .portal-panel-heading h2 { font-size: 17px; }
   .portal-panel-heading > svg { width: 25px; height: 29px; }
   .portal-order-details .portal-details-grid, .portal-move-facts, .portal-summary-grid { grid-template-columns: 1fr; gap: 18px; }
@@ -239,7 +220,6 @@
   .portal-quotation header, .portal-quotation tr, .portal-document-total { break-inside: avoid; }
 }
 
-.dark .kottke-portal .portal-logo img { background: #fff; padding: 7px; border-radius: 6px; }
 
 /* Unterschrift im Portal */
 .portal-signature-pad { display: block; width: 100%; height: 180px; border: 1px solid var(--border); border-radius: 12px; background: #fff; touch-action: none; cursor: crosshair; }
@@ -285,4 +265,32 @@
   .portal-brief { padding: 22px 18px 20px; }
   .portal-brief-titel { font-size: 24px; }
   .portal-brief-text { font-size: 15px; }
+}
+
+/* Briefkopf: Logo, Auftragsnummer, orange Linie mit Pfeil, Schritte als Wortzeile */
+.portal-briefkopf { margin-bottom: 22px; }
+.portal-briefkopf-zeile { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.portal-briefkopf .portal-logo { display: flex; align-items: center; min-height: 56px; font-size: 22px; color: var(--foreground); }
+.portal-briefkopf .portal-logo img { width: auto; height: 56px; max-width: 220px; object-fit: contain; }
+.dark .kottke-portal .portal-briefkopf .portal-logo img { background: #fbf8f3; padding: 6px 10px; border-radius: 8px; }
+.portal-briefkopf-auftrag.portal-briefkopf-auftrag { font-family: var(--font-inter), Inter, Arial, sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0; color: var(--muted-foreground); white-space: nowrap; }
+.portal-briefkopf-linie { position: relative; height: 2px; margin: 12px 6px 0 0; background: var(--portal-brand); border-radius: 1px; }
+.portal-briefkopf-linie::after { content: ''; position: absolute; right: -1px; top: -4px; width: 10px; height: 10px; border-top: 2px solid var(--portal-brand); border-right: 2px solid var(--portal-brand); transform: rotate(45deg); }
+.portal-briefkopf-intro { margin-top: 14px; font-size: 14px; color: var(--muted-foreground); max-width: 680px; }
+.portal-vorgang { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 4px 0; margin: 16px 0 0; padding: 0; list-style: none; }
+.portal-vorgang li { display: flex; flex-direction: column; font-size: 14px; color: var(--muted-foreground); }
+.portal-vorgang li + li::before { content: '·'; position: absolute; margin-left: -14px; color: var(--muted-foreground); }
+.portal-vorgang li + li { position: relative; margin-left: 24px; }
+.portal-vorgang .portal-step-title { display: inline-flex; align-items: center; gap: 4px; padding-bottom: 3px; border-bottom: 2px solid transparent; }
+.portal-vorgang li[data-state='erledigt'] { color: var(--foreground); }
+.portal-vorgang li[data-state='erledigt'] svg { color: var(--portal-brand); }
+.portal-vorgang li[data-state='aktuell'] { color: var(--foreground); font-weight: 700; }
+.portal-vorgang li[data-state='aktuell'] .portal-step-title { border-bottom-color: var(--portal-brand); }
+.portal-vorgang .portal-step-status { font-size: 11px; font-weight: 600; color: var(--portal-brand-text); margin-top: 2px; }
+@media (max-width: 640px) {
+  .portal-briefkopf .portal-logo { min-height: 44px; }
+  .portal-briefkopf .portal-logo img { height: 44px; max-width: 170px; }
+  .portal-vorgang li { font-size: 13px; }
+  .portal-vorgang li + li { margin-left: 20px; }
+  .portal-vorgang li + li::before { margin-left: -12px; }
 }
