@@ -23,8 +23,6 @@ const publicPaths = [
   // Employee portal APIs — they enforce employee auth in the handler
   // (getEmployeePortalContextFromHeaders) or are token-based (set-password).
   "/api/v1/portal/",
-  // Client-error diagnostic sink (temporary).
-  "/api/v1/diag/",
   // Remote MCP (Streamable HTTP) — auth via Bearer API key inside the handler
   // (withMcpAuth). Must not redirect to /login or Claude/mcp-remote break.
   "/api/mcp",

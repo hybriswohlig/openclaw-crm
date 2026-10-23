@@ -2,14 +2,19 @@ import { NextRequest } from "next/server";
 import { randomBytes } from "node:crypto";
 import { db } from "@/db";
 import { verifications } from "@/db/schema";
+import { auth } from "@/lib/auth";
 
 /**
  * TEMP diagnostic sink: stores client-side errors so we can read the real
- * exception users hit (no auth — public). Rows live in `verifications` with a
- * sentinel identifier and a short TTL; remove this route after debugging.
+ * exception users hit. Signed-in users only (the employee portal host lets
+ * /api/ through without a cookie, so the session is checked here). Rows live
+ * in `verifications` with a sentinel identifier and a short TTL; remove this
+ * route after debugging.
  */
 export async function POST(req: NextRequest) {
   try {
+    const session = await auth.api.getSession({ headers: req.headers });
+    if (!session) return new Response(null, { status: 204 });
     const body = await req.json();
     await db.insert(verifications).values({
       id: randomBytes(12).toString("hex"),
