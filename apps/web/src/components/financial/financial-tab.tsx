@@ -106,7 +106,8 @@ interface DealDocument {
     | "order_confirmation"
     | "invoice"
     | "payment_confirmation"
-    | "worker_instructions";
+    | "worker_instructions"
+    | "signed_contract";
   fileName: string;
   fileSize: number;
   mimeType: string;
@@ -1348,6 +1349,7 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   invoice: "Rechnung",
   payment_confirmation: "Zahlungsbestätigung",
   worker_instructions: "Auftragsanweisung (Crew)",
+  signed_contract: "Unterschriebener Vertrag",
 };
 
 function fmtBytes(b: number) {
@@ -1412,7 +1414,7 @@ function DocumentsSection({
   }
 
   const docsByType = Object.fromEntries(
-    (["quotation", "order_confirmation", "invoice", "payment_confirmation", "worker_instructions"] as const).map((t) => [
+    (["quotation", "order_confirmation", "invoice", "payment_confirmation", "worker_instructions", "signed_contract"] as const).map((t) => [
       t,
       documents.filter((d) => d.documentType === t),
     ])
@@ -1425,9 +1427,11 @@ function DocumentsSection({
       </div>
 
       <div className="space-y-4">
-        {(["quotation", "order_confirmation", "invoice", "payment_confirmation", "worker_instructions"] as const).map((docType) => {
+        {(["quotation", "order_confirmation", "invoice", "payment_confirmation", "worker_instructions", "signed_contract"] as const).map((docType) => {
           const docs = docsByType[docType];
           const isUploading = uploading === docType;
+          // Den unterschriebenen Vertrag erzeugt nur das Kundenportal: kein Upload, Karte nur mit Dokument.
+          if (docType === "signed_contract" && docs.length === 0) return null;
 
           return (
             <div key={docType} className="rounded-lg border border-border p-4">
@@ -1447,7 +1451,7 @@ function DocumentsSection({
                     Vorlage
                   </a>
                 ) : null}
-                <label className="cursor-pointer">
+                {docType !== "signed_contract" && <label className="cursor-pointer">
                   <input
                     type="file"
                     className="hidden"
@@ -1473,7 +1477,7 @@ function DocumentsSection({
                     )}
                     Hochladen
                   </span>
-                </label>
+                </label>}
                 </div>
               </div>
 
