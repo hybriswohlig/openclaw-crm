@@ -38,6 +38,8 @@ export const operatingCompanyPortalSettings = pgTable(
     enabled: boolean("enabled").notNull().default(true),
     liveTrackingEnabled: boolean("live_tracking_enabled").notNull().default(false),
     paymentsEnabled: boolean("payments_enabled").notNull().default(false),
+    /** Unterschrift im Portal nach der Annahme anbieten. */
+    signatureEnabled: boolean("signature_enabled").notNull().default(false),
 
     // Custom subdomain, e.g. "status.kottke-umzuege.de". Unique across the
     // whole workspace so different OCs can't accidentally claim the same host.
@@ -230,6 +232,21 @@ export const kvaConfirmations = pgTable(
     agbText: text("agb_text"),
     confirmationSentAt: timestamp("confirmation_sent_at"),
     confirmationChannels: text("confirmation_channels"),
+    // ── Unterschrift im Portal (freiwillig, nach der Annahme) ──
+    /** Zeitpunkt der Unterschrift; ohne vertrag_document_id nur eine Reservierung. */
+    unterschriftAt: timestamp("unterschrift_at"),
+    unterschriftName: text("unterschrift_name"),
+    /** "gezeichnet" | "getippt" */
+    unterschriftArt: text("unterschrift_art"),
+    unterschriftIp: text("unterschrift_ip"),
+    unterschriftUserAgent: text("unterschrift_user_agent"),
+    /** SHA-256 des PNG (gezeichnet) bzw. des Namens (getippt). */
+    unterschriftBildSha256: text("unterschrift_bild_sha256"),
+    /** deal_documents-Zeile vom Typ signed_contract. */
+    vertragDocumentId: text("vertrag_document_id"),
+    vertragSha256: text("vertrag_sha256"),
+    vertragVersandAt: timestamp("vertrag_versand_at"),
+    vertragVersandKanaele: text("vertrag_versand_kanaele"),
   },
   (table) => [
     // Eine aktive Annahme je Deal; aufgehobene bleiben daneben stehen.

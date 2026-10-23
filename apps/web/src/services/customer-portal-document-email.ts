@@ -14,7 +14,8 @@ export async function sendPortalDocumentEmail(token: string, documentId: string)
   const expectedUrl = `/api/public/${token}/documents/${documentId}`;
   const title = ctx.documents.quotationUrl === expectedUrl ? "Kostenvoranschlag"
     : ctx.documents.orderConfirmationUrl === expectedUrl ? "Auftragsbestätigung"
-    : ctx.documents.invoiceUrl === expectedUrl ? "Rechnung" : null;
+    : ctx.documents.invoiceUrl === expectedUrl ? "Rechnung"
+    : ctx.documents.signedContractUrl === expectedUrl ? "Unterschriebener Vertrag" : null;
   if (!title) return { ok: false, reason: "document_unavailable" };
   const document = await getScopedDocument(token, documentId);
   if (!document || document.mimeType !== "application/pdf") return { ok: false, reason: "document_unavailable" };

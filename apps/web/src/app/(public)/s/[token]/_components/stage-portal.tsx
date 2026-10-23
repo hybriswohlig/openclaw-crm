@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { CustomerPortalContext } from "@openclaw-crm/customer-portal-core";
 import { StageHeader } from "./stage-header";
 import { WiderrufPanel } from "./widerruf-panel";
+import { UnterschriftPanel } from "./unterschrift-panel";
 import { StageOneKva } from "./stage-one-kva";
 import { StageTwoAb } from "./stage-two-ab";
 import { StageThreeLive } from "./stage-three-live";
@@ -73,6 +74,9 @@ export function StagePortal({
         {ctx.stage === 3 && <StageThreeLive token={token} ctx={ctx} />}
         {ctx.stage === 4 && <StageFourDone token={token} ctx={ctx} />}
       </div>
+
+      {/* Freiwillige Unterschrift als Nebenaktion hinter dem Auftragsinhalt: Anzahlung, Rechnung und Dokumente haben Vorrang. */}
+      <UnterschriftPanel token={token} ctx={ctx} onSigned={refresh} />
 
       <BrandingFooter branding={ctx.branding} />
     </main>

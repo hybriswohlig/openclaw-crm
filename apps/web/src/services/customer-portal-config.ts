@@ -48,6 +48,8 @@ export interface OperatingCompanyPortalSettings {
   enabled: boolean;
   liveTrackingEnabled: boolean;
   paymentsEnabled: boolean;
+  /** Unterschrift im Portal nach der Annahme anbieten. */
+  signatureEnabled: boolean;
   customDomain: string | null;
   publicUrlPreview: string | null;
 
@@ -78,6 +80,7 @@ export interface PortalSettingsUpdate {
   enabled?: boolean;
   liveTrackingEnabled?: boolean;
   paymentsEnabled?: boolean;
+  signatureEnabled?: boolean;
   customDomain?: string | null;
   displayName?: string | null;
   primaryColor?: string | null;
@@ -301,6 +304,7 @@ export interface EffectiveBranding {
   enabled: boolean;
   liveTrackingEnabled: boolean;
   paymentsEnabled: boolean;
+  signatureEnabled: boolean;
   customDomain: string | null;
   /** True only when DNS + Vercel verification completed for customDomain. */
   domainVerified: boolean;
@@ -316,7 +320,7 @@ export async function loadEffectiveBranding(
   const fallback = brandingForOperatingCompany(name);
 
   if (!operatingCompanyRecordId) {
-    return { enabled: true, liveTrackingEnabled: false, paymentsEnabled: false, customDomain: null, domainVerified: false, branding: fallback };
+    return { enabled: true, liveTrackingEnabled: false, paymentsEnabled: false, signatureEnabled: false, customDomain: null, domainVerified: false, branding: fallback };
   }
 
   const [s] = await db
@@ -327,7 +331,7 @@ export async function loadEffectiveBranding(
     )
     .limit(1);
 
-  if (!s) return { enabled: true, liveTrackingEnabled: false, paymentsEnabled: false, customDomain: null, domainVerified: false, branding: fallback };
+  if (!s) return { enabled: true, liveTrackingEnabled: false, paymentsEnabled: false, signatureEnabled: false, customDomain: null, domainVerified: false, branding: fallback };
 
   const branding: FirmaBranding = {
     firmaSlug: fallback.firmaSlug,
@@ -353,6 +357,7 @@ export async function loadEffectiveBranding(
     enabled: s.enabled,
     liveTrackingEnabled: portalFeatures(s).liveTracking,
     paymentsEnabled: portalFeatures(s).payments,
+    signatureEnabled: portalFeatures(s).signature,
     customDomain: s.customDomain,
     domainVerified: s.domainVerificationState === "verified",
     branding,
@@ -423,6 +428,7 @@ function cleanPatch(patch: PortalSettingsUpdate): PortalSettingsUpdate {
     "enabled",
     "liveTrackingEnabled",
     "paymentsEnabled",
+    "signatureEnabled",
     "customDomain",
     "displayName",
     "primaryColor",
@@ -514,6 +520,7 @@ function shapeSettings(
     enabled: s?.enabled ?? true,
     liveTrackingEnabled: portalFeatures(s).liveTracking,
     paymentsEnabled: portalFeatures(s).payments,
+    signatureEnabled: portalFeatures(s).signature,
     customDomain,
     publicUrlPreview,
     domainVerificationState: (s?.domainVerificationState ?? "unconfigured") as DomainVerificationState,

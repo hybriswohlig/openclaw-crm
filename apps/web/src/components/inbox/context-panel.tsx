@@ -120,6 +120,7 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   invoice: "Rechnung",
   payment_confirmation: "Zahlungsbestätigung",
   worker_instructions: "Auftragsanweisung",
+  signed_contract: "Unterschriebener Vertrag",
 };
 
 // German labels for the KI-Analyse suggestion list. Keys not listed fall back

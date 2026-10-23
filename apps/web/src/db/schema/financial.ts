@@ -28,6 +28,9 @@ export const dealDocumentTypeEnum = pgEnum("deal_document_type", [
   "payment_confirmation",
   "worker_instructions",
   "quotation",
+  // Unterschriebene Vertragsmappe aus dem Kundenportal. Schreibt nur
+  // services/kva-unterschrift.ts, kein Upload.
+  "signed_contract",
 ]);
 
 // EUeR-nahe Kategorien. The first six values predate Phase 2 and must keep

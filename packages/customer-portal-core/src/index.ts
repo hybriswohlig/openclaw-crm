@@ -8,5 +8,6 @@ export * from "./stamm";
 export * from "./annahme-recht";
 export * from "./rechtstexte";
 export * from "./widerruf";
+export * from "./unterschrift";
 
 export * from "./features";

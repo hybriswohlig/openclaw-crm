@@ -365,6 +365,10 @@ interface AktiveAnnahme {
   moveDate: string | null;
   versicherungGewuenscht: boolean;
   confirmationSentAt: string | null;
+  quotationDocumentId: string | null;
+  unterschrift: { at: string; name: string; art: "gezeichnet" | "getippt" } | null;
+  vertragDocumentId: string | null;
+  vertragVersandAt: string | null;
 }
 
 /**
@@ -478,6 +482,24 @@ function KvaAnnahmeBlock({
         {annahme.confirmationSentAt ? "Bestätigung an den Kunden verschickt." : "Bestätigung noch nicht verschickt."}
         {annahme.versicherungGewuenscht && " Versicherungswunsch: ja."}
       </div>
+      {annahme.unterschrift && annahme.vertragDocumentId ? (
+        <div className="mt-1 text-xs">
+          Unterschrieben am{" "}
+          {new Date(annahme.unterschrift.at).toLocaleString("de-DE", { dateStyle: "medium", timeStyle: "short", timeZone: "Europe/Berlin" })} von{" "}
+          {annahme.unterschrift.name} ({annahme.unterschrift.art === "gezeichnet" ? "eigenhändig gezeichnet" : "als Name getippt"}).{" "}
+          <a
+            href={`/api/v1/deals/${dealRecordId}/documents/${annahme.vertragDocumentId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium underline underline-offset-2"
+          >
+            Vertrag (PDF)
+          </a>
+          {annahme.vertragVersandAt ? " Vertrag an den Kunden verschickt." : " Vertrag noch nicht verschickt."}
+        </div>
+      ) : annahme.quotationDocumentId ? (
+        <div className="mt-1 text-xs">Noch nicht unterschrieben.</div>
+      ) : null}
       {annahme.abweichungen?.length > 0 && (
         <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-950 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-100">
           <div className="font-medium">Seit der Annahme geändert</div>
@@ -516,7 +538,7 @@ function anzeigeWert(feld: "Termin" | "Auszug" | "Einzug", wert: string): string
 
 interface DealDocumentMeta {
   id: string;
-  documentType: "order_confirmation" | "invoice" | "payment_confirmation" | "worker_instructions";
+  documentType: "order_confirmation" | "invoice" | "payment_confirmation" | "worker_instructions" | "signed_contract";
   fileName: string;
   fileSize: number;
   mimeType: string;
@@ -575,7 +597,7 @@ function CustomerVisibleDocuments({ dealRecordId }: { dealRecordId: string }) {
   // there's nothing for them to download from this panel, and the financial
   // tab is the right place to add it.
   const visible = (docs ?? []).filter(
-    (d) => d.documentType === "order_confirmation" || d.documentType === "invoice"
+    (d) => d.documentType === "order_confirmation" || d.documentType === "invoice" || d.documentType === "signed_contract"
   );
   if (visible.length === 0) {
     return (
@@ -655,6 +677,7 @@ const DOC_TYPE_LABELS: Record<DealDocumentMeta["documentType"], string> = {
   invoice: "Rechnung",
   payment_confirmation: "Zahlungsbestätigung",
   worker_instructions: "Auftragsanweisung (Crew)",
+  signed_contract: "Unterschriebener Vertrag",
 };
 
 function fmtBytes(b: number): string {

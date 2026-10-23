@@ -7,6 +7,7 @@ import { PanelHeading } from "./portal-ui";
 
 export function DocumentsSection({ ctx, token, preview = false }: { ctx: CustomerPortalContext; token: string; preview?: boolean }) {
   const docs = [
+    { title: "Unterschriebener Vertrag", url: ctx.documents.signedContractUrl },
     { title: "Kostenvoranschlag", url: ctx.documents.quotationUrl },
     { title: "Auftragsbestätigung", url: ctx.documents.orderConfirmationUrl },
     { title: "Rechnung", url: ctx.documents.invoiceUrl },

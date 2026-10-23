@@ -55,7 +55,7 @@ export async function PUT(
   }
 
   if (!body || typeof body !== "object" || Array.isArray(body)) return badRequest("Ungültige Einstellungen.");
-  for (const key of ["enabled", "liveTrackingEnabled", "paymentsEnabled"] as const) {
+  for (const key of ["enabled", "liveTrackingEnabled", "paymentsEnabled", "signatureEnabled"] as const) {
     if (key in body && typeof body[key] !== "boolean") return badRequest(`${key} muss ein Boolean sein.`);
   }
 
