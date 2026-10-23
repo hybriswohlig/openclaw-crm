@@ -402,9 +402,10 @@ export async function revokeUserAccess(
   tx: Transaktion,
   userId: string,
   vorgang: Zugangsentzug,
-  now: Date = new Date()
+  now: Date = new Date(),
+  akteurUserId?: string
 ): Promise<void> {
-  await pruefeAdminsBleiben(tx, userId, vorgang);
+  await pruefeAdminsBleiben(tx, userId, vorgang, akteurUserId);
 
   await tx
     .update(users)
@@ -457,7 +458,7 @@ export async function removeMember(
       throw new Error("Du kannst dich nicht selbst entfernen.");
     }
 
-    await revokeUserAccess(tx, member.userId, "entfernt");
+    await revokeUserAccess(tx, member.userId, "entfernt", new Date(), actorUserId);
     return member;
   });
 }
@@ -475,7 +476,8 @@ export async function removeMember(
 async function pruefeAdminsBleiben(
   tx: Transaktion,
   userId: string,
-  vorgang: Zugangsentzug
+  vorgang: Zugangsentzug,
+  akteurUserId?: string
 ): Promise<void> {
   // revokeUserAccess löscht jede Mitgliedschaft des Benutzers, also zählt
   // jeder seiner Workspaces, nicht nur der, aus dem er entfernt wird.
@@ -501,6 +503,26 @@ async function pruefeAdminsBleiben(
     .where(eq(users.id, userId))
     .limit(1);
   if (konto?.isAppAdmin) {
+    // Workspace-Admin ist eine Rolle, die jeder Admin vergeben kann. Ein
+    // App-Admin gibt Konten frei; ihn sperrt nur ein anderer App-Admin.
+    if (akteurUserId) {
+      const [akteur] = await tx
+        .select({ id: users.id })
+        .from(users)
+        .where(
+          and(
+            eq(users.id, akteurUserId),
+            eq(users.isAppAdmin, true),
+            eq(users.approvalStatus, "approved")
+          )
+        )
+        .limit(1);
+      if (!akteur) {
+        throw new Error(
+          "Einen App-Admin kann nur ein App-Admin entfernen. Er kann das Konto unter „Benutzer-Freigaben“ sperren."
+        );
+      }
+    }
     const appAdmins = await sperreAppAdmins(tx);
     if (istLetzter(appAdmins.map((a) => a.id), userId)) {
       throw new LetzterAdminError(

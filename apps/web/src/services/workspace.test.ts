@@ -219,6 +219,7 @@ function adminPruefung({
   admins,
   appAdmin = false,
   appAdmins = [],
+  akteurAppAdmin,
 }: {
   /** Benutzer-IDs der Admins in WORKSPACE */
   admins: string[];
@@ -226,11 +227,16 @@ function adminPruefung({
   appAdmin?: boolean;
   /** Benutzer-IDs der freigegebenen App-Admins */
   appAdmins?: string[];
+  /** Nur removeMember: Ist der Entfernende App-Admin? (gelesen, wenn der Betroffene einer ist) */
+  akteurAppAdmin?: boolean;
 }): unknown[][] {
   return [
     [{ workspaceId: WORKSPACE }],
     admins.map((userId) => ({ id: userId.replace("usr_", "mem_"), userId })),
     [{ isAppAdmin: appAdmin }],
+    ...(appAdmin && akteurAppAdmin !== undefined
+      ? [akteurAppAdmin ? [{ id: AKTEUR }] : []]
+      : []),
     ...(appAdmin ? [appAdmins.map((id) => ({ id }))] : []),
   ];
 }
@@ -349,7 +355,7 @@ describe("removeMember", () => {
   it("lehnt es ab, den letzten Admin für Benutzer-Freigaben zu entfernen, und schreibt nichts", async () => {
     const { tx, schreibvorgaenge, lesebedingungen, sperren } = fakeTx([
       [mitglied()],
-      ...adminPruefung({ admins: [AKTEUR], appAdmin: true, appAdmins: ["usr_jonas"] }),
+      ...adminPruefung({ admins: [AKTEUR], appAdmin: true, appAdmins: ["usr_jonas"], akteurAppAdmin: true }),
     ]);
     mitTransaktion(tx);
 
@@ -359,15 +365,21 @@ describe("removeMember", () => {
     );
     expect(schreibvorgaenge).toEqual([]);
     // Gezählt werden nur freigegebene App-Admins, ihre Konten gesperrt (FOR UPDATE).
+    // Davor (Index 4) die Prüfung, ob der Entfernende selbst App-Admin ist.
     expect(sperren).toEqual(["update", "update"]);
-    expect(alsSql(lesebedingungen[4])).toEqual(APP_ADMIN_ZEILEN);
+    expect(alsSql(lesebedingungen[5])).toEqual(APP_ADMIN_ZEILEN);
   });
 
   it("entfernt einen App-Admin, solange ein weiterer freigegebener App-Admin bleibt", async () => {
     const zeile = mitglied();
     const { tx, schreibvorgaenge, sperren } = fakeTx([
       [zeile],
-      ...adminPruefung({ admins: [AKTEUR], appAdmin: true, appAdmins: ["usr_jonas", AKTEUR] }),
+      ...adminPruefung({
+        admins: [AKTEUR],
+        appAdmin: true,
+        appAdmins: ["usr_jonas", AKTEUR],
+        akteurAppAdmin: true,
+      }),
     ]);
     mitTransaktion(tx);
 
@@ -384,6 +396,7 @@ describe("removeMember", () => {
         admins: ["usr_jonas", AKTEUR],
         appAdmin: true,
         appAdmins: ["usr_jonas"],
+        akteurAppAdmin: true,
       }),
     ]);
     mitTransaktion(tx);
@@ -393,6 +406,33 @@ describe("removeMember", () => {
       "Der letzte Admin für Benutzer-Freigaben kann nicht entfernt werden."
     );
     expect(sperren).toEqual(["update", "update"]);
+    expect(schreibvorgaenge).toEqual([]);
+  });
+
+  it("lässt einen App-Admin nur von einem App-Admin entfernen, und schreibt sonst nichts", async () => {
+    const { tx, schreibvorgaenge, lesebedingungen } = fakeTx([
+      [mitglied()],
+      ...adminPruefung({
+        admins: [AKTEUR],
+        appAdmin: true,
+        appAdmins: ["usr_jonas", "usr_inhaber"],
+        akteurAppAdmin: false,
+      }),
+    ]);
+    mitTransaktion(tx);
+
+    const fehler = await removeMember(WORKSPACE, "mem_jonas", AKTEUR).catch((e: unknown) => e);
+
+    // Kein „letzter Admin“: Die Route antwortet mit 400.
+    expect(fehler).toBeInstanceOf(Error);
+    expect(fehler).not.toBeInstanceOf(LetzterAdminError);
+    expect((fehler as Error).message).toBe(
+      "Einen App-Admin kann nur ein App-Admin entfernen. Er kann das Konto unter „Benutzer-Freigaben“ sperren."
+    );
+    expect(alsSql(lesebedingungen[4])).toEqual({
+      sql: '("users"."id" = $1 and "users"."is_app_admin" = $2 and "users"."approval_status" = $3)',
+      params: [AKTEUR, true, "approved"],
+    });
     expect(schreibvorgaenge).toEqual([]);
   });
 
