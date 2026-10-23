@@ -23,6 +23,7 @@ import {
   type Kontaktart,
 } from "@/lib/kontaktart";
 import { updateRecord } from "@/services/records";
+import { aktiveZielStufe } from "@/lib/stufen-ziel";
 
 const OPEN_STAGE_CATEGORY = "open_new";
 
@@ -135,14 +136,12 @@ async function stageTargets(dealId: string): Promise<{
     .where(and(eq(recordValues.recordId, dealId), eq(recordValues.attributeId, stageAttr.id)))
     .limit(1);
   const currentStage = stageRows.find((stage) => stage.id === current?.text) ?? null;
-  const keinLead =
-    stageRows.find((stage) => stage.stageCategory === KEIN_LEAD_STAGE_CATEGORY) ??
-    stageRows.find((stage) => stage.title.toLowerCase() === KEIN_LEAD_STAGE_TITLE.toLowerCase()) ??
-    null;
-  const open =
-    stageRows.find((stage) => stage.stageCategory === OPEN_STAGE_CATEGORY) ??
-    stageRows.find((stage) => /neue anfrage|inquiry/i.test(stage.title)) ??
-    null;
+  const keinLead = aktiveZielStufe(
+    stageRows,
+    KEIN_LEAD_STAGE_CATEGORY,
+    new RegExp(`^${KEIN_LEAD_STAGE_TITLE}$`, "i")
+  );
+  const open = aktiveZielStufe(stageRows, OPEN_STAGE_CATEGORY, /^(neue anfrage|inquiry)$/i);
   return {
     objectId: deal.objectId,
     category: currentStage?.stageCategory ?? null,

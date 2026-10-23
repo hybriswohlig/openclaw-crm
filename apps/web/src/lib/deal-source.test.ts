@@ -126,6 +126,20 @@ describe("lossReasonProblem", () => {
 });
 
 describe("decideQuotedAdvance", () => {
+  it("never moves a deal onto a hidden stage", () => {
+    const mitDubletten = [
+      { id: "new", title: "Neue Anfrage", sortOrder: 0, isActive: true, stageCategory: "open_new" },
+      { id: "quoted_en", title: "Quoted", sortOrder: 3, isActive: false, stageCategory: "quoted" },
+    ];
+    expect(decideQuotedAdvance({ stages: mitDubletten, currentStageId: "new" })).toBeNull();
+    expect(
+      decideQuotedAdvance({
+        stages: [...mitDubletten, { id: "angebot", title: "Angebot", sortOrder: 2, isActive: true, stageCategory: "quoted" }],
+        currentStageId: "new",
+      })
+    ).toBe("angebot");
+  });
+
   it("moves an earlier stage forward and records the reason constants", () => {
     expect(decideQuotedAdvance({ stages, currentStageId: "inquiry" })).toBe("quoted");
     expect(decideQuotedAdvance({ stages, currentStageId: null })).toBe("quoted");

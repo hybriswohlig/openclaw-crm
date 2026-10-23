@@ -192,6 +192,7 @@ async function loadDeal(workspaceId: string, dealRecordId: string, interne: Inte
           title: statuses.title,
           sortOrder: statuses.sortOrder,
           stageCategory: statuses.stageCategory,
+          isActive: statuses.isActive,
         })
         .from(statuses)
         .where(eq(statuses.attributeId, attributeIds.stage))
@@ -439,7 +440,12 @@ async function rejectedKeys(dealRecordId: string): Promise<Set<string>> {
 function promptFor(deal: LoadedDeal): string {
   const optionList = (field: "source_channel" | "loss_reason") =>
     deal.selectOptions[field].map((option) => `${option.id} = ${option.title}`).join("\n") || "(keine)";
-  const stageList = deal.stages.map((stage) => `${stage.id} = ${stage.title}`).join("\n") || "(keine)";
+  // Only selectable stages; hidden English duplicates would drop the deal off the board.
+  const stageList =
+    deal.stages
+      .filter((stage) => stage.isActive !== false)
+      .map((stage) => `${stage.id} = ${stage.title}`)
+      .join("\n") || "(keine)";
   const empty = ENRICHMENT_FIELDS.filter((field) => {
     if (field === "kontaktart") return isLeadKunde(deal.currentValues.kontaktart);
     if (field === "stage") return isOpenStage(deal.stages.find((stage) => stage.id === deal.currentValues.stage) ?? null);

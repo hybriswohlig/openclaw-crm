@@ -12,6 +12,7 @@ import { nachfassDailySends, nachfassDealState, nachfassRuleSwitches } from "@/d
 import { emitEvent } from "@/services/activity-events";
 import { resolveDealSelectInputs } from "@/services/deal-attribution";
 import { updateRecord } from "@/services/records";
+import { aktiveZielStufe } from "@/lib/stufen-ziel";
 import { LOSS_REASON_SLUG } from "@/lib/deal-source";
 import type { LossReasonTitle } from "@/lib/deal-source";
 import {
@@ -95,9 +96,7 @@ async function verlorenStageId(objectId: string): Promise<string | null> {
     .limit(1);
   if (!attr) return null;
   const rows = await db.select().from(statuses).where(eq(statuses.attributeId, attr.id));
-  const lost =
-    rows.find((s) => s.stageCategory === "lost") ??
-    rows.find((s) => /^(lost|verloren)$/i.test(s.title));
+  const lost = aktiveZielStufe(rows, "lost", /^(lost|verloren)$/i);
   return lost?.id ?? null;
 }
 

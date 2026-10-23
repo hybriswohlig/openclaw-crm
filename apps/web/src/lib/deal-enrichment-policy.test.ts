@@ -195,6 +195,26 @@ describe("deal enrichment policy", () => {
     expect(backward.decisions[0]).toMatchObject({ action: "drop", reason: "backwards" });
   });
 
+  it("maps a hidden English duplicate to the active stage of the same category", () => {
+    const mitDubletten = [
+      ...stages,
+      { id: "planned_en", title: "Planned", sortOrder: 7, stageCategory: "booked", isActive: false },
+    ];
+    const perTitel = run({
+      stages: mitDubletten,
+      currentValues: { stage: "contact" },
+      proposals: [proposal({ field: "stage", value: "Planned" })],
+    });
+    expect(perTitel.decisions[0]).toMatchObject({ action: "auto_write", value: "booked" });
+
+    const perId = run({
+      stages: mitDubletten,
+      currentValues: { stage: "contact" },
+      proposals: [proposal({ field: "stage", value: "planned_en" })],
+    });
+    expect(perId.decisions[0]).toMatchObject({ action: "auto_write", value: "booked" });
+  });
+
   it("does not move a won or paid deal and does not move a deal into paid", () => {
     const paid = run({
       currentValues: { stage: "paid" },

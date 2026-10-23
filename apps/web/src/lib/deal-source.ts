@@ -6,6 +6,7 @@
  * attribute: those option lists differ, and a deal's arrival channel is not
  * the same fact as a person's historical source.
  */
+import { aktiveZielStufe } from "./stufen-ziel";
 import { isKleinanzeigenEmail } from "@/services/inbox-kleinanzeigen";
 import { isImmoscoutLeadEmail } from "@/services/inbox-immoscout";
 
@@ -95,6 +96,7 @@ export interface StageRef {
   title: string;
   sortOrder: number;
   stageCategory?: string | null;
+  isActive?: boolean | null;
 }
 
 function norm(value: string | null | undefined): string {
@@ -219,9 +221,7 @@ export function decideQuotedAdvance(input: {
   stages: StageRef[];
   currentStageId: string | null;
 }): string | null {
-  const quoted =
-    input.stages.find((stage) => stage.stageCategory === "quoted") ??
-    input.stages.find((stage) => /^(quoted|angebot)$/i.test(stage.title));
+  const quoted = aktiveZielStufe(input.stages, "quoted", /^(quoted|angebot)$/i);
   if (!quoted) return null;
   if (!input.currentStageId) return quoted.id;
   const current = input.stages.find((stage) => stage.id === input.currentStageId);

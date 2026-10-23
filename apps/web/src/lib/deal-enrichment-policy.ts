@@ -8,6 +8,7 @@
  * sends a customer message.
  */
 
+import { aktiveZielStufe } from "./stufen-ziel";
 import { createHash } from "crypto";
 import { lossReasonProblem } from "@/lib/deal-source";
 import {
@@ -85,6 +86,8 @@ export interface PolicyOption {
 export interface PolicyStage extends PolicyOption {
   sortOrder: number;
   stageCategory?: string | null;
+  /** Hidden stages (English seed duplicates) are never a target. */
+  isActive?: boolean | null;
 }
 
 export interface PolicyProposal {
@@ -236,12 +239,15 @@ function resolveSelect(value: string, options: PolicyOption[]): PolicyOption | n
 function resolveStage(value: string, stages: PolicyStage[]): PolicyStage | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
-  const byId = stages.find((stage) => stage.id === trimmed);
-  if (byId) return byId;
   const folded = foldGerman(trimmed);
-  const matches = stages.filter((stage) => foldGerman(stage.title) === folded);
-  if (matches.length === 0) return null;
-  return matches.find((stage) => stage.stageCategory) ?? matches[0]!;
+  const named =
+    stages.find((stage) => stage.id === trimmed) ??
+    stages.find((stage) => foldGerman(stage.title) === folded && stage.stageCategory) ??
+    stages.find((stage) => foldGerman(stage.title) === folded);
+  if (!named) return null;
+  if (named.isActive !== false) return named;
+  // A hidden duplicate ("Planned") lands on the active stage of its category.
+  return named.stageCategory ? aktiveZielStufe(stages, named.stageCategory) : null;
 }
 
 function optionTitle(
