@@ -26,11 +26,14 @@ export function EmailCaptureBanner({
   status,
   branding,
   onSaved,
+  variant = "box",
 }: {
   token: string;
   status: CustomerEmailStatus;
   branding: FirmaBranding;
   onSaved?: (masked: string) => void;
+  /** "zeile": ruhige Zeile im Brief statt eigenem Kasten. */
+  variant?: "box" | "zeile";
 }) {
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
@@ -41,7 +44,7 @@ export function EmailCaptureBanner({
   if (status === "present") return null;
   if (saved) {
     return (
-      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-200">
+      <div className="rounded-2xl border border-border bg-[var(--portal-brand-tint)] px-5 py-4 text-sm text-foreground">
         <div className="flex items-center gap-2 font-medium">
           <Check className="h-4 w-4" />
           E-Mail gespeichert
@@ -83,14 +86,16 @@ export function EmailCaptureBanner({
   const headline =
     status === "kleinanzeigen_relay"
       ? "Wir haben Sie bisher nur über Kleinanzeigen erreicht."
-      : "Wir haben noch keine E-Mail von Ihnen.";
+      : variant === "zeile"
+        ? "Wohin dürfen wir Auftragsbestätigung und Rechnung schicken?"
+        : "Wir haben noch keine E-Mail von Ihnen.";
   const body =
     status === "kleinanzeigen_relay"
       ? "Damit Sie Ihre Auftragsbestätigung, Rechnung und weitere Unterlagen direkt erhalten, geben Sie uns kurz Ihre echte E-Mail-Adresse."
       : "Damit Sie Ihre Auftragsbestätigung und Rechnung per E-Mail erhalten, hinterlegen Sie hier bitte Ihre Adresse.";
 
   return (
-    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 dark:border-amber-900/40 dark:bg-amber-950/40">
+    <div className={variant === "zeile" ? "portal-email-zeile" : "rounded-2xl border border-border bg-[var(--portal-brand-tint)] p-5"}>
       <div className="flex items-start gap-3">
         <span
           className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
@@ -99,18 +104,20 @@ export function EmailCaptureBanner({
           <Mail className="h-4 w-4 text-white" />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-medium text-amber-950 dark:text-amber-100">
+          <div className="text-sm font-medium text-foreground">
             {headline}
           </div>
-          <p className="mt-1 text-xs leading-relaxed text-amber-900 dark:text-amber-200">
-            {body}
-          </p>
+          {variant === "box" && (
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              {body}
+            </p>
+          )}
 
           {!open ? (
             <button
               type="button"
               onClick={() => setOpen(true)}
-              className="mt-3 inline-flex h-9 items-center rounded-lg border border-amber-300 bg-white px-3 text-xs font-medium text-amber-950 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-100"
+              className="mt-3 inline-flex h-9 items-center rounded-lg border border-border bg-card px-3 text-xs font-medium text-foreground hover:bg-muted"
             >
               E-Mail hinterlegen
             </button>
@@ -125,7 +132,7 @@ export function EmailCaptureBanner({
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="ihre.adresse@beispiel.de"
                 disabled={saving}
-                className="h-10 w-full rounded-lg border border-amber-300 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-offset-1 dark:border-amber-800 dark:bg-amber-950/60"
+                className="h-10 w-full rounded-lg border border-border bg-card px-3 text-sm focus:outline-none focus:ring-2 focus:ring-offset-1"
                 style={{ ["--tw-ring-color" as never]: `#${branding.primaryColor}` }}
               />
               <p className="text-xs text-muted-foreground">
@@ -145,7 +152,7 @@ export function EmailCaptureBanner({
                     setError(null);
                   }}
                   disabled={saving}
-                  className="h-9 flex-1 rounded-lg border border-amber-300 bg-transparent text-xs font-medium hover:bg-amber-100/50 dark:border-amber-800 dark:hover:bg-amber-950/40"
+                  className="h-9 flex-1 rounded-lg border border-border bg-transparent text-xs font-medium hover:bg-muted"
                 >
                   Abbrechen
                 </button>

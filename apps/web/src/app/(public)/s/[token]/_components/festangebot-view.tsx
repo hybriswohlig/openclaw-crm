@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { ArrowRight, CalendarDays, ClipboardList, Info, MapPin } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowRight, Info } from "lucide-react";
 import {
   festangebotStatusStep,
   offerAcceptanceBlockReason,
@@ -10,7 +10,9 @@ import {
   type OfferAcceptanceBlockReason,
 } from "@openclaw-crm/customer-portal-core";
 import { ConfirmKvaDialog } from "./confirm-kva-dialog";
-import { ContactPanel, DetailItem } from "./portal-ui";
+import { ContactPanel } from "./portal-ui";
+import { AnnahmeZeile, BriefAnrede, BriefGruss, Strecke } from "./brief-teile";
+import { briefAnrede, briefEinleitung, briefZustand, stempel, strecke } from "./brief";
 import { QuotationPreview } from "./quotation-preview";
 import { formatPortalDate, formatPortalMoney, postenBetraegeZeigen } from "./portal-presentation";
 import { PaymentSection } from "./payment-section";
@@ -38,6 +40,16 @@ export function FestangebotView({
   onConfirmed: () => void | Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
+  // Die Leiste unten erscheint erst, wenn der Preis im Brief aus dem Blick ist: so steht er nie doppelt da.
+  const preisRef = useRef<HTMLParagraphElement>(null);
+  const [preisImBlick, setPreisImBlick] = useState(true);
+  useEffect(() => {
+    const el = preisRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(([e]) => setPreisImBlick(e.isIntersecting || e.boundingClientRect.top > 0));
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
   const kva = ctx.kva!;
   const alreadyAccepted = !!ctx.acceptance;
 
@@ -85,6 +97,11 @@ export function FestangebotView({
   const status = festangebotStatusStep({ accepted: alreadyAccepted, stage: ctx.stage });
   const customerNote = kva.summary?.trim() || null;
 
+  const zustand = briefZustand({ angenommen: alreadyAccepted, unterschrieben: !!ctx.acceptance?.unterschrift, abgelaufen: offerExpired });
+  const stempelListe = stempel({ signedAt: ctx.acceptance?.signedAt ?? null, unterschriftAt: ctx.acceptance?.unterschrift?.at ?? null });
+  const angenommenAm = ctx.acceptance ? langesDatum(ctx.acceptance.signedAt) : null;
+  const streckeDaten = strecke(ctx.scope.fromAddress, ctx.scope.toAddress);
+
   function accept() {
     if (acceptBlock === "termin_offen") return;
     if (acceptBlock === "date") {
@@ -97,7 +114,6 @@ export function FestangebotView({
   return (
     <div data-portal-view="festangebot">
       <div className="portal-festangebot">
-        <EmailCaptureBanner token={token} status={ctx.customerEmailStatus} branding={ctx.branding} />
         {ctx.fruehereAnnahmeAufgehoben && !alreadyAccepted && (
           <section className="portal-panel portal-note">
             <h2 className="portal-fest-title">Ihr Angebot wurde aktualisiert</h2>
@@ -108,62 +124,54 @@ export function FestangebotView({
           <DateOfferPicker token={token} ctx={ctx} onPicked={onConfirmed} locked={alreadyAccepted} />
         )}
 
-        <section className="portal-panel portal-fest-offer">
-          <div className="portal-fest-head">
-            <div>
-              <h2 className="portal-fest-title">Ihr Angebot</h2>
-              <p className="portal-fest-kicker">Festpreis</p>
-              <p className={`portal-price portal-fest-price ${priceInBar ? "hidden lg:block" : ""}`}>
-                {formatPortalMoney(displayTotalCents)}
-              </p>
-              <div className="portal-fest-facts">
-                {deposit > 0 && (
-                  <p>
-                    <strong>Anzahlung</strong> {formatPortalMoney(deposit)}
-                  </p>
-                )}
-                {kva.validUntil && (
-                  <p className={offerExpired ? "portal-fest-expired" : undefined}>
-                    Gültig bis {formatLongDate(kva.validUntil)}
-                    {offerExpired ? " (abgelaufen)" : ""}
-                  </p>
-                )}
-                {alreadyAccepted && (
-                  <p>
-                    Angenommen am{" "}
-                    {new Date(ctx.acceptance!.signedAt).toLocaleDateString("de-DE", {
-                      day: "numeric",
-                      month: "long",
-                      year: "numeric",
-                      timeZone: "Europe/Berlin",
-                    })}
-                  </p>
-                )}
-                {ctx.acceptance?.unterschrift && (
-                  <p>
-                    Unterschrieben am{" "}
-                    {new Date(ctx.acceptance.unterschrift.at).toLocaleDateString("de-DE", {
-                      day: "numeric",
-                      month: "long",
-                      year: "numeric",
-                      timeZone: "Europe/Berlin",
-                    })}
-                  </p>
-                )}
-              </div>
+        <article className="portal-panel portal-brief portal-fest-offer" aria-label="Ihr Angebot">
+          <BriefAnrede
+            branding={ctx.branding}
+            anrede={briefAnrede(ctx.customerDisplayName)}
+            einleitung={briefEinleitung(zustand, schedule.showDate ? schedule.dateLabel : null, angenommenAm)}
+          />
+
+          <div className="portal-brief-preis">
+            <p className="portal-fest-kicker">Festpreis</p>
+            <p ref={preisRef} className="portal-price portal-fest-price">{formatPortalMoney(displayTotalCents)}</p>
+            <div className="portal-fest-facts">
+              {deposit > 0 && (
+                <p>
+                  <strong>Anzahlung</strong> {formatPortalMoney(deposit)}
+                </p>
+              )}
+              {kva.validUntil && (
+                <p className={offerExpired ? "portal-fest-expired" : undefined}>
+                  Gültig bis {formatLongDate(kva.validUntil)}
+                  {offerExpired ? " (abgelaufen)" : ""}
+                </p>
+              )}
             </div>
-            {showBar && (
-              <div className="portal-fest-action hidden lg:block">
-                {offerExpired ? (
-                  <ExpiredNotice ctx={ctx} />
-                ) : (
-                  <AcceptButton ctx={ctx} acceptBlock={acceptBlock} onAccept={accept} />
-                )}
-              </div>
-            )}
           </div>
 
           {customerNote && <p className="portal-fest-summary">{customerNote}</p>}
+
+          <Strecke
+            daten={streckeDaten}
+            zusatz={{ Von: zugang(ctx.scope.floorsFrom, ctx.scope.accessFrom), Nach: zugang(ctx.scope.floorsTo, ctx.scope.accessTo) }}
+            termin={schedule.showDate && schedule.dateLabel ? { datum: schedule.dateLabel, zeit: schedule.timeLabel } : null}
+          />
+          {(schedule.anfahrtLabel || schedule.note) && (
+            <dl className="portal-brief-zeilen">
+              {schedule.anfahrtLabel && (
+                <div>
+                  <dt>Anfahrt</dt>
+                  <dd>{schedule.anfahrtLabel}</dd>
+                </div>
+              )}
+              {schedule.note && (
+                <div>
+                  <dt>Hinweis zum Auftrag</dt>
+                  <dd>{schedule.note}</dd>
+                </div>
+              )}
+            </dl>
+          )}
 
           {positions.length > 0 && (
             <div className="portal-fest-services">
@@ -215,45 +223,13 @@ export function FestangebotView({
               </a>
             </p>
           )}
-        </section>
 
-        {schedule.visible && (
-          <section className="portal-panel">
-            <h2 className="portal-fest-title">Termin und Adressen</h2>
-            <dl className="portal-schedule-grid">
-              {schedule.showDate && (
-                <DetailItem icon={CalendarDays} label="Termin">
-                  {schedule.dateLabel}
-                  {schedule.timeLabel && <span className="block">{schedule.timeLabel}</span>}
-                </DetailItem>
-              )}
-              {schedule.showFrom && (
-                <DetailItem icon={MapPin} label="Abholung">
-                  {ctx.scope.fromAddress}
-                  <AccessLine floor={ctx.scope.floorsFrom} access={ctx.scope.accessFrom} />
-                </DetailItem>
-              )}
-              {schedule.showTo && (
-                <DetailItem icon={MapPin} label="Ziel">
-                  {ctx.scope.toAddress}
-                  <AccessLine floor={ctx.scope.floorsTo} access={ctx.scope.accessTo} />
-                </DetailItem>
-              )}
-              {schedule.anfahrtLabel && (
-                <DetailItem icon={MapPin} label="Anfahrt">
-                  {schedule.anfahrtLabel}
-                </DetailItem>
-              )}
-              {schedule.note && (
-                <div className="portal-fest-note">
-                  <DetailItem icon={ClipboardList} label="Hinweis zum Auftrag">
-                    {schedule.note}
-                  </DetailItem>
-                </div>
-              )}
-            </dl>
-          </section>
-        )}
+          <BriefGruss branding={ctx.branding} />
+          <AnnahmeZeile stempel={stempelListe} vertragUrl={ctx.documents.signedContractUrl}>
+            {showBar && (offerExpired ? <ExpiredNotice ctx={ctx} /> : <AcceptButton ctx={ctx} acceptBlock={acceptBlock} onAccept={accept} />)}
+          </AnnahmeZeile>
+          <EmailCaptureBanner token={token} status={ctx.customerEmailStatus} branding={ctx.branding} variant="zeile" />
+        </article>
 
         <section className="portal-panel">
           <h2 className="portal-fest-title">Nächste Schritte</h2>
@@ -280,7 +256,7 @@ export function FestangebotView({
         <FurnitureListSection items={ctx.furnitureList ?? []} primaryColor={ctx.branding.primaryColor} />
       </div>
 
-      {priceInBar && (
+      {priceInBar && !preisImBlick && (
         <div
           className="portal-fest-bar fixed inset-x-0 bottom-0 z-30 border-t bg-card/95 backdrop-blur lg:hidden"
           style={{ paddingBottom: "max(env(safe-area-inset-bottom), 0.625rem)" }}
@@ -375,10 +351,12 @@ function ExpiredNotice({ ctx }: { ctx: CustomerPortalContext }) {
   );
 }
 
-function AccessLine({ floor, access }: { floor: number | null; access: string | null }) {
-  const level = floorLabel(floor);
-  if (!level && !access) return null;
-  return <span className="block">{[level, access].filter(Boolean).join(" · ")}</span>;
+function zugang(floor: number | null, access: string | null): string | null {
+  return [floorLabel(floor), access].filter(Boolean).join(" · ") || null;
+}
+
+function langesDatum(iso: string): string {
+  return new Date(iso).toLocaleDateString("de-DE", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Berlin" });
 }
 
 function floorLabel(floor: number | null): string | null {

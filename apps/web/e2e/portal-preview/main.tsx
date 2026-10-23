@@ -10,7 +10,7 @@ const params = new URLSearchParams(location.search);
 const stage = Math.min(4, Math.max(1, Number(params.get("stage") ?? 1))) as 1 | 2 | 3 | 4;
 let ctx = params.has("festangebot") ? festangebotFixture() : portalFixture(stage, params.has("single"), params.has("live"));
 if (params.has("payments")) ctx.features!.payments = true;
-if (params.has("otherbrand")) ctx.branding = { ...ctx.branding, firmaSlug: "ceylan", displayName: "Ceylan Umzüge", primaryColor: "3A567F", logoUrl: null };
+if (params.has("otherbrand")) ctx.branding = { ...ctx.branding, firmaSlug: "ceylan", displayName: "Ceylan Umzüge", primaryColor: "3A567F", logoUrl: null, ansprechpartner: null };
 if (params.has("expired")) ctx.kva!.validUntil = "2026-01-01";
 if (params.has("empty")) { ctx.kva = null; ctx.dealPackageOffers.options = []; }
 if (params.has("dark")) document.documentElement.classList.add("dark");
@@ -20,6 +20,11 @@ if (params.has("kitchen")) { ctx.scope.moveDate = "2026-09-11"; ctx.annahmeRecht
 if (params.has("nodate")) { ctx.scope.moveDate = null; ctx.annahmeRecht = { ...annahmeRegeln({ serviceType: "move", moveDate: null, hasOpenDateChoice: false, now: new Date(ctx.meta.serverTime) }), kontakt: firmaKontakt("kottke") }; }
 if (params.has("agb")) ctx.branding = { ...ctx.branding, agbPdfUrl: "/legal/agb/kottke" };
 if (params.has("aufgehoben")) ctx.fruehereAnnahmeAufgehoben = true;
+// Brief: Festangebot angenommen bzw. schon unterschrieben (Stempel), Kunde ohne Namen, sehr lange Adresse.
+if (params.has("angenommen") && !ctx.acceptance) ctx.acceptance = { signedAt: "2026-10-23T10:58:00Z", acceptedFullName: "Alex Beispiel", widerrufVerzichtAccepted: false, agbVersionAccepted: "preview", confirmedTotalCents: ctx.kva!.totalCents, selectedOptionName: null, widerrufModus: "ausgeschlossen", vorzeitigerBeginnVerlangt: false, quotationDocumentId: "preview-kv", unterschrift: null };
+if (params.has("unterschrieben") && ctx.acceptance) { ctx.acceptance = { ...ctx.acceptance, unterschrift: { at: "2026-10-23T10:59:00Z", name: "Alex Beispiel", art: "gezeichnet" } }; ctx.documents = { ...ctx.documents, signedContractUrl: "/api/public/local-preview-only/documents/preview-vertrag" }; }
+if (params.has("ohnename")) ctx.customerDisplayName = null;
+if (params.has("langeadresse")) ctx.scope.fromAddress = "Hauptstraße 123 Hinterhaus links, Aufgang C, 70806 Kornwestheim-Pattonville";
 // Unterschrift im Portal an: gebundenes KV an der Annahme, Route gemockt (mit stage=2 als Nebenaktion, ohne stage im Abschluss-Dialog).
 const unterschrift = params.has("unterschrift");
 if (unterschrift) { ctx.features!.signature = true; if (ctx.acceptance) ctx.acceptance = { ...ctx.acceptance, quotationDocumentId: "preview-kv" }; }
