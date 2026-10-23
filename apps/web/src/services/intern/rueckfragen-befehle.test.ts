@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { befehlAus } from "./freigabe-befehle";
-import { antwortAus, antwortEntscheidung, neuerCode, teileAnfrage, RUECKFRAGE_CODE_RE, rueckfrageNachricht, validiereRueckfragen, waehleRueckfrage } from "./rueckfragen-befehle";
+import { antwortAus, antwortEntscheidung, istCodeKollision, mitNeuemCodeBeiKollision, neuerCode, teileAnfrage, RUECKFRAGE_CODE_RE, rueckfrageNachricht, validiereRueckfragen, verpassteAntwort, waehleRueckfrage } from "./rueckfragen-befehle";
 
 describe("Rückfragen", () => {
   it("Codes liegen außerhalb der Freigabe-Grammatik", () => {
@@ -116,5 +116,42 @@ describe("Review: dieselbe Buchung wird nicht zweimal gefragt", () => {
     const fragen = [{ frage: "a", optionen: [], payload: { tx_id: "t1" }, ablaufTage: 7 }, { frage: "b", optionen: [], payload: { tx_id: "t2" }, ablaufTage: 7 }, { frage: "c", optionen: [], ablaufTage: 7 }];
     expect(teileAnfrage(fragen, new Map([["t1", "R7K2"]]))).toEqual({ codes: ["R7K2", null, null], neu: [1, 2] });
     expect(teileAnfrage(fragen.slice(0, 1), new Map([["t1", "R7K2"]]))).toEqual({ codes: ["R7K2"], neu: [] });
+  });
+});
+
+describe("Kleinigkeiten aus dem Review", () => {
+  const frage = (extra: Record<string, unknown> = {}) => ({ frage: "Wer war dabei?", optionen: ["privat"], ...extra });
+
+  it("Payload und Gesamtnachricht haben eine Grenze", () => {
+    const gross = validiereRueckfragen({ quelle: "kassensturz", fragen: [frage({ payload: { notiz: "x".repeat(2001) } })] });
+    expect(gross).toEqual({ ok: false, fehler: "fragen.0.payload: höchstens 2000 Zeichen als JSON" });
+    const lang = validiereRueckfragen({ quelle: "kassensturz", fragen: Array.from({ length: 10 }, () => frage({ frage: "y".repeat(500), optionen: Array.from({ length: 8 }, () => "z".repeat(40)) })) });
+    expect(lang).toEqual({ ok: false, fehler: "fragen: zusammen höchstens 4000 Zeichen in der Nachricht" });
+    expect(validiereRueckfragen({ quelle: "kassensturz", fragen: Array.from({ length: 5 }, () => frage({ frage: "y".repeat(200) })) }).ok).toBe(true);
+  });
+
+  it("Code-Kollision beim Einfügen wird erkannt, auch eingepackt", () => {
+    expect(istCodeKollision({ code: "23505", constraint_name: "intern_rueckfragen_offen_code_idx" })).toBe(true);
+    expect(istCodeKollision({ cause: { code: "23505", constraint_name: "intern_rueckfragen_offen_code_idx" } })).toBe(true);
+    expect(istCodeKollision({ code: "23505", constraint_name: "anderer_idx" })).toBe(false);
+    expect(istCodeKollision(new Error("weg"))).toBe(false);
+  });
+
+  it("bei Kollision neuer Versuch mit neuen Codes, höchstens dreimal", async () => {
+    const kollision = { code: "23505", constraint_name: "intern_rueckfragen_offen_code_idx" };
+    let aufrufe = 0;
+    expect(await mitNeuemCodeBeiKollision(async (versuch) => {
+      aufrufe += 1;
+      if (versuch < 2) throw kollision;
+      return "ok";
+    })).toBe("ok");
+    expect(aufrufe).toBe(3);
+    await expect(mitNeuemCodeBeiKollision(async () => { throw kollision; })).rejects.toBe(kollision);
+    await expect(mitNeuemCodeBeiKollision(async () => { throw new Error("anders"); })).rejects.toThrow("anders");
+  });
+
+  it("verpasste Antwort meldet den echten Zustand", () => {
+    expect(verpassteAntwort("R7K2", "beantwortet")).toBe("#R7K2 ist schon beantwortet.");
+    expect(verpassteAntwort("R7K2", "abgelaufen")).toBe("#R7K2 ist abgelaufen, die Frage kommt bei Bedarf neu.");
   });
 });

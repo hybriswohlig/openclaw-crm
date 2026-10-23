@@ -191,7 +191,8 @@ export async function verarbeiteInterneNachricht(input: {
     // Kein Freigabe-Befehl: vielleicht die Antwort auf eine Rückfrage (Kassensturz).
     // Sonst bleibt es wie bisher: die Nachricht wird verworfen.
     const bestaetigung = await beantworteRueckfrage(input.workspaceId, input.absender.name, input.text);
-    if (bestaetigung) await sendeAnInterne(input.workspaceId, bestaetigung, { kontoId: input.kontoId, nurAn: [input.absender.name] });
+    // nachholen: ist das Konto kurz getrennt, kommt die Bestätigung später statt gar nicht.
+    if (bestaetigung) await sendeAnInterne(input.workspaceId, bestaetigung, { kontoId: input.kontoId, nurAn: [input.absender.name], nachholen: true });
     return;
   }
   const antworten = (t: string) => sendeAnInterne(input.workspaceId, t, { kontoId: input.kontoId });

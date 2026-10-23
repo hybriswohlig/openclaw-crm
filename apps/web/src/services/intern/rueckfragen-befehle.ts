@@ -16,6 +16,10 @@
 const ERSTES = "GHJKLMNPQRSTUVWXYZ";
 const WEITERE = "GHJKLMNPQRSTUVWXYZ23456789";
 const MAX_VERSUCHE = 200;
+const MAX_PAYLOAD = 2000;
+const MAX_NACHRICHT = 4000;
+const KOLLISION_VERSUCHE = 3;
+const CODE_INDEX = "intern_rueckfragen_offen_code_idx";
 
 export const RUECKFRAGE_CODE_RE = /^#?([G-HJ-NP-Z][G-HJ-NP-Z2-9]{3})\b/i;
 
@@ -96,12 +100,16 @@ export function validiereRueckfragen(body: unknown): { ok: true; value: Rueckfra
       return { ok: false, fehler: `fragen.${index}.optionen: höchstens 8 Einträge je 1 bis 40 Zeichen` };
     }
     if (payload !== undefined && !istObjekt(payload)) return { ok: false, fehler: `fragen.${index}.payload: Objekt erwartet` };
+    if (payload !== undefined && JSON.stringify(payload).length > MAX_PAYLOAD) return { ok: false, fehler: `fragen.${index}.payload: höchstens ${MAX_PAYLOAD} Zeichen als JSON` };
     const tage = ablaufTage === undefined ? 7 : ablaufTage;
     if (typeof tage !== "number" || !Number.isInteger(tage) || tage < 1 || tage > 30) return { ok: false, fehler: `fragen.${index}.ablaufTage: ganze Zahl 1 bis 30` };
     const eintrag: RueckfrageAnfrage["fragen"][number] = { frage: frage.trim(), optionen: liste as string[], ablaufTage: tage };
     if (payload !== undefined) eintrag.payload = payload;
     value.fragen.push(eintrag);
   }
+  // Eine Nachricht für alle Fragen: auf dem Telefon lesbar und sicher unter der Grenze des Transports.
+  const probe = rueckfrageNachricht(quelle, value.fragen.map((eintrag) => ({ code: "XXXX", frage: eintrag.frage, optionen: eintrag.optionen })));
+  if (probe.length > MAX_NACHRICHT) return { ok: false, fehler: `fragen: zusammen höchstens ${MAX_NACHRICHT} Zeichen in der Nachricht` };
   return { ok: true, value };
 }
 
@@ -181,4 +189,28 @@ export function teileAnfrage(
     if (!code) neu.push(index);
   });
   return { codes, neu };
+}
+
+/** Unique-Verletzung am Index der offenen Codes (zwei gleichzeitige POSTs zogen denselben Code). */
+export function istCodeKollision(fehler: unknown): boolean {
+  const pruefe = (wert: unknown): boolean =>
+    istObjekt(wert) && wert.code === "23505" && (wert.constraint_name === CODE_INDEX || wert.constraint === CODE_INDEX);
+  return pruefe(fehler) || (istObjekt(fehler) && pruefe(fehler.cause)) || (fehler instanceof Error && pruefe((fehler as Error & { cause?: unknown }).cause));
+}
+
+/** Führt den Versuch aus; bei einer Code-Kollision neu mit frischen Codes, höchstens dreimal. */
+export async function mitNeuemCodeBeiKollision<T>(versuch: (nummer: number) => Promise<T>): Promise<T> {
+  for (let nummer = 0; ; nummer += 1) {
+    try {
+      return await versuch(nummer);
+    } catch (fehler) {
+      if (!istCodeKollision(fehler) || nummer >= KOLLISION_VERSUCHE - 1) throw fehler;
+    }
+  }
+}
+
+/** Meldung, wenn eine Antwort zwischen Lesen und Schreiben nicht mehr offen war. */
+export function verpassteAntwort(code: string, status: string): string {
+  const entscheidung = entscheideMitCode(code, "x", [], [{ code, status }]);
+  return entscheidung.aktion === "melden" ? entscheidung.text : `#${code} ist schon beantwortet.`;
 }

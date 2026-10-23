@@ -21,7 +21,7 @@ describe("verarbeiteInterneNachricht: Rückfragen", () => {
     mocks.beantworteRueckfrage.mockResolvedValue("Danke, #R7K2 notiert.");
     await verarbeiteInterneNachricht({ workspaceId: "ws1", kontoId: "k1", absender, text: "R7K2 privat" });
     expect(mocks.beantworteRueckfrage).toHaveBeenCalledWith("ws1", "Dario", "R7K2 privat");
-    expect(mocks.sendeAnInterne).toHaveBeenCalledWith("ws1", "Danke, #R7K2 notiert.", { kontoId: "k1", nurAn: ["Dario"] });
+    expect(mocks.sendeAnInterne).toHaveBeenCalledWith("ws1", "Danke, #R7K2 notiert.", { kontoId: "k1", nurAn: ["Dario"], nachholen: true });
   });
 
   it("Text ohne offene Rückfrage wird wie bisher verworfen", async () => {

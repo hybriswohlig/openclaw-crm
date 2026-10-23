@@ -18,7 +18,7 @@ import { internRueckfragen, type RueckfrageStatus } from "@/db/schema/intern";
 import { getSetting } from "@/services/workspace-settings";
 import { sendeAnInterne } from "./intern-senden";
 import { ladeInterneNummern } from "./interne-nummern";
-import { antwortEntscheidung, neuerCode, rueckfrageNachricht, teileAnfrage, type RueckfrageAnfrage } from "./rueckfragen-befehle";
+import { antwortEntscheidung, mitNeuemCodeBeiKollision, neuerCode, rueckfrageNachricht, teileAnfrage, verpassteAntwort, type RueckfrageAnfrage } from "./rueckfragen-befehle";
 
 export const RUECKFRAGEN_EMPFAENGER_KEY = "intern_rueckfragen_empfaenger";
 const BEKANNT_TAGE = 60;
@@ -69,14 +69,15 @@ export async function erstelleRueckfragen(
     empfaenger = await standardEmpfaenger(workspaceId);
   }
   // Codes der letzten Wochen nicht wiederverwenden, damit eine späte Antwort nie die falsche Frage trifft.
-  const vergeben = new Set(
-    (
-      await db
-        .select({ code: internRueckfragen.code })
-        .from(internRueckfragen)
-        .where(and(eq(internRueckfragen.workspaceId, workspaceId), gte(internRueckfragen.createdAt, new Date(now.getTime() - BEKANNT_TAGE * TAG_MS))))
-    ).map((row) => row.code)
-  );
+  const ladeVergeben = async () =>
+    new Set(
+      (
+        await db
+          .select({ code: internRueckfragen.code })
+          .from(internRueckfragen)
+          .where(and(eq(internRueckfragen.workspaceId, workspaceId), gte(internRueckfragen.createdAt, new Date(now.getTime() - BEKANNT_TAGE * TAG_MS))))
+      ).map((row) => row.code)
+    );
   // Schon offene Fragen derselben Quelle zur selben Buchung behalten ihren Code und gehen nicht noch einmal raus.
   const txIds = anfrage.fragen.map((frage) => frage.payload?.tx_id).filter((id): id is string => typeof id === "string");
   const vorhanden = new Map<string, string>();
@@ -96,23 +97,28 @@ export async function erstelleRueckfragen(
   }
   const { codes, neu } = teileAnfrage(anfrage.fragen, vorhanden);
   if (neu.length === 0) return { codes: codes as string[], zugestellt: true };
-  const zeilen = neu.map((index) => anfrage.fragen[index]!).map((frage) => {
-    const code = neuerCode(vergeben);
-    vergeben.add(code);
-    return {
-      workspaceId,
-      quelle: anfrage.quelle,
-      code,
-      frage: frage.frage,
-      optionen: frage.optionen,
-      empfaenger,
-      status: "offen" as const,
-      payload: frage.payload ?? null,
-      expiresAt: new Date(now.getTime() + frage.ablaufTage * TAG_MS),
-      createdAt: now,
-    };
+  // Zwei gleichzeitige Anfragen können denselben Code ziehen; der Unique-Index fängt das, dann neue Codes.
+  const { zeilen, ids } = await mitNeuemCodeBeiKollision(async () => {
+    const vergeben = await ladeVergeben();
+    const zeilen = neu.map((index) => anfrage.fragen[index]!).map((frage) => {
+      const code = neuerCode(vergeben);
+      vergeben.add(code);
+      return {
+        workspaceId,
+        quelle: anfrage.quelle,
+        code,
+        frage: frage.frage,
+        optionen: frage.optionen,
+        empfaenger,
+        status: "offen" as const,
+        payload: frage.payload ?? null,
+        expiresAt: new Date(now.getTime() + frage.ablaufTage * TAG_MS),
+        createdAt: now,
+      };
+    });
+    const ids = (await db.insert(internRueckfragen).values(zeilen).returning({ id: internRueckfragen.id })).map((row) => row.id);
+    return { zeilen, ids };
   });
-  const ids = (await db.insert(internRueckfragen).values(zeilen).returning({ id: internRueckfragen.id })).map((row) => row.id);
   neu.forEach((index, position) => {
     codes[index] = zeilen[position]!.code;
   });
@@ -196,8 +202,13 @@ export async function beantworteRueckfrage(workspaceId: string, absenderName: st
       .set({ status: "beantwortet", antwort: entscheidung.antwort, antwortVon: absenderName, answeredAt: now })
       .where(and(eq(internRueckfragen.id, entscheidung.id), eq(internRueckfragen.status, "offen")))
       .returning({ id: internRueckfragen.id });
-    if (gespeichert.length > 0) notiert.push(`#${entscheidung.code}`);
-    else meldungen.push(`#${entscheidung.code} ist schon beantwortet.`);
+    if (gespeichert.length > 0) {
+      notiert.push(`#${entscheidung.code}`);
+      continue;
+    }
+    // Inzwischen beantwortet oder abgelaufen: den echten Zustand melden.
+    const [jetzt] = await db.select({ status: internRueckfragen.status }).from(internRueckfragen).where(eq(internRueckfragen.id, entscheidung.id));
+    meldungen.push(verpassteAntwort(entscheidung.code, jetzt?.status ?? "beantwortet"));
   }
   const danke = notiert.length ? [`Danke, ${notiert.join(notiert.length === 2 ? " und " : ", ")} notiert.`] : [];
   return [...danke, ...meldungen].join("\n");
