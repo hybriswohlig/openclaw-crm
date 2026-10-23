@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { CustomerPortalContext } from "@openclaw-crm/customer-portal-core";
 import { StageHeader } from "./stage-header";
 import { WiderrufPanel } from "./widerruf-panel";
+import { UnterschriftPanel } from "./unterschrift-panel";
 import { StageOneKva } from "./stage-one-kva";
 import { StageTwoAb } from "./stage-two-ab";
 import { StageThreeLive } from "./stage-three-live";
@@ -66,6 +67,7 @@ export function StagePortal({
       <a className="portal-skip" href="#portal-content">Zum Auftragsinhalt</a>
       <StageHeader ctx={ctx} />
       <WiderrufPanel token={token} ctx={ctx} onWiderrufen={refresh} />
+      <UnterschriftPanel token={token} ctx={ctx} onSigned={refresh} />
 
       <div id="portal-content" className="portal-content">
         {ctx.stage === 1 && <StageOneKva token={token} ctx={ctx} onConfirmed={refresh} />}

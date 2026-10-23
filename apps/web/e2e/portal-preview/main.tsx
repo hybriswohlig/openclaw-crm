@@ -20,6 +20,9 @@ if (params.has("kitchen")) { ctx.scope.moveDate = "2026-09-11"; ctx.annahmeRecht
 if (params.has("nodate")) { ctx.scope.moveDate = null; ctx.annahmeRecht = { ...annahmeRegeln({ serviceType: "move", moveDate: null, hasOpenDateChoice: false, now: new Date(ctx.meta.serverTime) }), kontakt: firmaKontakt("kottke") }; }
 if (params.has("agb")) ctx.branding = { ...ctx.branding, agbPdfUrl: "/legal/agb/kottke" };
 if (params.has("aufgehoben")) ctx.fruehereAnnahmeAufgehoben = true;
+// Unterschrift im Portal an: gebundenes KV an der Annahme, Route gemockt (mit stage=2 als Nebenaktion, ohne stage im Abschluss-Dialog).
+const unterschrift = params.has("unterschrift");
+if (unterschrift) { ctx.features!.signature = true; if (ctx.acceptance) ctx.acceptance = { ...ctx.acceptance, quotationDocumentId: "preview-kv" }; }
 // Entrümpelung angenommen, Widerrufsfrist läuft: Button „Vertrag widerrufen“ (mit stage=2).
 if (params.has("widerruf") && ctx.acceptance) {
   ctx.acceptance = { ...ctx.acceptance, widerrufModus: "belehrung" };
@@ -40,7 +43,12 @@ window.fetch = async (input, init) => {
     ctx = { ...ctx, stage: 1, acceptance: null, widerruf: { ...ctx.widerruf, aktiv: false, eingegangen: { at: ctx.meta.serverTime, vertrag: ctx.widerruf.vertrag ?? "" } } };
     return Response.json({ data: { eingegangenAt: ctx.meta.serverTime } });
   }
-  if (url.endsWith("/confirm-kva")) ctx = { ...ctx, stage: 2, acceptance: { signedAt: ctx.meta.serverTime, acceptedFullName: "Alex Beispiel", agbVersionAccepted: "preview", widerrufVerzichtAccepted: false, confirmedTotalCents: ctx.kva!.totalCents, selectedOptionName: ctx.dealPackageOffers.options.find(o => o.id === ctx.dealPackageOffers.selectedOptionId)?.displayName ?? null, widerrufModus: ctx.annahmeRecht.widerrufModus, vorzeitigerBeginnVerlangt: ctx.annahmeRecht.vorzeitigerBeginnErforderlich, quotationDocumentId: null, unterschrift: null } };
+  if (url.endsWith("/unterschrift")) {
+    const body = JSON.parse(String(init?.body)) as { name: string; art: "gezeichnet" | "getippt" };
+    ctx = { ...ctx, acceptance: { ...ctx.acceptance!, unterschrift: { at: ctx.meta.serverTime, name: body.name, art: body.art } }, documents: { ...ctx.documents, signedContractUrl: "/api/public/local-preview-only/documents/preview-contract" } };
+    return Response.json({ data: { ok: true } });
+  }
+  if (url.endsWith("/confirm-kva")) ctx = { ...ctx, stage: unterschrift ? 1 : 2, acceptance: { signedAt: ctx.meta.serverTime, acceptedFullName: "Alex Beispiel", agbVersionAccepted: "preview", widerrufVerzichtAccepted: false, confirmedTotalCents: ctx.kva!.totalCents, selectedOptionName: ctx.dealPackageOffers.options.find(o => o.id === ctx.dealPackageOffers.selectedOptionId)?.displayName ?? null, widerrufModus: ctx.annahmeRecht.widerrufModus, vorzeitigerBeginnVerlangt: ctx.annahmeRecht.vorzeitigerBeginnErforderlich, quotationDocumentId: unterschrift ? "preview-kv" : null, unterschrift: null } };
   return Response.json({ data: ctx });
 };
 Object.defineProperty(navigator, "sendBeacon", { value: () => true });

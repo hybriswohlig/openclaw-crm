@@ -141,6 +141,17 @@ export function FestangebotView({
                     })}
                   </p>
                 )}
+                {ctx.acceptance?.unterschrift && (
+                  <p>
+                    Unterschrieben am{" "}
+                    {new Date(ctx.acceptance.unterschrift.at).toLocaleDateString("de-DE", {
+                      day: "numeric",
+                      month: "long",
+                      year: "numeric",
+                      timeZone: "Europe/Berlin",
+                    })}
+                  </p>
+                )}
               </div>
             </div>
             {showBar && (

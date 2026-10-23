@@ -10,12 +10,15 @@ import {
   VORZEITIGER_BEGINN_CHECKBOX,
   abschlussHinweis,
   keinWiderrufHinweis,
+  naechsteAktionNachAnnahme,
+  unterschriftMoeglich,
   widerrufsbelehrung,
   type ConfirmKvaPayload,
   type CustomerPortalContext,
 } from "@openclaw-crm/customer-portal-core";
 import { portalBrandStyle } from "./portal-presentation";
 import { PaymentSection } from "./payment-section";
+import { UnterschriftForm } from "./unterschrift-form";
 
 /**
  * Annahme-Dialog. Pflicht: Angebot, AGB (falls vorhanden), bei Umzug der
@@ -147,6 +150,7 @@ export function ConfirmKvaDialog({
               selectedOptionName={selectedOptionName}
               displayTotalCents={displayTotalCents}
               onClose={() => handleOpenChange(false)}
+              onSigned={onAccepted}
             />
           ) : (
             <>
@@ -361,14 +365,22 @@ function DoneStep({
   selectedOptionName,
   displayTotalCents,
   onClose,
+  onSigned,
 }: {
   token: string;
   ctx: CustomerPortalContext;
   selectedOptionName: string | null;
   displayTotalCents: number;
   onClose: () => void;
+  onSigned: () => void | Promise<void>;
 }) {
   const hasDeposit = ctx.features?.payments === true && !!ctx.payment && ctx.payment.amountCents > 0;
+  // Beim Öffnen festhalten: nach der Unterschrift lädt der Kontext neu, das
+  // Formular soll trotzdem stehen bleiben und seine Erfolgsmeldung zeigen.
+  const [start] = useState(() => {
+    const moeglich = unterschriftMoeglich({ acceptance: ctx.acceptance, signatureEnabled: ctx.features?.signature === true });
+    return { moeglich, aktion: naechsteAktionNachAnnahme({ anzahlungOffen: hasDeposit, unterschriftMoeglich: moeglich }) };
+  });
   return (
     <div aria-live="polite">
       <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-200">
@@ -383,6 +395,13 @@ function DoneStep({
           Eine Bestätigung geht Ihnen per WhatsApp oder E-Mail zu.
         </DialogPrimitive.Description>
       </div>
+
+      {start.aktion === "unterschrift" && (
+        <div className="mt-4">
+          <p className="mb-3 text-sm font-medium">Vertrag unterschreiben (freiwillig)</p>
+          <UnterschriftForm token={token} ctx={ctx} onSigned={onSigned} />
+        </div>
+      )}
 
       {hasDeposit ? (
         <>
@@ -399,6 +418,14 @@ function DoneStep({
               markedPaidAt={ctx.customerSignals.markedPaidDepositAt}
             />
           </div>
+          {start.moeglich && (
+            <details className="mt-4 rounded-xl border border-border/50 bg-card px-4 py-3">
+              <summary className="cursor-pointer text-sm font-medium">Vertrag unterschreiben (freiwillig)</summary>
+              <div className="mt-3">
+                <UnterschriftForm token={token} ctx={ctx} onSigned={onSigned} />
+              </div>
+            </details>
+          )}
         </>
       ) : (
         <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
