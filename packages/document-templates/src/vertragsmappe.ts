@@ -1,5 +1,5 @@
 import fontkit from "@pdf-lib/fontkit";
-import { PDFDocument, degrees, rgb, type PDFFont, type PDFImage, type PDFPage, type RGB } from "pdf-lib";
+import { PDFDocument, decodeFromBase64, degrees, rgb, type PDFFont, type PDFImage, type PDFPage, type RGB } from "pdf-lib";
 import { formatEur } from "./money";
 import { toWinAnsi } from "./pdf";
 import { LOGO_PNG } from "./marke/logos";
@@ -225,7 +225,8 @@ function fuerSchrift(text: string): string {
 type Schriften = { text: PDFFont; semi: PDFFont; titel: PDFFont };
 type Stil = { font?: PDFFont; size?: number; farbe?: RGB; x?: number; breite?: number; zeilenabstand?: number };
 
-const ausBase64 = (b64: string) => Uint8Array.from(Buffer.from(b64, "base64"));
+// Ohne Node-Buffer: das Paket wird auf Vercel mit tsc ohne Node-Typen gebaut.
+const ausBase64 = (b64: string) => decodeFromBase64(b64);
 
 /** Größte Schriftgröße zwischen 10 und 22 pt, bei der der Text höchstens maxBreite breit ist. */
 export function passendeGroesse(breiteBei: (size: number) => number, maxBreite: number, start = 22, min = 10): number {
