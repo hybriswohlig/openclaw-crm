@@ -104,3 +104,39 @@ export function validiereRueckfragen(body: unknown): { ok: true; value: Rueckfra
   }
   return { ok: true, value };
 }
+
+export type AntwortEntscheidung =
+  | { aktion: "speichern"; id: string; code: string; antwort: string }
+  | { aktion: "melden"; text: string }
+  | { aktion: "ignorieren" };
+
+/**
+ * Was mit einer Nachricht des Empfängers passiert: speichern, kurz melden
+ * oder wie bisher verwerfen. `bekannte` sind Fragen desselben Empfängers, die
+ * nicht mehr offen sind (abgelaufen oder beantwortet).
+ */
+export function antwortEntscheidung(
+  text: string,
+  offene: ReadonlyArray<{ id: string; code: string }>,
+  bekannte: ReadonlyArray<{ code: string; status: string }>
+): AntwortEntscheidung {
+  const parsed = antwortAus(
+    text,
+    offene.map((frage) => frage.code),
+    bekannte.map((frage) => frage.code)
+  );
+  if (!parsed) return { aktion: "ignorieren" };
+  if (parsed.code && !offene.some((frage) => frage.code === parsed.code)) {
+    const alt = bekannte.find((frage) => frage.code === parsed.code);
+    if (alt?.status === "beantwortet") return { aktion: "melden", text: `#${parsed.code} ist schon beantwortet.` };
+    return { aktion: "melden", text: `#${parsed.code} ist abgelaufen, die Frage kommt bei Bedarf neu.` };
+  }
+  const wahl = waehleRueckfrage(offene, parsed);
+  if ("fehler" in wahl) {
+    if (wahl.fehler === "mehrdeutig") return { aktion: "melden", text: `Bitte mit Code antworten (offen: ${offene.map((frage) => frage.code).join(", ")}).` };
+    if (wahl.fehler === "kein_treffer") return { aktion: "melden", text: `Keine offene Rückfrage #${parsed.code}.` };
+    return { aktion: "ignorieren" };
+  }
+  if (!parsed.antwort) return { aktion: "melden", text: `Bitte nach dem Code die Antwort schreiben, zum Beispiel: ${wahl.treffer.code} privat` };
+  return { aktion: "speichern", id: wahl.treffer.id, code: wahl.treffer.code, antwort: parsed.antwort };
+}

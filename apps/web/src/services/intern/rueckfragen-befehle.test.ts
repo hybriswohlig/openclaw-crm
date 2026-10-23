@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { befehlAus } from "./freigabe-befehle";
-import { antwortAus, neuerCode, RUECKFRAGE_CODE_RE, rueckfrageNachricht, validiereRueckfragen, waehleRueckfrage } from "./rueckfragen-befehle";
+import { antwortAus, antwortEntscheidung, neuerCode, RUECKFRAGE_CODE_RE, rueckfrageNachricht, validiereRueckfragen, waehleRueckfrage } from "./rueckfragen-befehle";
 
 describe("Rückfragen", () => {
   it("Codes liegen außerhalb der Freigabe-Grammatik", () => {
@@ -72,5 +72,23 @@ describe("Rückfragen", () => {
       null,
       "text",
     ]) expect(validiereRueckfragen(body).ok).toBe(false);
+  });
+});
+
+describe("antwortEntscheidung", () => {
+  const offen = [{ id: "1", code: "R7K2" }];
+  it("speichert eine Antwort mit oder ohne Code bei genau einer offenen Frage", () => {
+    expect(antwortEntscheidung("R7K2 privat", offen, [])).toEqual({ aktion: "speichern", id: "1", code: "R7K2", antwort: "privat" });
+    expect(antwortEntscheidung("Thomas Müller, OKIO", offen, [])).toEqual({ aktion: "speichern", id: "1", code: "R7K2", antwort: "Thomas Müller, OKIO" });
+  });
+  it("meldet abgelaufene, schon beantwortete, leere und mehrdeutige Antworten", () => {
+    expect(antwortEntscheidung("M9ZZ privat", offen, [{ code: "M9ZZ", status: "abgelaufen" }])).toEqual({ aktion: "melden", text: "#M9ZZ ist abgelaufen, die Frage kommt bei Bedarf neu." });
+    expect(antwortEntscheidung("M9ZZ privat", [], [{ code: "M9ZZ", status: "beantwortet" }])).toEqual({ aktion: "melden", text: "#M9ZZ ist schon beantwortet." });
+    expect(antwortEntscheidung("R7K2", offen, [])).toEqual({ aktion: "melden", text: "Bitte nach dem Code die Antwort schreiben, zum Beispiel: R7K2 privat" });
+    expect(antwortEntscheidung("privat", [...offen, { id: "2", code: "M9ZZ" }], [])).toEqual({ aktion: "melden", text: "Bitte mit Code antworten (offen: R7K2, M9ZZ)." });
+  });
+  it("ignoriert Text ohne offene Frage und leere Nachrichten", () => {
+    expect(antwortEntscheidung("Hallo", [], [])).toEqual({ aktion: "ignorieren" });
+    expect(antwortEntscheidung("  ", offen, [])).toEqual({ aktion: "ignorieren" });
   });
 });
