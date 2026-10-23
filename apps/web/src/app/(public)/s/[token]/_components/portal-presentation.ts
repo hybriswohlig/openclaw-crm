@@ -47,3 +47,14 @@ export function portalBrandStyle(color: string) {
   const brand = `#${color.replace(/^#/, "")}`;
   return { "--portal-brand": brand, "--primary": brand, "--ring": brand, "--portal-tint": `color-mix(in srgb, ${brand} 5%, var(--card))` } as React.CSSProperties;
 }
+
+/**
+ * Beträge je Posten im Festangebot: nur, wenn die Posten zusammen genau den
+ * Gesamtpreis ergeben (gleiche Regel wie KV und AB). Ein einzelner Posten in
+ * Höhe des Gesamtpreises braucht keinen eigenen Betrag.
+ */
+export function postenBetraegeZeigen(posten: readonly { lineTotal: number }[], gesamtCents: number): boolean {
+  if (posten.length < 2) return false;
+  const summe = posten.reduce((s, p) => s + Math.round(p.lineTotal * 100), 0);
+  return summe === gesamtCents;
+}

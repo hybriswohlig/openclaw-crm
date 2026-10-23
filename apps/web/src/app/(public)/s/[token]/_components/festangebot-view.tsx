@@ -12,7 +12,7 @@ import {
 import { ConfirmKvaDialog } from "./confirm-kva-dialog";
 import { ContactPanel, DetailItem } from "./portal-ui";
 import { QuotationPreview } from "./quotation-preview";
-import { formatPortalDate, formatPortalMoney } from "./portal-presentation";
+import { formatPortalDate, formatPortalMoney, postenBetraegeZeigen } from "./portal-presentation";
 import { PaymentSection } from "./payment-section";
 import { WhatsAppContactLink } from "./whatsapp-contact-link";
 import { EmailCaptureBanner } from "./email-capture-banner";
@@ -69,9 +69,7 @@ export function FestangebotView({
   const priceInBar = showBar && !offerExpired;
   const deposit = kva.depositRequiredCents ?? 0;
   const positions = kva.lineItems.filter((item) => item.description.trim());
-  const showLineAmounts =
-    positions.length > 1 ||
-    (positions.length === 1 && lineAmountCents(positions[0]) !== displayTotalCents);
+  const showLineAmounts = postenBetraegeZeigen(positions, displayTotalCents);
   const standards = kva.showStandardInclusions ? ctx.inclusions : { included: [], optional: [] };
   const showStandards = standards.included.length + standards.optional.length > 0;
   const schedule = scheduleContent(ctx);
