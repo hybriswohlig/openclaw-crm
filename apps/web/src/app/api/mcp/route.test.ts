@@ -74,9 +74,10 @@ describe("MCP tools/list freshness", () => {
     expect(stdio).toContain(`export const MCP_SERVER_VERSION = "${MCP_SERVER_VERSION}"`);
     expect(MCP_SERVER_VERSION).toBe("0.3.0");
     expect(MCP_SERVER_VERSION).not.toBe("0.1.0");
+    expect(MCP_SERVER_VERSION).not.toBe("0.2.0");
   });
 
-  it("registers tools on every POST and returns the signature tools", async () => {
+  it("registers tools on every POST and returns Kontaktart and signature schemas", async () => {
     const init = await POST(
       rpc("initialize", 1, {
         protocolVersion: "2025-03-26",
@@ -96,11 +97,29 @@ describe("MCP tools/list freshness", () => {
     const body = await readRpc(listed);
     const tools = (
       body.result as {
-        tools: Array<{ name: string; description?: string; inputSchema: { properties?: Record<string, unknown>; required?: string[] } }>;
+        tools: Array<{
+          name: string;
+          description?: string;
+          inputSchema: { properties?: Record<string, { enum?: string[] }>; required?: string[] };
+        }>;
       }
     ).tools;
+    const update = tools.find((tool) => tool.name === "crm_update_conversation_status");
+    const list = tools.find((tool) => tool.name === "crm_list_conversations");
     const signature = tools.find((tool) => tool.name === "crm_get_deal_signature");
     const quotation = tools.find((tool) => tool.name === "crm_get_deal_quotation");
+
+    expect(update?.inputSchema.properties).toMatchObject({
+      kontaktart: { enum: expect.arrayContaining(["bewerber", "lead_kunde"]) },
+      lane: { enum: expect.arrayContaining(["kein_lead"]) },
+    });
+    expect(update?.inputSchema.required).toEqual(["conversationId"]);
+    expect(list?.inputSchema.properties?.lane?.enum).toEqual(
+      expect.arrayContaining(["kein_lead"])
+    );
+    expect(list?.inputSchema.properties?.kontaktart?.enum).toEqual(
+      expect.arrayContaining(["bewerber"])
+    );
     expect(signature?.inputSchema.properties).toMatchObject({
       status: { enum: ["pending", "signed", "superseded", "all"] },
     });
@@ -108,6 +127,7 @@ describe("MCP tools/list freshness", () => {
     expect(quotation?.description).toContain("crm_get_deal_signature");
     expect(tools.some((tool) => tool.name === "crm_create_deal_date_offer")).toBe(true);
     expect(tools.some((tool) => tool.name === "crm_resolve_deal_change_request")).toBe(true);
+    // A module-level createMcpHandler() would register once and reuse that server.
     expect(registration.calls).toBe(2);
   });
 

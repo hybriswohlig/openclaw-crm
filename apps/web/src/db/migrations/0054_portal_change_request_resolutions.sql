@@ -1,3 +1,5 @@
+-- 0054_portal_change_request_resolutions. Apply after 0053_email_lead_deals.
+-- Hand-written SQL; there is no snapshot JSON, same as 0044–0053.
 -- Handled marker for portal change requests (Änderung anfragen, Terminänderung, Schaden).
 -- The request text stays on activity_events. This table only records that staff handled it.
 -- A migration is required before crm_resolve_deal_change_request can persist.

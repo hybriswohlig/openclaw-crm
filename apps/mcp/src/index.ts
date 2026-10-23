@@ -47,7 +47,7 @@ async function main() {
     },
     {
       capabilities: {
-        tools: { listChanged: true },
+        tools: {},
       },
     }
   );
