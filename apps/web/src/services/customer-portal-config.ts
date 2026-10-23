@@ -48,6 +48,8 @@ export interface OperatingCompanyPortalSettings {
   enabled: boolean;
   liveTrackingEnabled: boolean;
   paymentsEnabled: boolean;
+  /** Unterschrift im Portal nach der Annahme anbieten. */
+  signatureEnabled: boolean;
   customDomain: string | null;
   publicUrlPreview: string | null;
 
@@ -78,6 +80,7 @@ export interface PortalSettingsUpdate {
   enabled?: boolean;
   liveTrackingEnabled?: boolean;
   paymentsEnabled?: boolean;
+  signatureEnabled?: boolean;
   customDomain?: string | null;
   displayName?: string | null;
   primaryColor?: string | null;
@@ -425,6 +428,7 @@ function cleanPatch(patch: PortalSettingsUpdate): PortalSettingsUpdate {
     "enabled",
     "liveTrackingEnabled",
     "paymentsEnabled",
+    "signatureEnabled",
     "customDomain",
     "displayName",
     "primaryColor",
@@ -516,6 +520,7 @@ function shapeSettings(
     enabled: s?.enabled ?? true,
     liveTrackingEnabled: portalFeatures(s).liveTracking,
     paymentsEnabled: portalFeatures(s).payments,
+    signatureEnabled: portalFeatures(s).signature,
     customDomain,
     publicUrlPreview,
     domainVerificationState: (s?.domainVerificationState ?? "unconfigured") as DomainVerificationState,
