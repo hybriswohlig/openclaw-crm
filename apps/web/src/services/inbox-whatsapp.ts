@@ -34,7 +34,7 @@ import { looksDeclined, recordAgentDecline } from "./agent/agent-suppress";
 import { setHumanOwned } from "./agent/agent-gate";
 import { agentFelderBeimEingang, aiProcessedAtBeimEingang } from "./agent/ingest-arming";
 import { kontaktartFuerInboxKontakt } from "./kontaktart";
-import { KEIN_LEAD_LANE, KONTAKTART_LABELS, eingangsLane } from "@/lib/kontaktart";
+import { KEIN_LEAD_LANE, KONTAKTART_LABELS, eingangsLane, isLeadKunde } from "@/lib/kontaktart";
 import { canonicalizePhone } from "@/lib/identity/canonical";
 import {
   INBOX_BRIDGE_BODY_LIMIT_BYTES,
@@ -685,13 +685,14 @@ export async function ingestInboundWhatsAppMessage(params: {
     }
   }
   // Lane-Heilung: eine echte Anfrage auf einer info-Konversation (z.B. der
-  // Erstkontakt war OTP-artig) hebt die Lane wieder auf lead — außer ein
-  // Operator hat manuell klassifiziert. Der durch das Noise-Gate ausgelassene
-  // Deal wird dann nachgeholt.
+  // Erstkontakt war OTP-artig, etwa ein Türcode) hebt die Lane wieder auf lead,
+  // bei bekannter Kontaktart auf kein_lead — außer ein Operator hat manuell
+  // klassifiziert. Den durch das Noise-Gate ausgelassenen Deal holt nur ein
+  // Lead nach.
   const laneUpgrade =
     !isNewConversation &&
     !!conv &&
-    lane === "lead" &&
+    (lane === "lead" || lane === KEIN_LEAD_LANE) &&
     conv.lane === "info" &&
     conv.classifiedBy !== "manual";
 
@@ -699,10 +700,10 @@ export async function ingestInboundWhatsAppMessage(params: {
   // Lane nach dieser Nachricht und dem Status vor ihr, denn das Update unten
   // öffnet gespamte Chats wieder.
   const pushSenden = sollInboxPushSenden({
-    lane: laneUpgrade ? "lead" : conv.lane,
+    lane: laneUpgrade ? lane : conv.lane,
     statusVorher: isNewConversation ? null : conv.status,
     triageLane: triage.lane,
-    kontaktart: conv.kontaktart,
+    kontaktart: isLeadKunde(kontaktart) ? conv.kontaktart : kontaktart,
   });
 
   if (conv && !isNewConversation) {
@@ -719,16 +720,17 @@ export async function ingestInboundWhatsAppMessage(params: {
         ...(conv.status !== "open" ? { status: "open" } : {}),
         ...(laneUpgrade
           ? {
-              lane: "lead" as const,
-              classificationReason: triage.reason,
-              classifiedBy: triage.by,
+              lane,
+              kontaktart,
+              classificationReason: perKontaktart ? `Kontaktart ${KONTAKTART_LABELS[kontaktart]}` : triage.reason,
+              classifiedBy: perKontaktart ? ("manual" as const) : triage.by,
             }
           : {}),
         updatedAt: new Date(),
       })
       .where(eq(inboxConversations.id, conv.id));
 
-    if (laneUpgrade && !conv.dealRecordId) {
+    if (laneUpgrade && lane === "lead" && !conv.dealRecordId) {
       await createDealForNewConversation({
         workspaceId: account.workspaceId,
         conversationId: conv.id,

@@ -173,3 +173,37 @@ describe("neuer Thread einer Person mit bekannter Kontaktart", () => {
     expect(konversation).toMatchObject({ lane: "lead", aiNeedsReply: true });
   });
 });
+
+describe("bestehender info-Thread einer Person mit bekannter Kontaktart", () => {
+  beforeEach(() => {
+    mock.limit.mockReset();
+    mock.limit
+      .mockResolvedValueOnce([account])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "contact", email: "anna.mueller@gmx.de" }])
+      .mockResolvedValueOnce([
+        {
+          ...crmKonversation,
+          id: "conv-info",
+          externalThreadId: "<alt@gmx.de>",
+          classifiedBy: "heuristic",
+          classificationReason: "Code-Nachricht",
+          kontaktart: "team_helfer",
+        },
+      ]);
+  });
+
+  it("hebt eine echte Nachricht eines Helfers nach kein_lead und lässt sie klingeln", async () => {
+    mock.kontaktart.mockResolvedValue("team_helfer");
+    mock.parse.mockResolvedValue({
+      ...antwort(),
+      text: "Hallo, ich kann am Samstag leider nicht, ich bin krank.",
+      inReplyTo: "<alt@gmx.de>",
+    });
+    await syncChannelAccount("mailbox");
+    await Promise.all(mock.pending);
+
+    expect(mock.set).toHaveBeenCalledWith(expect.objectContaining({ lane: "kein_lead", classifiedBy: "manual" }));
+    expect(mock.push).toHaveBeenCalled();
+  });
+});

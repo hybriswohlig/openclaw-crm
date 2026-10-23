@@ -33,7 +33,7 @@ import {
 } from "./inbox-kleinanzeigen";
 import { agentFelderBeimEingang, aiProcessedAtBeimEingang } from "./agent/ingest-arming";
 import { kontaktartFuerInboxKontakt } from "./kontaktart";
-import { DEFAULT_KONTAKTART, KEIN_LEAD_LANE, KONTAKTART_LABELS, eingangsLane } from "@/lib/kontaktart";
+import { DEFAULT_KONTAKTART, KEIN_LEAD_LANE, KONTAKTART_LABELS, eingangsLane, isLeadKunde } from "@/lib/kontaktart";
 import { createDealForNewConversation } from "./inbox";
 import { stampDealSourceIfEmpty, noteOutboundToCustomer } from "./deal-attribution";
 import { extractKleinanzeigenDetail } from "@/lib/deal-source";
@@ -358,18 +358,21 @@ async function ingestParsedEmail(
     }
   } else {
     // Lane-Heilung (Parität zum WhatsApp-Pfad, inbox-whatsapp.ts): eine echte
-    // Anfrage auf einem info-Thread hebt die Lane auf 'lead' an — nie gegen
-    // eine manuelle Einstufung — und holt für Kleinanzeigen den Deal nach.
+    // Anfrage auf einem info-Thread hebt die Lane auf 'lead' an (bei bekannter
+    // Kontaktart auf kein_lead) — nie gegen eine manuelle Einstufung — und holt
+    // für Kleinanzeigen-Leads den Deal nach.
     const laneUpgrade =
-      lane === "lead" && conv.lane === "info" && conv.classifiedBy !== "manual";
+      (lane === "lead" || lane === KEIN_LEAD_LANE) &&
+      conv.lane === "info" &&
+      conv.classifiedBy !== "manual";
     pushSenden = sollInboxPushSenden({
-      lane: laneUpgrade ? "lead" : conv.lane,
+      lane: laneUpgrade ? lane : conv.lane,
       statusVorher: conv.status,
       // Antwort auf eine Mail aus sendNewEmail (IMAP, per In-Reply-To): die
       // Konversation bleibt in info, die echte Antwort klingelt trotzdem.
       vomCrmGestartet: istVomCrmGestartet(conv),
       triageLane: triage.lane,
-      kontaktart: conv.kontaktart,
+      kontaktart: isLeadKunde(kontaktart) ? conv.kontaktart : kontaktart,
     });
     await db
       .update(inboxConversations)
@@ -385,16 +388,17 @@ async function ingestParsedEmail(
         ...(conv.status !== "open" ? { status: "open" } : {}),
         ...(laneUpgrade
           ? {
-              lane: "lead" as const,
-              classificationReason: triage.reason,
-              classifiedBy: triage.by,
+              lane,
+              kontaktart,
+              classificationReason: perKontaktart ? `Kontaktart ${KONTAKTART_LABELS[kontaktart]}` : triage.reason,
+              classifiedBy: perKontaktart ? ("manual" as const) : triage.by,
             }
           : {}),
         updatedAt: new Date(),
       })
       .where(eq(inboxConversations.id, conv.id));
 
-    if (laneUpgrade && isKleinanzeigen && !conv.dealRecordId) {
+    if (laneUpgrade && lane === "lead" && isKleinanzeigen && !conv.dealRecordId) {
       await createDealForNewConversation({
         workspaceId: account.workspaceId,
         conversationId: conv.id,
