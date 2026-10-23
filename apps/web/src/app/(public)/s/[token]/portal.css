@@ -1,30 +1,39 @@
+/* Plus Jakarta Sans wie auf der Website, selbst gehostet (SIL OFL, siehe /fonts/portal/OFL.txt). */
+@font-face { font-family: 'Plus Jakarta Sans'; font-style: normal; font-weight: 400 800; font-display: swap; src: url(/fonts/portal/plus-jakarta-sans-latin-ext.woff2) format('woff2'); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: 'Plus Jakarta Sans'; font-style: normal; font-weight: 400 800; font-display: swap; src: url(/fonts/portal/plus-jakarta-sans-latin.woff2) format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+
 /* Public customer portal only. Company accents inherit from the portal settings. */
 .kottke-portal {
-  --background: #fbfdff; --foreground: #09205e;
-  --card: #fff; --card-foreground: #09205e;
-  --popover: #fff; --popover-foreground: #09205e;
-  --muted: #edf4fc; --muted-foreground: #49618b;
-  --border: #dfe9f5; --input: #dfe9f5;
-  --portal-brand: #063475;
+  /* Briefpapier-Palette für alle Firmen; die Aktionsfarbe kommt je Firma aus primaryColor. */
+  --portal-paper: #fbf8f3; --portal-desk: #f4ede4; --portal-line: #ebe2d6;
+  --portal-ink: #0e1f35; --portal-text: #44505f;
+  --background: var(--portal-desk); --foreground: var(--portal-ink);
+  --card: var(--portal-paper); --card-foreground: var(--portal-ink);
+  --popover: var(--portal-paper); --popover-foreground: var(--portal-ink);
+  --muted: var(--portal-desk); --muted-foreground: var(--portal-text);
+  --border: var(--portal-line); --input: var(--portal-line);
+  --portal-brand: #c2570c;
   --primary: var(--portal-brand); --primary-foreground: #fff;
-  --secondary: #eff5fc; --secondary-foreground: #09205e;
-  --accent: #edf4fc; --accent-foreground: #09205e;
-  --destructive: #ba303b; --destructive-foreground: #fff;
+  --secondary: var(--portal-desk); --secondary-foreground: var(--portal-ink);
+  --accent: var(--portal-desk); --accent-foreground: var(--portal-ink);
+  --destructive: #b42318; --destructive-foreground: #fff;
   --ring: var(--portal-brand); --radius: .5rem;
-  --portal-tint: color-mix(in srgb, var(--portal-brand) 5%, var(--card));
-  --portal-highlight: #ff8200;
+  --portal-tint: color-mix(in srgb, var(--portal-brand) 6%, var(--card));
+  --portal-brand-tint: color-mix(in srgb, var(--portal-brand) 8%, var(--portal-paper));
+  --portal-brand-text: color-mix(in oklab, var(--portal-brand) 85%, black);
+  --portal-highlight: var(--portal-brand);
   background: var(--background); color: var(--foreground);
-  font-family: var(--font-inter), Arial, sans-serif; font-size: 14px; line-height: 1.5;
+  font-family: var(--font-inter), Inter, Arial, sans-serif; font-size: 14px; line-height: 1.5;
   font-variant-numeric: tabular-nums;
 }
 .dark .kottke-portal, .kottke-portal.dark {
-  --background: #0d1728; --foreground: #e8f0fc; --card: #132239;
-  --card-foreground: #e8f0fc; --popover: #132239; --popover-foreground: #e8f0fc;
-  --muted: #1d304b; --muted-foreground: #aabddd; --border: #293c56; --input: #293c56;
-  --secondary: #1d304b; --secondary-foreground: #e8f0fc; --accent: #1d304b; --accent-foreground: #e8f0fc;
-  --destructive: #ff9299;
+  --portal-paper: #12213a; --portal-desk: #0b1626; --portal-line: #2a3a52;
+  --portal-ink: #f4ede4; --portal-text: #c9c2b8;
+  --destructive: #ff9a8f;
+  --portal-brand-text: color-mix(in oklab, var(--portal-brand) 70%, white);
 }
-.kottke-portal .display, .kottke-portal .portal-price { font-family: Georgia, 'Times New Roman', serif; font-weight: 700; letter-spacing: -.045em; }
+.kottke-portal .display, .kottke-portal .portal-price, .kottke-portal .portal-display { font-family: 'Plus Jakarta Sans', var(--font-inter), Arial, sans-serif; font-weight: 800; letter-spacing: -.03em; }
+.kottke-portal :is(h1, h2, h3) { font-family: 'Plus Jakarta Sans', var(--font-inter), Arial, sans-serif; }
 .kottke-portal h1, .kottke-portal h2, .kottke-portal h3 { color: var(--foreground); }
 .kottke-portal h2 { font-weight: 750; letter-spacing: -.035em; }
 .kottke-portal :is(button, a, input, textarea):focus-visible { outline: 3px solid var(--ring); outline-offset: 3px; }
@@ -108,16 +117,16 @@
 .portal-document-actions { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
 .portal-document-actions > * { flex: 1; }
 .portal-quotation-scroll { max-height: 470px; overflow: auto; border: 1px solid var(--border); border-radius: 5px; overscroll-behavior: contain; }
-.portal-document-paper { background: #fff; color: #09205e; padding: 32px; border: 1px solid #dfe9f5; box-shadow: 0 3px 12px #09205e08; font-size: 12px; }
+.portal-document-paper { background: #fff; color: #0e1f35; padding: 32px; border: 1px solid #ebe2d6; box-shadow: 0 3px 12px #0e1f3508; font-size: 12px; }
 .portal-document-paper header { display: flex; justify-content: space-between; gap: 24px; align-items: center; margin-bottom: 25px; }
 .portal-document-paper header img { width: 150px; max-height: 60px; object-fit: contain; }
-.portal-document-paper h3 { color: #09205e; font-size: 25px; font-weight: 800; letter-spacing: -.035em; }
+.portal-document-paper h3 { color: #0e1f35; font-family: 'Plus Jakarta Sans', Arial, sans-serif; font-size: 25px; font-weight: 800; letter-spacing: -.035em; }
 .portal-document-paper table { width: 100%; border-collapse: collapse; margin-top: 22px; }
-.portal-document-paper td, .portal-document-paper th { text-align: left; padding: 9px; border-bottom: 1px solid #dfe9f5; }
-.portal-document-paper th { background: #eef5fd; font-size: 11px; }
+.portal-document-paper td, .portal-document-paper th { text-align: left; padding: 9px; border-bottom: 1px solid #ebe2d6; }
+.portal-document-paper th { background: #f4ede4; font-size: 11px; }
 .portal-document-paper td:last-child, .portal-document-paper th:last-child { text-align: right; white-space: nowrap; }
 .portal-document-paper th:only-child { text-align: left; white-space: normal; }
-.portal-document-total { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; border-top: 2px solid #09205e; margin-top: 22px; padding-top: 14px; }
+.portal-document-total { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; border-top: 2px solid #0e1f35; margin-top: 22px; padding-top: 14px; }
 .portal-document-total strong { font-size: 30px; }
 .portal-package-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(185px, 1fr)); gap: 12px; }
 .portal-package-card { position: relative; display: flex; flex-direction: column; width: 100%; height: 100%; border: 1px solid var(--border); border-radius: 7px; padding: 20px 16px 12px; text-align: left; background: var(--card); }
