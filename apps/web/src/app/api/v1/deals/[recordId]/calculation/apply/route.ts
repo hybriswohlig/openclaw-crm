@@ -49,7 +49,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rec
 
   let data: Awaited<ReturnType<typeof upsertQuotation>>;
   try {
-    data = await upsertQuotation(recordId, uebernahme.eingabe);
+    data = await upsertQuotation(recordId, uebernahme.eingabe, ctx.userId);
   } catch (err) {
     const gesperrt = annahmeSperrAntwort(err);
     if (gesperrt) return gesperrt;

@@ -29,7 +29,7 @@ export async function PUT(
   const body = await req.json();
   let data: Awaited<ReturnType<typeof upsertQuotation>>;
   try {
-    data = await upsertQuotation(recordId, body);
+    data = await upsertQuotation(recordId, body, ctx.userId);
   } catch (err) {
     const gesperrt = annahmeSperrAntwort(err);
     if (gesperrt) return gesperrt;

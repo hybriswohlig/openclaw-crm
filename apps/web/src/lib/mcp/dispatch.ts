@@ -546,6 +546,33 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
       return client.request(
         `/api/v1/customer-link/${encodeURIComponent(str(args.dealRecordId))}`
       );
+    case "crm_get_deal_signature": {
+      // The deal path is the first /api literal so both registries agree.
+      const dealPath = `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/signature`;
+      if (!str(args.recordId)) {
+        return client.request(`/api/v1/signature-requests`, {
+          query: { status: str(args.status) || "pending" },
+        });
+      }
+      return client.request(dealPath);
+    }
+    case "crm_get_deal_signed_document": {
+      const confirmationId = str(args.confirmationId);
+      return client.request(
+        `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/signature/document`,
+        { query: confirmationId ? { confirmationId } : undefined }
+      );
+    }
+    case "crm_list_deal_change_requests":
+      return client.request(
+        `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/change-requests`,
+        { query: { status: str(args.status) || "all" } }
+      );
+    case "crm_resolve_deal_change_request":
+      return client.request(
+        `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/change-requests/${encodeURIComponent(str(args.requestId))}`,
+        { method: "PATCH" }
+      );
 
     // ── Deal context: what the documents are built from ─────────────────
     case "crm_get_deal_auftrag":
@@ -598,6 +625,34 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
     case "crm_get_deal_date_offers":
       return client.request(
         `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/date-offers`
+      );
+    case "crm_create_deal_date_offer": {
+      const body: Record<string, unknown> = {
+        date: str(args.date),
+        slots: asBody(args.slots) ?? [],
+      };
+      if (args.note !== undefined) body.note = args.note;
+      if (args.isRecommended !== undefined) body.isRecommended = bool(args.isRecommended);
+      return client.request(
+        `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/date-offers`,
+        { method: "POST", body }
+      );
+    }
+    case "crm_update_deal_date_offer": {
+      const body: Record<string, unknown> = {};
+      if (args.date !== undefined) body.date = str(args.date);
+      if (args.slots !== undefined) body.slots = asBody(args.slots);
+      if (args.note !== undefined) body.note = args.note;
+      if (args.isRecommended !== undefined) body.isRecommended = bool(args.isRecommended);
+      return client.request(
+        `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/date-offers/${encodeURIComponent(str(args.offerId))}`,
+        { method: "PATCH", body }
+      );
+    }
+    case "crm_delete_deal_date_offer":
+      return client.request(
+        `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/date-offers/${encodeURIComponent(str(args.offerId))}`,
+        { method: "DELETE" }
       );
 
     // ── Quotation writes ────────────────────────────────────────────────

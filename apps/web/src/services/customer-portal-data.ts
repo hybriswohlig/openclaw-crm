@@ -91,6 +91,7 @@ import { emitEvent } from "./activity-events";
 import { createTask } from "./tasks";
 import { annahmeNachlauf, nachlaufNoetig } from "./kva-bestaetigung";
 import { ladeWiderrufKontext } from "./kva-widerruf";
+import { MAX_DATE_OFFERS } from "@/lib/date-offer-input";
 import { angezeigtesKvDokument, gueltigeAuftragsbestaetigung, oeffentlichAbrufbar, vertragUrl } from "@/lib/portal-dokumente";
 import {
   aktivBedingung,
@@ -98,6 +99,7 @@ import {
   annahmeAusZeile,
   ladeLetzteAufhebung,
   ladeAgbFuerAnnahme,
+  hebeAnnahmeWegenAngebotsaenderung,
   ladeAktiveAnnahme,
   pruefeNichtAngenommen,
 } from "./kva-annahme";
@@ -1320,7 +1322,7 @@ export async function recordCustomerEmail(
   return { ok: true, status: "present", masked: maskEmail(email) };
 }
 
-async function loadKvaSnapshot(dealRecordId: string): Promise<KvaSnapshot | null> {
+export async function loadKvaSnapshot(dealRecordId: string): Promise<KvaSnapshot | null> {
   const [q] = await db
     .select()
     .from(quotations)
@@ -2036,7 +2038,8 @@ export async function replaceDealPackageOptions(input: {
   createdBy: string | null;
   options: DealPackageOptionInput[];
 }): Promise<{ count: number }> {
-  await pruefeNichtAngenommen(input.dealRecordId);
+  // Paketpreise sind der Angebotspreis. Die alte Unterschrift darf sie nicht stillschweigend decken.
+  await hebeAnnahmeWegenAngebotsaenderung(input.dealRecordId, input.createdBy);
   const [existingQ] = await db
     .select({
       id: quotations.id,
@@ -2467,6 +2470,143 @@ export async function replaceDateOffers(input: {
   });
 
   return { count: validated.length };
+}
+
+export class DateOfferWriteError extends Error {
+  constructor(readonly reason: "too_many" | "not_found") {
+    super(reason);
+  }
+}
+
+async function clearSelectionIfDateGone(dealRecordId: string, offerId: string, date: string | null) {
+  const [selection] = await db
+    .select({ dateOfferId: customerDateSelections.dateOfferId, selectedDate: customerDateSelections.selectedDate })
+    .from(customerDateSelections)
+    .where(eq(customerDateSelections.dealRecordId, dealRecordId))
+    .limit(1);
+  if (!selection) return;
+  if (selection.dateOfferId === offerId && selection.selectedDate !== date) {
+    await db.delete(customerDateSelections).where(eq(customerDateSelections.dealRecordId, dealRecordId));
+  }
+}
+
+/** One additional candidate date. The acceptance lock still applies. */
+export async function createDateOffer(input: {
+  workspaceId: string;
+  dealRecordId: string;
+  createdBy: string | null;
+  offer: DateOfferInput;
+}): Promise<{ id: string }> {
+  await pruefeNichtAngenommen(input.dealRecordId);
+  const existing = await db
+    .select({ sortOrder: quotationDateOffers.sortOrder })
+    .from(quotationDateOffers)
+    .where(eq(quotationDateOffers.dealRecordId, input.dealRecordId));
+  if (existing.length >= MAX_DATE_OFFERS) throw new DateOfferWriteError("too_many");
+  const sortOrder = existing.reduce((max, row) => Math.max(max, row.sortOrder), -1) + 1;
+  const [row] = await db
+    .insert(quotationDateOffers)
+    .values({
+      workspaceId: input.workspaceId,
+      dealRecordId: input.dealRecordId,
+      offerDate: input.offer.date,
+      slots: input.offer.slots.map((slot) => ({
+        label: (slot.label ?? "").slice(0, 80),
+        startTime: slot.startTime || null,
+        endTime: slot.endTime || null,
+      })),
+      note: input.offer.note ? input.offer.note.slice(0, 200) : null,
+      isRecommended: !!input.offer.isRecommended,
+      sortOrder,
+      createdBy: input.createdBy,
+    })
+    .returning({ id: quotationDateOffers.id });
+  await emitEvent({
+    workspaceId: input.workspaceId,
+    recordId: input.dealRecordId,
+    objectSlug: "deals",
+    eventType: "customer.date_offers_set",
+    payload: { action: "create", offerId: row.id, count: existing.length + 1 },
+  });
+  return { id: row.id };
+}
+
+export async function updateDateOffer(input: {
+  workspaceId: string;
+  dealRecordId: string;
+  offerId: string;
+  patch: {
+    date?: string;
+    slots?: DateOfferInput["slots"];
+    note?: string | null;
+    isRecommended?: boolean;
+  };
+}): Promise<{ id: string; date: string }> {
+  await pruefeNichtAngenommen(input.dealRecordId);
+  const [current] = await db
+    .select()
+    .from(quotationDateOffers)
+    .where(
+      and(
+        eq(quotationDateOffers.id, input.offerId),
+        eq(quotationDateOffers.dealRecordId, input.dealRecordId),
+        eq(quotationDateOffers.workspaceId, input.workspaceId)
+      )
+    )
+    .limit(1);
+  if (!current) throw new DateOfferWriteError("not_found");
+  const date = input.patch.date ?? current.offerDate;
+  const [row] = await db
+    .update(quotationDateOffers)
+    .set({
+      offerDate: date,
+      slots:
+        input.patch.slots?.map((slot) => ({
+          label: (slot.label ?? "").slice(0, 80),
+          startTime: slot.startTime || null,
+          endTime: slot.endTime || null,
+        })) ?? current.slots,
+      note: input.patch.note !== undefined ? (input.patch.note ? input.patch.note.slice(0, 200) : null) : current.note,
+      isRecommended: input.patch.isRecommended ?? current.isRecommended,
+    })
+    .where(eq(quotationDateOffers.id, current.id))
+    .returning({ id: quotationDateOffers.id, date: quotationDateOffers.offerDate });
+  await clearSelectionIfDateGone(input.dealRecordId, current.id, date);
+  await emitEvent({
+    workspaceId: input.workspaceId,
+    recordId: input.dealRecordId,
+    objectSlug: "deals",
+    eventType: "customer.date_offers_set",
+    payload: { action: "update", offerId: row.id },
+  });
+  return row;
+}
+
+export async function deleteDateOffer(input: {
+  workspaceId: string;
+  dealRecordId: string;
+  offerId: string;
+}): Promise<{ id: string }> {
+  await pruefeNichtAngenommen(input.dealRecordId);
+  const deleted = await db
+    .delete(quotationDateOffers)
+    .where(
+      and(
+        eq(quotationDateOffers.id, input.offerId),
+        eq(quotationDateOffers.dealRecordId, input.dealRecordId),
+        eq(quotationDateOffers.workspaceId, input.workspaceId)
+      )
+    )
+    .returning({ id: quotationDateOffers.id });
+  if (deleted.length === 0) throw new DateOfferWriteError("not_found");
+  await emitEvent({
+    workspaceId: input.workspaceId,
+    recordId: input.dealRecordId,
+    objectSlug: "deals",
+    eventType: "customer.date_offers_set",
+    payload: { action: "delete", offerId: deleted[0].id },
+  });
+  return { id: deleted[0].id };
 }
 
 /**

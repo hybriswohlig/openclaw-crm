@@ -1,28 +1,40 @@
 /**
  * Operator-side composer for the multi-date offer.
  *
- *   PUT /api/v1/deals/[recordId]/date-offers
- *   body: { offers: Array<{ date, slots: [...], note, isRecommended }> }
+ *   GET    /api/v1/deals/[recordId]/date-offers
+ *   POST   /api/v1/deals/[recordId]/date-offers   one offer
+ *   PUT    /api/v1/deals/[recordId]/date-offers   replace the full set
+ *   DELETE /api/v1/deals/[recordId]/date-offers   clear the set
  *
- * Replaces the deal's full set of candidate dates. Validation:
- *   - date must be YYYY-MM-DD
- *   - each slot must have a non-empty label
- *   - at most 10 offers, at most 6 slots per offer
- *
- * GET returns the current set so the composer can hydrate.
+ * Validation: date YYYY-MM-DD, each slot needs a label, at most 10 offers
+ * and 6 slots per offer. Writes return 409 while an acceptance is active.
+ * None of these routes email or message the customer.
  */
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { annahmeSperrAntwort } from "@/services/kva-annahme";
 import { eq } from "drizzle-orm";
-import { getAuthContext, unauthorized, success, badRequest } from "@/lib/api-utils";
+import { getAuthContext, unauthorized, success, badRequest, notFound } from "@/lib/api-utils";
 import { db } from "@/db";
 import { quotationDateOffers, customerDateSelections } from "@/db/schema/customer-portal";
-import { replaceDateOffers, type DateOfferInput } from "@/services/customer-portal-data";
+import { MAX_DATE_OFFERS, parseDateOffer } from "@/lib/date-offer-input";
+import {
+  createDateOffer,
+  DateOfferWriteError,
+  replaceDateOffers,
+  type DateOfferInput,
+} from "@/services/customer-portal-data";
 
 export const dynamic = "force-dynamic";
 
-const MAX_OFFERS = 10;
-const MAX_SLOTS = 6;
+function writeError(err: unknown): NextResponse | null {
+  const gesperrt = annahmeSperrAntwort(err);
+  if (gesperrt) return gesperrt;
+  if (err instanceof DateOfferWriteError) {
+    if (err.reason === "not_found") return notFound("Date offer not found");
+    return badRequest(`At most ${MAX_DATE_OFFERS} offers per deal`);
+  }
+  return null;
+}
 
 export async function GET(
   req: NextRequest,
@@ -83,37 +95,15 @@ export async function PUT(
   if (!Array.isArray(body.offers)) {
     return badRequest("offers must be an array");
   }
-  if (body.offers.length > MAX_OFFERS) {
-    return badRequest(`At most ${MAX_OFFERS} offers per deal`);
+  if (body.offers.length > MAX_DATE_OFFERS) {
+    return badRequest(`At most ${MAX_DATE_OFFERS} offers per deal`);
   }
 
   const offers: DateOfferInput[] = [];
-  for (const raw of body.offers as Array<Record<string, unknown>>) {
-    const date = typeof raw.date === "string" ? raw.date : "";
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      return badRequest(`Invalid date: ${date}`);
-    }
-    const slotsRaw = Array.isArray(raw.slots) ? raw.slots : [];
-    if (slotsRaw.length === 0) {
-      return badRequest(`Each offer must have at least one slot (${date})`);
-    }
-    if (slotsRaw.length > MAX_SLOTS) {
-      return badRequest(`At most ${MAX_SLOTS} slots per offer (${date})`);
-    }
-    const slots = (slotsRaw as Array<Record<string, unknown>>).map((s) => ({
-      label: typeof s.label === "string" ? s.label.trim() : "",
-      startTime: typeof s.startTime === "string" ? s.startTime : null,
-      endTime: typeof s.endTime === "string" ? s.endTime : null,
-    }));
-    if (slots.some((s) => !s.label)) {
-      return badRequest("Each slot needs a non-empty label");
-    }
-    offers.push({
-      date,
-      slots,
-      note: typeof raw.note === "string" ? raw.note : null,
-      isRecommended: !!raw.isRecommended,
-    });
+  for (const raw of body.offers) {
+    const parsed = parseDateOffer(raw);
+    if (!parsed.ok) return badRequest(parsed.error);
+    offers.push(parsed.offer);
   }
 
   try {
@@ -125,8 +115,38 @@ export async function PUT(
     });
     return success({ count: result.count });
   } catch (err) {
-    const gesperrt = annahmeSperrAntwort(err);
-    if (gesperrt) return gesperrt;
+    const mapped = writeError(err);
+    if (mapped) return mapped;
+    throw err;
+  }
+}
+
+export async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ recordId: string }> }
+) {
+  const ctx = await getAuthContext(req);
+  if (!ctx) return unauthorized(req);
+  const { recordId } = await params;
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return badRequest("Invalid JSON body");
+  }
+  const parsed = parseDateOffer(body);
+  if (!parsed.ok) return badRequest(parsed.error);
+  try {
+    const created = await createDateOffer({
+      workspaceId: ctx.workspaceId,
+      dealRecordId: recordId,
+      createdBy: ctx.userId,
+      offer: parsed.offer,
+    });
+    return success(created, 201);
+  } catch (err) {
+    const mapped = writeError(err);
+    if (mapped) return mapped;
     throw err;
   }
 }
@@ -147,8 +167,8 @@ export async function DELETE(
     });
     return success({ cleared: true });
   } catch (err) {
-    const gesperrt = annahmeSperrAntwort(err);
-    if (gesperrt) return gesperrt;
+    const mapped = writeError(err);
+    if (mapped) return mapped;
     throw err;
   }
 }

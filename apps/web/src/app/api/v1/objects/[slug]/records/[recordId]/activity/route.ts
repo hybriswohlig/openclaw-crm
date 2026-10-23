@@ -6,6 +6,7 @@ import { db } from "@/db";
 import { notes, tasks, taskRecords, activityEvents, inboxMessages } from "@/db/schema";
 import { and, eq, desc, inArray } from "drizzle-orm";
 import { callActivityTitle } from "@/lib/phone-calls";
+import { portalActivityCopy } from "@/lib/portal-activity";
 import { listCallsForRecord } from "@/services/phone-calls";
 
 export async function GET(
@@ -275,6 +276,17 @@ export async function GET(
           type: "ai_insights" as const,
           title: `KI-Assistent (${mode}) · ${actionLabel}${channel ? ` · ${channel}` : ""}`,
           description: [message, ownerNote].filter(Boolean).join(" · ") || undefined,
+          createdAt: ev.createdAt.toISOString(),
+          createdBy: ev.actorId ?? undefined,
+        };
+      }
+      const portal = portalActivityCopy(ev.eventType, payload);
+      if (portal) {
+        return {
+          id: `event-${ev.id}`,
+          type: "event" as const,
+          title: portal.title,
+          description: portal.description,
           createdAt: ev.createdAt.toISOString(),
           createdBy: ev.actorId ?? undefined,
         };

@@ -793,7 +793,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "crm_get_deal_quotation",
-    description: "Quotation / offer data for a deal.",
+    description: "Read the saved quotation for a deal. Offer flow: save the quotation with crm_update_deal_quotation, set package options with crm_update_deal_package_options, mint the status link with crm_get_customer_link, a person sends that link, the customer signs in the portal, then read crm_get_deal_signature. This tool does not email or message the customer. A read-only API key can call this and the other read tools only.",
     inputSchema: {
       type: "object",
       properties: { recordId: { type: "string" } },
@@ -811,11 +811,127 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "crm_get_customer_link",
-    description: "Customer portal link / token info for a deal.",
+    description: "Customer portal status link for a deal. Offer flow: save the quotation, call this to mint or read the link, a person sends the link, the customer signs in the portal, then check crm_get_deal_signature. This tool does not email or message the customer. A read-only API key can read the link and the signature but cannot change the quotation.",
     inputSchema: {
       type: "object",
       properties: { dealRecordId: { type: "string" } },
       required: ["dealRecordId"],
+    },
+  },
+  {
+    name: "crm_get_deal_signature",
+    description: "Read portal signature state. Pass recordId for one deal: whether the KV is signed, when, the name entered, which quotation document was signed, and whether the current quotation differs from the signed terms. coversCurrentTerms is true only for a signature that still matches. The AB is not signable. Omit recordId to list requests; status is pending (default), signed, superseded or all. Pending means an accepted KV is waiting for a signature. This tool does not email or message the customer. A read-only API key can call it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        recordId: { type: "string", description: "Deal record UUID. Omit to list requests." },
+        status: {
+          type: "string",
+          enum: ["pending", "signed", "superseded", "all"],
+          description: "List filter when recordId is omitted. Default pending.",
+        },
+      },
+    },
+  },
+  {
+    name: "crm_get_deal_signed_document",
+    description: "Fetch the signed contract PDF for a deal, the same base64 envelope as crm_get_deal_document: { _binary, mimeType, byteLength, fileName, contentBase64 }. Optional confirmationId selects one signature; otherwise the active signed file, or the latest signed file if the active acceptance has none. This tool does not email or message the customer. A read-only API key can call it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        recordId: { type: "string" },
+        confirmationId: { type: "string" },
+      },
+      required: ["recordId"],
+    },
+  },
+  {
+    name: "crm_list_deal_change_requests",
+    description: "List customer change requests already stored on a deal (Änderung anfragen, Terminänderung, Schadenmeldung). status is all (default), open or handled. Each row has id, kind, message, preferredDates, createdAt and, once handled, handledAt and handledBy. The portal already collects these before signing; this tool only reads them. This tool does not email or message the customer. A read-only API key can call it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        recordId: { type: "string" },
+        status: { type: "string", enum: ["open", "handled", "all"] },
+      },
+      required: ["recordId"],
+    },
+  },
+  {
+    name: "crm_resolve_deal_change_request",
+    description: "Mark one portal change request as handled. recordId and requestId (the activity event id from crm_list_deal_change_requests) are required. Calling it again returns alreadyHandled true and does not emit another event. This tool does not email or message the customer. A read-only API key cannot call it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        recordId: { type: "string" },
+        requestId: { type: "string" },
+      },
+      required: ["recordId", "requestId"],
+    },
+  },
+  {
+    name: "crm_create_deal_date_offer",
+    description: "Add one alternative move date to a deal. date is YYYY-MM-DD. slots is an array of objects with label and optional startTime and endTime; each label is required, at most 6 slots, and at most 10 offers on the deal. note and isRecommended are optional. Returns 409 while an acceptance is active: change the quotation first so the acceptance is superseded, then add dates. This tool does not email or message the customer. A read-only API key cannot call it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        recordId: { type: "string" },
+        date: { type: "string", description: "YYYY-MM-DD" },
+        slots: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              label: { type: "string" },
+              startTime: { type: "string" },
+              endTime: { type: "string" },
+            },
+            required: ["label"],
+          },
+        },
+        note: { type: "string" },
+        isRecommended: { type: "boolean" },
+      },
+      required: ["recordId", "date", "slots"],
+    },
+  },
+  {
+    name: "crm_update_deal_date_offer",
+    description: "Update one alternative move date. recordId and offerId are required; pass only the fields that change (date, slots, note, isRecommended). A date that no longer matches the customer selection clears that selection. Returns 409 while an acceptance is active. This tool does not email or message the customer. A read-only API key cannot call it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        recordId: { type: "string" },
+        offerId: { type: "string" },
+        date: { type: "string" },
+        slots: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              label: { type: "string" },
+              startTime: { type: "string" },
+              endTime: { type: "string" },
+            },
+            required: ["label"],
+          },
+        },
+        note: { type: "string" },
+        isRecommended: { type: "boolean" },
+      },
+      required: ["recordId", "offerId"],
+    },
+  },
+  {
+    name: "crm_delete_deal_date_offer",
+    description: "Delete one alternative move date. recordId and offerId are required. Returns 404 when the offer is not on the deal and 409 while an acceptance is active. This tool does not email or message the customer. A read-only API key cannot call it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        recordId: { type: "string" },
+        offerId: { type: "string" },
+      },
+      required: ["recordId", "offerId"],
     },
   },
 

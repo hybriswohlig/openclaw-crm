@@ -3,7 +3,7 @@ import { quotations, quotationLineItems, dealEmployees, employees } from "@/db/s
 import type { CalculationAssumptions, QuotationDocumentDetails } from "@/db/schema/quotations";
 import { annahmenZusammenfuehren } from "@/lib/kunden-annahmen";
 import { eq } from "drizzle-orm";
-import { pruefeNichtAngenommen } from "./kva-annahme";
+import { hebeAnnahmeWegenAngebotsaenderung } from "./kva-annahme";
 
 export async function getQuotation(dealRecordId: string) {
   const [q] = await db
@@ -54,10 +54,12 @@ export async function upsertQuotation(
       unitRate: string;
       sortOrder: number;
     }>;
-  }
+  },
+  actorUserId?: string | null
 ) {
-  // Nach der Kundenannahme ist das Angebot eingefroren (erst „Annahme aufheben“).
-  await pruefeNichtAngenommen(dealRecordId);
+  // Eine Annahme oder Unterschrift darf nicht auf den neuen Stand übergehen.
+  // Die alte Zeile bleibt; der Kunde sieht das neue Angebot und unterschreibt neu.
+  await hebeAnnahmeWegenAngebotsaenderung(dealRecordId, actorUserId ?? null);
   const existing = await getQuotation(dealRecordId);
 
   let quotationId: string;
