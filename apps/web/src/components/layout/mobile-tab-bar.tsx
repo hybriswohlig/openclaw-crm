@@ -21,6 +21,7 @@ import {
   Banknote,
   Plug,
   Settings,
+  Phone,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -47,6 +48,7 @@ const ICONS: Record<string, LucideIcon> = {
   "/financial": Banknote,
   "/integrations": Plug,
   "/settings": Settings,
+  "/anrufe": Phone,
 };
 
 const primary = mobilePrimaryTabs.map((item) => ({ ...item, icon: ICONS[item.href] }));

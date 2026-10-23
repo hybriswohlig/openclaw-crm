@@ -1,12 +1,15 @@
 "use client";
 
-import { StickyNote, CheckSquare, UserPlus, Clock, Mail, ArrowRight, Sparkles, Send } from "lucide-react";
+import { StickyNote, CheckSquare, UserPlus, Clock, Mail, ArrowRight, Sparkles, Send, Phone } from "lucide-react";
 
 interface ActivityItem {
   id: string;
-  type: "created" | "note" | "task" | "message_received" | "message_sent" | "stage_changed" | "ai_insights" | "ai_enrichment" | "event";
+  type: "created" | "note" | "task" | "message_received" | "message_sent" | "stage_changed" | "ai_insights" | "ai_enrichment" | "event" | "call";
   title: string;
   description?: string;
+  /** Full transcript. Only call rows set this. */
+  detail?: string;
+  keywords?: string[];
   createdAt: string;
   createdBy?: string;
 }
@@ -37,9 +40,18 @@ export function ActivityTimeline({ activities }: ActivityTimelineProps) {
           <div className="min-w-0 flex-1 pt-0.5">
             <p className="text-sm">{activity.title}</p>
             {activity.description && (
-              <p className="mt-0.5 text-xs text-muted-foreground line-clamp-2">
+              <p className={`mt-0.5 text-xs text-muted-foreground ${activity.type === "call" ? "whitespace-pre-wrap" : "line-clamp-2"}`}>
                 {activity.description}
               </p>
+            )}
+            {activity.type === "call" && activity.keywords && activity.keywords.length > 0 && (
+              <p className="mt-0.5 text-xs text-muted-foreground">{activity.keywords.join(" · ")}</p>
+            )}
+            {activity.type === "call" && activity.detail && (
+              <details className="mt-1">
+                <summary className="cursor-pointer text-xs text-muted-foreground">Transkript</summary>
+                <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">{activity.detail}</p>
+              </details>
             )}
             <p className="mt-0.5 text-xs text-muted-foreground">
               {formatRelativeTime(activity.createdAt)}
@@ -63,6 +75,8 @@ function ActivityIcon({ type }: { type: ActivityItem["type"] }) {
       return <Mail className="h-3 w-3 text-sky-500" />;
     case "message_sent":
       return <Send className="h-3 w-3 text-emerald-500" />;
+    case "call":
+      return <Phone className="h-3 w-3 text-emerald-600" />;
     case "stage_changed":
       return <ArrowRight className="h-3 w-3 text-amber-500" />;
     case "ai_insights":

@@ -24,6 +24,7 @@ describe("mobile bottom tabs", () => {
     expect(mobileMehrItems.find((item) => item.label === "Leads")?.href).toBe("/objects/deals");
     expect(mobileMehrItems.some((item) => item.href === "/contract-calendar")).toBe(false);
     expect(mobileMehrItems[2]).toMatchObject({ href: "/objects/deals", label: "Leads" });
+    expect(mobileMehrItems.at(-1)).toMatchObject({ href: "/anrufe", label: "Anrufe" });
   });
 
   it("highlights Kalender on the calendar and Mehr on a lead, including a nested record", () => {

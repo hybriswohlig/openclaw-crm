@@ -4,7 +4,8 @@
  * mergePersons collapses an ABSORBED people record into a SURVIVOR people record:
  * it copies the loser's clean phone/email values, rewrites every person-level
  * reference (record_values.referenced_record_id, inbox_contacts.crm_record_id,
- * person_identifiers, activity_events.record_id, consent_ledger.person_record_id)
+ * person_identifiers, activity_events.record_id, phone_calls.person_record_id,
+ * consent_ledger.person_record_id)
  * to the survivor, recomputes
  * multi_company_flag, coalesces the AI debounce + writes the 15-minute hold, then
  * SOFT-DELETES the loser. A full pre-merge snapshot is stored on the merge edge so
@@ -30,6 +31,7 @@ import {
   inboxContacts,
   inboxConversations,
   activityEvents,
+  phoneCalls,
 } from "@/db/schema";
 import { consentLedger } from "@/db/schema/agent";
 import { and, eq, inArray } from "drizzle-orm";
@@ -70,6 +72,8 @@ interface MergeSnapshot {
   rewrittenContactIds: string[];
   rewrittenIdentifierIds: string[];
   rewrittenActivityIds: string[];
+  /** phone_calls rows whose person_record_id was rewritten loser->survivor. Optional so older snapshots still split. */
+  rewrittenPhoneCallIds?: string[];
   /** consent_ledger rows whose person_record_id was rewritten loser->survivor */
   rewrittenConsentIds: string[];
   /** conversations whose AI state we touched, with their prior values */
@@ -243,6 +247,18 @@ export async function mergePersons(input: MergePersonsInput): Promise<MergePerso
         .where(inArray(activityEvents.id, rewrittenActivityIds));
     }
 
+    const phoneCallRows = await tx
+      .select({ id: phoneCalls.id })
+      .from(phoneCalls)
+      .where(eq(phoneCalls.personRecordId, absorbedId));
+    const rewrittenPhoneCallIds = phoneCallRows.map((r) => r.id);
+    if (rewrittenPhoneCallIds.length > 0) {
+      await tx
+        .update(phoneCalls)
+        .set({ personRecordId: survivorId, updatedAt: new Date() })
+        .where(inArray(phoneCalls.id, rewrittenPhoneCallIds));
+    }
+
     // ── Re-point consent_ledger (§7-UWG evidence — must never be lost) ───────
     // The loser is only soft-deleted, so the ON DELETE CASCADE FK never fires;
     // rows are moved so the gate's consent lookup on the survivor finds them.
@@ -301,6 +317,7 @@ export async function mergePersons(input: MergePersonsInput): Promise<MergePerso
       rewrittenContactIds,
       rewrittenIdentifierIds,
       rewrittenActivityIds,
+      rewrittenPhoneCallIds,
       rewrittenConsentIds,
       affectedConversations,
     };
@@ -339,7 +356,7 @@ export async function mergePersons(input: MergePersonsInput): Promise<MergePerso
 
 /**
  * Reverse an applied merge from its snapshot. Restores the absorbed person, its
- * references, identifiers, contacts and activity, undoes the value copy and the
+ * references, identifiers, contacts, phone calls and activity, undoes the value copy and the
  * AI hold, and recomputes multi_company_flag for both records.
  */
 export async function splitPersons(mergeEdgeId: string, actorId: string | null = null): Promise<void> {
@@ -401,6 +418,12 @@ export async function splitPersons(mergeEdgeId: string, actorId: string | null =
         .update(activityEvents)
         .set({ recordId: absorbed })
         .where(inArray(activityEvents.id, snap.rewrittenActivityIds));
+    }
+    if (snap.rewrittenPhoneCallIds?.length) {
+      await tx
+        .update(phoneCalls)
+        .set({ personRecordId: absorbed, updatedAt: new Date() })
+        .where(inArray(phoneCalls.id, snap.rewrittenPhoneCallIds));
     }
     // Return consent evidence to the un-merged person.
     if (snap.rewrittenConsentIds?.length) {

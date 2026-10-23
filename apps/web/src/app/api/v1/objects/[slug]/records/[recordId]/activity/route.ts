@@ -5,6 +5,8 @@ import { getRecord } from "@/services/records";
 import { db } from "@/db";
 import { notes, tasks, taskRecords, activityEvents, inboxMessages } from "@/db/schema";
 import { and, eq, desc, inArray } from "drizzle-orm";
+import { callActivityTitle } from "@/lib/phone-calls";
+import { listCallsForRecord } from "@/services/phone-calls";
 
 export async function GET(
   req: NextRequest,
@@ -19,6 +21,8 @@ export async function GET(
 
   const record = await getRecord(obj.id, recordId);
   if (!record) return notFound("Record not found");
+
+  const callRows = await listCallsForRecord(ctx.workspaceId, slug, recordId);
 
   // Get notes for this record
   const noteRows = await db
@@ -124,8 +128,22 @@ export async function GET(
       createdBy: task.createdBy,
     })),
     // Activity events
+    ...callRows.map((row) => ({
+      id: `call-${row.id}`,
+      type: "call" as const,
+      title: callActivityTitle(row),
+      description: row.summary ?? undefined,
+      detail: row.transcript ?? undefined,
+      keywords: row.keywords ?? [],
+      createdAt: row.startedAt.toISOString(),
+    })),
     ...eventRows.map((ev) => {
       const payload = (ev.payload ?? {}) as Record<string, unknown>;
+      // The spoken text lives on phone_calls. These thin events would show a
+      // second, empty row on the same Akte.
+      if (ev.eventType === "call.received" || ev.eventType === "call.summary_attached") {
+        return null;
+      }
       if (ev.eventType === "message.received") {
         const subject = typeof payload.subject === "string" ? payload.subject : "";
         const from = typeof payload.fromAddress === "string" ? payload.fromAddress : "";

@@ -29,6 +29,7 @@ import {
   Banknote,
   Plug,
   Inbox,
+  Phone,
   Mail,
   Truck,
   Search,
@@ -69,6 +70,7 @@ const titleNav: { href: string; label: string }[] = [
   { href: "/operations", label: "Aufträge" },
   { href: "/financial", label: "Finanzen" },
   { href: "/inbox", label: "Inbox" },
+  { href: "/anrufe", label: "Anrufe" },
   { href: "/email", label: "E-Mail" },
   { href: "/settings", label: "Einstellungen" },
 ];
@@ -342,6 +344,14 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           active={pathname.startsWith("/inbox")}
           onClick={onNavigate}
           badge={inboxUnread}
+        />
+
+        <NavItem
+          href="/anrufe"
+          label="Anrufe"
+          icon={Phone}
+          active={pathname.startsWith("/anrufe")}
+          onClick={onNavigate}
         />
 
         <NavItem

@@ -411,6 +411,7 @@ describe("activityTimelineType", () => {
     expect(activityTimelineType("project.status_changed")).toBe("stage_changed");
     expect(activityTimelineType("task.moved_to_project")).toBe("task");
     expect(activityTimelineType("project.document_uploaded")).toBe("note");
+    expect(activityTimelineType("call")).toBe("call");
     expect(activityTimelineType("something.unknown")).toBe("event");
   });
 

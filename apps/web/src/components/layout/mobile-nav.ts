@@ -26,6 +26,7 @@ export const mobileMehrItems: readonly MobileNavItem[] = [
   { href: "/financial", label: "Finanzen" },
   { href: "/integrations", label: "Integrationen" },
   { href: "/settings", label: "Einstellungen" },
+  { href: "/anrufe", label: "Anrufe" },
 ];
 
 /** Same rule as the primary tabs: exact path or a nested record. */

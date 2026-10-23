@@ -409,10 +409,9 @@ export function assignBarLanes(
 
 /**
  * Maps an ActivityEventType from services/activity-events.ts onto the closed
- * union that <ActivityTimeline> accepts. The eight literals below are exactly
- * the union declared at apps/web/src/components/records/activity-timeline.tsx:7
- * — verified, do not widen without changing that file. Anything unknown
- * becomes "event".
+ * union that <ActivityTimeline> accepts. "call" is the phone_calls row on the
+ * Akte. The other literals match activity-timeline.tsx. Do not widen this
+ * union without changing that file. Anything unknown becomes "event".
  *
  * The parameter is deliberately nullable: an activity route that returns raw
  * rows instead of the described shape would otherwise blow up the whole page
@@ -421,8 +420,9 @@ export function assignBarLanes(
  */
 export function activityTimelineType(
   type: string | null | undefined
-): "created" | "note" | "task" | "message_received" | "message_sent" | "stage_changed" | "ai_insights" | "event" {
+): "created" | "note" | "task" | "message_received" | "message_sent" | "stage_changed" | "ai_insights" | "event" | "call" {
   if (typeof type !== "string" || type.length === 0) return "event";
+  if (type === "call") return "call";
   if (type.endsWith(".created") || type === "project.phase_created") return "created";
   if (type.startsWith("task.")) return "task";
   if (type === "project.status_changed" || type === "project.milestone_reached") return "stage_changed";
