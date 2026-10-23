@@ -9,6 +9,7 @@ import {
   type CustomerPortalContext,
 } from "@openclaw-crm/customer-portal-core";
 import { PanelHeading } from "./portal-ui";
+import { portalOfferView } from "./portal-presentation";
 import { UnterschriftForm } from "./unterschrift-form";
 
 /**
@@ -31,7 +32,8 @@ export function UnterschriftPanel({
   const vertragUrl = ctx.documents.signedContractUrl;
 
   if (!moeglich) {
-    if (!vertragUrl || !ctx.acceptance?.unterschrift || ctx.stage > 1) return null;
+    // Im Festangebot-Brief steht der Vertrag schon an der Zeile „Ihre Annahme“.
+    if (!vertragUrl || !ctx.acceptance?.unterschrift || ctx.stage > 1 || portalOfferView(ctx) === "festangebot") return null;
     return (
       <section className="portal-panel mt-6" aria-live="polite">
         <PanelHeading icon={PenLine} title="Ihr unterschriebener Vertrag">

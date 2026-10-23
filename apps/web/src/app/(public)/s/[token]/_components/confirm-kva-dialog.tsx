@@ -19,6 +19,8 @@ import {
 import { portalBrandStyle } from "./portal-presentation";
 import { PaymentSection } from "./payment-section";
 import { UnterschriftForm } from "./unterschrift-form";
+import { stempel } from "./brief";
+import { Stempel } from "./brief-teile";
 
 /**
  * Annahme-Dialog. Pflicht: Angebot, AGB (falls vorhanden), bei Umzug der
@@ -135,7 +137,7 @@ export function ConfirmKvaDialog({
             The class on the content re-scopes the portal palette variables. */}
         <DialogPrimitive.Content
           style={portalBrandStyle(ctx.branding.primaryColor)}
-          className="kottke-portal portal-accept-dialog fixed bottom-0 left-1/2 z-50 max-h-[92svh] w-full max-w-lg -translate-x-1/2 overflow-y-auto rounded-t-3xl bg-background p-6 shadow-2xl sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2 sm:rounded-2xl"
+          className="kottke-portal portal-accept-dialog fixed bottom-0 left-1/2 z-50 max-h-[92svh] w-full max-w-lg -translate-x-1/2 overflow-y-auto rounded-t-3xl bg-card p-6 shadow-2xl sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2 sm:rounded-2xl"
           onEscapeKeyDown={(e) => {
             if (step === "form" && submitting) e.preventDefault();
           }}
@@ -154,7 +156,7 @@ export function ConfirmKvaDialog({
             />
           ) : (
             <>
-          <DialogPrimitive.Title className="text-2xl font-bold tracking-tight">
+          <DialogPrimitive.Title className="portal-display text-2xl">
             Auftrag erteilen
           </DialogPrimitive.Title>
           <DialogPrimitive.Description className="mt-1 text-xs text-muted-foreground">
@@ -381,19 +383,21 @@ function DoneStep({
     const moeglich = unterschriftMoeglich({ acceptance: ctx.acceptance, signatureEnabled: ctx.features?.signature === true });
     return { moeglich, aktion: naechsteAktionNachAnnahme({ anzahlungOffen: hasDeposit, unterschriftMoeglich: moeglich }) };
   });
+  // Der Kontext kann die neue Annahme noch nicht kennen; dann gilt der Moment der Bestätigung.
+  const [angenommenUm] = useState(() => ctx.acceptance?.signedAt ?? new Date().toISOString());
   return (
     <div aria-live="polite">
-      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-200">
-        <DialogPrimitive.Title className="flex items-center gap-2 text-base font-medium">
-          <span aria-hidden>✓</span>
-          Angebot angenommen
-        </DialogPrimitive.Title>
-        <DialogPrimitive.Description className="mt-1 leading-relaxed">
-          {selectedOptionName
-            ? `Ihre Wahl: ${selectedOptionName} · ${formatEurCents(displayTotalCents)}.`
-            : `Gesamtbetrag: ${formatEurCents(displayTotalCents)}.`}{" "}
-          Eine Bestätigung geht Ihnen per WhatsApp oder E-Mail zu.
-        </DialogPrimitive.Description>
+      <div className="portal-done-kopf">
+        <Stempel s={{ art: "angenommen", datum: stempel({ signedAt: angenommenUm, unterschriftAt: null })[0].datum }} />
+        <div>
+          <DialogPrimitive.Title className="portal-display text-xl">Angebot angenommen</DialogPrimitive.Title>
+          <DialogPrimitive.Description className="mt-1 text-sm leading-relaxed text-muted-foreground">
+            {selectedOptionName
+              ? `Ihre Wahl: ${selectedOptionName} · ${formatEurCents(displayTotalCents)}.`
+              : `Gesamtbetrag: ${formatEurCents(displayTotalCents)}.`}{" "}
+            Eine Bestätigung geht Ihnen per WhatsApp oder E-Mail zu.
+          </DialogPrimitive.Description>
+        </div>
       </div>
 
       {start.aktion === "unterschrift" && (
@@ -438,8 +442,7 @@ function DoneStep({
       <button
         type="button"
         onClick={onClose}
-        className="mt-6 h-11 w-full rounded-xl text-sm font-medium text-white transition-opacity hover:opacity-90"
-        style={{ background: `#${ctx.branding.primaryColor}` }}
+        className="portal-button mt-6 w-full"
       >
         Fertig
       </button>

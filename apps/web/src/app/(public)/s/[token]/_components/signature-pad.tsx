@@ -21,7 +21,8 @@ export function SignatureField({ onChange }: { onChange: (dataUrl: string | null
     const canvas = canvasRef.current;
     if (!canvas) return;
     const pad = new SignaturePad(canvas, {
-      backgroundColor: "rgb(255,255,255)",
+      // Durchsichtig: die Fläche darunter zeigt Grundlinie und „x“, im PDF liegt die Tinte auf Weiß.
+      backgroundColor: "rgba(0,0,0,0)",
       penColor: "#111",
       minWidth: 1,
       maxWidth: 2.8,
@@ -65,7 +66,9 @@ export function SignatureField({ onChange }: { onChange: (dataUrl: string | null
 
   return (
     <div>
-      <canvas ref={canvasRef} className="portal-signature-pad" aria-label="Unterschriftsfeld: mit Finger oder Maus unterschreiben" />
+      <div className="portal-signature-flaeche">
+        <canvas ref={canvasRef} className="portal-signature-pad" aria-label="Unterschriftsfeld: mit Finger oder Maus unterschreiben" />
+      </div>
       <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
         <span>Mit Finger oder Maus unterschreiben</span>
         <button type="button" onClick={loeschen} className="font-medium underline underline-offset-2">

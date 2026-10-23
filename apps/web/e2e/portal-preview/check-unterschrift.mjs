@@ -58,7 +58,7 @@ for (const width of [1440, 390]) {
   });
   assert.ok(nachInhalt, `Panel steht nach dem Auftragsinhalt (${width})`);
   await b.locator("section:has-text('Vertrag unterschreiben') button:has-text('Vertrag unterschreiben')").click();
-  await b.locator("button[aria-pressed]:has-text('Tippen')").click();
+  await b.getByRole("button", { name: "Lieber tippen", exact: true }).click();
   await b.screenshot({ path: `${out}/b-${width}-getippt.png`, fullPage: false });
   await b.locator("button:has-text('Unterschrift bestätigen')").click();
   await b.getByText("Unterschriebener Vertrag als PDF herunterladen", { exact: true }).waitFor();

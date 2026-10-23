@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import {
   BUTTON_UNTERSCHRIFT_BESTAETIGEN,
   UNTERSCHRIFT_HINWEIS,
@@ -10,6 +10,8 @@ import {
 } from "@openclaw-crm/customer-portal-core";
 import { SignatureField } from "./signature-pad";
 import { formatPortalDate, formatPortalMoney } from "./portal-presentation";
+import { stempel } from "./brief";
+import { Stempel } from "./brief-teile";
 
 const FEHLER: Record<string, string> = {
   BEREITS_UNTERSCHRIEBEN: "Der Vertrag ist bereits unterschrieben. Bitte laden Sie die Seite neu.",
@@ -35,7 +37,7 @@ export function UnterschriftForm({
   const [bild, setBild] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [fertig, setFertig] = useState(false);
+  const [fertig, setFertig] = useState<string | null>(null);
 
   const bereit = name.trim().length >= 2 && (art === "getippt" || !!bild) && !busy;
 
@@ -59,7 +61,7 @@ export function UnterschriftForm({
         setError(FEHLER[body.error?.code ?? ""] ?? "Verbindungsfehler. Bitte versuchen Sie es erneut.");
         return;
       }
-      setFertig(true);
+      setFertig(new Date().toISOString());
       await Promise.resolve(onSigned());
     } catch {
       setError("Verbindungsfehler. Bitte versuchen Sie es erneut.");
@@ -69,19 +71,20 @@ export function UnterschriftForm({
   }
 
   if (fertig) {
+    const datum = stempel({ signedAt: fertig, unterschriftAt: fertig })[1].datum;
     return (
-      <div aria-live="polite" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-200">
-        <p className="flex items-center gap-2 font-medium">
-          <CheckCircle2 size={17} aria-hidden />
-          Vielen Dank, Ihr Vertrag ist unterschrieben.
-        </p>
-        {ctx.documents.signedContractUrl ? (
-          <a className="mt-2 inline-block font-medium underline underline-offset-2" href={ctx.documents.signedContractUrl} target="_blank" rel="noopener noreferrer">
-            Vertrag als PDF öffnen
-          </a>
-        ) : (
-          <p className="mt-1 text-xs">Ihr unterschriebener Vertrag wird gerade bereitgestellt.</p>
-        )}
+      <div aria-live="polite" className="portal-unterschrift-fertig">
+        <Stempel s={{ art: "unterschrieben", datum }} />
+        <div>
+          <p className="font-medium">Vielen Dank, Ihr Vertrag ist unterschrieben.</p>
+          {ctx.documents.signedContractUrl ? (
+            <a className="portal-annahme-vertrag" href={ctx.documents.signedContractUrl} target="_blank" rel="noopener noreferrer">
+              Vertrag als PDF öffnen
+            </a>
+          ) : (
+            <p className="mt-1 text-xs text-muted-foreground">Ihr unterschriebener Vertrag wird gerade bereitgestellt.</p>
+          )}
+        </div>
       </div>
     );
   }
@@ -108,31 +111,20 @@ export function UnterschriftForm({
         />
       </label>
 
-      <div role="group" aria-label="Art der Unterschrift" className="grid grid-cols-2 gap-2">
-        {(["gezeichnet", "getippt"] as const).map((a) => (
-          <button
-            key={a}
-            type="button"
-            aria-pressed={art === a}
-            onClick={() => setArt(a)}
-            className={`h-10 rounded-lg border text-sm font-medium ${art === a ? "border-foreground bg-foreground text-background" : "border-border bg-card"}`}
-          >
-            {a === "gezeichnet" ? "Zeichnen" : "Tippen"}
-          </button>
-        ))}
-      </div>
-
       {art === "gezeichnet" ? (
         <SignatureField onChange={setBild} />
       ) : (
-        <div className="portal-signature-typed" aria-label="Vorschau der getippten Unterschrift">
+        <div className="portal-signature-flaeche portal-signature-typed" aria-label="Vorschau der getippten Unterschrift">
           {name.trim() || "Ihr Name"}
         </div>
       )}
+      <button type="button" className="portal-link-button" onClick={() => setArt(art === "gezeichnet" ? "getippt" : "gezeichnet")}>
+        {art === "gezeichnet" ? "Lieber tippen" : "Lieber zeichnen"}
+      </button>
 
       {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>}
 
-      <button type="button" onClick={absenden} disabled={!bereit} className="portal-button w-full disabled:opacity-40">
+      <button type="button" onClick={absenden} disabled={!bereit} className="portal-button portal-button-unterschrift w-full">
         {busy && <Loader2 size={18} className="animate-spin" aria-hidden />}
         {busy ? "Wird unterschrieben …" : BUTTON_UNTERSCHRIFT_BESTAETIGEN}
       </button>

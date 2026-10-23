@@ -222,8 +222,17 @@
 
 
 /* Unterschrift im Portal */
-.portal-signature-pad { display: block; width: 100%; height: 180px; border: 1px solid var(--border); border-radius: 12px; background: #fff; touch-action: none; cursor: crosshair; }
-.portal-signature-typed { display: flex; align-items: center; min-height: 96px; padding: 12px 16px; border: 1px solid var(--border); border-radius: 12px; background: #fff; color: #111; font-style: italic; font-size: 24px; overflow-wrap: anywhere; }
+/* Papierfläche mit dunkler Grundlinie und „x“, in beiden Modi hell, damit die schwarze Tinte sichtbar bleibt. */
+.portal-signature-flaeche { position: relative; border: 1px solid var(--border); border-radius: 12px; background: #fbf8f3; }
+.portal-signature-flaeche::before { content: '×'; position: absolute; left: 14px; bottom: 30px; font-size: 18px; color: #44505f; pointer-events: none; }
+.portal-signature-flaeche::after { content: ''; position: absolute; left: 14px; right: 14px; bottom: 34px; height: 1.5px; background: #0e1f35; pointer-events: none; }
+.portal-signature-pad { position: relative; z-index: 1; display: block; width: 100%; height: 180px; background: transparent; touch-action: none; cursor: crosshair; }
+.portal-signature-typed { display: flex; align-items: flex-end; min-height: 120px; padding: 12px 16px 40px 36px; color: #0e1f35; font-style: italic; font-size: 26px; overflow-wrap: anywhere; }
+.portal-link-button { min-height: 44px; font-size: 13px; font-weight: 650; color: var(--portal-brand-text); text-decoration: underline; text-underline-offset: 3px; }
+.portal-button-unterschrift { transition: none; }
+.portal-button-unterschrift:disabled { background: transparent; color: var(--portal-brand-text); border: 1.5px solid var(--portal-brand); opacity: 1; }
+.portal-unterschrift-fertig, .portal-done-kopf { display: flex; align-items: center; gap: 18px; }
+.portal-unterschrift-fertig .portal-stempel, .portal-done-kopf .portal-stempel { flex-shrink: 0; }
 
 /* Festangebot als Brief */
 .portal-shell:has([data-portal-view='festangebot']) { max-width: 880px; }
