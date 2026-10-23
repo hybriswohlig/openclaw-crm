@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { dealDocuments } from "@/db/schema/financial";
 import { eq, and } from "drizzle-orm";
 import { fileResponseHeaders } from "@/lib/file-response";
+import { loeschbar } from "@/lib/portal-dokumente";
 
 export async function GET(
   req: NextRequest,
@@ -53,6 +54,19 @@ export async function DELETE(
   if (!ctx) return unauthorized(req);
 
   const { recordId, documentId } = await params;
+
+  const scope = and(
+    eq(dealDocuments.id, documentId),
+    eq(dealDocuments.dealRecordId, recordId),
+    eq(dealDocuments.workspaceId, ctx.workspaceId)
+  );
+  const [vorhanden] = await db.select({ documentType: dealDocuments.documentType }).from(dealDocuments).where(scope).limit(1);
+  if (vorhanden && !loeschbar(vorhanden.documentType)) {
+    return NextResponse.json(
+      { error: "Der unterschriebene Vertrag gehört zur Annahme des Kunden und kann nicht gelöscht werden." },
+      { status: 409 }
+    );
+  }
 
   const deleted = await db
     .delete(dealDocuments)

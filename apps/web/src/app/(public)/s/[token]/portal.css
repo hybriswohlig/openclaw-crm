@@ -226,3 +226,7 @@
 }
 
 .dark .kottke-portal .portal-logo img { background: #fff; padding: 7px; border-radius: 6px; }
+
+/* Unterschrift im Portal */
+.portal-signature-pad { display: block; width: 100%; height: 180px; border: 1px solid var(--border); border-radius: 12px; background: #fff; touch-action: none; cursor: crosshair; }
+.portal-signature-typed { display: flex; align-items: center; min-height: 96px; padding: 12px 16px; border: 1px solid var(--border); border-radius: 12px; background: #fff; color: #111; font-style: italic; font-size: 24px; overflow-wrap: anywhere; }

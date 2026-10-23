@@ -2,9 +2,11 @@
 export function portalFeatures(settings?: {
   liveTrackingEnabled?: boolean | null;
   paymentsEnabled?: boolean | null;
+  signatureEnabled?: boolean | null;
 } | null) {
   return {
     liveTracking: settings?.liveTrackingEnabled === true,
     payments: settings?.paymentsEnabled === true,
+    signature: settings?.signatureEnabled === true,
   };
 }

@@ -32,6 +32,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ reco
       versicherungGewuenscht: row.versicherungGewuenscht,
       confirmationSentAt: bestaetigungVerschickt(row) ? row.confirmationSentAt!.toISOString() : null,
       moveDate: row.moveDate,
+      vertragDocumentId: row.vertragDocumentId,
+      vertragVersandAt: row.vertragVersandAt?.toISOString() ?? null,
       abweichungen: abweichungenVonAnnahme(
         { moveDate: row.moveDate, fromAddress: row.fromAddress, toAddress: row.toAddress },
         aktuell

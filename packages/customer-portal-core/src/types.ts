@@ -1,5 +1,6 @@
 import type { AnnahmeRegeln, WiderrufModus } from "./annahme-recht";
 import type { FirmaKontakt } from "./rechtstexte";
+import type { UnterschriftRecord } from "./unterschrift";
 /**
  * Portable types shared between the CRM's public API and the customer portal
  * UI. Keep these stable — they form the public contract.
@@ -342,6 +343,8 @@ export interface AcceptanceRecord {
   widerrufVerzichtAccepted: boolean;
   /** Gebundenes KV-PDF; das Portal zeigt nach der Annahme genau dieses. */
   quotationDocumentId: string | null;
+  /** Unterschrift im Portal; null solange nicht unterschrieben (oder nur reserviert). */
+  unterschrift: UnterschriftRecord | null;
 }
 
 /**
@@ -380,7 +383,7 @@ export interface CustomerPortalContext {
   /** Computed every request from underlying data. */
   stage: CustomerLinkStage;
   /** Optional for backwards compatibility. Missing flags mean disabled. */
-  features?: { liveTracking: boolean; payments: boolean };
+  features?: { liveTracking: boolean; payments: boolean; signature: boolean };
   /** Operator-recorded receipts, never inferred from customer payment reports. */
   paymentStatus?: { receivedCents: number; remainingCents: number | null; paid: boolean } | null;
   /** Always set — used for human reference and Verwendungszweck. */
@@ -427,6 +430,8 @@ export interface CustomerPortalContext {
     quotationUrl?: string | null;
     orderConfirmationUrl: string | null;
     invoiceUrl: string | null;
+    /** Unterschriebene Vertragsmappe, nur bei aktiver Annahme mit Unterschrift. */
+    signedContractUrl: string | null;
   };
 
   /** Live media feed for Stage 3 — chronological. Already filtered server-side. */

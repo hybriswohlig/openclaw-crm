@@ -281,6 +281,26 @@ export async function sendeWhatsAppText(workspaceId: string, thread: WaThread, b
   }
 }
 
+/** PDF mit Bildunterschrift in den gewählten Thread. Wirft bei Fehlern. */
+export async function sendeWhatsAppDokument(
+  workspaceId: string,
+  thread: WaThread,
+  pdf: { buf: Buffer; filename: string },
+  caption: string
+): Promise<void> {
+  const file = {
+    blob: new Blob([new Uint8Array(pdf.buf)], { type: "application/pdf" }),
+    mimeType: "application/pdf",
+    filename: pdf.filename,
+    size: pdf.buf.length,
+  };
+  if (thread.cloudApi) {
+    await sendWhatsAppMediaReply({ conversationId: thread.conversationId, workspaceId, file, caption });
+  } else {
+    await sendBaileysMediaReply({ conversationId: thread.conversationId, workspaceId, file, caption });
+  }
+}
+
 async function sendeWhatsApp(
   workspaceId: string,
   thread: WaThread,
@@ -290,18 +310,7 @@ async function sendeWhatsApp(
   let pdfGesendet = false;
   if (pdf) {
     try {
-      const file = {
-        blob: new Blob([new Uint8Array(pdf.buf)], { type: "application/pdf" }),
-        mimeType: "application/pdf",
-        filename: pdf.filename,
-        size: pdf.buf.length,
-      };
-      const caption = `Ihr angenommenes Angebot ${daten.dealNumber}`;
-      if (thread.cloudApi) {
-        await sendWhatsAppMediaReply({ conversationId: thread.conversationId, workspaceId, file, caption });
-      } else {
-        await sendBaileysMediaReply({ conversationId: thread.conversationId, workspaceId, file, caption });
-      }
+      await sendeWhatsAppDokument(workspaceId, thread, pdf, `Ihr angenommenes Angebot ${daten.dealNumber}`);
       pdfGesendet = true;
     } catch (err) {
       console.error("[kva-bestaetigung] PDF per WhatsApp fehlgeschlagen:", err);

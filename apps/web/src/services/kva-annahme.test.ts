@@ -7,6 +7,10 @@ const basis = {
   agbVersionAccepted: "kottke-2026-06",
   confirmedTotalCents: 120000,
   widerrufVerzichtAccepted: false,
+  unterschriftAt: null,
+  unterschriftName: null,
+  unterschriftArt: null,
+  vertragDocumentId: null,
 };
 
 describe("annahmeAusZeile", () => {
@@ -21,6 +25,12 @@ describe("annahmeAusZeile", () => {
     expect(r.selectedOptionName).toBe("Komfort");
     expect(r.widerrufModus).toBe("ausgeschlossen");
     expect(r.quotationDocumentId).toBe("doc1");
+  });
+  it("Reservierung ohne Vertrag ist keine Unterschrift, mit Vertrag schon", () => {
+    const zeile = { ...basis, selectedOptionName: null, widerrufModus: "ausgeschlossen", vorzeitigerBeginnVerlangt: false, quotationDocumentId: "doc1" };
+    const reserviert = { ...zeile, unterschriftAt: new Date("2026-10-22T08:20:00Z"), unterschriftName: "Anna", unterschriftArt: "getippt" };
+    expect(annahmeAusZeile({ ...reserviert, vertragDocumentId: null }).unterschrift).toBeNull();
+    expect(annahmeAusZeile({ ...reserviert, vertragDocumentId: "v1" }).unterschrift).toEqual({ at: "2026-10-22T08:20:00.000Z", name: "Anna", art: "getippt" });
   });
 });
 

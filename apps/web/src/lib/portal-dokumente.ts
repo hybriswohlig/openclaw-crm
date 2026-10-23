@@ -51,3 +51,25 @@ export function serviceTypeZuSpeichern(input: {
 export function vpsLeistungsart(art: ServiceArt): "move" | "kitchen_installation" {
   return art === "kitchen_installation" ? "kitchen_installation" : "move";
 }
+
+/**
+ * Dokumenttypen, die der Kundenlink ausliefern darf. Interne Dokumente
+ * (Auftragsanweisung, Zahlungsbestätigung) bleiben im CRM, auch wenn
+ * jemand ihre ID kennt.
+ */
+export const OEFFENTLICHE_DOKUMENTTYPEN = ["quotation", "order_confirmation", "invoice", "signed_contract"] as const;
+
+export function oeffentlichAbrufbar(documentType: string): boolean {
+  return (OEFFENTLICHE_DOKUMENTTYPEN as readonly string[]).includes(documentType);
+}
+
+/** Im CRM löschbar? Die unterschriebene Vertragsmappe ist an die Annahme gebunden und bleibt. */
+export function loeschbar(documentType: string): boolean {
+  return documentType !== "signed_contract";
+}
+
+/** Link auf die unterschriebene Vertragsmappe, nur bei aktiver Annahme mit Dokument. */
+export function vertragUrl(input: { token: string; angenommen: boolean; vertragDocumentId: string | null }): string | null {
+  if (!input.angenommen || !input.vertragDocumentId) return null;
+  return `/api/public/${input.token}/documents/${input.vertragDocumentId}`;
+}

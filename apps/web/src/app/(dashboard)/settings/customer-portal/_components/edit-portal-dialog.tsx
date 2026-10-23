@@ -99,6 +99,7 @@ export function EditPortalDialog({
           <Section title="Funktionen im Kundenportal">
             <label className="flex items-start gap-3 rounded-lg border p-3"><input type="checkbox" className="mt-1" checked={form.liveTrackingEnabled === true} onChange={(e) => set("liveTrackingEnabled", e.target.checked)} /><span><strong className="text-sm">Live-Status anzeigen</strong><span className="block text-xs text-muted-foreground">Erfasste Einsatzzeiten und Live-Updates für Kunden sichtbar machen. Ohne Aktivierung werden nur Termin, Adressen, Team und Dokumente angezeigt.</span></span></label>
             <label className="flex items-start gap-3 rounded-lg border p-3"><input type="checkbox" className="mt-1" checked={form.paymentsEnabled === true} onChange={(e) => set("paymentsEnabled", e.target.checked)} /><span><strong className="text-sm">Zahlungsanzeige aktivieren</strong><span className="block text-xs text-muted-foreground">Zahlungsanweisungen, erfasste Zahlungseingänge und „Ich habe bezahlt“ im Portal anzeigen. Die interne Buchhaltung bleibt unabhängig davon aktiv.</span></span></label>
+            <label className="flex items-start gap-3 rounded-lg border p-3"><input type="checkbox" className="mt-1" checked={form.signatureEnabled === true} onChange={(e) => set("signatureEnabled", e.target.checked)} /><span><strong className="text-sm">Unterschrift im Portal anbieten</strong><span className="block text-xs text-muted-foreground">Nach der Annahme kann der Kunde den Vertrag im Portal unterschreiben. Der unterschriebene Vertrag erscheint beim Kunden und im CRM.</span></span></label>
           </Section>
           <Section title="Domain">
             <Field
@@ -253,6 +254,7 @@ function snapshotOf(s: OperatingCompanyPortalSettings): PortalSettingsUpdate {
     enabled: s.enabled,
     liveTrackingEnabled: s.liveTrackingEnabled ?? false,
     paymentsEnabled: s.paymentsEnabled ?? false,
+    signatureEnabled: s.signatureEnabled ?? false,
     customDomain: s.customDomain,
     displayName: s.displayName,
     primaryColor: s.primaryColor,
