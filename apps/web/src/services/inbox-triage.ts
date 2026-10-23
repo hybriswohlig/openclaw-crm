@@ -167,8 +167,9 @@ export function istVomCrmGestartet(conv: {
 
 // ─── Push bei eingehenden Nachrichten ─────────────────────────────────────────
 // Ein Inbox-Push geht an alle im Workspace. Deshalb klingeln nur echte
-// Anfragen: Newsletter, Plattform-Benachrichtigungen und OTP-Codes (Lane info)
-// sowie Spam landen still in ihrer Lane.
+// Anfragen und Nachrichten bekannter Kontakte (Lane kein_lead): Newsletter,
+// Plattform-Benachrichtigungen und OTP-Codes (Lane info) sowie Spam landen
+// still in ihrer Lane.
 
 /**
  * `lane` ist die Lane NACH dieser Nachricht, also nach einer Lane-Heilung
@@ -192,6 +193,7 @@ export function sollInboxPushSenden(input: {
   triageLane?: ConversationLane;
 }): boolean {
   if (input.statusVorher === "spam") return false;
-  if (input.lane === "lead") return true;
+  // kein_lead: Menschen, die das Büro kennt (Team, Helfer, Partner, Bewerber).
+  if (input.lane === "lead" || input.lane === "kein_lead") return true;
   return input.lane === "info" && input.vomCrmGestartet === true && input.triageLane === "lead";
 }
