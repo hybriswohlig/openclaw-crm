@@ -529,3 +529,189 @@ function suppressLossWhenNonLead(decisions: FieldDecision[]): FieldDecision[] {
     return decision;
   });
 }
+
+/**
+ * Angaben aus einem Anruf. Immer nur ein Vorschlag, auch bei hoher Sicherheit.
+ * Die Stufe kommt hier nie an: sie steht nicht in ANRUF_FELDER.
+ */
+export const ANRUF_FELDER = [
+  "move_date",
+  "move_from_address",
+  "move_to_address",
+  "floors_from",
+  "floors_to",
+  "inventory_notes",
+] as const;
+
+export type AnrufFeld = (typeof ANRUF_FELDER)[number];
+
+export const ANRUF_FELD_LABELS: Record<AnrufFeld, string> = {
+  move_date: "Umzugsdatum",
+  move_from_address: "Abholadresse",
+  move_to_address: "Zieladresse",
+  floors_from: "Stockwerk Abholung",
+  floors_to: "Stockwerk Ziel",
+  inventory_notes: "Inventar",
+};
+
+export function isAnrufFeld(value: string): value is AnrufFeld {
+  return (ANRUF_FELDER as readonly string[]).includes(value);
+}
+
+export interface CallProposal {
+  field: string;
+  value: string;
+  confidence: number;
+  evidenceQuote: string;
+}
+
+export interface CallSuggestion {
+  action: "suggest";
+  field: AnrufFeld;
+  value: string;
+  label: string;
+  confidence: number;
+  reason: string;
+  evidenceQuote: string;
+  evidenceSourceKind: "call";
+  evidenceKey: string;
+}
+
+const ANRUF_GRUND = "Steht im Anruf und wird erst nach Übernehmen geschrieben.";
+
+const ANRUF_ZEILEN: { feld: AnrufFeld; muster: RegExp }[] = [
+  { feld: "move_date", muster: /^(?:umzugsdatum|datum|termin)\s*:\s*(.+)$/i },
+  { feld: "move_from_address", muster: /^(?:von|abholung|auszug)\s*:\s*(.+)$/i },
+  { feld: "move_to_address", muster: /^(?:nach|ziel|einzug)\s*:\s*(.+)$/i },
+  { feld: "floors_from", muster: /^(?:stock(?:werk)?\s*(?:auszug|abholung|von)|og\s*abholung)\s*:\s*(.+)$/i },
+  { feld: "floors_to", muster: /^(?:stock(?:werk)?\s*(?:einzug|ziel|nach)|og\s*ziel)\s*:\s*(.+)$/i },
+  { feld: "inventory_notes", muster: /^(?:inventar|möbel|moebel)\s*:\s*(.+)$/i },
+];
+
+/** Nur beschriftete Zeilen. Fließtext wird nicht geraten. */
+export function leseAnrufAngaben(text: string): CallProposal[] {
+  const vorschlaege: CallProposal[] = [];
+  const gesehen = new Set<string>();
+  for (const zeile of text.split(/\r?\n/)) {
+    const trim = zeile.trim();
+    for (const eintrag of ANRUF_ZEILEN) {
+      if (gesehen.has(eintrag.feld)) continue;
+      const treffer = eintrag.muster.exec(trim);
+      if (!treffer) continue;
+      gesehen.add(eintrag.feld);
+      vorschlaege.push({
+        field: eintrag.feld,
+        value: treffer[1].trim(),
+        confidence: 0.99,
+        evidenceQuote: trim,
+      });
+    }
+  }
+  return vorschlaege;
+}
+
+function isoDatum(raw: string): string | null {
+  const text = raw.trim();
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  const deutsch = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(text);
+  let jahr: number;
+  let monat: number;
+  let tag: number;
+  if (iso) {
+    jahr = Number(iso[1]);
+    monat = Number(iso[2]);
+    tag = Number(iso[3]);
+  } else if (deutsch) {
+    tag = Number(deutsch[1]);
+    monat = Number(deutsch[2]);
+    jahr = Number(deutsch[3]);
+  } else {
+    return null;
+  }
+  if (jahr < 2020 || jahr > 2100) return null;
+  const probe = new Date(Date.UTC(jahr, monat - 1, tag));
+  if (probe.getUTCFullYear() !== jahr || probe.getUTCMonth() !== monat - 1 || probe.getUTCDate() !== tag) {
+    return null;
+  }
+  return `${jahr}-${String(monat).padStart(2, "0")}-${String(tag).padStart(2, "0")}`;
+}
+
+function stockwerk(raw: string): string | null {
+  const text = raw.trim();
+  if (!/^-?\d+$/.test(text)) return null;
+  const zahl = Number(text);
+  if (!Number.isInteger(zahl) || zahl < -1 || zahl > 40) return null;
+  return String(zahl);
+}
+
+function adresse(raw: string): { value: string; label: string } | null {
+  const label = raw.trim().replace(/\s+/g, " ");
+  if (label.length < 4 || label.length > 300) return null;
+  return { value: JSON.stringify({ line1: label }), label };
+}
+
+function belegt(value: string | null | undefined): boolean {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+/**
+ * Jeder gültige Vorschlag bleibt pending. Nichts wird automatisch geschrieben,
+ * auch nicht bei Sicherheit 0,99.
+ */
+export function evaluateCallProposals(input: {
+  callId: string;
+  text: string;
+  proposals: CallProposal[];
+  currentValues: Partial<Record<AnrufFeld, string | null>>;
+  vorhandeneSlugs: ReadonlySet<string>;
+}): CallSuggestion[] {
+  const ergebnis: CallSuggestion[] = [];
+  const gesehen = new Set<AnrufFeld>();
+  for (const vorschlag of input.proposals) {
+    if (!isAnrufFeld(vorschlag.field)) continue;
+    if (!input.vorhandeneSlugs.has(vorschlag.field)) continue;
+    if (gesehen.has(vorschlag.field)) continue;
+    if (belegt(input.currentValues[vorschlag.field])) continue;
+    if (!evidenceQuoteInText(vorschlag.evidenceQuote, input.text)) continue;
+
+    let value = vorschlag.value.trim();
+    let label = value;
+    if (vorschlag.field === "move_date") {
+      const datum = isoDatum(value);
+      if (!datum) continue;
+      value = datum;
+      label = datum;
+    } else if (vorschlag.field === "floors_from" || vorschlag.field === "floors_to") {
+      const etage = stockwerk(value);
+      if (!etage) continue;
+      value = etage;
+      label = etage;
+    } else if (vorschlag.field === "move_from_address" || vorschlag.field === "move_to_address") {
+      const ort = adresse(value);
+      if (!ort) continue;
+      value = ort.value;
+      label = ort.label;
+    } else if (value.length < 4 || value.length > 2000) {
+      continue;
+    }
+
+    gesehen.add(vorschlag.field);
+    ergebnis.push({
+      action: "suggest",
+      field: vorschlag.field,
+      value,
+      label,
+      confidence: vorschlag.confidence,
+      reason: ANRUF_GRUND,
+      evidenceQuote: normalizeQuote(vorschlag.evidenceQuote),
+      evidenceSourceKind: "call",
+      evidenceKey: enrichmentEvidenceKey({
+        field: vorschlag.field,
+        evidenceSourceKind: "call",
+        evidenceSourceId: input.callId,
+        evidenceQuote: vorschlag.evidenceQuote,
+      }),
+    });
+  }
+  return ergebnis;
+}

@@ -8,9 +8,10 @@
 
 import { createHash } from "crypto";
 import { z } from "zod";
-import { and, asc, eq, gte, inArray, isNotNull, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { dealEnrichmentCursors, dealFieldSuggestions } from "@/db/schema/deal-enrichment";
+import { phoneCalls } from "@/db/schema/phone-calls";
 import { notes } from "@/db/schema/notes";
 import { objects, attributes, selectOptions, statuses } from "@/db/schema/objects";
 import { records, recordValues } from "@/db/schema/records";
@@ -27,14 +28,20 @@ import {
   effectiveEnrichmentSwitches,
   readEnrichmentSettings,
 } from "@/services/deal-enrichment-settings";
+import { updateRecord } from "@/services/records";
 import { applyKontaktart } from "@/services/kontaktart";
 import { bewerberQuote, isLeadKunde, type Kontaktart } from "@/lib/kontaktart";
 import {
+  ANRUF_FELD_LABELS,
   ENRICHMENT_FIELD_LABELS,
   ENRICHMENT_FIELDS,
+  evaluateCallProposals,
   evaluateDealEnrichment,
+  isAnrufFeld,
   isCeylanChannelAccount,
   isEnrichmentField,
+  leseAnrufAngaben,
+  type AnrufFeld,
   type AppliedDecision,
   type EnrichmentField,
   type PolicyOption,
@@ -843,7 +850,11 @@ export async function listDealEnrichmentSuggestions(
     dealRecordId: row.dealRecordId,
     dealName: names.get(row.dealRecordId)?.displayName || "Lead",
     fieldSlug: row.fieldSlug,
-    fieldLabel: isEnrichmentField(row.fieldSlug) ? ENRICHMENT_FIELD_LABELS[row.fieldSlug] : row.fieldSlug,
+    fieldLabel: isEnrichmentField(row.fieldSlug)
+      ? ENRICHMENT_FIELD_LABELS[row.fieldSlug]
+      : isAnrufFeld(row.fieldSlug)
+        ? ANRUF_FELD_LABELS[row.fieldSlug]
+        : row.fieldSlug,
     proposedValue: row.proposedValue,
     proposedLabel: row.proposedLabel,
     confidence: Number(row.confidence),
@@ -907,7 +918,25 @@ export async function decideDealEnrichmentSuggestion(input: {
       )
     )
     .limit(1);
-  if (!suggestion || !isEnrichmentField(suggestion.fieldSlug)) {
+  if (!suggestion) {
+    return { ok: false, status: 404, error: "Vorschlag nicht gefunden" };
+  }
+  if (isAnrufFeld(suggestion.fieldSlug)) {
+    if (input.action === "reject") {
+      await db
+        .update(dealFieldSuggestions)
+        .set({ status: "rejected", decidedAt: new Date(), decidedBy: input.userId })
+        .where(eq(dealFieldSuggestions.id, suggestion.id));
+      return { ok: true, applied: [] };
+    }
+    return uebernehmeAnrufFeld({
+      workspaceId: input.workspaceId,
+      dealRecordId: input.dealRecordId,
+      suggestion,
+      userId: input.userId,
+    });
+  }
+  if (!isEnrichmentField(suggestion.fieldSlug)) {
     return { ok: false, status: 404, error: "Vorschlag nicht gefunden" };
   }
 
@@ -1035,6 +1064,213 @@ export async function decideDealEnrichmentSuggestion(input: {
     return { ok: false, status: 409, error: "Feld ist nicht mehr leer" };
   }
   return { ok: true, applied };
+}
+
+const ANRUF_TYP: Record<AnrufFeld, string> = {
+  move_date: "date",
+  move_from_address: "location",
+  move_to_address: "location",
+  floors_from: "number",
+  floors_to: "number",
+  inventory_notes: "text",
+};
+
+function anrufText(summary: string | null, transcript: string | null): string {
+  return [summary, transcript].filter((teil) => teil && teil.trim()).join("\n");
+}
+
+function feldIstLeer(
+  type: string,
+  row: { textValue: string | null; numberValue: string | null; dateValue: string | null; jsonValue: unknown } | undefined
+): boolean {
+  if (!row) return true;
+  if (type === "number" || type === "currency" || type === "rating") return row.numberValue == null || row.numberValue === "";
+  if (type === "date") return !row.dateValue;
+  if (type === "location" || type === "json" || type === "personal_name") return row.jsonValue == null;
+  return !row.textValue?.trim();
+}
+
+function schreibwert(feld: AnrufFeld, proposed: string): unknown {
+  if (feld === "floors_from" || feld === "floors_to") return Number(proposed);
+  if (feld === "move_from_address" || feld === "move_to_address") {
+    const parsed = JSON.parse(proposed) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("adresse");
+    return parsed;
+  }
+  return proposed;
+}
+
+/** Pending suggestions from a finished call. Failure must not undo the lead. */
+export async function vorschlaegeAusAnruf(input: {
+  workspaceId: string;
+  dealRecordId: string;
+  callId: string;
+  summary: string | null;
+  transcript: string | null;
+}): Promise<void> {
+  const text = anrufText(input.summary, input.transcript);
+  if (!text.trim()) return;
+
+  const [deal] = await db
+    .select({ id: records.id, objectId: records.objectId })
+    .from(records)
+    .innerJoin(objects, eq(records.objectId, objects.id))
+    .where(
+      and(
+        eq(records.id, input.dealRecordId),
+        eq(objects.workspaceId, input.workspaceId),
+        eq(objects.slug, "deals"),
+        isNull(records.deletedAt)
+      )
+    )
+    .limit(1);
+  if (!deal) return;
+
+  const attributeRows = await db
+    .select({ id: attributes.id, slug: attributes.slug, type: attributes.type })
+    .from(attributes)
+    .where(eq(attributes.objectId, deal.objectId));
+  const passend = attributeRows.filter((row) => isAnrufFeld(row.slug) && row.type === ANRUF_TYP[row.slug]);
+  if (passend.length === 0) return;
+
+  const valueRows = await db
+    .select({
+      attributeId: recordValues.attributeId,
+      textValue: recordValues.textValue,
+      numberValue: recordValues.numberValue,
+      dateValue: recordValues.dateValue,
+      jsonValue: recordValues.jsonValue,
+    })
+    .from(recordValues)
+    .where(
+      and(
+        eq(recordValues.recordId, deal.id),
+        inArray(recordValues.attributeId, passend.map((row) => row.id))
+      )
+    );
+
+  const currentValues: Partial<Record<AnrufFeld, string | null>> = {};
+  for (const row of passend) {
+    if (!isAnrufFeld(row.slug)) continue;
+    const wert = valueRows.find((value) => value.attributeId === row.id);
+    currentValues[row.slug] = feldIstLeer(row.type, wert) ? null : "belegt";
+  }
+
+  const decisions = evaluateCallProposals({
+    callId: input.callId,
+    text,
+    proposals: leseAnrufAngaben(text),
+    currentValues,
+    vorhandeneSlugs: new Set(passend.map((row) => row.slug)),
+  });
+  for (const decision of decisions) {
+    await db
+      .insert(dealFieldSuggestions)
+      .values({
+        workspaceId: input.workspaceId,
+        dealRecordId: deal.id,
+        fieldSlug: decision.field,
+        proposedValue: decision.value,
+        proposedLabel: decision.label,
+        confidence: Math.min(0.999, Math.max(0, decision.confidence)).toFixed(3),
+        reason: decision.reason,
+        evidenceQuote: decision.evidenceQuote,
+        evidenceSourceKind: "call",
+        evidenceSourceId: input.callId,
+        evidenceKey: decision.evidenceKey,
+        status: "pending",
+      })
+      .onConflictDoNothing();
+  }
+}
+
+async function uebernehmeAnrufFeld(input: {
+  workspaceId: string;
+  dealRecordId: string;
+  suggestion: typeof dealFieldSuggestions.$inferSelect;
+  userId: string | null;
+}): Promise<{ ok: true; applied: string[] } | { ok: false; status: number; error: string }> {
+  const feld = input.suggestion.fieldSlug;
+  if (!isAnrufFeld(feld)) return { ok: false, status: 404, error: "Vorschlag nicht gefunden" };
+
+  const [call] = await db
+    .select({ summary: phoneCalls.summary, transcript: phoneCalls.transcript })
+    .from(phoneCalls)
+    .where(and(eq(phoneCalls.id, input.suggestion.evidenceSourceId), eq(phoneCalls.workspaceId, input.workspaceId)))
+    .limit(1);
+  const text = anrufText(call?.summary ?? null, call?.transcript ?? null);
+
+  const [deal] = await db
+    .select({ id: records.id, objectId: records.objectId })
+    .from(records)
+    .innerJoin(objects, eq(records.objectId, objects.id))
+    .where(
+      and(
+        eq(records.id, input.dealRecordId),
+        eq(objects.workspaceId, input.workspaceId),
+        eq(objects.slug, "deals"),
+        isNull(records.deletedAt)
+      )
+    )
+    .limit(1);
+  if (!deal) return { ok: false, status: 404, error: "Deal nicht gefunden" };
+
+  const [attr] = await db
+    .select({ id: attributes.id, type: attributes.type })
+    .from(attributes)
+    .where(and(eq(attributes.objectId, deal.objectId), eq(attributes.slug, feld)))
+    .limit(1);
+  if (!attr || attr.type !== ANRUF_TYP[feld]) {
+    return { ok: false, status: 404, error: "Vorschlag nicht gefunden" };
+  }
+
+  const [wert] = await db
+    .select({
+      textValue: recordValues.textValue,
+      numberValue: recordValues.numberValue,
+      dateValue: recordValues.dateValue,
+      jsonValue: recordValues.jsonValue,
+    })
+    .from(recordValues)
+    .where(and(eq(recordValues.recordId, deal.id), eq(recordValues.attributeId, attr.id)))
+    .limit(1);
+  const current = feldIstLeer(attr.type, wert) ? null : "belegt";
+  const rohwert =
+    feld === "move_from_address" || feld === "move_to_address"
+      ? input.suggestion.proposedLabel
+      : input.suggestion.proposedValue;
+  const [decision] = evaluateCallProposals({
+    callId: input.suggestion.evidenceSourceId,
+    text,
+    proposals: [
+      {
+        field: feld,
+        value: rohwert,
+        confidence: Number(input.suggestion.confidence),
+        evidenceQuote: input.suggestion.evidenceQuote,
+      },
+    ],
+    currentValues: { [feld]: current },
+    vorhandeneSlugs: new Set([feld]),
+  });
+  if (!decision || decision.action !== "suggest") {
+    return { ok: false, status: 409, error: "Vorschlag ist nicht mehr zulässig" };
+  }
+
+  let value: unknown;
+  try {
+    value = schreibwert(feld, decision.value);
+  } catch {
+    return { ok: false, status: 409, error: "Vorschlag ist nicht mehr zulässig" };
+  }
+  const geschrieben = await updateRecord(deal.objectId, deal.id, { [feld]: value }, input.userId);
+  if (!geschrieben) return { ok: false, status: 404, error: "Deal nicht gefunden" };
+
+  await db
+    .update(dealFieldSuggestions)
+    .set({ status: "accepted", decidedAt: new Date(), decidedBy: input.userId })
+    .where(and(eq(dealFieldSuggestions.id, input.suggestion.id), eq(dealFieldSuggestions.status, "pending")));
+  return { ok: true, applied: [feld] };
 }
 
 export async function countOpenSuggestions(workspaceId: string): Promise<number> {

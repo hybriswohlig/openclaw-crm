@@ -29,6 +29,7 @@ export const phoneCalls = pgTable(
     summary: text("summary"),
     keywords: jsonb("keywords").$type<string[]>().notNull().default([]),
     personRecordId: text("person_record_id").references(() => records.id, { onDelete: "set null" }),
+    dealRecordId: text("deal_record_id").references(() => records.id, { onDelete: "set null" }),
     matchStatus: text("match_status").notNull(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),

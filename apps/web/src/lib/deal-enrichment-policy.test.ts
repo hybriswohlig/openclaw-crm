@@ -3,9 +3,12 @@ import {
   CEYLAN_CHANNEL_ACCOUNT_PREFIX,
   DEFAULT_CONFIDENCE_THRESHOLD,
   enrichmentEvidenceKey,
+  evaluateCallProposals,
   evaluateDealEnrichment,
   hasExplicitLossEvidence,
   isCeylanChannelAccount,
+  leseAnrufAngaben,
+  type CallProposal,
   type DealEnrichmentPolicyInput,
   type PolicyProposal,
   type PolicySource,
@@ -440,5 +443,71 @@ describe("deal enrichment policy", () => {
       action: "drop",
       reason: "non_lead_not_a_loss",
     });
+  });
+});
+
+const anrufText = [
+  "Name: Ada Lovelace",
+  "Datum: 12.11.2026",
+  "Von: Hauptstraße 1, 72218 Wildberg",
+  "Nach: Marktplatz 2, 71032 Böblingen",
+  "Stock Auszug: 3",
+  "Stock Einzug: 0",
+  "Inventar: Sofa, Tisch, 20 Kartons",
+].join("\n");
+
+function anrufVorschlag(partial: Partial<CallProposal> & Pick<CallProposal, "field" | "value" | "evidenceQuote">): CallProposal {
+  return { confidence: 0.99, ...partial };
+}
+
+describe("Anruf-Feldvorschläge", () => {
+  const slugs = new Set(["move_date", "move_from_address", "move_to_address", "floors_from", "floors_to", "inventory_notes"]);
+
+  it("bleibt ein Vorschlag, auch bei Sicherheit 0,99", () => {
+    const result = evaluateCallProposals({
+      callId: "call-1",
+      text: anrufText,
+      proposals: leseAnrufAngaben(anrufText),
+      currentValues: {},
+      vorhandeneSlugs: slugs,
+    });
+    expect(result.length).toBeGreaterThan(0);
+    expect(result.every((row) => row.action === "suggest" && row.evidenceSourceKind === "call")).toBe(true);
+    expect(result.find((row) => row.field === "move_date")).toMatchObject({ value: "2026-11-12", confidence: 0.99 });
+    expect(result.find((row) => row.field === "floors_from")?.value).toBe("3");
+    const adresse = result.find((row) => row.field === "move_from_address");
+    expect(adresse?.label).toBe("Hauptstraße 1, 72218 Wildberg");
+    expect(adresse?.value).toContain("Hauptstraße 1");
+  });
+
+  it("verwirft Zitat, belegtes Feld, ungültiges Datum, ungültiges Stockwerk und eine Stufe", () => {
+    const result = evaluateCallProposals({
+      callId: "call-1",
+      text: anrufText,
+      proposals: [
+        anrufVorschlag({ field: "move_date", value: "2026-11-02", evidenceQuote: "steht so nicht im Text" }),
+        anrufVorschlag({ field: "move_to_address", value: "Marktplatz 2, 71032 Böblingen", evidenceQuote: "Nach: Marktplatz 2, 71032 Böblingen" }),
+        anrufVorschlag({ field: "floors_from", value: "vier", evidenceQuote: "Stock Auszug: 3" }),
+        anrufVorschlag({ field: "floors_to", value: "41", evidenceQuote: "Stock Einzug: 0" }),
+        anrufVorschlag({ field: "move_date", value: "31.02.2026", evidenceQuote: "Datum: 12.11.2026" }),
+        anrufVorschlag({ field: "stage", value: "Verloren", evidenceQuote: "Datum: 12.11.2026" }),
+        anrufVorschlag({ field: "inventory_notes", value: "Sofa, Tisch, 20 Kartons", evidenceQuote: "Inventar: Sofa, Tisch, 20 Kartons" }),
+      ],
+      currentValues: { move_to_address: "belegt" },
+      vorhandeneSlugs: slugs,
+    });
+    expect(result.map((row) => row.field)).toEqual(["inventory_notes"]);
+    expect(result[0].action).toBe("suggest");
+  });
+
+  it("lässt ein Feld weg, das am Lead nicht existiert", () => {
+    const result = evaluateCallProposals({
+      callId: "call-1",
+      text: anrufText,
+      proposals: leseAnrufAngaben(anrufText),
+      currentValues: {},
+      vorhandeneSlugs: new Set(["move_date"]),
+    });
+    expect(result.map((row) => row.field)).toEqual(["move_date"]);
   });
 });
