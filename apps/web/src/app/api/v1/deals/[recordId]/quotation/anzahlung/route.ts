@@ -23,6 +23,7 @@ import {
 } from "@/lib/api-utils";
 import { db } from "@/db";
 import { quotations } from "@/db/schema/quotations";
+import { hebeAnnahmeWegenAngebotsaenderung } from "@/services/kva-annahme";
 
 export const dynamic = "force-dynamic";
 
@@ -75,6 +76,9 @@ export async function PATCH(
       `paymentMethodPreference must be one of bank_transfer | paypal | cash | card`
     );
   }
+
+  // Anzahlung ist Teil des Angebots. Eine bestehende Unterschrift gilt danach nicht mehr.
+  await hebeAnnahmeWegenAngebotsaenderung(recordId, ctx.userId);
 
   const [existing] = await db
     .select({ id: quotations.id })

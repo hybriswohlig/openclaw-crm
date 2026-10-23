@@ -302,6 +302,13 @@
       "when": 1792713600000,
       "tag": "0052_kontaktart",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1792800000000,
+      "tag": "0053_portal_change_request_resolutions",
+      "breakpoints": true
     }
   ]
 }

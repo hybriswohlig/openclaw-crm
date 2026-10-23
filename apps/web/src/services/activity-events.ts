@@ -38,6 +38,7 @@ export type ActivityEventType =
   | "customer.reschedule_requested"
   | "customer.question"
   | "customer.damage_reported"
+  | "customer.change_request_handled"
   | "person.merge"
   | "person.unmerge"
   | "agent.action"

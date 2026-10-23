@@ -23,6 +23,7 @@ import {
 import { loadConfig } from "./lib/config.js";
 import { AuthStore } from "./lib/auth-store.js";
 import { CrmClient } from "./lib/client.js";
+import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from "./server-info.js";
 import { TOOLS } from "./tools/definitions.js";
 import { handleTool } from "./tools/handlers.js";
 
@@ -41,12 +42,12 @@ async function main() {
 
   const server = new Server(
     {
-      name: "openclaw-crm",
-      version: "0.1.0",
+      name: MCP_SERVER_NAME,
+      version: MCP_SERVER_VERSION,
     },
     {
       capabilities: {
-        tools: {},
+        tools: { listChanged: true },
       },
     }
   );

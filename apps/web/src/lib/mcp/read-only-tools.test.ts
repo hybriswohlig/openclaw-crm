@@ -64,12 +64,44 @@ describe("read-only MCP tools", () => {
 
     const listed = await handleTool(crm, "crm_list_calendar_events", {});
     expect(listed.isError).toBeUndefined();
+
+    const signature = await handleTool(crm, "crm_get_deal_signature", { recordId: "deal-1" });
+    expect(signature.isError).toBeUndefined();
+    const signedPdf = await handleTool(crm, "crm_get_deal_signed_document", { recordId: "deal-1" });
+    expect(signedPdf.isError).toBeUndefined();
+    const changes = await handleTool(crm, "crm_list_deal_change_requests", { recordId: "deal-1" });
+    expect(changes.isError).toBeUndefined();
+
+    const resolved = await handleTool(crm, "crm_resolve_deal_change_request", {
+      recordId: "deal-1",
+      requestId: "evt-1",
+    });
+    expect(resolved.isError).toBe(true);
+    const createdOffer = await handleTool(crm, "crm_create_deal_date_offer", {
+      recordId: "deal-1",
+      date: "2026-11-01",
+      slots: [{ label: "Vormittag" }],
+    });
+    expect(createdOffer.isError).toBe(true);
+    expect(request).not.toHaveBeenCalledWith(
+      "/api/v1/deals/deal-1/change-requests/evt-1",
+      expect.anything()
+    );
     const passthrough = await handleTool(crm, "crm_api", {
       path: "/api/v1/statistics/overview",
       method: "GET",
     });
     expect(passthrough.isError).toBeUndefined();
-    expect(request).toHaveBeenCalledTimes(2);
+    expect(request).toHaveBeenCalledTimes(5);
+    expect(request).toHaveBeenCalledWith("/api/v1/deals/deal-1/signature");
+    expect(request).toHaveBeenCalledWith(
+      "/api/v1/deals/deal-1/signature/document",
+      expect.anything()
+    );
+    expect(request).toHaveBeenCalledWith(
+      "/api/v1/deals/deal-1/change-requests",
+      expect.objectContaining({ query: { status: "all" } })
+    );
   });
 
   it("does not block a full key", async () => {
@@ -86,5 +118,19 @@ describe("read-only MCP tools", () => {
     expect(readOnlyMcpToolError("crm_query_records", {})).toEqual(
       expect.stringContaining("crm_query_records")
     );
+
+    await handleTool(crm, "crm_create_deal_date_offer", {
+      recordId: "deal-1",
+      date: "2026-11-02",
+      slots: [{ label: "Nachmittag" }],
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/api/v1/deals/deal-1/date-offers",
+      expect.objectContaining({ method: "POST" })
+    );
+    await handleTool(crm, "crm_get_deal_signature", { status: "pending" });
+    expect(request).toHaveBeenCalledWith("/api/v1/signature-requests", {
+      query: { status: "pending" },
+    });
   });
 });

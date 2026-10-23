@@ -52,6 +52,48 @@ export function annahmeSperrAntwort(err: unknown): NextResponse | null {
   return NextResponse.json({ error: { code: err.code, message: err.message } }, { status: 409 });
 }
 
+/**
+ * Angebotsänderung hebt die aktive Annahme auf. Die Zeile und ein schon
+ * abgelegter Vertrag bleiben als Nachweis. Die Unterschrift gilt danach nicht
+ * für den neuen Stand: das Portal zeigt das aktualisierte Angebot, und der
+ * Kunde muss neu annehmen und neu unterschreiben.
+ */
+export async function hebeAnnahmeWegenAngebotsaenderung(
+  dealRecordId: string,
+  userId: string | null
+): Promise<{ confirmationId: string; hatteUnterschrift: boolean } | null> {
+  const row = await ladeAktiveAnnahme(dealRecordId);
+  if (!row) return null;
+  const hatteUnterschrift = !!(row.vertragDocumentId && row.unterschriftAt && row.unterschriftName);
+  const grund = "Angebot geändert";
+  const aufgehoben = await db
+    .update(kvaConfirmations)
+    .set({
+      supersededAt: new Date(),
+      supersededBy: (userId ?? "quotation_update").slice(0, 200),
+      supersededReason: grund,
+    })
+    .where(and(eq(kvaConfirmations.id, row.id), isNull(kvaConfirmations.supersededAt)))
+    .returning({ id: kvaConfirmations.id });
+  if (aufgehoben.length === 0) return null;
+  await emitEvent({
+    workspaceId: row.workspaceId,
+    recordId: dealRecordId,
+    objectSlug: "deals",
+    eventType: "kva.annahme_aufgehoben",
+    payload: {
+      confirmationId: row.id,
+      confirmedTotalCents: row.confirmedTotalCents,
+      grund,
+      userId,
+      quelle: "quotation_update",
+      hatteUnterschrift,
+    },
+    actorId: userId,
+  });
+  return { confirmationId: row.id, hatteUnterschrift };
+}
+
 export async function annahmeAufheben(input: {
   workspaceId: string;
   dealRecordId: string;

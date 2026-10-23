@@ -396,7 +396,7 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_get_deal_quotation",
-    "Deal quotation data.",
+    "Read the saved quotation for a deal. Offer flow: save the quotation with crm_update_deal_quotation, set package options with crm_update_deal_package_options, mint the status link with crm_get_customer_link, a person sends that link, the customer signs in the portal, then read crm_get_deal_signature. This tool does not email or message the customer. A read-only API key can call this and the other read tools only.",
     { recordId: z.string() },
     req
   );
@@ -410,8 +410,48 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_get_customer_link",
-    "Customer portal link for a deal.",
+    "Customer portal status link for a deal. Offer flow: save the quotation, call this to mint or read the link, a person sends the link, the customer signs in the portal, then check crm_get_deal_signature. This tool does not email or message the customer. A read-only API key can read the link and the signature but cannot change the quotation.",
     { dealRecordId: z.string() },
+    req
+  );
+  tool(
+    server,
+    "crm_get_deal_signature",
+    "Read portal signature state. Pass recordId for one deal: whether the KV is signed, when, the name entered, which quotation document was signed, and whether the current quotation differs from the signed terms. coversCurrentTerms is true only for a signature that still matches. The AB is not signable. Omit recordId to list requests; status is pending (default), signed, superseded or all. Pending means an accepted KV is waiting for a signature. This tool does not email or message the customer. A read-only API key can call it.",
+    {
+      recordId: z.string().optional(),
+      status: z.enum(["pending", "signed", "superseded", "all"]).optional(),
+    },
+    req
+  );
+  tool(
+    server,
+    "crm_get_deal_signed_document",
+    "Fetch the signed contract PDF for a deal, the same base64 envelope as crm_get_deal_document: { _binary, mimeType, byteLength, fileName, contentBase64 }. Optional confirmationId selects one signature; otherwise the active signed file, or the latest signed file if the active acceptance has none. This tool does not email or message the customer. A read-only API key can call it.",
+    {
+      recordId: z.string(),
+      confirmationId: z.string().optional(),
+    },
+    req
+  );
+  tool(
+    server,
+    "crm_list_deal_change_requests",
+    "List customer change requests already stored on a deal (Änderung anfragen, Terminänderung, Schadenmeldung). status is all (default), open or handled. Each row has id, kind, message, preferredDates, createdAt and, once handled, handledAt and handledBy. The portal already collects these before signing; this tool only reads them. This tool does not email or message the customer. A read-only API key can call it.",
+    {
+      recordId: z.string(),
+      status: z.enum(["open", "handled", "all"]).optional(),
+    },
+    req
+  );
+  tool(
+    server,
+    "crm_resolve_deal_change_request",
+    "Mark one portal change request as handled. recordId and requestId (the activity event id from crm_list_deal_change_requests) are required. Calling it again returns alreadyHandled true and does not emit another event. This tool does not email or message the customer. A read-only API key cannot call it.",
+    {
+      recordId: z.string(),
+      requestId: z.string(),
+    },
     req
   );
 
@@ -484,8 +524,47 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_get_deal_date_offers",
-    "Alternative move-date offers for a deal.",
+    "Alternative move-date offers for a deal. Read them here. Create, update or delete one offer with crm_create_deal_date_offer, crm_update_deal_date_offer and crm_delete_deal_date_offer. Those writes return 409 while the customer has an active acceptance. This tool does not email or message the customer. A read-only API key can read offers but cannot change them.",
     { recordId: z.string() },
+    req
+  );
+  const dateSlot = z.object({
+    label: z.string(),
+    startTime: z.string().nullable().optional(),
+    endTime: z.string().nullable().optional(),
+  });
+  tool(
+    server,
+    "crm_create_deal_date_offer",
+    "Add one alternative move date to a deal. date is YYYY-MM-DD. slots is an array of objects with label and optional startTime and endTime; each label is required, at most 6 slots, and at most 10 offers on the deal. note and isRecommended are optional. Returns 409 while an acceptance is active: change the quotation first so the acceptance is superseded, then add dates. This tool does not email or message the customer. A read-only API key cannot call it.",
+    {
+      recordId: z.string(),
+      date: z.string(),
+      slots: z.array(dateSlot),
+      note: z.string().nullable().optional(),
+      isRecommended: z.boolean().optional(),
+    },
+    req
+  );
+  tool(
+    server,
+    "crm_update_deal_date_offer",
+    "Update one alternative move date. recordId and offerId are required; pass only the fields that change (date, slots, note, isRecommended). A date that no longer matches the customer selection clears that selection. Returns 409 while an acceptance is active. This tool does not email or message the customer. A read-only API key cannot call it.",
+    {
+      recordId: z.string(),
+      offerId: z.string(),
+      date: z.string().optional(),
+      slots: z.array(dateSlot).optional(),
+      note: z.string().nullable().optional(),
+      isRecommended: z.boolean().optional(),
+    },
+    req
+  );
+  tool(
+    server,
+    "crm_delete_deal_date_offer",
+    "Delete one alternative move date. recordId and offerId are required. Returns 404 when the offer is not on the deal and 409 while an acceptance is active. This tool does not email or message the customer. A read-only API key cannot call it.",
+    { recordId: z.string(), offerId: z.string() },
     req
   );
 
@@ -493,7 +572,7 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_update_deal_package_options",
-    "Replace the per-deal package options (Basis/Komfort/Premium etc. with deal-specific price) shown to the customer on Stage 1 of the portal. PUT semantics — replaces the full set for this deal; pass an empty options array to clear. At most 6 options. Each option needs a non-empty displayName and a non-negative integer priceCents; catalogueSlug (e.g. 'basic'/'komfort'/'premium' from crm_get_deal_offer_packages) is optional and only used to link back to the company catalogue. When at least one option exists for the deal, the customer portal renders these instead of the operating company's generic offer-packages catalogue.",
+    "Replace the per-deal package options (Basis/Komfort/Premium etc. with deal-specific price) shown to the customer on Stage 1 of the portal. PUT semantics — replaces the full set for this deal; pass an empty options array to clear. At most 6 options. Each option needs a non-empty displayName and a non-negative integer priceCents; catalogueSlug (e.g. 'basic'/'komfort'/'premium' from crm_get_deal_offer_packages) is optional and only used to link back to the company catalogue. When at least one option exists for the deal, the customer portal renders these instead of the operating company's generic offer-packages catalogue. Replacing package prices after an acceptance supersedes that acceptance and any signature, so the old signature does not cover the new prices. This tool does not email or message the customer. A read-only API key cannot call this tool.",
     {
       recordId: z.string(),
       options: z.array(
@@ -515,7 +594,7 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_update_deal_quotation",
-    "Replace a deal's quotation (PUT semantics — omitted fields are cleared, so read crm_get_deal_quotation first and merge). Saving also mints the customer portal link and anchors the scope baseline.",
+    "Replace a deal's quotation (PUT semantics — omitted fields are cleared, so read crm_get_deal_quotation first and merge). Saving also mints the customer portal link and anchors the scope baseline. Offer flow: quotation saved, then crm_get_customer_link, a person sends the link, the customer signs, then crm_get_deal_signature. This tool does not email or message the customer. Saving a quotation after an acceptance supersedes that acceptance and any signature, so the customer sees and signs the new version; the previous signed PDF stays on the superseded confirmation. Date-offer writes stay locked with 409 until that acceptance is superseded. A read-only API key cannot call this tool.",
     {
       recordId: z.string(),
       isVariable: z.boolean().optional(),
@@ -538,7 +617,7 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_set_deal_anzahlung",
-    "Set only the Anzahlung (deposit in cents) and payment method on a deal's quotation, leaving the rest of the quotation untouched.",
+    "Set only the Anzahlung (deposit in cents) and payment method on a deal's quotation, leaving the rest of the quotation untouched. Changing the deposit supersedes an active acceptance and signature, same as saving the quotation, so the old signature does not cover the new terms. This tool does not email or message the customer. A read-only API key cannot call it.",
     {
       recordId: z.string(),
       depositRequiredCents: z.number().nullable().optional(),

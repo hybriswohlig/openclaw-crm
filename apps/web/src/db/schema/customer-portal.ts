@@ -16,6 +16,7 @@ import { workspaces } from "./workspace";
 import { records } from "./records";
 import { employees } from "./employees";
 import { users } from "./auth";
+import { activityEvents } from "./activity";
 
 // ─── Operating-Company Portal Settings ────────────────────────────────────────
 // One row per operating-company record (e.g. Kottke, Ceylan, future firmas).
@@ -595,6 +596,29 @@ export const customerDateSelections = pgTable(
   },
   (table) => [
     index("customer_date_selections_link_idx").on(table.customerLinkId),
+  ]
+);
+
+// Handled marker for a portal change request. The request itself stays the
+// activity event (customer.question / reschedule / damage). This row is the
+// only mutable state, so the feed remains append-only.
+export const portalChangeRequestResolutions = pgTable(
+  "portal_change_request_resolutions",
+  {
+    requestEventId: text("request_event_id")
+      .primaryKey()
+      .references(() => activityEvents.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    dealRecordId: text("deal_record_id")
+      .notNull()
+      .references(() => records.id, { onDelete: "cascade" }),
+    handledAt: timestamp("handled_at").notNull().defaultNow(),
+    handledBy: text("handled_by"),
+  },
+  (table) => [
+    index("portal_change_request_resolutions_deal_idx").on(table.workspaceId, table.dealRecordId),
   ]
 );
 

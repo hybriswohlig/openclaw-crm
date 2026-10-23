@@ -19,6 +19,7 @@ import {
   Eye,
 } from "lucide-react";
 import { toast } from "sonner";
+import { ChangeRequestsPanel } from "./change-requests-panel";
 import { DateOfferComposer } from "./date-offer-composer";
 import { PackageOptionsComposer } from "./package-options-composer";
 
@@ -334,6 +335,8 @@ export function ShareLinkPanel({ dealRecordId }: { dealRecordId: string }) {
       </div>
 
       <KvaAnnahmeBlock dealRecordId={dealRecordId} onChange={setAnnahmeAktiv} />
+
+      <ChangeRequestsPanel dealRecordId={dealRecordId} />
 
       {!revoked && <CustomerVisibleDocuments dealRecordId={dealRecordId} />}
 
