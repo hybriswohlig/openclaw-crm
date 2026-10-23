@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { DocumentPreviewModal } from "@/components/documents/document-preview-modal";
 import { Eye } from "lucide-react";
+import { loeschbar } from "@/lib/portal-dokumente";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -1515,7 +1516,7 @@ function DocumentsSection({
                       >
                         <Download className="h-3.5 w-3.5" />
                       </button>
-                      <button
+                      {loeschbar(doc.documentType) && <button
                         onClick={() => handleDelete(doc.id)}
                         disabled={deleting === doc.id}
                         className="text-muted-foreground hover:text-destructive transition-colors"
@@ -1526,7 +1527,7 @@ function DocumentsSection({
                         ) : (
                           <Trash2 className="h-3.5 w-3.5" />
                         )}
-                      </button>
+                      </button>}
                     </div>
                   ))}
                 </div>

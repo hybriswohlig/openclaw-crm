@@ -11,6 +11,7 @@ import { db } from "@/db";
 import { customerStatusLinks, kvaConfirmations } from "@/db/schema/customer-portal";
 import { dealDocuments } from "@/db/schema/financial";
 import {
+  gleicheAnnahme,
   keinWiderrufHinweis,
   unterschriftErklaerung,
   validateTokenShape,
@@ -50,11 +51,16 @@ export function vertragMailText(d: {
   dealNumber: string;
   portalUrl: string;
   unterschriftAm: Date;
+  /** Ist das PDF angehängt? Über 8 MB geht die Mail ohne Anhang. */
+  pdfDabei: boolean;
 }): string {
+  const dank = `vielen Dank für Ihre Unterschrift vom ${datumLang(d.unterschriftAm)} um ${uhrzeit(d.unterschriftAm)} Uhr.`;
   return [
     d.kunde ? `Guten Tag ${d.kunde},` : "Guten Tag,",
-    `vielen Dank für Ihre Unterschrift vom ${datumLang(d.unterschriftAm)} um ${uhrzeit(d.unterschriftAm)} Uhr. Im Anhang finden Sie Ihren unterschriebenen Vertrag zu Auftrag ${d.dealNumber} als PDF.`,
-    `Sie finden ihn auch jederzeit in Ihrem Kundenportal: ${d.portalUrl}`,
+    d.pdfDabei
+      ? `${dank} Im Anhang finden Sie Ihren unterschriebenen Vertrag zu Auftrag ${d.dealNumber} als PDF.`
+      : `${dank} Ihren unterschriebenen Vertrag zu Auftrag ${d.dealNumber} können Sie in Ihrem Kundenportal herunterladen.`,
+    d.pdfDabei ? `Sie finden ihn auch jederzeit in Ihrem Kundenportal: ${d.portalUrl}` : `Ihr Kundenportal: ${d.portalUrl}`,
     `Freundliche Grüße\n${d.firma}`,
   ].join("\n\n");
 }
@@ -76,15 +82,28 @@ export function widerrufHinweisFuerMappe(modus: string | null, vorzeitigerBeginn
 
 const PNG_PRAEFIX = "data:image/png;base64,";
 const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+/** Obergrenzen für das Unterschriftsbild; das Feld liegt real bei etwa 1.400 mal 540 Pixeln. */
+const PNG_MAX_BREITE = 4096;
+const PNG_MAX_HOEHE = 2048;
+const PNG_MAX_PIXEL = 4_000_000;
 
-/** Bytes eines PNG aus einer Data-URL; null bei falschem Präfix, kaputtem Base64 oder Nicht-PNG. */
+/**
+ * Bytes eines PNG aus einer Data-URL; null bei falschem Präfix, kaputtem
+ * Base64, Nicht-PNG oder zu großen Abmessungen (der Decoder reserviert
+ * Breite mal Höhe mal 4 Bytes, ein kleines PNG könnte sonst den Speicher sprengen).
+ */
 export function pngAusDataUrl(dataUrl: string): Uint8Array | null {
   if (!dataUrl.startsWith(PNG_PRAEFIX)) return null;
   const b64 = dataUrl.slice(PNG_PRAEFIX.length);
   if (!/^[A-Za-z0-9+/]+={0,2}$/.test(b64)) return null;
   const bytes = new Uint8Array(Buffer.from(b64, "base64"));
-  if (bytes.length < PNG_MAGIC.length) return null;
-  return PNG_MAGIC.every((b, i) => bytes[i] === b) ? bytes : null;
+  if (bytes.length < 24 || !PNG_MAGIC.every((b, i) => bytes[i] === b)) return null;
+  if (Buffer.from(bytes.subarray(12, 16)).toString("ascii") !== "IHDR") return null;
+  const ansicht = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const breite = ansicht.getUint32(16);
+  const hoehe = ansicht.getUint32(20);
+  if (!breite || !hoehe || breite > PNG_MAX_BREITE || hoehe > PNG_MAX_HOEHE || breite * hoehe > PNG_MAX_PIXEL) return null;
+  return bytes;
 }
 
 // ─── Unterschrift ─────────────────────────────────────────────────────────────
@@ -98,13 +117,20 @@ export type UnterschriftGrund =
   | "kein_pdf"
   | "bereits_unterschrieben"
   | "bild_ungueltig"
+  | "angebot_geaendert"
   | "pdf_fehler";
 
 export type UnterschriftErgebnis =
   | { ok: true; nachlauf: () => Promise<void> }
   | { ok: false; reason: UnterschriftGrund };
 
-async function reservieren(input: {
+/**
+ * Unterschrift an der Annahme reservieren. Der zurückgegebene Zeitpunkt ist
+ * das Kennzeichen dieser Reservierung: Freigabe und Ablage wirken nur, solange
+ * genau er noch in der Zeile steht. Eine fremde Reservierung älter als zwei
+ * Minuten (Abbruch mittendrin) darf übernommen werden.
+ */
+export async function reservieren(input: {
   confirmationId: string;
   payload: UnterschriftPayload;
   ipAddress: string;
@@ -136,8 +162,8 @@ async function reservieren(input: {
   return row?.unterschriftAt ?? null;
 }
 
-/** Reservierung zurücknehmen, solange noch kein Vertrag abgelegt ist. */
-async function freigeben(confirmationId: string): Promise<void> {
+/** Die eigene Reservierung zurücknehmen, solange noch kein Vertrag abgelegt ist. */
+export async function freigeben(confirmationId: string, reservedAt: Date): Promise<void> {
   await db
     .update(kvaConfirmations)
     .set({
@@ -148,7 +174,64 @@ async function freigeben(confirmationId: string): Promise<void> {
       unterschriftUserAgent: null,
       unterschriftBildSha256: null,
     })
-    .where(and(eq(kvaConfirmations.id, confirmationId), isNull(kvaConfirmations.vertragDocumentId)));
+    .where(
+      and(
+        eq(kvaConfirmations.id, confirmationId),
+        eq(kvaConfirmations.unterschriftAt, reservedAt),
+        isNull(kvaConfirmations.vertragDocumentId)
+      )
+    );
+}
+
+class Ueberholt extends Error {}
+
+/**
+ * Vertragsmappe ablegen und an die Annahme binden, in einer Transaktion.
+ * Nur wenn die eigene Reservierung noch gilt und die Annahme weiter aktiv ist;
+ * sonst wird nichts gespeichert und null zurückgegeben.
+ */
+export async function vertragAblegen(input: {
+  confirmationId: string;
+  reservedAt: Date;
+  workspaceId: string;
+  dealRecordId: string;
+  fileName: string;
+  pdf: Buffer;
+  vertragSha256: string;
+}): Promise<string | null> {
+  try {
+    return await db.transaction(async (tx) => {
+      const [doc] = await tx
+        .insert(dealDocuments)
+        .values({
+          workspaceId: input.workspaceId,
+          dealRecordId: input.dealRecordId,
+          documentType: "signed_contract",
+          fileName: input.fileName,
+          fileSize: input.pdf.byteLength,
+          mimeType: "application/pdf",
+          fileContent: input.pdf.toString("base64"),
+        })
+        .returning({ id: dealDocuments.id });
+      const [gebunden] = await tx
+        .update(kvaConfirmations)
+        .set({ vertragDocumentId: doc.id, vertragSha256: input.vertragSha256 })
+        .where(
+          and(
+            eq(kvaConfirmations.id, input.confirmationId),
+            eq(kvaConfirmations.unterschriftAt, input.reservedAt),
+            isNull(kvaConfirmations.vertragDocumentId),
+            isNull(kvaConfirmations.supersededAt)
+          )
+        )
+        .returning({ id: kvaConfirmations.id });
+      if (!gebunden) throw new Ueberholt();
+      return doc.id;
+    });
+  } catch (err) {
+    if (err instanceof Ueberholt) return null;
+    throw err;
+  }
 }
 
 export async function unterschriftFuerToken(
@@ -169,6 +252,7 @@ export async function unterschriftFuerToken(
   if (!row || row.workspaceId !== link.workspaceId) return { ok: false, reason: "keine_annahme" };
   if (!row.quotationDocumentId) return { ok: false, reason: "kein_pdf" };
   if (row.vertragDocumentId) return { ok: false, reason: "bereits_unterschrieben" };
+  if (!gleicheAnnahme(row.signedAt, payload.annahmeAm)) return { ok: false, reason: "angebot_geaendert" };
 
   let bildPng: Uint8Array | null = null;
   if (payload.art === "gezeichnet") {
@@ -203,7 +287,7 @@ export async function unterschriftFuerToken(
   });
   if (!unterschriftAt) return { ok: false, reason: "bereits_unterschrieben" };
 
-  let vertragDocumentId: string;
+  let vertragDocumentId: string | null;
   let vertragSha256: string;
   try {
     const daten: VertragsmappeDaten = {
@@ -231,29 +315,26 @@ export async function unterschriftFuerToken(
     };
     const pdf = Buffer.from(await baueVertragsmappe(new Uint8Array(kvBytes), daten));
     vertragSha256 = sha256Hex(pdf);
-    vertragDocumentId = await db.transaction(async (tx) => {
-      const [doc] = await tx
-        .insert(dealDocuments)
-        .values({
-          workspaceId: link.workspaceId,
-          dealRecordId: link.dealRecordId,
-          documentType: "signed_contract",
-          fileName: `Vertrag-${portal.dealNumber}.pdf`.replace(/[\\/\r\n]/g, "_"),
-          fileSize: pdf.byteLength,
-          mimeType: "application/pdf",
-          fileContent: pdf.toString("base64"),
-        })
-        .returning({ id: dealDocuments.id });
-      await tx
-        .update(kvaConfirmations)
-        .set({ vertragDocumentId: doc.id, vertragSha256 })
-        .where(eq(kvaConfirmations.id, row.id));
-      return doc.id;
+    vertragDocumentId = await vertragAblegen({
+      confirmationId: row.id,
+      reservedAt: unterschriftAt,
+      workspaceId: link.workspaceId,
+      dealRecordId: link.dealRecordId,
+      fileName: `Vertrag-${portal.dealNumber}.pdf`.replace(/[\\/\r\n]/g, "_"),
+      pdf,
+      vertragSha256,
     });
   } catch (err) {
     console.error("[kva-unterschrift] Vertragsmappe fehlgeschlagen:", err);
-    await freigeben(row.id).catch((e) => console.error("[kva-unterschrift] Freigabe fehlgeschlagen:", e));
+    await freigeben(row.id, unterschriftAt).catch((e) => console.error("[kva-unterschrift] Freigabe fehlgeschlagen:", e));
     return { ok: false, reason: "pdf_fehler" };
+  }
+  if (!vertragDocumentId) {
+    // Überholt: die Annahme wurde aufgehoben oder widerrufen, oder ein anderer
+    // Versuch hat übernommen. Nichts gespeichert, eigene Reservierung freigeben.
+    await freigeben(row.id, unterschriftAt).catch((e) => console.error("[kva-unterschrift] Freigabe fehlgeschlagen:", e));
+    const aktuell = await ladeAktiveAnnahme(link.dealRecordId);
+    return { ok: false, reason: aktuell?.id === row.id ? "bereits_unterschrieben" : "keine_annahme" };
   }
 
   await emitEvent({
@@ -317,6 +398,7 @@ export async function vertragNachlauf(confirmationId: string): Promise<void> {
     const portalUrl = `${origin}/s/${link.token}`;
     const kunde = row.acceptedFullName || portal.customerDisplayName;
     const pdf = { buf: Buffer.from(doc.fileContent, "base64"), filename: doc.fileName };
+    const pdfDabei = pdf.buf.length <= 8 * 1024 * 1024;
     const kanaele: string[] = [];
 
     try {
@@ -349,8 +431,9 @@ export async function vertragNachlauf(confirmationId: string): Promise<void> {
             dealNumber: portal.dealNumber,
             portalUrl,
             unterschriftAm: row.unterschriftAt,
+            pdfDabei,
           }),
-          attachments: pdf.buf.length <= 8 * 1024 * 1024 ? [{ filename: pdf.filename, contentType: "application/pdf", content: pdf.buf }] : [],
+          attachments: pdfDabei ? [{ filename: pdf.filename, contentType: "application/pdf", content: pdf.buf }] : [],
         });
         kanaele.push("email");
       }

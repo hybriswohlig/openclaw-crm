@@ -63,6 +63,11 @@ export function oeffentlichAbrufbar(documentType: string): boolean {
   return (OEFFENTLICHE_DOKUMENTTYPEN as readonly string[]).includes(documentType);
 }
 
+/** Im CRM löschbar? Die unterschriebene Vertragsmappe ist an die Annahme gebunden und bleibt. */
+export function loeschbar(documentType: string): boolean {
+  return documentType !== "signed_contract";
+}
+
 /** Link auf die unterschriebene Vertragsmappe, nur bei aktiver Annahme mit Dokument. */
 export function vertragUrl(input: { token: string; angenommen: boolean; vertragDocumentId: string | null }): string | null {
   if (!input.angenommen || !input.vertragDocumentId) return null;

@@ -50,6 +50,13 @@ for (const width of [1440, 390]) {
   // B: Stufe 2, Nebenaktion im Panel (getippt), danach unter Dokumente
   const b = await seite(width);
   await b.goto("http://127.0.0.1:4178/?stage=2&unterschrift", { waitUntil: "networkidle" });
+  // Nebenaktion: das Panel steht hinter dem Auftragsinhalt (Anzahlung, Rechnung, Dokumente haben Vorrang).
+  const nachInhalt = await b.evaluate(() => {
+    const panel = [...document.querySelectorAll("section")].find((el) => el.textContent?.includes("Ihr Auftrag ist bereits verbindlich erteilt"));
+    const inhalt = document.getElementById("portal-content");
+    return !!panel && !!inhalt && !inhalt.contains(panel) && !!(inhalt.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+  assert.ok(nachInhalt, `Panel steht nach dem Auftragsinhalt (${width})`);
   await b.locator("section:has-text('Vertrag unterschreiben') button:has-text('Vertrag unterschreiben')").click();
   await b.locator("button[aria-pressed]:has-text('Tippen')").click();
   await b.screenshot({ path: `${out}/b-${width}-getippt.png`, fullPage: false });

@@ -11,6 +11,8 @@ export interface UnterschriftPayload {
   name: string;
   /** PNG als Data-URL bei „gezeichnet“, sonst null. */
   bildDataUrl: string | null;
+  /** Zeitpunkt der Annahme, die das Formular anzeigt (ISO). Bindet die Unterschrift an genau diese Annahme. */
+  annahmeAm: string;
 }
 
 export interface UnterschriftRecord {
@@ -31,12 +33,20 @@ export function parseUnterschriftPayload(raw: unknown): UnterschriftPayload | nu
   if (typeof r.name !== "string") return null;
   const name = r.name.trim();
   if (name.length < 2 || name.length > 200) return null;
-  if (r.art === "getippt") return { art: "getippt", name, bildDataUrl: null };
+  if (typeof r.annahmeAm !== "string" || !Number.isFinite(Date.parse(r.annahmeAm))) return null;
+  const annahmeAm = r.annahmeAm;
+  if (r.art === "getippt") return { art: "getippt", name, bildDataUrl: null, annahmeAm };
   const bild = r.bildDataUrl;
   if (typeof bild !== "string" || !bild.startsWith(PNG_PRAEFIX)) return null;
   const laenge = bild.length - PNG_PRAEFIX.length;
   if (laenge <= 0 || laenge > UNTERSCHRIFT_BILD_MAX_BASE64) return null;
-  return { art: "gezeichnet", name, bildDataUrl: bild };
+  return { art: "gezeichnet", name, bildDataUrl: bild, annahmeAm };
+}
+
+/** Gehört die Unterschrift zur angezeigten Annahme? Ein veralteter Tab darf keine neuere Annahme unterschreiben. */
+export function gleicheAnnahme(signedAt: Date, annahmeAm: string): boolean {
+  const t = Date.parse(annahmeAm);
+  return Number.isFinite(t) && t === signedAt.getTime();
 }
 
 /** Unterschrift anbieten: aktive Annahme mit gebundenem KV-PDF, Firma hat sie eingeschaltet, noch nicht unterschrieben. */

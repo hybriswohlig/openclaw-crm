@@ -19,6 +19,7 @@ const STATUS: Record<UnterschriftGrund, number> = {
   keine_annahme: 409,
   kein_pdf: 409,
   bereits_unterschrieben: 409,
+  angebot_geaendert: 409,
   pdf_fehler: 500,
 };
 

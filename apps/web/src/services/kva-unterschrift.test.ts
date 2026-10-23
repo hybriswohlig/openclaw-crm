@@ -9,6 +9,21 @@ describe("pngAusDataUrl", () => {
     expect(bytes).not.toBeNull();
     expect(Array.from(bytes!.subarray(0, 4))).toEqual([0x89, 0x50, 0x4e, 0x47]);
   });
+  it("lehnt riesige Abmessungen und PNG ohne IHDR ab", () => {
+    const kopf = (w: number, h: number) => {
+      const b = Buffer.alloc(33);
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(b, 0);
+      b.writeUInt32BE(13, 8);
+      b.write("IHDR", 12, "ascii");
+      b.writeUInt32BE(w, 16);
+      b.writeUInt32BE(h, 20);
+      return `data:image/png;base64,${b.toString("base64")}`;
+    };
+    expect(pngAusDataUrl(kopf(20000, 20000))).toBeNull();
+    expect(pngAusDataUrl(kopf(5000, 300))).toBeNull();
+    expect(pngAusDataUrl(kopf(1380, 540))).not.toBeNull();
+    expect(pngAusDataUrl(`data:image/png;base64,${Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).toString("base64")}`)).toBeNull();
+  });
   it("lehnt falsches Präfix, kaputtes Base64 und Nicht-PNG ab", () => {
     expect(pngAusDataUrl(`data:image/jpeg;base64,${PNG_1PX}`)).toBeNull();
     expect(pngAusDataUrl("data:image/png;base64,%%%")).toBeNull();
@@ -36,8 +51,14 @@ describe("Texte", () => {
     expect(t).toContain(d.portalUrl);
     expect(t).not.toMatch(/[—–]/);
   });
+  it("Mail ohne Anhang verspricht keinen Anhang", () => {
+    const ohne = vertragMailText({ ...d, unterschriftAm: new Date("2026-10-22T08:20:00Z"), pdfDabei: false });
+    expect(ohne).not.toContain("Im Anhang");
+    expect(ohne).toContain("in Ihrem Kundenportal herunterladen");
+    expect(vertragMailText({ ...d, unterschriftAm: new Date("2026-10-22T08:20:00Z"), pdfDabei: true })).toContain("Im Anhang finden Sie");
+  });
   it("Mail nennt Datum und Uhrzeit der Unterschrift in Berliner Zeit", () => {
-    const t = vertragMailText({ ...d, unterschriftAm: new Date("2026-10-22T08:20:00Z") });
+    const t = vertragMailText({ ...d, unterschriftAm: new Date("2026-10-22T08:20:00Z"), pdfDabei: true });
     expect(t).toContain("Guten Tag Anna Muster,");
     expect(t).toContain("22. Oktober 2026");
     expect(t).toContain("10:20 Uhr");

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { angezeigtesKvDokument, gueltigeAuftragsbestaetigung, oeffentlichAbrufbar, serviceTypeZuSpeichern, vertragUrl } from "./portal-dokumente";
+import { angezeigtesKvDokument, gueltigeAuftragsbestaetigung, loeschbar, oeffentlichAbrufbar, serviceTypeZuSpeichern, vertragUrl } from "./portal-dokumente";
 
 const doc = (id: string, uploadedAt: string) => ({ id, uploadedAt: new Date(uploadedAt) });
 
@@ -68,5 +68,12 @@ describe("vertragUrl", () => {
     expect(vertragUrl({ token: "t", angenommen: true, vertragDocumentId: "d1" })).toBe("/api/public/t/documents/d1");
     expect(vertragUrl({ token: "t", angenommen: false, vertragDocumentId: "d1" })).toBeNull();
     expect(vertragUrl({ token: "t", angenommen: true, vertragDocumentId: null })).toBeNull();
+  });
+});
+
+describe("loeschbar", () => {
+  it("der unterschriebene Vertrag ist im CRM nicht löschbar, alles andere schon", () => {
+    expect(loeschbar("signed_contract")).toBe(false);
+    for (const t of ["quotation", "order_confirmation", "invoice", "payment_confirmation", "worker_instructions"]) expect(loeschbar(t)).toBe(true);
   });
 });

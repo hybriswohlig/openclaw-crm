@@ -16,6 +16,7 @@ const FEHLER: Record<string, string> = {
   KEIN_PDF: "Die Unterschrift ist für diesen Auftrag nicht verfügbar. Bitte laden Sie die Seite neu.",
   KEINE_ANNAHME: "Die Unterschrift ist für diesen Auftrag nicht verfügbar. Bitte laden Sie die Seite neu.",
   BILD_UNGUELTIG: "Die Unterschrift konnte nicht übernommen werden. Bitte zeichnen Sie erneut oder tippen Sie Ihren Namen.",
+  ANGEBOT_GEAENDERT: "Ihr Auftrag wurde inzwischen geändert. Bitte laden Sie die Seite neu.",
   PDF_FEHLER: "Das Vertragsdokument konnte gerade nicht erstellt werden. Bitte versuchen Sie es in einer Minute erneut.",
 };
 
@@ -46,7 +47,12 @@ export function UnterschriftForm({
       const res = await fetch(`/api/public/${token}/unterschrift`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ art, name: name.trim(), bildDataUrl: art === "gezeichnet" ? bild : null }),
+        body: JSON.stringify({
+          art,
+          name: name.trim(),
+          bildDataUrl: art === "gezeichnet" ? bild : null,
+          annahmeAm: ctx.acceptance?.signedAt ?? "",
+        }),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: { code?: string } };

@@ -12,7 +12,8 @@ import { PanelHeading } from "./portal-ui";
 import { UnterschriftForm } from "./unterschrift-form";
 
 /**
- * Freiwillige Unterschrift als Nebenaktion auf jeder Stufe. Nach der
+ * Freiwillige Unterschrift als Nebenaktion auf jeder Stufe, unter dem
+ * Auftragsinhalt (Anzahlung und Rechnung haben Vorrang). Nach der
  * Unterschrift zeigt das Panel in Stufe 1 den Vertrag selbst an; ab Stufe 2
  * steht er in „Ihre Dokumente“.
  */
@@ -32,7 +33,7 @@ export function UnterschriftPanel({
   if (!moeglich) {
     if (!vertragUrl || !ctx.acceptance?.unterschrift || ctx.stage > 1) return null;
     return (
-      <section className="portal-panel mb-4" aria-live="polite">
+      <section className="portal-panel mt-6" aria-live="polite">
         <PanelHeading icon={PenLine} title="Ihr unterschriebener Vertrag">
           <p>Unterschrieben am {new Date(ctx.acceptance.unterschrift.at).toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" })}.</p>
         </PanelHeading>
@@ -51,7 +52,7 @@ export function UnterschriftPanel({
   }
 
   return (
-    <section className="portal-panel portal-note mb-4">
+    <section className="portal-panel portal-note mt-6">
       <PanelHeading icon={PenLine} title={BUTTON_VERTRAG_UNTERSCHREIBEN}>
         {/* Geöffnet zeigt das Formular den Hinweis selbst. */}
         {!offen && <p>{UNTERSCHRIFT_HINWEIS}</p>}

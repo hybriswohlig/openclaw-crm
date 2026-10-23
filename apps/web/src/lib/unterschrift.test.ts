@@ -1,19 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
-  BUTTON_VERTRAG_UNTERSCHREIBEN, UNTERSCHRIFT_HINWEIS, naechsteAktionNachAnnahme,
+  BUTTON_VERTRAG_UNTERSCHREIBEN, UNTERSCHRIFT_HINWEIS, gleicheAnnahme, naechsteAktionNachAnnahme,
   parseUnterschriftPayload, portalFeatures, unterschriftErklaerung, unterschriftMoeglich,
 } from "@openclaw-crm/customer-portal-core";
 
 const png = `data:image/png;base64,${"A".repeat(100)}`;
+const annahmeAm = "2026-10-22T08:15:00.000Z";
 
 describe("parseUnterschriftPayload", () => {
   it("gezeichnet mit PNG und Name", () => {
-    expect(parseUnterschriftPayload({ art: "gezeichnet", name: " Anna Muster ", bildDataUrl: png }))
-      .toEqual({ art: "gezeichnet", name: "Anna Muster", bildDataUrl: png });
+    expect(parseUnterschriftPayload({ art: "gezeichnet", name: " Anna Muster ", bildDataUrl: png, annahmeAm }))
+      .toEqual({ art: "gezeichnet", name: "Anna Muster", bildDataUrl: png, annahmeAm });
   });
   it("getippt verwirft ein mitgeschicktes Bild", () => {
-    expect(parseUnterschriftPayload({ art: "getippt", name: "Anna Muster", bildDataUrl: png }))
-      .toEqual({ art: "getippt", name: "Anna Muster", bildDataUrl: null });
+    expect(parseUnterschriftPayload({ art: "getippt", name: "Anna Muster", bildDataUrl: png, annahmeAm }))
+      .toEqual({ art: "getippt", name: "Anna Muster", bildDataUrl: null, annahmeAm });
   });
   it("lehnt ab: gezeichnet ohne Bild, falsches Präfix, zu groß, Name zu kurz, unbekannte Art", () => {
     expect(parseUnterschriftPayload({ art: "gezeichnet", name: "Anna Muster", bildDataUrl: null })).toBeNull();
@@ -22,6 +23,10 @@ describe("parseUnterschriftPayload", () => {
     expect(parseUnterschriftPayload({ art: "getippt", name: "A", bildDataUrl: null })).toBeNull();
     expect(parseUnterschriftPayload({ art: "foto", name: "Anna Muster", bildDataUrl: null })).toBeNull();
     expect(parseUnterschriftPayload(null)).toBeNull();
+  });
+  it("verlangt den Zeitpunkt der angezeigten Annahme", () => {
+    expect(parseUnterschriftPayload({ art: "getippt", name: "Anna Muster", bildDataUrl: null })).toBeNull();
+    expect(parseUnterschriftPayload({ art: "getippt", name: "Anna Muster", bildDataUrl: null, annahmeAm: "gestern" })).toBeNull();
   });
 });
 
@@ -54,5 +59,13 @@ describe("Texte und Feature", () => {
   it("signature schließt ohne Einstellung", () => {
     expect(portalFeatures(null).signature).toBe(false);
     expect(portalFeatures({ signatureEnabled: true }).signature).toBe(true);
+  });
+});
+
+describe("gleicheAnnahme", () => {
+  it("vergleicht den Zeitpunkt der Annahme exakt", () => {
+    expect(gleicheAnnahme(new Date("2026-10-22T08:15:00.000Z"), "2026-10-22T08:15:00.000Z")).toBe(true);
+    expect(gleicheAnnahme(new Date("2026-10-22T08:15:00.000Z"), "2026-10-22T08:15:01.000Z")).toBe(false);
+    expect(gleicheAnnahme(new Date("2026-10-22T08:15:00.000Z"), "kaputt")).toBe(false);
   });
 });
