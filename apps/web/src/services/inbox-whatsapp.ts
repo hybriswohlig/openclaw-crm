@@ -33,6 +33,8 @@ import { classifyMessagingBody, sollInboxPushSenden } from "./inbox-triage";
 import { looksDeclined, recordAgentDecline } from "./agent/agent-suppress";
 import { setHumanOwned } from "./agent/agent-gate";
 import { agentFelderBeimEingang, aiProcessedAtBeimEingang } from "./agent/ingest-arming";
+import { kontaktartFuerInboxKontakt } from "./kontaktart";
+import { KEIN_LEAD_LANE, KONTAKTART_LABELS, laneForKontaktart } from "@/lib/kontaktart";
 import { canonicalizePhone } from "@/lib/identity/canonical";
 import {
   INBOX_BRIDGE_BODY_LIMIT_BYTES,
@@ -594,7 +596,12 @@ export async function ingestInboundWhatsAppMessage(params: {
   const declined = looksDeclined(body) || looksDeclined(previewText);
   // Arms the reply agent? Un-armed messages are stamped processed below so the
   // worker's safety net leaves them alone.
-  const armiert = triage.lane === "lead" && !declined;
+  // Wer schon als Bewerber, Team/Helfer oder Partner eingestuft ist, bleibt
+  // das auch in einem neuen Chat: kein_lead, kein Agent, kein neuer Deal.
+  const kontaktart = await kontaktartFuerInboxKontakt(contact.id);
+  const lane = laneForKontaktart(kontaktart, triage.lane);
+  const perKontaktart = lane !== triage.lane;
+  const armiert = lane === "lead" && conv?.lane !== KEIN_LEAD_LANE && !declined;
 
   if (!conv) {
     const [created] = await db
@@ -608,9 +615,10 @@ export async function ingestInboundWhatsAppMessage(params: {
         lastMessageAt: sentAt,
         lastMessagePreview: preview,
         unreadCount: 1,
-        lane: triage.lane,
-        classificationReason: triage.reason,
-        classifiedBy: triage.by,
+        lane,
+        kontaktart,
+        classificationReason: perKontaktart ? `Kontaktart ${KONTAKTART_LABELS[kontaktart]}` : triage.reason,
+        classifiedBy: perKontaktart ? "manual" : triage.by,
         ...agentFelderBeimEingang({ armiert, declined, sentAt }),
       })
       // Two racing first-ever ingests of the same peer (e.g. message + echo)
@@ -631,7 +639,7 @@ export async function ingestInboundWhatsAppMessage(params: {
       // Eine OTP-/Plattform-Benachrichtigung (lane=info) bekommt keinen —
       // schreibt der Kontakt später eine echte Anfrage, hebt die Lane-Heilung
       // unten die Konversation auf lead und holt den Deal nach.
-      if (triage.lane === "lead") {
+      if (lane === "lead") {
         await createDealForNewConversation({
           workspaceId: account.workspaceId,
           conversationId: conv.id,
@@ -682,7 +690,7 @@ export async function ingestInboundWhatsAppMessage(params: {
   const laneUpgrade =
     !isNewConversation &&
     !!conv &&
-    triage.lane === "lead" &&
+    lane === "lead" &&
     conv.lane === "info" &&
     conv.classifiedBy !== "manual";
 

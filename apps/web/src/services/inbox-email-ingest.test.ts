@@ -1,10 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-const mock = vi.hoisted(() => ({ limit: vi.fn(), set: vi.fn(), parse: vi.fn(), push: vi.fn(), pending: [] as Promise<unknown>[] }));
+const mock = vi.hoisted(() => ({
+  limit: vi.fn(),
+  set: vi.fn(),
+  parse: vi.fn(),
+  push: vi.fn(),
+  kontaktart: vi.fn(),
+  inserts: [] as Record<string, unknown>[],
+  pending: [] as Promise<unknown>[],
+}));
 vi.mock("@/db", () => ({
   db: {
     select: () => ({ from: () => ({ where: () => ({ limit: mock.limit }) }) }),
     update: () => ({ set: mock.set }),
-    insert: () => ({ values: () => ({ returning: async () => [{ id: "message" }] }) }),
+    insert: () => ({
+      values: (v: Record<string, unknown>) => {
+        mock.inserts.push(v);
+        return { returning: async () => [{ id: "message" }] };
+      },
+    }),
   },
 }));
 vi.mock("imapflow", () => ({
@@ -32,6 +45,7 @@ vi.mock("@/lib/identity/canonical", () => ({}));
 vi.mock("./workspace-settings", () => ({}));
 vi.mock("./immoscout-sync", () => ({}));
 vi.mock("./lead-name", () => ({}));
+vi.mock("./kontaktart", () => ({ kontaktartFuerInboxKontakt: mock.kontaktart }));
 import { syncChannelAccount } from "./inbox-email";
 import { VOM_CRM_GESTARTET_GRUND } from "./inbox-triage";
 
@@ -60,6 +74,8 @@ function antwort(headers: Record<string, string> = {}) {
 beforeEach(() => {
   vi.resetAllMocks();
   mock.pending.length = 0;
+  mock.inserts.length = 0;
+  mock.kontaktart.mockResolvedValue("lead_kunde");
   mock.set.mockReturnValue({ where: async () => undefined });
   // Reihenfolge der Abfragen: Konto, Dublette, Kontakt, Konversation
   mock.limit
@@ -88,5 +104,49 @@ describe("IMAP-Antwort auf eine vom CRM gestartete Mail", () => {
     await Promise.all(mock.pending);
     expect(mock.set).toHaveBeenCalledWith(expect.objectContaining({ unreadCount: 1 }));
     expect(mock.push).not.toHaveBeenCalled();
+  });
+});
+
+describe("neuer Thread einer Person mit bekannter Kontaktart", () => {
+  function neueAnfrage() {
+    return {
+      ...antwort(),
+      subject: "Frage zu Samstag",
+      text: "Hallo, ich kann am Samstag leider nicht, ich bin krank.",
+      messageId: "<neu@gmx.de>",
+      inReplyTo: undefined,
+    };
+  }
+
+  beforeEach(() => {
+    mock.limit.mockReset();
+    mock.limit
+      .mockResolvedValueOnce([account])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "contact", email: "anna.mueller@gmx.de" }])
+      .mockResolvedValueOnce([]);
+  });
+
+  it("legt die Konversation eines Helfers in kein_lead an, ohne den Agenten zu wecken", async () => {
+    mock.kontaktart.mockResolvedValue("team_helfer");
+    mock.parse.mockResolvedValue(neueAnfrage());
+    await syncChannelAccount("mailbox");
+    await Promise.all(mock.pending);
+
+    expect(mock.kontaktart).toHaveBeenCalledWith("contact");
+    const konversation = mock.inserts.find((v) => "externalThreadId" in v);
+    expect(konversation).toMatchObject({ lane: "kein_lead", kontaktart: "team_helfer", classifiedBy: "manual" });
+    expect(konversation?.aiNeedsReply).not.toBe(true);
+    // Die Krankmeldung klingelt trotzdem.
+    expect(mock.push).toHaveBeenCalled();
+  });
+
+  it("legt eine echte Anfrage weiter in lead an und weckt den Agenten", async () => {
+    mock.parse.mockResolvedValue(neueAnfrage());
+    await syncChannelAccount("mailbox");
+    await Promise.all(mock.pending);
+
+    const konversation = mock.inserts.find((v) => "externalThreadId" in v);
+    expect(konversation).toMatchObject({ lane: "lead", aiNeedsReply: true });
   });
 });

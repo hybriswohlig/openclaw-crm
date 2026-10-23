@@ -32,6 +32,8 @@ import {
   replyAddressForThread,
 } from "./inbox-kleinanzeigen";
 import { agentFelderBeimEingang, aiProcessedAtBeimEingang } from "./agent/ingest-arming";
+import { kontaktartFuerInboxKontakt } from "./kontaktart";
+import { DEFAULT_KONTAKTART, KEIN_LEAD_LANE, KONTAKTART_LABELS, laneForKontaktart } from "@/lib/kontaktart";
 import { createDealForNewConversation } from "./inbox";
 import { stampDealSourceIfEmpty, noteOutboundToCustomer } from "./deal-attribution";
 import { extractKleinanzeigenDetail } from "@/lib/deal-source";
@@ -249,9 +251,16 @@ async function ingestParsedEmail(
   // Opt-out: a STOP / clear decline must never arm the agent. IS24 mails come
   // from a no-reply address, so only treat real two-way threads as opt-outs.
   const declined = !isImmoLead && looksDeclined(body);
+  // Wer schon als Bewerber, Team/Helfer oder Partner eingestuft ist, bleibt
+  // das auch in einem neuen Thread: kein_lead, kein Agent, kein neuer Deal.
+  const kontaktart = isImmoLead ? DEFAULT_KONTAKTART : await kontaktartFuerInboxKontakt(contact.id);
+  const lane = laneForKontaktart(kontaktart, triage.lane);
+  const perKontaktart = lane !== triage.lane;
   // Arms the reply agent? Un-armed messages are stamped processed at insert so
   // the reply worker's safety net leaves them alone.
-  const armiert = isImmoLead ? false : triage.lane === "lead" && !declined;
+  const armiert = isImmoLead
+    ? false
+    : lane === "lead" && conv?.lane !== KEIN_LEAD_LANE && !declined;
 
   // Push nur für echte Anfragen (sollInboxPushSenden): entschieden mit der
   // Lane nach dieser Nachricht und dem Status vor ihr, denn das Update unten
@@ -270,9 +279,10 @@ async function ingestParsedEmail(
         lastMessageAt: sentAt,
         lastMessagePreview: preview,
         unreadCount: 1,
-        lane: triage.lane,
-        classificationReason: triage.reason,
-        classifiedBy: triage.by,
+        lane,
+        kontaktart,
+        classificationReason: perKontaktart ? `Kontaktart ${KONTAKTART_LABELS[kontaktart]}` : triage.reason,
+        classifiedBy: perKontaktart ? "manual" : triage.by,
         // IS24 leads land in the lead lane but get NO auto-reply: the sender is
         // a no-reply notification address, not a channel back to the customer.
         // The team works the lead from the created deal (phone/email in the body).
@@ -280,12 +290,12 @@ async function ingestParsedEmail(
       })
       .returning();
     conv = created;
-    pushSenden = sollInboxPushSenden({ lane: triage.lane, statusVorher: null });
+    pushSenden = sollInboxPushSenden({ lane, statusVorher: null });
 
     // Auto-create a deal in stage "Neue Anfrage" for brand-new Kleinanzeigen
     // inquiries that are real leads (not platform notifications), and link it
     // to this conversation. Other channels can reuse the same deal later.
-    if (isKleinanzeigen && triage.lane === "lead") {
+    if (isKleinanzeigen && lane === "lead") {
       await createDealForNewConversation({
         workspaceId: account.workspaceId,
         conversationId: conv.id,
@@ -350,7 +360,7 @@ async function ingestParsedEmail(
     // Anfrage auf einem info-Thread hebt die Lane auf 'lead' an — nie gegen
     // eine manuelle Einstufung — und holt für Kleinanzeigen den Deal nach.
     const laneUpgrade =
-      triage.lane === "lead" && conv.lane === "info" && conv.classifiedBy !== "manual";
+      lane === "lead" && conv.lane === "info" && conv.classifiedBy !== "manual";
     pushSenden = sollInboxPushSenden({
       lane: laneUpgrade ? "lead" : conv.lane,
       statusVorher: conv.status,

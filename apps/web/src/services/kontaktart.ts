@@ -87,6 +87,20 @@ export async function readPersonKontaktart(personId: string): Promise<Kontaktart
   return normalizeKontaktart(row?.title ?? row?.text) ?? DEFAULT_KONTAKTART;
 }
 
+/**
+ * Kontaktart der Person hinter einem Inbox-Kontakt, für den Eingang neuer
+ * Nachrichten. Ohne verknüpfte Person gilt Lead/Kunde.
+ */
+export async function kontaktartFuerInboxKontakt(contactId: string): Promise<Kontaktart> {
+  const [kontakt] = await db
+    .select({ personId: inboxContacts.crmRecordId })
+    .from(inboxContacts)
+    .where(eq(inboxContacts.id, contactId))
+    .limit(1);
+  if (!kontakt?.personId) return DEFAULT_KONTAKTART;
+  return readPersonKontaktart(kontakt.personId);
+}
+
 async function peopleOptionId(personId: string, kontaktart: Kontaktart): Promise<{ objectId: string; optionId: string } | null> {
   const [person] = await db
     .select({ objectId: records.objectId })
