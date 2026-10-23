@@ -80,7 +80,10 @@ frei über `crm_update_agent_draft` bzw. `PATCH /api/v1/agent-drafts/{id}`:
 - `approve_and_send` mit `humanApproved: true` (optional `approvedBy` und
   `note`, gespeichert am Entwurf und im Audit-Log) hebt nur die
   Auto-Send-Gates `human_owned` und `ai_paused` auf. `price_leak`, Ablauf,
-  `not_pending` und Session-/Sendefehler bleiben blockierend.
+  `not_pending`, `stale` und Session-/Sendefehler bleiben blockierend.
+  `stale` heißt: Der Kunde hat nach dem Entwurf neu geschrieben, der Entwurf
+  ist geschlossen und der nächste Agentenlauf schreibt eine neue Antwort. Mit
+  eigenem `finalText` geht der eigene Text trotzdem raus.
   `no_proactive_consent` bleibt blockierend, außer `overrideConsent: true`
   steht zusätzlich — das wird protokolliert und wirkt nur zusammen mit
   `humanApproved`. Die Freigabe setzt `ai_paused` und `human_owned` nicht
