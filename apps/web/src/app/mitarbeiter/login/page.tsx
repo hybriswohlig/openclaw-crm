@@ -8,7 +8,8 @@ import { safeRedirectPath } from "@/lib/safe-redirect";
 
 function LoginForm() {
   const searchParams = useSearchParams();
-  const redirectParam = searchParams.get("redirect");
+  // Nur eigene Pfade: ?redirect= darf nicht auf fremde Seiten führen.
+  const redirectTo = safeRedirectPath(searchParams.get("redirect"), "/");
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -37,7 +38,7 @@ function LoginForm() {
         return;
       }
 
-      window.location.href = safeRedirectPath(redirectParam, "/");
+      window.location.href = redirectTo;
     } catch {
       setError("Anmeldung fehlgeschlagen. Bitte erneut versuchen.");
       setLoading(false);

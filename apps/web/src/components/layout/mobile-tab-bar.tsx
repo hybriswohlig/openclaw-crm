@@ -20,7 +20,6 @@ import {
   HardHat,
   Banknote,
   Plug,
-  MessageSquare,
   Settings,
   type LucideIcon,
 } from "lucide-react";
@@ -30,6 +29,7 @@ import {
   mobileMehrItems,
   mobilePrimaryTabs,
 } from "./mobile-nav";
+import { mehrKachelSpalte } from "./mehr-raster";
 
 const ICONS: Record<string, LucideIcon> = {
   "/home": Home,
@@ -41,7 +41,6 @@ const ICONS: Record<string, LucideIcon> = {
   "/objects/deals": Handshake,
   "/notes": StickyNote,
   "/notifications": Bell,
-  "/chat": MessageSquare,
   "/objects/people": Users,
   "/objects/companies": Building2,
   "/employees": HardHat,
@@ -209,8 +208,9 @@ export function MobileTabBar() {
                 <X size={20} />
               </button>
             </div>
-            <div className="grid grid-cols-3 gap-2">
-              {mehrItems.map((it) => {
+            {/* Sechs Spalten, jede Kachel zwei breit: eine unvollständige letzte Reihe steht mittig. */}
+            <div className="grid grid-cols-6 gap-2">
+              {mehrItems.map((it, i) => {
                 const Ico = it.icon;
                 const active = isActive(it.href);
                 return (
@@ -220,6 +220,7 @@ export function MobileTabBar() {
                     aria-current={active ? "page" : undefined}
                     onClick={() => setSheetOpen(false)}
                     style={{
+                      gridColumn: mehrKachelSpalte(i, mehrItems.length),
                       display: "flex",
                       flexDirection: "column",
                       alignItems: "center",

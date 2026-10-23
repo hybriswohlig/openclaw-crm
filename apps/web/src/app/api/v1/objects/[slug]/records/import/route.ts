@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { getAuthContext, unauthorized, notFound, badRequest, success } from "@/lib/api-utils";
 import { getObjectBySlug } from "@/services/objects";
 import { createRecord } from "@/services/records";
+import { neueAnfrageStufeId, startStufeErgaenzen } from "@/services/stufen-wahl";
 
 /**
  * POST /api/v1/objects/[slug]/records/import
@@ -33,6 +34,8 @@ export async function POST(
 
   let created = 0;
   const errors: { row: number; message: string }[] = [];
+  // Leads ohne Stufe-Spalte starten wie im Posteingang in „Neue Anfrage“.
+  const startStufe = slug === "deals" ? await neueAnfrageStufeId(obj.id) : null;
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
@@ -48,7 +51,7 @@ export async function POST(
     if (!hasAnyValue) continue;
 
     try {
-      await createRecord(obj.id, row, ctx.userId);
+      await createRecord(obj.id, startStufeErgaenzen(row, startStufe), ctx.userId);
       created++;
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unknown error";

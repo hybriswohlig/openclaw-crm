@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { classifyInbound, classifyMessagingBody } from "./inbox-triage";
+import {
+  classifyInbound,
+  classifyMessagingBody,
+  istVomCrmGestartet,
+  sollInboxPushSenden,
+  VOM_CRM_GESTARTET_GRUND,
+} from "./inbox-triage";
 
 // KOT-IDENTITY Phase 6: keep ads / bots / notifications out of the lead inbox,
 // never lose a real buyer inquiry. Uses the actual noise senders from the audit.
@@ -82,5 +88,127 @@ describe("classifyMessagingBody — WhatsApp/SMS OTP noise -> Info", () => {
   });
   it("a message that merely contains numbers (address) is NOT flagged", () => {
     expect(classifyMessagingBody("Wir ziehen von Hauptstr 12 nach Bahnhofstr 8", "Bernd").lane).toBe("lead");
+  });
+});
+
+// Jede eingehende E-Mail, auch Newsletter und Spam, ging als Push an alle.
+// Jetzt klingeln nur echte Anfragen.
+describe("sollInboxPushSenden", () => {
+  it("pusht eine neue Anfrage in der Lead-Lane", () => {
+    expect(sollInboxPushSenden({ lane: "lead", statusVorher: null })).toBe(true);
+  });
+
+  it("pusht nicht für info, spam oder review", () => {
+    expect(sollInboxPushSenden({ lane: "info", statusVorher: null })).toBe(false);
+    expect(sollInboxPushSenden({ lane: "spam", statusVorher: null })).toBe(false);
+    expect(sollInboxPushSenden({ lane: "review", statusVorher: null })).toBe(false);
+    expect(sollInboxPushSenden({ lane: "info", statusVorher: "open" })).toBe(false);
+  });
+
+  it("pusht nicht für Kontakte, die kein Lead sind (Bewerber, Team, Partner, privat)", () => {
+    expect(sollInboxPushSenden({ lane: "kein_lead", statusVorher: "open" })).toBe(false);
+    expect(sollInboxPushSenden({ lane: "kein_lead", statusVorher: null })).toBe(false);
+  });
+
+  it("pusht nach einer Lane-Heilung info → lead (die Lane nach der Nachricht zählt)", () => {
+    expect(sollInboxPushSenden({ lane: "lead", statusVorher: "open" })).toBe(true);
+  });
+
+  it("pusht, wenn ein Kunde auf einen erledigten Lead-Chat antwortet", () => {
+    expect(sollInboxPushSenden({ lane: "lead", statusVorher: "resolved" })).toBe(true);
+  });
+
+  it("pusht nicht, wenn der Chat vor der Nachricht als Spam markiert war", () => {
+    // Der Ingest setzt den Status zurück auf open, der Operator wollte den
+    // Absender aber nicht mehr hören.
+    expect(sollInboxPushSenden({ lane: "spam", statusVorher: "spam" })).toBe(false);
+    // Ältere Spam-Markierungen ohne Spam-Lane
+    expect(sollInboxPushSenden({ lane: "lead", statusVorher: "spam" })).toBe(false);
+  });
+
+  it("Newsletter und OTP-Codes aus der Triage pushen nicht, echte Anfragen schon", () => {
+    const newsletter = classifyInbound({
+      fromAddr: "news@shop.example",
+      subject: "Nur heute: 30 % Rabatt",
+      headers: { "List-Unsubscribe": "<mailto:unsubscribe@shop.example>" },
+    });
+    expect(sollInboxPushSenden({ lane: newsletter.lane, statusVorher: null })).toBe(false);
+
+    const otp = classifyMessagingBody("Dein Bestätigungscode für Facebook ist 012345.");
+    expect(sollInboxPushSenden({ lane: otp.lane, statusVorher: null })).toBe(false);
+
+    const anfrage = classifyInbound({
+      fromAddr: "anna.mueller@gmx.de",
+      subject: "Anfrage Umzug",
+      body: "Guten Tag, ich brauche ein Angebot fuer einen Umzug von Stuttgart nach Esslingen.",
+    });
+    expect(sollInboxPushSenden({ lane: anfrage.lane, statusVorher: null })).toBe(true);
+  });
+
+  // KVA-Bestätigung, Portal-Dokument und Widerruf bitten den Kunden, auf die
+  // Mail zu antworten. Über IMAP landet die Antwort per In-Reply-To in der
+  // info-Konversation aus sendNewEmail, und die Lane-Heilung überspringt
+  // manuelle Einstufungen. Vor dem Push-Filter klingelte jede dieser Antworten.
+  it("pusht die Antwort des Kunden auf eine vom CRM gestartete Mail", () => {
+    const konversation = { classifiedBy: "manual" as const, classificationReason: VOM_CRM_GESTARTET_GRUND };
+    const antwort = classifyInbound({
+      fromAddr: "anna.mueller@gmx.de",
+      subject: "Re: Bestätigung Ihres Auftrags 2026-0815",
+      body: "Danke für die Bestätigung. Kommen Sie am Freitag schon um 8 Uhr?",
+    });
+    expect(
+      sollInboxPushSenden({
+        lane: "info",
+        statusVorher: "open",
+        vomCrmGestartet: istVomCrmGestartet(konversation),
+        triageLane: antwort.lane,
+      })
+    ).toBe(true);
+    // auch wenn der Chat schon erledigt war
+    expect(
+      sollInboxPushSenden({ lane: "info", statusVorher: "resolved", vomCrmGestartet: true, triageLane: "lead" })
+    ).toBe(true);
+  });
+
+  it("eine Abwesenheitsnotiz auf eine vom CRM gestartete Mail pusht nicht", () => {
+    const abwesend = classifyInbound({
+      fromAddr: "anna.mueller@gmx.de",
+      subject: "Abwesenheitsnotiz: Bestätigung Ihres Auftrags 2026-0815",
+      headers: { "Auto-Submitted": "auto-replied" },
+    });
+    expect(
+      sollInboxPushSenden({ lane: "info", statusVorher: "open", vomCrmGestartet: true, triageLane: abwesend.lane })
+    ).toBe(false);
+  });
+
+  it("andere info-Chats bleiben still, auch wenn die Nachricht wie eine Anfrage aussieht", () => {
+    expect(
+      sollInboxPushSenden({ lane: "info", statusVorher: "open", vomCrmGestartet: false, triageLane: "lead" })
+    ).toBe(false);
+    expect(sollInboxPushSenden({ lane: "info", statusVorher: "open", triageLane: "lead" })).toBe(false);
+  });
+
+  it("eine vom CRM gestartete Mail, die der Operator als Spam markiert hat, pusht nicht", () => {
+    expect(
+      sollInboxPushSenden({ lane: "spam", statusVorher: "spam", vomCrmGestartet: true, triageLane: "lead" })
+    ).toBe(false);
+    expect(
+      sollInboxPushSenden({ lane: "info", statusVorher: "spam", vomCrmGestartet: true, triageLane: "lead" })
+    ).toBe(false);
+  });
+});
+
+describe("istVomCrmGestartet", () => {
+  it("erkennt die Einstufung, die sendNewEmail schreibt", () => {
+    expect(istVomCrmGestartet({ classifiedBy: "manual", classificationReason: VOM_CRM_GESTARTET_GRUND })).toBe(true);
+  });
+
+  it("nicht für Triage-Einstufungen und nicht nach Operator-Aktionen", () => {
+    const newsletter = classifyInbound({ fromAddr: "newsletter@example.com" });
+    expect(istVomCrmGestartet({ classifiedBy: newsletter.by, classificationReason: newsletter.reason })).toBe(false);
+    // updateConversationStatus überschreibt den Grund beim Spam-Markieren und Wieder-Öffnen
+    expect(istVomCrmGestartet({ classifiedBy: "manual", classificationReason: "vom Operator als Spam markiert" })).toBe(false);
+    expect(istVomCrmGestartet({ classifiedBy: "manual", classificationReason: "vom Operator wieder geöffnet" })).toBe(false);
+    expect(istVomCrmGestartet({ classifiedBy: null, classificationReason: null })).toBe(false);
   });
 });

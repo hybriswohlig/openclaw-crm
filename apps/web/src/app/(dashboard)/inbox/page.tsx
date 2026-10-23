@@ -51,8 +51,8 @@ import {
   isDraftBannerEnabled,
   markDraftConsumed,
   type DraftSuggestion,
-} from "@/components/chat/draft-suggestion-banner";
-import { ShadowDraftBanner } from "@/components/chat/shadow-draft-banner";
+} from "@/components/inbox/draft-suggestion-banner";
+import { ShadowDraftBanner } from "@/components/inbox/shadow-draft-banner";
 import { CustomerLinkComposer } from "@/components/inbox/customer-link-composer";
 import { InboxContextPanel } from "@/components/inbox/context-panel";
 import { ChannelAvatar, type LastChannel } from "@/components/inbox/channel-logos";

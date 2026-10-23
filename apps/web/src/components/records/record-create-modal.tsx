@@ -185,7 +185,7 @@ function FieldInput({
           required={isRequired}
         >
           <option value="">Auswählen...</option>
-          {attr.statuses?.map((s) => (
+          {attr.statuses?.filter((s) => s.isActive || s.id === value).map((s) => (
             <option key={s.id} value={s.id}>
               {s.title}
             </option>

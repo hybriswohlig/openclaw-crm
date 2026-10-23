@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { getAuthContext, unauthorized, success, badRequest } from "@/lib/api-utils";
 import { getWorkspace, updateWorkspace } from "@/services/workspace";
-import { mergeWorkspaceSettingsUpdate, redactWorkspaceSettings } from "@/lib/workspace-settings";
+import { stripSecretSettings, toPublicWorkspace } from "@/lib/workspace-secrets";
 
 export async function GET(req: NextRequest) {
   const ctx = await getAuthContext(req);
@@ -9,9 +9,9 @@ export async function GET(req: NextRequest) {
 
   const workspace = await getWorkspace(ctx.workspaceId);
   return success({
-    ...workspace,
-    // Every member's browser loads this (sidebar); secrets stay server-side.
-    settings: redactWorkspaceSettings(workspace?.settings),
+    // Geht an jedes Mitglied (Seitenleiste, crm_whoami): Einstellungen ohne
+    // geheime Felder wie den OpenRouter-Schlüssel, dafür hasOpenrouterKey.
+    ...(workspace ? toPublicWorkspace(workspace) : {}),
     role: ctx.workspaceRole,
     permissions: ctx.permissions,
     // Effective capability flags — admins implicitly have everything. The UI
@@ -33,12 +33,18 @@ export async function PATCH(req: NextRequest) {
   }
 
   const body = await req.json();
-  // /settings sends back the redacted settings from GET; keep the stored
-  // secrets instead of wiping them (they change only via /ai-settings).
-  if (body.settings !== undefined) {
-    const current = await getWorkspace(ctx.workspaceId);
-    body.settings = mergeWorkspaceSettingsUpdate(current?.settings, body.settings);
+  const settings: unknown = body?.settings;
+  if (
+    settings !== undefined &&
+    (typeof settings !== "object" || settings === null || Array.isArray(settings))
+  ) {
+    return badRequest("settings must be an object");
   }
+
+  // Geheimnisse ändern sich nur über ihre eigenen Admin-Routen
+  // (/api/v1/ai-settings). Was der Client hier mitschickt, fällt weg;
+  // updateWorkspace behält die gespeicherten.
+  if (settings !== undefined) body.settings = stripSecretSettings(settings);
   const updated = await updateWorkspace(ctx.workspaceId, body);
-  return success(updated && { ...updated, settings: redactWorkspaceSettings(updated.settings) });
+  return success(updated ? toPublicWorkspace(updated) : updated);
 }

@@ -314,6 +314,14 @@ export function badRequest(message: string) {
   );
 }
 
+/** Return a 409 JSON response */
+export function conflict(message: string) {
+  return NextResponse.json(
+    { error: { code: "CONFLICT", message } },
+    { status: 409 }
+  );
+}
+
 /** Return a success JSON response */
 export function success<T>(data: T, status = 200) {
   return NextResponse.json({ data }, { status });

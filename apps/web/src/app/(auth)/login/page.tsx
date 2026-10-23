@@ -44,17 +44,12 @@ const Icon = {
       <polyline points="20 6 9 17 4 12" />
     </svg>
   ),
-  Pin: (p: SVGProps<SVGSVGElement>) => (
-    <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z" />
-      <circle cx="12" cy="10" r="2.5" />
-    </svg>
-  ),
 };
 
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  // Nur eigene Pfade: ?redirect= darf nicht auf fremde Seiten führen.
   const redirectTo = safeRedirectPath(searchParams.get("redirect"), "/home");
   const registered = searchParams.get("registered");
   const reason = searchParams.get("reason");
@@ -71,7 +66,9 @@ function LoginForm() {
     setError("");
     setPending(true);
     try {
-      const result = await signIn.email({ email, password: pw });
+      // Ohne Haken endet die Sitzung mit dem Schließen des Browsers, spätestens
+      // nach einem Tag (better-auth); mit Haken gilt das Jahr aus lib/auth.ts.
+      const result = await signIn.email({ email, password: pw, rememberMe: remember });
       if (result.error) {
         setError(result.error.message || "E-Mail oder Passwort ungültig");
       } else {
@@ -101,10 +98,6 @@ function LoginForm() {
             Kottke <span className={styles.wordmarkSub}>Umzüge</span>
           </span>
         </span>
-        <span className={styles.topbarMeta}>
-          <span className={styles.pulse} />
-          <span>System aktiv · v1.3.3</span>
-        </span>
       </header>
 
       <main className={styles.stage}>
@@ -120,24 +113,9 @@ function LoginForm() {
               zurück, <em>Crew.</em>
             </h1>
             <p className={`${styles.sub} ${styles.fu} ${styles.fu3}`}>
-              Ein Werkzeug für die, die es bedienen. Angebote, Aufträge, Touren,
-              Rechnungen und das alles an einem Ort, gemacht für Tijara.
+              Ein Werkzeug für die, die es bedienen. Angebote, Aufträge, Touren
+              und Rechnungen, alles an einem Ort.
             </p>
-          </div>
-
-          <div className={`${styles.crew} ${styles.fu} ${styles.fu4}`}>
-            <div className={styles.avatars}>
-              <span className={`${styles.avatar} ${styles.a1}`}>M</span>
-              <span className={`${styles.avatar} ${styles.a2}`}>J</span>
-              <span className={`${styles.avatar} ${styles.a3}`}>K</span>
-            </div>
-            <div className={styles.crewText}>
-              <b>3 aktive Nutzer</b>
-              <br />
-              <span className={styles.crewMuted}>
-                zuletzt online vor 4 Minuten
-              </span>
-            </div>
           </div>
         </section>
 
@@ -162,7 +140,7 @@ function LoginForm() {
             )}
             {reason === "rejected" && (
               <div className={styles.errorBox}>
-                Deine Registrierung wurde nicht genehmigt. Bitte wende dich an
+                Dein Zugang zum CRM ist nicht freigegeben. Bitte wende dich an
                 einen Administrator.
               </div>
             )}
@@ -189,10 +167,7 @@ function LoginForm() {
 
             <div className={styles.field}>
               <label htmlFor="pw" className={styles.fieldLabel}>
-                <span>Passwort</span>
-                <span className={styles.hint}>
-                  <a href="#">Vergessen?</a>
-                </span>
+                Passwort
               </label>
               <div className={styles.inputWrap}>
                 <Icon.Lock className={styles.inputIcon} />
@@ -202,6 +177,7 @@ function LoginForm() {
                   className={styles.input}
                   placeholder="••••••••"
                   autoComplete="current-password"
+                  aria-describedby="pw-hinweis"
                   value={pw}
                   onChange={(e) => setPw(e.target.value)}
                   required
@@ -219,6 +195,9 @@ function LoginForm() {
                   )}
                 </button>
               </div>
+              <p id="pw-hinweis" className={styles.fieldNote}>
+                Passwort vergessen? Bitte an die Teamleitung wenden.
+              </p>
             </div>
 
             <div className={styles.row}>
@@ -254,10 +233,6 @@ function LoginForm() {
       </main>
 
       <footer className={styles.bottom}>
-        <span className={styles.loc}>
-          <Icon.Pin width="12" height="12" />
-          <span>Zentrale · Marktstr. 12</span>
-        </span>
         <span>{today}</span>
         <span>© {year} Kottke Umzüge</span>
       </footer>

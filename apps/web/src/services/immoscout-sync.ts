@@ -26,6 +26,7 @@ import { assignDealNumber } from "./financial";
 import { stampDealSourceIfEmpty } from "./deal-attribution";
 import { computeLeadName } from "./lead-name";
 import { updateIntegration } from "./integrations";
+import { neueAnfrageStufeId } from "./stufen-wahl";
 
 const API_BASE = "https://www.umzug-easy.de/api";
 
@@ -275,6 +276,10 @@ export async function syncImmoscoutLeads(
   const peopleAttrBySlug = new Map(peopleAttrs.map((a) => [a.slug, a.id]));
   const dealsAttrBySlug = new Map(dealsAttrs.map((a) => [a.slug, a.id]));
 
+  // Startstufe wie bei Leads aus dem Posteingang; ohne sie fehlt der Lead in
+  // Pipeline, Statistik und Lagekarte.
+  const startStufeId = await neueAnfrageStufeId(dealsObj.id);
+
   // 4. Resolve "ImmobilienScout" lead_source option for people
   let leadSourceOptionId: string | null = null;
   const leadSourceAttrId = peopleAttrBySlug.get("lead_source");
@@ -494,6 +499,7 @@ export async function syncImmoscoutLeads(
         name: dealName,
         moving_lead_payload: payload,
       };
+      if (startStufeId) dealInput.stage = startStufeId;
       if (moveDate) dealInput.move_date = moveDate;
       if (inventoryParts.length > 0) dealInput.inventory_notes = inventoryParts.join("\n");
       if (personRecordId) dealInput.associated_people = personRecordId;

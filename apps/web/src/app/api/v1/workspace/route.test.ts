@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
-// GET /api/v1/workspace is loaded by the sidebar on every page for every
-// member; it returned the raw settings row including the OpenRouter API key.
-// PATCH must not erase the key when /settings sends back the (now redacted)
-// settings object it got from GET.
+// GET /api/v1/workspace gab das ganze settings-Objekt an jedes Mitglied
+// zurück, samt OpenRouter-Schlüssel im Klartext (Seitenleiste, crm_whoami).
+// Gleiche Technik wie die anderen Route-Tests: nur die Service-Naht mocken,
+// die echten Antwort-Helfer aus @/lib/api-utils behalten.
 const mocks = vi.hoisted(() => ({
   getAuthContext: vi.fn(),
   getWorkspace: vi.fn(),
@@ -23,57 +23,136 @@ vi.mock("@/services/workspace", () => ({
 
 import { GET, PATCH } from "./route";
 
-const WORKSPACE_ID = "ws_kottke_prod";
-const STORED = {
-  id: WORKSPACE_ID,
-  name: "Kottke",
-  settings: { openrouterApiKey: "sk-or-secret", logo: "<svg/>", openrouterModel: "m" },
+const SCHLUESSEL = "sk-or-v1-geheim-1234567890";
+
+const ZEILE = {
+  id: "ws_kottke_prod",
+  name: "Kottke Umzüge",
+  slug: "kottke",
+  settings: {
+    logo: "<svg/>",
+    openrouterApiKey: SCHLUESSEL,
+    openrouterModel: "anthropic/claude-sonnet-4",
+  },
+  createdAt: "2025-01-01T00:00:00.000Z",
+  updatedAt: "2026-10-01T00:00:00.000Z",
 };
 
-function ctx(role: "admin" | "member") {
-  return { userId: "usr_1", workspaceId: WORKSPACE_ID, workspaceRole: role, permissions: {} };
+const MITGLIED = {
+  userId: "usr_jonas",
+  workspaceId: ZEILE.id,
+  workspaceRole: "member" as const,
+  permissions: {},
+  authMethod: "cookie" as const,
+};
+
+function callPatch(body: unknown) {
+  return PATCH(
+    new NextRequest("https://crm.test/api/v1/workspace", {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    })
+  );
 }
 
-function req(method: string, body?: unknown) {
-  return new NextRequest("http://localhost/api/v1/workspace", {
-    method,
-    ...(body !== undefined && { body: JSON.stringify(body) }),
-  });
-}
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocks.getAuthContext.mockResolvedValue(MITGLIED);
+  mocks.getWorkspace.mockResolvedValue(ZEILE);
+});
 
-describe("/api/v1/workspace", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mocks.getWorkspace.mockResolvedValue(structuredClone(STORED));
-    mocks.updateWorkspace.mockImplementation(async (_id, input) => ({ ...STORED, ...input }));
-  });
+describe("GET /api/v1/workspace", () => {
+  it("liefert einem Mitglied die Einstellungen ohne OpenRouter-Schlüssel", async () => {
+    const res = await GET(new NextRequest("https://crm.test/api/v1/workspace"));
+    const text = await res.text();
+    const body = JSON.parse(text);
 
-  it("GET does not return the OpenRouter key to a member", async () => {
-    mocks.getAuthContext.mockResolvedValue(ctx("member"));
-    const res = await GET(req("GET"));
-    const body = await res.json();
     expect(res.status).toBe(200);
-    expect(body.data.settings).toEqual({ logo: "<svg/>", openrouterModel: "m" });
-    expect(JSON.stringify(body)).not.toContain("sk-or-secret");
-  });
-
-  it("PATCH keeps the stored key and does not echo it", async () => {
-    mocks.getAuthContext.mockResolvedValue(ctx("admin"));
-    const res = await PATCH(
-      req("PATCH", { name: "Kottke", settings: { logo: "<svg2/>", openrouterModel: "m" } })
-    );
-    const body = await res.json();
-    expect(res.status).toBe(200);
-    expect(mocks.updateWorkspace).toHaveBeenCalledWith(WORKSPACE_ID, {
-      name: "Kottke",
-      settings: { logo: "<svg2/>", openrouterModel: "m", openrouterApiKey: "sk-or-secret" },
+    expect(text).not.toContain(SCHLUESSEL);
+    expect(body.data.settings).toEqual({
+      logo: "<svg/>",
+      openrouterModel: "anthropic/claude-sonnet-4",
     });
-    expect(JSON.stringify(body)).not.toContain("sk-or-secret");
+    expect(body.data.hasOpenrouterKey).toBe(true);
+    // Was Seitenleiste, Einstellungen und Integrationen lesen, bleibt da.
+    expect(body.data).toMatchObject({
+      id: ZEILE.id,
+      name: "Kottke Umzüge",
+      slug: "kottke",
+      role: "member",
+      permissions: {},
+      capabilities: { manageChannels: false },
+    });
   });
 
-  it("PATCH by a member is still refused", async () => {
-    mocks.getAuthContext.mockResolvedValue(ctx("member"));
-    const res = await PATCH(req("PATCH", { settings: {} }));
+  it("meldet hasOpenrouterKey false, wenn kein Schlüssel hinterlegt ist", async () => {
+    mocks.getWorkspace.mockResolvedValue({ ...ZEILE, settings: { logo: "<svg/>" } });
+
+    const res = await GET(new NextRequest("https://crm.test/api/v1/workspace"));
+    const body = await res.json();
+
+    expect(body.data.hasOpenrouterKey).toBe(false);
+    expect(body.data.settings).toEqual({ logo: "<svg/>" });
+  });
+
+  it("antwortet 401 ohne Anmeldung", async () => {
+    mocks.getAuthContext.mockResolvedValue(null);
+
+    const res = await GET(new NextRequest("https://crm.test/api/v1/workspace"));
+
+    expect(res.status).toBe(401);
+    expect(mocks.getWorkspace).not.toHaveBeenCalled();
+  });
+});
+
+describe("PATCH /api/v1/workspace", () => {
+  beforeEach(() => {
+    mocks.getAuthContext.mockResolvedValue({ ...MITGLIED, workspaceRole: "admin" });
+  });
+
+  it("gibt auch in der Antwort keinen Schlüssel heraus", async () => {
+    mocks.updateWorkspace.mockResolvedValue({ ...ZEILE, name: "Kottke Umzüge GmbH" });
+
+    const res = await callPatch({ name: "Kottke Umzüge GmbH", settings: { logo: "<svg/>" } });
+    const text = await res.text();
+    const body = JSON.parse(text);
+
+    expect(res.status).toBe(200);
+    expect(text).not.toContain(SCHLUESSEL);
+    expect(body.data).toMatchObject({
+      name: "Kottke Umzüge GmbH",
+      hasOpenrouterKey: true,
+      settings: { logo: "<svg/>", openrouterModel: "anthropic/claude-sonnet-4" },
+    });
+    expect(mocks.updateWorkspace).toHaveBeenCalledWith(ZEILE.id, {
+      name: "Kottke Umzüge GmbH",
+      settings: { logo: "<svg/>" },
+    });
+  });
+
+  it("übernimmt keinen Schlüssel, den der Client mitschickt", async () => {
+    mocks.updateWorkspace.mockResolvedValue(ZEILE);
+
+    await callPatch({ settings: { logo: "<svg/>", openrouterApiKey: "sk-fremd" } });
+
+    expect(mocks.updateWorkspace).toHaveBeenCalledWith(ZEILE.id, {
+      settings: { logo: "<svg/>" },
+    });
+  });
+
+  it("lehnt settings ab, die kein Objekt sind", async () => {
+    for (const settings of [null, [], "logo", 42]) {
+      const res = await callPatch({ settings });
+      expect(res.status, JSON.stringify(settings)).toBe(400);
+    }
+    expect(mocks.updateWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("lässt nur Admins ändern", async () => {
+    mocks.getAuthContext.mockResolvedValue(MITGLIED);
+
+    const res = await callPatch({ name: "Neu" });
+
     expect(res.status).toBe(400);
     expect(mocks.updateWorkspace).not.toHaveBeenCalled();
   });

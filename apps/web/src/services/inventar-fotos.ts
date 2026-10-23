@@ -13,16 +13,24 @@
  * dauert ein Foto 28 bis 67 s. Gescheiterte Mehrfoto-Stapel werden in
  * Einzelfotos aufgeteilt statt aufgegeben; erst ein Einzelfoto, das zweimal
  * scheitert, wird den internen Nummern gemeldet.
+ *
+ * Der Cron sammelt außerdem Fotos ein, die der Agent nie vorgemerkt hat
+ * (2026-10-12): Der Agent kommt nur bei nicht pausierten Unterhaltungen, in
+ * denen der Kunde zuletzt geschrieben hat, bis zum Vormerken. 12 Leads seit
+ * 30.09. blieben so ohne Fotoanalyse, 10 davon pausiert; Umzugsgut leer, KV falsch.
  */
 import { createHash } from "node:crypto";
-import { and, eq, gt, inArray } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, isNotNull, like, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { agentEvents } from "@/db/schema/agent";
 import { dealNumbers } from "@/db/schema/financial";
+import { inboxConversations, inboxMessageAttachments, inboxMessages } from "@/db/schema/inbox";
 import { attributes } from "@/db/schema/objects";
 import { recordValues } from "@/db/schema/records";
+import { getAdvancedStageIds, getDealStageId } from "./agent/agent-shared";
 import { fotoItemsUebernehmen, fotosErkennen, loadDealInventoryPhotos } from "./deal-inventory";
 import { sendeAnInterne } from "./intern/intern-senden";
+import { getObjectBySlug } from "./objects";
 import { kalkulationAnstossen } from "./rechner/ausloeser";
 
 const FENSTER_MS = 24 * 60 * 60_000;
@@ -41,6 +49,24 @@ const MAX_VERSUCHE = 2;
 export const FOTOS_JE_LAUF = 1;
 /** Stapel je Cron-Lauf, gleichzeitig erkannt. */
 export const GLEICHZEITIG = 4;
+/** Kleinere Bilder sind fast immer Logos und Symbole aus E-Mail-Signaturen. */
+const MIN_FOTO_BYTES = 20_000;
+/** Erst ab diesem Alter einsammeln: ein Schub aus mehreren Fotos soll erst ganz ankommen. */
+const EINSAMMELN_AB_MS = 3 * 60_000;
+/**
+ * Kandidaten je Lauf, nur gegen Ausreißer. Fotos fortgeschrittener Leads
+ * bekommen nie einen Stapel und bleiben 24 Stunden Kandidaten; unter einer
+ * knappen Grenze könnten neuere davon ein älteres Foto verdrängen, bis es aus
+ * dem Fenster fällt. Ein Tag Kundenfotos liegt weit darunter.
+ */
+const EINSAMMELN_HOECHSTENS = 1000;
+/** Danach hört das Einsammeln auf, der Rest kommt im nächsten Lauf; die 300 s gehören der Erkennung. */
+const EINSAMMELN_BUDGET_MS = 30_000;
+/**
+ * Rückblick für „schon vorgemerkt“: ein Stapel, der ein Foto nennt, ist jünger
+ * als das Foto, und das ist höchstens 24 Stunden alt; eine Stunde Puffer.
+ */
+const VORGEMERKT_FENSTER_MS = FENSTER_MS + 60 * 60_000;
 
 export function inStapel<T>(ids: readonly T[], groesse: number): T[][] {
   const stapel: T[][] = [];
@@ -61,7 +87,7 @@ interface SpaeteresEreignis {
   createdAt?: Date;
 }
 
-function fotoIds(o: OffenerStapel): string[] {
+function fotoIds(o: Pick<OffenerStapel, "payload">): string[] {
   return ((o.payload as { attachmentIds?: unknown[] }).attachmentIds ?? []).filter(
     (x): x is string => typeof x === "string"
   );
@@ -230,15 +256,16 @@ export function teilSchluessel(dealRecordId: string, ids: readonly string[], elt
   return `${offenSchluessel(dealRecordId, ids)}:aus:${elternId}`;
 }
 
+/** Gibt die Zahl neu angelegter Stapel zurück (ein Foto je Stapel); schon vorgemerkte zählen nicht. */
 export async function fotosVormerken(
   workspaceId: string,
   dealRecordId: string,
   conversationId: string | null,
   attachmentIds: readonly string[]
-): Promise<void> {
-  if (attachmentIds.length === 0) return;
+): Promise<number> {
+  if (attachmentIds.length === 0) return 0;
   const stapel = inStapel([...attachmentIds].sort(), FOTOS_JE_LAUF);
-  await db
+  const neu = await db
     .insert(agentEvents)
     .values(
       stapel.map((ids) => ({
@@ -251,20 +278,38 @@ export async function fotosVormerken(
         idempotencyKey: offenSchluessel(dealRecordId, ids),
       }))
     )
-    .onConflictDoNothing();
+    .onConflictDoNothing()
+    .returning({ id: agentEvents.id });
+  return neu.length;
 }
 
 /**
  * Fotos, die das Büro über „Fotos analysieren“ von Hand ausgewertet hat, als
  * erledigten Stapel vermerken; sonst warnte das KV-Fenster weiter vor ihnen.
+ * Offene Stapel des Leads, deren Fotos alle dabei waren, gelten damit auch als
+ * erledigt; sonst erkennte der Cron sie noch einmal und legte fast gleiche
+ * Zeilen im Umzugsgut an. Ein Versuch, der gerade läuft, kann noch Zeilen
+ * übernehmen; das nehmen wir hin.
  */
 export async function fotosManuellAusgewertet(
   workspaceId: string,
   dealRecordId: string,
-  attachmentIds: readonly string[]
+  attachmentIds: readonly string[],
+  jetzt = new Date()
 ): Promise<void> {
   if (attachmentIds.length === 0) return;
+  const ausgewertet = new Set(attachmentIds);
   await db.transaction(async (tx) => {
+    const offen = await tx
+      .select({ id: agentEvents.id, payload: agentEvents.payload })
+      .from(agentEvents)
+      .where(
+        and(
+          eq(agentEvents.dealRecordId, dealRecordId),
+          eq(agentEvents.eventType, "fotos_offen"),
+          gt(agentEvents.createdAt, new Date(jetzt.getTime() - FENSTER_MS))
+        )
+      );
     const [stapel] = await tx
       .insert(agentEvents)
       .values({
@@ -276,18 +321,162 @@ export async function fotosManuellAusgewertet(
       })
       .returning({ id: agentEvents.id });
     if (!stapel) return;
+    // Schon erledigte Stapel tragen denselben Schlüssel und bleiben, wie sie sind.
+    const mitErledigt = offen.filter((o) => {
+      const ids = fotoIds(o);
+      return ids.length > 0 && ids.every((id) => ausgewertet.has(id));
+    });
     await tx
       .insert(agentEvents)
-      .values({
-        workspaceId,
-        dealRecordId,
-        engine: "inventar",
-        eventType: "fotos_erledigt",
-        payload: { bezug: stapel.id, manuell: true, analysiert: attachmentIds.length },
-        idempotencyKey: `fotos-erledigt:${stapel.id}`,
-      })
+      .values([
+        {
+          workspaceId,
+          dealRecordId,
+          engine: "inventar",
+          eventType: "fotos_erledigt",
+          payload: { bezug: stapel.id, manuell: true, analysiert: attachmentIds.length },
+          idempotencyKey: `fotos-erledigt:${stapel.id}`,
+        },
+        ...mitErledigt.map((o) => ({
+          workspaceId,
+          dealRecordId,
+          engine: "inventar",
+          eventType: "fotos_erledigt",
+          payload: { bezug: o.id, manuell: true },
+          idempotencyKey: `fotos-erledigt:${o.id}`,
+        })),
+      ])
       .onConflictDoNothing();
   });
+}
+
+export interface FotoKandidat {
+  id: string;
+  workspaceId: string;
+  dealRecordId: string | null;
+  conversationId: string;
+  mimeType: string;
+  fileSize: number;
+  createdAt: Date;
+}
+
+/** Fotos eines Leads aus einer Unterhaltung, die zusammen vorgemerkt werden. */
+interface EinsammelGruppe {
+  workspaceId: string;
+  dealRecordId: string;
+  conversationId: string;
+  attachmentIds: string[];
+}
+
+/**
+ * Welche Kundenfotos der Cron selbst vormerkt, je Lead und Unterhaltung: Bilder
+ * ab MIN_FOTO_BYTES, 3 Minuten bis 24 Stunden alt, an Leads, die nicht
+ * fortgeschritten sind (Angebot raus oder später, dieselbe Grenze wie beim
+ * Agenten). Die Abfrage filtert schon so vor, hier steht die Regel; was schon
+ * vorgemerkt ist, schließt nur die Abfrage aus.
+ */
+export function einsammelPlan(input: {
+  kandidaten: ReadonlyArray<FotoKandidat & { stufe: string | null }>;
+  /** Status-IDs fortgeschrittener Stufen (getAdvancedStageIds), IDs sind über alle Workspaces eindeutig. */
+  fortgeschritten: ReadonlySet<string>;
+  jetzt: Date;
+}): EinsammelGruppe[] {
+  const gruppen = new Map<string, EinsammelGruppe>();
+  for (const k of input.kandidaten) {
+    const alter = input.jetzt.getTime() - k.createdAt.getTime();
+    if (!k.dealRecordId || !k.mimeType.startsWith("image/") || k.fileSize < MIN_FOTO_BYTES) continue;
+    if (alter < EINSAMMELN_AB_MS || alter >= FENSTER_MS) continue;
+    if (k.stufe && input.fortgeschritten.has(k.stufe)) continue;
+    const schluessel = `${k.workspaceId}:${k.dealRecordId}:${k.conversationId}`;
+    const gruppe = gruppen.get(schluessel) ?? { workspaceId: k.workspaceId, dealRecordId: k.dealRecordId, conversationId: k.conversationId, attachmentIds: [] };
+    gruppe.attachmentIds.push(k.id);
+    gruppen.set(schluessel, gruppe);
+  }
+  return [...gruppen.values()];
+}
+
+/**
+ * Kundenfotos, die noch in keinem Stapel stehen: eingehend, an einem Lead
+ * (Spur „lead“), Bild ab MIN_FOTO_BYTES, 3 Minuten bis 24 Stunden alt. Ob die
+ * Unterhaltung pausiert ist oder das Büro schon geantwortet hat, spielt keine
+ * Rolle. Vorgemerkt heißt: in einem fotos_offen desselben Leads, auch von Hand
+ * ausgewertet (manuell: true); ein Foto, das an einen anderen Lead gehängt
+ * wurde, wird für den neuen eingesammelt. Neueste zuerst, zur Grenze siehe
+ * EINSAMMELN_HOECHSTENS.
+ */
+export function einsammelAbfrage(jetzt: Date) {
+  const a = inboxMessageAttachments;
+  const vorgemerkt = sql`select 1 from ${agentEvents} where ${and(
+    eq(agentEvents.workspaceId, a.workspaceId),
+    eq(agentEvents.dealRecordId, a.dealRecordId),
+    eq(agentEvents.eventType, "fotos_offen"),
+    gt(agentEvents.createdAt, new Date(jetzt.getTime() - VORGEMERKT_FENSTER_MS)),
+    sql`${agentEvents.payload} -> 'attachmentIds' @> jsonb_build_array(${a.id})`
+  )}`;
+  return db
+    .select({
+      id: a.id,
+      workspaceId: a.workspaceId,
+      dealRecordId: a.dealRecordId,
+      conversationId: a.conversationId,
+      mimeType: a.mimeType,
+      fileSize: a.fileSize,
+      createdAt: a.createdAt,
+    })
+    .from(a)
+    .innerJoin(inboxMessages, eq(inboxMessages.id, a.messageId))
+    .innerJoin(inboxConversations, eq(inboxConversations.id, a.conversationId))
+    .where(
+      and(
+        eq(inboxMessages.direction, "inbound"),
+        eq(inboxConversations.lane, "lead"),
+        isNotNull(a.dealRecordId),
+        like(a.mimeType, "image/%"),
+        gte(a.fileSize, MIN_FOTO_BYTES),
+        gt(a.createdAt, new Date(jetzt.getTime() - FENSTER_MS)),
+        lte(a.createdAt, new Date(jetzt.getTime() - EINSAMMELN_AB_MS)),
+        sql`not exists (${vorgemerkt})`
+      )
+    )
+    .orderBy(desc(a.createdAt))
+    .limit(EINSAMMELN_HOECHSTENS);
+}
+
+/**
+ * Merkt Kundenfotos vor, die der Agent nie vorgemerkt hat (siehe Kopfkommentar),
+ * und gibt die Zahl der neu vorgemerkten zurück. Die Stufe wird gelesen wie beim
+ * Agenten (runForWorkspace, processConversation). Stapel und Schlüssel wie beim
+ * Agenten: merken beide dasselbe Foto vor, bleibt es ein Stapel. Lead für Lead,
+ * bis EINSAMMELN_BUDGET_MS verbraucht ist; `uhr` nur für Tests.
+ */
+export async function fotosEinsammeln(jetzt = new Date(), uhr: () => number = Date.now): Promise<number> {
+  const schluss = uhr() + EINSAMMELN_BUDGET_MS;
+  const kandidaten = await einsammelAbfrage(jetzt);
+  if (kandidaten.length === 0) return 0;
+  const dealsObjekt = new Map<string, string | null>();
+  const fortgeschritten = new Set<string>();
+  for (const workspaceId of new Set(kandidaten.map((k) => k.workspaceId))) {
+    const deals = await getObjectBySlug(workspaceId, "deals");
+    dealsObjekt.set(workspaceId, deals?.id ?? null);
+    if (deals) for (const id of await getAdvancedStageIds(deals.id)) fortgeschritten.add(id);
+  }
+  const jeLead = new Map<string, FotoKandidat[]>();
+  for (const k of kandidaten) if (k.dealRecordId) jeLead.set(k.dealRecordId, [...(jeLead.get(k.dealRecordId) ?? []), k]);
+  const leads = [...jeLead];
+  let vorgemerkt = 0;
+  for (let i = 0; i < leads.length; i++) {
+    if (uhr() > schluss) {
+      console.warn(`[inventar-fotos] Einsammeln nach ${EINSAMMELN_BUDGET_MS / 1000} s angehalten, ${leads.length - i} Lead(s) im nächsten Lauf`);
+      break;
+    }
+    const [dealRecordId, fotos] = leads[i]!;
+    const objekt = dealsObjekt.get(fotos[0]!.workspaceId);
+    const stufe = fortgeschritten.size > 0 && objekt ? await getDealStageId(objekt, dealRecordId) : null;
+    for (const g of einsammelPlan({ kandidaten: fotos.map((k) => ({ ...k, stufe })), fortgeschritten, jetzt })) {
+      vorgemerkt += await fotosVormerken(g.workspaceId, g.dealRecordId, g.conversationId, g.attachmentIds);
+    }
+  }
+  return vorgemerkt;
 }
 
 /** „Auftrag 2026-074, Beatrice Fallscheer“ für die interne Meldung. */
@@ -377,6 +566,14 @@ interface Ergebnis {
  * nacheinander, damit dasselbe Sofa auf zwei Fotos nicht zwei Zeilen anlegt.
  */
 export async function fotosAbarbeiten(jetzt = new Date()): Promise<Ergebnis[]> {
+  // Zuerst einsammeln, was der Agent nie vorgemerkt hat; es kommt gleich in
+  // diesem Lauf dran. Ein Fehler dabei hält die Erkennung nicht auf.
+  try {
+    const eingesammelt = await fotosEinsammeln(jetzt);
+    if (eingesammelt > 0) console.log(`[inventar-fotos] ${eingesammelt} Foto(s) eingesammelt, die der Agent nicht vorgemerkt hatte`);
+  } catch (err) {
+    console.error("[inventar-fotos] Einsammeln fehlgeschlagen:", err);
+  }
   const seit = new Date(jetzt.getTime() - FENSTER_MS);
   const offen = await db
     .select({ id: agentEvents.id, workspaceId: agentEvents.workspaceId, dealRecordId: agentEvents.dealRecordId, payload: agentEvents.payload })

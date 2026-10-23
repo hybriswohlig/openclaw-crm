@@ -7,6 +7,7 @@ import { resolveDealSelectInputs } from "@/services/deal-attribution";
 import { SOURCE_CHANNEL_SLUG, sourceFromMovingLeadPayload } from "@/lib/deal-source";
 import { KONTAKTART_SLUG } from "@/lib/kontaktart";
 import { applyKontaktart, kontaktartFromPeopleInput, resolvePeopleKontaktartInput } from "@/services/kontaktart";
+import { mitStartStufe } from "@/services/stufen-wahl";
 
 export async function GET(
   req: NextRequest,
@@ -61,7 +62,7 @@ export async function POST(
     values = await resolvePeopleKontaktartInput(obj.id, values);
   }
 
-  const record = await createRecord(obj.id, values, ctx.userId);
+  const record = await createRecord(obj.id, await mitStartStufe(slug, obj.id, values), ctx.userId);
 
   if (slug === "deals" && record) {
     await assignDealNumber(ctx.workspaceId, record.id);

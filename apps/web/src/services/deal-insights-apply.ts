@@ -14,6 +14,7 @@ import { objects, attributes, statuses } from "@/db/schema/objects";
 import { records, recordValues } from "@/db/schema/records";
 import { eq, and, asc } from "drizzle-orm";
 import { createRecord, getRecord, updateRecord } from "./records";
+import { waehleVorgeschlageneStufe } from "./stufen-wahl";
 import { emitEvent } from "./activity-events";
 import { DEFAULT_AUFTRAG_CHECKLIST } from "@openclaw-crm/shared";
 import { extractPersonalName } from "@/lib/display-name";
@@ -225,19 +226,6 @@ async function formatChangeValue(
     return JSON.stringify(value);
   }
   return String(value);
-}
-
-/**
- * Normalize a pipeline-stage title for forgiving matching: lowercase, trimmed,
- * and with any trailing parenthetical dropped, so the model's "Bezahlt" still
- * matches the DB status "Bezahlt (Abgeschlossen)".
- */
-function normalizeStageTitle(title: string): string {
-  return title
-    .trim()
-    .toLowerCase()
-    .replace(/\s*\([^)]*\)\s*$/, "")
-    .trim();
 }
 
 /**
@@ -476,16 +464,20 @@ export async function applyDealInsights(
 
       if (stageAttr) {
         const stageRows = await db
-          .select({ id: statuses.id, title: statuses.title, sortOrder: statuses.sortOrder })
+          .select({
+            id: statuses.id,
+            title: statuses.title,
+            sortOrder: statuses.sortOrder,
+            isActive: statuses.isActive,
+            stageCategory: statuses.stageCategory,
+          })
           .from(statuses)
           .where(eq(statuses.attributeId, stageAttr.id))
           .orderBy(asc(statuses.sortOrder));
 
-        const wantStage = normalizeStageTitle(insights.suggested_stage!);
-        const suggested =
-          stageRows.find(
-            (s) => s.title.toLowerCase() === insights.suggested_stage!.toLowerCase()
-          ) ?? stageRows.find((s) => normalizeStageTitle(s.title) === wantStage);
+        // Nur aktive Stufen; ein englischer Vorschlag landet über die
+        // Kategorie auf der deutschen Stufe.
+        const suggested = waehleVorgeschlageneStufe(stageRows, insights.suggested_stage!);
         if (suggested) {
           // Forward-only: refuse to drag a deal backward in the pipeline.
           // A chat smalltalk after delivery must never re-open the deal as

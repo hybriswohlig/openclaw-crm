@@ -1,7 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
-  FOTOS_JE_LAUF, GLEICHZEITIG, alarmText, fotoStandBerechnen, inStapel, nacheinanderJe, planeLauf, teilSchluessel,
+  FOTOS_JE_LAUF, GLEICHZEITIG, alarmText, einsammelAbfrage, einsammelPlan, fotoStandBerechnen, inStapel, nacheinanderJe,
+  planeLauf, teilSchluessel,
 } from "./inventar-fotos";
+
+// Nur SQL rendern, nie verbinden: postgres.js baut die Verbindung erst bei der ersten Query auf.
+vi.stubEnv("DATABASE_URL", "postgres://test:test@127.0.0.1:9/test");
 
 const JETZT = new Date("2026-10-09T12:00:00Z");
 const vor = (minuten: number) => new Date(JETZT.getTime() - minuten * 60_000);
@@ -86,6 +90,97 @@ describe("planeLauf", () => {
     );
     expect(p.aufgeben).toEqual([]);
     expect(p.naechste).toEqual([]);
+  });
+});
+
+describe("einsammelPlan", () => {
+  const foto = (id: string, extra: Partial<Parameters<typeof einsammelPlan>[0]["kandidaten"][number]> = {}) => ({
+    id,
+    workspaceId: "ws",
+    dealRecordId: "deal-1",
+    conversationId: "conv-1",
+    mimeType: "image/jpeg",
+    fileSize: 250_000,
+    createdAt: vor(10),
+    stufe: "neue-anfrage",
+    ...extra,
+  });
+  const sammeln = (kandidaten: ReturnType<typeof foto>[], fortgeschritten: string[] = ["angebot-raus"]) =>
+    einsammelPlan({ kandidaten, fortgeschritten: new Set(fortgeschritten), jetzt: JETZT });
+
+  it("merkt Kundenfotos je Lead und Unterhaltung vor", () => {
+    expect(
+      sammeln([foto("a"), foto("b"), foto("c", { conversationId: "conv-2" }), foto("d", { dealRecordId: "deal-2", conversationId: "conv-3" })])
+    ).toEqual([
+      { workspaceId: "ws", dealRecordId: "deal-1", conversationId: "conv-1", attachmentIds: ["a", "b"] },
+      { workspaceId: "ws", dealRecordId: "deal-1", conversationId: "conv-2", attachmentIds: ["c"] },
+      { workspaceId: "ws", dealRecordId: "deal-2", conversationId: "conv-3", attachmentIds: ["d"] },
+    ]);
+  });
+  it("jünger als 3 Minuten: noch nicht, ein Schub soll erst ganz ankommen", () => {
+    expect(sammeln([foto("a", { createdAt: vor(2) })])).toEqual([]);
+    expect(sammeln([foto("a", { createdAt: vor(3) })]).map((g) => g.attachmentIds)).toEqual([["a"]]);
+  });
+  it("älter als 24 Stunden: nie", () => {
+    expect(sammeln([foto("a", { createdAt: vor(24 * 60) })])).toEqual([]);
+    expect(sammeln([foto("a", { createdAt: vor(24 * 60 - 1) })]).map((g) => g.attachmentIds)).toEqual([["a"]]);
+  });
+  it("Bild unter 20 KB (Signatur-Logo) und Nicht-Bild: übersprungen", () => {
+    expect(sammeln([foto("logo", { fileSize: 19_999 }), foto("pdf", { mimeType: "application/pdf" })])).toEqual([]);
+    expect(sammeln([foto("a", { fileSize: 20_000 })]).map((g) => g.attachmentIds)).toEqual([["a"]]);
+  });
+  it("Lead in fortgeschrittener Stufe (Angebot raus oder später): übersprungen wie beim Agenten", () => {
+    expect(sammeln([foto("a", { stufe: "angebot-raus" }), foto("b", { dealRecordId: "deal-2", stufe: null })])).toEqual([
+      { workspaceId: "ws", dealRecordId: "deal-2", conversationId: "conv-1", attachmentIds: ["b"] },
+    ]);
+  });
+  it("ohne Lead: übersprungen", () => {
+    expect(sammeln([foto("a", { dealRecordId: null })])).toEqual([]);
+  });
+});
+
+describe("einsammelAbfrage", () => {
+  const abfrage = () => einsammelAbfrage(JETZT).toSQL();
+  const iso = (minuten: number) => vor(minuten).toISOString();
+  /** Wert des Parameters direkt hinter einem SQL-Stück, damit vertauschte Grenzen auffallen. */
+  const wertHinter = (stueck: string) => {
+    const { sql, params } = abfrage();
+    const stelle = sql.indexOf(stueck);
+    expect(stelle, stueck).toBeGreaterThanOrEqual(0);
+    expect(sql.indexOf(stueck, stelle + 1), `${stueck} nur einmal`).toBe(-1);
+    const nr = /^\$(\d+)/.exec(sql.slice(stelle + stueck.length));
+    expect(nr, stueck).not.toBeNull();
+    return params[Number(nr![1]) - 1];
+  };
+
+  it("eingehende Bilder an Leads, egal ob pausiert oder schon beantwortet (Kern: 10 von 12 Leads seit 30.09. pausiert)", () => {
+    expect(wertHinter(`"inbox_messages"."direction" = `)).toBe("inbound");
+    expect(wertHinter(`"inbox_conversations"."lane" = `)).toBe("lead");
+    expect(wertHinter(`"inbox_message_attachments"."mime_type" like `)).toBe("image/%");
+    expect(abfrage().sql).toContain(`"inbox_message_attachments"."deal_record_id" is not null`);
+    expect(abfrage().sql).not.toMatch(/ai_paused|ai_needs_reply|ai_processed_at/);
+  });
+  it("ab 20 KB, älter als 3 Minuten, jünger als 24 Stunden, neueste zuerst", () => {
+    expect(wertHinter(`"inbox_message_attachments"."file_size" >= `)).toBe(20_000);
+    expect(wertHinter(`"inbox_message_attachments"."created_at" > `)).toBe(iso(24 * 60));
+    expect(wertHinter(`"inbox_message_attachments"."created_at" <= `)).toBe(iso(3));
+    expect(abfrage().sql).toMatch(/order by "inbox_message_attachments"\."created_at" desc limit \$\d+$/);
+  });
+  it("Grenze weit über einem Tag Kundenfotos: neuere Fotos fortgeschrittener Leads bleiben 24 Stunden Kandidaten und dürfen ein älteres nicht verdrängen", () => {
+    expect(wertHinter("limit ")).toBeGreaterThanOrEqual(1000);
+  });
+  it("schon vorgemerkt für diesen Lead in einem fotos_offen der letzten 25 Stunden, auch von Hand ausgewertet: übersprungen", () => {
+    const { sql } = abfrage();
+    expect(sql).toContain(
+      `not exists (select 1 from "agent_events" where ("agent_events"."workspace_id" = "inbox_message_attachments"."workspace_id"` +
+        ` and "agent_events"."deal_record_id" = "inbox_message_attachments"."deal_record_id"`
+    );
+    expect(wertHinter(`"agent_events"."event_type" = `)).toBe("fotos_offen");
+    // Ein Stapel, der das Foto nennt, ist jünger als das Foto (höchstens 24 Stunden), eine Stunde Puffer.
+    expect(wertHinter(`"agent_events"."created_at" > `)).toBe(iso(25 * 60));
+    expect(sql).toContain(`"agent_events"."payload" -> 'attachmentIds' @> jsonb_build_array("inbox_message_attachments"."id")`);
+    // Kein Filter auf manuell: von Hand ausgewertete Fotos stehen als fotos_offen mit manuell: true.
+    expect(sql).not.toContain("manuell");
   });
 });
 

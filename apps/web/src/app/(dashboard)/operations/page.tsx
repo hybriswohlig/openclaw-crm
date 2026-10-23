@@ -50,7 +50,6 @@ import {
 import { EmployeeAvatar } from "@/components/employees/employee-avatar";
 import {
   UNSCHEDULED_KEY,
-  compareByToday,
   groupByDay,
   resolveListAnchor,
 } from "@/components/operations/list-anchor";
@@ -155,7 +154,7 @@ function scrollChildToTop(scroller: HTMLElement, child: HTMLElement, behavior: S
   else scroller.scrollTo({ top, behavior });
 }
 
-type OpsView = "list" | "pipeline" | "map";
+type OpsView = "list" | "map";
 
 export default function OperationsPage() {
   const [data, setData] = useState<OperationsData | null>(null);
@@ -387,7 +386,6 @@ export default function OperationsPage() {
                 style={{ background: "#fff", border: "1px solid var(--line)" }}
               >
                 {([
-                  { k: "pipeline", label: "Pipeline" },
                   { k: "list", label: "Liste" },
                   { k: "map", label: "Karte" },
                 ] as const).map((o) => (
@@ -415,17 +413,6 @@ export default function OperationsPage() {
             <div className="p-4 sm:p-6 pb-24 lg:pb-6">
               <MapView deals={data.deals} today={today} />
             </div>
-          ) : view === "pipeline" ? (
-            <PipelineView
-              deals={data.deals}
-              today={today}
-              busyDealId={busyDealId}
-              onCardClick={() => {}}
-              transporterOptions={data.transporterOptions}
-              onPatchAuftrag={ensureAuftragAndPatch}
-              onUnassign={handleUnassign}
-              onAddEmployee={(dealId) => setAddEmployeeForDealId(dealId)}
-            />
           ) : (
           <OpsDayList
             grouped={grouped}
@@ -929,252 +916,5 @@ function PastJump({ count, onClick }: { count: number; onClick: () => void }) {
     >
       Vergangene anzeigen · {count}
     </button>
-  );
-}
-
-// ─── Pipeline view (kanban-by-stage) ────────────────────────────────
-
-function PipelineView({
-  deals,
-  today,
-  busyDealId,
-  transporterOptions,
-  onPatchAuftrag,
-  onUnassign,
-  onAddEmployee,
-}: {
-  deals: OpsDeal[];
-  today: string;
-  busyDealId: string | null;
-  onCardClick: (dealId: string) => void;
-  transporterOptions: TransporterOption[];
-  onPatchAuftrag: (deal: OpsDeal, patch: Record<string, unknown>) => void;
-  onUnassign: (dealId: string, assignmentId: string) => void;
-  onAddEmployee: (dealId: string) => void;
-}) {
-  // Columns stay in first-seen stage order. Within a column, today and later
-  // come first so the lane does not open on the oldest job.
-  const columns = useMemo(() => {
-    const byStage = new Map<
-      string,
-      { title: string; color: string; deals: OpsDeal[] }
-    >();
-    for (const d of deals) {
-      const title = d.stage?.title ?? "Ohne Phase";
-      const color = d.stage?.color ?? "#8a7f72";
-      let col = byStage.get(title);
-      if (!col) {
-        col = { title, color, deals: [] };
-        byStage.set(title, col);
-      }
-      col.deals.push(d);
-    }
-    for (const col of byStage.values()) {
-      col.deals.sort((a, b) => compareByToday(a.moveDate, b.moveDate, today));
-    }
-    return Array.from(byStage.values());
-  }, [deals, today]);
-
-  void transporterOptions;
-  void onPatchAuftrag;
-
-  return (
-    <div className="p-4 sm:p-6 pb-24 lg:pb-6 overflow-x-auto">
-      <div className="flex gap-3 min-w-max">
-        {columns.length === 0 && (
-          <div
-            className="text-sm py-12"
-            style={{ color: "var(--ink-muted)" }}
-          >
-            Keine offenen Aufträge.
-          </div>
-        )}
-        {columns.map((col) => (
-          <div
-            key={col.title}
-            className="flex-shrink-0 flex flex-col gap-2"
-            style={{ width: 280 }}
-          >
-            <div className="flex items-center justify-between px-1.5 py-1">
-              <div className="flex items-center gap-2">
-                <span
-                  className="inline-block h-[7px] w-[7px] rounded-full"
-                  style={{ background: col.color }}
-                />
-                <span
-                  className="k-display"
-                  style={{ fontSize: 14, fontWeight: 500 }}
-                >
-                  {col.title}
-                </span>
-                <span
-                  className="k-mono"
-                  style={{ fontSize: 11, color: "var(--ink-muted)" }}
-                >
-                  {col.deals.length}
-                </span>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-2">
-              {col.deals.map((deal) => (
-                <PipelineCard
-                  key={deal.dealId}
-                  deal={deal}
-                  busy={busyDealId === deal.dealId}
-                  onUnassign={(asgId) => onUnassign(deal.dealId, asgId)}
-                  onAddEmployee={() => onAddEmployee(deal.dealId)}
-                />
-              ))}
-              {col.deals.length === 0 && (
-                <div
-                  className="text-[11.5px] italic px-1.5 py-2"
-                  style={{ color: "var(--ink-muted)" }}
-                >
-                  Leer.
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function PipelineCard({
-  deal,
-  busy,
-  onUnassign,
-  onAddEmployee,
-}: {
-  deal: OpsDeal;
-  busy: boolean;
-  onUnassign: (assignmentId: string) => void;
-  onAddEmployee: () => void;
-}) {
-  const { setNodeRef, isOver } = useDroppable({ id: `pipeline-${deal.dealId}` });
-  const needed = deal.workerCount ?? 0;
-  const assigned = deal.assignedEmployees.length;
-  const understaffed = needed > 0 && assigned < needed;
-
-  return (
-    <div
-      ref={setNodeRef}
-      className={cn("k-card p-3 transition", busy && "opacity-60")}
-      style={isOver ? { borderColor: "var(--kottke-accent)", boxShadow: "0 0 0 2px color-mix(in oklch, var(--kottke-accent) 25%, transparent)" } : undefined}
-    >
-      <div className="flex items-baseline justify-between">
-        <span
-          className="k-mono"
-          style={{ fontSize: 10.5, color: "var(--ink-muted)" }}
-        >
-          {deal.dealNumber ?? "·"}
-        </span>
-        {deal.moveDate && (
-          <span
-            className="k-mono"
-            style={{ fontSize: 10.5, color: "var(--ink-muted)" }}
-          >
-            {new Date(deal.moveDate + "T00:00:00").toLocaleDateString("de-DE", {
-              day: "2-digit",
-              month: "2-digit",
-            })}
-          </span>
-        )}
-      </div>
-      <Link
-        href={`/objects/deals/${deal.dealId}`}
-        className="mt-1 block text-[13.5px] font-medium hover:underline"
-      >
-        {deal.name}
-      </Link>
-      {(deal.moveFromAddress || deal.moveToAddress) && (
-        <div
-          className="mt-1 truncate text-[11.5px]"
-          style={{ color: "var(--ink-muted)" }}
-        >
-          {deal.moveFromAddress ?? "·"} → {deal.moveToAddress ?? "·"}
-        </div>
-      )}
-
-      <div
-        className="mt-2.5 flex items-center justify-between pt-2.5"
-        style={{ borderTop: "1px dashed var(--line)" }}
-      >
-        <div
-          className={cn(
-            "inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10.5px]",
-            understaffed ? "text-red-700" : ""
-          )}
-          style={
-            understaffed
-              ? { background: "oklch(0.94 0.05 25)" }
-              : {
-                  background: "var(--paper)",
-                  color: "var(--ink-soft)",
-                }
-          }
-        >
-          <UsersIcon className="h-[11px] w-[11px]" />
-          {assigned}/{needed || "?"}
-          {understaffed && <AlertTriangle className="h-[11px] w-[11px]" />}
-        </div>
-        {deal.transporter && (
-          <span
-            className="inline-flex items-center gap-1 text-[10.5px]"
-            style={{ color: "var(--ink-muted)" }}
-          >
-            <Truck className="h-[11px] w-[11px]" />
-            {deal.transporter.title}
-          </span>
-        )}
-      </div>
-
-      {/* Assigned chips */}
-      <div className="mt-2 flex flex-wrap items-center gap-1">
-        {deal.assignedEmployees.slice(0, 3).map((emp) => (
-          <div
-            key={emp.assignmentId}
-            className="group inline-flex items-center gap-1 rounded-full bg-muted pl-0.5 pr-1.5 py-0.5 text-[11px]"
-            title={emp.name}
-          >
-            <EmployeeAvatar
-              name={emp.name}
-              photoBase64={emp.photoBase64}
-              size="xs"
-            />
-            <button
-              type="button"
-              onClick={() => onUnassign(emp.assignmentId)}
-              className="opacity-40 hover:opacity-100 hover:text-destructive"
-              aria-label={`${emp.name} entfernen`}
-            >
-              <X className="h-[10px] w-[10px]" />
-            </button>
-          </div>
-        ))}
-        {deal.assignedEmployees.length > 3 && (
-          <span
-            className="text-[11px]"
-            style={{ color: "var(--ink-muted)" }}
-          >
-            +{deal.assignedEmployees.length - 3}
-          </span>
-        )}
-        <button
-          type="button"
-          onClick={onAddEmployee}
-          className="inline-flex items-center gap-0.5 rounded-full border border-dashed px-1.5 py-0.5 text-[10.5px] transition"
-          style={{
-            borderColor: "var(--line-strong)",
-            color: "var(--ink-muted)",
-          }}
-        >
-          <Plus className="h-[10px] w-[10px]" />
-          Mitarb.
-        </button>
-      </div>
-    </div>
   );
 }

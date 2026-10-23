@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Loader2, UserPlus, Trash2, Shield, User } from "lucide-react";
+import { useSession } from "@/lib/auth-client";
 
 interface MemberPermissions {
   manageChannels?: boolean;
@@ -20,6 +21,8 @@ interface Member {
 }
 
 export default function MembersPage() {
+  const { data: session } = useSession();
+  const currentUserId = session?.user?.id;
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
   const [email, setEmail] = useState("");
@@ -78,7 +81,8 @@ export default function MembersPage() {
         prev.map((m) => (m.id === memberId ? { ...m, role } : m))
       );
     } else {
-      const data = await res.json();
+      // z. B. „Der letzte Admin kann nicht zum Mitglied gemacht werden.“
+      const data = await res.json().catch(() => ({}));
       setError(data.error?.message ?? "Rolle konnte nicht geändert werden");
     }
   }
@@ -115,23 +119,22 @@ export default function MembersPage() {
     }
   }
 
-  async function handleRemove(memberId: string) {
-    const member = members.find((m) => m.id === memberId);
-    const who = member?.userName || member?.userEmail || "Dieses Mitglied";
+  async function handleRemove(member: Member) {
+    const name = member.userName || member.userEmail;
     if (
       !confirm(
-        `${who} entfernen? Die Person wird sofort abgemeldet und verliert den Zugang zum CRM, auch über API-Schlüssel, Push-Nachrichten und den Kalender. Nur ein App-Admin kann sie wieder freischalten.`
+        `„${name}“ aus dem Team entfernen? Die Person wird sofort abgemeldet, ihre API-Schlüssel und Kalender-Links werden gesperrt und sie hat keinen Zugang mehr zum CRM. Ein App-Admin kann sie unter „Benutzer-Freigaben“ wieder freigeben.`
       )
     ) {
       return;
     }
-    const res = await fetch(`/api/v1/workspace-members/${memberId}`, {
+    const res = await fetch(`/api/v1/workspace-members/${member.id}`, {
       method: "DELETE",
     });
     if (res.ok) {
-      setMembers((prev) => prev.filter((m) => m.id !== memberId));
+      setMembers((prev) => prev.filter((m) => m.id !== member.id));
     } else {
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       setError(data.error?.message ?? "Mitglied konnte nicht entfernt werden");
     }
   }
@@ -257,14 +260,20 @@ export default function MembersPage() {
                     {new Date(member.createdAt).toLocaleDateString("de-DE")}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleRemove(member.id)}
-                      className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    {member.userId === currentUserId ? (
+                      <span className="text-xs text-muted-foreground">Du</span>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleRemove(member)}
+                        className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                        title="Aus dem Team entfernen"
+                        aria-label={`${member.userName || member.userEmail} aus dem Team entfernen`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
                   </td>
                 </tr>
               ))}

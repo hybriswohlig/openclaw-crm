@@ -20,7 +20,6 @@ export const mobileMehrItems: readonly MobileNavItem[] = [
   { href: "/objects/deals", label: "Leads" },
   { href: "/notes", label: "Notizen" },
   { href: "/notifications", label: "Benachrichtigungen" },
-  { href: "/chat", label: "Chat" },
   { href: "/objects/people", label: "Kunden" },
   { href: "/objects/companies", label: "Firmen" },
   { href: "/employees", label: "Mitarbeiter" },

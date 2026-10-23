@@ -29,7 +29,7 @@ import { emitEvent } from "./activity-events";
 import { getSecret } from "./workspace-settings";
 import { ensureCrmPerson } from "./inbox-crm-link";
 import { scanInboundReply } from "./reviews/inbound-scanner";
-import { classifyMessagingBody } from "./inbox-triage";
+import { classifyMessagingBody, sollInboxPushSenden } from "./inbox-triage";
 import { looksDeclined, recordAgentDecline } from "./agent/agent-suppress";
 import { setHumanOwned } from "./agent/agent-gate";
 import { agentFelderBeimEingang, aiProcessedAtBeimEingang } from "./agent/ingest-arming";
@@ -38,6 +38,7 @@ import {
   INBOX_BRIDGE_BODY_LIMIT_BYTES,
   inboxMediaFitsBridge,
 } from "@/lib/inbox-media-upload";
+import { inboxKonversationUrl } from "@/lib/inbox-link";
 import { recomputeMultiCompanyForContact } from "./multi-company";
 import {
   insertOnce,
@@ -685,6 +686,14 @@ export async function ingestInboundWhatsAppMessage(params: {
     conv.lane === "info" &&
     conv.classifiedBy !== "manual";
 
+  // Push nur für echte Anfragen (sollInboxPushSenden): entschieden mit der
+  // Lane nach dieser Nachricht und dem Status vor ihr, denn das Update unten
+  // öffnet gespamte Chats wieder.
+  const pushSenden = sollInboxPushSenden({
+    lane: laneUpgrade ? "lead" : conv.lane,
+    statusVorher: isNewConversation ? null : conv.status,
+  });
+
   if (conv && !isNewConversation) {
     await db
       .update(inboxConversations)
@@ -784,7 +793,7 @@ export async function ingestInboundWhatsAppMessage(params: {
     });
   }
 
-  if (messageId) {
+  if (messageId && pushSenden) {
     // Don't block the webhook response on push delivery, but DO keep the
     // Vercel function alive until the push request completes — otherwise
     // the serverless runtime kills the call mid-flight as soon as we
@@ -801,7 +810,9 @@ export async function ingestInboundWhatsAppMessage(params: {
         console.error("[push] whatsapp notify failed", err);
       })
     );
+  }
 
+  if (messageId) {
     // Reviews engine — inbound complaint scanner parity stub ([KOT-623]).
     // The scanner internally gates the whatsapp channel behind
     // REVIEWS_INBOUND_SCAN_WHATSAPP, so Phase 1 ([KOT-603]) ships this
@@ -1242,7 +1253,7 @@ async function notifyInboxPush(input: {
     {
       title: input.title,
       body: input.body,
-      url: `/inbox?conversationId=${input.conversationId}`,
+      url: inboxKonversationUrl(input.conversationId),
       tag: `inbox-${input.conversationId}`,
     },
     { workspaceId: input.workspaceId }
