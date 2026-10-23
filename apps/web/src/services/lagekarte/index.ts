@@ -3,7 +3,7 @@
  * Chat-Vorschau aus den Bulk-Queries (laden.ts) und den reinen Regeln
  * zusammen. Keine Schreibzugriffe, keine Seiteneffekte.
  */
-import { brandingForOperatingCompany } from "@openclaw-crm/customer-portal-core";
+import { companyColor } from "../calendar/companies";
 import type {
   ChatKurz,
   ChatNachricht,
@@ -227,7 +227,7 @@ function baueFirmen(zeilen: FirmaRoh[]): Firma[] {
   const basis = [...eindeutig.values()]
     .map((z) => {
       const name = z.name?.trim() || "Unbenannte Firma";
-      return { id: z.id, name, farbe: firmenFarbe(z.primaryColor, z.name), erster: zeichenVon(name)[0] ?? "?" };
+      return { id: z.id, name, farbe: companyColor(z.id, z.name, z.primaryColor), erster: zeichenVon(name)[0] ?? "?" };
     })
     .sort((a, b) => a.name.localeCompare(b.name, "de") || vergleiche(a.id, b.id));
 
@@ -250,13 +250,6 @@ function zweiBuchstaben(name: string): string {
   const woerter = name.split(/[\s\-–/&+]+/).map(zeichenVon).filter((w) => w.length > 0);
   if (woerter.length >= 2) return woerter[0][0] + woerter[1][0];
   return (woerter[0] ?? ["?"]).slice(0, 2).join("");
-}
-
-/** Portal-Farbe (gespeichert ohne #), sonst Stammdaten-Fallback der Firma. */
-function firmenFarbe(primaryColor: string | null, name: string | null): string {
-  const hex = primaryColor?.trim().replace(/^#/, "") ?? "";
-  if (/^[0-9a-f]{6}$/i.test(hex)) return `#${hex.toLowerCase()}`;
-  return `#${brandingForOperatingCompany(name).primaryColor}`;
 }
 
 // ─── Deal-Werte ─────────────────────────────────────────────────────────────

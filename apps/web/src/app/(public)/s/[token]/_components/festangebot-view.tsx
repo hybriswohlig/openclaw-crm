@@ -128,7 +128,7 @@ export function FestangebotView({
           <BriefAnrede
             branding={ctx.branding}
             anrede={briefAnrede(ctx.customerDisplayName)}
-            einleitung={briefEinleitung(zustand, schedule.showDate ? schedule.dateLabel : null, angenommenAm)}
+            einleitung={briefEinleitung(zustand, schedule.showDate ? schedule.dateLabel : null, angenommenAm, ctx.annahmeRecht.serviceType)}
           />
 
           <div className="portal-brief-preis">

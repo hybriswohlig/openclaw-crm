@@ -30,7 +30,7 @@
   --portal-highlight: var(--portal-brand);
 }
 .dark .kottke-portal, .dark .kottke-portal .portal-shell, .kottke-portal.dark, .kottke-portal.dark .portal-shell {
-  --portal-brand-text: color-mix(in oklab, var(--portal-brand) 70%, white);
+  --portal-brand-text: color-mix(in oklab, var(--portal-brand) 40%, white);
 }
 .dark .kottke-portal, .kottke-portal.dark {
   --portal-paper: #12213a; --portal-desk: #0b1626; --portal-line: #2a3a52;

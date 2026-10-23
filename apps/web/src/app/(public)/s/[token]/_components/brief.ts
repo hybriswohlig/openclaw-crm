@@ -1,4 +1,4 @@
-import type { FirmaBranding } from "@openclaw-crm/customer-portal-core";
+import type { FirmaBranding, ServiceArt } from "@openclaw-crm/customer-portal-core";
 
 /** Das Festangebot als Brief: reine Texte und Daten, ohne React. */
 export type BriefZustand = "offen" | "abgelaufen" | "angenommen" | "unterschrieben";
@@ -14,11 +14,23 @@ export function briefAnrede(name: string | null): string {
   return n ? `Guten Tag ${n},` : "Guten Tag,";
 }
 
-export function briefEinleitung(z: BriefZustand, moveDateLabel: string | null, angenommenAmLabel: string | null): string {
+const LEISTUNG: Record<ServiceArt, string> = {
+  move: "den Umzug",
+  kitchen_installation: "die Küchenmontage",
+  clearance: "die Entrümpelung",
+};
+
+export function briefEinleitung(
+  z: BriefZustand,
+  moveDateLabel: string | null,
+  angenommenAmLabel: string | null,
+  leistung: ServiceArt | null = "move",
+): string {
   if (z === "abgelaufen") return "dieses Angebot ist abgelaufen. Schreiben Sie uns kurz, dann schicken wir Ihnen ein aktuelles.";
   if (z === "offen") {
     const termin = moveDateLabel ? ` am ${moveDateLabel}` : "";
-    return `hier ist Ihr Festpreis für den Umzug${termin}. Wenn alles passt, nehmen Sie das Angebot unten an.`;
+    const wofuer = leistung ? LEISTUNG[leistung] : "Ihren Auftrag";
+    return `hier ist Ihr Festpreis für ${wofuer}${termin}. Wenn alles passt, nehmen Sie das Angebot unten an.`;
   }
   const dank = `vielen Dank, Sie haben das Angebot${angenommenAmLabel ? ` am ${angenommenAmLabel}` : ""} angenommen. Die Auftragsbestätigung folgt nach unserer Einsatzplanung.`;
   return z === "unterschrieben" ? `${dank} Ihren unterschriebenen Vertrag finden Sie unten.` : dank;

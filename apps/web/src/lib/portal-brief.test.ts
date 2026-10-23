@@ -108,4 +108,16 @@ describe("Brief im Portal", () => {
       datum: "23.10.2026",
     });
   });
+
+  it("nennt die tatsächliche Leistung statt immer „Umzug“", () => {
+    expect(briefEinleitung("offen", "Freitag, 20. November 2026", null, "kitchen_installation")).toBe(
+      "hier ist Ihr Festpreis für die Küchenmontage am Freitag, 20. November 2026. Wenn alles passt, nehmen Sie das Angebot unten an.",
+    );
+    expect(briefEinleitung("offen", null, null, "clearance")).toBe(
+      "hier ist Ihr Festpreis für die Entrümpelung. Wenn alles passt, nehmen Sie das Angebot unten an.",
+    );
+    expect(briefEinleitung("offen", null, null, null)).toBe(
+      "hier ist Ihr Festpreis für Ihren Auftrag. Wenn alles passt, nehmen Sie das Angebot unten an.",
+    );
+  });
 });

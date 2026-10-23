@@ -1,4 +1,3 @@
-import { brandingForOperatingCompany } from "@openclaw-crm/customer-portal-core";
 
 export const KOTTKE_COMPANY_ID = "5af07382-33b5-4538-a6d5-017132543ac4";
 export const CEYLAN_COMPANY_ID = "fbb8a6e6-e869-483b-b47d-b140dc33aa56";
@@ -30,9 +29,9 @@ export function companyColor(
   if (portal) return portal;
   if (id && KNOWN_COLORS[id]) return KNOWN_COLORS[id];
   const lower = (name ?? "").toLowerCase();
-  if (lower.includes("kottke") || lower.includes("ceylan")) {
-    return `#${brandingForOperatingCompany(name).primaryColor}`;
-  }
+  // Feste interne Farben, unabhängig vom Portal-Branding der Firma.
+  if (lower.includes("kottke")) return KNOWN_COLORS[KOTTKE_COMPANY_ID];
+  if (lower.includes("ceylan")) return KNOWN_COLORS[CEYLAN_COMPANY_ID];
   return UNASSIGNED_COMPANY_COLOR;
 }
 

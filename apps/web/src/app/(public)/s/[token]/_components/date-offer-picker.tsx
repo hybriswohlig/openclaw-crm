@@ -79,7 +79,7 @@ export function DateOfferPicker({
             <button
               type="button"
               onClick={() => setEditing(true)}
-              className="self-start rounded-full border border-[var(--portal-brand)] bg-white/70 px-4 py-1.5 text-xs font-medium text-foreground backdrop-blur transition hover:bg-white"
+              className="self-start rounded-full border border-[var(--portal-brand)] bg-card px-4 py-1.5 text-xs font-medium text-foreground transition hover:bg-muted"
             >
               Ändern
             </button>

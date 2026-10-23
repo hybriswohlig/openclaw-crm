@@ -18,6 +18,7 @@
  *  - Never throws: callers fire-and-forget from API response paths.
  */
 
+import { vornameFuerAnrede } from "@/lib/personen-name";
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { activityEvents } from "@/db/schema";
@@ -85,7 +86,7 @@ export async function maybeNotifyPortalEvent(
 
     const portalUrl = buildPortalUrl(link.token);
     const content = buildContent(kind, {
-      firstName: firstNameOf(context.customerDisplayName),
+      firstName: vornameFuerAnrede(context.customerDisplayName),
       dealNumber: context.dealNumber,
       portalUrl,
       firmaName: context.branding.displayName,
@@ -204,12 +205,6 @@ async function emitSkipped(
 function buildPortalUrl(token: string): string {
   const envUrl = process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/+$/, "");
   return `${envUrl ?? "https://openclaw-crm-web.vercel.app"}/s/${token}`;
-}
-
-function firstNameOf(displayName: string | null): string | null {
-  if (!displayName) return null;
-  const first = displayName.trim().split(/\s+/)[0];
-  return first || null;
 }
 
 interface NotificationContent {

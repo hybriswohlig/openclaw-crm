@@ -227,6 +227,12 @@ type Stil = { font?: PDFFont; size?: number; farbe?: RGB; x?: number; breite?: n
 
 const ausBase64 = (b64: string) => Uint8Array.from(Buffer.from(b64, "base64"));
 
+/** Größte Schriftgröße zwischen 10 und 22 pt, bei der der Text höchstens maxBreite breit ist. */
+export function passendeGroesse(breiteBei: (size: number) => number, maxBreite: number, start = 22, min = 10): number {
+  for (let size = start; size > min; size -= 1) if (breiteBei(size) <= maxBreite) return size;
+  return min;
+}
+
 class Seiten {
   page!: PDFPage;
   y = 0;
@@ -403,7 +409,14 @@ export async function baueVertragsmappe(kvPdf: Uint8Array, d: VertragsmappeDaten
     const massstab = Math.min(240 / bild.width, feldHoehe / bild.height);
     s.page.drawImage(bild, { x: MARGIN + 6, y: s.y - feldHoehe, width: bild.width * massstab, height: bild.height * massstab });
   } else {
-    s.page.drawText(fuerSchrift(u.name), { x: MARGIN + 14, y: s.y - feldHoehe + 10, size: 22, font: schriften.text, color: TINTE, ySkew: degrees(14) });
+    const name = fuerSchrift(u.name);
+    const feldBreite = PAGE_W - MARGIN * 2 - 24;
+    const size = passendeGroesse((sz) => schriften.text.widthOfTextAtSize(name, sz), feldBreite);
+    // Auch bei 10 pt zu lang: umbrechen statt über den Rand laufen.
+    const zeilen = s.umbruch(name, schriften.text, size, feldBreite).slice(0, 3);
+    zeilen.forEach((z, i) =>
+      s.page.drawText(z, { x: MARGIN + 14, y: s.y - feldHoehe + 10 + (zeilen.length - 1 - i) * size * 1.2, size, font: schriften.text, color: TINTE, ySkew: degrees(14) }),
+    );
   }
   s.y -= feldHoehe + 4;
   s.page.drawText("x", { x: MARGIN, y: s.y + 3, size: 9, font: schriften.text, color: GRAU });

@@ -24,6 +24,8 @@ if (params.has("aufgehoben")) ctx.fruehereAnnahmeAufgehoben = true;
 if (params.has("angenommen") && !ctx.acceptance) ctx.acceptance = { signedAt: "2026-10-23T10:58:00Z", acceptedFullName: "Alex Beispiel", widerrufVerzichtAccepted: false, agbVersionAccepted: "preview", confirmedTotalCents: ctx.kva!.totalCents, selectedOptionName: null, widerrufModus: "ausgeschlossen", vorzeitigerBeginnVerlangt: false, quotationDocumentId: "preview-kv", unterschrift: null };
 if (params.has("unterschrieben") && ctx.acceptance) { ctx.acceptance = { ...ctx.acceptance, unterschrift: { at: "2026-10-23T10:59:00Z", name: "Alex Beispiel", art: "gezeichnet" } }; ctx.documents = { ...ctx.documents, signedContractUrl: "/api/public/local-preview-only/documents/preview-vertrag" }; }
 if (params.has("ohnename")) ctx.customerDisplayName = null;
+// Gewählter, noch änderbarer Termin aus einem Terminangebot (Knopf „Ändern“).
+if (params.has("termin")) ctx.dateOffers = { options: [{ id: "t1", date: "2026-11-27", slots: [{ label: "vormittags", startTime: "08:00", endTime: "11:00" }], note: null, isRecommended: true, sortOrder: 0 }], selection: { dateOfferId: "t1", selectedDate: "2026-11-27", slotLabel: "vormittags", startTime: "08:00", endTime: "11:00", selectedAt: "2026-10-20T09:00:00Z" } };
 if (params.has("langeadresse")) ctx.scope.fromAddress = "Hauptstraße 123 Hinterhaus links, Aufgang C, 70806 Kornwestheim-Pattonville";
 // Unterschrift im Portal an: gebundenes KV an der Annahme, Route gemockt (mit stage=2 als Nebenaktion, ohne stage im Abschluss-Dialog).
 const unterschrift = params.has("unterschrift");

@@ -53,7 +53,16 @@ async function kontraste(page, selektoren) {
   }, selektoren);
 }
 
-const ANSICHTEN = ["festangebot", "festangebot&angenommen&unterschrieben", "stage=1", "stage=2", "stage=3&live", "stage=4"];
+const ANSICHTEN = [
+  "festangebot",
+  "festangebot&angenommen&unterschrieben",
+  "festangebot&otherbrand&angenommen&unterschrieben",
+  "festangebot&termin",
+  "stage=1",
+  "stage=2",
+  "stage=3&live",
+  "stage=4",
+];
 for (const ansicht of ANSICHTEN) {
   for (const width of [390, 1440]) {
     for (const dunkel of [false, true]) {
@@ -62,9 +71,12 @@ for (const ansicht of ANSICHTEN) {
       const name = `${query.replace(/[&=]/g, "-")}-${width}`;
       await page.screenshot({ path: `${out}/brief-${name}.png`, fullPage: true });
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `Überlauf ${name}`);
-      const logo = await page.locator(".portal-briefkopf .portal-logo img").evaluate((img) => img.complete && img.naturalWidth > 0);
-      assert.ok(logo, `Logo geladen ${name}`);
-      for (const k of await kontraste(page, ["h1", "h2", ".portal-price", ".portal-brief-text", ".portal-strecke dd", "p"])) {
+      if (!ansicht.includes("otherbrand")) {
+        const logo = await page.locator(".portal-briefkopf .portal-logo img").evaluate((img) => img.complete && img.naturalWidth > 0);
+        assert.ok(logo, `Logo geladen ${name}`);
+      }
+      const KLEIN = [".portal-fest-kicker", ".portal-strecke dt", ".portal-step-status", ".portal-stempel strong", ".portal-annahme-vertrag", "section button"];
+      for (const k of await kontraste(page, ["h1", "h2", ".portal-price", ".portal-brief-text", ".portal-strecke dd", "p", ...KLEIN])) {
         assert.ok(k.kontrast >= 4.5, `Kontrast ${k.kontrast.toFixed(2)} < 4.5 bei ${k.sel} „${k.text}“ (${name})`);
       }
       if (ansicht.startsWith("festangebot") && width === 390) {

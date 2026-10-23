@@ -1,7 +1,7 @@
 import { PDFDocument } from "pdf-lib";
 import { describe, expect, it } from "vitest";
 import { PDFDict, PDFName, PDFRawStream } from "pdf-lib";
-import { annahmeSeiteModell, annahmeSeiteZeilen, baueVertragsmappe, umbrechen, type VertragsmappeDaten } from "./vertragsmappe";
+import { annahmeSeiteModell, annahmeSeiteZeilen, passendeGroesse, baueVertragsmappe, umbrechen, type VertragsmappeDaten } from "./vertragsmappe";
 
 async function miniKv(seiten: number): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
@@ -153,5 +153,14 @@ describe("baueVertragsmappe", () => {
   it("Umlaute und Sonderzeichen werfen nicht", async () => {
     const out = await baueVertragsmappe(await miniKv(1), { ...basis, kunde: "Jürgen Ößlér", agbText: "Größe – „Test“ ✓" });
     expect((await PDFDocument.load(out)).getPageCount()).toBe(3);
+  });
+});
+
+describe("passendeGroesse", () => {
+  it("verkleinert den getippten Namen, bis er ins Unterschriftsfeld passt", () => {
+    const breiteBei = (size: number) => size * 20; // 20 pt Breite je pt Schriftgröße
+    expect(passendeGroesse(breiteBei, 600)).toBe(22);
+    expect(passendeGroesse(breiteBei, 260)).toBe(13);
+    expect(passendeGroesse(breiteBei, 50)).toBe(10);
   });
 });
