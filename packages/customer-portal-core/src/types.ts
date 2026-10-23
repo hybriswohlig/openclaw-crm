@@ -51,6 +51,16 @@ export interface FirmaBranding {
   agbVersion: string;
   /** URL of the AGB PDF the customer should be able to download/inspect. */
   agbPdfUrl: string | null;
+  /** Persönlicher Absender im Portal (Foto, Gruß). Null: Gruß vom Team. */
+  ansprechpartner: Ansprechpartner | null;
+}
+
+export interface Ansprechpartner {
+  name: string;
+  rolle: string;
+  fotoUrl: string | null;
+  /** Nur als Gruß unter dem Angebot im Portal, nie auf der Annahmeseite. */
+  unterschriftUrl: string | null;
 }
 
 /**

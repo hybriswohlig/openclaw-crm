@@ -351,6 +351,8 @@ export async function loadEffectiveBranding(
     },
     agbVersion: s.agbVersion ?? fallback.agbVersion,
     agbPdfUrl: s.agbPdfUrl ?? fallback.agbPdfUrl,
+    // Noch keine Einstellung im CRM: kommt nur aus den Stammdaten je Firma.
+    ansprechpartner: fallback.ansprechpartner,
   };
 
   return {

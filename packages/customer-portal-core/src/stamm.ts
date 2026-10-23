@@ -12,8 +12,8 @@ import type { FirmaBranding } from "./types";
 export const KOTTKE_BRANDING: FirmaBranding = {
   firmaSlug: "kottke",
   displayName: "Kottke Dienstleistungen",
-  primaryColor: "1f3a5f",
-  logoUrl: null,
+  primaryColor: "c2570c",
+  logoUrl: "/branding/kottke/logo.svg",
   footer:
     "Kottke Dienstleistungen · Inhaber: Darioush Kottke · Marktstr. 8 · 72218 Wildberg · Tel.: +49 175 9498475",
   googleReviewUrl: null,
@@ -26,6 +26,12 @@ export const KOTTKE_BRANDING: FirmaBranding = {
   paypal: { handleOrEmail: null },
   agbVersion: "kottke-2026-10",
   agbPdfUrl: "/legal/agb/kottke",
+  ansprechpartner: {
+    name: "Dario Kottke",
+    rolle: "Inhaber",
+    fotoUrl: "/branding/kottke/dario-160.jpg",
+    unterschriftUrl: "/branding/kottke/unterschrift-dario.png",
+  },
 };
 
 export const CEYLAN_BRANDING: FirmaBranding = {
@@ -45,6 +51,7 @@ export const CEYLAN_BRANDING: FirmaBranding = {
   paypal: { handleOrEmail: null },
   agbVersion: "ceylan-2026-10",
   agbPdfUrl: "/legal/agb/ceylan",
+  ansprechpartner: null,
 };
 
 const FALLBACK: FirmaBranding = {
@@ -59,6 +66,7 @@ const FALLBACK: FirmaBranding = {
   paypal: { handleOrEmail: null },
   agbVersion: "default-2026-01",
   agbPdfUrl: null,
+  ansprechpartner: null,
 };
 
 /**
