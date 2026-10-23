@@ -192,7 +192,8 @@ export const config = {
   matcher: [
     // Match all paths except static files. geojson/pbf: offene Kartendaten der
     // Lagekarte (/geo/*.geojson, /map/fonts/**/*.pbf), ohne Sitzungsprüfung und
-    // mit Cache-Headern aus next.config.ts.
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|geojson|pbf)$).*)",
+    // mit Cache-Headern aus next.config.ts. woff2: Portal-Schrift unter
+    // /fonts/portal, sonst leitet die Kunden-Domain sie auf die Website um.
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|geojson|pbf|woff2)$).*)",
   ],
 };
