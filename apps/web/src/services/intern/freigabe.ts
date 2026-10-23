@@ -13,6 +13,9 @@
  *    "Hauptschalter aus", "Deal gehört einem Menschen" und "KI pausiert" auf.
  *    Die Einwilligung zum Nachfassen bleibt; ai_paused und human_owned werden
  *    nicht zurückgesetzt.
+ * 3. Rückfragen: eine Nachricht, die kein Befehl ist, kann die Antwort auf eine
+ *    Rückfrage eines Werkzeugs sein (services/intern/rueckfragen.ts); sie zählt
+ *    nur vom eingetragenen Empfänger, die Bestätigung geht nur an ihn.
  */
 import { createHash } from "node:crypto";
 import { and, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
@@ -31,6 +34,7 @@ import { AI_TASK_SLUGS } from "@/services/ai/task-registry";
 import { toGateMessageClass } from "@/services/agent/agent-gate";
 import { befehlAus, freigabeCode } from "./freigabe-befehle";
 import { sendeAnInterne } from "./intern-senden";
+import { beantworteRueckfrage } from "./rueckfragen";
 import { inhaberRegelBlock, regelListeText } from "./regeln";
 import { entscheideRegel, ladeInhaberRegeln, loescheRegel, schlageRegelnVor } from "./regeln-lauf";
 import type { InterneNummer } from "./interne-nummern";
@@ -183,7 +187,13 @@ export async function verarbeiteInterneNachricht(input: {
   text: string;
 }): Promise<void> {
   const erkannt = befehlAus(input.text);
-  if (!erkannt) return;
+  if (!erkannt) {
+    // Kein Freigabe-Befehl: vielleicht die Antwort auf eine Rückfrage (Kassensturz).
+    // Sonst bleibt es wie bisher: die Nachricht wird verworfen.
+    const bestaetigung = await beantworteRueckfrage(input.workspaceId, input.absender.name, input.text);
+    if (bestaetigung) await sendeAnInterne(input.workspaceId, bestaetigung, { kontoId: input.kontoId, nurAn: [input.absender.name] });
+    return;
+  }
   const antworten = (t: string) => sendeAnInterne(input.workspaceId, t, { kontoId: input.kontoId });
 
   // Regel-Befehle der Lernschleife (ohne Entwurfs-Code)
