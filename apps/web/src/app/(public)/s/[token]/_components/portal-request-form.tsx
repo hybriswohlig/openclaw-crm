@@ -82,7 +82,7 @@ export function PortalRequestForm({
 
   if (done) {
     return (
-      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-200">
+      <div className="rounded-2xl border border-border bg-[var(--portal-brand-tint)] p-5 text-sm text-foreground">
         <div className="font-medium">Anfrage gesendet.</div>
         <p className="mt-1 text-xs">Wir melden uns kurzfristig bei Ihnen.</p>
       </div>

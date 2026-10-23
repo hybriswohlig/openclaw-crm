@@ -248,7 +248,7 @@ export function ConfirmKvaDialog({
             {r.haftungshinweisErforderlich && (
               <div
                 role="note"
-                className="rounded-xl border-2 bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-950 dark:bg-amber-950/30 dark:text-amber-100"
+                className="rounded-xl border-2 bg-[var(--portal-brand-tint)] px-4 py-3 text-xs leading-relaxed text-foreground"
                 style={{ borderColor: `#${ctx.branding.primaryColor}` }}
               >
                 <p className="text-sm font-semibold">{HAFTUNGSHINWEIS_451G.titel}</p>

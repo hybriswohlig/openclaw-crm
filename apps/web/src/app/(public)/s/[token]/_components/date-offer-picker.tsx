@@ -55,31 +55,31 @@ export function DateOfferPicker({
     return (
       <section
         data-portal-section="date-picker"
-        className="overflow-hidden rounded-2xl border border-emerald-200 bg-emerald-50 dark:border-emerald-900/40 dark:bg-emerald-950/40"
+        className="overflow-hidden rounded-2xl border border-border bg-[var(--portal-brand-tint)]"
       >
         <div className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
-            <div className="text-[10px] font-medium uppercase tracking-wider text-emerald-900/70 dark:text-emerald-300/80">
+            <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
               Ihr gewählter Termin
             </div>
-            <div className="display mt-1 text-xl font-medium text-emerald-950 dark:text-emerald-100 sm:text-2xl">
+            <div className="display mt-1 text-xl font-medium text-foreground sm:text-2xl">
               {formatDateLong(selection.selectedDate)}
             </div>
             {selection.slotLabel && (
-              <div className="mt-0.5 text-sm text-emerald-900/90 dark:text-emerald-200/90">
+              <div className="mt-0.5 text-sm text-foreground">
                 {selection.slotLabel}
               </div>
             )}
           </div>
           {locked ? (
-            <p className="self-start text-xs text-emerald-900/80 dark:text-emerald-200/80">
+            <p className="self-start text-xs text-muted-foreground">
               Termin mit der Annahme festgelegt. Änderungen bitte per WhatsApp.
             </p>
           ) : (
             <button
               type="button"
               onClick={() => setEditing(true)}
-              className="self-start rounded-full border border-emerald-300/80 bg-white/70 px-4 py-1.5 text-xs font-medium text-emerald-900 backdrop-blur transition hover:bg-white dark:border-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-100"
+              className="self-start rounded-full border border-[var(--portal-brand)] bg-white/70 px-4 py-1.5 text-xs font-medium text-foreground backdrop-blur transition hover:bg-white"
             >
               Ändern
             </button>
@@ -247,7 +247,7 @@ function DateCard({
         </span>
       )}
       {isPreviouslyPicked && (
-        <span className="absolute -top-2 right-3 rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white">
+        <span className="absolute -top-2 right-3 rounded-full bg-[var(--portal-brand)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white">
           Aktuell gewählt
         </span>
       )}
