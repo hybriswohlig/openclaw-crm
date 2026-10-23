@@ -128,6 +128,18 @@ export function laneForKontaktart(
   return "lead";
 }
 
+/**
+ * Lane einer neuen Konversation, wenn die Person schon eine Kontaktart hat.
+ * Nur was die Triage als Anfrage („lead“) einstuft, wird bei Bewerbern,
+ * Team, Partnern usw. zu kein_lead; info, spam und review bleiben.
+ */
+export function eingangsLane<L extends string>(
+  kontaktart: string | null | undefined,
+  triageLane: L
+): L | typeof KEIN_LEAD_LANE {
+  return triageLane === "lead" && !isLeadKunde(kontaktart) ? KEIN_LEAD_LANE : triageLane;
+}
+
 const BEWERBER_PATTERN =
   /bewerbung|bewerbe mich|initiativbewerbung|lebenslauf|gehaltsvorstellung|suche eine stelle|als helfer arbeiten|job als helfer/i;
 

@@ -141,6 +141,29 @@ describe("neuer Thread einer Person mit bekannter Kontaktart", () => {
     expect(mock.push).toHaveBeenCalled();
   });
 
+  it("lässt den Newsletter eines Partners in info, ohne Push", async () => {
+    mock.kontaktart.mockResolvedValue("partner_vermittler");
+    mock.parse.mockResolvedValue({
+      ...neueAnfrage(),
+      headers: new Map(Object.entries({ "list-unsubscribe": "<mailto:abmelden@partner.example>" })),
+    });
+    await syncChannelAccount("mailbox");
+    await Promise.all(mock.pending);
+
+    expect(mock.inserts.find((v) => "externalThreadId" in v)).toMatchObject({ lane: "info" });
+    expect(mock.push).not.toHaveBeenCalled();
+  });
+
+  it("legt Nachrichten eines Kontakts mit Kontaktart Spam/Werbung still ab", async () => {
+    mock.kontaktart.mockResolvedValue("spam_werbung");
+    mock.parse.mockResolvedValue(neueAnfrage());
+    await syncChannelAccount("mailbox");
+    await Promise.all(mock.pending);
+
+    expect(mock.inserts.find((v) => "externalThreadId" in v)).toMatchObject({ lane: "kein_lead" });
+    expect(mock.push).not.toHaveBeenCalled();
+  });
+
   it("legt eine echte Anfrage weiter in lead an und weckt den Agenten", async () => {
     mock.parse.mockResolvedValue(neueAnfrage());
     await syncChannelAccount("mailbox");

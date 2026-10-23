@@ -107,9 +107,22 @@ describe("sollInboxPushSenden", () => {
 
   it("pusht für bekannte Kontakte ohne Lead (Team, Helfer, Partner, Bewerber)", () => {
     // Eine Krankmeldung eines Helfers am Umzugstag muss klingeln.
-    expect(sollInboxPushSenden({ lane: "kein_lead", statusVorher: "open" })).toBe(true);
-    expect(sollInboxPushSenden({ lane: "kein_lead", statusVorher: null })).toBe(true);
-    expect(sollInboxPushSenden({ lane: "kein_lead", statusVorher: "spam" })).toBe(false);
+    expect(sollInboxPushSenden({ lane: "kein_lead", statusVorher: "open", kontaktart: "team_helfer" })).toBe(true);
+    expect(sollInboxPushSenden({ lane: "kein_lead", statusVorher: null, kontaktart: "bewerber" })).toBe(true);
+    expect(sollInboxPushSenden({ lane: "kein_lead", statusVorher: "spam", kontaktart: "team_helfer" })).toBe(false);
+  });
+
+  it("pusht nicht für Kontakte mit Kontaktart Spam/Werbung", () => {
+    expect(sollInboxPushSenden({ lane: "kein_lead", statusVorher: "open", kontaktart: "spam_werbung" })).toBe(false);
+  });
+
+  it("pusht keinen Newsletter und keine Abwesenheitsnotiz eines bekannten Kontakts", () => {
+    expect(
+      sollInboxPushSenden({ lane: "kein_lead", statusVorher: "open", kontaktart: "partner_vermittler", triageLane: "info" })
+    ).toBe(false);
+    expect(
+      sollInboxPushSenden({ lane: "kein_lead", statusVorher: "open", kontaktart: "partner_vermittler", triageLane: "lead" })
+    ).toBe(true);
   });
 
   it("pusht nach einer Lane-Heilung info → lead (die Lane nach der Nachricht zählt)", () => {

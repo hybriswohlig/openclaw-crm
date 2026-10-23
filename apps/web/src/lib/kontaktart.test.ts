@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  eingangsLane,
   bucketNonLeadsByMonth,
   dealIsNonLead,
   isLeadKunde,
@@ -86,5 +87,26 @@ describe("bewerber detection", () => {
   it("quotes a job application from the message", () => {
     expect(bewerberQuote("Guten Tag, anbei meine Bewerbung als Möbelpacker.")).toBe("Bewerbung");
     expect(bewerberQuote("Wir möchten am 3. Mai umziehen.")).toBeNull();
+  });
+});
+
+// Neuer Thread einer Person mit bekannter Kontaktart: Nur was die Triage als
+// Anfrage einstuft, wandert nach kein_lead. Newsletter, Abwesenheitsnotiz und
+// Spam bleiben in ihrer Lane.
+describe("eingangsLane", () => {
+  it("macht aus einer Anfrage eines Helfers kein_lead", () => {
+    expect(eingangsLane("team_helfer", "lead")).toBe("kein_lead");
+    expect(eingangsLane("spam_werbung", "lead")).toBe("kein_lead");
+  });
+
+  it("lässt info, spam und review stehen", () => {
+    expect(eingangsLane("partner_vermittler", "info")).toBe("info");
+    expect(eingangsLane("bewerber", "spam")).toBe("spam");
+    expect(eingangsLane("privat", "review")).toBe("review");
+  });
+
+  it("ändert für Leads nichts", () => {
+    expect(eingangsLane("lead_kunde", "lead")).toBe("lead");
+    expect(eingangsLane("lead_kunde", "info")).toBe("info");
   });
 });

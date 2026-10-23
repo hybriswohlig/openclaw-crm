@@ -191,9 +191,16 @@ export function sollInboxPushSenden(input: {
   statusVorher: "open" | "resolved" | "spam" | null;
   vomCrmGestartet?: boolean;
   triageLane?: ConversationLane;
+  /** Kontaktart der Konversation; „spam_werbung“ klingelt nie. */
+  kontaktart?: string | null;
 }): boolean {
   if (input.statusVorher === "spam") return false;
+  if (input.lane === "lead") return true;
   // kein_lead: Menschen, die das Büro kennt (Team, Helfer, Partner, Bewerber).
-  if (input.lane === "lead" || input.lane === "kein_lead") return true;
+  // Ihr Newsletter oder ihre Abwesenheitsnotiz (Triage info) bleibt still,
+  // ebenso alles von Kontakten mit Kontaktart Spam/Werbung.
+  if (input.lane === "kein_lead") {
+    return input.kontaktart !== "spam_werbung" && (input.triageLane ?? "lead") === "lead";
+  }
   return input.lane === "info" && input.vomCrmGestartet === true && input.triageLane === "lead";
 }

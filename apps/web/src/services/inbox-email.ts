@@ -33,7 +33,7 @@ import {
 } from "./inbox-kleinanzeigen";
 import { agentFelderBeimEingang, aiProcessedAtBeimEingang } from "./agent/ingest-arming";
 import { kontaktartFuerInboxKontakt } from "./kontaktart";
-import { DEFAULT_KONTAKTART, KEIN_LEAD_LANE, KONTAKTART_LABELS, laneForKontaktart } from "@/lib/kontaktart";
+import { DEFAULT_KONTAKTART, KEIN_LEAD_LANE, KONTAKTART_LABELS, eingangsLane } from "@/lib/kontaktart";
 import { createDealForNewConversation } from "./inbox";
 import { stampDealSourceIfEmpty, noteOutboundToCustomer } from "./deal-attribution";
 import { extractKleinanzeigenDetail } from "@/lib/deal-source";
@@ -252,9 +252,10 @@ async function ingestParsedEmail(
   // from a no-reply address, so only treat real two-way threads as opt-outs.
   const declined = !isImmoLead && looksDeclined(body);
   // Wer schon als Bewerber, Team/Helfer oder Partner eingestuft ist, bleibt
-  // das auch in einem neuen Thread: kein_lead, kein Agent, kein neuer Deal.
+  // das auch in einem neuen Thread: Eine Anfrage wird kein_lead, kein Agent,
+  // kein neuer Deal. Newsletter und Spam bleiben in ihrer Lane.
   const kontaktart = isImmoLead ? DEFAULT_KONTAKTART : await kontaktartFuerInboxKontakt(contact.id);
-  const lane = laneForKontaktart(kontaktart, triage.lane);
+  const lane = eingangsLane(kontaktart, triage.lane);
   const perKontaktart = lane !== triage.lane;
   // Arms the reply agent? Un-armed messages are stamped processed at insert so
   // the reply worker's safety net leaves them alone.
@@ -290,7 +291,7 @@ async function ingestParsedEmail(
       })
       .returning();
     conv = created;
-    pushSenden = sollInboxPushSenden({ lane, statusVorher: null });
+    pushSenden = sollInboxPushSenden({ lane, statusVorher: null, kontaktart, triageLane: triage.lane });
 
     // Auto-create a deal in stage "Neue Anfrage" for brand-new Kleinanzeigen
     // inquiries that are real leads (not platform notifications), and link it
@@ -368,6 +369,7 @@ async function ingestParsedEmail(
       // Konversation bleibt in info, die echte Antwort klingelt trotzdem.
       vomCrmGestartet: istVomCrmGestartet(conv),
       triageLane: triage.lane,
+      kontaktart: conv.kontaktart,
     });
     await db
       .update(inboxConversations)

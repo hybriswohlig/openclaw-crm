@@ -34,7 +34,7 @@ import { looksDeclined, recordAgentDecline } from "./agent/agent-suppress";
 import { setHumanOwned } from "./agent/agent-gate";
 import { agentFelderBeimEingang, aiProcessedAtBeimEingang } from "./agent/ingest-arming";
 import { kontaktartFuerInboxKontakt } from "./kontaktart";
-import { KEIN_LEAD_LANE, KONTAKTART_LABELS, laneForKontaktart } from "@/lib/kontaktart";
+import { KEIN_LEAD_LANE, KONTAKTART_LABELS, eingangsLane } from "@/lib/kontaktart";
 import { canonicalizePhone } from "@/lib/identity/canonical";
 import {
   INBOX_BRIDGE_BODY_LIMIT_BYTES,
@@ -597,9 +597,10 @@ export async function ingestInboundWhatsAppMessage(params: {
   // Arms the reply agent? Un-armed messages are stamped processed below so the
   // worker's safety net leaves them alone.
   // Wer schon als Bewerber, Team/Helfer oder Partner eingestuft ist, bleibt
-  // das auch in einem neuen Chat: kein_lead, kein Agent, kein neuer Deal.
+  // das auch in einem neuen Chat: Eine Anfrage wird kein_lead, kein Agent,
+  // kein neuer Deal. OTP-Codes bleiben in info.
   const kontaktart = await kontaktartFuerInboxKontakt(contact.id);
-  const lane = laneForKontaktart(kontaktart, triage.lane);
+  const lane = eingangsLane(kontaktart, triage.lane);
   const perKontaktart = lane !== triage.lane;
   const armiert = lane === "lead" && conv?.lane !== KEIN_LEAD_LANE && !declined;
 
@@ -700,6 +701,8 @@ export async function ingestInboundWhatsAppMessage(params: {
   const pushSenden = sollInboxPushSenden({
     lane: laneUpgrade ? "lead" : conv.lane,
     statusVorher: isNewConversation ? null : conv.status,
+    triageLane: triage.lane,
+    kontaktart: conv.kontaktart,
   });
 
   if (conv && !isNewConversation) {
