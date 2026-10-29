@@ -9,6 +9,7 @@ import {
   Trash2,
   Link as LinkIcon,
   RotateCcw,
+  RefreshCw,
   ChevronDown,
   ChevronUp,
   Smartphone,
@@ -19,7 +20,7 @@ import {
   Eye,
 } from "lucide-react";
 import { toast } from "sonner";
-import { gesperrtHinweis, sperrBestaetigungText } from "@/lib/customer-link-sperre";
+import { gesperrtHinweis, neuerLinkBestaetigung, sperrBestaetigungText } from "@/lib/customer-link-sperre";
 import { DateOfferComposer } from "./date-offer-composer";
 import { PackageOptionsComposer } from "./package-options-composer";
 
@@ -108,7 +109,12 @@ export function ShareLinkPanel({ dealRecordId }: { dealRecordId: string }) {
   }
 
   async function revoke() {
-    if (!confirm(sperrBestaetigungText(link?.widerrufBis ?? null))) return;
+    // Frisch laden: Die Frist kann seit dem Öffnen des Panels begonnen haben.
+    const aktuell = await fetch(`/api/v1/customer-link/${dealRecordId}`)
+      .then((r) => (r.ok ? (r.json() as Promise<{ data: LinkInfo }>) : null))
+      .catch(() => null);
+    const widerrufBis = aktuell?.data.widerrufBis ?? link?.widerrufBis ?? null;
+    if (!confirm(sperrBestaetigungText(widerrufBis))) return;
     const res = await fetch(`/api/v1/customer-link/${dealRecordId}`, { method: "DELETE" });
     if (res.ok) await load();
   }
@@ -116,6 +122,22 @@ export function ShareLinkPanel({ dealRecordId }: { dealRecordId: string }) {
   async function reactivate() {
     const res = await fetch(`/api/v1/customer-link/${dealRecordId}`, { method: "PATCH" });
     if (res.ok) await load();
+  }
+
+  /** Neuer Token: Der alte Link geht nicht mehr, der Kunde bekommt den neuen. */
+  async function newLink() {
+    if (!confirm(neuerLinkBestaetigung())) return;
+    const res = await fetch(`/api/v1/customer-link/${dealRecordId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ neu: true }),
+    });
+    if (res.ok) {
+      await load();
+      toast.success("Neuer Link erstellt. Schicken Sie ihn dem Kunden.");
+    } else {
+      toast.error("Neuer Link konnte nicht erstellt werden.");
+    }
   }
 
   async function copy() {
@@ -319,7 +341,15 @@ export function ShareLinkPanel({ dealRecordId }: { dealRecordId: string }) {
           </p>
         )}
 
-        <div className="mt-3 flex items-center justify-end text-[11px] text-muted-foreground">
+        <div className="mt-3 flex items-center justify-end gap-4 text-[11px] text-muted-foreground">
+          <button
+            type="button"
+            onClick={newLink}
+            className="inline-flex items-center gap-1 font-medium text-foreground hover:underline"
+          >
+            <RefreshCw className="h-3 w-3" />
+            Neuer Link
+          </button>
           {revoked ? (
             <button
               type="button"

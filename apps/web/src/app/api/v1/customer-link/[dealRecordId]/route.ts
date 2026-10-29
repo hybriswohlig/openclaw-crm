@@ -19,6 +19,7 @@ import { customerStatusLinks } from "@/db/schema/customer-portal";
 import { dealNumbers } from "@/db/schema/financial";
 import {
   ensureCustomerStatusLink,
+  erneuereCustomerStatusLink,
   loadVisitTelemetry,
   reactivateCustomerStatusLink,
   resolveCustomerLinkOrigin,
@@ -132,7 +133,8 @@ export async function POST(
 /**
  * PATCH: un-revokes an existing revoked link. Idempotent. Returns the same
  * shape as POST so the share panel can drop the response straight back into
- * state.
+ * state. With body `{ "neu": true }` the link gets a NEW token instead (for a
+ * link that reached the wrong person): the old URL stops working.
  */
 export async function PATCH(
   req: NextRequest,
@@ -142,10 +144,11 @@ export async function PATCH(
   if (!ctx) return unauthorized(req);
   const { dealRecordId } = await params;
 
-  const result = await reactivateCustomerStatusLink({
-    workspaceId: ctx.workspaceId,
-    dealRecordId,
-  });
+  const body = (await req.json().catch(() => null)) as { neu?: unknown } | null;
+  const neu = body?.neu === true;
+  const result = neu
+    ? await erneuereCustomerStatusLink({ workspaceId: ctx.workspaceId, dealRecordId })
+    : await reactivateCustomerStatusLink({ workspaceId: ctx.workspaceId, dealRecordId });
   if (!result) return notFound("No customer link for this deal");
 
   const origin = await resolveCustomerLinkOrigin(
@@ -160,6 +163,7 @@ export async function PATCH(
     url: `${origin}/s/${result.token}`,
     dealNumber,
     reactivated: true,
+    ...(neu ? { erneuert: true } : {}),
   });
 }
 

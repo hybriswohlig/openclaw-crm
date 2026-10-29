@@ -193,6 +193,33 @@ export async function reactivateCustomerStatusLink(input: {
 }
 
 /**
+ * Neuer Token für den Link des Auftrags, gesperrt wird aufgehoben. Für einen
+ * weitergegebenen Link: Der alte Token führt danach ins Leere, der Kunde
+ * bekommt den neuen und behält seinen Widerrufsbutton. Annahmen und
+ * Terminwahl hängen an der Link-ID und bleiben erhalten.
+ */
+export async function erneuereCustomerStatusLink(input: {
+  workspaceId: string;
+  dealRecordId: string;
+}): Promise<{ token: string; dealRecordId: string } | null> {
+  const token = await generateToken();
+  const [row] = await db
+    .update(customerStatusLinks)
+    .set({ token, revokedAt: null })
+    .where(
+      and(
+        eq(customerStatusLinks.workspaceId, input.workspaceId),
+        eq(customerStatusLinks.dealRecordId, input.dealRecordId)
+      )
+    )
+    .returning({
+      token: customerStatusLinks.token,
+      dealRecordId: customerStatusLinks.dealRecordId,
+    });
+  return row ?? null;
+}
+
+/**
  * Resolve which origin the public-facing URL for a given deal should use.
  *
  * Priority:

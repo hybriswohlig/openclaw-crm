@@ -1,7 +1,9 @@
 /**
- * Texte zum Sperren des Kunden-Links. Läuft noch eine Widerrufsfrist, verliert
- * der Kunde mit dem gesperrten Link den Widerrufsbutton (§ 356a BGB). Einen
- * neuen Link für denselben Auftrag gibt es nicht, nur Re-aktivieren.
+ * Texte zum Sperren und Erneuern des Kunden-Links. Läuft noch eine
+ * Widerrufsfrist, verliert der Kunde mit dem gesperrten Link den
+ * Widerrufsbutton (§ 356a BGB). Für einen weitergegebenen Link ist deshalb
+ * „Neuer Link“ der richtige Weg: Der alte Link geht nicht mehr, der Kunde
+ * bekommt den neuen.
  */
 function datumDe(ymd: string): string {
   const [y, m, d] = ymd.split("-");
@@ -12,9 +14,9 @@ export function sperrBestaetigungText(widerrufBis: string | null): string {
   const frage = "Soll der Kunden-Link wirklich gesperrt werden? Bestehende Bestätigungen bleiben erhalten.";
   if (!widerrufBis) return frage;
   return (
-    `Achtung: Der Kunde kann diesen Vertrag noch bis ${datumDe(widerrufBis)} widerrufen. ` +
-    "Mit dem gesperrten Link verliert er den Widerrufsbutton. Sperren Sie nur, wenn der Link in falsche Hände geraten ist, " +
-    "und nehmen Sie einen Widerruf dann per E-Mail oder WhatsApp entgegen. Sonst danach wieder Re-aktivieren.\n\n" +
+    `Achtung: Der Kunde kann diesen Vertrag voraussichtlich noch bis einschließlich ${datumDe(widerrufBis)} widerrufen. ` +
+    "Solange der Link gesperrt ist, hat er keinen Widerrufsbutton. " +
+    "Ist der Link in falsche Hände geraten, nehmen Sie besser „Neuer Link“ und schicken dem Kunden den neuen.\n\n" +
     frage
   );
 }
@@ -22,5 +24,12 @@ export function sperrBestaetigungText(widerrufBis: string | null): string {
 /** Hinweis neben „Gesperrt“, solange die Frist läuft. */
 export function gesperrtHinweis(widerrufBis: string | null): string | null {
   if (!widerrufBis) return null;
-  return `Widerrufsfrist läuft bis ${datumDe(widerrufBis)}: Ohne Link hat der Kunde keinen Widerrufsbutton.`;
+  return (
+    `Widerrufsfrist läuft voraussichtlich bis einschließlich ${datumDe(widerrufBis)}. ` +
+    "Solange der Link gesperrt ist, hat der Kunde keinen Widerrufsbutton. Erstellen Sie einen neuen Link oder aktivieren Sie diesen wieder."
+  );
+}
+
+export function neuerLinkBestaetigung(): string {
+  return "Der bisherige Link funktioniert danach nicht mehr. Schicken Sie dem Kunden den neuen Link. Neuen Link erstellen?";
 }
