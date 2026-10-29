@@ -28,7 +28,6 @@ describe("portalPreview", () => {
       neutral: true,
       firma: "Auftrag",
       dealNumber: "",
-      customerName: "",
       primaryColor: null,
     });
   });
@@ -36,7 +35,6 @@ describe("portalPreview", () => {
   it("does not show the customer of a revoked link", () => {
     const p = portalPreview({ ...usable!, meta: { revoked: true, featureDisabled: false } } as never);
     expect(p.neutral).toBe(true);
-    expect(p.customerName).toBe("");
     expect(p.dealNumber).toBe("");
   });
 
@@ -46,12 +44,13 @@ describe("portalPreview", () => {
     ).toBe(true);
   });
 
-  it("shows firma, deal number and customer for a usable link", () => {
+  // Die Vorschau sieht jeder, an den der Link weitergeleitet wird (Gruppe,
+  // Weiterleitung, Crawler), bevor er geöffnet ist. Der Name bleibt im Portal.
+  it("shows firma and deal number but never the customer name", () => {
     expect(portalPreview(usable)).toEqual({
       neutral: false,
       firma: "Kottke Umzüge",
       dealNumber: "KOT-2026-042",
-      customerName: "Max Mustermann",
       primaryColor: "ff8200",
     });
   });

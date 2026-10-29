@@ -52,9 +52,7 @@ export async function generateMetadata({
 
   const firma = preview.firma;
   const title = `${firma} · Auftrag ${preview.dealNumber}`;
-  const description = preview.customerName
-    ? `Auftrag ${preview.dealNumber} für ${preview.customerName}: Angebot, Status und Bestätigung.`
-    : `Auftrag ${preview.dealNumber}: Angebot, Status und Bestätigung.`;
+  const description = `Auftrag ${preview.dealNumber}: Angebot, Status und Bestätigung.`;
 
   return {
     title,

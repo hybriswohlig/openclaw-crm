@@ -35,7 +35,6 @@ export default async function OpenGraphImage({
   const hex = sanitizeHex(preview.primaryColor) ?? "1e3a5f";
   const accent = `#${hex}`;
   const accentTint = `${accent}1f`;
-  const customerName = preview.customerName;
 
   return new ImageResponse(
     (
@@ -130,17 +129,6 @@ export default async function OpenGraphImage({
                 }}
               >
                 {dealNumber}
-              </div>
-            )}
-            {customerName && (
-              <div
-                style={{
-                  fontSize: 32,
-                  fontWeight: 500,
-                  color: "#56627a",
-                }}
-              >
-                für {customerName}
               </div>
             )}
           </div>

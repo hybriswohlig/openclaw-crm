@@ -17,11 +17,14 @@ export function portalSperre(meta: {
   return null;
 }
 
+/**
+ * Kein Kundenname: Die Vorschau sieht jeder, an den der Link weitergeleitet
+ * wird, bevor er ihn öffnet. Der Name steht erst im Portal selbst.
+ */
 export interface PortalPreview {
   neutral: boolean;
   firma: string;
   dealNumber: string;
-  customerName: string;
   primaryColor: string | null;
 }
 
@@ -29,20 +32,18 @@ const NEUTRAL: PortalPreview = {
   neutral: true,
   firma: "Auftrag",
   dealNumber: "",
-  customerName: "",
   primaryColor: null,
 };
 
 /** What a link preview (page metadata, OG/Twitter card) may show. */
 export function portalPreview(
-  ctx: Pick<CustomerPortalContext, "branding" | "dealNumber" | "customerDisplayName" | "meta"> | null
+  ctx: Pick<CustomerPortalContext, "branding" | "dealNumber" | "meta"> | null
 ): PortalPreview {
   if (!ctx || portalSperre(ctx.meta)) return NEUTRAL;
   return {
     neutral: false,
     firma: ctx.branding.displayName,
     dealNumber: ctx.dealNumber,
-    customerName: ctx.customerDisplayName ?? "",
     primaryColor: ctx.branding.primaryColor,
   };
 }
