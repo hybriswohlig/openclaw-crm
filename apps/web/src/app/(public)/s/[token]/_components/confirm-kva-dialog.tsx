@@ -526,6 +526,8 @@ function germanError(code: string | undefined): string {
       return "Bitte wählen Sie zuerst eine der angebotenen Optionen.";
     case "ZERO_PRICE":
       return "Für dieses Angebot ist noch kein Preis hinterlegt. Bitte kontaktieren Sie uns.";
+    case "TERMIN_VORBEI":
+      return "Der Termin für diesen Auftrag liegt schon zurück. Schreiben Sie uns bitte kurz, wir melden uns bei Ihnen.";
     case "OFFER_EXPIRED":
       return "Dieses Angebot ist inzwischen abgelaufen. Schreiben Sie uns kurz, wir prüfen die Verfügbarkeit und senden Ihnen ein aktualisiertes Angebot.";
     case "REVOKED":

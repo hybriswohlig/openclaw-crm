@@ -40,6 +40,12 @@ export interface AnnahmeRegeln {
    * vorzeitigem Beginn, wenn der Termin später in die Frist fällt.
    */
   terminFehlt: boolean;
+  /**
+   * Termin liegt vor heute (Berlin): keine Annahme mehr. Sonst begänne bei
+   * Küche und Entrümpelung eine neue 14-Tage-Widerrufsfrist für erledigte
+   * Arbeit, ohne Verlangen nach vorzeitigem Beginn.
+   */
+  terminVorbei: boolean;
 }
 
 export function annahmeRegeln(input: {
@@ -56,6 +62,7 @@ export function annahmeRegeln(input: {
     vorzeitigerBeginnErforderlich: modus === "belehrung" && beginntInWiderrufsfrist(input.moveDate, input.now),
     terminFehlt:
       input.hasOpenDateChoice || ((input.serviceType === "move" || input.serviceType === "clearance") && !input.moveDate),
+    terminVorbei: (daysUntilMove(input.moveDate, input.now) ?? 0) < 0,
   };
 }
 
@@ -101,6 +108,7 @@ export function erwarteterGesamtpreis(input: {
 export type AnnahmeSperrgrund =
   | "missing_acknowledgement"
   | "date_required"
+  | "termin_vorbei"
   | "price_changed"
   | "haftungshinweis_required"
   | "vorzeitiger_beginn_required";
@@ -112,6 +120,7 @@ export function annahmeSperrgrund(input: {
   aktuellerPreisCents: number;
 }): AnnahmeSperrgrund | null {
   const { payload, regeln } = input;
+  if (regeln.terminVorbei) return "termin_vorbei";
   if (!payload.acceptedOffer) return "missing_acknowledgement";
   if (input.agbVorhanden && !payload.acceptedAgb) return "missing_acknowledgement";
   if (regeln.terminFehlt) return "date_required";

@@ -59,7 +59,9 @@ export function FestangebotView({
     return startOfDay(new Date(`${kva.validUntil}T12:00:00`)) < startOfDay(new Date(ctx.meta.serverTime));
   }, [kva.validUntil, ctx.meta.serverTime]);
 
-  const offerExpired = expired && !alreadyAccepted;
+  const gueltigkeitAbgelaufen = expired && !alreadyAccepted;
+  // Nach dem Termin nimmt der Server nicht mehr an (termin_vorbei).
+  const offerExpired = (expired || ctx.annahmeRecht.terminVorbei) && !alreadyAccepted;
   const hasOpenDateChoice = ctx.dateOffers.options.length > 0 && !ctx.dateOffers.selection;
   const terminOffen = !alreadyAccepted && ctx.annahmeRecht.terminFehlt && !hasOpenDateChoice;
   const displayTotalCents =
@@ -141,9 +143,9 @@ export function FestangebotView({
                 </p>
               )}
               {kva.validUntil && (
-                <p className={offerExpired ? "portal-fest-expired" : undefined}>
+                <p className={gueltigkeitAbgelaufen ? "portal-fest-expired" : undefined}>
                   Gültig bis {formatLongDate(kva.validUntil)}
-                  {offerExpired ? " (abgelaufen)" : ""}
+                  {gueltigkeitAbgelaufen ? " (abgelaufen)" : ""}
                 </p>
               )}
             </div>

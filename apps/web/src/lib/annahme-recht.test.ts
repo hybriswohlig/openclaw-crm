@@ -56,6 +56,32 @@ describe("annahmeRegeln", () => {
   });
 });
 
+describe("Termin schon vorbei", () => {
+  // now = 06.10.2026, Berlin
+  it("Küche mit Termin gestern: Annahme gesperrt", () => {
+    const r = annahmeRegeln({ serviceType: "kitchen_installation", moveDate: "2026-10-05", hasOpenDateChoice: false, now });
+    expect(r.terminVorbei).toBe(true);
+    expect(annahmeSperrgrund({ payload: payload({ vorzeitigerBeginnVerlangt: true }), regeln: r, agbVorhanden: true, aktuellerPreisCents: 120000 })).toBe("termin_vorbei");
+  });
+  it("Umzug mit Termin gestern: Annahme gesperrt", () => {
+    const r = annahmeRegeln({ serviceType: "move", moveDate: "2026-10-05", hasOpenDateChoice: false, now });
+    expect(annahmeSperrgrund({ payload: payload(), regeln: r, agbVorhanden: true, aktuellerPreisCents: 120000 })).toBe("termin_vorbei");
+  });
+  it("Termin heute: noch möglich", () => {
+    const r = annahmeRegeln({ serviceType: "move", moveDate: "2026-10-06", hasOpenDateChoice: false, now });
+    expect(r.terminVorbei).toBe(false);
+    expect(annahmeSperrgrund({ payload: payload(), regeln: r, agbVorhanden: true, aktuellerPreisCents: 120000 })).toBeNull();
+  });
+  it("kurz nach Mitternacht in Berlin zählt der neue Tag", () => {
+    const r = annahmeRegeln({ serviceType: "move", moveDate: "2026-10-06", hasOpenDateChoice: false, now: new Date("2026-10-07T00:30:00+02:00") });
+    expect(r.terminVorbei).toBe(true);
+  });
+  it("ohne Termin nie vorbei", () => {
+    const r = annahmeRegeln({ serviceType: "kitchen_installation", moveDate: null, hasOpenDateChoice: false, now });
+    expect(r.terminVorbei).toBe(false);
+  });
+});
+
 describe("erwarteterGesamtpreis", () => {
   it("nimmt den Preis der gewählten Option", () => {
     expect(erwarteterGesamtpreis({ dealOptions: [{ id: "a", priceCents: 90000 }, { id: "b", priceCents: 130000 }], selectedOptionId: "b", totalCents: 1 })).toBe(130000);

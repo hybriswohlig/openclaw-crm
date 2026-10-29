@@ -44,6 +44,7 @@ export async function POST(
       not_found: 404,
       revoked: 410,
       offer_expired: 410,
+      termin_vorbei: 410,
       invalid_token: 400,
       price_changed: 409,
       agb_unavailable: 503,

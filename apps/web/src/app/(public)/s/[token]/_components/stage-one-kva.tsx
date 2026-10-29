@@ -98,7 +98,9 @@ export function StageOneKva({
       ? ctx.dealPackageOffers.options.length > 1
       : offerView === "allgemeine_pakete" && ctx.packages.available.length > 1;
   const alreadyAccepted = !!ctx.acceptance;
-  const offerExpired = expired && !alreadyAccepted;
+  const gueltigkeitAbgelaufen = expired && !alreadyAccepted;
+  // Nach dem Termin nimmt der Server nicht mehr an (termin_vorbei).
+  const offerExpired = (expired || ctx.annahmeRecht.terminVorbei) && !alreadyAccepted;
   const hasOpenDateChoice =
     ctx.dateOffers.options.length > 0 && !ctx.dateOffers.selection;
   const defaultOption = pickDefaultDealOption(
@@ -138,7 +140,7 @@ export function StageOneKva({
             {offerView !== "einzelangebot" && <PackageSelector token={token} packages={ctx.packages} dealOffers={ctx.dealPackageOffers} branding={ctx.branding} locked={alreadyAccepted} onPicked={onConfirmed} />}
             {offerView === "einzelangebot" && ctx.kva && <div className="portal-note rounded-lg p-5"><strong>{ctx.kva.isVariable ? "Individuelles Angebot nach Aufwand" : "Ihr individuelles Angebot"}</strong><div className="portal-price text-4xl">{formatPortalMoney(displayTotalCents)}</div>{ctx.kva.summary && <p className="mt-3 whitespace-pre-line">{ctx.kva.summary}</p>}</div>}
           </section>
-          {ctx.kva && !alreadyAccepted && <MobilePriceDetails ctx={ctx} expired={offerExpired} displayTotalCents={displayTotalCents} selectedOptionName={defaultOption?.displayName ?? null} />}
+          {ctx.kva && !alreadyAccepted && <MobilePriceDetails ctx={ctx} expired={gueltigkeitAbgelaufen} displayTotalCents={displayTotalCents} selectedOptionName={defaultOption?.displayName ?? null} />}
           <QuotationPreview ctx={ctx} token={token} />
           <div className={hasMultipleOffers ? "" : "lg:hidden"}><OrderDetails ctx={ctx} token={token} wide /></div>
           {ctx.kva?.calculationAssumptions && <CalculationAssumptionsCard a={ctx.kva.calculationAssumptions} />}
