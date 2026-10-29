@@ -48,6 +48,7 @@ import {
   outboundIngestPolicy,
   type WhatsAppOutboundOrigin,
 } from "./whatsapp-outbound-policy";
+import { alleVerarbeiten } from "./inbox-whatsapp-eingang";
 
 // ─── Settings keys ────────────────────────────────────────────────────────────
 // App-level values, stored once per workspace in workspace_settings (encrypted).
@@ -706,48 +707,6 @@ export async function ingestInboundWhatsAppMessage(params: {
     kontaktart: isLeadKunde(kontaktart) ? conv.kontaktart : kontaktart,
   });
 
-  if (conv && !isNewConversation) {
-    await db
-      .update(inboxConversations)
-      .set({
-        lastMessageAt: sentAt,
-        lastMessagePreview: preview,
-        unreadCount: (conv.unreadCount ?? 0) + 1,
-        // Only arm the agent for real lead messages; an OTP-style follow-up on an
-        // existing thread should not trigger a reply. A STOP/decline never arms it.
-        ...agentFelderBeimEingang({ armiert, declined, sentAt }),
-        // Re-open resolved/spam conversations when the customer writes back
-        ...(conv.status !== "open" ? { status: "open" } : {}),
-        ...(laneUpgrade
-          ? {
-              lane,
-              kontaktart,
-              classificationReason: perKontaktart ? `Kontaktart ${KONTAKTART_LABELS[kontaktart]}` : triage.reason,
-              classifiedBy: perKontaktart ? ("manual" as const) : triage.by,
-            }
-          : {}),
-        updatedAt: new Date(),
-      })
-      .where(eq(inboxConversations.id, conv.id));
-
-    if (laneUpgrade && lane === "lead" && !conv.dealRecordId) {
-      await createDealForNewConversation({
-        workspaceId: account.workspaceId,
-        conversationId: conv.id,
-        dealName: peerName || peerWaId,
-        contactId: contact.id,
-        channelAccountId: account.id,
-        sourceReceivedAt: sentAt,
-      });
-      const [fresh] = await db
-        .select()
-        .from(inboxConversations)
-        .where(eq(inboxConversations.id, conv.id))
-        .limit(1);
-      if (fresh) conv = fresh;
-    }
-  }
-
   // Record the opt-out across all engines (idempotent, non-blocking).
   if (declined && conv) {
     await recordAgentDecline(account.workspaceId, {
@@ -789,6 +748,50 @@ export async function ingestInboundWhatsAppMessage(params: {
       };
     }
     throw err;
+  }
+
+  // Erst nach dem Speichern: Eine doppelte Zustellung (Meta-Retry, Bridge)
+  // ist oben schon umgekehrt und darf nicht zählen oder den Agenten wecken.
+  if (conv && !isNewConversation) {
+    await db
+      .update(inboxConversations)
+      .set({
+        lastMessageAt: sentAt,
+        lastMessagePreview: preview,
+        unreadCount: (conv.unreadCount ?? 0) + 1,
+        // Only arm the agent for real lead messages; an OTP-style follow-up on an
+        // existing thread should not trigger a reply. A STOP/decline never arms it.
+        ...agentFelderBeimEingang({ armiert, declined, sentAt }),
+        // Re-open resolved/spam conversations when the customer writes back
+        ...(conv.status !== "open" ? { status: "open" } : {}),
+        ...(laneUpgrade
+          ? {
+              lane,
+              kontaktart,
+              classificationReason: perKontaktart ? `Kontaktart ${KONTAKTART_LABELS[kontaktart]}` : triage.reason,
+              classifiedBy: perKontaktart ? ("manual" as const) : triage.by,
+            }
+          : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(inboxConversations.id, conv.id));
+
+    if (laneUpgrade && lane === "lead" && !conv.dealRecordId) {
+      await createDealForNewConversation({
+        workspaceId: account.workspaceId,
+        conversationId: conv.id,
+        dealName: peerName || peerWaId,
+        contactId: contact.id,
+        channelAccountId: account.id,
+        sourceReceivedAt: sentAt,
+      });
+      const [fresh] = await db
+        .select()
+        .from(inboxConversations)
+        .where(eq(inboxConversations.id, conv.id))
+        .limit(1);
+      if (fresh) conv = fresh;
+    }
   }
 
   if (conv.dealRecordId) {
@@ -1404,6 +1407,7 @@ async function ingestStatus(
 
 export async function handleWebhookPayload(payload: WAWebhookPayload) {
   if (payload.object !== "whatsapp_business_account") return;
+  const nachrichtenFehler: unknown[] = [];
 
   for (const entry of payload.entry ?? []) {
     for (const change of entry.changes ?? []) {
@@ -1420,13 +1424,9 @@ export async function handleWebhookPayload(payload: WAWebhookPayload) {
         continue;
       }
 
-      for (const msg of value.messages ?? []) {
-        try {
-          await ingestMessage(account, value, msg);
-        } catch (err) {
-          console.error("[inbox-whatsapp] ingestMessage failed:", err);
-        }
-      }
+      const fehler = await alleVerarbeiten(value.messages ?? [], (msg) => ingestMessage(account, value, msg));
+      for (const err of fehler) console.error("[inbox-whatsapp] ingestMessage failed:", err);
+      nachrichtenFehler.push(...fehler);
       for (const status of value.statuses ?? []) {
         try {
           await ingestStatus(account, status);
@@ -1435,6 +1435,10 @@ export async function handleWebhookPayload(payload: WAWebhookPayload) {
         }
       }
     }
+  }
+  // Eine nicht gespeicherte Nachricht soll Meta neu zustellen (Route → 500).
+  if (nachrichtenFehler.length > 0) {
+    throw new AggregateError(nachrichtenFehler, `${nachrichtenFehler.length} WhatsApp-Nachricht(en) nicht gespeichert`);
   }
 }
 

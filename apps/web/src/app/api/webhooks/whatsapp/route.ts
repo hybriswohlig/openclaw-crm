@@ -79,12 +79,14 @@ export async function POST(req: NextRequest) {
     return new NextResponse("Bad JSON", { status: 400 });
   }
 
-  // Ack fast. Processing errors are logged inside handleWebhookPayload so we
-  // don't force Meta into its aggressive retry loop on a transient DB blip.
+  // Konnte eine Nachricht nicht gespeichert werden, antworten wir 500: Nur dann
+  // stellt Meta neu zu. Schon gespeicherte Nachrichten derselben Zustellung
+  // scheitern beim zweiten Mal am eindeutigen Schlüssel und zählen nicht doppelt.
   try {
     await handleWebhookPayload(payload);
   } catch (err) {
     console.error("[whatsapp webhook] handler failed:", err);
+    return new NextResponse("Retry", { status: 500 });
   }
   return NextResponse.json({ ok: true });
 }
