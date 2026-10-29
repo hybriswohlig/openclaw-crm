@@ -19,6 +19,7 @@ import {
   Eye,
 } from "lucide-react";
 import { toast } from "sonner";
+import { gesperrtHinweis, sperrBestaetigungText } from "@/lib/customer-link-sperre";
 import { DateOfferComposer } from "./date-offer-composer";
 import { PackageOptionsComposer } from "./package-options-composer";
 
@@ -45,6 +46,8 @@ interface LinkInfo {
   firstViewedAt?: string | null;
   lastViewedAt?: string | null;
   revokedAt?: string | null;
+  /** Ende der laufenden Widerrufsfrist (YYYY-MM-DD), sonst null. */
+  widerrufBis?: string | null;
   telemetry?: VisitTelemetry | null;
 }
 
@@ -105,7 +108,7 @@ export function ShareLinkPanel({ dealRecordId }: { dealRecordId: string }) {
   }
 
   async function revoke() {
-    if (!confirm("Soll der Kunden-Link wirklich gesperrt werden? Bestehende Bestätigungen bleiben erhalten.")) return;
+    if (!confirm(sperrBestaetigungText(link?.widerrufBis ?? null))) return;
     const res = await fetch(`/api/v1/customer-link/${dealRecordId}`, { method: "DELETE" });
     if (res.ok) await load();
   }
@@ -308,6 +311,12 @@ export function ShareLinkPanel({ dealRecordId }: { dealRecordId: string }) {
               </ul>
             )}
           </>
+        )}
+
+        {revoked && gesperrtHinweis(link.widerrufBis ?? null) && (
+          <p className="mt-3 rounded-lg bg-destructive/10 px-3 py-2 text-[11px] text-destructive">
+            {gesperrtHinweis(link.widerrufBis ?? null)}
+          </p>
         )}
 
         <div className="mt-3 flex items-center justify-end text-[11px] text-muted-foreground">

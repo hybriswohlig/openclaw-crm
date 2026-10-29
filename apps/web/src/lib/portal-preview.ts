@@ -47,3 +47,17 @@ export function portalPreview(
     primaryColor: ctx.branding.primaryColor,
   };
 }
+
+/**
+ * Seite „Portal aus“: Der Widerrufsbutton bleibt während der Frist (§ 356a
+ * Abs. 1 S. 3 BGB), ebenso der Hinweis auf einen eingegangenen Widerruf. Ein
+ * gesperrter Link zeigt nichts davon: Damit schließt das Büro einen
+ * weitergegebenen Link.
+ */
+export function widerrufBeiPortalAus(ctx: {
+  meta: { revoked: boolean; featureDisabled: boolean };
+  widerruf: { aktiv: boolean; eingegangen: unknown };
+}): boolean {
+  if (portalSperre(ctx.meta) !== "disabled") return false;
+  return ctx.widerruf.aktiv || !!ctx.widerruf.eingegangen;
+}

@@ -183,6 +183,22 @@ export async function ladeWiderrufKontext(input: {
 }
 
 /**
+ * Ende der laufenden Widerrufsfrist (YYYY-MM-DD) der aktiven Annahme, sonst
+ * null. Für den Hinweis beim Sperren des Kunden-Links im CRM; die erbrachte
+ * Leistung bleibt außen vor, im Zweifel warnt der Hinweis einmal zu viel.
+ */
+export async function laufendeWiderrufsfrist(dealRecordId: string, now = new Date()): Promise<string | null> {
+  const annahme = await ladeAktiveAnnahme(dealRecordId);
+  if (!annahme) return null;
+  const aktiv = widerrufsfunktionAktiv({
+    widerrufModus: annahme.widerrufModus as WiderrufModus | null,
+    signedAt: annahme.signedAt,
+    now,
+  });
+  return aktiv ? widerrufsfristEnde(annahme.signedAt) : null;
+}
+
+/**
  * Widerruf der zuletzt aufgehobenen Annahme, wenn diese durch den Widerruf
  * (und nicht ein späteres Admin-Aufheben) endete. Für Portal und CRM.
  * Fehlt die Tabelle (Migration nicht gelaufen), null.

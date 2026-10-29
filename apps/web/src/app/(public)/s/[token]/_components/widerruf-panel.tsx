@@ -12,6 +12,9 @@ import {
 import { formatPortalDate, portalBrandStyle } from "./portal-presentation";
 import { PanelHeading } from "./portal-ui";
 
+/** Was Panel und Dialog vom Portal-Kontext brauchen (auch bei „Portal aus“). */
+export type WiderrufPanelKontext = Pick<CustomerPortalContext, "widerruf" | "branding">;
+
 /**
  * Elektronische Widerrufsfunktion (§ 356a BGB). Während der Frist steht der
  * Button auf jeder Stufe direkt unter dem Kopf. Zwei Schritte: Angaben
@@ -23,7 +26,7 @@ export function WiderrufPanel({
   onWiderrufen,
 }: {
   token: string;
-  ctx: CustomerPortalContext;
+  ctx: WiderrufPanelKontext;
   onWiderrufen: () => void | Promise<void>;
 }) {
   const w = ctx.widerruf;
@@ -80,7 +83,7 @@ function WiderrufDialog({
   onWiderrufen,
 }: {
   token: string;
-  ctx: CustomerPortalContext;
+  ctx: WiderrufPanelKontext;
   open: boolean;
   onOpenChange: (v: boolean) => void;
   onWiderrufen: () => void | Promise<void>;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { portalPreview, portalSperre } from "./portal-preview";
+import { portalPreview, portalSperre, widerrufBeiPortalAus } from "./portal-preview";
 
 const usable = {
   branding: { displayName: "Kottke Umzüge", primaryColor: "ff8200" },
@@ -53,5 +53,23 @@ describe("portalPreview", () => {
       dealNumber: "KOT-2026-042",
       primaryColor: "ff8200",
     });
+  });
+});
+
+// § 356a BGB: Der Widerrufsbutton steht während der ganzen Frist bereit, auch
+// wenn die Firma das Portal ausschaltet. Ein gesperrter Link bleibt zu.
+describe("widerrufBeiPortalAus", () => {
+  const aktiv = { aktiv: true, eingegangen: null };
+  it("Portal aus, Frist läuft: Button bleibt", () => {
+    expect(widerrufBeiPortalAus({ meta: { revoked: false, featureDisabled: true }, widerruf: aktiv })).toBe(true);
+  });
+  it("Portal aus, Widerruf schon eingegangen: Hinweis bleibt", () => {
+    expect(widerrufBeiPortalAus({ meta: { revoked: false, featureDisabled: true }, widerruf: { aktiv: false, eingegangen: { at: "2026-10-20T10:00:00Z" } } })).toBe(true);
+  });
+  it("Portal aus, kein Widerrufsrecht: nichts", () => {
+    expect(widerrufBeiPortalAus({ meta: { revoked: false, featureDisabled: true }, widerruf: { aktiv: false, eingegangen: null } })).toBe(false);
+  });
+  it("gesperrter Link: nichts, auch bei laufender Frist", () => {
+    expect(widerrufBeiPortalAus({ meta: { revoked: true, featureDisabled: true }, widerruf: aktiv })).toBe(false);
   });
 });

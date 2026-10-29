@@ -14,11 +14,12 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { loadContextByToken, bumpView } from "@/services/customer-portal-data";
-import { portalPreview } from "@/lib/portal-preview";
+import { portalPreview, widerrufBeiPortalAus } from "@/lib/portal-preview";
 import { StagePortal } from "./_components/stage-portal";
 import { RevokedNotice } from "./_components/revoked-notice";
 import { NotFoundNotice } from "./_components/not-found-notice";
 import { FeatureDisabledNotice } from "./_components/feature-disabled-notice";
+import { WiderrufOhnePortal } from "./_components/widerruf-ohne-portal";
 
 export const dynamic = "force-dynamic";
 
@@ -87,7 +88,14 @@ export default async function PublicStatusPage({
 
   // Per-OC feature toggle: short-circuit before doing anything else.
   if (ctx.meta.featureDisabled) {
-    return <FeatureDisabledNotice whatsappNumberE164={ctx.branding.whatsappNumberE164} />;
+    // Nur Widerruf und Branding gehen an den Browser, nicht der ganze Kontext.
+    return (
+      <FeatureDisabledNotice whatsappNumberE164={ctx.branding.whatsappNumberE164}>
+        {widerrufBeiPortalAus(ctx) && (
+          <WiderrufOhnePortal token={token} ctx={{ widerruf: ctx.widerruf, branding: ctx.branding }} />
+        )}
+      </FeatureDisabledNotice>
+    );
   }
 
   // Canonical-host redirect: if the OC has its own verified custom domain

@@ -3,7 +3,7 @@
  * a specific deal. Lives under /api/v1 so it follows the existing auth
  * conventions (cookie or oc_sk_* Bearer).
  *
- * GET    → returns { token, url, dealNumber, viewCount, firstViewedAt, lastViewedAt, revokedAt }
+ * GET    → returns { token, url, dealNumber, viewCount, firstViewedAt, lastViewedAt, revokedAt, widerrufBis }
  * POST   → ensure link exists (idempotent); returns the same shape
  * DELETE → revokes the link (soft — sets revoked_at, doesn't drop the row)
  *
@@ -24,6 +24,7 @@ import {
   resolveCustomerLinkOrigin,
   revokeCustomerStatusLink,
 } from "@/services/customer-portal-data";
+import { laufendeWiderrufsfrist } from "@/services/kva-widerruf";
 
 export const dynamic = "force-dynamic";
 
@@ -75,6 +76,8 @@ export async function GET(
   );
   const dealNumber = await loadDealNumber(dealRecordId);
   const telemetry = await loadVisitTelemetry(ctx.workspaceId, dealRecordId);
+  // Beim Sperren warnt das CRM, solange der Kunde noch widerrufen kann.
+  const widerrufBis = await laufendeWiderrufsfrist(dealRecordId).catch(() => null);
 
   return success({
     token: row.token,
@@ -84,6 +87,7 @@ export async function GET(
     firstViewedAt: row.firstViewedAt,
     lastViewedAt: row.lastViewedAt,
     revokedAt: row.revokedAt,
+    widerrufBis,
     telemetry,
   });
 }
