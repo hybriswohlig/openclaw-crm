@@ -45,6 +45,7 @@ import { recomputeMultiCompanyForContact } from "./multi-company";
 import {
   insertOnce,
   isSameAccountMessage,
+  isWhatsAppMessageConflict,
   outboundIngestPolicy,
   type WhatsAppOutboundOrigin,
 } from "./whatsapp-outbound-policy";
@@ -769,8 +770,9 @@ export async function ingestInboundWhatsAppMessage(params: {
       return stored?.id ?? null;
     });
   } catch (err) {
-    // Unique violation → duplicate delivery. Swallow and move on.
-    if (err instanceof Error && /duplicate key|unique/i.test(err.message)) {
+    // Unique violation → duplicate delivery. Swallow and move on. Drizzle can
+    // wrap the Postgres error, so check `cause` and code 23505 too.
+    if (isWhatsAppMessageConflict(err)) {
       return {
         conversationId: conv.id,
         dealRecordId: conv.dealRecordId ?? null,

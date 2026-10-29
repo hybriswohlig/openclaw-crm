@@ -47,4 +47,12 @@ describe("ingestInboundWhatsAppMessage: erst speichern, dann zählen", () => {
     expect(block).toMatch(/tx\s*\.insert\(inboxMessages\)/);
     expect(block).toMatch(/tx\s*\.update\(inboxConversations\)\s*\.set\(\{[\s\S]*?unreadCount: \(convJetzt\.unreadCount \?\? 0\) \+ 1/);
   });
+
+  // Drizzle verpackt den Postgres-Fehler; der Schlüsselkonflikt steckt dann
+  // nur in cause (Code 23505). Sonst antwortet der Webhook 500 auf eine schon
+  // gespeicherte Nachricht, und Meta stellt sieben Tage lang neu zu.
+  it("erkennt die doppelte Zustellung auch im verpackten Fehler", () => {
+    expect(fn).toContain("isWhatsAppMessageConflict(err)");
+    expect(fn).not.toMatch(/duplicate key\|unique\/i\.test\(err\.message\)/);
+  });
 });
