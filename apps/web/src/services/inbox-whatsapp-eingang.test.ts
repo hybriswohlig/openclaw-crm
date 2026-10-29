@@ -31,9 +31,20 @@ describe("ingestInboundWhatsAppMessage: erst speichern, dann zählen", () => {
 
   it("die Nachricht wird vor dem Konversations-Update gespeichert", () => {
     const insert = fn.indexOf(".insert(inboxMessages)");
-    const unread = fn.indexOf("unreadCount: (conv.unreadCount ?? 0) + 1");
+    const unread = fn.indexOf("unreadCount: (convJetzt.unreadCount ?? 0) + 1");
     expect(insert).toBeGreaterThan(0);
     expect(unread).toBeGreaterThan(0);
     expect(insert).toBeLessThan(unread);
+  });
+
+  // Scheitert das Update nach dem Speichern, darf die Nachricht nicht ohne
+  // Ungelesen-Zähler und Agent liegen bleiben (die Neuzustellung wäre ein
+  // Duplikat): Speichern und Update laufen in einer Transaktion.
+  it("Speichern und Konversations-Update in einer Transaktion", () => {
+    const tx = fn.indexOf("db.transaction(async (tx)");
+    expect(tx).toBeGreaterThan(0);
+    const block = fn.slice(tx);
+    expect(block).toMatch(/tx\s*\.insert\(inboxMessages\)/);
+    expect(block).toMatch(/tx\s*\.update\(inboxConversations\)\s*\.set\(\{[\s\S]*?unreadCount: \(convJetzt\.unreadCount \?\? 0\) \+ 1/);
   });
 });

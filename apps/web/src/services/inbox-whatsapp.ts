@@ -716,27 +716,58 @@ export async function ingestInboundWhatsAppMessage(params: {
     });
   }
 
+  // Speichern und Konversations-Update gemeinsam: Erst die gespeicherte
+  // Nachricht zählt (eine doppelte Zustellung kehrt am eindeutigen Schlüssel
+  // um), und scheitert das Update, ist auch die Nachricht nicht gespeichert,
+  // sodass die Neuzustellung alles nachholt.
+  const convJetzt = conv;
   let messageId: string | null = null;
   try {
-    const [stored] = await db
-      .insert(inboxMessages)
-      .values({
-        workspaceId: account.workspaceId,
-        conversationId: conv.id,
-        direction: "inbound",
-        status: "received",
-        externalMessageId,
-        fromAddress: peerWaId,
-        toAddress: toAddress ?? null,
-        subject: null,
-        body,
-        isRead: false,
-        rawHeaders: rawHeaders ? JSON.stringify(rawHeaders) : null,
-        sentAt,
-        aiProcessedAt: aiProcessedAtBeimEingang(armiert, sentAt),
-      })
-      .returning({ id: inboxMessages.id });
-    messageId = stored?.id ?? null;
+    messageId = await db.transaction(async (tx) => {
+      const [stored] = await tx
+        .insert(inboxMessages)
+        .values({
+          workspaceId: account.workspaceId,
+          conversationId: convJetzt.id,
+          direction: "inbound",
+          status: "received",
+          externalMessageId,
+          fromAddress: peerWaId,
+          toAddress: toAddress ?? null,
+          subject: null,
+          body,
+          isRead: false,
+          rawHeaders: rawHeaders ? JSON.stringify(rawHeaders) : null,
+          sentAt,
+          aiProcessedAt: aiProcessedAtBeimEingang(armiert, sentAt),
+        })
+        .returning({ id: inboxMessages.id });
+      if (!isNewConversation) {
+        await tx
+          .update(inboxConversations)
+          .set({
+            lastMessageAt: sentAt,
+            lastMessagePreview: preview,
+            unreadCount: (convJetzt.unreadCount ?? 0) + 1,
+            // Only arm the agent for real lead messages; an OTP-style follow-up on an
+            // existing thread should not trigger a reply. A STOP/decline never arms it.
+            ...agentFelderBeimEingang({ armiert, declined, sentAt }),
+            // Re-open resolved/spam conversations when the customer writes back
+            ...(convJetzt.status !== "open" ? { status: "open" } : {}),
+            ...(laneUpgrade
+              ? {
+                  lane,
+                  kontaktart,
+                  classificationReason: perKontaktart ? `Kontaktart ${KONTAKTART_LABELS[kontaktart]}` : triage.reason,
+                  classifiedBy: perKontaktart ? ("manual" as const) : triage.by,
+                }
+              : {}),
+            updatedAt: new Date(),
+          })
+          .where(eq(inboxConversations.id, convJetzt.id));
+      }
+      return stored?.id ?? null;
+    });
   } catch (err) {
     // Unique violation → duplicate delivery. Swallow and move on.
     if (err instanceof Error && /duplicate key|unique/i.test(err.message)) {
@@ -750,48 +781,23 @@ export async function ingestInboundWhatsAppMessage(params: {
     throw err;
   }
 
-  // Erst nach dem Speichern: Eine doppelte Zustellung (Meta-Retry, Bridge)
-  // ist oben schon umgekehrt und darf nicht zählen oder den Agenten wecken.
-  if (conv && !isNewConversation) {
-    await db
-      .update(inboxConversations)
-      .set({
-        lastMessageAt: sentAt,
-        lastMessagePreview: preview,
-        unreadCount: (conv.unreadCount ?? 0) + 1,
-        // Only arm the agent for real lead messages; an OTP-style follow-up on an
-        // existing thread should not trigger a reply. A STOP/decline never arms it.
-        ...agentFelderBeimEingang({ armiert, declined, sentAt }),
-        // Re-open resolved/spam conversations when the customer writes back
-        ...(conv.status !== "open" ? { status: "open" } : {}),
-        ...(laneUpgrade
-          ? {
-              lane,
-              kontaktart,
-              classificationReason: perKontaktart ? `Kontaktart ${KONTAKTART_LABELS[kontaktart]}` : triage.reason,
-              classifiedBy: perKontaktart ? ("manual" as const) : triage.by,
-            }
-          : {}),
-        updatedAt: new Date(),
-      })
-      .where(eq(inboxConversations.id, conv.id));
-
-    if (laneUpgrade && lane === "lead" && !conv.dealRecordId) {
-      await createDealForNewConversation({
-        workspaceId: account.workspaceId,
-        conversationId: conv.id,
-        dealName: peerName || peerWaId,
-        contactId: contact.id,
-        channelAccountId: account.id,
-        sourceReceivedAt: sentAt,
-      });
-      const [fresh] = await db
-        .select()
-        .from(inboxConversations)
-        .where(eq(inboxConversations.id, conv.id))
-        .limit(1);
-      if (fresh) conv = fresh;
-    }
+  // Den Deal erst nach dem Commit anlegen: createDealForNewConversation
+  // schreibt über eine eigene Verbindung auf dieselbe Konversation.
+  if (!isNewConversation && laneUpgrade && lane === "lead" && !conv.dealRecordId) {
+    await createDealForNewConversation({
+      workspaceId: account.workspaceId,
+      conversationId: conv.id,
+      dealName: peerName || peerWaId,
+      contactId: contact.id,
+      channelAccountId: account.id,
+      sourceReceivedAt: sentAt,
+    });
+    const [fresh] = await db
+      .select()
+      .from(inboxConversations)
+      .where(eq(inboxConversations.id, conv.id))
+      .limit(1);
+    if (fresh) conv = fresh;
   }
 
   if (conv.dealRecordId) {
