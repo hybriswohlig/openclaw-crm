@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { portalPreview, portalSperre, widerrufBeiPortalAus } from "./portal-preview";
+import { portalPreview, portalSperre, widerrufBeiPortalAus, widerrufOhnePortalDaten } from "./portal-preview";
 
 const usable = {
   branding: { displayName: "Kottke Umzüge", primaryColor: "ff8200" },
@@ -71,5 +71,18 @@ describe("widerrufBeiPortalAus", () => {
   });
   it("gesperrter Link: nichts, auch bei laufender Frist", () => {
     expect(widerrufBeiPortalAus({ meta: { revoked: true, featureDisabled: true }, widerruf: aktiv })).toBe(false);
+  });
+});
+
+// Bei „Portal aus“ geht nur an den Browser, was der Widerrufsbutton braucht:
+// keine Bankdaten, kein PayPal, kein restliches Branding.
+describe("widerrufOhnePortalDaten", () => {
+  it("nur Widerruf, Firmenname und Farbe", () => {
+    const widerruf = { aktiv: true, eingegangen: null, fristEnde: "2026-11-12" };
+    const daten = widerrufOhnePortalDaten({
+      widerruf,
+      branding: { displayName: "Kottke Umzüge", primaryColor: "c2570c", bank: { iban: "DE00" }, paypal: { handleOrEmail: "x" } },
+    } as never);
+    expect(daten).toEqual({ widerruf, branding: { displayName: "Kottke Umzüge", primaryColor: "c2570c" } });
   });
 });

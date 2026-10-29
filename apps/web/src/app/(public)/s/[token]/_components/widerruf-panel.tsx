@@ -13,7 +13,9 @@ import { formatPortalDate, portalBrandStyle } from "./portal-presentation";
 import { PanelHeading } from "./portal-ui";
 
 /** Was Panel und Dialog vom Portal-Kontext brauchen (auch bei „Portal aus“). */
-export type WiderrufPanelKontext = Pick<CustomerPortalContext, "widerruf" | "branding">;
+export type WiderrufPanelKontext = Pick<CustomerPortalContext, "widerruf"> & {
+  branding: Pick<CustomerPortalContext["branding"], "displayName" | "primaryColor">;
+};
 
 /**
  * Elektronische Widerrufsfunktion (§ 356a BGB). Während der Frist steht der

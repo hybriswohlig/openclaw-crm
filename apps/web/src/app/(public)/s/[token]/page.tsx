@@ -14,7 +14,7 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { loadContextByToken, bumpView } from "@/services/customer-portal-data";
-import { portalPreview, widerrufBeiPortalAus } from "@/lib/portal-preview";
+import { portalPreview, widerrufBeiPortalAus, widerrufOhnePortalDaten } from "@/lib/portal-preview";
 import { StagePortal } from "./_components/stage-portal";
 import { RevokedNotice } from "./_components/revoked-notice";
 import { NotFoundNotice } from "./_components/not-found-notice";
@@ -88,11 +88,11 @@ export default async function PublicStatusPage({
 
   // Per-OC feature toggle: short-circuit before doing anything else.
   if (ctx.meta.featureDisabled) {
-    // Nur Widerruf und Branding gehen an den Browser, nicht der ganze Kontext.
+    // Nur Widerruf, Firmenname und Farbe gehen an den Browser.
     return (
       <FeatureDisabledNotice whatsappNumberE164={ctx.branding.whatsappNumberE164}>
         {widerrufBeiPortalAus(ctx) && (
-          <WiderrufOhnePortal token={token} ctx={{ widerruf: ctx.widerruf, branding: ctx.branding }} />
+          <WiderrufOhnePortal token={token} ctx={widerrufOhnePortalDaten(ctx)} />
         )}
       </FeatureDisabledNotice>
     );

@@ -61,3 +61,14 @@ export function widerrufBeiPortalAus(ctx: {
   if (portalSperre(ctx.meta) !== "disabled") return false;
   return ctx.widerruf.aktiv || !!ctx.widerruf.eingegangen;
 }
+
+/** Was der Widerrufsbutton bei „Portal aus“ braucht, sonst nichts (keine Bankdaten). */
+export function widerrufOhnePortalDaten(ctx: Pick<CustomerPortalContext, "widerruf" | "branding">): {
+  widerruf: CustomerPortalContext["widerruf"];
+  branding: Pick<CustomerPortalContext["branding"], "displayName" | "primaryColor">;
+} {
+  return {
+    widerruf: ctx.widerruf,
+    branding: { displayName: ctx.branding.displayName, primaryColor: ctx.branding.primaryColor },
+  };
+}
