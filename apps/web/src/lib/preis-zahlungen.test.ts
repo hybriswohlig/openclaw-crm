@@ -37,6 +37,7 @@ describe("Preisvergleiche nutzen preisZahlungenCent", () => {
     "services/customer-portal-notifications.ts",
     "services/commercial-documents.ts",
     "services/document-job-context.ts",
+    "components/financial/financial-tab.tsx",
   ];
   for (const datei of dateien) {
     it(datei, () => {
@@ -45,4 +46,12 @@ describe("Preisvergleiche nutzen preisZahlungenCent", () => {
       expect(code).not.toMatch(/sum\(\$\{payments\.amount\}\)|sum\(payments\.amount\)/);
     });
   }
+
+  // Umsatz (Monat, Jahr) zählt jede Einnahme; nur „offen“ vergleicht mit dem Wert.
+  it("services/statistics.ts: offen ohne Kaution", () => {
+    const code = readFileSync(join(src, "services/statistics.ts"), "utf8");
+    const offen = code.slice(code.indexOf("// Outstanding:"), code.indexOf("outstandingAmount = Math.max"));
+    expect(offen).toContain("preisZahlungenCent(");
+    expect(offen).not.toContain("sum(payments.amount)");
+  });
 });

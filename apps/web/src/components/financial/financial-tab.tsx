@@ -31,6 +31,7 @@ import { toast } from "sonner";
 import { prepareReceiptDataUrl } from "@/lib/receipt-image";
 import { currencyAmount } from "@/lib/currency-value";
 import { EXPENSE_CATEGORIES, EXPENSE_TAX_TREATMENT_LABELS } from "@/lib/expense-categories";
+import { preisZahlungenCent } from "@/lib/preis-zahlungen";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -54,6 +55,8 @@ interface Payment {
   reference: string | null;
   notes: string | null;
   receiptNumber: string | null;
+  /** "nicht_steuerbar" = Kaution, durchlaufender Posten: zählt nicht als bezahlt. */
+  taxTreatment?: string | null;
 }
 
 type ExpenseTaxTreatment = "voll" | "teilweise" | "nicht";
@@ -347,7 +350,8 @@ function PaymentsSection({
     onChanged();
   }
 
-  const totalPaid = payments.reduce((s, p) => s + Number(p.amount), 0);
+  // Auf den Preis gezahlt, ohne Kaution und durchlaufende Posten.
+  const totalPaid = preisZahlungenCent(payments.map((p) => ({ amount: p.amount, taxTreatment: p.taxTreatment ?? null }))) / 100;
   const outstanding = dealValue != null ? Math.max(0, dealValue - totalPaid) : null;
   const progress = dealValue && dealValue > 0 ? Math.min(100, (totalPaid / dealValue) * 100) : null;
   const fullyPaid = dealValue != null && totalPaid + 0.005 >= dealValue;

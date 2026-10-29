@@ -17,6 +17,7 @@ import { tasks } from "@/db/schema/tasks";
 import { inboxConversations, channelAccounts, inboxContacts } from "@/db/schema/inbox";
 import { bucketNonLeadsByMonth, isLeadKunde, type NonLeadMonthBucket } from "@/lib/kontaktart";
 import { loadNonLeadDealIds } from "@/services/kontaktart";
+import { preisZahlungenCent } from "@/lib/preis-zahlungen";
 
 // ─── Period helpers ──────────────────────────────────────────────────────────
 
@@ -342,11 +343,12 @@ export async function getOverviewStats(workspaceId: string): Promise<OverviewSta
           .where(and(eq(recordValues.attributeId, valueAttr.id), inArray(recordValues.recordId, doneDealIds)));
         const valueSum = valueRows.reduce((s, r) => s + (currencyAmount(r.json ?? r.num) ?? 0), 0);
 
+        // Kaution und durchlaufende Posten zählen nicht gegen den Auftragswert.
         const paidRows = await db
-          .select({ total: sum(payments.amount) })
+          .select({ amount: payments.amount, taxTreatment: payments.taxTreatment })
           .from(payments)
           .where(and(eq(payments.workspaceId, workspaceId), inArray(payments.dealRecordId, doneDealIds)));
-        const paidSum = Number(paidRows[0]?.total ?? 0);
+        const paidSum = preisZahlungenCent(paidRows) / 100;
         outstandingAmount = Math.max(0, valueSum - paidSum);
       }
     }
