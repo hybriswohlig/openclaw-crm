@@ -4,9 +4,17 @@ import { NextRequest } from "next/server";
 import { getAuthContext } from "@/lib/api-utils";
 import { registerCrmTools } from "@/lib/mcp/register-tools";
 import { resolveBaseUrl } from "@/lib/mcp/client";
+import {
+  applyMcpCacheHeaders,
+  MCP_SERVER_NAME,
+  MCP_SERVER_VERSION,
+  toolsChangedStream,
+} from "@/lib/mcp/server-info";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const fetchCache = "force-no-store";
 /** Vercel fluid / serverless max duration for long tool chains */
 export const maxDuration = 60;
 
@@ -49,14 +57,18 @@ async function verifyToken(
 }
 
 function buildHandler(req: Request) {
+  // New handler per request. mcp-handler keeps one stateless McpServer for the
+  // lifetime of a createMcpHandler() call and never re-registers tools, so a
+  // module-level handler would serve the tool list from the first request
+  // that hit this warm instance.
   const mcp = createMcpHandler(
     (server) => {
       registerCrmTools(server, req);
     },
     {
       serverInfo: {
-        name: "openclaw-crm",
-        version: "0.1.0",
+        name: MCP_SERVER_NAME,
+        version: MCP_SERVER_VERSION,
       },
     },
     {
@@ -75,8 +87,18 @@ function buildHandler(req: Request) {
   });
 }
 
+function bearerToken(req: Request): string | undefined {
+  const [type, token] = req.headers.get("authorization")?.split(" ") ?? [];
+  return type?.toLowerCase() === "bearer" ? token : undefined;
+}
+
 async function handle(req: Request): Promise<Response> {
-  return buildHandler(req)(req);
+  const accept = req.headers.get("accept") ?? "";
+  if (req.method === "GET" && accept.includes("text/event-stream")) {
+    const auth = await verifyToken(req, bearerToken(req));
+    if (auth) return toolsChangedStream(req.signal);
+  }
+  return applyMcpCacheHeaders(await buildHandler(req)(req));
 }
 
 export { handle as GET, handle as POST, handle as DELETE };
