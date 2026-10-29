@@ -30,6 +30,7 @@ import { emitEvent } from "./activity-events";
 import { ensureCustomerStatusLink, loadContextByToken } from "./customer-portal-data";
 import { sendPortalNotificationEmail } from "./customer-portal-emails";
 import { sendBaileysReply, sendWhatsAppReply } from "./inbox-whatsapp";
+import { preisZahlungenCent } from "@/lib/preis-zahlungen";
 
 const KEY_ENABLED = "portal_notifications_enabled";
 
@@ -137,13 +138,10 @@ export async function maybeNotifyDepositReceived(
     if (required <= 0) return;
 
     const paymentRows = await db
-      .select({ amount: payments.amount })
+      .select({ amount: payments.amount, taxTreatment: payments.taxTreatment })
       .from(payments)
       .where(eq(payments.dealRecordId, input.dealRecordId));
-    const receivedCents = paymentRows.reduce(
-      (s, r) => s + Math.round(Number(r.amount) * 100),
-      0
-    );
+    const receivedCents = preisZahlungenCent(paymentRows);
     if (receivedCents < required) return;
 
     await maybeNotifyPortalEvent("deposit_received", input);

@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import {
   MissingPriceError,
   buildDocumentModel,
@@ -33,6 +33,7 @@ import {
 } from "@/services/deal-documents";
 import { anredeFuerOptOut, ladeGespeicherteAnrede } from "@/services/agent/agent-suppress";
 import { aktivBedingung } from "@/services/kva-annahme";
+import { preisZahlungenCent } from "@/lib/preis-zahlungen";
 
 export class CommercialDocumentError extends Error {
   constructor(
@@ -312,14 +313,15 @@ export async function loadCommercialModel(input: {
     loadCustomerEmail(workspaceId, dealRecordId),
     personId ? loadPersonAddress(workspaceId, personId) : Promise.resolve(undefined),
     db
-      .select({ paid: sql<string>`coalesce(sum(${payments.amount}), 0)` })
+      .select({ amount: payments.amount, taxTreatment: payments.taxTreatment })
       .from(payments)
       .where(and(eq(payments.workspaceId, workspaceId), eq(payments.dealRecordId, dealRecordId))),
     loadServiceFlags(workspaceId, dealRecordId),
     loadAddressForm(workspaceId, dealRecordId),
   ]);
 
-  const paidCents = Math.round(Number(paidRow[0]?.paid ?? 0) * 100);
+  // Kaution und durchlaufende Posten sind keine Zahlung auf die Rechnung.
+  const paidCents = preisZahlungenCent(paidRow);
 
   try {
     return buildDocumentModel({

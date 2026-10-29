@@ -15,6 +15,7 @@ import {
   jobMedia,
 } from "@/db/schema";
 import { eq, and, inArray, desc } from "drizzle-orm";
+import { preisZahlungenCent } from "@/lib/preis-zahlungen";
 
 // ─── Employee Portal data adapter ───────────────────────────────────────────────
 // Loads only what an assigned employee may see for their jobs. Authorization is
@@ -279,10 +280,10 @@ export async function getEmployeeJobDetail(
 
   // Payment state (best-effort): fixedPrice vs sum of line items, minus payments.
   const paymentRows = await db
-    .select({ amount: payments.amount })
+    .select({ amount: payments.amount, taxTreatment: payments.taxTreatment })
     .from(payments)
     .where(eq(payments.dealRecordId, dealRecordId));
-  const paid = paymentRows.reduce((s, p) => s + Number(p.amount), 0);
+  const paid = preisZahlungenCent(paymentRows) / 100;
   let price = 0;
   if (q?.fixedPrice) price = Number(q.fixedPrice);
   else if (inventory.length)

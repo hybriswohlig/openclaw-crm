@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { and, eq, sum } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { dealEmployees, payments, kvaConfirmations, quotations } from "@/db/schema";
 import { createPayment } from "@/services/financial";
@@ -8,6 +8,7 @@ import { unauthorized, badRequest, success } from "@/lib/api-utils";
 import { berlinDateString } from "@/lib/berlin-date";
 import { aktivBedingung } from "@/services/kva-annahme";
 import { portalPaymentCap } from "@/lib/portal-payment-cap";
+import { preisZahlungenCent } from "@/lib/preis-zahlungen";
 
 const VALID_METHODS = ["cash", "bank_transfer", "paypal", "card", "other"];
 /** Hard ceiling for a single on-site collection (EUR). Prevents fat-finger / fraud. */
@@ -70,11 +71,11 @@ export async function POST(
   if (quotedEur == null && q?.fixedPrice != null) quotedEur = Number(q.fixedPrice);
   const isVariable = q?.isVariable ?? false;
   if (!isVariable && quotedEur != null && quotedEur > 0) {
-    const [paid] = await db
-      .select({ total: sum(payments.amount) })
+    const paidRows = await db
+      .select({ amount: payments.amount, taxTreatment: payments.taxTreatment })
       .from(payments)
       .where(eq(payments.dealRecordId, dealId));
-    const paidSum = Number(paid?.total ?? 0);
+    const paidSum = preisZahlungenCent(paidRows) / 100;
     const cap = portalPaymentCap({ quotedEur, paidEur: paidSum, isVariable, toleranceEur: OVERPAY_TOLERANCE_EUR });
     if (cap != null && amountNum > cap + 0.005) {
       return badRequest(

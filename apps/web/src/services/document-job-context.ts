@@ -18,6 +18,7 @@ import type { ServiceArt } from "@openclaw-crm/customer-portal-core";
 import { aktivBedingung } from "./kva-annahme";
 import { preisQuelleAusAnnahme, type PreisQuelle } from "@/lib/ab-preise";
 import { festpreisAlsPauschale, istBepreist } from "@/lib/festpreis-posten";
+import { preisZahlungenCent } from "@/lib/preis-zahlungen";
 
 type ServiceType = ServiceArt;
 type InventoryOwner = "company" | "customer" | "none";
@@ -141,10 +142,8 @@ export async function attachDocumentJobContext(
     throw new Error("Auftrag gehört nicht zu diesem Workspace.");
   }
 
-  const [payRow] = await db
-    .select({
-      paid: sql<string>`coalesce(sum(${payments.amount}), 0)`,
-    })
+  const payRows = await db
+    .select({ amount: payments.amount, taxTreatment: payments.taxTreatment })
     .from(payments)
     .where(
       and(
@@ -152,7 +151,8 @@ export async function attachDocumentJobContext(
         eq(payments.dealRecordId, dealRecordId)
       )
     );
-  const paidCents = toCents(Number(payRow?.paid ?? 0));
+  // Kaution und durchlaufende Posten sind keine Zahlung auf den Preis.
+  const paidCents = preisZahlungenCent(payRows);
 
   const quotation = await getQuotation(dealRecordId);
   const [accepted] = await db

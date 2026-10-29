@@ -102,6 +102,7 @@ import {
   pruefeNichtAngenommen,
 } from "./kva-annahme";
 import type { Umzugsrahmen } from "./kva-annahme";
+import { preisZahlungenCent } from "@/lib/preis-zahlungen";
 
 // ─── Token / link lifecycle ────────────────────────────────────────────────────
 
@@ -423,13 +424,10 @@ export async function loadContextByToken(
 
   // Sum of confirmed payments — used for Anzahlung gating.
   const paymentRows = await db
-    .select({ amount: payments.amount })
+    .select({ amount: payments.amount, taxTreatment: payments.taxTreatment })
     .from(payments)
     .where(eq(payments.dealRecordId, dealRecordId));
-  const paymentsReceivedCents = paymentRows.reduce(
-    (s, r) => s + Math.round(Number(r.amount) * 100),
-    0
-  );
+  const paymentsReceivedCents = preisZahlungenCent(paymentRows);
 
   // Stage derivation
   const stage = deriveStage({

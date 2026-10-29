@@ -28,6 +28,7 @@ import { objects, attributes } from "@/db/schema/objects";
 import { recordValues } from "@/db/schema/records";
 import { berlinDateString } from "@/lib/berlin-date";
 import { aktivBedingung } from "./kva-annahme";
+import { preisZahlungenCent } from "@/lib/preis-zahlungen";
 
 export type LifecycleKey =
   | "erstkontakt"
@@ -249,17 +250,19 @@ export async function getDealLifecycle(
 
   // ── 6. Zahlung erhalten: payments recorded ≥ the quoted total ──
   const paymentRows = await db
-    .select({ amount: payments.amount, date: payments.date })
+    .select({ amount: payments.amount, date: payments.date, taxTreatment: payments.taxTreatment })
     .from(payments)
     .where(eq(payments.dealRecordId, dealRecordId))
     .orderBy(desc(payments.date));
-  const paidSum = paymentRows.reduce((s, p) => s + Number(p.amount || 0), 0);
+  // Kaution und durchlaufende Posten zählen nicht als Zahlung auf den Preis.
+  const preisZahlungen = paymentRows.filter((p) => p.taxTreatment !== "nicht_steuerbar");
+  const paidSum = preisZahlungenCent(preisZahlungen) / 100;
   // The binding accepted total (if signed) wins over the draft quotation total.
   const quotedTotal =
     accept?.confirmedTotalCents != null
       ? accept.confirmedTotalCents / 100
       : await quotationTotalEur(dealRecordId);
-  const latestPaymentDate = paymentRows[0]?.date ?? null;
+  const latestPaymentDate = preisZahlungen[0]?.date ?? null;
   const paidDone =
     quotedTotal > 0
       ? paidSum + 0.005 >= quotedTotal // quoted amount fully covered
