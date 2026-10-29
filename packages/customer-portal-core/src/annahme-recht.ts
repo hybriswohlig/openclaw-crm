@@ -62,7 +62,8 @@ export function annahmeRegeln(input: {
     vorzeitigerBeginnErforderlich: modus === "belehrung" && beginntInWiderrufsfrist(input.moveDate, input.now),
     terminFehlt:
       input.hasOpenDateChoice || ((input.serviceType === "move" || input.serviceType === "clearance") && !input.moveDate),
-    terminVorbei: (daysUntilMove(input.moveDate, input.now) ?? 0) < 0,
+    // Bietet das Büro neue Termine an, zählt der alte nicht mehr.
+    terminVorbei: !input.hasOpenDateChoice && (daysUntilMove(input.moveDate, input.now) ?? 0) < 0,
   };
 }
 

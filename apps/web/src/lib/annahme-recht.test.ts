@@ -76,6 +76,11 @@ describe("Termin schon vorbei", () => {
     const r = annahmeRegeln({ serviceType: "move", moveDate: "2026-10-06", hasOpenDateChoice: false, now: new Date("2026-10-07T00:30:00+02:00") });
     expect(r.terminVorbei).toBe(true);
   });
+  it("alter Termin, aber das Büro bietet neue Termine an: nicht vorbei", () => {
+    const r = annahmeRegeln({ serviceType: "move", moveDate: "2026-10-01", hasOpenDateChoice: true, now });
+    expect(r.terminVorbei).toBe(false);
+    expect(r.terminFehlt).toBe(true);
+  });
   it("ohne Termin nie vorbei", () => {
     const r = annahmeRegeln({ serviceType: "kitchen_installation", moveDate: null, hasOpenDateChoice: false, now });
     expect(r.terminVorbei).toBe(false);

@@ -1,12 +1,28 @@
 import type { FirmaBranding, ServiceArt } from "@openclaw-crm/customer-portal-core";
 
 /** Das Festangebot als Brief: reine Texte und Daten, ohne React. */
-export type BriefZustand = "offen" | "abgelaufen" | "angenommen" | "unterschrieben";
+export type BriefZustand = "offen" | "abgelaufen" | "termin_vorbei" | "angenommen" | "unterschrieben";
 
-export function briefZustand(i: { angenommen: boolean; unterschrieben: boolean; abgelaufen: boolean }): BriefZustand {
+export function briefZustand(i: {
+  angenommen: boolean;
+  unterschrieben: boolean;
+  abgelaufen: boolean;
+  /** Termin vor heute, nie angenommen: Annahme gesperrt (termin_vorbei). */
+  terminVorbei?: boolean;
+}): BriefZustand {
   if (i.unterschrieben) return "unterschrieben";
   if (i.angenommen) return "angenommen";
+  if (i.terminVorbei) return "termin_vorbei";
   return i.abgelaufen ? "abgelaufen" : "offen";
+}
+
+/** Hinweis statt Annahme-Knopf, wenn der Termin vorbei ist. */
+export const TERMIN_VORBEI_HINWEIS =
+  "Der Termin aus diesem Angebot ist schon vorbei. Möchten Sie einen neuen Termin, schreiben Sie uns kurz, dann schicken wir Ihnen ein neues Angebot.";
+
+/** Vorausgefüllte WhatsApp-Nachricht zum vergangenen Termin. */
+export function terminVorbeiNachricht(firma: string, dealNumber: string): string {
+  return `Guten Tag ${firma}, der Termin im Angebot zu meinem Auftrag ${dealNumber} ist schon vorbei. Können wir einen neuen Termin finden?`;
 }
 
 export function briefAnrede(name: string | null): string {
@@ -27,6 +43,7 @@ export function briefEinleitung(
   leistung: ServiceArt | null = "move",
 ): string {
   if (z === "abgelaufen") return "dieses Angebot ist abgelaufen. Schreiben Sie uns kurz, dann schicken wir Ihnen ein aktuelles.";
+  if (z === "termin_vorbei") return "der Termin aus diesem Angebot ist schon vorbei. Möchten Sie einen neuen Termin, schreiben Sie uns kurz, dann schicken wir Ihnen ein neues Angebot.";
   if (z === "offen") {
     const termin = moveDateLabel ? ` am ${moveDateLabel}` : "";
     const wofuer = leistung ? LEISTUNG[leistung] : "Ihren Auftrag";

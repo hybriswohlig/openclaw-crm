@@ -7,6 +7,7 @@ import {
   grussZeilen,
   stempel,
   strecke,
+  terminVorbeiNachricht,
   vorgangsSchritte,
   type BriefZustand,
 } from "../app/(public)/s/[token]/_components/brief";
@@ -119,5 +120,24 @@ describe("Brief im Portal", () => {
     expect(briefEinleitung("offen", null, null, null)).toBe(
       "hier ist Ihr Festpreis für Ihren Auftrag. Wenn alles passt, nehmen Sie das Angebot unten an.",
     );
+  });
+});
+
+// Termin vorbei, Angebot nie angenommen: kein „abgelaufen, neues Angebot“,
+// sondern der Hinweis auf den vergangenen Termin.
+describe("Termin vorbei", () => {
+  it("Zustand termin_vorbei vor abgelaufen, nach angenommen", () => {
+    expect(briefZustand({ angenommen: false, unterschrieben: false, abgelaufen: true, terminVorbei: true })).toBe("termin_vorbei");
+    expect(briefZustand({ angenommen: true, unterschrieben: false, abgelaufen: false, terminVorbei: true })).toBe("angenommen");
+  });
+  it("Einleitung nennt den vergangenen Termin", () => {
+    const text = briefEinleitung("termin_vorbei", "12. Oktober 2026", null, "move");
+    expect(text).toContain("Termin");
+    expect(text).not.toContain("abgelaufen");
+  });
+  it("WhatsApp-Nachricht fragt nach einem neuen Termin", () => {
+    const text = terminVorbeiNachricht("Kottke Umzüge", "2026-123");
+    expect(text).toContain("Auftrag 2026-123");
+    expect(text).toContain("neuen Termin");
   });
 });

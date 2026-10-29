@@ -12,7 +12,7 @@ import {
 import { ConfirmKvaDialog } from "./confirm-kva-dialog";
 import { ContactPanel } from "./portal-ui";
 import { AnnahmeZeile, BriefAnrede, BriefGruss, Strecke } from "./brief-teile";
-import { briefAnrede, briefEinleitung, briefZustand, stempel, strecke } from "./brief";
+import { TERMIN_VORBEI_HINWEIS, briefAnrede, briefEinleitung, briefZustand, stempel, strecke, terminVorbeiNachricht } from "./brief";
 import { QuotationPreview } from "./quotation-preview";
 import { formatPortalDate, formatPortalMoney, postenBetraegeZeigen } from "./portal-presentation";
 import { PaymentSection } from "./payment-section";
@@ -90,6 +90,7 @@ export function FestangebotView({
   const steps = nextSteps({
     alreadyAccepted,
     offerExpired,
+    terminVorbei: ctx.annahmeRecht.terminVorbei,
     acceptBlock,
     depositCents: deposit,
     hasDate: schedule.showDate,
@@ -99,7 +100,12 @@ export function FestangebotView({
   const status = festangebotStatusStep({ accepted: alreadyAccepted, stage: ctx.stage });
   const customerNote = kva.summary?.trim() || null;
 
-  const zustand = briefZustand({ angenommen: alreadyAccepted, unterschrieben: !!ctx.acceptance?.unterschrift, abgelaufen: offerExpired });
+  const zustand = briefZustand({
+    angenommen: alreadyAccepted,
+    unterschrieben: !!ctx.acceptance?.unterschrift,
+    abgelaufen: offerExpired,
+    terminVorbei: ctx.annahmeRecht.terminVorbei,
+  });
   const stempelListe = stempel({ signedAt: ctx.acceptance?.signedAt ?? null, unterschriftAt: ctx.acceptance?.unterschrift?.at ?? null });
   const angenommenAm = ctx.acceptance ? langesDatum(ctx.acceptance.signedAt) : null;
   const streckeDaten = strecke(ctx.scope.fromAddress, ctx.scope.toAddress);
@@ -338,15 +344,21 @@ function AcceptButton({
 }
 
 function ExpiredNotice({ ctx }: { ctx: CustomerPortalContext }) {
+  // Termin vorbei geht vor „abgelaufen“: Der Kunde braucht einen neuen Termin.
+  const terminVorbei = ctx.annahmeRecht.terminVorbei;
   return (
     <div className="portal-fest-expired-note">
       <p>
-        <Info size={16} aria-hidden /> Dieses Angebot ist abgelaufen.
+        <Info size={16} aria-hidden /> {terminVorbei ? TERMIN_VORBEI_HINWEIS : "Dieses Angebot ist abgelaufen."}
       </p>
       <WhatsAppContactLink
         phoneE164={ctx.branding.whatsappNumberE164}
         label="Kurz nachfragen"
-        message={`Guten Tag ${ctx.branding.displayName}, das Angebot zu meinem Auftrag ${ctx.dealNumber} ist abgelaufen. Können Sie mir bitte ein aktualisiertes Angebot senden?`}
+        message={
+          terminVorbei
+            ? terminVorbeiNachricht(ctx.branding.displayName, ctx.dealNumber)
+            : `Guten Tag ${ctx.branding.displayName}, das Angebot zu meinem Auftrag ${ctx.dealNumber} ist abgelaufen. Können Sie mir bitte ein aktualisiertes Angebot senden?`
+        }
         fallback={<p>Antworten Sie auf die Nachricht, mit der Sie diesen Link erhalten haben.</p>}
       />
     </div>
@@ -413,6 +425,7 @@ function scheduleContent(ctx: CustomerPortalContext) {
 function nextSteps(input: {
   alreadyAccepted: boolean;
   offerExpired: boolean;
+  terminVorbei: boolean;
   acceptBlock: AnnahmeBlock | null;
   depositCents: number;
   hasDate: boolean;
@@ -420,6 +433,7 @@ function nextSteps(input: {
   hasServices: boolean;
 }): string[] {
   if (input.offerExpired) {
+    if (input.terminVorbei) return [TERMIN_VORBEI_HINWEIS];
     return ["Dieses Angebot ist abgelaufen. Schreiben Sie uns, dann senden wir Ihnen ein aktualisiertes Angebot."];
   }
   if (input.alreadyAccepted) {

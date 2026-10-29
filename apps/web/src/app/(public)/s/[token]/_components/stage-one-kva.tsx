@@ -18,6 +18,7 @@ import { PanelHeading, OrderDetails, ContactPanel } from "./portal-ui";
 import { QuotationPreview } from "./quotation-preview";
 import { formatPortalMoney } from "./portal-presentation";
 import { PaymentSection } from "./payment-section";
+import { TERMIN_VORBEI_HINWEIS, terminVorbeiNachricht } from "./brief";
 import { WhatsAppContactLink } from "./whatsapp-contact-link";
 import { OfferInclusionsSection } from "./offer-inclusions";
 import { EmailCaptureBanner } from "./email-capture-banner";
@@ -479,18 +480,30 @@ function MobilePriceDetails({
  * portal routes the customer back into the WhatsApp thread instead.
  */
 function OfferExpiredNotice({ ctx }: { ctx: CustomerPortalContext }) {
+  // Termin vorbei geht vor „abgelaufen“: Der Kunde braucht einen neuen Termin.
+  const terminVorbei = ctx.annahmeRecht.terminVorbei;
   return (
     <div className="rounded-lg bg-muted/50 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
-      <p className="font-medium text-foreground">Dieses Angebot ist abgelaufen.</p>
-      <p className="mt-1">
-        Schreiben Sie uns kurz, wir prüfen die Verfügbarkeit und senden Ihnen
-        ein aktualisiertes Angebot.
-      </p>
+      {terminVorbei ? (
+        <p className="font-medium text-foreground">{TERMIN_VORBEI_HINWEIS}</p>
+      ) : (
+        <>
+          <p className="font-medium text-foreground">Dieses Angebot ist abgelaufen.</p>
+          <p className="mt-1">
+            Schreiben Sie uns kurz, wir prüfen die Verfügbarkeit und senden Ihnen
+            ein aktualisiertes Angebot.
+          </p>
+        </>
+      )}
       <div className="mt-2">
         <WhatsAppContactLink
           phoneE164={ctx.branding.whatsappNumberE164}
           label="Kurz nachfragen"
-          message={`Guten Tag ${ctx.branding.displayName}, das Angebot zu meinem Auftrag ${ctx.dealNumber} ist abgelaufen. Können Sie mir bitte ein aktualisiertes Angebot senden?`}
+          message={
+            terminVorbei
+              ? terminVorbeiNachricht(ctx.branding.displayName, ctx.dealNumber)
+              : `Guten Tag ${ctx.branding.displayName}, das Angebot zu meinem Auftrag ${ctx.dealNumber} ist abgelaufen. Können Sie mir bitte ein aktualisiertes Angebot senden?`
+          }
           fallback={
             <p>
               Antworten Sie einfach auf die Nachricht, mit der Sie diesen Link
