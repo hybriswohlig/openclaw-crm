@@ -11,13 +11,13 @@ import type { FirmaBranding } from "./types";
 
 export const KOTTKE_BRANDING: FirmaBranding = {
   firmaSlug: "kottke",
-  displayName: "Kottke Dienstleistungen",
+  displayName: "Kottke Entrümpelung & Umzüge",
   primaryColor: "c2570c",
   logoUrl: "/branding/kottke/logo.svg",
   footer:
-    "Kottke Dienstleistungen · Inhaber: Darioush Kottke · Marktstr. 8 · 72218 Wildberg · Tel.: +49 175 9498475",
+    "Kottke Entrümpelung & Umzüge · Inhaber: Darioush Kottke · Marktstr. 8 · 72218 Wildberg · Tel.: 07054 9306962 · WhatsApp: 0151 59058963 · kontakt@kottke-umzuege.de",
   googleReviewUrl: null,
-  whatsappNumberE164: "491759498475",
+  whatsappNumberE164: "4915159058963",
   bank: {
     iban: "DE81100180000379594802",
     bic: "FNOMDEB2",
@@ -72,7 +72,7 @@ const FALLBACK: FirmaBranding = {
 /**
  * Resolve branding from an operating-company display name. Case-insensitive
  * substring match — robust to spelling variations ("Kottke Umzüge",
- * "Kottke Dienstleistungen", …).
+ * "Kottke Entrümpelung & Umzüge", …).
  */
 export function brandingForOperatingCompany(name: string | null): FirmaBranding {
   if (!name) return FALLBACK;

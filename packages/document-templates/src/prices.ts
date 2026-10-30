@@ -120,18 +120,6 @@ function positionsFromLines(lines: PriceLine[]): PositionView[] {
   });
 }
 
-function singlePosition(title: string, cents: number): PositionView[] {
-  return [
-    {
-      title,
-      quantityLabel: "1",
-      unitRateLabel: formatEur(cents),
-      amountLabel: formatEur(cents),
-      amountCents: cents,
-    },
-  ];
-}
-
 export interface ResolvedPrices {
   positions: PositionView[];
   totalCents: number;
@@ -176,13 +164,16 @@ export function resolveDocumentPrices(input: {
         scopeLines: [],
       };
     }
-    const title = option.displayName.trim() || "Festpreis";
+    const title = option.displayName.trim();
     return {
-      positions: singlePosition(title, option.priceCents),
+      positions: [],
       totalCents: option.priceCents,
       totalCaption: "Festpreis",
       variable: false,
-      scopeLines: option.includedItems.map((item) => item.trim()).filter(Boolean),
+      scopeLines: [
+        ...(title && title !== "Festpreis" ? [title] : []),
+        ...option.includedItems.map((item) => item.trim()).filter(Boolean),
+      ],
     };
   }
 
@@ -211,7 +202,7 @@ export function resolveDocumentPrices(input: {
       };
     }
     return {
-      positions: singlePosition("Festpreis", fixedCents),
+      positions: [],
       totalCents: fixedCents,
       totalCaption: "Festpreis",
       variable: false,

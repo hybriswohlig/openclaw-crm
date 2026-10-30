@@ -13,10 +13,10 @@ const stundensatz = [
 ];
 
 describe("istBepreist", () => {
-  it("zählt nur Posten mit einem Preis über 0", () => {
+  it("zählt positive Posten und einen Rabatt, nicht null oder Text", () => {
     expect(istBepreist({ unitRate: "0.01" })).toBe(true);
     expect(istBepreist({ unitRate: "0" })).toBe(false);
-    expect(istBepreist({ unitRate: "-10" })).toBe(false);
+    expect(istBepreist({ unitRate: "-10" })).toBe(true);
     expect(istBepreist({ unitRate: "abc" })).toBe(false);
   });
 });
@@ -44,9 +44,14 @@ describe("postenErgebenFestpreis", () => {
     expect(postenErgebenFestpreis([{ quantity: 3, unitRate: "33.33" }], "99.99")).toBe(true);
   });
 
-  it("übergeht Posten ohne Preis", () => {
-    const posten = [...kernUndHebel, { quantity: 1, unitRate: "0" }, { quantity: 2, unitRate: "-50" }];
-    expect(postenErgebenFestpreis(posten, "1720.00")).toBe(true);
+  it("übergeht Posten ohne Preis und rechnet einen Rabatt ein", () => {
+    expect(postenErgebenFestpreis([...kernUndHebel, { quantity: 1, unitRate: "0" }], "1720.00")).toBe(true);
+    const mitRabatt = [
+      { quantity: 1, unitRate: "990.00" },
+      { quantity: 1, unitRate: "-70.00" },
+    ];
+    expect(postenErgebenFestpreis(mitRabatt, "920.00")).toBe(true);
+    expect(postenErgebenFestpreis(mitRabatt, "990.00")).toBe(false);
   });
 
   it("ohne bepreiste Posten passt kein Festpreis über 0", () => {

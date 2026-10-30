@@ -302,6 +302,13 @@
       "when": 1792713600000,
       "tag": "0052_kontaktart",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1792972800000,
+      "tag": "0055_operating_company_letterhead",
+      "breakpoints": true
     }
   ]
 }

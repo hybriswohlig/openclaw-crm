@@ -1,9 +1,28 @@
-import { composeDocumentCopy } from "./copy";
+import { composeDocumentCopy, looksLikeCompanyName } from "./copy";
 import { issuerFor } from "./issuers";
 import { formatEur, formatGermanDate } from "./money";
 import { paymentMethodLabel, resolveDocumentPrices } from "./prices";
 import { TEMPLATE_VERSION } from "./version";
 import type { DocKind, DocumentCopy, DocumentModel, RenderInput } from "./types";
+
+const TAX_NOTE = "Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.";
+const TAX_RE = /Gemäß §\s*19 UStG wird keine Umsatzsteuer berechnet\.?/g;
+
+function cleanCopy(value: string | undefined): string | undefined {
+  const trimmed = value?.replace(/\u0000/g, "").replace(TAX_RE, "").trim();
+  return trimmed ? trimmed : undefined;
+}
+
+/** The price block is the only place a figure is printed. */
+function withoutPriceSentences(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const kept = value
+    .split(/(?<=\.)\s+/)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => sentence && !/€|\bEUR\b/i.test(sentence));
+  const next = kept.join(" ").trim();
+  return next || undefined;
+}
 
 const TITLES: Record<DocKind, string> = {
   KV: "Kostenvoranschlag",
@@ -11,14 +30,10 @@ const TITLES: Record<DocKind, string> = {
   RE: "Rechnung",
 };
 
-function cleanCopy(value: string | undefined): string | undefined {
-  const trimmed = value?.replace(/\u0000/g, "").trim();
-  return trimmed ? trimmed : undefined;
-}
-
 /**
  * Build the view model. Prices come from `resolveDocumentPrices`.
  * Optional intro, closing and remarks replace the service default and cannot change the total.
+ * The § 19 sentence is printed once, as taxNote.
  */
 export function buildDocumentModel(input: RenderInput): DocumentModel {
   const prices = resolveDocumentPrices({
@@ -49,13 +64,19 @@ export function buildDocumentModel(input: RenderInput): DocumentModel {
   const remainderCents =
     depositCents != null && depositCents <= totalCents ? totalCents - depositCents : null;
 
+  const company = input.deal.customerCompany?.trim() || "";
+  const person = input.deal.customerName.trim();
+  const recipientName = company ? `${company}, z. Hd. ${person}` : person;
+  const business = Boolean(company) || looksLikeCompanyName(recipientName);
+
   const wording = composeDocumentCopy({
     kind: input.kind,
     serviceType: input.quotation.serviceType,
     signals: input.service,
-    addressForm: input.deal.addressForm,
-    customerName: input.deal.customerName,
+    addressForm: business ? "sie" : input.deal.addressForm,
+    customerName: recipientName,
     givenName: input.deal.givenName,
+    businessCustomer: business,
     serviceDate: input.deal.serviceDate,
     dueDate: input.deal.dueDate,
     methodLabel: method.label,
@@ -66,15 +87,24 @@ export function buildDocumentModel(input: RenderInput): DocumentModel {
 
   const showBank = input.kind === "RE" || method.label === "Überweisung";
   const date = formatGermanDate(input.deal.documentDate);
+  const serviceLabel = wording.service.detail
+    ? `${wording.service.label} · ${wording.service.detail}`
+    : wording.service.label;
+  const scopeLines = prices.scopeLines;
+  const summary = withoutPriceSentences(cleanCopy(input.quotation.summary ?? undefined));
+  const recipientLines = [recipientName, input.deal.customerAddress?.trim() || undefined].filter(
+    (line): line is string => Boolean(line)
+  );
 
   return {
     templateVersion: TEMPLATE_VERSION,
     kind: input.kind,
     title: TITLES[input.kind],
     fileStem: `${input.kind}-${input.deal.firma}-${input.deal.documentDate}`,
-    issuer: issuerFor(input.deal.firma),
+    issuer: issuerFor(input.deal.firma, input.deal.letterhead),
     documentDateLabel: date,
-    customerName: input.deal.customerName,
+    customerName: recipientName,
+    recipientLines,
     customerEmail: input.deal.customerEmail,
     customerAddress: input.deal.customerAddress,
     fromAddress: input.deal.fromAddress,
@@ -83,15 +113,15 @@ export function buildDocumentModel(input: RenderInput): DocumentModel {
       ? formatGermanDate(input.deal.serviceDate)
       : undefined,
     serviceKind: wording.service.kind,
-    serviceLabel: wording.service.label,
+    serviceLabel,
     addressForm: wording.addressForm,
     validUntilLabel:
       input.kind !== "RE" && input.quotation.validUntil
         ? formatGermanDate(input.quotation.validUntil)
         : undefined,
-    intro: wording.intro,
-    summary: input.quotation.summary ?? undefined,
-    scopeLines: prices.scopeLines,
+    intro: wording.intro.map((line) => cleanCopy(line) ?? "").filter(Boolean),
+    summary,
+    scopeLines,
     positions: prices.positions,
     totalCents,
     totalLabel: formatEur(totalCents),
@@ -100,12 +130,12 @@ export function buildDocumentModel(input: RenderInput): DocumentModel {
     depositLabel: depositCents != null ? formatEur(depositCents) : undefined,
     remainderLabel: remainderCents != null ? formatEur(remainderCents) : undefined,
     paymentMethodLabel: method.label,
-    paymentTerms: wording.paymentTerms ?? undefined,
+    paymentTerms: cleanCopy(wording.paymentTerms ?? undefined),
     paidLabel: paidCents != null && paidCents > 0 ? formatEur(paidCents) : undefined,
     openLabel: openCents != null ? formatEur(openCents) : undefined,
     remarks: copy.remarks,
-    closing: wording.closing,
-    taxNote: "Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.",
+    closing: wording.closing.map((line) => cleanCopy(line) ?? "").filter(Boolean),
+    taxNote: TAX_NOTE,
     showBank,
   };
 }

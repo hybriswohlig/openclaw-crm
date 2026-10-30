@@ -10,6 +10,26 @@ import { googleReviewUrlFieldError } from "@/lib/reviews/review-url";
 
 const OBJECT_SLUG = "operating_companies";
 
+const LETTERHEAD: Array<[string, string, string]> = [
+  ["legal_name", "Name auf Dokumenten", "Name im Briefkopf"],
+  ["phone", "Telefon (Festnetz)", "Vorwahl und Rufnummer"],
+  ["whatsapp", "WhatsApp", "Mobilnummer"],
+  ["email", "E-Mail", "kontakt@…"],
+  ["street", "Straße", "Straße und Hausnummer"],
+  ["postal_code", "PLZ", "PLZ"],
+  ["city", "Ort", "Ort"],
+  ["website", "Website", "https://…"],
+];
+
+function letterheadFrom(values: Record<string, unknown> | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [slug] of LETTERHEAD) {
+    const value = values?.[slug];
+    out[slug] = typeof value === "string" ? value : "";
+  }
+  return out;
+}
+
 interface RecordRow {
   id: string;
   values: Record<string, unknown>;
@@ -31,6 +51,10 @@ export default function OperatingCompaniesSettingsPage() {
   const [reviewUrlSavingFor, setReviewUrlSavingFor] = useState<string | null>(null);
   const [reviewUrlSavedFor, setReviewUrlSavedFor] = useState<string | null>(null);
   const [reviewUrlErrorFor, setReviewUrlErrorFor] = useState<Record<string, string>>({});
+  const [letterhead, setLetterhead] = useState<Record<string, Record<string, string>>>({});
+  const [letterheadSaved, setLetterheadSaved] = useState<Record<string, Record<string, string>>>({});
+  const [letterheadSaving, setLetterheadSaving] = useState<string | null>(null);
+  const [letterheadError, setLetterheadError] = useState<Record<string, string>>({});
 
   async function fetchRecords() {
     setLoading(true);
@@ -47,7 +71,11 @@ export default function OperatingCompaniesSettingsPage() {
         return;
       }
       const recData = await recRes.json();
-      setRecords(recData.data?.records ?? []);
+      const rows: RecordRow[] = recData.data?.records ?? [];
+      setRecords(rows);
+      const seeded = Object.fromEntries(rows.map((row) => [row.id, letterheadFrom(row.values)]));
+      setLetterhead(seeded);
+      setLetterheadSaved(seeded);
 
       if (!portalRes.ok) {
         const data = await portalRes.json().catch(() => ({}));
@@ -107,6 +135,37 @@ export default function OperatingCompaniesSettingsPage() {
       }, 2000);
     } finally {
       setReviewUrlSavingFor(null);
+    }
+  }
+
+  async function saveLetterhead(recordId: string, slug: string, value: string) {
+    const previous = letterheadSaved[recordId]?.[slug] ?? "";
+    if (value === previous) return;
+    setLetterheadSaving(`${recordId}:${slug}`);
+    setLetterheadError((cur) => {
+      const next = { ...cur };
+      delete next[recordId];
+      return next;
+    });
+    try {
+      const res = await fetch(`/api/v1/objects/${OBJECT_SLUG}/records/${recordId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ values: { [slug]: value.trim() || null } }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setLetterheadError((cur) => ({
+          ...cur,
+          [recordId]: data.error?.message ?? "Briefkopf konnte nicht gespeichert werden.",
+        }));
+        return;
+      }
+      const stored = typeof data.data?.values?.[slug] === "string" ? data.data.values[slug] : value.trim();
+      setLetterhead((cur) => ({ ...cur, [recordId]: { ...cur[recordId], [slug]: stored } }));
+      setLetterheadSaved((cur) => ({ ...cur, [recordId]: { ...cur[recordId], [slug]: stored } }));
+    } finally {
+      setLetterheadSaving(null);
     }
   }
 
@@ -234,6 +293,42 @@ export default function OperatingCompaniesSettingsPage() {
                       Datensatz öffnen <ExternalLink className="h-3 w-3" />
                     </Link>
                   </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {LETTERHEAD.map(([slug, label, placeholder]) => (
+                      <div key={slug} className="space-y-1">
+                        <Label htmlFor={`oc-${slug}-${r.id}`} className="text-xs text-muted-foreground">
+                          {label}
+                        </Label>
+                        <Input
+                          id={`oc-${slug}-${r.id}`}
+                          value={letterhead[r.id]?.[slug] ?? ""}
+                          placeholder={placeholder}
+                          spellCheck={false}
+                          onChange={(e) =>
+                            setLetterhead((cur) => ({
+                              ...cur,
+                              [r.id]: { ...cur[r.id], [slug]: e.target.value },
+                            }))
+                          }
+                          onBlur={(e) => {
+                            const next = e.target.value.trim();
+                            setLetterhead((cur) => ({
+                              ...cur,
+                              [r.id]: { ...cur[r.id], [slug]: next },
+                            }));
+                            void saveLetterhead(r.id, slug, next);
+                          }}
+                          className="h-8 text-sm"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  {letterheadSaving?.startsWith(`${r.id}:`) && (
+                    <p className="text-xs text-muted-foreground">Speichert…</p>
+                  )}
+                  {letterheadError[r.id] && (
+                    <p className="text-xs text-destructive">{letterheadError[r.id]}</p>
+                  )}
                   {reviewUrlsReady && (
                     <div className="space-y-1">
                       <Label htmlFor={`oc-review-url-${r.id}`} className="text-xs text-muted-foreground">
