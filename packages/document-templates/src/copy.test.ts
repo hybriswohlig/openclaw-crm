@@ -226,6 +226,7 @@ describe("preview", () => {
     signals?: ServiceSignals;
     addressForm?: "sie" | "du";
     customerName?: string;
+    customerCompany?: string;
     dueDate?: string;
     method?: QuotationPriceSource["paymentMethodPreference"];
     copy?: { intro?: string; closing?: string; remarks?: string };
@@ -236,6 +237,7 @@ describe("preview", () => {
       deal: {
         ...deal,
         customerName: over.customerName ?? deal.customerName,
+        customerCompany: over.customerCompany,
         addressForm: over.addressForm,
         dueDate: over.dueDate,
       },
@@ -309,12 +311,14 @@ describe("preview", () => {
 
     const transfer = preview({ kind: "RE", method: "bank_transfer" });
     expect(transfer.model.paymentTerms).toContain("überweisen Sie");
-    expect(transfer.model.paymentTerms).toContain("Keine Kartenzahlung vor Ort");
+    expect(transfer.model.paymentTerms).not.toContain("Keine Kartenzahlung");
+    expect(transfer.model.paymentTerms).not.toContain("vor Auftragsbeginn");
     expect(transfer.model.paymentTerms).not.toContain("Karte vor Ort");
 
     const cash = preview({ kind: "KV", method: "cash" });
-    expect(cash.model.paymentTerms).toContain("vor Auftragsbeginn bar zu entrichten");
-    expect(cash.model.paymentTerms).not.toContain("Kartenzahlung direkt vor Ort");
+    expect(cash.model.paymentTerms).toBe("Die Anzahlung ist bar zu entrichten.");
+    expect(cash.model.paymentTerms).not.toContain("Keine Kartenzahlung");
+    expect(cash.model.paymentTerms).not.toContain("vor Auftragsbeginn");
   });
 
   it("lets intro, closing and remarks replace the default without touching the price", () => {
@@ -367,6 +371,39 @@ describe("preview", () => {
     expect(text).toContain("PayPal");
     expect(text).not.toContain("Umzugstag");
     expect(text).not.toContain("Pauschale");
-    expect(text).toContain("kv-ab-re/2");
+    expect(text).toContain(TEMPLATE_VERSION);
+    expect(text).not.toContain("Keine Kartenzahlung");
+    expect(text).not.toContain("+49 175 9498475");
+    expect(text).toContain("07054 9306962");
+  });
+
+  it("names a Büroumzug from the deal and greets a company with Sie", () => {
+    const { model, html } = preview({
+      kind: "KV",
+      signals: {
+        showStandardInclusions: false,
+        title: "Roman Rothe (Sport-Thieme GmbH) Büroumzug",
+        mention:
+          "Inklusive Einpacken und Auspacken, Abbau und Aufbau der Schreibtische",
+        inventory: true,
+      },
+      addressForm: "du",
+      customerName: "Roman Rothe",
+      customerCompany: "Sport-Thieme GmbH",
+    });
+    expect(model.serviceLabel).toContain("Büroumzug");
+    expect(model.serviceLabel).toContain("Inventar");
+    expect(model.serviceLabel).toContain("Einpackservice");
+    expect(model.serviceLabel).toContain("Möbelmontage");
+    expect(model.customerName).toBe("Sport-Thieme GmbH, z. Hd. Roman Rothe");
+    expect(html).toContain("Sport-Thieme GmbH, z. Hd. Roman Rothe");
+    expect(html).toContain("Sehr geehrte Damen und Herren,");
+    expect(html).toContain("Ihre Anfrage zum Büroumzug");
+    expect(html).not.toContain("Anfrage zum Transport");
+    expect(html).not.toContain("Hallo");
+    expect(html).toContain("07054 9306962");
+    expect(html).not.toContain("9498475");
+    const tax = html.split("§ 19 UStG").length - 1;
+    expect(tax).toBe(1);
   });
 });

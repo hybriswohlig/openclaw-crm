@@ -23,12 +23,12 @@ type Anbieter = {
 
 const ANBIETER: Record<string, Anbieter> = {
   kottke: {
-    firma: "Kottke Dienstleistungen",
+    firma: "Kottke Entrümpelung & Umzüge",
     inhaber: "Darioush Kottke",
     strasse: "Marktstr. 8",
     ort: "72218 Wildberg",
-    telefon: "+49 175 9498475",
-    email: null,
+    telefon: "07054 9306962",
+    email: "kontakt@kottke-umzuege.de",
   },
   ceylan: {
     firma: "Ceylan Umzüge & Transporte",

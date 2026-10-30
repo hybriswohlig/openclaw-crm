@@ -1,5 +1,5 @@
 export { TEMPLATE_VERSION } from "./version";
-export { issuerFor } from "./issuers";
+export { issuerFor, letterheadFromValues, letterheadLines, KOTTKE_LETTERHEAD } from "./issuers";
 export { formatEur, formatGermanDate, eurosToCents, lineAmountCents } from "./money";
 export {
   MissingPriceError,
@@ -11,6 +11,7 @@ export {
 } from "./prices";
 export {
   composeDocumentCopy,
+  companyFromTitle,
   documentSalutation,
   looksLikeCompanyName,
   paymentDueWording,
@@ -30,6 +31,7 @@ export type {
   DocumentModel,
   DocumentServiceKind,
   FirmaSlug,
+  Letterhead,
   PackageOptionPrice,
   PositionView,
   PriceLine,

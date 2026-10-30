@@ -532,6 +532,13 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
       selectedPackageSlug: z.string().nullable().optional(),
       calculationAssumptions: z.record(z.unknown()).nullable().optional(),
       lineItems: z.array(z.record(z.unknown())).optional(),
+      discount: z
+        .object({
+          label: z.string().nullable().optional(),
+          amount: z.union([z.string(), z.number()]).nullable().optional(),
+        })
+        .nullable()
+        .optional(),
     },
     req
   );

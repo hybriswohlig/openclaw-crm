@@ -1,9 +1,17 @@
 import { db } from "@/db";
 import { quotations, quotationLineItems, dealEmployees, employees } from "@/db/schema";
 import type { CalculationAssumptions, QuotationDocumentDetails } from "@/db/schema/quotations";
+import {
+  applyDiscountToLines,
+  normalizeLineItem,
+  parseDiscount,
+  type StoredLine,
+} from "@/lib/angebots-rabatt";
 import { annahmenZusammenfuehren } from "@/lib/kunden-annahmen";
 import { eq } from "drizzle-orm";
 import { pruefeNichtAngenommen } from "./kva-annahme";
+
+export { QuotationInputError } from "@/lib/angebots-rabatt";
 
 export async function getQuotation(dealRecordId: string) {
   const [q] = await db
@@ -48,12 +56,17 @@ export async function upsertQuotation(
     documentDetails?: QuotationDocumentDetails | null;
     lineItems?: Array<{
       id?: string;
-      type: "helper" | "transporter" | "other";
+      type: "helper" | "transporter" | "other" | string;
       description?: string;
       quantity: number;
-      unitRate: string;
+      unitRate: string | number;
       sortOrder: number;
     }>;
+    /**
+     * Rabatt auf den Festpreis. amount ist der Nachlass in Euro (positiv).
+     * null entfernt bestehende Rabattzeilen. Der Festpreis bleibt der Endbetrag.
+     */
+    discount?: { label?: string | null; amount?: string | number | null; description?: string | null } | null;
   }
 ) {
   // Nach der Kundenannahme ist das Angebot eingefroren (erst „Annahme aufheben“).
@@ -126,23 +139,42 @@ export async function upsertQuotation(
     quotationId = created.id;
   }
 
-  if (input.lineItems !== undefined) {
-    await db
-      .delete(quotationLineItems)
-      .where(eq(quotationLineItems.quotationId, quotationId));
-
-    if (input.lineItems.length > 0) {
-      await db.insert(quotationLineItems).values(
-        input.lineItems.map((li) => ({
-          quotationId,
+  const discountProvided = input.discount !== undefined;
+  const linesProvided = input.lineItems !== undefined;
+  if (linesProvided || discountProvided) {
+    const source: unknown[] = linesProvided
+      ? input.lineItems ?? []
+      : (existing?.lineItems ?? []).map((li) => ({
           type: li.type,
-          description: li.description ?? null,
+          description: li.description,
           quantity: li.quantity,
           unitRate: li.unitRate,
           sortOrder: li.sortOrder,
-        }))
-      );
-    }
+        }));
+    const normalized = source.map((li, index) => normalizeLineItem(li, index));
+    const next: StoredLine[] = discountProvided
+      ? applyDiscountToLines({
+          fixedPrice: input.fixedPrice ?? null,
+          lineItems: normalized,
+          discount: parseDiscount(input.discount),
+        })
+      : normalized;
+
+    await db.transaction(async (tx) => {
+      await tx.delete(quotationLineItems).where(eq(quotationLineItems.quotationId, quotationId));
+      if (next.length > 0) {
+        await tx.insert(quotationLineItems).values(
+          next.map((li) => ({
+            quotationId,
+            type: li.type,
+            description: li.description,
+            quantity: li.quantity,
+            unitRate: li.unitRate,
+            sortOrder: li.sortOrder,
+          }))
+        );
+      }
+    });
   }
 
   return getQuotation(dealRecordId);

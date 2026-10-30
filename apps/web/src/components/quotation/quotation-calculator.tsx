@@ -65,9 +65,22 @@ function emptyLine(sortOrder: number): LineItem {
   return { type: "helper", description: "", quantity: 1, unitRate: "0", sortOrder };
 }
 
+function discountFromLines(items: LineItem[] | undefined): { amount: string; label: string } {
+  const line = items?.find((li) => Number(li.unitRate) < 0);
+  if (!line) return { amount: "", label: "" };
+  const amount = Math.abs(Number(line.unitRate));
+  return {
+    amount: Number.isFinite(amount) ? String(amount) : "",
+    label: line.description?.trim() ?? "",
+  };
+}
+
 export function QuotationCalculator({ recordId, quotation, onSaved }: Props) {
   const [isVariable, setIsVariable] = useState(quotation?.isVariable ?? false);
   const [fixedPrice, setFixedPrice] = useState(quotation?.fixedPrice ?? "");
+  const loadedDiscount = discountFromLines(quotation?.lineItems);
+  const [discountEur, setDiscountEur] = useState(loadedDiscount.amount);
+  const [discountLabel, setDiscountLabel] = useState(loadedDiscount.label);
   const [notes, setNotes] = useState(quotation?.notes ?? "");
   const [lineItems, setLineItems] = useState<LineItem[]>(
     quotation?.lineItems?.length ? quotation.lineItems : [emptyLine(0)]
@@ -110,6 +123,9 @@ export function QuotationCalculator({ recordId, quotation, onSaved }: Props) {
     if (quotation) {
       setIsVariable(quotation.isVariable);
       setFixedPrice(quotation.fixedPrice ?? "");
+      const rabatt = discountFromLines(quotation.lineItems);
+      setDiscountEur(rabatt.amount);
+      setDiscountLabel(rabatt.label);
       setNotes(quotation.notes ?? "");
       setLineItems(quotation.lineItems?.length ? quotation.lineItems : [emptyLine(0)]);
       setDepositEur(
@@ -160,6 +176,8 @@ export function QuotationCalculator({ recordId, quotation, onSaved }: Props) {
         ? Math.round(Number(depositEur) * 100)
         : null;
       const festpreis = isVariable ? null : fixedPrice || null;
+      const rabattGesetzt = !isVariable && discountEur.trim() !== "";
+      const posten = postenFuerSpeichern({ isVariable, fixedPrice: festpreis, lineItems, geladen: quotation });
       const res = await fetch(`/api/v1/deals/${recordId}/quotation`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -167,9 +185,16 @@ export function QuotationCalculator({ recordId, quotation, onSaved }: Props) {
           isVariable,
           fixedPrice: festpreis,
           notes: notes || null,
-          // Festpreis: Posten (Kern + Hebel aus der Übernahme) bleiben, solange
-          // Modus und Preis unverändert sind.
-          ...postenFuerSpeichern({ isVariable, fixedPrice: festpreis, lineItems, geladen: quotation }),
+          // Festpreis mit Rabatt: Posten nicht leeren, der Server legt die
+          // Rabattzeile auf die vorhandenen Posten und hält die Summe am Festpreis.
+          ...(rabattGesetzt ? {} : posten),
+          ...(!isVariable
+            ? {
+                discount: rabattGesetzt
+                  ? { amount: discountEur.trim(), label: discountLabel.trim() || "Rabatt" }
+                  : null,
+              }
+            : {}),
           depositRequiredCents:
             depositCents != null && Number.isFinite(depositCents) && depositCents > 0
               ? depositCents
@@ -308,6 +333,32 @@ export function QuotationCalculator({ recordId, quotation, onSaved }: Props) {
               className="w-full mt-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
               placeholder="0.00"
             />
+            <p className="text-xs text-muted-foreground mt-1">
+              Zahlbarer Endbetrag. Ein Rabatt wird als eigene Zeile ausgewiesen, die Summe bleibt dieser Betrag.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-sm font-medium">Rabatt (EUR)</label>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={discountEur}
+                onChange={(e) => setDiscountEur(e.target.value)}
+                className="w-full mt-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                placeholder="70"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Rabatttext</label>
+              <input
+                type="text"
+                value={discountLabel}
+                onChange={(e) => setDiscountLabel(e.target.value)}
+                className="w-full mt-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                placeholder="Rabatt bei Termin Mo–Do"
+              />
+            </div>
           </div>
         </div>
       ) : (

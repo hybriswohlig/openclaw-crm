@@ -432,7 +432,7 @@ export function GenerateDocumentDialog({
               erstellen
             </h2>
             <p className="text-sm text-gray-500">
-              {deal.firma === "kottke" ? "Kottke Dienstleistungen" : "Ceylan Umzüge"} ·{" "}
+              {deal.firma === "kottke" ? "Kottke Entrümpelung & Umzüge" : "Ceylan Umzüge"} ·{" "}
               {deal.kunde.vorname} {deal.kunde.nachname}
             </p>
           </div>

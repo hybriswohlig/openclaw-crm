@@ -21,12 +21,25 @@ const COMPANY_FORM =
 
 export interface SelectedService {
   kind: DocumentServiceKind;
+  /** Short name used in the greeting, e.g. Büroumzug. */
   label: string;
+  /** Included extras, e.g. "Inventar, Einpackservice und Möbelmontage". */
+  detail?: string;
 }
 
 export function looksLikeCompanyName(name: string | null | undefined): boolean {
   if (!name) return false;
   return COMPANY_FORM.test(name.trim());
+}
+
+/** Company written in the deal title, e.g. "Roman Rothe (Sport-Thieme GmbH) Büroumzug". */
+export function companyFromTitle(title: string | null | undefined): string | null {
+  if (!title) return null;
+  for (const match of title.matchAll(/\(([^)]+)\)/g)) {
+    const inner = match[1]?.trim();
+    if (inner && looksLikeCompanyName(inner)) return inner;
+  }
+  return null;
 }
 
 function normLead(value: string | null | undefined): string {
@@ -40,11 +53,76 @@ function normLead(value: string | null | undefined): string {
     .replace(/[^a-z0-9]+/g, "");
 }
 
+function hasToken(blob: string, token: string): boolean {
+  const hay = normLead(blob);
+  const needle = normLead(token);
+  return needle.length > 0 && hay.includes(needle);
+}
+
+function namedService(blob: string, loose: boolean): SelectedService | null {
+  if (!blob.trim()) return null;
+  if (hasToken(blob, "bueroumzug") || hasToken(blob, "büroumzug")) {
+    return { kind: "move", label: "Büroumzug" };
+  }
+  if (hasToken(blob, "privatumzug")) {
+    return { kind: "move", label: "Privatumzug" };
+  }
+  if (hasToken(blob, "fernumzug") || (loose && hasToken(blob, "fmz"))) {
+    return { kind: "move", label: "Fernumzug" };
+  }
+  if (hasToken(blob, "entruempelung") || hasToken(blob, "entrümpelung")) {
+    return { kind: "clearance", label: "Entrümpelung" };
+  }
+  if (
+    hasToken(blob, "kuechenmontage") ||
+    hasToken(blob, "küchenmontage") ||
+    (loose && (hasToken(blob, "kueche") || hasToken(blob, "küche")))
+  ) {
+    return { kind: "kitchen", label: "Küchenmontage" };
+  }
+  if (hasToken(blob, "einlagerung")) {
+    return { kind: "storage", label: "Einlagerung" };
+  }
+  if (hasToken(blob, "klaviertransport") || (loose && hasToken(blob, "klavier"))) {
+    return { kind: "transport", label: "Klaviertransport" };
+  }
+  if (hasToken(blob, "beiladung")) {
+    return { kind: "transport", label: "Beiladung" };
+  }
+  return null;
+}
+
+function joinGerman(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? "";
+  if (items.length === 2) return `${items[0]} und ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")} und ${items[items.length - 1]}`;
+}
+
+function serviceDetail(signals: ServiceSignals): string | undefined {
+  const blob = `${signals.title ?? ""} ${signals.mention ?? ""}`;
+  const items: string[] = [];
+  if (signals.inventory === true || hasToken(blob, "inventar")) items.push("Inventar");
+  if (signals.packing === true || /einpack|auspack|verpack/i.test(blob)) items.push("Einpackservice");
+  if (
+    signals.assembly === true ||
+    /möbelmontage|moebelmontage|abbau|aufbau/i.test(blob)
+  ) {
+    items.push("Möbelmontage");
+  }
+  const detail = joinGerman(items);
+  return detail || undefined;
+}
+
+function withDetail(service: SelectedService, signals: ServiceSignals): SelectedService {
+  const detail = serviceDetail(signals);
+  return detail ? { ...service, detail } : service;
+}
+
 /**
  * Quotation type wins when it is Küche or Entrümpelung. `move` is the column
- * default, so a lead type or an Auftrag flag can still select another text.
- * `showStandardInclusions: false` means a one-off transport, even when the
- * lead still says Umzug.
+ * default, so the deal title, the Auftrag name or the lead can still name
+ * Büroumzug, Privatumzug and the other services. `showStandardInclusions:
+ * false` is a one-off transport only when nothing names a real service.
  */
 export function selectDocumentService(
   serviceType: string | null | undefined,
@@ -57,50 +135,62 @@ export function selectDocumentService(
   const storage = signals.storageRequired === true;
 
   if (stored === "kitchen_installation") {
-    return { kind: "kitchen", label: "Küchenmontage" };
+    return withDetail({ kind: "kitchen", label: "Küchenmontage" }, signals);
   }
   if (stored === "clearance") {
-    return { kind: "clearance", label: "Entrümpelung" };
+    return withDetail({ kind: "clearance", label: "Entrümpelung" }, signals);
   }
   if (stored && stored !== "move") {
-    return { kind: "other", label: "Leistung" };
+    return withDetail({ kind: "other", label: "Leistung" }, signals);
   }
+
+  const fromTitle = namedService(signals.title ?? "", true);
+  if (fromTitle) return withDetail(fromTitle, signals);
+  const fromMention = namedService(signals.mention ?? "", false);
+  if (fromMention) return withDetail(fromMention, signals);
+
   if (
     lead === "kueche" ||
     lead === "kuechenmontage" ||
     lead === "kitchen" ||
     lead === "kitcheninstallation"
   ) {
-    return { kind: "kitchen", label: "Küchenmontage" };
+    return withDetail({ kind: "kitchen", label: "Küchenmontage" }, signals);
   }
   if (lead === "entruempelung" || lead === "entrumpelung") {
-    return { kind: "clearance", label: "Entrümpelung" };
+    return withDetail({ kind: "clearance", label: "Entrümpelung" }, signals);
   }
   if (lead === "lager" || lead === "einlagerung") {
-    return { kind: "storage", label: "Einlagerung" };
+    return withDetail({ kind: "storage", label: "Einlagerung" }, signals);
   }
   if (lead === "klavier" || lead === "klaviertransport" || (piano && inclusionsOff)) {
-    return { kind: "transport", label: "Klaviertransport" };
+    return withDetail({ kind: "transport", label: "Klaviertransport" }, signals);
   }
   if (lead === "beiladung") {
-    return { kind: "transport", label: "Beiladung" };
+    return withDetail({ kind: "transport", label: "Beiladung" }, signals);
+  }
+  if (lead === "bueroumzug" || lead === "buero") {
+    return withDetail({ kind: "move", label: "Büroumzug" }, signals);
+  }
+  if (lead === "privatumzug" || lead === "privat") {
+    return withDetail({ kind: "move", label: "Privatumzug" }, signals);
   }
   if (lead === "transport") {
-    return { kind: "transport", label: "Transport" };
+    return withDetail({ kind: "transport", label: "Transport" }, signals);
   }
   if (inclusionsOff && storage && !piano) {
-    return { kind: "storage", label: "Einlagerung" };
+    return withDetail({ kind: "storage", label: "Einlagerung" }, signals);
   }
   if (inclusionsOff) {
-    return { kind: "transport", label: "Transport" };
+    return withDetail({ kind: "transport", label: "Transport" }, signals);
   }
   if (lead && lead !== "umzug" && lead !== "fmz" && lead !== "fernumzug") {
-    return { kind: "other", label: "Leistung" };
+    return withDetail({ kind: "other", label: "Leistung" }, signals);
   }
   if (lead === "fmz" || lead === "fernumzug") {
-    return { kind: "move", label: "Fernumzug" };
+    return withDetail({ kind: "move", label: "Fernumzug" }, signals);
   }
-  return { kind: "move", label: "Umzug" };
+  return withDetail({ kind: "move", label: "Umzug" }, signals);
 }
 
 interface Nouns {
@@ -121,6 +211,18 @@ function nounsFor(service: SelectedService): Nouns {
           },
           order: { sie: "Ihren Fernumzug", du: "deinen Fernumzug" },
           invoice: "den Fernumzug",
+          invoiceThanks: "Danke für den reibungslosen Ablauf am Umzugstag.",
+        };
+      }
+      if (service.label === "Büroumzug" || service.label === "Privatumzug") {
+        const name = service.label;
+        return {
+          anfrage: {
+            sie: `Ihre Anfrage zum ${name}`,
+            du: `deine Anfrage zum ${name}`,
+          },
+          order: { sie: `Ihren ${name}`, du: `deinen ${name}` },
+          invoice: `den ${name}`,
           invoiceThanks: "Danke für den reibungslosen Ablauf am Umzugstag.",
         };
       }
@@ -201,9 +303,10 @@ export function documentSalutation(input: {
   addressForm: AddressForm;
   customerName: string;
   givenName?: string | null;
+  businessCustomer?: boolean;
 }): string {
-  if (looksLikeCompanyName(input.customerName)) {
-    return input.addressForm === "du" ? "Hallo," : "Sehr geehrte Damen und Herren,";
+  if (input.businessCustomer || looksLikeCompanyName(input.customerName)) {
+    return "Sehr geehrte Damen und Herren,";
   }
   if (input.addressForm === "du") {
     const name = input.givenName?.trim();
@@ -240,8 +343,9 @@ function dueClause(dueDate?: string | null, serviceDate?: string | null): string
 
 /**
  * When the money is due and how it is paid. The sentence never contains an
- * amount. A missing due date stays missing: the service date is not a due date.
- * Card is mentioned only when the method is card.
+ * amount. A missing due date stays missing: the service date is not a due date,
+ * and a deposit is not described as due before the job unless a due date is stored.
+ * The method is the quotation's payment method. Card is mentioned only then.
  */
 export function paymentDueWording(input: {
   kind: DocKind;
@@ -261,30 +365,32 @@ export function paymentDueWording(input: {
       ? `Die Zahlung erfolgt per Karte vor Ort${due}.`
       : "Die Zahlung erfolgt per Karte vor Ort.";
   }
-  const noCard = " Keine Kartenzahlung vor Ort.";
-  if (input.methodLabel === "Bar") {
-    if (input.hasDeposit && input.kind !== "RE") {
-      const when = due || " vor Auftragsbeginn";
-      return `Die Anzahlung ist${when} bar zu entrichten.${noCard}`;
-    }
-    if (input.kind === "RE") {
-      const verb = input.addressForm === "du" ? "zu zahlen" : "zu entrichten";
-      return `Der offene Betrag ist${due} bar ${verb}.${noCard}`;
-    }
-    return `Die Zahlung erfolgt bar.${noCard}`;
-  }
-  if (input.methodLabel === "PayPal") {
-    return `Die Zahlung erfolgt per PayPal${due}.${noCard}`;
-  }
+  const channel =
+    input.methodLabel === "Bar"
+      ? "bar"
+      : input.methodLabel === "PayPal"
+        ? "per PayPal"
+        : "per Überweisung";
   if (input.kind === "RE") {
+    if (input.methodLabel === "Bar") {
+      const verb = input.addressForm === "du" ? "zu zahlen" : "zu entrichten";
+      return `Der offene Betrag ist${due} bar ${verb}.`;
+    }
+    if (input.methodLabel === "PayPal") {
+      return `Der offene Betrag ist${due} per PayPal zu zahlen.`;
+    }
     const verb = input.addressForm === "du" ? "Bitte überweise" : "Bitte überweisen Sie";
-    return `${verb} den offenen Betrag${due} auf das unten genannte Konto.${noCard}`;
+    return `${verb} den offenen Betrag${due} auf das unten genannte Konto.`;
   }
   if (input.hasDeposit) {
-    const when = due || " vor Auftragsbeginn";
-    return `Die Anzahlung ist${when} per Überweisung zu zahlen.${noCard}`;
+    const verb = input.methodLabel === "Bar" ? "zu entrichten" : "zu zahlen";
+    return due
+      ? `Die Anzahlung ist${due} ${channel} ${verb}.`
+      : `Die Anzahlung ist ${channel} ${verb}.`;
   }
-  return `Die Zahlung erfolgt per Überweisung.${noCard}`;
+  if (input.methodLabel === "Bar") return `Die Zahlung erfolgt bar${due}.`;
+  if (input.methodLabel === "PayPal") return `Die Zahlung erfolgt per PayPal${due}.`;
+  return `Die Zahlung erfolgt per Überweisung${due}.`;
 }
 
 export interface ComposedCopy {
@@ -302,6 +408,7 @@ export function composeDocumentCopy(input: {
   addressForm?: AddressForm | null;
   customerName: string;
   givenName?: string | null;
+  businessCustomer?: boolean;
   serviceDate?: string | null;
   dueDate?: string | null;
   methodLabel: string;
@@ -309,7 +416,10 @@ export function composeDocumentCopy(input: {
   openCents: number | null;
   copy?: DocumentCopy;
 }): ComposedCopy {
-  const addressForm: AddressForm = input.addressForm === "du" ? "du" : "sie";
+  const business =
+    input.businessCustomer === true || looksLikeCompanyName(input.customerName);
+  const addressForm: AddressForm =
+    business ? "sie" : input.addressForm === "du" ? "du" : "sie";
   const service = selectDocumentService(input.serviceType, input.signals);
   const nouns = nounsFor(service);
   const introOverride = cleanCopy(input.copy?.intro);
@@ -321,6 +431,7 @@ export function composeDocumentCopy(input: {
           addressForm,
           customerName: input.customerName,
           givenName: input.givenName,
+          businessCustomer: business,
         }),
         defaultIntro(input.kind, addressForm, nouns),
       ];

@@ -627,6 +627,7 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
         "selectedPackageSlug",
         "calculationAssumptions",
         "lineItems",
+        "discount",
       ]) {
         if (args[key] !== undefined) body[key] = args[key];
       }
