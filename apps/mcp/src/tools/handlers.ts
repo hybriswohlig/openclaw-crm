@@ -48,6 +48,38 @@ function bool(v: unknown): boolean | undefined {
  * TypeError deep in `.map()` (opaque 500), and notesContent went into the
  * TipTap column as a raw string instead of the JSON document it holds.
  */
+const DOCUMENT_OPTION_KEYS = [
+  "lineItems",
+  "positionen",
+  "allowCard",
+  "paymentMethods",
+  "dueDate",
+  "faelligkeit",
+  "faellig",
+  "salutation",
+  "anrede",
+  "gender",
+  "geschlecht",
+  "section35a",
+  "paragraph35a",
+  "estg35a",
+  "invoiceNumber",
+  "rechnungsnummer",
+  "preise",
+  "kunde",
+  "document_details",
+  "positionDescription",
+  "beschreibung",
+] as const;
+
+function pickDocumentFields(source: Args): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of DOCUMENT_OPTION_KEYS) {
+    if (source[key] !== undefined) out[key] = source[key];
+  }
+  return out;
+}
+
 function asBody(v: unknown): unknown {
   if (typeof v !== "string") return v;
   const trimmed = v.trim();
@@ -439,6 +471,7 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
             documentType: str(args.documentType),
             ...(copy && typeof copy === "object" ? { copy } : {}),
             notifyCustomer: bool(args.notifyCustomer) === true,
+            ...pickDocumentFields(args),
           },
         }
       );
@@ -453,6 +486,7 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
             documentType: str(args.documentType),
             format: "json",
             ...(copy && typeof copy === "object" ? { copy } : {}),
+            ...pickDocumentFields(args),
           },
         }
       );

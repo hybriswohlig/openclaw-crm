@@ -77,6 +77,7 @@ describe("POST documents/render", () => {
       dealRecordId: DEAL_ID,
       kind: "AB",
       copy: { closing: "Viele Grüße" },
+      options: {},
       notifyCustomer: false,
     });
   });

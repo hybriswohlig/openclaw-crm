@@ -46,6 +46,7 @@ export async function POST(
       dealRecordId: recordId,
       kind: parsed.value.kind,
       copy: parsed.value.copy,
+      options: parsed.value.options,
       notifyCustomer: parsed.value.notifyCustomer,
     });
     return success({

@@ -568,7 +568,7 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_generate_document",
-    "Start a PDF render on the crm-tools VPS and return { job_id }. Async: poll crm_get_document_job until status=done, then crm_store_document_job to attach it to the deal. For a Kostenvoranschlag set params.document_type to 'KV' (store type quotation). Also supports AB and RE. params: { firma: 'kottke'|'ceylan', document_type: 'KV'|'AB'|'RE', service_type?: 'move'|'kitchen_installation'|'clearance' (clearance = Entrümpelung, mit Widerrufsrecht im Portal, PDF im Umzugs-Layout), kunde: {vorname,nachname,adresse,email}, auftrag: {strecke_von,strecke_nach,datum,volumen,besonderheiten}, preise: {...}, document_details?: {serviceType, kitchen, services, inventory, cardAgreed}, anweisung? }. Prices and paid amounts are rebuilt server-side from the deal quotation and payments. The kunde name is re-derived from the linked person. renderer defaults to vps. Pass renderer \"crm\" (or params.renderer) to render with the CRM template instead and store the PDF immediately. That template picks the KV/AB/RE wording from the quotation service type and the deal (Umzug, Fernumzug, Entrümpelung, Küchenmontage, Transport, Klaviertransport, Beiladung, Einlagerung or sonstige Leistung) and from the Sie/du register on the conversation and the deal. optional copy or params.document_copy is { intro, closing, remarks } plain text: those three replace the matching default and do not change prices. notifyCustomer defaults to false on that path.",
+    "Start a PDF. Kottke RE and Kottke AB are rendered immediately with the in-repo CRM template (kv-ab-re/3, the same letterhead, colours, 11pt black body, table and footer as the Kostenvoranschlag) and stored on the deal. That path returns the stored document, not a job_id, even when renderer is vps or omitted. Ceylan, and a Kottke KV with renderer vps, still start the VPS job: poll crm_get_document_job, then crm_store_document_job. params: { firma: 'kottke'|'ceylan', document_type: 'KV'|'AB'|'RE', service_type?, kunde, auftrag, preise, document_details?, anweisung? }. On the CRM path, optional fields (top-level or inside params) are lineItems, allowCard, paymentMethods, dueDate, salutation (frau|herr), section35a { labourCents or amount, serviceAddress }, invoiceNumber. lineItems replace positions; an hourly line is { description, workers, hours, rate, includesTravel }. params.preise with modell stundensatz becomes one hourly line and is not printed as Pauschale or 'Umzug von X nach X'. allowCard false or paymentMethods of only bank transfer prints only the transfer sentence. dueDate is 'sofort' or a date; a Rechnung without one defaults to sofort. section35a is a separate § 35a block, not payment-box text. The greeting comes from the person (Sehr geehrte Frau / Sehr geehrter Herr, company: Sehr geehrte Damen und Herren, else Guten Tag plus the name). Never Sehr geehrte/r Frau/Herr. Totals have no VAT (§ 19 once). notifyCustomer defaults to false.",
     {
       recordId: z.string(),
       params: z.record(z.unknown()),
@@ -580,6 +580,13 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
       documentType: z.enum(["KV", "AB", "RE"]).optional(),
       copy: z.record(z.unknown()).optional(),
       notifyCustomer: z.boolean().optional(),
+      lineItems: z.array(z.record(z.unknown())).optional(),
+      allowCard: z.boolean().optional(),
+      paymentMethods: z.array(z.string()).optional(),
+      dueDate: z.string().optional(),
+      salutation: z.enum(["frau", "herr"]).optional(),
+      section35a: z.record(z.unknown()).optional(),
+      invoiceNumber: z.string().optional(),
     },
     req
   );
@@ -643,25 +650,39 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_render_document",
-    "Render a KV, AB or RE PDF with the CRM template and store it on the deal. This opts into the new renderer; crm_generate_document without renderer still starts the VPS job. documentType is KV, AB or RE. Prices, positions, deposit, validity and payment method come only from the stored quotation; an AB uses the accepted snapshot when one exists. Customer, addresses and the service date come from the deal. The default intro, closing and payment-due sentence follow the service (quotation service type, lead type, one-off transport, piano or storage) and the Sie/du register from the conversation and the deal. Quotation notes are never printed. Optional copy or document_copy is { intro, closing, remarks } as plain text, at most 4000 characters each: those replace the matching default and do not change prices. notifyCustomer defaults to false, so this sends no WhatsApp and no email. Returns the stored deal document and templateVersion.",
+    "Render a KV, AB or RE PDF with the CRM template (kv-ab-re/3: letterhead, colours, 11pt black body, table, footer) and store it on the deal. documentType is KV, AB or RE. Prices, positions, deposit, validity and payment method come from the stored quotation unless the optional fields below are set; an AB uses the accepted snapshot when one exists and no lineItems are passed. Customer, addresses and the service date come from the deal. The greeting uses the person's salutation when known (Sehr geehrte Frau or Sehr geehrter Herr plus the family name), Sehr geehrte Damen und Herren for a company (shown as Company, z. Hd. Person), otherwise Guten Tag plus the full name. Never Sehr geehrte/r Frau/Herr. Du stays Hallo plus the given name. Quotation notes are never printed. Optional copy or document_copy is { intro, closing, remarks } plain text, at most 4000 characters each. Optional lineItems replace the positions; the total is their sum with no VAT (Kleinunternehmer § 19 UStG, the § 19 sentence once). An hourly line is { description, workers, hours, rate, includesTravel } and prints for example 'Inhouse-Umzug 1. OG ins EG, 3 Mitarbeiter, 4,75 Std. à 105 € inkl. Anfahrt'. allowCard false, or paymentMethods listing only bank transfer, prints only the bank-transfer sentence. dueDate is 'sofort' or a date (31.10.2026 or YYYY-MM-DD); a Rechnung with no due date defaults to sofort. section35a is { labourCents or amount, serviceAddress } and prints a separate § 35a EStG block (labour and travel share, Leistungsort, only bank transfers are deductible), not inside the payment sentence. invoiceNumber prints as Rechnungsnummer; when omitted a Rechnung uses RE- plus the deal number. salutation is frau or herr and overrides the person record. Steuernummer is read from the operating company when set. notifyCustomer defaults to false, so this sends no WhatsApp and no email. Returns the stored deal document and templateVersion.",
     {
       recordId: z.string(),
       documentType: z.enum(["KV", "AB", "RE"]),
       copy: z.record(z.unknown()).optional(),
       document_copy: z.record(z.unknown()).optional(),
       notifyCustomer: z.boolean().optional(),
+      lineItems: z.array(z.record(z.unknown())).optional(),
+      allowCard: z.boolean().optional(),
+      paymentMethods: z.array(z.string()).optional(),
+      dueDate: z.string().optional(),
+      salutation: z.enum(["frau", "herr"]).optional(),
+      section35a: z.record(z.unknown()).optional(),
+      invoiceNumber: z.string().optional(),
     },
     req
   );
   tool(
     server,
     "crm_preview_document",
-    "HTML preview of the CRM template for a KV, AB or RE. Does not store a file and does not message the customer. documentType is KV, AB or RE. The preview shows the service-specific default text (Umzug, Entrümpelung, Küchenmontage, Transport, Klaviertransport, Beiladung, Einlagerung or sonstige Leistung), the Sie/du greeting, and the payment-due sentence. Optional copy or document_copy is { intro, closing, remarks } as plain text and replaces that default. Prices come from the stored quotation and quotation notes are never included. Returns { html, templateVersion, fileName, documentType }.",
+    "HTML preview of the CRM template (kv-ab-re/3) for a KV, AB or RE. Does not store a file and does not message the customer. documentType is KV, AB or RE. The preview shows the service-specific default text, the greeting (Frau or Herr from salutation, Damen und Herren for a company, otherwise Guten Tag plus the name; never Sehr geehrte/r), and the payment sentence. Optional copy or document_copy is { intro, closing, remarks }. Optional lineItems, allowCard, paymentMethods, dueDate, salutation, section35a and invoiceNumber match crm_render_document and do not change the stored quotation. Prices otherwise come from the stored quotation. Quotation notes are never included. Returns { html, templateVersion, fileName, documentType }.",
     {
       recordId: z.string(),
       documentType: z.enum(["KV", "AB", "RE"]),
       copy: z.record(z.unknown()).optional(),
       document_copy: z.record(z.unknown()).optional(),
+      lineItems: z.array(z.record(z.unknown())).optional(),
+      allowCard: z.boolean().optional(),
+      paymentMethods: z.array(z.string()).optional(),
+      dueDate: z.string().optional(),
+      salutation: z.enum(["frau", "herr"]).optional(),
+      section35a: z.record(z.unknown()).optional(),
+      invoiceNumber: z.string().optional(),
     },
     req
   );

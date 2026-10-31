@@ -49,6 +49,8 @@ export interface Letterhead {
   city?: string;
   website?: string;
   owner?: string;
+  /** Printed only when the operating company has one. Never a hardcoded secret. */
+  taxNumber?: string;
 }
 
 export interface PriceLine {
@@ -56,6 +58,43 @@ export interface PriceLine {
   description: string | null;
   quantity: number;
   unitRate: string;
+}
+
+/** Sie-form greeting taken from the person. Du stays "Hallo". */
+export type PersonSalutation = "frau" | "herr";
+
+/**
+ * A position the caller prints as-is. An hourly line sets hours and rate
+ * (euros). quantity and unitRate cover a plain line. The total is the sum
+ * of the amounts; VAT is never added.
+ */
+export interface FreeLineInput {
+  description?: string | null;
+  quantity?: number | null;
+  unitRate?: string | number | null;
+  workers?: number | null;
+  hours?: number | null;
+  rate?: string | number | null;
+  includesTravel?: boolean | null;
+  amountCents?: number | null;
+}
+
+/** Optional § 35a EStG block. Not a payment-box sentence. */
+export interface Section35a {
+  labourCents: number;
+  serviceAddress?: string;
+}
+
+/** Optional overrides. Omitted fields keep the stored quotation and the deal. */
+export interface DocumentOptions {
+  lineItems?: FreeLineInput[];
+  allowCard?: boolean;
+  paymentMethods?: string[];
+  /** "sofort" or YYYY-MM-DD. */
+  dueDate?: string;
+  salutation?: PersonSalutation;
+  section35a?: Section35a;
+  invoiceNumber?: string;
 }
 
 /**
@@ -110,10 +149,16 @@ export interface DealFacts {
   /** From the conversation and the deal. Omitted means Sie. Ignored for a company. */
   addressForm?: AddressForm;
   /**
-   * ISO due date from the deal or the quotation. Never filled with the
-   * service date.
+   * Due date from the deal or the quotation. ISO (YYYY-MM-DD) or "sofort".
+   * Never filled with the service date.
    */
   dueDate?: string;
+  /** Family name for "Sehr geehrte Frau …" / "Sehr geehrter Herr …". */
+  familyName?: string | null;
+  /** From the person record. A request option overrides this. */
+  salutation?: PersonSalutation | null;
+  /** Printed on a Rechnung. RE-{deal number} when the caller omits one. */
+  invoiceNumber?: string | null;
 }
 
 /** Optional plain text. Never a price source. */
@@ -143,6 +188,11 @@ export interface RenderInput {
   /** Deal and Auftrag signals. The quotation's serviceType is read from `quotation`. */
   service?: ServiceSignals;
   copy?: DocumentCopy;
+  /**
+   * Invoice overrides. lineItems replace the quotation positions and become
+   * the total. Everything else is optional and keeps the stored value.
+   */
+  options?: DocumentOptions;
 }
 
 export interface PositionView {
@@ -176,6 +226,10 @@ export interface DocumentModel {
   fromAddress?: string;
   toAddress?: string;
   serviceDateLabel?: string;
+  /** "Termin" on a KV/AB, "Leistungsdatum" on a Rechnung. */
+  serviceDateCaption: string;
+  /** Rechnung only. */
+  invoiceNumber?: string;
   serviceKind: DocumentServiceKind;
   serviceLabel: string;
   addressForm: AddressForm;
@@ -198,5 +252,11 @@ export interface DocumentModel {
   remarks?: string;
   closing: string[];
   taxNote: string;
+  /** Separate § 35a block. Absent unless the caller asked for it. */
+  section35a?: {
+    amountLabel: string;
+    serviceAddress?: string;
+    note: string;
+  };
   showBank: boolean;
 }

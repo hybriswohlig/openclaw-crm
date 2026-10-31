@@ -15,6 +15,7 @@ export const KOTTKE_LETTERHEAD: Required<Letterhead> = {
   city: "Wildberg",
   website: "https://kottke-umzuege.de",
   owner: "Inhaber: Darioush Kottke",
+  taxNumber: "",
 };
 
 const CEYLAN_LINES = [
@@ -64,6 +65,7 @@ export function letterheadLines(input: Letterhead): string[] {
     filled(input.whatsapp) ? `WhatsApp: ${filled(input.whatsapp)}` : undefined,
     filled(input.email),
     filled(input.website),
+    filled(input.taxNumber) ? `Steuernummer ${filled(input.taxNumber)}` : undefined,
   ].filter((line): line is string => Boolean(line));
 }
 
@@ -84,6 +86,7 @@ export function letterheadFromValues(
     postalCode: text("postal_code"),
     city: text("city"),
     website: text("website"),
+    taxNumber: text("tax_number"),
   };
 }
 
@@ -99,6 +102,7 @@ function mergeLetterhead(base: Required<Letterhead>, overlay?: Letterhead | null
     city: pick("city"),
     website: pick("website"),
     owner: pick("owner"),
+    taxNumber: pick("taxNumber"),
   };
 }
 
@@ -124,6 +128,8 @@ export function issuerFor(firma: FirmaSlug, letterhead?: Letterhead | null): Iss
     if (whatsapp) lines.push(`WhatsApp: ${whatsapp}`);
     const website = filled(letterhead.website);
     if (website) lines.push(website);
+    const taxNumber = filled(letterhead.taxNumber);
+    if (taxNumber) lines.push(`Steuernummer ${taxNumber}`);
     return {
       ...base,
       displayName: filled(letterhead.legalName) ?? base.displayName,

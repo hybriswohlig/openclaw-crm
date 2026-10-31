@@ -147,6 +147,7 @@ export const STANDARD_OBJECTS: StandardObject[] = [
       { slug: "postal_code", title: "PLZ", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       { slug: "city", title: "Ort", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       { slug: "website", title: "Website", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      { slug: "tax_number", title: "Steuernummer", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
     ],
   },
   {

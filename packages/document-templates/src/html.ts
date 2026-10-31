@@ -88,7 +88,9 @@ export function renderHtml(model: DocumentModel): string {
     ${row("Leistung", model.serviceLabel)}
     ${row("Auszug", model.fromAddress)}
     ${row("Einzug", model.toAddress)}
-    ${row("Termin", model.serviceDateLabel)}
+    ${row("Rechnungsnummer", model.invoiceNumber)}
+    ${model.kind === "RE" ? row("Rechnungsdatum", model.documentDateLabel) : ""}
+    ${row(model.serviceDateCaption, model.serviceDateLabel)}
     ${row("Gültig bis", model.validUntilLabel)}
   </div>
   ${model.intro.map((p) => `<p>${textBlock(p)}</p>`).join("")}
@@ -107,6 +109,15 @@ export function renderHtml(model: DocumentModel): string {
   ${model.remarks ? `<h2>Hinweise</h2><p>${textBlock(model.remarks)}</p>` : ""}
   ${model.closing.map((p) => `<p>${textBlock(p)}</p>`).join("")}
   <p>${escapeHtml(model.taxNote)}</p>
+  ${
+    model.section35a
+      ? `<section class="section-35a"><h2>Hinweis nach § 35a EStG</h2><p>Anteil der Arbeits- und Fahrtkosten: ${escapeHtml(model.section35a.amountLabel)}.${
+          model.section35a.serviceAddress
+            ? `<br>Leistungsort: ${textBlock(model.section35a.serviceAddress)}.`
+            : ""
+        }<br>${escapeHtml(model.section35a.note)}</p></section>`
+      : ""
+  }
   ${bank}
   <footer>${[model.issuer.displayName, ...model.issuer.lines, `Vorlage ${model.templateVersion}`].map((line) => escapeHtml(line)).join(" · ")}</footer>
 </main>

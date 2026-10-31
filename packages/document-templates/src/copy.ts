@@ -13,6 +13,7 @@ import type {
   DocKind,
   DocumentCopy,
   DocumentServiceKind,
+  PersonSalutation,
   ServiceSignals,
 } from "./types";
 
@@ -299,11 +300,42 @@ function cleanCopy(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
+/** Frau/Herr from a gender or salutation field. Anything else stays unset. */
+export function parsePersonSalutation(value: unknown): PersonSalutation | undefined {
+  if (typeof value !== "string") return undefined;
+  const n = value.trim().toLowerCase().replace(/\./g, "");
+  if (!n) return undefined;
+  if (["frau", "f", "w", "weiblich", "female", "mrs", "ms", "fr"].includes(n) || n.startsWith("frau")) {
+    return "frau";
+  }
+  if (
+    ["herr", "h", "m", "maennlich", "männlich", "male", "mr", "hr"].includes(n) ||
+    n.startsWith("herr")
+  ) {
+    return "herr";
+  }
+  return undefined;
+}
+
+function familyName(customerName: string, explicit?: string | null): string {
+  const given = explicit?.trim();
+  if (given) return given;
+  const parts = customerName.trim().split(/\s+/).filter(Boolean);
+  return parts.length > 0 ? parts[parts.length - 1] : "";
+}
+
+/**
+ * Sie greeting from the person's salutation. A company is always
+ * "Sehr geehrte Damen und Herren". Without a salutation the fallback is
+ * "Guten Tag" plus the full name. The slash form is never produced.
+ */
 export function documentSalutation(input: {
   addressForm: AddressForm;
   customerName: string;
   givenName?: string | null;
+  familyName?: string | null;
   businessCustomer?: boolean;
+  salutation?: PersonSalutation | null;
 }): string {
   if (input.businessCustomer || looksLikeCompanyName(input.customerName)) {
     return "Sehr geehrte Damen und Herren,";
@@ -312,7 +344,11 @@ export function documentSalutation(input: {
     const name = input.givenName?.trim();
     return name ? `Hallo ${name},` : "Hallo,";
   }
-  return "Guten Tag,";
+  const family = familyName(input.customerName, input.familyName);
+  if (input.salutation === "frau" && family) return `Sehr geehrte Frau ${family},`;
+  if (input.salutation === "herr" && family) return `Sehr geehrter Herr ${family},`;
+  const full = input.customerName.trim();
+  return full ? `Guten Tag ${full},` : "Guten Tag,";
 }
 
 function defaultIntro(kind: DocKind, form: AddressForm, nouns: Nouns): string {
@@ -333,12 +369,22 @@ function defaultClosing(kind: DocKind, nouns: Nouns): string {
   return nouns.invoiceThanks ?? "Vielen Dank.";
 }
 
-function dueClause(dueDate?: string | null, serviceDate?: string | null): string {
-  if (!dueDate || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return "";
+type DuePhrase =
+  | { kind: "none" }
+  | { kind: "sofort" }
+  | { kind: "date"; text: string };
+
+function duePhrase(dueDate?: string | null, serviceDate?: string | null): DuePhrase {
+  if (!dueDate) return { kind: "none" };
+  if (dueDate.trim().toLowerCase() === "sofort") return { kind: "sofort" };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return { kind: "none" };
   const label = formatGermanDate(dueDate);
   const before =
     !!serviceDate && /^\d{4}-\d{2}-\d{2}$/.test(serviceDate) && dueDate < serviceDate;
-  return before ? ` bis spätestens ${label} (vor Einsatz)` : ` bis spätestens ${label}`;
+  return {
+    kind: "date",
+    text: before ? ` bis spätestens ${label} (vor Einsatz)` : ` bis spätestens ${label}`,
+  };
 }
 
 /**
@@ -359,10 +405,13 @@ export function paymentDueWording(input: {
   if (input.kind === "RE" && input.openCents === 0) {
     return "Der Betrag ist ausgeglichen. Diese Rechnung gilt als Quittung.";
   }
-  const due = dueClause(input.dueDate, input.serviceDate);
+  const due = duePhrase(input.dueDate, input.serviceDate);
+  const dated = due.kind === "date" ? due.text : "";
+  const sofort = due.kind === "sofort";
   if (input.methodLabel === "Karte") {
-    return due
-      ? `Die Zahlung erfolgt per Karte vor Ort${due}.`
+    if (sofort) return "Die Zahlung erfolgt sofort per Karte vor Ort.";
+    return dated
+      ? `Die Zahlung erfolgt per Karte vor Ort${dated}.`
       : "Die Zahlung erfolgt per Karte vor Ort.";
   }
   const channel =
@@ -374,23 +423,35 @@ export function paymentDueWording(input: {
   if (input.kind === "RE") {
     if (input.methodLabel === "Bar") {
       const verb = input.addressForm === "du" ? "zu zahlen" : "zu entrichten";
-      return `Der offene Betrag ist${due} bar ${verb}.`;
+      return sofort
+        ? `Der offene Betrag ist sofort bar ${verb}.`
+        : `Der offene Betrag ist${dated} bar ${verb}.`;
     }
     if (input.methodLabel === "PayPal") {
-      return `Der offene Betrag ist${due} per PayPal zu zahlen.`;
+      return sofort
+        ? "Der offene Betrag ist sofort per PayPal zu zahlen."
+        : `Der offene Betrag ist${dated} per PayPal zu zahlen.`;
     }
     const verb = input.addressForm === "du" ? "Bitte überweise" : "Bitte überweisen Sie";
-    return `${verb} den offenen Betrag${due} auf das unten genannte Konto.`;
+    return sofort
+      ? `${verb} den offenen Betrag sofort auf das unten genannte Konto.`
+      : `${verb} den offenen Betrag${dated} auf das unten genannte Konto.`;
   }
   if (input.hasDeposit) {
     const verb = input.methodLabel === "Bar" ? "zu entrichten" : "zu zahlen";
-    return due
-      ? `Die Anzahlung ist${due} ${channel} ${verb}.`
+    if (sofort) return `Die Anzahlung ist sofort ${channel} ${verb}.`;
+    return dated
+      ? `Die Anzahlung ist${dated} ${channel} ${verb}.`
       : `Die Anzahlung ist ${channel} ${verb}.`;
   }
-  if (input.methodLabel === "Bar") return `Die Zahlung erfolgt bar${due}.`;
-  if (input.methodLabel === "PayPal") return `Die Zahlung erfolgt per PayPal${due}.`;
-  return `Die Zahlung erfolgt per Überweisung${due}.`;
+  if (sofort) {
+    if (input.methodLabel === "Bar") return "Die Zahlung erfolgt sofort bar.";
+    if (input.methodLabel === "PayPal") return "Die Zahlung erfolgt sofort per PayPal.";
+    return "Die Zahlung erfolgt sofort per Überweisung.";
+  }
+  if (input.methodLabel === "Bar") return `Die Zahlung erfolgt bar${dated}.`;
+  if (input.methodLabel === "PayPal") return `Die Zahlung erfolgt per PayPal${dated}.`;
+  return `Die Zahlung erfolgt per Überweisung${dated}.`;
 }
 
 export interface ComposedCopy {
@@ -408,6 +469,8 @@ export function composeDocumentCopy(input: {
   addressForm?: AddressForm | null;
   customerName: string;
   givenName?: string | null;
+  familyName?: string | null;
+  salutation?: PersonSalutation | null;
   businessCustomer?: boolean;
   serviceDate?: string | null;
   dueDate?: string | null;
@@ -431,6 +494,8 @@ export function composeDocumentCopy(input: {
           addressForm,
           customerName: input.customerName,
           givenName: input.givenName,
+          familyName: input.familyName,
+          salutation: input.salutation,
           businessCustomer: business,
         }),
         defaultIntro(input.kind, addressForm, nouns),
