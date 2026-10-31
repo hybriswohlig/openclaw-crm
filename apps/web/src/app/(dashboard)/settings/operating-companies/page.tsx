@@ -84,12 +84,12 @@ export default function OperatingCompaniesSettingsPage() {
         return;
       }
       const portalData = await portalRes.json();
-      const rows: Array<{
+      const portalRows: Array<{
         operatingCompanyRecordId: string;
         googleReviewUrl: string | null;
       }> = portalData.data?.operatingCompanies ?? [];
       const loaded = Object.fromEntries(
-        rows.map((r) => [r.operatingCompanyRecordId, r.googleReviewUrl ?? ""]),
+        portalRows.map((r) => [r.operatingCompanyRecordId, r.googleReviewUrl ?? ""]),
       );
       setReviewUrls(loaded);
       setSavedReviewUrls(loaded);

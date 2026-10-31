@@ -11,6 +11,12 @@
  *                         the agent on that thread (the owner sets the price).
  *   - action "no_op"   -> clears the flag, sends nothing.
  *
+ * no_op and handoff send nothing, so a missed `ai_processed_at` stamp used to
+ * leave the thread due forever (the every-minute cron called the LLM again on
+ * the same transcript). The worker stores the inbound message it finished and
+ * the action; ask, handoff and no_op are all done until a newer customer
+ * message arrives. At most one LLM call per conversation per hour.
+ *
  * Safety: the whole thing only runs when the workspace master switch is ON
  * (default OFF). When dry-run is ON (default), it decides and records a visible
  * timeline preview but never sends, pushes, or pauses. Channel allow-list +
@@ -20,7 +26,7 @@
  */
 
 import { db } from "@/db";
-import { and, asc, desc, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { agentEvents } from "@/db/schema/agent";
 import { fotosVormerken } from "@/services/inventar-fotos";
 import { excludeInternalPhotoMessages } from "@/services/deal-photos";
@@ -81,6 +87,14 @@ import { zustellweg } from "./zustellweg";
 import { recordShadowGate, captureShadowDraft, shadowHeartbeat, HUMAN_ACTIONABLE_BLOCKS } from "./agent-shadow";
 import { inhaberRegelBlock } from "@/services/intern/regeln";
 import { ladeInhaberRegeln } from "@/services/intern/regeln-lauf";
+import {
+  alsAssistentAktion,
+  ASSISTENT_MINDESTABSTAND_MS,
+  istOffensichtlicheWerbung,
+  neuesteKundenNachricht,
+  sollAssistentLaufen,
+  type AssistentAktion,
+} from "./assistant-lauf";
 
 const MAX_CONVERSATIONS_PER_TICK = 8;
 // Cap the slow crm-tools vision extraction per tick (30 to 90s each).
@@ -169,6 +183,11 @@ interface DueConversation {
   operatingCompanyRecordId: string | null;
   contactPhone: string | null;
   contactEmail: string | null;
+  subject: string | null;
+  aiLastAssistantInboundId: string | null;
+  aiLastAssistantInboundAt: Date | null;
+  aiLastAssistantAction: string | null;
+  aiLastAssistantAt: Date | null;
 }
 
 async function selectDueConversations(
@@ -190,6 +209,11 @@ async function selectDueConversations(
       operatingCompanyRecordId: channelAccounts.operatingCompanyRecordId,
       contactPhone: inboxContacts.phone,
       contactEmail: inboxContacts.email,
+      subject: inboxConversations.subject,
+      aiLastAssistantInboundId: inboxConversations.aiLastAssistantInboundId,
+      aiLastAssistantInboundAt: inboxConversations.aiLastAssistantInboundAt,
+      aiLastAssistantAction: inboxConversations.aiLastAssistantAction,
+      aiLastAssistantAt: inboxConversations.aiLastAssistantAt,
     })
     .from(inboxConversations)
     .innerJoin(channelAccounts, eq(inboxConversations.channelAccountId, channelAccounts.id))
@@ -205,6 +229,14 @@ async function selectDueConversations(
         // driver untyped and throws ("Received an instance of Date"), which
         // crashed every agent run; a string + cast is bullet-proof.
         sql`(${inboxConversations.aiHoldUntil} IS NULL OR ${inboxConversations.aiHoldUntil} <= ${now.toISOString()}::timestamptz)`,
+        // Stundenlimit: höchstens ein LLM-Aufruf pro Unterhaltung und Stunde.
+        // Die Zeile bleibt ai_needs_reply, wird aber erst wieder geholt, wenn
+        // der letzte Aufruf her ist. So blockiert das Netz nicht die 8 Plätze
+        // des Ticks. ASSISTENT_MINDESTABSTAND_MS.
+        sql`(
+          ${inboxConversations.aiLastAssistantAt} IS NULL
+          OR ${inboxConversations.aiLastAssistantAt} <= ${new Date(now.getTime() - ASSISTENT_MINDESTABSTAND_MS).toISOString()}::timestamptz
+        )`,
         // Freshness: only recent inbound. Prevents draining a stale backlog when
         // the agent is first switched on.
         sql`${inboxConversations.aiLastInboundAt} IS NOT NULL AND ${inboxConversations.aiLastInboundAt} >= ${new Date(now.getTime() - MAX_LEAD_AGE_MS).toISOString()}::timestamptz`,
@@ -230,6 +262,8 @@ interface RecentMessage {
   id: string;
   direction: "inbound" | "outbound";
   body: string;
+  fromAddress: string | null;
+  subject: string | null;
   aiProcessedAt: Date | null;
   sentAt: Date | null;
   createdAt: Date;
@@ -241,6 +275,8 @@ async function loadRecentMessages(conversationId: string): Promise<RecentMessage
       id: inboxMessages.id,
       direction: inboxMessages.direction,
       body: inboxMessages.body,
+      fromAddress: inboxMessages.fromAddress,
+      subject: inboxMessages.subject,
       aiProcessedAt: inboxMessages.aiProcessedAt,
       sentAt: inboxMessages.sentAt,
       createdAt: inboxMessages.createdAt,
@@ -399,6 +435,12 @@ async function wiederAnstossen(workspaceId: string, now: Date): Promise<number> 
       AND c.ai_last_inbound_at <= ${new Date(now.getTime() - 10 * 60_000).toISOString()}::timestamptz
       AND (c.ai_hold_until IS NULL OR c.ai_hold_until <= ${now.toISOString()}::timestamptz)
       AND c.updated_at <= ${new Date(now.getTime() - 6 * 60_000).toISOString()}::timestamptz
+      -- Stundenlimit: ein abgebrochener Lauf, der den Aufruf schon gezählt hat,
+      -- wird frühestens nach einer Stunde wieder angestoßen. ASSISTENT_MINDESTABSTAND_MS.
+      AND (
+        c.ai_last_assistant_at IS NULL
+        OR c.ai_last_assistant_at <= ${new Date(now.getTime() - ASSISTENT_MINDESTABSTAND_MS).toISOString()}::timestamptz
+      )
       AND NOT EXISTS (
         SELECT 1 FROM inbox_messages o
         WHERE o.conversation_id = c.id AND o.direction = 'outbound' AND o.sent_at > c.ai_last_inbound_at
@@ -407,6 +449,8 @@ async function wiederAnstossen(workspaceId: string, now: Date): Promise<number> 
         SELECT 1 FROM inbox_messages m
         WHERE m.conversation_id = c.id AND m.direction = 'inbound' AND m.ai_processed_at IS NULL
           AND m.sent_at >= c.ai_last_inbound_at - interval '1 minute'
+          -- Die schon bearbeitete Kundennachricht (no_op/handoff/ask) nicht erneut anstoßen.
+          AND (c.ai_last_assistant_inbound_id IS NULL OR m.id <> c.ai_last_assistant_inbound_id)
       )
     LIMIT 5`)) as unknown as Array<{ id: string; ai_last_inbound_at: string | Date }>;
   let angestossen = 0;
@@ -483,8 +527,22 @@ async function turnAbschliessen(
   conversationId: string,
   now: Date,
   bis: Date,
-  pause: boolean
+  pause: boolean,
+  lauf: {
+    inboundId: string;
+    inboundAt: Date;
+    action: AssistentAktion;
+    gesehenIds: string[];
+  },
+  // Bereits erledigt: nicht wieder bewaffnen, auch wenn eine alte Zeile
+  // ohne Stempel übrig ist. Eine neuere Kundennachricht hat eine andere Id.
+  flagBleibtAus = false
 ): Promise<void> {
+  // Stempel über die Nachrichten-Id, nicht nur über created_at. Ein JS-Date ist
+  // auf Millisekunden gerundet; Postgres speichert Mikrosekunden, dann verfehlt
+  // `created_at <= stempel` genau die Zeile, die der Lauf gesehen hat. no_op
+  // und handoff senden nichts, die Unterhaltung blieb dadurch jede Minute fällig.
+  const gesehen = lauf.gesehenIds.length > 0;
   await db
     .update(inboxMessages)
     .set({ aiProcessedAt: now })
@@ -493,25 +551,36 @@ async function turnAbschliessen(
         eq(inboxMessages.conversationId, conversationId),
         eq(inboxMessages.direction, "inbound"),
         isNull(inboxMessages.aiProcessedAt),
-        lte(inboxMessages.createdAt, bis)
+        gesehen
+          ? or(inArray(inboxMessages.id, lauf.gesehenIds), lte(inboxMessages.createdAt, bis))
+          : lte(inboxMessages.createdAt, bis)
       )
     );
-  const [neuer] = pause
-    ? []
-    : await db
-        .select({ id: inboxMessages.id })
-        .from(inboxMessages)
-        .where(
-          and(
-            eq(inboxMessages.conversationId, conversationId),
-            eq(inboxMessages.direction, "inbound"),
-            isNull(inboxMessages.aiProcessedAt)
+  const [neuer] =
+    pause || flagBleibtAus
+      ? []
+      : await db
+          .select({ id: inboxMessages.id })
+          .from(inboxMessages)
+          .where(
+            and(
+              eq(inboxMessages.conversationId, conversationId),
+              eq(inboxMessages.direction, "inbound"),
+              isNull(inboxMessages.aiProcessedAt)
+            )
           )
-        )
-        .limit(1);
+          .limit(1);
   await db
     .update(inboxConversations)
-    .set({ aiNeedsReply: !!neuer, ...(pause ? { aiPaused: true } : {}), updatedAt: new Date() })
+    .set({
+      aiNeedsReply: pause || flagBleibtAus ? false : !!neuer,
+      ...(pause ? { aiPaused: true } : {}),
+      aiLastAssistantInboundId: lauf.inboundId,
+      aiLastAssistantInboundAt: lauf.inboundAt,
+      aiLastAssistantAction: lauf.action,
+      aiLastAssistantAt: now,
+      updatedAt: new Date(),
+    })
     .where(eq(inboxConversations.id, conversationId));
 }
 
@@ -632,6 +701,44 @@ async function processConversation(
     (max, m) => (m.createdAt > max ? m.createdAt : max),
     messages[0]?.createdAt ?? now
   );
+  const eingehende = messages.filter((m) => m.direction === "inbound");
+  const neueste = neuesteKundenNachricht(
+    eingehende.map((m) => ({
+      id: m.id,
+      direction: "inbound" as const,
+      createdAt: m.createdAt.getTime(),
+    }))
+  );
+  const abschliessen = (action: AssistentAktion, pause: boolean, flagBleibtAus = false) => {
+    if (!neueste) return stampInboundProcessed(conv.id, now);
+    return turnAbschliessen(
+      conv.id,
+      now,
+      gesehenBis,
+      pause,
+      {
+        inboundId: neueste.id,
+        inboundAt: new Date(neueste.at),
+        action,
+        gesehenIds: eingehende.map((m) => m.id),
+      },
+      flagBleibtAus
+    );
+  };
+  // Ergebnis merken, ohne die Bewaffnung anzufassen (Claim hat sie schon gelöscht).
+  // Kein Stundenstempel: hier lief kein LLM.
+  const merkeNoOp = async () => {
+    if (!neueste) return;
+    await db
+      .update(inboxConversations)
+      .set({
+        aiLastAssistantInboundId: neueste.id,
+        aiLastAssistantInboundAt: new Date(neueste.at),
+        aiLastAssistantAction: "no_op",
+        updatedAt: new Date(),
+      })
+      .where(eq(inboxConversations.id, conv.id));
+  };
   if (!last || last.direction !== "inbound") {
     await stampInboundProcessed(conv.id, now);
     await shadowGate("skip_not_customer_turn", false);
@@ -649,15 +756,81 @@ async function processConversation(
     return;
   }
 
+  const entscheidung = sollAssistentLaufen({
+    letzteEingehende: neueste,
+    cursor: {
+      inboundId: conv.aiLastAssistantInboundId,
+      inboundAt: conv.aiLastAssistantInboundAt?.getTime() ?? null,
+      action: alsAssistentAktion(conv.aiLastAssistantAction),
+      at: conv.aiLastAssistantAt?.getTime() ?? null,
+    },
+    jetzt: now.getTime(),
+  });
+  if (!entscheidung.aufrufen && entscheidung.grund === "bereits_erledigt") {
+    // Dieselbe Kundennachricht wurde schon mit ask, handoff oder no_op
+    // abgeschlossen. Kein zweiter LLM-Aufruf, auch wenn der Stempel fehlte.
+    await abschliessen(alsAssistentAktion(conv.aiLastAssistantAction) ?? "no_op", false, true);
+    summary.noops += 1;
+    await shadowGate("skip_already_handled", false);
+    return;
+  }
+
   // ── Deterministic eligibility gate (runs BEFORE the LLM, so the model can
   // never override it) ──────────────────────────────────────────────────────
   // 1. Customer clearly declined -> leave them alone, send nothing.
   if (looksDeclined(last.body)) {
     await stampInboundProcessed(conv.id, now);
+    await merkeNoOp();
     summary.noops += 1;
     await shadowGate("skip_declined", false);
     return;
   }
+
+  // Werbung und Systempost ohne LLM als no_op merken. Portale und Texte, die
+  // nach einer Umzugsanfrage aussehen, bleiben unangetastet (assistant-lauf.ts).
+  if (neueste) {
+    const quelle = eingehende.find((m) => m.id === neueste.id);
+    const werbung = istOffensichtlicheWerbung({
+      channelType: conv.channelType,
+      fromAddr: quelle?.fromAddress || conv.contactEmail,
+      subject: quelle?.subject || conv.subject,
+      body: quelle?.body ?? "",
+    });
+    if (werbung.spam) {
+      await db
+        .update(inboxMessages)
+        .set({ aiProcessedAt: now, aiSkipReason: "offensichtliche_werbung" })
+        .where(
+          and(
+            eq(inboxMessages.conversationId, conv.id),
+            eq(inboxMessages.direction, "inbound"),
+            isNull(inboxMessages.aiProcessedAt),
+            inArray(inboxMessages.id, eingehende.map((m) => m.id))
+          )
+        );
+      await abschliessen("no_op", false, true);
+      summary.noops += 1;
+      await shadowGate("skip_obvious_spam", false);
+      console.log(`[agent-worker] Werbung ohne LLM: ${conv.id} (${werbung.reason})`);
+      return;
+    }
+  }
+
+  if (!entscheidung.aufrufen) {
+    // Stundenlimit oder keine Kundennachricht. Eine noch nicht erledigte
+    // neuere Nachricht bleibt bewaffnet und läuft nach der Stunde.
+    if (entscheidung.grund === "stundenlimit") {
+      await db
+        .update(inboxConversations)
+        .set({ aiNeedsReply: true, updatedAt: new Date() })
+        .where(eq(inboxConversations.id, conv.id));
+    } else {
+      await stampInboundProcessed(conv.id, now);
+    }
+    await shadowGate(entscheidung.grund === "stundenlimit" ? "skip_hourly_cap" : "skip_no_inbound", false);
+    return;
+  }
+
   // 2. Move date already passed -> never auto-text; flag the owner to check.
   if (opts.dealsObjId && conv.dealRecordId) {
     const deal = await getRecord(opts.dealsObjId, conv.dealRecordId);
@@ -680,6 +853,7 @@ async function processConversation(
         action: "no_op", message_de: "", owner_note: "Wunschtermin liegt in der Vergangenheit", reason: "past_move_date", handoff_grund: "sonstiges",
       }, "");
       await stampInboundProcessed(conv.id, now);
+      await merkeNoOp();
       summary.noops += 1;
       await shadowGate("skip_move_date_past", false);
       return;
@@ -783,6 +957,12 @@ async function processConversation(
     SYSTEM_PROMPT +
     disclosureClause(opts.discloseAi, stimme.marke) +
     inhaberRegelBlock(await ladeInhaberRegeln(conv.workspaceId));
+  // Zählt als Aufruf, auch wenn der Lauf danach abbricht. Das Stundenlimit
+  // greift dann, selbst wenn das Ergebnis nicht mehr gespeichert wird.
+  await db
+    .update(inboxConversations)
+    .set({ aiLastAssistantAt: now, updatedAt: new Date() })
+    .where(eq(inboxConversations.id, conv.id));
   const { turn, modelTag } = await runTurn(
     conv.workspaceId,
     system,
@@ -790,8 +970,9 @@ async function processConversation(
   );
   if (!turn) {
     // The model failed (timeout/parse). The claim already cleared aiNeedsReply,
-    // so re-arm it (without stamping the inbound) so the next tick retries this
-    // due lead instead of silently dropping it.
+    // so re-arm it (without stamping the inbound). aiLastAssistantAt ist schon
+    // gesetzt: der nächste Tick trifft das Stundenlimit und ruft nicht sofort
+    // wieder an.
     await db
       .update(inboxConversations)
       .set({ aiNeedsReply: true, updatedAt: new Date() })
@@ -921,7 +1102,7 @@ async function processConversation(
   if (weg === "entwurf") {
     // Decide and record a visible preview, but never send/push/pause.
     await emitAgentEvent(conv, "dry_run", turn, outgoing || turn.owner_note || turn.message_de);
-    await turnAbschliessen(conv.id, now, gesehenBis, false);
+    await abschliessen(turn.action, false);
     summary.dryRunPreviews += 1;
     return;
   }
@@ -929,14 +1110,14 @@ async function processConversation(
   // Live mode.
   if (turn.action === "ask") {
     if (!outgoing) {
-      await turnAbschliessen(conv.id, now, gesehenBis, false);
+      await abschliessen("no_op", false);
       summary.noops += 1;
       return;
     }
     // The customer wrote again while the model was composing: this answer is
     // already outdated. Send nothing; the next tick answers the whole burst.
     if (await neueKundennachricht(conv.id, gesehenBis)) {
-      await turnAbschliessen(conv.id, now, gesehenBis, false);
+      await abschliessen("no_op", false);
       summary.noops += 1;
       return;
     }
@@ -950,6 +1131,7 @@ async function processConversation(
         // at ingest). Do NOT re-arm, or the per-minute cron loops forever on a
         // doomed send. Stamp, flag the owner to reply manually or via template.
         await stampInboundProcessed(conv.id, now);
+        await abschliessen("ask", false, true);
         const owners = await ownerUserIds(conv.workspaceId);
         if (owners.length > 0) {
           await sendPush(
@@ -967,16 +1149,17 @@ async function processConversation(
       }
       console.error("[agent-worker] send failed:", err);
       // Transient failure: re-arm (the claim cleared the flag) so the next tick
-      // retries; do not stamp the inbound.
+      // retries; do not stamp the inbound. Den Stundenstempel zurücknehmen,
+      // sonst würde der erneute Versuch bis zu einer Stunde warten.
       await db
         .update(inboxConversations)
-        .set({ aiNeedsReply: true, updatedAt: new Date() })
+        .set({ aiNeedsReply: true, aiLastAssistantAt: null, updatedAt: new Date() })
         .where(eq(inboxConversations.id, conv.id));
       summary.errors += 1;
       return;
     }
     await emitAgentEvent(conv, "live", turn, outgoing);
-    await turnAbschliessen(conv.id, now, gesehenBis, false);
+    await abschliessen("ask", false);
     return;
   }
 
@@ -1008,13 +1191,13 @@ async function processConversation(
     }
     await emitAgentEvent(conv, "live", turn, outgoing);
     // Hand the thread to the human: pause the agent until it is handed back.
-    await turnAbschliessen(conv.id, now, gesehenBis, true);
+    await abschliessen("handoff", true);
     summary.handoffs += 1;
     return;
   }
 
-  // no_op
-  await turnAbschliessen(conv.id, now, gesehenBis, false);
+  // no_op (auch die Schalterdatei auf dem Server: action no_op, reason paused)
+  await abschliessen("no_op", false);
   summary.noops += 1;
 }
 
