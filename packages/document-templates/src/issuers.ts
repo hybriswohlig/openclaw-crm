@@ -1,4 +1,7 @@
-import type { FirmaSlug, IssuerView, Letterhead } from "./types";
+import type { FirmaSlug, IssuerContact, IssuerView, Letterhead } from "./types";
+
+/** The retired mobile. Never printed, including when a record still has it. */
+const RETIRED_PHONE = /175[\s./-]*9498475|9498475/;
 
 /**
  * Printed Kottke letterhead. Einstellungen → Gesellschaften overrides any
@@ -30,6 +33,7 @@ const ISSUERS: Record<FirmaSlug, IssuerView> = {
     slug: "kottke",
     displayName: KOTTKE_LETTERHEAD.legalName,
     lines: letterheadLines(KOTTKE_LETTERHEAD),
+    contact: contactFromLetterhead(KOTTKE_LETTERHEAD, true),
     bank: {
       iban: "DE81 1001 8000 0379 5948 02",
       bic: "FNOMDEB2",
@@ -41,6 +45,13 @@ const ISSUERS: Record<FirmaSlug, IssuerView> = {
     slug: "ceylan",
     displayName: "Ceylan Umzüge & Transporte",
     lines: CEYLAN_LINES,
+    contact: {
+      owner: "Inh. Nurullah Ceylan",
+      street: "Kapellenberg 13",
+      place: "72218 Wildberg",
+      email: "info@ceylan-operations.de",
+      kleinunternehmer: false,
+    },
     bank: {
       iban: "DE93 1001 8000 0601 9731 97",
       bic: "FNOMDEB2",
@@ -49,6 +60,33 @@ const ISSUERS: Record<FirmaSlug, IssuerView> = {
     accent: "#ea580c",
   },
 };
+
+function keepPhone(value: string | undefined, fallback: string | undefined): string | undefined {
+  if (!value) return fallback;
+  if (RETIRED_PHONE.test(value)) return fallback;
+  return value;
+}
+
+export function websiteLabel(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  return trimmed.replace(/^https?:\/\//i, "").replace(/\/$/, "");
+}
+
+export function contactFromLetterhead(input: Letterhead, kleinunternehmer: boolean): IssuerContact {
+  const place = [filled(input.postalCode), filled(input.city)].filter(Boolean).join(" ");
+  return {
+    owner: filled(input.owner),
+    street: filled(input.street),
+    place: place || undefined,
+    phone: filled(input.phone),
+    whatsapp: filled(input.whatsapp),
+    email: filled(input.email),
+    website: websiteLabel(filled(input.website)),
+    taxNumber: filled(input.taxNumber),
+    kleinunternehmer,
+  };
+}
 
 function filled(value: string | null | undefined): string | undefined {
   const trimmed = value?.trim();
@@ -134,12 +172,26 @@ export function issuerFor(firma: FirmaSlug, letterhead?: Letterhead | null): Iss
       ...base,
       displayName: filled(letterhead.legalName) ?? base.displayName,
       lines,
+      contact: {
+        ...base.contact,
+        owner: filled(letterhead.owner) ?? base.contact.owner,
+        street: street ?? base.contact.street,
+        place: place || base.contact.place,
+        phone: keepPhone(phone, base.contact.phone),
+        whatsapp: keepPhone(whatsapp, base.contact.whatsapp),
+        email: email ?? base.contact.email,
+        website: websiteLabel(website) ?? base.contact.website,
+        taxNumber: taxNumber ?? base.contact.taxNumber,
+      },
     };
   }
   const merged = mergeLetterhead(KOTTKE_LETTERHEAD, letterhead);
+  merged.phone = keepPhone(merged.phone, KOTTKE_LETTERHEAD.phone) ?? KOTTKE_LETTERHEAD.phone;
+  merged.whatsapp = keepPhone(merged.whatsapp, KOTTKE_LETTERHEAD.whatsapp) ?? KOTTKE_LETTERHEAD.whatsapp;
   return {
     ...base,
     displayName: merged.legalName,
     lines: letterheadLines(merged),
+    contact: contactFromLetterhead(merged, true),
   };
 }

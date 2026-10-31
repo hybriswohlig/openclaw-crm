@@ -55,6 +55,31 @@ function webRegistry(): Map<string, string> {
   return out;
 }
 
+/** Zod input keys actually passed to server.tool for each registered name. */
+function webInputKeys(): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  const recorder = {
+    tool(name: string, _description: string, shape?: Record<string, unknown>) {
+      out.set(name, shape ? Object.keys(shape) : []);
+    },
+  };
+  registerCrmTools(recorder as unknown as McpServer);
+  return out;
+}
+
+/** Property names of one stdio ToolDef inputSchema. */
+function stdioPropertyNames(source: string, toolName: string): string[] {
+  const start = source.indexOf(`name: "${toolName}"`);
+  if (start < 0) return [];
+  const next = source.indexOf("\n  {", start + 1);
+  const block = source.slice(start, next === -1 ? source.length : next);
+  const propsAt = block.indexOf("properties:");
+  const requiredAt = block.indexOf("\n      required:");
+  if (propsAt < 0) return [];
+  const props = block.slice(propsAt, requiredAt === -1 ? block.length : requiredAt);
+  return [...props.matchAll(/^ {8}([A-Za-z_][A-Za-z0-9_]*):/gm)].map((m) => m[1]);
+}
+
 const sorted = (names: readonly string[]) => [...names].sort();
 
 /** Names that must agree between the two registries. */
@@ -376,5 +401,30 @@ describe("findStaleExemptions", () => {
     const web = new Map([["crm_one", "Same"]]);
     const stdio = new Map([["crm_one", "Same"]]);
     expect(findStaleExemptions(web, stdio, [])).toEqual([]);
+  });
+});
+
+describe("commercial document MCP fields", () => {
+  const fields = [
+    "lineItems",
+    "allowCard",
+    "paymentMethods",
+    "dueDate",
+    "salutation",
+    "section35a",
+    "invoiceNumber",
+  ];
+
+  it("exposes the invoice fields on the web registry and the stdio schemas", () => {
+    const web = webInputKeys();
+    for (const name of ["crm_generate_document", "crm_render_document", "crm_preview_document"]) {
+      for (const field of fields) expect(web.get(name), name).toContain(field);
+    }
+    // crm_generate_document is web-only. Render and preview are the shared tools.
+    expect(STDIO_DEFS).not.toContain('name: "crm_generate_document"');
+    for (const name of ["crm_render_document", "crm_preview_document"]) {
+      const props = stdioPropertyNames(STDIO_DEFS, name);
+      for (const field of fields) expect(props, name).toContain(field);
+    }
   });
 });

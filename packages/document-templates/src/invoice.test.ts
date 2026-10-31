@@ -9,16 +9,15 @@ import type { DealFacts, QuotationPriceSource, RenderInput } from "./types";
 
 const deal: DealFacts = {
   firma: "kottke",
-  customerName: "Erika Hennig",
+  customerName: "Stephanie Hennig",
   familyName: "Hennig",
-  givenName: "Erika",
-  customerAddress: "Gartenstr. 4, 72202 Nagold",
-  fromAddress: "Gartenstr. 4, 72202 Nagold",
-  toAddress: "Gartenstr. 4, 72202 Nagold",
-  serviceDate: "2026-10-28",
+  givenName: "Stephanie",
+  customerAddress: "Amselweg 19, 70839 Gerlingen",
+  fromAddress: "Amselweg 19, 70839 Gerlingen",
+  toAddress: "Amselweg 19, 70839 Gerlingen",
+  serviceDate: "2026-10-31",
   documentDate: "2026-10-31",
-  invoiceNumber: "RE-2026-014",
-  letterhead: { taxNumber: "12345/67890" },
+  letterhead: { phone: "+49 175 9498475", whatsapp: "+49 175 9498475" },
 };
 
 function quotation(over: Partial<QuotationPriceSource> = {}): QuotationPriceSource {
@@ -43,7 +42,8 @@ function hennig(): RenderInput {
     options: {
       allowCard: false,
       dueDate: "sofort",
-      invoiceNumber: "RE-2026-014",
+      salutation: "frau",
+      invoiceNumber: "RE-KO-20261031-HEN",
       lineItems: [
         {
           description: "Inhouse-Umzug 1. OG ins EG",
@@ -55,7 +55,7 @@ function hennig(): RenderInput {
       ],
       section35a: {
         labourCents: 49875,
-        serviceAddress: "Gartenstr. 4, 72202 Nagold",
+        serviceAddress: "Amselweg 19, 70839 Gerlingen",
       },
     },
   };
@@ -93,37 +93,60 @@ describe("Kottke Rechnung", () => {
     expect(model.positions[0].quantityLabel).toBe("4,75 Std.");
     expect(model.totalCents).toBe(49875);
     expect(model.totalLabel).toContain("498,75");
-    expect(html).toContain("Guten Tag Erika Hennig,");
+    expect(model.displayTitle).toBe("RECHNUNG");
+    expect(model.invoiceNumber).toBe("RE-KO-20261031-HEN");
+    expect(model.invoiceNumber).not.toMatch(/-2$|-3$/);
+    expect(model.dueDateLabel).toBe("sofort");
+    expect(model.dueDateStored).toBe("2026-10-31");
+    expect(html).toContain("Sehr geehrte Frau Hennig,");
     expect(html).not.toContain("Sehr geehrte/r");
     expect(html).not.toContain("Frau/Herr");
     expect(html).not.toContain("Pauschale");
     expect(html).not.toContain("Umzug von");
+    expect(html).not.toContain("9498475");
+    expect(html).not.toContain("innerhalb von 7 Tagen");
+    expect(html).not.toContain("07.11");
+    expect(html).not.toContain("Kartenzahlung nur nach Vereinbarung");
+    expect(html).toContain("Kottke-Umzüge");
+    expect(html).toContain("RECHNUNG");
+    expect(html).toContain("Fälligkeitsdatum");
+    expect(html).toContain(">sofort<");
+    expect(html).toContain("4,75 Std.");
+    expect(html).toContain("kv-ab-re/4");
+    expect(html).toContain("0151 59058963");
+    expect(html).toContain("07054 9306962");
     expect(model.paymentMethodLabel).toBe("Überweisung");
     expect(model.paymentTerms).toContain("überweisen");
     expect(model.paymentTerms).toContain("sofort");
     expect(model.paymentTerms).not.toContain("Karte");
     expect(model.paymentTerms).not.toContain("35a");
+    expect(model.paymentTerms).not.toContain("7 Tagen");
+    const pay = html.slice(html.indexOf('class="paybox"'), html.indexOf('class="block35"'));
+    expect(pay).not.toContain("35a");
+    expect(pay).not.toContain("Kartenzahlung");
     expect(html).toContain("Hinweis nach § 35a EStG");
     expect(html).toContain("498,75");
-    expect(html).toContain("Leistungsort: Gartenstr. 4, 72202 Nagold");
+    expect(html).toContain("Leistungsort: Amselweg 19, 70839 Gerlingen");
     expect(html).toContain("nur Zahlungen per Überweisung");
-    expect(html.split("§ 19 UStG").length - 1).toBe(1);
+    expect(html.split("Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.").length - 1).toBe(1);
     expect(html).not.toContain("19 %");
-    expect(html).toContain("Rechnungsnummer");
-    expect(html).toContain("RE-2026-014");
+    expect(html).toContain("Rechnungs-Nr.");
+    expect(html).toContain("RE-KO-20261031-HEN");
     expect(html).toContain("Rechnungsdatum");
-    expect(html).toContain("31.10.2026");
     expect(html).toContain("Leistungsdatum");
-    expect(html).toContain("28.10.2026");
+    expect(html).toContain("31.10.2026");
     expect(html).toContain("DE81 1001 8000 0379 5948 02");
-    expect(html).toContain("Steuernummer 12345/67890");
     expect(model.serviceDateCaption).toBe("Leistungsdatum");
     expect(text).toContain("4,75");
     expect(text).toContain("105");
     expect(text).toContain("sofort");
     expect(text).toContain("35a");
+    expect(text).toContain("RECHNUNG");
+    expect(text).toContain("RECHNUNGSBETRAG");
     expect(text).not.toContain("Pauschale");
     expect(text).not.toContain("Sehr geehrte/r");
+    expect(text).not.toContain("9498475");
+    expect(text).not.toContain("Kartenzahlung nur nach Vereinbarung");
 
     const sample = process.env.KOTTKE_RE_SAMPLE;
     if (sample) {
@@ -183,5 +206,43 @@ describe("Kottke Rechnung", () => {
     });
     expect(dated.paymentTerms).toContain("31.10.2026");
     expect(dated.paymentTerms).not.toContain("sofort");
+    expect(dated.dueDateLabel).toBe("31.10.2026");
+    expect(dated.dueDateStored).toBe("2026-10-31");
+  });
+
+  it("prints a KV in the same shell", async () => {
+    const model = buildDocumentModel({
+      kind: "KV",
+      deal: {
+        firma: "kottke",
+        customerName: "Stephanie Hennig",
+        familyName: "Hennig",
+        customerAddress: "Amselweg 19, 70839 Gerlingen",
+        serviceDate: "2026-11-06",
+        documentDate: "2026-10-31",
+      },
+      quotation: quotation({
+        fixedPrice: "498.75",
+        paymentMethodPreference: "bank_transfer",
+        validUntil: "2026-11-14",
+        lineItems: [],
+      }),
+      options: { salutation: "frau" },
+    });
+    const html = renderHtml(model);
+    expect(model.displayTitle).toBe("KOSTENVORANSCHLAG");
+    expect(model.totalBarLabel).toBe("ANGEBOTSBETRAG");
+    expect(html).toContain("ANGEBOTSBETRAG");
+    expect(model.infoRows.map((row) => row.label)).toEqual(["Angebots-Nr.", "Datum", "Gültig bis"]);
+    expect(html).toContain("KOSTENVORANSCHLAG");
+    expect(html).toContain("Gültig bis");
+    expect(html).toContain("14.11.2026");
+    expect(html).toContain("Sehr geehrte Frau Hennig,");
+    expect(html).not.toContain("9498475");
+    const sample = process.env.KOTTKE_KV_SAMPLE;
+    if (sample) {
+      mkdirSync(dirname(sample), { recursive: true });
+      writeFileSync(sample, await renderPdf(model));
+    }
   });
 });

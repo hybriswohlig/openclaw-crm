@@ -31,7 +31,7 @@ export {
   paymentDueWording,
   selectDocumentService,
 } from "./copy";
-export { buildDocumentModel, invoiceNumberFor } from "./model";
+export { buildDocumentModel, invoiceDueStored, invoiceNumberFor } from "./model";
 export { escapeHtml, renderHtml } from "./html";
 export { renderPdf, toWinAnsi } from "./pdf";
 export { annahmeSeiteZeilen, baueVertragsmappe, umbrechen } from "./vertragsmappe";

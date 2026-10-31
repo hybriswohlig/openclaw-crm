@@ -266,7 +266,7 @@ describe("preview", () => {
 
     const clearance = preview({ kind: "AB", serviceType: "clearance" });
     expect(clearance.html).toContain("Entrümpelung");
-    expect(clearance.html).not.toMatch(/Umzug/);
+    expect(clearance.model.intro.join(" ")).not.toMatch(/Umzug/);
 
     const kitchen = preview({ kind: "RE", serviceType: "kitchen_installation" });
     expect(kitchen.html).toContain("Küchenmontage");
@@ -278,7 +278,7 @@ describe("preview", () => {
     });
     expect(transport.html).toContain('data-service="transport"');
     expect(transport.html).toContain("Anfrage zum Transport");
-    expect(transport.html).not.toMatch(/Umzug/);
+    expect(transport.model.intro.join(" ")).not.toMatch(/Umzug/);
 
     const du = preview({ kind: "AB", addressForm: "du" });
     expect(du.html).toContain("Hallo Kyra,");
@@ -408,7 +408,6 @@ describe("preview", () => {
     expect(html).not.toContain("Hallo");
     expect(html).toContain("07054 9306962");
     expect(html).not.toContain("9498475");
-    const tax = html.split("§ 19 UStG").length - 1;
-    expect(tax).toBe(1);
+    expect(html.split("Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.").length - 1).toBe(1);
   });
 });

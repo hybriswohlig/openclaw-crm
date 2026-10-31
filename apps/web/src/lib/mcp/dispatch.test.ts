@@ -1,4 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
+import { buildDocumentModel } from "@openclaw-crm/document-templates";
+import { parsePreviewBody, parseRenderBody } from "@/lib/commercial-document-request";
 import { handleTool, type ToolContent } from "./dispatch";
 import type { CrmClient } from "./client";
 import { MAX_JSON_INLINE_BYTES, MAX_MCP_INLINE_BYTES_LIMIT } from "@/lib/attachment-content";
@@ -345,6 +347,96 @@ describe("crm_generate_document", () => {
 });
 
 describe("crm_render_document", () => {
+  it("passes invoice fields through dispatch into the rendered model", async () => {
+    const fields = {
+      lineItems: [
+        {
+          description: "Inhouse-Umzug 1. OG ins EG",
+          workers: 3,
+          hours: "4,75",
+          rate: 105,
+          includesTravel: true,
+        },
+      ],
+      allowCard: false,
+      paymentMethods: ["bank_transfer"],
+      dueDate: "sofort",
+      salutation: "frau",
+      section35a: { amount: "498,75", serviceAddress: "Amselweg 19, 70839 Gerlingen" },
+      invoiceNumber: "RE-KO-20261031-HEN",
+    };
+    const render = fakeClient();
+    await handleTool(render.client, "crm_render_document", {
+      recordId: "deal-hennig",
+      documentType: "RE",
+      ...fields,
+    });
+    expect(render.calls[0].path).toBe("/api/v1/deals/deal-hennig/documents/render");
+    const rendered = parseRenderBody(render.calls[0].options.body);
+    expect(rendered.ok).toBe(true);
+    if (!rendered.ok) return;
+
+    const preview = fakeClient();
+    await handleTool(preview.client, "crm_preview_document", {
+      recordId: "deal-hennig",
+      documentType: "RE",
+      ...fields,
+    });
+    const previewed = parsePreviewBody(preview.calls[0].options.body);
+    expect(previewed.ok).toBe(true);
+
+    const generated = fakeClient();
+    await handleTool(generated.client, "crm_generate_document", {
+      recordId: "deal-hennig",
+      renderer: "vps",
+      params: { firma: "kottke", document_type: "RE", ...fields },
+    });
+    const generatedBody = parseRenderBody(generated.calls[0].options.body);
+    expect(generated.calls[0].path).toBe("/api/v1/deals/deal-hennig/documents/render");
+    expect(generatedBody.ok).toBe(true);
+    if (!generatedBody.ok) return;
+
+    const model = buildDocumentModel({
+      kind: "RE",
+      deal: {
+        firma: "kottke",
+        customerName: "Stephanie Hennig",
+        familyName: "Hennig",
+        givenName: "Stephanie",
+        customerAddress: "Amselweg 19, 70839 Gerlingen",
+        serviceDate: "2026-10-31",
+        documentDate: "2026-10-31",
+      },
+      quotation: {
+        isVariable: false,
+        fixedPrice: "1.00",
+        lineItems: [],
+        depositRequiredCents: null,
+        paymentMethodPreference: "card",
+        validUntil: null,
+        summary: null,
+        serviceType: "move",
+      },
+      options: rendered.value.options,
+    });
+    expect(rendered.value.options).toEqual(generatedBody.value.options);
+    expect(model.invoiceNumber).toBe("RE-KO-20261031-HEN");
+    expect(model.invoiceNumber).not.toMatch(/-(2|3)$/);
+    expect(model.intro[0]).toBe("Sehr geehrte Frau Hennig,");
+    expect(model.dueDateLabel).toBe("sofort");
+    expect(model.dueDateStored).toBe("2026-10-31");
+    expect(model.positions[0]?.quantityLabel).toBe("4,75 Std.");
+    expect(model.positions[0]?.title).toContain("3 Mitarbeiter");
+    expect(model.positions[0]?.title).toContain("inkl. Anfahrt");
+    expect(model.totalCents).toBe(49875);
+    expect(model.paymentMethodLabel).toBe("Überweisung");
+    expect(model.paymentTerms).toContain("sofort");
+    expect(model.paymentTerms).not.toContain("Karte");
+    expect(model.paymentNote).not.toContain("Kartenzahlung");
+    expect(model.section35a?.amountLabel).toContain("498,75");
+    expect(model.section35a?.serviceAddress).toContain("Amselweg 19");
+  });
+
   it("posts renderer crm and does not start a VPS job", async () => {
     const { client, calls } = fakeClient();
     await handleTool(client, "crm_render_document", {

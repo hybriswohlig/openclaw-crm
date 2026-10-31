@@ -196,17 +196,41 @@ export interface RenderInput {
 }
 
 export interface PositionView {
+  /** Full line, kept for callers that read one string. */
   title: string;
+  /** Short column, e.g. Arbeitszeit. */
+  leistung: string;
+  /** Long column. */
+  beschreibung: string;
   quantityLabel: string;
   unitRateLabel: string;
   amountLabel: string;
   amountCents: number;
 }
 
+export interface IssuerContact {
+  owner?: string;
+  street?: string;
+  place?: string;
+  phone?: string;
+  whatsapp?: string;
+  email?: string;
+  website?: string;
+  taxNumber?: string;
+  /** Kottke prints the Kleinunternehmer line. Ceylan does not. */
+  kleinunternehmer: boolean;
+}
+
+export interface InfoRow {
+  label: string;
+  value: string;
+}
+
 export interface IssuerView {
   slug: FirmaSlug;
   displayName: string;
   lines: string[];
+  contact: IssuerContact;
   bank: { iban: string; bic: string; holder: string };
   accent: string;
 }
@@ -214,7 +238,25 @@ export interface IssuerView {
 export interface DocumentModel {
   templateVersion: string;
   kind: DocKind;
+  /** Sentence-case name, used in the document title. */
   title: string;
+  /** Centered heading: RECHNUNG, KOSTENVORANSCHLAG, AUFTRAGSBESTÄTIGUNG. */
+  displayTitle: string;
+  /** Short service name, e.g. Umzug. */
+  serviceName: string;
+  subtitle?: string;
+  infoRows: InfoRow[];
+  /** Printed Fälligkeitsdatum. "sofort" stays the word sofort. */
+  dueDateLabel?: string;
+  /**
+   * ISO date written to the deal attribute "Rechnung fällig am".
+   * sofort uses the invoice date. A given date uses that date. RE only.
+   */
+  dueDateStored?: string;
+  /** Card-safe payment line. Absent when it would offer a card. */
+  paymentNote?: string;
+  hintLines: string[];
+  signatory?: string;
   fileStem: string;
   issuer: IssuerView;
   documentDateLabel: string;
@@ -241,6 +283,8 @@ export interface DocumentModel {
   totalCents: number;
   totalLabel: string;
   totalCaption: string;
+  /** Navy total bar. RE is always RECHNUNGSBETRAG. */
+  totalBarLabel: string;
   variable: boolean;
   depositLabel?: string;
   remainderLabel?: string;

@@ -31,7 +31,7 @@ import { assertDealInWorkspace } from "@/services/document-job-context";
 import { getQuotation } from "@/services/quotations";
 import { resolveDocCustomerName } from "@/services/doc-customer-name";
 import { loadCustomerEmail } from "@/services/customer-portal-emails";
-import { getRecord } from "@/services/records";
+import { getRecord, updateRecord } from "@/services/records";
 import {
   createDealDocument,
   type DealDocumentMeta,
@@ -512,6 +512,17 @@ export interface RenderedCommercialDocument {
   templateVersion: string;
 }
 
+/** sofort stores the invoice date. A given ISO date stores that date. Never invoice date + 7. */
+async function stampInvoiceDueDate(workspaceId: string, dealRecordId: string, iso: string) {
+  const [dealObj] = await db
+    .select({ id: objects.id })
+    .from(objects)
+    .where(and(eq(objects.workspaceId, workspaceId), eq(objects.slug, "deals")))
+    .limit(1);
+  if (!dealObj) return;
+  await updateRecord(dealObj.id, dealRecordId, { rechnung_faellig_am: iso }, null);
+}
+
 export async function previewCommercialDocument(input: {
   workspaceId: string;
   dealRecordId: string;
@@ -525,7 +536,9 @@ export async function previewCommercialDocument(input: {
     model,
     html: renderHtml(model),
     pdf,
-    fileName: `${model.fileStem}.pdf`,
+    fileName: model.invoiceNumber
+      ? `${model.invoiceNumber.replace(/[\\/]/g, "-")}.pdf`
+      : `${model.fileStem}.pdf`,
     templateVersion: TEMPLATE_VERSION,
   };
 }
@@ -539,8 +552,17 @@ export async function storeCommercialDocument(input: {
   notifyCustomer?: boolean;
 }): Promise<{ document: DealDocumentMeta; templateVersion: string; fileName: string }> {
   const rendered = await previewCommercialDocument(input);
-  const suffix = crypto.randomUUID().slice(0, 8);
-  const fileName = `${rendered.model.fileStem}-${suffix}.pdf`;
+  const explicitNumber = rendered.model.invoiceNumber?.trim();
+  const fileName = explicitNumber
+    ? `${explicitNumber.replace(/[\\/]/g, "-")}.pdf`
+    : `${rendered.model.fileStem}-${crypto.randomUUID().slice(0, 8)}.pdf`;
+  if (input.kind === "RE" && rendered.model.dueDateStored) {
+    try {
+      await stampInvoiceDueDate(input.workspaceId, input.dealRecordId, rendered.model.dueDateStored);
+    } catch (err) {
+      console.error("[commercial-documents] rechnung_faellig_am", err);
+    }
+  }
   const document = await createDealDocument({
     workspaceId: input.workspaceId,
     dealRecordId: input.dealRecordId,

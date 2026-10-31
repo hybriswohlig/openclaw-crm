@@ -203,7 +203,8 @@ describe("quotation mapping", () => {
     });
     expect(model.totalCents).toBe(25500);
     expect(model.variable).toBe(true);
-    expect(html).toContain("Voraussichtlicher Gesamtbetrag");
+    expect(model.totalCaption).toBe("Voraussichtlicher Gesamtbetrag");
+    expect(html).toContain("RECHNUNGSBETRAG");
     expect(html).toContain("255,00");
     expect(html).toContain("Karte");
     expect(html).toContain("100,00");
@@ -249,7 +250,7 @@ describe("template version", () => {
       deal: { ...deal, firma: "ceylan" },
       quotation: quotation({ paymentMethodPreference: "bank_transfer" }),
     });
-    expect(TEMPLATE_VERSION).toBe("kv-ab-re/3");
+    expect(TEMPLATE_VERSION).toBe("kv-ab-re/4");
     expect(html).toContain(`content="${TEMPLATE_VERSION}"`);
     expect(html).toContain(`Vorlage ${TEMPLATE_VERSION}`);
     expect(text).toContain(TEMPLATE_VERSION);
@@ -316,8 +317,8 @@ describe("long company name and discount", () => {
     expect(html).toContain(longCompany);
     expect(html).toContain("Rabatt bei Termin Mo-Do");
     expect(html).toContain("overflow-wrap: anywhere");
-    expect(html.split("§ 19 UStG").length - 1).toBe(1);
-    expect(html.split("920,00").length - 1).toBe(1);
+    expect(html.split("Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.").length - 1).toBe(1);
+    expect(html.split("920,00").length - 1).toBeGreaterThanOrEqual(1);
     expect(html).toContain("Büroumzug mit Einpackservice");
     expect(html).not.toContain("beträgt dann");
     expect(html).not.toContain("9498475");

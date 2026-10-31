@@ -163,8 +163,11 @@ export function positionFromFreeLine(line: FreeLineInput): PositionView | null {
     hours != null ? parseEuroToCents(line.rate ?? line.unitRate) : parseEuroToCents(line.unitRate ?? line.rate);
   if (hours != null && hours > 0 && rateCents != null) {
     const amountCents = Math.round(hours * rateCents);
+    const title = hourlyTitle(line, hours, rateCents) || "Arbeitszeit";
     return {
-      title: hourlyTitle(line, hours, rateCents) || "Arbeitszeit",
+      title,
+      leistung: "Arbeitszeit",
+      beschreibung: title,
       quantityLabel: `${formatGermanQuantity(hours)} Std.`,
       unitRateLabel: formatEur(rateCents),
       amountLabel: formatEur(amountCents),
@@ -181,9 +184,11 @@ export function positionFromFreeLine(line: FreeLineInput): PositionView | null {
         ? Math.round(line.amountCents)
         : null;
   if (amountCents == null) return null;
-  const description = line.description?.trim();
+  const description = line.description?.trim() || "Leistung";
   return {
-    title: description || "Leistung",
+    title: description,
+    leistung: "Leistung",
+    beschreibung: description,
     quantityLabel: formatGermanQuantity(qty),
     unitRateLabel: unit != null ? formatEur(unit) : formatEur(amountCents),
     amountLabel: formatEur(amountCents),
@@ -218,8 +223,13 @@ function positionsFromLines(lines: PriceLine[]): PositionView[] {
   return lines.map((line) => {
     const amountCents = lineAmountCents(line.quantity, line.unitRate);
     const unitCents = eurosToCents(line.unitRate) ?? 0;
+    const title = positionTitle(line);
+    const leistung =
+      line.type === "helper" ? "Helfer" : line.type === "transporter" ? "Transporter" : "Leistung";
     return {
-      title: positionTitle(line),
+      title,
+      leistung,
+      beschreibung: title,
       quantityLabel: quantityLabel(line),
       unitRateLabel: formatEur(unitCents),
       amountLabel: formatEur(amountCents),

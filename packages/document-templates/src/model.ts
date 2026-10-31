@@ -52,6 +52,64 @@ const TITLES: Record<DocKind, string> = {
   RE: "Rechnung",
 };
 
+const DISPLAY_TITLES: Record<DocKind, string> = {
+  KV: "KOSTENVORANSCHLAG",
+  AB: "AUFTRAGSBESTÄTIGUNG",
+  RE: "RECHNUNG",
+};
+
+const CARD_TERMS =
+  "Zahlung per Überweisung oder in bar, Kartenzahlung nur nach Vereinbarung.";
+const TRANSFER_OR_CASH = "Zahlung per Überweisung oder in bar.";
+
+/** Card offer only when the caller allowed a card. allowCard false never mentions one. */
+function paymentNote(allowCard: boolean | undefined, methodLabel: string): string | undefined {
+  if (allowCard === false) return TRANSFER_OR_CASH;
+  if (allowCard === true || methodLabel === "Karte") return CARD_TERMS;
+  return undefined;
+}
+
+function dueDateLabelFor(dueDate: string | undefined): string | undefined {
+  if (!dueDate) return undefined;
+  if (dueDate.trim().toLowerCase() === "sofort") return "sofort";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return formatGermanDate(dueDate);
+  return dueDate.trim();
+}
+
+/** Deal attribute "Rechnung fällig am". sofort is the invoice date, not invoice date + 7. */
+export function invoiceDueStored(
+  kind: DocKind,
+  dueDate: string | undefined,
+  documentDate: string
+): string | undefined {
+  if (kind !== "RE") return undefined;
+  const invoiceDay = /^\d{4}-\d{2}-\d{2}/.exec(documentDate)?.[0];
+  if (!dueDate || dueDate.trim().toLowerCase() === "sofort") return invoiceDay;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return dueDate;
+  return invoiceDay;
+}
+
+function totalBarLabel(kind: DocKind, variable: boolean, caption: string): string {
+  if (kind === "RE") return "RECHNUNGSBETRAG";
+  if (variable) return caption.toUpperCase();
+  return kind === "KV" ? "ANGEBOTSBETRAG" : "AUFTRAGSBETRAG";
+}
+
+function subtitleFor(serviceName: string, dateLabel?: string): string {
+  const move =
+    serviceName === "Umzug" ||
+    serviceName === "Büroumzug" ||
+    serviceName === "Privatumzug" ||
+    serviceName === "Fernumzug";
+  const what = move ? "Umzugsdienstleistung" : serviceName;
+  return dateLabel ? `${what} vom ${dateLabel}` : what;
+}
+
+function signatoryName(owner: string | undefined, holder: string): string {
+  const stripped = owner?.replace(/^Inhaber:\s*/i, "").replace(/^Inh\.\s*/i, "").trim();
+  return stripped || holder;
+}
+
 /**
  * Build the view model. Prices come from `resolveDocumentPrices`.
  * Optional intro, closing and remarks replace the service default and cannot change the total.
@@ -138,13 +196,86 @@ export function buildDocumentModel(input: RenderInput): DocumentModel {
   const section = input.options?.section35a
     ? section35aView(input.options.section35a)
     : undefined;
+  const dueLabel = dueDateLabelFor(dueDate);
+  const serviceName = wording.service.label;
+  const serviceDay = input.deal.serviceDate
+    ? formatGermanDate(input.deal.serviceDate)
+    : undefined;
+  const invoiceNumber =
+    input.kind === "RE"
+      ? invoiceNumberFor({
+          kind: "RE",
+          explicit: input.options?.invoiceNumber ?? input.deal.invoiceNumber,
+          documentDate: input.deal.documentDate,
+        })
+      : undefined;
+  const offerNumber = `KV-${input.deal.documentDate.replace(/-/g, "").slice(0, 8)}`;
+  const infoRows =
+    input.kind === "RE"
+      ? [
+          { label: "Rechnungs-Nr.", value: invoiceNumber || "—" },
+          { label: "Auftrags-Nr.", value: "—" },
+          { label: "Rechnungsdatum", value: date },
+          { label: "Leistungsdatum", value: serviceDay || "—" },
+          { label: "Fälligkeitsdatum", value: dueLabel || "sofort" },
+        ]
+      : input.kind === "KV"
+        ? [
+            { label: "Angebots-Nr.", value: offerNumber },
+            { label: "Datum", value: date },
+            {
+              label: "Gültig bis",
+              value: input.quotation.validUntil
+                ? formatGermanDate(input.quotation.validUntil)
+                : "—",
+            },
+          ]
+        : [
+            { label: "Auftrags-Nr.", value: "—" },
+            { label: "Datum", value: date },
+            { label: "Leistungsdatum", value: serviceDay || "—" },
+          ];
+  const issuer = issuerFor(input.deal.firma, input.deal.letterhead);
+  const contact = issuer.contact;
+  const questionBits = [
+    contact.whatsapp ? `per WhatsApp unter ${contact.whatsapp}` : null,
+    contact.email ? `per E-Mail an ${contact.email}` : null,
+  ].filter((bit): bit is string => Boolean(bit));
+  const hintLines: string[] = [];
+  if (input.kind === "RE") {
+    hintLines.push("Bei Zahlungsverzug fallen Verzugszinsen gemäß § 288 BGB an.");
+    if (invoiceNumber) {
+      hintLines.push(
+        "Bitte geben Sie bei der Überweisung des offenen Betrages unbedingt die Rechnungsnummer als Verwendungszweck an, damit wir Ihre Zahlung zuordnen können."
+      );
+    }
+    if (questionBits.length > 0) {
+      const reach =
+        questionBits.length === 2
+          ? `${questionBits[0]} oder ${questionBits[1]}`
+          : questionBits[0];
+      hintLines.push(
+        `Sollten Sie Fragen zu dieser Rechnung haben, erreichen Sie uns jederzeit ${reach}.`
+      );
+    }
+  }
+  if (copy.remarks) hintLines.push(copy.remarks);
 
   return {
     templateVersion: TEMPLATE_VERSION,
     kind: input.kind,
     title: TITLES[input.kind],
+    displayTitle: DISPLAY_TITLES[input.kind],
+    serviceName,
+    subtitle: subtitleFor(serviceName, serviceDay ?? (input.kind === "KV" ? date : undefined)),
+    infoRows,
+    dueDateLabel: dueLabel,
+    dueDateStored: invoiceDueStored(input.kind, dueDate, input.deal.documentDate),
+    paymentNote: paymentNote(input.options?.allowCard, methodLabel),
+    hintLines,
+    signatory: signatoryName(contact.owner, issuer.bank.holder),
     fileStem: `${input.kind}-${input.deal.firma}-${input.deal.documentDate}`,
-    issuer: issuerFor(input.deal.firma, input.deal.letterhead),
+    issuer,
     documentDateLabel: date,
     customerName: recipientName,
     recipientLines,
@@ -156,14 +287,7 @@ export function buildDocumentModel(input: RenderInput): DocumentModel {
       ? formatGermanDate(input.deal.serviceDate)
       : undefined,
     serviceDateCaption: input.kind === "RE" ? "Leistungsdatum" : "Termin",
-    invoiceNumber:
-      input.kind === "RE"
-        ? invoiceNumberFor({
-            kind: "RE",
-            explicit: input.options?.invoiceNumber ?? input.deal.invoiceNumber,
-            documentDate: input.deal.documentDate,
-          })
-        : undefined,
+    invoiceNumber,
     serviceKind: wording.service.kind,
     serviceLabel,
     addressForm: wording.addressForm,
@@ -177,6 +301,15 @@ export function buildDocumentModel(input: RenderInput): DocumentModel {
     positions: freePositions ?? prices?.positions ?? [],
     totalCents,
     totalLabel: formatEur(totalCents),
+    totalBarLabel: totalBarLabel(
+      input.kind,
+      freePositions ? false : (prices?.variable ?? false),
+      freePositions
+        ? input.kind === "RE"
+          ? "Rechnungsbetrag"
+          : "Summe"
+        : (prices?.totalCaption ?? "Summe")
+    ),
     totalCaption: freePositions
       ? input.kind === "RE"
         ? "Rechnungsbetrag"
