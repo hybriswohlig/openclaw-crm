@@ -19,6 +19,7 @@ const LETTERHEAD: Array<[string, string, string]> = [
   ["postal_code", "PLZ", "PLZ"],
   ["city", "Ort", "Ort"],
   ["website", "Website", "https://…"],
+  ["tax_number", "Steuernummer", "Nur wenn gesetzt, auf dem Briefkopf"],
 ];
 
 function letterheadFrom(values: Record<string, unknown> | undefined): Record<string, string> {

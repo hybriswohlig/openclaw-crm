@@ -1,7 +1,16 @@
-import { eurosToCents, formatEur, lineAmountCents } from "./money";
+import {
+  eurosToCents,
+  formatEur,
+  formatEuroPlain,
+  formatGermanQuantity,
+  lineAmountCents,
+  parseEuroToCents,
+  parseGermanDecimal,
+} from "./money";
 import type {
   AcceptedPrice,
   DocKind,
+  FreeLineInput,
   PackageOptionPrice,
   PositionView,
   PriceLine,
@@ -85,6 +94,105 @@ export function paymentMethodLabel(preference: string | null): {
     return { label: PAYMENT_LABELS[preference], stored: true };
   }
   return { label: PAYMENT_LABELS.bank_transfer, stored: false };
+}
+
+function canonicalMethod(value: string): keyof typeof PAYMENT_LABELS | null {
+  const n = value.trim().toLowerCase();
+  if (["bank_transfer", "transfer", "ueberweisung", "überweisung", "bank", "sepa"].includes(n)) {
+    return "bank_transfer";
+  }
+  if (n === "paypal") return "paypal";
+  if (n === "cash" || n === "bar") return "cash";
+  if (n === "card" || n === "karte") return "card";
+  return null;
+}
+
+/**
+ * Card sentence is off when allowCard is false or the listed methods are
+ * only bank transfer. allowCard false always prints Überweisung.
+ * An omitted list keeps the stored quotation method.
+ */
+export function resolvePaymentLabel(
+  preference: string | null,
+  options?: { allowCard?: boolean; paymentMethods?: string[] }
+): string {
+  const stored = paymentMethodLabel(preference).label;
+  const listed = (options?.paymentMethods ?? [])
+    .map((method) => canonicalMethod(method))
+    .filter((method): method is keyof typeof PAYMENT_LABELS => method != null);
+  if (options?.allowCard === false) return PAYMENT_LABELS.bank_transfer;
+  if (listed.length > 0 && listed.every((method) => method === "bank_transfer")) {
+    return PAYMENT_LABELS.bank_transfer;
+  }
+  if (listed.length > 0 && stored === "Karte" && !listed.includes("card")) {
+    return PAYMENT_LABELS[listed[0]];
+  }
+  return stored;
+}
+
+const SECTION_35A_NOTE =
+  "Abziehbar sind nur Zahlungen per Überweisung auf das angegebene Konto. Bar- und Kartenzahlungen sind nach § 35a EStG nicht abziehbar.";
+
+export function section35aView(input: {
+  labourCents: number;
+  serviceAddress?: string;
+}): { amountLabel: string; serviceAddress?: string; note: string } {
+  return {
+    amountLabel: formatEur(input.labourCents),
+    serviceAddress: input.serviceAddress?.trim() || undefined,
+    note: SECTION_35A_NOTE,
+  };
+}
+
+function hourlyTitle(line: FreeLineInput, hours: number, rateCents: number): string {
+  const description = line.description?.trim();
+  const workers =
+    line.workers != null && Number.isFinite(line.workers)
+      ? `${formatGermanQuantity(line.workers)} Mitarbeiter`
+      : null;
+  const hourBit = `${formatGermanQuantity(hours)} Std. à ${formatEuroPlain(rateCents)}`;
+  let title = [description, workers, hourBit].filter(Boolean).join(", ");
+  if (line.includesTravel) title += " inkl. Anfahrt";
+  return title;
+}
+
+/** One printed position. Null when the line has no amount. */
+export function positionFromFreeLine(line: FreeLineInput): PositionView | null {
+  const hours = line.hours != null ? parseGermanDecimal(line.hours) : null;
+  const rateCents =
+    hours != null ? parseEuroToCents(line.rate ?? line.unitRate) : parseEuroToCents(line.unitRate ?? line.rate);
+  if (hours != null && hours > 0 && rateCents != null) {
+    const amountCents = Math.round(hours * rateCents);
+    return {
+      title: hourlyTitle(line, hours, rateCents) || "Arbeitszeit",
+      quantityLabel: `${formatGermanQuantity(hours)} Std.`,
+      unitRateLabel: formatEur(rateCents),
+      amountLabel: formatEur(amountCents),
+      amountCents,
+    };
+  }
+  const quantity = line.quantity != null ? parseGermanDecimal(line.quantity) : 1;
+  const unit = parseEuroToCents(line.unitRate ?? line.rate);
+  const qty = quantity != null && quantity !== 0 ? quantity : 1;
+  const amountCents =
+    unit != null
+      ? Math.round(qty * unit)
+      : line.amountCents != null && Number.isFinite(line.amountCents)
+        ? Math.round(line.amountCents)
+        : null;
+  if (amountCents == null) return null;
+  const description = line.description?.trim();
+  return {
+    title: description || "Leistung",
+    quantityLabel: formatGermanQuantity(qty),
+    unitRateLabel: unit != null ? formatEur(unit) : formatEur(amountCents),
+    amountLabel: formatEur(amountCents),
+    amountCents,
+  };
+}
+
+export function positionsFromFreeLines(lines: FreeLineInput[]): PositionView[] {
+  return lines.map(positionFromFreeLine).filter((line): line is PositionView => line != null);
 }
 
 function sumCents(lines: PriceLine[]): number {

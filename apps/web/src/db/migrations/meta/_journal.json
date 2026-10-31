@@ -309,6 +309,13 @@
       "when": 1792972800000,
       "tag": "0055_operating_company_letterhead",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1793059200000,
+      "tag": "0056_operating_company_tax_number",
+      "breakpoints": true
     }
   ]
 }

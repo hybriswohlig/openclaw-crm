@@ -256,7 +256,9 @@ describe("preview", () => {
     const move = preview({ kind: "KV" });
     expect(move.html).toContain('data-service="move"');
     expect(move.html).toContain('data-address="sie"');
-    expect(move.html).toContain("Guten Tag,");
+    expect(move.html).toContain("Guten Tag Kyra Heiker,");
+    expect(move.html).not.toContain("Sehr geehrte/r");
+    expect(move.html).not.toContain("Frau/Herr");
     expect(move.html).toContain("Ihre Umzugsanfrage");
     expect(move.html).toContain("Leistung");
     expect(move.html).toContain(">Umzug<");
@@ -299,13 +301,16 @@ describe("preview", () => {
     expect(later.model.paymentTerms).not.toContain("vor Einsatz");
 
     const missing = preview({ kind: "RE" });
+    expect(missing.model.paymentTerms).toContain("sofort");
     expect(missing.model.paymentTerms).not.toMatch(/\d{2}\.\d{2}\.\d{4}/);
     expect(missing.html).toContain("03.11.2026");
+    expect(missing.model.invoiceNumber).toMatch(/^RE-/);
+    expect(missing.model.serviceDateCaption).toBe("Leistungsdatum");
   });
 
   it("mentions card payment only for card, and transfer otherwise", () => {
     const card = preview({ kind: "RE", method: "card", serviceType: "clearance" });
-    expect(card.model.paymentTerms).toBe("Die Zahlung erfolgt per Karte vor Ort.");
+    expect(card.model.paymentTerms).toBe("Die Zahlung erfolgt sofort per Karte vor Ort.");
     expect(card.html).not.toContain("Keine Kartenzahlung");
     expect(card.html).not.toContain("überweisen");
 

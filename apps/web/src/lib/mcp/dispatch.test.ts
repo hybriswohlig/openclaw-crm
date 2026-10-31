@@ -304,6 +304,44 @@ describe("crm_generate_document", () => {
       notifyCustomer: false,
     });
   });
+
+  it("renders Kottke RE and AB in the CRM template and leaves Ceylan on the VPS", async () => {
+    const kottke = fakeClient();
+    await handleTool(kottke.client, "crm_generate_document", {
+      recordId: "deal-1",
+      renderer: "vps",
+      params: {
+        firma: "kottke",
+        document_type: "RE",
+        dueDate: "sofort",
+        allowCard: false,
+        lineItems: [{ description: "Inhouse-Umzug", workers: 3, hours: 4.75, rate: 105 }],
+      },
+    });
+    expect(kottke.calls[0].path).toBe("/api/v1/deals/deal-1/documents/render");
+    expect(kottke.calls[0].options.body).toMatchObject({
+      renderer: "crm",
+      documentType: "RE",
+      dueDate: "sofort",
+      allowCard: false,
+      notifyCustomer: false,
+    });
+
+    const ceylan = fakeClient();
+    await handleTool(ceylan.client, "crm_generate_document", {
+      recordId: "deal-2",
+      renderer: "vps",
+      params: { firma: "ceylan", document_type: "RE" },
+    });
+    expect(ceylan.calls[0].path).toBe("/api/tools/run");
+
+    const kv = fakeClient();
+    await handleTool(kv.client, "crm_generate_document", {
+      recordId: "deal-3",
+      params: { firma: "kottke", document_type: "KV" },
+    });
+    expect(kv.calls[0].path).toBe("/api/tools/run");
+  });
 });
 
 describe("crm_render_document", () => {

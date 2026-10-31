@@ -1,9 +1,31 @@
 import { composeDocumentCopy, looksLikeCompanyName } from "./copy";
 import { issuerFor } from "./issuers";
 import { formatEur, formatGermanDate } from "./money";
-import { paymentMethodLabel, resolveDocumentPrices } from "./prices";
+import {
+  MissingPriceError,
+  positionsFromFreeLines,
+  resolveDocumentPrices,
+  resolvePaymentLabel,
+  section35aView,
+} from "./prices";
 import { TEMPLATE_VERSION } from "./version";
 import type { DocKind, DocumentCopy, DocumentModel, RenderInput } from "./types";
+
+/** Rechnung number. Explicit value, else RE-{deal number}, else RE-YYYYMMDD. */
+export function invoiceNumberFor(input: {
+  kind: DocKind;
+  explicit?: string | null;
+  dealNumber?: string | null;
+  documentDate: string;
+}): string | undefined {
+  if (input.kind !== "RE") return undefined;
+  const explicit = input.explicit?.replace(/\u0000/g, "").trim();
+  if (explicit) return explicit;
+  const dealNumber = input.dealNumber?.trim();
+  if (dealNumber) return `RE-${dealNumber}`;
+  const day = /^\d{4}-\d{2}-\d{2}/.exec(input.documentDate)?.[0]?.replace(/-/g, "");
+  return day ? `RE-${day}` : undefined;
+}
 
 const TAX_NOTE = "Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.";
 const TAX_RE = /Gemäß §\s*19 UStG wird keine Umsatzsteuer berechnet\.?/g;
@@ -36,19 +58,31 @@ const TITLES: Record<DocKind, string> = {
  * The § 19 sentence is printed once, as taxNote.
  */
 export function buildDocumentModel(input: RenderInput): DocumentModel {
-  const prices = resolveDocumentPrices({
-    kind: input.kind,
-    quotation: input.quotation,
-    accepted: input.accepted,
-    packageOption: input.packageOption,
-  });
   const copy: DocumentCopy = {
     intro: cleanCopy(input.copy?.intro),
     closing: cleanCopy(input.copy?.closing),
     remarks: cleanCopy(input.copy?.remarks),
   };
-  const method = paymentMethodLabel(input.quotation.paymentMethodPreference);
-  const totalCents = prices.totalCents;
+  const freePositions =
+    input.options?.lineItems && input.options.lineItems.length > 0
+      ? positionsFromFreeLines(input.options.lineItems)
+      : null;
+  if (freePositions && freePositions.length === 0) throw new MissingPriceError();
+  const prices = freePositions
+    ? null
+    : resolveDocumentPrices({
+        kind: input.kind,
+        quotation: input.quotation,
+        accepted: input.accepted,
+        packageOption: input.packageOption,
+      });
+  const methodLabel = resolvePaymentLabel(input.quotation.paymentMethodPreference, {
+    allowCard: input.options?.allowCard,
+    paymentMethods: input.options?.paymentMethods,
+  });
+  const totalCents = freePositions
+    ? freePositions.reduce((sum, line) => sum + line.amountCents, 0)
+    : prices!.totalCents;
   const depositCents =
     input.quotation.depositRequiredCents != null &&
     input.quotation.depositRequiredCents > 0
@@ -69,32 +103,41 @@ export function buildDocumentModel(input: RenderInput): DocumentModel {
   const recipientName = company ? `${company}, z. Hd. ${person}` : person;
   const business = Boolean(company) || looksLikeCompanyName(recipientName);
 
+  const dueDate =
+    input.options?.dueDate ??
+    input.deal.dueDate ??
+    (input.kind === "RE" ? "sofort" : undefined);
   const wording = composeDocumentCopy({
     kind: input.kind,
     serviceType: input.quotation.serviceType,
     signals: input.service,
     addressForm: business ? "sie" : input.deal.addressForm,
-    customerName: recipientName,
+    customerName: person,
     givenName: input.deal.givenName,
+    familyName: input.deal.familyName,
+    salutation: business ? null : (input.options?.salutation ?? input.deal.salutation),
     businessCustomer: business,
     serviceDate: input.deal.serviceDate,
-    dueDate: input.deal.dueDate,
-    methodLabel: method.label,
+    dueDate,
+    methodLabel,
     hasDeposit: depositCents != null,
     openCents,
     copy,
   });
 
-  const showBank = input.kind === "RE" || method.label === "Überweisung";
+  const showBank = input.kind === "RE" || methodLabel === "Überweisung";
   const date = formatGermanDate(input.deal.documentDate);
   const serviceLabel = wording.service.detail
     ? `${wording.service.label} · ${wording.service.detail}`
     : wording.service.label;
-  const scopeLines = prices.scopeLines;
+  const scopeLines = freePositions ? [] : (prices?.scopeLines ?? []);
   const summary = withoutPriceSentences(cleanCopy(input.quotation.summary ?? undefined));
   const recipientLines = [recipientName, input.deal.customerAddress?.trim() || undefined].filter(
     (line): line is string => Boolean(line)
   );
+  const section = input.options?.section35a
+    ? section35aView(input.options.section35a)
+    : undefined;
 
   return {
     templateVersion: TEMPLATE_VERSION,
@@ -112,6 +155,15 @@ export function buildDocumentModel(input: RenderInput): DocumentModel {
     serviceDateLabel: input.deal.serviceDate
       ? formatGermanDate(input.deal.serviceDate)
       : undefined,
+    serviceDateCaption: input.kind === "RE" ? "Leistungsdatum" : "Termin",
+    invoiceNumber:
+      input.kind === "RE"
+        ? invoiceNumberFor({
+            kind: "RE",
+            explicit: input.options?.invoiceNumber ?? input.deal.invoiceNumber,
+            documentDate: input.deal.documentDate,
+          })
+        : undefined,
     serviceKind: wording.service.kind,
     serviceLabel,
     addressForm: wording.addressForm,
@@ -122,20 +174,25 @@ export function buildDocumentModel(input: RenderInput): DocumentModel {
     intro: wording.intro.map((line) => cleanCopy(line) ?? "").filter(Boolean),
     summary,
     scopeLines,
-    positions: prices.positions,
+    positions: freePositions ?? prices?.positions ?? [],
     totalCents,
     totalLabel: formatEur(totalCents),
-    totalCaption: prices.totalCaption,
-    variable: prices.variable,
+    totalCaption: freePositions
+      ? input.kind === "RE"
+        ? "Rechnungsbetrag"
+        : "Summe"
+      : (prices?.totalCaption ?? "Summe"),
+    variable: freePositions ? false : (prices?.variable ?? false),
     depositLabel: depositCents != null ? formatEur(depositCents) : undefined,
     remainderLabel: remainderCents != null ? formatEur(remainderCents) : undefined,
-    paymentMethodLabel: method.label,
+    paymentMethodLabel: methodLabel,
     paymentTerms: cleanCopy(wording.paymentTerms ?? undefined),
     paidLabel: paidCents != null && paidCents > 0 ? formatEur(paidCents) : undefined,
     openLabel: openCents != null ? formatEur(openCents) : undefined,
     remarks: copy.remarks,
     closing: wording.closing.map((line) => cleanCopy(line) ?? "").filter(Boolean),
     taxNote: TAX_NOTE,
+    section35a: section,
     showBank,
   };
 }

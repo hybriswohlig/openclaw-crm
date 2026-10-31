@@ -13,7 +13,11 @@ import {
   type FirmaSlug,
   type PackageOptionPrice,
   companyFromTitle,
+  invoiceNumberFor,
   letterheadFromValues,
+  parsePersonSalutation,
+  type DocumentOptions,
+  type PersonSalutation,
 } from "@openclaw-crm/document-templates";
 import { db } from "@/db";
 import { attributes, objects } from "@/db/schema/objects";
@@ -36,6 +40,7 @@ import {
 import { anredeFuerOptOut, ladeGespeicherteAnrede } from "@/services/agent/agent-suppress";
 import { aktivBedingung } from "@/services/kva-annahme";
 import { preisZahlungenCent } from "@/lib/preis-zahlungen";
+import { getDealNumber } from "@/services/financial";
 
 export class CommercialDocumentError extends Error {
   constructor(
@@ -245,10 +250,40 @@ function refName(value: unknown): string | null {
   return typeof name === "string" && name.trim() ? name.trim() : null;
 }
 
+function salutationFromValues(values: Record<string, unknown> | undefined): PersonSalutation | undefined {
+  if (!values) return undefined;
+  const name = values.name;
+  const fromName =
+    name && typeof name === "object" && !Array.isArray(name)
+      ? (name as Record<string, unknown>)
+      : {};
+  const candidates = [
+    values.salutation,
+    values.anrede,
+    values.gender,
+    values.geschlecht,
+    fromName.salutation,
+    fromName.anrede,
+    fromName.gender,
+    fromName.geschlecht,
+    fromName.title,
+  ];
+  for (const candidate of candidates) {
+    const parsed = parsePersonSalutation(candidate);
+    if (parsed) return parsed;
+  }
+  return undefined;
+}
+
 async function loadPersonContact(
   workspaceId: string,
   personId: string
-): Promise<{ address?: string; companyName: string | null; companyId: string | null }> {
+): Promise<{
+  address?: string;
+  companyName: string | null;
+  companyId: string | null;
+  salutation?: PersonSalutation;
+}> {
   const empty = { companyName: null, companyId: null };
   const [peopleObj] = await db
     .select({ id: objects.id })
@@ -261,6 +296,7 @@ async function loadPersonContact(
     address: addressLine(person?.values.location),
     companyName: refName(person?.values.company),
     companyId: refId(person?.values.company),
+    salutation: salutationFromValues(person?.values as Record<string, unknown> | undefined),
   };
 }
 
@@ -283,6 +319,7 @@ export async function loadCommercialModel(input: {
   dealRecordId: string;
   kind: DocKind;
   copy?: DocumentCopy;
+  options?: DocumentOptions;
   now?: Date;
 }): Promise<DocumentModel> {
   const { workspaceId, dealRecordId, kind } = input;
@@ -362,7 +399,12 @@ export async function loadCommercialModel(input: {
     loadCustomerEmail(workspaceId, dealRecordId),
     personId
       ? loadPersonContact(workspaceId, personId)
-      : Promise.resolve({ address: undefined, companyName: null, companyId: null }),
+      : Promise.resolve({
+          address: undefined,
+          companyName: null,
+          companyId: null,
+          salutation: undefined,
+        }),
     db
       .select({ amount: payments.amount, taxTreatment: payments.taxTreatment })
       .from(payments)
@@ -398,10 +440,20 @@ export async function loadCommercialModel(input: {
 
   // Kaution und durchlaufende Posten sind keine Zahlung auf die Rechnung.
   const paidCents = preisZahlungenCent(paidRow);
+  const documentDate = berlinToday(input.now);
+  let dealNumber: string | null = null;
+  if (kind === "RE") {
+    try {
+      dealNumber = await getDealNumber(dealRecordId);
+    } catch (err) {
+      console.error("[commercial-documents] deal number unavailable", err);
+    }
+  }
 
   try {
     return buildDocumentModel({
       kind,
+      options: input.options,
       deal: {
         firma,
         customerName: customer.fullName,
@@ -411,14 +463,21 @@ export async function loadCommercialModel(input: {
         fromAddress: addressLine(deal.values.move_from_address),
         toAddress: addressLine(deal.values.move_to_address),
         serviceDate: isoDay(deal.values.move_date),
-        documentDate: berlinToday(input.now),
+        documentDate,
         givenName: customer.vorname,
+        familyName: customer.nachname,
+        salutation: personContact.salutation,
         letterhead: letterheadFromValues(letterheadValues),
         addressForm: customerCompany ? "sie" : addressForm,
         dueDate: documentDueDate(
           deal.values.rechnung_faellig_am,
           quotation.documentDetails?.depositDue
         ),
+        invoiceNumber: invoiceNumberFor({
+          kind,
+          dealNumber,
+          documentDate,
+        }),
       },
       service: {
         showStandardInclusions: quotation.showStandardInclusions,
@@ -458,6 +517,7 @@ export async function previewCommercialDocument(input: {
   dealRecordId: string;
   kind: DocKind;
   copy?: DocumentCopy;
+  options?: DocumentOptions;
 }): Promise<RenderedCommercialDocument> {
   const model = await loadCommercialModel(input);
   const pdf = await renderPdf(model);
@@ -475,6 +535,7 @@ export async function storeCommercialDocument(input: {
   dealRecordId: string;
   kind: DocKind;
   copy?: DocumentCopy;
+  options?: DocumentOptions;
   notifyCustomer?: boolean;
 }): Promise<{ document: DealDocumentMeta; templateVersion: string; fileName: string }> {
   const rendered = await previewCommercialDocument(input);

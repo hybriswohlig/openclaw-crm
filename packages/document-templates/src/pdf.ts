@@ -211,7 +211,9 @@ export async function renderPdf(model: DocumentModel): Promise<Uint8Array> {
     ["Leistung", model.serviceLabel],
     ["Auszug", model.fromAddress],
     ["Einzug", model.toAddress],
-    ["Termin", model.serviceDateLabel],
+    ["Rechnungsnummer", model.invoiceNumber],
+    ["Rechnungsdatum", model.kind === "RE" ? model.documentDateLabel : undefined],
+    [model.serviceDateCaption, model.serviceDateLabel],
     ["Gültig bis", model.validUntilLabel],
   ];
   for (const [label, value] of facts) {
@@ -252,6 +254,14 @@ export async function renderPdf(model: DocumentModel): Promise<Uint8Array> {
   }
   for (const paragraph of model.closing) w.text(paragraph, { size: 11, gap: 4 });
   w.text(model.taxNote, { size: 11, gap: 6 });
+  if (model.section35a) {
+    w.text("Hinweis nach § 35a EStG", { font: bold, size: 12, gap: 2 });
+    w.text(`Anteil der Arbeits- und Fahrtkosten: ${model.section35a.amountLabel}.`, { size: 11, gap: 1 });
+    if (model.section35a.serviceAddress) {
+      w.text(`Leistungsort: ${model.section35a.serviceAddress}.`, { size: 11, gap: 1 });
+    }
+    w.text(model.section35a.note, { size: 11, gap: 6 });
+  }
   if (model.showBank) {
     w.text("Bankverbindung", { font: bold, size: 12, gap: 2 });
     w.text(model.issuer.bank.holder, { size: 11, gap: 0 });

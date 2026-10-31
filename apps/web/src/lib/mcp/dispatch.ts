@@ -19,6 +19,39 @@ import {
   oversizedJsonDealDocumentError,
 } from "@/lib/deal-document-upload";
 import { oversizedJsonDealPhotoError } from "@/lib/deal-photo-upload";
+import { kottkeUsesInRepoRenderer } from "@/lib/commercial-document-request";
+
+const DOCUMENT_OPTION_KEYS = [
+  "lineItems",
+  "positionen",
+  "allowCard",
+  "paymentMethods",
+  "dueDate",
+  "faelligkeit",
+  "faellig",
+  "salutation",
+  "anrede",
+  "gender",
+  "geschlecht",
+  "section35a",
+  "paragraph35a",
+  "estg35a",
+  "invoiceNumber",
+  "rechnungsnummer",
+  "preise",
+  "kunde",
+  "document_details",
+  "positionDescription",
+  "beschreibung",
+] as const;
+
+function pickDocumentFields(source: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of DOCUMENT_OPTION_KEYS) {
+    if (source[key] !== undefined) out[key] = source[key];
+  }
+  return out;
+}
 
 type Args = Record<string, unknown>;
 
@@ -661,8 +694,12 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
         params && typeof params === "object" && !Array.isArray(params)
           ? (params as Record<string, unknown>)
           : {};
+      const documentType = str(
+        args.documentType || paramObj.document_type || paramObj.documentType
+      );
       const renderer = str(args.renderer || paramObj.renderer || "vps");
-      if (renderer === "crm") {
+      const firma = str(args.firma || paramObj.firma);
+      if (kottkeUsesInRepoRenderer({ renderer, firma, documentType })) {
         const copy = asBody(args.copy ?? paramObj.copy ?? paramObj.document_copy);
         return client.request(
           `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/documents/render`,
@@ -670,11 +707,11 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
             method: "POST",
             body: {
               renderer: "crm",
-              documentType: str(
-                args.documentType || paramObj.document_type || paramObj.documentType
-              ),
+              documentType,
               ...(copy && typeof copy === "object" ? { copy } : {}),
               notifyCustomer: bool(args.notifyCustomer) === true,
+              ...pickDocumentFields(paramObj),
+              ...pickDocumentFields(args),
             },
           }
         );
@@ -704,6 +741,7 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
             documentType: str(args.documentType),
             ...(copy && typeof copy === "object" ? { copy } : {}),
             notifyCustomer: bool(args.notifyCustomer) === true,
+            ...pickDocumentFields(args),
           },
         }
       );
@@ -718,6 +756,7 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
             documentType: str(args.documentType),
             format: "json",
             ...(copy && typeof copy === "object" ? { copy } : {}),
+            ...pickDocumentFields(args),
           },
         }
       );

@@ -105,6 +105,7 @@ export async function POST(
       dealRecordId: recordId,
       kind: parsed.value.kind,
       copy: parsed.value.copy,
+      options: parsed.value.options,
     });
     return previewResponse(parsed.value.format, rendered);
   } catch (err) {
