@@ -316,6 +316,7 @@ describe("long company name and discount", () => {
     expect(model.addressForm).toBe("sie");
     expect(html).toContain(longCompany);
     expect(html).toContain("Rabatt bei Termin Mo-Do");
+    expect(html.split("Rabatt bei Termin Mo-Do").length - 1).toBe(1);
     expect(html).toContain("overflow-wrap: anywhere");
     expect(html.split("Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.").length - 1).toBe(1);
     expect(html.split("920,00").length - 1).toBeGreaterThanOrEqual(1);
@@ -328,7 +329,12 @@ describe("long company name and discount", () => {
     for (const word of ["Internationale", "Handelsgesellschaft", "Spielwaren", "Helmstedt-Nord", "Roman"]) {
       expect(text).toContain(word);
     }
-    expect(model.positions.map((position) => position.amountCents)).toEqual([99000, -7000]);
+    expect(model.positions.map((position) => position.amountCents)).toEqual([99000]);
+    expect(model.discountLines).toEqual([
+      expect.objectContaining({ label: "Rabatt bei Termin Mo-Do", amountCents: -7000 }),
+    ]);
+    expect(html).toContain("Leistungsumfang");
+    expect(html.indexOf("Rabatt bei Termin Mo-Do")).toBeLessThan(html.indexOf("Zwischensumme"));
     expect(text).toContain("Rabatt bei Termin Mo-Do");
     expect(text).toContain("920,00");
     expect(text).toContain("§ 19 UStG");

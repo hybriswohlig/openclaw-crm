@@ -239,7 +239,70 @@ describe("Kottke Rechnung", () => {
     expect(html).toContain("14.11.2026");
     expect(html).toContain("Sehr geehrte Frau Hennig,");
     expect(html).not.toContain("9498475");
+    expect(model.positions).toHaveLength(1);
+    expect(model.positions[0].leistung).toBe("Festpreis");
+    expect(model.positions[0].beschreibung).toBe("Umzug");
+    expect(model.positions[0].quantityLabel).toBe("1");
+    expect(model.positions[0].amountCents).toBe(49875);
+    expect(html).toContain("<th>Pos.</th>");
+    expect(html).toContain("Festpreis");
+    expect(html).toContain(">Umzug<");
     const sample = process.env.KOTTKE_KV_SAMPLE;
+    if (sample) {
+      mkdirSync(dirname(sample), { recursive: true });
+      writeFileSync(sample, await renderPdf(model));
+    }
+  });
+
+  it("prints a Büroumzug KV with Leistungsumfang and a discount above the subtotal", async () => {
+    const scope =
+      "Büroumzug Festpreis: Transport von 2 großen höhenverstellbaren Schreibtischen, 4 Monitoren, 2 kleinen Aktenschränken, EG nach EG ohne Aufzug, ca. 60 km. Inklusive Einpacken und Auspacken, Abbau und Aufbau.";
+    const model = buildDocumentModel({
+      kind: "KV",
+      deal: {
+        firma: "kottke",
+        customerName: "Roman Rothe",
+        familyName: "Rothe",
+        customerCompany: "Sport-Thieme GmbH",
+        customerAddress: "Helmstedter Straße 40, 38350 Helmstedt",
+        serviceDate: "2026-11-06",
+        documentDate: "2026-10-31",
+      },
+      quotation: quotation({
+        fixedPrice: "920.00",
+        paymentMethodPreference: "bank_transfer",
+        validUntil: "2026-11-14",
+        summary: scope,
+        lineItems: [
+          { type: "other", description: "Büroumzug", quantity: 1, unitRate: "990.00" },
+          { type: "other", description: "Rabatt bei Termin Mo–Do", quantity: 1, unitRate: "-70.00" },
+        ],
+      }),
+      service: { title: "Büroumzug" },
+    });
+    const html = renderHtml(model);
+    expect(model.customerName).toBe("Sport-Thieme GmbH, z. Hd. Roman Rothe");
+    expect(model.intro[0]).toBe("Sehr geehrte Damen und Herren,");
+    expect(model.serviceName).toBe("Büroumzug");
+    expect(model.positions).toEqual([
+      expect.objectContaining({
+        leistung: "Festpreis",
+        beschreibung: "Büroumzug",
+        quantityLabel: "1",
+        amountCents: 99000,
+      }),
+    ]);
+    expect(model.discountLines).toEqual([
+      expect.objectContaining({ label: "Rabatt bei Termin Mo–Do", amountCents: -7000 }),
+    ]);
+    expect(model.totalCents).toBe(92000);
+    expect(html).toContain("Leistungsumfang");
+    expect(html).toContain("höhenverstellbaren Schreibtischen");
+    expect(html).toContain("<th>Pos.</th>");
+    expect(html.indexOf("Rabatt bei Termin Mo–Do")).toBeLessThan(html.indexOf("Zwischensumme"));
+    expect(html).toContain("920,00");
+    expect(html).not.toContain("9498475");
+    const sample = process.env.KOTTKE_KV_RABATT_SAMPLE;
     if (sample) {
       mkdirSync(dirname(sample), { recursive: true });
       writeFileSync(sample, await renderPdf(model));

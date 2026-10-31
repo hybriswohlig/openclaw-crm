@@ -235,7 +235,10 @@ class Layout {
     this.parties();
     this.titleBlock();
     for (const paragraph of this.model.intro) this.text(paragraph, MARGIN, { size: 10, gap: 4, width: PAGE_W - MARGIN * 2 });
-    if (this.model.summary) this.text(this.model.summary, MARGIN, { size: 10, gap: 4, width: PAGE_W - MARGIN * 2 });
+    if (this.model.summary) {
+      if (this.model.kind === "KV") this.heading("Leistungsumfang");
+      this.text(this.model.summary, MARGIN, { size: 10, gap: 4, width: PAGE_W - MARGIN * 2 });
+    }
     for (const line of this.model.scopeLines) this.text(`• ${line}`, MARGIN, { size: 10, gap: 1, width: PAGE_W - MARGIN * 2 });
     this.heading("Leistungsübersicht");
     this.lineTable();
@@ -455,6 +458,9 @@ class Layout {
   private totals() {
     const label = this.model.totalBarLabel;
     this.ensure(52);
+    for (const line of this.model.discountLines) {
+      this.rightPair(line.label, line.amountLabel, false);
+    }
     this.band("Zwischensumme", this.model.totalLabel, PAY_FILL, INK, true);
     if (this.model.issuer.contact.kleinunternehmer) {
       this.rightPair("Umsatzsteuer gem. § 19 UStG (Kleinunternehmer)", "0,00 €", false);

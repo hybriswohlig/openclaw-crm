@@ -185,10 +185,22 @@ export function renderHtml(model: DocumentModel): string {
   ${model.subtitle ? `<p class="subtitle">${escapeHtml(model.subtitle)}</p>` : ""}
   <span class="svc">${escapeHtml(model.serviceName)}</span>
   ${model.intro.map((p) => `<p>${textBlock(p)}</p>`).join("")}
-  ${model.summary ? `<p>${textBlock(model.summary)}</p>` : ""}
+  ${
+    model.summary
+      ? model.kind === "KV"
+        ? `<h2>Leistungsumfang</h2><p>${textBlock(model.summary)}</p>`
+        : `<p>${textBlock(model.summary)}</p>`
+      : ""
+  }
   ${scope}
   <h2>Leistungsübersicht</h2>
   ${table}
+  ${model.discountLines
+    .map(
+      (line) =>
+        `<div class="sum"><span>${escapeHtml(line.label)}</span><span>${escapeHtml(line.amountLabel)}</span></div>`
+    )
+    .join("")}
   <div class="sum sub"><span>Zwischensumme</span><span>${escapeHtml(model.totalLabel)}</span></div>
   ${vatRow}
   <div class="grand"><span>${escapeHtml(model.totalBarLabel)}</span><span>${escapeHtml(model.totalLabel)}</span></div>

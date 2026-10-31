@@ -224,8 +224,17 @@ function positionsFromLines(lines: PriceLine[]): PositionView[] {
     const amountCents = lineAmountCents(line.quantity, line.unitRate);
     const unitCents = eurosToCents(line.unitRate) ?? 0;
     const title = positionTitle(line);
+    const festpreis = /^(festpreis|umzug|büroumzug|privatumzug|fernumzug|entrümpelung|küchenmontage)$/i.test(
+      title
+    );
     const leistung =
-      line.type === "helper" ? "Helfer" : line.type === "transporter" ? "Transporter" : "Leistung";
+      line.type === "helper"
+        ? "Helfer"
+        : line.type === "transporter"
+          ? "Transporter"
+          : festpreis
+            ? "Festpreis"
+            : "Leistung";
     return {
       title,
       leistung,

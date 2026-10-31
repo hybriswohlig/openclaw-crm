@@ -9,7 +9,7 @@ import {
   section35aView,
 } from "./prices";
 import { TEMPLATE_VERSION } from "./version";
-import type { DocKind, DocumentCopy, DocumentModel, RenderInput } from "./types";
+import type { DiscountView, DocKind, DocumentCopy, DocumentModel, PositionView, RenderInput } from "./types";
 
 /** Rechnung number. Explicit value, else RE-{deal number}, else RE-YYYYMMDD. */
 export function invoiceNumberFor(input: {
@@ -103,6 +103,46 @@ function subtitleFor(serviceName: string, dateLabel?: string): string {
     serviceName === "Fernumzug";
   const what = move ? "Umzugsdienstleistung" : serviceName;
   return dateLabel ? `${what} vom ${dateLabel}` : what;
+}
+
+function splitDiscounts(positions: PositionView[]): {
+  positions: PositionView[];
+  discountLines: DiscountView[];
+} {
+  const discountLines = positions
+    .filter((position) => position.amountCents < 0)
+    .map((position) => ({
+      label: position.title || "Rabatt",
+      amountLabel: position.amountLabel,
+      amountCents: position.amountCents,
+    }));
+  return {
+    positions: positions.filter((position) => position.amountCents >= 0),
+    discountLines,
+  };
+}
+
+/** One row when the quotation has a price but no printable position. */
+function fallbackPosition(input: RenderInput, serviceName: string, amountCents: number): PositionView {
+  const packageName = input.packageOption?.displayName?.trim();
+  const mention = input.service?.mention?.replace(/\s+/g, " ").trim();
+  const described =
+    packageName ||
+    (mention && mention.length <= 160 && !/€|\bEUR\b/i.test(mention) ? mention : "") ||
+    serviceName ||
+    "Festpreis";
+  const variable = input.quotation.isVariable && input.kind !== "RE";
+  const leistung = variable ? described : "Festpreis";
+  const beschreibung = described;
+  return {
+    title: beschreibung,
+    leistung,
+    beschreibung,
+    quantityLabel: "1",
+    unitRateLabel: formatEur(amountCents),
+    amountLabel: formatEur(amountCents),
+    amountCents,
+  };
 }
 
 function signatoryName(owner: string | undefined, holder: string): string {
@@ -298,7 +338,15 @@ export function buildDocumentModel(input: RenderInput): DocumentModel {
     intro: wording.intro.map((line) => cleanCopy(line) ?? "").filter(Boolean),
     summary,
     scopeLines,
-    positions: freePositions ?? prices?.positions ?? [],
+    ...(() => {
+      const split = splitDiscounts(freePositions ?? prices?.positions ?? []);
+      let positions = split.positions;
+      if (positions.length === 0) {
+        const discountSum = split.discountLines.reduce((sum, line) => sum + line.amountCents, 0);
+        positions = [fallbackPosition(input, serviceName, totalCents - discountSum)];
+      }
+      return { positions, discountLines: split.discountLines };
+    })(),
     totalCents,
     totalLabel: formatEur(totalCents),
     totalBarLabel: totalBarLabel(

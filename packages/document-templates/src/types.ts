@@ -208,6 +208,13 @@ export interface PositionView {
   amountCents: number;
 }
 
+/** Negative quotation line, printed above Zwischensumme rather than as a position. */
+export interface DiscountView {
+  label: string;
+  amountLabel: string;
+  amountCents: number;
+}
+
 export interface IssuerContact {
   owner?: string;
   street?: string;
@@ -280,6 +287,8 @@ export interface DocumentModel {
   summary?: string;
   scopeLines: string[];
   positions: PositionView[];
+  /** Quotation discounts. Empty when none is set. */
+  discountLines: DiscountView[];
   totalCents: number;
   totalLabel: string;
   totalCaption: string;
