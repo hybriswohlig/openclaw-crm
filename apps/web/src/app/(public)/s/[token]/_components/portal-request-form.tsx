@@ -2,14 +2,15 @@
 
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
+import { kundenText } from "@openclaw-crm/customer-portal-core";
 
 type RequestKind = "reschedule" | "question" | "damage";
 
-const PLACEHOLDERS: Record<RequestKind, string> = {
-  reschedule: "Was hat sich geändert? Welche Termine passen besser?",
-  question: "Ihre Frage an uns",
-  damage: "Was ist beschädigt? Wo ist es aufgefallen?",
-};
+function placeholder(kind: RequestKind, firma: string | null | undefined): string {
+  if (kind === "question") return kundenText(firma, "Ihre Frage an uns", "Deine Frage an uns");
+  if (kind === "damage") return "Was ist beschädigt? Wo ist es aufgefallen?";
+  return "Was hat sich geändert? Welche Termine passen besser?";
+}
 
 /**
  * Collapsible self service request form for the customer portal. Collapsed it
@@ -20,6 +21,7 @@ const PLACEHOLDERS: Record<RequestKind, string> = {
  */
 export function PortalRequestForm({
   token,
+  firmaSlug = null,
   kind,
   triggerLabel,
   title,
@@ -27,12 +29,14 @@ export function PortalRequestForm({
   primaryColor,
 }: {
   token: string;
+  firmaSlug?: string | null;
   kind: RequestKind;
   triggerLabel: string;
   title: string;
   intro?: string;
   primaryColor: string;
 }) {
+  const t = (sie: string, du: string) => kundenText(firmaSlug, sie, du);
   const [open, setOpen] = useState(false);
   const [dates, setDates] = useState<string[]>(["", "", ""]);
   const [text, setText] = useState("");
@@ -44,7 +48,7 @@ export function PortalRequestForm({
     if (submitting) return;
     const message = text.trim();
     if (!message) {
-      setError("Bitte beschreiben Sie Ihr Anliegen kurz.");
+      setError(t("Bitte beschreiben Sie Ihr Anliegen kurz.", "Bitte beschreibe dein Anliegen kurz."));
       return;
     }
 
@@ -69,12 +73,12 @@ export function PortalRequestForm({
         const data = (await res.json().catch(() => null)) as {
           error?: { code?: string };
         } | null;
-        setError(errorMessage(data?.error?.code));
+        setError(errorMessage(firmaSlug, data?.error?.code));
         return;
       }
       setDone(true);
     } catch {
-      setError("Keine Verbindung. Bitte versuchen Sie es erneut.");
+      setError(t("Keine Verbindung. Bitte versuchen Sie es erneut.", "Keine Verbindung. Bitte versuche es erneut."));
     } finally {
       setSubmitting(false);
     }
@@ -84,7 +88,7 @@ export function PortalRequestForm({
     return (
       <div className="rounded-2xl border border-border bg-[var(--portal-brand-tint)] p-5 text-sm text-foreground">
         <div className="font-medium">Anfrage gesendet.</div>
-        <p className="mt-1 text-xs">Wir melden uns kurzfristig bei Ihnen.</p>
+        <p className="mt-1 text-xs">{t("Wir melden uns kurzfristig bei Ihnen.", "Wir melden uns kurzfristig bei dir.")}</p>
       </div>
     );
   }
@@ -137,14 +141,14 @@ export function PortalRequestForm({
 
         <label className="block">
           <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
-            Ihre Nachricht
+            {t("Ihre Nachricht", "Deine Nachricht")}
           </span>
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
             rows={4}
             className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
-            placeholder={PLACEHOLDERS[kind]}
+            placeholder={placeholder(kind, firmaSlug)}
           />
         </label>
 
@@ -183,16 +187,17 @@ export function PortalRequestForm({
   );
 }
 
-function errorMessage(code: string | undefined): string {
+function errorMessage(firma: string | null | undefined, code: string | undefined): string {
+  const t = (sie: string, du: string) => kundenText(firma, sie, du);
   switch (code) {
     case "INVALID_INPUT":
-      return "Bitte beschreiben Sie Ihr Anliegen kurz.";
+      return t("Bitte beschreiben Sie Ihr Anliegen kurz.", "Bitte beschreibe dein Anliegen kurz.");
     case "RATE_LIMITED":
-      return "Sie haben bereits mehrere Anfragen gesendet. Wir melden uns schnellstmöglich.";
+      return t("Sie haben bereits mehrere Anfragen gesendet. Wir melden uns schnellstmöglich.", "Du hast bereits mehrere Anfragen gesendet. Wir melden uns schnellstmöglich.");
     case "REVOKED":
     case "NOT_FOUND":
       return "Dieser Link ist nicht mehr aktiv.";
     default:
-      return "Konnte nicht gesendet werden. Bitte versuchen Sie es erneut.";
+      return t("Konnte nicht gesendet werden. Bitte versuchen Sie es erneut.", "Konnte nicht gesendet werden. Bitte versuche es erneut.");
   }
 }

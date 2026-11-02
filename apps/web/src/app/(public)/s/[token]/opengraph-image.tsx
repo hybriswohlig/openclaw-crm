@@ -14,6 +14,7 @@
  * card so existence is not leaked through the OG endpoint either.
  */
 import { ImageResponse } from "next/og";
+import { kundenText } from "@openclaw-crm/customer-portal-core";
 import { loadContextByToken } from "@/services/customer-portal-data";
 import { portalPreview } from "@/lib/portal-preview";
 
@@ -116,7 +117,7 @@ export default async function OpenGraphImage({
                 color: "#56627a",
               }}
             >
-              {dealNumber ? "Ihr Auftrag" : "Auftragsportal"}
+              {dealNumber ? kundenText(firma, "Ihr Auftrag", "Dein Auftrag") : "Auftragsportal"}
             </div>
             {dealNumber && (
               <div

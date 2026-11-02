@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Camera, ChevronDown } from "lucide-react";
-import type { AttachmentRef } from "@openclaw-crm/customer-portal-core";
+import { kundenText, type AttachmentRef } from "@openclaw-crm/customer-portal-core";
 import { LiveMediaFeed } from "./live-media-feed";
 
 /**
@@ -15,11 +15,14 @@ export function CustomerPhotosSection({
   token,
   photos,
   primaryColor,
+  firmaSlug = null,
 }: {
   token: string;
   photos: AttachmentRef[];
   primaryColor: string;
+  firmaSlug?: string | null;
 }) {
+  const t = (sie: string, du: string) => kundenText(firmaSlug, sie, du);
   const [open, setOpen] = useState(false);
 
   if (photos.length === 0) return null;
@@ -39,10 +42,10 @@ export function CustomerPhotosSection({
         />
         <span className="min-w-0 flex-1">
           <span className="block text-sm font-medium">
-            Ihre Fotos ({photos.length})
+            {t("Ihre Fotos", "Deine Fotos")} ({photos.length})
           </span>
           <span className="block text-xs text-muted-foreground">
-            Fotos zu Ihrem Umzug
+            {t("Fotos zu Ihrem Umzug", "Fotos zu deinem Umzug")}
           </span>
         </span>
         <ChevronDown
@@ -59,7 +62,7 @@ export function CustomerPhotosSection({
             token={token}
             attachments={photos}
             primaryColor={primaryColor}
-            title="Ihre Fotos"
+            title={t("Ihre Fotos", "Deine Fotos")}
           />
         </div>
       )}

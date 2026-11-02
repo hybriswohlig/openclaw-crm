@@ -1,7 +1,12 @@
 /**
  * Rechtstexte der KV-Annahme. Eine Quelle für Dialog, Bestätigungs-Mail,
  * WhatsApp und /legal/widerruf. Änderungen hier ändern alle Stellen.
+ *
+ * Product sentences take an optional anrede. Kottke passes "du". The statutory
+ * Widerrufsbelehrung and the Muster-Widerrufsformular stay in the Sie of the
+ * legal model, for every company.
  */
+import { type KundenAnrede } from "./anrede";
 
 export const BUTTON_ZAHLUNGSPFLICHTIG = "Zahlungspflichtig beauftragen";
 /** Wortlaut nach § 356a Abs. 1 S. 2 und Abs. 3 S. 2 BGB. */
@@ -13,6 +18,12 @@ export const BUTTON_VERTRAG_UNTERSCHREIBEN = "Vertrag unterschreiben";
 export const BUTTON_UNTERSCHRIFT_BESTAETIGEN = "Unterschrift bestätigen";
 export const UNTERSCHRIFT_HINWEIS =
   "Ihr Auftrag ist bereits verbindlich erteilt. Die Unterschrift ist freiwillig und dient als Vertragsurkunde.";
+
+export function unterschriftHinweis(anrede: KundenAnrede = "sie"): string {
+  return anrede === "du"
+    ? "Dein Auftrag ist bereits verbindlich erteilt. Die Unterschrift ist freiwillig und dient als Vertragsurkunde."
+    : UNTERSCHRIFT_HINWEIS;
+}
 
 export function unterschriftErklaerung(datumText: string): string {
   return `Mit meiner Unterschrift bestätige ich den oben bezeichneten Vertrag, den ich am ${datumText} im Kundenportal geschlossen habe.`;
@@ -33,8 +44,33 @@ export const VERSICHERUNG_CHECKBOX =
 export const VORZEITIGER_BEGINN_CHECKBOX =
   "Ich verlange ausdrücklich, dass Sie vor Ende der Widerrufsfrist mit der Leistung beginnen. Mir ist bekannt, dass ich bei einem Widerruf einen angemessenen Betrag für die bis dahin erbrachten Leistungen zahle und dass mein Widerrufsrecht erlischt, sobald die Leistung vollständig erbracht ist.";
 
-export function keinWiderrufHinweis(): string {
-  return "Für Umzugsaufträge mit festem Termin besteht kein gesetzliches Widerrufsrecht (§ 312g Abs. 2 Satz 1 Nr. 9 BGB). Sie können den Auftrag jederzeit kündigen. Dann gilt § 9 unserer AGB.";
+export function vorzeitigerBeginnCheckbox(anrede: KundenAnrede = "sie"): string {
+  return anrede === "du"
+    ? "Ich verlange ausdrücklich, dass du vor Ende der Widerrufsfrist mit der Leistung beginnst. Mir ist bekannt, dass ich bei einem Widerruf einen angemessenen Betrag für die bis dahin erbrachten Leistungen zahle und dass mein Widerrufsrecht erlischt, sobald die Leistung vollständig erbracht ist."
+    : VORZEITIGER_BEGINN_CHECKBOX;
+}
+
+const KEIN_WIDERRUF_SIE =
+  "Für Umzugsaufträge mit festem Termin besteht kein gesetzliches Widerrufsrecht (§ 312g Abs. 2 Satz 1 Nr. 9 BGB). Sie können den Auftrag jederzeit kündigen. Dann gilt § 9 unserer AGB.";
+
+export function keinWiderrufHinweis(anrede: KundenAnrede = "sie"): string {
+  return anrede === "du"
+    ? "Für Umzugsaufträge mit festem Termin besteht kein gesetzliches Widerrufsrecht (§ 312g Abs. 2 Satz 1 Nr. 9 BGB). Du kannst den Auftrag jederzeit kündigen. Dann gilt § 9 unserer AGB."
+    : KEIN_WIDERRUF_SIE;
+}
+
+const HAFTUNG_DU = [
+  "Haftung: Wir haften für Verlust oder Beschädigung deines Umzugsguts von der Übernahme bis zur Ablieferung nach den gesetzlichen Vorschriften (§§ 425 ff., 451 ff. HGB). Die Haftung ist nach § 451e HGB auf 620 Euro je Kubikmeter Laderaum begrenzt, der zur Erfüllung des Vertrags benötigt wird.",
+  "Deine Möglichkeiten: Du kannst mit uns eine weitergehende Haftung gegen Aufpreis vereinbaren oder dein Umzugsgut zum tatsächlichen Wert versichern (Umzugs- oder Transportversicherung). Sprich uns dafür vor dem Umzug an.",
+  "Schadensanzeige: Äußerlich erkennbare Schäden zeigst du uns bitte spätestens am Tag nach der Ablieferung an, äußerlich nicht erkennbare Schäden innerhalb von 14 Tagen nach der Ablieferung, jeweils in Textform (zum Beispiel per E-Mail oder WhatsApp). Wird die Frist versäumt, erlischt der Anspruch (§ 451f HGB).",
+] as const;
+
+export function haftungshinweis(anrede: KundenAnrede = "sie"): {
+  titel: string;
+  absaetze: readonly string[];
+} {
+  if (anrede === "du") return { titel: HAFTUNGSHINWEIS_451G.titel, absaetze: HAFTUNG_DU };
+  return HAFTUNGSHINWEIS_451G;
 }
 
 export interface FirmaKontakt {
@@ -104,6 +140,9 @@ export function musterWiderrufsformular(k: FirmaKontakt): string[] {
   ];
 }
 
-export function abschlussHinweis(firmaName: string): string {
+export function abschlussHinweis(firmaName: string, anrede: KundenAnrede = "sie"): string {
+  if (anrede === "du") {
+    return `Mit Klick auf „${BUTTON_ZAHLUNGSPFLICHTIG}“ nimmst du unser Angebot verbindlich an. Damit kommt der Vertrag mit ${firmaName} zustande. Die Bestätigung mit dem Angebot erhältst du per WhatsApp oder E-Mail. Zur Dokumentation speichern wir Zeitpunkt, IP-Adresse und Browser-Kennung.`;
+  }
   return `Mit Klick auf „${BUTTON_ZAHLUNGSPFLICHTIG}“ nehmen Sie unser Angebot verbindlich an. Damit kommt der Vertrag mit ${firmaName} zustande. Die Bestätigung mit dem Angebot erhalten Sie per WhatsApp oder E-Mail. Zur Dokumentation speichern wir Zeitpunkt, IP-Adresse und Browser-Kennung.`;
 }

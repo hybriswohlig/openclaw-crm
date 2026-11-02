@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   BUTTON_VERTRAG_UNTERSCHREIBEN, UNTERSCHRIFT_HINWEIS, gleicheAnnahme, naechsteAktionNachAnnahme,
-  parseUnterschriftPayload, portalFeatures, unterschriftErklaerung, unterschriftMoeglich,
+  parseUnterschriftPayload, portalFeatures, unterschriftErklaerung, unterschriftHinweis, unterschriftMoeglich,
 } from "@openclaw-crm/customer-portal-core";
 
 const png = `data:image/png;base64,${"A".repeat(100)}`;
@@ -53,6 +53,8 @@ describe("Texte und Feature", () => {
   it("exakte Texte ohne Gedankenstriche", () => {
     expect(BUTTON_VERTRAG_UNTERSCHREIBEN).toBe("Vertrag unterschreiben");
     expect(UNTERSCHRIFT_HINWEIS).toBe("Ihr Auftrag ist bereits verbindlich erteilt. Die Unterschrift ist freiwillig und dient als Vertragsurkunde.");
+    expect(unterschriftHinweis("du")).toBe("Dein Auftrag ist bereits verbindlich erteilt. Die Unterschrift ist freiwillig und dient als Vertragsurkunde.");
+    expect(unterschriftHinweis()).toBe(UNTERSCHRIFT_HINWEIS);
     expect(unterschriftErklaerung("22. Oktober 2026")).toContain("am 22. Oktober 2026 im Kundenportal");
     expect(unterschriftErklaerung("x")).not.toMatch(/[—–]/);
   });

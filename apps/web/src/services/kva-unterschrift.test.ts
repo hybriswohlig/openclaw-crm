@@ -54,8 +54,10 @@ describe("Texte", () => {
   it("Mail ohne Anhang verspricht keinen Anhang", () => {
     const ohne = vertragMailText({ ...d, unterschriftAm: new Date("2026-10-22T08:20:00Z"), pdfDabei: false });
     expect(ohne).not.toContain("Im Anhang");
-    expect(ohne).toContain("in Ihrem Kundenportal herunterladen");
-    expect(vertragMailText({ ...d, unterschriftAm: new Date("2026-10-22T08:20:00Z"), pdfDabei: true })).toContain("Im Anhang finden Sie");
+    expect(ohne).toContain("in deinem Kundenportal herunterladen");
+    expect(vertragMailText({ ...d, unterschriftAm: new Date("2026-10-22T08:20:00Z"), pdfDabei: true })).toContain("Im Anhang findest du");
+    const ceylan = vertragMailText({ ...d, firma: "Ceylan Umzüge", unterschriftAm: new Date("2026-10-22T08:20:00Z"), pdfDabei: false });
+    expect(ceylan).toContain("in Ihrem Kundenportal herunterladen");
   });
   it("Mail nennt Datum und Uhrzeit der Unterschrift in Berliner Zeit", () => {
     const t = vertragMailText({ ...d, unterschriftAm: new Date("2026-10-22T08:20:00Z"), pdfDabei: true });

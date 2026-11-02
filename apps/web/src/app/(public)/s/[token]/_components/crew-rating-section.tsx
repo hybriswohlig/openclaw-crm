@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import { Star, Loader2 } from "lucide-react";
-import type {
-  CrewMember,
-  FirmaBranding,
+import {
+  kundenText,
+  type CrewMember,
+  type FirmaBranding,
 } from "@openclaw-crm/customer-portal-core";
 
 /**
@@ -32,6 +33,7 @@ export function CrewRatingSection({
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(() => !!ratedAt);
   const [error, setError] = useState<string | null>(null);
+  const t = (sie: string, du: string) => kundenText(branding.firmaSlug, sie, du);
 
   if (crew.length === 0) return null;
 
@@ -46,7 +48,7 @@ export function CrewRatingSection({
       .filter((r) => r.stars >= 1 && r.stars <= 5);
 
     if (ratings.length === 0) {
-      setError("Bitte vergeben Sie mindestens eine Bewertung.");
+      setError(t("Bitte vergeben Sie mindestens eine Bewertung.", "Bitte vergib mindestens eine Bewertung."));
       return;
     }
 
@@ -64,7 +66,7 @@ export function CrewRatingSection({
       }
       setDone(true);
     } catch {
-      setError("Keine Verbindung. Bitte versuchen Sie es erneut.");
+      setError(t("Keine Verbindung. Bitte versuchen Sie es erneut.", "Keine Verbindung. Bitte versuche es erneut."));
     } finally {
       setSubmitting(false);
     }
@@ -73,23 +75,23 @@ export function CrewRatingSection({
   if (done) {
     return (
       <section className="rounded-2xl border border-border bg-[var(--portal-brand-tint)] p-5 text-sm text-foreground">
-        <div className="font-medium">Danke für Ihr Feedback!</div>
+        <div className="font-medium">{t("Danke für Ihr Feedback!", "Danke für dein Feedback!")}</div>
         {ratedAt && (
           <p className="mt-1 text-xs">
-            Sie haben Ihre Bewertung bereits abgegeben. Vielen Dank!
+            {t("Sie haben Ihre Bewertung bereits abgegeben. Vielen Dank!", "Du hast deine Bewertung bereits abgegeben. Vielen Dank!")}
           </p>
         )}
         <p className="mt-1 text-xs">
           {branding.googleReviewUrl
             ? "Wenn alles geklappt hat, freuen wir uns über eine öffentliche Google-Bewertung. Der Button dazu erscheint direkt darunter."
-            : "Wir geben Ihr Feedback an die Crew weiter."}
+            : t("Wir geben Ihr Feedback an die Crew weiter.", "Wir geben dein Feedback an die Crew weiter.")}
         </p>
       </section>
     );
   }
 
   return (
-    <section aria-label="Ihr Umzugsteam bewerten">
+    <section aria-label={t("Ihr Umzugsteam bewerten", "Dein Umzugsteam bewerten")}>
       <div className="space-y-4">
         <ul className="space-y-3">
           {crew.map((c) => (

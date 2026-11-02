@@ -1,7 +1,7 @@
 "use client";
 
 import { FileText, Truck } from "lucide-react";
-import type { FirmaBranding } from "@openclaw-crm/customer-portal-core";
+import { kundenText, type FirmaBranding } from "@openclaw-crm/customer-portal-core";
 import { grussZeilen, type Stempel as StempelDaten, type strecke } from "./brief";
 
 /** Anrede mit kleinem Foto des Ansprechpartners, darunter die Einleitung. */
@@ -86,17 +86,19 @@ export function Stempel({ s }: { s: StempelDaten }) {
 
 /** Die Linie „Ihre Annahme“: offen mit Button, danach mit Stempeln. */
 export function AnnahmeZeile({
+  firma,
   stempel,
   vertragUrl,
   children,
 }: {
+  firma: string;
   stempel: StempelDaten[];
   vertragUrl: string | null;
   children?: React.ReactNode;
 }) {
   return (
     <div className="portal-annahme-zeile">
-      <p className="portal-annahme-label">Ihre Annahme</p>
+      <p className="portal-annahme-label">{kundenText(firma, "Ihre Annahme", "Deine Annahme")}</p>
       {stempel.length > 0 ? (
         <div className="portal-annahme-stempel">
           {stempel.map((s) => (

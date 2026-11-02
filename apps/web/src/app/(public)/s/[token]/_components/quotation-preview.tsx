@@ -1,7 +1,7 @@
 "use client";
 
 import { FileText, Printer, Download } from "lucide-react";
-import { pickDefaultDealOption, type CustomerPortalContext } from "@openclaw-crm/customer-portal-core";
+import { kundenText, pickDefaultDealOption, type CustomerPortalContext } from "@openclaw-crm/customer-portal-core";
 import { EmailDocumentButton } from "./email-document-button";
 import { PanelHeading } from "./portal-ui";
 import { formatPortalDate, formatPortalMoney } from "./portal-presentation";
@@ -15,8 +15,9 @@ import { RestbetragHinweis } from "./restbetrag-hinweis";
  */
 export function QuotationPreview({ ctx, token, variant = "full" }: { ctx: CustomerPortalContext; token: string; variant?: "full" | "file" }) {
   if (!ctx.kva) return null;
+  const t = (sie: string, du: string) => kundenText(ctx.branding.firmaSlug, sie, du);
   if (ctx.documents.quotationUrl) return <section className="portal-panel" id="portal-quotation-preview">
-    <PanelHeading icon={FileText} title="Ihr Kostenvoranschlag"><p>Hier finden Sie Ihr aktuelles Angebot als PDF.</p></PanelHeading>
+    <PanelHeading icon={FileText} title={t("Ihr Kostenvoranschlag", "Dein Kostenvoranschlag")}><p>{t("Hier finden Sie Ihr aktuelles Angebot als PDF.", "Hier findest du dein aktuelles Angebot als PDF.")}</p></PanelHeading>
     <iframe title="Kostenvoranschlag PDF-Vorschau" src={ctx.documents.quotationUrl} className="portal-document-frame" loading="lazy" />
     <a className="portal-button mt-3" href={ctx.documents.quotationUrl} download><Download size={18} aria-hidden />Kostenvoranschlag als PDF herunterladen</a>
     <EmailDocumentButton key={ctx.documents.quotationUrl} ctx={ctx} token={token} url={ctx.documents.quotationUrl} />
@@ -53,12 +54,12 @@ export function QuotationPreview({ ctx, token, variant = "full" }: { ctx: Custom
       {ctx.branding.agbPdfUrl && <p className="mt-4"><a href={ctx.branding.agbPdfUrl} className="underline">Allgemeine Geschäftsbedingungen</a></p>}
     </article>;
   if (variant === "file") return <section className="portal-panel" id="portal-quotation-preview">
-    <PanelHeading icon={FileText} title="Kostenvoranschlag"><p>Sie können Ihr Angebot drucken oder als PDF speichern.</p></PanelHeading>
+    <PanelHeading icon={FileText} title="Kostenvoranschlag"><p>{t("Sie können Ihr Angebot drucken oder als PDF speichern.", "Du kannst dein Angebot drucken oder als PDF speichern.")}</p></PanelHeading>
     <div className="portal-quotation-scroll" role="region" aria-label="Kostenvoranschlag lesen" tabIndex={0}>{paper}</div>
     <div className="portal-document-actions"><button type="button" className="portal-button" onClick={() => window.print()}><Printer size={18} aria-hidden />Drucken / als PDF speichern</button></div>
   </section>;
   return <section className="portal-panel" id="portal-quotation-preview">
-    <PanelHeading icon={FileText} title={`Kostenvoranschlag${option ? ` (${option.displayName})` : ""}`}><p>Ihr aktuelles Angebot im Überblick. Über die Druckansicht können Sie es auch als PDF speichern.</p></PanelHeading>
+    <PanelHeading icon={FileText} title={`Kostenvoranschlag${option ? ` (${option.displayName})` : ""}`}><p>{t("Ihr aktuelles Angebot im Überblick. Über die Druckansicht können Sie es auch als PDF speichern.", "Dein aktuelles Angebot im Überblick. Über die Druckansicht kannst du es auch als PDF speichern.")}</p></PanelHeading>
     <div className="portal-quotation-scroll" role="region" aria-label="Kostenvoranschlag lesen" tabIndex={0}>{paper}</div>
     <div className="portal-document-actions"><button type="button" className="portal-button" onClick={() => window.print()}><Printer size={18} aria-hidden />Drucken / als PDF speichern</button></div>
   </section>;

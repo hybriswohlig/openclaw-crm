@@ -6,7 +6,14 @@ import type {
   CustomerEmailStatus,
   FirmaBranding,
 } from "@openclaw-crm/customer-portal-core";
-import { emailCaptureTexte } from "@/lib/email-capture-copy";
+import {
+  emailAdresseHinweis,
+  emailCaptureTexte,
+  emailFehler,
+  emailGespeichertHinweis,
+  hinterlegteEmailLabel,
+  verbindungsfehler,
+} from "@/lib/email-capture-copy";
 
 /**
  * Inline email-capture banner rendered above the acceptance card on Stage 1
@@ -15,8 +22,8 @@ import { emailCaptureTexte } from "@/lib/email-capture-copy";
  * optional but recommended.
  *
  * Two trigger states:
- *   missing              → "Wir haben noch keine E-Mail von Ihnen."
- *   kleinanzeigen_relay  → "Wir haben Sie nur über Kleinanzeigen erreicht …"
+ *   missing              → "Wir haben noch keine E-Mail von Ihnen." / "… von dir."
+ *   kleinanzeigen_relay  → "Wir haben Sie bisher nur über Kleinanzeigen erreicht." / "… dich …"
  *
  * On successful save we don't refetch the full context; we just flip the
  * local UI to a success state and let the next page open pick up the new
@@ -51,8 +58,7 @@ export function EmailCaptureBanner({
           E-Mail gespeichert
         </div>
         <p className="mt-1 text-xs leading-relaxed">
-          Wir senden Ihnen die Bestätigung und alle Unterlagen zu Ihrem Umzug an
-          diese Adresse.
+          {emailGespeichertHinweis(branding.firmaSlug)}
         </p>
       </div>
     );
@@ -71,14 +77,14 @@ export function EmailCaptureBanner({
         const body = (await res.json().catch(() => ({}))) as {
           error?: { code?: string };
         };
-        setError(germanError(body.error?.code));
+        setError(emailFehler(branding.firmaSlug, body.error?.code));
         return;
       }
       const result = await res.json();
       setSaved(true);
-      onSaved?.(result.data?.masked ?? "Ihre hinterlegte E-Mail-Adresse");
+      onSaved?.(result.data?.masked ?? hinterlegteEmailLabel(branding.firmaSlug));
     } catch {
-      setError("Verbindungsfehler. Bitte versuchen Sie es erneut.");
+      setError(verbindungsfehler(branding.firmaSlug));
     } finally {
       setSaving(false);
     }
@@ -128,7 +134,7 @@ export function EmailCaptureBanner({
                 style={{ ["--tw-ring-color" as never]: `#${branding.primaryColor}` }}
               />
               <p className="text-xs text-muted-foreground">
-                Wir verwenden Ihre Adresse nur für Unterlagen zu diesem Umzug.
+                {emailAdresseHinweis(branding.firmaSlug)}
               </p>
               {error && (
                 <p className="rounded-md bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
@@ -165,22 +171,4 @@ export function EmailCaptureBanner({
       </div>
     </div>
   );
-}
-
-function germanError(code: string | undefined): string {
-  switch (code) {
-    case "INVALID_EMAIL":
-      return "Bitte geben Sie eine gültige E-Mail-Adresse an.";
-    case "RELAY_NOT_ALLOWED":
-      return "Diese Adresse ist nur ein Weiterleitungs-Link. Bitte geben Sie Ihre echte Adresse an.";
-    case "NO_PEOPLE_RECORD":
-    case "NO_EMAIL_ATTRIBUTE":
-      return "Es gibt aktuell kein Kontaktprofil. Bitte melden Sie sich kurz beim Ansprechpartner.";
-    case "REVOKED":
-      return "Dieser Link ist nicht mehr aktiv.";
-    case "NOT_FOUND":
-      return "Link nicht gefunden.";
-    default:
-      return "Es ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut.";
-  }
 }

@@ -13,6 +13,7 @@ import { dealDocuments } from "@/db/schema/financial";
 import {
   gleicheAnnahme,
   keinWiderrufHinweis,
+  kundenText,
   unterschriftErklaerung,
   validateTokenShape,
   type UnterschriftPayload,
@@ -38,9 +39,13 @@ const uhrzeit = (d: Date) => d.toLocaleTimeString("de-DE", { hour: "2-digit", mi
 
 export function vertragNachrichtWhatsApp(d: { firma: string; kunde: string | null; dealNumber: string; portalUrl: string }): string {
   const vorname = d.kunde?.trim().split(/\s+/)[0];
+  const t = (sie: string, du: string) => kundenText(d.firma, sie, du);
   return [
     vorname ? `Hallo ${vorname},` : "Hallo,",
-    `vielen Dank für Ihre Unterschrift. Ihren unterschriebenen Vertrag zu Auftrag ${d.dealNumber} schicken wir Ihnen als PDF mit, Sie finden ihn auch jederzeit hier: ${d.portalUrl}`,
+    t(
+      `vielen Dank für Ihre Unterschrift. Ihren unterschriebenen Vertrag zu Auftrag ${d.dealNumber} schicken wir Ihnen als PDF mit, Sie finden ihn auch jederzeit hier: ${d.portalUrl}`,
+      `vielen Dank für deine Unterschrift. Deinen unterschriebenen Vertrag zu Auftrag ${d.dealNumber} schicken wir dir als PDF mit, du findest ihn auch jederzeit hier: ${d.portalUrl}`,
+    ),
     `Viele Grüße\n${d.firma}`,
   ].join("\n\n");
 }
@@ -54,13 +59,25 @@ export function vertragMailText(d: {
   /** Ist das PDF angehängt? Über 8 MB geht die Mail ohne Anhang. */
   pdfDabei: boolean;
 }): string {
-  const dank = `vielen Dank für Ihre Unterschrift vom ${datumLang(d.unterschriftAm)} um ${uhrzeit(d.unterschriftAm)} Uhr.`;
+  const t = (sie: string, du: string) => kundenText(d.firma, sie, du);
+  const dank = t(
+    `vielen Dank für Ihre Unterschrift vom ${datumLang(d.unterschriftAm)} um ${uhrzeit(d.unterschriftAm)} Uhr.`,
+    `vielen Dank für deine Unterschrift vom ${datumLang(d.unterschriftAm)} um ${uhrzeit(d.unterschriftAm)} Uhr.`,
+  );
   return [
     d.kunde ? `Guten Tag ${d.kunde},` : "Guten Tag,",
     d.pdfDabei
-      ? `${dank} Im Anhang finden Sie Ihren unterschriebenen Vertrag zu Auftrag ${d.dealNumber} als PDF.`
-      : `${dank} Ihren unterschriebenen Vertrag zu Auftrag ${d.dealNumber} können Sie in Ihrem Kundenportal herunterladen.`,
-    d.pdfDabei ? `Sie finden ihn auch jederzeit in Ihrem Kundenportal: ${d.portalUrl}` : `Ihr Kundenportal: ${d.portalUrl}`,
+      ? t(
+          `${dank} Im Anhang finden Sie Ihren unterschriebenen Vertrag zu Auftrag ${d.dealNumber} als PDF.`,
+          `${dank} Im Anhang findest du deinen unterschriebenen Vertrag zu Auftrag ${d.dealNumber} als PDF.`,
+        )
+      : t(
+          `${dank} Ihren unterschriebenen Vertrag zu Auftrag ${d.dealNumber} können Sie in Ihrem Kundenportal herunterladen.`,
+          `${dank} Deinen unterschriebenen Vertrag zu Auftrag ${d.dealNumber} kannst du in deinem Kundenportal herunterladen.`,
+        ),
+    d.pdfDabei
+      ? t(`Sie finden ihn auch jederzeit in Ihrem Kundenportal: ${d.portalUrl}`, `Du findest ihn auch jederzeit in deinem Kundenportal: ${d.portalUrl}`)
+      : t(`Ihr Kundenportal: ${d.portalUrl}`, `Dein Kundenportal: ${d.portalUrl}`),
     `Freundliche Grüße\n${d.firma}`,
   ].join("\n\n");
 }
@@ -410,7 +427,12 @@ export async function vertragNachlauf(confirmationId: string): Promise<void> {
     try {
       const thread = await ladeWaThread(row.workspaceId, row.dealRecordId);
       if (thread) {
-        await sendeWhatsAppDokument(row.workspaceId, thread, pdf, `Ihr unterschriebener Vertrag ${portal.dealNumber}`);
+        await sendeWhatsAppDokument(
+          row.workspaceId,
+          thread,
+          pdf,
+          kundenText(portal.branding.displayName, `Ihr unterschriebener Vertrag ${portal.dealNumber}`, `Dein unterschriebener Vertrag ${portal.dealNumber}`),
+        );
         await sendeWhatsAppText(
           row.workspaceId,
           thread,
@@ -430,7 +452,7 @@ export async function vertragNachlauf(confirmationId: string): Promise<void> {
           channelAccountId: transport.account.id,
           dealRecordId: row.dealRecordId,
           to: transport.customerEmail,
-          subject: `Ihr unterschriebener Vertrag ${portal.dealNumber} · ${portal.branding.displayName}`,
+          subject: `${kundenText(portal.branding.displayName, `Ihr unterschriebener Vertrag ${portal.dealNumber}`, `Dein unterschriebener Vertrag ${portal.dealNumber}`)} · ${portal.branding.displayName}`,
           body: vertragMailText({
             firma: portal.branding.displayName,
             kunde,
