@@ -2,10 +2,12 @@
  * Session and PDF tracking for the customer status portal.
  *
  * Customer-facing open counts are distinct non-internal rows in
- * `customer_portal_visits`, not the old fire-and-forget `bumpView` on the
- * page render. Link-preview crawlers and HEAD requests are ignored before
- * any write. Writes are try/catch: a missing migration (0057) must never
- * break the portal page or PDF delivery.
+ * `customer_portal_visits`, read at request time, not the old
+ * fire-and-forget `bumpView` on the page render. Stored view_count /
+ * session_count / total_active_ms / first_viewed_at / last_viewed_at are
+ * not rewritten. Link-preview crawlers and HEAD requests are ignored
+ * before any write. Writes are try/catch: a missing migration (0057) must
+ * never break the portal page or PDF delivery.
  *
  * `sent_at` is set only when an outbound message body contains `/s/<token>`
  * (or the portal-notification email that carries the same URL). It is not
@@ -32,11 +34,13 @@ import {
   documentDisposition,
   internalVisitLabel,
   portalSessionFromRequest,
+  resolveCustomerOpenCounts,
   shouldDedupeDocumentView,
   shouldRecordDocumentActivity,
   shouldRecordPortalHit,
   shouldRecordPortalOpenActivity,
   type InternalReason,
+  type PortalCountSource,
 } from "@/lib/portal-open-tracking";
 import { validateTokenShape } from "@openclaw-crm/customer-portal-core";
 
@@ -65,8 +69,18 @@ export interface DocumentViewAggregate {
 }
 
 export interface VisitTelemetry {
-  /** Non-internal browser sessions. This is the "× geöffnet" number. */
+  /**
+   * "× geöffnet". Non-internal sessions when `countsSource` is `sessions`.
+   * The stored view_count when the link has no visit rows (`legacy`).
+   */
+  viewCount: number;
+  /** Non-internal browser sessions, or the stored session_count in legacy mode. */
   sessionCount: number;
+  /**
+   * `sessions` once any visit row exists. `legacy` when there are none:
+   * the stored columns are shown and are not rewritten by tracking.
+   */
+  countsSource: PortalCountSource;
   internalSessionCount: number;
   totalActiveMs: number;
   firstViewedAt: string | null;
@@ -234,11 +248,17 @@ async function recordVisitBeaconCurrent(
     });
   }
 
-  await rollupCustomerSessions(link.id);
+  // Stored view_count / session_count stay as they are. Readers derive
+  // customer numbers from these visit rows.
   return { ok: true };
 }
 
-/** Pre-0057 shape: no internal flag, no activity, no view_count rewrite. */
+/**
+ * Pre-0057 shape: no internal flag and no activity. Still maintains the
+ * old per-link session roll-up (not view_count) so the panel moves before
+ * the new columns exist. Once 0057 is applied this path is not used, and
+ * those stored columns are left untouched.
+ */
 async function recordVisitBeaconLegacy(
   token: string,
   input: VisitBeaconInput,
@@ -555,6 +575,11 @@ async function loadVisitTelemetryCurrent(
     .select({
       id: customerStatusLinks.id,
       sentAt: customerStatusLinks.sentAt,
+      viewCount: customerStatusLinks.viewCount,
+      sessionCount: customerStatusLinks.sessionCount,
+      totalActiveMs: customerStatusLinks.totalActiveMs,
+      firstViewedAt: customerStatusLinks.firstViewedAt,
+      lastViewedAt: customerStatusLinks.lastViewedAt,
     })
     .from(customerStatusLinks)
     .where(
@@ -568,6 +593,7 @@ async function loadVisitTelemetryCurrent(
 
   const [agg] = await db
     .select({
+      rows: sql<number>`COUNT(*)::int`,
       sessions: sql<number>`COUNT(*) FILTER (WHERE ${customerPortalVisits.isInternal} = false)::int`,
       internalSessions: sql<number>`COUNT(*) FILTER (WHERE ${customerPortalVisits.isInternal} = true)::int`,
       total: sql<number>`COALESCE(SUM(${customerPortalVisits.activeMs}) FILTER (WHERE ${customerPortalVisits.isInternal} = false), 0)::bigint`,
@@ -598,12 +624,28 @@ async function loadVisitTelemetryCurrent(
 
   const first = asDate(agg?.first);
   const last = asDate(agg?.last);
+  const counts = resolveCustomerOpenCounts({
+    visitRowCount: Number(agg?.rows ?? 0),
+    customerSessions: Number(agg?.sessions ?? 0),
+    customerActiveMs: Number(agg?.total ?? 0),
+    customerFirst: first?.toISOString() ?? null,
+    customerLast: last?.toISOString() ?? null,
+    legacy: {
+      viewCount: link.viewCount,
+      sessionCount: link.sessionCount,
+      totalActiveMs: Number(link.totalActiveMs ?? 0),
+      firstViewedAt: link.firstViewedAt?.toISOString() ?? null,
+      lastViewedAt: link.lastViewedAt?.toISOString() ?? null,
+    },
+  });
   return {
-    sessionCount: Number(agg?.sessions ?? 0),
+    viewCount: counts.viewCount,
+    sessionCount: counts.sessionCount,
+    countsSource: counts.countsSource,
     internalSessionCount: Number(agg?.internalSessions ?? 0),
-    totalActiveMs: Number(agg?.total ?? 0),
-    firstViewedAt: first?.toISOString() ?? null,
-    lastViewedAt: last?.toISOString() ?? null,
+    totalActiveMs: counts.totalActiveMs,
+    firstViewedAt: counts.firstViewedAt,
+    lastViewedAt: counts.lastViewedAt,
     sentAt: link.sentAt?.toISOString() ?? null,
     sentSignalAvailable: true,
     recent: recent.map((row) => {
@@ -663,6 +705,7 @@ async function loadVisitTelemetryLegacy(
   const [link] = await db
     .select({
       id: customerStatusLinks.id,
+      viewCount: customerStatusLinks.viewCount,
       firstViewedAt: customerStatusLinks.firstViewedAt,
       lastViewedAt: customerStatusLinks.lastViewedAt,
       sessionCount: customerStatusLinks.sessionCount,
@@ -693,12 +736,28 @@ async function loadVisitTelemetryLegacy(
     .orderBy(desc(customerPortalVisits.openedAt))
     .limit(10);
 
+  const counts = resolveCustomerOpenCounts({
+    visitRowCount: 0,
+    customerSessions: 0,
+    customerActiveMs: 0,
+    customerFirst: null,
+    customerLast: null,
+    legacy: {
+      viewCount: link.viewCount,
+      sessionCount: link.sessionCount,
+      totalActiveMs: Number(link.totalActiveMs ?? 0),
+      firstViewedAt: link.firstViewedAt?.toISOString() ?? null,
+      lastViewedAt: link.lastViewedAt?.toISOString() ?? null,
+    },
+  });
   return {
-    sessionCount: link.sessionCount,
+    viewCount: counts.viewCount,
+    sessionCount: counts.sessionCount,
+    countsSource: "legacy",
     internalSessionCount: 0,
-    totalActiveMs: Number(link.totalActiveMs ?? 0),
-    firstViewedAt: link.firstViewedAt?.toISOString() ?? null,
-    lastViewedAt: link.lastViewedAt?.toISOString() ?? null,
+    totalActiveMs: counts.totalActiveMs,
+    firstViewedAt: counts.firstViewedAt,
+    lastViewedAt: counts.lastViewedAt,
     sentAt: null,
     sentSignalAvailable: false,
     recent: recent.map((row) => ({
@@ -714,29 +773,6 @@ async function loadVisitTelemetryLegacy(
     })),
     documents: [],
   };
-}
-
-async function rollupCustomerSessions(linkId: string): Promise<void> {
-  const [agg] = await db
-    .select({
-      sessions: sql<number>`COUNT(*) FILTER (WHERE ${customerPortalVisits.isInternal} = false)::int`,
-      total: sql<number>`COALESCE(SUM(${customerPortalVisits.activeMs}) FILTER (WHERE ${customerPortalVisits.isInternal} = false), 0)::bigint`,
-      first: sql<Date | null>`MIN(${customerPortalVisits.openedAt}) FILTER (WHERE ${customerPortalVisits.isInternal} = false)`,
-      last: sql<Date | null>`MAX(${customerPortalVisits.lastHeartbeatAt}) FILTER (WHERE ${customerPortalVisits.isInternal} = false)`,
-    })
-    .from(customerPortalVisits)
-    .where(eq(customerPortalVisits.customerLinkId, linkId));
-
-  await db
-    .update(customerStatusLinks)
-    .set({
-      viewCount: Number(agg?.sessions ?? 0),
-      sessionCount: Number(agg?.sessions ?? 0),
-      totalActiveMs: Number(agg?.total ?? 0),
-      firstViewedAt: asDate(agg?.first),
-      lastViewedAt: asDate(agg?.last),
-    })
-    .where(eq(customerStatusLinks.id, linkId));
 }
 
 function isLinkUsable(link: { revokedAt: Date | null; expiresAt?: Date | null }, now = new Date()): boolean {

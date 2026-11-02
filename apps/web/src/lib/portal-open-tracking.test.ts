@@ -6,6 +6,7 @@ import {
   documentAudience,
   documentDisposition,
   internalVisitLabel,
+  resolveCustomerOpenCounts,
   isLinkPreviewCrawler,
   portalActivityTitle,
   portalSessionFromRequest,
@@ -247,5 +248,61 @@ describe("sent signal", () => {
       })
     ).toBe("session-22");
     expect(portalSessionFromRequest({ sid: "short", cookie: null })).toBeNull();
+  });
+});
+
+describe("customer-facing counts", () => {
+  const legacy = {
+    viewCount: 4,
+    sessionCount: 2,
+    totalActiveMs: 90_000,
+    firstViewedAt: "2026-10-01T10:00:00.000Z",
+    lastViewedAt: "2026-10-02T10:00:00.000Z",
+  };
+
+  it("derives opens, sessions, active time and first/last from non-internal visits", () => {
+    const counts = resolveCustomerOpenCounts({
+      visitRowCount: 3,
+      customerSessions: 1,
+      customerActiveMs: 12_000,
+      customerFirst: "2026-11-02T12:00:00.000Z",
+      customerLast: "2026-11-02T12:05:00.000Z",
+      legacy,
+    });
+    expect(counts).toEqual({
+      viewCount: 1,
+      sessionCount: 1,
+      totalActiveMs: 12_000,
+      firstViewedAt: "2026-11-02T12:00:00.000Z",
+      lastViewedAt: "2026-11-02T12:05:00.000Z",
+      countsSource: "sessions",
+    });
+  });
+
+  it("keeps a zero customer count when every existing visit is internal", () => {
+    const counts = resolveCustomerOpenCounts({
+      visitRowCount: 2,
+      customerSessions: 0,
+      customerActiveMs: 0,
+      customerFirst: null,
+      customerLast: null,
+      legacy,
+    });
+    expect(counts.countsSource).toBe("sessions");
+    expect(counts.viewCount).toBe(0);
+    expect(counts.sessionCount).toBe(0);
+    expect(counts.totalActiveMs).toBe(0);
+  });
+
+  it("falls back to the stored columns when the link has no visit rows", () => {
+    const counts = resolveCustomerOpenCounts({
+      visitRowCount: 0,
+      customerSessions: 9,
+      customerActiveMs: 1,
+      customerFirst: "2026-11-03T00:00:00.000Z",
+      customerLast: "2026-11-03T00:00:00.000Z",
+      legacy,
+    });
+    expect(counts).toEqual({ ...legacy, countsSource: "legacy" });
   });
 });

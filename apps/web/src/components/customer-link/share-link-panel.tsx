@@ -35,7 +35,10 @@ interface DocumentViewStat {
 }
 
 interface VisitTelemetry {
+  viewCount?: number;
   sessionCount: number;
+  /** "sessions" from visit rows, or "legacy" stored columns when none exist. */
+  countsSource?: "sessions" | "legacy";
   internalSessionCount?: number;
   totalActiveMs: number;
   firstViewedAt: string | null;
@@ -219,11 +222,12 @@ export function ShareLinkPanel({ dealRecordId }: { dealRecordId: string }) {
 
   const revoked = !!link.revokedAt;
   const telemetry = link.telemetry ?? null;
-  const customerOpens = telemetry?.sessionCount ?? link.viewCount ?? 0;
+  const legacyCounts = telemetry?.countsSource === "legacy";
+  const customerOpens = telemetry?.viewCount ?? telemetry?.sessionCount ?? link.viewCount ?? 0;
   const internalOpens = telemetry?.internalSessionCount ?? 0;
   const hasEngagement =
     telemetry != null &&
-    (telemetry.sessionCount > 0 || telemetry.totalActiveMs > 0);
+    (customerOpens > 0 || telemetry.sessionCount > 0 || telemetry.totalActiveMs > 0);
   const hasVerlauf = (telemetry?.recent.length ?? 0) > 0;
 
   return (
@@ -302,6 +306,12 @@ export function ShareLinkPanel({ dealRecordId }: { dealRecordId: string }) {
           <div className="mt-3 text-[11px] text-muted-foreground">
             {internalOpens > 0 ? "Noch nicht vom Kunden geöffnet." : "Noch nicht geöffnet."}
           </div>
+        )}
+
+        {legacyCounts && hasEngagement && (
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            Älterer gespeicherter Zähler — noch keine Sitzungsdaten.
+          </p>
         )}
 
         {telemetry?.sentSignalAvailable && (

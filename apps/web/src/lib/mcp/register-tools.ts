@@ -410,7 +410,7 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_get_customer_link",
-    "Customer portal link for a deal. telemetry.sessionCount is the customer open count from real browser sessions (crawlers and HEAD excluded). telemetry.internalSessionCount is the intern/Test split. telemetry.sentAt is when the link was first sent. telemetry.documents lists per-PDF view counts with first and last viewed. IP addresses are never included.",
+    "Customer portal link for a deal. telemetry.viewCount and telemetry.sessionCount are computed at read time from non-internal browser sessions (crawlers and HEAD excluded). countsSource \"legacy\" means the link has no visit rows, so the stored columns are shown and are not rewritten. telemetry.internalSessionCount is the intern/Test split. telemetry.sentAt is when the link was first sent. telemetry.documents lists per-PDF view counts with first and last viewed. IP addresses are never included.",
     { dealRecordId: z.string() },
     req
   );

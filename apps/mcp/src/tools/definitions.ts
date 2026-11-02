@@ -821,7 +821,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "crm_get_customer_link",
     description:
-      "Customer portal link for a deal. telemetry.sessionCount is the customer open count from real browser sessions (link-preview crawlers and HEAD requests are excluded). telemetry.internalSessionCount is the intern/Test split (logged-in CRM session, operator Öffnen, or opens before the link was sent). telemetry.sentAt is the first outbound message that contained the link. telemetry.documents lists per-PDF view counts with firstViewedAt and lastViewedAt. IP addresses are never included.",
+      "Customer portal link for a deal. telemetry.viewCount and telemetry.sessionCount are computed at read time from non-internal browser sessions in customer_portal_visits (link-preview crawlers and HEAD requests are excluded). When the link has no visit rows, countsSource is \"legacy\" and those fields are the stored columns, which tracking does not rewrite. telemetry.internalSessionCount is the intern/Test split (logged-in CRM session, operator Öffnen, or opens before the link was sent). telemetry.sentAt is the first outbound message that contained the link. telemetry.documents lists per-PDF view counts with firstViewedAt and lastViewedAt. IP addresses are never included.",
     inputSchema: {
       type: "object",
       properties: { dealRecordId: { type: "string" } },

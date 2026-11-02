@@ -4,7 +4,9 @@
  * conventions (cookie or oc_sk_* Bearer).
  *
  * GET    → returns { token, url, dealNumber, viewCount, firstViewedAt, lastViewedAt, revokedAt, widerrufBis, telemetry }
- * viewCount is the number of non-internal browser sessions (not page renders).
+ * viewCount, firstViewedAt and lastViewedAt are read from telemetry:
+ * non-internal sessions when any visit exists, otherwise the stored
+ * columns (countsSource "legacy"). Those columns are not rewritten.
  * telemetry.documents has per-PDF first/last/count. No IP addresses.
  * POST   → ensure link exists (idempotent); returns the same shape
  * DELETE → revokes the link (soft — sets revoked_at, doesn't drop the row)
@@ -86,9 +88,9 @@ export async function GET(
     token: row.token,
     url: `${origin}/s/${row.token}`,
     dealNumber,
-    // Customer sessions. The denormalised column is the same number after
-    // the beacon rolls it up; telemetry is the live read.
-    viewCount: telemetry?.sessionCount ?? row.viewCount,
+    // Live read. Stored columns are the fallback only when telemetry is
+    // missing, or when telemetry itself reports countsSource "legacy".
+    viewCount: telemetry?.viewCount ?? row.viewCount,
     firstViewedAt: telemetry ? telemetry.firstViewedAt : row.firstViewedAt,
     lastViewedAt: telemetry ? telemetry.lastViewedAt : row.lastViewedAt,
     revokedAt: row.revokedAt,

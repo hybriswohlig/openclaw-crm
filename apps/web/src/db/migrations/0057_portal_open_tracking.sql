@@ -12,7 +12,13 @@
 -- NULL, and visits with opened_at < sent_at, are stored with
 -- is_internal = true (reason pre_send) and excluded from customer counts.
 -- Historical visits on links we cannot match to a message are left as
--- customer rows so existing engagement is not wiped. Idempotent.
+-- customer rows so existing engagement is not wiped.
+--
+-- view_count, session_count, total_active_ms, first_viewed_at and
+-- last_viewed_at are NOT updated here. Those stored counters stay as they
+-- are. The app reads customer-facing numbers from customer_portal_visits
+-- and only falls back to the stored columns when a link has no visit rows.
+-- Idempotent.
 
 ALTER TABLE "customer_status_links"
   ADD COLUMN IF NOT EXISTS "sent_at" timestamp;
@@ -98,22 +104,3 @@ WHERE v.customer_link_id = l.id
   AND l.sent_at IS NOT NULL
   AND v.opened_at < l.sent_at
   AND v.is_internal = false;
-
--- Customer-facing counters from real sessions, not from page renders.
-UPDATE "customer_status_links" AS l
-SET "view_count" = COALESCE(s.n, 0),
-    "session_count" = COALESCE(s.n, 0),
-    "total_active_ms" = COALESCE(s.ms, 0),
-    "first_viewed_at" = s.first_at,
-    "last_viewed_at" = s.last_at
-FROM (
-  SELECT l2.id AS id,
-         COUNT(v.id) FILTER (WHERE v.id IS NOT NULL AND NOT v.is_internal)::int AS n,
-         COALESCE(SUM(v.active_ms) FILTER (WHERE v.id IS NOT NULL AND NOT v.is_internal), 0) AS ms,
-         MIN(v.opened_at) FILTER (WHERE v.id IS NOT NULL AND NOT v.is_internal) AS first_at,
-         MAX(v.last_heartbeat_at) FILTER (WHERE v.id IS NOT NULL AND NOT v.is_internal) AS last_at
-  FROM "customer_status_links" l2
-  LEFT JOIN "customer_portal_visits" v ON v.customer_link_id = l2.id
-  GROUP BY l2.id
-) AS s
-WHERE l.id = s.id;

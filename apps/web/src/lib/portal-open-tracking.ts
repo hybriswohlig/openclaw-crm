@@ -3,8 +3,10 @@
  *
  * Page renders do not count. Link-preview crawlers (WhatsApp, Telegram,
  * Facebook, iMessage, Slack, Googlebot, …) and HEAD requests never count.
- * Customer-facing numbers come from real browser sessions in
- * `customer_portal_visits`, minus internal / pre-send rows.
+ * Customer-facing numbers are derived at read time from real browser
+ * sessions in `customer_portal_visits`, minus internal / pre-send rows.
+ * The stored view_count / session_count columns are left untouched and
+ * used only when a link has no visit rows at all.
  *
  * `sent_at` on `customer_status_links` is the first outbound customer message
  * whose body contains `/s/<token>` (see markCustomerLinkSentFromOutbound).
@@ -93,6 +95,66 @@ export function documentAudience(input: {
     return { internal: true, reason: input.sessionReason ?? "crm_session" };
   }
   return fromRequest;
+}
+
+export type PortalCountSource = "sessions" | "legacy";
+
+export interface StoredPortalCounts {
+  /** "× geöffnet". From non-internal sessions, or the stored view_count. */
+  viewCount: number;
+  sessionCount: number;
+  totalActiveMs: number;
+  firstViewedAt: string | null;
+  lastViewedAt: string | null;
+}
+
+export interface CustomerOpenCounts extends StoredPortalCounts {
+  /**
+   * `sessions` when at least one visit row exists (customer numbers can
+   * still be zero if every visit is internal). `legacy` when there are no
+   * visit rows: the stored columns are shown and never rewritten.
+   */
+  countsSource: PortalCountSource;
+}
+
+/**
+ * Read-time customer counts. A link with visit rows uses non-internal
+ * sessions for opens, sessions, active time and first/last view. Opens
+ * equal that session count. A link with no visit rows keeps the stored
+ * counters (view_count may differ from session_count).
+ */
+export function resolveCustomerOpenCounts(input: {
+  visitRowCount: number;
+  customerSessions: number;
+  customerActiveMs: number;
+  customerFirst: string | null;
+  customerLast: string | null;
+  legacy: StoredPortalCounts;
+}): CustomerOpenCounts {
+  if (input.visitRowCount > 0) {
+    const sessions = finiteCount(input.customerSessions);
+    return {
+      viewCount: sessions,
+      sessionCount: sessions,
+      totalActiveMs: finiteCount(input.customerActiveMs),
+      firstViewedAt: input.customerFirst,
+      lastViewedAt: input.customerLast,
+      countsSource: "sessions",
+    };
+  }
+  return {
+    viewCount: finiteCount(input.legacy.viewCount),
+    sessionCount: finiteCount(input.legacy.sessionCount),
+    totalActiveMs: finiteCount(input.legacy.totalActiveMs),
+    firstViewedAt: input.legacy.firstViewedAt,
+    lastViewedAt: input.legacy.lastViewedAt,
+    countsSource: "legacy",
+  };
+}
+
+function finiteCount(n: number): number {
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.floor(n);
 }
 
 export function internalVisitLabel(reason: InternalReason | null): string | null {

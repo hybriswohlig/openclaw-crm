@@ -151,17 +151,18 @@ export const customerStatusLinks = pgTable(
     /** Optional auto-expiry (e.g. 60 days after move). Null = no expiry. */
     expiresAt: timestamp("expires_at"),
     /**
-     * Customer-facing usage, recomputed from non-internal rows in
-     * `customer_portal_visits`. Page renders and link-preview crawlers do
-     * not increment this. See migration 0057.
+     * Legacy stored counters. Migration 0057 does not rewrite them, and the
+     * visit beacon no longer rolls them up. Customer-facing numbers are
+     * derived at read time from non-internal `customer_portal_visits`.
+     * These columns are only a fallback when a link has no visit rows.
      */
     firstViewedAt: timestamp("first_viewed_at"),
     lastViewedAt: timestamp("last_viewed_at"),
     viewCount: integer("view_count").notNull().default(0),
     /**
-     * Roll-ups of non-internal sessions only (see customerPortalVisits).
-     * `totalActiveMs` is foreground time; `sessionCount` / `viewCount` are
-     * the same customer-session count. Internal and pre-send rows are excluded.
+     * Legacy beacon roll-up (foreground time and distinct sessions), kept
+     * so existing rows stay readable. Not updated once visit tracking can
+     * mark internal sessions. See `resolveCustomerOpenCounts`.
      */
     totalActiveMs: bigint("total_active_ms", { mode: "number" })
       .notNull()
