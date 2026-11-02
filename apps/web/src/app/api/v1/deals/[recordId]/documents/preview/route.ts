@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { badRequest, getAuthContext, success, unauthorized } from "@/lib/api-utils";
 import { parseKind, parsePreviewBody, type PreviewFormat } from "@/lib/commercial-document-request";
+import { KOTTKE_CRM_RENDERER_MESSAGE } from "@/lib/kottke-crm-renderer";
+import { dealBlocksInRepoCrmRenderer } from "@/lib/kottke-crm-renderer-deal";
 import {
   CommercialDocumentError,
   previewCommercialDocument,
@@ -59,6 +61,9 @@ export async function GET(
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized(req);
   const { recordId } = await params;
+  if (await dealBlocksInRepoCrmRenderer(ctx.workspaceId, recordId)) {
+    return badRequest(KOTTKE_CRM_RENDERER_MESSAGE);
+  }
   const kind = parseKind(req.nextUrl.searchParams.get("documentType"));
   if (!kind) return badRequest("documentType must be KV, AB or RE");
   const formatParam = req.nextUrl.searchParams.get("format") ?? "html";
@@ -91,6 +96,10 @@ export async function POST(
   } catch {
     return badRequest("Invalid JSON body");
   }
+  if (await dealBlocksInRepoCrmRenderer(ctx.workspaceId, recordId)) {
+    return badRequest(KOTTKE_CRM_RENDERER_MESSAGE);
+  }
+
   const parsed = parsePreviewBody(body);
   if (!parsed.ok) {
     return NextResponse.json(

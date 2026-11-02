@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthContext, success, unauthorized } from "@/lib/api-utils";
+import { badRequest, getAuthContext, success, unauthorized } from "@/lib/api-utils";
 import { parseRenderBody } from "@/lib/commercial-document-request";
+import { KOTTKE_CRM_RENDERER_MESSAGE } from "@/lib/kottke-crm-renderer";
+import { dealBlocksInRepoCrmRenderer } from "@/lib/kottke-crm-renderer-deal";
 import {
   CommercialDocumentError,
   storeCommercialDocument,
@@ -30,6 +32,10 @@ export async function POST(
       { error: { code: "BAD_REQUEST", message: "Invalid JSON body" } },
       { status: 400 }
     );
+  }
+
+  if (await dealBlocksInRepoCrmRenderer(ctx.workspaceId, recordId)) {
+    return badRequest(KOTTKE_CRM_RENDERER_MESSAGE);
   }
 
   const parsed = parseRenderBody(body);

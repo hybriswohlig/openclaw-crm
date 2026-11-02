@@ -1,5 +1,5 @@
 {
-  "buildCommand": "cd ../.. && npx turbo build --filter=@openclaw-crm/web --env-mode=loose",
+  "buildCommand": "cd ../.. && NODE_OPTIONS=--max-old-space-size=5120 npx turbo build --filter=@openclaw-crm/web --env-mode=loose",
   "installCommand": "cd ../.. && pnpm install",
   "crons": [
     {

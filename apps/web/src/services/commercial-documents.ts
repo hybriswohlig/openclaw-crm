@@ -36,6 +36,10 @@ import {
 import { anredeFuerOptOut, ladeGespeicherteAnrede } from "@/services/agent/agent-suppress";
 import { aktivBedingung } from "@/services/kva-annahme";
 import { preisZahlungenCent } from "@/lib/preis-zahlungen";
+import {
+  KOTTKE_CRM_RENDERER_MESSAGE,
+  blocksInRepoCrmRenderer,
+} from "@/lib/kottke-crm-renderer";
 
 export class CommercialDocumentError extends Error {
   constructor(
@@ -301,7 +305,17 @@ export async function loadCommercialModel(input: {
   }
 
   const company = deal.values.operating_company as { displayName?: string } | null;
-  const firma = firmaFromCompany(company?.displayName);
+  const companyName = refName(company) ?? company?.displayName ?? null;
+  const firma = firmaFromCompany(companyName);
+  if (
+    blocksInRepoCrmRenderer({
+      firma,
+      operatingCompanyId: refId(company),
+      operatingCompanyName: companyName,
+    })
+  ) {
+    throw new CommercialDocumentError(KOTTKE_CRM_RENDERER_MESSAGE, 400);
+  }
   if (!firma) {
     throw new CommercialDocumentError("Firma (Kottke oder Ceylan) fehlt auf dem Auftrag.", 400);
   }
