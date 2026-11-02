@@ -1,5 +1,15 @@
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
+
+const kottkeMocks = vi.hoisted(() => ({
+  dealBlocksInRepoCrmRenderer: vi.fn(async () => false),
+}));
+
+vi.mock("@/lib/kottke-crm-renderer-deal", () => ({
+  dealBlocksInRepoCrmRenderer: kottkeMocks.dealBlocksInRepoCrmRenderer,
+}));
+
 import { handleTool, type ToolContent } from "./dispatch";
+import { KOTTKE_CRM_RENDERER_MESSAGE } from "@/lib/kottke-crm-renderer";
 import type { CrmClient } from "./client";
 import { MAX_JSON_INLINE_BYTES, MAX_MCP_INLINE_BYTES_LIMIT } from "@/lib/attachment-content";
 import { jsonDealDocumentTooLargeMessage } from "@/lib/deal-document-upload";
@@ -13,6 +23,11 @@ import type { AttachmentPayload } from "@/lib/attachment-content";
  * `{ ok: true }` stub; tools that post-process the payload (crm_get_attachment)
  * pass the body they need to exercise.
  */
+beforeEach(() => {
+  kottkeMocks.dealBlocksInRepoCrmRenderer.mockReset();
+  kottkeMocks.dealBlocksInRepoCrmRenderer.mockResolvedValue(false);
+});
+
 function fakeClient(response: unknown = { ok: true }) {
   const calls: Array<{ path: string; options: Record<string, unknown> }> = [];
   const client = {
@@ -321,6 +336,87 @@ describe("crm_render_document", () => {
       copy: { remarks: "Hof einfahrt" },
       notifyCustomer: false,
     });
+  });
+});
+
+describe("Kottke in-repo renderer lock", () => {
+  it("keeps the VPS job for Kottke when renderer is omitted or vps", async () => {
+    const omitted = fakeClient();
+    await handleTool(omitted.client, "crm_generate_document", {
+      recordId: "deal-1",
+      params: { firma: "kottke", document_type: "KV" },
+    });
+    expect(omitted.calls[0].path).toBe("/api/tools/run");
+    expect(omitted.calls[0].options.body).toMatchObject({
+      skill: "rechnungen-und-auftragsbestaetigungen",
+      params: { firma: "kottke", document_type: "KV", _deal_record_id: "deal-1" },
+    });
+
+    const vps = fakeClient();
+    await handleTool(vps.client, "crm_generate_document", {
+      recordId: "deal-1",
+      renderer: "vps",
+      params: { firma: "Kottke", document_type: "AB" },
+    });
+    expect(vps.calls[0].path).toBe("/api/tools/run");
+    expect(kottkeMocks.dealBlocksInRepoCrmRenderer).not.toHaveBeenCalled();
+  });
+
+  it("rejects crm_generate_document when renderer crm is top-level or in params", async () => {
+    for (const args of [
+      { recordId: "deal-1", renderer: "crm", params: { firma: "kottke", document_type: "RE" } },
+      {
+        recordId: "deal-1",
+        renderer: "vps",
+        params: '{"firma":"kottke","renderer":"crm","document_type":"KV"}',
+      },
+      { recordId: "deal-1", firma: "kottke", params: { renderer: "crm", document_type: "AB" } },
+    ]) {
+      const { client, calls } = fakeClient();
+      const res = await handleTool(client, "crm_generate_document", args);
+      expect(res.isError).toBe(true);
+      expect(JSON.parse(textOf(res.content)).message).toBe(KOTTKE_CRM_RENDERER_MESSAGE);
+      expect(calls).toEqual([]);
+    }
+  });
+
+  it("rejects crm_render_document and crm_preview_document for a Kottke deal", async () => {
+    kottkeMocks.dealBlocksInRepoCrmRenderer.mockResolvedValue(true);
+    for (const name of ["crm_render_document", "crm_preview_document"] as const) {
+      for (const documentType of ["KV", "AB", "RE"]) {
+        const { client, calls } = fakeClient();
+        const res = await handleTool(client, name, { recordId: "deal-k", documentType });
+        expect(res.isError).toBe(true);
+        expect(JSON.parse(textOf(res.content)).message).toBe(KOTTKE_CRM_RENDERER_MESSAGE);
+        expect(calls).toEqual([]);
+      }
+    }
+    expect(kottkeMocks.dealBlocksInRepoCrmRenderer).toHaveBeenCalledWith("w1", "deal-k");
+  });
+
+  it("still renders with the CRM template for Ceylan", async () => {
+    const { client, calls } = fakeClient();
+    await handleTool(client, "crm_generate_document", {
+      recordId: "deal-c",
+      renderer: "crm",
+      params: { firma: "ceylan", document_type: "KV" },
+    });
+    expect(calls[0].path).toBe("/api/v1/deals/deal-c/documents/render");
+
+    const preview = fakeClient();
+    await handleTool(preview.client, "crm_preview_document", {
+      recordId: "deal-c",
+      documentType: "AB",
+    });
+    expect(preview.calls[0].path).toBe("/api/v1/deals/deal-c/documents/preview");
+
+    const mixed = fakeClient();
+    await handleTool(mixed.client, "crm_generate_document", {
+      recordId: "deal-c",
+      renderer: "vps",
+      params: { firma: "ceylan", renderer: "crm", document_type: "RE" },
+    });
+    expect(mixed.calls[0].path).toBe("/api/tools/run");
   });
 });
 

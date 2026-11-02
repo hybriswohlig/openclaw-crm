@@ -19,6 +19,10 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useBackgroundJobs } from "@/components/background-jobs";
 import type { ServiceArt } from "@openclaw-crm/customer-portal-core";
+import {
+  KOTTKE_CRM_RENDERER_MESSAGE,
+  showCrmRendererChoice,
+} from "@/lib/kottke-crm-renderer";
 
 export type Firma = "kottke" | "ceylan";
 export type DocumentType = "KV" | "AB" | "RE";
@@ -159,6 +163,11 @@ export function GenerateDocumentDialog({
   const [cardAgreed, setCardAgreed] = useState(false);
 
   const { startDocumentJob } = useBackgroundJobs();
+  const crmRendererChoice = showCrmRendererChoice(deal.firma);
+
+  useEffect(() => {
+    if (!crmRendererChoice) setUseCrmRenderer(false);
+  }, [crmRendererChoice]);
 
   if (!open) return null;
 
@@ -279,7 +288,7 @@ export function GenerateDocumentDialog({
         .filter(Boolean)
         .join(" ");
       const trimmedAnweisung = anweisung.trim();
-      if (useCrmRenderer) {
+      if (useCrmRenderer && crmRendererChoice) {
         const res = await fetch(
           `/api/v1/deals/${deal.dealRecordId}/documents/render`,
           {
@@ -725,20 +734,23 @@ export function GenerateDocumentDialog({
               <input
                 type="checkbox"
                 className="mt-1"
-                checked={useCrmRenderer}
-                onChange={(e) => setUseCrmRenderer(e.target.checked)}
+                checked={crmRendererChoice && useCrmRenderer}
+                disabled={!crmRendererChoice}
+                onChange={(e) => {
+                  if (!crmRendererChoice) return;
+                  setUseCrmRenderer(e.target.checked);
+                }}
               />
               <span>
                 <span className="font-medium">Mit CRM-Vorlage speichern</span>
                 <span className="mt-1 block text-xs text-gray-500">
-                  Standard bleibt der bisherige Server. Ist das angehakt, erzeugt das CRM das PDF
-                  selbst. Preise, Anzahlung, Gültigkeit und Zahlungsart kommen aus dem gespeicherten
-                  Angebot, nicht aus den Feldern oben. Interne Notizen erscheinen nicht. Es geht keine
-                  Nachricht an den Kunden.
+                  {crmRendererChoice
+                    ? "Standard bleibt der bisherige Server. Ist das angehakt, erzeugt das CRM das PDF selbst. Preise, Anzahlung, Gültigkeit und Zahlungsart kommen aus dem gespeicherten Angebot, nicht aus den Feldern oben. Interne Notizen erscheinen nicht. Es geht keine Nachricht an den Kunden."
+                    : KOTTKE_CRM_RENDERER_MESSAGE}
                 </span>
               </span>
             </label>
-            <div className="mt-3 space-y-2">
+            {crmRendererChoice && <div className="mt-3 space-y-2">
               <label className="block text-sm">
                 <span className="text-gray-600">Einleitung (optional)</span>
                 <textarea
@@ -784,7 +796,7 @@ export function GenerateDocumentDialog({
                   PDF-Vorschau
                 </button>
               </div>
-            </div>
+            </div>}
           </div>
 
           {startError && (
