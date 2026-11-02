@@ -5,6 +5,7 @@ import { dealDocuments } from "@/db/schema/financial";
 import { eq, and } from "drizzle-orm";
 import { prepareJsonDealDocument, validateDealDocumentUpload } from "@/lib/deal-document-upload";
 import { createDealDocument } from "@/services/deal-documents";
+import { applyInvoiceDueDate } from "@/services/rechnung-faellig";
 
 export async function GET(
   req: NextRequest,
@@ -48,9 +49,9 @@ export async function POST(
 
   // MCP clients send JSON only. The staff UI keeps sending multipart.
   if (contentType.includes("application/json")) {
-    return postDealDocumentJson(req, ctx.workspaceId, recordId);
+    return postDealDocumentJson(req, ctx.workspaceId, ctx.userId, recordId);
   }
-  return postDealDocumentMultipart(req, ctx.workspaceId, recordId);
+  return postDealDocumentMultipart(req, ctx.workspaceId, ctx.userId, recordId);
 }
 
 /**
@@ -61,6 +62,7 @@ export async function POST(
 async function postDealDocumentJson(
   req: NextRequest,
   workspaceId: string,
+  userId: string,
   recordId: string
 ) {
   let body: unknown;
@@ -94,12 +96,19 @@ async function postDealDocumentJson(
     notifyCustomer: record.notifyCustomer === true,
   });
 
-  return success(doc);
+  return respondWithInvoiceDue(doc, {
+    workspaceId,
+    userId,
+    recordId,
+    documentType: prepared.documentType,
+    explicitDueDate: record.dueDate ?? record.rechnungFaelligAm,
+  });
 }
 
 async function postDealDocumentMultipart(
   req: NextRequest,
   workspaceId: string,
+  userId: string,
   recordId: string
 ) {
   const formData = await req.formData();
@@ -130,5 +139,37 @@ async function postDealDocumentMultipart(
     fileContent: Buffer.from(buffer).toString("base64"),
   });
 
-  return success(doc);
+  const formDue = formData.get("dueDate") ?? formData.get("rechnungFaelligAm");
+  return respondWithInvoiceDue(doc, {
+    workspaceId,
+    userId,
+    recordId,
+    documentType: check.documentType,
+    explicitDueDate: typeof formDue === "string" ? formDue : undefined,
+  });
+}
+
+async function respondWithInvoiceDue(
+  doc: Awaited<ReturnType<typeof createDealDocument>>,
+  input: {
+    workspaceId: string;
+    userId: string;
+    recordId: string;
+    documentType: string;
+    explicitDueDate: unknown;
+  }
+) {
+  const due = await applyInvoiceDueDate({
+    documentType: input.documentType,
+    workspaceId: input.workspaceId,
+    dealRecordId: input.recordId,
+    explicitDueDate: input.explicitDueDate,
+    updatedBy: input.userId,
+  });
+  if (!due.rechnungFaelligAm && !due.dueDateWarning) return success(doc);
+  return NextResponse.json({
+    data: doc,
+    ...(due.rechnungFaelligAm ? { rechnungFaelligAm: due.rechnungFaelligAm } : {}),
+    ...(due.dueDateWarning ? { dueDateWarning: due.dueDateWarning } : {}),
+  });
 }

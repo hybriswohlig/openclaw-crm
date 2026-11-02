@@ -1,4 +1,5 @@
 import type { DocKind, DocumentCopy } from "@openclaw-crm/document-templates";
+import { explicitInvoiceDueDay } from "@/lib/invoice-due-date";
 
 export const COPY_MAX_CHARS = 4000;
 
@@ -14,6 +15,7 @@ export interface ParsedPreview {
 
 export interface ParsedRender extends ParsedPreview {
   notifyCustomer: boolean;
+  dueDate?: string;
 }
 
 export type ParseFailure = { ok: false; status: 400 | 409; code: string; error: string };
@@ -123,11 +125,13 @@ export function parseRenderBody(body: unknown): ParseSuccess<ParsedRender> | Par
   }
   const preview = parsePreviewBody(body);
   if (!preview.ok) return preview;
+  const dueDate = explicitInvoiceDueDay(body.dueDate ?? body.rechnungFaelligAm);
   return {
     ok: true,
     value: {
       ...preview.value,
       notifyCustomer: body.notifyCustomer === true,
+      ...(dueDate ? { dueDate } : {}),
     },
   };
 }

@@ -16,6 +16,11 @@ function str(v: unknown): string {
   return String(v ?? "");
 }
 
+function dueDateBody(value: unknown): { dueDate: string } | Record<string, never> {
+  if (typeof value !== "string" || !value.trim()) return {};
+  return { dueDate: value.trim() };
+}
+
 function num(v: unknown): number | undefined {
   if (v === undefined || v === null || v === "") return undefined;
   const n = Number(v);
@@ -408,6 +413,7 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
             mimeType: mimeType || "application/pdf",
             contentBase64,
             notifyCustomer: bool(args.notifyCustomer) === true,
+            ...dueDateBody(args.dueDate ?? args.rechnungFaelligAm),
           },
         }
       );
@@ -439,6 +445,7 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
             documentType: str(args.documentType),
             ...(copy && typeof copy === "object" ? { copy } : {}),
             notifyCustomer: bool(args.notifyCustomer) === true,
+            ...dueDateBody(args.dueDate ?? args.rechnungFaelligAm),
           },
         }
       );

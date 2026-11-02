@@ -85,6 +85,7 @@ describe("POST documents/render", () => {
       kind: "AB",
       copy: { closing: "Viele Grüße" },
       notifyCustomer: false,
+      updatedBy: "usr_1",
     });
   });
 
@@ -97,5 +98,21 @@ describe("POST documents/render", () => {
       expect(body.error.message).toBe(KOTTKE_CRM_RENDERER_MESSAGE);
     }
     expect(mocks.storeCommercialDocument).not.toHaveBeenCalled();
+  });
+
+  it("passes an explicit invoice due date through to the store", async () => {
+    const res = await call({
+      renderer: "crm",
+      documentType: "RE",
+      dueDate: "2026-12-01",
+    });
+    expect(res.status).toBe(200);
+    expect(mocks.storeCommercialDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "RE",
+        dueDate: "2026-12-01",
+        updatedBy: "usr_1",
+      })
+    );
   });
 });

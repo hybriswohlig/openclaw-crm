@@ -31,6 +31,12 @@ function str(v: unknown): string {
   return String(v ?? "");
 }
 
+/** Forward a caller-supplied due date. Absent stays absent so the server uses the upload day. */
+function dueDateBody(value: unknown): { dueDate: string } | Record<string, never> {
+  if (typeof value !== "string" || !value.trim()) return {};
+  return { dueDate: value.trim() };
+}
+
 /**
  * The Baileys bridge routes hand out and replace the WhatsApp device session.
  * Agents reading customer messages must never reach them through crm_api,
@@ -536,6 +542,7 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
             mimeType: mimeType || "application/pdf",
             contentBase64,
             notifyCustomer: bool(args.notifyCustomer) === true,
+            ...dueDateBody(args.dueDate ?? args.rechnungFaelligAm),
           },
         }
       );
@@ -707,6 +714,7 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
               ),
               ...(copy && typeof copy === "object" ? { copy } : {}),
               notifyCustomer: bool(args.notifyCustomer) === true,
+              ...dueDateBody(args.dueDate ?? paramObj.dueDate ?? args.rechnungFaelligAm),
             },
           }
         );
@@ -737,6 +745,7 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
             documentType: str(args.documentType),
             ...(copy && typeof copy === "object" ? { copy } : {}),
             notifyCustomer: bool(args.notifyCustomer) === true,
+            ...dueDateBody(args.dueDate ?? args.rechnungFaelligAm),
           },
         }
       );
@@ -770,6 +779,7 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
             ...(args.documentType !== undefined
               ? { documentType: args.documentType }
               : {}),
+            ...dueDateBody(args.dueDate ?? args.rechnungFaelligAm),
           },
         }
       );
