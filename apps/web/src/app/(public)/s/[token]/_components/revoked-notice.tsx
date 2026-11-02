@@ -1,3 +1,4 @@
+import { kundenText } from "@openclaw-crm/customer-portal-core";
 import { WhatsAppContactLink } from "./whatsapp-contact-link";
 
 export function RevokedNotice({
@@ -12,9 +13,11 @@ export function RevokedNotice({
       <div className="text-5xl">🔒</div>
       <h1 className="mt-6 text-xl font-medium">Link nicht mehr verfügbar</h1>
       <p className="mt-3 text-sm text-muted-foreground">
-        Dieser Status-Link wurde geschlossen oder ist abgelaufen.
-        Bitte kontaktieren Sie {firmaDisplayName}, falls Sie weiterhin
-        Informationen zu Ihrem Umzug benötigen.
+        {kundenText(
+          firmaDisplayName,
+          `Dieser Status-Link wurde geschlossen oder ist abgelaufen. Bitte kontaktieren Sie ${firmaDisplayName}, falls Sie weiterhin Informationen zu Ihrem Umzug benötigen.`,
+          `Dieser Status-Link wurde geschlossen oder ist abgelaufen. Bitte kontaktiere ${firmaDisplayName}, falls du weiterhin Informationen zu deinem Umzug benötigst.`,
+        )}
       </p>
       <WhatsAppContactLink
         phoneE164={whatsappNumberE164}

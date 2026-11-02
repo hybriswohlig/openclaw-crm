@@ -4,7 +4,9 @@ import { useState } from "react";
 import { Download, ExternalLink, PenLine } from "lucide-react";
 import {
   BUTTON_VERTRAG_UNTERSCHREIBEN,
-  UNTERSCHRIFT_HINWEIS,
+  kundenAnrede,
+  kundenText,
+  unterschriftHinweis,
   unterschriftMoeglich,
   type CustomerPortalContext,
 } from "@openclaw-crm/customer-portal-core";
@@ -16,7 +18,7 @@ import { UnterschriftForm } from "./unterschrift-form";
  * Freiwillige Unterschrift als Nebenaktion auf jeder Stufe, unter dem
  * Auftragsinhalt (Anzahlung und Rechnung haben Vorrang). Nach der
  * Unterschrift zeigt das Panel in Stufe 1 den Vertrag selbst an; ab Stufe 2
- * steht er in „Ihre Dokumente“.
+ * steht er in „Ihre Dokumente“ bzw. „Deine Dokumente“.
  */
 export function UnterschriftPanel({
   token,
@@ -32,13 +34,14 @@ export function UnterschriftPanel({
   const [gerade, setGerade] = useState(false);
   const moeglich = unterschriftMoeglich({ acceptance: ctx.acceptance, signatureEnabled: ctx.features?.signature === true });
   const vertragUrl = ctx.documents.signedContractUrl;
+  const t = (sie: string, du: string) => kundenText(ctx.branding.firmaSlug, sie, du);
 
   if (!moeglich && !gerade) {
-    // Im Festangebot-Brief steht der Vertrag schon an der Zeile „Ihre Annahme“.
+    // Im Festangebot-Brief steht der Vertrag schon an der Annahme-Zeile.
     if (!vertragUrl || !ctx.acceptance?.unterschrift || ctx.stage > 1 || portalOfferView(ctx) === "festangebot") return null;
     return (
       <section className="portal-panel mt-6" aria-live="polite">
-        <PanelHeading icon={PenLine} title="Ihr unterschriebener Vertrag">
+        <PanelHeading icon={PenLine} title={t("Ihr unterschriebener Vertrag", "Dein unterschriebener Vertrag")}>
           <p>Unterschrieben am {new Date(ctx.acceptance.unterschrift.at).toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" })}.</p>
         </PanelHeading>
         <div className="portal-document-actions">
@@ -59,7 +62,7 @@ export function UnterschriftPanel({
     <section className="portal-panel portal-note mt-6">
       <PanelHeading icon={PenLine} title={BUTTON_VERTRAG_UNTERSCHREIBEN}>
         {/* Geöffnet zeigt das Formular den Hinweis selbst. */}
-        {!offen && <p>{UNTERSCHRIFT_HINWEIS}</p>}
+        {!offen && <p>{unterschriftHinweis(kundenAnrede(ctx.branding.firmaSlug))}</p>}
       </PanelHeading>
       {offen ? (
         <UnterschriftForm

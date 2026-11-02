@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, Info } from "lucide-react";
 import {
   festangebotStatusStep,
+  kundenText,
   offerAcceptanceBlockReason,
   type CustomerPortalContext,
   type KvaLineItem,
@@ -12,7 +13,7 @@ import {
 import { ConfirmKvaDialog } from "./confirm-kva-dialog";
 import { ContactPanel } from "./portal-ui";
 import { AnnahmeZeile, BriefAnrede, BriefGruss, Strecke } from "./brief-teile";
-import { TERMIN_VORBEI_HINWEIS, briefAnrede, briefEinleitung, briefZustand, stempel, strecke, terminVorbeiNachricht } from "./brief";
+import { briefAnrede, briefEinleitung, briefZustand, stempel, strecke, terminVorbeiHinweis, terminVorbeiNachricht } from "./brief";
 import { QuotationPreview } from "./quotation-preview";
 import { formatPortalDate, formatPortalMoney, postenBetraegeZeigen } from "./portal-presentation";
 import { PaymentSection } from "./payment-section";
@@ -89,7 +90,8 @@ export function FestangebotView({
   const standards = kva.showStandardInclusions ? ctx.inclusions : { included: [], optional: [] };
   const showStandards = standards.included.length + standards.optional.length > 0;
   const schedule = scheduleContent(ctx);
-  const steps = nextSteps({
+  const t = (sie: string, du: string) => kundenText(ctx.branding.firmaSlug, sie, du);
+  const steps = nextSteps(ctx.branding.firmaSlug, {
     alreadyAccepted,
     offerExpired,
     terminVorbei: ctx.annahmeRecht.terminVorbei,
@@ -128,19 +130,19 @@ export function FestangebotView({
       <div className="portal-festangebot">
         {ctx.fruehereAnnahmeAufgehoben && !alreadyAccepted && (
           <section className="portal-panel portal-note">
-            <h2 className="portal-fest-title">Ihr Angebot wurde aktualisiert</h2>
-            <p>Wir haben Ihr Angebot angepasst. Bitte prüfen Sie es und nehmen Sie es erneut an.</p>
+            <h2 className="portal-fest-title">{t("Ihr Angebot wurde aktualisiert", "Dein Angebot wurde aktualisiert")}</h2>
+            <p>{t("Wir haben Ihr Angebot angepasst. Bitte prüfen Sie es und nehmen Sie es erneut an.", "Wir haben dein Angebot angepasst. Bitte prüfe es und nimm es erneut an.")}</p>
           </section>
         )}
         {ctx.dateOffers.options.length > 0 && (
           <DateOfferPicker token={token} ctx={ctx} onPicked={onConfirmed} locked={alreadyAccepted} />
         )}
 
-        <article className="portal-panel portal-brief portal-fest-offer" aria-label="Ihr Angebot">
+        <article className="portal-panel portal-brief portal-fest-offer" aria-label={t("Ihr Angebot", "Dein Angebot")}>
           <BriefAnrede
             branding={ctx.branding}
             anrede={briefAnrede(ctx.customerDisplayName)}
-            einleitung={briefEinleitung(zustand, schedule.showDate ? schedule.dateLabel : null, angenommenAm, ctx.annahmeRecht.serviceType)}
+            einleitung={briefEinleitung(zustand, schedule.showDate ? schedule.dateLabel : null, angenommenAm, ctx.annahmeRecht.serviceType, ctx.branding.firmaSlug)}
           />
 
           <div className="portal-brief-preis">
@@ -238,7 +240,7 @@ export function FestangebotView({
           )}
 
           <BriefGruss branding={ctx.branding} />
-          <AnnahmeZeile stempel={stempelListe} vertragUrl={ctx.documents.signedContractUrl}>
+          <AnnahmeZeile firma={ctx.branding.firmaSlug} stempel={stempelListe} vertragUrl={ctx.documents.signedContractUrl}>
             {showBar && (offerExpired ? <ExpiredNotice ctx={ctx} /> : <AcceptButton ctx={ctx} acceptBlock={acceptBlock} onAccept={accept} />)}
           </AnnahmeZeile>
           <EmailCaptureBanner token={token} status={ctx.customerEmailStatus} branding={ctx.branding} variant="zeile" />
@@ -265,7 +267,7 @@ export function FestangebotView({
 
         <QuotationPreview ctx={ctx} token={token} variant="file" />
         <ContactPanel ctx={ctx} token={token} title="Fragen zum Angebot?" />
-        <CustomerPhotosSection token={token} photos={ctx.customerPhotos} primaryColor={ctx.branding.primaryColor} />
+        <CustomerPhotosSection token={token} photos={ctx.customerPhotos} primaryColor={ctx.branding.primaryColor} firmaSlug={ctx.branding.firmaSlug} />
         <FurnitureListSection items={ctx.furnitureList ?? []} primaryColor={ctx.branding.primaryColor} />
       </div>
 
@@ -340,10 +342,10 @@ function AcceptButton({
         {!acceptBlock && <ArrowRight size={17} aria-hidden />}
       </button>
       {acceptBlock === "termin_offen" && (
-        <p>Der Termin wird noch mit Ihnen abgestimmt. Danach können Sie das Angebot hier annehmen.</p>
+        <p>{kundenText(ctx.branding.firmaSlug, "Der Termin wird noch mit Ihnen abgestimmt. Danach können Sie das Angebot hier annehmen.", "Der Termin wird noch mit dir abgestimmt. Danach kannst du das Angebot hier annehmen.")}</p>
       )}
-      {acceptBlock === "date" && <p>Bitte wählen Sie oben einen Termin.</p>}
-      {!acceptBlock && <p>Im nächsten Schritt bestätigen Sie Ihr Angebot. Anschließend erhalten Sie Ihre Bestätigung.</p>}
+      {acceptBlock === "date" && <p>{kundenText(ctx.branding.firmaSlug, "Bitte wählen Sie oben einen Termin.", "Bitte wähle oben einen Termin.")}</p>}
+      {!acceptBlock && <p>{kundenText(ctx.branding.firmaSlug, "Im nächsten Schritt bestätigen Sie Ihr Angebot. Anschließend erhalten Sie Ihre Bestätigung.", "Im nächsten Schritt bestätigst du dein Angebot. Anschließend erhältst du deine Bestätigung.")}</p>}
     </div>
   );
 }
@@ -354,7 +356,7 @@ function ExpiredNotice({ ctx }: { ctx: CustomerPortalContext }) {
   return (
     <div className="portal-fest-expired-note">
       <p>
-        <Info size={16} aria-hidden /> {terminVorbei ? TERMIN_VORBEI_HINWEIS : "Dieses Angebot ist abgelaufen."}
+        <Info size={16} aria-hidden /> {terminVorbei ? terminVorbeiHinweis(ctx.branding.firmaSlug) : "Dieses Angebot ist abgelaufen."}
       </p>
       <WhatsAppContactLink
         phoneE164={ctx.branding.whatsappNumberE164}
@@ -362,9 +364,13 @@ function ExpiredNotice({ ctx }: { ctx: CustomerPortalContext }) {
         message={
           terminVorbei
             ? terminVorbeiNachricht(ctx.branding.displayName, ctx.dealNumber)
-            : `Guten Tag ${ctx.branding.displayName}, das Angebot zu meinem Auftrag ${ctx.dealNumber} ist abgelaufen. Können Sie mir bitte ein aktualisiertes Angebot senden?`
+            : kundenText(
+                ctx.branding.firmaSlug,
+                `Guten Tag ${ctx.branding.displayName}, das Angebot zu meinem Auftrag ${ctx.dealNumber} ist abgelaufen. Können Sie mir bitte ein aktualisiertes Angebot senden?`,
+                `Guten Tag ${ctx.branding.displayName}, das Angebot zu meinem Auftrag ${ctx.dealNumber} ist abgelaufen. Kannst du mir bitte ein aktualisiertes Angebot senden?`,
+              )
         }
-        fallback={<p>Antworten Sie auf die Nachricht, mit der Sie diesen Link erhalten haben.</p>}
+        fallback={<p>{kundenText(ctx.branding.firmaSlug, "Antworten Sie auf die Nachricht, mit der Sie diesen Link erhalten haben.", "Antworte auf die Nachricht, mit der du diesen Link erhalten hast.")}</p>}
       />
     </div>
   );
@@ -427,7 +433,7 @@ function scheduleContent(ctx: CustomerPortalContext) {
   };
 }
 
-function nextSteps(input: {
+function nextSteps(firma: string, input: {
   alreadyAccepted: boolean;
   offerExpired: boolean;
   terminVorbei: boolean;
@@ -437,32 +443,36 @@ function nextSteps(input: {
   hasAddress: boolean;
   hasServices: boolean;
 }): string[] {
+  const t = (sie: string, du: string) => kundenText(firma, sie, du);
   if (input.offerExpired) {
-    if (input.terminVorbei) return [TERMIN_VORBEI_HINWEIS];
-    return ["Dieses Angebot ist abgelaufen. Schreiben Sie uns, dann senden wir Ihnen ein aktualisiertes Angebot."];
+    if (input.terminVorbei) return [terminVorbeiHinweis(firma)];
+    return [t("Dieses Angebot ist abgelaufen. Schreiben Sie uns, dann senden wir Ihnen ein aktualisiertes Angebot.", "Dieses Angebot ist abgelaufen. Schreib uns, dann senden wir dir ein aktualisiertes Angebot.")];
   }
   if (input.alreadyAccepted) {
-    const lines = ["Ihre Annahme ist eingegangen. Die Auftragsbestätigung erscheint hier, sobald sie bereitsteht."];
+    const lines = [t("Ihre Annahme ist eingegangen. Die Auftragsbestätigung erscheint hier, sobald sie bereitsteht.", "Deine Annahme ist eingegangen. Die Auftragsbestätigung erscheint hier, sobald sie bereitsteht.")];
     if (input.depositCents > 0) lines.push(`Die Anzahlung von ${formatPortalMoney(input.depositCents)} wird mit der Bestätigung fällig.`);
     return lines;
   }
   if (input.acceptBlock === "termin_offen") {
-    return ["Der Termin wird noch mit Ihnen abgestimmt. Danach können Sie das Angebot hier annehmen."];
+    return [t("Der Termin wird noch mit Ihnen abgestimmt. Danach können Sie das Angebot hier annehmen.", "Der Termin wird noch mit dir abgestimmt. Danach kannst du das Angebot hier annehmen.")];
   }
   if (input.acceptBlock === "date") {
-    return ["Bitte wählen Sie einen der vorgeschlagenen Termine. Danach können Sie das Angebot annehmen."];
+    return [t("Bitte wählen Sie einen der vorgeschlagenen Termine. Danach können Sie das Angebot annehmen.", "Bitte wähle einen der vorgeschlagenen Termine. Danach kannst du das Angebot annehmen.")];
   }
   const subjects = [
     input.hasServices ? "Leistungen" : null,
     input.hasDate ? "Termin" : null,
     input.hasAddress ? "Adressen" : null,
   ].filter((part): part is string => !!part);
-  const lines = subjects.length > 0 ? [`Prüfen Sie ${undListe(subjects)}.`] : [];
-  lines.push("Nehmen Sie das Angebot an, wenn alles passt.");
+  const lines = subjects.length > 0 ? [t(`Prüfen Sie ${undListe(subjects)}.`, `Prüfe ${undListe(subjects)}.`)] : [];
+  lines.push(t("Nehmen Sie das Angebot an, wenn alles passt.", "Nimm das Angebot an, wenn alles passt."));
   if (input.depositCents > 0) {
-    lines.push(`Danach wird die Anzahlung von ${formatPortalMoney(input.depositCents)} fällig. Anschließend erhalten Sie die Auftragsbestätigung.`);
+    lines.push(t(
+      `Danach wird die Anzahlung von ${formatPortalMoney(input.depositCents)} fällig. Anschließend erhalten Sie die Auftragsbestätigung.`,
+      `Danach wird die Anzahlung von ${formatPortalMoney(input.depositCents)} fällig. Anschließend erhältst du die Auftragsbestätigung.`,
+    ));
   } else {
-    lines.push("Anschließend erhalten Sie die Auftragsbestätigung.");
+    lines.push(t("Anschließend erhalten Sie die Auftragsbestätigung.", "Anschließend erhältst du die Auftragsbestätigung."));
   }
   return lines;
 }

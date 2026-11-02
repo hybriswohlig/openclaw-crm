@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type {
-  CustomerPortalContext,
-  DateOfferOption,
-  DateOfferSlot,
+import {
+  kundenText,
+  type CustomerPortalContext,
+  type DateOfferOption,
+  type DateOfferSlot,
 } from "@openclaw-crm/customer-portal-core";
 import { WhatsAppContactLink } from "./whatsapp-contact-link";
 
@@ -13,7 +14,7 @@ import { WhatsAppContactLink } from "./whatsapp-contact-link";
  *
  * - Renders a card per candidate date with slot pills. Tapping a slot
  *   confirms (mobile-friendly two-tap) so the customer never picks blind.
- * - Once a selection exists we collapse to a calm "Sie haben ... gewählt"
+ * - Once a selection exists we collapse to a calm confirmation of the chosen date.
  *   summary with an "Ändern" button that re-opens the picker.
  * - Layout: stack on mobile, 2-column grid from `md`, 3-column from `xl`.
  *   Card height matches with `flex-col` so a recommendation badge does not
@@ -39,6 +40,7 @@ export function DateOfferPicker({
   const [editing, setEditing] = useState(false);
 
   const accent = `#${ctx.branding.primaryColor}`;
+  const t = (sie: string, du: string) => kundenText(ctx.branding.firmaSlug, sie, du);
 
   const selectedOption = useMemo(
     () =>
@@ -60,7 +62,7 @@ export function DateOfferPicker({
         <div className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-              Ihr gewählter Termin
+              {t("Ihr gewählter Termin", "Dein gewählter Termin")}
             </div>
             <div className="display mt-1 text-xl font-medium text-foreground sm:text-2xl">
               {formatDateLong(selection.selectedDate)}
@@ -102,7 +104,7 @@ export function DateOfferPicker({
         const body = (await res.json().catch(() => ({}))) as {
           error?: { code?: string };
         };
-        setError(germanError(body.error?.code));
+        setError(germanError(ctx.branding.firmaSlug, body.error?.code));
         return;
       }
       setEditing(false);
@@ -110,7 +112,7 @@ export function DateOfferPicker({
       setPendingSlot(null);
       onPicked();
     } catch {
-      setError("Verbindungsfehler. Bitte versuchen Sie es erneut.");
+      setError(t("Verbindungsfehler. Bitte versuchen Sie es erneut.", "Verbindungsfehler. Bitte versuche es erneut."));
     } finally {
       setSubmitting(false);
     }
@@ -140,8 +142,7 @@ export function DateOfferPicker({
 
       <div className="p-4 sm:p-6">
         <p className="mb-4 text-sm leading-relaxed text-muted-foreground sm:mb-5">
-          Wir haben Ihnen die folgenden Termine reserviert. Bitte wählen Sie
-          eine Variante, damit wir verbindlich für Sie planen können.
+          {t("Wir haben Ihnen die folgenden Termine reserviert. Bitte wählen Sie eine Variante, damit wir verbindlich für Sie planen können.", "Wir haben dir die folgenden Termine reserviert. Bitte wähle eine Variante, damit wir verbindlich für dich planen können.")}
         </p>
 
         <div className="grid gap-3 sm:gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -175,13 +176,12 @@ export function DateOfferPicker({
           <span>Keiner der Termine passt?</span>
           <WhatsAppContactLink
             phoneE164={ctx.branding.whatsappNumberE164}
-            label="Schreiben Sie uns kurz"
+            label={t("Schreiben Sie uns kurz", "Schreib uns kurz")}
             message={`Hallo ${ctx.branding.displayName}, die vorgeschlagenen Termine passen bei mir leider nicht. Welche Alternativen gibt es?`}
             className="inline-flex min-h-11 items-center gap-1.5 text-sm font-medium text-foreground underline underline-offset-4"
             fallback={
               <span>
-                Antworten Sie uns einfach auf die Nachricht, mit der Sie diesen
-                Link erhalten haben.
+                {t("Antworten Sie uns einfach auf die Nachricht, mit der Sie diesen Link erhalten haben.", "Antworte uns einfach auf die Nachricht, mit der du diesen Link erhalten hast.")}
               </span>
             }
           />
@@ -336,7 +336,8 @@ function formatWeekday(ymd: string): string {
   return d.toLocaleDateString("de-DE", { weekday: "long" });
 }
 
-function germanError(code: string | undefined): string {
+function germanError(firma: string, code: string | undefined): string {
+  const t = (sie: string, du: string) => kundenText(firma, sie, du);
   switch (code) {
     case "OFFER_NOT_FOUND":
       return "Dieser Termin ist nicht mehr verfügbar. Bitte Seite neu laden.";
@@ -347,6 +348,6 @@ function germanError(code: string | undefined): string {
     case "NOT_FOUND":
       return "Link nicht gefunden.";
     default:
-      return "Es ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut.";
+      return t("Es ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut.", "Es ist ein Fehler aufgetreten. Bitte versuche es erneut.");
   }
 }

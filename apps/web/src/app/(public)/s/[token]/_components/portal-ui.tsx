@@ -1,7 +1,7 @@
 "use client";
 
 import { CalendarDays, MapPin, Truck, UserRound, ClipboardList, MessageCircle, Phone, Check, UsersRound, Package, Clock3, type LucideIcon } from "lucide-react";
-import type { CustomerPortalContext } from "@openclaw-crm/customer-portal-core";
+import { kundenText, type CustomerPortalContext } from "@openclaw-crm/customer-portal-core";
 import { PortalRequestForm } from "./portal-request-form";
 import { WhatsAppContactLink } from "./whatsapp-contact-link";
 import { formatPortalDate, formatPortalMoney, selectedPortalPackage } from "./portal-presentation";
@@ -31,6 +31,7 @@ function AddressAccess({ floor, access }: { floor: number | null; access: string
 export function OrderDetails({ ctx, token, wide = false }: { ctx: CustomerPortalContext; token: string; wide?: boolean }) {
   const { scope } = ctx;
   const pkg = selectedPortalPackage(ctx);
+  const t = (sie: string, du: string) => kundenText(ctx.branding.firmaSlug, sie, du);
   return <section className={`portal-panel portal-order-details ${wide ? "portal-order-wide" : ""}`}>
     <PanelHeading icon={ClipboardList} title="Auftragsdetails" />
     <dl className="portal-details-grid">
@@ -42,34 +43,36 @@ export function OrderDetails({ ctx, token, wide = false }: { ctx: CustomerPortal
       {scope.volumeCbm != null && <DetailItem icon={Package} label="Umzugsvolumen">ca. {scope.volumeCbm} m³</DetailItem>}
       {(scope.specialRequests || scope.inventoryNotes) && <DetailItem icon={ClipboardList} label="Besonderheiten">{[scope.specialRequests, scope.inventoryNotes].filter(Boolean).join("\n")}</DetailItem>}
     </dl>
-    {ctx.stage < 4 && <div className="portal-detail-action"><PortalRequestForm token={token} kind="question" triggerLabel={ctx.stage === 1 ? "Änderung anfragen" : "Änderung nach Absprache anfragen"} title="Änderung Ihrer Auftragsdetails" primaryColor={ctx.branding.primaryColor} /></div>}
+    {ctx.stage < 4 && <div className="portal-detail-action"><PortalRequestForm token={token} firmaSlug={ctx.branding.firmaSlug} kind="question" triggerLabel={ctx.stage === 1 ? "Änderung anfragen" : "Änderung nach Absprache anfragen"} title={t("Änderung Ihrer Auftragsdetails", "Änderung deiner Auftragsdetails")} primaryColor={ctx.branding.primaryColor} /></div>}
   </section>;
 }
 
 export function SuccessBanner({ ctx, completed = false }: { ctx: CustomerPortalContext; completed?: boolean }) {
+  const t = (sie: string, du: string) => kundenText(ctx.branding.firmaSlug, sie, du);
   return <section className="portal-success">
     {ctx.branding.firmaSlug === "kottke" && <div className="portal-success-art" aria-hidden />}
     <div className="portal-success-content"><span className="portal-success-check"><Check aria-hidden /></span><div>
       <p className="portal-eyebrow">{completed ? "Umzug abgeschlossen" : "Auftrag bestätigt"}</p>
-      <h2>{completed ? "Ihr Umzug ist abgeschlossen!" : "Vielen Dank für Ihr Vertrauen!"}</h2>
-      <p>{completed ? "Vielen Dank für Ihr Vertrauen. Wir wünschen Ihnen viel Freude in Ihrem neuen Zuhause." : "Ihr Auftrag wurde bestätigt. Wir freuen uns auf Ihren Umzug und sind bei Fragen jederzeit für Sie da."}</p>
+      <h2>{completed ? t("Ihr Umzug ist abgeschlossen!", "Dein Umzug ist abgeschlossen!") : t("Vielen Dank für Ihr Vertrauen!", "Vielen Dank für dein Vertrauen!")}</h2>
+      <p>{completed ? t("Vielen Dank für Ihr Vertrauen. Wir wünschen Ihnen viel Freude in Ihrem neuen Zuhause.", "Vielen Dank für dein Vertrauen. Wir wünschen dir viel Freude in deinem neuen Zuhause.") : t("Ihr Auftrag wurde bestätigt. Wir freuen uns auf Ihren Umzug und sind bei Fragen jederzeit für Sie da.", "Dein Auftrag wurde bestätigt. Wir freuen uns auf deinen Umzug und sind bei Fragen jederzeit für dich da.")}</p>
     </div></div>
-    {!completed && <div className="portal-success-facts"><CalendarDays aria-hidden /><div><strong>Ihr Umzugstermin</strong><p>{formatPortalDate(ctx.scope.moveDate) ?? "Wir stimmen Ihren Termin mit Ihnen ab."}{ctx.scope.timeStart && ` · ab ${ctx.scope.timeStart} Uhr`}</p></div></div>}
+    {!completed && <div className="portal-success-facts"><CalendarDays aria-hidden /><div><strong>{t("Ihr Umzugstermin", "Dein Umzugstermin")}</strong><p>{formatPortalDate(ctx.scope.moveDate) ?? t("Wir stimmen Ihren Termin mit Ihnen ab.", "Wir stimmen deinen Termin mit dir ab.")}{ctx.scope.timeStart && ` · ab ${ctx.scope.timeStart} Uhr`}</p></div></div>}
   </section>;
 }
 
 export function ContactPanel({ ctx, token, title = "Fragen zum Auftrag?" }: { ctx: CustomerPortalContext; token: string; title?: string }) {
   const phone = ctx.branding.whatsappNumberE164?.replace(/[^\d]/g, "");
+  const t = (sie: string, du: string) => kundenText(ctx.branding.firmaSlug, sie, du);
   return <section className="portal-panel portal-contact">
-    <PanelHeading icon={MessageCircle} title={title}><p>Bei Fragen zu Ihrem Auftrag sind wir für Sie da.</p></PanelHeading>
+    <PanelHeading icon={MessageCircle} title={title}><p>{t("Bei Fragen zu Ihrem Auftrag sind wir für Sie da.", "Bei Fragen zu deinem Auftrag sind wir für dich da.")}</p></PanelHeading>
     {phone && <div className="portal-contact-buttons"><a className="portal-button portal-button-secondary" href={`tel:+${phone}`}><Phone size={17} aria-hidden />Anrufen</a><WhatsAppContactLink phoneE164={phone} label="WhatsApp" message={`Hallo ${ctx.branding.displayName}, ich habe eine Frage zu meinem Auftrag ${ctx.dealNumber}.`} className="portal-button portal-button-secondary" /></div>}
-    <PortalRequestForm token={token} kind="question" triggerLabel="Nachricht senden" title="Ihre Nachricht an uns" primaryColor={ctx.branding.primaryColor} />
+    <PortalRequestForm token={token} firmaSlug={ctx.branding.firmaSlug} kind="question" triggerLabel="Nachricht senden" title={t("Ihre Nachricht an uns", "Deine Nachricht an uns")} primaryColor={ctx.branding.primaryColor} />
   </section>;
 }
 
 export function CrewPanel({ ctx }: { ctx: CustomerPortalContext }) {
   if (!ctx.crew.length) return null;
-  return <section className="portal-panel"><PanelHeading icon={UsersRound} title="Ihr Umzugsteam"><p>{ctx.crew.length} {ctx.crew.length === 1 ? "Mitarbeiter" : "Mitarbeitende"}</p></PanelHeading><ul className="portal-crew">{ctx.crew.map(member => <li key={member.employeeId}>
+  return <section className="portal-panel"><PanelHeading icon={UsersRound} title={kundenText(ctx.branding.firmaSlug, "Ihr Umzugsteam", "Dein Umzugsteam")}><p>{ctx.crew.length} {ctx.crew.length === 1 ? "Mitarbeiter" : "Mitarbeitende"}</p></PanelHeading><ul className="portal-crew">{ctx.crew.map(member => <li key={member.employeeId}>
     {member.photoBase64DataUrl ?
       // eslint-disable-next-line @next/next/no-img-element
       <img src={member.photoBase64DataUrl} alt="" /> : <span className="portal-avatar">{member.name.trim().split(/\s+/).map(n => n[0]).slice(0, 2).join("")}</span>}
@@ -84,7 +87,7 @@ export function CompletionSummary({ ctx }: { ctx: CustomerPortalContext }) {
   const items = selectedPortalPackage(ctx)?.includedItems ?? [];
   if (!ctx.scope.workerCount && !ctx.crew.length && !ctx.scope.transporterName && !items.length && !(duration != null && duration >= 0)) return null;
   return <section className="portal-panel"><PanelHeading icon={ClipboardList} title="Kurz zusammengefasst" /><dl className="portal-summary-grid">
-    {(ctx.scope.workerCount || ctx.crew.length) > 0 && <DetailItem icon={UsersRound} label="Ihr Team">{ctx.scope.workerCount ?? ctx.crew.length} Mitarbeitende</DetailItem>}
+    {(ctx.scope.workerCount || ctx.crew.length) > 0 && <DetailItem icon={UsersRound} label={kundenText(ctx.branding.firmaSlug, "Ihr Team", "Dein Team")}>{ctx.scope.workerCount ?? ctx.crew.length} Mitarbeitende</DetailItem>}
     {ctx.scope.transporterName && <DetailItem icon={Truck} label="Fahrzeug">{ctx.scope.transporterName}</DetailItem>}
     {items.length > 0 && <DetailItem icon={Package} label="Vereinbarte Leistungen"><ul>{items.map(item => <li key={item}>{item}</li>)}</ul></DetailItem>}
     {duration != null && duration >= 0 && <DetailItem icon={Clock3} label="Erfasste Zeit">{duration.toLocaleString("de-DE", { maximumFractionDigits: 1 })} Stunden</DetailItem>}

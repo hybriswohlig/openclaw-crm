@@ -6,6 +6,7 @@ import { CheckCircle2, Undo2 } from "lucide-react";
 import {
   BUTTON_VERTRAG_WIDERRUFEN,
   BUTTON_WIDERRUF_BESTAETIGEN,
+  kundenText,
   type CustomerPortalContext,
   type WiderrufKanal,
 } from "@openclaw-crm/customer-portal-core";
@@ -33,15 +34,18 @@ export function WiderrufPanel({
 }) {
   const w = ctx.widerruf;
   const [open, setOpen] = useState(false);
+  const t = (sie: string, du: string) => kundenText(ctx.branding.displayName, sie, du);
 
   if (w.eingegangen) {
     const at = new Date(w.eingegangen.at);
     return (
       <section className="portal-panel portal-widerruf mb-4" aria-live="polite">
-        <PanelHeading icon={CheckCircle2} title="Ihr Widerruf ist eingegangen">
+        <PanelHeading icon={CheckCircle2} title={t("Ihr Widerruf ist eingegangen", "Dein Widerruf ist eingegangen")}>
           <p>
-            Eingegangen am {datumZeit(at)}. Eine Eingangsbestätigung geht Ihnen per E-Mail oder WhatsApp zu.
-            Wegen bereits geleisteter Zahlungen melden wir uns bei Ihnen.
+            {t(
+              `Eingegangen am ${datumZeit(at)}. Eine Eingangsbestätigung geht Ihnen per E-Mail oder WhatsApp zu. Wegen bereits geleisteter Zahlungen melden wir uns bei Ihnen.`,
+              `Eingegangen am ${datumZeit(at)}. Eine Eingangsbestätigung geht dir per E-Mail oder WhatsApp zu. Wegen bereits geleisteter Zahlungen melden wir uns bei dir.`,
+            )}
           </p>
         </PanelHeading>
         <p className="text-sm text-muted-foreground">{w.eingegangen.vertrag}</p>
@@ -54,7 +58,7 @@ export function WiderrufPanel({
     <section className="portal-panel portal-widerruf mb-4" aria-label="Widerrufsrecht">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm leading-relaxed">
-          <strong>Widerrufsrecht:</strong> Sie können diesen Vertrag bis einschließlich{" "}
+          <strong>Widerrufsrecht:</strong> {t("Sie können diesen Vertrag bis einschließlich", "Du kannst diesen Vertrag bis einschließlich")}{" "}
           {formatPortalDate(w.fristEnde) ?? w.fristEnde} widerrufen.
         </p>
         <button
@@ -91,6 +95,7 @@ function WiderrufDialog({
   onWiderrufen: () => void | Promise<void>;
 }) {
   const w = ctx.widerruf;
+  const t = (sie: string, du: string) => kundenText(ctx.branding.displayName, sie, du);
   const [name, setName] = useState(w.name ?? "");
   const [kanal, setKanal] = useState<WiderrufKanal>(standardKanal(w));
   const [email, setEmail] = useState("");
@@ -124,14 +129,14 @@ function WiderrufDialog({
       });
       const body = (await res.json().catch(() => ({}))) as { data?: { eingegangenAt?: string }; error?: { code?: string } };
       if (!res.ok || !body.data?.eingegangenAt) {
-        setError(fehlerText(body.error?.code));
+        setError(fehlerText(ctx.branding.displayName, body.error?.code));
         // Server sieht einen anderen Stand (neue Annahme, Frist vorbei): Seite neu laden.
         if (NEU_LADEN_BEI.has(body.error?.code ?? "")) void onWiderrufen();
         return;
       }
       setEingegangenAt(body.data.eingegangenAt);
     } catch {
-      setError("Verbindungsfehler. Bitte versuchen Sie es erneut.");
+      setError(t("Verbindungsfehler. Bitte versuchen Sie es erneut.", "Verbindungsfehler. Bitte versuche es erneut."));
     } finally {
       setSubmitting(false);
     }
@@ -152,8 +157,10 @@ function WiderrufDialog({
             <>
               <DialogPrimitive.Title className="text-2xl font-bold tracking-tight">Widerruf eingegangen</DialogPrimitive.Title>
               <DialogPrimitive.Description className="mt-3 text-sm leading-relaxed">
-                Ihr Widerruf ist am {datumZeit(new Date(eingegangenAt))} bei uns eingegangen. Die Eingangsbestätigung
-                schicken wir Ihnen {kanalBeschreibung}.
+                {t(
+                  `Ihr Widerruf ist am ${datumZeit(new Date(eingegangenAt))} bei uns eingegangen. Die Eingangsbestätigung schicken wir Ihnen ${kanalBeschreibung}.`,
+                  `Dein Widerruf ist am ${datumZeit(new Date(eingegangenAt))} bei uns eingegangen. Die Eingangsbestätigung schicken wir dir ${kanalBeschreibung}.`,
+                )}
               </DialogPrimitive.Description>
               <button
                 type="button"
@@ -168,8 +175,10 @@ function WiderrufDialog({
             <>
               <DialogPrimitive.Title className="text-2xl font-bold tracking-tight">{BUTTON_VERTRAG_WIDERRUFEN}</DialogPrimitive.Title>
               <DialogPrimitive.Description className="mt-1 text-sm text-muted-foreground">
-                Bitte prüfen Sie Ihre Angaben. Erst mit „{BUTTON_WIDERRUF_BESTAETIGEN}“ geht der Widerruf an{" "}
-                {ctx.branding.displayName}.
+                {t(
+                  `Bitte prüfen Sie Ihre Angaben. Erst mit „${BUTTON_WIDERRUF_BESTAETIGEN}“ geht der Widerruf an ${ctx.branding.displayName}.`,
+                  `Bitte prüfe deine Angaben. Erst mit „${BUTTON_WIDERRUF_BESTAETIGEN}“ geht der Widerruf an ${ctx.branding.displayName}.`,
+                )}
               </DialogPrimitive.Description>
 
               <div className="mt-5 rounded-xl border border-border/60 bg-card px-4 py-3 text-sm leading-relaxed">
@@ -178,7 +187,7 @@ function WiderrufDialog({
               </div>
 
               <label className="mt-4 block text-sm font-medium" htmlFor="widerruf-name">
-                Ihr Name
+                {t("Ihr Name", "Dein Name")}
               </label>
               <input
                 id="widerruf-name"
@@ -198,7 +207,7 @@ function WiderrufDialog({
                   )}
                   {w.whatsapp && (
                     <KanalOption id="widerruf-kanal-whatsapp" checked={kanal === "whatsapp"} onSelect={() => setKanal("whatsapp")}>
-                      WhatsApp an die Nummer, mit der Sie uns schreiben
+                      {t("WhatsApp an die Nummer, mit der Sie uns schreiben", "WhatsApp an die Nummer, mit der du uns schreibst")}
                     </KanalOption>
                   )}
                   <KanalOption id="widerruf-kanal-neu" checked={kanal === "email_neu"} onSelect={() => setKanal("email_neu")}>
@@ -279,25 +288,26 @@ function datumZeit(d: Date): string {
 
 const NEU_LADEN_BEI = new Set(["ANGEBOT_GEAENDERT", "FRIST_ABGELAUFEN", "KEINE_ANNAHME", "KEIN_WIDERRUFSRECHT"]);
 
-function fehlerText(code: string | undefined): string {
+function fehlerText(firma: string, code: string | undefined): string {
+  const t = (sie: string, du: string) => kundenText(firma, sie, du);
   switch (code) {
     case "ANGEBOT_GEAENDERT":
-      return "Ihr Auftrag wurde inzwischen geändert. Bitte prüfen Sie die Seite und widerrufen Sie bei Bedarf erneut.";
+      return t("Ihr Auftrag wurde inzwischen geändert. Bitte prüfen Sie die Seite und widerrufen Sie bei Bedarf erneut.", "Dein Auftrag wurde inzwischen geändert. Bitte prüfe die Seite und widerrufe bei Bedarf erneut.");
     case "KEIN_WIDERRUFSRECHT":
-      return "Für diesen Auftrag besteht kein gesetzliches Widerrufsrecht. Bei Fragen schreiben Sie uns gern.";
+      return t("Für diesen Auftrag besteht kein gesetzliches Widerrufsrecht. Bei Fragen schreiben Sie uns gern.", "Für diesen Auftrag besteht kein gesetzliches Widerrufsrecht. Bei Fragen schreib uns gern.");
     case "FRIST_ABGELAUFEN":
-      return "Die Widerrufsfrist ist abgelaufen. Bei Fragen schreiben Sie uns gern.";
+      return t("Die Widerrufsfrist ist abgelaufen. Bei Fragen schreiben Sie uns gern.", "Die Widerrufsfrist ist abgelaufen. Bei Fragen schreib uns gern.");
     case "KANAL_UNAVAILABLE":
-      return "Dieser Weg für die Bestätigung ist gerade nicht verfügbar. Bitte geben Sie eine E-Mail-Adresse an.";
+      return t("Dieser Weg für die Bestätigung ist gerade nicht verfügbar. Bitte geben Sie eine E-Mail-Adresse an.", "Dieser Weg für die Bestätigung ist gerade nicht verfügbar. Bitte gib eine E-Mail-Adresse an.");
     case "KEINE_ANNAHME":
       return "Für diesen Auftrag liegt keine Annahme mehr vor.";
     case "BAD_REQUEST":
-      return "Bitte geben Sie Ihren Namen und eine gültige E-Mail-Adresse an.";
+      return t("Bitte geben Sie Ihren Namen und eine gültige E-Mail-Adresse an.", "Bitte gib deinen Namen und eine gültige E-Mail-Adresse an.");
     case "REVOKED":
-      return "Dieser Link ist nicht mehr aktiv. Bitte schreiben Sie uns Ihren Widerruf per E-Mail.";
+      return t("Dieser Link ist nicht mehr aktiv. Bitte schreiben Sie uns Ihren Widerruf per E-Mail.", "Dieser Link ist nicht mehr aktiv. Bitte schreib uns deinen Widerruf per E-Mail.");
     case "NOT_FOUND":
       return "Link nicht gefunden.";
     default:
-      return "Es ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut oder schreiben Sie uns per E-Mail.";
+      return t("Es ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut oder schreiben Sie uns per E-Mail.", "Es ist ein Fehler aufgetreten. Bitte versuche es erneut oder schreib uns per E-Mail.");
   }
 }

@@ -9,6 +9,7 @@ import { and, desc, eq, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { customerStatusLinks, kvaConfirmations, kvaWiderrufe } from "@/db/schema/customer-portal";
 import {
+  kundenText,
   validateTokenShape,
   widerrufsfristEnde,
   widerrufsfunktionAktiv,
@@ -54,8 +55,11 @@ export function kanalVerfuegbar(kanal: WiderrufKanal, k: { emailBekannt: boolean
   return true;
 }
 
-function kanalText(kanal: string, email: string | null): string {
-  return kanal === "whatsapp" ? "per WhatsApp an die Nummer, mit der Sie uns schreiben" : `per E-Mail an ${email ?? "Ihre E-Mail-Adresse"}`;
+function kanalText(kanal: string, email: string | null, firma?: string | null): string {
+  const t = (sie: string, du: string) => kundenText(firma, sie, du);
+  return kanal === "whatsapp"
+    ? t("per WhatsApp an die Nummer, mit der Sie uns schreiben", "per WhatsApp an die Nummer, mit der du uns schreibst")
+    : t(`per E-Mail an ${email ?? "Ihre E-Mail-Adresse"}`, `per E-Mail an ${email ?? "deine E-Mail-Adresse"}`);
 }
 
 export type BestaetigungsWeg = { art: "whatsapp" } | { art: "email"; an: string };
@@ -80,18 +84,25 @@ export function eingangsbestaetigungText(input: {
   kanalText: string;
   eingegangenAt: Date;
 }): string {
+  const t = (sie: string, du: string) => kundenText(input.firma, sie, du);
   return [
-    "Eingangsbestätigung Ihres Widerrufs",
+    t("Eingangsbestätigung Ihres Widerrufs", "Eingangsbestätigung deines Widerrufs"),
     `Guten Tag ${input.name},`,
-    `Ihr Widerruf ist am ${datumLang(input.eingegangenAt)} um ${uhrzeit(input.eingegangenAt)} Uhr über die Widerrufsfunktion in Ihrem Kundenportal bei uns eingegangen.`,
+    t(
+      `Ihr Widerruf ist am ${datumLang(input.eingegangenAt)} um ${uhrzeit(input.eingegangenAt)} Uhr über die Widerrufsfunktion in Ihrem Kundenportal bei uns eingegangen.`,
+      `Dein Widerruf ist am ${datumLang(input.eingegangenAt)} um ${uhrzeit(input.eingegangenAt)} Uhr über die Widerrufsfunktion in deinem Kundenportal bei uns eingegangen.`,
+    ),
     [
-      "Inhalt Ihrer Erklärung:",
+      t("Inhalt Ihrer Erklärung:", "Inhalt deiner Erklärung:"),
       "Hiermit widerrufe ich den Vertrag.",
       `Name: ${input.name}`,
       `Vertrag: ${input.vertrag}`,
       `Eingangsbestätigung ${input.kanalText}`,
     ].join("\n"),
-    "Wie es mit bereits geleisteten Zahlungen weitergeht, richtet sich nach der Widerrufsbelehrung. Wir melden uns dazu bei Ihnen.",
+    t(
+      "Wie es mit bereits geleisteten Zahlungen weitergeht, richtet sich nach der Widerrufsbelehrung. Wir melden uns dazu bei Ihnen.",
+      "Wie es mit bereits geleisteten Zahlungen weitergeht, richtet sich nach der Widerrufsbelehrung. Wir melden uns dazu bei dir.",
+    ),
     `Freundliche Grüße\n${input.firma}`,
   ].join("\n\n");
 }
@@ -425,7 +436,7 @@ async function versandBeanspruchen(id: string): Promise<WiderrufRow | null> {
   return row ?? null;
 }
 
-async function wegSenden(row: WiderrufRow, weg: BestaetigungsWeg, text: string, dealNumber: string): Promise<boolean> {
+async function wegSenden(row: WiderrufRow, weg: BestaetigungsWeg, text: string, dealNumber: string, firma: string): Promise<boolean> {
   try {
     if (weg.art === "whatsapp") {
       const thread = await ladeKundenWaThread(row.workspaceId, row.dealRecordId);
@@ -440,7 +451,7 @@ async function wegSenden(row: WiderrufRow, weg: BestaetigungsWeg, text: string, 
       channelAccountId: transport.account.id,
       dealRecordId: row.dealRecordId,
       to: weg.an,
-      subject: `Eingangsbestätigung Ihres Widerrufs, Auftrag ${dealNumber}`,
+      subject: `${kundenText(firma, "Eingangsbestätigung Ihres Widerrufs", "Eingangsbestätigung deines Widerrufs")}, Auftrag ${dealNumber}`,
       body: text,
     });
     return true;
@@ -457,13 +468,13 @@ async function eingangBestaetigen(widerrufId: string, info: NachlaufInfo): Promi
     firma: info.firma,
     name: row.name,
     vertrag: row.vertrag,
-    kanalText: kanalText(row.kanal, row.email),
+    kanalText: kanalText(row.kanal, row.email, info.firma),
     eingegangenAt: row.eingegangenAt,
   });
   const bekannteEmail = row.kanal === "whatsapp" ? await loadCustomerEmail(row.workspaceId, row.dealRecordId).catch(() => null) : null;
   const kanaele: string[] = [];
   for (const weg of bestaetigungsWege({ kanal: row.kanal, email: row.email, bekannteEmail })) {
-    if (await wegSenden(row, weg, text, info.dealNumber)) kanaele.push(weg.art);
+    if (await wegSenden(row, weg, text, info.dealNumber, info.firma)) kanaele.push(weg.art);
   }
   await db
     .update(kvaWiderrufe)

@@ -79,8 +79,20 @@ describe("Fix-Durchgang Bestätigung", () => {
     expect(t).not.toContain("Im Anhang");
     expect(t).toContain(umzug.portalUrl);
   });
-  it("Mail mit PDF und AGB: nennt beide Anhänge", () => {
-    expect(bestaetigungsMailText({ ...umzug, pdfDabei: true, agbDabei: true })).toContain("Im Anhang finden Sie das angenommene Angebot als PDF und unsere AGB");
+  it("Mail mit PDF und AGB: Kottke duzt, Ceylan bleibt beim Sie", () => {
+    expect(bestaetigungsMailText({ ...umzug, pdfDabei: true, agbDabei: true })).toContain(
+      "Im Anhang findest du das angenommene Angebot als PDF und unsere AGB",
+    );
+    expect(bestaetigungsTextWhatsApp(umzug)).toContain("dein Auftrag ist verbindlich erteilt");
+    const ceylan = bestaetigungsMailText({
+      ...umzug,
+      firma: "Ceylan Umzüge & Transporte",
+      kontakt: firmaKontakt("ceylan"),
+      pdfDabei: true,
+      agbDabei: true,
+    });
+    expect(ceylan).toContain("Im Anhang finden Sie das angenommene Angebot als PDF und unsere AGB");
+    expect(ceylan).toContain("vielen Dank für Ihren Auftrag");
   });
 });
 

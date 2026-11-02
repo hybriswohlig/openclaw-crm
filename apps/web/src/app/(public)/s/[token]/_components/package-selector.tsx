@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Check, Loader2, Package, Star, X, Plus, FileText } from "lucide-react";
 import { WhatsAppContactLink } from "./whatsapp-contact-link";
 import { formatPortalMoney } from "./portal-presentation";
-import { pickDefaultDealOption } from "@openclaw-crm/customer-portal-core";
+import { kundenText, pickDefaultDealOption } from "@openclaw-crm/customer-portal-core";
 import type {
   DealPackageOffersContext,
   DealPackageOption,
@@ -93,6 +93,7 @@ function DealOptionPicker({
   const [error, setError] = useState<string | null>(null);
 
   const accent = `#${branding.primaryColor}`;
+  const t = (sie: string, du: string) => kundenText(branding.firmaSlug, sie, du);
   const defaulted = pickDefaultDealOption(offers.options, offers.selectedOptionId);
   const currentId = defaulted?.id ?? offers.selectedOptionId;
 
@@ -121,12 +122,12 @@ function DealOptionPicker({
         const body = (await res.json().catch(() => ({}))) as {
           error?: { code?: string };
         };
-        setError(germanError(body.error?.code));
+        setError(germanError(branding.firmaSlug, body.error?.code));
         return;
       }
       await onPicked();
     } catch {
-      setError("Verbindungsfehler. Bitte versuchen Sie es erneut.");
+      setError(t("Verbindungsfehler. Bitte versuchen Sie es erneut.", "Verbindungsfehler. Bitte versuche es erneut."));
     } finally {
       setPendingId(null);
     }
@@ -143,10 +144,10 @@ function DealOptionPicker({
       <div className="flex items-end justify-between gap-2">
         <h2 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
           {locked && selected
-            ? "Ihr angenommenes Angebot"
+            ? t("Ihr angenommenes Angebot", "Dein angenommenes Angebot")
             : visibleOptions.length === 1
-              ? "Ihr Angebot"
-              : `Wählen Sie aus ${visibleOptions.length} Optionen`}
+              ? t("Ihr Angebot", "Dein Angebot")
+              : t(`Wählen Sie aus ${visibleOptions.length} Optionen`, `Wähle aus ${visibleOptions.length} Optionen`)}
         </h2>
         {!locked && visibleOptions.length > 1 && (
           <span className="text-[10px] text-muted-foreground">
@@ -177,17 +178,16 @@ function DealOptionPicker({
 
       {selected ? (
         <p className="text-[11px] text-muted-foreground">
-          Ihre Wahl:{" "}
+          {t("Ihre Wahl", "Deine Wahl")}:{" "}
           <strong className="text-foreground">{selected.displayName}</strong> ·{" "}
           <span className="tabular-nums">
             {formatEurCents(selected.priceCents)}
           </span>
-          {locked ? " (verbindlich angenommen)" : visibleOptions.length > 1 ? ". Sie können Ihre Auswahl jederzeit ändern." : "."}
+          {locked ? " (verbindlich angenommen)" : visibleOptions.length > 1 ? t(". Sie können Ihre Auswahl jederzeit ändern.", ". Du kannst deine Auswahl jederzeit ändern.") : "."}
         </p>
       ) : (
         <p className="text-[11px] text-muted-foreground">
-          Wählen Sie eine der Optionen. Der angezeigte Gesamtpreis übernimmt
-          Ihre Auswahl automatisch.
+          {t("Wählen Sie eine der Optionen. Der angezeigte Gesamtpreis übernimmt Ihre Auswahl automatisch.", "Wähle eine der Optionen. Der angezeigte Gesamtpreis übernimmt deine Auswahl automatisch.")}
         </p>
       )}
     </section>
@@ -213,6 +213,7 @@ function CataloguePicker({
   if (packages.available.length === 0) return null;
 
   const accent = `#${branding.primaryColor}`;
+  const t = (sie: string, du: string) => kundenText(branding.firmaSlug, sie, du);
   const currentSlug = packages.selectedSlug;
 
   async function pick(slug: string) {
@@ -230,12 +231,12 @@ function CataloguePicker({
         const body = (await res.json().catch(() => ({}))) as {
           error?: { code?: string };
         };
-        setError(germanError(body.error?.code));
+        setError(germanError(branding.firmaSlug, body.error?.code));
         return;
       }
       await onPicked();
     } catch {
-      setError("Verbindungsfehler. Bitte versuchen Sie es erneut.");
+      setError(t("Verbindungsfehler. Bitte versuchen Sie es erneut.", "Verbindungsfehler. Bitte versuche es erneut."));
     } finally {
       setPendingSlug(null);
     }
@@ -277,20 +278,19 @@ function CataloguePicker({
 
       {currentSlug ? (
         <p className="text-[11px] text-muted-foreground">
-          Ihr Angebot basiert auf dem Paket{" "}
+          {t("Ihr Angebot basiert auf dem Paket", "Dein Angebot basiert auf dem Paket")}{" "}
           <strong className="text-foreground">
             {packages.available.find((p) => p.slug === currentSlug)
               ?.displayName ?? currentSlug}
           </strong>
           {locked
             ? " (verbindlich)"
-            : ". Sie können oben jederzeit ein anderes Paket wählen"}
+            : t(". Sie können oben jederzeit ein anderes Paket wählen", ". Du kannst oben jederzeit ein anderes Paket wählen")}
           .
         </p>
       ) : (
         <p className="text-[11px] text-muted-foreground">
-          Wählen Sie das Paket, das am besten zu Ihrem Umzug passt. Der
-          angezeigte Gesamtpreis übernimmt Ihre Auswahl automatisch.
+          {t("Wählen Sie das Paket, das am besten zu Ihrem Umzug passt. Der angezeigte Gesamtpreis übernimmt Ihre Auswahl automatisch.", "Wähle das Paket, das am besten zu deinem Umzug passt. Der angezeigte Gesamtpreis übernimmt deine Auswahl automatisch.")}
         </p>
       )}
     </section>
@@ -331,20 +331,21 @@ function PackageCard({ pkg, branding, isSelected, isPending, disabled, onTap }: 
     <div className="portal-package-price-wrap"><div className="portal-price portal-package-price">{hasPrice ? formatPortalMoney(pkg.priceFromCents!) : "Auf Anfrage"}</div><p className="portal-package-price-label">{hasPrice ? pkg.priceFixedFlag ? "Festpreis" : "Ab-Preis, individuelles Angebot folgt" : "Individuelles Angebot"}</p></div>
     <ul className="portal-package-features">{pkg.includedItems.map((item, i) => <li key={i}><Check aria-hidden /><span>{item}</span></li>)}</ul>
     {pkg.targetSegment && <p className="mb-3 text-xs text-muted-foreground">{pkg.targetSegment}</p>}
-    <div className="portal-package-cta">{hasPrice ? <span className={`portal-button ${isSelected ? "" : "portal-button-secondary"}`}>{isPending ? <Loader2 size={17} className="animate-spin" aria-hidden /> : isSelected ? <Check size={17} aria-hidden /> : <FileText size={17} aria-hidden />}{isPending ? "Wird gespeichert…" : isSelected ? "Aktuell ausgewählt" : "Paket auswählen"}</span> : <WhatsAppContactLink phoneE164={branding.whatsappNumberE164} label="Angebot anfragen" message={`Hallo ${branding.displayName}, ich interessiere mich für das Paket ${pkg.displayName}.`} className="portal-button portal-button-secondary" fallback={<span className="text-xs text-muted-foreground">Antworten Sie uns für ein Angebot im bestehenden Chat.</span>} />}</div>
+    <div className="portal-package-cta">{hasPrice ? <span className={`portal-button ${isSelected ? "" : "portal-button-secondary"}`}>{isPending ? <Loader2 size={17} className="animate-spin" aria-hidden /> : isSelected ? <Check size={17} aria-hidden /> : <FileText size={17} aria-hidden />}{isPending ? "Wird gespeichert…" : isSelected ? "Aktuell ausgewählt" : "Paket auswählen"}</span> : <WhatsAppContactLink phoneE164={branding.whatsappNumberE164} label="Angebot anfragen" message={`Hallo ${branding.displayName}, ich interessiere mich für das Paket ${pkg.displayName}.`} className="portal-button portal-button-secondary" fallback={<span className="text-xs text-muted-foreground">{kundenText(branding.firmaSlug, "Antworten Sie uns für ein Angebot im bestehenden Chat.", "Antworte uns für ein Angebot im bestehenden Chat.")}</span>} />}</div>
   </>;
   return <li>{hasPrice ? <button type="button" className="portal-package-card" onClick={onTap} disabled={disabled} aria-pressed={isSelected} aria-busy={isPending}>{body}</button> : <div className="portal-package-card">{body}</div>}</li>;
 }
 
 function formatEurCents(cents: number): string { return formatPortalMoney(cents); }
 
-function germanError(code: string | undefined): string {
+function germanError(firma: string, code: string | undefined): string {
+  const t = (sie: string, du: string) => kundenText(firma, sie, du);
   switch (code) {
     case "PACKAGE_NOT_FOUND":
     case "OPTION_NOT_FOUND":
       return "Diese Option ist nicht mehr verfügbar. Bitte Seite neu laden.";
     case "ALREADY_ACCEPTED":
-      return "Das Angebot wurde bereits verbindlich angenommen. Bitte kontaktieren Sie uns für eine Änderung.";
+      return t("Das Angebot wurde bereits verbindlich angenommen. Bitte kontaktieren Sie uns für eine Änderung.", "Das Angebot wurde bereits verbindlich angenommen. Bitte kontaktiere uns für eine Änderung.");
     case "NO_OPERATING_COMPANY":
       return "Auftrag noch nicht vollständig zugeordnet.";
     case "REVOKED":
@@ -352,6 +353,6 @@ function germanError(code: string | undefined): string {
     case "NOT_FOUND":
       return "Link nicht gefunden.";
     default:
-      return "Es ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut.";
+      return t("Es ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut.", "Es ist ein Fehler aufgetreten. Bitte versuche es erneut.");
   }
 }

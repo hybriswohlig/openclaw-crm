@@ -1,4 +1,4 @@
-import type { FirmaBranding, ServiceArt } from "@openclaw-crm/customer-portal-core";
+import { kundenText, type FirmaBranding, type ServiceArt } from "@openclaw-crm/customer-portal-core";
 
 /** Das Festangebot als Brief: reine Texte und Daten, ohne React. */
 export type BriefZustand = "offen" | "abgelaufen" | "termin_vorbei" | "angenommen" | "unterschrieben";
@@ -19,6 +19,14 @@ export function briefZustand(i: {
 /** Hinweis statt Annahme-Knopf, wenn der Termin vorbei ist. */
 export const TERMIN_VORBEI_HINWEIS =
   "Der Termin aus diesem Angebot ist schon vorbei. Möchten Sie einen neuen Termin, schreiben Sie uns kurz, dann schicken wir Ihnen ein neues Angebot.";
+
+export function terminVorbeiHinweis(firma: string | null | undefined): string {
+  return kundenText(
+    firma,
+    TERMIN_VORBEI_HINWEIS,
+    "Der Termin aus diesem Angebot ist schon vorbei. Möchtest du einen neuen Termin, schreib uns kurz, dann schicken wir dir ein neues Angebot.",
+  );
+}
 
 /** Vorausgefüllte WhatsApp-Nachricht zum vergangenen Termin. */
 export function terminVorbeiNachricht(firma: string, dealNumber: string): string {
@@ -41,23 +49,48 @@ export function briefEinleitung(
   moveDateLabel: string | null,
   angenommenAmLabel: string | null,
   leistung: ServiceArt | null = "move",
+  firma?: string | null,
 ): string {
-  if (z === "abgelaufen") return "dieses Angebot ist abgelaufen. Schreiben Sie uns kurz, dann schicken wir Ihnen ein aktuelles.";
-  if (z === "termin_vorbei") return "der Termin aus diesem Angebot ist schon vorbei. Möchten Sie einen neuen Termin, schreiben Sie uns kurz, dann schicken wir Ihnen ein neues Angebot.";
+  const t = (sie: string, du: string) => kundenText(firma, sie, du);
+  if (z === "abgelaufen") {
+    return t(
+      "dieses Angebot ist abgelaufen. Schreiben Sie uns kurz, dann schicken wir Ihnen ein aktuelles.",
+      "dieses Angebot ist abgelaufen. Schreib uns kurz, dann schicken wir dir ein aktuelles.",
+    );
+  }
+  if (z === "termin_vorbei") {
+    return t(
+      "der Termin aus diesem Angebot ist schon vorbei. Möchten Sie einen neuen Termin, schreiben Sie uns kurz, dann schicken wir Ihnen ein neues Angebot.",
+      "der Termin aus diesem Angebot ist schon vorbei. Möchtest du einen neuen Termin, schreib uns kurz, dann schicken wir dir ein neues Angebot.",
+    );
+  }
   if (z === "offen") {
     const termin = moveDateLabel ? ` am ${moveDateLabel}` : "";
-    const wofuer = leistung ? LEISTUNG[leistung] : "Ihren Auftrag";
-    return `hier ist Ihr Festpreis für ${wofuer}${termin}. Wenn alles passt, nehmen Sie das Angebot unten an.`;
+    const wofuer = leistung ? LEISTUNG[leistung] : t("Ihren Auftrag", "deinen Auftrag");
+    return t(
+      `hier ist Ihr Festpreis für ${wofuer}${termin}. Wenn alles passt, nehmen Sie das Angebot unten an.`,
+      `hier ist dein Festpreis für ${wofuer}${termin}. Wenn alles passt, nimm das Angebot unten an.`,
+    );
   }
-  const dank = `vielen Dank, Sie haben das Angebot${angenommenAmLabel ? ` am ${angenommenAmLabel}` : ""} angenommen. Die Auftragsbestätigung folgt nach unserer Einsatzplanung.`;
-  return z === "unterschrieben" ? `${dank} Ihren unterschriebenen Vertrag finden Sie unten.` : dank;
+  const wann = angenommenAmLabel ? ` am ${angenommenAmLabel}` : "";
+  const dank = t(
+    `vielen Dank, Sie haben das Angebot${wann} angenommen. Die Auftragsbestätigung folgt nach unserer Einsatzplanung.`,
+    `vielen Dank, du hast das Angebot${wann} angenommen. Die Auftragsbestätigung folgt nach unserer Einsatzplanung.`,
+  );
+  return z === "unterschrieben"
+    ? `${dank} ${t("Ihren unterschriebenen Vertrag finden Sie unten.", "Deinen unterschriebenen Vertrag findest du unten.")}`
+    : dank;
 }
 
 export function grussZeilen(b: FirmaBranding): { gruss: string; name: string | null; rolle: string | null } {
   const a = b.ansprechpartner;
   return a
     ? { gruss: "Herzliche Grüße", name: a.name, rolle: a.rolle }
-    : { gruss: "Herzliche Grüße", name: `Ihr Team von ${b.displayName}`, rolle: null };
+    : {
+        gruss: "Herzliche Grüße",
+        name: kundenText(b.firmaSlug, `Ihr Team von ${b.displayName}`, `Dein Team von ${b.displayName}`),
+        rolle: null,
+      };
 }
 
 export type Stempel = { art: "angenommen" | "unterschrieben"; datum: string };

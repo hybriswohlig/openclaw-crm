@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import { Copy, Check, ExternalLink, Wallet, CreditCard } from "lucide-react";
-import type {
-  FirmaBranding,
-  PaymentInstructions,
+import {
+  kundenText,
+  type FirmaBranding,
+  type PaymentInstructions,
 } from "@openclaw-crm/customer-portal-core";
 import { PanelHeading } from "./portal-ui";
 import { RestbetragHinweis } from "./restbetrag-hinweis";
@@ -90,11 +91,11 @@ export function PaymentSection({
         ) : payment.method === "paypal" && payment.paypalUrl ? (
           <PayPalBlock url={payment.paypalUrl} branding={branding} />
         ) : payment.method === "cash" ? (
-          <CashBlock />
+          <CashBlock firma={branding.firmaSlug} />
         ) : payment.method === "card" ? (
-          <CardComingSoonBlock />
+          <CardComingSoonBlock firma={branding.firmaSlug} />
         ) : (
-          <UnconfiguredHint />
+          <UnconfiguredHint firma={branding.firmaSlug} />
         )}
 
         {marked ? (
@@ -122,7 +123,7 @@ export function PaymentSection({
             </button>
             {markError && (
               <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                Konnte nicht gesendet werden. Bitte versuchen Sie es erneut.
+                {kundenText(branding.firmaSlug, "Konnte nicht gesendet werden. Bitte versuchen Sie es erneut.", "Konnte nicht gesendet werden. Bitte versuche es erneut.")}
               </p>
             )}
           </>
@@ -156,9 +157,11 @@ function BankTransferBlock({
             Verwendungszweck sind vorausgefüllt.
           </p>
           <p className="text-xs text-muted-foreground">
-            Sie lesen das auf dem Handy? Machen Sie einen Screenshot und
-            scannen Sie den Code in Ihrer Banking-App aus der Galerie. Oder
-            kopieren Sie einfach die Felder unten.
+            {kundenText(
+              branding.firmaSlug,
+              "Sie lesen das auf dem Handy? Machen Sie einen Screenshot und scannen Sie den Code in Ihrer Banking-App aus der Galerie. Oder kopieren Sie einfach die Felder unten.",
+              "Liest du das auf dem Handy? Mach einen Screenshot und scanne den Code in deiner Banking-App aus der Galerie. Oder kopiere einfach die Felder unten.",
+            )}
           </p>
           <CopyField label="Kontoinhaber" value={bank.holder} />
           <CopyField label="IBAN" value={formatIban(bank.iban)} copyValue={bank.iban.replace(/\s/g, "")} />
@@ -174,7 +177,7 @@ function PayPalBlock({ url, branding }: { url: string; branding: FirmaBranding }
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">
-        Tippen Sie auf den Button, um die Zahlung in der PayPal-App zu öffnen.
+        {kundenText(branding.firmaSlug, "Tippen Sie auf den Button, um die Zahlung in der PayPal-App zu öffnen.", "Tippe auf den Button, um die Zahlung in der PayPal-App zu öffnen.")}
         Betrag und Empfänger sind vorausgefüllt.
       </p>
       <a
@@ -192,36 +195,36 @@ function PayPalBlock({ url, branding }: { url: string; branding: FirmaBranding }
   );
 }
 
-function CashBlock() {
+function CashBlock({ firma }: { firma: string }) {
   return (
     <div className="rounded-md bg-muted/50 px-4 py-3 text-sm">
       <strong className="block">Zahlung bar bei Übergabe</strong>
       <p className="mt-1 text-xs text-muted-foreground">
-        Bitte halten Sie den passenden Betrag bereit. Eine Quittung erhalten
-        Sie unmittelbar nach Abschluss des Umzugs.
+        {kundenText(firma, "Bitte halten Sie den passenden Betrag bereit. Eine Quittung erhalten Sie unmittelbar nach Abschluss des Umzugs.", "Bitte halte den passenden Betrag bereit. Eine Quittung erhältst du unmittelbar nach Abschluss des Umzugs.")}
       </p>
     </div>
   );
 }
 
-function CardComingSoonBlock() {
+function CardComingSoonBlock({ firma }: { firma: string }) {
   return (
     <div className="rounded-md border border-dashed border-border bg-muted/30 p-4 text-xs">
       <strong className="block">Kartenzahlung</strong>
       <p className="mt-1 text-muted-foreground">
-        Wir nehmen Visa, Mastercard und Girocard vor Ort entgegen. Eine
-        Online-Kartenzahlung bauen wir gerade. Bei Fragen melden Sie sich
-        bitte kurz bei Ihrem Ansprechpartner.
+        {kundenText(
+          firma,
+          "Wir nehmen Visa, Mastercard und Girocard vor Ort entgegen. Eine Online-Kartenzahlung bauen wir gerade. Bei Fragen melden Sie sich bitte kurz bei Ihrem Ansprechpartner.",
+          "Wir nehmen Visa, Mastercard und Girocard vor Ort entgegen. Eine Online-Kartenzahlung bauen wir gerade. Bei Fragen melde dich bitte kurz bei deinem Ansprechpartner.",
+        )}
       </p>
     </div>
   );
 }
 
-function UnconfiguredHint() {
+function UnconfiguredHint({ firma }: { firma: string }) {
   return (
     <div className="rounded-md border border-border bg-[var(--portal-brand-tint)] px-4 py-3 text-xs text-foreground">
-      Für diesen Auftrag sind noch keine Zahldaten hinterlegt. Bitte melden
-      Sie sich kurz beim Ansprechpartner.
+      {kundenText(firma, "Für diesen Auftrag sind noch keine Zahldaten hinterlegt. Bitte melden Sie sich kurz beim Ansprechpartner.", "Für diesen Auftrag sind noch keine Zahldaten hinterlegt. Bitte melde dich kurz beim Ansprechpartner.")}
     </div>
   );
 }
