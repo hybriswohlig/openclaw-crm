@@ -1,6 +1,7 @@
 import { PDFDocument } from "pdf-lib";
 import { describe, expect, it } from "vitest";
 import { PDFDict, PDFName, PDFRawStream } from "pdf-lib";
+import { KOTTKE_RESTBETRAG_EINSATZ, KOTTKE_RESTBETRAG_UMZUG } from "./restbetrag";
 import { annahmeSeiteModell, annahmeSeiteZeilen, passendeGroesse, baueVertragsmappe, umbrechen, type VertragsmappeDaten } from "./vertragsmappe";
 
 async function miniKv(seiten: number): Promise<Uint8Array> {
@@ -57,6 +58,13 @@ describe("annahmeSeiteModell", () => {
     expect(m.rechtstexte.join("\n")).not.toContain("203.0.113.5");
     expect(m.rechtstexte.join("\n")).toContain("§ 451g HGB");
     expect(m.rechtstexte.at(-1)).toBe(basis.erklaerung);
+    expect(m.rechtstexte).toContain(KOTTKE_RESTBETRAG_UMZUG);
+    expect(annahmeSeiteZeilen(basis).join("\n")).toContain(KOTTKE_RESTBETRAG_UMZUG);
+    const ceylan = annahmeSeiteModell({ ...basis, marke: { ...basis.marke, firmaSlug: "ceylan" } });
+    expect(ceylan.rechtstexte.join("\n")).not.toContain("Restbetrag");
+    const kueche = annahmeSeiteModell({ ...basis, leistung: "Küchenmontage", haftungshinweis: false });
+    expect(kueche.rechtstexte).toContain(KOTTKE_RESTBETRAG_EINSATZ);
+    expect(kueche.rechtstexte.join("\n")).not.toContain("Umzugstag");
     expect(m.unterschrift.beschriftung).toBe("Unterschrift Kunde");
   });
   it("nennt den Ansprechpartner nur in der Fußzeile, nie an der Unterschrift", () => {

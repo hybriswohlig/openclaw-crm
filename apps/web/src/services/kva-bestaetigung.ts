@@ -34,6 +34,7 @@ import {
 import { resolveCustomerEmailTransport } from "./customer-portal-emails";
 import { loadContextByToken, resolveCustomerLinkOrigin } from "./customer-portal-data";
 import { sendeAnInterne } from "./intern/intern-senden";
+import { kottkeRestbetragSatz } from "@openclaw-crm/document-templates/src/restbetrag";
 
 export interface BestaetigungsDaten {
   firma: string;
@@ -62,6 +63,12 @@ const euro = (c: number) =>
   new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(c / 100);
 const datum = (ymd: string) =>
   new Date(`${ymd}T12:00:00`).toLocaleDateString("de-DE", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Berlin" });
+
+function restbetragHinweis(d: BestaetigungsDaten): string | null {
+  const name = `${d.kontakt.firma} ${d.kontakt.email ?? ""}`;
+  if (!/kottke/i.test(name)) return null;
+  return kottkeRestbetragSatz(d.widerrufModus === "ausgeschlossen");
+}
 
 function eckdaten(d: BestaetigungsDaten): string[] {
   return [
@@ -95,6 +102,7 @@ export function bestaetigungsTextWhatsApp(d: BestaetigungsDaten): string {
     vorname ? `Hallo ${vorname},` : "Hallo,",
     `vielen Dank, Ihr Auftrag ist verbindlich erteilt. Hier die Bestätigung von ${d.firma}:`,
     eckdaten(d).join("\n"),
+    restbetragHinweis(d),
     ...widerrufTeil(d),
     d.haftung ? `${HAFTUNGSHINWEIS_451G.titel}: ${HAFTUNGSHINWEIS_451G.absaetze.join(" ")}` : null,
     d.pdfDabei ? "Das angenommene Angebot mit unseren AGB schicken wir Ihnen als PDF mit." : `Das angenommene Angebot mit unseren AGB finden Sie hier: ${d.portalUrl}`,
@@ -107,6 +115,7 @@ export function bestaetigungsMailText(d: BestaetigungsDaten): string {
     d.kunde ? `Guten Tag ${d.kunde},` : "Guten Tag,",
     `vielen Dank für Ihren Auftrag. Hiermit bestätigen wir den Vertrag, den Sie am ${new Date(d.signedAt).toLocaleString("de-DE", { dateStyle: "long", timeStyle: "short", timeZone: "Europe/Berlin" })} Uhr im Kundenportal geschlossen haben.`,
     eckdaten(d).join("\n"),
+    restbetragHinweis(d),
     anhangSatz(d),
   ];
   if (d.haftung) teile.push([HAFTUNGSHINWEIS_451G.titel, ...HAFTUNGSHINWEIS_451G.absaetze].join("\n"));

@@ -17,6 +17,7 @@ export {
   paymentDueWording,
   selectDocumentService,
 } from "./copy";
+export { KOTTKE_RESTBETRAG_EINSATZ, KOTTKE_RESTBETRAG_UMZUG, kottkeRestbetragSatz } from "./restbetrag";
 export { buildDocumentModel } from "./model";
 export { escapeHtml, renderHtml } from "./html";
 export { renderPdf, toWinAnsi } from "./pdf";

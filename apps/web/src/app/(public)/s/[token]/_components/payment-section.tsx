@@ -7,6 +7,7 @@ import type {
   PaymentInstructions,
 } from "@openclaw-crm/customer-portal-core";
 import { PanelHeading } from "./portal-ui";
+import { RestbetragHinweis } from "./restbetrag-hinweis";
 import { GirocodeQr } from "./girocode-qr";
 
 /**
@@ -25,6 +26,7 @@ export function PaymentSection({
   branding,
   variant,
   markedPaidAt,
+  serviceType,
 }: {
   token: string;
   payment: PaymentInstructions;
@@ -33,6 +35,8 @@ export function PaymentSection({
   variant: "deposit" | "final";
   /** ISO timestamp of a previously reported payment, survives reloads. */
   markedPaidAt?: string | null;
+  /** Used only for the final balance: Kottke states when that balance is due. */
+  serviceType?: string | null;
 }) {
   const [marking, setMarking] = useState(false);
   const [marked, setMarked] = useState(() => !!markedPaidAt);
@@ -72,6 +76,9 @@ export function PaymentSection({
     <section className="portal-panel">
       <PanelHeading icon={CreditCard} title={variant === "deposit" ? "Anzahlung" : "Zahlung"} />
       <div className="space-y-4">
+        {variant === "final" && (
+          <RestbetragHinweis firmaSlug={branding.firmaSlug} serviceType={serviceType} />
+        )}
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <div className="text-sm text-muted-foreground">Offener Betrag</div>
           <div className="text-2xl font-medium tabular-nums">{amountStr}</div>

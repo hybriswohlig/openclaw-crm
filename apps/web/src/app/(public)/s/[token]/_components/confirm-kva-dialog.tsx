@@ -21,6 +21,7 @@ import { PaymentSection } from "./payment-section";
 import { UnterschriftForm } from "./unterschrift-form";
 import { stempel } from "./brief";
 import { Stempel } from "./brief-teile";
+import { RestbetragHinweis } from "./restbetrag-hinweis";
 
 /**
  * Annahme-Dialog. Pflicht: Angebot, AGB (falls vorhanden), bei Umzug der
@@ -208,6 +209,11 @@ export function ConfirmKvaDialog({
                   ist die finale Rechnung.
                 </p>
               )}
+              <RestbetragHinweis
+                firmaSlug={ctx.branding.firmaSlug}
+                serviceType={ctx.annahmeRecht.serviceType}
+                className="mt-2 text-xs text-muted-foreground"
+              />
             </div>
           )}
 

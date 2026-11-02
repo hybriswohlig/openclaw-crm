@@ -21,6 +21,8 @@ import { EmailCaptureBanner } from "./email-capture-banner";
 import { DateOfferPicker } from "./date-offer-picker";
 import { CustomerPhotosSection } from "./customer-photos-section";
 import { FurnitureListSection } from "./furniture-list-section";
+import { RestbetragHinweis } from "./restbetrag-hinweis";
+import { portalRestbetragSatz } from "@/lib/kottke-restbetrag";
 
 /** "termin_offen": Umzug ohne festen Termin und ohne Terminangebot. */
 type AnnahmeBlock = OfferAcceptanceBlockReason | "termin_offen";
@@ -97,6 +99,8 @@ export function FestangebotView({
     hasAddress: schedule.showFrom || schedule.showTo,
     hasServices: positions.length > 0 || showStandards,
   });
+  const restbetrag = portalRestbetragSatz(ctx.branding.firmaSlug, ctx.annahmeRecht.serviceType);
+  if (restbetrag) steps.push(restbetrag);
   const status = festangebotStatusStep({ accepted: alreadyAccepted, stage: ctx.stage });
   const customerNote = kva.summary?.trim() || null;
 
@@ -148,6 +152,7 @@ export function FestangebotView({
                   <strong>Anzahlung</strong> {formatPortalMoney(deposit)}
                 </p>
               )}
+              <RestbetragHinweis firmaSlug={ctx.branding.firmaSlug} serviceType={ctx.annahmeRecht.serviceType} />
               {kva.validUntil && (
                 <p className={gueltigkeitAbgelaufen ? "portal-fest-expired" : undefined}>
                   Gültig bis {formatLongDate(kva.validUntil)}
