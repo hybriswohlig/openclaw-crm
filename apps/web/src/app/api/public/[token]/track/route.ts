@@ -3,7 +3,7 @@
  *
  *   POST /api/public/[token]/track
  *
- * Body shape (see VisitBeaconInput in services/customer-portal-data.ts):
+ * Body shape (see VisitBeaconInput in services/portal-visit-tracking.ts):
  *   {
  *     sessionId:      string  // UUID v4 from localStorage
  *     event:          "open" | "heartbeat"
@@ -15,11 +15,17 @@
  *     stageAtOpen?:   number  // 1..4
  *   }
  *
- * Errors never leak to the customer's UI — the client treats anything other
- * than 200 as "ignore and keep going".
+ * Link-preview crawlers and HEAD requests are ignored. A logged-in CRM
+ * session is stored as internal. Errors never leak to the customer's UI.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { recordVisitBeacon, type VisitBeaconInput } from "@/services/customer-portal-data";
+import { shouldRecordPortalHit } from "@/lib/portal-open-tracking";
+import {
+  awaitPortalTracking,
+  crmUserIdFromRequest,
+  recordVisitBeacon,
+  type VisitBeaconInput,
+} from "@/services/portal-visit-tracking";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,6 +41,10 @@ export async function POST(
   { params }: { params: Promise<{ token: string }> }
 ) {
   const { token } = await params;
+  const userAgent = req.headers.get("user-agent") ?? "";
+  if (!shouldRecordPortalHit({ method: req.method, userAgent })) {
+    return NextResponse.json({ ok: true, skipped: true });
+  }
 
   let body: VisitBeaconInput;
   try {
@@ -43,13 +53,22 @@ export async function POST(
     return NextResponse.json({ ok: false }, { status: 400 });
   }
 
-  const result = await recordVisitBeacon(token, body, {
-    ipAddress: clientIp(req),
-    userAgent: req.headers.get("user-agent") ?? "",
-  });
-
-  if (!result.ok) {
-    return NextResponse.json({ ok: false }, { status: 204 });
+  try {
+    const crmUserId = await crmUserIdFromRequest(req);
+    const result = await awaitPortalTracking(
+      recordVisitBeacon(token, body, {
+        ipAddress: clientIp(req),
+        userAgent,
+        crmUserId,
+        method: req.method,
+      })
+    );
+    if (!result || !result.ok) {
+      return NextResponse.json({ ok: false }, { status: 204 });
+    }
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    console.error("[portal-tracking] beacon", err);
+    return NextResponse.json({ ok: true });
   }
-  return NextResponse.json({ ok: true });
 }

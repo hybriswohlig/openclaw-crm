@@ -3,7 +3,11 @@
  * a specific deal. Lives under /api/v1 so it follows the existing auth
  * conventions (cookie or oc_sk_* Bearer).
  *
- * GET    → returns { token, url, dealNumber, viewCount, firstViewedAt, lastViewedAt, revokedAt, widerrufBis }
+ * GET    → returns { token, url, dealNumber, viewCount, firstViewedAt, lastViewedAt, revokedAt, widerrufBis, telemetry }
+ * viewCount, firstViewedAt and lastViewedAt are read from telemetry:
+ * non-internal sessions when any visit exists, otherwise the stored
+ * columns (countsSource "legacy"). Those columns are not rewritten.
+ * telemetry.documents has per-PDF first/last/count. No IP addresses.
  * POST   → ensure link exists (idempotent); returns the same shape
  * DELETE → revokes the link (soft — sets revoked_at, doesn't drop the row)
  *
@@ -84,9 +88,11 @@ export async function GET(
     token: row.token,
     url: `${origin}/s/${row.token}`,
     dealNumber,
-    viewCount: row.viewCount,
-    firstViewedAt: row.firstViewedAt,
-    lastViewedAt: row.lastViewedAt,
+    // Live read. Stored columns are the fallback only when telemetry is
+    // missing, or when telemetry itself reports countsSource "legacy".
+    viewCount: telemetry?.viewCount ?? row.viewCount,
+    firstViewedAt: telemetry ? telemetry.firstViewedAt : row.firstViewedAt,
+    lastViewedAt: telemetry ? telemetry.lastViewedAt : row.lastViewedAt,
     revokedAt: row.revokedAt,
     widerrufBis,
     telemetry,

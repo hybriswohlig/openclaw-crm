@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { ensurePortalSession } from "./portal-session-client";
 
 /**
  * Privacy-respecting open + duration tracker for the public status portal.
@@ -28,24 +29,8 @@ export function useVisitTracker(token: string, stage: number) {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    // ── sessionId from localStorage (per-token so cross-deal links stay
-    //    distinct even on a shared browser). Fresh UUID v4 on miss.
-    const key = `kottke.portal.session.${token}`;
-    let sid = "";
-    try {
-      sid = window.localStorage.getItem(key) ?? "";
-    } catch {
-      // private mode / quota — fall through and use a per-mount id.
-    }
-    if (!sid) {
-      sid = randomUuid();
-      try {
-        window.localStorage.setItem(key, sid);
-      } catch {
-        // ignore
-      }
-    }
-    sessionIdRef.current = sid;
+    // Same id the PDF links use, so a download joins this session.
+    sessionIdRef.current = ensurePortalSession(token);
 
     // ── Best-effort channel inference from referrer + utm.
     const url = new URL(window.location.href);
@@ -166,22 +151,4 @@ export function useVisitTracker(token: string, stage: number) {
       beaconFlush();
     };
   }, [token, stage]);
-}
-
-function randomUuid(): string {
-  try {
-    if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-      return crypto.randomUUID();
-    }
-  } catch {
-    // ignore
-  }
-  // Fallback: time + random hex. Not RFC 4122 but stable per browser.
-  return (
-    "fb-" +
-    Date.now().toString(36) +
-    "-" +
-    Math.random().toString(36).slice(2, 10) +
-    Math.random().toString(36).slice(2, 10)
-  );
 }

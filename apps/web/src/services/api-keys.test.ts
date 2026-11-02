@@ -54,7 +54,7 @@ describe("API key scope storage", () => {
     // The jsonb encoder serializes that array once. Serializing a string
     // again is what stored the production value "[\"read\"]".
     expect(apiKeys.scopes.mapToDriverValue(["read"])).toBe('["read"]');
-    expect(JSON.parse(apiKeys.scopes.mapToDriverValue('["read"]' as unknown as string[]))).toBe(
+    expect(JSON.parse(String(apiKeys.scopes.mapToDriverValue('["read"]' as unknown as string[])))).toBe(
       '["read"]'
     );
   });

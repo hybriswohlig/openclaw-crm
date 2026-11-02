@@ -150,16 +150,19 @@ export const customerStatusLinks = pgTable(
     revokedAt: timestamp("revoked_at"),
     /** Optional auto-expiry (e.g. 60 days after move). Null = no expiry. */
     expiresAt: timestamp("expires_at"),
-    /** Cheap usage stats — surfaced in the operator's share panel. */
+    /**
+     * Legacy stored counters. Migration 0057 does not rewrite them, and the
+     * visit beacon no longer rolls them up. Customer-facing numbers are
+     * derived at read time from non-internal `customer_portal_visits`.
+     * These columns are only a fallback when a link has no visit rows.
+     */
     firstViewedAt: timestamp("first_viewed_at"),
     lastViewedAt: timestamp("last_viewed_at"),
     viewCount: integer("view_count").notNull().default(0),
     /**
-     * Roll-ups maintained by the visit beacon (see customerPortalVisits).
-     * `totalActiveMs` is the sum of foreground/active-engagement time across
-     * all sessions; `sessionCount` is the count of distinct browser sessions.
-     * Both are denormalised so the operator's share panel renders without
-     * a join.
+     * Legacy beacon roll-up (foreground time and distinct sessions), kept
+     * so existing rows stay readable. Not updated once visit tracking can
+     * mark internal sessions. See `resolveCustomerOpenCounts`.
      */
     totalActiveMs: bigint("total_active_ms", { mode: "number" })
       .notNull()
@@ -169,6 +172,13 @@ export const customerStatusLinks = pgTable(
     createdBy: text("created_by").references(() => users.id, {
       onDelete: "set null",
     }),
+    /**
+     * First time an outbound customer message (WhatsApp, email, SMS) contained
+     * `/s/<token>`. NULL until then. New visits before this timestamp are
+     * stored as pre-send and excluded from customer open counts.
+     * Set by `markCustomerLinkSentFromOutbound` — not by copying the link.
+     */
+    sentAt: timestamp("sent_at"),
   },
   (table) => [
     index("customer_status_links_workspace_idx").on(table.workspaceId),
@@ -454,6 +464,14 @@ export const customerPortalVisits = pgTable(
     activeMs: integer("active_ms").notNull().default(0),
     /** Visible time including idle. activeMs ≤ pageVisibleMs always. */
     pageVisibleMs: integer("page_visible_ms").notNull().default(0),
+    /**
+     * CRM session, operator "Öffnen" (share_panel), or a visit that started
+     * before `customer_status_links.sent_at`. Stored, labeled intern/Test,
+     * excluded from customer counts and from the deal timeline.
+     */
+    isInternal: boolean("is_internal").notNull().default(false),
+    /** "crm_session" | "pre_send" | "share_panel" */
+    internalReason: text("internal_reason"),
   },
   (table) => [
     uniqueIndex("customer_portal_visits_session_idx").on(
@@ -463,6 +481,53 @@ export const customerPortalVisits = pgTable(
     index("customer_portal_visits_deal_idx").on(
       table.dealRecordId,
       table.openedAt
+    ),
+  ]
+);
+
+// ─── Customer Portal Document Views ───────────────────────────────────────────
+// One row per customer fetch of a portal PDF (inline open or download).
+// Range-request repeats from the same session inside a short window are not
+// inserted. Bots are not inserted. IP is stored for the operator audit and
+// is never returned by the customer-link API or the MCP tool.
+
+export const customerPortalDocumentViews = pgTable(
+  "customer_portal_document_views",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    customerLinkId: text("customer_link_id")
+      .notNull()
+      .references(() => customerStatusLinks.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    dealRecordId: text("deal_record_id")
+      .notNull()
+      .references(() => records.id, { onDelete: "cascade" }),
+    documentId: text("document_id").notNull(),
+    fileName: text("file_name"),
+    documentType: text("document_type"),
+    /** Browser session from localStorage / ?sid= / cookie. Null when unknown. */
+    sessionId: text("session_id"),
+    /** "inline" | "download" */
+    disposition: text("disposition"),
+    userAgent: text("user_agent"),
+    ipAddress: text("ip_address"),
+    isInternal: boolean("is_internal").notNull().default(false),
+    internalReason: text("internal_reason"),
+    viewedAt: timestamp("viewed_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("customer_portal_document_views_link_doc_idx").on(
+      table.customerLinkId,
+      table.documentId,
+      table.viewedAt
+    ),
+    index("customer_portal_document_views_deal_idx").on(
+      table.dealRecordId,
+      table.viewedAt
     ),
   ]
 );

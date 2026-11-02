@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { bumpView, loadContextByToken } from "@/services/customer-portal-data";
+import { loadContextByToken } from "@/services/customer-portal-data";
 import { portalSperre } from "@/lib/portal-preview";
 
 export const dynamic = "force-dynamic";
@@ -24,8 +24,6 @@ export async function GET(
     );
   }
 
-  // Fire-and-forget view bump — never blocks the response.
-  bumpView(token).catch(() => {});
-
+  // The JSON poll is not an open. Session beacons own the counter.
   return NextResponse.json({ data: ctx });
 }

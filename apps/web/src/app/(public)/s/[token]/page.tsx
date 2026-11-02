@@ -13,7 +13,7 @@ import { cache } from "react";
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { loadContextByToken, bumpView } from "@/services/customer-portal-data";
+import { loadContextByToken } from "@/services/customer-portal-data";
 import { portalPreview, widerrufBeiPortalAus, widerrufOhnePortalDaten } from "@/lib/portal-preview";
 import { StagePortal } from "./_components/stage-portal";
 import { RevokedNotice } from "./_components/revoked-notice";
@@ -113,8 +113,9 @@ export default async function PublicStatusPage({
     redirect(`https://${ctx.meta.canonicalHost}/s/${token}`);
   }
 
-  // Best-effort analytics — don't await.
-  bumpView(token).catch(() => {});
+  // Opens are counted by the visit beacon (real browser sessions), not by
+  // rendering this page. Link-preview crawlers and HEAD requests never run
+  // that beacon, so they cannot inflate "× geöffnet".
 
   if (ctx.meta.revoked) {
     return (

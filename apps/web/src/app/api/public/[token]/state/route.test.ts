@@ -7,12 +7,10 @@ import { NextRequest } from "next/server";
 // returns the full context because internal mail/withdrawal code needs it.
 const mocks = vi.hoisted(() => ({
   loadContextByToken: vi.fn(),
-  bumpView: vi.fn(),
 }));
 
 vi.mock("@/services/customer-portal-data", () => ({
   loadContextByToken: mocks.loadContextByToken,
-  bumpView: mocks.bumpView,
 }));
 
 import { GET } from "./route";
@@ -33,7 +31,6 @@ async function call() {
 describe("GET /api/public/[token]/state", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.bumpView.mockResolvedValue(undefined);
   });
 
   it("returns 410 without data for a revoked link", async () => {
@@ -41,7 +38,6 @@ describe("GET /api/public/[token]/state", () => {
     const { status, body } = await call();
     expect(status).toBe(410);
     expect(body).toEqual({ error: { code: "REVOKED" } });
-    expect(mocks.bumpView).not.toHaveBeenCalled();
   });
 
   it("returns 410 without data when the portal is switched off", async () => {
@@ -57,7 +53,6 @@ describe("GET /api/public/[token]/state", () => {
     const { status, body } = await call();
     expect(status).toBe(200);
     expect(body.data).toEqual(ctx);
-    expect(mocks.bumpView).toHaveBeenCalledWith(TOKEN);
   });
 
   it("returns 404 for an unknown token", async () => {

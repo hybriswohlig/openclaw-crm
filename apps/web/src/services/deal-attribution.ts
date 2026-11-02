@@ -8,6 +8,7 @@ import { attributes, objects, selectOptions, statuses } from "@/db/schema/object
 import { records, recordValues } from "@/db/schema/records";
 import { channelAccounts, inboxConversations, inboxMessages } from "@/db/schema/inbox";
 import { updateRecord } from "./records";
+import { markCustomerLinkSentFromOutbound } from "./portal-visit-tracking";
 import {
   FIRST_REPLY_AT_SLUG,
   LOSS_REASON_NOTE_SLUG,
@@ -157,6 +158,13 @@ export async function noteOutboundToCustomer(input: {
 }): Promise<void> {
   if (!input.dealRecordId) return;
   await stampFirstReplyAtIfNull(input.dealRecordId, input.sentAt);
+  // First time this portal URL is actually in a message to the customer.
+  // Copying the link does not count. Failures must not block the send.
+  await markCustomerLinkSentFromOutbound({
+    dealRecordId: input.dealRecordId,
+    body: input.body,
+    sentAt: input.sentAt,
+  });
   if (!isCustomerOfferMessage(input.body)) return;
   await advanceDealToQuotedIfEarlier({
     workspaceId: input.workspaceId,
