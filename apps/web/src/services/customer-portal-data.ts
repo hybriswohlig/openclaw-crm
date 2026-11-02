@@ -22,7 +22,6 @@ import { and, asc, desc, eq, inArray, like, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   customerStatusLinks,
-  customerPortalVisits,
   kvaConfirmations,
   moveTimeEntries,
   customerEmployeeRatings,
@@ -254,23 +253,6 @@ export async function resolveCustomerLinkOrigin(
   }
   if (envFallback) return envFallback.replace(/\/+$/, "");
   return "https://openclaw-crm-web.vercel.app";
-}
-
-/**
- * Increments view counters. Fire-and-forget — never blocks rendering.
- */
-export async function bumpView(token: string): Promise<void> {
-  if (!validateTokenShape(token)) return;
-  const now = new Date();
-  await db
-    .update(customerStatusLinks)
-    .set({
-      viewCount: sql`${customerStatusLinks.viewCount} + 1`,
-      lastViewedAt: now,
-      firstViewedAt: sql`COALESCE(${customerStatusLinks.firstViewedAt}, ${now})`,
-    })
-    .where(eq(customerStatusLinks.token, token))
-    .catch(() => {});
 }
 
 /**
@@ -2591,199 +2573,17 @@ async function mirrorMoveDateOntoDeal(
   });
 }
 
-// ─── Visit tracking (open + heartbeat beacons) ────────────────────────────────
-//
-// The customer portal's stage-portal client posts to /api/public/[token]/track
-// on mount and every ~25s while the tab is visible. We dedupe by sessionId
-// (UUID stored in localStorage) so opening the same link in three tabs counts
-// as one session, not three.
-//
-// Each call sends a *delta* of foreground-active ms since the last beacon —
-// we sum into customer_portal_visits.active_ms. We also re-roll the link's
-// `total_active_ms` and `session_count` columns so the share-panel can read
-// them without a join. Errors are swallowed: telemetry must never break the
-// customer's page.
-
-export interface VisitBeaconInput {
-  sessionId: string;
-  /** Foreground-active ms since the last beacon. */
-  activeMsDelta: number;
-  /** Visible (incl. idle) ms since the last beacon. */
-  visibleMsDelta: number;
-  /** "open" on first beacon for the session, "heartbeat" thereafter. */
-  event: "open" | "heartbeat";
-  channel: string | null;
-  referrer: string | null;
-  isMobile: boolean | null;
-  stageAtOpen: number | null;
-}
-
-export async function recordVisitBeacon(
-  token: string,
-  input: VisitBeaconInput,
-  ctx: { ipAddress: string; userAgent: string }
-): Promise<{ ok: true } | { ok: false; reason: string }> {
-  if (!validateTokenShape(token)) return { ok: false, reason: "invalid_token" };
-  if (!input.sessionId || input.sessionId.length > 64) {
-    return { ok: false, reason: "invalid_session" };
-  }
-
-  const [link] = await db
-    .select({
-      id: customerStatusLinks.id,
-      workspaceId: customerStatusLinks.workspaceId,
-      dealRecordId: customerStatusLinks.dealRecordId,
-      revokedAt: customerStatusLinks.revokedAt,
-      expiresAt: customerStatusLinks.expiresAt,
-    })
-    .from(customerStatusLinks)
-    .where(eq(customerStatusLinks.token, token))
-    .limit(1);
-  if (!link) return { ok: false, reason: "not_found" };
-  if (!isLinkUsable(link)) return { ok: false, reason: "revoked" };
-
-  // Clamp to a sane upper bound — a single heartbeat can never represent
-  // more than ~10 min of activity.
-  const activeDelta = clampMs(input.activeMsDelta);
-  const visibleDelta = clampMs(input.visibleMsDelta);
-
-  const [existing] = await db
-    .select({ id: customerPortalVisits.id })
-    .from(customerPortalVisits)
-    .where(
-      and(
-        eq(customerPortalVisits.customerLinkId, link.id),
-        eq(customerPortalVisits.sessionId, input.sessionId)
-      )
-    )
-    .limit(1);
-
-  if (existing) {
-    await db
-      .update(customerPortalVisits)
-      .set({
-        lastHeartbeatAt: new Date(),
-        activeMs: sql`${customerPortalVisits.activeMs} + ${activeDelta}`,
-        pageVisibleMs: sql`${customerPortalVisits.pageVisibleMs} + ${visibleDelta}`,
-      })
-      .where(eq(customerPortalVisits.id, existing.id));
-  } else {
-    await db.insert(customerPortalVisits).values({
-      customerLinkId: link.id,
-      workspaceId: link.workspaceId,
-      dealRecordId: link.dealRecordId,
-      sessionId: input.sessionId,
-      channel: input.channel?.slice(0, 32) ?? null,
-      userAgent: ctx.userAgent.slice(0, 1000),
-      ipAddress: ctx.ipAddress.slice(0, 200),
-      referrer: input.referrer?.slice(0, 500) ?? null,
-      isMobile: input.isMobile,
-      stageAtOpen: input.stageAtOpen,
-      activeMs: activeDelta,
-      pageVisibleMs: visibleDelta,
-    });
-  }
-
-  // Re-roll roll-ups. Cheap because we just touched the table.
-  const [agg] = await db
-    .select({
-      total: sql<number>`COALESCE(SUM(${customerPortalVisits.activeMs}), 0)::bigint`,
-      sessions: sql<number>`COUNT(*)::int`,
-    })
-    .from(customerPortalVisits)
-    .where(eq(customerPortalVisits.customerLinkId, link.id));
-
-  await db
-    .update(customerStatusLinks)
-    .set({
-      totalActiveMs: Number(agg?.total ?? 0),
-      sessionCount: Number(agg?.sessions ?? 0),
-      lastViewedAt: new Date(),
-      firstViewedAt: sql`COALESCE(${customerStatusLinks.firstViewedAt}, NOW())`,
-    })
-    .where(eq(customerStatusLinks.id, link.id));
-
-  return { ok: true };
-}
-
-function clampMs(n: number): number {
-  if (!Number.isFinite(n) || n < 0) return 0;
-  return Math.min(Math.floor(n), 10 * 60 * 1000);
-}
-
 /**
- * Operator-side: aggregate visit telemetry for a deal. Returns a tidy shape
- * the share-link-panel can render directly. Returns null when no visits.
+ * Visit beacons, PDF views and the operator telemetry live in
+ * portal-visit-tracking.ts. Re-exported so existing imports keep working.
+ * Counts are real browser sessions, not page renders.
  */
-export interface VisitTelemetry {
-  sessionCount: number;
-  totalActiveMs: number;
-  firstViewedAt: string | null;
-  lastViewedAt: string | null;
-  recent: Array<{
-    sessionId: string;
-    openedAt: string;
-    lastHeartbeatAt: string;
-    activeMs: number;
-    channel: string | null;
-    isMobile: boolean | null;
-    stageAtOpen: number | null;
-  }>;
-}
-
-export async function loadVisitTelemetry(
-  workspaceId: string,
-  dealRecordId: string
-): Promise<VisitTelemetry | null> {
-  const [link] = await db
-    .select({
-      id: customerStatusLinks.id,
-      firstViewedAt: customerStatusLinks.firstViewedAt,
-      lastViewedAt: customerStatusLinks.lastViewedAt,
-      sessionCount: customerStatusLinks.sessionCount,
-      totalActiveMs: customerStatusLinks.totalActiveMs,
-    })
-    .from(customerStatusLinks)
-    .where(
-      and(
-        eq(customerStatusLinks.workspaceId, workspaceId),
-        eq(customerStatusLinks.dealRecordId, dealRecordId)
-      )
-    )
-    .limit(1);
-  if (!link) return null;
-
-  const recent = await db
-    .select({
-      sessionId: customerPortalVisits.sessionId,
-      openedAt: customerPortalVisits.openedAt,
-      lastHeartbeatAt: customerPortalVisits.lastHeartbeatAt,
-      activeMs: customerPortalVisits.activeMs,
-      channel: customerPortalVisits.channel,
-      isMobile: customerPortalVisits.isMobile,
-      stageAtOpen: customerPortalVisits.stageAtOpen,
-    })
-    .from(customerPortalVisits)
-    .where(eq(customerPortalVisits.customerLinkId, link.id))
-    .orderBy(desc(customerPortalVisits.openedAt))
-    .limit(10);
-
-  return {
-    sessionCount: link.sessionCount,
-    totalActiveMs: Number(link.totalActiveMs ?? 0),
-    firstViewedAt: link.firstViewedAt?.toISOString() ?? null,
-    lastViewedAt: link.lastViewedAt?.toISOString() ?? null,
-    recent: recent.map((r) => ({
-      sessionId: r.sessionId,
-      openedAt: r.openedAt.toISOString(),
-      lastHeartbeatAt: r.lastHeartbeatAt.toISOString(),
-      activeMs: r.activeMs,
-      channel: r.channel,
-      isMobile: r.isMobile,
-      stageAtOpen: r.stageAtOpen,
-    })),
-  };
-}
+export {
+  loadVisitTelemetry,
+  recordVisitBeacon,
+  type VisitBeaconInput,
+  type VisitTelemetry,
+} from "./portal-visit-tracking";
 
 /** Public facade: document delivery is implemented separately from data reads. */
 export async function emailPortalDocument(token: string, documentId: string) {

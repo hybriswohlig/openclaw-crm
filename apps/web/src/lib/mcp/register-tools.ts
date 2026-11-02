@@ -410,7 +410,7 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_get_customer_link",
-    "Customer portal link for a deal.",
+    "Customer portal link for a deal. telemetry.sessionCount is the customer open count from real browser sessions (crawlers and HEAD excluded). telemetry.internalSessionCount is the intern/Test split. telemetry.sentAt is when the link was first sent. telemetry.documents lists per-PDF view counts with first and last viewed. IP addresses are never included.",
     { dealRecordId: z.string() },
     req
   );

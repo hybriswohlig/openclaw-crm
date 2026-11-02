@@ -820,7 +820,8 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "crm_get_customer_link",
-    description: "Customer portal link / token info for a deal.",
+    description:
+      "Customer portal link for a deal. telemetry.sessionCount is the customer open count from real browser sessions (link-preview crawlers and HEAD requests are excluded). telemetry.internalSessionCount is the intern/Test split (logged-in CRM session, operator Öffnen, or opens before the link was sent). telemetry.sentAt is the first outbound message that contained the link. telemetry.documents lists per-PDF view counts with firstViewedAt and lastViewedAt. IP addresses are never included.",
     inputSchema: {
       type: "object",
       properties: { dealRecordId: { type: "string" } },

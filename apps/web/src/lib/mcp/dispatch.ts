@@ -31,6 +31,22 @@ function str(v: unknown): string {
   return String(v ?? "");
 }
 
+const IP_KEYS = new Set(["ip", "ipAddress", "ip_address", "clientIp"]);
+
+/** Customer-link telemetry must not leave the process with an IP address. */
+function omitIpFields(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(omitIpFields);
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      if (IP_KEYS.has(key)) continue;
+      out[key] = omitIpFields(child);
+    }
+    return out;
+  }
+  return value;
+}
+
 /** Forward a caller-supplied due date. Absent stays absent so the server uses the upload day. */
 function dueDateBody(value: unknown): { dueDate: string } | Record<string, never> {
   if (typeof value !== "string" || !value.trim()) return {};
@@ -572,8 +588,10 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
         `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/payments`
       );
     case "crm_get_customer_link":
-      return client.request(
-        `/api/v1/customer-link/${encodeURIComponent(str(args.dealRecordId))}`
+      return omitIpFields(
+        await client.request(
+          `/api/v1/customer-link/${encodeURIComponent(str(args.dealRecordId))}`
+        )
       );
 
     // ── Deal context: what the documents are built from ─────────────────

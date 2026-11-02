@@ -61,6 +61,15 @@ export async function sendPortalNotificationEmail(
       html,
     });
 
+    // This path does not go through the inbox sender, so stamp sent_at here.
+    // The plain-text body includes the portal URL.
+    const { markCustomerLinkSentFromOutbound } = await import("./portal-visit-tracking");
+    await markCustomerLinkSentFromOutbound({
+      dealRecordId: input.dealRecordId,
+      body: text,
+      sentAt: new Date(),
+    });
+
     return { sent: true, reason: null };
   } catch (err) {
     console.error("[customer-portal-emails] notification send failed:", err);

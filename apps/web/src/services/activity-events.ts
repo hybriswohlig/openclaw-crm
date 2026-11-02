@@ -31,6 +31,8 @@ export type ActivityEventType =
   | "customer.marked_paid"
   | "customer.rated_crew"
   | "customer.date_offers_set"
+  | "customer.portal_opened"
+  | "customer.document_viewed"
   | "customer.date_selected"
   | "customer.package_selected"
   | "customer.package_options_set"

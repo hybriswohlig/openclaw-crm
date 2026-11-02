@@ -24,11 +24,24 @@ import { gesperrtHinweis, neuerLinkBestaetigung, sperrBestaetigungText } from "@
 import { DateOfferComposer } from "./date-offer-composer";
 import { PackageOptionsComposer } from "./package-options-composer";
 
+interface DocumentViewStat {
+  documentId: string;
+  fileName: string | null;
+  documentType: string | null;
+  viewCount: number;
+  internalViewCount: number;
+  firstViewedAt: string | null;
+  lastViewedAt: string | null;
+}
+
 interface VisitTelemetry {
   sessionCount: number;
+  internalSessionCount?: number;
   totalActiveMs: number;
   firstViewedAt: string | null;
   lastViewedAt: string | null;
+  sentAt?: string | null;
+  sentSignalAvailable?: boolean;
   recent: Array<{
     sessionId: string;
     openedAt: string;
@@ -37,7 +50,10 @@ interface VisitTelemetry {
     channel: string | null;
     isMobile: boolean | null;
     stageAtOpen: number | null;
+    internal?: boolean;
+    internalLabel?: string | null;
   }>;
+  documents?: DocumentViewStat[];
 }
 
 interface LinkInfo {
@@ -203,9 +219,12 @@ export function ShareLinkPanel({ dealRecordId }: { dealRecordId: string }) {
 
   const revoked = !!link.revokedAt;
   const telemetry = link.telemetry ?? null;
+  const customerOpens = telemetry?.sessionCount ?? link.viewCount ?? 0;
+  const internalOpens = telemetry?.internalSessionCount ?? 0;
   const hasEngagement =
-    telemetry &&
+    telemetry != null &&
     (telemetry.sessionCount > 0 || telemetry.totalActiveMs > 0);
+  const hasVerlauf = (telemetry?.recent.length ?? 0) > 0;
 
   return (
     <div className="space-y-3">
@@ -220,8 +239,13 @@ export function ShareLinkPanel({ dealRecordId }: { dealRecordId: string }) {
               Gesperrt
             </span>
           ) : (
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              {link.viewCount ?? 0}× geöffnet
+            <span className="text-[10px] tracking-wider text-muted-foreground">
+              <span className="uppercase">{customerOpens}× geöffnet</span>
+              {internalOpens > 0 && (
+                <span className="ml-1 normal-case text-amber-700 dark:text-amber-400">
+                  · {internalOpens} intern/Test
+                </span>
+              )}
             </span>
           )}
         </div>
@@ -242,7 +266,7 @@ export function ShareLinkPanel({ dealRecordId }: { dealRecordId: string }) {
             {copied ? "Kopiert" : "Kopieren"}
           </button>
           <a
-            href={link.url}
+            href={operatorOpenUrl(link.url)}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border bg-background px-3 text-xs font-medium hover:bg-accent"
@@ -276,11 +300,45 @@ export function ShareLinkPanel({ dealRecordId }: { dealRecordId: string }) {
           </div>
         ) : (
           <div className="mt-3 text-[11px] text-muted-foreground">
-            Noch nicht geöffnet.
+            {internalOpens > 0 ? "Noch nicht vom Kunden geöffnet." : "Noch nicht geöffnet."}
           </div>
         )}
 
-        {hasEngagement && telemetry!.recent.length > 0 && (
+        {telemetry?.sentSignalAvailable && (
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            {telemetry.sentAt
+              ? `Zuerst an den Kunden gesendet ${relativeFromNow(telemetry.sentAt)}.`
+              : "Noch nicht an den Kunden gesendet — Aufrufe davor zählen als intern/Test."}
+          </p>
+        )}
+
+        {(telemetry?.documents?.length ?? 0) > 0 && (
+          <ul className="mt-3 space-y-1 text-[11px]">
+            {telemetry!.documents!.map((doc) => (
+              <li
+                key={doc.documentId}
+                className="flex items-center justify-between gap-2 rounded-md border border-border/40 bg-background/40 px-2 py-1.5"
+              >
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <FileText className="h-3 w-3 shrink-0 text-muted-foreground" />
+                  <span className="truncate">{doc.fileName || pdfKindLabel(doc.documentType)}</span>
+                </span>
+                <span className="shrink-0 text-muted-foreground">
+                  {doc.viewCount}×
+                  {doc.internalViewCount > 0 && (
+                    <span className="text-amber-700 dark:text-amber-400">
+                      {" "}
+                      · {doc.internalViewCount} intern/Test
+                    </span>
+                  )}
+                  {doc.lastViewedAt ? ` · ${relativeFromNow(doc.lastViewedAt)}` : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {hasVerlauf && telemetry && (
           <>
             <button
               type="button"
@@ -313,7 +371,12 @@ export function ShareLinkPanel({ dealRecordId }: { dealRecordId: string }) {
                           timeStyle: "short",
                         })}
                       </span>
-                      {v.channel && v.channel !== "unknown" && (
+                      {v.internal && (
+                        <span className="rounded-full bg-amber-100 px-1.5 py-px text-[9px] font-medium text-amber-900 dark:bg-amber-950/50 dark:text-amber-300">
+                          {v.internalLabel || "intern/Test"}
+                        </span>
+                      )}
+                      {v.channel && v.channel !== "unknown" && v.channel !== "share_panel" && (
                         <span className="rounded-full bg-muted px-1.5 py-px text-[9px] uppercase">
                           {v.channel}
                         </span>
@@ -723,6 +786,27 @@ function fmtBytes(b: number): string {
   if (b < 1024) return `${b} B`;
   if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
   return `${(b / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** Operator preview only. The copied URL stays clean so the customer is not flagged. */
+function operatorOpenUrl(url: string): string {
+  const join = url.includes("?") ? "&" : "?";
+  return `${url}${join}utm_source=share_panel`;
+}
+
+function pdfKindLabel(documentType: string | null): string {
+  switch (documentType) {
+    case "quotation":
+      return "Angebot (PDF)";
+    case "order_confirmation":
+      return "Auftragsbestätigung";
+    case "invoice":
+      return "Rechnung";
+    case "signed_contract":
+      return "Vertrag";
+    default:
+      return "PDF";
+  }
 }
 
 function Stat({ label, value }: { label: string; value: string }) {

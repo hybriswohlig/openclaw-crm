@@ -1047,6 +1047,8 @@ const EVENT_LABEL: Record<string, string> = {
   "call.received": "Anruf erhalten",
   "call.summary_attached": "Anruf-Zusammenfassung",
   "ai.insights_extracted": "KI-Analyse",
+  "customer.portal_opened": "Statuslink geöffnet",
+  "customer.document_viewed": "PDF angesehen",
 };
 
 function ActivityCard({ events }: { events: ActivityEvent[] }) {

@@ -6,6 +6,7 @@ import { db } from "@/db";
 import { notes, tasks, taskRecords, activityEvents, inboxMessages } from "@/db/schema";
 import { and, eq, desc, inArray } from "drizzle-orm";
 import { callActivityTitle } from "@/lib/phone-calls";
+import { portalActivityDescription, portalActivityTitle } from "@/lib/portal-open-tracking";
 import { listCallsForRecord } from "@/services/phone-calls";
 
 export async function GET(
@@ -240,6 +241,17 @@ export async function GET(
           type: "ai_enrichment" as const,
           title: `KI · ${fieldLabel}${valueLabel ? ` → ${valueLabel}` : ""} · ${mode}`,
           description: [reason, quote ? `„${quote}“` : ""].filter(Boolean).join(" · "),
+          createdAt: ev.createdAt.toISOString(),
+          createdBy: ev.actorId ?? undefined,
+        };
+      }
+      const portalTitle = portalActivityTitle(ev.eventType, payload);
+      if (portalTitle) {
+        return {
+          id: `event-${ev.id}`,
+          type: "event" as const,
+          title: portalTitle,
+          description: portalActivityDescription(ev.eventType, payload),
           createdAt: ev.createdAt.toISOString(),
           createdBy: ev.actorId ?? undefined,
         };

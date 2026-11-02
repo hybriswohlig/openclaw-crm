@@ -3,7 +3,9 @@
  * a specific deal. Lives under /api/v1 so it follows the existing auth
  * conventions (cookie or oc_sk_* Bearer).
  *
- * GET    → returns { token, url, dealNumber, viewCount, firstViewedAt, lastViewedAt, revokedAt, widerrufBis }
+ * GET    → returns { token, url, dealNumber, viewCount, firstViewedAt, lastViewedAt, revokedAt, widerrufBis, telemetry }
+ * viewCount is the number of non-internal browser sessions (not page renders).
+ * telemetry.documents has per-PDF first/last/count. No IP addresses.
  * POST   → ensure link exists (idempotent); returns the same shape
  * DELETE → revokes the link (soft — sets revoked_at, doesn't drop the row)
  *
@@ -84,9 +86,11 @@ export async function GET(
     token: row.token,
     url: `${origin}/s/${row.token}`,
     dealNumber,
-    viewCount: row.viewCount,
-    firstViewedAt: row.firstViewedAt,
-    lastViewedAt: row.lastViewedAt,
+    // Customer sessions. The denormalised column is the same number after
+    // the beacon rolls it up; telemetry is the live read.
+    viewCount: telemetry?.sessionCount ?? row.viewCount,
+    firstViewedAt: telemetry ? telemetry.firstViewedAt : row.firstViewedAt,
+    lastViewedAt: telemetry ? telemetry.lastViewedAt : row.lastViewedAt,
     revokedAt: row.revokedAt,
     widerrufBis,
     telemetry,
