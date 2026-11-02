@@ -147,7 +147,6 @@ export function baueLagekarte(roh: LagekarteRoh, jetzt: Date): LagekarteAntwort 
     const dokument = kvDokument({
       angenommenDokumentId: annahme?.quotationDocumentId ?? null,
       angenommen: annahme !== null,
-      quotationUpdatedAt: angebot?.updatedAt ?? null,
       docs: dokumente.get(deal.id) ?? [],
     });
 

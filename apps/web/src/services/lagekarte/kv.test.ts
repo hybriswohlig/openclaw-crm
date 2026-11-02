@@ -4,25 +4,25 @@ import { kvDokument } from "./kv";
 const d = (id: string, iso: string) => ({ id, uploadedAt: new Date(iso) });
 
 describe("kvDokument", () => {
-  it("angenommen → gebundenes PDF", () => {
-    expect(kvDokument({ angenommenDokumentId: "alt", angenommen: true, quotationUpdatedAt: new Date("2026-10-05"), docs: [d("alt", "2026-10-01"), d("neu", "2026-10-06")] })).toEqual({ dokumentId: "alt", dokumentStand: "angenommen" });
+  it("angenommen → gebundenes PDF, auch wenn ein neueres existiert", () => {
+    expect(kvDokument({ angenommenDokumentId: "alt", angenommen: true, docs: [d("alt", "2026-10-01"), d("neu", "2026-10-06")] })).toEqual({ dokumentId: "alt", dokumentStand: "angenommen" });
   });
-  it("ohne Annahme: neuestes PDF, das nicht älter als das Angebot ist", () => {
-    expect(kvDokument({ angenommenDokumentId: null, angenommen: false, quotationUpdatedAt: new Date("2026-10-05"), docs: [d("a", "2026-10-01"), d("b", "2026-10-06"), d("c", "2026-10-07")] })).toEqual({ dokumentId: "c", dokumentStand: "aktuell" });
+  it("ohne Annahme: neuestes PDF, auch wenn das Angebot danach gespeichert wurde", () => {
+    expect(kvDokument({ angenommenDokumentId: null, angenommen: false, docs: [d("a", "2026-10-01"), d("c", "2026-10-07"), d("b", "2026-10-06")] })).toEqual({ dokumentId: "c", dokumentStand: "aktuell" });
   });
-  it("nur ältere PDFs → veraltet, kein Link", () => {
-    expect(kvDokument({ angenommenDokumentId: null, angenommen: false, quotationUpdatedAt: new Date("2026-10-05"), docs: [d("a", "2026-10-01")] })).toEqual({ dokumentId: null, dokumentStand: "veraltet" });
+  it("ein älteres PDF bleibt das aktuelle, ein späteres Speichern der Angebotszeile blendet es nicht aus", () => {
+    expect(kvDokument({ angenommenDokumentId: null, angenommen: false, docs: [d("a", "2026-10-01")] })).toEqual({ dokumentId: "a", dokumentStand: "aktuell" });
   });
-  it("keine PDFs → keins", () => {
-    expect(kvDokument({ angenommenDokumentId: null, angenommen: false, quotationUpdatedAt: null, docs: [] })).toEqual({ dokumentId: null, dokumentStand: "keins" });
+  it("ohne PDF: keins, das Portal zeigt dann das HTML-Angebot", () => {
+    expect(kvDokument({ angenommenDokumentId: null, angenommen: false, docs: [] })).toEqual({ dokumentId: null, dokumentStand: "keins" });
   });
-  it("Annahme ohne gebundenes PDF fällt auf aktuelles zurück", () => {
-    expect(kvDokument({ angenommenDokumentId: null, angenommen: true, quotationUpdatedAt: null, docs: [d("x", "2026-10-02")] })).toEqual({ dokumentId: "x", dokumentStand: "aktuell" });
+  it("Annahme ohne gebundenes PDF fällt auf das neueste zurück", () => {
+    expect(kvDokument({ angenommenDokumentId: null, angenommen: true, docs: [d("x", "2026-10-02")] })).toEqual({ dokumentId: "x", dokumentStand: "aktuell" });
   });
-  it("Annahme mit gebundenem PDF, das gelöscht wurde, und nur älteren PDFs → veraltet", () => {
-    expect(kvDokument({ angenommenDokumentId: "weg", angenommen: true, quotationUpdatedAt: new Date("2026-10-05"), docs: [d("a", "2026-10-01")] })).toEqual({ dokumentId: null, dokumentStand: "veraltet" });
+  it("gelöschtes gebundenes PDF fällt auf das neueste verbleibende zurück", () => {
+    expect(kvDokument({ angenommenDokumentId: "weg", angenommen: true, docs: [d("a", "2026-10-01"), d("b", "2026-11-02")] })).toEqual({ dokumentId: "b", dokumentStand: "aktuell" });
   });
   it("Annahme ohne jedes PDF → keins", () => {
-    expect(kvDokument({ angenommenDokumentId: "weg", angenommen: true, quotationUpdatedAt: null, docs: [] })).toEqual({ dokumentId: null, dokumentStand: "keins" });
+    expect(kvDokument({ angenommenDokumentId: "weg", angenommen: true, docs: [] })).toEqual({ dokumentId: null, dokumentStand: "keins" });
   });
 });
