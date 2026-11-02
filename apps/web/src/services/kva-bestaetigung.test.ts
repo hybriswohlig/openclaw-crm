@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { KOTTKE_RESTBETRAG_EINSATZ, KOTTKE_RESTBETRAG_UMZUG } from "@openclaw-crm/document-templates/src/restbetrag";
 import { agbAlsText, bestaetigungVerschickt, bestaetigungsMailText, bestaetigungsTextWhatsApp, nachlaufNoetig, teamAlarmText, waThreadWaehlen, kundenThread, type BestaetigungsDaten } from "./kva-bestaetigung";
 import { firmaKontakt } from "@openclaw-crm/customer-portal-core";
 
@@ -21,6 +22,9 @@ describe("bestaetigungsTextWhatsApp", () => {
     expect(t).toContain("Bahnhofstr. 5");
     expect(t).toContain("kein gesetzliches Widerrufsrecht");
     expect(t).toContain("§ 451g HGB");
+    expect(t).toContain(KOTTKE_RESTBETRAG_UMZUG);
+    expect(t).not.toContain("auf Rechnung");
+    expect(bestaetigungsMailText(umzug)).toContain(KOTTKE_RESTBETRAG_UMZUG);
     expect(t).not.toMatch(/[—–]/);
   });
   it("ohne PDF: Hinweis auf Portal", () => {
@@ -31,6 +35,8 @@ describe("bestaetigungsTextWhatsApp", () => {
     expect(t).toContain("Widerrufsbelehrung");
     expect(t).toContain("vor Ende der Widerrufsfrist");
     expect(t).not.toContain("§ 451g");
+    expect(t).toContain(KOTTKE_RESTBETRAG_EINSATZ);
+    expect(t).not.toContain("Umzugstag");
   });
 });
 
@@ -59,6 +65,7 @@ describe("Fix-Durchgang Bestätigung", () => {
     expect(t).toContain("binnen vierzehn Tagen");
     expect(t).toContain("Muster-Widerrufsformular");
     expect(t).not.toContain("in der E-Mail");
+    expect(t).not.toContain("Restbetrag");
     expect(t.length).toBeLessThan(4096);
   });
   it("variables Angebot: voraussichtlich statt Endpreis", () => {

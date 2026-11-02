@@ -79,6 +79,7 @@ export function buildDocumentModel(input: RenderInput): DocumentModel {
     businessCustomer: business,
     serviceDate: input.deal.serviceDate,
     dueDate: input.deal.dueDate,
+    firma: input.deal.firma,
     methodLabel: method.label,
     hasDeposit: depositCents != null,
     openCents,

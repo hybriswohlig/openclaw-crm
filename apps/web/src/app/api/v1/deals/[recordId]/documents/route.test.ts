@@ -6,6 +6,7 @@ import { jsonDealDocumentTooLargeMessage } from "@/lib/deal-document-upload";
 const mocks = vi.hoisted(() => ({
   getAuthContext: vi.fn(),
   createDealDocument: vi.fn(),
+  applyInvoiceDueDate: vi.fn(),
 }));
 
 vi.mock("@/lib/api-utils", async (importOriginal) => {
@@ -17,6 +18,10 @@ vi.mock("@/services/deal-documents", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/services/deal-documents")>();
   return { ...actual, createDealDocument: mocks.createDealDocument };
 });
+
+vi.mock("@/services/rechnung-faellig", () => ({
+  applyInvoiceDueDate: mocks.applyInvoiceDueDate,
+}));
 
 import { POST } from "./route";
 
@@ -47,6 +52,15 @@ function callJson(body: Record<string, unknown>) {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.getAuthContext.mockResolvedValue(AUTH_CTX);
+  mocks.applyInvoiceDueDate.mockImplementation(async (input: { documentType: string; explicitDueDate?: unknown }) => {
+    if (input.documentType !== "invoice") return { rechnungFaelligAm: null };
+    return {
+      rechnungFaelligAm:
+        typeof input.explicitDueDate === "string" && input.explicitDueDate
+          ? input.explicitDueDate
+          : "2026-11-02",
+    };
+  });
   mocks.createDealDocument.mockResolvedValue({
     id: "doc_1",
     documentType: "invoice",
@@ -82,6 +96,30 @@ describe("POST /api/v1/deals/[recordId]/documents JSON upload", () => {
       fileContent: pdf.toString("base64"),
       notifyCustomer: false,
     });
+    expect(body.rechnungFaelligAm).toBe("2026-11-02");
+    expect(mocks.applyInvoiceDueDate).toHaveBeenCalledWith({
+      documentType: "invoice",
+      workspaceId: WORKSPACE_ID,
+      dealRecordId: DEAL_ID,
+      explicitDueDate: undefined,
+      updatedBy: AUTH_CTX.userId,
+    });
+  });
+
+  it("keeps an explicit due date on an uploaded invoice", async () => {
+    const res = await callJson({
+      fileName: "RE-korrigiert.pdf",
+      documentType: "invoice",
+      contentBase64: Buffer.from("%PDF-1.4\n").toString("base64"),
+      dueDate: "2026-12-01",
+    });
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.rechnungFaelligAm).toBe("2026-12-01");
+    expect(mocks.applyInvoiceDueDate).toHaveBeenCalledWith(
+      expect.objectContaining({ documentType: "invoice", explicitDueDate: "2026-12-01" })
+    );
   });
 
   it("opts in to the portal notifier only when notifyCustomer is true", async () => {
@@ -95,6 +133,9 @@ describe("POST /api/v1/deals/[recordId]/documents JSON upload", () => {
     });
     expect(mocks.createDealDocument).toHaveBeenCalledWith(
       expect.objectContaining({ documentType: "order_confirmation", notifyCustomer: true })
+    );
+    expect(mocks.applyInvoiceDueDate).toHaveBeenCalledWith(
+      expect.objectContaining({ documentType: "order_confirmation" })
     );
   });
 
@@ -130,6 +171,7 @@ describe("POST /api/v1/deals/[recordId]/documents JSON upload", () => {
     const form = new FormData();
     form.append("file", new File([pdf], "RE-ui.pdf", { type: "application/pdf" }));
     form.append("documentType", "invoice");
+    form.append("dueDate", "2026-12-20");
 
     const res = await POST(
       new NextRequest(`https://crm.test/api/v1/deals/${DEAL_ID}/documents`, {
@@ -144,5 +186,8 @@ describe("POST /api/v1/deals/[recordId]/documents JSON upload", () => {
     expect(stored.documentType).toBe("invoice");
     expect(stored.fileName).toBe("RE-ui.pdf");
     expect(stored.notifyCustomer).toBeUndefined();
+    expect(mocks.applyInvoiceDueDate).toHaveBeenCalledWith(
+      expect.objectContaining({ documentType: "invoice", explicitDueDate: "2026-12-20" })
+    );
   });
 });

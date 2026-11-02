@@ -6,6 +6,7 @@ import type {
   CustomerEmailStatus,
   FirmaBranding,
 } from "@openclaw-crm/customer-portal-core";
+import { emailCaptureTexte } from "@/lib/email-capture-copy";
 
 /**
  * Inline email-capture banner rendered above the acceptance card on Stage 1
@@ -83,16 +84,7 @@ export function EmailCaptureBanner({
     }
   }
 
-  const headline =
-    status === "kleinanzeigen_relay"
-      ? "Wir haben Sie bisher nur über Kleinanzeigen erreicht."
-      : variant === "zeile"
-        ? "Wohin dürfen wir Auftragsbestätigung und Rechnung schicken?"
-        : "Wir haben noch keine E-Mail von Ihnen.";
-  const body =
-    status === "kleinanzeigen_relay"
-      ? "Damit Sie Ihre Auftragsbestätigung, Rechnung und weitere Unterlagen direkt erhalten, geben Sie uns kurz Ihre echte E-Mail-Adresse."
-      : "Damit Sie Ihre Auftragsbestätigung und Rechnung per E-Mail erhalten, hinterlegen Sie hier bitte Ihre Adresse.";
+  const { headline, body } = emailCaptureTexte(branding.firmaSlug, status, variant);
 
   return (
     <div className={variant === "zeile" ? "portal-email-zeile" : "rounded-2xl border border-border bg-[var(--portal-brand-tint)] p-5"}>

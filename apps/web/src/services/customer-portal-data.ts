@@ -91,7 +91,7 @@ import { emitEvent } from "./activity-events";
 import { createTask } from "./tasks";
 import { annahmeNachlauf, nachlaufNoetig } from "./kva-bestaetigung";
 import { ladeWiderrufKontext } from "./kva-widerruf";
-import { angezeigtesKvDokument, gueltigeAuftragsbestaetigung, oeffentlichAbrufbar, vertragUrl } from "@/lib/portal-dokumente";
+import { angezeigtesKvDokument, gueltigeAuftragsbestaetigung, neuestesKvDokument, oeffentlichAbrufbar, vertragUrl } from "@/lib/portal-dokumente";
 import {
   aktivBedingung,
   aktuellesKvDokument,
@@ -424,10 +424,7 @@ export async function loadContextByToken(
   );
   const invoiceDoc = docRows.find((d) => d.type === "invoice");
 
-  const [quotationVersion] = await db.select({ updatedAt: quotations.updatedAt }).from(quotations)
-    .where(eq(quotations.dealRecordId, dealRecordId)).limit(1);
-  const quotationDoc = docRows.find(d => d.type === "quotation" &&
-    (!quotationVersion || d.uploadedAt >= quotationVersion.updatedAt));
+  const quotationDoc = neuestesKvDokument(docRows.filter((d) => d.type === "quotation"));
   // Nach der Annahme zeigt das Portal das angenommene PDF; ohne gebundenes
   // PDF (Altbestand) gilt die normale Regel weiter.
   const quotationDocShown = angezeigtesKvDokument({

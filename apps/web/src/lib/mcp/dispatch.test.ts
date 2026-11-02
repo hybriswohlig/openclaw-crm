@@ -1480,6 +1480,29 @@ describe("crm_upload_deal_document", () => {
     );
   });
 
+  it("forwards an explicit invoice due date and omits it otherwise", async () => {
+    const dated = fakeClient();
+    await handleTool(dated.client, "crm_upload_deal_document", {
+      recordId: "deal-1",
+      fileName: "RE-korrigiert.pdf",
+      documentType: "invoice",
+      contentBase64: Buffer.from("%PDF-1.4").toString("base64"),
+      dueDate: "2026-12-01",
+    });
+    expect(dated.calls[0].options.body).toEqual(
+      expect.objectContaining({ dueDate: "2026-12-01", documentType: "invoice" })
+    );
+
+    const plain = fakeClient();
+    await handleTool(plain.client, "crm_upload_deal_document", {
+      recordId: "deal-1",
+      fileName: "RE-korrigiert.pdf",
+      documentType: "invoice",
+      contentBase64: Buffer.from("%PDF-1.4").toString("base64"),
+    });
+    expect(plain.calls[0].options.body).not.toHaveProperty("dueDate");
+  });
+
   it("refuses a payload over the JSON cap before calling the API", async () => {
     const { client, calls } = fakeClient();
     const contentBase64 = "A".repeat(Math.ceil((MAX_JSON_INLINE_BYTES + 1) / 3) * 4);

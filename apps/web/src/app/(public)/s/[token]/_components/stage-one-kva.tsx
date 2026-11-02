@@ -23,6 +23,7 @@ import { WhatsAppContactLink } from "./whatsapp-contact-link";
 import { OfferInclusionsSection } from "./offer-inclusions";
 import { EmailCaptureBanner } from "./email-capture-banner";
 import { PackageSelector } from "./package-selector";
+import { RestbetragHinweis } from "./restbetrag-hinweis";
 import { DateOfferPicker } from "./date-offer-picker";
 import { CustomerPhotosSection } from "./customer-photos-section";
 import { FurnitureListSection } from "./furniture-list-section";
@@ -330,6 +331,11 @@ function PriceCard({
             {formatEurCents(kva.depositRequiredCents)} zur Auftragsbestätigung.
           </div>
         ) : null}
+        <RestbetragHinweis
+          firmaSlug={ctx.branding.firmaSlug}
+          serviceType={ctx.annahmeRecht.serviceType}
+          className="text-[11px] leading-relaxed text-muted-foreground"
+        />
 
         {alreadyAccepted ? (
           <div className="rounded-lg border border-border bg-[var(--portal-brand-tint)] px-4 py-3 text-xs text-foreground">
@@ -468,6 +474,11 @@ function MobilePriceDetails({
             {formatEurCents(kva.depositRequiredCents)} zur Auftragsbestätigung.
           </div>
         ) : null}
+        <RestbetragHinweis
+          firmaSlug={ctx.branding.firmaSlug}
+          serviceType={ctx.annahmeRecht.serviceType}
+          className="mt-3 text-[11px] leading-relaxed text-muted-foreground"
+        />
       </div>
       <TrustLine branding={ctx.branding} isVariable={kva.isVariable} />
     </div>

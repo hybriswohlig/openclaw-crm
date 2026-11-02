@@ -53,12 +53,16 @@ export async function POST(
       kind: parsed.value.kind,
       copy: parsed.value.copy,
       notifyCustomer: parsed.value.notifyCustomer,
+      updatedBy: ctx.userId,
+      ...(parsed.value.dueDate ? { dueDate: parsed.value.dueDate } : {}),
     });
     return success({
       renderer: "crm",
       templateVersion: stored.templateVersion,
       fileName: stored.fileName,
       document: stored.document,
+      ...(stored.rechnungFaelligAm ? { rechnungFaelligAm: stored.rechnungFaelligAm } : {}),
+      ...(stored.dueDateWarning ? { dueDateWarning: stored.dueDateWarning } : {}),
     });
   } catch (err) {
     if (err instanceof CommercialDocumentError) {

@@ -8,11 +8,13 @@
  * default and cannot change the total.
  */
 import { formatGermanDate } from "./money";
+import { kottkeRestbetragSatz } from "./restbetrag";
 import type {
   AddressForm,
   DocKind,
   DocumentCopy,
   DocumentServiceKind,
+  FirmaSlug,
   ServiceSignals,
 } from "./types";
 
@@ -346,8 +348,26 @@ function dueClause(dueDate?: string | null, serviceDate?: string | null): string
  * amount. A missing due date stays missing: the service date is not a due date,
  * and a deposit is not described as due before the job unless a due date is stored.
  * The method is the quotation's payment method. Card is mentioned only then.
+ *
+ * Kottke KV/AB add the moving-day rule for the remaining balance. A deposit
+ * sentence stays (the Anzahlung can still be due earlier). An invoice (RE)
+ * keeps its own due-date sentence, including an empty one ("sofort").
  */
 export function paymentDueWording(input: {
+  kind: DocKind;
+  addressForm: AddressForm;
+  methodLabel: string;
+  hasDeposit: boolean;
+  openCents: number | null;
+  dueDate?: string | null;
+  serviceDate?: string | null;
+  firma?: FirmaSlug | null;
+  serviceKind?: DocumentServiceKind | null;
+}): string | null {
+  return mitKottkeRestbetrag(paymentDuePrimary(input), input);
+}
+
+function paymentDuePrimary(input: {
   kind: DocKind;
   addressForm: AddressForm;
   methodLabel: string;
@@ -393,6 +413,21 @@ export function paymentDueWording(input: {
   return `Die Zahlung erfolgt per Überweisung${due}.`;
 }
 
+function mitKottkeRestbetrag(
+  primary: string | null,
+  input: {
+    kind: DocKind;
+    firma?: FirmaSlug | null;
+    serviceKind?: DocumentServiceKind | null;
+    hasDeposit: boolean;
+  },
+): string | null {
+  if (input.kind === "RE" || input.firma !== "kottke" || !input.serviceKind) return primary;
+  const satz = kottkeRestbetragSatz(input.serviceKind === "move");
+  if (!input.hasDeposit) return satz;
+  return primary ? `${primary} ${satz}` : satz;
+}
+
 export interface ComposedCopy {
   service: SelectedService;
   addressForm: AddressForm;
@@ -411,6 +446,7 @@ export function composeDocumentCopy(input: {
   businessCustomer?: boolean;
   serviceDate?: string | null;
   dueDate?: string | null;
+  firma?: FirmaSlug | null;
   methodLabel: string;
   hasDeposit: boolean;
   openCents: number | null;
@@ -449,6 +485,8 @@ export function composeDocumentCopy(input: {
       openCents: input.openCents,
       dueDate: input.dueDate,
       serviceDate: input.serviceDate,
+      firma: input.firma,
+      serviceKind: service.kind,
     }),
   };
 }

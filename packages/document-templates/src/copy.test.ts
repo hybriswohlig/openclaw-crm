@@ -4,6 +4,7 @@ import { buildDocumentModel } from "./model";
 import { renderHtml } from "./html";
 import { renderPdf } from "./pdf";
 import { composeDocumentCopy, selectDocumentService } from "./copy";
+import { KOTTKE_RESTBETRAG_EINSATZ, KOTTKE_RESTBETRAG_UMZUG } from "./restbetrag";
 import { TEMPLATE_VERSION } from "./version";
 import type { DealFacts, DocKind, QuotationPriceSource, ServiceSignals } from "./types";
 
@@ -316,9 +317,51 @@ describe("preview", () => {
     expect(transfer.model.paymentTerms).not.toContain("Karte vor Ort");
 
     const cash = preview({ kind: "KV", method: "cash" });
-    expect(cash.model.paymentTerms).toBe("Die Anzahlung ist bar zu entrichten.");
+    expect(cash.model.paymentTerms).toBe(
+      `Die Anzahlung ist bar zu entrichten. ${KOTTKE_RESTBETRAG_UMZUG}`,
+    );
     expect(cash.model.paymentTerms).not.toContain("Keine Kartenzahlung");
     expect(cash.model.paymentTerms).not.toContain("vor Auftragsbeginn");
+    expect(cash.model.paymentTerms).not.toContain("auf Rechnung");
+  });
+
+  it("Kottke KV/AB: Restbetrag am Umzugstag, Anzahlung behält ihr Datum, Rechnung bleibt beim Fälligkeitsdatum", () => {
+    const offer = preview({ kind: "KV", dueDate: "2026-11-20" });
+    expect(offer.model.paymentTerms).toContain("Die Anzahlung ist bis spätestens 20.11.2026");
+    expect(offer.model.paymentTerms).toContain(KOTTKE_RESTBETRAG_UMZUG);
+
+    const whole = preview({
+      kind: "AB",
+      dueDate: "2026-11-20",
+      method: "bank_transfer",
+    });
+    // Default quotation still has a deposit, so the date stays on the Anzahlung.
+    expect(whole.model.paymentTerms).toContain(KOTTKE_RESTBETRAG_UMZUG);
+
+    const noDeposit = buildDocumentModel({
+      kind: "KV",
+      deal: { ...deal, dueDate: "2026-11-20" },
+      quotation: quotation({ depositRequiredCents: null, paymentMethodPreference: "bank_transfer" }),
+    });
+    expect(noDeposit.paymentTerms).toBe(KOTTKE_RESTBETRAG_UMZUG);
+    expect(noDeposit.paymentTerms).not.toContain("bis spätestens");
+    expect(noDeposit.paymentTerms).not.toContain("auf Rechnung");
+
+    const clearance = preview({ kind: "KV", serviceType: "clearance", method: "bank_transfer" });
+    expect(clearance.model.paymentTerms).toContain(KOTTKE_RESTBETRAG_EINSATZ);
+    expect(clearance.model.paymentTerms).not.toContain("Umzugstag");
+
+    const invoice = preview({ kind: "RE", dueDate: "2026-11-20", method: "bank_transfer" });
+    expect(invoice.model.paymentTerms).toContain("bis spätestens 20.11.2026");
+    expect(invoice.model.paymentTerms).not.toContain("Restbetrag");
+
+    const ceylan = buildDocumentModel({
+      kind: "KV",
+      deal: { ...deal, firma: "ceylan", dueDate: "2026-11-20" },
+      quotation: quotation({ depositRequiredCents: null }),
+    });
+    expect(ceylan.paymentTerms).toContain("bis spätestens 20.11.2026");
+    expect(ceylan.paymentTerms).not.toContain("Restbetrag");
   });
 
   it("lets intro, closing and remarks replace the default without touching the price", () => {

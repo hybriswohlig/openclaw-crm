@@ -6,11 +6,11 @@ import { EmailDocumentButton } from "./email-document-button";
 import { PanelHeading } from "./portal-ui";
 import { formatPortalDate, formatPortalMoney } from "./portal-presentation";
 import { kundenAnnahmen } from "@/lib/kunden-annahmen";
+import { RestbetragHinweis } from "./restbetrag-hinweis";
 
 /**
- * Current stored PDF, with a printable data-backed fallback while it is being prepared.
- * `file` keeps the on-screen price in the Festangebot header: only the PDF
- * actions are visible, and the paper itself is for printing.
+ * Current stored PDF. Without one, the same deal data is a readable HTML
+ * paper on screen, and Drucken still prints that paper.
  * `kva.notes` is an internal operator note and is never rendered.
  */
 export function QuotationPreview({ ctx, token, variant = "full" }: { ctx: CustomerPortalContext; token: string; variant?: "full" | "file" }) {
@@ -28,7 +28,7 @@ export function QuotationPreview({ ctx, token, variant = "full" }: { ctx: Custom
     ? ctx.inclusions.included.map(item => [item.label, item.detail].filter(Boolean).join(": "))
     : [];
   const inclusions = option?.includedItems ?? (positions.length > 0 ? [] : standardInclusions);
-  const paper = <article className={`portal-document-paper portal-quotation ${variant === "file" ? "portal-quotation-source" : ""}`}>
+  const paper = <article className="portal-document-paper portal-quotation">
       <header>{ctx.branding.logoUrl ?
         // eslint-disable-next-line @next/next/no-img-element
         <img src={ctx.branding.logoUrl} alt={ctx.branding.displayName} /> : <strong>{ctx.branding.displayName}</strong>}
@@ -46,6 +46,7 @@ export function QuotationPreview({ ctx, token, variant = "full" }: { ctx: Custom
       {option?.note && <p className="mt-3 whitespace-pre-line">{option.note}</p>}
       <div className="portal-document-total"><span>{ctx.kva.isVariable ? "Voraussichtlicher Gesamtbetrag" : "Gesamtbetrag"}</span><strong className="portal-price">{formatPortalMoney(total)}</strong></div>
       {!!ctx.kva.depositRequiredCents && <p className="mt-3">Vereinbarte Anzahlung: {formatPortalMoney(ctx.kva.depositRequiredCents)}</p>}
+      <RestbetragHinweis firmaSlug={ctx.branding.firmaSlug} serviceType={ctx.annahmeRecht.serviceType} className="mt-3" />
       {ctx.kva.validUntil && <p className="mt-3">Gültig bis: {formatPortalDate(ctx.kva.validUntil)}</p>}
       {(ctx.scope.specialRequests || ctx.scope.inventoryNotes) && <p className="mt-4 whitespace-pre-line"><strong>Besonderheiten</strong><br />{[ctx.scope.specialRequests, ctx.scope.inventoryNotes].filter(Boolean).join("\n")}</p>}
       {ctx.kva.calculationAssumptions && <div className="mt-4"><strong>Kalkulationsgrundlagen</strong><ul>{Object.entries(kundenAnnahmen(ctx.kva.calculationAssumptions) ?? {}).filter(([, value]) => value != null && value !== "").map(([key, value]) => <li key={key}>{({ anfahrtMinuten: "Anfahrt gesamt (Minuten)", anfahrtQuelle: "Grundlage der Anfahrt", etageVon: "Etage Abholung", etageBis: "Etage Ziel", zugangVon: "Zugang Abholung", zugangBis: "Zugang Ziel", inventarPositionen: "Inventarpositionen", inventarVolumenCbm: "Inventarvolumen (m³)", hinweis: "Hinweis" } as Record<string, string>)[key] ?? key}: {String(value)}</li>)}</ul></div>}
@@ -53,8 +54,8 @@ export function QuotationPreview({ ctx, token, variant = "full" }: { ctx: Custom
     </article>;
   if (variant === "file") return <section className="portal-panel" id="portal-quotation-preview">
     <PanelHeading icon={FileText} title="Kostenvoranschlag"><p>Sie können Ihr Angebot drucken oder als PDF speichern.</p></PanelHeading>
+    <div className="portal-quotation-scroll" role="region" aria-label="Kostenvoranschlag lesen" tabIndex={0}>{paper}</div>
     <div className="portal-document-actions"><button type="button" className="portal-button" onClick={() => window.print()}><Printer size={18} aria-hidden />Drucken / als PDF speichern</button></div>
-    {paper}
   </section>;
   return <section className="portal-panel" id="portal-quotation-preview">
     <PanelHeading icon={FileText} title={`Kostenvoranschlag${option ? ` (${option.displayName})` : ""}`}><p>Ihr aktuelles Angebot im Überblick. Über die Druckansicht können Sie es auch als PDF speichern.</p></PanelHeading>

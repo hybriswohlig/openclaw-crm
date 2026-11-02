@@ -33,6 +33,8 @@ import {
   type DealDocumentMeta,
   type DealDocumentType,
 } from "@/services/deal-documents";
+import { applyInvoiceDueDate } from "@/services/rechnung-faellig";
+import { berlinCalendarDay } from "@/lib/invoice-due-date";
 import { anredeFuerOptOut, ladeGespeicherteAnrede } from "@/services/agent/agent-suppress";
 import { aktivBedingung } from "@/services/kva-annahme";
 import { preisZahlungenCent } from "@/lib/preis-zahlungen";
@@ -59,12 +61,7 @@ const STORE_TYPE: Record<DocKind, DealDocumentType> = {
 };
 
 export function berlinToday(now = new Date()): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Europe/Berlin",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(now);
+  return berlinCalendarDay(now);
 }
 
 function firmaFromCompany(name: string | null | undefined): FirmaSlug | null {
@@ -490,19 +487,81 @@ export async function storeCommercialDocument(input: {
   kind: DocKind;
   copy?: DocumentCopy;
   notifyCustomer?: boolean;
-}): Promise<{ document: DealDocumentMeta; templateVersion: string; fileName: string }> {
+  /** Kept when present. Otherwise an RE is due on the invoice day. */
+  dueDate?: string | null;
+  updatedBy?: string | null;
+  now?: Date;
+}): Promise<{
+  document: DealDocumentMeta;
+  templateVersion: string;
+  fileName: string;
+  rechnungFaelligAm: string | null;
+  dueDateWarning?: string;
+}> {
   const rendered = await previewCommercialDocument(input);
+  return persistCommercialDocument({
+    workspaceId: input.workspaceId,
+    dealRecordId: input.dealRecordId,
+    kind: input.kind,
+    pdf: rendered.pdf,
+    fileStem: rendered.model.fileStem,
+    templateVersion: rendered.templateVersion,
+    notifyCustomer: input.notifyCustomer,
+    dueDate: input.dueDate,
+    updatedBy: input.updatedBy,
+    now: input.now,
+  });
+}
+
+/** Stores an already rendered PDF and, for an RE, stamps Rechnung fällig am. */
+export async function persistCommercialDocument(input: {
+  workspaceId: string;
+  dealRecordId: string;
+  kind: DocKind;
+  pdf: Uint8Array;
+  fileStem: string;
+  templateVersion: string;
+  notifyCustomer?: boolean;
+  dueDate?: string | null;
+  updatedBy?: string | null;
+  now?: Date;
+}): Promise<{
+  document: DealDocumentMeta;
+  templateVersion: string;
+  fileName: string;
+  rechnungFaelligAm: string | null;
+  dueDateWarning?: string;
+}> {
   const suffix = crypto.randomUUID().slice(0, 8);
-  const fileName = `${rendered.model.fileStem}-${suffix}.pdf`;
+  const fileName = `${input.fileStem}-${suffix}.pdf`;
   const document = await createDealDocument({
     workspaceId: input.workspaceId,
     dealRecordId: input.dealRecordId,
     documentType: STORE_TYPE[input.kind],
     fileName,
-    fileSize: rendered.pdf.byteLength,
+    fileSize: input.pdf.byteLength,
     mimeType: "application/pdf",
-    fileContent: Buffer.from(rendered.pdf).toString("base64"),
+    fileContent: Buffer.from(input.pdf).toString("base64"),
     notifyCustomer: input.notifyCustomer === true,
   });
-  return { document, templateVersion: rendered.templateVersion, fileName };
+  const due =
+    input.kind === "RE"
+      ? await applyInvoiceDueDate({
+          documentType: "invoice",
+          workspaceId: input.workspaceId,
+          dealRecordId: input.dealRecordId,
+          explicitDueDate: input.dueDate,
+          updatedBy: input.updatedBy ?? null,
+          now: input.now,
+        })
+      : { rechnungFaelligAm: null as string | null };
+  return {
+    document,
+    templateVersion: input.templateVersion,
+    fileName,
+    rechnungFaelligAm: due.rechnungFaelligAm,
+    ...("dueDateWarning" in due && due.dueDateWarning
+      ? { dueDateWarning: due.dueDateWarning }
+      : {}),
+  };
 }
