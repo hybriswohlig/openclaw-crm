@@ -656,6 +656,19 @@ export async function updateConversationStatus(
       console.error("[inbox] noise-deal cleanup failed (non-blocking):", err);
     }
   }
+
+  const openedAsLead =
+    row.lane === "lead" &&
+    (!row.kontaktart || row.kontaktart === "lead_kunde") &&
+    (status === "open" || ("lane" in laneUpdate && laneUpdate.lane === "lead"));
+  if (openedAsLead && !row.dealRecordId) {
+    try {
+      const { ensureEmailLeadDeal } = await import("./inbox-email-lead-deal");
+      await ensureEmailLeadDeal(row.id);
+    } catch (err) {
+      console.error("[inbox] lead deal on reopen failed (non-blocking):", err);
+    }
+  }
   return row;
 }
 
@@ -895,9 +908,20 @@ export async function createDealForNewConversation(params: {
   sourceDetail?: string | null;
   /** Inbound capture time. Not overwritten when Quelle is already set. */
   sourceReceivedAt?: Date | null;
+  /** ISO yyyy-mm-dd. Written only when this call creates the deal, never on reuse. */
+  moveDate?: string | null;
 }): Promise<string | null> {
   const { workspaceId, conversationId, dealName, contactId, channelAccountId } = params;
   try {
+    const [already] = await db
+      .select({ dealRecordId: inboxConversations.dealRecordId })
+      .from(inboxConversations)
+      .where(
+        and(eq(inboxConversations.id, conversationId), eq(inboxConversations.workspaceId, workspaceId))
+      )
+      .limit(1);
+    if (already?.dealRecordId) return already.dealRecordId;
+
     // 1. Resolve the workspace's `deals` object.
     const [dealObj] = await db
       .select({ id: objects.id })
@@ -1016,6 +1040,10 @@ export async function createDealForNewConversation(params: {
       );
 
     await stampSourceForConversationDeal(params, deal.id);
+
+    if (params.moveDate) {
+      await updateRecord(dealObj.id, deal.id, { move_date: params.moveDate }, null);
+    }
 
     // 7. Fire-and-forget: extract AI insights from the first message and
     // post an initial activity note. Only the note is auto-applied — field
