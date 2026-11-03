@@ -182,8 +182,8 @@ export function istVomCrmGestartet(conv: {
  * Über IMAP landet die Antwort per In-Reply-To in der info-Konversation aus
  * sendNewEmail, und die Lane-Heilung überspringt manuelle Einstufungen. Ist die
  * Antwort eine echte Nachricht (Triage lead), klingelt sie trotzdem; eine
- * Abwesenheitsnotiz (Triage info) bleibt still. Über die Gmail-API öffnet die
- * Antwort ohnehin eine neue Konversation mit ihrer eigenen Triage.
+ * Abwesenheitsnotiz (Triage info) bleibt still. Gmail-Thread-Id, In-Reply-To
+ * und References halten die Antwort auf derselben Konversation.
  */
 export function sollInboxPushSenden(input: {
   /** Lane der Konversation; „kein_lead“ setzt die Kontaktart (Bewerber, Team, …). */

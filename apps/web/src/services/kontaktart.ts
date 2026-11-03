@@ -316,6 +316,20 @@ export async function applyKontaktart(input: {
   for (const dealId of dealIds) {
     await moveDeal(dealId, input.kontaktart, input.actorId ?? null);
   }
+
+  // A conversation that becomes Lead/Kunde (by hand or by the enrichment
+  // classifier) and sits in the lead lane needs a deal. Idempotent, email only,
+  // never sends.
+  if (isLeadKunde(input.kontaktart) && conversationIds.size > 0) {
+    try {
+      const { ensureEmailLeadDeal } = await import("./inbox-email-lead-deal");
+      for (const id of conversationIds) {
+        await ensureEmailLeadDeal(id);
+      }
+    } catch (err) {
+      console.error("[kontaktart] Deal für Lead-Mail fehlgeschlagen:", err);
+    }
+  }
 }
 
 export async function updateConversationKlassifikation(input: {
@@ -352,6 +366,14 @@ export async function updateConversationKlassifikation(input: {
           updatedAt: new Date(),
         })
         .where(eq(inboxConversations.id, input.conversationId));
+      if (lane === "lead") {
+        try {
+          const { ensureEmailLeadDeal } = await import("./inbox-email-lead-deal");
+          await ensureEmailLeadDeal(input.conversationId);
+        } catch (err) {
+          console.error("[kontaktart] Deal für Lead-Mail fehlgeschlagen:", err);
+        }
+      }
     }
     return true;
   }
@@ -368,6 +390,14 @@ export async function updateConversationKlassifikation(input: {
         updatedAt: new Date(),
       })
       .where(eq(inboxConversations.id, input.conversationId));
+    if (input.lane === "lead") {
+      try {
+        const { ensureEmailLeadDeal } = await import("./inbox-email-lead-deal");
+        await ensureEmailLeadDeal(input.conversationId);
+      } catch (err) {
+        console.error("[kontaktart] Deal für Lead-Mail fehlgeschlagen:", err);
+      }
+    }
   }
   return true;
 }

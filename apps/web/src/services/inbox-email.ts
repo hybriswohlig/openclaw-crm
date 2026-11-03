@@ -24,7 +24,7 @@ import {
   inboxMessages,
   inboxMessageAttachments,
 } from "@/db/schema/inbox";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, or, isNotNull, inArray, sql, type SQL } from "drizzle-orm";
 import {
   isKleinanzeigenEmail,
   stripKleinanzeigenSuffix,
@@ -37,6 +37,17 @@ import { DEFAULT_KONTAKTART, KEIN_LEAD_LANE, KONTAKTART_LABELS, eingangsLane, is
 import { createDealForNewConversation } from "./inbox";
 import { stampDealSourceIfEmpty, noteOutboundToCustomer } from "./deal-attribution";
 import { extractKleinanzeigenDetail } from "@/lib/deal-source";
+import {
+  headerIdList,
+  matchEmailThread,
+  messageIdLookupKeys,
+  normalizeEmailSubject,
+  pickInheritedDeal,
+  pickSentMailbox,
+  type ThreadConversationRef,
+  type ThreadMessageRef,
+} from "./inbox-email-intake";
+import { ensureEmailLeadDeal } from "./inbox-email-lead-deal";
 import { emitEvent } from "./activity-events";
 import { ensureCrmPerson, resolveOrCreatePerson } from "./inbox-crm-link";
 import { extractPhonesFromText } from "@/lib/identity/canonical";
@@ -56,6 +67,39 @@ import { startStufeNachtragen } from "./stufen-wahl";
 import { recomputeMultiCompanyForContact } from "./multi-company";
 
 type ChannelAccountRow = typeof channelAccounts.$inferSelect;
+type ConversationRow = typeof inboxConversations.$inferSelect;
+
+function asArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
+function idEquals(column: SQL | unknown, keys: string[]): SQL {
+  const conds = keys.map((key) => sql`lower(${column}) = ${key}`);
+  if (conds.length === 1) return conds[0]!;
+  return or(...conds)!;
+}
+
+function allAddresses(ao: AddressObject | AddressObject[] | undefined): { name: string; address: string }[] {
+  const list = Array.isArray(ao) ? ao : ao ? [ao] : [];
+  const out: { name: string; address: string }[] = [];
+  for (const item of list) {
+    for (const val of item.value ?? []) {
+      if (val.address) out.push({ name: val.name ?? "", address: val.address.toLowerCase() });
+    }
+  }
+  return out;
+}
+
+/** First recipient that is not our own mailbox. */
+function externalCounterparty(parsed: ParsedMail, ownAddress: string): { name: string; address: string } {
+  const own = ownAddress.toLowerCase();
+  return (
+    [...allAddresses(parsed.to), ...allAddresses(parsed.cc)].find((item) => item.address !== own) ?? {
+      name: "",
+      address: "",
+    }
+  );
+}
 
 /**
  * A validation error whose message is safe to show the operator (bad address,
@@ -104,6 +148,158 @@ async function upsertContact(
 // Cross-company flag: shared recompute lives in ./multi-company (also called
 // from the WhatsApp ingest and the merge engine).
 
+async function findThreadedConversation(input: {
+  account: ChannelAccountRow;
+  threadKey: string;
+  contactId: string;
+  subject: string;
+  sentAt: Date;
+  parsed: ParsedMail;
+  nativeThreadId?: string;
+}): Promise<ConversationRow | null> {
+  const exact = asArray<ConversationRow>(
+    await db
+      .select()
+      .from(inboxConversations)
+      .where(
+        and(
+          eq(inboxConversations.channelAccountId, input.account.id),
+          eq(inboxConversations.externalThreadId, input.threadKey)
+        )
+      )
+      .limit(1)
+  );
+  if (exact[0]) return exact[0];
+
+  const ids = [
+    ...new Set([
+      ...headerIdList(input.parsed.inReplyTo),
+      ...headerIdList(input.parsed.references),
+      ...headerIdList(input.nativeThreadId),
+    ]),
+  ];
+  const messages: ThreadMessageRef[] = [];
+  const byId = new Map<string, ConversationRow>();
+  const remember = (rows: ConversationRow[]) => {
+    for (const row of rows) {
+      if (row?.id && !byId.has(row.id)) byId.set(row.id, row);
+    }
+  };
+
+  if (ids.length > 0) {
+    const keys = [...new Set(ids.flatMap((id) => messageIdLookupKeys(id)))].slice(0, 40);
+    const msgRows = asArray<{ externalMessageId: string | null; conversationId: string }>(
+      await db
+        .select({
+          externalMessageId: inboxMessages.externalMessageId,
+          conversationId: inboxMessages.conversationId,
+        })
+        .from(inboxMessages)
+        .where(idEquals(inboxMessages.externalMessageId, keys))
+        .limit(30)
+    );
+    const convIds = [...new Set(msgRows.map((row) => row.conversationId))];
+    if (convIds.length > 0) {
+      remember(
+        asArray<ConversationRow>(
+          await db
+            .select()
+            .from(inboxConversations)
+            .where(
+              and(
+                eq(inboxConversations.channelAccountId, input.account.id),
+                inArray(inboxConversations.id, convIds)
+              )
+            )
+            .limit(30)
+        )
+      );
+    }
+    remember(
+      asArray<ConversationRow>(
+        await db
+          .select()
+          .from(inboxConversations)
+          .where(
+            and(
+              eq(inboxConversations.channelAccountId, input.account.id),
+              idEquals(inboxConversations.externalThreadId, keys)
+            )
+          )
+          .limit(10)
+      )
+    );
+    for (const row of msgRows) {
+      if (!byId.has(row.conversationId)) continue;
+      messages.push({
+        externalMessageId: row.externalMessageId,
+        conversationId: row.conversationId,
+        channelAccountId: input.account.id,
+      });
+    }
+    const headerHit = matchEmailThread({
+      channelAccountId: input.account.id,
+      contactId: input.contactId,
+      sentAt: input.sentAt,
+      subject: input.subject,
+      inReplyTo: input.parsed.inReplyTo,
+      references: input.parsed.references,
+      messages,
+      conversations: [...byId.values()],
+    });
+    if (headerHit) return byId.get(headerHit.conversationId) ?? null;
+  }
+
+  if (!normalizeEmailSubject(input.subject)) return null;
+  const opens = asArray<ConversationRow>(
+    await db
+      .select()
+      .from(inboxConversations)
+      .where(
+        and(
+          eq(inboxConversations.channelAccountId, input.account.id),
+          eq(inboxConversations.contactId, input.contactId),
+          eq(inboxConversations.status, "open")
+        )
+      )
+      .limit(40)
+  );
+  remember(opens);
+  const subjectHit = matchEmailThread({
+    channelAccountId: input.account.id,
+    contactId: input.contactId,
+    sentAt: input.sentAt,
+    subject: input.subject,
+    inReplyTo: input.parsed.inReplyTo,
+    references: input.parsed.references,
+    messages,
+    conversations: [...byId.values()],
+  });
+  return subjectHit ? byId.get(subjectHit.conversationId) ?? null : null;
+}
+
+async function inheritedOpenDeal(account: ChannelAccountRow, contactId: string): Promise<string | null> {
+  const rows = asArray<{ dealRecordId: string | null; status: string; lastMessageAt: Date | null }>(
+    await db
+      .select({
+        dealRecordId: inboxConversations.dealRecordId,
+        status: inboxConversations.status,
+        lastMessageAt: inboxConversations.lastMessageAt,
+      })
+      .from(inboxConversations)
+      .where(
+        and(
+          eq(inboxConversations.workspaceId, account.workspaceId),
+          eq(inboxConversations.contactId, contactId),
+          eq(inboxConversations.status, "open"),
+          isNotNull(inboxConversations.dealRecordId)
+        )
+      )
+      .limit(20)
+  );
+  return pickInheritedDeal(rows);
+}
+
 // ─── Shared ingest ──────────────────────────────────────────────────────────────
 // Both transports (IMAP and Gmail API) funnel each parsed message through here so
 // the Kleinanzeigen handling, identity/dedup, contact+person creation, lane
@@ -125,25 +321,31 @@ async function ingestParsedEmail(
   const fromEmail = fromObj.address.toLowerCase();
   const fromName = fromObj.name;
   const subject = parsed.subject ?? "";
+  const outbound = fromEmail === account.address.toLowerCase();
+  const counterparty = outbound ? externalCounterparty(parsed, account.address) : null;
 
-  // Skip messages FROM our own address (those are outbound copies in Sent)
-  if (fromEmail === account.address.toLowerCase()) return;
+  // Dedup against every stored Message-ID, including mail the CRM itself sent.
+  // A hit returns before any contact, deal, push or send side effect.
+  const dupKeys = messageIdLookupKeys(messageId);
+  const dupRows = asArray<{ id: string }>(
+    dupKeys.length === 0
+      ? []
+      : await db
+          .select({ id: inboxMessages.id })
+          .from(inboxMessages)
+          .where(idEquals(inboxMessages.externalMessageId, dupKeys))
+          .limit(1)
+  );
+  if (dupRows[0]) return;
+  if (outbound && !counterparty?.address) return;
 
-  // Dedup: skip if we already have this external message ID
-  const [dup] = await db
-    .select({ id: inboxMessages.id })
-    .from(inboxMessages)
-    .where(eq(inboxMessages.externalMessageId, messageId))
-    .limit(1);
-  if (dup) return;
-
-  const isKleinanzeigen = isKleinanzeigenEmail(fromEmail, subject);
+  const isKleinanzeigen = !outbound && isKleinanzeigenEmail(fromEmail, subject);
 
   // IS24 relocation requests arrive from noreply@immobilienscout24.de with the
   // full lead in the body. Parse it once; isImmoLead gates the lead-specific
   // path (real customer from body + structured deal). Non-lead IS24 mail
   // (AnfragenShop etc.) leaves immo null and flows through the normal path.
-  const immo = isImmoscoutLeadEmail(fromEmail, subject)
+  const immo = !outbound && isImmoscoutLeadEmail(fromEmail, subject)
     ? parseImmoscoutLeadEmail(parsed.text ?? "")
     : null;
   const isImmoLead = !!(immo && immo.externalId);
@@ -152,11 +354,12 @@ async function ingestParsedEmail(
   // (all leads share the same noreply@ sender, so threading by sender would
   // collapse them into one conversation); otherwise the native thread id
   // (Gmail) or the In-Reply-To/Message-ID chain (IMAP).
+  const inReplyOne = typeof parsed.inReplyTo === "string" ? parsed.inReplyTo : undefined;
   const threadKey = isKleinanzeigen
     ? fromEmail
     : isImmoLead
       ? `is24:${immo!.externalId}`
-      : nativeThreadId ?? parsed.inReplyTo ?? messageId;
+      : nativeThreadId ?? inReplyOne ?? messageId;
 
   // Extract body
   const rawHtml = typeof parsed.html === "string" ? parsed.html : null;
@@ -187,20 +390,28 @@ async function ingestParsedEmail(
   // IS24 leads use the real customer parsed from the body (NOT the shared
   // noreply@ sender), keyed by the customer email (fallback: the request id so
   // each lead stays a distinct contact even without an email).
-  const contactName = isKleinanzeigen
-    ? stripKleinanzeigenSuffix(fromName)
+  const contactName = outbound
+    ? counterparty!.name
+    : isKleinanzeigen
+      ? stripKleinanzeigenSuffix(fromName)
+      : isImmoLead
+        ? immo!.customer.fullName || fromName
+        : fromName;
+  const contactEmailKey = outbound
+    ? counterparty!.address
     : isImmoLead
-      ? immo!.customer.fullName || fromName
-      : fromName;
-  const contactEmailKey = isImmoLead
-    ? immo!.customer.email ?? `is24-${immo!.externalId}@is24.lead`
-    : fromEmail;
+      ? immo!.customer.email ?? `is24-${immo!.externalId}@is24.lead`
+      : fromEmail;
   const contact = await upsertContact(account.workspaceId, contactEmailKey, contactName);
 
   // Auto-create / resolve the golden CRM Person (idempotent). IS24 leads route
   // through resolveOrCreatePerson directly so the customer's body-parsed phone +
   // email feed the identity graph under leadSource "ImmobilienScout".
-  if (isImmoLead) {
+  const rawForPhones = `${parsed.text ?? ""}\n${typeof parsed.html === "string" ? parsed.html : ""}`;
+  const textPhones = outbound || isImmoLead ? [] : extractPhonesFromText(rawForPhones);
+  if (outbound) {
+    // A copy from our own Sent folder must not mint a CRM person.
+  } else if (isImmoLead) {
     await resolveOrCreatePerson({
       workspaceId: account.workspaceId,
       contactId: contact.id,
@@ -220,25 +431,73 @@ async function ingestParsedEmail(
       email: fromEmail,
       phone: null,
       leadSource: isKleinanzeigen ? "Kleinanzeigen" : "WhatsApp / Website",
-      extraPhones: kaPhones,
+      extraPhones: [...new Set([...kaPhones, ...textPhones])],
     });
   }
-
-  // Upsert conversation
-  let [conv] = await db
-    .select()
-    .from(inboxConversations)
-    .where(
-      and(
-        eq(inboxConversations.channelAccountId, account.id),
-        eq(inboxConversations.externalThreadId, threadKey)
-      )
-    )
-    .limit(1);
 
   const preview = body.slice(0, 120).replace(/\s+/g, " ");
   const sentAt = parsed.date ?? new Date();
 
+  // Upsert conversation. Portal mail keeps its own thread key. Everything else
+  // matches In-Reply-To and every References id, then subject + contact.
+  let conv = await findThreadedConversation({
+    account,
+    threadKey,
+    contactId: contact.id,
+    subject,
+    sentAt,
+    parsed,
+    nativeThreadId,
+  });
+
+  // Outbound copies (Sent) never triage, never arm the agent, never push,
+  // and never create a lead. They only attach to the matching conversation.
+  let pushSenden = false;
+  let declined = false;
+  let armiert = false;
+  if (outbound) {
+    if (!conv) {
+      const inheritedDeal = await inheritedOpenDeal(account, contact.id);
+      const [created] = await db
+        .insert(inboxConversations)
+        .values({
+          workspaceId: account.workspaceId,
+          channelAccountId: account.id,
+          contactId: contact.id,
+          dealRecordId: inheritedDeal,
+          externalThreadId: threadKey,
+          subject: subject || null,
+          status: "open",
+          lastMessageAt: sentAt,
+          lastMessagePreview: `Du: ${preview.slice(0, 100)}`,
+          unreadCount: 0,
+          lane: "info",
+          kontaktart: DEFAULT_KONTAKTART,
+          classificationReason: VOM_CRM_GESTARTET_GRUND,
+          classifiedBy: "manual",
+          aiNeedsReply: false,
+          aiPaused: true,
+        })
+        .returning();
+      conv = created;
+      if (inheritedDeal) conv.dealRecordId = inheritedDeal;
+    } else {
+      // A Sent rescan can deliver an older copy after a newer customer mail.
+      // Only the newest message may move the preview or clear the reply flag.
+      const previous = conv.lastMessageAt ? new Date(conv.lastMessageAt).getTime() : 0;
+      if (sentAt.getTime() >= previous) {
+        await db
+          .update(inboxConversations)
+          .set({
+            lastMessageAt: sentAt,
+            lastMessagePreview: `Du: ${preview.slice(0, 100)}`,
+            aiNeedsReply: false,
+            updatedAt: new Date(),
+          })
+          .where(eq(inboxConversations.id, conv.id));
+      }
+    }
+  } else {
   // KOT-IDENTITY Phase 6: triage into a lane so ads / newsletters / platform
   // notifications stay out of the lead inbox. Only real leads get an AI reply.
   const triage = classifyInbound({
@@ -250,7 +509,7 @@ async function ingestParsedEmail(
 
   // Opt-out: a STOP / clear decline must never arm the agent. IS24 mails come
   // from a no-reply address, so only treat real two-way threads as opt-outs.
-  const declined = !isImmoLead && looksDeclined(body);
+  declined = !isImmoLead && looksDeclined(body);
   // Wer schon als Bewerber, Team/Helfer oder Partner eingestuft ist, bleibt
   // das auch in einem neuen Thread: Eine Anfrage wird kein_lead, kein Agent,
   // kein neuer Deal. Newsletter und Spam bleiben in ihrer Lane.
@@ -259,22 +518,24 @@ async function ingestParsedEmail(
   const perKontaktart = lane !== triage.lane;
   // Arms the reply agent? Un-armed messages are stamped processed at insert so
   // the reply worker's safety net leaves them alone.
-  const armiert = isImmoLead
+  armiert = isImmoLead
     ? false
     : lane === "lead" && conv?.lane !== KEIN_LEAD_LANE && !declined;
 
   // Push nur für echte Anfragen (sollInboxPushSenden): entschieden mit der
   // Lane nach dieser Nachricht und dem Status vor ihr, denn das Update unten
   // öffnet gespamte Chats wieder.
-  let pushSenden: boolean;
 
   if (!conv) {
+    const inheritedDeal =
+      !isKleinanzeigen && !isImmoLead ? await inheritedOpenDeal(account, contact.id) : null;
     const [created] = await db
       .insert(inboxConversations)
       .values({
         workspaceId: account.workspaceId,
         channelAccountId: account.id,
         contactId: contact.id,
+        dealRecordId: inheritedDeal,
         externalThreadId: threadKey,
         subject,
         lastMessageAt: sentAt,
@@ -291,6 +552,7 @@ async function ingestParsedEmail(
       })
       .returning();
     conv = created;
+    if (inheritedDeal) conv.dealRecordId = inheritedDeal;
     pushSenden = sollInboxPushSenden({ lane, statusVorher: null, kontaktart, triageLane: triage.lane });
 
     // Auto-create a deal in stage "Neue Anfrage" for brand-new Kleinanzeigen
@@ -411,9 +673,12 @@ async function ingestParsedEmail(
       });
     }
   }
+  }
+
+  if (!conv) return;
 
   // Record the opt-out across all engines (idempotent, non-blocking).
-  if (declined && conv) {
+  if (!outbound && declined) {
     await recordAgentDecline(account.workspaceId, {
       email: fromEmail,
       conversationId: conv.id,
@@ -427,18 +692,20 @@ async function ingestParsedEmail(
     .values({
       workspaceId: account.workspaceId,
       conversationId: conv.id,
-      direction: "inbound",
-      status: "received",
+      direction: outbound ? "outbound" : "inbound",
+      status: outbound ? "sent" : "received",
       externalMessageId: messageId,
-      fromAddress: fromEmail,
-      toAddress: account.address,
+      fromAddress: outbound ? account.address : fromEmail,
+      toAddress: outbound ? contact.email ?? counterparty?.address ?? "" : account.address,
       subject,
       body,
       bodyHtml: parsed.html || null,
-      isRead: false,
+      isRead: outbound,
       rawHeaders: JSON.stringify(Object.fromEntries(parsed.headers ?? [])),
       sentAt,
-      aiProcessedAt: aiProcessedAtBeimEingang(armiert, sentAt),
+      // A Sent copy is already handled. Stamping it processed keeps the reply
+      // worker from treating our own mail as a customer message.
+      aiProcessedAt: outbound ? sentAt : aiProcessedAtBeimEingang(armiert, sentAt),
     })
     .returning({ id: inboxMessages.id });
 
@@ -475,9 +742,22 @@ async function ingestParsedEmail(
     }
   }
 
+  // Direct customer mail (Lead/Kunde + lane Lead) gets a deal here, including
+  // when the lane was just raised. Portal mail keeps its own create path.
+  // Outbound copies never create a deal and never notify the customer.
+  if (!outbound && !conv.dealRecordId && !isKleinanzeigen && !isImmoLead) {
+    const dealId = await ensureEmailLeadDeal(conv.id, {
+      text: `${subject}\n${body}`,
+      fromEmail: contact.email ?? contactEmailKey,
+      sourceReceivedAt: sentAt,
+    });
+    if (dealId) conv = { ...conv, dealRecordId: dealId };
+  }
+
   // Activity log: record message.received against the linked deal (if any)
-  // so the timeline surfaces every inbound message.
-  if (conv.dealRecordId) {
+  // so the timeline surfaces every inbound message. Sent copies are not
+  // inbound and must not look like a new customer message.
+  if (!outbound && conv.dealRecordId) {
     await emitEvent({
       workspaceId: account.workspaceId,
       recordId: conv.dealRecordId,
@@ -493,7 +773,20 @@ async function ingestParsedEmail(
     });
   }
 
-  if (storedMessage && pushSenden) {
+  if (outbound && conv.dealRecordId) {
+    try {
+      await noteOutboundToCustomer({
+        workspaceId: account.workspaceId,
+        dealRecordId: conv.dealRecordId,
+        sentAt,
+        body,
+      });
+    } catch (err) {
+      console.error("[inbox-email] outbound deal note failed", err);
+    }
+  }
+
+  if (!outbound && storedMessage && pushSenden) {
     // Don't block ingest on push delivery, but keep the function alive
     // long enough for the request to Apple/Google to finish — see the
     // matching pattern in inbox-whatsapp.ts for the rationale.
@@ -510,7 +803,9 @@ async function ingestParsedEmail(
     );
   }
 
-  await recomputeMultiCompanyForContact(account.workspaceId, contact.id);
+  if (!outbound) {
+    await recomputeMultiCompanyForContact(account.workspaceId, contact.id);
+  }
 }
 
 // ─── Transport dispatch ─────────────────────────────────────────────────────────
@@ -590,6 +885,10 @@ async function syncImapAccount(account: ChannelAccountRow) {
     } finally {
       lock.release();
     }
+    // Sent lives in its own mailbox and its UIDs are not the INBOX cursor.
+    // A failure here must not fail the inbox sync. Message-ID dedupe makes
+    // the 30-day rescan safe to repeat.
+    await syncImapSentFolder(client, account);
   } finally {
     // Always tear the connection down. logout() is graceful; close() forces the
     // socket shut so nothing lingers to time out on a reused instance.
@@ -603,6 +902,39 @@ async function syncImapAccount(account: ChannelAccountRow) {
     } catch {
       /* ignore */
     }
+  }
+}
+
+/**
+ * Ingest the last 30 days of the Sent mailbox. CRM-sent mail is already stored
+ * under its Message-ID, so those copies return at the dedupe check and never
+ * send, push, or reply. Does not move lastSyncUid.
+ */
+async function syncImapSentFolder(client: ImapFlow, account: ChannelAccountRow) {
+  if (typeof client.list !== "function") return;
+  try {
+    const listed = await client.list();
+    const mailbox = pickSentMailbox(
+      listed.map((box) => ({ path: box.path, specialUse: box.specialUse ?? null }))
+    );
+    if (!mailbox) return;
+    const lock = await client.getMailboxLock(mailbox);
+    try {
+      const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const found = await client.search({ since }, { uid: true });
+      const uids = (Array.isArray(found) ? found : []).slice(-100);
+      if (uids.length === 0) return;
+      for await (const msg of client.fetch(uids.join(","), { uid: true, source: true }, { uid: true })) {
+        if (!msg.source) continue;
+        const parsed: ParsedMail = await simpleParser(msg.source as Buffer);
+        const messageId = parsed.messageId ?? `sent-uid-${msg.uid}@${account.address}`;
+        await ingestParsedEmail(account, parsed, { messageId });
+      }
+    } finally {
+      lock.release();
+    }
+  } catch (err) {
+    console.error("[inbox-email] sent folder sync failed:", account.address, err);
   }
 }
 
@@ -675,6 +1007,22 @@ async function syncGmailAccount(account: ChannelAccountRow) {
     } else {
       // First connect.
       ({ messageIds, newHistoryId } = await gmailFullSync(gmail));
+    }
+
+    // History already walked past mail we used to drop (from = our own
+    // address). Re-list Sent for 30 days so a reply typed in Gmail still
+    // lands. Message-ID dedupe drops anything the CRM itself sent.
+    try {
+      const sent = await gmail.users.messages.list({
+        userId: "me",
+        q: "in:sent newer_than:30d",
+        maxResults: 100,
+      });
+      for (const message of sent.data.messages ?? []) {
+        if (message.id) messageIds.push(message.id);
+      }
+    } catch (err) {
+      console.error(`[gmail] sent rescan failed for ${account.address}:`, err);
     }
 
     // Oldest-first, de-duplicated. messages.get format=raw gives us the exact
