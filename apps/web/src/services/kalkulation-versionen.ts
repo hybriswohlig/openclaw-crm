@@ -380,29 +380,29 @@ export async function uebersteuern(
     }
 
     if (geprueft.art === "zeile") {
-      if (!ziel.rechnerResult) {
+      // Aufheben geht auch für eine Zeile, die der Rechner nicht (mehr) liefert, und ohne Ergebnis.
+      const aufhebbar = geprueft.wert === null && ziel.overrides.some((u) => u.art === "zeile" && u.key === geprueft.key);
+      if (!ziel.rechnerResult && !aufhebbar) {
         throw new VersionsFehler("RECHNER_FEHLER", "Die Kalkulation liegt noch nicht vor. Bitte zuerst neu rechnen.");
       }
-      const keys = new Set((ziel.rechnerResult.kosten?.posten ?? []).map((p) => p.key).filter((k): k is string => !!k));
-      // Aufheben geht auch für eine Zeile, die der Rechner inzwischen nicht mehr liefert.
-      const aufhebbar = geprueft.wert === null && ziel.overrides.some((u) => u.art === "zeile" && u.key === geprueft.key);
+      const keys = new Set((ziel.rechnerResult?.kosten?.posten ?? []).map((p) => p.key).filter((k): k is string => !!k));
       if (!keys.has(geprueft.key) && !aufhebbar) throw new UebersteuerungFehler(`Unbekannte Kostenzeile: ${geprueft.key}`);
     }
 
     const vorherAnfrage = ziel.rechnerRequest;
     const vorherErgebnis = ziel.rechnerResult;
-    // Marge: verglichen wird mit dem Vorschlag des Rechners, nicht mit einer früheren Inhaber-Marge.
+    // Verglichen wird immer mit dem Wert des Rechners, nie mit einem früheren Inhaberwert:
+    // ab der zweiten Übersteuerung derselben Art und desselben Schlüssels trägt die erste
+    // ihn (`rechnerwert`); bei der Marge zuerst der Vorschlag des Rechners.
+    const erste = ziel.overrides.find((u) => u.art === geprueft.art && u.key === geprueft.key);
     const rechnerwert =
       geprueft.art === "marge"
         ? vorherErgebnis?.preis?.margeVorschlag?.prozent ??
           vorherErgebnis?.margeVorschlag?.prozent ??
-          vorherErgebnis?.preis?.margeWirksamProzent ??
-          null
-        : rechnerwertFuer(geprueft.art, geprueft.key, vorherAnfrage ?? {}, vorherErgebnis);
-    // Bei einer zweiten Übersteuerung derselben Art und desselben Schlüssels wäre der Vorwert
-    // der des Inhabers, nicht der des Rechners: dann keine Kalibrierungsmeldung.
-    const vorherUebersteuert =
-      geprueft.art !== "marge" && wirksamerWert(ziel.overrides, geprueft.art, geprueft.key) !== null;
+          (erste ? erste.rechnerwert : vorherErgebnis?.preis?.margeWirksamProzent ?? null)
+        : erste
+          ? erste.rechnerwert
+          : rechnerwertFuer(geprueft.art, geprueft.key, vorherAnfrage ?? {}, vorherErgebnis);
     const neue: Uebersteuerung = {
       id: crypto.randomUUID(),
       art: geprueft.art,
@@ -441,7 +441,7 @@ export async function uebersteuern(
     }
 
     // Zurücknehmen (wert null) heißt: Rechnerwert gilt; das ist keine Korrektur.
-    if (neue.wert !== null && !vorherUebersteuert) {
+    if (neue.wert !== null) {
       const tarif = ziel.tariff ?? gespeichert.tariff;
       const meldung = {
         crm_deal_record_id: deal,

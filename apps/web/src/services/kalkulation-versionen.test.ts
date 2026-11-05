@@ -393,14 +393,29 @@ describe("uebersteuern", () => {
     expect(t.melde).toHaveBeenCalledWith(expect.objectContaining({ regel: "marge", rechnerwert: 40, inhaberwert: 45 }));
   });
 
-  it("zweite Übersteuerung derselben Zeile meldet nicht (Vorwert wäre der des Inhabers)", async () => {
+  it("jede Übersteuerung meldet; die zweite derselben Zeile mit dem ursprünglichen Rechnerwert (R→X, dann R→Y)", async () => {
     const t = aufbau();
     await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
     await uebersteuern("ws", "deal1", 1, ueberHalteverbot, MENSCH, t.deps);
-    await uebersteuern("ws", "deal1", 1, { ...ueberHalteverbot, wert: 50 }, MENSCH, t.deps);
+    // Der Rechner liefert die übersteuerte Zeile jetzt mit dem Inhaberwert 0.
+    t.setzeAntwort({ ok: true, ergebnis: { ...ergebnis(), kosten: { selbstkosten: 650, posten: [{ ...ergebnis().kosten!.posten![1], betrag: 0, quelle: "uebersteuert" }] } } });
+    await uebersteuern("ws", "deal1", 1, { ...ueberHalteverbot, wert: 50, grund: "Halbe Zone" }, MENSCH, t.deps);
+    const r = await uebersteuern("ws", "deal1", 1, { ...ueberHalteverbot, wert: 80, grund: "doch mehr" }, MENSCH, t.deps);
     await t.alleNachher();
-    expect(t.melde).toHaveBeenCalledTimes(1);
-    expect(t.melde).toHaveBeenCalledWith(expect.objectContaining({ rechnerwert: 150, inhaberwert: 0 }));
+    expect(t.melde.mock.calls.map(([m]) => [(m as { rechnerwert: number }).rechnerwert, (m as { inhaberwert: number }).inhaberwert])).toEqual([
+      [150, 0], [150, 50], [150, 80],
+    ]);
+    expect(r.version.overrides.map((u) => u.rechnerwert)).toEqual([150, 150, 150]);
+  });
+
+  it("Rücknahme einer Zeilen-Übersteuerung geht auch am Entwurf ohne Ergebnis", async () => {
+    const t = aufbau();
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    await uebersteuern("ws", "deal1", 1, ueberHalteverbot, MENSCH, t.deps);
+    t.zeilen[0].rechnerResult = null; // z. B. Entwurf neu angelegt, während der Rechner ausfiel
+    const r = await uebersteuern("ws", "deal1", 1, { ...ueberHalteverbot, wert: null, grund: "zurück" }, MENSCH, t.deps);
+    expect(r.version.overrides.map((u) => u.wert)).toEqual([0, null]);
+    expect(r.version.rechnerRequest?.zeilen_uebersteuerung).toBeUndefined();
   });
 
   it("Zeilen-Übersteuerung ohne Ergebnis im Entwurf: Kalkulation liegt noch nicht vor", async () => {
