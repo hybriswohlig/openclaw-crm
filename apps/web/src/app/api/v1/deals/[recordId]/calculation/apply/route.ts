@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { annahmeSperrAntwort } from "@/services/kva-annahme";
 import { getAuthContext, unauthorized, badRequest, success } from "@/lib/api-utils";
-import { UebersteuerungFehler, type Uebersteuerung } from "@/lib/kalkulation-versionen";
+import { UebersteuerungFehler } from "@/lib/kalkulation-versionen";
 import { hatPaketoptionen } from "@/services/rechner/pakete";
 import { MARGE_MAX_PROZENT, MARGE_MIN_PROZENT } from "@/services/rechner/marge";
 import {
@@ -9,17 +9,11 @@ import {
   sperren,
   uebersteuern,
   VersionsFehler,
+  wirksamerWert,
   type Autor,
 } from "@/services/kalkulation-versionen";
 
 const MARGE_ZURUECK = "Kalkulationskarte ohne Margenwahl: Vorschlag des Rechners";
-
-/** Wirksame Marge-Übersteuerung (letzte Nennung gilt), null ohne oder aufgehoben. */
-function wirksameMarge(liste: Uebersteuerung[]): unknown {
-  let wert: unknown = null;
-  for (const u of liste) if (u.art === "marge") wert = u.wert;
-  return wert;
-}
 
 /**
  * POST → übernimmt die Kalkulation ins Angebot, seit Plan 2 über eine
@@ -55,7 +49,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rec
 
   try {
     let { version } = await entwurfHolenOderAnlegen(ctx.workspaceId, recordId, autor);
-    if (margeProzent !== null) {
+    const geltendeMarge = wirksamerWert(version.overrides ?? [], "marge", "marge");
+    // Dieselbe Marge noch einmal (Wiederholung nach Ablehnung, Regler unverändert): keine neue Übersteuerung.
+    if (margeProzent !== null && margeProzent !== geltendeMarge) {
       ({ version } = await uebersteuern(
         ctx.workspaceId,
         recordId,
@@ -63,7 +59,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rec
         { art: "marge", key: "marge", wert: margeProzent, grund: "Marge im Regler gewählt" },
         autor
       ));
-    } else if (wirksameMarge(version.overrides ?? []) !== null) {
+    } else if (margeProzent === null && geltendeMarge !== null) {
       ({ version } = await uebersteuern(
         ctx.workspaceId,
         recordId,

@@ -74,6 +74,16 @@ describe("dbVersionsSpeicher", () => {
     expect(mocks.angebotAusVersionSchreiben).toHaveBeenCalledWith(expect.anything(), "deal1", { fixedPrice: "1491" }, "id_v2");
   });
 
+  it("sperrenUndAngebot mit Schnappschuss: schreibt den gerechneten Stand mit, error null", async () => {
+    mocks.txReturning.mockResolvedValueOnce([{ id: "id_v2", status: "gesperrt" }]);
+    const schnappschuss = {
+      referenceDate: "2026-11-05", rechnerRequest: { heute: "2026-11-05" }, rechnerResult: { preis: { festpreis: 1490 } },
+      inputs: [], costLines: [], margin: null, packagePrices: [], tariff: null,
+    };
+    await dbVersionsSpeicher.sperrenUndAngebot("ws", "deal1", "id_v2", {} as never, [], "usr_1", { uebersteuerungen: 0, schnappschuss } as never);
+    expect(mocks.txSet).toHaveBeenCalledWith(expect.objectContaining({ ...schnappschuss, error: null, status: "gesperrt", priceCents: 0 }));
+  });
+
   it("anhaengen: atomar in SQL (overrides || neu::jsonb), nur am Entwurf; gesperrt → UNGUELTIG", async () => {
     const u = { id: "u1", art: "marge", key: "marge", wert: 45 } as never;
     mocks.updateReturning.mockResolvedValueOnce([{ id: "id_v2", overrides: [u] }]);

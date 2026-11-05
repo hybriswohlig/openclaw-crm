@@ -112,7 +112,17 @@ export const dbVersionsSpeicher: VersionsSpeicher = {
       const t = dealCalculationVersions;
       const [z] = await tx
         .update(dealCalculationVersions)
-        .set({ status: "gesperrt", kvItems, priceCents: centSumme(kvItems), lockedAt: jetzt, lockedBy: von, updatedAt: jetzt })
+        .set({
+          // Der Stand, aus dem Preis und Posten gebildet wurden: so bleibt die gesperrte Zeile
+          // stimmig, auch wenn eine ältere Neuberechnung kurz vorher noch gelandet ist.
+          ...(stand?.schnappschuss ? { ...stand.schnappschuss, error: null } : {}),
+          status: "gesperrt",
+          kvItems,
+          priceCents: centSumme(kvItems),
+          lockedAt: jetzt,
+          lockedBy: von,
+          updatedAt: jetzt,
+        })
         .where(
           and(
             eq(dealCalculationVersions.id, id),

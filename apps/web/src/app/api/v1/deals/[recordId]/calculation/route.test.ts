@@ -11,6 +11,10 @@ const mocks = vi.hoisted(() => ({
   sperren: vi.fn(),
 }));
 
+// Kein Zugriff auf die Datenbank: jeder Zugriff auf `db` lässt den Test scheitern.
+vi.mock("@/db", () => ({
+  db: new Proxy({}, { get(_t, p) { if (p === "then" || typeof p === "symbol") return undefined; throw new Error(`@/db im Test (${String(p)})`); } }),
+}));
 vi.mock("@/lib/api-utils", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api-utils")>();
   return { ...actual, getAuthContext: mocks.getAuthContext };
@@ -140,6 +144,15 @@ describe("POST /calculation/apply", () => {
     });
     await APPLY(req({}), { params });
     expect(mocks.uebersteuern).not.toHaveBeenCalled();
+  });
+
+  it("dieselbe Marge wie die geltende: keine neue Übersteuerung, nur sperren", async () => {
+    mocks.entwurfHolenOderAnlegen.mockResolvedValue({
+      version: { version: 2, status: "entwurf", overrides: [{ art: "marge", key: "marge", wert: 45 }] }, neu: false,
+    });
+    expect((await APPLY(req({ margeProzent: 45 }), { params })).status).toBe(200);
+    expect(mocks.uebersteuern).not.toHaveBeenCalled();
+    expect(mocks.sperren).toHaveBeenCalledWith("ws_1", "deal_1", 2, MENSCH, { bestaetigtSpanne: false });
   });
 
   it("API-Schlüssel: Autor ist der Agent", async () => {

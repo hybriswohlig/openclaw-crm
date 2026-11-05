@@ -100,6 +100,7 @@ function aufbau(start = "2026-11-05T09:00:00Z") {
       const z = zeilen.find((x) => x.id === id && x.status === "entwurf");
       if (!z) throw new VersionsFehler("UNGUELTIG", "Version ist bereits gesperrt.");
       if (stand && z.overrides.length !== stand.uebersteuerungen) throw new VersionsFehler("UNGUELTIG", "Die Kalkulation wurde gerade geändert. Bitte erneut sperren.");
+      if (stand?.schnappschuss) Object.assign(z, kopie(stand.schnappschuss), { error: null });
       Object.assign(z, { status: "gesperrt", kvItems: kopie(kvItems), priceCents: centSumme(kvItems), lockedAt: jetzt, lockedBy: von });
       return { version: kopie(z) };
     }),
@@ -180,6 +181,24 @@ describe("entwurfHolenOderAnlegen", () => {
     const r = await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
     expect(r).toMatchObject({ neu: false, version: { id: "id_fremd", status: "entwurf" } });
     expect(t.zeilen.filter((z) => z.status === "entwurf")).toHaveLength(1);
+  });
+
+  it("Entwurf-Konflikt, der andere Entwurf ist schon gesperrt: einmal mit der nächsten Nummer, sonst sauberer Fehler", async () => {
+    const t = aufbau();
+    const original = vi.mocked(t.speicher.anlegen).getMockImplementation()!;
+    vi.mocked(t.speicher.anlegen).mockImplementationOnce(async () => {
+      t.lege(1); // Gewinner hat v1 schon gesperrt
+      throw new EntwurfExistiertError();
+    });
+    const r = await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    expect(r).toMatchObject({ neu: true, version: { version: 2, status: "entwurf" } });
+
+    const t2 = aufbau();
+    vi.mocked(t2.speicher.anlegen).mockRejectedValue(new EntwurfExistiertError());
+    await expect(entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t2.deps)).rejects.toMatchObject({
+      code: "UNGUELTIG", message: "Die Kalkulation wurde gerade geändert. Bitte erneut versuchen.",
+    });
+    expect(original).toBeDefined();
   });
 
   it("andere Fehler beim Anlegen werden weitergeworfen", async () => {
@@ -360,6 +379,66 @@ describe("uebersteuern", () => {
     expect(r.version.rechnerRequest).toMatchObject({ satz_arbeit: "25", zeilen_uebersteuerung: [{ key: "halteverbot", betrag: 0 }] });
   });
 
+  it("Zurücknehmen (wert null) meldet keine Korrektur; Marge wird gegen den Vorschlag des Rechners gemeldet", async () => {
+    const t = aufbau();
+    // Ergebnis mit Inhaber-Marge 50 gerechnet, Vorschlag des Rechners 40.
+    t.setzeAntwort({ ok: true, ergebnis: { ...ergebnis(1600), preis: { ...ergebnis(1600).preis!, margeWirksamProzent: 50 } } });
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    const r = await uebersteuern("ws", "deal1", 1, { art: "marge", key: "marge", wert: 45, grund: "Stammkunde" }, MENSCH, t.deps);
+    expect(r.version.overrides[0].rechnerwert).toBe(40);
+    await uebersteuern("ws", "deal1", 1, { art: "marge", key: "marge", wert: null, grund: "zurück" }, MENSCH, t.deps);
+    await uebersteuern("ws", "deal1", 1, { ...ueberHalteverbot, wert: null }, MENSCH, t.deps).catch(() => undefined);
+    await t.alleNachher();
+    expect(t.melde).toHaveBeenCalledTimes(1);
+    expect(t.melde).toHaveBeenCalledWith(expect.objectContaining({ regel: "marge", rechnerwert: 40, inhaberwert: 45 }));
+  });
+
+  it("zweite Übersteuerung derselben Zeile meldet nicht (Vorwert wäre der des Inhabers)", async () => {
+    const t = aufbau();
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    await uebersteuern("ws", "deal1", 1, ueberHalteverbot, MENSCH, t.deps);
+    await uebersteuern("ws", "deal1", 1, { ...ueberHalteverbot, wert: 50 }, MENSCH, t.deps);
+    await t.alleNachher();
+    expect(t.melde).toHaveBeenCalledTimes(1);
+    expect(t.melde).toHaveBeenCalledWith(expect.objectContaining({ rechnerwert: 150, inhaberwert: 0 }));
+  });
+
+  it("Zeilen-Übersteuerung ohne Ergebnis im Entwurf: Kalkulation liegt noch nicht vor", async () => {
+    const t = aufbau();
+    t.setzeAntwort({ ok: false, fehler: "Rechner nicht erreichbar." });
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    await expect(uebersteuern("ws", "deal1", 1, ueberHalteverbot, MENSCH, t.deps)).rejects.toMatchObject({
+      code: "RECHNER_FEHLER", message: "Die Kalkulation liegt noch nicht vor. Bitte zuerst neu rechnen.",
+    });
+  });
+
+  it("Entwurf wird zwischen Lesen und Anhängen gesperrt: Übersteuerung landet im neuen Entwurf", async () => {
+    const t = aufbau();
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    const original = vi.mocked(t.speicher.anhaengen).getMockImplementation()!;
+    vi.mocked(t.speicher.anhaengen).mockImplementationOnce(async (id, u) => {
+      t.zeilen[0].status = "gesperrt";
+      return original(id, u);
+    });
+    const r = await uebersteuern("ws", "deal1", 1, ueberHalteverbot, MENSCH, t.deps);
+    expect(r).toMatchObject({ neu: true, version: { version: 2, status: "entwurf" } });
+    expect(r.version.overrides.map((u) => u.key)).toEqual(["halteverbot"]);
+    expect(t.zeilen[0].overrides).toEqual([]);
+  });
+
+  it("Entwurf wird nach dem Anhängen gesperrt: Ergebnis ist die gesperrte Version mit der Übersteuerung", async () => {
+    const t = aufbau();
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    const original = vi.mocked(t.speicher.aktualisieren).getMockImplementation()!;
+    vi.mocked(t.speicher.aktualisieren).mockImplementationOnce(async (id, patch) => {
+      t.zeilen[0].status = "gesperrt";
+      return original(id, patch);
+    });
+    const r = await uebersteuern("ws", "deal1", 1, ueberHalteverbot, MENSCH, t.deps);
+    expect(r.version).toMatchObject({ version: 1, status: "gesperrt" });
+    expect(r.version.overrides.map((u) => u.key)).toEqual(["halteverbot"]);
+  });
+
   it("Aufheben einer Zeilen-Übersteuerung geht auch, wenn der Rechner die Zeile nicht mehr liefert", async () => {
     const t = aufbau();
     await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
@@ -434,7 +513,7 @@ describe("sperren", () => {
     const r = await sperren("ws", "deal1", 1, MENSCH, {}, t.deps);
     expect(t.rechner).toHaveBeenCalledTimes(1);
     expect(r.version.rechnerRequest).toMatchObject({ satz_arbeit: "25", zeilen_uebersteuerung: [{ key: "halteverbot", betrag: 0 }] });
-    expect(vi.mocked(t.speicher.sperrenUndAngebot).mock.calls[0][6]).toEqual({ uebersteuerungen: 2 });
+    expect(vi.mocked(t.speicher.sperrenUndAngebot).mock.calls[0][6]).toMatchObject({ uebersteuerungen: 2 });
   });
 
   it("Übersteuerung kommt während der Neuberechnung beim Sperren dazu: noch einmal gerechnet, gesperrt mit der aktuellen Liste", async () => {
@@ -450,7 +529,29 @@ describe("sperren", () => {
     const r = await sperren("ws", "deal1", 1, MENSCH, {}, t.deps);
     expect(t.rechner).toHaveBeenCalledTimes(2);
     expect(r.version.rechnerRequest?.marge_prozent).toBe("45");
-    expect(vi.mocked(t.speicher.sperrenUndAngebot).mock.calls[0][6]).toEqual({ uebersteuerungen: 1 });
+    expect(vi.mocked(t.speicher.sperrenUndAngebot).mock.calls[0][6]).toMatchObject({ uebersteuerungen: 1 });
+  });
+
+  it("späte Neuberechnung landet zwischen Frischeprüfung und Sperre: gesperrte Zeile trägt den Stand, aus dem kv_items stammen (I1)", async () => {
+    const t = aufbau();
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    await uebersteuern("ws", "deal1", 1, ueberHalteverbot, MENSCH, t.deps);
+    const gepreist = structuredClone(t.zeilen[0]);
+    const original = vi.mocked(t.speicher.sperrenUndAngebot).getMockImplementation()!;
+    vi.mocked(t.speicher.sperrenUndAngebot).mockImplementationOnce(async (...args) => {
+      // Ein älterer Lauf schreibt sein Ergebnis noch (status ist entwurf, Anzahl gleich).
+      Object.assign(t.zeilen[0], {
+        rechnerRequest: { alt: "ja" }, rechnerResult: ergebnis(999), costLines: [], margin: null, inputs: [], referenceDate: "2026-11-04", error: "alt",
+      });
+      return original(...args);
+    });
+    const r = await sperren("ws", "deal1", 1, MENSCH, {}, t.deps);
+    expect(r.version).toMatchObject({
+      status: "gesperrt", priceCents: 149000, referenceDate: "2026-11-05", error: null,
+      rechnerRequest: gepreist.rechnerRequest, rechnerResult: gepreist.rechnerResult, costLines: gepreist.costLines,
+      margin: gepreist.margin, inputs: gepreist.inputs, tariff: gepreist.tariff, packagePrices: gepreist.packagePrices,
+    });
+    expect(vi.mocked(t.speicher.sperrenUndAngebot).mock.calls[0][6]?.schnappschuss?.rechnerRequest).toEqual(gepreist.rechnerRequest);
   });
 
   it("nur das Datum ist alt: neu gerechnet, weil die Eilregel vom Tag abhängt", async () => {

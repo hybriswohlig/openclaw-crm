@@ -66,6 +66,16 @@ export type VersionsZeile = Omit<DealCalculationVersionRow, JsonFelder> & {
   rechnerResult: RechnerErgebnis | null;
 };
 
+/**
+ * Gerechneter Stand, aus dem das Sperren Preis und Posten gebildet hat. Die Sperre
+ * schreibt ihn mit (eine parallel spät gelandete Neuberechnung kann ihn sonst
+ * überschrieben haben); `error` wird dabei null.
+ */
+export type Schnappschuss = Pick<
+  VersionsZeile,
+  "referenceDate" | "rechnerRequest" | "rechnerResult" | "inputs" | "costLines" | "margin" | "packagePrices" | "tariff"
+>;
+
 export type Autor = { userId: string | null; quelle: "mensch" | "agent" };
 
 export type VersionsFehlerCode = "NICHT_GEFUNDEN" | "RECHNER_FEHLER" | "PAKETE" | "STUNDEN" | "UNGUELTIG" | "SPANNE";
@@ -126,7 +136,7 @@ export interface VersionsSpeicher {
     angebot: AngebotsEingabe,
     kvItems: KvPosten[],
     von: string | null,
-    stand?: { uebersteuerungen: number }
+    stand?: { uebersteuerungen: number; schnappschuss?: Schnappschuss }
   ): Promise<{ version: VersionsZeile }>;
 }
 
@@ -210,9 +220,9 @@ async function neuBerechnen(
   lead: LeadDaten,
   liste: Uebersteuerung[],
   d: Abh,
-  opts: { cacheErlaubt?: boolean; paketHebel?: Record<string, HebelArt[]> } = {}
+  opts: { cacheErlaubt?: boolean; paketHebel?: Record<string, HebelArt[]>; referenceDate?: string } = {}
 ): Promise<Partial<VersionsZeile>> {
-  const referenceDate = heuteBerlin(d.jetzt());
+  const referenceDate = opts.referenceDate ?? heuteBerlin(d.jetzt());
   const anfrage = anfrageMitUebersteuerungen(rechnerAnfrageAus(lead), liste, { referenceDate, paketHebel: opts.paketHebel });
 
   let ergebnis: RechnerErgebnis | null = null;
@@ -262,7 +272,13 @@ async function versionOderFehler(ws: string, deal: string, version: number, d: A
   return v;
 }
 
-async function entwurfAnlegen(ws: string, deal: string, autor: Autor, d: Abh): Promise<{ version: VersionsZeile; neu: boolean }> {
+async function entwurfAnlegen(
+  ws: string,
+  deal: string,
+  autor: Autor,
+  d: Abh,
+  versuch = 0
+): Promise<{ version: VersionsZeile; neu: boolean }> {
   const vorhanden = await d.speicher.entwurf(ws, deal);
   if (vorhanden) return { version: vorhanden, neu: false };
 
@@ -308,8 +324,10 @@ async function entwurfAnlegen(ws: string, deal: string, autor: Autor, d: Abh): P
     if (!(err instanceof EntwurfExistiertError)) throw err;
     // Doppelklick oder zwei Bots gleichzeitig: der andere war schneller, sein Entwurf gilt.
     const anderer = await d.speicher.entwurf(ws, deal);
-    if (!anderer) throw err;
-    return { version: anderer, neu: false };
+    if (anderer) return { version: anderer, neu: false };
+    // Der andere Entwurf ist schon gesperrt (Nummer belegt): einmal mit der nächsten Nummer.
+    if (versuch === 0) return entwurfAnlegen(ws, deal, autor, d, 1);
+    throw new VersionsFehler("UNGUELTIG", "Die Kalkulation wurde gerade geändert. Bitte erneut versuchen.");
   }
 }
 
@@ -325,6 +343,13 @@ export async function entwurfHolenOderAnlegen(
 
 function zahlOderNull(w: unknown): number | null {
   return typeof w === "number" && Number.isFinite(w) ? w : null;
+}
+
+/** Wirksamer Wert einer Übersteuerung (letzte Nennung gilt), null ohne oder aufgehoben. */
+export function wirksamerWert(liste: Uebersteuerung[], art: string, key: string): Uebersteuerung["wert"] {
+  let wert: Uebersteuerung["wert"] = null;
+  for (const u of liste) if (u.art === art && u.key === key) wert = u.wert;
+  return wert;
 }
 
 /**
@@ -343,69 +368,108 @@ export async function uebersteuern(
   const d = await abhaengigkeiten(opts);
   const geprueft = pruefeUebersteuerung(eingabe);
   const angefragt = await versionOderFehler(ws, deal, version, d);
-
-  let ziel = angefragt;
-  let neu = false;
-  if (angefragt.status !== "entwurf") {
-    const r = await entwurfAnlegen(ws, deal, autor, d);
-    ziel = r.version;
-    neu = r.neu;
-  }
-
-  if (geprueft.art === "zeile") {
-    const keys = new Set((ziel.rechnerResult?.kosten?.posten ?? []).map((p) => p.key).filter((k): k is string => !!k));
-    // Aufheben geht auch für eine Zeile, die der Rechner inzwischen nicht mehr liefert.
-    const aufhebbar = geprueft.wert === null && ziel.overrides.some((u) => u.art === "zeile" && u.key === geprueft.key);
-    if (!keys.has(geprueft.key) && !aufhebbar) throw new UebersteuerungFehler(`Unbekannte Kostenzeile: ${geprueft.key}`);
-  }
-
   const lead = await leadOderFehler(ws, deal, d);
-  const vorherAnfrage = ziel.rechnerRequest;
-  const rechnerwert = rechnerwertFuer(geprueft.art, geprueft.key, vorherAnfrage ?? {}, ziel.rechnerResult);
-  const neue: Uebersteuerung = {
-    id: crypto.randomUUID(),
-    art: geprueft.art,
-    key: geprueft.key,
-    rechnerwert,
-    wert: geprueft.wert,
-    grund: geprueft.grund,
-    autor: { userId: autor.userId, quelle: autor.quelle },
-    zeit: d.jetzt().toISOString(),
-    fotoRef: eingabe.fotoRef ?? null,
-  };
-  // Atomar anhängen; gerechnet wird mit der Liste, die der Speicher danach liefert
-  // (enthält auch parallel angehängte Übersteuerungen). Schreibt ein paralleler Lauf
-  // ein Ergebnis zu einer älteren Liste, erkennt das Sperren die Abweichung und rechnet neu.
-  const mitNeuer = await d.speicher.anhaengen(ziel.id, neue);
-  const berechnet = await neuBerechnen(ws, deal, lead, mitNeuer.overrides, d, { paketHebel: await paketHebelFuer(ws, deal, d) });
-  const gespeichert = await d.speicher.aktualisieren(ziel.id, berechnet);
 
-  const tarif = ziel.tariff ?? gespeichert.tariff;
-  const meldung = {
-    crm_deal_record_id: deal,
-    crm_version: gespeichert.version,
-    tarif_id: tarif?.id ?? null,
-    tarif_version: tarif?.version ?? null,
-    marke: tarif?.marke ?? null,
-    regel: neue.art,
-    zeile_key: neue.key,
-    eingaben: vorherAnfrage ?? gespeichert.rechnerRequest ?? {},
-    rechnerwert: zahlOderNull(rechnerwert),
-    inhaberwert: zahlOderNull(neue.wert),
-    grund: neue.grund,
-    autor: autor.userId ?? "agent",
-    foto_ref: neue.fotoRef,
-  };
-  d.nachher(async () => {
-    try {
-      const r = await d.melde(meldung);
-      if (!r.ok) console.warn(`[kalkulation-versionen] Korrekturmeldung fehlgeschlagen: ${r.fehler}`);
-    } catch (err) {
-      console.warn("[kalkulation-versionen] Korrekturmeldung fehlgeschlagen", err);
+  for (let versuch = 0; ; versuch++) {
+    let ziel = angefragt;
+    let neu = false;
+    if (versuch > 0 || angefragt.status !== "entwurf") {
+      const r = await entwurfAnlegen(ws, deal, autor, d);
+      ziel = r.version;
+      neu = r.neu;
     }
-  });
 
-  return { version: gespeichert, neu };
+    if (geprueft.art === "zeile") {
+      if (!ziel.rechnerResult) {
+        throw new VersionsFehler("RECHNER_FEHLER", "Die Kalkulation liegt noch nicht vor. Bitte zuerst neu rechnen.");
+      }
+      const keys = new Set((ziel.rechnerResult.kosten?.posten ?? []).map((p) => p.key).filter((k): k is string => !!k));
+      // Aufheben geht auch für eine Zeile, die der Rechner inzwischen nicht mehr liefert.
+      const aufhebbar = geprueft.wert === null && ziel.overrides.some((u) => u.art === "zeile" && u.key === geprueft.key);
+      if (!keys.has(geprueft.key) && !aufhebbar) throw new UebersteuerungFehler(`Unbekannte Kostenzeile: ${geprueft.key}`);
+    }
+
+    const vorherAnfrage = ziel.rechnerRequest;
+    const vorherErgebnis = ziel.rechnerResult;
+    // Marge: verglichen wird mit dem Vorschlag des Rechners, nicht mit einer früheren Inhaber-Marge.
+    const rechnerwert =
+      geprueft.art === "marge"
+        ? vorherErgebnis?.preis?.margeVorschlag?.prozent ??
+          vorherErgebnis?.margeVorschlag?.prozent ??
+          vorherErgebnis?.preis?.margeWirksamProzent ??
+          null
+        : rechnerwertFuer(geprueft.art, geprueft.key, vorherAnfrage ?? {}, vorherErgebnis);
+    // Bei einer zweiten Übersteuerung derselben Art und desselben Schlüssels wäre der Vorwert
+    // der des Inhabers, nicht der des Rechners: dann keine Kalibrierungsmeldung.
+    const vorherUebersteuert =
+      geprueft.art !== "marge" && wirksamerWert(ziel.overrides, geprueft.art, geprueft.key) !== null;
+    const neue: Uebersteuerung = {
+      id: crypto.randomUUID(),
+      art: geprueft.art,
+      key: geprueft.key,
+      rechnerwert,
+      wert: geprueft.wert,
+      grund: geprueft.grund,
+      autor: { userId: autor.userId, quelle: autor.quelle },
+      zeit: d.jetzt().toISOString(),
+      fotoRef: eingabe.fotoRef ?? null,
+    };
+
+    // Atomar anhängen; gerechnet wird mit der Liste, die der Speicher danach liefert
+    // (enthält auch parallel angehängte Übersteuerungen). Schreibt ein paralleler Lauf
+    // ein Ergebnis zu einer älteren Liste, erkennt das Sperren die Abweichung und rechnet neu.
+    let mitNeuer: VersionsZeile;
+    try {
+      mitNeuer = await d.speicher.anhaengen(ziel.id, neue);
+    } catch (err) {
+      // Der Entwurf wurde gerade gesperrt: die Übersteuerung gehört in den nächsten Entwurf.
+      if (err instanceof VersionsFehler && err.code === "UNGUELTIG" && versuch === 0) continue;
+      throw err;
+    }
+
+    let gespeichert: VersionsZeile;
+    try {
+      const berechnet = await neuBerechnen(ws, deal, lead, mitNeuer.overrides, d, { paketHebel: await paketHebelFuer(ws, deal, d) });
+      gespeichert = await d.speicher.aktualisieren(ziel.id, berechnet);
+    } catch (err) {
+      // Inzwischen gesperrt: das Sperren hat mit der aktuellen Liste (samt dieser Übersteuerung)
+      // gerechnet, die gesperrte Version ist das Ergebnis.
+      if (!(err instanceof VersionsFehler && err.code === "UNGUELTIG")) throw err;
+      const gesperrt = await d.speicher.lesen(ws, deal, ziel.version);
+      if (!gesperrt || !gesperrt.overrides.some((u) => u.id === neue.id)) throw err;
+      gespeichert = gesperrt;
+    }
+
+    // Zurücknehmen (wert null) heißt: Rechnerwert gilt; das ist keine Korrektur.
+    if (neue.wert !== null && !vorherUebersteuert) {
+      const tarif = ziel.tariff ?? gespeichert.tariff;
+      const meldung = {
+        crm_deal_record_id: deal,
+        crm_version: gespeichert.version,
+        tarif_id: tarif?.id ?? null,
+        tarif_version: tarif?.version ?? null,
+        marke: tarif?.marke ?? null,
+        regel: neue.art,
+        zeile_key: neue.key,
+        eingaben: vorherAnfrage ?? gespeichert.rechnerRequest ?? {},
+        rechnerwert: zahlOderNull(rechnerwert),
+        inhaberwert: zahlOderNull(neue.wert),
+        grund: neue.grund,
+        autor: autor.userId ?? "agent",
+        foto_ref: neue.fotoRef,
+      };
+      d.nachher(async () => {
+        try {
+          const r = await d.melde(meldung);
+          if (!r.ok) console.warn(`[kalkulation-versionen] Korrekturmeldung fehlgeschlagen: ${r.fehler}`);
+        } catch (err) {
+          console.warn("[kalkulation-versionen] Korrekturmeldung fehlgeschlagen", err);
+        }
+      });
+    }
+
+    return { version: gespeichert, neu };
+  }
 }
 
 /**
@@ -452,7 +516,7 @@ export async function sperren(
   for (let versuch = 0; veraltet(v); versuch++) {
     if (versuch > 0 && v.error !== null) break; // Rechnerfehler: unten abgelehnt
     if (versuch >= 3) throw new VersionsFehler("UNGUELTIG", "Die Kalkulation wird gerade geändert. Bitte erneut sperren.");
-    v = await d.speicher.aktualisieren(v.id, await neuBerechnen(ws, deal, lead, v.overrides, d));
+    v = await d.speicher.aktualisieren(v.id, await neuBerechnen(ws, deal, lead, v.overrides, d, { referenceDate: heute }));
   }
   if (v.error !== null || !v.rechnerResult || !v.rechnerRequest) {
     throw new VersionsFehler("RECHNER_FEHLER", `Kalkulation nicht aktuell: ${v.error ?? "Noch keine Kalkulation vorhanden."}`);
@@ -477,6 +541,16 @@ export async function sperren(
   }));
   const { version: gesperrt } = await d.speicher.sperrenUndAngebot(ws, deal, v.id, u.eingabe, kvItems, autor.userId, {
     uebersteuerungen: v.overrides.length,
+    schnappschuss: {
+      referenceDate: v.referenceDate,
+      rechnerRequest: v.rechnerRequest,
+      rechnerResult: v.rechnerResult,
+      inputs: v.inputs,
+      costLines: v.costLines,
+      margin: v.margin,
+      packagePrices: v.packagePrices,
+      tariff: v.tariff,
+    },
   });
   await d.nachSperren(ws, deal, autor);
   const quotation = await d.ladeAngebot(deal);
