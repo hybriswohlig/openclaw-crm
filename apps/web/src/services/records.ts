@@ -478,6 +478,10 @@ export async function updateRecord(
           },
           actorId: updatedBy,
         });
+        // Durchgeführt, Stufe betreten und Wartet-Signal nur bei der Deal-Stufe:
+        // Personen und Firmen haben auch Status-Attribute, und Deals weitere
+        // (etwa review_request_status), die die Stufenzeit nicht zurücksetzen dürfen.
+        if (!istDealStufenwechsel(obj.slug, change.slug)) continue;
         // Fehler hier darf den bereits geschriebenen Statuswechsel nicht zurückrollen.
         // move_completed_at ist kein Status-Attribut, der innere updateRecord
         // erzeugt also keine weiteren stage_changed-Ereignisse.
@@ -493,20 +497,25 @@ export async function updateRecord(
         } catch (err) {
           console.error("[durchgefuehrt] move_completed_at setzen fehlgeschlagen:", err);
         }
-        // Wartet-Signal nur für Deals; Personen und Firmen haben auch Status-Attribute.
-        if (obj.slug === "deals") {
-          try {
-            await setzeStufeBetreten(recordId, new Date());
-            await aktualisiereWartet(obj.workspaceId, recordId);
-          } catch (err) {
-            console.error("[wartet] Stufenwechsel nachführen fehlgeschlagen:", err);
-          }
+        try {
+          await setzeStufeBetreten(recordId, new Date());
+          await aktualisiereWartet(obj.workspaceId, recordId);
+        } catch (err) {
+          console.error("[wartet] Stufenwechsel nachführen fehlgeschlagen:", err);
         }
       }
     }
   }
 
   return getRecord(objectId, recordId);
+}
+
+/** Slug des Stufen-Attributs von Deals (standard-objects.ts). */
+const DEAL_STUFE_SLUG = "stage";
+
+/** Gehört dieser Statuswechsel zur Stufe eines Deals (und nicht zu einem anderen Status-Attribut)? */
+export function istDealStufenwechsel(objectSlug: string, attributeSlug: string): boolean {
+  return objectSlug === "deals" && attributeSlug === DEAL_STUFE_SLUG;
 }
 
 export async function deleteRecord(objectId: string, recordId: string) {
