@@ -22,6 +22,7 @@ const DOKUMENT = {
 
 const m = {
   ladeVersion: vi.fn(),
+  ladeVersionen: vi.fn(),
   ladeAngebotsVersionId: vi.fn(),
   istKottke: vi.fn(),
   speichereKv: vi.fn(),
@@ -32,6 +33,7 @@ const eingabe = { workspaceId: "ws_1", dealRecordId: "deal_1", version: 2, updat
 beforeEach(() => {
   vi.clearAllMocks();
   m.ladeVersion.mockResolvedValue(version());
+  m.ladeVersionen.mockResolvedValue([{ version: 1, status: "gesperrt" }, { version: 2, status: "gesperrt" }]);
   m.ladeAngebotsVersionId.mockResolvedValue("ver_2");
   m.istKottke.mockResolvedValue(false);
   m.speichereKv.mockResolvedValue({ document: DOKUMENT, fileName: DOKUMENT.fileName, templateVersion: "t", rechnungFaelligAm: null });
@@ -110,6 +112,33 @@ describe("kvAusVersion", () => {
     expect(err.code).toBe("UNGUELTIG");
     expect(err.message).toBe("Das Angebot wurde nach v2 von Hand geändert. Neue Version sperren.");
     expect(m.speichereKv).not.toHaveBeenCalled();
+  });
+
+  it("neuere gesperrte Version → UNGUELTIG „nicht mehr aktuell“ mit deren Nummer", async () => {
+    m.ladeAngebotsVersionId.mockResolvedValue("ver_3");
+    m.ladeVersionen.mockResolvedValue([
+      { version: 1, status: "gesperrt" },
+      { version: 2, status: "gesperrt" },
+      { version: 3, status: "gesperrt" },
+      { version: 4, status: "entwurf" },
+    ]);
+    const err = await fehlerVon(kvAusVersion(eingabe, opt));
+    expect(err.code).toBe("UNGUELTIG");
+    expect(err.message).toBe("Version v2 ist nicht mehr aktuell, aktuell ist v3.");
+    expect(m.ladeVersionen).toHaveBeenCalledWith("ws_1", "deal_1");
+    expect(m.speichereKv).not.toHaveBeenCalled();
+  });
+
+  it("nur ein neuerer Entwurf → Text der Handänderung", async () => {
+    m.ladeAngebotsVersionId.mockResolvedValue(null);
+    m.ladeVersionen.mockResolvedValue([{ version: 2, status: "gesperrt" }, { version: 3, status: "entwurf" }]);
+    const err = await fehlerVon(kvAusVersion(eingabe, opt));
+    expect(err.message).toBe("Das Angebot wurde nach v2 von Hand geändert. Neue Version sperren.");
+  });
+
+  it("passt die Quotation, werden die Versionen nicht gelesen", async () => {
+    await kvAusVersion(eingabe, opt);
+    expect(m.ladeVersionen).not.toHaveBeenCalled();
   });
 
   it("Version fehlt → NICHT_GEFUNDEN", async () => {

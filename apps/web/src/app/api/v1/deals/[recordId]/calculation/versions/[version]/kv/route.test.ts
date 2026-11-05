@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   getAuthContext: vi.fn(),
   dealImWorkspace: vi.fn(),
   lesen: vi.fn(),
+  liste: vi.fn(),
   angebotsVersionId: vi.fn(),
   dealBlocksInRepoCrmRenderer: vi.fn(),
   storeCommercialDocument: vi.fn(),
@@ -24,7 +25,7 @@ vi.mock("@/lib/kalkulation-versionen-antwort", async (importOriginal) => {
 });
 // Der echte Dienst `kvAusVersion` läuft; nur seine DB-Lader und der Renderer sind ersetzt.
 vi.mock("@/services/kalkulation-versionen-speicher", () => ({
-  dbVersionsSpeicher: { lesen: mocks.lesen },
+  dbVersionsSpeicher: { lesen: mocks.lesen, liste: mocks.liste },
 }));
 vi.mock("@/services/deal-documents", () => ({ angebotsVersionId: mocks.angebotsVersionId }));
 vi.mock("@/lib/kottke-crm-renderer-deal", () => ({
@@ -60,6 +61,7 @@ beforeEach(() => {
   mocks.getAuthContext.mockResolvedValue(CTX);
   mocks.dealImWorkspace.mockResolvedValue(true);
   mocks.lesen.mockResolvedValue({ id: "ver_2", version: 2, status: "gesperrt" });
+  mocks.liste.mockResolvedValue([{ id: "ver_2", version: 2, status: "gesperrt" }]);
   mocks.angebotsVersionId.mockResolvedValue("ver_2");
   mocks.dealBlocksInRepoCrmRenderer.mockResolvedValue(false);
   mocks.storeCommercialDocument.mockResolvedValue({
@@ -148,6 +150,21 @@ describe("POST /calculation/versions/[version]/kv", () => {
       code: "UNGUELTIG",
       message: "Das Angebot wurde nach v2 von Hand geändert. Neue Version sperren.",
     });
+  });
+
+  it("neuere gesperrte Version → 400 UNGUELTIG „nicht mehr aktuell“", async () => {
+    mocks.angebotsVersionId.mockResolvedValue("ver_3");
+    mocks.liste.mockResolvedValue([
+      { id: "ver_2", version: 2, status: "gesperrt" },
+      { id: "ver_3", version: 3, status: "gesperrt" },
+    ]);
+    const res = await POST(req(), p());
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toEqual({
+      code: "UNGUELTIG",
+      message: "Version v2 ist nicht mehr aktuell, aktuell ist v3.",
+    });
+    expect(mocks.liste).toHaveBeenCalledWith("ws_1", "deal_1");
   });
 
   it("Version fehlt → 404 NICHT_GEFUNDEN", async () => {

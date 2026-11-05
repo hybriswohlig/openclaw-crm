@@ -20,6 +20,8 @@ export type KvAusVersionErgebnis =
 
 export interface KvAusVersionOptionen {
   ladeVersion?: (ws: string, deal: string, version: number) => Promise<Pick<VersionsZeile, "id" | "status"> | null>;
+  /** Alle Versionen des Deals (nur gelesen, wenn die Quotation nicht auf die Version zeigt). */
+  ladeVersionen?: (ws: string, deal: string) => Promise<Pick<VersionsZeile, "version" | "status">[]>;
   /** `quotations.calculation_version_id` des Deals. */
   ladeAngebotsVersionId?: (deal: string) => Promise<string | null>;
   /** Betreiberfirma Kottke: CRM-Renderer gesperrt. */
@@ -28,8 +30,10 @@ export interface KvAusVersionOptionen {
 }
 
 async function abhaengigkeiten(o: KvAusVersionOptionen): Promise<Required<KvAusVersionOptionen>> {
+  const speicher = async () => (await import("./kalkulation-versionen-speicher")).dbVersionsSpeicher;
   return {
-    ladeVersion: o.ladeVersion ?? (await import("./kalkulation-versionen-speicher")).dbVersionsSpeicher.lesen,
+    ladeVersion: o.ladeVersion ?? (async (ws, deal, v) => (await speicher()).lesen(ws, deal, v)),
+    ladeVersionen: o.ladeVersionen ?? (async (ws, deal) => (await speicher()).liste(ws, deal)),
     ladeAngebotsVersionId: o.ladeAngebotsVersionId ?? (await import("./deal-documents")).angebotsVersionId,
     istKottke: o.istKottke ?? (await import("@/lib/kottke-crm-renderer-deal")).dealBlocksInRepoCrmRenderer,
     speichereKv: o.speichereKv ?? (await import("./commercial-documents")).storeCommercialDocument,
@@ -61,6 +65,13 @@ export async function kvAusVersion(
     throw new VersionsFehler("UNGUELTIG", `Version v${n} ist nicht gesperrt.`);
   }
   if ((await d.ladeAngebotsVersionId(dealRecordId)) !== version.id) {
+    // Neuere gesperrte Version: auf sie verweisen, statt eine weitere Sperre nahezulegen.
+    const neueste = (await d.ladeVersionen(workspaceId, dealRecordId))
+      .filter((v) => v.status === "gesperrt")
+      .reduce((max, v) => Math.max(max, v.version), 0);
+    if (neueste > n) {
+      throw new VersionsFehler("UNGUELTIG", `Version v${n} ist nicht mehr aktuell, aktuell ist v${neueste}.`);
+    }
     throw new VersionsFehler("UNGUELTIG", `Das Angebot wurde nach v${n} von Hand geändert. Neue Version sperren.`);
   }
 
