@@ -55,6 +55,12 @@ describe("leistungAusText", () => {
     expect(leistungAusText("Entrümpelung Keller und Dachboden")).toBe("clearance");
     expect(leistungAusText("Haushaltsauflösung und Umzug der restlichen Möbel")).toBe("clearance_move");
   });
+  it("Umzug mit Küche oder verneinter Entrümpelung bleibt ohne Vorschlag", () => {
+    expect(leistungAusText("Transport des Hausstands von Stuttgart nach Ulm inklusive Küchenmontage")).toBeNull();
+    expect(leistungAusText("Transport von Möbeln, keine Sperrmüllentsorgung")).toBeNull();
+    expect(leistungAusText("Umzug ohne Entrümpelung")).toBeNull();
+    expect(leistungAusText("IKEA-Küche abbauen und am Ziel aufbauen")).toBeNull();
+  });
   it("ohne Hinweis kein Vorschlag", () => {
     expect(leistungAusText("Umzug 3-Zimmer-Wohnung")).toBeNull();
     expect(leistungAusText("")).toBeNull();

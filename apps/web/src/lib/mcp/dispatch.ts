@@ -563,10 +563,14 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
         }
       );
     }
-    case "crm_get_deal_quotation":
-      return client.request(
+    case "crm_get_deal_quotation": {
+      // Entrümpelung + Umzug liegt als move plus documentDetails.mitEntruempelung;
+      // nach außen als clearance_move, damit Lesen und Zurückschreiben nichts verliert.
+      const q = await client.request<unknown>(
         `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/quotation`
       );
+      return leistungNachAussen(q);
+    }
     case "crm_list_deal_payments":
       return client.request(
         `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/payments`
@@ -1380,4 +1384,13 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
+}
+
+/** Quotation-Antwort: serviceType "clearance_move" statt move + Zusatz. */
+export function leistungNachAussen(q: unknown): unknown {
+  if (!q || typeof q !== "object") return q;
+  // Die API antwortet mit { data: … }; je nach Client kommt die Hülle mit.
+  if ("data" in q && !("serviceType" in q)) return { ...q, data: leistungNachAussen((q as { data: unknown }).data) };
+  const o = q as { serviceType?: unknown; documentDetails?: { mitEntruempelung?: unknown } | null };
+  return o.serviceType === "move" && o.documentDetails?.mitEntruempelung === true ? { ...o, serviceType: "clearance_move" } : q;
 }

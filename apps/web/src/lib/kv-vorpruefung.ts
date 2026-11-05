@@ -48,10 +48,13 @@ export function leistungsartVorschlag(input: {
   gespeichert: string | null;
   leadType: string | null;
   mitEntruempelung?: boolean | null;
+  /** documentDetails.leistungBestaetigt: ein gespeicherter Umzug ist dann bewusst gewählt. */
+  bestaetigt?: boolean | null;
   text?: string | null;
 }): PortalLeistung {
   if (input.gespeichert === "kitchen_installation" || input.gespeichert === "clearance") return input.gespeichert;
   if (input.gespeichert === "move" && input.mitEntruempelung === true) return "clearance_move";
+  if (input.gespeichert === "move" && input.bestaetigt === true) return "move";
   if (input.leadType?.toLowerCase() === "entruempelung") return "clearance";
   return leistungAusText(input.text) ?? "move";
 }

@@ -373,6 +373,7 @@ async function loadKvHinweise(workspaceId: string, dealRecordId: string): Promis
       gespeichert: q?.serviceType ?? null,
       leadType: typeof leadType === "string" ? leadType : null,
       mitEntruempelung: q?.documentDetails?.mitEntruempelung ?? null,
+      bestaetigt: q?.documentDetails?.leistungBestaetigt ?? null,
       text: q ? [q.summary, ...q.lineItems.map((l) => l.description)].filter(Boolean).join("\n") : null,
     }),
     umzugsgutAnzahl: Number(inv?.n ?? 0),

@@ -28,7 +28,7 @@ import { RestbetragHinweis } from "./restbetrag-hinweis";
 import { DateOfferPicker } from "./date-offer-picker";
 import { CustomerPhotosSection } from "./customer-photos-section";
 import { FurnitureListSection } from "./furniture-list-section";
-import { worte } from "./leistung-worte";
+import { annahmenLabels, worte } from "./leistung-worte";
 
 /**
  * Stage 1 layout — desktop is a two-column grid with a sticky price/CTA
@@ -150,7 +150,7 @@ export function StageOneKva({
           {ctx.kva && !alreadyAccepted && <MobilePriceDetails ctx={ctx} expired={gueltigkeitAbgelaufen} displayTotalCents={displayTotalCents} selectedOptionName={defaultOption?.displayName ?? null} />}
           <QuotationPreview ctx={ctx} token={token} />
           <div className={hasMultipleOffers ? "" : "lg:hidden"}><OrderDetails ctx={ctx} token={token} wide /></div>
-          {ctx.kva?.calculationAssumptions && <CalculationAssumptionsCard a={ctx.kva.calculationAssumptions} />}
+          {ctx.kva?.calculationAssumptions && <CalculationAssumptionsCard a={ctx.kva.calculationAssumptions} ctx={ctx} />}
           {ctx.dealPackageOffers.options.length === 0 && ctx.kva?.showStandardInclusions && <OfferInclusionsSection inclusions={ctx.inclusions} branding={ctx.branding} />}
           <CustomerPhotosSection token={token} photos={ctx.customerPhotos} primaryColor={ctx.branding.primaryColor} firmaSlug={firma} leistung={ctx.leistung} />
           <FurnitureListSection items={ctx.furnitureList ?? []} primaryColor={ctx.branding.primaryColor} titel={worte(ctx).inventarTitel} />
@@ -558,9 +558,16 @@ function formatEurCents(cents: number): string {
 // snapshot on acceptance, so keep the wording factual and complete.
 function CalculationAssumptionsCard({
   a,
+  ctx,
 }: {
   a: NonNullable<NonNullable<CustomerPortalContext["kva"]>["calculationAssumptions"]>;
+  ctx: CustomerPortalContext;
 }) {
+  // Mit nur einem Einsatzort (Küche, Entrümpelung) heißen die Angaben schlicht Etage und Zugang.
+  const einOrt = worte(ctx).adressen === "einsatzort";
+  const labels = annahmenLabels(ctx);
+  const label = (key: "etageVon" | "etageBis" | "zugangVon" | "zugangBis", strecke: string) =>
+    einOrt ? labels[key] : strecke;
   const rows: Array<[string, string]> = [];
   if (a.anfahrtMinuten != null) {
     rows.push([
@@ -568,10 +575,15 @@ function CalculationAssumptionsCard({
       `ca. ${a.anfahrtMinuten} Min.${a.anfahrtQuelle === "manuell" ? " (Annahme)" : ""}`,
     ]);
   }
-  if (a.etageVon) rows.push(["Etage Beladestelle", a.etageVon]);
-  if (a.etageBis) rows.push(["Etage Entladestelle", a.etageBis]);
-  if (a.zugangVon) rows.push(["Zugang Beladestelle", a.zugangVon]);
-  if (a.zugangBis) rows.push(["Zugang Entladestelle", a.zugangBis]);
+  for (const [key, strecke] of [
+    ["etageVon", "Etage Beladestelle"],
+    ["etageBis", "Etage Entladestelle"],
+    ["zugangVon", "Zugang Beladestelle"],
+    ["zugangBis", "Zugang Entladestelle"],
+  ] as const) {
+    const l = label(key, strecke);
+    if (a[key] && l) rows.push([l, a[key]]);
+  }
   if (a.inventarPositionen != null) {
     rows.push([
       "Umfang",

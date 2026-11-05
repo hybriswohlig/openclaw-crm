@@ -243,9 +243,13 @@ export async function getProfitSummary(dealRecordId: string) {
 /** Zusatz „mit Entrümpelung“ in die KV-Angaben schreiben; ohne Leistungsangabe bleibt alles. */
 function mitLeistung(
   details: QuotationDocumentDetails | null,
-  leistung: { serviceType: string; mitEntruempelung: boolean } | null
+  leistung: { serviceType: string; mitEntruempelung: boolean; bestaetigt: boolean } | null
 ): QuotationDocumentDetails | null {
   if (!leistung) return details;
-  if (!details && !leistung.mitEntruempelung) return null;
-  return { ...(details ?? {}), mitEntruempelung: leistung.mitEntruempelung };
+  if (!details && !leistung.mitEntruempelung && !leistung.bestaetigt) return null;
+  return {
+    ...(details ?? {}),
+    mitEntruempelung: leistung.mitEntruempelung,
+    ...(leistung.bestaetigt ? { leistungBestaetigt: true } : {}),
+  };
 }

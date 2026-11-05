@@ -182,11 +182,22 @@ export function leistungsWorte(leistung: PortalLeistung | null | undefined, firm
 export function leistungAusText(text: string | null | undefined): PortalLeistung | null {
   const t = (text ?? "").toLowerCase();
   if (!t.trim()) return null;
-  const kueche = /küchen(?:montage|aufbau|einbau)|küche(?:nzeile)? (?:montieren|aufbauen|einbauen)|ikea-küche|kücheneinbau|einbauküche montage/.test(t);
-  const entruempelung = /entrümpel|haushaltsauflösung|wohnungsauflösung|räumung|sperrmüll/.test(t);
-  const umzug = /umzug|umziehen|umzieh/.test(t);
+  const kueche = trifft(t, /küchen(?:montage|aufbau|einbau)|küche(?:nzeile)? (?:montieren|aufbauen|einbauen)|kücheneinbau/g);
+  const entruempelung = trifft(t, /entrümpel|haushaltsauflösung|wohnungsauflösung/g);
+  const umzug = trifft(t, /umzug|umzieh|hausstand/g);
+  // Alles, was nach Transport von Hausrat klingt: dann ist eine Küche Teil eines Umzugs.
+  const transport = trifft(t, /umzug|umzieh|hausstand|transport|beiladung|möbel(?!montage)|abbau|auszug|einzug/g);
   if (entruempelung && umzug) return "clearance_move";
   if (entruempelung) return "clearance";
-  if (kueche && !umzug) return "kitchen_installation";
+  if (kueche && !transport) return "kitchen_installation";
   return null;
+}
+
+/** Trifft das Muster, ohne dass kurz davor „kein“, „ohne“ oder „nicht“ steht? */
+function trifft(text: string, muster: RegExp): boolean {
+  for (const m of text.matchAll(muster)) {
+    const davor = text.slice(Math.max(0, (m.index ?? 0) - 25), m.index);
+    if (!/\b(?:kein\w*|ohne|nicht)\b[^.,;!?\n]*$/.test(davor)) return true;
+  }
+  return false;
 }

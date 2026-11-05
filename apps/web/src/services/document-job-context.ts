@@ -200,10 +200,16 @@ export async function attachDocumentJobContext(
     await db.update(quotations).set({ serviceType: neueArt }).where(eq(quotations.id, quotation.id));
   }
   // Zusatz „mit Entrümpelung“ wie die Leistungsart nur beim KV und vor der Annahme speichern.
-  if (quotation && next.document_type === "KV" && !accepted && (storedDetails.mitEntruempelung === true) !== mitEntruempelung) {
+  // Beim KV ist die Leistung bewusst gewählt: danach überstimmt kein Textvorschlag sie mehr.
+  if (
+    quotation &&
+    next.document_type === "KV" &&
+    !accepted &&
+    ((storedDetails.mitEntruempelung === true) !== mitEntruempelung || storedDetails.leistungBestaetigt !== true)
+  ) {
     await db
       .update(quotations)
-      .set({ documentDetails: { ...storedDetails, mitEntruempelung } })
+      .set({ documentDetails: { ...storedDetails, mitEntruempelung, leistungBestaetigt: true } })
       .where(eq(quotations.id, quotation.id));
   }
 
@@ -282,6 +288,7 @@ export async function attachDocumentJobContext(
     ...snapshotDetails,
     ...clientDetails,
     serviceType: vpsArt,
+    mitEntruempelung,
     reference,
     inventory: clientDetails.inventory || storedDetails.inventory || inventoryRows,
     services:
