@@ -18,13 +18,17 @@ import { euroZuCent } from "./lagekarte/wert";
 
 const ENDSTUFEN = new Set(["paid", "lost", "kein_lead"]);
 
+/** Transaktion von db.transaction; alle Abfragen einer Neuberechnung laufen darin. */
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+type Abfrage = Pick<Tx, "select">;
+
 /**
  * Deals mit Stufenkategorie über den EAV-Pfad records → record_values(stage)
  * → statuses, wie getDealStageCategory im Agent-Gate, aber für viele Deals.
  * Ohne Kategorie entscheidet der Titel (stufenKategorie, wie die Lagekarte).
  */
-function dealsMitStufe(bedingung: ReturnType<typeof and>, workspaceId?: string) {
-  return db
+function dealsMitStufe(q: Abfrage, bedingung: ReturnType<typeof and>, workspaceId?: string) {
+  return q
     .select({
       id: records.id,
       workspaceId: objects.workspaceId,
@@ -68,11 +72,16 @@ function istBezahlt(
 }
 
 /** Lädt die Eingaben von berechneWartet für viele Deals mit festen acht Abfragen. */
-async function ladeEingaben(workspaceId: string, ids: string[], jetzt: Date): Promise<Map<string, WartetEingabe>> {
+async function ladeEingaben(
+  q: Abfrage,
+  workspaceId: string,
+  ids: string[],
+  jetzt: Date
+): Promise<Map<string, WartetEingabe>> {
   const zeit = sql`coalesce(${inboxMessages.sentAt}, ${inboxMessages.createdAt})`;
   const [deals, nachrichten, zustand, dokumente, links, annahmen, zahlungen, angebote] = await Promise.all([
-    dealsMitStufe(inArray(records.id, ids), workspaceId),
-    db
+    dealsMitStufe(q, inArray(records.id, ids), workspaceId),
+    q
       .select({
         dealId: inboxConversations.dealRecordId,
         kunde: sql`max(${zeit}) filter (where ${inboxMessages.direction} = 'inbound')`.mapWith(inboxMessages.sentAt),
@@ -91,11 +100,11 @@ async function ladeEingaben(workspaceId: string, ids: string[], jetzt: Date): Pr
         )
       )
       .groupBy(inboxConversations.dealRecordId),
-    db
+    q
       .select({ id: dealWorkflowState.recordId, menschAm: dealWorkflowState.lastOutboundHumanAt })
       .from(dealWorkflowState)
       .where(inArray(dealWorkflowState.recordId, ids)),
-    db
+    q
       .select({ dealId: dealDocuments.dealRecordId, typ: dealDocuments.documentType, am: max(dealDocuments.uploadedAt) })
       .from(dealDocuments)
       .where(
@@ -106,21 +115,21 @@ async function ladeEingaben(workspaceId: string, ids: string[], jetzt: Date): Pr
         )
       )
       .groupBy(dealDocuments.dealRecordId, dealDocuments.documentType),
-    db
+    q
       .select({ dealId: customerStatusLinks.dealRecordId, am: max(customerStatusLinks.lastViewedAt) })
       .from(customerStatusLinks)
       .where(inArray(customerStatusLinks.dealRecordId, ids))
       .groupBy(customerStatusLinks.dealRecordId),
     // Aktive Annahme wie aktivBedingung in kva-annahme.ts, für viele Deals.
-    db
+    q
       .select({ dealId: kvaConfirmations.dealRecordId, am: kvaConfirmations.signedAt, cent: kvaConfirmations.confirmedTotalCents })
       .from(kvaConfirmations)
       .where(and(inArray(kvaConfirmations.dealRecordId, ids), isNull(kvaConfirmations.supersededAt))),
-    db
+    q
       .select({ dealId: payments.dealRecordId, amount: payments.amount, taxTreatment: payments.taxTreatment })
       .from(payments)
       .where(inArray(payments.dealRecordId, ids)),
-    db
+    q
       .select({ dealId: quotations.dealRecordId, fixedPrice: quotations.fixedPrice, isVariable: quotations.isVariable })
       .from(quotations)
       .where(inArray(quotations.dealRecordId, ids)),
@@ -162,37 +171,63 @@ async function ladeEingaben(workspaceId: string, ids: string[], jetzt: Date): Pr
   return eingaben;
 }
 
-/** Berechnet und speichert das Wartet-Signal für mehrere Deals eines Workspaces. Liefert die Anzahl. */
-export async function aktualisiereWartetFuer(workspaceId: string, ids: string[], jetzt = new Date()): Promise<number> {
+/**
+ * Sperrt die Deals für die Dauer der Transaktion (pg_advisory_xact_lock je
+ * Deal, sortiert, damit sich zwei Sperrende nie gegenseitig blockieren).
+ * Ohne Sperre könnte eine ältere Neuberechnung, die vor einer neueren gelesen
+ * hat, nach ihr schreiben und ein veraltetes „uns“ stehen lassen.
+ */
+export async function sperreDeals(tx: Pick<Tx, "execute">, ids: string[]): Promise<void> {
+  const sortiert = [...new Set(ids)].sort();
+  if (sortiert.length === 0) return;
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtext('wartet:' || v.id)) from (values ${sql.join(
+      sortiert.map((id) => sql`(${id})`),
+      sql`, `
+    )}) as v(id)`
+  );
+}
+
+/**
+ * Berechnet und speichert das Wartet-Signal für mehrere Deals eines Workspaces.
+ * Lesen, Rechnen und Schreiben laufen in einer Transaktion unter der Sperre
+ * je Deal, darum überschreibt nie ein älteres Ergebnis ein neueres. Ohne
+ * `jetzt` gilt die Zeit nach dem Sperren. Liefert die Anzahl.
+ */
+export async function aktualisiereWartetFuer(workspaceId: string, ids: string[], jetzt?: Date): Promise<number> {
   if (ids.length === 0) return 0;
-  const eingaben = await ladeEingaben(workspaceId, ids, jetzt);
-  if (eingaben.size === 0) return 0;
-  const zeilen = [...eingaben].map(([recordId, e]) => {
-    const w = berechneWartet(e);
-    return {
-      recordId,
-      waitingOn: w.auf,
-      waitingSince: w.seit,
-      waitingReason: w.grund,
-      lastInboundAt: e.letzteKundenNachricht,
-      updatedAt: jetzt,
-    };
-  });
-  // last_outbound_human_at und stage_entered_at bleiben unberührt.
-  await db
-    .insert(dealWorkflowState)
-    .values(zeilen)
-    .onConflictDoUpdate({
-      target: dealWorkflowState.recordId,
-      set: {
-        waitingOn: sql`excluded.waiting_on`,
-        waitingSince: sql`excluded.waiting_since`,
-        waitingReason: sql`excluded.waiting_reason`,
-        lastInboundAt: sql`excluded.last_inbound_at`,
-        updatedAt: sql`excluded.updated_at`,
-      },
+  return db.transaction(async (tx) => {
+    await sperreDeals(tx, ids);
+    const zeit = jetzt ?? new Date();
+    const eingaben = await ladeEingaben(tx, workspaceId, ids, zeit);
+    if (eingaben.size === 0) return 0;
+    const zeilen = [...eingaben].map(([recordId, e]) => {
+      const w = berechneWartet(e);
+      return {
+        recordId,
+        waitingOn: w.auf,
+        waitingSince: w.seit,
+        waitingReason: w.grund,
+        lastInboundAt: e.letzteKundenNachricht,
+        updatedAt: zeit,
+      };
     });
-  return zeilen.length;
+    // last_outbound_human_at und stage_entered_at bleiben unberührt.
+    await tx
+      .insert(dealWorkflowState)
+      .values(zeilen)
+      .onConflictDoUpdate({
+        target: dealWorkflowState.recordId,
+        set: {
+          waitingOn: sql`excluded.waiting_on`,
+          waitingSince: sql`excluded.waiting_since`,
+          waitingReason: sql`excluded.waiting_reason`,
+          lastInboundAt: sql`excluded.last_inbound_at`,
+          updatedAt: sql`excluded.updated_at`,
+        },
+      });
+    return zeilen.length;
+  });
 }
 
 /** Neuberechnung für einen Deal. Ohne Deal-Id (Konversation ohne Deal) kein Datenbankzugriff. */
@@ -252,14 +287,48 @@ export async function setzeLetzteEigeneNachricht(dealRecordId: string, wann: Dat
   if (deal) await aktualisiereWartet(deal.workspaceId, id);
 }
 
-/** Nicht-terminale Deals (nicht paid, lost, kein_lead) je Workspace, für den nächtlichen Cron. */
-export async function ladeOffeneDeals(): Promise<Map<string, string[]>> {
-  const offen = new Map<string, Set<string>>();
-  for (const d of await dealsMitStufe(undefined)) {
-    if (ENDSTUFEN.has(kategorieVon(d) ?? "")) continue;
-    const ids = offen.get(d.workspaceId) ?? new Set<string>();
+interface DealZeile {
+  id: string;
+  workspaceId: string;
+  titel: string | null;
+  kategorie: string | null;
+  wartetAuf: string | null;
+}
+
+/**
+ * Auswahl für den nächtlichen Cron: alle offenen Deals, dazu Deals in einer
+ * Endstufe (paid, lost, kein_lead), deren gespeichertes Signal noch nicht
+ * „niemand“ ist. Die Endstufen-Fälle repariert sonst niemand, wenn ein
+ * Ereignis-Hook beim Stufenwechsel gescheitert ist. Je Workspace.
+ */
+export function waehleDealsZurNeuberechnung(zeilen: DealZeile[]): Map<string, string[]> {
+  const auswahl = new Map<string, Set<string>>();
+  for (const d of zeilen) {
+    const endstufe = ENDSTUFEN.has(kategorieVon(d) ?? "");
+    if (endstufe && (d.wartetAuf === null || d.wartetAuf === "niemand")) continue;
+    const ids = auswahl.get(d.workspaceId) ?? new Set<string>();
     ids.add(d.id);
-    offen.set(d.workspaceId, ids);
+    auswahl.set(d.workspaceId, ids);
   }
-  return new Map([...offen].map(([ws, ids]) => [ws, [...ids]]));
+  return new Map([...auswahl].map(([ws, ids]) => [ws, [...ids]]));
+}
+
+/** Deals je Workspace, die der nächtliche Cron neu berechnet (siehe waehleDealsZurNeuberechnung). */
+export async function ladeDealsZurNeuberechnung(): Promise<Map<string, string[]>> {
+  const zeilen = await db
+    .select({
+      id: records.id,
+      workspaceId: objects.workspaceId,
+      titel: statuses.title,
+      kategorie: statuses.stageCategory,
+      wartetAuf: dealWorkflowState.waitingOn,
+    })
+    .from(records)
+    .innerJoin(objects, and(eq(objects.id, records.objectId), eq(objects.slug, "deals")))
+    .leftJoin(attributes, and(eq(attributes.objectId, objects.id), eq(attributes.slug, "stage")))
+    .leftJoin(recordValues, and(eq(recordValues.recordId, records.id), eq(recordValues.attributeId, attributes.id)))
+    .leftJoin(statuses, eq(statuses.id, recordValues.textValue))
+    .leftJoin(dealWorkflowState, eq(dealWorkflowState.recordId, records.id))
+    .where(isNull(records.deletedAt));
+  return waehleDealsZurNeuberechnung(zeilen);
 }

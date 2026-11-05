@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireCronAuth } from "@/lib/cron-auth";
-import { aktualisiereWartetFuer, ladeOffeneDeals } from "@/services/wartet";
+import { aktualisiereWartetFuer, ladeDealsZurNeuberechnung } from "@/services/wartet";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -9,16 +9,18 @@ const BLOCK = 200;
 
 /**
  * Nächtliche Neuberechnung des Wartet-Signals (deal_workflow_state) für alle
- * nicht-terminalen Deals. Fängt auf, was kein Ereignis auslöst: ein KV, der
- * mit den Tagen „ungesehen“ wird. Blöcke zu 200 Deals; scheitert ein Block,
- * wird jeder Deal darin einzeln versucht.
+ * nicht-terminalen Deals, dazu Deals in einer Endstufe, deren Signal noch
+ * nicht „niemand“ ist. Fängt auf, was kein Ereignis auslöst: ein KV, der
+ * mit den Tagen „ungesehen“ wird. Blöcke zu 200 Deals, jeder Block in einer
+ * Transaktion unter der Sperre je Deal (wie die Einzel-Neuberechnung);
+ * scheitert ein Block, wird jeder Deal darin einzeln versucht.
  */
 export async function GET(req: NextRequest) {
   const denied = requireCronAuth(req);
   if (denied) return denied;
 
   try {
-    const offen = await ladeOffeneDeals();
+    const offen = await ladeDealsZurNeuberechnung();
     let deals = 0;
     let aktualisiert = 0;
     let fehler = 0;
