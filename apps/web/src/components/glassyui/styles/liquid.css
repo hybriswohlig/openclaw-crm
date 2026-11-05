@@ -1,0 +1,5458 @@
+/* Glassy UI styles live in the components layer, below Tailwind utilities, so
+   a className such as rounded-xl or p-8 overrides the library default. These
+   statements repeat Tailwind 4's own layer order, so it holds even when this
+   file loads before Tailwind. */
+@layer properties;
+@layer theme, base, components, utilities;
+
+@property --lg-fresnel {
+  syntax: '<number>';
+  initial-value: 0;
+  inherits: true;
+}
+
+@property --lg-specular {
+  syntax: '<number>';
+  initial-value: 0;
+  inherits: true;
+}
+
+@property --lg-refraction-scale {
+  syntax: '<number>';
+  initial-value: 0;
+  inherits: true;
+}
+
+@property --lg-refraction-blur {
+  syntax: '<number>';
+  initial-value: 0;
+  inherits: true;
+}
+
+@property --lg-refraction-scale-a {
+  syntax: '<number>';
+  initial-value: 0;
+  inherits: true;
+}
+
+@property --lg-refraction-scale-b {
+  syntax: '<number>';
+  initial-value: 0;
+  inherits: true;
+}
+
+@property --lg-refraction-blur-a {
+  syntax: '<number>';
+  initial-value: 0;
+  inherits: true;
+}
+
+@property --lg-refraction-blur-b {
+  syntax: '<number>';
+  initial-value: 0;
+  inherits: true;
+}
+
+@property --lg-refraction-dispersion {
+  syntax: '<number>';
+  initial-value: 0;
+  inherits: true;
+}
+
+@property --lg-rim-width-scale {
+  syntax: '<number>';
+  initial-value: 1;
+  inherits: true;
+}
+
+@property --lg-highlight-strength {
+  syntax: '<number>';
+  initial-value: 0;
+  inherits: true;
+}
+
+@property --lg-rim-micro-mask {
+  syntax: '<number>';
+  initial-value: 1;
+  inherits: true;
+}
+
+@property --lg-rim-corner-mask {
+  syntax: '<number>';
+  initial-value: 1;
+  inherits: true;
+}
+
+@property --lg-debug-micro-scale {
+  syntax: '<number>';
+  initial-value: 1;
+  inherits: true;
+}
+
+@property --lg-debug-corner-scale {
+  syntax: '<number>';
+  initial-value: 1;
+  inherits: true;
+}
+
+@property --lg-debug-ca-scale {
+  syntax: '<number>';
+  initial-value: 1;
+  inherits: true;
+}
+
+@property --lg-debug-ca-offset-scale {
+  syntax: '<number>';
+  initial-value: 1;
+  inherits: true;
+}
+
+@property --lg-debug-rim-thickness {
+  syntax: '<number>';
+  initial-value: 1;
+  inherits: true;
+}
+
+@property --lg-debug-rim-alpha-scale {
+  syntax: '<number>';
+  initial-value: 1;
+  inherits: true;
+}
+
+@property --lg-debug-tangent-scale {
+  syntax: '<number>';
+  initial-value: 1;
+  inherits: true;
+}
+
+@property --lg-debug-highlight-scale {
+  syntax: '<number>';
+  initial-value: 1;
+  inherits: true;
+}
+
+@property --lg-filter-scale {
+  syntax: '<number>';
+  initial-value: 0.98;
+  inherits: true;
+}
+
+@property --lg-bg {
+  syntax: '<color>';
+  initial-value: #1c1c1e;
+  inherits: true;
+}
+
+@property --lg-panel {
+  syntax: '<color>';
+  initial-value: rgba(255, 255, 255, 0.04);
+  inherits: true;
+}
+
+@property --lg-press {
+  syntax: '<number>';
+  initial-value: 0;
+  inherits: true;
+}
+
+/* How high a button's glass rests above the page: 1 at rest, lower under a
+   pointer, nearly down while pressed. Its shadow and the light it lets
+   through follow the height; the glass itself stays put. Registered so the
+   height eases instead of jumping. */
+@property --lg-button-rise {
+  syntax: '<number>';
+  initial-value: 1;
+  inherits: true;
+}
+
+/* Where the light on a prominent button comes from: 0deg straight overhead. A
+   pointer swings it over to the top left. Registered so the light eases
+   across instead of jumping. */
+@property --lg-button-light-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: true;
+}
+
+/* Glass scene material. Registered so the renderer reads resolved values and
+   tints can transition; engines without @property resolve them by probe. */
+@property --lg-scene-tint {
+  syntax: '<color>';
+  initial-value: transparent;
+  inherits: false;
+}
+
+@property --lg-scene-frost {
+  syntax: '<length>';
+  initial-value: 0px;
+  inherits: false;
+}
+
+@property --lg-scene-merge {
+  syntax: '<length>';
+  initial-value: 0px;
+  inherits: true;
+}
+
+@property --lg-scene-flow {
+  syntax: '<number>';
+  initial-value: 0;
+  inherits: false;
+}
+
+@property --lg-scene-ink {
+  syntax: '<color>';
+  initial-value: transparent;
+  inherits: false;
+}
+
+@layer base {
+  :where(.lg-glass-surface > *) {
+    position: relative;
+    z-index: 2;
+  }
+}
+
+@layer components {
+  :root {
+    /* Core Physics: the frost every glass layer reads. Controls, alerts, badges and
+       dock labels cap the blur at their own size and follow the rest. */
+    --lg-glass-blur: 20px;
+    --lg-glass-sat: 1.8;
+    --lg-glass-contrast: 0.9;
+    --lg-glass-brightness: 1;
+    --lg-glass-alpha: 0.02;
+    --lg-bg: #1c1c1e;
+    --lg-panel: rgba(255, 255, 255, 0.04);
+    --lg-foreground: #f5f5f7;
+    --lg-muted-foreground: #e5e5ea;
+    --lg-border: rgba(245, 245, 247, 0.22);
+    --lg-control-surface: rgba(245, 245, 247, 0.08);
+    --lg-control-surface-hover: rgba(245, 245, 247, 0.14);
+    --lg-opaque-surface: #2c2c2e;
+    /* Floating layers keep 4.5:1 text contrast over a pure white or black backdrop. */
+    --lg-overlay-surface: rgb(44 44 46 / 0.78);
+    --lg-scrim: rgb(0 0 0 / 0.45);
+    /* Slabs are clear glass. The page shows through, dimmed by brightness so
+       muted text keeps 4.5:1 over pure white. The lens rim is dimmed less, but
+       never above what holds that bar at the very edge. */
+    --lg-slab-tint: rgb(28 28 30 / 0.3);
+    --lg-slab-brightness: 0.38;
+    --lg-slab-rim-brightness: 0.46;
+    --lg-slab-blur: 3;
+    /* The header is a clearer slab. Its links sit clear of the rim, so the rim
+       lets the page through undimmed, bent and split into colour, while the top
+       keeps muted links at 4.5:1 over pure white. */
+    --lg-header-tint: rgb(28 28 30 / 0.35);
+    --lg-header-brightness: 0.55;
+    --lg-header-rim-brightness: 1;
+    /* Familiar blue for actions; Vermilion belongs to the brand and artwork. */
+    --lg-accent: #0067d9;
+    --lg-accent-foreground: #ffffff;
+    /* Prominent buttons are blue glass. The tint recolours whatever lies
+       behind them and caps how bright it can get, so white text keeps 4.5:1
+       over any backdrop. The fill stands in where there is no glass: reduced
+       transparency, forced colours and a GlassScene. */
+    --lg-prominent-fill: #0067d9;
+    --lg-prominent-tint: grayscale(1) contrast(0.4) brightness(0.55) sepia(1) hue-rotate(174deg)
+      saturate(6) brightness(1.12);
+    --lg-prominent-glow: 178 214 255;
+    --lg-prominent-shade: 4 33 65;
+    /* Focus stays neutral so it does not read as a blue selected state. */
+    --lg-focus-ring: #b8b8be;
+    --lg-invalid: #ff7a8e;
+    --lg-disabled-opacity: 0.45;
+    --lg-motion-duration: 200ms;
+    /* Springy settle for presses, toggles and moving indicators */
+    --lg-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+    --lg-ease-out: cubic-bezier(0.32, 0.72, 0, 1);
+    /* System controls: the resting track, the switch's on state and the white
+       knob that turns to clear glass under a finger */
+    --lg-track: rgb(118 118 128 / 0.36);
+    --lg-switch-on: #0067d9;
+    --lg-knob: #ffffff;
+    --lg-knob-shadow:
+      0 2px 6px rgb(28 28 30 / 0.16), 0 1px 2px rgb(28 28 30 / 0.1),
+      0 0 0 0.5px rgb(28 28 30 / 0.05);
+
+    /* The fixed light the CSS glass is lit by: where its highlight sits (0 to
+       1 across the glass), the direction it strikes the rims from, and its
+       strength. The glass never follows the pointer. */
+    --lg-light-x: 0.5;
+    --lg-light-y: 0.5;
+    --lg-light-dir-x: 0;
+    --lg-light-dir-y: 0;
+    --lg-light-level: 0;
+
+    /* Theme Colors */
+    --lg-ink-dark: #ffffff;
+    --lg-ink-light: #000000;
+    --lg-fresnel: 0;
+    --lg-specular: 0;
+    --lg-refraction-scale: 24;
+    --lg-refraction-blur: 16;
+
+    /* Edge reflex: strength of the lit bevel and of the shaded inner edge */
+    --lg-reflex-light: 0.42;
+    --lg-reflex-dark: 1.4;
+    --lg-button-reflex-light: 0.7;
+    --lg-sheen-alpha: 0.05;
+
+    /* Specular edge: a hairline ring brightest where the light enters (top
+       left), with a softer counter highlight on the far edge. The glow is the
+       light caught inside the glass thickness. */
+    --lg-rim-width: 1px;
+    --lg-specular-peak: 0.45;
+    --lg-specular-counter: 0.22;
+    --lg-specular-floor: 0.07;
+    --lg-glow-alpha: 0.06;
+
+    /* Lighting & Depth: outer shadows only, the glass edge lives in --lg-glass-rim */
+    --lg-shadow: 0 1px 2px rgb(0 0 0 / 0.18), 0 8px 24px -4px rgb(0 0 0 / 0.28);
+    --lg-shadow-raised: 0 2px 6px rgb(0 0 0 / 0.2), 0 30px 60px -18px rgb(0 0 0 / 0.55);
+    --lg-input-shadow: inset 0 1px 2px rgb(0 0 0 / 0.24), inset 0 -1px 0 rgb(255 255 255 / 0.06);
+
+    /* Chromium edge lens, read as plain numbers by useLensFilter:
+       depth scales the edge bend, blur is the frost radius in px. */
+    --lg-lens-depth: 1;
+    --lg-lens-blur: 6;
+    --lg-lens-saturation: 1.5;
+    --lg-lens-bevel: 0;
+    --lg-lens-thickness: 0;
+    --lg-lens-ior: 1.5;
+    --lg-lens-dispersion: 0.16;
+    --lg-lens-body-brightness: 1;
+    --lg-lens-rim-brightness: 1;
+    --lg-glass-thickness: 1;
+
+    --lg-noise-alpha: 0.03;
+
+    --lg-radius-md: 16px;
+    --lg-radius-lg: 24px;
+
+    /* Glass scene: shadow and highlight strength, and extra white in the tint. */
+    --lg-scene-shadow: 0.34;
+    --lg-scene-highlight: 1;
+    --lg-scene-tint-boost: 0;
+
+    --lg-noise-image: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"%3E%3Cfilter id="grain"%3E%3CfeTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="3" stitchTiles="stitch"/%3E%3CfeColorMatrix type="saturate" values="0"/%3E%3C/filter%3E%3Crect width="120" height="120" filter="url(%23grain)" opacity="0.5"/%3E%3C/svg%3E');
+  }
+
+  [data-lg-theme='dark'] {
+    color-scheme: dark;
+  }
+
+  /* Light theme */
+  [data-lg-theme='light'] {
+    color-scheme: light;
+    --lg-bg: #faf9f7;
+    --lg-panel: rgba(255, 255, 255, 0.5);
+    --lg-glass-alpha: 0.15;
+    --lg-glass-blur: 16px;
+    --lg-glass-contrast: 1;
+    --lg-glass-sat: 1.6;
+    --lg-glass-brightness: 1.06;
+    --lg-ink-dark: #222224;
+    --lg-ink-light: #222224;
+    --lg-ink: var(--lg-ink-dark);
+    --lg-foreground: #222224;
+    --lg-muted-foreground: #505055;
+    --lg-border: rgba(0, 0, 0, 0.14);
+    --lg-control-surface: rgba(255, 255, 255, 0.72);
+    --lg-control-surface-hover: rgba(255, 255, 255, 0.95);
+    --lg-opaque-surface: #ffffff;
+    --lg-overlay-surface: rgb(255 255 255 / 0.82);
+    --lg-scrim: rgb(0 0 0 / 0.16);
+    --lg-slab-tint: rgb(255 255 255 / 0.8);
+    --lg-slab-brightness: 1;
+    --lg-slab-rim-brightness: 1;
+    --lg-slab-blur: 3;
+    /* The tint alone keeps muted header links at 4.5:1 over pure black. */
+    --lg-header-tint: rgb(255 255 255 / 0.77);
+    --lg-header-brightness: 1;
+    --lg-header-rim-brightness: 1;
+    --lg-accent: #0067d9;
+    --lg-prominent-tint: grayscale(1) contrast(0.5) brightness(0.35) sepia(1) hue-rotate(172deg)
+      saturate(6) brightness(1.4);
+    --lg-focus-ring: #66666a;
+    --lg-invalid: #c4153f;
+    --lg-track: rgb(118 118 128 / 0.2);
+    --lg-switch-on: #0067d9;
+    --lg-noise-alpha: 0.02;
+    --lg-reflex-light: 1;
+    --lg-reflex-dark: 0.8;
+    --lg-button-reflex-light: 1;
+    --lg-sheen-alpha: 0.08;
+    --lg-specular-peak: 0.7;
+    --lg-specular-counter: 0.55;
+    --lg-specular-floor: 0.35;
+    --lg-glow-alpha: 0.14;
+    --lg-shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 8px 24px -6px rgb(0 0 0 / 0.14);
+    --lg-shadow-raised: 0 2px 6px rgb(0 0 0 / 0.06), 0 28px 56px -18px rgb(0 0 0 / 0.26);
+    --lg-input-shadow: inset 0 1px 2px rgb(0 0 0 / 0.08), inset 0 -1px 0 rgb(255 255 255 / 0.8);
+
+    --lg-refraction-scale: 24;
+    --lg-refraction-blur: 20;
+    --lg-fresnel: 0.1;
+    --lg-specular: 0.05;
+    --lg-highlight-strength: 0.1;
+
+    /* The light sits a little above centre and catches the top rims. */
+    --lg-light-y: 0.3;
+    --lg-light-dir-y: -0.35;
+    --lg-light-level: 0.15;
+
+    --lg-scene-shadow: 0.16;
+    --lg-scene-tint-boost: 0.06;
+  }
+
+  [data-lg-theme='dark'][data-lg-mode='clear'] {
+    --lg-glass-alpha: 0.02;
+    --lg-glass-sat: 1.8;
+    --lg-glass-contrast: 0.9;
+  }
+
+  [data-lg-theme='dark'][data-lg-mode='tinted'] {
+    --lg-glass-alpha: 0.12;
+    --lg-glass-sat: 1.5;
+    --lg-glass-contrast: 0.9;
+  }
+
+  [data-lg-theme='light'][data-lg-mode='clear'] {
+    --lg-glass-alpha: 0.08;
+    --lg-glass-sat: 1.8;
+    --lg-glass-contrast: 1.02;
+    --lg-glass-blur: 20px;
+  }
+
+  [data-lg-theme='light'][data-lg-mode='tinted'] {
+    --lg-glass-alpha: 0.25;
+    --lg-glass-sat: 1.4;
+    --lg-glass-contrast: 1;
+    --lg-glass-blur: 14px;
+  }
+
+  /* Tinted slabs frost harder and hold a denser tint; the rim still lets more
+     light through. The header matches the other slabs. */
+  [data-lg-theme='dark'][data-lg-mode='tinted'] {
+    --lg-slab-tint: rgb(28 28 30 / 0.55);
+    --lg-slab-brightness: 0.55;
+    --lg-slab-rim-brightness: 0.65;
+    --lg-slab-blur: 14;
+    --lg-header-tint: rgb(28 28 30 / 0.55);
+    --lg-header-brightness: 0.55;
+    --lg-header-rim-brightness: 0.65;
+  }
+
+  [data-lg-theme='light'][data-lg-mode='tinted'] {
+    --lg-slab-tint: rgb(255 255 255 / 0.9);
+    --lg-slab-blur: 14;
+    --lg-header-tint: rgb(255 255 255 / 0.9);
+  }
+
+  [data-lg-mode='tinted'] {
+    --lg-glass-alpha: 0.72;
+    --lg-glass-blur: 32px;
+    --lg-glass-sat: 1.4;
+    --lg-glass-contrast: 0.9;
+    --lg-lens-blur: 10;
+  }
+
+  /* Increased contrast keeps the glass and makes it predominantly black or
+     white, as the system's own glass does: dark glass dims what lies behind it
+     and light glass frosts denser, so text keeps 7:1 over any backdrop, and
+     muted text gets full contrast. Dark glass adds no white of its own, and
+     its Chromium lens dims as its frost does. Toasts and tooltips darken. A
+     ring in the text colour edges the glass (see Increased contrast below).
+     The dimming outranks the quality settings, which still lighten the frost. */
+  @media (prefers-contrast: more) {
+    [data-lg-theme='dark'],
+    [data-lg-theme='dark'][data-lg-mode],
+    [data-lg-theme='dark'][data-lg-mode][data-lg-quality] {
+      --lg-muted-foreground: var(--lg-foreground);
+      --lg-glass-alpha: 0.02;
+      --lg-glass-brightness: 0.22;
+      --lg-glass-contrast: 1;
+      --lg-sheen-alpha: 0;
+      --lg-lens-body-brightness: var(--lg-glass-brightness);
+      --lg-lens-rim-brightness: var(--lg-glass-brightness);
+      --lg-overlay-surface: rgb(28 28 30 / 0.88);
+      --lg-slab-tint: rgb(28 28 30 / 0.55);
+      --lg-slab-brightness: 0.5;
+      --lg-slab-rim-brightness: 0.65;
+      --lg-slab-blur: 14;
+      --lg-header-tint: rgb(28 28 30 / 0.55);
+      --lg-header-brightness: 0.5;
+      --lg-header-rim-brightness: 0.65;
+    }
+
+    [data-lg-theme='light'],
+    [data-lg-theme='light'][data-lg-mode] {
+      --lg-muted-foreground: var(--lg-foreground);
+      --lg-glass-alpha: 0.7;
+      --lg-slab-tint: rgb(255 255 255 / 0.9);
+      --lg-slab-blur: 14;
+      --lg-header-tint: rgb(255 255 255 / 0.9);
+    }
+  }
+
+  :root[data-lg-quality='low'] {
+    --lg-scene-highlight: 0.6;
+    --lg-glass-blur: 6px;
+    --lg-glass-sat: 1.05;
+    --lg-glass-contrast: 1;
+    --lg-glass-brightness: 1;
+    --lg-refraction-scale: 0;
+    --lg-refraction-blur: 0;
+    --lg-highlight-strength: 0;
+    --lg-lens-depth: 0;
+  }
+
+  /* Touch devices and reduced-motion settings land here. The colour split costs six
+     more filter passes a frame on every lens in view, so it is left out. */
+  :root[data-lg-quality='medium'] {
+    --lg-lens-dispersion: 0;
+    --lg-glass-blur: 12px;
+    --lg-glass-sat: 1.4;
+    --lg-glass-contrast: 0.96;
+    --lg-refraction-scale: 10;
+    --lg-refraction-blur: 8;
+  }
+
+  :root[data-lg-quality='high'] {
+    --lg-refraction-scale: 16;
+    --lg-refraction-blur: 10;
+  }
+
+  :root[data-lg-reduce-transparency='1'] {
+    --lg-glass-blur: 0px;
+    --lg-glass-alpha: 0.95;
+    --lg-noise-alpha: 0.01;
+    --lg-glass-contrast: 1;
+    --lg-glass-sat: 1;
+    --lg-glass-brightness: 1;
+    --lg-refraction-scale: 0;
+    --lg-lens-depth: 0;
+  }
+
+  [data-lg-theme='dark'][data-lg-reduce-transparency='1'] {
+    --lg-opaque-surface: #2c2c2e;
+    --lg-control-surface: #3a3a3c;
+    --lg-control-surface-hover: #48484a;
+    --lg-track: #48484a;
+  }
+
+  [data-lg-theme='light'][data-lg-reduce-transparency='1'] {
+    --lg-opaque-surface: #ffffff;
+    --lg-control-surface: #f0f0f2;
+    --lg-control-surface-hover: #e3e3e7;
+    --lg-track: #e6e6e9;
+  }
+
+  [data-lg-reduce-motion='1'] {
+    --lg-motion-duration: 0ms;
+  }
+
+  [data-lg-reduce-motion='1'] *,
+  [data-lg-reduce-motion='1'] *::before,
+  [data-lg-reduce-motion='1'] *::after {
+    animation-duration: 0ms !important;
+    transition-duration: 0ms !important;
+  }
+
+  /* A switch still shows its own change, in a short plain slide and a colour
+     fade: no spring, swell or glass. Everything else holds still. */
+  [data-lg-reduce-motion='1'] .lg-switch {
+    transition-duration: 160ms !important;
+  }
+
+  [data-lg-reduce-motion='1'] :is(.lg-switch-thumb, .lg-switch-lens-scene, .lg-switch-lens-track) {
+    transition-duration: 160ms !important;
+    transition-property: translate !important;
+    transition-timing-function: ease-out !important;
+  }
+
+  [data-lg-reduce-motion='1'] .lg-glass-surface::after {
+    transform: none !important;
+    transition: none !important;
+  }
+
+  [data-lg-reduce-motion='1'] .lg-button {
+    transform: none !important;
+    transition: none !important;
+  }
+
+  [data-lg-reduce-motion='1'] .lg-button__bloom {
+    display: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    :root {
+      --lg-motion-duration: 0ms;
+    }
+
+    .lg-glass-surface,
+    .lg-glass-surface::after,
+    .lg-button,
+    .lg-button__distortion,
+    .lg-button__shine,
+    .lg-input,
+    .lg-dialog-overlay,
+    .lg-dialog-content,
+    .lg-popover-content,
+    .lg-tabs-trigger,
+    .lg-accordion-trigger,
+    .lg-accordion-chevron,
+    .lg-refraction-background,
+    .lg-noise,
+    .lg-switch,
+    .lg-switch-thumb,
+    .lg-slider-thumb,
+    .lg-checkbox,
+    .lg-radio,
+    .lg-check-tick,
+    .lg-check-dash,
+    .lg-radio-dot,
+    .lg-select-chevron,
+    .lg-progress-fill,
+    .lg-spinner-ring,
+    .lg-toast,
+    .lg-toast-root,
+    .lg-toast-close,
+    .lg-toast-action,
+    .lg-tooltip-content,
+    .lg-accordion-content,
+    .lg-avatar-image,
+    .lg-alert,
+    .lg-alert-fold,
+    .lg-skeleton::after,
+    .lg-command-list,
+    .lg-command-search,
+    .lg-page,
+    .lg-alert-close,
+    .lg-segmented-item,
+    .lg-segmented-indicator,
+    .lg-tabs-indicator,
+    .lg-dock-item,
+    .lg-dock-label,
+    .lg-sheet-content,
+    .lg-menu-content,
+    .lg-select-content,
+    .lg-lens,
+    .lg-scene-drop {
+      animation-duration: 0ms !important;
+      transition-duration: 0ms !important;
+    }
+
+    .lg-switch {
+      transition-duration: 160ms !important;
+    }
+
+    .lg-switch-thumb,
+    .lg-switch-lens-scene,
+    .lg-switch-lens-track {
+      transition-duration: 160ms !important;
+      transition-property: translate !important;
+      transition-timing-function: ease-out !important;
+    }
+
+    .lg-glass-surface::after,
+    .lg-button__distortion,
+    .lg-refraction-background,
+    .lg-button {
+      transform: none !important;
+    }
+
+    .lg-button__bloom {
+      display: none;
+    }
+  }
+
+  @keyframes lg-grain {
+    0% {
+      transform: translate3d(0, 0, 0);
+    }
+    20% {
+      transform: translate3d(-2%, 2%, 0);
+    }
+    40% {
+      transform: translate3d(-2%, -2%, 0);
+    }
+    60% {
+      transform: translate3d(2%, -2%, 0);
+    }
+    80% {
+      transform: translate3d(2%, 2%, 0);
+    }
+    100% {
+      transform: translate3d(0, 0, 0);
+    }
+  }
+
+  /* ============================================
+     Glass edge
+     Two layers make every glass edge. The bevel is an inset shadow stack: the
+     light caught in the glass thickness, a bright bevel on the lit top-left, a
+     softer counter-bevel, a shaded inner reflex, a faint chromatic fringe and
+     a highlight cast by the fixed light. The specular ring is a masked
+     hairline lit from the top left, with a glint where that light sits. Custom
+     properties resolve on the declaring element, so surfaces and buttons feed
+     both their own tokens.
+     ============================================ */
+
+  .lg-glass-surface,
+  .lg-button {
+    --lg-rim-gain: calc(
+      var(--lg-rim-tangent-alpha, 1) * var(--lg-debug-tangent-scale, 1) *
+        var(--lg-rim-micro-mask, 1) * var(--lg-debug-micro-scale, 1) *
+        var(--lg-rim-corner-mask, 1) * var(--lg-debug-corner-scale, 1) *
+        var(--lg-debug-rim-alpha-scale, 1)
+    );
+    --lg-glass-rim:
+      inset 0 0 calc(12px * var(--lg-rim-scale)) calc(-4px * var(--lg-rim-scale))
+        rgb(255 255 255 / calc(var(--lg-glow-alpha) * var(--lg-rim-gain))),
+      inset calc(1.5px * var(--lg-rim-scale)) calc(2.5px * var(--lg-rim-scale))
+        calc(1px * var(--lg-rim-scale)) -2px rgb(255 255 255 / calc(var(--lg-rim-light) * 0.7)),
+      inset calc(-1.5px * var(--lg-rim-scale)) calc(-2px * var(--lg-rim-scale))
+        calc(1px * var(--lg-rim-scale)) -2px rgb(255 255 255 / calc(var(--lg-rim-light) * 0.55)),
+      inset -0.3px -1px 4px 0 rgb(0 0 0 / calc(var(--lg-rim-dark) * 0.1)),
+      inset -1.5px 2.5px 0 -2px rgb(0 0 0 / calc(var(--lg-rim-dark) * 0.14)),
+      inset 0 3px 4px -2px rgb(0 0 0 / calc(var(--lg-rim-dark) * 0.14)),
+      inset var(--lg-rim-ca-offset) 0 3px -1px rgb(80 160 255 / var(--lg-rim-ca-alpha)),
+      inset calc(-1 * var(--lg-rim-ca-offset)) 0 3px -1px rgb(255 90 150 / var(--lg-rim-ca-alpha)),
+      inset var(--lg-rim-offset-x) var(--lg-rim-offset-y) 3px rgb(255 255 255 / var(--lg-rim-alpha));
+    /* to bottom right keeps both highlights on the corners at any aspect
+       ratio; a fixed angle would smear them along a wide pill. */
+    --lg-specular-ring:
+      radial-gradient(
+        circle at calc(var(--lg-light-x) * 100%) calc(var(--lg-light-y) * 100%),
+        rgb(255 255 255 / calc(var(--lg-light-level) * 0.85)),
+        transparent 42%
+      ),
+      linear-gradient(
+        to bottom right,
+        rgb(255 255 255 / calc(var(--lg-specular-peak) * var(--lg-rim-gain))) 0%,
+        rgb(255 255 255 / calc(var(--lg-specular-floor) * var(--lg-rim-gain))) 32%,
+        rgb(255 255 255 / calc(var(--lg-specular-floor) * var(--lg-rim-gain))) 68%,
+        rgb(255 255 255 / calc(var(--lg-specular-counter) * var(--lg-rim-gain))) 100%
+      );
+  }
+
+  /* Glass Surface - Global Refraction */
+  .lg-glass-surface {
+    --lg-thickness: calc(1 + var(--lg-light-strength) * 0.35);
+    --lg-surface-blur-base: calc(var(--lg-glass-blur) * var(--lg-thickness));
+    --lg-surface-blur: var(--lg-surface-blur-base);
+    --lg-surface-alpha: var(--lg-glass-alpha);
+    --lg-surface-lift: 0;
+    --lg-light-strength: calc(var(--lg-light-level) * 0.45);
+    /* Bevel thickness (scaled by distance-aware factor) */
+    --lg-rim-scale: calc(var(--lg-rim-width-scale, 1) * var(--lg-debug-rim-thickness, 1));
+    --lg-rim-offset-max: 4.5px;
+    --lg-rim-offset-max-scaled: calc(var(--lg-rim-offset-max) * var(--lg-rim-scale));
+    --lg-rim-tangent-alpha: 1;
+    --lg-rim-micro-mask: 1;
+    --lg-rim-corner-mask: 1;
+    --lg-rim-ca-offset: calc(2px * var(--lg-debug-ca-offset-scale, 1));
+    --lg-rim-ca-alpha: calc(0.06 * var(--lg-debug-ca-scale, 1));
+    --lg-rim-offset-x: clamp(
+      calc(-1 * var(--lg-rim-offset-max-scaled)),
+      calc(
+        var(--lg-light-dir-x) * -1 * var(--lg-rim-offset-max-scaled) *
+          (0.6 + var(--lg-light-strength))
+      ),
+      var(--lg-rim-offset-max-scaled)
+    );
+    --lg-rim-offset-y: clamp(
+      calc(-1 * var(--lg-rim-offset-max-scaled)),
+      calc(
+        var(--lg-light-dir-y) * -1 * var(--lg-rim-offset-max-scaled) *
+          (0.6 + var(--lg-light-strength))
+      ),
+      var(--lg-rim-offset-max-scaled)
+    );
+    --lg-rim-light: calc(var(--lg-reflex-light) * var(--lg-rim-gain));
+    --lg-rim-dark: var(--lg-reflex-dark);
+    --lg-rim-alpha: calc(
+      (0.05 + var(--lg-light-strength) * 0.12 + var(--lg-fresnel, 0) * 0.35 + var(--lg-specular) *
+          0.32) *
+        var(--lg-rim-gain)
+    );
+
+    position: relative;
+    border-radius: var(--lg-panel-radius, var(--lg-radius-lg));
+    isolation: isolate;
+    background: transparent;
+    color: var(--lg-foreground);
+    transition:
+      box-shadow var(--lg-motion-duration) ease,
+      transform var(--lg-motion-duration) ease;
+    box-shadow: var(--lg-panel-elevation-shadow, var(--lg-shadow));
+    overflow: hidden;
+    contain: layout paint style;
+  }
+
+  .lg-glass-surface[data-lg-preset='subtle'] {
+    --lg-surface-blur: min(var(--lg-surface-blur-base), 8px);
+    --lg-surface-alpha: max(var(--lg-glass-alpha), 0.06);
+    --lg-rim-offset-max: 1.5px;
+  }
+
+  .lg-glass-surface[data-lg-preset='standard'] {
+    --lg-surface-blur: min(var(--lg-surface-blur-base), 14px);
+    --lg-surface-alpha: max(var(--lg-glass-alpha), 0.08);
+  }
+
+  .lg-glass-surface[data-lg-preset='prominent'] {
+    --lg-surface-blur: min(var(--lg-surface-blur-base), 18px);
+    --lg-surface-alpha: max(var(--lg-glass-alpha), 0.12);
+  }
+
+  .lg-glass-surface[data-lg-preset='control'] {
+    --lg-surface-blur: min(var(--lg-surface-blur-base), 10px);
+    --lg-surface-alpha: max(var(--lg-glass-alpha), 0.08);
+    --lg-rim-offset-max: 1.25px;
+  }
+
+  .lg-glass-surface[data-lg-preset='showcase'] {
+    --lg-surface-blur: min(var(--lg-surface-blur-base), 24px);
+  }
+
+  /* An interactive surface brightens a touch on hover, wherever the pointer
+     rests on it. */
+  .lg-glass-surface[data-lg-interactive='true']:hover {
+    --lg-surface-lift: 0.04;
+  }
+
+  /* The lift eases in and out. Other frost has no transition, so it changes
+     with a theme or preference switch at once. */
+  .lg-glass-surface[data-lg-interactive='true']::before {
+    transition: background-color var(--lg-motion-duration) ease;
+  }
+
+  /* Panel shapes and spacing. Component defaults live here rather than in
+     className utilities, so a consumer's p-4 or rounded-none always wins. */
+  .lg-panel--panel {
+    --lg-panel-radius: var(--lg-radius-lg);
+    padding: 1.5rem;
+  }
+
+  .lg-panel--card {
+    --lg-panel-radius: var(--lg-radius-md);
+    padding: 1.25rem;
+  }
+
+  .lg-panel--pill {
+    --lg-panel-radius: 9999px;
+    padding: 0.75rem 1.25rem;
+  }
+
+  .lg-panel--raised {
+    --lg-panel-elevation-shadow: var(--lg-shadow-raised);
+  }
+
+  .lg-refraction-filter {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+
+  /* The generated scene sits under the frost layer, which then drops its
+     backdrop blur and lays only its tint, bevel and sheen over the scene.
+     WebKit draws a filtered layer from its overflow origin, so a viewport
+     scene hanging off the top or left edge would land shifted. Clipping
+     keeps both origins at the surface corner. */
+  .lg-glass-surface > .lg-refraction-background {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    overflow: hidden;
+    border-radius: inherit;
+    pointer-events: none;
+    transform: translateZ(0);
+  }
+
+  .lg-refraction-background > .lg-refraction-scene {
+    position: absolute;
+    inset: 0;
+  }
+
+  .lg-refraction-scene > * {
+    min-width: 100%;
+    min-height: 100%;
+  }
+
+  /* Position the scene without a transform: WebKit shifts transformed input
+     when the SVG filter combines refracted colour channels. Chromium filters
+     composited layers, so a scroll-driven animation on translate still carries
+     the scene through the scroll, and left/top hold what scrolling leaves unchanged. */
+  .lg-glass-surface[data-lg-refraction-background-space='viewport']
+    > .lg-refraction-background
+    > .lg-refraction-scene {
+    inset: 0 auto auto 0;
+    top: var(--lg-refraction-scene-y, 0px);
+    left: var(--lg-refraction-scene-x, 0px);
+    width: var(--lg-refraction-scene-width, 100vw);
+    height: var(--lg-refraction-scene-height, 100dvh);
+  }
+
+  .lg-glass-surface[data-lg-refraction='soft'] {
+    --lg-surface-blur: calc(var(--lg-surface-blur-base) * 0.9);
+  }
+
+  .lg-glass-surface[data-lg-refraction='strong'] {
+    --lg-surface-blur: calc(var(--lg-surface-blur-base) * 1.12);
+  }
+
+  /* Frost, bevel and sheen. Keep blend modes, masks, filters and opacity off
+     every ancestor of this layer: in Chromium each of them isolates the
+     backdrop and silently turns the blur into a no-op. The layer carries its
+     own rounded shape: Chromium drops the host's rounded clip from a backdrop
+     blur that sits inside another rounded overflow clip, such as a card. The
+     tint is background-color alone, so a consumer's before:bg-* utility
+     recolors the glass and keeps the sheen. */
+  .lg-glass-surface::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    border-radius: inherit;
+    pointer-events: none;
+
+    background-color: rgb(255 255 255 / calc(var(--lg-surface-alpha) + var(--lg-surface-lift)));
+    background-image:
+      radial-gradient(
+        circle at calc(var(--lg-light-x) * 100%) calc(var(--lg-light-y) * 100%),
+        rgb(
+          255 255 255 /
+            calc(
+              (var(--lg-light-strength) * 0.1 + var(--lg-highlight-strength) * 0.12) *
+                var(--lg-debug-highlight-scale, 1)
+            )
+        ),
+        transparent 65%
+      ),
+      linear-gradient(180deg, rgb(255 255 255 / var(--lg-sheen-alpha)), transparent 45%);
+    box-shadow: var(--lg-glass-rim);
+
+    -webkit-backdrop-filter: blur(var(--lg-surface-blur)) brightness(var(--lg-glass-brightness))
+      contrast(var(--lg-glass-contrast)) saturate(var(--lg-glass-sat));
+    backdrop-filter: blur(var(--lg-surface-blur)) brightness(var(--lg-glass-brightness))
+      contrast(var(--lg-glass-contrast)) saturate(var(--lg-glass-sat));
+  }
+
+  .lg-glass-surface[data-lg-generated-refraction='true']::before {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  /* Specular ring. The mask lives on this sibling of the frost layer, never
+     on an ancestor, so it cannot flatten the blur. */
+  .lg-glass-surface::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    padding: var(--lg-rim-width);
+    border-radius: inherit;
+    pointer-events: none;
+    background: var(--lg-specular-ring);
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask-composite: exclude;
+  }
+
+  /* Chromium edge lens: one SVG filter frosts, bends and saturates the
+     backdrop. Its displacement map is measured from the padding box the
+     frost layer fills. */
+  .lg-glass-surface[data-lg-lens='active']::before {
+    backdrop-filter: var(--lg-lens-filter);
+  }
+
+  /* Glass inside glass samples a backdrop the outer layer already saturated,
+     so it adds no saturation of its own. */
+  .lg-glass-surface .lg-glass-surface {
+    --lg-glass-sat: 1;
+    --lg-lens-saturation: 1;
+  }
+
+  .lg-noise {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    border-radius: inherit;
+    pointer-events: none;
+    background-image: var(--lg-noise-image);
+    background-size: 128px 128px;
+    opacity: var(--lg-noise-alpha);
+    /* Static by default to avoid per-frame repaints; opt-in with data-lg-animate-noise="1" on <html>. */
+    animation: none;
+    will-change: auto;
+  }
+
+  [data-lg-animate-noise='1'] .lg-noise {
+    animation: lg-grain 4s steps(10) infinite;
+  }
+
+  [data-lg-reduce-motion='1'] .lg-noise {
+    animation: none !important;
+  }
+
+  /* Light mode glass surface - emphasize refraction, minimize dynamic lighting */
+  [data-lg-theme='light'] .lg-glass-surface {
+    --lg-rim-offset-max: 2px;
+    --lg-rim-ca-alpha: calc(0.05 * var(--lg-debug-ca-scale, 1));
+  }
+
+  /* ============================================
+     Floating layers
+     Dialogs, popovers, toasts and tooltips frost on the element itself, so the
+     material survives their scrolling and their opacity animations. Their
+     denser tint keeps text readable over any backdrop.
+     ============================================ */
+
+  .lg-dialog-content,
+  .lg-popover-content,
+  .lg-toast-root,
+  .lg-tooltip-content,
+  .lg-sheet-content,
+  .lg-menu-content,
+  .lg-select-content {
+    background: var(--lg-overlay-surface);
+    -webkit-backdrop-filter: blur(var(--lg-surface-blur)) saturate(var(--lg-glass-sat));
+    backdrop-filter: blur(var(--lg-surface-blur)) saturate(var(--lg-glass-sat));
+  }
+
+  .lg-dialog-content::before,
+  .lg-popover-content::before,
+  .lg-toast-root::before,
+  .lg-tooltip-content::before,
+  .lg-sheet-content::before,
+  .lg-menu-content::before,
+  .lg-select-content::before {
+    background-color: transparent;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  /* Dialogs, popovers, sheets and menus are slabs of glass: the page shows
+     through, dimmed or lifted just enough to keep their text legible, and where
+     Chromium can run the lens their rim bends it. */
+  .lg-dialog-content,
+  .lg-popover-content,
+  .lg-sheet-content,
+  .lg-menu-content,
+  .lg-select-content {
+    --lg-lens-blur: var(--lg-slab-blur);
+    --lg-lens-body-brightness: var(--lg-slab-brightness);
+    --lg-lens-rim-brightness: var(--lg-slab-rim-brightness);
+
+    background: var(--lg-slab-tint);
+    -webkit-backdrop-filter: blur(calc(var(--lg-slab-blur) * 1px)) saturate(var(--lg-glass-sat))
+      brightness(var(--lg-slab-brightness));
+    backdrop-filter: blur(calc(var(--lg-slab-blur) * 1px)) saturate(var(--lg-glass-sat))
+      brightness(var(--lg-slab-brightness));
+  }
+
+  .lg-dialog-content[data-lg-lens='active'],
+  .lg-popover-content[data-lg-lens='active'],
+  .lg-sheet-content[data-lg-lens='active'],
+  .lg-menu-content[data-lg-lens='active'],
+  .lg-select-content[data-lg-lens='active'] {
+    -webkit-backdrop-filter: var(--lg-lens-filter);
+    backdrop-filter: var(--lg-lens-filter);
+  }
+
+  .lg-dialog-content[data-lg-lens='active']::before,
+  .lg-popover-content[data-lg-lens='active']::before,
+  .lg-sheet-content[data-lg-lens='active']::before,
+  .lg-menu-content[data-lg-lens='active']::before,
+  .lg-select-content[data-lg-lens='active']::before {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .lg-dialog-content {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    z-index: 50;
+    width: calc(100vw - 2rem);
+    max-width: 520px;
+    max-height: calc(100dvh - 2rem);
+    translate: -50% -50%;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  @media (width >= 40rem) {
+    .lg-dialog-content {
+      padding: 2rem;
+    }
+  }
+
+  .lg-popover-content {
+    z-index: 50;
+    width: min(22rem, calc(100vw - 2rem));
+    max-height: calc(100dvh - 2rem);
+    overflow-x: hidden;
+    overflow-y: auto;
+    font-size: 0.875rem;
+    line-height: calc(1.25 / 0.875);
+  }
+
+  .lg-dialog-content:focus,
+  .lg-popover-content:focus {
+    outline: none;
+  }
+
+  .lg-tooltip-content {
+    z-index: 50;
+    max-width: calc(100vw - 2rem);
+    padding: 0.375rem 0.75rem;
+    font-size: 0.75rem;
+    line-height: calc(1 / 0.75);
+    font-weight: 500;
+  }
+
+  .lg-dialog-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: var(--lg-scrim);
+    -webkit-backdrop-filter: blur(1.5px);
+    backdrop-filter: blur(1.5px);
+  }
+
+  /* Toasts stack in the top-right corner; each glass card keeps its own frost. */
+  .lg-toast-viewport {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    width: min(22rem, calc(100vw - 2rem));
+    max-width: calc(100vw - 2rem);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    pointer-events: none;
+  }
+
+  /* Radix turns selection off inline for the swipe, without the -webkit- prefix Safari needs. */
+  .lg-toast {
+    position: relative;
+    width: 100%;
+    list-style: none;
+    outline: none;
+    pointer-events: auto;
+    user-select: none;
+  }
+
+  .lg-toast-root {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    width: 100%;
+    font-size: 0.875rem;
+    line-height: calc(1.25 / 0.875);
+  }
+
+  .lg-toast-root > * {
+    grid-column: 1;
+  }
+
+  /* The dismiss button stands beside the words, not over them. */
+  .lg-toast-root > .lg-toast-close {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    align-self: start;
+  }
+
+  .lg-toast-close {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    margin-block: -0.25rem 0;
+    margin-inline: 0.75rem -0.375rem;
+    padding: 0;
+    border: 0;
+    border-radius: 9999px;
+    background: transparent;
+    color: var(--lg-muted-foreground);
+    cursor: pointer;
+    transition:
+      background-color 180ms ease,
+      color 180ms ease;
+  }
+
+  .lg-toast-close:hover {
+    background: rgb(255 255 255 / 0.14);
+    color: var(--lg-foreground);
+  }
+
+  [data-lg-theme='light'] .lg-toast-close:hover {
+    background: rgb(0 0 0 / 0.07);
+  }
+
+  .lg-toast-close:focus-visible {
+    outline: 2px solid var(--lg-focus-ring);
+    outline-offset: 1px;
+    color: var(--lg-foreground);
+  }
+
+  .lg-toast-close > svg {
+    width: 1rem;
+    height: 1rem;
+  }
+
+  .lg-toast-action {
+    grid-column: 1;
+    justify-self: start;
+    height: 1.875rem;
+    margin-top: 0.625rem;
+    padding: 0 0.875rem;
+    border: 0;
+    border-radius: 9999px;
+    background: var(--lg-control-surface-hover);
+    box-shadow: inset 0 0 0 1px var(--lg-border);
+    color: var(--lg-foreground);
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    transition:
+      background-color 180ms ease,
+      scale 320ms var(--lg-spring);
+  }
+
+  .lg-toast-action:active {
+    scale: 0.94;
+  }
+
+  .lg-toast-action:focus-visible {
+    outline: 2px solid var(--lg-focus-ring);
+    outline-offset: 2px;
+  }
+
+  .lg-toast-title {
+    color: var(--lg-foreground);
+    font-size: 1rem;
+    line-height: 1.5;
+    font-weight: 600;
+  }
+
+  .lg-toast-description {
+    margin-top: 0.25rem;
+    color: var(--lg-muted-foreground);
+    font-size: 0.875rem;
+    line-height: calc(1.25 / 0.875);
+  }
+
+  /* ============================================
+     Reduced transparency
+     ============================================ */
+
+  /* Preference guards are !important because consumer utilities outrank every
+     other library default. Restyle them through --lg-opaque-surface and
+     --lg-control-surface, never by undoing the guard. */
+  [data-lg-reduce-transparency='1'] .lg-glass-surface::before {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    background: var(--lg-opaque-surface) !important;
+    box-shadow: none !important;
+    transform: none;
+  }
+
+  /* The ring keeps its mask and turns into a plain hairline border. */
+  [data-lg-reduce-transparency='1'] .lg-glass-surface::after,
+  [data-lg-reduce-transparency='1'] .lg-tabs-trigger[data-state='active']::after {
+    background: var(--lg-border);
+  }
+
+  /* The button draws the same hairline as an inset ring. A masked fill would
+     read to contrast checkers as a veil over the label. */
+  [data-lg-reduce-transparency='1'] .lg-button__rim {
+    background: none;
+    box-shadow: inset 0 0 0 var(--lg-rim-width) var(--lg-border);
+  }
+
+  [data-lg-reduce-transparency='1']
+    :is(
+      .lg-dialog-content,
+      .lg-popover-content,
+      .lg-toast-root,
+      .lg-tooltip-content,
+      .lg-sheet-content,
+      .lg-menu-content,
+      .lg-select-content,
+      .lg-dock-label
+    ) {
+    background: var(--lg-opaque-surface) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
+  [data-lg-reduce-transparency='1']
+    :is(
+      .lg-button__distortion,
+      .lg-input,
+      .lg-accordion-trigger,
+      .lg-dialog-overlay,
+      .lg-badge,
+      .lg-alert
+    ) {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
+  /* Prominent glass has no fill of its own, so without the glass it is the
+     plain fill. */
+  [data-lg-reduce-transparency='1']
+    .lg-button--prominent
+    > .lg-button__layers
+    > .lg-button__distortion {
+    background: var(--lg-prominent-fill) !important;
+  }
+
+  [data-lg-reduce-transparency='1'] .lg-button__layers > .lg-button__light {
+    display: none !important;
+  }
+
+  /* Knobs stay solid white instead of turning to clear glass. */
+  [data-lg-reduce-transparency='1'] :is(.lg-switch-thumb, .lg-slider-thumb) {
+    background: var(--lg-knob) !important;
+  }
+
+  [data-lg-reduce-transparency='1'] .lg-switch-lens,
+  [data-lg-reduce-transparency='1'] .lg-switch-thumb::after {
+    display: none;
+  }
+
+  [data-lg-reduce-transparency='1'] .lg-button__shine,
+  [data-lg-reduce-transparency='1'] .lg-button__tint {
+    opacity: 0;
+  }
+
+  [data-lg-reduce-transparency='1'] .lg-button__bloom {
+    display: none;
+  }
+
+  [data-lg-reduce-transparency='1'] .lg-refraction-background {
+    display: none;
+  }
+
+  /* ============================================
+     Increased contrast: glass dimmed or frosted denser (see the tokens above),
+     edged by a ring in the text colour. The ring is the specular layer, which
+     paints above the frost, so every engine shows it.
+     Forced colors: solid surfaces, real outlines.
+     Both: buttons and fields drop their blur, and controls get outlines in the
+     text colour.
+     ============================================ */
+
+  @media (prefers-contrast: more) {
+    /* A guard like the transparency ones, so their hairline cannot replace it. */
+    .lg-glass-surface::after {
+      background: var(--lg-foreground) !important;
+    }
+
+    /* Dark glass adds no white of its own: presets and hover keep the base veil. */
+    [data-lg-theme='dark'] .lg-glass-surface {
+      --lg-surface-alpha: var(--lg-glass-alpha) !important;
+      --lg-surface-lift: 0 !important;
+    }
+
+    /* Light segmented tracks frost like the other glass, not as a slate well. */
+    [data-lg-theme='light']:not([data-lg-reduce-transparency='1']) .lg-segmented::before {
+      background-color: rgb(255 255 255 / var(--lg-glass-alpha));
+    }
+
+    /* A generated refraction shows its backdrop undimmed, so the pane frosts
+       and dims the page behind it instead. */
+    .lg-refraction-background {
+      display: none;
+    }
+
+    .lg-glass-surface[data-lg-generated-refraction='true']::before {
+      -webkit-backdrop-filter: blur(var(--lg-surface-blur)) brightness(var(--lg-glass-brightness))
+        contrast(var(--lg-glass-contrast)) saturate(var(--lg-glass-sat));
+      backdrop-filter: blur(var(--lg-surface-blur)) brightness(var(--lg-glass-brightness))
+        contrast(var(--lg-glass-contrast)) saturate(var(--lg-glass-sat));
+    }
+
+    /* Badges and alerts keep the solid fill their tone colours are set on. */
+    .lg-badge,
+    .lg-alert {
+      -webkit-backdrop-filter: none !important;
+      backdrop-filter: none !important;
+      background: var(--lg-opaque-surface) !important;
+    }
+
+    /* Overlays scroll their content, and their ring layer with it, so they
+       carry the ring as an outline that stays on their edge, focused or not. */
+    :is(
+      .lg-dialog-content,
+      .lg-popover-content,
+      .lg-sheet-content,
+      .lg-menu-content,
+      .lg-select-content
+    ) {
+      outline: 1px solid var(--lg-foreground) !important;
+      outline-offset: -1px !important;
+    }
+
+    :is(
+      .lg-dialog-content,
+      .lg-popover-content,
+      .lg-sheet-content,
+      .lg-menu-content,
+      .lg-select-content
+    )::after {
+      display: none;
+    }
+  }
+
+  @media (forced-colors: active) {
+    .lg-glass-surface {
+      outline: 1px solid CanvasText !important;
+      outline-offset: -1px !important;
+    }
+
+    .lg-glass-surface::before,
+    .lg-dialog-content,
+    .lg-popover-content,
+    .lg-toast-root,
+    .lg-tooltip-content,
+    .lg-sheet-content,
+    .lg-menu-content,
+    .lg-select-content,
+    .lg-dock-label,
+    .lg-badge,
+    .lg-alert {
+      -webkit-backdrop-filter: none !important;
+      backdrop-filter: none !important;
+      background: var(--lg-opaque-surface) !important;
+    }
+
+    .lg-glass-surface::before {
+      box-shadow: none !important;
+    }
+
+    /* The 1px outline replaces the specular ring. */
+    .lg-glass-surface::after {
+      display: none;
+    }
+
+    .lg-refraction-background {
+      display: none;
+    }
+  }
+
+  @media (prefers-contrast: more), (forced-colors: active) {
+    .lg-badge,
+    .lg-alert,
+    .lg-kbd,
+    .lg-progress-track,
+    .lg-dock-label,
+    .lg-switch,
+    .lg-slider-track,
+    .lg-segmented-indicator,
+    .lg-tabs-indicator {
+      outline: 1px solid CanvasText;
+      outline-offset: -1px;
+    }
+
+    .lg-segmented-indicator::after,
+    .lg-tabs-indicator::after,
+    .lg-lens::after,
+    .lg-button__bloom,
+    .lg-switch-lens,
+    .lg-switch-thumb::after {
+      display: none;
+    }
+
+    /* The switch's knob stays solid instead of turning to clear glass; forced
+       colours paint it with system colours below. */
+    .lg-switch-thumb {
+      background: var(--lg-knob) !important;
+    }
+
+    .lg-lens {
+      outline: 2px solid CanvasText;
+    }
+
+    .lg-tabs-trigger[data-state='active']::after {
+      display: none;
+    }
+
+    .lg-button:not(.lg-button--ghost, .lg-button--prominent) {
+      --lg-button-fill: var(--lg-opaque-surface) !important;
+      --lg-button-fill-hover: var(--lg-opaque-surface) !important;
+    }
+
+    .lg-button--prominent > .lg-button__layers > .lg-button__distortion {
+      background: var(--lg-prominent-fill) !important;
+    }
+
+    .lg-button__layers > .lg-button__light {
+      display: none !important;
+    }
+
+    .lg-button__distortion,
+    .lg-input,
+    .lg-accordion-trigger,
+    .lg-dialog-overlay {
+      -webkit-backdrop-filter: none !important;
+      backdrop-filter: none !important;
+    }
+
+    .lg-button .lg-button__rim {
+      padding: 0;
+      border: 1px solid CanvasText;
+      background: none;
+      -webkit-mask: none;
+      mask: none;
+    }
+
+    .lg-input,
+    .lg-checkbox,
+    .lg-radio,
+    .lg-accordion-trigger {
+      border-color: CanvasText !important;
+    }
+
+    /* Focusable surfaces such as tab panels need a ring distinct from the
+       1px surface outline. */
+    .lg-button:focus-visible,
+    .lg-input:focus,
+    .lg-checkbox:focus-visible,
+    .lg-radio:focus-visible,
+    .lg-glass-surface:focus-visible {
+      outline: 2px solid CanvasText !important;
+      outline-offset: 2px !important;
+    }
+  }
+
+  /* Forced colors repaint every author color, so the controls whose state is
+     their color opt out and use system colors directly. */
+  @media (forced-colors: active) {
+    .lg-switch,
+    .lg-switch-thumb,
+    .lg-slider-range,
+    .lg-slider-thumb,
+    .lg-segmented-indicator,
+    .lg-tabs-indicator,
+    .lg-checkbox,
+    .lg-radio,
+    .lg-progress-fill,
+    .lg-menu-item,
+    .lg-command-item {
+      forced-color-adjust: none;
+    }
+
+    .lg-progress-fill {
+      background: Highlight;
+      box-shadow: none;
+    }
+
+    .lg-page[data-current] {
+      background: Highlight;
+      color: HighlightText;
+      forced-color-adjust: none;
+    }
+
+    .lg-switch {
+      background: Canvas;
+    }
+
+    .lg-checkbox,
+    .lg-radio {
+      border-color: CanvasText;
+      background: Canvas;
+      box-shadow: none;
+      color: HighlightText;
+    }
+
+    .lg-checkbox[data-state='checked'],
+    .lg-checkbox[data-state='indeterminate'],
+    .lg-radio[data-state='checked'] {
+      border-color: Highlight;
+      background: Highlight;
+    }
+
+    .lg-radio-dot {
+      background: HighlightText;
+      box-shadow: none;
+    }
+
+    /* Forced colours strip the fill that gives an avatar its shape. */
+    .lg-avatar-face {
+      border: 1px solid CanvasText;
+      box-sizing: border-box;
+    }
+
+    .lg-switch[data-state='checked'],
+    .lg-slider-range,
+    .lg-menu-item[data-highlighted],
+    .lg-command-item[data-selected='true'] {
+      background: Highlight;
+      color: HighlightText;
+    }
+
+    /* A guard, like the transparency ones: the bubbles' glass rules are more
+       specific. */
+    .lg-segmented-indicator,
+    .lg-tabs-indicator {
+      background: Highlight !important;
+    }
+
+    /* The list prefix outranks the controls' own later state colors. */
+    .lg-tabs-list .lg-tabs-trigger[data-state='active'] {
+      color: HighlightText;
+      forced-color-adjust: none;
+    }
+
+    .lg-tabs-list:not([data-lg-indicator='ready']) .lg-tabs-trigger[data-state='active'] {
+      background: Highlight;
+    }
+
+    .lg-switch-thumb,
+    .lg-slider-thumb {
+      background: CanvasText !important;
+      box-shadow: none;
+    }
+
+    .lg-switch[data-state='checked'] .lg-switch-thumb {
+      background: HighlightText !important;
+    }
+
+    .lg-segmented .lg-segmented-item[data-state='checked'] {
+      color: HighlightText;
+      forced-color-adjust: none;
+    }
+
+    .lg-menu-item,
+    .lg-command-item,
+    .lg-toast-close {
+      color: CanvasText;
+    }
+  }
+
+  /* --- Buttons --- */
+
+  .lg-button {
+    --lg-radius: 999px;
+    --lg-surface-blur: min(var(--lg-glass-blur), 16px);
+    --lg-ink: var(--lg-foreground);
+    --lg-button-fill: rgb(255 255 255 / 0.07);
+    --lg-button-fill-hover: rgb(255 255 255 / 0.11);
+    --lg-button-sheen: 0.1;
+    --lg-button-glow: 0.14;
+    --lg-button-glow-pressed: 0.26;
+    --lg-button-shine: var(--lg-button-glow);
+    /* The fill highlight sits between the light and the centre. */
+    --lg-fill-x: calc(0.5 + (var(--lg-light-x) - 0.5) * 0.35);
+    --lg-fill-y: calc(0.5 + (var(--lg-light-y) - 0.5) * 0.35);
+    --lg-rim-scale: var(--lg-debug-rim-thickness, 1);
+    --lg-rim-offset-max: 1.1px;
+    --lg-rim-tangent-alpha: 1;
+    --lg-rim-micro-mask: 1;
+    --lg-rim-corner-mask: 1;
+    --lg-rim-offset-x: clamp(
+      calc(-1 * var(--lg-rim-offset-max)),
+      calc(var(--lg-light-dir-x) * -1 * var(--lg-rim-offset-max) * (0.7 + var(--lg-light-level))),
+      var(--lg-rim-offset-max)
+    );
+    --lg-rim-offset-y: clamp(
+      calc(-1 * var(--lg-rim-offset-max)),
+      calc(var(--lg-light-dir-y) * -1 * var(--lg-rim-offset-max) * (0.7 + var(--lg-light-level))),
+      var(--lg-rim-offset-max)
+    );
+    --lg-rim-light: calc(var(--lg-button-reflex-light) * var(--lg-rim-gain));
+    --lg-rim-dark: var(--lg-reflex-dark);
+    --lg-rim-alpha: calc((0.08 + var(--lg-light-level) * 0.12) * var(--lg-rim-gain));
+    --lg-rim-ca-offset: calc(1.5px * var(--lg-debug-ca-offset-scale, 1));
+    --lg-rim-ca-alpha: calc(0.06 * var(--lg-debug-ca-scale, 1));
+
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.5rem;
+
+    border-radius: var(--lg-radius);
+    border: none;
+    background: transparent;
+    color: var(--lg-ink);
+    text-decoration: none;
+
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    isolation: isolate;
+    cursor: pointer;
+    contain: layout paint style;
+
+    /* Each button is a slab of glass resting just above the page, lit from
+       above. A pointer lowers it halfway and a press sets it down, so its
+       shadow draws in under it; the glass itself stays put. */
+    --lg-button-rise: 1;
+    --lg-button-rise-time: calc(var(--lg-motion-duration) * 1.6);
+    --lg-button-shade: 0 0 0;
+    --lg-button-shade-near: 0.32;
+    --lg-button-shade-far: 0.36;
+    transition: --lg-button-rise var(--lg-button-rise-time) var(--lg-ease-out);
+  }
+
+  @media (hover: hover) {
+    .lg-button:not(:disabled, [aria-disabled='true']):hover {
+      --lg-button-rise: 0.5;
+    }
+  }
+
+  .lg-button[data-pressed='true']:not(:disabled, [aria-disabled='true']) {
+    --lg-button-rise: 0.2;
+    --lg-button-rise-time: calc(var(--lg-motion-duration) * 0.6);
+  }
+
+  .lg-button[data-lg-preset='control'] {
+    --lg-surface-blur: min(var(--lg-glass-blur), 10px);
+  }
+
+  .lg-button[data-lg-preset='showcase'] {
+    --lg-surface-blur: min(var(--lg-glass-blur), 16px);
+  }
+
+  .lg-button:focus-visible {
+    outline: 2px solid var(--lg-focus-ring);
+    outline-offset: 2px;
+  }
+
+  /* Disabled buttons dim their content, never the host: opacity on an ancestor
+     of the frost layer isolates its backdrop and flattens the glass. */
+  .lg-button:disabled,
+  .lg-button[aria-disabled='true'] {
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  .lg-button:disabled :is(.lg-button__label, .lg-button__tint, .lg-button__rim),
+  .lg-button[aria-disabled='true'] :is(.lg-button__label, .lg-button__tint, .lg-button__rim) {
+    opacity: var(--lg-disabled-opacity);
+  }
+
+  .lg-button__layers {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    z-index: 0;
+    overflow: hidden;
+  }
+
+  /* Icons and text sit in one row, spaced by the button's own gap. */
+  .lg-button__label {
+    position: relative;
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    gap: inherit;
+  }
+
+  .lg-button__layers > span {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+  }
+
+  /* 0. The light the glass lets through, under it. Tinted glass shows it. */
+  .lg-button__layers > .lg-button__light {
+    display: none;
+  }
+
+  /* 1. Frost: the only backdrop layer */
+  .lg-button__distortion {
+    background: var(--lg-button-fill);
+    -webkit-backdrop-filter: blur(var(--lg-surface-blur)) saturate(var(--lg-glass-sat));
+    backdrop-filter: blur(var(--lg-surface-blur)) saturate(var(--lg-glass-sat));
+    transition: background-color var(--lg-motion-duration) ease;
+  }
+
+  .lg-button[data-lg-lens='active'] > .lg-button__layers > .lg-button__distortion {
+    backdrop-filter: var(--lg-lens-filter);
+  }
+
+  .lg-button:not(:disabled, [aria-disabled='true']):hover .lg-button__distortion {
+    background: var(--lg-button-fill-hover);
+  }
+
+  /* 2. Sheen and bevel: top-lit gradient, a gentle fixed highlight and the
+     shared glass bevel */
+  .lg-button__tint {
+    background:
+      radial-gradient(
+        circle at calc(var(--lg-fill-x) * 100%) calc(var(--lg-fill-y) * 100%),
+        rgb(255 255 255 / calc(var(--lg-light-level) * 0.08)),
+        transparent 70%
+      ),
+      linear-gradient(180deg, rgb(255 255 255 / var(--lg-button-sheen)), transparent 60%);
+    box-shadow: var(--lg-glass-rim);
+  }
+
+  /* 3. Shine: hover glow that lights up from within while pressed */
+  .lg-button__shine {
+    background: radial-gradient(
+      circle at calc(var(--lg-fill-x) * 100%) calc(var(--lg-fill-y) * 100%),
+      rgb(255 255 255 / var(--lg-button-shine)),
+      transparent 60%
+    );
+    opacity: 0;
+    transition: opacity var(--lg-motion-duration) ease;
+  }
+
+  .lg-button:not(:disabled, [aria-disabled='true']):hover .lg-button__shine,
+  .lg-button[data-pressed='true']:not(:disabled, [aria-disabled='true']) .lg-button__shine {
+    opacity: 1;
+  }
+
+  .lg-button[data-pressed='true'] {
+    --lg-button-shine: var(--lg-button-glow-pressed);
+  }
+
+  /* 4. Bloom: a press lights the glass from the fingertip outward. Script
+     places it at the press point and plays it once per press. It stays
+     faint: the slab setting down carries the press, and the light only
+     marks where it landed. */
+  .lg-button__layers > .lg-button__bloom {
+    inset: auto;
+    top: var(--lg-bloom-y, 50%);
+    left: var(--lg-bloom-x, 50%);
+    width: var(--lg-bloom-size, 0px);
+    height: var(--lg-bloom-size, 0px);
+    border-radius: 50%;
+    background: radial-gradient(
+      closest-side,
+      rgb(255 255 255 / 0.18),
+      rgb(255 255 255 / 0.05) 60%,
+      transparent
+    );
+    opacity: 0;
+    translate: -50% -50%;
+  }
+
+  /* 5. Rim: the shared specular ring */
+  .lg-button__rim {
+    padding: var(--lg-rim-width);
+    background: var(--lg-specular-ring);
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask-composite: exclude;
+  }
+
+  /* Button Variants. A slab's shadow falls straight down from it and draws in
+     as it lowers: a near, sharp contact shadow and a soft one further out. */
+  .lg-button--primary,
+  .lg-button--soft {
+    box-shadow:
+      0 calc(var(--lg-button-rise) * 1.8px) calc(var(--lg-button-rise) * 2px)
+        calc(var(--lg-button-rise) * -1px) rgb(var(--lg-button-shade) / var(--lg-button-shade-near)),
+      0 calc(var(--lg-button-rise) * 6.7px) calc(var(--lg-button-rise) * 10px)
+        calc(var(--lg-button-rise) * -5px) rgb(var(--lg-button-shade) / var(--lg-button-shade-far));
+  }
+
+  .lg-button--soft {
+    --lg-button-fill: rgb(255 255 255 / 0.04);
+    --lg-button-fill-hover: rgb(255 255 255 / 0.08);
+    --lg-button-shade-near: 0.2;
+    --lg-button-shade-far: 0.18;
+  }
+
+  .lg-button--ghost {
+    --lg-button-fill: transparent;
+    --lg-button-fill-hover: rgb(255 255 255 / 0.06);
+    box-shadow: none;
+  }
+
+  .lg-button--ghost .lg-button__distortion {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .lg-button--ghost :is(.lg-button__rim, .lg-button__tint) {
+    display: none;
+  }
+
+  /* Sizes */
+  .lg-button--sm {
+    font-size: 0.8rem;
+    padding: 0.4rem 0.8rem;
+  }
+  .lg-button--md {
+    font-size: 0.95rem;
+    padding: 0.7rem 1.4rem;
+  }
+  .lg-button--lg {
+    font-size: 1.1rem;
+    padding: 1rem 2rem;
+  }
+
+  /* ============================================
+     LIGHT THEME - Button Overrides
+     ============================================ */
+
+  [data-lg-theme='light'] .lg-button {
+    --lg-button-fill: rgb(255 255 255 / 0.45);
+    --lg-button-fill-hover: rgb(255 255 255 / 0.6);
+    --lg-button-sheen: 0.35;
+    --lg-button-glow: 0.45;
+    --lg-button-glow-pressed: 0.75;
+    --lg-button-shade: 52 62 84;
+    --lg-button-shade-near: 0.18;
+    --lg-button-shade-far: 0.2;
+  }
+
+  [data-lg-theme='light'] .lg-button--soft {
+    --lg-button-shade-near: 0.12;
+    --lg-button-shade-far: 0.12;
+  }
+
+  [data-lg-theme='light'] .lg-button--soft {
+    --lg-button-fill: rgb(255 255 255 / 0.3);
+    --lg-button-fill-hover: rgb(255 255 255 / 0.45);
+  }
+
+  [data-lg-theme='light'] .lg-button--ghost {
+    --lg-button-fill: transparent;
+    --lg-button-fill-hover: rgb(0 0 0 / 0.04);
+  }
+
+  /* Prominent: a slab of blue glass. It passes on the light of whatever
+     lies behind it, tinted blue, so the page, the light it lets through and
+     the shadow under it all show in it. The tint caps how bright that light
+     can get, which keeps white text legible over any backdrop. Two classes
+     outrank the light-theme overrides above. */
+  .lg-button.lg-button--prominent {
+    --lg-ink: var(--lg-accent-foreground);
+    --lg-button-fill: var(--lg-prominent-fill);
+    --lg-button-fill-hover: var(--lg-prominent-fill);
+    --lg-button-sheen: 0;
+    --lg-button-glow: 0;
+    --lg-button-glow-pressed: 0;
+    /* The rays of the light cross the glass along x and y. */
+    --lg-button-ray-x: calc(sin(var(--lg-button-light-angle)) * -1);
+    --lg-button-ray-y: cos(var(--lg-button-light-angle));
+    /* The light eases over, gently at both ends, and returns briskly. */
+    --lg-button-rise-time: calc(var(--lg-motion-duration) * 1.5);
+    --lg-button-light-time: calc(var(--lg-motion-duration) * 1.75);
+    --lg-button-light-ease: cubic-bezier(0.25, 0.8, 0.3, 1);
+    /* The shadow stays under the slab and draws in as it lowers; only the
+       light along the rim follows the light. */
+    box-shadow:
+      0 calc(var(--lg-button-rise) * 1.8px) calc(var(--lg-button-rise) * 2px)
+        calc(var(--lg-button-rise) * -1px) rgb(var(--lg-prominent-shade) / 0.4),
+      0 calc(var(--lg-button-rise) * 6.7px) calc(var(--lg-button-rise) * 10px)
+        calc(var(--lg-button-rise) * -5px) rgb(var(--lg-prominent-shade) / 0.4);
+    transition:
+      --lg-button-rise var(--lg-button-rise-time) cubic-bezier(0.25, 0.8, 0.3, 1),
+      --lg-button-light-angle var(--lg-button-light-time) var(--lg-button-light-ease);
+  }
+
+  /* A pointer lowers the slab like any button and swings its light 50deg over
+     to the top left. */
+  @media (hover: hover) {
+    .lg-button.lg-button--prominent:not(:disabled, [aria-disabled='true']):hover {
+      --lg-button-light-angle: -50deg;
+      --lg-button-light-time: calc(var(--lg-motion-duration) * 2.75);
+      --lg-button-light-ease: cubic-bezier(0.45, 0, 0.55, 1);
+    }
+  }
+
+  /* Under the glass lies the light it lets through: a dim pool, a dark line
+     where the rounded edge turns the light aside and a bright one just inside
+     it where the edge gathers it. It sits a little below the glass, further
+     the higher the glass rests, so a press all but hides it. The pool is dense
+     enough that, should an ancestor cut the glass off from the page (opacity,
+     a filter or a mask), it alone keeps the white label at 4.5:1 over white. */
+  .lg-button--prominent > .lg-button__layers > .lg-button__light {
+    --lg-rise-cubed: calc(var(--lg-button-rise) * var(--lg-button-rise) * var(--lg-button-rise));
+
+    display: block;
+    /* Light coming in at a slant crosses the glass at a slant, so the pool
+       moves away from it. */
+    translate: calc(var(--lg-button-ray-x) * 1.2px) calc(var(--lg-rise-cubed) * 2px);
+    background: rgb(var(--lg-prominent-shade) / 0.6);
+    box-shadow:
+      inset 0 0 0 calc(1px + var(--lg-rise-cubed) * 1.6px) rgb(var(--lg-prominent-shade) / 0.5),
+      inset 0 0 0 calc(2px + var(--lg-rise-cubed) * 2.2px) rgb(var(--lg-prominent-glow) / 0.75);
+    filter: blur(calc(0.2px + var(--lg-button-rise) * 0.4px));
+  }
+
+  /* The face is that light, tinted. Its faint sheen turns with the light. */
+  .lg-button--prominent > .lg-button__layers > .lg-button__distortion {
+    -webkit-backdrop-filter: blur(0.6px) var(--lg-prominent-tint);
+    backdrop-filter: blur(0.6px) var(--lg-prominent-tint);
+    /* The solid fill replaces the tint and light together. Fading only the
+       fill exposes the untinted backdrop while those layers switch. */
+    transition: none;
+  }
+
+  .lg-button--prominent > .lg-button__layers > .lg-button__distortion,
+  .lg-button--prominent:not(:disabled, [aria-disabled='true']):hover
+    > .lg-button__layers
+    > .lg-button__distortion {
+    background: linear-gradient(
+      calc(180deg + var(--lg-button-light-angle)),
+      rgb(255 255 255 / 0.07),
+      transparent 45%
+    );
+  }
+
+  /* In Chromium the edge lens bends the light at the rim, then it is tinted. */
+  .lg-button--prominent[data-lg-lens='active'] > .lg-button__layers > .lg-button__distortion {
+    backdrop-filter: var(--lg-lens-filter) var(--lg-prominent-tint);
+  }
+
+  /* The rim: a dark line at the very edge, where it turns the light aside, a
+     soft sheen under the top, where it faces the light, and a glow along the
+     bottom, where the light the slab carried across leaves it. Set down, the
+     glass gathers more of that light and glows all round. All of it turns
+     with the light: the sheen moves round to the edge facing it and the glow
+     round to the far edge. */
+  .lg-button--prominent > .lg-button__layers > .lg-button__tint {
+    --lg-button-sunk: calc(1 - var(--lg-button-rise));
+
+    background: none;
+    box-shadow:
+      inset 0 0 0 1px rgb(var(--lg-prominent-shade) / 0.32),
+      inset calc(var(--lg-button-ray-x) * -5px) calc(var(--lg-button-ray-y) * -5px) 7px -4px
+        rgb(var(--lg-prominent-glow) / calc(0.5 + var(--lg-button-sunk) * 0.35)),
+      inset 0 0 calc(4px + var(--lg-button-sunk) * 10px) 0
+        rgb(var(--lg-prominent-glow) / calc(var(--lg-button-sunk) * 0.32)),
+      inset calc(var(--lg-button-ray-x) * 7px) calc(var(--lg-button-ray-y) * 7px) 8px -7px
+        rgb(255 255 255 / 0.22),
+      inset calc(var(--lg-button-ray-x) * 3px) calc(var(--lg-button-ray-y) * 3px) 4px -2px
+        rgb(0 0 0 / 0.08);
+  }
+
+  /* Just inside the dark line, a bright one where the edge gathers the
+     light: strongest along the top, faint at the sides, blue below. It turns
+     with the light, so the bright line moves round to the end facing it and
+     the blue one to the far end. */
+  .lg-button--prominent > .lg-button__layers > .lg-button__rim {
+    inset: 1px;
+    padding: 1px;
+    background: linear-gradient(
+      calc(180deg + var(--lg-button-light-angle)),
+      rgb(255 255 255 / 0.78),
+      rgb(255 255 255 / 0.12) 36% 64%,
+      rgb(var(--lg-prominent-glow) / 0.62)
+    );
+  }
+
+  /* Over a pale page the bright line brightens as the light swings over, so
+     it reads as clearly as it does against a dark one. */
+  [data-lg-theme='light'] .lg-button--prominent > .lg-button__layers > .lg-button__rim {
+    background: linear-gradient(
+      calc(180deg + var(--lg-button-light-angle)),
+      rgb(255 255 255 / calc(0.78 + max(0, var(--lg-button-ray-x)) * 0.2)),
+      rgb(255 255 255 / 0.12) 36% 64%,
+      rgb(var(--lg-prominent-glow) / 0.62)
+    );
+  }
+
+  /* Without a backdrop filter the face is the plain fill. */
+  @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+    .lg-button--prominent > .lg-button__layers > .lg-button__distortion {
+      background: var(--lg-prominent-fill);
+    }
+  }
+
+  [data-lg-reduce-transparency='1'] .lg-button:not(.lg-button--ghost, .lg-button--prominent) {
+    --lg-button-fill: var(--lg-control-surface) !important;
+    --lg-button-fill-hover: var(--lg-control-surface-hover) !important;
+  }
+
+  /* Input Fields: a recessed glass well */
+  .lg-input {
+    width: 100%;
+    padding: 0.875rem 1.25rem;
+    border-radius: 16px;
+    border: 1px solid var(--lg-border);
+    background: var(--lg-control-surface);
+    color: var(--lg-foreground);
+    font-size: 1rem;
+    outline: none;
+    transition:
+      background var(--lg-motion-duration) ease,
+      border-color var(--lg-motion-duration) ease,
+      box-shadow var(--lg-motion-duration) ease;
+    -webkit-backdrop-filter: blur(min(var(--lg-glass-blur), 16px))
+      brightness(var(--lg-glass-brightness)) contrast(var(--lg-glass-contrast))
+      saturate(var(--lg-glass-sat));
+    backdrop-filter: blur(min(var(--lg-glass-blur), 16px)) brightness(var(--lg-glass-brightness))
+      contrast(var(--lg-glass-contrast)) saturate(var(--lg-glass-sat));
+    box-shadow: var(--lg-input-shadow);
+  }
+
+  /* A focused field fills in and its caret shows where typing goes. It draws no
+     ring: a text field counts as keyboard-focused even when clicked, so a ring
+     would follow every tap. The select trigger has no caret, so keyboard focus
+     still outlines it. */
+  .lg-input:focus {
+    background: var(--lg-control-surface-hover);
+  }
+
+  .lg-select-trigger:focus-visible {
+    outline: 2px solid var(--lg-focus-ring);
+    outline-offset: 2px;
+  }
+
+  .lg-input::placeholder {
+    color: var(--lg-muted-foreground);
+    opacity: 0.72;
+  }
+
+  .lg-input[aria-invalid='true'] {
+    border-color: var(--lg-invalid);
+    box-shadow: 0 0 0 1px var(--lg-invalid);
+  }
+
+  .lg-input:disabled {
+    cursor: not-allowed;
+    opacity: var(--lg-disabled-opacity);
+  }
+
+  /* ============================================
+     Checkbox and radio: a small glass well that fills with the accent, with a
+     mark that draws itself in and back out, so clearing a choice moves as
+     smoothly as making it. Every transition sits on the base rule, never on
+     the checked one, so both directions animate.
+     ============================================ */
+
+  .lg-check-field {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    color: var(--lg-foreground);
+    font-size: 0.9375rem;
+    line-height: 1.4;
+  }
+
+  .lg-check-text {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    padding-top: 0.0625rem;
+  }
+
+  /* Clicking the label toggles the box, so a quick second click must not select its text. The
+     description below it stays selectable. */
+  .lg-check-text > label {
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .lg-check-text > span {
+    color: var(--lg-muted-foreground);
+    font-size: 0.8125rem;
+    line-height: 1.35;
+  }
+
+  .lg-check-field[data-size='sm'] {
+    gap: 0.625rem;
+    font-size: 0.875rem;
+  }
+
+  .lg-check-field[data-disabled] {
+    opacity: var(--lg-disabled-opacity);
+  }
+
+  .lg-check-field[data-disabled] .lg-check-text > label {
+    cursor: not-allowed;
+  }
+
+  .lg-radio-group {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .lg-checkbox,
+  .lg-radio {
+    --lg-check-size: 1.25rem;
+    /* The edge of an empty box is what says it can be ticked, so it holds 3:1 over the
+       glass it sits on, which the hairline border of a text field does not. */
+    --lg-check-edge: rgb(244 245 249 / 0.78);
+
+    position: relative;
+    display: inline-grid;
+    flex: none;
+    place-items: center;
+    box-sizing: border-box;
+    width: var(--lg-check-size);
+    height: var(--lg-check-size);
+    margin: 0;
+    padding: 0;
+    border: 1.5px solid var(--lg-check-edge);
+    background: var(--lg-control-surface);
+    box-shadow: var(--lg-input-shadow);
+    color: #fff;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition:
+      background-color 220ms ease,
+      border-color 220ms ease,
+      box-shadow 220ms ease,
+      scale 320ms var(--lg-spring);
+  }
+
+  [data-lg-theme='light'] .lg-checkbox,
+  [data-lg-theme='light'] .lg-radio {
+    --lg-check-edge: rgb(27 29 36 / 0.6);
+  }
+
+  .lg-checkbox {
+    border-radius: 0.4375rem;
+  }
+
+  .lg-radio {
+    border-radius: 9999px;
+  }
+
+  .lg-checkbox[data-size='sm'],
+  .lg-check-field[data-size='sm'] .lg-checkbox {
+    --lg-check-size: 1rem;
+
+    border-radius: 0.3125rem;
+  }
+
+  .lg-checkbox[data-state='unchecked']:hover:not([data-disabled]),
+  .lg-radio[data-state='unchecked']:hover:not([data-disabled]) {
+    background: var(--lg-control-surface-hover);
+  }
+
+  .lg-checkbox:active:not([data-disabled]),
+  .lg-radio:active:not([data-disabled]) {
+    scale: 0.9;
+  }
+
+  .lg-checkbox:focus-visible,
+  .lg-radio:focus-visible {
+    outline: 2px solid var(--lg-focus-ring);
+    outline-offset: 2px;
+  }
+
+  .lg-checkbox[aria-invalid='true'],
+  .lg-radio[aria-invalid='true'] {
+    border-color: var(--lg-invalid);
+  }
+
+  .lg-checkbox[data-disabled],
+  .lg-radio[data-disabled] {
+    cursor: not-allowed;
+    opacity: var(--lg-disabled-opacity);
+  }
+
+  .lg-checkbox[data-state='checked'],
+  .lg-checkbox[data-state='indeterminate'],
+  .lg-radio[data-state='checked'] {
+    border-color: transparent;
+    background:
+      linear-gradient(180deg, rgb(255 255 255 / 0.24), rgb(255 255 255 / 0) 62%), var(--lg-accent);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.4),
+      inset 0 -1px 0 rgb(0 0 0 / 0.14),
+      0 1px 3px rgb(0 0 0 / 0.28);
+  }
+
+  .lg-check-indicator {
+    display: grid;
+    width: 100%;
+    height: 100%;
+    place-items: center;
+    pointer-events: none;
+  }
+
+  .lg-check-mark {
+    width: 84%;
+    height: 84%;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.1;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .lg-check-tick,
+  .lg-check-dash {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+    transition: stroke-dashoffset 300ms var(--lg-ease-out);
+  }
+
+  .lg-checkbox[data-state='checked'] .lg-check-tick,
+  .lg-checkbox[data-state='indeterminate'] .lg-check-dash {
+    stroke-dashoffset: 0;
+  }
+
+  .lg-radio-dot {
+    width: 42%;
+    height: 42%;
+    border-radius: 9999px;
+    background: #fff;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.3);
+    scale: 0;
+    transition: scale 160ms cubic-bezier(0.4, 0, 1, 1);
+  }
+
+  /* The dot springs in and shrinks straight out: the spring would swing it
+     through zero on the way back. */
+  .lg-radio[data-state='checked'] .lg-radio-dot {
+    scale: 1;
+    transition: scale 340ms var(--lg-spring);
+  }
+
+  /* ============================================
+     Textarea and select: the Input's recessed glass field
+     ============================================ */
+
+  .lg-textarea {
+    display: block;
+    min-height: 5.5rem;
+    line-height: 1.5;
+    resize: vertical;
+  }
+
+  .lg-textarea[data-resize='auto'] {
+    resize: none;
+    overflow-y: hidden;
+  }
+
+  .lg-select-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    text-align: start;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .lg-select-trigger > span:first-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .lg-select-trigger[data-placeholder] {
+    color: var(--lg-muted-foreground);
+  }
+
+  .lg-select-chevron {
+    display: inline-flex;
+    flex: none;
+    color: var(--lg-muted-foreground);
+    transition: rotate 260ms var(--lg-spring);
+  }
+
+  .lg-select-chevron > svg {
+    width: 1rem;
+    height: 1rem;
+  }
+
+  .lg-select-trigger[data-state='open'] .lg-select-chevron {
+    rotate: 180deg;
+  }
+
+  .lg-select-content {
+    --lg-panel-radius: 1.25rem;
+
+    z-index: 60;
+    box-sizing: border-box;
+    min-width: var(--radix-select-trigger-width);
+    max-width: calc(100vw - 1rem);
+    max-height: var(--radix-select-content-available-height, 24rem);
+    padding: 0.375rem;
+    font-size: 0.9375rem;
+    line-height: 1.4;
+    transform-origin: var(--radix-select-content-transform-origin);
+  }
+
+  .lg-select-content:focus {
+    outline: none;
+  }
+
+  .lg-select-viewport {
+    max-height: inherit;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+  }
+
+  .lg-select-viewport::-webkit-scrollbar {
+    display: none;
+  }
+
+  .lg-select-scroll {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 1.5rem;
+    color: var(--lg-muted-foreground);
+    cursor: default;
+  }
+
+  .lg-select-scroll > svg {
+    width: 1rem;
+    height: 1rem;
+  }
+
+  /* ============================================
+     Progress, spinner and skeleton: waiting, told quietly
+     ============================================ */
+
+  .lg-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    border: 0;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .lg-progress {
+    --lg-progress-height: 0.5rem;
+
+    display: grid;
+    gap: 0.5rem;
+    width: 100%;
+    color: var(--lg-foreground);
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+  }
+
+  .lg-progress[data-size='sm'] {
+    --lg-progress-height: 0.25rem;
+  }
+
+  .lg-progress[data-size='lg'] {
+    --lg-progress-height: 0.75rem;
+  }
+
+  .lg-progress-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .lg-progress-value {
+    color: var(--lg-muted-foreground);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .lg-progress-track {
+    position: relative;
+    height: var(--lg-progress-height);
+    overflow: hidden;
+    border-radius: 9999px;
+    background: var(--lg-track);
+    box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.18);
+  }
+
+  /* The whole pill slides in from the left, so its leading end stays round. */
+  .lg-progress-fill {
+    width: 100%;
+    height: 100%;
+    border-radius: inherit;
+    background-color: var(--lg-accent);
+    background-image: linear-gradient(180deg, rgb(255 255 255 / 0.34), rgb(255 255 255 / 0) 60%);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.4);
+    translate: calc((var(--lg-progress, 0) - 100) * 1%) 0;
+    transition: translate 640ms var(--lg-ease-out);
+  }
+
+  .lg-progress[data-state='indeterminate'] .lg-progress-fill {
+    width: 40%;
+    translate: 75% 0;
+    transition: none;
+    /* Stepped at 30 frames a second: a loader that runs for a while does not need a frame
+       every 8 ms, and the GPU is spared most of them. */
+    animation: lg-progress-sweep 1.6s steps(48) infinite;
+  }
+
+  @keyframes lg-progress-sweep {
+    from {
+      translate: -100% 0;
+    }
+
+    to {
+      translate: 250% 0;
+    }
+  }
+
+  .lg-spinner {
+    --lg-spinner-size: 1.5rem;
+    --lg-spinner-width: 2px;
+
+    display: inline-flex;
+    flex: none;
+    width: var(--lg-spinner-size);
+    height: var(--lg-spinner-size);
+    border-radius: 9999px;
+    box-shadow: inset 0 0 0 var(--lg-spinner-width)
+      color-mix(in srgb, currentColor 20%, transparent);
+    color: var(--lg-foreground);
+    vertical-align: middle;
+  }
+
+  .lg-spinner[data-size='sm'] {
+    --lg-spinner-size: 1rem;
+    --lg-spinner-width: 1.5px;
+  }
+
+  .lg-spinner[data-size='lg'] {
+    --lg-spinner-size: 2.25rem;
+    --lg-spinner-width: 3px;
+  }
+
+  .lg-spinner-ring {
+    width: 100%;
+    height: 100%;
+    border-radius: inherit;
+    background: conic-gradient(from 0deg, transparent, currentColor);
+    -webkit-mask: radial-gradient(
+      farthest-side,
+      transparent calc(100% - var(--lg-spinner-width) - 0.5px),
+      #000 calc(100% - var(--lg-spinner-width))
+    );
+    mask: radial-gradient(
+      farthest-side,
+      transparent calc(100% - var(--lg-spinner-width) - 0.5px),
+      #000 calc(100% - var(--lg-spinner-width))
+    );
+    animation: lg-spinner-turn 0.9s linear infinite;
+  }
+
+  @keyframes lg-spinner-turn {
+    to {
+      rotate: 360deg;
+    }
+  }
+
+  .lg-skeleton {
+    position: relative;
+    display: block;
+    min-height: 1rem;
+    overflow: hidden;
+    border-radius: 0.625rem;
+    background: var(--lg-control-surface);
+  }
+
+  .lg-skeleton[data-variant='circle'] {
+    width: 2.5rem;
+    min-height: 0;
+    aspect-ratio: 1;
+    border-radius: 9999px;
+  }
+
+  .lg-skeleton[data-variant='line'] {
+    min-height: 0;
+    height: 0.875rem;
+    border-radius: 9999px;
+  }
+
+  .lg-skeleton::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      100deg,
+      transparent 20%,
+      rgb(255 255 255 / 0.14) 50%,
+      transparent 80%
+    );
+    translate: -100% 0;
+    /* Stepped at 30 frames a second, like the progress sweep. */
+    animation: lg-skeleton-sheen 1.8s steps(54) infinite;
+  }
+
+  [data-lg-theme='light'] .lg-skeleton::after {
+    background: linear-gradient(
+      100deg,
+      transparent 20%,
+      rgb(255 255 255 / 0.75) 50%,
+      transparent 80%
+    );
+  }
+
+  @keyframes lg-skeleton-sheen {
+    to {
+      translate: 100% 0;
+    }
+  }
+
+  .lg-skeleton-text {
+    display: grid;
+    gap: 0.625rem;
+    width: 100%;
+  }
+
+  .lg-skeleton-text > .lg-skeleton:last-child:not(:only-child) {
+    width: 62%;
+  }
+
+  /* ============================================
+     Alert: tinted glass with the badge's tones. Every tone keeps 4.5:1 text
+     contrast over a pure black or pure white backdrop in both themes.
+     ============================================ */
+
+  .lg-alert {
+    --lg-alert-fill: 13 44 82;
+    --lg-alert-ink: #b2d6ff;
+    --lg-alert-tint: 0 103 217;
+    --lg-alert-highlight: rgb(255 255 255 / 0.12);
+
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    box-sizing: border-box;
+    width: 100%;
+    padding: 0.875rem 1rem;
+    border-radius: 1.125rem;
+    background: rgb(var(--lg-alert-fill) / 0.88);
+    box-shadow:
+      inset 0 1px 0 var(--lg-alert-highlight),
+      inset 0 0 0 0.5px rgb(var(--lg-alert-tint) / 0.45);
+    color: var(--lg-foreground);
+    font-size: 0.9375rem;
+    line-height: 1.4;
+    -webkit-backdrop-filter: blur(min(var(--lg-glass-blur), 16px))
+      brightness(var(--lg-glass-brightness)) contrast(var(--lg-glass-contrast))
+      saturate(var(--lg-glass-sat));
+    backdrop-filter: blur(min(var(--lg-glass-blur), 16px)) brightness(var(--lg-glass-brightness))
+      contrast(var(--lg-glass-contrast)) saturate(var(--lg-glass-sat));
+  }
+
+  .lg-alert[data-tone='success'] {
+    --lg-alert-fill: 22 60 48;
+    --lg-alert-ink: #7cebc0;
+    --lg-alert-tint: 51 214 159;
+  }
+
+  .lg-alert[data-tone='warning'] {
+    --lg-alert-fill: 70 54 22;
+    --lg-alert-ink: #ffd27a;
+    --lg-alert-tint: 255 189 56;
+  }
+
+  .lg-alert[data-tone='danger'] {
+    --lg-alert-fill: 76 30 44;
+    --lg-alert-ink: #ffa6b7;
+    --lg-alert-tint: 255 92 122;
+  }
+
+  [data-lg-theme='light'] .lg-alert {
+    --lg-alert-fill: 229 241 255;
+    --lg-alert-ink: #0054b3;
+    --lg-alert-tint: 0 103 217;
+    --lg-alert-highlight: rgb(255 255 255 / 0.9);
+  }
+
+  [data-lg-theme='light'] .lg-alert[data-tone='success'] {
+    --lg-alert-fill: 224 247 238;
+    --lg-alert-ink: #08603f;
+    --lg-alert-tint: 20 168 116;
+  }
+
+  [data-lg-theme='light'] .lg-alert[data-tone='warning'] {
+    --lg-alert-fill: 255 243 219;
+    --lg-alert-ink: #824c00;
+    --lg-alert-tint: 232 150 12;
+  }
+
+  [data-lg-theme='light'] .lg-alert[data-tone='danger'] {
+    --lg-alert-fill: 255 229 236;
+    --lg-alert-ink: #a8113a;
+    --lg-alert-tint: 232 52 90;
+  }
+
+  /* Dismissing folds the alert to nothing. The alert sits in a one-row grid, and the row shrinks
+     from its content to zero, so its padding and margin go with it and nothing is measured. */
+  .lg-alert-fold {
+    display: grid;
+    grid-template-rows: 1fr;
+  }
+
+  .lg-alert-fold-inner {
+    min-height: 0;
+  }
+
+  .lg-alert-fold[data-state='folding'] {
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 240ms var(--lg-ease-out);
+  }
+
+  .lg-alert-fold[data-state='folding'] > .lg-alert-fold-inner {
+    overflow: hidden;
+  }
+
+  .lg-alert-fold[data-state='folding'] .lg-alert {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 160ms ease-in;
+  }
+
+  .lg-alert-icon {
+    display: inline-flex;
+    flex: none;
+    width: 1.25rem;
+    height: 1.25rem;
+    margin-top: 0.0625rem;
+    color: var(--lg-alert-ink);
+  }
+
+  .lg-alert-icon > svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  .lg-alert-body {
+    display: grid;
+    flex: 1;
+    gap: 0.125rem;
+    min-width: 0;
+  }
+
+  .lg-alert-title {
+    margin: 0;
+    font-weight: 600;
+  }
+
+  .lg-alert-description {
+    opacity: 0.82;
+  }
+
+  .lg-alert-close {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    margin: -0.25rem -0.375rem -0.25rem 0;
+    padding: 0;
+    border: 0;
+    border-radius: 9999px;
+    background: transparent;
+    color: var(--lg-foreground);
+    cursor: pointer;
+    opacity: 0.7;
+    transition:
+      background-color 180ms ease,
+      opacity 180ms ease;
+  }
+
+  .lg-alert-close:hover {
+    background: rgb(255 255 255 / 0.14);
+    opacity: 1;
+  }
+
+  [data-lg-theme='light'] .lg-alert-close:hover {
+    background: rgb(0 0 0 / 0.07);
+  }
+
+  .lg-alert-close:focus-visible {
+    outline: 2px solid var(--lg-focus-ring);
+    outline-offset: 1px;
+    opacity: 1;
+  }
+
+  .lg-alert-close > svg {
+    width: 1rem;
+    height: 1rem;
+  }
+
+  /* ============================================
+     Avatar: a round photo or coloured initials. A dot or a neighbour cuts
+     the circle away instead of ringing it, so it works on any backdrop.
+     ============================================ */
+
+  .lg-avatar {
+    --lg-avatar-size: 2.5rem;
+    --lg-avatar-dot: 0.625rem;
+
+    position: relative;
+    display: inline-flex;
+    flex: none;
+    width: var(--lg-avatar-size);
+    height: var(--lg-avatar-size);
+    font-size: calc(var(--lg-avatar-size) * 0.38);
+    vertical-align: middle;
+  }
+
+  .lg-avatar[data-size='xs'] {
+    --lg-avatar-size: 1.5rem;
+    --lg-avatar-dot: 0.4375rem;
+  }
+
+  .lg-avatar[data-size='sm'] {
+    --lg-avatar-size: 2rem;
+    --lg-avatar-dot: 0.5rem;
+  }
+
+  .lg-avatar[data-size='lg'] {
+    --lg-avatar-size: 3.5rem;
+    --lg-avatar-dot: 0.875rem;
+  }
+
+  .lg-avatar[data-size='xl'] {
+    --lg-avatar-size: 5rem;
+    --lg-avatar-dot: 1.125rem;
+  }
+
+  .lg-avatar-face {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    border-radius: 9999px;
+    background: var(--lg-control-surface);
+    color: #fff;
+    font-weight: 600;
+    line-height: 1;
+    user-select: none;
+  }
+
+  .lg-avatar-face::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow:
+      inset 0 0 0 1px rgb(255 255 255 / 0.18),
+      inset 0 1px 0 rgb(255 255 255 / 0.22);
+    pointer-events: none;
+  }
+
+  [data-lg-theme='light'] .lg-avatar-face::after {
+    box-shadow:
+      inset 0 0 0 1px rgb(0 0 0 / 0.1),
+      inset 0 1px 0 rgb(255 255 255 / 0.3);
+  }
+
+  .lg-avatar-image {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .lg-avatar-fallback {
+    --lg-avatar-from: #747479;
+    --lg-avatar-to: #535359;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(145deg, var(--lg-avatar-from), var(--lg-avatar-to));
+    text-shadow: 0 1px 1px rgb(0 0 0 / 0.22);
+  }
+
+  .lg-avatar-fallback[data-tone='0'] {
+    --lg-avatar-from: #2d6de9;
+    --lg-avatar-to: #1a4fc7;
+  }
+
+  .lg-avatar-fallback[data-tone='1'] {
+    --lg-avatar-from: #b93f24;
+    --lg-avatar-to: #882c1a;
+  }
+
+  .lg-avatar-fallback[data-tone='2'] {
+    --lg-avatar-from: #707075;
+    --lg-avatar-to: #56565b;
+  }
+
+  .lg-avatar-fallback[data-tone='3'] {
+    --lg-avatar-from: #d0386f;
+    --lg-avatar-to: #a82458;
+  }
+
+  .lg-avatar-fallback[data-tone='4'] {
+    --lg-avatar-from: #b9540f;
+    --lg-avatar-to: #9c4308;
+  }
+
+  .lg-avatar-fallback[data-tone='5'] {
+    --lg-avatar-from: #1f8150;
+    --lg-avatar-to: #146c3c;
+  }
+
+  .lg-avatar-fallback[data-tone='6'] {
+    --lg-avatar-from: #0e7d8b;
+    --lg-avatar-to: #0a6674;
+  }
+
+  .lg-avatar-fallback[data-tone='7'] {
+    --lg-avatar-from: #747479;
+    --lg-avatar-to: #535359;
+  }
+
+  .lg-avatar-status {
+    --lg-status: #8e8e93;
+
+    position: absolute;
+    top: calc(var(--lg-avatar-size) * 0.8536 - var(--lg-avatar-dot) / 2);
+    left: calc(var(--lg-avatar-size) * 0.8536 - var(--lg-avatar-dot) / 2);
+    width: var(--lg-avatar-dot);
+    height: var(--lg-avatar-dot);
+    border-radius: 9999px;
+    background: var(--lg-status);
+  }
+
+  .lg-avatar[data-status='online'] > .lg-avatar-status {
+    --lg-status: #33d69f;
+  }
+
+  .lg-avatar[data-status='away'] > .lg-avatar-status {
+    --lg-status: #ffbd38;
+  }
+
+  .lg-avatar[data-status='busy'] > .lg-avatar-status {
+    --lg-status: #ff5c7a;
+  }
+
+  [data-lg-theme='light'] .lg-avatar[data-status='online'] > .lg-avatar-status {
+    --lg-status: #14a874;
+  }
+
+  [data-lg-theme='light'] .lg-avatar[data-status='away'] > .lg-avatar-status {
+    --lg-status: #e8960c;
+  }
+
+  [data-lg-theme='light'] .lg-avatar[data-status='busy'] > .lg-avatar-status {
+    --lg-status: #e8345a;
+  }
+
+  .lg-avatar[data-status] > .lg-avatar-face {
+    --lg-cut-status: radial-gradient(
+      circle at calc(var(--lg-avatar-size) * 0.8536) calc(var(--lg-avatar-size) * 0.8536),
+      transparent calc(var(--lg-avatar-dot) / 2 + 2px),
+      #000 calc(var(--lg-avatar-dot) / 2 + 2.5px)
+    );
+
+    -webkit-mask-image: var(--lg-cut-status), var(--lg-cut-next, linear-gradient(#000, #000));
+    mask-image: var(--lg-cut-status), var(--lg-cut-next, linear-gradient(#000, #000));
+    -webkit-mask-composite: source-in;
+    mask-composite: intersect;
+  }
+
+  .lg-avatar-group {
+    display: inline-flex;
+    align-items: center;
+    isolation: isolate;
+  }
+
+  .lg-avatar-group[data-size='xs'] .lg-avatar {
+    --lg-avatar-size: 1.5rem;
+    --lg-avatar-dot: 0.4375rem;
+  }
+
+  .lg-avatar-group[data-size='sm'] .lg-avatar {
+    --lg-avatar-size: 2rem;
+    --lg-avatar-dot: 0.5rem;
+  }
+
+  .lg-avatar-group[data-size='md'] .lg-avatar {
+    --lg-avatar-size: 2.5rem;
+    --lg-avatar-dot: 0.625rem;
+  }
+
+  .lg-avatar-group[data-size='lg'] .lg-avatar {
+    --lg-avatar-size: 3.5rem;
+    --lg-avatar-dot: 0.875rem;
+  }
+
+  .lg-avatar-group[data-size='xl'] .lg-avatar {
+    --lg-avatar-size: 5rem;
+    --lg-avatar-dot: 1.125rem;
+  }
+
+  .lg-avatar-group > .lg-avatar + .lg-avatar {
+    margin-inline-start: calc(var(--lg-avatar-size) * -0.2);
+  }
+
+  .lg-avatar-group > .lg-avatar:not(:last-child) > .lg-avatar-face {
+    --lg-cut-next: radial-gradient(
+      circle at calc(var(--lg-avatar-size) * 1.3) 50%,
+      transparent calc(var(--lg-avatar-size) / 2 + 2px),
+      #000 calc(var(--lg-avatar-size) / 2 + 2.5px)
+    );
+
+    -webkit-mask-image: var(--lg-cut-status, linear-gradient(#000, #000)), var(--lg-cut-next);
+    mask-image: var(--lg-cut-status, linear-gradient(#000, #000)), var(--lg-cut-next);
+    -webkit-mask-composite: source-in;
+    mask-composite: intersect;
+  }
+
+  [dir='rtl'] .lg-avatar-group > .lg-avatar:not(:last-child) > .lg-avatar-face {
+    --lg-cut-next: radial-gradient(
+      circle at calc(var(--lg-avatar-size) * -0.3) 50%,
+      transparent calc(var(--lg-avatar-size) / 2 + 2px),
+      #000 calc(var(--lg-avatar-size) / 2 + 2.5px)
+    );
+  }
+
+  .lg-avatar-more {
+    background: var(--lg-control-surface-hover);
+    color: var(--lg-foreground);
+    font-size: calc(var(--lg-avatar-size) * 0.32);
+  }
+
+  /* ============================================
+     Kbd: a keycap with a lit top edge and a dark lip
+     ============================================ */
+
+  .lg-kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    min-width: 1.5rem;
+    height: 1.5rem;
+    padding: 0 0.4375rem;
+    border-radius: 0.4375rem;
+    background: var(--lg-control-surface);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.18),
+      inset 0 0 0 1px var(--lg-border),
+      0 1px 0 rgb(0 0 0 / 0.35);
+    color: var(--lg-foreground);
+    font: inherit;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    line-height: 1;
+  }
+
+  [data-lg-theme='light'] .lg-kbd {
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.9),
+      inset 0 0 0 1px var(--lg-border),
+      0 1px 0 rgb(0 0 0 / 0.16);
+  }
+
+  .lg-kbd-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  /* ============================================
+     Scroll area: native scrolling with a thin glass scrollbar over its edge.
+     The bar shows while the pointer is over the area or it scrolls, rests
+     narrow, and widens under the pointer.
+     ============================================ */
+
+  .lg-scroll-area {
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* A max-height on the area bounds the viewport as well as a height does. */
+  .lg-scroll-area-viewport {
+    width: 100%;
+    height: 100%;
+    max-height: inherit;
+    border-radius: inherit;
+  }
+
+  .lg-scroll-area-viewport:focus-visible {
+    outline: 2px solid var(--lg-focus-ring);
+    outline-offset: -2px;
+  }
+
+  .lg-scrollbar {
+    z-index: 1;
+    display: flex;
+    box-sizing: border-box;
+    padding: 3px;
+    touch-action: none;
+    user-select: none;
+    transition: padding 160ms var(--lg-ease-out);
+  }
+
+  .lg-scrollbar[data-orientation='vertical'] {
+    width: 10px;
+  }
+
+  .lg-scrollbar[data-orientation='horizontal'] {
+    flex-direction: column;
+    height: 10px;
+  }
+
+  .lg-scrollbar:hover {
+    padding: 2px;
+  }
+
+  .lg-scrollbar[data-state='visible'] {
+    animation: lg-scrollbar-in 160ms var(--lg-ease-out);
+  }
+
+  .lg-scrollbar[data-state='hidden'] {
+    animation: lg-scrollbar-out 240ms ease-in forwards;
+  }
+
+  /* A sliver of clear glass: a faint tint of the text colour, a lit rim and a
+     blur of what scrolls beneath it. */
+  .lg-scrollbar-thumb {
+    position: relative;
+    flex: 1;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--lg-foreground) 24%, transparent);
+    box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.24);
+    -webkit-backdrop-filter: blur(6px) saturate(1.6);
+    backdrop-filter: blur(6px) saturate(1.6);
+    transition: background-color 160ms var(--lg-ease-out);
+  }
+
+  [data-lg-theme='light'] .lg-scrollbar-thumb {
+    box-shadow:
+      inset 0 0 0 0.5px rgb(255 255 255 / 0.7),
+      0 0 0 0.5px rgb(0 0 0 / 0.06);
+  }
+
+  /* The pointer can catch more than the sliver it sees. */
+  .lg-scrollbar-thumb::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 100%;
+    height: 100%;
+    min-width: 24px;
+    min-height: 24px;
+    transform: translate(-50%, -50%);
+  }
+
+  .lg-scrollbar:hover .lg-scrollbar-thumb {
+    background: color-mix(in srgb, var(--lg-foreground) 40%, transparent);
+  }
+
+  @keyframes lg-scrollbar-in {
+    from {
+      opacity: 0;
+    }
+  }
+
+  @keyframes lg-scrollbar-out {
+    to {
+      opacity: 0;
+    }
+  }
+
+  [data-lg-reduce-transparency='1'] .lg-scrollbar-thumb {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: color-mix(in srgb, var(--lg-foreground) 55%, var(--lg-bg));
+  }
+
+  @media (prefers-contrast: more) {
+    .lg-scrollbar-thumb {
+      background: color-mix(in srgb, var(--lg-foreground) 70%, transparent);
+    }
+  }
+
+  @media (forced-colors: active) {
+    .lg-scrollbar-thumb {
+      forced-color-adjust: none;
+      background: CanvasText;
+      box-shadow: none;
+    }
+  }
+
+  /* ============================================
+     Command: a search field over a list that filters as you type. The
+     highlighted row is the menu's, and the list resizes with its results.
+     ============================================ */
+
+  .lg-command {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    overflow: hidden;
+    border-radius: inherit;
+    color: var(--lg-foreground);
+    font-size: 0.9375rem;
+    line-height: 1.4;
+  }
+
+  .lg-command-dialog {
+    --lg-panel-radius: 1.5rem;
+
+    top: min(18vh, 9rem);
+    max-width: 40rem;
+    padding: 0;
+    translate: -50% 0;
+    overflow: hidden;
+  }
+
+  .lg-command-search {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 0.75rem;
+    height: 3.25rem;
+    padding: 0 1.125rem;
+    border-bottom: 1px solid var(--lg-border);
+    color: var(--lg-muted-foreground);
+    transition: box-shadow 200ms ease;
+  }
+
+  .lg-command-search:focus-within {
+    box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--lg-focus-ring) 60%, transparent);
+  }
+
+  .lg-command-search > svg {
+    flex: none;
+    width: 1.125rem;
+    height: 1.125rem;
+  }
+
+  .lg-command-input {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--lg-foreground);
+    font: inherit;
+    font-size: 1rem;
+    outline: none;
+  }
+
+  .lg-command-input::placeholder {
+    color: var(--lg-muted-foreground);
+    opacity: 0.72;
+  }
+
+  .lg-command-list {
+    box-sizing: border-box;
+    height: min(calc(var(--cmdk-list-height, 22rem) + 0.75rem), 22rem);
+    max-height: min(22rem, 60dvh);
+    padding: 0.375rem;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scroll-padding-block: 0.375rem;
+    transition: height 160ms var(--lg-ease-out);
+  }
+
+  .lg-command-group [cmdk-group-heading] {
+    padding: 0.5rem 0.75rem 0.25rem;
+    color: var(--lg-muted-foreground);
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1rem;
+    user-select: none;
+  }
+
+  .lg-command-item {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    box-sizing: border-box;
+    min-height: 2.5rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.75rem;
+    color: var(--lg-foreground);
+    cursor: default;
+    outline: none;
+    user-select: none;
+  }
+
+  .lg-command-item > svg {
+    flex: none;
+    width: 1.125rem;
+    height: 1.125rem;
+    color: var(--lg-muted-foreground);
+  }
+
+  .lg-command-item[data-selected='true'] {
+    background: rgb(255 255 255 / 0.14);
+  }
+
+  [data-lg-theme='light'] .lg-command-item[data-selected='true'] {
+    background: rgb(0 0 0 / 0.06);
+  }
+
+  .lg-command-item[data-disabled='true'] {
+    opacity: var(--lg-disabled-opacity);
+    pointer-events: none;
+  }
+
+  .lg-command-empty {
+    padding: 2rem 1rem;
+    color: var(--lg-muted-foreground);
+    text-align: center;
+  }
+
+  .lg-command-separator {
+    height: 1px;
+    margin: 0.375rem 0.625rem;
+    background: var(--lg-border);
+  }
+
+  .lg-command-shortcut {
+    display: inline-flex;
+    align-items: center;
+    margin-inline-start: auto;
+    padding-inline-start: 1.5rem;
+    color: var(--lg-muted-foreground);
+    font-size: 0.75rem;
+    letter-spacing: 0.06em;
+  }
+
+  /* ============================================
+     Breadcrumb and pagination: where you are, and the way on
+     ============================================ */
+
+  .lg-breadcrumb {
+    color: var(--lg-muted-foreground);
+    font-size: 0.9375rem;
+    line-height: 1.4;
+  }
+
+  .lg-breadcrumb-list {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.125rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .lg-breadcrumb-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.125rem;
+    min-width: 0;
+  }
+
+  .lg-breadcrumb-link,
+  .lg-breadcrumb-ellipsis,
+  .lg-breadcrumb-page {
+    display: inline-flex;
+    align-items: center;
+    box-sizing: border-box;
+    min-height: 1.875rem;
+    padding: 0 0.625rem;
+    border-radius: 9999px;
+  }
+
+  .lg-breadcrumb-link,
+  .lg-breadcrumb-ellipsis {
+    border: 0;
+    background: transparent;
+    color: var(--lg-muted-foreground);
+    cursor: pointer;
+    font: inherit;
+    text-decoration: none;
+    transition:
+      background-color 180ms ease,
+      color 180ms ease;
+  }
+
+  .lg-breadcrumb-link:hover,
+  .lg-breadcrumb-ellipsis:hover,
+  .lg-breadcrumb-ellipsis[data-state='open'] {
+    background: rgb(255 255 255 / 0.1);
+    color: var(--lg-foreground);
+  }
+
+  [data-lg-theme='light'] .lg-breadcrumb-link:hover,
+  [data-lg-theme='light'] .lg-breadcrumb-ellipsis:hover,
+  [data-lg-theme='light'] .lg-breadcrumb-ellipsis[data-state='open'] {
+    background: rgb(0 0 0 / 0.06);
+  }
+
+  .lg-breadcrumb-link:focus-visible,
+  .lg-breadcrumb-ellipsis:focus-visible {
+    outline: 2px solid var(--lg-focus-ring);
+    outline-offset: 1px;
+  }
+
+  .lg-breadcrumb-ellipsis {
+    padding: 0 0.375rem;
+  }
+
+  .lg-breadcrumb-ellipsis > svg {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+
+  .lg-breadcrumb-page {
+    color: var(--lg-foreground);
+    font-weight: 600;
+  }
+
+  .lg-breadcrumb-separator {
+    display: inline-flex;
+    color: var(--lg-muted-foreground);
+    opacity: 0.65;
+  }
+
+  .lg-breadcrumb-separator > svg {
+    width: 1rem;
+    height: 1rem;
+  }
+
+  [dir='rtl'] .lg-breadcrumb-separator {
+    scale: -1 1;
+  }
+
+  .lg-breadcrumb-item:last-child > .lg-breadcrumb-separator {
+    display: none;
+  }
+
+  .lg-pagination-list {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .lg-page {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    min-width: 2.25rem;
+    height: 2.25rem;
+    padding: 0 0.625rem;
+    border: 0;
+    border-radius: 9999px;
+    background: transparent;
+    box-shadow: inset 0 0 0 1px transparent;
+    color: var(--lg-foreground);
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.9375rem;
+    font-variant-numeric: tabular-nums;
+    -webkit-tap-highlight-color: transparent;
+    transition:
+      background-color 200ms ease,
+      box-shadow 200ms ease,
+      scale 320ms var(--lg-spring);
+  }
+
+  .lg-page > svg {
+    width: 1.125rem;
+    height: 1.125rem;
+  }
+
+  .lg-page:hover:not(:disabled, [data-current]) {
+    background: var(--lg-control-surface-hover);
+  }
+
+  .lg-page:active:not(:disabled) {
+    scale: 0.92;
+  }
+
+  .lg-page:focus-visible {
+    outline: 2px solid var(--lg-focus-ring);
+    outline-offset: 2px;
+  }
+
+  .lg-page:disabled {
+    cursor: not-allowed;
+    opacity: var(--lg-disabled-opacity);
+  }
+
+  .lg-page[data-current] {
+    background: rgb(255 255 255 / 0.16);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.28),
+      inset 0 0 0 1px rgb(255 255 255 / 0.12);
+    font-weight: 600;
+  }
+
+  [data-lg-theme='light'] .lg-page[data-current] {
+    background: rgb(0 0 0 / 0.08);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.9),
+      inset 0 0 0 1px rgb(0 0 0 / 0.06);
+  }
+
+  .lg-page-gap {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.5rem;
+    color: var(--lg-muted-foreground);
+    user-select: none;
+  }
+
+  /* Tabs */
+  .lg-tabs-list {
+    display: flex;
+    width: 100%;
+    max-width: 100%;
+    gap: 0.25rem;
+    padding: 0.25rem;
+    font-size: 0.875rem;
+    line-height: calc(1.25 / 0.875);
+  }
+
+  .lg-tabs-trigger {
+    position: relative;
+    display: flex;
+    flex: 1 1 0%;
+    min-width: 0;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    padding: 0.5rem 0.75rem;
+    color: var(--lg-muted-foreground);
+    transition:
+      color var(--lg-motion-duration) ease,
+      background-color var(--lg-motion-duration) ease,
+      box-shadow var(--lg-motion-duration) ease;
+  }
+
+  .lg-tabs-trigger:focus-visible {
+    outline: 2px solid var(--lg-focus-ring);
+    outline-offset: 2px;
+  }
+
+  .lg-tabs-trigger:disabled {
+    pointer-events: none;
+    opacity: var(--lg-disabled-opacity);
+  }
+
+  .lg-tabs-content {
+    margin-top: 0.75rem;
+    font-size: 0.875rem;
+    line-height: calc(1.25 / 0.875);
+  }
+
+  /* The active trigger is a small raised glass bubble */
+  .lg-tabs-trigger[data-state='active'] {
+    color: var(--lg-foreground);
+    background: rgb(255 255 255 / 0.12);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.22),
+      inset 0 -1px 0 rgb(0 0 0 / 0.12),
+      0 1px 3px rgb(0 0 0 / 0.24),
+      0 4px 12px -4px rgb(0 0 0 / 0.4);
+  }
+
+  [data-lg-theme='light'] .lg-tabs-trigger[data-state='active'] {
+    background: rgb(255 255 255 / 0.82);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.9),
+      0 1px 3px rgb(0 0 0 / 0.1),
+      0 4px 12px -4px rgb(0 0 0 / 0.16);
+  }
+
+  /* The bubble catches the same specular light as the glass around it. */
+  .lg-tabs-trigger[data-state='active']::after,
+  .lg-tabs-indicator::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    padding: var(--lg-rim-width);
+    border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(
+      to bottom right,
+      rgb(255 255 255 / var(--lg-specular-peak)),
+      rgb(255 255 255 / var(--lg-specular-floor)) 38% 62%,
+      rgb(255 255 255 / var(--lg-specular-counter))
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask-composite: exclude;
+  }
+
+  /* Once scripts run, one bubble for the whole list moves between triggers
+     and the active trigger stops drawing its own. */
+  .lg-tabs-indicator {
+    display: none;
+  }
+
+  .lg-tabs-list[data-lg-indicator='ready'] > .lg-tabs-indicator {
+    --lg-bubble-alpha: 0.12;
+
+    position: absolute;
+    z-index: 1;
+    display: block;
+    border-radius: 9999px;
+    pointer-events: none;
+  }
+
+  [data-lg-theme='light'] .lg-tabs-list[data-lg-indicator='ready'] > .lg-tabs-indicator {
+    --lg-bubble-alpha: 0.82;
+  }
+
+  .lg-tabs-list[data-lg-indicator='ready'] .lg-tabs-trigger[data-state='active'] {
+    background: transparent;
+    box-shadow: none;
+    transition: color var(--lg-motion-duration) ease;
+  }
+
+  .lg-tabs-list[data-lg-indicator='ready'] .lg-tabs-trigger[data-state='active']::after {
+    display: none;
+  }
+
+  /* Accordion: the trigger shares the content card's corner radius */
+  .lg-accordion-trigger {
+    display: flex;
+    width: 100%;
+    justify-content: space-between;
+    border: 1px solid var(--lg-border);
+    border-radius: var(--lg-radius-md);
+    padding: 0.75rem 1rem;
+    background: var(--lg-control-surface);
+    box-shadow: none;
+    color: var(--lg-foreground);
+    font-size: 1rem;
+    line-height: 1.5;
+    font-weight: 500;
+    text-align: left;
+    -webkit-backdrop-filter: blur(min(var(--lg-glass-blur), 12px))
+      brightness(var(--lg-glass-brightness)) contrast(var(--lg-glass-contrast))
+      saturate(var(--lg-glass-sat));
+    backdrop-filter: blur(min(var(--lg-glass-blur), 12px)) brightness(var(--lg-glass-brightness))
+      contrast(var(--lg-glass-contrast)) saturate(var(--lg-glass-sat));
+    transition:
+      transform var(--lg-motion-duration) cubic-bezier(0.2, 0, 0, 1),
+      background-color var(--lg-motion-duration) ease;
+  }
+
+  .lg-accordion-trigger:hover {
+    background: var(--lg-control-surface-hover);
+  }
+
+  .lg-accordion-trigger:disabled {
+    pointer-events: none;
+    opacity: var(--lg-disabled-opacity);
+  }
+
+  .lg-accordion-content {
+    margin-top: 0.5rem;
+    overflow: hidden;
+    font-size: 0.875rem;
+    line-height: calc(1.25 / 0.875);
+  }
+
+  .lg-accordion-chevron {
+    flex: none;
+    transition: transform var(--lg-motion-duration) ease;
+  }
+
+  .lg-accordion-trigger[data-state='open'] .lg-accordion-chevron {
+    transform: rotate(180deg);
+  }
+
+  /* ============================================
+     Enter and exit motion. Radix keeps a closing layer mounted until its exit
+     animation ends; the reduced motion guards above cut both to zero. The
+     keyframes move scale and translate, never transform, so they compose
+     with positioning and with a sheet's drag offset.
+     ============================================ */
+
+  @keyframes lg-fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+
+  @keyframes lg-fade-out {
+    to {
+      opacity: 0;
+    }
+  }
+
+  /* A layer grows out of whatever opened it. --lg-pop-x and --lg-pop-y hold the last few pixels
+     of its travel, away from its trigger; a dialog keeps its own centring in them and rises. */
+  @keyframes lg-pop-in {
+    from {
+      opacity: 0;
+      scale: 0.96;
+      translate: var(--lg-pop-x, 0) var(--lg-pop-y, 0);
+    }
+  }
+
+  @keyframes lg-pop-out {
+    to {
+      opacity: 0;
+      scale: 0.96;
+      translate: var(--lg-pop-x, 0) var(--lg-pop-y, 0);
+    }
+  }
+
+  .lg-dialog-content {
+    --lg-pop-x: -50%;
+    --lg-pop-y: calc(-50% + 0.5rem);
+  }
+
+  .lg-popover-content[data-side='bottom'],
+  .lg-menu-content[data-side='bottom'],
+  .lg-select-content[data-side='bottom'],
+  .lg-tooltip-content[data-side='bottom'] {
+    --lg-pop-y: -0.25rem;
+  }
+
+  .lg-popover-content[data-side='top'],
+  .lg-menu-content[data-side='top'],
+  .lg-select-content[data-side='top'],
+  .lg-tooltip-content[data-side='top'] {
+    --lg-pop-y: 0.25rem;
+  }
+
+  .lg-popover-content[data-side='right'],
+  .lg-menu-content[data-side='right'],
+  .lg-select-content[data-side='right'],
+  .lg-tooltip-content[data-side='right'] {
+    --lg-pop-x: -0.25rem;
+  }
+
+  .lg-popover-content[data-side='left'],
+  .lg-menu-content[data-side='left'],
+  .lg-select-content[data-side='left'],
+  .lg-tooltip-content[data-side='left'] {
+    --lg-pop-x: 0.25rem;
+  }
+
+  .lg-dialog-overlay[data-state='open'] {
+    animation: lg-fade-in 320ms var(--lg-ease-out);
+  }
+
+  .lg-dialog-overlay[data-state='closed'] {
+    animation: lg-fade-out 220ms ease-in forwards;
+  }
+
+  .lg-dialog-content[data-state='open'],
+  .lg-popover-content[data-state='open'],
+  .lg-menu-content[data-state='open'],
+  .lg-select-content[data-state='open'] {
+    animation: lg-pop-in 240ms var(--lg-ease-out);
+  }
+
+  .lg-dialog-content[data-state='closed'],
+  .lg-popover-content[data-state='closed'],
+  .lg-menu-content[data-state='closed'],
+  .lg-select-content[data-state='closed'] {
+    animation: lg-pop-out 160ms ease-in forwards;
+  }
+
+  .lg-popover-content {
+    transform-origin: var(--radix-popover-content-transform-origin);
+  }
+
+  .lg-menu-content {
+    transform-origin: var(--radix-dropdown-menu-content-transform-origin);
+  }
+
+  .lg-select-content {
+    transform-origin: var(--radix-select-content-transform-origin);
+  }
+
+  /* A tip settles in from the side it opens toward and fades on the way out. Moving from one
+     trigger to the next skips the entrance, so the tip follows the pointer instead of restarting. */
+  .lg-tooltip-content {
+    transform-origin: var(--radix-tooltip-content-transform-origin);
+  }
+
+  .lg-tooltip-content[data-state='delayed-open'] {
+    animation: lg-pop-in 140ms var(--lg-ease-out);
+  }
+
+  .lg-tooltip-content[data-state='instant-open'] {
+    animation: lg-fade-in 90ms ease-out;
+  }
+
+  .lg-tooltip-content[data-state='closed'] {
+    animation: lg-pop-out 100ms ease-in forwards;
+  }
+
+  /* A toast slides in from the side it will leave toward and back out when it goes: the side of
+     its swipe direction, the right unless the provider says otherwise. The slide is on the list
+     item and the fade on the glass itself: opacity on an ancestor of the frost would turn its blur
+     off until the animation ended. A swipe drags it and a fling sends it on its way. */
+  .lg-toast {
+    --lg-toast-shift-x: 2rem;
+    --lg-toast-shift-y: 0px;
+    --lg-toast-fly-x: calc(100% + 2rem);
+    --lg-toast-fly-y: 0px;
+  }
+
+  .lg-toast[data-swipe-direction='left'] {
+    --lg-toast-shift-x: -2rem;
+    --lg-toast-fly-x: calc(-100% - 2rem);
+  }
+
+  .lg-toast[data-swipe-direction='up'] {
+    --lg-toast-shift-x: 0px;
+    --lg-toast-shift-y: -2rem;
+    --lg-toast-fly-x: 0px;
+    --lg-toast-fly-y: calc(-100% - 2rem);
+  }
+
+  .lg-toast[data-swipe-direction='down'] {
+    --lg-toast-shift-x: 0px;
+    --lg-toast-shift-y: 2rem;
+    --lg-toast-fly-x: 0px;
+    --lg-toast-fly-y: calc(100% + 2rem);
+  }
+
+  @keyframes lg-toast-slide-in {
+    from {
+      translate: var(--lg-toast-shift-x) var(--lg-toast-shift-y);
+    }
+  }
+
+  @keyframes lg-toast-slide-out {
+    to {
+      translate: var(--lg-toast-shift-x) var(--lg-toast-shift-y);
+    }
+  }
+
+  @keyframes lg-toast-swipe-out {
+    from {
+      translate: var(--radix-toast-swipe-end-x, 0px) var(--radix-toast-swipe-end-y, 0px);
+    }
+
+    to {
+      translate: var(--lg-toast-fly-x) var(--lg-toast-fly-y);
+    }
+  }
+
+  .lg-toast[data-state='open'] {
+    animation: lg-toast-slide-in 420ms var(--lg-ease-out);
+  }
+
+  .lg-toast[data-state='open'] > .lg-toast-root {
+    animation: lg-fade-in 300ms ease-out;
+  }
+
+  .lg-toast[data-state='closed'] {
+    animation: lg-toast-slide-out 220ms ease-in forwards;
+  }
+
+  .lg-toast[data-state='closed'] > .lg-toast-root {
+    animation: lg-fade-out 200ms ease-in forwards;
+  }
+
+  .lg-toast[data-swipe='move'] {
+    translate: var(--radix-toast-swipe-move-x, 0px) var(--radix-toast-swipe-move-y, 0px);
+  }
+
+  .lg-toast[data-swipe='cancel'] {
+    translate: 0 0;
+    transition: translate 260ms var(--lg-spring);
+  }
+
+  .lg-toast[data-swipe='end'] {
+    animation: lg-toast-swipe-out 160ms ease-out forwards;
+  }
+
+  /* The card opens and closes like a curtain. Height and padding move, opacity does not, for
+     the same reason as the toast: the card's frost sits in a child layer. */
+  @keyframes lg-accordion-down {
+    from {
+      height: 0;
+      margin-top: 0;
+      padding-block: 0;
+    }
+
+    to {
+      height: var(--radix-accordion-content-height);
+    }
+  }
+
+  @keyframes lg-accordion-up {
+    from {
+      height: var(--radix-accordion-content-height);
+    }
+
+    to {
+      height: 0;
+      margin-top: 0;
+      padding-block: 0;
+    }
+  }
+
+  .lg-accordion-content[data-state='open'] {
+    animation: lg-accordion-down 300ms var(--lg-ease-out);
+  }
+
+  .lg-accordion-content[data-state='closed'] {
+    animation: lg-accordion-up 220ms ease-in forwards;
+  }
+
+  @keyframes lg-avatar-in {
+    from {
+      opacity: 0;
+      scale: 1.06;
+    }
+  }
+
+  .lg-avatar-image {
+    animation: lg-avatar-in 260ms var(--lg-ease-out);
+  }
+
+  /* ============================================
+     Switch: a pill track and a white knob that turns to clear glass while it
+     is held, the way the system toggle does
+     ============================================ */
+
+  .lg-switch {
+    --lg-switch-width: 3.75rem;
+    --lg-switch-height: 1.75rem;
+    --lg-switch-thumb-width: 2.25rem;
+    --lg-switch-thumb-height: 1.5rem;
+    --lg-switch-inset: 0.125rem;
+    --lg-switch-direction: 1;
+    /* Held, the knob swells past the track, and the lens shows what lies under it at
+       this share of its size. */
+    --lg-switch-swell: 1.57;
+    --lg-switch-minify: 0.85;
+    /* The colour of the track under the knob, which its rim and glow pick up. */
+    --lg-switch-lens-tint: var(--lg-track);
+
+    position: relative;
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    box-sizing: border-box;
+    width: var(--lg-switch-width);
+    height: var(--lg-switch-height);
+    margin: 0;
+    padding: 0 var(--lg-switch-inset);
+    border: none;
+    border-radius: 9999px;
+    background: var(--lg-track);
+    box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.1);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: background-color 250ms ease;
+  }
+
+  .lg-switch[data-size='sm'] {
+    --lg-switch-width: 2.875rem;
+    --lg-switch-height: 1.5rem;
+    --lg-switch-thumb-width: 1.75rem;
+    --lg-switch-thumb-height: 1.25rem;
+  }
+
+  [dir='rtl'] .lg-switch,
+  .lg-switch[dir='rtl'] {
+    --lg-switch-direction: -1;
+  }
+
+  .lg-switch[data-state='checked'] {
+    --lg-switch-lens-tint: var(--lg-switch-on);
+
+    background: var(--lg-switch-on);
+  }
+
+  .lg-switch:focus-visible {
+    outline: 2px solid var(--lg-focus-ring);
+    outline-offset: 2px;
+  }
+
+  .lg-switch[data-disabled] {
+    cursor: not-allowed;
+    opacity: var(--lg-disabled-opacity);
+  }
+
+  .lg-switch-thumb {
+    position: relative;
+    display: block;
+    flex: none;
+    width: var(--lg-switch-thumb-width);
+    height: var(--lg-switch-thumb-height);
+    border-radius: 9999px;
+    background: var(--lg-knob);
+    box-shadow: var(--lg-knob-shadow);
+    pointer-events: none;
+    translate: 0 0;
+    transition:
+      translate 420ms var(--lg-spring),
+      scale 320ms var(--lg-spring),
+      background-color 180ms ease,
+      box-shadow 180ms ease;
+  }
+
+  .lg-switch[data-state='checked'] .lg-switch-thumb {
+    translate: calc(
+        (var(--lg-switch-width) - var(--lg-switch-thumb-width) - var(--lg-switch-inset) * 2) *
+          var(--lg-switch-direction)
+      )
+      0;
+  }
+
+  /* Held, the knob swells past the track into a lens of clear glass. Through it the
+     track and what lies around it show a little smaller, and they bend at the rim. Lit
+     from the top left, the rim takes the track's colour, heavier along the bottom and
+     right where the light leaves the glass, and glints on the left. A soft glow in the
+     same colour lies around it. After a flip it stays this size and glass while it
+     slides, and only then shrinks back. */
+  .lg-switch:is(:active, [data-lg-moving]):not([data-disabled]) .lg-switch-thumb {
+    background: rgb(255 255 255 / 0);
+    box-shadow:
+      0.4px 0.8px 0.8px rgb(0 0 0 / 0.14),
+      0 2px 5px rgb(0 0 0 / 0.06),
+      0 0 12px 3px color-mix(in srgb, var(--lg-switch-lens-tint) 18%, transparent);
+    scale: var(--lg-switch-swell);
+  }
+
+  .lg-switch-thumb::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    border-radius: inherit;
+    pointer-events: none;
+    opacity: 0;
+    /* Gradients and unblurred shadows only: WebKit draws a blurred inset shadow at low
+       resolution, which the swell would show as blocks. */
+    background:
+      radial-gradient(19% 7% at 15% 20%, rgb(255 255 255 / 0.95), rgb(255 255 255 / 0)),
+      radial-gradient(19% 7% at 15% 80%, rgb(255 255 255 / 0.85), rgb(255 255 255 / 0)),
+      linear-gradient(
+        to top,
+        color-mix(in srgb, var(--lg-switch-lens-tint) 18%, transparent),
+        transparent 32%
+      ),
+      linear-gradient(rgb(0 0 0 / 0.05), transparent 14%),
+      linear-gradient(rgb(255 255 255 / 0.07), rgb(255 255 255 / 0.02));
+    box-shadow:
+      inset 0.35px 0.6px color-mix(in srgb, var(--lg-switch-lens-tint) 80%, black),
+      inset 0 0 0 0.4px var(--lg-switch-lens-tint),
+      inset -0.6px -1.4px oklch(from var(--lg-switch-lens-tint) calc(l + 0.1) c h),
+      inset -0.9px -2.2px
+        color-mix(
+          in srgb,
+          oklch(from var(--lg-switch-lens-tint) calc(l + 0.18) c h) 45%,
+          transparent
+        );
+    transition:
+      opacity 180ms ease,
+      box-shadow 250ms ease;
+  }
+
+  .lg-switch:is(:active, [data-lg-moving]):not([data-disabled]) .lg-switch-thumb::after {
+    opacity: 1;
+  }
+
+  /* The lens reaches a margin past the knob so its rim has track to bend in, and cuts the
+     filtered view back to the knob, half a pixel inside so the rim's highlight covers the
+     copy's edge. A clip on the filtered element itself would let Chromium draw the
+     filter's margin outside it. It is hidden at rest, so the filter only runs while the
+     knob is glass. */
+  .lg-switch-lens {
+    position: absolute;
+    top: calc(var(--lg-switch-lens-margin, 0px) * -1);
+    left: calc(var(--lg-switch-lens-margin, 0px) * -1);
+    width: calc(var(--lg-switch-thumb-width) + var(--lg-switch-lens-margin, 0px) * 2);
+    height: calc(var(--lg-switch-thumb-height) + var(--lg-switch-lens-margin, 0px) * 2);
+    clip-path: inset(calc(var(--lg-switch-lens-margin, 0px) + 0.5px) round 9999px);
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    transition:
+      opacity 180ms ease,
+      visibility 0s linear 180ms;
+  }
+
+  /* The view is laid out at --lg-switch-lens-scale times the lens and scaled back down on
+     its own layer, so engines that filter at layout resolution bend it smoothly too.
+     WebKit draws a filtered layer from its overflow origin, so the view clips its own
+     overflow on a composited layer. It is filled with the colour behind the switch,
+     which the component reads when the knob is pressed, so the real track under the
+     knob stays hidden. */
+  .lg-switch-lens-view {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: calc(100% * var(--lg-switch-lens-scale, 1));
+    height: calc(100% * var(--lg-switch-lens-scale, 1));
+    overflow: hidden;
+    background: var(--lg-switch-lens-backdrop, var(--lg-bg));
+    transform-origin: 0 0;
+    transform: translateZ(0) scale(calc(1 / var(--lg-switch-lens-scale, 1)));
+  }
+
+  .lg-switch:is(:active, [data-lg-moving]):not([data-disabled]) .lg-switch-lens {
+    opacity: 1;
+    visibility: visible;
+    transition-delay: 0s;
+  }
+
+  /* The scene under the lens, around the knob's centre. It undoes the knob's swell with
+     the same timing, and shows what lies under the knob at --lg-switch-minify of its
+     size. */
+  .lg-switch-lens-scene {
+    position: absolute;
+    inset: 0;
+    scale: var(--lg-switch-minify);
+    transition: scale 320ms var(--lg-spring);
+  }
+
+  .lg-switch:is(:active, [data-lg-moving]):not([data-disabled]) .lg-switch-lens-scene {
+    scale: calc(var(--lg-switch-minify) / var(--lg-switch-swell));
+  }
+
+  /* The track as it lies under the knob, at the lens's scale: the knob's slide is undone
+     with the same timing, so the copy stays put while the knob passes over it. */
+  .lg-switch-lens-track {
+    position: absolute;
+    inset-inline-start: calc(
+      (var(--lg-switch-lens-margin, 0px) - var(--lg-switch-inset)) * var(--lg-switch-lens-scale, 1)
+    );
+    top: calc(
+      (var(--lg-switch-lens-margin, 0px) -
+          (var(--lg-switch-height) - var(--lg-switch-thumb-height)) / 2) *
+        var(--lg-switch-lens-scale, 1)
+    );
+    width: calc(var(--lg-switch-width) * var(--lg-switch-lens-scale, 1));
+    height: calc(var(--lg-switch-height) * var(--lg-switch-lens-scale, 1));
+    border-radius: 9999px;
+    background: var(--lg-track);
+    box-shadow: inset 0 calc(var(--lg-switch-lens-scale, 1) * 1px)
+      calc(var(--lg-switch-lens-scale, 1) * 2px) rgb(0 0 0 / 0.1);
+    translate: 0 0;
+    transition:
+      translate 420ms var(--lg-spring),
+      background-color 250ms ease;
+  }
+
+  .lg-switch[data-state='checked'] .lg-switch-lens-track {
+    background: var(--lg-switch-on);
+    translate: calc(
+        (var(--lg-switch-width) - var(--lg-switch-thumb-width) - var(--lg-switch-inset) * 2) *
+          var(--lg-switch-direction) * var(--lg-switch-lens-scale, 1) * -1
+      )
+      0;
+  }
+
+  /* ============================================
+     Slider: a thin track, an accent fill and the same capsule knob
+     ============================================ */
+
+  .lg-slider {
+    --lg-slider-thumb-width: 2.375rem;
+    --lg-slider-thumb-height: 1.5rem;
+    --lg-slider-track-size: 0.375rem;
+
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    height: var(--lg-slider-thumb-height);
+    touch-action: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .lg-slider[data-orientation='vertical'] {
+    flex-direction: column;
+    width: var(--lg-slider-thumb-height);
+    height: 100%;
+    min-height: 8rem;
+  }
+
+  .lg-slider[data-disabled] {
+    opacity: var(--lg-disabled-opacity);
+  }
+
+  .lg-slider-track {
+    position: relative;
+    flex-grow: 1;
+    overflow: hidden;
+    border-radius: 9999px;
+    background: var(--lg-track);
+  }
+
+  .lg-slider-track[data-orientation='horizontal'] {
+    height: var(--lg-slider-track-size);
+  }
+
+  .lg-slider-track[data-orientation='vertical'] {
+    width: var(--lg-slider-track-size);
+  }
+
+  .lg-slider-range {
+    position: absolute;
+    border-radius: inherit;
+    background: var(--lg-accent);
+  }
+
+  .lg-slider-range[data-orientation='horizontal'] {
+    height: 100%;
+  }
+
+  .lg-slider-range[data-orientation='vertical'] {
+    width: 100%;
+  }
+
+  .lg-slider-thumb {
+    display: block;
+    width: var(--lg-slider-thumb-width);
+    height: var(--lg-slider-thumb-height);
+    border-radius: 9999px;
+    background: var(--lg-knob);
+    box-shadow: var(--lg-knob-shadow);
+    cursor: grab;
+    /* Script stretches a dragged knob along the track with its speed. */
+    transform: scale(var(--lg-stretch-x, 1), var(--lg-stretch-y, 1));
+    transition:
+      scale 320ms var(--lg-spring),
+      background-color 180ms ease,
+      box-shadow 180ms ease;
+  }
+
+  .lg-slider[data-orientation='vertical'] .lg-slider-thumb {
+    width: var(--lg-slider-thumb-height);
+    height: var(--lg-slider-thumb-width);
+  }
+
+  .lg-slider-thumb:focus-visible {
+    outline: 2px solid var(--lg-focus-ring);
+    outline-offset: 2px;
+  }
+
+  .lg-slider[data-disabled] .lg-slider-thumb {
+    cursor: not-allowed;
+  }
+
+  /* Radix focuses the thumb it drags, so only that one turns to glass. */
+  .lg-slider:not([data-disabled]):active .lg-slider-thumb:focus {
+    background: rgb(255 255 255 / 0.16);
+    box-shadow:
+      inset 0 0 0 0.5px rgb(255 255 255 / 0.55),
+      inset 1.5px 2px 1px -1px rgb(255 255 255 / 0.9),
+      inset -1.5px -2px 1px -1px rgb(255 255 255 / 0.55),
+      inset 0 0 8px rgb(255 255 255 / 0.28),
+      0 4px 14px rgb(0 0 0 / 0.2);
+    cursor: grabbing;
+    scale: 1.3 1.4;
+  }
+
+  /* ============================================
+     Segmented control: one raised bubble slides between equal segments.
+     :has() counts the segments and finds the checked one, so the bubble is
+     placed before any script runs. Up to six segments.
+     ============================================ */
+
+  .lg-segmented {
+    --lg-segmented-pad: 0.1875rem;
+
+    display: grid;
+    grid-auto-columns: minmax(0, 1fr);
+    grid-auto-flow: column;
+    width: 100%;
+    padding: var(--lg-segmented-pad);
+    font-size: 0.875rem;
+    line-height: calc(1.25 / 0.875);
+  }
+
+  .lg-segmented:has(> button:nth-of-type(2):last-of-type) {
+    --lg-segmented-count: 2;
+  }
+
+  .lg-segmented:has(> button:nth-of-type(3):last-of-type) {
+    --lg-segmented-count: 3;
+  }
+
+  .lg-segmented:has(> button:nth-of-type(4):last-of-type) {
+    --lg-segmented-count: 4;
+  }
+
+  .lg-segmented:has(> button:nth-of-type(5):last-of-type) {
+    --lg-segmented-count: 5;
+  }
+
+  .lg-segmented:has(> button:nth-of-type(6):last-of-type) {
+    --lg-segmented-count: 6;
+  }
+
+  .lg-segmented:has(> button:nth-of-type(2)[data-state='checked']) {
+    --lg-segmented-index: 1;
+  }
+
+  .lg-segmented:has(> button:nth-of-type(3)[data-state='checked']) {
+    --lg-segmented-index: 2;
+  }
+
+  .lg-segmented:has(> button:nth-of-type(4)[data-state='checked']) {
+    --lg-segmented-index: 3;
+  }
+
+  .lg-segmented:has(> button:nth-of-type(5)[data-state='checked']) {
+    --lg-segmented-index: 4;
+  }
+
+  .lg-segmented:has(> button:nth-of-type(6)[data-state='checked']) {
+    --lg-segmented-index: 5;
+  }
+
+  .lg-segmented > .lg-segmented-indicator {
+    position: absolute;
+    top: var(--lg-segmented-pad);
+    bottom: var(--lg-segmented-pad);
+    left: var(--lg-segmented-pad);
+    z-index: 1;
+    width: calc((100% - var(--lg-segmented-pad) * 2) / var(--lg-segmented-count, 1));
+    border-radius: 9999px;
+    background: rgb(255 255 255 / 0.14);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.22),
+      inset 0 -1px 0 rgb(0 0 0 / 0.12),
+      0 1px 3px rgb(0 0 0 / 0.24),
+      0 4px 12px -4px rgb(0 0 0 / 0.4);
+    pointer-events: none;
+    translate: calc(var(--lg-segmented-index, 0) * 100%) 0;
+    transition:
+      translate 460ms var(--lg-spring),
+      opacity 200ms ease;
+  }
+
+  [dir='rtl'] .lg-segmented > .lg-segmented-indicator {
+    right: var(--lg-segmented-pad);
+    left: auto;
+    translate: calc(var(--lg-segmented-index, 0) * -100%) 0;
+  }
+
+  .lg-segmented:not(:has(> button[data-state='checked'])) > .lg-segmented-indicator {
+    opacity: 0;
+  }
+
+  /* Light glass on a white page would hide the white bubble, so the track
+     sinks into a faint slate well. */
+  [data-lg-theme='light']:not([data-lg-reduce-transparency='1']) .lg-segmented::before {
+    background-color: rgb(100 108 140 / 0.12);
+  }
+
+  [data-lg-theme='light'] .lg-segmented > .lg-segmented-indicator {
+    background: rgb(255 255 255 / 0.9);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.9),
+      0 1px 3px rgb(0 0 0 / 0.1),
+      0 4px 12px -4px rgb(0 0 0 / 0.16);
+  }
+
+  /* Once measured, script owns the bubble. It springs each edge toward the
+     selected item and writes --lg-lift while the bubble travels or is held,
+     which turns it into clearer glass that floats higher. */
+  .lg-segmented[data-lg-indicator='ready'] {
+    touch-action: pan-y;
+  }
+
+  .lg-segmented[data-lg-indicator='ready'] > .lg-segmented-indicator {
+    --lg-bubble-alpha: 0.14;
+  }
+
+  [data-lg-theme='light'] .lg-segmented[data-lg-indicator='ready'] > .lg-segmented-indicator {
+    --lg-bubble-alpha: 0.9;
+  }
+
+  .lg-segmented[data-lg-indicator='ready'] > .lg-segmented-indicator,
+  .lg-tabs-list[data-lg-indicator='ready'] > .lg-tabs-indicator {
+    --lg-bubble-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.22), inset 0 -1px 0 rgb(0 0 0 / 0.12),
+      0 1px 3px rgb(0 0 0 / 0.24), 0 4px 12px -4px rgb(0 0 0 / 0.4);
+
+    top: 0;
+    right: auto;
+    bottom: auto;
+    left: 0;
+    /* A bead of glass: lit from above, clearer while it is lifted, and it
+       brightens and sharpens what lies under it. */
+    background: linear-gradient(
+      180deg,
+      rgb(255 255 255 / calc((var(--lg-bubble-alpha) + 0.08) * (1 - var(--lg-lift, 0) * 0.55))),
+      rgb(255 255 255 / calc(var(--lg-bubble-alpha) * (1 - var(--lg-lift, 0) * 0.55)))
+    );
+    -webkit-backdrop-filter: blur(2px) saturate(1.5)
+      brightness(calc(1.08 + var(--lg-lift, 0) * 0.14));
+    backdrop-filter: blur(2px) saturate(1.5) brightness(calc(1.08 + var(--lg-lift, 0) * 0.14));
+    box-shadow:
+      inset 0 0 0 calc(var(--lg-lift, 0) * 0.75px) rgb(255 255 255 / calc(var(--lg-lift, 0) * 0.5)),
+      inset 0 0 calc(var(--lg-lift, 0) * 12px) rgb(255 255 255 / calc(var(--lg-lift, 0) * 0.2)),
+      0 calc(var(--lg-lift, 0) * 8px) calc(var(--lg-lift, 0) * 22px)
+        rgb(0 0 0 / calc(var(--lg-lift, 0) * 0.25)),
+      var(--lg-bubble-shadow);
+    transition: opacity 200ms ease;
+  }
+
+  [data-lg-theme='light'] .lg-segmented[data-lg-indicator='ready'] > .lg-segmented-indicator,
+  [data-lg-theme='light'] .lg-tabs-list[data-lg-indicator='ready'] > .lg-tabs-indicator {
+    --lg-bubble-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.9), 0 1px 3px rgb(0 0 0 / 0.1),
+      0 4px 12px -4px rgb(0 0 0 / 0.16);
+  }
+
+  :is(.lg-segmented-indicator, .lg-tabs-indicator)[data-lg-empty] {
+    opacity: 0;
+  }
+
+  .lg-segmented[data-lg-dragging] {
+    cursor: grabbing;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  .lg-segmented-indicator::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    padding: var(--lg-rim-width);
+    border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(
+      to bottom right,
+      rgb(255 255 255 / var(--lg-specular-peak)),
+      rgb(255 255 255 / var(--lg-specular-floor)) 38% 62%,
+      rgb(255 255 255 / var(--lg-specular-counter))
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask-composite: exclude;
+  }
+
+  [data-lg-reduce-transparency='1'] :is(.lg-segmented-indicator, .lg-tabs-indicator)::after {
+    background: var(--lg-border);
+  }
+
+  [data-lg-reduce-transparency='1'] .lg-segmented > .lg-segmented-indicator,
+  [data-lg-reduce-transparency='1']
+    :is(.lg-segmented, .lg-tabs-list)[data-lg-indicator='ready']
+    > :is(.lg-segmented-indicator, .lg-tabs-indicator) {
+    background: var(--lg-control-surface-hover);
+  }
+
+  .lg-segmented-item {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    margin: 0;
+    padding: 0.4375rem 0.875rem;
+    border: none;
+    border-radius: 9999px;
+    background: transparent;
+    color: var(--lg-muted-foreground);
+    font: inherit;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: color var(--lg-motion-duration) ease;
+  }
+
+  .lg-segmented-item:hover:not([data-disabled]),
+  .lg-segmented-item[data-state='checked'] {
+    color: var(--lg-foreground);
+  }
+
+  .lg-segmented-item:focus-visible {
+    outline: 2px solid var(--lg-focus-ring);
+    outline-offset: -2px;
+  }
+
+  .lg-segmented-item[data-disabled] {
+    cursor: not-allowed;
+    opacity: var(--lg-disabled-opacity);
+  }
+
+  /* ============================================
+     Badge: a small frosted capsule. Every tone keeps 4.5:1 text contrast
+     over a pure black or pure white backdrop in both themes.
+     ============================================ */
+
+  .lg-badge {
+    --lg-badge-fill: 44 44 46;
+    --lg-badge-ink: #f5f5f7;
+    --lg-badge-tint: 142 142 147;
+    --lg-badge-highlight: rgb(255 255 255 / 0.12);
+
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    box-sizing: border-box;
+    padding: 0.1875rem 0.625rem;
+    border-radius: 9999px;
+    background: rgb(var(--lg-badge-fill) / 0.88);
+    box-shadow:
+      inset 0 1px 0 var(--lg-badge-highlight),
+      inset 0 0 0 0.5px rgb(var(--lg-badge-tint) / 0.4);
+    color: var(--lg-badge-ink);
+    font-size: 0.75rem;
+    line-height: 1rem;
+    font-weight: 600;
+    white-space: nowrap;
+    -webkit-backdrop-filter: blur(min(var(--lg-glass-blur), 12px))
+      brightness(var(--lg-glass-brightness)) contrast(var(--lg-glass-contrast))
+      saturate(var(--lg-glass-sat));
+    backdrop-filter: blur(min(var(--lg-glass-blur), 12px)) brightness(var(--lg-glass-brightness))
+      contrast(var(--lg-glass-contrast)) saturate(var(--lg-glass-sat));
+  }
+
+  .lg-badge[data-tone='blue'] {
+    --lg-badge-fill: 13 44 82;
+    --lg-badge-ink: #b2d6ff;
+    --lg-badge-tint: 0 103 217;
+  }
+
+  .lg-badge[data-tone='green'] {
+    --lg-badge-fill: 22 60 48;
+    --lg-badge-ink: #7cebc0;
+    --lg-badge-tint: 51 214 159;
+  }
+
+  .lg-badge[data-tone='orange'] {
+    --lg-badge-fill: 70 54 22;
+    --lg-badge-ink: #ffd27a;
+    --lg-badge-tint: 255 189 56;
+  }
+
+  .lg-badge[data-tone='red'] {
+    --lg-badge-fill: 76 30 44;
+    --lg-badge-ink: #ffa6b7;
+    --lg-badge-tint: 255 92 122;
+  }
+
+  .lg-badge[data-tone='purple'] {
+    --lg-badge-fill: 44 36 92;
+    --lg-badge-ink: #c7b8ff;
+    --lg-badge-tint: 155 128 255;
+  }
+
+  [data-lg-theme='light'] .lg-badge {
+    --lg-badge-fill: 242 242 244;
+    --lg-badge-ink: #222224;
+    --lg-badge-highlight: rgb(255 255 255 / 0.9);
+  }
+
+  [data-lg-theme='light'] .lg-badge[data-tone='blue'] {
+    --lg-badge-fill: 229 241 255;
+    --lg-badge-ink: #0054b3;
+    --lg-badge-tint: 0 103 217;
+  }
+
+  [data-lg-theme='light'] .lg-badge[data-tone='green'] {
+    --lg-badge-fill: 224 247 238;
+    --lg-badge-ink: #08603f;
+    --lg-badge-tint: 20 168 116;
+  }
+
+  [data-lg-theme='light'] .lg-badge[data-tone='orange'] {
+    --lg-badge-fill: 255 243 219;
+    --lg-badge-ink: #824c00;
+    --lg-badge-tint: 232 150 12;
+  }
+
+  [data-lg-theme='light'] .lg-badge[data-tone='red'] {
+    --lg-badge-fill: 255 229 236;
+    --lg-badge-ink: #a8113a;
+    --lg-badge-tint: 232 52 90;
+  }
+
+  [data-lg-theme='light'] .lg-badge[data-tone='purple'] {
+    --lg-badge-fill: 237 232 255;
+    --lg-badge-ink: #5532d0;
+    --lg-badge-tint: 106 76 240;
+  }
+
+  .lg-badge-dot {
+    flex: none;
+    width: 0.375rem;
+    height: 0.375rem;
+    border-radius: 9999px;
+    background: rgb(var(--lg-badge-tint));
+  }
+
+  /* ============================================
+     Dock: a glass shelf under a row of icons that name themselves on hover
+     ============================================ */
+
+  .lg-dock {
+    --lg-dock-size: 3rem;
+    --lg-dock-gap: 0.5rem;
+    --lg-dock-pad: 0.625rem;
+
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--lg-dock-gap);
+    box-sizing: border-box;
+    height: calc(var(--lg-dock-size) + var(--lg-dock-pad) * 2);
+    padding: var(--lg-dock-pad) calc(var(--lg-dock-pad) + 0.125rem);
+    isolation: isolate;
+  }
+
+  .lg-dock > .lg-dock-shelf {
+    --lg-panel-radius: calc(var(--lg-dock-size) * 0.24 + var(--lg-dock-pad));
+
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  .lg-dock-item {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    width: calc(var(--lg-dock-size) * var(--lg-dock-scale, 1));
+    height: calc(var(--lg-dock-size) * var(--lg-dock-scale, 1));
+    margin: 0;
+    padding: 0;
+    border: none;
+    border-radius: 22.5%;
+    /* Nothing is painted behind the artwork, so an icon that bounces or has clear edges shows the
+       shelf. */
+    background: none;
+    color: inherit;
+    cursor: pointer;
+    /* The hover label sits outside the button, where a double click would otherwise select it
+       even while it is hidden. */
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* A consumer's icon dimensions take precedence over the full-size app artwork. */
+  .lg-dock-item > :where(:not(.lg-dock-label, .lg-dock-dot)) {
+    width: 100%;
+    height: 100%;
+  }
+
+  .lg-dock-item:focus-visible {
+    outline: 2px solid var(--lg-focus-ring);
+    outline-offset: 3px;
+  }
+
+  .lg-dock-label {
+    position: absolute;
+    bottom: calc(100% + 0.625rem);
+    left: 50%;
+    z-index: 2;
+    padding: 0.375rem 0.625rem;
+    border-radius: 0.625rem;
+    background: var(--lg-overlay-surface);
+    box-shadow:
+      inset 0 0 0 0.5px var(--lg-border),
+      var(--lg-shadow);
+    color: var(--lg-foreground);
+    font-size: 0.8125rem;
+    line-height: 1.125rem;
+    font-weight: 500;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    translate: -50% 0.25rem;
+    transition:
+      opacity 150ms ease,
+      translate 220ms var(--lg-ease-out);
+    -webkit-backdrop-filter: blur(min(var(--lg-glass-blur), 16px))
+      brightness(var(--lg-glass-brightness)) contrast(var(--lg-glass-contrast))
+      saturate(var(--lg-glass-sat));
+    backdrop-filter: blur(min(var(--lg-glass-blur), 16px)) brightness(var(--lg-glass-brightness))
+      contrast(var(--lg-glass-contrast)) saturate(var(--lg-glass-sat));
+  }
+
+  .lg-dock-item:hover > .lg-dock-label,
+  .lg-dock-item:focus-visible > .lg-dock-label {
+    opacity: 1;
+    translate: -50% 0;
+  }
+
+  .lg-dock-dot {
+    position: absolute;
+    bottom: calc(var(--lg-dock-pad) * -1 + 0.1875rem);
+    left: 50%;
+    width: 0.25rem;
+    height: 0.25rem;
+    border-radius: 9999px;
+    background: var(--lg-foreground);
+    opacity: 0;
+    translate: -50% 0;
+    transition: opacity 200ms ease;
+  }
+
+  .lg-dock-item[data-active='true'] > .lg-dock-dot {
+    opacity: 0.75;
+  }
+
+  .lg-dock-separator {
+    position: relative;
+    z-index: 1;
+    flex: none;
+    align-self: stretch;
+    width: 1px;
+    margin: 0.375rem 0.25rem;
+    background: var(--lg-border);
+  }
+
+  /* ============================================
+     Sheet: a glass card that slides in from an edge. A bottom sheet can be
+     dragged down by its grabber to dismiss it.
+     ============================================ */
+
+  @keyframes lg-sheet-in-bottom {
+    from {
+      translate: 0 calc(100% + 1rem);
+    }
+  }
+
+  @keyframes lg-sheet-out-bottom {
+    to {
+      translate: 0 calc(100% + 1rem);
+    }
+  }
+
+  @keyframes lg-sheet-in-top {
+    from {
+      translate: 0 calc(-100% - 1rem);
+    }
+  }
+
+  @keyframes lg-sheet-out-top {
+    to {
+      translate: 0 calc(-100% - 1rem);
+    }
+  }
+
+  @keyframes lg-sheet-in-left {
+    from {
+      translate: calc(-100% - 1rem) 0;
+    }
+  }
+
+  @keyframes lg-sheet-out-left {
+    to {
+      translate: calc(-100% - 1rem) 0;
+    }
+  }
+
+  @keyframes lg-sheet-in-right {
+    from {
+      translate: calc(100% + 1rem) 0;
+    }
+  }
+
+  @keyframes lg-sheet-out-right {
+    to {
+      translate: calc(100% + 1rem) 0;
+    }
+  }
+
+  .lg-sheet-content {
+    --lg-panel-radius: 2.5rem;
+
+    position: fixed;
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .lg-sheet-content:focus {
+    outline: none;
+  }
+
+  .lg-sheet-content[data-side='bottom'],
+  .lg-sheet-content[data-side='top'] {
+    right: 0.5rem;
+    left: 0.5rem;
+    max-width: 40rem;
+    max-height: calc(100dvh - 3rem);
+    margin-inline: auto;
+  }
+
+  .lg-sheet-content[data-side='bottom'] {
+    bottom: 0.5rem;
+  }
+
+  .lg-sheet-content[data-side='top'] {
+    top: 0.5rem;
+  }
+
+  .lg-sheet-content[data-side='left'],
+  .lg-sheet-content[data-side='right'] {
+    top: 0.5rem;
+    bottom: 0.5rem;
+    width: min(24rem, calc(100vw - 1rem));
+  }
+
+  .lg-sheet-content[data-side='left'] {
+    left: 0.5rem;
+  }
+
+  .lg-sheet-content[data-side='right'] {
+    right: 0.5rem;
+  }
+
+  .lg-sheet-content[data-side='bottom'][data-state='open'] {
+    animation: lg-sheet-in-bottom 500ms var(--lg-ease-out);
+  }
+
+  .lg-sheet-content[data-side='bottom'][data-state='closed'] {
+    animation: lg-sheet-out-bottom 300ms var(--lg-ease-out) forwards;
+  }
+
+  .lg-sheet-content[data-side='top'][data-state='open'] {
+    animation: lg-sheet-in-top 500ms var(--lg-ease-out);
+  }
+
+  .lg-sheet-content[data-side='top'][data-state='closed'] {
+    animation: lg-sheet-out-top 300ms var(--lg-ease-out) forwards;
+  }
+
+  .lg-sheet-content[data-side='left'][data-state='open'] {
+    animation: lg-sheet-in-left 500ms var(--lg-ease-out);
+  }
+
+  .lg-sheet-content[data-side='left'][data-state='closed'] {
+    animation: lg-sheet-out-left 300ms var(--lg-ease-out) forwards;
+  }
+
+  .lg-sheet-content[data-side='right'][data-state='open'] {
+    animation: lg-sheet-in-right 500ms var(--lg-ease-out);
+  }
+
+  .lg-sheet-content[data-side='right'][data-state='closed'] {
+    animation: lg-sheet-out-right 300ms var(--lg-ease-out) forwards;
+  }
+
+  .lg-sheet-handle {
+    display: flex;
+    flex: none;
+    justify-content: center;
+    margin: -1rem -1.5rem 0.25rem;
+    padding: 0.625rem 0 0.75rem;
+    cursor: grab;
+    touch-action: none;
+  }
+
+  .lg-sheet-handle:active {
+    cursor: grabbing;
+  }
+
+  .lg-sheet-handle::before {
+    content: '';
+    width: 2.25rem;
+    height: 0.3125rem;
+    border-radius: 9999px;
+    background: var(--lg-muted-foreground);
+    opacity: 0.5;
+  }
+
+  /* ============================================
+     Menu: a frosted list with a soft lozenge under the highlighted row
+     ============================================ */
+
+  .lg-menu-content {
+    --lg-panel-radius: 1.125rem;
+
+    z-index: 50;
+    box-sizing: border-box;
+    min-width: 14rem;
+    max-width: calc(100vw - 1rem);
+    max-height: var(--radix-dropdown-menu-content-available-height, 100dvh);
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 0.375rem;
+    font-size: 0.875rem;
+    line-height: calc(1.25 / 0.875);
+    transform-origin: var(--radix-dropdown-menu-content-transform-origin);
+  }
+
+  .lg-menu-content:focus {
+    outline: none;
+  }
+
+  .lg-menu-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    min-height: 2.25rem;
+    box-sizing: border-box;
+    padding: 0.4375rem 0.75rem;
+    border-radius: 0.75rem;
+    color: var(--lg-foreground);
+    cursor: default;
+    outline: none;
+    user-select: none;
+  }
+
+  .lg-menu-item > svg {
+    flex: none;
+    width: 1rem;
+    height: 1rem;
+  }
+
+  .lg-menu-item[data-highlighted],
+  .lg-menu-item[data-state='open'] {
+    background: rgb(255 255 255 / 0.14);
+  }
+
+  [data-lg-theme='light'] .lg-menu-item[data-highlighted],
+  [data-lg-theme='light'] .lg-menu-item[data-state='open'] {
+    background: rgb(0 0 0 / 0.06);
+  }
+
+  .lg-menu-item[data-disabled] {
+    opacity: var(--lg-disabled-opacity);
+    pointer-events: none;
+  }
+
+  .lg-menu-item[data-tone='destructive'] {
+    color: var(--lg-invalid);
+  }
+
+  .lg-menu-item--inset {
+    padding-inline-start: 2rem;
+  }
+
+  .lg-menu-indicator {
+    position: absolute;
+    inset-inline-start: 0.5rem;
+    display: inline-flex;
+    width: 1rem;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .lg-menu-indicator > svg {
+    width: 1rem;
+    height: 1rem;
+  }
+
+  .lg-menu-label {
+    padding: 0.375rem 0.75rem 0.25rem;
+    color: var(--lg-muted-foreground);
+    font-size: 0.75rem;
+    line-height: 1rem;
+    font-weight: 600;
+    user-select: none;
+  }
+
+  .lg-menu-separator {
+    height: 1px;
+    margin: 0.375rem 0.625rem;
+    background: var(--lg-border);
+  }
+
+  .lg-menu-shortcut {
+    margin-inline-start: auto;
+    padding-inline-start: 1.5rem;
+    color: var(--lg-muted-foreground);
+    font-size: 0.75rem;
+    letter-spacing: 0.06em;
+  }
+
+  .lg-menu-chevron {
+    margin-inline-start: auto;
+    color: var(--lg-muted-foreground);
+  }
+
+  [dir='rtl'] .lg-menu-chevron {
+    scale: -1 1;
+  }
+
+  /* ============================================
+     Lens: a draggable magnifier. Its view repeats the stage content, zoomed
+     around the lens center and bent at the rim by the generated refraction
+     filter where the engine supports it.
+     ============================================ */
+
+  .lg-lens-stage {
+    position: relative;
+    /* Focus must not scroll the padded lens view and shift the content beneath it. */
+    overflow: clip;
+    isolation: isolate;
+  }
+
+  .lg-lens {
+    --lg-lens-size: 10rem;
+    --lg-lens-zoom: 1.6;
+    --lg-lens-fill: var(--lg-bg);
+    --lg-lens-margin: 0px;
+
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 2;
+    width: var(--lg-lens-size);
+    height: var(--lg-lens-size);
+    border-radius: 50%;
+    box-shadow:
+      0 14px 34px -10px rgb(0 0 0 / 0.5),
+      0 2px 8px rgb(0 0 0 / 0.22);
+    cursor: grab;
+    touch-action: none;
+    -webkit-tap-highlight-color: transparent;
+    translate: calc(var(--lg-lens-x, 0px) - var(--lg-lens-size) / 2)
+      calc(var(--lg-lens-y, 0px) - var(--lg-lens-size) / 2);
+    transition:
+      scale 320ms var(--lg-spring),
+      box-shadow 200ms ease;
+  }
+
+  .lg-lens:active {
+    box-shadow:
+      0 22px 44px -12px rgb(0 0 0 / 0.55),
+      0 4px 12px rgb(0 0 0 / 0.24);
+    cursor: grabbing;
+    scale: 1.04;
+  }
+
+  .lg-lens:focus-visible {
+    outline: 2px solid var(--lg-focus-ring);
+    outline-offset: 3px;
+  }
+
+  /* The view reaches a margin past the lens so the rim filter has content to bend in.
+     WebKit draws a filtered layer from its overflow origin, so the view clips its own
+     overflow on a composited layer and is cut back to the lens by clip-path. */
+  .lg-lens-view {
+    position: absolute;
+    inset: calc(var(--lg-lens-margin) * -1);
+    overflow: hidden;
+    background: var(--lg-lens-fill);
+    clip-path: circle(calc(var(--lg-lens-size) / 2));
+    pointer-events: none;
+    transform: translateZ(0);
+  }
+
+  .lg-lens-scene {
+    position: absolute;
+    top: var(--lg-lens-margin);
+    left: var(--lg-lens-margin);
+    width: var(--lg-lens-stage-width, 100%);
+    height: var(--lg-lens-stage-height, 100%);
+    transform-origin: 0 0;
+    translate: calc(var(--lg-lens-size) / 2 - var(--lg-lens-x, 0px) * var(--lg-lens-zoom))
+      calc(var(--lg-lens-size) / 2 - var(--lg-lens-y, 0px) * var(--lg-lens-zoom));
+    scale: var(--lg-lens-zoom);
+  }
+
+  /* Bevel and sheen over the view, then the specular ring on top. */
+  .lg-lens::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    border-radius: inherit;
+    pointer-events: none;
+    background:
+      radial-gradient(circle at 32% 24%, rgb(255 255 255 / 0.22), transparent 42%),
+      linear-gradient(180deg, rgb(255 255 255 / 0.08), transparent 50%);
+    box-shadow:
+      inset 0 0 22px -6px rgb(255 255 255 / 0.5),
+      inset 2px 3px 1px -2px rgb(255 255 255 / 0.9),
+      inset -2px -3px 1px -2px rgb(255 255 255 / 0.55),
+      inset 0 -10px 18px -10px rgb(0 0 0 / 0.3);
+  }
+
+  .lg-lens::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    padding: 1px;
+    border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(
+      to bottom right,
+      rgb(255 255 255 / 0.9),
+      rgb(255 255 255 / 0.16) 36% 64%,
+      rgb(255 255 255 / 0.5)
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask-composite: exclude;
+  }
+
+  /* ============================================
+     GLASS SCENE
+     One WebGL canvas draws every registered glass element in the scene as a
+     single refracting body. The canvas shows only once it has drawn; before
+     that, and whenever WebGL2 is missing, lost or switched off, every element
+     keeps its CSS glass. data-lg-scene="active" marks an element whose
+     material the canvas has taken over.
+     ============================================ */
+
+  .lg-scene {
+    position: relative;
+    isolation: isolate;
+  }
+
+  /* The backdrop and the canvas sit below the scene's children. Their wrapper
+     adds no box, so they stack as before, except over a viewport backdrop
+     (below). */
+  .lg-scene-layers {
+    display: contents;
+    border-radius: inherit;
+  }
+
+  .lg-scene-backdrop,
+  .lg-scene-canvas {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    pointer-events: none;
+  }
+
+  .lg-scene-backdrop {
+    display: block;
+    background: var(--lg-scene-backdrop, var(--lg-scene-image, none)) center / cover no-repeat;
+  }
+
+  /* A viewport backdrop holds still while the page scrolls the glass across
+     it, as background-attachment: fixed does. clip-path keeps it inside the
+     scene without becoming its containing block, and the canvas reads where
+     the layer sits, so the glass bends the backdrop that shows beside it. */
+  .lg-scene[data-lg-backdrop-space='viewport'] {
+    clip-path: inset(0);
+  }
+
+  /* The two layers share one box below the children, so the fixed backdrop
+     itself keeps a z-index of auto: over a fixed backdrop with a negative
+     z-index, iOS Safari paints the status bar solid and cuts the page off in a
+     hard line beneath it. */
+  .lg-scene[data-lg-backdrop-space='viewport'] > .lg-scene-layers {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+  }
+
+  .lg-scene[data-lg-backdrop-space='viewport']
+    > .lg-scene-layers
+    > :is(.lg-scene-backdrop, .lg-scene-canvas) {
+    z-index: auto;
+  }
+
+  .lg-scene[data-lg-backdrop-space='viewport'] > .lg-scene-layers > .lg-scene-backdrop {
+    position: fixed;
+    border-radius: 0;
+  }
+
+  .lg-scene-canvas {
+    display: none;
+    width: 100%;
+    height: 100%;
+  }
+
+  .lg-scene[data-lg-scene-renderer='webgl'] > .lg-scene-layers > .lg-scene-canvas {
+    display: block;
+  }
+
+  /* Each element hands the canvas the same material its CSS glass shows,
+     and the faintest colour of its text, which the face keeps legible. The
+     canvas frosts over a disk, which spreads light as far as a blur of half
+     its radius. A tenth of the surface blur keeps the shapes behind the glass
+     sharp, so its rim has something to bend. Milk-white frost hides them and
+     the glass reads as acrylic. */
+  .lg-scene .lg-glass-surface {
+    --lg-scene-tint: rgb(
+      255 255 255 /
+        calc(var(--lg-surface-alpha) + var(--lg-scene-tint-boost) + var(--lg-surface-lift))
+    );
+    --lg-scene-frost: calc(var(--lg-surface-blur) * 0.1);
+    --lg-scene-ink: var(--lg-muted-foreground);
+    transition:
+      box-shadow var(--lg-motion-duration) ease,
+      transform var(--lg-motion-duration) ease,
+      --lg-scene-tint var(--lg-motion-duration) ease;
+  }
+
+  /* The dock shelf carries no text, so it keeps its full colour. */
+  .lg-scene .lg-glass-surface.lg-dock-shelf {
+    --lg-scene-ink: transparent;
+  }
+
+  .lg-scene .lg-button {
+    --lg-scene-tint: var(--lg-button-fill);
+    --lg-scene-frost: calc(var(--lg-surface-blur) * 0.4);
+    --lg-scene-ink: var(--lg-ink);
+    transition:
+      transform calc(var(--lg-motion-duration) * 1.9) var(--lg-spring),
+      box-shadow var(--lg-motion-duration) ease,
+      --lg-scene-tint var(--lg-motion-duration) ease;
+  }
+
+  .lg-scene .lg-button:not(:disabled, [aria-disabled='true']):hover {
+    --lg-scene-tint: var(--lg-button-fill-hover);
+  }
+
+  .lg-scene .lg-glass-surface[data-lg-scene='active'],
+  .lg-scene .lg-button[data-lg-scene='active'] {
+    box-shadow: none !important;
+  }
+
+  .lg-scene .lg-glass-surface[data-lg-scene='active']::before,
+  .lg-scene .lg-glass-surface[data-lg-scene='active']::after,
+  .lg-scene .lg-glass-surface[data-lg-scene='active'] > .lg-noise,
+  .lg-scene
+    .lg-button[data-lg-scene='active']
+    > .lg-button__layers
+    > :is(
+      .lg-button__light,
+      .lg-button__distortion,
+      .lg-button__tint,
+      .lg-button__shine,
+      .lg-button__rim
+    ) {
+    display: none;
+  }
+
+  /* A button on a pane the canvas draws sits on glass already. It keeps its
+     frost but neither bends nor saturates that face again, which would undo
+     the face's legible range. */
+  .lg-scene
+    [data-lg-scene='active']
+    .lg-button:not(.lg-button--ghost)
+    > .lg-button__layers
+    > .lg-button__distortion {
+    -webkit-backdrop-filter: blur(var(--lg-surface-blur));
+    backdrop-filter: blur(var(--lg-surface-blur));
+  }
+
+  /* Glass nested in a scene's glass, like a segmented track, keeps its frost
+     and edges but casts no shadow, and its tint moves away from the pane's
+     text: darker under light text, lighter under dark text. On the canvas,
+     text on it keeps at least the contrast the face promised; the CSS glass
+     looks the same, so nothing changes when the canvas takes over. */
+  .lg-scene :is(.lg-glass-surface, [data-lg-scene='active']) .lg-glass-surface {
+    box-shadow: none;
+  }
+
+  .lg-scene :is(.lg-glass-surface, [data-lg-scene='active']) .lg-glass-surface::before {
+    background: rgb(0 0 0 / 0.14);
+    -webkit-backdrop-filter: blur(var(--lg-surface-blur));
+    backdrop-filter: blur(var(--lg-surface-blur));
+  }
+
+  [data-lg-theme='light']
+    .lg-scene
+    :is(.lg-glass-surface, [data-lg-scene='active'])
+    .lg-glass-surface::before {
+    background: rgb(255 255 255 / 0.22);
+  }
+
+  /* A plain piece of glass for scenes: a droplet, lens or pebble. Outside a
+     scene, or before the canvas draws, it shows as frosted CSS glass. */
+  .lg-scene-drop {
+    --lg-scene-tint: rgb(255 255 255 / calc(0.1 + var(--lg-scene-tint-boost)));
+    --lg-scene-frost: 3px;
+    --lg-scene-flow: 1;
+    border-radius: var(--lg-radius-lg);
+    background: rgb(255 255 255 / 0.08);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.35),
+      inset 0 0 0 1px rgb(255 255 255 / 0.14),
+      0 8px 24px rgb(0 0 0 / 0.18);
+    -webkit-backdrop-filter: blur(min(var(--lg-glass-blur), 8px))
+      brightness(var(--lg-glass-brightness)) contrast(var(--lg-glass-contrast))
+      saturate(var(--lg-glass-sat));
+    backdrop-filter: blur(min(var(--lg-glass-blur), 8px)) brightness(var(--lg-glass-brightness))
+      contrast(var(--lg-glass-contrast)) saturate(var(--lg-glass-sat));
+  }
+
+  .lg-scene-drop[data-lg-scene='active'] {
+    background: none !important;
+    box-shadow: none !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
+  :root[data-lg-reduce-transparency='1'] .lg-scene-drop {
+    background: var(--lg-opaque-surface);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  /* The system setting also protects components installed without a provider,
+     including their first paint. An explicit provider choice takes precedence. */
+  @media (prefers-reduced-transparency: reduce) {
+    :root:not([data-lg-reduce-transparency='0']) {
+      --lg-glass-blur: 0px;
+      --lg-glass-alpha: 0.95;
+      --lg-noise-alpha: 0.01;
+      --lg-glass-contrast: 1;
+      --lg-glass-sat: 1;
+      --lg-glass-brightness: 1;
+      --lg-refraction-scale: 0;
+      --lg-lens-depth: 0;
+      --lg-opaque-surface: #2c2c2e;
+      --lg-control-surface: #3a3a3c;
+      --lg-control-surface-hover: #48484a;
+      --lg-track: #48484a;
+    }
+
+    :root[data-lg-theme='light']:not([data-lg-reduce-transparency='0']) {
+      --lg-opaque-surface: #ffffff;
+      --lg-control-surface: #f0f0f2;
+      --lg-control-surface-hover: #e3e3e7;
+      --lg-track: #e6e6e9;
+    }
+
+    :root:not([data-lg-reduce-transparency='0']) .lg-glass-surface::before {
+      -webkit-backdrop-filter: none !important;
+      backdrop-filter: none !important;
+      background: var(--lg-opaque-surface) !important;
+      box-shadow: none !important;
+      transform: none;
+    }
+
+    :root:not([data-lg-reduce-transparency='0'])
+      :is(.lg-glass-surface, .lg-tabs-trigger[data-state='active'])::after,
+    :root:not([data-lg-reduce-transparency='0'])
+      :is(.lg-segmented-indicator, .lg-tabs-indicator)::after {
+      background: var(--lg-border);
+    }
+
+    :root:not([data-lg-reduce-transparency='0']) .lg-button__rim {
+      background: none;
+      box-shadow: inset 0 0 0 var(--lg-rim-width) var(--lg-border);
+    }
+
+    :root:not([data-lg-reduce-transparency='0'])
+      :is(
+        .lg-dialog-content,
+        .lg-popover-content,
+        .lg-toast-root,
+        .lg-tooltip-content,
+        .lg-sheet-content,
+        .lg-menu-content,
+        .lg-select-content,
+        .lg-dock-label
+      ) {
+      background: var(--lg-opaque-surface) !important;
+      -webkit-backdrop-filter: none !important;
+      backdrop-filter: none !important;
+    }
+
+    :root:not([data-lg-reduce-transparency='0'])
+      :is(
+        .lg-button__distortion,
+        .lg-input,
+        .lg-accordion-trigger,
+        .lg-dialog-overlay,
+        .lg-badge,
+        .lg-alert
+      ) {
+      -webkit-backdrop-filter: none !important;
+      backdrop-filter: none !important;
+    }
+
+    :root:not([data-lg-reduce-transparency='0'])
+      .lg-button--prominent
+      > .lg-button__layers
+      > .lg-button__distortion {
+      background: var(--lg-prominent-fill) !important;
+    }
+
+    :root:not([data-lg-reduce-transparency='0'])
+      .lg-button:not(.lg-button--ghost, .lg-button--prominent) {
+      --lg-button-fill: var(--lg-control-surface) !important;
+      --lg-button-fill-hover: var(--lg-control-surface-hover) !important;
+    }
+
+    :root:not([data-lg-reduce-transparency='0']) .lg-button__layers > .lg-button__light {
+      display: none !important;
+    }
+
+    :root:not([data-lg-reduce-transparency='0']) :is(.lg-switch-thumb, .lg-slider-thumb) {
+      background: var(--lg-knob) !important;
+    }
+
+    :root:not([data-lg-reduce-transparency='0']) :is(.lg-button__shine, .lg-button__tint) {
+      opacity: 0;
+    }
+
+    :root:not([data-lg-reduce-transparency='0']) :is(.lg-button__bloom, .lg-refraction-background) {
+      display: none;
+    }
+
+    :root:not([data-lg-reduce-transparency='0']) .lg-segmented > .lg-segmented-indicator,
+    :root:not([data-lg-reduce-transparency='0'])
+      :is(.lg-segmented, .lg-tabs-list)[data-lg-indicator='ready']
+      > :is(.lg-segmented-indicator, .lg-tabs-indicator) {
+      background: var(--lg-control-surface-hover);
+    }
+
+    :root:not([data-lg-reduce-transparency='0']) .lg-scene-drop {
+      background: var(--lg-opaque-surface);
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+  }
+}
