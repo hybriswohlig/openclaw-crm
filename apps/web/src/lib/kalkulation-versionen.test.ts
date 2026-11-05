@@ -8,6 +8,7 @@ import {
   pruefeUebersteuerung,
   rechnerwertFuer,
   UebersteuerungFehler,
+  wirksameUebersteuerungen,
   type Uebersteuerung,
 } from "./kalkulation-versionen";
 
@@ -142,6 +143,23 @@ describe("pruefeUebersteuerung", () => {
 
   it("lehnt eine unbekannte Art ab", () => {
     expect(() => pruefeUebersteuerung({ art: "rabatt", key: "x", wert: 1, grund: "x" })).toThrow(UebersteuerungFehler);
+  });
+});
+
+describe("wirksameUebersteuerungen", () => {
+  it("je Art und Schlüssel die letzte, aufgehobene fallen weg", () => {
+    const liste = [
+      ue("marge", "marge", 45),
+      ue("material_frei", "decke", { bezeichnung: "Decke", betrag: 20 }),
+      ue("zeile", "halteverbot", 0),
+      ue("material_frei", "decke", null),
+      ue("zeile", "halteverbot", 80),
+    ];
+    expect(wirksameUebersteuerungen(liste).map((u) => [u.art, u.key, u.wert])).toEqual([
+      ["marge", "marge", 45],
+      ["zeile", "halteverbot", 80],
+    ]);
+    expect(wirksameUebersteuerungen([])).toEqual([]);
   });
 });
 

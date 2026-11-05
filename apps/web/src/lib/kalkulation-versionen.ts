@@ -237,6 +237,11 @@ function wirksame(liste: Uebersteuerung[]): Map<string, Uebersteuerung> {
   return m;
 }
 
+/** Übersteuerungen, die gerade wirken: je Art und Schlüssel die letzte, ohne aufgehobene (wert null). */
+export function wirksameUebersteuerungen(liste: Uebersteuerung[]): Uebersteuerung[] {
+  return [...wirksame(liste).values()].filter((u) => u.wert !== null);
+}
+
 function wirksamFuer(liste: Uebersteuerung[], art: UebersteuerungsArt, key: string): Uebersteuerung | undefined {
   let treffer: Uebersteuerung | undefined;
   for (const u of liste) if (u.art === art && u.key === key) treffer = u;

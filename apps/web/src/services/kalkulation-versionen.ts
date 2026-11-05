@@ -20,6 +20,7 @@ import {
   pruefeUebersteuerung,
   rechnerwertFuer,
   UebersteuerungFehler,
+  wirksameUebersteuerungen,
   type GrundlageZeile,
   type Kostenzeile,
   type Uebersteuerung,
@@ -343,6 +344,24 @@ export async function entwurfHolenOderAnlegen(
 
 function zahlOderNull(w: unknown): number | null {
   return typeof w === "number" && Number.isFinite(w) ? w : null;
+}
+
+/**
+ * Version mit Anpassungen, die „In Angebot übernehmen“ an der Kalkulationskarte
+ * übernehmen würde, ohne dass die Karte sie zeigt (sie zeigt die Live-Kalkulation):
+ * der Entwurf, ohne Entwurf die letzte gesperrte Version (ein neuer Entwurf erbt
+ * deren Übersteuerungen). Zählt nur, was wirkt (letzte Nennung je Art und Schlüssel,
+ * aufgehobene nicht); die Marge stellt die Karte selbst ein. null = nichts davon.
+ */
+export async function kartenAbweichung(ws: string, deal: string, opts?: VersionsOptionen): Promise<{ version: number } | null> {
+  const d = await abhaengigkeiten(opts);
+  const entwurf = await d.speicher.entwurf(ws, deal);
+  const basis =
+    entwurf ??
+    (await d.speicher.liste(ws, deal)).filter((v) => v.status === "gesperrt").sort((a, b) => b.version - a.version)[0] ??
+    null;
+  if (!basis) return null;
+  return wirksameUebersteuerungen(basis.overrides ?? []).some((u) => u.art !== "marge") ? { version: basis.version } : null;
 }
 
 /** Wirksamer Wert einer Übersteuerung (letzte Nennung gilt), null ohne oder aufgehoben. */

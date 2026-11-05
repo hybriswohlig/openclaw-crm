@@ -476,8 +476,8 @@ describe("uebersteuern", () => {
           selbstkosten: 910,
           posten: [
             ...ergebnis().kosten!.posten!,
-            { key: "material_frei.0", bezeichnung: "Folie", betrag: 30 },
-            { key: "material_frei.1", bezeichnung: "Kartons", betrag: 80 },
+            { key: "material_frei.0", bezeichnung: "Folie", menge: 1, einheit: "pauschal", satz: 30, betrag: 30 },
+            { key: "material_frei.1", bezeichnung: "Kartons", menge: 1, einheit: "pauschal", satz: 80, betrag: 80 },
           ],
         },
       },

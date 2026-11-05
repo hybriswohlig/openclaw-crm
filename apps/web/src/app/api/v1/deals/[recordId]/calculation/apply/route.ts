@@ -6,6 +6,7 @@ import { hatPaketoptionen } from "@/services/rechner/pakete";
 import { MARGE_MAX_PROZENT, MARGE_MIN_PROZENT } from "@/services/rechner/marge";
 import {
   entwurfHolenOderAnlegen,
+  kartenAbweichung,
   sperren,
   uebersteuern,
   VersionsFehler,
@@ -24,6 +25,8 @@ const MARGE_ZURUECK = "Kalkulationskarte ohne Margenwahl: Vorschlag des Rechners
  * und Gültigkeit in die Quotation des Deals (eine Transaktion) und macht danach
  * dieselben Schritte wie das normale Speichern des Angebots. Bei einer Spanne
  * nur mit { bestaetigtSpanne: true }, dann die Obergrenze. Notizen bleiben.
+ * Hat der Entwurf (ohne Entwurf: die letzte gesperrte Version) wirksame Anpassungen
+ * außer der Marge, lehnt die Route vor jeder Änderung ab: die Karte zeigt sie nicht.
  * Antwort wie bisher: { ...quotation, gueltigkeitHinweis }. Jede Ablehnung ist
  * 400, nur die Kundenannahme 409 (KVA_ACCEPTED).
  */
@@ -41,6 +44,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rec
   if (await hatPaketoptionen(recordId)) {
     return badRequest(
       "Dieser Lead hat Paketoptionen: der Preis kommt aus dem gewählten Paket und würde einen übernommenen Festpreis im Kundenportal überschreiben. Paketpreise anpassen oder die Kalkulation als Orientierung nutzen."
+    );
+  }
+  // Die Karte zeigt die Live-Kalkulation. Übernehmen würde aber den Entwurf (oder die
+  // geerbten Übersteuerungen der letzten Sperre) rechnen: mit Anpassungen außer der
+  // Marge wäre das ein Preis, den niemand gesehen hat. Dann nur über die Version.
+  const abweichung = await kartenAbweichung(ctx.workspaceId, recordId);
+  if (abweichung) {
+    return badRequest(
+      `Für diesen Deal gibt es Anpassungen in Kalkulation v${abweichung.version}. Bitte die Version dort sperren (crm_lock_calculation_version) oder die Anpassungen zurücknehmen.`
     );
   }
   if (margeProzent !== null && (!Number.isFinite(margeProzent) || margeProzent < MARGE_MIN_PROZENT || margeProzent > MARGE_MAX_PROZENT)) {

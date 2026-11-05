@@ -58,7 +58,7 @@ vi.mock("@/services/agent/agent-tasks", () => ({ completeAgentPriceTasks: mocks.
 vi.mock("@/services/deal-attribution", () => ({ advanceDealToQuotedIfEarlier: mocks.advanceDealToQuotedIfEarlier }));
 
 import { POST as APPLY } from "./route";
-import { centSumme } from "@/services/kalkulation-versionen";
+import { centSumme, entwurfHolenOderAnlegen, sperren, uebersteuern } from "@/services/kalkulation-versionen";
 import { AngebotAngenommenError } from "@/services/kva-annahme";
 
 const CTX = { userId: "usr_1", workspaceId: "ws_1", workspaceRole: "admin" as const };
@@ -184,6 +184,53 @@ describe("POST /calculation/apply über Versionen", () => {
     await APPLY(req({}), { params });
     expect(mocks.zeilen[0].overrides).toEqual([]);
     expect(mocks.nachher).toHaveLength(0);
+  });
+
+  const ABWEICHUNG = (v: number) =>
+    `Für diesen Deal gibt es Anpassungen in Kalkulation v${v}. Bitte die Version dort sperren (crm_lock_calculation_version) oder die Anpassungen zurücknehmen.`;
+  const BOT = { userId: null, quelle: "agent" as const };
+
+  it("Entwurf mit Material vom Bot (Karte zeigt es nicht): 400, kein Override, keine Sperre, keine Meldung (Review 1)", async () => {
+    await entwurfHolenOderAnlegen("ws_1", "deal_1", BOT);
+    await uebersteuern("ws_1", "deal_1", 1, { art: "material_frei", key: "klavierdecke", wert: { bezeichnung: "Klavierdecke", betrag: 500 }, grund: "Foto" }, BOT);
+    const vorher = structuredClone(mocks.zeilen);
+    const nachherVorher = mocks.nachher.length;
+    vi.mocked(mocks.rufeRechner).mockClear();
+
+    for (const body of [{}, { margeProzent: 50 }]) {
+      const res = await APPLY(req(body), { params });
+      expect(res.status).toBe(400);
+      expect((await res.json()).error.message).toBe(ABWEICHUNG(1));
+    }
+    expect(mocks.zeilen).toEqual(vorher);
+    expect(mocks.speicher.sperrenUndAngebot).not.toHaveBeenCalled();
+    expect(mocks.rufeRechner).not.toHaveBeenCalled();
+    expect(mocks.nachher).toHaveLength(nachherVorher);
+  });
+
+  it("ohne Entwurf, letzte gesperrte Version mit Zeilen-Übersteuerung: 400 mit deren Nummer, kein neuer Entwurf", async () => {
+    await entwurfHolenOderAnlegen("ws_1", "deal_1", { userId: "usr_1", quelle: "mensch" });
+    await uebersteuern("ws_1", "deal_1", 1, { art: "zeile", key: "personal.arbeit", wert: 150, grund: "eingespieltes Team" }, { userId: "usr_1", quelle: "mensch" });
+    await sperren("ws_1", "deal_1", 1, { userId: "usr_1", quelle: "mensch" }, {});
+    vi.mocked(mocks.speicher.sperrenUndAngebot).mockClear();
+
+    const res = await APPLY(req({}), { params });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.message).toBe(ABWEICHUNG(1));
+    expect(mocks.zeilen.map((z) => [z.version, z.status])).toEqual([[1, "gesperrt"]]);
+    expect(mocks.speicher.sperrenUndAngebot).not.toHaveBeenCalled();
+  });
+
+  it("nur Marge und zurückgenommene Anpassungen wirken nicht: Übernahme wie bisher", async () => {
+    mocks.getQuotation.mockResolvedValue(null);
+    await entwurfHolenOderAnlegen("ws_1", "deal_1", BOT);
+    await uebersteuern("ws_1", "deal_1", 1, { art: "material_frei", key: "decke", wert: { bezeichnung: "Decke", betrag: 500 }, grund: "Foto" }, BOT);
+    await uebersteuern("ws_1", "deal_1", 1, { art: "material_frei", key: "decke", wert: null, grund: "doch nicht" }, BOT);
+    await uebersteuern("ws_1", "deal_1", 1, { art: "marge", key: "marge", wert: 45, grund: "Regler" }, BOT);
+    const res = await APPLY(req({}), { params });
+    expect(res.status).toBe(200);
+    expect(mocks.zeilen[0]).toMatchObject({ version: 1, status: "gesperrt" });
+    expect(gesperrtesAngebot().fixedPrice).toBe("1340");
   });
 
   it("Kundenannahme: 409 KVA_ACCEPTED, Version bleibt Entwurf", async () => {
