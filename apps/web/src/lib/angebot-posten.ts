@@ -94,3 +94,18 @@ export function postenFuerSpeichern<P extends object>(eingabe: {
   const kannAnpassen = !geladen.isVariable && geladen.lineItems.length > 0 && neu !== null && Number.isFinite(neu) && neu > 0;
   return { lineItems: kannAnpassen ? postenAnNeuenFestpreisAnpassen(geladen.lineItems, eingabe.fixedPrice as string) : [] };
 }
+
+/**
+ * Gespeichertes Angebot aus der Antwort von GET oder PUT
+ * /api/v1/deals/:id/quotation ({ data }), sonst null. Formulare, die offen
+ * bleiben, nehmen es nach jedem Speichern als neuen Vergleichsstand für
+ * postenFuerSpeichern; sonst vergleicht ein zweites Speichern mit dem Stand
+ * beim Laden: 1000 laden, 1100 speichern, zurück auf 1000 sähe „unverändert“
+ * aus, und die Posten zu 1100 blieben stehen.
+ */
+export function angebotAusAntwort<T extends GeladenesAngebot>(json: unknown): T | null {
+  const data = (json as { data?: unknown } | null | undefined)?.data;
+  if (!data || typeof data !== "object") return null;
+  const a = data as Partial<GeladenesAngebot>;
+  return typeof a.isVariable === "boolean" && Array.isArray(a.lineItems) ? (data as T) : null;
+}

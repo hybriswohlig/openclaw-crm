@@ -39,7 +39,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { postenFuerSpeichern } from "@/lib/angebot-posten";
+import { angebotAusAntwort, postenFuerSpeichern } from "@/lib/angebot-posten";
 import { renderSnippet } from "@/components/inbox/customer-link-composer";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -711,6 +711,16 @@ export function StatusLinkWizard({
         const j = await qRes.json().catch(() => ({}));
         throw new Error(j?.error?.message ?? "Kostenvoranschlag konnte nicht gespeichert werden.");
       }
+      // Der gespeicherte Stand ist der neue Vergleich für postenFuerSpeichern,
+      // sonst vergleicht ein zweites Speichern mit dem Stand beim Öffnen.
+      // Ohne lesbare Antwort einmal nachladen; scheitert auch das, null:
+      // dann bleiben beim Festpreis die gespeicherten Posten unangetastet.
+      let gespeichert = angebotAusAntwort<QuotationPayload>(await qRes.json().catch(() => null));
+      if (!gespeichert) {
+        const neu = await fetch(`/api/v1/deals/${dealRecordId}/quotation`).catch(() => null);
+        gespeichert = neu?.ok ? angebotAusAntwort<QuotationPayload>(await neu.json().catch(() => null)) : null;
+      }
+      setQuotation(gespeichert);
 
       // Mirror the calculator: keep the deal amount in sync.
       const amount =

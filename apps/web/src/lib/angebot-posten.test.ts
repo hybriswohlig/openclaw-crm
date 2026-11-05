@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { postenErgebenFestpreis } from "./festpreis-posten";
-import { postenAnNeuenFestpreisAnpassen, postenFuerSpeichern } from "./angebot-posten";
+import { angebotAusAntwort, postenAnNeuenFestpreisAnpassen, postenFuerSpeichern } from "./angebot-posten";
 
 const formularPosten = [
   { type: "helper" as const, description: "Helfer", quantity: 2, unitRate: "35", sortOrder: 4 },
@@ -125,5 +125,38 @@ describe("postenAnNeuenFestpreisAnpassen", () => {
 
   it("gibt ohne Posten eine leere Liste zurück", () => {
     expect(postenAnNeuenFestpreisAnpassen([], "1800")).toEqual([]);
+  });
+});
+
+describe("angebotAusAntwort und zweimal Speichern", () => {
+  /** Festpreis 1000 = Kern 700 + Halteverbot 300 */
+  const geladen = {
+    isVariable: false,
+    fixedPrice: "1000.00",
+    lineItems: [
+      { type: "other" as const, description: "Umzugsteam", quantity: 1, unitRate: "700.00", sortOrder: 0 },
+      { type: "other" as const, description: "Halteverbot", quantity: 1, unitRate: "300.00", sortOrder: 1 },
+    ],
+  };
+
+  it("liest das gespeicherte Angebot aus { data } und lehnt anderes ab", () => {
+    expect(angebotAusAntwort({ data: geladen })).toBe(geladen);
+    expect(angebotAusAntwort({ data: null })).toBeNull();
+    expect(angebotAusAntwort(null)).toBeNull();
+    expect(angebotAusAntwort({ data: { fixedPrice: "1" } })).toBeNull();
+  });
+
+  it("schickt nach 1000 → 1100 → 1000 wieder Posten zu 1000, wenn der Stand nach dem Speichern übernommen wird", () => {
+    const erstes = postenFuerSpeichern({ isVariable: false, fixedPrice: "1100.00", lineItems: [], geladen });
+    expect(erstes.lineItems?.map((p) => p.unitRate)).toEqual(["800.00", "300.00"]);
+    // So steht es jetzt in der Datenbank, und so kommt es aus dem PUT zurück.
+    const gespeichert = angebotAusAntwort({ data: { isVariable: false, fixedPrice: "1100.00", lineItems: erstes.lineItems } });
+
+    // Alter Stand als Vergleich: sieht „unverändert“ aus, die Posten zu 1100 blieben stehen.
+    expect(postenFuerSpeichern({ isVariable: false, fixedPrice: "1000.00", lineItems: [], geladen })).toEqual({});
+
+    const zweites = postenFuerSpeichern({ isVariable: false, fixedPrice: "1000.00", lineItems: [], geladen: gespeichert });
+    expect(zweites.lineItems?.map((p) => p.unitRate)).toEqual(["700.00", "300.00"]);
+    expect(postenErgebenFestpreis(zweites.lineItems ?? [], "1000.00")).toBe(true);
   });
 });
