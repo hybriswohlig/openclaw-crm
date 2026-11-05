@@ -13,14 +13,14 @@ import { RestbetragHinweis } from "./restbetrag-hinweis";
  * paper on screen, and Drucken still prints that paper.
  * `kva.notes` is an internal operator note and is never rendered.
  */
-export function QuotationPreview({ ctx, token, variant = "full" }: { ctx: CustomerPortalContext; token: string; variant?: "full" | "file" }) {
+export function QuotationPreview({ ctx, token, variant = "full", emailImBrief = false }: { ctx: CustomerPortalContext; token: string; variant?: "full" | "file"; emailImBrief?: boolean }) {
   if (!ctx.kva) return null;
   const t = (sie: string, du: string) => kundenText(ctx.branding.firmaSlug, sie, du);
   if (ctx.documents.quotationUrl) return <section className="portal-panel" id="portal-quotation-preview">
     <PanelHeading icon={FileText} title={t("Ihr Kostenvoranschlag", "Dein Kostenvoranschlag")}><p>{t("Hier finden Sie Ihr aktuelles Angebot als PDF.", "Hier findest du dein aktuelles Angebot als PDF.")}</p></PanelHeading>
     <iframe title="Kostenvoranschlag PDF-Vorschau" src={ctx.documents.quotationUrl} className="portal-document-frame" loading="lazy" />
     <a className="portal-button mt-3" href={ctx.documents.quotationUrl} download><Download size={18} aria-hidden />Kostenvoranschlag als PDF herunterladen</a>
-    <EmailDocumentButton key={ctx.documents.quotationUrl} ctx={ctx} token={token} url={ctx.documents.quotationUrl} />
+    <EmailDocumentButton key={ctx.documents.quotationUrl} ctx={ctx} token={token} url={ctx.documents.quotationUrl} ohneErfassung={emailImBrief} />
   </section>;
   const option = variant === "file" ? null : pickDefaultDealOption(ctx.dealPackageOffers.options, ctx.dealPackageOffers.selectedOptionId);
   const total = option?.priceCents && option.priceCents > 0 ? option.priceCents : ctx.kva.totalCents;

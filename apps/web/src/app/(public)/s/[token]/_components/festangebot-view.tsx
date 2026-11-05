@@ -265,7 +265,7 @@ export function FestangebotView({
           />
         )}
 
-        <QuotationPreview ctx={ctx} token={token} variant="file" />
+        <QuotationPreview ctx={ctx} token={token} variant="file" emailImBrief />
         <ContactPanel ctx={ctx} token={token} title="Fragen zum Angebot?" />
         <CustomerPhotosSection token={token} photos={ctx.customerPhotos} primaryColor={ctx.branding.primaryColor} firmaSlug={ctx.branding.firmaSlug} />
         <FurnitureListSection items={ctx.furnitureList ?? []} primaryColor={ctx.branding.primaryColor} />

@@ -89,6 +89,14 @@ for (const ansicht of ANSICHTEN) {
   console.log(`PASS ${ansicht}: hell und dunkel, 390 und 1440`);
 }
 
+const ohneMail = await oeffnen("festangebot&ohnemail&kvdatei&termin", 390);
+assert.equal(await ohneMail.getByRole("button", { name: "E-Mail hinterlegen", exact: true }).count(), 1, "E-Mail-Bitte nur einmal");
+await ohneMail.getByRole("button", { name: "Ändern", exact: true }).click(); // Terminliste mit Uhrzeiten aufklappen
+const seitenText = await ohneMail.locator("body").innerText();
+assert.doesNotMatch(seitenText, /[–—]/, "kein Gedankenstrich im Portal");
+await ohneMail.close();
+console.log("PASS E-Mail-Bitte einmal, kein Gedankenstrich");
+
 const abgelaufen = await oeffnen("festangebot&expired", 390);
 assert.equal(await abgelaufen.getByText("Dieses Angebot ist abgelaufen.", { exact: true }).count(), 1, "Abgelaufen-Hinweis nur einmal");
 await abgelaufen.close();

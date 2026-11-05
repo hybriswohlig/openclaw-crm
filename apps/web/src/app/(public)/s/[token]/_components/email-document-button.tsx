@@ -6,7 +6,8 @@ import { kundenText, type CustomerPortalContext } from "@openclaw-crm/customer-p
 import { hinterlegteEmailLabel } from "@/lib/email-capture-copy";
 import { EmailCaptureBanner } from "./email-capture-banner";
 
-export function EmailDocumentButton({ ctx, token, url }: { ctx: CustomerPortalContext; token: string; url: string }) {
+/** ohneErfassung: die E-Mail fragt schon eine andere Stelle ab (Brief im Festangebot). */
+export function EmailDocumentButton({ ctx, token, url, ohneErfassung = false }: { ctx: CustomerPortalContext; token: string; url: string; ohneErfassung?: boolean }) {
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState("");
@@ -15,6 +16,7 @@ export function EmailDocumentButton({ ctx, token, url }: { ctx: CustomerPortalCo
   const t = (sie: string, du: string) => kundenText(firma, sie, du);
   const prefix = `/api/public/${token}/documents/`;
   if (!url.startsWith(prefix)) return null;
+  if (ctx.customerEmailStatus !== "present" && !masked && ohneErfassung) return null;
   if (ctx.customerEmailStatus !== "present" && !masked) return <EmailCaptureBanner token={token} status={ctx.customerEmailStatus} branding={ctx.branding} onSaved={setMasked} />;
   async function send() {
     if (busy || sent) return;
