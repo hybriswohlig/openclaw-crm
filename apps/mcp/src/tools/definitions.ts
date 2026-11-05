@@ -810,6 +810,18 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "crm_get_calculation",
+    description: "Calculation versions of a deal (drafts and locked). Without version: list; with version: inputs with source, overrides with reason, cost lines with formula, margin, price, package prices, KV items.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        recordId: { type: "string" },
+        version: { type: "number" },
+      },
+      required: ["recordId"],
+    },
+  },
+  {
     name: "crm_list_deal_payments",
     description: "Payments on a deal.",
     inputSchema: {

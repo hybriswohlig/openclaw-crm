@@ -1564,3 +1564,92 @@ describe("crm_upload_deal_photo", () => {
     expect(textOf(result.content)).toContain(jsonDealPhotoTooLargeMessage());
   });
 });
+
+describe("calculation MCP tools", () => {
+  it("lists calculation versions and fetches one version", async () => {
+    const listed = fakeClient();
+    await handleTool(listed.client, "crm_get_calculation", { recordId: "d1" });
+    expect(listed.calls[0].path).toBe("/api/v1/deals/d1/calculation/versions");
+    expect(listed.calls[0].options.method ?? "GET").toBe("GET");
+
+    const one = fakeClient();
+    await handleTool(one.client, "crm_get_calculation", { recordId: "d1", version: 2 });
+    expect(one.calls[0].path).toBe("/api/v1/deals/d1/calculation/versions/2");
+    expect(one.calls[0].options.method ?? "GET").toBe("GET");
+  });
+
+  it("posts an override without an author field", async () => {
+    const { client, calls } = fakeClient();
+    await handleTool(client, "crm_override_calculation", {
+      recordId: "d1",
+      version: 3,
+      art: "zeile",
+      key: "personal.arbeit",
+      wert: 120,
+      grund: "gemessen",
+      fotoRef: "foto-1",
+      autor: "nicht-mitschicken",
+    });
+    expect(calls[0].path).toBe("/api/v1/deals/d1/calculation/versions/3/overrides");
+    expect(calls[0].options.method).toBe("POST");
+    expect(calls[0].options.body).toEqual({
+      art: "zeile",
+      key: "personal.arbeit",
+      wert: 120,
+      grund: "gemessen",
+      fotoRef: "foto-1",
+    });
+    expect(calls[0].options.body).not.toHaveProperty("autor");
+  });
+
+  it("locks a calculation version", async () => {
+    const confirmed = fakeClient();
+    await handleTool(confirmed.client, "crm_lock_calculation_version", {
+      recordId: "d1",
+      version: 2,
+      bestaetigtSpanne: true,
+    });
+    expect(confirmed.calls[0].path).toBe("/api/v1/deals/d1/calculation/versions/2/lock");
+    expect(confirmed.calls[0].options.method).toBe("POST");
+    expect(confirmed.calls[0].options.body).toEqual({ bestaetigtSpanne: true });
+
+    const plain = fakeClient();
+    await handleTool(plain.client, "crm_lock_calculation_version", {
+      recordId: "d1",
+      version: 2,
+    });
+    expect(plain.calls[0].path).toBe("/api/v1/deals/d1/calculation/versions/2/lock");
+    expect(plain.calls[0].options.method).toBe("POST");
+    expect(plain.calls[0].options.body).toEqual({});
+  });
+
+  it("renders a KV from a calculation version", async () => {
+    const { client, calls } = fakeClient();
+    await handleTool(client, "crm_render_kv_from_version", {
+      recordId: "d1",
+      version: 4,
+      copy: { intro: "Hallo", closing: "MfG", remarks: "Hinweis" },
+    });
+    expect(calls[0].path).toBe("/api/v1/deals/d1/calculation/versions/4/kv");
+    expect(calls[0].options.method).toBe("POST");
+    expect(calls[0].options.body).toEqual({
+      copy: { intro: "Hallo", closing: "MfG", remarks: "Hinweis" },
+    });
+  });
+
+  it("warns when a quotation is written without a calculation version", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { client } = fakeClient({ id: "q1", fixedPrice: "100" });
+    const res = await handleTool(client, "crm_update_deal_quotation", {
+      recordId: "d1",
+      fixedPrice: "100",
+    });
+    expect(textOf(res.content)).toContain("warning");
+    expect(textBlock(res.content).warning).toBe(
+      "crm_update_deal_quotation ist veraltet: Angebot ohne Kalkulationsversion geschrieben."
+    );
+    expect(textBlock(res.content).id).toBe("q1");
+    expect(warn).toHaveBeenCalledWith("[mcp] crm_update_deal_quotation", { recordId: "d1" });
+    warn.mockRestore();
+  });
+});

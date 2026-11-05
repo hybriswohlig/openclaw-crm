@@ -13,11 +13,16 @@ import {
   switchCases,
 } from "./registry-introspect";
 import {
+  MCP_MUTATING_TOOL_NAMES,
+  MCP_READ_TOOL_NAMES,
+} from "./read-only-tools";
+import {
   CRM_TOOL_NAMES,
   LEGACY_DESCRIPTION_DRIFT,
   STDIO_ONLY_TOOL_NAMES,
   TOOLS_AT_GUARD_CREATION,
   TOOLS_WITHOUT_FIXED_PATH,
+  WEB_ONLY_BY_DESIGN,
   WEB_ONLY_TOOL_NAMES,
 } from "./tool-names";
 
@@ -59,9 +64,15 @@ const sorted = (names: readonly string[]) => [...names].sort();
 
 /** Names that must agree between the two registries. */
 function sharedNames(): string[] {
-  const webOnly = WEB_ONLY_TOOL_NAMES as readonly string[];
-  return CRM_TOOL_NAMES.filter((n) => !webOnly.includes(n));
+  const webOnly = new Set<string>([...WEB_ONLY_TOOL_NAMES, ...WEB_ONLY_BY_DESIGN]);
+  return CRM_TOOL_NAMES.filter((n) => !webOnly.has(n));
 }
+
+const CALCULATION_DESCRIPTION =
+  "Calculation versions of a deal (drafts and locked). Without version: list; with version: inputs with source, overrides with reason, cost lines with formula, margin, price, package prices, KV items.";
+
+const QUOTATION_DEPRECATION_PREFIX =
+  "Deprecated: writes the quotation without a calculation version; the KV loses its link to the calculation. Prefer crm_override_calculation + crm_lock_calculation_version. ";
 
 describe("MCP tool-name drift guard", () => {
   it("has no duplicate names", () => {
@@ -76,9 +87,10 @@ describe("MCP tool-name drift guard", () => {
     expect(sorted(switchCases(DISPATCH))).toEqual(sorted(CRM_TOOL_NAMES));
   });
 
-  it("the stdio definitions expose CRM_TOOL_NAMES minus the frozen exceptions", () => {
+  it("the stdio definitions expose CRM_TOOL_NAMES minus the frozen exceptions and the by-design web-only tools", () => {
     // Spread rather than concat: the two const arrays have disjoint literal
     // unions, and concat would not type-check across them.
+    // sharedNames already drops WEB_ONLY_TOOL_NAMES and WEB_ONLY_BY_DESIGN.
     const expected: string[] = [...sharedNames(), ...STDIO_ONLY_TOOL_NAMES];
     expect(sorted(definitionNames(STDIO_DEFS))).toEqual(sorted(expected));
   });
@@ -376,5 +388,50 @@ describe("findStaleExemptions", () => {
     const web = new Map([["crm_one", "Same"]]);
     const stdio = new Map([["crm_one", "Same"]]);
     expect(findStaleExemptions(web, stdio, [])).toEqual([]);
+  });
+});
+
+describe("calculation tools", () => {
+  it("keeps the calculation write tools on the app server by design", () => {
+    expect([...WEB_ONLY_BY_DESIGN]).toEqual([
+      "crm_override_calculation",
+      "crm_lock_calculation_version",
+      "crm_render_kv_from_version",
+    ]);
+    const frozen = new Set<string>(WEB_ONLY_TOOL_NAMES);
+    const overlap = WEB_ONLY_BY_DESIGN.filter((name) => frozen.has(name));
+    expect(overlap).toEqual([]);
+    for (const name of WEB_ONLY_BY_DESIGN) {
+      expect(CRM_TOOL_NAMES, name).toContain(name);
+      expect(MCP_MUTATING_TOOL_NAMES.has(name), name).toBe(true);
+      expect(MCP_READ_TOOL_NAMES.has(name), name).toBe(false);
+    }
+    expect(CRM_TOOL_NAMES).toContain("crm_get_calculation");
+    expect(MCP_READ_TOOL_NAMES.has("crm_get_calculation")).toBe(true);
+    expect(MCP_MUTATING_TOOL_NAMES.has("crm_get_calculation")).toBe(false);
+  });
+
+  it("uses one calculation description in both registries", () => {
+    expect(webRegistry().get("crm_get_calculation")).toBe(CALCULATION_DESCRIPTION);
+    expect(definitionDescriptions(STDIO_DEFS).get("crm_get_calculation")).toBe(
+      CALCULATION_DESCRIPTION
+    );
+  });
+
+  it("reads the calculation list path without baking the optional version into the literal", () => {
+    expect(casePaths(DISPATCH).get("crm_get_calculation")).toBe(
+      "/api/v1/deals/{}/calculation/versions"
+    );
+    expect(casePaths(STDIO_HANDLERS).get("crm_get_calculation")).toBe(
+      "/api/v1/deals/{}/calculation/versions"
+    );
+  });
+
+  it("prefixes crm_update_deal_quotation with the deprecation notice", () => {
+    const description = webRegistry().get("crm_update_deal_quotation") ?? "";
+    expect(description.startsWith(QUOTATION_DEPRECATION_PREFIX)).toBe(true);
+    expect(description).toContain(
+      "Replace a deal's quotation (PUT semantics — omitted fields are cleared, so read crm_get_deal_quotation first and merge). Saving also mints the customer portal link and anchors the scope baseline."
+    );
   });
 });

@@ -13,7 +13,9 @@
  * between the two registries, plus a read-or-mutating classification in
  * `read-only-tools.ts`. Four of the five without the fifth fails the
  * guard, and the fifth without the other four fails it too. An unclassified
- * tool is denied for read-only API keys.
+ * tool is denied for read-only API keys. Names in `WEB_ONLY_BY_DESIGN` are
+ * the exception: they are registered only on the app server, with no stdio
+ * ToolDef or handler.
  */
 export const CRM_TOOL_NAMES = [
   // ── Connection ────────────────────────────────────────────────────
@@ -66,6 +68,7 @@ export const CRM_TOOL_NAMES = [
   "crm_get_deal_profit",
   "crm_list_deal_documents",
   "crm_get_deal_quotation",
+  "crm_get_calculation",
   "crm_list_deal_payments",
   "crm_get_customer_link",
   // ── Deal context ──────────────────────────────────────────────────
@@ -80,6 +83,9 @@ export const CRM_TOOL_NAMES = [
   // ── Quotation writes ──────────────────────────────────────────────
   "crm_update_deal_package_options",
   "crm_update_deal_quotation",
+  "crm_override_calculation",
+  "crm_lock_calculation_version",
+  "crm_render_kv_from_version",
   "crm_set_deal_anzahlung",
   // ── Documents ─────────────────────────────────────────────────────
   "crm_get_deal_document",
@@ -321,6 +327,19 @@ export const WEB_ONLY_TOOL_NAMES = [
   "crm_generate_document",
   "crm_get_document_job",
   "crm_store_document_job",
+] as const;
+
+/**
+ * Calculation writes that stay on the app server on purpose.
+ *
+ * This is not frozen historical drift. Do not add these names to
+ * WEB_ONLY_TOOL_NAMES — that list's length and membership stay frozen.
+ * Only `crm_get_calculation` is mirrored into the stdio server.
+ */
+export const WEB_ONLY_BY_DESIGN = [
+  "crm_override_calculation",
+  "crm_lock_calculation_version",
+  "crm_render_kv_from_version",
 ] as const;
 
 /**

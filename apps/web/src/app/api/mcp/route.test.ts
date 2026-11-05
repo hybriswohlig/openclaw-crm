@@ -72,7 +72,9 @@ describe("MCP tools/list freshness", () => {
     );
     expect(web).toContain(`export const MCP_SERVER_VERSION = "${MCP_SERVER_VERSION}"`);
     expect(stdio).toContain(`export const MCP_SERVER_VERSION = "${MCP_SERVER_VERSION}"`);
-    expect(MCP_SERVER_VERSION).not.toBe("0.1.0");
+    expect(web).toContain('export const MCP_SERVER_VERSION = "0.3.0"');
+    expect(stdio).toContain('export const MCP_SERVER_VERSION = "0.3.0"');
+    expect(MCP_SERVER_VERSION).toBe("0.3.0");
   });
 
   it("registers tools on every POST and returns Kontaktart schemas", async () => {
