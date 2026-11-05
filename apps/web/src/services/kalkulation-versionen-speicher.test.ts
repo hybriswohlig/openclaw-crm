@@ -4,12 +4,21 @@ const mocks = vi.hoisted(() => ({
   insertReturning: vi.fn(),
   txReturning: vi.fn(),
   txSet: vi.fn(),
+  txStatus: vi.fn(),
+  updateSet: vi.fn(),
+  updateReturning: vi.fn(),
   angebotAusVersionSchreiben: vi.fn(),
 }));
 
 vi.mock("@/db", () => ({
   db: {
     insert: () => ({ values: () => ({ returning: mocks.insertReturning }) }),
+    update: () => ({
+      set: (s: unknown) => {
+        mocks.updateSet(s);
+        return { where: () => ({ returning: mocks.updateReturning }) };
+      },
+    }),
     transaction: async (f: (tx: unknown) => Promise<unknown>) => {
       const tx = {
         update: () => ({
@@ -18,6 +27,7 @@ vi.mock("@/db", () => ({
             return { where: () => ({ returning: mocks.txReturning }) };
           },
         }),
+        select: () => ({ from: () => ({ where: () => ({ limit: mocks.txStatus }) }) }),
       };
       return f(tx);
     },
@@ -26,6 +36,8 @@ vi.mock("@/db", () => ({
 vi.mock("./quotations", () => ({ angebotAusVersionSchreiben: mocks.angebotAusVersionSchreiben }));
 vi.mock("./financial", () => ({ resolveDealOperatingCompany: vi.fn() }));
 
+import { PgDialect } from "drizzle-orm/pg-core";
+import type { SQL } from "drizzle-orm";
 import { dbVersionsSpeicher, istEntwurfKonflikt } from "./kalkulation-versionen-speicher";
 import { EntwurfExistiertError, VersionsFehler } from "./kalkulation-versionen";
 
@@ -62,8 +74,40 @@ describe("dbVersionsSpeicher", () => {
     expect(mocks.angebotAusVersionSchreiben).toHaveBeenCalledWith(expect.anything(), "deal1", { fixedPrice: "1491" }, "id_v2");
   });
 
+  it("anhaengen: atomar in SQL (overrides || neu::jsonb), nur am Entwurf; gesperrt → UNGUELTIG", async () => {
+    const u = { id: "u1", art: "marge", key: "marge", wert: 45 } as never;
+    mocks.updateReturning.mockResolvedValueOnce([{ id: "id_v2", overrides: [u] }]);
+    const r = await dbVersionsSpeicher.anhaengen("id_v2", u);
+    expect(r.overrides).toEqual([u]);
+    const set = mocks.updateSet.mock.calls[0][0] as { overrides: SQL };
+    const q = new PgDialect().sqlToQuery(set.overrides);
+    expect(q.sql).toBe('"deal_calculation_versions"."overrides" || $1::jsonb');
+    expect(JSON.parse(q.params[0] as string)).toEqual([u]);
+    mocks.updateReturning.mockResolvedValueOnce([]);
+    await expect(dbVersionsSpeicher.anhaengen("id_v2", u)).rejects.toMatchObject({ code: "UNGUELTIG" });
+  });
+
+  it("aktualisieren überschreibt die Übersteuerungen nie", async () => {
+    mocks.updateReturning.mockResolvedValueOnce([{ id: "id_v2" }]);
+    await dbVersionsSpeicher.aktualisieren("id_v2", { overrides: [], error: null, status: "gesperrt" } as never);
+    const set = mocks.updateSet.mock.calls[0][0] as Record<string, unknown>;
+    expect(set).not.toHaveProperty("overrides");
+    expect(set).not.toHaveProperty("status");
+    expect(set).toHaveProperty("error", null);
+  });
+
+  it("sperrenUndAngebot: Liste hat sich geändert (Entwurf, andere Anzahl) → UNGUELTIG \"gerade geändert\", keine Quotation", async () => {
+    mocks.txReturning.mockResolvedValueOnce([]);
+    mocks.txStatus.mockResolvedValueOnce([{ status: "entwurf" }]);
+    await expect(
+      dbVersionsSpeicher.sperrenUndAngebot("ws", "deal1", "id_v2", {} as never, [], null, { uebersteuerungen: 2 })
+    ).rejects.toMatchObject({ code: "UNGUELTIG", message: "Die Kalkulation wurde gerade geändert. Bitte erneut sperren." });
+    expect(mocks.angebotAusVersionSchreiben).not.toHaveBeenCalled();
+  });
+
   it("sperrenUndAngebot: schon gesperrt (0 Zeilen) → UNGUELTIG, keine Quotation geschrieben", async () => {
     mocks.txReturning.mockResolvedValueOnce([]);
+    mocks.txStatus.mockResolvedValueOnce([{ status: "gesperrt" }]);
     const fehler = await dbVersionsSpeicher.sperrenUndAngebot("ws", "deal1", "id_v2", {} as never, [], null).catch((e: unknown) => e);
     expect(fehler).toBeInstanceOf(VersionsFehler);
     expect(fehler).toMatchObject({ code: "UNGUELTIG", message: "Version ist bereits gesperrt." });

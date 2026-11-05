@@ -104,16 +104,29 @@ export interface VersionsSpeicher {
   lesen(ws: string, deal: string, version: number): Promise<VersionsZeile | null>;
   entwurf(ws: string, deal: string): Promise<VersionsZeile | null>;
   anlegen(z: Omit<VersionsZeile, "id" | "createdAt" | "updatedAt">): Promise<VersionsZeile>;
-  /** Nur Entwürfe; eine inzwischen gesperrte Version wird nie geändert. */
+  /**
+   * Ergebnisfelder schreiben, nur an Entwürfen; eine inzwischen gesperrte Version
+   * wird nie geändert. `overrides` im Patch wird ignoriert (nur über `anhaengen`).
+   */
   aktualisieren(id: string, patch: Partial<VersionsZeile>): Promise<VersionsZeile>;
-  /** Eine Transaktion: Version sperren (nur aus dem Entwurf) und die Quotation des Deals schreiben. */
+  /**
+   * Hängt eine Übersteuerung atomar an (`overrides = overrides || neu`, nur am Entwurf)
+   * und liefert die Zeile mit der dann aktuellen Liste (auch mit parallel angehängten).
+   */
+  anhaengen(id: string, u: Uebersteuerung): Promise<VersionsZeile>;
+  /**
+   * Eine Transaktion: Version sperren (nur aus dem Entwurf) und die Quotation des Deals
+   * schreiben. Mit `stand` nur, wenn die Version noch genau so viele Übersteuerungen hat
+   * (sonst hat jemand dazwischen übersteuert und das Ergebnis passt nicht mehr).
+   */
   sperrenUndAngebot(
     ws: string,
     deal: string,
     id: string,
     angebot: AngebotsEingabe,
     kvItems: KvPosten[],
-    von: string | null
+    von: string | null,
+    stand?: { uebersteuerungen: number }
   ): Promise<{ version: VersionsZeile }>;
 }
 
@@ -360,9 +373,12 @@ export async function uebersteuern(
     zeit: d.jetzt().toISOString(),
     fotoRef: eingabe.fotoRef ?? null,
   };
-  const overrides = [...ziel.overrides, neue];
-  const berechnet = await neuBerechnen(ws, deal, lead, overrides, d, { paketHebel: await paketHebelFuer(ws, deal, d) });
-  const gespeichert = await d.speicher.aktualisieren(ziel.id, { overrides, ...berechnet });
+  // Atomar anhängen; gerechnet wird mit der Liste, die der Speicher danach liefert
+  // (enthält auch parallel angehängte Übersteuerungen). Schreibt ein paralleler Lauf
+  // ein Ergebnis zu einer älteren Liste, erkennt das Sperren die Abweichung und rechnet neu.
+  const mitNeuer = await d.speicher.anhaengen(ziel.id, neue);
+  const berechnet = await neuBerechnen(ws, deal, lead, mitNeuer.overrides, d, { paketHebel: await paketHebelFuer(ws, deal, d) });
+  const gespeichert = await d.speicher.aktualisieren(ziel.id, berechnet);
 
   const tarif = ziel.tariff ?? gespeichert.tariff;
   const meldung = {
@@ -394,8 +410,9 @@ export async function uebersteuern(
 
 /**
  * Sperrt den Entwurf und schreibt die Quotation des Deals (eine Transaktion).
- * Vorher frisch prüfen: weicht die Eingabe ab, ist das Bezugsdatum nicht heute
- * oder stand ein Fehler an, wird zuerst neu gerechnet.
+ * Vorher frisch prüfen: weicht die aus Lead und aktuellen Übersteuerungen neu gebaute
+ * Anfrage ab, ist das Bezugsdatum nicht heute oder stand ein Fehler an, wird zuerst
+ * neu gerechnet. Gesperrt wird nur, wenn die Liste bis zum Sperren gleich bleibt.
  */
 export async function sperren(
   ws: string,
@@ -415,17 +432,26 @@ export async function sperren(
     );
   }
   const vorhanden = await d.ladeAngebot(deal);
-  if (v.pricingMode === "stunden" || vorhanden?.isVariable) {
+  // Ein Mensch darf einen Stunden-KV bewusst auf Festpreis umstellen (wie bisher an der
+  // Kalkulationskarte); ein Agent nie still. Eine Stunden-Version sperrt niemand.
+  if (v.pricingMode === "stunden" || (vorhanden?.isVariable && autor.quelle === "agent")) {
     throw new VersionsFehler("STUNDEN", "Das Angebot ist ein Stunden-KV: bitte weiter über das Angebotsformular bearbeiten.");
   }
   await d.pruefeAnnahme(deal);
 
   const lead = await leadOderFehler(ws, deal, d);
   const heute = heuteBerlin(d.jetzt());
-  const frisch = anfrageMitUebersteuerungen(rechnerAnfrageAus(lead), v.overrides, { referenceDate: heute });
-  const veraltet =
-    !v.rechnerRequest || eingabeHash(frisch) !== eingabeHash(v.rechnerRequest) || v.referenceDate !== heute || v.error !== null;
-  if (veraltet) {
+  const basis = rechnerAnfrageAus(lead);
+  // Verglichen wird immer mit der aktuellen Liste der Version (auch nach einer Neuberechnung,
+  // denn parallel kann eine Übersteuerung dazugekommen sein).
+  const veraltet = (z: VersionsZeile) =>
+    !z.rechnerRequest ||
+    eingabeHash(anfrageMitUebersteuerungen(basis, z.overrides, { referenceDate: heute })) !== eingabeHash(z.rechnerRequest) ||
+    z.referenceDate !== heute ||
+    z.error !== null;
+  for (let versuch = 0; veraltet(v); versuch++) {
+    if (versuch > 0 && v.error !== null) break; // Rechnerfehler: unten abgelehnt
+    if (versuch >= 3) throw new VersionsFehler("UNGUELTIG", "Die Kalkulation wird gerade geändert. Bitte erneut sperren.");
     v = await d.speicher.aktualisieren(v.id, await neuBerechnen(ws, deal, lead, v.overrides, d));
   }
   if (v.error !== null || !v.rechnerResult || !v.rechnerRequest) {
@@ -449,7 +475,9 @@ export async function sperren(
     quantity: li.quantity,
     unitRate: Number(li.unitRate),
   }));
-  const { version: gesperrt } = await d.speicher.sperrenUndAngebot(ws, deal, v.id, u.eingabe, kvItems, autor.userId);
+  const { version: gesperrt } = await d.speicher.sperrenUndAngebot(ws, deal, v.id, u.eingabe, kvItems, autor.userId, {
+    uebersteuerungen: v.overrides.length,
+  });
   await d.nachSperren(ws, deal, autor);
   const quotation = await d.ladeAngebot(deal);
   return { version: gesperrt, quotation, gueltigkeitHinweis: u.gueltigkeitHinweis };

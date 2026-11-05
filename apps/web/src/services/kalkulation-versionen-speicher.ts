@@ -3,7 +3,7 @@
  * und der Lader für die Paket-Hebel der Firma. Jede Abfrage ist auf Workspace
  * und Deal begrenzt; nur Entwürfe werden geändert.
  */
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { offerPackages } from "@/db/schema/customer-portal";
 import { dealCalculationVersions } from "@/db/schema/deal-calculation-versions";
@@ -84,7 +84,8 @@ export const dbVersionsSpeicher: VersionsSpeicher = {
   async aktualisieren(id, patch) {
     // id, Deal, Workspace, Nummer und Status ändert nur das Sperren.
     const felder: Partial<VersionsZeile> = { ...patch };
-    for (const k of ["id", "workspaceId", "dealRecordId", "version", "status", "createdAt"] as const) delete felder[k];
+    // Übersteuerungen nur über anhaengen (atomar), nie durch Überschreiben der Liste.
+    for (const k of ["id", "workspaceId", "dealRecordId", "version", "status", "createdAt", "overrides"] as const) delete felder[k];
     const [z] = await db
       .update(dealCalculationVersions)
       .set({ ...felder, updatedAt: new Date() })
@@ -94,9 +95,21 @@ export const dbVersionsSpeicher: VersionsSpeicher = {
     return alsZeile(z);
   },
 
-  async sperrenUndAngebot(ws, deal, id, angebot, kvItems, von) {
+  async anhaengen(id, u) {
+    const t = dealCalculationVersions;
+    const [z] = await db
+      .update(t)
+      .set({ overrides: sql`${t.overrides} || ${JSON.stringify([u])}::jsonb`, updatedAt: new Date() })
+      .where(and(eq(t.id, id), eq(t.status, "entwurf")))
+      .returning();
+    if (!z) throw new VersionsFehler("UNGUELTIG", "Version ist bereits gesperrt.");
+    return alsZeile(z);
+  },
+
+  async sperrenUndAngebot(ws, deal, id, angebot, kvItems, von, stand) {
     return db.transaction(async (tx) => {
       const jetzt = new Date();
+      const t = dealCalculationVersions;
       const [z] = await tx
         .update(dealCalculationVersions)
         .set({ status: "gesperrt", kvItems, priceCents: centSumme(kvItems), lockedAt: jetzt, lockedBy: von, updatedAt: jetzt })
@@ -105,12 +118,19 @@ export const dbVersionsSpeicher: VersionsSpeicher = {
             eq(dealCalculationVersions.id, id),
             eq(dealCalculationVersions.workspaceId, ws),
             eq(dealCalculationVersions.dealRecordId, deal),
-            eq(dealCalculationVersions.status, "entwurf")
+            eq(dealCalculationVersions.status, "entwurf"),
+            stand ? sql`jsonb_array_length(${t.overrides}) = ${stand.uebersteuerungen}` : undefined
           )
         )
         .returning();
       // Wirft innerhalb der Transaktion: nichts wird geschrieben.
-      if (!z) throw new VersionsFehler("UNGUELTIG", "Version ist bereits gesperrt.");
+      if (!z) {
+        const [jetzig] = await tx.select({ status: t.status }).from(t).where(eq(t.id, id)).limit(1);
+        if (stand && jetzig?.status === "entwurf") {
+          throw new VersionsFehler("UNGUELTIG", "Die Kalkulation wurde gerade geändert. Bitte erneut sperren.");
+        }
+        throw new VersionsFehler("UNGUELTIG", "Version ist bereits gesperrt.");
+      }
       await angebotAusVersionSchreiben(tx, deal, angebot, id);
       return { version: alsZeile(z) };
     });

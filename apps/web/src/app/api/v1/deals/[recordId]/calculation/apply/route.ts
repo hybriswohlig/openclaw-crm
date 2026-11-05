@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { annahmeSperrAntwort } from "@/services/kva-annahme";
 import { getAuthContext, unauthorized, badRequest, success } from "@/lib/api-utils";
-import { UebersteuerungFehler } from "@/lib/kalkulation-versionen";
+import { UebersteuerungFehler, type Uebersteuerung } from "@/lib/kalkulation-versionen";
 import { hatPaketoptionen } from "@/services/rechner/pakete";
 import { MARGE_MAX_PROZENT, MARGE_MIN_PROZENT } from "@/services/rechner/marge";
 import {
@@ -12,11 +12,21 @@ import {
   type Autor,
 } from "@/services/kalkulation-versionen";
 
+const MARGE_ZURUECK = "Kalkulationskarte ohne Margenwahl: Vorschlag des Rechners";
+
+/** Wirksame Marge-Übersteuerung (letzte Nennung gilt), null ohne oder aufgehoben. */
+function wirksameMarge(liste: Uebersteuerung[]): unknown {
+  let wert: unknown = null;
+  for (const u of liste) if (u.art === "marge") wert = u.wert;
+  return wert;
+}
+
 /**
  * POST → übernimmt die Kalkulation ins Angebot, seit Plan 2 über eine
  * Kalkulationsversion: Entwurf holen (oder anlegen), optional die Marge aus dem
  * Regler als Übersteuerung ({ margeProzent }, 30 bis 60; der Rechner rechnet
- * den Preis), dann sperren. Das Sperren schreibt Festpreis, Posten, Leistungen
+ * den Preis), dann sperren. Ohne Margenwahl gilt wie auf der Karte angezeigt der
+ * Vorschlag des Rechners: eine geerbte Marge-Übersteuerung wird dafür aufgehoben. Das Sperren schreibt Festpreis, Posten, Leistungen
  * und Gültigkeit in die Quotation des Deals (eine Transaktion) und macht danach
  * dieselben Schritte wie das normale Speichern des Angebots. Bei einer Spanne
  * nur mit { bestaetigtSpanne: true }, dann die Obergrenze. Notizen bleiben.
@@ -51,6 +61,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rec
         recordId,
         version.version,
         { art: "marge", key: "marge", wert: margeProzent, grund: "Marge im Regler gewählt" },
+        autor
+      ));
+    } else if (wirksameMarge(version.overrides ?? []) !== null) {
+      ({ version } = await uebersteuern(
+        ctx.workspaceId,
+        recordId,
+        version.version,
+        { art: "marge", key: "marge", wert: null, grund: MARGE_ZURUECK },
         autor
       ));
     }

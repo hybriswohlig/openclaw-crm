@@ -121,6 +121,27 @@ describe("POST /calculation/apply", () => {
     expect(mocks.uebersteuern.mock.invocationCallOrder[0]).toBeLessThan(mocks.sperren.mock.invocationCallOrder[0]);
   });
 
+  it("ohne margeProzent, Entwurf erbt eine Marge: Marge aufheben (Vorschlag des Rechners wie auf der Karte), dann sperren", async () => {
+    mocks.entwurfHolenOderAnlegen.mockResolvedValue({
+      version: { version: 2, status: "entwurf", overrides: [{ art: "marge", key: "marge", wert: 50 }] }, neu: true,
+    });
+    mocks.uebersteuern.mockResolvedValue({ version: { version: 2, status: "entwurf" }, neu: false });
+    expect((await APPLY(req({}), { params })).status).toBe(200);
+    expect(mocks.uebersteuern).toHaveBeenCalledWith(
+      "ws_1", "deal_1", 2, { art: "marge", key: "marge", wert: null, grund: "Kalkulationskarte ohne Margenwahl: Vorschlag des Rechners" }, MENSCH
+    );
+    expect(mocks.sperren).toHaveBeenCalledWith("ws_1", "deal_1", 2, MENSCH, { bestaetigtSpanne: false });
+  });
+
+  it("ohne margeProzent, geerbte Marge schon aufgehoben: keine weitere Übersteuerung", async () => {
+    mocks.entwurfHolenOderAnlegen.mockResolvedValue({
+      version: { version: 2, status: "entwurf", overrides: [{ art: "marge", key: "marge", wert: 50 }, { art: "marge", key: "marge", wert: null }] },
+      neu: false,
+    });
+    await APPLY(req({}), { params });
+    expect(mocks.uebersteuern).not.toHaveBeenCalled();
+  });
+
   it("API-Schlüssel: Autor ist der Agent", async () => {
     mocks.getAuthContext.mockResolvedValue({ ...CTX, authMethod: "api_key" });
     await APPLY(req({}), { params });
