@@ -1,39 +1,85 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const m = vi.hoisted(() => ({
+  /** Lesen ohne Transaktion (getQuotation nach dem Speichern). */
   quotationRows: [] as unknown[][],
   lineRows: [] as unknown[][],
+  /** Lesen in der Transaktion (der Stand, mit dem verglichen wird). */
+  txQuotationRows: [] as unknown[][],
+  txLineRows: [] as unknown[][],
   updateSet: vi.fn(),
   txDelete: vi.fn(),
   txInsertValues: vi.fn(),
+  txExecute: vi.fn(),
+  sperrArt: vi.fn(),
+  reihenfolge: [] as string[],
 }));
 
-vi.mock("@/db", () => {
-  const select = () => ({
+vi.mock("@/db", async () => {
+  const { quotationLineItems } = await import("@/db/schema");
+  const lesen = (quellen: { kopf: () => unknown[][]; posten: () => unknown[][] }, imTx: boolean) => () => ({
     from: () => ({
       where: () => ({
-        limit: async () => m.quotationRows.shift() ?? [],
-        orderBy: async () => m.lineRows.shift() ?? [],
+        limit: () => {
+          if (imTx) m.reihenfolge.push("lesen");
+          const p = Promise.resolve(quellen.kopf().shift() ?? []);
+          return Object.assign(p, {
+            for: (art: string) => {
+              m.sperrArt(art);
+              return p;
+            },
+          });
+        },
+        orderBy: async () => quellen.posten().shift() ?? [],
       }),
     }),
   });
   const update = () => ({
     set: (values: Record<string, unknown>) => {
+      m.reihenfolge.push("kopf");
       m.updateSet(values);
       return { where: () => ({ returning: async () => [{ id: "q1" }] }) };
     },
   });
-  const insert = () => ({ values: () => ({ returning: async () => [{ id: "q1" }] }) });
+  const insert = (tabelle: unknown) => ({
+    values: (v: unknown) => {
+      if (tabelle === quotationLineItems) {
+        m.reihenfolge.push("posten");
+        m.txInsertValues(v);
+        return Promise.resolve();
+      }
+      m.reihenfolge.push("kopf");
+      return { returning: async () => [{ id: "q1" }] };
+    },
+  });
+  const ausserhalb = () => {
+    throw new Error("Schreiben außerhalb der Transaktion");
+  };
   const transaction = async (fn: (tx: unknown) => Promise<void>) =>
     fn({
+      execute: async (q: unknown) => {
+        m.reihenfolge.push("sperre");
+        return m.txExecute(q);
+      },
+      select: lesen({ kopf: () => m.txQuotationRows, posten: () => m.txLineRows }, true),
+      update,
+      insert,
       delete: () => ({ where: async () => m.txDelete() }),
-      insert: () => ({ values: async (v: unknown) => m.txInsertValues(v) }),
     });
-  return { db: { select, update, insert, transaction } };
+  return {
+    db: {
+      select: lesen({ kopf: () => m.quotationRows, posten: () => m.lineRows }, false),
+      update: ausserhalb,
+      insert: ausserhalb,
+      transaction,
+    },
+  };
 });
 vi.mock("./kva-annahme", () => ({ pruefeNichtAngenommen: vi.fn(async () => undefined) }));
 
-import { upsertQuotation } from "./quotations";
+import { PgDialect } from "drizzle-orm/pg-core";
+import type { SQL } from "drizzle-orm";
+import { QuotationInputError, upsertQuotation } from "./quotations";
 
 const gespeichert = {
   id: "q1",
@@ -63,10 +109,12 @@ const postenEingabe = gespeichertePosten.map(({ type, description, quantity, uni
   sortOrder,
 }));
 
-/** Lädt für jeden getQuotation-Aufruf (vorher, nachher) den gespeicherten Stand. */
+/** Gespeicherter Stand für das Lesen in der Transaktion und für getQuotation danach. */
 function ladeBestand() {
-  m.quotationRows = [[gespeichert], [gespeichert]];
-  m.lineRows = [gespeichertePosten, gespeichertePosten];
+  m.txQuotationRows = [[gespeichert]];
+  m.txLineRows = [gespeichertePosten];
+  m.quotationRows = [[gespeichert]];
+  m.lineRows = [gespeichertePosten];
 }
 
 function gesetzt(): Record<string, unknown> {
@@ -76,6 +124,7 @@ function gesetzt(): Record<string, unknown> {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  m.reihenfolge.length = 0;
   ladeBestand();
 });
 
@@ -162,6 +211,40 @@ describe("upsertQuotation löst die Kalkulationsversion bei Handänderung", () =
   it("ohne Posten und Rabatt gelten die gespeicherten Posten als unverändert", async () => {
     await upsertQuotation("deal1", { fixedPrice: "990.00", isVariable: false, notes: "x" });
     expect(gesetzt()).not.toHaveProperty("calculationVersionId");
+    expect(m.txInsertValues).not.toHaveBeenCalled();
+  });
+});
+
+describe("upsertQuotation unter der Sperre des Angebots (Review 3)", () => {
+  it("nimmt zuerst die Sperre je Deal, liest die Zeile FOR UPDATE, schreibt Kopf und Posten in derselben Transaktion", async () => {
+    await upsertQuotation("deal1", { fixedPrice: "990.00", isVariable: false, lineItems: postenEingabe });
+    expect(m.reihenfolge).toEqual(["sperre", "lesen", "kopf", "posten"]);
+    const q = new PgDialect().sqlToQuery(m.txExecute.mock.calls[0][0] as SQL);
+    expect(q.sql).toBe("select pg_advisory_xact_lock(hashtext('angebot:' || $1::text))");
+    expect(q.params).toEqual(["deal1"]);
+    expect(m.sperrArt).toHaveBeenCalledWith("update");
+  });
+
+  it("Formular mit altem Stand (v1, 1.000 €), inzwischen v2 gesperrt (1.500 €): Vergleich mit dem gesperrten Lesen löst die Verknüpfung", async () => {
+    // Vor der Transaktion hätte ein Lesen noch v1 gesehen; zählt nur das Lesen unter der Sperre.
+    m.quotationRows = [[{ ...gespeichert, fixedPrice: "1000.00", calculationVersionId: "v1" }]];
+    m.txQuotationRows = [[{ ...gespeichert, fixedPrice: "1500.00", calculationVersionId: "v2" }]];
+    await upsertQuotation("deal1", { fixedPrice: "1000.00", isVariable: false, notes: "nur Notiz" });
+    expect(gesetzt()).toMatchObject({ calculationVersionId: null, fixedPrice: "1000.00", notes: "nur Notiz" });
+  });
+
+  it("ohne Quotation: Anlegen in der Transaktion unter der Sperre", async () => {
+    m.txQuotationRows = [[]];
+    await upsertQuotation("deal1", { fixedPrice: "500.00", isVariable: false });
+    expect(m.reihenfolge).toEqual(["sperre", "lesen", "kopf"]);
+    expect(m.updateSet).not.toHaveBeenCalled();
+  });
+
+  it("ungültiger Posten scheitert vor jedem Schreiben", async () => {
+    await expect(
+      upsertQuotation("deal1", { fixedPrice: "990.00", isVariable: false, lineItems: [{ type: "other", quantity: Number.NaN, unitRate: "x", sortOrder: 0 }] })
+    ).rejects.toBeInstanceOf(QuotationInputError);
+    expect(m.updateSet).not.toHaveBeenCalled();
     expect(m.txInsertValues).not.toHaveBeenCalled();
   });
 });

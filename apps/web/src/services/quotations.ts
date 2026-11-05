@@ -127,115 +127,135 @@ export async function upsertQuotation(
 ) {
   // Nach der Kundenannahme ist das Angebot eingefroren (erst „Annahme aufheben“).
   await pruefeNichtAngenommen(dealRecordId);
-  const existing = await getQuotation(dealRecordId);
 
-  // Posten vorab normalisieren: ungültige Posten scheitern vor jedem Schreiben,
-  // und der Vergleich mit dem gespeicherten Stand sieht dieselben Zeilen, die
-  // geschrieben werden.
-  const discountProvided = input.discount !== undefined;
-  const linesProvided = input.lineItems !== undefined;
-  let next: StoredLine[] | null = null;
-  if (linesProvided || discountProvided) {
-    const source: unknown[] = linesProvided
-      ? input.lineItems ?? []
-      : (existing?.lineItems ?? []).map((li) => ({
-          type: li.type,
-          description: li.description,
-          quantity: li.quantity,
-          unitRate: li.unitRate,
-          sortOrder: li.sortOrder,
-        }));
-    const normalized = source.map((li, index) => normalizeLineItem(li, index));
-    next = discountProvided
-      ? applyDiscountToLines({
+  // Lesen, Vergleichen und Schreiben (Kopf und Posten) in einer Transaktion unter der
+  // Sperre des Angebots, die auch das Sperren einer Kalkulationsversion nimmt. Sonst
+  // vergleicht ein Speichern mit einem alten Stand, schreibt dessen Preis und lässt
+  // die Verknüpfung zu einer inzwischen gesperrten Version stehen.
+  await db.transaction(async (tx) => {
+    await angebotSperren(tx, dealRecordId);
+    const [row] = await tx
+      .select()
+      .from(quotations)
+      .where(eq(quotations.dealRecordId, dealRecordId))
+      .limit(1)
+      .for("update");
+    const existing = row
+      ? {
+          ...row,
+          lineItems: await tx
+            .select()
+            .from(quotationLineItems)
+            .where(eq(quotationLineItems.quotationId, row.id))
+            .orderBy(quotationLineItems.sortOrder),
+        }
+      : null;
+
+    // Posten vorab normalisieren: ungültige Posten scheitern vor jedem Schreiben,
+    // und der Vergleich mit dem gespeicherten Stand sieht dieselben Zeilen, die
+    // geschrieben werden.
+    const discountProvided = input.discount !== undefined;
+    const linesProvided = input.lineItems !== undefined;
+    let next: StoredLine[] | null = null;
+    if (linesProvided || discountProvided) {
+      const source: unknown[] = linesProvided
+        ? input.lineItems ?? []
+        : (existing?.lineItems ?? []).map((li) => ({
+            type: li.type,
+            description: li.description,
+            quantity: li.quantity,
+            unitRate: li.unitRate,
+            sortOrder: li.sortOrder,
+          }));
+      const normalized = source.map((li, index) => normalizeLineItem(li, index));
+      next = discountProvided
+        ? applyDiscountToLines({
+            fixedPrice: input.fixedPrice ?? null,
+            lineItems: normalized,
+            discount: parseDiscount(input.discount),
+          })
+        : normalized;
+    }
+
+    let quotationId: string;
+
+    if (existing) {
+      // Handänderung an Preis oder Posten löst die Verknüpfung zur Kalkulationsversion;
+      // reine Kundenfelder (Notizen, Beschreibung, Gültigkeit, Anzahlung) lassen sie stehen.
+      const preisGeaendert = angebotGeaendert(existing, {
+        fixedPrice: input.fixedPrice ?? null,
+        isVariable: input.isVariable,
+        lineItems: next ?? existing.lineItems,
+      });
+      const [updated] = await tx
+        .update(quotations)
+        .set({
+          ...(preisGeaendert ? { calculationVersionId: null } : {}),
           fixedPrice: input.fixedPrice ?? null,
-          lineItems: normalized,
-          discount: parseDiscount(input.discount),
+          isVariable: input.isVariable,
+          notes: input.notes ?? null,
+          depositRequiredCents:
+            input.depositRequiredCents !== undefined
+              ? input.depositRequiredCents
+              : existing.depositRequiredCents,
+          paymentMethodPreference:
+            input.paymentMethodPreference !== undefined
+              ? input.paymentMethodPreference
+              : existing.paymentMethodPreference,
+          validUntil:
+            input.validUntil !== undefined ? input.validUntil : existing.validUntil,
+          summary:
+            input.summary !== undefined ? input.summary : existing.summary,
+          showStandardInclusions:
+            input.showStandardInclusions !== undefined
+              ? input.showStandardInclusions
+              : existing.showStandardInclusions,
+          selectedPackageSlug:
+            input.selectedPackageSlug !== undefined
+              ? input.selectedPackageSlug
+              : existing.selectedPackageSlug,
+          // Interne Felder (Selbstkosten, Marge, Übernahme) bleiben erhalten, wenn nur Kundenfelder kommen.
+          calculationAssumptions:
+            input.calculationAssumptions !== undefined
+              ? annahmenZusammenfuehren(existing.calculationAssumptions, input.calculationAssumptions)
+              : existing.calculationAssumptions,
+          documentDetails:
+            input.documentDetails !== undefined
+              ? input.documentDetails === null
+                ? null
+                : { ...((existing.documentDetails ?? {}) as QuotationDocumentDetails), ...input.documentDetails }
+              : existing.documentDetails,
+          updatedAt: new Date(),
         })
-      : normalized;
-  }
+        .where(eq(quotations.id, existing.id))
+        .returning();
+      quotationId = updated.id;
+    } else {
+      const [created] = await tx
+        .insert(quotations)
+        .values({
+          dealRecordId,
+          fixedPrice: input.fixedPrice ?? null,
+          isVariable: input.isVariable,
+          notes: input.notes ?? null,
+          depositRequiredCents: input.depositRequiredCents ?? null,
+          paymentMethodPreference: input.paymentMethodPreference ?? null,
+          validUntil: input.validUntil ?? null,
+          summary: input.summary ?? null,
+          showStandardInclusions: input.showStandardInclusions ?? true,
+          selectedPackageSlug: input.selectedPackageSlug ?? null,
+          calculationAssumptions: input.calculationAssumptions ?? null,
+          documentDetails: input.documentDetails ?? null,
+        })
+        .returning();
+      quotationId = created.id;
+    }
 
-  let quotationId: string;
-
-  if (existing) {
-    // Handänderung an Preis oder Posten löst die Verknüpfung zur Kalkulationsversion;
-    // reine Kundenfelder (Notizen, Beschreibung, Gültigkeit, Anzahlung) lassen sie stehen.
-    const preisGeaendert = angebotGeaendert(existing, {
-      fixedPrice: input.fixedPrice ?? null,
-      isVariable: input.isVariable,
-      lineItems: next ?? existing.lineItems,
-    });
-    const [updated] = await db
-      .update(quotations)
-      .set({
-        ...(preisGeaendert ? { calculationVersionId: null } : {}),
-        fixedPrice: input.fixedPrice ?? null,
-        isVariable: input.isVariable,
-        notes: input.notes ?? null,
-        depositRequiredCents:
-          input.depositRequiredCents !== undefined
-            ? input.depositRequiredCents
-            : existing.depositRequiredCents,
-        paymentMethodPreference:
-          input.paymentMethodPreference !== undefined
-            ? input.paymentMethodPreference
-            : existing.paymentMethodPreference,
-        validUntil:
-          input.validUntil !== undefined ? input.validUntil : existing.validUntil,
-        summary:
-          input.summary !== undefined ? input.summary : existing.summary,
-        showStandardInclusions:
-          input.showStandardInclusions !== undefined
-            ? input.showStandardInclusions
-            : existing.showStandardInclusions,
-        selectedPackageSlug:
-          input.selectedPackageSlug !== undefined
-            ? input.selectedPackageSlug
-            : existing.selectedPackageSlug,
-        // Interne Felder (Selbstkosten, Marge, Übernahme) bleiben erhalten, wenn nur Kundenfelder kommen.
-        calculationAssumptions:
-          input.calculationAssumptions !== undefined
-            ? annahmenZusammenfuehren(existing.calculationAssumptions, input.calculationAssumptions)
-            : existing.calculationAssumptions,
-        documentDetails:
-          input.documentDetails !== undefined
-            ? input.documentDetails === null
-              ? null
-              : { ...((existing.documentDetails ?? {}) as QuotationDocumentDetails), ...input.documentDetails }
-            : existing.documentDetails,
-        updatedAt: new Date(),
-      })
-      .where(eq(quotations.id, existing.id))
-      .returning();
-    quotationId = updated.id;
-  } else {
-    const [created] = await db
-      .insert(quotations)
-      .values({
-        dealRecordId,
-        fixedPrice: input.fixedPrice ?? null,
-        isVariable: input.isVariable,
-        notes: input.notes ?? null,
-        depositRequiredCents: input.depositRequiredCents ?? null,
-        paymentMethodPreference: input.paymentMethodPreference ?? null,
-        validUntil: input.validUntil ?? null,
-        summary: input.summary ?? null,
-        showStandardInclusions: input.showStandardInclusions ?? true,
-        selectedPackageSlug: input.selectedPackageSlug ?? null,
-        calculationAssumptions: input.calculationAssumptions ?? null,
-        documentDetails: input.documentDetails ?? null,
-      })
-      .returning();
-    quotationId = created.id;
-  }
-
-  if (next) {
-    const lines = next;
-    await db.transaction(async (tx) => {
+    if (next) {
       await tx.delete(quotationLineItems).where(eq(quotationLineItems.quotationId, quotationId));
-      if (lines.length > 0) {
+      if (next.length > 0) {
         await tx.insert(quotationLineItems).values(
-          lines.map((li) => ({
+          next.map((li) => ({
             quotationId,
             type: li.type,
             description: li.description,
@@ -245,8 +265,8 @@ export async function upsertQuotation(
           }))
         );
       }
-    });
-  }
+    }
+  });
 
   return getQuotation(dealRecordId);
 }
