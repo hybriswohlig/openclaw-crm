@@ -10,11 +10,13 @@ import {
   primaryKey,
   index,
   uniqueIndex,
+  foreignKey,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { workspaces } from "./workspace";
 import { records } from "./records";
 import { employees } from "./employees";
+import { dealCalculationVersions } from "./deal-calculation-versions";
 import type {
   ExpenseTaxTreatment,
   IncomeTaxTreatment,
@@ -376,12 +378,19 @@ export const dealDocuments = pgTable(
     fileSize: integer("file_size").notNull(), // bytes
     mimeType: text("mime_type").notNull(),
     fileContent: text("file_content").notNull(), // base64
+    /** Kalkulationsversion, aus der dieses Dokument entstand (Migration 0057). */
+    calculationVersionId: text("calculation_version_id"),
     uploadedAt: timestamp("uploaded_at").notNull().default(sql`now()`),
   },
   (table) => [
     index("deal_documents_deal_idx").on(table.dealRecordId),
     index("deal_documents_workspace_idx").on(table.workspaceId),
     index("deal_documents_type_idx").on(table.documentType),
+    foreignKey({
+      name: "deal_documents_calculation_version_fk",
+      columns: [table.calculationVersionId],
+      foreignColumns: [dealCalculationVersions.id],
+    }).onDelete("set null"),
   ]
 );
 
