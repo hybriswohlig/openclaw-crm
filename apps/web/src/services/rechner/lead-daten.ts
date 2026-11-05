@@ -6,7 +6,9 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { attributes, objects, selectOptions } from "@/db/schema/objects";
 import { inboxContacts, inboxConversations } from "@/db/schema/inbox";
+import { quotations } from "@/db/schema/quotations";
 import { records, recordValues } from "@/db/schema/records";
+import { auftragsartAus } from "@/lib/auftragsart";
 import { getRecord } from "@/services/records";
 import { getDealInventory } from "@/services/deal-inventory";
 import type { LeadDaten } from "./eingabe";
@@ -68,7 +70,14 @@ export async function ladeLeadDaten(workspaceId: string, dealRecordId: string): 
     .from(inboxConversations)
     .leftJoin(inboxContacts, eq(inboxContacts.id, inboxConversations.contactId))
     .where(and(eq(inboxConversations.workspaceId, workspaceId), eq(inboxConversations.dealRecordId, dealRecordId)));
-  const payload = dv.moving_lead_payload as { source?: unknown } | undefined;
+  const payload = dv.moving_lead_payload as { source?: unknown; leadType?: unknown } | undefined;
+  // Dieselben zwei Quellen wie der Auftrag-Tab: gespeicherte KV-Leistung
+  // (quotations.serviceType) und leadType aus moving_lead_payload.
+  const [kv] = await db
+    .select({ serviceType: quotations.serviceType })
+    .from(quotations)
+    .where(eq(quotations.dealRecordId, dealRecordId))
+    .limit(1);
 
   return {
     von: ortText(dv.move_from_address),
@@ -90,5 +99,9 @@ export async function ladeLeadDaten(workspaceId: string, dealRecordId: string): 
     inventar: inventarAusZeilen(inventar),
     marke: markeAusFirmenname(typeof firma?.values?.name === "string" ? firma.values.name : null),
     quelle: leadQuelle({ payloadSource: typeof payload?.source === "string" ? payload.source : null, konversationen }),
+    auftragsart: auftragsartAus({
+      gespeichert: kv?.serviceType ?? null,
+      leadType: typeof payload?.leadType === "string" ? payload.leadType : null,
+    }),
   };
 }

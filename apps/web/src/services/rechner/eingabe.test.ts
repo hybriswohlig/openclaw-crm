@@ -100,6 +100,11 @@ describe("rechnerAnfrageAus", () => {
     expect(a).not.toHaveProperty("einpack_kartons");
     expect(a.einpack_ohne_anzahl).toBe("on");
   });
+  it("Auftragsart geht nur mit, wenn sie gesetzt ist", () => {
+    expect(rechnerAnfrageAus({ ...leer, auftragsart: "entruempelung" }).auftragsart).toBe("entruempelung");
+    expect(rechnerAnfrageAus(leer)).not.toHaveProperty("auftragsart");
+    expect(rechnerAnfrageAus({ ...leer, auftragsart: null })).not.toHaveProperty("auftragsart");
+  });
 });
 
 describe("Marke, Quelle und heute", () => {

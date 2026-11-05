@@ -5,6 +5,7 @@
  * Der Rechner macht aus fehlenden Angaben selbst eine Schnellschätzung.
  */
 import { createHash } from "node:crypto";
+import type { Auftragsart } from "@/lib/auftragsart";
 import type { InventoryOwner } from "@/services/inventory-owner";
 import type { LeadQuelle, Marke } from "./quelle";
 
@@ -36,6 +37,8 @@ export interface LeadDaten {
   marke?: Marke | null;
   /** Herkunft des Leads, für den Margenvorschlag */
   quelle?: LeadQuelle | null;
+  /** Umzug, Entrümpelung, Transport oder Küchenmontage. Fehlt das Feld, erfindet die Anfrage nichts. */
+  auftragsart?: Auftragsart | null;
   inventar: Array<{
     name: string;
     menge: number;
@@ -96,6 +99,7 @@ export function rechnerAnfrageAus(lead: LeadDaten, opts: { heute?: string } = {}
   setze("umzugsdatum", lead.umzugsdatum);
   setze("marke", lead.marke);
   setze("quelle", lead.quelle);
+  setze("auftragsart", lead.auftragsart);
   // heute gehört in die Anfrage, damit sich der Hash täglich ändert und die Eilregel nicht veraltet.
   setze("heute", opts.heute);
   setze("wohnflaeche_qm", lead.wohnflaecheQm);
