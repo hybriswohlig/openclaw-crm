@@ -1,0 +1,319 @@
+/*
+ * Tokens und Grundgerüst der neuen Oberfläche unter /app.
+ * Alles hängt an [data-neu], damit die alten Seiten unberührt bleiben, auch wenn
+ * dieses Stylesheet nach einer Client-Navigation zu /home noch geladen ist.
+ */
+
+[data-neu] {
+  --ink: #222224;
+  --ink-2: #66666a;
+  --ink-3: #8e8e93;
+  --blue: #0067d9;
+  --jade: #14a874;
+  --gold: #e8960c;
+  --gold-ink: #8a5200;
+  --rose: #e8345a;
+  --violet: #6a4cf0;
+  --fill: rgba(255, 255, 255, 0.52);
+  --fill-2: rgba(255, 255, 255, 0.68);
+  --fill-3: rgba(255, 255, 255, 0.88);
+  --rim: rgba(255, 255, 255, 0.92);
+  --hair: rgba(34, 34, 36, 0.08);
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 8px 24px -6px rgb(0 0 0 / 0.14);
+  --shadow-raised: 0 2px 6px rgb(0 0 0 / 0.06), 0 28px 56px -18px rgb(0 0 0 / 0.26);
+  --seite-oben: #faf9f7;
+  --seite-unten: #e6e8ec;
+
+  position: relative;
+  isolation: isolate;
+  min-height: 100dvh;
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue",
+    Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Dunkel ist nur vorbereitet: Seite Anthrazit, Textfarben umgedreht. */
+[data-lg-theme="dark"] [data-neu] {
+  --ink: #f5f5f7;
+  --ink-2: #c7c7cc;
+  --ink-3: #a1a1a6;
+  --seite-oben: #1c1c1e;
+  --seite-unten: #1c1c1e;
+}
+
+/* „Transparenz reduzieren“: deckende Flächen statt Glas. */
+@media (prefers-reduced-transparency: reduce) {
+  [data-neu] {
+    --fill: #ffffff;
+    --fill-2: #ffffff;
+    --fill-3: #ffffff;
+  }
+}
+
+:root[data-lg-reduce-transparency="1"] [data-neu] {
+  --fill: #ffffff;
+  --fill-2: #ffffff;
+  --fill-3: #ffffff;
+}
+
+/* ── Hintergrund ─────────────────────────────────────── */
+
+[data-neu] .neu-hintergrund {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  background: linear-gradient(180deg, var(--seite-oben), var(--seite-unten));
+}
+
+[data-neu] .neu-hintergrund-karte {
+  position: absolute;
+  inset: 0;
+}
+
+[data-neu] .neu-schleife {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: clamp(150px, 25vw, 420px);
+  height: auto;
+  display: block;
+}
+
+[data-neu] .neu-silberband {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: clamp(220px, 44vw, 680px);
+  height: auto;
+  display: block;
+}
+
+/* ── Gerüst ──────────────────────────────────────────── */
+
+[data-neu] .neu-geruest {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+  padding: 14px 16px calc(env(safe-area-inset-bottom) + 104px);
+}
+
+[data-neu] .neu-inhalt {
+  min-width: 0;
+}
+
+@media (min-width: 1024px) {
+  [data-neu] .neu-geruest {
+    grid-template-columns: 236px minmax(0, 1fr);
+    padding: 14px 20px;
+  }
+}
+
+/* ── Seitenleiste ────────────────────────────────────── */
+
+[data-neu] .neu-seitenleiste {
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  [data-neu] .neu-seitenleiste {
+    position: sticky;
+    top: 14px;
+    display: flex;
+    flex-direction: column;
+    height: calc(100dvh - 28px);
+    padding: 16px 12px;
+    border-radius: 24px;
+  }
+}
+
+[data-neu] .neu-marke {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 8px 16px;
+}
+
+[data-neu] .neu-marke-zeichen {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: var(--ink);
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+[data-neu] .neu-marke-name {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+[data-neu] .neu-marke-nutzer {
+  display: block;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+[data-neu] .neu-nav {
+  flex: 1;
+  overflow-y: auto;
+}
+
+[data-neu] .neu-nav-gruppe {
+  margin: 0;
+  padding: 12px 12px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+[data-neu] .neu-nav-liste {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+[data-neu] .neu-nav-eintrag {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 999px;
+  color: var(--ink);
+  font-size: 14px;
+  text-decoration: none;
+}
+
+[data-neu] .neu-nav-eintrag:hover {
+  background: var(--fill-2);
+}
+
+[data-neu] .neu-nav-eintrag:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+[data-neu] .neu-nav-eintrag svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  stroke: var(--ink-2);
+}
+
+[data-neu] .neu-nav-eintrag[aria-current="page"] {
+  background: var(--fill-3);
+  color: var(--blue);
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px var(--rim), var(--shadow);
+}
+
+[data-neu] .neu-nav-eintrag[aria-current="page"] svg {
+  stroke: var(--blue);
+}
+
+[data-neu] .neu-nav-zaehler {
+  margin-left: auto;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+}
+
+[data-neu] .neu-nav-eintrag[aria-current="page"] .neu-nav-zaehler {
+  color: var(--blue);
+}
+
+[data-neu] .neu-seitenleiste-fuss {
+  padding: 12px 4px 0;
+  border-top: 1px solid var(--hair);
+}
+
+[data-neu] .neu-umschalter {
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fill-2);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+[data-neu] .neu-umschalter:hover {
+  background: var(--fill-3);
+}
+
+[data-neu] .neu-umschalter:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+[data-neu] .neu-umschalter:disabled {
+  cursor: progress;
+}
+
+/* ── Handy-Dock ──────────────────────────────────────── */
+
+[data-neu] .neu-handy-dock {
+  position: fixed;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom) + 12px);
+  z-index: 20;
+  transform: translateX(-50%);
+}
+
+@media (min-width: 1024px) {
+  [data-neu] .neu-handy-dock {
+    display: none;
+  }
+}
+
+[data-neu] .neu-handy-dock svg {
+  width: 24px;
+  height: 24px;
+  stroke: var(--ink);
+}
+
+[data-neu] .neu-handy-dock [data-active="true"] svg {
+  stroke: var(--blue);
+}
+
+/* ── Platzhalterseiten ───────────────────────────────── */
+
+[data-neu] .neu-kopf {
+  padding: 6px 6px 0;
+}
+
+[data-neu] .neu-kopf h1 {
+  margin: 0;
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.05;
+}
+
+[data-neu] .neu-kopf h1 span {
+  display: block;
+  margin-top: 4px;
+  font-size: 22px;
+  color: var(--ink-2);
+}
+
+[data-neu] .neu-kopf-aktion {
+  margin-top: 20px;
+}

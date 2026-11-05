@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { CreateListModal } from "@/components/lists/create-list-modal";
 import { SidebarCrew } from "@/components/layout/sidebar-crew";
+import { UiUmschalter } from "@/components/neu/ui-umschalter";
 import { useInboxUnread } from "@/hooks/use-inbox-unread";
 import { signOut, useSession } from "@/lib/auth-client";
 import { useRouter } from "next/navigation";
@@ -370,6 +371,12 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         className="flex flex-col gap-0.5 pt-2"
         style={{ borderTop: "1px solid var(--line)" }}
       >
+        <UiUmschalter
+          ziel="neu"
+          className="flex w-full items-center rounded-[9px] px-2.5 py-2 text-left text-[13.5px] transition-colors hover:bg-white disabled:cursor-progress"
+          style={inactiveStyle}
+        />
+
         {workspaceRole === "admin" && (
           <NavItem
             href="/settings"
