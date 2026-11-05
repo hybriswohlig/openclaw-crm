@@ -26,8 +26,9 @@ const GLAS_ATTRIBUTE = [
  *
  * Theme: Meilenstein 1 hat keinen Dark Mode (Spec, Nicht-Ziele). Die Shell ist fest hell,
  * auch wenn next-themes „dark“ meldet. GlassProvider schreibt data-lg-theme selbst und würde
- * ohne Vorgabe dunkel starten; er bekommt deshalb "light" als Vorgabe, und LgThemeSync steht
- * als Geschwister hinter ihm, damit sein Effekt zuletzt läuft und "light" festhält.
+ * ohne Vorgabe dunkel starten; er bekommt deshalb "light" als Vorgabe. Gespeicherte Vorlieben
+ * (glassy-ui-preferences) setzt er nach der Hydration trotzdem; LgThemeSync mit `erzwingen`
+ * beobachtet data-lg-theme deshalb und setzt jedes andere Theme sofort auf "light" zurück.
  */
 export default function NeuLayout({ children }: { children: React.ReactNode }) {
   // Beim Verlassen von /app (z. B. Umschalter zu /home) die Glas-Attribute wieder entfernen,
