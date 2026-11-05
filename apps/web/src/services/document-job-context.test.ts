@@ -194,18 +194,10 @@ describe("attachDocumentJobContext: Kalkulationsversion für den VPS-Weg (Review
     serviceType: "move", validUntil: null, depositRequiredCents: null, paymentMethodPreference: null, calculationVersionId,
   });
 
-  it("gibt die Version der Quotation mit, aus der die Preise stammen", async () => {
+  it("schickt dem VPS keine Kalkulationsversion, auch nicht aus dem Browser", async () => {
     jobMocks.getQuotation.mockResolvedValue(quotation("ver_2"));
-    const p = await attachDocumentJobContext("ws_1", { _deal_record_id: "deal_1", document_type: "KV", firma: "kottke" });
-    expect(p._calculation_version_id).toBe("ver_2");
+    const p = await attachDocumentJobContext("ws_1", { _deal_record_id: "deal_1", document_type: "KV", firma: "kottke", _calculation_version_id: "ver_9" });
+    expect(p).not.toHaveProperty("_calculation_version_id");
     expect(p.preise).toMatchObject({ modell: "pauschale" });
-  });
-
-  it("ohne Version oder ohne Quotation: null, nie ein Wert aus dem Browser", async () => {
-    jobMocks.getQuotation.mockResolvedValue(quotation(null));
-    const ohne = await attachDocumentJobContext("ws_1", { _deal_record_id: "deal_1", _calculation_version_id: "ver_9" });
-    expect(ohne._calculation_version_id).toBeNull();
-    jobMocks.getQuotation.mockResolvedValue(null);
-    expect((await attachDocumentJobContext("ws_1", { _deal_record_id: "deal_1" }))._calculation_version_id).toBeNull();
   });
 });
