@@ -193,6 +193,21 @@ describe("preisDetailsText", () => {
     expect(t).toContain("Verkaufspreis 1.110 € (Marge 472 €, 42 %)");
     expect(t).toContain("• Kilometer 136,8 km × 1,00 € = 137 €");
   });
+  it("kürzt auch die geteilten Personalzeilen des neuen Rechners", () => {
+    const geteilt = {
+      ...e,
+      kosten: {
+        ...e.kosten,
+        posten: [
+          { bezeichnung: "Personal Arbeit (Arbeit, Fahrzeugübergabe, Puffer)", menge: 12, einheit: "Std", satz: 20, betrag: 240 },
+          { bezeichnung: "Personal Fahrt (Fahrzeit, Puffer)", menge: 7, einheit: "Std", satz: 15, betrag: 105 },
+        ],
+      },
+    };
+    const t = preisDetailsText(geteilt, anfrage);
+    expect(t).toContain("• Personal Arbeit 12,0 Std × 20,00 € = 240 €");
+    expect(t).toContain("• Personal Fahrt 7,0 Std × 15,00 € = 105 €");
+  });
   it("Risiken zuerst, Geschätztes in einer Zeile, ohne Selbstverständliches", () => {
     const t = preisDetailsText(e, anfrage);
     const risiken = t.slice(t.indexOf("Risiken und Annahmen:"));

@@ -243,3 +243,17 @@ describe("kvBausteine: Zeilen per Schlüssel (Rechner-Vertrag), Text als Rückfa
     expect(k.entfalleneKosten).toBe(50);
   });
 });
+
+describe("kvBausteine Küche per Schlüssel", () => {
+  it("findet die Küchenzeile über verkauf.kueche, auch mit anderer Bezeichnung", () => {
+    const mitKueche = {
+      ...ergebnis,
+      preis: {
+        ...ergebnis.preis,
+        posten: [...ergebnis.preis.posten, { key: "verkauf.kueche", bezeichnung: "Küche", menge: 3, einheit: "m", satz: null, betrag: 420 }],
+      },
+    };
+    const k = kvBausteine({ festpreis: 2300, ergebnis: mitKueche, anfrage });
+    expect(k.hebel.map((h) => h.art)).toContain("kueche");
+  });
+});

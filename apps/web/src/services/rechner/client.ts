@@ -63,7 +63,8 @@ export interface RechnerErgebnis {
   /** Tarif, mit dem gerechnet wurde (neuer Rechner) */
   tarif?: { id: string; version: number; marke: Marke | null };
   /** Ein Preis je Paket, nur mit paket_hebel in der Anfrage (neuer Rechner) */
-  paketpreise?: Array<{ slug: string; festpreis: number; selbstkosten: number }>;
+  /** festpreis ist null, wenn der Rechner ein Paket nicht kalkulieren kann. */
+  paketpreise?: Array<{ slug: string; festpreis: number | null; selbstkosten: number }>;
   team?: { groesse: number };
   schaetzung?: {
     festpreisVon: number | null; festpreisBis: number | null; annahmen: string[];
@@ -97,7 +98,8 @@ const NICHT_KONFIGURIERT = "Rechner nicht konfiguriert (RECHNER_URL, RECHNER_API
 export function rechnerBasisUrl(url: string | undefined = process.env.RECHNER_URL): string | null {
   if (!url) return null;
   try {
-    return new URL(url).origin;
+    const u = new URL(url);
+    return u.protocol === "http:" || u.protocol === "https:" ? u.origin : null;
   } catch {
     return null;
   }

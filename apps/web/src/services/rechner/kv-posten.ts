@@ -227,7 +227,7 @@ export function kvBausteine(input: {
       posten: { description: `Einpackservice (${kartons} Kartons)`, quantity: 1, unitRate: auf10(((zeiten.packen ?? 0) / 60) * arbeitssatz) },
     });
   }
-  const kueche = listenPosten.find((p) => p.bezeichnung === "Küche Demontage/Montage");
+  const kueche = zeile(listenPosten, ["verkauf.kueche"], (b) => b === "Küche Demontage/Montage");
   if (kueche && kueche.betrag > 0) {
     kandidaten.push({
       art: "kueche",

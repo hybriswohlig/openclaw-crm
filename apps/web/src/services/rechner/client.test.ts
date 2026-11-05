@@ -78,6 +78,8 @@ describe("rechnerBasisUrl", () => {
     process.env.RECHNER_URL = "http://localhost:3001/api/kalkulation";
     expect(rechnerBasisUrl()).toBe("http://localhost:3001");
     expect(rechnerBasisUrl("kein url")).toBeNull();
+    expect(rechnerBasisUrl("umzugsrechner.vercel.app/api/kalkulation")).toBeNull();
+    expect(rechnerBasisUrl("ftp://umzugsrechner.vercel.app/api/kalkulation")).toBeNull();
   });
 });
 
