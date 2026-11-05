@@ -163,6 +163,8 @@ export interface IssuerView {
 
 export interface DocumentModel {
   templateVersion: string;
+  /** Firma und Leistung für das Logo im Briefkopf (Bild kommt aus marke/logos). */
+  logo: { firma: FirmaSlug; leistung: ServiceType };
   kind: DocKind;
   title: string;
   fileStem: string;

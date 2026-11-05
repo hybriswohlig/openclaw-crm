@@ -10,7 +10,7 @@ const params = new URLSearchParams(location.search);
 const stage = Math.min(4, Math.max(1, Number(params.get("stage") ?? 1))) as 1 | 2 | 3 | 4;
 let ctx = params.has("festangebot") ? festangebotFixture() : portalFixture(stage, params.has("single"), params.has("live"));
 if (params.has("payments")) ctx.features!.payments = true;
-if (params.has("otherbrand")) ctx.branding = { ...ctx.branding, firmaSlug: "ceylan", displayName: "Ceylan Umzüge", primaryColor: "3A567F", logoUrl: null, ansprechpartner: null };
+if (params.has("otherbrand")) ctx.branding = { ...ctx.branding, firmaSlug: "ceylan", displayName: "Ceylan Umzüge", primaryColor: "3A567F", logoUrl: null, ansprechpartner: null, logoJeLeistung: null };
 if (params.has("expired")) ctx.kva!.validUntil = "2026-01-01";
 if (params.has("empty")) { ctx.kva = null; ctx.dealPackageOffers.options = []; }
 if (params.has("dark")) document.documentElement.classList.add("dark");

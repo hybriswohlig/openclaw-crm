@@ -1,4 +1,5 @@
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
+import { PDFDocument, StandardFonts, decodeFromBase64, rgb, type PDFFont, type PDFImage, type PDFPage } from "pdf-lib";
+import { logoPngFuer } from "./marke/logo-wahl";
 import type { DocumentModel } from "./types";
 
 const PAGE_W = 595.28;
@@ -47,6 +48,13 @@ class Writer {
   ) {
     this.page = this.addPage();
     this.y = PAGE_H - MARGIN;
+  }
+
+  /** Logo oben links; danach geht der Briefkopf darunter weiter. */
+  logo(bild: PDFImage, breite: number) {
+    const hoehe = (breite * bild.height) / bild.width;
+    this.page.drawImage(bild, { x: MARGIN, y: this.y - hoehe, width: breite, height: hoehe });
+    this.y -= hoehe + 12;
   }
 
   private addPage(): PDFPage {
@@ -197,6 +205,9 @@ export async function renderPdf(model: DocumentModel): Promise<Uint8Array> {
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   const w = new Writer(doc, font, bold, model);
+
+  const logo = logoPngFuer(model.logo.firma, model.logo.leistung);
+  if (logo) w.logo(await doc.embedPng(decodeFromBase64(logo)), 170);
 
   w.text(model.issuer.displayName, { font: bold, size: 14, gap: 2 });
   for (const line of model.issuer.lines) w.text(line, { size: 11, gap: 0 });

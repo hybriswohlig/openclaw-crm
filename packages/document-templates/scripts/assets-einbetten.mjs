@@ -4,7 +4,7 @@
 //
 // Schriften: statische TTFs von Google Fonts, mit pyftsubset auf Latin und
 // Latin-Ext-A plus Satzzeichen verkleinert (Lizenzen in assets/schriften/OFL-*.txt).
-// Logos: aus der SVG der Firma mit headless Chrome als PNG gerendert und beschnitten.
+// Logos: K-Logos der Firma, Weiß per Farbe-zu-Alpha freigestellt, beschnitten, 900 px, Palette (96 Farben).
 import fs from "node:fs";
 import path from "node:path";
 
@@ -22,6 +22,13 @@ fs.writeFileSync(
 );
 fs.writeFileSync(
   path.join(root, "src/marke/logos.ts"),
-  kopf + `/** PNG je Firmen-Slug. */\nexport const LOGO_PNG: Record<string, string> = {\n  kottke: "${b64("logo-kottke.png")}",\n};\n`,
+  kopf +
+    `/** PNG je Firma, mit ":<Leistung>" je Leistung (move, clearance, kitchen_installation). */\n` +
+    `export const LOGO_PNG: Record<string, string> = {\n` +
+    `  kottke: "${b64("kottke.png")}",\n` +
+    `  "kottke:move": "${b64("kottke-umzuege.png")}",\n` +
+    `  "kottke:clearance": "${b64("kottke-entruempelung.png")}",\n` +
+    `  "kottke:kitchen_installation": "${b64("kottke-kuechen.png")}",\n` +
+    `};\n`,
 );
 console.log("src/marke/schriften.ts und src/marke/logos.ts geschrieben");

@@ -1,7 +1,7 @@
 "use client";
 
 import { FileText, Printer, Download } from "lucide-react";
-import { kundenText, pickDefaultDealOption, type CustomerPortalContext } from "@openclaw-crm/customer-portal-core";
+import { kundenText, logoFuer, pickDefaultDealOption, type CustomerPortalContext } from "@openclaw-crm/customer-portal-core";
 import { EmailDocumentButton } from "./email-document-button";
 import { PanelHeading } from "./portal-ui";
 import { formatPortalDate, formatPortalMoney } from "./portal-presentation";
@@ -29,10 +29,11 @@ export function QuotationPreview({ ctx, token, variant = "full" }: { ctx: Custom
     ? ctx.inclusions.included.map(item => [item.label, item.detail].filter(Boolean).join(": "))
     : [];
   const inclusions = option?.includedItems ?? (positions.length > 0 ? [] : standardInclusions);
+  const logo = logoFuer(ctx.branding, ctx.annahmeRecht.serviceType);
   const paper = <article className="portal-document-paper portal-quotation">
-      <header>{ctx.branding.logoUrl ?
+      <header>{logo ?
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={ctx.branding.logoUrl} alt={ctx.branding.displayName} /> : <strong>{ctx.branding.displayName}</strong>}
+        <img src={logo} alt={ctx.branding.displayName} /> : <strong>{ctx.branding.displayName}</strong>}
         {ctx.branding.footer && <p className="max-w-52 text-right text-[10px]">{ctx.branding.footer}</p>}
       </header>
       <h3>Kostenvoranschlag</h3>

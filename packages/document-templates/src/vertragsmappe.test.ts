@@ -21,7 +21,7 @@ const basis: VertragsmappeDaten = {
   haftungshinweis: true, versicherungGewuenscht: false,
   erklaerung: "Mit meiner Unterschrift bestätige ich den oben bezeichneten Vertrag, den ich am 22. Oktober 2026 im Kundenportal geschlossen habe.",
   unterschrift: { art: "getippt", name: "Anna Muster", bildPng: null, at: new Date("2026-10-22T08:20:00Z"), ip: "203.0.113.5" },
-  marke: { firmaSlug: "kottke", akzentHex: "c2570c", ansprechpartner: "Dario Kottke", fusszeile: "Kottke Dienstleistungen · Marktstr. 8 · 72218 Wildberg" },
+  marke: { firmaSlug: "kottke", leistung: "move", akzentHex: "c2570c", ansprechpartner: "Dario Kottke", fusszeile: "Kottke Dienstleistungen · Marktstr. 8 · 72218 Wildberg" },
 };
 
 /** Schriftnamen aller eingebetteten Fonts. */
@@ -99,7 +99,7 @@ describe("Annahmeseite im Kottke-Look", () => {
   });
   it("unbekannte Firma: kein Logo, kein Fehler, gleiche Seitenzahl", async () => {
     const doc = await PDFDocument.load(
-      await baueVertragsmappe(await miniKv(2), { ...basis, marke: { firmaSlug: "unbekannt", akzentHex: "3a567f", ansprechpartner: null, fusszeile: null } }),
+      await baueVertragsmappe(await miniKv(2), { ...basis, marke: { firmaSlug: "unbekannt", leistung: null, akzentHex: "3a567f", ansprechpartner: null, fusszeile: null } }),
     );
     expect(doc.getPageCount()).toBe(4);
     expect(bilder(doc, 2)).toBe(0);
@@ -170,5 +170,25 @@ describe("passendeGroesse", () => {
     expect(passendeGroesse(breiteBei, 600)).toBe(22);
     expect(passendeGroesse(breiteBei, 260)).toBe(13);
     expect(passendeGroesse(breiteBei, 50)).toBe(10);
+  });
+});
+
+/** Größe der Bilddaten je Bild auf einer Seite. */
+function bildGroessen(doc: PDFDocument, seite: number): number[] {
+  const xo = doc.getPage(seite).node.Resources()?.lookup(PDFName.of("XObject"));
+  if (!(xo instanceof PDFDict)) return [];
+  return xo.keys().flatMap((k) => {
+    const o = doc.context.lookup(xo.get(k));
+    return o instanceof PDFRawStream && o.dict.get(PDFName.of("Subtype")) === PDFName.of("Image") ? [o.contents.length] : [];
+  });
+}
+
+describe("Logo der Annahmeseite je Leistung", () => {
+  it("nimmt für Entrümpelung ein anderes Logo als für den Umzug", async () => {
+    const umzug = await PDFDocument.load(await baueVertragsmappe(await miniKv(1), basis));
+    const entr = await PDFDocument.load(await baueVertragsmappe(await miniKv(1), { ...basis, marke: { ...basis.marke, leistung: "clearance" } }));
+    expect(bildGroessen(umzug, 1)).toHaveLength(1);
+    expect(bildGroessen(entr, 1)).toHaveLength(1);
+    expect(bildGroessen(umzug, 1)[0]).not.toBe(bildGroessen(entr, 1)[0]);
   });
 });

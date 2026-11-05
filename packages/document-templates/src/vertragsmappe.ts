@@ -3,7 +3,8 @@ import { PDFDocument, decodeFromBase64, degrees, rgb, type PDFFont, type PDFImag
 import { formatEur } from "./money";
 import { kottkeRestbetragSatz } from "./restbetrag";
 import { toWinAnsi } from "./pdf";
-import { LOGO_PNG } from "./marke/logos";
+import { logoPngFuer } from "./marke/logo-wahl";
+import type { ServiceType } from "./types";
 import { INTER_REGULAR, INTER_SEMIBOLD, JAKARTA_EXTRABOLD } from "./marke/schriften";
 
 /**
@@ -44,6 +45,8 @@ export interface VertragsmappeDaten {
   /** Firmen-Optik der angehängten Seiten. Das KV selbst bleibt unverändert. */
   marke: {
     firmaSlug: string;
+    /** Leistung für das Logo; null = Grundlogo der Firma. */
+    leistung: ServiceType | null;
     /** Hex ohne #, z. B. "c2570c". */
     akzentHex: string;
     /** Steht nur in der Fußzeile, nie an der Unterschrift. */
@@ -363,7 +366,7 @@ export async function baueVertragsmappe(kvPdf: Uint8Array, d: VertragsmappeDaten
     titel: await doc.embedFont(ausBase64(JAKARTA_EXTRABOLD), { subset: true }),
   };
   const akzent = farbe(d.marke.akzentHex);
-  const logoB64 = LOGO_PNG[d.marke.firmaSlug];
+  const logoB64 = logoPngFuer(d.marke.firmaSlug, d.marke.leistung);
   const logo = logoB64 ? await doc.embedPng(ausBase64(logoB64)) : null;
   const m = annahmeSeiteModell(d);
 
