@@ -20,6 +20,7 @@ import {
 } from "@/services/whatsapp-document";
 import { setHumanOwned } from "@/services/agent/agent-gate";
 import { supersedePendingDrafts } from "@/services/agent/draft-schliessen";
+import { setzeLetzteEigeneNachricht } from "@/services/wartet";
 
 export const maxDuration = 60;
 
@@ -172,6 +173,16 @@ export async function POST(
           eq(inboxConversations.workspaceId, ctx.workspaceId)
         )
       );
+
+    // Wartet-Signal: our own hand-written message on this deal. Best-effort,
+    // a failure (e.g. migration 0054 not yet applied) must never break sending.
+    if (row.dealRecordId) {
+      try {
+        await setzeLetzteEigeneNachricht(row.dealRecordId, new Date());
+      } catch (wartetErr) {
+        console.error("[wartet] setzeLetzteEigeneNachricht failed (non-fatal):", wartetErr);
+      }
+    }
 
     // The human just wrote the reply. Retire pending drafts on this thread
     // and this deal so a later approve_and_send cannot double-send. Match
