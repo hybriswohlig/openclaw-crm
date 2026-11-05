@@ -4,7 +4,6 @@ import "@/components/glassyui/styles/liquid.css";
 import "@/styles/neu.css";
 
 import { useEffect } from "react";
-import { useTheme } from "next-themes";
 import { ApprovalGate } from "@/components/layout/approval-gate";
 import { BackgroundJobsProvider } from "@/components/background-jobs";
 import { GlassProvider } from "@/components/glassyui/glass-provider";
@@ -12,7 +11,6 @@ import { HandyDock } from "@/components/neu/handy-dock";
 import { Hintergrund } from "@/components/neu/hintergrund";
 import { LgThemeSync } from "@/components/neu/lg-theme-sync";
 import { Seitenleiste } from "@/components/neu/seitenleiste";
-import { lgThemeFor } from "@/lib/lg-theme";
 
 /** Alles, was GlassProvider und LgThemeSync auf <html> schreiben. */
 const GLAS_ATTRIBUTE = [
@@ -26,13 +24,12 @@ const GLAS_ATTRIBUTE = [
 /**
  * Hülle der neuen Oberfläche unter /app/*. Die alten Seiten bleiben unter ihren Pfaden.
  *
- * Theme: GlassProvider schreibt data-lg-theme selbst und würde ohne Vorgabe dunkel starten.
- * Er bekommt deshalb das Theme aus next-themes als Vorgabe, und LgThemeSync steht als
- * Geschwister hinter ihm, damit sein Effekt zuletzt läuft und dasselbe Theme festhält.
+ * Theme: Meilenstein 1 hat keinen Dark Mode (Spec, Nicht-Ziele). Die Shell ist fest hell,
+ * auch wenn next-themes „dark“ meldet. GlassProvider schreibt data-lg-theme selbst und würde
+ * ohne Vorgabe dunkel starten; er bekommt deshalb "light" als Vorgabe, und LgThemeSync steht
+ * als Geschwister hinter ihm, damit sein Effekt zuletzt läuft und "light" festhält.
  */
 export default function NeuLayout({ children }: { children: React.ReactNode }) {
-  const { resolvedTheme } = useTheme();
-
   // Beim Verlassen von /app (z. B. Umschalter zu /home) die Glas-Attribute wieder entfernen,
   // sonst greifen etwa die Reduce-Motion-Regeln von liquid.css auch auf alten Seiten.
   useEffect(() => {
@@ -46,7 +43,7 @@ export default function NeuLayout({ children }: { children: React.ReactNode }) {
   return (
     <ApprovalGate>
       <BackgroundJobsProvider>
-        <GlassProvider defaultTheme={lgThemeFor(resolvedTheme)}>
+        <GlassProvider defaultTheme="light">
           <div data-neu="">
             <Hintergrund />
             <div className="neu-geruest">
@@ -56,7 +53,7 @@ export default function NeuLayout({ children }: { children: React.ReactNode }) {
             <HandyDock />
           </div>
         </GlassProvider>
-        <LgThemeSync />
+        <LgThemeSync erzwingen="light" />
       </BackgroundJobsProvider>
     </ApprovalGate>
   );

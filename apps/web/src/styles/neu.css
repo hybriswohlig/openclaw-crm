@@ -35,7 +35,8 @@
   -webkit-font-smoothing: antialiased;
 }
 
-/* Dunkel ist nur vorbereitet: Seite Anthrazit, Textfarben umgedreht. */
+/* Dunkel ist nur vorbereitet: Seite Anthrazit, Textfarben umgedreht. In Meilenstein 1
+   greift das nie, weil (neu)/layout.tsx data-lg-theme fest auf "light" setzt. */
 [data-lg-theme="dark"] [data-neu] {
   --ink: #f5f5f7;
   --ink-2: #c7c7cc;
