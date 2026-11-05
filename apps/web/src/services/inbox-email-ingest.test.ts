@@ -5,6 +5,9 @@ const mock = vi.hoisted(() => ({
   parse: vi.fn(),
   push: vi.fn(),
   kontaktart: vi.fn(),
+  kleinanzeigen: vi.fn(),
+  createDeal: vi.fn(),
+  wartet: vi.fn(),
   inserts: [] as Record<string, unknown>[],
   pending: [] as Promise<unknown>[],
 }));
@@ -34,14 +37,18 @@ vi.mock("mailparser", () => ({ simpleParser: mock.parse }));
 vi.mock("nodemailer", () => ({ default: {} }));
 vi.mock("@vercel/functions", () => ({ waitUntil: (p: Promise<unknown>) => mock.pending.push(p) }));
 vi.mock("./push", () => ({ sendPush: mock.push }));
-vi.mock("./inbox-kleinanzeigen", () => ({ isKleinanzeigenEmail: () => false }));
+vi.mock("./inbox-kleinanzeigen", () => ({
+  isKleinanzeigenEmail: (...a: unknown[]) => mock.kleinanzeigen(...a),
+  parseKleinanzeigenBody: (body: string) => body,
+  stripKleinanzeigenSuffix: (name: string) => name,
+}));
 vi.mock("./inbox-immoscout", () => ({ isImmoscoutLeadEmail: () => false }));
 vi.mock("./inbox-crm-link", () => ({ ensureCrmPerson: vi.fn() }));
 vi.mock("./agent/agent-suppress", () => ({ looksDeclined: () => false }));
 vi.mock("./activity-events", () => ({ emitEvent: vi.fn() }));
-vi.mock("./wartet", () => ({ aktualisiereWartet: vi.fn() }));
+vi.mock("./wartet", () => ({ aktualisiereWartet: mock.wartet }));
 vi.mock("./multi-company", () => ({ recomputeMultiCompanyForContact: vi.fn() }));
-vi.mock("./inbox", () => ({}));
+vi.mock("./inbox", () => ({ createDealForNewConversation: mock.createDeal }));
 vi.mock("@/lib/identity/canonical", () => ({}));
 vi.mock("./workspace-settings", () => ({}));
 vi.mock("./immoscout-sync", () => ({}));
@@ -206,5 +213,34 @@ describe("bestehender info-Thread einer Person mit bekannter Kontaktart", () => 
 
     expect(mock.set).toHaveBeenCalledWith(expect.objectContaining({ lane: "kein_lead", classifiedBy: "manual" }));
     expect(mock.push).toHaveBeenCalled();
+  });
+});
+
+describe("Wartet-Signal bei einem neuen E-Mail-Lead", () => {
+  beforeEach(() => {
+    mock.limit.mockReset();
+    mock.limit
+      .mockResolvedValueOnce([account])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "contact", email: "kaeufer@mail.kleinanzeigen.de" }])
+      .mockResolvedValueOnce([]);
+    mock.kleinanzeigen.mockReturnValue(true);
+    mock.createDeal.mockResolvedValue("deal-neu");
+  });
+
+  it("rechnet mit der Id des gerade angelegten Deals, nicht mit der leeren Konversation", async () => {
+    mock.parse.mockResolvedValue({
+      ...antwort(),
+      from: { value: [{ name: "Max über Kleinanzeigen", address: "kaeufer@mail.kleinanzeigen.de" }] },
+      subject: "Nutzer-Anfrage zu Ihrer Anzeige „Umzugshilfe“",
+      text: "Hallo, ist der Termin am Samstag noch frei? Wir ziehen von Mitte nach Pankow.",
+      messageId: "<ka-neu@mail.kleinanzeigen.de>",
+      inReplyTo: undefined,
+    });
+    await syncChannelAccount("mailbox");
+    await Promise.all(mock.pending);
+
+    expect(mock.createDeal).toHaveBeenCalled();
+    expect(mock.wartet).toHaveBeenCalledWith("workspace", "deal-neu");
   });
 });

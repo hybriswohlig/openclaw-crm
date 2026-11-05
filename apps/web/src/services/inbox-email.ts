@@ -268,6 +268,9 @@ async function ingestParsedEmail(
   // Lane nach dieser Nachricht und dem Status vor ihr, denn das Update unten
   // öffnet gespamte Chats wieder.
   let pushSenden: boolean;
+  // Deal, den dieser Eingang angelegt oder verknüpft hat. `conv` wird danach
+  // nicht neu gelesen, darum trägt diese Variable die Id zum Wartet-Hook.
+  let verknuepfterDeal: string | null = null;
 
   if (!conv) {
     const [created] = await db
@@ -298,7 +301,7 @@ async function ingestParsedEmail(
     // inquiries that are real leads (not platform notifications), and link it
     // to this conversation. Other channels can reuse the same deal later.
     if (isKleinanzeigen && lane === "lead") {
-      await createDealForNewConversation({
+      verknuepfterDeal = await createDealForNewConversation({
         workspaceId: account.workspaceId,
         conversationId: conv.id,
         dealName: contactName || fromEmail,
@@ -317,6 +320,7 @@ async function ingestParsedEmail(
         immo!.externalId!
       );
       if (existingDeal) {
+        verknuepfterDeal = existingDeal;
         await db
           .update(inboxConversations)
           .set({ dealRecordId: existingDeal, updatedAt: new Date() })
@@ -346,6 +350,7 @@ async function ingestParsedEmail(
           sourceChannel: "ImmoScout24 / umzugsfirmen-check",
           sourceReceivedAt: sentAt,
         });
+        verknuepfterDeal = dealId;
         if (dealId) {
           await setDealMovingLead({
             workspaceId: account.workspaceId,
@@ -400,7 +405,7 @@ async function ingestParsedEmail(
       .where(eq(inboxConversations.id, conv.id));
 
     if (laneUpgrade && lane === "lead" && isKleinanzeigen && !conv.dealRecordId) {
-      await createDealForNewConversation({
+      verknuepfterDeal = await createDealForNewConversation({
         workspaceId: account.workspaceId,
         conversationId: conv.id,
         dealName: contactName || fromEmail,
@@ -497,7 +502,7 @@ async function ingestParsedEmail(
   // Wartet-Signal: der Kunde schrieb zuletzt. Ohne Deal kehrt es sofort zurück.
   if (storedMessage) {
     try {
-      await aktualisiereWartet(account.workspaceId, conv.dealRecordId);
+      await aktualisiereWartet(account.workspaceId, verknuepfterDeal ?? conv.dealRecordId);
     } catch (err) {
       console.error("[wartet] nach E-Mail-Eingang fehlgeschlagen:", err);
     }
