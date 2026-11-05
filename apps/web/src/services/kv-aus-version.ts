@@ -25,6 +25,8 @@ export interface KvAusVersionOptionen {
   ladeVersionen?: (ws: string, deal: string) => Promise<Pick<VersionsZeile, "version" | "status">[]>;
   /** `quotations.calculation_version_id` des Deals. */
   ladeAngebotsVersionId?: (deal: string) => Promise<string | null>;
+  /** Deal hat Paketoptionen: deren Preis überschreibt den Festpreis der Version. */
+  hatPakete?: (deal: string) => Promise<boolean>;
   /** Betreiberfirma Kottke: CRM-Renderer gesperrt. */
   istKottke?: (ws: string, deal: string) => Promise<boolean>;
   speichereKv?: typeof storeCommercialDocument;
@@ -36,6 +38,7 @@ async function abhaengigkeiten(o: KvAusVersionOptionen): Promise<Required<KvAusV
     ladeVersion: o.ladeVersion ?? (async (ws, deal, v) => (await speicher()).lesen(ws, deal, v)),
     ladeVersionen: o.ladeVersionen ?? (async (ws, deal) => (await speicher()).liste(ws, deal)),
     ladeAngebotsVersionId: o.ladeAngebotsVersionId ?? (await import("./deal-documents")).angebotsVersionId,
+    hatPakete: o.hatPakete ?? (await import("./rechner/pakete")).hatPaketoptionen,
     istKottke: o.istKottke ?? (await import("@/lib/kottke-crm-renderer-deal")).dealBlocksInRepoCrmRenderer,
     speichereKv: o.speichereKv ?? (await import("./commercial-documents")).storeCommercialDocument,
   };
@@ -77,6 +80,14 @@ export async function kvAusVersion(
     throw new VersionsFehler("UNGUELTIG", `Das Angebot wurde nach v${n} von Hand geändert. Neue Version sperren.`);
   };
   if ((await d.ladeAngebotsVersionId(dealRecordId)) !== version.id) await ablehnen();
+  // Paketoptionen nach dem Sperren: der Paketpreis ersetzt den Festpreis der Version,
+  // ein so gerenderter KV käme nicht aus dieser Version (Pakete in Versionen: Plan 3).
+  if (await d.hatPakete(dealRecordId)) {
+    throw new VersionsFehler(
+      "PAKETE",
+      "Der Deal hat Paketoptionen. Den KV bitte über „Dokument erzeugen“ erstellen; Pakete in Kalkulationsversionen kommen mit der Kalkulationsseite.",
+    );
+  }
 
   if (await d.istKottke(workspaceId, dealRecordId)) {
     return {

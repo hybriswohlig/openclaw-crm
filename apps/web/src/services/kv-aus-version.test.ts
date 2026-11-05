@@ -25,6 +25,7 @@ const m = {
   ladeVersionen: vi.fn(),
   ladeAngebotsVersionId: vi.fn(),
   istKottke: vi.fn(),
+  hatPakete: vi.fn(),
   speichereKv: vi.fn(),
 };
 const opt = m as unknown as KvAusVersionOptionen;
@@ -36,6 +37,7 @@ beforeEach(() => {
   m.ladeVersionen.mockResolvedValue([{ version: 1, status: "gesperrt" }, { version: 2, status: "gesperrt" }]);
   m.ladeAngebotsVersionId.mockResolvedValue("ver_2");
   m.istKottke.mockResolvedValue(false);
+  m.hatPakete.mockResolvedValue(false);
   m.speichereKv.mockResolvedValue({ document: DOKUMENT, fileName: DOKUMENT.fileName, templateVersion: "t", rechnungFaelligAm: null });
 });
 
@@ -46,6 +48,15 @@ async function fehlerVon(p: Promise<unknown>): Promise<VersionsFehler> {
 }
 
 describe("kvAusVersion", () => {
+  it("Deal mit Paketoptionen → PAKETE, kein PDF, auch für Kottke kein Hinweis", async () => {
+    m.hatPakete.mockResolvedValue(true);
+    m.istKottke.mockResolvedValue(true);
+    const err = await fehlerVon(kvAusVersion(eingabe, opt));
+    expect(err.code).toBe("PAKETE");
+    expect(err.status).toBe(409);
+    expect(m.speichereKv).not.toHaveBeenCalled();
+  });
+
   it("Kottke → renderer vps mit Hinweis, kein CRM-PDF (Review Focus 5)", async () => {
     m.istKottke.mockResolvedValue(true);
     const r = await kvAusVersion(eingabe, opt);

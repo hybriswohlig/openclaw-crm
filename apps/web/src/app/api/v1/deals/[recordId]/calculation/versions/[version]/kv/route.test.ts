@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   angebotsVersionId: vi.fn(),
   dealBlocksInRepoCrmRenderer: vi.fn(),
   storeCommercialDocument: vi.fn(),
+  hatPaketoptionen: vi.fn(),
 }));
 
 // Kein Zugriff auf die Datenbank: jeder Zugriff auf `db` lässt den Test scheitern.
@@ -28,6 +29,7 @@ vi.mock("@/services/kalkulation-versionen-speicher", () => ({
   dbVersionsSpeicher: { lesen: mocks.lesen, liste: mocks.liste },
 }));
 vi.mock("@/services/deal-documents", () => ({ angebotsVersionId: mocks.angebotsVersionId }));
+vi.mock("@/services/rechner/pakete", () => ({ hatPaketoptionen: mocks.hatPaketoptionen }));
 vi.mock("@/lib/kottke-crm-renderer-deal", () => ({
   dealBlocksInRepoCrmRenderer: mocks.dealBlocksInRepoCrmRenderer,
 }));
@@ -58,6 +60,7 @@ const DOKUMENT = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.hatPaketoptionen.mockResolvedValue(false);
   mocks.getAuthContext.mockResolvedValue(CTX);
   mocks.dealImWorkspace.mockResolvedValue(true);
   mocks.lesen.mockResolvedValue({ id: "ver_2", version: 2, status: "gesperrt" });
