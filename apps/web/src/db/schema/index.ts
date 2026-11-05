@@ -32,3 +32,4 @@ export * from "./calendar-feeds";
 export * from "./deal-enrichment";
 export * from "./phone-calls";
 export * from "./intern";
+export * from "./user-settings";
