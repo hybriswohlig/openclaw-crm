@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { LeadDaten, RechnerAnfrage } from "@/services/rechner/eingabe";
+import { rechnerAnfrageAus, type LeadDaten, type RechnerAnfrage } from "@/services/rechner/eingabe";
 import type { RechnerErgebnis } from "@/services/rechner/client";
 import {
   anfrageMitUebersteuerungen,
@@ -104,12 +104,30 @@ describe("pruefeUebersteuerung", () => {
   });
 
   it("prüft Team, Volumen und Termin", () => {
-    expect(() => pruefeUebersteuerung({ art: "eingabe", key: "team", wert: 11, grund: "x" })).toThrow(UebersteuerungFehler);
+    expect(() => pruefeUebersteuerung({ art: "eingabe", key: "team", wert: 21, grund: "x" })).toThrow(UebersteuerungFehler);
+    expect(pruefeUebersteuerung({ art: "eingabe", key: "team", wert: 20, grund: "x" })).toMatchObject({ wert: 20 });
     expect(() => pruefeUebersteuerung({ art: "eingabe", key: "team", wert: 2.5, grund: "x" })).toThrow(UebersteuerungFehler);
     expect(() => pruefeUebersteuerung({ art: "eingabe", key: "volumen", wert: 0, grund: "x" })).toThrow(UebersteuerungFehler);
     expect(() => pruefeUebersteuerung({ art: "eingabe", key: "termin", wert: "2026-02-30", grund: "x" })).toThrow(UebersteuerungFehler);
     expect(pruefeUebersteuerung({ art: "eingabe", key: "termin", wert: "2026-12-03", grund: "x" })).toMatchObject({ wert: "2026-12-03" });
     expect(pruefeUebersteuerung({ art: "eingabe", key: "halteverbot.beladen", wert: true, grund: "x" })).toMatchObject({ wert: true });
+  });
+
+  it("nimmt Etagen mit höchstens einer Nachkommastelle", () => {
+    expect(pruefeUebersteuerung({ art: "eingabe", key: "beladen.etage", wert: 0.5, grund: "Hochparterre" })).toMatchObject({ wert: 0.5 });
+    expect(pruefeUebersteuerung({ art: "eingabe", key: "entladen.etage", wert: "-1", grund: "Keller" })).toMatchObject({ wert: -1 });
+    expect(() => pruefeUebersteuerung({ art: "eingabe", key: "beladen.etage", wert: 1.25, grund: "x" })).toThrow(UebersteuerungFehler);
+    expect(() => pruefeUebersteuerung({ art: "eingabe", key: "beladen.etage", wert: 60.5, grund: "x" })).toThrow(UebersteuerungFehler);
+    expect(() => pruefeUebersteuerung({ art: "eingabe", key: "beladen.etage", wert: -5.5, grund: "x" })).toThrow(UebersteuerungFehler);
+  });
+
+  it("schreibt groß beim Aufzug als gross", () => {
+    expect(pruefeUebersteuerung({ art: "eingabe", key: "beladen.aufzug", wert: "Groß", grund: "x" })).toMatchObject({ wert: "gross" });
+  });
+
+  it("lehnt Zeilen ab, die der Rechner nicht übersteuern kann", () => {
+    expect(() => pruefeUebersteuerung({ art: "zeile", key: "zeile.0", wert: 10, grund: "x" })).toThrow("Zeile nicht übersteuerbar: zeile.0");
+    expect(() => pruefeUebersteuerung({ art: "zeile", key: "verkauf.halteverbot", wert: 10, grund: "x" })).toThrow(UebersteuerungFehler);
   });
 
   it("lehnt eine unbekannte Art ab", () => {
@@ -213,6 +231,24 @@ describe("grundlageAus", () => {
   it("zeigt eine Eingabe-Übersteuerung als manuell", () => {
     const z = grundlageAus(lead({ packService: true, kartons: 20 }), null, [ue("eingabe", "kartons", 35)]).find((r) => r.key === "kartons");
     expect(z).toMatchObject({ key: "kartons", wert: 35, herkunft: "MANUELL", autor: "user-1" });
+  });
+
+  it("Erdgeschoss ohne Etage ergibt Etage 0 vom Kunden, wie in der Anfrage", () => {
+    const l = lead({ etageVon: null, zugangVon: "Erdgeschoss", etageNach: null, zugangNach: "Nicht nötig (Einfamilienhaus)" });
+    const zeilen = grundlageAus(l, null, []);
+    expect(zeilen.find((z) => z.key === "beladen.etage")).toMatchObject({ wert: 0, herkunft: "KUNDE" });
+    expect(zeilen.find((z) => z.key === "beladen.aufzug")).toMatchObject({ wert: "keiner", herkunft: "KUNDE" });
+    expect(zeilen.find((z) => z.key === "entladen.etage")).toMatchObject({ wert: 0, herkunft: "KUNDE" });
+    const anfrage = rechnerAnfrageAus(l, { heute: "2026-11-05" });
+    expect(rechnerwertFuer("eingabe", "beladen.etage", anfrage, null)).toBe(0);
+    expect(rechnerwertFuer("eingabe", "beladen.aufzug", anfrage, null)).toBe("keiner");
+    expect(rechnerwertFuer("eingabe", "entladen.etage", anfrage, null)).toBe(0);
+  });
+
+  it("Aufzug ohne Etage bleibt Standard bei der Etage", () => {
+    const zeilen = grundlageAus(lead({ etageVon: null, zugangVon: "Aufzug" }), null, []);
+    expect(zeilen.find((z) => z.key === "beladen.etage")).toMatchObject({ wert: null, herkunft: "STANDARD" });
+    expect(zeilen.find((z) => z.key === "beladen.aufzug")).toMatchObject({ wert: "klein", herkunft: "KUNDE" });
   });
 
   it("liefert jede Grundlage-Zeile genau einmal", () => {

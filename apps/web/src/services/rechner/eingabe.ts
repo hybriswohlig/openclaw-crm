@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import type { Auftragsart } from "@/lib/auftragsart";
 import type { InventoryOwner } from "@/services/inventory-owner";
 import type { LeadQuelle, Marke } from "./quelle";
+import { zugangAusTitel } from "./zugang";
 
 export interface LeadDaten {
   /** Adresse als Text (formatLocation), auch reine Ortsangaben wie "71032 Böblingen" */
@@ -57,24 +58,6 @@ export type RechnerAnfrage = Record<string, string | Array<Record<string, unknow
 
 const GROESSENKLASSEN = new Set(["klein", "mittel", "gross", "sperrig"]);
 
-/**
- * Zuordnung der CRM-Zugangsoptionen zum Rechner. "Aufzug" ohne Größe gilt als
- * kleiner Aufzug: große Möbel gehen dann über die Treppe (vorsichtige Annahme).
- */
-function zugang(titel: string | null): { aufzug?: "keiner" | "klein" | "gross"; etage?: number } {
-  switch ((titel ?? "").trim().toLowerCase()) {
-    case "aufzug":
-      return { aufzug: "klein" };
-    case "treppe":
-      return { aufzug: "keiner" };
-    case "erdgeschoss":
-    case "nicht nötig (einfamilienhaus)":
-      return { aufzug: "keiner", etage: 0 };
-    default:
-      return {};
-  }
-}
-
 const TREPPENHAUS: Record<string, "normal" | "eng" | "wendel"> = { normal: "normal", eng: "eng", wendeltreppe: "wendel" };
 
 export function rechnerAnfrageAus(lead: LeadDaten, opts: { heute?: string } = {}): RechnerAnfrage {
@@ -87,7 +70,7 @@ export function rechnerAnfrageAus(lead: LeadDaten, opts: { heute?: string } = {}
     ["von", lead.von, lead.etageVon, lead.zugangVon, lead.tragestreckeVonM, lead.treppenhausVon],
     ["nach", lead.nach, lead.etageNach, lead.zugangNach, lead.tragestreckeNachM, lead.treppenhausNach],
   ] as const) {
-    const z = zugang(zugangTitel);
+    const z = zugangAusTitel(zugangTitel);
     setze(`${seite}_adresse`, adresse);
     setze(`${seite}_etage`, etage ?? z.etage);
     setze(`${seite}_aufzug`, z.aufzug);

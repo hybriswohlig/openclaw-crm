@@ -8,6 +8,7 @@ import type { LeadDaten, RechnerAnfrage } from "@/services/rechner/eingabe";
 import type { KostenPosten, RechnerErgebnis } from "@/services/rechner/client";
 import type { HebelArt } from "@/services/rechner/kv-posten";
 import { MARGE_MAX_PROZENT, MARGE_MIN_PROZENT } from "@/services/rechner/marge";
+import { zugangAusTitel } from "@/services/rechner/zugang";
 
 export type Herkunft = "FOTO" | "CHAT" | "KUNDE" | "GOOGLE" | "REGEL" | "STANDARD" | "MANUELL";
 
@@ -102,14 +103,15 @@ function pruefeEingabe(key: GrundlageKey, wert: unknown): number | string | bool
     case "beladen.etage":
     case "entladen.etage": {
       const n = zahl(wert);
-      if (n === null || !Number.isInteger(n) || n < -5 || n > 60) {
-        throw new UebersteuerungFehler("Etage muss eine ganze Zahl von -5 bis 60 sein");
+      // Höchstens eine Nachkommastelle: 0,5 = Hochparterre.
+      if (n === null || n < -5 || n > 60 || Math.abs(n * 10 - Math.round(n * 10)) > 1e-9) {
+        throw new UebersteuerungFehler("Etage muss zwischen -5 und 60 liegen (höchstens eine Nachkommastelle)");
       }
       return n;
     }
     case "beladen.aufzug":
     case "entladen.aufzug": {
-      const s = typeof wert === "string" ? wert.trim().toLowerCase() : "";
+      const s = typeof wert === "string" ? wert.trim().toLowerCase().replace(/ß/g, "ss") : "";
       if (!AUFZUG.has(s)) throw new UebersteuerungFehler("Aufzug muss keiner, klein oder gross sein");
       return s;
     }
@@ -130,8 +132,8 @@ function pruefeEingabe(key: GrundlageKey, wert: unknown): number | string | bool
     }
     case "team": {
       const n = zahl(wert);
-      if (n === null || !Number.isInteger(n) || n < 1 || n > 10) {
-        throw new UebersteuerungFehler("Team muss eine ganze Zahl von 1 bis 10 sein");
+      if (n === null || !Number.isInteger(n) || n < 1 || n > 20) {
+        throw new UebersteuerungFehler("Team muss eine ganze Zahl von 1 bis 20 sein");
       }
       return n;
     }
@@ -190,6 +192,11 @@ export function pruefeUebersteuerung(e: { art: string; key: string; wert: unknow
     }
     case "zeile": {
       if (key === "") throw new UebersteuerungFehler("Schlüssel fehlt");
+      // Der Rechner ersetzt nur Kostenzeilen mit echtem Schlüssel: Ersatzschlüssel des
+      // alten Rechners (zeile.N) und Preiszeilen (verkauf.*) hätten keine Wirkung.
+      if (key.startsWith("zeile.") || key.startsWith("verkauf.")) {
+        throw new UebersteuerungFehler(`Zeile nicht übersteuerbar: ${key}`);
+      }
       if (e.wert === null) return { art, key, wert: null, grund };
       const n = zahl(e.wert);
       if (n === null || n < 0) throw new UebersteuerungFehler("Betrag darf nicht negativ sein");
@@ -306,20 +313,6 @@ export function anfrageMitUebersteuerungen(
   return a;
 }
 
-/** CRM-Zugangsoption → Aufzug im Rechner (wie rechnerAnfrageAus in services/rechner/eingabe.ts). */
-function aufzugAus(titel: string | null): "keiner" | "klein" | null {
-  switch ((titel ?? "").trim().toLowerCase()) {
-    case "aufzug":
-      return "klein";
-    case "treppe":
-    case "erdgeschoss":
-    case "nicht nötig (einfamilienhaus)":
-      return "keiner";
-    default:
-      return null;
-  }
-}
-
 function autorText(u: Uebersteuerung): string {
   return u.autor.userId ?? u.autor.quelle;
 }
@@ -343,14 +336,17 @@ export function grundlageAus(lead: LeadDaten, ergebnis: RechnerErgebnis | null, 
     herkunft: (wert === null || wert === false ? "STANDARD" : wennDa) as Herkunft,
   });
   const team = ergebnis?.team?.groesse ?? null;
+  // Dieselbe Zuordnung wie rechnerAnfrageAus: "Erdgeschoss" ohne Etage ergibt Etage 0.
+  const zv = zugangAusTitel(lead.zugangVon);
+  const zn = zugangAusTitel(lead.zugangNach);
 
   const basis: Record<GrundlageKey, { wert: string | number | boolean | null; herkunft: Herkunft }> = {
     volumen: { wert: ergebnis?.volumen?.nettoCbm ?? null, herkunft: volumenHerkunft(lead) },
-    "beladen.etage": ausLead(lead.etageVon),
-    "beladen.aufzug": ausLead(aufzugAus(lead.zugangVon)),
+    "beladen.etage": ausLead(lead.etageVon ?? zv.etage ?? null),
+    "beladen.aufzug": ausLead(zv.aufzug ?? null),
     "beladen.tragweg": ausLead(lead.tragestreckeVonM),
-    "entladen.etage": ausLead(lead.etageNach),
-    "entladen.aufzug": ausLead(aufzugAus(lead.zugangNach)),
+    "entladen.etage": ausLead(lead.etageNach ?? zn.etage ?? null),
+    "entladen.aufzug": ausLead(zn.aufzug ?? null),
     "entladen.tragweg": ausLead(lead.tragestreckeNachM),
     "halteverbot.beladen": ausLead(lead.halteverbot),
     "halteverbot.entladen": ausLead(lead.halteverbotNach ?? false),
@@ -388,13 +384,10 @@ export function kostenzeilenAus(ergebnis: RechnerErgebnis | null, liste: Ueberst
   });
 }
 
-function postenBetrag(ergebnis: RechnerErgebnis | null, key: string): KostenPosten | undefined {
+/** Kostenzeile mit diesem Schlüssel (nur kosten.posten: nur sie kann zeilen_uebersteuerung ersetzen). */
+function kostenPosten(ergebnis: RechnerErgebnis | null, key: string): KostenPosten | undefined {
   const kosten = ergebnis?.kosten?.posten ?? [];
-  const i = kosten.findIndex((p, idx) => postenKey(p, idx) === key);
-  if (i >= 0) return kosten[i];
-  const preis = ergebnis?.preis?.posten ?? [];
-  const j = preis.findIndex((p) => p.key === key);
-  return j >= 0 ? preis[j] : undefined;
+  return kosten.find((p, idx) => postenKey(p, idx) === key);
 }
 
 /**
@@ -422,14 +415,14 @@ export function rechnerwertFuer(
       return zahl(text(feld));
     }
     case "zeile":
-      return postenBetrag(ergebnis, key)?.betrag ?? null;
+      return kostenPosten(ergebnis, key)?.betrag ?? null;
     case "marge":
       return ergebnis?.preis?.margeWirksamProzent ?? ergebnis?.preis?.margeProzent ?? zahl(text("marge_prozent"));
     case "satz": {
       if (key !== "arbeit" && key !== "fahrt") return null;
       const ausAnfrage = zahl(text(SAETZE[key]));
       if (ausAnfrage !== null) return ausAnfrage;
-      return postenBetrag(ergebnis, `personal.${key}`)?.satz ?? null;
+      return kostenPosten(ergebnis, `personal.${key}`)?.satz ?? null;
     }
     case "zeitposten":
     case "material_frei":
