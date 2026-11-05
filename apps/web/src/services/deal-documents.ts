@@ -9,8 +9,10 @@
 // the MCP client can only send JSON. The size rules for that body live in
 // lib/deal-document-upload.ts (3 MB decoded, under the platform limit).
 
+import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { dealDocuments } from "@/db/schema/financial";
+import { quotations } from "@/db/schema/quotations";
 import {
   shouldNotifyDealDocument,
   validateDealDocumentUpload,
@@ -75,6 +77,40 @@ const META_COLUMNS = {
   uploadedAt: dealDocuments.uploadedAt,
 };
 
+/**
+ * Gesperrte Kalkulationsversion, auf die die Quotation des Deals zeigt
+ * (`quotations.calculation_version_id`); null ohne Quotation oder ohne Version.
+ */
+export async function angebotsVersionId(dealRecordId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ calculationVersionId: quotations.calculationVersionId })
+    .from(quotations)
+    .where(eq(quotations.dealRecordId, dealRecordId))
+    .limit(1);
+  return row?.calculationVersionId ?? null;
+}
+
+/**
+ * Version, mit der ein neues Dokument verknüpft wird: nur ein KV (`quotation`),
+ * explizite Angabe (auch null) gilt, sonst die Version der Quotation. Deckt den
+ * CRM-Renderer und den VPS-Weg `store-as-document`. Scheitert die Abfrage, wird
+ * das Dokument ohne Version gespeichert (das Speichern geht vor).
+ */
+async function versionFuerDokument(input: {
+  dealRecordId: string;
+  documentType: DealDocumentType;
+  calculationVersionId?: string | null;
+}): Promise<string | null> {
+  if (input.documentType !== "quotation") return null;
+  if (input.calculationVersionId !== undefined) return input.calculationVersionId;
+  try {
+    return await angebotsVersionId(input.dealRecordId);
+  } catch (err) {
+    console.error("[deal-documents] Kalkulationsversion nicht gelesen:", err);
+    return null;
+  }
+}
+
 export async function createDealDocument(input: {
   workspaceId: string;
   dealRecordId: string;
@@ -88,9 +124,15 @@ export async function createDealDocument(input: {
    * Omit it to keep the staff-upload and render-job behaviour.
    */
   notifyCustomer?: boolean;
+  /**
+   * Kalkulationsversion des KV. Fehlt sie, gilt bei `quotation` die Version der
+   * Quotation des Deals; null bleibt null. Andere Typen: immer null.
+   */
+  calculationVersionId?: string | null;
 }): Promise<DealDocumentMeta> {
   const check = validateDealDocumentUpload(input);
   if (!check.ok) throw new Error(check.error);
+  const calculationVersionId = await versionFuerDokument({ ...input, documentType: check.documentType });
 
   const [doc] = await db
     .insert(dealDocuments)
@@ -102,6 +144,7 @@ export async function createDealDocument(input: {
       fileSize: input.fileSize,
       mimeType: input.mimeType || "application/octet-stream",
       fileContent: input.fileContent,
+      calculationVersionId,
     })
     .returning(META_COLUMNS);
 

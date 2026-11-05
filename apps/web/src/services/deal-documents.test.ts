@@ -3,6 +3,9 @@ import { MAX_JSON_INLINE_BYTES } from "@/lib/attachment-content";
 
 const mocks = vi.hoisted(() => ({
   insertReturning: vi.fn(),
+  insertValues: vi.fn(),
+  selectLimit: vi.fn(async () => [] as unknown[]),
+  selectFrom: vi.fn(),
   maybeNotifyPortalEvent: vi.fn(),
   aktualisiereWartet: vi.fn(),
 }));
@@ -10,9 +13,16 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/db", () => ({
   db: {
     insert: () => ({
-      values: () => ({
-        returning: mocks.insertReturning,
-      }),
+      values: (v: unknown) => {
+        mocks.insertValues(v);
+        return { returning: mocks.insertReturning };
+      },
+    }),
+    select: () => ({
+      from: (t: unknown) => {
+        mocks.selectFrom(t);
+        return { where: () => ({ limit: mocks.selectLimit }) };
+      },
     }),
   },
 }));
@@ -37,6 +47,7 @@ import {
   shouldNotifyDealDocument,
   validateDealDocumentUpload,
 } from "./deal-documents";
+import { quotations } from "@/db/schema/quotations";
 
 describe("validateDealDocumentUpload", () => {
   it("caps the file at 10 MB", () => {
@@ -274,5 +285,61 @@ describe("createDealDocument notifications", () => {
       notifyCustomer: true,
     });
     expect(mocks.maybeNotifyPortalEvent).not.toHaveBeenCalled();
+  });
+});
+
+describe("createDealDocument verknüpft den KV mit der Kalkulationsversion", () => {
+  const base = {
+    workspaceId: "ws_1",
+    dealRecordId: "deal_1",
+    fileName: "KV-CE-20261106-WEB.pdf",
+    fileSize: 4,
+    mimeType: "application/pdf",
+    fileContent: Buffer.from("%PDF").toString("base64"),
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.insertReturning.mockResolvedValue([{ id: "doc_1" }]);
+    mocks.maybeNotifyPortalEvent.mockResolvedValue(undefined);
+    mocks.aktualisiereWartet.mockResolvedValue(undefined);
+    mocks.selectLimit.mockResolvedValue([{ calculationVersionId: "ver_2" }]);
+  });
+
+  it("Typ quotation → Insert enthält calculationVersionId aus der Quotation", async () => {
+    await createDealDocument({ ...base, documentType: "quotation" });
+    expect(mocks.selectFrom).toHaveBeenCalledWith(quotations);
+    expect(mocks.insertValues).toHaveBeenCalledWith(expect.objectContaining({ calculationVersionId: "ver_2" }));
+  });
+
+  it("Typ quotation ohne Quotation oder ohne Version → null", async () => {
+    mocks.selectLimit.mockResolvedValue([]);
+    await createDealDocument({ ...base, documentType: "quotation" });
+    expect(mocks.insertValues).toHaveBeenLastCalledWith(expect.objectContaining({ calculationVersionId: null }));
+    mocks.selectLimit.mockResolvedValue([{ calculationVersionId: null }]);
+    await createDealDocument({ ...base, documentType: "quotation" });
+    expect(mocks.insertValues).toHaveBeenLastCalledWith(expect.objectContaining({ calculationVersionId: null }));
+  });
+
+  it("explizite Angabe gilt ohne Abfrage, auch explizit null", async () => {
+    await createDealDocument({ ...base, documentType: "quotation", calculationVersionId: "ver_9" });
+    expect(mocks.insertValues).toHaveBeenLastCalledWith(expect.objectContaining({ calculationVersionId: "ver_9" }));
+    await createDealDocument({ ...base, documentType: "quotation", calculationVersionId: null });
+    expect(mocks.insertValues).toHaveBeenLastCalledWith(expect.objectContaining({ calculationVersionId: null }));
+    expect(mocks.selectLimit).not.toHaveBeenCalled();
+  });
+
+  it("Typ invoice → null, keine Abfrage", async () => {
+    await createDealDocument({ ...base, fileName: "RE-1.pdf", documentType: "invoice" });
+    expect(mocks.insertValues).toHaveBeenCalledWith(expect.objectContaining({ calculationVersionId: null }));
+    expect(mocks.selectLimit).not.toHaveBeenCalled();
+  });
+
+  it("Abfrage scheitert → Dokument wird trotzdem ohne Version gespeichert", async () => {
+    const fehler = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.selectLimit.mockRejectedValue(new Error("db weg"));
+    await expect(createDealDocument({ ...base, documentType: "quotation" })).resolves.toMatchObject({ id: "doc_1" });
+    expect(mocks.insertValues).toHaveBeenCalledWith(expect.objectContaining({ calculationVersionId: null }));
+    fehler.mockRestore();
   });
 });
