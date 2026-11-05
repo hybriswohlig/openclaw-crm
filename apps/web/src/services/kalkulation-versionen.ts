@@ -126,8 +126,9 @@ export interface VersionsSpeicher {
    */
   anhaengen(id: string, u: Uebersteuerung): Promise<VersionsZeile>;
   /**
-   * Eine Transaktion: Version sperren (nur aus dem Entwurf) und die Quotation des Deals
-   * schreiben. Mit `stand` nur, wenn die Version noch genau so viele Übersteuerungen hat
+   * Eine Transaktion: Sperre des Angebots nehmen, Kundenannahme erneut prüfen (wirft
+   * `AngebotAngenommenError`), Version sperren (nur aus dem Entwurf) und die Quotation
+   * des Deals schreiben. Mit `stand` nur, wenn die Version noch genau so viele Übersteuerungen hat
    * (sonst hat jemand dazwischen übersteuert und das Ergebnis passt nicht mehr).
    */
   sperrenUndAngebot(

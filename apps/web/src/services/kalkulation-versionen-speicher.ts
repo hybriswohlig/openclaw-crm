@@ -5,10 +5,11 @@
  */
 import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { offerPackages } from "@/db/schema/customer-portal";
+import { kvaConfirmations, offerPackages } from "@/db/schema/customer-portal";
 import { dealCalculationVersions } from "@/db/schema/deal-calculation-versions";
 import { resolveDealOperatingCompany } from "./financial";
-import { angebotAusVersionSchreiben } from "./quotations";
+import { AngebotAngenommenError, aktivBedingung } from "./kva-annahme";
+import { angebotAusVersionSchreiben, angebotSperren } from "./quotations";
 import type { HebelArt } from "./rechner/kv-posten";
 import { centSumme, EntwurfExistiertError, VersionsFehler, type VersionsSpeicher, type VersionsZeile } from "./kalkulation-versionen";
 
@@ -108,6 +109,17 @@ export const dbVersionsSpeicher: VersionsSpeicher = {
 
   async sperrenUndAngebot(ws, deal, id, angebot, kvItems, von, stand) {
     return db.transaction(async (tx) => {
+      // Zuerst die Sperre des Angebots (wie upsertQuotation), dann die Kundenannahme
+      // erneut prüfen: sie kann während der Neuberechnung eingegangen sein. Wirft
+      // innerhalb der Transaktion: nichts wird geschrieben.
+      await angebotSperren(tx, deal);
+      const [annahme] = await tx
+        .select({ id: kvaConfirmations.id })
+        .from(kvaConfirmations)
+        .where(aktivBedingung(deal))
+        .limit(1);
+      if (annahme) throw new AngebotAngenommenError();
+
       const jetzt = new Date();
       const t = dealCalculationVersions;
       const [z] = await tx

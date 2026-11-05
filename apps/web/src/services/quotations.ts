@@ -8,7 +8,7 @@ import {
   type StoredLine,
 } from "@/lib/angebots-rabatt";
 import { annahmenZusammenfuehren } from "@/lib/kunden-annahmen";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { pruefeNichtAngenommen } from "./kva-annahme";
 import type { UebernahmeErgebnis } from "./rechner/uebernahme";
 
@@ -20,6 +20,15 @@ type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0
 /** Eingabe fürs Angebot aus einer Kalkulation (angebotsUebernahme). */
 export type AngebotsEingabe = Extract<UebernahmeErgebnis, { ok: true }>["eingabe"];
 export type Quotation = NonNullable<Awaited<ReturnType<typeof getQuotation>>>;
+
+/**
+ * Sperrt das Angebot des Deals bis zum Ende der Transaktion `tx`. Wer die Quotation
+ * schreibt (Sperren einer Kalkulationsversion, Angebotsformular), nimmt diese Sperre
+ * zuerst; so laufen Lesen, Vergleichen und Schreiben nie ineinander.
+ */
+export async function angebotSperren(tx: DbExecutor, dealRecordId: string): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext('angebot:' || ${dealRecordId}::text))`);
+}
 
 export async function getQuotation(dealRecordId: string) {
   const [q] = await db
@@ -292,7 +301,8 @@ export async function getProfitSummary(dealRecordId: string) {
  * innerhalb der Transaktion des Sperrens (`tx`). Festpreis = Summe der Posten
  * auf den Cent; Posten genau wie geliefert (auch 0-€-Zeilen), Menge ganzzahlig.
  * Notizen, Beschreibung, Anzahlung, Zahlungsart und gewähltes Paket bleiben.
- * Prüft die Kundenannahme nicht selbst: das tut der Aufrufer vor dem Sperren.
+ * Prüft die Kundenannahme nicht selbst: das tut `sperrenUndAngebot` in derselben
+ * Transaktion, nachdem es `angebotSperren` genommen hat.
  */
 export async function angebotAusVersionSchreiben(
   tx: DbExecutor,

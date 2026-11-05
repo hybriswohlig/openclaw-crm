@@ -5,6 +5,9 @@ const mocks = vi.hoisted(() => ({
   txReturning: vi.fn(),
   txSet: vi.fn(),
   txStatus: vi.fn(),
+  txAnnahme: vi.fn(),
+  txExecute: vi.fn(),
+  reihenfolge: [] as string[],
   updateSet: vi.fn(),
   updateReturning: vi.fn(),
   angebotAusVersionSchreiben: vi.fn(),
@@ -20,30 +23,60 @@ vi.mock("@/db", () => ({
       },
     }),
     transaction: async (f: (tx: unknown) => Promise<unknown>) => {
+      const { kvaConfirmations } = await import("@/db/schema/customer-portal");
       const tx = {
+        execute: async (q: unknown) => {
+          mocks.reihenfolge.push("sperre");
+          return mocks.txExecute(q);
+        },
         update: () => ({
           set: (s: unknown) => {
+            mocks.reihenfolge.push("version");
             mocks.txSet(s);
             return { where: () => ({ returning: mocks.txReturning }) };
           },
         }),
-        select: () => ({ from: () => ({ where: () => ({ limit: mocks.txStatus }) }) }),
+        select: () => ({
+          from: (tabelle: unknown) => ({
+            where: () => ({
+              limit: async () => {
+                if (tabelle === kvaConfirmations) {
+                  mocks.reihenfolge.push("annahme");
+                  return mocks.txAnnahme();
+                }
+                return mocks.txStatus();
+              },
+            }),
+          }),
+        }),
       };
       return f(tx);
     },
   },
 }));
-vi.mock("./quotations", () => ({ angebotAusVersionSchreiben: mocks.angebotAusVersionSchreiben }));
+vi.mock("./quotations", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./quotations")>()),
+  angebotAusVersionSchreiben: (...a: unknown[]) => {
+    mocks.reihenfolge.push("angebot");
+    return mocks.angebotAusVersionSchreiben(...a);
+  },
+}));
 vi.mock("./financial", () => ({ resolveDealOperatingCompany: vi.fn() }));
 
 import { PgDialect } from "drizzle-orm/pg-core";
 import type { SQL } from "drizzle-orm";
 import { dbVersionsSpeicher, istEntwurfKonflikt } from "./kalkulation-versionen-speicher";
 import { EntwurfExistiertError, VersionsFehler } from "./kalkulation-versionen";
+import { AngebotAngenommenError } from "./kva-annahme";
 
 const pgFehler = (constraint: string) => Object.assign(new Error("duplicate key"), { code: "23505", constraint_name: constraint });
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocks.reihenfolge.length = 0;
+  mocks.txAnnahme.mockResolvedValue([]);
+  mocks.txExecute.mockResolvedValue([]);
+});
 
 describe("istEntwurfKonflikt", () => {
   it("erkennt 23505 auf dem Teil-Index, auch in cause verpackt; andere Verletzungen nicht", () => {
@@ -72,6 +105,24 @@ describe("dbVersionsSpeicher", () => {
     expect(r.version).toMatchObject({ id: "id_v2", status: "gesperrt" });
     expect(mocks.txSet).toHaveBeenCalledWith(expect.objectContaining({ status: "gesperrt", kvItems, priceCents: 149100, lockedBy: "usr_1" }));
     expect(mocks.angebotAusVersionSchreiben).toHaveBeenCalledWith(expect.anything(), "deal1", { fixedPrice: "1491" }, "id_v2");
+  });
+
+  it("sperrenUndAngebot: zuerst Sperre des Angebots je Deal, dann Annahme in der Transaktion, dann schreiben (Review 2)", async () => {
+    mocks.txReturning.mockResolvedValueOnce([{ id: "id_v2", status: "gesperrt" }]);
+    await dbVersionsSpeicher.sperrenUndAngebot("ws", "deal1", "id_v2", {} as never, [], "usr_1");
+    expect(mocks.reihenfolge).toEqual(["sperre", "annahme", "version", "angebot"]);
+    const q = new PgDialect().sqlToQuery(mocks.txExecute.mock.calls[0][0] as SQL);
+    expect(q.sql).toBe("select pg_advisory_xact_lock(hashtext('angebot:' || $1::text))");
+    expect(q.params).toEqual(["deal1"]);
+  });
+
+  it("sperrenUndAngebot: Kunde hat während der Neuberechnung angenommen → AngebotAngenommenError, nichts geschrieben", async () => {
+    mocks.txAnnahme.mockResolvedValueOnce([{ id: "kva_1" }]);
+    const fehler = await dbVersionsSpeicher.sperrenUndAngebot("ws", "deal1", "id_v2", {} as never, [], "usr_1", { uebersteuerungen: 0 }).catch((e: unknown) => e);
+    expect(fehler).toBeInstanceOf(AngebotAngenommenError);
+    expect(mocks.txSet).not.toHaveBeenCalled();
+    expect(mocks.angebotAusVersionSchreiben).not.toHaveBeenCalled();
+    expect(mocks.reihenfolge).toEqual(["sperre", "annahme"]);
   });
 
   it("sperrenUndAngebot mit Schnappschuss: schreibt den gerechneten Stand mit, error null", async () => {

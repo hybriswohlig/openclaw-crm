@@ -619,6 +619,19 @@ describe("sperren", () => {
     expect(t.zeilen[0].status).toBe("entwurf");
   });
 
+  it("Annahme kommt während der Neuberechnung: Vorprüfung bestanden, die Sperr-Transaktion lehnt ab; kein Nachlauf (Review 2)", async () => {
+    const t = aufbau("2026-11-03T09:00:00Z");
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    t.setzeJetzt("2026-11-05T09:00:00Z"); // Bezugsdatum alt → Sperren rechnet neu
+    const annahme = new AngebotAngenommenError();
+    vi.mocked(t.speicher.sperrenUndAngebot).mockRejectedValueOnce(annahme);
+    await expect(sperren("ws", "deal1", 1, MENSCH, {}, t.deps)).rejects.toBe(annahme);
+    expect(t.deps.pruefeAnnahme).toHaveBeenCalledTimes(1);
+    expect(t.rechner).toHaveBeenCalledTimes(2);
+    expect(t.deps.nachSperren).not.toHaveBeenCalled();
+    expect(t.zeilen[0].status).toBe("entwurf");
+  });
+
   it("Paketoptionen → PAKETE; Stunden-KV beim Agenten oder Stunden-Version → STUNDEN; nichts gesperrt", async () => {
     const t = aufbau();
     await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
