@@ -42,6 +42,7 @@ if (params.has("widerruf") && ctx.acceptance) {
 window.fetch = async (input, init) => {
   const url = String(input);
   if ((init?.method ?? "GET").toUpperCase() === "POST") (window as Window & { __portalPosts?: string[] }).__portalPosts?.push(url);
+  if (url.endsWith("/set-email")) { ctx = { ...ctx, customerEmailStatus: "present", customerEmailMasked: "t***@example.invalid" }; return Response.json({ data: { masked: "t***@example.invalid" } }); }
   if (url.endsWith("/state")) return Response.json({ data: ctx });
   if (url.endsWith("/select-package-option")) {
     const { optionId } = JSON.parse(String(init?.body));

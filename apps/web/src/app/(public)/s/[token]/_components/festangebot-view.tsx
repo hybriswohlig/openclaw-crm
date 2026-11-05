@@ -243,7 +243,7 @@ export function FestangebotView({
           <AnnahmeZeile firma={ctx.branding.firmaSlug} stempel={stempelListe} vertragUrl={ctx.documents.signedContractUrl}>
             {showBar && (offerExpired ? <ExpiredNotice ctx={ctx} /> : <AcceptButton ctx={ctx} acceptBlock={acceptBlock} onAccept={accept} />)}
           </AnnahmeZeile>
-          <EmailCaptureBanner token={token} status={ctx.customerEmailStatus} branding={ctx.branding} variant="zeile" />
+          <EmailCaptureBanner token={token} status={ctx.customerEmailStatus} branding={ctx.branding} variant="zeile" onSaved={() => void onConfirmed()} />
         </article>
 
         <section className="portal-panel">

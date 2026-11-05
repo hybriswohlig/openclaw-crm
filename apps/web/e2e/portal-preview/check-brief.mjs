@@ -97,6 +97,14 @@ assert.doesNotMatch(seitenText, /[–—]/, "kein Gedankenstrich im Portal");
 await ohneMail.close();
 console.log("PASS E-Mail-Bitte einmal, kein Gedankenstrich");
 
+const mailNachtragen = await oeffnen("festangebot&ohnemail&kvdatei", 390);
+await mailNachtragen.getByRole("button", { name: "E-Mail hinterlegen", exact: true }).click();
+await mailNachtragen.locator("input[type=email]").fill("test@example.invalid");
+await mailNachtragen.getByRole("button", { name: "Speichern", exact: true }).click();
+await mailNachtragen.getByRole("button", { name: "Per E-Mail senden", exact: true }).waitFor({ timeout: 3000 });
+await mailNachtragen.close();
+console.log("PASS PDF-Versand direkt nach der E-Mail im Brief");
+
 const abgelaufen = await oeffnen("festangebot&expired", 390);
 assert.equal(await abgelaufen.getByText("Dieses Angebot ist abgelaufen.", { exact: true }).count(), 1, "Abgelaufen-Hinweis nur einmal");
 await abgelaufen.close();
