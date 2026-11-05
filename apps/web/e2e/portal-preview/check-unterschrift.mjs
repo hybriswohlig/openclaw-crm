@@ -42,6 +42,10 @@ for (const width of [1440, 390]) {
   await a.locator("button:has-text('Unterschrift bestätigen')").click();
   await a.locator("text=Vielen Dank, dein Vertrag ist unterschrieben.").waitFor();
   await a.screenshot({ path: `${out}/a-${width}-fertig.png` });
+  // Stempel nach dem Neuladen mit Serverzeit (Vorschau: 06.09.2026), nicht mit der Gerätezeit.
+  await a.waitForTimeout(1200);
+  const stempelTexte = await a.locator(".portal-stempel span").allInnerTexts();
+  assert.ok(stempelTexte.length >= 2 && stempelTexte.every((t) => t === "06.09.2026"), `Stempel mit Serverzeit (${width}): ${stempelTexte.join(", ")}`);
   assert.equal(await a.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `A overflow ${width}`);
   const posts = await a.evaluate(() => window.__portalPosts);
   assert.ok(posts.some((u) => u.endsWith("/unterschrift")), "POST /unterschrift gesendet");

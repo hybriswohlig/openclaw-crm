@@ -79,7 +79,9 @@ export function UnterschriftForm({
   }
 
   if (fertig) {
-    const datum = stempel({ signedAt: fertig, unterschriftAt: fertig })[1].datum;
+    // Serverzeit aus dem neu geladenen Kontext; bis dahin der Moment des Absendens.
+    const um = ctx.acceptance?.unterschrift?.at ?? fertig;
+    const datum = stempel({ signedAt: um, unterschriftAt: um })[1].datum;
     return (
       <div aria-live="polite" className="portal-unterschrift-fertig">
         <Stempel s={{ art: "unterschrieben", datum }} />

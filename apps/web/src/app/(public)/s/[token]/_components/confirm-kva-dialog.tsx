@@ -397,7 +397,9 @@ function DoneStep({
     return { moeglich, aktion: naechsteAktionNachAnnahme({ anzahlungOffen: hasDeposit, unterschriftMoeglich: moeglich }) };
   });
   // Der Kontext kann die neue Annahme noch nicht kennen; dann gilt der Moment der Bestätigung.
-  const [angenommenUm] = useState(() => ctx.acceptance?.signedAt ?? new Date().toISOString());
+  // Serverzeit, sobald der Kontext die Annahme kennt; bis dahin der Moment der Bestätigung.
+  const [jetzt] = useState(() => new Date().toISOString());
+  const angenommenUm = ctx.acceptance?.signedAt ?? jetzt;
   return (
     <div aria-live="polite">
       <div className="portal-done-kopf">

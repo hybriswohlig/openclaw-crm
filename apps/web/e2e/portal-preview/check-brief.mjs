@@ -89,6 +89,18 @@ for (const ansicht of ANSICHTEN) {
   console.log(`PASS ${ansicht}: hell und dunkel, 390 und 1440`);
 }
 
+const abgelaufen = await oeffnen("festangebot&expired", 390);
+assert.equal(await abgelaufen.getByText("Dieses Angebot ist abgelaufen.", { exact: true }).count(), 1, "Abgelaufen-Hinweis nur einmal");
+await abgelaufen.close();
+console.log("PASS abgelaufen nur einmal");
+
+const desktop = await oeffnen("festangebot", 1440);
+await desktop.mouse.wheel(0, 1600);
+await desktop.waitForTimeout(400);
+assert.equal(await desktop.locator(".portal-fest-bar").isVisible(), true, "Leiste mit Preis und Annahme auch am Desktop nach dem Scrollen");
+await desktop.close();
+console.log("PASS Desktop-Leiste");
+
 const lang = await oeffnen("festangebot&langeadresse", 390);
 assert.equal(await lang.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "lange Adresse ohne Überlauf");
 await lang.close();
