@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kalkulation – Mockup 7</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<style>
+  .tip{background:rgba(255,255,255,.92);border:0;border-radius:999px;box-shadow:0 1px 3px rgba(0,0,0,.2);font-size:11px;font-weight:600;color:#222224;padding:2px 8px}
+  .tip::before{display:none}
+  :root{
+    --ink:#222224; --ink-2:#66666a; --ink-3:#8e8e93;
+    --blue:#0067d9; --blue-tint:rgba(0,103,217,.10); --jade:#14a874; --jade-ink:#0d6b4a; --gold:#e8960c; --gold-ink:#8a5200; --rose:#e8345a; --violet:#6a4cf0; --gray:#8e8e93;
+    --fill:rgba(255,255,255,.52); --fill-2:rgba(255,255,255,.68); --fill-3:rgba(255,255,255,.88);
+    --rim:rgba(255,255,255,.92); --hair:rgba(34,34,36,.08);
+    --shadow:0 1px 2px rgb(0 0 0 / .06),0 8px 24px -6px rgb(0 0 0 / .14);
+    --shadow-raised:0 2px 6px rgb(0 0 0 / .06),0 28px 56px -18px rgb(0 0 0 / .26);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:#f3f4f6;color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Helvetica,Arial,sans-serif;font-size:14px;line-height:1.4;-webkit-font-smoothing:antialiased}
+  .wall{position:fixed;inset:0;z-index:0;pointer-events:none} .wall svg{width:100%;height:100%;display:block}
+  .ask,.app,.q{position:relative;z-index:1}
+  .lg{position:relative;background:var(--fill);backdrop-filter:blur(16px) saturate(1.6) brightness(1.06);-webkit-backdrop-filter:blur(16px) saturate(1.6) brightness(1.06);border-radius:24px;box-shadow:inset 0 0 0 1px var(--rim),var(--shadow)}
+  .lg::before{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:linear-gradient(180deg,rgba(255,255,255,.38),rgba(255,255,255,0) 32%)}
+  .lg.tile{border-radius:18px}
+
+  .ask{max-width:1540px;margin:22px auto 10px;padding:0 20px}
+  .ask h1{font-size:20px;font-weight:600;margin:0 0 4px;letter-spacing:-.01em} .ask p{margin:0;color:var(--ink-2)}
+  .ask .tag{display:inline-block;margin-left:10px;font-size:11px;color:var(--ink-2);border-radius:999px;padding:3px 9px;vertical-align:middle;background:var(--fill-2);box-shadow:inset 0 0 0 1px var(--rim)}
+
+  .app{max-width:1540px;margin:14px auto 0;padding:0 20px;display:grid;grid-template-columns:236px 1fr;gap:18px;min-height:900px}
+  .side{padding:16px 12px;height:fit-content;position:sticky;top:14px}
+  .brand{display:flex;align-items:center;gap:10px;padding:4px 8px 16px}
+  .brand .mark{width:34px;height:34px;border-radius:10px;background:#222224;color:#fff;display:grid;place-items:center;font-weight:700;font-size:15px}
+  .brand b{display:block;font-size:14px;font-weight:600} .brand span{font-size:12px;color:var(--ink-2)}
+  .sec{font-size:11px;color:var(--ink-3);font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:12px 12px 6px}
+  .nv{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:999px;color:var(--ink);font-size:14px}
+  .nv svg{width:18px;height:18px;stroke:var(--ink-2);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  .nv .n{margin-left:auto;font-size:12px;color:var(--ink-3)}
+  .nv.on{background:var(--fill-3);color:var(--blue);font-weight:600;box-shadow:inset 0 0 0 1px var(--rim),var(--shadow)} .nv.on svg{stroke:var(--blue)} .nv.on .n{color:var(--blue)}
+  .nv .b{margin-left:auto;background:var(--blue);color:#fff;font-size:11px;font-weight:600;border-radius:999px;padding:1px 7px}
+
+  .main{display:flex;flex-direction:column;gap:14px;min-width:0}
+  .crumb{font-size:13px;color:var(--ink-2);padding:0 6px} .crumb b{color:var(--blue);font-weight:500}
+  .head{display:flex;align-items:flex-end;gap:18px;padding:0 6px 0}
+  .head h2{margin:0;font-size:34px;font-weight:600;letter-spacing:-.015em;line-height:1.05}
+  .head h2 span{display:block;color:var(--ink-3);font-size:22px;margin-top:4px}
+  .head .grow{flex:1}
+  .ver{display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:3px;background:rgba(34,34,36,.08);font-size:12.5px}
+  .ver span{padding:5px 12px;border-radius:999px;color:var(--ink-2)} .ver span.on{background:#fff;color:var(--ink);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+  .ver span.add{color:var(--blue);font-weight:600}
+  .lock{display:inline-flex;align-items:center;gap:7px;border-radius:999px;padding:7px 13px;font-size:12.5px;font-weight:500;background:var(--fill-2);box-shadow:inset 0 0 0 1px var(--rim),var(--shadow);color:var(--ink)}
+  .lock i{width:7px;height:7px;border-radius:50%;background:var(--jade)}
+
+  .cols{display:grid;grid-template-columns:390px minmax(0,1fr) 400px;gap:14px;align-items:start}
+  .panel{padding:0;overflow:hidden}
+  .ph{padding:14px 18px 10px;display:flex;align-items:center;gap:10px}
+  .ph h3{margin:0;font-size:16px;font-weight:600} .ph .sub{font-size:12.5px;color:var(--ink-2);margin-top:1px} .ph .grow{flex:1}
+  .lst{padding:0 12px 12px;display:flex;flex-direction:column;gap:6px}
+  .row{display:grid;grid-template-columns:1fr auto;gap:4px 12px;padding:9px 12px;border-radius:14px;background:var(--fill-3);box-shadow:inset 0 0 0 1px var(--rim)}
+  .row .k{font-size:12px;color:var(--ink-2)} .row .v{font-size:14px;font-weight:600;text-align:right;white-space:nowrap}
+  .row .why{grid-column:1/-1;display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--ink-3);flex-wrap:wrap}
+  .src{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:600;letter-spacing:.02em;text-transform:uppercase;padding:1px 7px;border-radius:999px;background:rgba(34,34,36,.06);color:var(--ink-2)}
+  .src.foto{color:var(--violet);background:rgba(106,76,240,.1)} .src.chat{color:var(--jade-ink);background:rgba(20,168,116,.12)} .src.karte{color:var(--blue);background:var(--blue-tint)} .src.man{color:var(--gold-ink);background:rgba(232,150,12,.16)}
+  .row.edit{box-shadow:inset 0 0 0 1.5px rgba(232,150,12,.5)}
+  .row .pen{font-size:11.5px;color:var(--blue);font-weight:500;text-align:right}
+  .photos{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;padding:0 12px 10px}
+  .photos div{aspect-ratio:1;border-radius:9px;background:linear-gradient(135deg,#e7e9ed,#cfd3da);box-shadow:inset 0 0 0 1px var(--rim);position:relative}
+  .photos div.hit::after{content:attr(data-l);position:absolute;left:3px;bottom:3px;right:3px;font-size:8.5px;font-weight:600;color:#fff;background:rgba(106,76,240,.9);border-radius:5px;padding:1px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .route{margin:0 12px 12px;padding:10px 12px;border-radius:14px;background:var(--fill-3);box-shadow:inset 0 0 0 1px var(--rim)}
+  .route svg{width:100%;height:84px;display:block}
+  .legs{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;font-size:11.5px;color:var(--ink-2);margin-top:6px}
+  .legs b{display:block;color:var(--ink);font-weight:600;font-size:12.5px}
+
+  .chain{padding:0 12px 12px;display:flex;flex-direction:column;gap:4px}
+  .ln{display:grid;grid-template-columns:1fr auto;gap:2px 14px;padding:8px 12px;border-radius:12px}
+  .ln.main{background:var(--fill-3);box-shadow:inset 0 0 0 1px var(--rim)}
+  .ln .t{font-size:13.5px;font-weight:600} .ln .f{font-size:12px;color:var(--ink-2)} .ln .a{font-size:14px;font-weight:600;text-align:right;white-space:nowrap}
+  .ln .a small{display:block;font-size:11px;color:var(--ink-3);font-weight:400}
+  .sub{display:grid;grid-template-columns:1fr auto;gap:0 14px;padding:4px 12px 4px 28px;font-size:12.5px;color:var(--ink-2)}
+  .sub .a{text-align:right;color:var(--ink);white-space:nowrap} .sub.note{color:var(--gold-ink)} .sub.note .a{color:var(--gold-ink)}
+  .sum{display:grid;grid-template-columns:1fr auto;padding:12px 12px 6px;font-size:15px;font-weight:600;border-top:1px solid var(--hair);margin-top:6px}
+  .sum.big{font-size:20px;letter-spacing:-.01em}
+  .hint{font-size:12px;color:var(--ink-3);padding:0 12px 4px}
+
+  .marge{padding:4px 12px 12px}
+  .slider{position:relative;height:6px;border-radius:3px;background:rgba(34,34,36,.12);margin:26px 8px 10px}
+  .slider .fillb{position:absolute;left:0;top:0;height:6px;border-radius:3px;background:var(--blue);width:36%}
+  .slider .knob{position:absolute;left:36%;top:50%;transform:translate(-50%,-50%);width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+  .slider .mark{position:absolute;top:-24px;transform:translateX(-50%);font-size:11px;color:var(--ink-3);white-space:nowrap}
+  .slider .mark.s{color:var(--jade-ink);font-weight:600}
+  .ticks{display:flex;justify-content:space-between;font-size:11px;color:var(--ink-3);padding:0 8px}
+  .reasons{display:flex;flex-direction:column;gap:4px;margin-top:10px;font-size:12.5px;color:var(--ink-2)}
+  .reasons div{display:flex;justify-content:space-between;gap:10px} .reasons b{color:var(--ink);font-weight:500}
+  .kv{padding:0 12px 12px;display:flex;flex-direction:column;gap:5px}
+  .kvl{display:grid;grid-template-columns:1fr auto;gap:0 12px;padding:8px 12px;border-radius:12px;background:var(--fill-3);box-shadow:inset 0 0 0 1px var(--rim)}
+  .kvl .t{font-size:13px;font-weight:600} .kvl .f{font-size:11.5px;color:var(--ink-3)} .kvl .a{font-size:13.5px;font-weight:600;text-align:right}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;border-radius:999px;padding:11px 16px;font-size:13.5px;font-weight:600;background:var(--blue);color:#fff;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 6px 14px -6px rgba(0,103,217,.7);width:100%}
+  .btn.ghost{background:var(--fill-3);color:var(--ink);box-shadow:inset 0 0 0 1px var(--rim),var(--shadow)}
+  .acts{padding:4px 12px 14px;display:flex;flex-direction:column;gap:8px}
+  .notes{padding:0 12px 12px;display:flex;flex-direction:column;gap:6px}
+  .note{padding:9px 12px;border-radius:12px;background:rgba(232,150,12,.12);box-shadow:inset 0 0 0 1px rgba(232,150,12,.35);font-size:12.5px;color:var(--ink)}
+  .note small{display:block;color:var(--gold-ink);margin-top:2px;font-size:11.5px}
+  .note.add{background:transparent;border:1.5px dashed rgba(34,34,36,.2);box-shadow:none;color:var(--ink-3);text-align:center}
+
+  .sv{display:flex;flex-direction:column;align-items:stretch;gap:6px;margin-top:6px}
+  .sv i{width:100%;height:170px;border-radius:12px;background:linear-gradient(180deg,#dfe6ee 0%,#c3ccd6 55%,#9aa6b5 100%);box-shadow:inset 0 0 0 1px var(--rim);position:relative;display:block;overflow:hidden}
+  .sv i::before{content:"";position:absolute;left:12%;right:12%;top:22%;bottom:0;background:linear-gradient(180deg,#b7c0cc,#8d99a8);border-radius:6px 6px 0 0;opacity:.85}
+  .sv i::after{content:"Street View · klicken für 360°";position:absolute;left:8px;bottom:8px;font-size:11px;font-weight:600;color:#fff;background:rgba(0,0,0,.5);border-radius:6px;padding:2px 8px}
+  .sv span{font-size:12px;color:var(--ink-2)}
+  #map{height:230px;border-radius:12px;overflow:hidden;box-shadow:inset 0 0 0 1px var(--rim)}
+  .maplibregl-map{font-family:inherit;background:#e8eaee} .maplibregl-ctrl-attrib{font-size:9px;background:rgba(255,255,255,.7)}
+  .mk{font-size:11px;font-weight:600;color:#222224;background:rgba(255,255,255,.95);border-radius:999px;padding:3px 9px;box-shadow:0 1px 3px rgba(0,0,0,.25);white-space:nowrap;display:flex;align-items:center;gap:6px}
+  .mk i{width:9px;height:9px;border-radius:50%;display:inline-block}
+  .lib{display:flex;flex-wrap:wrap;gap:5px;padding:4px 12px 6px 28px}
+  .lib span{font-size:11.5px;padding:3px 9px;border-radius:999px;background:var(--fill-3);box-shadow:inset 0 0 0 1px var(--rim);color:var(--ink-2)}
+  .lib span.add{border:1.5px dashed rgba(34,34,36,.25);box-shadow:none;background:transparent;color:var(--blue);font-weight:600}
+  .def{font-size:11px;color:var(--ink-3)} .def b{color:var(--gold-ink);font-weight:600}
+  .q{max-width:1540px;margin:26px auto 60px;padding:0 20px}
+  .q h2{font-size:18px;font-weight:600;margin:0 0 4px;letter-spacing:-.01em} .q p{margin:0 0 14px;color:var(--ink-2)}
+  .opts{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;max-width:900px}
+  .opt{padding:16px;cursor:pointer} .opt.selected{box-shadow:inset 0 0 0 2px var(--blue),var(--shadow-raised)}
+  .opt .ltr{width:26px;height:26px;border-radius:50%;background:var(--fill-3);box-shadow:inset 0 0 0 1px var(--rim);display:grid;place-items:center;font-weight:700;font-size:12px;margin-bottom:10px}
+  .opt h4{margin:0 0 4px;font-size:14px} .opt p{margin:0;font-size:12.5px;color:var(--ink-2)}
+</style>
+</head>
+<body>
+
+<div class="wall"><svg viewBox="0 0 1540 1000" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="base" x2="0" y2="1"><stop stop-color="#fbfbfc"/><stop offset="1" stop-color="#e8eaee"/></linearGradient>
+    <linearGradient id="fold" x1="0" y1="0" x2=".5" y2="1"><stop stop-color="#ffbd91"/><stop offset=".36" stop-color="#ff754c"/><stop offset=".7" stop-color="#f04a28"/><stop offset="1" stop-color="#c9361a"/></linearGradient>
+    <linearGradient id="silver" x2="1" y2=".7"><stop stop-color="#d2d5da"/><stop offset=".55" stop-color="#ffffff"/><stop offset="1" stop-color="#d2d5da"/></linearGradient>
+  </defs>
+  <rect width="1540" height="1000" fill="url(#base)"/>
+  <g fill="none" stroke="#d9dce2" stroke-linecap="round" stroke-width="12" opacity=".9">
+    <path d="M-50 300C200 260 380 420 620 380S980 240 1250 300 1500 420 1600 400"/>
+    <path d="M-60 650C180 600 300 780 560 720S900 560 1180 640 1420 760 1600 700"/>
+    <path d="M250 -40C300 200 180 420 260 640S420 900 380 1040"/>
+    <path d="M900 -40C860 160 1000 320 960 520S800 820 880 1040"/>
+  </g>
+  <g fill="none" stroke="#e4e6eb" stroke-width="6" stroke-linecap="round">
+    <path d="M-50 480C260 470 420 560 700 520S1200 420 1600 500"/>
+    <path d="M560 -40C540 220 640 380 600 600S520 900 580 1040"/>
+    <path d="M1250 -40C1200 260 1320 480 1260 700S1180 900 1230 1040"/>
+    <path d="M-50 150C300 120 500 220 800 180S1200 90 1600 160"/>
+  </g>
+  <path d="M330 720C420 560 600 540 760 470S1040 330 1190 240" fill="none" stroke="#f04a28" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="330" cy="720" r="8" fill="#fff" stroke="#f04a28" stroke-width="4"/><circle cx="1190" cy="240" r="8" fill="#f04a28" stroke="#fff" stroke-width="3"/>
+  <path d="M-80 960C250 910 330 1040 640 990" fill="none" stroke="url(#silver)" stroke-width="44"/>
+  <path d="M1220 -60C1300 130 1460 120 1600 230" fill="none" stroke="#000" stroke-width="96" opacity=".08" transform="translate(0 10)"/>
+  <path d="M1220 -60C1300 130 1460 120 1600 230" fill="none" stroke="url(#fold)" stroke-width="96"/>
+</svg></div>
+
+<div class="ask">
+  <h1>Mockup 7e · Kalkulation <span class="tag">Daten erfunden · Desktop · eigene Seite (deine Wahl C)</span></h1>
+  <p>Links: woher jede Zahl kommt. Mitte: wie daraus Kosten werden. Rechts: Marge, Kundenpreis, KV-Posten, Sperren. Jede Zahl lässt sich mit Begründung überschreiben.</p>
+</div>
+
+<div class="app">
+  <aside class="side lg">
+    <div class="brand"><div class="mark">K</div><div><b>Kottke Umzüge</b><span>Dario · Nuri</span></div></div>
+    <div class="sec">Arbeit</div>
+    <div class="nv"><svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Heute<span class="b">4</span></div>
+    <div class="nv on"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M8 4v16M3 10h5"/></svg>Leads<span class="n">19</span></div>
+    <div class="nv"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Plan<span class="n">Nov</span></div>
+    <div class="nv"><svg viewBox="0 0 24 24"><path d="M4 6h16v10H8l-4 4z"/></svg>Inbox<span class="b">7</span></div>
+    <div class="nv"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/></svg>Kasse<span class="n">2 offen</span></div>
+    <div class="sec">Mehr</div>
+    <div class="nv"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Übersicht</div>
+    <div class="nv"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M17 8a3 3 0 1 1 0 6"/></svg>Kunden</div>
+    <div class="nv"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>Mitarbeiter</div>
+    <div class="nv"><svg viewBox="0 0 24 24"><path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3 6.4 20.2l1.1-6.2L3 9.6l6.2-.9z"/></svg>Bewertungen</div>
+    <div class="nv"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/></svg>Einstellungen</div>
+  </aside>
+
+  <section class="main">
+    <div class="crumb"><b>‹ Akte Familie Weber</b> · Schritt 3 von 11</div>
+    <header class="head">
+      <div><h2>Kalkulation <span>Familie Weber, Umzug Stuttgart-West nach Esslingen, Fr 21.11.</span></h2></div>
+      <div class="grow"></div>
+      <div class="ver"><span>v1 · 2.390 €</span><span class="on">v2 · 2.480 €</span><span class="add">+ Neue Version</span></div>
+      <span class="lock"><i></i>v2 gesperrt · gesendet Di 04.11. 11:40</span>
+    </header>
+
+    <div class="cols">
+      <!-- Links: Grundlage -->
+      <div class="panel lg">
+        <div class="ph"><div><h3>Grundlage</h3><div class="sub">Woher jede Zahl kommt. Klick zum Ändern.</div></div></div>
+        <div class="photos">
+          <div class="hit" data-l="Wandschrank 3,2 m³"></div><div></div><div class="hit" data-l="Sofa 2,1 m³"></div><div></div><div></div><div class="hit" data-l="Küche"></div><div></div>
+          <div></div><div class="hit" data-l="Bett 1,8 m³"></div><div></div><div></div><div></div><div></div><div></div>
+        </div>
+        <div class="lst">
+          <div class="row"><span class="k">Volumen</span><span class="v">38 m³</span><span class="why"><span class="src foto">Foto</span><span class="src chat">Chat</span>31 Teile erkannt · Kunde nannte „3 Zimmer, ca. 70 m²“</span></div>
+          <div class="row"><span class="k">Beladen · Rotebühlstr. 112</span><span class="v">2. OG, kein Aufzug</span><span class="why"><span class="src chat">Chat</span>Tragweg 25 m <span class="src">Standard</span></span><span class="why sv"><i></i><span>Altbau, Eingang zur Straße, keine Einfahrt, Parken nur am Bordstein → Halteverbot sinnvoll</span></span></div>
+          <div class="row"><span class="k">Entladen · Plochinger Str. 8, Esslingen</span><span class="v">EG, Haus</span><span class="why"><span class="src chat">Chat</span>Tragweg 10 m <span class="src">Standard</span></span><span class="why sv"><i></i><span>Reihenhaus, Hofeinfahrt, Sprinter kommt bis zur Tür</span></span></div>
+          <div class="row"><span class="k">Halteverbot</span><span class="v">beidseitig</span><span class="why"><span class="src chat">Kunde</span>Stuttgart-West eng, Esslingen Hofzufahrt</span></div>
+          <div class="row"><span class="k">Kartons</span><span class="v">60 Stück</span><span class="why"><span class="src chat">Kunde</span>Anlieferung 14.11.</span></div>
+          <div class="row edit"><span class="k">Montage</span><span class="v">Wandschrank, Bett</span><span class="why"><span class="src foto">Foto 3</span><span class="src man">Dario</span>Wandschrank 3-türig, Demontage + Aufbau</span><span class="pen">Bearbeitet · 04.11. 10:48</span></div>
+          <div class="row"><span class="k">Team</span><span class="v">3 Personen</span><span class="why"><span class="src">Regel</span>bis 40 m³ = 3 Personen · Sprinter L fasst 20 m³, also 2 Touren; Fahrt ist dafür doppelt gerechnet</span></div>
+          <div class="row"><span class="k">Termin</span><span class="v">Fr 21.11.</span><span class="why"><span class="src chat">Kunde</span>in der Sprinter-Woche 17.–23.11. · kein Wochenend-Aufschlag</span></div>
+        </div>
+        <div class="route">
+          <div id="map"></div>
+          <div class="legs"><div><b>9 km · 16 min</b>Station → Beladen</div><div><b>21 km · 32 min</b>Beladen → Entladen</div><div><b>18 km · 24 min</b>Entladen → Station</div></div>
+          <div class="hint" style="padding:6px 0 0"><span class="src karte">Google</span> Vorausgewählte Route · günstigste von 4 Stationen · 48 km · 1,2 h · <b style="color:var(--blue);font-weight:500">in Google Maps öffnen</b></div>
+        </div>
+      </div>
+
+      <!-- Mitte: Kostenkette -->
+      <div class="panel lg">
+        <div class="ph"><div><h3>Selbstkosten</h3><div class="sub">Was uns der Auftrag kostet, Zeile für Zeile.</div></div><div class="grow"></div><span style="font-size:12px;color:var(--ink-3)">Tarif v1 · Sätze aus Einstellungen</span></div>
+        <div class="chain">
+          <div class="ln main"><span class="t">Arbeit</span><span class="a">432 €<small>3 × 7,2 h × 20 €</small></span><span class="f">Laden, Tragen, Entladen, Montage</span></div>
+          <div class="sub"><span>38 m³ × 25 min</span><span class="a">15,8 h</span></div>
+          <div class="sub"><span>2. OG ohne Aufzug +15 %</span><span class="a">+2,4 h</span></div>
+          <div class="sub note"><span>Zeitposten: Wandschrank, Demontage + Aufbau · Dario, Foto 3</span><span class="a">+1,5 h</span></div>
+          <div class="lib"><span>+ Klavier 1 h</span><span>+ Waschmaschine 20 min</span><span>+ Küche abbauen 2 h</span><span>+ langer Tragweg je 10 m 15 min</span><span class="add">+ eigener Zeitposten: Bezeichnung, Zeit, Grund</span></div>
+          <div class="sub"><span>Puffer 10 %</span><span class="a">+2,0 h</span></div>
+          <div class="sub"><span>= 21,7 Personenstunden ÷ 3</span><span class="a">7,2 h je Person</span></div>
+
+          <div class="ln main" style="margin-top:6px"><span class="t">Fahrt</span><span class="a">54 €<small>3 × 1,2 h × 15 €</small></span><span class="f">Station → Beladen → Entladen → Station</span></div>
+
+          <div class="ln main" style="margin-top:6px"><span class="t">Transporter</span><span class="a">150 €<small>Wochenmiete 450 € ÷ 3 Umzüge</small></span><span class="f">Sprinter L · Sixt Feuerbach · 17.–23.11. · kein Fr-Aufschlag, weil Wochenmiete</span></div>
+          <div class="sub"><span>Kraftstoff 48 km</span><span class="a">9 €</span></div>
+          <div class="sub"><span>Mehrkilometer · 48 von 310 km Rest inklusive</span><span class="a">0 €</span></div>
+
+          <div class="ln main" style="margin-top:6px"><span class="t">Halteverbot beidseitig</span><span class="a">260 €<small>2 × 130 €</small></span><span class="f">Antrag Stuttgart + Esslingen, Schilder stellen</span></div>
+          <div class="ln main" style="margin-top:6px"><span class="t">Material</span><span class="a">207 €</span><span class="f">Vorgaben aus den Einstellungen, pro Auftrag überschreibbar</span></div>
+          <div class="sub"><span>Folie <span class="def">· Vorgabe <b>30 €</b>, hier unverändert</span></span><span class="a">30 €</span></div>
+          <div class="sub"><span>Decken und Gurte <span class="def">· 38 m³ × 0,70 €</span></span><span class="a">27 €</span></div>
+          <div class="sub"><span>60 Umzugskartons <span class="def">· 2,50 € je Stück</span></span><span class="a">150 €</span></div>
+          <div class="sub"><span class="def">+ Materialposten: Bezeichnung, Betrag, Grund</span><span class="a"></span></div>
+          <div class="ln main" style="margin-top:6px"><span class="t">Mitarbeiter-Anfahrt</span><span class="a">9 €<small>eigener PKW · 0,30 €/km</small></span><span class="f">MK Bad Cannstatt 12 km · TS, AR fahren mit</span></div>
+
+          <div class="sum"><span>Zwischensumme</span><span>1.121 €</span></div>
+          <div class="sub"><span>Gemeinkosten und Risiko 35 % · Büro, Ausfall, Schäden</span><span class="a">392 €</span></div>
+          <div class="sub"><span>Transportversicherung pauschal</span><span class="a">20 €</span></div>
+          <div class="sum big"><span>Selbstkosten</span><span>1.533 €</span></div>
+          <div class="hint">Jede Zeile lässt sich überschreiben. Überschriebene Zeilen bleiben gold markiert und tragen Name, Zeit und Grund.</div>
+        </div>
+      </div>
+
+      <!-- Rechts: Marge & Preis -->
+      <div class="panel lg">
+        <div class="ph"><div><h3>Marge und Preis</h3><div class="sub">Was der Kunde zahlt.</div></div></div>
+        <div class="marge">
+          <div class="slider"><div class="fillb"></div><div class="knob"></div><span class="mark s" style="left:33%">Vorschlag 37 %</span><span class="mark" style="left:36%;top:auto;bottom:-22px;color:var(--ink);font-weight:600">38 %</span></div>
+          <div class="ticks"><span>30 % Untergrenze</span><span>60 %</span></div>
+          <div class="reasons">
+            <div><span>Basis Kottke</span><b>40 %</b></div>
+            <div><span>Quelle Kleinanzeigen</span><b>−3 %</b></div>
+            <div><span>Freitag, keine Eile, kein Monatsende</span><b>±0</b></div>
+            <div><span>Gewählt von Dario</span><b>38 %</b></div>
+          </div>
+        </div>
+        <div class="chain" style="padding-top:0">
+          <div class="sum" style="border-top:1px solid var(--hair)"><span>Preis = 1.533 € ÷ (1 − 0,38)</span><span>2.473 €</span></div>
+          <div class="sub"><span>gerundet auf 10 €</span><span class="a">2.480 €</span></div>
+          <div class="sub"><span>Gewinn</span><span class="a">947 €</span></div>
+          <div class="sub"><span>Listenpreis zum Vergleich</span><span class="a">2.650 €</span></div>
+        </div>
+        <div class="ph" style="padding-top:4px"><div><h3 style="font-size:14px">So steht es im KV</h3><div class="sub">4 Posten, Summe 2.480 €</div></div></div>
+        <div class="kv">
+          <div class="kvl"><span class="t">Umzugsteam 3 Personen und Sprinter</span><span class="a">1.950 €</span><span class="f">inkl. Anfahrt, Material, Versicherung · Rest nach den Hebeln</span></div>
+          <div class="kvl"><span class="t">Halteverbot beidseitig</span><span class="a">300 €</span><span class="f">aus 260 € Kosten</span></div>
+          <div class="kvl"><span class="t">Montage Wandschrank und Bett</span><span class="a">60 €</span><span class="f">1,5 h × 35 € · aufgerundet</span></div>
+          <div class="kvl"><span class="t">60 Umzugskartons</span><span class="a">170 €</span><span class="f">aus 150 € Kosten</span></div>
+        </div>
+        <div class="ph" style="padding-top:4px"><div><h3 style="font-size:14px">Anpassungen</h3><div class="sub">fließen in die Kalibrierung des Rechners</div></div></div>
+        <div class="notes">
+          <div class="note">Wandschrank: +1,5 h Arbeit<small>Dario · 04.11. 10:48 · „3-türig, auf Foto 3, braucht Demontage und Aufbau, Rechner hatte 0“</small></div>
+          <div class="note add">+ Anpassung mit Begründung</div>
+        </div>
+        <div class="acts">
+          <span class="btn">Neue Version v3 sperren und KV erstellen</span>
+          <span class="btn ghost">Tagespreise im Termin-Dialog</span>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="q">
+  <h2>Ist das die Kalkulation, der du vertrauen würdest?</h2>
+  <p>Zahlen sind erfunden, die Struktur nicht: Grundlage mit Quelle, Kostenkette, Marge mit Gründen, KV-Posten, Anpassungen mit Grund, Versionen gesperrt. Klick an, Details im Terminal.</p>
+  <div class="opts">
+    <div class="opt lg tile" data-choice="kalk-ok" onclick="toggleSelect(this)"><div class="ltr">A</div><h4>Ja, so</h4><p>Dann schreibe ich die Design-Beschreibung für alles zusammen.</p></div>
+    <div class="opt lg tile" data-choice="kalk-aendern" onclick="toggleSelect(this)"><div class="ltr">B</div><h4>Etwas ändern</h4><p>Andere Zeilen, andere Reihenfolge, etwas fehlt.</p></div>
+  </div>
+</div>
+
+
+<script>
+  (function(){
+    var station = [9.1570, 48.8095], pick = [9.1590, 48.7735], drop = [9.3150, 48.7390];
+    var toPick = [station, [9.1620, 48.7985], [9.1640, 48.7860], pick];
+    var main = [pick, [9.1850, 48.7790], [9.2160, 48.7745], [9.2550, 48.7600], [9.2900, 48.7470], drop];
+    var back = [drop, [9.2700, 48.7560], [9.2300, 48.7770], [9.1900, 48.7930], station];
+    var map = new maplibregl.Map({container:'map', style:'https://tiles.openfreemap.org/styles/positron', center:[9.235, 48.775], zoom:10.2, interactive:false, attributionControl:{compact:true}});
+    window.__map = map;
+    map.on('load', function(){
+      map.addSource('legs', {type:'geojson', data:{type:'FeatureCollection', features:[
+        {type:'Feature', properties:{kind:'dash'}, geometry:{type:'LineString', coordinates:toPick}},
+        {type:'Feature', properties:{kind:'dash'}, geometry:{type:'LineString', coordinates:back}},
+        {type:'Feature', properties:{kind:'main'}, geometry:{type:'LineString', coordinates:main}}]}});
+      map.addLayer({id:'dash', type:'line', source:'legs', filter:['==',['get','kind'],'dash'], layout:{'line-cap':'round'}, paint:{'line-color':'#66666a','line-width':3,'line-dasharray':[1.5,2]}});
+      map.addLayer({id:'main', type:'line', source:'legs', filter:['==',['get','kind'],'main'], layout:{'line-cap':'round','line-join':'round'}, paint:{'line-color':'#f04a28','line-width':5}});
+      function mk(ll, label, color, fill){ var el = document.createElement('div'); el.className='mk'; el.innerHTML = '<i style="background:'+fill+';box-shadow:0 0 0 2px '+color+'"></i>'+label; new maplibregl.Marker({element:el, anchor:'left', offset:[10,0]}).setLngLat(ll).addTo(map); }
+      mk(station, 'Sixt Feuerbach', '#222224', '#222224');
+      mk(pick, 'Beladen · Stuttgart-West', '#f04a28', '#fff');
+      mk(drop, 'Entladen · Esslingen', '#fff', '#f04a28');
+      map.fitBounds([[9.13, 48.725], [9.34, 48.825]], {padding:{top:24,bottom:16,left:16,right:120}});
+    });
+  })();
+</script>
+</body>
+</html>

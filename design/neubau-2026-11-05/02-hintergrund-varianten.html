@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hintergrund – drei Varianten</title>
+<style>
+  :root{
+    --ink:#222224; --ink-2:#66666a; --ink-3:#8e8e93;
+    --blue:#0067d9; --blue-tint:rgba(0,103,217,.10); --blue-rim:rgba(0,103,217,.28);
+    --jade:#14a874; --gold:#e8960c; --gold-ink:#8a5200; --violet:#6a4cf0;
+    --fill:rgba(255,255,255,.52); --fill-2:rgba(255,255,255,.68); --fill-3:rgba(255,255,255,.88);
+    --rim:rgba(255,255,255,.92); --hair:rgba(34,34,36,.08);
+    --shadow:0 1px 2px rgb(0 0 0 / .06),0 8px 24px -6px rgb(0 0 0 / .14);
+    --shadow-raised:0 2px 6px rgb(0 0 0 / .06),0 28px 56px -18px rgb(0 0 0 / .26);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:#f3f4f6;color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Helvetica,Arial,sans-serif;font-size:14px;line-height:1.4;-webkit-font-smoothing:antialiased}
+  .ask{max-width:1540px;margin:22px auto 14px;padding:0 20px}
+  .ask h1{font-size:20px;font-weight:600;margin:0 0 4px;letter-spacing:-.01em} .ask p{margin:0;color:var(--ink-2)}
+
+  .opt{max-width:1540px;margin:0 auto 26px;padding:0 20px;cursor:pointer}
+  .opt .lab{display:flex;align-items:baseline;gap:12px;margin:0 0 8px}
+  .opt .lab .ltr{width:26px;height:26px;border-radius:50%;background:#fff;box-shadow:inset 0 0 0 1px var(--rim),var(--shadow);display:grid;place-items:center;font-weight:700;font-size:12px}
+  .opt .lab h3{margin:0;font-size:16px;font-weight:600} .opt .lab p{margin:0;color:var(--ink-2);font-size:13px}
+  .frame{position:relative;overflow:hidden;height:660px;border-radius:18px;box-shadow:0 0 0 1px var(--hair),var(--shadow);background:#f3f4f6}
+  .opt.selected .frame{box-shadow:0 0 0 3px var(--blue),var(--shadow-raised)}
+  .wall{position:absolute;inset:0} .wall svg{width:100%;height:100%;display:block}
+  .scale{position:absolute;left:0;top:0;width:1500px;transform:none}
+
+  .lg{position:relative;background:var(--fill);backdrop-filter:blur(16px) saturate(1.6) brightness(1.06);-webkit-backdrop-filter:blur(16px) saturate(1.6) brightness(1.06);border-radius:24px;box-shadow:inset 0 0 0 1px var(--rim),var(--shadow)}
+  .lg::before{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:linear-gradient(180deg,rgba(255,255,255,.38),rgba(255,255,255,0) 32%)}
+  .lg.tile{border-radius:20px}
+  .app{padding:20px;display:grid;grid-template-columns:236px 1fr;gap:18px}
+  .side{padding:16px 12px;height:fit-content}
+  .brand{display:flex;align-items:center;gap:10px;padding:4px 8px 16px}
+  .brand .mark{width:34px;height:34px;border-radius:10px;background:#222224;color:#fff;display:grid;place-items:center;font-weight:700;font-size:15px}
+  .brand b{display:block;font-size:14px;font-weight:600} .brand span{font-size:12px;color:var(--ink-2)}
+  .sec{font-size:11px;color:var(--ink-3);font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:12px 12px 6px}
+  .nv{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:999px;color:var(--ink);font-size:14px}
+  .nv .n{margin-left:auto;font-size:12px;color:var(--ink-3)}
+  .nv.on{background:var(--fill-3);color:var(--blue);font-weight:600;box-shadow:inset 0 0 0 1px var(--rim),var(--shadow)} .nv.on .n{color:var(--blue)}
+  .nv .b{margin-left:auto;background:var(--blue);color:#fff;font-size:11px;font-weight:600;border-radius:999px;padding:1px 7px}
+  .main{display:flex;flex-direction:column;gap:14px;min-width:0}
+  .head{display:flex;align-items:flex-end;gap:18px;padding:6px 6px 4px}
+  .head h2{margin:0;font-size:34px;font-weight:600;letter-spacing:-.015em;line-height:1.05}
+  .head h2 span{display:block;color:var(--ink-3);font-size:22px;margin-top:4px}
+  .head .meta{color:var(--ink-2);font-size:13px;margin-top:8px} .head .grow{flex:1}
+  .pill{display:inline-flex;align-items:center;gap:7px;border-radius:999px;padding:7px 13px;font-size:12.5px;font-weight:500;background:var(--fill-2);box-shadow:inset 0 0 0 1px var(--rim),var(--shadow)}
+  .pill .dot{width:7px;height:7px;border-radius:50%;background:var(--gold)}
+  .toggle{display:inline-flex;align-items:center;gap:8px;color:var(--ink-2);font-size:13px}
+  .toggle .sw{width:40px;height:24px;border-radius:12px;background:var(--blue);position:relative}
+  .toggle .sw::after{content:"";position:absolute;right:2px;top:2px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25)}
+  .kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:12px}
+  .kpi{padding:14px 16px} .kpi .l{font-size:12px;color:var(--ink-2);font-weight:500}
+  .kpi .v{font-size:24px;font-weight:600;margin-top:4px;letter-spacing:-.015em;line-height:1.1} .kpi .s{font-size:12px;color:var(--ink-2);margin-top:4px}
+  .waitpill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;border-radius:999px;padding:3px 9px;background:var(--fill-3);box-shadow:inset 0 0 0 1px var(--rim)} .waitpill i{width:7px;height:7px;border-radius:50%;background:var(--gold)}
+  .body{display:grid;grid-template-columns:minmax(520px,1fr) 400px;gap:14px;align-items:start}
+  .panel{padding:0;overflow:hidden;min-height:420px}
+  .ph{padding:14px 18px;display:flex;align-items:center;gap:10px} .ph h3{margin:0;font-size:16px;font-weight:600} .ph .sub{font-size:12.5px;color:var(--ink-2);margin-top:1px} .ph .grow{flex:1}
+  .seg{display:inline-flex;border-radius:999px;padding:3px;font-size:13px;background:rgba(34,34,36,.08);gap:2px}
+  .seg span{padding:6px 13px;color:var(--ink-2);border-radius:999px} .seg span.on{background:#fff;color:var(--ink);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+  .thread{padding:6px 18px 18px;display:flex;flex-direction:column;gap:10px}
+  .day{align-self:center;font-size:11.5px;color:var(--ink-2);padding:3px 10px;border-radius:999px;margin:4px 0;background:var(--fill-2);box-shadow:inset 0 0 0 1px var(--rim)}
+  .msg{max-width:72%;padding:10px 13px;border-radius:18px;font-size:13.5px;line-height:1.45}
+  .msg.in{align-self:flex-start;background:var(--fill-3);border-bottom-left-radius:6px;box-shadow:inset 0 0 0 1px var(--rim),0 1px 2px rgba(0,0,0,.05)}
+  .msg.out{align-self:flex-end;background:var(--blue-tint);border-bottom-right-radius:6px;box-shadow:inset 0 0 0 1px var(--blue-rim)}
+  .msg .meta{font-size:11.5px;color:var(--ink-3);margin-top:6px}
+  .sys{align-self:center;font-size:12px;color:var(--ink-2);background:var(--fill);border-radius:12px;padding:7px 12px;box-shadow:inset 0 0 0 1px var(--hair)} .sys b{color:var(--ink)}
+  .photos{display:flex;gap:6px;margin-top:6px} .photos div{width:64px;height:64px;border-radius:12px;background:linear-gradient(135deg,#e7e9ed,#cfd3da)}
+  .tl{padding:6px 18px 18px} .step{display:grid;grid-template-columns:28px 1fr;gap:12px;padding:10px 0}
+  .ic{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:600;color:var(--ink-3);background:var(--fill-3);box-shadow:inset 0 0 0 1px var(--rim)}
+  .step.done .ic{background:var(--jade);color:#fff;box-shadow:none} .step.now .ic{background:var(--blue);color:#fff;box-shadow:0 0 0 5px rgba(0,103,217,.14)}
+  .step .t{font-weight:600;font-size:14px;display:flex;gap:8px;align-items:center} .step .d{font-size:12.5px;color:var(--ink-2);margin-top:2px}
+  .step.todo .t{color:var(--ink-2);font-weight:500} .step.todo .d{color:var(--ink-3)}
+  .who{font-size:10.5px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;padding:2px 8px;border-radius:999px;background:var(--fill-3);box-shadow:inset 0 0 0 1px var(--rim);color:var(--ink-2)} .who.du{color:var(--blue)}
+  .callout{margin:8px 0 0;padding:9px 12px;border-radius:14px;background:rgba(232,150,12,.14);box-shadow:inset 0 0 0 1px rgba(232,150,12,.35);color:var(--gold-ink);font-size:12.5px;font-weight:500}
+</style>
+</head>
+<body>
+
+<div class="ask">
+  <h1>Hintergrund: catchy, aber ruhig</h1>
+  <p>Gleiche Akte dreimal, nur der Hintergrund ist anders. Klick die Variante an, die passt; Details im Terminal. (Vorschau: oberer Teil der Seite in Originalgröße.)</p>
+</div>
+
+<!-- A: Rand -->
+<div class="opt" data-choice="rand" onclick="toggleSelect(this)">
+  <div class="lab"><span class="ltr">A</span><h3>Am Rand</h3><p>Die Schleife bleibt kräftig, berührt aber nur die Ecken. Hinter Gespräch und Ablauf liegt ruhiges Elfenbein.</p></div>
+  <div class="frame">
+    <div class="wall"><svg viewBox="0 0 1500 970" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="a-base" x2="0" y2="1"><stop stop-color="#fbfbfc"/><stop offset="1" stop-color="#e6e8ec"/></linearGradient>
+        <linearGradient id="a-fold" x1="0" y1="0" x2=".5" y2="1"><stop stop-color="#ffbd91"/><stop offset=".36" stop-color="#ff754c"/><stop offset=".7" stop-color="#f04a28"/><stop offset="1" stop-color="#c9361a"/></linearGradient>
+        <linearGradient id="a-silver" x2="1" y2=".7"><stop stop-color="#d2d5da"/><stop offset=".55" stop-color="#ffffff"/><stop offset="1" stop-color="#d2d5da"/></linearGradient>
+      </defs>
+      <rect width="1500" height="970" fill="url(#a-base)"/>
+      <path d="M-80 930C250 880 330 1010 640 960" fill="none" stroke="url(#a-silver)" stroke-width="44"/>
+      <path d="M1180 -60C1260 130 1420 120 1560 230" fill="none" stroke="#000" stroke-width="96" opacity=".08" transform="translate(0 10)"/>
+      <path d="M1180 -60C1260 130 1420 120 1560 230" fill="none" stroke="url(#a-fold)" stroke-width="96"/>
+    </svg></div>
+    <div class="scale" data-akte></div>
+  </div>
+</div>
+
+<!-- B: Hauch -->
+<div class="opt" data-choice="hauch" onclick="toggleSelect(this)">
+  <div class="lab"><span class="ltr">B</span><h3>Hauch</h3><p>Die Schleife bleibt, wo sie war, aber auf ein Fünftel gedimmt. Die Flächen bekommen einen warmen Schimmer, nichts schreit.</p></div>
+  <div class="frame">
+    <div class="wall"><svg viewBox="0 0 900 520" preserveAspectRatio="xMidYMid slice">
+      <defs>
+        <linearGradient id="b-base" x2="0" y2="1"><stop stop-color="#fbfbfc"/><stop offset="1" stop-color="#e6e8ec"/></linearGradient>
+        <linearGradient id="b-fold" x1="0" y1="0" x2=".5" y2="1"><stop stop-color="#ffbd91"/><stop offset=".36" stop-color="#ff754c"/><stop offset=".7" stop-color="#f04a28"/><stop offset="1" stop-color="#c9361a"/></linearGradient>
+        <linearGradient id="b-silver" x2="1" y2=".7"><stop stop-color="#d2d5da"/><stop offset=".55" stop-color="#ffffff"/><stop offset="1" stop-color="#d2d5da"/></linearGradient>
+      </defs>
+      <rect width="900" height="520" fill="url(#b-base)"/>
+      <path d="M-120 515C210 520 255 450 440 362S670 445 1010 302" fill="none" stroke="url(#b-silver)" stroke-width="48" opacity=".8"/>
+      <path d="M-150 365C90 225 190 535 420 340C650 145 610 35 1030 125L1030 183C610 93 650 203 420 398C190 593 90 283-150 423Z" fill="url(#b-fold)" opacity=".22"/>
+    </svg></div>
+    <div class="scale" data-akte></div>
+  </div>
+</div>
+
+<!-- C: Route -->
+<div class="opt" data-choice="route" onclick="toggleSelect(this)">
+  <div class="lab"><span class="ltr">C</span><h3>Route</h3><p>Statt Deko: ein blasser Stadtplan mit der Strecke dieser Akte, von Stuttgart-West nach Esslingen, als dünne orange Linie. Jede Akte hat ihren eigenen Hintergrund.</p></div>
+  <div class="frame">
+    <div class="wall"><svg viewBox="0 0 1500 970" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="c-base" x2="0" y2="1"><stop stop-color="#fbfbfc"/><stop offset="1" stop-color="#e9ebef"/></linearGradient>
+      </defs>
+      <rect width="1500" height="970" fill="url(#c-base)"/>
+      <g fill="none" stroke="#d6d9df" stroke-linecap="round" stroke-width="14" opacity=".9">
+        <path d="M-50 300C200 260 380 420 620 380S980 240 1250 300 1500 420 1560 400"/>
+        <path d="M-60 650C180 600 300 780 560 720S900 560 1180 640 1420 760 1560 700"/>
+        <path d="M250 -40C300 200 180 420 260 640S420 900 380 1010"/>
+        <path d="M900 -40C860 160 1000 320 960 520S800 820 880 1010"/>
+      </g>
+      <g fill="none" stroke="#e3e5ea" stroke-width="7" stroke-linecap="round">
+        <path d="M-50 480C260 470 420 560 700 520S1200 420 1560 500"/>
+        <path d="M560 -40C540 220 640 380 600 600S520 900 580 1010"/>
+        <path d="M1250 -40C1200 260 1320 480 1260 700S1180 900 1230 1010"/>
+        <path d="M-50 150C300 120 500 220 800 180S1200 90 1560 160"/>
+        <path d="M-50 820C240 860 480 760 760 820S1240 900 1560 840"/>
+      </g>
+      <path d="M330 720C420 560 600 540 760 470S1040 330 1190 240" fill="none" stroke="#f04a28" stroke-width="4" stroke-linecap="round" stroke-dasharray="1 0"/>
+      <circle cx="330" cy="720" r="9" fill="#fff" stroke="#f04a28" stroke-width="4"/>
+      <circle cx="1190" cy="240" r="9" fill="#f04a28" stroke="#fff" stroke-width="3"/>
+      <text x="300" y="760" font-size="15" fill="#8e8e93" font-family="-apple-system,Helvetica,Arial">Stuttgart-West</text>
+      <text x="1160" y="222" font-size="15" fill="#8e8e93" font-family="-apple-system,Helvetica,Arial">Esslingen · 21 km</text>
+    </svg></div>
+    <div class="scale" data-akte></div>
+  </div>
+</div>
+
+<template id="akte">
+<div class="app">
+  <aside class="side lg">
+    <div class="brand"><div class="mark">K</div><div><b>Kottke Umzüge</b><span>Dario · Nuri</span></div></div>
+    <div class="sec">Arbeit</div>
+    <div class="nv">Heute<span class="b">4</span></div>
+    <div class="nv on">Leads<span class="n">12</span></div>
+    <div class="nv">Plan<span class="n">Nov</span></div>
+    <div class="nv">Inbox<span class="b">7</span></div>
+    <div class="nv">Kasse<span class="n">2 offen</span></div>
+    <div class="sec">Mehr</div>
+    <div class="nv">Übersicht</div><div class="nv">Kunden</div><div class="nv">Mitarbeiter</div><div class="nv">Bewertungen</div><div class="nv">Einstellungen</div>
+  </aside>
+  <section class="main">
+    <header class="head">
+      <div><h2>Familie Weber <span>Umzug, 3 Zimmer, Stuttgart-West nach Esslingen.</span></h2><div class="meta">Über Kleinanzeigen · Kottke · Lead seit Mo 03.11.</div></div>
+      <div class="grow"></div>
+      <span class="toggle"><span class="sw"></span>Nachfass automatisch</span>
+      <span class="pill"><span class="dot"></span>Angebot</span>
+    </header>
+    <div class="kpis">
+      <div class="kpi lg tile"><div class="l">Kostenvoranschlag</div><div class="v">2.480 €</div><div class="s">v2 · gesendet Di 04.11.</div></div>
+      <div class="kpi lg tile"><div class="l">Marge</div><div class="v">38 %</div><div class="s">Selbstkosten 1.540 €</div></div>
+      <div class="kpi lg tile"><div class="l">Umzugsdatum</div><div class="v">Fr 21.11.</div><div class="s">in 16 Tagen</div></div>
+      <div class="kpi lg tile"><div class="l">Volumen</div><div class="v">38 m³</div><div class="s">aus 14 Fotos und Chat</div></div>
+      <div class="kpi lg tile"><div class="l">Team</div><div class="v">3 · 1 LKW</div><div class="s">Fahrt 1,2 h · Arbeit 5,5 h</div></div>
+      <div class="kpi lg tile"><div class="l">Wartet auf Kunden</div><div class="v">2 Tage</div><div class="s"><span class="waitpill"><i></i>KV 3× geöffnet</span></div></div>
+    </div>
+    <div class="body">
+      <div class="panel lg">
+        <div class="ph"><div><h3>Gespräch</h3><div class="sub">Alle Kanäle in einem Verlauf.</div></div><div class="grow"></div><div class="seg"><span class="on">Chat</span><span>Fotos</span><span>Dokumente</span><span>Notizen</span></div></div>
+        <div class="thread">
+          <div class="day">Mo 03.11.</div>
+          <div class="msg in">Hallo, wir ziehen am 21.11. von Stuttgart nach Esslingen, 3 Zimmer, 2. OG ohne Aufzug. Können Sie ein Angebot machen?<div class="meta">WhatsApp · 09:14</div></div>
+          <div class="sys">Lead angelegt · Kottke · Quelle Kleinanzeigen · <b>Neue Anfrage</b></div>
+          <div class="msg out">Hallo Frau Weber, danke für Ihre Anfrage! Schicken Sie mir gern ein paar Fotos der Räume, dann rechne ich Ihnen das direkt durch.<div class="meta">WhatsApp · 09:21 · Dario · ✓✓</div></div>
+          <div class="msg in">Klar, hier die Bilder.<div class="photos"><div></div><div></div><div></div><div></div><div></div></div><div class="meta">WhatsApp · 10:02 · 14 Fotos</div></div>
+          <div class="sys">Fotoanalyse fertig · Möbelliste 31 Teile · <b>38 m³</b> · Wandschrank erkannt</div>
+        </div>
+      </div>
+      <div class="panel lg">
+        <div class="ph"><div><h3>Ablauf</h3><div class="sub">Von der Anfrage bis zur Bewertung.</div></div><div class="grow"></div><span style="font-size:12.5px;color:var(--ink-3)">4 von 11</span></div>
+        <div class="tl">
+          <div class="step done"><div class="ic">✓</div><div><div class="t">Anfrage eingegangen <span class="who">auto</span></div><div class="d">Mo 03.11. 09:14 · Kleinanzeigen · erste Antwort nach 7 Min</div></div></div>
+          <div class="step done"><div class="ic">✓</div><div><div class="t">Fotos und Infos <span class="who">auto</span></div><div class="d">14 Fotos · 38 m³ · 2. OG ohne Aufzug</div></div></div>
+          <div class="step done"><div class="ic">✓</div><div><div class="t">Kalkulation <span class="who">intern</span></div><div class="d">Selbstkosten 1.540 € · Marge 38 % · geprüft von Dario</div></div></div>
+          <div class="step now"><div class="ic">4</div><div><div class="t">Kostenvoranschlag <span class="who du">du</span></div><div class="d">v2 · 2.480 € · gesendet Di 04.11. · gültig bis 18.11.</div><div class="callout">3× geöffnet, noch nicht angenommen. Nachfass Tag 2 geht morgen 09:00 raus.</div></div></div>
+          <div class="step todo"><div class="ic">5</div><div><div class="t">Annahme und Unterschrift</div><div class="d">im Status-Link · Anzahlung 500 €</div></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+</template>
+<script>
+  (function(){
+    var t = document.getElementById('akte');
+    document.querySelectorAll('[data-akte]').forEach(function(host){ host.appendChild(t.content.cloneNode(true)); });
+  })();
+</script>
+</body>
+</html>

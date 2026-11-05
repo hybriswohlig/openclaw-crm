@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inbox – Mockup 8</title>
+<style>
+  :root{
+    --ink:#222224; --ink-2:#66666a; --ink-3:#8e8e93;
+    --blue:#0067d9; --blue-tint:rgba(0,103,217,.10); --blue-rim:rgba(0,103,217,.28);
+    --jade:#14a874; --jade-ink:#0d6b4a; --gold:#e8960c; --gold-ink:#8a5200; --rose:#e8345a; --violet:#6a4cf0; --gray:#8e8e93;
+    --wa:#1faa5a;
+    --fill:rgba(255,255,255,.52); --fill-2:rgba(255,255,255,.68); --fill-3:rgba(255,255,255,.88);
+    --rim:rgba(255,255,255,.92); --hair:rgba(34,34,36,.08);
+    --shadow:0 1px 2px rgb(0 0 0 / .06),0 8px 24px -6px rgb(0 0 0 / .14);
+    --shadow-raised:0 2px 6px rgb(0 0 0 / .06),0 28px 56px -18px rgb(0 0 0 / .26);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:#f3f4f6;color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Helvetica,Arial,sans-serif;font-size:14px;line-height:1.4;-webkit-font-smoothing:antialiased}
+  .wall{position:fixed;inset:0;z-index:0;pointer-events:none} .wall svg{width:100%;height:100%;display:block}
+  .ask,.app,.q,.phones{position:relative;z-index:1}
+  .lg{position:relative;background:var(--fill);backdrop-filter:blur(16px) saturate(1.6) brightness(1.06);-webkit-backdrop-filter:blur(16px) saturate(1.6) brightness(1.06);border-radius:24px;box-shadow:inset 0 0 0 1px var(--rim),var(--shadow)}
+  .lg::before{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:linear-gradient(180deg,rgba(255,255,255,.38),rgba(255,255,255,0) 32%)}
+  .lg.tile{border-radius:18px}
+
+  .ask{max-width:1540px;margin:22px auto 10px;padding:0 20px}
+  .ask h1{font-size:20px;font-weight:600;margin:0 0 4px;letter-spacing:-.01em} .ask p{margin:0;color:var(--ink-2)}
+  .ask .tag{display:inline-block;margin-left:10px;font-size:11px;color:var(--ink-2);border-radius:999px;padding:3px 9px;vertical-align:middle;background:var(--fill-2);box-shadow:inset 0 0 0 1px var(--rim)}
+
+  .app{max-width:1540px;margin:14px auto 0;padding:0 20px;display:grid;grid-template-columns:236px 1fr;gap:18px}
+  .side{padding:16px 12px;height:fit-content;position:sticky;top:14px}
+  .brand{display:flex;align-items:center;gap:10px;padding:4px 8px 16px}
+  .brand .mark{width:34px;height:34px;border-radius:10px;background:#222224;color:#fff;display:grid;place-items:center;font-weight:700;font-size:15px}
+  .brand b{display:block;font-size:14px;font-weight:600} .brand span{font-size:12px;color:var(--ink-2)}
+  .sec{font-size:11px;color:var(--ink-3);font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:12px 12px 6px}
+  .nv{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:999px;color:var(--ink);font-size:14px}
+  .nv svg{width:18px;height:18px;stroke:var(--ink-2);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  .nv .n{margin-left:auto;font-size:12px;color:var(--ink-3)}
+  .nv.on{background:var(--fill-3);color:var(--blue);font-weight:600;box-shadow:inset 0 0 0 1px var(--rim),var(--shadow)} .nv.on svg{stroke:var(--blue)} .nv.on .n{color:var(--blue)}
+  .nv .b{margin-left:auto;background:var(--blue);color:#fff;font-size:11px;font-weight:600;border-radius:999px;padding:1px 7px}
+
+  .main{display:flex;flex-direction:column;gap:14px;min-width:0}
+  .head{display:flex;align-items:flex-end;gap:18px;padding:6px 6px 0}
+  .head h2{margin:0;font-size:34px;font-weight:600;letter-spacing:-.015em;line-height:1.05}
+  .head h2 span{display:block;color:var(--ink-3);font-size:22px;margin-top:4px}
+  .head .meta{color:var(--ink-2);font-size:13px;margin-top:8px} .head .grow{flex:1}
+  .btn{display:inline-flex;align-items:center;gap:7px;border-radius:999px;padding:9px 16px;font-size:13px;font-weight:600;background:var(--blue);color:#fff;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 6px 14px -6px rgba(0,103,217,.7)}
+  .btn.ghost{background:var(--fill-3);color:var(--ink);box-shadow:inset 0 0 0 1px var(--rim),var(--shadow)}
+  .btn.sm{padding:7px 12px;font-size:12.5px}
+
+  .focus{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:0 6px}
+  .focus .lbl{font-size:12.5px;color:var(--ink-2);margin-right:4px}
+  .fc{display:inline-flex;align-items:center;gap:7px;border-radius:999px;padding:7px 13px;font-size:12.5px;font-weight:500;background:var(--fill-2);box-shadow:inset 0 0 0 1px var(--rim),var(--shadow);color:var(--ink)}
+  .fc i{width:7px;height:7px;border-radius:50%;display:inline-block} .fc b{font-weight:700}
+
+  .bar{display:flex;align-items:center;gap:10px;padding:10px 12px}
+  .seg{display:inline-flex;border-radius:999px;padding:3px;font-size:13px;background:rgba(34,34,36,.08);gap:2px}
+  .seg span{padding:6px 13px;color:var(--ink-2);border-radius:999px} .seg span.on{background:#fff;color:var(--ink);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+  .pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:7px 12px;font-size:12.5px;font-weight:500;background:var(--fill-3);box-shadow:inset 0 0 0 1px var(--rim);color:var(--ink)}
+  .pill i{width:7px;height:7px;border-radius:50%;display:inline-block} .pill .v{color:var(--ink-3);font-size:11px}
+  .search{flex:1;display:flex;align-items:center;gap:8px;border-radius:999px;padding:8px 14px;background:var(--fill-3);box-shadow:inset 0 0 0 1px var(--rim);color:var(--ink-3);font-size:13px;max-width:300px}
+  .toggle{display:inline-flex;align-items:center;gap:8px;color:var(--ink-2);font-size:13px;margin-left:auto}
+  .toggle .sw{width:36px;height:22px;border-radius:11px;background:rgba(34,34,36,.18);position:relative}
+  .toggle .sw::after{content:"";position:absolute;left:2px;top:2px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25)}
+
+  .body{display:grid;grid-template-columns:360px minmax(0,1fr) 320px;gap:14px;align-items:start}
+  .panel{padding:0;overflow:hidden;display:flex;flex-direction:column}
+  .ph{padding:14px 18px 10px;display:flex;align-items:center;gap:10px}
+  .ph h3{margin:0;font-size:16px;font-weight:600} .ph .sub{font-size:12.5px;color:var(--ink-2);margin-top:1px} .ph .grow{flex:1}
+
+  .list{padding:0 10px 10px;display:flex;flex-direction:column;gap:6px}
+  .it{display:grid;grid-template-columns:38px 1fr auto;gap:4px 10px;padding:10px 12px;border-radius:16px;cursor:pointer}
+  .it:hover{background:rgba(255,255,255,.5)}
+  .it.on{background:var(--fill-3);box-shadow:inset 0 0 0 1px var(--rim),var(--shadow)}
+  .it .av{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;color:#fff;grid-row:1/3;position:relative}
+  .it .av i{position:absolute;right:-2px;bottom:-2px;width:12px;height:12px;border-radius:50%;border:2px solid #fff}
+  .it .nm{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .it .tm{font-size:11.5px;color:var(--ink-3);white-space:nowrap} .it .tm.new{color:var(--blue);font-weight:600}
+  .it .sn{grid-column:2/4;font-size:12.5px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .it .sn b{color:var(--ink);font-weight:600}
+  .it .row{grid-column:2/4;display:flex;gap:5px;align-items:center;flex-wrap:wrap;margin-top:3px}
+  .w{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:600;border-radius:999px;padding:2px 8px}
+  .w.us{background:rgba(232,150,12,.14);color:var(--gold-ink)} .w.them{background:rgba(34,34,36,.06);color:var(--ink-2)}
+  .w.ki{background:var(--blue-tint);color:var(--blue)} .w.st{background:rgba(34,34,36,.06);color:var(--ink-2);font-weight:500}
+  .w.un{background:var(--blue);color:#fff;min-width:18px;justify-content:center}
+  .divider{font-size:11.5px;color:var(--ink-3);padding:10px 12px 4px;display:flex;align-items:center;gap:8px}
+  .divider::after{content:"";flex:1;height:1px;background:var(--hair)}
+  .it.dim{opacity:.65}
+
+  .thread{padding:6px 18px 14px;display:flex;flex-direction:column;gap:10px;min-height:420px}
+  .day{align-self:center;font-size:11.5px;color:var(--ink-2);padding:3px 10px;border-radius:999px;margin:4px 0;background:var(--fill-2);box-shadow:inset 0 0 0 1px var(--rim)}
+  .msg{max-width:74%;padding:10px 13px;border-radius:18px;font-size:13.5px;line-height:1.45}
+  .msg.in{align-self:flex-start;background:var(--fill-3);border-bottom-left-radius:6px;box-shadow:inset 0 0 0 1px var(--rim),0 1px 2px rgba(0,0,0,.05)}
+  .msg.out{align-self:flex-end;background:var(--blue-tint);border-bottom-right-radius:6px;box-shadow:inset 0 0 0 1px var(--blue-rim)}
+  .msg .meta{display:flex;gap:8px;align-items:center;font-size:11.5px;color:var(--ink-3);margin-top:6px}
+  .ch{display:inline-flex;align-items:center;gap:4px;font-weight:600;color:var(--ink-2)} .ch i{width:6px;height:6px;border-radius:50%;display:inline-block}
+  .sys{align-self:center;font-size:12px;color:var(--ink-2);background:var(--fill);border-radius:12px;padding:7px 12px;box-shadow:inset 0 0 0 1px var(--hair)} .sys b{color:var(--ink);font-weight:600}
+  .draft{margin:4px 18px 0;padding:12px 14px;border-radius:16px;background:rgba(0,103,217,.06);box-shadow:inset 0 0 0 1.5px var(--blue-rim)}
+  .draft .t{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--blue);margin-bottom:6px}
+  .draft .t span{font-weight:500;color:var(--ink-2)}
+  .draft p{margin:0 0 10px;font-size:13.5px;line-height:1.45}
+  .draft .acts{display:flex;gap:8px;flex-wrap:wrap}
+  .composer{margin:10px 18px 16px;display:flex;align-items:center;gap:10px;border-radius:999px;padding:10px 10px 10px 16px;background:var(--fill-3);box-shadow:inset 0 0 0 1px var(--rim),var(--shadow)}
+  .composer .ph2{flex:1;color:var(--ink-3)} .composer .send{width:32px;height:32px;border-radius:50%;background:var(--blue);display:grid;place-items:center;color:#fff;font-weight:700}
+  .qa{display:flex;gap:6px;flex-wrap:wrap;padding:0 18px}
+  .qa span{font-size:12px;padding:5px 11px;border-radius:999px;background:var(--fill-3);box-shadow:inset 0 0 0 1px var(--rim);color:var(--ink)}
+
+  .ctx{padding:0 12px 12px;display:flex;flex-direction:column;gap:8px}
+  .card{padding:12px 14px;border-radius:16px;background:var(--fill-3);box-shadow:inset 0 0 0 1px var(--rim)}
+  .card .k{font-size:11.5px;color:var(--ink-3);font-weight:600;letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px}
+  .kv{display:grid;grid-template-columns:1fr auto;gap:4px 10px;font-size:13px} .kv span{color:var(--ink-2)} .kv b{font-weight:600;text-align:right}
+  .next{margin-top:8px;padding:8px 10px;border-radius:12px;background:rgba(34,34,36,.05);font-size:12.5px;color:var(--ink-2)} .next b{color:var(--ink)}
+  .stage{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;border-radius:999px;padding:3px 10px;background:rgba(232,150,12,.14);color:var(--gold-ink)} .stage i{width:7px;height:7px;border-radius:50%;background:var(--gold)}
+  .lnk{color:var(--blue);font-weight:600;font-size:12.5px}
+
+  /* phones */
+  .phones{max-width:1540px;margin:28px auto 0;padding:0 20px}
+  .phones h2{font-size:18px;font-weight:600;margin:0 0 4px} .phones p{margin:0 0 14px;color:var(--ink-2)}
+  .prow{display:flex;gap:28px;flex-wrap:wrap}
+  .phone{width:390px;height:760px;border-radius:44px;background:#111;padding:12px;box-shadow:0 30px 60px -20px rgba(0,0,0,.45);flex:none}
+  .screen{width:100%;height:100%;border-radius:34px;overflow:hidden;position:relative;background:#f3f4f6}
+  .screen .wall2{position:absolute;inset:0} .screen .wall2 svg{width:100%;height:100%}
+  .sc{position:relative;height:100%;display:flex;flex-direction:column;padding:14px 14px 0;gap:10px}
+  .sc .top{display:flex;align-items:flex-end;gap:10px;padding:34px 4px 0}
+  .sc .top h3{margin:0;font-size:28px;font-weight:600;letter-spacing:-.02em;line-height:1} .sc .top small{display:block;color:var(--ink-3);font-size:13px;margin-top:4px}
+  .sc .top .grow{flex:1}
+  .sc .chips{display:flex;gap:6px;overflow:hidden;white-space:nowrap}
+  .sc .chips span{font-size:11.5px;padding:5px 10px;border-radius:999px;background:var(--fill-3);box-shadow:inset 0 0 0 1px var(--rim);display:inline-flex;align-items:center;gap:5px;flex:none}
+  .sc .chips i{width:6px;height:6px;border-radius:50%}
+  .sc .plist{flex:1;overflow:hidden;display:flex;flex-direction:column;gap:6px}
+  .sc .it{padding:9px 10px}
+  .dock{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:4px;padding:8px;border-radius:999px;background:var(--fill-2);backdrop-filter:blur(20px) saturate(1.6);-webkit-backdrop-filter:blur(20px) saturate(1.6);box-shadow:inset 0 0 0 1px var(--rim),var(--shadow-raised)}
+  .dock span{width:56px;height:44px;border-radius:999px;display:grid;place-items:center;color:var(--ink-2);font-size:10px;font-weight:600;position:relative}
+  .dock span.on{background:#fff;color:var(--blue);box-shadow:0 1px 3px rgba(0,0,0,.15)}
+  .dock span b{position:absolute;top:2px;right:8px;background:var(--blue);color:#fff;font-size:9px;border-radius:999px;padding:0 5px}
+  .pthread{flex:1;overflow:hidden;display:flex;flex-direction:column;gap:8px;padding-bottom:70px}
+  .pthread .msg{max-width:84%;font-size:13px}
+  .pbar{position:absolute;left:14px;right:14px;bottom:14px;display:flex;flex-direction:column;gap:6px}
+  .pbar .composer{margin:0}
+  .pbar .qa{padding:0;overflow:hidden;white-space:nowrap;flex-wrap:nowrap}
+  .pback{display:flex;align-items:center;gap:8px;padding:30px 0 0;font-size:13px;color:var(--blue);font-weight:600}
+  .pname{display:flex;align-items:center;gap:10px} .pname .av{width:36px;height:36px;border-radius:50%;background:#c9361a;color:#fff;display:grid;place-items:center;font-weight:700;font-size:12px}
+  .pname b{display:block;font-size:16px} .pname small{color:var(--ink-2);font-size:12px}
+
+  .q{max-width:1540px;margin:26px auto 60px;padding:0 20px}
+  .q h2{font-size:18px;font-weight:600;margin:0 0 4px;letter-spacing:-.01em} .q p{margin:0 0 14px;color:var(--ink-2)}
+  .opts{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;max-width:900px}
+  .opt{padding:16px;cursor:pointer} .opt.selected{box-shadow:inset 0 0 0 2px var(--blue),var(--shadow-raised)}
+  .opt .ltr{width:26px;height:26px;border-radius:50%;background:var(--fill-3);box-shadow:inset 0 0 0 1px var(--rim);display:grid;place-items:center;font-weight:700;font-size:12px;margin-bottom:10px}
+  .opt h4{margin:0 0 4px;font-size:14px} .opt p{margin:0;font-size:12.5px;color:var(--ink-2)}
+</style>
+</head>
+<body>
+
+<div class="wall"><svg viewBox="0 0 1540 1000" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="base" x2="0" y2="1"><stop stop-color="#fbfbfc"/><stop offset="1" stop-color="#e8eaee"/></linearGradient>
+    <linearGradient id="fold" x1="0" y1="0" x2=".5" y2="1"><stop stop-color="#ffbd91"/><stop offset=".36" stop-color="#ff754c"/><stop offset=".7" stop-color="#f04a28"/><stop offset="1" stop-color="#c9361a"/></linearGradient>
+    <linearGradient id="silver" x2="1" y2=".7"><stop stop-color="#d2d5da"/><stop offset=".55" stop-color="#ffffff"/><stop offset="1" stop-color="#d2d5da"/></linearGradient>
+  </defs>
+  <rect width="1540" height="1000" fill="url(#base)"/>
+  <g fill="none" stroke="#d9dce2" stroke-linecap="round" stroke-width="12" opacity=".9">
+    <path d="M-50 300C200 260 380 420 620 380S980 240 1250 300 1500 420 1600 400"/>
+    <path d="M-60 650C180 600 300 780 560 720S900 560 1180 640 1420 760 1600 700"/>
+    <path d="M250 -40C300 200 180 420 260 640S420 900 380 1040"/>
+    <path d="M900 -40C860 160 1000 320 960 520S800 820 880 1040"/>
+  </g>
+  <g fill="none" stroke="#e4e6eb" stroke-width="6" stroke-linecap="round">
+    <path d="M-50 480C260 470 420 560 700 520S1200 420 1600 500"/>
+    <path d="M560 -40C540 220 640 380 600 600S520 900 580 1040"/>
+    <path d="M1250 -40C1200 260 1320 480 1260 700S1180 900 1230 1040"/>
+    <path d="M-50 150C300 120 500 220 800 180S1200 90 1600 160"/>
+  </g>
+  <path d="M-80 960C250 910 330 1040 640 990" fill="none" stroke="url(#silver)" stroke-width="44"/>
+  <path d="M1220 -60C1300 130 1460 120 1600 230" fill="none" stroke="#000" stroke-width="96" opacity=".08" transform="translate(0 10)"/>
+  <path d="M1220 -60C1300 130 1460 120 1600 230" fill="none" stroke="url(#fold)" stroke-width="96"/>
+</svg></div>
+
+<div class="ask">
+  <h1>Mockup 8b · Inbox <span class="tag">Daten erfunden · Desktop und Handy</span></h1>
+  <p>Die Inbox ist die Warteschlange über alle Deals: links, was eine Antwort braucht, in der Mitte das Gespräch (dieselbe Komponente wie in der Akte), rechts der Deal in Kurzform. Die Akte ist dann alles über einen Deal.</p>
+</div>
+
+<div class="app">
+  <aside class="side lg">
+    <div class="brand"><div class="mark">K</div><div><b>Kottke Umzüge</b><span>Dario · Nuri</span></div></div>
+    <div class="sec">Arbeit</div>
+    <div class="nv"><svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Heute<span class="b">4</span></div>
+    <div class="nv"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M8 4v16M3 10h5"/></svg>Leads<span class="n">19</span></div>
+    <div class="nv"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Plan<span class="n">Nov</span></div>
+    <div class="nv on"><svg viewBox="0 0 24 24"><path d="M4 6h16v10H8l-4 4z"/></svg>Inbox<span class="b">7</span></div>
+    <div class="nv"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/></svg>Kasse<span class="n">2 offen</span></div>
+    <div class="sec">Mehr</div>
+    <div class="nv"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Übersicht</div>
+    <div class="nv"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M17 8a3 3 0 1 1 0 6"/></svg>Kunden</div>
+    <div class="nv"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>Mitarbeiter</div>
+    <div class="nv"><svg viewBox="0 0 24 24"><path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3 6.4 20.2l1.1-6.2L3 9.6l6.2-.9z"/></svg>Bewertungen</div>
+    <div class="nv"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/></svg>Einstellungen</div>
+  </aside>
+
+  <section class="main">
+    <header class="head">
+      <div>
+        <h2>Inbox <span>Alles, was eine Antwort braucht, in einer Liste.</span></h2>
+        <div class="meta">Sortiert: zuerst, was auf uns wartet, dann nach Zeit. WhatsApp, E-Mail und Anrufe zusammen.</div>
+      </div>
+      <div class="grow"></div>
+      <span class="btn ghost">Vorlagen</span>
+      <span class="btn">+ Neue Nachricht</span>
+    </header>
+
+    <div class="focus">
+      <span class="lbl">Jetzt</span>
+      <span class="fc"><i style="background:var(--blue)"></i><b>7</b> ungelesen</span>
+      <span class="fc"><i style="background:var(--gold)"></i><b>4</b> warten auf uns</span>
+      <span class="fc"><i style="background:var(--blue)"></i><b>3</b> KI-Entwürfe zur Freigabe</span>
+      <span class="fc"><i style="background:var(--gold)"></i><b>1</b> Anruf verpasst</span>
+      <span class="fc"><i style="background:var(--gray)"></i><b>3</b> Info / Kein Lead</span>
+    </div>
+
+    <div class="bar lg">
+      <span class="pill">Alle Kanäle <span class="v">▾</span></span>
+      <span class="pill"><i style="background:#222224"></i>Beide Firmen <span class="v">▾</span></span>
+      <span class="pill">Alle Stufen <span class="v">▾</span></span>
+      <span class="search">⌕ Name, Nummer, Text…</span>
+      <span class="toggle"><span class="sw"></span>Nur „wartet auf uns“</span>
+    </div>
+
+    <div class="body">
+      <!-- Liste -->
+      <div class="panel lg">
+        <div class="ph"><div><h3>Gespräche</h3><div class="sub">11 offen</div></div><div class="grow"></div><span style="font-size:12px;color:var(--ink-3)">⌘K springt zu</span></div>
+        <div class="list">
+          <div class="it"><div class="av" style="background:#c9361a">FÖ<i style="background:var(--wa)"></i></div><div class="nm">Familie Öztürk</div><div class="tm new">09:14</div><div class="sn">Hallo, wir ziehen am 28.11. von Stuttgart-Ost nach Fellbach…</div><div class="row"><span class="w un">1</span><span class="w us">wartet auf uns · 35 Min</span><span class="w st">Neue Anfrage</span></div></div>
+          <div class="it"><div class="av" style="background:#6a4cf0">ML<i style="background:var(--blue)"></i></div><div class="nm">M. Lehmann</div><div class="tm new">06:51</div><div class="sn"><b>E-Mail:</b> Anfrage Entrümpelung Haus in Ludwigsburg, ca. 120 m²…</div><div class="row"><span class="w un">1</span><span class="w us">wartet auf uns · 3 Std</span><span class="w st">Neue Anfrage</span></div></div>
+          <div class="it"><div class="av" style="background:#14a874">RF<i style="background:var(--wa)"></i></div><div class="nm">R. Fischer</div><div class="tm">Di</div><div class="sn">Wir sind im 3. OG, ohne Aufzug, aber breites Treppenhaus.</div><div class="row"><span class="w us">wartet auf uns · 2 Tage</span><span class="w ki">KI-Entwurf</span><span class="w st">In Kontakt</span></div></div>
+          <div class="it"><div class="av" style="background:#e8960c">HV<i style="background:#c9a7ff"></i></div><div class="nm">H. Vogel</div><div class="tm new">08:40</div><div class="sn"><b>Anruf verpasst</b> · 2 Versuche · Entrümpelung Sa 15.11.</div><div class="row"><span class="w us">zurückrufen</span><span class="w st">Geplant</span></div></div>
+          <div class="it on"><div class="av" style="background:#222224">FW<i style="background:var(--wa)"></i></div><div class="nm">Familie Weber</div><div class="tm">12:05</div><div class="sn">Danke, schauen wir uns heute Abend an.</div><div class="row"><span class="w them">wartet auf Kunden · 2 Tage</span><span class="w ki">KI-Entwurf · Nachfass</span><span class="w st">Angebot</span></div></div>
+          <div class="it"><div class="av" style="background:#2f6fed">TS<i style="background:var(--blue)"></i></div><div class="nm">T. Schulz</div><div class="tm">vor 4 Tagen</div><div class="sn"><b>Du:</b> Anbei Ihr Kostenvoranschlag über 1.650 €…</div><div class="row"><span class="w them">KV ungesehen · 4 Tage</span><span class="w ki">KI-Entwurf · Nachfass</span><span class="w st">Angebot</span></div></div>
+          <div class="it"><div class="av" style="background:#8e8e93">DK<i style="background:var(--wa)"></i></div><div class="nm">Dr. Kaiser</div><div class="tm">gestern</div><div class="sn">📷 9 Fotos</div><div class="row"><span class="w them">wartet auf Kunden · 1 Tag</span><span class="w st">In Kontakt</span></div></div>
+          <div class="it"><div class="av" style="background:#0d6b4a">FC<i style="background:var(--wa)"></i></div><div class="nm">Familie Can</div><div class="tm">Mo</div><div class="sn"><b>Du:</b> Freitag 07:30 sind wir bei Ihnen. Bis dahin!</div><div class="row"><span class="w them">läuft</span><span class="w st">Geplant</span></div></div>
+          <div class="divider">Info und Kein Lead · 3</div>
+          <div class="it dim"><div class="av" style="background:#9aa6b5">SX<i style="background:var(--blue)"></i></div><div class="nm">Sixt Feuerbach</div><div class="tm">07:30</div><div class="sn"><b>E-Mail:</b> Ihre Reservierung Sprinter L, 17.–23.11.</div><div class="row"><span class="w st">Info</span></div></div>
+          <div class="it dim"><div class="av" style="background:#9aa6b5">?<i style="background:var(--wa)"></i></div><div class="nm">+49 170 …</div><div class="tm">gestern</div><div class="sn">Hallo, verkaufen Sie auch Kartons?</div><div class="row"><span class="w st">Kein Lead</span></div></div>
+        </div>
+      </div>
+
+      <!-- Gespräch -->
+      <div class="panel lg">
+        <div class="ph"><div><h3>Familie Weber</h3><div class="sub">Umzug Stuttgart-West → Esslingen · Angebot · WhatsApp +49 171 …</div></div><div class="grow"></div><span class="btn ghost sm">Akte öffnen</span></div>
+        <div class="thread">
+          <div class="day">Di 04.11.</div>
+          <div class="sys">Kalkulation geprüft von Dario · <b>KV v2 · 2.480 €</b></div>
+          <div class="msg out">Ihr Kostenvoranschlag ist fertig: 2.480 € inkl. Montage und Halteverbot. Alle Details und die Annahme finden Sie hier: kottke.de/s/…<div class="meta"><span class="ch"><i style="background:var(--wa)"></i>WhatsApp</span> 11:40 · Dario · ✓✓</div></div>
+          <div class="sys">Kunde hat den Link geöffnet · 3× · zuletzt heute 08:12</div>
+          <div class="msg in">Danke, schauen wir uns heute Abend an.<div class="meta"><span class="ch"><i style="background:var(--wa)"></i>WhatsApp</span> 12:05</div></div>
+          <div class="day">heute, Do 06.11.</div>
+          <div class="sys">Nachfass Tag 2 · Entwurf erstellt · wartet auf Freigabe (Regel „Nachfass nach KV“ ist auf Entwurf)</div>
+        </div>
+        <div class="draft">
+          <div class="t">KI-Entwurf · Nachfass Tag 2 <span>· geplant morgen 09:00 · Vorlage „Noch Fragen?“</span></div>
+          <p>Hallo Frau Weber, haben Sie noch Fragen zum Angebot? Falls der Freitag doch nicht passt, kann ich Ihnen auch Samstag oder den Montag danach anbieten. Viele Grüße, Dario</p>
+          <div class="acts"><span class="btn sm">Freigeben und morgen senden</span><span class="btn ghost sm">Jetzt senden</span><span class="btn ghost sm">Bearbeiten</span><span class="btn ghost sm">Verwerfen</span></div>
+        </div>
+        <div class="qa"><span>Termin vorschlagen</span><span>Fotos anfordern</span><span>Link erneut senden</span><span>Vorlage…</span></div>
+        <div class="composer"><span class="ch"><i style="background:var(--wa)"></i></span><span class="ph2">Antwort an Familie Weber…</span><span style="color:var(--ink-3);font-size:12px">⌘⏎ senden</span><span class="send">↑</span></div>
+      </div>
+
+      <!-- Kontext -->
+      <div class="panel lg">
+        <div class="ph"><div><h3>Deal</h3><div class="sub">Kurzfassung der Akte</div></div></div>
+        <div class="ctx">
+          <div class="card">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><b style="font-size:15px">Familie Weber</b><span class="stage"><i></i>Angebot</span></div>
+            <div class="kv"><span>Kostenvoranschlag</span><b>2.480 € · v2</b><span>Umzugsdatum</span><b>Fr 21.11.</b><span>Volumen</span><b>38 m³</b><span>Marge</span><b>38 %</b><span>Wartet</span><b style="color:var(--ink-2)">auf Kunden · 2 Tage</b></div>
+            <div class="next">Nächster Schritt: <b>Annahme im Status-Link</b> · Nachfass Tag 2 morgen 09:00</div>
+            <div style="margin-top:10px"><span class="lnk">Akte öffnen →</span></div>
+          </div>
+          <div class="card">
+            <div class="k">Kunde</div>
+            <div class="kv"><span>Telefon</span><b>+49 171 …</b><span>E-Mail</span><b>weber@…</b><span>Von</span><b>Rotebühlstr. 112</b><span>Nach</span><b>Esslingen</b><span>Quelle</span><b>Kleinanzeigen</b><span>Firma</span><b>Kottke</b></div>
+          </div>
+          <div class="card">
+            <div class="k">Gespräch</div>
+            <div class="kv"><span>Kanäle</span><b>WhatsApp, 2 Anrufe</b><span>Fotos</span><b>14</b><span>Dokumente</span><b>KV v1, v2</b><span>Nachfass</span><b>automatisch · Entwurf</b></div>
+            <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap"><span class="btn ghost sm">Kein Lead</span><span class="btn ghost sm">Info</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- Handy -->
+<div class="phones">
+  <h2>Dieselbe Inbox am Handy</h2>
+  <p>Links die Liste, rechts ein geöffnetes Gespräch. Unten das Glas-Dock mit Heute, Leads, Plan, Inbox, Mehr.</p>
+  <div class="prow">
+    <div class="phone"><div class="screen">
+      <div class="wall2"><svg viewBox="0 0 390 760" preserveAspectRatio="xMidYMid slice"><rect width="390" height="760" fill="#f4f5f7"/><path d="M280 -30C300 60 370 60 420 110" fill="none" stroke="url(#fold)" stroke-width="40"/></svg></div>
+      <div class="sc">
+        <div class="top"><div><h3>Inbox</h3><small>4 warten auf uns · 7 ungelesen</small></div><div class="grow"></div><span class="btn sm" style="padding:6px 10px">+</span></div>
+        <div class="chips"><span><i style="background:var(--gold)"></i>Wartet auf uns 4</span><span><i style="background:var(--blue)"></i>KI-Entwürfe 3</span><span><i style="background:var(--gold)"></i>Anruf 1</span><span>Info 3</span></div>
+        <div class="plist">
+          <div class="it on"><div class="av" style="background:#c9361a">FÖ<i style="background:var(--wa)"></i></div><div class="nm">Familie Öztürk</div><div class="tm new">09:14</div><div class="sn">Hallo, wir ziehen am 28.11. von…</div><div class="row"><span class="w un">1</span><span class="w us">wartet · 35 Min</span></div></div>
+          <div class="it"><div class="av" style="background:#6a4cf0">ML<i style="background:var(--blue)"></i></div><div class="nm">M. Lehmann</div><div class="tm new">06:51</div><div class="sn">Anfrage Entrümpelung Ludwigsburg…</div><div class="row"><span class="w un">1</span><span class="w us">wartet · 3 Std</span></div></div>
+          <div class="it"><div class="av" style="background:#14a874">RF<i style="background:var(--wa)"></i></div><div class="nm">R. Fischer</div><div class="tm">Di</div><div class="sn">Wir sind im 3. OG, ohne Aufzug…</div><div class="row"><span class="w us">wartet · 2 Tage</span><span class="w ki">KI-Entwurf</span></div></div>
+          <div class="it"><div class="av" style="background:#e8960c">HV<i style="background:#c9a7ff"></i></div><div class="nm">H. Vogel</div><div class="tm new">08:40</div><div class="sn">Anruf verpasst · 2 Versuche</div><div class="row"><span class="w us">zurückrufen</span></div></div>
+          <div class="it"><div class="av" style="background:#222224">FW<i style="background:var(--wa)"></i></div><div class="nm">Familie Weber</div><div class="tm">12:05</div><div class="sn">Danke, schauen wir uns heute Abend an.</div><div class="row"><span class="w them">Kunde · 2 Tage</span><span class="w ki">Nachfass</span></div></div>
+          <div class="it"><div class="av" style="background:#2f6fed">TS<i style="background:var(--blue)"></i></div><div class="nm">T. Schulz</div><div class="tm">4 Tage</div><div class="sn">Du: Anbei Ihr Kostenvoranschlag…</div><div class="row"><span class="w them">KV ungesehen</span></div></div>
+          <div class="it"><div class="av" style="background:#8e8e93">DK<i style="background:var(--wa)"></i></div><div class="nm">Dr. Kaiser</div><div class="tm">gestern</div><div class="sn">📷 9 Fotos</div><div class="row"><span class="w them">Kunde · 1 Tag</span></div></div>
+        </div>
+        <div class="dock"><span>Heute</span><span>Leads</span><span>Plan</span><span class="on">Inbox<b>7</b></span><span>Mehr</span></div>
+      </div>
+    </div></div>
+
+    <div class="phone"><div class="screen">
+      <div class="wall2"><svg viewBox="0 0 390 760" preserveAspectRatio="xMidYMid slice"><rect width="390" height="760" fill="#f4f5f7"/><path d="M280 -30C300 60 370 60 420 110" fill="none" stroke="url(#fold)" stroke-width="40"/></svg></div>
+      <div class="sc">
+        <div class="pback">‹ Inbox</div>
+        <div class="pname"><div class="av">FÖ</div><div><b>Familie Öztürk</b><small>Neue Anfrage · Kleinanzeigen · wartet auf uns 35 Min</small></div></div>
+        <div class="chips"><span style="color:var(--blue);font-weight:600">Akte öffnen</span><span>Termin</span><span>Fotos anfordern</span><span>Kein Lead</span></div>
+        <div class="pthread">
+          <div class="day">heute</div>
+          <div class="msg in">Hallo, wir ziehen am 28.11. von Stuttgart-Ost nach Fellbach, 2 Zimmer, EG nach 1. OG mit Aufzug. Was würde das kosten?<div class="meta"><span class="ch"><i style="background:var(--wa)"></i>WhatsApp</span> 09:14</div></div>
+          <div class="sys">Lead angelegt · Kottke · <b>Neue Anfrage</b></div>
+          <div class="draft" style="margin:0"><div class="t">KI-Entwurf · Erstantwort</div><p style="font-size:13px">Hallo Familie Öztürk, danke für Ihre Anfrage! Schicken Sie mir gern ein paar Fotos der Räume, dann rechne ich Ihnen das heute noch durch.</p><div class="acts"><span class="btn sm">Senden</span><span class="btn ghost sm">Bearbeiten</span></div></div>
+        </div>
+        <div class="pbar">
+          <div class="composer"><span class="ch"><i style="background:var(--wa)"></i></span><span class="ph2">Antwort…</span><span class="send">↑</span></div>
+        </div>
+      </div>
+    </div></div>
+  </div>
+</div>
+
+<div class="q">
+  <h2>Ohne Offen / Erledigt / Alle</h2>
+  <p>Status-Umschaltung und „Erledigt“-Knöpfe sind raus. Die Liste ist immer alle Gespräche, sortiert nach „wartet auf uns“, Lärm wandert über „Kein Lead“ oder „Info“ nach unten.</p>
+  <div class="opts">
+    <div class="opt lg tile" data-choice="inbox-ok" onclick="toggleSelect(this)"><div class="ltr">A</div><h4>Ja, so</h4><p>Kommt als Abschnitt in die Design-Beschreibung.</p></div>
+    <div class="opt lg tile" data-choice="inbox-aendern" onclick="toggleSelect(this)"><div class="ltr">B</div><h4>Etwas ändern</h4><p>Andere Aufteilung, andere Filter, andere Reihenfolge.</p></div>
+  </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Umzugsakte – Mockup 4 (Glassy UI)</title>
+<style>
+  :root{
+    --ink:#222224; --ink-2:#66666a; --ink-3:#8e8e93;
+    --blue:#0067d9; --blue-tint:rgba(0,103,217,.10); --blue-rim:rgba(0,103,217,.28);
+    --jade:#14a874; --gold:#e8960c; --gold-ink:#8a5200; --rose:#e8345a; --violet:#6a4cf0;
+    --fill:rgba(255,255,255,.52); --fill-2:rgba(255,255,255,.68); --fill-3:rgba(255,255,255,.88);
+    --rim:rgba(255,255,255,.92); --hair:rgba(34,34,36,.08);
+    --shadow:0 1px 2px rgb(0 0 0 / .06),0 8px 24px -6px rgb(0 0 0 / .14);
+    --shadow-raised:0 2px 6px rgb(0 0 0 / .06),0 28px 56px -18px rgb(0 0 0 / .26);
+    --r-tile:20px; --r-panel:24px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:#f3f4f6;color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Helvetica,Arial,sans-serif;font-size:14px;line-height:1.4;-webkit-font-smoothing:antialiased}
+  .wall{position:fixed;inset:0;z-index:0;pointer-events:none} .ask,.app,.q{position:relative;z-index:1} .wall svg{width:100%;height:100%;display:block}
+
+  .lg{position:relative;background:var(--fill);backdrop-filter:blur(16px) saturate(1.6) brightness(1.06);-webkit-backdrop-filter:blur(16px) saturate(1.6) brightness(1.06);border-radius:var(--r-panel);box-shadow:inset 0 0 0 1px var(--rim),var(--shadow)}
+  .lg::before{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:linear-gradient(180deg,rgba(255,255,255,.38),rgba(255,255,255,0) 32%)}
+  .lg.tile{border-radius:var(--r-tile)} .lg.raised{box-shadow:inset 0 0 0 1px var(--rim),var(--shadow-raised)}
+  .cap{border-radius:999px}
+
+  .ask{max-width:1540px;margin:22px auto 10px;padding:0 20px}
+  .ask h1{font-size:20px;font-weight:600;margin:0 0 4px;letter-spacing:-.01em} .ask p{margin:0;color:var(--ink-2)}
+  .ask .tag{display:inline-block;margin-left:10px;font-size:11px;color:var(--ink-2);border-radius:999px;padding:3px 9px;vertical-align:middle;background:var(--fill-2);box-shadow:inset 0 0 0 1px var(--rim)}
+
+  .app{max-width:1540px;margin:14px auto 0;padding:0 20px;display:grid;grid-template-columns:236px 1fr;gap:18px;min-height:900px}
+  .side{padding:16px 12px;height:fit-content;position:sticky;top:14px}
+  .brand{display:flex;align-items:center;gap:10px;padding:4px 8px 16px}
+  .brand .lg-mark{width:34px;height:34px;border-radius:10px;background:#222224;color:#fff;display:grid;place-items:center;font-weight:700;font-size:15px}
+  .brand b{display:block;font-size:14px;font-weight:600} .brand span{font-size:12px;color:var(--ink-2)}
+  .sec{font-size:11px;color:var(--ink-3);font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:12px 12px 6px}
+  .nv{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:999px;color:var(--ink);font-size:14px}
+  .nv svg{width:18px;height:18px;stroke:var(--ink-2);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  .nv .n{margin-left:auto;font-size:12px;color:var(--ink-3)}
+  .nv.on{background:var(--fill-3);color:var(--blue);font-weight:600;box-shadow:inset 0 0 0 1px var(--rim),var(--shadow)}
+  .nv.on svg{stroke:var(--blue)} .nv.on .n{color:var(--blue)}
+  .nv .b{margin-left:auto;background:var(--blue);color:#fff;font-size:11px;font-weight:600;border-radius:999px;padding:1px 7px}
+
+  .main{display:flex;flex-direction:column;gap:14px;min-width:0}
+  .head{display:flex;align-items:flex-end;gap:18px;padding:6px 6px 4px}
+  .head h2{margin:0;font-size:34px;font-weight:600;letter-spacing:-.015em;line-height:1.05}
+  .head h2 span{display:block;color:var(--ink-3);font-size:22px;margin-top:4px}
+  .head .meta{color:var(--ink-2);font-size:13px;margin-top:8px}
+  .head .grow{flex:1}
+  .pill{display:inline-flex;align-items:center;gap:7px;border-radius:999px;padding:7px 13px;font-size:12.5px;font-weight:500;background:var(--fill-2);box-shadow:inset 0 0 0 1px var(--rim),var(--shadow);color:var(--ink)}
+  .pill .dot{width:7px;height:7px;border-radius:50%}
+  .toggle{display:inline-flex;align-items:center;gap:8px;color:var(--ink-2);font-size:13px}
+  .toggle .sw{width:40px;height:24px;border-radius:12px;background:var(--blue);position:relative;box-shadow:inset 0 1px 1px rgba(255,255,255,.35)}
+  .toggle .sw::after{content:"";position:absolute;right:2px;top:2px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25)}
+  .avs{display:flex;align-items:center} .av{width:32px;height:32px;border-radius:50%;border:2px solid #fff;margin-left:-9px;display:grid;place-items:center;font-size:11px;font-weight:600;color:#fff;box-shadow:0 2px 6px rgba(0,0,0,.15)}
+  .av:first-child{margin-left:0} .av.a1{background:#c9361a} .av.a2{background:#14a874} .av.a3{background:#222224}
+  .av.add{background:var(--fill-3);color:var(--ink-3);border:1.5px dashed rgba(34,34,36,.25);box-shadow:none}
+
+  .kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:12px}
+  .kpi{padding:14px 16px}
+  .kpi .l{font-size:12px;color:var(--ink-2);font-weight:500}
+  .kpi .v{font-size:24px;font-weight:600;margin-top:4px;letter-spacing:-.015em;line-height:1.1}
+  .kpi .s{font-size:12px;color:var(--ink-2);margin-top:4px}
+  .waitpill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;border-radius:999px;padding:3px 9px;background:var(--fill-3);box-shadow:inset 0 0 0 1px var(--rim)}
+  .waitpill i{width:7px;height:7px;border-radius:50%;background:var(--gold)}
+
+  .body{display:grid;grid-template-columns:minmax(520px,1fr) 400px;gap:14px;align-items:start}
+  .panel{padding:0;overflow:hidden;display:flex;flex-direction:column}
+  .ph{padding:14px 18px;display:flex;align-items:center;gap:10px}
+  .ph h3{margin:0;font-size:16px;font-weight:600;letter-spacing:-.01em} .ph .sub{font-size:12.5px;color:var(--ink-2);margin-top:1px} .ph .grow{flex:1}
+  .seg{display:inline-flex;border-radius:999px;padding:3px;font-size:13px;background:rgba(34,34,36,.08);gap:2px}
+  .seg span{padding:6px 13px;color:var(--ink-2);border-radius:999px} .seg span.on{background:#fff;color:var(--ink);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08),0 4px 10px -4px rgba(0,0,0,.2)}
+  .chip{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:5px 11px;font-size:12px;font-weight:500;background:var(--fill-3);box-shadow:inset 0 0 0 1px var(--rim);color:var(--ink-2)}
+  .chip i{width:7px;height:7px;border-radius:50%;display:inline-block}
+
+  .thread{padding:6px 18px 175px;display:flex;flex-direction:column;gap:10px;min-height:560px;position:relative}
+  .day{align-self:center;font-size:11.5px;color:var(--ink-2);padding:3px 10px;border-radius:999px;margin:4px 0;background:var(--fill-2);box-shadow:inset 0 0 0 1px var(--rim)}
+  .msg{max-width:72%;padding:10px 13px;border-radius:18px;font-size:13.5px;line-height:1.45}
+  .msg.in{align-self:flex-start;background:var(--fill-3);border-bottom-left-radius:6px;box-shadow:inset 0 0 0 1px var(--rim),0 1px 2px rgba(0,0,0,.05)}
+  .msg.out{align-self:flex-end;background:var(--blue-tint);border-bottom-right-radius:6px;box-shadow:inset 0 0 0 1px var(--blue-rim);backdrop-filter:blur(8px)}
+  .msg .meta{display:flex;gap:8px;align-items:center;font-size:11.5px;color:var(--ink-3);margin-top:6px}
+  .ch{display:inline-flex;align-items:center;gap:4px;font-weight:600;color:var(--ink-2)} .ch i{width:6px;height:6px;border-radius:50%;display:inline-block}
+  .sys{align-self:center;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-2);background:var(--fill);border-radius:12px;padding:7px 12px;box-shadow:inset 0 0 0 1px var(--hair)}
+  .sys b{color:var(--ink);font-weight:600}
+  .photos{display:flex;gap:6px;margin-top:6px} .photos div{width:64px;height:64px;border-radius:12px;background:linear-gradient(135deg,#e7e9ed,#cfd3da);box-shadow:inset 0 0 0 1px var(--rim)}
+
+  /* dock: quick actions as a glass shelf */
+  .dock{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);display:flex;align-items:center;gap:6px;padding:8px;border-radius:999px;background:var(--fill-2);backdrop-filter:blur(20px) saturate(1.6);-webkit-backdrop-filter:blur(20px) saturate(1.6);box-shadow:inset 0 0 0 1px var(--rim),var(--shadow-raised);white-space:nowrap}
+  .dk{display:flex;flex-direction:column;align-items:center;gap:3px;padding:7px 12px;border-radius:999px;font-size:11px;color:var(--ink-2);min-width:76px}
+  .dk svg{width:20px;height:20px;stroke:var(--ink);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  .dk.dis{opacity:.4}
+  .dk.primary{flex-direction:row;gap:8px;background:var(--blue);color:#fff;font-size:13px;font-weight:600;padding:10px 16px;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 6px 14px -6px rgba(0,103,217,.7)} .dk.primary svg{stroke:#fff}
+  .dock .sep{width:1px;height:28px;background:var(--hair);margin:0 4px}
+  .composer{position:absolute;left:18px;right:18px;bottom:82px;display:flex;align-items:center;gap:10px;border-radius:999px;padding:10px 10px 10px 16px;background:var(--fill-3);box-shadow:inset 0 0 0 1px var(--rim),var(--shadow)}
+  .composer .ph2{flex:1;color:var(--ink-3)} .composer .send{width:32px;height:32px;border-radius:50%;background:var(--blue);display:grid;place-items:center;color:#fff;font-weight:700}
+
+  .tl{padding:6px 18px 18px;display:flex;flex-direction:column}
+  .step{display:grid;grid-template-columns:28px 1fr;gap:12px;padding:10px 0;position:relative}
+  .step::before{content:"";position:absolute;left:13px;top:38px;bottom:-10px;width:2px;background:var(--hair)}
+  .step:last-child::before{display:none}
+  .ic{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:600;color:var(--ink-3);background:var(--fill-3);box-shadow:inset 0 0 0 1px var(--rim)}
+  .step.done .ic{background:var(--jade);color:#fff;box-shadow:none}
+  .step.now .ic{background:var(--blue);color:#fff;box-shadow:0 0 0 5px rgba(0,103,217,.14)}
+  .step .t{font-weight:600;font-size:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;letter-spacing:-.005em}
+  .step .d{font-size:12.5px;color:var(--ink-2);margin-top:2px}
+  .step.todo .t{color:var(--ink-2);font-weight:500} .step.todo .d{color:var(--ink-3)}
+  .who{font-size:10.5px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;padding:2px 8px;border-radius:999px;background:var(--fill-3);box-shadow:inset 0 0 0 1px var(--rim);color:var(--ink-2)}
+  .who.du{color:var(--blue)} .who.kunde{color:var(--violet)}
+  .btn{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;padding:7px 13px;border-radius:999px;background:var(--fill-3);color:var(--blue);margin-top:8px;box-shadow:inset 0 0 0 1px var(--rim),var(--shadow)}
+  .seq{margin:8px 0 0;padding:10px 12px;border-radius:14px;background:var(--fill);font-size:12.5px;color:var(--ink-2);display:flex;flex-direction:column;gap:6px;box-shadow:inset 0 0 0 1px var(--hair)}
+  .seq .r{display:flex;justify-content:space-between;gap:10px} .seq .r b{color:var(--ink);font-weight:500;white-space:nowrap}
+  .callout{margin:8px 0 0;padding:9px 12px;border-radius:14px;background:rgba(232,150,12,.14);box-shadow:inset 0 0 0 1px rgba(232,150,12,.35);color:var(--gold-ink);font-size:12.5px;font-weight:500;display:flex;gap:8px;align-items:flex-start}
+  .callout i{width:8px;height:8px;border-radius:50%;background:var(--gold);flex:none;margin-top:5px}
+  .pay{display:flex;gap:6px;margin-top:8px} .pay span{font-size:11.5px;padding:4px 10px;border-radius:999px;color:var(--ink-2);background:var(--fill-3);box-shadow:inset 0 0 0 1px var(--rim)}
+
+  .q{max-width:1540px;margin:26px auto 60px;padding:0 20px}
+  .q h2{font-size:18px;font-weight:600;margin:0 0 4px;letter-spacing:-.01em} .q p{margin:0 0 14px;color:var(--ink-2)}
+  .opts{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;max-width:1100px}
+  .opt{padding:16px;cursor:pointer}
+  .opt.selected{box-shadow:inset 0 0 0 2px var(--blue),var(--shadow-raised)}
+  .opt .ltr{width:26px;height:26px;border-radius:50%;background:var(--fill-3);box-shadow:inset 0 0 0 1px var(--rim);display:grid;place-items:center;font-weight:700;font-size:12px;margin-bottom:10px}
+  .opt h4{margin:0 0 4px;font-size:14px} .opt p{margin:0;font-size:12.5px;color:var(--ink-2)}
+  @media (max-width:1100px){.body{grid-template-columns:1fr}.kpis{grid-template-columns:repeat(3,1fr)}.opts{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<!-- Glassy UI "Vermilion" wallpaper (original artwork from the repo), one bold shape for the glass to bend -->
+<div class="wall">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 520" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="vermilion-base" x2="0" y2="1"><stop stop-color="#fbfbfc"/><stop offset="1" stop-color="#e2e4e8"/></linearGradient>
+    <linearGradient id="vermilion-fold" x1="0" y1="0" x2=".5" y2="1"><stop stop-color="#ffbd91"/><stop offset=".36" stop-color="#ff754c"/><stop offset=".7" stop-color="#f04a28"/><stop offset="1" stop-color="#c9361a"/></linearGradient>
+    <linearGradient id="vermilion-lip" x2="1" y2=".7"><stop stop-color="#fff5eb"/><stop offset=".4" stop-color="#ffc9a9"/><stop offset="1" stop-color="#ff936b"/></linearGradient>
+    <linearGradient id="vermilion-silver" x2="1" y2=".7"><stop stop-color="#d2d5da"/><stop offset=".55" stop-color="#ffffff"/><stop offset="1" stop-color="#d2d5da"/></linearGradient>
+  </defs>
+  <rect width="900" height="520" fill="url(#vermilion-base)"/>
+  <path d="M-120 515C210 520 255 450 440 362S670 445 1010 302" fill="none" stroke="url(#vermilion-silver)" stroke-width="48"/>
+  <g>
+    <path d="M-150 365C90 225 190 535 420 340C650 145 610 35 1030 125L1030 183C610 93 650 203 420 398C190 593 90 283-150 423Z" fill="#000000" opacity=".10" transform="translate(0 8)"/>
+    <path d="M-150 365C90 225 190 535 420 340C650 145 610 35 1030 125L1030 183C610 93 650 203 420 398C190 593 90 283-150 423Z" fill="url(#vermilion-fold)"/>
+    <path d="M-150 365C90 225 190 535 420 340C650 145 610 35 1030 125" fill="none" stroke="url(#vermilion-lip)" stroke-width="3"/>
+  </g>
+</svg>
+</div>
+
+<div class="ask">
+  <h1>Mockup 4 · Die Umzugsakte in Glassy UI <span class="tag">Daten erfunden · Desktop · Schrift: System (SF Pro)</span></h1>
+  <p>Glassy-UI-Regeln: Elfenbein-Seite, eine Vermilion-Schleife als einzige Form, neutrales Glas mit Lichtkante, Kapseln für Bedienelemente, Blau nur für Aktionen, Gold für „wartet“. Kein Farbnebel, keine Leuchteffekte.</p>
+</div>
+
+<div class="app">
+  <aside class="side lg">
+    <div class="brand"><div class="lg-mark">K</div><div><b>Kottke Umzüge</b><span>Dario · Nuri</span></div></div>
+    <div class="sec">Arbeit</div>
+    <div class="nv"><svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Heute<span class="b">4</span></div>
+    <div class="nv on"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M8 4v16M3 10h5"/></svg>Leads<span class="n">12</span></div>
+    <div class="nv"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Plan<span class="n">Nov</span></div>
+    <div class="nv"><svg viewBox="0 0 24 24"><path d="M4 6h16v10H8l-4 4z"/></svg>Inbox<span class="b">7</span></div>
+    <div class="nv"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/></svg>Kasse<span class="n">2 offen</span></div>
+    <div class="sec">Mehr</div>
+    <div class="nv"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Übersicht</div>
+    <div class="nv"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M17 8a3 3 0 1 1 0 6"/></svg>Kunden</div>
+    <div class="nv"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>Mitarbeiter</div>
+    <div class="nv"><svg viewBox="0 0 24 24"><path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3 6.4 20.2l1.1-6.2L3 9.6l6.2-.9z"/></svg>Bewertungen</div>
+    <div class="nv"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/></svg>Einstellungen</div>
+  </aside>
+
+  <section class="main">
+    <header class="head">
+      <div>
+        <h2>Familie Weber <span>Umzug, 3 Zimmer, Stuttgart-West nach Esslingen.</span></h2>
+        <div class="meta">Über Kleinanzeigen · Kottke · Lead seit Mo 03.11.</div>
+      </div>
+      <div class="grow"></div>
+      <div class="avs"><div class="av a1">MK</div><div class="av a2">TS</div><div class="av a3">AR</div><div class="av add">+</div></div>
+      <span class="toggle"><span class="sw"></span>Nachfass automatisch</span>
+      <span class="pill"><span class="dot" style="background:var(--gold)"></span>Angebot</span>
+    </header>
+
+    <div class="kpis">
+      <div class="kpi lg tile"><div class="l">Kostenvoranschlag</div><div class="v">2.480 €</div><div class="s">v2 · gesendet Di 04.11.</div></div>
+      <div class="kpi lg tile"><div class="l">Marge</div><div class="v">38 %</div><div class="s">Selbstkosten 1.540 €</div></div>
+      <div class="kpi lg tile"><div class="l">Umzugsdatum</div><div class="v">Fr 21.11.</div><div class="s">in 16 Tagen</div></div>
+      <div class="kpi lg tile"><div class="l">Volumen</div><div class="v">38 m³</div><div class="s">aus 14 Fotos und Chat</div></div>
+      <div class="kpi lg tile"><div class="l">Team</div><div class="v">3 · 1 LKW</div><div class="s">Fahrt 1,2 h · Arbeit 5,5 h</div></div>
+      <div class="kpi lg tile"><div class="l">Wartet auf Kunden</div><div class="v">2 Tage</div><div class="s"><span class="waitpill"><i></i>KV 3× geöffnet</span></div></div>
+    </div>
+
+    <div class="body">
+      <div class="panel lg">
+        <div class="ph">
+          <div><h3>Gespräch</h3><div class="sub">Alle Kanäle in einem Verlauf.</div></div>
+          <div class="grow"></div>
+          <span class="chip"><i style="background:#1faa5a"></i>WhatsApp</span>
+          <span class="chip"><i style="background:var(--blue)"></i>E-Mail</span>
+          <span class="chip"><i style="background:var(--violet)"></i>2 Anrufe</span>
+          <div class="seg"><span class="on">Chat</span><span>Fotos</span><span>Dokumente</span><span>Notizen</span></div>
+        </div>
+        <div class="thread">
+          <div class="day">Mo 03.11.</div>
+          <div class="msg in">Hallo, wir ziehen am 21.11. von Stuttgart nach Esslingen, 3 Zimmer, 2. OG ohne Aufzug. Können Sie ein Angebot machen?<div class="meta"><span class="ch"><i style="background:#1faa5a"></i>WhatsApp</span> 09:14</div></div>
+          <div class="sys">Lead angelegt · Kottke · Quelle Kleinanzeigen · <b>Neue Anfrage</b></div>
+          <div class="msg out">Hallo Frau Weber, danke für Ihre Anfrage! Schicken Sie mir gern ein paar Fotos der Räume, dann rechne ich Ihnen das direkt durch.<div class="meta"><span class="ch"><i style="background:#1faa5a"></i>WhatsApp</span> 09:21 · Dario · ✓✓</div></div>
+          <div class="msg in">Klar, hier die Bilder.<div class="photos"><div></div><div></div><div></div><div></div><div></div></div><div class="meta"><span class="ch"><i style="background:#1faa5a"></i>WhatsApp</span> 10:02 · 14 Fotos</div></div>
+          <div class="sys">Fotoanalyse fertig · Möbelliste 31 Teile · <b>38 m³</b> · Wandschrank erkannt</div>
+          <div class="day">Di 04.11.</div>
+          <div class="sys">Kalkulation geprüft von Dario · Arbeitszeit +1,5 h (Wandschrank) · <b>KV v2 · 2.480 €</b></div>
+          <div class="msg out">Ihr Kostenvoranschlag ist fertig: 2.480 € inkl. Montage und Halteverbot. Alle Details und die Annahme finden Sie hier: kottke.de/s/…<div class="meta"><span class="ch"><i style="background:#1faa5a"></i>WhatsApp</span> 11:40 · Dario · ✓✓</div></div>
+          <div class="sys">Kunde hat den Link geöffnet · 3× · zuletzt heute 08:12</div>
+          <div class="msg in">Danke, schauen wir uns heute Abend an.<div class="meta"><span class="ch"><i style="background:#1faa5a"></i>WhatsApp</span> 12:05</div></div>
+
+          <div class="composer"><span class="ch"><i style="background:#1faa5a"></i></span><span class="ph2">Nachricht an Familie Weber…</span><span style="color:var(--ink-3);font-size:12px">KI-Entwurf</span><span class="send">↑</span></div>
+          <div class="dock">
+            <div class="dk primary"><svg viewBox="0 0 24 24"><path d="M4 12l16-7-5 16-3-6z"/></svg>Nachfass senden</div>
+            <div class="sep"></div>
+            <div class="dk"><svg viewBox="0 0 24 24"><path d="M4 20h4l10-10-4-4L4 16z"/></svg>KV anpassen</div>
+            <div class="dk dis"><svg viewBox="0 0 24 24"><path d="M6 3h9l5 5v13H6z M14 3v6h6"/></svg>AB erstellen</div>
+            <div class="dk dis"><svg viewBox="0 0 24 24"><path d="M5 3h14v18l-3-2-2 2-2-2-2 2-2-2-3 2z M9 8h6M9 12h6"/></svg>Rechnung</div>
+            <div class="dk"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Termin</div>
+            <div class="dk"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7"/></svg>Vorlage</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel lg">
+        <div class="ph"><div><h3>Ablauf</h3><div class="sub">Von der Anfrage bis zur Bewertung.</div></div><div class="grow"></div><span style="font-size:12.5px;color:var(--ink-3)">4 von 11</span></div>
+        <div class="tl">
+          <div class="step done"><div class="ic">✓</div><div><div class="t">Anfrage eingegangen <span class="who">auto</span></div><div class="d">Mo 03.11. 09:14 · Kleinanzeigen · erste Antwort nach 7 Min</div></div></div>
+          <div class="step done"><div class="ic">✓</div><div><div class="t">Fotos und Infos <span class="who">auto</span></div><div class="d">14 Fotos · 38 m³ · 2. OG ohne Aufzug · Halteverbot beidseitig</div></div></div>
+          <div class="step done"><div class="ic">✓</div><div><div class="t">Kalkulation <span class="who">intern</span></div><div class="d">Selbstkosten 1.540 € · Marge 38 % · geprüft von Dario, 1 Anpassung</div><span class="btn">Kalkulation öffnen</span></div></div>
+          <div class="step now"><div class="ic">4</div><div><div class="t">Kostenvoranschlag <span class="who du">du</span></div><div class="d">v2 · 2.480 € · gesendet Di 04.11. · gültig bis 18.11.</div>
+            <div class="callout"><i></i><span>3× geöffnet, noch nicht angenommen. Nachfass Tag 2 geht morgen 09:00 automatisch raus.</span></div>
+            <div class="seq">
+              <div class="r"><span>Tag 2 · „Noch Fragen zum Angebot?“</span><b>morgen · auto</b></div>
+              <div class="r"><span>Tag 7 · Foto eines ähnlichen Umzugs</span><b>11.11. · auto</b></div>
+              <div class="r"><span>Tag 10 · Abschluss, sonst „Verloren“</span><b>14.11. · auto</b></div>
+            </div>
+          </div></div>
+          <div class="step todo"><div class="ic">5</div><div><div class="t">Annahme und Unterschrift <span class="who kunde">Kunde</span></div><div class="d">im Status-Link · Anzahlung 500 € · DocuSeal</div></div></div>
+          <div class="step todo"><div class="ic">6</div><div><div class="t">Auftragsbestätigung <span class="who du">du</span></div><div class="d">aus der angenommenen Fassung · ein Klick</div></div></div>
+          <div class="step todo"><div class="ic">7</div><div><div class="t">Einsatz planen <span class="who">intern</span></div><div class="d">3 Personen · Fahrt 1,2 h × 15 € · Arbeit 5,5 h × 20 € · LKW 150 €</div></div></div>
+          <div class="step todo"><div class="ic">8</div><div><div class="t">Umzug Fr 21.11.</div><div class="d">07:30 Beladen Stuttgart-West · ca. 13:00 fertig in Esslingen</div></div></div>
+          <div class="step todo"><div class="ic">9</div><div><div class="t">Rechnung <span class="who du">du</span></div><div class="d">Restbetrag 1.980 € · fällig 14 Tage</div></div></div>
+          <div class="step todo"><div class="ic">10</div><div><div class="t">Zahlung <span class="who du">du</span></div><div class="d">Kunde meldet „bezahlt“ im Link, du bestätigst</div><div class="pay"><span>Überweisung</span><span>PayPal</span><span>Bar</span></div></div></div>
+          <div class="step todo"><div class="ic">11</div><div><div class="t">Bewertung anfragen <span class="who">auto</span></div><div class="d">1 Tag nach Zahlung · Google-Link mit Vorlage · 1 Klick zum Vorziehen</div></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="q">
+  <h2>Ist das die Richtung?</h2>
+  <p>Die Schleife ist das Original aus Glassy UI; für euch würde sie in Kottke-Orange kommen. Klick an, was zutrifft, Details im Terminal.</p>
+  <div class="opts">
+    <div class="opt lg tile" data-choice="richtung-ja" onclick="toggleSelect(this)">
+      <div class="ltr">A</div><h4>Ja, das ist es</h4>
+      <p>Weiter mit Leads-Board und Kalkulationsseite in genau diesem Stil.</p>
+    </div>
+    <div class="opt lg tile" data-choice="richtung-fast" onclick="toggleSelect(this)">
+      <div class="ltr">B</div><h4>Fast, aber …</h4>
+      <p>Sag mir, was noch stört: Schleife, Schrift, Dock, Farben, Dichte.</p>
+    </div>
+    <div class="opt lg tile" data-choice="richtung-nein" onclick="toggleSelect(this)">
+      <div class="ltr">C</div><h4>Nein, anders</h4>
+      <p>Dann zeig mir ein Beispiel, das es trifft, oder beschreib das Gefühl.</p>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

@@ -83,3 +83,6 @@ graphify-out/
 # Data-migration backups: full production task rows (customer names, deal refs).
 # Written by apps/web/scripts/migrate-tasks-to-projects.ts before it writes.
 .migration-backups/
+
+# Brainstorm-Mockups (superpowers), nicht versionieren
+.superpowers/

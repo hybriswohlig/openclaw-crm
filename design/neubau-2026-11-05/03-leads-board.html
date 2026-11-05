@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Leads-Board – Mockup 5</title>
+<style>
+  :root{
+    --ink:#222224; --ink-2:#66666a; --ink-3:#8e8e93;
+    --blue:#0067d9; --blue-tint:rgba(0,103,217,.10);
+    --jade:#14a874; --gold:#e8960c; --gold-ink:#8a5200; --rose:#e8345a; --violet:#6a4cf0; --gray:#8e8e93;
+    --fill:rgba(255,255,255,.52); --fill-2:rgba(255,255,255,.68); --fill-3:rgba(255,255,255,.88);
+    --rim:rgba(255,255,255,.92); --hair:rgba(34,34,36,.08);
+    --shadow:0 1px 2px rgb(0 0 0 / .06),0 8px 24px -6px rgb(0 0 0 / .14);
+    --shadow-raised:0 2px 6px rgb(0 0 0 / .06),0 28px 56px -18px rgb(0 0 0 / .26);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:#f3f4f6;color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Helvetica,Arial,sans-serif;font-size:14px;line-height:1.4;-webkit-font-smoothing:antialiased}
+  .wall{position:fixed;inset:0;z-index:0;pointer-events:none} .wall svg{width:100%;height:100%;display:block}
+  .ask,.app,.q{position:relative;z-index:1}
+
+  .lg{position:relative;background:var(--fill);backdrop-filter:blur(16px) saturate(1.6) brightness(1.06);-webkit-backdrop-filter:blur(16px) saturate(1.6) brightness(1.06);border-radius:24px;box-shadow:inset 0 0 0 1px var(--rim),var(--shadow)}
+  .lg::before{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:linear-gradient(180deg,rgba(255,255,255,.38),rgba(255,255,255,0) 32%)}
+  .lg.tile{border-radius:18px}
+
+  .ask{max-width:1540px;margin:22px auto 10px;padding:0 20px}
+  .ask h1{font-size:20px;font-weight:600;margin:0 0 4px;letter-spacing:-.01em} .ask p{margin:0;color:var(--ink-2)}
+  .ask .tag{display:inline-block;margin-left:10px;font-size:11px;color:var(--ink-2);border-radius:999px;padding:3px 9px;vertical-align:middle;background:var(--fill-2);box-shadow:inset 0 0 0 1px var(--rim)}
+
+  .app{max-width:1540px;margin:14px auto 0;padding:0 20px;display:grid;grid-template-columns:236px 1fr;gap:18px;min-height:900px}
+  .side{padding:16px 12px;height:fit-content;position:sticky;top:14px}
+  .brand{display:flex;align-items:center;gap:10px;padding:4px 8px 16px}
+  .brand .mark{width:34px;height:34px;border-radius:10px;background:#222224;color:#fff;display:grid;place-items:center;font-weight:700;font-size:15px}
+  .brand b{display:block;font-size:14px;font-weight:600} .brand span{font-size:12px;color:var(--ink-2)}
+  .sec{font-size:11px;color:var(--ink-3);font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:12px 12px 6px}
+  .nv{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:999px;color:var(--ink);font-size:14px}
+  .nv svg{width:18px;height:18px;stroke:var(--ink-2);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  .nv .n{margin-left:auto;font-size:12px;color:var(--ink-3)}
+  .nv.on{background:var(--fill-3);color:var(--blue);font-weight:600;box-shadow:inset 0 0 0 1px var(--rim),var(--shadow)} .nv.on svg{stroke:var(--blue)} .nv.on .n{color:var(--blue)}
+  .nv .b{margin-left:auto;background:var(--blue);color:#fff;font-size:11px;font-weight:600;border-radius:999px;padding:1px 7px}
+
+  .main{display:flex;flex-direction:column;gap:14px;min-width:0}
+  .head{display:flex;align-items:flex-end;gap:18px;padding:6px 6px 0}
+  .head h2{margin:0;font-size:34px;font-weight:600;letter-spacing:-.015em;line-height:1.05}
+  .head h2 span{display:block;color:var(--ink-3);font-size:22px;margin-top:4px}
+  .head .meta{color:var(--ink-2);font-size:13px;margin-top:8px} .head .grow{flex:1}
+  .btn{display:inline-flex;align-items:center;gap:7px;border-radius:999px;padding:9px 16px;font-size:13px;font-weight:600;background:var(--blue);color:#fff;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 6px 14px -6px rgba(0,103,217,.7)}
+
+  .focus{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:0 6px}
+  .focus .lbl{font-size:12.5px;color:var(--ink-2);margin-right:4px}
+  .fc{display:inline-flex;align-items:center;gap:7px;border-radius:999px;padding:7px 13px;font-size:12.5px;font-weight:500;background:var(--fill-2);box-shadow:inset 0 0 0 1px var(--rim),var(--shadow);color:var(--ink)}
+  .fc i{width:7px;height:7px;border-radius:50%;display:inline-block} .fc b{font-weight:700}
+
+  .bar{display:flex;align-items:center;gap:10px;padding:10px 12px}
+  .seg{display:inline-flex;border-radius:999px;padding:3px;font-size:13px;background:rgba(34,34,36,.08);gap:2px}
+  .seg span{padding:6px 13px;color:var(--ink-2);border-radius:999px} .seg span.on{background:#fff;color:var(--ink);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+  .pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:7px 12px;font-size:12.5px;font-weight:500;background:var(--fill-3);box-shadow:inset 0 0 0 1px var(--rim);color:var(--ink)}
+  .pill i{width:7px;height:7px;border-radius:50%;display:inline-block} .pill .v{color:var(--ink-3);font-size:11px}
+  .search{flex:1;display:flex;align-items:center;gap:8px;border-radius:999px;padding:8px 14px;background:var(--fill-3);box-shadow:inset 0 0 0 1px var(--rim);color:var(--ink-3);font-size:13px;max-width:320px}
+  .toggle{display:inline-flex;align-items:center;gap:8px;color:var(--ink-2);font-size:13px;margin-left:auto}
+  .toggle .sw{width:36px;height:22px;border-radius:11px;background:rgba(34,34,36,.18);position:relative}
+  .toggle .sw::after{content:"";position:absolute;left:2px;top:2px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25)}
+
+  .board{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;align-items:start;padding:0 2px 10px}
+  .col{display:flex;flex-direction:column;gap:10px;min-width:0}
+  .ch{padding:8px 6px 2px}
+  .ch .t{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600}
+  .ch .t i{width:8px;height:8px;border-radius:50%}
+  .ch .t .n{color:var(--ink-3);font-weight:500} .ch .t .sum{margin-left:auto;color:var(--ink-2);font-weight:500;font-size:12.5px}
+  .ch .s{font-size:12px;color:var(--ink-3);margin-top:2px;padding-left:16px}
+  .card{padding:12px 13px;cursor:grab}
+  .card .top{display:flex;align-items:baseline;gap:8px}
+  .card .name{font-weight:600;font-size:14px;letter-spacing:-.005em;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .card .val{font-weight:600;font-size:13.5px;white-space:nowrap} .card .val.est{color:var(--ink-3);font-weight:500}
+  .card .what{font-size:12.5px;color:var(--ink-2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .card .foot{display:flex;align-items:center;gap:6px;margin-top:9px;font-size:11.5px;color:var(--ink-3);flex-wrap:wrap}
+  .card .foot .grow{flex:1}
+  .src{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--ink-2);background:rgba(34,34,36,.06);border-radius:999px;padding:2px 8px}
+  .firm{width:7px;height:7px;border-radius:50%;display:inline-block}
+  .wait{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;border-radius:999px;padding:3px 9px;margin-top:8px}
+  .wait.us{background:rgba(232,150,12,.14);color:var(--gold-ink);box-shadow:inset 0 0 0 1px rgba(232,150,12,.35)}
+  .wait.us i{width:7px;height:7px;border-radius:50%;background:var(--gold)}
+  .wait.them{background:rgba(34,34,36,.06);color:var(--ink-2)} .wait.them i{width:7px;height:7px;border-radius:50%;background:var(--gray)}
+  .wait.ok{background:rgba(20,168,116,.12);color:#0d6b4a} .wait.ok i{width:7px;height:7px;border-radius:50%;background:var(--jade)}
+  .avs{display:inline-flex} .av{width:22px;height:22px;border-radius:50%;border:2px solid #fff;margin-left:-7px;display:grid;place-items:center;font-size:9px;font-weight:700;color:#fff}
+  .av:first-child{margin-left:0} .a1{background:#c9361a} .a2{background:#14a874} .a3{background:#222224} .av.q{background:var(--fill-3);color:var(--gold-ink);border:1.5px dashed var(--gold)}
+  .drop{border:1.5px dashed rgba(34,34,36,.18);border-radius:18px;padding:14px;text-align:center;font-size:12px;color:var(--ink-3)}
+  .more{font-size:12.5px;color:var(--ink-3);padding:4px 8px}
+
+  .q{max-width:1540px;margin:26px auto 60px;padding:0 20px}
+  .q h2{font-size:18px;font-weight:600;margin:0 0 4px;letter-spacing:-.01em} .q p{margin:0 0 14px;color:var(--ink-2)}
+  .opts{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;max-width:900px}
+  .opt{padding:16px;cursor:pointer} .opt.selected{box-shadow:inset 0 0 0 2px var(--blue),var(--shadow-raised)}
+  .opt .ltr{width:26px;height:26px;border-radius:50%;background:var(--fill-3);box-shadow:inset 0 0 0 1px var(--rim);display:grid;place-items:center;font-weight:700;font-size:12px;margin-bottom:10px}
+  .opt h4{margin:0 0 4px;font-size:14px} .opt p{margin:0;font-size:12.5px;color:var(--ink-2)}
+  @media (max-width:1200px){.board{grid-template-columns:repeat(3,1fr)}}
+</style>
+</head>
+<body>
+
+<!-- Hintergrund: Schleife in der Ecke (A) + blasse Karte der Region (C) -->
+<div class="wall"><svg viewBox="0 0 1540 1000" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="base" x2="0" y2="1"><stop stop-color="#fbfbfc"/><stop offset="1" stop-color="#e8eaee"/></linearGradient>
+    <linearGradient id="fold" x1="0" y1="0" x2=".5" y2="1"><stop stop-color="#ffbd91"/><stop offset=".36" stop-color="#ff754c"/><stop offset=".7" stop-color="#f04a28"/><stop offset="1" stop-color="#c9361a"/></linearGradient>
+    <linearGradient id="silver" x2="1" y2=".7"><stop stop-color="#d2d5da"/><stop offset=".55" stop-color="#ffffff"/><stop offset="1" stop-color="#d2d5da"/></linearGradient>
+  </defs>
+  <rect width="1540" height="1000" fill="url(#base)"/>
+  <g fill="none" stroke="#d9dce2" stroke-linecap="round" stroke-width="12" opacity=".9">
+    <path d="M-50 300C200 260 380 420 620 380S980 240 1250 300 1500 420 1600 400"/>
+    <path d="M-60 650C180 600 300 780 560 720S900 560 1180 640 1420 760 1600 700"/>
+    <path d="M250 -40C300 200 180 420 260 640S420 900 380 1040"/>
+    <path d="M900 -40C860 160 1000 320 960 520S800 820 880 1040"/>
+  </g>
+  <g fill="none" stroke="#e4e6eb" stroke-width="6" stroke-linecap="round">
+    <path d="M-50 480C260 470 420 560 700 520S1200 420 1600 500"/>
+    <path d="M560 -40C540 220 640 380 600 600S520 900 580 1040"/>
+    <path d="M1250 -40C1200 260 1320 480 1260 700S1180 900 1230 1040"/>
+    <path d="M-50 150C300 120 500 220 800 180S1200 90 1600 160"/>
+    <path d="M-50 820C240 860 480 760 760 820S1240 900 1600 840"/>
+  </g>
+  <g fill="#f04a28" opacity=".55">
+    <circle cx="420" cy="560" r="5"/><circle cx="640" cy="330" r="5"/><circle cx="760" cy="700" r="5"/><circle cx="980" cy="480" r="5"/><circle cx="1120" cy="260" r="5"/><circle cx="1300" cy="640" r="5"/><circle cx="330" cy="760" r="5"/><circle cx="860" cy="860" r="5"/>
+  </g>
+  <path d="M-80 960C250 910 330 1040 640 990" fill="none" stroke="url(#silver)" stroke-width="44"/>
+  <path d="M1220 -60C1300 130 1460 120 1600 230" fill="none" stroke="#000" stroke-width="96" opacity=".08" transform="translate(0 10)"/>
+  <path d="M1220 -60C1300 130 1460 120 1600 230" fill="none" stroke="url(#fold)" stroke-width="96"/>
+</svg></div>
+
+<div class="ask">
+  <h1>Mockup 5 · Leads-Board <span class="tag">Daten erfunden · Desktop · Hintergrund: Schleife + Karte</span></h1>
+  <p>Alle Leads auf einen Blick, bevor du einen anklickst. Spalten sind eure echten Stufen; jede Karte sagt, worauf sie wartet.</p>
+</div>
+
+<div class="app">
+  <aside class="side lg">
+    <div class="brand"><div class="mark">K</div><div><b>Kottke Umzüge</b><span>Dario · Nuri</span></div></div>
+    <div class="sec">Arbeit</div>
+    <div class="nv"><svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Heute<span class="b">4</span></div>
+    <div class="nv on"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M8 4v16M3 10h5"/></svg>Leads<span class="n">19</span></div>
+    <div class="nv"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Plan<span class="n">Nov</span></div>
+    <div class="nv"><svg viewBox="0 0 24 24"><path d="M4 6h16v10H8l-4 4z"/></svg>Inbox<span class="b">7</span></div>
+    <div class="nv"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/></svg>Kasse<span class="n">2 offen</span></div>
+    <div class="sec">Mehr</div>
+    <div class="nv"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Übersicht</div>
+    <div class="nv"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M17 8a3 3 0 1 1 0 6"/></svg>Kunden</div>
+    <div class="nv"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>Mitarbeiter</div>
+    <div class="nv"><svg viewBox="0 0 24 24"><path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3 6.4 20.2l1.1-6.2L3 9.6l6.2-.9z"/></svg>Bewertungen</div>
+    <div class="nv"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/></svg>Einstellungen</div>
+  </aside>
+
+  <section class="main">
+    <header class="head">
+      <div>
+        <h2>Leads <span>Jede Anfrage und jeder Auftrag, von der ersten Nachricht bis zur Zahlung.</span></h2>
+        <div class="meta">Zieh eine Karte in die nächste Stufe. Was dabei passiert (KV, AB, Rechnung), fragt das CRM vorher.</div>
+      </div>
+      <div class="grow"></div>
+      <span class="btn">+ Neuer Lead</span>
+    </header>
+
+    <div class="focus">
+      <span class="lbl">Heute im Blick</span>
+      <span class="fc"><i style="background:var(--gold)"></i><b>4</b> warten auf uns</span>
+      <span class="fc"><i style="background:var(--gold)"></i><b>1</b> KV seit 4 Tagen ungesehen</span>
+      <span class="fc"><i style="background:var(--gold)"></i><b>1</b> Termin ohne Team</span>
+      <span class="fc"><i style="background:var(--gray)"></i><b>2</b> Rechnungen offen</span>
+      <span class="fc"><i style="background:var(--jade)"></i><b>3</b> Umzüge diese Woche</span>
+    </div>
+
+    <div class="bar lg">
+      <div class="seg"><span class="on">Board</span><span>Liste</span><span>Kalender</span></div>
+      <span class="pill"><i style="background:#222224"></i>Beide Firmen <span class="v">▾</span></span>
+      <span class="pill">Alle Quellen <span class="v">▾</span></span>
+      <span class="pill">Umzugsdatum: November <span class="v">▾</span></span>
+      <span class="search">⌕ Name, Ort, Telefon…</span>
+      <span class="toggle"><span class="sw"></span>Nur „wartet auf uns“</span>
+    </div>
+
+    <div class="board">
+      <!-- Neue Anfrage -->
+      <div class="col">
+        <div class="ch"><div class="t"><i style="background:var(--blue)"></i>Neue Anfrage <span class="n">3</span><span class="sum">~4.900 €</span></div><div class="s">Wartet auf erste Antwort</div></div>
+        <div class="card lg tile"><div class="top"><span class="name">Familie Öztürk</span><span class="val est">~1.900 €</span></div><div class="what">Umzug · Stuttgart-Ost → Fellbach · 28.11.</div><span class="wait us"><i></i>Wartet auf uns · 35 Min</span><div class="foot"><span class="src">Kleinanzeigen</span><span class="grow"></span><span class="firm" style="background:#222224"></span>vor 35 Min</div></div>
+        <div class="card lg tile"><div class="top"><span class="name">M. Lehmann</span><span class="val est">ohne Preis</span></div><div class="what">Entrümpelung · Ludwigsburg · Termin offen</div><span class="wait us"><i></i>Wartet auf uns · 3 Std</span><div class="foot"><span class="src">Website</span><span class="grow"></span><span class="firm" style="background:#c9361a"></span>vor 3 Std</div></div>
+        <div class="card lg tile"><div class="top"><span class="name">S. Brandt</span><span class="val est">~3.000 €</span></div><div class="what">Umzug · Esslingen → Stuttgart · Dez.</div><span class="wait us"><i></i>Wartet auf uns · 10 Min</span><div class="foot"><span class="src">Check24</span><span class="grow"></span><span class="firm" style="background:#222224"></span>gerade eben</div></div>
+      </div>
+
+      <!-- In Kontakt -->
+      <div class="col">
+        <div class="ch"><div class="t"><i style="background:var(--violet)"></i>In Kontakt <span class="n">4</span><span class="sum">~9.400 €</span></div><div class="s">Infos und Fotos sammeln</div></div>
+        <div class="card lg tile"><div class="top"><span class="name">Dr. Kaiser</span><span class="val est">~3.200 €</span></div><div class="what">Umzug · Stuttgart → Tübingen · 05.12.</div><span class="wait them"><i></i>Wartet auf Kunden · 1 Tag</span><div class="foot"><span class="src">Website</span><span>9 Fotos</span><span class="grow"></span><span class="firm" style="background:#222224"></span>gestern</div></div>
+        <div class="card lg tile"><div class="top"><span class="name">R. Fischer</span><span class="val est">~1.400 €</span></div><div class="what">Umzug · Stuttgart-Vaihingen → Böblingen</div><span class="wait us"><i></i>Wartet auf uns · 2 Tage</span><div class="foot"><span class="src">Kleinanzeigen</span><span>Stockwerk fehlt</span><span class="grow"></span><span class="firm" style="background:#222224"></span>vor 2 Tagen</div></div>
+        <div class="card lg tile"><div class="top"><span class="name">A. Nowak</span><span class="val est">~2.600 €</span></div><div class="what">Entrümpelung · Waiblingen · Haus</div><span class="wait ok"><i></i>Besichtigung Do 07.11. 16:00</span><div class="foot"><span class="src">Empfehlung</span><span class="grow"></span><span class="firm" style="background:#c9361a"></span>heute</div></div>
+        <div class="card lg tile"><div class="top"><span class="name">Familie Yilmaz</span><span class="val est">~2.200 €</span></div><div class="what">Umzug · Fellbach → Stuttgart-Nord · 19.11.</div><span class="wait them"><i></i>Wartet auf Kunden · 4 Std</span><div class="foot"><span class="src">Kleinanzeigen</span><span>Fotos angefragt</span><span class="grow"></span><span class="firm" style="background:#222224"></span>vor 4 Std</div></div>
+      </div>
+
+      <!-- Angebot -->
+      <div class="col">
+        <div class="ch"><div class="t"><i style="background:var(--gold)"></i>Angebot <span class="n">3</span><span class="sum">8.230 €</span></div><div class="s">KV raus, wartet auf Annahme</div></div>
+        <div class="card lg tile"><div class="top"><span class="name">Familie Weber</span><span class="val">2.480 €</span></div><div class="what">Umzug · Stuttgart-West → Esslingen · 21.11.</div><span class="wait them"><i></i>Wartet auf Kunden · 2 Tage</span><div class="foot"><span class="src">Kleinanzeigen</span><span>KV 3× geöffnet</span><span class="grow"></span><span class="firm" style="background:#222224"></span>Nachfass morgen</div></div>
+        <div class="card lg tile"><div class="top"><span class="name">T. Schulz</span><span class="val">1.650 €</span></div><div class="what">Umzug · Ludwigsburg → Kornwestheim · 15.11.</div><span class="wait us"><i></i>KV seit 4 Tagen ungesehen</span><div class="foot"><span class="src">Website</span><span class="grow"></span><span class="firm" style="background:#c9361a"></span>vor 4 Tagen</div></div>
+        <div class="card lg tile"><div class="top"><span class="name">J. Berger</span><span class="val">4.100 €</span></div><div class="what">Umzug · Stuttgart → Heilbronn · 29.11.</div><span class="wait them"><i></i>Wartet auf Kunden · 6 Std</span><div class="foot"><span class="src">Check24</span><span>gültig bis 12.11.</span><span class="grow"></span><span class="firm" style="background:#222224"></span>heute</div></div>
+        <div class="drop">Hierher ziehen = KV erstellen</div>
+      </div>
+
+      <!-- Geplant -->
+      <div class="col">
+        <div class="ch"><div class="t"><i style="background:var(--jade)"></i>Geplant <span class="n">3</span><span class="sum">7.750 €</span></div><div class="s">Angenommen, Termin steht</div></div>
+        <div class="card lg tile"><div class="top"><span class="name">Familie Can</span><span class="val">2.950 €</span></div><div class="what">Umzug · Stuttgart-Süd → Esslingen · Fr 14.11.</div><span class="wait ok"><i></i>Team und LKW gebucht</span><div class="foot"><span class="avs"><span class="av a1">MK</span><span class="av a2">TS</span><span class="av a3">AR</span></span><span class="grow"></span><span class="firm" style="background:#222224"></span>Anzahlung ✓</div></div>
+        <div class="card lg tile"><div class="top"><span class="name">H. Vogel</span><span class="val">1.200 €</span></div><div class="what">Entrümpelung · Stuttgart-Ost · Sa 15.11.</div><span class="wait us"><i></i>Team fehlt · Samstag</span><div class="foot"><span class="avs"><span class="av a2">TS</span><span class="av q">?</span></span><span class="grow"></span><span class="firm" style="background:#c9361a"></span>Anzahlung offen</div></div>
+        <div class="card lg tile"><div class="top"><span class="name">L. Hartmann</span><span class="val">3.600 €</span></div><div class="what">Umzug · Stuttgart → Reutlingen · Sa 22.11.</div><span class="wait ok"><i></i>Team gebucht · LKW offen</span><div class="foot"><span class="avs"><span class="av a1">MK</span><span class="av a3">AR</span><span class="av a2">TS</span></span><span class="grow"></span><span class="firm" style="background:#222224"></span>Anzahlung ✓</div></div>
+      </div>
+
+      <!-- Durchgeführt -->
+      <div class="col">
+        <div class="ch"><div class="t"><i style="background:#444"></i>Durchgeführt <span class="n">2</span><span class="sum">3.080 €</span></div><div class="s">Rechnung und Zahlung</div></div>
+        <div class="card lg tile"><div class="top"><span class="name">Familie Roth</span><span class="val">2.100 €</span></div><div class="what">Umzug · 02.11. · Esslingen</div><span class="wait them"><i></i>Rechnung offen · fällig 16.11.</span><div class="foot"><span>Rest 1.600 €</span><span class="grow"></span><span class="firm" style="background:#222224"></span>vor 3 Tagen</div></div>
+        <div class="card lg tile"><div class="top"><span class="name">K. Winter</span><span class="val">980 €</span></div><div class="what">Entrümpelung · 31.10. · Ludwigsburg</div><span class="wait us"><i></i>Rechnung noch nicht erstellt</span><div class="foot"><span class="grow"></span><span class="firm" style="background:#c9361a"></span>vor 5 Tagen</div></div>
+      </div>
+
+      <!-- Bezahlt -->
+      <div class="col">
+        <div class="ch"><div class="t"><i style="background:#0d6b4a"></i>Bezahlt <span class="n">2</span><span class="sum">4.050 €</span></div><div class="s">Bewertung anfragen</div></div>
+        <div class="card lg tile"><div class="top"><span class="name">P. Maier</span><span class="val">1.750 €</span></div><div class="what">Umzug · 28.10. · bezahlt 03.11.</div><span class="wait them"><i></i>Bewertung angefragt · gestern</span><div class="foot"><span>Überweisung</span><span class="grow"></span><span class="firm" style="background:#222224"></span></div></div>
+        <div class="card lg tile"><div class="top"><span class="name">E. Schmidt</span><span class="val">2.300 €</span></div><div class="what">Umzug · 25.10. · bezahlt 30.10.</div><span class="wait ok"><i></i>Bewertung ★★★★★</span><div class="foot"><span>PayPal</span><span class="grow"></span><span class="firm" style="background:#c9361a"></span></div></div>
+        <div class="more">Verloren (6) und Kein Lead (11) sind ausgeblendet · anzeigen</div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="q">
+  <h2>Passt das Board so?</h2>
+  <p>Karten zeigen: Name, Art, Strecke, Datum, Betrag, worauf es wartet (Gold = auf uns), Quelle, Firma (schwarzer Punkt Kottke, roter Ceylan) und bei „Geplant“ das Team. Klick an, Details im Terminal.</p>
+  <div class="opts">
+    <div class="opt lg tile" data-choice="board-ok" onclick="toggleSelect(this)"><div class="ltr">A</div><h4>Ja, so weiter</h4><p>Als Nächstes die Kalkulationsseite, dann Liste und Kalender.</p></div>
+    <div class="opt lg tile" data-choice="board-aendern" onclick="toggleSelect(this)"><div class="ltr">B</div><h4>Etwas ändern</h4><p>Andere Spalten, andere Infos auf der Karte, andere Filter.</p></div>
+  </div>
+</div>
+
+</body>
+</html>
