@@ -51,7 +51,6 @@ JOIN "attributes" name_a
   ON name_a.id = name_rv.attribute_id
  AND name_a.object_id = o.id
  AND name_a.slug = 'name'
-JOIN "attributes" a ON a.object_id = o.id AND a.slug = v.slug
 CROSS JOIN (
   VALUES
     ('legal_name', 'Kottke Entrümpelung & Umzüge'),
@@ -63,6 +62,7 @@ CROSS JOIN (
     ('city', 'Wildberg'),
     ('website', 'https://kottke-umzuege.de')
 ) AS v(slug, text_value)
+JOIN "attributes" a ON a.object_id = o.id AND a.slug = v.slug
 WHERE r.deleted_at IS NULL
   AND name_rv.text_value ILIKE '%kottke%'
   AND name_rv.text_value NOT ILIKE '%ceylan%'
