@@ -39,6 +39,45 @@ export async function getQuotation(dealRecordId: string) {
   return { ...q, lineItems };
 }
 
+type VergleichsPosten = {
+  type: string;
+  description: string | null;
+  quantity: number;
+  unitRate: string | number;
+  sortOrder: number;
+};
+
+/** Euro-Betrag als Cent; leer → null, keine Zahl → der Rohtext (zählt dann als Änderung). */
+function alsCent(value: string | number | null | undefined): number | string | null {
+  if (value == null || (typeof value === "string" && value.trim() === "")) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.round(n * 100) : String(value);
+}
+
+function postenSchluessel(lines: readonly VergleichsPosten[]): string {
+  return JSON.stringify(
+    lines
+      .map((li, index) => ({ li, index }))
+      .sort((a, b) => a.li.sortOrder - b.li.sortOrder || a.index - b.index)
+      .map(({ li }) => [li.type, li.description?.trim() || null, li.quantity, alsCent(li.unitRate)])
+  );
+}
+
+/**
+ * Ob Festpreis (als Cent), isVariable oder die Posten (Reihenfolge, Typ, Text,
+ * Menge, Einzelpreis in Cent) vom gespeicherten Stand abweichen.
+ */
+function angebotGeaendert(
+  gespeichert: { fixedPrice: string | null; isVariable: boolean; lineItems: readonly VergleichsPosten[] },
+  neu: { fixedPrice: string | null; isVariable: boolean; lineItems: readonly VergleichsPosten[] }
+): boolean {
+  return (
+    alsCent(gespeichert.fixedPrice) !== alsCent(neu.fixedPrice) ||
+    gespeichert.isVariable !== neu.isVariable ||
+    postenSchluessel(gespeichert.lineItems) !== postenSchluessel(neu.lineItems)
+  );
+}
+
 export async function upsertQuotation(
   dealRecordId: string,
   input: {
@@ -81,12 +120,46 @@ export async function upsertQuotation(
   await pruefeNichtAngenommen(dealRecordId);
   const existing = await getQuotation(dealRecordId);
 
+  // Posten vorab normalisieren: ungültige Posten scheitern vor jedem Schreiben,
+  // und der Vergleich mit dem gespeicherten Stand sieht dieselben Zeilen, die
+  // geschrieben werden.
+  const discountProvided = input.discount !== undefined;
+  const linesProvided = input.lineItems !== undefined;
+  let next: StoredLine[] | null = null;
+  if (linesProvided || discountProvided) {
+    const source: unknown[] = linesProvided
+      ? input.lineItems ?? []
+      : (existing?.lineItems ?? []).map((li) => ({
+          type: li.type,
+          description: li.description,
+          quantity: li.quantity,
+          unitRate: li.unitRate,
+          sortOrder: li.sortOrder,
+        }));
+    const normalized = source.map((li, index) => normalizeLineItem(li, index));
+    next = discountProvided
+      ? applyDiscountToLines({
+          fixedPrice: input.fixedPrice ?? null,
+          lineItems: normalized,
+          discount: parseDiscount(input.discount),
+        })
+      : normalized;
+  }
+
   let quotationId: string;
 
   if (existing) {
+    // Handänderung an Preis oder Posten löst die Verknüpfung zur Kalkulationsversion;
+    // reine Kundenfelder (Notizen, Beschreibung, Gültigkeit, Anzahlung) lassen sie stehen.
+    const preisGeaendert = angebotGeaendert(existing, {
+      fixedPrice: input.fixedPrice ?? null,
+      isVariable: input.isVariable,
+      lineItems: next ?? existing.lineItems,
+    });
     const [updated] = await db
       .update(quotations)
       .set({
+        ...(preisGeaendert ? { calculationVersionId: null } : {}),
         fixedPrice: input.fixedPrice ?? null,
         isVariable: input.isVariable,
         notes: input.notes ?? null,
@@ -147,32 +220,13 @@ export async function upsertQuotation(
     quotationId = created.id;
   }
 
-  const discountProvided = input.discount !== undefined;
-  const linesProvided = input.lineItems !== undefined;
-  if (linesProvided || discountProvided) {
-    const source: unknown[] = linesProvided
-      ? input.lineItems ?? []
-      : (existing?.lineItems ?? []).map((li) => ({
-          type: li.type,
-          description: li.description,
-          quantity: li.quantity,
-          unitRate: li.unitRate,
-          sortOrder: li.sortOrder,
-        }));
-    const normalized = source.map((li, index) => normalizeLineItem(li, index));
-    const next: StoredLine[] = discountProvided
-      ? applyDiscountToLines({
-          fixedPrice: input.fixedPrice ?? null,
-          lineItems: normalized,
-          discount: parseDiscount(input.discount),
-        })
-      : normalized;
-
+  if (next) {
+    const lines = next;
     await db.transaction(async (tx) => {
       await tx.delete(quotationLineItems).where(eq(quotationLineItems.quotationId, quotationId));
-      if (next.length > 0) {
+      if (lines.length > 0) {
         await tx.insert(quotationLineItems).values(
-          next.map((li) => ({
+          lines.map((li) => ({
             quotationId,
             type: li.type,
             description: li.description,

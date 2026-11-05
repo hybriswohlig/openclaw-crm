@@ -4,6 +4,7 @@ import { customerStatusLinks, portalDocumentEmailRequests as requests } from "@/
 import { loadContextByToken, getScopedDocument } from "./customer-portal-data";
 import { resolveCustomerEmailTransport } from "./customer-portal-emails";
 import { sendNewEmail } from "./inbox-email";
+import { vermerkeVersand } from "./versand-vermerk";
 
 type Result = { ok: true } | { ok: false; reason: string };
 
@@ -57,5 +58,13 @@ export async function sendPortalDocumentEmail(token: string, documentId: string)
   // Provider accepted the mail. A history/throttle write failure must never invite a duplicate send.
   await db.update(requests).set({ status: "sent", sentAt: new Date() })
     .where(and(eq(requests.dealRecordId, link.dealRecordId), eq(requests.requestedAt, now))).catch(() => {});
+  // Erster Versand des KV wird an seiner Kalkulationsversion vermerkt; nie ein Grund für einen Fehler.
+  if (title === "Kostenvoranschlag") {
+    try {
+      await vermerkeVersand(documentId, "email");
+    } catch {
+      // vermerkeVersand wirft nicht; doppelt abgesichert, weil die Mail schon raus ist.
+    }
+  }
   return { ok: true };
 }
