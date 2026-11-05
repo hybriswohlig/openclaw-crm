@@ -7,6 +7,7 @@ import { extractPersonalName } from "@/lib/display-name";
 import { buildFilterSQL, buildSortExpressions } from "@/lib/query-builder";
 import { batchGetRecordDisplayNames } from "./display-names";
 import { emitEvent } from "./activity-events";
+import { markiereDurchgefuehrt } from "./durchgefuehrt";
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -476,6 +477,21 @@ export async function updateRecord(
           },
           actorId: updatedBy,
         });
+        // Fehler hier darf den bereits geschriebenen Statuswechsel nicht zurückrollen.
+        // move_completed_at ist kein Status-Attribut, der innere updateRecord
+        // erzeugt also keine weiteren stage_changed-Ereignisse.
+        try {
+          await markiereDurchgefuehrt({
+            workspaceId: obj.workspaceId,
+            objectId,
+            objectSlug: obj.slug,
+            recordId,
+            toStatusId: toValue,
+            updatedBy,
+          });
+        } catch (err) {
+          console.error("[durchgefuehrt] move_completed_at setzen fehlgeschlagen:", err);
+        }
       }
     }
   }
