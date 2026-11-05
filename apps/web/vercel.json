@@ -75,10 +75,6 @@
       "schedule": "*/5 * * * *"
     },
     {
-      "path": "/api/cron/reviews-send",
-      "schedule": "*/15 * * * *"
-    },
-    {
       "path": "/api/cron/wartet-neu-berechnen",
       "schedule": "0 3 * * *"
     }
