@@ -286,6 +286,20 @@ export async function loadCommercialModel(input: {
   copy?: DocumentCopy;
   now?: Date;
 }): Promise<DocumentModel> {
+  return (await ladeModellMitVersion(input)).model;
+}
+
+/**
+ * Modell und die Kalkulationsversion der Quotation, aus der es gebaut wurde
+ * (`quotations.calculation_version_id` genau dieses Lesens, null ohne Version).
+ */
+async function ladeModellMitVersion(input: {
+  workspaceId: string;
+  dealRecordId: string;
+  kind: DocKind;
+  copy?: DocumentCopy;
+  now?: Date;
+}): Promise<{ model: DocumentModel; calculationVersionId: string | null }> {
   const { workspaceId, dealRecordId, kind } = input;
   if (!(await assertDealInWorkspace(workspaceId, dealRecordId))) {
     throw new CommercialDocumentError("Auftrag nicht gefunden.", 404, "NOT_FOUND");
@@ -411,7 +425,7 @@ export async function loadCommercialModel(input: {
   const paidCents = preisZahlungenCent(paidRow);
 
   try {
-    return buildDocumentModel({
+    const model = buildDocumentModel({
       kind,
       deal: {
         firma,
@@ -448,6 +462,7 @@ export async function loadCommercialModel(input: {
       paidCents,
       copy: input.copy,
     });
+    return { model, calculationVersionId: quotation.calculationVersionId ?? null };
   } catch (err) {
     if (err instanceof MissingPriceError) {
       throw new CommercialDocumentError(err.message, 400);
@@ -462,6 +477,8 @@ export interface RenderedCommercialDocument {
   pdf: Uint8Array;
   fileName: string;
   templateVersion: string;
+  /** Kalkulationsversion der Quotation, aus der gerendert wurde (null ohne Version). */
+  calculationVersionId: string | null;
 }
 
 export async function previewCommercialDocument(input: {
@@ -470,7 +487,7 @@ export async function previewCommercialDocument(input: {
   kind: DocKind;
   copy?: DocumentCopy;
 }): Promise<RenderedCommercialDocument> {
-  const model = await loadCommercialModel(input);
+  const { model, calculationVersionId } = await ladeModellMitVersion(input);
   const pdf = await renderPdf(model);
   return {
     model,
@@ -478,6 +495,7 @@ export async function previewCommercialDocument(input: {
     pdf,
     fileName: `${model.fileStem}.pdf`,
     templateVersion: TEMPLATE_VERSION,
+    calculationVersionId,
   };
 }
 
@@ -491,6 +509,11 @@ export async function storeCommercialDocument(input: {
   dueDate?: string | null;
   updatedBy?: string | null;
   now?: Date;
+  /**
+   * Läuft nach dem Rendern mit der Kalkulationsversion der gerenderten Quotation.
+   * Wirft sie, wird nichts gespeichert (KV aus einer bestimmten Version).
+   */
+  pruefeVersion?: (calculationVersionId: string | null) => void | Promise<void>;
 }): Promise<{
   document: DealDocumentMeta;
   templateVersion: string;
@@ -499,6 +522,7 @@ export async function storeCommercialDocument(input: {
   dueDateWarning?: string;
 }> {
   const rendered = await previewCommercialDocument(input);
+  if (input.pruefeVersion) await input.pruefeVersion(rendered.calculationVersionId);
   return persistCommercialDocument({
     workspaceId: input.workspaceId,
     dealRecordId: input.dealRecordId,
@@ -506,6 +530,7 @@ export async function storeCommercialDocument(input: {
     pdf: rendered.pdf,
     fileStem: rendered.model.fileStem,
     templateVersion: rendered.templateVersion,
+    calculationVersionId: rendered.calculationVersionId,
     notifyCustomer: input.notifyCustomer,
     dueDate: input.dueDate,
     updatedBy: input.updatedBy,
@@ -521,6 +546,8 @@ export async function persistCommercialDocument(input: {
   pdf: Uint8Array;
   fileStem: string;
   templateVersion: string;
+  /** Kalkulationsversion der gerenderten Quotation; gespeichert nur beim KV. */
+  calculationVersionId?: string | null;
   notifyCustomer?: boolean;
   dueDate?: string | null;
   updatedBy?: string | null;
@@ -543,6 +570,7 @@ export async function persistCommercialDocument(input: {
     mimeType: "application/pdf",
     fileContent: Buffer.from(input.pdf).toString("base64"),
     notifyCustomer: input.notifyCustomer === true,
+    calculationVersionId: input.kind === "KV" ? input.calculationVersionId ?? null : null,
   });
   const due =
     input.kind === "RE"

@@ -90,27 +90,6 @@ export async function angebotsVersionId(dealRecordId: string): Promise<string | 
   return row?.calculationVersionId ?? null;
 }
 
-/**
- * Version, mit der ein neues Dokument verknüpft wird: nur ein KV (`quotation`),
- * explizite Angabe (auch null) gilt, sonst die Version der Quotation. Deckt den
- * CRM-Renderer und den VPS-Weg `store-as-document`. Scheitert die Abfrage, wird
- * das Dokument ohne Version gespeichert (das Speichern geht vor).
- */
-async function versionFuerDokument(input: {
-  dealRecordId: string;
-  documentType: DealDocumentType;
-  calculationVersionId?: string | null;
-}): Promise<string | null> {
-  if (input.documentType !== "quotation") return null;
-  if (input.calculationVersionId !== undefined) return input.calculationVersionId;
-  try {
-    return await angebotsVersionId(input.dealRecordId);
-  } catch (err) {
-    console.error("[deal-documents] Kalkulationsversion nicht gelesen:", err);
-    return null;
-  }
-}
-
 export async function createDealDocument(input: {
   workspaceId: string;
   dealRecordId: string;
@@ -125,14 +104,16 @@ export async function createDealDocument(input: {
    */
   notifyCustomer?: boolean;
   /**
-   * Kalkulationsversion des KV. Fehlt sie, gilt bei `quotation` die Version der
-   * Quotation des Deals; null bleibt null. Andere Typen: immer null.
+   * Kalkulationsversion, aus der dieser KV gerendert wurde: nur der Renderer kennt sie
+   * (Quotation zum Zeitpunkt des Renderns). Fehlt sie, bleibt das Dokument ohne Version,
+   * auch beim Hochladen; hier wird nie nachgeschlagen, denn bis zum Speichern kann eine
+   * andere Version gesperrt worden sein. Andere Typen: immer null.
    */
   calculationVersionId?: string | null;
 }): Promise<DealDocumentMeta> {
   const check = validateDealDocumentUpload(input);
   if (!check.ok) throw new Error(check.error);
-  const calculationVersionId = await versionFuerDokument({ ...input, documentType: check.documentType });
+  const calculationVersionId = check.documentType === "quotation" ? input.calculationVersionId ?? null : null;
 
   const [doc] = await db
     .insert(dealDocuments)

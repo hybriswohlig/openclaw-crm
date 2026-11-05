@@ -68,6 +68,7 @@ describe("kvAusVersion", () => {
       copy: {},
       notifyCustomer: false,
       updatedBy: "usr_1",
+      pruefeVersion: expect.any(Function),
     });
     expect(m.ladeVersion).toHaveBeenCalledWith("ws_1", "deal_1", 2);
     expect(m.ladeAngebotsVersionId).toHaveBeenCalledWith("deal_1");
@@ -139,6 +140,40 @@ describe("kvAusVersion", () => {
   it("passt die Quotation, werden die Versionen nicht gelesen", async () => {
     await kvAusVersion(eingabe, opt);
     expect(m.ladeVersionen).not.toHaveBeenCalled();
+  });
+
+  describe("gerenderte Quotation zeigt auf eine andere Version (Review 4)", () => {
+    /** Renderer wie storeCommercialDocument: rendert, prüft die Version, speichert nur danach. */
+    function rendertMit(gerendert: string | null) {
+      const gespeichert = vi.fn();
+      m.speichereKv.mockImplementation(async (arg: { pruefeVersion?: (id: string | null) => Promise<void> }) => {
+        await arg.pruefeVersion?.(gerendert);
+        gespeichert();
+        return { document: DOKUMENT, fileName: DOKUMENT.fileName, templateVersion: "t", rechnungFaelligAm: null };
+      });
+      return gespeichert;
+    }
+
+    it("zwischen Prüfung und Rendern v3 gesperrt → „nicht mehr aktuell“, nichts gespeichert", async () => {
+      const gespeichert = rendertMit("ver_3");
+      m.ladeVersionen.mockResolvedValue([{ version: 2, status: "gesperrt" }, { version: 3, status: "gesperrt" }]);
+      const err = await fehlerVon(kvAusVersion(eingabe, opt));
+      expect(err.message).toBe("Version v2 ist nicht mehr aktuell, aktuell ist v3.");
+      expect(gespeichert).not.toHaveBeenCalled();
+    });
+
+    it("zwischen Prüfung und Rendern von Hand geändert (keine Version) → Text der Handänderung, nichts gespeichert", async () => {
+      const gespeichert = rendertMit(null);
+      const err = await fehlerVon(kvAusVersion(eingabe, opt));
+      expect(err.message).toBe("Das Angebot wurde nach v2 von Hand geändert. Neue Version sperren.");
+      expect(gespeichert).not.toHaveBeenCalled();
+    });
+
+    it("gerendert aus genau dieser Version → gespeichert", async () => {
+      const gespeichert = rendertMit("ver_2");
+      await expect(kvAusVersion(eingabe, opt)).resolves.toMatchObject({ renderer: "crm" });
+      expect(gespeichert).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("Version fehlt → NICHT_GEFUNDEN", async () => {

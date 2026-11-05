@@ -2,8 +2,9 @@
  * KV aus einer gesperrten Kalkulationsversion: Nicht-Kottke rendert sofort
  * über den CRM-Renderer (`storeCommercialDocument`, liest die Quotation, die
  * das Sperren geschrieben hat), Kottke bleibt auf dem VPS-Weg „Dokument
- * erzeugen“ und bekommt nur einen Hinweis (Plan-Entscheidung 1). Das
- * gespeicherte Dokument verknüpft `createDealDocument` mit der Version.
+ * erzeugen“ und bekommt nur einen Hinweis (Plan-Entscheidung 1). Gespeichert
+ * und mit der Version verknüpft wird der KV nur, wenn die gerenderte Quotation
+ * auf genau diese Version zeigt (sonst dieselbe Ablehnung wie vor dem Rendern).
  *
  * Abhängigkeiten sind über `KvAusVersionOptionen` austauschbar; die Vorgaben
  * laden DB-Lader erst beim Aufruf (Tests berühren `@/db` nie).
@@ -64,7 +65,8 @@ export async function kvAusVersion(
   if (version.status !== "gesperrt") {
     throw new VersionsFehler("UNGUELTIG", `Version v${n} ist nicht gesperrt.`);
   }
-  if ((await d.ladeAngebotsVersionId(dealRecordId)) !== version.id) {
+  // Die Quotation zeigt nicht (mehr) auf diese Version.
+  const ablehnen = async (): Promise<never> => {
     // Neuere gesperrte Version: auf sie verweisen, statt eine weitere Sperre nahezulegen.
     const neueste = (await d.ladeVersionen(workspaceId, dealRecordId))
       .filter((v) => v.status === "gesperrt")
@@ -73,7 +75,8 @@ export async function kvAusVersion(
       throw new VersionsFehler("UNGUELTIG", `Version v${n} ist nicht mehr aktuell, aktuell ist v${neueste}.`);
     }
     throw new VersionsFehler("UNGUELTIG", `Das Angebot wurde nach v${n} von Hand geändert. Neue Version sperren.`);
-  }
+  };
+  if ((await d.ladeAngebotsVersionId(dealRecordId)) !== version.id) await ablehnen();
 
   if (await d.istKottke(workspaceId, dealRecordId)) {
     return {
@@ -89,6 +92,11 @@ export async function kvAusVersion(
     copy: textOhnePreise(input.copy),
     notifyCustomer: false,
     updatedBy: input.updatedBy,
+    // Bis zum Rendern kann eine andere Version gesperrt oder der Preis von Hand
+    // geändert worden sein: gespeichert wird nur, was aus genau dieser Version kommt.
+    pruefeVersion: async (gerendert) => {
+      if (gerendert !== version.id) await ablehnen();
+    },
   });
   return { renderer: "crm", document: gespeichert.document, fileName: gespeichert.fileName };
 }

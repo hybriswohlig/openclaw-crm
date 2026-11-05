@@ -306,22 +306,14 @@ describe("createDealDocument verknüpft den KV mit der Kalkulationsversion", () 
     mocks.selectLimit.mockResolvedValue([{ calculationVersionId: "ver_2" }]);
   });
 
-  it("Typ quotation → Insert enthält calculationVersionId aus der Quotation", async () => {
-    await createDealDocument({ ...base, documentType: "quotation" });
-    expect(mocks.selectFrom).toHaveBeenCalledWith(quotations);
-    expect(mocks.insertValues).toHaveBeenCalledWith(expect.objectContaining({ calculationVersionId: "ver_2" }));
-  });
-
-  it("Typ quotation ohne Quotation oder ohne Version → null", async () => {
-    mocks.selectLimit.mockResolvedValue([]);
+  it("Typ quotation ohne Angabe → null, ohne die Quotation nachzuschlagen (Review 4: bis zum Speichern kann eine andere Version gesperrt sein)", async () => {
     await createDealDocument({ ...base, documentType: "quotation" });
     expect(mocks.insertValues).toHaveBeenLastCalledWith(expect.objectContaining({ calculationVersionId: null }));
-    mocks.selectLimit.mockResolvedValue([{ calculationVersionId: null }]);
-    await createDealDocument({ ...base, documentType: "quotation" });
-    expect(mocks.insertValues).toHaveBeenLastCalledWith(expect.objectContaining({ calculationVersionId: null }));
+    expect(mocks.selectFrom).not.toHaveBeenCalledWith(quotations);
+    expect(mocks.selectLimit).not.toHaveBeenCalled();
   });
 
-  it("explizite Angabe gilt ohne Abfrage, auch explizit null", async () => {
+  it("explizite Angabe des Renderers gilt ohne Abfrage, auch explizit null", async () => {
     await createDealDocument({ ...base, documentType: "quotation", calculationVersionId: "ver_9" });
     expect(mocks.insertValues).toHaveBeenLastCalledWith(expect.objectContaining({ calculationVersionId: "ver_9" }));
     await createDealDocument({ ...base, documentType: "quotation", calculationVersionId: null });
@@ -329,17 +321,14 @@ describe("createDealDocument verknüpft den KV mit der Kalkulationsversion", () 
     expect(mocks.selectLimit).not.toHaveBeenCalled();
   });
 
+  it("andere Typen bleiben ohne Version, auch mit Angabe", async () => {
+    await createDealDocument({ ...base, fileName: "AB-1.pdf", documentType: "order_confirmation", calculationVersionId: "ver_9" });
+    expect(mocks.insertValues).toHaveBeenLastCalledWith(expect.objectContaining({ calculationVersionId: null }));
+  });
+
   it("Typ invoice → null, keine Abfrage", async () => {
     await createDealDocument({ ...base, fileName: "RE-1.pdf", documentType: "invoice" });
     expect(mocks.insertValues).toHaveBeenCalledWith(expect.objectContaining({ calculationVersionId: null }));
     expect(mocks.selectLimit).not.toHaveBeenCalled();
-  });
-
-  it("Abfrage scheitert → Dokument wird trotzdem ohne Version gespeichert", async () => {
-    const fehler = vi.spyOn(console, "error").mockImplementation(() => {});
-    mocks.selectLimit.mockRejectedValue(new Error("db weg"));
-    await expect(createDealDocument({ ...base, documentType: "quotation" })).resolves.toMatchObject({ id: "doc_1" });
-    expect(mocks.insertValues).toHaveBeenCalledWith(expect.objectContaining({ calculationVersionId: null }));
-    fehler.mockRestore();
   });
 });

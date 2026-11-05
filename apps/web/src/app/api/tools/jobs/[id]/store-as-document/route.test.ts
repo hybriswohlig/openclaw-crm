@@ -125,6 +125,14 @@ describe("POST /api/tools/jobs/[id]/store-as-document", () => {
     expect(stored.fileContent).toBe(pdf.toString("base64"));
   });
 
+  it("KV vom VPS: ohne Kalkulationsversion gespeichert, das Ergebnis trägt keine Job-Parameter (Review 4)", async () => {
+    fetchMock.mockResolvedValueOnce(vpsPdfResponse(Buffer.from("%PDF-1.7\n", "binary"), "KV-KO-20261106-FLO.pdf"));
+    expect((await callStore()).status).toBe(200);
+    expect(mocks.createDealDocument).toHaveBeenCalledWith(
+      expect.objectContaining({ documentType: "quotation", calculationVersionId: null })
+    );
+  });
+
   it("returns the application 413 (not upload failed) when the PDF exceeds 10 MB", async () => {
     const pdf = Buffer.alloc(MAX_DEAL_DOCUMENT_SIZE + 1, 0x25);
     fetchMock.mockResolvedValueOnce(vpsPdfResponse(pdf, "KV-KO-huge.pdf"));

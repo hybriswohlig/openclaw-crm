@@ -118,6 +118,7 @@ describe("POST /calculation/versions/[version]/kv", () => {
       copy: { intro: "Gern bieten wir an. Wir freuen uns.", remarks: "3 Helfer" },
       notifyCustomer: false,
       updatedBy: "usr_1",
+      pruefeVersion: expect.any(Function),
     });
   });
 

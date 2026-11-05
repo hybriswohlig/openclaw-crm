@@ -313,5 +313,9 @@ export async function attachDocumentJobContext(
   next.document_details = details;
   next.service_type = vpsArt;
   next._document_context = { paidCents, totalCents };
+  // Kalkulationsversion der Quotation, aus der die Preise oben stammen (null ohne).
+  // Nur wenn der VPS sie mit dem Ergebnis zurückgibt, kann store-as-document den KV
+  // damit verknüpfen; heute liefert er nur das PDF.
+  next._calculation_version_id = quotation?.calculationVersionId ?? null;
   return next;
 }
