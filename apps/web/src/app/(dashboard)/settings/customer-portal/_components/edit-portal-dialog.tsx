@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
+import { standardPlatzhalter } from "@/lib/portal-einstellungen";
 import type {
   OperatingCompanyPortalSettings,
   PortalSettingsUpdate,
@@ -26,6 +27,7 @@ export function EditPortalDialog({
   const [form, setForm] = useState<PortalSettingsUpdate>(() => snapshotOf(settings));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const platzhalter = standardPlatzhalter(settings.operatingCompanyName);
 
   useEffect(() => {
     if (open) {
@@ -129,14 +131,14 @@ export function EditPortalDialog({
                 label="Primärfarbe (Hex)"
                 value={form.primaryColor ?? ""}
                 onChange={(v) => set("primaryColor", v || null)}
-                placeholder="1f3a5f"
+                placeholder={platzhalter.farbe}
               />
             </Row>
             <Field
               label="Logo URL (optional)"
               value={form.logoUrl ?? ""}
               onChange={(v) => set("logoUrl", v || null)}
-              placeholder="https://kottke-umzuege.de/logo.png"
+              placeholder={platzhalter.logo}
             />
             <Field
               label="Footer-Zeile"
