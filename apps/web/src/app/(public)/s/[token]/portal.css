@@ -4,8 +4,8 @@
 
 /* Public customer portal only. Company accents inherit from the portal settings. */
 .kottke-portal {
-  /* Briefpapier-Palette für alle Firmen; die Aktionsfarbe kommt je Firma aus primaryColor. */
-  --portal-paper: #fbf8f3; --portal-desk: #f4ede4; --portal-line: #ebe2d6;
+  /* Palette wie kottke-umzuege.de (Weiß, Grau #f6f7f9, Linie Navy 10 %); die Aktionsfarbe kommt je Firma aus primaryColor. */
+  --portal-paper: #ffffff; --portal-desk: #f6f7f9; --portal-line: #e7e9eb;
   --portal-ink: #0e1f35; --portal-text: #44505f;
   --background: var(--portal-desk); --foreground: var(--portal-ink);
   --card: var(--portal-paper); --card-foreground: var(--portal-ink);
@@ -34,7 +34,7 @@
 }
 .dark .kottke-portal, .kottke-portal.dark {
   --portal-paper: #12213a; --portal-desk: #0b1626; --portal-line: #2a3a52;
-  --portal-ink: #f4ede4; --portal-text: #c9c2b8;
+  --portal-ink: #f6f7f9; --portal-text: #b9c1cc;
   --destructive: #ff9a8f;
 }
 .kottke-portal .display, .kottke-portal .portal-price, .kottke-portal .portal-display { font-family: 'Plus Jakarta Sans', var(--font-inter), Arial, sans-serif; font-weight: 800; letter-spacing: -.03em; }
@@ -106,13 +106,13 @@
 .portal-document-actions { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
 .portal-document-actions > * { flex: 1; }
 .portal-quotation-scroll { max-height: 470px; overflow: auto; border: 1px solid var(--border); border-radius: 5px; overscroll-behavior: contain; }
-.portal-document-paper { background: #fff; color: #0e1f35; padding: 32px; border: 1px solid #ebe2d6; box-shadow: 0 3px 12px #0e1f3508; font-size: 12px; }
+.portal-document-paper { background: #fff; color: #0e1f35; padding: 32px; border: 1px solid #e7e9eb; box-shadow: 0 3px 12px #0e1f3508; font-size: 12px; }
 .portal-document-paper header { display: flex; justify-content: space-between; gap: 24px; align-items: center; margin-bottom: 25px; }
 .portal-document-paper header img { width: 150px; max-height: 60px; object-fit: contain; }
 .portal-document-paper h3 { color: #0e1f35; font-family: 'Plus Jakarta Sans', Arial, sans-serif; font-size: 25px; font-weight: 800; letter-spacing: -.035em; }
 .portal-document-paper table { width: 100%; border-collapse: collapse; margin-top: 22px; }
-.portal-document-paper td, .portal-document-paper th { text-align: left; padding: 9px; border-bottom: 1px solid #ebe2d6; }
-.portal-document-paper th { background: #f4ede4; font-size: 11px; }
+.portal-document-paper td, .portal-document-paper th { text-align: left; padding: 9px; border-bottom: 1px solid #e7e9eb; }
+.portal-document-paper th { background: #f6f7f9; font-size: 11px; }
 .portal-document-paper td:last-child, .portal-document-paper th:last-child { text-align: right; white-space: nowrap; }
 .portal-document-paper th:only-child { text-align: left; white-space: normal; }
 .portal-document-total { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; border-top: 2px solid #0e1f35; margin-top: 22px; padding-top: 14px; }
@@ -149,7 +149,6 @@
 .portal-accept-dialog { border: 1px solid var(--border); }
 .portal-festangebot { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .portal-fest-title { font-size: 18px; font-weight: 750; letter-spacing: -.03em; line-height: 1.3; }
-.portal-fest-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 28px; }
 .portal-fest-kicker { margin-top: 8px; font-size: 12px; font-weight: 750; letter-spacing: .04em; color: var(--muted-foreground); }
 .portal-fest-bar .portal-fest-kicker { margin-top: 0; font-size: 10px; }
 .portal-fest-price { margin-top: 4px; font-size: clamp(52px, 6vw, 76px); line-height: .92; }
@@ -172,21 +171,13 @@
 .portal-fest-accept .portal-button { width: 100%; }
 .portal-fest-accept p, .portal-fest-expired-note { font-size: 12px; color: var(--muted-foreground); line-height: 1.45; }
 .portal-fest-expired-note p { display: flex; align-items: center; gap: 8px; color: var(--foreground); font-weight: 650; }
-.portal-schedule-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 18px; }
-.portal-fest-note { grid-column: 1 / -1; }
 .portal-next-steps { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 8px; }
 @media (min-width: 1500px) { .portal-shell { padding-top: 40px; } }
-@media (max-width: 1100px) { .portal-header-top { grid-template-columns: 155px 1fr; gap: 24px; } .portal-header-note { display: none; } .portal-logo img { width: 150px; } .portal-single-offer .portal-package-card { grid-template-columns: 1fr 1fr; } .portal-single-offer .portal-package-features { grid-column: 1 / -1; border: 0; padding: 0; } }
-@media (max-width: 1100px) and (min-width: 641px) { .portal-header-fest .portal-header-top { grid-template-columns: 140px minmax(0, 1fr) auto; } }
+@media (max-width: 1100px) { .portal-logo img { width: 150px; } .portal-single-offer .portal-package-card { grid-template-columns: 1fr 1fr; } .portal-single-offer .portal-package-features { grid-column: 1 / -1; border: 0; padding: 0; } }
 @media (max-width: 1023px) { .portal-columns { grid-template-columns: 1fr; } .portal-package-list { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); } .portal-order-details .portal-details-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 640px) {
   .portal-shell { padding: 18px 14px 24px; }
-  .portal-header-top { grid-template-columns: 1fr; gap: 16px; }
-  .portal-header-status { text-align: left; }
-  .portal-fest-head { display: block; }
-  .portal-schedule-grid { grid-template-columns: 1fr; }
   .portal-logo { min-height: 40px; } .portal-logo img { width: 138px; height: 48px; }
-  .portal-heading h1 { font-size: 25px; } .portal-heading p { font-size: 12px; }
   .portal-panel { padding: 17px; } .portal-panel-heading { gap: 12px; } .portal-panel-heading h2 { font-size: 17px; }
   .portal-panel-heading > svg { width: 25px; height: 29px; }
   .portal-order-details .portal-details-grid, .portal-move-facts, .portal-summary-grid { grid-template-columns: 1fr; gap: 18px; }
@@ -220,10 +211,9 @@
   .portal-quotation header { break-inside: avoid; }
 }
 
-
 /* Unterschrift im Portal */
 /* Papierfläche mit dunkler Grundlinie und „x“, in beiden Modi hell, damit die schwarze Tinte sichtbar bleibt. */
-.portal-signature-flaeche { position: relative; border: 1px solid var(--border); border-radius: 12px; background: #fbf8f3; }
+.portal-signature-flaeche { position: relative; border: 1px solid var(--border); border-radius: 12px; background: #f6f7f9; }
 .portal-signature-flaeche::before { content: '×'; position: absolute; left: 14px; bottom: 30px; font-size: 18px; color: #44505f; pointer-events: none; }
 .portal-signature-flaeche::after { content: ''; position: absolute; left: 14px; right: 14px; bottom: 34px; height: 1.5px; background: #0e1f35; pointer-events: none; }
 .portal-signature-pad { position: relative; z-index: 1; display: block; width: 100%; height: 180px; background: transparent; touch-action: none; cursor: crosshair; }
@@ -280,8 +270,8 @@
 .portal-briefkopf { margin-bottom: 22px; }
 .portal-briefkopf-zeile { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .portal-briefkopf .portal-logo { display: flex; align-items: center; min-height: 56px; font-size: 22px; color: var(--foreground); }
-.portal-briefkopf .portal-logo img { width: auto; height: 56px; max-width: 220px; object-fit: contain; }
-.dark .kottke-portal .portal-briefkopf .portal-logo img { background: #fbf8f3; padding: 6px 10px; border-radius: 8px; }
+.portal-briefkopf .portal-logo img { width: auto; height: 56px; max-width: 300px; object-fit: contain; }
+.dark .kottke-portal .portal-briefkopf .portal-logo img { background: #fff; padding: 6px 10px; border-radius: 8px; }
 .portal-briefkopf-auftrag.portal-briefkopf-auftrag { font-family: var(--font-inter), Inter, Arial, sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0; color: var(--muted-foreground); white-space: nowrap; }
 .portal-briefkopf-linie { position: relative; height: 2px; margin: 12px 6px 0 0; background: var(--portal-brand); border-radius: 1px; }
 .portal-briefkopf-linie::after { content: ''; position: absolute; right: -1px; top: -4px; width: 10px; height: 10px; border-top: 2px solid var(--portal-brand); border-right: 2px solid var(--portal-brand); transform: rotate(45deg); }
@@ -298,7 +288,8 @@
 .portal-vorgang .portal-step-status { font-size: 11px; font-weight: 600; color: var(--portal-brand-text); margin-top: 2px; }
 @media (max-width: 640px) {
   .portal-briefkopf .portal-logo { min-height: 44px; }
-  .portal-briefkopf .portal-logo img { height: 44px; max-width: 170px; }
+  .portal-briefkopf .portal-logo img { height: 44px; max-width: 205px; }
+  .portal-briefkopf-auftrag.portal-briefkopf-auftrag { white-space: normal; text-align: right; min-width: 0; }
   .portal-vorgang li { font-size: 13px; }
   .portal-vorgang li + li { margin-left: 20px; }
   .portal-vorgang li + li::before { margin-left: -12px; }

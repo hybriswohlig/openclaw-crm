@@ -10,7 +10,7 @@ const params = new URLSearchParams(location.search);
 const stage = Math.min(4, Math.max(1, Number(params.get("stage") ?? 1))) as 1 | 2 | 3 | 4;
 let ctx = params.has("festangebot") ? festangebotFixture() : portalFixture(stage, params.has("single"), params.has("live"));
 if (params.has("payments")) ctx.features!.payments = true;
-if (params.has("otherbrand")) ctx.branding = { ...ctx.branding, firmaSlug: "ceylan", displayName: "Ceylan Umzüge", primaryColor: "3A567F", logoUrl: null, ansprechpartner: null };
+if (params.has("otherbrand")) ctx.branding = { ...ctx.branding, firmaSlug: "ceylan", displayName: "Ceylan Umzüge", primaryColor: "3A567F", logoUrl: null, ansprechpartner: null, logoJeLeistung: null };
 if (params.has("expired")) ctx.kva!.validUntil = "2026-01-01";
 if (params.has("empty")) { ctx.kva = null; ctx.dealPackageOffers.options = []; }
 if (params.has("dark")) document.documentElement.classList.add("dark");
@@ -24,6 +24,8 @@ if (params.has("aufgehoben")) ctx.fruehereAnnahmeAufgehoben = true;
 if (params.has("angenommen") && !ctx.acceptance) ctx.acceptance = { signedAt: "2026-10-23T10:58:00Z", acceptedFullName: "Alex Beispiel", widerrufVerzichtAccepted: false, agbVersionAccepted: "preview", confirmedTotalCents: ctx.kva!.totalCents, selectedOptionName: null, widerrufModus: "ausgeschlossen", vorzeitigerBeginnVerlangt: false, quotationDocumentId: "preview-kv", unterschrift: null };
 if (params.has("unterschrieben") && ctx.acceptance) { ctx.acceptance = { ...ctx.acceptance, unterschrift: { at: "2026-10-23T10:59:00Z", name: "Alex Beispiel", art: "gezeichnet" } }; ctx.documents = { ...ctx.documents, signedContractUrl: "/api/public/local-preview-only/documents/preview-vertrag" }; }
 if (params.has("ohnename")) ctx.customerDisplayName = null;
+if (params.has("ohnemail")) ctx.customerEmailStatus = "missing";
+if (params.has("kvdatei")) ctx.documents = { ...ctx.documents, quotationUrl: "/api/public/local-preview-only/documents/preview-kv" };
 // Gewählter, noch änderbarer Termin aus einem Terminangebot (Knopf „Ändern“).
 if (params.has("termin")) ctx.dateOffers = { options: [{ id: "t1", date: "2026-11-27", slots: [{ label: "vormittags", startTime: "08:00", endTime: "11:00" }], note: null, isRecommended: true, sortOrder: 0 }], selection: { dateOfferId: "t1", selectedDate: "2026-11-27", slotLabel: "vormittags", startTime: "08:00", endTime: "11:00", selectedAt: "2026-10-20T09:00:00Z" } };
 if (params.has("langeadresse")) ctx.scope.fromAddress = "Hauptstraße 123 Hinterhaus links, Aufgang C, 70806 Kornwestheim-Pattonville";
@@ -40,6 +42,7 @@ if (params.has("widerruf") && ctx.acceptance) {
 window.fetch = async (input, init) => {
   const url = String(input);
   if ((init?.method ?? "GET").toUpperCase() === "POST") (window as Window & { __portalPosts?: string[] }).__portalPosts?.push(url);
+  if (url.endsWith("/set-email")) { ctx = { ...ctx, customerEmailStatus: "present", customerEmailMasked: "t***@example.invalid" }; return Response.json({ data: { masked: "t***@example.invalid" } }); }
   if (url.endsWith("/state")) return Response.json({ data: ctx });
   if (url.endsWith("/select-package-option")) {
     const { optionId } = JSON.parse(String(init?.body));

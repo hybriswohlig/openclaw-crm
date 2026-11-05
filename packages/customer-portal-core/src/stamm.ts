@@ -7,13 +7,14 @@
  * Mirror of /home/ubuntu/apps/crm-tools/skills/rechnungen-und-auftragsbestaetigungen/stammdaten/{kottke,ceylan}.md
  */
 
+import type { ServiceArt } from "./annahme-recht";
 import type { FirmaBranding } from "./types";
 
 export const KOTTKE_BRANDING: FirmaBranding = {
   firmaSlug: "kottke",
   displayName: "Kottke Entrümpelung & Umzüge",
   primaryColor: "c2570c",
-  logoUrl: "/branding/kottke/logo.svg",
+  logoUrl: "/branding/kottke/logo.png",
   footer:
     "Kottke Entrümpelung & Umzüge · Inhaber: Darioush Kottke · Marktstr. 8 · 72218 Wildberg · Tel.: 07054 9306962 · WhatsApp: 0151 59058963 · kontakt@kottke-umzuege.de",
   googleReviewUrl: null,
@@ -31,6 +32,11 @@ export const KOTTKE_BRANDING: FirmaBranding = {
     rolle: "Inhaber",
     fotoUrl: "/branding/kottke/dario-160.jpg",
     unterschriftUrl: "/branding/kottke/unterschrift-dario.png",
+  },
+  logoJeLeistung: {
+    move: "/branding/kottke/logo-umzuege.png",
+    clearance: "/branding/kottke/logo-entruempelung.png",
+    kitchen_installation: "/branding/kottke/logo-kuechen.png",
   },
 };
 
@@ -52,6 +58,7 @@ export const CEYLAN_BRANDING: FirmaBranding = {
   agbVersion: "ceylan-2026-10",
   agbPdfUrl: "/legal/agb/ceylan",
   ansprechpartner: null,
+  logoJeLeistung: null,
 };
 
 const FALLBACK: FirmaBranding = {
@@ -67,6 +74,7 @@ const FALLBACK: FirmaBranding = {
   agbVersion: "default-2026-01",
   agbPdfUrl: null,
   ansprechpartner: null,
+  logoJeLeistung: null,
 };
 
 /**
@@ -80,4 +88,9 @@ export function brandingForOperatingCompany(name: string | null): FirmaBranding 
   if (lower.includes("kottke")) return KOTTKE_BRANDING;
   if (lower.includes("ceylan")) return CEYLAN_BRANDING;
   return { ...FALLBACK, displayName: name };
+}
+
+/** Logo für eine Leistung; ohne passendes Logo je Leistung das eine Logo der Firma. */
+export function logoFuer(b: Pick<FirmaBranding, "logoUrl" | "logoJeLeistung">, leistung: ServiceArt | null): string | null {
+  return (leistung && b.logoJeLeistung?.[leistung]) || b.logoUrl;
 }

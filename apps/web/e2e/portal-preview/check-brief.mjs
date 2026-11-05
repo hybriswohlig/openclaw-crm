@@ -89,6 +89,34 @@ for (const ansicht of ANSICHTEN) {
   console.log(`PASS ${ansicht}: hell und dunkel, 390 und 1440`);
 }
 
+const ohneMail = await oeffnen("festangebot&ohnemail&kvdatei&termin", 390);
+assert.equal(await ohneMail.getByRole("button", { name: "E-Mail hinterlegen", exact: true }).count(), 1, "E-Mail-Bitte nur einmal");
+await ohneMail.getByRole("button", { name: "Ändern", exact: true }).click(); // Terminliste mit Uhrzeiten aufklappen
+const seitenText = await ohneMail.locator("body").innerText();
+assert.doesNotMatch(seitenText, /[–—]/, "kein Gedankenstrich im Portal");
+await ohneMail.close();
+console.log("PASS E-Mail-Bitte einmal, kein Gedankenstrich");
+
+const mailNachtragen = await oeffnen("festangebot&ohnemail&kvdatei", 390);
+await mailNachtragen.getByRole("button", { name: "E-Mail hinterlegen", exact: true }).click();
+await mailNachtragen.locator("input[type=email]").fill("test@example.invalid");
+await mailNachtragen.getByRole("button", { name: "Speichern", exact: true }).click();
+await mailNachtragen.getByRole("button", { name: "Per E-Mail senden", exact: true }).waitFor({ timeout: 3000 });
+await mailNachtragen.close();
+console.log("PASS PDF-Versand direkt nach der E-Mail im Brief");
+
+const abgelaufen = await oeffnen("festangebot&expired", 390);
+assert.equal(await abgelaufen.getByText("Dieses Angebot ist abgelaufen.", { exact: true }).count(), 1, "Abgelaufen-Hinweis nur einmal");
+await abgelaufen.close();
+console.log("PASS abgelaufen nur einmal");
+
+const desktop = await oeffnen("festangebot", 1440);
+await desktop.mouse.wheel(0, 1600);
+await desktop.waitForTimeout(400);
+assert.equal(await desktop.locator(".portal-fest-bar").isVisible(), true, "Leiste mit Preis und Annahme auch am Desktop nach dem Scrollen");
+await desktop.close();
+console.log("PASS Desktop-Leiste");
+
 const lang = await oeffnen("festangebot&langeadresse", 390);
 assert.equal(await lang.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "lange Adresse ohne Überlauf");
 await lang.close();

@@ -51,7 +51,7 @@ try {
   await page.locator("#acc-haftung").check();
   assert.equal(await submit.isEnabled(), true);
   await submit.click();
-  await page.getByRole("heading", { name: "Vielen Dank für Ihr Vertrauen!" }).waitFor();
+  await page.getByRole("heading", { name: "Vielen Dank für dein Vertrauen!" }).waitFor();
   console.log("PASS selection, exact price, § 451g gate, payment button and acceptance stage transition");
   await page.goto("http://127.0.0.1:4178/?kitchen", { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "Angebot verbindlich annehmen", exact: true }).click();
@@ -84,7 +84,7 @@ try {
   await wSubmit.click();
   await page.getByRole("heading", { name: "Widerruf eingegangen" }).waitFor();
   await page.getByRole("button", { name: "Schließen", exact: true }).click();
-  await page.getByRole("heading", { name: "Ihr Widerruf ist eingegangen" }).waitFor();
+  await page.getByRole("heading", { name: "Dein Widerruf ist eingegangen" }).waitFor();
   await page.screenshot({ path: `${out}/widerruf-eingegangen.png`, fullPage: true });
   console.log("PASS withdrawal function: two steps, channel choice, receipt notice");
   await page.goto("http://127.0.0.1:4178/?stage=2", { waitUntil: "networkidle" });
@@ -94,8 +94,8 @@ try {
     await page.goto("http://127.0.0.1:4178/?festangebot", { waitUntil: "networkidle" });
     await page.locator("[data-portal-view=festangebot]").waitFor();
     const text = await page.locator("body").innerText();
-    assert.equal(text.includes("Unsere Angebote für Sie"), false, "Festangebot must not offer company packages");
-    assert.equal(text.includes("Sie können zwischen den Angeboten wechseln"), false);
+    assert.equal(text.includes("Unsere Angebote für dich"), false, "Festangebot must not offer company packages");
+    assert.equal(text.includes("Du kannst zwischen den Angeboten wechseln"), false);
     assert.equal(text.includes("Interne Kalkulation"), false, "internal quotation notes stay hidden");
     assert.equal(text.includes("Komfort"), false);
     assert.equal(text.includes("Umzugspauschale laut Besichtigung"), true);
@@ -104,7 +104,13 @@ try {
     assert.equal(text.includes("Gültig bis"), true);
     assert.equal(text.includes("6. OG"), true);
     assert.equal(text.includes("Aufzug vorhanden"), true);
-    assert.equal((text.match(/850\s*€/g) || []).length, 1, `price should appear once at ${width}px:\n${text}`);
+    // Das KV-Papier (ohne gespeichertes PDF auf dem Bildschirm) enthält den Preis als Dokument; gezählt wird nur die Seite selbst.
+    const ohnePapier = await page.evaluate(() => {
+      const kopie = document.body.cloneNode(true);
+      kopie.querySelectorAll(".portal-quotation").forEach((el) => el.remove());
+      return kopie.innerText ?? kopie.textContent ?? "";
+    });
+    assert.equal((ohnePapier.match(/850\s*€/g) || []).length, 1, `price should appear once at ${width}px:\n${ohnePapier}`);
     assert.equal(await page.locator(".portal-package-card").count(), 0);
     assert.equal(await page.locator("summary", { hasText: "Standardleistungen" }).count(), 1);
     assert.match(await page.locator(".portal-progress [aria-current=step]").innerText(), /Angebot/);

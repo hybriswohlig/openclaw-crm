@@ -3,7 +3,8 @@ import { PDFDocument, decodeFromBase64, degrees, rgb, type PDFFont, type PDFImag
 import { formatEur } from "./money";
 import { kottkeRestbetragSatz } from "./restbetrag";
 import { toWinAnsi } from "./pdf";
-import { LOGO_PNG } from "./marke/logos";
+import { logoPngFuer } from "./marke/logo-wahl";
+import type { ServiceType } from "./types";
 import { INTER_REGULAR, INTER_SEMIBOLD, JAKARTA_EXTRABOLD } from "./marke/schriften";
 
 /**
@@ -44,6 +45,8 @@ export interface VertragsmappeDaten {
   /** Firmen-Optik der angehängten Seiten. Das KV selbst bleibt unverändert. */
   marke: {
     firmaSlug: string;
+    /** Leistung für das Logo; null = Grundlogo der Firma. */
+    leistung: ServiceType | null;
     /** Hex ohne #, z. B. "c2570c". */
     akzentHex: string;
     /** Steht nur in der Fußzeile, nie an der Unterschrift. */
@@ -62,8 +65,8 @@ const farbe = (hex: string): RGB => {
 };
 const TINTE = farbe("0e1f35");
 const GRAU = farbe("44505f");
-const LINIE = farbe("ebe2d6");
-const PAPIER = farbe("fbf8f3");
+const LINIE = farbe("e7e9eb");
+const PAPIER = farbe("f6f7f9");
 const TZ = "Europe/Berlin";
 
 const datumLang = (d: Date) =>
@@ -217,17 +220,35 @@ export function annahmeSeiteModell(d: VertragsmappeDaten): AnnahmeSeiteModell {
   };
 }
 
-/** Zeichen, die die eingebetteten Schriften kennen; alles andere wie bisher über WinAnsi ersetzen. */
-function fuerSchrift(text: string): string {
+const zeichensaetze = new WeakMap<PDFFont, Set<number>>();
+const kennt = (font: PDFFont, cp: number) => {
+  let satz = zeichensaetze.get(font);
+  if (!satz) zeichensaetze.set(font, (satz = new Set(font.getCharacterSet())));
+  return satz.has(cp);
+};
+
+/**
+ * Nur Zeichen, für die die Schrift eine Glyphe hat. Weiches Trennzeichen fällt weg,
+ * anderes wird wie bisher über WinAnsi ersetzt und sonst zu „?“.
+ */
+export function fuerSchrift(text: string, font: PDFFont): string {
   let out = "";
   for (const ch of text) {
-    const c = ch.codePointAt(0) ?? 0;
-    const bekannt =
-      (c >= 0x20 && c <= 0x7e) || (c >= 0xa0 && c <= 0x17f) || (c >= 0x2010 && c <= 0x2027) || (c >= 0x2030 && c <= 0x203a) ||
-      [0x192, 0x2c6, 0x2dc, 0x20ac, 0x2122, 0x2212].includes(c);
-    out += bekannt ? ch : toWinAnsi(ch);
+    const cp = ch.codePointAt(0) ?? 0;
+    if (cp === 0xad) continue;
+    if (ch === "\n" || kennt(font, cp)) {
+      out += ch;
+      continue;
+    }
+    const ersatz = toWinAnsi(ch);
+    out += [...ersatz].every((e) => kennt(font, e.codePointAt(0) ?? 0)) ? ersatz : "?";
   }
   return out;
+}
+
+/** Fußzeilen umbrechen statt abschneiden; höchstens drei Zeilen. */
+export function fussZeilen(zeilen: string[], umbruch: (text: string) => string[], max = 3): string[] {
+  return zeilen.flatMap(umbruch).slice(0, max);
 }
 
 type Schriften = { text: PDFFont; semi: PDFFont; titel: PDFFont };
@@ -301,7 +322,7 @@ class Seiten {
       this.y -= zeilenhoehe / 2;
       return;
     }
-    for (const zeile of this.umbruch(fuerSchrift(wert), font, size, stil.breite ?? PAGE_W - MARGIN * 2)) {
+    for (const zeile of this.umbruch(fuerSchrift(wert, font), font, size, stil.breite ?? PAGE_W - MARGIN * 2)) {
       this.platz(zeilenhoehe);
       this.page.drawText(zeile, { x: stil.x ?? MARGIN, y: this.y - size, size, font, color: stil.farbe ?? TINTE });
       this.y -= zeilenhoehe;
@@ -318,10 +339,10 @@ function briefkopf(page: PDFPage, o: { logo: PDFImage | null; logoBreite: number
     page.drawImage(o.logo, { x: MARGIN, y: oben - h, width: o.logoBreite, height: h });
     unten = oben - h;
   } else {
-    page.drawText(fuerSchrift(o.firma), { x: MARGIN, y: oben - 16, size: 15, font: o.s.titel, color: TINTE });
+    page.drawText(fuerSchrift(o.firma, o.s.titel), { x: MARGIN, y: oben - 16, size: 15, font: o.s.titel, color: TINTE });
     unten = oben - 20;
   }
-  const auftrag = fuerSchrift(o.auftrag);
+  const auftrag = fuerSchrift(o.auftrag, o.s.semi);
   page.drawText(auftrag, { x: PAGE_W - MARGIN - o.s.semi.widthOfTextAtSize(auftrag, 9), y: unten + 2, size: 9, font: o.s.semi, color: GRAU });
   const y = unten - 12;
   const ende = PAGE_W - MARGIN;
@@ -363,7 +384,7 @@ export async function baueVertragsmappe(kvPdf: Uint8Array, d: VertragsmappeDaten
     titel: await doc.embedFont(ausBase64(JAKARTA_EXTRABOLD), { subset: true }),
   };
   const akzent = farbe(d.marke.akzentHex);
-  const logoB64 = LOGO_PNG[d.marke.firmaSlug];
+  const logoB64 = logoPngFuer(d.marke.firmaSlug, d.marke.leistung);
   const logo = logoB64 ? await doc.embedPng(ausBase64(logoB64)) : null;
   const m = annahmeSeiteModell(d);
 
@@ -385,7 +406,7 @@ export async function baueVertragsmappe(kvPdf: Uint8Array, d: VertragsmappeDaten
   for (const e of m.eckdaten) {
     const size = e.gross ? 15 : 10.5;
     const vorher = s.y;
-    s.page.drawText(fuerSchrift(e.label.toUpperCase()), { x: labelX, y: vorher - size + (e.gross ? 3 : 1), size: 7.5, font: schriften.semi, color: akzent });
+    s.page.drawText(fuerSchrift(e.label.toUpperCase(), schriften.semi), { x: labelX, y: vorher - size + (e.gross ? 3 : 1), size: 7.5, font: schriften.semi, color: akzent });
     s.text(e.wert, { x: wertX, breite: wertBreite, size, font: e.gross ? schriften.titel : schriften.text, zeilenabstand: 1.35 });
     if (m.strecke && (e.label === "Von" || e.label === "Nach")) strecke.push(vorher - size / 2);
     s.y -= 5;
@@ -418,7 +439,7 @@ export async function baueVertragsmappe(kvPdf: Uint8Array, d: VertragsmappeDaten
     const massstab = Math.min(240 / bild.width, feldHoehe / bild.height);
     s.page.drawImage(bild, { x: MARGIN + 6, y: s.y - feldHoehe, width: bild.width * massstab, height: bild.height * massstab });
   } else {
-    const name = fuerSchrift(u.name);
+    const name = fuerSchrift(u.name, schriften.text);
     const feldBreite = PAGE_W - MARGIN * 2 - 24;
     const size = passendeGroesse((sz) => schriften.text.widthOfTextAtSize(name, sz), feldBreite);
     // Auch bei 10 pt zu lang: umbrechen statt über den Rand laufen.
@@ -436,7 +457,7 @@ export async function baueVertragsmappe(kvPdf: Uint8Array, d: VertragsmappeDaten
   s.text(m.unterschrift.zeile, { size: 9, farbe: GRAU });
 
   // Prüfvermerk: Zeiten, IP und Prüfsummen in einem ruhigen Kasten
-  const pruefZeilen = m.pruefvermerk.flatMap((z) => s.umbruch(fuerSchrift(z), schriften.text, 7, PAGE_W - MARGIN * 2 - 20));
+  const pruefZeilen = m.pruefvermerk.flatMap((z) => s.umbruch(fuerSchrift(z, schriften.text), schriften.text, 7, PAGE_W - MARGIN * 2 - 20));
   const kastenHoehe = 22 + pruefZeilen.length * 9.5;
   s.y -= 14;
   s.platz(kastenHoehe + 4);
@@ -455,12 +476,11 @@ export async function baueVertragsmappe(kvPdf: Uint8Array, d: VertragsmappeDaten
 
   const gesamt = doc.getPageCount();
   s.neu.forEach((seite, i) => {
-    const zaehler = `Vertragsmappe Auftrag ${fuerSchrift(d.dealNumber)}, Seite ${kvSeiten + i + 1} von ${gesamt}`;
+    const zaehler = `Vertragsmappe Auftrag ${fuerSchrift(d.dealNumber, schriften.text)}, Seite ${kvSeiten + i + 1} von ${gesamt}`;
     seite.drawText(zaehler, { x: PAGE_W - MARGIN - schriften.text.widthOfTextAtSize(zaehler, 7), y: FOOTER_TOP - 24, size: 7, font: schriften.text, color: GRAU });
-    m.fusszeilen.forEach((z, n) => {
-      // Erste Zeile über die volle Breite; die zweite teilt sich die Höhe mit dem Seitenzähler.
-      const zeile = s.umbruch(fuerSchrift(z), schriften.text, 7, PAGE_W - MARGIN * 2 - (n === 0 ? 0 : 170))[0] ?? "";
-      seite.drawText(zeile, { x: MARGIN, y: FOOTER_TOP - 14 - n * 10, size: 7, font: schriften.text, color: GRAU });
+    const fuss = fussZeilen(m.fusszeilen, (z) => s.umbruch(fuerSchrift(z, schriften.text), schriften.text, 7, PAGE_W - MARGIN * 2 - 170));
+    fuss.forEach((zeile, n) => {
+      seite.drawText(zeile, { x: MARGIN, y: FOOTER_TOP - 6 - n * 9, size: 7, font: schriften.text, color: GRAU });
     });
   });
   return doc.save();

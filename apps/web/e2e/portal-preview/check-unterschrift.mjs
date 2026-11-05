@@ -40,8 +40,12 @@ for (const width of [1440, 390]) {
   await a.locator("button:has-text('Unterschrift bestätigen'):not([disabled])").waitFor({ timeout: 3000 }); // Knopf nach dem Zeichnen frei
   await a.screenshot({ path: `${out}/a-${width}-gezeichnet.png` });
   await a.locator("button:has-text('Unterschrift bestätigen')").click();
-  await a.locator("text=Vielen Dank, Ihr Vertrag ist unterschrieben.").waitFor();
+  await a.locator("text=Vielen Dank, dein Vertrag ist unterschrieben.").waitFor();
   await a.screenshot({ path: `${out}/a-${width}-fertig.png` });
+  // Stempel nach dem Neuladen mit Serverzeit (Vorschau: 06.09.2026), nicht mit der Gerätezeit.
+  await a.waitForTimeout(1200);
+  const stempelTexte = await a.locator(".portal-stempel span").allInnerTexts();
+  assert.ok(stempelTexte.length >= 2 && stempelTexte.every((t) => t === "06.09.2026"), `Stempel mit Serverzeit (${width}): ${stempelTexte.join(", ")}`);
   assert.equal(await a.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `A overflow ${width}`);
   const posts = await a.evaluate(() => window.__portalPosts);
   assert.ok(posts.some((u) => u.endsWith("/unterschrift")), "POST /unterschrift gesendet");
@@ -52,7 +56,7 @@ for (const width of [1440, 390]) {
   await b.goto("http://127.0.0.1:4178/?stage=2&unterschrift", { waitUntil: "networkidle" });
   // Nebenaktion: das Panel steht hinter dem Auftragsinhalt (Anzahlung, Rechnung, Dokumente haben Vorrang).
   const nachInhalt = await b.evaluate(() => {
-    const panel = [...document.querySelectorAll("section")].find((el) => el.textContent?.includes("Ihr Auftrag ist bereits verbindlich erteilt"));
+    const panel = [...document.querySelectorAll("section")].find((el) => el.textContent?.includes("Dein Auftrag ist bereits verbindlich erteilt"));
     const inhalt = document.getElementById("portal-content");
     return !!panel && !!inhalt && !inhalt.contains(panel) && !!(inhalt.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING);
   });
@@ -62,7 +66,7 @@ for (const width of [1440, 390]) {
   await b.screenshot({ path: `${out}/b-${width}-getippt.png`, fullPage: false });
   await b.locator("button:has-text('Unterschrift bestätigen')").click();
   await b.getByText("Unterschriebener Vertrag als PDF herunterladen", { exact: true }).waitFor();
-  assert.equal(await b.locator("section:has-text('Ihr Auftrag ist bereits verbindlich erteilt')").count(), 0, "Panel nach Unterschrift weg");
+  assert.equal(await b.locator("section:has-text('Dein Auftrag ist bereits verbindlich erteilt')").count(), 0, "Panel nach Unterschrift weg");
   await b.screenshot({ path: `${out}/b-${width}-dokumente.png`, fullPage: true });
   assert.equal(await b.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `B overflow ${width}`);
   await b.close();
@@ -73,9 +77,9 @@ for (const width of [1440, 390]) {
   await d.locator("section:has-text('Vertrag unterschreiben') button:has-text('Vertrag unterschreiben')").click();
   await d.getByRole("button", { name: "Lieber tippen", exact: true }).click();
   await d.locator("button:has-text('Unterschrift bestätigen')").click();
-  await d.locator("text=Vielen Dank, Ihr Vertrag ist unterschrieben.").waitFor();
+  await d.locator("text=Vielen Dank, dein Vertrag ist unterschrieben.").waitFor();
   await d.waitForTimeout(1500); // nach dem Neuladen des Kontexts
-  assert.equal(await d.locator("text=Vielen Dank, Ihr Vertrag ist unterschrieben.").isVisible(), true, `Bestätigung nach Panel-Unterschrift bleibt (${width})`);
+  assert.equal(await d.locator("text=Vielen Dank, dein Vertrag ist unterschrieben.").isVisible(), true, `Bestätigung nach Panel-Unterschrift bleibt (${width})`);
   await d.close();
   // C: ohne Einschalten kein Panel
   const c = await seite(width);

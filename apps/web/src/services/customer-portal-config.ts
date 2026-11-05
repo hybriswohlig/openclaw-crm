@@ -353,6 +353,8 @@ export async function loadEffectiveBranding(
     agbPdfUrl: s.agbPdfUrl ?? fallback.agbPdfUrl,
     // Noch keine Einstellung im CRM: kommt nur aus den Stammdaten je Firma.
     ansprechpartner: fallback.ansprechpartner,
+    // Ein im CRM eingetragenes Logo gilt für alle Leistungen.
+    logoJeLeistung: s.logoUrl ? null : fallback.logoJeLeistung,
   };
 
   return {

@@ -6,6 +6,9 @@ import { priceSourceFromStored } from "./prices";
 import { renderHtml } from "./html";
 import { renderPdf } from "./pdf";
 import { TEMPLATE_VERSION } from "./version";
+import { logoPngFuer } from "./marke/logo-wahl";
+import { LOGO_PNG } from "./marke/logos";
+import { PDFDict, PDFName, PDFRawStream } from "pdf-lib";
 import type { DealFacts, PriceLine, QuotationPriceSource, RenderInput } from "./types";
 
 const NOTES = "INTERN-NOTIZ-GEHEIM-4711";
@@ -249,7 +252,7 @@ describe("template version", () => {
       deal: { ...deal, firma: "ceylan" },
       quotation: quotation({ paymentMethodPreference: "bank_transfer" }),
     });
-    expect(TEMPLATE_VERSION).toBe("kv-ab-re/3");
+    expect(TEMPLATE_VERSION).toBe("kv-ab-re/4");
     expect(html).toContain(`content="${TEMPLATE_VERSION}"`);
     expect(html).toContain(`Vorlage ${TEMPLATE_VERSION}`);
     expect(text).toContain(TEMPLATE_VERSION);
@@ -338,3 +341,34 @@ describe("long company name and discount", () => {
 });
 
 const TAX_SENTENCE = "Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.";
+
+/** Anzahl Bilder auf der ersten Seite. */
+async function bilderSeite1(pdf: Uint8Array): Promise<number> {
+  const doc = await PDFDocument.load(pdf);
+  const xo = doc.getPage(0).node.Resources()?.lookup(PDFName.of("XObject"));
+  if (!(xo instanceof PDFDict)) return 0;
+  return xo.keys().filter((k) => {
+    const o = doc.context.lookup(xo.get(k));
+    return o instanceof PDFRawStream && o.dict.get(PDFName.of("Subtype")) === PDFName.of("Image");
+  }).length;
+}
+
+describe("Logo im Briefkopf", () => {
+  it("wählt das Logo nach Firma und Leistung", () => {
+    expect(logoPngFuer("kottke", "move")).toBe(LOGO_PNG["kottke:move"]);
+    expect(logoPngFuer("kottke", "clearance")).toBe(LOGO_PNG["kottke:clearance"]);
+    expect(logoPngFuer("kottke", "kitchen_installation")).toBe(LOGO_PNG["kottke:kitchen_installation"]);
+    expect(logoPngFuer("kottke", null)).toBe(LOGO_PNG.kottke);
+    expect(logoPngFuer("ceylan", "move")).toBeNull();
+    expect(new Set([LOGO_PNG.kottke, LOGO_PNG["kottke:move"], LOGO_PNG["kottke:clearance"], LOGO_PNG["kottke:kitchen_installation"]]).size).toBe(4);
+  });
+
+  it("setzt bei Kottke das Logo in KV, AB und Rechnung, bei Ceylan nicht", async () => {
+    for (const kind of ["KV", "AB", "RE"] as const) {
+      const { pdf } = await rendered({ kind, deal, quotation: priceSourceFromStored(quotation()) } as RenderInput);
+      expect(await bilderSeite1(pdf)).toBe(1);
+    }
+    const { pdf } = await rendered({ kind: "KV", deal: { ...deal, firma: "ceylan" }, quotation: priceSourceFromStored(quotation()) } as RenderInput);
+    expect(await bilderSeite1(pdf)).toBe(0);
+  });
+});

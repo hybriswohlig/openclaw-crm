@@ -1,7 +1,7 @@
 "use client";
 
 import { Check } from "lucide-react";
-import { festangebotStatusStep, kundenText, type CustomerPortalContext } from "@openclaw-crm/customer-portal-core";
+import { festangebotStatusStep, kundenText, logoFuer, type CustomerPortalContext } from "@openclaw-crm/customer-portal-core";
 import { portalOfferView } from "./portal-presentation";
 import { stempel, vorgangsSchritte } from "./brief";
 
@@ -17,6 +17,7 @@ const STUFEN = ["Angebot", "Bestätigung", "Umzug", "Abschluss"] as const;
 /** Briefkopf: Logo, Auftragsnummer, orange Linie und die Schritte als Wortzeile. */
 export function StageHeader({ ctx }: { ctx: CustomerPortalContext }) {
   const fest = portalOfferView(ctx) === "festangebot";
+  const logo = logoFuer(ctx.branding, ctx.annahmeRecht.serviceType);
   const angenommen = stempel({ signedAt: ctx.acceptance?.signedAt ?? null, unterschriftAt: null })[0]?.datum ?? null;
   const schritte = fest
     ? vorgangsSchritte({
@@ -32,9 +33,9 @@ export function StageHeader({ ctx }: { ctx: CustomerPortalContext }) {
     <header className="portal-header portal-briefkopf">
       <div className="portal-briefkopf-zeile">
         <div className="portal-logo">
-          {ctx.branding.logoUrl ? (
+          {logo ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={ctx.branding.logoUrl} alt={ctx.branding.displayName} />
+            <img src={logo} alt={ctx.branding.displayName} />
           ) : (
             <span className="portal-display">{ctx.branding.displayName}</span>
           )}

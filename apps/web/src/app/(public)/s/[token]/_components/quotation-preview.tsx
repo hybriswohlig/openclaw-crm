@@ -1,7 +1,7 @@
 "use client";
 
 import { FileText, Printer, Download } from "lucide-react";
-import { kundenText, pickDefaultDealOption, type CustomerPortalContext } from "@openclaw-crm/customer-portal-core";
+import { kundenText, logoFuer, pickDefaultDealOption, type CustomerPortalContext } from "@openclaw-crm/customer-portal-core";
 import { EmailDocumentButton } from "./email-document-button";
 import { PanelHeading } from "./portal-ui";
 import { formatPortalDate, formatPortalMoney } from "./portal-presentation";
@@ -13,14 +13,14 @@ import { RestbetragHinweis } from "./restbetrag-hinweis";
  * paper on screen, and Drucken still prints that paper.
  * `kva.notes` is an internal operator note and is never rendered.
  */
-export function QuotationPreview({ ctx, token, variant = "full" }: { ctx: CustomerPortalContext; token: string; variant?: "full" | "file" }) {
+export function QuotationPreview({ ctx, token, variant = "full", emailImBrief = false }: { ctx: CustomerPortalContext; token: string; variant?: "full" | "file"; emailImBrief?: boolean }) {
   if (!ctx.kva) return null;
   const t = (sie: string, du: string) => kundenText(ctx.branding.firmaSlug, sie, du);
   if (ctx.documents.quotationUrl) return <section className="portal-panel" id="portal-quotation-preview">
     <PanelHeading icon={FileText} title={t("Ihr Kostenvoranschlag", "Dein Kostenvoranschlag")}><p>{t("Hier finden Sie Ihr aktuelles Angebot als PDF.", "Hier findest du dein aktuelles Angebot als PDF.")}</p></PanelHeading>
     <iframe title="Kostenvoranschlag PDF-Vorschau" src={ctx.documents.quotationUrl} className="portal-document-frame" loading="lazy" />
     <a className="portal-button mt-3" href={ctx.documents.quotationUrl} download><Download size={18} aria-hidden />Kostenvoranschlag als PDF herunterladen</a>
-    <EmailDocumentButton key={ctx.documents.quotationUrl} ctx={ctx} token={token} url={ctx.documents.quotationUrl} />
+    <EmailDocumentButton key={ctx.documents.quotationUrl} ctx={ctx} token={token} url={ctx.documents.quotationUrl} ohneErfassung={emailImBrief} />
   </section>;
   const option = variant === "file" ? null : pickDefaultDealOption(ctx.dealPackageOffers.options, ctx.dealPackageOffers.selectedOptionId);
   const total = option?.priceCents && option.priceCents > 0 ? option.priceCents : ctx.kva.totalCents;
@@ -29,10 +29,11 @@ export function QuotationPreview({ ctx, token, variant = "full" }: { ctx: Custom
     ? ctx.inclusions.included.map(item => [item.label, item.detail].filter(Boolean).join(": "))
     : [];
   const inclusions = option?.includedItems ?? (positions.length > 0 ? [] : standardInclusions);
+  const logo = logoFuer(ctx.branding, ctx.annahmeRecht.serviceType);
   const paper = <article className="portal-document-paper portal-quotation">
-      <header>{ctx.branding.logoUrl ?
+      <header>{logo ?
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={ctx.branding.logoUrl} alt={ctx.branding.displayName} /> : <strong>{ctx.branding.displayName}</strong>}
+        <img src={logo} alt={ctx.branding.displayName} /> : <strong>{ctx.branding.displayName}</strong>}
         {ctx.branding.footer && <p className="max-w-52 text-right text-[10px]">{ctx.branding.footer}</p>}
       </header>
       <h3>Kostenvoranschlag</h3>

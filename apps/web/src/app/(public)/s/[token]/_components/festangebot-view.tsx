@@ -243,7 +243,7 @@ export function FestangebotView({
           <AnnahmeZeile firma={ctx.branding.firmaSlug} stempel={stempelListe} vertragUrl={ctx.documents.signedContractUrl}>
             {showBar && (offerExpired ? <ExpiredNotice ctx={ctx} /> : <AcceptButton ctx={ctx} acceptBlock={acceptBlock} onAccept={accept} />)}
           </AnnahmeZeile>
-          <EmailCaptureBanner token={token} status={ctx.customerEmailStatus} branding={ctx.branding} variant="zeile" />
+          <EmailCaptureBanner token={token} status={ctx.customerEmailStatus} branding={ctx.branding} variant="zeile" onSaved={() => void onConfirmed()} />
         </article>
 
         <section className="portal-panel">
@@ -265,7 +265,7 @@ export function FestangebotView({
           />
         )}
 
-        <QuotationPreview ctx={ctx} token={token} variant="file" />
+        <QuotationPreview ctx={ctx} token={token} variant="file" emailImBrief />
         <ContactPanel ctx={ctx} token={token} title="Fragen zum Angebot?" />
         <CustomerPhotosSection token={token} photos={ctx.customerPhotos} primaryColor={ctx.branding.primaryColor} firmaSlug={ctx.branding.firmaSlug} />
         <FurnitureListSection items={ctx.furnitureList ?? []} primaryColor={ctx.branding.primaryColor} />
@@ -273,7 +273,7 @@ export function FestangebotView({
 
       {priceInBar && !preisImBlick && (
         <div
-          className="portal-fest-bar fixed inset-x-0 bottom-0 z-30 border-t bg-card/95 backdrop-blur lg:hidden"
+          className="portal-fest-bar fixed inset-x-0 bottom-0 z-30 border-t bg-card/95 backdrop-blur"
           style={{ paddingBottom: "max(env(safe-area-inset-bottom), 0.625rem)" }}
         >
           <div className="mx-auto flex max-w-2xl items-center justify-between gap-3 px-4 py-3">
@@ -293,17 +293,8 @@ export function FestangebotView({
           </div>
         </div>
       )}
-      {showBar && offerExpired && (
-        <div
-          className="fixed inset-x-0 bottom-0 z-30 border-t bg-card/95 backdrop-blur lg:hidden"
-          style={{ paddingBottom: "max(env(safe-area-inset-bottom), 0.625rem)" }}
-        >
-          <div className="mx-auto max-w-2xl px-4 py-3">
-            <ExpiredNotice ctx={ctx} />
-          </div>
-        </div>
-      )}
-      {showBar && <div className={offerExpired ? "h-48 lg:hidden" : acceptBlock === "termin_offen" ? "h-28 lg:hidden" : "h-20 lg:hidden"} aria-hidden />}
+      {/* Abgelaufen: der Hinweis steht im Brief an der Annahme-Zeile, keine zweite Leiste. */}
+      {priceInBar && <div className={acceptBlock === "termin_offen" ? "h-28" : "h-20"} aria-hidden />}
 
       <ConfirmKvaDialog
         token={token}

@@ -18,7 +18,7 @@ import {
   validateTokenShape,
   type UnterschriftPayload,
 } from "@openclaw-crm/customer-portal-core";
-import { baueVertragsmappe, type VertragsmappeDaten } from "@openclaw-crm/document-templates";
+import { asServiceType, baueVertragsmappe, type VertragsmappeDaten } from "@openclaw-crm/document-templates";
 import { emitEvent } from "./activity-events";
 import { sendNewEmail } from "./inbox-email";
 import { resolveCustomerEmailTransport } from "./customer-portal-emails";
@@ -331,6 +331,7 @@ export async function unterschriftFuerToken(
       unterschrift: { art: payload.art, name: payload.name, bildPng, at: unterschriftAt, ip: ctx.ipAddress.slice(0, 200) },
       marke: {
         firmaSlug: portal.branding.firmaSlug,
+        leistung: asServiceType(row.serviceType),
         akzentHex: portal.branding.primaryColor,
         ansprechpartner: portal.branding.ansprechpartner?.name ?? null,
         fusszeile: portal.branding.footer,

@@ -308,7 +308,7 @@ function DateCard({
 
 function formatSlot(s: DateOfferSlot): string {
   if (s.startTime && s.endTime) {
-    return `${s.label} · ${s.startTime}–${s.endTime}`;
+    return `${s.label} · ${s.startTime} bis ${s.endTime}`;
   }
   return s.label;
 }

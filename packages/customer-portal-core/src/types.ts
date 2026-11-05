@@ -1,4 +1,4 @@
-import type { AnnahmeRegeln, WiderrufModus } from "./annahme-recht";
+import type { AnnahmeRegeln, ServiceArt, WiderrufModus } from "./annahme-recht";
 import type { FirmaKontakt } from "./rechtstexte";
 import type { UnterschriftRecord } from "./unterschrift";
 /**
@@ -53,6 +53,8 @@ export interface FirmaBranding {
   agbPdfUrl: string | null;
   /** Persönlicher Absender im Portal (Foto, Gruß). Null: Gruß vom Team. */
   ansprechpartner: Ansprechpartner | null;
+  /** Logo je Leistung (Umzug, Entrümpelung, Küche); fehlt eine, gilt logoUrl. */
+  logoJeLeistung: Partial<Record<ServiceArt, string>> | null;
 }
 
 export interface Ansprechpartner {

@@ -99,6 +99,7 @@ export function buildDocumentModel(input: RenderInput): DocumentModel {
 
   return {
     templateVersion: TEMPLATE_VERSION,
+    logo: { firma: input.deal.firma, leistung: input.quotation.serviceType },
     kind: input.kind,
     title: TITLES[input.kind],
     fileStem: `${input.kind}-${input.deal.firma}-${input.deal.documentDate}`,
