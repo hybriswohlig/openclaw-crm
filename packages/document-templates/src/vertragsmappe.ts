@@ -65,8 +65,8 @@ const farbe = (hex: string): RGB => {
 };
 const TINTE = farbe("0e1f35");
 const GRAU = farbe("44505f");
-const LINIE = farbe("ebe2d6");
-const PAPIER = farbe("fbf8f3");
+const LINIE = farbe("e7e9eb");
+const PAPIER = farbe("f6f7f9");
 const TZ = "Europe/Berlin";
 
 const datumLang = (d: Date) =>
