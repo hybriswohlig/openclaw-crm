@@ -11,6 +11,7 @@ import { records, recordValues } from "@/db/schema/records";
 import { auftragsartAus } from "@/lib/auftragsart";
 import { getRecord } from "@/services/records";
 import { getDealInventory } from "@/services/deal-inventory";
+import { ladeFirmenEinstellungen } from "@/services/company-settings";
 import type { LeadDaten } from "./eingabe";
 import { leadQuelle, markeAusFirmenname } from "./quelle";
 import { datumText, groesseAusLead, inventarAusZeilen, ortText, referenzId, zahlOderNull } from "./lead-daten-helfer";
@@ -97,7 +98,8 @@ export async function ladeLeadDaten(workspaceId: string, dealRecordId: string): 
     packService: av.packing_service === true,
     kartons: zahlOderNull(av.boxes_needed),
     inventar: inventarAusZeilen(inventar),
-    marke: markeAusFirmenname(typeof firma?.values?.name === "string" ? firma.values.name : null),
+    marke: (firmaId ? (await ladeFirmenEinstellungen(workspaceId, firmaId)).rechnerMarke : null)
+      ?? markeAusFirmenname(typeof firma?.values?.name === "string" ? firma.values.name : null),
     quelle: leadQuelle({ payloadSource: typeof payload?.source === "string" ? payload.source : null, konversationen }),
     auftragsart: auftragsartAus({
       gespeichert: kv?.serviceType ?? null,
