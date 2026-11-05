@@ -1,8 +1,8 @@
 import { PDFDocument } from "pdf-lib";
 import { describe, expect, it } from "vitest";
-import { PDFDict, PDFName, PDFRawStream } from "pdf-lib";
+import { PDFDict, PDFName, PDFRawStream, decodeFromBase64 } from "pdf-lib";
 import { KOTTKE_RESTBETRAG_EINSATZ, KOTTKE_RESTBETRAG_UMZUG } from "./restbetrag";
-import { annahmeSeiteModell, annahmeSeiteZeilen, passendeGroesse, baueVertragsmappe, umbrechen, type VertragsmappeDaten } from "./vertragsmappe";
+import { annahmeSeiteModell, annahmeSeiteZeilen, fuerSchrift, fussZeilen, passendeGroesse, baueVertragsmappe, umbrechen, type VertragsmappeDaten } from "./vertragsmappe";
 
 async function miniKv(seiten: number): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
@@ -190,5 +190,24 @@ describe("Logo der Annahmeseite je Leistung", () => {
     expect(bildGroessen(umzug, 1)).toHaveLength(1);
     expect(bildGroessen(entr, 1)).toHaveLength(1);
     expect(bildGroessen(umzug, 1)[0]).not.toBe(bildGroessen(entr, 1)[0]);
+  });
+});
+
+describe("Zeichen und Fußzeile", () => {
+  it("lässt nur Zeichen durch, die die Schrift wirklich hat", async () => {
+    const fontkit = (await import("@pdf-lib/fontkit")).default;
+    const { INTER_REGULAR } = await import("./marke/schriften");
+    const doc = await PDFDocument.create();
+    doc.registerFontkit(fontkit);
+    const inter = await doc.embedFont(decodeFromBase64(INTER_REGULAR), { subset: true });
+    expect(fuerSchrift("Größe – „Test“ €", inter)).toBe("Größe – „Test“ €");
+    expect(fuerSchrift("Be­trieb", inter)).toBe("Betrieb");
+    expect(fuerSchrift("Haken ✓", inter)).toBe("Haken ?");
+  });
+  it("bricht die Fußzeile um, statt sie abzuschneiden", () => {
+    const umbruch = (t: string) => t.match(/.{1,40}(\s|$)/g)?.map((z) => z.trim()) ?? [];
+    const lang = "Kottke Dienstleistungen · Inhaber: Darioush Kottke · Marktstr. 8";
+    expect(fussZeilen([lang, "Ihr Ansprechpartner: Dario Kottke"], umbruch).join(" ")).toContain("Marktstr. 8");
+    expect(fussZeilen([lang, lang, lang], umbruch)).toHaveLength(3);
   });
 });
