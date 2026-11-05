@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   documents: vi.fn(),
   setHumanOwned: vi.fn(),
   supersede: vi.fn(),
+  letzteEigene: vi.fn(),
   updates: [] as Record<string, unknown>[],
 }));
 
@@ -74,6 +75,10 @@ vi.mock("@/services/agent/draft-schliessen", () => ({
   supersedePendingDrafts: (...args: unknown[]) => mocks.supersede(...args),
 }));
 
+vi.mock("@/services/wartet", () => ({
+  setzeLetzteEigeneNachricht: (...args: unknown[]) => mocks.letzteEigene(...args),
+}));
+
 import { POST } from "./route";
 
 const CONV = "6e9256ac-a253-4b4e-b49d-0a7845e9f940";
@@ -110,6 +115,7 @@ beforeEach(() => {
   mocks.sendBaileysReply.mockResolvedValue({ id: "msg-1" });
   mocks.supersede.mockResolvedValue(1);
   mocks.setHumanOwned.mockResolvedValue(undefined);
+  mocks.letzteEigene.mockResolvedValue(undefined);
 });
 
 describe("POST conversation message", () => {
@@ -177,5 +183,41 @@ describe("POST conversation message", () => {
     });
     expect(mocks.sendBaileysReply).not.toHaveBeenCalled();
     expect(mocks.setHumanOwned).toHaveBeenCalledWith("ws_kottke", "deal-1", "usr_dario");
+  });
+
+  it("merkt die eigene Nachricht mit der gespeicherten Sendezeit", async () => {
+    const gesendet = new Date("2026-11-05T09:15:00Z");
+    mocks.sendBaileysReply.mockResolvedValue({ id: "msg-1", sentAt: gesendet });
+    const res = await send("Ich schreibe selbst.");
+    expect(res.status).toBe(200);
+    expect(mocks.letzteEigene).toHaveBeenCalledWith("deal-1", gesendet);
+  });
+
+  it("setzt bei einem wiederholten (deduplizierten) Dokumentversand keine neue eigene Nachricht", async () => {
+    mocks.documents.mockResolvedValue({
+      message: { id: "msg-doc", sentAt: new Date("2026-11-01T08:00:00Z") },
+      messages: [{ id: "msg-doc" }],
+      deduped: true,
+      conversationId: CONV,
+    });
+    const res = await send({
+      attachments: [{ dealDocumentId: "doc-1", filename: "Angebot.pdf" }],
+      idempotencyKey: "send-1",
+    });
+    expect(res.status).toBe(200);
+    expect(mocks.letzteEigene).not.toHaveBeenCalled();
+  });
+
+  it("nimmt beim frischen Dokumentversand die Sendezeit der Nachricht", async () => {
+    const gesendet = new Date("2026-11-05T10:00:00Z");
+    mocks.documents.mockResolvedValue({
+      message: { id: "msg-doc", sentAt: gesendet },
+      messages: [{ id: "msg-doc" }],
+      deduped: false,
+      conversationId: CONV,
+    });
+    const res = await send({ attachments: [{ dealDocumentId: "doc-1" }], idempotencyKey: "send-2" });
+    expect(res.status).toBe(200);
+    expect(mocks.letzteEigene).toHaveBeenCalledWith("deal-1", gesendet);
   });
 });

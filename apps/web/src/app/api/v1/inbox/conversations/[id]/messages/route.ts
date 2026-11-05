@@ -176,9 +176,14 @@ export async function POST(
 
     // Wartet-Signal: our own hand-written message on this deal. Best-effort,
     // a failure (e.g. migration 0054 not yet applied) must never break sending.
-    if (row.dealRecordId) {
+    // A deduplicated document retry sent nothing new, so it must not advance
+    // the timestamp (the customer may have answered since the original send).
+    // Fresh sends use the persisted message's sent time.
+    const deduped = !!msg && "deduped" in msg && msg.deduped === true;
+    if (row.dealRecordId && !deduped) {
+      const gesendetAm = msg?.sentAt instanceof Date ? msg.sentAt : new Date();
       try {
-        await setzeLetzteEigeneNachricht(row.dealRecordId, new Date());
+        await setzeLetzteEigeneNachricht(row.dealRecordId, gesendetAm);
       } catch (wartetErr) {
         console.error("[wartet] setzeLetzteEigeneNachricht failed (non-fatal):", wartetErr);
       }
