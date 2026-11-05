@@ -18,6 +18,12 @@ describe("ortText", () => {
 });
 
 describe("inventarAusZeilen", () => {
+  it("reicht source als quelle durch, ohne source fehlt das Feld", () => {
+    expect(inventarAusZeilen([{ name: "Sofa", quantity: 1, sizeClass: "gross", volumeCbmEstimate: null, moveFlag: true, source: "foto" }])[0])
+      .toMatchObject({ name: "Sofa", quelle: "foto" });
+    expect(inventarAusZeilen([{ name: "Sofa", quantity: 1, sizeClass: "gross", volumeCbmEstimate: null, moveFlag: true }])[0])
+      .not.toHaveProperty("quelle");
+  });
   it("rechnet das Zeilenvolumen auf je Stück um", () => {
     expect(inventarAusZeilen([{ name: "Kleiderschrank", quantity: 2, sizeClass: "gross", volumeCbmEstimate: "3.6", moveFlag: true }]))
       .toEqual([{ name: "Kleiderschrank", menge: 2, groessenklasse: "gross", volumenCbm: 1.8, mitnehmen: true, abbau: "none", aufbau: "none" }]);

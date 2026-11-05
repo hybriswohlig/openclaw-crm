@@ -48,6 +48,8 @@ export interface LeadDaten {
     /** Omitted or none on both sides leaves the calculator request unchanged. */
     abbau?: InventoryOwner;
     aufbau?: InventoryOwner;
+    /** Herkunft der Inventarzeile; nur fürs CRM, geht nicht an den Rechner. */
+    quelle?: "chat" | "foto" | "operator";
   }>;
 }
 
@@ -100,7 +102,8 @@ export function rechnerAnfrageAus(lead: LeadDaten, opts: { heute?: string } = {}
   setze("marke", lead.marke);
   setze("quelle", lead.quelle);
   setze("auftragsart", lead.auftragsart);
-  // heute gehört in die Anfrage, damit sich der Hash täglich ändert und die Eilregel nicht veraltet.
+  // heute gehört in die Anfrage (Eilregel, Wochentag). Der Hash ignoriert es; dass täglich
+  // neu gerechnet wird, regelt ensureDealCalculation über den Vergleich von request.heute.
   setze("heute", opts.heute);
   setze("wohnflaeche_qm", lead.wohnflaecheQm);
   setze("zimmer", lead.zimmer);
@@ -145,7 +148,12 @@ function stabil(wert: unknown): unknown {
   return wert;
 }
 
-/** Fingerabdruck der Anfrage: gleiche Eingabe = gleicher Hash, unabhängig von der Feldreihenfolge. */
+/**
+ * Fingerabdruck der Anfrage: gleiche Eingabe = gleicher Hash, unabhängig von der
+ * Feldreihenfolge. `heute` zählt nicht mit: eine Version mit festem Datum soll
+ * am nächsten Tag denselben Fingerabdruck haben.
+ */
 export function eingabeHash(anfrage: RechnerAnfrage): string {
-  return createHash("sha256").update(JSON.stringify(stabil(anfrage))).digest("hex");
+  const { heute: _heute, ...ohneHeute } = anfrage;
+  return createHash("sha256").update(JSON.stringify(stabil(ohneHeute))).digest("hex");
 }
