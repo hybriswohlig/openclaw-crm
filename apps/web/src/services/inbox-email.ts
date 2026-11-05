@@ -32,6 +32,7 @@ import {
   replyAddressForThread,
 } from "./inbox-kleinanzeigen";
 import { agentFelderBeimEingang, aiProcessedAtBeimEingang } from "./agent/ingest-arming";
+import { aktualisiereWartet } from "./wartet";
 import { kontaktartFuerInboxKontakt } from "./kontaktart";
 import { DEFAULT_KONTAKTART, KEIN_LEAD_LANE, KONTAKTART_LABELS, eingangsLane, isLeadKunde } from "@/lib/kontaktart";
 import { createDealForNewConversation } from "./inbox";
@@ -491,6 +492,15 @@ async function ingestParsedEmail(
         externalMessageId: messageId,
       },
     });
+  }
+
+  // Wartet-Signal: der Kunde schrieb zuletzt. Ohne Deal kehrt es sofort zurück.
+  if (storedMessage) {
+    try {
+      await aktualisiereWartet(account.workspaceId, conv.dealRecordId);
+    } catch (err) {
+      console.error("[wartet] nach E-Mail-Eingang fehlgeschlagen:", err);
+    }
   }
 
   if (storedMessage && pushSenden) {

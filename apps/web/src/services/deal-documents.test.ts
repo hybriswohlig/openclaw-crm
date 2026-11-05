@@ -4,6 +4,7 @@ import { MAX_JSON_INLINE_BYTES } from "@/lib/attachment-content";
 const mocks = vi.hoisted(() => ({
   insertReturning: vi.fn(),
   maybeNotifyPortalEvent: vi.fn(),
+  aktualisiereWartet: vi.fn(),
 }));
 
 vi.mock("@/db", () => ({
@@ -19,6 +20,8 @@ vi.mock("@/db", () => ({
 vi.mock("./customer-portal-notifications", () => ({
   maybeNotifyPortalEvent: mocks.maybeNotifyPortalEvent,
 }));
+
+vi.mock("./wartet", () => ({ aktualisiereWartet: mocks.aktualisiereWartet }));
 
 vi.mock("./deal-attribution", () => ({
   advanceDealToQuotedIfEarlier: vi.fn().mockResolvedValue(undefined),
@@ -218,6 +221,8 @@ describe("createDealDocument notifications", () => {
     mocks.maybeNotifyPortalEvent.mockReset();
     mocks.insertReturning.mockResolvedValue([stored]);
     mocks.maybeNotifyPortalEvent.mockResolvedValue(undefined);
+    mocks.aktualisiereWartet.mockReset();
+    mocks.aktualisiereWartet.mockResolvedValue(undefined);
   });
 
   const base = {
@@ -228,6 +233,19 @@ describe("createDealDocument notifications", () => {
     mimeType: "application/pdf",
     fileContent: Buffer.from("%PDF").toString("base64"),
   };
+
+  it("rechnet das Wartet-Signal des Deals neu", async () => {
+    await createDealDocument({ ...base, documentType: "invoice" });
+    expect(mocks.aktualisiereWartet).toHaveBeenCalledWith("ws_kottke_prod", "deal_1");
+  });
+
+  it("speichert das Dokument auch, wenn das Wartet-Signal scheitert", async () => {
+    const fehler = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.aktualisiereWartet.mockRejectedValue(new Error("db weg"));
+    await expect(createDealDocument({ ...base, documentType: "invoice" })).resolves.toMatchObject({ id: "doc_1" });
+    expect(fehler).toHaveBeenCalled();
+    fehler.mockRestore();
+  });
 
   it("does not notify when notifyCustomer is false", async () => {
     await createDealDocument({ ...base, documentType: "invoice", notifyCustomer: false });

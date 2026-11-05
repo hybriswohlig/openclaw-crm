@@ -33,6 +33,7 @@ import { classifyMessagingBody, sollInboxPushSenden } from "./inbox-triage";
 import { looksDeclined, recordAgentDecline } from "./agent/agent-suppress";
 import { setHumanOwned } from "./agent/agent-gate";
 import { agentFelderBeimEingang, aiProcessedAtBeimEingang } from "./agent/ingest-arming";
+import { aktualisiereWartet } from "./wartet";
 import { kontaktartFuerInboxKontakt } from "./kontaktart";
 import { KEIN_LEAD_LANE, KONTAKTART_LABELS, eingangsLane, isLeadKunde } from "@/lib/kontaktart";
 import { canonicalizePhone } from "@/lib/identity/canonical";
@@ -815,6 +816,15 @@ export async function ingestInboundWhatsAppMessage(params: {
         externalMessageId,
       },
     });
+  }
+
+  // Wartet-Signal: der Kunde schrieb zuletzt. Ohne Deal kehrt es sofort zurück.
+  if (messageId) {
+    try {
+      await aktualisiereWartet(account.workspaceId, conv.dealRecordId);
+    } catch (err) {
+      console.error("[wartet] nach WhatsApp-Eingang fehlgeschlagen:", err);
+    }
   }
 
   if (messageId && pushSenden) {

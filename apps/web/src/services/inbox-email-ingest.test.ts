@@ -39,6 +39,7 @@ vi.mock("./inbox-immoscout", () => ({ isImmoscoutLeadEmail: () => false }));
 vi.mock("./inbox-crm-link", () => ({ ensureCrmPerson: vi.fn() }));
 vi.mock("./agent/agent-suppress", () => ({ looksDeclined: () => false }));
 vi.mock("./activity-events", () => ({ emitEvent: vi.fn() }));
+vi.mock("./wartet", () => ({ aktualisiereWartet: vi.fn() }));
 vi.mock("./multi-company", () => ({ recomputeMultiCompanyForContact: vi.fn() }));
 vi.mock("./inbox", () => ({}));
 vi.mock("@/lib/identity/canonical", () => ({}));

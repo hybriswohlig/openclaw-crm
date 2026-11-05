@@ -89,6 +89,7 @@ import { isKleinanzeigenRelayAddress } from "./inbox-kleinanzeigen";
 import { loadEffectiveBranding } from "./customer-portal-config";
 import { emitEvent } from "./activity-events";
 import { createTask } from "./tasks";
+import { aktualisiereWartet, aktualisiereWartetNachBesuch } from "./wartet";
 import { annahmeNachlauf, nachlaufNoetig } from "./kva-bestaetigung";
 import { ladeWiderrufKontext } from "./kva-widerruf";
 import { angezeigtesKvDokument, gueltigeAuftragsbestaetigung, oeffentlichAbrufbar, vertragUrl } from "@/lib/portal-dokumente";
@@ -262,7 +263,7 @@ export async function resolveCustomerLinkOrigin(
 export async function bumpView(token: string): Promise<void> {
   if (!validateTokenShape(token)) return;
   const now = new Date();
-  await db
+  const [link] = await db
     .update(customerStatusLinks)
     .set({
       viewCount: sql`${customerStatusLinks.viewCount} + 1`,
@@ -270,7 +271,15 @@ export async function bumpView(token: string): Promise<void> {
       firstViewedAt: sql`COALESCE(${customerStatusLinks.firstViewedAt}, ${now})`,
     })
     .where(eq(customerStatusLinks.token, token))
-    .catch(() => {});
+    .returning({ workspaceId: customerStatusLinks.workspaceId, dealRecordId: customerStatusLinks.dealRecordId })
+    .catch(() => []);
+  if (!link) return;
+  // Geöffneter KV beendet „KV seit N Tagen ungesehen“.
+  try {
+    await aktualisiereWartetNachBesuch(link.workspaceId, link.dealRecordId);
+  } catch (err) {
+    console.error("[wartet] nach Portalbesuch fehlgeschlagen:", err);
+  }
 }
 
 /**
@@ -695,6 +704,13 @@ export async function confirmKvaForToken(
       ipAddress: ctx.ipAddress.slice(0, 200),
     },
   });
+
+  // Annahme gespeichert: „AB fehlt“ zählt ab jetzt. Nie die Annahme brechen.
+  try {
+    await aktualisiereWartet(link.workspaceId, link.dealRecordId);
+  } catch (err) {
+    console.error("[wartet] nach KV-Annahme fehlgeschlagen:", err);
+  }
 
   const id = confirmationId;
   return { ok: true, nachlauf: () => annahmeNachlauf(id, { mitTeamAlarm: true }) };

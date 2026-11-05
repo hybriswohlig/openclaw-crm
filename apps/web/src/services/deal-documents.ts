@@ -17,6 +17,7 @@ import {
   type DealDocumentType,
 } from "@/lib/deal-document-upload";
 import { maybeNotifyPortalEvent } from "./customer-portal-notifications";
+import { aktualisiereWartet } from "./wartet";
 
 export {
   DEAL_DOCUMENT_TYPES,
@@ -123,6 +124,13 @@ export async function createDealDocument(input: {
       .catch((err) => {
         console.error("[deal-documents] quoted advance failed:", err);
       });
+  }
+
+  // KV, AB und Rechnung verschieben das Wartet-Signal; Fehler brechen das Speichern nicht.
+  try {
+    await aktualisiereWartet(input.workspaceId, input.dealRecordId);
+  } catch (err) {
+    console.error("[wartet] nach Dokument fehlgeschlagen:", err);
   }
 
   // Die Tabelle kennt auch signed_contract; dieser Weg schreibt nur geprüfte Upload-Typen.

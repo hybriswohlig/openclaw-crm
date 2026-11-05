@@ -8,6 +8,7 @@ import { buildFilterSQL, buildSortExpressions } from "@/lib/query-builder";
 import { batchGetRecordDisplayNames } from "./display-names";
 import { emitEvent } from "./activity-events";
 import { markiereDurchgefuehrt } from "./durchgefuehrt";
+import { aktualisiereWartet, setzeStufeBetreten } from "./wartet";
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -491,6 +492,15 @@ export async function updateRecord(
           });
         } catch (err) {
           console.error("[durchgefuehrt] move_completed_at setzen fehlgeschlagen:", err);
+        }
+        // Wartet-Signal nur für Deals; Personen und Firmen haben auch Status-Attribute.
+        if (obj.slug === "deals") {
+          try {
+            await setzeStufeBetreten(recordId, new Date());
+            await aktualisiereWartet(obj.workspaceId, recordId);
+          } catch (err) {
+            console.error("[wartet] Stufenwechsel nachführen fehlgeschlagen:", err);
+          }
         }
       }
     }

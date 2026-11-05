@@ -18,6 +18,7 @@ import {
   type IncomeTaxTreatment,
 } from "@/lib/expense-categories";
 import { berlinYear } from "@/lib/berlin-date";
+import { aktualisiereWartet } from "./wartet";
 
 export type PaymentMethod = "cash" | "bank_transfer" | "other";
 export type ExpenseCategory =
@@ -376,7 +377,7 @@ export async function createPayment(
 
   // Assign Belegnummer + insert in one transaction so a failed insert never
   // burns a permanent gap in the legal sequence.
-  return db.transaction(async (tx) => {
+  const gespeichert = await db.transaction(async (tx) => {
     const receiptNumber =
       taxTreatment === "betriebseinnahme"
         ? await assignReceiptNumber(tx, {
@@ -399,6 +400,14 @@ export async function createPayment(
       .returning();
     return row;
   });
+
+  // Nach dem Commit: eine Zahlung kann „Rechnung offen“ beenden. Nie den Hauptpfad brechen.
+  try {
+    await aktualisiereWartet(workspaceId, dealRecordId);
+  } catch (err) {
+    console.error("[wartet] nach Zahlung fehlgeschlagen:", err);
+  }
+  return gespeichert;
 }
 
 export type UpdatePaymentInput = Partial<{
