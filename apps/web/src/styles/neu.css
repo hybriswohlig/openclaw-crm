@@ -308,13 +308,25 @@
   line-height: 1.05;
 }
 
-[data-neu] .neu-kopf h1 span {
-  display: block;
-  margin-top: 4px;
+/* Zweite Zeile der Überschrift, bewusst außerhalb von <h1>. */
+[data-neu] .neu-kopf-zweite {
+  margin: 4px 0 0;
   font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.05;
   color: var(--ink-2);
 }
 
 [data-neu] .neu-kopf-aktion {
   margin-top: 20px;
+}
+
+/* ── Mehr (Handy-Dock) ───────────────────────────────── */
+
+[data-neu] .neu-mehr {
+  margin-top: 20px;
+  padding: 12px;
+  border-radius: 24px;
+  max-width: 420px;
 }

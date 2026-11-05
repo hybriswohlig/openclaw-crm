@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { HANDY_DOCK, NAV, istAktiv, seitentitel } from "./nav-config";
 
@@ -21,6 +23,10 @@ describe("seitentitel", () => {
     expect(seitentitel("/app/plan")).toBe("Plan");
     expect(seitentitel("/app/leads/abc")).toBe("Leads");
     expect(seitentitel("/app/einstellungen")).toBe("Einstellungen");
+  });
+
+  it("kennt die Mehr-Seite aus dem Handy-Dock", () => {
+    expect(seitentitel("/app/mehr")).toBe("Mehr");
   });
 
   it("fällt außerhalb der Navigation auf CRM zurück", () => {
@@ -50,5 +56,13 @@ describe("HANDY_DOCK", () => {
   it("zeigt Heute, Leads, Plan, Inbox und Mehr", () => {
     expect(HANDY_DOCK.map((e) => e.label)).toEqual(["Heute", "Leads", "Plan", "Inbox", "Mehr"]);
     expect(HANDY_DOCK[4].href).toBe("/app/mehr");
+  });
+});
+
+describe("Seiten zur Navigation", () => {
+  it("hat für jedes Ziel aus NAV und HANDY_DOCK eine Seite unter src/app/(neu)", () => {
+    const hrefs = [...NAV.flatMap((g) => g.eintraege), ...HANDY_DOCK].map((e) => e.href);
+    const fehlend = hrefs.filter((href) => !existsSync(join(__dirname, "../../app/(neu)", href, "page.tsx")));
+    expect(fehlend).toEqual([]);
   });
 });

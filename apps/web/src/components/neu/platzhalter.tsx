@@ -14,10 +14,8 @@ export function Platzhalter({
 }) {
   return (
     <header className="neu-kopf">
-      <h1>
-        {seitentitel(pfad)}
-        <span>Kommt in Meilenstein {meilenstein}</span>
-      </h1>
+      <h1>{seitentitel(pfad)}</h1>
+      <p className="neu-kopf-zweite">Kommt in Meilenstein {meilenstein}</p>
       <div className="neu-kopf-aktion">
         <GlassButton asChild>
           <Link href={alteSeite}>In der alten Oberfläche öffnen</Link>

@@ -55,10 +55,10 @@ export function istAktiv(pathname: string | null, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-/** Label des aktiven Eintrags; außerhalb der Navigation schlicht „CRM“. */
+/** Label des aktiven Eintrags (Seitenleiste, dann Handy-Dock wie „Mehr“); sonst schlicht „CRM“. */
 export function seitentitel(pathname: string): string {
-  for (const gruppe of NAV) {
-    const treffer = gruppe.eintraege.find((e) => istAktiv(pathname, e.href));
+  for (const eintraege of [...NAV.map((gruppe) => gruppe.eintraege), HANDY_DOCK]) {
+    const treffer = eintraege.find((e) => istAktiv(pathname, e.href));
     if (treffer) return treffer.label;
   }
   return "CRM";
