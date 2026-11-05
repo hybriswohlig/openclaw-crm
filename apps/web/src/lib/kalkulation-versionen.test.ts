@@ -130,6 +130,16 @@ describe("pruefeUebersteuerung", () => {
     expect(() => pruefeUebersteuerung({ art: "zeile", key: "verkauf.halteverbot", wert: 10, grund: "x" })).toThrow(UebersteuerungFehler);
   });
 
+  it("lehnt Kostenzeilen des freien Materials ab (Index rückt beim Entfernen nach), auch zum Aufheben", () => {
+    const text = "Freies Material bitte über material_frei ändern, nicht über die Kostenzeile.";
+    expect(() => pruefeUebersteuerung({ art: "zeile", key: "material_frei.0", wert: 5, grund: "x" })).toThrow(text);
+    expect(() => pruefeUebersteuerung({ art: "zeile", key: " material_frei.1 ", wert: null, grund: "x" })).toThrow(UebersteuerungFehler);
+    // Der benannte Eintrag selbst bleibt änderbar.
+    expect(pruefeUebersteuerung({ art: "material_frei", key: "folie", wert: { bezeichnung: "Folie", betrag: 5 }, grund: "x" })).toMatchObject({
+      wert: { bezeichnung: "Folie", betrag: 5 },
+    });
+  });
+
   it("lehnt eine unbekannte Art ab", () => {
     expect(() => pruefeUebersteuerung({ art: "rabatt", key: "x", wert: 1, grund: "x" })).toThrow(UebersteuerungFehler);
   });

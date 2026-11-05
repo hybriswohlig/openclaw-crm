@@ -464,6 +464,38 @@ describe("uebersteuern", () => {
     expect(r.version.overrides).toHaveLength(3);
     expect(r.version.rechnerRequest?.zeilen_uebersteuerung).toBeUndefined();
   });
+
+  it("Folie 30 €, Kartons 80 €: Kostenzeile material_frei.0 nicht übersteuerbar, Entfernen der Folie lässt Kartons bei 80 € (Review 5)", async () => {
+    const t = aufbau();
+    // Der Rechner liefert das freie Material als Kostenzeilen nach Position.
+    t.setzeAntwort({
+      ok: true,
+      ergebnis: {
+        ...ergebnis(),
+        kosten: {
+          selbstkosten: 910,
+          posten: [
+            ...ergebnis().kosten!.posten!,
+            { key: "material_frei.0", bezeichnung: "Folie", betrag: 30 },
+            { key: "material_frei.1", bezeichnung: "Kartons", betrag: 80 },
+          ],
+        },
+      },
+    });
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    await uebersteuern("ws", "deal1", 1, { art: "material_frei", key: "folie", wert: { bezeichnung: "Folie", betrag: 30 }, grund: "Foto" }, MENSCH, t.deps);
+    await uebersteuern("ws", "deal1", 1, { art: "material_frei", key: "kartons", wert: { bezeichnung: "Kartons", betrag: 80 }, grund: "Foto" }, MENSCH, t.deps);
+
+    await expect(
+      uebersteuern("ws", "deal1", 1, { art: "zeile", key: "material_frei.0", wert: 5, grund: "Folie günstiger" }, MENSCH, t.deps)
+    ).rejects.toThrow(new UebersteuerungFehler("Freies Material bitte über material_frei ändern, nicht über die Kostenzeile."));
+    expect(t.speicher.anhaengen).toHaveBeenCalledTimes(2);
+
+    const r = await uebersteuern("ws", "deal1", 1, { art: "material_frei", key: "folie", wert: null, grund: "doch keine Folie" }, MENSCH, t.deps);
+    expect(r.version.rechnerRequest?.material_frei).toEqual([{ bezeichnung: "Kartons", betrag: 80 }]);
+    expect(r.version.rechnerRequest?.zeilen_uebersteuerung).toBeUndefined();
+    expect(r.version.overrides.some((u) => u.art === "zeile")).toBe(false);
+  });
 });
 
 describe("sperren", () => {

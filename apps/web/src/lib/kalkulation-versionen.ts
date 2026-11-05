@@ -197,6 +197,11 @@ export function pruefeUebersteuerung(e: { art: string; key: string; wert: unknow
       if (key.startsWith("zeile.") || key.startsWith("verkauf.")) {
         throw new UebersteuerungFehler(`Zeile nicht übersteuerbar: ${key}`);
       }
+      // Freies Material zählt der Rechner nach Position (material_frei.<n>): nach dem
+      // Entfernen eines Eintrags rückt der nächste nach und erbte den Zeilenbetrag.
+      if (key.startsWith("material_frei.")) {
+        throw new UebersteuerungFehler("Freies Material bitte über material_frei ändern, nicht über die Kostenzeile.");
+      }
       if (e.wert === null) return { art, key, wert: null, grund };
       const n = zahl(e.wert);
       if (n === null || n < 0) throw new UebersteuerungFehler("Betrag darf nicht negativ sein");
