@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   entwurfHolenOderAnlegen: vi.fn(),
   uebersteuern: vi.fn(),
   sperren: vi.fn(),
+  kartenAbweichung: vi.fn(),
 }));
 
 // Kein Zugriff auf die Datenbank: jeder Zugriff auf `db` lässt den Test scheitern.
@@ -30,6 +31,7 @@ vi.mock("@/services/kalkulation-versionen", async (importOriginal) => {
     entwurfHolenOderAnlegen: mocks.entwurfHolenOderAnlegen,
     uebersteuern: mocks.uebersteuern,
     sperren: mocks.sperren,
+    kartenAbweichung: mocks.kartenAbweichung,
   };
 });
 
@@ -53,6 +55,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.getAuthContext.mockResolvedValue(CTX);
   mocks.hatPaketoptionen.mockResolvedValue(false);
+  mocks.kartenAbweichung.mockResolvedValue(null);
   mocks.entwurfHolenOderAnlegen.mockResolvedValue({ version: { version: 1, status: "entwurf" }, neu: true });
   mocks.uebersteuern.mockResolvedValue({ version: { version: 1, status: "entwurf" }, neu: false });
   mocks.sperren.mockResolvedValue({
@@ -196,6 +199,19 @@ describe("POST /calculation/apply", () => {
     expect((await APPLY(req({}), { params })).status).toBe(400);
     mocks.uebersteuern.mockRejectedValueOnce(new UebersteuerungFehler("Marge zwischen 30 und 60 %"));
     expect((await APPLY(req({ margeProzent: 45 }), { params })).status).toBe(400);
+  });
+
+  it("Anpassungen außer der Marge in einer Version: 400 mit Verweis aufs Sperren, kein Entwurf, keine Übersteuerung (Review 1)", async () => {
+    mocks.kartenAbweichung.mockResolvedValue({ version: 2 });
+    const res = await APPLY(req({ margeProzent: 45 }), { params });
+    expect(res.status).toBe(400);
+    expect(await fehlerText(res)).toBe(
+      "Für diesen Deal gibt es Anpassungen in Kalkulation v2. Bitte die Version dort sperren (crm_lock_calculation_version) oder die Anpassungen zurücknehmen."
+    );
+    expect(mocks.kartenAbweichung).toHaveBeenCalledWith("ws_1", "deal_1");
+    expect(mocks.entwurfHolenOderAnlegen).not.toHaveBeenCalled();
+    expect(mocks.uebersteuern).not.toHaveBeenCalled();
+    expect(mocks.sperren).not.toHaveBeenCalled();
   });
 
   it("Kunde hat angenommen: 409 KVA_ACCEPTED", async () => {
