@@ -1602,6 +1602,18 @@ describe("calculation MCP tools", () => {
     expect(calls[0].options.body).not.toHaveProperty("autor");
   });
 
+  it("turns JSON-string wert and copy into objects", async () => {
+    const o = fakeClient();
+    await handleTool(o.client, "crm_override_calculation", {
+      recordId: "d1", version: 1, art: "zeitposten", key: "klavier",
+      wert: '{"bezeichnung":"Klavier","minuten":90}', grund: "Klavier im 3. OG",
+    });
+    expect((o.calls[0].options.body as { wert: unknown }).wert).toEqual({ bezeichnung: "Klavier", minuten: 90 });
+    const k = fakeClient();
+    await handleTool(k.client, "crm_render_kv_from_version", { recordId: "d1", version: 1, copy: '{"intro":"Hallo"}' });
+    expect((k.calls[0].options.body as { copy: unknown }).copy).toEqual({ intro: "Hallo" });
+  });
+
   it("locks a calculation version", async () => {
     const confirmed = fakeClient();
     await handleTool(confirmed.client, "crm_lock_calculation_version", {

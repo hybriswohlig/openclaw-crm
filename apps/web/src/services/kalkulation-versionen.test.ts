@@ -402,7 +402,7 @@ describe("uebersteuern", () => {
     await uebersteuern("ws", "deal1", 1, { ...ueberHalteverbot, wert: 50, grund: "Halbe Zone" }, MENSCH, t.deps);
     const r = await uebersteuern("ws", "deal1", 1, { ...ueberHalteverbot, wert: 80, grund: "doch mehr" }, MENSCH, t.deps);
     await t.alleNachher();
-    expect(t.melde.mock.calls.map(([m]) => [(m as { rechnerwert: number }).rechnerwert, (m as { inhaberwert: number }).inhaberwert])).toEqual([
+    expect(t.melde.mock.calls.map((c) => { const m = (c as unknown[])[0] as { rechnerwert: number; inhaberwert: number }; return [m.rechnerwert, m.inhaberwert]; })).toEqual([
       [150, 0], [150, 50], [150, 80],
     ]);
     expect(r.version.overrides.map((u) => u.rechnerwert)).toEqual([150, 150, 150]);

@@ -404,7 +404,7 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
     server,
     "crm_get_calculation",
     "Calculation versions of a deal (drafts and locked). Without version: list; with version: inputs with source, overrides with reason, cost lines with formula, margin, price, package prices, KV items.",
-    { recordId: z.string(), version: z.number().optional() },
+    { recordId: z.string(), version: z.number().int().min(1).optional() },
     req
   );
   tool(
@@ -552,10 +552,10 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_override_calculation",
-    "Override one input, cost line, margin, rate, time item or free material amount on a calculation version. art is eingabe, zeile, marge, satz, zeitposten or material_frei. key identifies the field or line, wert is the new value, grund is the required reason, fotoRef is optional. The author comes from the signed-in user and is never an argument.",
+    "Override one value of a calculation version and recalculate it in the Rechner. grund (reason) is required and must not be empty. wert null takes an earlier override back. By art: eingabe — key volumen (m³ > 0), beladen.etage / entladen.etage (−5..60, one decimal), beladen.aufzug / entladen.aufzug (keiner|klein|gross), beladen.tragweg / entladen.tragweg (metres), halteverbot.beladen / halteverbot.entladen (true|false), kartons (count), team (1..20), termin (YYYY-MM-DD); zeile — key is a cost line key from crm_get_calculation (e.g. halteverbot, personal.arbeit, gemeinkosten), wert the amount in € ≥ 0; marge — key marge, wert percent 30..60; satz — key arbeit or fahrt, wert €/h; zeitposten — key your own id, wert {bezeichnung, minuten}; material_frei — key your own id, wert {bezeichnung, betrag}. Overriding a locked version writes into the current draft (created if needed). The author comes from the signed-in user and is never an argument.",
     {
       recordId: z.string(),
-      version: z.number(),
+      version: z.number().int().min(1),
       art: z.enum(["eingabe", "zeile", "marge", "satz", "zeitposten", "material_frei"]),
       key: z.string(),
       wert: z.unknown(),
@@ -567,10 +567,10 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_lock_calculation_version",
-    "Lock a calculation version and write the deal quotation and its line items from that version. Refused after customer acceptance, for deals with package options and while the Rechner result is missing. Set bestaetigtSpanne to true to confirm locking when the calculation is a price range (for example unknown floor).",
+    "Lock a calculation version and write the deal quotation and its line items from that version. Refused after customer acceptance (409 KVA_ACCEPTED), for deals with package options, for hourly quotations when called by a bot, and while the Rechner result is missing. Set bestaetigtSpanne to true to confirm locking when the calculation is a price range (for example unknown floor).",
     {
       recordId: z.string(),
-      version: z.number(),
+      version: z.number().int().min(1),
       bestaetigtSpanne: z.boolean().optional(),
     },
     req
@@ -581,7 +581,7 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
     "Render the Kostenvoranschlag from a calculation version. copy may replace intro, closing and remarks.",
     {
       recordId: z.string(),
-      version: z.number(),
+      version: z.number().int().min(1),
       copy: z
         .object({
           intro: z.string().optional(),
