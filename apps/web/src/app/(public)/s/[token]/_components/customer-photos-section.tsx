@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Camera, ChevronDown } from "lucide-react";
-import { kundenText, type AttachmentRef } from "@openclaw-crm/customer-portal-core";
+import { kundenText, leistungsWorte, type AttachmentRef, type PortalLeistung } from "@openclaw-crm/customer-portal-core";
 import { LiveMediaFeed } from "./live-media-feed";
 
 /**
@@ -16,11 +16,13 @@ export function CustomerPhotosSection({
   photos,
   primaryColor,
   firmaSlug = null,
+  leistung = null,
 }: {
   token: string;
   photos: AttachmentRef[];
   primaryColor: string;
   firmaSlug?: string | null;
+  leistung?: PortalLeistung | null;
 }) {
   const t = (sie: string, du: string) => kundenText(firmaSlug, sie, du);
   const [open, setOpen] = useState(false);
@@ -45,7 +47,7 @@ export function CustomerPhotosSection({
             {t("Ihre Fotos", "Deine Fotos")} ({photos.length})
           </span>
           <span className="block text-xs text-muted-foreground">
-            {t("Fotos zu Ihrem Umzug", "Fotos zu deinem Umzug")}
+            {`Fotos zu ${leistungsWorte(leistung, firmaSlug).deinDat}`}
           </span>
         </span>
         <ChevronDown

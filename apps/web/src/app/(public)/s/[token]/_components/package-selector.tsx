@@ -290,7 +290,7 @@ function CataloguePicker({
         </p>
       ) : (
         <p className="text-[11px] text-muted-foreground">
-          {t("Wählen Sie das Paket, das am besten zu Ihrem Umzug passt. Der angezeigte Gesamtpreis übernimmt Ihre Auswahl automatisch.", "Wähle das Paket, das am besten zu deinem Umzug passt. Der angezeigte Gesamtpreis übernimmt deine Auswahl automatisch.")}
+          {t("Wählen Sie das Paket, das am besten zu Ihnen passt. Der angezeigte Gesamtpreis übernimmt Ihre Auswahl automatisch.", "Wähle das Paket, das am besten zu dir passt. Der angezeigte Gesamtpreis übernimmt deine Auswahl automatisch.")}
         </p>
       )}
     </section>

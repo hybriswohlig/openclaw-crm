@@ -12,5 +12,6 @@ export function auftragsartAus(input: { gespeichert: string | null; leadType: st
   const art = leistungsartVorschlag(input);
   if (art === "clearance") return "entruempelung";
   if (art === "kitchen_installation") return "kuechenmontage";
+  // Entrümpelung + Umzug rechnet der Angebotsrechner als Umzug.
   return "umzug";
 }

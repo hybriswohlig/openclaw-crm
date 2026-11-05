@@ -4,8 +4,10 @@ import { useState } from "react";
 import { Star, Loader2 } from "lucide-react";
 import {
   kundenText,
+  leistungsWorte,
   type CrewMember,
   type FirmaBranding,
+  type PortalLeistung,
 } from "@openclaw-crm/customer-portal-core";
 
 /**
@@ -21,10 +23,12 @@ export function CrewRatingSection({
   crew,
   branding,
   ratedAt,
+  leistung = null,
 }: {
   token: string;
   crew: CrewMember[];
   branding: FirmaBranding;
+  leistung?: PortalLeistung | null;
   /** ISO timestamp of a previously submitted rating, survives reloads. */
   ratedAt?: string | null;
 }) {
@@ -91,7 +95,7 @@ export function CrewRatingSection({
   }
 
   return (
-    <section aria-label={t("Ihr Umzugsteam bewerten", "Dein Umzugsteam bewerten")}>
+    <section aria-label={t(`Ihr ${leistungsWorte(leistung, branding.firmaSlug).team} bewerten`, `Dein ${leistungsWorte(leistung, branding.firmaSlug).team} bewerten`)}>
       <div className="space-y-4">
         <ul className="space-y-3">
           {crew.map((c) => (

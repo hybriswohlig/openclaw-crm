@@ -12,3 +12,4 @@ export * from "./widerruf";
 export * from "./unterschrift";
 
 export * from "./features";
+export * from "./leistung";

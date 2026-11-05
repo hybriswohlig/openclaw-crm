@@ -6,12 +6,12 @@ import {
   briefZustand,
   grussZeilen,
   stempel,
-  strecke,
   terminVorbeiHinweis,
   terminVorbeiNachricht,
   vorgangsSchritte,
   type BriefZustand,
 } from "../app/(public)/s/[token]/_components/brief";
+import { adressZeilen } from "../app/(public)/s/[token]/_components/leistung-worte";
 
 describe("Brief im Portal", () => {
   it("spricht mit Namen an und lässt ohne Namen keinen leeren Platz", () => {
@@ -67,16 +67,21 @@ describe("Brief im Portal", () => {
     expect(stempel({ signedAt: "2026-10-23T23:30:00Z", unterschriftAt: null })[0].datum).toBe("24.10.2026");
   });
 
-  it("zeigt die Strecke nur mit beiden Adressen als Linie", () => {
-    expect(strecke("Teststraße 1", "Beispielweg 2")).toEqual({
-      zeilen: [
-        { label: "Von", adresse: "Teststraße 1" },
-        { label: "Nach", adresse: "Beispielweg 2" },
-      ],
-      mitLinie: true,
-    });
-    expect(strecke(null, "Beispielweg 2")).toEqual({ zeilen: [{ label: "Nach", adresse: "Beispielweg 2" }], mitLinie: false });
-    expect(strecke("  ", null)).toBeNull();
+  it("zeigt beim Umzug Abholung und Ziel, bei Küche und Entrümpelung nur einen Ort", () => {
+    const scope = { fromAddress: "Teststraße 1", toAddress: "Beispielweg 2", floorsFrom: 0, floorsTo: 3, accessFrom: null, accessTo: "Aufzug" };
+    const mit = (leistung: "move" | "kitchen_installation" | "clearance" | "clearance_move", s: Partial<typeof scope> = {}) =>
+      adressZeilen({ leistung, branding: KOTTKE_BRANDING, scope: { ...scope, ...s } as never }).map((z) => [z.label, z.adresse]);
+    expect(mit("move")).toEqual([["Abholung", "Teststraße 1"], ["Ziel", "Beispielweg 2"]]);
+    expect(mit("clearance_move")).toEqual([["Abholung", "Teststraße 1"], ["Ziel", "Beispielweg 2"]]);
+    expect(mit("kitchen_installation")).toEqual([["Montageort", "Beispielweg 2"]]);
+    expect(mit("clearance")).toEqual([["Einsatzort", "Teststraße 1"]]);
+    expect(mit("kitchen_installation", { toAddress: "  " })).toEqual([["Montageort", "Teststraße 1"]]);
+    expect(mit("move", { fromAddress: "  ", toAddress: null as never })).toEqual([]);
+  });
+
+  it("nennt im Brief die richtige Leistung", () => {
+    expect(briefEinleitung("offen", "Montag, 30. November 2026", null, "kitchen_installation", "kottke")).toContain("für die Küchenmontage am");
+    expect(briefEinleitung("offen", "Montag, 30. November 2026", null, "clearance_move", "kottke")).toContain("für die Entrümpelung und den Umzug am");
   });
 
   it("schreibt keine Gedankenstriche", () => {

@@ -28,6 +28,7 @@ import { RestbetragHinweis } from "./restbetrag-hinweis";
 import { DateOfferPicker } from "./date-offer-picker";
 import { CustomerPhotosSection } from "./customer-photos-section";
 import { FurnitureListSection } from "./furniture-list-section";
+import { worte } from "./leistung-worte";
 
 /**
  * Stage 1 layout — desktop is a two-column grid with a sticky price/CTA
@@ -141,7 +142,7 @@ export function StageOneKva({
           {ctx.dateOffers.options.length > 0 && <DateOfferPicker token={token} ctx={ctx} onPicked={onConfirmed} locked={alreadyAccepted} />}
           <section className="portal-panel">
             <div className="portal-offer-intro"><PanelHeading icon={FileText} title={hasMultipleOffers ? t("Unsere Angebote für Sie", "Unsere Angebote für dich") : t("Ihr persönliches Angebot", "Dein persönliches Angebot")}>
-              <p>{hasMultipleOffers ? t("Wir haben die Optionen für Ihren Umzug erstellt. Wählen Sie das passende Angebot für sich aus.", "Wir haben die Optionen für deinen Umzug erstellt. Wähle das passende Angebot für dich aus.") : t("Hier finden Sie Ihr Angebot mit allen vereinbarten Leistungen für Ihren Umzug.", "Hier findest du dein Angebot mit allen vereinbarten Leistungen für deinen Umzug.")}</p>
+              <p>{hasMultipleOffers ? t(`Wir haben die Optionen für ${worte(ctx).deinAkk} erstellt. Wählen Sie das passende Angebot für sich aus.`, `Wir haben die Optionen für ${worte(ctx).deinAkk} erstellt. Wähle das passende Angebot für dich aus.`) : t(`Hier finden Sie Ihr Angebot mit allen vereinbarten Leistungen für ${worte(ctx).deinAkk}.`, `Hier findest du dein Angebot mit allen vereinbarten Leistungen für ${worte(ctx).deinAkk}.`)}</p>
             </PanelHeading><span>Auftragsnummer: <strong>{ctx.dealNumber}</strong></span></div>
             {offerView !== "einzelangebot" && <PackageSelector token={token} packages={ctx.packages} dealOffers={ctx.dealPackageOffers} branding={ctx.branding} locked={alreadyAccepted} onPicked={onConfirmed} />}
             {offerView === "einzelangebot" && ctx.kva && <div className="portal-note rounded-lg p-5"><strong>{ctx.kva.isVariable ? "Individuelles Angebot nach Aufwand" : t("Ihr individuelles Angebot", "Dein individuelles Angebot")}</strong><div className="portal-price text-4xl">{formatPortalMoney(displayTotalCents)}</div>{ctx.kva.summary && <p className="mt-3 whitespace-pre-line">{ctx.kva.summary}</p>}</div>}
@@ -151,8 +152,8 @@ export function StageOneKva({
           <div className={hasMultipleOffers ? "" : "lg:hidden"}><OrderDetails ctx={ctx} token={token} wide /></div>
           {ctx.kva?.calculationAssumptions && <CalculationAssumptionsCard a={ctx.kva.calculationAssumptions} />}
           {ctx.dealPackageOffers.options.length === 0 && ctx.kva?.showStandardInclusions && <OfferInclusionsSection inclusions={ctx.inclusions} branding={ctx.branding} />}
-          <CustomerPhotosSection token={token} photos={ctx.customerPhotos} primaryColor={ctx.branding.primaryColor} firmaSlug={firma} />
-          <FurnitureListSection items={ctx.furnitureList ?? []} primaryColor={ctx.branding.primaryColor} />
+          <CustomerPhotosSection token={token} photos={ctx.customerPhotos} primaryColor={ctx.branding.primaryColor} firmaSlug={firma} leistung={ctx.leistung} />
+          <FurnitureListSection items={ctx.furnitureList ?? []} primaryColor={ctx.branding.primaryColor} titel={worte(ctx).inventarTitel} />
           {alreadyAccepted && ctx.features?.payments === true && ctx.payment && ctx.payment.amountCents > 0 && <PaymentSection token={token} payment={ctx.payment} branding={ctx.branding} variant="deposit" markedPaidAt={ctx.customerSignals.markedPaidDepositAt} />}
         </div>
         <aside className="portal-stack">

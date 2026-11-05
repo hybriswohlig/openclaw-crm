@@ -10,9 +10,12 @@ import type { FurnitureListItem } from "@openclaw-crm/customer-portal-core";
 export function FurnitureListSection({
   items,
   primaryColor,
+  titel = "Möbelliste",
 }: {
   items: FurnitureListItem[];
   primaryColor: string;
+  /** Möbelliste, Küchenteile oder Gegenstände, je nach Leistung. */
+  titel?: string;
 }) {
   if (items.length === 0) return null;
 
@@ -25,7 +28,7 @@ export function FurnitureListSection({
           aria-hidden
         />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium">Möbelliste</p>
+          <p className="text-sm font-medium">{titel}</p>
           <p className="text-xs text-muted-foreground">
             Diese Gegenstände sind im Angebot berücksichtigt
           </p>

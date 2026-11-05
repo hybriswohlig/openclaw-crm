@@ -1,7 +1,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { StagePortal } from "../../src/app/(public)/s/[token]/_components/stage-portal";
-import { annahmeRegeln, firmaKontakt } from "@openclaw-crm/customer-portal-core";
+import { annahmeRegeln, ausPortalLeistung, firmaKontakt, leistungsWorte } from "@openclaw-crm/customer-portal-core";
 import { festangebotFixture, portalFixture } from "./fixture";
 import "../../src/app/globals.css";
 import "../../src/app/(public)/s/[token]/portal.css";
@@ -15,8 +15,15 @@ if (params.has("expired")) ctx.kva!.validUntil = "2026-01-01";
 if (params.has("empty")) { ctx.kva = null; ctx.dealPackageOffers.options = []; }
 if (params.has("dark")) document.documentElement.classList.add("dark");
 // Küchenmontage in 5 Tagen: Belehrung plus vorzeitiger Beginn.
-if (params.has("kitchen")) { ctx.scope.moveDate = "2026-09-11"; ctx.annahmeRecht = { ...annahmeRegeln({ serviceType: "kitchen_installation", moveDate: "2026-09-11", hasOpenDateChoice: false, now: new Date(ctx.meta.serverTime) }), kontakt: firmaKontakt("ceylan") }; }
+if (params.has("kitchen")) { ctx.scope.moveDate = "2026-09-11"; ctx.leistung = "kitchen_installation"; ctx.annahmeRecht = { ...annahmeRegeln({ serviceType: "kitchen_installation", moveDate: "2026-09-11", hasOpenDateChoice: false, now: new Date(ctx.meta.serverTime) }), kontakt: firmaKontakt("ceylan") }; }
 // Umzug ohne Termin: Annahme gesperrt, Hinweis auf Terminabstimmung.
+const leistungParam = params.get("leistung");
+if (leistungParam === "kitchen_installation" || leistungParam === "clearance" || leistungParam === "clearance_move") {
+  const { serviceType } = ausPortalLeistung(leistungParam);
+  ctx.leistung = leistungParam;
+  if (!leistungsWorte(leistungParam, ctx.branding.firmaSlug).standardleistungen) ctx.inclusions = { included: [], optional: [] };
+  ctx.annahmeRecht = { ...annahmeRegeln({ serviceType, moveDate: ctx.scope.moveDate, hasOpenDateChoice: false, now: new Date(ctx.meta.serverTime) }), kontakt: firmaKontakt(ctx.branding.firmaSlug) };
+}
 if (params.has("nodate")) { ctx.scope.moveDate = null; ctx.annahmeRecht = { ...annahmeRegeln({ serviceType: "move", moveDate: null, hasOpenDateChoice: false, now: new Date(ctx.meta.serverTime) }), kontakt: firmaKontakt("kottke") }; }
 if (params.has("agb")) ctx.branding = { ...ctx.branding, agbPdfUrl: "/legal/agb/kottke" };
 if (params.has("aufgehoben")) ctx.fruehereAnnahmeAufgehoben = true;

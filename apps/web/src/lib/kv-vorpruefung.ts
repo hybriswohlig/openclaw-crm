@@ -8,7 +8,7 @@
  */
 import { resolveCustomerNameForDocs, type LeadContext } from "./deal-doc-data";
 import { locationValueToText } from "./adresse";
-import type { ServiceArt } from "@openclaw-crm/customer-portal-core";
+import { leistungAusText, type PortalLeistung } from "@openclaw-crm/customer-portal-core";
 
 export type DokumentArt = "KV" | "AB" | "RE";
 export type PflichtFeld = "kundenname" | "auszug" | "einzug" | "datum";
@@ -30,7 +30,7 @@ export interface KvHinweisDaten {
   /** Neueste Unterhaltung des Deals, für den Sprung in den Posteingang. */
   conversationId: string | null;
   /** Vorbelegung der Leistung im KV-Dialog (fehlt bei älteren Antworten). */
-  leistungsart?: ServiceArt;
+  leistungsart?: PortalLeistung;
 }
 
 /**
@@ -38,9 +38,22 @@ export interface KvHinweisDaten {
  * zuerst, sonst eine Entrümpelungs-Anfrage als Entrümpelung, sonst Umzug.
  * „move“ ist der Spalten-Default und zählt deshalb nicht als Wahl.
  */
-export function leistungsartVorschlag(input: { gespeichert: string | null; leadType: string | null }): ServiceArt {
+/**
+ * Vorbelegung der Leistung im KV-Dialog. Reihenfolge: gespeicherte Küche oder
+ * Entrümpelung, gespeicherter Umzug mit Entrümpelung, Entrümpelungs-Anfrage,
+ * dann der Angebotstext (z. B. „IKEA-Küchenmontage“), sonst Umzug. „move“ ist
+ * auch der Spalten-Default, deshalb zählt ein gespeicherter Umzug allein nicht.
+ */
+export function leistungsartVorschlag(input: {
+  gespeichert: string | null;
+  leadType: string | null;
+  mitEntruempelung?: boolean | null;
+  text?: string | null;
+}): PortalLeistung {
   if (input.gespeichert === "kitchen_installation" || input.gespeichert === "clearance") return input.gespeichert;
-  return input.leadType?.toLowerCase() === "entruempelung" ? "clearance" : "move";
+  if (input.gespeichert === "move" && input.mitEntruempelung === true) return "clearance_move";
+  if (input.leadType?.toLowerCase() === "entruempelung") return "clearance";
+  return leistungAusText(input.text) ?? "move";
 }
 
 export interface Vorpruefung {
