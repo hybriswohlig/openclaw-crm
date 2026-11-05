@@ -52,6 +52,19 @@ import {
 } from "./whatsapp-outbound-policy";
 import { alleVerarbeiten } from "./inbox-whatsapp-eingang";
 
+/**
+ * Wartet-Signal nach einer gesendeten Nachricht neu rechnen (Agent, Erstkontakt,
+ * Inbox). Setzt bewusst nicht last_outbound_human_at, das tut nur die Route für
+ * Nachrichten von Hand. Ein Fehler hier darf den Versand nicht scheitern lassen.
+ */
+async function wartetNachAusgang(workspaceId: string, dealRecordId: string | null | undefined): Promise<void> {
+  try {
+    await aktualisiereWartet(workspaceId, dealRecordId);
+  } catch (err) {
+    console.error("[wartet] nach WhatsApp-Ausgang fehlgeschlagen:", err);
+  }
+}
+
 // ─── Settings keys ────────────────────────────────────────────────────────────
 // App-level values, stored once per workspace in workspace_settings (encrypted).
 
@@ -1612,6 +1625,8 @@ export async function sendWhatsAppReply(params: {
     });
   }
 
+  await wartetNachAusgang(workspaceId, conv.dealRecordId);
+
   return stored;
 }
 
@@ -2467,6 +2482,8 @@ export async function sendWhatsAppTemplate(params: {
     });
   }
 
+  await wartetNachAusgang(workspaceId, linkedDealId);
+
   return { message: stored, conversationId: conv.id, createdNewConversation };
 }
 
@@ -2903,6 +2920,8 @@ export async function sendBaileysReply(params: {
     });
   }
 
+  if (!duplicate) await wartetNachAusgang(workspaceId, conv.dealRecordId);
+
   return stored;
 }
 
@@ -3289,6 +3308,8 @@ export async function sendBaileysFirstMessage(params: {
       },
     });
   }
+
+  if (!duplicate) await wartetNachAusgang(workspaceId, linkedDealId);
 
   return { message: stored, conversationId: conv.id, createdNewConversation };
 }

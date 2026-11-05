@@ -900,6 +900,14 @@ export async function sendEmailReply(params: {
     body,
   });
 
+  // Wartet-Signal neu rechnen (auch für Agent-Antworten). Setzt bewusst nicht
+  // last_outbound_human_at, das tut nur die Route für Nachrichten von Hand.
+  try {
+    await aktualisiereWartet(workspaceId, conv.dealRecordId);
+  } catch (err) {
+    console.error("[wartet] nach E-Mail-Ausgang fehlgeschlagen:", err);
+  }
+
   return stored;
 }
 
