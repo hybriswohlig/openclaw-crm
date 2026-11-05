@@ -12,6 +12,8 @@ import {
   type DocumentModel,
   type FirmaSlug,
   type PackageOptionPrice,
+  companyFromTitle,
+  letterheadFromValues,
 } from "@openclaw-crm/document-templates";
 import { db } from "@/db";
 import { attributes, objects } from "@/db/schema/objects";
@@ -31,9 +33,15 @@ import {
   type DealDocumentMeta,
   type DealDocumentType,
 } from "@/services/deal-documents";
+import { applyInvoiceDueDate } from "@/services/rechnung-faellig";
+import { berlinCalendarDay } from "@/lib/invoice-due-date";
 import { anredeFuerOptOut, ladeGespeicherteAnrede } from "@/services/agent/agent-suppress";
 import { aktivBedingung } from "@/services/kva-annahme";
 import { preisZahlungenCent } from "@/lib/preis-zahlungen";
+import {
+  KOTTKE_CRM_RENDERER_MESSAGE,
+  blocksInRepoCrmRenderer,
+} from "@/lib/kottke-crm-renderer";
 
 export class CommercialDocumentError extends Error {
   constructor(
@@ -53,12 +61,7 @@ const STORE_TYPE: Record<DocKind, DealDocumentType> = {
 };
 
 export function berlinToday(now = new Date()): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Europe/Berlin",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(now);
+  return berlinCalendarDay(now);
 }
 
 function firmaFromCompany(name: string | null | undefined): FirmaSlug | null {
@@ -170,8 +173,20 @@ async function loadAddressForm(workspaceId: string, dealRecordId: string): Promi
 async function loadServiceFlags(
   workspaceId: string,
   dealRecordId: string
-): Promise<{ pianoTransport: boolean; storageRequired: boolean }> {
-  const empty = { pianoTransport: false, storageRequired: false };
+): Promise<{
+  pianoTransport: boolean;
+  storageRequired: boolean;
+  packing: boolean;
+  assembly: boolean;
+  auftragName: string | null;
+}> {
+  const empty = {
+    pianoTransport: false,
+    storageRequired: false,
+    packing: false,
+    assembly: false,
+    auftragName: null,
+  };
   try {
     const [auftragObj] = await db
       .select({ id: objects.id })
@@ -203,6 +218,9 @@ async function loadServiceFlags(
     return {
       pianoTransport: flag(values.piano_transport),
       storageRequired: flag(values.storage_required),
+      packing: flag(values.packing_service),
+      assembly: flag(values.dismantling_required),
+      auftragName: typeof values.name === "string" ? values.name : null,
     };
   } catch (err) {
     console.error("[commercial-documents] service flags unavailable", err);
@@ -216,18 +234,49 @@ export function acceptedPriceFor(kind: DocKind, snapshot: unknown): AcceptedPric
   return preisQuelleAusAnnahme(snapshot);
 }
 
-async function loadPersonAddress(
+function refId(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const id = (value as { id?: unknown }).id;
+  return typeof id === "string" && id ? id : null;
+}
+
+function refName(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const name = (value as { displayName?: unknown }).displayName;
+  return typeof name === "string" && name.trim() ? name.trim() : null;
+}
+
+async function loadPersonContact(
   workspaceId: string,
   personId: string
-): Promise<string | undefined> {
+): Promise<{ address?: string; companyName: string | null; companyId: string | null }> {
+  const empty = { companyName: null, companyId: null };
   const [peopleObj] = await db
     .select({ id: objects.id })
     .from(objects)
     .where(and(eq(objects.workspaceId, workspaceId), eq(objects.slug, "people")))
     .limit(1);
-  if (!peopleObj) return undefined;
+  if (!peopleObj) return empty;
   const person = await getRecord(peopleObj.id, personId);
-  return addressLine(person?.values.location);
+  return {
+    address: addressLine(person?.values.location),
+    companyName: refName(person?.values.company),
+    companyId: refId(person?.values.company),
+  };
+}
+
+async function loadCompanyAddress(
+  workspaceId: string,
+  companyId: string
+): Promise<string | undefined> {
+  const [companyObj] = await db
+    .select({ id: objects.id })
+    .from(objects)
+    .where(and(eq(objects.workspaceId, workspaceId), eq(objects.slug, "companies")))
+    .limit(1);
+  if (!companyObj) return undefined;
+  const company = await getRecord(companyObj.id, companyId);
+  return addressLine(company?.values.primary_location);
 }
 
 export async function loadCommercialModel(input: {
@@ -253,7 +302,17 @@ export async function loadCommercialModel(input: {
   }
 
   const company = deal.values.operating_company as { displayName?: string } | null;
-  const firma = firmaFromCompany(company?.displayName);
+  const companyName = refName(company) ?? company?.displayName ?? null;
+  const firma = firmaFromCompany(companyName);
+  if (
+    blocksInRepoCrmRenderer({
+      firma,
+      operatingCompanyId: refId(company),
+      operatingCompanyName: companyName,
+    })
+  ) {
+    throw new CommercialDocumentError(KOTTKE_CRM_RENDERER_MESSAGE, 400);
+  }
   if (!firma) {
     throw new CommercialDocumentError("Firma (Kottke oder Ceylan) fehlt auf dem Auftrag.", 400);
   }
@@ -309,16 +368,44 @@ export async function loadCommercialModel(input: {
       ? String((people[0] as { id: string }).id)
       : null;
 
-  const [email, customerAddress, paidRow, flags, addressForm] = await Promise.all([
+  const ocId = refId(deal.values.operating_company);
+  const [email, personContact, paidRow, flags, addressForm, letterheadValues] = await Promise.all([
     loadCustomerEmail(workspaceId, dealRecordId),
-    personId ? loadPersonAddress(workspaceId, personId) : Promise.resolve(undefined),
+    personId
+      ? loadPersonContact(workspaceId, personId)
+      : Promise.resolve({ address: undefined, companyName: null, companyId: null }),
     db
       .select({ amount: payments.amount, taxTreatment: payments.taxTreatment })
       .from(payments)
       .where(and(eq(payments.workspaceId, workspaceId), eq(payments.dealRecordId, dealRecordId))),
     loadServiceFlags(workspaceId, dealRecordId),
     loadAddressForm(workspaceId, dealRecordId),
+    (async () => {
+      if (!ocId) return null;
+      const [ocObj] = await db
+        .select({ id: objects.id })
+        .from(objects)
+        .where(and(eq(objects.workspaceId, workspaceId), eq(objects.slug, "operating_companies")))
+        .limit(1);
+      if (!ocObj) return null;
+      const oc = await getRecord(ocObj.id, ocId);
+      return oc?.values ?? null;
+    })(),
   ]);
+
+  const linkedCompany =
+    refName(deal.values.company) ?? personContact.companyName ?? null;
+  const customerCompany =
+    linkedCompany ??
+    companyFromTitle(typeof deal.values.name === "string" ? deal.values.name : null);
+  const companyId = refId(deal.values.company) ?? personContact.companyId;
+  let customerAddress = personContact.address;
+  if (!customerAddress && companyId) {
+    customerAddress = await loadCompanyAddress(workspaceId, companyId);
+  }
+  const inventoryNotes =
+    typeof deal.values.inventory_notes === "string" ? deal.values.inventory_notes : "";
+  const dealTitle = typeof deal.values.name === "string" ? deal.values.name : "";
 
   // Kaution und durchlaufende Posten sind keine Zahlung auf die Rechnung.
   const paidCents = preisZahlungenCent(paidRow);
@@ -329,6 +416,7 @@ export async function loadCommercialModel(input: {
       deal: {
         firma,
         customerName: customer.fullName,
+        customerCompany,
         customerEmail: email ?? undefined,
         customerAddress,
         fromAddress: addressLine(deal.values.move_from_address),
@@ -336,7 +424,8 @@ export async function loadCommercialModel(input: {
         serviceDate: isoDay(deal.values.move_date),
         documentDate: berlinToday(input.now),
         givenName: customer.vorname,
-        addressForm,
+        letterhead: letterheadFromValues(letterheadValues),
+        addressForm: customerCompany ? "sie" : addressForm,
         dueDate: documentDueDate(
           deal.values.rechnung_faellig_am,
           quotation.documentDetails?.depositDue
@@ -347,6 +436,11 @@ export async function loadCommercialModel(input: {
         leadType: leadTypeFromPayload(deal.values.moving_lead_payload),
         pianoTransport: flags.pianoTransport,
         storageRequired: flags.storageRequired,
+        packing: flags.packing,
+        assembly: flags.assembly,
+        inventory: inventoryNotes.trim().length > 0,
+        title: [dealTitle, flags.auftragName].filter(Boolean).join(" "),
+        mention: [quotation.summary, inventoryNotes].filter(Boolean).join(" "),
       },
       quotation: priceSourceFromStored(quotation),
       accepted: acceptedPriceFor(kind, accepted?.quotationSnapshot),
@@ -393,19 +487,81 @@ export async function storeCommercialDocument(input: {
   kind: DocKind;
   copy?: DocumentCopy;
   notifyCustomer?: boolean;
-}): Promise<{ document: DealDocumentMeta; templateVersion: string; fileName: string }> {
+  /** Kept when present. Otherwise an RE is due on the invoice day. */
+  dueDate?: string | null;
+  updatedBy?: string | null;
+  now?: Date;
+}): Promise<{
+  document: DealDocumentMeta;
+  templateVersion: string;
+  fileName: string;
+  rechnungFaelligAm: string | null;
+  dueDateWarning?: string;
+}> {
   const rendered = await previewCommercialDocument(input);
+  return persistCommercialDocument({
+    workspaceId: input.workspaceId,
+    dealRecordId: input.dealRecordId,
+    kind: input.kind,
+    pdf: rendered.pdf,
+    fileStem: rendered.model.fileStem,
+    templateVersion: rendered.templateVersion,
+    notifyCustomer: input.notifyCustomer,
+    dueDate: input.dueDate,
+    updatedBy: input.updatedBy,
+    now: input.now,
+  });
+}
+
+/** Stores an already rendered PDF and, for an RE, stamps Rechnung fällig am. */
+export async function persistCommercialDocument(input: {
+  workspaceId: string;
+  dealRecordId: string;
+  kind: DocKind;
+  pdf: Uint8Array;
+  fileStem: string;
+  templateVersion: string;
+  notifyCustomer?: boolean;
+  dueDate?: string | null;
+  updatedBy?: string | null;
+  now?: Date;
+}): Promise<{
+  document: DealDocumentMeta;
+  templateVersion: string;
+  fileName: string;
+  rechnungFaelligAm: string | null;
+  dueDateWarning?: string;
+}> {
   const suffix = crypto.randomUUID().slice(0, 8);
-  const fileName = `${rendered.model.fileStem}-${suffix}.pdf`;
+  const fileName = `${input.fileStem}-${suffix}.pdf`;
   const document = await createDealDocument({
     workspaceId: input.workspaceId,
     dealRecordId: input.dealRecordId,
     documentType: STORE_TYPE[input.kind],
     fileName,
-    fileSize: rendered.pdf.byteLength,
+    fileSize: input.pdf.byteLength,
     mimeType: "application/pdf",
-    fileContent: Buffer.from(rendered.pdf).toString("base64"),
+    fileContent: Buffer.from(input.pdf).toString("base64"),
     notifyCustomer: input.notifyCustomer === true,
   });
-  return { document, templateVersion: rendered.templateVersion, fileName };
+  const due =
+    input.kind === "RE"
+      ? await applyInvoiceDueDate({
+          documentType: "invoice",
+          workspaceId: input.workspaceId,
+          dealRecordId: input.dealRecordId,
+          explicitDueDate: input.dueDate,
+          updatedBy: input.updatedBy ?? null,
+          now: input.now,
+        })
+      : { rechnungFaelligAm: null as string | null };
+  return {
+    document,
+    templateVersion: input.templateVersion,
+    fileName,
+    rechnungFaelligAm: due.rechnungFaelligAm,
+    ...("dueDateWarning" in due && due.dueDateWarning
+      ? { dueDateWarning: due.dueDateWarning }
+      : {}),
+  };
 }

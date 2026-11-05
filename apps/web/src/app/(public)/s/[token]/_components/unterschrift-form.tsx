@@ -4,7 +4,9 @@ import { useState } from "react";
 import { Loader2 } from "lucide-react";
 import {
   BUTTON_UNTERSCHRIFT_BESTAETIGEN,
-  UNTERSCHRIFT_HINWEIS,
+  kundenAnrede,
+  kundenText,
+  unterschriftHinweis,
   type CustomerPortalContext,
   type UnterschriftArt,
 } from "@openclaw-crm/customer-portal-core";
@@ -13,14 +15,18 @@ import { formatPortalDate, formatPortalMoney } from "./portal-presentation";
 import { stempel } from "./brief";
 import { Stempel } from "./brief-teile";
 
-const FEHLER: Record<string, string> = {
-  BEREITS_UNTERSCHRIEBEN: "Der Vertrag ist bereits unterschrieben. Bitte laden Sie die Seite neu.",
-  KEIN_PDF: "Die Unterschrift ist für diesen Auftrag nicht verfügbar. Bitte laden Sie die Seite neu.",
-  KEINE_ANNAHME: "Die Unterschrift ist für diesen Auftrag nicht verfügbar. Bitte laden Sie die Seite neu.",
-  BILD_UNGUELTIG: "Die Unterschrift konnte nicht übernommen werden. Bitte zeichnen Sie erneut oder tippen Sie Ihren Namen.",
-  ANGEBOT_GEAENDERT: "Ihr Auftrag wurde inzwischen geändert. Bitte laden Sie die Seite neu.",
-  PDF_FEHLER: "Das Vertragsdokument konnte gerade nicht erstellt werden. Bitte versuchen Sie es in einer Minute erneut.",
-};
+function unterschriftFehler(firma: string, code: string): string | null {
+  const t = (sie: string, du: string) => kundenText(firma, sie, du);
+  const texte: Record<string, string> = {
+    BEREITS_UNTERSCHRIEBEN: t("Der Vertrag ist bereits unterschrieben. Bitte laden Sie die Seite neu.", "Der Vertrag ist bereits unterschrieben. Bitte lade die Seite neu."),
+    KEIN_PDF: t("Die Unterschrift ist für diesen Auftrag nicht verfügbar. Bitte laden Sie die Seite neu.", "Die Unterschrift ist für diesen Auftrag nicht verfügbar. Bitte lade die Seite neu."),
+    KEINE_ANNAHME: t("Die Unterschrift ist für diesen Auftrag nicht verfügbar. Bitte laden Sie die Seite neu.", "Die Unterschrift ist für diesen Auftrag nicht verfügbar. Bitte lade die Seite neu."),
+    BILD_UNGUELTIG: t("Die Unterschrift konnte nicht übernommen werden. Bitte zeichnen Sie erneut oder tippen Sie Ihren Namen.", "Die Unterschrift konnte nicht übernommen werden. Bitte zeichne erneut oder tippe deinen Namen."),
+    ANGEBOT_GEAENDERT: t("Ihr Auftrag wurde inzwischen geändert. Bitte laden Sie die Seite neu.", "Dein Auftrag wurde inzwischen geändert. Bitte lade die Seite neu."),
+    PDF_FEHLER: t("Das Vertragsdokument konnte gerade nicht erstellt werden. Bitte versuchen Sie es in einer Minute erneut.", "Das Vertragsdokument konnte gerade nicht erstellt werden. Bitte versuche es in einer Minute erneut."),
+  };
+  return texte[code] ?? null;
+}
 
 /** Formular der freiwilligen Unterschrift nach der Annahme. */
 export function UnterschriftForm({
@@ -38,6 +44,8 @@ export function UnterschriftForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fertig, setFertig] = useState<string | null>(null);
+  const firma = ctx.branding.firmaSlug;
+  const t = (sie: string, du: string) => kundenText(firma, sie, du);
 
   const bereit = name.trim().length >= 2 && (art === "getippt" || !!bild) && !busy;
 
@@ -58,13 +66,13 @@ export function UnterschriftForm({
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: { code?: string } };
-        setError(FEHLER[body.error?.code ?? ""] ?? "Verbindungsfehler. Bitte versuchen Sie es erneut.");
+        setError(unterschriftFehler(firma, body.error?.code ?? "") ?? t("Verbindungsfehler. Bitte versuchen Sie es erneut.", "Verbindungsfehler. Bitte versuche es erneut."));
         return;
       }
       setFertig(new Date().toISOString());
       await Promise.resolve(onSigned());
     } catch {
-      setError("Verbindungsfehler. Bitte versuchen Sie es erneut.");
+      setError(t("Verbindungsfehler. Bitte versuchen Sie es erneut.", "Verbindungsfehler. Bitte versuche es erneut."));
     } finally {
       setBusy(false);
     }
@@ -76,13 +84,13 @@ export function UnterschriftForm({
       <div aria-live="polite" className="portal-unterschrift-fertig">
         <Stempel s={{ art: "unterschrieben", datum }} />
         <div>
-          <p className="font-medium">Vielen Dank, Ihr Vertrag ist unterschrieben.</p>
+          <p className="font-medium">{t("Vielen Dank, Ihr Vertrag ist unterschrieben.", "Vielen Dank, dein Vertrag ist unterschrieben.")}</p>
           {ctx.documents.signedContractUrl ? (
             <a className="portal-annahme-vertrag" href={ctx.documents.signedContractUrl} target="_blank" rel="noopener noreferrer">
               Vertrag als PDF öffnen
             </a>
           ) : (
-            <p className="mt-1 text-xs text-muted-foreground">Ihr unterschriebener Vertrag wird gerade bereitgestellt.</p>
+            <p className="mt-1 text-xs text-muted-foreground">{t("Ihr unterschriebener Vertrag wird gerade bereitgestellt.", "Dein unterschriebener Vertrag wird gerade bereitgestellt.")}</p>
           )}
         </div>
       </div>
@@ -92,7 +100,7 @@ export function UnterschriftForm({
   const acceptance = ctx.acceptance;
   return (
     <div className="space-y-4">
-      <p className="text-sm leading-relaxed">{UNTERSCHRIFT_HINWEIS}</p>
+      <p className="text-sm leading-relaxed">{unterschriftHinweis(kundenAnrede(firma))}</p>
       {acceptance && (
         <p className="rounded-lg bg-muted/50 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
           Auftrag {ctx.dealNumber} · {formatPortalMoney(acceptance.confirmedTotalCents)}
@@ -115,7 +123,7 @@ export function UnterschriftForm({
         <SignatureField onChange={setBild} />
       ) : (
         <div className="portal-signature-flaeche portal-signature-typed" aria-label="Vorschau der getippten Unterschrift">
-          {name.trim() || "Ihr Name"}
+          {name.trim() || t("Ihr Name", "Dein Name")}
         </div>
       )}
       <button type="button" className="portal-link-button" onClick={() => setArt(art === "gezeichnet" ? "getippt" : "gezeichnet")}>

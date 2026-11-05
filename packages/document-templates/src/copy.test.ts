@@ -4,6 +4,7 @@ import { buildDocumentModel } from "./model";
 import { renderHtml } from "./html";
 import { renderPdf } from "./pdf";
 import { composeDocumentCopy, selectDocumentService } from "./copy";
+import { KOTTKE_RESTBETRAG_EINSATZ, KOTTKE_RESTBETRAG_UMZUG } from "./restbetrag";
 import { TEMPLATE_VERSION } from "./version";
 import type { DealFacts, DocKind, QuotationPriceSource, ServiceSignals } from "./types";
 
@@ -226,6 +227,7 @@ describe("preview", () => {
     signals?: ServiceSignals;
     addressForm?: "sie" | "du";
     customerName?: string;
+    customerCompany?: string;
     dueDate?: string;
     method?: QuotationPriceSource["paymentMethodPreference"];
     copy?: { intro?: string; closing?: string; remarks?: string };
@@ -236,6 +238,7 @@ describe("preview", () => {
       deal: {
         ...deal,
         customerName: over.customerName ?? deal.customerName,
+        customerCompany: over.customerCompany,
         addressForm: over.addressForm,
         dueDate: over.dueDate,
       },
@@ -309,12 +312,56 @@ describe("preview", () => {
 
     const transfer = preview({ kind: "RE", method: "bank_transfer" });
     expect(transfer.model.paymentTerms).toContain("überweisen Sie");
-    expect(transfer.model.paymentTerms).toContain("Keine Kartenzahlung vor Ort");
+    expect(transfer.model.paymentTerms).not.toContain("Keine Kartenzahlung");
+    expect(transfer.model.paymentTerms).not.toContain("vor Auftragsbeginn");
     expect(transfer.model.paymentTerms).not.toContain("Karte vor Ort");
 
     const cash = preview({ kind: "KV", method: "cash" });
-    expect(cash.model.paymentTerms).toContain("vor Auftragsbeginn bar zu entrichten");
-    expect(cash.model.paymentTerms).not.toContain("Kartenzahlung direkt vor Ort");
+    expect(cash.model.paymentTerms).toBe(
+      `Die Anzahlung ist bar zu entrichten. ${KOTTKE_RESTBETRAG_UMZUG}`,
+    );
+    expect(cash.model.paymentTerms).not.toContain("Keine Kartenzahlung");
+    expect(cash.model.paymentTerms).not.toContain("vor Auftragsbeginn");
+    expect(cash.model.paymentTerms).not.toContain("auf Rechnung");
+  });
+
+  it("Kottke KV/AB: Restbetrag am Umzugstag, Anzahlung behält ihr Datum, Rechnung bleibt beim Fälligkeitsdatum", () => {
+    const offer = preview({ kind: "KV", dueDate: "2026-11-20" });
+    expect(offer.model.paymentTerms).toContain("Die Anzahlung ist bis spätestens 20.11.2026");
+    expect(offer.model.paymentTerms).toContain(KOTTKE_RESTBETRAG_UMZUG);
+
+    const whole = preview({
+      kind: "AB",
+      dueDate: "2026-11-20",
+      method: "bank_transfer",
+    });
+    // Default quotation still has a deposit, so the date stays on the Anzahlung.
+    expect(whole.model.paymentTerms).toContain(KOTTKE_RESTBETRAG_UMZUG);
+
+    const noDeposit = buildDocumentModel({
+      kind: "KV",
+      deal: { ...deal, dueDate: "2026-11-20" },
+      quotation: quotation({ depositRequiredCents: null, paymentMethodPreference: "bank_transfer" }),
+    });
+    expect(noDeposit.paymentTerms).toBe(KOTTKE_RESTBETRAG_UMZUG);
+    expect(noDeposit.paymentTerms).not.toContain("bis spätestens");
+    expect(noDeposit.paymentTerms).not.toContain("auf Rechnung");
+
+    const clearance = preview({ kind: "KV", serviceType: "clearance", method: "bank_transfer" });
+    expect(clearance.model.paymentTerms).toContain(KOTTKE_RESTBETRAG_EINSATZ);
+    expect(clearance.model.paymentTerms).not.toContain("Umzugstag");
+
+    const invoice = preview({ kind: "RE", dueDate: "2026-11-20", method: "bank_transfer" });
+    expect(invoice.model.paymentTerms).toContain("bis spätestens 20.11.2026");
+    expect(invoice.model.paymentTerms).not.toContain("Restbetrag");
+
+    const ceylan = buildDocumentModel({
+      kind: "KV",
+      deal: { ...deal, firma: "ceylan", dueDate: "2026-11-20" },
+      quotation: quotation({ depositRequiredCents: null }),
+    });
+    expect(ceylan.paymentTerms).toContain("bis spätestens 20.11.2026");
+    expect(ceylan.paymentTerms).not.toContain("Restbetrag");
   });
 
   it("lets intro, closing and remarks replace the default without touching the price", () => {
@@ -367,6 +414,39 @@ describe("preview", () => {
     expect(text).toContain("PayPal");
     expect(text).not.toContain("Umzugstag");
     expect(text).not.toContain("Pauschale");
-    expect(text).toContain("kv-ab-re/2");
+    expect(text).toContain(TEMPLATE_VERSION);
+    expect(text).not.toContain("Keine Kartenzahlung");
+    expect(text).not.toContain("+49 175 9498475");
+    expect(text).toContain("07054 9306962");
+  });
+
+  it("names a Büroumzug from the deal and greets a company with Sie", () => {
+    const { model, html } = preview({
+      kind: "KV",
+      signals: {
+        showStandardInclusions: false,
+        title: "Roman Rothe (Sport-Thieme GmbH) Büroumzug",
+        mention:
+          "Inklusive Einpacken und Auspacken, Abbau und Aufbau der Schreibtische",
+        inventory: true,
+      },
+      addressForm: "du",
+      customerName: "Roman Rothe",
+      customerCompany: "Sport-Thieme GmbH",
+    });
+    expect(model.serviceLabel).toContain("Büroumzug");
+    expect(model.serviceLabel).toContain("Inventar");
+    expect(model.serviceLabel).toContain("Einpackservice");
+    expect(model.serviceLabel).toContain("Möbelmontage");
+    expect(model.customerName).toBe("Sport-Thieme GmbH, z. Hd. Roman Rothe");
+    expect(html).toContain("Sport-Thieme GmbH, z. Hd. Roman Rothe");
+    expect(html).toContain("Sehr geehrte Damen und Herren,");
+    expect(html).toContain("Ihre Anfrage zum Büroumzug");
+    expect(html).not.toContain("Anfrage zum Transport");
+    expect(html).not.toContain("Hallo");
+    expect(html).toContain("07054 9306962");
+    expect(html).not.toContain("9498475");
+    const tax = html.split("§ 19 UStG").length - 1;
+    expect(tax).toBe(1);
   });
 });

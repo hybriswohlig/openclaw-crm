@@ -7,7 +7,6 @@ import { NextResponse } from "next/server";
 import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { kvaConfirmations } from "@/db/schema/customer-portal";
-import { quotations } from "@/db/schema/quotations";
 import { dealDocuments } from "@/db/schema/financial";
 import { emitEvent } from "./activity-events";
 import { ladeAgbHtml } from "./agb";
@@ -146,25 +145,21 @@ export async function ladeAgbFuerAnnahme(firmaSlug: string): Promise<{ text: str
 }
 
 /**
- * Das KV-PDF, das der Kunde gerade sieht: neuestes quotation-Dokument, das
- * nicht älter ist als das Angebot (gleiche Regel wie das Portal).
+ * Das KV-PDF, das der Kunde gerade sieht: neuestes quotation-Dokument
+ * (gleiche Regel wie das Portal). Ein späteres Speichern der Angebotszeile
+ * zählt nicht. null nur, wenn kein KV-Dokument existiert.
  */
 export async function aktuellesKvDokument(
   workspaceId: string,
   dealRecordId: string
 ): Promise<{ id: string; sha256: string } | null> {
-  const [q] = await db
-    .select({ updatedAt: quotations.updatedAt })
-    .from(quotations)
-    .where(eq(quotations.dealRecordId, dealRecordId))
-    .limit(1);
   const docs = await db
-    .select({ id: dealDocuments.id, uploadedAt: dealDocuments.uploadedAt, fileContent: dealDocuments.fileContent })
+    .select({ id: dealDocuments.id, fileContent: dealDocuments.fileContent })
     .from(dealDocuments)
     .where(and(eq(dealDocuments.workspaceId, workspaceId), eq(dealDocuments.dealRecordId, dealRecordId), eq(dealDocuments.documentType, "quotation")))
     .orderBy(desc(dealDocuments.uploadedAt))
     .limit(1);
   const doc = docs[0];
-  if (!doc || (q && doc.uploadedAt < q.updatedAt)) return null;
+  if (!doc) return null;
   return { id: doc.id, sha256: sha256Hex(Buffer.from(doc.fileContent, "base64")) };
 }

@@ -532,6 +532,13 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
       selectedPackageSlug: z.string().nullable().optional(),
       calculationAssumptions: z.record(z.unknown()).nullable().optional(),
       lineItems: z.array(z.record(z.unknown())).optional(),
+      discount: z
+        .object({
+          label: z.string().nullable().optional(),
+          amount: z.union([z.string(), z.number()]).nullable().optional(),
+        })
+        .nullable()
+        .optional(),
     },
     req
   );
@@ -561,7 +568,7 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_generate_document",
-    "Start a PDF render on the crm-tools VPS and return { job_id }. Async: poll crm_get_document_job until status=done, then crm_store_document_job to attach it to the deal. For a Kostenvoranschlag set params.document_type to 'KV' (store type quotation). Also supports AB and RE. params: { firma: 'kottke'|'ceylan', document_type: 'KV'|'AB'|'RE', service_type?: 'move'|'kitchen_installation'|'clearance' (clearance = Entrümpelung, mit Widerrufsrecht im Portal, PDF im Umzugs-Layout), kunde: {vorname,nachname,adresse,email}, auftrag: {strecke_von,strecke_nach,datum,volumen,besonderheiten}, preise: {...}, document_details?: {serviceType, kitchen, services, inventory, cardAgreed}, anweisung? }. Prices and paid amounts are rebuilt server-side from the deal quotation and payments. The kunde name is re-derived from the linked person. renderer defaults to vps. Pass renderer \"crm\" (or params.renderer) to render with the CRM template instead and store the PDF immediately. That template picks the KV/AB/RE wording from the quotation service type and the deal (Umzug, Fernumzug, Entrümpelung, Küchenmontage, Transport, Klaviertransport, Beiladung, Einlagerung or sonstige Leistung) and from the Sie/du register on the conversation and the deal. optional copy or params.document_copy is { intro, closing, remarks } plain text: those three replace the matching default and do not change prices. notifyCustomer defaults to false on that path.",
+    "Start a PDF render on the crm-tools VPS and return { job_id }. Async: poll crm_get_document_job until status=done, then crm_store_document_job to attach it to the deal. For a Kostenvoranschlag set params.document_type to 'KV' (store type quotation). Also supports AB and RE. params: { firma: 'kottke'|'ceylan', document_type: 'KV'|'AB'|'RE', service_type?: 'move'|'kitchen_installation'|'clearance' (clearance = Entrümpelung, mit Widerrufsrecht im Portal, PDF im Umzugs-Layout), kunde: {vorname,nachname,adresse,email}, auftrag: {strecke_von,strecke_nach,datum,volumen,besonderheiten}, preise: {...}, document_details?: {serviceType, kitchen, services, inventory, cardAgreed}, anweisung? }. Prices and paid amounts are rebuilt server-side from the deal quotation and payments. The kunde name is re-derived from the linked person. renderer defaults to vps. Pass renderer \"crm\" (or params.renderer) to render with the CRM template instead and store the PDF immediately. That template picks the KV/AB/RE wording from the quotation service type and the deal (Umzug, Fernumzug, Entrümpelung, Küchenmontage, Transport, Klaviertransport, Beiladung, Einlagerung or sonstige Leistung) and from the Sie/du register on the conversation and the deal. optional copy or params.document_copy is { intro, closing, remarks } plain text: those three replace the matching default and do not change prices. notifyCustomer defaults to false on that path. For Kottke (firma kottke or operating company 5af07382-33b5-4538-a6d5-017132543ac4), renderer crm at the top level or params.renderer is rejected with: Für Kottke nur VPS-Template: crm_generate_document ohne renderer. Omit renderer, or pass renderer vps, and the VPS job starts unchanged. Ceylan may still pass renderer crm.",
     {
       recordId: z.string(),
       params: z.record(z.unknown()),
@@ -573,6 +580,10 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
       documentType: z.enum(["KV", "AB", "RE"]).optional(),
       copy: z.record(z.unknown()).optional(),
       notifyCustomer: z.boolean().optional(),
+      dueDate: z
+        .string()
+        .optional()
+        .describe("CRM renderer RE only. ISO YYYY-MM-DD. Omitted means the invoice date."),
     },
     req
   );
@@ -586,7 +597,7 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_upload_deal_document",
-    "Upload an existing file onto a deal as a deal document, for example a hand-corrected invoice PDF. Posts JSON to POST /api/v1/deals/{recordId}/documents with fileName, documentType, contentBase64, optional mimeType (default application/pdf) and optional notifyCustomer (default false). documentType is one of quotation, order_confirmation, invoice, payment_confirmation, worker_instructions. contentBase64 is standard base64; a data-URL prefix is stripped. Decoded size must be at most 3 MB (3145728 bytes) so the base64 body stays under Vercel's ~4.5 MB request limit; above that the call errors and stores nothing. The 10 MB application cap is also enforced. Customer-facing effects of the stored row, which this tool cannot turn off: quotation is shown in the customer portal as the Kostenvoranschlag when it is the current or accepted PDF, and it does not unlock stage 2. order_confirmation is published on the portal and unlocks stage 2 only when the customer would otherwise still be on stage 1 and no Anzahlung is required or the Anzahlung is already paid. invoice is published on the portal and forces stage 4. payment_confirmation and worker_instructions are internal: they are not published on the customer portal and do not change the stage. Messages: this tool sends no WhatsApp and no email unless notifyCustomer is true. That opt-in runs the existing portal notifier only for order_confirmation (ab_ready) and invoice (invoice_ready): WhatsApp into an existing thread, otherwise a transactional email, and only when workspace setting portal_notifications_enabled is on. quotation, payment_confirmation and worker_instructions never notify. This upload does not set rechnung_faellig_am.",
+    "Upload an existing file onto a deal as a deal document, for example a hand-corrected invoice PDF. Posts JSON to POST /api/v1/deals/{recordId}/documents with fileName, documentType, contentBase64, optional mimeType (default application/pdf) and optional notifyCustomer (default false). documentType is one of quotation, order_confirmation, invoice, payment_confirmation, worker_instructions. contentBase64 is standard base64; a data-URL prefix is stripped. Decoded size must be at most 3 MB (3145728 bytes) so the base64 body stays under Vercel's ~4.5 MB request limit; above that the call errors and stores nothing. The 10 MB application cap is also enforced. Customer-facing effects of the stored row, which this tool cannot turn off: quotation is shown in the customer portal as the Kostenvoranschlag when it is the current or accepted PDF, and it does not unlock stage 2. order_confirmation is published on the portal and unlocks stage 2 only when the customer would otherwise still be on stage 1 and no Anzahlung is required or the Anzahlung is already paid. invoice is published on the portal and forces stage 4. payment_confirmation and worker_instructions are internal: they are not published on the customer portal and do not change the stage. Messages: this tool sends no WhatsApp and no email unless notifyCustomer is true. That opt-in runs the existing portal notifier only for order_confirmation (ab_ready) and invoice (invoice_ready): WhatsApp into an existing thread, otherwise a transactional email, and only when workspace setting portal_notifications_enabled is on. quotation, payment_confirmation and worker_instructions never notify. Storing an invoice sets rechnung_faellig_am to the upload date in Europe/Berlin (sofort) for every company. Optional dueDate (ISO YYYY-MM-DD) is kept instead.",
     {
       recordId: z.string().describe("Deal record UUID"),
       fileName: z.string().describe("Stored file name, e.g. RE-korrigiert.pdf"),
@@ -614,6 +625,12 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
         .describe(
           "Default false. true opts in to the portal WhatsApp/email notifier for order_confirmation and invoice only."
         ),
+      dueDate: z
+        .string()
+        .optional()
+        .describe(
+          "Invoice only. ISO YYYY-MM-DD. Omitted means the upload date (sofort), not today + 7."
+        ),
     },
     req
   );
@@ -636,20 +653,24 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_render_document",
-    "Render a KV, AB or RE PDF with the CRM template and store it on the deal. This opts into the new renderer; crm_generate_document without renderer still starts the VPS job. documentType is KV, AB or RE. Prices, positions, deposit, validity and payment method come only from the stored quotation; an AB uses the accepted snapshot when one exists. Customer, addresses and the service date come from the deal. The default intro, closing and payment-due sentence follow the service (quotation service type, lead type, one-off transport, piano or storage) and the Sie/du register from the conversation and the deal. Quotation notes are never printed. Optional copy or document_copy is { intro, closing, remarks } as plain text, at most 4000 characters each: those replace the matching default and do not change prices. notifyCustomer defaults to false, so this sends no WhatsApp and no email. Returns the stored deal document and templateVersion.",
+    "Render a KV, AB or RE PDF with the CRM template and store it on the deal. This opts into the new renderer; crm_generate_document without renderer still starts the VPS job. documentType is KV, AB or RE. Prices, positions, deposit, validity and payment method come only from the stored quotation; an AB uses the accepted snapshot when one exists. Customer, addresses and the service date come from the deal. The default intro, closing and payment-due sentence follow the service (quotation service type, lead type, one-off transport, piano or storage) and the Sie/du register from the conversation and the deal. Quotation notes are never printed. Optional copy or document_copy is { intro, closing, remarks } as plain text, at most 4000 characters each: those replace the matching default and do not change prices. notifyCustomer defaults to false, so this sends no WhatsApp and no email. Returns the stored deal document and templateVersion. Kottke (firma kottke, operating company 5af07382-33b5-4538-a6d5-017132543ac4) is rejected for every documentType with: Für Kottke nur VPS-Template: crm_generate_document ohne renderer. Use crm_generate_document without a renderer so the VPS template runs. Ceylan and every other company are unchanged.",
     {
       recordId: z.string(),
       documentType: z.enum(["KV", "AB", "RE"]),
       copy: z.record(z.unknown()).optional(),
       document_copy: z.record(z.unknown()).optional(),
       notifyCustomer: z.boolean().optional(),
+      dueDate: z
+        .string()
+        .optional()
+        .describe("RE only. ISO YYYY-MM-DD. Omitted means the invoice date."),
     },
     req
   );
   tool(
     server,
     "crm_preview_document",
-    "HTML preview of the CRM template for a KV, AB or RE. Does not store a file and does not message the customer. documentType is KV, AB or RE. The preview shows the service-specific default text (Umzug, Entrümpelung, Küchenmontage, Transport, Klaviertransport, Beiladung, Einlagerung or sonstige Leistung), the Sie/du greeting, and the payment-due sentence. Optional copy or document_copy is { intro, closing, remarks } as plain text and replaces that default. Prices come from the stored quotation and quotation notes are never included. Returns { html, templateVersion, fileName, documentType }.",
+    "HTML preview of the CRM template for a KV, AB or RE. Does not store a file and does not message the customer. documentType is KV, AB or RE. The preview shows the service-specific default text (Umzug, Entrümpelung, Küchenmontage, Transport, Klaviertransport, Beiladung, Einlagerung or sonstige Leistung), the Sie/du greeting, and the payment-due sentence. Optional copy or document_copy is { intro, closing, remarks } as plain text and replaces that default. Prices come from the stored quotation and quotation notes are never included. Returns { html, templateVersion, fileName, documentType }. Kottke (firma kottke, operating company 5af07382-33b5-4538-a6d5-017132543ac4) is rejected with: Für Kottke nur VPS-Template: crm_generate_document ohne renderer. This preview uses the CRM template. Ceylan and every other company are unchanged.",
     {
       recordId: z.string(),
       documentType: z.enum(["KV", "AB", "RE"]),
@@ -661,7 +682,7 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_store_document_job",
-    "Attach a finished render job's PDF to a deal as a document. Sends only jobId + recordId — the server pulls the PDF from the render VPS and writes it in-process (do not upload PDF bytes). Application cap 10 MB; larger jobs stay on the VPS download URL. documentType is deduced from the filename (KV- → quotation, AB- → order_confirmation, RE- → invoice, AW- → worker_instructions) when omitted. Storing an order_confirmation or invoice notifies the customer portal. Kostenvoranschlag stores as quotation and does not unlock portal Stage 2.",
+    "Attach a finished render job's PDF to a deal as a document. Sends only jobId + recordId — the server pulls the PDF from the render VPS and writes it in-process (do not upload PDF bytes). Application cap 10 MB; larger jobs stay on the VPS download URL. documentType is deduced from the filename (KV- → quotation, AB- → order_confirmation, RE- → invoice, AW- → worker_instructions) when omitted. Storing an order_confirmation or invoice notifies the customer portal. Kostenvoranschlag stores as quotation and does not unlock portal Stage 2. Storing an invoice sets rechnung_faellig_am to the upload date in Europe/Berlin (sofort) for every company. Optional dueDate (ISO YYYY-MM-DD) is kept instead.",
     {
       jobId: z.string(),
       recordId: z.string(),
@@ -674,6 +695,10 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
           "worker_instructions",
         ])
         .optional(),
+      dueDate: z
+        .string()
+        .optional()
+        .describe("Invoice only. ISO YYYY-MM-DD. Omitted means the upload date."),
     },
     req
   );

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthContext, success, unauthorized } from "@/lib/api-utils";
+import { badRequest, getAuthContext, success, unauthorized } from "@/lib/api-utils";
 import { parseRenderBody } from "@/lib/commercial-document-request";
+import { KOTTKE_CRM_RENDERER_MESSAGE } from "@/lib/kottke-crm-renderer";
+import { dealBlocksInRepoCrmRenderer } from "@/lib/kottke-crm-renderer-deal";
 import {
   CommercialDocumentError,
   storeCommercialDocument,
@@ -32,6 +34,10 @@ export async function POST(
     );
   }
 
+  if (await dealBlocksInRepoCrmRenderer(ctx.workspaceId, recordId)) {
+    return badRequest(KOTTKE_CRM_RENDERER_MESSAGE);
+  }
+
   const parsed = parseRenderBody(body);
   if (!parsed.ok) {
     return NextResponse.json(
@@ -47,12 +53,16 @@ export async function POST(
       kind: parsed.value.kind,
       copy: parsed.value.copy,
       notifyCustomer: parsed.value.notifyCustomer,
+      updatedBy: ctx.userId,
+      ...(parsed.value.dueDate ? { dueDate: parsed.value.dueDate } : {}),
     });
     return success({
       renderer: "crm",
       templateVersion: stored.templateVersion,
       fileName: stored.fileName,
       document: stored.document,
+      ...(stored.rechnungFaelligAm ? { rechnungFaelligAm: stored.rechnungFaelligAm } : {}),
+      ...(stored.dueDateWarning ? { dueDateWarning: stored.dueDateWarning } : {}),
     });
   } catch (err) {
     if (err instanceof CommercialDocumentError) {

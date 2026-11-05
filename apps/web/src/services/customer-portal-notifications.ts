@@ -18,6 +18,7 @@
  *  - Never throws: callers fire-and-forget from API response paths.
  */
 
+import { kundenText } from "@openclaw-crm/customer-portal-core";
 import { vornameFuerAnrede } from "@/lib/personen-name";
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
@@ -225,36 +226,58 @@ function buildContent(
   const greeting = args.firstName ? `Hallo ${args.firstName},` : "Hallo,";
   const sign = `\n\nViele Grüße\n${args.firmaName}`;
   const ref = args.dealNumber ? ` (Auftrag ${args.dealNumber})` : "";
+  const t = (sie: string, du: string) => kundenText(args.firmaName, sie, du);
 
   switch (kind) {
     case "ab_ready":
       return {
-        whatsappText: `${greeting}\n\nIhre Auftragsbestätigung${ref} ist soeben fertig geworden. Den vollständigen Vertrag, Ihren Termin und alle Details finden Sie hier:\n\n${args.portalUrl}${sign}`,
-        emailSubject: `Ihre Auftragsbestätigung${ref} bei ${args.firmaName}`,
+        whatsappText: `${greeting}\n\n${t(
+          `Ihre Auftragsbestätigung${ref} ist soeben fertig geworden. Den vollständigen Vertrag, Ihren Termin und alle Details finden Sie hier:`,
+          `Deine Auftragsbestätigung${ref} ist soeben fertig geworden. Den vollständigen Vertrag, deinen Termin und alle Details findest du hier:`,
+        )}\n\n${args.portalUrl}${sign}`,
+        emailSubject: t(`Ihre Auftragsbestätigung${ref} bei ${args.firmaName}`, `Deine Auftragsbestätigung${ref} bei ${args.firmaName}`),
         emailParagraphs: [
           greeting,
-          `Ihre Auftragsbestätigung${ref} ist soeben fertig geworden. Den vollständigen Vertrag, Ihren Termin und alle Details finden Sie jederzeit im Status-Portal.`,
+          t(
+            `Ihre Auftragsbestätigung${ref} ist soeben fertig geworden. Den vollständigen Vertrag, Ihren Termin und alle Details finden Sie jederzeit im Status-Portal.`,
+            `Deine Auftragsbestätigung${ref} ist soeben fertig geworden. Den vollständigen Vertrag, deinen Termin und alle Details findest du jederzeit im Status-Portal.`,
+          ),
         ],
         ctaLabel: "Zur Auftragsbestätigung",
       };
     case "deposit_received":
       return {
-        whatsappText: `${greeting}\n\nIhre Anzahlung ist eingegangen, vielen Dank! Ihr Umzugstermin ist damit fest reserviert. Alle weiteren Details zu Ihrem Umzug${ref} finden Sie hier:\n\n${args.portalUrl}${sign}`,
-        emailSubject: `Ihre Anzahlung ist eingegangen${ref}`,
+        whatsappText: `${greeting}\n\n${t(
+          `Ihre Anzahlung ist eingegangen, vielen Dank! Ihr Umzugstermin ist damit fest reserviert. Alle weiteren Details zu Ihrem Umzug${ref} finden Sie hier:`,
+          `Deine Anzahlung ist eingegangen, vielen Dank! Dein Umzugstermin ist damit fest reserviert. Alle weiteren Details zu deinem Umzug${ref} findest du hier:`,
+        )}\n\n${args.portalUrl}${sign}`,
+        emailSubject: t(`Ihre Anzahlung ist eingegangen${ref}`, `Deine Anzahlung ist eingegangen${ref}`),
         emailParagraphs: [
           greeting,
-          "Ihre Anzahlung ist eingegangen, vielen Dank! Ihr Umzugstermin ist damit fest reserviert.",
-          `Alle weiteren Details zu Ihrem Umzug${ref} finden Sie jederzeit im Status-Portal.`,
+          t(
+            "Ihre Anzahlung ist eingegangen, vielen Dank! Ihr Umzugstermin ist damit fest reserviert.",
+            "Deine Anzahlung ist eingegangen, vielen Dank! Dein Umzugstermin ist damit fest reserviert.",
+          ),
+          t(
+            `Alle weiteren Details zu Ihrem Umzug${ref} finden Sie jederzeit im Status-Portal.`,
+            `Alle weiteren Details zu deinem Umzug${ref} findest du jederzeit im Status-Portal.`,
+          ),
         ],
         ctaLabel: "Zum Status-Portal",
       };
     case "departure":
       return {
-        whatsappText: `${greeting}\n\nUnser Team ist jetzt für Sie unterwegs${ref}. Über den folgenden Link sehen Sie live alle Bilder und Updates vom Umzug:\n\n${args.portalUrl}${sign}`,
+        whatsappText: `${greeting}\n\n${t(
+          `Unser Team ist jetzt für Sie unterwegs${ref}. Über den folgenden Link sehen Sie live alle Bilder und Updates vom Umzug:`,
+          `Unser Team ist jetzt für dich unterwegs${ref}. Über den folgenden Link siehst du live alle Bilder und Updates vom Umzug:`,
+        )}\n\n${args.portalUrl}${sign}`,
         emailSubject: `Unser Team ist unterwegs${ref}`,
         emailParagraphs: [
           greeting,
-          `Unser Team ist jetzt für Sie unterwegs${ref}. Im Status-Portal sehen Sie live alle Bilder und Updates vom Umzug.`,
+          t(
+            `Unser Team ist jetzt für Sie unterwegs${ref}. Im Status-Portal sehen Sie live alle Bilder und Updates vom Umzug.`,
+            `Unser Team ist jetzt für dich unterwegs${ref}. Im Status-Portal siehst du live alle Bilder und Updates vom Umzug.`,
+          ),
         ],
         ctaLabel: "Live-Updates ansehen",
       };
@@ -263,11 +286,17 @@ function buildContent(
         ? "Über eine Google-Bewertung würden wir uns sehr freuen. Auch dort führt der Link direkt zum richtigen Formular."
         : null;
       return {
-        whatsappText: `${greeting}\n\nVielen Dank für Ihren Umzug${ref}! Ihre Rechnung sowie die Möglichkeit zur sofortigen Überweisung per QR-Code finden Sie hier:\n\n${args.portalUrl}${reviewLine ? `\n\n${reviewLine}` : ""}${sign}`,
-        emailSubject: `Ihre Rechnung${ref} bei ${args.firmaName}`,
+        whatsappText: `${greeting}\n\n${t(
+          `Vielen Dank für Ihren Umzug${ref}! Ihre Rechnung sowie die Möglichkeit zur sofortigen Überweisung per QR-Code finden Sie hier:`,
+          `Vielen Dank für deinen Umzug${ref}! Deine Rechnung sowie die Möglichkeit zur sofortigen Überweisung per QR-Code findest du hier:`,
+        )}\n\n${args.portalUrl}${reviewLine ? `\n\n${reviewLine}` : ""}${sign}`,
+        emailSubject: t(`Ihre Rechnung${ref} bei ${args.firmaName}`, `Deine Rechnung${ref} bei ${args.firmaName}`),
         emailParagraphs: [
           greeting,
-          `Vielen Dank für Ihren Umzug${ref}! Ihre Rechnung sowie die Möglichkeit zur sofortigen Überweisung per QR-Code finden Sie im Status-Portal.`,
+          t(
+            `Vielen Dank für Ihren Umzug${ref}! Ihre Rechnung sowie die Möglichkeit zur sofortigen Überweisung per QR-Code finden Sie im Status-Portal.`,
+            `Vielen Dank für deinen Umzug${ref}! Deine Rechnung sowie die Möglichkeit zur sofortigen Überweisung per QR-Code findest du im Status-Portal.`,
+          ),
           ...(reviewLine ? [reviewLine] : []),
         ],
         ctaLabel: "Zur Rechnung",

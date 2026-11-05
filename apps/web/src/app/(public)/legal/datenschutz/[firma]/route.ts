@@ -9,6 +9,7 @@
 // the email capture and the WhatsApp contact.
 
 import type { NextRequest } from "next/server";
+import { datenschutzEmailZweck } from "@/lib/email-capture-copy";
 
 export const revalidate = 86400; // 24h
 
@@ -23,12 +24,12 @@ type Anbieter = {
 
 const ANBIETER: Record<string, Anbieter> = {
   kottke: {
-    firma: "Kottke Dienstleistungen",
+    firma: "Kottke Entrümpelung & Umzüge",
     inhaber: "Darioush Kottke",
     strasse: "Marktstr. 8",
     ort: "72218 Wildberg",
-    telefon: "+49 175 9498475",
-    email: null,
+    telefon: "07054 9306962",
+    email: "kontakt@kottke-umzuege.de",
   },
   ceylan: {
     firma: "Ceylan Umzüge & Transporte",
@@ -48,7 +49,7 @@ function esc(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function renderHtml(a: Anbieter): string {
+function renderHtml(a: Anbieter, firmaSlug: string): string {
   const kontakt = [
     a.telefon
       ? `<p>Telefon: <a href="tel:${a.telefon.replace(/\s/g, "")}">${esc(a.telefon)}</a></p>`
@@ -101,7 +102,7 @@ function renderHtml(a: Anbieter): string {
   <p>Wenn Sie ein Angebot im Portal annehmen, speichern wir als Nachweis des Vertragsschlusses den Zeitpunkt, Ihre IP-Adresse, die Browser-Kennung, Ihren Namen (falls angegeben), den angenommenen Stand des Angebots und die Fassung unserer AGB. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b und lit. f DSGVO; unser berechtigtes Interesse ist der Nachweis des Vertragsschlusses. Wir speichern diese Daten, solange Ansprüche aus dem Vertrag geltend gemacht werden können, und darüber hinaus nach den handels- und steuerrechtlichen Aufbewahrungsfristen.</p>
 
   <h2>E-Mail-Adresse</h2>
-  <p>Wenn Sie im Portal Ihre E-Mail-Adresse hinterlegen, verwenden wir diese ausschließlich, um Ihnen Unterlagen zu Ihrem Auftrag zuzusenden, zum Beispiel Auftragsbestätigung und Rechnung. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO.</p>
+  <p>${datenschutzEmailZweck(firmaSlug)}</p>
 
   <h2>Kommunikation über WhatsApp</h2>
   <p>Sie können uns über WhatsApp kontaktieren. Dabei werden Daten, zum Beispiel Ihre Telefonnummer und Nachrichteninhalte, an WhatsApp Ireland Limited übertragen; eine Übermittlung an Meta Platforms Inc. in die USA ist möglich. Die Nutzung von WhatsApp ist freiwillig. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO, im Übrigen Art. 6 Abs. 1 lit. f DSGVO.</p>
@@ -129,7 +130,7 @@ export async function GET(
     return new Response("Not found", { status: 404 });
   }
 
-  return new Response(renderHtml(anbieter), {
+  return new Response(renderHtml(anbieter, firma.toLowerCase()), {
     headers: {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "public, max-age=3600, s-maxage=86400",

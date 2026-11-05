@@ -19,11 +19,22 @@ import {
   oversizedJsonDealDocumentError,
 } from "@/lib/deal-document-upload";
 import { oversizedJsonDealPhotoError } from "@/lib/deal-photo-upload";
+import {
+  KOTTKE_CRM_RENDERER_MESSAGE,
+  isKottkeFirma,
+} from "@/lib/kottke-crm-renderer";
+import { dealBlocksInRepoCrmRenderer } from "@/lib/kottke-crm-renderer-deal";
 
 type Args = Record<string, unknown>;
 
 function str(v: unknown): string {
   return String(v ?? "");
+}
+
+/** Forward a caller-supplied due date. Absent stays absent so the server uses the upload day. */
+function dueDateBody(value: unknown): { dueDate: string } | Record<string, never> {
+  if (typeof value !== "string" || !value.trim()) return {};
+  return { dueDate: value.trim() };
 }
 
 /**
@@ -108,6 +119,23 @@ function asQuery(
     }
   }
   return out;
+}
+
+/**
+ * Kottke has no in-repo KV/AB/RE renderer. An explicit firma slug rejects
+ * before the deal lookup. Otherwise the deal's operating company decides.
+ */
+async function refuseKottkeInRepoRenderer(
+  client: CrmClient,
+  recordId: string,
+  ...firmas: unknown[]
+): Promise<void> {
+  if (firmas.some(isKottkeFirma)) {
+    throw new Error(KOTTKE_CRM_RENDERER_MESSAGE);
+  }
+  if (await dealBlocksInRepoCrmRenderer(client.context.workspaceId, recordId)) {
+    throw new Error(KOTTKE_CRM_RENDERER_MESSAGE);
+  }
 }
 
 export type ToolContent =
@@ -514,6 +542,7 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
             mimeType: mimeType || "application/pdf",
             contentBase64,
             notifyCustomer: bool(args.notifyCustomer) === true,
+            ...dueDateBody(args.dueDate ?? args.rechnungFaelligAm),
           },
         }
       );
@@ -627,6 +656,7 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
         "selectedPackageSlug",
         "calculationAssumptions",
         "lineItems",
+        "discount",
       ]) {
         if (args[key] !== undefined) body[key] = args[key];
       }
@@ -661,6 +691,16 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
           ? (params as Record<string, unknown>)
           : {};
       const renderer = str(args.renderer || paramObj.renderer || "vps");
+      // Either slot opts into the CRM template. Kottke is refused there;
+      // omitted renderer and renderer "vps" still start the VPS job.
+      if (args.renderer === "crm" || paramObj.renderer === "crm") {
+        await refuseKottkeInRepoRenderer(
+          client,
+          str(args.recordId),
+          paramObj.firma,
+          args.firma
+        );
+      }
       if (renderer === "crm") {
         const copy = asBody(args.copy ?? paramObj.copy ?? paramObj.document_copy);
         return client.request(
@@ -674,6 +714,7 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
               ),
               ...(copy && typeof copy === "object" ? { copy } : {}),
               notifyCustomer: bool(args.notifyCustomer) === true,
+              ...dueDateBody(args.dueDate ?? paramObj.dueDate ?? args.rechnungFaelligAm),
             },
           }
         );
@@ -693,6 +734,7 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
       });
     }
     case "crm_render_document": {
+      await refuseKottkeInRepoRenderer(client, str(args.recordId));
       const copy = asBody(args.copy ?? args.document_copy);
       return client.request(
         `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/documents/render`,
@@ -703,11 +745,13 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
             documentType: str(args.documentType),
             ...(copy && typeof copy === "object" ? { copy } : {}),
             notifyCustomer: bool(args.notifyCustomer) === true,
+            ...dueDateBody(args.dueDate ?? args.rechnungFaelligAm),
           },
         }
       );
     }
     case "crm_preview_document": {
+      await refuseKottkeInRepoRenderer(client, str(args.recordId));
       const copy = asBody(args.copy ?? args.document_copy);
       return client.request(
         `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/documents/preview`,
@@ -735,6 +779,7 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
             ...(args.documentType !== undefined
               ? { documentType: args.documentType }
               : {}),
+            ...dueDateBody(args.dueDate ?? args.rechnungFaelligAm),
           },
         }
       );

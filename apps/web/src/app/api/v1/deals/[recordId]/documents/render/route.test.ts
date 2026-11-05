@@ -4,12 +4,17 @@ import { NextRequest } from "next/server";
 const mocks = vi.hoisted(() => ({
   getAuthContext: vi.fn(),
   storeCommercialDocument: vi.fn(),
+  dealBlocksInRepoCrmRenderer: vi.fn(async () => false),
 }));
 
 vi.mock("@/lib/api-utils", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api-utils")>();
   return { ...actual, getAuthContext: mocks.getAuthContext };
 });
+
+vi.mock("@/lib/kottke-crm-renderer-deal", () => ({
+  dealBlocksInRepoCrmRenderer: mocks.dealBlocksInRepoCrmRenderer,
+}));
 
 vi.mock("@/services/commercial-documents", () => ({
   storeCommercialDocument: mocks.storeCommercialDocument,
@@ -24,6 +29,7 @@ vi.mock("@/services/commercial-documents", () => ({
   },
 }));
 
+import { KOTTKE_CRM_RENDERER_MESSAGE } from "@/lib/kottke-crm-renderer";
 import { POST } from "./route";
 
 const DEAL_ID = "6e9256ac-a253-4b4e-b49d-0a7845e9f940";
@@ -41,6 +47,7 @@ function call(body: Record<string, unknown>) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.dealBlocksInRepoCrmRenderer.mockResolvedValue(false);
   mocks.getAuthContext.mockResolvedValue({
     userId: "usr_1",
     workspaceId: "ws_kottke_prod",
@@ -78,6 +85,34 @@ describe("POST documents/render", () => {
       kind: "AB",
       copy: { closing: "Viele Grüße" },
       notifyCustomer: false,
+      updatedBy: "usr_1",
     });
+  });
+
+  it("rejects every document type when the deal is Kottke", async () => {
+    mocks.dealBlocksInRepoCrmRenderer.mockResolvedValue(true);
+    for (const documentType of ["KV", "AB", "RE", "nota"]) {
+      const res = await call({ renderer: "crm", documentType });
+      const body = await res.json();
+      expect(res.status).toBe(400);
+      expect(body.error.message).toBe(KOTTKE_CRM_RENDERER_MESSAGE);
+    }
+    expect(mocks.storeCommercialDocument).not.toHaveBeenCalled();
+  });
+
+  it("passes an explicit invoice due date through to the store", async () => {
+    const res = await call({
+      renderer: "crm",
+      documentType: "RE",
+      dueDate: "2026-12-01",
+    });
+    expect(res.status).toBe(200);
+    expect(mocks.storeCommercialDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "RE",
+        dueDate: "2026-12-01",
+        updatedBy: "usr_1",
+      })
+    );
   });
 });

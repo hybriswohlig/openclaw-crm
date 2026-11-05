@@ -1,6 +1,7 @@
 import fontkit from "@pdf-lib/fontkit";
 import { PDFDocument, decodeFromBase64, degrees, rgb, type PDFFont, type PDFImage, type PDFPage, type RGB } from "pdf-lib";
 import { formatEur } from "./money";
+import { kottkeRestbetragSatz } from "./restbetrag";
 import { toWinAnsi } from "./pdf";
 import { LOGO_PNG } from "./marke/logos";
 import { INTER_REGULAR, INTER_SEMIBOLD, JAKARTA_EXTRABOLD } from "./marke/schriften";
@@ -105,6 +106,11 @@ export function umbrechen(text: string, maxZeichen: number): string[] {
   return zeilen;
 }
 
+function restbetragZeile(d: VertragsmappeDaten): string | null {
+  if (d.marke.firmaSlug !== "kottke") return null;
+  return kottkeRestbetragSatz(d.haftungshinweis || /umzug/i.test(d.leistung));
+}
+
 function kopfZeilen(d: VertragsmappeDaten): string[] {
   const betrag = formatEur(d.preisCents);
   const z: Array<string | null> = [
@@ -127,6 +133,7 @@ function kopfZeilen(d: VertragsmappeDaten): string[] {
     d.widerrufHinweis,
     d.haftungshinweis ? "Haftungshinweis nach § 451g HGB vor der Annahme bestätigt." : null,
     d.versicherungGewuenscht ? "Angebot für Versicherung oder Höherhaftung gewünscht." : null,
+    restbetragZeile(d),
     "",
     d.erklaerung,
   ];
@@ -182,6 +189,7 @@ export function annahmeSeiteModell(d: VertragsmappeDaten): AnnahmeSeiteModell {
     d.widerrufHinweis,
     d.haftungshinweis ? "Haftungshinweis nach § 451g HGB vor der Annahme bestätigt." : null,
     d.versicherungGewuenscht ? "Angebot für Versicherung oder Höherhaftung gewünscht." : null,
+    restbetragZeile(d),
     d.erklaerung,
   ];
   return {

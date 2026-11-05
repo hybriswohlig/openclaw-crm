@@ -44,6 +44,20 @@ describe("eingangsbestaetigungText (§ 356a Abs. 4 BGB)", () => {
   it("ohne Gedankenstriche", () => {
     expect(t).not.toMatch(/[—–]/);
   });
+  it("Kottke duzt, Ceylan bleibt beim Sie", () => {
+    expect(t).toContain("Eingangsbestätigung deines Widerrufs");
+    expect(t).toContain("Dein Widerruf");
+    expect(t).not.toMatch(/\b(Sie|Ihnen|Ihre)\b/);
+    const ceylan = eingangsbestaetigungText({
+      firma: "Ceylan Umzüge & Transporte",
+      name: "Anna Muster",
+      vertrag: "Auftrag C-1",
+      kanalText: "per E-Mail an anna@example.de",
+      eingegangenAt,
+    });
+    expect(ceylan).toContain("Eingangsbestätigung Ihres Widerrufs");
+    expect(ceylan).toContain("Ihr Widerruf");
+  });
 });
 
 describe("teamAlarmWiderrufText", () => {

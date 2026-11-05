@@ -147,7 +147,7 @@ export function GenerateWorkerInstructionsDialog({ open, onClose, ctx }: Props) 
           <div>
             <h2 className="text-lg font-semibold">Auftragsanweisung erstellen</h2>
             <p className="text-sm text-gray-500">
-              Interne Crew-Unterlage · {ctx.firma === "kottke" ? "Kottke Dienstleistungen" : "Ceylan Umzüge"} ·{" "}
+              Interne Crew-Unterlage · {ctx.firma === "kottke" ? "Kottke Entrümpelung & Umzüge" : "Ceylan Umzüge"} ·{" "}
               {ctx.kunde.vorname} {ctx.kunde.nachname}
             </p>
           </div>

@@ -4,7 +4,7 @@ import type { DocumentModel } from "./types";
 const PAGE_W = 595.28;
 const PAGE_H = 841.89;
 const MARGIN = 50;
-const FOOTER_TOP = 48;
+const BLACK = rgb(0, 0, 0);
 
 /**
  * WinAnsi (the encoding of the standard PDF fonts) covers German umlauts,
@@ -55,8 +55,23 @@ class Writer {
     return page;
   }
 
+  private footerLines(): string[] {
+    return this.wrap(
+      [this.model.issuer.displayName, ...this.model.issuer.lines, `Vorlage ${this.model.templateVersion}`].join(
+        " · "
+      ),
+      this.font,
+      9,
+      PAGE_W - MARGIN * 2
+    );
+  }
+
+  private footerReserve(): number {
+    return 20 + this.footerLines().length * 12;
+  }
+
   private ensure(height: number) {
-    if (this.y - height < FOOTER_TOP + 8) {
+    if (this.y - height < this.footerReserve()) {
       this.page = this.addPage();
       this.y = PAGE_H - MARGIN;
     }
@@ -102,7 +117,7 @@ class Writer {
   text(value: string, opts: { font?: PDFFont; size?: number; gap?: number; color?: ReturnType<typeof rgb> } = {}) {
     const font = opts.font ?? this.font;
     const size = opts.size ?? 10;
-    const color = opts.color ?? rgb(0.1, 0.1, 0.1);
+    const color = opts.color ?? BLACK;
     const lines = this.wrap(value, font, size, PAGE_W - MARGIN * 2);
     const lineHeight = size + 3;
     for (const line of lines) {
@@ -143,7 +158,7 @@ class Writer {
           y: this.y - size - r * lineHeight,
           size,
           font,
-          color: rgb(0.1, 0.1, 0.1),
+          color: BLACK,
         });
       }
       x += widths[i];
@@ -152,17 +167,19 @@ class Writer {
   }
 
   stampFooters() {
-    const label = toWinAnsi(
-      `${this.model.issuer.displayName} · Vorlage ${this.model.templateVersion}`
-    );
     for (const page of this.pages) {
-      page.drawText(label, {
-        x: MARGIN,
-        y: 28,
-        size: 8,
-        font: this.font,
-        color: rgb(0.4, 0.4, 0.4),
-      });
+      const lines = this.footerLines();
+      let y = 16 + (lines.length - 1) * 12;
+      for (const line of lines) {
+        page.drawText(line, {
+          x: MARGIN,
+          y,
+          size: 9,
+          font: this.font,
+          color: BLACK,
+        });
+        y -= 12;
+      }
     }
   }
 }
@@ -181,16 +198,16 @@ export async function renderPdf(model: DocumentModel): Promise<Uint8Array> {
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   const w = new Writer(doc, font, bold, model);
 
-  w.text(model.issuer.displayName, { font: bold, size: 16, gap: 2 });
-  for (const line of model.issuer.lines) w.text(line, { size: 9, gap: 0 });
-  w.text(model.documentDateLabel, { size: 9, gap: 8 });
+  w.text(model.issuer.displayName, { font: bold, size: 14, gap: 2 });
+  for (const line of model.issuer.lines) w.text(line, { size: 11, gap: 0 });
+  w.text(model.documentDateLabel, { size: 11, gap: 8 });
   w.rule();
-  w.text(model.title, { font: bold, size: 18, gap: 8 });
+  w.text(model.title, { font: bold, size: 16, gap: 8 });
+  for (const line of model.recipientLines) w.text(line, { size: 11, gap: 1 });
+  w.text("", { gap: 6 });
 
   const facts: Array<[string, string | undefined]> = [
-    ["Kunde", model.customerName],
     ["E-Mail", model.customerEmail],
-    ["Anschrift", model.customerAddress],
     ["Leistung", model.serviceLabel],
     ["Auszug", model.fromAddress],
     ["Einzug", model.toAddress],
@@ -198,46 +215,48 @@ export async function renderPdf(model: DocumentModel): Promise<Uint8Array> {
     ["Gültig bis", model.validUntilLabel],
   ];
   for (const [label, value] of facts) {
-    if (value) w.text(`${label}: ${value}`, { size: 10, gap: 1 });
+    if (value) w.text(`${label}: ${value}`, { size: 11, gap: 1 });
   }
   w.text("", { gap: 4 });
 
-  for (const paragraph of model.intro) w.text(paragraph, { size: 10, gap: 6 });
+  for (const paragraph of model.intro) w.text(paragraph, { size: 11, gap: 6 });
   if (model.summary) {
-    w.text("Leistungsumfang", { font: bold, size: 11, gap: 2 });
-    w.text(model.summary, { size: 10, gap: 6 });
+    w.text("Leistungsumfang", { font: bold, size: 12, gap: 2 });
+    w.text(model.summary, { size: 11, gap: 6 });
   }
-  for (const line of model.scopeLines) w.text(`• ${line}`, { size: 10, gap: 1 });
+  for (const line of model.scopeLines) w.text(`• ${line}`, { size: 11, gap: 1 });
 
-  const widths = [250, 70, 85, 90];
-  w.columns(["Position", "Menge", "Einzelpreis", "Betrag"], widths, { bold: true, size: 9 });
-  for (const position of model.positions) {
-    w.columns(
-      [position.title, position.quantityLabel, position.unitRateLabel, position.amountLabel],
-      widths,
-      { size: 9 }
-    );
+  const widths = [255, 50, 95, 95];
+  if (model.positions.length > 0) {
+    w.columns(["Position", "Menge", "Einzelpreis", "Betrag"], widths, { bold: true, size: 11 });
+    for (const position of model.positions) {
+      w.columns(
+        [position.title, position.quantityLabel, position.unitRateLabel, position.amountLabel],
+        widths,
+        { size: 11 }
+      );
+    }
   }
   w.text(`${model.totalCaption}: ${model.totalLabel}`, { font: bold, size: 12, gap: 6 });
 
-  if (model.depositLabel) w.text(`Anzahlung: ${model.depositLabel}`, { size: 10, gap: 1 });
-  if (model.remainderLabel) w.text(`Rest nach Anzahlung: ${model.remainderLabel}`, { size: 10, gap: 1 });
-  if (model.paymentMethodLabel) w.text(`Zahlungsart: ${model.paymentMethodLabel}`, { size: 10, gap: 1 });
-  if (model.paidLabel) w.text(`Bereits gebucht: ${model.paidLabel}`, { size: 10, gap: 1 });
-  if (model.openLabel) w.text(`Offen: ${model.openLabel}`, { size: 10, gap: 4 });
-  if (model.paymentTerms) w.text(model.paymentTerms, { size: 10, gap: 6 });
+  if (model.depositLabel) w.text(`Anzahlung: ${model.depositLabel}`, { size: 11, gap: 1 });
+  if (model.remainderLabel) w.text(`Rest nach Anzahlung: ${model.remainderLabel}`, { size: 11, gap: 1 });
+  if (model.paymentMethodLabel) w.text(`Zahlungsart: ${model.paymentMethodLabel}`, { size: 11, gap: 1 });
+  if (model.paidLabel) w.text(`Bereits gebucht: ${model.paidLabel}`, { size: 11, gap: 1 });
+  if (model.openLabel) w.text(`Offen: ${model.openLabel}`, { size: 11, gap: 4 });
+  if (model.paymentTerms) w.text(model.paymentTerms, { size: 11, gap: 6 });
 
   if (model.remarks) {
-    w.text("Hinweise", { font: bold, size: 11, gap: 2 });
-    w.text(model.remarks, { size: 10, gap: 6 });
+    w.text("Hinweise", { font: bold, size: 12, gap: 2 });
+    w.text(model.remarks, { size: 11, gap: 6 });
   }
-  for (const paragraph of model.closing) w.text(paragraph, { size: 10, gap: 4 });
-  w.text(model.taxNote, { size: 9, gap: 6 });
+  for (const paragraph of model.closing) w.text(paragraph, { size: 11, gap: 4 });
+  w.text(model.taxNote, { size: 11, gap: 6 });
   if (model.showBank) {
-    w.text("Bankverbindung", { font: bold, size: 11, gap: 2 });
-    w.text(model.issuer.bank.holder, { size: 10, gap: 0 });
-    w.text(`IBAN ${model.issuer.bank.iban}`, { size: 10, gap: 0 });
-    w.text(`BIC ${model.issuer.bank.bic}`, { size: 10, gap: 4 });
+    w.text("Bankverbindung", { font: bold, size: 12, gap: 2 });
+    w.text(model.issuer.bank.holder, { size: 11, gap: 0 });
+    w.text(`IBAN ${model.issuer.bank.iban}`, { size: 11, gap: 0 });
+    w.text(`BIC ${model.issuer.bank.bic}`, { size: 11, gap: 4 });
   }
 
   w.stampFooters();

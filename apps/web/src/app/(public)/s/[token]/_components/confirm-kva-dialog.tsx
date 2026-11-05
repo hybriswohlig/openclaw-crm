@@ -4,14 +4,16 @@ import { useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   BUTTON_ZAHLUNGSPFLICHTIG,
-  HAFTUNGSHINWEIS_451G,
   HAFTUNG_CHECKBOX,
   VERSICHERUNG_CHECKBOX,
-  VORZEITIGER_BEGINN_CHECKBOX,
   abschlussHinweis,
+  haftungshinweis,
   keinWiderrufHinweis,
+  kundenAnrede,
+  kundenText,
   naechsteAktionNachAnnahme,
   unterschriftMoeglich,
+  vorzeitigerBeginnCheckbox,
   widerrufsbelehrung,
   type ConfirmKvaPayload,
   type CustomerPortalContext,
@@ -21,6 +23,7 @@ import { PaymentSection } from "./payment-section";
 import { UnterschriftForm } from "./unterschrift-form";
 import { stempel } from "./brief";
 import { Stempel } from "./brief-teile";
+import { RestbetragHinweis } from "./restbetrag-hinweis";
 
 /**
  * Annahme-Dialog. Pflicht: Angebot, AGB (falls vorhanden), bei Umzug der
@@ -62,6 +65,9 @@ export function ConfirmKvaDialog({
   const [fullName, setFullName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const anrede = kundenAnrede(ctx.branding.firmaSlug);
+  const t = (sie: string, du: string) => kundenText(ctx.branding.firmaSlug, sie, du);
+  const haftung = haftungshinweis(anrede);
 
   // The component stays mounted while the dialog is closed (Radix only
   // unmounts the Content), so the state must be reset explicitly on close
@@ -114,7 +120,7 @@ export function ConfirmKvaDialog({
         const body = (await res.json().catch(() => ({}))) as {
           error?: { code?: string };
         };
-        setError(germanError(body.error?.code));
+        setError(germanError(ctx.branding.firmaSlug, body.error?.code));
         // Server sieht einen anderen Stand (Preis, Termin, Fristen): Kontext neu
         // laden, damit Preis und nötige Häkchen sichtbar werden.
         if (NEU_LADEN_BEI.has(body.error?.code ?? "")) void onAccepted();
@@ -123,7 +129,7 @@ export function ConfirmKvaDialog({
       await Promise.resolve(onAccepted());
       setStep("done");
     } catch {
-      setError("Verbindungsfehler. Bitte versuchen Sie es erneut.");
+      setError(t("Verbindungsfehler. Bitte versuchen Sie es erneut.", "Verbindungsfehler. Bitte versuche es erneut."));
     } finally {
       setSubmitting(false);
     }
@@ -160,8 +166,10 @@ export function ConfirmKvaDialog({
             Auftrag erteilen
           </DialogPrimitive.Title>
           <DialogPrimitive.Description className="mt-1 text-xs text-muted-foreground">
-            Bitte bestätigen Sie die folgenden Punkte. Eine Bestätigung geht
-            Ihnen anschließend per WhatsApp oder E-Mail zu.
+            {t(
+              "Bitte bestätigen Sie die folgenden Punkte. Eine Bestätigung geht Ihnen anschließend per WhatsApp oder E-Mail zu.",
+              "Bitte bestätige die folgenden Punkte. Eine Bestätigung geht dir anschließend per WhatsApp oder E-Mail zu.",
+            )}
           </DialogPrimitive.Description>
 
           {/* Preis-Recap unmittelbar vor der Annahme (§ 312j Abs. 2 BGB). */}
@@ -208,6 +216,11 @@ export function ConfirmKvaDialog({
                   ist die finale Rechnung.
                 </p>
               )}
+              <RestbetragHinweis
+                firmaSlug={ctx.branding.firmaSlug}
+                serviceType={ctx.annahmeRecht.serviceType}
+                className="mt-2 text-xs text-muted-foreground"
+              />
             </div>
           )}
 
@@ -251,8 +264,8 @@ export function ConfirmKvaDialog({
                 className="rounded-xl border-2 bg-[var(--portal-brand-tint)] px-4 py-3 text-xs leading-relaxed text-foreground"
                 style={{ borderColor: `#${ctx.branding.primaryColor}` }}
               >
-                <p className="text-sm font-semibold">{HAFTUNGSHINWEIS_451G.titel}</p>
-                {HAFTUNGSHINWEIS_451G.absaetze.map((a) => (
+                <p className="text-sm font-semibold">{haftung.titel}</p>
+                {haftung.absaetze.map((a) => (
                   <p key={a} className="mt-1.5">{a}</p>
                 ))}
               </div>
@@ -271,7 +284,7 @@ export function ConfirmKvaDialog({
             )}
 
             {r.widerrufModus === "ausgeschlossen" ? (
-              <p className="text-xs leading-relaxed text-muted-foreground">{keinWiderrufHinweis()}</p>
+              <p className="text-xs leading-relaxed text-muted-foreground">{keinWiderrufHinweis(anrede)}</p>
             ) : (
               <details className="rounded-xl border border-border/50 bg-card px-4 py-3 text-xs leading-relaxed">
                 <summary className="cursor-pointer text-sm font-medium">Widerrufsbelehrung</summary>
@@ -294,7 +307,7 @@ export function ConfirmKvaDialog({
 
             {r.vorzeitigerBeginnErforderlich && (
               <CheckboxRow id="acc-beginn" checked={accBeginn} onCheckedChange={setAccBeginn}>
-                {VORZEITIGER_BEGINN_CHECKBOX}
+                {vorzeitigerBeginnCheckbox(anrede)}
               </CheckboxRow>
             )}
 
@@ -341,12 +354,12 @@ export function ConfirmKvaDialog({
 
           {!ready && !submitting && (
             <p className="mt-2 text-xs text-muted-foreground">
-              Bitte bestätigen Sie zuerst alle Punkte oben.
+              {t("Bitte bestätigen Sie zuerst alle Punkte oben.", "Bitte bestätige zuerst alle Punkte oben.")}
             </p>
           )}
 
           <p className="mt-4 text-[10px] leading-relaxed text-muted-foreground">
-            {abschlussHinweis(ctx.branding.displayName)}
+            {abschlussHinweis(ctx.branding.displayName, anrede)}
           </p>
             </>
           )}
@@ -393,9 +406,9 @@ function DoneStep({
           <DialogPrimitive.Title className="portal-display text-xl">Angebot angenommen</DialogPrimitive.Title>
           <DialogPrimitive.Description className="mt-1 text-sm leading-relaxed text-muted-foreground">
             {selectedOptionName
-              ? `Ihre Wahl: ${selectedOptionName} · ${formatEurCents(displayTotalCents)}.`
+              ? `${kundenText(ctx.branding.firmaSlug, "Ihre Wahl", "Deine Wahl")}: ${selectedOptionName} · ${formatEurCents(displayTotalCents)}.`
               : `Gesamtbetrag: ${formatEurCents(displayTotalCents)}.`}{" "}
-            Eine Bestätigung geht Ihnen per WhatsApp oder E-Mail zu.
+            {kundenText(ctx.branding.firmaSlug, "Eine Bestätigung geht Ihnen per WhatsApp oder E-Mail zu.", "Eine Bestätigung geht dir per WhatsApp oder E-Mail zu.")}
           </DialogPrimitive.Description>
         </div>
       </div>
@@ -410,8 +423,7 @@ function DoneStep({
       {hasDeposit ? (
         <>
           <p className="mt-4 text-sm leading-relaxed">
-            Nur noch ein Schritt: Mit Eingang der Anzahlung ist Ihr Termin fest
-            reserviert.
+            {kundenText(ctx.branding.firmaSlug, "Nur noch ein Schritt: Mit Eingang der Anzahlung ist Ihr Termin fest reserviert.", "Nur noch ein Schritt: Mit Eingang der Anzahlung ist dein Termin fest reserviert.")}
           </p>
           <div className="mt-3">
             <PaymentSection
@@ -433,9 +445,11 @@ function DoneStep({
         </>
       ) : (
         <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
-          Ihre Auftragsbestätigung folgt nach unserer Einsatzplanung. Unten
-          auf der Seite sehen Sie weiterhin Ihr Angebot und was Sie
-          angenommen haben.
+          {kundenText(
+            ctx.branding.firmaSlug,
+            "Ihre Auftragsbestätigung folgt nach unserer Einsatzplanung. Unten auf der Seite sehen Sie weiterhin Ihr Angebot und was Sie angenommen haben.",
+            "Deine Auftragsbestätigung folgt nach unserer Einsatzplanung. Unten auf der Seite siehst du weiterhin dein Angebot und was du angenommen hast.",
+          )}
         </p>
       )}
 
@@ -506,35 +520,36 @@ const NEU_LADEN_BEI = new Set([
   "VORZEITIGER_BEGINN_REQUIRED",
 ]);
 
-function germanError(code: string | undefined): string {
+function germanError(firma: string, code: string | undefined): string {
+  const t = (sie: string, du: string) => kundenText(firma, sie, du);
   switch (code) {
     case "MISSING_ACKNOWLEDGEMENT":
-      return "Bitte bestätigen Sie alle erforderlichen Punkte.";
+      return t("Bitte bestätigen Sie alle erforderlichen Punkte.", "Bitte bestätige alle erforderlichen Punkte.");
     case "DATE_REQUIRED":
-      return "Bitte wählen Sie zuerst einen Termin. Ohne festen Termin können wir den Auftrag noch nicht annehmen.";
+      return t("Bitte wählen Sie zuerst einen Termin. Ohne festen Termin können wir den Auftrag noch nicht annehmen.", "Bitte wähle zuerst einen Termin. Ohne festen Termin können wir den Auftrag noch nicht annehmen.");
     case "PRICE_CHANGED":
-      return "Das Angebot wurde gerade aktualisiert. Bitte prüfen Sie den neuen Preis und bestätigen Sie erneut.";
+      return t("Das Angebot wurde gerade aktualisiert. Bitte prüfen Sie den neuen Preis und bestätigen Sie erneut.", "Das Angebot wurde gerade aktualisiert. Bitte prüfe den neuen Preis und bestätige erneut.");
     case "AGB_UNAVAILABLE":
-      return "Unsere AGB sind gerade nicht abrufbar. Bitte versuchen Sie es in ein paar Minuten erneut.";
+      return t("Unsere AGB sind gerade nicht abrufbar. Bitte versuchen Sie es in ein paar Minuten erneut.", "Unsere AGB sind gerade nicht abrufbar. Bitte versuche es in ein paar Minuten erneut.");
     case "HAFTUNGSHINWEIS_REQUIRED":
-      return "Bitte bestätigen Sie den Haftungshinweis.";
+      return t("Bitte bestätigen Sie den Haftungshinweis.", "Bitte bestätige den Haftungshinweis.");
     case "VORZEITIGER_BEGINN_REQUIRED":
-      return "Ihr Termin liegt innerhalb der Widerrufsfrist. Bitte bestätigen Sie, dass wir vorher beginnen sollen.";
+      return t("Ihr Termin liegt innerhalb der Widerrufsfrist. Bitte bestätigen Sie, dass wir vorher beginnen sollen.", "Dein Termin liegt innerhalb der Widerrufsfrist. Bitte bestätige, dass wir vorher beginnen sollen.");
     case "NO_QUOTATION":
-      return "Es liegt aktuell kein Angebot vor. Bitte kontaktieren Sie uns.";
+      return t("Es liegt aktuell kein Angebot vor. Bitte kontaktieren Sie uns.", "Es liegt aktuell kein Angebot vor. Bitte kontaktiere uns.");
     case "OPTION_REQUIRED":
-      return "Bitte wählen Sie zuerst eine der angebotenen Optionen.";
+      return t("Bitte wählen Sie zuerst eine der angebotenen Optionen.", "Bitte wähle zuerst eine der angebotenen Optionen.");
     case "ZERO_PRICE":
-      return "Für dieses Angebot ist noch kein Preis hinterlegt. Bitte kontaktieren Sie uns.";
+      return t("Für dieses Angebot ist noch kein Preis hinterlegt. Bitte kontaktieren Sie uns.", "Für dieses Angebot ist noch kein Preis hinterlegt. Bitte kontaktiere uns.");
     case "TERMIN_VORBEI":
-      return "Der Termin für diesen Auftrag liegt schon zurück. Schreiben Sie uns bitte kurz, wir melden uns bei Ihnen.";
+      return t("Der Termin für diesen Auftrag liegt schon zurück. Schreiben Sie uns bitte kurz, wir melden uns bei Ihnen.", "Der Termin für diesen Auftrag liegt schon zurück. Schreib uns bitte kurz, wir melden uns bei dir.");
     case "OFFER_EXPIRED":
-      return "Dieses Angebot ist inzwischen abgelaufen. Schreiben Sie uns kurz, wir prüfen die Verfügbarkeit und senden Ihnen ein aktualisiertes Angebot.";
+      return t("Dieses Angebot ist inzwischen abgelaufen. Schreiben Sie uns kurz, wir prüfen die Verfügbarkeit und senden Ihnen ein aktualisiertes Angebot.", "Dieses Angebot ist inzwischen abgelaufen. Schreib uns kurz, wir prüfen die Verfügbarkeit und senden dir ein aktualisiertes Angebot.");
     case "REVOKED":
       return "Dieser Link ist nicht mehr aktiv.";
     case "NOT_FOUND":
       return "Link nicht gefunden.";
     default:
-      return "Es ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut.";
+      return t("Es ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut.", "Es ist ein Fehler aufgetreten. Bitte versuche es erneut.");
   }
 }

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import {
+  kundenText,
   offerAcceptanceBlockReason,
   pickDefaultDealOption,
   type CustomerPortalContext,
@@ -18,11 +19,12 @@ import { PanelHeading, OrderDetails, ContactPanel } from "./portal-ui";
 import { QuotationPreview } from "./quotation-preview";
 import { formatPortalMoney } from "./portal-presentation";
 import { PaymentSection } from "./payment-section";
-import { TERMIN_VORBEI_HINWEIS, terminVorbeiNachricht } from "./brief";
+import { terminVorbeiHinweis, terminVorbeiNachricht } from "./brief";
 import { WhatsAppContactLink } from "./whatsapp-contact-link";
 import { OfferInclusionsSection } from "./offer-inclusions";
 import { EmailCaptureBanner } from "./email-capture-banner";
 import { PackageSelector } from "./package-selector";
+import { RestbetragHinweis } from "./restbetrag-hinweis";
 import { DateOfferPicker } from "./date-offer-picker";
 import { CustomerPhotosSection } from "./customer-photos-section";
 import { FurnitureListSection } from "./furniture-list-section";
@@ -55,6 +57,8 @@ export function StageOneKva({
   onConfirmed: () => void | Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
+  const firma = ctx.branding.firmaSlug;
+  const t = (sie: string, du: string) => kundenText(firma, sie, du);
 
   // Day-based validity check anchored to server time (the server rejects an
   // accept on an expired offer with OFFER_EXPIRED; the UI should never let
@@ -82,9 +86,10 @@ export function StageOneKva({
   if (!ctx.kva && !hasSelectableOffers) {
     return (
       <section className="rounded-2xl border bg-card p-6 text-sm text-muted-foreground">
-        Ihr Kostenvoranschlag wird gerade erstellt. Diese Seite aktualisiert sich
-        automatisch, sobald das Angebot bereitsteht. Sie können die Seite einfach
-        kurz später erneut öffnen.
+        {t(
+          "Ihr Kostenvoranschlag wird gerade erstellt. Diese Seite aktualisiert sich automatisch, sobald das Angebot bereitsteht. Sie können die Seite einfach kurz später erneut öffnen.",
+          "Dein Kostenvoranschlag wird gerade erstellt. Diese Seite aktualisiert sich automatisch, sobald das Angebot bereitsteht. Du kannst die Seite einfach kurz später erneut öffnen.",
+        )}
       </section>
     );
   }
@@ -131,28 +136,28 @@ export function StageOneKva({
       <div className="portal-columns">
         <div className="portal-stack">
           <EmailCaptureBanner token={token} status={ctx.customerEmailStatus} branding={ctx.branding} />
-          {ctx.fruehereAnnahmeAufgehoben && !alreadyAccepted && <section className="portal-panel portal-note"><PanelHeading icon={Info} title="Ihr Angebot wurde aktualisiert"><p>Wir haben Ihr Angebot angepasst. Bitte prüfen Sie es und nehmen Sie es erneut an.</p></PanelHeading></section>}
-          <div aria-live="polite" className="empty:hidden">{alreadyAccepted && <section className="portal-panel"><PanelHeading icon={CheckCircle2} title="Ihr Angebot wurde angenommen"><p>Vielen Dank für Ihr Vertrauen. Ihre Auftragsbestätigung erscheint hier, sobald sie bereitsteht.</p></PanelHeading><p className="text-sm text-muted-foreground">{acceptedOptionName ?? "Ihr Angebot"} · {formatPortalMoney(displayTotalCents)} · Angenommen am {new Date(ctx.acceptance!.signedAt).toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" })}{ctx.acceptance!.unterschrift && <> · Unterschrieben am {new Date(ctx.acceptance!.unterschrift.at).toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" })}</>}</p>{ctx.acceptance!.widerrufModus === "belehrung" && <p className="mt-2 text-sm"><a href={`/legal/widerruf/${ctx.branding.firmaSlug}`} target="_blank" rel="noopener noreferrer" className="font-medium underline underline-offset-2">Widerrufsbelehrung und Muster-Widerrufsformular</a></p>}{ctx.features?.payments === true && ctx.payment && ctx.payment.amountCents > 0 && <p className="mt-2 text-sm text-muted-foreground">Die Angaben zur vereinbarten Anzahlung finden Sie weiter unten.</p>}</section>}</div>
+          {ctx.fruehereAnnahmeAufgehoben && !alreadyAccepted && <section className="portal-panel portal-note"><PanelHeading icon={Info} title={t("Ihr Angebot wurde aktualisiert", "Dein Angebot wurde aktualisiert")}><p>{t("Wir haben Ihr Angebot angepasst. Bitte prüfen Sie es und nehmen Sie es erneut an.", "Wir haben dein Angebot angepasst. Bitte prüfe es und nimm es erneut an.")}</p></PanelHeading></section>}
+          <div aria-live="polite" className="empty:hidden">{alreadyAccepted && <section className="portal-panel"><PanelHeading icon={CheckCircle2} title={t("Ihr Angebot wurde angenommen", "Dein Angebot wurde angenommen")}><p>{t("Vielen Dank für Ihr Vertrauen. Ihre Auftragsbestätigung erscheint hier, sobald sie bereitsteht.", "Vielen Dank für dein Vertrauen. Deine Auftragsbestätigung erscheint hier, sobald sie bereitsteht.")}</p></PanelHeading><p className="text-sm text-muted-foreground">{acceptedOptionName ?? t("Ihr Angebot", "Dein Angebot")} · {formatPortalMoney(displayTotalCents)} · Angenommen am {new Date(ctx.acceptance!.signedAt).toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" })}{ctx.acceptance!.unterschrift && <> · Unterschrieben am {new Date(ctx.acceptance!.unterschrift.at).toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" })}</>}</p>{ctx.acceptance!.widerrufModus === "belehrung" && <p className="mt-2 text-sm"><a href={`/legal/widerruf/${ctx.branding.firmaSlug}`} target="_blank" rel="noopener noreferrer" className="font-medium underline underline-offset-2">Widerrufsbelehrung und Muster-Widerrufsformular</a></p>}{ctx.features?.payments === true && ctx.payment && ctx.payment.amountCents > 0 && <p className="mt-2 text-sm text-muted-foreground">{t("Die Angaben zur vereinbarten Anzahlung finden Sie weiter unten.", "Die Angaben zur vereinbarten Anzahlung findest du weiter unten.")}</p>}</section>}</div>
           {ctx.dateOffers.options.length > 0 && <DateOfferPicker token={token} ctx={ctx} onPicked={onConfirmed} locked={alreadyAccepted} />}
           <section className="portal-panel">
-            <div className="portal-offer-intro"><PanelHeading icon={FileText} title={hasMultipleOffers ? "Unsere Angebote für Sie" : "Ihr persönliches Angebot"}>
-              <p>{hasMultipleOffers ? "Wir haben die Optionen für Ihren Umzug erstellt. Wählen Sie das passende Angebot für sich aus." : "Hier finden Sie Ihr Angebot mit allen vereinbarten Leistungen für Ihren Umzug."}</p>
+            <div className="portal-offer-intro"><PanelHeading icon={FileText} title={hasMultipleOffers ? t("Unsere Angebote für Sie", "Unsere Angebote für dich") : t("Ihr persönliches Angebot", "Dein persönliches Angebot")}>
+              <p>{hasMultipleOffers ? t("Wir haben die Optionen für Ihren Umzug erstellt. Wählen Sie das passende Angebot für sich aus.", "Wir haben die Optionen für deinen Umzug erstellt. Wähle das passende Angebot für dich aus.") : t("Hier finden Sie Ihr Angebot mit allen vereinbarten Leistungen für Ihren Umzug.", "Hier findest du dein Angebot mit allen vereinbarten Leistungen für deinen Umzug.")}</p>
             </PanelHeading><span>Auftragsnummer: <strong>{ctx.dealNumber}</strong></span></div>
             {offerView !== "einzelangebot" && <PackageSelector token={token} packages={ctx.packages} dealOffers={ctx.dealPackageOffers} branding={ctx.branding} locked={alreadyAccepted} onPicked={onConfirmed} />}
-            {offerView === "einzelangebot" && ctx.kva && <div className="portal-note rounded-lg p-5"><strong>{ctx.kva.isVariable ? "Individuelles Angebot nach Aufwand" : "Ihr individuelles Angebot"}</strong><div className="portal-price text-4xl">{formatPortalMoney(displayTotalCents)}</div>{ctx.kva.summary && <p className="mt-3 whitespace-pre-line">{ctx.kva.summary}</p>}</div>}
+            {offerView === "einzelangebot" && ctx.kva && <div className="portal-note rounded-lg p-5"><strong>{ctx.kva.isVariable ? "Individuelles Angebot nach Aufwand" : t("Ihr individuelles Angebot", "Dein individuelles Angebot")}</strong><div className="portal-price text-4xl">{formatPortalMoney(displayTotalCents)}</div>{ctx.kva.summary && <p className="mt-3 whitespace-pre-line">{ctx.kva.summary}</p>}</div>}
           </section>
           {ctx.kva && !alreadyAccepted && <MobilePriceDetails ctx={ctx} expired={gueltigkeitAbgelaufen} displayTotalCents={displayTotalCents} selectedOptionName={defaultOption?.displayName ?? null} />}
           <QuotationPreview ctx={ctx} token={token} />
           <div className={hasMultipleOffers ? "" : "lg:hidden"}><OrderDetails ctx={ctx} token={token} wide /></div>
           {ctx.kva?.calculationAssumptions && <CalculationAssumptionsCard a={ctx.kva.calculationAssumptions} />}
           {ctx.dealPackageOffers.options.length === 0 && ctx.kva?.showStandardInclusions && <OfferInclusionsSection inclusions={ctx.inclusions} branding={ctx.branding} />}
-          <CustomerPhotosSection token={token} photos={ctx.customerPhotos} primaryColor={ctx.branding.primaryColor} />
+          <CustomerPhotosSection token={token} photos={ctx.customerPhotos} primaryColor={ctx.branding.primaryColor} firmaSlug={firma} />
           <FurnitureListSection items={ctx.furnitureList ?? []} primaryColor={ctx.branding.primaryColor} />
           {alreadyAccepted && ctx.features?.payments === true && ctx.payment && ctx.payment.amountCents > 0 && <PaymentSection token={token} payment={ctx.payment} branding={ctx.branding} variant="deposit" markedPaidAt={ctx.customerSignals.markedPaidDepositAt} />}
         </div>
         <aside className="portal-stack">
           <div className="hidden lg:block">{ctx.kva ? <PriceCard ctx={ctx} alreadyAccepted={alreadyAccepted} displayTotalCents={displayTotalCents} selectedOptionName={acceptedOptionName} acceptBlock={alreadyAccepted ? null : acceptBlock} expired={offerExpired} onAccept={() => setOpen(true)} /> : <ChooseOfferPrompt branding={ctx.branding} />}</div>
-          {(ctx.dealPackageOffers.options.length || ctx.packages.available.length) > 1 && !alreadyAccepted && <div className="portal-panel portal-note"><PanelHeading icon={Info} title="Hinweis" /><p>Sie können zwischen den Angeboten wechseln. Der angezeigte Kostenvoranschlag passt sich Ihrer Auswahl an.</p></div>}
+          {(ctx.dealPackageOffers.options.length || ctx.packages.available.length) > 1 && !alreadyAccepted && <div className="portal-panel portal-note"><PanelHeading icon={Info} title="Hinweis" /><p>{t("Sie können zwischen den Angeboten wechseln. Der angezeigte Kostenvoranschlag passt sich Ihrer Auswahl an.", "Du kannst zwischen den Angeboten wechseln. Der angezeigte Kostenvoranschlag passt sich deiner Auswahl an.")}</p></div>}
           {!hasMultipleOffers && <div className="hidden lg:block"><OrderDetails ctx={ctx} token={token} /></div>}
           <ContactPanel ctx={ctx} token={token} title="Fragen zum Angebot?" />
         </aside>
@@ -212,7 +217,7 @@ export function StageOneKva({
           )}
           {!offerExpired && acceptBlock === "termin_offen" && (
             <p className="mx-auto -mt-1 max-w-2xl px-4 pb-1 text-[11px] leading-relaxed text-muted-foreground">
-              Der Termin wird noch mit Ihnen abgestimmt. Danach können Sie das Angebot hier annehmen.
+              {t("Der Termin wird noch mit Ihnen abgestimmt. Danach können Sie das Angebot hier annehmen.", "Der Termin wird noch mit dir abgestimmt. Danach kannst du das Angebot hier annehmen.")}
             </p>
           )}
         </div>
@@ -242,16 +247,18 @@ export function StageOneKva({
  * in the left column creates the quotation; the real PriceCard then replaces
  * this on the next render.
  */
-function ChooseOfferPrompt({ branding }: { branding: { primaryColor: string } }) {
+function ChooseOfferPrompt({ branding }: { branding: { primaryColor: string; firmaSlug: string } }) {
+  const t = (sie: string, du: string) => kundenText(branding.firmaSlug, sie, du);
   return (
     <div className="rounded-2xl border bg-card p-5 text-sm shadow-sm">
       <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-        Ihr Angebot
+        {t("Ihr Angebot", "Dein Angebot")}
       </div>
       <p className="mt-2 leading-relaxed text-muted-foreground">
-        Bitte wählen Sie nebenan Ihr passendes Paket bzw. einen Termin. Sobald
-        Sie gewählt haben, sehen Sie hier den verbindlichen Preis und können den
-        Auftrag annehmen.
+        {t(
+          "Bitte wählen Sie nebenan Ihr passendes Paket bzw. einen Termin. Sobald Sie gewählt haben, sehen Sie hier den verbindlichen Preis und können den Auftrag annehmen.",
+          "Bitte wähle nebenan dein passendes Paket bzw. einen Termin. Sobald du gewählt hast, siehst du hier den verbindlichen Preis und kannst den Auftrag annehmen.",
+        )}
       </p>
       <button
         type="button"
@@ -289,6 +296,7 @@ function PriceCard({
 }) {
   const kva = ctx.kva!;
   const accent = `#${ctx.branding.primaryColor}`;
+  const t = (sie: string, du: string) => kundenText(ctx.branding.firmaSlug, sie, du);
   return (
     <div className="portal-offer-price-card relative overflow-hidden rounded-2xl border">
       {/* Thin accent rule at the very top — Stripe Checkout style. */}
@@ -300,7 +308,7 @@ function PriceCard({
         }}
       />
       <div className="border-b px-5 pb-3 pt-4 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-        Ihr ausgewähltes Angebot
+        {t("Ihr ausgewähltes Angebot", "Dein ausgewähltes Angebot")}
       </div>
       <div className="space-y-4 px-5 py-5">
         <div>
@@ -330,6 +338,11 @@ function PriceCard({
             {formatEurCents(kva.depositRequiredCents)} zur Auftragsbestätigung.
           </div>
         ) : null}
+        <RestbetragHinweis
+          firmaSlug={ctx.branding.firmaSlug}
+          serviceType={ctx.annahmeRecht.serviceType}
+          className="text-[11px] leading-relaxed text-muted-foreground"
+        />
 
         {alreadyAccepted ? (
           <div className="rounded-lg border border-border bg-[var(--portal-brand-tint)] px-4 py-3 text-xs text-foreground">
@@ -339,7 +352,7 @@ function PriceCard({
             </div>
             {selectedOptionName && (
               <p className="mt-1 leading-relaxed">
-                Ihre Wahl: {selectedOptionName} · {formatEurCents(displayTotalCents)}
+                {t("Ihre Wahl", "Deine Wahl")}: {selectedOptionName} · {formatEurCents(displayTotalCents)}
               </p>
             )}
             <p className="mt-1 leading-relaxed">
@@ -388,27 +401,23 @@ function PriceCard({
             </button>
             {acceptBlock === "termin_offen" ? (
               <p className="text-[10px] leading-relaxed text-muted-foreground">
-                Der Termin wird noch mit Ihnen abgestimmt. Danach können Sie
-                das Angebot hier annehmen.
+                {t("Der Termin wird noch mit Ihnen abgestimmt. Danach können Sie das Angebot hier annehmen.", "Der Termin wird noch mit dir abgestimmt. Danach kannst du das Angebot hier annehmen.")}
               </p>
             ) : acceptBlock === "date" ? (
               <p className="text-[10px] leading-relaxed text-muted-foreground">
-                Bitte wählen Sie oben einen Termin, damit wir den Auftrag
-                verbindlich für Sie reservieren können.
+                {t("Bitte wählen Sie oben einen Termin, damit wir den Auftrag verbindlich für Sie reservieren können.", "Bitte wähle oben einen Termin, damit wir den Auftrag verbindlich für dich reservieren können.")}
               </p>
             ) : acceptBlock === "option" ? (
               <p className="text-[10px] leading-relaxed text-muted-foreground">
-                Bitte wählen Sie zuerst eine der Optionen. Der Preis übernimmt
-                Ihre Auswahl automatisch.
+                {t("Bitte wählen Sie zuerst eine der Optionen. Der Preis übernimmt Ihre Auswahl automatisch.", "Bitte wähle zuerst eine der Optionen. Der Preis übernimmt deine Auswahl automatisch.")}
               </p>
             ) : acceptBlock === "zero_price" ? (
               <p className="text-[10px] leading-relaxed text-muted-foreground">
-                Für dieses Angebot ist noch kein Preis hinterlegt. Schreiben Sie
-                uns kurz, wir senden Ihnen die Zahlen nach.
+                {t("Für dieses Angebot ist noch kein Preis hinterlegt. Schreiben Sie uns kurz, wir senden Ihnen die Zahlen nach.", "Für dieses Angebot ist noch kein Preis hinterlegt. Schreib uns kurz, wir senden dir die Zahlen nach.")}
               </p>
             ) : (
               <p className="text-[10px] leading-relaxed text-muted-foreground">
-                Im nächsten Schritt prüfen und bestätigen Sie Ihr Angebot verbindlich. Anschließend erhalten Sie Ihre Bestätigung.
+                {t("Im nächsten Schritt prüfen und bestätigen Sie Ihr Angebot verbindlich. Anschließend erhalten Sie Ihre Bestätigung.", "Im nächsten Schritt prüfst und bestätigst du dein Angebot verbindlich. Anschließend erhältst du deine Bestätigung.")}
               </p>
             )}
           </>
@@ -468,6 +477,11 @@ function MobilePriceDetails({
             {formatEurCents(kva.depositRequiredCents)} zur Auftragsbestätigung.
           </div>
         ) : null}
+        <RestbetragHinweis
+          firmaSlug={ctx.branding.firmaSlug}
+          serviceType={ctx.annahmeRecht.serviceType}
+          className="mt-3 text-[11px] leading-relaxed text-muted-foreground"
+        />
       </div>
       <TrustLine branding={ctx.branding} isVariable={kva.isVariable} />
     </div>
@@ -485,13 +499,12 @@ function OfferExpiredNotice({ ctx }: { ctx: CustomerPortalContext }) {
   return (
     <div className="rounded-lg bg-muted/50 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
       {terminVorbei ? (
-        <p className="font-medium text-foreground">{TERMIN_VORBEI_HINWEIS}</p>
+        <p className="font-medium text-foreground">{terminVorbeiHinweis(ctx.branding.firmaSlug)}</p>
       ) : (
         <>
           <p className="font-medium text-foreground">Dieses Angebot ist abgelaufen.</p>
           <p className="mt-1">
-            Schreiben Sie uns kurz, wir prüfen die Verfügbarkeit und senden Ihnen
-            ein aktualisiertes Angebot.
+            {kundenText(ctx.branding.firmaSlug, "Schreiben Sie uns kurz, wir prüfen die Verfügbarkeit und senden Ihnen ein aktualisiertes Angebot.", "Schreib uns kurz, wir prüfen die Verfügbarkeit und senden dir ein aktualisiertes Angebot.")}
           </p>
         </>
       )}
@@ -502,12 +515,15 @@ function OfferExpiredNotice({ ctx }: { ctx: CustomerPortalContext }) {
           message={
             terminVorbei
               ? terminVorbeiNachricht(ctx.branding.displayName, ctx.dealNumber)
-              : `Guten Tag ${ctx.branding.displayName}, das Angebot zu meinem Auftrag ${ctx.dealNumber} ist abgelaufen. Können Sie mir bitte ein aktualisiertes Angebot senden?`
+              : kundenText(
+                  ctx.branding.firmaSlug,
+                  `Guten Tag ${ctx.branding.displayName}, das Angebot zu meinem Auftrag ${ctx.dealNumber} ist abgelaufen. Können Sie mir bitte ein aktualisiertes Angebot senden?`,
+                  `Guten Tag ${ctx.branding.displayName}, das Angebot zu meinem Auftrag ${ctx.dealNumber} ist abgelaufen. Kannst du mir bitte ein aktualisiertes Angebot senden?`,
+                )
           }
           fallback={
             <p>
-              Antworten Sie einfach auf die Nachricht, mit der Sie diesen Link
-              erhalten haben.
+              {kundenText(ctx.branding.firmaSlug, "Antworten Sie einfach auf die Nachricht, mit der Sie diesen Link erhalten haben.", "Antworte einfach auf die Nachricht, mit der du diesen Link erhalten hast.")}
             </p>
           }
         />
@@ -525,7 +541,7 @@ function TrustLine({
 }) {
   return (
     <div className="px-1 text-center text-[11px] leading-relaxed text-muted-foreground">
-      {isVariable ? "Abrechnung nach dem vereinbarten Aufwand." : "Maßgeblich sind die Leistungen und Angaben in Ihrem Angebot."}
+      {isVariable ? "Abrechnung nach dem vereinbarten Aufwand." : kundenText(branding.firmaSlug, "Maßgeblich sind die Leistungen und Angaben in Ihrem Angebot.", "Maßgeblich sind die Leistungen und Angaben in deinem Angebot.")}
       <br />
       Persönlicher Ansprechpartner bei {branding.displayName}.
     </div>

@@ -32,6 +32,7 @@ describe("parseRenderBody", () => {
       remarks: "Bitte die Einfahrt freihalten.",
     });
     expect(parsed.value.notifyCustomer).toBe(false);
+    expect(parsed.value.dueDate).toBeUndefined();
     expect(JSON.stringify(parsed.value)).not.toContain("INTERN-NOTIZ");
     expect(JSON.stringify(parsed.value)).not.toContain("pauschale");
   });
@@ -48,5 +49,23 @@ describe("parseRenderBody", () => {
       copy: { closing: "a".repeat(4001) },
     });
     expect(huge.ok).toBe(false);
+  });
+
+  it("keeps an explicit invoice due date and drops a non-date", () => {
+    const kept = parseRenderBody({
+      renderer: "crm",
+      documentType: "RE",
+      dueDate: "2026-12-01",
+    });
+    expect(kept.ok).toBe(true);
+    if (kept.ok) expect(kept.value.dueDate).toBe("2026-12-01");
+
+    const dropped = parseRenderBody({
+      renderer: "crm",
+      documentType: "RE",
+      dueDate: "sofort",
+    });
+    expect(dropped.ok).toBe(true);
+    if (dropped.ok) expect(dropped.value.dueDate).toBeUndefined();
   });
 });

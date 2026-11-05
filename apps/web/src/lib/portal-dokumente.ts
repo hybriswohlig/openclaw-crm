@@ -10,6 +10,20 @@ interface Dok {
 }
 
 /**
+ * Neuestes KV, unabhängig davon, wann die Angebotszeile zuletzt gespeichert
+ * wurde. Ein späteres Speichern von Preis, Zusammenfassung oder Gültigkeit
+ * versteckt ein schon hochgeladenes PDF nicht. null, wenn keins da ist —
+ * dann zeigt das Portal das HTML-Angebot.
+ */
+export function neuestesKvDokument<T extends Dok>(docs: readonly T[]): T | null {
+  let aktuell: T | null = null;
+  for (const doc of docs) {
+    if (!aktuell || doc.uploadedAt.getTime() > aktuell.uploadedAt.getTime()) aktuell = doc;
+  }
+  return aktuell;
+}
+
+/**
  * Nach der Annahme das gebundene PDF. Hat die Annahme keins (Altbestand
  * oder kein aktuelles PDF beim Klick), gilt die normale Regel weiter.
  */

@@ -7,6 +7,7 @@ import {
   grussZeilen,
   stempel,
   strecke,
+  terminVorbeiHinweis,
   terminVorbeiNachricht,
   vorgangsSchritte,
   type BriefZustand,
@@ -108,6 +109,18 @@ describe("Brief im Portal", () => {
       zustand: "erledigt",
       datum: "23.10.2026",
     });
+  });
+
+  it("Kottke duzt, Ceylan bleibt beim Sie", () => {
+    expect(briefEinleitung("offen", "Freitag, 20. November 2026", null, "move", "kottke")).toBe(
+      "hier ist dein Festpreis für den Umzug am Freitag, 20. November 2026. Wenn alles passt, nimm das Angebot unten an.",
+    );
+    expect(briefEinleitung("angenommen", null, "23. Oktober 2026", "move", "kottke")).toContain("du hast das Angebot");
+    expect(briefEinleitung("unterschrieben", null, "23. Oktober 2026", "move", "kottke")).toContain("Deinen unterschriebenen Vertrag findest du unten.");
+    expect(briefEinleitung("offen", null, null, "move", "ceylan")).toContain("nehmen Sie das Angebot unten an.");
+    expect(terminVorbeiHinweis("kottke")).toContain("Möchtest du");
+    expect(terminVorbeiHinweis("ceylan")).toContain("Möchten Sie");
+    expect(terminVorbeiHinweis("kottke")).not.toMatch(/\b(Sie|Ihnen)\b/);
   });
 
   it("nennt die tatsächliche Leistung statt immer „Umzug“", () => {

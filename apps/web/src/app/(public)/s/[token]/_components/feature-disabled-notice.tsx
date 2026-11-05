@@ -1,10 +1,13 @@
 import type { ReactNode } from "react";
+import { kundenText } from "@openclaw-crm/customer-portal-core";
 import { WhatsAppContactLink } from "./whatsapp-contact-link";
 
 export function FeatureDisabledNotice({
+  firmaSlug = null,
   whatsappNumberE164 = null,
   children,
 }: {
+  firmaSlug?: string | null;
   whatsappNumberE164?: string | null;
   /** Bleibt trotz „Portal aus“ sichtbar, z. B. der Widerrufsbutton. */
   children?: ReactNode;
@@ -14,8 +17,7 @@ export function FeatureDisabledNotice({
       <div className="text-5xl">🛠️</div>
       <h1 className="mt-6 text-xl font-medium">Aktuell nicht verfügbar</h1>
       <p className="mt-3 text-sm text-muted-foreground">
-        Das Status-Portal ist vorübergehend nicht erreichbar. Ihr Auftrag
-        läuft davon unabhängig ganz normal weiter.
+        {kundenText(firmaSlug, "Das Status-Portal ist vorübergehend nicht erreichbar. Ihr Auftrag läuft davon unabhängig ganz normal weiter.", "Das Status-Portal ist vorübergehend nicht erreichbar. Dein Auftrag läuft davon unabhängig ganz normal weiter.")}
       </p>
       <WhatsAppContactLink
         phoneE164={whatsappNumberE164}

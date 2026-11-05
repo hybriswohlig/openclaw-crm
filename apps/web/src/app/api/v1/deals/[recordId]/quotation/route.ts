@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { annahmeSperrAntwort } from "@/services/kva-annahme";
-import { getAuthContext, unauthorized, success } from "@/lib/api-utils";
-import { getQuotation, upsertQuotation } from "@/services/quotations";
+import { badRequest, getAuthContext, unauthorized, success } from "@/lib/api-utils";
+import { getQuotation, QuotationInputError, upsertQuotation } from "@/services/quotations";
 import { ensureCustomerStatusLink } from "@/services/customer-portal-data";
 import { captureScopeSnapshot } from "@/services/scope-guard";
 import { completeAgentPriceTasks } from "@/services/agent/agent-tasks";
@@ -33,6 +33,7 @@ export async function PUT(
   } catch (err) {
     const gesperrt = annahmeSperrAntwort(err);
     if (gesperrt) return gesperrt;
+    if (err instanceof QuotationInputError) return badRequest(err.message);
     throw err;
   }
 

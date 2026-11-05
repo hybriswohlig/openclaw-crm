@@ -16,9 +16,13 @@ function inCent(euro: number): number {
   return Number.isFinite(euro) ? Math.round(euro * 100) : 0;
 }
 
-/** Nur Posten mit einem Preis über 0 stehen im Dokument. */
+/**
+ * Posten mit einem Preis ungleich 0, einschließlich eines Rabatts (negativer
+ * Einzelpreis). Null und Unlesbares zählen nicht.
+ */
 export function istBepreist(posten: { unitRate: string }): boolean {
-  return Number(posten.unitRate) > 0;
+  const rate = Number(posten.unitRate);
+  return Number.isFinite(rate) && rate !== 0;
 }
 
 /**

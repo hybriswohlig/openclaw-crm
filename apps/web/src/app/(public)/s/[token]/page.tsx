@@ -90,7 +90,7 @@ export default async function PublicStatusPage({
   if (ctx.meta.featureDisabled) {
     // Nur Widerruf, Firmenname und Farbe gehen an den Browser.
     return (
-      <FeatureDisabledNotice whatsappNumberE164={ctx.branding.whatsappNumberE164}>
+      <FeatureDisabledNotice firmaSlug={ctx.branding.firmaSlug} whatsappNumberE164={ctx.branding.whatsappNumberE164}>
         {widerrufBeiPortalAus(ctx) && (
           <WiderrufOhnePortal token={token} ctx={widerrufOhnePortalDaten(ctx)} />
         )}

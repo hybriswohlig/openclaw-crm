@@ -1,7 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { angezeigtesKvDokument, gueltigeAuftragsbestaetigung, loeschbar, oeffentlichAbrufbar, serviceTypeZuSpeichern, vertragUrl } from "./portal-dokumente";
+import { angezeigtesKvDokument, gueltigeAuftragsbestaetigung, loeschbar, neuestesKvDokument, oeffentlichAbrufbar, serviceTypeZuSpeichern, vertragUrl } from "./portal-dokumente";
 
 const doc = (id: string, uploadedAt: string) => ({ id, uploadedAt: new Date(uploadedAt) });
+
+describe("neuestesKvDokument", () => {
+  it("nimmt das neueste KV, auch wenn die Angebotszeile danach gespeichert würde", () => {
+    const aelter = doc("okt", "2026-10-20T16:21:30Z");
+    const neuer = doc("nov", "2026-11-02T13:33:20Z");
+    expect(neuestesKvDokument([aelter, neuer])?.id).toBe("nov");
+    expect(neuestesKvDokument([neuer, aelter])?.id).toBe("nov");
+  });
+  it("ohne Dokument null: das Portal zeigt dann das HTML-Angebot", () => {
+    expect(neuestesKvDokument([])).toBeNull();
+  });
+});
 
 describe("angezeigtesKvDokument", () => {
   const aktuell = doc("neu", "2026-10-02T10:00:00Z");
@@ -14,6 +26,15 @@ describe("angezeigtesKvDokument", () => {
   });
   it("Annahme ohne gebundenes PDF (Altbestand): Rückfall auf das aktuelle KV", () => {
     expect(angezeigtesKvDokument({ quotationDocumentId: null, angenommen: true, docRows: rows, aktuellesKv: aktuell })).toBe(aktuell);
+  });
+  it("Portal-Auswahl: neuestes KV trotz späterem Speichern, gebundenes PDF bleibt, ohne Datei HTML", () => {
+    const okt = doc("okt", "2026-10-20T16:21:30Z");
+    const nov = doc("nov", "2026-11-02T13:33:20Z");
+    const dateien = [okt, nov];
+    const aktuell = neuestesKvDokument(dateien);
+    expect(angezeigtesKvDokument({ quotationDocumentId: null, angenommen: false, docRows: dateien, aktuellesKv: aktuell })?.id).toBe("nov");
+    expect(angezeigtesKvDokument({ quotationDocumentId: "okt", angenommen: true, docRows: dateien, aktuellesKv: aktuell })?.id).toBe("okt");
+    expect(angezeigtesKvDokument({ quotationDocumentId: null, angenommen: false, docRows: [], aktuellesKv: neuestesKvDokument([]) })).toBeNull();
   });
 });
 

@@ -1,6 +1,6 @@
 "use client";
 
-import type { CustomerPortalContext } from "@openclaw-crm/customer-portal-core";
+import { kundenText, type CustomerPortalContext } from "@openclaw-crm/customer-portal-core";
 import { LiveMediaFeed } from "./live-media-feed";
 import { HourlyClock } from "./hourly-clock";
 import { DocumentsSection } from "./documents-section";
@@ -17,11 +17,12 @@ export function StageThreeLive({ token, ctx }: { token: string; ctx: CustomerPor
     { label: "Team vor Ort", at: ctx.timing.onsiteAt },
     { label: "Umzug abgeschlossen", at: ctx.timing.finishedAt },
   ];
+  const t = (sie: string, du: string) => kundenText(ctx.branding.firmaSlug, sie, du);
   return <div className="portal-stack">
     <section className="portal-panel portal-live-hero">
-      <p className="portal-eyebrow">Ihr Umzug</p>
-      <h2>{status ? "Ihr Umzug läuft." : "Alles Wichtige für Ihren Umzug."}</h2>
-      {status ? <><p className="font-semibold">{status}</p><p>Hier sehen Sie den zuletzt erfassten Stand. Bei Fragen sind wir für Sie erreichbar.</p><ol className="portal-live-timeline" aria-label="Erfasster Umzugsstatus">{milestones.map(step => <li key={step.label} data-complete={!!step.at}><strong>{step.label}</strong><time dateTime={step.at ?? undefined}>{step.at ? new Date(step.at).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin" }) + " Uhr" : "Noch nicht erfasst"}</time></li>)}</ol></> : <p>Hier finden Sie Ihren Termin, die Adressen und Ihre Unterlagen. Für Fragen zum Ablauf kontaktieren Sie uns direkt.</p>}
+      <p className="portal-eyebrow">{t("Ihr Umzug", "Dein Umzug")}</p>
+      <h2>{status ? t("Ihr Umzug läuft.", "Dein Umzug läuft.") : t("Alles Wichtige für Ihren Umzug.", "Alles Wichtige für deinen Umzug.")}</h2>
+      {status ? <><p className="font-semibold">{status}</p><p>{t("Hier sehen Sie den zuletzt erfassten Stand. Bei Fragen sind wir für Sie erreichbar.", "Hier siehst du den zuletzt erfassten Stand. Bei Fragen sind wir für dich erreichbar.")}</p><ol className="portal-live-timeline" aria-label="Erfasster Umzugsstatus">{milestones.map(step => <li key={step.label} data-complete={!!step.at}><strong>{step.label}</strong><time dateTime={step.at ?? undefined}>{step.at ? new Date(step.at).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin" }) + " Uhr" : "Noch nicht erfasst"}</time></li>)}</ol></> : <p>{t("Hier finden Sie Ihren Termin, die Adressen und Ihre Unterlagen. Für Fragen zum Ablauf kontaktieren Sie uns direkt.", "Hier findest du deinen Termin, die Adressen und deine Unterlagen. Für Fragen zum Ablauf kontaktiere uns direkt.")}</p>}
     </section>
     <MoveFacts ctx={ctx} />
     <div className="portal-columns">
@@ -30,7 +31,7 @@ export function StageThreeLive({ token, ctx }: { token: string; ctx: CustomerPor
         <CrewPanel ctx={ctx} />
         <ContactPanel ctx={ctx} token={token} title="Kontakt & Hilfe" />
         {liveEnabled && ctx.attachments.length > 0 && <LiveMediaFeed token={token} attachments={ctx.attachments} primaryColor={ctx.branding.primaryColor} />}
-        <PortalRequestForm token={token} kind="damage" triggerLabel="Problem melden" title="Problem zu Ihrem Umzug melden" primaryColor={ctx.branding.primaryColor} />
+        <PortalRequestForm token={token} firmaSlug={ctx.branding.firmaSlug} kind="damage" triggerLabel="Problem melden" title={t("Problem zu Ihrem Umzug melden", "Problem zu deinem Umzug melden")} primaryColor={ctx.branding.primaryColor} />
         <DocumentsSection ctx={ctx} token={token} />
       </div>
       <aside><OrderDetails ctx={ctx} token={token} /></aside>

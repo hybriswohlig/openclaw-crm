@@ -11,13 +11,16 @@ import { attributes, objects } from "@/db/schema/objects";
 import { recordValues } from "@/db/schema/records";
 import { dealDocuments, dealNumbers } from "@/db/schema/financial";
 import {
-  HAFTUNGSHINWEIS_451G,
-  VORZEITIGER_BEGINN_CHECKBOX,
   firmaKontakt,
+  haftungshinweis,
   keinWiderrufHinweis,
+  kundenAnrede,
+  kundenText,
   musterWiderrufsformular,
+  vorzeitigerBeginnCheckbox,
   widerrufsbelehrung,
   type FirmaKontakt,
+  type KundenAnrede,
   type WiderrufModus,
 } from "@openclaw-crm/customer-portal-core";
 import { emitEvent } from "./activity-events";
@@ -34,6 +37,7 @@ import {
 import { resolveCustomerEmailTransport } from "./customer-portal-emails";
 import { loadContextByToken, resolveCustomerLinkOrigin } from "./customer-portal-data";
 import { sendeAnInterne } from "./intern/intern-senden";
+import { kottkeRestbetragSatz } from "@openclaw-crm/document-templates/src/restbetrag";
 
 export interface BestaetigungsDaten {
   firma: string;
@@ -63,6 +67,24 @@ const euro = (c: number) =>
 const datum = (ymd: string) =>
   new Date(`${ymd}T12:00:00`).toLocaleDateString("de-DE", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Berlin" });
 
+function firmaFuerAnrede(d: BestaetigungsDaten): string {
+  return `${d.kontakt.firma} ${d.firma}`;
+}
+
+function anredeVon(d: BestaetigungsDaten): KundenAnrede {
+  return kundenAnrede(firmaFuerAnrede(d));
+}
+
+function text(d: BestaetigungsDaten, sie: string, du: string): string {
+  return kundenText(firmaFuerAnrede(d), sie, du);
+}
+
+function restbetragHinweis(d: BestaetigungsDaten): string | null {
+  const name = `${d.kontakt.firma} ${d.kontakt.email ?? ""}`;
+  if (!/kottke/i.test(name)) return null;
+  return kottkeRestbetragSatz(d.widerrufModus === "ausgeschlossen");
+}
+
 function eckdaten(d: BestaetigungsDaten): string[] {
   return [
     `Auftrag ${d.dealNumber}`,
@@ -82,53 +104,100 @@ function eckdaten(d: BestaetigungsDaten): string[] {
  * WhatsApp, und die Nachricht ist der dauerhafte Datenträger (§ 312f BGB).
  */
 function widerrufTeil(d: BestaetigungsDaten): string[] {
-  if (d.widerrufModus === "ausgeschlossen") return [keinWiderrufHinweis()];
+  const anrede = anredeVon(d);
+  if (d.widerrufModus === "ausgeschlossen") return [keinWiderrufHinweis(anrede)];
+  // Gesetzliches Muster bleibt Sie, auch bei Kottke.
   const b = widerrufsbelehrung(d.kontakt, { portalUrl: d.portalUrl });
   const zeilen = [[b.titel, ...b.absaetze].join("\n"), musterWiderrufsformular(d.kontakt).join("\n")];
-  if (d.vorzeitigerBeginn) zeilen.push(`Ihre Erklärung bei der Annahme: ${VORZEITIGER_BEGINN_CHECKBOX}`);
+  if (d.vorzeitigerBeginn) {
+    zeilen.push(`${text(d, "Ihre Erklärung bei der Annahme", "Deine Erklärung bei der Annahme")}: ${vorzeitigerBeginnCheckbox(anrede)}`);
+  }
   return zeilen;
 }
 
 export function bestaetigungsTextWhatsApp(d: BestaetigungsDaten): string {
   const vorname = d.kunde?.trim().split(/\s+/)[0];
+  const h = haftungshinweis(anredeVon(d));
   return [
     vorname ? `Hallo ${vorname},` : "Hallo,",
-    `vielen Dank, Ihr Auftrag ist verbindlich erteilt. Hier die Bestätigung von ${d.firma}:`,
+    text(
+      d,
+      `vielen Dank, Ihr Auftrag ist verbindlich erteilt. Hier die Bestätigung von ${d.firma}:`,
+      `vielen Dank, dein Auftrag ist verbindlich erteilt. Hier die Bestätigung von ${d.firma}:`,
+    ),
     eckdaten(d).join("\n"),
+    restbetragHinweis(d),
     ...widerrufTeil(d),
-    d.haftung ? `${HAFTUNGSHINWEIS_451G.titel}: ${HAFTUNGSHINWEIS_451G.absaetze.join(" ")}` : null,
-    d.pdfDabei ? "Das angenommene Angebot mit unseren AGB schicken wir Ihnen als PDF mit." : `Das angenommene Angebot mit unseren AGB finden Sie hier: ${d.portalUrl}`,
+    d.haftung ? `${h.titel}: ${h.absaetze.join(" ")}` : null,
+    d.pdfDabei
+      ? text(d, "Das angenommene Angebot mit unseren AGB schicken wir Ihnen als PDF mit.", "Das angenommene Angebot mit unseren AGB schicken wir dir als PDF mit.")
+      : text(d, `Das angenommene Angebot mit unseren AGB finden Sie hier: ${d.portalUrl}`, `Das angenommene Angebot mit unseren AGB findest du hier: ${d.portalUrl}`),
     `Viele Grüße\n${d.firma}`,
   ].filter(Boolean).join("\n\n");
 }
 
 export function bestaetigungsMailText(d: BestaetigungsDaten): string {
+  const wann = new Date(d.signedAt).toLocaleString("de-DE", { dateStyle: "long", timeStyle: "short", timeZone: "Europe/Berlin" });
+  const h = haftungshinweis(anredeVon(d));
   const teile = [
     d.kunde ? `Guten Tag ${d.kunde},` : "Guten Tag,",
-    `vielen Dank für Ihren Auftrag. Hiermit bestätigen wir den Vertrag, den Sie am ${new Date(d.signedAt).toLocaleString("de-DE", { dateStyle: "long", timeStyle: "short", timeZone: "Europe/Berlin" })} Uhr im Kundenportal geschlossen haben.`,
+    text(
+      d,
+      `vielen Dank für Ihren Auftrag. Hiermit bestätigen wir den Vertrag, den Sie am ${wann} Uhr im Kundenportal geschlossen haben.`,
+      `vielen Dank für deinen Auftrag. Hiermit bestätigen wir den Vertrag, den du am ${wann} Uhr im Kundenportal geschlossen hast.`,
+    ),
     eckdaten(d).join("\n"),
+    restbetragHinweis(d),
     anhangSatz(d),
   ];
-  if (d.haftung) teile.push([HAFTUNGSHINWEIS_451G.titel, ...HAFTUNGSHINWEIS_451G.absaetze].join("\n"));
-  if (d.versicherungGewuenscht) teile.push("Sie haben ein Angebot für eine weitergehende Haftung oder Versicherung gewünscht. Wir melden uns dazu vor dem Umzug.");
-  if (d.widerrufModus === "ausgeschlossen") teile.push(keinWiderrufHinweis());
+  if (d.haftung) teile.push([h.titel, ...h.absaetze].join("\n"));
+  if (d.versicherungGewuenscht) {
+    teile.push(text(
+      d,
+      "Sie haben ein Angebot für eine weitergehende Haftung oder Versicherung gewünscht. Wir melden uns dazu vor dem Umzug.",
+      "Du hast ein Angebot für eine weitergehende Haftung oder Versicherung gewünscht. Wir melden uns dazu vor dem Umzug.",
+    ));
+  }
+  if (d.widerrufModus === "ausgeschlossen") teile.push(keinWiderrufHinweis(anredeVon(d)));
   else {
     const b = widerrufsbelehrung(d.kontakt, { portalUrl: d.portalUrl });
     teile.push([b.titel, ...b.absaetze].join("\n"));
     teile.push(musterWiderrufsformular(d.kontakt).join("\n"));
-    if (d.vorzeitigerBeginn) teile.push(`Ihre Erklärung bei der Annahme: ${VORZEITIGER_BEGINN_CHECKBOX}`);
+    if (d.vorzeitigerBeginn) {
+      teile.push(`${text(d, "Ihre Erklärung bei der Annahme", "Deine Erklärung bei der Annahme")}: ${vorzeitigerBeginnCheckbox(anredeVon(d))}`);
+    }
   }
-  teile.push(`Ihr Kundenportal: ${d.portalUrl}`, `Freundliche Grüße\n${d.firma}`);
+  teile.push(text(d, `Ihr Kundenportal: ${d.portalUrl}`, `Dein Kundenportal: ${d.portalUrl}`), `Freundliche Grüße\n${d.firma}`);
   return teile.join("\n\n");
 }
 
 function anhangSatz(d: BestaetigungsDaten): string {
   if (d.pdfDabei && d.agbDabei) {
-    return "Im Anhang finden Sie das angenommene Angebot als PDF und unsere AGB in der Fassung, die Sie bei der Annahme akzeptiert haben.";
+    return text(
+      d,
+      "Im Anhang finden Sie das angenommene Angebot als PDF und unsere AGB in der Fassung, die Sie bei der Annahme akzeptiert haben.",
+      "Im Anhang findest du das angenommene Angebot als PDF und unsere AGB in der Fassung, die du bei der Annahme akzeptiert hast.",
+    );
   }
-  if (d.pdfDabei) return `Im Anhang finden Sie das angenommene Angebot als PDF. Unsere AGB finden Sie in Ihrem Kundenportal: ${d.portalUrl}`;
-  if (d.agbDabei) return `Im Anhang finden Sie unsere AGB in der Fassung, die Sie bei der Annahme akzeptiert haben. Das angenommene Angebot finden Sie in Ihrem Kundenportal: ${d.portalUrl}`;
-  return `Das angenommene Angebot und unsere AGB finden Sie in Ihrem Kundenportal: ${d.portalUrl}`;
+  if (d.pdfDabei) {
+    return text(
+      d,
+      `Im Anhang finden Sie das angenommene Angebot als PDF. Unsere AGB finden Sie in Ihrem Kundenportal: ${d.portalUrl}`,
+      `Im Anhang findest du das angenommene Angebot als PDF. Unsere AGB findest du in deinem Kundenportal: ${d.portalUrl}`,
+    );
+  }
+  if (d.agbDabei) {
+    return text(
+      d,
+      `Im Anhang finden Sie unsere AGB in der Fassung, die Sie bei der Annahme akzeptiert haben. Das angenommene Angebot finden Sie in Ihrem Kundenportal: ${d.portalUrl}`,
+      `Im Anhang findest du unsere AGB in der Fassung, die du bei der Annahme akzeptiert hast. Das angenommene Angebot findest du in deinem Kundenportal: ${d.portalUrl}`,
+    );
+  }
+  return text(
+    d,
+    `Das angenommene Angebot und unsere AGB finden Sie in Ihrem Kundenportal: ${d.portalUrl}`,
+    `Das angenommene Angebot und unsere AGB findest du in deinem Kundenportal: ${d.portalUrl}`,
+  );
 }
 
 /** Versand gilt erst als erledigt, wenn er abgeschlossen ist (nicht nur beansprucht). */
@@ -310,7 +379,7 @@ async function sendeWhatsApp(
   let pdfGesendet = false;
   if (pdf) {
     try {
-      await sendeWhatsAppDokument(workspaceId, thread, pdf, `Ihr angenommenes Angebot ${daten.dealNumber}`);
+      await sendeWhatsAppDokument(workspaceId, thread, pdf, text(daten, `Ihr angenommenes Angebot ${daten.dealNumber}`, `Dein angenommenes Angebot ${daten.dealNumber}`));
       pdfGesendet = true;
     } catch (err) {
       console.error("[kva-bestaetigung] PDF per WhatsApp fehlgeschlagen:", err);
@@ -465,7 +534,11 @@ async function kundeBestaetigen(row: KvaRow): Promise<{ kanaele: string[]; pdf: 
         channelAccountId: transport.account.id,
         dealRecordId: row.dealRecordId,
         to: transport.customerEmail,
-        subject: `Bestätigung Ihres Auftrags ${ctx.dealNumber} bei ${ctx.branding.displayName}`,
+        subject: text(
+          daten,
+          `Bestätigung Ihres Auftrags ${ctx.dealNumber} bei ${ctx.branding.displayName}`,
+          `Bestätigung deines Auftrags ${ctx.dealNumber} bei ${ctx.branding.displayName}`,
+        ),
         body: bestaetigungsMailText({ ...daten, pdfDabei, agbDabei: !!row.agbText }),
         attachments,
       });

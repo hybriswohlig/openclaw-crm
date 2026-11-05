@@ -249,7 +249,7 @@ describe("template version", () => {
       deal: { ...deal, firma: "ceylan" },
       quotation: quotation({ paymentMethodPreference: "bank_transfer" }),
     });
-    expect(TEMPLATE_VERSION).toBe("kv-ab-re/2");
+    expect(TEMPLATE_VERSION).toBe("kv-ab-re/3");
     expect(html).toContain(`content="${TEMPLATE_VERSION}"`);
     expect(html).toContain(`Vorlage ${TEMPLATE_VERSION}`);
     expect(text).toContain(TEMPLATE_VERSION);
@@ -275,3 +275,66 @@ describe("template version", () => {
     expect(text).toContain('alert("x")');
   });
 });
+
+describe("long company name and discount", () => {
+  const longCompany =
+    "Sport-Thieme GmbH Internationale Handelsgesellschaft für Sportartikel und Spielwaren mit beschränkter Haftung";
+
+  it("wraps the recipient, prints the discount once and keeps the total on fixedPrice", async () => {
+    const { model, html, text } = await rendered({
+      kind: "KV",
+      deal: {
+        ...deal,
+        customerName: "Roman Rothe",
+        customerCompany: longCompany,
+        customerAddress:
+          "Sport-Thieme-Allee 1, Gewerbegebiet Helmstedt-Nord, Gebäude C, 38350 Helmstedt, Deutschland",
+        addressForm: "du",
+        letterhead: { phone: "07054 9306962" },
+      },
+      quotation: quotation({
+        fixedPrice: "920.00",
+        depositRequiredCents: null,
+        paymentMethodPreference: "bank_transfer",
+        summary: `${TAX_SENTENCE} Büroumzug mit Einpackservice. Der Festpreis beträgt dann 920 €.`,
+        lineItems: lines([
+          ["Büroumzug", 1, "990.00"],
+          ["Rabatt bei Termin Mo-Do", 1, "-70.00"],
+        ]),
+      }),
+      service: {
+        showStandardInclusions: false,
+        title: "Roman Rothe (Sport-Thieme GmbH) Büroumzug",
+        mention: "Einpacken und Auspacken, Abbau und Aufbau",
+        inventory: true,
+      },
+    });
+
+    expect(model.totalCents).toBe(92000);
+    expect(model.customerName).toContain("z. Hd. Roman Rothe");
+    expect(model.addressForm).toBe("sie");
+    expect(html).toContain(longCompany);
+    expect(html).toContain("Rabatt bei Termin Mo-Do");
+    expect(html).toContain("overflow-wrap: anywhere");
+    expect(html.split("§ 19 UStG").length - 1).toBe(1);
+    expect(html.split("920,00").length - 1).toBe(1);
+    expect(html).toContain("Büroumzug mit Einpackservice");
+    expect(html).not.toContain("beträgt dann");
+    expect(html).not.toContain("9498475");
+    expect(html).not.toContain("Keine Kartenzahlung");
+    expect(html).not.toContain("vor Auftragsbeginn");
+
+    for (const word of ["Internationale", "Handelsgesellschaft", "Spielwaren", "Helmstedt-Nord", "Roman"]) {
+      expect(text).toContain(word);
+    }
+    expect(model.positions.map((position) => position.amountCents)).toEqual([99000, -7000]);
+    expect(text).toContain("Rabatt bei Termin Mo-Do");
+    expect(text).toContain("920,00");
+    expect(text).toContain("§ 19 UStG");
+    expect(text).toContain("07054 9306962");
+    expect(text).not.toContain("9498475");
+    expect(text).not.toContain("Keine Kartenzahlung");
+  });
+});
+
+const TAX_SENTENCE = "Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.";

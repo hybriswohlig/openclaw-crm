@@ -274,6 +274,16 @@ export const inboxConversations = pgTable(
     // ai_hold_until <= now()` before firing. Human sends are warned, not blocked.
     // NULL = no hold.
     aiHoldUntil: timestamp("ai_hold_until"),
+    // ── Lead-Assistent: letzter Lauf ─────────────────────────────────────────
+    // Welche eingehende Kundennachricht der Assistent zuletzt bearbeitet hat
+    // und mit welchem Ergebnis. NULL = noch nie gelaufen (alte Zeilen).
+    // ask, handoff und no_op sind erledigt; das LLM läuft erst wieder, wenn
+    // eine neuere Kundennachricht eingegangen ist. aiLastAssistantAt ist der
+    // Zeitpunkt des letzten LLM-Aufrufs (höchstens einer pro Stunde).
+    aiLastAssistantInboundId: text("ai_last_assistant_inbound_id"),
+    aiLastAssistantInboundAt: timestamp("ai_last_assistant_inbound_at"),
+    aiLastAssistantAction: text("ai_last_assistant_action"),
+    aiLastAssistantAt: timestamp("ai_last_assistant_at"),
     // ── Agent flagging cache ──────────────────────────────────────────────────
     // Per-conversation classification the inbox renders as badges: stage,
     // priority, missing slots, eligibility, next action. Maintained by the

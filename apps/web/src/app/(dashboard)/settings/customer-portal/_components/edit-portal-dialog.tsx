@@ -142,7 +142,7 @@ export function EditPortalDialog({
               label="Footer-Zeile"
               value={form.footerText ?? ""}
               onChange={(v) => set("footerText", v || null)}
-              placeholder="Kottke Dienstleistungen · Marktstr. 8 · 72218 Wildberg"
+              placeholder="Kottke Entrümpelung & Umzüge · Marktstr. 8 · 72218 Wildberg"
               multiline
             />
           </Section>
@@ -153,7 +153,7 @@ export function EditPortalDialog({
                 label="WhatsApp-Nummer (E.164)"
                 value={form.whatsappNumberE164 ?? ""}
                 onChange={(v) => set("whatsappNumberE164", v || null)}
-                placeholder="491759498475"
+                placeholder="4915159058963"
               />
               <Field
                 label="Google-Bewertung URL"

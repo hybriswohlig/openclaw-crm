@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => {
   return {
     getAuthContext: vi.fn(),
     createDealDocument: vi.fn(),
+    applyInvoiceDueDate: vi.fn(),
   };
 });
 
@@ -27,6 +28,10 @@ vi.mock("@/services/deal-documents", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/services/deal-documents")>();
   return { ...actual, createDealDocument: mocks.createDealDocument };
 });
+
+vi.mock("@/services/rechnung-faellig", () => ({
+  applyInvoiceDueDate: mocks.applyInvoiceDueDate,
+}));
 
 import { POST } from "./route";
 
@@ -72,6 +77,7 @@ beforeEach(() => {
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
   mocks.getAuthContext.mockResolvedValue(AUTH_CTX);
+  mocks.applyInvoiceDueDate.mockResolvedValue({ rechnungFaelligAm: null });
   mocks.createDealDocument.mockResolvedValue({
     id: "doc_1",
     documentType: "quotation",
@@ -147,5 +153,70 @@ describe("POST /api/tools/jobs/[id]/store-as-document", () => {
       expect.objectContaining({ documentType: "quotation", fileName: "custom.pdf" })
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(mocks.applyInvoiceDueDate).toHaveBeenCalledWith(
+      expect.objectContaining({ documentType: "quotation", explicitDueDate: undefined })
+    );
+  });
+
+  it("stamps Rechnung fällig am with the upload day for an invoice and does not add 7 days", async () => {
+    const pdf = Buffer.from("%PDF-1.7\n", "binary");
+    fetchMock.mockResolvedValueOnce(vpsPdfResponse(pdf, "RE-KO-20261102-SCH.pdf"));
+    mocks.applyInvoiceDueDate.mockResolvedValue({ rechnungFaelligAm: "2026-11-02" });
+
+    const res = await callStore();
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.deducedDocumentType).toBe("invoice");
+    expect(body.rechnungFaelligAm).toBe("2026-11-02");
+    expect(body.dueDateWarning).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).not.toContain("/records/");
+    expect(mocks.applyInvoiceDueDate).toHaveBeenCalledWith({
+      documentType: "invoice",
+      workspaceId: WORKSPACE_ID,
+      dealRecordId: DEAL_ID,
+      explicitDueDate: undefined,
+      updatedBy: AUTH_CTX.userId,
+    });
+  });
+
+  it("keeps an explicit invoice due date", async () => {
+    const pdf = Buffer.from("%PDF-1.7\n", "binary");
+    fetchMock.mockResolvedValueOnce(vpsPdfResponse(pdf, "custom.pdf"));
+    mocks.applyInvoiceDueDate.mockResolvedValue({ rechnungFaelligAm: "2026-12-15" });
+
+    const res = await callStore({
+      dealRecordId: DEAL_ID,
+      documentType: "invoice",
+      dueDate: "2026-12-15",
+    });
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.rechnungFaelligAm).toBe("2026-12-15");
+    expect(mocks.applyInvoiceDueDate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        documentType: "invoice",
+        explicitDueDate: "2026-12-15",
+      })
+    );
+  });
+
+  it("keeps the stored invoice when the due-date write fails", async () => {
+    const pdf = Buffer.from("%PDF-1.7\n", "binary");
+    fetchMock.mockResolvedValueOnce(vpsPdfResponse(pdf, "RE-KO-20261102-SCH.pdf"));
+    mocks.applyInvoiceDueDate.mockResolvedValue({
+      rechnungFaelligAm: null,
+      dueDateWarning: "failed to set rechnung_faellig_am: deal not found",
+    });
+
+    const res = await callStore();
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.document.data.id).toBe("doc_1");
+    expect(body.dueDateWarning).toBe("failed to set rechnung_faellig_am: deal not found");
+    expect(body.rechnungFaelligAm).toBeUndefined();
   });
 });

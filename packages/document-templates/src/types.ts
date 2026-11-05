@@ -29,6 +29,26 @@ export interface ServiceSignals {
   leadType?: string | null;
   pianoTransport?: boolean | null;
   storageRequired?: boolean | null;
+  /** Deal title and Auftrag name. Names Büroumzug / Privatumzug before "Transport". */
+  title?: string | null;
+  /** Summary and inventory notes. Used for inclusions and as a fallback name. */
+  mention?: string | null;
+  packing?: boolean | null;
+  assembly?: boolean | null;
+  inventory?: boolean | null;
+}
+
+/** Per-company letterhead from Einstellungen → Gesellschaften. Blank fields fall back. */
+export interface Letterhead {
+  legalName?: string;
+  phone?: string;
+  whatsapp?: string;
+  email?: string;
+  street?: string;
+  postalCode?: string;
+  city?: string;
+  website?: string;
+  owner?: string;
 }
 
 export interface PriceLine {
@@ -80,7 +100,14 @@ export interface DealFacts {
   documentDate: string;
   /** First name, used only for a du greeting. */
   givenName?: string;
-  /** From the conversation and the deal. Omitted means Sie. */
+  /**
+   * Customer company (linked company, or a company name on the deal).
+   * The recipient is then "<Firma>, z. Hd. <Person>" and the greeting is Sie.
+   */
+  customerCompany?: string | null;
+  /** Operating-company letterhead. Kottke fills gaps from its defaults. */
+  letterhead?: Letterhead | null;
+  /** From the conversation and the deal. Omitted means Sie. Ignored for a company. */
   addressForm?: AddressForm;
   /**
    * ISO due date from the deal or the quotation. Never filled with the
@@ -142,6 +169,8 @@ export interface DocumentModel {
   issuer: IssuerView;
   documentDateLabel: string;
   customerName: string;
+  /** Letter address block. Shown once, not again in the fact list. */
+  recipientLines: string[];
   customerEmail?: string;
   customerAddress?: string;
   fromAddress?: string;
