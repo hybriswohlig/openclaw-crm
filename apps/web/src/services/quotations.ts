@@ -10,8 +10,16 @@ import {
 import { annahmenZusammenfuehren } from "@/lib/kunden-annahmen";
 import { eq } from "drizzle-orm";
 import { pruefeNichtAngenommen } from "./kva-annahme";
+import type { UebernahmeErgebnis } from "./rechner/uebernahme";
 
 export { QuotationInputError } from "@/lib/angebots-rabatt";
+
+/** db client or transaction handle, so writes can run inside a transaction */
+type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/** Eingabe fürs Angebot aus einer Kalkulation (angebotsUebernahme). */
+export type AngebotsEingabe = Extract<UebernahmeErgebnis, { ok: true }>["eingabe"];
+export type Quotation = NonNullable<Awaited<ReturnType<typeof getQuotation>>>;
 
 export async function getQuotation(dealRecordId: string) {
   const [q] = await db
@@ -223,4 +231,74 @@ export async function getProfitSummary(dealRecordId: string) {
     expenses: { employees: employeeExpenses, total: totalExpenses },
     profit,
   };
+}
+
+/**
+ * Schreibt die Quotation des Deals aus einer gesperrten Kalkulationsversion,
+ * innerhalb der Transaktion des Sperrens (`tx`). Festpreis = Summe der Posten
+ * auf den Cent; Posten genau wie geliefert (auch 0-€-Zeilen), Menge ganzzahlig.
+ * Notizen, Beschreibung, Anzahlung, Zahlungsart und gewähltes Paket bleiben.
+ * Prüft die Kundenannahme nicht selbst: das tut der Aufrufer vor dem Sperren.
+ */
+export async function angebotAusVersionSchreiben(
+  tx: DbExecutor,
+  dealRecordId: string,
+  eingabe: AngebotsEingabe,
+  calculationVersionId: string
+): Promise<void> {
+  const posten = eingabe.lineItems.map((li, i) => {
+    const quantity = Number(li.quantity);
+    const rate = Number(li.unitRate);
+    if (!Number.isInteger(quantity)) throw new Error(`Posten ${i + 1}: Menge muss ganzzahlig sein.`);
+    if (!Number.isFinite(rate)) throw new Error(`Posten ${i + 1}: Einzelpreis ist keine Zahl.`);
+    return { description: li.description, quantity, unitRate: rate.toFixed(2), sortOrder: li.sortOrder ?? i, cent: Math.round(rate * 100) };
+  });
+  const fixedPrice = (posten.reduce((s, p) => s + p.cent * p.quantity, 0) / 100).toFixed(2);
+
+  const [existing] = await tx.select().from(quotations).where(eq(quotations.dealRecordId, dealRecordId)).limit(1);
+  let quotationId: string;
+  if (existing) {
+    await tx
+      .update(quotations)
+      .set({
+        fixedPrice,
+        isVariable: false,
+        validUntil: eingabe.validUntil,
+        calculationAssumptions: annahmenZusammenfuehren(existing.calculationAssumptions, eingabe.calculationAssumptions),
+        documentDetails: { ...((existing.documentDetails ?? {}) as QuotationDocumentDetails), ...eingabe.documentDetails },
+        calculationVersionId,
+        updatedAt: new Date(),
+      })
+      .where(eq(quotations.id, existing.id));
+    quotationId = existing.id;
+  } else {
+    const [created] = await tx
+      .insert(quotations)
+      .values({
+        dealRecordId,
+        fixedPrice,
+        isVariable: false,
+        notes: eingabe.notes ?? null,
+        validUntil: eingabe.validUntil,
+        calculationAssumptions: eingabe.calculationAssumptions,
+        documentDetails: eingabe.documentDetails,
+        calculationVersionId,
+      })
+      .returning({ id: quotations.id });
+    quotationId = created.id;
+  }
+
+  await tx.delete(quotationLineItems).where(eq(quotationLineItems.quotationId, quotationId));
+  if (posten.length > 0) {
+    await tx.insert(quotationLineItems).values(
+      posten.map((p) => ({
+        quotationId,
+        type: "other" as const,
+        description: p.description,
+        quantity: p.quantity,
+        unitRate: p.unitRate,
+        sortOrder: p.sortOrder,
+      }))
+    );
+  }
 }

@@ -1,0 +1,528 @@
+import { describe, expect, it, vi } from "vitest";
+
+// Kein Zugriff auf die Datenbank: jeder Zugriff auf `db` lässt den Test scheitern.
+vi.mock("@/db", () => ({
+  db: new Proxy(
+    {},
+    {
+      get(_t, prop) {
+        if (prop === "then" || typeof prop === "symbol") return undefined;
+        throw new Error(`@/db im Test benutzt (${String(prop)})`);
+      },
+    }
+  ),
+}));
+
+import { quotationLineItems, quotations } from "@/db/schema/quotations";
+import { UebersteuerungFehler } from "@/lib/kalkulation-versionen";
+import { AngebotAngenommenError } from "./kva-annahme";
+import { angebotAusVersionSchreiben, type AngebotsEingabe, type Quotation } from "./quotations";
+import type { RechnerAntwort, RechnerErgebnis } from "./rechner/client";
+import { rechnerAnfrageAus, type LeadDaten } from "./rechner/eingabe";
+import type { KalkulationsZeile } from "./rechner/kalkulation";
+import {
+  centSumme,
+  EntwurfExistiertError,
+  entwurfHolenOderAnlegen,
+  sperren,
+  uebersteuern,
+  VersionsFehler,
+  type Autor,
+  type VersionsSpeicher,
+  type VersionsZeile,
+} from "./kalkulation-versionen";
+
+const MENSCH: Autor = { userId: "usr_1", quelle: "mensch" };
+const AGENT: Autor = { userId: null, quelle: "agent" };
+
+const lead = (zimmer: number): LeadDaten => ({
+  von: "Böblingen", nach: null, etageVon: 0, etageNach: null, zugangVon: null, zugangNach: null,
+  umzugsdatum: null, wohnflaecheQm: null, zimmer, tragestreckeVonM: null, tragestreckeNachM: null,
+  halteverbot: false, packService: false, kartons: null, inventar: [],
+});
+
+const ergebnis = (festpreis = 1490): RechnerErgebnis => ({
+  preis: {
+    festpreis, selbstkosten: 800, rundungEur: 10, margeWirksamProzent: 40, nichtKalkulierbarGrund: null,
+    margeVorschlag: { prozent: 40, gruende: [{ text: "Basis", punkte: 40 }] },
+  },
+  kosten: {
+    selbstkosten: 800,
+    posten: [
+      { key: "personal.arbeit", bezeichnung: "Personal Arbeit", menge: 10, einheit: "h", satz: 20, betrag: 200, formel: "10 Personenstunden × 20,00 €/h" },
+      { key: "halteverbot", bezeichnung: "Halteverbotszone", menge: 1, einheit: "Zone", satz: 150, betrag: 150 },
+    ],
+  },
+  volumen: { nettoCbm: 20 },
+  tarif: { id: "t1", version: 3, marke: "kottke" },
+  schaetzung: null,
+});
+
+const angebot = (felder: Partial<Quotation> = {}): Quotation =>
+  ({ id: "q1", notes: "Klavier", isVariable: false, validUntil: null, lineItems: [], ...felder }) as Quotation;
+
+function aufbau(start = "2026-11-05T09:00:00Z") {
+  const zeilen: VersionsZeile[] = [];
+  const kopie = <T>(x: T): T => structuredClone(x);
+  let vorAnlegen: (() => void) | null = null;
+  let jetzt = new Date(start);
+  let antwort: RechnerAntwort = { ok: true, ergebnis: ergebnis() };
+  let aktuellerLead = lead(3);
+  const nachherJobs: Array<() => Promise<void>> = [];
+
+  const speicher: VersionsSpeicher = {
+    liste: async (ws, deal) => kopie(zeilen.filter((z) => z.workspaceId === ws && z.dealRecordId === deal).sort((a, b) => a.version - b.version)),
+    lesen: async (ws, deal, v) => kopie(zeilen.find((z) => z.workspaceId === ws && z.dealRecordId === deal && z.version === v) ?? null),
+    entwurf: async (ws, deal) => kopie(zeilen.find((z) => z.workspaceId === ws && z.dealRecordId === deal && z.status === "entwurf") ?? null),
+    anlegen: vi.fn(async (z) => {
+      if (vorAnlegen) { const f = vorAnlegen; vorAnlegen = null; f(); }
+      if (zeilen.some((x) => x.dealRecordId === z.dealRecordId && x.status === "entwurf")) throw new EntwurfExistiertError();
+      const neu: VersionsZeile = { ...kopie(z), id: `id_v${z.version}`, createdAt: jetzt, updatedAt: jetzt };
+      zeilen.push(neu);
+      return kopie(neu);
+    }),
+    aktualisieren: vi.fn(async (id, patch) => {
+      const z = zeilen.find((x) => x.id === id);
+      if (!z || z.status !== "entwurf") throw new VersionsFehler("UNGUELTIG", "Version ist bereits gesperrt.");
+      Object.assign(z, kopie(patch), { updatedAt: jetzt });
+      return kopie(z);
+    }),
+    sperrenUndAngebot: vi.fn(async (_ws, _deal, id, _angebot, kvItems, von) => {
+      const z = zeilen.find((x) => x.id === id && x.status === "entwurf");
+      if (!z) throw new VersionsFehler("UNGUELTIG", "Version ist bereits gesperrt.");
+      Object.assign(z, { status: "gesperrt", kvItems: kopie(kvItems), priceCents: centSumme(kvItems), lockedAt: jetzt, lockedBy: von });
+      return { version: kopie(z) };
+    }),
+  };
+
+  const rechner = vi.fn(async () => antwort);
+  const melde = vi.fn(async () => ({ ok: true as const }));
+  const deps = {
+    speicher,
+    rechner,
+    melde,
+    jetzt: () => jetzt,
+    ladeLead: vi.fn(async () => aktuellerLead),
+    nachher: (f: () => Promise<void>) => { nachherJobs.push(f); },
+    pruefeAnnahme: vi.fn(async () => undefined),
+    hatPakete: vi.fn(async () => false),
+    ladePaketHebel: vi.fn(async () => null),
+    ladeAngebot: vi.fn(async (): Promise<Quotation | null> => null),
+    ladeCache: vi.fn(async (): Promise<KalkulationsZeile | null> => null),
+    nachSperren: vi.fn(async () => undefined),
+  };
+
+  /** Gesperrte oder Entwurfs-Version direkt in den Speicher legen. */
+  const lege = (version: number, felder: Partial<VersionsZeile> = {}): VersionsZeile => {
+    const z: VersionsZeile = {
+      id: `id_v${version}`, workspaceId: "ws", dealRecordId: "deal1", version, status: "gesperrt", pricingMode: "fest",
+      referenceDate: "2026-11-01", inputs: [], overrides: [], rechnerRequest: rechnerAnfrageAus(lead(3), { heute: "2026-11-01" }),
+      rechnerResult: ergebnis(), error: null, costLines: [], margin: null, priceCents: 149000, packagePrices: [], kvItems: [],
+      tariff: { id: "t1", version: 3, marke: "kottke" }, vehicleBookingId: null, createdBy: null, createdAt: jetzt, updatedAt: jetzt,
+      lockedAt: jetzt, lockedBy: "usr_1", sentAt: null, sentVia: null, ...felder,
+    };
+    zeilen.push(z);
+    return kopie(z);
+  };
+
+  return {
+    zeilen, deps, speicher, rechner, melde, lege, nachherJobs,
+    setzeJetzt: (iso: string) => { jetzt = new Date(iso); },
+    setzeAntwort: (a: RechnerAntwort) => { antwort = a; },
+    setzeLead: (l: LeadDaten) => { aktuellerLead = l; },
+    beimAnlegen: (f: () => void) => { vorAnlegen = f; },
+    alleNachher: async () => { for (const f of nachherJobs.splice(0)) await f(); },
+  };
+}
+
+const ueberHalteverbot = { art: "zeile", key: "halteverbot", wert: 0, grund: "Kunde besorgt Halteverbot selbst" };
+const fruehereUebersteuerung = {
+  id: "u_alt", art: "marge" as const, key: "marge", rechnerwert: 40, wert: 45, grund: "Stammkunde",
+  autor: { userId: "usr_1", quelle: "mensch" as const }, zeit: "2026-11-01T10:00:00.000Z", fotoRef: null,
+};
+
+describe("entwurfHolenOderAnlegen", () => {
+  it("ohne Versionen: v1 Entwurf mit Bezugsdatum heute, Rechner einmal; zweiter Aufruf gibt denselben Entwurf zurück", async () => {
+    const t = aufbau();
+    const r = await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    expect(r.neu).toBe(true);
+    expect(r.version).toMatchObject({
+      version: 1, status: "entwurf", pricingMode: "fest", referenceDate: "2026-11-05", error: null, priceCents: 149000,
+      createdBy: "usr_1", tariff: { id: "t1", version: 3, marke: "kottke" },
+      margin: { vorschlagProzent: 40, gruende: [{ text: "Basis", punkte: 40 }], gewaehltProzent: null },
+    });
+    expect(r.version.rechnerRequest?.heute).toBe("2026-11-05");
+    expect(r.version.costLines.map((z) => z.key)).toEqual(["personal.arbeit", "halteverbot"]);
+    expect(r.version.inputs.length).toBeGreaterThan(0);
+    expect(t.rechner).toHaveBeenCalledTimes(1);
+
+    const zweiter = await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    expect(zweiter.neu).toBe(false);
+    expect(zweiter.version.id).toBe(r.version.id);
+    expect(t.rechner).toHaveBeenCalledTimes(1);
+  });
+
+  it("Speicher meldet EntwurfExistiertError (zweiter Bot war schneller): Ergebnis ist der vorhandene Entwurf (Review Focus 2)", async () => {
+    const t = aufbau();
+    t.beimAnlegen(() => { t.lege(1, { status: "entwurf", id: "id_fremd", lockedAt: null, lockedBy: null }); });
+    const r = await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    expect(r).toMatchObject({ neu: false, version: { id: "id_fremd", status: "entwurf" } });
+    expect(t.zeilen.filter((z) => z.status === "entwurf")).toHaveLength(1);
+  });
+
+  it("andere Fehler beim Anlegen werden weitergeworfen", async () => {
+    const t = aufbau();
+    vi.mocked(t.speicher.anlegen).mockRejectedValueOnce(new Error("DB weg"));
+    await expect(entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps)).rejects.toThrow("DB weg");
+  });
+
+  it("nach gesperrten Versionen: Nummer max + 1, Übersteuerungen der letzten gesperrten Version", async () => {
+    const t = aufbau();
+    t.lege(1);
+    t.lege(2, { overrides: [fruehereUebersteuerung] });
+    const r = await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    expect(r.version.version).toBe(3);
+    expect(r.version.overrides).toEqual([fruehereUebersteuerung]);
+    expect(r.version.rechnerRequest?.marge_prozent).toBe("45");
+    expect(r.version.margin?.gewaehltProzent).toBe(45);
+  });
+
+  it("nutzt die Live-Kalkulation, wenn Anfrage (ohne heute) und Tag gleich sind", async () => {
+    const t = aufbau();
+    const cacheErgebnis = ergebnis(1590);
+    const cache = (heute: string, ws = "ws"): KalkulationsZeile => ({
+      dealRecordId: "deal1", workspaceId: ws, inputHash: "h", request: rechnerAnfrageAus(lead(3), { heute }),
+      result: cacheErgebnis, error: null, computedAt: new Date(),
+    });
+    t.deps.ladeCache.mockResolvedValueOnce(cache("2026-11-05"));
+    const r = await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    expect(t.rechner).not.toHaveBeenCalled();
+    expect(r.version.rechnerResult).toEqual(cacheErgebnis);
+    expect(r.version.priceCents).toBe(159000);
+  });
+
+  it("Live-Kalkulation von gestern oder aus einem anderen Workspace wird nicht genutzt", async () => {
+    for (const [heute, ws] of [["2026-11-04", "ws"], ["2026-11-05", "ws_fremd"]] as const) {
+      const t = aufbau();
+      t.deps.ladeCache.mockResolvedValueOnce({
+        dealRecordId: "deal1", workspaceId: ws, inputHash: "h", request: rechnerAnfrageAus(lead(3), { heute }),
+        result: ergebnis(1590), error: null, computedAt: new Date(),
+      });
+      await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+      expect(t.rechner).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("Deal mit Paketoptionen: Anfrage enthält die Hebel der aktiven Pakete", async () => {
+    const t = aufbau();
+    t.deps.hatPakete.mockResolvedValue(true);
+    t.deps.ladePaketHebel.mockResolvedValue({ basis: [], komfort: ["montage", "halteverbot"] } as never);
+    const r = await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    expect(t.deps.ladePaketHebel).toHaveBeenCalledWith("ws", "deal1");
+    expect(JSON.parse(r.version.rechnerRequest?.paket_hebel as string)).toEqual({ basis: [], komfort: ["montage", "halteverbot"] });
+  });
+
+  it("Rechner nicht erreichbar beim Anlegen: Entwurf mit Fehler, ohne Ergebnis", async () => {
+    const t = aufbau();
+    t.setzeAntwort({ ok: false, fehler: "Rechner nicht erreichbar." });
+    const r = await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    expect(r.version).toMatchObject({ version: 1, error: "Rechner nicht erreichbar.", rechnerResult: null, priceCents: null });
+  });
+
+  it("unbekannter Deal: NICHT_GEFUNDEN", async () => {
+    const t = aufbau();
+    t.deps.ladeLead.mockResolvedValueOnce(null as never);
+    await expect(entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps)).rejects.toMatchObject({ code: "NICHT_GEFUNDEN", status: 404 });
+  });
+});
+
+describe("uebersteuern", () => {
+  it("an gesperrter v2 ohne Entwurf: v3 Entwurf mit allen Übersteuerungen von v2 plus der neuen, v2 unverändert (Review Focus 1)", async () => {
+    const t = aufbau();
+    t.lege(1);
+    const v2 = t.lege(2, { overrides: [fruehereUebersteuerung] });
+    const r = await uebersteuern("ws", "deal1", 2, ueberHalteverbot, MENSCH, t.deps);
+    expect(r.neu).toBe(true);
+    expect(r.version).toMatchObject({ version: 3, status: "entwurf" });
+    expect(r.version.overrides).toHaveLength(v2.overrides.length + 1);
+    expect(r.version.overrides[0]).toEqual(fruehereUebersteuerung);
+    expect(r.version.overrides[1]).toMatchObject({
+      art: "zeile", key: "halteverbot", wert: 0, rechnerwert: 150, grund: "Kunde besorgt Halteverbot selbst",
+      autor: MENSCH, zeit: "2026-11-05T09:00:00.000Z", fotoRef: null,
+    });
+    expect(r.version.overrides[1].id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(r.version.rechnerRequest?.zeilen_uebersteuerung).toEqual([{ key: "halteverbot", betrag: 0 }]);
+    expect(t.zeilen.find((z) => z.version === 2)).toEqual(v2);
+
+    // Mit vorhandenem Entwurf v3 landet die nächste Übersteuerung dort, keine v4.
+    const zweite = await uebersteuern("ws", "deal1", 2, { art: "satz", key: "arbeit", wert: 22, grund: "Wochenende" }, MENSCH, t.deps);
+    expect(zweite.neu).toBe(false);
+    expect(zweite.version.version).toBe(3);
+    expect(zweite.version.overrides).toHaveLength(3);
+    expect(t.zeilen.map((z) => z.version)).toEqual([1, 2, 3]);
+    expect(t.zeilen.find((z) => z.version === 2)).toEqual(v2);
+  });
+
+  it("Übersteuerungen werden nur angehängt, in Reihenfolge, die letzte gilt", async () => {
+    const t = aufbau();
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    await uebersteuern("ws", "deal1", 1, { art: "marge", key: "marge", wert: 45, grund: "a" }, MENSCH, t.deps);
+    const r = await uebersteuern("ws", "deal1", 1, { art: "marge", key: "marge", wert: 50, grund: "b" }, MENSCH, t.deps);
+    expect(r.version.overrides.map((u) => u.wert)).toEqual([45, 50]);
+    expect(r.version.rechnerRequest?.marge_prozent).toBe("50");
+    expect(r.version.margin?.gewaehltProzent).toBe(50);
+  });
+
+  it("Rechner nicht erreichbar: error gesetzt, altes Ergebnis bleibt; Sperren → RECHNER_FEHLER ohne Quotation (Review Focus 3)", async () => {
+    const t = aufbau();
+    const { version: v1 } = await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    t.setzeAntwort({ ok: false, fehler: "Rechner nicht erreichbar." });
+    const r = await uebersteuern("ws", "deal1", 1, ueberHalteverbot, MENSCH, t.deps);
+    expect(r.version.error).toBe("Rechner nicht erreichbar.");
+    expect(r.version.rechnerResult).toEqual(v1.rechnerResult);
+    expect(r.version.overrides).toHaveLength(1);
+
+    const fehler = await sperren("ws", "deal1", 1, MENSCH, {}, t.deps).catch((e: unknown) => e);
+    expect(fehler).toBeInstanceOf(VersionsFehler);
+    expect(fehler).toMatchObject({ code: "RECHNER_FEHLER", status: 409 });
+    expect((fehler as Error).message).toMatch(/nicht erreichbar/);
+    expect(t.speicher.sperrenUndAngebot).not.toHaveBeenCalled();
+    expect(t.zeilen[0].status).toBe("entwurf");
+  });
+
+  it("meldet die Korrektur nach der Antwort: Rechnerwert vor der Änderung, neuer Wert; Meldefehler wirft nicht", async () => {
+    const t = aufbau();
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    t.melde.mockResolvedValue({ ok: false, fehler: "Rechner-Fehler (HTTP 500)." } as never);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    await uebersteuern("ws", "deal1", 1, { ...ueberHalteverbot, fotoRef: "foto_9" }, MENSCH, t.deps);
+    expect(t.melde).not.toHaveBeenCalled();
+    expect(t.nachherJobs).toHaveLength(1);
+    await expect(t.alleNachher()).resolves.toBeUndefined();
+    expect(t.melde).toHaveBeenCalledTimes(1);
+    expect(t.melde).toHaveBeenCalledWith(
+      expect.objectContaining({
+        crm_deal_record_id: "deal1", crm_version: 1, tarif_id: "t1", tarif_version: 3, marke: "kottke",
+        regel: "zeile", zeile_key: "halteverbot", rechnerwert: 150, inhaberwert: 0,
+        grund: "Kunde besorgt Halteverbot selbst", autor: "usr_1", foto_ref: "foto_9",
+      })
+    );
+    const [meldung] = t.melde.mock.calls[0] as unknown as [{ eingaben: Record<string, unknown> }];
+    expect(meldung.eingaben.zeilen_uebersteuerung).toBeUndefined();
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("Agent ohne Nutzer meldet als autor \"agent\"; ein Wurf beim Melden bleibt im Hintergrund", async () => {
+    const t = aufbau();
+    await entwurfHolenOderAnlegen("ws", "deal1", AGENT, t.deps);
+    t.melde.mockRejectedValue(new Error("kaputt") as never);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    await uebersteuern("ws", "deal1", 1, { art: "marge", key: "marge", wert: 45, grund: "Regler" }, AGENT, t.deps);
+    await expect(t.alleNachher()).resolves.toBeUndefined();
+    expect(t.melde).toHaveBeenCalledWith(expect.objectContaining({ autor: "agent", regel: "marge", rechnerwert: 40, inhaberwert: 45 }));
+    warn.mockRestore();
+  });
+
+  it("unbekannte Kostenzeile, fehlender Grund und unbekannte Version werden abgelehnt", async () => {
+    const t = aufbau();
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    await expect(uebersteuern("ws", "deal1", 1, { ...ueberHalteverbot, key: "fahrzeug.x.miete" }, MENSCH, t.deps)).rejects.toThrow(
+      new UebersteuerungFehler("Unbekannte Kostenzeile: fahrzeug.x.miete")
+    );
+    await expect(uebersteuern("ws", "deal1", 1, { ...ueberHalteverbot, grund: " " }, MENSCH, t.deps)).rejects.toThrow("Grund fehlt");
+    await expect(uebersteuern("ws", "deal1", 9, ueberHalteverbot, MENSCH, t.deps)).rejects.toMatchObject({ code: "NICHT_GEFUNDEN", status: 404 });
+    expect(t.zeilen[0].overrides).toEqual([]);
+  });
+
+  it("Aufheben einer Zeilen-Übersteuerung geht auch, wenn der Rechner die Zeile nicht mehr liefert", async () => {
+    const t = aufbau();
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    await uebersteuern("ws", "deal1", 1, ueberHalteverbot, MENSCH, t.deps);
+    t.setzeAntwort({ ok: true, ergebnis: { ...ergebnis(), kosten: { selbstkosten: 800, posten: [] } } });
+    await uebersteuern("ws", "deal1", 1, { art: "satz", key: "arbeit", wert: 22, grund: "x" }, MENSCH, t.deps);
+    const r = await uebersteuern("ws", "deal1", 1, { ...ueberHalteverbot, wert: null }, MENSCH, t.deps);
+    expect(r.version.overrides).toHaveLength(3);
+    expect(r.version.rechnerRequest?.zeilen_uebersteuerung).toBeUndefined();
+  });
+});
+
+describe("sperren", () => {
+  it("sperrt den Entwurf: kv_items = Posten der Übernahme, price_cents = Cent-Summe, Nachlauf, Quotation nach dem Commit", async () => {
+    const t = aufbau();
+    t.deps.ladeAngebot.mockResolvedValue(angebot());
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    const r = await sperren("ws", "deal1", 1, MENSCH, {}, t.deps);
+
+    expect(t.rechner).toHaveBeenCalledTimes(1); // frisch: keine zweite Rechnung
+    expect(t.speicher.sperrenUndAngebot).toHaveBeenCalledTimes(1);
+    const [ws, deal, id, eingabe, kvItems, von] = vi.mocked(t.speicher.sperrenUndAngebot).mock.calls[0];
+    expect([ws, deal, id, von]).toEqual(["ws", "deal1", "id_v1", "usr_1"]);
+    expect(eingabe).toMatchObject({ isVariable: false, notes: "Klavier", calculationAssumptions: { uebernommenVon: "mensch" } });
+    expect(kvItems).toEqual(eingabe.lineItems.map((li) => ({ description: li.description, quantity: li.quantity, unitRate: Number(li.unitRate) })));
+    const summe = kvItems.reduce((s, p) => s + Math.round(p.unitRate * 100) * p.quantity, 0);
+    expect(summe).toBe(149000);
+
+    expect(r.version).toMatchObject({ status: "gesperrt", priceCents: summe, lockedBy: "usr_1" });
+    expect(r.version.kvItems).toEqual(kvItems);
+    expect(r.quotation).toMatchObject({ id: "q1" });
+    expect(r).toHaveProperty("gueltigkeitHinweis");
+    expect(t.deps.nachSperren).toHaveBeenCalledWith("ws", "deal1", MENSCH);
+    expect(vi.mocked(t.deps.nachSperren).mock.invocationCallOrder[0]).toBeGreaterThan(
+      vi.mocked(t.speicher.sperrenUndAngebot).mock.invocationCallOrder[0]
+    );
+  });
+
+  it("Agent: Übernahme als agent vermerkt", async () => {
+    const t = aufbau();
+    await entwurfHolenOderAnlegen("ws", "deal1", AGENT, t.deps);
+    await sperren("ws", "deal1", 1, AGENT, {}, t.deps);
+    const eingabe = vi.mocked(t.speicher.sperrenUndAngebot).mock.calls[0][3];
+    expect(eingabe.calculationAssumptions).toMatchObject({ uebernommenVon: "agent" });
+  });
+
+  it("veralteter Entwurf (vom 03.11., Lead seither geändert): genau eine neue Rechnung, gesperrt wird das neue Ergebnis vom 05.11.", async () => {
+    const t = aufbau("2026-11-03T09:00:00Z");
+    const { version: alt } = await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    expect(alt.referenceDate).toBe("2026-11-03");
+    t.setzeLead(lead(4));
+    t.setzeJetzt("2026-11-05T09:00:00Z");
+    t.setzeAntwort({ ok: true, ergebnis: ergebnis(1690) });
+    t.rechner.mockClear();
+
+    const r = await sperren("ws", "deal1", 1, MENSCH, {}, t.deps);
+    expect(t.rechner).toHaveBeenCalledTimes(1);
+    expect(r.version).toMatchObject({ status: "gesperrt", referenceDate: "2026-11-05", priceCents: 169000 });
+    expect(r.version.rechnerRequest?.heute).toBe("2026-11-05");
+    expect(r.version.rechnerResult?.preis?.festpreis).toBe(1690);
+    expect(vi.mocked(t.speicher.sperrenUndAngebot).mock.calls[0][3].fixedPrice).toBe("1690");
+  });
+
+  it("nur das Datum ist alt: neu gerechnet, weil die Eilregel vom Tag abhängt", async () => {
+    const t = aufbau("2026-11-03T09:00:00Z");
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    t.setzeJetzt("2026-11-05T09:00:00Z");
+    await sperren("ws", "deal1", 1, MENSCH, {}, t.deps);
+    expect(t.rechner).toHaveBeenCalledTimes(2);
+  });
+
+  it("Kundenannahme: AngebotAngenommenError kommt unverändert heraus, Version bleibt Entwurf (Review Focus 4)", async () => {
+    const t = aufbau();
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    const annahme = new AngebotAngenommenError();
+    t.deps.pruefeAnnahme.mockRejectedValueOnce(annahme);
+    await expect(sperren("ws", "deal1", 1, MENSCH, {}, t.deps)).rejects.toBe(annahme);
+    expect(t.speicher.sperrenUndAngebot).not.toHaveBeenCalled();
+    expect(t.zeilen[0].status).toBe("entwurf");
+  });
+
+  it("Paketoptionen → PAKETE; Stunden-KV (vorhandene Quotation oder pricing_mode) → STUNDEN; nichts gesperrt", async () => {
+    const t = aufbau();
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    t.deps.hatPakete.mockResolvedValueOnce(true);
+    await expect(sperren("ws", "deal1", 1, MENSCH, {}, t.deps)).rejects.toMatchObject({ code: "PAKETE", status: 409 });
+
+    t.deps.ladeAngebot.mockResolvedValueOnce(angebot({ isVariable: true }));
+    await expect(sperren("ws", "deal1", 1, MENSCH, {}, t.deps)).rejects.toMatchObject({ code: "STUNDEN", status: 409 });
+
+    t.zeilen[0].pricingMode = "stunden";
+    await expect(sperren("ws", "deal1", 1, MENSCH, {}, t.deps)).rejects.toMatchObject({ code: "STUNDEN" });
+    expect(t.speicher.sperrenUndAngebot).not.toHaveBeenCalled();
+    expect(t.deps.pruefeAnnahme).not.toHaveBeenCalled();
+  });
+
+  it("nur Spanne: ohne Bestätigung SPANNE mit dem heutigen Text, mit Bestätigung die Obergrenze", async () => {
+    const t = aufbau();
+    t.setzeAntwort({ ok: true, ergebnis: { ...ergebnis(), schaetzung: { festpreisVon: 1200, festpreisBis: 1800, annahmen: [] } } });
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    await expect(sperren("ws", "deal1", 1, MENSCH, {}, t.deps)).rejects.toMatchObject({
+      code: "SPANNE", status: 409, message: "Nur eine Spanne vorhanden. Obergrenze übernehmen? (bestaetigtSpanne)",
+    });
+    const r = await sperren("ws", "deal1", 1, MENSCH, { bestaetigtSpanne: true }, t.deps);
+    expect(r.version.priceCents).toBe(180000);
+  });
+
+  it("andere Ablehnung der Übernahme (kein Preis) → UNGUELTIG mit ihrem Text", async () => {
+    const t = aufbau();
+    t.setzeAntwort({ ok: true, ergebnis: { preis: { festpreis: null, nichtKalkulierbarGrund: "Keine Arbeit erfasst" } } });
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    await expect(sperren("ws", "deal1", 1, MENSCH, {}, t.deps)).rejects.toMatchObject({
+      code: "UNGUELTIG", status: 400, message: "Kein Preis kalkulierbar: Keine Arbeit erfasst",
+    });
+  });
+
+  it("gesperrte Version lässt sich nicht noch einmal sperren", async () => {
+    const t = aufbau();
+    t.lege(1);
+    await expect(sperren("ws", "deal1", 1, MENSCH, {}, t.deps)).rejects.toMatchObject({ code: "UNGUELTIG", message: "Version v1 ist bereits gesperrt." });
+  });
+});
+
+describe("angebotAusVersionSchreiben", () => {
+  const eingabe = (): AngebotsEingabe => ({
+    fixedPrice: "1490",
+    isVariable: false,
+    notes: "Klavier",
+    calculationAssumptions: { selbstkosten: 800, uebernommenVon: "mensch" } as AngebotsEingabe["calculationAssumptions"],
+    lineItems: [
+      { type: "other", description: "Umzug", quantity: 1, unitRate: "1340.00", sortOrder: 0 },
+      { type: "other", description: "Halteverbotszone", quantity: 1, unitRate: "150.00", sortOrder: 1 },
+      { type: "other", description: "Einpacken (inklusive)", quantity: 1, unitRate: "0.00", sortOrder: 2 },
+    ],
+    documentDetails: { services: { transport: { owner: "company" } }, validUntil: "2026-11-19" },
+    validUntil: "2026-11-19",
+  });
+
+  function txMock(vorhanden: Record<string, unknown> | null) {
+    const log: { update?: Record<string, unknown>; insertQuotation?: Record<string, unknown>; geloescht: number; posten?: Array<Record<string, unknown>> } = { geloescht: 0 };
+    const tx = {
+      select: () => ({ from: () => ({ where: () => ({ limit: async () => (vorhanden ? [vorhanden] : []) }) }) }),
+      update: () => ({ set: (s: Record<string, unknown>) => { log.update = s; return { where: async () => undefined }; } }),
+      insert: (tabelle: unknown) => ({
+        values: (v: unknown) => {
+          if (tabelle === quotationLineItems) { log.posten = v as Array<Record<string, unknown>>; return Promise.resolve(); }
+          expect(tabelle).toBe(quotations);
+          log.insertQuotation = v as Record<string, unknown>;
+          return { returning: async () => [{ id: "q_neu" }] };
+        },
+      }),
+      delete: () => ({ where: async () => { log.geloescht += 1; } }),
+    };
+    return { tx: tx as never, log };
+  }
+
+  it("vorhandene Quotation: Festpreis = Cent-Summe, 0-€-Zeile bleibt, Notizen und Kundenfelder unberührt, Version verknüpft", async () => {
+    const { tx, log } = txMock({
+      id: "q1", notes: "Klavier im Keller", calculationAssumptions: { margeGewaehltProzent: 35, anfahrtMinuten: 10 },
+      documentDetails: { reference: "KV-1" },
+    });
+    await angebotAusVersionSchreiben(tx, "deal1", eingabe(), "id_v3");
+    expect(log.update).toMatchObject({ fixedPrice: "1490.00", isVariable: false, validUntil: "2026-11-19", calculationVersionId: "id_v3" });
+    expect(log.update).not.toHaveProperty("notes");
+    expect(log.update).not.toHaveProperty("summary");
+    expect(log.update).not.toHaveProperty("depositRequiredCents");
+    expect(log.update).not.toHaveProperty("paymentMethodPreference");
+    expect(log.update).not.toHaveProperty("selectedPackageSlug");
+    expect(log.update).not.toHaveProperty("selectedPackageOptionId");
+    expect(log.update?.documentDetails).toEqual({ reference: "KV-1", services: { transport: { owner: "company" } }, validUntil: "2026-11-19" });
+    expect(log.update?.calculationAssumptions).toMatchObject({ selbstkosten: 800, margeGewaehltProzent: 35 });
+    expect(log.geloescht).toBe(1);
+    expect(log.posten).toHaveLength(3);
+    expect(log.posten?.[2]).toMatchObject({ quotationId: "q1", description: "Einpacken (inklusive)", quantity: 1, unitRate: "0.00", type: "other" });
+  });
+
+  it("ohne Quotation: neu angelegt mit Notizen aus der Eingabe und Version", async () => {
+    const { tx, log } = txMock(null);
+    await angebotAusVersionSchreiben(tx, "deal1", eingabe(), "id_v1");
+    expect(log.insertQuotation).toMatchObject({ dealRecordId: "deal1", fixedPrice: "1490.00", notes: "Klavier", calculationVersionId: "id_v1" });
+    expect(log.posten?.every((p) => p.quotationId === "q_neu")).toBe(true);
+  });
+
+  it("Menge nicht ganzzahlig: Fehler vor jedem Schreiben", async () => {
+    const { tx, log } = txMock(null);
+    const e = eingabe();
+    e.lineItems[0].quantity = 1.5;
+    await expect(angebotAusVersionSchreiben(tx, "deal1", e, "id_v1")).rejects.toThrow(/ganzzahlig/);
+    expect(log.insertQuotation).toBeUndefined();
+  });
+});
