@@ -528,6 +528,16 @@ describe("Schritt 10: Zahlung", () => {
       text: "Kunde meldet „bezahlt“. Ein Klick bestätigt.",
     });
     expect(schritt({ ...fertig(), offeneMeldungen: 1 }, "zahlung").hinweis).toBeUndefined();
+    expect(schritt({ ...fertig(), offeneMeldungen: 2 }, "zahlung").hinweis).toBeUndefined();
+  });
+
+  it("mehrere offene Meldungen: Hinweis nennt die Zahl statt des Ein-Klick-Satzes", () => {
+    expect(schritt({ ...mockup(), offeneMeldungen: 2 }, "zahlung").hinweis).toEqual({
+      ton: "gold",
+      text: "Kunde meldet „bezahlt“ (2 Meldungen).",
+    });
+    expect(schritt({ ...mockup(), offeneMeldungen: 3 }, "zahlung").hinweis?.text).toBe("Kunde meldet „bezahlt“ (3 Meldungen).");
+    expect(schritt({ ...mockup(), offeneMeldungen: 0 }, "zahlung").hinweis).toBeUndefined();
   });
 
   it("erledigt bei Rest 0", () => {
@@ -573,12 +583,39 @@ describe("Schritt 11: Bewertung anfragen", () => {
     expect(s.zeile).toBe("von Hand · Google-Link mit Vorlage");
   });
 
-  it("nach Beschwerde oder Abmeldung gesperrt statt offener Zeile; failed bleibt offen", () => {
-    const zeile = (status: string) => schritt({ ...fertig(), bewertung: { status, am: null } }, "bewertung").zeile;
-    expect(zeile("complaint_routed")).toBe("gesperrt · Beschwerde");
-    expect(zeile("suppressed")).toBe("gesperrt · abgemeldet");
-    expect(zeile("failed")).toBe("von Hand · Google-Link mit Vorlage");
-    expect(schritt({ ...fertig(), bewertung: { status: "suppressed", am: null } }, "bewertung").zustand).not.toBe("erledigt");
+  it("nach Beschwerde oder Abmeldung entfällt der Schritt mit der Sperre als Zeile; failed bleibt jetzt", () => {
+    const s = (status: string) => schritt({ ...fertig(), bewertung: { status, am: null } }, "bewertung");
+    expect(s("complaint_routed")).toMatchObject({ zustand: "entfaellt", zeile: "gesperrt · Beschwerde" });
+    expect(s("suppressed")).toMatchObject({ zustand: "entfaellt", zeile: "gesperrt · abgemeldet" });
+    expect(s("failed")).toMatchObject({ zustand: "jetzt", zeile: "von Hand · Google-Link mit Vorlage" });
+  });
+
+  it("gesperrt und sonst alles erledigt: kein jetzt, kein anderer Schritt rückt nach, position 10", () => {
+    for (const status of ["complaint_routed", "suppressed"]) {
+      const r = ablauf({ ...fertig(), bewertung: { status, am: null } }, JETZT);
+      expect(r.schritte.map((x) => x.zustand)).toEqual([...Array(10).fill("erledigt"), "entfaellt"]);
+      expect(r.position).toBe(10);
+    }
+  });
+
+  it("gesperrt mit offener Zahlung: Schritt 10 bleibt jetzt, Schritt 11 entfällt, position 10", () => {
+    const f: AblaufFakten = {
+      ...fertig(),
+      rest: { restCent: 198000, quelle: "annahme" },
+      letzteZahlungAm: null,
+      stageCategory: "done_unpaid",
+      bewertung: { status: "suppressed", am: null },
+    };
+    const r = ablauf(f, JETZT);
+    expect(r.schritte.map((x) => x.zustand)).toEqual([...Array(9).fill("erledigt"), "jetzt", "entfaellt"]);
+    expect(r.position).toBe(10);
+    expect(r.schritte[10].zeile).toBe("gesperrt · abgemeldet");
+  });
+
+  it("gesperrt im Angebot: Schritt 4 bleibt jetzt, dazwischen offen, Schritt 11 entfällt", () => {
+    const r = ablauf({ ...mockup(), bewertung: { status: "complaint_routed", am: null } }, JETZT);
+    expect(r.schritte.map((x) => x.zustand)).toEqual(["erledigt", "erledigt", "erledigt", "jetzt", ...Array(6).fill("offen"), "entfaellt"]);
+    expect(r.position).toBe(4);
   });
 
   it("alles erledigt: kein jetzt, position 11", () => {

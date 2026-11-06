@@ -4,9 +4,10 @@
  * Datenbankzugriff; die Fakten lädt `services/ablauf-fakten.ts`.
  *
  * Regeln: Teile ohne Wert entfallen samt Trenner. `jetzt` ist der erste nicht
- * erledigte Schritt; bei Stufe Verloren oder Kein Lead gibt es keinen, alle
- * nicht erledigten Schritte entfallen. Anzeige deutsch in Europe/Berlin,
- * Trenner „·“, keine Gedankenstriche.
+ * erledigte Schritt, der nicht entfällt; bei Stufe Verloren oder Kein Lead
+ * gibt es keinen, alle nicht erledigten Schritte entfallen. Schritt 11 entfällt
+ * auch allein, wenn die Bewertungsbitte gesperrt ist (Beschwerde, Abmeldung).
+ * Anzeige deutsch in Europe/Berlin, Trenner „·“, keine Gedankenstriche.
  */
 import { berlinDateString } from "@/lib/berlin-date";
 import { berlinTag, datumKurz, euroText, tagKurz, uhrzeitKurz, volumenText } from "@/lib/anzeige";
@@ -214,6 +215,8 @@ export function einsatzAus(ergebnis: RechnerErgebnis | null): AblaufFakten["eins
 
 type Entwurf = Omit<AblaufSchritt, "nr" | "zustand" | "zeile"> & {
   erledigt: boolean;
+  /** Entfällt auch ohne Verloren (gesperrte Bewertungsbitte): nie `jetzt`, nie `offen`. */
+  entfaellt?: boolean;
   /** Zeile, wenn der Schritt erledigt ist, sonst die offene Zeile. */
   zeileErledigt: string;
   zeileOffen: string;
@@ -440,6 +443,16 @@ function rechnung(f: AblaufFakten): Entwurf {
   };
 }
 
+/**
+ * Hinweis zu offenen Meldungen „Ich habe bezahlt“: genau eine lässt sich mit
+ * einem Klick bestätigen (die Akte zeigt dort „Bestätigen“), bei mehreren
+ * nennt der Hinweis die Zahl und die Akte bietet „Zahlung erfassen“ an.
+ */
+function meldungsHinweis(anzahl: number): AblaufSchritt["hinweis"] {
+  const text = anzahl === 1 ? "Kunde meldet „bezahlt“. Ein Klick bestätigt." : `Kunde meldet „bezahlt“ (${anzahl} Meldungen).`;
+  return { ton: "gold", text };
+}
+
 function zahlung(f: AblaufFakten): Entwurf {
   // Ein Stunden-KV hat nie Rest 0: dort zählt die Stufe Bezahlt.
   const erledigt = f.rest.restCent === 0 || f.stageCategory === "paid";
@@ -451,7 +464,7 @@ function zahlung(f: AblaufFakten): Entwurf {
     zeileErledigt: f.letzteZahlungAm ? `bezahlt ${tagKurz(f.letzteZahlungAm)}` : "bezahlt",
     zeileOffen: "Kunde meldet „bezahlt“ im Link, du bestätigst",
     chips: [...ZAHLUNGSART_CHIPS],
-    ...(!erledigt && f.offeneMeldungen > 0 ? { hinweis: { ton: "gold" as const, text: "Kunde meldet „bezahlt“. Ein Klick bestätigt." } } : {}),
+    ...(!erledigt && f.offeneMeldungen > 0 ? { hinweis: meldungsHinweis(f.offeneMeldungen) } : {}),
   };
 }
 
@@ -465,6 +478,7 @@ export function bewertungGesperrt(f: Pick<AblaufFakten, "bewertung">): boolean {
   return f.bewertung.status !== null && f.bewertung.status in BEWERTUNG_GESPERRT;
 }
 
+/** Gesperrt (Beschwerde, Abmeldung) entfällt der Schritt: kein `jetzt`, kein Knopf in der Akte. */
 function bewertung(f: AblaufFakten): Entwurf {
   const sperre = bewertungGesperrt(f) ? BEWERTUNG_GESPERRT[f.bewertung.status!] : null;
   return {
@@ -472,6 +486,7 @@ function bewertung(f: AblaufFakten): Entwurf {
     titel: "Bewertung anfragen",
     wer: "du",
     erledigt: bewertungAngefragt(f),
+    entfaellt: sperre !== null,
     zeileErledigt: f.bewertung.am ? `angefragt ${tagKurz(f.bewertung.am)}` : "angefragt",
     zeileOffen: sperre ?? "von Hand · Google-Link mit Vorlage",
   };
@@ -479,7 +494,8 @@ function bewertung(f: AblaufFakten): Entwurf {
 
 /**
  * Die elf Schritte mit Zustand und Zeile. `position` = Nummer des Schritts
- * `jetzt`, sonst die Zahl der erledigten (Anzeige „{position} von 11“).
+ * `jetzt`, sonst die Zahl der erledigten (Anzeige „{position} von 11“); ein
+ * Schritt, der entfällt, wird nie `jetzt` und zählt nicht als erledigt.
  * `jetzt` (Zeitpunkt) nur für relative Angaben („morgen“, „in 16 Tagen“).
  */
 export function berechneAblauf(f: AblaufFakten, jetzt: Date): { schritte: AblaufSchritt[]; position: number } {
@@ -497,16 +513,16 @@ export function berechneAblauf(f: AblaufFakten, jetzt: Date): { schritte: Ablauf
     bewertung(f),
   ];
   const verloren = VERLOREN_STUFEN.has(f.stageCategory ?? "");
-  const jetztIndex = verloren ? -1 : entwuerfe.findIndex((e) => !e.erledigt);
+  const jetztIndex = verloren ? -1 : entwuerfe.findIndex((e) => !e.erledigt && !e.entfaellt);
 
   const schritte = entwuerfe.map((e, i): AblaufSchritt => {
-    const { erledigt, zeileErledigt, zeileOffen, ...rest } = e;
+    const { erledigt, entfaellt, zeileErledigt, zeileOffen, ...rest } = e;
     const zustand: AblaufSchritt["zustand"] = erledigt
       ? "erledigt"
-      : i === jetztIndex
-        ? "jetzt"
-        : verloren
-          ? "entfaellt"
+      : verloren || entfaellt
+        ? "entfaellt"
+        : i === jetztIndex
+          ? "jetzt"
           : "offen";
     const schritt: AblaufSchritt = { nr: i + 1, ...rest, zustand, zeile: erledigt ? zeileErledigt : zeileOffen };
     if (schritt.key === "kv" && zustand === "jetzt") Object.assign(schritt, kvZusatz(f, jetzt));
