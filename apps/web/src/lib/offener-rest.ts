@@ -1,7 +1,8 @@
 /**
- * Offener Rest aus einer Quelle: aktive Annahme, sonst Festpreis.
- * Stunden-KV und kein Angebot ergeben keinen Betrag. Bezahlt zählt wie
- * preisZahlungenCent (ohne nicht_steuerbar).
+ * Offener Rest aus einer Quelle. Ein Stunden-KV hat keinen Rest, auch wenn
+ * eine Annahme gesetzt ist (deren Summe ist nur eine Schätzung). Sonst
+ * aktive Annahme, sonst Festpreis. Kein Angebot ergibt keinen Betrag.
+ * Bezahlt zählt wie preisZahlungenCent (ohne nicht_steuerbar).
  */
 import { preisZahlungenCent } from "./preis-zahlungen";
 
@@ -17,6 +18,9 @@ export function restAus(e: {
   quelle: "annahme" | "angebot" | "stunden" | "keins";
 } {
   const bezahltCent = preisZahlungenCent(e.zahlungen);
+  if (e.istStunden) {
+    return { gesamtCent: null, bezahltCent, restCent: null, quelle: "stunden" };
+  }
   if (e.annahmeCent != null) {
     return {
       gesamtCent: e.annahmeCent,
@@ -24,9 +28,6 @@ export function restAus(e: {
       restCent: Math.max(0, e.annahmeCent - bezahltCent),
       quelle: "annahme",
     };
-  }
-  if (e.istStunden) {
-    return { gesamtCent: null, bezahltCent, restCent: null, quelle: "stunden" };
   }
   const gesamtCent = euroNachCent(e.festpreis);
   if (gesamtCent == null) {

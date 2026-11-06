@@ -21,7 +21,7 @@ vi.mock("@/db", () => ({
   db: { select: vi.fn() },
 }));
 
-import { PUT } from "./route";
+import { PATCH } from "./route";
 
 const WORKSPACE_ID = "ws-1";
 const BOOKING_ID = "buch-1";
@@ -38,11 +38,11 @@ beforeEach(() => {
   mocks.updateCompanyBooking.mockResolvedValue({ id: BOOKING_ID, paymentMethod: "cash" });
 });
 
-describe("PUT /api/v1/financial/bookings/[id]", () => {
+describe("PATCH /api/v1/financial/bookings/[id]", () => {
   it("speichert „bar“ als cash", async () => {
-    const res = await PUT(
+    const res = await PATCH(
       new NextRequest(`https://crm.test/api/v1/financial/bookings/${BOOKING_ID}?type=income`, {
-        method: "PUT",
+        method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ paymentMethod: "bar" }),
       }),

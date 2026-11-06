@@ -49,7 +49,12 @@ describe("restAus", () => {
     ).toEqual({ gesamtCent: 10000, bezahltCent: 20000, restCent: 0, quelle: "annahme" });
   });
 
-  it("eine Annahme schlägt den Stunden-KV", () => {
-    expect(restAus({ ...leer, annahmeCent: 248000, istStunden: true }).quelle).toBe("annahme");
+  it("Stunden-KV hat keinen Rest, auch wenn eine Annahme gesetzt ist", () => {
+    expect(restAus({ ...leer, annahmeCent: 248000, istStunden: true })).toEqual({
+      gesamtCent: null,
+      bezahltCent: 0,
+      restCent: null,
+      quelle: "stunden",
+    });
   });
 });

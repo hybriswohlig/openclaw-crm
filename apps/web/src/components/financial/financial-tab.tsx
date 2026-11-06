@@ -318,14 +318,18 @@ function PaymentsSection({
     if (!form.date || !form.amount) return;
     setSaving(true);
     try {
-      const body = {
+      const body: Record<string, unknown> = {
         date: form.date,
         amount: form.amount,
         payer: form.payer || null,
-        paymentMethod: form.paymentMethod || null,
         reference: form.reference || null,
         notes: form.notes || null,
       };
+      // Unveränderte Zahlungsart weglassen, damit ein alter Rohwert wie „Scheck“
+      // beim reinen Betragsändern nicht erneut validiert und verworfen wird.
+      if (!editing || form.paymentMethod !== zahlungsartFuerFormular(editing.paymentMethod)) {
+        body.paymentMethod = form.paymentMethod || null;
+      }
       let res: Response;
       if (editing) {
         res = await fetch(`/api/v1/deals/${recordId}/payments/${editing.id}`, {
@@ -645,10 +649,12 @@ function ExpensesSection({
         category: form.category,
         description: form.description || null,
         recipient: form.recipient || null,
-        paymentMethod: form.paymentMethod || null,
         taxTreatment: form.taxTreatment,
         payingOperatingCompanyId: form.payingOperatingCompanyId || null,
       };
+      if (!editing || form.paymentMethod !== zahlungsartFuerFormular(editing.paymentMethod)) {
+        body.paymentMethod = form.paymentMethod || null;
+      }
       if (form.taxTreatment === "teilweise") body.deductiblePercent = deductiblePercent;
       // Only send receiptFile when a new file was picked, so editing without
       // re-uploading keeps the existing Beleg.

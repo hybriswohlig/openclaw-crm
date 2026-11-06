@@ -92,13 +92,6 @@ function parseType(req: NextRequest): BookingType | null {
  *
  * Update a company booking. Validates only the fields present in the body.
  */
-export async function PUT(
-  req: NextRequest,
-  ctx: { params: Promise<{ id: string }> },
-) {
-  return PATCH(req, ctx);
-}
-
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
