@@ -314,6 +314,8 @@ export function LeadsSeite() {
       const z = zug;
       setZug(null);
       if (!z) return;
+      // Nach Abbruch oder Fehler steht der Fokus sonst auf dem Body (das Menü ist zu, der Dialog weg).
+      if (!e.stufeGesetzt) fokusZurKarte(z.karte.id);
       if (e.stufeGesetzt) {
         setNachladend(new Set(spaltenNachAktion(z.von.stufeId, z.nach.stufeId)));
         if (terminFehlt(z.karte, z.nach.kategorie, true)) {
@@ -467,6 +469,18 @@ export function LeadsSeite() {
       {dialoge}
     </div>
   );
+}
+
+/**
+ * Fokus zurück auf das Menü „Stufe ändern“ der Karte, wenn er nirgends steht.
+ * Etwas später als der Dialog, der beim Schließen selbst noch fokussiert.
+ */
+function fokusZurKarte(dealId: string) {
+  window.setTimeout(() => {
+    const aktiv = document.activeElement;
+    if (aktiv && aktiv !== document.body) return;
+    document.querySelector<HTMLElement>(`.leads-karte[data-karte="${CSS.escape(dealId)}"] .leads-karte-menue`)?.focus();
+  }, 50);
 }
 
 function Hinweis({ text, rolle, children }: { text: string; rolle?: "alert"; children?: React.ReactNode }) {

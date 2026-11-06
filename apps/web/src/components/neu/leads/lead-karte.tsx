@@ -149,10 +149,13 @@ export function LeadKarte({
     <article
       ref={setNodeRef}
       className="leads-karte"
+      data-karte={karte.id}
       data-ziehend={isDragging || undefined}
       data-unterwegs={unterwegs || undefined}
       {...listeners}
       onClick={(e) => {
+        // Klicks aus Portalen (Kartenmenü) laufen im React-Baum bis hierher, gehören aber nicht zur Karte.
+        if (!e.currentTarget.contains(e.target as Node)) return;
         // Link und Knöpfe in der Karte öffnen selbst oder gar nichts.
         if ((e.target as HTMLElement).closest("a, button")) return;
         if (!klickErlaubt()) return;

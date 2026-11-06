@@ -43,7 +43,16 @@ export function KartenMenue({
         </button>
       </Menu.Trigger>
       <Menu.Portal container={portalZiel}>
-        <Menu.Content asChild align="end" sideOffset={6} collisionPadding={12}>
+        {/* Das Menü hängt im Portal, im React-Baum aber in der Karte: Zeiger und Klick
+            dürfen dort keinen Zug starten und nicht die Akte öffnen. */}
+        <Menu.Content
+          asChild
+          align="end"
+          sideOffset={6}
+          collisionPadding={12}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
           <GlassPanel elevation="raised" lens preset="prominent" refraction="none" variant="card" className="lg-menu-content leads-menue">
             <Menu.Label className="lg-menu-label">Stufe ändern</Menu.Label>
             {ziele.map(({ stufe }) => (
