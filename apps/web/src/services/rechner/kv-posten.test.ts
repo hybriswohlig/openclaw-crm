@@ -120,6 +120,20 @@ describe("kvBausteine", () => {
     expect(ohneZeit.leistungen.assembly).toEqual({ owner: "none" });
   });
 
+  it("Montagezeile nennt nur die Seite der Firma (Entscheidung 12)", () => {
+    const text = (abbau: string, aufbau: string) =>
+      kvBausteine({
+        festpreis: 2260,
+        ergebnis,
+        anfrage: { ...anfrage, positionen_freitext: [{ name: "Kleiderschrank", abbau, aufbau }] },
+      }).posten.find((p) => /Montage|Demontage/.test(p.description) && !p.description.startsWith("Umzugsteam"))?.description;
+    expect(text("company", "customer")).toBe("Demontage (Kleiderschrank)");
+    expect(text("customer", "company")).toBe("Montage (Kleiderschrank)");
+    expect(text("company", "company")).toBe("Demontage & Montage (Kleiderschrank)");
+    // ohne Angaben je Position bleibt es bei beiden Seiten
+    expect(kvBausteine({ festpreis: 2260, ergebnis, anfrage }).posten[1]!.description).toContain("Demontage & Montage (");
+  });
+
   it("Einpackservice als Hebel, wenn Kartons und Packzeit da sind", () => {
     const k = kvBausteine({ festpreis: 2500, ergebnis: { ...ergebnis, zeiten: { ...ergebnis.zeiten, packen: 300 } }, anfrage: { ...anfrage, einpack_kartons: "40" } });
     expect(k.posten.find((p) => p.description === "Einpackservice (40 Kartons)")?.unitRate).toBe(180);

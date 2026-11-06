@@ -17,7 +17,7 @@ function aufbau(start = new Date("2026-10-01T08:00:00Z")) {
   };
   let jetzt = start;
   let aufrufe = 0;
-  let naechsteAntwort: RechnerAntwort = { ok: true, ergebnis: { preis: { festpreis: 900 } } };
+  let naechsteAntwort: RechnerAntwort = { ok: true, ergebnis: { montageJePosition: true, preis: { festpreis: 900 } } };
   let aktuellerLead = lead(3);
   const deps = {
     speicher,
@@ -39,7 +39,7 @@ describe("ensureDealCalculation", () => {
     const t = aufbau();
     const r = await ensureDealCalculation("ws", "deal1", t.deps);
     expect(r.status).toBe("neu");
-    expect(t.zeilen.get("deal1")?.result).toEqual({ preis: { festpreis: 900 } });
+    expect(t.zeilen.get("deal1")?.result).toEqual({ montageJePosition: true, preis: { festpreis: 900 } });
     expect(t.aufrufe).toBe(1);
   });
 
@@ -49,6 +49,23 @@ describe("ensureDealCalculation", () => {
     t.spaeter(600);
     const r = await ensureDealCalculation("ws", "deal1", t.deps);
     expect(r.status).toBe("unveraendert");
+    expect(t.aufrufe).toBe(1);
+  });
+
+  it("Ergebnis ohne Echo montageJePosition gilt als veraltet: rechnet neu, auch am selben Tag und innerhalb der Drossel", async () => {
+    const t = aufbau();
+    const anfrage = rechnerAnfrageAus(lead(3), { heute: "2026-10-01" });
+    t.zeilen.set("deal1", {
+      dealRecordId: "deal1", workspaceId: "ws", inputHash: eingabeHash(anfrage), request: anfrage,
+      result: { preis: { festpreis: 800 } }, error: null, computedAt: t.deps.jetzt(),
+    });
+    const r = await ensureDealCalculation("ws", "deal1", t.deps);
+    expect(r.status).toBe("neu");
+    expect(t.aufrufe).toBe(1);
+    expect(t.zeilen.get("deal1")?.result).toEqual({ montageJePosition: true, preis: { festpreis: 900 } });
+    // Mit Echo: unverändert, kein weiterer Aufruf.
+    t.spaeter(600);
+    expect((await ensureDealCalculation("ws", "deal1", t.deps)).status).toBe("unveraendert");
     expect(t.aufrufe).toBe(1);
   });
 
@@ -79,12 +96,12 @@ describe("ensureDealCalculation", () => {
     t.setzeAntwort({ ok: false, fehler: "Rechner nicht erreichbar." });
     const r = await ensureDealCalculation("ws", "deal1", t.deps);
     expect(r.status).toBe("fehler");
-    expect(t.zeilen.get("deal1")).toMatchObject({ error: "Rechner nicht erreichbar.", result: { preis: { festpreis: 900 } } });
+    expect(t.zeilen.get("deal1")).toMatchObject({ error: "Rechner nicht erreichbar.", result: { montageJePosition: true, preis: { festpreis: 900 } } });
     // Gleiche Eingabe nach einem Fehler gilt nicht als unverändert.
     t.spaeter(61);
-    t.setzeAntwort({ ok: true, ergebnis: { preis: { festpreis: 950 } } });
+    t.setzeAntwort({ ok: true, ergebnis: { montageJePosition: true, preis: { festpreis: 950 } } });
     expect((await ensureDealCalculation("ws", "deal1", t.deps)).status).toBe("neu");
-    expect(t.zeilen.get("deal1")).toMatchObject({ error: null, result: { preis: { festpreis: 950 } } });
+    expect(t.zeilen.get("deal1")).toMatchObject({ error: null, result: { montageJePosition: true, preis: { festpreis: 950 } } });
   });
 
   it("parallele Aufrufe für denselben Lead: eine Rechnung, eine Zeile", async () => {
@@ -133,7 +150,7 @@ describe("ensureDealCalculation: heute als Änderung (Hash ohne heute)", () => {
     const anfrage = { ...rechnerAnfrageAus(lead(3), { heute: "2026-11-04" }) };
     t.zeilen.set("deal1", {
       dealRecordId: "deal1", workspaceId: "ws", inputHash: eingabeHash(anfrage), request: anfrage,
-      result: { preis: { festpreis: 900 } }, error: null,
+      result: { montageJePosition: true, preis: { festpreis: 900 } }, error: null,
       // zwei Minuten vor der Uhr, sonst antwortet die 60-s-Drossel zuerst
       computedAt: new Date(new Date(uhr).getTime() - 2 * 60_000),
     });
@@ -178,9 +195,9 @@ describe("aktuelleKalkulation (für die Übernahme ins Angebot)", () => {
     await ensureDealCalculation("ws", "deal1", t.deps);
     t.spaeter(10);
     t.setzeLead(lead(5));
-    t.setzeAntwort({ ok: true, ergebnis: { preis: { festpreis: 1300 } } });
+    t.setzeAntwort({ ok: true, ergebnis: { montageJePosition: true, preis: { festpreis: 1300 } } });
     const r = await aktuelleKalkulation("ws", "deal1", t.deps);
-    expect(r.ok && r.kalkulation.result).toEqual({ preis: { festpreis: 1300 } });
+    expect(r.ok && r.kalkulation.result).toEqual({ montageJePosition: true, preis: { festpreis: 1300 } });
     expect(t.aufrufe).toBe(2);
   });
 

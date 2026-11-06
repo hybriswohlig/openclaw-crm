@@ -73,6 +73,14 @@ describe("rechnerAnfrageAus", () => {
     });
     expect(kunde.positionen_freitext).toEqual([{ name: "Regal", menge: 1, abbau: "customer", aufbau: "none", zerlegt: false }]);
   });
+  it("schickt immer den Schalter montage_je_position, auch ohne Inventar", () => {
+    expect(rechnerAnfrageAus(leer).montage_je_position).toBe("1");
+    const mit = rechnerAnfrageAus({
+      ...leer,
+      inventar: [{ name: "Schrank", menge: 1, groessenklasse: null, volumenCbm: null, mitnehmen: true, abbau: "company", aufbau: "company" }],
+    });
+    expect(mit.montage_je_position).toBe("1");
+  });
   it("unbekannte Größenklasse wird nicht mitgeschickt (der Rechner würde sie ablehnen)", () => {
     const a = rechnerAnfrageAus({ ...leer, inventar: [{ name: "Kiste", menge: 2, groessenklasse: "riesig", volumenCbm: null, mitnehmen: true }] });
     expect(a.positionen_freitext).toEqual([{ name: "Kiste", menge: 2 }]);

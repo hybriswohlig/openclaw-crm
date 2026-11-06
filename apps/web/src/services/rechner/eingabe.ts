@@ -97,6 +97,10 @@ export function rechnerAnfrageAus(lead: LeadDaten, opts: { heute?: string } = {}
   // (der Rechner ignoriert das Feld, die Karte im CRM warnt).
   if (lead.packService && !lead.kartons) a.einpack_ohne_anzahl = "on";
 
+  // Schalter "Montage je Position": nur mit ihm liest der Rechner abbau/aufbau je Position.
+  // Ändert den Hash der Anfrage, gewollt: alte Ergebnisse gelten als veraltet (ergebnisVeraltet).
+  a.montage_je_position = "1";
+
   const zeilen = lead.inventar.filter((z) => z.mitnehmen && z.menge > 0 && z.name.trim() !== "");
   if (zeilen.length > 0) {
     a.positionen_freitext = zeilen.map((z) => {

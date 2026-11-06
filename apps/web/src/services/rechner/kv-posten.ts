@@ -196,11 +196,20 @@ export function kvBausteine(input: {
     montageMoebel = besitzer.companyNames;
   }
   const montagePm = (zeiten.demontage ?? 0) + (zeiten.montage ?? 0);
+  // Entscheidung 12: die Zeile nennt nur die Seite(n), die die Firma übernimmt.
+  // Ohne ausdrückliche Angaben je Position (alte Anfragen) bleibt es bei beiden Seiten.
+  const firmaDemontage = !besitzer.explicit || besitzer.dismantleCompany.length > 0;
+  const firmaMontage = !besitzer.explicit || besitzer.assembleCompany.length > 0;
+  const montageNamen =
+    besitzer.explicit && firmaDemontage !== firmaMontage
+      ? firmaDemontage ? besitzer.dismantleCompany : besitzer.assembleCompany
+      : montageMoebel;
+  const montageTitel = firmaDemontage && !firmaMontage ? "Demontage" : firmaMontage && !firmaDemontage ? "Montage" : "Demontage & Montage";
   if (montageMoebel.length > 0 && montagePm > 0) {
     kandidaten.push({
       art: "montage",
       posten: {
-        description: `Demontage & Montage (${moebelText(montageMoebel)})`,
+        description: `${montageTitel} (${moebelText(montageNamen)})`,
         quantity: 1,
         unitRate: Math.max(40, auf10((montagePm / 60) * arbeitssatz)),
       },
@@ -268,7 +277,7 @@ export function kvBausteine(input: {
   let kernPosten: KvPosten = { description: kernText, quantity: 1, unitRate: kern };
   if (kern < summe * KERN_MIN_ANTEIL) {
     // Hebel zu groß im Verhältnis: ein Posten mit allem, damit kein Teil billiger wirkt als der Rest.
-    const drin = hebel.map((k) => (k.art === "montage" ? "Demontage & Montage" : k.art === "halteverbot" ? "Halteverbotszone" : k.art === "einpacken" ? "Einpackservice" : "Küche"));
+    const drin = hebel.map((k) => (k.art === "montage" ? montageTitel : k.art === "halteverbot" ? "Halteverbotszone" : k.art === "einpacken" ? "Einpackservice" : "Küche"));
     kernPosten = { description: `${kernText}${drin.length ? `, ${aufzaehlen(drin)}` : ""}`, quantity: 1, unitRate: summe };
     hebel = [];
     kern = summe;

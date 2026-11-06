@@ -105,8 +105,10 @@ async function rechne(
   if (!opts.force && vorher) {
     // Der Hash ignoriert heute; ein neuer Tag zählt trotzdem als Änderung, damit die Eilregel aktuell bleibt.
     const gleicherTag = vorher.request?.heute === anfrage.heute;
-    if (vorher.inputHash === hash && gleicherTag && vorher.error === null) return { status: "unveraendert", kalkulation: vorher };
-    if (jetzt().getTime() - vorher.computedAt.getTime() < DROSSEL_MS) return { status: "gedrosselt", kalkulation: vorher };
+    // Ein Ergebnis ohne Echo des Rechners (Montage je Position) zählt wie eine geänderte Eingabe.
+    const veraltet = vorher.result !== null && ergebnisVeraltet(vorher.result);
+    if (vorher.inputHash === hash && gleicherTag && vorher.error === null && !veraltet) return { status: "unveraendert", kalkulation: vorher };
+    if (!veraltet && jetzt().getTime() - vorher.computedAt.getTime() < DROSSEL_MS) return { status: "gedrosselt", kalkulation: vorher };
   }
 
   // Zeitpunkt des Starts: der Speicher lässt eine später begonnene Rechnung nicht von einer älteren überschreiben.
