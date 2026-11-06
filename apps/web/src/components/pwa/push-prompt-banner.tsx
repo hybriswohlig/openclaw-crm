@@ -41,7 +41,19 @@ function isStandalone(): boolean {
   );
 }
 
-export function PushPromptBanner() {
+/**
+ * Zustand und Ablauf des Push-Banners, geteilt von der alten Shell und der
+ * neuen (Plan 6, Entscheidung 16): `sichtbar` nach den Regeln oben,
+ * `iosHinweis` statt des Knopfs in einem Safari-Tab, `aktivieren` abonniert,
+ * `spaeter` verbirgt für diese Sitzung.
+ */
+export function usePushPrompt(): {
+  sichtbar: boolean;
+  iosHinweis: boolean;
+  beschaeftigt: boolean;
+  aktivieren: () => Promise<void>;
+  spaeter: () => void;
+} {
   const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   const [vapidKey, setVapidKey] = useState<string | null>(null);
@@ -162,6 +174,12 @@ export function PushPromptBanner() {
       setBusy(false);
     }
   }
+
+  return { sichtbar: visible, iosHinweis: iosInstallHint, beschaeftigt: busy, aktivieren: enable, spaeter: dismiss };
+}
+
+export function PushPromptBanner() {
+  const { sichtbar: visible, iosHinweis: iosInstallHint, beschaeftigt: busy, aktivieren: enable, spaeter: dismiss } = usePushPrompt();
 
   if (!visible) return null;
 

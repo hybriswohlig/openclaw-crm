@@ -12,6 +12,7 @@ import { HandyDock } from "@/components/neu/handy-dock";
 import { Hintergrund } from "@/components/neu/hintergrund";
 import { LgThemeSync } from "@/components/neu/lg-theme-sync";
 import { Seitenleiste } from "@/components/neu/seitenleiste";
+import { ShellBanner } from "@/components/neu/shell-banner";
 
 /** Alles, was GlassProvider und LgThemeSync auf <html> schreiben. */
 const GLAS_ATTRIBUTE = [
@@ -50,7 +51,10 @@ export default function NeuLayout({ children }: { children: React.ReactNode }) {
             <Hintergrund />
             <div className="neu-geruest">
               <Seitenleiste />
-              <main className="neu-inhalt">{children}</main>
+              <main className="neu-inhalt">
+                <ShellBanner />
+                {children}
+              </main>
             </div>
             <HandyDock />
           </div>

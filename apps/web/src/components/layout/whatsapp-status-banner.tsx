@@ -15,7 +15,16 @@ interface ChannelAccount {
 
 const DISMISS_KEY = "kottke.whatsapp.banner.dismissed";
 
-export function WhatsappStatusBanner() {
+export const WHATSAPP_BANNER_TEXT = "WhatsApp ist nicht verbunden. Eingehende Kundennachrichten kommen derzeit nicht an.";
+export const WHATSAPP_BANNER_LINK = { href: "/integrations", text: "Jetzt verbinden" } as const;
+
+/**
+ * Zustand des WhatsApp-Banners, geteilt von der alten Shell und der neuen
+ * (Plan 6, Entscheidung 16): pollt die Kanalkonten alle 90 s; `sichtbar`,
+ * wenn ein Baileys-inhouse-Konto nicht aktiv und verbunden ist und dieser
+ * Vorfall nicht weggeklickt wurde (je Vorfall, sessionStorage).
+ */
+export function useWhatsappStatus(): { sichtbar: boolean; schliessen: () => void } {
   const [incident, setIncident] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState<string | null>(null);
 
@@ -56,16 +65,23 @@ export function WhatsappStatusBanner() {
     return () => clearInterval(id);
   }, []);
 
-  if (!incident || incident === dismissed) return null;
-
-  function dismiss() {
+  function schliessen() {
+    if (!incident) return;
     try {
-      sessionStorage.setItem(DISMISS_KEY, incident!);
+      sessionStorage.setItem(DISMISS_KEY, incident);
     } catch {
       // ignore
     }
     setDismissed(incident);
   }
+
+  return { sichtbar: Boolean(incident) && incident !== dismissed, schliessen };
+}
+
+export function WhatsappStatusBanner() {
+  const { sichtbar, schliessen } = useWhatsappStatus();
+
+  if (!sichtbar) return null;
 
   return (
     <div
@@ -74,19 +90,18 @@ export function WhatsappStatusBanner() {
       style={{ background: "#b3261e", color: "#fff" }}
     >
       <span className="min-w-0 flex-1 truncate">
-        WhatsApp ist nicht verbunden. Eingehende Kundennachrichten kommen
-        derzeit nicht an.
+        {WHATSAPP_BANNER_TEXT}
       </span>
       <Link
-        href="/integrations"
+        href={WHATSAPP_BANNER_LINK.href}
         className="shrink-0 underline underline-offset-2"
         style={{ fontWeight: 600, color: "#fff" }}
       >
-        Jetzt verbinden
+        {WHATSAPP_BANNER_LINK.text}
       </Link>
       <button
         type="button"
-        onClick={dismiss}
+        onClick={schliessen}
         aria-label="Hinweis schließen"
         className="shrink-0 rounded-md p-1 hover:bg-white/15"
       >
