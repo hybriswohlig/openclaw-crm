@@ -232,10 +232,13 @@
   background: var(--fill-3);
 }
 
+/* Der rechte Text (Tarif) rutscht in schmalen Spalten unter den Titel statt
+   neben der Unterzeile umzubrechen. */
 [data-neu] .kalk-panel-kopf {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 4px 10px;
   padding: 14px 18px 10px;
 }
 
@@ -265,6 +268,7 @@
   font-size: 12px;
   color: var(--ink-2);
   text-align: right;
+  white-space: nowrap;
 }
 
 [data-neu] .kalk-panel-leer {
@@ -541,11 +545,48 @@
 
 /* ── Umbrüche ────────────────────────────────────────── */
 
-/* Unter 1100 px eine Spalte (Task 8); die Spaltenbreiten 390/400 würden
-   sonst die Mitte unter 300 px drücken. */
-@media (max-width: 1100px) {
+/* Mit Seitenleiste (236 px) bleiben bei 1440 px nur 1146 px für die Spalten;
+   die festen 390/400 des Mockups ließen der Mitte 328 px. Deshalb drei
+   Stufen: ab 1500 px das Mockup-Raster, bis dahin drei fließende Spalten
+   (Mitte etwas breiter), unter 1340 px zwei Spalten mit der Marge unter der
+   Grundlage, unter 760 px ein Stapel (Task 12). */
+@media (max-width: 1499px) {
+  [data-neu] .kalk-spalten {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 1339px) {
+  [data-neu] .kalk-spalten {
+    grid-template-columns: minmax(0, 390px) minmax(0, 1fr);
+  }
+
+  [data-neu] .kalk-spalte:nth-child(1) {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  [data-neu] .kalk-spalte:nth-child(2) {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+
+  [data-neu] .kalk-spalte:nth-child(3) {
+    grid-column: 1;
+    grid-row: 2;
+  }
+}
+
+@media (max-width: 759px) {
   [data-neu] .kalk-spalten {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  [data-neu] .kalk-spalte:nth-child(1),
+  [data-neu] .kalk-spalte:nth-child(2),
+  [data-neu] .kalk-spalte:nth-child(3) {
+    grid-column: auto;
+    grid-row: auto;
   }
 }
 

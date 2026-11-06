@@ -67,11 +67,17 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Die Formel darf umbrechen (übersteuerte Zeilen tragen eine lange), der
+   Betrag darüber bleibt einzeilig; am Handy sonst über den Panelrand. */
 [data-neu] .kalk-kz-a small {
   display: block;
+  max-width: min(60vw, 260px);
+  margin-left: auto;
   font-size: 11px;
   font-weight: 400;
   color: var(--ink-2);
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 [data-neu] .kalk-kz-f {
