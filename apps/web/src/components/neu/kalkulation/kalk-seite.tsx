@@ -10,6 +10,7 @@ import { GlassPanel } from "@/components/glassyui/glass-panel";
 import type { KalkulationsAnsicht } from "@/lib/kalkulations-ansicht";
 import type { UebersteuerungsArt } from "@/lib/kalkulation-versionen";
 import { apiAufruf, jsonAufruf, type ApiAntwort } from "@/components/neu/akte/api";
+import { GrundlageSpalte } from "./grundlage-spalte";
 import { KalkKopf } from "./kalk-kopf";
 
 /** Welche Aktion gerade läuft; währenddessen sind alle Eingaben gesperrt (Review Focus 5). */
@@ -269,7 +270,7 @@ export function KalkSeite({ dealId }: { dealId: string }) {
       <Hinweisband version={ansicht.version} laeuft={laeuft} onNeuRechnen={() => void neuRechnen()} />
       <div className="kalk-spalten">
         <div className="kalk-spalte">
-          <Platzhalter titel="Grundlage" unter="Woher jede Zahl kommt. Klick zum Ändern." text="Kommt mit Task 9." />
+          <GrundlageSpalte grundlage={ansicht.grundlage} kontext={kontext} />
         </div>
         <div className="kalk-spalte">
           <Platzhalter titel="Selbstkosten" unter="Was uns der Auftrag kostet, Zeile für Zeile." text="Kommt mit Task 10." />
