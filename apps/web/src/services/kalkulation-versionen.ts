@@ -79,7 +79,14 @@ export type Schnappschuss = Pick<
 
 export type Autor = { userId: string | null; quelle: "mensch" | "agent" };
 
-export type VersionsFehlerCode = "NICHT_GEFUNDEN" | "RECHNER_FEHLER" | "PAKETE" | "STUNDEN" | "UNGUELTIG" | "SPANNE";
+export type VersionsFehlerCode =
+  | "NICHT_GEFUNDEN"
+  | "RECHNER_FEHLER"
+  | "PAKETE"
+  | "STUNDEN"
+  | "UNGUELTIG"
+  | "SPANNE"
+  | "PREIS_GEAENDERT";
 
 const FEHLER_STATUS: Record<VersionsFehlerCode, number> = {
   NICHT_GEFUNDEN: 404,
@@ -88,7 +95,12 @@ const FEHLER_STATUS: Record<VersionsFehlerCode, number> = {
   STUNDEN: 409,
   UNGUELTIG: 400,
   SPANNE: 409,
+  PREIS_GEAENDERT: 409,
 };
+
+/** Ablehnung beim Sperren mit Paketoptionen (Sperren und KV aus der Version). */
+export const PAKETE_TEXT = "Sperren mit Paketpreisen kommt später. Bis dahin den Preis über die Paketpreise pflegen.";
+export const PREIS_GEAENDERT_TEXT = "Der Preis hat sich beim Neurechnen geändert. Bitte prüfen und erneut sperren.";
 
 /** Fachlicher Fehler des Versionen-Dienstes; Routen antworten mit `status` und `code`. */
 export class VersionsFehler extends Error {
@@ -399,7 +411,19 @@ export async function kartenAbweichung(ws: string, deal: string, opts?: Versions
 
 /** Ablehnungstext der Kalkulationskarte, wenn die Version Anpassungen außer der Marge hat. */
 export function kartenAbweichungText(version: number): string {
-  return `Für diesen Deal gibt es Anpassungen in Kalkulation v${version}. Bitte die Version dort sperren (crm_lock_calculation_version) oder die Anpassungen zurücknehmen.`;
+  return `Für diesen Deal gibt es Anpassungen in Kalkulation v${version}. Bitte auf der Kalkulationsseite sperren oder die Anpassungen zurücknehmen.`;
+}
+
+/** Kalibrierungsmeldung nach der Antwort; Fehler nur geloggt. */
+function meldeImHintergrund(d: Abh, meldung: Parameters<typeof meldeKorrektur>[0]): void {
+  d.nachher(async () => {
+    try {
+      const r = await d.melde(meldung);
+      if (!r.ok) console.warn(`[kalkulation-versionen] Korrekturmeldung fehlgeschlagen: ${r.fehler}`);
+    } catch (err) {
+      console.warn("[kalkulation-versionen] Korrekturmeldung fehlgeschlagen", err);
+    }
+  });
 }
 
 /** Wirksamer Wert einer Übersteuerung (letzte Nennung gilt), null ohne oder aufgehoben. */
@@ -412,7 +436,9 @@ export function wirksamerWert(liste: Uebersteuerung[], art: string, key: string)
 /**
  * Begründete Übersteuerung. An einer gesperrten Version landet sie im Entwurf
  * (angelegt, falls keiner). Danach Neuberechnung im Rechner und, nach der
- * Antwort, eine Kalibrierungsmeldung an den Rechner (Fehler nur geloggt).
+ * Antwort, eine Kalibrierungsmeldung an den Rechner (Fehler nur geloggt). Die
+ * Marge meldet erst das Sperren, einmal mit der dann gültigen Marge (der Regler
+ * speichert oft mehrere Zwischenwerte).
  */
 export async function uebersteuern(
   ws: string,
@@ -498,9 +524,9 @@ export async function uebersteuern(
     }
 
     // Zurücknehmen (wert null) heißt: Rechnerwert gilt; das ist keine Korrektur.
-    if (neue.wert !== null) {
+    if (neue.wert !== null && neue.art !== "marge") {
       const tarif = ziel.tariff ?? gespeichert.tariff;
-      const meldung = {
+      meldeImHintergrund(d, {
         crm_deal_record_id: deal,
         crm_version: gespeichert.version,
         tarif_id: tarif?.id ?? null,
@@ -514,14 +540,6 @@ export async function uebersteuern(
         grund: neue.grund,
         autor: autor.userId ?? "agent",
         foto_ref: neue.fotoRef,
-      };
-      d.nachher(async () => {
-        try {
-          const r = await d.melde(meldung);
-          if (!r.ok) console.warn(`[kalkulation-versionen] Korrekturmeldung fehlgeschlagen: ${r.fehler}`);
-        } catch (err) {
-          console.warn("[kalkulation-versionen] Korrekturmeldung fehlgeschlagen", err);
-        }
       });
     }
 
@@ -530,27 +548,52 @@ export async function uebersteuern(
 }
 
 /**
+ * Rechnet einen Entwurf neu, wenn er veraltet ist (`entwurfVeraltet`, mit den
+ * Paket-Hebeln des Deals) oder einen Rechnerfehler hat; sonst bleibt er unverändert
+ * (`gerechnet: false`). Gesperrte Versionen nie (UNGUELTIG).
+ */
+export async function entwurfNeuRechnen(
+  ws: string,
+  deal: string,
+  version: number,
+  _autor: Autor,
+  opts?: VersionsOptionen
+): Promise<{ version: VersionsZeile; gerechnet: boolean }> {
+  const d = await abhaengigkeiten(opts);
+  const v = await versionOderFehler(ws, deal, version, d);
+  if (v.status !== "entwurf") throw new VersionsFehler("UNGUELTIG", "Nur ein Entwurf kann neu gerechnet werden.");
+  const lead = await leadOderFehler(ws, deal, d);
+  const heute = heuteBerlin(d.jetzt());
+  const paketHebel = await paketHebelFuer(ws, deal, d);
+  if (v.error === null && v.rechnerResult && !entwurfVeraltet(v, rechnerAnfrageAus(lead), heute, paketHebel ?? null)) {
+    return { version: v, gerechnet: false };
+  }
+  const berechnet = await neuBerechnen(ws, deal, lead, v.overrides, d, { paketHebel, referenceDate: heute });
+  return { version: await d.speicher.aktualisieren(v.id, berechnet), gerechnet: true };
+}
+
+/**
  * Sperrt den Entwurf und schreibt die Quotation des Deals (eine Transaktion).
  * Vorher frisch prüfen: weicht die aus Lead und aktuellen Übersteuerungen neu gebaute
  * Anfrage ab, ist das Bezugsdatum nicht heute oder stand ein Fehler an, wird zuerst
  * neu gerechnet. Gesperrt wird nur, wenn die Liste bis zum Sperren gleich bleibt.
+ * Mit `erwartetPreisCent` (Kalkulationsseite) nur, wenn die Posten genau den Preis
+ * ergeben, den die Seite gezeigt hat (sonst PREIS_GEAENDERT, nichts gesperrt).
+ * Nach dem Sperren meldet es eine wirksame Marge-Übersteuerung einmal an den Rechner.
  */
 export async function sperren(
   ws: string,
   deal: string,
   version: number,
   autor: Autor,
-  body: { bestaetigtSpanne?: boolean; nurMarge?: boolean },
+  body: { bestaetigtSpanne?: boolean; nurMarge?: boolean; erwartetPreisCent?: number },
   opts?: VersionsOptionen
 ): Promise<{ version: VersionsZeile; quotation: Quotation | null; gueltigkeitHinweis: string | null }> {
   const d = await abhaengigkeiten(opts);
   let v = await versionOderFehler(ws, deal, version, d);
   if (v.status !== "entwurf") throw new VersionsFehler("UNGUELTIG", `Version v${version} ist bereits gesperrt.`);
   if (await d.hatPakete(deal)) {
-    throw new VersionsFehler(
-      "PAKETE",
-      "Dieser Lead hat Paketoptionen: Sperren kommt mit der Kalkulationsseite. Bis dahin den Preis über die Paketpreise pflegen."
-    );
+    throw new VersionsFehler("PAKETE", PAKETE_TEXT);
   }
   const vorhanden = await d.ladeAngebot(deal);
   // Ein Mensch darf einen Stunden-KV bewusst auf Festpreis umstellen (wie bisher an der
@@ -600,6 +643,10 @@ export async function sperren(
     quantity: li.quantity,
     unitRate: Number(li.unitRate),
   }));
+  // Die Seite hat einen Preis gezeigt; ergibt die (Neu-)Berechnung einen anderen, nichts sperren.
+  if (typeof body.erwartetPreisCent === "number" && centSumme(kvItems) !== body.erwartetPreisCent) {
+    throw new VersionsFehler("PREIS_GEAENDERT", PREIS_GEAENDERT_TEXT);
+  }
   const { version: gesperrt } = await d.speicher.sperrenUndAngebot(ws, deal, v.id, u.eingabe, kvItems, autor.userId, {
     uebersteuerungen: v.overrides.length,
     schnappschuss: {
@@ -614,6 +661,29 @@ export async function sperren(
     },
   });
   await d.nachSperren(ws, deal, autor);
+
+  // Marge: einmal beim Sperren, mit der Marge, die jetzt gilt (Rechnerwert = sein Vorschlag).
+  const marge = wirksameUebersteuerungen(v.overrides).filter((u) => u.art === "marge").at(-1);
+  if (marge && typeof marge.wert === "number") {
+    const tarif = gesperrt.tariff ?? v.tariff;
+    meldeImHintergrund(d, {
+      crm_deal_record_id: deal,
+      crm_version: gesperrt.version,
+      tarif_id: tarif?.id ?? null,
+      tarif_version: tarif?.version ?? null,
+      marke: tarif?.marke ?? null,
+      regel: "marge",
+      zeile_key: "marge",
+      eingaben: v.rechnerRequest,
+      rechnerwert:
+        v.rechnerResult.preis?.margeVorschlag?.prozent ?? v.rechnerResult.margeVorschlag?.prozent ?? zahlOderNull(marge.rechnerwert),
+      inhaberwert: marge.wert,
+      grund: marge.grund,
+      autor: marge.autor.userId ?? "agent",
+      foto_ref: marge.fotoRef,
+    });
+  }
+
   const quotation = await d.ladeAngebot(deal);
   return { version: gesperrt, quotation, gueltigkeitHinweis: u.gueltigkeitHinweis };
 }

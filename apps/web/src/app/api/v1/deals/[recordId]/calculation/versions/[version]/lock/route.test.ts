@@ -82,6 +82,33 @@ describe("POST /calculation/versions/[version]/lock", () => {
     expect(mocks.sperren.mock.calls[1][4]).toEqual({ bestaetigtSpanne: false });
   });
 
+  it("erwartetPreisCent wird durchgereicht; fehlt es, bleibt es weg (alte Karte, MCP)", async () => {
+    await POST(req({ erwartetPreisCent: 248000 }), p());
+    expect(mocks.sperren).toHaveBeenLastCalledWith("ws_1", "deal_1", 2, { userId: "usr_1", quelle: "mensch" }, {
+      bestaetigtSpanne: false, erwartetPreisCent: 248000,
+    });
+    await POST(req({ bestaetigtSpanne: true }), p());
+    expect(mocks.sperren.mock.calls[1][4]).toEqual({ bestaetigtSpanne: true });
+  });
+
+  it.each([[-1], [12.5], ["248000"], [null]])("erwartetPreisCent %s → 400, nichts gesperrt", async (wert) => {
+    const res = await POST(req({ erwartetPreisCent: wert }), p());
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.message).toBe("erwartetPreisCent muss eine ganze Zahl in Cent sein.");
+    expect(mocks.sperren).not.toHaveBeenCalled();
+  });
+
+  it("Preis beim Neurechnen geändert → 409 PREIS_GEAENDERT", async () => {
+    mocks.sperren.mockRejectedValue(
+      new VersionsFehler("PREIS_GEAENDERT", "Der Preis hat sich beim Neurechnen geändert. Bitte prüfen und erneut sperren.")
+    );
+    const res = await POST(req({ erwartetPreisCent: 248000 }), p());
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toEqual({
+      code: "PREIS_GEAENDERT", message: "Der Preis hat sich beim Neurechnen geändert. Bitte prüfen und erneut sperren.",
+    });
+  });
+
   it("VersionsFehler PAKETE → 409 mit code PAKETE", async () => {
     mocks.sperren.mockRejectedValue(new VersionsFehler("PAKETE", "Dieser Lead hat Paketoptionen."));
     const res = await POST(req(), p());

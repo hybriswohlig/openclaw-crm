@@ -54,6 +54,7 @@ describe("kvAusVersion", () => {
     const err = await fehlerVon(kvAusVersion(eingabe, opt));
     expect(err.code).toBe("PAKETE");
     expect(err.status).toBe(409);
+    expect(err.message).toBe("Sperren mit Paketpreisen kommt später. Bis dahin den Preis über die Paketpreise pflegen.");
     expect(m.speichereKv).not.toHaveBeenCalled();
   });
 

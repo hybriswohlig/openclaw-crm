@@ -13,7 +13,7 @@ import type { DocumentCopy } from "@openclaw-crm/document-templates";
 import { ohnePreisangaben } from "@/lib/ohne-preisangaben";
 import type { DealDocumentMeta } from "@/services/deal-documents";
 import type { storeCommercialDocument } from "@/services/commercial-documents";
-import { VersionsFehler, type VersionsZeile } from "./kalkulation-versionen";
+import { PAKETE_TEXT, VersionsFehler, type VersionsZeile } from "./kalkulation-versionen";
 
 export type KvAusVersionErgebnis =
   | { renderer: "crm"; document: DealDocumentMeta; fileName: string }
@@ -83,10 +83,7 @@ export async function kvAusVersion(
   // Paketoptionen nach dem Sperren: der Paketpreis ersetzt den Festpreis der Version,
   // ein so gerenderter KV käme nicht aus dieser Version (Pakete in Versionen: Plan 3).
   if (await d.hatPakete(dealRecordId)) {
-    throw new VersionsFehler(
-      "PAKETE",
-      "Der Deal hat Paketoptionen. Den KV bitte über „Dokument erzeugen“ erstellen; Pakete in Kalkulationsversionen kommen mit der Kalkulationsseite.",
-    );
+    throw new VersionsFehler("PAKETE", PAKETE_TEXT);
   }
 
   if (await d.istKottke(workspaceId, dealRecordId)) {

@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { getAuthContext, unauthorized, success } from "@/lib/api-utils";
+import { badRequest, getAuthContext, unauthorized, success } from "@/lib/api-utils";
 import {
   autorAus,
   dealImWorkspace,
@@ -11,10 +11,12 @@ import {
 import { sperren } from "@/services/kalkulation-versionen";
 
 /**
- * POST { bestaetigtSpanne? } → sperrt den Entwurf und schreibt die Quotation des Deals:
- * `{ version, quotation, gueltigkeitHinweis }`. Ablehnungen mit dem Code des Dienstes
- * (PAKETE, STUNDEN, RECHNER_FEHLER, SPANNE: 409; UNGUELTIG: 400; NICHT_GEFUNDEN: 404),
- * Kundenannahme 409 KVA_ACCEPTED.
+ * POST { bestaetigtSpanne?, erwartetPreisCent? } → sperrt den Entwurf und schreibt die
+ * Quotation des Deals: `{ version, quotation, gueltigkeitHinweis }`. Mit
+ * `erwartetPreisCent` (Kalkulationsseite) nur, wenn die Posten genau diesen Preis
+ * ergeben, sonst 409 PREIS_GEAENDERT. Ablehnungen mit dem Code des Dienstes
+ * (PAKETE, STUNDEN, RECHNER_FEHLER, SPANNE, PREIS_GEAENDERT: 409; UNGUELTIG: 400;
+ * NICHT_GEFUNDEN: 404), Kundenannahme 409 KVA_ACCEPTED.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ recordId: string; version: string }> }) {
   const ctx = await getAuthContext(req);
@@ -24,10 +26,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rec
   const version = versionAusPfad(segment);
   if (version === null) return ungueltigeVersion();
 
-  const body = (await req.json().catch(() => ({}))) as { bestaetigtSpanne?: unknown } | null;
+  const body = (await req.json().catch(() => ({}))) as { bestaetigtSpanne?: unknown; erwartetPreisCent?: unknown } | null;
+  const erwartet = body && "erwartetPreisCent" in body ? body.erwartetPreisCent : undefined;
+  if (erwartet !== undefined && !(typeof erwartet === "number" && Number.isSafeInteger(erwartet) && erwartet >= 0)) {
+    return badRequest("erwartetPreisCent muss eine ganze Zahl in Cent sein.");
+  }
   try {
     const r = await sperren(ctx.workspaceId, recordId, version, autorAus(ctx), {
       bestaetigtSpanne: body?.bestaetigtSpanne === true,
+      ...(typeof erwartet === "number" ? { erwartetPreisCent: erwartet } : {}),
     });
     return success({ version: r.version, quotation: r.quotation, gueltigkeitHinweis: r.gueltigkeitHinweis });
   } catch (err) {

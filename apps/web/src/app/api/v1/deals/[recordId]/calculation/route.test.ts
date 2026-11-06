@@ -206,7 +206,7 @@ describe("POST /calculation/apply", () => {
     const res = await APPLY(req({ margeProzent: 45 }), { params });
     expect(res.status).toBe(400);
     expect(await fehlerText(res)).toBe(
-      "Für diesen Deal gibt es Anpassungen in Kalkulation v2. Bitte die Version dort sperren (crm_lock_calculation_version) oder die Anpassungen zurücknehmen."
+      "Für diesen Deal gibt es Anpassungen in Kalkulation v2. Bitte auf der Kalkulationsseite sperren oder die Anpassungen zurücknehmen."
     );
     expect(mocks.kartenAbweichung).toHaveBeenCalledWith("ws_1", "deal_1");
     expect(mocks.entwurfHolenOderAnlegen).not.toHaveBeenCalled();

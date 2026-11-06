@@ -187,7 +187,7 @@ describe("POST /calculation/apply über Versionen", () => {
   });
 
   const ABWEICHUNG = (v: number) =>
-    `Für diesen Deal gibt es Anpassungen in Kalkulation v${v}. Bitte die Version dort sperren (crm_lock_calculation_version) oder die Anpassungen zurücknehmen.`;
+    `Für diesen Deal gibt es Anpassungen in Kalkulation v${v}. Bitte auf der Kalkulationsseite sperren oder die Anpassungen zurücknehmen.`;
   const BOT = { userId: null, quelle: "agent" as const };
 
   it("Entwurf mit Material vom Bot (Karte zeigt es nicht): 400, kein Override, keine Sperre, keine Meldung (Review 1)", async () => {
