@@ -394,7 +394,7 @@ describe("Erfolg", () => {
       deduped: false,
     });
     expect(mocks.sendeAntwort.mock.invocationCallOrder[0]!).toBeLessThan(mocks.nachEigenerNachricht.mock.invocationCallOrder[0]!);
-    expect(s.tokenAnlegen.mock.invocationCallOrder[0]!).toBeLessThan(mocks.sendeAntwort.mock.invocationCallOrder[0]!);
+    expect(vi.mocked(s.tokenAnlegen).mock.invocationCallOrder[0]!).toBeLessThan(mocks.sendeAntwort.mock.invocationCallOrder[0]!);
 
     // Felder über updateRecord mit Status-ID aus dem Titel, ohne Variante (keine Option „manuell“)
     expect(mocks.updateRecord).toHaveBeenCalledTimes(1);
