@@ -36,16 +36,23 @@ import { LeadsKopf } from "./leads-kopf";
 import { LeadsLeiste } from "./leads-leiste";
 import { LeadsListe } from "./leads-liste";
 import {
+  angezeigterModus,
+  antwortFolge,
   boardUrl,
   filterWirksam,
   kartenMischen,
+  ladeSchluessel,
   leadsUrl,
+  leereSendeschlange,
   leerText,
   listeUrl,
+  mehrErlaubt,
   modusAnzeige,
   nachladeLimits,
   nachladen,
   seitenEinsetzen,
+  sendenAnfragen,
+  sendenFertig,
   sortierungKlick,
   spalteUmschalten,
   spalteUrl,
@@ -65,8 +72,15 @@ const SUCHE_VERZUG_MS = 250;
 const ANSICHT_VERZUG_MS = 500;
 
 type Grund = "oeffnen" | "aktion" | "takt";
-type BoardZustand = { art: "laden" } | { art: "fehler"; meldung: string } | { art: "fertig"; board: Board };
-type ListeZustand = { art: "laden" } | { art: "fehler"; meldung: string } | { art: "fertig"; liste: Liste };
+/** `fuer`: Ladeschlüssel der Daten; `filter` (und die Sortierung) gehören zum Cursor `weiter`. */
+type BoardZustand =
+  | { art: "laden" }
+  | { art: "fehler"; meldung: string }
+  | { art: "fertig"; board: Board; fuer: string; filter: LeadsFilter };
+type ListeZustand =
+  | { art: "laden" }
+  | { art: "fehler"; meldung: string }
+  | { art: "fertig"; liste: Liste; fuer: string; filter: LeadsFilter; sortierung: ListenSortierung };
 type Dialog = { art: "termin"; dealId: string } | { art: "zahlung"; karte: LeadKarte };
 
 const FILTER_RUECKSETZEN: Partial<LeadsFilter> = { chip: null, firmaId: null, quelleId: null, monat: null, suche: "", nurWartet: false };
@@ -94,26 +108,50 @@ export function LeadsSeite() {
   const [chips, setChips] = useState<LeadsChips | null>(null);
   const [laedt, setLaedt] = useState(false);
   const [zug, setZug] = useState<Zug | null>(null);
+  const [zieht, setZieht] = useState(false);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [nachladend, setNachladend] = useState<ReadonlySet<string>>(new Set());
   const [listeLaedtMehr, setListeLaedtMehr] = useState(false);
+  // Neu laden läuft (je Ansicht): „Mehr laden“ ist so lange gesperrt.
+  const [boardLaeuft, setBoardLaeuftZustand] = useState(false);
+  const [listeLaeuft, setListeLaeuftZustand] = useState(false);
 
   const boardLauf = useRef(0);
   const listeLauf = useRef(0);
-  const boardRef = useRef<Board | null>(null);
-  boardRef.current = board.art === "fertig" ? board.board : null;
-  const listeRef = useRef<Liste | null>(null);
-  listeRef.current = liste.art === "fertig" ? liste.liste : null;
+  const boardLaeuftRef = useRef(false);
+  const listeLaeuftRef = useRef(false);
+  const boardRef = useRef<BoardZustand>(board);
+  boardRef.current = board;
+  const listeRef = useRef<ListeZustand>(liste);
+  listeRef.current = liste;
   const gesendetRef = useRef(gesendet);
   gesendetRef.current = gesendet;
   const ansichtRef = useRef(ansicht);
   ansichtRef.current = ansicht;
+  const breitRef = useRef(breit);
+  breitRef.current = breit;
+  // Kein Takt und keine übernommenen Antworten während eines Zugs (auch beim Ziehen selbst) oder Dialogs.
+  const pausiertJetzt = zug !== null || dialog !== null || zieht;
   const pausiert = useRef(false);
-  pausiert.current = zug !== null || dialog !== null;
+  pausiert.current = pausiertJetzt;
+  // Eine Antwort kam während der Pause: nach dem Ende neu laden.
+  const nachholen = useRef(false);
   const ansichtGeladen = useRef(false);
+  const sendeschlange = useRef(leereSendeschlange<LeadsAnsicht>());
 
   const modus = ansicht ? modusAnzeige(ansicht) : "board";
   const sortierung = ansicht?.sortierung ?? STANDARD_ANSICHT.sortierung;
+  // Was tatsächlich gezeigt und geladen wird: am Handy immer die Kartenliste (Board-Daten).
+  const anzeige = angezeigterModus(breit, ansicht);
+
+  const setBoardLaeuft = useCallback((v: boolean) => {
+    boardLaeuftRef.current = v;
+    setBoardLaeuftZustand(v);
+  }, []);
+  const setListeLaeuft = useCallback((v: boolean) => {
+    listeLaeuftRef.current = v;
+    setListeLaeuftZustand(v);
+  }, []);
 
   // ── Gespeicherte Ansicht ───────────────────────────────────────────────────
 
@@ -132,15 +170,25 @@ export function LeadsSeite() {
     };
   }, []);
 
+  /** Ein PUT zur Zeit; was währenddessen kommt, geht danach als neuester Stand raus (nichts überholt sich). */
+  const ansichtSenden = useCallback(function senden(wert: LeadsAnsicht) {
+    void apiAufruf<unknown>(`/api/v1/me/ansichten/${LEADS_ANSICHT_SCHLUESSEL}`, jsonAufruf("PUT", wert)).then((r) => {
+      const f = sendenFertig(sendeschlange.current);
+      sendeschlange.current = f.z;
+      if (!r.ok && !f.veraltet) toast.message("Ansicht nicht gespeichert.", { description: r.message });
+      if (f.jetzt) senden(f.jetzt);
+    });
+  }, []);
+
   useEffect(() => {
     if (!ansicht || !ansichtGeladen.current) return;
     const t = window.setTimeout(() => {
-      void apiAufruf<unknown>(`/api/v1/me/ansichten/${LEADS_ANSICHT_SCHLUESSEL}`, jsonAufruf("PUT", ansicht)).then((r) => {
-        if (!r.ok) toast.message("Ansicht nicht gespeichert.", { description: r.message });
-      });
+      const a = sendenAnfragen(sendeschlange.current, ansicht);
+      sendeschlange.current = a.z;
+      if (a.jetzt) ansichtSenden(a.jetzt);
     }, ANSICHT_VERZUG_MS);
     return () => window.clearTimeout(t);
-  }, [ansicht]);
+  }, [ansicht, ansichtSenden]);
 
   // ── Filter: URL und verzögerte Suche ──────────────────────────────────────
 
@@ -168,75 +216,115 @@ export function LeadsSeite() {
 
   // ── Laden ──────────────────────────────────────────────────────────────────
 
-  const boardLaden = useCallback(async (f: LeadsFilter, grund: Grund, behalten: boolean) => {
-    const dieser = ++boardLauf.current;
-    const limits = behalten ? nachladeLimits(boardRef.current?.spalten ?? []) : [];
-    if (grund === "oeffnen") setLaedt(true);
-    const [b, ...seiten] = await Promise.all([
-      apiAufruf<Board>(boardUrl(f)),
-      ...limits.map((l) => apiAufruf<LeadsSpaltenSeite>(spalteUrl(f, l.stufeId, 0, l.limit))),
-    ]);
-    if (dieser !== boardLauf.current) return;
-    setLaedt(false);
-    setNachladend(new Set());
-    if (!b.ok) {
-      if (boardRef.current) {
-        if (grund === "aktion") toast.error("Leads konnten nicht neu geladen werden.", { description: b.message });
+  const boardLaden = useCallback(
+    async (f: LeadsFilter, grund: Grund, behalten: boolean) => {
+      const dieser = ++boardLauf.current;
+      const fuer = ladeSchluessel("board", f, STANDARD_ANSICHT.sortierung);
+      const vorher = boardRef.current;
+      const limits = behalten && vorher.art === "fertig" && vorher.fuer === fuer ? nachladeLimits(vorher.board.spalten) : [];
+      setBoardLaeuft(true);
+      if (grund === "oeffnen") setLaedt(true);
+      const [b, ...seiten] = await Promise.all([
+        apiAufruf<Board>(boardUrl(f)),
+        ...limits.map((l) => apiAufruf<LeadsSpaltenSeite>(spalteUrl(f, l.stufeId, 0, l.limit))),
+      ]);
+      const folge = antwortFolge({
+        lauf: dieser,
+        aktuell: boardLauf.current,
+        geladenFuer: fuer,
+        erwartet: ladeSchluessel("board", gesendetRef.current, STANDARD_ANSICHT.sortierung),
+        pausiert: pausiert.current,
+        angezeigt: boardRef.current.art === "fertig",
+      });
+      if (folge === "verwerfen") return;
+      setLaedt(false);
+      setBoardLaeuft(false);
+      setNachladend(new Set());
+      if (folge === "nachholen") {
+        nachholen.current = true;
         return;
       }
-      setBoard({ art: "fehler", meldung: b.message });
-      return;
-    }
-    const ok = seiten.flatMap((s) => (s.ok ? [s.data] : []));
-    setBoard({ art: "fertig", board: seitenEinsetzen(b.data, ok) });
-    setChips(b.data.chips);
-  }, []);
-
-  const listeLaden = useCallback(async (f: LeadsFilter, s: ListenSortierung, grund: Grund, behalten: boolean) => {
-    const dieser = ++listeLauf.current;
-    const geladen = behalten ? (listeRef.current?.zeilen.length ?? 0) : 0;
-    const seiten = Math.max(1, Math.ceil(geladen / LISTEN_SEITE));
-    if (grund === "oeffnen") setLaedt(true);
-    const antworten = await Promise.all(Array.from({ length: seiten }, (_, i) => apiAufruf<Liste>(listeUrl(f, s, i * LISTEN_SEITE))));
-    if (dieser !== listeLauf.current) return;
-    setLaedt(false);
-    const erste = antworten[0]!;
-    if (!erste.ok) {
-      if (listeRef.current) {
-        if (grund === "aktion") toast.error("Leads konnten nicht neu geladen werden.", { description: erste.message });
+      if (!b.ok) {
+        if (boardRef.current.art === "fertig") {
+          if (grund === "aktion") toast.error("Leads konnten nicht neu geladen werden.", { description: b.message });
+          return;
+        }
+        setBoard({ art: "fehler", meldung: b.message });
         return;
       }
-      setListe({ art: "fehler", meldung: erste.message });
-      return;
-    }
-    let zeilen = erste.data.zeilen;
-    let weiter = erste.data.weiter;
-    for (const a of antworten.slice(1)) {
-      if (!a.ok) break;
-      zeilen = kartenMischen(zeilen, a.data.zeilen);
-      weiter = a.data.weiter;
-    }
-    setListe({ art: "fertig", liste: { ...erste.data, zeilen, weiter } });
-    setChips(erste.data.chips);
-  }, []);
+      const ok = seiten.flatMap((s) => (s.ok ? [s.data] : []));
+      setBoard({ art: "fertig", board: seitenEinsetzen(b.data, ok), fuer, filter: f });
+      setChips(b.data.chips);
+    },
+    [setBoardLaeuft]
+  );
 
-  /** Die aktive Ansicht neu laden, geladene Karten behalten (nach Aktionen und im Takt). */
+  const listeLaden = useCallback(
+    async (f: LeadsFilter, s: ListenSortierung, grund: Grund, behalten: boolean) => {
+      const dieser = ++listeLauf.current;
+      const fuer = ladeSchluessel("liste", f, s);
+      const vorher = listeRef.current;
+      const geladen = behalten && vorher.art === "fertig" && vorher.fuer === fuer ? vorher.liste.zeilen.length : 0;
+      const seiten = Math.max(1, Math.ceil(geladen / LISTEN_SEITE));
+      setListeLaeuft(true);
+      if (grund === "oeffnen") setLaedt(true);
+      const antworten = await Promise.all(Array.from({ length: seiten }, (_, i) => apiAufruf<Liste>(listeUrl(f, s, i * LISTEN_SEITE))));
+      const a = ansichtRef.current;
+      const folge = antwortFolge({
+        lauf: dieser,
+        aktuell: listeLauf.current,
+        geladenFuer: fuer,
+        erwartet: ladeSchluessel("liste", gesendetRef.current, a?.sortierung ?? STANDARD_ANSICHT.sortierung),
+        pausiert: pausiert.current,
+        angezeigt: listeRef.current.art === "fertig",
+      });
+      if (folge === "verwerfen") return;
+      setLaedt(false);
+      setListeLaeuft(false);
+      if (folge === "nachholen") {
+        nachholen.current = true;
+        return;
+      }
+      const erste = antworten[0]!;
+      if (!erste.ok) {
+        if (listeRef.current.art === "fertig") {
+          if (grund === "aktion") toast.error("Leads konnten nicht neu geladen werden.", { description: erste.message });
+          return;
+        }
+        setListe({ art: "fehler", meldung: erste.message });
+        return;
+      }
+      let zeilen = erste.data.zeilen;
+      let weiter = erste.data.weiter;
+      for (const antwort of antworten.slice(1)) {
+        if (!antwort.ok) break;
+        zeilen = kartenMischen(zeilen, antwort.data.zeilen);
+        weiter = antwort.data.weiter;
+      }
+      setListe({ art: "fertig", liste: { ...erste.data, zeilen, weiter }, fuer, filter: f, sortierung: s });
+      setChips(erste.data.chips);
+    },
+    [setListeLaeuft]
+  );
+
+  /** Die angezeigte Ansicht neu laden, geladene Karten behalten (nach Aktionen und im Takt). */
   const neuLaden = useCallback(
     (grund: Grund = "aktion") => {
       const a = ansichtRef.current;
-      if (!a) return Promise.resolve();
-      return modusAnzeige(a) === "liste"
+      const zeigt = angezeigterModus(breitRef.current, a);
+      if (!a || !zeigt) return Promise.resolve();
+      return zeigt === "liste"
         ? listeLaden(gesendetRef.current, a.sortierung, grund, true)
         : boardLaden(gesendetRef.current, grund, true);
     },
     [boardLaden, listeLaden]
   );
 
-  // Beim Öffnen, bei neuen Filtern, neuer Sortierung und beim Umschalten.
-  const ladeKey = ansicht ? JSON.stringify([gesendet, modus, sortierung]) : null;
+  // Beim Öffnen, bei neuen Filtern, neuer Sortierung, beim Umschalten und wenn die Breite den Modus wechselt.
+  const ladeKey = anzeige ? ladeSchluessel(anzeige, gesendet, sortierung) : null;
   useEffect(() => {
-    if (!ladeKey || !ansicht) return;
-    if (modus === "liste") void listeLaden(gesendet, sortierung, "oeffnen", false);
+    if (!ladeKey || !anzeige) return;
+    if (anzeige === "liste") void listeLaden(gesendet, sortierung, "oeffnen", false);
     else void boardLaden(gesendet, "oeffnen", false);
     // Nur der Schlüssel zählt; die Objekte dahinter sind daraus abgeleitet.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -256,15 +344,32 @@ export function LeadsSeite() {
     };
   }, [neuLaden]);
 
+  // Was während der Pause verworfen wurde, nach dem Ende einmal nachladen.
+  useEffect(() => {
+    if (pausiertJetzt || !nachholen.current) return;
+    nachholen.current = false;
+    void neuLaden("takt");
+  }, [pausiertJetzt, neuLaden]);
+
   // ── Mehr laden ─────────────────────────────────────────────────────────────
 
+  const boardMehrErlaubt =
+    board.art === "fertig" &&
+    mehrErlaubt({ laeuft: boardLaeuft, geladenFuer: board.fuer, aktuell: ladeSchluessel("board", gesendet, STANDARD_ANSICHT.sortierung) });
+  const listeMehrErlaubt =
+    liste.art === "fertig" && mehrErlaubt({ laeuft: listeLaeuft, geladenFuer: liste.fuer, aktuell: ladeSchluessel("liste", gesendet, sortierung) });
+
   const mehrLaden = useCallback(async (stufeId: string) => {
-    const b = boardRef.current;
-    const sp = b?.spalten.find((s) => s.stufeId === stufeId);
+    const z = boardRef.current;
+    if (z.art !== "fertig") return;
+    const aktuell = ladeSchluessel("board", gesendetRef.current, STANDARD_ANSICHT.sortierung);
+    if (!mehrErlaubt({ laeuft: boardLaeuftRef.current, geladenFuer: z.fuer, aktuell })) return;
+    const sp = z.board.spalten.find((s) => s.stufeId === stufeId);
     if (!sp || sp.weiter === null) return;
     const lauf = boardLauf.current;
     setNachladend((n) => new Set(n).add(stufeId));
-    const r = await apiAufruf<LeadsSpaltenSeite>(spalteUrl(gesendetRef.current, stufeId, sp.weiter));
+    // Cursor und Filter gehören zusammen: der Filter der geladenen Daten, nicht der gerade eingetippte.
+    const r = await apiAufruf<LeadsSpaltenSeite>(spalteUrl(z.filter, stufeId, sp.weiter));
     setNachladend((n) => {
       const neu = new Set(n);
       neu.delete(stufeId);
@@ -275,30 +380,31 @@ export function LeadsSeite() {
       toast.error("Mehr konnte nicht geladen werden.", { description: r.message });
       return;
     }
-    setBoard((z) =>
-      z.art === "fertig"
-        ? { art: "fertig", board: { ...z.board, spalten: z.board.spalten.map((s) => (s.stufeId === stufeId ? nachladen(s, r.data) : s)) } }
-        : z
+    setBoard((jetzt) =>
+      jetzt.art === "fertig" && jetzt.fuer === z.fuer
+        ? { ...jetzt, board: { ...jetzt.board, spalten: jetzt.board.spalten.map((s) => (s.stufeId === stufeId ? nachladen(s, r.data) : s)) } }
+        : jetzt
     );
   }, []);
 
   const listeMehr = useCallback(async () => {
-    const l = listeRef.current;
-    const a = ansichtRef.current;
-    if (!l || l.weiter === null || !a) return;
+    const z = listeRef.current;
+    if (z.art !== "fertig" || z.liste.weiter === null) return;
+    const aktuell = ladeSchluessel("liste", gesendetRef.current, ansichtRef.current?.sortierung ?? STANDARD_ANSICHT.sortierung);
+    if (!mehrErlaubt({ laeuft: listeLaeuftRef.current, geladenFuer: z.fuer, aktuell })) return;
     const lauf = listeLauf.current;
     setListeLaedtMehr(true);
-    const r = await apiAufruf<Liste>(listeUrl(gesendetRef.current, a.sortierung, l.weiter));
+    const r = await apiAufruf<Liste>(listeUrl(z.filter, z.sortierung, z.liste.weiter));
     setListeLaedtMehr(false);
     if (lauf !== listeLauf.current) return;
     if (!r.ok) {
       toast.error("Mehr konnte nicht geladen werden.", { description: r.message });
       return;
     }
-    setListe((z) =>
-      z.art === "fertig"
-        ? { art: "fertig", liste: { ...r.data, zeilen: kartenMischen(z.liste.zeilen, r.data.zeilen) } }
-        : z
+    setListe((jetzt) =>
+      jetzt.art === "fertig" && jetzt.fuer === z.fuer
+        ? { ...jetzt, liste: { ...r.data, zeilen: kartenMischen(jetzt.liste.zeilen, r.data.zeilen) } }
+        : jetzt
     );
   }, []);
 
@@ -384,6 +490,7 @@ export function LeadsSeite() {
           chips={chips}
           filter={filter}
           nachladend={nachladend}
+          mehrGesperrt={!boardMehrErlaubt}
           onFilter={filterSetzen}
           onMehr={(id) => void mehrLaden(id)}
           onErneut={() => void boardLaden(gesendet, "oeffnen", false)}
@@ -433,6 +540,8 @@ export function LeadsSeite() {
             board={board.board}
             zug={zug}
             nachladend={nachladend}
+            mehrGesperrt={!boardMehrErlaubt}
+            onZiehen={setZieht}
             onZug={zugStarten}
             onMehr={(id) => void mehrLaden(id)}
             onEndstufen={(zeigen) => filterSetzen({ endstufen: zeigen })}
@@ -460,6 +569,7 @@ export function LeadsSeite() {
           ansicht={ansicht}
           endstufen={filter.endstufen}
           laedtMehr={listeLaedtMehr}
+          mehrGesperrt={!listeMehrErlaubt}
           onSortieren={(s: SortSchluessel) => ansichtSetzen((a) => sortierungKlick(a, s))}
           onSpalte={(k: ListenSpalte) => ansichtSetzen((a) => spalteUmschalten(a, k))}
           onMehr={() => void listeMehr()}

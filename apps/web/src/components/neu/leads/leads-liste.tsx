@@ -21,6 +21,7 @@ export function LeadsListe({
   ansicht,
   endstufen,
   laedtMehr,
+  mehrGesperrt,
   onSortieren,
   onSpalte,
   onMehr,
@@ -31,6 +32,8 @@ export function LeadsListe({
   ansicht: LeadsAnsicht;
   endstufen: boolean;
   laedtMehr: boolean;
+  /** Liste lädt gerade neu: „Mehr laden“ aus. */
+  mehrGesperrt: boolean;
   onSortieren: (schluessel: NonNullable<ReturnType<typeof sortSchluessel>>) => void;
   onSpalte: (key: ListenSpalte) => void;
   onMehr: () => void;
@@ -128,7 +131,7 @@ export function LeadsListe({
 
       <div className="leads-liste-fuss">
         {liste.weiter !== null ? (
-          <GlassButton size="sm" variant="soft" disabled={laedtMehr} onClick={onMehr}>
+          <GlassButton size="sm" variant="soft" disabled={laedtMehr || mehrGesperrt} onClick={onMehr}>
             {laedtMehr ? "Lädt …" : `Mehr laden (${liste.gesamt - liste.zeilen.length} weitere)`}
           </GlassButton>
         ) : null}

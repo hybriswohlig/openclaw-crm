@@ -11,7 +11,9 @@ import {
 } from "@/lib/leads-board";
 import {
   ablageTexte,
+  angezeigterModus,
   ansichtAendern,
+  antwortFolge,
   bezahltRueckfrageText,
   boardUrl,
   eingeklapptText,
@@ -19,16 +21,21 @@ import {
   handyUnterzeile,
   karteFinden,
   kartenMischen,
+  ladeSchluessel,
   leadsUrl,
+  leereSendeschlange,
   leerText,
   listeUrl,
   listenUnterzeile,
+  mehrErlaubt,
   menueZiele,
   modusAnzeige,
   nachZahlungFolge,
   nachladeLimits,
   nachladen,
   seitenEinsetzen,
+  sendenAnfragen,
+  sendenFertig,
   sichtbareSpalten,
   sortSchluessel,
   sortierungKlick,
@@ -338,5 +345,64 @@ describe("Texte", () => {
     expect(listenUnterzeile(0)).toBe("Keine Leads");
     expect(listenUnterzeile(1)).toBe("1 Lead");
     expect(listenUnterzeile(37)).toBe("37 Leads");
+  });
+});
+
+describe("Laden", () => {
+  it("zeigt am Handy immer die Kartenliste, sonst die gespeicherte Ansicht", () => {
+    const liste = { ...STANDARD_ANSICHT, modus: "liste" as const };
+    expect(angezeigterModus(false, liste)).toBe("board");
+    expect(angezeigterModus(true, liste)).toBe("liste");
+    expect(angezeigterModus(true, { ...STANDARD_ANSICHT, modus: "kalender" })).toBe("board");
+    expect(angezeigterModus(null, liste)).toBeNull();
+    expect(angezeigterModus(true, null)).toBeNull();
+  });
+
+  it("bindet den Ladeschlüssel an Modus, gesendeten Filter und bei der Liste an die Sortierung", () => {
+    const s = STANDARD_ANSICHT.sortierung;
+    const b = ladeSchluessel("board", LEERER_FILTER, s);
+    expect(ladeSchluessel("board", { ...LEERER_FILTER, suche: "a" }, s)).toBe(b);
+    expect(ladeSchluessel("board", LEERER_FILTER, { schluessel: "betrag", richtung: "ab" })).toBe(b);
+    expect(ladeSchluessel("board", { ...LEERER_FILTER, chip: "warten" }, s)).not.toBe(b);
+    expect(ladeSchluessel("liste", LEERER_FILTER, s)).not.toBe(b);
+    expect(ladeSchluessel("liste", LEERER_FILTER, { schluessel: "betrag", richtung: "ab" })).not.toBe(ladeSchluessel("liste", LEERER_FILTER, s));
+  });
+
+  it("sperrt „Mehr laden“ während des Neuladens und bei fremdem Filter", () => {
+    expect(mehrErlaubt({ laeuft: false, geladenFuer: "a", aktuell: "a" })).toBe(true);
+    expect(mehrErlaubt({ laeuft: true, geladenFuer: "a", aktuell: "a" })).toBe(false);
+    expect(mehrErlaubt({ laeuft: false, geladenFuer: "a", aktuell: "b" })).toBe(false);
+    expect(mehrErlaubt({ laeuft: false, geladenFuer: null, aktuell: "a" })).toBe(false);
+  });
+
+  it("verwirft alte Läufe und fremde Filter, holt nach, solange gezogen wird oder ein Dialog offen ist", () => {
+    const basis = { lauf: 3, aktuell: 3, geladenFuer: "a", erwartet: "a", pausiert: false, angezeigt: true };
+    expect(antwortFolge(basis)).toBe("anwenden");
+    expect(antwortFolge({ ...basis, aktuell: 4 })).toBe("verwerfen");
+    expect(antwortFolge({ ...basis, erwartet: "b" })).toBe("verwerfen");
+    expect(antwortFolge({ ...basis, pausiert: true })).toBe("nachholen");
+    // Das erste Laden wartet nie.
+    expect(antwortFolge({ ...basis, pausiert: true, angezeigt: false })).toBe("anwenden");
+  });
+
+  it("schickt Ansichten nacheinander, nur der neueste wartende Wert geht danach raus", () => {
+    let r = sendenAnfragen(leereSendeschlange<string>(), "a");
+    expect(r.jetzt).toBe("a");
+    r = sendenAnfragen(r.z, "b");
+    expect(r.jetzt).toBeNull();
+    r = sendenAnfragen(r.z, "c");
+    expect(r.z).toEqual({ laeuft: true, wartend: "c" });
+    const f1 = sendenFertig(r.z);
+    expect(f1).toEqual({ z: { laeuft: true, wartend: null }, jetzt: "c", veraltet: true });
+    const f2 = sendenFertig(f1.z);
+    expect(f2).toEqual({ z: { laeuft: false, wartend: null }, jetzt: null, veraltet: false });
+  });
+});
+
+describe("Zahlung im Zug", () => {
+  it("bietet ohne lesbare Zahlungsdaten keine Rückfrage an", () => {
+    expect(nachZahlungFolge({ gebucht: false, vonKategorie: "done_unpaid", neueKategorie: "done_unpaid", restCent: null, fehler: true })).toEqual({
+      art: "fehler",
+    });
   });
 });

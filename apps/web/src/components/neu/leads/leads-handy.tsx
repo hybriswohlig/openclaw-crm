@@ -22,6 +22,7 @@ export function LeadsHandy({
   chips,
   filter,
   nachladend,
+  mehrGesperrt,
   onFilter,
   onMehr,
   onErneut,
@@ -32,6 +33,8 @@ export function LeadsHandy({
   chips: LeadsChips | null;
   filter: LeadsFilter;
   nachladend: ReadonlySet<string>;
+  /** Lädt gerade neu: „Mehr laden“ aus. */
+  mehrGesperrt: boolean;
   onFilter: (teil: Partial<LeadsFilter>) => void;
   onMehr: (stufeId: string) => void;
   onErneut: () => void;
@@ -103,7 +106,7 @@ export function LeadsHandy({
                 </article>
               ))}
               {s.weiter !== null ? (
-                <button type="button" className="leads-mehr" disabled={nachladend.has(s.stufeId)} onClick={() => onMehr(s.stufeId)}>
+                <button type="button" className="leads-mehr" disabled={nachladend.has(s.stufeId) || mehrGesperrt} onClick={() => onMehr(s.stufeId)}>
                   {nachladend.has(s.stufeId) ? "Lädt …" : `Mehr aus „${s.label}“ laden (${s.anzahl - s.karten.length} weitere)`}
                 </button>
               ) : null}

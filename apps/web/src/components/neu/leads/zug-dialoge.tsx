@@ -32,6 +32,8 @@ export interface ZahlungEnde {
   restVorher: number | null;
   restNachher: number | null;
   kategorieNachher: LeadKategorie | null;
+  /** Das letzte Laden von `/akte` schlug fehl: Rest und Stufe sind unbekannt. */
+  fehler: boolean;
 }
 
 /**
@@ -50,17 +52,19 @@ export function ZahlungAusAkte({
   onSchliessen: (ende: ZahlungEnde) => void;
 }) {
   const [akte, setAkte] = useState<AkteDaten | null>(null);
-  const ende = useRef<ZahlungEnde>({ geaendert: false, restVorher: null, restNachher: null, kategorieNachher: null });
+  const ende = useRef<ZahlungEnde>({ geaendert: false, restVorher: null, restNachher: null, kategorieNachher: null, fehler: false });
   const schliessen = useRef(onSchliessen);
   schliessen.current = onSchliessen;
 
   const laden = useCallback(async (): Promise<boolean> => {
     const r = await apiAufruf<AkteDaten>(`/api/v1/deals/${encodeURIComponent(dealId)}/akte`);
     if (!r.ok) {
+      ende.current.fehler = true;
       toast.error("Zahlung konnte nicht geöffnet werden.", { description: r.message });
       return false;
     }
     const e = ende.current;
+    e.fehler = false;
     if (e.restVorher === null && !e.geaendert) e.restVorher = r.data.zahlung.restCent;
     e.restNachher = r.data.zahlung.restCent;
     e.kategorieNachher = r.data.kopf.stufe.kategorie as LeadKategorie | null;
@@ -94,7 +98,8 @@ export function ZahlungAusAkte({
 }
 
 type Schritt =
-  | { art: "frage"; text: ZugDialogText; danach: "setzen" | "kalkulation" }
+  /** `abbruchNeuLaden`: vorher wurde schon etwas gebucht, auch Abbrechen muss neu laden. */
+  | { art: "frage"; text: ZugDialogText; danach: "setzen" | "kalkulation"; abbruchNeuLaden: boolean }
   | { art: "verlust" }
   | { art: "zahlung" }
   | { art: "setzen" };
@@ -111,7 +116,9 @@ function startSchritt(zug: Zug): Schritt {
       return { art: "setzen" };
     default: {
       const text = zugDialogText(zug.aktion, zug.von.label, zug.nach.label, zug.karte.fakten);
-      return text ? { art: "frage", text, danach: zug.aktion.art === "kv" ? "kalkulation" : "setzen" } : { art: "setzen" };
+      return text
+        ? { art: "frage", text, danach: zug.aktion.art === "kv" ? "kalkulation" : "setzen", abbruchNeuLaden: false }
+        : { art: "setzen" };
     }
   }
 }
@@ -195,13 +202,23 @@ export function ZugDialoge({
             vonKategorie: zug.von.kategorie,
             neueKategorie: e.geaendert ? e.kategorieNachher : zug.von.kategorie,
             restCent: e.restNachher,
+            fehler: e.fehler,
           });
           switch (folge.art) {
             case "bleibt":
               onEnde({ stufeGesetzt: false, neuLaden: true });
               return;
             case "rueckfrage":
-              setSchritt({ art: "frage", text: bezahltRueckfrageText(e.restNachher, zug.nach.label), danach: "setzen" });
+              setSchritt({
+                art: "frage",
+                text: bezahltRueckfrageText(e.restNachher, zug.nach.label),
+                danach: "setzen",
+                abbruchNeuLaden: e.geaendert,
+              });
+              return;
+            case "fehler":
+              // Ohne lesbare Zahlungsdaten keine Rückfrage; der Fehler steht schon im Toast, die Karte springt zurück.
+              onEnde({ stufeGesetzt: false, neuLaden: e.geaendert });
               return;
             case "toast":
               toast.message(folge.text);
@@ -221,7 +238,7 @@ export function ZugDialoge({
       text={schritt.text}
       portalZiel={portalZiel}
       speichert={speichert}
-      onAbbrechen={() => onEnde({ stufeGesetzt: false, neuLaden: false })}
+      onAbbrechen={() => onEnde({ stufeGesetzt: false, neuLaden: schritt.abbruchNeuLaden })}
       onBestaetigen={async () => {
         if (schritt.danach === "kalkulation") {
           router.push(zug.karte.kvLink);

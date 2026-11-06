@@ -261,7 +261,9 @@ export type ZahlungFolge =
   /** Zahlung gebucht, Stufe bleibt: Toast. */
   | { art: "toast"; text: string }
   /** Nichts gebucht: Karte zurück, kein Toast. */
-  | { art: "nichts" };
+  | { art: "nichts" }
+  /** Zahlungsdaten nicht lesbar: keine Rückfrage, Karte zurück (der Fehler steht schon im Toast). */
+  | { art: "fehler" };
 
 /** Folge nach dem Zahlungsdialog eines Zugs nach Bezahlt (Entscheidung 4). */
 export function nachZahlungFolge(e: {
@@ -269,7 +271,10 @@ export function nachZahlungFolge(e: {
   vonKategorie: LeadKategorie | null;
   neueKategorie: LeadKategorie | null;
   restCent: number | null;
+  /** `/akte` ließ sich nicht (neu) laden: Rest und Stufe sind unbekannt. */
+  fehler?: boolean;
 }): ZahlungFolge {
+  if (e.fehler) return { art: "fehler" };
   if (e.neueKategorie === "paid") return { art: "bleibt" };
   if (e.vonKategorie === "done_unpaid" && (e.restCent === null || e.restCent <= 0)) return { art: "rueckfrage" };
   if (!e.gebucht) return { art: "nichts" };
@@ -294,6 +299,79 @@ export function bezahltRueckfrageText(restCent: number | null, nachLabel: string
 /** Nach „Geplant“ ohne Termin: Toast mit Knopf „Termin festlegen“ (Entscheidung 3). */
 export function terminFehlt(k: Pick<LeadKarte, "termin">, nachKategorie: LeadKategorie | null, gesetzt: boolean): boolean {
   return gesetzt && nachKategorie === "booked" && k.termin === null;
+}
+
+// ─── Laden: angezeigter Modus, Läufe, Nachladen, Ansicht senden ─────────────
+
+/**
+ * Was die Seite gerade zeigt und deshalb lädt: am Handy immer die Kartenliste
+ * (Board-Daten), sonst die gespeicherte Ansicht; null, solange Breite oder
+ * Ansicht unbekannt sind (Skelett, nichts laden).
+ */
+export function angezeigterModus(breit: boolean | null, a: Pick<LeadsAnsicht, "modus"> | null): "board" | "liste" | null {
+  if (breit === null || a === null) return null;
+  return breit ? modusAnzeige(a) : "board";
+}
+
+/** Wofür geladene Daten gelten: Modus, Filter (wie gesendet) und bei der Liste die Sortierung. */
+export function ladeSchluessel(modus: "board" | "liste", f: LeadsFilter, s: ListenSortierung): string {
+  const filter = filterWirksam(f);
+  return JSON.stringify(modus === "liste" ? [modus, filter, s.schluessel, s.richtung] : [modus, filter]);
+}
+
+/**
+ * „Mehr laden“ nur, wenn gerade nichts neu lädt und die geladenen Daten zum
+ * aktuellen Filter gehören; sonst passt der Cursor (`weiter`) nicht.
+ */
+export function mehrErlaubt(z: { laeuft: boolean; geladenFuer: string | null; aktuell: string }): boolean {
+  return !z.laeuft && z.geladenFuer !== null && z.geladenFuer === z.aktuell;
+}
+
+export type AntwortFolge =
+  /** Gehört zum letzten Lauf und nichts hält an: übernehmen. */
+  | "anwenden"
+  /** Ein neuerer Lauf (oder anderer Filter) ist unterwegs: wegwerfen. */
+  | "verwerfen"
+  /** Zug oder Dialog läuft: nicht anwenden, nach dem Ende neu laden. */
+  | "nachholen";
+
+/**
+ * Was mit einer Antwort passiert. `pausiert` zählt nur, wenn schon Daten
+ * angezeigt werden (das erste Laden darf nie warten).
+ */
+export function antwortFolge(z: {
+  lauf: number;
+  aktuell: number;
+  geladenFuer: string;
+  erwartet: string;
+  pausiert: boolean;
+  angezeigt: boolean;
+}): AntwortFolge {
+  if (z.lauf !== z.aktuell || z.geladenFuer !== z.erwartet) return "verwerfen";
+  if (z.pausiert && z.angezeigt) return "nachholen";
+  return "anwenden";
+}
+
+/** Gespeicherte Ansicht senden, ohne dass sich zwei PUTs überholen: höchstens einer läuft, der neueste wartet. */
+export interface Sendeschlange<T> {
+  laeuft: boolean;
+  wartend: T | null;
+}
+
+export function leereSendeschlange<T>(): Sendeschlange<T> {
+  return { laeuft: false, wartend: null };
+}
+
+/** Neuer Wert: sofort senden, wenn nichts läuft; sonst als einziger Wartender merken (ältere Wartende entfallen). */
+export function sendenAnfragen<T>(z: Sendeschlange<T>, wert: T): { z: Sendeschlange<T>; jetzt: T | null } {
+  if (z.laeuft) return { z: { laeuft: true, wartend: wert }, jetzt: null };
+  return { z: { laeuft: true, wartend: null }, jetzt: wert };
+}
+
+/** Ein PUT ist fertig: den Wartenden schicken, sonst ruhen. `veraltet`: es wartet schon ein neuerer Wert (Fehler nicht melden). */
+export function sendenFertig<T>(z: Sendeschlange<T>): { z: Sendeschlange<T>; jetzt: T | null; veraltet: boolean } {
+  if (z.wartend !== null) return { z: { laeuft: true, wartend: null }, jetzt: z.wartend, veraltet: true };
+  return { z: { laeuft: false, wartend: null }, jetzt: null, veraltet: false };
 }
 
 // ─── Texte ────────────────────────────────────────────────────────────────────

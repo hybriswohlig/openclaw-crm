@@ -21,6 +21,7 @@ export function LeadsSpalte({
   schwebend,
   unterwegsId,
   laedt,
+  mehrGesperrt,
   klickErlaubt,
   onMehr,
   onZug,
@@ -35,6 +36,8 @@ export function LeadsSpalte({
   schwebend: Karte | null;
   unterwegsId: string | null;
   laedt: boolean;
+  /** Board lädt gerade neu: „Mehr laden“ aus, sonst passt der Cursor nicht. */
+  mehrGesperrt: boolean;
   klickErlaubt: () => boolean;
   onMehr: (stufeId: string) => void;
   onZug: (karte: Karte, nach: ZugSeite) => void;
@@ -88,7 +91,7 @@ export function LeadsSpalte({
           </div>
         ) : null}
         {spalte.weiter !== null ? (
-          <button type="button" className="leads-mehr" disabled={laedt} onClick={() => onMehr(spalte.stufeId)}>
+          <button type="button" className="leads-mehr" disabled={laedt || mehrGesperrt} onClick={() => onMehr(spalte.stufeId)}>
             {laedt ? "Lädt …" : `Mehr laden (${spalte.anzahl - spalte.karten.length} weitere)`}
           </button>
         ) : null}

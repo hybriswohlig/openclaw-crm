@@ -70,6 +70,8 @@ export function LeadsBoard({
   board,
   zug,
   nachladend,
+  mehrGesperrt,
+  onZiehen,
   onZug,
   onMehr,
   onEndstufen,
@@ -80,6 +82,10 @@ export function LeadsBoard({
   zug: Zug | null;
   /** Spalten, die gerade neu oder nachladen. */
   nachladend: ReadonlySet<string>;
+  /** Board lädt neu oder gehört zu einem alten Filter: „Mehr laden“ aus. */
+  mehrGesperrt: boolean;
+  /** Ziehen beginnt bzw. endet: die Seite pausiert so lange Takt und Antworten. */
+  onZiehen: (zieht: boolean) => void;
   onZug: (karte: Karte, von: ZugSeite, nach: ZugSeite) => void;
   onMehr: (stufeId: string) => void;
   onEndstufen: (zeigen: boolean) => void;
@@ -105,13 +111,17 @@ export function LeadsBoard({
 
   function zugStart(e: DragStartEvent) {
     const karte = (e.active.data.current as { karte?: Karte } | undefined)?.karte;
-    if (karte) setAktiv(karte);
+    if (karte) {
+      setAktiv(karte);
+      onZiehen(true);
+    }
   }
 
   function zugEnde(e: DragEndEvent) {
     letzterZug.current = Date.now();
     const karte = aktiv;
     setAktiv(null);
+    onZiehen(false);
     if (!karte || !e.over) return;
     const nach = spalteZu(e.over.id);
     const von = spalteZu(karte.spalteId);
@@ -122,6 +132,7 @@ export function LeadsBoard({
   function zugAbbruch() {
     letzterZug.current = Date.now();
     setAktiv(null);
+    onZiehen(false);
   }
 
   // Kartenmenü: derselbe Weg wie das Ziehen.
@@ -178,6 +189,7 @@ export function LeadsBoard({
             schwebend={zug && zug.nach.stufeId === s.stufeId ? zug.karte : null}
             unterwegsId={zug && zug.von.stufeId === s.stufeId ? zug.karte.id : null}
             laedt={nachladend.has(s.stufeId)}
+            mehrGesperrt={mehrGesperrt}
             klickErlaubt={klickErlaubt}
             onMehr={onMehr}
             onZug={menueZug}
