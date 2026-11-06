@@ -10,6 +10,7 @@ import type { Gespraech } from "@/services/gespraech";
 import { AblaufPanel } from "./ablauf-panel";
 import { AkteKopf } from "./akte-kopf";
 import { apiAufruf } from "./api";
+import { GespraechPanel } from "./gespraech-panel";
 import { Zahlenreihe } from "./zahlenreihe";
 
 /** Task 14 hängt hier die Dialoge „Zahlung erfassen“ und „Bewertung anfragen“ ein. */
@@ -109,9 +110,8 @@ export function AkteSeite({ dealId }: { dealId: string }) {
       />
       <Zahlenreihe kacheln={akte.kacheln} />
       <div className="akte-koerper">
-        {/* Task 13 setzt hier das Gespräch-Panel ein (zustand.gespraech, neuLaden). */}
         <section className="akte-gespraech" data-slot="gespraech" aria-label="Gespräch">
-          <SlotPanel titel="Gespräch" unter="Alle Kanäle in einem Verlauf." />
+          <GespraechPanel dealId={dealId} gespraech={zustand.gespraech} kundeName={akte.kopf.name} onNeuLaden={neuLaden} />
         </section>
         <aside className="akte-ablauf" data-slot="ablauf" aria-label="Ablauf">
           <AblaufPanel

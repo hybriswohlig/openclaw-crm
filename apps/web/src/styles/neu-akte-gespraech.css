@@ -1,0 +1,710 @@
+/*
+ * Gespräch-Panel der Umzugsakte (Plan 3, Task 13): Kopf mit Kanal-Chips und
+ * Ansichtswahl, Verlauf mit Tageskapseln, Blasen und Systemzeilen, Eingabefeld
+ * mit Kanalwahl, Entwurf-Karte, Fotos, Dokumente und Notizen. Maße aus
+ * design/neubau-2026-11-05/01-umzugsakte.html, Farben aus neu.css, Tinten aus
+ * neu-akte.css. Alles unter [data-neu] .akte-gespraech…, importiert vom
+ * Panel selbst (nicht vom Layout), damit es neben Task 12 keine Konflikte gibt.
+ *
+ * Nachrichten, Zeilen und Listen liegen auf --fill-3 (fast deckend); Glas nur
+ * auf dem Panel, der Ansichtswahl und den Pillen. Text mindestens 4,5:1: Meta
+ * und Platzhalter deshalb in --ink-2 statt --ink-3 wie im Mockup.
+ */
+
+[data-neu] .akte-gespraech {
+  --wa: #1faa5a;
+  --blue-tint: rgba(0, 103, 217, 0.1);
+  --blue-rim: rgba(0, 103, 217, 0.28);
+
+  /* Bezugsrahmen für das Dock aus Task 14 (unten mittig, wie im Mockup). */
+  position: relative;
+}
+
+/* Doppelte Klasse, damit die Regel unabhängig von der Reihenfolge der
+   Stylesheets über .akte-panel (padding: 0) und .akte-panel-kopf gewinnt. */
+[data-neu] .akte-panel.akte-gespraech-panel {
+  /* Platz unten für das Dock (Task 14); das Eingabefeld sitzt darüber. */
+  padding-bottom: 84px;
+}
+
+/* ── Kopf ────────────────────────────────────────────── */
+
+[data-neu] .akte-panel-kopf.akte-gespraech-kopf {
+  flex-wrap: wrap;
+  row-gap: 10px;
+}
+
+[data-neu] .akte-gespraech-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+[data-neu] .akte-gespraech-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+[data-neu] .akte-gespraech-punkt {
+  display: inline-block;
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-2);
+}
+
+[data-neu] .akte-gespraech-punkt[data-kanal="whatsapp"] {
+  background: var(--wa);
+}
+
+[data-neu] .akte-gespraech-punkt[data-kanal="email"] {
+  background: var(--blue);
+}
+
+[data-neu] .akte-gespraech-punkt[data-kanal="anruf"] {
+  background: var(--violet);
+}
+
+/* liquid.css macht das Segment 100 % breit mit gleichen Spalten; hier so breit
+   wie die Beschriftungen (wie .seg im Mockup). Die Anzeige misst das gewählte
+   Segment nach dem Einhängen, und das Panel hängt erst nach dem Laden ein. */
+[data-neu] .akte-gespraech-seg {
+  width: max-content;
+  max-width: 100%;
+  grid-auto-columns: max-content;
+  font-size: 13px;
+}
+
+[data-neu] .akte-gespraech-seg .lg-segmented-item {
+  padding: 6px 13px;
+  color: var(--ink-2);
+}
+
+[data-neu] .akte-gespraech-seg .lg-segmented-item[data-state="checked"] {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* ── Verlauf ─────────────────────────────────────────── */
+
+[data-neu] .akte-gespraech-verlauf,
+[data-neu] .akte-gespraech-ansicht {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 320px;
+  max-height: min(620px, calc(100dvh - 300px));
+  padding: 6px 18px 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+[data-neu] .akte-gespraech-leer {
+  margin: auto 0;
+  padding: 24px 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+[data-neu] .akte-gespraech-tag {
+  align-self: center;
+  margin: 4px 0;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  color: var(--ink-2);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+[data-neu] .akte-gespraech-nachricht {
+  max-width: 72%;
+  padding: 10px 13px;
+  border-radius: 18px;
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+[data-neu] .akte-gespraech-nachricht[data-richtung="ein"] {
+  align-self: flex-start;
+  border-bottom-left-radius: 6px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim), 0 1px 2px rgb(0 0 0 / 0.05);
+}
+
+/* Blaue Tönung über --fill-3, damit die Blase fast deckend bleibt. */
+[data-neu] .akte-gespraech-nachricht[data-richtung="aus"] {
+  align-self: flex-end;
+  border-bottom-right-radius: 6px;
+  background: linear-gradient(var(--blue-tint), var(--blue-tint)), var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--blue-rim);
+}
+
+[data-neu] .akte-gespraech-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+[data-neu] .akte-gespraech-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 6px;
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+
+[data-neu] .akte-gespraech-kanal {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+}
+
+[data-neu] .akte-gespraech-kanal .akte-gespraech-punkt {
+  width: 6px;
+  height: 6px;
+}
+
+[data-neu] .akte-gespraech-haken[data-status="read"] {
+  color: var(--blue-ink);
+}
+
+[data-neu] .akte-gespraech-haken[data-status="failed"] {
+  color: var(--rose-ink);
+}
+
+[data-neu] .akte-gespraech-marke {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgb(34 34 36 / 0.08);
+  color: var(--ink);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* Bildanhänge als Streifen 64 × 64. */
+[data-neu] .akte-gespraech-fotos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+[data-neu] .akte-gespraech-foto {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  overflow: hidden;
+  background: linear-gradient(135deg, #e7e9ed, #cfd3da);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+[data-neu] .akte-gespraech-foto img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+[data-neu] .akte-gespraech-foto:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+[data-neu] .akte-gespraech-dateien {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+[data-neu] .akte-gespraech-datei {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgb(34 34 36 / 0.06);
+  color: var(--blue-ink);
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-neu] .akte-gespraech-datei:hover {
+  text-decoration: underline;
+}
+
+[data-neu] .akte-gespraech-system {
+  align-self: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  padding: 7px 12px;
+  border-radius: 12px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  color: var(--ink-2);
+  font-size: 12px;
+  text-align: center;
+}
+
+[data-neu] .akte-gespraech-system b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+[data-neu] .akte-gespraech-system-zeile {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+}
+
+[data-neu] .akte-gespraech-anruf-text {
+  max-width: 480px;
+  color: var(--ink);
+  white-space: pre-wrap;
+}
+
+/* ── Fuß: Entwurf-Karte und Eingabefeld ──────────────── */
+
+[data-neu] .akte-gespraech-fuss {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px 18px 0;
+}
+
+[data-neu] .akte-gespraech-eingabe {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 8px;
+  border-radius: 24px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim), var(--shadow);
+}
+
+[data-neu] .akte-gespraech-eingabe[data-gesperrt] {
+  padding-left: 16px;
+}
+
+[data-neu] .akte-gespraech-kanalknopf {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+}
+
+[data-neu] .akte-gespraech-kanalknopf .akte-gespraech-punkt {
+  width: 10px;
+  height: 10px;
+}
+
+[data-neu] .akte-gespraech-kanalknopf:hover,
+[data-neu] .akte-gespraech-kanalknopf[data-state="open"] {
+  background: rgb(34 34 36 / 0.06);
+}
+
+[data-neu] .akte-gespraech-kanalknopf:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 1px;
+}
+
+[data-neu] .akte-gespraech-kanalknopf[data-fest] {
+  cursor: default;
+}
+
+[data-neu] .akte-gespraech-feld {
+  flex: 1;
+  min-width: 0;
+  max-height: 120px;
+  padding: 6px 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 1.4;
+  resize: none;
+  outline: none;
+}
+
+[data-neu] .akte-gespraech-feld::placeholder {
+  color: var(--ink-2);
+}
+
+[data-neu] .akte-gespraech-ki {
+  flex: none;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+[data-neu] .akte-gespraech-ki:hover:not(:disabled) {
+  background: rgb(34 34 36 / 0.06);
+  color: var(--ink);
+}
+
+[data-neu] .akte-gespraech-ki:disabled {
+  cursor: progress;
+}
+
+[data-neu] .akte-gespraech-ki:focus-visible,
+[data-neu] .akte-gespraech-senden:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+[data-neu] .akte-gespraech-senden {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--blue);
+  color: #ffffff;
+  cursor: pointer;
+}
+
+[data-neu] .akte-gespraech-senden:disabled {
+  background: rgb(34 34 36 / 0.1);
+  color: var(--ink-2);
+  cursor: default;
+}
+
+[data-neu] .akte-gespraech-senden[data-sendet] {
+  cursor: progress;
+}
+
+[data-neu] .akte-gespraech-senden svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+[data-neu] .akte-gespraech-gesperrt {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+[data-neu] .akte-gespraech-sprung {
+  color: var(--blue-ink);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+[data-neu] .akte-gespraech-sprung:hover {
+  text-decoration: underline;
+}
+
+[data-neu] .akte-gespraech-fehler,
+[data-neu] .akte-gespraech-hinweis {
+  margin: 0;
+  padding: 0 16px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+[data-neu] .akte-gespraech-fehler {
+  color: var(--rose-ink);
+}
+
+/* Kanalmenü (Radix-Portal in [data-neu], Glas aus liquid.css). */
+[data-neu] .akte-gespraech-menue {
+  min-width: 240px;
+}
+
+[data-neu] .akte-gespraech-menue-eintrag {
+  gap: 8px;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+
+[data-neu] .akte-gespraech-menue-eintrag[data-aktuell] {
+  font-weight: 600;
+}
+
+[data-neu] .akte-gespraech-menue-eintrag small {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+/* Entwurf-Karte über dem Eingabefeld. */
+[data-neu] .akte-gespraech-entwurf {
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim), var(--shadow);
+}
+
+[data-neu] .akte-gespraech-entwurf-kopf {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+[data-neu] .akte-gespraech-entwurf-warnung {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgb(232 150 12 / 0.16);
+  color: var(--gold-ink);
+  font-size: 11px;
+}
+
+[data-neu] .akte-gespraech-entwurf-text {
+  margin: 6px 0 10px;
+  font-size: 13.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+[data-neu] .akte-gespraech-entwurf-knoepfe {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+[data-neu] .akte-gespraech-entwurf .akte-gespraech-fehler {
+  margin-top: 8px;
+  padding: 0;
+}
+
+/* ── Fotos ───────────────────────────────────────────── */
+
+[data-neu] .akte-gespraech-raster {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+[data-neu] .akte-gespraech-raster .akte-gespraech-foto {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  border-radius: 14px;
+}
+
+[data-neu] .akte-gespraech-vollbild {
+  max-width: min(96vw, 1100px);
+  padding: 16px;
+}
+
+[data-neu] .akte-gespraech-vollbild img {
+  display: block;
+  max-width: 100%;
+  max-height: 78vh;
+  margin: 0 auto;
+  border-radius: 12px;
+}
+
+[data-neu] .akte-gespraech-vollbild-titel {
+  margin: 0 44px 10px 0;
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+[data-neu] .akte-gespraech-vollbild-meta {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+/* ── Dokumente und Notizen ───────────────────────────── */
+
+[data-neu] .akte-gespraech-liste {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+[data-neu] .akte-gespraech-zeile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  font-size: 13.5px;
+}
+
+[data-neu] .akte-gespraech-typ {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  min-width: 38px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgb(34 34 36 / 0.08);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+[data-neu] .akte-gespraech-zeile-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+[data-neu] .akte-gespraech-zeile-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+[data-neu] .akte-gespraech-zeile-meta {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+[data-neu] .akte-gespraech-oeffnen {
+  flex: none;
+  color: var(--blue-ink);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+[data-neu] .akte-gespraech-oeffnen:hover {
+  text-decoration: underline;
+}
+
+[data-neu] .akte-gespraech-notiz {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 4px;
+}
+
+[data-neu] .akte-gespraech-notiz-titel {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+[data-neu] .akte-gespraech-notiz-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+[data-neu] .akte-gespraech-notiz-neu {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 18px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim), var(--shadow);
+}
+
+[data-neu] .akte-gespraech-notiz-neu .akte-gespraech-feld {
+  min-height: 40px;
+  padding: 4px 4px;
+}
+
+[data-neu] .akte-gespraech-notiz-knoepfe {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ── Umbrüche ────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  [data-neu] .akte-gespraech-nachricht {
+    max-width: 88%;
+  }
+
+  [data-neu] .akte-gespraech-verlauf,
+  [data-neu] .akte-gespraech-ansicht {
+    max-height: min(560px, calc(100dvh - 240px));
+    padding: 6px 12px 12px;
+  }
+
+  [data-neu] .akte-gespraech-fuss {
+    padding: 8px 12px 0;
+  }
+
+  [data-neu] .akte-gespraech-chips {
+    margin-left: 0;
+  }
+
+  [data-neu] .akte-gespraech-raster {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

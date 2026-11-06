@@ -10,7 +10,7 @@ export type ApiAntwort<T> =
 
 interface Fehlerkoerper {
   data?: unknown;
-  error?: { code?: unknown; message?: unknown };
+  error?: string | { code?: unknown; message?: unknown };
 }
 
 export async function apiAufruf<T>(url: string, init?: RequestInit): Promise<ApiAntwort<T>> {
@@ -22,11 +22,13 @@ export async function apiAufruf<T>(url: string, init?: RequestInit): Promise<Api
   }
   const body = (await res.json().catch(() => null)) as Fehlerkoerper | null;
   if (res.ok) return { ok: true, data: body?.data as T };
-  const code = typeof body?.error?.code === "string" ? body.error.code : null;
+  // Einige ältere Routen (etwa das Senden) antworten mit `{ error: "Text" }`.
+  const fehler = body?.error;
+  const code = typeof fehler === "object" && fehler && typeof fehler.code === "string" ? fehler.code : null;
+  const text =
+    typeof fehler === "string" ? fehler : typeof fehler === "object" && fehler ? fehler.message : undefined;
   const message =
-    typeof body?.error?.message === "string" && body.error.message.trim() !== ""
-      ? body.error.message
-      : `Der Server hat mit Fehler ${res.status} geantwortet.`;
+    typeof text === "string" && text.trim() !== "" ? text : `Der Server hat mit Fehler ${res.status} geantwortet.`;
   return { ok: false, status: res.status, code, message };
 }
 
