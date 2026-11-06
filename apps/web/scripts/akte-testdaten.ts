@@ -13,25 +13,30 @@
  * E-Mail nur @example.com. Kanalzeilen ohne Zugangsdaten: Kanäle, Push und
  * Crons bleiben aus.
  *
- * Bricht ab, wenn DATABASE_URL nicht auf 127.0.0.1 oder localhost zeigt.
+ * Bricht ab, wenn die Authority von DATABASE_URL ein Komma oder mehr
+ * als ein @ enthält, oder wenn postgres.js einen Host sieht, der nicht
+ * 127.0.0.1 oder localhost ist.
  * Keine .env-Datei anlegen und keine Datei mit echten Zugangsdaten schreiben.
  * DATABASE_URL nur in der Shell setzen.
  *
- * Wegwerf-Datenbank im Scratchpad (Port 54331, nur TCP auf 127.0.0.1):
+ * Wegwerf-Datenbank im Scratchpad (Port 54331, nur TCP auf 127.0.0.1).
+ * initdb-Nutzer ist postgres, derselbe Name wie in DATABASE_URL:
  *
  *   initdb -D /private/tmp/claude-501/m1c-t10-pg --username=postgres --auth=trust
  *   pg_ctl -D /private/tmp/claude-501/m1c-t10-pg -l /tmp/m1c-t10-pg.log \
  *     -o "-p 54331 -k /tmp -c listen_addresses=127.0.0.1" start
  *   createdb -h 127.0.0.1 -p 54331 -U postgres akte_testdaten
  *
- * Schema aus apps/web (drizzle-kit liest DATABASE_URL aus der Shell; keine
- * .env mit echten Zugangsdaten im Worktree lassen):
+ * Schema aus apps/web. drizzle-kit push legt auf einer leeren Datenbank
+ * das ganze Schema an, einschließlich allem aus den Migrationen 0053 bis
+ * 0058. Nichts davon muss von Hand nachgezogen werden. drizzle-kit liest
+ * DATABASE_URL aus der Shell; keine .env mit echten Zugangsdaten im
+ * Worktree lassen:
  *
  *   cd apps/web
  *   DATABASE_URL=postgresql://postgres@127.0.0.1:54331/akte_testdaten \
  *     npx drizzle-kit push --force
  *
- * Was push nicht anlegt, aus den Migrationen 0053 bis 0058 von Hand nachziehen.
  * Danach dieses Skript:
  *
  *   cd apps/web
@@ -41,33 +46,73 @@
  * Sichtprüfung: `next dev` aus diesem Worktree, DATABASE_URL und
  * BETTER_AUTH_SECRET nur in der Shell. Anmeldung mit dem angelegten Nutzer
  * (siehe Konsolenausgabe). Kanäle, Push und Crons bleiben aus.
+ *
+ * Firma von (a) ist Kottke Testumzüge, damit der Nachfass-Schalter dort
+ * nicht beendet ist. (b) und (c) bleiben bei Beispiel Transporte (fremde
+ * Firma). (d) ist der verlorene Fall.
  */
+
+import postgres from "postgres";
 
 const EMAIL = "herr.testmann@example.com";
 const PASSWORD = "Testdaten-Lokal-1";
 const NAME = "Herr Testmann";
 
-function datenbankHost(): string {
-  const raw = process.env.DATABASE_URL;
-  if (!raw) {
-    console.error("Abbruch: DATABASE_URL fehlt. Nur eine lokale Wegwerf-Datenbank ist erlaubt.");
-    process.exit(1);
-  }
-  let host = "";
-  try {
-    host = new URL(raw).hostname;
-  } catch {
-    console.error("Abbruch: DATABASE_URL ist keine gültige URL.");
-    process.exit(1);
-  }
-  if (host !== "127.0.0.1" && host !== "localhost") {
-    console.error(`Abbruch: DATABASE_URL zeigt auf ${host}, nicht auf 127.0.0.1 oder localhost.`);
-    process.exit(1);
-  }
-  return host;
+function abbruch(meldung: string): never {
+  console.error(meldung);
+  process.exit(1);
 }
 
-datenbankHost();
+/** Teil zwischen "://" und dem ersten "/" oder "?". */
+function autoritaet(raw: string): string | null {
+  const marke = "://";
+  const start = raw.indexOf(marke);
+  if (start < 0) return null;
+  const rest = raw.slice(start + marke.length);
+  const ende = rest.search(/[/?]/);
+  return ende === -1 ? rest : rest.slice(0, ende);
+}
+
+function datenbankHosts(): string[] {
+  const raw = process.env.DATABASE_URL;
+  if (!raw) {
+    abbruch("Abbruch: DATABASE_URL fehlt. Nur eine lokale Wegwerf-Datenbank ist erlaubt.");
+  }
+  const teil = autoritaet(raw);
+  if (teil === null) {
+    abbruch("Abbruch: DATABASE_URL ist keine gültige URL.");
+  }
+  const atZeichen = teil.split("@").length - 1;
+  if (teil.includes(",") || atZeichen > 1) {
+    abbruch(
+      "Abbruch: DATABASE_URL nennt mehrere Hosts oder mehrere @. Nur 127.0.0.1 oder localhost ist erlaubt."
+    );
+  }
+
+  let client: postgres.Sql | undefined;
+  let hosts: string[] = [];
+  let ungueltig = false;
+  try {
+    client = postgres(raw);
+    hosts = client.options.host;
+  } catch {
+    ungueltig = true;
+  } finally {
+    if (client) void client.end({ timeout: 0 });
+  }
+  if (ungueltig) {
+    abbruch("Abbruch: DATABASE_URL ist keine gültige URL.");
+  }
+  const fremd = hosts.filter((host) => host !== "127.0.0.1" && host !== "localhost");
+  if (hosts.length === 0 || fremd.length > 0) {
+    abbruch(
+      `Abbruch: DATABASE_URL zeigt auf ${hosts.join(", ") || "keinen Host"}, nicht auf 127.0.0.1 oder localhost.`
+    );
+  }
+  return hosts;
+}
+
+datenbankHosts();
 
 const STUFEN: Record<string, { titel: string; kategorie: string; endstufe: boolean }> = {
   Inquiry: { titel: "Neue Anfrage", kategorie: "open_new", endstufe: false },
@@ -213,9 +258,9 @@ async function main(): Promise<void> {
 
   const firmaObjekt = await objektId("operating_companies");
   const dealObjekt = await objektId("deals");
-  const muster = await datensatz(firmaObjekt, {
-    name: "Muster Umzüge",
-    legal_name: "Muster Umzüge GmbH",
+  const kottke = await datensatz(firmaObjekt, {
+    name: "Kottke Testumzüge",
+    legal_name: "Kottke Testumzüge",
     phone: "+49 1550 000101",
     whatsapp: "+49 1550 000101",
     email: "muster@example.com",
@@ -248,7 +293,7 @@ async function main(): Promise<void> {
   const weber = await datensatz(dealObjekt, {
     name: "Familie Weber",
     stage: angebotStufe,
-    operating_company: muster,
+    operating_company: kottke,
     source_channel: quelleWhatsapp,
     zimmer: 3,
     move_date: "2026-11-20",
@@ -323,7 +368,7 @@ async function main(): Promise<void> {
     .insert(channelAccounts)
     .values({
       workspaceId: workspace.id,
-      operatingCompanyRecordId: muster,
+      operatingCompanyRecordId: kottke,
       channelType: "whatsapp",
       name: "Muster WhatsApp",
       address: "+491550000101",
@@ -337,7 +382,7 @@ async function main(): Promise<void> {
     .insert(channelAccounts)
     .values({
       workspaceId: workspace.id,
-      operatingCompanyRecordId: muster,
+      operatingCompanyRecordId: kottke,
       channelType: "email",
       name: "Muster Post",
       address: "anfragen@example.com",
@@ -517,7 +562,7 @@ async function main(): Promise<void> {
   const probe = await datensatz(dealObjekt, {
     name: "Herr Probe",
     stage: verlorenStufe,
-    operating_company: muster,
+    operating_company: kottke,
     source_channel: quelleWhatsapp,
     loss_reason: verlustZuTeuer,
     loss_reason_note: "Testdaten: Angebot zu teuer.",
@@ -535,7 +580,7 @@ async function main(): Promise<void> {
     userId,
     email: EMAIL,
     password: PASSWORD,
-    firmen: { muster, beispiel },
+    firmen: { kottke, beispiel },
     deals: {
       angebot: weber,
       anfrage,
