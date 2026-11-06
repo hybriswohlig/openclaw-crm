@@ -465,49 +465,124 @@ export async function updateRecord(
         const newVal = input[change.slug];
         const toValue = typeof newVal === "string" ? newVal : null;
         if (toValue === change.fromValue) continue;
-        await emitEvent({
+        await nachStatuswechsel({
           workspaceId: obj.workspaceId,
-          recordId,
+          objectId,
           objectSlug: obj.slug,
-          eventType: "deal.stage_changed",
-          payload: {
-            attributeSlug: change.slug,
-            fromStatusId: change.fromValue,
-            toStatusId: toValue,
-            ...(options?.activity ?? {}),
-          },
-          actorId: updatedBy,
+          recordId,
+          attributeSlug: change.slug,
+          fromStatusId: change.fromValue,
+          toStatusId: toValue,
+          updatedBy,
+          activity: options?.activity,
         });
-        // Durchgeführt, Stufe betreten und Wartet-Signal nur bei der Deal-Stufe:
-        // Personen und Firmen haben auch Status-Attribute, und Deals weitere
-        // (etwa review_request_status), die die Stufenzeit nicht zurücksetzen dürfen.
-        if (!istDealStufenwechsel(obj.slug, change.slug)) continue;
-        // Fehler hier darf den bereits geschriebenen Statuswechsel nicht zurückrollen.
-        // move_completed_at ist kein Status-Attribut, der innere updateRecord
-        // erzeugt also keine weiteren stage_changed-Ereignisse.
-        try {
-          await markiereDurchgefuehrt({
-            workspaceId: obj.workspaceId,
-            objectId,
-            objectSlug: obj.slug,
-            recordId,
-            toStatusId: toValue,
-            updatedBy,
-          });
-        } catch (err) {
-          console.error("[durchgefuehrt] move_completed_at setzen fehlgeschlagen:", err);
-        }
-        try {
-          await setzeStufeBetreten(recordId, new Date());
-          await aktualisiereWartet(obj.workspaceId, recordId);
-        } catch (err) {
-          console.error("[wartet] Stufenwechsel nachführen fehlgeschlagen:", err);
-        }
       }
     }
   }
 
   return getRecord(objectId, recordId);
+}
+
+/**
+ * Folgen eines geschriebenen Statuswechsels, wie `updateRecord` sie auslöst:
+ * Ereignis `deal.stage_changed`, bei der Deal-Stufe zusätzlich Durchgeführt
+ * (`move_completed_at`), Stufe betreten und Wartet. Der Aufrufer prüft, dass
+ * sich der Wert wirklich geändert hat.
+ */
+async function nachStatuswechsel(input: {
+  workspaceId: string;
+  objectId: string;
+  objectSlug: string;
+  recordId: string;
+  attributeSlug: string;
+  fromStatusId: string | null;
+  toStatusId: string | null;
+  updatedBy: string | null;
+  activity?: Record<string, unknown>;
+}): Promise<void> {
+  const { workspaceId, objectId, objectSlug, recordId, toStatusId, updatedBy } = input;
+  await emitEvent({
+    workspaceId,
+    recordId,
+    objectSlug,
+    eventType: "deal.stage_changed",
+    payload: {
+      attributeSlug: input.attributeSlug,
+      fromStatusId: input.fromStatusId,
+      toStatusId,
+      ...(input.activity ?? {}),
+    },
+    actorId: updatedBy,
+  });
+  // Durchgeführt, Stufe betreten und Wartet-Signal nur bei der Deal-Stufe:
+  // Personen und Firmen haben auch Status-Attribute, und Deals weitere
+  // (etwa review_request_status), die die Stufenzeit nicht zurücksetzen dürfen.
+  if (!istDealStufenwechsel(objectSlug, input.attributeSlug)) return;
+  // Fehler hier darf den bereits geschriebenen Statuswechsel nicht zurückrollen.
+  // move_completed_at ist kein Status-Attribut, der innere updateRecord
+  // erzeugt also keine weiteren stage_changed-Ereignisse.
+  try {
+    await markiereDurchgefuehrt({ workspaceId, objectId, objectSlug, recordId, toStatusId, updatedBy });
+  } catch (err) {
+    console.error("[durchgefuehrt] move_completed_at setzen fehlgeschlagen:", err);
+  }
+  try {
+    await setzeStufeBetreten(recordId, new Date());
+    await aktualisiereWartet(workspaceId, recordId);
+  } catch (err) {
+    console.error("[wartet] Stufenwechsel nachführen fehlgeschlagen:", err);
+  }
+}
+
+/**
+ * Bedingter Statuswechsel (compare-and-set): schreibt `nachStatusId` nur, wenn
+ * das Status-Attribut in diesem Moment noch `vonStatusId` hat, in einer
+ * Anweisung (`UPDATE … WHERE text_value = von RETURNING`). Hat ein anderer
+ * Schreiber die Stufe inzwischen geändert (etwa auf Verloren), findet die
+ * Anweisung keine Zeile oder wartet auf dessen Sperre und überspringt die
+ * gelöschte Zeile; nichts wird überschrieben. Nach dem Schreiben dieselben
+ * Folgen wie bei `updateRecord`. Der Aufrufer hat Objekt und Attribut im
+ * Workspace aufgelöst. Liefert false, wenn nichts geschrieben wurde.
+ */
+export async function statusWechselnWennNoch(input: {
+  workspaceId: string;
+  objectId: string;
+  objectSlug: string;
+  recordId: string;
+  attributeId: string;
+  attributeSlug: string;
+  vonStatusId: string;
+  nachStatusId: string;
+  updatedBy: string | null;
+}): Promise<boolean> {
+  if (input.vonStatusId === input.nachStatusId) return false;
+  const jetzt = new Date();
+  // Die Zeile bekommt Zeit und Autor wie eine neu geschriebene (updateRecord löscht und legt neu an).
+  const geschrieben = await db
+    .update(recordValues)
+    .set({ textValue: input.nachStatusId, createdAt: jetzt, createdBy: input.updatedBy })
+    .where(
+      and(
+        eq(recordValues.recordId, input.recordId),
+        eq(recordValues.attributeId, input.attributeId),
+        eq(recordValues.textValue, input.vonStatusId)
+      )
+    )
+    .returning({ id: recordValues.id });
+  if (geschrieben.length === 0) return false;
+
+  await db.update(records).set({ updatedAt: jetzt }).where(eq(records.id, input.recordId));
+  await nachStatuswechsel({
+    workspaceId: input.workspaceId,
+    objectId: input.objectId,
+    objectSlug: input.objectSlug,
+    recordId: input.recordId,
+    attributeSlug: input.attributeSlug,
+    fromStatusId: input.vonStatusId,
+    toStatusId: input.nachStatusId,
+    updatedBy: input.updatedBy,
+  });
+  return true;
 }
 
 /** Slug des Stufen-Attributs von Deals (standard-objects.ts). */

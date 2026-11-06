@@ -1,6 +1,8 @@
 /**
  * Nach einer Zahlung: von Durchgeführt auf Bezahlt, wenn eine Rechnung
  * existiert und der offene Rest 0 ist. Nie rückwärts, nie aus anderen Stufen.
+ * Geschrieben wird bedingt (`statusWechselnWennNoch`): hat jemand die Stufe
+ * seit dem Lesen geändert, etwa auf Verloren, bleibt sie so.
  */
 import { db } from "@/db";
 import { dealDocuments } from "@/db/schema/financial";
@@ -9,7 +11,7 @@ import { recordValues } from "@/db/schema/records";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { stufenKategorie } from "./lagekarte/status";
 import { offenerRest } from "./offener-rest";
-import { updateRecord } from "./records";
+import { statusWechselnWennNoch } from "./records";
 
 export async function nachZahlung(
   workspaceId: string,
@@ -36,6 +38,7 @@ export async function nachZahlung(
     .select({
       objectId: objects.id,
       attributeId: attributes.id,
+      statusId: statuses.id,
       kategorie: statuses.stageCategory,
       titel: statuses.title,
     })
@@ -60,6 +63,16 @@ export async function nachZahlung(
     .limit(1);
   if (!bezahlt) return { stufeGesetzt: false };
 
-  const geschrieben = await updateRecord(aktuell.objectId, dealRecordId, { stage: bezahlt.id }, userId);
-  return { stufeGesetzt: geschrieben != null };
+  const geschrieben = await statusWechselnWennNoch({
+    workspaceId,
+    objectId: aktuell.objectId,
+    objectSlug: "deals",
+    recordId: dealRecordId,
+    attributeId: aktuell.attributeId,
+    attributeSlug: "stage",
+    vonStatusId: aktuell.statusId,
+    nachStatusId: bezahlt.id,
+    updatedBy: userId,
+  });
+  return { stufeGesetzt: geschrieben };
 }
