@@ -26,7 +26,7 @@
  */
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
-import { berechneAblauf } from "@/lib/ablauf";
+import { berechneAblauf, type AblaufFakten } from "@/lib/ablauf";
 import {
   artAus,
   dockAus,
@@ -177,6 +177,18 @@ function adresseAus(v: unknown): unknown {
 }
 
 export async function ladeAkte(ws: string, deal: string, jetzt: Date = new Date()): Promise<AkteDaten> {
+  return (await ladeAkteMitFakten(ws, deal, jetzt)).akte;
+}
+
+/**
+ * Wie `ladeAkte`, dazu die Fakten des Ablaufs aus denselben Abfragen (für die
+ * Kurzfassung der Inbox, Plan 6: Leistung, KV-Version, Quelle).
+ */
+export async function ladeAkteMitFakten(
+  ws: string,
+  deal: string,
+  jetzt: Date = new Date()
+): Promise<{ akte: AkteDaten; fakten: AblaufFakten }> {
   const [grundlage, kopfRes, stufenRes, gruendeRes, entwurfRes, gespraeche, paketRes] = await Promise.all([
     ladeAblaufGrundlage(ws, deal),
     kopfLesen(ws, deal),
@@ -208,7 +220,7 @@ export async function ladeAkte(ws: string, deal: string, jetzt: Date = new Date(
   const zimmer = alsZahl(k.zimmer);
   const name = k.name?.trim();
 
-  return {
+  const akte: AkteDaten = {
     kopf: {
       name: name || "Ohne Namen",
       art: artAus(f.leistung, zimmer),
@@ -245,4 +257,5 @@ export async function ladeAkte(ws: string, deal: string, jetzt: Date = new Date(
       istStunden: f.kv?.istStunden === true,
     }),
   };
+  return { akte, fakten: f };
 }
