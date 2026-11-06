@@ -571,6 +571,17 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
       );
       return leistungNachAussen(q);
     }
+    case "crm_get_calculation": {
+      // Version suffix stays outside the path literal so casePaths reads
+      // /api/v1/deals/{}/calculation/versions in both servers.
+      const base = `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/calculation/versions`;
+      const version = args.version;
+      const path =
+        version === undefined || version === null || version === ""
+          ? base
+          : base + "/" + encodeURIComponent(str(version));
+      return client.request(path);
+    }
     case "crm_list_deal_payments":
       return client.request(
         `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/payments`
@@ -665,9 +676,51 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
       ]) {
         if (args[key] !== undefined) body[key] = args[key];
       }
-      return client.request(
+      const data = await client.request(
         `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/quotation`,
         { method: "PUT", body }
+      );
+      console.warn("[mcp] crm_update_deal_quotation", {
+        recordId: str(args.recordId),
+      });
+      const warning =
+        "crm_update_deal_quotation ist veraltet: Angebot ohne Kalkulationsversion geschrieben.";
+      if (data && typeof data === "object" && !Array.isArray(data)) {
+        return { warning, ...(data as Record<string, unknown>) };
+      }
+      return { warning, data };
+    }
+    case "crm_override_calculation": {
+      const body: Record<string, unknown> = {
+        art: args.art,
+        key: str(args.key),
+        wert: asBody(args.wert),
+        grund: str(args.grund),
+      };
+      if (args.fotoRef !== undefined && args.fotoRef !== null && args.fotoRef !== "") {
+        body.fotoRef = str(args.fotoRef);
+      }
+      return client.request(
+        `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/calculation/versions/${encodeURIComponent(str(args.version))}/overrides`,
+        { method: "POST", body }
+      );
+    }
+    case "crm_lock_calculation_version": {
+      const body: Record<string, unknown> = {};
+      if (args.bestaetigtSpanne !== undefined) {
+        body.bestaetigtSpanne = bool(args.bestaetigtSpanne);
+      }
+      return client.request(
+        `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/calculation/versions/${encodeURIComponent(str(args.version))}/lock`,
+        { method: "POST", body }
+      );
+    }
+    case "crm_render_kv_from_version": {
+      const body: Record<string, unknown> = {};
+      if (args.copy !== undefined) body.copy = asBody(args.copy);
+      return client.request(
+        `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/calculation/versions/${encodeURIComponent(str(args.version))}/kv`,
+        { method: "POST", body }
       );
     }
     case "crm_set_deal_anzahlung": {

@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import type { Auftragsart } from "@/lib/auftragsart";
 import type { InventoryOwner } from "@/services/inventory-owner";
 import type { LeadQuelle, Marke } from "./quelle";
+import { zugangAusTitel } from "./zugang";
 
 export interface LeadDaten {
   /** Adresse als Text (formatLocation), auch reine Ortsangaben wie "71032 Böblingen" */
@@ -48,30 +49,14 @@ export interface LeadDaten {
     /** Omitted or none on both sides leaves the calculator request unchanged. */
     abbau?: InventoryOwner;
     aufbau?: InventoryOwner;
+    /** Herkunft der Inventarzeile; nur fürs CRM, geht nicht an den Rechner. */
+    quelle?: "chat" | "foto" | "operator";
   }>;
 }
 
 export type RechnerAnfrage = Record<string, string | Array<Record<string, unknown>>>;
 
 const GROESSENKLASSEN = new Set(["klein", "mittel", "gross", "sperrig"]);
-
-/**
- * Zuordnung der CRM-Zugangsoptionen zum Rechner. "Aufzug" ohne Größe gilt als
- * kleiner Aufzug: große Möbel gehen dann über die Treppe (vorsichtige Annahme).
- */
-function zugang(titel: string | null): { aufzug?: "keiner" | "klein" | "gross"; etage?: number } {
-  switch ((titel ?? "").trim().toLowerCase()) {
-    case "aufzug":
-      return { aufzug: "klein" };
-    case "treppe":
-      return { aufzug: "keiner" };
-    case "erdgeschoss":
-    case "nicht nötig (einfamilienhaus)":
-      return { aufzug: "keiner", etage: 0 };
-    default:
-      return {};
-  }
-}
 
 const TREPPENHAUS: Record<string, "normal" | "eng" | "wendel"> = { normal: "normal", eng: "eng", wendeltreppe: "wendel" };
 
@@ -85,7 +70,7 @@ export function rechnerAnfrageAus(lead: LeadDaten, opts: { heute?: string } = {}
     ["von", lead.von, lead.etageVon, lead.zugangVon, lead.tragestreckeVonM, lead.treppenhausVon],
     ["nach", lead.nach, lead.etageNach, lead.zugangNach, lead.tragestreckeNachM, lead.treppenhausNach],
   ] as const) {
-    const z = zugang(zugangTitel);
+    const z = zugangAusTitel(zugangTitel);
     setze(`${seite}_adresse`, adresse);
     setze(`${seite}_etage`, etage ?? z.etage);
     setze(`${seite}_aufzug`, z.aufzug);
@@ -100,7 +85,8 @@ export function rechnerAnfrageAus(lead: LeadDaten, opts: { heute?: string } = {}
   setze("marke", lead.marke);
   setze("quelle", lead.quelle);
   setze("auftragsart", lead.auftragsart);
-  // heute gehört in die Anfrage, damit sich der Hash täglich ändert und die Eilregel nicht veraltet.
+  // heute gehört in die Anfrage (Eilregel, Wochentag). Der Hash ignoriert es; dass täglich
+  // neu gerechnet wird, regelt ensureDealCalculation über den Vergleich von request.heute.
   setze("heute", opts.heute);
   setze("wohnflaeche_qm", lead.wohnflaecheQm);
   setze("zimmer", lead.zimmer);
@@ -145,7 +131,12 @@ function stabil(wert: unknown): unknown {
   return wert;
 }
 
-/** Fingerabdruck der Anfrage: gleiche Eingabe = gleicher Hash, unabhängig von der Feldreihenfolge. */
+/**
+ * Fingerabdruck der Anfrage: gleiche Eingabe = gleicher Hash, unabhängig von der
+ * Feldreihenfolge. `heute` zählt nicht mit: eine Version mit festem Datum soll
+ * am nächsten Tag denselben Fingerabdruck haben.
+ */
 export function eingabeHash(anfrage: RechnerAnfrage): string {
-  return createHash("sha256").update(JSON.stringify(stabil(anfrage))).digest("hex");
+  const { heute: _heute, ...ohneHeute } = anfrage;
+  return createHash("sha256").update(JSON.stringify(stabil(ohneHeute))).digest("hex");
 }

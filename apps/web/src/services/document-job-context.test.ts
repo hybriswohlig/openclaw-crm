@@ -1,5 +1,31 @@
-import { describe, expect, it } from "vitest";
-import { preiseFromQuotation } from "./document-job-context";
+import { describe, expect, it, vi } from "vitest";
+
+const jobMocks = vi.hoisted(() => ({ getQuotation: vi.fn() }));
+
+// Kette für attachDocumentJobContext: der Deal gehört zum Workspace, sonst leere Ergebnisse.
+vi.mock("@/db", async () => {
+  const { records } = await import("@/db/schema/records");
+  const kette = (ergebnis: () => unknown[]): unknown => {
+    let tabelle: unknown = null;
+    const k: Record<string, unknown> = {};
+    for (const f of ["from", "innerJoin", "where", "limit", "orderBy", "set"]) {
+      k[f] = (t: unknown) => {
+        if (f === "from") tabelle = t;
+        return k;
+      };
+    }
+    k.then = (ok: (v: unknown) => unknown, fehler: (e: unknown) => unknown) =>
+      Promise.resolve(tabelle === records ? [{ id: "deal_1" }] : ergebnis()).then(ok, fehler);
+    return k;
+  };
+  return { db: { select: () => kette(() => []), update: () => kette(() => []) } };
+});
+vi.mock("@/services/quotations", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/services/quotations")>()),
+  getQuotation: jobMocks.getQuotation,
+}));
+
+import { attachDocumentJobContext, preiseFromQuotation } from "./document-job-context";
 import { festpreisAlsPauschale } from "@/lib/festpreis-posten";
 import { angebotsUebernahme } from "./rechner/uebernahme";
 import type { RechnerErgebnis } from "./rechner/client";
@@ -159,5 +185,19 @@ describe("Hinweis „Pauschale“ im KV-Fenster und KV", () => {
   it.each(faelle)("$fall", ({ q, pauschale }) => {
     expect(druecktPauschale(q)).toBe(pauschale);
     expect(festpreisAlsPauschale(q)).toBe(pauschale);
+  });
+});
+
+describe("attachDocumentJobContext: Kalkulationsversion für den VPS-Weg (Review 4)", () => {
+  const quotation = (calculationVersionId: string | null) => ({
+    id: "q1", isVariable: false, fixedPrice: "1720.00", lineItems: kernUndHebel, documentDetails: null,
+    serviceType: "move", validUntil: null, depositRequiredCents: null, paymentMethodPreference: null, calculationVersionId,
+  });
+
+  it("schickt dem VPS keine Kalkulationsversion, auch nicht aus dem Browser", async () => {
+    jobMocks.getQuotation.mockResolvedValue(quotation("ver_2"));
+    const p = await attachDocumentJobContext("ws_1", { _deal_record_id: "deal_1", document_type: "KV", firma: "kottke", _calculation_version_id: "ver_9" });
+    expect(p).not.toHaveProperty("_calculation_version_id");
+    expect(p.preise).toMatchObject({ modell: "pauschale" });
   });
 });

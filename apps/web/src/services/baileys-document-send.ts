@@ -17,6 +17,7 @@ import {
   sendBaileysReply,
 } from "@/services/inbox-whatsapp";
 import { createDealForNewConversation } from "@/services/inbox";
+import { vermerkeVersand } from "@/services/versand-vermerk";
 import {
   WhatsAppDocumentInputError,
   captionForDocument,
@@ -34,6 +35,9 @@ export interface ResolvedWhatsAppDocument {
   mimeType: string;
   bytes: Buffer;
   sha256: string;
+  /** Set for stored deal documents; inline uploads have none. */
+  dealDocumentId?: string;
+  documentType?: string;
 }
 
 export interface DocumentSendOutcome {
@@ -120,6 +124,7 @@ export async function resolveWhatsAppDocuments(opts: {
         mimeType: dealDocuments.mimeType,
         fileSize: dealDocuments.fileSize,
         fileContent: dealDocuments.fileContent,
+        documentType: dealDocuments.documentType,
       })
       .from(dealDocuments)
       .where(
@@ -147,6 +152,8 @@ export async function resolveWhatsAppDocuments(opts: {
       mimeType: doc.mimeType || "application/pdf",
       bytes,
       sha256: documentSha256(bytes),
+      dealDocumentId: attachment.dealDocumentId,
+      documentType: doc.documentType,
     });
   }
   return out;
@@ -209,7 +216,17 @@ async function deliverDocuments(opts: {
       return { row, created: true };
     });
     if (outcome.row) sent.push(outcome.row);
-    if (outcome.created) sentNew += 1;
+    if (outcome.created) {
+      sentNew += 1;
+      // The bridge accepted this KV: note it on its calculation version (first send wins).
+      if (doc.dealDocumentId && doc.documentType === "quotation") {
+        try {
+          await vermerkeVersand(doc.dealDocumentId, "whatsapp");
+        } catch {
+          // vermerkeVersand never throws; guarded twice because the document is already out.
+        }
+      }
+    }
   }
 
   const sendText =

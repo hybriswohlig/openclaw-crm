@@ -45,6 +45,8 @@ export interface InventarRohzeile {
   moveFlag: boolean;
   dismantlingOwner?: InventoryOwner | null;
   assemblyOwner?: InventoryOwner | null;
+  /** Herkunft (inventory_source): chat, foto oder operator */
+  source?: "chat" | "foto" | "operator" | null;
 }
 
 function besitzer(wert: unknown): InventoryOwner {
@@ -64,6 +66,7 @@ export function inventarAusZeilen(zeilen: readonly InventarRohzeile[]): LeadDate
       mitnehmen: z.moveFlag,
       abbau: besitzer(z.dismantlingOwner),
       aufbau: besitzer(z.assemblyOwner),
+      ...(z.source ? { quelle: z.source } : {}),
     };
   });
 }

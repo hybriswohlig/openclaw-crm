@@ -3,7 +3,7 @@
  * Angebotsrechner nur, wenn sich die Eingabe geändert hat, und speichert das
  * Ergebnis (eine Zeile je Lead in deal_calculations).
  *
- * - Gleiche Eingabe wie zuletzt erfolgreich gerechnet → "unveraendert" (kein Aufruf).
+ * - Gleiche Eingabe und gleicher Tag (`heute`) wie zuletzt erfolgreich gerechnet → "unveraendert" (kein Aufruf).
  * - Letzte Rechnung jünger als DROSSEL_MS → "gedrosselt" (schont Google-Kontingent), außer mit force.
  * - Rechnerfehler → Fehler gespeichert, das letzte gute Ergebnis bleibt sichtbar.
  * - Parallele Aufrufe für denselben Lead teilen sich im Prozess eine laufende Rechnung.
@@ -88,12 +88,15 @@ async function rechne(
   const lead = await ladeLead(workspaceId, dealRecordId);
   if (!lead) return { status: "fehler", kalkulation: null };
 
-  const anfrage = rechnerAnfrageAus(lead, { heute: heuteBerlin() });
+  // heute aus der eingespielten Uhr, nicht aus der Systemzeit.
+  const anfrage = rechnerAnfrageAus(lead, { heute: heuteBerlin(jetzt()) });
   const hash = eingabeHash(anfrage);
   const vorher = await speicher.lesen(dealRecordId);
 
   if (!opts.force && vorher) {
-    if (vorher.inputHash === hash && vorher.error === null) return { status: "unveraendert", kalkulation: vorher };
+    // Der Hash ignoriert heute; ein neuer Tag zählt trotzdem als Änderung, damit die Eilregel aktuell bleibt.
+    const gleicherTag = vorher.request?.heute === anfrage.heute;
+    if (vorher.inputHash === hash && gleicherTag && vorher.error === null) return { status: "unveraendert", kalkulation: vorher };
     if (jetzt().getTime() - vorher.computedAt.getTime() < DROSSEL_MS) return { status: "gedrosselt", kalkulation: vorher };
   }
 

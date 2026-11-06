@@ -183,3 +183,77 @@ describe("kvBausteine: Cent-genau und ohne unsinnige Sätze (Review Codex 2026-1
     }
   });
 });
+
+describe("kvBausteine: Zeilen per Schlüssel (Rechner-Vertrag), Text als Rückfall", () => {
+  const montageErgebnis = (posten: Array<Record<string, unknown>>, kostenPosten: Array<Record<string, unknown>> = []) => ({
+    preis: { festpreis: 2000, posten: posten as never },
+    kosten: { selbstkosten: 1000, posten: kostenPosten as never },
+    zeiten: { demontage: 60, montage: 60, packen: 0 },
+    team: { groesse: 3 },
+    positionen: [{ name: "Schrank", menge: 1, volumenCbm: 2, zerlegt: true }],
+  });
+  const montageHebel = (k: ReturnType<typeof kvBausteine>) => k.posten.find((p) => p.description.startsWith("Demontage"))!.unitRate;
+
+  it("Arbeitssatz per key verkauf.arbeitsstunden, auch wenn der Text nicht mehr passt", () => {
+    const k = kvBausteine({
+      festpreis: 2000, anfrage: {},
+      ergebnis: montageErgebnis([{ bezeichnung: "Arbeitszeit", key: "verkauf.arbeitsstunden", menge: 10, einheit: "Std", satz: 52, betrag: 520 }]),
+    });
+    expect(montageHebel(k)).toBe(110); // 2 h × 52 € = 104 → auf 10 aufgerundet
+  });
+
+  it("ohne key greift weiter die Text-Regex", () => {
+    const mitText = kvBausteine({
+      festpreis: 2000, anfrage: {},
+      ergebnis: montageErgebnis([{ bezeichnung: "Arbeitsstunden (ohne Küche)", menge: 10, einheit: "Std", satz: 52, betrag: 520 }]),
+    });
+    expect(montageHebel(mitText)).toBe(110);
+    const ohneTreffer = kvBausteine({
+      festpreis: 2000, anfrage: {},
+      ergebnis: montageErgebnis([{ bezeichnung: "Arbeitszeit", menge: 10, einheit: "Std", satz: 52, betrag: 520 }]),
+    });
+    expect(montageHebel(ohneTreffer)).toBe(70); // Standard 35 €/h
+  });
+
+  it("Halteverbot-Satz (Preis und Kosten) und Personalsatz per key", () => {
+    const k = kvBausteine({
+      festpreis: 2000,
+      anfrage: { von_adresse: "Lerchenstraße 78, 70176 Stuttgart", von_halteverbot: "on" },
+      ergebnis: montageErgebnis(
+        [{ bezeichnung: "Zone", key: "verkauf.halteverbot", menge: 1, einheit: "Stück", satz: 180, betrag: 180 }],
+        [
+          { bezeichnung: "Zonenkosten", key: "halteverbot", menge: 1, einheit: "Stück", satz: 90, betrag: 90 },
+          { bezeichnung: "Personal Fahrt (Fahrzeit, Puffer)", key: "personal.fahrt", menge: 3, einheit: "Std", satz: 15, betrag: 45 },
+          { bezeichnung: "Personal Arbeit (Arbeit, Fahrzeugübergabe, Puffer)", key: "personal.arbeit", menge: 10, einheit: "Std", satz: 20, betrag: 200 },
+        ]
+      ),
+      optionen: { ohneHalteverbot: true, ohneMontage: true },
+    });
+    expect(k.abzug).toBe(180 + 70);
+    // 1 Zone × 90 € + 2 h Montage × 20 €/h (personal.arbeit, nicht die erste Personal-Zeile)
+    expect(k.entfalleneKosten).toBe(130);
+  });
+
+  it("alter Rechner: eine Zeile personal ohne Teilung wird per key gefunden", () => {
+    const k = kvBausteine({
+      festpreis: 2000, anfrage: {},
+      ergebnis: montageErgebnis([], [{ bezeichnung: "Lohn", key: "personal", menge: 10, einheit: "Std", satz: 25, betrag: 250 }]),
+      optionen: { ohneMontage: true },
+    });
+    expect(k.entfalleneKosten).toBe(50);
+  });
+});
+
+describe("kvBausteine Küche per Schlüssel", () => {
+  it("findet die Küchenzeile über verkauf.kueche, auch mit anderer Bezeichnung", () => {
+    const mitKueche = {
+      ...ergebnis,
+      preis: {
+        ...ergebnis.preis,
+        posten: [...ergebnis.preis.posten, { key: "verkauf.kueche", bezeichnung: "Küche", menge: 3, einheit: "m", satz: null, betrag: 420 }],
+      },
+    };
+    const k = kvBausteine({ festpreis: 2300, ergebnis: mitKueche, anfrage });
+    expect(k.hebel.map((h) => h.art)).toContain("kueche");
+  });
+});

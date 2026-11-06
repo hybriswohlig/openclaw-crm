@@ -8,7 +8,7 @@
  * server in apps/mcp/src/server-info.ts on the same literal.
  */
 export const MCP_SERVER_NAME = "openclaw-crm";
-export const MCP_SERVER_VERSION = "0.2.0";
+export const MCP_SERVER_VERSION = "0.3.0";
 
 /** Fresh tools/list must not be stored by Next, Vercel, or a shared cache. */
 export const MCP_CACHE_CONTROL =

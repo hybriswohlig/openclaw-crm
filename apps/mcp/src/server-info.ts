@@ -3,4 +3,4 @@
  * Clients cache tools/list against this version.
  */
 export const MCP_SERVER_NAME = "openclaw-crm";
-export const MCP_SERVER_VERSION = "0.2.0";
+export const MCP_SERVER_VERSION = "0.3.0";

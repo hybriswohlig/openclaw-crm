@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { LeadDaten } from "./eingabe";
+import { eingabeHash, rechnerAnfrageAus, type LeadDaten } from "./eingabe";
 import type { RechnerAntwort } from "./client";
 import { aktuelleKalkulation, ensureDealCalculation, type KalkulationsSpeicher, type KalkulationsZeile } from "./kalkulation";
 
@@ -124,6 +124,42 @@ describe("ensureDealCalculation", () => {
     const start = new Date("2026-10-01T08:00:00Z");
     await ensureDealCalculation("ws", "deal1", { ...t.deps, rechner: async () => { t.spaeter(30); return { ok: true, ergebnis: {} }; } });
     expect(t.zeilen.get("deal1")!.computedAt).toEqual(start);
+  });
+});
+
+describe("ensureDealCalculation: heute als Änderung (Hash ohne heute)", () => {
+  function mitGespeicherterZeile(uhr: string) {
+    const t = aufbau(new Date(uhr));
+    const anfrage = { ...rechnerAnfrageAus(lead(3), { heute: "2026-11-04" }) };
+    t.zeilen.set("deal1", {
+      dealRecordId: "deal1", workspaceId: "ws", inputHash: eingabeHash(anfrage), request: anfrage,
+      result: { preis: { festpreis: 900 } }, error: null,
+      // zwei Minuten vor der Uhr, sonst antwortet die 60-s-Drossel zuerst
+      computedAt: new Date(new Date(uhr).getTime() - 2 * 60_000),
+    });
+    return t;
+  }
+
+  it("gleicher Hash, aber neuer Tag: Rechner wird gerufen", async () => {
+    const t = mitGespeicherterZeile("2026-11-05T09:00:00Z");
+    const r = await ensureDealCalculation("ws", "deal1", t.deps);
+    expect(r.status).toBe("neu");
+    expect(t.aufrufe).toBe(1);
+    expect(t.zeilen.get("deal1")!.request.heute).toBe("2026-11-05");
+  });
+
+  it("gleicher Hash und gleicher Tag: unverändert", async () => {
+    const t = mitGespeicherterZeile("2026-11-04T09:00:00Z");
+    const r = await ensureDealCalculation("ws", "deal1", t.deps);
+    expect(r.status).toBe("unveraendert");
+    expect(t.aufrufe).toBe(0);
+  });
+
+  it("heute folgt der eingespielten Uhr (Berliner Datum)", async () => {
+    // 23:30 UTC am 04.11. ist in Berlin schon der 05.11.
+    const t = aufbau(new Date("2026-11-04T23:30:00Z"));
+    await ensureDealCalculation("ws", "deal1", t.deps);
+    expect(t.zeilen.get("deal1")!.request.heute).toBe("2026-11-05");
   });
 });
 

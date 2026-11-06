@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-const mock = vi.hoisted(() => ({ context: vi.fn(), document: vi.fn(), resolve: vi.fn(), send: vi.fn(), select: vi.fn(), insert: vi.fn(), update: vi.fn() }));
+const mock = vi.hoisted(() => ({ context: vi.fn(), document: vi.fn(), resolve: vi.fn(), send: vi.fn(), select: vi.fn(), insert: vi.fn(), update: vi.fn(), vermerk: vi.fn() }));
 vi.mock("@/db", () => ({ db: { select: mock.select, insert: mock.insert, update: mock.update } }));
 vi.mock("./customer-portal-data", () => ({ loadContextByToken: mock.context, getScopedDocument: mock.document }));
 vi.mock("./customer-portal-emails", () => ({ resolveCustomerEmailTransport: mock.resolve }));
 vi.mock("./inbox-email", () => ({ sendNewEmail: mock.send }));
+vi.mock("./versand-vermerk", () => ({ vermerkeVersand: mock.vermerk }));
 import { sendPortalDocumentEmail } from "./customer-portal-document-email";
 
 const token = "test-token";
@@ -21,6 +22,7 @@ beforeEach(() => {
   updateWhere.mockResolvedValue(undefined);
   mock.update.mockReturnValue({ set: () => ({ where: updateWhere }) });
   mock.send.mockResolvedValue({ conversationId: "conversation" });
+  mock.vermerk.mockResolvedValue(undefined);
 });
 
 describe("portal document delivery", () => {
@@ -65,5 +67,24 @@ describe("portal document delivery", () => {
     updateWhere.mockRejectedValue(new Error("database unavailable"));
     expect(await sendPortalDocumentEmail(token, "quote")).toEqual({ ok: true });
     expect(mock.send).toHaveBeenCalledTimes(1);
+  });
+  it("vermerkt den Versand des KV an seiner Kalkulationsversion erst nach Annahme durch den Provider", async () => {
+    expect(await sendPortalDocumentEmail(token, "quote")).toEqual({ ok: true });
+    expect(mock.vermerk).toHaveBeenCalledWith("quote", "email");
+    expect(mock.send.mock.invocationCallOrder[0]).toBeLessThan(mock.vermerk.mock.invocationCallOrder[0]);
+  });
+  it("vermerkt nichts, wenn der Versand scheitert", async () => {
+    mock.send.mockRejectedValue(new Error("smtp down"));
+    expect(await sendPortalDocumentEmail(token, "quote")).toEqual({ ok: false, reason: "send_failed" });
+    expect(mock.vermerk).not.toHaveBeenCalled();
+  });
+  it("vermerkt nur Kostenvoranschläge, keine Rechnung", async () => {
+    mock.context.mockResolvedValue({ ...structuredClone(ctx), documents: { quotationUrl: null, orderConfirmationUrl: null, invoiceUrl: `/api/public/${token}/documents/inv` } });
+    expect(await sendPortalDocumentEmail(token, "inv")).toEqual({ ok: true });
+    expect(mock.vermerk).not.toHaveBeenCalled();
+  });
+  it("ein Fehler beim Vermerk ändert das Ergebnis nicht", async () => {
+    mock.vermerk.mockRejectedValue(new Error("db down"));
+    expect(await sendPortalDocumentEmail(token, "quote")).toEqual({ ok: true });
   });
 });

@@ -27,6 +27,8 @@ export * from "./agent";
 export * from "./nachfass";
 export * from "./inventory";
 export * from "./deal-calculations";
+export * from "./deal-calculation-versions";
+export * from "./company-settings";
 export * from "./deal-internal-photos";
 export * from "./calendar-feeds";
 export * from "./deal-enrichment";

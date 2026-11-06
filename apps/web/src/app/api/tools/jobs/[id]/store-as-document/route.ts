@@ -87,6 +87,9 @@ export async function POST(
   }
 
   // 2) Insert directly. No self-HTTP upload of the PDF.
+  // Ohne Kalkulationsversion: /jobs/{id}/result liefert nur die PDF-Bytes. Welche
+  // Version der VPS gerendert hat, ist hier unbekannt; die Quotation von jetzt kann
+  // schon eine spätere sein.
   const uploaded = await createDealDocument({
     workspaceId: ctx.workspaceId,
     dealRecordId: body.dealRecordId,
@@ -95,6 +98,7 @@ export async function POST(
     fileSize: bytes.length,
     mimeType: contentType || "application/pdf",
     fileContent: bytes.toString("base64"),
+    calculationVersionId: null,
   });
 
   // 3) On invoices: stamp the existing deal attribute "Rechnung fällig am"

@@ -9,8 +9,10 @@
 // the MCP client can only send JSON. The size rules for that body live in
 // lib/deal-document-upload.ts (3 MB decoded, under the platform limit).
 
+import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { dealDocuments } from "@/db/schema/financial";
+import { quotations } from "@/db/schema/quotations";
 import {
   shouldNotifyDealDocument,
   validateDealDocumentUpload,
@@ -75,6 +77,19 @@ const META_COLUMNS = {
   uploadedAt: dealDocuments.uploadedAt,
 };
 
+/**
+ * Gesperrte Kalkulationsversion, auf die die Quotation des Deals zeigt
+ * (`quotations.calculation_version_id`); null ohne Quotation oder ohne Version.
+ */
+export async function angebotsVersionId(dealRecordId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ calculationVersionId: quotations.calculationVersionId })
+    .from(quotations)
+    .where(eq(quotations.dealRecordId, dealRecordId))
+    .limit(1);
+  return row?.calculationVersionId ?? null;
+}
+
 export async function createDealDocument(input: {
   workspaceId: string;
   dealRecordId: string;
@@ -88,9 +103,17 @@ export async function createDealDocument(input: {
    * Omit it to keep the staff-upload and render-job behaviour.
    */
   notifyCustomer?: boolean;
+  /**
+   * Kalkulationsversion, aus der dieser KV gerendert wurde: nur der Renderer kennt sie
+   * (Quotation zum Zeitpunkt des Renderns). Fehlt sie, bleibt das Dokument ohne Version,
+   * auch beim Hochladen; hier wird nie nachgeschlagen, denn bis zum Speichern kann eine
+   * andere Version gesperrt worden sein. Andere Typen: immer null.
+   */
+  calculationVersionId?: string | null;
 }): Promise<DealDocumentMeta> {
   const check = validateDealDocumentUpload(input);
   if (!check.ok) throw new Error(check.error);
+  const calculationVersionId = check.documentType === "quotation" ? input.calculationVersionId ?? null : null;
 
   const [doc] = await db
     .insert(dealDocuments)
@@ -102,6 +125,7 @@ export async function createDealDocument(input: {
       fileSize: input.fileSize,
       mimeType: input.mimeType || "application/octet-stream",
       fileContent: input.fileContent,
+      calculationVersionId,
     })
     .returning(META_COLUMNS);
 

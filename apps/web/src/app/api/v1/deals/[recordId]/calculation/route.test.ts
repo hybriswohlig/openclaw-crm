@@ -4,31 +4,42 @@ import { NextRequest } from "next/server";
 const mocks = vi.hoisted(() => ({
   getAuthContext: vi.fn(),
   ensureDealCalculation: vi.fn(),
-  aktuelleKalkulation: vi.fn(),
   hatPaketoptionen: vi.fn(),
-  getQuotation: vi.fn(),
-  upsertQuotation: vi.fn(),
-  ensureCustomerStatusLink: vi.fn(),
-  captureScopeSnapshot: vi.fn(),
-  completeAgentPriceTasks: vi.fn(),
   lesen: vi.fn(),
+  entwurfHolenOderAnlegen: vi.fn(),
+  uebersteuern: vi.fn(),
+  sperren: vi.fn(),
+  kartenAbweichung: vi.fn(),
 }));
 
+// Kein Zugriff auf die Datenbank: jeder Zugriff auf `db` lässt den Test scheitern.
+vi.mock("@/db", () => ({
+  db: new Proxy({}, { get(_t, p) { if (p === "then" || typeof p === "symbol") return undefined; throw new Error(`@/db im Test (${String(p)})`); } }),
+}));
 vi.mock("@/lib/api-utils", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api-utils")>();
   return { ...actual, getAuthContext: mocks.getAuthContext };
 });
-vi.mock("@/services/rechner/kalkulation", () => ({ ensureDealCalculation: mocks.ensureDealCalculation, aktuelleKalkulation: mocks.aktuelleKalkulation }));
+vi.mock("@/services/rechner/kalkulation", () => ({ ensureDealCalculation: mocks.ensureDealCalculation }));
 vi.mock("@/services/rechner/pakete", () => ({ hatPaketoptionen: mocks.hatPaketoptionen }));
 vi.mock("@/services/rechner/speicher", () => ({ dbSpeicher: { lesen: mocks.lesen, speichern: vi.fn() } }));
-vi.mock("@/services/quotations", () => ({ getQuotation: mocks.getQuotation, upsertQuotation: mocks.upsertQuotation }));
-vi.mock("@/services/customer-portal-data", () => ({ ensureCustomerStatusLink: mocks.ensureCustomerStatusLink }));
-vi.mock("@/services/scope-guard", () => ({ captureScopeSnapshot: mocks.captureScopeSnapshot }));
-vi.mock("@/services/agent/agent-tasks", () => ({ completeAgentPriceTasks: mocks.completeAgentPriceTasks }));
-vi.mock("@/services/deal-attribution", () => ({ advanceDealToQuotedIfEarlier: vi.fn().mockResolvedValue(undefined) }));
+// Der Versionen-Dienst ist in services/kalkulation-versionen.test.ts geprüft; hier nur die Route.
+vi.mock("@/services/kalkulation-versionen", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/services/kalkulation-versionen")>();
+  return {
+    ...actual,
+    entwurfHolenOderAnlegen: mocks.entwurfHolenOderAnlegen,
+    uebersteuern: mocks.uebersteuern,
+    sperren: mocks.sperren,
+    kartenAbweichung: mocks.kartenAbweichung,
+  };
+});
 
 import { GET, POST } from "./route";
 import { POST as APPLY } from "./apply/route";
+import { VersionsFehler } from "@/services/kalkulation-versionen";
+import { UebersteuerungFehler } from "@/lib/kalkulation-versionen";
+import { AngebotAngenommenError } from "@/services/kva-annahme";
 
 const CTX = { userId: "usr_1", workspaceId: "ws_1", workspaceRole: "admin" as const };
 const params = Promise.resolve({ recordId: "deal_1" });
@@ -43,8 +54,13 @@ const zeile = (result: unknown) => ({
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.getAuthContext.mockResolvedValue(CTX);
-  mocks.ensureCustomerStatusLink.mockResolvedValue(undefined);
   mocks.hatPaketoptionen.mockResolvedValue(false);
+  mocks.kartenAbweichung.mockResolvedValue(null);
+  mocks.entwurfHolenOderAnlegen.mockResolvedValue({ version: { version: 1, status: "entwurf" }, neu: true });
+  mocks.uebersteuern.mockResolvedValue({ version: { version: 1, status: "entwurf" }, neu: false });
+  mocks.sperren.mockResolvedValue({
+    version: { version: 1, status: "gesperrt" }, quotation: { id: "q1", fixedPrice: "1490.00", notes: "Klavier" }, gueltigkeitHinweis: null,
+  });
 });
 
 describe("GET/POST /calculation", () => {
@@ -81,50 +97,142 @@ describe("GET/POST /calculation", () => {
 });
 
 describe("POST /calculation/apply", () => {
-  it("nur Spanne ohne Bestätigung: 400, Angebot unverändert", async () => {
-    mocks.aktuelleKalkulation.mockResolvedValue({ ok: true, kalkulation: zeile({ schaetzung: { festpreisVon: 900, festpreisBis: 1800, annahmen: [] } }) });
-    mocks.getQuotation.mockResolvedValue(null);
-    const res = await APPLY(req({}), { params });
-    expect(res.status).toBe(400);
-    expect(mocks.upsertQuotation).not.toHaveBeenCalled();
-  });
+  const MENSCH = { userId: "usr_1", quelle: "mensch" };
+  const fehlerText = async (res: Response) => (await res.json()).error.message as string;
 
-  it("Festpreis: setzt fixedPrice, übergibt vorhandene Notizen, Posten mit genau dieser Summe, Nachlauf wie beim Speichern", async () => {
-    mocks.aktuelleKalkulation.mockResolvedValue({ ok: true, kalkulation: zeile({ preis: { festpreis: 1490 }, schaetzung: null }) });
-    mocks.getQuotation.mockResolvedValue({ notes: "Klavier", isVariable: true });
-    mocks.upsertQuotation.mockResolvedValue({ fixedPrice: "1490" });
+  it("ohne Marge: Entwurf holen, sperren; Antwort {...quotation, gueltigkeitHinweis}", async () => {
+    mocks.sperren.mockResolvedValue({
+      version: { version: 1, status: "gesperrt" }, quotation: { id: "q1", fixedPrice: "1490.00", notes: "Klavier" },
+      gueltigkeitHinweis: "Umzug in 3 Tagen: Angebot gilt bis zum Umzugstag.",
+    });
     const res = await APPLY(req({}), { params });
     expect(res.status).toBe(200);
-    const [dealId, eingabe] = mocks.upsertQuotation.mock.calls[0]!;
-    expect(dealId).toBe("deal_1");
-    expect(eingabe).toMatchObject({ fixedPrice: "1490", isVariable: false, notes: "Klavier" });
-    expect((eingabe as { lineItems: Array<{ unitRate: string; quantity: number }> }).lineItems.reduce((s, li) => s + Number(li.unitRate) * li.quantity, 0)).toBe(1490);
-    expect(mocks.captureScopeSnapshot).toHaveBeenCalledWith("ws_1", "deal_1", "issue");
-    expect(mocks.completeAgentPriceTasks).toHaveBeenCalledWith("ws_1", "deal_1");
+    expect((await res.json()).data).toEqual({
+      id: "q1", fixedPrice: "1490.00", notes: "Klavier", gueltigkeitHinweis: "Umzug in 3 Tagen: Angebot gilt bis zum Umzugstag.",
+    });
+    expect(mocks.entwurfHolenOderAnlegen).toHaveBeenCalledWith("ws_1", "deal_1", MENSCH);
+    expect(mocks.uebersteuern).not.toHaveBeenCalled();
+    expect(mocks.sperren).toHaveBeenCalledWith("ws_1", "deal_1", 1, MENSCH, { bestaetigtSpanne: false });
   });
 
-  it("Kalkulation eines anderen Workspace wird nicht übernommen", async () => {
-    mocks.aktuelleKalkulation.mockResolvedValue({ ok: true, kalkulation: { ...zeile({ preis: { festpreis: 1 } }), workspaceId: "ws_fremd" } });
+  it("{ margeProzent: 45 }: Marge als Übersteuerung, dann den Entwurf sperren", async () => {
+    mocks.entwurfHolenOderAnlegen.mockResolvedValue({ version: { version: 3, status: "entwurf" }, neu: true });
+    mocks.uebersteuern.mockResolvedValue({ version: { version: 3, status: "entwurf" }, neu: false });
+    const res = await APPLY(req({ margeProzent: 45, bestaetigtSpanne: true }), { params });
+    expect(res.status).toBe(200);
+    expect((await res.json()).data).toHaveProperty("gueltigkeitHinweis", null);
+    expect(mocks.uebersteuern).toHaveBeenCalledWith(
+      "ws_1", "deal_1", 3, { art: "marge", key: "marge", wert: 45, grund: "Marge im Regler gewählt" }, MENSCH
+    );
+    expect(mocks.sperren).toHaveBeenCalledWith("ws_1", "deal_1", 3, MENSCH, { bestaetigtSpanne: true });
+    expect(mocks.uebersteuern.mock.invocationCallOrder[0]).toBeLessThan(mocks.sperren.mock.invocationCallOrder[0]);
+  });
+
+  it("ohne margeProzent, Entwurf erbt eine Marge: Marge aufheben (Vorschlag des Rechners wie auf der Karte), dann sperren", async () => {
+    mocks.entwurfHolenOderAnlegen.mockResolvedValue({
+      version: { version: 2, status: "entwurf", overrides: [{ art: "marge", key: "marge", wert: 50 }] }, neu: true,
+    });
+    mocks.uebersteuern.mockResolvedValue({ version: { version: 2, status: "entwurf" }, neu: false });
+    expect((await APPLY(req({}), { params })).status).toBe(200);
+    expect(mocks.uebersteuern).toHaveBeenCalledWith(
+      "ws_1", "deal_1", 2, { art: "marge", key: "marge", wert: null, grund: "Kalkulationskarte ohne Margenwahl: Vorschlag des Rechners" }, MENSCH
+    );
+    expect(mocks.sperren).toHaveBeenCalledWith("ws_1", "deal_1", 2, MENSCH, { bestaetigtSpanne: false });
+  });
+
+  it("ohne margeProzent, geerbte Marge schon aufgehoben: keine weitere Übersteuerung", async () => {
+    mocks.entwurfHolenOderAnlegen.mockResolvedValue({
+      version: { version: 2, status: "entwurf", overrides: [{ art: "marge", key: "marge", wert: 50 }, { art: "marge", key: "marge", wert: null }] },
+      neu: false,
+    });
+    await APPLY(req({}), { params });
+    expect(mocks.uebersteuern).not.toHaveBeenCalled();
+  });
+
+  it("dieselbe Marge wie die geltende: keine neue Übersteuerung, nur sperren", async () => {
+    mocks.entwurfHolenOderAnlegen.mockResolvedValue({
+      version: { version: 2, status: "entwurf", overrides: [{ art: "marge", key: "marge", wert: 45 }] }, neu: false,
+    });
+    expect((await APPLY(req({ margeProzent: 45 }), { params })).status).toBe(200);
+    expect(mocks.uebersteuern).not.toHaveBeenCalled();
+    expect(mocks.sperren).toHaveBeenCalledWith("ws_1", "deal_1", 2, MENSCH, { bestaetigtSpanne: false });
+  });
+
+  it("API-Schlüssel: Autor ist der Agent", async () => {
+    mocks.getAuthContext.mockResolvedValue({ ...CTX, authMethod: "api_key" });
+    await APPLY(req({}), { params });
+    expect(mocks.sperren).toHaveBeenCalledWith("ws_1", "deal_1", 1, { userId: "usr_1", quelle: "agent" }, { bestaetigtSpanne: false });
+  });
+
+  it("Marge außerhalb 30 bis 60 oder kein Zahlwert: 400 mit dem heutigen Text, kein Entwurf", async () => {
+    for (const margeProzent of [25, 61, "45"]) {
+      const res = await APPLY(req({ margeProzent }), { params });
+      expect(res.status).toBe(400);
+      expect(await fehlerText(res)).toBe("Marge muss zwischen 30 und 60 % liegen.");
+    }
+    expect(mocks.entwurfHolenOderAnlegen).not.toHaveBeenCalled();
+  });
+
+  it("nur Spanne ohne Bestätigung (VersionsFehler SPANNE): 400 mit dessen Text", async () => {
+    mocks.sperren.mockRejectedValue(new VersionsFehler("SPANNE", "Nur eine Spanne vorhanden. Obergrenze übernehmen? (bestaetigtSpanne)"));
     const res = await APPLY(req({}), { params });
     expect(res.status).toBe(400);
-    expect(mocks.upsertQuotation).not.toHaveBeenCalled();
+    expect(await fehlerText(res)).toBe("Nur eine Spanne vorhanden. Obergrenze übernehmen? (bestaetigtSpanne)");
+  });
+
+  it("Deal eines anderen Workspace (Lead nicht gefunden): 400, nichts gesperrt", async () => {
+    mocks.entwurfHolenOderAnlegen.mockRejectedValue(new VersionsFehler("NICHT_GEFUNDEN", "Deal nicht gefunden."));
+    const res = await APPLY(req({}), { params });
+    expect(res.status).toBe(400);
+    expect(mocks.sperren).not.toHaveBeenCalled();
   });
 
   it("übernimmt nur eine aktuelle Kalkulation; Rechnerfehler → 400 mit Grund (Review Sol/Grok)", async () => {
-    mocks.aktuelleKalkulation.mockResolvedValue({ ok: false, fehler: "Rechner nicht erreichbar." });
+    mocks.sperren.mockRejectedValue(new VersionsFehler("RECHNER_FEHLER", "Kalkulation nicht aktuell: Rechner nicht erreichbar."));
     const res = await APPLY(req({}), { params });
     expect(res.status).toBe(400);
-    expect((await res.json()).error.message).toMatch(/nicht erreichbar/);
-    expect(mocks.aktuelleKalkulation).toHaveBeenCalledWith("ws_1", "deal_1");
-    expect(mocks.upsertQuotation).not.toHaveBeenCalled();
+    expect(await fehlerText(res)).toMatch(/nicht erreichbar/);
   });
 
-  it("Lead mit Paketoptionen: keine Übernahme, weil der Paketpreis den Festpreis im Portal überschreiben würde (Review Grok)", async () => {
-    mocks.hatPaketoptionen.mockResolvedValue(true);
-    mocks.aktuelleKalkulation.mockResolvedValue({ ok: true, kalkulation: zeile({ preis: { festpreis: 1490 }, schaetzung: null }) });
-    const res = await APPLY(req({}), { params });
+  it("Stunden-KV und ungültige Übersteuerung: 400", async () => {
+    mocks.sperren.mockRejectedValueOnce(new VersionsFehler("STUNDEN", "Das Angebot ist ein Stunden-KV."));
+    expect((await APPLY(req({}), { params })).status).toBe(400);
+    mocks.uebersteuern.mockRejectedValueOnce(new UebersteuerungFehler("Marge zwischen 30 und 60 %"));
+    expect((await APPLY(req({ margeProzent: 45 }), { params })).status).toBe(400);
+  });
+
+  it("Anpassungen außer der Marge in einer Version: 400 mit Verweis aufs Sperren, kein Entwurf, keine Übersteuerung (Review 1)", async () => {
+    mocks.kartenAbweichung.mockResolvedValue({ version: 2 });
+    const res = await APPLY(req({ margeProzent: 45 }), { params });
     expect(res.status).toBe(400);
-    expect((await res.json()).error.message).toMatch(/Paket/);
-    expect(mocks.upsertQuotation).not.toHaveBeenCalled();
+    expect(await fehlerText(res)).toBe(
+      "Für diesen Deal gibt es Anpassungen in Kalkulation v2. Bitte die Version dort sperren (crm_lock_calculation_version) oder die Anpassungen zurücknehmen."
+    );
+    expect(mocks.kartenAbweichung).toHaveBeenCalledWith("ws_1", "deal_1");
+    expect(mocks.entwurfHolenOderAnlegen).not.toHaveBeenCalled();
+    expect(mocks.uebersteuern).not.toHaveBeenCalled();
+    expect(mocks.sperren).not.toHaveBeenCalled();
+  });
+
+  it("Kunde hat angenommen: 409 KVA_ACCEPTED", async () => {
+    mocks.sperren.mockRejectedValue(new AngebotAngenommenError());
+    const res = await APPLY(req({}), { params });
+    expect(res.status).toBe(409);
+    expect((await res.json()).error.code).toBe("KVA_ACCEPTED");
+  });
+
+  it("Lead mit Paketoptionen: 400 mit dem heutigen Text, kein Entwurf und keine Meldung (Review Grok)", async () => {
+    mocks.hatPaketoptionen.mockResolvedValue(true);
+    const res = await APPLY(req({ margeProzent: 45 }), { params });
+    expect(res.status).toBe(400);
+    expect(await fehlerText(res)).toMatch(/Paket/);
+    expect(mocks.entwurfHolenOderAnlegen).not.toHaveBeenCalled();
+    expect(mocks.uebersteuern).not.toHaveBeenCalled();
+    expect(mocks.sperren).not.toHaveBeenCalled();
+  });
+
+  it("unerwarteter Fehler wird weitergeworfen", async () => {
+    mocks.sperren.mockRejectedValue(new Error("DB weg"));
+    await expect(APPLY(req({}), { params })).rejects.toThrow("DB weg");
   });
 });

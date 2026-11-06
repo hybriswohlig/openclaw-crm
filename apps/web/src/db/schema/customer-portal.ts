@@ -397,6 +397,14 @@ export const offerPackages = pgTable(
      * should be flagged so the UI knows what to emphasise.
      */
     isRecommended: boolean("is_recommended").notNull().default(false),
+    /**
+     * Hebel, die im Paketpreis enthalten sind (Migration 0057). Der Rechner
+     * rechnet je Paket Kern plus genau diese Hebel (`paket_hebel`).
+     */
+    hebel: jsonb("hebel")
+      .$type<Array<"montage" | "halteverbot" | "einpacken" | "kueche">>()
+      .notNull()
+      .default([]),
     sortOrder: integer("sort_order").notNull().default(0),
     active: boolean("active").notNull().default(true),
     createdAt: timestamp("created_at").notNull().defaultNow(),

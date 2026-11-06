@@ -8,7 +8,7 @@
  * über den Umfang, nie über einen Rabatt. Die Summe der Posten ist immer genau
  * der Festpreis. Reine Funktionen, kein I/O.
  */
-import type { RechnerErgebnis } from "./client";
+import type { KostenPosten, RechnerErgebnis } from "./client";
 import type { RechnerAnfrage } from "./eingabe";
 
 export type LeistungsTraeger = "company" | "customer" | "none";
@@ -67,6 +67,22 @@ export function strasseAus(adresse: unknown): string | null {
   if (typeof adresse !== "string") return null;
   const teil = adresse.split(",")[0]?.trim();
   return teil ? teil : null;
+}
+
+/**
+ * Zeile zuerst per Schlüssel (neuer Rechner, Reihenfolge = Vorrang), sonst per
+ * Text (live laufender Rechner ohne `key`).
+ */
+function zeile(
+  posten: readonly KostenPosten[],
+  keys: readonly string[],
+  text: (bezeichnung: string) => boolean
+): KostenPosten | undefined {
+  for (const k of keys) {
+    const treffer = posten.find((p) => p.key === k);
+    if (treffer) return treffer;
+  }
+  return posten.find((p) => text(p.bezeichnung));
 }
 
 function an(anfrage: RechnerAnfrage, feld: string): boolean {
@@ -169,7 +185,7 @@ export function kvBausteine(input: {
   const { ergebnis: e, anfrage } = input;
   const opt = input.optionen ?? {};
   const listenPosten = e.preis?.posten ?? [];
-  const arbeitssatz = listenPosten.find((p) => /^Arbeitsstunden/.test(p.bezeichnung))?.satz ?? ARBEITSSATZ_STANDARD;
+  const arbeitssatz = zeile(listenPosten, ["verkauf.arbeitsstunden"], (b) => /^Arbeitsstunden/.test(b))?.satz ?? ARBEITSSATZ_STANDARD;
   const zeiten = e.zeiten ?? {};
 
   // ── Hebel ──
@@ -194,7 +210,7 @@ export function kvBausteine(input: {
     (z): z is string => z !== null
   );
   if (zonen.length > 0) {
-    const satz = listenPosten.find((p) => p.bezeichnung === "Halteverbotszone")?.satz ?? HALTEVERBOT_STANDARD;
+    const satz = zeile(listenPosten, ["verkauf.halteverbot"], (b) => b === "Halteverbotszone")?.satz ?? HALTEVERBOT_STANDARD;
     kandidaten.push({
       art: "halteverbot",
       posten: {
@@ -211,7 +227,7 @@ export function kvBausteine(input: {
       posten: { description: `Einpackservice (${kartons} Kartons)`, quantity: 1, unitRate: auf10(((zeiten.packen ?? 0) / 60) * arbeitssatz) },
     });
   }
-  const kueche = listenPosten.find((p) => p.bezeichnung === "Küche Demontage/Montage");
+  const kueche = zeile(listenPosten, ["verkauf.kueche"], (b) => b === "Küche Demontage/Montage");
   if (kueche && kueche.betrag > 0) {
     kandidaten.push({
       art: "kueche",
@@ -232,10 +248,10 @@ export function kvBausteine(input: {
   const kostenPosten = e.kosten?.posten ?? [];
   const entfalleneKosten =
     (kandidaten.some((k) => k.art === "halteverbot" && weg(k.art))
-      ? zonen.length * (kostenPosten.find((p) => p.bezeichnung === "Halteverbotszone")?.satz ?? 0)
+      ? zonen.length * (zeile(kostenPosten, ["halteverbot"], (b) => b === "Halteverbotszone")?.satz ?? 0)
       : 0) +
     (kandidaten.some((k) => k.art === "montage" && weg(k.art))
-      ? (montagePm / 60) * (kostenPosten.find((p) => /^Personal/.test(p.bezeichnung))?.satz ?? 0)
+      ? (montagePm / 60) * (zeile(kostenPosten, ["personal.arbeit", "personal"], (b) => /^Personal/.test(b))?.satz ?? 0)
       : 0);
   const betrag = (p: KvPosten) => p.unitRate * p.quantity;
   const abzug = input.festpreisIstEndpreis ? 0 : kandidaten.filter((k) => weg(k.art)).reduce((s, k) => s + betrag(k.posten), 0);

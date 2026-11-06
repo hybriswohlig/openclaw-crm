@@ -1,6 +1,7 @@
-import { pgTable, text, timestamp, numeric, boolean, integer, date, pgEnum, index, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, numeric, boolean, integer, date, pgEnum, index, jsonb, foreignKey } from "drizzle-orm/pg-core";
 import { records } from "./records";
 import { workspaces } from "./workspace";
+import { dealCalculationVersions } from "./deal-calculation-versions";
 
 export const lineItemTypeEnum = pgEnum("line_item_type", [
   "helper",
@@ -85,10 +86,22 @@ export const quotations = pgTable(
      * inventory snapshot, card agreement, referenced KV number.
      */
     documentDetails: jsonb("document_details").$type<QuotationDocumentDetails>(),
+    /**
+     * Gesperrte Kalkulationsversion, aus der Preis und Posten stammen
+     * (Migration 0057). Null = KV ohne Version (Angebotsformular, Altbestand).
+     */
+    calculationVersionId: text("calculation_version_id"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
-  (table) => [index("quotations_deal_idx").on(table.dealRecordId)]
+  (table) => [
+    index("quotations_deal_idx").on(table.dealRecordId),
+    foreignKey({
+      name: "quotations_calculation_version_fk",
+      columns: [table.calculationVersionId],
+      foreignColumns: [dealCalculationVersions.id],
+    }).onDelete("set null"),
+  ]
 );
 
 export interface QuotationDocumentDetails {

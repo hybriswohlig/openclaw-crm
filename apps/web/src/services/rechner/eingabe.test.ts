@@ -108,17 +108,29 @@ describe("rechnerAnfrageAus", () => {
 });
 
 describe("Marke, Quelle und heute", () => {
-  it("schickt Marke, Quelle und heute mit; heute ändert den Hash", () => {
+  it("schickt Marke, Quelle und heute mit; heute ändert den Hash nicht", () => {
     const a = rechnerAnfrageAus({ ...leer, marke: "kottke", quelle: "vergleichsportal" }, { heute: "2026-09-28" });
     expect(a.marke).toBe("kottke");
     expect(a.quelle).toBe("vergleichsportal");
     expect(a.heute).toBe("2026-09-28");
     const b = rechnerAnfrageAus({ ...leer, marke: "kottke", quelle: "vergleichsportal" }, { heute: "2026-09-29" });
-    expect(eingabeHash(a)).not.toBe(eingabeHash(b));
+    expect(eingabeHash(a)).toBe(eingabeHash(b));
+    const c = rechnerAnfrageAus({ ...leer, marke: "kottke", quelle: "vergleichsportal", umzugsdatum: "2026-10-15" }, { heute: "2026-09-28" });
+    expect(eingabeHash(c)).not.toBe(eingabeHash(a));
   });
   it("ohne Marke und Quelle: Felder fehlen", () => {
     const a = rechnerAnfrageAus(leer);
     expect(a.marke).toBeUndefined();
     expect(a.quelle).toBeUndefined();
+  });
+});
+
+describe("Inventar-Quelle", () => {
+  it("quelle der Inventarzeile geht nicht an den Rechner", () => {
+    const a = rechnerAnfrageAus({
+      ...leer,
+      inventar: [{ name: "Sofa", menge: 1, groessenklasse: "gross", volumenCbm: 1.5, mitnehmen: true, quelle: "foto" }],
+    });
+    expect(a.positionen_freitext).toEqual([{ name: "Sofa", menge: 1, groessenklasse: "gross", volumenCbm: 1.5 }]);
   });
 });

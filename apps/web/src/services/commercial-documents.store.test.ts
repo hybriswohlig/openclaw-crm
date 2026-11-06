@@ -78,4 +78,14 @@ describe("persistCommercialDocument", () => {
       expect.objectContaining({ documentType: "quotation" })
     );
   });
+
+  it("passes the rendered calculation version only for a KV", async () => {
+    const base = { workspaceId: "ws", dealRecordId: "deal_1", pdf: new Uint8Array([0x25]), fileStem: "X", templateVersion: "kv-ab-re/2" };
+    await persistCommercialDocument({ ...base, kind: "KV", calculationVersionId: "ver_2" });
+    expect(mocks.createDealDocument).toHaveBeenLastCalledWith(expect.objectContaining({ documentType: "quotation", calculationVersionId: "ver_2" }));
+    await persistCommercialDocument({ ...base, kind: "KV" });
+    expect(mocks.createDealDocument).toHaveBeenLastCalledWith(expect.objectContaining({ calculationVersionId: null }));
+    await persistCommercialDocument({ ...base, kind: "RE", calculationVersionId: "ver_2" });
+    expect(mocks.createDealDocument).toHaveBeenLastCalledWith(expect.objectContaining({ documentType: "invoice", calculationVersionId: null }));
+  });
 });

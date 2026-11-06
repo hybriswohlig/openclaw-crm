@@ -72,6 +72,23 @@ describe("read-only MCP tools", () => {
     expect(request).toHaveBeenCalledTimes(2);
   });
 
+  it("allows crm_get_calculation and blocks the calculation writes for a read-only key", async () => {
+    const { crm, request } = client(true);
+
+    const listed = await handleTool(crm, "crm_get_calculation", { recordId: "d1" });
+    expect(listed.isError).toBeUndefined();
+
+    for (const name of [
+      "crm_override_calculation",
+      "crm_lock_calculation_version",
+      "crm_render_kv_from_version",
+    ]) {
+      const blocked = await handleTool(crm, name, { recordId: "d1", version: 1 });
+      expect(blocked.isError, name).toBe(true);
+    }
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
   it("does not block a full key", async () => {
     const { crm, request } = client(false);
     const created = await handleTool(crm, "crm_delete_record", {

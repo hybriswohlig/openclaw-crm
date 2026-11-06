@@ -179,7 +179,7 @@ function ort(adresse: unknown): string | null {
 }
 
 function postenZeile(p: KostenPosten): string {
-  const name = p.bezeichnung.replace(/^Personal \(.*\)$/, "Personal").replace(/ \(ohne Küche\)$/, "");
+  const name = p.bezeichnung.replace(/^(Personal(?: Arbeit| Fahrt)?) \(.*\)$/, "$1").replace(/ \(ohne Küche\)$/, "");
   const menge = p.menge ?? 0;
   if (p.satz != null && menge > 0 && !(menge === 1 && /^(Tag|Stück|Fahrzeugtag)$/.test(p.einheit ?? ""))) {
     return `• ${name} ${Z(menge, 1)} ${p.einheit ?? ""} × ${Z(p.satz, 2)} € = ${EUR(p.betrag)}`.replace(/ {2,}/g, " ");

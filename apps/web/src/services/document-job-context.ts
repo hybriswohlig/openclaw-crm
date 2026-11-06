@@ -334,5 +334,9 @@ export async function attachDocumentJobContext(
   next.document_details = details;
   next.service_type = vpsArt;
   next._document_context = { paidCents, totalCents };
+  // Keine Kalkulationsversion an den VPS: /jobs/{id}/result gibt nur das PDF zurück,
+  // ein mitgeschickter Wert wäre ungenutzt und ungeprüft. Ein Wert aus dem Browser
+  // wird entfernt.
+  delete next._calculation_version_id;
   return next;
 }

@@ -468,6 +468,17 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
       return client.request(
         `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/quotation`
       );
+    case "crm_get_calculation": {
+      // Version suffix stays outside the path literal so casePaths reads
+      // /api/v1/deals/{}/calculation/versions in both servers.
+      const base = `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/calculation/versions`;
+      const version = args.version;
+      const path =
+        version === undefined || version === null || version === ""
+          ? base
+          : base + "/" + encodeURIComponent(str(version));
+      return client.request(path);
+    }
     case "crm_list_deal_payments":
       return client.request(
         `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/payments`
