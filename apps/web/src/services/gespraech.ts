@@ -139,17 +139,22 @@ async function gespraecheLesen(ws: string, deal: string): Promise<GespraechRoh[]
 
 /**
  * Gespräche des Deals, direkt (`deal_record_id = deal`) und indirekt über die
- * verknüpften Personen. Nur lesen, keine Rückverknüpfung.
+ * verknüpften Personen, mit `kannSenden` wie im Gespräch. Nur lesen, keine
+ * Rückverknüpfung.
  */
 export async function dealGespraeche(
   workspaceId: string,
   dealRecordId: string
-): Promise<{ id: string; dealRecordId: string | null; direkt: boolean }[]> {
-  return (await gespraecheLesen(workspaceId, dealRecordId)).map((g) => ({
-    id: g.id,
-    dealRecordId: g.dealRecordId,
-    direkt: g.dealRecordId === dealRecordId,
-  }));
+): Promise<{ id: string; dealRecordId: string | null; direkt: boolean; kannSenden: boolean }[]> {
+  return (await gespraecheLesen(workspaceId, dealRecordId)).map((g) => {
+    const direkt = g.dealRecordId === dealRecordId;
+    return {
+      id: g.id,
+      dealRecordId: g.dealRecordId,
+      direkt,
+      kannSenden: kannSendenAus({ direkt, kanal: g.kanal, waPhoneNumberId: g.waPhoneNumberId, bridge: g.bridge }),
+    };
+  });
 }
 
 // ─── Fakten für die Systemzeilen ──────────────────────────────────────────────

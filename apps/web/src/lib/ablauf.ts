@@ -397,7 +397,8 @@ const BEGINN_WORT: Record<AblaufFakten["leistung"], string> = {
   kitchen_installation: "Beginn",
 };
 
-function inTagen(datum: string, jetzt: Date): string {
+/** „heute“, „morgen“, „gestern“, „in 16 Tagen“, „vor 3 Tagen“ (Berliner Kalendertage). */
+export function inTagen(datum: string, jetzt: Date): string {
   const d = tageBis(datum, jetzt);
   if (d === 0) return "heute";
   if (d === 1) return "morgen";
@@ -449,12 +450,17 @@ function zahlung(f: AblaufFakten): Entwurf {
   };
 }
 
+/** Bewertungsanfrage gesendet (Schritt 11 erledigt); gemeinsam mit den Dock-Regeln der Akte. */
+export function bewertungAngefragt(f: Pick<AblaufFakten, "bewertung">): boolean {
+  return f.bewertung.status !== null && BEWERTUNG_ERLEDIGT.has(f.bewertung.status);
+}
+
 function bewertung(f: AblaufFakten): Entwurf {
   return {
     key: "bewertung",
     titel: "Bewertung anfragen",
     wer: "du",
-    erledigt: f.bewertung.status !== null && BEWERTUNG_ERLEDIGT.has(f.bewertung.status),
+    erledigt: bewertungAngefragt(f),
     zeileErledigt: f.bewertung.am ? `angefragt ${tagKurz(f.bewertung.am)}` : "angefragt",
     zeileOffen: "von Hand · Google-Link mit Vorlage",
   };

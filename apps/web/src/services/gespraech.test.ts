@@ -106,17 +106,20 @@ beforeEach(() => {
 });
 
 describe("dealGespraeche", () => {
-  it("direkt über deal_record_id, indirekt über verknüpfte Personen; nur lesen, Workspace gefiltert", async () => {
+  it("direkt über deal_record_id, indirekt über verknüpfte Personen, sendefähig wie im Gespräch; nur lesen, Workspace gefiltert", async () => {
     mocks.execute.mockResolvedValueOnce([
       { id: "c_wa", deal_record_id: DEAL, channel_type: "whatsapp", name: "WA", konto_id: "acc_wa", wa_phone_number_id: "pn", bridge: null, telefon: null, kunde_name: null },
       { id: "c_fremd", deal_record_id: "deal_2", channel_type: "whatsapp", name: "WA", konto_id: "acc_wa", wa_phone_number_id: "pn", bridge: null, telefon: null, kunde_name: null },
       { id: "c_leer", deal_record_id: null, channel_type: "email", name: "Mail", konto_id: "acc_mail", wa_phone_number_id: null, bridge: null, telefon: null, kunde_name: null },
+      { id: "c_bridge", deal_record_id: DEAL, channel_type: "whatsapp", name: "WA", konto_id: "acc_b", wa_phone_number_id: null, bridge: "evolution", telefon: null, kunde_name: null },
     ]);
     const out = await dealGespraeche(WS, DEAL);
     expect(out).toEqual([
-      { id: "c_wa", dealRecordId: DEAL, direkt: true },
-      { id: "c_fremd", dealRecordId: "deal_2", direkt: false },
-      { id: "c_leer", dealRecordId: null, direkt: false },
+      { id: "c_wa", dealRecordId: DEAL, direkt: true, kannSenden: true },
+      { id: "c_fremd", dealRecordId: "deal_2", direkt: false, kannSenden: false },
+      { id: "c_leer", dealRecordId: null, direkt: false, kannSenden: false },
+      // Direkt, aber ein Kanal, über den das CRM nicht senden kann.
+      { id: "c_bridge", dealRecordId: DEAL, direkt: true, kannSenden: false },
     ]);
     expect(mocks.execute).toHaveBeenCalledTimes(1);
     const { text, params } = gerendert(mocks.execute.mock.calls[0]);

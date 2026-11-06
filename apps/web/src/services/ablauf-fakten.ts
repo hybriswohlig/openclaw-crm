@@ -42,9 +42,9 @@ import { listDealEmployees } from "@/services/employees";
 import { listPayments } from "@/services/financial";
 import { ersteAnpassungAus } from "@/services/gespraech";
 import { ladeAktiveAnnahme } from "@/services/kva-annahme";
-import { ladeNachfassSchalter } from "@/services/nachfass-schalter";
+import { ladeNachfassSchalter, type NachfassSchalter } from "@/services/nachfass-schalter";
 import { offenerRest } from "@/services/offener-rest";
-import { ladeZahlungsmeldungen } from "@/services/zahlungsmeldungen";
+import { ladeZahlungsmeldungen, type Zahlungsmeldung } from "@/services/zahlungsmeldungen";
 
 type Spalte = "text_value" | "date_value" | "timestamp_value";
 
@@ -262,7 +262,30 @@ function besichtigungAus(v: unknown): string | null {
   return alsTag(v) ?? alsIso(v);
 }
 
+/** Herkunft des Volumens: Quellen der mitzunehmenden Inventarteile mit Volumen, sonst die Kalkulation. */
+export interface VolumenHerkunft {
+  quelle: "inventar" | "kalkulation" | null;
+  /** `deal_inventory_items.source` in der Reihenfolge des ersten Auftretens, ohne Doppelte. */
+  inventarQuellen: string[];
+}
+
+/**
+ * Fakten plus das, was die Akte (Task 8) aus denselben Abfragen braucht: der
+ * ganze Nachfass-Schalter (mit `an`), die offenen Zahlungsmeldungen und die
+ * Herkunft des Volumens. Keine zusätzliche Abfrage.
+ */
+export interface AblaufGrundlage {
+  fakten: AblaufFakten;
+  nachfass: NachfassSchalter;
+  meldungen: Zahlungsmeldung[];
+  volumen: VolumenHerkunft;
+}
+
 export async function ladeAblaufFakten(ws: string, deal: string): Promise<AblaufFakten> {
+  return (await ladeAblaufGrundlage(ws, deal)).fakten;
+}
+
+export async function ladeAblaufGrundlage(ws: string, deal: string): Promise<AblaufGrundlage> {
   const [d] = zeilen<DealZeile>(await dealLesen(ws, deal));
   if (!d) throw new Error("Deal nicht gefunden");
 
@@ -296,14 +319,18 @@ export async function ladeAblaufFakten(ws: string, deal: string): Promise<Ablauf
   };
 
   // Volumen: mitzunehmendes Inventar, sonst das Nettovolumen der Kalkulation.
-  const inventarCbm = inventar
-    .filter((i) => i.moveFlag)
-    .reduce((summe, i) => {
-      const cbm = Number(i.volumeCbmEstimate);
-      return i.volumeCbmEstimate != null && Number.isFinite(cbm) ? summe + cbm : summe;
-    }, 0);
+  const mitVolumen = inventar.filter((i) => {
+    const cbm = Number(i.volumeCbmEstimate);
+    return i.moveFlag && i.volumeCbmEstimate != null && Number.isFinite(cbm);
+  });
+  const inventarCbm = mitVolumen.reduce((summe, i) => summe + Number(i.volumeCbmEstimate), 0);
   const nettoCbm = alsZahl(ergebnis?.volumen?.nettoCbm);
-  const volumenCbm = inventarCbm > 0 ? rundeEineStelle(inventarCbm) : nettoCbm !== null && nettoCbm > 0 ? nettoCbm : null;
+  const ausKalkulation = nettoCbm !== null && nettoCbm > 0;
+  const volumenCbm = inventarCbm > 0 ? rundeEineStelle(inventarCbm) : ausKalkulation ? nettoCbm : null;
+  const volumen: VolumenHerkunft =
+    inventarCbm > 0
+      ? { quelle: "inventar", inventarQuellen: [...new Set(mitVolumen.filter((i) => Number(i.volumeCbmEstimate) > 0).map((i) => String(i.source)))] }
+      : { quelle: ausKalkulation ? "kalkulation" : null, inventarQuellen: [] };
 
   let kalkulation: AblaufFakten["kalkulation"] = null;
   const version = v ? alsZahl(v.version) : null;
@@ -355,7 +382,7 @@ export async function ladeAblaufFakten(ws: string, deal: string): Promise<Ablauf
     null
   );
 
-  return {
+  const fakten: AblaufFakten = {
     erstelltAm: alsIso(d.erstellt_am) ?? new Date(0).toISOString(),
     quelle: d.quelle ?? null,
     ersteAntwortAm: alsIso(d.erste_antwort_am),
@@ -394,4 +421,5 @@ export async function ladeAblaufFakten(ws: string, deal: string): Promise<Ablauf
     bewertung: { status: d.bewertung_status ?? null, am: alsIso(d.bewertung_am) },
     stageCategory: d.stufe ?? null,
   };
+  return { fakten, nachfass, meldungen, volumen };
 }

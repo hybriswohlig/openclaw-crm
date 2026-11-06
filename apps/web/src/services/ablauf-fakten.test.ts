@@ -34,7 +34,7 @@ vi.mock("@/services/nachfass-schalter", () => ({ ladeNachfassSchalter: mocks.lad
 vi.mock("@/services/offener-rest", () => ({ offenerRest: mocks.offenerRest }));
 vi.mock("@/services/zahlungsmeldungen", () => ({ ladeZahlungsmeldungen: mocks.ladeZahlungsmeldungen }));
 
-import { ladeAblaufFakten } from "./ablauf-fakten";
+import { ladeAblaufFakten, ladeAblaufGrundlage } from "./ablauf-fakten";
 import { berechneAblauf } from "@/lib/ablauf";
 
 const WS = "ws_1";
@@ -452,5 +452,48 @@ describe("ladeAblaufFakten", () => {
       vertragDocumentId: null,
     });
     expect((await ladeAblaufFakten(WS, DEAL)).annahme).toBeNull();
+  });
+});
+
+describe("ladeAblaufGrundlage", () => {
+  const MELDUNG = { eventId: "evt_1", gemeldetAm: "2026-11-05T08:00:00.000Z", betragCent: 50000, zahlungsart: "paypal", variante: "deposit" };
+
+  it("liefert die Fakten und dazu Schalter, Meldungen und Herkunft des Volumens ohne weitere Abfragen", async () => {
+    dbAntwortet({ deal: [LEERER_DEAL], neben: [LEERE_NEBEN], version: [], angebot: [] });
+    mocks.ladeNachfassSchalter.mockResolvedValue(NACHFASS);
+    mocks.ladeZahlungsmeldungen.mockResolvedValue([MELDUNG]);
+    mocks.getDealInventory.mockResolvedValue([
+      { moveFlag: true, volumeCbmEstimate: "30.5", source: "foto" },
+      { moveFlag: true, volumeCbmEstimate: "7.5", source: "chat" },
+      { moveFlag: true, volumeCbmEstimate: "1", source: "foto" },
+      // Bleibt da oder ohne Volumen: zählt nicht zur Herkunft.
+      { moveFlag: false, volumeCbmEstimate: "9", source: "operator" },
+      { moveFlag: true, volumeCbmEstimate: null, source: "operator" },
+    ]);
+
+    const g = await ladeAblaufGrundlage(WS, DEAL);
+
+    expect(g.fakten).toEqual(await ladeAblaufFakten(WS, DEAL));
+    expect(g.fakten.volumenCbm).toBe(39);
+    expect(g.fakten.offeneMeldungen).toBe(1);
+    expect(g.nachfass).toEqual(NACHFASS);
+    expect(g.meldungen).toEqual([MELDUNG]);
+    expect(g.volumen).toEqual({ quelle: "inventar", inventarQuellen: ["foto", "chat"] });
+    // Zwei Aufrufe (Grundlage und Fakten), je vier Abfragen und ein Schalter.
+    expect(mocks.execute).toHaveBeenCalledTimes(8);
+    expect(mocks.ladeNachfassSchalter).toHaveBeenCalledTimes(2);
+  });
+
+  it("Volumen aus der Kalkulation, ohne Volumen keine Herkunft", async () => {
+    dbAntwortet({
+      deal: [LEERER_DEAL],
+      neben: [LEERE_NEBEN],
+      version: [{ version: 1, status: "entwurf", sent_at: null, gesperrt_von: null, overrides: null, rechner_request: null, rechner_result: { volumen: { nettoCbm: 36 } } }],
+      angebot: [],
+    });
+    expect((await ladeAblaufGrundlage(WS, DEAL)).volumen).toEqual({ quelle: "kalkulation", inventarQuellen: [] });
+
+    dbAntwortet({ deal: [LEERER_DEAL], neben: [LEERE_NEBEN], version: [], angebot: [] });
+    expect((await ladeAblaufGrundlage(WS, DEAL)).volumen).toEqual({ quelle: null, inventarQuellen: [] });
   });
 });
