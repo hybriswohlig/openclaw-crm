@@ -28,7 +28,7 @@ import {
 import type { AngebotsEingabe, Quotation } from "@/services/quotations";
 import { meldeKorrektur, rufeRechner, type RechnerAntwort, type RechnerErgebnis } from "@/services/rechner/client";
 import { eingabeHash, rechnerAnfrageAus, type LeadDaten, type RechnerAnfrage } from "@/services/rechner/eingabe";
-import type { KalkulationsZeile } from "@/services/rechner/kalkulation";
+import { ergebnisVeraltet, type KalkulationsZeile } from "@/services/rechner/kalkulation";
 import type { HebelArt, KvPosten } from "@/services/rechner/kv-posten";
 import { heuteBerlin } from "@/services/rechner/quelle";
 import { angebotsUebernahme } from "@/services/rechner/uebernahme";
@@ -260,6 +260,38 @@ async function neuBerechnen(
     packagePrices: ergebnis.paketpreise ?? [],
     tariff: ergebnis.tarif ?? null,
   };
+}
+
+/** Anfrage aus Lead und Übersteuerungen weicht ab, oder das Bezugsdatum ist nicht heute. */
+function anfrageVeraltet(
+  v: VersionsZeile,
+  basis: RechnerAnfrage,
+  heute: string,
+  paketHebel: Record<string, HebelArt[]> | null
+): boolean {
+  return (
+    !v.rechnerRequest ||
+    eingabeHash(anfrageMitUebersteuerungen(basis, v.overrides, { referenceDate: heute, paketHebel: paketHebel ?? undefined })) !==
+      eingabeHash(v.rechnerRequest) ||
+    v.referenceDate !== heute
+  );
+}
+
+/**
+ * Ist der Entwurf nicht mehr aktuell? Die aus Lead und Übersteuerungen neu gebaute
+ * Anfrage (mit den Paket-Hebeln, mit denen der Entwurf gerechnet wird) weicht ab, das
+ * Bezugsdatum ist nicht heute, oder dem Ergebnis fehlt das Echo `montageJePosition`
+ * (Rechner vor Plan 4). Gesperrte Versionen sind nie veraltet. Ein Rechnerfehler
+ * zählt hier nicht (steht in `error`).
+ */
+export function entwurfVeraltet(
+  v: VersionsZeile,
+  basis: RechnerAnfrage,
+  heute: string,
+  paketHebel: Record<string, HebelArt[]> | null
+): boolean {
+  if (v.status !== "entwurf") return false;
+  return anfrageVeraltet(v, basis, heute, paketHebel) || ergebnisVeraltet(v.rechnerResult);
 }
 
 async function leadOderFehler(ws: string, deal: string, d: Abh): Promise<LeadDaten> {
@@ -532,14 +564,12 @@ export async function sperren(
   const heute = heuteBerlin(d.jetzt());
   const basis = rechnerAnfrageAus(lead);
   // Verglichen wird immer mit der aktuellen Liste der Version (auch nach einer Neuberechnung,
-  // denn parallel kann eine Übersteuerung dazugekommen sein).
-  const veraltet = (z: VersionsZeile) =>
-    !z.rechnerRequest ||
-    eingabeHash(anfrageMitUebersteuerungen(basis, z.overrides, { referenceDate: heute })) !== eingabeHash(z.rechnerRequest) ||
-    z.referenceDate !== heute ||
-    z.error !== null;
-  for (let versuch = 0; veraltet(v); versuch++) {
+  // denn parallel kann eine Übersteuerung dazugekommen sein). Paket-Deals sind oben abgelehnt.
+  for (let versuch = 0; entwurfVeraltet(v, basis, heute, null) || v.error !== null; versuch++) {
     if (versuch > 0 && v.error !== null) break; // Rechnerfehler: unten abgelehnt
+    // Frisch gerechnet, nur das Echo fehlt: der Rechner kennt Montage je Position noch nicht.
+    // Sein Ergebnis gilt (sonst sperrte bis zu seinem Deploy niemand mehr).
+    if (versuch > 0 && !anfrageVeraltet(v, basis, heute, null)) break;
     if (versuch >= 3) throw new VersionsFehler("UNGUELTIG", "Die Kalkulation wird gerade geändert. Bitte erneut sperren.");
     v = await d.speicher.aktualisieren(v.id, await neuBerechnen(ws, deal, lead, v.overrides, d, { referenceDate: heute }));
   }

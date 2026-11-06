@@ -42,6 +42,7 @@ const lead = (zimmer: number): LeadDaten => ({
 });
 
 const ergebnis = (festpreis = 1490): RechnerErgebnis => ({
+  montageJePosition: true,
   preis: {
     festpreis, selbstkosten: 800, rundungEur: 10, margeWirksamProzent: 40, nichtKalkulierbarGrund: null,
     margeVorschlag: { prozent: 40, gruende: [{ text: "Basis", punkte: 40 }] },
@@ -599,6 +600,17 @@ describe("sperren", () => {
       margin: gepreist.margin, inputs: gepreist.inputs, tariff: gepreist.tariff, packagePrices: gepreist.packagePrices,
     });
     expect(vi.mocked(t.speicher.sperrenUndAngebot).mock.calls[0][6]?.schnappschuss?.rechnerRequest).toEqual(gepreist.rechnerRequest);
+  });
+
+  it("Ergebnis ohne Montage-Echo: einmal neu gerechnet; liefert der Rechner weiter kein Echo, wird trotzdem gesperrt", async () => {
+    const t = aufbau();
+    const { montageJePosition: _echo, ...ohneEcho } = ergebnis();
+    t.setzeAntwort({ ok: true, ergebnis: ohneEcho });
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    t.rechner.mockClear();
+    const r = await sperren("ws", "deal1", 1, MENSCH, {}, t.deps);
+    expect(t.rechner).toHaveBeenCalledTimes(1);
+    expect(r.version.status).toBe("gesperrt");
   });
 
   it("nur das Datum ist alt: neu gerechnet, weil die Eilregel vom Tag abhängt", async () => {
