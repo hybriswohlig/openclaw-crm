@@ -12,6 +12,7 @@ const m = vi.hoisted(() => ({
   txInsertValues: vi.fn(),
   txExecute: vi.fn(),
   sperrArt: vi.fn(),
+  txConfig: vi.fn(),
   reihenfolge: [] as string[],
 }));
 
@@ -55,8 +56,9 @@ vi.mock("@/db", async () => {
   const ausserhalb = () => {
     throw new Error("Schreiben außerhalb der Transaktion");
   };
-  const transaction = async (fn: (tx: unknown) => Promise<void>) =>
-    fn({
+  const transaction = async (fn: (tx: unknown) => Promise<unknown>, config?: unknown) => {
+    m.txConfig(config);
+    return fn({
       execute: async (q: unknown) => {
         m.reihenfolge.push("sperre");
         return m.txExecute(q);
@@ -66,6 +68,7 @@ vi.mock("@/db", async () => {
       insert,
       delete: () => ({ where: async () => m.txDelete() }),
     });
+  };
   return {
     db: {
       select: lesen({ kopf: () => m.quotationRows, posten: () => m.lineRows }, false),
@@ -79,7 +82,7 @@ vi.mock("./kva-annahme", () => ({ pruefeNichtAngenommen: vi.fn(async () => undef
 
 import { PgDialect } from "drizzle-orm/pg-core";
 import type { SQL } from "drizzle-orm";
-import { QuotationInputError, upsertQuotation } from "./quotations";
+import { getQuotation, QuotationInputError, upsertQuotation } from "./quotations";
 
 const gespeichert = {
   id: "q1",
@@ -246,5 +249,31 @@ describe("upsertQuotation unter der Sperre des Angebots (Review 3)", () => {
     ).rejects.toBeInstanceOf(QuotationInputError);
     expect(m.updateSet).not.toHaveBeenCalled();
     expect(m.txInsertValues).not.toHaveBeenCalled();
+  });
+});
+
+describe("getQuotation", () => {
+  beforeEach(() => {
+    m.quotationRows.length = 0;
+    m.lineRows.length = 0;
+    m.txQuotationRows.length = 0;
+    m.txLineRows.length = 0;
+    m.txConfig.mockClear();
+  });
+
+  it("konsistent: Kopf und Posten in einer lesenden REPEATABLE-READ-Transaktion (Codex-Re-Review F4)", async () => {
+    m.txQuotationRows.push([gespeichert]);
+    m.txLineRows.push(gespeichertePosten);
+    const q = await getQuotation("deal1", { konsistent: true });
+    expect(m.txConfig).toHaveBeenCalledWith({ isolationLevel: "repeatable read", accessMode: "read only" });
+    expect(q).toMatchObject({ id: "q1", calculationVersionId: "v2", lineItems: gespeichertePosten });
+  });
+
+  it("ohne Option: zwei Abfragen ohne Transaktion wie bisher", async () => {
+    m.quotationRows.push([gespeichert]);
+    m.lineRows.push(gespeichertePosten);
+    const q = await getQuotation("deal1");
+    expect(m.txConfig).not.toHaveBeenCalled();
+    expect(q).toMatchObject({ id: "q1", lineItems: gespeichertePosten });
   });
 });

@@ -208,6 +208,24 @@ describe("POST /calculation/apply über Versionen", () => {
     expect(mocks.nachher).toHaveLength(nachherVorher);
   });
 
+  it("Bot hängt Material an, während die Karte die Marge rechnet: 400, nichts gesperrt (Codex-Re-Review F1)", async () => {
+    await entwurfHolenOderAnlegen("ws_1", "deal_1", BOT);
+    // Vorprüfung der Route ist durch; im Rechnerlauf der Marge kommt die Anpassung des Bots dazu.
+    mocks.rufeRechner.mockImplementationOnce(async (a: Record<string, unknown>) => {
+      mocks.zeilen[0].overrides.push({
+        id: "u_bot", art: "material_frei", key: "klavierdecke", wert: { bezeichnung: "Klavierdecke", betrag: 500 },
+        rechnerwert: null, grund: "Foto", autor: BOT, zeit: "2026-11-06T08:00:00.000Z", fotoRef: null,
+      });
+      return rechnerAntwort(a);
+    });
+
+    const res = await APPLY(req({ margeProzent: 50 }), { params });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.message).toBe(ABWEICHUNG(1));
+    expect(mocks.speicher.sperrenUndAngebot).not.toHaveBeenCalled();
+    expect(mocks.zeilen[0].status).toBe("entwurf");
+  });
+
   it("ohne Entwurf, letzte gesperrte Version mit Zeilen-Übersteuerung: 400 mit deren Nummer, kein neuer Entwurf", async () => {
     await entwurfHolenOderAnlegen("ws_1", "deal_1", { userId: "usr_1", quelle: "mensch" });
     await uebersteuern("ws_1", "deal_1", 1, { art: "zeile", key: "personal.arbeit", wert: 150, grund: "eingespieltes Team" }, { userId: "usr_1", quelle: "mensch" });
