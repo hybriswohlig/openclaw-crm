@@ -108,7 +108,8 @@ async function rechne(
     // Ein Ergebnis ohne Echo des Rechners (Montage je Position) zählt wie eine geänderte Eingabe.
     const veraltet = vorher.result !== null && ergebnisVeraltet(vorher.result);
     if (vorher.inputHash === hash && gleicherTag && vorher.error === null && !veraltet) return { status: "unveraendert", kalkulation: vorher };
-    if (!veraltet && jetzt().getTime() - vorher.computedAt.getTime() < DROSSEL_MS) return { status: "gedrosselt", kalkulation: vorher };
+    // Die Drossel gilt auch dann: ein alter Rechner ohne Echo darf nicht jeden Aufruf zahlen lassen.
+    if (jetzt().getTime() - vorher.computedAt.getTime() < DROSSEL_MS) return { status: "gedrosselt", kalkulation: vorher };
   }
 
   // Zeitpunkt des Starts: der Speicher lässt eine später begonnene Rechnung nicht von einer älteren überschreiben.

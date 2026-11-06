@@ -52,13 +52,17 @@ describe("ensureDealCalculation", () => {
     expect(t.aufrufe).toBe(1);
   });
 
-  it("Ergebnis ohne Echo montageJePosition gilt als veraltet: rechnet neu, auch am selben Tag und innerhalb der Drossel", async () => {
+  it("Ergebnis ohne Echo montageJePosition gilt als veraltet: rechnet am selben Tag neu, aber erst nach der Drossel", async () => {
     const t = aufbau();
     const anfrage = rechnerAnfrageAus(lead(3), { heute: "2026-10-01" });
     t.zeilen.set("deal1", {
       dealRecordId: "deal1", workspaceId: "ws", inputHash: eingabeHash(anfrage), request: anfrage,
       result: { preis: { festpreis: 800 } }, error: null, computedAt: t.deps.jetzt(),
     });
+    // Innerhalb der Drossel kein Aufruf: ein alter Rechner ohne Echo soll nicht jeden Seitenaufruf zahlen lassen.
+    expect((await ensureDealCalculation("ws", "deal1", t.deps)).status).toBe("gedrosselt");
+    expect(t.aufrufe).toBe(0);
+    t.spaeter(61);
     const r = await ensureDealCalculation("ws", "deal1", t.deps);
     expect(r.status).toBe("neu");
     expect(t.aufrufe).toBe(1);
