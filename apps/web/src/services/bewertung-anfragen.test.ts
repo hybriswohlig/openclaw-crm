@@ -506,7 +506,7 @@ describe("Erfolg", () => {
   });
 
   it("Bridge lehnt ab: NICHT_GESENDET, Token gelöscht, Einwilligung bleibt, neuer Versuch möglich", async () => {
-    mocks.sendeAntwort.mockRejectedValueOnce(new BaileysBridgeError(503, "account not connected"));
+    mocks.sendeAntwort.mockRejectedValueOnce(new BaileysBridgeError(500, "account acc_1 is not connected (status=connecting)"));
     const s = fake({ einwilligung: false, gespraeche: [BAILEYS] });
     const err = await bewertungAnfragen(WS, DEAL, { ...ANFRAGE, einwilligung: "Am Telefon am 03.11." }, s).catch((e) => e);
     expect(err).toBeInstanceOf(BewertungVersandFehler);
@@ -514,6 +514,36 @@ describe("Erfolg", () => {
     expect(s.st.tokens).toEqual([]);
     expect(s.st.einwilligungen).toHaveLength(1);
     await expect(bewertungAnfragen(WS, DEAL, ANFRAGE, s)).resolves.toEqual({ gesendet: true, gespraechId: "conv_baileys" });
+  });
+
+  it("Bridge 504 (nginx) nach möglichem Versand: VERSAND_UNKLAR, Token bleibt", async () => {
+    mocks.sendeAntwort.mockRejectedValueOnce(new BaileysBridgeError(504, "bridge returned 504"));
+    const s = fake({ gespraeche: [BAILEYS] });
+    const err = await bewertungAnfragen(WS, DEAL, ANFRAGE, s).catch((e) => e);
+    expect(err).toBeInstanceOf(BewertungVersandFehler);
+    expect(err.code).toBe("VERSAND_UNKLAR");
+    expect(s.tokenLoeschen).not.toHaveBeenCalled();
+    expect(s.st.tokens).toHaveLength(1);
+  });
+
+  it("Token lässt sich nach einem Fehler vor dem Versand nicht löschen: Wortlaut wie unklar, kein „neuer Versuch möglich“", async () => {
+    mocks.sendeAntwort.mockRejectedValueOnce(new BaileysBridgeError(401, "unauthorized"));
+    const s = fake({ gespraeche: [BAILEYS] });
+    vi.mocked(s.tokenLoeschen).mockRejectedValueOnce(new Error("DB weg"));
+    const err = await bewertungAnfragen(WS, DEAL, ANFRAGE, s).catch((e) => e);
+    expect(err).toBeInstanceOf(BewertungVersandFehler);
+    expect(err.code).toBe("VERSAND_UNKLAR");
+    expect(err.message).toBe("Nicht gesendet, aber die Sperre für diesen Deal bleibt bestehen. Bitte im Gespräch prüfen, bevor erneut gesendet wird.");
+    expect(err.message).not.toContain("neuer Versuch");
+  });
+
+  it("Fenster abgelaufen, Token lässt sich nicht löschen: ebenfalls Wortlaut wie unklar", async () => {
+    mocks.sendeAntwort.mockRejectedValueOnce(new WhatsAppSessionExpiredError());
+    const s = fake();
+    vi.mocked(s.tokenLoeschen).mockRejectedValueOnce(new Error("DB weg"));
+    const err = await bewertungAnfragen(WS, DEAL, ANFRAGE, s).catch((e) => e);
+    expect(err).toBeInstanceOf(BewertungVersandFehler);
+    expect(err.code).toBe("VERSAND_UNKLAR");
   });
 
   it("nachEigenerNachricht wirft nach dem Senden: Status, Ereignis und Erfolg trotzdem", async () => {
@@ -565,8 +595,13 @@ describe("nichtsGesendet", () => {
     ["Gespräch fehlt", new GespraechNichtGefunden()],
     ["OpenClaw", new OpenClawAusgehendFehler()],
     ["Bridge nicht eingerichtet", new BaileysBridgeNotConfiguredError()],
-    ["Bridge lehnt ab", new BaileysBridgeError(502, "bridge returned 502")],
-    ["Graph-API Fehlerstatus", new Error("WhatsApp send failed: (#131047) Re-engagement message")],
+    ["Bridge 400", new BaileysBridgeError(400, "invalid_body")],
+    ["Bridge 401", new BaileysBridgeError(401, "unauthorized")],
+    ["Bridge 413", new BaileysBridgeError(413, "Die Datei ist zu groß für die WhatsApp-Bridge (der JSON-Body überschreitet das Limit).")],
+    ["Konto nicht verbunden", new BaileysBridgeError(500, "account acc_1 is not connected (status=missing)")],
+    ["Graph-API mit Meta-Fehler", new Error("WhatsApp send failed: (#131047) Re-engagement message")],
+    ["Graph-API 5xx mit Meta-Fehler", new Error("WhatsApp send failed: (#131000) Something went wrong")],
+    ["Graph-API 4xx ohne Meta-Fehler", new Error("WhatsApp send failed: Meta API error 400")],
     ["Gespräch fehlt (Senden)", new Error("Conversation not found")],
     ["Konto fehlt", new Error("Channel account not found")],
     ["kein WhatsApp", new Error("Conversation is not a WhatsApp conversation")],
@@ -582,6 +617,14 @@ describe("nichtsGesendet", () => {
   it.each<[string, unknown]>([
     ["Netzfehler beim Abruf", new TypeError("fetch failed")],
     ["Bridge ok ohne ID", new BaileysBridgeError(500, "bridge returned no externalMessageId")],
+    ["Bridge 502 (nginx)", new BaileysBridgeError(502, "bridge returned 502")],
+    ["Bridge 503", new BaileysBridgeError(503, "bridge returned 503")],
+    ["Bridge 504 (nginx)", new BaileysBridgeError(504, "bridge returned 504")],
+    ["sendMessage ohne key.id", new BaileysBridgeError(500, "sendMessage returned no key.id")],
+    ["anderer Bridge-500", new BaileysBridgeError(500, "Connection Closed")],
+    ["Bridge 404", new BaileysBridgeError(404, "not_found")],
+    ["Graph-API 5xx ohne Meta-Fehler", new Error("WhatsApp send failed: Meta API error 503")],
+    ["Graph-API 500 ohne Meta-Fehler", new Error("WhatsApp send failed: Meta API error 500")],
     ["Speichern nach dem Abruf", new Error("duplicate key value violates unique constraint")],
     ["Fehlerunterklasse mit gleichem Text", Object.assign(new RangeError("Conversation not found"))],
     ["kein Error", "kaputt"],
@@ -609,7 +652,7 @@ describe("Doppelt senden", () => {
     expect(s.st.tokens).toHaveLength(1);
   });
 
-  it("Prüfen, Token und Senden laufen hinter der Sperre des Deals", async () => {
+  it("der Anspruch (Token) entsteht hinter der Sperre des Deals", async () => {
     const s = fake();
     await bewertungAnfragen(WS, DEAL, ANFRAGE, s);
     expect(s.gesperrt).toHaveBeenCalledWith(WS, DEAL, expect.any(Function));

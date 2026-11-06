@@ -109,15 +109,20 @@ export class BewertungFehler extends Error {
  * ist wieder weg. `VERSAND_UNKLAR`: die Nachricht kann draußen sein, der Token
  * bleibt und sperrt ein erneutes Senden. Die Route antwortet 502.
  */
+const SPERRE_BLEIBT =
+  "Nicht gesendet, aber die Sperre für diesen Deal bleibt bestehen. Bitte im Gespräch prüfen, bevor erneut gesendet wird.";
+
 export class BewertungVersandFehler extends Error {
   constructor(
     public readonly code: "NICHT_GESENDET" | "VERSAND_UNKLAR",
-    public readonly ursache: unknown
+    public readonly ursache: unknown,
+    message?: string
   ) {
     super(
-      code === "VERSAND_UNKLAR"
-        ? "Senden unklar. Bitte im Gespräch prüfen, bevor erneut gesendet wird."
-        : "Nicht gesendet. Die Nachricht hat WhatsApp nicht erreicht, ein neuer Versuch ist möglich."
+      message ??
+        (code === "VERSAND_UNKLAR"
+          ? "Senden unklar. Bitte im Gespräch prüfen, bevor erneut gesendet wird."
+          : "Nicht gesendet. Die Nachricht hat WhatsApp nicht erreicht, ein neuer Versuch ist möglich.")
     );
     this.name = "BewertungVersandFehler";
   }
@@ -686,9 +691,33 @@ const VOR_DEM_ABRUF_ANFANG = [
   "Channel account is WABA, not Baileys",
   "Channel account uses bridge '",
   "Conversation is keyed to a WhatsApp group/channel",
-  // Graph-API hat mit einem Fehlerstatus geantwortet: nicht angenommen.
-  "WhatsApp send failed: ",
 ];
+
+/**
+ * Bridge-Status, bei denen sie vor `sock.sendMessage` abgelehnt hat
+ * (apps/baileys-bridge/src/http/server.ts): 400 invalid_body, 401 unauthorized,
+ * 413 zu großer Body. Jeder 5xx (auch 502/504 von nginx und der 500 nach
+ * `sendMessage`, „sendMessage returned no key.id“) kann nach dem Versand
+ * entstehen und ist unklar.
+ */
+const BRIDGE_ABGELEHNT = new Set([400, 401, 413]);
+/** Der Bridge-500 vor dem Versand: socket-manager.ts sendText, Konto nicht verbunden. */
+const BRIDGE_NICHT_VERBUNDEN = /^account \S+ is not connected\b/;
+
+/**
+ * Graph-API hat mit Fehlerstatus geantwortet (sendWhatsAppReply): mit Meta-
+ * Fehlertext (`json.error.message`) ist die Nachricht nicht angenommen. Ohne
+ * Meta-Fehler bei einem 5xx („Meta API error 503“, etwa ein Gateway) ist es
+ * unklar; ohne Meta-Fehler bei einem 4xx nicht angenommen.
+ */
+function graphApiAbgelehnt(message: string): boolean {
+  const praefix = "WhatsApp send failed: ";
+  if (!message.startsWith(praefix)) return false;
+  const ohneMeta = /^Meta API error (\d{3})$/.exec(message.slice(praefix.length));
+  if (!ohneMeta) return true;
+  const status = Number(ohneMeta[1]);
+  return status >= 400 && status < 500;
+}
 
 export function nichtsGesendet(err: unknown): boolean {
   if (
@@ -699,11 +728,15 @@ export function nichtsGesendet(err: unknown): boolean {
   ) {
     return true;
   }
-  // Die Bridge hat abgelehnt (kein 2xx oder ok: false). „no externalMessageId“
-  // kommt nach ok: true und ist darum unklar.
-  if (err instanceof BaileysBridgeError) return err.message !== "bridge returned no externalMessageId";
+  if (err instanceof BaileysBridgeError) {
+    return BRIDGE_ABGELEHNT.has(err.status) || (err.status === 500 && BRIDGE_NICHT_VERBUNDEN.test(err.message));
+  }
   if (!(err instanceof Error) || err.constructor !== Error) return false;
-  return VOR_DEM_ABRUF.has(err.message) || VOR_DEM_ABRUF_ANFANG.some((a) => err.message.startsWith(a));
+  return (
+    VOR_DEM_ABRUF.has(err.message) ||
+    VOR_DEM_ABRUF_ANFANG.some((a) => err.message.startsWith(a)) ||
+    graphApiAbgelehnt(err.message)
+  );
 }
 
 /**
@@ -787,7 +820,9 @@ export async function bewertungAnfragen(
       try {
         await speicher.tokenLoeschen(ws, deal, token);
       } catch (loeschErr) {
+        // Der Token bleibt und sperrt den nächsten Versuch: nicht „neuer Versuch möglich“ sagen.
         console.error("[bewertung-anfragen] Token nach Fehler vor dem Versand nicht entfernt:", loeschErr);
+        throw new BewertungVersandFehler("VERSAND_UNKLAR", err, SPERRE_BLEIBT);
       }
       if (err instanceof WhatsAppSessionExpiredError) throw new BewertungFehler("FENSTER");
       throw new BewertungVersandFehler("NICHT_GESENDET", err);
