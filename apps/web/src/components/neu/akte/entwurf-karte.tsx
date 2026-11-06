@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { GlassButton } from "@/components/glassyui/glass-button";
 import { apiAufruf, jsonAufruf } from "./api";
-import { freigabeFehler } from "./gespraech-texte";
+import { freigabeBody, freigabeFehler } from "./gespraech-texte";
 
 export { freigabeFehler };
 
@@ -109,7 +109,7 @@ export function EntwurfKarte({
       res = await fetch(`/api/v1/agent-drafts/${e.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "approve_and_send", finalText: e.text, humanApproved: true }),
+        body: JSON.stringify(freigabeBody()),
       });
     } catch {
       beenden();

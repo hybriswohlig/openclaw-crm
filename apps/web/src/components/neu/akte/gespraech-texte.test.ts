@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   fensterZu,
+  freigabeBody,
   freigabeFehler,
   gateGruende,
   nachStart,
@@ -161,5 +162,13 @@ describe("nachStart", () => {
 describe("posteingangUrl", () => {
   it("öffnet das Gespräch in der alten Inbox", () => {
     expect(posteingangUrl("g 1")).toBe("/inbox?conv=g%201");
+  });
+});
+
+describe("freigabeBody", () => {
+  it("schickt beim Freigeben des unveränderten Entwurfs keinen eigenen Text, damit die Veraltet-Prüfung greift", () => {
+    const body = freigabeBody();
+    expect(body).toEqual({ action: "approve_and_send", humanApproved: true });
+    expect("finalText" in body).toBe(false);
   });
 });

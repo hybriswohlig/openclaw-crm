@@ -57,6 +57,16 @@ export function gateGruende(reasons: readonly string[] | undefined): string[] {
   return aus.length > 0 ? aus : [GATE_ALLGEMEIN];
 }
 
+/**
+ * Body der Freigabe aus der Entwurf-Karte. Die Karte sendet nur den
+ * unveränderten Entwurf (Bearbeiten geht übers Eingabefeld), deshalb ohne
+ * `finalText`: ein eigener Text gälte in `draft-senden.ts` als vom Inhaber
+ * geschrieben und überspränge die Veraltet-Prüfung (`stale`).
+ */
+export function freigabeBody(): { action: "approve_and_send"; humanApproved: true } {
+  return { action: "approve_and_send", humanApproved: true };
+}
+
 /** Deutsche Meldung je Fehlerwort der Freigabe (`PATCH /agent-drafts/{id}`, `approve_and_send`). */
 export function freigabeFehler(fehler: string | undefined, reasons?: readonly string[], detail?: string): string {
   switch (fehler) {
