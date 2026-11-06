@@ -23,10 +23,13 @@ type Zustand =
   | { art: "fehler"; meldung: string }
   | { art: "bereit"; deal: DealData; prefill: PrefilledPreise | undefined };
 
-const TITEL: Record<DokumentArt, string> = { AB: "Auftragsbestätigung", RE: "Rechnung" };
+/** Aus der Akte AB und Rechnung; die Kalkulationsseite öffnet den KV für Kottke (Plan 4, Entscheidung 6). */
+export type DokumentDialogArt = DokumentArt | "KV";
+
+const TITEL: Record<DokumentDialogArt, string> = { AB: "Auftragsbestätigung", RE: "Rechnung", KV: "Kostenvoranschlag" };
 
 /**
- * AB und Rechnung: Hülle um den bestehenden `GenerateDocumentDialog`
+ * AB und Rechnung (und KV für Kottke): Hülle um den bestehenden `GenerateDocumentDialog`
  * (Entscheidung 3). Die Deal-Daten kommen aus `GET /auftrag` (leadContext) über
  * `buildDealDataForDocs`, die Preise aus dem Angebot (`GET /quotation`) über
  * `vorbelegungAusAngebot`. Fehlen Firma oder Kundenname, steht der Hinweis mit
@@ -41,7 +44,7 @@ export function DokumentDialog({
   onSchliessen,
 }: {
   dealId: string;
-  art: DokumentArt;
+  art: DokumentDialogArt;
   altLink: string;
   portalZiel: HTMLElement | undefined;
   onSchliessen: () => void;

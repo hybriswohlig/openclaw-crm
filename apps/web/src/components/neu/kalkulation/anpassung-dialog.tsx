@@ -21,10 +21,11 @@ export type AnpassungStart =
   | { art: "satz"; key: "arbeit" | "fahrt" }
   | { art: "zeitposten"; key?: string; bezeichnung?: string; minuten?: number }
   | { art: "material_frei"; key?: string; bezeichnung?: string; betrag?: number }
-  | { art: "eingabe"; key?: string };
+  | { art: "eingabe"; key?: string }
+  | { art: "marge" };
 
 /** Auswahl im Dialog; Satz Arbeit und Satz Fahrt sind zwei Knöpfe derselben Art. */
-type Wahl = "zeile" | "satz_arbeit" | "satz_fahrt" | "zeitposten" | "material_frei" | "eingabe";
+type Wahl = "zeile" | "satz_arbeit" | "satz_fahrt" | "zeitposten" | "material_frei" | "eingabe" | "marge";
 
 const WAHL_LABEL: Record<Wahl, string> = {
   zeile: "Kostenzeile",
@@ -33,6 +34,7 @@ const WAHL_LABEL: Record<Wahl, string> = {
   zeitposten: "Zeitposten",
   material_frei: "Material",
   eingabe: "Eingabe",
+  marge: "Marge",
 };
 
 const AUFZUG = [
@@ -104,6 +106,7 @@ export function AnpassungDialog({
   const [feldKey, setFeldKey] = useState(() => (start.art === "eingabe" && start.key ? start.key : (felder[0]?.key ?? "")));
   const [feldText, setFeldText] = useState("");
   const [feldSchalter, setFeldSchalter] = useState(false);
+  const [margeText, setMargeText] = useState("");
   const [grund, setGrund] = useState("");
   const [fehler, setFehler] = useState<string | null>(null);
   const [speichert, setSpeichert] = useState(false);
@@ -127,6 +130,8 @@ export function AnpassungDialog({
         return festerKey ?? freierSchluessel(bezeichnung);
       case "eingabe":
         return feldKey;
+      case "marge":
+        return "marge";
     }
   }
   const bestehende = anpassungen.find((a) => a.art === art && a.key === schluessel()) ?? null;
@@ -171,6 +176,11 @@ export function AnpassungDialog({
         if (n === null || (feld.typ === "ganzzahl" && !Number.isInteger(n))) {
           return { ok: false, meldung: `${feld.label}: bitte eine ${feld.typ === "ganzzahl" ? "ganze " : ""}Zahl eingeben.` };
         }
+        return { ok: true, wert: n };
+      }
+      case "marge": {
+        const n = zahlAus(margeText);
+        if (n === null || n < 30 || n > 60) return { ok: false, meldung: "Marge zwischen 30 und 60 %." };
         return { ok: true, wert: n };
       }
     }
@@ -267,6 +277,13 @@ export function AnpassungDialog({
                 </label>
               )}
             </div>
+          ) : null}
+
+          {wahl === "marge" ? (
+            <label className="akte-dialog-feld" htmlFor={`${id}-marge`}>
+              Marge in Prozent (30 bis 60)
+              <input id={`${id}-marge`} className="lg-input" type="text" inputMode="numeric" value={margeText} onChange={(e) => setMargeText(e.target.value)} placeholder="38" autoComplete="off" />
+            </label>
           ) : null}
 
           {wahl === "eingabe" ? (

@@ -1,0 +1,264 @@
+"use client";
+
+import "@/styles/neu-kalk-marge.css";
+
+import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
+import { GlassPanel } from "@/components/glassyui/glass-panel";
+import { DokumentDialog } from "@/components/neu/akte/dokument-dialog";
+import { usePortalZiel } from "@/components/neu/portal-ziel";
+import type { KalkulationsAnsicht } from "@/lib/kalkulations-ansicht";
+import { apiAufruf, jsonAufruf } from "@/components/neu/akte/api";
+import { euro } from "@/components/neu/akte/format";
+import { AnpassungDialog, type AnpassungStart } from "./anpassung-dialog";
+import { AnpassungenListe } from "./anpassungen-liste";
+import type { KalkKontext } from "./kalk-seite";
+import { KvDialog, type KvTexte } from "./kv-dialog";
+import { KvVorschau, PaketeAnzeige } from "./kv-vorschau";
+import { MargeRegler } from "./marge-regler";
+import { margeVorschau } from "./marge-vorschau";
+import { uebersteuerbareZeilen } from "./selbstkosten-spalte";
+import { SperrenBereich } from "./sperren-bereich";
+
+/** Speichern 800 ms nach dem letzten Reglerwert (Entscheidung 4). */
+const REGLER_WARTEZEIT_MS = 800;
+const REGLER_GRUND = "Marge im Regler gewählt";
+
+const PROZENT = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 });
+
+/** „40 %“, „−3 %“, „±0“ */
+export function punkteText(punkte: number): string {
+  if (punkte === 0) return "±0";
+  return `${punkte < 0 ? "−" : ""}${PROZENT.format(Math.abs(punkte))} %`;
+}
+
+/** „Preis = 1.533 € ÷ (1 − 0,38)“ und der ungerundete Preis für die Vorschau des Reglers. */
+export function vorschauFormel(selbstkostenEur: number, prozent: number): { formel: string; rohText: string } {
+  const ganz = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 0 });
+  const faktor = (prozent / 100).toFixed(2).replace(".", ",");
+  return {
+    formel: `Preis = ${ganz.format(selbstkostenEur)} € ÷ (1 − ${faktor})`,
+    rohText: `${ganz.format(selbstkostenEur / (1 - prozent / 100))} €`,
+  };
+}
+
+type Dialog = { art: "anpassung"; start: AnpassungStart } | { art: "kv"; nurKv: boolean } | { art: "kottke" };
+
+/**
+ * Rechte Spalte „Marge und Preis“ (Spec 3.6): Regler mit Vorschlag und
+ * Gründen, Preisblock (Formel, Rundung, Gewinn, Listenpreis), „So steht es
+ * im KV“, Paketpreise, Anpassungen und der Sperrbereich. Der Regler zeigt
+ * beim Ziehen eine Vorschau über `margeVorschau` und speichert 800 ms nach
+ * dem letzten Wert, nur wenn er vom gewählten abweicht (Entscheidung 4).
+ * Sperren schickt den gesehenen Preis mit; 409 PREIS_GEAENDERT lädt neu.
+ */
+export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht; kontext: KalkKontext }) {
+  const { marge, preis, version } = ansicht;
+  const portalZiel = usePortalZiel();
+  const [dialog, setDialog] = useState<Dialog | null>(null);
+  const basis = marge.gewaehltProzent ?? marge.vorschlagProzent ?? marge.min;
+  /** Wert im Regler, solange er vom gespeicherten abweicht; null = folgt der Ansicht. */
+  const [entwurf, setEntwurf] = useState<number | null>(null);
+  const [speichert, setSpeichert] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const beschaeftigt = kontext.laeuft !== null;
+
+  // Neue Ansicht (nach dem Speichern oder Versionswechsel): Regler folgt wieder dem Server.
+  useEffect(() => {
+    setEntwurf(null);
+    setSpeichert(false);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+  }, [kontext.versionNr, marge.gewaehltProzent, marge.vorschlagProzent]);
+
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    []
+  );
+
+  function reglerWert(prozent: number) {
+    setEntwurf(prozent);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      timer.current = null;
+      if (prozent === basis) {
+        setEntwurf(null);
+        return;
+      }
+      setSpeichert(true);
+      void kontext.uebersteuern([{ art: "marge", key: "marge", wert: prozent, grund: REGLER_GRUND }]).then((r) => {
+        setSpeichert(false);
+        if (!r.ok) {
+          toast.error("Marge konnte nicht gespeichert werden.", { description: r.message });
+          setEntwurf(null);
+        }
+      });
+    }, REGLER_WARTEZEIT_MS);
+  }
+
+  const wert = entwurf ?? basis;
+  const vorschau = entwurf !== null && entwurf !== basis ? margeVorschau(marge, entwurf) : null;
+  const formel = vorschau ? vorschauFormel(marge.selbstkostenEur, wert) : null;
+
+  async function sperrenUndKv(texte: KvTexte, nurKv: boolean) {
+    const basisUrl = `/api/v1/deals/${encodeURIComponent(kontext.dealId)}/calculation/versions/${kontext.versionNr}`;
+    kontext.setzeLauf("sperren");
+    try {
+      if (!nurKv) {
+        const kv = ansicht.kv;
+        const sperre = await apiAufruf<{ version: { version: number } }>(
+          `${basisUrl}/lock`,
+          jsonAufruf("POST", {
+            bestaetigtSpanne: kv?.obergrenze ?? false,
+            erwartetPreisCent: kv?.summeCent ?? preis.gerundetCent ?? 0,
+          })
+        );
+        if (!sperre.ok) {
+          if (sperre.status === 409 && sperre.code === "PREIS_GEAENDERT") {
+            toast.error(sperre.message, { description: "Die Ansicht wird neu geladen." });
+          } else {
+            toast.error("Sperren fehlgeschlagen.", { description: sperre.message });
+          }
+          setDialog(null);
+          await kontext.neuLaden();
+          return;
+        }
+      }
+      const kv = await apiAufruf<{ renderer: "crm" | "vps"; document?: { id: string }; fileName?: string; hinweis?: string }>(
+        `${basisUrl}/kv`,
+        jsonAufruf("POST", { copy: texte })
+      );
+      if (!kv.ok) {
+        toast.error(nurKv ? "KV konnte nicht erstellt werden." : "Version gesperrt, aber der KV konnte nicht erstellt werden.", {
+          description: kv.message,
+        });
+        setDialog(null);
+        await kontext.neuLaden();
+        return;
+      }
+      if (kv.data.renderer === "vps") {
+        toast.success(nurKv ? "KV wird erzeugt." : `Version v${kontext.versionNr} gesperrt.`, { description: kv.data.hinweis ?? undefined });
+        setDialog({ art: "kottke" });
+      } else {
+        toast.success(nurKv ? "KV erstellt." : `Version v${kontext.versionNr} gesperrt, KV erstellt.`, {
+          description: kv.data.fileName ?? undefined,
+        });
+        setDialog(null);
+      }
+      await kontext.neuLaden();
+    } finally {
+      kontext.setzeLauf(null);
+    }
+  }
+
+  // Die Dialoge stehen außerhalb des Glas-Panels: dessen backdrop-filter wäre
+  // der Bezugsrahmen für den alten, nicht portalierten GenerateDocumentDialog.
+  return (
+    <>
+    <GlassPanel variant="panel" className="kalk-panel" aria-label="Marge und Preis">
+      <div className="kalk-panel-kopf">
+        <div>
+          <h2 className="kalk-panel-titel">Marge und Preis</h2>
+          <p className="kalk-panel-unter">Was der Kunde zahlt.</p>
+        </div>
+      </div>
+
+      <div className="kalk-marge">
+        <MargeRegler marge={marge} wert={wert} gesperrt={!kontext.bearbeitbar || beschaeftigt} speichert={speichert} onWert={reglerWert} />
+        <ul className="kalk-gruende" aria-label="Gründe des Vorschlags">
+          {marge.gruende.map((g, i) => (
+            <li key={`${g.text}-${i}`}>
+              <span>{g.text}</span>
+              <b>{punkteText(g.punkte)}</b>
+            </li>
+          ))}
+          {marge.gewaehltProzent !== null ? (
+            <li data-gewaehlt="">
+              <span>{marge.gewaehltVon ? `Gewählt von ${marge.gewaehltVon}` : "Gewählt"}</span>
+              <b>{marge.gewaehltProzent} %</b>
+            </li>
+          ) : null}
+        </ul>
+      </div>
+
+      <div className="kalk-preis">
+        <div className="kalk-summe">
+          <span>{formel ? formel.formel : preis.formel}</span>
+          <span>{formel ? formel.rohText : (preis.preisRohText ?? "–")}</span>
+        </div>
+        <div className="kalk-ku">
+          <span>gerundet auf {euro(marge.rundungEur * 100)}{vorschau ? " · Vorschau" : ""}</span>
+          <span className="kalk-ku-a">{vorschau ? euro(vorschau.preisCent) : preis.gerundetCent !== null ? euro(preis.gerundetCent) : "–"}</span>
+        </div>
+        <div className="kalk-ku">
+          <span>Gewinn</span>
+          <span className="kalk-ku-a">{vorschau ? euro(vorschau.gewinnCent) : preis.gewinnCent !== null ? euro(preis.gewinnCent) : "–"}</span>
+        </div>
+        {preis.listenpreisCent !== null ? (
+          <div className="kalk-ku">
+            <span>Listenpreis zum Vergleich</span>
+            <span className="kalk-ku-a">{euro(preis.listenpreisCent)}</span>
+          </div>
+        ) : null}
+        {preis.spanne ? (
+          <div className="kalk-ku">
+            <span>Spanne der Schätzung</span>
+            <span className="kalk-ku-a">
+              {euro(preis.spanne.vonCent)} bis {euro(preis.spanne.bisCent)}
+            </span>
+          </div>
+        ) : null}
+      </div>
+
+      <KvVorschau kv={ansicht.kv} kvFehler={ansicht.kvFehler} />
+      <PaketeAnzeige pakete={ansicht.pakete} preisModus={version.preisModus} link={ansicht.angebotsformularLink} />
+      <AnpassungenListe anpassungen={ansicht.anpassungen} beschaeftigt={beschaeftigt} onOeffnen={(start) => setDialog({ art: "anpassung", start })} />
+      <SperrenBereich
+        dealId={kontext.dealId}
+        version={version}
+        laeuft={kontext.laeuft}
+        onSperren={() => setDialog({ art: "kv", nurKv: false })}
+        onKv={() => setDialog({ art: "kv", nurKv: true })}
+        onNeueVersion={() => void kontext.neueVersion()}
+        onNeuRechnen={() => void kontext.neuRechnen()}
+      />
+    </GlassPanel>
+
+      {dialog?.art === "anpassung" ? (
+        <AnpassungDialog
+          start={dialog.start}
+          zeilen={uebersteuerbareZeilen(ansicht.selbstkosten)}
+          felder={ansicht.grundlage.zeilen.flatMap((z) => z.felder)}
+          anpassungen={ansicht.anpassungen}
+          kontext={kontext}
+          portalZiel={portalZiel}
+          onSchliessen={() => setDialog(null)}
+        />
+      ) : null}
+      {dialog?.art === "kv" ? (
+        <KvDialog
+          version={version}
+          kv={ansicht.kv}
+          laeuft={kontext.laeuft === "sperren"}
+          portalZiel={portalZiel}
+          onSchliessen={() => setDialog(null)}
+          onBestaetigen={(texte) => sperrenUndKv(texte, dialog.nurKv)}
+        />
+      ) : null}
+      {dialog?.art === "kottke" ? (
+        <DokumentDialog
+          dealId={kontext.dealId}
+          art="KV"
+          altLink={ansicht.angebotsformularLink}
+          portalZiel={portalZiel}
+          onSchliessen={() => {
+            setDialog(null);
+            void kontext.neuLaden();
+          }}
+        />
+      ) : null}
+    </>
+  );
+}

@@ -12,6 +12,7 @@ import type { UebersteuerungsArt } from "@/lib/kalkulation-versionen";
 import { apiAufruf, jsonAufruf, type ApiAntwort } from "@/components/neu/akte/api";
 import { GrundlageSpalte } from "./grundlage-spalte";
 import { KalkKopf } from "./kalk-kopf";
+import { MargeSpalte } from "./marge-spalte";
 import { SelbstkostenSpalte } from "./selbstkosten-spalte";
 
 /** Welche Aktion gerade läuft; währenddessen sind alle Eingaben gesperrt (Review Focus 5). */
@@ -283,7 +284,7 @@ export function KalkSeite({ dealId }: { dealId: string }) {
           />
         </div>
         <div className="kalk-spalte">
-          <Platzhalter titel="Marge und Preis" unter="Was der Kunde zahlt." text={`Kommt mit Task 11 (Kontext v${kontext.versionNr}).`} />
+          <MargeSpalte ansicht={ansicht} kontext={kontext} />
         </div>
       </div>
     </div>
@@ -319,20 +320,6 @@ function Hinweisband({
         </button>
       ) : null}
     </div>
-  );
-}
-
-function Platzhalter({ titel, unter, text }: { titel: string; unter: string; text: string }) {
-  return (
-    <GlassPanel variant="panel" className="kalk-panel">
-      <div className="kalk-panel-kopf">
-        <div>
-          <h2 className="kalk-panel-titel">{titel}</h2>
-          <p className="kalk-panel-unter">{unter}</p>
-        </div>
-      </div>
-      <p className="kalk-panel-leer">{text}</p>
-    </GlassPanel>
   );
 }
 

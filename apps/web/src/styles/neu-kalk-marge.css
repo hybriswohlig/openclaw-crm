@@ -1,0 +1,359 @@
+/*
+ * Marge-und-Preis-Spalte der Kalkulationsseite (Plan 4, Task 11): Regler mit
+ * Vorschlagsmarke, Gründe, Preisblock, „So steht es im KV“, Paketpreise,
+ * Anpassungen und der Sperrbereich. Maße aus 05-kalkulation.html.
+ */
+
+/* ── Regler ──────────────────────────────────────────── */
+
+[data-neu] .kalk-marge {
+  padding: 4px 12px 12px;
+}
+
+/* Schiene 6 px, darüber die Vorschlagsmarke, darunter der gewählte Wert. */
+[data-neu] .kalk-regler {
+  position: relative;
+  margin: 30px 8px 26px;
+}
+
+[data-neu] .kalk-regler .lg-slider {
+  width: 100%;
+}
+
+[data-neu] .kalk-regler-marke {
+  position: absolute;
+  top: -24px;
+  transform: translateX(-50%);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--jade-ink);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+[data-neu] .kalk-regler-marke[data-rand="links"] {
+  transform: translateX(0);
+}
+
+[data-neu] .kalk-regler-marke[data-rand="rechts"] {
+  transform: translateX(-100%);
+}
+
+[data-neu] .kalk-regler-wert {
+  position: absolute;
+  bottom: -24px;
+  transform: translateX(-50%);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+[data-neu] .kalk-regler-wert[data-rand="links"] {
+  transform: translateX(0);
+}
+
+[data-neu] .kalk-regler-wert[data-rand="rechts"] {
+  transform: translateX(-100%);
+}
+
+[data-neu] .kalk-regler-wert[data-speichert] {
+  color: var(--ink-2);
+}
+
+[data-neu] .kalk-regler[data-gesperrt] .lg-slider {
+  cursor: not-allowed;
+}
+
+[data-neu] .kalk-regler-enden {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 8px;
+  font-size: 11px;
+  color: var(--ink-2);
+}
+
+[data-neu] .kalk-gruende {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+[data-neu] .kalk-gruende li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+[data-neu] .kalk-gruende b {
+  color: var(--ink);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+[data-neu] .kalk-gruende li[data-gewaehlt] {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+[data-neu] .kalk-gruende li[data-gewaehlt] b {
+  font-weight: 600;
+}
+
+/* ── Preisblock ──────────────────────────────────────── */
+
+[data-neu] .kalk-preis {
+  padding: 0 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+[data-neu] .kalk-preis .kalk-summe {
+  margin-top: 0;
+}
+
+[data-neu] .kalk-preis-hinweis {
+  margin: 0;
+  padding: 0 12px 4px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+/* ── So steht es im KV ───────────────────────────────── */
+
+[data-neu] .kalk-kv {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 0 12px 12px;
+}
+
+[data-neu] .kalk-kvl {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0 12px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+}
+
+[data-neu] .kalk-kvl-t {
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+[data-neu] .kalk-kvl-a {
+  font-size: 13.5px;
+  font-weight: 600;
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+[data-neu] .kalk-kvl-f {
+  grid-column: 1 / -1;
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+
+[data-neu] .kalk-kv-fehler {
+  margin: 0;
+  padding: 9px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--gold) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 35%, transparent);
+  color: var(--gold-ink);
+  font-size: 12.5px;
+}
+
+/* ── Pakete ──────────────────────────────────────────── */
+
+[data-neu] .kalk-pakete {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0;
+  padding: 0 12px 6px;
+  list-style: none;
+}
+
+[data-neu] .kalk-paket {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0 12px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  font-size: 13px;
+}
+
+[data-neu] .kalk-paket b {
+  font-weight: 600;
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+[data-neu] .kalk-paket small {
+  grid-column: 1 / -1;
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+
+[data-neu] .kalk-pakete-hinweis {
+  margin: 0;
+  padding: 0 12px 12px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+[data-neu] .kalk-pakete-hinweis a {
+  color: var(--blue);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+[data-neu] .kalk-pakete-hinweis a:hover {
+  text-decoration: underline;
+}
+
+/* ── Anpassungen ─────────────────────────────────────── */
+
+[data-neu] .kalk-notizen {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0 12px 12px;
+  list-style: none;
+}
+
+[data-neu] .kalk-notiz {
+  display: block;
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--gold) 12%, var(--fill-3));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 35%, transparent);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+[data-neu] button.kalk-notiz {
+  cursor: pointer;
+}
+
+[data-neu] button.kalk-notiz:hover {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 55%, transparent), var(--shadow);
+}
+
+[data-neu] button.kalk-notiz:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+[data-neu] button.kalk-notiz:disabled {
+  cursor: progress;
+}
+
+[data-neu] .kalk-notiz small {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--gold-ink);
+}
+
+[data-neu] .kalk-notiz-plus {
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 12px;
+  text-align: center;
+  justify-content: center;
+  font-size: 12.5px;
+}
+
+[data-neu] .kalk-notizen-leer {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  padding: 2px 0 4px;
+}
+
+/* ── Sperren ─────────────────────────────────────────── */
+
+[data-neu] .kalk-aktionen {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 12px 14px;
+}
+
+[data-neu] .kalk-sperrgrund {
+  margin: 0;
+  padding: 9px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--gold) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 35%, transparent);
+  color: var(--gold-ink);
+  font-size: 12.5px;
+}
+
+[data-neu] .kalk-sperrgrund[data-ton="rose"] {
+  background: color-mix(in srgb, var(--rose) 10%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rose) 30%, transparent);
+  color: var(--rose-ink);
+}
+
+[data-neu] .kalk-aktionen-hinweis {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--ink-2);
+  text-align: center;
+}
+
+[data-neu] .kalk-kv-fertig {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  padding: 9px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--jade) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--jade) 35%, transparent);
+  color: var(--jade-ink);
+  font-size: 12.5px;
+}
+
+/* ── KV-Dialog ───────────────────────────────────────── */
+
+[data-neu] .kalk-kv-dialog-summe {
+  margin: 0 0 12px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+[data-neu] .kalk-kv-dialog-summe small {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--ink-2);
+}
