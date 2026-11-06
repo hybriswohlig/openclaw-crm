@@ -8,6 +8,7 @@
  * „2.480 €“, „38 m³“). Keine Gedankenstriche, Trenner „·“.
  */
 import { berlinDateString } from "@/lib/berlin-date";
+import { zahlungsartText } from "@/lib/zahlungsart";
 
 export type GespraechKanalArt = "whatsapp" | "email" | "sms";
 
@@ -55,8 +56,10 @@ export interface SystemFakten {
   }[];
   versand: { am: string; version: number; kanal: string }[];
   geoeffnet: { anzahl: number; zuletzt: string } | null;
-  zahlungen: { am: string; betragCent: number; art: string | null }[];
-  kundenereignisse: { am: string; typ: string; payload: unknown }[];
+  /** `id` = payments.id (stabile Zeilen-ID). */
+  zahlungen: { id: string; am: string; betragCent: number; art: string | null }[];
+  /** `id` = activity_events.id (stabile Zeilen-ID). */
+  kundenereignisse: { id: string; am: string; typ: string; payload: unknown }[];
 }
 
 // ─── Anzeige ──────────────────────────────────────────────────────────────────
@@ -141,20 +144,6 @@ export function anpassungLabel(key: string): string {
 
 const VERSAND_LABEL: Record<string, string> = { whatsapp: "WhatsApp", email: "E-Mail", sms: "SMS" };
 
-/**
- * Zahlungsart → Anzeige. Gleiche Aufzählung wie Entscheidung 4; Altwerte und
- * Unbekanntes erscheinen als Rohwert.
- * TODO(Task 2): durch `zahlungsartText` aus `lib/zahlungsart.ts` ersetzen, sobald
- * es auf dem Zweig liegt (hier nur, um die Datei von Task 2 nicht anzufassen).
- */
-const ZAHLUNGSART_ANZEIGE: Record<string, string> = {
-  bank_transfer: "Überweisung",
-  paypal: "PayPal",
-  cash: "Bar",
-  card: "Karte",
-  other: "Sonstiges",
-};
-
 // ─── Zusammenführen ───────────────────────────────────────────────────────────
 
 const RANG: Record<GespraechEintrag["art"], number> = { system: 0, anruf: 1, nachricht: 2 };
@@ -195,8 +184,8 @@ function textAus(payload: unknown, feld: string): string | null {
   return typeof v === "string" && v.trim() !== "" ? v : null;
 }
 
-function kundenzeile(e: SystemFakten["kundenereignisse"][number], i: number): Systemzeile | null {
-  const id = `sys:kunde:${i}`;
+function kundenzeile(e: SystemFakten["kundenereignisse"][number]): Systemzeile | null {
+  const id = `sys:kunde:${e.id}`;
   switch (e.typ) {
     case "customer.kva_confirmed":
       return zeile(id, e.am, ["Kunde hat angenommen"], null);
@@ -267,18 +256,15 @@ export function systemzeilenAus(f: SystemFakten, jetzt: Date = new Date()): Syst
     );
   }
 
-  f.zahlungen.forEach((z, i) => {
-    const art = z.art ? (ZAHLUNGSART_ANZEIGE[z.art] ?? z.art) : null;
-    out.push(zeile(`sys:zahlung:${i}`, z.am, ["Zahlung erfasst", euroText(z.betragCent), ...(art ? [art] : [])], null));
-  });
+  for (const z of f.zahlungen) {
+    // Ohne Angabe entfällt der Teil (zahlungsartText gäbe „keine Angabe“).
+    const art = z.art && z.art.trim() !== "" ? zahlungsartText(z.art) : null;
+    out.push(zeile(`sys:zahlung:${z.id}`, z.am, ["Zahlung erfasst", euroText(z.betragCent), ...(art ? [art] : [])], null));
+  }
 
-  let k = 0;
   for (const e of f.kundenereignisse) {
-    const z = kundenzeile(e, k);
-    if (z) {
-      out.push(z);
-      k++;
-    }
+    const z = kundenzeile(e);
+    if (z) out.push(z);
   }
 
   return out;

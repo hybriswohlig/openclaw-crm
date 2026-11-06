@@ -275,15 +275,15 @@ describe("dbGespraechSpeicher.fakten", () => {
       if (text.includes("customer_status_links")) return [{ view_count: 3, last_viewed_at: "2026-11-06 07:12:00" }];
       if (text.includes("activity_events")) {
         return [
-          { event_type: "customer.kva_confirmed", payload: { confirmationId: "k1" }, created_at: "2026-11-04 10:00:00" },
-          { event_type: "customer.marked_paid", payload: JSON.stringify({ amountCents: 50000 }), created_at: "2026-11-05 10:00:00" },
+          { id: "ev_1", event_type: "customer.kva_confirmed", payload: { confirmationId: "k1" }, created_at: "2026-11-04 10:00:00" },
+          { id: "ev_2", event_type: "customer.marked_paid", payload: JSON.stringify({ amountCents: 50000 }), created_at: "2026-11-05 10:00:00" },
         ];
       }
       throw new Error(`unerwartete Abfrage: ${text}`);
     });
     mocks.listPayments.mockResolvedValue([
-      { date: "2026-11-05", amount: "500.00", paymentMethod: "bank_transfer", createdAt: new Date("2026-11-05T11:00:00.000Z") },
-      { date: "2026-10-30", amount: "125.50", paymentMethod: null, createdAt: new Date("2026-11-05T11:05:00.000Z") },
+      { id: "pay_1", date: "2026-11-05", amount: "500.00", paymentMethod: "bank_transfer", createdAt: new Date("2026-11-05T11:00:00.000Z") },
+      { id: "pay_2", date: "2026-10-30", amount: "125.50", paymentMethod: null, createdAt: new Date("2026-11-05T11:05:00.000Z") },
     ]);
 
     const f = await dbGespraechSpeicher.fakten(WS, DEAL);
@@ -299,12 +299,12 @@ describe("dbGespraechSpeicher.fakten", () => {
       versand: [{ am: "2026-11-03T09:00:00.000Z", version: 2, kanal: "whatsapp" }],
       geoeffnet: { anzahl: 3, zuletzt: "2026-11-06T07:12:00.000Z" },
       zahlungen: [
-        { am: "2026-11-05T11:00:00.000Z", betragCent: 50000, art: "bank_transfer" },
-        { am: "2026-10-30", betragCent: 12550, art: null },
+        { id: "pay_1", am: "2026-11-05T11:00:00.000Z", betragCent: 50000, art: "bank_transfer" },
+        { id: "pay_2", am: "2026-10-30", betragCent: 12550, art: null },
       ],
       kundenereignisse: [
-        { am: "2026-11-04T10:00:00.000Z", typ: "customer.kva_confirmed", payload: { confirmationId: "k1" } },
-        { am: "2026-11-05T10:00:00.000Z", typ: "customer.marked_paid", payload: { amountCents: 50000 } },
+        { id: "ev_1", am: "2026-11-04T10:00:00.000Z", typ: "customer.kva_confirmed", payload: { confirmationId: "k1" } },
+        { id: "ev_2", am: "2026-11-05T10:00:00.000Z", typ: "customer.marked_paid", payload: { amountCents: 50000 } },
       ],
     });
     expect(mocks.listPayments).toHaveBeenCalledWith(DEAL);

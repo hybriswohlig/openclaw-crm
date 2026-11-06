@@ -283,7 +283,7 @@ async function faktenLesen(ws: string, deal: string): Promise<SystemFakten> {
       LIMIT 1
     `),
     db.execute(sql`
-      SELECT e.event_type AS event_type, e.payload AS payload, e.created_at AS created_at
+      SELECT e.id AS id, e.event_type AS event_type, e.payload AS payload, e.created_at AS created_at
       FROM activity_events e
       WHERE e.workspace_id = ${ws} AND e.record_id = ${deal}
         AND e.event_type IN (${sql.join(
@@ -308,7 +308,7 @@ async function faktenLesen(ws: string, deal: string): Promise<SystemFakten> {
     overrides: unknown;
   }>(versionRes);
   const [link] = zeilen<{ view_count: unknown; last_viewed_at: unknown }>(linkRes);
-  const kunde = zeilen<{ event_type: string; payload: unknown; created_at: unknown }>(kundeRes);
+  const kunde = zeilen<{ id: string; event_type: string; payload: unknown; created_at: unknown }>(kundeRes);
 
   const fotoAm = alsIso(foto?.foto_am);
   const volumen = alsZahl(foto?.volumen);
@@ -347,11 +347,11 @@ async function faktenLesen(ws: string, deal: string): Promise<SystemFakten> {
       if (euro === null) return [];
       // Gebucht am Tag der Erfassung: genaue Zeit der Erfassung, sonst das Buchungsdatum.
       const am = z.createdAt && berlinDateString(z.createdAt) === z.date ? z.createdAt.toISOString() : z.date;
-      return [{ am, betragCent: Math.round(euro * 100), art: z.paymentMethod ?? null }];
+      return [{ id: z.id, am, betragCent: Math.round(euro * 100), art: z.paymentMethod ?? null }];
     }),
     kundenereignisse: kunde.flatMap((e) => {
       const am = alsIso(e.created_at);
-      return am ? [{ am, typ: e.event_type, payload: alsJson(e.payload) }] : [];
+      return am ? [{ id: e.id, am, typ: e.event_type, payload: alsJson(e.payload) }] : [];
     }),
   };
 }

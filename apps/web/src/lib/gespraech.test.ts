@@ -197,18 +197,41 @@ describe("systemzeilenAus", () => {
       {
         ...LEER,
         zahlungen: [
-          { am: "2026-11-05T10:00:00.000Z", betragCent: 50000, art: "bank_transfer" },
-          { am: "2026-11-05T11:00:00.000Z", betragCent: 12550, art: null },
-          { am: "2026-11-05T12:00:00.000Z", betragCent: 1000, art: "Scheck" },
+          { id: "pay_a", am: "2026-11-05T10:00:00.000Z", betragCent: 50000, art: "bank_transfer" },
+          { id: "pay_b", am: "2026-11-05T11:00:00.000Z", betragCent: 12550, art: null },
+          { id: "pay_c", am: "2026-11-05T12:00:00.000Z", betragCent: 1000, art: "Scheck" },
+          { id: "pay_d", am: "2026-11-05T13:00:00.000Z", betragCent: 2000, art: "bar" },
+          { id: "pay_e", am: "2026-11-05T14:00:00.000Z", betragCent: 3000, art: "  " },
         ],
       },
       JETZT
     );
     expect(zeilen.slice(1).map((z) => [z.id, z.text, z.betont])).toEqual([
-      ["sys:zahlung:0", "Zahlung erfasst · 500 € · Überweisung", null],
-      ["sys:zahlung:1", "Zahlung erfasst · 125,50 €", null],
-      ["sys:zahlung:2", "Zahlung erfasst · 10 € · Scheck", null],
+      ["sys:zahlung:pay_a", "Zahlung erfasst · 500 € · Überweisung", null],
+      ["sys:zahlung:pay_b", "Zahlung erfasst · 125,50 €", null],
+      ["sys:zahlung:pay_c", "Zahlung erfasst · 10 € · Scheck", null],
+      ["sys:zahlung:pay_d", "Zahlung erfasst · 20 € · Bar", null],
+      ["sys:zahlung:pay_e", "Zahlung erfasst · 30 €", null],
     ]);
+  });
+
+  it("IDs der Zahlungs- und Kundenzeilen bleiben stabil, wenn eine rückdatierte Zeile dazukommt", () => {
+    const zahlung = { id: "pay_spaet", am: "2026-11-05T10:00:00.000Z", betragCent: 50000, art: "cash" };
+    const ereignis = { id: "ev_spaet", am: "2026-11-05T10:00:00.000Z", typ: "customer.kva_signed", payload: {} };
+    const vorher = systemzeilenAus({ ...LEER, zahlungen: [zahlung], kundenereignisse: [ereignis] }, JETZT);
+    const nachher = systemzeilenAus(
+      {
+        ...LEER,
+        zahlungen: [{ id: "pay_frueh", am: "2026-10-01", betragCent: 10000, art: null }, zahlung],
+        kundenereignisse: [{ id: "ev_frueh", am: "2026-10-01T10:00:00.000Z", typ: "customer.kva_confirmed", payload: {} }, ereignis],
+      },
+      JETZT
+    );
+    const id = (zeilen: typeof vorher, text: string) => zeilen.find((z) => z.text === text)?.id;
+    expect(id(vorher, "Zahlung erfasst · 500 € · Bar")).toBe("sys:zahlung:pay_spaet");
+    expect(id(nachher, "Zahlung erfasst · 500 € · Bar")).toBe("sys:zahlung:pay_spaet");
+    expect(id(vorher, "Kunde hat unterschrieben")).toBe("sys:kunde:ev_spaet");
+    expect(id(nachher, "Kunde hat unterschrieben")).toBe("sys:kunde:ev_spaet");
   });
 
   it("Kundenereignisse mit exaktem Text, unbekannte Typen fallen weg", () => {
@@ -216,24 +239,24 @@ describe("systemzeilenAus", () => {
       {
         ...LEER,
         kundenereignisse: [
-          { am: "2026-11-04T10:00:00.000Z", typ: "customer.kva_confirmed", payload: { confirmedTotalCents: 248000 } },
-          { am: "2026-11-04T10:05:00.000Z", typ: "customer.kva_signed", payload: {} },
-          { am: "2026-11-04T10:10:00.000Z", typ: "customer.date_selected", payload: { selectedDate: "2026-11-20" } },
-          { am: "2026-11-05T10:00:00.000Z", typ: "customer.marked_paid", payload: { amountCents: 50000, variant: "deposit" } },
-          { am: "2026-11-05T11:00:00.000Z", typ: "customer.marked_paid", payload: {} },
-          { am: "2026-11-05T12:00:00.000Z", typ: "customer.date_selected", payload: null },
-          { am: "2026-11-05T13:00:00.000Z", typ: "customer.something", payload: {} },
+          { id: "ev_0", am: "2026-11-04T10:00:00.000Z", typ: "customer.kva_confirmed", payload: { confirmedTotalCents: 248000 } },
+          { id: "ev_1", am: "2026-11-04T10:05:00.000Z", typ: "customer.kva_signed", payload: {} },
+          { id: "ev_2", am: "2026-11-04T10:10:00.000Z", typ: "customer.date_selected", payload: { selectedDate: "2026-11-20" } },
+          { id: "ev_3", am: "2026-11-05T10:00:00.000Z", typ: "customer.marked_paid", payload: { amountCents: 50000, variant: "deposit" } },
+          { id: "ev_4", am: "2026-11-05T11:00:00.000Z", typ: "customer.marked_paid", payload: {} },
+          { id: "ev_5", am: "2026-11-05T12:00:00.000Z", typ: "customer.date_selected", payload: null },
+          { id: "ev_6", am: "2026-11-05T13:00:00.000Z", typ: "customer.something", payload: {} },
         ],
       },
       JETZT
     );
     expect(zeilen.slice(1).map((z) => [z.id, z.zeit, z.text, z.betont])).toEqual([
-      ["sys:kunde:0", "2026-11-04T10:00:00.000Z", "Kunde hat angenommen", null],
-      ["sys:kunde:1", "2026-11-04T10:05:00.000Z", "Kunde hat unterschrieben", null],
-      ["sys:kunde:2", "2026-11-04T10:10:00.000Z", "Kunde hat einen Termin gewählt · Fr 20.11.", null],
-      ["sys:kunde:3", "2026-11-05T10:00:00.000Z", "Kunde meldet bezahlt · 500 €", null],
-      ["sys:kunde:4", "2026-11-05T11:00:00.000Z", "Kunde meldet bezahlt", null],
-      ["sys:kunde:5", "2026-11-05T12:00:00.000Z", "Kunde hat einen Termin gewählt", null],
+      ["sys:kunde:ev_0", "2026-11-04T10:00:00.000Z", "Kunde hat angenommen", null],
+      ["sys:kunde:ev_1", "2026-11-04T10:05:00.000Z", "Kunde hat unterschrieben", null],
+      ["sys:kunde:ev_2", "2026-11-04T10:10:00.000Z", "Kunde hat einen Termin gewählt · Fr 20.11.", null],
+      ["sys:kunde:ev_3", "2026-11-05T10:00:00.000Z", "Kunde meldet bezahlt · 500 €", null],
+      ["sys:kunde:ev_4", "2026-11-05T11:00:00.000Z", "Kunde meldet bezahlt", null],
+      ["sys:kunde:ev_5", "2026-11-05T12:00:00.000Z", "Kunde hat einen Termin gewählt", null],
     ]);
   });
 
@@ -247,14 +270,14 @@ describe("systemzeilenAus", () => {
         sperrungen: [{ am: "2026-11-03T08:00:00.000Z", von: "Dario", version: 2, betragCent: 248000, ersteAnpassung: { key: "marge", grund: "Stammkunde" }, anpassungen: 2 }],
         versand: [{ am: "2026-11-03T09:00:00.000Z", version: 2, kanal: "whatsapp" }],
         geoeffnet: { anzahl: 3, zuletzt: "2026-11-06T07:12:00.000Z" },
-        zahlungen: [{ am: "2026-11-05", betragCent: 50000, art: "cash" }],
-        kundenereignisse: [{ am: "2026-11-04T10:00:00.000Z", typ: "customer.kva_confirmed", payload: {} }],
+        zahlungen: [{ id: "pay_1", am: "2026-11-05", betragCent: 50000, art: "cash" }],
+        kundenereignisse: [{ id: "ev_1", am: "2026-11-04T10:00:00.000Z", typ: "customer.kva_confirmed", payload: {} }],
       },
       JETZT
     );
     expect(zeilen).toHaveLength(7);
     for (const z of zeilen) expect(z.text).not.toMatch(/[–—]/);
-    expect(zeilen.find((z) => z.id === "sys:zahlung:0")?.text).toBe("Zahlung erfasst · 500 € · Bar");
+    expect(zeilen.find((z) => z.id === "sys:zahlung:pay_1")?.text).toBe("Zahlung erfasst · 500 € · Bar");
   });
 });
 

@@ -75,7 +75,7 @@ describe("nachZahlung", () => {
     ],
   ] as const)("%s ändert die Stufe nicht", async (_name, rest, antworten) => {
     mocks.offenerRest.mockResolvedValue({ gesamtCent: null, bezahltCent: 0, quelle: "keins", ...rest });
-    dbLiefert(...(antworten as unknown[][]));
+    dbLiefert(...(antworten as unknown as unknown[][]));
 
     await expect(nachZahlung(ws, deal, null)).resolves.toEqual({ stufeGesetzt: false });
     expect(mocks.updateRecord).not.toHaveBeenCalled();
