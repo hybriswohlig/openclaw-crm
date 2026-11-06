@@ -1,25 +1,7 @@
 "use client";
 
 import type { AnpassungAnsicht } from "@/lib/kalkulations-ansicht";
-import type { AnpassungStart } from "./anpassung-dialog";
-
-/** Womit der Dialog für eine bestehende Anpassung öffnet (Art und Schlüssel vorbelegt). */
-export function startFuer(a: AnpassungAnsicht): AnpassungStart {
-  switch (a.art) {
-    case "marge":
-      return { art: "marge" };
-    case "satz":
-      return { art: "satz", key: a.key === "fahrt" ? "fahrt" : "arbeit" };
-    case "zeitposten":
-      return { art: "zeitposten", key: a.key, bezeichnung: a.text.split(":")[0] };
-    case "material_frei":
-      return { art: "material_frei", key: a.key, bezeichnung: a.text.split(":")[0] };
-    case "eingabe":
-      return { art: "eingabe", key: a.key };
-    case "zeile":
-      return { art: "zeile", key: a.key, label: a.text.split(":")[0] ?? a.key, aktuell: null };
-  }
-}
+import { startFuer, type AnpassungStart } from "./anpassung-start";
 
 /**
  * „Anpassungen“ (Entscheidung 13): die wirksamen Übersteuerungen der Version

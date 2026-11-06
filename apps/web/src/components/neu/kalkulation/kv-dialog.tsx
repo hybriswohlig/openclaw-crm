@@ -21,7 +21,9 @@ export interface KvTexte {
 /**
  * KV-Dialog (Entscheidung 6): Anschreiben und Bemerkung optional als
  * Klartext, dann sperren (Entwurf) und den KV erstellen. Bei einer schon
- * gesperrten Version ohne KV-Dokument nur „KV erstellen“.
+ * gesperrten Version ohne KV-Dokument nur „KV erstellen“. Für Kottke
+ * (`renderer: "vps"`) erzeugt der nächste Dialog das PDF und nimmt die Texte
+ * dort entgegen; hier gibt es dann keine Textfelder (M1).
  */
 export function KvDialog({
   version,
@@ -42,13 +44,14 @@ export function KvDialog({
   const [intro, setIntro] = useState("");
   const [remarks, setRemarks] = useState("");
   const nurKv = version.status === "gesperrt";
+  const kottke = version.renderer === "vps";
   const titel = nurKv ? `KV zu Version v${version.nummer} erstellen` : `Version v${version.nummer} sperren und KV erstellen`;
 
   async function bestaetigen(e: React.FormEvent) {
     e.preventDefault();
     const texte: KvTexte = {};
-    if (intro.trim()) texte.intro = intro.trim();
-    if (remarks.trim()) texte.remarks = remarks.trim();
+    if (!kottke && intro.trim()) texte.intro = intro.trim();
+    if (!kottke && remarks.trim()) texte.remarks = remarks.trim();
     await onBestaetigen(texte);
   }
 
@@ -68,15 +71,35 @@ export function KvDialog({
           </p>
         ) : null}
         <form onSubmit={(e) => void bestaetigen(e)}>
-          <label className="akte-dialog-feld" htmlFor={`${id}-intro`}>
-            Anschreiben (optional)
-            <textarea id={`${id}-intro`} className="lg-input lg-textarea" rows={3} value={intro} onChange={(e) => setIntro(e.target.value)} placeholder="Guten Tag Familie Weber, vielen Dank für Ihre Anfrage …" />
-          </label>
-          <label className="akte-dialog-feld" htmlFor={`${id}-remarks`}>
-            Bemerkung (optional)
-            <textarea id={`${id}-remarks`} className="lg-input lg-textarea" rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Etwa: Halteverbot beantragen wir für beide Seiten." />
-          </label>
-          <p className="kalk-dialog-aktuell">Sätze mit Beträgen fallen aus den Texten; der Preis steht in den Posten.</p>
+          {kottke ? (
+            <p className="kalk-dialog-hinweis">Anschreiben und Bemerkung gibst du im nächsten Dialog ein.</p>
+          ) : (
+            <>
+              <label className="akte-dialog-feld" htmlFor={`${id}-intro`}>
+                Anschreiben (optional)
+                <textarea
+                  id={`${id}-intro`}
+                  className="lg-input lg-textarea"
+                  rows={3}
+                  value={intro}
+                  onChange={(e) => setIntro(e.target.value)}
+                  placeholder="Guten Tag, vielen Dank für Ihre Anfrage. Anbei unser Angebot für Ihren Umzug."
+                />
+              </label>
+              <label className="akte-dialog-feld" htmlFor={`${id}-remarks`}>
+                Bemerkung (optional)
+                <textarea
+                  id={`${id}-remarks`}
+                  className="lg-input lg-textarea"
+                  rows={2}
+                  value={remarks}
+                  onChange={(e) => setRemarks(e.target.value)}
+                  placeholder="Etwa: Halteverbot beantragen wir für beide Seiten."
+                />
+              </label>
+              <p className="kalk-dialog-aktuell">Sätze mit Beträgen fallen aus den Texten; der Preis steht in den Posten.</p>
+            </>
+          )}
           <div className="akte-dialog-knoepfe">
             <GlassButton type="button" variant="ghost" onClick={onSchliessen} disabled={laeuft}>
               Abbrechen

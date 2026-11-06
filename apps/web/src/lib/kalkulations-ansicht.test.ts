@@ -62,8 +62,8 @@ describe("ansichtAus: Kopf und Versionen", () => {
   it("Entwurf, aktuell, ohne Fehler: bearbeitbar und sperrbar; Tarif, Preis-Modus, Renderer", () => {
     const a = ansichtAus(weberVersion(), rest());
     expect(a.version).toEqual({
-      nummer: 2, status: "entwurf", bearbeitbar: true, gesperrtText: null, veraltet: false, fehler: null,
-      tarif: "Tarif v1", kvDokument: null, sperrbar: true, sperrGrund: null, preisModus: "fest", renderer: "vps",
+      nummer: 2, status: "entwurf", bearbeitbar: true, gesperrtText: null, veraltet: false, veraltetGrund: null, fehler: null,
+      tarif: "Tarif v1", kvDokument: null, kvErstellbar: false, sperrbar: true, sperrGrund: null, preisModus: "fest", renderer: "vps",
     });
     expect(ansichtAus(weberVersion(), rest({ renderer: "crm" })).version.renderer).toBe("crm");
   });
@@ -244,6 +244,18 @@ describe("ansichtAus: Selbstkosten", () => {
     expect(g.find((x) => x.key === "material")?.postenKey).toBeNull();
     expect(g.at(-1)?.postenKey).toBeNull();
   });
+
+  it("Hauptzeile je Gruppe: Betrag und Bezeichnung der Zeile selbst, nicht die Gruppensumme; Summengruppen ohne (I3)", () => {
+    const posten = weberErgebnis().kosten!.posten!;
+    const miete = posten.find((p) => p.key === "fahrzeug.sprinter_l.miete")!;
+    const fz = s.gruppen.find((g) => g.key === "fahrzeug.sprinter_l")!;
+    expect(fz.postenBetragCent).toBe(Math.round(miete.betrag * 100));
+    expect(fz.postenLabel).toBe(miete.bezeichnung);
+    expect(fz.postenBetragCent).not.toBe(fz.betragCent);
+    const arbeit = posten.find((p) => p.key === "personal.arbeit")!;
+    expect(s.gruppen[0]).toMatchObject({ postenBetragCent: Math.round(arbeit.betrag * 100), postenLabel: arbeit.bezeichnung });
+    expect(s.gruppen.find((g) => g.key === "material")).toMatchObject({ postenBetragCent: null, postenLabel: null });
+  });
 });
 
 describe("ansichtAus: Marge und Preis", () => {
@@ -385,13 +397,43 @@ describe("ansichtAus: Sperrbarkeit", () => {
       { slug: "komfort", name: "komfort", preisCent: null, hinweis: "Nicht kalkulierbar." },
     ]);
   });
+
+  it("veraltetGrund: eingabe bei geändertem Lead, rechner ohne Montage-Echo mit eigenem Sperrgrund (M9)", () => {
+    expect(ansichtAus(weberVersion(), rest()).version.veraltetGrund).toBeNull();
+    const eingabe = ansichtAus(weberVersion(), rest({ veraltet: true })).version;
+    expect(eingabe.veraltetGrund).toBe("eingabe");
+    expect(eingabe.sperrGrund).toBe("Die Kalkulation ist nicht mehr aktuell. Bitte zuerst neu rechnen.");
+    const e = weberErgebnis();
+    delete e.montageJePosition;
+    const rechner = ansichtAus(weberVersion({ rechnerResult: e }), rest({ veraltet: true })).version;
+    expect(rechner.veraltetGrund).toBe("rechner");
+    expect(rechner.sperrbar).toBe(false);
+    expect(rechner.sperrGrund).toBe("Der Rechner ist noch nicht auf dem neuen Stand. Sperren geht nach dem Rechner-Update.");
+    expect(ansichtAus(weberVersion({ status: "gesperrt", rechnerResult: e }), rest({ veraltet: true })).version.veraltetGrund).toBeNull();
+  });
+
+  it("kvErstellbar nur für die neueste gesperrte Version ohne KV-Dokument (M2)", () => {
+    const alle = [
+      { version: 1, status: "gesperrt" as const, priceCents: 239000, sentAt: null },
+      { version: 2, status: "gesperrt" as const, priceCents: 248000, sentAt: null },
+      { version: 3, status: "entwurf" as const, priceCents: null, sentAt: null },
+    ];
+    expect(ansichtAus(weberVersion({ status: "gesperrt", version: 2 }), rest({ alle })).version.kvErstellbar).toBe(true);
+    expect(ansichtAus(weberVersion({ status: "gesperrt", version: 1 }), rest({ alle })).version.kvErstellbar).toBe(false);
+    expect(
+      ansichtAus(weberVersion({ status: "gesperrt", version: 2 }), rest({ alle, kvDokument: { id: "d1", fileName: "KV.pdf" } })).version.kvErstellbar
+    ).toBe(false);
+    expect(ansichtAus(weberVersion({ version: 3 }), rest({ alle })).version.kvErstellbar).toBe(false);
+  });
 });
 
 describe("ansichtAus: Anpassungen", () => {
   it("nur wirksame, aufgehobene fehlen, Marge höchstens einmal, Text {Bezeichnung}: {Wert}", () => {
     const zweiteMarge: Uebersteuerung = { ...weberUebersteuerungen()[3], id: "u_marge2", wert: 40, zeit: "2026-11-05T08:00:00.000Z", grund: "doch mehr" };
     const a = ansichtAus(weberVersion({ overrides: [...weberUebersteuerungen(), zweiteMarge] }), rest());
-    expect(a.anpassungen).toEqual([
+    // Der Wert selbst fährt mit (Vorbelegung beim Ändern, M6).
+    expect(a.anpassungen.map((x) => x.wert)).toEqual([weberUebersteuerungen()[0].wert, 40]);
+    expect(a.anpassungen).toMatchObject([
       {
         id: "u_wandschrank", art: "zeitposten", key: "wandschrank", text: "Wandschrank, Demontage + Aufbau: +1,5 h Arbeit",
         von: "Dario", am: "04.11. 10:48", grund: "3-türig, auf Foto 3, braucht Demontage und Aufbau, Rechner hatte 0",

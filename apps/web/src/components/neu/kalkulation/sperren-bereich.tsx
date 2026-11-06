@@ -12,8 +12,8 @@ export function kvDokumentLink(dealId: string, dokumentId: string): string {
  * Sperrbereich (Spec 3.6, Entscheidungen 3 und 6): beim sperrbaren Entwurf
  * „Version vN sperren und KV erstellen“ (blau), sonst der Sperrgrund mit
  * „Neu rechnen“ bei veraltetem Entwurf oder Rechnerfehler; bei gesperrter
- * Version „+ Neue Version“ und, solange kein KV-Dokument da ist, „KV
- * erstellen“, sonst der Link „KV öffnen“. „Tagespreise im Termin-Dialog“
+ * Version „+ Neue Version“ und, bei der neuesten gesperrten ohne KV-Dokument
+ * (`kvErstellbar`), „KV erstellen“, sonst der Link „KV öffnen“. „Tagespreise im Termin-Dialog“
  * kommt mit Plan 5 und bleibt deaktiviert. Alles während eines Laufs gesperrt.
  */
 export function SperrenBereich({
@@ -37,7 +37,8 @@ export function SperrenBereich({
   const gesperrt = version.status === "gesperrt";
   const sperrt = laeuft === "sperren";
   const rechnet = laeuft === "neu_rechnen";
-  const neuRechnenNoetig = !gesperrt && (version.veraltet || version.fehler !== null);
+  // Ohne Montage-Echo hilft Neu rechnen nicht, solange der alte Rechner läuft (M9): kein Knopf.
+  const neuRechnenNoetig = !gesperrt && (version.fehler !== null || (version.veraltet && version.veraltetGrund !== "rechner"));
 
   return (
     <div className="kalk-aktionen">
@@ -73,7 +74,7 @@ export function SperrenBereich({
           <button type="button" className="kalk-knopf" disabled={beschaeftigt} aria-busy={laeuft === "neue_version" || undefined} onClick={onNeueVersion}>
             {laeuft === "neue_version" ? "Legt an …" : "+ Neue Version"}
           </button>
-          {!version.kvDokument ? (
+          {version.kvErstellbar ? (
             <button type="button" className="kalk-knopf" data-geist="" disabled={beschaeftigt} aria-busy={sperrt || undefined} onClick={onKv}>
               {sperrt ? "Erstellt den KV …" : "KV erstellen"}
             </button>

@@ -12,17 +12,23 @@ import {
 import { GlassSwitch } from "@/components/glassyui/glass-switch";
 import type { AnpassungAnsicht, GrundlageFeld } from "@/lib/kalkulations-ansicht";
 import type { UebersteuerungsArt } from "@/lib/kalkulation-versionen";
+import type { AnpassungStart } from "./anpassung-start";
+import { textAus } from "./eingabe-felder";
 import type { KalkKontext, UebersteuerungEingabe } from "./kalk-seite";
 
-/** Womit der Dialog öffnet: eine Zeile, ein Satz, ein Zeitposten, Material, eine Eingabe oder die freie Wahl. */
-export type AnpassungStart =
-  | { art: "wahl" }
-  | { art: "zeile"; key: string; label: string; aktuell: string | null }
-  | { art: "satz"; key: "arbeit" | "fahrt" }
-  | { art: "zeitposten"; key?: string; bezeichnung?: string; minuten?: number }
-  | { art: "material_frei"; key?: string; bezeichnung?: string; betrag?: number }
-  | { art: "eingabe"; key?: string }
-  | { art: "marge" };
+export type { AnpassungStart } from "./anpassung-start";
+
+/** Zahl als Formulartext („18,5“), leer ohne Wert. */
+const zahlText = (n: number | undefined): string => (n === undefined ? "" : String(n).replace(".", ","));
+
+/** Vorbelegung des Eingabe-Felds: der Wert der bestehenden Anpassung, sonst der aktuelle Wert der Grundlage (M6). */
+function feldVorbelegung(feld: GrundlageFeld | null, wert: number | string | boolean | undefined): { text: string; schalter: boolean } {
+  if (wert !== undefined) {
+    return { text: typeof wert === "boolean" ? "" : typeof wert === "number" ? zahlText(wert) : wert, schalter: wert === true };
+  }
+  if (!feld) return { text: "", schalter: false };
+  return { text: feld.typ === "ja_nein" ? "" : textAus(feld), schalter: feld.wert === true };
+}
 
 /** Auswahl im Dialog; Satz Arbeit und Satz Fahrt sind zwei Knöpfe derselben Art. */
 type Wahl = "zeile" | "satz_arbeit" | "satz_fahrt" | "zeitposten" | "material_frei" | "eingabe" | "marge";
@@ -96,17 +102,20 @@ export function AnpassungDialog({
   const id = useId();
   const [wahl, setWahl] = useState<Wahl>(() => wahlAus(start));
   const [zeileKey, setZeileKey] = useState(() => (start.art === "zeile" ? start.key : (zeilen[0]?.key ?? "")));
-  const [betrag, setBetrag] = useState("");
-  const [satz, setSatz] = useState("");
+  const [betrag, setBetrag] = useState(() => (start.art === "zeile" ? zahlText(start.betrag) : ""));
+  const [satz, setSatz] = useState(() => (start.art === "satz" ? zahlText(start.satz) : ""));
   const [bezeichnung, setBezeichnung] = useState(() => ("bezeichnung" in start ? (start.bezeichnung ?? "") : ""));
   const [minuten, setMinuten] = useState(() => (start.art === "zeitposten" && start.minuten ? String(start.minuten) : ""));
-  const [materialBetrag, setMaterialBetrag] = useState(() =>
-    start.art === "material_frei" && start.betrag !== undefined ? String(start.betrag).replace(".", ",") : ""
+  const [materialBetrag, setMaterialBetrag] = useState(() => (start.art === "material_frei" ? zahlText(start.betrag) : ""));
+  const startFeldKey = start.art === "eingabe" && start.key ? start.key : (felder[0]?.key ?? "");
+  const [feldKey, setFeldKey] = useState(startFeldKey);
+  const [feldText, setFeldText] = useState(
+    () => feldVorbelegung(felder.find((f) => f.key === startFeldKey) ?? null, start.art === "eingabe" ? start.wert : undefined).text
   );
-  const [feldKey, setFeldKey] = useState(() => (start.art === "eingabe" && start.key ? start.key : (felder[0]?.key ?? "")));
-  const [feldText, setFeldText] = useState("");
-  const [feldSchalter, setFeldSchalter] = useState(false);
-  const [margeText, setMargeText] = useState("");
+  const [feldSchalter, setFeldSchalter] = useState(
+    () => feldVorbelegung(felder.find((f) => f.key === startFeldKey) ?? null, start.art === "eingabe" ? start.wert : undefined).schalter
+  );
+  const [margeText, setMargeText] = useState(() => (start.art === "marge" ? zahlText(start.prozent) : ""));
   const [grund, setGrund] = useState("");
   const [fehler, setFehler] = useState<string | null>(null);
   const [speichert, setSpeichert] = useState(false);
@@ -295,8 +304,11 @@ export function AnpassungDialog({
                   className="lg-input"
                   value={feldKey}
                   onChange={(e) => {
+                    // Beim Feldwechsel den aktuellen Wert der Grundlage vorbelegen (M6).
+                    const v = feldVorbelegung(felder.find((f) => f.key === e.target.value) ?? null, undefined);
                     setFeldKey(e.target.value);
-                    setFeldText("");
+                    setFeldText(v.text);
+                    setFeldSchalter(v.schalter);
                   }}
                 >
                   {felder.map((f) => (

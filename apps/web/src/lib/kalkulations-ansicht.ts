@@ -61,6 +61,9 @@ export interface SelbstkostenGruppe {
   key: string;
   /** Schlüssel der Rechner-Kostenzeile der Hauptzeile (`art: "zeile"`); null bei Summengruppen (Material, Weitere), dort nur die Unterzeilen. */
   postenKey: string | null;
+  /** Betrag und Bezeichnung der Hauptzeile selbst (nicht die Gruppensumme): das zeigt der Anpassungs-Dialog; null bei Summengruppen. */
+  postenBetragCent: number | null;
+  postenLabel: string | null;
   label: string;
   formel: string | null;
   betragCent: number;
@@ -114,6 +117,8 @@ export interface AnpassungAnsicht {
   key: string;
   /** "{Bezeichnung}: {Wert}" */
   text: string;
+  /** Der Wert der Übersteuerung (Zahl, Text, ja/nein oder Posten), zum Vorbelegen beim Ändern. */
+  wert: number | string | boolean | { bezeichnung: string; minuten?: number; betrag?: number } | null;
   von: string;
   am: string;
   grund: string;
@@ -137,9 +142,13 @@ export interface KalkulationsAnsicht {
     /** "v2 gesperrt · gesendet Di 04.11. 11:40" bzw. null beim Entwurf */
     gesperrtText: string | null;
     veraltet: boolean;
+    /** Warum der Entwurf veraltet ist: "eingabe" (Lead oder Datum geändert, Neu rechnen hilft), "rechner" (Ergebnis ohne Montage-Echo, der Rechner ist noch nicht auf dem neuen Stand), null sonst. */
+    veraltetGrund: "eingabe" | "rechner" | null;
     fehler: string | null;
     tarif: string | null;
     kvDokument: { id: string; fileName: string } | null;
+    /** Gesperrt, ohne KV-Dokument und die neueste gesperrte Version: nur dann kann `POST …/kv` noch ein Dokument erzeugen. */
+    kvErstellbar: boolean;
     sperrbar: boolean;
     sperrGrund: string | null;
     /** "fest" | "stunden" */
@@ -611,6 +620,8 @@ function selbstkostenAnsicht(v: VersionsZeile, namen: Record<string, string>): S
   const einfach = (key: string, zs: Z[], extra: SelbstkostenUnterzeile[] = []): SelbstkostenGruppe => ({
     key,
     postenKey: zs[0].key,
+    postenBetragCent: cent(zs[0].p.betrag),
+    postenLabel: zs[0].p.bezeichnung,
     label: LABEL[key],
     formel: formelVon(zs[0].p),
     betragCent: summeCent(zs),
@@ -621,6 +632,8 @@ function selbstkostenAnsicht(v: VersionsZeile, namen: Record<string, string>): S
   const sammel = (key: string, zs: Z[]): SelbstkostenGruppe => ({
     key,
     postenKey: null,
+    postenBetragCent: null,
+    postenLabel: null,
     label: LABEL[key],
     formel: null,
     betragCent: summeCent(zs),
@@ -664,6 +677,8 @@ function selbstkostenAnsicht(v: VersionsZeile, namen: Record<string, string>): S
     gruppen.push({
       key,
       postenKey: haupt.key,
+      postenBetragCent: cent(haupt.p.betrag),
+      postenLabel: haupt.p.bezeichnung,
       label: name,
       formel: formelVon(haupt.p),
       betragCent: summeCent(zs),
@@ -836,6 +851,7 @@ export const SPERRGRUND = {
   fehler: "Der Rechner hat einen Fehler gemeldet. Bitte neu rechnen.",
   ohneErgebnis: "Noch keine Kalkulation vorhanden. Bitte neu rechnen.",
   veraltet: "Die Kalkulation ist nicht mehr aktuell. Bitte zuerst neu rechnen.",
+  rechner: "Der Rechner ist noch nicht auf dem neuen Stand. Sperren geht nach dem Rechner-Update.",
 } as const;
 
 /**
@@ -852,7 +868,17 @@ export function ansichtAus(v: VersionsZeile, rest: AnsichtRest): KalkulationsAns
   const preis = preisAnsicht(v, marge);
   const { kv, kvFehler } = kvAnsicht(v, rest);
   const veraltet = !gesperrt && rest.veraltet;
+  // Ohne Montage-Echo im Ergebnis (Entscheidung 10) hilft kein Neu rechnen, solange der alte Rechner läuft.
+  const veraltetGrund: "eingabe" | "rechner" | null = !veraltet
+    ? null
+    : v.rechnerResult && v.rechnerResult.montageJePosition !== true
+      ? "rechner"
+      : "eingabe";
   const stunden = v.pricingMode === "stunden" || rest.angebot?.isVariable === true;
+  const neuesteGesperrt = rest.alle
+    .filter((x) => x.status === "gesperrt")
+    .reduce<number | null>((m, x) => (m === null || x.version > m ? x.version : m), null);
+  const kvErstellbar = gesperrt && rest.kvDokument === null && neuesteGesperrt === v.version;
 
   const sperrGrund = gesperrt
     ? `v${v.version} ist gesperrt. Änderungen landen in einem neuen Entwurf.`
@@ -865,7 +891,9 @@ export function ansichtAus(v: VersionsZeile, rest: AnsichtRest): KalkulationsAns
           : !v.rechnerResult
             ? SPERRGRUND.ohneErgebnis
             : veraltet
-              ? SPERRGRUND.veraltet
+              ? veraltetGrund === "rechner"
+                ? SPERRGRUND.rechner
+                : SPERRGRUND.veraltet
               : kvFehler;
 
   const zeitpunkt = (d: Date | string) => {
@@ -904,9 +932,11 @@ export function ansichtAus(v: VersionsZeile, rest: AnsichtRest): KalkulationsAns
         ? `v${v.version} gesperrt · ${v.sentAt ? `gesendet ${zeitpunkt(v.sentAt)}` : "noch nicht gesendet"}`
         : null,
       veraltet,
+      veraltetGrund,
       fehler: v.error,
       tarif: tarif ? `Tarif v${tarif.version}` : null,
       kvDokument: rest.kvDokument,
+      kvErstellbar,
       sperrbar: sperrGrund === null,
       sperrGrund,
       preisModus: stunden ? "stunden" : "fest",
@@ -930,6 +960,7 @@ export function ansichtAus(v: VersionsZeile, rest: AnsichtRest): KalkulationsAns
       art: u.art,
       key: u.key,
       text: anpassungText(u, v),
+      wert: u.wert,
       von: autorName(u.autor, rest.namen),
       am: zeitpunktText(u.zeit),
       grund: u.grund,

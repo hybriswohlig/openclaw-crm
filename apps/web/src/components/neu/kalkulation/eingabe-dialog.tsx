@@ -10,8 +10,9 @@ import {
   GlassDialogTitle,
 } from "@/components/glassyui/glass-dialog";
 import { GlassSwitch } from "@/components/glassyui/glass-switch";
-import type { GrundlageAnsichtZeile, GrundlageFeld } from "@/lib/kalkulations-ansicht";
-import type { KalkKontext, UebersteuerungEingabe } from "./kalk-seite";
+import type { GrundlageAnsichtZeile } from "@/lib/kalkulations-ansicht";
+import { eingabenAus, geaenderteFelder } from "./eingabe-felder";
+import type { KalkKontext } from "./kalk-seite";
 
 const AUFZUG = [
   { wert: "keiner", label: "kein Aufzug" },
@@ -19,51 +20,14 @@ const AUFZUG = [
   { wert: "gross", label: "großer Aufzug" },
 ] as const;
 
-/** Anzeigewert eines Felds als Text fürs Formular. */
-function textAus(f: GrundlageFeld): string {
-  const w = f.wert;
-  if (w === null || w === undefined) return f.typ === "aufzug" ? "keiner" : "";
-  if (typeof w === "number") return String(w).replace(".", ",");
-  if (typeof w === "boolean") return w ? "ja" : "nein";
-  return String(w);
-}
-
-/** Formularwert → Übersteuerungswert; null = ungültig (Meldung). */
-function wertAus(f: GrundlageFeld, text: string, schalter: boolean): { ok: true; wert: unknown } | { ok: false; meldung: string } {
-  switch (f.typ) {
-    case "ja_nein":
-      return { ok: true, wert: schalter };
-    case "aufzug":
-      return { ok: true, wert: text };
-    case "datum":
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return { ok: false, meldung: `${f.label}: bitte ein Datum wählen.` };
-      return { ok: true, wert: text };
-    case "ganzzahl": {
-      const n = Number(text.trim().replace(",", "."));
-      if (text.trim() === "" || !Number.isInteger(n)) return { ok: false, meldung: `${f.label}: bitte eine ganze Zahl eingeben.` };
-      return { ok: true, wert: n };
-    }
-    case "zahl": {
-      const n = Number(text.trim().replace(",", "."));
-      if (text.trim() === "" || !Number.isFinite(n)) return { ok: false, meldung: `${f.label}: bitte eine Zahl eingeben.` };
-      return { ok: true, wert: n };
-    }
-  }
-}
-
-/** Gleicher Wert wie vorher? (Zahlen als Zahl, Rest als Text.) */
-function unveraendert(f: GrundlageFeld, neu: unknown): boolean {
-  const alt = f.wert;
-  if (typeof neu === "number") return typeof alt === "number" ? alt === neu : alt === null && Number.isNaN(neu);
-  if (typeof neu === "boolean") return (alt ?? false) === neu;
-  return (alt ?? (f.typ === "aufzug" ? "keiner" : "")) === neu;
-}
-
 /**
  * Eingabe-Dialog einer Grundlage-Zeile: alle `felder` der Zeile, ein
- * Pflichtgrund; je geändertem Feld eine Übersteuerung `art: "eingabe"`.
- * An einer gesperrten Version steht der Hinweis, dass die Änderung einen
- * neuen Entwurf anlegt (Review Focus 2).
+ * Pflichtgrund; je geändertem Feld eine Übersteuerung `art: "eingabe"`. Die
+ * Felder werden mit den Regeln des Servers geprüft, bevor etwas gesendet wird
+ * (M5); ein leeres Feld ohne alten Wert zählt als unverändert (I1). `zeile`
+ * ist immer die aktuelle Zeile der Ansicht, auch nach einem teilweisen
+ * Speichern. An einer gesperrten Version steht der Hinweis, dass die Änderung
+ * einen neuen Entwurf anlegt (Review Focus 2).
  */
 export function EingabeDialog({
   zeile,
@@ -77,32 +41,27 @@ export function EingabeDialog({
   onSchliessen: () => void;
 }) {
   const id = useId();
-  const [texte, setTexte] = useState<Record<string, string>>(() => Object.fromEntries(zeile.felder.map((f) => [f.key, textAus(f)])));
-  const [schalter, setSchalter] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(zeile.felder.map((f) => [f.key, f.wert === true]))
-  );
+  const [eingaben, setEingaben] = useState(() => eingabenAus(zeile.felder));
   const [grund, setGrund] = useState("");
   const [fehler, setFehler] = useState<string | null>(null);
   const [speichert, setSpeichert] = useState(false);
   const beschaeftigt = speichert || kontext.laeuft !== null;
 
+  const setzeText = (key: string, text: string) => setEingaben((e) => ({ ...e, texte: { ...e.texte, [key]: text } }));
+  const setzeSchalter = (key: string, an: boolean) => setEingaben((e) => ({ ...e, schalter: { ...e.schalter, [key]: an } }));
+
   async function speichern(e: React.FormEvent) {
     e.preventDefault();
-    if (grund.trim() === "") return setFehler("Bitte einen Grund angeben.");
-    const liste: UebersteuerungEingabe[] = [];
-    for (const f of zeile.felder) {
-      const r = wertAus(f, texte[f.key] ?? "", schalter[f.key] ?? false);
-      if (!r.ok) return setFehler(r.meldung);
-      if (unveraendert(f, r.wert)) continue;
-      liste.push({ art: "eingabe", key: f.key, wert: r.wert, grund: grund.trim() });
-    }
-    if (liste.length === 0) return setFehler("Nichts geändert.");
+    const r = geaenderteFelder(zeile.felder, eingaben, grund);
+    if (!r.ok) return setFehler(r.meldung);
+    if (r.liste.length === 0) return setFehler("Nichts geändert.");
     setFehler(null);
     setSpeichert(true);
-    const r = await kontext.uebersteuern(liste);
+    const g = grund.trim();
+    const ergebnis = await kontext.uebersteuern(r.liste.map((f) => ({ art: "eingabe" as const, key: f.key, wert: f.wert, grund: g })));
     setSpeichert(false);
-    if (!r.ok) return setFehler(r.message);
-    toast.success(liste.length === 1 ? "Eingabe gespeichert." : `${liste.length} Eingaben gespeichert.`);
+    if (!ergebnis.ok) return setFehler(ergebnis.message);
+    toast.success(r.liste.length === 1 ? "Eingabe gespeichert." : `${r.liste.length} Eingaben gespeichert.`);
     onSchliessen();
   }
 
@@ -121,7 +80,7 @@ export function EingabeDialog({
               return (
                 <label key={f.key} className="kalk-dialog-schalter">
                   <span>{f.label}</span>
-                  <GlassSwitch size="sm" checked={schalter[f.key] ?? false} onCheckedChange={(an) => setSchalter((s) => ({ ...s, [f.key]: an }))} />
+                  <GlassSwitch size="sm" checked={eingaben.schalter[f.key] ?? false} onCheckedChange={(an) => setzeSchalter(f.key, an)} />
                 </label>
               );
             }
@@ -129,7 +88,7 @@ export function EingabeDialog({
               return (
                 <label key={f.key} className="akte-dialog-feld kalk-dialog-feld" htmlFor={feldId}>
                   {f.label}
-                  <select id={feldId} className="lg-input" value={texte[f.key] ?? "keiner"} onChange={(e) => setTexte((t) => ({ ...t, [f.key]: e.target.value }))}>
+                  <select id={feldId} className="lg-input" value={eingaben.texte[f.key] ?? "keiner"} onChange={(e) => setzeText(f.key, e.target.value)}>
                     {AUFZUG.map((a) => (
                       <option key={a.wert} value={a.wert}>
                         {a.label}
@@ -147,8 +106,9 @@ export function EingabeDialog({
                   className="lg-input"
                   type={f.typ === "datum" ? "date" : "text"}
                   inputMode={f.typ === "datum" ? undefined : f.typ === "ganzzahl" ? "numeric" : "decimal"}
-                  value={texte[f.key] ?? ""}
-                  onChange={(e) => setTexte((t) => ({ ...t, [f.key]: e.target.value }))}
+                  value={eingaben.texte[f.key] ?? ""}
+                  onChange={(e) => setzeText(f.key, e.target.value)}
+                  placeholder={f.wert === null || f.wert === undefined ? "Standard des Rechners" : undefined}
                   autoComplete="off"
                 />
               </label>

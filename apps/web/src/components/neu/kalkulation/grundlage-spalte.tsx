@@ -16,7 +16,8 @@ import { StreetViewKasten, type StreetViewDaten, type StreetViewSeite } from "./
 /** Höchstens zwei Reihen à sieben Fotos; der Rest als „+N“-Kachel. */
 const FOTOS_MAX = 14;
 
-type Dialog = { art: "eingabe"; zeile: GrundlageAnsichtZeile } | { art: "foto"; foto: Foto; nummer: number };
+/** Der Eingabe-Dialog merkt sich nur den Schlüssel: nach einem Neuladen zeigt er die frische Zeile (M5). */
+type Dialog = { art: "eingabe"; key: string } | { art: "foto"; foto: Foto; nummer: number };
 
 /**
  * Linke Spalte „Grundlage“: Fotostreifen (7 Spalten, violette Treffermarken,
@@ -38,6 +39,8 @@ export function GrundlageSpalte({
   const beschaeftigt = kontext.laeuft !== null;
   const fotos = grundlage.fotos.slice(0, FOTOS_MAX);
   const weitere = grundlage.fotosGesamt - fotos.length;
+  const eingabeZeile: GrundlageAnsichtZeile | null =
+    dialog?.art === "eingabe" ? (grundlage.zeilen.find((z) => z.key === dialog.key) ?? null) : null;
 
   const streetView = (seite: StreetViewSeite) =>
     grundlage.adressen[seite] ? (
@@ -64,23 +67,23 @@ export function GrundlageSpalte({
           {fotos.map((f, i) => {
             const erster = f.treffer[0];
             return (
-              <button
-                key={f.id}
-                type="button"
-                role="listitem"
-                className="kalk-foto"
-                onClick={() => setDialog({ art: "foto", foto: f, nummer: i + 1 })}
-                title={f.treffer.length > 0 ? f.treffer.map(trefferText).join(", ") : `Foto ${i + 1}`}
-                aria-label={`Foto ${i + 1} von ${grundlage.fotosGesamt}${f.treffer.length > 0 ? `: ${f.treffer.map(trefferText).join(", ")}` : ""}`}
-              >
-                <img src={f.url} alt="" loading="lazy" />
-                {erster ? (
-                  <span className="kalk-foto-treffer" aria-hidden="true">
-                    {trefferText(erster)}
-                    {f.treffer.length > 1 ? ` +${f.treffer.length - 1}` : ""}
-                  </span>
-                ) : null}
-              </button>
+              <div key={f.id} role="listitem">
+                <button
+                  type="button"
+                  className="kalk-foto"
+                  onClick={() => setDialog({ art: "foto", foto: f, nummer: i + 1 })}
+                  title={f.treffer.length > 0 ? f.treffer.map(trefferText).join(", ") : `Foto ${i + 1}`}
+                  aria-label={`Foto ${i + 1} von ${grundlage.fotosGesamt}${f.treffer.length > 0 ? `: ${f.treffer.map(trefferText).join(", ")}` : ""}`}
+                >
+                  <img src={f.url} alt="" loading="lazy" />
+                  {erster ? (
+                    <span className="kalk-foto-treffer" aria-hidden="true">
+                      {trefferText(erster)}
+                      {f.treffer.length > 1 ? ` +${f.treffer.length - 1}` : ""}
+                    </span>
+                  ) : null}
+                </button>
+              </div>
             );
           })}
           {weitere > 0 ? (
@@ -95,7 +98,7 @@ export function GrundlageSpalte({
 
       <div className="kalk-liste">
         {grundlage.zeilen.map((z) => (
-          <GrundlageZeile key={z.key} zeile={z} beschaeftigt={beschaeftigt} onBearbeiten={z.felder.length > 0 ? (zeile) => setDialog({ art: "eingabe", zeile }) : undefined}>
+          <GrundlageZeile key={z.key} zeile={z} beschaeftigt={beschaeftigt} onBearbeiten={z.felder.length > 0 ? (zeile) => setDialog({ art: "eingabe", key: zeile.key }) : undefined}>
             {z.key === "beladen" ? streetView("beladen") : z.key === "entladen" ? streetView("entladen") : null}
           </GrundlageZeile>
         ))}
@@ -103,8 +106,8 @@ export function GrundlageSpalte({
 
       <RouteKarte dealId={kontext.dealId} versionNr={kontext.versionNr} vorschau={vorschau?.route} />
 
-      {dialog?.art === "eingabe" ? (
-        <EingabeDialog zeile={dialog.zeile} kontext={kontext} portalZiel={portalZiel} onSchliessen={() => setDialog(null)} />
+      {eingabeZeile ? (
+        <EingabeDialog key={`${kontext.versionNr}-${eingabeZeile.key}`} zeile={eingabeZeile} kontext={kontext} portalZiel={portalZiel} onSchliessen={() => setDialog(null)} />
       ) : null}
       {dialog?.art === "foto" ? (
         <FotoDialog foto={dialog.foto} nummer={dialog.nummer} gesamt={grundlage.fotosGesamt} portalZiel={portalZiel} onSchliessen={() => setDialog(null)} />

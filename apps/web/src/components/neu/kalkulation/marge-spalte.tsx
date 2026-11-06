@@ -2,7 +2,7 @@
 
 import "@/styles/neu-kalk-marge.css";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { GlassPanel } from "@/components/glassyui/glass-panel";
 import { DokumentDialog } from "@/components/neu/akte/dokument-dialog";
@@ -12,7 +12,7 @@ import { apiAufruf, jsonAufruf } from "@/components/neu/akte/api";
 import { euro } from "@/components/neu/akte/format";
 import { AnpassungDialog, type AnpassungStart } from "./anpassung-dialog";
 import { AnpassungenListe } from "./anpassungen-liste";
-import type { KalkKontext } from "./kalk-seite";
+import type { KalkKontext, Lauf } from "./kalk-seite";
 import { KvDialog, type KvTexte } from "./kv-dialog";
 import { KvVorschau, PaketeAnzeige } from "./kv-vorschau";
 import { MargeRegler } from "./marge-regler";
@@ -61,7 +61,26 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
   const [entwurf, setEntwurf] = useState<number | null>(null);
   const [speichert, setSpeichert] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Der noch nicht gespeicherte Reglerwert (für das Speichern beim Verlassen). */
+  const ausstehend = useRef<number | null>(null);
   const beschaeftigt = kontext.laeuft !== null;
+  const { setzeAusstehend, uebersteuern } = kontext;
+
+  const speichern = useCallback(
+    (prozent: number) => {
+      ausstehend.current = null;
+      setzeAusstehend(false);
+      setSpeichert(true);
+      void uebersteuern([{ art: "marge", key: "marge", wert: prozent, grund: REGLER_GRUND }]).then((r) => {
+        setSpeichert(false);
+        if (!r.ok) {
+          toast.error("Marge konnte nicht gespeichert werden.", { description: r.message });
+          setEntwurf(null);
+        }
+      });
+    },
+    [setzeAusstehend, uebersteuern]
+  );
 
   // Neue Ansicht (nach dem Speichern oder Versionswechsel): Regler folgt wieder dem Server.
   useEffect(() => {
@@ -69,38 +88,51 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
     setSpeichert(false);
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
-  }, [kontext.versionNr, marge.gewaehltProzent, marge.vorschlagProzent]);
+    ausstehend.current = null;
+    setzeAusstehend(false);
+  }, [kontext.versionNr, marge.gewaehltProzent, marge.vorschlagProzent, setzeAusstehend]);
 
+  // Beim Verlassen der Seite innerhalb der 800 ms: nicht verwerfen, sondern sofort speichern (M3).
   useEffect(
     () => () => {
       if (timer.current) clearTimeout(timer.current);
+      timer.current = null;
+      if (ausstehend.current !== null) speichern(ausstehend.current);
     },
-    []
+    [speichern]
   );
 
+  /**
+   * Regler bewegt: Vorschau sofort, speichern 800 ms nach dem letzten Wert und
+   * nur bei Abweichung von der Basis. Solange ein Wert aussteht, gilt die Seite
+   * als beschäftigt (Versionen, Sperren und KV-Dialog gesperrt), der Regler
+   * selbst bleibt frei (I2, Review Focus 5).
+   */
   function reglerWert(prozent: number) {
     setEntwurf(prozent);
     if (timer.current) clearTimeout(timer.current);
+    if (prozent === basis) {
+      ausstehend.current = null;
+      setzeAusstehend(false);
+      timer.current = setTimeout(() => {
+        timer.current = null;
+        setEntwurf(null);
+      }, REGLER_WARTEZEIT_MS);
+      return;
+    }
+    ausstehend.current = prozent;
+    setzeAusstehend(true);
     timer.current = setTimeout(() => {
       timer.current = null;
-      if (prozent === basis) {
-        setEntwurf(null);
-        return;
-      }
-      setSpeichert(true);
-      void kontext.uebersteuern([{ art: "marge", key: "marge", wert: prozent, grund: REGLER_GRUND }]).then((r) => {
-        setSpeichert(false);
-        if (!r.ok) {
-          toast.error("Marge konnte nicht gespeichert werden.", { description: r.message });
-          setEntwurf(null);
-        }
-      });
+      speichern(prozent);
     }, REGLER_WARTEZEIT_MS);
   }
 
   const wert = entwurf ?? basis;
   const vorschau = entwurf !== null && entwurf !== basis ? margeVorschau(marge, entwurf) : null;
   const formel = vorschau ? vorschauFormel(marge.selbstkostenEur, wert) : null;
+  /** Lauf für Sperrbereich und KV-Dialog: auch ein ausstehender Reglerwert sperrt sie. */
+  const lauf: Lauf | null = kontext.laeuft ?? (kontext.ausstehend ? "speichern" : null);
 
   async function sperrenUndKv(texte: KvTexte, nurKv: boolean) {
     const basisUrl = `/api/v1/deals/${encodeURIComponent(kontext.dealId)}/calculation/versions/${kontext.versionNr}`;
@@ -218,7 +250,7 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
       <SperrenBereich
         dealId={kontext.dealId}
         version={version}
-        laeuft={kontext.laeuft}
+        laeuft={lauf}
         onSperren={() => setDialog({ art: "kv", nurKv: false })}
         onKv={() => setDialog({ art: "kv", nurKv: true })}
         onNeueVersion={() => void kontext.neueVersion()}
@@ -241,7 +273,7 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
         <KvDialog
           version={version}
           kv={ansicht.kv}
-          laeuft={kontext.laeuft === "sperren"}
+          laeuft={lauf !== null}
           portalZiel={portalZiel}
           onSchliessen={() => setDialog(null)}
           onBestaetigen={(texte) => sperrenUndKv(texte, dialog.nurKv)}

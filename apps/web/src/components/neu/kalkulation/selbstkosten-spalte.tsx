@@ -48,9 +48,12 @@ export function SelbstkostenSpalte({
   const zeilen = uebersteuerbareZeilen(selbstkosten);
   const hatMaterial = selbstkosten.gruppen.some((g) => g.key === "material");
 
+  // Übersteuert wird nur die Hauptzeile der Gruppe: der Dialog zeigt deren Betrag und Namen, nicht die Gruppensumme (I3).
   const gruppeKlick = (g: SelbstkostenGruppe) => {
     const k = postenKeyFuer(g);
-    if (k) setDialog({ art: "zeile", key: k, label: g.label, aktuell: `${euro(g.betragCent)}${g.formel ? ` (${g.formel})` : ""}` });
+    if (!k) return;
+    const betragCent = g.postenBetragCent ?? g.betragCent;
+    setDialog({ art: "zeile", key: k, label: g.postenLabel ?? g.label, aktuell: `${euro(betragCent)}${g.formel ? ` (${g.formel})` : ""}` });
   };
 
   return (

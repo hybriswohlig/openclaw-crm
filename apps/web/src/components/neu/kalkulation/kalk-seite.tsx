@@ -48,6 +48,9 @@ export interface KalkKontext {
   wechsleVersion: (version: number) => void;
   /** Für längere Vorgänge der Spalten (Sperren, KV): Lauf setzen und wieder lösen. */
   setzeLauf: (lauf: Lauf | null) => void;
+  /** Ein Reglerwert wartet noch auf sein Speichern (800 ms): Versionen und Sperren bleiben so lange zu (I2, M3). */
+  ausstehend: boolean;
+  setzeAusstehend: (an: boolean) => void;
 }
 
 interface VersionsEintrag {
@@ -104,6 +107,7 @@ export function standardVersion(liste: VersionsEintrag[], gewuenscht: number | n
 export function KalkSeite({ dealId }: { dealId: string }) {
   const [zustand, setZustand] = useState<Zustand>({ art: "laden" });
   const [laeuft, setLaeuft] = useState<Lauf | null>(null);
+  const [ausstehend, setAusstehend] = useState(false);
   const lauf = useRef(0);
   const versionNr = useRef<number | null>(null);
   const hatSeite = useRef(false);
@@ -148,6 +152,7 @@ export function KalkSeite({ dealId }: { dealId: string }) {
     versionNr.current = null;
     setZustand({ art: "laden" });
     setLaeuft(null);
+    setAusstehend(false);
     void laden(dealId, versionAusUrl());
     return () => {
       lauf.current++;
@@ -165,33 +170,40 @@ export function KalkSeite({ dealId }: { dealId: string }) {
     [laden, dealId]
   );
 
+  // Der Lauf endet erst, wenn die Ansicht neu geladen ist (M4): bis dahin bleibt alles gesperrt.
   const neueVersion = useCallback(async () => {
     setLaeuft("neue_version");
-    const r = await apiAufruf<{ version: { version: number }; neu: boolean }>(basis(dealId), jsonAufruf("POST", {}));
-    setLaeuft(null);
-    if (!r.ok) {
-      toast.error("Neue Version konnte nicht angelegt werden.", { description: r.message });
-      return;
+    try {
+      const r = await apiAufruf<{ version: { version: number }; neu: boolean }>(basis(dealId), jsonAufruf("POST", {}));
+      if (!r.ok) {
+        toast.error("Neue Version konnte nicht angelegt werden.", { description: r.message });
+        return;
+      }
+      if (!r.data.neu) toast.message(`Entwurf v${r.data.version.version} gibt es schon.`);
+      await laden(dealId, r.data.version.version);
+    } finally {
+      setLaeuft(null);
     }
-    if (!r.data.neu) toast.message(`Entwurf v${r.data.version.version} gibt es schon.`);
-    await laden(dealId, r.data.version.version);
   }, [dealId, laden]);
 
   const neuRechnen = useCallback(async () => {
     const v = versionNr.current;
     if (v === null) return;
     setLaeuft("neu_rechnen");
-    const r = await apiAufruf<{ version: { version: number }; gerechnet: boolean }>(
-      `${basis(dealId)}/${v}/neu-rechnen`,
-      jsonAufruf("POST", {})
-    );
-    setLaeuft(null);
-    if (!r.ok) {
-      toast.error("Neu rechnen fehlgeschlagen.", { description: r.message });
-      return;
+    try {
+      const r = await apiAufruf<{ version: { version: number }; gerechnet: boolean }>(
+        `${basis(dealId)}/${v}/neu-rechnen`,
+        jsonAufruf("POST", {})
+      );
+      if (!r.ok) {
+        toast.error("Neu rechnen fehlgeschlagen.", { description: r.message });
+        return;
+      }
+      if (!r.data.gerechnet) toast.message("Nichts neu gerechnet.", { description: "Der Entwurf war schon aktuell." });
+      await laden(dealId, v);
+    } finally {
+      setLaeuft(null);
     }
-    if (!r.data.gerechnet) toast.message("Nichts neu gerechnet.", { description: "Der Entwurf war schon aktuell." });
-    await laden(dealId, v);
   }, [dealId, laden]);
 
   const uebersteuern = useCallback(
@@ -200,24 +212,26 @@ export function KalkSeite({ dealId }: { dealId: string }) {
       if (ziel === null || liste.length === 0) return { ok: false, message: "Nichts zu speichern." };
       const start = ziel;
       setLaeuft("speichern");
-      for (const e of liste) {
-        const r: ApiAntwort<{ version: { version: number }; neu: boolean }> = await apiAufruf(
-          `${basis(dealId)}/${ziel}/overrides`,
-          jsonAufruf("POST", { art: e.art, key: e.key, wert: e.wert, grund: e.grund, fotoRef: e.fotoRef ?? null })
-        );
-        if (!r.ok) {
-          setLaeuft(null);
-          // Teilweise gespeichert: die Seite zeigt den echten Stand.
-          await laden(dealId, ziel);
-          return { ok: false, message: r.message };
+      try {
+        for (const e of liste) {
+          const r: ApiAntwort<{ version: { version: number }; neu: boolean }> = await apiAufruf(
+            `${basis(dealId)}/${ziel}/overrides`,
+            jsonAufruf("POST", { art: e.art, key: e.key, wert: e.wert, grund: e.grund, fotoRef: e.fotoRef ?? null })
+          );
+          if (!r.ok) {
+            // Teilweise gespeichert: die Seite zeigt den echten Stand.
+            await laden(dealId, ziel);
+            return { ok: false, message: r.message };
+          }
+          // An einer gesperrten Version landet die Änderung im Entwurf: die weiteren dorthin.
+          ziel = r.data.version.version;
         }
-        // An einer gesperrten Version landet die Änderung im Entwurf: die weiteren dorthin.
-        ziel = r.data.version.version;
+        if (ziel !== start) toast.message(`Änderung im Entwurf v${ziel} gespeichert.`);
+        await laden(dealId, ziel);
+        return { ok: true };
+      } finally {
+        setLaeuft(null);
       }
-      setLaeuft(null);
-      if (ziel !== start) toast.message(`Änderung im Entwurf v${ziel} gespeichert.`);
-      await laden(dealId, ziel);
-      return { ok: true };
     },
     [dealId, laden]
   );
@@ -256,8 +270,10 @@ export function KalkSeite({ dealId }: { dealId: string }) {
     neuRechnen,
     wechsleVersion,
     setzeLauf: setLaeuft,
+    ausstehend,
+    setzeAusstehend: setAusstehend,
   };
-  const beschaeftigt = laeuft !== null;
+  const beschaeftigt = laeuft !== null || ausstehend;
 
   return (
     <div className="kalk">
@@ -307,14 +323,18 @@ function Hinweisband({
   if (!version.fehler && !version.veraltet) return null;
   const entwurf = version.status === "entwurf";
   const rechnet = laeuft === "neu_rechnen";
+  // Ohne Montage-Echo (M9): eigener Text, kein „Neu rechnen“, das wäre eine Schleife mit dem alten Rechner.
+  const rechnerAlt = !version.fehler && version.veraltetGrund === "rechner";
   return (
     <div className="kalk-band" data-ton={version.fehler ? "rose" : "gold"} role="status">
       <span>
         {version.fehler
           ? `Der Rechner hat nicht geantwortet: ${version.fehler}`
-          : "Der Entwurf ist veraltet: Lead oder Datum haben sich seit der letzten Berechnung geändert. Vor dem Sperren neu rechnen."}
+          : rechnerAlt
+            ? "Der Rechner ist noch nicht auf dem neuen Stand. Sperren geht nach dem Rechner-Update."
+            : "Der Entwurf ist veraltet: Lead oder Datum haben sich seit der letzten Berechnung geändert. Vor dem Sperren neu rechnen."}
       </span>
-      {entwurf ? (
+      {entwurf && !rechnerAlt ? (
         <button type="button" className="kalk-kleinknopf" disabled={laeuft !== null} aria-busy={rechnet || undefined} onClick={onNeuRechnen}>
           {rechnet ? "Rechnet …" : "Neu rechnen"}
         </button>
