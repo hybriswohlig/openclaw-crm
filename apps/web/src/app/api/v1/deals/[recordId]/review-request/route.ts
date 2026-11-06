@@ -12,6 +12,7 @@ import { dealImWorkspace } from "@/lib/kalkulation-versionen-antwort";
 import {
   BewertungFehler,
   BewertungKonfigFehler,
+  BewertungVersandFehler,
   bewertungAnfragen,
   bewertungsVorschau,
 } from "@/services/bewertung-anfragen";
@@ -31,6 +32,8 @@ export async function GET(req: NextRequest, { params }: Params) {
  * POST `{ text?, einwilligung? }` → `{ gesendet, gespraechId }`. Fehler einer
  * Hürde → 409 mit `code` und deutschem Text, `TEXT` → 400, fehlende
  * Konfiguration (NEXT_PUBLIC_APP_URL) → 500 `KONFIGURATION`, nichts gesendet.
+ * Senden gescheitert → 502 `NICHT_GESENDET` (neuer Versuch möglich) oder
+ * `VERSAND_UNKLAR` (Token bleibt, erst im Gespräch prüfen).
  */
 export async function POST(req: NextRequest, { params }: Params) {
   const ctx = await getAuthContext(req);
@@ -67,6 +70,9 @@ export async function POST(req: NextRequest, { params }: Params) {
         { error: { code: err.code, message: err.message } },
         { status: err.code === "TEXT" ? 400 : 409 }
       );
+    }
+    if (err instanceof BewertungVersandFehler) {
+      return NextResponse.json({ error: { code: err.code, message: err.message } }, { status: 502 });
     }
     if (err instanceof BewertungKonfigFehler) {
       return NextResponse.json({ error: { code: "KONFIGURATION", message: err.message } }, { status: 500 });

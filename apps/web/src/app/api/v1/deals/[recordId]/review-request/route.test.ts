@@ -26,7 +26,12 @@ vi.mock("@/services/bewertung-anfragen", async (importOriginal) => {
 });
 
 import { GET, POST } from "./route";
-import { BewertungFehler, BewertungKonfigFehler, type BewertungCode } from "@/services/bewertung-anfragen";
+import {
+  BewertungFehler,
+  BewertungKonfigFehler,
+  BewertungVersandFehler,
+  type BewertungCode,
+} from "@/services/bewertung-anfragen";
 
 const CTX = { userId: "usr_1", workspaceId: "ws_1", workspaceRole: "admin" as const, authMethod: "cookie" as const };
 const URL_ = "http://localhost/api/v1/deals/deal_1/review-request";
@@ -141,6 +146,23 @@ describe("POST /deals/[recordId]/review-request", () => {
     const res = await POST(post({}), p());
     expect(res.status).toBe(500);
     expect((await res.json()).error).toEqual({ code: "KONFIGURATION", message: "NEXT_PUBLIC_APP_URL fehlt" });
+  });
+
+  it("Senden unklar → 502 VERSAND_UNKLAR mit dem Hinweis", async () => {
+    mocks.bewertungAnfragen.mockRejectedValue(new BewertungVersandFehler("VERSAND_UNKLAR", new Error("x")));
+    const res = await POST(post({}), p());
+    expect(res.status).toBe(502);
+    expect((await res.json()).error).toEqual({
+      code: "VERSAND_UNKLAR",
+      message: "Senden unklar. Bitte im Gespräch prüfen, bevor erneut gesendet wird.",
+    });
+  });
+
+  it("nachweislich nicht gesendet → 502 NICHT_GESENDET", async () => {
+    mocks.bewertungAnfragen.mockRejectedValue(new BewertungVersandFehler("NICHT_GESENDET", new Error("x")));
+    const res = await POST(post({}), p());
+    expect(res.status).toBe(502);
+    expect((await res.json()).error.code).toBe("NICHT_GESENDET");
   });
 
   it("unbekannter Fehler wird weitergeworfen", async () => {

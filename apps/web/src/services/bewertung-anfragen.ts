@@ -19,11 +19,10 @@
  *   EINWILLIGUNG   keine Einwilligung `review_request` des Empfängers im Ledger und kein Eintrag des Inhabers
  *   TEXT           geänderter Text ohne Link-Platzhalter oder ohne STOP-Hinweis
  *
- * Doppelt senden: Prüfen, Einwilligung, Token und Senden laufen in einer
- * Transaktion hinter `pg_advisory_xact_lock` je Workspace und Deal. Nach der
- * Sperre wird neu geprüft; der Token ist der dauerhafte Anspruch vor dem
- * Senden. Scheitert das Senden, rollt die Transaktion Token, Einwilligung und
- * deren Ereignis zurück.
+ * Doppelt senden: Der Token in `review_tokens` ist der dauerhafte Anspruch vor
+ * dem Senden. Er entsteht mit der Einwilligung in einer kurzen Transaktion
+ * hinter `pg_advisory_xact_lock` je Workspace und Deal; gesendet wird erst nach
+ * dem Commit (siehe `bewertungAnfragen`).
  *
  * Empfänger der Einwilligung ist die Person am Kontakt des WhatsApp-Gesprächs
  * (`inbox_contacts.crm_record_id`), sonst die erste verknüpfte Person des Deals.
@@ -32,7 +31,8 @@
  * nie in `review_contact_consent_at` (das liest die spätere Engine als
  * Einwilligung des Kunden). Die Tabelle hat keine Autorenspalte; der Autor
  * steht dauerhaft im Ereignis `consent.eingetragen` (`actor_id`), in derselben
- * Transaktion geschrieben, und zusätzlich im `review_events`-Eintrag.
+ * Transaktion geschrieben, und zusätzlich im `review_events`-Eintrag. Die
+ * Einwilligung bleibt auch stehen, wenn danach nicht gesendet wird.
  *
  * Die Route prüft vorher `dealImWorkspace`; jede Abfrage hier filtert trotzdem
  * auf Workspace und Deal.
@@ -57,8 +57,18 @@ import { getDealStageCategory, isAgentSuppressedStrict } from "@/services/agent/
 import type { ActivityEventType } from "@/services/activity-events";
 import { anredeFuerOptOut, ladeGespeicherteAnrede } from "@/services/agent/agent-suppress";
 import { dbGespraechSpeicher, type GespraechRoh } from "@/services/gespraech";
-import { istImFenster, nachEigenerNachricht, sendeAntwort } from "@/services/inbox-senden";
-import { WhatsAppSessionExpiredError } from "@/services/inbox-whatsapp";
+import {
+  GespraechNichtGefunden,
+  OpenClawAusgehendFehler,
+  istImFenster,
+  nachEigenerNachricht,
+  sendeAntwort,
+} from "@/services/inbox-senden";
+import {
+  BaileysBridgeError,
+  BaileysBridgeNotConfiguredError,
+  WhatsAppSessionExpiredError,
+} from "@/services/inbox-whatsapp";
 import { updateRecord } from "@/services/records";
 
 export type BewertungCode =
@@ -91,6 +101,25 @@ export class BewertungFehler extends Error {
   ) {
     super(message);
     this.name = "BewertungFehler";
+  }
+}
+
+/**
+ * Senden gescheitert. `NICHT_GESENDET`: nachweislich vor dem Versand, der Token
+ * ist wieder weg. `VERSAND_UNKLAR`: die Nachricht kann draußen sein, der Token
+ * bleibt und sperrt ein erneutes Senden. Die Route antwortet 502.
+ */
+export class BewertungVersandFehler extends Error {
+  constructor(
+    public readonly code: "NICHT_GESENDET" | "VERSAND_UNKLAR",
+    public readonly ursache: unknown
+  ) {
+    super(
+      code === "VERSAND_UNKLAR"
+        ? "Senden unklar. Bitte im Gespräch prüfen, bevor erneut gesendet wird."
+        : "Nicht gesendet. Die Nachricht hat WhatsApp nicht erreicht, ein neuer Versuch ist möglich."
+    );
+    this.name = "BewertungVersandFehler";
   }
 }
 
@@ -144,6 +173,10 @@ export interface BewertungSpeicher {
   gespraeche(ws: string, deal: string): Promise<GespraechRoh[]>;
   /** Gibt es schon einen Token (Anspruch) für diesen Deal? */
   tokenDa(ws: string, deal: string): Promise<boolean>;
+  /** Unter der Sperre: Token vorhanden und Titel des review_request_status, in einer Abfrage. */
+  anspruch(ws: string, deal: string): Promise<{ tokenDa: boolean; statusTitel: string | null }>;
+  /** Nur ein ungeklickter Token dieses Workspace und Deals. */
+  tokenLoeschen(ws: string, deal: string, token: string): Promise<void>;
   /** Person am Kontakt des Gesprächs (`inbox_contacts.crm_record_id`), nur Personen dieses Workspace. */
   kontaktPerson(ws: string, conversationId: string): Promise<string | null>;
   /** Vorname der Person für „Hallo …,“ (null bei Anredeform oder ohne Namen). */
@@ -168,7 +201,8 @@ export interface BewertungSpeicher {
   /**
    * Führt `fn` in einer Transaktion hinter der Sperre je Workspace und Deal
    * aus. Der übergebene Speicher liest und schreibt in dieser Transaktion; ein
-   * Wurf rollt alles zurück.
+   * Wurf rollt alles zurück. In `fn` nur `anspruch`, `einwilligungSpeichern`
+   * und `tokenAnlegen`: nichts, was auf eine zweite Verbindung wartet.
    */
   gesperrt<T>(ws: string, deal: string, fn: (tx: BewertungSpeicher) => Promise<T>): Promise<T>;
 }
@@ -326,6 +360,34 @@ function speicherAuf(conn: Verbindung, gesperrt: BewertungSpeicher["gesperrt"] |
         `)
       );
       return r?.da === true;
+    },
+
+    async anspruch(ws, deal) {
+      const [r] = zeilen<{ token_da: boolean | null; status_titel: string | null }>(
+        await conn.execute(sql`
+          SELECT
+            EXISTS (
+              SELECT 1 FROM review_tokens WHERE workspace_id = ${ws} AND deal_record_id = ${deal}
+            ) AS token_da,
+            (
+              SELECT s.title FROM record_values v
+              INNER JOIN attributes a ON a.id = v.attribute_id AND a.slug = 'review_request_status'
+              INNER JOIN statuses s ON s.attribute_id = a.id AND (s.id = v.text_value OR s.id = v.referenced_record_id)
+              INNER JOIN records r ON r.id = v.record_id
+              INNER JOIN objects o ON o.id = r.object_id AND o.workspace_id = ${ws}
+              WHERE v.record_id = ${deal}
+              LIMIT 1
+            ) AS status_titel
+        `)
+      );
+      return { tokenDa: r?.token_da === true, statusTitel: r?.status_titel ?? null };
+    },
+
+    async tokenLoeschen(ws, deal, token) {
+      await conn.execute(sql`
+        DELETE FROM review_tokens
+        WHERE workspace_id = ${ws} AND deal_record_id = ${deal} AND token = ${token} AND clicked_at IS NULL
+      `);
     },
 
     async kontaktPerson(ws, conversationId) {
@@ -607,12 +669,59 @@ function appUrl(): string {
 }
 
 /**
- * Prüft alle Hürden, legt bei Bedarf die Einwilligung des Inhabers an, legt den
- * Token an und sendet über das WhatsApp-Gespräch, alles in einer Transaktion
- * hinter der Sperre je Deal. Danach (außerhalb der Transaktion, ein Fehler
- * kippt das Senden nicht mehr): Vermerk der eigenen Nachricht, Status,
- * Zeitpunkt, Versuch und Ereignis. `einwilligung` = Eintrag des Inhabers „wie
- * und wann zugestimmt“, Pflicht ohne vorhandene Einwilligung.
+ * Fehler beim Senden, die nachweislich vor dem Versand an den Kunden entstehen
+ * (inbox-senden.ts, inbox-whatsapp.ts: sendWhatsAppReply, sendBaileysReply,
+ * loadBaileysSendContext, callBridgeSend). Dann ist nichts gesendet, der Token
+ * kann weg. Alles andere (Netzfehler beim Abruf, Fehler beim Speichern nach dem
+ * Abruf) ist unklar.
+ */
+const VOR_DEM_ABRUF = new Set([
+  "Conversation not found",
+  "Channel account not found",
+  "Conversation is not a WhatsApp conversation",
+  "WhatsApp channel account is missing phone_number_id or access token",
+  "Cannot determine recipient wa_id",
+]);
+const VOR_DEM_ABRUF_ANFANG = [
+  "Channel account is WABA, not Baileys",
+  "Channel account uses bridge '",
+  "Conversation is keyed to a WhatsApp group/channel",
+  // Graph-API hat mit einem Fehlerstatus geantwortet: nicht angenommen.
+  "WhatsApp send failed: ",
+];
+
+export function nichtsGesendet(err: unknown): boolean {
+  if (
+    err instanceof WhatsAppSessionExpiredError ||
+    err instanceof GespraechNichtGefunden ||
+    err instanceof OpenClawAusgehendFehler ||
+    err instanceof BaileysBridgeNotConfiguredError
+  ) {
+    return true;
+  }
+  // Die Bridge hat abgelehnt (kein 2xx oder ok: false). „no externalMessageId“
+  // kommt nach ok: true und ist darum unklar.
+  if (err instanceof BaileysBridgeError) return err.message !== "bridge returned no externalMessageId";
+  if (!(err instanceof Error) || err.constructor !== Error) return false;
+  return VOR_DEM_ABRUF.has(err.message) || VOR_DEM_ABRUF_ANFANG.some((a) => err.message.startsWith(a));
+}
+
+/**
+ * Zwei Phasen, damit ein Fehler nach dem Versand nie Token und Einwilligung
+ * zurückrollt:
+ *
+ * 1. Alle Hürden ohne Transaktion prüfen (Stufe, Abmeldung, Fenster, Gespräche,
+ *    Anrede, Text). Dann in einer Transaktion hinter `pg_advisory_xact_lock`
+ *    nur neu prüfen, was sich parallel ändern kann (Token, review_request_status),
+ *    und Einwilligung samt Ereignis und Token anlegen. Commit.
+ * 2. Nach dem Commit senden. Fehler, die vor dem Versand entstehen
+ *    (`nichtsGesendet`), löschen den Token wieder (`FENSTER` beim Ablauf des
+ *    Fensters, sonst `NICHT_GESENDET`); die Einwilligung bleibt als Beleg. Jeder
+ *    andere Fehler lässt den Token stehen, damit er ein erneutes Senden sperrt,
+ *    und ergibt `VERSAND_UNKLAR`.
+ *
+ * Nach dem Senden laufen Vermerk, Felder und Ereignis je für sich; ein Fehler
+ * dort ändert das Ergebnis nicht.
  */
 export async function bewertungAnfragen(
   ws: string,
@@ -622,32 +731,38 @@ export async function bewertungAnfragen(
 ): Promise<{ gesendet: true; gespraechId: string }> {
   const basisUrl = appUrl();
 
-  const lauf = await speicher.gesperrt(ws, deal, async (tx) => {
-    // Nach der Sperre neu prüfen: ein paralleler Lauf hat inzwischen vielleicht gesendet.
-    const p = await pruefen(ws, deal, tx);
-    if (p.sperre) throw new BewertungFehler(p.sperre);
-    const gespraech = p.gespraech!;
-    const ziel = p.ziel!;
+  // ─ Phase 1a: Prüfen ohne Transaktion
+  const p = await pruefen(ws, deal, speicher);
+  if (p.sperre) throw new BewertungFehler(p.sperre);
+  const gespraech = p.gespraech!;
+  const ziel = p.ziel!;
 
-    const eintrag = input.einwilligung?.trim() ?? "";
-    if (!p.einwilligung) {
-      if (!p.empfaenger) {
-        throw new BewertungFehler("EINWILLIGUNG", "Am Deal hängt keine Person, für die die Einwilligung gespeichert werden kann.");
-      }
-      if (!eintrag) throw new BewertungFehler("EINWILLIGUNG");
-      if (eintrag.length > MAX_EINWILLIGUNG) {
-        throw new BewertungFehler("EINWILLIGUNG", `Der Eintrag zur Einwilligung ist zu lang (höchstens ${MAX_EINWILLIGUNG} Zeichen).`);
-      }
+  const eintrag = input.einwilligung?.trim() ?? "";
+  if (!p.einwilligung) {
+    if (!p.empfaenger) {
+      throw new BewertungFehler("EINWILLIGUNG", "Am Deal hängt keine Person, für die die Einwilligung gespeichert werden kann.");
     }
+    if (!eintrag) throw new BewertungFehler("EINWILLIGUNG");
+    if (eintrag.length > MAX_EINWILLIGUNG) {
+      throw new BewertungFehler("EINWILLIGUNG", `Der Eintrag zur Einwilligung ist zu lang (höchstens ${MAX_EINWILLIGUNG} Zeichen).`);
+    }
+  }
 
-    const entwurf = input.text ?? (await vorlage(ws, deal, p, tx, BEWERTUNGSLINK_PLATZHALTER));
-    const grund = textFehler(entwurf, BEWERTUNGSLINK_PLATZHALTER);
-    if (grund) throw new BewertungFehler("TEXT", grund);
+  const entwurf = input.text ?? (await vorlage(ws, deal, p, speicher, BEWERTUNGSLINK_PLATZHALTER));
+  const grund = textFehler(entwurf, BEWERTUNGSLINK_PLATZHALTER);
+  if (grund) throw new BewertungFehler("TEXT", grund);
 
-    // Vorherige Einwilligung: vor dem Senden belegt, mit Autor.
-    let einwilligungId: string | null = null;
+  // ─ Phase 1b: Anspruch unter der Sperre
+  const token = neuerToken();
+  const einwilligungId = await speicher.gesperrt(ws, deal, async (tx) => {
+    const anspruch = await tx.anspruch(ws, deal);
+    if (anspruch.tokenDa || (anspruch.statusTitel && SCHON_GESENDET.has(anspruch.statusTitel))) {
+      throw new BewertungFehler("SCHON_GESENDET");
+    }
+    let id: string | null = null;
     if (!p.einwilligung) {
-      einwilligungId = await tx.einwilligungSpeichern({
+      // Vorherige Einwilligung: vor dem Senden belegt, mit Autor.
+      id = await tx.einwilligungSpeichern({
         workspaceId: ws,
         dealRecordId: deal,
         personRecordId: p.empfaenger!,
@@ -658,35 +773,43 @@ export async function bewertungAnfragen(
         userId: input.userId,
       });
     }
-
-    // Der Token ist der Anspruch: ein zweiter Lauf sieht ihn nach der Sperre.
-    const token = neuerToken();
     await tx.tokenAnlegen({ token, workspaceId: ws, dealRecordId: deal, destinationUrl: ziel.url });
-    const body = entwurf.split(BEWERTUNGSLINK_PLATZHALTER).join(`${basisUrl}/r/${token}`);
-
-    try {
-      const gesendet = await sendeAntwort({ workspaceId: ws, conversationId: gespraech.id, body });
-      return { p, gespraech, ziel, token, einwilligungId, gesendet };
-    } catch (err) {
-      // Wurf rollt Token und Einwilligung zurück.
-      if (err instanceof WhatsAppSessionExpiredError) throw new BewertungFehler("FENSTER");
-      throw err;
-    }
+    return id;
   });
 
-  const { p, gespraech, ziel, token, einwilligungId, gesendet } = lauf;
+  // ─ Phase 2: Senden nach dem Commit
+  const body = entwurf.split(BEWERTUNGSLINK_PLATZHALTER).join(`${basisUrl}/r/${token}`);
+  let gesendet: Awaited<ReturnType<typeof sendeAntwort>>;
+  try {
+    gesendet = await sendeAntwort({ workspaceId: ws, conversationId: gespraech.id, body });
+  } catch (err) {
+    if (nichtsGesendet(err)) {
+      try {
+        await speicher.tokenLoeschen(ws, deal, token);
+      } catch (loeschErr) {
+        console.error("[bewertung-anfragen] Token nach Fehler vor dem Versand nicht entfernt:", loeschErr);
+      }
+      if (err instanceof WhatsAppSessionExpiredError) throw new BewertungFehler("FENSTER");
+      throw new BewertungVersandFehler("NICHT_GESENDET", err);
+    }
+    console.error("[bewertung-anfragen] Senden unklar, Token bleibt als Sperre:", err);
+    throw new BewertungVersandFehler("VERSAND_UNKLAR", err);
+  }
+
   const jetzt = new Date();
   const sentAt = gesendet.message?.sentAt instanceof Date ? gesendet.message.sentAt : jetzt;
-  await nachEigenerNachricht({
-    workspaceId: ws,
-    conversationId: gespraech.id,
-    dealRecordId: deal,
-    userId: input.userId,
-    sentAt,
-    deduped: false,
-  });
-
-  // Gesendet ist gesendet: der Vermerk darf das Ergebnis nicht mehr kippen.
+  try {
+    await nachEigenerNachricht({
+      workspaceId: ws,
+      conversationId: gespraech.id,
+      dealRecordId: deal,
+      userId: input.userId,
+      sentAt,
+      deduped: false,
+    });
+  } catch (err) {
+    console.error("[bewertung-anfragen] nachEigenerNachricht nach dem Senden fehlgeschlagen:", err);
+  }
   try {
     const optionen = await speicher.optionen(p.roh.objectId);
     await updateRecord(
