@@ -32,6 +32,7 @@ import {
   dbGespraechSpeicher,
   dealGespraeche,
   ersteAnpassungAus,
+  ladeEinzelgespraech,
   ladeGespraech,
   type AnrufRoh,
   type GespraechRoh,
@@ -87,6 +88,7 @@ const msg = (over: Partial<PersonTimelineMessage> & { id: string; conversationId
 
 function speicher(teile: {
   gespraeche?: GespraechRoh[];
+  einzel?: GespraechRoh | null;
   nachrichten?: PersonTimelineMessage[];
   anrufe?: AnrufRoh[];
   fakten?: SystemFakten;
@@ -94,6 +96,7 @@ function speicher(teile: {
 }): GespraechSpeicher {
   return {
     gespraeche: vi.fn(async () => teile.gespraeche ?? []),
+    einzelgespraech: vi.fn(async () => teile.einzel ?? null),
     nachrichten: vi.fn(async (_ws: string, ids: string[]) => (teile.nachrichten ?? []).filter((m) => ids.includes(m.conversationId))),
     anrufe: vi.fn(async () => teile.anrufe ?? []),
     fakten: vi.fn(async () => teile.fakten ?? FAKTEN),
@@ -268,6 +271,108 @@ describe("ladeGespraech", () => {
     expect(out.vorauswahl).toBeNull();
     expect(out.eintraege.map((e) => e.art)).toEqual(["system", "system"]);
     expect(s.nachrichten).not.toHaveBeenCalled();
+  });
+});
+
+describe("ladeEinzelgespraech", () => {
+  it("Gespräch ohne Deal: nur seine Nachrichten, ein Kanal, gilt als direkt (WABA sendet, Fenster abgefragt)", async () => {
+    const s = speicher({
+      einzel: roh({ id: "c_info", dealRecordId: null, kundeName: "Herr Unbekannt" }),
+      anrufe: [{ id: "call1", startedAt: new Date("2026-11-04T08:00:00.000Z"), durationSeconds: 60, summary: null, lineLabel: null, answeredBy: null, callerE164: null, callerRaw: null, transcript: null }],
+      imFenster: false,
+    });
+    // Der Speicher liefert auch eine fremde Nachricht: sie darf nie erscheinen.
+    (s.nachrichten as ReturnType<typeof vi.fn>).mockImplementation(async () => [
+      msg({ id: "m1", conversationId: "c_info", sentAt: new Date("2026-11-04T09:00:00.000Z") }),
+      msg({ id: "m2", conversationId: "c_info", direction: "outbound", status: "delivered", sentAt: new Date("2026-11-04T10:00:00.000Z") }),
+      msg({ id: "fremd", conversationId: "c_anders" }),
+    ]);
+    const out = await ladeEinzelgespraech(WS, "c_info", s);
+    expect(out).not.toBeNull();
+    expect(out!.eintraege.map((e) => e.id)).toEqual(["m1", "m2"]);
+    expect(out!.eintraege[0]).toEqual({
+      art: "nachricht",
+      id: "m1",
+      zeit: "2026-11-04T09:00:00.000Z",
+      richtung: "inbound",
+      kanal: "whatsapp",
+      gespraechId: "c_info",
+      von: "Herr Unbekannt",
+      text: "m1",
+      status: "received",
+      anhaenge: [],
+    });
+    expect(out!.eintraege[1]).toMatchObject({ richtung: "outbound", von: null, status: "delivered" });
+    expect(out!.kanaele).toEqual([
+      { gespraechId: "c_info", kanal: "whatsapp", name: "Kottke WhatsApp", kontoId: "acc_wa", istWaba: true, telefon: "+4915100000001", kundeName: "Herr Unbekannt", direkt: true, kannSenden: true, imFenster: false },
+    ]);
+    expect(out!.vorauswahl).toBe("c_info");
+    expect(s.einzelgespraech).toHaveBeenCalledWith(WS, "c_info");
+    expect(s.nachrichten).toHaveBeenCalledWith(WS, ["c_info"]);
+    expect(s.imFenster).toHaveBeenCalledWith("c_info");
+    // Anrufe und Systemzeilen hängen am Deal: nie gelesen.
+    expect(s.anrufe).not.toHaveBeenCalled();
+    expect(s.fakten).not.toHaveBeenCalled();
+    expect(s.gespraeche).not.toHaveBeenCalled();
+  });
+
+  it("kannSenden nach denselben Regeln: E-Mail ja (kein Fenster), Baileys inhouse ja, andere Bridge und SMS nein", async () => {
+    const fall = async (over: Partial<GespraechRoh>) => {
+      const s = speicher({ einzel: roh({ id: "c", dealRecordId: null, ...over }) });
+      const out = await ladeEinzelgespraech(WS, "c", s);
+      return { k: out!.kanaele[0], fenster: (s.imFenster as ReturnType<typeof vi.fn>).mock.calls.length, vorauswahl: out!.vorauswahl };
+    };
+    const mail = await fall({ kanal: "email", waPhoneNumberId: null });
+    expect(mail.k).toMatchObject({ kanal: "email", istWaba: false, kannSenden: true, imFenster: null, direkt: true });
+    expect(mail.fenster).toBe(0);
+    expect(mail.vorauswahl).toBe("c");
+    expect((await fall({ waPhoneNumberId: null, bridge: "inhouse" })).k).toMatchObject({ istWaba: false, kannSenden: true, imFenster: null });
+    const openclaw = await fall({ waPhoneNumberId: null, bridge: "openclaw" });
+    expect(openclaw.k).toMatchObject({ kannSenden: false, imFenster: null });
+    expect(openclaw.vorauswahl).toBeNull();
+    expect((await fall({ kanal: "sms", waPhoneNumberId: null })).k).toMatchObject({ kanal: "sms", kannSenden: false });
+  });
+
+  it("Gespräch an einem Deal: trotzdem nur dieses Gespräch, direkt true", async () => {
+    const s = speicher({ einzel: roh({ id: "c_wa", dealRecordId: "deal_9" }) });
+    const out = await ladeEinzelgespraech(WS, "c_wa", s);
+    expect(out!.kanaele.map((k) => [k.gespraechId, k.direkt, k.kannSenden])).toEqual([["c_wa", true, true]]);
+    expect(out!.eintraege).toEqual([]);
+  });
+
+  it("unbekannt oder fremder Workspace → null, sonst nichts gelesen", async () => {
+    const s = speicher({ einzel: null });
+    expect(await ladeEinzelgespraech(WS, "c_fremd", s)).toBeNull();
+    expect(s.nachrichten).not.toHaveBeenCalled();
+    expect(s.imFenster).not.toHaveBeenCalled();
+  });
+});
+
+describe("dbGespraechSpeicher.einzelgespraech", () => {
+  it("liest genau ein Gespräch, gefiltert auf Workspace und ID, nur lesen", async () => {
+    mocks.execute.mockResolvedValueOnce([
+      { id: "c_1", deal_record_id: null, channel_type: "email", name: "Kottke Mail", konto_id: "acc_mail", wa_phone_number_id: null, bridge: null, telefon: null, kunde_name: "Herr X" },
+    ]);
+    expect(await dbGespraechSpeicher.einzelgespraech(WS, "c_1")).toEqual({
+      id: "c_1",
+      dealRecordId: null,
+      kanal: "email",
+      name: "Kottke Mail",
+      kontoId: "acc_mail",
+      waPhoneNumberId: null,
+      bridge: null,
+      telefon: null,
+      kundeName: "Herr X",
+    });
+    const { text, params } = gerendert(mocks.execute.mock.calls[0]);
+    expect(text.toLowerCase()).not.toMatch(/\b(update|insert|delete)\b/);
+    expect(text).toContain("c.workspace_id = $1 AND c.id = $2");
+    expect(params).toEqual([WS, "c_1"]);
+  });
+
+  it("keine Zeile → null", async () => {
+    mocks.execute.mockResolvedValueOnce([]);
+    expect(await dbGespraechSpeicher.einzelgespraech(WS, "c_x")).toBeNull();
   });
 });
 

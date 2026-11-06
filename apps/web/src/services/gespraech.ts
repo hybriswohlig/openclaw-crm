@@ -83,6 +83,8 @@ export interface AnrufRoh {
 
 export interface GespraechSpeicher {
   gespraeche(ws: string, deal: string): Promise<GespraechRoh[]>;
+  /** Genau dieses Gespräch im Workspace, sonst null (Inbox, Plan 6 Entscheidung 8). */
+  einzelgespraech(ws: string, conversationId: string): Promise<GespraechRoh | null>;
   nachrichten(ws: string, conversationIds: string[]): Promise<PersonTimelineMessage[]>;
   anrufe(ws: string, deal: string): Promise<AnrufRoh[]>;
   fakten(ws: string, deal: string): Promise<SystemFakten>;
@@ -92,18 +94,34 @@ export interface GespraechSpeicher {
 
 // ─── Gespräche des Deals ──────────────────────────────────────────────────────
 
+interface GespraechZeile {
+  id: string;
+  deal_record_id: string | null;
+  channel_type: GespraechKanalArt;
+  name: string;
+  konto_id: string;
+  wa_phone_number_id: string | null;
+  bridge: string | null;
+  telefon: string | null;
+  kunde_name: string | null;
+}
+
+function rohAus(r: GespraechZeile): GespraechRoh {
+  return {
+    id: r.id,
+    dealRecordId: r.deal_record_id ?? null,
+    kanal: r.channel_type,
+    name: r.name,
+    kontoId: r.konto_id,
+    waPhoneNumberId: r.wa_phone_number_id ?? null,
+    bridge: r.bridge ?? null,
+    telefon: r.telefon ?? null,
+    kundeName: r.kunde_name ?? null,
+  };
+}
+
 async function gespraecheLesen(ws: string, deal: string): Promise<GespraechRoh[]> {
-  const rows = zeilen<{
-    id: string;
-    deal_record_id: string | null;
-    channel_type: GespraechKanalArt;
-    name: string;
-    konto_id: string;
-    wa_phone_number_id: string | null;
-    bridge: string | null;
-    telefon: string | null;
-    kunde_name: string | null;
-  }>(
+  const rows = zeilen<GespraechZeile>(
     await db.execute(sql`
       SELECT
         c.id AS id,
@@ -130,17 +148,31 @@ async function gespraecheLesen(ws: string, deal: string): Promise<GespraechRoh[]
       ORDER BY c.created_at, c.id
     `)
   );
-  return rows.map((r) => ({
-    id: r.id,
-    dealRecordId: r.deal_record_id ?? null,
-    kanal: r.channel_type,
-    name: r.name,
-    kontoId: r.konto_id,
-    waPhoneNumberId: r.wa_phone_number_id ?? null,
-    bridge: r.bridge ?? null,
-    telefon: r.telefon ?? null,
-    kundeName: r.kunde_name ?? null,
-  }));
+  return rows.map(rohAus);
+}
+
+/** Ein Gespräch mit Kanalkonto und Kontakt, nur im eigenen Workspace. */
+async function einzelgespraechLesen(ws: string, conversationId: string): Promise<GespraechRoh | null> {
+  const [r] = zeilen<GespraechZeile>(
+    await db.execute(sql`
+      SELECT
+        c.id AS id,
+        c.deal_record_id AS deal_record_id,
+        a.channel_type AS channel_type,
+        a.name AS name,
+        a.id AS konto_id,
+        a.wa_phone_number_id AS wa_phone_number_id,
+        a.baileys_bridge_provider AS bridge,
+        k.phone AS telefon,
+        k.display_name AS kunde_name
+      FROM inbox_conversations c
+      INNER JOIN channel_accounts a ON a.id = c.channel_account_id
+      INNER JOIN inbox_contacts k ON k.id = c.contact_id
+      WHERE c.workspace_id = ${ws} AND c.id = ${conversationId}
+      LIMIT 1
+    `)
+  );
+  return r ? rohAus(r) : null;
 }
 
 /**
@@ -335,6 +367,7 @@ async function faktenLesen(ws: string, deal: string): Promise<SystemFakten> {
 
 export const dbGespraechSpeicher: GespraechSpeicher = {
   gespraeche: gespraecheLesen,
+  einzelgespraech: einzelgespraechLesen,
   nachrichten: getPersonMessages,
   anrufe: (ws, deal) => listCallsForRecord(ws, "deals", deal),
   fakten: faktenLesen,
@@ -342,6 +375,38 @@ export const dbGespraechSpeicher: GespraechSpeicher = {
 };
 
 // ─── Gespräch laden ───────────────────────────────────────────────────────────
+
+function nachrichtAus(m: PersonTimelineMessage, kundeName: string | null): Nachricht {
+  return {
+    art: "nachricht",
+    id: m.id,
+    zeit: (m.sentAt ?? m.createdAt).toISOString(),
+    richtung: m.direction,
+    kanal: m.channelType,
+    gespraechId: m.conversationId,
+    von: m.direction === "inbound" ? kundeName : null,
+    text: m.body,
+    status: m.status,
+    anhaenge: m.attachments.map((a) => ({ id: a.id, name: a.fileName, mime: a.mimeType })),
+  };
+}
+
+/** Kanaleintrag fürs Eingabefeld; `imFenster` nur für WABA (eine Abfrage je WABA-Gespräch). */
+async function kanalAus(g: GespraechRoh, direkt: boolean, speicher: GespraechSpeicher): Promise<GespraechKanal> {
+  const istWaba = g.kanal === "whatsapp" && Boolean(g.waPhoneNumberId);
+  return {
+    gespraechId: g.id,
+    kanal: g.kanal,
+    name: g.name,
+    kontoId: g.kontoId,
+    istWaba,
+    telefon: g.telefon,
+    kundeName: g.kundeName,
+    direkt,
+    kannSenden: kannSendenAus({ direkt, kanal: g.kanal, waPhoneNumberId: g.waPhoneNumberId, bridge: g.bridge }),
+    imFenster: istWaba ? await speicher.imFenster(g.id) : null,
+  };
+}
 
 /**
  * Verlauf, Kanäle und Vorauswahl des Deals. `kannSenden` nur bei direkt
@@ -364,18 +429,7 @@ export async function ladeGespraech(
   const nachrichtenRoh = ids.length > 0 ? await speicher.nachrichten(ws, ids) : [];
   const kunde = new Map(gespraeche.map((g) => [g.id, g.kundeName]));
 
-  const nachrichten: Nachricht[] = nachrichtenRoh.map((m) => ({
-    art: "nachricht",
-    id: m.id,
-    zeit: (m.sentAt ?? m.createdAt).toISOString(),
-    richtung: m.direction,
-    kanal: m.channelType,
-    gespraechId: m.conversationId,
-    von: m.direction === "inbound" ? (kunde.get(m.conversationId) ?? null) : null,
-    text: m.body,
-    status: m.status,
-    anhaenge: m.attachments.map((a) => ({ id: a.id, name: a.fileName, mime: a.mimeType })),
-  }));
+  const nachrichten = nachrichtenRoh.map((m) => nachrichtAus(m, kunde.get(m.conversationId) ?? null));
 
   const anrufe: Anruf[] = anrufeRoh.map((c) => ({
     art: "anruf",
@@ -396,22 +450,7 @@ export async function ladeGespraech(
   }
 
   const kanaele: GespraechKanal[] = await Promise.all(
-    gespraeche.map(async (g) => {
-      const direkt = g.dealRecordId === deal;
-      const istWaba = g.kanal === "whatsapp" && Boolean(g.waPhoneNumberId);
-      return {
-        gespraechId: g.id,
-        kanal: g.kanal,
-        name: g.name,
-        kontoId: g.kontoId,
-        istWaba,
-        telefon: g.telefon,
-        kundeName: g.kundeName,
-        direkt,
-        kannSenden: kannSendenAus({ direkt, kanal: g.kanal, waPhoneNumberId: g.waPhoneNumberId, bridge: g.bridge }),
-        imFenster: istWaba ? await speicher.imFenster(g.id) : null,
-      };
-    })
+    gespraeche.map((g) => kanalAus(g, g.dealRecordId === deal, speicher))
   );
   kanaele.sort(
     (a, b) =>
@@ -421,6 +460,34 @@ export async function ladeGespraech(
 
   return {
     eintraege: gespraechZusammenfuehren({ nachrichten, anrufe, system: systemzeilenAus(fakten) }),
+    kanaele,
+    vorauswahl: vorauswahlAus(kanaele, nachrichten),
+  };
+}
+
+/**
+ * Ein einzelnes Gespräch für die Inbox (Plan 6, Entscheidung 8), in derselben
+ * Form wie die Akte: Einträge nur die Nachrichten dieses Gesprächs (keine
+ * Anrufe, keine Systemzeilen, die hängen am Deal), `kanaele` genau dieses
+ * Gespräch. Es gilt als direkt (es ist der Gegenstand der Ansicht): senden nach
+ * `kannSendenAus` wie bei einem direkt verknüpften Gespräch, kein Hinweis
+ * „anderer Deal“ im Verlauf. Fremder Workspace oder unbekannte ID → null.
+ * Liest nur; Gelesen markiert die Route.
+ */
+export async function ladeEinzelgespraech(
+  ws: string,
+  conversationId: string,
+  speicher: GespraechSpeicher = dbGespraechSpeicher
+): Promise<Gespraech | null> {
+  const g = await speicher.einzelgespraech(ws, conversationId);
+  if (!g) return null;
+  const [nachrichtenRoh, kanal] = await Promise.all([speicher.nachrichten(ws, [g.id]), kanalAus(g, true, speicher)]);
+  const nachrichten = nachrichtenRoh
+    .filter((m) => m.conversationId === g.id)
+    .map((m) => nachrichtAus(m, g.kundeName));
+  const kanaele = [kanal];
+  return {
+    eintraege: gespraechZusammenfuehren({ nachrichten, anrufe: [], system: [] }),
     kanaele,
     vorauswahl: vorauswahlAus(kanaele, nachrichten),
   };

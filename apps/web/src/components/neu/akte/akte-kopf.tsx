@@ -88,7 +88,7 @@ export function AkteKopf({
  * Sequenz beendet, antwortet der Server 409 BEENDET, die Meldung erscheint und
  * die Akte lädt neu.
  */
-function NachfassSchalter({
+export function NachfassSchalter({
   dealId,
   nachfass,
   onNachfass,
