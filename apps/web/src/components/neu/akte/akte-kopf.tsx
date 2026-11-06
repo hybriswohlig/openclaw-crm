@@ -86,7 +86,7 @@ export function AkteKopf({
 /**
  * „Nachfass automatisch“ mit dem Modus-Text darunter. PUT `/nachfass`; ist die
  * Sequenz beendet, antwortet der Server 409 BEENDET, die Meldung erscheint und
- * die Akte lädt neu.
+ * die Akte lädt neu. Exportiert für die Inbox-Kurzfassung (Plan 6).
  */
 export function NachfassSchalter({
   dealId,

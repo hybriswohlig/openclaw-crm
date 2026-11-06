@@ -27,6 +27,15 @@
   padding-bottom: 84px;
 }
 
+/* Ohne Dock (Inbox, Plan 6): nur der Rand unter dem Eingabefeld. */
+[data-neu] .akte-panel.akte-gespraech-panel[data-ohne-dock] {
+  padding-bottom: 16px;
+}
+
+[data-neu] .akte-gespraech-kopf-text {
+  min-width: 0;
+}
+
 /* ── Kopf ────────────────────────────────────────────── */
 
 [data-neu] .akte-panel-kopf.akte-gespraech-kopf {

@@ -29,9 +29,10 @@ interface Hinweis {
 /**
  * Das Eingabefeld über dem Dock: Kanalpunkt als Wahl des sendefähigen
  * Gesprächs (Entscheidung 11), Textfeld, „KI-Entwurf“ und Senden-Kreis.
- * Ohne sendefähiges Gespräch gesperrt mit „WhatsApp starten“; bei WABA
- * außerhalb des Fensters gesperrt mit „Vorlage“: öffnet den Vorlage-Dialog der
- * Akte (`onVorlage`, Task 14), ohne ihn der Sprung in die alte Inbox.
+ * Ohne sendefähiges Gespräch gesperrt mit „WhatsApp starten“ (nur mit Deal,
+ * Plan 6 Entscheidung 8); bei WABA außerhalb des Fensters gesperrt mit
+ * „Vorlage“: öffnet den Vorlage-Dialog der Akte (`onVorlage`, Task 14), ohne
+ * ihn der Sprung in die alte Inbox.
  */
 export function Eingabe({
   dealId,
@@ -45,7 +46,8 @@ export function Eingabe({
   onGesendet,
   onVorlage,
 }: {
-  dealId: string;
+  /** Null für ein Gespräch ohne Deal (Inbox): dann gibt es kein „WhatsApp starten“. */
+  dealId: string | null;
   kanaele: GespraechKanal[];
   gewaehltId: string | null;
   onWaehlen: (id: string) => void;
@@ -144,7 +146,7 @@ export function Eingabe({
    * nicht sendefähig (anderer Deal), bleibt nur der Sprung in den Posteingang.
    */
   async function whatsappStarten() {
-    if (startet) return;
+    if (startet || !dealId) return;
     setStartet(true);
     setFehler(null);
     setHinweis(null);
@@ -210,10 +212,14 @@ export function Eingabe({
     return (
       <>
         <div className="akte-gespraech-eingabe" data-gesperrt="">
-          <span className="akte-gespraech-gesperrt">Noch kein Kanal mit diesem Kunden.</span>
-          <GlassButton size="sm" onClick={() => void whatsappStarten()} disabled={startet}>
-            {startet ? "Startet…" : "WhatsApp starten"}
-          </GlassButton>
+          <span className="akte-gespraech-gesperrt">
+            {dealId ? "Noch kein Kanal mit diesem Kunden." : "Über diesen Kanal lässt sich nicht antworten."}
+          </span>
+          {dealId ? (
+            <GlassButton size="sm" onClick={() => void whatsappStarten()} disabled={startet}>
+              {startet ? "Startet…" : "WhatsApp starten"}
+            </GlassButton>
+          ) : null}
         </div>
         {meldungen}
       </>

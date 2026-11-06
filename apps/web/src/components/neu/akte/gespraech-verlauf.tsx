@@ -39,20 +39,28 @@ export function hakenAus(status: string): { text: string; titel: string } | null
   }
 }
 
+/** So nah am Ende (in Pixeln) gilt der Verlauf als „unten“ und folgt neuen Einträgen. */
+const UNTEN_TOLERANZ = 150;
+
 /**
  * Der Verlauf: Tageskapseln, eingehende Blasen links, ausgehende rechts,
- * Systemzeilen und Anrufe mittig. Scrollt beim Laden und bei neuen Einträgen
- * ans Ende. `onFoto` öffnet ein Bild im Vollbild, `onTranskript` den
- * Transkript-Dialog eines Anrufs.
+ * Systemzeilen und Anrufe mittig. Scrollt beim Laden ans Ende; bei neuen
+ * Einträgen nur, wenn man schon unten war (Plan 6, Entscheidung 9) oder
+ * `sprung` sich geändert hat (nach eigenem Senden). Wer oben liest, bleibt
+ * beim stillen Neuladen, wo er ist. `onFoto` öffnet ein Bild im Vollbild,
+ * `onTranskript` den Transkript-Dialog eines Anrufs.
  */
 export function GespraechVerlauf({
   eintraege,
   kanaele,
+  sprung = 0,
   onFoto,
   onTranskript,
 }: {
   eintraege: GespraechEintrag[];
   kanaele: GespraechKanal[];
+  /** Zähler; jede Änderung erzwingt beim nächsten Rendern den Sprung ans Ende. */
+  sprung?: number;
   onFoto: (foto: Foto) => void;
   onTranskript?: (anruf: Anruf) => void;
 }) {
@@ -60,11 +68,25 @@ export function GespraechVerlauf({
   const tage = useMemo(() => nachTagen(eintraege, new Date()), [eintraege]);
   const direkt = useMemo(() => new Map(kanaele.map((k) => [k.gespraechId, k.direkt])), [kanaele]);
   const letzteId = eintraege[eintraege.length - 1]?.id ?? null;
+  // Stand vor dem Rendern: beim ersten Laden gilt „unten“, danach misst onScroll.
+  const warUnten = useRef(true);
+  const letzterSprung = useRef(sprung);
 
   useEffect(() => {
     const el = ref.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [letzteId]);
+    if (!el) return;
+    const erzwungen = letzterSprung.current !== sprung;
+    letzterSprung.current = sprung;
+    if (erzwungen || warUnten.current) {
+      el.scrollTop = el.scrollHeight;
+      warUnten.current = true;
+    }
+  }, [letzteId, sprung]);
+
+  function gescrollt() {
+    const el = ref.current;
+    if (el) warUnten.current = el.scrollHeight - el.scrollTop - el.clientHeight <= UNTEN_TOLERANZ;
+  }
 
   if (eintraege.length === 0) {
     return (
@@ -75,7 +97,7 @@ export function GespraechVerlauf({
   }
 
   return (
-    <div className="akte-gespraech-verlauf" ref={ref} role="log" aria-label="Verlauf">
+    <div className="akte-gespraech-verlauf" ref={ref} role="log" aria-label="Verlauf" onScroll={gescrollt}>
       {tage.map((t) => (
         <TagGruppe key={t.tag + t.eintraege[0]!.id} tag={t.tag}>
           {t.eintraege.map((e) => {
