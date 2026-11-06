@@ -138,7 +138,8 @@ function fake(start: {
     gespraeche: vi.fn(async () => start.gespraeche ?? [WABA]),
     tokenDa: vi.fn(async () => (start.tokenDa ?? false) || st.tokens.length > 0),
     kontaktPerson: vi.fn(async () => start.kontaktPerson ?? null),
-    personKontakt: vi.fn(async () => start.personKontakt ?? { telefone: [], emails: [] }),
+    // Standard: die erste Person hat die Nummer des Gesprächs (Rückfall ohne Person am Kontakt erlaubt).
+    personKontakt: vi.fn(async () => start.personKontakt ?? { telefone: [WABA.telefon!], emails: [] }),
     personVorname: vi.fn(async (_ws: string, id: string) => start.vornamen?.[id] ?? null),
     einwilligungDa: vi.fn(async () => (start.einwilligung ?? true) || st.einwilligungen.length > 0),
     anrede: vi.fn(async () => start.anrede ?? "sie"),
@@ -720,11 +721,45 @@ describe("Empfänger und Abmeldung", () => {
     expect(mocks.sendeAntwort.mock.calls[0]![0].body.startsWith("Guten Tag,")).toBe(true);
   });
 
-  it("ohne Person am Kontakt: erste verknüpfte Person des Deals", async () => {
-    const s = fake({ einwilligung: false, kontaktPerson: null });
+  it("ohne Person am Kontakt: erste verknüpfte Person des Deals, wenn ihre Nummer die des Gesprächs ist", async () => {
+    // Andere Schreibweise derselben Nummer (WABA-Gespräch: „+49 170 1234567“).
+    const s = fake({ einwilligung: false, kontaktPerson: null, personKontakt: { telefone: ["0170 1234567"], emails: [] } });
     await bewertungAnfragen(WS, DEAL, { ...ANFRAGE, einwilligung: "Per WhatsApp am 03.11. zugestimmt" }, s);
+    expect(s.personKontakt).toHaveBeenCalledWith(WS, ["person_1"]);
     expect(s.einwilligungDa).toHaveBeenCalledWith(WS, "person_1");
     expect(s.einwilligungSpeichern).toHaveBeenCalledWith(expect.objectContaining({ personRecordId: "person_1" }));
+    expect(mocks.sendeAntwort.mock.calls[0]![0].body.startsWith("Hallo Anna,")).toBe(true);
+  });
+
+  it("ohne Person am Kontakt und andere Nummer der ersten Person → EMPFAENGER, nichts geschrieben", async () => {
+    const s = fake({ einwilligung: true, kontaktPerson: null, personKontakt: { telefone: ["+49 171 9999999"], emails: [] } });
+    const p = bewertungAnfragen(WS, DEAL, { ...ANFRAGE, einwilligung: "Per WhatsApp am 03.11. zugestimmt" }, s);
+    expect(await fehlerCode(p)).toBe("EMPFAENGER");
+    await expect(bewertungAnfragen(WS, DEAL, ANFRAGE, s)).rejects.toThrow(
+      "Der WhatsApp-Kontakt ist keiner Person am Deal zugeordnet. Bitte den Kontakt im Posteingang mit der Person verknüpfen."
+    );
+    // Die Einwilligung der ersten Person gilt nicht für den Empfänger.
+    expect(s.einwilligungDa).not.toHaveBeenCalled();
+    expect(s.einwilligungSpeichern).not.toHaveBeenCalled();
+    expect(s.tokenAnlegen).not.toHaveBeenCalled();
+    expect(s.gesperrt).not.toHaveBeenCalled();
+    expect(mocks.sendeAntwort).not.toHaveBeenCalled();
+  });
+
+  it("ohne Person am Kontakt und erste Person ohne Nummer → EMPFAENGER; Vorschau sperrt, Gruß ohne fremden Namen", async () => {
+    const s = fake({ kontaktPerson: null, personKontakt: { telefone: [], emails: ["anna@example.de"] } });
+    expect(await fehlerCode(bewertungAnfragen(WS, DEAL, ANFRAGE, s))).toBe("EMPFAENGER");
+    const v = await bewertungsVorschau(WS, DEAL, s);
+    expect(v.sperre).toBe("EMPFAENGER");
+    expect(v.einwilligung).toBe(false);
+    expect(v.text.startsWith("Guten Tag,")).toBe(true);
+    expect(v.text).not.toContain("Anna");
+  });
+
+  it("STOP bleibt vor EMPFAENGER: Abmeldung der ersten Person sperrt mit SPERRE", async () => {
+    mocks.isAgentSuppressedStrict.mockImplementation(async (_ws: string, k: { phone?: string }) => k.phone === "+49 171 9999999");
+    const s = fake({ kontaktPerson: null, personKontakt: { telefone: ["+49 171 9999999"], emails: [] } });
+    expect(await fehlerCode(bewertungAnfragen(WS, DEAL, ANFRAGE, s))).toBe("SPERRE");
   });
 
   it("Kontaktdaten beider Personen werden geprüft", async () => {
@@ -857,13 +892,50 @@ describe("dbBewertungSpeicher", () => {
     expect(await dbBewertungSpeicher.lesen(WS, DEAL)).toMatchObject({ vorname: null, leistung: "kitchen_installation", versuche: 0 });
   });
 
-  it("einwilligungDa: purpose review_request, nicht widerrufen, Workspace und Person", async () => {
+  it("einwilligungDa: purpose review_request, Kanal WhatsApp, nicht widerrufen, Workspace und Person", async () => {
     mocks.execute.mockResolvedValue({ rows: [{ da: true }] });
     expect(await dbBewertungSpeicher.einwilligungDa(WS, "person_1")).toBe(true);
     const q = sqlText(mocks.execute.mock.calls[0]![0]);
     expect(q.sql).toContain("purpose = 'review_request'");
+    expect(q.sql).toContain("channel = 'whatsapp'");
     expect(q.sql).toContain("revoked_at IS NULL");
     expect(q.params).toEqual(expect.arrayContaining([WS, "person_1"]));
+  });
+
+  describe("einwilligungDa je Kanal", () => {
+    type Zeile = { channel: string; purpose: string; revoked: boolean };
+    /** Wertet die Bedingungen der Abfrage auf einem kleinen Ledger aus: jede fehlende Bedingung ließe die Zeile durch. */
+    function ledger(zeilenImLedger: Zeile[]) {
+      mocks.execute.mockImplementation(async (abfrage: SQL) => {
+        const q = sqlText(abfrage).sql;
+        const passt = (z: Zeile) =>
+          (!q.includes("channel = 'whatsapp'") || z.channel === "whatsapp") &&
+          (!q.includes("purpose = 'review_request'") || z.purpose === "review_request") &&
+          (!q.includes("revoked_at IS NULL") || !z.revoked);
+        return { rows: [{ da: zeilenImLedger.some(passt) }] };
+      });
+    }
+
+    it.each(["email", "sms"])("nur eine %s-Einwilligung → keine Einwilligung für WhatsApp", async (channel) => {
+      ledger([{ channel, purpose: "review_request", revoked: false }]);
+      expect(await dbBewertungSpeicher.einwilligungDa(WS, "person_1")).toBe(false);
+    });
+
+    it("WhatsApp-Einwilligung → Einwilligung", async () => {
+      ledger([
+        { channel: "email", purpose: "review_request", revoked: false },
+        { channel: "whatsapp", purpose: "review_request", revoked: false },
+      ]);
+      expect(await dbBewertungSpeicher.einwilligungDa(WS, "person_1")).toBe(true);
+    });
+
+    it("widerrufene WhatsApp-Einwilligung oder anderer Zweck → keine Einwilligung", async () => {
+      ledger([
+        { channel: "whatsapp", purpose: "review_request", revoked: true },
+        { channel: "whatsapp", purpose: "proactive_followup", revoked: false },
+      ]);
+      expect(await dbBewertungSpeicher.einwilligungDa(WS, "person_1")).toBe(false);
+    });
   });
 
   it("anspruch: Token und Status in einer Abfrage, Workspace und Deal gefiltert", async () => {

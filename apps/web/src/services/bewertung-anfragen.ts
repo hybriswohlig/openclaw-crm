@@ -15,10 +15,12 @@
  *   KEIN_KANAL     kein direkt verknüpftes, sendefähiges WhatsApp-Gespräch (Entscheidung 10)
  *   SPERRE         isAgentSuppressedStrict mit der Nummer des Gesprächs und den
  *                  Nummern und Adressen der Personen (STOP/Opt-out)
+ *   EMPFAENGER     Kontakt des Gesprächs ohne Person, und die erste verknüpfte
+ *                  Person des Deals hat nicht die Nummer des Gesprächs
  *   KEIN_LINK      keine Marke oder kein gültiger Google-Link
  *   FENSTER        WABA außerhalb des 24-Stunden-Fensters
  *   RUHEZEIT       Mo–Sa 09–19 Uhr Berlin, sonntags nie
- *   EINWILLIGUNG   keine Einwilligung `review_request` des Empfängers im Ledger und kein Eintrag des Inhabers
+ *   EINWILLIGUNG   keine Einwilligung `review_request` per WhatsApp des Empfängers im Ledger und kein Eintrag des Inhabers
  *   TEXT           geänderter Text ohne Link-Platzhalter oder ohne STOP-Hinweis
  *
  * Doppelt senden: Der Token in `review_tokens` ist der dauerhafte Anspruch vor
@@ -27,8 +29,11 @@
  * dem Commit (siehe `bewertungAnfragen`).
  *
  * Empfänger der Einwilligung ist die Person am Kontakt des WhatsApp-Gesprächs
- * (`inbox_contacts.crm_record_id`), sonst die erste verknüpfte Person des Deals.
- * Der Vorname im Gruß kommt von derselben Person.
+ * (`inbox_contacts.crm_record_id`). Ohne Person am Kontakt gilt die erste
+ * verknüpfte Person des Deals nur, wenn eine ihrer Nummern (kanonisch wie in
+ * `isAgentSuppressedStrict`) die Nummer des Gesprächs ist; sonst `EMPFAENGER`,
+ * damit nie die Einwilligung einer anderen Person den Versand trägt oder eine
+ * neue Einwilligung bei ihr landet. Der Vorname im Gruß kommt von derselben Person.
  * Die Einwilligung des Inhabers wird als Zeile in `consent_ledger` gespeichert,
  * nie in `review_contact_consent_at` (das liest die spätere Engine als
  * Einwilligung des Kunden). Die Tabelle hat keine Autorenspalte; der Autor
@@ -44,6 +49,7 @@ import { sql } from "drizzle-orm";
 import { db } from "@/db";
 import { activityEvents, consentLedger, reviewEvents, reviewTokens } from "@/db/schema";
 import { kannSendenAus } from "@/lib/gespraech";
+import { canonicalizePhone } from "@/lib/identity/canonical";
 import { nameAusWert, vornameFuerAnrede } from "@/lib/personen-name";
 import {
   BEWERTUNGSLINK_PLATZHALTER,
@@ -77,6 +83,7 @@ export type BewertungCode =
   | "STUFE"
   | "KEIN_LINK"
   | "SPERRE"
+  | "EMPFAENGER"
   | "EINWILLIGUNG"
   | "KEIN_KANAL"
   | "FENSTER"
@@ -88,6 +95,8 @@ const TEXTE: Record<BewertungCode, string> = {
   STUFE: "Eine Bewertung kann erst ab der Stufe Durchgeführt angefragt werden.",
   KEIN_LINK: "Für diese Firma ist kein gültiger Google-Bewertungslink hinterlegt.",
   SPERRE: "Der Kunde möchte keine Nachrichten zu Bewertungen bekommen.",
+  EMPFAENGER:
+    "Der WhatsApp-Kontakt ist keiner Person am Deal zugeordnet. Bitte den Kontakt im Posteingang mit der Person verknüpfen.",
   EINWILLIGUNG: "Bitte eintragen, wie und wann der Kunde der Bewertungsanfrage zugestimmt hat.",
   KEIN_KANAL: "Kein WhatsApp-Gespräch direkt an diesem Deal.",
   FENSTER: "Das 24-Stunden-Fenster von WhatsApp ist geschlossen. Erst nach einer neuen Nachricht des Kunden möglich.",
@@ -455,7 +464,7 @@ function speicherAuf(conn: Verbindung, gesperrt: BewertungSpeicher["gesperrt"] |
           SELECT EXISTS (
             SELECT 1 FROM consent_ledger
             WHERE workspace_id = ${ws} AND person_record_id = ${personId}
-              AND purpose = 'review_request' AND revoked_at IS NULL
+              AND purpose = 'review_request' AND channel = 'whatsapp' AND revoked_at IS NULL
           ) AS da
         `)
       );
@@ -583,6 +592,26 @@ async function abgemeldet(
   return false;
 }
 
+/**
+ * Empfänger, wenn der Kontakt des Gesprächs keine Person hat: die erste
+ * verknüpfte Person des Deals, aber nur, wenn eine ihrer Nummern die Nummer
+ * des Gesprächs ist (kanonisch wie `isAgentSuppressedStrict`). Sonst
+ * `unzugeordnet`. Ohne Gespräch gibt es keinen Empfänger (KEIN_KANAL sperrt).
+ */
+async function ersatzEmpfaenger(
+  ws: string,
+  gespraech: GespraechRoh | null,
+  personId: string | null,
+  speicher: BewertungSpeicher
+): Promise<{ empfaenger: string | null; unzugeordnet: boolean }> {
+  if (!gespraech || !personId) return { empfaenger: null, unzugeordnet: false };
+  const nummer = canonicalizePhone(gespraech.telefon, "DE");
+  if (!nummer) return { empfaenger: null, unzugeordnet: true };
+  const { telefone } = await speicher.personKontakt(ws, [personId]);
+  const passt = telefone.some((t) => canonicalizePhone(t, "DE") === nummer);
+  return passt ? { empfaenger: personId, unzugeordnet: false } : { empfaenger: null, unzugeordnet: true };
+}
+
 interface Pruefung {
   roh: BewertungRoh;
   gespraech: GespraechRoh | null;
@@ -606,7 +635,9 @@ async function pruefen(ws: string, deal: string, speicher: BewertungSpeicher): P
   ]);
   const gespraech = whatsappGespraech(deal, gespraeche);
   const kontaktPerson = gespraech ? await speicher.kontaktPerson(ws, gespraech.id) : null;
-  const empfaenger = kontaktPerson ?? roh.personId;
+  const { empfaenger, unzugeordnet } = kontaktPerson
+    ? { empfaenger: kontaktPerson, unzugeordnet: false }
+    : await ersatzEmpfaenger(ws, gespraech, roh.personId, speicher);
   const [einwilligung, vorname] = await Promise.all([
     empfaenger ? speicher.einwilligungDa(ws, empfaenger) : Promise.resolve(false),
     !empfaenger ? Promise.resolve(null) : empfaenger === roh.personId ? Promise.resolve(roh.vorname) : speicher.personVorname(ws, empfaenger),
@@ -630,6 +661,7 @@ async function pruefen(ws: string, deal: string, speicher: BewertungSpeicher): P
   if (!gespraech) return mit("KEIN_KANAL");
   const personen = [...new Set([empfaenger, roh.personId].filter((p): p is string => !!p))];
   if (await abgemeldet(ws, gespraech.telefon, personen, speicher)) return mit("SPERRE");
+  if (unzugeordnet) return mit("EMPFAENGER");
   if (!ziel) return mit("KEIN_LINK");
   if (gespraech.waPhoneNumberId && (await istImFenster(gespraech.id)) !== true) return mit("FENSTER");
   if (isQuietHoursBerlin(new Date())) return mit("RUHEZEIT");

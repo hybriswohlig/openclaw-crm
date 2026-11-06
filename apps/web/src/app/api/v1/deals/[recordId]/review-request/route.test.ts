@@ -122,7 +122,7 @@ describe("POST /deals/[recordId]/review-request", () => {
     expect(mocks.bewertungAnfragen).not.toHaveBeenCalled();
   });
 
-  it.each<BewertungCode>(["STUFE", "KEIN_LINK", "SPERRE", "EINWILLIGUNG", "KEIN_KANAL", "FENSTER", "RUHEZEIT", "SCHON_GESENDET"])(
+  it.each<BewertungCode>(["STUFE", "KEIN_LINK", "SPERRE", "EMPFAENGER", "EINWILLIGUNG", "KEIN_KANAL", "FENSTER", "RUHEZEIT", "SCHON_GESENDET"])(
     "%s → 409 mit code und deutschem Text",
     async (code) => {
       const fehler = new BewertungFehler(code);

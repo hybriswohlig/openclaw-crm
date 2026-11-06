@@ -31,6 +31,7 @@ export const BEWERTUNG_TEXT: Record<string, string> = {
   FENSTER: "24-Stunden-Fenster zu.",
   RUHEZEIT: "Ruhezeit. Bitte Mo bis Sa zwischen 9 und 19 Uhr senden.",
   SCHON_GESENDET: "Schon angefragt.",
+  EMPFAENGER: "Der WhatsApp-Kontakt ist keiner Person am Deal zugeordnet. Bitte den Kontakt im Posteingang mit der Person verknüpfen.",
   EINWILLIGUNG: "Keine verknüpfte Person am Deal. Bitte in der alten Akte eine Person verknüpfen.",
 };
 
