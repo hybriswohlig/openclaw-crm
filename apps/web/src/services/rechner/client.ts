@@ -52,7 +52,15 @@ export interface RechnerErgebnis {
     rundungEur?: number;
     margeVorschlag?: MargeVorschlag | null;
   };
-  kosten?: { selbstkosten: number; posten?: KostenPosten[]; personenH?: number };
+  kosten?: {
+    selbstkosten: number; posten?: KostenPosten[]; personenH?: number;
+    /** Personenminuten nach Art, Puffer und Personenstunden (Rechner) */
+    personalStunden?: { arbeitPm: number; fahrerPm: number; fahrzeitPm: number; pufferProzent: number; personenH: number } | null;
+  };
+  /** Echo des Anfrage-Schalters montage_je_position; fehlt bei altem Rechner (dann gilt das Ergebnis als veraltet). */
+  montageJePosition?: boolean;
+  /** Bericht der Freitext-Zuordnung (Rechner) */
+  zuordnungFreitext?: { nichtZugeordnet?: unknown[] } | null;
   volumen?: { nettoCbm: number; ladeCbm?: number; gewichtKg?: number };
   /** Personenminuten je Tätigkeit (demontage, montage, packen) und Fahrzeiten */
   zeiten?: {
@@ -75,8 +83,15 @@ export interface RechnerErgebnis {
     name: string; anbieter: string | null; adresse: string; quelle: string;
     anfahrtKm: number; anfahrtMin: number; rueckfahrtKm: number; rueckfahrtMin: number;
   } | null;
-  stationsVergleich?: Array<{ name: string; festpreis: number | null; selbstkosten: number | null; gewaehlt: boolean }>;
-  positionen?: Array<{ name: string; menge: number; volumenCbm: number; zerlegt?: boolean }>;
+  stationsVergleich?: Array<{
+    name: string; festpreis: number | null; selbstkosten: number | null; gewaehlt: boolean;
+    anfahrtMin?: number; rueckfahrtMin?: number; fahrzeug?: string | null;
+  }>;
+  positionen?: Array<{
+    name: string; menge: number; volumenCbm: number; zerlegt?: boolean;
+    demontageQuelle?: "wunsch" | "nein" | "regel" | "keine_regel" | "nicht_zerlegbar";
+    ungeprueft?: boolean;
+  }>;
   hinweise?: Array<{ typ: string; text: string }>;
   annahmen?: string[];
   fahrzeitHinweis?: string | null;

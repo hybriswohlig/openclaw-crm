@@ -14,6 +14,15 @@ import type { RechnerAntwort, RechnerErgebnis } from "./client";
 import { eingabeHash, rechnerAnfrageAus, type LeadDaten, type RechnerAnfrage } from "./eingabe";
 import { heuteBerlin } from "./quelle";
 
+/**
+ * Ein Ergebnis ohne Echo `montageJePosition` stammt von einem Rechner ohne
+ * Montage je Position (oder ist älter als Plan 4) und gilt als veraltet:
+ * Cache und Kalkulationsseite rechnen dann neu.
+ */
+export function ergebnisVeraltet(ergebnis: RechnerErgebnis | null | undefined): boolean {
+  return !ergebnis || ergebnis.montageJePosition !== true;
+}
+
 export const DROSSEL_MS = 60_000;
 
 export interface KalkulationsZeile {

@@ -28,6 +28,8 @@ export * from "./nachfass";
 export * from "./inventory";
 export * from "./deal-calculations";
 export * from "./deal-calculation-versions";
+export * from "./deal-calculation-routes";
+export * from "./street-view-images";
 export * from "./company-settings";
 export * from "./deal-internal-photos";
 export * from "./calendar-feeds";
