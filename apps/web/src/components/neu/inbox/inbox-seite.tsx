@@ -291,6 +291,7 @@ export function InboxSeite() {
             mitte.kurz ? (
               <KurzfassungSpalte
                 kurz={mitte.kurz}
+                inInfo={eintrag?.gruppe === "info"}
                 aktionen={aktionen}
                 onNachfass={(nachfass) => setMitte((m) => (m.art === "fertig" && m.kurz ? { ...m, kurz: { ...m.kurz, nachfass } } : m))}
                 onNeuLaden={neuLaden}

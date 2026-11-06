@@ -38,7 +38,7 @@ export function InboxEintragZeile({
           {e.zeitText}
         </span>
         <span className="inbox-eintrag-vorschau">
-          {e.vorschauPraefix && !kompakt ? <b>{e.vorschauPraefix} </b> : null}
+          {e.vorschauPraefix && (!kompakt || e.vorschauPraefix === "Du:") ? <b>{e.vorschauPraefix} </b> : null}
           {e.vorschau}
         </span>
         <span className="inbox-eintrag-pillen">

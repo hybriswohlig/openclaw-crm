@@ -26,11 +26,14 @@ function Wert({ label, kinder }: { label: string; kinder: React.ReactNode }) {
  */
 export function KurzfassungSpalte({
   kurz,
+  inInfo,
   aktionen,
   onNachfass,
   onNeuLaden,
 }: {
   kurz: Kurzfassung;
+  /** Der Eintrag liegt in der Gruppe „Info und Kein Lead“: dann „Als Lead“ statt „Kein Lead“. */
+  inInfo: boolean;
   aktionen: LaneAktionen;
   onNachfass: (nachfass: Kurzfassung["nachfass"]) => void;
   onNeuLaden: () => Promise<unknown>;
@@ -102,12 +105,20 @@ export function KurzfassungSpalte({
             />
           </div>
           <div className="inbox-karte-knoepfe">
-            <GlassButton size="sm" variant="ghost" onClick={() => void aktionen.keinLead()} disabled={aktionen.laeuft}>
-              Kein Lead
-            </GlassButton>
-            <GlassButton size="sm" variant="ghost" onClick={() => void aktionen.info()} disabled={aktionen.laeuft}>
-              Info
-            </GlassButton>
+            {inInfo ? (
+              <GlassButton size="sm" variant="ghost" onClick={() => void aktionen.lead()} disabled={aktionen.laeuft}>
+                Als Lead
+              </GlassButton>
+            ) : (
+              <>
+                <GlassButton size="sm" variant="ghost" onClick={() => void aktionen.keinLead()} disabled={aktionen.laeuft}>
+                  Kein Lead
+                </GlassButton>
+                <GlassButton size="sm" variant="ghost" onClick={() => void aktionen.info()} disabled={aktionen.laeuft}>
+                  Info
+                </GlassButton>
+              </>
+            )}
           </div>
         </section>
       </div>

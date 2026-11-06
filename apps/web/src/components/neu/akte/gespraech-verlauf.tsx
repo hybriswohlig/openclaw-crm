@@ -83,6 +83,18 @@ export function GespraechVerlauf({
     }
   }, [letzteId, sprung]);
 
+  // Wird der Verlauf kleiner (Entwurf-Karte erscheint, Fenster schrumpft) und
+  // man war unten, bleibt das Ende sichtbar; sonst bliebe scrollTop stehen.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const beobachter = new ResizeObserver(() => {
+      if (warUnten.current) el.scrollTop = el.scrollHeight;
+    });
+    beobachter.observe(el);
+    return () => beobachter.disconnect();
+  }, []);
+
   function gescrollt() {
     const el = ref.current;
     if (el) warUnten.current = el.scrollHeight - el.scrollTop - el.clientHeight <= UNTEN_TOLERANZ;

@@ -126,6 +126,8 @@
 
 /* ── Leiste ──────────────────────────────────────────── */
 
+/* Fast deckend: bei breiten Fenstern liegt die Leiste auf der Schleife oben
+   rechts, und Standardglas (52 %) schafft dort für den Schaltertext keine 4,5:1. */
 [data-neu] .inbox-leiste {
   --lg-panel-radius: 24px;
 
@@ -134,6 +136,7 @@
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
+  background: var(--fill-3);
 }
 
 [data-neu] .inbox-pille-knopf {
@@ -670,24 +673,25 @@
   font-size: 13px;
 }
 
+/* Schlüssel so breit wie nötig, der Wert nimmt den Rest und bricht an Wortgrenzen. */
 [data-neu] .inbox-kv-zeile {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 10px;
   align-items: start;
 }
 
 [data-neu] .inbox-kv dt {
   color: var(--ink-2);
+  white-space: nowrap;
 }
 
 [data-neu] .inbox-kv dd {
   min-width: 0;
-  max-width: 62%;
   margin: 0;
   font-weight: 600;
   text-align: right;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 [data-neu] .inbox-kv dd[data-ton="gold"] {
