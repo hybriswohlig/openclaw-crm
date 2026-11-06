@@ -112,7 +112,7 @@ describe("POST /calculation/apply", () => {
     });
     expect(mocks.entwurfHolenOderAnlegen).toHaveBeenCalledWith("ws_1", "deal_1", MENSCH);
     expect(mocks.uebersteuern).not.toHaveBeenCalled();
-    expect(mocks.sperren).toHaveBeenCalledWith("ws_1", "deal_1", 1, MENSCH, { bestaetigtSpanne: false });
+    expect(mocks.sperren).toHaveBeenCalledWith("ws_1", "deal_1", 1, MENSCH, { bestaetigtSpanne: false, nurMarge: true });
   });
 
   it("{ margeProzent: 45 }: Marge als Übersteuerung, dann den Entwurf sperren", async () => {
@@ -124,7 +124,7 @@ describe("POST /calculation/apply", () => {
     expect(mocks.uebersteuern).toHaveBeenCalledWith(
       "ws_1", "deal_1", 3, { art: "marge", key: "marge", wert: 45, grund: "Marge im Regler gewählt" }, MENSCH
     );
-    expect(mocks.sperren).toHaveBeenCalledWith("ws_1", "deal_1", 3, MENSCH, { bestaetigtSpanne: true });
+    expect(mocks.sperren).toHaveBeenCalledWith("ws_1", "deal_1", 3, MENSCH, { bestaetigtSpanne: true, nurMarge: true });
     expect(mocks.uebersteuern.mock.invocationCallOrder[0]).toBeLessThan(mocks.sperren.mock.invocationCallOrder[0]);
   });
 
@@ -137,7 +137,7 @@ describe("POST /calculation/apply", () => {
     expect(mocks.uebersteuern).toHaveBeenCalledWith(
       "ws_1", "deal_1", 2, { art: "marge", key: "marge", wert: null, grund: "Kalkulationskarte ohne Margenwahl: Vorschlag des Rechners" }, MENSCH
     );
-    expect(mocks.sperren).toHaveBeenCalledWith("ws_1", "deal_1", 2, MENSCH, { bestaetigtSpanne: false });
+    expect(mocks.sperren).toHaveBeenCalledWith("ws_1", "deal_1", 2, MENSCH, { bestaetigtSpanne: false, nurMarge: true });
   });
 
   it("ohne margeProzent, geerbte Marge schon aufgehoben: keine weitere Übersteuerung", async () => {
@@ -155,13 +155,13 @@ describe("POST /calculation/apply", () => {
     });
     expect((await APPLY(req({ margeProzent: 45 }), { params })).status).toBe(200);
     expect(mocks.uebersteuern).not.toHaveBeenCalled();
-    expect(mocks.sperren).toHaveBeenCalledWith("ws_1", "deal_1", 2, MENSCH, { bestaetigtSpanne: false });
+    expect(mocks.sperren).toHaveBeenCalledWith("ws_1", "deal_1", 2, MENSCH, { bestaetigtSpanne: false, nurMarge: true });
   });
 
   it("API-Schlüssel: Autor ist der Agent", async () => {
     mocks.getAuthContext.mockResolvedValue({ ...CTX, authMethod: "api_key" });
     await APPLY(req({}), { params });
-    expect(mocks.sperren).toHaveBeenCalledWith("ws_1", "deal_1", 1, { userId: "usr_1", quelle: "agent" }, { bestaetigtSpanne: false });
+    expect(mocks.sperren).toHaveBeenCalledWith("ws_1", "deal_1", 1, { userId: "usr_1", quelle: "agent" }, { bestaetigtSpanne: false, nurMarge: true });
   });
 
   it("Marge außerhalb 30 bis 60 oder kein Zahlwert: 400 mit dem heutigen Text, kein Entwurf", async () => {
