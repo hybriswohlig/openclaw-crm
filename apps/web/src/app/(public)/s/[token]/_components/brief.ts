@@ -1,4 +1,4 @@
-import { kundenText, type FirmaBranding, type ServiceArt } from "@openclaw-crm/customer-portal-core";
+import { kundenText, leistungsWorte, type FirmaBranding, type PortalLeistung } from "@openclaw-crm/customer-portal-core";
 
 /** Das Festangebot als Brief: reine Texte und Daten, ohne React. */
 export type BriefZustand = "offen" | "abgelaufen" | "termin_vorbei" | "angenommen" | "unterschrieben";
@@ -38,17 +38,12 @@ export function briefAnrede(name: string | null): string {
   return n ? `Guten Tag ${n},` : "Guten Tag,";
 }
 
-const LEISTUNG: Record<ServiceArt, string> = {
-  move: "den Umzug",
-  kitchen_installation: "die Küchenmontage",
-  clearance: "die Entrümpelung",
-};
 
 export function briefEinleitung(
   z: BriefZustand,
   moveDateLabel: string | null,
   angenommenAmLabel: string | null,
-  leistung: ServiceArt | null = "move",
+  leistung: PortalLeistung | null = "move",
   firma?: string | null,
 ): string {
   const t = (sie: string, du: string) => kundenText(firma, sie, du);
@@ -66,7 +61,7 @@ export function briefEinleitung(
   }
   if (z === "offen") {
     const termin = moveDateLabel ? ` am ${moveDateLabel}` : "";
-    const wofuer = leistung ? LEISTUNG[leistung] : t("Ihren Auftrag", "deinen Auftrag");
+    const wofuer = leistung ? leistungsWorte(leistung, firma).akkusativ : t("Ihren Auftrag", "deinen Auftrag");
     return t(
       `hier ist Ihr Festpreis für ${wofuer}${termin}. Wenn alles passt, nehmen Sie das Angebot unten an.`,
       `hier ist dein Festpreis für ${wofuer}${termin}. Wenn alles passt, nimm das Angebot unten an.`,
@@ -103,16 +98,6 @@ export function stempel(i: { signedAt: string | null; unterschriftAt: string | n
   if (i.signedAt) out.push({ art: "angenommen", datum: stempelDatum(i.signedAt) });
   if (i.signedAt && i.unterschriftAt) out.push({ art: "unterschrieben", datum: stempelDatum(i.unterschriftAt) });
   return out;
-}
-
-export function strecke(
-  from: string | null,
-  to: string | null,
-): { zeilen: { label: "Von" | "Nach"; adresse: string }[]; mitLinie: boolean } | null {
-  const zeilen: { label: "Von" | "Nach"; adresse: string }[] = [];
-  if (from?.trim()) zeilen.push({ label: "Von", adresse: from.trim() });
-  if (to?.trim()) zeilen.push({ label: "Nach", adresse: to.trim() });
-  return zeilen.length ? { zeilen, mitLinie: zeilen.length === 2 } : null;
 }
 
 export type VorgangsSchritt = { titel: string; zustand: "erledigt" | "aktuell" | "offen"; datum: string | null };

@@ -46,7 +46,7 @@ import {
 } from "@/lib/deal-doc-data";
 import { KvVorpruefungDialog } from "@/components/kv-vorpruefung-dialog";
 import { kvVorpruefung, type HinweisArt, type KvHinweisDaten } from "@/lib/kv-vorpruefung";
-import type { ServiceArt } from "@openclaw-crm/customer-portal-core";
+import type { PortalLeistung } from "@openclaw-crm/customer-portal-core";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -476,7 +476,7 @@ export function InboxContextPanel({
     type: DocumentType,
     leadContext: LeadContext | null,
     hinweise: Array<{ art: HinweisArt; text: string }> = [],
-    leistungsart?: ServiceArt
+    leistungsart?: PortalLeistung
   ) {
     if (!dealRecordId) return;
     const deal =

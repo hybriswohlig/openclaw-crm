@@ -200,7 +200,7 @@ function CashBlock({ firma }: { firma: string }) {
     <div className="rounded-md bg-muted/50 px-4 py-3 text-sm">
       <strong className="block">Zahlung bar bei Übergabe</strong>
       <p className="mt-1 text-xs text-muted-foreground">
-        {kundenText(firma, "Bitte halten Sie den passenden Betrag bereit. Eine Quittung erhalten Sie unmittelbar nach Abschluss des Umzugs.", "Bitte halte den passenden Betrag bereit. Eine Quittung erhältst du unmittelbar nach Abschluss des Umzugs.")}
+        {kundenText(firma, "Bitte halten Sie den passenden Betrag bereit. Eine Quittung erhalten Sie direkt nach Abschluss des Auftrags.", "Bitte halte den passenden Betrag bereit. Eine Quittung erhältst du direkt nach Abschluss des Auftrags.")}
       </p>
     </div>
   );

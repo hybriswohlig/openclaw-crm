@@ -5,6 +5,7 @@ import { kundenText, type CustomerPortalContext } from "@openclaw-crm/customer-p
 import { PortalRequestForm } from "./portal-request-form";
 import { WhatsAppContactLink } from "./whatsapp-contact-link";
 import { formatPortalDate, formatPortalMoney, selectedPortalPackage } from "./portal-presentation";
+import { adressZeilen, worte } from "./leistung-worte";
 
 export function PanelHeading({ icon: Icon, title, children }: { icon: LucideIcon; title: string; children?: React.ReactNode }) {
   return <div className="portal-panel-heading"><Icon aria-hidden /><div><h2>{title}</h2>{children && <div className="portal-panel-description">{children}</div>}</div></div>;
@@ -16,10 +17,10 @@ export function DetailItem({ icon: Icon, label, children }: { icon: LucideIcon; 
 
 export function MoveFacts({ ctx }: { ctx: CustomerPortalContext }) {
   const { scope } = ctx;
+  const w = worte(ctx);
   return <dl className="portal-move-facts">
-    <div className="portal-panel"><DetailItem icon={CalendarDays} label="Umzugstermin">{formatPortalDate(scope.moveDate) ?? "Termin wird abgestimmt"}{scope.timeStart && <span className="block">{scope.timeEnd ? `${scope.timeStart} bis ${scope.timeEnd} Uhr` : `ab ${scope.timeStart} Uhr`}</span>}</DetailItem></div>
-    {scope.fromAddress && <div className="portal-panel"><DetailItem icon={MapPin} label="Abholung">{scope.fromAddress}<AddressAccess floor={scope.floorsFrom} access={scope.accessFrom} /></DetailItem></div>}
-    {scope.toAddress && <div className="portal-panel"><DetailItem icon={MapPin} label="Ziel">{scope.toAddress}<AddressAccess floor={scope.floorsTo} access={scope.accessTo} /></DetailItem></div>}
+    <div className="portal-panel"><DetailItem icon={CalendarDays} label={w.termin}>{formatPortalDate(scope.moveDate) ?? "Termin wird abgestimmt"}{scope.timeStart && <span className="block">{scope.timeEnd ? `${scope.timeStart} bis ${scope.timeEnd} Uhr` : `ab ${scope.timeStart} Uhr`}</span>}</DetailItem></div>
+    {adressZeilen(ctx).map((a) => <div key={a.key} className="portal-panel"><DetailItem icon={MapPin} label={a.label}>{a.adresse}<AddressAccess floor={a.etage} access={a.zugang} /></DetailItem></div>)}
   </dl>;
 }
 
@@ -32,15 +33,15 @@ export function OrderDetails({ ctx, token, wide = false }: { ctx: CustomerPortal
   const { scope } = ctx;
   const pkg = selectedPortalPackage(ctx);
   const t = (sie: string, du: string) => kundenText(ctx.branding.firmaSlug, sie, du);
+  const w = worte(ctx);
   return <section className={`portal-panel portal-order-details ${wide ? "portal-order-wide" : ""}`}>
     <PanelHeading icon={ClipboardList} title="Auftragsdetails" />
     <dl className="portal-details-grid">
-      <DetailItem icon={CalendarDays} label="Umzugstermin">{formatPortalDate(scope.moveDate) ?? "Termin wird abgestimmt"}{scope.timeStart && <span className="block">{scope.timeEnd ? `${scope.timeStart} bis ${scope.timeEnd} Uhr` : `ab ${scope.timeStart} Uhr`}</span>}</DetailItem>
-      {scope.fromAddress && <DetailItem icon={MapPin} label="Abholung">{scope.fromAddress}<AddressAccess floor={scope.floorsFrom} access={scope.accessFrom} /></DetailItem>}
-      {scope.toAddress && <DetailItem icon={MapPin} label="Ziel">{scope.toAddress}<AddressAccess floor={scope.floorsTo} access={scope.accessTo} /></DetailItem>}
+      <DetailItem icon={CalendarDays} label={w.termin}>{formatPortalDate(scope.moveDate) ?? "Termin wird abgestimmt"}{scope.timeStart && <span className="block">{scope.timeEnd ? `${scope.timeStart} bis ${scope.timeEnd} Uhr` : `ab ${scope.timeStart} Uhr`}</span>}</DetailItem>
+      {adressZeilen(ctx).map((a) => <DetailItem key={a.key} icon={MapPin} label={a.label}>{a.adresse}<AddressAccess floor={a.etage} access={a.zugang} /></DetailItem>)}
       {(pkg || ctx.kva) && <DetailItem icon={Truck} label={pkg ? "Leistungspaket" : "Angebot"}>{pkg?.displayName ?? (ctx.kva?.isVariable ? "Abrechnung nach Aufwand" : "Individuelles Angebot")}{ctx.kva && <span className="block">{ctx.kva.isVariable && "Voraussichtlich "}{formatPortalMoney(ctx.kva.totalCents)}</span>}</DetailItem>}
       {ctx.customerDisplayName && <DetailItem icon={UserRound} label="Auftraggeber">{ctx.customerDisplayName}</DetailItem>}
-      {scope.volumeCbm != null && <DetailItem icon={Package} label="Umzugsvolumen">ca. {scope.volumeCbm} m³</DetailItem>}
+      {scope.volumeCbm != null && <DetailItem icon={Package} label={w.volumenLabel}>ca. {scope.volumeCbm} m³</DetailItem>}
       {(scope.specialRequests || scope.inventoryNotes) && <DetailItem icon={ClipboardList} label="Besonderheiten">{[scope.specialRequests, scope.inventoryNotes].filter(Boolean).join("\n")}</DetailItem>}
     </dl>
     {ctx.stage < 4 && <div className="portal-detail-action"><PortalRequestForm token={token} firmaSlug={ctx.branding.firmaSlug} kind="question" triggerLabel={ctx.stage === 1 ? "Änderung anfragen" : "Änderung nach Absprache anfragen"} title={t("Änderung Ihrer Auftragsdetails", "Änderung deiner Auftragsdetails")} primaryColor={ctx.branding.primaryColor} /></div>}
@@ -49,14 +50,15 @@ export function OrderDetails({ ctx, token, wide = false }: { ctx: CustomerPortal
 
 export function SuccessBanner({ ctx, completed = false }: { ctx: CustomerPortalContext; completed?: boolean }) {
   const t = (sie: string, du: string) => kundenText(ctx.branding.firmaSlug, sie, du);
+  const w = worte(ctx);
   return <section className="portal-success">
     {ctx.branding.firmaSlug === "kottke" && <div className="portal-success-art" aria-hidden />}
     <div className="portal-success-content"><span className="portal-success-check"><Check aria-hidden /></span><div>
-      <p className="portal-eyebrow">{completed ? "Umzug abgeschlossen" : "Auftrag bestätigt"}</p>
-      <h2>{completed ? t("Ihr Umzug ist abgeschlossen!", "Dein Umzug ist abgeschlossen!") : t("Vielen Dank für Ihr Vertrauen!", "Vielen Dank für dein Vertrauen!")}</h2>
-      <p>{completed ? t("Vielen Dank für Ihr Vertrauen. Wir wünschen Ihnen viel Freude in Ihrem neuen Zuhause.", "Vielen Dank für dein Vertrauen. Wir wünschen dir viel Freude in deinem neuen Zuhause.") : t("Ihr Auftrag wurde bestätigt. Wir freuen uns auf Ihren Umzug und sind bei Fragen jederzeit für Sie da.", "Dein Auftrag wurde bestätigt. Wir freuen uns auf deinen Umzug und sind bei Fragen jederzeit für dich da.")}</p>
+      <p className="portal-eyebrow">{completed ? w.abgeschlossen : "Auftrag bestätigt"}</p>
+      <h2>{completed ? `${w.deinNom} ist abgeschlossen!` : t("Vielen Dank für Ihr Vertrauen!", "Vielen Dank für dein Vertrauen!")}</h2>
+      <p>{completed ? `${t("Vielen Dank für Ihr Vertrauen.", "Vielen Dank für dein Vertrauen.")} ${w.abschlussWunsch}` : t(`Ihr Auftrag wurde bestätigt. Wir freuen uns auf ${w.deinAkk} und sind bei Fragen jederzeit für Sie da.`, `Dein Auftrag wurde bestätigt. Wir freuen uns auf ${w.deinAkk} und sind bei Fragen jederzeit für dich da.`)}</p>
     </div></div>
-    {!completed && <div className="portal-success-facts"><CalendarDays aria-hidden /><div><strong>{t("Ihr Umzugstermin", "Dein Umzugstermin")}</strong><p>{formatPortalDate(ctx.scope.moveDate) ?? t("Wir stimmen Ihren Termin mit Ihnen ab.", "Wir stimmen deinen Termin mit dir ab.")}{ctx.scope.timeStart && ` · ab ${ctx.scope.timeStart} Uhr`}</p></div></div>}
+    {!completed && <div className="portal-success-facts"><CalendarDays aria-hidden /><div><strong>{t(`Ihr ${w.termin}`, `Dein ${w.termin}`)}</strong><p>{formatPortalDate(ctx.scope.moveDate) ?? t("Wir stimmen Ihren Termin mit Ihnen ab.", "Wir stimmen deinen Termin mit dir ab.")}{ctx.scope.timeStart && ` · ab ${ctx.scope.timeStart} Uhr`}</p></div></div>}
   </section>;
 }
 
@@ -72,7 +74,7 @@ export function ContactPanel({ ctx, token, title = "Fragen zum Auftrag?" }: { ct
 
 export function CrewPanel({ ctx }: { ctx: CustomerPortalContext }) {
   if (!ctx.crew.length) return null;
-  return <section className="portal-panel"><PanelHeading icon={UsersRound} title={kundenText(ctx.branding.firmaSlug, "Ihr Umzugsteam", "Dein Umzugsteam")}><p>{ctx.crew.length} {ctx.crew.length === 1 ? "Mitarbeiter" : "Mitarbeitende"}</p></PanelHeading><ul className="portal-crew">{ctx.crew.map(member => <li key={member.employeeId}>
+  return <section className="portal-panel"><PanelHeading icon={UsersRound} title={kundenText(ctx.branding.firmaSlug, `Ihr ${worte(ctx).team}`, `Dein ${worte(ctx).team}`)}><p>{ctx.crew.length} {ctx.crew.length === 1 ? "Mitarbeiter" : "Mitarbeitende"}</p></PanelHeading><ul className="portal-crew">{ctx.crew.map(member => <li key={member.employeeId}>
     {member.photoBase64DataUrl ?
       // eslint-disable-next-line @next/next/no-img-element
       <img src={member.photoBase64DataUrl} alt="" /> : <span className="portal-avatar">{member.name.trim().split(/\s+/).map(n => n[0]).slice(0, 2).join("")}</span>}

@@ -17,6 +17,7 @@ export function portalFixture(stage: 1 | 2 | 3 | 4, single = false, live = false
     kva: { isVariable: false, fixedPriceCents: 163049, lineItems: [], notes: null, totalCents: 163049, depositRequiredCents: null, validUntil: "2026-11-20", summary: "Umzug mit Ab- und Aufbau der vereinbarten Möbel.", showStandardInclusions: false, calculationAssumptions: null },
     acceptance: stage > 1 ? { signedAt: "2026-09-06T10:00:00Z", acceptedFullName: "Alex Beispiel", widerrufVerzichtAccepted: false, agbVersionAccepted: "preview", confirmedTotalCents: 163049, selectedOptionName: "Premium", widerrufModus: "ausgeschlossen", vorzeitigerBeginnVerlangt: false, quotationDocumentId: null, unterschrift: null } : null,
     annahmeRecht: { ...annahmeRegeln({ serviceType: "move", moveDate: "2026-11-27", hasOpenDateChoice: false, now: new Date("2026-09-06T10:00:00Z") }), kontakt: firmaKontakt("kottke") },
+    leistung: "move",
     fruehereAnnahmeAufgehoben: false,
     widerruf: { aktiv: false, fristEnde: null, name: null, vertrag: null, emailMaskiert: null, whatsapp: false, annahmeAm: null, eingegangen: null },
     documents: { orderConfirmationUrl: stage > 1 ? "/api/public/local-preview-only/documents/preview-document" : null, invoiceUrl: stage === 4 ? "/api/public/local-preview-only/documents/preview-invoice" : null, signedContractUrl: null }, attachments: [], customerPhotos: [], furnitureList: [],

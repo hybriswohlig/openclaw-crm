@@ -93,6 +93,10 @@ export const quotations = pgTable(
 
 export interface QuotationDocumentDetails {
   serviceType?: "move" | "kitchen_installation" | "clearance";
+  /** Nur bei serviceType "move": Entrümpelung gehört dazu (Portal zeigt „Entrümpelung und Umzug“). */
+  mitEntruempelung?: boolean;
+  /** Die Leistung wurde bewusst gewählt (KV-Dialog, Bot); dann zählt kein Textvorschlag mehr. */
+  leistungBestaetigt?: boolean;
   services?: Record<string, { owner: "company" | "customer" | "none"; note?: string }>;
   inventory?: Array<{
     room?: string;

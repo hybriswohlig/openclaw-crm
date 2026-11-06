@@ -13,7 +13,8 @@ import {
 import { ConfirmKvaDialog } from "./confirm-kva-dialog";
 import { ContactPanel } from "./portal-ui";
 import { AnnahmeZeile, BriefAnrede, BriefGruss, Strecke } from "./brief-teile";
-import { briefAnrede, briefEinleitung, briefZustand, stempel, strecke, terminVorbeiHinweis, terminVorbeiNachricht } from "./brief";
+import { briefAnrede, briefEinleitung, briefZustand, stempel, terminVorbeiHinweis, terminVorbeiNachricht } from "./brief";
+import { adressZeilen, worte } from "./leistung-worte";
 import { QuotationPreview } from "./quotation-preview";
 import { formatPortalDate, formatPortalMoney, postenBetraegeZeigen } from "./portal-presentation";
 import { PaymentSection } from "./payment-section";
@@ -114,7 +115,7 @@ export function FestangebotView({
   });
   const stempelListe = stempel({ signedAt: ctx.acceptance?.signedAt ?? null, unterschriftAt: ctx.acceptance?.unterschrift?.at ?? null });
   const angenommenAm = ctx.acceptance ? langesDatum(ctx.acceptance.signedAt) : null;
-  const streckeDaten = strecke(ctx.scope.fromAddress, ctx.scope.toAddress);
+  const adressen = adressZeilen(ctx);
 
   function accept() {
     if (acceptBlock === "termin_offen") return;
@@ -142,7 +143,7 @@ export function FestangebotView({
           <BriefAnrede
             branding={ctx.branding}
             anrede={briefAnrede(ctx.customerDisplayName)}
-            einleitung={briefEinleitung(zustand, schedule.showDate ? schedule.dateLabel : null, angenommenAm, ctx.annahmeRecht.serviceType, ctx.branding.firmaSlug)}
+            einleitung={briefEinleitung(zustand, schedule.showDate ? schedule.dateLabel : null, angenommenAm, ctx.leistung, ctx.branding.firmaSlug)}
           />
 
           <div className="portal-brief-preis">
@@ -167,8 +168,8 @@ export function FestangebotView({
           {customerNote && <p className="portal-fest-summary">{customerNote}</p>}
 
           <Strecke
-            daten={streckeDaten}
-            zusatz={{ Von: zugang(ctx.scope.floorsFrom, ctx.scope.accessFrom), Nach: zugang(ctx.scope.floorsTo, ctx.scope.accessTo) }}
+            zeilen={adressen}
+            zusatz={(z) => zugang(z.etage, z.zugang)}
             termin={schedule.showDate && schedule.dateLabel ? { datum: schedule.dateLabel, zeit: schedule.timeLabel } : null}
           />
           {(schedule.anfahrtLabel || schedule.note) && (
@@ -267,8 +268,8 @@ export function FestangebotView({
 
         <QuotationPreview ctx={ctx} token={token} variant="file" emailImBrief />
         <ContactPanel ctx={ctx} token={token} title="Fragen zum Angebot?" />
-        <CustomerPhotosSection token={token} photos={ctx.customerPhotos} primaryColor={ctx.branding.primaryColor} firmaSlug={ctx.branding.firmaSlug} />
-        <FurnitureListSection items={ctx.furnitureList ?? []} primaryColor={ctx.branding.primaryColor} />
+        <CustomerPhotosSection token={token} photos={ctx.customerPhotos} primaryColor={ctx.branding.primaryColor} firmaSlug={ctx.branding.firmaSlug} leistung={ctx.leistung} />
+        <FurnitureListSection items={ctx.furnitureList ?? []} primaryColor={ctx.branding.primaryColor} titel={worte(ctx).inventarTitel} />
       </div>
 
       {priceInBar && !preisImBlick && (

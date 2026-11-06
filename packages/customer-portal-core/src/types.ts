@@ -1,6 +1,7 @@
 import type { AnnahmeRegeln, ServiceArt, WiderrufModus } from "./annahme-recht";
 import type { FirmaKontakt } from "./rechtstexte";
 import type { UnterschriftRecord } from "./unterschrift";
+import type { PortalLeistung } from "./leistung";
 /**
  * Portable types shared between the CRM's public API and the customer portal
  * UI. Keep these stable — they form the public contract.
@@ -432,6 +433,8 @@ export interface CustomerPortalContext {
 
   /** Rechtsregeln der Annahme; Dialog und Server nutzen dieselben Werte. */
   annahmeRecht: AnnahmeRegeln & { kontakt: FirmaKontakt };
+  /** Leistung für die Texte (Umzug, Küche, Entrümpelung, Entrümpelung + Umzug). Recht folgt annahmeRecht.serviceType. */
+  leistung: PortalLeistung;
   /** Eine frühere Annahme wurde aufgehoben: Kunde soll das neue Angebot prüfen. */
   fruehereAnnahmeAufgehoben: boolean;
   /** Widerrufs-Button (§ 356a BGB) oder Hinweis auf einen eingegangenen Widerruf. */

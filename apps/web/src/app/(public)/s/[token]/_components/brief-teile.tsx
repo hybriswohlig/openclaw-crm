@@ -2,7 +2,8 @@
 
 import { FileText, Truck } from "lucide-react";
 import { kundenText, type FirmaBranding } from "@openclaw-crm/customer-portal-core";
-import { grussZeilen, type Stempel as StempelDaten, type strecke } from "./brief";
+import { grussZeilen, type Stempel as StempelDaten } from "./brief";
+import type { AdressZeile } from "./leistung-worte";
 
 /** Anrede mit kleinem Foto des Ansprechpartners, darunter die Einleitung. */
 export function BriefAnrede({ branding, anrede, einleitung }: { branding: FirmaBranding; anrede: string; einleitung: string }) {
@@ -19,27 +20,28 @@ export function BriefAnrede({ branding, anrede, einleitung }: { branding: FirmaB
   );
 }
 
-/** Abholung und Ziel; mit beiden Adressen verbindet sie eine Linie mit LKW. */
+/** Abholung und Ziel (mit Linie und LKW) oder ein einziger Einsatzort. */
 export function Strecke({
-  daten,
+  zeilen,
   zusatz,
   termin,
 }: {
-  daten: ReturnType<typeof strecke>;
-  zusatz: Partial<Record<"Von" | "Nach", string | null>>;
+  zeilen: AdressZeile[];
+  zusatz: (z: AdressZeile) => string | null;
   termin: { datum: string; zeit: string | null } | null;
 }) {
-  if (!daten && !termin) return null;
+  if (!zeilen.length && !termin) return null;
+  const mitLinie = zeilen.length === 2;
   return (
-    <dl className="portal-strecke" data-linie={daten?.mitLinie ? "ja" : "nein"}>
-      {daten?.zeilen.map((z, i) => (
-        <div key={z.label} className="portal-strecke-halt">
-          <dt>{z.label === "Von" ? "Abholung" : "Ziel"}</dt>
+    <dl className="portal-strecke" data-linie={mitLinie ? "ja" : "nein"}>
+      {zeilen.map((z, i) => (
+        <div key={z.key} className="portal-strecke-halt">
+          <dt>{z.label}</dt>
           <dd>
             {z.adresse}
-            {zusatz[z.label] && <span className="block">{zusatz[z.label]}</span>}
+            {zusatz(z) && <span className="block">{zusatz(z)}</span>}
           </dd>
-          {daten.mitLinie && i === 0 && (
+          {mitLinie && i === 0 && (
             <span className="portal-strecke-lkw" aria-hidden>
               <Truck size={15} />
             </span>

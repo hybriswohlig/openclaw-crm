@@ -24,6 +24,7 @@ import { UnterschriftForm } from "./unterschrift-form";
 import { stempel } from "./brief";
 import { Stempel } from "./brief-teile";
 import { RestbetragHinweis } from "./restbetrag-hinweis";
+import { adressZeilen, worte } from "./leistung-worte";
 
 /**
  * Annahme-Dialog. Pflicht: Angebot, AGB (falls vorhanden), bei Umzug der
@@ -191,15 +192,18 @@ export function ConfirmKvaDialog({
                 )}
                 {ctx.scope.moveDate && (
                   <div className="mt-2 text-xs text-muted-foreground">
-                    {r.serviceType === "move" ? "Umzugstermin" : "Termin"}:{" "}
+                    {worte(ctx).termin}:{" "}
                     {formatGermanDate(ctx.scope.moveDate)}
                   </div>
                 )}
-                {(ctx.scope.fromAddress || ctx.scope.toAddress) && (
+                {adressZeilen(ctx).length > 0 && (
                   <div className="mt-1 text-xs text-muted-foreground">
-                    {ctx.scope.fromAddress && <>Von {ctx.scope.fromAddress}</>}
-                    {ctx.scope.fromAddress && ctx.scope.toAddress && <br />}
-                    {ctx.scope.toAddress && <>Nach {ctx.scope.toAddress}</>}
+                    {adressZeilen(ctx).map((a, i) => (
+                      <span key={a.key}>
+                        {i > 0 && <br />}
+                        {a.key === "von" ? "Von" : a.key === "nach" ? "Nach" : a.label} {a.adresse}
+                      </span>
+                    ))}
                   </div>
                 )}
                 {ctx.kva.depositRequiredCents != null &&

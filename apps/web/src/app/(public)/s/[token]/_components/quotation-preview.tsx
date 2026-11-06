@@ -7,6 +7,7 @@ import { PanelHeading } from "./portal-ui";
 import { formatPortalDate, formatPortalMoney } from "./portal-presentation";
 import { kundenAnnahmen } from "@/lib/kunden-annahmen";
 import { RestbetragHinweis } from "./restbetrag-hinweis";
+import { adressZeilen, annahmenLabels, worte } from "./leistung-worte";
 
 /**
  * Current stored PDF. Without one, the same deal data is a readable HTML
@@ -39,8 +40,8 @@ export function QuotationPreview({ ctx, token, variant = "full", emailImBrief = 
       <h3>Kostenvoranschlag</h3>
       <p>Auftragsnummer: {ctx.dealNumber}</p>
       {ctx.customerDisplayName && <p>Für: {ctx.customerDisplayName}</p>}
-      {ctx.scope.moveDate && <p>Umzugstermin: {formatPortalDate(ctx.scope.moveDate)}{ctx.scope.timeStart && `, ab ${ctx.scope.timeStart} Uhr`}</p>}
-      {(ctx.scope.fromAddress || ctx.scope.toAddress) && <div className="my-4 grid gap-3 sm:grid-cols-2">{ctx.scope.fromAddress && <p><strong>Abholung</strong><br />{ctx.scope.fromAddress}{ctx.scope.floorsFrom != null && <span className="block">{ctx.scope.floorsFrom === 0 ? "Erdgeschoss" : `${ctx.scope.floorsFrom}. OG`}</span>}{ctx.scope.accessFrom && <span className="block">{ctx.scope.accessFrom}</span>}</p>}{ctx.scope.toAddress && <p><strong>Ziel</strong><br />{ctx.scope.toAddress}{ctx.scope.floorsTo != null && <span className="block">{ctx.scope.floorsTo === 0 ? "Erdgeschoss" : `${ctx.scope.floorsTo}. OG`}</span>}{ctx.scope.accessTo && <span className="block">{ctx.scope.accessTo}</span>}</p>}</div>}
+      {ctx.scope.moveDate && <p>{worte(ctx).termin}: {formatPortalDate(ctx.scope.moveDate)}{ctx.scope.timeStart && `, ab ${ctx.scope.timeStart} Uhr`}</p>}
+      {adressZeilen(ctx).length > 0 && <div className="my-4 grid gap-3 sm:grid-cols-2">{adressZeilen(ctx).map((a) => <p key={a.key}><strong>{a.label}</strong><br />{a.adresse}{a.etage != null && <span className="block">{a.etage === 0 ? "Erdgeschoss" : `${a.etage}. OG`}</span>}{a.zugang && <span className="block">{a.zugang}</span>}</p>)}</div>}
       {ctx.kva.summary && <p className="mt-4 whitespace-pre-line">{ctx.kva.summary}</p>}
       {positions.length > 0 && !option ? <table><thead><tr><th>Beschreibung</th><th>Menge</th><th>Betrag</th></tr></thead><tbody>{positions.map((item, i) => <tr key={i}><td>{item.description}</td><td>{item.quantity}</td><td>{formatPortalMoney(Math.round(item.lineTotal * 100))}</td></tr>)}</tbody></table> : inclusions.length > 0 && <table><thead><tr><th>Vereinbarte Leistungen{option && ` · ${option.displayName}`}</th></tr></thead><tbody>{inclusions.map((item, i) => <tr key={i}><td style={{ textAlign: "left", whiteSpace: "normal" }}>{item}</td></tr>)}</tbody></table>}
       {option && option.excludedItems.length > 0 && <p className="mt-4"><strong>Nicht enthalten:</strong> {option.excludedItems.join("; ")}</p>}
@@ -51,7 +52,7 @@ export function QuotationPreview({ ctx, token, variant = "full", emailImBrief = 
       <RestbetragHinweis firmaSlug={ctx.branding.firmaSlug} serviceType={ctx.annahmeRecht.serviceType} className="mt-3" />
       {ctx.kva.validUntil && <p className="mt-3">Gültig bis: {formatPortalDate(ctx.kva.validUntil)}</p>}
       {(ctx.scope.specialRequests || ctx.scope.inventoryNotes) && <p className="mt-4 whitespace-pre-line"><strong>Besonderheiten</strong><br />{[ctx.scope.specialRequests, ctx.scope.inventoryNotes].filter(Boolean).join("\n")}</p>}
-      {ctx.kva.calculationAssumptions && <div className="mt-4"><strong>Kalkulationsgrundlagen</strong><ul>{Object.entries(kundenAnnahmen(ctx.kva.calculationAssumptions) ?? {}).filter(([, value]) => value != null && value !== "").map(([key, value]) => <li key={key}>{({ anfahrtMinuten: "Anfahrt gesamt (Minuten)", anfahrtQuelle: "Grundlage der Anfahrt", etageVon: "Etage Abholung", etageBis: "Etage Ziel", zugangVon: "Zugang Abholung", zugangBis: "Zugang Ziel", inventarPositionen: "Inventarpositionen", inventarVolumenCbm: "Inventarvolumen (m³)", hinweis: "Hinweis" } as Record<string, string>)[key] ?? key}: {String(value)}</li>)}</ul></div>}
+      {ctx.kva.calculationAssumptions && <div className="mt-4"><strong>Kalkulationsgrundlagen</strong><ul>{Object.entries(kundenAnnahmen(ctx.kva.calculationAssumptions) ?? {}).filter(([key, value]) => value != null && value !== "" && annahmenLabels(ctx)[key] !== null).map(([key, value]) => <li key={key}>{annahmenLabels(ctx)[key] ?? key}: {String(value)}</li>)}</ul></div>}
       {ctx.branding.agbPdfUrl && <p className="mt-4"><a href={ctx.branding.agbPdfUrl} className="underline">Allgemeine Geschäftsbedingungen</a></p>}
     </article>;
   if (variant === "file") return <section className="portal-panel" id="portal-quotation-preview">

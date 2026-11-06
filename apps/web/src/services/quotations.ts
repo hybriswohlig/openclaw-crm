@@ -8,6 +8,7 @@ import {
   type StoredLine,
 } from "@/lib/angebots-rabatt";
 import { annahmenZusammenfuehren } from "@/lib/kunden-annahmen";
+import { leistungFuerAngebot } from "@/lib/angebot-leistung";
 import { eq } from "drizzle-orm";
 import { pruefeNichtAngenommen } from "./kva-annahme";
 
@@ -54,6 +55,11 @@ export async function upsertQuotation(
     calculationAssumptions?: CalculationAssumptions | null;
     /** Angaben für den KV (Leistungen, Gültigkeit); wird mit dem Bestand zusammengeführt. */
     documentDetails?: QuotationDocumentDetails | null;
+    /**
+     * Leistung: move, kitchen_installation, clearance oder clearance_move
+     * (Entrümpelung + Umzug). Weggelassen bleibt die gespeicherte Leistung.
+     */
+    serviceType?: string | null;
     lineItems?: Array<{
       id?: string;
       type: "helper" | "transporter" | "other" | string;
@@ -72,6 +78,11 @@ export async function upsertQuotation(
   // Nach der Kundenannahme ist das Angebot eingefroren (erst „Annahme aufheben“).
   await pruefeNichtAngenommen(dealRecordId);
   const existing = await getQuotation(dealRecordId);
+  const leistung = leistungFuerAngebot({
+    angegeben: input.serviceType,
+    neu: !existing,
+    text: [input.summary, ...(input.lineItems ?? []).map((l) => l.description)].filter(Boolean).join("\n"),
+  });
 
   let quotationId: string;
 
@@ -107,12 +118,15 @@ export async function upsertQuotation(
           input.calculationAssumptions !== undefined
             ? annahmenZusammenfuehren(existing.calculationAssumptions, input.calculationAssumptions)
             : existing.calculationAssumptions,
-        documentDetails:
+        documentDetails: mitLeistung(
           input.documentDetails !== undefined
             ? input.documentDetails === null
               ? null
               : { ...((existing.documentDetails ?? {}) as QuotationDocumentDetails), ...input.documentDetails }
             : existing.documentDetails,
+          leistung
+        ),
+        ...(leistung ? { serviceType: leistung.serviceType } : {}),
         updatedAt: new Date(),
       })
       .where(eq(quotations.id, existing.id))
@@ -133,7 +147,8 @@ export async function upsertQuotation(
         showStandardInclusions: input.showStandardInclusions ?? true,
         selectedPackageSlug: input.selectedPackageSlug ?? null,
         calculationAssumptions: input.calculationAssumptions ?? null,
-        documentDetails: input.documentDetails ?? null,
+        documentDetails: mitLeistung(input.documentDetails ?? null, leistung),
+        ...(leistung ? { serviceType: leistung.serviceType } : {}),
       })
       .returning();
     quotationId = created.id;
@@ -222,5 +237,19 @@ export async function getProfitSummary(dealRecordId: string) {
     revenue,
     expenses: { employees: employeeExpenses, total: totalExpenses },
     profit,
+  };
+}
+
+/** Zusatz „mit Entrümpelung“ in die KV-Angaben schreiben; ohne Leistungsangabe bleibt alles. */
+function mitLeistung(
+  details: QuotationDocumentDetails | null,
+  leistung: { serviceType: string; mitEntruempelung: boolean; bestaetigt: boolean } | null
+): QuotationDocumentDetails | null {
+  if (!leistung) return details;
+  if (!details && !leistung.mitEntruempelung && !leistung.bestaetigt) return null;
+  return {
+    ...(details ?? {}),
+    mitEntruempelung: leistung.mitEntruempelung,
+    ...(leistung.bestaetigt ? { leistungBestaetigt: true } : {}),
   };
 }

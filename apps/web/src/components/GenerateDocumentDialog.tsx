@@ -18,7 +18,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { useBackgroundJobs } from "@/components/background-jobs";
-import type { ServiceArt } from "@openclaw-crm/customer-portal-core";
+import { ausPortalLeistung, type PortalLeistung } from "@openclaw-crm/customer-portal-core";
 import {
   KOTTKE_CRM_RENDERER_MESSAGE,
   showCrmRendererChoice,
@@ -26,7 +26,8 @@ import {
 
 export type Firma = "kottke" | "ceylan";
 export type DocumentType = "KV" | "AB" | "RE";
-export type ServiceType = ServiceArt;
+/** Leistung im Dialog; „clearance_move“ wird als Umzug mit Entrümpelung gespeichert. */
+export type ServiceType = PortalLeistung;
 export type Preismodell = "stundensatz" | "pauschale";
 /**
  * How the customer pays the Anzahlung. "bar" is collected on-site by the
@@ -327,9 +328,10 @@ export function GenerateDocumentDialog({
           auftrag: deal.auftrag,
           preise: buildPreise(),
           ...(trimmedAnweisung ? { anweisung: trimmedAnweisung } : {}),
-          service_type: serviceType,
+          service_type: ausPortalLeistung(serviceType).serviceType,
           document_details: {
-            serviceType,
+            serviceType: ausPortalLeistung(serviceType).serviceType,
+            mitEntruempelung: ausPortalLeistung(serviceType).mitEntruempelung,
             cardAgreed,
             ...(serviceType === "kitchen_installation"
               ? {
@@ -476,7 +478,7 @@ export function GenerateDocumentDialog({
           {documentType !== "RE" && (
             <div className="space-y-2">
               <h3 className="text-sm font-medium">Leistung</h3>
-              <div className="flex gap-4">
+              <div className="flex flex-wrap gap-x-4 gap-y-2">
                 <label className="flex items-center gap-2 text-sm">
                   <input
                     type="radio"
@@ -500,6 +502,14 @@ export function GenerateDocumentDialog({
                     onChange={() => setServiceType("clearance")}
                   />
                   Entrümpelung
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    checked={serviceType === "clearance_move"}
+                    onChange={() => setServiceType("clearance_move")}
+                  />
+                  Entrümpelung + Umzug
                 </label>
               </div>
               {serviceType === "kitchen_installation" && (

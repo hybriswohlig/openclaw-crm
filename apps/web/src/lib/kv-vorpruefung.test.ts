@@ -126,6 +126,19 @@ describe("alsOrtWert", () => {
 });
 
 describe("leistungsartVorschlag", () => {
+  it("erkennt Küche und Kombination aus dem Angebotstext, wenn nichts gespeichert ist", async () => {
+    const { leistungsartVorschlag } = await import("./kv-vorpruefung");
+    expect(leistungsartVorschlag({ gespeichert: "move", leadType: null, text: "IKEA-Küchenmontage in Stuttgart" })).toBe("kitchen_installation");
+    expect(leistungsartVorschlag({ gespeichert: null, leadType: null, text: "Haushaltsauflösung und Umzug" })).toBe("clearance_move");
+    expect(leistungsartVorschlag({ gespeichert: "move", leadType: null, text: "Umzug 3 Zimmer" })).toBe("move");
+    // Bewusst gewählter Umzug wird nicht vom Text überstimmt.
+    expect(leistungsartVorschlag({ gespeichert: "move", leadType: "entruempelung", bestaetigt: true, text: "IKEA-Küchenmontage" })).toBe("move");
+  });
+  it("gespeicherter Umzug mit Entrümpelung bleibt die Kombination", async () => {
+    const { leistungsartVorschlag } = await import("./kv-vorpruefung");
+    expect(leistungsartVorschlag({ gespeichert: "move", leadType: "entruempelung", mitEntruempelung: true })).toBe("clearance_move");
+    expect(leistungsartVorschlag({ gespeichert: "kitchen_installation", leadType: null, mitEntruempelung: true })).toBe("kitchen_installation");
+  });
   it("gespeicherte Küche oder Entrümpelung gewinnt", async () => {
     const { leistungsartVorschlag } = await import("./kv-vorpruefung");
     expect(leistungsartVorschlag({ gespeichert: "kitchen_installation", leadType: "entruempelung" })).toBe("kitchen_installation");

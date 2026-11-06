@@ -173,10 +173,17 @@ export async function attachDocumentJobContext(
 
   const storedDetails = (quotation?.documentDetails || {}) as QuotationDocumentDetails;
   // Auch das Top-Level-Feld service_type zählt (MCP-Werkzeug setzt nur das).
+  // „clearance_move“ (Entrümpelung + Umzug) ist ein Umzug mit Zusatz.
+  const roheArt = clientDetails.serviceType || next.service_type || quotation?.serviceType || storedDetails.serviceType;
+  const kombiniert = roheArt === "clearance_move";
   const serviceType = asServiceType(
     // Die Spalte ist die gespeicherte Wahl; ältere Detaildaten tragen oft nur „move“.
-    clientDetails.serviceType || next.service_type || quotation?.serviceType || storedDetails.serviceType
+    kombiniert ? "move" : (roheArt as string | undefined)
   );
+  const mitEntruempelung =
+    serviceType !== "move"
+      ? false
+      : kombiniert || (typeof clientDetails.mitEntruempelung === "boolean" ? clientDetails.mitEntruempelung : storedDetails.mitEntruempelung === true);
 
   // Die beim KV gewählte Auftragsart steuert im Portal Widerruf und § 451g.
   // Ohne Speichern bliebe jedes Angebot auf „move“ (Spalten-Default).
@@ -191,6 +198,19 @@ export async function attachDocumentJobContext(
   if (quotation && neueArt) {
     // Ohne updatedAt: das ist keine neue Angebotsfassung.
     await db.update(quotations).set({ serviceType: neueArt }).where(eq(quotations.id, quotation.id));
+  }
+  // Zusatz „mit Entrümpelung“ wie die Leistungsart nur beim KV und vor der Annahme speichern.
+  // Beim KV ist die Leistung bewusst gewählt: danach überstimmt kein Textvorschlag sie mehr.
+  if (
+    quotation &&
+    next.document_type === "KV" &&
+    !accepted &&
+    ((storedDetails.mitEntruempelung === true) !== mitEntruempelung || storedDetails.leistungBestaetigt !== true)
+  ) {
+    await db
+      .update(quotations)
+      .set({ documentDetails: { ...storedDetails, mitEntruempelung, leistungBestaetigt: true } })
+      .where(eq(quotations.id, quotation.id));
   }
 
   const inventory = await db
@@ -268,6 +288,7 @@ export async function attachDocumentJobContext(
     ...snapshotDetails,
     ...clientDetails,
     serviceType: vpsArt,
+    mitEntruempelung,
     reference,
     inventory: clientDetails.inventory || storedDetails.inventory || inventoryRows,
     services:

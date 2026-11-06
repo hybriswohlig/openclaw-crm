@@ -2,32 +2,28 @@
 
 import { Check } from "lucide-react";
 import { festangebotStatusStep, kundenText, logoFuer, type CustomerPortalContext } from "@openclaw-crm/customer-portal-core";
+import { worte } from "./leistung-worte";
 import { portalOfferView } from "./portal-presentation";
 import { stempel, vorgangsSchritte } from "./brief";
 
-const FESTANGEBOT_STEPS = [
-  ["angebot", "Angebot"],
-  ["annahme", "Annahme"],
-  ["bestaetigung", "Bestätigung"],
-  ["umzug", "Umzug"],
-] as const;
-
-const STUFEN = ["Angebot", "Bestätigung", "Umzug", "Abschluss"] as const;
+/** Der letzte Schritt heißt wie die Leistung (Umzug, Montage, Entrümpelung). */
+const FESTANGEBOT_STEPS = ["angebot", "annahme", "bestaetigung", "umzug"] as const;
+const festangebotTitel = (stufe: string) => ["Angebot", "Annahme", "Bestätigung", stufe];
+const stufenTitel = (stufe: string) => ["Angebot", "Bestätigung", stufe, "Abschluss"];
 
 /** Briefkopf: Logo, Auftragsnummer, orange Linie und die Schritte als Wortzeile. */
 export function StageHeader({ ctx }: { ctx: CustomerPortalContext }) {
   const fest = portalOfferView(ctx) === "festangebot";
+  const w = worte(ctx);
   const logo = logoFuer(ctx.branding, ctx.annahmeRecht.serviceType);
   const angenommen = stempel({ signedAt: ctx.acceptance?.signedAt ?? null, unterschriftAt: null })[0]?.datum ?? null;
   const schritte = fest
     ? vorgangsSchritte({
-        titel: FESTANGEBOT_STEPS.map(([, t]) => t),
-        aktuellIndex: FESTANGEBOT_STEPS.findIndex(
-          ([id]) => id === festangebotStatusStep({ accepted: !!ctx.acceptance, stage: ctx.stage }),
-        ),
+        titel: festangebotTitel(w.stufe),
+        aktuellIndex: FESTANGEBOT_STEPS.indexOf(festangebotStatusStep({ accepted: !!ctx.acceptance, stage: ctx.stage })),
         angenommenAm: angenommen,
       })
-    : vorgangsSchritte({ titel: STUFEN, aktuellIndex: ctx.stage - 1, angenommenAm: null });
+    : vorgangsSchritte({ titel: stufenTitel(w.stufe), aktuellIndex: ctx.stage - 1, angenommenAm: null });
 
   return (
     <header className="portal-header portal-briefkopf">
@@ -47,8 +43,8 @@ export function StageHeader({ ctx }: { ctx: CustomerPortalContext }) {
         <p className="portal-briefkopf-intro">
           {kundenText(
             ctx.branding.firmaSlug,
-            `${ctx.customerDisplayName ? `${ctx.customerDisplayName}, hier` : "Hier"} sehen Sie alle Details zu Ihrem Umzug, den aktuellen Stand und Ihre Dokumente.`,
-            `${ctx.customerDisplayName ? `${ctx.customerDisplayName}, hier` : "Hier"} siehst du alle Details zu deinem Umzug, den aktuellen Stand und deine Dokumente.`,
+            `${ctx.customerDisplayName ? `${ctx.customerDisplayName}, hier` : "Hier"} sehen Sie alle Details zu ${w.deinDat}, den aktuellen Stand und Ihre Dokumente.`,
+            `${ctx.customerDisplayName ? `${ctx.customerDisplayName}, hier` : "Hier"} siehst du alle Details zu ${w.deinDat}, den aktuellen Stand und deine Dokumente.`,
           )}
         </p>
       )}

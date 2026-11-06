@@ -122,6 +122,34 @@ assert.equal(await lang.evaluate(() => document.documentElement.scrollWidth > in
 await lang.close();
 console.log("PASS lange Adresse");
 
+// Texte je Leistung: Küche ohne Abholung und Ziel, Kombination mit Umzüge-Logo.
+const kueche = await oeffnen("festangebot&leistung=kitchen_installation", 390);
+await kueche.screenshot({ path: `${out}/brief-leistung-kueche-390.png`, fullPage: true });
+const kuecheText = await kueche.locator("body").innerText();
+assert.match(kuecheText, /Festpreis für die Küchenmontage am/, "Brief nennt die Küchenmontage");
+assert.match(kuecheText, /Montageort/, "Küche zeigt den Montageort");
+// Angebotstext und Posten der Vorschau sind Umzugs-Beispieldaten; geprüft werden nur Portal-Wörter.
+const PORTAL_UMZUG = /Abholung|Möbelliste|Umzugstermin|Umzugstag|Umzugsteam|deine[nm]? Umzug|Dein Umzug|für den Umzug|Fotos zu deinem Umzug/;
+assert.doesNotMatch(kuecheText, PORTAL_UMZUG, "Küche ohne Umzugswörter");
+assert.equal(await kueche.locator(".portal-strecke-lkw").count(), 0, "keine LKW-Linie bei der Küche");
+assert.match(await kueche.locator(".portal-briefkopf .portal-logo img").getAttribute("src"), /logo-kuechen/, "Küchen-Logo");
+await kueche.close();
+const entr = await oeffnen("festangebot&leistung=clearance", 390);
+const entrText = await entr.locator("body").innerText();
+assert.match(entrText, /Festpreis für die Entrümpelung am/);
+assert.match(entrText, /Einsatzort/);
+assert.doesNotMatch(entrText, PORTAL_UMZUG, "Entrümpelung ohne Umzugswörter");
+assert.match(await entr.locator(".portal-briefkopf .portal-logo img").getAttribute("src"), /logo-entruempelung/);
+await entr.close();
+const kombi = await oeffnen("festangebot&leistung=clearance_move", 390);
+await kombi.screenshot({ path: `${out}/brief-leistung-kombi-390.png`, fullPage: true });
+const kombiText = await kombi.locator("body").innerText();
+assert.match(kombiText, /Festpreis für die Entrümpelung und den Umzug am/);
+assert.match(kombiText, /Abholung/);
+assert.match(await kombi.locator(".portal-briefkopf .portal-logo img").getAttribute("src"), /logo-umzuege/, "Kombination mit Umzüge-Logo");
+await kombi.close();
+console.log("PASS Texte je Leistung");
+
 const fremd = await oeffnen("festangebot&otherbrand&ohnename", 390);
 assert.equal(await fremd.locator("img:not([src]), img[src='']").count(), 0, "kein Bild ohne Quelle");
 assert.equal(await fremd.locator(".portal-brief-foto, .portal-brief-unterschrift").count(), 0, "ohne Ansprechpartner kein Foto und keine Unterschrift");

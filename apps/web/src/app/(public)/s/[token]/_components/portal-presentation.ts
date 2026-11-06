@@ -12,8 +12,8 @@ export function formatPortalDate(date: string | null): string | null {
   return parsed.toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 }
 
-export function recordedMoveStatus(timing: MoveTiming): string | null {
-  if (timing.finishedAt) return "Umzug abgeschlossen";
+export function recordedMoveStatus(timing: MoveTiming, abgeschlossen = "Umzug abgeschlossen"): string | null {
+  if (timing.finishedAt) return abgeschlossen;
   if (timing.onsiteAt) return "Team vor Ort";
   if (timing.departureAt) return "Team unterwegs";
   return null;

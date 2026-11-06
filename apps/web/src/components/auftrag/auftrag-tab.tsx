@@ -7,7 +7,7 @@ import { RecordDetail } from "@/components/records/record-detail";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import type { ServiceArt } from "@openclaw-crm/customer-portal-core";
+import type { PortalLeistung } from "@openclaw-crm/customer-portal-core";
 import { DealDocumentActions } from "@/components/DealDocumentActions";
 import {
   buildDealDataForDocs,
@@ -260,7 +260,7 @@ export function AuftragTab({ recordId }: { recordId: string }) {
   const [openQuestions, setOpenQuestions] = useState<string[]>([]);
   const [leadContext, setLeadContext] = useState<LeadContext | null>(null);
   // Vorbelegung der Leistung im KV-Dialog (Küche, Entrümpelung), sonst kippt ein neuer KV auf Umzug.
-  const [leistungsart, setLeistungsart] = useState<ServiceArt | undefined>(undefined);
+  const [leistungsart, setLeistungsart] = useState<PortalLeistung | undefined>(undefined);
   const [needsSync, setNeedsSync] = useState(false);
   const [anweisungOpen, setAnweisungOpen] = useState(false);
 

@@ -515,7 +515,7 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_update_deal_quotation",
-    "Replace a deal's quotation (PUT semantics — omitted fields are cleared, so read crm_get_deal_quotation first and merge). Saving also mints the customer portal link and anchors the scope baseline.",
+    "Replace a deal's quotation (PUT semantics — omitted fields are cleared, so read crm_get_deal_quotation first and merge). Saving also mints the customer portal link and anchors the scope baseline. ALWAYS pass serviceType: 'move' (Umzug), 'kitchen_installation' (Küchenmontage), 'clearance' (Entrümpelung) or 'clearance_move' (Entrümpelung + Umzug). It drives the customer portal wording, the logo and the Widerruf rules. Omitted, a stored service stays; a new quotation is guessed from its text and otherwise becomes 'move'.",
     {
       recordId: z.string(),
       isVariable: z.boolean().optional(),
@@ -539,6 +539,7 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
         })
         .nullable()
         .optional(),
+      serviceType: z.enum(["move", "kitchen_installation", "clearance", "clearance_move"]).optional(),
     },
     req
   );
@@ -568,7 +569,7 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_generate_document",
-    "Start a PDF render on the crm-tools VPS and return { job_id }. Async: poll crm_get_document_job until status=done, then crm_store_document_job to attach it to the deal. For a Kostenvoranschlag set params.document_type to 'KV' (store type quotation). Also supports AB and RE. params: { firma: 'kottke'|'ceylan', document_type: 'KV'|'AB'|'RE', service_type?: 'move'|'kitchen_installation'|'clearance' (clearance = Entrümpelung, mit Widerrufsrecht im Portal, PDF im Umzugs-Layout), kunde: {vorname,nachname,adresse,email}, auftrag: {strecke_von,strecke_nach,datum,volumen,besonderheiten}, preise: {...}, document_details?: {serviceType, kitchen, services, inventory, cardAgreed}, anweisung? }. Prices and paid amounts are rebuilt server-side from the deal quotation and payments. The kunde name is re-derived from the linked person. renderer defaults to vps. Pass renderer \"crm\" (or params.renderer) to render with the CRM template instead and store the PDF immediately. That template picks the KV/AB/RE wording from the quotation service type and the deal (Umzug, Fernumzug, Entrümpelung, Küchenmontage, Transport, Klaviertransport, Beiladung, Einlagerung or sonstige Leistung) and from the Sie/du register on the conversation and the deal. optional copy or params.document_copy is { intro, closing, remarks } plain text: those three replace the matching default and do not change prices. notifyCustomer defaults to false on that path. For Kottke (firma kottke or operating company 5af07382-33b5-4538-a6d5-017132543ac4), renderer crm at the top level or params.renderer is rejected with: Für Kottke nur VPS-Template: crm_generate_document ohne renderer. Omit renderer, or pass renderer vps, and the VPS job starts unchanged. Ceylan may still pass renderer crm.",
+    "Start a PDF render on the crm-tools VPS and return { job_id }. Async: poll crm_get_document_job until status=done, then crm_store_document_job to attach it to the deal. For a Kostenvoranschlag set params.document_type to 'KV' (store type quotation). Also supports AB and RE. params: { firma: 'kottke'|'ceylan', document_type: 'KV'|'AB'|'RE', service_type?: 'move'|'kitchen_installation'|'clearance'|'clearance_move' (clearance = Entrümpelung, mit Widerrufsrecht im Portal, PDF im Umzugs-Layout; clearance_move = Entrümpelung + Umzug, rechtlich ein Umzug, PDF im Umzugs-Layout), kunde: {vorname,nachname,adresse,email}, auftrag: {strecke_von,strecke_nach,datum,volumen,besonderheiten}, preise: {...}, document_details?: {serviceType, kitchen, services, inventory, cardAgreed}, anweisung? }. Prices and paid amounts are rebuilt server-side from the deal quotation and payments. The kunde name is re-derived from the linked person. renderer defaults to vps. Pass renderer \"crm\" (or params.renderer) to render with the CRM template instead and store the PDF immediately. That template picks the KV/AB/RE wording from the quotation service type and the deal (Umzug, Fernumzug, Entrümpelung, Küchenmontage, Transport, Klaviertransport, Beiladung, Einlagerung or sonstige Leistung) and from the Sie/du register on the conversation and the deal. optional copy or params.document_copy is { intro, closing, remarks } plain text: those three replace the matching default and do not change prices. notifyCustomer defaults to false on that path. For Kottke (firma kottke or operating company 5af07382-33b5-4538-a6d5-017132543ac4), renderer crm at the top level or params.renderer is rejected with: Für Kottke nur VPS-Template: crm_generate_document ohne renderer. Omit renderer, or pass renderer vps, and the VPS job starts unchanged. Ceylan may still pass renderer crm.",
     {
       recordId: z.string(),
       params: z.record(z.unknown()),

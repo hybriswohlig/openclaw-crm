@@ -84,6 +84,9 @@ import {
   type OfferPackagesContext,
   type PaymentInstructions,
   type PaymentMethodPreference,
+  leistungsWorte,
+  portalLeistung,
+  type PortalLeistung,
 } from "@openclaw-crm/customer-portal-core";
 import { isKleinanzeigenRelayAddress } from "./inbox-kleinanzeigen";
 import { loadEffectiveBranding } from "./customer-portal-config";
@@ -406,7 +409,7 @@ export async function loadContextByToken(
   const aufgehobenAm = acceptance ? null : letzteAufhebung;
 
   // Rechtsregeln der Annahme; Dialog und confirmKvaForToken nutzen dieselben.
-  const serviceType = await loadServiceType(dealRecordId);
+  const { serviceType, leistung } = await loadLeistung(dealRecordId);
   const annahmeRecht = {
     ...annahmeRegeln({
       serviceType,
@@ -531,7 +534,6 @@ export async function loadContextByToken(
     customerEmailMasked,
     branding,
     scope,
-    inclusions,
     packages,
     dealPackageOffers,
     dateOffers,
@@ -539,6 +541,9 @@ export async function loadContextByToken(
     kva,
     acceptance,
     annahmeRecht,
+    leistung,
+    // Umzugs-Standards (Decken, Kartons …) gehören nicht zu Küche oder Entrümpelung.
+    inclusions: leistungsWorte(leistung, branding.firmaSlug).standardleistungen ? inclusions : { included: [], optional: [] },
     fruehereAnnahmeAufgehoben,
     widerruf,
     documents: {
@@ -623,7 +628,7 @@ export async function confirmKvaForToken(
   const effective = await loadEffectiveBranding(ocId);
   if (!effective.enabled) return { ok: false, reason: "feature_disabled" };
 
-  const serviceType = await loadServiceType(link.dealRecordId);
+  const { serviceType } = await loadLeistung(link.dealRecordId);
   const regeln = annahmeRegeln({ serviceType, moveDate: scope.moveDate, hasOpenDateChoice, now: new Date() });
   const preisCents = erwarteterGesamtpreis({
     dealOptions: dealOffers.options,
@@ -1456,13 +1461,16 @@ async function loadCrew(dealRecordId: string): Promise<CrewMember[]> {
   }));
 }
 
-async function loadServiceType(dealRecordId: string): Promise<ServiceArt> {
+async function loadLeistung(dealRecordId: string): Promise<{ serviceType: ServiceArt; leistung: PortalLeistung }> {
   const [q] = await db
-    .select({ serviceType: quotations.serviceType })
+    .select({ serviceType: quotations.serviceType, documentDetails: quotations.documentDetails })
     .from(quotations)
     .where(eq(quotations.dealRecordId, dealRecordId))
+    .orderBy(desc(quotations.updatedAt))
     .limit(1);
-  return q?.serviceType === "kitchen_installation" || q?.serviceType === "clearance" ? q.serviceType : "move";
+  const serviceType: ServiceArt =
+    q?.serviceType === "kitchen_installation" || q?.serviceType === "clearance" ? q.serviceType : "move";
+  return { serviceType, leistung: portalLeistung(serviceType, q?.documentDetails?.mitEntruempelung) };
 }
 
 /**
