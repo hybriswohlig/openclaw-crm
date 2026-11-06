@@ -1,0 +1,757 @@
+/*
+ * Inbox der neuen Oberfläche unter /app/inbox (Plan 6). Maße aus
+ * design/neubau-2026-11-05/06-inbox.html, Farben aus neu.css, Panelklassen
+ * (.akte-panel, .akte-panel-kopf) aus neu-akte.css, das Gespräch aus
+ * neu-akte-gespraech.css. Alles unter [data-neu] mit Präfix .inbox-.
+ *
+ * Glas nur auf Panels, Leiste und Pillen; die Liste und die Karten rechts
+ * liegen auf --fill-3 (fast deckend). Text mindestens 4,5:1: Zeiten, Meta,
+ * Trenner und Kartenköpfe deshalb in --ink-2 statt --ink-3 wie im Mockup.
+ */
+
+[data-neu] .inbox {
+  --wa: #1faa5a;
+  --blue-tint: rgba(0, 103, 217, 0.1);
+  --blue-rim: rgba(0, 103, 217, 0.28);
+  /* Höhe oberhalb der drei Panels: Kopf, Chips, Leiste, Abstände, Seitenränder. */
+  --inbox-oben: 256px;
+
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+/* ── Kopf ────────────────────────────────────────────── */
+
+[data-neu] .inbox-kopf {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 18px;
+}
+
+[data-neu] .inbox-kopf-text {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+[data-neu] .inbox-meta {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+[data-neu] .inbox-kopf-aktionen {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ── Chips „Jetzt“ ───────────────────────────────────── */
+
+[data-neu] .inbox-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px;
+}
+
+[data-neu] .inbox-chips-label {
+  margin-right: 4px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+[data-neu] .inbox-chip-jetzt {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 13px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fill-2);
+  box-shadow: inset 0 0 0 1px var(--rim), var(--shadow);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(16px) saturate(1.6);
+  backdrop-filter: blur(16px) saturate(1.6);
+}
+
+[data-neu] .inbox-chip-jetzt b {
+  font-weight: 700;
+}
+
+[data-neu] .inbox-chip-jetzt i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-3);
+}
+
+[data-neu] .inbox-chip-jetzt i[data-ton="blau"] {
+  background: var(--blue);
+}
+
+[data-neu] .inbox-chip-jetzt i[data-ton="gold"] {
+  background: var(--gold);
+}
+
+[data-neu] .inbox-chip-jetzt:hover {
+  background: var(--fill-3);
+}
+
+[data-neu] .inbox-chip-jetzt[aria-pressed="true"] {
+  background: var(--ink);
+  box-shadow: none;
+  color: #ffffff;
+}
+
+[data-neu] .inbox-chip-jetzt[aria-pressed="true"] i {
+  box-shadow: 0 0 0 2px rgb(255 255 255 / 0.35);
+}
+
+[data-neu] .inbox-chip-jetzt:focus-visible,
+[data-neu] .inbox-pille-knopf:focus-visible,
+[data-neu] .inbox-chip:focus-visible,
+[data-neu] .inbox-trenner:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+/* ── Leiste ──────────────────────────────────────────── */
+
+[data-neu] .inbox-leiste {
+  --lg-panel-radius: 24px;
+
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+}
+
+[data-neu] .inbox-pille-knopf {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+[data-neu] .inbox-pille-knopf:hover,
+[data-neu] .inbox-pille-knopf[data-state="open"] {
+  background: #ffffff;
+}
+
+[data-neu] .inbox-pille-knopf[data-aktiv] {
+  box-shadow: inset 0 0 0 1.5px var(--blue-rim);
+  color: var(--blue-ink);
+  font-weight: 600;
+}
+
+[data-neu] .inbox-pille-knopf i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink);
+}
+
+[data-neu] .inbox-pille-knopf svg {
+  width: 12px;
+  height: 12px;
+  stroke: var(--ink-2);
+  fill: none;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+[data-neu] .inbox-menue {
+  min-width: 200px;
+}
+
+[data-neu] .inbox-menue-eintrag {
+  font-size: 13.5px;
+  color: var(--ink);
+}
+
+[data-neu] .inbox-menue-eintrag[data-aktuell] {
+  font-weight: 600;
+}
+
+[data-neu] .inbox-suche {
+  display: flex;
+  flex: 1 1 180px;
+  align-items: center;
+  gap: 8px;
+  max-width: 300px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  cursor: text;
+}
+
+[data-neu] .inbox-suche:focus-within {
+  box-shadow: inset 0 0 0 2px var(--blue);
+}
+
+[data-neu] .inbox-suche svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  stroke: var(--ink-2);
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+[data-neu] .inbox-suche input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+[data-neu] .inbox-suche input::placeholder {
+  color: var(--ink-2);
+}
+
+[data-neu] .inbox-suche input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+}
+
+[data-neu] .inbox-schalter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+[data-neu] .inbox-schalter label {
+  cursor: pointer;
+}
+
+/* ── Körper: drei Panels ─────────────────────────────── */
+
+[data-neu] .inbox-koerper {
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr) 300px;
+  gap: 14px;
+  align-items: start;
+}
+
+[data-neu] .inbox-mitte,
+[data-neu] .inbox-rechts {
+  min-width: 0;
+}
+
+/* Unter 1280 px passen drei Spalten nicht neben die Seitenleiste: die
+   Kurzfassung rutscht unter das Gespräch. */
+@media (max-width: 1279px) {
+  [data-neu] .inbox-koerper {
+    grid-template-columns: 300px minmax(0, 1fr);
+  }
+
+  [data-neu] .inbox-rechts {
+    grid-column: 2;
+  }
+}
+
+/* Liste: fast deckend (Spec: Glas nie über Listen), eigener Scrollbereich. */
+[data-neu] .inbox-liste-panel {
+  height: calc(100dvh - var(--inbox-oben));
+  min-height: 420px;
+  background: var(--fill-3);
+}
+
+[data-neu] .inbox-liste {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  padding: 0 10px 10px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+[data-neu] .inbox-liste-gruppe {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+[data-neu] .inbox-liste-hinweis {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0;
+  padding: 18px 8px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+[data-neu] .inbox-liste-hinweis p {
+  margin: 0;
+}
+
+[data-neu] .inbox-eintrag-skelett {
+  display: grid;
+  grid-template-columns: 38px 1fr;
+  gap: 6px 10px;
+  padding: 10px 12px;
+}
+
+[data-neu] .inbox-eintrag-skelett .lg-skeleton[data-variant="circle"] {
+  grid-row: 1 / 3;
+  width: 38px;
+}
+
+/* Eintrag: Raster 38px Avatar, Name und Zeit, Vorschau, Pillen. */
+[data-neu] .inbox-eintrag {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  gap: 3px 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 16px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+[data-neu] .inbox-eintrag:hover {
+  background: rgb(34 34 36 / 0.04);
+}
+
+[data-neu] .inbox-eintrag[aria-current="true"] {
+  background: #ffffff;
+  box-shadow: inset 0 0 0 1.5px var(--blue-rim), var(--shadow);
+}
+
+[data-neu] .inbox-eintrag:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: -2px;
+}
+
+[data-neu] .inbox-eintrag[data-gruppe="info"] .inbox-eintrag-name {
+  color: var(--ink-2);
+}
+
+[data-neu] .inbox-avatar {
+  position: relative;
+  display: grid;
+  grid-row: 1 / 4;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+[data-neu] .inbox-kanalpunkt {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 12px;
+  height: 12px;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  background: var(--ink-2);
+}
+
+[data-neu] .inbox-kanalpunkt[data-kanal="whatsapp"] {
+  background: var(--wa);
+}
+
+[data-neu] .inbox-kanalpunkt[data-kanal="email"] {
+  background: var(--blue);
+}
+
+[data-neu] .inbox-eintrag-name {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-neu] .inbox-eintrag-zeit {
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+[data-neu] .inbox-eintrag-zeit[data-ungelesen] {
+  color: var(--blue-ink);
+  font-weight: 600;
+}
+
+[data-neu] .inbox-eintrag-vorschau {
+  grid-column: 2 / 4;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-neu] .inbox-eintrag-vorschau b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+[data-neu] .inbox-eintrag-pillen {
+  display: flex;
+  flex-wrap: wrap;
+  grid-column: 2 / 4;
+  gap: 4px 5px;
+  align-items: center;
+  margin-top: 2px;
+}
+
+[data-neu] .inbox-eintrag-pillen:empty {
+  display: none;
+}
+
+[data-neu] .inbox-pille {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgb(34 34 36 / 0.06);
+  color: var(--ink-2);
+  font-size: 10.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+[data-neu] .inbox-pille[data-art="uns"] {
+  background: rgb(232 150 12 / 0.14);
+  color: var(--gold-ink);
+}
+
+[data-neu] .inbox-pille[data-art="ki"] {
+  background: var(--blue-tint);
+  color: var(--blue-ink);
+}
+
+[data-neu] .inbox-pille[data-art="un"] {
+  justify-content: center;
+  min-width: 18px;
+  background: var(--blue);
+  color: #ffffff;
+}
+
+[data-neu] .inbox-pille[data-art="stufe"] {
+  font-weight: 500;
+}
+
+/* Trenner „Info und Kein Lead · N“, zugleich Auf- und Zuklappen. */
+[data-neu] .inbox-trenner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+[data-neu] .inbox-trenner::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--hair);
+}
+
+[data-neu] .inbox-trenner svg {
+  order: 1;
+  width: 12px;
+  height: 12px;
+  stroke: var(--ink-2);
+  fill: none;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 0.15s ease;
+}
+
+[data-neu] .inbox-trenner svg[data-offen] {
+  transform: rotate(180deg);
+}
+
+/* ── Mitte: das Gespräch-Panel der Akte, hier mit fester Höhe ── */
+
+[data-neu] .inbox-mitte .akte-panel {
+  height: calc(100dvh - var(--inbox-oben));
+  min-height: 420px;
+}
+
+[data-neu] .inbox-mitte .akte-gespraech-verlauf {
+  flex: 1 1 auto;
+  min-height: 120px;
+  max-height: none;
+}
+
+[data-neu] .inbox-mitte .akte-gespraech-fuss {
+  flex: none;
+}
+
+[data-neu] .inbox-mitte-leer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 18px;
+  background: var(--fill-2);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  color: var(--ink-2);
+  font-size: 13.5px;
+}
+
+[data-neu] .inbox-mitte-leer p {
+  margin: 0;
+}
+
+[data-neu] .inbox-mitte-leer .lg-skeleton {
+  width: 100%;
+}
+
+[data-neu] .inbox-schnell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+[data-neu] .inbox-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+[data-neu] .inbox-chip:hover:not(:disabled) {
+  background: #ffffff;
+  box-shadow: inset 0 0 0 1px var(--rim), var(--shadow);
+}
+
+[data-neu] .inbox-chip:disabled {
+  color: var(--ink-2);
+  cursor: progress;
+}
+
+[data-neu] .inbox-chip[data-ton="blau"] {
+  color: var(--blue-ink);
+  font-weight: 600;
+}
+
+/* ── Rechts: Kurzfassung ─────────────────────────────── */
+
+[data-neu] .inbox-rechts-panel {
+  max-height: calc(100dvh - var(--inbox-oben));
+}
+
+[data-neu] .inbox-karten {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  padding: 0 12px 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+[data-neu] .inbox-karte {
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+}
+
+[data-neu] .inbox-karte-zeile {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 10px;
+  margin-bottom: 8px;
+}
+
+[data-neu] .inbox-karte-name {
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+[data-neu] .inbox-stufe {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgb(34 34 36 / 0.06);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+[data-neu] .inbox-karte-k {
+  margin: 0 0 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ink-2);
+  text-transform: uppercase;
+}
+
+[data-neu] .inbox-kv {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  font-size: 13px;
+}
+
+[data-neu] .inbox-kv-zeile {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+}
+
+[data-neu] .inbox-kv dt {
+  color: var(--ink-2);
+}
+
+[data-neu] .inbox-kv dd {
+  min-width: 0;
+  max-width: 62%;
+  margin: 0;
+  font-weight: 600;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+[data-neu] .inbox-kv dd[data-ton="gold"] {
+  color: var(--gold-ink);
+}
+
+[data-neu] .inbox-kv dd a {
+  color: var(--blue-ink);
+  text-decoration: none;
+}
+
+[data-neu] .inbox-kv dd a:hover {
+  text-decoration: underline;
+}
+
+[data-neu] .inbox-naechster {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgb(34 34 36 / 0.05);
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+[data-neu] .inbox-naechster b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+[data-neu] .inbox-link {
+  display: inline-block;
+  margin-top: 10px;
+  color: var(--blue-ink);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+[data-neu] .inbox-link:hover {
+  text-decoration: underline;
+}
+
+[data-neu] .inbox-karte-nachfass {
+  margin-top: 10px;
+}
+
+/* Der Schalter der Akte als Kapsel; in der schmalen Karte ohne Glas-Schatten. */
+[data-neu] .inbox-karte-nachfass .akte-nachfass {
+  width: 100%;
+  box-shadow: inset 0 0 0 1px var(--hair);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+[data-neu] .inbox-karte-knoepfe {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+/* ── Skelett ─────────────────────────────────────────── */
+
+[data-neu] .inbox-skelett-panel {
+  height: 420px;
+  border-radius: 24px;
+}

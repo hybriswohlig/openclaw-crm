@@ -1,0 +1,332 @@
+"use client";
+
+import "@/styles/neu-inbox.css";
+
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
+import { GlassButton } from "@/components/glassyui/glass-button";
+import { apiAufruf } from "@/components/neu/akte/api";
+import { useBreit } from "@/components/neu/breit";
+import type { InboxChips, InboxFilter, InboxListe, Kurzfassung } from "@/lib/inbox-neu";
+import type { Gespraech } from "@/services/gespraech";
+import { InboxChipsZeile } from "./inbox-chips";
+import { InboxLeiste } from "./inbox-leiste";
+import { InboxListe as InboxListePanel } from "./inbox-liste";
+import { FILTER_LEER, gespraechUrl, gruppieren, inboxUrl, schluesselAus, sucheAktiv, type Schluessel } from "./inbox-logik";
+import { InboxMitte } from "./inbox-mitte";
+import { KontaktKarte } from "./kontakt-karte";
+import { KurzfassungSpalte } from "./kurzfassung-spalte";
+import { useLaneAktionen } from "./lane-aktionen";
+
+/** Liste und offenes Gespräch alle 60 s still neu (Entscheidung 14). */
+const TAKT_MS = 60_000;
+/** Die Suche wartet so lange auf weitere Zeichen, bevor sie zum Server geht. */
+const SUCHE_VERZUG_MS = 250;
+
+type Grund = "oeffnen" | "aktion" | "takt";
+
+type ListeZustand = { art: "laden" } | { art: "fehler"; meldung: string } | { art: "fertig"; liste: InboxListe };
+
+type MitteZustand =
+  | { art: "leer" }
+  | { art: "laden" }
+  | { art: "fehler"; meldung: string; status: number }
+  | { art: "fertig"; gespraech: Gespraech; kurz: Kurzfassung | null };
+
+/**
+ * /app/inbox (Plan 6): die Warteschlange über alle Deals. Lädt die Liste
+ * (`GET /inbox/liste`, bei Suche mit `q`), hält Filter und Auswahl (`?e=`),
+ * lädt zum gewählten Eintrag das Gespräch (Deal: `/deals/{id}/gespraech`,
+ * sonst `/inbox/gespraeche/{id}`) und die Deal-Kurzfassung. Beides alle 60 s
+ * still neu, nicht bei verstecktem Tab; nach jeder Aktion sofort. Die Chips
+ * zeigen den Gesamtstand der letzten Ladung ohne Suche.
+ */
+export function InboxSeite() {
+  const params = useSearchParams();
+  const eParam = params.get("e");
+  const breit = useBreit();
+  const [filter, setFilter] = useState<InboxFilter>(FILTER_LEER);
+  const [liste, setListe] = useState<ListeZustand>({ art: "laden" });
+  const [chipsGesamt, setChipsGesamt] = useState<InboxChips | null>(null);
+  const [mitte, setMitte] = useState<MitteZustand>({ art: "leer" });
+  const [infoOffen, setInfoOffen] = useState(false);
+  const listeLauf = useRef(0);
+  const mitteLauf = useRef(0);
+  const hatListe = useRef(false);
+  hatListe.current = liste.art === "fertig";
+
+  const suchbegriff = sucheAktiv(filter.suche) ? filter.suche.trim() : "";
+  const suchbegriffRef = useRef(suchbegriff);
+  suchbegriffRef.current = suchbegriff;
+  const gewaehltKey = eParam;
+  const gewaehltRef = useRef(gewaehltKey);
+  gewaehltRef.current = gewaehltKey;
+
+  // ── Liste ──────────────────────────────────────────────────────────────────
+
+  const listeLaden = useCallback(async (q: string, grund: Grund) => {
+    const dieser = ++listeLauf.current;
+    const url = q ? `/api/v1/inbox/liste?q=${encodeURIComponent(q)}` : "/api/v1/inbox/liste";
+    const r = await apiAufruf<InboxListe>(url);
+    if (dieser !== listeLauf.current) return;
+    if (r.ok) {
+      setListe({ art: "fertig", liste: r.data });
+      // Bei Suche zählt der Server nur die Treffer; die Chips behalten den Gesamtstand.
+      if (!q) setChipsGesamt(r.data.chips);
+      return;
+    }
+    if (hatListe.current) {
+      if (grund === "aktion") toast.error("Liste konnte nicht neu geladen werden.", { description: r.message });
+      return;
+    }
+    setListe({ art: "fehler", meldung: r.message });
+  }, []);
+
+  // Beim Öffnen und bei jeder Änderung des Suchbegriffs (ab 2 Zeichen, verzögert).
+  useEffect(() => {
+    const t = window.setTimeout(() => void listeLaden(suchbegriff, "oeffnen"), suchbegriff ? SUCHE_VERZUG_MS : 0);
+    return () => window.clearTimeout(t);
+  }, [suchbegriff, listeLaden]);
+
+  // ── Gespräch und Kurzfassung ───────────────────────────────────────────────
+
+  const gespraechLaden = useCallback(async (s: Schluessel, grund: Grund): Promise<Gespraech | null> => {
+    const dieser = ++mitteLauf.current;
+    const [g, k] = await Promise.all([
+      apiAufruf<Gespraech>(gespraechUrl(s)),
+      s.art === "deal" ? apiAufruf<Kurzfassung>(`/api/v1/deals/${encodeURIComponent(s.id)}/kurzfassung`) : Promise.resolve(null),
+    ]);
+    if (dieser !== mitteLauf.current) return null;
+    if (!g.ok) {
+      if (grund === "oeffnen") setMitte({ art: "fehler", meldung: g.message, status: g.status });
+      else if (grund === "aktion") toast.error("Gespräch konnte nicht neu geladen werden.", { description: g.message });
+      return null;
+    }
+    if (k && !k.ok && grund !== "takt") toast.error("Deal-Kurzfassung konnte nicht geladen werden.", { description: k.message });
+    setMitte((alt) => ({
+      art: "fertig",
+      gespraech: g.data,
+      // Fällt die Kurzfassung beim stillen Neuladen aus, bleibt die alte stehen.
+      kurz: k?.ok ? k.data : alt.art === "fertig" ? alt.kurz : null,
+    }));
+    return g.data;
+  }, []);
+
+  /** Das Öffnen markiert direkt verknüpfte Gespräche gelesen; die Liste spiegelt das sofort. */
+  const alsGelesen = useCallback((key: string) => {
+    setListe((z) => {
+      if (z.art !== "fertig") return z;
+      const e = z.liste.eintraege.find((x) => x.key === key);
+      if (!e || e.ungelesen === 0) return z;
+      const eintraege = z.liste.eintraege.map((x) => (x.key === key ? { ...x, ungelesen: 0 } : x));
+      return { art: "fertig", liste: { ...z.liste, eintraege } };
+    });
+    setChipsGesamt((c) => (c ? { ...c, ungelesen: Math.max(0, c.ungelesen - 1) } : c));
+  }, []);
+
+  useEffect(() => {
+    const s = schluesselAus(gewaehltKey);
+    mitteLauf.current++;
+    if (!s) {
+      setMitte({ art: "leer" });
+      return;
+    }
+    setMitte({ art: "laden" });
+    void gespraechLaden(s, "oeffnen").then((g) => {
+      if (g && gewaehltKey) alsGelesen(gewaehltKey);
+    });
+  }, [gewaehltKey, gespraechLaden, alsGelesen]);
+
+  // Takt: Liste und offenes Gespräch, nur bei sichtbarem Tab; beim Zurückkehren sofort.
+  useEffect(() => {
+    const takt = () => {
+      if (document.hidden) return;
+      void listeLaden(suchbegriffRef.current, "takt");
+      const s = schluesselAus(gewaehltRef.current);
+      if (s) void gespraechLaden(s, "takt");
+    };
+    const id = window.setInterval(takt, TAKT_MS);
+    document.addEventListener("visibilitychange", takt);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", takt);
+    };
+  }, [listeLaden, gespraechLaden]);
+
+  /** Nach jeder Aktion: Gespräch (und Kurzfassung) und Liste neu; liefert das frische Gespräch. */
+  const neuLaden = useCallback(async (): Promise<Gespraech | null> => {
+    const s = schluesselAus(gewaehltRef.current);
+    const [g] = await Promise.all([s ? gespraechLaden(s, "aktion") : Promise.resolve(null), listeLaden(suchbegriffRef.current, "aktion")]);
+    return g;
+  }, [gespraechLaden, listeLaden]);
+
+  // ── Auswahl ────────────────────────────────────────────────────────────────
+
+  const eintraege = liste.art === "fertig" ? liste.liste.eintraege : [];
+  const gefiltert = useMemo(() => gruppieren(eintraege, filter), [eintraege, filter]);
+  const eintrag = useMemo(() => eintraege.find((e) => e.key === gewaehltKey) ?? null, [eintraege, gewaehltKey]);
+  const schluessel = useMemo(() => schluesselAus(gewaehltKey), [gewaehltKey]);
+
+  const waehlen = useCallback((key: string | null, ersetzen: boolean) => {
+    const url = inboxUrl(key);
+    // Native History-Aufrufe halten useSearchParams aktuell, ohne die Seite neu vom Server zu holen.
+    if (ersetzen) window.history.replaceState(null, "", url);
+    else window.history.pushState(null, "", url);
+  }, []);
+
+  // Desktop ohne Auswahl: der erste sichtbare Eintrag (Entscheidung 14), still in die URL.
+  useEffect(() => {
+    if (!breit || eParam || liste.art !== "fertig") return;
+    const erster = gefiltert.haupt[0]?.key;
+    if (erster) waehlen(erster, true);
+  }, [breit, eParam, liste.art, gefiltert, waehlen]);
+
+  const aktionen = useLaneAktionen({
+    eintrag,
+    kurz: mitte.art === "fertig" ? mitte.kurz : null,
+    onNeuLaden: neuLaden,
+  });
+
+  const filterSetzen = useCallback((teil: Partial<InboxFilter>) => setFilter((f) => ({ ...f, ...teil })), []);
+
+  const chipsAnzeige = chipsGesamt ?? (liste.art === "fertig" && !suchbegriff ? liste.liste.chips : null);
+
+  if (breit === null) return <InboxSkelett />;
+
+  const listePanel = (
+    <InboxListePanel
+      zustand={liste.art === "fertig" ? { art: "fertig" } : liste}
+      haupt={gefiltert.haupt}
+      info={gefiltert.info}
+      anzahl={eintraege.length}
+      abgeschnitten={liste.art === "fertig" && liste.liste.abgeschnitten}
+      gesucht={suchbegriff !== ""}
+      gewaehltKey={gewaehltKey}
+      infoOffen={infoOffen || filter.chip === "info"}
+      kompakt={false}
+      onInfoOffen={setInfoOffen}
+      onWaehlen={(key) => waehlen(key, true)}
+      onErneut={() => void listeLaden(suchbegriff, "oeffnen")}
+    />
+  );
+
+  return (
+    <div className="inbox">
+      <header className="neu-kopf inbox-kopf">
+        <div className="inbox-kopf-text">
+          <h1>Inbox</h1>
+          <p className="neu-kopf-zweite">Alles, was eine Antwort braucht, in einer Liste.</p>
+          <p className="inbox-meta">Sortiert: zuerst, was auf uns wartet, dann nach Zeit. WhatsApp, E-Mail und Anrufe zusammen.</p>
+        </div>
+        <div className="inbox-kopf-aktionen">
+          <GlassButton asChild>
+            <Link href="/inbox?compose=1">+ Neue Nachricht</Link>
+          </GlassButton>
+        </div>
+      </header>
+
+      <InboxChipsZeile chips={chipsAnzeige} aktiv={filter.chip} kompakt={false} onWaehlen={(chip) => filterSetzen({ chip })} />
+      <InboxLeiste
+        filter={filter}
+        firmen={liste.art === "fertig" ? liste.liste.firmen : []}
+        stufen={liste.art === "fertig" ? liste.liste.stufen : []}
+        onFilter={filterSetzen}
+      />
+
+      <div className="inbox-koerper">
+        {listePanel}
+        <section className="akte-gespraech inbox-mitte" data-slot="gespraech" aria-label="Gespräch">
+          <Mitte zustand={mitte} schluessel={schluessel} eintrag={eintrag} onNeuLaden={neuLaden} onErneut={() => schluessel && void gespraechLaden(schluessel, "oeffnen")} />
+        </section>
+        <aside className="inbox-rechts" aria-label="Deal-Kurzfassung">
+          {mitte.art === "fertig" && schluessel ? (
+            mitte.kurz ? (
+              <KurzfassungSpalte
+                kurz={mitte.kurz}
+                aktionen={aktionen}
+                onNachfass={(nachfass) => setMitte((m) => (m.art === "fertig" && m.kurz ? { ...m, kurz: { ...m.kurz, nachfass } } : m))}
+                onNeuLaden={neuLaden}
+              />
+            ) : schluessel.art === "gespraech" ? (
+              <KontaktKarte gespraechId={schluessel.id} eintrag={eintrag} gespraech={mitte.gespraech} aktionen={aktionen} />
+            ) : null
+          ) : null}
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+/** Die Mitte je Zustand: leer, Skelett, Fehler oder das Gespräch-Panel (neu je Eintrag). */
+function Mitte({
+  zustand,
+  schluessel,
+  eintrag,
+  onNeuLaden,
+  onErneut,
+}: {
+  zustand: MitteZustand;
+  schluessel: Schluessel | null;
+  eintrag: ReturnType<typeof gruppieren>["haupt"][number] | null;
+  onNeuLaden: () => Promise<Gespraech | null>;
+  onErneut: () => void;
+}) {
+  if (zustand.art === "leer" || !schluessel) {
+    return (
+      <div className="akte-panel inbox-mitte-leer">
+        <p>Kein Gespräch gewählt.</p>
+      </div>
+    );
+  }
+  if (zustand.art === "laden") {
+    return (
+      <div className="akte-panel inbox-mitte-leer" aria-busy="true" aria-label="Gespräch wird geladen">
+        <span className="lg-skeleton" data-variant="line" style={{ width: "40%" }} />
+        <span className="lg-skeleton" style={{ height: 120 }} />
+        <span className="lg-skeleton" data-variant="line" style={{ width: "70%" }} />
+      </div>
+    );
+  }
+  if (zustand.art === "fehler") {
+    return (
+      <div className="akte-panel inbox-mitte-leer" role="alert">
+        <p>{zustand.status === 404 ? "Dieses Gespräch gibt es nicht mehr." : `Gespräch konnte nicht geladen werden. ${zustand.meldung}`}</p>
+        {zustand.status !== 404 ? (
+          <GlassButton size="sm" onClick={onErneut}>
+            Erneut laden
+          </GlassButton>
+        ) : null}
+      </div>
+    );
+  }
+  return (
+    <InboxMitte
+      key={`${schluessel.art}:${schluessel.id}`}
+      schluessel={schluessel}
+      eintrag={eintrag}
+      gespraech={zustand.gespraech}
+      kurz={zustand.kurz}
+      onNeuLaden={onNeuLaden}
+    />
+  );
+}
+
+function InboxSkelett() {
+  return (
+    <div className="inbox" aria-busy="true" aria-label="Inbox wird geladen">
+      <header className="neu-kopf inbox-kopf">
+        <div className="inbox-kopf-text">
+          <h1>Inbox</h1>
+          <p className="neu-kopf-zweite">Alles, was eine Antwort braucht, in einer Liste.</p>
+        </div>
+      </header>
+      <div className="inbox-koerper">
+        <span className="lg-skeleton inbox-skelett-panel" />
+        <span className="lg-skeleton inbox-skelett-panel" />
+        <span className="lg-skeleton inbox-skelett-panel" />
+      </div>
+    </div>
+  );
+}

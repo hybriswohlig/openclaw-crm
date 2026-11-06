@@ -1,9 +1,15 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
+import { InboxSeite } from "@/components/neu/inbox/inbox-seite";
 import { seitentitel } from "@/components/neu/nav-config";
-import { Platzhalter } from "@/components/neu/platzhalter";
 
 export const metadata: Metadata = { title: seitentitel("/app/inbox") };
 
+/** Die Inbox der neuen Oberfläche (Plan 6): Liste, Gespräch, Deal-Kurzfassung. Auswahl in `?e=`. */
 export default function InboxPage() {
-  return <Platzhalter pfad="/app/inbox" meilenstein={1} alteSeite="/inbox" />;
+  return (
+    <Suspense fallback={null}>
+      <InboxSeite />
+    </Suspense>
+  );
 }
