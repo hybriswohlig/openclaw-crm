@@ -39,16 +39,25 @@ export function bisText(e: Pick<PlanEintrag, "tag" | "bisTag">): string | null {
   return e.bisTag !== e.tag ? `bis ${tagKurz(e.bisTag)}` : null;
 }
 
-/** Team nur bei Umzügen; Besichtigungen haben keine Mannschaft. */
-export function teamZeigen(e: Pick<PlanEintrag, "art" | "team" | "teamFehlt">): boolean {
-  return e.art === "umzug" && (e.team.length > 0 || e.teamFehlt);
+/**
+ * Die Lücke im Team („?“) zählt nur bei festen Umzügen (jade, gold), wie auf
+ * dem Board nur bei Geplant; bei Angeboten oder erledigten Einträgen nie.
+ */
+export function teamLuecke(e: Pick<PlanEintrag, "art" | "ton" | "teamFehlt">): boolean {
+  return e.art === "umzug" && e.teamFehlt && (e.ton === "jade" || e.ton === "gold");
+}
+
+/** Team nur bei Umzügen mit Mitgliedern oder einer Lücke; Besichtigungen haben keine Mannschaft. */
+export function teamZeigen(e: Pick<PlanEintrag, "art" | "ton" | "team" | "teamFehlt">): boolean {
+  return e.art === "umzug" && (e.team.length > 0 || teamLuecke(e));
 }
 
 /** „Team: Mehmet K., Tobias S.“, „Team: Mehmet K., unvollständig“, „Team fehlt“. */
-export function teamText(e: Pick<PlanEintrag, "team" | "teamFehlt">): string {
-  if (e.team.length === 0) return e.teamFehlt ? "Team fehlt" : "Kein Team";
+export function teamText(e: Pick<PlanEintrag, "art" | "ton" | "team" | "teamFehlt">): string {
+  const luecke = teamLuecke(e);
+  if (e.team.length === 0) return luecke ? "Team fehlt" : "Kein Team";
   const namen = e.team.map((m) => m.name).join(", ");
-  return e.teamFehlt ? `Team: ${namen}, unvollständig` : `Team: ${namen}`;
+  return luecke ? `Team: ${namen}, unvollständig` : `Team: ${namen}`;
 }
 
 export type LiveStufe = "fertig" | "vor_ort" | "unterwegs";

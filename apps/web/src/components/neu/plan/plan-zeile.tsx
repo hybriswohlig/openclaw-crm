@@ -4,7 +4,7 @@ import "@/styles/neu-plan-zeile.css";
 
 import Link from "next/link";
 import type { PlanEintrag, PlanLive } from "@/lib/plan-heute";
-import { TON_TEXT, bisText, livePille, teamText, teamZeigen, zeileLabel, zeitRest, zeitSpalte } from "./plan-zeile-logik";
+import { TON_TEXT, bisText, livePille, teamLuecke, teamText, teamZeigen, zeileLabel, zeitRest, zeitSpalte } from "./plan-zeile-logik";
 
 /**
  * Füllungen der Team-Kürzel nach Reihenfolge (wie die Board-Karte): dunkle
@@ -116,7 +116,7 @@ function Team({ eintrag: e }: { eintrag: PlanEintrag }) {
           {m.kuerzel}
         </span>
       ))}
-      {e.teamFehlt ? (
+      {teamLuecke(e) ? (
         <span className="plan-zeile-avatar plan-zeile-avatar-fehlt" title="Team unvollständig">
           ?
         </span>

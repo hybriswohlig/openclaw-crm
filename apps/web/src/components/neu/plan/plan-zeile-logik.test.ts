@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PlanEintrag } from "@/lib/plan-heute";
-import { TON_TEXT, bisText, livePille, liveStufe, teamText, teamZeigen, zeileLabel, zeitRest, zeitSpalte } from "./plan-zeile-logik";
+import { TON_TEXT, bisText, livePille, liveStufe, teamLuecke, teamText, teamZeigen, zeileLabel, zeitRest, zeitSpalte } from "./plan-zeile-logik";
 
 function eintrag(teil: Partial<PlanEintrag> = {}): PlanEintrag {
   return {
@@ -67,15 +67,24 @@ describe("bisText", () => {
 describe("Team", () => {
   it("zeigt Team nur bei Umzügen mit Team oder Lücke", () => {
     expect(teamZeigen(eintrag())).toBe(true);
-    expect(teamZeigen(eintrag({ team: [], teamFehlt: true }))).toBe(true);
+    expect(teamZeigen(eintrag({ team: [], teamFehlt: true, ton: "gold" }))).toBe(true);
     expect(teamZeigen(eintrag({ team: [], teamFehlt: false }))).toBe(false);
     expect(teamZeigen(eintrag({ art: "besichtigung" }))).toBe(false);
   });
 
+  it("Lücke („?“) nur bei festen Umzügen, nicht bei Angebot oder erledigt", () => {
+    expect(teamLuecke(eintrag({ teamFehlt: true, ton: "gold" }))).toBe(true);
+    expect(teamLuecke(eintrag({ teamFehlt: true, ton: "jade" }))).toBe(true);
+    expect(teamLuecke(eintrag({ teamFehlt: true, ton: "gestrichelt" }))).toBe(false);
+    expect(teamLuecke(eintrag({ teamFehlt: true, ton: "grau" }))).toBe(false);
+    expect(teamZeigen(eintrag({ team: [], teamFehlt: true, ton: "gestrichelt" }))).toBe(false);
+    expect(teamText(eintrag({ teamFehlt: true, ton: "gestrichelt" }))).toBe("Team: Mehmet K., Tobias S.");
+  });
+
   it("Text mit Namen, Lücke und ohne Team", () => {
     expect(teamText(eintrag())).toBe("Team: Mehmet K., Tobias S.");
-    expect(teamText(eintrag({ teamFehlt: true }))).toBe("Team: Mehmet K., Tobias S., unvollständig");
-    expect(teamText(eintrag({ team: [], teamFehlt: true }))).toBe("Team fehlt");
+    expect(teamText(eintrag({ teamFehlt: true, ton: "gold" }))).toBe("Team: Mehmet K., Tobias S., unvollständig");
+    expect(teamText(eintrag({ team: [], teamFehlt: true, ton: "gold" }))).toBe("Team fehlt");
     expect(teamText(eintrag({ team: [], teamFehlt: false }))).toBe("Kein Team");
   });
 });
