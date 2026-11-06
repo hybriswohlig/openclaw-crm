@@ -50,7 +50,7 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   // Nur eigene Pfade: ?redirect= darf nicht auf fremde Seiten führen.
-  const redirectTo = safeRedirectPath(searchParams.get("redirect"), "/home");
+  const redirectTo = safeRedirectPath(searchParams.get("redirect"), "/start");
   const registered = searchParams.get("registered");
   const reason = searchParams.get("reason");
 

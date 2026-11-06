@@ -142,7 +142,7 @@ export function middleware(req: NextRequest) {
   }
 
   if (pathname === "/select-workspace" || pathname.startsWith("/select-workspace/")) {
-    return NextResponse.redirect(new URL("/home", req.url));
+    return NextResponse.redirect(new URL("/start", req.url));
   }
 
   // Allow public paths and static assets

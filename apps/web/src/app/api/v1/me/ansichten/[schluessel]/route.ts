@@ -9,6 +9,7 @@ import {
   unauthorized,
 } from "@/lib/api-utils";
 import { LEADS_ANSICHT_SCHLUESSEL, leadsAnsichtPruefen } from "@/lib/leads-board";
+import { PLAN_ANSICHT_SCHLUESSEL, planAnsichtPruefen } from "@/lib/plan-heute";
 import { setAnsicht } from "@/services/user-settings";
 
 const ANSICHT_MAX_BYTES = 4 * 1024;
@@ -16,6 +17,7 @@ const ANSICHT_MAX_BYTES = 4 * 1024;
 // Map statt Objekt: geerbte Eigenschaften wie „constructor“ oder „__proto__“ sind keine Ansichten.
 const ANSICHT_PRUEFER = new Map<string, (roh: unknown) => unknown | null>([
   [LEADS_ANSICHT_SCHLUESSEL, leadsAnsichtPruefen],
+  [PLAN_ANSICHT_SCHLUESSEL, planAnsichtPruefen],
 ]);
 
 /** Speichert eine geprüfte Ansicht unter ihrem Schlüssel. Andere Schlüssel bleiben. */

@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "Kottke CRM",
     short_name: "Kottke",
     description: "Kottke Umzüge — Aufträge, Inbox und Crew auf einen Blick.",
-    start_url: "/home",
+    start_url: "/start",
     scope: "/",
     display: "standalone",
     orientation: "portrait",

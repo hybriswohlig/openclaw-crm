@@ -154,4 +154,65 @@ describe("PUT /api/v1/me/ansichten/[schluessel]", () => {
     });
     expect(mocks.getUserSettings).toHaveBeenCalledWith("usr_jonas");
   });
+
+  it("speichert plan, lässt fremde Felder weg und merget nur diesen Schlüssel", async () => {
+    const res = await put("plan", { modus: "woche", fremd: "weg" });
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.data).toEqual({ modus: "woche" });
+    expect(mocks.setAnsicht).toHaveBeenCalledWith("usr_jonas", "plan", { modus: "woche" });
+
+    const gelesen = await leseEinstellungen(new NextRequest("https://crm.test/api/v1/me/settings"));
+    const einstellungen = await gelesen.json();
+
+    expect(gelesen.status).toBe(200);
+    expect(einstellungen.data).toEqual({
+      uiVersion: "neu",
+      ansichten: {
+        inbox: { filter: "offen" },
+        plan: { modus: "woche" },
+      },
+    });
+  });
+
+  it("antwortet 400 bei ungültiger Plan-Ansicht und schreibt nichts", async () => {
+    const res = await put("plan", { modus: "jahr" });
+
+    expect(res.status).toBe(400);
+    expect(mocks.setAnsicht).not.toHaveBeenCalled();
+  });
+
+  it("antwortet 403 für einen Nur-Lesen-Schlüssel auf plan und schreibt nichts", async () => {
+    mocks.getAuthContext.mockResolvedValue({
+      ...NUTZER,
+      authMethod: "api_key",
+      apiKeyAccess: "read",
+    });
+
+    const res = await put("plan", { modus: "tag" });
+
+    expect(res.status).toBe(403);
+    expect(mocks.setAnsicht).not.toHaveBeenCalled();
+  });
+
+  it("lässt die Leads-Ansicht unverändert, wenn plan daneben liegt", async () => {
+    const plan = await put("plan", { modus: "tag" });
+    expect(plan.status).toBe(200);
+
+    const leads = await put("leads", { ...GEPRUEFT, fremd: "weg" });
+    const body = await leads.json();
+
+    expect(leads.status).toBe(200);
+    expect(body.data).toEqual(GEPRUEFT);
+
+    const gelesen = await leseEinstellungen(new NextRequest("https://crm.test/api/v1/me/settings"));
+    const einstellungen = await gelesen.json();
+
+    expect(einstellungen.data.ansichten).toEqual({
+      inbox: { filter: "offen" },
+      plan: { modus: "tag" },
+      leads: GEPRUEFT,
+    });
+  });
 });
