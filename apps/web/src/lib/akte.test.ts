@@ -217,13 +217,38 @@ describe("dockAus", () => {
     );
   });
 
-  it("offene Zahlungsmeldung: Zahlung bestätigen, Ziel nur bei genau einer", () => {
+  it("genau eine offene Zahlungsmeldung: Zahlung bestätigen mit Ziel", () => {
     expect(dock({ offeneMeldungen: 1 }, { einzigeMeldung: "evt_1" }).primaer).toEqual({
       aktion: "zahlung_bestaetigen",
       label: "Zahlung bestätigen",
       ziel: "evt_1",
     });
-    expect(dock({ offeneMeldungen: 2 }).primaer).toEqual({ aktion: "zahlung_bestaetigen", label: "Zahlung bestätigen" });
+  });
+
+  it("zwei oder mehr offene Meldungen: Zahlung erfassen (Dialog), nie Bestätigen ohne Ziel", () => {
+    expect(dock({ offeneMeldungen: 2 }).primaer).toEqual({ aktion: "zahlung_erfassen", label: "Zahlung erfassen" });
+    expect(dock({ offeneMeldungen: 3 }).primaer.aktion).toBe("zahlung_erfassen");
+    // Eine Meldung, aber ohne Ziel (sollte nicht vorkommen): ebenfalls der Dialog.
+    expect(dock({ offeneMeldungen: 1 }, { einzigeMeldung: null }).primaer).toEqual({ aktion: "zahlung_erfassen", label: "Zahlung erfassen" });
+  });
+
+  it("Meldung bei erledigtem Schritt 10 (Rest 0 oder Bezahlt): weder Bestätigen noch Erfassen", () => {
+    const rechnung = { am: "2026-11-22T10:00:00.000Z", faelligAm: null };
+    expect(
+      dock({ stageCategory: "done_unpaid", rechnung, rest: { restCent: 0, quelle: "annahme" }, offeneMeldungen: 1 }, { einzigeMeldung: "evt_1" })
+        .primaer.aktion
+    ).toBe("bewertung_anfragen");
+    const bezahlt = { stageCategory: "paid", rechnung, rest: { restCent: 0, quelle: "annahme" } };
+    expect(dock({ ...bezahlt, offeneMeldungen: 1 }, { einzigeMeldung: "evt_1" }).primaer.aktion).toBe("bewertung_anfragen");
+    expect(dock({ ...bezahlt, offeneMeldungen: 2 }).primaer.aktion).toBe("bewertung_anfragen");
+    // Stufe Bezahlt allein (Rest noch nicht nachgeführt) gilt ebenfalls als erledigt: nie Bestätigen.
+    expect(dock({ stageCategory: "paid", rechnung, offeneMeldungen: 1 }, { einzigeMeldung: "evt_1" }).primaer.aktion).not.toBe("zahlung_bestaetigen");
+    // Rest unbekannt (Stunden-KV) gilt nicht als erledigt.
+    expect(dock({ stageCategory: "done_unpaid", rechnung, rest: { restCent: null, quelle: "stunden" }, offeneMeldungen: 1 }, { einzigeMeldung: "evt_1" }).primaer).toEqual({
+      aktion: "zahlung_bestaetigen",
+      label: "Zahlung bestätigen",
+      ziel: "evt_1",
+    });
   });
 
   it("Nachfass geht vor Zahlungsmeldung", () => {
@@ -278,6 +303,25 @@ describe("dockAus", () => {
 
   it("sonst Nachricht schreiben (Mockup: KV gesendet, kein Entwurf)", () => {
     expect(dock({}).primaer).toEqual({ aktion: "nachricht_schreiben", label: "Nachricht schreiben" });
+  });
+
+  it("bewertungErlaubt: Durchgeführt oder Bezahlt, noch nicht angefragt, nicht gesperrt; unabhängig vom Hauptknopf", () => {
+    const rechnung = { am: "2026-11-22T10:00:00.000Z", faelligAm: null };
+    expect(dock({}).bewertungErlaubt).toBe(false);
+    expect(dock({ stageCategory: "booked" }).bewertungErlaubt).toBe(false);
+    expect(dock({ stageCategory: "done_unpaid" }).bewertungErlaubt).toBe(true);
+    expect(dock({ stageCategory: "paid" }).bewertungErlaubt).toBe(true);
+    // Rechnung mit Rest: Hauptknopf ist Zahlung erfassen, die Bewertung bleibt trotzdem erlaubt.
+    const d = dock({ stageCategory: "done_unpaid", rechnung });
+    expect(d.primaer.aktion).toBe("zahlung_erfassen");
+    expect(d.bewertungErlaubt).toBe(true);
+    for (const status of ["sent_whatsapp", "sent_sms", "clicked", "review_left", "complaint_routed", "suppressed"]) {
+      expect(dock({ stageCategory: "paid", bewertung: { status, am: null } }).bewertungErlaubt).toBe(false);
+    }
+    expect(dock({ stageCategory: "paid", bewertung: { status: "failed", am: null } }).bewertungErlaubt).toBe(true);
+    for (const stageCategory of ["lost", "kein_lead"]) {
+      expect(dock({ stageCategory }).bewertungErlaubt).toBe(false);
+    }
   });
 
   it("abErlaubt nur mit Annahme; rechnungErlaubt bei Geplant, Durchgeführt, Bezahlt", () => {

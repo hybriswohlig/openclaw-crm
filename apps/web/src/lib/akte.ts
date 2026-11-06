@@ -51,6 +51,8 @@ export interface Dock {
   primaer: { aktion: DockAktion; label: string; ziel?: string };
   abErlaubt: boolean;
   rechnungErlaubt: boolean;
+  /** Schritt 11 anbietbar: Durchgeführt oder Bezahlt, noch nicht angefragt, nicht gesperrt. */
+  bewertungErlaubt: boolean;
 }
 
 export type StufenTon = "blau" | "gold" | "jade" | "grau";
@@ -217,28 +219,39 @@ function primaer(aktion: DockAktion, ziel?: string | null): Dock["primaer"] {
   return ziel ? { aktion, label: LABEL[aktion], ziel } : { aktion, label: LABEL[aktion] };
 }
 
+/** Schritt 10 erledigt: kein Rest mehr oder Stufe Bezahlt (ein unbekannter Rest gilt nicht als erledigt). */
+function zahlungErledigt(f: AblaufFakten, stufe: string): boolean {
+  return f.rest.restCent === 0 || stufe === "paid";
+}
+
 /**
  * Hauptknopf des Docks, erste Regel trifft: Verloren/Kein Lead → Nachricht;
- * Nachfass-Entwurf (nur mit Kanal) → senden; offene Zahlungsmeldung →
- * bestätigen; offene Stufe ohne gesperrte Version → KV; Annahme ohne AB → AB;
- * Durchgeführt ohne Rechnung → Rechnung; Rechnung mit Rest → Zahlung
- * erfassen; Durchgeführt/Bezahlt ohne Bewertungsanfrage → Bewertung (nie nach
- * Beschwerde oder Abmeldung, `complaint_routed`/`suppressed`); sonst Nachricht.
+ * Nachfass-Entwurf (nur mit Kanal) → senden; offene Zahlungsmeldung bei nicht
+ * erledigtem Schritt 10 → bei genau einer bestätigen (mit Ziel), bei mehreren
+ * Zahlung erfassen (Dialog); offene Stufe ohne gesperrte Version → KV; Annahme
+ * ohne AB → AB; Durchgeführt ohne Rechnung → Rechnung; Rechnung mit Rest →
+ * Zahlung erfassen; Durchgeführt/Bezahlt ohne Bewertungsanfrage → Bewertung
+ * (nie nach Beschwerde oder Abmeldung, `complaint_routed`/`suppressed`); sonst
+ * Nachricht. `bewertungErlaubt` gilt unabhängig vom Hauptknopf (Knopf im Ablauf).
  */
 export function dockAus(f: AblaufFakten, e: DockEingabe): Dock {
   const stufe = f.stageCategory ?? "";
   const abErlaubt = f.annahme !== null;
   const rechnungErlaubt = RECHNUNG_STUFEN.has(stufe);
-  const ergebnis = (p: Dock["primaer"]): Dock => ({ primaer: p, abErlaubt, rechnungErlaubt });
+  const bewertungErlaubt = NACH_EINSATZ.has(stufe) && !bewertungAngefragt(f) && !bewertungGesperrt(f);
+  const ergebnis = (p: Dock["primaer"]): Dock => ({ primaer: p, abErlaubt, rechnungErlaubt, bewertungErlaubt });
 
   if (VERLOREN.has(stufe)) return ergebnis(primaer("nachricht_schreiben"));
   if (e.offenerNachfassEntwurf && e.hatKanal) return ergebnis(primaer("nachfass_senden", e.offenerNachfassEntwurf.id));
-  if (f.offeneMeldungen > 0) return ergebnis(primaer("zahlung_bestaetigen", e.einzigeMeldung));
+  if (f.offeneMeldungen > 0 && !zahlungErledigt(f, stufe)) {
+    if (f.offeneMeldungen === 1 && e.einzigeMeldung) return ergebnis(primaer("zahlung_bestaetigen", e.einzigeMeldung));
+    return ergebnis(primaer("zahlung_erfassen"));
+  }
   if (OFFEN.has(stufe) && f.kalkulation?.status !== "gesperrt") return ergebnis(primaer("kv_erstellen"));
   if (f.annahme && !f.abAm) return ergebnis(primaer("ab_erstellen"));
   if (stufe === "done_unpaid" && !f.rechnung) return ergebnis(primaer("rechnung_erstellen"));
   if (f.rechnung && (f.rest.restCent ?? 0) > 0) return ergebnis(primaer("zahlung_erfassen"));
-  if (NACH_EINSATZ.has(stufe) && !bewertungAngefragt(f) && !bewertungGesperrt(f)) return ergebnis(primaer("bewertung_anfragen"));
+  if (bewertungErlaubt) return ergebnis(primaer("bewertung_anfragen"));
   return ergebnis(primaer("nachricht_schreiben"));
 }
 

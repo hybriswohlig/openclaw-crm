@@ -30,7 +30,8 @@ interface Hinweis {
  * Das Eingabefeld über dem Dock: Kanalpunkt als Wahl des sendefähigen
  * Gesprächs (Entscheidung 11), Textfeld, „KI-Entwurf“ und Senden-Kreis.
  * Ohne sendefähiges Gespräch gesperrt mit „WhatsApp starten“; bei WABA
- * außerhalb des Fensters gesperrt mit Sprung zur Vorlage in der alten Inbox.
+ * außerhalb des Fensters gesperrt mit „Vorlage“: öffnet den Vorlage-Dialog der
+ * Akte (`onVorlage`, Task 14), ohne ihn der Sprung in die alte Inbox.
  */
 export function Eingabe({
   dealId,
@@ -42,6 +43,7 @@ export function Eingabe({
   onText,
   feldRef,
   onGesendet,
+  onVorlage,
 }: {
   dealId: string;
   kanaele: GespraechKanal[];
@@ -53,6 +55,8 @@ export function Eingabe({
   feldRef: RefObject<HTMLTextAreaElement | null>;
   /** Lädt die Akte neu und liefert das frische Gespräch (null, wenn das Laden scheitert). */
   onGesendet: () => Promise<Gespraech | null>;
+  /** Öffnet den Vorlage-Dialog der Akte; ohne Rückruf führt „Vorlage“ in die alte Inbox. */
+  onVorlage?: () => void;
 }) {
   const router = useRouter();
   const portalZiel = usePortalZiel();
@@ -238,9 +242,15 @@ export function Eingabe({
           {kanalWahl}
           <span className="akte-gespraech-gesperrt">
             24-Stunden-Fenster zu. Bitte eine Vorlage senden.{" "}
-            <a className="akte-gespraech-sprung" href={posteingangUrl(gewaehlt!.gespraechId)}>
-              Vorlage
-            </a>
+            {onVorlage ? (
+              <button type="button" className="akte-gespraech-sprung" onClick={onVorlage}>
+                Vorlage
+              </button>
+            ) : (
+              <a className="akte-gespraech-sprung" href={posteingangUrl(gewaehlt!.gespraechId)}>
+                Vorlage
+              </a>
+            )}
           </span>
         </div>
         {meldungen}
@@ -261,6 +271,7 @@ export function Eingabe({
           id={feldId}
           ref={feldRef}
           className="akte-gespraech-feld"
+          data-eingabe=""
           rows={1}
           placeholder={`Nachricht an ${name}…`}
           value={text}

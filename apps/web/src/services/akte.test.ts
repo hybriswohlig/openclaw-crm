@@ -207,6 +207,7 @@ describe("ladeAkte", () => {
       primaer: { aktion: "nachricht_schreiben", label: "Nachricht schreiben" },
       abErlaubt: false,
       rechnungErlaubt: false,
+      bewertungErlaubt: false,
     });
     expect(akte.zahlung).toEqual({ restCent: 248000, meldungen: [] });
     expect(akte.firma).toEqual({ id: "oc_kottke", name: "Kottke" });
@@ -280,7 +281,7 @@ describe("ladeAkte", () => {
     expect((await ladeAkte(WS, DEAL, JETZT)).dock.primaer.aktion).toBe("nachricht_schreiben");
   });
 
-  it("eine offene Meldung: Zahlung bestätigen mit eventId; zwei: ohne Ziel; Meldungen in zahlung", async () => {
+  it("eine offene Meldung: Zahlung bestätigen mit eventId; zwei: Zahlung erfassen; Meldungen in zahlung", async () => {
     mocks.ladeAblaufGrundlage.mockResolvedValue(grundlage({ fakten: { offeneMeldungen: 1 }, meldungen: [MELDUNG] }));
     let akte = await ladeAkte(WS, DEAL, JETZT);
     expect(akte.dock.primaer).toEqual({ aktion: "zahlung_bestaetigen", label: "Zahlung bestätigen", ziel: "evt_1" });
@@ -289,7 +290,7 @@ describe("ladeAkte", () => {
     const zweite = { ...MELDUNG, eventId: "evt_2", variante: "final" as const };
     mocks.ladeAblaufGrundlage.mockResolvedValue(grundlage({ fakten: { offeneMeldungen: 2 }, meldungen: [MELDUNG, zweite] }));
     akte = await ladeAkte(WS, DEAL, JETZT);
-    expect(akte.dock.primaer).toEqual({ aktion: "zahlung_bestaetigen", label: "Zahlung bestätigen" });
+    expect(akte.dock.primaer).toEqual({ aktion: "zahlung_erfassen", label: "Zahlung erfassen" });
   });
 
   it("eine Stufenkategorie: Kopf, Dock und Ablauf nehmen die Kategorie der Grundlage", async () => {

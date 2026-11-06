@@ -45,6 +45,7 @@ import {
   type LeadContext,
 } from "@/lib/deal-doc-data";
 import { KvVorpruefungDialog } from "@/components/kv-vorpruefung-dialog";
+import { vorbelegungAusAngebot } from "@/lib/angebot-vorbelegung";
 import { kvVorpruefung, type HinweisArt, type KvHinweisDaten } from "@/lib/kv-vorpruefung";
 import type { PortalLeistung } from "@openclaw-crm/customer-portal-core";
 
@@ -183,50 +184,6 @@ interface CachedKiSummary {
   summary: string | null;
   criticalMissing: Array<{ field?: string; question?: string }>;
   missingFields: string[];
-}
-
-/** Map quotation values to the GenerateDocumentDialog prefill shape. */
-function prefillFromQuotation(
-  q: QuotationPayload | null,
-  firma: "kottke" | "ceylan"
-): PrefilledPreise | undefined {
-  if (!q) return undefined;
-  const prefill: PrefilledPreise = {};
-  if (q.depositRequiredCents != null && q.depositRequiredCents > 0) {
-    prefill.anzahlungBar = q.depositRequiredCents / 100;
-    prefill.anzahlungMethod =
-      q.paymentMethodPreference === "paypal"
-        ? "paypal"
-        : q.paymentMethodPreference === "bank_transfer"
-          ? "bank_transfer"
-          : "bar";
-  }
-  if (!q.isVariable && q.fixedPrice && Number(q.fixedPrice) > 0) {
-    if (firma === "ceylan") {
-      prefill.modell = "pauschale";
-      prefill.pauschaleBetragCeylan = Number(q.fixedPrice);
-    } else {
-      prefill.modell = "pauschale";
-      prefill.pauschalePositionen = [
-        { titel: "Umzug pauschal", betrag: Number(q.fixedPrice) },
-      ];
-    }
-    return prefill;
-  }
-  if (q.isVariable && q.lineItems?.length) {
-    const helpers = q.lineItems.filter((l) => l.type === "helper");
-    const transporters = q.lineItems.filter((l) => l.type === "transporter");
-    prefill.modell = "stundensatz";
-    if (helpers.length > 0) {
-      prefill.helferAnzahl = helpers.reduce((s, l) => s + l.quantity, 0);
-      prefill.helferRate = Number(helpers[0].unitRate) || undefined;
-    }
-    if (transporters.length > 0) {
-      prefill.transporterRate = Number(transporters[0].unitRate) || undefined;
-    }
-    return prefill;
-  }
-  return Object.keys(prefill).length > 0 ? prefill : undefined;
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -488,7 +445,7 @@ export function InboxContextPanel({
     setDocDialog({
       type,
       deal: leistungsart ? { ...deal, serviceType: leistungsart } : deal,
-      prefill: prefillFromQuotation(quotation, firma),
+      prefill: vorbelegungAusAngebot(quotation, firma),
       hinweise,
     });
   }

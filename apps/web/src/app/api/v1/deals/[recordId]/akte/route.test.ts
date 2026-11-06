@@ -48,7 +48,7 @@ const AKTE = {
   ],
   ablauf: { schritte: [], position: 4 },
   nachfass: { an: true, modus: "entwurf", text: "automatisch, als Entwurf" },
-  dock: { primaer: { aktion: "nachricht_schreiben", label: "Nachricht schreiben" }, abErlaubt: false, rechnungErlaubt: false },
+  dock: { primaer: { aktion: "nachricht_schreiben", label: "Nachricht schreiben" }, abErlaubt: false, rechnungErlaubt: false, bewertungErlaubt: false },
   zahlung: { restCent: 248000, meldungen: [] },
   firma: { id: "oc_kottke", name: "Kottke" },
   altLink: "/objects/deals/deal_1",

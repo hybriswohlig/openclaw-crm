@@ -6,17 +6,35 @@ import { toast } from "sonner";
 import { GlassButton } from "@/components/glassyui/glass-button";
 import { GlassPanel } from "@/components/glassyui/glass-panel";
 import type { AkteDaten } from "@/lib/akte";
+import { usePortalZiel } from "@/components/neu/portal-ziel";
 import type { Gespraech } from "@/services/gespraech";
 import { AblaufPanel } from "./ablauf-panel";
+import { AkteDock, type DokumentArt } from "./akte-dock";
 import { AkteKopf } from "./akte-kopf";
 import { apiAufruf } from "./api";
+import { BewertungDialog } from "./bewertung-dialog";
+import { DokumentDialog } from "./dokument-dialog";
 import { GespraechPanel } from "./gespraech-panel";
+import { TerminDialogAlt } from "./termin-dialog-alt";
+import { VorlageDialog } from "./vorlage-dialog";
+import { ZahlungDialog } from "./zahlung-dialog";
 import { Zahlenreihe } from "./zahlenreihe";
 
-/** Task 14 hängt hier die Dialoge „Zahlung erfassen“ und „Bewertung anfragen“ ein. */
-const nochKeinDialog = () => undefined;
-
 export type GespraechDaten = Gespraech;
+
+/** Der gerade offene Dialog des Docks (höchstens einer). */
+type Dialog = { art: "zahlung" } | { art: "bewertung" } | { art: "vorlage" } | { art: "termin" } | { art: "dokument"; typ: DokumentArt };
+
+/**
+ * „Nachricht schreiben“: Fokus ins Eingabefeld des Gesprächs (`data-eingabe`
+ * am Textfeld in `eingabe.tsx`). Ohne Feld (Ansicht Fotos, Dokumente, Notizen,
+ * kein Kanal oder Fenster zu) ein Hinweis.
+ */
+function eingabeFokussieren() {
+  const feld = document.querySelector<HTMLElement>('[data-slot="gespraech"] [data-eingabe]');
+  if (feld) feld.focus();
+  else toast.message("Kein Eingabefeld offen.", { description: "Ansicht „Chat“ wählen oder zuerst einen Kanal starten." });
+}
 
 type Zustand =
   | { art: "laden" }
@@ -27,14 +45,18 @@ type Zustand =
 /**
  * Die Umzugsakte: lädt `/akte` und `/gespraech` (Entscheidung 2), hält beide
  * im Zustand und gibt `neuLaden()` an die Kinder. Raster: Kopf, Zahlenreihe,
- * dann Gespräch links und Ablauf rechts (Spec 3.2).
+ * dann Gespräch links (mit dem Dock darunter) und Ablauf rechts (Spec 3.2).
+ * Die Dialoge des Docks (Zahlung, Bewertung, Vorlage, Termin, Dokument) hängen
+ * hier, damit Dock und Ablauf-Panel dieselben öffnen.
  *
- * Ein neuer `dealId` zeigt wieder das Skelett. Schlägt ein Neuladen nach einer
- * Aktion fehl, bleibt die Seite stehen und ein Toast erscheint; die Fehler- und
- * 404-Ansicht gibt es nur, solange noch keine Akte da ist.
+ * Ein neuer `dealId` zeigt wieder das Skelett und schließt den Dialog. Schlägt
+ * ein Neuladen nach einer Aktion fehl, bleibt die Seite stehen und ein Toast
+ * erscheint; die Fehler- und 404-Ansicht gibt es nur, solange noch keine Akte da ist.
  */
 export function AkteSeite({ dealId }: { dealId: string }) {
   const [zustand, setZustand] = useState<Zustand>({ art: "laden" });
+  const [dialog, setDialog] = useState<Dialog | null>(null);
+  const portalZiel = usePortalZiel();
   const lauf = useRef(0);
   const hatAkte = useRef(false);
   hatAkte.current = zustand.art === "fertig";
@@ -65,6 +87,7 @@ export function AkteSeite({ dealId }: { dealId: string }) {
   useEffect(() => {
     hatAkte.current = false;
     setZustand({ art: "laden" });
+    setDialog(null);
     void laden(dealId);
     return () => {
       lauf.current++;
@@ -72,7 +95,7 @@ export function AkteSeite({ dealId }: { dealId: string }) {
   }, [dealId, laden]);
 
   const neuLaden = useCallback(() => laden(dealId), [laden, dealId]);
-  /** Für Kopf und Stufenmenü, die nur auf das Ende warten. */
+  /** Für Kopf, Stufenmenü, Ablauf, Dock und Dialoge, die nur auf das Ende warten. */
   const neuLadenStill = useCallback(async () => {
     await neuLaden();
   }, [neuLaden]);
@@ -97,7 +120,11 @@ export function AkteSeite({ dealId }: { dealId: string }) {
     );
   }
 
-  const { akte } = zustand;
+  const { akte, gespraech } = zustand;
+  const schliessen = () => setDialog(null);
+  /** Vorlagen nur über direkt verknüpfte WABA-Gespräche (Entscheidung 10). */
+  const wabaKanaele = gespraech.kanaele.filter((k) => k.istWaba && k.direkt);
+  const vorlageOeffnen = wabaKanaele.length > 0 ? () => setDialog({ art: "vorlage" }) : undefined;
 
   return (
     <div className="akte">
@@ -114,7 +141,26 @@ export function AkteSeite({ dealId }: { dealId: string }) {
       <Zahlenreihe kacheln={akte.kacheln} />
       <div className="akte-koerper">
         <section className="akte-gespraech" data-slot="gespraech" aria-label="Gespräch">
-          <GespraechPanel dealId={dealId} gespraech={zustand.gespraech} kundeName={akte.kopf.name} onNeuLaden={neuLaden} />
+          <GespraechPanel
+            dealId={dealId}
+            gespraech={gespraech}
+            kundeName={akte.kopf.name}
+            onNeuLaden={neuLaden}
+            onVorlage={vorlageOeffnen}
+          />
+          <AkteDock
+            dealId={dealId}
+            dock={akte.dock}
+            altLink={akte.altLink}
+            hatWaba={wabaKanaele.length > 0}
+            onZahlung={() => setDialog({ art: "zahlung" })}
+            onBewertung={() => setDialog({ art: "bewertung" })}
+            onDokument={(typ) => setDialog({ art: "dokument", typ })}
+            onTermin={() => setDialog({ art: "termin" })}
+            onVorlage={() => setDialog({ art: "vorlage" })}
+            onNachricht={eingabeFokussieren}
+            onNeuLaden={neuLadenStill}
+          />
         </section>
         <aside className="akte-ablauf" data-slot="ablauf" aria-label="Ablauf">
           <AblaufPanel
@@ -122,12 +168,37 @@ export function AkteSeite({ dealId }: { dealId: string }) {
             ablauf={akte.ablauf}
             zahlung={akte.zahlung}
             altLink={akte.altLink}
+            bewertungErlaubt={akte.dock.bewertungErlaubt}
             onNeuLaden={neuLadenStill}
-            onZahlung={nochKeinDialog}
-            onBewertung={nochKeinDialog}
+            onZahlung={() => setDialog({ art: "zahlung" })}
+            onBewertung={() => setDialog({ art: "bewertung" })}
           />
         </aside>
       </div>
+
+      {dialog?.art === "zahlung" ? (
+        <ZahlungDialog dealId={dealId} zahlung={akte.zahlung} portalZiel={portalZiel} onSchliessen={schliessen} onNeuLaden={neuLadenStill} />
+      ) : null}
+      {dialog?.art === "bewertung" ? (
+        <BewertungDialog dealId={dealId} portalZiel={portalZiel} onSchliessen={schliessen} onNeuLaden={neuLadenStill} />
+      ) : null}
+      {dialog?.art === "vorlage" ? (
+        <VorlageDialog dealId={dealId} kanaele={wabaKanaele} portalZiel={portalZiel} onSchliessen={schliessen} onNeuLaden={neuLadenStill} />
+      ) : null}
+      {dialog?.art === "termin" ? (
+        <TerminDialogAlt
+          dealId={dealId}
+          portalZiel={portalZiel}
+          onSchliessen={() => {
+            // Der Termin steht in Kacheln und Ablauf: nach dem Dialog neu laden.
+            schliessen();
+            void neuLadenStill();
+          }}
+        />
+      ) : null}
+      {dialog?.art === "dokument" ? (
+        <DokumentDialog dealId={dealId} art={dialog.typ} altLink={akte.altLink} portalZiel={portalZiel} onSchliessen={schliessen} />
+      ) : null}
     </div>
   );
 }

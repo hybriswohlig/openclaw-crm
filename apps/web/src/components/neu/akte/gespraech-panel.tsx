@@ -30,19 +30,22 @@ const KANAL_REIHE: GespraechKanalArt[] = ["whatsapp", "email", "sms"];
  * Das Gespräch-Panel der Akte (Spec 3.3): Kopf mit Kanal-Chips und
  * Ansichtswahl, dann Verlauf mit Entwurf-Karte und Eingabefeld, oder Fotos,
  * Dokumente, Notizen. Das Dock (Task 14) bekommt unten Platz. Nach jedem
- * Senden oder Freigeben lädt `onNeuLaden` die Akte neu.
+ * Senden oder Freigeben lädt `onNeuLaden` die Akte neu. `onVorlage` öffnet den
+ * Vorlage-Dialog der Akte aus dem gesperrten Eingabefeld (Fenster zu).
  */
 export function GespraechPanel({
   dealId,
   gespraech,
   kundeName,
   onNeuLaden,
+  onVorlage,
 }: {
   dealId: string;
   gespraech: Gespraech;
   kundeName: string;
   /** Lädt die Akte neu und liefert das frische Gespräch (null bei Fehler). */
   onNeuLaden: () => Promise<Gespraech | null>;
+  onVorlage?: () => void;
 }) {
   const [ansicht, setAnsicht] = useState<Ansicht>("chat");
   const [gewaehltId, setGewaehltId] = useState<string | null>(gespraech.vorauswahl);
@@ -124,6 +127,7 @@ export function GespraechPanel({
               onText={setText}
               feldRef={feldRef}
               onGesendet={onNeuLaden}
+              onVorlage={onVorlage}
             />
           </div>
           <FotoVollbild foto={foto} onClose={() => setFoto(null)} />

@@ -4,12 +4,11 @@ import "@/styles/neu-akte-ablauf.css";
 
 import Link from "next/link";
 import { useId, useState } from "react";
-import { toast } from "sonner";
 import { GlassPanel } from "@/components/glassyui/glass-panel";
 import type { AblaufSchritt } from "@/lib/ablauf";
 import type { AkteDaten } from "@/lib/akte";
 import { fokusIndex, mitTab, schrittOffen, sequenzRechts, WER_LABEL, ZUSTAND_TEXT } from "./ablauf-anzeige";
-import { apiAufruf, jsonAufruf } from "./api";
+import { meldungBearbeiten } from "./zahlungsmeldung";
 
 type Ablauf = AkteDaten["ablauf"];
 type Zahlung = AkteDaten["zahlung"];
@@ -20,15 +19,16 @@ type Zahlung = AkteDaten["zahlung"];
  * Chips (Maße aus dem Mockup). Aktionen: Schritt 3 öffnet die Kalkulation der
  * alten Seite (Entscheidung 3); Schritt 10 bestätigt bei genau einer offenen
  * Meldung direkt (Entscheidung 6), sonst ruft er `onZahlung`; Schritt 11 ruft
- * `onBewertung`. Die Dialoge dahinter kommen in Task 14, bis dahin sind die
- * Rückrufe Platzhalter. Unter 640 px zeigt das Panel nur den Schritt `jetzt`
- * und einen Knopf „Alle 11 Schritte“.
+ * `onBewertung`, aber nur mit `bewertungErlaubt` aus dem Dock (Stufe
+ * Durchgeführt oder Bezahlt, noch nicht angefragt, nicht gesperrt). Unter
+ * 640 px zeigt das Panel nur den Schritt `jetzt` und einen Knopf „Alle 11 Schritte“.
  */
 export function AblaufPanel({
   dealId,
   ablauf,
   zahlung,
   altLink,
+  bewertungErlaubt,
   onNeuLaden,
   onZahlung,
   onBewertung,
@@ -37,6 +37,7 @@ export function AblaufPanel({
   ablauf: Ablauf;
   zahlung: Zahlung;
   altLink: string;
+  bewertungErlaubt: boolean;
   onNeuLaden: () => Promise<void> | void;
   onZahlung?: () => void;
   onBewertung?: () => void;
@@ -47,25 +48,11 @@ export function AblaufPanel({
   const fokus = fokusIndex(ablauf.schritte);
   const anzahl = ablauf.schritte.length;
 
-  /**
-   * 200 und 409 ERLEDIGT laden die Akte neu; jede andere Serverantwort (etwa
-   * 404, die Meldung gibt es nicht mehr) auch, damit kein veralteter Knopf
-   * stehen bleibt. Nur ohne Verbindung (Status 0) bleibt die Seite, wie sie ist.
-   */
+  /** Bestätigen und Neuladen wie in Dock und Zahlungsdialog (`zahlungsmeldung.ts`). */
   async function bestaetigen(eventId: string) {
     setBestaetigt(eventId);
-    const r = await apiAufruf<{ paymentId: string }>(
-      `/api/v1/deals/${dealId}/payment-reports/${eventId}`,
-      jsonAufruf("POST", { aktion: "bestaetigen" })
-    );
-    if (r.ok) {
-      toast.success("Zahlung bestätigt.");
-    } else if (r.status === 409 && r.code === "ERLEDIGT") {
-      toast.error(r.message);
-    } else {
-      toast.error("Zahlung konnte nicht bestätigt werden.", { description: r.message });
-    }
-    if (r.ok || r.status !== 0) await onNeuLaden();
+    const { neuLaden } = await meldungBearbeiten(dealId, eventId, "bestaetigen");
+    if (neuLaden) await onNeuLaden();
     setBestaetigt(null);
   }
 
@@ -115,7 +102,7 @@ export function AblaufPanel({
                   Zahlung erfassen
                 </button>
               ) : null}
-              {s.key === "bewertung" && schrittOffen(s.zustand) && onBewertung ? (
+              {s.key === "bewertung" && schrittOffen(s.zustand) && bewertungErlaubt && onBewertung ? (
                 <button type="button" className="akte-ablauf-knopf" onClick={onBewertung}>
                   Bewertung anfragen
                 </button>
