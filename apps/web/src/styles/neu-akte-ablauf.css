@@ -1,0 +1,285 @@
+/*
+ * Ablauf-Panel der Umzugsakte (Plan 3, Task 12). Maße aus
+ * design/neubau-2026-11-05/01-umzugsakte.html (.tl, .step, .ic, .who, .btn,
+ * .seq, .callout, .pay); Farben aus neu.css und neu-akte.css. Eigene Datei,
+ * importiert aus ablauf-panel.tsx, damit das Gespräch-Panel (Task 13) in
+ * neu-akte.css nicht kollidiert.
+ *
+ * Abweichungen vom Mockup, alle für 4,5:1: offene Zeilen, Nummern und
+ * „n von 11“ in --ink-2 statt --ink-3 (3,3:1); der erledigte Kreis in
+ * --jade-ink statt --jade (weißes „✓“ auf --jade nur 3,1:1).
+ */
+
+[data-neu] .akte-ablauf-liste {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 6px 18px 18px;
+  list-style: none;
+}
+
+[data-neu] .akte-schritt {
+  position: relative;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px 0;
+}
+
+/* Verbindungslinie von der Unterkante des Kreises bis zum nächsten Kreis. */
+[data-neu] .akte-schritt::before {
+  content: "";
+  position: absolute;
+  top: 38px;
+  bottom: -10px;
+  left: 13px;
+  width: 2px;
+  background: var(--hair);
+}
+
+[data-neu] .akte-schritt:last-child::before {
+  display: none;
+}
+
+[data-neu] .akte-schritt-kreis {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+[data-neu] .akte-schritt[data-zustand="erledigt"] .akte-schritt-kreis {
+  background: var(--jade-ink);
+  box-shadow: none;
+  color: #ffffff;
+}
+
+[data-neu] .akte-schritt[data-zustand="jetzt"] .akte-schritt-kreis {
+  background: var(--blue);
+  box-shadow: 0 0 0 5px rgb(0 103 217 / 0.14);
+  color: #ffffff;
+}
+
+[data-neu] .akte-schritt[data-zustand="entfaellt"] .akte-schritt-kreis {
+  background: var(--hair);
+  box-shadow: none;
+}
+
+[data-neu] .akte-schritt-text {
+  min-width: 0;
+}
+
+[data-neu] .akte-schritt-titel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+
+[data-neu] .akte-schritt[data-zustand="offen"] .akte-schritt-titel,
+[data-neu] .akte-schritt[data-zustand="entfaellt"] .akte-schritt-titel {
+  color: var(--ink-2);
+  font-weight: 500;
+}
+
+[data-neu] .akte-schritt[data-zustand="entfaellt"] .akte-schritt-name {
+  text-decoration: line-through;
+}
+
+[data-neu] .akte-schritt-zeile {
+  margin-top: 2px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+/* Wer-Marke: auto und intern grau, du blau, Kunde violett. */
+[data-neu] .akte-wer {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  color: var(--ink-2);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+[data-neu] .akte-wer[data-wer="du"] {
+  color: var(--blue);
+}
+
+[data-neu] .akte-wer[data-wer="kunde"] {
+  color: var(--violet);
+}
+
+/* Knopf im Schritt: Pille mit blauer Schrift, als <button> und als <a>. */
+[data-neu] .akte-ablauf-knopf {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 7px 13px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim), var(--shadow);
+  color: var(--blue);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+[data-neu] .akte-ablauf-knopf:hover {
+  background: #ffffff;
+}
+
+[data-neu] .akte-ablauf-knopf:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+[data-neu] .akte-ablauf-knopf:disabled {
+  cursor: progress;
+  color: var(--ink-2);
+}
+
+/* Hinweis-Kasten gold (wartet auf uns) oder blau (Information). */
+[data-neu] .akte-ablauf-hinweis {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 9px 12px;
+  border-radius: 14px;
+  background: rgb(232 150 12 / 0.14);
+  box-shadow: inset 0 0 0 1px rgb(232 150 12 / 0.35);
+  color: var(--gold-ink);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+[data-neu] .akte-ablauf-hinweis > i {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--gold);
+}
+
+[data-neu] .akte-ablauf-hinweis > span {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+[data-neu] .akte-ablauf-hinweis > .akte-ablauf-knopf {
+  margin: 0 0 0 auto;
+}
+
+[data-neu] .akte-ablauf-hinweis[data-ton="blau"] {
+  background: rgb(0 103 217 / 0.1);
+  box-shadow: inset 0 0 0 1px rgb(0 103 217 / 0.3);
+  color: var(--blue-ink);
+}
+
+[data-neu] .akte-ablauf-hinweis[data-ton="blau"] > i {
+  background: var(--blue);
+}
+
+/* Nachfass-Sequenz: Zeilen auf --fill-3 (fast deckend). */
+[data-neu] .akte-sequenz {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+[data-neu] .akte-sequenz-zeile {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+[data-neu] .akte-sequenz-zeile > b {
+  color: var(--ink);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* Chips (Zahlungsarten). */
+[data-neu] .akte-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+[data-neu] .akte-chip {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  color: var(--ink-2);
+  font-size: 11.5px;
+}
+
+/* „Alle 11 Schritte“: nur am Handy sichtbar. */
+[data-neu] .akte-ablauf-alle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  margin: 0 18px 16px;
+  padding: 9px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim), var(--shadow);
+  color: var(--blue);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+[data-neu] .akte-ablauf-alle:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+@media (max-width: 640px) {
+  [data-neu] .akte-ablauf-alle {
+    display: flex;
+  }
+
+  /* Eingeklappt bleibt nur der Schritt im Fokus (jetzt), ohne Linie. */
+  [data-neu] .akte-ablauf-liste:not([data-alle]) .akte-schritt:not([data-fokus]) {
+    display: none;
+  }
+
+  [data-neu] .akte-ablauf-liste:not([data-alle]) .akte-schritt[data-fokus]::before {
+    display: none;
+  }
+}

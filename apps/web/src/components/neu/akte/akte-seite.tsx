@@ -7,9 +7,13 @@ import { GlassButton } from "@/components/glassyui/glass-button";
 import { GlassPanel } from "@/components/glassyui/glass-panel";
 import type { AkteDaten } from "@/lib/akte";
 import type { Gespraech } from "@/services/gespraech";
+import { AblaufPanel } from "./ablauf-panel";
 import { AkteKopf } from "./akte-kopf";
 import { apiAufruf } from "./api";
 import { Zahlenreihe } from "./zahlenreihe";
+
+/** Task 14 hängt hier die Dialoge „Zahlung erfassen“ und „Bewertung anfragen“ ein. */
+const nochKeinDialog = () => undefined;
 
 export type GespraechDaten = Gespraech;
 
@@ -109,12 +113,15 @@ export function AkteSeite({ dealId }: { dealId: string }) {
         <section className="akte-gespraech" data-slot="gespraech" aria-label="Gespräch">
           <SlotPanel titel="Gespräch" unter="Alle Kanäle in einem Verlauf." />
         </section>
-        {/* Task 12 setzt hier das Ablauf-Panel ein (akte.ablauf, akte.dock, neuLaden). */}
         <aside className="akte-ablauf" data-slot="ablauf" aria-label="Ablauf">
-          <SlotPanel
-            titel="Ablauf"
-            unter="Von der Anfrage bis zur Bewertung."
-            rechts={`${akte.ablauf.position} von ${akte.ablauf.schritte.length}`}
+          <AblaufPanel
+            dealId={dealId}
+            ablauf={akte.ablauf}
+            zahlung={akte.zahlung}
+            altLink={akte.altLink}
+            onNeuLaden={neuLaden}
+            onZahlung={nochKeinDialog}
+            onBewertung={nochKeinDialog}
           />
         </aside>
       </div>
