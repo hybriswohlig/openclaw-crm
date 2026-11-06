@@ -1,0 +1,291 @@
+/*
+ * Plan-Zeile (Plan 8): eine Zeile der Tagesansicht und der Startseite
+ * „Heute“. Eigene Datei, damit Tagesansicht (neu-plan.css) und Heute
+ * (neu-heute.css) sie gleich laden. Farben aus neu.css und neu-akte.css
+ * (--jade-ink, --blue-ink). Alles unter [data-neu] mit Präfix .plan-zeile-.
+ *
+ * Die Zeile liegt auf --fill-3 (Listen nie auf Glas); der Ton ist eine leichte
+ * Tönung mit 3px Rand links wie im Mockup 04. Text mindestens 4,5:1: Zweitzeile
+ * und Fuß in --ink-2, „erledigt“ ebenfalls --ink-2 statt --ink-3 wie im Mockup.
+ */
+
+[data-neu] .plan-zeile {
+  --plan-zeile-toenung: transparent;
+  --plan-zeile-rand: var(--hair);
+
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px 12px 10px 11px;
+  border-left: 3px solid var(--plan-zeile-rand);
+  border-radius: 12px;
+  background: linear-gradient(var(--plan-zeile-toenung), var(--plan-zeile-toenung)), var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  color: var(--ink);
+}
+
+[data-neu] .plan-zeile[data-ton="jade"] {
+  --plan-zeile-toenung: rgba(20, 168, 116, 0.11);
+  --plan-zeile-rand: var(--jade);
+}
+
+[data-neu] .plan-zeile[data-ton="gold"] {
+  --plan-zeile-toenung: rgba(232, 150, 12, 0.13);
+  --plan-zeile-rand: var(--gold);
+}
+
+[data-neu] .plan-zeile[data-ton="violett"] {
+  --plan-zeile-toenung: rgba(106, 76, 240, 0.09);
+  --plan-zeile-rand: var(--violet);
+}
+
+[data-neu] .plan-zeile[data-ton="grau"] {
+  --plan-zeile-toenung: rgba(34, 34, 36, 0.04);
+  --plan-zeile-rand: #bbbbbf;
+  color: var(--ink-2);
+}
+
+/* Noch nicht fest: gestrichelter Rahmen statt Rand und Tönung. */
+[data-neu] .plan-zeile[data-ton="gestrichelt"] {
+  padding-left: 12.5px;
+  border: 1.5px dashed rgba(34, 34, 36, 0.26);
+  box-shadow: none;
+  color: var(--ink-2);
+}
+
+/* ── Uhrzeit ─────────────────────────────────────────── */
+
+[data-neu] .plan-zeile-zeit {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding-top: 1px;
+}
+
+[data-neu] .plan-zeile-zeit b {
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+[data-neu] .plan-zeile-zeit span {
+  font-size: 11.5px;
+  line-height: 1.3;
+  color: var(--ink-2);
+}
+
+/* ── Kopf und Zeile ──────────────────────────────────── */
+
+[data-neu] .plan-zeile-haupt {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+[data-neu] .plan-zeile-kopf {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  min-width: 0;
+}
+
+[data-neu] .plan-zeile-titel {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 14.5px;
+  font-weight: 600;
+  text-align: left;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+[data-neu] .plan-zeile-titel:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+[data-neu] .plan-zeile-titel:focus-visible,
+[data-neu] .plan-zeile-akte:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+[data-neu] .plan-zeile-text {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+/* Gold nennt den Grund als Text; dunkles Gold hält 4,5:1 auf der Tönung. */
+[data-neu] .plan-zeile[data-ton="gold"] .plan-zeile-text {
+  color: var(--gold-ink);
+}
+
+[data-neu] .plan-zeile-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── Live-Stand am Einsatztag ────────────────────────── */
+
+[data-neu] .plan-zeile-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: rgba(0, 103, 217, 0.1);
+  color: var(--blue-ink);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+[data-neu] .plan-zeile-live i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+[data-neu] .plan-zeile-live[data-live="fertig"] {
+  background: rgba(20, 168, 116, 0.14);
+  color: var(--jade-ink);
+}
+
+/* ── Fuß: Team, Fahrzeug, Stufe, Firma ───────────────── */
+
+[data-neu] .plan-zeile-fuss {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+[data-neu] .plan-zeile-team-zeile,
+[data-neu] .plan-zeile-wagen,
+[data-neu] .plan-zeile-firma {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+[data-neu] .plan-zeile-namen {
+  overflow-wrap: anywhere;
+}
+
+[data-neu] .plan-zeile-wagen svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  fill: none;
+  stroke: var(--ink-2);
+  stroke-width: 1.7;
+  stroke-linejoin: round;
+}
+
+[data-neu] .plan-zeile-firma i {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+}
+
+[data-neu] .plan-zeile-akte {
+  margin-left: auto;
+  color: var(--blue);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+[data-neu] .plan-zeile-akte:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+[data-neu] .plan-zeile-team {
+  display: inline-flex;
+  flex: none;
+}
+
+[data-neu] .plan-zeile-avatar {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-left: -6px;
+  border: 1.5px solid #ffffff;
+  border-radius: 50%;
+  color: #ffffff;
+  font-size: 8.5px;
+  font-weight: 700;
+}
+
+[data-neu] .plan-zeile-avatar:first-child {
+  margin-left: 0;
+}
+
+[data-neu] .plan-zeile-avatar-fehlt {
+  border: 1.5px dashed var(--gold);
+  background: #ffffff;
+  color: var(--gold-ink);
+}
+
+/* ── Kompakt (Panel „Morgen“) ────────────────────────── */
+
+[data-neu] .plan-zeile[data-kompakt] {
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 10px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+[data-neu] .plan-zeile[data-kompakt] .plan-zeile-zeit b {
+  font-size: 13.5px;
+}
+
+[data-neu] .plan-zeile[data-kompakt] .plan-zeile-titel {
+  font-size: 13.5px;
+}
+
+[data-neu] .plan-zeile[data-kompakt] .plan-zeile-team {
+  margin-left: auto;
+}
+
+/* Handy: Uhrzeit über dem Titel, damit Namen und Strecke Platz haben. */
+@media (max-width: 479px) {
+  [data-neu] .plan-zeile:not([data-kompakt]) {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  [data-neu] .plan-zeile:not([data-kompakt]) .plan-zeile-zeit {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px;
+  }
+}
