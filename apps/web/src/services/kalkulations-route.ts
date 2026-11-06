@@ -14,7 +14,7 @@
  */
 import type { RoutenTeilstrecke } from "@/db/schema/deal-calculation-routes";
 import { adresseGenau } from "@/lib/adresse-genau";
-import { googleMapsLink, punkteAusLink, punkteSchluessel, type RoutenPunkte, type RoutenStatus } from "@/lib/route-link";
+import { googleMapsLink, punkteSchluessel, type RoutenPunkte, type RoutenStatus } from "@/lib/route-link";
 import type { VersionsZeile } from "@/services/kalkulation-versionen";
 
 export const ROUTES_API_URL = "https://routes.googleapis.com/directions/v2:computeRoutes";
@@ -174,19 +174,20 @@ export async function routeFuer(ws: string, version: RoutenVersion, opts: RouteO
     gesamtMinuten: null,
   });
 
-  // Gesperrt: Punkte der gespeicherten Route bleiben (auch wenn sich der Lead geändert hat).
-  const gesperrtePunkte = version.status === "gesperrt" && gespeichert ? punkteAusLink(gespeichert.googleLink) : null;
-  const punkte = gesperrtePunkte ?? punkteAusVersion(version);
+  // Punkte immer aus dem Schnappschuss der Version: bei einer gesperrten Version ist
+  // er eingefroren, also bleiben ihre Punkte, auch wenn sich der Lead später ändert;
+  // eine vor dem Sperren gespeicherte Route anderer Punkte passt nicht und wird ersetzt.
+  const punkte = punkteAusVersion(version);
   if (!punkte) return ohneRoute("ungenau", null);
-  const schluessel = gesperrtePunkte ? gespeichert!.punkteSchluessel : punkteSchluessel(punkte);
+  const schluessel = punkteSchluessel(punkte);
   const link = googleMapsLink(punkte);
 
   const passend = gespeichert && gespeichert.punkteSchluessel === schluessel ? gespeichert : null;
   if (passend && jetzt.getTime() - passend.berechnetAm.getTime() < ROUTE_GUELTIG_MS) return ausGespeichert(passend);
-  // Nur-Lesen oder ohne Schlüssel: eine abgelaufene, aber passende Route zeigen wir weiter.
-  if (!opts.darfAbrufen) return passend ? ausGespeichert(passend) : ohneRoute("nicht_geladen", link);
+  // Abgelaufen (älter als 30 Tage) wird nie mehr gezeigt, auch nicht für Nur-Lesen oder ohne Schlüssel.
+  if (!opts.darfAbrufen) return ohneRoute("nicht_geladen", link);
   const apiKey = routesSchluessel();
-  if (!apiKey) return passend ? ausGespeichert(passend) : ohneRoute("ohne_schluessel", link);
+  if (!apiKey) return ohneRoute("ohne_schluessel", link);
 
   let teilstrecken: RoutenTeilstrecke[];
   try {

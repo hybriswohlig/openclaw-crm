@@ -123,21 +123,27 @@ describe("routeFuer", () => {
     expect(s.zeile?.googleLink).toContain("Neue%20Str.%201");
   });
 
-  it("gesperrt mit geändertem Lead: alte Punkte bleiben; nach 30 Tagen mit denselben Punkten neu", async () => {
+  it("gesperrt: Punkte aus dem eingefrorenen Schnappschuss; eine vor dem Sperren gespeicherte Route anderer Punkte wird ersetzt", async () => {
+    // Route A als Entwurf gespeichert, Ziel geändert, neu gerechnet (B) und gesperrt, ohne die Karte neu zu laden.
     const s = speicherMit(gespeichert());
-    const geaendert = version({ status: "gesperrt", nach: "Neue Str. 1, 70173 Stuttgart" });
-    const r = await routeFuer("ws_1", geaendert, opts(s));
+    const gesperrtB = version({ status: "gesperrt", nach: "Neue Str. 1, 70173 Stuttgart" });
+    googleAntwort();
+    const r = await routeFuer("ws_1", gesperrtB, opts(s));
     expect(r.status).toBe("ok");
-    expect(r.googleLink).toBe(gespeichert().googleLink);
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).intermediates).toEqual([{ address: BELADEN }, { address: "Neue Str. 1, 70173 Stuttgart" }]);
+    expect(s.zeile?.punkteSchluessel).not.toBe(gespeichert().punkteSchluessel);
+  });
 
+  it("gesperrt mit gleichen Punkten: innerhalb 30 Tagen kein Aufruf, danach mit denselben Punkten neu", async () => {
+    const s = speicherMit(gespeichert());
+    const gesperrt = version({ status: "gesperrt" });
+    expect((await routeFuer("ws_1", gesperrt, opts(s))).status).toBe("ok");
+    expect(fetchMock).not.toHaveBeenCalled();
     s.zeile = gespeichert({ berechnetAm: vor(31 * TAG) });
     googleAntwort();
-    const neu = await routeFuer("ws_1", geaendert, opts(s));
-    expect(neu.status).toBe("ok");
+    expect((await routeFuer("ws_1", gesperrt, opts(s))).status).toBe("ok");
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).intermediates).toEqual([{ address: BELADEN }, { address: ENTLADEN }]);
     expect(s.zeile?.punkteSchluessel).toBe(gespeichert().punkteSchluessel);
-    expect(s.zeile?.googleLink).toBe(gespeichert().googleLink);
     expect(s.zeile?.berechnetAm).toEqual(JETZT);
   });
 
@@ -206,8 +212,11 @@ describe("routeFuer", () => {
     const r = await routeFuer("ws_1", version(), opts(leer, false));
     expect(r.status).toBe("nicht_geladen");
     expect(r.googleLink).toContain("google.com/maps/dir");
+    const frisch = speicherMit(gespeichert({ berechnetAm: vor(10 * TAG) }));
+    expect((await routeFuer("ws_1", version(), opts(frisch, false))).status).toBe("ok");
+    // älter als 30 Tage wird nie mehr gezeigt
     const alt = speicherMit(gespeichert({ berechnetAm: vor(40 * TAG) }));
-    expect((await routeFuer("ws_1", version(), opts(alt, false))).status).toBe("ok");
+    expect((await routeFuer("ws_1", version(), opts(alt, false))).status).toBe("nicht_geladen");
     const anders = speicherMit(gespeichert());
     expect((await routeFuer("ws_1", version({ nach: "Neue Str. 1, 70173 Stuttgart" }), opts(anders, false))).status).toBe("nicht_geladen");
     expect(fetchMock).not.toHaveBeenCalled();
@@ -215,10 +224,12 @@ describe("routeFuer", () => {
     expect(alt.schreiben).not.toHaveBeenCalled();
   });
 
-  it("ohne Schlüssel: ohne_schluessel, kein Aufruf", async () => {
+  it("ohne Schlüssel: ohne_schluessel, kein Aufruf, auch nicht mit abgelaufener Route", async () => {
     vi.stubEnv("GOOGLE_MAPS_API_KEY", "");
     const s = speicherMit();
     expect((await routeFuer("ws_1", version(), opts(s))).status).toBe("ohne_schluessel");
+    const alt = speicherMit(gespeichert({ berechnetAm: vor(66 * TAG) }));
+    expect((await routeFuer("ws_1", version(), opts(alt))).status).toBe("ohne_schluessel");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

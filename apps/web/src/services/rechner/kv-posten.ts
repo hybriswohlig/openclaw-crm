@@ -191,8 +191,16 @@ export function kvBausteine(input: {
   // ── Hebel ──
   const kandidaten: Array<{ art: HebelArt; posten: KvPosten }> = [];
   const besitzer = expliziteMontage(anfrage);
+  // Mit Schalter montage_je_position rechnet der Rechner die Seite des Kunden schon
+  // ohne Minuten: nichts mehr abziehen, nur Positionen nur des Kunden nicht nennen.
+  const jePosition = anfrage.montage_je_position === "1";
+  const nurKunde = new Set(
+    [...besitzer.dismantleCustomer, ...besitzer.assembleCustomer].filter((n) => !besitzer.companyNames.includes(n))
+  );
   let montageMoebel = [...new Set((e.positionen ?? []).filter((p) => p.zerlegt).map((p) => p.name.trim()).filter(Boolean))];
-  if (besitzer.explicit && besitzer.companyNames.length > 0) {
+  if (jePosition) {
+    montageMoebel = [...new Set([...besitzer.companyNames, ...montageMoebel.filter((n) => !nurKunde.has(n))])];
+  } else if (besitzer.explicit && besitzer.companyNames.length > 0) {
     montageMoebel = besitzer.companyNames;
   }
   const montagePm = (zeiten.demontage ?? 0) + (zeiten.montage ?? 0);
@@ -251,7 +259,7 @@ export function kvBausteine(input: {
     if (!Number.isFinite(r) || r <= 0) kandidaten.splice(i, 1);
   }
 
-  const montageWeg = opt.ohneMontage || besitzer.customerOnly;
+  const montageWeg = opt.ohneMontage || (besitzer.customerOnly && !jePosition);
   const weg = (art: HebelArt) => (art === "montage" && montageWeg) || (art === "halteverbot" && opt.ohneHalteverbot);
   // Kosten, die wirklich wegfallen: Zonen zum Kostensatz, Montagezeit zum internen Stundensatz.
   const kostenPosten = e.kosten?.posten ?? [];

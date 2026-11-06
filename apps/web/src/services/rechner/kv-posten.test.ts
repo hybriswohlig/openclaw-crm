@@ -94,6 +94,22 @@ describe("kvBausteine", () => {
     expect(k.montageDurchUns).toBe(false);
   });
 
+  it("mit montage_je_position: Kunden-Abbau zieht nichts mehr ab, Summe bleibt der Festpreis (Rechner hat die Minuten schon weggelassen)", () => {
+    const k = kvBausteine({
+      festpreis: 2260,
+      ergebnis,
+      anfrage: {
+        ...anfrage,
+        montage_je_position: "1",
+        positionen_freitext: [{ name: "Schreibtisch", abbau: "customer", aufbau: "customer" }],
+      },
+    });
+    expect(k.abzug).toBe(0);
+    expect(k.summe).toBe(2260);
+    expect(k.posten.reduce((s, p) => s + p.unitRate * p.quantity, 0)).toBe(2260);
+    expect(k.posten.find((p) => p.description.startsWith("Demontage"))?.description).toBe("Demontage & Montage (Boxspringbett und Esstisch)");
+  });
+
   it("explizite Firmen-Namen ersetzen die Montage-Liste, ohne einen Preis zu erfinden", () => {
     const mitZeit = kvBausteine({
       festpreis: 2260,
