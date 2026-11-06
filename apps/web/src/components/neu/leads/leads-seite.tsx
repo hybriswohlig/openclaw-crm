@@ -321,6 +321,8 @@ export function LeadsSeite() {
         if (terminFehlt(z.karte, z.nach.kategorie, true)) {
           toast.success(`Stufe auf „${z.nach.label}“ gesetzt.`, {
             description: "Noch kein Termin.",
+            // Mit Knopf: länger als die üblichen 4 s, damit man ihn noch erreicht.
+            duration: 10_000,
             action: { label: "Termin festlegen", onClick: () => setDialog({ art: "termin", dealId: z.karte.id }) },
           });
         } else {

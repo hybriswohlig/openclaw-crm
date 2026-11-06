@@ -668,6 +668,15 @@
   color: var(--ink-2);
 }
 
+/* Während eines Zugs bleiben die Ablage-Pillen für Verloren und Kein Lead unten im
+   Fenster stehen; sonst lägen sie hinter einer langen Spalte weit unter dem Rand. */
+[data-neu] .leads-eingeklappt[data-ziehend] {
+  position: sticky;
+  bottom: 16px;
+  z-index: 5;
+  justify-content: center;
+}
+
 [data-neu] .leads-eingeklappt-knopf {
   padding: 0;
   border: 0;
@@ -703,6 +712,16 @@
   border-color: var(--blue);
   background: var(--blue-tint);
   color: var(--blue-ink);
+}
+
+/* Schwebend über den Karten: deckend, sonst scheinen die Karten darunter durch. */
+[data-neu] .leads-eingeklappt[data-ziehend] .leads-eingeklappt-pille {
+  background: #ffffff;
+  box-shadow: var(--shadow-raised);
+}
+
+[data-neu] .leads-eingeklappt[data-ziehend] .leads-eingeklappt-pille[data-ueber] {
+  background: color-mix(in srgb, var(--blue) 10%, #ffffff);
 }
 
 /* ── Liste (fast deckend, kein Glas) ─────────────────── */

@@ -65,6 +65,12 @@ export function LeadsSpalte({
       </header>
 
       <div className="leads-spalte-karten">
+        {/* Oben, damit sie auch in einer langen Spalte sichtbar bleibt. */}
+        {schwebend ? (
+          <article className="leads-karte leads-karte-schwebt" aria-label={`${schwebend.name}, wartet auf Entscheidung`}>
+            <KarteInhalt karte={schwebend} />
+          </article>
+        ) : null}
         {spalte.karten.map((k) => (
           <LeadKarte
             key={k.id}
@@ -76,11 +82,6 @@ export function LeadsSpalte({
             onZahlungGemeldet={onZahlungGemeldet}
           />
         ))}
-        {schwebend ? (
-          <article className="leads-karte leads-karte-schwebt" aria-label={`${schwebend.name}, wartet auf Entscheidung`}>
-            <KarteInhalt karte={schwebend} />
-          </article>
-        ) : null}
         {ziel ? (
           <div className="leads-ablage" data-ueber={isOver || undefined}>
             {ablage}

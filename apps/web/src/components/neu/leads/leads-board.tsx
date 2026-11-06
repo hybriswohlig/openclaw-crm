@@ -8,6 +8,8 @@ import {
   useDroppable,
   useSensor,
   useSensors,
+  type Active,
+  type Announcements,
   type CollisionDetection,
   type DragEndEvent,
   type DragStartEvent,
@@ -44,6 +46,16 @@ const zeigerImRechteck: CollisionDetection = ({ droppableContainers, pointerCoor
 };
 
 const MESSEN = { droppable: { strategy: MeasuringStrategy.Always } };
+
+/** Name der Karte bzw. Spalte für die Ansagen des Bildschirmlesers (statt der IDs). */
+function karteName(active: Active): string {
+  return (active.data.current as { karte?: Karte } | undefined)?.karte?.name ?? "Karte";
+}
+
+/** Ziehen ist nur mit dem Zeiger möglich; ohne Maus führt das Menü „Stufe ändern“ der Karte zum selben Ziel. */
+const ANLEITUNG = {
+  draggable: "Karte mit dem Zeiger in eine andere Stufe ziehen. Ohne Maus: Menü „Stufe ändern“ der Karte.",
+};
 
 /**
  * Das Board (Entscheidungen 2, 3, 18): eine Spalte je sichtbarer Stufe,
@@ -133,12 +145,24 @@ export function LeadsBoard({
 
   const eingeklapptZeile = eingeklapptText(board.spalten);
 
+  // Ansagen deutsch und mit Namen statt IDs (dnd-kit sagt sonst englisch „Draggable item … was dropped over …“).
+  const spaltenLabel = (id: string | number | undefined) => spalteZu(id)?.label ?? "keine Stufe";
+  const ansagen: Announcements = {
+    onDragStart: ({ active }) => `${karteName(active)} aufgenommen.`,
+    onDragOver: ({ active, over }) =>
+      over ? `${karteName(active)} über „${spaltenLabel(over.id)}“.` : `${karteName(active)} über keiner Stufe.`,
+    onDragEnd: ({ active, over }) =>
+      over ? `${karteName(active)} auf „${spaltenLabel(over.id)}“ abgelegt.` : `${karteName(active)} zurückgelegt.`,
+    onDragCancel: ({ active }) => `Ziehen abgebrochen, ${karteName(active)} bleibt.`,
+  };
+
   return (
     <DndContext
       sensors={sensors}
       collisionDetection={zeigerImRechteck}
       measuring={MESSEN}
       autoScroll
+      accessibility={{ announcements: ansagen, screenReaderInstructions: ANLEITUNG }}
       onDragStart={zugStart}
       onDragEnd={zugEnde}
       onDragCancel={zugAbbruch}
@@ -164,7 +188,7 @@ export function LeadsBoard({
       </div>
 
       {eingeklappt.length > 0 ? (
-        <div className="leads-eingeklappt">
+        <div className="leads-eingeklappt" data-ziehend={aktiv !== null || undefined}>
           {aktiv ? (
             eingeklappt.map((s) => <AblagePille key={s.stufeId} spalte={s} text={ablagen?.get(s.stufeId) ?? null} />)
           ) : (
