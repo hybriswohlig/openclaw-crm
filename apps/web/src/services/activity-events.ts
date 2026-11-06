@@ -29,6 +29,8 @@ export type ActivityEventType =
   | "customer.kva_widerrufen"
   | "customer.kva_signed"
   | "customer.marked_paid"
+  | "payment.meldung_bestaetigt"
+  | "payment.meldung_verworfen"
   | "customer.rated_crew"
   | "customer.date_offers_set"
   | "customer.date_selected"
