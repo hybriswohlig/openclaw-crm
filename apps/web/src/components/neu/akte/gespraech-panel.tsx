@@ -41,7 +41,8 @@ export function GespraechPanel({
   dealId: string;
   gespraech: Gespraech;
   kundeName: string;
-  onNeuLaden: () => Promise<void> | void;
+  /** Lädt die Akte neu und liefert das frische Gespräch (null bei Fehler). */
+  onNeuLaden: () => Promise<Gespraech | null>;
 }) {
   const [ansicht, setAnsicht] = useState<Ansicht>("chat");
   const [gewaehltId, setGewaehltId] = useState<string | null>(gespraech.vorauswahl);

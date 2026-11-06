@@ -39,29 +39,28 @@ export function AkteSeite({ dealId }: { dealId: string }) {
   const hatAkte = useRef(false);
   hatAkte.current = zustand.art === "fertig";
 
-  const laden = useCallback(
-    async (deal: string) => {
-      const dieser = ++lauf.current;
-      const stillOhneSeite = !hatAkte.current;
-      const [a, g] = await Promise.all([
-        apiAufruf<AkteDaten>(`/api/v1/deals/${deal}/akte`),
-        apiAufruf<GespraechDaten>(`/api/v1/deals/${deal}/gespraech`),
-      ]);
-      if (dieser !== lauf.current) return;
-      if (a.ok && g.ok) {
-        setZustand({ art: "fertig", akte: a.data, gespraech: g.data });
-        return;
-      }
-      const f = !a.ok ? a : !g.ok ? g : null;
-      if (!f) return;
-      if (!stillOhneSeite) {
-        toast.error("Akte konnte nicht neu geladen werden.", { description: f.message });
-        return;
-      }
-      setZustand(f.status === 404 ? { art: "nicht_gefunden" } : { art: "fehler", meldung: f.message });
-    },
-    []
-  );
+  /** Lädt beides; gibt das frische Gespräch zurück (null bei Fehler oder überholtem Lauf). */
+  const laden = useCallback(async (deal: string): Promise<GespraechDaten | null> => {
+    const dieser = ++lauf.current;
+    const stillOhneSeite = !hatAkte.current;
+    const [a, g] = await Promise.all([
+      apiAufruf<AkteDaten>(`/api/v1/deals/${deal}/akte`),
+      apiAufruf<GespraechDaten>(`/api/v1/deals/${deal}/gespraech`),
+    ]);
+    if (dieser !== lauf.current) return null;
+    if (a.ok && g.ok) {
+      setZustand({ art: "fertig", akte: a.data, gespraech: g.data });
+      return g.data;
+    }
+    const f = !a.ok ? a : !g.ok ? g : null;
+    if (!f) return null;
+    if (!stillOhneSeite) {
+      toast.error("Akte konnte nicht neu geladen werden.", { description: f.message });
+      return null;
+    }
+    setZustand(f.status === 404 ? { art: "nicht_gefunden" } : { art: "fehler", meldung: f.message });
+    return null;
+  }, []);
 
   useEffect(() => {
     hatAkte.current = false;
@@ -73,6 +72,10 @@ export function AkteSeite({ dealId }: { dealId: string }) {
   }, [dealId, laden]);
 
   const neuLaden = useCallback(() => laden(dealId), [laden, dealId]);
+  /** Für Kopf und Stufenmenü, die nur auf das Ende warten. */
+  const neuLadenStill = useCallback(async () => {
+    await neuLaden();
+  }, [neuLaden]);
 
   if (zustand.art === "laden") return <AkteSkelett />;
 
@@ -106,7 +109,7 @@ export function AkteSeite({ dealId }: { dealId: string }) {
         onNachfass={(nachfass) =>
           setZustand((z) => (z.art === "fertig" ? { ...z, akte: { ...z.akte, nachfass } } : z))
         }
-        onNeuLaden={neuLaden}
+        onNeuLaden={neuLadenStill}
       />
       <Zahlenreihe kacheln={akte.kacheln} />
       <div className="akte-koerper">

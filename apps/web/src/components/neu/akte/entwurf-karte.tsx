@@ -41,7 +41,7 @@ export function EntwurfKarte({
   aktualisierung: unknown;
   fensterZu: boolean;
   onUebernehmen: (text: string) => void;
-  onGesendet: () => Promise<void> | void;
+  onGesendet: () => Promise<unknown> | void;
 }) {
   const [entwurf, setEntwurf] = useState<Entwurf | null>(null);
   const [laeuft, setLaeuft] = useState(false);

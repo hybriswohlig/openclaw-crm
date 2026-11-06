@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { fensterZu, freigabeFehler, gateGruende, posteingangUrl, sendeFehler, startFolge } from "./gespraech-texte";
+import {
+  fensterZu,
+  freigabeFehler,
+  gateGruende,
+  nachStart,
+  posteingangUrl,
+  sendeFehler,
+  startFolge,
+} from "./gespraech-texte";
 
 describe("sendeFehler", () => {
   it("übersetzt die bekannten Codes der Senderoute", () => {
@@ -32,6 +40,12 @@ describe("freigabeFehler", () => {
     );
     expect(freigabeFehler("gate_blocked", [])).toBe("Gesperrt: Senden ist für diesen Kunden gesperrt.");
     expect(freigabeFehler("gate_blocked")).toBe("Gesperrt: Senden ist für diesen Kunden gesperrt.");
+  });
+
+  it("meint mit outside_send_window die Ruhezeiten des Agenten, nicht das WABA-Fenster", () => {
+    expect(gateGruende(["outside_send_window"])).toEqual([
+      "Außerhalb der Sendezeit (8 bis 20 Uhr, sonntags 10 bis 19 Uhr).",
+    ]);
   });
 
   it("kennt Präfixe für beendete Sequenzen und Stufen", () => {
@@ -90,6 +104,22 @@ describe("startFolge", () => {
     });
   });
 
+  it("kodiert Sonderzeichen im Namen, damit & und # die Abfrage nicht zerreißen", () => {
+    const folge = startFolge({
+      mode: "compose",
+      channelAccountId: "konto-1",
+      toPhone: "+491550000201",
+      customerName: "Müller & Söhne #3",
+      dealRecordId: "deal-1",
+    });
+    expect(folge.art).toBe("verfassen");
+    const url = folge.art === "verfassen" ? folge.url : "";
+    expect(url).toBe(
+      "/inbox?compose=1&channelAccountId=konto-1&phone=%2B491550000201&name=M%C3%BCller+%26+S%C3%B6hne+%233&dealRecordId=deal-1"
+    );
+    expect(new URLSearchParams(url.slice(url.indexOf("?") + 1)).get("name")).toBe("Müller & Söhne #3");
+  });
+
   it("lädt bei vorhandenem Gespräch die Akte neu", () => {
     expect(startFolge({ mode: "open", conversationId: "g-1" })).toEqual({ art: "neu_laden", conversationId: "g-1" });
   });
@@ -99,6 +129,32 @@ describe("startFolge", () => {
     expect(startFolge({ mode: "open" })).toEqual({ art: "unbekannt" });
     expect(startFolge({ mode: "compose", channelAccountId: "k" })).toEqual({ art: "unbekannt" });
     expect(startFolge("open")).toEqual({ art: "unbekannt" });
+  });
+});
+
+describe("nachStart", () => {
+  const kanaele = [
+    { gespraechId: "mail", kannSenden: true },
+    { gespraechId: "wa-fremd", kannSenden: false },
+  ];
+
+  it("wählt das Gespräch, wenn es nach dem Neuladen direkt am Deal und sendefähig ist", () => {
+    expect(nachStart([...kanaele, { gespraechId: "wa-neu", kannSenden: true }], "wa-neu")).toEqual({
+      art: "waehlen",
+      gespraechId: "wa-neu",
+    });
+  });
+
+  it("zeigt bei einem weiter indirekten Gespräch den Hinweis mit Sprung in den Posteingang", () => {
+    expect(nachStart(kanaele, "wa-fremd")).toEqual({
+      art: "hinweis",
+      text: "Das WhatsApp-Gespräch hängt an einem anderen Deal und lässt sich hier nicht senden.",
+      link: { url: "/inbox?conv=wa-fremd", text: "Im Posteingang öffnen" },
+    });
+  });
+
+  it("behandelt ein Gespräch, das die Akte gar nicht kennt, wie ein indirektes", () => {
+    expect(nachStart(kanaele, "unbekannt").art).toBe("hinweis");
   });
 });
 

@@ -6,9 +6,9 @@ import { useEffect, useId, useRef, useState, type RefObject } from "react";
 import { GlassButton } from "@/components/glassyui/glass-button";
 import { GlassPanel } from "@/components/glassyui/glass-panel";
 import { usePortalZiel } from "@/components/neu/portal-ziel";
-import type { GespraechKanal } from "@/services/gespraech";
+import type { Gespraech, GespraechKanal } from "@/services/gespraech";
 import { apiAufruf, jsonAufruf } from "./api";
-import { fensterZu, posteingangUrl, sendeFehler, startFolge } from "./gespraech-texte";
+import { fensterZu, nachStart, posteingangUrl, sendeFehler, startFolge } from "./gespraech-texte";
 import { KANAL_LABEL } from "./gespraech-verlauf";
 
 export { fensterZu, sendeFehler };
@@ -51,7 +51,8 @@ export function Eingabe({
   text: string;
   onText: (text: string) => void;
   feldRef: RefObject<HTMLTextAreaElement | null>;
-  onGesendet: () => Promise<void> | void;
+  /** Lädt die Akte neu und liefert das frische Gespräch (null, wenn das Laden scheitert). */
+  onGesendet: () => Promise<Gespraech | null>;
 }) {
   const router = useRouter();
   const portalZiel = usePortalZiel();
@@ -64,12 +65,15 @@ export function Eingabe({
   const [menueOffen, setMenueOffen] = useState(false);
   // Doppelklick oder Enter während eines laufenden Sendens darf nicht zweimal senden.
   const sendetRef = useRef(false);
-  // Nach „WhatsApp starten“ lädt die Akte neu; die Kanäle danach liegen hier, nicht im alten Closure.
-  const kanaeleRef = useRef(kanaele);
-  kanaeleRef.current = kanaele;
 
   const sendbar = kanaele.filter((k) => k.kannSenden);
   const gewaehlt = sendbar.find((k) => k.gespraechId === gewaehltId);
+
+  // Sobald das gewählte Gespräch sendefähig ist, hat ein Hinweis mit Sprung in die alte Inbox nichts mehr zu sagen.
+  const gewaehltSendbar = gewaehlt?.gespraechId ?? null;
+  useEffect(() => {
+    if (gewaehltSendbar) setHinweis((h) => (h?.link ? null : h));
+  }, [gewaehltSendbar]);
 
   // Das Feld wächst mit dem Text bis zur Höchsthöhe aus dem Stylesheet.
   useEffect(() => {
@@ -130,9 +134,10 @@ export function Eingabe({
 
   /**
    * `start-from-record` antwortet `compose` (noch kein Gespräch: Verfassen in
-   * der alten Inbox) oder `open` (Gespräch gibt es, jetzt am Deal: Akte neu
-   * laden). Ist es danach trotzdem nicht sendefähig (anderer Deal), bleibt nur
-   * der Sprung in den Posteingang.
+   * der alten Inbox) oder `open` (Gespräch gibt es, meist jetzt am Deal: Akte
+   * neu laden). Entschieden wird aus dem frisch geladenen Gespräch, das
+   * `onGesendet` zurückgibt, nicht aus den Props dieses Renders. Ist es danach
+   * nicht sendefähig (anderer Deal), bleibt nur der Sprung in den Posteingang.
    */
   async function whatsappStarten() {
     if (startet) return;
@@ -152,17 +157,22 @@ export function Eingabe({
       return;
     }
     if (folge.art === "neu_laden") {
-      await onGesendet();
+      const frisch = await onGesendet();
       setStartet(false);
-      const neu = kanaeleRef.current.find((k) => k.gespraechId === folge.conversationId);
-      if (neu?.kannSenden) {
-        onWaehlen(neu.gespraechId);
+      if (!frisch) {
+        // Das Neuladen hat schon einen Toast gezeigt; hier nur der Weg zum Gespräch.
+        setHinweis({
+          text: "Die Akte konnte nicht neu geladen werden.",
+          link: { url: posteingangUrl(folge.conversationId), text: "Im Posteingang öffnen" },
+        });
         return;
       }
-      setHinweis({
-        text: "Das WhatsApp-Gespräch hängt an einem anderen Deal und lässt sich hier nicht senden.",
-        link: { url: posteingangUrl(folge.conversationId), text: "Im Posteingang öffnen" },
-      });
+      const e = nachStart(frisch.kanaele, folge.conversationId);
+      if (e.art === "waehlen") {
+        onWaehlen(e.gespraechId);
+        return;
+      }
+      setHinweis({ text: e.text, link: e.link });
       return;
     }
     setStartet(false);

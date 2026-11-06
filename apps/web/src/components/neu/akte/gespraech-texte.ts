@@ -27,7 +27,8 @@ const GATE_GRUND: Record<string, string> = {
   ai_paused: "Automatik an diesem Gespräch pausiert.",
   ai_hold: "Gespräch ist noch in Wartezeit.",
   suppressed: "Kunde hat Stopp gesagt.",
-  outside_send_window: "24-Stunden-Fenster zu.",
+  // Ruhezeiten des Agenten (isWithinSendWindow), nicht das WABA-Fenster.
+  outside_send_window: "Außerhalb der Sendezeit (8 bis 20 Uhr, sonntags 10 bis 19 Uhr).",
   min_gap: "Zu kurz nach der letzten Nachricht.",
   master_switch_off: "Automatik ist ausgeschaltet.",
   master_switch_error: "Automatik konnte nicht geprüft werden.",
@@ -96,6 +97,29 @@ export type StartFolge =
   /** Gespräch gibt es schon (jetzt am Deal): Akte neu laden. */
   | { art: "neu_laden"; conversationId: string }
   | { art: "unbekannt" };
+
+export type NachStart =
+  /** Das Gespräch hängt jetzt am Deal und ist sendefähig: wählen, kein Hinweis. */
+  | { art: "waehlen"; gespraechId: string }
+  /** Nur indirekt (anderer Deal) oder nicht sendefähig: Hinweis mit Sprung in die alte Inbox. */
+  | { art: "hinweis"; text: string; link: { url: string; text: string } };
+
+/**
+ * Entscheidung nach `open`, aus den frisch geladenen Kanälen (nicht aus dem
+ * Stand vor dem Neuladen).
+ */
+export function nachStart(
+  kanaele: readonly { gespraechId: string; kannSenden: boolean }[],
+  conversationId: string
+): NachStart {
+  const k = kanaele.find((x) => x.gespraechId === conversationId);
+  if (k?.kannSenden) return { art: "waehlen", gespraechId: k.gespraechId };
+  return {
+    art: "hinweis",
+    text: "Das WhatsApp-Gespräch hängt an einem anderen Deal und lässt sich hier nicht senden.",
+    link: { url: posteingangUrl(conversationId), text: "Im Posteingang öffnen" },
+  };
+}
 
 /** Folge der Antwort von `POST /inbox/whatsapp/start-from-record` (`StartFromRecordResult`). */
 export function startFolge(data: unknown): StartFolge {
