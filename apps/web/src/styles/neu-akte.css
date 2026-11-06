@@ -549,6 +549,13 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  /* Ohne Seitenleiste reicht die Schleife (25vw, mindestens 100 px) hinter die
+     erste Kopfzeile; lange Namen bleiben rechts davon frei und brechen um,
+     statt auf Vermilion zu stehen. Die zweite Zeile liegt unterhalb der Schleife. */
+  [data-neu] .akte-name {
+    padding-right: max(88px, calc(25vw - 12px));
+  }
+
   /* Reihenfolge am Handy: Kopf, Zahlen, Ablauf, Gespräch. */
   [data-neu] .akte-ablauf {
     order: -1;

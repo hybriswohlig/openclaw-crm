@@ -4,7 +4,8 @@
  * Datenbankzugriff; geladen wird in `services/akte.ts`.
  *
  * Entscheidung 13: Kachel 6 ist gold nur bei `waiting_on = 'uns'`, grau bei
- * `kunde`, jade „Läuft“ bei `niemand`; Kachel 3 heißt „Termin“. Anzeige
+ * `kunde`, jade „Läuft“ bei `niemand`; bei Verloren und Kein Lead grau
+ * „Wartet · – · abgeschlossen“ (Review Task 15). Kachel 3 heißt „Termin“. Anzeige
  * deutsch in Europe/Berlin, Trenner „·“; „–“ steht als Platzhalter für einen
  * fehlenden Wert (Vorgabe der Spec), nie als Gedankenstrich im Satz.
  */
@@ -176,9 +177,14 @@ function wartetKachel(w: Wartet, jetzt: Date): Kachel {
   };
 }
 
+/** Verloren und Kein Lead: nichts läuft, niemand wartet, was auch immer `deal_workflow_state` noch sagt. */
+const WARTET_ABGESCHLOSSEN: Kachel = { key: "wartet", label: "Wartet", wert: LEER, zeile: "abgeschlossen", ton: "grau" };
+
 /** Die sechs Kacheln, immer in dieser Reihenfolge. */
 export function zahlenreiheAus(f: AblaufFakten, wartet: Wartet, volumenHerkunft: string | null, jetzt: Date): Kachel[] {
-  return [kvKachel(f), margeKachel(f), terminKachel(f, jetzt), volumenKachel(f, volumenHerkunft), teamKachel(f), wartetKachel(wartet, jetzt)];
+  // VERLOREN steht beim Dock weiter unten; zur Laufzeit längst ausgewertet.
+  const sechste = VERLOREN.has(f.stageCategory ?? "") ? WARTET_ABGESCHLOSSEN : wartetKachel(wartet, jetzt);
+  return [kvKachel(f), margeKachel(f), terminKachel(f, jetzt), volumenKachel(f, volumenHerkunft), teamKachel(f), sechste];
 }
 
 /**

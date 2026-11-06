@@ -12,6 +12,7 @@ import {
   zahlenreiheAus,
   type Kachel,
 } from "./akte";
+import { KEIN_LEAD_STAGE_CATEGORY } from "./kontaktart";
 
 /** Do 05.11.2026, 10:00 Berlin. */
 const JETZT = new Date("2026-11-05T09:00:00.000Z");
@@ -175,6 +176,22 @@ describe("zahlenreiheAus", () => {
     });
     expect(w("kunde", "2026-11-05T04:00:00.000Z")).toEqual({ key: "wartet", label: "Wartet auf Kunden", wert: "5 Std", zeile: "", ton: "grau" });
     expect(w("niemand", "2026-11-04T08:00:00.000Z")).toEqual({ key: "wartet", label: "Läuft", wert: "1 Tag", zeile: "", ton: "jade" });
+    // Verloren und Kein Lead: nichts läuft und niemand wartet, egal was deal_workflow_state sagt.
+    for (const stageCategory of ["lost", KEIN_LEAD_STAGE_CATEGORY]) {
+      const f = { ...mockup(), stageCategory };
+      expect(kachel(zahlenreiheAus(f, { waitingOn: "uns", waitingSince: "2026-11-05T08:25:00.000Z", waitingReason: "Neue Nachricht" }, null, JETZT), "wartet")).toEqual({
+        key: "wartet",
+        label: "Wartet",
+        wert: "–",
+        zeile: "abgeschlossen",
+        ton: "grau",
+      });
+      expect(kachel(zahlenreiheAus(f, { waitingOn: null, waitingSince: null, waitingReason: null }, null, JETZT), "wartet")).toMatchObject({
+        label: "Wartet",
+        zeile: "abgeschlossen",
+        ton: "grau",
+      });
+    }
     expect(w("uns", null)).toMatchObject({ wert: "–", ton: "gold" });
     // Zeitpunkt in der Zukunft (Uhrabweichung): 0 Min statt negativ.
     expect(w("uns", "2026-11-05T09:05:00.000Z")).toMatchObject({ wert: "0 Min" });
