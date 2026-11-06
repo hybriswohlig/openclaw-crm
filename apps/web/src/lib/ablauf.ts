@@ -238,8 +238,9 @@ function anfrage(f: AblaufFakten): Entwurf {
 function fotos(f: AblaufFakten, jetzt: Date): Entwurf {
   const besichtigung =
     (f.leistung === "clearance" || f.leistung === "clearance_move") && f.besichtigungAm ? f.besichtigungAm : null;
-  const besichtigt = f.besichtigungAm !== null && istVergangen(f.besichtigungAm, jetzt);
-  const erledigt = f.fotoanalyseAm !== null || f.volumenCbm !== null || besichtigt;
+  // Eine vergangene Besichtigung zählt nur bei Entrümpelung; so hat ein erledigter Schritt immer eine Zeile.
+  const besichtigt = besichtigung !== null && istVergangen(besichtigung, jetzt);
+  const erledigt = f.fotoanalyseAm !== null || (f.volumenCbm !== null && f.volumenCbm > 0) || besichtigt;
   const angaben = [
     f.fotos > 0 && mehrzahl(f.fotos, "Foto", "Fotos"),
     f.volumenCbm !== null && f.volumenCbm > 0 && volumenText(f.volumenCbm),
@@ -429,21 +430,22 @@ function rechnung(f: AblaufFakten): Entwurf {
     wer: "du",
     erledigt: r !== null,
     zeileErledigt: r ? teile(`erstellt ${tagKurz(r.am)}`, r.faelligAm && `fällig ${datumKurz(r.faelligAm)}`) : "",
-    zeileOffen: f.rest.restCent !== null ? `Restbetrag ${euroText(f.rest.restCent)}` : "",
+    zeileOffen: f.rest.restCent !== null ? `Restbetrag ${euroText(f.rest.restCent)}` : "noch keine Rechnung",
   };
 }
 
 function zahlung(f: AblaufFakten): Entwurf {
+  // Ein Stunden-KV hat nie Rest 0: dort zählt die Stufe Bezahlt.
+  const erledigt = f.rest.restCent === 0 || f.stageCategory === "paid";
   return {
     key: "zahlung",
     titel: "Zahlung",
     wer: "du",
-    // Ein Stunden-KV hat nie Rest 0: dort zählt die Stufe Bezahlt.
-    erledigt: f.rest.restCent === 0 || f.stageCategory === "paid",
+    erledigt,
     zeileErledigt: f.letzteZahlungAm ? `bezahlt ${tagKurz(f.letzteZahlungAm)}` : "bezahlt",
     zeileOffen: "Kunde meldet „bezahlt“ im Link, du bestätigst",
     chips: [...ZAHLUNGSART_CHIPS],
-    ...(f.offeneMeldungen > 0 ? { hinweis: { ton: "gold" as const, text: "Kunde meldet „bezahlt“. Ein Klick bestätigt." } } : {}),
+    ...(!erledigt && f.offeneMeldungen > 0 ? { hinweis: { ton: "gold" as const, text: "Kunde meldet „bezahlt“. Ein Klick bestätigt." } } : {}),
   };
 }
 

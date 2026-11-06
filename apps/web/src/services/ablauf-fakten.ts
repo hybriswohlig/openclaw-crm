@@ -172,7 +172,6 @@ interface VersionZeile {
   version: unknown;
   status: string;
   sent_at: unknown;
-  price_cents: unknown;
   gesperrt_von: string | null;
   overrides: unknown;
   rechner_request: unknown;
@@ -186,7 +185,6 @@ function versionLesen(ws: string, deal: string) {
       v.version AS version,
       v.status AS status,
       v.sent_at::text AS sent_at,
-      v.price_cents AS price_cents,
       u.name AS gesperrt_von,
       v.overrides AS overrides,
       v.rechner_request AS rechner_request,

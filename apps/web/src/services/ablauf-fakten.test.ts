@@ -211,7 +211,6 @@ describe("ladeAblaufFakten", () => {
           version: 2,
           status: "gesperrt",
           sent_at: "2026-11-04 09:00:00",
-          price_cents: 248000,
           gesperrt_von: "Dario",
           overrides: JSON.stringify([
             { id: "u1", art: "eingabe", key: "volumen", rechnerwert: 30, wert: 38, grund: "Keller dazu", autor: { userId: "u", quelle: "mensch" }, zeit: "", fotoRef: null },
@@ -378,8 +377,8 @@ describe("ladeAblaufFakten", () => {
       deal: [LEERER_DEAL],
       neben: [LEERE_NEBEN],
       version: [
-        { version: 3, status: "entwurf", sent_at: null, price_cents: null, gesperrt_von: null, overrides: [], rechner_request: null, rechner_result: { preis: { selbstkosten: 1700 } } },
-        { version: 2, status: "gesperrt", sent_at: "2026-11-04 09:00:00", price_cents: 248000, gesperrt_von: "Dario", overrides: [], rechner_request: { von_etage: "2", von_aufzug: "keiner" }, rechner_result: { preis: { selbstkosten: 1540, margeWirksamProzent: 38 } } },
+        { version: 3, status: "entwurf", sent_at: null, gesperrt_von: null, overrides: [], rechner_request: null, rechner_result: { preis: { selbstkosten: 1700 } } },
+        { version: 2, status: "gesperrt", sent_at: "2026-11-04 09:00:00", gesperrt_von: "Dario", overrides: [], rechner_request: { von_etage: "2", von_aufzug: "keiner" }, rechner_result: { preis: { selbstkosten: 1540, margeWirksamProzent: 38 } } },
       ],
       angebot: [
         { festpreis: "2480.00", is_variable: false, gueltig_bis: "2026-11-18", deposit_required_cents: null, service_type: "move", mit_entruempelung: null, kv_version: 2, kv_gesendet_am: "2026-11-04 09:00:00", ohne_version: false, kv_dokument_am: null },
@@ -410,7 +409,7 @@ describe("ladeAblaufFakten", () => {
     dbAntwortet({
       deal: [LEERER_DEAL],
       neben: [LEERE_NEBEN],
-      version: [{ version: 1, status: "entwurf", sent_at: null, price_cents: null, gesperrt_von: "Dario", overrides: [], rechner_request: null, rechner_result: null }],
+      version: [{ version: 1, status: "entwurf", sent_at: null, gesperrt_von: "Dario", overrides: [], rechner_request: null, rechner_result: null }],
       angebot: [],
     });
     expect((await ladeAblaufFakten(WS, DEAL)).kalkulation).toMatchObject({ version: 1, status: "entwurf", geprueftVon: null, neuerEntwurf: null });

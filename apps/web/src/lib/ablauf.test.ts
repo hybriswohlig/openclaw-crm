@@ -85,15 +85,23 @@ function fertig(): AblaufFakten {
   };
 }
 
+/** Jeder Faktenstand, der in einem Test gerechnet wird (für die Prüfung auf leere Zeilen am Ende). */
+const GERECHNET: { f: AblaufFakten; jetzt: Date }[] = [];
+
+function ablauf(f: AblaufFakten, jetzt: Date = JETZT) {
+  GERECHNET.push({ f: structuredClone(f), jetzt });
+  return berechneAblauf(f, jetzt);
+}
+
 function schritt(f: AblaufFakten, key: AblaufSchritt["key"], jetzt: Date = JETZT): AblaufSchritt {
-  const s = berechneAblauf(f, jetzt).schritte.find((x) => x.key === key);
+  const s = ablauf(f, jetzt).schritte.find((x) => x.key === key);
   if (!s) throw new Error(`Schritt ${key} fehlt`);
   return s;
 }
 
 describe("berechneAblauf: Mockup-Stand", () => {
   it("elf Schritte in fester Reihenfolge, 1 bis 3 erledigt, 4 jetzt, Rest offen, position 4", () => {
-    const { schritte, position } = berechneAblauf(mockup(), JETZT);
+    const { schritte, position } = ablauf(mockup(), JETZT);
     expect(schritte.map((s) => [s.nr, s.key])).toEqual([
       [1, "anfrage"],
       [2, "fotos"],
@@ -124,7 +132,7 @@ describe("berechneAblauf: Mockup-Stand", () => {
   });
 
   it("Titel und Wer wie im Mockup", () => {
-    const { schritte } = berechneAblauf(mockup(), JETZT);
+    const { schritte } = ablauf(mockup(), JETZT);
     expect(schritte.map((s) => [s.titel, s.wer])).toEqual([
       ["Anfrage eingegangen", "auto"],
       ["Fotos und Infos", "auto"],
@@ -230,6 +238,14 @@ describe("Schritt 2: Fotos und Infos", () => {
     expect(s.zeile).toBe("Besichtigung Mi 04.11. · 20 m³");
   });
 
+  it("vergangene Besichtigung zählt bei Umzug nicht als erledigt, Volumen 0 auch nicht", () => {
+    const ohneBelege = { ...mockup(), fotoanalyseAm: null, volumenCbm: null, fotos: 0 };
+    const s = schritt({ ...ohneBelege, besichtigungAm: "2026-11-04T14:00:00.000Z" }, "fotos");
+    expect(s.zustand).toBe("jetzt");
+    expect(s.zeile).toBe("Fotos und Angaben fehlen noch");
+    expect(schritt({ ...ohneBelege, volumenCbm: 0 }, "fotos").zustand).toBe("jetzt");
+  });
+
   it("Umzug mit Besichtigung behält den Titel „Fotos und Infos“", () => {
     expect(schritt({ ...mockup(), besichtigungAm: "2026-11-10" }, "fotos").titel).toBe("Fotos und Infos");
   });
@@ -261,7 +277,7 @@ describe("Schritt 3: Kalkulation", () => {
   it("gesperrte v2 gesendet, neuer Entwurf v3: erledigt mit Zusatz, Schritt 4 bleibt jetzt mit Hinweis", () => {
     const f = mockup();
     f.kalkulation = { ...f.kalkulation!, neuerEntwurf: 3 };
-    const r = berechneAblauf(f, JETZT);
+    const r = ablauf(f, JETZT);
     const k = r.schritte[2];
     expect(k.zustand).toBe("erledigt");
     expect(k.zeile).toBe(
@@ -484,8 +500,10 @@ describe("Schritt 9: Rechnung", () => {
     expect(s.zeile).toBe("erstellt So 22.11. · fällig 06.12.");
   });
 
-  it("Stunden-KV ohne Restbetrag: Teil entfällt", () => {
-    expect(schritt({ ...mockup(), rest: { restCent: null, quelle: "stunden" } }, "rechnung").zeile).toBe("");
+  it("Stunden-KV ohne Restbetrag: „noch keine Rechnung“", () => {
+    expect(schritt({ ...mockup(), rest: { restCent: null, quelle: "stunden" } }, "rechnung").zeile).toBe(
+      "noch keine Rechnung"
+    );
   });
 
   it("Rechnung ohne Fälligkeit: nur erstellt", () => {
@@ -504,11 +522,12 @@ describe("Schritt 10: Zahlung", () => {
     expect(s.hinweis).toBeUndefined();
   });
 
-  it("offene Meldung: Hinweis gold", () => {
+  it("offene Meldung: Hinweis gold, aber nicht mehr, wenn die Zahlung erledigt ist", () => {
     expect(schritt({ ...mockup(), offeneMeldungen: 1 }, "zahlung").hinweis).toEqual({
       ton: "gold",
       text: "Kunde meldet „bezahlt“. Ein Klick bestätigt.",
     });
+    expect(schritt({ ...fertig(), offeneMeldungen: 1 }, "zahlung").hinweis).toBeUndefined();
   });
 
   it("erledigt bei Rest 0", () => {
@@ -530,7 +549,7 @@ describe("Schritt 10: Zahlung", () => {
       bewertung: { status: null, am: null },
       stageCategory: "paid",
     };
-    const r = berechneAblauf(f, JETZT);
+    const r = ablauf(f, JETZT);
     expect(r.schritte[9].zustand).toBe("erledigt");
     expect(r.schritte[9].zeile).toBe("bezahlt Di 24.11.");
     expect(r.schritte[10].zustand).toBe("jetzt");
@@ -555,7 +574,7 @@ describe("Schritt 11: Bewertung anfragen", () => {
   });
 
   it("alles erledigt: kein jetzt, position 11", () => {
-    const r = berechneAblauf(fertig(), JETZT);
+    const r = ablauf(fertig(), JETZT);
     expect(r.schritte.every((s) => s.zustand === "erledigt")).toBe(true);
     expect(r.position).toBe(11);
   });
@@ -564,7 +583,7 @@ describe("Schritt 11: Bewertung anfragen", () => {
 describe("verlorener Deal", () => {
   it("kein jetzt, nicht erledigte entfallen, position = Zahl der erledigten", () => {
     for (const stageCategory of ["lost", "kein_lead"]) {
-      const r = berechneAblauf({ ...mockup(), stageCategory }, JETZT);
+      const r = ablauf({ ...mockup(), stageCategory }, JETZT);
       expect(r.schritte.some((s) => s.zustand === "jetzt")).toBe(false);
       expect(r.schritte.map((s) => s.zustand)).toEqual([
         "erledigt",
@@ -623,5 +642,16 @@ describe("Hilfen für die Fakten", () => {
   it("einsatzAus: ohne Ergebnis oder ohne verwertbare Angaben null", () => {
     expect(einsatzAus(null)).toBeNull();
     expect(einsatzAus({})).toBeNull();
+  });
+});
+
+describe("keine leeren Zeilen", () => {
+  it("in keinem gerechneten Faktenstand hat ein Schritt eine leere Zeile", () => {
+    expect(GERECHNET.length).toBeGreaterThan(50);
+    for (const { f, jetzt } of GERECHNET) {
+      for (const s of berechneAblauf(f, jetzt).schritte) {
+        expect(s.zeile.trim(), `${s.key} (${s.zustand})`).not.toBe("");
+      }
+    }
   });
 });
