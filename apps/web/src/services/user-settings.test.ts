@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { SQL } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
+import { userSettings } from "@/db/schema";
 
 const reads = vi.hoisted(() => ({ rows: [] as unknown[] }));
 const writes = vi.hoisted(() => ({ values: vi.fn(), conflict: vi.fn() }));
@@ -28,7 +31,7 @@ vi.mock("@/db", () => {
   };
 });
 
-import { getUserSettings, setUiVersion } from "./user-settings";
+import { getUserSettings, setAnsicht, setUiVersion } from "./user-settings";
 
 describe("getUserSettings", () => {
   beforeEach(() => {
@@ -71,5 +74,46 @@ describe("setUiVersion", () => {
         set: expect.objectContaining({ uiVersion: "neu" }),
       })
     );
+  });
+});
+
+describe("setAnsicht", () => {
+  beforeEach(() => {
+    writes.values.mockClear();
+    writes.conflict.mockClear();
+  });
+
+  it("mergt nur den einen Schlüssel und lässt ui_version aus dem Update", async () => {
+    const wert = {
+      modus: "liste",
+      listenSpalten: ["name"],
+      sortierung: { schluessel: "wartezeit", richtung: "ab" },
+    };
+
+    await setAnsicht("usr_jonas", "leads", wert);
+
+    const eingefuegt = writes.values.mock.calls[0][0] as Record<string, unknown>;
+    expect(eingefuegt).toMatchObject({
+      userId: "usr_jonas",
+      ansichten: { leads: wert },
+    });
+    expect(eingefuegt).not.toHaveProperty("uiVersion");
+    expect(eingefuegt.updatedAt).toBeInstanceOf(Date);
+
+    const konflikt = writes.conflict.mock.calls[0][0] as {
+      target: unknown;
+      set: { ansichten: SQL; updatedAt: Date };
+    };
+    expect(konflikt.target).toBe(userSettings.userId);
+    expect(konflikt.set).not.toHaveProperty("uiVersion");
+    expect(Object.keys(konflikt.set).sort()).toEqual(["ansichten", "updatedAt"]);
+    expect(konflikt.set.updatedAt).toBeInstanceOf(Date);
+
+    const q = new PgDialect().sqlToQuery(konflikt.set.ansichten);
+    expect(q.sql).toBe(
+      '"user_settings"."ansichten" || jsonb_build_object($1::text, $2::jsonb)'
+    );
+    expect(q.sql).not.toContain("ui_version");
+    expect(q.params).toEqual(["leads", JSON.stringify(wert)]);
   });
 });
