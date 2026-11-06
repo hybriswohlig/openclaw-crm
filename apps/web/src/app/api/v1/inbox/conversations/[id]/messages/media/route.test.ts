@@ -6,6 +6,11 @@ const mocks = vi.hoisted(() => ({
   limit: vi.fn(),
   sendBaileysMediaReply: vi.fn(),
   sendWhatsAppMediaReply: vi.fn(),
+  letzteEigene: vi.fn(),
+}));
+
+vi.mock("@/services/wartet", () => ({
+  setzeLetzteEigeneNachricht: (...args: unknown[]) => mocks.letzteEigene(...args),
 }));
 
 vi.mock("@vercel/blob/client", () => ({
@@ -104,5 +109,47 @@ describe("POST conversation media", () => {
     const body = await res.json();
     expect(body.error.code).toBe("BAILEYS_BRIDGE_ERROR");
     expect(body.error.message).toContain("JSON-Body");
+  });
+
+  it("vermerkt die eigene Nachricht am Deal mit der Sendezeit", async () => {
+    const gesendet = new Date("2026-11-05T11:00:00Z");
+    mocks.limit.mockResolvedValue([
+      { channelType: "whatsapp", waPhoneNumberId: null, baileysBridgeProvider: "inhouse", dealRecordId: "deal-1" },
+    ]);
+    mocks.sendBaileysMediaReply.mockResolvedValue({ id: "msg-media", sentAt: gesendet });
+    const res = await sendFile();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ data: { id: "msg-media", sentAt: gesendet.toISOString() } });
+    expect(mocks.letzteEigene).toHaveBeenCalledWith("deal-1", gesendet);
+  });
+
+  it("ohne Deal kein Vermerk", async () => {
+    mocks.sendBaileysMediaReply.mockResolvedValue({ id: "msg-media", sentAt: new Date() });
+    const res = await sendFile();
+    expect(res.status).toBe(200);
+    expect(mocks.letzteEigene).not.toHaveBeenCalled();
+  });
+
+  it("kein Vermerk, wenn das Senden scheitert", async () => {
+    mocks.limit.mockResolvedValue([
+      { channelType: "whatsapp", waPhoneNumberId: null, baileysBridgeProvider: "inhouse", dealRecordId: "deal-1" },
+    ]);
+    mocks.sendBaileysMediaReply.mockRejectedValue(new Error("bridge down"));
+    const res = await sendFile();
+    expect(res.status).toBe(500);
+    expect(mocks.letzteEigene).not.toHaveBeenCalled();
+  });
+
+  it("ein Fehler beim Vermerk lässt den Versand gelingen", async () => {
+    mocks.limit.mockResolvedValue([
+      { channelType: "whatsapp", waPhoneNumberId: "pn-1", baileysBridgeProvider: null, dealRecordId: "deal-1" },
+    ]);
+    mocks.sendWhatsAppMediaReply.mockResolvedValue({ id: "msg-wa", sentAt: new Date() });
+    mocks.letzteEigene.mockRejectedValue(new Error("0054 fehlt"));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await sendFile();
+    log.mockRestore();
+    expect(res.status).toBe(200);
+    expect(mocks.letzteEigene).toHaveBeenCalledOnce();
   });
 });

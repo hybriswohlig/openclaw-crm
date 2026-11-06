@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthContext, unauthorized, success, badRequest } from "@/lib/api-utils";
 import { sendNewEmail, EmailUserError } from "@/services/inbox-email";
+import { vermerkeEigeneNachricht } from "@/services/inbox-senden";
 
 /**
  * Compose and send a brand-new email (not a reply) from one of the workspace's
@@ -22,6 +23,13 @@ export async function POST(req: NextRequest) {
       to,
       subject: subject ?? "",
       body,
+    });
+    // Wartet-Signal, only when the new conversation hangs on a deal. Best-effort
+    // inside vermerkeEigeneNachricht; no conversation id means nothing to note.
+    await vermerkeEigeneNachricht({
+      workspaceId: ctx.workspaceId,
+      conversationId: result.conversationId,
+      sentAt: new Date(),
     });
     return success(result);
   } catch (err) {

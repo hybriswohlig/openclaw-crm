@@ -18,6 +18,7 @@ import {
   BaileysBridgeNotConfiguredError,
   BaileysBridgeError,
 } from "@/services/inbox-whatsapp";
+import { setzeLetzteEigeneNachricht } from "@/services/wartet";
 
 export const maxDuration = 60;
 
@@ -65,6 +66,7 @@ export async function POST(
       channelType: channelAccounts.channelType,
       waPhoneNumberId: channelAccounts.waPhoneNumberId,
       baileysBridgeProvider: channelAccounts.baileysBridgeProvider,
+      dealRecordId: inboxConversations.dealRecordId,
     })
     .from(inboxConversations)
     .innerJoin(
@@ -169,6 +171,18 @@ export async function POST(
           file: { blob, mimeType, filename, size },
           caption,
         });
+    // Wartet-Signal: our own hand-sent media on this deal. Best-effort, a
+    // failure must never turn a delivered message into an error.
+    if (row.dealRecordId) {
+      try {
+        await setzeLetzteEigeneNachricht(
+          row.dealRecordId,
+          msg?.sentAt instanceof Date ? msg.sentAt : new Date()
+        );
+      } catch (wartetErr) {
+        console.error("[wartet] setzeLetzteEigeneNachricht failed (non-fatal):", wartetErr);
+      }
+    }
     return success(msg);
   } catch (err) {
     if (err instanceof WhatsAppSessionExpiredError) {

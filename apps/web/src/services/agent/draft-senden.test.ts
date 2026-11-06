@@ -11,6 +11,11 @@ const mocks = vi.hoisted(() => ({
   docs: vi.fn(),
   leak: vi.fn(),
   optOut: vi.fn(async () => false),
+  letzteEigene: vi.fn(),
+}));
+
+vi.mock("@/services/wartet", () => ({
+  setzeLetzteEigeneNachricht: (...args: unknown[]) => mocks.letzteEigene(...args),
 }));
 
 function chain(result: unknown) {
@@ -126,6 +131,8 @@ function reset() {
   mocks.leak.mockReturnValue(false);
   mocks.optOut.mockResolvedValue(false);
   mocks.send.mockResolvedValue(undefined);
+  mocks.letzteEigene.mockReset();
+  mocks.letzteEigene.mockResolvedValue(undefined);
 }
 
 beforeEach(reset);
@@ -531,5 +538,71 @@ describe("entwurfFreigebenUndSenden freshness against the answered message", () 
 
     expect(result.ok).toBe(true);
     expect(mocks.send).toHaveBeenCalledOnce();
+  });
+});
+
+describe("entwurfFreigebenUndSenden Wartet-Vermerk", () => {
+  const ALLOWED = { allowed: true, reasons: [], context: {} };
+
+  it("vermerkt eine von einem Menschen freigegebene Sendung als eigene Nachricht", async () => {
+    mocks.updateReturns = [[{ ...DRAFT }], [], []];
+    mocks.selects = [CONV, [{ status: "approved" }]];
+    mocks.gate.mockResolvedValue(ALLOWED);
+
+    const result = await entwurfFreigebenUndSenden({
+      workspaceId: "ws",
+      userId: "user-1",
+      draftId: "draft-1",
+      humanApproved: true,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(mocks.letzteEigene).toHaveBeenCalledWith("deal-1", expect.any(Date));
+  });
+
+  it("vermerkt nichts ohne menschliche Freigabe", async () => {
+    mocks.updateReturns = [[{ ...DRAFT }], [], []];
+    mocks.selects = [CONV, [{ status: "approved" }]];
+    mocks.gate.mockResolvedValue(ALLOWED);
+
+    const result = await entwurfFreigebenUndSenden({ workspaceId: "ws", userId: "user-1", draftId: "draft-1" });
+
+    expect(result.ok).toBe(true);
+    expect(mocks.letzteEigene).not.toHaveBeenCalled();
+  });
+
+  it("vermerkt nichts, wenn das Senden scheitert", async () => {
+    mocks.updateReturns = [[{ ...DRAFT }], []];
+    mocks.selects = [CONV, [{ status: "approved" }]];
+    mocks.gate.mockResolvedValue(ALLOWED);
+    mocks.send.mockRejectedValue(new WhatsAppSessionExpiredError());
+
+    const result = await entwurfFreigebenUndSenden({
+      workspaceId: "ws",
+      userId: "user-1",
+      draftId: "draft-1",
+      humanApproved: true,
+    });
+
+    expect(result).toMatchObject({ ok: false, fehler: "session_expired" });
+    expect(mocks.letzteEigene).not.toHaveBeenCalled();
+  });
+
+  it("ein Fehler beim Vermerk ändert das Ergebnis nicht", async () => {
+    mocks.updateReturns = [[{ ...DRAFT }], [], []];
+    mocks.selects = [CONV, [{ status: "approved" }]];
+    mocks.gate.mockResolvedValue(ALLOWED);
+    mocks.letzteEigene.mockRejectedValue(new Error("0054 fehlt"));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await entwurfFreigebenUndSenden({
+      workspaceId: "ws",
+      userId: "user-1",
+      draftId: "draft-1",
+      humanApproved: true,
+    });
+    log.mockRestore();
+
+    expect(result.ok).toBe(true);
   });
 });

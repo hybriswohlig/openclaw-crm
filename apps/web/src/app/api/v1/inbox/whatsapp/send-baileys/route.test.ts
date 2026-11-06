@@ -6,6 +6,11 @@ const mocks = vi.hoisted(() => ({
   send: vi.fn(),
   docs: vi.fn(),
   supersede: vi.fn(),
+  vermerk: vi.fn(),
+}));
+
+vi.mock("@/services/inbox-senden", () => ({
+  vermerkeEigeneNachricht: (...args: unknown[]) => mocks.vermerk(...args),
 }));
 
 vi.mock("@/lib/api-utils", async (importOriginal) => {
@@ -121,5 +126,40 @@ describe("POST send-baileys", () => {
     expect(mocks.supersede).toHaveBeenCalledWith(
       expect.objectContaining({ conversationId: "conv-doc", dealRecordId: "deal-9" })
     );
+  });
+
+  it("vermerkt die eigene Nachricht am Gespräch mit der Sendezeit", async () => {
+    const gesendet = new Date("2026-11-05T12:00:00Z");
+    mocks.send.mockResolvedValue({ conversationId: "conv-new", message: { id: "m1", sentAt: gesendet } });
+    const res = await send({ channelAccountId: "ch-1", toPhone: "+491701234567", body: "Hallo", dealRecordId: "deal-9" });
+    expect(res.status).toBe(200);
+    expect(mocks.vermerk).toHaveBeenCalledWith({
+      workspaceId: "ws_kottke",
+      conversationId: "conv-new",
+      sentAt: gesendet,
+    });
+  });
+
+  it("kein Vermerk bei einem deduplizierten Dokumentversand", async () => {
+    mocks.docs.mockResolvedValue({
+      conversationId: "conv-doc",
+      message: { id: "m-doc", sentAt: new Date("2026-11-01T08:00:00Z") },
+      messages: [{ id: "m-doc" }],
+      deduped: true,
+    });
+    const res = await send({
+      channelAccountId: "ch-1",
+      toPhone: "+491701234567",
+      attachments: [{ dealDocumentId: "doc-9" }],
+    });
+    expect(res.status).toBe(200);
+    expect(mocks.vermerk).not.toHaveBeenCalled();
+  });
+
+  it("kein Vermerk, wenn das Senden scheitert", async () => {
+    mocks.send.mockRejectedValue(new Error("bridge down"));
+    const res = await send({ channelAccountId: "ch-1", toPhone: "+491701234567", body: "Hallo" });
+    expect(res.status).toBe(500);
+    expect(mocks.vermerk).not.toHaveBeenCalled();
   });
 });

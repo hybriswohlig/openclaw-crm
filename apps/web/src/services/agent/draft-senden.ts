@@ -28,6 +28,7 @@ import {
 } from "@/services/agent/draft-freigabe";
 import { nachfassNachVersand } from "@/services/nachfass/abschluss";
 import { SEQUENZ_ID } from "@/services/nachfass/konstanten";
+import { setzeLetzteEigeneNachricht } from "@/services/wartet";
 import {
   WhatsAppSessionExpiredError,
   BaileysBridgeNotConfiguredError,
@@ -522,6 +523,15 @@ export async function entwurfFreigebenUndSenden(input: {
     }
   } catch (err) {
     console.error("[agent-drafts] post-send bookkeeping failed (message WAS sent):", id, err);
+  }
+  // Wartet-Signal: ein Mensch hat diesen Versand freigegeben, also zählt er als
+  // eigene Nachricht. Automatische Sendungen des Agenten zählen nicht.
+  if (humanApproved) {
+    try {
+      await setzeLetzteEigeneNachricht(draft.dealRecordId, new Date());
+    } catch (err) {
+      console.error("[wartet] setzeLetzteEigeneNachricht after approved draft failed (non-fatal):", id, err);
+    }
   }
   return { ok: true, text };
 }

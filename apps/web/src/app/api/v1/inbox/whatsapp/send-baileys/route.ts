@@ -12,6 +12,7 @@ import {
   parseWhatsAppSendPayload,
 } from "@/services/whatsapp-document";
 import { supersedePendingDrafts } from "@/services/agent/draft-schliessen";
+import { vermerkeEigeneNachricht } from "@/services/inbox-senden";
 
 export const maxDuration = 60;
 
@@ -83,6 +84,17 @@ export async function POST(req: NextRequest) {
         "[inbox] supersede drafts after baileys first send failed (non-fatal):",
         draftErr
       );
+    }
+    // Wartet-Signal on the conversation's deal (handed in, back-filled or newly
+    // minted). A deduplicated document retry sent nothing new.
+    const deduped = "deduped" in result && result.deduped === true;
+    if (!deduped) {
+      const sentAt = result.message?.sentAt;
+      await vermerkeEigeneNachricht({
+        workspaceId: ctx.workspaceId,
+        conversationId,
+        sentAt: sentAt instanceof Date ? sentAt : new Date(),
+      });
     }
     return success({
       conversationId,
