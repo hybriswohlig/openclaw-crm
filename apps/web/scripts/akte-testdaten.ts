@@ -4,7 +4,12 @@
  * Legt einen Workspace, den Nutzer Herr Testmann, zwei Betriebsgesellschaften
  * und vier Deals an:
  *   (a) Angebot, KV v2 gesendet, WhatsApp- und E-Mail-Gespräch, 3× geöffnet,
- *       offener Nachfass-Entwurf
+ *       offener Nachfass-Entwurf; für die Kalkulationsseite (Plan 4, Task 8)
+ *       14 Fotos am WhatsApp-Gespräch, Inventar mit Treffern und Abbau/Aufbau,
+ *       Versionen v1 und v2 gesperrt (v2 gesendet) und ein Entwurf v3 mit
+ *       einer Zeitposten- und einer Marge-Anpassung, alle in den echten Formen
+ *       (KvPosten, kosten.posten mit key/formel, personalStunden, rundungEur,
+ *       margeVorschlag.gruende, mietstation.adresse, montageJePosition)
  *   (b) Neue Anfrage ohne Gespräch
  *   (c) Durchgeführt, Rechnung, Rest 1.980 €, offene Meldung „bezahlt“
  *   (d) Verloren
@@ -52,6 +57,7 @@
  * Firma). (d) ist der verlorene Fall.
  */
 
+import { deflateSync } from "node:zlib";
 import postgres from "postgres";
 
 const EMAIL = "herr.testmann@example.com";
@@ -129,6 +135,233 @@ function adresse(line1: string, city: string, postcode: string) {
   return { line1, line2: "", city, state: "", postcode, country: "DE" };
 }
 
+/* ── Fotos: kleine PNGs ohne Bibliothek (zwei Töne, senkrechter Verlauf) ── */
+
+const CRC_TABELLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+
+function crc32(bytes: Uint8Array): number {
+  let c = 0xffffffff;
+  for (const b of bytes) c = CRC_TABELLE[(c ^ b) & 0xff]! ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(typ: string, daten: Uint8Array): Buffer {
+  const laenge = Buffer.alloc(4);
+  laenge.writeUInt32BE(daten.length);
+  const inhalt = Buffer.concat([Buffer.from(typ, "latin1"), Buffer.from(daten)]);
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(inhalt));
+  return Buffer.concat([laenge, inhalt, crc]);
+}
+
+function hexFarbe(hex: string): [number, number, number] {
+  return [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];
+}
+
+/** PNG (RGB, 8 Bit) mit Verlauf von `oben` nach `unten`, dazu ein hellerer Block als „Möbel“. */
+function pngBild(breite: number, hoehe: number, oben: string, unten: string): Buffer {
+  const a = hexFarbe(oben);
+  const b = hexFarbe(unten);
+  const zeilen = Buffer.alloc((breite * 3 + 1) * hoehe);
+  let p = 0;
+  for (let y = 0; y < hoehe; y++) {
+    zeilen[p++] = 0;
+    const t = y / Math.max(1, hoehe - 1);
+    for (let x = 0; x < breite; x++) {
+      const block = x > breite * 0.18 && x < breite * 0.82 && y > hoehe * 0.42;
+      for (let k = 0; k < 3; k++) {
+        const wert = a[k]! + (b[k]! - a[k]!) * t;
+        zeilen[p++] = Math.max(0, Math.min(255, Math.round(block ? wert * 0.82 : wert)));
+      }
+    }
+  }
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(breite, 0);
+  ihdr.writeUInt32BE(hoehe, 4);
+  ihdr[8] = 8; // Bittiefe
+  ihdr[9] = 2; // RGB
+  ihdr[10] = 0;
+  ihdr[11] = 0;
+  ihdr[12] = 0;
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk("IHDR", ihdr),
+    pngChunk("IDAT", deflateSync(zeilen)),
+    pngChunk("IEND", new Uint8Array(0)),
+  ]);
+}
+
+const FOTO_TOENE: Array<[string, string]> = [
+  ["#e7e9ed", "#cfd3da"], ["#e3e6ea", "#c9ced6"], ["#e8e4e0", "#d1c9c2"], ["#e5e8ec", "#c8cdd5"],
+  ["#e9e7e4", "#d3cfca"], ["#e2e6ea", "#c4cad2"], ["#e6e8eb", "#cdd1d8"], ["#e8e9ec", "#cfd2d9"],
+  ["#e4e7eb", "#c7ccd4"], ["#e7e5e2", "#d0cbc5"], ["#e5e8ec", "#c9ced6"], ["#e8e7e5", "#d2cfcb"],
+  ["#e3e6ea", "#c5cad2"], ["#e6e8eb", "#ccd0d7"],
+];
+
+/* ── Rechner-Ergebnis der Familie Weber in den echten Formen ──────────────── */
+
+interface Posten {
+  key: string;
+  bezeichnung: string;
+  menge: number | null;
+  einheit: string | null;
+  satz: number | null;
+  betrag: number;
+  formel: string | null;
+  quelle: string;
+  hebel?: "montage" | "halteverbot" | "einpacken" | "kueche";
+}
+
+const MARGE_VORSCHLAG = {
+  prozent: 37,
+  gruende: [
+    { text: "Basis Kottke", punkte: 40 },
+    { text: "Quelle Kleinanzeigen", punkte: -3 },
+    { text: "Freitag, keine Eile, kein Monatsende", punkte: 0 },
+  ],
+};
+
+const eur2 = (x: number) => Math.round(x * 100) / 100;
+
+/** Kette aus den Posten: Zwischensumme, Gemeinkosten 35 %, Versicherung 20 €, Preis bei Marge, Rundung 10 €. */
+function kette(posten: Posten[], margeProzent: number) {
+  const zwischensumme = eur2(posten.reduce((s, p) => s + p.betrag, 0));
+  const gemeinkosten = eur2(zwischensumme * 0.35);
+  const versicherung = 20;
+  const selbstkosten = eur2(zwischensumme + gemeinkosten + versicherung);
+  const festpreisRoh = eur2(selbstkosten / (1 - margeProzent / 100));
+  const festpreis = Math.ceil(festpreisRoh / 10) * 10;
+  const alle: Posten[] = [
+    ...posten,
+    { key: "gemeinkosten", bezeichnung: "Gemeinkosten und Risiko", menge: zwischensumme, einheit: "€", satz: 0.35, betrag: gemeinkosten, formel: `35 % von ${zwischensumme.toLocaleString("de-DE")} €`, quelle: "tarif" },
+    { key: "versicherung", bezeichnung: "Transportversicherung pauschal", menge: null, einheit: null, satz: null, betrag: versicherung, formel: null, quelle: "tarif" },
+  ];
+  return { posten: alle, zwischensumme, gemeinkosten, selbstkosten, festpreisRoh, festpreis, margeEur: eur2(festpreis - selbstkosten) };
+}
+
+interface WeberStand {
+  volumen: number;
+  /** Personenminuten Arbeit (Laden, Tragen, Montage) ohne Puffer */
+  arbeitPm: number;
+  zeitpostenPm: number;
+  halteverbotSeiten: 1 | 2;
+  /** Montage-Hebel im KV (Wandschrank, Bett mit Abbau/Aufbau durch die Firma) */
+  montage: boolean;
+  margeProzent: number;
+  margeQuelle: "vorschlag" | "anfrage";
+}
+
+/** Rechner-Ergebnis mit allen Feldern, die die Kalkulationsseite liest. */
+function weberErgebnis(s: WeberStand) {
+  const pufferProzent = 10;
+  const arbeitMitPosten = s.arbeitPm + s.zeitpostenPm;
+  const personenMin = Math.round(arbeitMitPosten * (1 + pufferProzent / 100));
+  const personenH = Math.round((personenMin / 60) * 10) / 10;
+  const jePerson = Math.round((personenH / 3) * 10) / 10;
+  const posten: Posten[] = [
+    { key: "personal.arbeit", bezeichnung: "Arbeit", menge: personenH, einheit: "Personenstunden", satz: 20, betrag: eur2(personenH * 20), formel: `3 × ${jePerson.toLocaleString("de-DE")} h × 20 €`, quelle: "tarif" },
+    { key: "personal.fahrt", bezeichnung: "Fahrt", menge: 3.6, einheit: "h", satz: 15, betrag: 54, formel: "3 × 1,2 h × 15 €", quelle: "tarif" },
+    { key: "fahrzeug.sprinter_l.miete", bezeichnung: "Sprinter L · Sixt Feuerbach · 17. bis 23.11.", menge: 1, einheit: "Anteil", satz: 150, betrag: 150, formel: "Wochenmiete 450 € ÷ 3 Umzüge", quelle: "tarif" },
+    { key: "fahrzeug.sprinter_l.kraftstoff", bezeichnung: "Kraftstoff 48 km", menge: 48, einheit: "km", satz: 0.19, betrag: 9, formel: "48 km × 0,19 €", quelle: "tarif" },
+    { key: "fahrzeug.sprinter_l.mehrkm", bezeichnung: "Mehrkilometer · 48 von 310 km Rest inklusive", menge: 0, einheit: "km", satz: 0.25, betrag: 0, formel: null, quelle: "tarif" },
+    { key: "halteverbot", bezeichnung: s.halteverbotSeiten === 2 ? "Halteverbot beidseitig" : "Halteverbot beim Beladen", menge: s.halteverbotSeiten, einheit: "Seiten", satz: 130, betrag: 130 * s.halteverbotSeiten, formel: `${s.halteverbotSeiten} × 130 €`, quelle: "tarif", hebel: "halteverbot" },
+    { key: "material.folie", bezeichnung: "Folie", menge: 1, einheit: "Pauschale", satz: 30, betrag: 30, formel: null, quelle: "tarif" },
+    { key: "material.decken", bezeichnung: "Decken und Gurte", menge: s.volumen, einheit: "m³", satz: 0.7, betrag: eur2(s.volumen * 0.7), formel: `${s.volumen} m³ × 0,70 €`, quelle: "tarif" },
+    { key: "material.kartons", bezeichnung: "60 Umzugskartons", menge: 60, einheit: "Stück", satz: 2.5, betrag: 150, formel: "60 × 2,50 €", quelle: "tarif", hebel: "einpacken" },
+    { key: "anfahrtsgeld", bezeichnung: "Mitarbeiter-Anfahrt", menge: 30, einheit: "km", satz: 0.3, betrag: 9, formel: "eigener PKW · 30 km × 0,30 €", quelle: "tarif" },
+  ];
+  const k = kette(posten, s.margeProzent);
+  const listenpreis = Math.ceil((k.selbstkosten / 0.42) / 10) * 10;
+  return {
+    ergebnis: {
+      montageJePosition: true,
+      volumen: { nettoCbm: s.volumen, ladeCbm: eur2(s.volumen * 1.1), gewichtKg: s.volumen * 110 },
+      team: { groesse: 3 },
+      tarif: { id: "tarif-kottke-test", version: 1, marke: "kottke" as const },
+      kosten: {
+        selbstkosten: k.selbstkosten,
+        personenH,
+        personalStunden: { arbeitPm: arbeitMitPosten, fahrerPm: 0, fahrzeitPm: 216, pufferProzent, personenH },
+        posten: k.posten,
+      },
+      preis: {
+        festpreis: k.festpreis,
+        festpreisRoh: k.festpreisRoh,
+        mindestpreis: Math.ceil(k.selbstkosten / 0.7 / 10) * 10,
+        selbstkosten: k.selbstkosten,
+        margeProzent: s.margeProzent,
+        margeWirksamProzent: s.margeProzent,
+        margeQuelle: s.margeQuelle,
+        margeEur: k.margeEur,
+        rundungEur: 10,
+        listenpreis,
+        festpreisBeiMindestmarge: Math.ceil(k.selbstkosten / 0.7 / 10) * 10,
+        margeVorschlag: MARGE_VORSCHLAG,
+        posten: [
+          { key: "verkauf.kern", bezeichnung: "Umzugsteam 3 Personen und Sprinter L", menge: 1, einheit: "Pauschale", satz: k.festpreis - 150 * s.halteverbotSeiten - 170 - (s.montage ? 60 : 0), betrag: k.festpreis - 150 * s.halteverbotSeiten - 170 - (s.montage ? 60 : 0), formel: null, quelle: "tarif" },
+          { key: "verkauf.halteverbot", bezeichnung: "Halteverbot", menge: s.halteverbotSeiten, einheit: "Seiten", satz: 150, betrag: 150 * s.halteverbotSeiten, formel: `${s.halteverbotSeiten} × 150 €`, quelle: "tarif", hebel: "halteverbot" as const },
+          ...(s.montage
+            ? [{ key: "verkauf.montage", bezeichnung: "Demontage & Montage", menge: 1.5, einheit: "h", satz: 35, betrag: 60, formel: "1,5 h × 35 €, aufgerundet", quelle: "tarif", hebel: "montage" as const }]
+            : []),
+          { key: "verkauf.kartons", bezeichnung: "60 Umzugskartons", menge: 60, einheit: "Stück", satz: 2.8333, betrag: 170, formel: "aus 150 € Kosten", quelle: "tarif", hebel: "einpacken" as const },
+        ],
+      },
+      margeVorschlag: MARGE_VORSCHLAG,
+      mietstation: {
+        name: "Sixt Feuerbach",
+        anbieter: "Sixt",
+        adresse: "Beispielstraße 100, 70469 Stuttgart",
+        quelle: "tarif",
+        anfahrtKm: 9,
+        anfahrtMin: 16,
+        rueckfahrtKm: 18,
+        rueckfahrtMin: 24,
+      },
+      stationsVergleich: [
+        { name: "Sixt Feuerbach", festpreis: k.festpreis, selbstkosten: k.selbstkosten, gewaehlt: true, anfahrtMin: 16, rueckfahrtMin: 24, fahrzeug: "Sprinter L" },
+        { name: "Sixt Vaihingen", festpreis: k.festpreis + 20, selbstkosten: eur2(k.selbstkosten + 14), gewaehlt: false, anfahrtMin: 24, rueckfahrtMin: 31, fahrzeug: "Sprinter L" },
+        { name: "Hertz Esslingen", festpreis: k.festpreis + 30, selbstkosten: eur2(k.selbstkosten + 19), gewaehlt: false, anfahrtMin: 32, rueckfahrtMin: 8, fahrzeug: "Sprinter L" },
+        { name: "Buchbinder Ludwigsburg", festpreis: k.festpreis + 60, selbstkosten: eur2(k.selbstkosten + 38), gewaehlt: false, anfahrtMin: 38, rueckfahrtMin: 44, fahrzeug: "Sprinter L" },
+      ],
+      positionen: [
+        { name: "Wandschrank", menge: 1, volumenCbm: 3.2, zerlegt: true, demontageQuelle: "wunsch" as const },
+        { name: "Sofa", menge: 1, volumenCbm: 2.1, zerlegt: false, demontageQuelle: "nicht_zerlegbar" as const },
+        { name: "Bett", menge: 1, volumenCbm: 1.8, zerlegt: true, demontageQuelle: "wunsch" as const },
+        { name: "Küche", menge: 1, volumenCbm: 4.5, zerlegt: true, demontageQuelle: "keine_regel" as const, ungeprueft: true },
+        { name: "Esstisch", menge: 1, volumenCbm: 1.2 },
+        { name: "Stuhl", menge: 6, volumenCbm: 0.3 },
+        { name: "Kühlschrank", menge: 1, volumenCbm: 1.1 },
+        { name: "Waschmaschine", menge: 1, volumenCbm: 0.6 },
+        { name: "Regal", menge: 3, volumenCbm: 0.9 },
+        { name: "Kommode", menge: 1, volumenCbm: 0.8 },
+        { name: "Schreibtisch", menge: 1, volumenCbm: 1 },
+        { name: "Fernseher", menge: 1, volumenCbm: 0.2 },
+        { name: "Umzugskarton", menge: 60, volumenCbm: 0.07 },
+      ],
+      zuordnungFreitext: { nichtZugeordnet: ["Küche"] },
+      fahrzeugoptionen: [
+        { id: "sprinter_l", name: "Sprinter L", fahrten: 2, km: 48, fahrtMin: 72, teamgroesse: 3, uhrzeitMin: 0, auslastung: 0.95 },
+        { id: "lkw_7_5", name: "LKW 7,5 t", fahrten: 1, km: 48, fahrtMin: 80, teamgroesse: 3, uhrzeitMin: 0, auslastung: 0.6 },
+      ],
+      empfehlungOptionId: "sprinter_l",
+      zeiten: { fahrtMin: 72, uhrzeitMin: 0, einsatztage: 1, demontage: 45, montage: 45, packen: 0, zeitpostenPm: s.zeitpostenPm },
+      hinweise: [] as Array<{ typ: string; text: string }>,
+      annahmen: [] as string[],
+      fahrzeitHinweis: null,
+      schaetzung: null,
+    },
+    k,
+  };
+}
+
 async function main(): Promise<void> {
   const { randomUUID } = await import("node:crypto");
   const { and, eq } = await import("drizzle-orm");
@@ -146,8 +379,10 @@ async function main(): Promise<void> {
     channelAccounts,
     inboxContacts,
     inboxConversations,
+    inboxMessageAttachments,
     inboxMessages,
   } = await import("@/db/schema/inbox");
+  const { dealInventoryItems } = await import("@/db/schema/inventory");
   const { seedWorkspaceObjects } = await import("@/services/workspace");
   const { createRecord } = await import("@/services/records");
   const { upsertQuotation } = await import("@/services/quotations");
@@ -256,6 +491,15 @@ async function main(): Promise<void> {
     return zeile.id;
   }
 
+  /** Wie `datensatz`, lässt aber Felder weg, die das Objekt in diesem Seed nicht hat (mit Hinweis). */
+  async function datensatzMitVorhandenen(objekt: string, werte: Record<string, unknown>): Promise<string> {
+    const zeilen = await db.select({ slug: attributes.slug }).from(attributes).where(eq(attributes.objectId, objekt));
+    const slugs = new Set(zeilen.map((z) => z.slug));
+    const fehlend = Object.keys(werte).filter((k) => !slugs.has(k));
+    if (fehlend.length > 0) console.warn(`Hinweis: Attribute fehlen im Seed, übersprungen: ${fehlend.join(", ")}`);
+    return datensatz(objekt, Object.fromEntries(Object.entries(werte).filter(([k]) => slugs.has(k))));
+  }
+
   const firmaObjekt = await objektId("operating_companies");
   const dealObjekt = await objektId("deals");
   const kottke = await datensatz(firmaObjekt, {
@@ -290,7 +534,7 @@ async function main(): Promise<void> {
   const quelleEmpfehlung = await optionId(dealObjekt, "source_channel", "Empfehlung");
   const verlustZuTeuer = await optionId(dealObjekt, "loss_reason", "zu teuer");
 
-  const weber = await datensatz(dealObjekt, {
+  const weber = await datensatzMitVorhandenen(dealObjekt, {
     name: "Familie Weber",
     stage: angebotStufe,
     operating_company: kottke,
@@ -300,69 +544,28 @@ async function main(): Promise<void> {
     first_reply_at: new Date("2026-11-04T09:15:00+01:00"),
     move_from_address: adresse("Beispielweg 12", "Stuttgart-West", "70178"),
     move_to_address: adresse("Probenstraße 4", "Esslingen", "73728"),
+    floors_from: 2,
+    floors_to: 0,
   });
-
-  const v1 = randomUUID();
-  const v2 = randomUUID();
-  const gesperrtAm = new Date("2026-11-04T11:00:00+01:00");
-  const gesendetAm = new Date("2026-11-04T11:20:00+01:00");
-  await db.insert(dealCalculationVersions).values([
-    {
-      id: v1,
-      workspaceId: workspace.id,
-      dealRecordId: weber,
-      version: 1,
-      status: "gesperrt",
-      pricingMode: "fest",
-      referenceDate: "2026-11-03",
-      priceCents: 175000,
-      kvItems: [{ bezeichnung: "Umzug", betragCent: 175000 }],
-      rechnerResult: { volumen: { nettoCbm: 32 }, preis: { selbstkosten: 1100, margeProzent: 37 } },
-      lockedAt: new Date("2026-11-03T16:00:00+01:00"),
-      lockedBy: userId,
-      createdBy: userId,
-    },
-    {
-      id: v2,
-      workspaceId: workspace.id,
-      dealRecordId: weber,
-      version: 2,
-      status: "gesperrt",
-      pricingMode: "fest",
-      referenceDate: "2026-11-04",
-      priceCents: 189000,
-      kvItems: [{ bezeichnung: "Umzug, 3 Zimmer", betragCent: 189000 }],
-      rechnerResult: { volumen: { nettoCbm: 38 }, preis: { selbstkosten: 1240, margeProzent: 34 } },
-      lockedAt: gesperrtAm,
-      lockedBy: userId,
-      sentAt: gesendetAm,
-      sentVia: "whatsapp",
-      createdBy: userId,
-    },
-  ]);
-  await upsertQuotation(weber, {
-    fixedPrice: "1890.00",
-    isVariable: false,
-    summary: "Umzug Stuttgart-West nach Esslingen, 3 Zimmer.",
-    validUntil: "2026-11-18",
-    serviceType: "move",
-    lineItems: [{ type: "other", description: "Umzug, 3 Zimmer", quantity: 1, unitRate: "1890.00", sortOrder: 0 }],
-  });
-  await db.update(quotations).set({ calculationVersionId: v2 }).where(eq(quotations.dealRecordId, weber));
+  // Tragwege, Halteverbot und Kartons stehen am Auftrag (ladeLeadDaten); fehlt das Objekt im Seed, bleiben sie Standard.
+  try {
+    const auftragObjekt = await objektId("auftraege");
+    await datensatzMitVorhandenen(auftragObjekt, {
+      deal: weber,
+      walking_distance_from_m: 25,
+      walking_distance_to_m: 10,
+      parking_halteverbot_needed: true,
+      parking_halteverbot_to: true,
+      packing_service: true,
+      boxes_needed: 60,
+    });
+  } catch (err) {
+    console.warn(`Hinweis: kein Auftrag für Familie Weber (${err instanceof Error ? err.message : String(err)})`);
+  }
 
   const pdf = Buffer.from("%PDF-1.1\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n");
   const pdfB64 = pdf.toString("base64");
-  await createDealDocument({
-    workspaceId: workspace.id,
-    dealRecordId: weber,
-    documentType: "quotation",
-    fileName: "KV-Familie-Weber-v2.pdf",
-    fileSize: pdf.length,
-    mimeType: "application/pdf",
-    fileContent: pdfB64,
-    notifyCustomer: false,
-    calculationVersionId: v2,
-  });
+  // Versionen, Angebot und KV-Dokument der Familie Weber folgen unten, nach Fotos und Inventar.
 
   const [waKonto] = await db
     .insert(channelAccounts)
@@ -436,7 +639,9 @@ async function main(): Promise<void> {
     .returning();
   if (!waGespraech || !mailGespraech) throw new Error("Gespräch wurde nicht angelegt.");
 
-  await db.insert(inboxMessages).values([
+  const gesperrtAm = new Date("2026-11-04T11:00:00+01:00");
+  const gesendetAm = new Date("2026-11-04T11:40:00+01:00");
+  const nachrichten = await db.insert(inboxMessages).values([
     {
       workspaceId: workspace.id,
       conversationId: waGespraech.id,
@@ -469,7 +674,243 @@ async function main(): Promise<void> {
       isRead: false,
       sentAt: new Date("2026-11-05T15:10:00+01:00"),
     },
+  ]).returning({ id: inboxMessages.id });
+  const waEingang = nachrichten[0];
+  if (!waEingang) throw new Error("WhatsApp-Nachricht wurde nicht angelegt.");
+
+  // 14 Fotos am WhatsApp-Eingang; die Seite zeigt die neuesten zuerst.
+  const fotoIds: string[] = [];
+  for (let i = 0; i < FOTO_TOENE.length; i++) {
+    const [oben, unten] = FOTO_TOENE[i]!;
+    const bytes = pngBild(320, 240, oben, unten);
+    const [foto] = await db
+      .insert(inboxMessageAttachments)
+      .values({
+        workspaceId: workspace.id,
+        messageId: waEingang.id,
+        conversationId: waGespraech.id,
+        dealRecordId: weber,
+        fileName: `foto-${i + 1}.png`,
+        mimeType: "image/png",
+        fileSize: bytes.length,
+        fileContent: bytes.toString("base64"),
+        createdAt: new Date(Date.parse("2026-11-04T09:06:00+01:00") + i * 60_000),
+      })
+      .returning({ id: inboxMessageAttachments.id });
+    if (!foto) throw new Error("Foto wurde nicht angelegt.");
+    fotoIds.push(foto.id);
+  }
+  /** Foto der n-ten Kachel (neueste zuerst). */
+  const kachel = (n: number): string => {
+    const id = fotoIds[fotoIds.length - n];
+    if (!id) throw new Error(`Kachel ${n} fehlt.`);
+    return id;
+  };
+
+  // Inventar: Treffer der Fotoanalyse mit Foto, Abbau/Aufbau je Position, Rest aus dem Chat.
+  type Besitzer = "company" | "customer" | "none";
+  const inventarZeile = (
+    i: number,
+    z: {
+      name: string;
+      kategorie: string;
+      menge?: number;
+      volumen: number;
+      groesse: "klein" | "mittel" | "gross" | "sperrig";
+      foto?: string;
+      zerlegen?: boolean;
+      abbau?: Besitzer;
+      aufbau?: Besitzer;
+    }
+  ) => ({
+    workspaceId: workspace.id,
+    dealRecordId: weber,
+    name: z.name,
+    category: z.kategorie,
+    quantity: z.menge ?? 1,
+    sizeClass: z.groesse,
+    heavyFlag: z.groesse === "sperrig",
+    fragileFlag: false,
+    disassemblyRequired: z.zerlegen ?? false,
+    moveFlag: true,
+    photoAttachmentId: z.foto ?? null,
+    volumeCbmEstimate: String(z.volumen),
+    confidence: "hoch" as const,
+    source: z.foto ? ("foto" as const) : ("chat" as const),
+    needsPhoto: false,
+    dismantlingOwner: z.abbau ?? ("none" as const),
+    assemblyOwner: z.aufbau ?? ("none" as const),
+    sortOrder: i,
+  });
+  await db.insert(dealInventoryItems).values([
+    inventarZeile(0, { name: "Wandschrank", kategorie: "Möbel", volumen: 3.2, groesse: "gross", foto: kachel(1), zerlegen: true, abbau: "company", aufbau: "company" }),
+    inventarZeile(1, { name: "Sofa", kategorie: "Möbel", volumen: 2.1, groesse: "gross", foto: kachel(3) }),
+    inventarZeile(2, { name: "Küche", kategorie: "Küche", volumen: 4.5, groesse: "sperrig", foto: kachel(6), zerlegen: true, abbau: "company" }),
+    inventarZeile(3, { name: "Bett", kategorie: "Möbel", volumen: 1.8, groesse: "gross", foto: kachel(9), zerlegen: true, abbau: "company", aufbau: "company" }),
+    inventarZeile(4, { name: "Esstisch", kategorie: "Möbel", volumen: 1.2, groesse: "gross" }),
+    inventarZeile(5, { name: "Stuhl", kategorie: "Möbel", menge: 6, volumen: 0.3, groesse: "mittel" }),
+    inventarZeile(6, { name: "Kühlschrank", kategorie: "Elektrogerät", volumen: 1.1, groesse: "gross" }),
+    inventarZeile(7, { name: "Waschmaschine", kategorie: "Elektrogerät", volumen: 0.6, groesse: "gross" }),
+    inventarZeile(8, { name: "Regal", kategorie: "Möbel", menge: 3, volumen: 0.9, groesse: "mittel" }),
+    inventarZeile(9, { name: "Kommode", kategorie: "Möbel", volumen: 0.8, groesse: "mittel" }),
+    inventarZeile(10, { name: "Schreibtisch", kategorie: "Möbel", volumen: 1, groesse: "gross" }),
+    inventarZeile(11, { name: "Fernseher", kategorie: "Elektrogerät", volumen: 0.2, groesse: "klein" }),
+    inventarZeile(12, { name: "Umzugskarton", kategorie: "Karton", menge: 60, volumen: 0.07, groesse: "klein" }),
   ]);
+
+  // Versionen in den echten Formen; Anfrage und Grundlage aus den Lead-Daten wie im Versionen-Dienst.
+  const { grundlageAus, kostenzeilenAus, anfrageMitUebersteuerungen } = await import("@/lib/kalkulation-versionen");
+  const { rechnerAnfrageAus } = await import("@/services/rechner/eingabe");
+  const { ladeLeadDaten } = await import("@/services/rechner/lead-daten");
+  const { heuteBerlin } = await import("@/services/rechner/quelle");
+  const lead = await ladeLeadDaten(workspace.id, weber);
+  if (!lead) throw new Error("Lead-Daten der Familie Weber fehlen.");
+  const basisAnfrage = rechnerAnfrageAus(lead);
+  const heute = heuteBerlin();
+  const autor = { userId, quelle: "mensch" as const };
+  const margeGewaehlt = {
+    id: randomUUID(),
+    art: "marge" as const,
+    key: "marge",
+    rechnerwert: 37,
+    wert: 38,
+    grund: "Marge im Regler gewählt",
+    autor,
+    zeit: "2026-11-04T10:52:00+01:00",
+    fotoRef: null,
+  };
+  const zeitpostenWandschrank = {
+    id: randomUUID(),
+    art: "zeitposten" as const,
+    key: "frei.wandschrank",
+    rechnerwert: null,
+    wert: { bezeichnung: "Wandschrank, Demontage + Aufbau", minuten: 90 },
+    grund: "3-türig, auf Foto 3, braucht Demontage und Aufbau, Rechner hatte 0",
+    autor,
+    zeit: "2026-11-05T10:48:00+01:00",
+    fotoRef: kachel(1),
+  };
+  const standV1 = weberErgebnis({ volumen: 32, arbeitPm: 1000, zeitpostenPm: 0, halteverbotSeiten: 1, montage: false, margeProzent: 37, margeQuelle: "vorschlag" });
+  const standV2 = weberErgebnis({ volumen: 38, arbeitPm: 1184, zeitpostenPm: 0, halteverbotSeiten: 2, montage: true, margeProzent: 38, margeQuelle: "anfrage" });
+  const standV3 = weberErgebnis({ volumen: 38, arbeitPm: 1184, zeitpostenPm: 90, halteverbotSeiten: 2, montage: true, margeProzent: 38, margeQuelle: "anfrage" });
+  const v1 = randomUUID();
+  const v2 = randomUUID();
+  const v3 = randomUUID();
+  const versionsZeile = (o: {
+    id: string;
+    version: number;
+    status: "entwurf" | "gesperrt";
+    referenceDate: string;
+    stand: ReturnType<typeof weberErgebnis>;
+    overrides: Array<typeof margeGewaehlt | typeof zeitpostenWandschrank>;
+    kvItems: Array<{ description: string; quantity: number; unitRate: number }>;
+    gewaehltProzent: number | null;
+    createdAt: Date;
+    lockedAt?: Date;
+    sentAt?: Date;
+    sentVia?: string;
+  }) => ({
+    id: o.id,
+    workspaceId: workspace.id,
+    dealRecordId: weber,
+    version: o.version,
+    status: o.status,
+    pricingMode: "fest" as const,
+    referenceDate: o.referenceDate,
+    inputs: grundlageAus(lead, o.stand.ergebnis, o.overrides),
+    overrides: o.overrides,
+    rechnerRequest: anfrageMitUebersteuerungen(basisAnfrage, o.overrides, { referenceDate: o.referenceDate }),
+    rechnerResult: o.stand.ergebnis,
+    error: null,
+    costLines: kostenzeilenAus(o.stand.ergebnis, o.overrides),
+    margin: { vorschlagProzent: MARGE_VORSCHLAG.prozent, gruende: MARGE_VORSCHLAG.gruende, gewaehltProzent: o.gewaehltProzent },
+    priceCents: Math.round(o.stand.k.festpreis * 100),
+    packagePrices: [],
+    kvItems: o.kvItems,
+    tariff: o.stand.ergebnis.tarif,
+    createdBy: userId,
+    createdAt: o.createdAt,
+    updatedAt: o.lockedAt ?? o.createdAt,
+    lockedAt: o.lockedAt ?? null,
+    lockedBy: o.lockedAt ? userId : null,
+    sentAt: o.sentAt ?? null,
+    sentVia: o.sentVia ?? null,
+  });
+  const kernV1 = standV1.k.festpreis - 150 - 150;
+  const kernV2 = standV2.k.festpreis - 300 - 60 - 170;
+  await db.insert(dealCalculationVersions).values([
+    versionsZeile({
+      id: v1,
+      version: 1,
+      status: "gesperrt",
+      referenceDate: "2026-11-03",
+      stand: standV1,
+      overrides: [],
+      kvItems: [
+        { description: "Umzugsteam 3 Personen und Sprinter L, Umzug Stuttgart-West nach Esslingen", quantity: 1, unitRate: kernV1 },
+        { description: "Halteverbot beim Beladen", quantity: 1, unitRate: 150 },
+        { description: "60 Umzugskartons", quantity: 1, unitRate: 150 },
+      ],
+      gewaehltProzent: null,
+      createdAt: new Date("2026-11-03T15:20:00+01:00"),
+      lockedAt: new Date("2026-11-03T16:00:00+01:00"),
+    }),
+    versionsZeile({
+      id: v2,
+      version: 2,
+      status: "gesperrt",
+      referenceDate: "2026-11-04",
+      stand: standV2,
+      overrides: [margeGewaehlt],
+      kvItems: [
+        { description: "Umzugsteam 3 Personen und Sprinter L, Umzug Stuttgart-West nach Esslingen", quantity: 1, unitRate: kernV2 },
+        { description: "Halteverbot beidseitig", quantity: 1, unitRate: 300 },
+        { description: "Demontage & Montage (Wandschrank, Bett)", quantity: 1, unitRate: 60 },
+        { description: "60 Umzugskartons", quantity: 1, unitRate: 170 },
+      ],
+      gewaehltProzent: 38,
+      createdAt: new Date("2026-11-04T10:30:00+01:00"),
+      lockedAt: gesperrtAm,
+      sentAt: gesendetAm,
+      sentVia: "whatsapp",
+    }),
+    versionsZeile({
+      id: v3,
+      version: 3,
+      status: "entwurf",
+      referenceDate: heute,
+      stand: standV3,
+      overrides: [margeGewaehlt, zeitpostenWandschrank],
+      kvItems: [],
+      gewaehltProzent: 38,
+      createdAt: new Date("2026-11-05T10:40:00+01:00"),
+    }),
+  ]);
+  await upsertQuotation(weber, {
+    fixedPrice: standV2.k.festpreis.toFixed(2),
+    isVariable: false,
+    summary: "Umzug Stuttgart-West nach Esslingen, 3 Zimmer.",
+    validUntil: "2026-11-18",
+    serviceType: "move",
+    lineItems: [
+      { type: "other", description: "Umzugsteam 3 Personen und Sprinter L", quantity: 1, unitRate: kernV2.toFixed(2), sortOrder: 0 },
+      { type: "other", description: "Halteverbot beidseitig", quantity: 1, unitRate: "300.00", sortOrder: 1 },
+      { type: "other", description: "Demontage & Montage (Wandschrank, Bett)", quantity: 1, unitRate: "60.00", sortOrder: 2 },
+      { type: "other", description: "60 Umzugskartons", quantity: 1, unitRate: "170.00", sortOrder: 3 },
+    ],
+  });
+  await db.update(quotations).set({ calculationVersionId: v2 }).where(eq(quotations.dealRecordId, weber));
+  await createDealDocument({
+    workspaceId: workspace.id,
+    dealRecordId: weber,
+    documentType: "quotation",
+    fileName: "KV-Familie-Weber-v2.pdf",
+    fileSize: pdf.length,
+    mimeType: "application/pdf",
+    fileContent: pdfB64,
+    notifyCustomer: false,
+    calculationVersionId: v2,
+  });
 
   await db.insert(agentDrafts).values({
     workspaceId: workspace.id,

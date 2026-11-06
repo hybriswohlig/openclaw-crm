@@ -1,0 +1,361 @@
+"use client";
+
+import "@/styles/neu-kalk.css";
+
+import Link from "next/link";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
+import { GlassButton } from "@/components/glassyui/glass-button";
+import { GlassPanel } from "@/components/glassyui/glass-panel";
+import type { KalkulationsAnsicht } from "@/lib/kalkulations-ansicht";
+import type { UebersteuerungsArt } from "@/lib/kalkulation-versionen";
+import { apiAufruf, jsonAufruf, type ApiAntwort } from "@/components/neu/akte/api";
+import { KalkKopf } from "./kalk-kopf";
+
+/** Welche Aktion gerade läuft; währenddessen sind alle Eingaben gesperrt (Review Focus 5). */
+export type Lauf = "neue_version" | "neu_rechnen" | "speichern" | "sperren";
+
+/** Eine Übersteuerung, wie `POST …/overrides` sie erwartet. */
+export interface UebersteuerungEingabe {
+  art: UebersteuerungsArt;
+  key: string;
+  wert: unknown;
+  grund: string;
+  fotoRef?: string | null;
+}
+
+export type Ergebnis = { ok: true } | { ok: false; message: string };
+
+/**
+ * Was die Spalten brauchen, um zu schreiben: Deal, Version, ob sie bearbeitbar
+ * ist, der laufende Vorgang und die Aktionen der Seite. Übersteuerungen an
+ * einer gesperrten Version landen im Entwurf; die Seite springt dann dorthin
+ * (Review Focus 2).
+ */
+export interface KalkKontext {
+  dealId: string;
+  versionNr: number;
+  bearbeitbar: boolean;
+  laeuft: Lauf | null;
+  /** Mehrere Übersteuerungen nacheinander (eine je geändertem Feld), danach einmal neu laden. */
+  uebersteuern: (liste: UebersteuerungEingabe[]) => Promise<Ergebnis>;
+  neuLaden: () => Promise<void>;
+  neueVersion: () => Promise<void>;
+  neuRechnen: () => Promise<void>;
+  wechsleVersion: (version: number) => void;
+  /** Für längere Vorgänge der Spalten (Sperren, KV): Lauf setzen und wieder lösen. */
+  setzeLauf: (lauf: Lauf | null) => void;
+}
+
+interface VersionsEintrag {
+  version: number;
+  status: "entwurf" | "gesperrt";
+  priceCents: number | null;
+}
+
+type Zustand =
+  | { art: "laden" }
+  | { art: "erstellen" }
+  | { art: "nicht_gefunden" }
+  | { art: "fehler"; meldung: string }
+  | { art: "fertig"; ansicht: KalkulationsAnsicht };
+
+function basis(dealId: string): string {
+  return `/api/v1/deals/${encodeURIComponent(dealId)}/calculation/versions`;
+}
+
+/** `?v=` aus der Adresszeile, null ohne oder bei Unsinn. */
+function versionAusUrl(): number | null {
+  if (typeof window === "undefined") return null;
+  const roh = new URLSearchParams(window.location.search).get("v");
+  if (!roh || !/^[1-9]\d*$/.test(roh)) return null;
+  return Number(roh);
+}
+
+/** `?v=` in der Adresszeile nachziehen, ohne Navigation. */
+function versionInUrl(version: number) {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  if (url.searchParams.get("v") === String(version)) return;
+  url.searchParams.set("v", String(version));
+  window.history.replaceState(window.history.state, "", url.toString());
+}
+
+/** Standard: der Entwurf, sonst die neueste gesperrte Version (Task 8). */
+export function standardVersion(liste: VersionsEintrag[], gewuenscht: number | null): number | null {
+  if (gewuenscht !== null && liste.some((v) => v.version === gewuenscht)) return gewuenscht;
+  const entwurf = liste.find((v) => v.status === "entwurf");
+  if (entwurf) return entwurf.version;
+  let neueste: number | null = null;
+  for (const v of liste) if (neueste === null || v.version > neueste) neueste = v.version;
+  return neueste;
+}
+
+/**
+ * Die Kalkulationsseite (Plan 4, Entscheidung 2): lädt die Versionsliste,
+ * legt ohne Version einen Entwurf an („Kalkulation wird erstellt“), dann das
+ * Ansichtsmodell `GET …/[v]/ansicht`. Kopf, Hinweisband und drei Spalten
+ * (Grundlage, Selbstkosten, Marge und Preis). Alle Schreibwege laufen über
+ * den Kontext; während eines Laufs ist alles gesperrt.
+ */
+export function KalkSeite({ dealId }: { dealId: string }) {
+  const [zustand, setZustand] = useState<Zustand>({ art: "laden" });
+  const [laeuft, setLaeuft] = useState<Lauf | null>(null);
+  const lauf = useRef(0);
+  const versionNr = useRef<number | null>(null);
+  const hatSeite = useRef(false);
+  hatSeite.current = zustand.art === "fertig";
+
+  /** Ansicht einer Version laden; null = Standard. */
+  const laden = useCallback(async (deal: string, gewuenscht: number | null): Promise<void> => {
+    const dieser = ++lauf.current;
+    const stillOhneSeite = !hatSeite.current;
+    const fehlschlag = (f: { status: number; message: string }) => {
+      if (dieser !== lauf.current) return;
+      if (!stillOhneSeite) {
+        toast.error("Kalkulation konnte nicht neu geladen werden.", { description: f.message });
+        return;
+      }
+      setZustand(f.status === 404 ? { art: "nicht_gefunden" } : { art: "fehler", meldung: f.message });
+    };
+
+    const liste = await apiAufruf<{ versionen: VersionsEintrag[] }>(basis(deal));
+    if (dieser !== lauf.current) return;
+    if (!liste.ok) return fehlschlag(liste);
+
+    let version = standardVersion(liste.data.versionen ?? [], gewuenscht);
+    if (version === null) {
+      if (stillOhneSeite) setZustand({ art: "erstellen" });
+      const neu = await apiAufruf<{ version: { version: number }; neu: boolean }>(basis(deal), jsonAufruf("POST", {}));
+      if (dieser !== lauf.current) return;
+      if (!neu.ok) return fehlschlag(neu);
+      version = neu.data.version.version;
+    }
+
+    const ansicht = await apiAufruf<{ ansicht: KalkulationsAnsicht }>(`${basis(deal)}/${version}/ansicht`);
+    if (dieser !== lauf.current) return;
+    if (!ansicht.ok) return fehlschlag(ansicht);
+    versionNr.current = version;
+    versionInUrl(version);
+    setZustand({ art: "fertig", ansicht: ansicht.data.ansicht });
+  }, []);
+
+  useEffect(() => {
+    hatSeite.current = false;
+    versionNr.current = null;
+    setZustand({ art: "laden" });
+    setLaeuft(null);
+    void laden(dealId, versionAusUrl());
+    return () => {
+      lauf.current++;
+    };
+  }, [dealId, laden]);
+
+  const neuLaden = useCallback(async () => {
+    await laden(dealId, versionNr.current);
+  }, [laden, dealId]);
+
+  const wechsleVersion = useCallback(
+    (version: number) => {
+      void laden(dealId, version);
+    },
+    [laden, dealId]
+  );
+
+  const neueVersion = useCallback(async () => {
+    setLaeuft("neue_version");
+    const r = await apiAufruf<{ version: { version: number }; neu: boolean }>(basis(dealId), jsonAufruf("POST", {}));
+    setLaeuft(null);
+    if (!r.ok) {
+      toast.error("Neue Version konnte nicht angelegt werden.", { description: r.message });
+      return;
+    }
+    if (!r.data.neu) toast.message(`Entwurf v${r.data.version.version} gibt es schon.`);
+    await laden(dealId, r.data.version.version);
+  }, [dealId, laden]);
+
+  const neuRechnen = useCallback(async () => {
+    const v = versionNr.current;
+    if (v === null) return;
+    setLaeuft("neu_rechnen");
+    const r = await apiAufruf<{ version: { version: number }; gerechnet: boolean }>(
+      `${basis(dealId)}/${v}/neu-rechnen`,
+      jsonAufruf("POST", {})
+    );
+    setLaeuft(null);
+    if (!r.ok) {
+      toast.error("Neu rechnen fehlgeschlagen.", { description: r.message });
+      return;
+    }
+    if (!r.data.gerechnet) toast.message("Nichts neu gerechnet.", { description: "Der Entwurf war schon aktuell." });
+    await laden(dealId, v);
+  }, [dealId, laden]);
+
+  const uebersteuern = useCallback(
+    async (liste: UebersteuerungEingabe[]): Promise<Ergebnis> => {
+      let ziel = versionNr.current;
+      if (ziel === null || liste.length === 0) return { ok: false, message: "Nichts zu speichern." };
+      const start = ziel;
+      setLaeuft("speichern");
+      for (const e of liste) {
+        const r: ApiAntwort<{ version: { version: number }; neu: boolean }> = await apiAufruf(
+          `${basis(dealId)}/${ziel}/overrides`,
+          jsonAufruf("POST", { art: e.art, key: e.key, wert: e.wert, grund: e.grund, fotoRef: e.fotoRef ?? null })
+        );
+        if (!r.ok) {
+          setLaeuft(null);
+          // Teilweise gespeichert: die Seite zeigt den echten Stand.
+          await laden(dealId, ziel);
+          return { ok: false, message: r.message };
+        }
+        // An einer gesperrten Version landet die Änderung im Entwurf: die weiteren dorthin.
+        ziel = r.data.version.version;
+      }
+      setLaeuft(null);
+      if (ziel !== start) toast.message(`Änderung im Entwurf v${ziel} gespeichert.`);
+      await laden(dealId, ziel);
+      return { ok: true };
+    },
+    [dealId, laden]
+  );
+
+  if (zustand.art === "laden" || zustand.art === "erstellen") {
+    return <KalkSkelett erstellen={zustand.art === "erstellen"} />;
+  }
+
+  if (zustand.art === "nicht_gefunden") {
+    return (
+      <Hinweis titel="Kalkulation nicht gefunden" text="Diesen Deal gibt es nicht oder nicht in diesem Workspace.">
+        <GlassButton asChild>
+          <Link href="/app/leads">Zu den Leads</Link>
+        </GlassButton>
+      </Hinweis>
+    );
+  }
+
+  if (zustand.art === "fehler") {
+    return (
+      <Hinweis titel="Kalkulation konnte nicht geladen werden" text={zustand.meldung}>
+        <GlassButton onClick={() => void laden(dealId, versionAusUrl())}>Erneut laden</GlassButton>
+      </Hinweis>
+    );
+  }
+
+  const { ansicht } = zustand;
+  const kontext: KalkKontext = {
+    dealId,
+    versionNr: ansicht.version.nummer,
+    bearbeitbar: ansicht.version.bearbeitbar,
+    laeuft,
+    uebersteuern,
+    neuLaden,
+    neueVersion,
+    neuRechnen,
+    wechsleVersion,
+    setzeLauf: setLaeuft,
+  };
+  const beschaeftigt = laeuft !== null;
+
+  return (
+    <div className="kalk">
+      <KalkKopf
+        kopf={ansicht.kopf}
+        versionen={ansicht.versionen}
+        version={ansicht.version}
+        beschaeftigt={beschaeftigt}
+        onWechsel={wechsleVersion}
+        onNeueVersion={() => void neueVersion()}
+      />
+      <Hinweisband version={ansicht.version} laeuft={laeuft} onNeuRechnen={() => void neuRechnen()} />
+      <div className="kalk-spalten">
+        <div className="kalk-spalte">
+          <Platzhalter titel="Grundlage" unter="Woher jede Zahl kommt. Klick zum Ändern." text="Kommt mit Task 9." />
+        </div>
+        <div className="kalk-spalte">
+          <Platzhalter titel="Selbstkosten" unter="Was uns der Auftrag kostet, Zeile für Zeile." text="Kommt mit Task 10." />
+        </div>
+        <div className="kalk-spalte">
+          <Platzhalter titel="Marge und Preis" unter="Was der Kunde zahlt." text={`Kommt mit Task 11 (Kontext v${kontext.versionNr}).`} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Band über den Spalten: Rechnerfehler (rose) oder veralteter Entwurf (gold),
+ * beide mit „Neu rechnen“ (Entscheidung 5), gesperrt während des Laufs.
+ */
+function Hinweisband({
+  version,
+  laeuft,
+  onNeuRechnen,
+}: {
+  version: KalkulationsAnsicht["version"];
+  laeuft: Lauf | null;
+  onNeuRechnen: () => void;
+}) {
+  if (!version.fehler && !version.veraltet) return null;
+  const entwurf = version.status === "entwurf";
+  const rechnet = laeuft === "neu_rechnen";
+  return (
+    <div className="kalk-band" data-ton={version.fehler ? "rose" : "gold"} role="status">
+      <span>
+        {version.fehler
+          ? `Der Rechner hat nicht geantwortet: ${version.fehler}`
+          : "Der Entwurf ist veraltet: Lead oder Datum haben sich seit der letzten Berechnung geändert. Vor dem Sperren neu rechnen."}
+      </span>
+      {entwurf ? (
+        <button type="button" className="kalk-kleinknopf" disabled={laeuft !== null} aria-busy={rechnet || undefined} onClick={onNeuRechnen}>
+          {rechnet ? "Rechnet …" : "Neu rechnen"}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function Platzhalter({ titel, unter, text }: { titel: string; unter: string; text: string }) {
+  return (
+    <GlassPanel variant="panel" className="kalk-panel">
+      <div className="kalk-panel-kopf">
+        <div>
+          <h2 className="kalk-panel-titel">{titel}</h2>
+          <p className="kalk-panel-unter">{unter}</p>
+        </div>
+      </div>
+      <p className="kalk-panel-leer">{text}</p>
+    </GlassPanel>
+  );
+}
+
+function Hinweis({ titel, text, children }: { titel: string; text: string; children: React.ReactNode }) {
+  return (
+    <GlassPanel variant="panel" className="kalk-hinweis" role="alert">
+      <h1>{titel}</h1>
+      <p>{text}</p>
+      <div className="kalk-hinweis-aktion">{children}</div>
+    </GlassPanel>
+  );
+}
+
+function KalkSkelett({ erstellen }: { erstellen: boolean }) {
+  return (
+    <div className="kalk-skelett" aria-busy="true" aria-label={erstellen ? "Kalkulation wird erstellt" : "Kalkulation wird geladen"}>
+      <div className="kalk-skelett-kopf">
+        <span className="lg-skeleton kalk-skelett-krume" />
+        <span className="lg-skeleton kalk-skelett-titel" />
+        <span className="lg-skeleton kalk-skelett-zweite" />
+      </div>
+      {erstellen ? (
+        <div className="kalk-band" data-ton="blau" role="status">
+          <span>Kalkulation wird erstellt …</span>
+        </div>
+      ) : null}
+      <div className="kalk-spalten">
+        <span className="lg-skeleton kalk-skelett-panel" />
+        <span className="lg-skeleton kalk-skelett-panel" />
+        <span className="lg-skeleton kalk-skelett-panel" />
+      </div>
+    </div>
+  );
+}
