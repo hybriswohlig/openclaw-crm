@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { GlassButton } from "@/components/glassyui/glass-button";
-import { apiAufruf } from "./api";
+import { apiAufruf, jsonAufruf } from "./api";
+import { freigabeFehler } from "./gespraech-texte";
+
+export { freigabeFehler };
 
 export interface Entwurf {
   id: string;
@@ -19,48 +22,32 @@ const KLASSE_LABEL: Record<string, string> = {
   first_contact: "Erstkontakt",
 };
 
-/** Deutsche Meldung je Fehlerwort der Freigabe (`PATCH /agent-drafts/{id}`). */
-export function freigabeFehler(fehler: string | undefined, reasons?: string[], detail?: string): string {
-  switch (fehler) {
-    case "gate_blocked":
-      return `Gesperrt: ${(reasons ?? []).join(", ") || "Freigabe nicht möglich"}.`;
-    case "price_leak":
-      return "Preisprüfung hat blockiert. Bitte von Hand prüfen und senden.";
-    case "session_expired":
-      return detail ?? "24-Stunden-Fenster zu.";
-    case "send_uncertain":
-      return detail ?? "Zustellung unklar. Bitte den Verlauf prüfen, nichts erneut senden.";
-    case "expired":
-      return "Entwurf abgelaufen.";
-    case "stale":
-      return "Kunde hat neu geschrieben, der Entwurf ist überholt.";
-    case "not_pending":
-      return "Bereits bearbeitet.";
-    default:
-      return "Senden fehlgeschlagen. Bitte erneut versuchen.";
-  }
-}
-
 /**
  * Offener Entwurf des gewählten Gesprächs, über dem Eingabefeld. „Freigeben und
  * senden“ schickt ihn über die bestehende Freigabe (humanApproved), „Bearbeiten“
  * übernimmt den Text ins Feld (und meldet `taken`), „Verwerfen“ schließt ihn.
- * `aktualisierung` ändert sich mit jedem Neuladen der Akte und lädt den Entwurf neu.
+ * `aktualisierung` ändert sich mit jedem Neuladen der Akte und lädt den Entwurf
+ * neu. `fensterZu`: das gewählte WABA-Gespräch ist außerhalb des Fensters, die
+ * Freigabe würde am Gate scheitern und bleibt gesperrt.
  */
 export function EntwurfKarte({
   gespraechId,
   aktualisierung,
+  fensterZu,
   onUebernehmen,
   onGesendet,
 }: {
   gespraechId: string | null;
   aktualisierung: unknown;
+  fensterZu: boolean;
   onUebernehmen: (text: string) => void;
   onGesendet: () => Promise<void> | void;
 }) {
   const [entwurf, setEntwurf] = useState<Entwurf | null>(null);
   const [laeuft, setLaeuft] = useState(false);
   const [fehler, setFehler] = useState<string | null>(null);
+  // Ein zweiter Klick während Freigeben oder Verwerfen darf nichts auslösen.
+  const laeuftRef = useRef(false);
 
   useEffect(() => {
     // Beim Kanalwechsel sofort leeren, sonst stünde der alte Entwurf kurz unter dem neuen Kanal.
@@ -83,30 +70,40 @@ export function EntwurfKarte({
   if (!entwurf) return null;
   const e = entwurf;
 
-  async function schliessen(action: "taken" | "dismiss") {
-    // Der Vermerk ist nur Lernsignal; die Oberfläche hat die Aktion schon ausgeführt.
-    await apiAufruf<unknown>(`/api/v1/agent-drafts/${e.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action }),
-    });
+  function beginnen(): boolean {
+    if (laeuftRef.current) return false;
+    laeuftRef.current = true;
+    setLaeuft(true);
+    setFehler(null);
+    return true;
+  }
+
+  function beenden() {
+    laeuftRef.current = false;
+    setLaeuft(false);
   }
 
   function bearbeiten() {
     onUebernehmen(e.text);
     setEntwurf(null);
-    void schliessen("taken");
+    // Nur Lernsignal: die Oberfläche hat den Text schon übernommen, ein Fehler bleibt ohne Folge.
+    void apiAufruf<unknown>(`/api/v1/agent-drafts/${e.id}`, jsonAufruf("PATCH", { action: "taken" }));
   }
 
   async function verwerfen() {
+    if (!beginnen()) return;
+    const r = await apiAufruf<unknown>(`/api/v1/agent-drafts/${e.id}`, jsonAufruf("PATCH", { action: "dismiss" }));
+    beenden();
+    if (!r.ok) {
+      // Die Karte bleibt stehen, der Entwurf ist ja noch offen.
+      setFehler(`Verwerfen fehlgeschlagen. ${r.message}`);
+      return;
+    }
     setEntwurf(null);
-    await schliessen("dismiss");
   }
 
   async function freigeben() {
-    if (laeuft) return;
-    setLaeuft(true);
-    setFehler(null);
+    if (fensterZu || !beginnen()) return;
     let res: Response;
     try {
       res = await fetch(`/api/v1/agent-drafts/${e.id}`, {
@@ -115,13 +112,13 @@ export function EntwurfKarte({
         body: JSON.stringify({ action: "approve_and_send", finalText: e.text, humanApproved: true }),
       });
     } catch {
-      setLaeuft(false);
+      beenden();
       setFehler("Keine Verbindung zum Server.");
       return;
     }
     if (res.ok) {
       setEntwurf(null);
-      setLaeuft(false);
+      beenden();
       await onGesendet();
       return;
     }
@@ -132,7 +129,9 @@ export function EntwurfKarte({
     if (wort === "expired" || wort === "stale" || wort === "not_pending") {
       window.setTimeout(() => setEntwurf((d) => (d?.id === e.id ? null : d)), 1800);
     }
-    setLaeuft(false);
+    beenden();
+    // Das Fenster ist zu: die Akte neu laden, damit Sperre und Hinweis sofort stimmen.
+    if (wort === "session_expired") await onGesendet();
   }
 
   return (
@@ -146,7 +145,7 @@ export function EntwurfKarte({
       <p className="akte-gespraech-entwurf-text">{e.text}</p>
       <div className="akte-gespraech-entwurf-knoepfe">
         {!e.uncertain ? (
-          <GlassButton size="sm" onClick={() => void freigeben()} disabled={laeuft}>
+          <GlassButton size="sm" onClick={() => void freigeben()} disabled={laeuft || fensterZu}>
             {laeuft ? "Sendet…" : "Freigeben und senden"}
           </GlassButton>
         ) : null}
@@ -157,6 +156,11 @@ export function EntwurfKarte({
           Verwerfen
         </GlassButton>
       </div>
+      {fensterZu && !e.uncertain ? (
+        <p className="akte-gespraech-hinweis akte-gespraech-entwurf-hinweis">
+          24-Stunden-Fenster zu. Freigeben geht erst wieder, wenn der Kunde schreibt oder nach einer Vorlage.
+        </p>
+      ) : null}
       {fehler ? (
         <p className="akte-gespraech-fehler" role="alert">
           {fehler}

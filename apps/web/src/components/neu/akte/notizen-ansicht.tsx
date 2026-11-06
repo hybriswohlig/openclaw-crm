@@ -4,6 +4,9 @@ import { useEffect, useState } from "react";
 import { GlassButton } from "@/components/glassyui/glass-button";
 import { tagKurz, uhrzeitKurz } from "@/lib/anzeige";
 import { apiAufruf, jsonAufruf } from "./api";
+import { notizDokument, notizText } from "./notiz-text";
+
+export { notizDokument, notizText };
 
 interface Notiz {
   id: string;
@@ -11,34 +14,6 @@ interface Notiz {
   content: unknown;
   createdAt: string;
   updatedAt: string;
-}
-
-/** Knoten, deren Kinder mit Zeilenumbruch getrennt werden; alle anderen hängen aneinander. */
-const BLOCK = new Set(["doc", "bulletList", "orderedList", "blockquote", "listItem", "taskList", "taskItem"]);
-
-/**
- * Reiner Text aus einem TipTap-Dokument (die alte Oberfläche speichert
- * `editor.getJSON()`); ein String bleibt, wie er ist.
- */
-export function notizText(inhalt: unknown): string {
-  if (typeof inhalt === "string") return inhalt;
-  if (!inhalt || typeof inhalt !== "object") return "";
-  const knoten = inhalt as { type?: string; text?: string; content?: unknown[] };
-  if (knoten.type === "hardBreak") return "\n";
-  if (typeof knoten.text === "string") return knoten.text;
-  if (!Array.isArray(knoten.content)) return "";
-  const teile = knoten.content.map(notizText);
-  return teile.join(BLOCK.has(knoten.type ?? "") ? "\n" : "");
-}
-
-/** Text als TipTap-Dokument, ein Absatz je Zeile, damit die alte Seite ihn bearbeiten kann. */
-export function notizDokument(text: string): unknown {
-  return {
-    type: "doc",
-    content: text.split("\n").map((zeile) =>
-      zeile === "" ? { type: "paragraph" } : { type: "paragraph", content: [{ type: "text", text: zeile }] }
-    ),
-  };
 }
 
 type Zustand = { art: "laden" } | { art: "fehler"; meldung: string } | { art: "fertig"; notizen: Notiz[] };

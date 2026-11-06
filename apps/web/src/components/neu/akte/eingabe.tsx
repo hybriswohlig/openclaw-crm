@@ -1,28 +1,17 @@
 "use client";
 
 import * as Menu from "@radix-ui/react-dropdown-menu";
-import { useEffect, useId, useState, type RefObject } from "react";
-import { toast } from "sonner";
+import { useRouter } from "next/navigation";
+import { useEffect, useId, useRef, useState, type RefObject } from "react";
 import { GlassButton } from "@/components/glassyui/glass-button";
 import { GlassPanel } from "@/components/glassyui/glass-panel";
 import { usePortalZiel } from "@/components/neu/portal-ziel";
 import type { GespraechKanal } from "@/services/gespraech";
 import { apiAufruf, jsonAufruf } from "./api";
+import { fensterZu, posteingangUrl, sendeFehler, startFolge } from "./gespraech-texte";
 import { KANAL_LABEL } from "./gespraech-verlauf";
 
-/** Fehlertext je Code der Senderoute; sonst „Senden fehlgeschlagen.“ */
-export function sendeFehler(code: string | null, meldung: string): string {
-  switch (code) {
-    case "WA_SESSION_EXPIRED":
-      return "24-Stunden-Fenster zu.";
-    case "BAILEYS_BRIDGE_NOT_CONFIGURED":
-      return "WhatsApp ist für diese Nummer nicht verbunden.";
-    case "BAILEYS_BRIDGE_ERROR":
-      return "WhatsApp hat nicht geantwortet. Bitte erneut senden.";
-    default:
-      return meldung.trim() !== "" ? `Senden fehlgeschlagen. ${meldung}` : "Senden fehlgeschlagen.";
-  }
-}
+export { fensterZu, sendeFehler };
 
 /** Antwort von `POST …/suggest-reply`: kein `{data}`-Umschlag. */
 interface Vorschlag {
@@ -31,9 +20,10 @@ interface Vorschlag {
   error?: string;
 }
 
-/** WABA außerhalb des 24-Stunden-Fensters: nur eine Vorlage geht noch. */
-export function fensterZu(k: GespraechKanal | undefined): boolean {
-  return Boolean(k && k.istWaba && k.imFenster === false);
+/** Hinweis unter dem Feld, wahlweise mit Sprung in die alte Inbox. */
+interface Hinweis {
+  text: string;
+  link?: { url: string; text: string };
 }
 
 /**
@@ -63,14 +53,20 @@ export function Eingabe({
   feldRef: RefObject<HTMLTextAreaElement | null>;
   onGesendet: () => Promise<void> | void;
 }) {
+  const router = useRouter();
   const portalZiel = usePortalZiel();
   const feldId = useId();
   const [sendet, setSendet] = useState(false);
   const [entwirft, setEntwirft] = useState(false);
   const [startet, setStartet] = useState(false);
   const [fehler, setFehler] = useState<string | null>(null);
-  const [hinweis, setHinweis] = useState<string | null>(null);
+  const [hinweis, setHinweis] = useState<Hinweis | null>(null);
   const [menueOffen, setMenueOffen] = useState(false);
+  // Doppelklick oder Enter während eines laufenden Sendens darf nicht zweimal senden.
+  const sendetRef = useRef(false);
+  // Nach „WhatsApp starten“ lädt die Akte neu; die Kanäle danach liegen hier, nicht im alten Closure.
+  const kanaeleRef = useRef(kanaele);
+  kanaeleRef.current = kanaele;
 
   const sendbar = kanaele.filter((k) => k.kannSenden);
   const gewaehlt = sendbar.find((k) => k.gespraechId === gewaehltId);
@@ -85,22 +81,29 @@ export function Eingabe({
 
   async function senden() {
     const body = text.trim();
-    if (!gewaehlt || body === "" || sendet) return;
+    if (!gewaehlt || body === "" || sendetRef.current) return;
+    sendetRef.current = true;
     setSendet(true);
     setFehler(null);
     setHinweis(null);
-    const r = await apiAufruf<unknown>(
-      `/api/v1/inbox/conversations/${gewaehlt.gespraechId}/messages`,
-      jsonAufruf("POST", { body })
-    );
-    setSendet(false);
-    if (!r.ok) {
-      setFehler(sendeFehler(r.code, r.message));
-      return;
+    try {
+      const r = await apiAufruf<unknown>(
+        `/api/v1/inbox/conversations/${gewaehlt.gespraechId}/messages`,
+        jsonAufruf("POST", { body })
+      );
+      if (!r.ok) {
+        setFehler(sendeFehler(r.code, r.message));
+        // Das Fenster ist zu: die Akte neu laden, damit die Sperre sofort erscheint.
+        if (r.code === "WA_SESSION_EXPIRED") await onGesendet();
+        return;
+      }
+      onText("");
+      await onGesendet();
+    } finally {
+      sendetRef.current = false;
+      setSendet(false);
+      window.requestAnimationFrame(() => feldRef.current?.focus());
     }
-    onText("");
-    await onGesendet();
-    feldRef.current?.focus();
   }
 
   async function kiEntwurf() {
@@ -122,30 +125,84 @@ export function Eingabe({
       return;
     }
     const grund = j?.reason ?? j?.error;
-    setHinweis(grund ? `Kein Entwurf möglich. ${grund}` : "Kein Entwurf möglich.");
+    setHinweis({ text: grund ? `Kein Entwurf möglich. ${grund}` : "Kein Entwurf möglich." });
   }
 
+  /**
+   * `start-from-record` antwortet `compose` (noch kein Gespräch: Verfassen in
+   * der alten Inbox) oder `open` (Gespräch gibt es, jetzt am Deal: Akte neu
+   * laden). Ist es danach trotzdem nicht sendefähig (anderer Deal), bleibt nur
+   * der Sprung in den Posteingang.
+   */
   async function whatsappStarten() {
     if (startet) return;
     setStartet(true);
+    setFehler(null);
+    setHinweis(null);
     const r = await apiAufruf<unknown>("/api/v1/inbox/whatsapp/start-from-record", jsonAufruf("POST", { recordId: dealId }));
-    setStartet(false);
     if (!r.ok) {
-      toast.error("WhatsApp konnte nicht gestartet werden.", { description: r.message });
+      setStartet(false);
+      setFehler(`WhatsApp konnte nicht gestartet werden. ${r.message}`);
       return;
     }
-    toast.success("WhatsApp-Gespräch angelegt.");
-    await onGesendet();
+    const folge = startFolge(r.data);
+    if (folge.art === "verfassen") {
+      // Der Knopf bleibt gesperrt, bis die alte Inbox geladen ist.
+      router.push(folge.url);
+      return;
+    }
+    if (folge.art === "neu_laden") {
+      await onGesendet();
+      setStartet(false);
+      const neu = kanaeleRef.current.find((k) => k.gespraechId === folge.conversationId);
+      if (neu?.kannSenden) {
+        onWaehlen(neu.gespraechId);
+        return;
+      }
+      setHinweis({
+        text: "Das WhatsApp-Gespräch hängt an einem anderen Deal und lässt sich hier nicht senden.",
+        link: { url: posteingangUrl(folge.conversationId), text: "Im Posteingang öffnen" },
+      });
+      return;
+    }
+    setStartet(false);
+    setFehler("WhatsApp konnte nicht gestartet werden. Unerwartete Antwort des Servers.");
   }
+
+  const meldungen = (
+    <>
+      {fehler ? (
+        <p className="akte-gespraech-fehler" role="alert">
+          {fehler}
+        </p>
+      ) : null}
+      {hinweis ? (
+        <p className="akte-gespraech-hinweis" role="status">
+          {hinweis.text}
+          {hinweis.link ? (
+            <>
+              {" "}
+              <a className="akte-gespraech-sprung" href={hinweis.link.url}>
+                {hinweis.link.text}
+              </a>
+            </>
+          ) : null}
+        </p>
+      ) : null}
+    </>
+  );
 
   if (sendbar.length === 0) {
     return (
-      <div className="akte-gespraech-eingabe" data-gesperrt="">
-        <span className="akte-gespraech-gesperrt">Noch kein Kanal mit diesem Kunden.</span>
-        <GlassButton size="sm" onClick={() => void whatsappStarten()} disabled={startet}>
-          {startet ? "Startet…" : "WhatsApp starten"}
-        </GlassButton>
-      </div>
+      <>
+        <div className="akte-gespraech-eingabe" data-gesperrt="">
+          <span className="akte-gespraech-gesperrt">Noch kein Kanal mit diesem Kunden.</span>
+          <GlassButton size="sm" onClick={() => void whatsappStarten()} disabled={startet}>
+            {startet ? "Startet…" : "WhatsApp starten"}
+          </GlassButton>
+        </div>
+        {meldungen}
+      </>
     );
   }
 
@@ -166,15 +223,18 @@ export function Eingabe({
 
   if (fensterZu(gewaehlt)) {
     return (
-      <div className="akte-gespraech-eingabe" data-gesperrt="">
-        {kanalWahl}
-        <span className="akte-gespraech-gesperrt">
-          24-Stunden-Fenster zu. Bitte eine Vorlage senden.{" "}
-          <a className="akte-gespraech-sprung" href={`/inbox?conv=${encodeURIComponent(gewaehlt!.gespraechId)}`}>
-            Vorlage
-          </a>
-        </span>
-      </div>
+      <>
+        <div className="akte-gespraech-eingabe" data-gesperrt="">
+          {kanalWahl}
+          <span className="akte-gespraech-gesperrt">
+            24-Stunden-Fenster zu. Bitte eine Vorlage senden.{" "}
+            <a className="akte-gespraech-sprung" href={posteingangUrl(gewaehlt!.gespraechId)}>
+              Vorlage
+            </a>
+          </span>
+        </div>
+        {meldungen}
+      </>
     );
   }
 
@@ -226,16 +286,7 @@ export function Eingabe({
           </svg>
         </button>
       </div>
-      {fehler ? (
-        <p className="akte-gespraech-fehler" role="alert">
-          {fehler}
-        </p>
-      ) : null}
-      {hinweis ? (
-        <p className="akte-gespraech-hinweis" role="status">
-          {hinweis}
-        </p>
-      ) : null}
+      {meldungen}
     </>
   );
 }

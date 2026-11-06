@@ -11,6 +11,7 @@ import { DokumenteAnsicht } from "./dokumente-ansicht";
 import { Eingabe } from "./eingabe";
 import { EntwurfKarte } from "./entwurf-karte";
 import { FotosAnsicht, FotoVollbild, type Foto } from "./fotos-ansicht";
+import { fensterZu } from "./gespraech-texte";
 import { GespraechVerlauf, KANAL_LABEL } from "./gespraech-verlauf";
 import { NotizenAnsicht } from "./notizen-ansicht";
 
@@ -108,6 +109,7 @@ export function GespraechPanel({
             <EntwurfKarte
               gespraechId={gewaehltId}
               aktualisierung={gespraech}
+              fensterZu={fensterZu(gespraech.kanaele.find((k) => k.gespraechId === gewaehltId))}
               onUebernehmen={uebernehmen}
               onGesendet={onNeuLaden}
             />

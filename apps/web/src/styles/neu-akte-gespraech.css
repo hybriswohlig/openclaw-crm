@@ -530,7 +530,8 @@
   gap: 8px;
 }
 
-[data-neu] .akte-gespraech-entwurf .akte-gespraech-fehler {
+[data-neu] .akte-gespraech-entwurf .akte-gespraech-fehler,
+[data-neu] .akte-gespraech-entwurf-hinweis {
   margin-top: 8px;
   padding: 0;
 }
