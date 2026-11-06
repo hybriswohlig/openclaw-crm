@@ -184,6 +184,12 @@ describe("eintraegeBauen", () => {
       expect(deal({ auf: "kunde", seit: vor(4 * TAG), grund: "KV seit 4 Tagen ungesehen" }, ANGEBOT).text).toBe(
         "KV ungesehen · 4 Tage",
       );
+      // so meldet berechneWartet einen KV, der über 3 Tage ungesehen ist: „uns“, sortiert oben
+      expect(deal({ auf: "uns", seit: vor(4 * TAG), grund: "KV seit 4 Tagen ungesehen" }, ANGEBOT)).toEqual({
+        auf: "uns",
+        seit: vor(4 * TAG),
+        text: "KV ungesehen · 4 Tage",
+      });
       expect(deal({ auf: "niemand", seit: null, grund: null })).toEqual({ auf: "niemand", seit: null, text: "läuft" });
       expect(deal(null).text).toBe("läuft");
       expect(deal({ auf: "uns", seit: null, grund: null }).text).toBe("wartet auf uns");

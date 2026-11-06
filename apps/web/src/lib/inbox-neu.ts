@@ -310,7 +310,10 @@ function wartetAus(
   if (!w || w.auf === "niemand") return laeuft;
   if (w.auf === "uns") {
     if (gruppe === "info") return laeuft;
-    return { auf: "uns", seit: w.seit, text: mitDauer("wartet auf uns", w.seit, jetzt) };
+    // berechneWartet meldet einen KV, der seit über 3 Tagen ungesehen ist, als „uns“
+    // (wir sollten nachhaken); die Pille sagt dann wie im Mockup „KV ungesehen“.
+    const ungesehen = /ungesehen/i.test(w.grund ?? "");
+    return { auf: "uns", seit: w.seit, text: mitDauer(ungesehen ? "KV ungesehen" : "wartet auf uns", w.seit, jetzt) };
   }
   const kvUngesehen = /ungesehen/i.test(w.grund ?? "");
   return {
