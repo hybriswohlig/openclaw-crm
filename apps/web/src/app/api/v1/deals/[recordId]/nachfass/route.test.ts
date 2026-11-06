@@ -20,12 +20,17 @@ vi.mock("@/lib/kalkulation-versionen-antwort", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/kalkulation-versionen-antwort")>();
   return { ...actual, dealImWorkspace: mocks.dealImWorkspace };
 });
-vi.mock("@/services/nachfass-schalter", () => ({
-  ladeNachfassSchalter: mocks.ladeNachfassSchalter,
-  setzeNachfassSchalter: mocks.setzeNachfassSchalter,
-}));
+vi.mock("@/services/nachfass-schalter", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/services/nachfass-schalter")>();
+  return {
+    ...actual,
+    ladeNachfassSchalter: mocks.ladeNachfassSchalter,
+    setzeNachfassSchalter: mocks.setzeNachfassSchalter,
+  };
+});
 
 import { GET, PUT } from "./route";
+import { NachfassSchalterFehler } from "@/services/nachfass-schalter";
 
 const CTX = { userId: "usr_1", workspaceId: "ws_1", workspaceRole: "admin" as const, authMethod: "cookie" as const };
 const URL_ = "http://localhost/api/v1/deals/deal_1/nachfass";
@@ -115,6 +120,23 @@ describe("PUT /deals/[recordId]/nachfass", () => {
     expect(res.status).toBe(200);
     expect((await res.json()).data).toMatchObject({ an: false, modus: "aus", text: "aus" });
     expect(mocks.setzeNachfassSchalter).toHaveBeenCalledWith("ws_1", "deal_1", false, "usr_1");
+  });
+
+  it.each([true, false])("Sequenz beendet (an = %s) → 409 BEENDET", async (an) => {
+    mocks.setzeNachfassSchalter.mockRejectedValue(
+      new NachfassSchalterFehler("BEENDET", "Die Nachfass-Sequenz ist für diesen Deal beendet.")
+    );
+    const res = await PUT(put({ an }), p());
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toEqual({
+      code: "BEENDET",
+      message: "Die Nachfass-Sequenz ist für diesen Deal beendet.",
+    });
+  });
+
+  it("unbekannter Fehler wird weitergeworfen", async () => {
+    mocks.setzeNachfassSchalter.mockRejectedValue(new Error("DB weg"));
+    await expect(PUT(put({ an: true }), p())).rejects.toThrow("DB weg");
   });
 
   it("voller API-Schlüssel darf setzen", async () => {

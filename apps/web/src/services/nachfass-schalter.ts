@@ -14,6 +14,17 @@ import { getDealStageCategory, releaseHumanOwnership } from "@/services/agent/ag
 import { supersedePendingDrafts } from "@/services/agent/draft-schliessen";
 import { genugSaubereFreigaben, schalterAn } from "@/services/nachfass/logik";
 
+/** Der Schalter verweigert das Setzen; die Route macht daraus 409 mit `code`. */
+export class NachfassSchalterFehler extends Error {
+  constructor(
+    public readonly code: "BEENDET",
+    message: string
+  ) {
+    super(message);
+    this.name = "NachfassSchalterFehler";
+  }
+}
+
 export interface NachfassSchalter {
   an: boolean;
   modus: NachfassModus;
@@ -36,6 +47,8 @@ export interface SchalterRoh {
   /** `ai_paused` an mindestens einem Gespräch mit `deal_record_id = deal`. */
   aiPaused: boolean;
   ocId: string | null;
+  /** Benannte Firma am Deal, die weder Kottke noch Ceylan ist (Filter des Motors). */
+  fremdeFirma: boolean;
   angebotAm: Date | null;
 }
 
@@ -83,6 +96,7 @@ export const dbSpeicher: NachfassSchalterSpeicher = {
       state_oc: string | null;
       kv_sent_at: unknown;
       kv_doc_at: unknown;
+      fremde_firma: boolean | null;
     }>(
       await db.execute(sql`
         SELECT
@@ -109,7 +123,18 @@ export const dbSpeicher: NachfassSchalterSpeicher = {
           (
             SELECT min(d.uploaded_at) FROM deal_documents d
             WHERE d.workspace_id = ${ws} AND d.deal_record_id = ${deal} AND d.document_type = 'quotation'
-          ) AS kv_doc_at
+          ) AS kv_doc_at,
+          EXISTS (
+            SELECT 1 FROM record_values ocv
+            INNER JOIN attributes oca ON oca.id = ocv.attribute_id AND oca.slug = 'operating_company'
+            INNER JOIN records oc ON oc.id = ocv.referenced_record_id AND oc.deleted_at IS NULL
+            INNER JOIN record_values ocn ON ocn.record_id = oc.id
+            INNER JOIN attributes nm ON nm.id = ocn.attribute_id AND nm.slug = 'name'
+            WHERE ocv.record_id = ${deal}
+              AND coalesce(ocn.text_value, '') <> ''
+              AND ocn.text_value NOT ILIKE '%kottke%'
+              AND ocn.text_value NOT ILIKE '%ceylan%'
+          ) AS fremde_firma
         FROM (SELECT 1) AS eins
         LEFT JOIN nachfass_deal_state ns ON ns.deal_record_id = ${deal} AND ns.workspace_id = ${ws}
         LEFT JOIN deal_agent_state das ON das.deal_record_id = ${deal} AND das.workspace_id = ${ws}
@@ -125,6 +150,7 @@ export const dbSpeicher: NachfassSchalterSpeicher = {
       humanOwned: r?.human_owned === true,
       aiPaused: r?.ai_paused === true,
       ocId: r?.oc ?? r?.state_oc ?? null,
+      fremdeFirma: r?.fremde_firma === true,
       angebotAm: alsDatum(r?.kv_sent_at) ?? alsDatum(r?.kv_doc_at),
     };
   },
@@ -197,6 +223,7 @@ export async function ladeNachfassSchalter(
   return nachfassStand({
     stopReason: roh.stopReason,
     stageCategory: stufe.category,
+    fremdeFirma: roh.fremdeFirma,
     humanOwned: roh.humanOwned,
     aiPaused: roh.aiPaused,
     dryRun: dryShared || dryEngine,
@@ -212,6 +239,9 @@ export async function ladeNachfassSchalter(
  * gelten wieder alle heutigen Hürden des Motors.
  * Ausschalten: stop_reason = 'inhaber_aus' nur, wenn er leer ist; offene
  * Entwürfe des Deals werden überholt.
+ * Ist die Sequenz beendet (Stufe außerhalb des Motor-Filters, fremde Firma,
+ * fremder stop_reason), schreibt der Schalter nichts und wirft
+ * `NachfassSchalterFehler("BEENDET")`.
  */
 export async function setzeNachfassSchalter(
   ws: string,
@@ -220,6 +250,10 @@ export async function setzeNachfassSchalter(
   userId: string,
   speicher: NachfassSchalterSpeicher = dbSpeicher
 ): Promise<NachfassSchalter> {
+  const vorher = await ladeNachfassSchalter(ws, deal, speicher);
+  if (vorher.modus === "beendet") {
+    throw new NachfassSchalterFehler("BEENDET", "Die Nachfass-Sequenz ist für diesen Deal beendet.");
+  }
   if (an) {
     await releaseHumanOwnership(ws, deal);
     await speicher.gespraecheFortsetzen(ws, deal);

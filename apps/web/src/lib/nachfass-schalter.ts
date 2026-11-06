@@ -5,6 +5,7 @@
  * `deal_agent_state.human_owned`, `inbox_conversations.ai_paused`), und die
  * Auto-Versand-Bedingungen der nächsten Regel. Kein Datenbankzugriff.
  */
+import { KEIN_LEAD_STAGE_CATEGORY } from "@/lib/kontaktart";
 import {
   ABSCHLUSS_NACH_MS,
   FU1_NACH_MS,
@@ -26,6 +27,22 @@ export type SchalterRegel = "a1" | "a2" | "a3";
 /** stop_reason, die der Schalter selbst setzt oder wieder löschen darf. */
 export const SCHALTER_STOPS: readonly string[] = ["inhaber_aus", "human_owned", "ai_paused"];
 
+/**
+ * Stufen, in denen der Motor einen Deal überhaupt anfasst (motor.ts,
+ * `laufFuerWorkspace`: `st.stage_category IN ('open_new', 'open_engaged', 'quoted')`).
+ * Alles andere, auch `kein_lead` und ein Deal ohne Stufe (der Motor findet
+ * ihn über den INNER JOIN nicht), ist für den Schalter beendet.
+ */
+export const NACHFASS_OFFENE_STUFEN: readonly string[] = ["open_new", "open_engaged", "quoted"];
+
+export function istNachfassStufe(stageCategory: string | null): boolean {
+  return (
+    stageCategory !== null &&
+    stageCategory !== KEIN_LEAD_STAGE_CATEGORY &&
+    NACHFASS_OFFENE_STUFEN.includes(stageCategory)
+  );
+}
+
 export function istSchalterStop(stopReason: string | null): boolean {
   return stopReason !== null && SCHALTER_STOPS.includes(stopReason);
 }
@@ -41,13 +58,15 @@ const TEXT: Record<"aus" | "von_hand" | "sendet" | "entwurf" | "beendet", string
 export function nachfassModus(e: {
   stopReason: string | null;
   stageCategory: string | null;
+  /** Deal einer benannten Firma, die weder Kottke noch Ceylan ist (Motor-Filter). */
+  fremdeFirma: boolean;
   humanOwned: boolean;
   aiPaused: boolean;
   dryRun: boolean;
   autoSendNaechsteRegel: boolean;
   genugFreigaben: boolean;
 }): { an: boolean; modus: NachfassModus; text: string } {
-  if (e.stageCategory === "lost" || e.stageCategory === "kein_lead") {
+  if (!istNachfassStufe(e.stageCategory) || e.fremdeFirma) {
     return { an: false, modus: "beendet", text: TEXT.beendet };
   }
   if (e.stopReason !== null && !istSchalterStop(e.stopReason)) {
@@ -89,6 +108,7 @@ export function naechsteRegel(gesendet: NachfassGesendet): SchalterRegel | null 
 export interface NachfassStandEingabe {
   stopReason: string | null;
   stageCategory: string | null;
+  fremdeFirma: boolean;
   humanOwned: boolean;
   aiPaused: boolean;
   dryRun: boolean;
@@ -109,6 +129,7 @@ export function nachfassStand(e: NachfassStandEingabe): {
   const kopf = nachfassModus({
     stopReason: e.stopReason,
     stageCategory: e.stageCategory,
+    fremdeFirma: e.fremdeFirma,
     humanOwned: e.humanOwned,
     aiPaused: e.aiPaused,
     dryRun: e.dryRun,

@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import {
   apiKeyScopeForbidden,
   badRequest,
@@ -9,7 +9,11 @@ import {
   unauthorized,
 } from "@/lib/api-utils";
 import { dealImWorkspace } from "@/lib/kalkulation-versionen-antwort";
-import { ladeNachfassSchalter, setzeNachfassSchalter } from "@/services/nachfass-schalter";
+import {
+  ladeNachfassSchalter,
+  NachfassSchalterFehler,
+  setzeNachfassSchalter,
+} from "@/services/nachfass-schalter";
 
 type Params = { params: Promise<{ recordId: string }> };
 
@@ -22,7 +26,10 @@ export async function GET(req: NextRequest, { params }: Params) {
   return success(await ladeNachfassSchalter(ctx.workspaceId, recordId));
 }
 
-/** PUT `{ an: boolean }` → setzt die bestehenden Flags (Entscheidung 8) und liefert den neuen Stand. */
+/**
+ * PUT `{ an: boolean }` → setzt die bestehenden Flags (Entscheidung 8) und liefert den neuen Stand.
+ * Beendete Sequenz → 409 `BEENDET`, nichts geschrieben.
+ */
 export async function PUT(req: NextRequest, { params }: Params) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized(req);
@@ -32,5 +39,12 @@ export async function PUT(req: NextRequest, { params }: Params) {
 
   const body = (await req.json().catch(() => null)) as { an?: unknown } | null;
   if (!body || typeof body.an !== "boolean") return badRequest("an muss true oder false sein.");
-  return success(await setzeNachfassSchalter(ctx.workspaceId, recordId, body.an, ctx.userId));
+  try {
+    return success(await setzeNachfassSchalter(ctx.workspaceId, recordId, body.an, ctx.userId));
+  } catch (err) {
+    if (err instanceof NachfassSchalterFehler) {
+      return NextResponse.json({ error: { code: err.code, message: err.message } }, { status: 409 });
+    }
+    throw err;
+  }
 }

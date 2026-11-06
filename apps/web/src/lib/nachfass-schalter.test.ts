@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { KEIN_LEAD_STAGE_CATEGORY } from "./kontaktart";
 import { nachfassModus, nachfassStand, naechsteRegel, type NachfassStandEingabe } from "./nachfass-schalter";
 
 const frei = {
   stopReason: null,
   stageCategory: "quoted",
+  fremdeFirma: false,
   humanOwned: false,
   aiPaused: false,
   dryRun: false,
@@ -22,7 +24,24 @@ describe("nachfassModus", () => {
 
   it("Stufe lost oder kein_lead → beendet, auch ohne stop_reason", () => {
     expect(nachfassModus({ ...frei, stageCategory: "lost" })).toEqual({ an: false, modus: "beendet", text: "beendet" });
-    expect(nachfassModus({ ...frei, stageCategory: "kein_lead" }).modus).toBe("beendet");
+    expect(nachfassModus({ ...frei, stageCategory: KEIN_LEAD_STAGE_CATEGORY }).modus).toBe("beendet");
+  });
+
+  it.each(["booked", "done_unpaid", "paid", "unbekannt"])("Stufe %s (außerhalb des Motor-Filters) → beendet", (stageCategory) => {
+    expect(nachfassModus({ ...frei, stageCategory })).toEqual({ an: false, modus: "beendet", text: "beendet" });
+  });
+
+  it("Deal ohne Stufe → beendet (der Motor findet ihn nicht)", () => {
+    expect(nachfassModus({ ...frei, stageCategory: null }).modus).toBe("beendet");
+  });
+
+  it.each(["open_new", "open_engaged", "quoted"])("Stufe %s → an", (stageCategory) => {
+    expect(nachfassModus({ ...frei, stageCategory }).an).toBe(true);
+  });
+
+  it("fremde Firma → beendet, auch bei inhaber_aus", () => {
+    expect(nachfassModus({ ...frei, fremdeFirma: true })).toEqual({ an: false, modus: "beendet", text: "beendet" });
+    expect(nachfassModus({ ...frei, fremdeFirma: true, stopReason: "inhaber_aus" }).modus).toBe("beendet");
   });
 
   it("beendet schlägt aus (Stufe lost bei inhaber_aus)", () => {
@@ -87,6 +106,7 @@ describe("nachfassStand", () => {
   const basis: NachfassStandEingabe = {
     stopReason: null,
     stageCategory: "quoted",
+    fremdeFirma: false,
     humanOwned: false,
     aiPaused: false,
     dryRun: false,

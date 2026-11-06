@@ -38,6 +38,7 @@ vi.mock("@/services/agent/agent-config", () => ({
 
 import {
   dbSpeicher,
+  NachfassSchalterFehler,
   ladeNachfassSchalter,
   setzeNachfassSchalter,
   type NachfassSchalterSpeicher,
@@ -56,6 +57,7 @@ function fake(start: {
   schalter?: RegelSchalterZeile[];
   fu1SentAt?: Date | null;
   angebotAm?: Date | null;
+  fremdeFirma?: boolean;
 }) {
   const st = {
     zeileDa: start.zeileDa ?? start.stopReason !== undefined,
@@ -70,6 +72,7 @@ function fake(start: {
       humanOwned: st.humanOwned,
       aiPaused: st.gespraeche.some((g) => g.dealRecordId === DEAL && g.aiPaused),
       ocId: "oc_1",
+      fremdeFirma: start.fremdeFirma ?? false,
       angebotAm: start.angebotAm ?? null,
     })),
     regelSchalter: vi.fn(async () => start.schalter ?? []),
@@ -143,6 +146,23 @@ describe("ladeNachfassSchalter", () => {
     expect((await ladeNachfassSchalter(WS, DEAL, speicher)).modus).toBe("beendet");
   });
 
+  it.each(["booked", "paid", "done_unpaid"])("Stufe %s → beendet (Motor-Filter)", async (category) => {
+    const { speicher } = fake({ schalter: [voll("a1")] });
+    mocks.getDealStageCategory.mockResolvedValue({ statusId: "s", title: "x", category, isTerminal: true });
+    expect((await ladeNachfassSchalter(WS, DEAL, speicher)).modus).toBe("beendet");
+  });
+
+  it("Deal ohne Stufe → beendet", async () => {
+    const { speicher } = fake({});
+    mocks.getDealStageCategory.mockResolvedValue({ statusId: null, title: null, category: null, isTerminal: false });
+    expect((await ladeNachfassSchalter(WS, DEAL, speicher)).modus).toBe("beendet");
+  });
+
+  it("fremde Firma → beendet", async () => {
+    const { speicher } = fake({ fremdeFirma: true, schalter: [voll("a1")] });
+    expect((await ladeNachfassSchalter(WS, DEAL, speicher))).toMatchObject({ an: false, modus: "beendet" });
+  });
+
   it("geplantAm = Angebotsdatum + 2/7/10 Tage", async () => {
     const { speicher } = fake({ angebotAm: new Date("2026-11-02T09:00:00.000Z") });
     const s = await ladeNachfassSchalter(WS, DEAL, speicher);
@@ -155,14 +175,33 @@ describe("ladeNachfassSchalter", () => {
 });
 
 describe("setzeNachfassSchalter", () => {
-  it("Ausschalten bei optout lässt optout stehen, danach Einschalten → weiter optout", async () => {
-    const { st, speicher } = fake({ stopReason: "optout" });
-    const aus = await setzeNachfassSchalter(WS, DEAL, false, "usr_1", speicher);
-    expect(st.stopReason).toBe("optout");
-    expect(aus.modus).toBe("beendet");
-    const an = await setzeNachfassSchalter(WS, DEAL, true, "usr_1", speicher);
-    expect(st.stopReason).toBe("optout");
-    expect(an.modus).toBe("beendet");
+  describe.each([
+    ["optout", { stopReason: "optout" as string | null, category: "quoted", fremdeFirma: false }],
+    ["kunde_hat_geantwortet", { stopReason: "kunde_hat_geantwortet", category: "quoted", fremdeFirma: false }],
+    ["Stufe lost", { stopReason: null, category: "lost", fremdeFirma: false }],
+    ["Stufe booked", { stopReason: "inhaber_aus", category: "booked", fremdeFirma: false }],
+    ["fremde Firma", { stopReason: null, category: "quoted", fremdeFirma: true }],
+  ])("beendet (%s): Ein- und Ausschalten schreiben nichts", (_name, lage) => {
+    it.each([true, false])("an = %s → NachfassSchalterFehler BEENDET, keine Schreibfunktion", async (an) => {
+      const { st, speicher } = fake({
+        stopReason: lage.stopReason,
+        zeileDa: true,
+        humanOwned: true,
+        fremdeFirma: lage.fremdeFirma,
+        gespraeche: [{ id: "c1", dealRecordId: DEAL, aiPaused: true }],
+      });
+      mocks.getDealStageCategory.mockResolvedValue({ statusId: "s", title: "x", category: lage.category, isTerminal: false });
+      const fehler = await setzeNachfassSchalter(WS, DEAL, an, "usr_1", speicher).catch((e: unknown) => e);
+      expect(fehler).toBeInstanceOf(NachfassSchalterFehler);
+      expect(fehler).toMatchObject({ code: "BEENDET", message: "Die Nachfass-Sequenz ist für diesen Deal beendet." });
+      expect(speicher.stopSetzenWennLeer).not.toHaveBeenCalled();
+      expect(speicher.schalterStopLoeschen).not.toHaveBeenCalled();
+      expect(speicher.gespraecheFortsetzen).not.toHaveBeenCalled();
+      expect(mocks.releaseHumanOwnership).not.toHaveBeenCalled();
+      expect(mocks.supersedePendingDrafts).not.toHaveBeenCalled();
+      expect(st).toMatchObject({ stopReason: lage.stopReason, humanOwned: true });
+      expect(st.gespraeche[0].aiPaused).toBe(true);
+    });
   });
 
   it("Ausschalten bei NULL setzt inhaber_aus und ruft supersedePendingDrafts", async () => {
@@ -212,12 +251,6 @@ describe("setzeNachfassSchalter", () => {
     const b = fake({});
     await setzeNachfassSchalter(WS, DEAL, true, "usr_1", b.speicher);
     expect(b.st).toMatchObject({ zeileDa: true, stopReason: null });
-  });
-
-  it("Einschalten lässt kunde_hat_geantwortet stehen", async () => {
-    const { st, speicher } = fake({ stopReason: "kunde_hat_geantwortet" });
-    expect((await setzeNachfassSchalter(WS, DEAL, true, "usr_1", speicher)).modus).toBe("beendet");
-    expect(st.stopReason).toBe("kunde_hat_geantwortet");
   });
 });
 
@@ -270,6 +303,7 @@ describe("dbSpeicher: SQL", () => {
         state_oc: "oc_9",
         kv_sent_at: null,
         kv_doc_at: new Date("2026-11-02T09:00:00.000Z"),
+        fremde_firma: true,
       },
     ]);
     const roh = await dbSpeicher.lesen(WS, DEAL);
@@ -279,11 +313,15 @@ describe("dbSpeicher: SQL", () => {
       humanOwned: true,
       aiPaused: false,
       ocId: "oc_9",
+      fremdeFirma: true,
       angebotAm: new Date("2026-11-02T09:00:00.000Z"),
     });
     const { text, params } = gerendert(0);
     expect(text).toMatch(/c\.workspace_id = \$\d+ and c\.deal_record_id = \$\d+ and c\.ai_paused/i);
     expect(text).toMatch(/document_type = 'quotation'/i);
+    // Firmen-Filter wie motor.ts (laufFuerWorkspace): benannte Firma, weder Kottke noch Ceylan
+    expect(text).toMatch(/inner join records oc on oc\.id = ocv\.referenced_record_id and oc\.deleted_at is null/i);
+    expect(text).toMatch(/coalesce\(ocn\.text_value, ''\) <> '' and ocn\.text_value not ilike '%kottke%' and ocn\.text_value not ilike '%ceylan%'/i);
     expect(params.every((p) => p === WS || p === DEAL)).toBe(true);
   });
 
@@ -295,6 +333,7 @@ describe("dbSpeicher: SQL", () => {
     expect(roh.angebotAm).toEqual(new Date("2026-11-03T08:00:00.000Z"));
     expect(roh.ocId).toBe("oc_1");
     expect(roh.humanOwned).toBe(false);
+    expect(roh.fremdeFirma).toBe(false);
   });
 
   it("regelSchalter: nur der Workspace", async () => {
