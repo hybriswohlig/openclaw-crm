@@ -466,4 +466,15 @@ describe("ansichtAus: Anpassungen", () => {
       ["Extra Folie: 25 €", "Bot"],
     ]);
   });
+
+  it("Zeilen-Anpassung, die nach dem Neurechnen keine Zeile mehr trifft, ist als wirkungslos markiert", () => {
+    const v = weberVersion({
+      overrides: [
+        { id: "u1", art: "zeile", key: "fahrzeug.sprinter_l@alte_station.kraftstoff", wert: 20, grund: "Tankquittung", autor: { typ: "user", id: "u_dario" }, zeit: "2026-11-05T10:00:00.000Z" },
+      ],
+    } as never);
+    const a = ansichtAus(v, rest()).anpassungen;
+    expect(a).toHaveLength(1);
+    expect(a[0].text).toContain("(wirkt nicht, die Zeile gibt es nach dem Neurechnen nicht mehr)");
+  });
 });

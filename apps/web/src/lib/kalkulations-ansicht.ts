@@ -823,10 +823,14 @@ function anpassungText(u: Uebersteuerung, v: VersionsZeile): string {
       return `${label}: ${GRUNDLAGE_LABEL[key] ? grundlageWertText(key, u.wert) : String(u.wert)}`;
     }
     case "zeile": {
-      const p =
-        v.rechnerResult?.kosten?.posten?.find((x) => x.key === u.key) ?? v.costLines.find((c) => c.key === u.key) ?? null;
+      const posten = v.rechnerResult?.kosten?.posten;
+      const imErgebnis = posten?.find((x) => x.key === u.key) ?? null;
+      const p = imErgebnis ?? v.costLines.find((c) => c.key === u.key) ?? null;
       const wert = zahl(u.wert);
-      return `${p?.bezeichnung ?? u.key}: ${wert === null ? String(u.wert) : euroText(cent(wert))}`;
+      const text = `${p?.bezeichnung ?? u.key}: ${wert === null ? String(u.wert) : euroText(cent(wert))}`;
+      // Fahrzeugzeilen tragen die Mietstation im Schlüssel: wählt der Rechner eine andere
+      // Station, trifft die Anpassung keine Zeile mehr und wirkt nicht.
+      return posten && !imErgebnis ? `${text} (wirkt nicht, die Zeile gibt es nach dem Neurechnen nicht mehr)` : text;
     }
     case "marge":
       return `Marge: ${KOMMA1.format(zahl(u.wert) ?? 0)} %`;
