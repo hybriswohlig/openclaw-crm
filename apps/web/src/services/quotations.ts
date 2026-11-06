@@ -30,8 +30,8 @@ export async function angebotSperren(tx: DbExecutor, dealRecordId: string): Prom
   await tx.execute(sql`select pg_advisory_xact_lock(hashtext('angebot:' || ${dealRecordId}::text))`);
 }
 
-export async function getQuotation(dealRecordId: string) {
-  const [q] = await db
+async function quotationLesen(ex: DbExecutor, dealRecordId: string) {
+  const [q] = await ex
     .select()
     .from(quotations)
     .where(eq(quotations.dealRecordId, dealRecordId))
@@ -39,13 +39,27 @@ export async function getQuotation(dealRecordId: string) {
 
   if (!q) return null;
 
-  const lineItems = await db
+  const lineItems = await ex
     .select()
     .from(quotationLineItems)
     .where(eq(quotationLineItems.quotationId, q.id))
     .orderBy(quotationLineItems.sortOrder);
 
   return { ...q, lineItems };
+}
+
+/**
+ * Quotation mit Posten. `konsistent`: Kopf und Posten aus einem Stand (eine lesende
+ * Transaktion mit REPEATABLE READ). Das braucht, wer daraus ein Dokument rendert und
+ * die Kalkulationsversion des Kopfs daran hängt: sonst könnte zwischen beiden Abfragen
+ * eine neue Version committen und das PDF Posten von v2 mit dem Bezug auf v1 tragen.
+ */
+export async function getQuotation(dealRecordId: string, opts?: { konsistent?: boolean }) {
+  if (!opts?.konsistent) return quotationLesen(db, dealRecordId);
+  return db.transaction((tx) => quotationLesen(tx, dealRecordId), {
+    isolationLevel: "repeatable read",
+    accessMode: "read only",
+  });
 }
 
 type VergleichsPosten = {

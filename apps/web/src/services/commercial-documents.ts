@@ -336,7 +336,8 @@ async function ladeModellMitVersion(input: {
     throw new CommercialDocumentError("Kundenname fehlt auf dem Auftrag.", 400);
   }
 
-  const quotation = await getQuotation(dealRecordId);
+  // Kopf (mit Versionsbezug) und Posten aus demselben Stand.
+  const quotation = await getQuotation(dealRecordId, { konsistent: true });
   if (!quotation) {
     throw new CommercialDocumentError(
       "Kein gespeichertes Angebot. Preise kommen nur aus dem Kostenvoranschlag.",

@@ -7,6 +7,7 @@ import { MARGE_MAX_PROZENT, MARGE_MIN_PROZENT } from "@/services/rechner/marge";
 import {
   entwurfHolenOderAnlegen,
   kartenAbweichung,
+  kartenAbweichungText,
   sperren,
   uebersteuern,
   VersionsFehler,
@@ -51,9 +52,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rec
   // Marge wäre das ein Preis, den niemand gesehen hat. Dann nur über die Version.
   const abweichung = await kartenAbweichung(ctx.workspaceId, recordId);
   if (abweichung) {
-    return badRequest(
-      `Für diesen Deal gibt es Anpassungen in Kalkulation v${abweichung.version}. Bitte die Version dort sperren (crm_lock_calculation_version) oder die Anpassungen zurücknehmen.`
-    );
+    return badRequest(kartenAbweichungText(abweichung.version));
   }
   if (margeProzent !== null && (!Number.isFinite(margeProzent) || margeProzent < MARGE_MIN_PROZENT || margeProzent > MARGE_MAX_PROZENT)) {
     return badRequest(`Marge muss zwischen ${MARGE_MIN_PROZENT} und ${MARGE_MAX_PROZENT} % liegen.`);
@@ -80,7 +79,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rec
         autor
       ));
     }
-    const r = await sperren(ctx.workspaceId, recordId, version.version, autor, { bestaetigtSpanne: body.bestaetigtSpanne === true });
+    const r = await sperren(ctx.workspaceId, recordId, version.version, autor, {
+      bestaetigtSpanne: body.bestaetigtSpanne === true,
+      nurMarge: true,
+    });
     // Hinweis zur Gültigkeit (Umzug bald, Datum vorbei) für die Kalkulationskarte.
     return success({ ...(r.quotation ?? {}), gueltigkeitHinweis: r.gueltigkeitHinweis });
   } catch (err) {

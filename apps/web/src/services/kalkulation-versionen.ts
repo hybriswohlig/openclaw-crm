@@ -365,6 +365,11 @@ export async function kartenAbweichung(ws: string, deal: string, opts?: Versions
   return wirksameUebersteuerungen(basis.overrides ?? []).some((u) => u.art !== "marge") ? { version: basis.version } : null;
 }
 
+/** Ablehnungstext der Kalkulationskarte, wenn die Version Anpassungen außer der Marge hat. */
+export function kartenAbweichungText(version: number): string {
+  return `Für diesen Deal gibt es Anpassungen in Kalkulation v${version}. Bitte die Version dort sperren (crm_lock_calculation_version) oder die Anpassungen zurücknehmen.`;
+}
+
 /** Wirksamer Wert einer Übersteuerung (letzte Nennung gilt), null ohne oder aufgehoben. */
 export function wirksamerWert(liste: Uebersteuerung[], art: string, key: string): Uebersteuerung["wert"] {
   let wert: Uebersteuerung["wert"] = null;
@@ -503,7 +508,7 @@ export async function sperren(
   deal: string,
   version: number,
   autor: Autor,
-  body: { bestaetigtSpanne?: boolean },
+  body: { bestaetigtSpanne?: boolean; nurMarge?: boolean },
   opts?: VersionsOptionen
 ): Promise<{ version: VersionsZeile; quotation: Quotation | null; gueltigkeitHinweis: string | null }> {
   const d = await abhaengigkeiten(opts);
@@ -540,6 +545,12 @@ export async function sperren(
   }
   if (v.error !== null || !v.rechnerResult || !v.rechnerRequest) {
     throw new VersionsFehler("RECHNER_FEHLER", `Kalkulation nicht aktuell: ${v.error ?? "Noch keine Kalkulation vorhanden."}`);
+  }
+  // Kalkulationskarte: geprüft an genau der Liste, die gesperrt wird (das Sperren gelingt
+  // nur, wenn sie bis dahin gleich bleibt). Eine nach der Vorprüfung der Route angehängte
+  // Anpassung wird so nicht still mit übernommen.
+  if (body.nurMarge === true && wirksameUebersteuerungen(v.overrides).some((u) => u.art !== "marge")) {
+    throw new VersionsFehler("UNGUELTIG", kartenAbweichungText(v.version));
   }
 
   const bestaetigtSpanne = body.bestaetigtSpanne === true;

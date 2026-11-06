@@ -92,6 +92,8 @@ describe("CRM-Renderer und Kalkulationsversion (Review 4)", () => {
     const r = await previewCommercialDocument(eingabe);
     expect(r.calculationVersionId).toBe("ver_1");
     expect(r.html).toContain("1.000,00");
+    // Kopf und Posten aus einem Stand gelesen (Codex-Re-Review F4).
+    expect(mocks.getQuotation).toHaveBeenCalledWith(expect.any(String), { konsistent: true });
   });
 
   it("KV wird mit der gerenderten Version (v1) gespeichert, auch wenn bis zum Speichern v2 gesperrt wurde", async () => {
