@@ -11,6 +11,7 @@ import {
   festlegenZug,
   filterSchluessel,
   imBlickKlick,
+  gespeichertText,
   leerArt,
   mehrText,
   mussLaden,
@@ -19,6 +20,7 @@ import {
   schwebend,
   sichtbareEintraege,
   tagAusAblageId,
+  teamNamen,
   verschiebenZug,
   zelleArt,
   zelleEintraege,
@@ -212,11 +214,27 @@ describe("Popover", () => {
       teamZuordnen: true,
     });
     expect(popoverAktionen(alt, stufen.slice(0, 1)).bestaetigen).toBeNull();
-    expect(popoverAktionen(eintrag({ ton: "gestrichelt", ziehbar: false }), stufen).terminangebote).toBe(true);
+    expect(popoverAktionen(eintrag({ ton: "gestrichelt", ziehbar: false, teamFehlt: true }), stufen)).toMatchObject({ terminangebote: true, teamZuordnen: false });
     expect(popoverAktionen(eintrag({ art: "besichtigung", ton: "violett", ziehbar: false, teamFehlt: true }), stufen)).toMatchObject({
       terminangebote: false,
       teamZuordnen: false,
     });
+  });
+});
+
+describe("Texte", () => {
+  it("nennt das Team ohne doppeltes „Team:“", () => {
+    const fest = { art: "umzug" as const, ton: "gold" as const };
+    expect(teamNamen({ ...fest, team: [{ kuerzel: "MK", name: "Mehmet Kaya" }, { kuerzel: "TS", name: "Tobias Stein" }], teamFehlt: false })).toBe("Mehmet Kaya, Tobias Stein");
+    expect(teamNamen({ ...fest, team: [{ kuerzel: "TS", name: "Tobias Stein" }], teamFehlt: true })).toBe("Tobias Stein, unvollständig");
+    expect(teamNamen({ ...fest, team: [], teamFehlt: true })).toBe("fehlt");
+    expect(teamNamen({ art: "umzug", ton: "gestrichelt", team: [], teamFehlt: true })).toBe("keins");
+  });
+
+  it("setzt hinter den Tag keinen zweiten Punkt", () => {
+    const zug = { dealId: "d", eintragId: null, name: "Familie Can", ziel: "2026-11-25", text: { titel: "", text: "", knopf: "", pflicht: null }, werte: {}, kunde: true };
+    expect(gespeichertText(zug)).toBe("Familie Can: neuer Tag Mi 25.11.");
+    expect(gespeichertText({ ...zug, kunde: false })).toBe("Besichtigung bei Familie Can eingetragen.");
   });
 });
 

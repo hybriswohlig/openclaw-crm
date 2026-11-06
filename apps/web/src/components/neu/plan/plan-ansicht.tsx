@@ -164,11 +164,14 @@ export function PlanAnsicht({
     [laden]
   );
 
+  // Erst laden, wenn die Breite feststeht: am Handy gilt immer der Tag, sonst lädt der Monat umsonst.
+  const breiteBekannt = breit !== null;
   useEffect(() => {
+    if (!breiteBekannt) return;
     const a = abfrageRef.current;
     if (!mussLaden(geladen.current, a)) return;
     void laden(a, hatDaten.current ? "wechsel" : "oeffnen");
-  }, [abfrageKey, laden]);
+  }, [abfrageKey, laden, breiteBekannt]);
 
   useEffect(() => {
     const takt = () => {
@@ -300,7 +303,7 @@ export function PlanAnsicht({
               ) : (
                 <PlanWoche {...raster} ziehend={ziehend} klickErlaubt={klickErlaubt} />
               )}
-              <Legende />
+              <Legende abo={!leads} />
             </GlassPanel>
           )}
         </Ziehflaeche>
@@ -353,7 +356,7 @@ export function PlanAnsicht({
               schick({ typ: "start", zug: r.zug });
               return null;
             }
-            return r.hinweis ?? `Der Umzug steht schon auf ${tagKurz(ziel)}.`;
+            return r.hinweis ?? "Der Umzug steht schon auf diesem Tag.";
           }}
           onBestaetigen={(e, stufe) => {
             setAuswahl(null);

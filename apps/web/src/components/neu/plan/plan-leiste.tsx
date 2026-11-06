@@ -72,7 +72,7 @@ export function PlanLeiste({
           </svg>
         </button>
         <h2 className="plan-nav-titel" aria-live="polite">
-          {planTitel(z.modus, z.anker)}
+          {kompakt && z.anker.slice(0, 4) === heute.slice(0, 4) ? planTitel(z.modus, z.anker).replace(/ \d{4}$/, "") : planTitel(z.modus, z.anker)}
         </h2>
         <button type="button" className="plan-nav-pfeil" aria-label={VOR[z.modus]} onClick={() => onZustand({ ...z, anker: ankerVerschieben(z.modus, z.anker, 1) })}>
           <svg viewBox="0 0 24 24" aria-hidden="true">

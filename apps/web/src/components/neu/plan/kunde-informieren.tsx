@@ -66,7 +66,7 @@ export function KundeInformieren({
       <GlassDialogContent container={portalZiel} closeLabel="Schließen">
         <GlassDialogTitle className="akte-dialog-titel">Kunden informieren?</GlassDialogTitle>
         <GlassDialogDescription className="akte-dialog-text">
-          {name} steht jetzt auf {tagKurz(ziel)}. Im Portal sieht der Kunde das schon; eine Nachricht bekommt er nur, wenn du sie jetzt schickst.
+          Neuer Tag für {name}: {tagKurz(ziel)} Im Portal sieht der Kunde ihn schon; eine Nachricht bekommt er nur, wenn du sie jetzt schickst.
         </GlassDialogDescription>
         {kanaele.art === "laden" ? <p className="plan-dialog-hinweis">Kanäle werden geladen …</p> : null}
         {kanaele.art === "fehler" ? (

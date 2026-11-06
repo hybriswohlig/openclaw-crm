@@ -13,8 +13,8 @@ import {
 import { GlassPanel } from "@/components/glassyui/glass-panel";
 import { tagKurz } from "@/lib/anzeige";
 import type { PlanEintrag } from "@/lib/plan-heute";
-import { TEAM_ZUORDNEN_URL, popoverAktionen, type PopoverAktionen } from "./plan-logik";
-import { TON_TEXT, teamText, teamZeigen } from "./plan-zeile-logik";
+import { TEAM_ZUORDNEN_URL, popoverAktionen, teamNamen, type PopoverAktionen } from "./plan-logik";
+import { TON_TEXT, teamZeigen } from "./plan-zeile-logik";
 
 export interface PopoverHandlungen {
   /** Prüft und startet den Zug; liefert einen Hinweis, wenn er nicht geht (dann bleibt das Popover offen). */
@@ -122,7 +122,7 @@ function Inhalt({ eintrag: e, aktionen, heute, onVerschieben, onBestaetigen, onT
         {teamZeigen(e) ? (
           <div>
             <dt>Team</dt>
-            <dd>{teamText(e)}</dd>
+            <dd>{teamNamen(e)}</dd>
           </div>
         ) : null}
         {e.transporter ? (

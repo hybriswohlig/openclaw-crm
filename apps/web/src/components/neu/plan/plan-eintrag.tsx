@@ -2,7 +2,7 @@
 
 import { useDraggable } from "@dnd-kit/core";
 import type { PlanEintrag } from "@/lib/plan-heute";
-import { TON_TEXT, teamText, teamZeigen } from "./plan-zeile-logik";
+import { TON_TEXT, teamLuecke, teamText, teamZeigen } from "./plan-zeile-logik";
 
 /** Füllungen der Team-Kürzel wie Board und Plan-Zeile: dunkle Tinten, weiße Schrift erreicht 4,5:1. */
 const KUERZEL_FARBEN = ["var(--ink)", "var(--jade-ink)", "var(--blue-ink)", "var(--violet)", "var(--gold-ink)"] as const;
@@ -12,6 +12,11 @@ export type EintragWahl = (e: PlanEintrag, anker: HTMLElement) => void;
 /** ID des ziehbaren Eintrags; je Tag eindeutig, weil mehrtägige an jedem Tag stehen. */
 export function ziehId(e: PlanEintrag, tag: string): string {
   return `${e.id}@${tag}`;
+}
+
+/** „2.950 €“ bleibt in schmalen Zellen zusammen (geschütztes Leerzeichen vor dem Euro-Zeichen). */
+function zeileGeschuetzt(zeile: string): string {
+  return zeile.replace(/ €/g, "\u00a0€");
 }
 
 /** Vorlesetext: „Familie Can, fest, Team steht, Umzug · 2.950 € · Stuttgart-Süd → Esslingen“. */
@@ -33,7 +38,7 @@ export function EintragInhalt({ eintrag: e, woche }: { eintrag: PlanEintrag; woc
         <b>{e.titel}</b>
         {e.firma ? <i className="plan-eintrag-firma" style={{ background: e.firma.farbe }} title={e.firma.name} /> : null}
       </span>
-      <small>{e.zeile}</small>
+      <small>{zeileGeschuetzt(e.zeile)}</small>
       {team ? (
         <span className="plan-eintrag-team">
           <span className="plan-kuerzel">
@@ -42,7 +47,7 @@ export function EintragInhalt({ eintrag: e, woche }: { eintrag: PlanEintrag; woc
                 {m.kuerzel}
               </span>
             ))}
-            {e.teamFehlt ? (
+            {teamLuecke(e) ? (
               <span className="plan-kuerzel-fehlt" title="Team unvollständig">
                 ?
               </span>

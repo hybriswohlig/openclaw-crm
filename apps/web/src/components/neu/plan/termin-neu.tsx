@@ -58,9 +58,10 @@ export function TerminNeu({
         <Menu.Portal container={portalZiel}>
           <Menu.Content asChild align="end" sideOffset={8} collisionPadding={12}>
             <GlassPanel elevation="raised" lens preset="prominent" refraction="none" variant="card" className="lg-menu-content leiste-menue">
+              {/* Der Dialog öffnet erst nach dem Schließen des Menüs, sonst bleibt der Fokus unter aria-hidden. */}
               <Menu.Label className="lg-menu-label">Neuer Termin</Menu.Label>
               {arten.map((a) => (
-                <Menu.Item key={a} className="lg-menu-item leiste-menue-eintrag" onSelect={() => setArt(a)}>
+                <Menu.Item key={a} className="lg-menu-item leiste-menue-eintrag" onSelect={() => window.setTimeout(() => setArt(a), 0)}>
                   {ART_TITEL[a]}
                 </Menu.Item>
               ))}

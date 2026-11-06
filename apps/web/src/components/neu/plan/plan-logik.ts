@@ -24,6 +24,7 @@ import {
   type PlanSeitenZustand,
   type VerschiebenText,
 } from "@/lib/plan-heute";
+import { teamLuecke } from "./plan-zeile-logik";
 
 // ─── Raster ──────────────────────────────────────────────────────────────────
 
@@ -233,8 +234,17 @@ export function popoverAktionen(
     verschieben: e.ziehbar,
     bestaetigen: e.fehlt.includes("bestaetigen") && erledigt ? { id: erledigt.id, label: erledigt.label } : null,
     terminangebote: e.art === "umzug" && e.ton === "gestrichelt",
-    teamZuordnen: e.art === "umzug" && e.teamFehlt && e.ton !== "grau",
+    // Nur feste Umzüge: bei nicht festen meldet `teamFehlt` noch keine echte Lücke.
+    teamZuordnen: e.art === "umzug" && e.teamFehlt && (e.ton === "gold" || e.ton === "jade"),
   };
+}
+
+/** Team im Popover hinter „Team“: „Mehmet Kaya, Tobias Stein“, „Tobias Stein, unvollständig“, „fehlt“. */
+export function teamNamen(e: Pick<PlanEintrag, "art" | "ton" | "team" | "teamFehlt">): string {
+  const luecke = teamLuecke(e);
+  if (e.team.length === 0) return luecke ? "fehlt" : "keins";
+  const namen = e.team.map((m) => m.name).join(", ");
+  return luecke ? `${namen}, unvollständig` : namen;
 }
 
 /** Ziel von „Team zuordnen“ (Team-Zuordnung bleibt auf /operations, Entscheidung 17). */
@@ -411,7 +421,8 @@ export function besichtigungZug(
 
 /** Toast nach dem Speichern. */
 export function gespeichertText(z: Schreibzug): string {
-  return z.kunde ? `${z.name} steht jetzt auf ${tagKurz(z.ziel)}.` : `Besichtigung bei ${z.name} eingetragen.`;
+  // `tagKurz` endet mit einem Punkt („Mi 25.11.“), deshalb kein Satzpunkt dahinter.
+  return z.kunde ? `${z.name}: neuer Tag ${tagKurz(z.ziel)}` : `Besichtigung bei ${z.name} eingetragen.`;
 }
 
 // ─── Leads-Suche für „+ Termin“ ──────────────────────────────────────────────
