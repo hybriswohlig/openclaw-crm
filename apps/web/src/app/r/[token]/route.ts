@@ -16,10 +16,18 @@
  * the reporting view's `clicks` counter isn't inflated by browser
  * prefetches or chat-app link previews. The redirect itself always
  * fires.
+ *
+ * Link-Vorschauen von WhatsApp, Facebook und Telegram (istVorschauAgent)
+ * zählen nicht als Klick. Der Kanal des Klicks kommt aus dem Versand, zu dem
+ * der Token gehört (review_events, klickKanal), nicht mehr fest „sms“.
+ *
+ * Öffentlich auf dem CRM-Host (middleware.ts, publicPaths „/r/“). Auf
+ * status.*-Hosts leitet die Middleware /r/ weiter auf die Website; der Link
+ * nutzt darum immer NEXT_PUBLIC_APP_URL.
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import {
   reviewTokens,
@@ -28,6 +36,7 @@ import {
   recordValues,
   attributes,
 } from "@/db/schema";
+import { istVorschauAgent, klickKanal } from "@/lib/reviews/klick";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,12 +47,29 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ token: stri
   const [tok] = await db.select().from(reviewTokens).where(eq(reviewTokens.token, token)).limit(1);
   if (!tok) return notFoundPage();
 
-  if (tok.clickedAt === null) {
-    const userAgent = req.headers.get("user-agent");
+  const userAgent = req.headers.get("user-agent");
+  if (tok.clickedAt === null && !istVorschauAgent(userAgent)) {
     const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
 
     // Best-effort writes; failures shouldn't block the customer's redirect.
     try {
+      const versand = await db
+        .select({
+          eventType: reviewEvents.eventType,
+          channel: reviewEvents.channel,
+          meta: reviewEvents.meta,
+          at: reviewEvents.at,
+        })
+        .from(reviewEvents)
+        .where(
+          and(
+            eq(reviewEvents.workspaceId, tok.workspaceId),
+            eq(reviewEvents.dealRecordId, tok.dealRecordId),
+            inArray(reviewEvents.eventType, ["sent_sms", "sent_whatsapp"])
+          )
+        );
+      const channel = klickKanal(versand, tok.token, tok.createdAt);
+
       await db
         .update(reviewTokens)
         .set({
@@ -57,7 +83,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ token: stri
         workspaceId: tok.workspaceId,
         dealRecordId: tok.dealRecordId,
         eventType: "clicked",
-        channel: "sms",
+        channel,
         meta: { user_agent: userAgent ?? null, ip: ip ?? null },
       });
 

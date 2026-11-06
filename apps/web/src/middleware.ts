@@ -16,6 +16,11 @@ const publicPaths = [
   "/api/v1/inbox/sms/messagebird-inbound",
   // Customer status portal — token-scoped, no session
   "/s/",
+  // Bewertungslink aus der Bewertungsanfrage (app/r/[token]): der Token im Pfad
+  // ist der Schlüssel, der Kunde hat keine Sitzung. Gilt nur auf dem CRM-Host;
+  // status.*-Hosts leiten /r/ weiter auf die Website (siehe unten), darum
+  // nutzt der Link immer NEXT_PUBLIC_APP_URL.
+  "/r/",
   "/api/public/",
   // iCal subscription. The secret is the token in the path; Google Calendar
   // and phones have no CRM session.
