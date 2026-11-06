@@ -15,6 +15,7 @@ import {
   Plus,
   TrendingUp,
 } from "lucide-react";
+import { sichtbareAktivitaet } from "@/lib/startseite-aktivitaet";
 
 // ─── Types ───────────────────────────────────────────────────────────────
 
@@ -1050,6 +1051,7 @@ const EVENT_LABEL: Record<string, string> = {
 };
 
 function ActivityCard({ events }: { events: ActivityEvent[] }) {
+  const sichtbar = sichtbareAktivitaet(events);
   return (
     <div className="k-card p-5 sm:p-6">
       <div className="mb-2 flex items-baseline justify-between">
@@ -1067,7 +1069,7 @@ function ActivityCard({ events }: { events: ActivityEvent[] }) {
           Mehr →
         </Link>
       </div>
-      {events.length === 0 ? (
+      {sichtbar.length === 0 ? (
         <p
           className="py-4 text-center text-sm"
           style={{ color: "var(--ink-muted)" }}
@@ -1076,7 +1078,7 @@ function ActivityCard({ events }: { events: ActivityEvent[] }) {
         </p>
       ) : (
         <div>
-          {events.slice(0, 5).map((e, i) => (
+          {sichtbar.slice(0, 5).map((e, i) => (
             <div
               key={e.id}
               className="flex items-start gap-2.5 py-2.5"

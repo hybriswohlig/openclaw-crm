@@ -5,6 +5,9 @@ import type { SQL } from "drizzle-orm";
 const mocks = vi.hoisted(() => ({
   execute: vi.fn(),
   insert: vi.fn(),
+  transaction: vi.fn(),
+  txExecute: vi.fn(),
+  txInsert: vi.fn(),
   getDealStageCategory: vi.fn(),
   isAgentSuppressedStrict: vi.fn(),
   sendeAntwort: vi.fn(),
@@ -23,6 +26,7 @@ vi.mock("@/db", () => ({
       get(_t, p) {
         if (p === "execute") return mocks.execute;
         if (p === "insert") return mocks.insert;
+        if (p === "transaction") return mocks.transaction;
         if (p === "then" || typeof p === "symbol") return undefined;
         throw new Error(`@/db im Test (${String(p)})`);
       },
@@ -47,6 +51,7 @@ vi.mock("@/services/gespraech", () => ({ dbGespraechSpeicher: { gespraeche: mock
 
 import {
   BewertungFehler,
+  BewertungKonfigFehler,
   bewertungAnfragen,
   bewertungsVorschau,
   dbBewertungSpeicher,
@@ -56,6 +61,7 @@ import {
 import { BEWERTUNGSLINK_PLATZHALTER, STOP_ZEILE_SIE } from "@/lib/reviews/manuell";
 import type { GespraechRoh } from "@/services/gespraech";
 import { WhatsAppSessionExpiredError } from "@/services/inbox-whatsapp";
+import { activityEvents, consentLedger, reviewTokens } from "@/db/schema";
 
 const WS = "ws_1";
 const DEAL = "deal_1";
@@ -93,25 +99,58 @@ function roh(teil: Partial<BewertungRoh> = {}): BewertungRoh {
   };
 }
 
+/**
+ * In-Memory-Speicher. `gesperrt` ist ein Mutex wie pg_advisory_xact_lock und
+ * rollt Token und Einwilligung bei einem Wurf zurück wie die Transaktion.
+ */
 function fake(start: {
   roh?: Partial<BewertungRoh>;
   gespraeche?: GespraechRoh[];
   einwilligung?: boolean;
   anrede?: "sie" | "du";
   optionen?: { statusGesendet: string | null; varianteManuell: string | null };
+  tokenDa?: boolean;
+  kontaktPerson?: string | null;
+  personKontakt?: { telefone: string[]; emails: string[] };
 } = {}) {
+  const st = {
+    tokens: [] as { token: string }[],
+    einwilligungen: [] as unknown[],
+    sperre: Promise.resolve(),
+  };
   const speicher: BewertungSpeicher = {
     lesen: vi.fn(async () => roh(start.roh)),
     gespraeche: vi.fn(async () => start.gespraeche ?? [WABA]),
+    tokenDa: vi.fn(async () => (start.tokenDa ?? false) || st.tokens.length > 0),
+    kontaktPerson: vi.fn(async () => start.kontaktPerson ?? null),
+    personKontakt: vi.fn(async () => start.personKontakt ?? { telefone: [], emails: [] }),
     einwilligungDa: vi.fn(async () => start.einwilligung ?? true),
     anrede: vi.fn(async () => start.anrede ?? "sie"),
     optionen: vi.fn(async () => start.optionen ?? { statusGesendet: "st_sent_wa", varianteManuell: null }),
-    tokenAnlegen: vi.fn(async () => {}),
-    tokenLoeschen: vi.fn(async () => {}),
-    einwilligungSpeichern: vi.fn(async () => "consent_1"),
+    tokenAnlegen: vi.fn(async (z) => void st.tokens.push(z)),
+    einwilligungSpeichern: vi.fn(async (z) => {
+      st.einwilligungen.push(z);
+      return "consent_1";
+    }),
     ereignis: vi.fn(async () => {}),
+    gesperrt: vi.fn(async (_ws, _deal, fn) => {
+      const vorher = st.sperre;
+      let frei!: () => void;
+      st.sperre = new Promise<void>((r) => (frei = r));
+      await vorher;
+      const stand = { tokens: [...st.tokens], einwilligungen: [...st.einwilligungen] };
+      try {
+        return await fn(speicher);
+      } catch (err) {
+        st.tokens = stand.tokens;
+        st.einwilligungen = stand.einwilligungen;
+        throw err;
+      } finally {
+        frei();
+      }
+    }) as BewertungSpeicher["gesperrt"],
   };
-  return speicher;
+  return Object.assign(speicher, { st });
 }
 
 async function fehlerCode(p: Promise<unknown>): Promise<string> {
@@ -224,11 +263,12 @@ describe("Sperren je Fehlercode", () => {
     expect(mocks.istImFenster).not.toHaveBeenCalled();
   });
 
-  it("Ablauf des Fensters beim Senden → FENSTER, Token wieder entfernt", async () => {
+  it("Ablauf des Fensters beim Senden → FENSTER, Token zurückgerollt", async () => {
     mocks.sendeAntwort.mockRejectedValue(new WhatsAppSessionExpiredError());
     const s = fake();
     expect(await fehlerCode(bewertungAnfragen(WS, DEAL, ANFRAGE, s))).toBe("FENSTER");
-    expect(s.tokenLoeschen).toHaveBeenCalledTimes(1);
+    expect(s.tokenAnlegen).toHaveBeenCalledTimes(1);
+    expect(s.st.tokens).toEqual([]);
     expect(s.ereignis).not.toHaveBeenCalled();
     expect(mocks.updateRecord).not.toHaveBeenCalled();
   });
@@ -355,11 +395,13 @@ describe("Erfolg", () => {
     await bewertungAnfragen(WS, DEAL, { ...ANFRAGE, einwilligung: `  ${eintrag} ` }, s);
     expect(s.einwilligungSpeichern).toHaveBeenCalledWith({
       workspaceId: WS,
+      dealRecordId: DEAL,
       personRecordId: "person_1",
       channel: "whatsapp",
       purpose: "review_request",
       exactWording: eintrag,
       sourceConversationId: "conv_waba",
+      userId: "usr_1",
     });
     expect(vi.mocked(s.einwilligungSpeichern).mock.invocationCallOrder[0]!).toBeLessThan(
       mocks.sendeAntwort.mock.invocationCallOrder[0]!
@@ -408,13 +450,98 @@ describe("Erfolg", () => {
     expect(await bewertungAnfragen(WS, DEAL, ANFRAGE, s)).toEqual({ gesendet: true, gespraechId: "conv_baileys" });
   });
 
-  it("anderer Sendefehler: Token entfernt, Fehler weitergereicht, nichts vermerkt", async () => {
+  it("anderer Sendefehler: Token und Einwilligung zurückgerollt, Fehler weitergereicht, nichts vermerkt", async () => {
     mocks.sendeAntwort.mockRejectedValue(new Error("Bridge weg"));
-    const s = fake();
-    await expect(bewertungAnfragen(WS, DEAL, ANFRAGE, s)).rejects.toThrow("Bridge weg");
-    expect(s.tokenLoeschen).toHaveBeenCalledWith(WS, DEAL, vi.mocked(s.tokenAnlegen).mock.calls[0]![0].token);
+    const s = fake({ einwilligung: false });
+    await expect(bewertungAnfragen(WS, DEAL, { ...ANFRAGE, einwilligung: "Am Telefon am 03.11." }, s)).rejects.toThrow("Bridge weg");
+    expect(s.tokenAnlegen).toHaveBeenCalledTimes(1);
+    expect(s.einwilligungSpeichern).toHaveBeenCalledTimes(1);
+    expect(s.st.tokens).toEqual([]);
+    expect(s.st.einwilligungen).toEqual([]);
     expect(mocks.nachEigenerNachricht).not.toHaveBeenCalled();
     expect(mocks.updateRecord).not.toHaveBeenCalled();
+    expect(s.ereignis).not.toHaveBeenCalled();
+  });
+});
+
+describe("Doppelt senden", () => {
+  it("zwei parallele Aufrufe: genau ein Versand, der zweite SCHON_GESENDET", async () => {
+    mocks.sendeAntwort.mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, 5));
+      return { message: { id: "msg_1", sentAt: WERKTAG }, dealRecordId: DEAL };
+    });
+    const s = fake();
+    const ergebnisse = await Promise.allSettled([
+      bewertungAnfragen(WS, DEAL, ANFRAGE, s),
+      bewertungAnfragen(WS, DEAL, ANFRAGE, s),
+    ]);
+    expect(mocks.sendeAntwort).toHaveBeenCalledTimes(1);
+    expect(ergebnisse.filter((e) => e.status === "fulfilled")).toHaveLength(1);
+    const abgelehnt = ergebnisse.find((e) => e.status === "rejected") as PromiseRejectedResult;
+    expect(abgelehnt.reason).toBeInstanceOf(BewertungFehler);
+    expect(abgelehnt.reason.code).toBe("SCHON_GESENDET");
+    expect(s.st.tokens).toHaveLength(1);
+  });
+
+  it("Prüfen, Token und Senden laufen hinter der Sperre des Deals", async () => {
+    const s = fake();
+    await bewertungAnfragen(WS, DEAL, ANFRAGE, s);
+    expect(s.gesperrt).toHaveBeenCalledWith(WS, DEAL, expect.any(Function));
+  });
+
+  it("vorhandener Token → SCHON_GESENDET, auch in der Vorschau", async () => {
+    const s = fake({ tokenDa: true });
+    expect(await fehlerCode(bewertungAnfragen(WS, DEAL, ANFRAGE, s))).toBe("SCHON_GESENDET");
+    expect(mocks.sendeAntwort).not.toHaveBeenCalled();
+    expect((await bewertungsVorschau(WS, DEAL, s)).sperre).toBe("SCHON_GESENDET");
+  });
+});
+
+describe("Empfänger und Abmeldung", () => {
+  it("Einwilligung gilt für die Person am Kontakt des Gesprächs", async () => {
+    const s = fake({ einwilligung: false, kontaktPerson: "person_kontakt" });
+    await bewertungAnfragen(WS, DEAL, { ...ANFRAGE, einwilligung: "Per WhatsApp am 03.11. zugestimmt" }, s);
+    expect(s.kontaktPerson).toHaveBeenCalledWith(WS, "conv_waba");
+    expect(s.einwilligungDa).toHaveBeenCalledWith(WS, "person_kontakt");
+    expect(s.einwilligungSpeichern).toHaveBeenCalledWith(expect.objectContaining({ personRecordId: "person_kontakt" }));
+  });
+
+  it("ohne Person am Kontakt: erste verknüpfte Person des Deals", async () => {
+    const s = fake({ einwilligung: false, kontaktPerson: null });
+    await bewertungAnfragen(WS, DEAL, { ...ANFRAGE, einwilligung: "Per WhatsApp am 03.11. zugestimmt" }, s);
+    expect(s.einwilligungDa).toHaveBeenCalledWith(WS, "person_1");
+    expect(s.einwilligungSpeichern).toHaveBeenCalledWith(expect.objectContaining({ personRecordId: "person_1" }));
+  });
+
+  it("Kontaktdaten beider Personen werden geprüft", async () => {
+    const s = fake({ kontaktPerson: "person_kontakt" });
+    await bewertungAnfragen(WS, DEAL, ANFRAGE, s);
+    expect(s.personKontakt).toHaveBeenCalledWith(WS, ["person_kontakt", "person_1"]);
+  });
+
+  it.each([
+    ["Telefon der Person", { phone: "+49 171 0000000" }],
+    ["E-Mail der Person", { email: "anna@example.de" }],
+  ])("Abmeldung über %s → SPERRE", async (_n, treffer) => {
+    mocks.isAgentSuppressedStrict.mockImplementation(async (_ws: string, k: { phone?: string; email?: string }) =>
+      "phone" in treffer ? k.phone === treffer.phone : k.email === treffer.email
+    );
+    const s = fake({ personKontakt: { telefone: ["+49 171 0000000"], emails: ["anna@example.de"] } });
+    expect(await fehlerCode(bewertungAnfragen(WS, DEAL, ANFRAGE, s))).toBe("SPERRE");
+    expect(mocks.isAgentSuppressedStrict).toHaveBeenCalledWith(WS, treffer);
+    expect(mocks.sendeAntwort).not.toHaveBeenCalled();
+  });
+});
+
+describe("Konfiguration", () => {
+  it("ohne NEXT_PUBLIC_APP_URL kein Versand, klarer Fehler", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "");
+    const s = fake();
+    const p = bewertungAnfragen(WS, DEAL, ANFRAGE, s);
+    await expect(p).rejects.toBeInstanceOf(BewertungKonfigFehler);
+    await expect(p).rejects.toThrow("NEXT_PUBLIC_APP_URL fehlt");
+    expect(s.tokenAnlegen).not.toHaveBeenCalled();
+    expect(mocks.sendeAntwort).not.toHaveBeenCalled();
   });
 });
 
@@ -525,12 +652,105 @@ describe("dbBewertungSpeicher", () => {
     expect(q.params).toEqual(expect.arrayContaining([WS, "person_1"]));
   });
 
-  it("tokenLoeschen: nur ungeklickter Token dieses Workspace und Deals", async () => {
-    mocks.execute.mockResolvedValue({ rows: [] });
-    await dbBewertungSpeicher.tokenLoeschen(WS, DEAL, "tok_1");
+  it("tokenDa: Token dieses Workspace und Deals", async () => {
+    mocks.execute.mockResolvedValue({ rows: [{ da: true }] });
+    expect(await dbBewertungSpeicher.tokenDa(WS, DEAL)).toBe(true);
     const q = sqlText(mocks.execute.mock.calls[0]![0]);
-    expect(q.sql).toMatch(/workspace_id = \$1 AND deal_record_id = \$2 AND token = \$3 AND clicked_at IS NULL/);
-    expect(q.params).toEqual([WS, DEAL, "tok_1"]);
+    expect(q.sql).toMatch(/FROM review_tokens WHERE workspace_id = \$1 AND deal_record_id = \$2/);
+    expect(q.params).toEqual([WS, DEAL]);
+  });
+
+  it("kontaktPerson: Person am Kontakt des Gesprächs, nur Personen dieses Workspace", async () => {
+    mocks.execute.mockResolvedValue({ rows: [{ id: "person_kontakt" }] });
+    expect(await dbBewertungSpeicher.kontaktPerson(WS, "conv_waba")).toBe("person_kontakt");
+    const q = sqlText(mocks.execute.mock.calls[0]![0]);
+    expect(q.sql).toContain("k.crm_record_id");
+    expect(q.sql).toContain("po.slug = 'people'");
+    expect(q.sql).toContain("c.workspace_id");
+    expect(q.params).toEqual(expect.arrayContaining([WS, "conv_waba"]));
+  });
+
+  it("personKontakt: Nummern und Adressen, leere Liste ohne Abfrage", async () => {
+    expect(await dbBewertungSpeicher.personKontakt(WS, [])).toEqual({ telefone: [], emails: [] });
+    expect(mocks.execute).not.toHaveBeenCalled();
+    mocks.execute.mockResolvedValue({
+      rows: [
+        { slug: "phone_numbers", wert: "+49 171 0000000" },
+        { slug: "email_addresses", wert: " anna@example.de " },
+        { slug: "email_addresses", wert: "" },
+      ],
+    });
+    expect(await dbBewertungSpeicher.personKontakt(WS, ["p1", "p2"])).toEqual({
+      telefone: ["+49 171 0000000"],
+      emails: ["anna@example.de"],
+    });
+    const q = sqlText(mocks.execute.mock.calls[0]![0]);
+    expect(q.params).toEqual(expect.arrayContaining([WS, "p1", "p2"]));
+    expect(q.sql).toContain("po.workspace_id");
+  });
+
+  it("gesperrt: Transaktion, erste Anweisung ist pg_advisory_xact_lock je Workspace und Deal; Schreiben über tx", async () => {
+    const werte: { table: unknown; values: unknown }[] = [];
+    mocks.txExecute.mockResolvedValue({ rows: [] });
+    mocks.txInsert.mockImplementation((table: unknown) => ({
+      values: (values: unknown) => {
+        werte.push({ table, values });
+        const p = Promise.resolve() as Promise<void> & { returning?: () => Promise<{ id: string }[]> };
+        p.returning = async () => [{ id: "consent_x" }];
+        return p;
+      },
+    }));
+    mocks.transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) =>
+      fn({ execute: mocks.txExecute, insert: mocks.txInsert })
+    );
+    const id = await dbBewertungSpeicher.gesperrt(WS, DEAL, async (tx) => {
+      await tx.tokenAnlegen({ token: "tok_1", workspaceId: WS, dealRecordId: DEAL, destinationUrl: GOOGLE });
+      return tx.einwilligungSpeichern({
+        workspaceId: WS,
+        dealRecordId: DEAL,
+        personRecordId: "person_1",
+        channel: "whatsapp",
+        purpose: "review_request",
+        exactWording: "Am Telefon",
+        sourceConversationId: "conv_waba",
+        userId: "usr_1",
+      });
+    });
+    expect(id).toBe("consent_x");
+    expect(mocks.transaction).toHaveBeenCalledTimes(1);
+    const lock = sqlText(mocks.txExecute.mock.calls[0]![0]);
+    expect(lock.sql).toBe("select pg_advisory_xact_lock(hashtext('bewertung:' || $1 || ':' || $2))");
+    expect(lock.params).toEqual([WS, DEAL]);
+    expect(mocks.insert).not.toHaveBeenCalled();
+    expect(werte.map((w) => w.table)).toEqual([reviewTokens, consentLedger, activityEvents]);
+    expect(werte[1]!.values).toEqual({
+      workspaceId: WS,
+      personRecordId: "person_1",
+      channel: "whatsapp",
+      purpose: "review_request",
+      exactWording: "Am Telefon",
+      sourceConversationId: "conv_waba",
+    });
+    expect(werte[2]!.values).toEqual({
+      workspaceId: WS,
+      recordId: DEAL,
+      objectSlug: "deals",
+      eventType: "consent.eingetragen",
+      payload: { consentId: "consent_x", purpose: "review_request", channel: "whatsapp", personRecordId: "person_1" },
+      actorId: "usr_1",
+    });
+  });
+
+  it("gesperrt: Wurf in der Transaktion wird weitergereicht (Drizzle rollt zurück)", async () => {
+    mocks.txExecute.mockResolvedValue({ rows: [] });
+    mocks.transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) =>
+      fn({ execute: mocks.txExecute, insert: mocks.txInsert })
+    );
+    await expect(
+      dbBewertungSpeicher.gesperrt(WS, DEAL, async () => {
+        throw new Error("Senden fehlgeschlagen");
+      })
+    ).rejects.toThrow("Senden fehlgeschlagen");
   });
 
   it("gespraeche nutzt die Abfrage der Akte", async () => {

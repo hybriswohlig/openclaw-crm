@@ -40,6 +40,9 @@ export type ActivityEventType =
   | "customer.reschedule_requested"
   | "customer.question"
   | "customer.damage_reported"
+  // Einwilligung von Hand eingetragen (Bewertung anfragen); actor_id = Autor,
+  // payload { consentId, purpose, channel }. consent_ledger hat keine Autorenspalte.
+  | "consent.eingetragen"
   | "person.merge"
   | "person.unmerge"
   | "agent.action"

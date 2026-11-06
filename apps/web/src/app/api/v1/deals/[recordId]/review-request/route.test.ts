@@ -26,7 +26,7 @@ vi.mock("@/services/bewertung-anfragen", async (importOriginal) => {
 });
 
 import { GET, POST } from "./route";
-import { BewertungFehler, type BewertungCode } from "@/services/bewertung-anfragen";
+import { BewertungFehler, BewertungKonfigFehler, type BewertungCode } from "@/services/bewertung-anfragen";
 
 const CTX = { userId: "usr_1", workspaceId: "ws_1", workspaceRole: "admin" as const, authMethod: "cookie" as const };
 const URL_ = "http://localhost/api/v1/deals/deal_1/review-request";
@@ -134,6 +134,13 @@ describe("POST /deals/[recordId]/review-request", () => {
     const res = await POST(post({ text: "x" }), p());
     expect(res.status).toBe(400);
     expect((await res.json()).error).toEqual({ code: "TEXT", message: "Der Text muss den STOP-Hinweis enthalten." });
+  });
+
+  it("fehlende NEXT_PUBLIC_APP_URL → 500 mit klarem Text", async () => {
+    mocks.bewertungAnfragen.mockRejectedValue(new BewertungKonfigFehler("NEXT_PUBLIC_APP_URL fehlt"));
+    const res = await POST(post({}), p());
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toEqual({ code: "KONFIGURATION", message: "NEXT_PUBLIC_APP_URL fehlt" });
   });
 
   it("unbekannter Fehler wird weitergeworfen", async () => {
