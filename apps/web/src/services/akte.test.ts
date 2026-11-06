@@ -107,7 +107,6 @@ const KOPF = {
   firma_name: "Kottke",
   stufe_id: "st_angebot",
   stufe_titel: "Angebot",
-  stufe_kategorie: "quoted",
   waiting_on: "kunde",
   waiting_since: "2026-11-03 09:00:00",
   waiting_reason: "KV 3× geöffnet",
@@ -123,12 +122,24 @@ const GRUENDE = [
   { id: "lr_sonst", title: "Sonstiges" },
 ];
 
-type Antworten = { kopf?: unknown[]; stufen?: unknown[]; gruende?: unknown[]; entwurf?: unknown[] };
+/** Entwurf mit Klasse und Deal seines Gesprächs; die Abfrage-Attrappe filtert wie das SQL, das sie bekommt. */
+type EntwurfFixture = { id: string; conversation_id: string; message_class: string; gespraech_deal: string | null };
+type Antworten = { kopf?: unknown[]; stufen?: unknown[]; gruende?: unknown[]; entwurf?: EntwurfFixture[] };
+
+const followup = (id: string, conversation_id: string): EntwurfFixture => ({ id, conversation_id, message_class: "followup", gespraech_deal: DEAL });
+
+/** Nur Zeilen, die die Bedingungen im SQL-Text erfüllen: ohne Filter im SQL kämen sie durch. */
+function entwuerfeWieSql(text: string, alle: EntwurfFixture[]) {
+  return alle
+    .filter((e) => !text.includes("d.message_class = 'followup'") || e.message_class === "followup")
+    .filter((e) => !text.includes("c.deal_record_id = $") || e.gespraech_deal === DEAL)
+    .map(({ id, conversation_id }) => ({ id, conversation_id }));
+}
 
 function dbAntwortet(a: Antworten = {}) {
   mocks.execute.mockImplementation(async (q: unknown) => {
     const { text } = gerendert(q);
-    if (text.includes("FROM agent_drafts d")) return a.entwurf ?? [];
+    if (text.includes("FROM agent_drafts d")) return entwuerfeWieSql(text, a.entwurf ?? []);
     if (text.includes("FROM statuses s")) return a.stufen ?? STUFEN;
     if (text.includes("FROM select_options so")) return a.gruende ?? GRUENDE;
     if (text.includes("FROM records r")) return a.kopf ?? [KOPF];
@@ -226,7 +237,7 @@ describe("ladeAkte", () => {
   });
 
   it("Nachfass-Entwurf: neuester offener, nicht abgelaufener am direkt verknüpften Gespräch", async () => {
-    dbAntwortet({ entwurf: [{ id: "draft_1", conversation_id: "c_wa" }] });
+    dbAntwortet({ entwurf: [followup("draft_1", "c_wa")] });
     const akte = await ladeAkte(WS, DEAL, JETZT);
     expect(akte.dock.primaer).toEqual({ aktion: "nachfass_senden", label: "Nachfass senden", ziel: "draft_1" });
     const { text, params } = abfrage("FROM agent_drafts d");
@@ -236,7 +247,7 @@ describe("ladeAkte", () => {
     expect(text).toContain("d.message_class = 'followup'");
     expect(text).toContain("d.status = 'pending'");
     expect(text).toContain("(d.expires_at IS NULL OR d.expires_at > $");
-    // Direkt verknüpft: Gespräch im Workspace mit deal_record_id = deal (schließt den Team-Entwurf ohne Gespräch aus).
+    // Direkt verknüpft: Gespräch im Workspace mit deal_record_id = deal (schließt Gespräche anderer oder keiner Deals aus).
     expect(text).toContain("INNER JOIN inbox_conversations c ON c.id = d.conversation_id AND c.workspace_id = $");
     expect(text).toContain("c.deal_record_id = $");
     expect(text).toContain("ORDER BY d.created_at DESC");
@@ -245,14 +256,26 @@ describe("ladeAkte", () => {
     expect(params.filter((p) => p === DEAL).length).toBeGreaterThanOrEqual(2);
   });
 
+  it("Team-Entwurf (ack am Nuri-Gespräch, nicht am Deal) und Entwurf an fremdem Gespräch: kein Nachfass senden", async () => {
+    dbAntwortet({
+      entwurf: [
+        { id: "draft_team", conversation_id: "c_nuri", message_class: "ack", gespraech_deal: null },
+        { id: "draft_fremd", conversation_id: "c_fremd", message_class: "followup", gespraech_deal: "deal_2" },
+      ],
+    });
+    // Selbst wenn das Nuri-Gespräch senden könnte.
+    mocks.dealGespraeche.mockResolvedValue([...GESPRAECHE, { id: "c_nuri", dealRecordId: null, direkt: false, kannSenden: true }]);
+    expect((await ladeAkte(WS, DEAL, JETZT)).dock.primaer.aktion).toBe("nachricht_schreiben");
+  });
+
   it("Entwurf an einem Gespräch, das nicht senden kann: kein Nachfass senden", async () => {
-    dbAntwortet({ entwurf: [{ id: "draft_1", conversation_id: "c_baileys" }] });
+    dbAntwortet({ entwurf: [followup("draft_1", "c_baileys")] });
     const akte = await ladeAkte(WS, DEAL, JETZT);
     expect(akte.dock.primaer.aktion).toBe("nachricht_schreiben");
   });
 
   it("Entwurf an einem Gespräch, das dealGespraeche nicht kennt: kein Nachfass senden", async () => {
-    dbAntwortet({ entwurf: [{ id: "draft_1", conversation_id: "c_unbekannt" }] });
+    dbAntwortet({ entwurf: [followup("draft_1", "c_unbekannt")] });
     expect((await ladeAkte(WS, DEAL, JETZT)).dock.primaer.aktion).toBe("nachricht_schreiben");
   });
 
@@ -268,13 +291,16 @@ describe("ladeAkte", () => {
     expect(akte.dock.primaer).toEqual({ aktion: "zahlung_bestaetigen", label: "Zahlung bestätigen" });
   });
 
-  it("Stufe ohne Kategorie mit Titel „Verloren“: Kategorie aus dem Titel, Dock und Ablauf wie Verloren", async () => {
-    mocks.ladeAblaufGrundlage.mockResolvedValue(grundlage({ fakten: { stageCategory: null, offeneMeldungen: 1 }, meldungen: [MELDUNG] }));
-    dbAntwortet({ kopf: [{ ...KOPF, stufe_id: "st_verloren", stufe_titel: "Verloren", stufe_kategorie: null }] });
+  it("eine Stufenkategorie: Kopf, Dock und Ablauf nehmen die Kategorie der Grundlage", async () => {
+    // ladeAblaufGrundlage leitet „Verloren“ ohne stage_category schon aus dem Titel ab.
+    mocks.ladeAblaufGrundlage.mockResolvedValue(grundlage({ fakten: { stageCategory: "lost", offeneMeldungen: 1 }, meldungen: [MELDUNG] }));
+    dbAntwortet({ kopf: [{ ...KOPF, stufe_id: "st_verloren", stufe_titel: "Verloren" }] });
     const akte = await ladeAkte(WS, DEAL, JETZT);
     expect(akte.kopf.stufe).toEqual({ id: "st_verloren", label: "Verloren", kategorie: "lost", ton: "grau" });
     expect(akte.dock.primaer.aktion).toBe("nachricht_schreiben");
     expect(akte.ablauf.schritte.some((s) => s.zustand === "jetzt")).toBe(false);
+    // Der Kopf leitet nicht selbst ab.
+    expect(abfrage("FROM records r").text).not.toContain("stage_category");
   });
 
   it("leerer Deal: Rückfälle im Kopf, ohne Wartet-Zeile, ohne Firma", async () => {
@@ -289,7 +315,6 @@ describe("ladeAkte", () => {
           firma_name: null,
           stufe_id: null,
           stufe_titel: null,
-          stufe_kategorie: null,
           waiting_on: null,
           waiting_since: null,
           waiting_reason: null,

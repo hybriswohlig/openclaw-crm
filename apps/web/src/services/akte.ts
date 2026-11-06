@@ -17,9 +17,9 @@
  *   Gespräch; senden nur, wenn dieses Gespräch laut `dealGespraeche` senden
  *   kann.
  *
- * Die Kategorie der Stufe entscheidet ohne `stage_category` über den Titel
- * (`stufenKategorie`, wie Wartet und Lagekarte); Kopf, Dock und Ablauf nutzen
- * dieselbe Kategorie.
+ * Die Kategorie der Stufe kommt aus `ladeAblaufGrundlage` (ohne gültige
+ * `stage_category` aus dem Titel); Kopf, Dock und Ablauf nutzen dieselbe.
+ * Nur die Stufenliste des Menüs leitet je Option selbst ab.
  *
  * Die Route prüft vorher `dealImWorkspace`; jede Abfrage hier filtert
  * trotzdem auf Workspace (und Deal).
@@ -54,7 +54,6 @@ interface KopfZeile {
   firma_name: string | null;
   stufe_id: string | null;
   stufe_titel: string | null;
-  stufe_kategorie: string | null;
   waiting_on: string | null;
   waiting_since: unknown;
   waiting_reason: string | null;
@@ -89,14 +88,13 @@ function kopfLesen(ws: string, deal: string) {
       ) AS firma_name,
       st.id AS stufe_id,
       st.title AS stufe_titel,
-      st.stage_category AS stufe_kategorie,
       w.waiting_on AS waiting_on,
       w.waiting_since::text AS waiting_since,
       w.waiting_reason AS waiting_reason
     FROM records r
     INNER JOIN objects o ON o.id = r.object_id AND o.workspace_id = ${ws} AND o.slug = 'deals'
     LEFT JOIN LATERAL (
-      SELECT s.id, s.title, s.stage_category FROM record_values v
+      SELECT s.id, s.title FROM record_values v
       INNER JOIN attributes a ON a.id = v.attribute_id AND a.object_id = r.object_id AND a.slug = 'stage'
       INNER JOIN statuses s ON s.id = v.text_value AND s.attribute_id = a.id
       WHERE v.record_id = r.id
@@ -129,9 +127,10 @@ function verlustGruendeLesen(ws: string) {
 }
 
 /**
- * Neuester offener Nachfass-Entwurf an einem direkt verknüpften Gespräch. Der
- * Join auf `deal_record_id = deal` schließt den internen Team-Entwurf (ohne
- * Kundengespräch) und indirekt gefundene Gespräche aus.
+ * Neuester offener Nachfass-Entwurf an einem direkt verknüpften Gespräch. Den
+ * internen Team-Entwurf (`message_class = 'ack'` am Nuri-Gespräch) schließt der
+ * Filter auf `followup` aus; der Join auf `deal_record_id = deal` schließt
+ * Gespräche aus, die nicht direkt am Deal hängen.
  */
 function entwurfLesen(ws: string, deal: string, jetzt: Date) {
   return db.execute(sql`
@@ -176,8 +175,7 @@ export async function ladeAkte(ws: string, deal: string, jetzt: Date = new Date(
   const [k] = zeilen<KopfZeile>(kopfRes);
   if (!k) throw new Error("Deal nicht gefunden");
 
-  const kategorie = k.stufe_titel !== null ? stufenKategorie({ titel: k.stufe_titel, kategorie: k.stufe_kategorie }) : null;
-  const f = { ...grundlage.fakten, stageCategory: kategorie ?? grundlage.fakten.stageCategory };
+  const f = grundlage.fakten;
 
   const wartet: Wartet = {
     waitingOn: k.waiting_on && WARTET_WERTE.has(k.waiting_on) ? (k.waiting_on as Wartet["waitingOn"]) : null,

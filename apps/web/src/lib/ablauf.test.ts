@@ -573,6 +573,14 @@ describe("Schritt 11: Bewertung anfragen", () => {
     expect(s.zeile).toBe("von Hand · Google-Link mit Vorlage");
   });
 
+  it("nach Beschwerde oder Abmeldung gesperrt statt offener Zeile; failed bleibt offen", () => {
+    const zeile = (status: string) => schritt({ ...fertig(), bewertung: { status, am: null } }, "bewertung").zeile;
+    expect(zeile("complaint_routed")).toBe("gesperrt · Beschwerde");
+    expect(zeile("suppressed")).toBe("gesperrt · abgemeldet");
+    expect(zeile("failed")).toBe("von Hand · Google-Link mit Vorlage");
+    expect(schritt({ ...fertig(), bewertung: { status: "suppressed", am: null } }, "bewertung").zustand).not.toBe("erledigt");
+  });
+
   it("alles erledigt: kein jetzt, position 11", () => {
     const r = ablauf(fertig(), JETZT);
     expect(r.schritte.every((s) => s.zustand === "erledigt")).toBe(true);

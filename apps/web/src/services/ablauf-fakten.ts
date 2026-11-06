@@ -7,7 +7,8 @@
  *   Option), `first_reply_at`, `move_date`, `move_completed_at`,
  *   `rechnung_faellig_am`, `review_request_status` (Titel über `statuses`),
  *   `review_request_sent_at`, `besichtigung_am` (nur falls im Workspace
- *   angelegt), Stufe (`statuses.stage_category`), Unterschrift aus
+ *   angelegt), Stufe (`statuses.stage_category`, ohne gültige Kategorie aus
+ *   dem Titel über `stufenKategorie`), Unterschrift aus
  *   `operating_company_portal_settings.signature_enabled` der Firma des Deals.
  * - `agent_events` `fotos_erledigt`: letzter Zeitpunkt und Summe `analysiert`.
  * - Inventar (`getDealInventory`): Volumen der mitzunehmenden Teile; ohne
@@ -45,6 +46,7 @@ import { ladeAktiveAnnahme } from "@/services/kva-annahme";
 import { ladeNachfassSchalter, type NachfassSchalter } from "@/services/nachfass-schalter";
 import { offenerRest } from "@/services/offener-rest";
 import { ladeZahlungsmeldungen, type Zahlungsmeldung } from "@/services/zahlungsmeldungen";
+import { stufenKategorie } from "@/services/lagekarte/status";
 
 type Spalte = "text_value" | "date_value" | "timestamp_value";
 
@@ -79,6 +81,7 @@ interface DealZeile {
   bewertung_status: string | null;
   bewertung_am: unknown;
   stufe: string | null;
+  stufe_titel?: string | null;
   besichtigung_am: unknown;
   unterschrift_aktiv: boolean | null;
 }
@@ -101,6 +104,7 @@ function dealLesen(ws: string, deal: string) {
       ${statusFeld("review_request_status", "title")} AS bewertung_status,
       ${attributWert("review_request_sent_at", "timestamp_value")} AS bewertung_am,
       ${statusFeld("stage", "stage_category")} AS stufe,
+      ${statusFeld("stage", "title")} AS stufe_titel,
       (
         SELECT coalesce(v.timestamp_value::text, v.date_value::text, v.text_value) FROM record_values v
         INNER JOIN attributes a ON a.id = v.attribute_id AND a.object_id = r.object_id AND a.slug = 'besichtigung_am'
@@ -419,7 +423,8 @@ export async function ladeAblaufGrundlage(ws: string, deal: string): Promise<Abl
     letzteZahlungAm,
     offeneMeldungen: meldungen.length,
     bewertung: { status: d.bewertung_status ?? null, am: alsIso(d.bewertung_am) },
-    stageCategory: d.stufe ?? null,
+    // Eine Wahrheit für Akte, Dock und Ablauf: ohne gültige Kategorie entscheidet der Titel (wie Wartet und Lagekarte).
+    stageCategory: stufenKategorie({ titel: d.stufe_titel ?? "", kategorie: d.stufe ?? null }),
   };
   return { fakten, nachfass, meldungen, volumen };
 }

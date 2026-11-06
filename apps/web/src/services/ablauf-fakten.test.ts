@@ -443,6 +443,17 @@ describe("ladeAblaufFakten", () => {
     expect((await ladeAblaufFakten(WS, DEAL)).kv?.gesendetAm).toBeNull();
   });
 
+  it("Stufe: ohne gültige stage_category entscheidet der Titel, sonst die Kategorie", async () => {
+    dbAntwortet({ deal: [{ ...LEERER_DEAL, stufe: null, stufe_titel: "Verloren" }], neben: [LEERE_NEBEN], version: [], angebot: [] });
+    expect((await ladeAblaufFakten(WS, DEAL)).stageCategory).toBe("lost");
+    dbAntwortet({ deal: [{ ...LEERER_DEAL, stufe: "quoted", stufe_titel: "Verloren" }], neben: [LEERE_NEBEN], version: [], angebot: [] });
+    expect((await ladeAblaufFakten(WS, DEAL)).stageCategory).toBe("quoted");
+    dbAntwortet({ deal: [{ ...LEERER_DEAL, stufe: "kaputt", stufe_titel: "Irgendwas" }], neben: [LEERE_NEBEN], version: [], angebot: [] });
+    expect((await ladeAblaufFakten(WS, DEAL)).stageCategory).toBeNull();
+    const { text } = gerendert(mocks.execute.mock.calls.find((c) => gerendert(c[0]).text.includes("FROM records r"))![0]);
+    expect(text).toContain("AS stufe_titel");
+  });
+
   it("Annahme eines fremden Workspace zählt nicht", async () => {
     dbAntwortet({ deal: [LEERER_DEAL], neben: [LEERE_NEBEN], version: [], angebot: [] });
     mocks.ladeAktiveAnnahme.mockResolvedValue({

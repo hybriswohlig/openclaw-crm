@@ -222,6 +222,11 @@ type Entwurf = Omit<AblaufSchritt, "nr" | "zustand" | "zeile"> & {
 const NACHFASS_TEXT: Record<2 | 7 | 10, string> = { 2: "Nachfrage", 7: "Erinnerung", 10: "Abschluss" };
 const ZAHLUNGSART_CHIPS = (["bank_transfer", "paypal", "cash", "card"] as const).map((k) => ZAHLUNGSART_LABEL[k]);
 const BEWERTUNG_ERLEDIGT = new Set(["sent_whatsapp", "sent_sms", "clicked", "review_left"]);
+/** Nach Beschwerde (`complaint_routed`) oder Abmeldung (`suppressed`) keine Bewertungsbitte; `failed` darf erneut. */
+const BEWERTUNG_GESPERRT: Record<string, string> = {
+  complaint_routed: "gesperrt · Beschwerde",
+  suppressed: "gesperrt · abgemeldet",
+};
 const DURCHGEFUEHRT_STUFEN = new Set(["done_unpaid", "paid"]);
 const VERLOREN_STUFEN = new Set(["lost", KEIN_LEAD_STAGE_CATEGORY]);
 
@@ -455,14 +460,20 @@ export function bewertungAngefragt(f: Pick<AblaufFakten, "bewertung">): boolean 
   return f.bewertung.status !== null && BEWERTUNG_ERLEDIGT.has(f.bewertung.status);
 }
 
+/** Bewertungsbitte gesperrt (Beschwerde oder Abmeldung); gemeinsam mit den Dock-Regeln der Akte. */
+export function bewertungGesperrt(f: Pick<AblaufFakten, "bewertung">): boolean {
+  return f.bewertung.status !== null && f.bewertung.status in BEWERTUNG_GESPERRT;
+}
+
 function bewertung(f: AblaufFakten): Entwurf {
+  const sperre = bewertungGesperrt(f) ? BEWERTUNG_GESPERRT[f.bewertung.status!] : null;
   return {
     key: "bewertung",
     titel: "Bewertung anfragen",
     wer: "du",
     erledigt: bewertungAngefragt(f),
     zeileErledigt: f.bewertung.am ? `angefragt ${tagKurz(f.bewertung.am)}` : "angefragt",
-    zeileOffen: "von Hand · Google-Link mit Vorlage",
+    zeileOffen: sperre ?? "von Hand · Google-Link mit Vorlage",
   };
 }
 

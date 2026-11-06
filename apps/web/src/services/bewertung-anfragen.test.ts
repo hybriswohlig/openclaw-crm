@@ -241,6 +241,21 @@ describe("Sperren je Fehlercode", () => {
     expect(mocks.sendeAntwort).not.toHaveBeenCalled();
   });
 
+  it.each(["complaint_routed", "suppressed"])("Status %s (Beschwerde, abgemeldet) → SPERRE, auch in der Vorschau", async (statusTitel) => {
+    const s = fake({ roh: { statusTitel } });
+    expect(await fehlerCode(bewertungAnfragen(WS, DEAL, ANFRAGE, s))).toBe("SPERRE");
+    expect((await bewertungsVorschau(WS, DEAL, s)).sperre).toBe("SPERRE");
+    expect(mocks.sendeAntwort).not.toHaveBeenCalled();
+    expect(s.tokenAnlegen).not.toHaveBeenCalled();
+  });
+
+  it("Status failed darf erneut", async () => {
+    await expect(bewertungAnfragen(WS, DEAL, ANFRAGE, fake({ roh: { statusTitel: "failed" } }))).resolves.toEqual({
+      gesendet: true,
+      gespraechId: "conv_waba",
+    });
+  });
+
   it("do_not_contact_review → SPERRE", async () => {
     const s = fake({ roh: { nichtKontaktieren: true } });
     expect(await fehlerCode(bewertungAnfragen(WS, DEAL, ANFRAGE, s))).toBe("SPERRE");
@@ -578,6 +593,14 @@ describe("Erfolg", () => {
     expect(beimPruefen).toBe(false);
     expect(s.gesperrt).toHaveBeenCalledTimes(1);
     expect(vi.mocked(s.tokenAnlegen).mock.invocationCallOrder[0]!).toBeLessThan(mocks.sendeAntwort.mock.invocationCallOrder[0]!);
+  });
+
+  it("Beschwerde zwischen Prüfung und Sperre → SPERRE, nichts angelegt", async () => {
+    const s = fake({ einwilligung: false, anspruchStatus: "complaint_routed" });
+    expect(await fehlerCode(bewertungAnfragen(WS, DEAL, { ...ANFRAGE, einwilligung: "Am Telefon" }, s))).toBe("SPERRE");
+    expect(s.einwilligungSpeichern).not.toHaveBeenCalled();
+    expect(s.tokenAnlegen).not.toHaveBeenCalled();
+    expect(mocks.sendeAntwort).not.toHaveBeenCalled();
   });
 
   it("Status ändert sich zwischen Prüfung und Sperre → SCHON_GESENDET, nichts angelegt", async () => {

@@ -267,6 +267,11 @@ describe("dockAus", () => {
     expect(
       dock({ stageCategory: "paid", ...bezahlt, bewertung: { status: "sent_whatsapp", am: "2026-11-23T10:00:00.000Z" } }).primaer.aktion
     ).toBe("nachricht_schreiben");
+    // Nach Beschwerde oder Abmeldung nie eine Bewertungsbitte; failed darf erneut.
+    for (const status of ["complaint_routed", "suppressed"]) {
+      expect(dock({ stageCategory: "paid", ...bezahlt, bewertung: { status, am: null } }).primaer.aktion).toBe("nachricht_schreiben");
+    }
+    expect(dock({ stageCategory: "paid", ...bezahlt, bewertung: { status: "failed", am: null } }).primaer.aktion).toBe("bewertung_anfragen");
     // Rechnung mit Rest geht vor der Bewertung.
     expect(dock({ stageCategory: "done_unpaid", rechnung }).primaer.aktion).toBe("zahlung_erfassen");
   });
@@ -308,6 +313,16 @@ describe("ortAus", () => {
     expect(ortAus("Rotebühlstr. 112, 70178 Stuttgart")).toBe("Stuttgart");
     expect(ortAus("70178 Stuttgart-West")).toBe("Stuttgart-West");
     expect(ortAus("Hauptstr. 1, 73728 Esslingen am Neckar, Deutschland")).toBe("Esslingen am Neckar");
+  });
+
+  it("Landesname nach dem Ort entfällt", () => {
+    expect(ortAus("Hauptstr. 1, 73728 Esslingen Deutschland")).toBe("Esslingen");
+    expect(ortAus("Hauptstr. 1, 70178 Stuttgart Germany")).toBe("Stuttgart");
+    expect(ortAus("Hauptstr. 1, 70178 Stuttgart DE")).toBe("Stuttgart");
+    expect(ortAus({ line1: "Hauptstr. 1", city: "Stuttgart, Deutschland" })).toBe("Stuttgart");
+    expect(ortAus({ line1: "Hauptstr. 1", city: "Esslingen DE" })).toBe("Esslingen");
+    // Kleingeschriebenes „de“ gehört zum Ortsnamen.
+    expect(ortAus({ line1: "x", city: "Ville de" })).toBe("Ville de");
   });
 
   it("LocationValue ohne city: Freitext in line1", () => {

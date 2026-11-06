@@ -9,6 +9,8 @@
  *   STUFE          Stufe Durchgeführt oder Bezahlt
  *   SCHON_GESENDET review_request_status sent_sms/sent_whatsapp/clicked/review_left
  *                  oder schon ein Token in review_tokens für diesen Deal
+ *   SPERRE         review_request_status complaint_routed (Beschwerde) oder suppressed
+ *                  (abgemeldet); `failed` darf erneut
  *   SPERRE         do_not_contact_review
  *   KEIN_KANAL     kein direkt verknüpftes, sendefähiges WhatsApp-Gespräch (Entscheidung 10)
  *   SPERRE         isAgentSuppressedStrict mit der Nummer des Gesprächs und den
@@ -138,6 +140,8 @@ export class BewertungKonfigFehler extends Error {
 
 const ERLAUBTE_STUFEN = new Set(["done_unpaid", "paid"]);
 const SCHON_GESENDET = new Set(["sent_sms", "sent_whatsapp", "clicked", "review_left"]);
+/** Nach Beschwerde oder Abmeldung nie eine Bewertungsbitte (wie `bewertungGesperrt` in `lib/ablauf.ts`). */
+const STATUS_GESPERRT = new Set(["complaint_routed", "suppressed"]);
 const TOKEN_ALPHABET = "abcdefghijklmnopqrstuvwxyz234567"; // wie der Cron: base32 klein
 const TOKEN_LAENGE = 16;
 const MAX_EINWILLIGUNG = 1000;
@@ -621,6 +625,7 @@ async function pruefen(ws: string, deal: string, speicher: BewertungSpeicher): P
 
   if (!stufe.category || !ERLAUBTE_STUFEN.has(stufe.category)) return mit("STUFE");
   if ((roh.statusTitel && SCHON_GESENDET.has(roh.statusTitel)) || tokenDa) return mit("SCHON_GESENDET");
+  if (roh.statusTitel && STATUS_GESPERRT.has(roh.statusTitel)) return mit("SPERRE");
   if (roh.nichtKontaktieren) return mit("SPERRE");
   if (!gespraech) return mit("KEIN_KANAL");
   const personen = [...new Set([empfaenger, roh.personId].filter((p): p is string => !!p))];
@@ -792,6 +797,7 @@ export async function bewertungAnfragen(
     if (anspruch.tokenDa || (anspruch.statusTitel && SCHON_GESENDET.has(anspruch.statusTitel))) {
       throw new BewertungFehler("SCHON_GESENDET");
     }
+    if (anspruch.statusTitel && STATUS_GESPERRT.has(anspruch.statusTitel)) throw new BewertungFehler("SPERRE");
     let id: string | null = null;
     if (!p.einwilligung) {
       // Vorherige Einwilligung: vor dem Senden belegt, mit Autor.

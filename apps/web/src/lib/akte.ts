@@ -8,7 +8,7 @@
  * deutsch in Europe/Berlin, Trenner „·“; „–“ steht als Platzhalter für einen
  * fehlenden Wert (Vorgabe der Spec), nie als Gedankenstrich im Satz.
  */
-import { bewertungAngefragt, inTagen, type AblaufFakten, type AblaufSchritt } from "@/lib/ablauf";
+import { bewertungAngefragt, bewertungGesperrt, inTagen, type AblaufFakten, type AblaufSchritt } from "@/lib/ablauf";
 import { euroText, tagKurz, volumenText } from "@/lib/anzeige";
 import { alsIso } from "@/lib/db-werte";
 import { KEIN_LEAD_STAGE_CATEGORY } from "@/lib/kontaktart";
@@ -220,8 +220,8 @@ function primaer(aktion: DockAktion, ziel?: string | null): Dock["primaer"] {
  * Nachfass-Entwurf (nur mit Kanal) → senden; offene Zahlungsmeldung →
  * bestätigen; offene Stufe ohne gesperrte Version → KV; Annahme ohne AB → AB;
  * Durchgeführt ohne Rechnung → Rechnung; Rechnung mit Rest → Zahlung
- * erfassen; Durchgeführt/Bezahlt ohne Bewertungsanfrage → Bewertung; sonst
- * Nachricht.
+ * erfassen; Durchgeführt/Bezahlt ohne Bewertungsanfrage → Bewertung (nie nach
+ * Beschwerde oder Abmeldung, `complaint_routed`/`suppressed`); sonst Nachricht.
  */
 export function dockAus(f: AblaufFakten, e: DockEingabe): Dock {
   const stufe = f.stageCategory ?? "";
@@ -236,7 +236,7 @@ export function dockAus(f: AblaufFakten, e: DockEingabe): Dock {
   if (f.annahme && !f.abAm) return ergebnis(primaer("ab_erstellen"));
   if (stufe === "done_unpaid" && !f.rechnung) return ergebnis(primaer("rechnung_erstellen"));
   if (f.rechnung && (f.rest.restCent ?? 0) > 0) return ergebnis(primaer("zahlung_erfassen"));
-  if (NACH_EINSATZ.has(stufe) && !bewertungAngefragt(f)) return ergebnis(primaer("bewertung_anfragen"));
+  if (NACH_EINSATZ.has(stufe) && !bewertungAngefragt(f) && !bewertungGesperrt(f)) return ergebnis(primaer("bewertung_anfragen"));
   return ergebnis(primaer("nachricht_schreiben"));
 }
 
@@ -251,10 +251,18 @@ export function stufenTon(kategorie: string | null): StufenTon {
 }
 
 /** Ort nach der Postleitzahl im Freitext („…, 70178 Stuttgart“ → „Stuttgart“). */
+/** Landesname nach dem Ort („Esslingen Deutschland“, „Stuttgart, DE“). */
+const LAND_AM_ENDE = /[\s,]+(?:[Dd]eutschland|[Gg]ermany|DEUTSCHLAND|GERMANY|DE)\s*$/;
+
+function ohneLand(ort: string): string | null {
+  const ohne = ort.replace(LAND_AM_ENDE, "").trim();
+  return ohne ? ohne : null;
+}
+
 function ortAusText(text: string): string | null {
   const m = /\b\d{5}\s+([^,]+)/.exec(text);
   const ort = m?.[1]?.trim();
-  return ort ? ort : null;
+  return ort ? ohneLand(ort) : null;
 }
 
 /** Ort einer Adresse: `LocationValue.city`, sonst der Ort nach der Postleitzahl im Freitext. */
@@ -262,7 +270,10 @@ export function ortAus(adresse: unknown): string | null {
   if (typeof adresse === "string") return ortAusText(adresse);
   if (!adresse || typeof adresse !== "object" || Array.isArray(adresse)) return null;
   const o = adresse as Record<string, unknown>;
-  if (typeof o.city === "string" && o.city.trim()) return o.city.trim();
+  if (typeof o.city === "string" && o.city.trim()) {
+    const ort = ohneLand(o.city.trim());
+    if (ort) return ort;
+  }
   return typeof o.line1 === "string" ? ortAusText(o.line1) : null;
 }
 
