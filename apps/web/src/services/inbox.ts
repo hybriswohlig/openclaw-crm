@@ -291,9 +291,11 @@ export async function listConversations(
   // tag each row as Kleinanzeigen or not so the email area can split them out.
   return rows.map((r) => {
     const { externalThreadId, ...rest } = r;
-    const isKleinanzeigen =
-      /@mail\.kleinanzeigen\.de$/i.test(externalThreadId ?? "") ||
-      isKleinanzeigenEmail(rest.contactEmail ?? "", rest.subject ?? "");
+    const isKleinanzeigen = istKleinanzeigenGespraech({
+      externalThreadId,
+      contactEmail: rest.contactEmail,
+      subject: rest.subject,
+    });
     return {
       ...rest,
       contactName: rest.contactName ? stripKleinanzeigenSuffix(rest.contactName) : rest.contactName,
@@ -319,8 +321,24 @@ export async function getConversationForClient(
   return row ?? null;
 }
 
+/**
+ * Kleinanzeigen relay thread? Same rule as the list (`isKleinanzeigen`):
+ * relay address as thread key, or relay sender / subject. Shared with the new
+ * inbox list (`services/inbox-neu.ts`).
+ */
+export function istKleinanzeigenGespraech(g: {
+  externalThreadId: string | null;
+  contactEmail: string | null;
+  subject: string | null;
+}): boolean {
+  return (
+    /@mail\.kleinanzeigen\.de$/i.test(g.externalThreadId ?? "") ||
+    isKleinanzeigenEmail(g.contactEmail ?? "", g.subject ?? "")
+  );
+}
+
 /** Strip obvious Kleinanzeigen boilerplate from a stored preview string. */
-function cleanPreview(preview: string): string {
+export function cleanPreview(preview: string): string {
   return preview
     .replace(/^.*?(?:Nachricht|Antwort)\s+von[^:]*?(?:\(Tel\.?:[^)]*\))?\s*/i, "")
     .replace(/Beantworte diese Nachricht.*/i, "")
