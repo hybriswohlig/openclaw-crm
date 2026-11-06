@@ -415,4 +415,9 @@
   [data-neu] .heute-panel-koerper {
     padding: 0 10px 12px;
   }
+
+  /* Der Leerhinweis bleibt bündig mit dem Panelkopf. */
+  [data-neu] .heute-leer {
+    padding: 2px 18px 18px;
+  }
 }
