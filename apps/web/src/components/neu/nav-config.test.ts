@@ -23,6 +23,7 @@ describe("seitentitel", () => {
     expect(seitentitel("/app/plan")).toBe("Plan");
     expect(seitentitel("/app/leads/abc")).toBe("Leads");
     expect(seitentitel("/app/einstellungen")).toBe("Einstellungen");
+    expect(seitentitel("/app/anrufe")).toBe("Anrufe");
   });
 
   it("kennt die Mehr-Seite aus dem Handy-Dock", () => {
@@ -45,6 +46,7 @@ describe("NAV", () => {
     expect(NAV[1].eintraege.map((e) => e.href)).toEqual([
       "/app/uebersicht",
       "/app/kunden",
+      "/app/anrufe",
       "/app/mitarbeiter",
       "/app/bewertungen",
       "/app/einstellungen",

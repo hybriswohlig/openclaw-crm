@@ -44,6 +44,9 @@ const ICON_PFADE: Record<NavEintrag["icon"], React.ReactNode> = {
       <path d="M2.5 20a6.5 6.5 0 0 1 13 0M17 8a3 3 0 1 1 0 6" />
     </>
   ),
+  anrufe: (
+    <path d="M5.5 3.5h3l1.8 4.3-2.2 1.6a12.5 12.5 0 0 0 6.5 6.5l1.6-2.2 4.3 1.8v3a2 2 0 0 1-2.1 2A16.5 16.5 0 0 1 3.5 5.6a2 2 0 0 1 2-2.1z" />
+  ),
   mitarbeiter: (
     <>
       <circle cx="12" cy="8" r="3.5" />

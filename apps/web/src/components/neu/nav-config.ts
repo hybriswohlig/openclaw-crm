@@ -14,6 +14,7 @@ export interface NavEintrag {
     | "kasse"
     | "uebersicht"
     | "kunden"
+    | "anrufe"
     | "mitarbeiter"
     | "bewertungen"
     | "einstellungen";
@@ -34,6 +35,7 @@ export const NAV: ReadonlyArray<{ titel: "Arbeit" | "Mehr"; eintraege: readonly 
     eintraege: [
       { href: "/app/uebersicht", label: "Übersicht", icon: "uebersicht" },
       { href: "/app/kunden", label: "Kunden", icon: "kunden" },
+      { href: "/app/anrufe", label: "Anrufe", icon: "anrufe" },
       { href: "/app/mitarbeiter", label: "Mitarbeiter", icon: "mitarbeiter" },
       { href: "/app/bewertungen", label: "Bewertungen", icon: "bewertungen" },
       { href: "/app/einstellungen", label: "Einstellungen", icon: "einstellungen" },
