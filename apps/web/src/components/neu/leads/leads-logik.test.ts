@@ -355,10 +355,10 @@ describe("Laden", () => {
     const liste = { ...STANDARD_ANSICHT, modus: "liste" as const };
     expect(angezeigterModus(false, liste)).toBe("board");
     expect(angezeigterModus(true, liste)).toBe("liste");
-    // Kalender lädt selbst; am Handy bleibt es die Kartenliste
-    expect(angezeigterModus(true, { modus: "kalender" })).toBeNull();
+    // Kalender: Board-Daten für Chips, Firmen und Quellen (der Plan lädt seine Einträge selbst); am Handy die Kartenliste
+    expect(angezeigterModus(true, { modus: "kalender" })).toBe("board");
     expect(angezeigterModus(false, { modus: "kalender" })).toBe("board");
-    expect(angezeigterModus(true, { ...STANDARD_ANSICHT, modus: "kalender" })).toBeNull();
+    expect(angezeigterModus(true, { ...STANDARD_ANSICHT, modus: "kalender" })).toBe("board");
     expect(angezeigterModus(null, liste)).toBeNull();
     expect(angezeigterModus(true, null)).toBeNull();
   });

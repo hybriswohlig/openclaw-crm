@@ -5,6 +5,10 @@ import {
   ZUG_RUHE,
   abfrageFuer,
   ablageId,
+  antwortUebernehmen,
+  deckt,
+  fensterVon,
+  neuLadenAbfrage,
   ansichtSpeicherer,
   besichtigungZug,
   dealSucheUrl,
@@ -147,6 +151,30 @@ describe("Laden", () => {
     expect(mussLaden(geladen, abfrageFuer({ ...zustand, modus: "woche", anker: "2026-12-07" }, null))).toBe(true);
     expect(mussLaden(geladen, abfrageFuer({ ...zustand, firmaId: null }, null))).toBe(true);
     expect(mussLaden(geladen, abfrageFuer({ ...zustand, mitarbeiterId: "m1" }, null))).toBe(true);
+  });
+
+  it("bindet Antworten an ihr Fenster: Monat vor und zurück, bevor die Antwort da ist", () => {
+    const nov = abfrageFuer(zustand, null);
+    const dez = abfrageFuer({ ...zustand, anker: "2026-12-01" }, null);
+    // Lauf 2 (Dezember) kommt an, sichtbar ist aber wieder November: verwerfen.
+    expect(antwortUebernehmen({ lauf: 2, aktuell: 2, fuer: fensterVon(dez), sichtbar: nov })).toBe(false);
+    // Veralteter Lauf: verwerfen, auch wenn das Fenster passt.
+    expect(antwortUebernehmen({ lauf: 1, aktuell: 2, fuer: fensterVon(nov), sichtbar: nov })).toBe(false);
+    expect(antwortUebernehmen({ lauf: 2, aktuell: 2, fuer: fensterVon(nov), sichtbar: nov })).toBe(true);
+    // Monatsdaten decken einen Tag darin ab, nicht aber andere Filter.
+    const tag = abfrageFuer({ ...zustand, modus: "tag", anker: "2026-11-20" }, null);
+    expect(antwortUebernehmen({ lauf: 3, aktuell: 3, fuer: fensterVon(nov), sichtbar: tag })).toBe(true);
+    expect(deckt(fensterVon(nov), { ...tag, mitarbeiterId: "m1" })).toBe(false);
+    expect(deckt(null, nov)).toBe(false);
+  });
+
+  it("lädt im Takt das geladene Fenster nur, solange es das sichtbare abdeckt", () => {
+    const nov = abfrageFuer(zustand, null);
+    const tag = abfrageFuer({ ...zustand, modus: "tag", anker: "2026-11-20" }, null);
+    const dez = abfrageFuer({ ...zustand, anker: "2026-12-15" }, null);
+    expect(neuLadenAbfrage(fensterVon(nov), tag)).toEqual({ ...tag, von: nov.von, bis: nov.bis });
+    expect(neuLadenAbfrage(fensterVon(nov), dez)).toEqual(dez);
+    expect(neuLadenAbfrage(null, tag)).toEqual(tag);
   });
 
   it("unterscheidet leer im Zeitraum und leer durch Filter", () => {

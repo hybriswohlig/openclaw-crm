@@ -305,16 +305,17 @@ export function terminFehlt(k: Pick<LeadKarte, "termin">, nachKategorie: LeadKat
 // ─── Laden: angezeigter Modus, Läufe, Nachladen, Ansicht senden ─────────────
 
 /**
- * Was die Seite gerade zeigt und deshalb lädt: am Handy immer die Kartenliste
- * (Board-Daten), sonst die gespeicherte Ansicht; null, solange Breite oder
- * Ansicht unbekannt sind (Skelett, nichts laden).
+ * Welche Leads-Daten die Seite lädt (und im Takt aktuell hält): am Handy
+ * immer die Kartenliste (Board-Daten), sonst die gespeicherte Ansicht; im
+ * Kalender die Board-Daten, ohne das Board zu zeigen, denn Chips, Firmen und
+ * Quellen kommen von dort (der Plan lädt seine Einträge selbst). null,
+ * solange Breite oder Ansicht unbekannt sind (Skelett, nichts laden).
  */
 export function angezeigterModus(breit: boolean | null, a: Pick<LeadsAnsicht, "modus"> | null): "board" | "liste" | null {
   if (breit === null || a === null) return null;
   if (!breit) return "board";
   const m = modusAnzeige(a);
-  // Der Kalender (Plan 8) lädt seine Daten selbst; Board und Liste laden dann nichts.
-  return m === "kalender" ? null : m;
+  return m === "kalender" ? "board" : m;
 }
 
 /** Wofür geladene Daten gelten: Modus, Filter (wie gesendet) und bei der Liste die Sortierung. */

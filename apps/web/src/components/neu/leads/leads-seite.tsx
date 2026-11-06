@@ -526,7 +526,13 @@ export function LeadsSeite() {
       />
 
       {modus === "kalender" ? (
-        <PlanAnsicht zustand={kalender} onZustand={setKalender} leads={kalenderFilter} onFilterZuruecksetzen={() => filterSetzen(FILTER_RUECKSETZEN)} />
+        <PlanAnsicht
+          zustand={kalender}
+          onZustand={setKalender}
+          leads={kalenderFilter}
+          onFilterZuruecksetzen={() => filterSetzen(FILTER_RUECKSETZEN)}
+          onGeaendert={() => void neuLaden()}
+        />
       ) : modus === "board" ? (
         board.art === "laden" ? (
           <BoardSkelett />

@@ -138,6 +138,33 @@ export function mussLaden(geladen: GeladenesFenster | null, a: PlanAbfrage): boo
   return a.von < geladen.von || a.bis > geladen.bis;
 }
 
+/** Fenster und Filter einer Abfrage, wie sie zu einer Antwort gehören. */
+export function fensterVon(a: PlanAbfrage): GeladenesFenster {
+  return { von: a.von, bis: a.bis, filter: filterSchluessel(a) };
+}
+
+/** Decken Daten für `fuer` die aktuelle Abfrage ab (gleiche Filter, Fenster darin)? Sonst nicht zeigen. */
+export function deckt(fuer: GeladenesFenster | null, a: PlanAbfrage): boolean {
+  return fuer !== null && !mussLaden(fuer, a);
+}
+
+/**
+ * Was Takt und Aktionen neu laden: das geladene Fenster, solange es die
+ * sichtbare Abfrage abdeckt (so bleiben Monat und Tag ohne zweiten Abruf);
+ * sonst die sichtbare Abfrage selbst. Nie ein Fenster, das niemand mehr sieht.
+ */
+export function neuLadenAbfrage(geladen: GeladenesFenster | null, a: PlanAbfrage): PlanAbfrage {
+  return geladen && deckt(geladen, a) ? { ...a, von: geladen.von, bis: geladen.bis } : a;
+}
+
+/**
+ * Eine Antwort übernehmen? Nur die des letzten Laufs und nur, wenn ihr
+ * Fenster die gerade sichtbare Abfrage abdeckt; alles andere verwerfen.
+ */
+export function antwortUebernehmen(z: { lauf: number; aktuell: number; fuer: GeladenesFenster; sichtbar: PlanAbfrage }): boolean {
+  return z.lauf === z.aktuell && deckt(z.fuer, z.sichtbar);
+}
+
 /** URL der Plan-Abfrage. */
 export function planUrl(a: PlanAbfrage): string {
   return `/api/v1/plan?${planAbfrageZuParams(a).toString()}`;

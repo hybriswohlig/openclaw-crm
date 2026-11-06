@@ -15,6 +15,7 @@ import {
   type PlanAnsicht as GespeicherteAnsicht,
   type PlanSeitenZustand,
 } from "@/lib/plan-heute";
+import { leereSendeschlange, sendenAnfragen, sendenFertig } from "@/components/neu/leads/leads-logik";
 import { PlanAnsicht } from "./plan-ansicht";
 import { PlanKopf } from "./plan-kopf";
 import { ansichtSpeicherer, planSeitenUrl } from "./plan-logik";
@@ -30,13 +31,24 @@ export function PlanSeite() {
   const params = useSearchParams();
   const [zustand, setZustand] = useState<PlanSeitenZustand | null>(null);
   const speicherer = useRef<ReturnType<typeof ansichtSpeicherer> | null>(null);
+  const sendeschlange = useRef(leereSendeschlange<GespeicherteAnsicht>());
+
+  /** Ein PUT zur Zeit (wie die Leads-Seite); was währenddessen kommt, geht danach als neuester Stand raus. */
+  const senden = useCallback(function senden(wert: GespeicherteAnsicht) {
+    void apiAufruf<unknown>(`/api/v1/me/ansichten/${PLAN_ANSICHT_SCHLUESSEL}`, jsonAufruf("PUT", wert)).then((r) => {
+      const f = sendenFertig(sendeschlange.current);
+      sendeschlange.current = f.z;
+      if (!r.ok && !f.veraltet) toast.message("Ansicht nicht gespeichert.", { description: r.message });
+      if (f.jetzt) senden(f.jetzt);
+    });
+  }, []);
 
   useEffect(() => {
     const s = ansichtSpeicherer(
       (a: GespeicherteAnsicht) => {
-        void apiAufruf<unknown>(`/api/v1/me/ansichten/${PLAN_ANSICHT_SCHLUESSEL}`, jsonAufruf("PUT", a)).then((r) => {
-          if (!r.ok) toast.message("Ansicht nicht gespeichert.", { description: r.message });
-        });
+        const x = sendenAnfragen(sendeschlange.current, a);
+        sendeschlange.current = x.z;
+        if (x.jetzt) senden(x.jetzt);
       },
       { setTimeout: (f, ms) => window.setTimeout(f, ms), clearTimeout: (id) => window.clearTimeout(id as number) }
     );

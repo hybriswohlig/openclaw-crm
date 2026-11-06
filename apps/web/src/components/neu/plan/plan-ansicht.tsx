@@ -51,11 +51,13 @@ import {
   LEER_TEXT,
   ZUG_RUHE,
   abfrageFuer,
-  filterSchluessel,
+  antwortUebernehmen,
+  deckt,
+  fensterVon,
   gespeichertText,
   imBlickKlick,
   leerArt,
-  mussLaden,
+  neuLadenAbfrage,
   planUrl,
   schwebend,
   sichtbareEintraege,
@@ -79,7 +81,8 @@ const TAKT_MS = 60_000;
 const KLICK_SPERRE_MS = 400;
 
 type Grund = "oeffnen" | "wechsel" | "takt" | "aktion";
-type Daten = { art: "laden" } | { art: "fehler"; meldung: string } | { art: "fertig"; antwort: PlanAntwort };
+/** `fuer`: Fenster und Filter, zu denen die Antwort gehört; gezeigt wird sie nur, wenn sie das sichtbare Fenster abdeckt. */
+type Daten = { art: "laden" } | { art: "fehler"; meldung: string } | { art: "fertig"; antwort: PlanAntwort; fuer: GeladenesFenster };
 type Dialog =
   | { art: "bestaetigen"; eintrag: PlanEintrag; stufe: { id: string; label: string } }
   | { art: "angebote"; dealId: string };
@@ -99,6 +102,7 @@ export function PlanAnsicht({
   onZustand,
   leads,
   onFilterZuruecksetzen,
+  onGeaendert,
 }: {
   zustand: PlanSeitenZustand;
   onZustand: (z: PlanSeitenZustand) => void;
@@ -106,6 +110,8 @@ export function PlanAnsicht({
   leads: LeadsFilter | null;
   /** Leads-Kalender: „Filter zurücksetzen“ setzt die Leads-Filter zurück. */
   onFilterZuruecksetzen?: () => void;
+  /** Nach jedem Schreiben (Tag, Stufe, Terminangebote): etwa die Leads-Chips neu laden. */
+  onGeaendert?: () => void;
 }) {
   const breit = useBreit();
   const kompakt = breit === false;
@@ -129,18 +135,22 @@ export function PlanAnsicht({
   hatDaten.current = daten.art === "fertig";
   const abfrageRef = useRef(abfrage);
   abfrageRef.current = abfrage;
+  const onGeaendertRef = useRef(onGeaendert);
+  onGeaendertRef.current = onGeaendert;
   const pausiert = useRef(false);
   pausiert.current = zugLaeuft(zug) || dialog !== null || auswahl !== null || ziehend;
 
   const laden = useCallback(async (a: PlanAbfrage, grund: Grund) => {
     const dieser = ++lauf.current;
+    const fuer = fensterVon(a);
     if (grund !== "takt") setLaedt(true);
     const r = await apiAufruf<PlanAntwort>(planUrl(a));
-    if (dieser !== lauf.current) return;
+    // Nur der letzte Lauf und nur, wenn er das gerade sichtbare Fenster abdeckt (sonst fremde Daten unter falscher Überschrift).
+    if (!antwortUebernehmen({ lauf: dieser, aktuell: lauf.current, fuer, sichtbar: abfrageRef.current })) return;
     setLaedt(false);
     if (r.ok) {
-      geladen.current = { von: a.von, bis: a.bis, filter: filterSchluessel(a) };
-      setDaten({ art: "fertig", antwort: r.data });
+      geladen.current = fuer;
+      setDaten({ art: "fertig", antwort: r.data, fuer });
       return;
     }
     if (grund === "takt") return;
@@ -153,23 +163,20 @@ export function PlanAnsicht({
     setDaten({ art: "fehler", meldung: r.message });
   }, []);
 
-  /** Das geladene Fenster neu holen (Takt, nach Aktionen), solange die Filter gleich sind. */
-  const neuLaden = useCallback(
-    (grund: "takt" | "aktion") => {
-      const a = abfrageRef.current;
-      const g = geladen.current;
-      if (!g || g.filter !== filterSchluessel(a)) return laden(a, grund);
-      return laden({ ...a, von: g.von, bis: g.bis }, grund);
-    },
-    [laden]
-  );
+  /** Takt und nach Aktionen: das geladene Fenster, solange es das sichtbare abdeckt, sonst das sichtbare. */
+  const neuLaden = useCallback((grund: "takt" | "aktion") => laden(neuLadenAbfrage(geladen.current, abfrageRef.current), grund), [laden]);
 
   // Erst laden, wenn die Breite feststeht: am Handy gilt immer der Tag, sonst lädt der Monat umsonst.
   const breiteBekannt = breit !== null;
   useEffect(() => {
     if (!breiteBekannt) return;
     const a = abfrageRef.current;
-    if (!mussLaden(geladen.current, a)) return;
+    if (deckt(geladen.current, a)) {
+      // Zurück in ein schon geladenes Fenster: ein laufender Abruf für ein anderes Fenster gilt nicht mehr.
+      lauf.current += 1;
+      setLaedt(false);
+      return;
+    }
     void laden(a, hatDaten.current ? "wechsel" : "oeffnen");
   }, [abfrageKey, laden, breiteBekannt]);
 
@@ -201,11 +208,14 @@ export function PlanAnsicht({
       toast.success(gespeichertText(z));
       schick({ typ: "gespeichert" });
       void neuLaden("aktion");
+      onGeaendertRef.current?.();
     });
   }, [zug, neuLaden]);
 
-  const antwort = daten.art === "fertig" ? daten.antwort : null;
-  const heute = antwort?.heute ?? berlinDateString();
+  // Nur Daten, die das sichtbare Fenster abdecken; Stammdaten (Firmen, Mitarbeiter) dürfen aus der letzten Antwort bleiben.
+  const letzte = daten.art === "fertig" ? daten.antwort : null;
+  const antwort = daten.art === "fertig" && deckt(daten.fuer, abfrage) ? daten.antwort : null;
+  const heute = letzte?.heute ?? berlinDateString();
   const fenster = planFenster(z.modus, z.anker);
   const imFenster = useMemo(() => (antwort ? sichtbareEintraege(antwort.eintraege, fenster, false) : []), [antwort, fenster.von, fenster.bis]); // eslint-disable-line react-hooks/exhaustive-deps
   const blick = useMemo(() => (leads ? [] : imBlickAus(imFenster, heute, blickOffen ? Number.POSITIVE_INFINITY : IM_BLICK_MAX)), [imFenster, heute, blickOffen, leads]);
@@ -274,7 +284,8 @@ export function PlanAnsicht({
   };
 
   let inhalt: ReactNode;
-  if (daten.art === "laden") {
+  if (daten.art === "laden" || (daten.art === "fertig" && !antwort)) {
+    // Auch beim Wechsel in ein noch nicht geladenes Fenster: lieber Skelett als Daten eines anderen Zeitraums.
     inhalt = <PlanSkelett modus={z.modus} />;
   } else if (daten.art === "fehler") {
     inhalt = (
@@ -319,7 +330,7 @@ export function PlanAnsicht({
           aktion={
             <TerminNeu
               heute={heute}
-              besichtigungFeld={antwort?.besichtigungFeld ?? null}
+              besichtigungFeld={letzte?.besichtigungFeld ?? null}
               portalZiel={portalZiel}
               onZug={(zg) => schick({ typ: "start", zug: zg })}
               onAngebote={(dealId) => setDialog({ art: "angebote", dealId })}
@@ -331,8 +342,8 @@ export function PlanAnsicht({
       <PlanLeiste
         zustand={z}
         heute={heute}
-        firmen={antwort?.firmen ?? []}
-        mitarbeiter={antwort?.mitarbeiter ?? []}
+        firmen={letzte?.firmen ?? []}
+        mitarbeiter={letzte?.mitarbeiter ?? []}
         imLeads={leads !== null}
         kompakt={kompakt}
         onZustand={setzen}
@@ -404,6 +415,7 @@ export function PlanAnsicht({
             if (gesetzt) {
               toast.success(`${dialog.eintrag.titel}: Durchführung bestätigt.`);
               void neuLaden("aktion");
+              onGeaendertRef.current?.();
             }
           }}
         />
@@ -416,6 +428,7 @@ export function PlanAnsicht({
           onSchliessen={() => {
             setDialog(null);
             void neuLaden("aktion");
+            onGeaendertRef.current?.();
           }}
         />
       ) : null}
