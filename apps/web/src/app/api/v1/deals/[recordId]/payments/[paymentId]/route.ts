@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { getAuthContext, unauthorized, notFound, badRequest, success } from "@/lib/api-utils";
+import { ZAHLUNGSART_FEHLER, zahlungsartAus } from "@/lib/zahlungsart";
 import { updatePayment, deletePayment } from "@/services/financial";
 
 const INCOME_TREATMENTS = ["betriebseinnahme", "nicht_steuerbar"] as const;
@@ -30,12 +31,17 @@ export async function PUT(
   if (taxTreatment != null && !INCOME_TREATMENTS.includes(taxTreatment)) {
     return badRequest("taxTreatment muss betriebseinnahme oder nicht_steuerbar sein");
   }
+  let art: ReturnType<typeof zahlungsartAus> = null;
+  if (paymentMethod !== undefined) {
+    art = zahlungsartAus(paymentMethod);
+    if (art === "ungueltig") return badRequest(ZAHLUNGSART_FEHLER);
+  }
 
   const row = await updatePayment(paymentId, ctx.workspaceId, {
     ...(date !== undefined && { date }),
     ...(amount !== undefined && { amount: String(amount) }),
     ...(payer !== undefined && { payer }),
-    ...(paymentMethod !== undefined && { paymentMethod }),
+    ...(paymentMethod !== undefined && { paymentMethod: art }),
     ...(reference !== undefined && { reference }),
     ...(notes !== undefined && { notes }),
     ...(taxTreatment != null && { taxTreatment: taxTreatment as IncomeTreatment }),

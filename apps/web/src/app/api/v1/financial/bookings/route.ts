@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { getAuthContext, unauthorized, badRequest, success } from "@/lib/api-utils";
+import { ZAHLUNGSART_FEHLER, zahlungsartAus } from "@/lib/zahlungsart";
 import {
   createCompanyBooking,
   listCompanyBookings,
@@ -194,6 +195,12 @@ export async function POST(req: NextRequest) {
       return badRequest("Beleg ist zu groß (max. 3 MB)");
     }
   }
+  let methode: string | null | undefined = paymentMethod;
+  if (paymentMethod !== undefined) {
+    const art = zahlungsartAus(paymentMethod);
+    if (art === "ungueltig") return badRequest(ZAHLUNGSART_FEHLER);
+    methode = art;
+  }
 
   const row = await createCompanyBooking(ctx.workspaceId, {
     type: type as BookingType,
@@ -205,7 +212,7 @@ export async function POST(req: NextRequest) {
     description,
     payer,
     recipient,
-    paymentMethod,
+    paymentMethod: methode,
     notes,
     ...(resolvedTreatment !== undefined && { taxTreatment: resolvedTreatment }),
     ...(resolvedPercent !== undefined && { deductiblePercent: resolvedPercent }),

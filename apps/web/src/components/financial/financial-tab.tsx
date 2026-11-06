@@ -32,6 +32,7 @@ import { prepareReceiptDataUrl } from "@/lib/receipt-image";
 import { currencyAmount } from "@/lib/currency-value";
 import { EXPENSE_CATEGORIES, EXPENSE_TAX_TREATMENT_LABELS } from "@/lib/expense-categories";
 import { preisZahlungenCent } from "@/lib/preis-zahlungen";
+import { ZAHLUNGSART_LABEL, ZAHLUNGSARTEN, zahlungsartAus, zahlungsartText } from "@/lib/zahlungsart";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -90,6 +91,29 @@ interface EmployeeCost {
   operatingCompanyId: string | null;
   receiptFile: string | null;
   hasReceipt?: boolean;
+}
+
+function zahlungsartFuerFormular(roh: string | null): string {
+  const art = zahlungsartAus(roh);
+  if (!art || art === "ungueltig") return roh ?? "";
+  return art;
+}
+
+function ZahlungsartAuswahl({ value, onChange }: { value: string; onChange: (wert: string) => void }) {
+  const bekannt = (ZAHLUNGSARTEN as readonly string[]).includes(value);
+  return (
+    <select
+      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      <option value="">(keine Angabe)</option>
+      {ZAHLUNGSARTEN.map((art) => (
+        <option key={art} value={art}>{ZAHLUNGSART_LABEL[art]}</option>
+      ))}
+      {value && !bekannt ? <option value={value}>{zahlungsartText(value)}</option> : null}
+    </select>
+  );
 }
 
 interface OperatingCompany {
@@ -283,7 +307,7 @@ function PaymentsSection({
       date: p.date,
       amount: String(Number(p.amount).toFixed(2)),
       payer: p.payer ?? "",
-      paymentMethod: p.paymentMethod ?? "",
+      paymentMethod: zahlungsartFuerFormular(p.paymentMethod),
       reference: p.reference ?? "",
       notes: p.notes ?? "",
     });
@@ -424,7 +448,7 @@ function PaymentsSection({
                     )}
                   </td>
                   <td className="px-3 py-2">{p.payer ?? "·"}</td>
-                  <td className="px-3 py-2 text-muted-foreground text-xs">{p.paymentMethod ?? "·"}</td>
+                  <td className="px-3 py-2 text-muted-foreground text-xs">{zahlungsartText(p.paymentMethod)}</td>
                   <td className="px-3 py-2 text-muted-foreground text-xs max-w-[120px] truncate">{p.reference ?? "·"}</td>
                   <td className="px-3 py-2 text-right font-medium tabular-nums text-emerald-600 dark:text-emerald-400">
                     {eur(p.amount)}
@@ -494,17 +518,10 @@ function PaymentsSection({
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs text-muted-foreground mb-1 block">Zahlungsart</label>
-                <select
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                <ZahlungsartAuswahl
                   value={form.paymentMethod}
-                  onChange={(e) => setForm((f) => ({ ...f, paymentMethod: e.target.value }))}
-                >
-                  <option value="">(keine Angabe)</option>
-                  <option value="bar">Bar</option>
-                  <option value="ueberweisung">Überweisung</option>
-                  <option value="karte">Karte</option>
-                  <option value="paypal">PayPal</option>
-                </select>
+                  onChange={(paymentMethod) => setForm((f) => ({ ...f, paymentMethod }))}
+                />
               </div>
               <div>
                 <label className="text-xs text-muted-foreground mb-1 block">Referenz</label>
@@ -589,7 +606,7 @@ function ExpensesSection({
       category: e.category,
       description: e.description ?? "",
       recipient: e.recipient ?? "",
-      paymentMethod: e.paymentMethod ?? "",
+      paymentMethod: zahlungsartFuerFormular(e.paymentMethod),
       taxTreatment: e.taxTreatment ?? "voll",
       deductiblePercent: String(e.deductiblePercent ?? def?.defaultPercent ?? 70),
       payingOperatingCompanyId: e.payingOperatingCompanyId ?? "",
@@ -850,16 +867,10 @@ function ExpensesSection({
               </div>
               <div>
                 <label className="text-xs text-muted-foreground mb-1 block">Zahlungsart</label>
-                <select
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                <ZahlungsartAuswahl
                   value={form.paymentMethod}
-                  onChange={(e) => setForm((f) => ({ ...f, paymentMethod: e.target.value }))}
-                >
-                  <option value="">(keine Angabe)</option>
-                  <option value="bar">Bar</option>
-                  <option value="ueberweisung">Überweisung</option>
-                  <option value="karte">Karte</option>
-                </select>
+                  onChange={(paymentMethod) => setForm((f) => ({ ...f, paymentMethod }))}
+                />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -1275,9 +1286,9 @@ function EmployeeCostsSection({
                     onChange={(e) => setForm((f) => ({ ...f, paymentMethod: e.target.value as typeof form.paymentMethod }))}
                   >
                     <option value="">(keine Angabe)</option>
-                    <option value="cash">Bar</option>
-                    <option value="bank_transfer">Überweisung</option>
-                    <option value="other">Sonstiges</option>
+                    <option value="cash">{ZAHLUNGSART_LABEL.cash}</option>
+                    <option value="bank_transfer">{ZAHLUNGSART_LABEL.bank_transfer}</option>
+                    <option value="other">{ZAHLUNGSART_LABEL.other}</option>
                   </select>
                 </div>
               )}

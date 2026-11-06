@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { getAuthContext, unauthorized, badRequest, notFound, success } from "@/lib/api-utils";
+import { ZAHLUNGSART_FEHLER, zahlungsartAus } from "@/lib/zahlungsart";
 import {
   updateCompanyBooking,
   deleteCompanyBooking,
@@ -91,6 +92,13 @@ function parseType(req: NextRequest): BookingType | null {
  *
  * Update a company booking. Validates only the fields present in the body.
  */
+export async function PUT(
+  req: NextRequest,
+  ctx: { params: Promise<{ id: string }> },
+) {
+  return PATCH(req, ctx);
+}
+
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -203,6 +211,12 @@ export async function PATCH(
       return badRequest("Beleg ist zu groß (max. 3 MB)");
     }
   }
+  let methode: string | null | undefined;
+  if (paymentMethod !== undefined) {
+    const art = zahlungsartAus(paymentMethod);
+    if (art === "ungueltig") return badRequest(ZAHLUNGSART_FEHLER);
+    methode = art;
+  }
 
   const row = await updateCompanyBooking(id, type, ctx.workspaceId, {
     ...(date !== undefined && { date }),
@@ -213,7 +227,7 @@ export async function PATCH(
     ...(description !== undefined && { description }),
     ...(payer !== undefined && { payer }),
     ...(recipient !== undefined && { recipient }),
-    ...(paymentMethod !== undefined && { paymentMethod }),
+    ...(paymentMethod !== undefined && { paymentMethod: methode }),
     ...(notes !== undefined && { notes }),
     ...(resolvedTreatment !== undefined && { taxTreatment: resolvedTreatment }),
     ...(resolvedPercent !== undefined && { deductiblePercent: resolvedPercent }),

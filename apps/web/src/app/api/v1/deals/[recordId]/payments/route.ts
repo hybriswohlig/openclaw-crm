@@ -1,11 +1,13 @@
 import { NextRequest } from "next/server";
 import { getAuthContext, unauthorized, badRequest, success } from "@/lib/api-utils";
+import { ZAHLUNGSART_FEHLER, zahlungsartAus } from "@/lib/zahlungsart";
 import {
   listPayments,
   createPayment,
   resolveDealOperatingCompany,
 } from "@/services/financial";
 import { maybeNotifyDepositReceived } from "@/services/customer-portal-notifications";
+import { nachZahlung } from "@/services/nach-zahlung";
 
 const INCOME_TREATMENTS = ["betriebseinnahme", "nicht_steuerbar"] as const;
 type IncomeTreatment = (typeof INCOME_TREATMENTS)[number];
@@ -44,6 +46,8 @@ export async function POST(
   if (taxTreatment != null && !INCOME_TREATMENTS.includes(taxTreatment)) {
     return badRequest("taxTreatment muss betriebseinnahme oder nicht_steuerbar sein");
   }
+  const art = zahlungsartAus(paymentMethod);
+  if (art === "ungueltig") return badRequest(ZAHLUNGSART_FEHLER);
 
   // Snapshot the deal's operating company at booking time (Phase 0 Punkt 5).
   const operatingCompanyId = await resolveDealOperatingCompany(
@@ -55,7 +59,7 @@ export async function POST(
     date,
     amount: String(amount),
     payer,
-    paymentMethod,
+    paymentMethod: art,
     reference,
     notes,
     operatingCompanyId,
@@ -67,6 +71,12 @@ export async function POST(
     workspaceId: ctx.workspaceId,
     dealRecordId: recordId,
   }).catch(() => {});
+
+  try {
+    await nachZahlung(ctx.workspaceId, recordId, ctx.userId);
+  } catch (err) {
+    console.error("[nach-zahlung] nach Zahlung fehlgeschlagen:", err);
+  }
 
   return success(row, 201);
 }

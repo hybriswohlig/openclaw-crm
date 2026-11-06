@@ -238,6 +238,7 @@ export async function getDealNumber(
 
 /** db or a transaction handle — assignReceiptNumber works inside both. */
 type DbClient = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+type DbExecutor = DbClient;
 
 /** Belegnummern use the year of the booking date, not the wall-clock year. */
 const yearOfDate = (date: string): number => {
@@ -355,7 +356,7 @@ export interface CreatePaymentInput {
   date: string;
   amount: string;
   payer?: string;
-  paymentMethod?: string;
+  paymentMethod?: string | null;
   reference?: string;
   notes?: string;
   /** Steuerliche Behandlung. Default "betriebseinnahme". */
@@ -367,7 +368,8 @@ export interface CreatePaymentInput {
 export async function createPayment(
   workspaceId: string,
   dealRecordId: string,
-  input: CreatePaymentInput
+  input: CreatePaymentInput,
+  tx?: DbExecutor,
 ) {
   const operatingCompanyId =
     input.operatingCompanyId ??
@@ -376,18 +378,19 @@ export async function createPayment(
     input.taxTreatment ?? "betriebseinnahme";
 
   // Assign Belegnummer + insert in one transaction so a failed insert never
-  // burns a permanent gap in the legal sequence.
-  const gespeichert = await db.transaction(async (tx) => {
+  // burns a permanent gap in the legal sequence. Mit übergebenem tx bleibt
+  // der Aufrufer in seiner Transaktion.
+  const schreiben = async (dbc: DbExecutor) => {
     const receiptNumber =
       taxTreatment === "betriebseinnahme"
-        ? await assignReceiptNumber(tx, {
+        ? await assignReceiptNumber(dbc, {
             workspaceId,
             operatingCompanyId,
             year: yearOfDate(input.date),
             kind: "income",
           })
         : null;
-    const [row] = await tx
+    const [row] = await dbc
       .insert(payments)
       .values({
         workspaceId,
@@ -399,13 +402,18 @@ export async function createPayment(
       })
       .returning();
     return row;
-  });
+  };
+
+  const gespeichert = tx ? await schreiben(tx) : await db.transaction(schreiben);
 
   // Nach dem Commit: eine Zahlung kann „Rechnung offen“ beenden. Nie den Hauptpfad brechen.
-  try {
-    await aktualisiereWartet(workspaceId, dealRecordId);
-  } catch (err) {
-    console.error("[wartet] nach Zahlung fehlgeschlagen:", err);
+  // Wartet liest über die eigene Verbindung und sähe eine noch offene Transaktion nicht.
+  if (!tx) {
+    try {
+      await aktualisiereWartet(workspaceId, dealRecordId);
+    } catch (err) {
+      console.error("[wartet] nach Zahlung fehlgeschlagen:", err);
+    }
   }
   return gespeichert;
 }
@@ -414,7 +422,7 @@ export type UpdatePaymentInput = Partial<{
   date: string;
   amount: string;
   payer: string;
-  paymentMethod: string;
+  paymentMethod: string | null;
   reference: string;
   notes: string;
   taxTreatment: IncomeTaxTreatment;
@@ -466,6 +474,13 @@ export async function updatePayment(
     .set(set)
     .where(and(eq(payments.id, id), eq(payments.workspaceId, workspaceId)))
     .returning();
+  if (row) {
+    try {
+      await aktualisiereWartet(workspaceId, row.dealRecordId);
+    } catch (err) {
+      console.error("[wartet] nach Zahlungsänderung fehlgeschlagen:", err);
+    }
+  }
   return row ?? null;
 }
 
@@ -473,7 +488,14 @@ export async function deletePayment(id: string, workspaceId: string) {
   const [row] = await db
     .delete(payments)
     .where(and(eq(payments.id, id), eq(payments.workspaceId, workspaceId)))
-    .returning({ id: payments.id });
+    .returning({ id: payments.id, dealRecordId: payments.dealRecordId });
+  if (row) {
+    try {
+      await aktualisiereWartet(workspaceId, row.dealRecordId);
+    } catch (err) {
+      console.error("[wartet] nach Zahlungslöschung fehlgeschlagen:", err);
+    }
+  }
   return row ?? null;
 }
 
