@@ -8,15 +8,16 @@
  * Zahlen wie `/app/inbox`), danach der Live-Status der heutigen Umzüge aus
  * `move_time_entries`. Zusammengesetzt in `heuteAus` (`lib/plan-bauen.ts`).
  *
- * Zähler: einstufig über `ladeLeadsRoh` (der Messpunkt aus Entscheidung 19
- * entfällt). Eine schlanke Abfrage gleicher Definition kann später hinter
- * `ladeNavZaehler` treten, ohne dass sich Route oder Oberfläche ändern.
+ * Zähler: eine schlanke Abfrage (`zaehlerLesen`, Deals je Stufe mit
+ * COUNT FILTER über `deal_workflow_state`) statt der vollen Board-Last, mit
+ * derselben Definition wie die Chips (`navZaehlerAusGruppen`, Test gegen
+ * `chipsZaehlen`), dazu ein Prozess-Cache von 30 s je Workspace.
  */
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
 import { berlinDateString } from "@/lib/berlin-date";
-import { alsIso, zeilen } from "@/lib/db-werte";
-import { heuteAus, navZaehlerAus } from "@/lib/plan-bauen";
+import { alsIso, alsZahl, zeilen } from "@/lib/db-werte";
+import { heuteAus, navZaehlerAusGruppen, type NavZaehlerGruppe } from "@/lib/plan-bauen";
 import { tagPlus, type HeuteAntwort, type NavZaehler, type PlanLive } from "@/lib/plan-heute";
 import { ladeInboxListe } from "@/services/inbox-neu";
 import { ladeLeadsRoh } from "@/services/leads-board";
@@ -73,8 +74,70 @@ export async function ladeHeute(ws: string, jetzt: Date = new Date()): Promise<H
   return heuteAus({ plan: plan.eintraege, leads: roh.eintraege, inbox, live }, jetzt);
 }
 
-/** `GET /api/v1/heute/zaehler` */
-export async function ladeNavZaehler(ws: string, jetzt: Date = new Date()): Promise<NavZaehler> {
-  const { eintraege } = await ladeLeadsRoh(ws, jetzt);
-  return navZaehlerAus(eintraege);
+/**
+ * Deals je Stufe mit Anzahl und „wartet auf uns“. Stufe wie das Board: erster
+ * gefüllter Wert von `stage` nach `sort_order`, nur Stufen des Attributs
+ * `stage` dieses Deals-Objekts (sonst „ohne Stufe“). Deals nur über das
+ * Deals-Objekt des Workspace, gelöschte ausgenommen; `deal_workflow_state`
+ * und `record_values` nur über diesen Deal-Scope.
+ */
+export async function zaehlerLesen(ws: string): Promise<NavZaehlerGruppe[]> {
+  const res = await db.execute(sql`
+    WITH
+    obj AS (
+      SELECT o.id FROM objects o WHERE o.workspace_id = ${ws} AND o.slug = 'deals'
+    ),
+    stage_attr AS (
+      SELECT a.id FROM attributes a WHERE a.object_id IN (SELECT obj.id FROM obj) AND a.slug = 'stage'
+    ),
+    d AS (
+      SELECT r.id FROM records r
+      WHERE r.object_id IN (SELECT obj.id FROM obj) AND r.deleted_at IS NULL
+    ),
+    st AS (
+      SELECT DISTINCT ON (rv.record_id) rv.record_id, rv.text_value AS stufe_id
+      FROM record_values rv
+      INNER JOIN d ON d.id = rv.record_id
+      WHERE rv.attribute_id IN (SELECT stage_attr.id FROM stage_attr) AND rv.text_value IS NOT NULL
+      ORDER BY rv.record_id, rv.sort_order, rv.id
+    )
+    SELECT s.id AS stufe_id, s.title AS titel, s.stage_category AS kategorie,
+           count(*) AS anzahl,
+           count(*) FILTER (WHERE w.waiting_on = 'uns') AS warten
+    FROM d
+    LEFT JOIN st ON st.record_id = d.id
+    LEFT JOIN statuses s ON s.id = st.stufe_id AND s.attribute_id IN (SELECT stage_attr.id FROM stage_attr)
+    LEFT JOIN deal_workflow_state w ON w.record_id = d.id
+    GROUP BY s.id, s.title, s.stage_category
+  `);
+  return zeilen<{ stufe_id: string | null; titel: string | null; kategorie: string | null; anzahl: unknown; warten: unknown }>(res).map(
+    (z) => ({
+      stufe: z.stufe_id ? { titel: z.titel ?? "", kategorie: z.kategorie ?? null } : null,
+      anzahl: alsZahl(z.anzahl) ?? 0,
+      warten: alsZahl(z.warten) ?? 0,
+    }),
+  );
+}
+
+/** So lange gilt ein Zählerstand je Workspace im Prozess (60-s-Takt der Seitenleiste, mehrere Tabs). */
+export const NAV_ZAEHLER_CACHE_MS = 30_000;
+
+const zaehlerCache = new Map<string, { bis: number; wert: Promise<NavZaehler> }>();
+
+/** Nur für Tests. */
+export function navZaehlerCacheLeeren(): void {
+  zaehlerCache.clear();
+}
+
+/** `GET /api/v1/heute/zaehler`; gleichzeitige Aufrufe teilen sich eine Abfrage, Fehler werden nicht gemerkt. */
+export function ladeNavZaehler(ws: string, jetzt: Date = new Date()): Promise<NavZaehler> {
+  const t = jetzt.getTime();
+  const treffer = zaehlerCache.get(ws);
+  if (treffer && treffer.bis > t) return treffer.wert;
+  const wert = zaehlerLesen(ws).then(navZaehlerAusGruppen);
+  zaehlerCache.set(ws, { bis: t + NAV_ZAEHLER_CACHE_MS, wert });
+  wert.catch(() => {
+    if (zaehlerCache.get(ws)?.wert === wert) zaehlerCache.delete(ws);
+  });
+  return wert;
 }

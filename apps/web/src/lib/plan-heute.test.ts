@@ -294,6 +294,20 @@ describe("berlinZeitZuIso", () => {
     expect(berlinZeitZuIso("2027-03-28", "03:30")).toBe("2027-03-28T01:30:00.000Z");
   });
 
+  it("gibt für die übersprungene Stunde im Frühjahr null zurück, nicht still eine Stunde später", () => {
+    expect(berlinZeitZuIso("2027-03-28", "02:00")).toBeNull();
+    expect(berlinZeitZuIso("2027-03-28", "02:30")).toBeNull();
+    expect(berlinZeitZuIso("2027-03-28", "02:59")).toBeNull();
+    expect(berlinZeitZuIso("2026-03-29", "02:30")).toBeNull();
+    expect(berlinZeitZuIso("2027-03-28", "01:59")).toBe("2027-03-28T00:59:00.000Z");
+  });
+
+  it("nimmt bei der doppelten Stunde im Herbst den späteren Zeitpunkt (MEZ)", () => {
+    expect(berlinZeitZuIso("2026-10-25", "02:00")).toBe("2026-10-25T01:00:00.000Z");
+    expect(berlinZeitZuIso("2026-10-25", "02:30")).toBe("2026-10-25T01:30:00.000Z");
+    expect(berlinZeitZuIso("2026-10-25", "02:59")).toBe("2026-10-25T01:59:00.000Z");
+  });
+
   it("gibt bei ungültigem Tag oder ungültiger Uhrzeit null zurück", () => {
     expect(berlinZeitZuIso("2026-02-31", "10:00")).toBeNull();
     expect(berlinZeitZuIso("2026-02-29", "10:00")).toBeNull();

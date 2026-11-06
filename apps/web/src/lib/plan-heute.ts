@@ -118,7 +118,12 @@ export function imMonat(tag: string, anker: string): boolean {
   return tag.slice(0, 7) === anker.slice(0, 7);
 }
 
-/** Uhrzeit Europe/Berlin an einem Kalendertag als UTC-ISO (für `timestamp`-Felder); null bei ungültiger Eingabe. */
+/**
+ * Uhrzeit Europe/Berlin an einem Kalendertag als UTC-ISO (für `timestamp`-Felder);
+ * null bei ungültiger Eingabe und bei einer Ortszeit, die es nicht gibt
+ * (Sprung auf Sommerzeit, z. B. 2027-03-28 02:30). Eine mehrdeutige Herbst-Zeit
+ * (z. B. 2026-10-25 02:30, zweimal vorhanden) ergibt den späteren Zeitpunkt (MEZ).
+ */
 export function berlinZeitZuIso(tag: string, uhrzeit: string): string | null {
   if (!istTag(tag) || !UHRZEIT.test(uhrzeit)) return null;
   const { j, m, d } = teile(tag);
@@ -126,6 +131,8 @@ export function berlinZeitZuIso(tag: string, uhrzeit: string): string | null {
   const wand = Date.UTC(j, m - 1, d, h, mi);
   let ms = wand - berlinVersatzMs(wand);
   ms = wand - berlinVersatzMs(ms);
+  // Rückweg prüfen: ergibt der Zeitpunkt in Berlin nicht dieselbe Wanduhrzeit, gibt es sie nicht.
+  if (ms + berlinVersatzMs(ms) !== wand) return null;
   return new Date(ms).toISOString();
 }
 

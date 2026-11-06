@@ -263,6 +263,29 @@ describe("heuteAus", () => {
     expect([h.heute.length, h.morgen.length]).toEqual([1, 1]);
   });
 
+  it("erst auf den Tag filtern, dann nach der Zeit an diesem Tag: Uhrzeit zählt nur am ersten Tag, ganztägig und fortlaufend danach", () => {
+    const h = heuteAus(
+      {
+        plan: plan([
+          // beginnt gestern 07:30, läuft heute weiter: heute ohne eigene Uhrzeit
+          { dealId: "d1", id: "move:d1", title: "Anton", date: "2026-11-05", endDate: "2026-11-06", startTime: "07:30" },
+          { dealId: "d2", id: "move:d2", title: "Berta", date: PLAN_HEUTE, endDate: PLAN_HEUTE, startTime: "09:00" },
+          { dealId: "d3", id: "move:d3", title: "Cäsar", date: PLAN_HEUTE, endDate: PLAN_HEUTE, startTime: null, endTime: null, allDay: true },
+          { dealId: "d4", id: "move:d4", title: "Dora", date: PLAN_HEUTE, endDate: PLAN_HEUTE, startTime: "08:00" },
+          // morgen: mehrtägig ab heute 06:00 und ein Termin morgen 10:00
+          { dealId: "d5", id: "move:d5", title: "Emil", date: PLAN_HEUTE, endDate: "2026-11-07", startTime: "06:00" },
+          { dealId: "d6", id: "move:d6", title: "Fritz", date: "2026-11-07", endDate: "2026-11-07", startTime: "10:00" },
+        ]),
+        leads: [],
+        inbox: leer,
+        live: new Map(),
+      },
+      PLAN_JETZT,
+    );
+    expect(h.heute.map((t) => t.id)).toEqual(["move:d5", "move:d4", "move:d2", "move:d1", "move:d3"]);
+    expect(h.morgen.map((t) => t.id)).toEqual(["move:d6", "move:d5"]);
+  });
+
   it("nächster Termin nur, wenn heute und morgen leer sind", () => {
     const h = heuteAus(
       {

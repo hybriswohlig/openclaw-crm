@@ -14,7 +14,7 @@ import { BEGINN_WORT, type AblaufFakten } from "@/lib/ablauf";
 import { ortAus } from "@/lib/akte";
 import { berlinDateString } from "@/lib/berlin-date";
 import type { InboxListe } from "@/lib/inbox-neu";
-import { firmenPunktFarbe } from "@/lib/leads-board";
+import { ENDSTUFEN, firmenPunktFarbe } from "@/lib/leads-board";
 import { chipsZaehlen, type LeadEintrag } from "@/lib/leads-board-bauen";
 import {
   HEUTE_LISTE_MAX,
@@ -37,6 +37,7 @@ import {
   type PlanLive,
 } from "@/lib/plan-heute";
 import type { CalendarEvent } from "@/services/calendar/map-events";
+import { stufenKategorie } from "@/services/lagekarte/status";
 
 // ─── Eintrag ─────────────────────────────────────────────────────────────────
 
@@ -201,6 +202,20 @@ function zeitWert(iso: string | null): number {
 }
 
 /**
+ * Einträge eines angezeigten Tages in der Reihenfolge des Tages (Entscheidung
+ * 16, „Tag: Liste nach Uhrzeit, ganztägig zuletzt“): erst auf den Tag
+ * filtern, dann sortieren. Eine Uhrzeit zählt nur, wenn der Eintrag an diesem
+ * Tag beginnt; ganztägige Einträge und mehrtägige, die schon vorher begonnen
+ * haben, stehen nach allen Terminen mit Uhrzeit. Danach Titel, zuletzt ID.
+ */
+export function amTagSortiert(eintraege: readonly PlanEintrag[], tag: string): PlanEintrag[] {
+  const zeit = (e: PlanEintrag) => (e.tag === tag && e.von ? e.von : "99:99");
+  return eintraegeAm(eintraege, tag).sort(
+    (a, b) => zeit(a).localeCompare(zeit(b)) || a.titel.localeCompare(b.titel, "de") || a.id.localeCompare(b.id),
+  );
+}
+
+/**
  * Startseite „Heute“ (Entscheidung 11) aus dem Plan (heute bis heute+14,
  * sortiert), allen Leads-Einträgen (ungefiltert), der Inbox-Liste und den
  * Live-Zeiten je Deal.
@@ -213,11 +228,11 @@ export function heuteAus(
   const morgenTag = tagPlus(tag, 1);
   const plan = planSortieren(q.plan);
 
-  const heute: HeuteTermin[] = eintraegeAm(plan, tag).map((e) => ({
+  const heute: HeuteTermin[] = amTagSortiert(plan, tag).map((e) => ({
     ...e,
     live: e.art === "umzug" ? liveAmTag(q.live.get(e.dealId), tag) : null,
   }));
-  const morgen = eintraegeAm(plan, morgenTag);
+  const morgen = amTagSortiert(plan, morgenTag);
   const naechster = heute.length === 0 && morgen.length === 0 ? plan.find((e) => e.tag > morgenTag) ?? null : null;
 
   const alleMeldungen: HeuteMeldung[] = q.leads
@@ -257,6 +272,31 @@ export function heuteAus(
     freigaben,
     stand: jetzt.toISOString(),
   };
+}
+
+/** Eine Zeile der schlanken Zählabfrage: Deals je Stufe (null = ohne oder unbekannte Stufe). */
+export interface NavZaehlerGruppe {
+  stufe: { titel: string; kategorie: string | null } | null;
+  /** Lebende Deals mit dieser Stufe. */
+  anzahl: number;
+  /** Davon mit `deal_workflow_state.waiting_on = 'uns'`. */
+  warten: number;
+}
+
+/**
+ * Gleiche Definition wie `navZaehlerAus` über die Leads-Karten, aber aus der
+ * schlanken Zählabfrage: „warten“ wie `wartetPille` (auf uns, außer
+ * Endstufen), offene Leads über `stufenKategorie` wie das Board.
+ */
+export function navZaehlerAusGruppen(gruppen: readonly NavZaehlerGruppe[]): NavZaehler {
+  let heute = 0;
+  let leads = 0;
+  for (const g of gruppen) {
+    const k = stufenKategorie(g.stufe);
+    if (!(k && ENDSTUFEN.has(k))) heute += g.warten;
+    if (k && OFFENE_LEAD_KATEGORIEN.has(k)) leads += g.anzahl;
+  }
+  return { heute, leads };
 }
 
 /** Seitenleiste (Entscheidung 12): „Heute“ = Chip „warten auf uns“, „Leads“ = offene Leads. */

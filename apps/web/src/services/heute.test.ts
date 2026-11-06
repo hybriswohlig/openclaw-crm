@@ -16,7 +16,7 @@ vi.mock("@/services/inbox-neu", () => ({ ladeInboxListe: mocks.ladeInboxListe })
 
 import { chipsZaehlen } from "@/lib/leads-board-bauen";
 import { PLAN_HEUTE, PLAN_JETZT, inboxEintrag, inboxListe, kalenderEreignis, leadEintrag } from "@/lib/plan-bauen.fixture";
-import { HEUTE_VORSCHAU_TAGE, ladeHeute, ladeNavZaehler, liveLesen } from "./heute";
+import { HEUTE_VORSCHAU_TAGE, ladeHeute, ladeNavZaehler, liveLesen, navZaehlerCacheLeeren } from "./heute";
 
 const dialect = new PgDialect();
 const abfragen = () => mocks.execute.mock.calls.map((c) => dialect.sqlToQuery(c[0] as SQL));
@@ -129,9 +129,11 @@ describe("liveLesen", () => {
 });
 
 describe("ladeNavZaehler", () => {
-  it("Heute = Chip „warten“ über alle Deals, Leads = offene Leads; keine eigene Abfrage", async () => {
-    expect(await ladeNavZaehler("ws_1", PLAN_JETZT)).toEqual({ heute: 2, leads: 1 });
-    expect(mocks.ladeLeadsRoh).toHaveBeenCalledWith("ws_1", PLAN_JETZT);
-    expect(mocks.execute).not.toHaveBeenCalled();
+  it("lädt nicht die volle Board-Last, sondern eine Zählabfrage", async () => {
+    navZaehlerCacheLeeren();
+    mocks.execute.mockResolvedValueOnce([{ stufe_id: "s_neu", titel: "Neue Anfrage", kategorie: "open_new", anzahl: "3", warten: "2" }]);
+    expect(await ladeNavZaehler("ws_1", PLAN_JETZT)).toEqual({ heute: 2, leads: 3 });
+    expect(mocks.ladeLeadsRoh).not.toHaveBeenCalled();
+    expect(mocks.execute).toHaveBeenCalledTimes(1);
   });
 });
