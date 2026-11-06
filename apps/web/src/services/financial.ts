@@ -361,7 +361,7 @@ export interface CreatePaymentInput {
   notes?: string;
   /** Steuerliche Behandlung. Default "betriebseinnahme". */
   taxTreatment?: IncomeTaxTreatment;
-  /** Snapshot der Betriebsgesellschaft. Wenn nicht gesetzt → aus dem Auftrag abgeleitet. */
+  /** Snapshot der Betriebsgesellschaft. Fehlt das Feld (undefined) → aus dem Auftrag abgeleitet; null heißt „keine Firma“. */
   operatingCompanyId?: string | null;
 }
 
@@ -371,9 +371,11 @@ export async function createPayment(
   input: CreatePaymentInput,
   tx?: DbExecutor,
 ) {
+  // Übergeben (auch null) heißt: schon aufgelöst, keine eigene Suche über db außerhalb von tx.
   const operatingCompanyId =
-    input.operatingCompanyId ??
-    (await resolveDealOperatingCompany(workspaceId, dealRecordId));
+    input.operatingCompanyId !== undefined
+      ? input.operatingCompanyId
+      : await resolveDealOperatingCompany(workspaceId, dealRecordId);
   const taxTreatment: IncomeTaxTreatment =
     input.taxTreatment ?? "betriebseinnahme";
 

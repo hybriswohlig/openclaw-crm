@@ -64,6 +64,7 @@ export function offeneMeldungen(ereignisse: Ereignis[]): Zahlungsmeldung[] {
     if (!neueste) continue;
     const { meldung, zeit } = neueste;
     // Eine Folge, die diese Meldung nennt, schließt sie auch bei gleichem Zeitstempel.
+    // Bekanntes Fenster von Millisekunden: ein Tipp, dessen Transaktion vor der Bestätigung begann, aber nach ihr committete, gilt als geschlossen.
     const erledigt = folgen.some(
       (f) => f.eventId === meldung.eventId || (f.variante === variante && f.zeit > zeit),
     );

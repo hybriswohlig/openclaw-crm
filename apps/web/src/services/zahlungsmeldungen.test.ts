@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   sperren: new Map<string, Promise<void>>(),
   sperrSchluessel: [] as string[],
   createPayment: vi.fn(),
+  resolveDealOperatingCompany: vi.fn(),
   aktualisiereWartet: vi.fn(),
   nachZahlung: vi.fn(),
   maybeNotifyDepositReceived: vi.fn(),
@@ -50,6 +51,7 @@ vi.mock("@/db", () => ({
   db: {
     select: () => abfrage(),
     transaction: async (f: (tx: unknown) => Promise<unknown>) => {
+      mocks.reihenfolge.push("begin");
       const offen: Ereignis[] = [];
       const freigaben: (() => void)[] = [];
       const tx = {
@@ -86,7 +88,10 @@ vi.mock("@/db", () => ({
     },
   },
 }));
-vi.mock("./financial", () => ({ createPayment: mocks.createPayment }));
+vi.mock("./financial", () => ({
+  createPayment: mocks.createPayment,
+  resolveDealOperatingCompany: mocks.resolveDealOperatingCompany,
+}));
 vi.mock("./wartet", () => ({ aktualisiereWartet: mocks.aktualisiereWartet }));
 vi.mock("./nach-zahlung", () => ({ nachZahlung: mocks.nachZahlung }));
 vi.mock("./customer-portal-notifications", () => ({ maybeNotifyDepositReceived: mocks.maybeNotifyDepositReceived }));
@@ -132,6 +137,10 @@ beforeEach(() => {
     await new Promise((r) => setTimeout(r, 10));
     return { id: `pay_${++n}` };
   });
+  mocks.resolveDealOperatingCompany.mockImplementation(async () => {
+    mocks.reihenfolge.push("firma");
+    return "oc_1";
+  });
   mocks.aktualisiereWartet.mockImplementation(async () => void mocks.reihenfolge.push("wartet"));
   mocks.maybeNotifyDepositReceived.mockImplementation(async () => void mocks.reihenfolge.push("benachrichtigung"));
   mocks.nachZahlung.mockImplementation(async () => {
@@ -168,8 +177,10 @@ describe("bestaetigeZahlungsmeldung", () => {
       paymentMethod: "paypal",
       notes: "Kunde meldete „bezahlt“ im Link",
       taxTreatment: "betriebseinnahme",
+      operatingCompanyId: "oc_1",
     });
     expect(tx).toBeDefined();
+    expect(mocks.resolveDealOperatingCompany).toHaveBeenCalledWith("ws_1", "deal_1");
 
     const folge = mocks.store.find((e) => e.eventType === "payment.meldung_bestaetigt");
     expect(folge).toMatchObject({
@@ -186,7 +197,8 @@ describe("bestaetigeZahlungsmeldung", () => {
     expect(mocks.maybeNotifyDepositReceived).toHaveBeenCalledWith({ workspaceId: "ws_1", dealRecordId: "deal_1" });
     expect(mocks.aktualisiereWartet).toHaveBeenCalledWith("ws_1", "deal_1");
     expect(mocks.nachZahlung).toHaveBeenCalledWith("ws_1", "deal_1", "usr_1");
-    expect(mocks.reihenfolge).toEqual(["zahlung", "commit", "wartet", "benachrichtigung", "nachZahlung"]);
+    // Firma vor der Transaktion: unter der Sperre keine zweite Verbindung aus dem Pool.
+    expect(mocks.reihenfolge).toEqual(["firma", "begin", "zahlung", "commit", "wartet", "benachrichtigung", "nachZahlung"]);
     expect(await ladeZahlungsmeldungen("ws_1", "deal_1")).toEqual([]);
   });
 
@@ -217,9 +229,14 @@ describe("bestaetigeZahlungsmeldung", () => {
       bestaetigeZahlungsmeldung("ws_1", "deal_1", "e1", "usr_1"),
       verwerfeZahlungsmeldung("ws_1", "deal_1", "e1", "usr_2"),
     ]);
-    expect(a.status).toBe("fulfilled");
-    expect((b as PromiseRejectedResult).reason.code).toBe("ERLEDIGT");
-    expect(mocks.store.filter((e) => e.eventType.startsWith("payment.meldung_"))).toHaveLength(1);
+    // Wer die Sperre zuerst bekommt, gewinnt; der andere bekommt ERLEDIGT.
+    const ergebnisse = [a, b];
+    expect(ergebnisse.filter((x) => x.status === "fulfilled")).toHaveLength(1);
+    const verlierer = ergebnisse.find((x) => x.status === "rejected") as PromiseRejectedResult;
+    expect(verlierer.reason.code).toBe("ERLEDIGT");
+    const folgen = mocks.store.filter((e) => e.eventType.startsWith("payment.meldung_"));
+    expect(folgen).toHaveLength(1);
+    expect(mocks.createPayment).toHaveBeenCalledTimes(folgen[0].eventType === "payment.meldung_bestaetigt" ? 1 : 0);
   });
 
   it("fremde eventId (anderer Deal, anderer Workspace, kein marked_paid, unbekannt) → NICHT_GEFUNDEN, nichts geschrieben", async () => {
@@ -255,6 +272,18 @@ describe("bestaetigeZahlungsmeldung", () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     await expect(bestaetigeZahlungsmeldung("ws_1", "deal_1", "e1", "usr_1")).resolves.toEqual({ paymentId: "pay_1" });
     expect(log).toHaveBeenCalled();
+    log.mockRestore();
+  });
+
+  it("Fehler in aktualisiereWartet nach dem Commit wird geloggt, Bestätigung gilt, Rest läuft weiter", async () => {
+    mocks.store.push(meldung("e1", "final", 52000));
+    mocks.aktualisiereWartet.mockRejectedValueOnce(new Error("wartet kaputt"));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(bestaetigeZahlungsmeldung("ws_1", "deal_1", "e1", "usr_1")).resolves.toEqual({ paymentId: "pay_1" });
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("[wartet]"), expect.any(Error));
+    expect(mocks.store.filter((e) => e.eventType === "payment.meldung_bestaetigt")).toHaveLength(1);
+    expect(mocks.maybeNotifyDepositReceived).toHaveBeenCalledTimes(1);
+    expect(mocks.nachZahlung).toHaveBeenCalledTimes(1);
     log.mockRestore();
   });
 

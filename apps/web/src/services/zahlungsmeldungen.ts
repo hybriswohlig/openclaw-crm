@@ -20,7 +20,7 @@ import {
 } from "@/lib/zahlungsmeldungen";
 import type { ActivityEventType } from "./activity-events";
 import { maybeNotifyDepositReceived } from "./customer-portal-notifications";
-import { createPayment } from "./financial";
+import { createPayment, resolveDealOperatingCompany } from "./financial";
 import { nachZahlung } from "./nach-zahlung";
 import { aktualisiereWartet } from "./wartet";
 
@@ -96,6 +96,10 @@ async function abschliessen<T>(
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtext('zahlungsmeldung:' || ${dealRecordId}::text || ':' || ${gelesen.variante}::text))`,
     );
+    // Die Neuprüfung muss eine eigene Abfrage nach der Sperre bleiben. Sie verlässt sich auf
+    // READ COMMITTED: der Commit der vorigen Bestätigung ist sichtbar, bevor ihre Sperre frei wird.
+    // Unter REPEATABLE READ/SERIALIZABLE oder zusammen mit der Sperre in einer Abfrage sähe sie
+    // den alten Stand, und zwei Klicks schrieben zwei Zahlungen.
     const offen = offeneMeldungen(await ladeEreignisse(tx, workspaceId, dealRecordId)).find(
       (m) => m.eventId === eventId,
     );
@@ -120,6 +124,8 @@ export async function bestaetigeZahlungsmeldung(
   eventId: string,
   userId: string,
 ): Promise<{ paymentId: string }> {
+  // Vor der Transaktion: createPayment soll unter der Sperre keine zweite Verbindung aus dem Pool ziehen.
+  const operatingCompanyId = await resolveDealOperatingCompany(workspaceId, dealRecordId);
   const r = await abschliessen(workspaceId, dealRecordId, eventId, userId, MELDUNG_BESTAETIGT, async (tx, m) => {
     const zahlung = await createPayment(
       workspaceId,
@@ -130,6 +136,7 @@ export async function bestaetigeZahlungsmeldung(
         paymentMethod: m.zahlungsart ?? undefined,
         notes: "Kunde meldete „bezahlt“ im Link",
         taxTreatment: "betriebseinnahme",
+        operatingCompanyId,
       },
       tx,
     );
