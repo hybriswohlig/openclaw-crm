@@ -69,14 +69,14 @@ function kundeLesen(ws: string, deal: string) {
       ) AS person_emails,
       (
         SELECT k.phone FROM inbox_conversations c
-        INNER JOIN inbox_contacts k ON k.id = c.contact_id
+        INNER JOIN inbox_contacts k ON k.id = c.contact_id AND k.workspace_id = ${ws}
         WHERE c.workspace_id = ${ws} AND c.deal_record_id = r.id AND coalesce(k.phone, '') <> ''
         ORDER BY c.last_message_at DESC NULLS LAST
         LIMIT 1
       ) AS kontakt_telefon,
       (
         SELECT coalesce(jsonb_agg(k.email ORDER BY c.last_message_at DESC NULLS LAST), '[]'::jsonb) FROM inbox_conversations c
-        INNER JOIN inbox_contacts k ON k.id = c.contact_id
+        INNER JOIN inbox_contacts k ON k.id = c.contact_id AND k.workspace_id = ${ws}
         WHERE c.workspace_id = ${ws} AND c.deal_record_id = r.id AND k.email LIKE '%@%'
       ) AS kontakt_emails
     FROM records r
@@ -85,6 +85,7 @@ function kundeLesen(ws: string, deal: string) {
       SELECT pr.id, pr.object_id FROM record_values v
       INNER JOIN attributes a ON a.id = v.attribute_id AND a.object_id = r.object_id AND a.slug = 'associated_people'
       INNER JOIN records pr ON pr.id = v.referenced_record_id AND pr.deleted_at IS NULL
+      INNER JOIN objects po ON po.id = pr.object_id AND po.workspace_id = ${ws}
       WHERE v.record_id = r.id
       ORDER BY v.sort_order
       LIMIT 1

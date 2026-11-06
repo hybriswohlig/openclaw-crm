@@ -243,6 +243,12 @@ describe("ladeKurzfassung", () => {
     expect(kunde.text).toContain("r.deleted_at IS NULL");
     expect(kunde.text).toContain("c.workspace_id = $");
     expect(kunde.text).toContain("pr.deleted_at IS NULL");
+    // Verknüpfte Person nur aus dem eigenen Workspace.
+    expect(kunde.text).toMatch(/INNER JOIN objects po ON po\.id = pr\.object_id AND po\.workspace_id = \$\d+/);
+    // Kontakt-Rückfall: beide Joins auf inbox_contacts auf den Workspace begrenzt.
+    expect(kunde.text.match(/INNER JOIN inbox_contacts k ON k\.id = c\.contact_id AND k\.workspace_id = \$\d+/g)).toHaveLength(2);
+    expect(kunde.text).not.toMatch(/INNER JOIN inbox_contacts k ON k\.id = c\.contact_id (?!AND)/);
+    expect(kunde.params.filter((p) => p === WS).length).toBeGreaterThanOrEqual(6);
     const dok = mocks.execute.mock.calls.map(([q]) => gerendert(q)).find((r) => r.text.includes("FROM deal_documents d"))!;
     expect(dok.text).toContain("d.workspace_id = $");
     expect(dok.text).toContain("d.deal_record_id = $");

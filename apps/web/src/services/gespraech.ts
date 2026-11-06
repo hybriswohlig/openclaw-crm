@@ -166,8 +166,8 @@ async function einzelgespraechLesen(ws: string, conversationId: string): Promise
         k.phone AS telefon,
         k.display_name AS kunde_name
       FROM inbox_conversations c
-      INNER JOIN channel_accounts a ON a.id = c.channel_account_id
-      INNER JOIN inbox_contacts k ON k.id = c.contact_id
+      INNER JOIN channel_accounts a ON a.id = c.channel_account_id AND a.workspace_id = ${ws}
+      INNER JOIN inbox_contacts k ON k.id = c.contact_id AND k.workspace_id = ${ws}
       WHERE c.workspace_id = ${ws} AND c.id = ${conversationId}
       LIMIT 1
     `)

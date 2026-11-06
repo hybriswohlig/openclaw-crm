@@ -366,8 +366,11 @@ describe("dbGespraechSpeicher.einzelgespraech", () => {
     });
     const { text, params } = gerendert(mocks.execute.mock.calls[0]);
     expect(text.toLowerCase()).not.toMatch(/\b(update|insert|delete)\b/);
-    expect(text).toContain("c.workspace_id = $1 AND c.id = $2");
-    expect(params).toEqual([WS, "c_1"]);
+    // Konto und Kontakt nur aus dem eigenen Workspace, nicht nur über die IDs am Gespräch.
+    expect(text).toMatch(/INNER JOIN channel_accounts a ON a\.id = c\.channel_account_id AND a\.workspace_id = \$\d+/);
+    expect(text).toMatch(/INNER JOIN inbox_contacts k ON k\.id = c\.contact_id AND k\.workspace_id = \$\d+/);
+    expect(text).toMatch(/WHERE c\.workspace_id = \$\d+ AND c\.id = \$\d+/);
+    expect(params).toEqual([WS, WS, WS, "c_1"]);
   });
 
   it("keine Zeile → null", async () => {
