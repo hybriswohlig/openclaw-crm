@@ -1,9 +1,15 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
+import { HeuteSeite } from "@/components/neu/heute/heute-seite";
 import { seitentitel } from "@/components/neu/nav-config";
-import { Platzhalter } from "@/components/neu/platzhalter";
 
 export const metadata: Metadata = { title: seitentitel("/app/heute") };
 
+/** Startseite der neuen Oberfläche (Plan 8): Chips, Inbox „Jetzt“, Termine heute und morgen, Meldungen, Freigaben. */
 export default function HeutePage() {
-  return <Platzhalter pfad="/app/heute" meilenstein={2} alteSeite="/home" />;
+  return (
+    <Suspense fallback={null}>
+      <HeuteSeite />
+    </Suspense>
+  );
 }

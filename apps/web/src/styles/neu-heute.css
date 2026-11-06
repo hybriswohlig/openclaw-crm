@@ -1,0 +1,418 @@
+/*
+ * Startseite „Heute“ unter /app/heute (Plan 8). Kein Mockup; Maße und Pillen
+ * wie Inbox (06) und Leads-Board (03), Farben aus neu.css und neu-akte.css,
+ * Panelklassen (.akte-panel, .akte-panel-kopf) aus neu-akte.css, die Zeilen
+ * der Termine aus neu-plan-zeile.css. Alles unter [data-neu] mit Präfix .heute-.
+ *
+ * Glas nur auf Panels und Pillen. Die Panels liegen fast deckend auf --fill-3:
+ * die rechte Spalte sitzt bei breiten Fenstern auf der Schleife oben rechts,
+ * und Standardglas (52 %) schafft dort für Grau keine 4,5:1. Text deshalb
+ * nie in --ink-3.
+ */
+
+[data-neu] .heute {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+/* ── Kopf ────────────────────────────────────────────── */
+
+[data-neu] .heute-kopf {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 18px;
+}
+
+[data-neu] .heute-kopf-text {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+[data-neu] .heute-kopf-aktionen {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+[data-neu] .heute-kopf-handy {
+  align-items: center;
+  gap: 12px;
+  padding: 4px 4px 0;
+}
+
+[data-neu] .heute-kopf-handy .heute-kopf-text {
+  flex: 1 1 160px;
+}
+
+[data-neu] .heute-kopf-handy h1 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.1;
+}
+
+[data-neu] .heute-kopf-handy p {
+  margin: 3px 0 0;
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+
+/* ── Chips ───────────────────────────────────────────── */
+
+[data-neu] .heute-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px;
+}
+
+[data-neu] .heute-chips-label {
+  min-width: 96px;
+  margin: 0 4px 0 0;
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--ink-2);
+}
+
+[data-neu] .heute-chips-reihe {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+[data-neu] .heute-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 13px;
+  border-radius: 999px;
+  background: var(--fill-2);
+  box-shadow: inset 0 0 0 1px var(--rim), var(--shadow);
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  text-decoration: none;
+  -webkit-backdrop-filter: blur(16px) saturate(1.6);
+  backdrop-filter: blur(16px) saturate(1.6);
+}
+
+[data-neu] .heute-chip b {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+[data-neu] .heute-chip i {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--ink-3);
+}
+
+[data-neu] .heute-chip i[data-ton="gold"] {
+  background: var(--gold);
+}
+
+[data-neu] .heute-chip i[data-ton="jade"] {
+  background: var(--jade);
+}
+
+[data-neu] .heute-chip i[data-ton="blau"] {
+  background: var(--blue);
+}
+
+/* Null ist erledigt: Punkt grau, Text bleibt lesbar (--ink-2). */
+[data-neu] .heute-chip[data-null] {
+  color: var(--ink-2);
+  box-shadow: inset 0 0 0 1px var(--rim);
+}
+
+[data-neu] .heute-chip[data-null] i {
+  background: var(--ink-3);
+}
+
+[data-neu] .heute-chip:hover {
+  background: var(--fill-3);
+}
+
+[data-neu] .heute-chip:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+[data-neu] .heute-chips-hinweis {
+  flex-basis: 100%;
+  margin: 0;
+  padding-left: 108px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+/* ── Körper: Termine links, Listen rechts ────────────── */
+
+[data-neu] .heute-koerper {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+  align-items: start;
+  gap: 14px;
+  margin-top: 4px;
+}
+
+[data-neu] .heute-spalte {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+[data-neu] .heute-panel {
+  background: var(--fill-3);
+}
+
+[data-neu] .heute-panel .akte-panel-kopf {
+  align-items: flex-start;
+  padding-bottom: 10px;
+}
+
+[data-neu] .heute-panel-link {
+  color: var(--blue);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+[data-neu] .heute-panel-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+[data-neu] .heute-panel-link:focus-visible,
+[data-neu] .heute-liste-zeile:focus-visible,
+[data-neu] .heute-naechster:focus-visible,
+[data-neu] .heute-weitere-link:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+[data-neu] .heute-anzahl {
+  min-width: 22px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(34, 34, 36, 0.06);
+  color: var(--ink);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+[data-neu] .heute-panel-koerper {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 14px 14px;
+}
+
+[data-neu] .heute-panel-leer {
+  margin: 0;
+  padding: 4px 4px 2px;
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+
+[data-neu] .heute-termine,
+[data-neu] .heute-liste {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* ── Beide Tage leer ─────────────────────────────────── */
+
+[data-neu] .heute-leer {
+  align-items: flex-start;
+  gap: 8px;
+  padding: 2px 18px 18px;
+}
+
+[data-neu] .heute-leer p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+[data-neu] .heute-naechster {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+[data-neu] .heute-naechster:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ── Listen: Meldungen und Freigaben ─────────────────── */
+
+[data-neu] .heute-liste-zeile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: inset 0 0 0 1px var(--hair);
+  color: var(--ink);
+  text-decoration: none;
+}
+
+[data-neu] .heute-liste-zeile:hover {
+  box-shadow: inset 0 0 0 1px rgba(0, 103, 217, 0.35);
+}
+
+[data-neu] .heute-liste-name {
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+[data-neu] .heute-liste-text {
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+[data-neu] .heute-liste-text[data-ton="gold"] {
+  background: rgba(232, 150, 12, 0.15);
+  color: var(--gold-ink);
+}
+
+[data-neu] .heute-liste-text[data-ton="blau"] {
+  background: rgba(0, 103, 217, 0.1);
+  color: var(--blue-ink);
+}
+
+[data-neu] .heute-weitere {
+  margin: 0;
+  padding: 0 4px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+[data-neu] .heute-weitere-link {
+  color: var(--blue);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+[data-neu] .heute-weitere-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ── Fehler und Laden ────────────────────────────────── */
+
+[data-neu] .heute-hinweis {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: 520px;
+  padding: 18px;
+  border-radius: 24px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  color: var(--ink-2);
+  font-size: 13.5px;
+}
+
+[data-neu] .heute-hinweis p {
+  margin: 0;
+}
+
+[data-neu] .heute-skelett-chips {
+  display: block;
+  width: min(720px, 100%);
+  height: 34px;
+  border-radius: 999px;
+}
+
+[data-neu] .heute-skelett-panel {
+  display: block;
+  height: 320px;
+  border-radius: 24px;
+}
+
+[data-neu] .heute-skelett-klein {
+  height: 180px;
+}
+
+/* ── Schmal: eine Spalte, Chips einzeilig scrollbar ──── */
+
+@media (max-width: 1279px) {
+  [data-neu] .heute-koerper {
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 320px);
+  }
+}
+
+@media (max-width: 1023px) {
+  [data-neu] .heute {
+    gap: 12px;
+  }
+
+  [data-neu] .heute-koerper {
+    grid-template-columns: minmax(0, 1fr);
+    margin-top: 0;
+  }
+
+  /* Ohne Umbruch: eine umbrechende Spalte nähme die Breite der längsten Reihe an. */
+  [data-neu] .heute-chips[data-kompakt] {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: 6px;
+    padding: 0;
+  }
+
+  [data-neu] .heute-chips[data-kompakt] .heute-chips-label {
+    padding: 0 4px;
+    font-size: 12px;
+  }
+
+  [data-neu] .heute-chips[data-kompakt] .heute-chips-reihe {
+    flex-wrap: nowrap;
+    margin: 0 -16px;
+    padding: 2px 16px 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  [data-neu] .heute-chips[data-kompakt] .heute-chips-reihe::-webkit-scrollbar {
+    display: none;
+  }
+
+  [data-neu] .heute-chips[data-kompakt] .heute-chip {
+    flex: none;
+  }
+
+  [data-neu] .heute-chips[data-kompakt] .heute-chips-hinweis {
+    padding: 0 4px;
+  }
+
+  [data-neu] .heute-panel-koerper {
+    padding: 0 10px 12px;
+  }
+}
