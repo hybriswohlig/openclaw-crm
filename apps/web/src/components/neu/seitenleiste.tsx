@@ -4,7 +4,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { GlassPanel } from "@/components/glassyui/glass-panel";
 import { useInboxUnread } from "@/hooks/use-inbox-unread";
+import { useNavZaehler } from "@/hooks/use-nav-zaehler";
 import { useSession } from "@/lib/auth-client";
+import { useBreit } from "./breit";
 import { NAV, istAktiv, type NavEintrag } from "./nav-config";
 import { UiUmschalter } from "./ui-umschalter";
 
@@ -79,15 +81,21 @@ export function NavIcon({ icon }: { icon: NavEintrag["icon"] }) {
 
 /**
  * Glas-Seitenleiste ab 1024 px: Marke, die zwei Gruppen aus NAV, Umschalter zur alten Oberfläche.
- * Zähler nur dort, wo eine bestehende API ihn günstig liefert (heute: ungelesene Inbox).
+ * Zähler: Inbox ungelesen wie bisher; „Heute“ (= Chip „warten auf uns“) und „Leads“ (offene
+ * Leads) aus `GET /api/v1/heute/zaehler` (Plan 8, Entscheidung 12), nur wenn die Leiste zu sehen ist.
+ * 0 zeigt nichts.
  */
 export function Seitenleiste() {
   const pathname = usePathname();
   const { data: session } = useSession();
   const inboxUngelesen = useInboxUnread();
+  const sichtbar = useBreit() === true;
+  const nav = useNavZaehler(undefined, sichtbar);
 
   const zaehler: Partial<Record<NonNullable<NavEintrag["zaehler"]>, number>> = {
     inbox: inboxUngelesen,
+    heute: nav?.heute,
+    leads: nav?.leads,
   };
 
   return (
