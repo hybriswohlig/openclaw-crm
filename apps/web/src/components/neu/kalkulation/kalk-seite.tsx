@@ -12,6 +12,7 @@ import type { UebersteuerungsArt } from "@/lib/kalkulation-versionen";
 import { apiAufruf, jsonAufruf, type ApiAntwort } from "@/components/neu/akte/api";
 import { GrundlageSpalte } from "./grundlage-spalte";
 import { KalkKopf } from "./kalk-kopf";
+import { SelbstkostenSpalte } from "./selbstkosten-spalte";
 
 /** Welche Aktion gerade läuft; währenddessen sind alle Eingaben gesperrt (Review Focus 5). */
 export type Lauf = "neue_version" | "neu_rechnen" | "speichern" | "sperren";
@@ -273,7 +274,13 @@ export function KalkSeite({ dealId }: { dealId: string }) {
           <GrundlageSpalte grundlage={ansicht.grundlage} kontext={kontext} />
         </div>
         <div className="kalk-spalte">
-          <Platzhalter titel="Selbstkosten" unter="Was uns der Auftrag kostet, Zeile für Zeile." text="Kommt mit Task 10." />
+          <SelbstkostenSpalte
+            selbstkosten={ansicht.selbstkosten}
+            vorlagen={ansicht.zeitpostenVorlagen}
+            anpassungen={ansicht.anpassungen}
+            felder={ansicht.grundlage.zeilen.flatMap((z) => z.felder)}
+            kontext={kontext}
+          />
         </div>
         <div className="kalk-spalte">
           <Platzhalter titel="Marge und Preis" unter="Was der Kunde zahlt." text={`Kommt mit Task 11 (Kontext v${kontext.versionNr}).`} />

@@ -1,0 +1,252 @@
+/*
+ * Selbstkosten-Spalte der Kalkulationsseite (Plan 4, Task 10): die Kette
+ * Zeile für Zeile mit Formel, Unterzeilen 28 px eingerückt, Zeitposten-Chips,
+ * Zwischensumme, Gemeinkosten, Versicherung, Selbstkosten (20 px).
+ */
+
+[data-neu] .kalk-kette {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 12px 12px;
+}
+
+/* Hauptzeile einer Gruppe: Titel und Betrag, darunter Formel; klickbar. */
+[data-neu] .kalk-kz {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 14px;
+  width: 100%;
+  margin-top: 6px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+}
+
+[data-neu] .kalk-kz:first-child {
+  margin-top: 0;
+}
+
+[data-neu] button.kalk-kz {
+  cursor: pointer;
+}
+
+[data-neu] button.kalk-kz:hover {
+  box-shadow: inset 0 0 0 1px var(--rim), var(--shadow);
+}
+
+[data-neu] button.kalk-kz:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+[data-neu] button.kalk-kz:disabled {
+  cursor: progress;
+}
+
+/* Übersteuert: gold umrandet (Spec 3.6). */
+[data-neu] .kalk-kz[data-uebersteuert] {
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--gold) 55%, transparent);
+}
+
+[data-neu] .kalk-kz-t {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+[data-neu] .kalk-kz-a {
+  font-size: 14px;
+  font-weight: 600;
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+[data-neu] .kalk-kz-a small {
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--ink-2);
+}
+
+[data-neu] .kalk-kz-f {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+[data-neu] .kalk-kz-f[data-leer] {
+  color: var(--ink-2);
+}
+
+/* Unterzeile: 28 px eingerückt, Wert rechts; übersteuert in Gold-Tinte. */
+[data-neu] .kalk-ku {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0 14px;
+  width: 100%;
+  padding: 4px 12px 4px 28px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+}
+
+[data-neu] button.kalk-ku {
+  cursor: pointer;
+}
+
+[data-neu] button.kalk-ku:hover {
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+}
+
+[data-neu] button.kalk-ku:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 0;
+}
+
+[data-neu] button.kalk-ku:disabled {
+  cursor: progress;
+}
+
+[data-neu] .kalk-ku-a {
+  color: var(--ink);
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+[data-neu] .kalk-ku[data-uebersteuert] {
+  color: var(--gold-ink);
+}
+
+[data-neu] .kalk-ku[data-uebersteuert] .kalk-ku-a {
+  color: var(--gold-ink);
+  font-weight: 600;
+}
+
+[data-neu] .kalk-ku-f {
+  font-size: 11px;
+  color: var(--ink-2);
+}
+
+[data-neu] .kalk-ku[data-uebersteuert] .kalk-ku-f {
+  color: var(--gold-ink);
+}
+
+/* Zeitposten-Bibliothek und Materialposten als Chips, 28 px eingerückt. */
+[data-neu] .kalk-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 4px 12px 6px 28px;
+}
+
+[data-neu] .kalk-chip {
+  padding: 3px 9px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+[data-neu] .kalk-chip:hover {
+  color: var(--blue);
+  box-shadow: inset 0 0 0 1px var(--rim), var(--shadow);
+}
+
+[data-neu] .kalk-chip:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+[data-neu] .kalk-chip:disabled {
+  cursor: not-allowed;
+  color: var(--ink-2);
+  box-shadow: inset 0 0 0 1px var(--rim);
+}
+
+/* Summen: Zwischensumme (15 px) und Selbstkosten (20 px) mit Haarlinie. */
+[data-neu] .kalk-summe {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0 14px;
+  margin-top: 6px;
+  padding: 12px 12px 6px;
+  border-top: 1px solid var(--hair);
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+[data-neu] .kalk-summe[data-gross] {
+  font-size: 20px;
+  letter-spacing: -0.01em;
+}
+
+[data-neu] .kalk-kette-hinweis {
+  margin: 0;
+  padding: 0 12px 4px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+[data-neu] .kalk-kette-leer {
+  margin: 0;
+  padding: 0 12px 12px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+/* ── Anpassungs-Dialog ───────────────────────────────── */
+
+[data-neu] .kalk-arten {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+[data-neu] .kalk-art {
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fill-2);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+[data-neu] .kalk-art[aria-pressed="true"] {
+  background: var(--ink);
+  color: #ffffff;
+  box-shadow: none;
+}
+
+[data-neu] .kalk-art:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+[data-neu] .kalk-art:disabled {
+  cursor: progress;
+}
+
+[data-neu] .kalk-dialog-zuruecknehmen {
+  margin-right: auto;
+}

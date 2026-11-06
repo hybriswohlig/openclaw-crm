@@ -383,6 +383,7 @@ async function main(): Promise<void> {
     inboxMessages,
   } = await import("@/db/schema/inbox");
   const { dealInventoryItems } = await import("@/db/schema/inventory");
+  const { companySettings } = await import("@/db/schema/company-settings");
   const { seedWorkspaceObjects } = await import("@/services/workspace");
   const { createRecord } = await import("@/services/records");
   const { upsertQuotation } = await import("@/services/quotations");
@@ -523,6 +524,19 @@ async function main(): Promise<void> {
     postal_code: "73728",
     city: "Esslingen",
     website: "https://beispiel.example.com",
+  });
+
+  // Zeitposten-Bibliothek der Kottke-Firma (Chips unter „Arbeit“ auf der Kalkulationsseite).
+  await db.insert(companySettings).values({
+    operatingCompanyRecordId: kottke,
+    workspaceId: workspace.id,
+    zeitposten: [
+      { id: "klavier", bezeichnung: "Klavier", minuten: 60 },
+      { id: "waschmaschine", bezeichnung: "Waschmaschine", minuten: 20 },
+      { id: "kueche-abbauen", bezeichnung: "Küche abbauen", minuten: 120 },
+      { id: "langer-tragweg", bezeichnung: "langer Tragweg je 10 m", minuten: 15 },
+    ],
+    rechnerMarke: "kottke",
   });
 
   const angebotStufe = await stufeId("Angebot");
