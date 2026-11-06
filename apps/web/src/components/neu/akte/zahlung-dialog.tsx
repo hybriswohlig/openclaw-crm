@@ -2,7 +2,7 @@
 
 import "@/styles/neu-akte-dock.css";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { toast } from "sonner";
 import { GlassButton } from "@/components/glassyui/glass-button";
 import {
@@ -16,10 +16,11 @@ import { GlassSwitch } from "@/components/glassyui/glass-switch";
 import type { AkteDaten } from "@/lib/akte";
 import { euroText, tagKurz } from "@/lib/anzeige";
 import { berlinDateString } from "@/lib/berlin-date";
-import { centsToEuroInputValue, eurosToCents } from "@/lib/work-ui";
+import { eurosToCents } from "@/lib/work-ui";
 import { ZAHLUNGSART_LABEL, type Zahlungsart } from "@/lib/zahlungsart";
 import type { Zahlungsmeldung } from "@/lib/zahlungsmeldungen";
 import { apiAufruf, jsonAufruf } from "./api";
+import { betragVorbelegung } from "./dialog-texte";
 import { meldungBearbeiten } from "./zahlungsmeldung";
 
 type Zahlung = AkteDaten["zahlung"];
@@ -42,7 +43,9 @@ export function meldungText(m: Zahlungsmeldung): string {
  * (`taxTreatment: "nicht_steuerbar"`, Entscheidung 5) und Notiz. Speichern
  * schreibt über `POST /payments` wie die alte Finanzen-Ansicht und lädt die
  * Akte neu. Bestätigen und Verwerfen lassen den Dialog offen; die Liste
- * aktualisiert sich mit der neu geladenen Akte.
+ * aktualisiert sich mit der neu geladenen Akte, und der Betrag folgt dem neuen
+ * Rest, solange der Inhaber ihn nicht selbst geändert hat (sonst würde ein
+ * zweites Speichern die bestätigte Zahlung doppelt buchen).
  */
 export function ZahlungDialog({
   dealId,
@@ -59,7 +62,8 @@ export function ZahlungDialog({
 }) {
   const id = useId();
   const [datum, setDatum] = useState(() => berlinDateString());
-  const [betrag, setBetrag] = useState(() => (zahlung.restCent !== null && zahlung.restCent > 0 ? centsToEuroInputValue(zahlung.restCent) : ""));
+  const [betrag, setBetrag] = useState(() => betragVorbelegung(zahlung.restCent));
+  const [betragBearbeitet, setBetragBearbeitet] = useState(false);
   const [art, setArt] = useState<Art>("bank_transfer");
   const [kaution, setKaution] = useState(false);
   const [notiz, setNotiz] = useState("");
@@ -67,6 +71,12 @@ export function ZahlungDialog({
   const [speichert, setSpeichert] = useState(false);
   const [meldungLaeuft, setMeldungLaeuft] = useState<string | null>(null);
   const beschaeftigt = speichert || meldungLaeuft !== null;
+
+  // Neuer Rest nach Bestätigen oder Verwerfen: Vorbelegung nachziehen, außer der Betrag wurde von Hand geändert.
+  const restCent = zahlung.restCent;
+  useEffect(() => {
+    if (!betragBearbeitet) setBetrag(betragVorbelegung(restCent));
+  }, [restCent, betragBearbeitet]);
 
   async function meldung(eventId: string, aktion: "bestaetigen" | "verwerfen") {
     setMeldungLaeuft(eventId);
@@ -159,7 +169,10 @@ export function ZahlungDialog({
                 type="text"
                 inputMode="decimal"
                 value={betrag}
-                onChange={(e) => setBetrag(e.target.value)}
+                onChange={(e) => {
+                  setBetragBearbeitet(true);
+                  setBetrag(e.target.value);
+                }}
                 placeholder="0,00"
                 autoComplete="off"
               />

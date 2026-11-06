@@ -260,13 +260,15 @@
   font-weight: 600;
 }
 
-/* Sperrgrund der Bewertung: gold wie „wartet auf uns“, dunkle Tinte. */
+/* Sperrgrund der Bewertung: gold wie „wartet auf uns“, dunkle Tinte. Deckende
+   Mischung auf --fill-3, damit die Fläche auch unter „Transparenz reduzieren“
+   (dann reines Weiß) und über dem Glas des Dialogs steht. */
 [data-neu] .akte-dialog-sperre {
   margin: 0 0 12px;
   padding: 9px 12px;
   border-radius: 14px;
-  background: color-mix(in srgb, var(--gold) 14%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 35%, transparent);
+  background: color-mix(in srgb, var(--gold) 14%, var(--fill-3));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 35%, var(--fill-3));
   color: var(--gold-ink);
   font-size: 13px;
   font-weight: 500;
@@ -289,8 +291,8 @@
   gap: 8px;
   padding: 9px 12px;
   border-radius: 14px;
-  background: color-mix(in srgb, var(--gold) 14%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 35%, transparent);
+  background: color-mix(in srgb, var(--gold) 14%, var(--fill-3));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 35%, var(--fill-3));
   color: var(--gold-ink);
   font-size: 12.5px;
   font-weight: 500;

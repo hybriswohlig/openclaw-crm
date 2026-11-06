@@ -21,6 +21,7 @@ import {
 import type { GespraechKanal } from "@/services/gespraech";
 import type { WhatsAppTemplate } from "@/services/inbox-whatsapp";
 import { apiAufruf, jsonAufruf } from "./api";
+import { vorlageFehlerText } from "./dialog-texte";
 
 type Vorlagen = { art: "laden" } | { art: "fehler"; meldung: string } | { art: "fertig"; liste: WhatsAppTemplate[] };
 
@@ -31,7 +32,9 @@ const schluessel = (t: Pick<WhatsAppTemplate, "name" | "language">) => `${t.name
  * 24-Stunden-Fensters der einzige Weg). Vorlagen kommen live von Meta
  * (`GET /inbox/channel-accounts/{kontoId}/templates`), nur freigegebene;
  * je `{{n}}` im Text ein Feld. Senden über `POST /inbox/whatsapp/send-template`
- * mit `dealRecordId`, danach lädt die Akte neu.
+ * mit `dealRecordId`, danach lädt die Akte neu. Die Auswahl läuft über das
+ * Gespräch (`gespraechId`), nicht über das Konto: zwei Gespräche können auf
+ * demselben Konto liegen. Englische Fehler der Routen werden übersetzt.
  */
 export function VorlageDialog({
   dealId,
@@ -47,14 +50,15 @@ export function VorlageDialog({
   onSchliessen: () => void;
   onNeuLaden: () => Promise<void> | void;
 }) {
-  const [kontoId, setKontoId] = useState(kanaele[0]?.kontoId ?? "");
+  const [gespraechId, setGespraechId] = useState(kanaele[0]?.gespraechId ?? "");
   const [vorlagen, setVorlagen] = useState<Vorlagen>({ art: "laden" });
   const [gewaehlt, setGewaehlt] = useState("");
   const [variablen, setVariablen] = useState<string[]>([]);
   const [fehler, setFehler] = useState<string | null>(null);
   const [sendet, setSendet] = useState(false);
 
-  const kanal = kanaele.find((k) => k.kontoId === kontoId) ?? null;
+  const kanal = kanaele.find((k) => k.gespraechId === gespraechId) ?? null;
+  const kontoId = kanal?.kontoId ?? null;
 
   useEffect(() => {
     if (!kontoId) return;
@@ -65,7 +69,7 @@ export function VorlageDialog({
     void apiAufruf<WhatsAppTemplate[]>(`/api/v1/inbox/channel-accounts/${kontoId}/templates`).then((r) => {
       if (!aktuell) return;
       if (r.ok) setVorlagen({ art: "fertig", liste: (r.data ?? []).filter((t) => t.status === "APPROVED") });
-      else setVorlagen({ art: "fehler", meldung: r.message });
+      else setVorlagen({ art: "fehler", meldung: vorlageFehlerText(r.message) });
     });
     return () => {
       aktuell = false;
@@ -105,7 +109,7 @@ export function VorlageDialog({
       })
     );
     setSendet(false);
-    if (!r.ok) return setFehler(r.message);
+    if (!r.ok) return setFehler(vorlageFehlerText(r.message));
     toast.success("Vorlage gesendet.");
     await onNeuLaden();
     onSchliessen();
@@ -122,14 +126,15 @@ export function VorlageDialog({
           {kanaele.length > 1 ? (
             <label className="akte-dialog-feld">
               Konto
-              <GlassSelect value={kontoId} onValueChange={setKontoId}>
-                <GlassSelectTrigger aria-label="WhatsApp-Konto">
+              <GlassSelect value={gespraechId} onValueChange={setGespraechId}>
+                <GlassSelectTrigger aria-label="WhatsApp-Gespräch">
                   <GlassSelectValue placeholder="Auswählen" />
                 </GlassSelectTrigger>
                 <GlassSelectContent>
                   {kanaele.map((k) => (
-                    <GlassSelectItem key={k.kontoId} value={k.kontoId}>
+                    <GlassSelectItem key={k.gespraechId} value={k.gespraechId}>
                       {k.name}
+                      {k.telefon ? ` · ${k.telefon}` : ""}
                     </GlassSelectItem>
                   ))}
                 </GlassSelectContent>
@@ -144,7 +149,7 @@ export function VorlageDialog({
           </p>
 
           {vorlagen.art === "laden" ? <p className="akte-dialog-leer">Vorlagen werden geladen …</p> : null}
-          {vorlagen.art === "fehler" ? <p className="akte-dialog-fehler">Vorlagen konnten nicht geladen werden: {vorlagen.meldung}</p> : null}
+          {vorlagen.art === "fehler" ? <p className="akte-dialog-fehler">Vorlagen konnten nicht geladen werden. {vorlagen.meldung}</p> : null}
           {vorlagen.art === "fertig" && liste.length === 0 ? <p className="akte-dialog-leer">Keine freigegebenen Vorlagen für dieses Konto.</p> : null}
 
           {liste.length > 0 ? (

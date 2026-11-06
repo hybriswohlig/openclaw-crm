@@ -13,6 +13,7 @@ import {
 } from "@/components/glassyui/glass-dialog";
 import { BEWERTUNGSLINK_PLATZHALTER } from "@/lib/reviews/manuell";
 import { apiAufruf, jsonAufruf } from "./api";
+import { bewertungFehlerText } from "./dialog-texte";
 
 interface Vorschau {
   text: string;
@@ -21,7 +22,7 @@ interface Vorschau {
   sperre: string | null;
 }
 
-/** Sperrgründe und Fehlercodes von `/review-request` als kurze deutsche Texte. */
+/** Sperrgründe der Vorschau (`GET /review-request`, `sperre`) als kurze deutsche Texte. */
 export const BEWERTUNG_TEXT: Record<string, string> = {
   STUFE: "Erst ab Durchgeführt.",
   KEIN_LINK: "Für diese Firma ist kein Google-Bewertungslink hinterlegt.",
@@ -31,7 +32,6 @@ export const BEWERTUNG_TEXT: Record<string, string> = {
   RUHEZEIT: "Ruhezeit. Bitte Mo bis Sa zwischen 9 und 19 Uhr senden.",
   SCHON_GESENDET: "Schon angefragt.",
   EINWILLIGUNG: "Keine verknüpfte Person am Deal. Bitte in der alten Akte eine Person verknüpfen.",
-  TEXT: `Der Text muss den Platzhalter ${BEWERTUNGSLINK_PLATZHALTER} und den STOP-Hinweis enthalten.`,
 };
 
 type Zustand = { art: "laden" } | { art: "fehler"; meldung: string } | { art: "fertig"; vorschau: Vorschau };
@@ -41,8 +41,10 @@ type Zustand = { art: "laden" } | { art: "fehler"; meldung: string } | { art: "f
  * Platzhalter für den Link muss bleiben), Kanal, Sperrgrund je Code. Ohne
  * Einwilligung im Ledger ist das Feld „Wie und wann hat der Kunde zugestimmt?“
  * Pflicht; es wird mit Autor und heutigem Datum gespeichert. Senden über
- * `POST /review-request`; `VERSAND_UNKLAR` und `SCHON_GESENDET` laden die
- * Akte neu, weil die Sperre für den Deal dann steht.
+ * `POST /review-request`; Fehler zeigen die deutsche Meldung des Servers
+ * (`KONFIGURATION` ohne den Namen der Variable). `VERSAND_UNKLAR` und
+ * `SCHON_GESENDET` laden die Akte neu, weil die Sperre für den Deal dann
+ * steht; nach `VERSAND_UNKLAR` bleibt Senden bis zum nächsten Öffnen gesperrt.
  */
 export function BewertungDialog({
   dealId,
@@ -60,6 +62,7 @@ export function BewertungDialog({
   const [einwilligung, setEinwilligung] = useState("");
   const [fehler, setFehler] = useState<string | null>(null);
   const [sendet, setSendet] = useState(false);
+  const [versandUnklar, setVersandUnklar] = useState(false);
 
   useEffect(() => {
     let aktuell = true;
@@ -102,7 +105,8 @@ export function BewertungDialog({
       onSchliessen();
       return;
     }
-    setFehler((r.code && BEWERTUNG_TEXT[r.code]) ?? r.message);
+    setFehler(bewertungFehlerText(r.code, r.message));
+    if (r.code === "VERSAND_UNKLAR") setVersandUnklar(true);
     if (r.code === "VERSAND_UNKLAR" || r.code === "SCHON_GESENDET") await onNeuLaden();
   }
 
@@ -148,6 +152,7 @@ export function BewertungDialog({
                   value={einwilligung}
                   onChange={(e) => setEinwilligung(e.target.value)}
                   rows={2}
+                  maxLength={1000}
                   placeholder="Etwa: telefonisch am 05.11., Kunde bat um den Link"
                   disabled={gesperrt !== null}
                   required
@@ -160,7 +165,7 @@ export function BewertungDialog({
               <GlassButton type="button" variant="ghost" onClick={onSchliessen} disabled={sendet}>
                 Abbrechen
               </GlassButton>
-              <GlassButton type="submit" disabled={sendet || gesperrt !== null}>
+              <GlassButton type="submit" disabled={sendet || gesperrt !== null || versandUnklar}>
                 {sendet ? "Sendet" : "Senden"}
               </GlassButton>
             </div>

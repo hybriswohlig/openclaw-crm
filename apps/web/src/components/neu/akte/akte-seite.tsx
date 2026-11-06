@@ -197,7 +197,17 @@ export function AkteSeite({ dealId }: { dealId: string }) {
         />
       ) : null}
       {dialog?.art === "dokument" ? (
-        <DokumentDialog dealId={dealId} art={dialog.typ} altLink={akte.altLink} portalZiel={portalZiel} onSchliessen={schliessen} />
+        <DokumentDialog
+          dealId={dealId}
+          art={dialog.typ}
+          altLink={akte.altLink}
+          portalZiel={portalZiel}
+          onSchliessen={() => {
+            // Eine erzeugte AB oder Rechnung steht in Dock, Kacheln und Ablauf: neu laden.
+            schliessen();
+            void neuLadenStill();
+          }}
+        />
       ) : null}
     </div>
   );
