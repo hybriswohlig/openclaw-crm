@@ -237,6 +237,12 @@ describe("ansichtAus: Selbstkosten", () => {
     expect(hv).toMatchObject({ uebersteuert: true, betragCent: 0, formel: "2 Stück × 130 €" });
     expect(g.map((x) => x.key).slice(-2)).toEqual(["entsorgung", "weitere"]);
     expect(g.at(-1)).toMatchObject({ label: "Weitere Kosten", betragCent: 1500, unterzeilen: [{ label: "Klaviergurt", wert: "15 €" }] });
+    // Übersteuerbar ist nur ein echter Schlüssel des Rechners; Summengruppen nur über ihre Zeilen.
+    expect(g.find((x) => x.key === "arbeit")?.postenKey).toBe("personal.arbeit");
+    expect(hv.postenKey).toBe("halteverbot");
+    expect(g.find((x) => x.key.startsWith("fahrzeug."))?.postenKey).toMatch(/^fahrzeug\.[^.]+\.(miete|tagespauschale)$/);
+    expect(g.find((x) => x.key === "material")?.postenKey).toBeNull();
+    expect(g.at(-1)?.postenKey).toBeNull();
   });
 });
 

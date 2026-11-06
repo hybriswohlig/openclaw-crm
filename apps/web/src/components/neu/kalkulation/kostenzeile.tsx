@@ -5,20 +5,10 @@ import { euro } from "@/components/neu/akte/format";
 
 /**
  * Schlüssel der Kostenzeile des Rechners, die eine Gruppe übersteuert
- * (`art: "zeile"`). Die Gruppen der Ansicht heißen kurz („arbeit“), die
- * Zeilen des Rechners tragen Präfixe („personal.arbeit“); der Rest ist gleich.
+ * (`art: "zeile"`). Kommt vom Server; null bei Summengruppen (dann nur Unterzeilen).
  */
-export function postenKeyFuer(gruppe: Pick<SelbstkostenGruppe, "key">): string {
-  switch (gruppe.key) {
-    case "arbeit":
-      return "personal.arbeit";
-    case "fahrt":
-      return "personal.fahrt";
-    case "anfahrt":
-      return "anfahrtsgeld";
-    default:
-      return gruppe.key;
-  }
+export function postenKeyFuer(gruppe: Pick<SelbstkostenGruppe, "postenKey">): string | null {
+  return gruppe.postenKey;
 }
 
 /** Unterzeilen aus Personenstunden und Zeitposten sind abgeleitet; nur echte Kostenzeilen lassen sich als Zeile übersteuern. */

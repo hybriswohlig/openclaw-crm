@@ -16,7 +16,8 @@ import { MaterialChip, ZeitpostenChips } from "./zeitposten-chips";
 export function uebersteuerbareZeilen(s: SelbstkostenAnsicht): { key: string; label: string }[] {
   const liste: { key: string; label: string }[] = [];
   for (const g of s.gruppen) {
-    liste.push({ key: postenKeyFuer(g), label: g.label });
+    const k = postenKeyFuer(g);
+    if (k) liste.push({ key: k, label: g.label });
     for (const u of g.unterzeilen) if (unterzeileUebersteuerbar(u)) liste.push({ key: u.key, label: `${g.label} · ${u.label}` });
   }
   return liste;
@@ -47,8 +48,10 @@ export function SelbstkostenSpalte({
   const zeilen = uebersteuerbareZeilen(selbstkosten);
   const hatMaterial = selbstkosten.gruppen.some((g) => g.key === "material");
 
-  const gruppeKlick = (g: SelbstkostenGruppe) =>
-    setDialog({ art: "zeile", key: postenKeyFuer(g), label: g.label, aktuell: `${euro(g.betragCent)}${g.formel ? ` (${g.formel})` : ""}` });
+  const gruppeKlick = (g: SelbstkostenGruppe) => {
+    const k = postenKeyFuer(g);
+    if (k) setDialog({ art: "zeile", key: k, label: g.label, aktuell: `${euro(g.betragCent)}${g.formel ? ` (${g.formel})` : ""}` });
+  };
 
   return (
     <GlassPanel variant="panel" className="kalk-panel" aria-label="Selbstkosten">
@@ -66,7 +69,7 @@ export function SelbstkostenSpalte({
         <div className="kalk-kette">
           {selbstkosten.gruppen.map((g) => (
             <div key={g.key} role="group" aria-label={g.label}>
-              <KostenGruppeZeile gruppe={g} beschaeftigt={beschaeftigt} onKlick={gruppeKlick} />
+              <KostenGruppeZeile gruppe={g} beschaeftigt={beschaeftigt} onKlick={postenKeyFuer(g) ? gruppeKlick : undefined} />
               {g.unterzeilen.map((u) => (
                 <KostenUnterzeile
                   key={u.key}

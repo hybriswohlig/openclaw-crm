@@ -59,6 +59,8 @@ export interface SelbstkostenUnterzeile {
 
 export interface SelbstkostenGruppe {
   key: string;
+  /** Schlüssel der Rechner-Kostenzeile der Hauptzeile (`art: "zeile"`); null bei Summengruppen (Material, Weitere), dort nur die Unterzeilen. */
+  postenKey: string | null;
   label: string;
   formel: string | null;
   betragCent: number;
@@ -608,6 +610,7 @@ function selbstkostenAnsicht(v: VersionsZeile, namen: Record<string, string>): S
   /** Hauptzeile = erste Zeile, weitere Zeilen darunter. */
   const einfach = (key: string, zs: Z[], extra: SelbstkostenUnterzeile[] = []): SelbstkostenGruppe => ({
     key,
+    postenKey: zs[0].key,
     label: LABEL[key],
     formel: formelVon(zs[0].p),
     betragCent: summeCent(zs),
@@ -617,6 +620,7 @@ function selbstkostenAnsicht(v: VersionsZeile, namen: Record<string, string>): S
   /** Summe, jede Zeile darunter. */
   const sammel = (key: string, zs: Z[]): SelbstkostenGruppe => ({
     key,
+    postenKey: null,
     label: LABEL[key],
     formel: null,
     betragCent: summeCent(zs),
@@ -659,6 +663,7 @@ function selbstkostenAnsicht(v: VersionsZeile, namen: Record<string, string>): S
     const ohneName = (b: string) => (b.startsWith(`${name}:`) ? b.slice(name.length + 1).trim() : b);
     gruppen.push({
       key,
+      postenKey: haupt.key,
       label: name,
       formel: formelVon(haupt.p),
       betragCent: summeCent(zs),
