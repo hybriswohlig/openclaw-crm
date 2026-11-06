@@ -17,6 +17,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
 import { berlinDateString } from "@/lib/berlin-date";
+import { alsIso, alsJson, alsZahl, zeilen } from "@/lib/db-werte";
 import {
   gespraechZusammenfuehren,
   kannSendenAus,
@@ -81,41 +82,6 @@ export interface GespraechSpeicher {
   fakten(ws: string, deal: string): Promise<SystemFakten>;
   /** Nur für Gespräche aus `gespraeche` (workspace-gefiltert) aufrufen. */
   imFenster(conversationId: string): Promise<boolean | null>;
-}
-
-function zeilen<T>(result: unknown): T[] {
-  if (Array.isArray(result)) return result as T[];
-  return (result as { rows?: T[] }).rows ?? [];
-}
-
-/**
- * `db.execute` liefert `timestamp`-Spalten als Text ohne Zeitzone (der
- * Postgres-Treiber parst sie nicht). Gespeichert ist UTC, wie Drizzle es liest.
- * Gleiche Regel wie in `services/nachfass-schalter.ts`.
- */
-function alsIso(v: unknown): string | null {
-  if (v === null || v === undefined || v === "") return null;
-  if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v.toISOString();
-  const s = String(v).trim();
-  const mitZone = /(?:[zZ]|[+-]\d{2}(?::?\d{2})?)$/.test(s);
-  const d = new Date(mitZone ? s : `${s.replace(" ", "T")}Z`);
-  return Number.isNaN(d.getTime()) ? null : d.toISOString();
-}
-
-/** jsonb aus `db.execute`: je nach Treiber schon geparst oder als Text. */
-function alsJson(v: unknown): unknown {
-  if (typeof v !== "string") return v;
-  try {
-    return JSON.parse(v);
-  } catch {
-    return null;
-  }
-}
-
-function alsZahl(v: unknown): number | null {
-  if (v === null || v === undefined || v === "") return null;
-  const n = typeof v === "number" ? v : Number(v);
-  return Number.isFinite(n) ? n : null;
 }
 
 // ─── Gespräche des Deals ──────────────────────────────────────────────────────
