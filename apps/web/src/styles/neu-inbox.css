@@ -755,3 +755,189 @@
   height: 420px;
   border-radius: 24px;
 }
+
+/* ── Handy (unter 1024 px, Entscheidung 15) ──────────── */
+
+@media (max-width: 1023px) {
+  [data-neu] .inbox-handy-seite-kopf {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+    padding: 6px 4px 0;
+  }
+
+  [data-neu] .inbox-handy-seite-kopf > div {
+    flex: 1;
+    min-width: 0;
+  }
+
+  [data-neu] .inbox-handy-seite-kopf h1 {
+    margin: 0;
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+
+  [data-neu] .inbox-handy-seite-kopf p {
+    margin: 4px 0 0;
+    font-size: 13px;
+    color: var(--ink-2);
+  }
+
+  /* Chips einzeilig, seitlich scrollbar, ohne Laufleiste. */
+  [data-neu] .inbox-chips[data-kompakt] {
+    flex-wrap: nowrap;
+    gap: 6px;
+    margin: 0 -16px;
+    padding: 2px 16px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  [data-neu] .inbox-chips[data-kompakt]::-webkit-scrollbar {
+    display: none;
+  }
+
+  [data-neu] .inbox-chips[data-kompakt] .inbox-chip-jetzt {
+    flex: none;
+    padding: 5px 10px;
+    font-size: 11.5px;
+  }
+
+  /* Die Liste scrollt mit der Seite; das Dock der Shell bleibt unten. */
+  [data-neu] .inbox-liste-panel[data-kompakt] {
+    height: auto;
+    min-height: 0;
+  }
+
+  [data-neu] .inbox-liste-panel[data-kompakt] .inbox-liste {
+    padding: 8px 8px;
+    overflow: visible;
+  }
+
+  [data-neu] .inbox-liste-panel[data-kompakt] .inbox-eintrag {
+    padding: 9px 10px;
+  }
+
+  /* Vollbild-Gespräch: Kopf oben, Verlauf dehnt sich, Antwortfeld unten; kein Dock. */
+  [data-neu] .inbox-vollbild {
+    height: calc(100dvh - 28px);
+    gap: 8px;
+  }
+
+  [data-neu]:has(.inbox-vollbild) .neu-geruest {
+    padding-bottom: calc(env(safe-area-inset-bottom) + 14px);
+  }
+
+  [data-neu]:has(.inbox-vollbild) .neu-handy-dock {
+    display: none;
+  }
+
+  [data-neu] .inbox-zurueck {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    align-self: flex-start;
+    padding: 4px 4px 0;
+    color: var(--blue-ink);
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  [data-neu] .inbox-handy-kopf {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    gap: 8px;
+    padding: 0 4px;
+  }
+
+  [data-neu] .inbox-handy-name {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  [data-neu] .inbox-handy-name .inbox-avatar {
+    width: 36px;
+    height: 36px;
+  }
+
+  [data-neu] .inbox-handy-name-text {
+    min-width: 0;
+  }
+
+  [data-neu] .inbox-handy-name-text h1 {
+    margin: 0;
+    overflow: hidden;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  [data-neu] .inbox-handy-name-text p {
+    margin: 1px 0 0;
+    overflow: hidden;
+    font-size: 12px;
+    color: var(--ink-2);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  [data-neu] .inbox-handy-chips {
+    display: flex;
+    gap: 6px;
+    margin: 0 -16px;
+    padding: 2px 16px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  [data-neu] .inbox-handy-chips::-webkit-scrollbar {
+    display: none;
+  }
+
+  [data-neu] .inbox-handy-chips .inbox-chip {
+    flex: none;
+    font-size: 11.5px;
+  }
+
+  [data-neu] .inbox-vollbild .akte-panel {
+    flex: 1;
+    height: auto;
+    min-height: 0;
+  }
+
+  [data-neu] .inbox-vollbild .akte-gespraech-kopf {
+    display: none;
+  }
+
+  [data-neu] .inbox-vollbild .akte-gespraech-verlauf {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+    padding: 10px 12px;
+  }
+
+  [data-neu] .inbox-vollbild .akte-gespraech-nachricht {
+    max-width: 84%;
+    font-size: 13px;
+  }
+
+  [data-neu] .inbox-vollbild .akte-gespraech-fuss {
+    padding: 8px 12px 0;
+  }
+
+  [data-neu] .inbox-vollbild .akte-panel.akte-gespraech-panel[data-ohne-dock] {
+    padding-bottom: 12px;
+  }
+
+  [data-neu] .inbox-vollbild .inbox-mitte-leer {
+    flex: none;
+  }
+}

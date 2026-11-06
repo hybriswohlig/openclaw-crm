@@ -14,7 +14,16 @@ import type { Gespraech } from "@/services/gespraech";
 import { InboxChipsZeile } from "./inbox-chips";
 import { InboxLeiste } from "./inbox-leiste";
 import { InboxListe as InboxListePanel } from "./inbox-liste";
-import { FILTER_LEER, gespraechUrl, gruppieren, inboxUrl, schluesselAus, sucheAktiv, type Schluessel } from "./inbox-logik";
+import {
+  FILTER_LEER,
+  gespraechUrl,
+  gruppieren,
+  handyUnterzeile,
+  inboxUrl,
+  schluesselAus,
+  sucheAktiv,
+  type Schluessel,
+} from "./inbox-logik";
 import { InboxMitte } from "./inbox-mitte";
 import { KontaktKarte } from "./kontakt-karte";
 import { KurzfassungSpalte } from "./kurzfassung-spalte";
@@ -205,12 +214,49 @@ export function InboxSeite() {
       gesucht={suchbegriff !== ""}
       gewaehltKey={gewaehltKey}
       infoOffen={infoOffen || filter.chip === "info"}
-      kompakt={false}
+      kompakt={!breit}
       onInfoOffen={setInfoOffen}
-      onWaehlen={(key) => waehlen(key, true)}
+      // Desktop ersetzt den Eintrag in der URL; am Handy ist das Gespräch ein eigener Schritt (Zurück führt zur Liste).
+      onWaehlen={(key) => waehlen(key, breit)}
       onErneut={() => void listeLaden(suchbegriff, "oeffnen")}
     />
   );
+
+  // Handy (Entscheidung 15): mit Auswahl das Gespräch im Vollbild, sonst Kopf, Chips und Liste.
+  if (!breit) {
+    if (schluessel) {
+      return (
+        <div className="inbox inbox-vollbild">
+          <Mitte
+            zustand={mitte}
+            schluessel={schluessel}
+            eintrag={eintrag}
+            kompakt
+            aktionen={aktionen}
+            onNeuLaden={neuLaden}
+            onErneut={() => void gespraechLaden(schluessel, "oeffnen")}
+          />
+        </div>
+      );
+    }
+    return (
+      <div className="inbox inbox-handy">
+        <header className="inbox-handy-seite-kopf">
+          <div>
+            <h1>Inbox</h1>
+            <p>{chipsAnzeige ? handyUnterzeile(chipsAnzeige) : "Wird geladen"}</p>
+          </div>
+          <GlassButton size="sm" asChild>
+            <Link href="/inbox?compose=1" aria-label="Neue Nachricht">
+              +
+            </Link>
+          </GlassButton>
+        </header>
+        <InboxChipsZeile chips={chipsAnzeige} aktiv={filter.chip} kompakt onWaehlen={(chip) => filterSetzen({ chip })} />
+        {listePanel}
+      </div>
+    );
+  }
 
   return (
     <div className="inbox">
@@ -264,41 +310,61 @@ function Mitte({
   zustand,
   schluessel,
   eintrag,
+  kompakt = false,
+  aktionen,
   onNeuLaden,
   onErneut,
 }: {
   zustand: MitteZustand;
   schluessel: Schluessel | null;
   eintrag: ReturnType<typeof gruppieren>["haupt"][number] | null;
+  kompakt?: boolean;
+  aktionen?: ReturnType<typeof useLaneAktionen>;
   onNeuLaden: () => Promise<Gespraech | null>;
   onErneut: () => void;
 }) {
+  // Am Handy braucht auch der Lade- und Fehlerzustand den Weg zurück zur Liste.
+  const zurueck = kompakt ? (
+    <Link href="/app/inbox" className="inbox-zurueck">
+      ‹ Inbox
+    </Link>
+  ) : null;
+
   if (zustand.art === "leer" || !schluessel) {
     return (
-      <div className="akte-panel inbox-mitte-leer">
-        <p>Kein Gespräch gewählt.</p>
-      </div>
+      <>
+        {zurueck}
+        <div className="akte-panel inbox-mitte-leer">
+          <p>Kein Gespräch gewählt.</p>
+        </div>
+      </>
     );
   }
   if (zustand.art === "laden") {
     return (
-      <div className="akte-panel inbox-mitte-leer" aria-busy="true" aria-label="Gespräch wird geladen">
-        <span className="lg-skeleton" data-variant="line" style={{ width: "40%" }} />
-        <span className="lg-skeleton" style={{ height: 120 }} />
-        <span className="lg-skeleton" data-variant="line" style={{ width: "70%" }} />
-      </div>
+      <>
+        {zurueck}
+        <div className="akte-panel inbox-mitte-leer" aria-busy="true" aria-label="Gespräch wird geladen">
+          <span className="lg-skeleton" data-variant="line" style={{ width: "40%" }} />
+          <span className="lg-skeleton" style={{ height: 120 }} />
+          <span className="lg-skeleton" data-variant="line" style={{ width: "70%" }} />
+        </div>
+      </>
     );
   }
   if (zustand.art === "fehler") {
     return (
-      <div className="akte-panel inbox-mitte-leer" role="alert">
-        <p>{zustand.status === 404 ? "Dieses Gespräch gibt es nicht mehr." : `Gespräch konnte nicht geladen werden. ${zustand.meldung}`}</p>
-        {zustand.status !== 404 ? (
-          <GlassButton size="sm" onClick={onErneut}>
-            Erneut laden
-          </GlassButton>
-        ) : null}
-      </div>
+      <>
+        {zurueck}
+        <div className="akte-panel inbox-mitte-leer" role="alert">
+          <p>{zustand.status === 404 ? "Dieses Gespräch gibt es nicht mehr." : `Gespräch konnte nicht geladen werden. ${zustand.meldung}`}</p>
+          {zustand.status !== 404 ? (
+            <GlassButton size="sm" onClick={onErneut}>
+              Erneut laden
+            </GlassButton>
+          ) : null}
+        </div>
+      </>
     );
   }
   return (
@@ -308,6 +374,8 @@ function Mitte({
       eintrag={eintrag}
       gespraech={zustand.gespraech}
       kurz={zustand.kurz}
+      kompakt={kompakt}
+      aktionen={aktionen}
       onNeuLaden={onNeuLaden}
     />
   );
