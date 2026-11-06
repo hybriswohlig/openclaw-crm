@@ -1,11 +1,19 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { apiAufruf, jsonAufruf } from "@/components/neu/akte/api";
 import { CRM_UI_CLIENT_HEADER, CRM_UI_CLIENT_VALUE } from "@/lib/deal-source";
 import type { InboxEintrag, Kurzfassung } from "@/lib/inbox-neu";
-import { keinLeadSetztStufe } from "./inbox-logik";
+import type { Gespraech } from "@/services/gespraech";
+import {
+  keinLeadSetztStufe,
+  laneMeldung,
+  rueckgaengigMeldung,
+  zielGespraeche,
+  type LaneZiel,
+  type Schluessel,
+} from "./inbox-logik";
 
 /** So lange bleibt der Toast mit „Rückgängig“ stehen. */
 const RUECKGAENGIG_MS = 8000;
@@ -18,15 +26,27 @@ export interface LaneAktionen {
   /** Zurück in die Hauptliste: Lane `lead`. */
   lead: () => Promise<void>;
   laeuft: boolean;
+  /** False, wenn keine Zielgespräche bekannt sind: Knöpfe gesperrt. */
+  moeglich: boolean;
 }
 
-/** Lane an jedem Gespräch setzen; die erste Fehlermeldung oder null. */
-async function laneSetzen(ids: readonly string[], lane: "kein_lead" | "info" | "lead"): Promise<string | null> {
-  const antworten = await Promise.all(
+interface LaneErgebnis {
+  erfolge: string[];
+  fehler: { id: string; message: string }[];
+}
+
+/** Lane an jedem Gespräch setzen; alle laufen, auch wenn eines scheitert. */
+async function laneSetzen(ids: readonly string[], lane: LaneZiel): Promise<LaneErgebnis> {
+  const ergebnisse = await Promise.allSettled(
     ids.map((id) => apiAufruf<unknown>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}`, jsonAufruf("PATCH", { lane })))
   );
-  const fehler = antworten.find((r) => !r.ok);
-  return fehler && !fehler.ok ? fehler.message : null;
+  const aus: LaneErgebnis = { erfolge: [], fehler: [] };
+  ergebnisse.forEach((r, i) => {
+    const id = ids[i]!;
+    if (r.status === "fulfilled" && r.value.ok) aus.erfolge.push(id);
+    else aus.fehler.push({ id, message: r.status === "fulfilled" && !r.value.ok ? r.value.message : "Keine Verbindung zum Server." });
+  });
+  return aus;
 }
 
 /** Stufe des Deals über denselben Weg wie `StufenMenue` (deal.stage_changed, Wartet laufen wie heute). */
@@ -39,96 +59,83 @@ async function stufeSetzen(dealId: string, stufeId: string): Promise<string | nu
 }
 
 /**
- * „Kein Lead“, „Info“ und „Lead“ für einen Eintrag (Plan 6, Entscheidung 12).
- * Beide ersten Wege zeigen einen Toast mit „Rückgängig“, der Lane (und Stufe)
- * zurücksetzt. Nach jeder Aktion lädt `onNeuLaden` Liste und Gespräch neu.
+ * „Kein Lead“, „Info“ und „Als Lead“ für einen Eintrag (Plan 6, Entscheidung 12).
+ * Ziele: die Gespräche des Listeneintrags, sonst die direkt verknüpften Kanäle
+ * des geladenen Gesprächs, sonst der Schlüssel (Review I4). Alle PATCHes laufen;
+ * danach wird immer neu geladen. Bei Teilfehlern nennt der Toast die Zahlen,
+ * „Rückgängig“ gilt für die erfolgreichen (Review I3). „Rückgängig“ meldet nur
+ * dann „Zurückgenommen.“, wenn auch die Stufe zurück ist (Review M1).
  */
 export function useLaneAktionen({
   eintrag,
+  gespraech,
+  schluessel,
   kurz,
   onNeuLaden,
 }: {
   eintrag: Pick<InboxEintrag, "dealId" | "gespraechIds"> | null;
+  gespraech: Pick<Gespraech, "kanaele"> | null;
+  schluessel: Schluessel | null;
   kurz: Pick<Kurzfassung, "stufe" | "keinLeadStufeId" | "kategorie"> | null;
   onNeuLaden: () => Promise<unknown>;
 }): LaneAktionen {
   const [laeuft, setLaeuft] = useState(false);
-  const ids = eintrag?.gespraechIds ?? [];
-  const dealId = eintrag?.dealId ?? null;
+  const ids = useMemo(() => zielGespraeche(eintrag, gespraech, schluessel), [eintrag, gespraech, schluessel]);
+  const dealId = eintrag?.dealId ?? (schluessel?.art === "deal" ? schluessel.id : null);
 
   const rueckgaengig = useCallback(
-    async (stufeZurueck: string | null) => {
-      const f = await laneSetzen(ids, "lead");
-      if (f) {
-        toast.error("Rückgängig fehlgeschlagen.", { description: f });
-        return;
-      }
-      if (stufeZurueck && dealId) {
-        const f2 = await stufeSetzen(dealId, stufeZurueck);
-        if (f2) toast.error("Stufe konnte nicht zurückgesetzt werden.", { description: f2 });
-      }
-      toast.success("Zurückgenommen.");
+    async (zurueckIds: readonly string[], stufeZurueck: string | null) => {
+      const r = await laneSetzen(zurueckIds, "lead");
+      let stufe: "keine" | "ok" | "fehler" = "keine";
+      if (stufeZurueck && dealId) stufe = (await stufeSetzen(dealId, stufeZurueck)) ? "fehler" : "ok";
+      const m = rueckgaengigMeldung({ erfolge: r.erfolge.length, fehler: r.fehler.length, stufe });
+      const beschreibung = [m.beschreibung, r.fehler[0]?.message].filter(Boolean).join(" ");
+      if (m.ok) toast.success(m.titel);
+      else toast.error(m.titel, { description: beschreibung || undefined });
       await onNeuLaden();
     },
-    [ids, dealId, onNeuLaden]
+    [dealId, onNeuLaden]
   );
 
-  const keinLead = useCallback(async () => {
-    if (ids.length === 0 || laeuft) return;
-    setLaeuft(true);
-    const f = await laneSetzen(ids, "kein_lead");
-    if (f) {
+  const umstellen = useCallback(
+    async (lane: LaneZiel) => {
+      if (ids.length === 0 || laeuft) return;
+      setLaeuft(true);
+      const r = await laneSetzen(ids, lane);
+
+      // Stufe nur bei „Kein Lead“, nur mit Deal und offener Stufe, und nur wenn alle Gespräche umgestellt sind.
+      const stufeWechsel =
+        lane === "kein_lead" && dealId && kurz && keinLeadSetztStufe(kurz) ? { von: kurz.stufe.id, nach: kurz.keinLeadStufeId! } : null;
+      const gebucht = lane === "kein_lead" && Boolean(dealId && kurz && kurz.keinLeadStufeId && !keinLeadSetztStufe(kurz));
+      let stufeGesetzt = false;
+      let stufeFehler: string | null = null;
+      if (stufeWechsel && dealId && r.fehler.length === 0) {
+        stufeFehler = await stufeSetzen(dealId, stufeWechsel.nach);
+        stufeGesetzt = stufeFehler === null;
+      }
       setLaeuft(false);
-      toast.error("„Kein Lead“ konnte nicht gesetzt werden.", { description: f });
-      return;
-    }
-    // Stufe nur bei offenen Deals; gebuchte und bezahlte behalten ihre Stufe (Hinweis im Toast).
-    const stufeWechsel = dealId && kurz && keinLeadSetztStufe(kurz) ? { von: kurz.stufe.id, nach: kurz.keinLeadStufeId! } : null;
-    const gebucht = Boolean(dealId && kurz && kurz.keinLeadStufeId && !keinLeadSetztStufe(kurz));
-    let stufeGesetzt = false;
-    if (stufeWechsel && dealId) {
-      const f2 = await stufeSetzen(dealId, stufeWechsel.nach);
-      if (f2) toast.error("Stufe konnte nicht gesetzt werden.", { description: f2 });
-      else stufeGesetzt = true;
-    }
-    setLaeuft(false);
-    const zurueck = stufeGesetzt && stufeWechsel ? stufeWechsel.von : null;
-    toast.success("Als „Kein Lead“ abgelegt.", {
-      description: gebucht ? "Der Deal ist gebucht, die Stufe bleibt." : undefined,
-      duration: RUECKGAENGIG_MS,
-      action: { label: "Rückgängig", onClick: () => void rueckgaengig(zurueck) },
-    });
-    await onNeuLaden();
-  }, [ids, dealId, kurz, laeuft, onNeuLaden, rueckgaengig]);
 
-  const info = useCallback(async () => {
-    if (ids.length === 0 || laeuft) return;
-    setLaeuft(true);
-    const f = await laneSetzen(ids, "info");
-    setLaeuft(false);
-    if (f) {
-      toast.error("„Info“ konnte nicht gesetzt werden.", { description: f });
-      return;
-    }
-    toast.success("Als „Info“ abgelegt.", {
-      duration: RUECKGAENGIG_MS,
-      action: { label: "Rückgängig", onClick: () => void rueckgaengig(null) },
-    });
-    await onNeuLaden();
-  }, [ids, laeuft, onNeuLaden, rueckgaengig]);
+      const zusatz = [
+        gebucht ? "Der Deal ist gebucht, die Stufe bleibt." : null,
+        stufeFehler ? `Stufe konnte nicht gesetzt werden. ${stufeFehler}` : null,
+        r.fehler[0]?.message ?? null,
+      ]
+        .filter(Boolean)
+        .join(" ");
+      const m = laneMeldung(lane, r.erfolge.length, r.fehler.length, zusatz || undefined);
+      const zurueck = stufeGesetzt && stufeWechsel ? stufeWechsel.von : null;
+      const aktion = m.rueckgaengig ? { label: "Rückgängig", onClick: () => void rueckgaengig(r.erfolge, zurueck) } : undefined;
+      if (m.art === "fehler") toast.error(m.titel, { description: m.beschreibung });
+      else if (m.art === "teil") toast.warning(m.titel, { description: m.beschreibung, duration: RUECKGAENGIG_MS, action: aktion });
+      else toast.success(m.titel, { description: m.beschreibung, duration: aktion ? RUECKGAENGIG_MS : undefined, action: aktion });
+      await onNeuLaden();
+    },
+    [ids, dealId, kurz, laeuft, onNeuLaden, rueckgaengig]
+  );
 
-  const lead = useCallback(async () => {
-    if (ids.length === 0 || laeuft) return;
-    setLaeuft(true);
-    const f = await laneSetzen(ids, "lead");
-    setLaeuft(false);
-    if (f) {
-      toast.error("Konnte nicht als Lead einordnen.", { description: f });
-      return;
-    }
-    toast.success("Wieder in der Hauptliste.");
-    await onNeuLaden();
-  }, [ids, laeuft, onNeuLaden]);
+  const keinLead = useCallback(() => umstellen("kein_lead"), [umstellen]);
+  const info = useCallback(() => umstellen("info"), [umstellen]);
+  const lead = useCallback(() => umstellen("lead"), [umstellen]);
 
-  return { keinLead, info, lead, laeuft };
+  return { keinLead, info, lead, laeuft, moeglich: ids.length > 0 };
 }

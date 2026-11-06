@@ -65,16 +65,16 @@ export function KontaktKarte({
           </a>
           <div className="inbox-karte-knoepfe">
             {inInfo ? (
-              <GlassButton size="sm" variant="ghost" onClick={() => void aktionen.lead()} disabled={aktionen.laeuft}>
+              <GlassButton size="sm" variant="ghost" onClick={() => void aktionen.lead()} disabled={aktionen.laeuft || !aktionen.moeglich}>
                 Als Lead
               </GlassButton>
             ) : (
-              <GlassButton size="sm" variant="ghost" onClick={() => void aktionen.keinLead()} disabled={aktionen.laeuft}>
+              <GlassButton size="sm" variant="ghost" onClick={() => void aktionen.keinLead()} disabled={aktionen.laeuft || !aktionen.moeglich}>
                 Kein Lead
               </GlassButton>
             )}
             {eintrag?.laneText !== "Info" ? (
-              <GlassButton size="sm" variant="ghost" onClick={() => void aktionen.info()} disabled={aktionen.laeuft}>
+              <GlassButton size="sm" variant="ghost" onClick={() => void aktionen.info()} disabled={aktionen.laeuft || !aktionen.moeglich}>
                 Info
               </GlassButton>
             ) : null}

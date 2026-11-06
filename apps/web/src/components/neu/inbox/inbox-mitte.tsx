@@ -49,8 +49,8 @@ export function InboxMitte({
     eintrag?.name ?? kurz?.name ?? gespraech.kanaele.find((k) => k.kundeName?.trim())?.kundeName?.trim() ?? "Gespräch";
   const unterzeile = gespraechUnterzeile(eintrag, kurz);
   const akteLink = dealId ? (kurz?.akteLink ?? `/app/leads/${dealId}`) : null;
-  /** Vorlagen nur über direkt verknüpfte WABA-Gespräche des Deals (wie die Akte). */
-  const wabaKanaele = dealId ? gespraech.kanaele.filter((k) => k.istWaba && k.direkt) : [];
+  /** Vorlagen über direkt verknüpfte WABA-Gespräche, auch ohne Deal (send-template nimmt dealRecordId null, Review I5). */
+  const wabaKanaele = gespraech.kanaele.filter((k) => k.istWaba && k.direkt);
   const vorlageOeffnen = wabaKanaele.length > 0 ? () => setVorlage(true) : undefined;
   const einfuegen = (text: string) => griff.current?.einfuegen(text);
 
@@ -84,7 +84,12 @@ export function InboxMitte({
               Fotos anfordern
             </button>
             {aktionen && eintrag?.gruppe !== "info" ? (
-              <button type="button" className="inbox-chip" onClick={() => void aktionen.keinLead()} disabled={aktionen.laeuft}>
+              <button
+                type="button"
+                className="inbox-chip"
+                onClick={() => void aktionen.keinLead()}
+                disabled={aktionen.laeuft || !aktionen.moeglich}
+              >
                 Kein Lead
               </button>
             ) : null}
@@ -113,7 +118,7 @@ export function InboxMitte({
           kompakt ? undefined : <Schnellaktionen dealId={dealId} kurz={kurz} onEinfuegen={einfuegen} onVorlage={vorlageOeffnen} />
         }
       />
-      {vorlage && dealId ? (
+      {vorlage ? (
         <VorlageDialog
           dealId={dealId}
           kanaele={wabaKanaele}

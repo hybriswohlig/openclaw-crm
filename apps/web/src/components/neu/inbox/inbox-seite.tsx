@@ -16,12 +16,15 @@ import { InboxLeiste } from "./inbox-leiste";
 import { InboxListe as InboxListePanel } from "./inbox-liste";
 import {
   FILTER_LEER,
+  gelesenAnwenden,
   gespraechUrl,
   gruppieren,
   handyUnterzeile,
   inboxUrl,
+  ladeFehlerFolge,
   schluesselAus,
   sucheAktiv,
+  type LadeGrund,
   type Schluessel,
 } from "./inbox-logik";
 import { InboxMitte } from "./inbox-mitte";
@@ -34,7 +37,7 @@ const TAKT_MS = 60_000;
 /** Die Suche wartet so lange auf weitere Zeichen, bevor sie zum Server geht. */
 const SUCHE_VERZUG_MS = 250;
 
-type Grund = "oeffnen" | "aktion" | "takt";
+type Grund = LadeGrund;
 
 type ListeZustand = { art: "laden" } | { art: "fehler"; meldung: string } | { art: "fertig"; liste: InboxListe };
 
@@ -65,6 +68,12 @@ export function InboxSeite() {
   const mitteLauf = useRef(0);
   const hatListe = useRef(false);
   hatListe.current = liste.art === "fertig";
+  const listeRef = useRef(liste);
+  listeRef.current = liste;
+  const chipsRef = useRef(chipsGesamt);
+  chipsRef.current = chipsGesamt;
+  /** Suchbegriff, zu dem die angezeigte Liste gehört; null ohne Liste. */
+  const geladenQ = useRef<string | null>(null);
 
   const suchbegriff = sucheAktiv(filter.suche) ? filter.suche.trim() : "";
   const suchbegriffRef = useRef(suchbegriff);
@@ -81,16 +90,19 @@ export function InboxSeite() {
     const r = await apiAufruf<InboxListe>(url);
     if (dieser !== listeLauf.current) return;
     if (r.ok) {
+      geladenQ.current = q;
       setListe({ art: "fertig", liste: r.data });
       // Bei Suche zählt der Server nur die Treffer; die Chips behalten den Gesamtstand.
       if (!q) setChipsGesamt(r.data.chips);
       return;
     }
-    if (hatListe.current) {
-      if (grund === "aktion") toast.error("Liste konnte nicht neu geladen werden.", { description: r.message });
-      return;
+    // Eine gescheiterte Suche (oder das Leeren der Suche) darf die alte Liste nicht als Treffer stehen lassen (Review I2).
+    const folge = ladeFehlerFolge({ hatListe: hatListe.current, geladenQ: geladenQ.current, angefragtQ: q, grund });
+    if (folge === "toast") toast.error("Liste konnte nicht neu geladen werden.", { description: r.message });
+    if (folge === "fehler") {
+      geladenQ.current = null;
+      setListe({ art: "fehler", meldung: r.message });
     }
-    setListe({ art: "fehler", meldung: r.message });
   }, []);
 
   // Beim Öffnen und bei jeder Änderung des Suchbegriffs (ab 2 Zeichen, verzögert).
@@ -123,16 +135,14 @@ export function InboxSeite() {
     return g.data;
   }, []);
 
-  /** Das Öffnen markiert direkt verknüpfte Gespräche gelesen; die Liste spiegelt das sofort. */
+  /** Das Öffnen markiert direkt verknüpfte Gespräche gelesen; die Liste spiegelt das sofort (Review I1). */
   const alsGelesen = useCallback((key: string) => {
-    setListe((z) => {
-      if (z.art !== "fertig") return z;
-      const e = z.liste.eintraege.find((x) => x.key === key);
-      if (!e || e.ungelesen === 0) return z;
-      const eintraege = z.liste.eintraege.map((x) => (x.key === key ? { ...x, ungelesen: 0 } : x));
-      return { art: "fertig", liste: { ...z.liste, eintraege } };
-    });
-    setChipsGesamt((c) => (c ? { ...c, ungelesen: Math.max(0, c.ungelesen - 1) } : c));
+    const z = listeRef.current;
+    if (z.art !== "fertig") return;
+    const neu = gelesenAnwenden(z.liste.eintraege, chipsRef.current, key);
+    if (!neu) return;
+    setListe({ art: "fertig", liste: { ...z.liste, eintraege: neu.eintraege } });
+    setChipsGesamt(neu.chips);
   }, []);
 
   useEffect(() => {
@@ -194,6 +204,8 @@ export function InboxSeite() {
 
   const aktionen = useLaneAktionen({
     eintrag,
+    gespraech: mitte.art === "fertig" ? mitte.gespraech : null,
+    schluessel,
     kurz: mitte.art === "fertig" ? mitte.kurz : null,
     onNeuLaden: neuLaden,
   });

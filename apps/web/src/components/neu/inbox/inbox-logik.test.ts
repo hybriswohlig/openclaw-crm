@@ -7,17 +7,22 @@ import {
   chipZahl,
   gruppieren,
   ersterHaupt,
+  gelesenAnwenden,
   gespraechUnterzeile,
   gespraechUrl,
   handyUnterzeile,
   inboxUrl,
   keinLeadSetztStufe,
   kompaktPille,
+  ladeFehlerFolge,
+  laneMeldung,
   linkFolge,
   listenUnterzeile,
+  rueckgaengigMeldung,
   schluesselAus,
   sucheAktiv,
   vornameAus,
+  zielGespraeche,
 } from "./inbox-logik";
 
 function eintrag(teil: Partial<InboxEintrag> & { key: string }): InboxEintrag {
@@ -214,5 +219,98 @@ describe("Kurzfassung", () => {
     expect(avatarFarbe("Familie Weber", "haupt")).toBe(avatarFarbe("Familie Weber", "haupt"));
     expect(avatarFarbe("Familie Weber", "haupt")).toMatch(/^#[0-9a-f]{6}$/);
     expect(avatarFarbe("Sixt", "info")).toBe(AVATAR_GRAU);
+  });
+});
+
+describe("gelesenAnwenden (I1)", () => {
+  const chips = { ungelesen: 2, wartenAufUns: 1, kiEntwuerfe: 0, infoKeinLead: 1 };
+  const liste = [
+    eintrag({ key: "deal:a", ungelesen: 3 }),
+    eintrag({ key: "deal:b", ungelesen: 0 }),
+    eintrag({ key: "gespraech:i", gruppe: "info", laneText: "Info", ungelesen: 2 }),
+  ];
+
+  it("setzt den Eintrag auf 0 und den Chip um 1 herunter", () => {
+    const r = gelesenAnwenden(liste, chips, "deal:a");
+    expect(r?.eintraege.find((e) => e.key === "deal:a")?.ungelesen).toBe(0);
+    expect(r?.chips).toEqual({ ...chips, ungelesen: 1 });
+  });
+
+  it("tut nichts bei schon gelesenen oder unbekannten Einträgen", () => {
+    expect(gelesenAnwenden(liste, chips, "deal:b")).toBeNull();
+    expect(gelesenAnwenden(liste, chips, "deal:x")).toBeNull();
+  });
+
+  it("Info-Gruppe: Eintrag auf 0, Chip bleibt (zählt nur die Hauptgruppe)", () => {
+    const r = gelesenAnwenden(liste, chips, "gespraech:i");
+    expect(r?.eintraege.find((e) => e.key === "gespraech:i")?.ungelesen).toBe(0);
+    expect(r?.chips).toEqual(chips);
+  });
+
+  it("ohne Chips bleibt chips null", () => {
+    expect(gelesenAnwenden(liste, null, "deal:a")?.chips).toBeNull();
+  });
+});
+
+describe("ladeFehlerFolge (I2)", () => {
+  it("ohne Liste immer Fehlerzustand", () => {
+    expect(ladeFehlerFolge({ hatListe: false, geladenQ: null, angefragtQ: "", grund: "oeffnen" })).toBe("fehler");
+  });
+
+  it("gescheiterte Suche zeigt keine alten Treffer", () => {
+    expect(ladeFehlerFolge({ hatListe: true, geladenQ: "", angefragtQ: "probe", grund: "oeffnen" })).toBe("fehler");
+  });
+
+  it("Suche leeren muss die volle Liste holen, sonst Fehler", () => {
+    expect(ladeFehlerFolge({ hatListe: true, geladenQ: "probe", angefragtQ: "", grund: "oeffnen" })).toBe("fehler");
+  });
+
+  it("gleicher Stand: nach Aktion Toast, im Takt still", () => {
+    expect(ladeFehlerFolge({ hatListe: true, geladenQ: "probe", angefragtQ: "probe", grund: "aktion" })).toBe("toast");
+    expect(ladeFehlerFolge({ hatListe: true, geladenQ: "", angefragtQ: "", grund: "takt" })).toBe("still");
+    expect(ladeFehlerFolge({ hatListe: true, geladenQ: "", angefragtQ: "", grund: "oeffnen" })).toBe("still");
+  });
+});
+
+describe("zielGespraeche (I4)", () => {
+  const g = { kanaele: [{ gespraechId: "c1", direkt: true }, { gespraechId: "c2", direkt: false }, { gespraechId: "c1", direkt: true }] };
+
+  it("nimmt die IDs des Listeneintrags", () => {
+    expect(zielGespraeche(eintrag({ key: "deal:a", gespraechIds: ["x", "y"] }), g, { art: "deal", id: "a" })).toEqual(["x", "y"]);
+  });
+
+  it("ohne Eintrag die direkt verknüpften Kanäle des Gesprächs, ohne Doppelte", () => {
+    expect(zielGespraeche(null, g, { art: "deal", id: "a" })).toEqual(["c1"]);
+  });
+
+  it("ohne Gespräch den Schlüssel eines Einzelgesprächs, sonst leer", () => {
+    expect(zielGespraeche(null, null, { art: "gespraech", id: "c9" })).toEqual(["c9"]);
+    expect(zielGespraeche(null, null, { art: "deal", id: "a" })).toEqual([]);
+    expect(zielGespraeche(null, { kanaele: [] }, null)).toEqual([]);
+  });
+});
+
+describe("laneMeldung und rueckgaengigMeldung (I3, M1)", () => {
+  it("alles gut: Titel je Lane, Rückgängig außer bei Lead", () => {
+    expect(laneMeldung("kein_lead", 2, 0, "Hinweis")).toEqual({ art: "erfolg", titel: "Als „Kein Lead“ abgelegt.", beschreibung: "Hinweis", rueckgaengig: true });
+    expect(laneMeldung("info", 1, 0)).toMatchObject({ art: "erfolg", titel: "Als „Info“ abgelegt.", rueckgaengig: true });
+    expect(laneMeldung("lead", 1, 0)).toMatchObject({ art: "erfolg", titel: "Wieder in der Hauptliste.", rueckgaengig: false });
+  });
+
+  it("alles gescheitert: Fehlertitel ohne Rückgängig", () => {
+    expect(laneMeldung("kein_lead", 0, 2)).toMatchObject({ art: "fehler", titel: "„Kein Lead“ konnte nicht gesetzt werden.", rueckgaengig: false });
+  });
+
+  it("teils: Zahlen im Titel, Rückgängig für die erfolgreichen", () => {
+    expect(laneMeldung("info", 2, 1)).toMatchObject({ art: "teil", titel: "Nur teilweise: 2 Gespräche von 3 umgestellt, 1 fehlgeschlagen.", rueckgaengig: true });
+    expect(laneMeldung("kein_lead", 1, 2).titel).toBe("Nur teilweise: 1 Gespräch von 3 umgestellt, 2 fehlgeschlagen.");
+  });
+
+  it("Rückgängig: „Zurückgenommen.“ nur, wenn alles zurück ist", () => {
+    expect(rueckgaengigMeldung({ erfolge: 2, fehler: 0, stufe: "ok" })).toEqual({ ok: true, titel: "Zurückgenommen." });
+    expect(rueckgaengigMeldung({ erfolge: 1, fehler: 0, stufe: "keine" })).toEqual({ ok: true, titel: "Zurückgenommen." });
+    expect(rueckgaengigMeldung({ erfolge: 2, fehler: 0, stufe: "fehler" })).toEqual({ ok: false, titel: "Rückgängig nur teilweise.", beschreibung: "Die Stufe konnte nicht zurückgesetzt werden." });
+    expect(rueckgaengigMeldung({ erfolge: 1, fehler: 1, stufe: "ok" })).toEqual({ ok: false, titel: "Rückgängig nur teilweise.", beschreibung: "1 Gespräch zurück, 1 Gespräch nicht." });
+    expect(rueckgaengigMeldung({ erfolge: 0, fehler: 2, stufe: "fehler" }).beschreibung).toBe("Die Gespräche konnten nicht zurückgesetzt werden. Die Stufe konnte nicht zurückgesetzt werden.");
   });
 });

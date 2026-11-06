@@ -43,7 +43,8 @@ export function VorlageDialog({
   onSchliessen,
   onNeuLaden,
 }: {
-  dealId: string;
+  /** Null für ein WABA-Gespräch ohne Deal (Inbox, Plan 6); die Route nimmt `dealRecordId: null`. */
+  dealId: string | null;
   /** Direkt verknüpfte WABA-Gespräche des Deals. */
   kanaele: GespraechKanal[];
   portalZiel: HTMLElement | undefined;

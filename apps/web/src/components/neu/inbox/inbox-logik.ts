@@ -207,3 +207,125 @@ export function avatarFarbe(name: string, gruppe: InboxEintrag["gruppe"]): strin
   for (const z of name) h = (h * 31 + z.codePointAt(0)!) >>> 0;
   return AVATAR_FARBEN[h % AVATAR_FARBEN.length]!;
 }
+
+// ─── Laden und Gelesen (Review I1, I2) ────────────────────────────────────────
+
+/**
+ * Das Öffnen eines Eintrags markiert seine Gespräche gelesen (Nebenwirkung der
+ * GET-Routen). Die Liste spiegelt das: der Eintrag auf 0, der Chip „ungelesen“
+ * um 1 herunter, aber nur, wenn der Eintrag wirklich ungelesen war und zur
+ * Hauptgruppe zählt (der Chip zählt nur dort). Null, wenn nichts zu tun ist.
+ */
+export function gelesenAnwenden(
+  eintraege: readonly InboxEintrag[],
+  chips: InboxChips | null,
+  key: string
+): { eintraege: InboxEintrag[]; chips: InboxChips | null } | null {
+  const e = eintraege.find((x) => x.key === key);
+  if (!e || e.ungelesen <= 0) return null;
+  return {
+    eintraege: eintraege.map((x) => (x.key === key ? { ...x, ungelesen: 0 } : x)),
+    chips: chips && e.gruppe === "haupt" ? { ...chips, ungelesen: Math.max(0, chips.ungelesen - 1) } : chips,
+  };
+}
+
+export type LadeGrund = "oeffnen" | "aktion" | "takt";
+
+/**
+ * Was ein Fehler beim Laden der Liste bewirkt: zeigt die Liste schon den
+ * angefragten Suchstand, bleibt sie stehen (nach einer Aktion mit Toast, im
+ * Takt still). Gehört die geladene Liste zu einer anderen Suche (Suche
+ * gescheitert oder Suche geleert), darf sie nicht als Treffer stehen bleiben:
+ * Fehlerzustand.
+ */
+export function ladeFehlerFolge(f: {
+  hatListe: boolean;
+  geladenQ: string | null;
+  angefragtQ: string;
+  grund: LadeGrund;
+}): "fehler" | "toast" | "still" {
+  if (!f.hatListe || f.geladenQ !== f.angefragtQ) return "fehler";
+  return f.grund === "aktion" ? "toast" : "still";
+}
+
+// ─── Lane-Aktionen (Review I3, I4, M1) ────────────────────────────────────────
+
+/**
+ * Gespräche, die „Kein Lead“, „Info“ und „Als Lead“ umstellen: aus dem
+ * Listeneintrag; fehlt er (Suche, Deep-Link außerhalb der 500), aus dem
+ * geladenen Gespräch (direkt verknüpfte Kanäle), sonst aus dem Schlüssel
+ * eines Einzelgesprächs. Leer, wenn nichts bekannt ist.
+ */
+export function zielGespraeche(
+  eintrag: Pick<InboxEintrag, "gespraechIds"> | null,
+  gespraech: { kanaele: readonly { gespraechId: string; direkt: boolean }[] } | null,
+  schluessel: Schluessel | null
+): string[] {
+  if (eintrag && eintrag.gespraechIds.length > 0) return [...eintrag.gespraechIds];
+  const direkt = gespraech?.kanaele.filter((k) => k.direkt).map((k) => k.gespraechId) ?? [];
+  if (direkt.length > 0) return Array.from(new Set(direkt));
+  if (schluessel?.art === "gespraech") return [schluessel.id];
+  return [];
+}
+
+export type LaneZiel = "kein_lead" | "info" | "lead";
+
+const LANE_TITEL: Record<LaneZiel, string> = {
+  kein_lead: "Als „Kein Lead“ abgelegt.",
+  info: "Als „Info“ abgelegt.",
+  lead: "Wieder in der Hauptliste.",
+};
+
+const LANE_FEHLER_TITEL: Record<LaneZiel, string> = {
+  kein_lead: "„Kein Lead“ konnte nicht gesetzt werden.",
+  info: "„Info“ konnte nicht gesetzt werden.",
+  lead: "Konnte nicht als Lead einordnen.",
+};
+
+function gespraecheText(n: number): string {
+  return n === 1 ? "1 Gespräch" : `${n} Gespräche`;
+}
+
+/**
+ * Meldung nach dem Umstellen mehrerer Gespräche: alles gut, alles gescheitert
+ * oder teils. „Rückgängig“ gibt es, sobald mindestens eines umgestellt wurde.
+ */
+export function laneMeldung(
+  lane: LaneZiel,
+  erfolge: number,
+  fehler: number,
+  zusatz?: string
+): { art: "erfolg" | "teil" | "fehler"; titel: string; beschreibung?: string; rueckgaengig: boolean } {
+  if (fehler === 0) return { art: "erfolg", titel: LANE_TITEL[lane], beschreibung: zusatz, rueckgaengig: lane !== "lead" };
+  if (erfolge === 0) return { art: "fehler", titel: LANE_FEHLER_TITEL[lane], beschreibung: zusatz, rueckgaengig: false };
+  const teil = `${gespraecheText(erfolge)} von ${erfolge + fehler} umgestellt, ${fehler === 1 ? "1 fehlgeschlagen" : `${fehler} fehlgeschlagen`}.`;
+  return {
+    art: "teil",
+    titel: `Nur teilweise: ${teil}`,
+    beschreibung: zusatz,
+    rueckgaengig: lane !== "lead",
+  };
+}
+
+/**
+ * Meldung nach „Rückgängig“: „Zurückgenommen.“ nur, wenn alle Gespräche und
+ * (falls nötig) die Stufe zurück sind; sonst sagt sie, was fehlt.
+ */
+export function rueckgaengigMeldung(r: {
+  erfolge: number;
+  fehler: number;
+  stufe: "keine" | "ok" | "fehler";
+}): { ok: boolean; titel: string; beschreibung?: string } {
+  const laneOk = r.fehler === 0;
+  if (laneOk && r.stufe !== "fehler") return { ok: true, titel: "Zurückgenommen." };
+  const teile: string[] = [];
+  if (!laneOk) {
+    teile.push(
+      r.erfolge === 0
+        ? "Die Gespräche konnten nicht zurückgesetzt werden."
+        : `${gespraecheText(r.erfolge)} zurück, ${r.fehler === 1 ? "1 Gespräch" : `${r.fehler} Gespräche`} nicht.`
+    );
+  }
+  if (r.stufe === "fehler") teile.push("Die Stufe konnte nicht zurückgesetzt werden.");
+  return { ok: false, titel: "Rückgängig nur teilweise.", beschreibung: teile.join(" ") };
+}

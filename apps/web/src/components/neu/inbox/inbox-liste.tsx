@@ -72,7 +72,9 @@ export function InboxListe({
 
         {zustand.art === "fehler" ? (
           <div className="inbox-liste-hinweis" role="alert">
-            <p>Liste konnte nicht geladen werden. {zustand.meldung}</p>
+            <p>
+              {gesucht ? "Suche fehlgeschlagen." : "Liste konnte nicht geladen werden."} {zustand.meldung}
+            </p>
             <GlassButton size="sm" onClick={onErneut}>
               Erneut laden
             </GlassButton>
