@@ -1,0 +1,535 @@
+/*
+ * Umzugsakte unter /app/leads/[id] (Plan 3). Maße, Abstände und Schrift aus
+ * design/neubau-2026-11-05/01-umzugsakte.html; Farben aus neu.css. Alles unter
+ * [data-neu] und mit Präfix .akte-, damit die alten Seiten unberührt bleiben.
+ */
+
+[data-neu] .akte {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+/* ── Kopf ────────────────────────────────────────────── */
+
+[data-neu] .akte-kopf {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 18px;
+  padding: 6px 6px 4px;
+}
+
+[data-neu] .akte-kopf-text {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+[data-neu] .akte-name {
+  margin: 0;
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+}
+
+/* Zweite Zeile der Überschrift, bewusst außerhalb von <h1>. */
+[data-neu] .akte-kopf-zweite {
+  margin: 4px 0 0;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.05;
+  color: var(--ink-3);
+}
+
+[data-neu] .akte-meta {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+[data-neu] .akte-kopf-rechts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 18px;
+  margin-left: auto;
+}
+
+/* Team-Kürzel, überlappend, immer mit gestricheltem „+“ zur alten Seite. */
+[data-neu] .akte-team {
+  display: flex;
+  align-items: center;
+}
+
+[data-neu] .akte-avatar {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  margin-left: -9px;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.15);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-decoration: none;
+}
+
+[data-neu] .akte-avatar:first-child {
+  margin-left: 0;
+}
+
+[data-neu] .akte-avatar-plus {
+  border: 1.5px dashed rgb(34 34 36 / 0.25);
+  box-shadow: none;
+  background: var(--fill-3);
+  color: var(--ink-2);
+  font-size: 15px;
+  line-height: 1;
+}
+
+[data-neu] .akte-avatar-plus:hover {
+  border-color: var(--blue);
+  color: var(--blue);
+}
+
+[data-neu] .akte-avatar-plus:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+/* Nachfass-Schalter mit Modus-Text darunter. Als Kapsel wie die Stufen-Pille,
+   weil die Schleife des Hintergrunds oben rechts hinter dem Kopf liegt und
+   nackter Text darauf unter 4,5:1 fiele. */
+[data-neu] .akte-nachfass {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 8px;
+  row-gap: 2px;
+  align-items: center;
+  padding: 6px 14px 6px 8px;
+  border-radius: 999px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim), var(--shadow);
+  color: var(--ink-2);
+  font-size: 13px;
+  -webkit-backdrop-filter: blur(16px) saturate(1.6);
+  backdrop-filter: blur(16px) saturate(1.6);
+}
+
+[data-neu] .akte-nachfass-label {
+  cursor: default;
+}
+
+[data-neu] .akte-nachfass-modus {
+  grid-column: 2;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+[data-neu] .akte-nachfass[data-speichert] {
+  cursor: progress;
+}
+
+/* Stufen-Pille, zugleich Auslöser des Stufenmenüs. */
+[data-neu] .akte-pille {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 13px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fill-2);
+  box-shadow: inset 0 0 0 1px var(--rim), var(--shadow);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(16px) saturate(1.6);
+  backdrop-filter: blur(16px) saturate(1.6);
+}
+
+[data-neu] .akte-pille:hover,
+[data-neu] .akte-pille[data-state="open"] {
+  background: var(--fill-3);
+}
+
+[data-neu] .akte-pille:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+[data-neu] .akte-pille:disabled {
+  cursor: progress;
+}
+
+[data-neu] .akte-pille svg {
+  width: 12px;
+  height: 12px;
+  stroke: var(--ink-2);
+  fill: none;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+[data-neu] .akte-punkt {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-3);
+}
+
+[data-neu] .akte-punkt[data-ton="blau"] {
+  background: var(--blue);
+}
+
+[data-neu] .akte-punkt[data-ton="gold"] {
+  background: var(--gold);
+}
+
+[data-neu] .akte-punkt[data-ton="jade"] {
+  background: var(--jade);
+}
+
+/* Stufenmenü (Radix-Portal in [data-neu], Glas aus liquid.css). */
+[data-neu] .akte-stufen-menue {
+  min-width: 220px;
+}
+
+[data-neu] .akte-stufen-eintrag {
+  font-size: 13.5px;
+  color: var(--ink);
+}
+
+[data-neu] .akte-stufen-eintrag[data-aktuell] {
+  font-weight: 600;
+}
+
+/* ── Zahlenreihe ─────────────────────────────────────── */
+
+[data-neu] .akte-zahlen {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+}
+
+[data-neu] .akte-kachel {
+  --lg-panel-radius: 20px;
+
+  min-width: 0;
+  padding: 14px 16px;
+}
+
+[data-neu] .akte-kachel-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+[data-neu] .akte-kachel-wert {
+  margin-top: 4px;
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+[data-neu] .akte-kachel-zeile {
+  min-height: 17px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+[data-neu] .akte-wartepille {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+[data-neu] .akte-wartepille > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Körper: Gespräch links, Ablauf rechts ───────────── */
+
+/* Mockup: minmax(520px,1fr) 400px. Die 520 px gelten, solange sie neben die
+   400 px passen; darunter schrumpft die linke Spalte statt überzulaufen. */
+[data-neu] .akte-koerper {
+  display: grid;
+  grid-template-columns: minmax(min(520px, calc(100% - 414px)), 1fr) 400px;
+  gap: 14px;
+  align-items: start;
+}
+
+[data-neu] .akte-gespraech,
+[data-neu] .akte-ablauf {
+  min-width: 0;
+}
+
+[data-neu] .akte-panel {
+  --lg-panel-radius: 24px;
+
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+
+[data-neu] .akte-panel-kopf {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+}
+
+[data-neu] .akte-panel-titel {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+[data-neu] .akte-panel-unter {
+  margin: 1px 0 0;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+[data-neu] .akte-panel-rechts {
+  margin-left: auto;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+/* Platz für die Panels aus Task 12 und 13, bis sie da sind. */
+[data-neu] .akte-panel-leer {
+  min-height: 200px;
+}
+
+/* ── Zustände: Skelett, nicht gefunden, Fehler ───────── */
+
+[data-neu] .akte-skelett {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+[data-neu] .akte-skelett-kopf {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 6px 6px 4px;
+}
+
+[data-neu] .akte-skelett-name {
+  width: min(320px, 60%);
+  height: 34px;
+}
+
+[data-neu] .akte-skelett-zweite {
+  width: min(420px, 80%);
+  height: 22px;
+}
+
+[data-neu] .akte-skelett-meta {
+  width: min(260px, 50%);
+  height: 13px;
+}
+
+[data-neu] .akte-skelett-kachel {
+  height: 84px;
+  border-radius: 20px;
+}
+
+[data-neu] .akte-skelett-panel {
+  height: 360px;
+  border-radius: 24px;
+}
+
+[data-neu] .akte-hinweis {
+  --lg-panel-radius: 24px;
+
+  max-width: 520px;
+}
+
+[data-neu] .akte-hinweis h1 {
+  margin: 0 0 6px;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+[data-neu] .akte-hinweis p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+[data-neu] .akte-hinweis-aktion {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+/* ── Dialoge (Stufenwechsel, Verlustgrund) ───────────── */
+
+[data-neu] .akte-dialog-titel {
+  margin: 0 0 6px;
+  padding-right: 44px;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+[data-neu] .akte-dialog-text {
+  margin: 0 0 16px;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+[data-neu] .akte-dialog-feld {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+[data-neu] .akte-dialog-feld .lg-input {
+  font-size: 14px;
+}
+
+[data-neu] .akte-dialog-fehler {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--rose);
+}
+
+[data-neu] .akte-dialog-knoepfe {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+/* ── Suche auf /app/leads ────────────────────────────── */
+
+[data-neu] .akte-suche {
+  --lg-panel-radius: 24px;
+
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 640px;
+  margin-top: 20px;
+}
+
+[data-neu] .akte-suche-titel {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+[data-neu] .akte-suche-liste {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+[data-neu] .akte-suche-treffer {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  color: var(--ink);
+  text-decoration: none;
+}
+
+[data-neu] .akte-suche-treffer:hover {
+  box-shadow: inset 0 0 0 1px var(--rim), var(--shadow);
+}
+
+[data-neu] .akte-suche-treffer:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+[data-neu] .akte-suche-treffer b {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+[data-neu] .akte-suche-treffer span {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+[data-neu] .akte-suche-hinweis {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+/* ── Umbrüche (Spec 3.2) ─────────────────────────────── */
+
+@media (max-width: 1100px) {
+  [data-neu] .akte-koerper {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  [data-neu] .akte-zahlen {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  [data-neu] .akte-zahlen {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* Reihenfolge am Handy: Kopf, Zahlen, Ablauf, Gespräch. */
+  [data-neu] .akte-ablauf {
+    order: -1;
+  }
+
+  [data-neu] .akte-kopf-rechts {
+    width: 100%;
+    justify-content: space-between;
+    gap: 12px;
+    margin-left: 0;
+  }
+}

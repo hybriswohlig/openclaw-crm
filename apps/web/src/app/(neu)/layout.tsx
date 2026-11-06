@@ -2,6 +2,7 @@
 
 import "@/components/glassyui/styles/liquid.css";
 import "@/styles/neu.css";
+import "@/styles/neu-akte.css";
 
 import { useEffect } from "react";
 import { ApprovalGate } from "@/components/layout/approval-gate";

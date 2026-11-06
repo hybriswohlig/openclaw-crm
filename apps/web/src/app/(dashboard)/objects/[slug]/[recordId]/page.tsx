@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { Suspense, useState, useEffect, useCallback } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import Link from "next/link";
 import { RecordDetail } from "@/components/records/record-detail";
@@ -161,14 +161,44 @@ function buildDefaultSelections(insights: InsightsData): string[] {
   });
 }
 
+/** Reiter, die es je Objekt gibt; `?tab=` darf nur einen davon vorwählen. */
+const TABS_ALLE = ["attributes", "notes", "tasks", "activity", "related"];
+const TABS_CHATS = ["conversations"];
+const TABS_DEALS = ["website", "quotation", "auftrag", "financials", "media", "insights"];
+
+function startTabAus(slug: string, tab: string | null): string {
+  if (!tab) return "attributes";
+  const vorhanden = [
+    ...TABS_ALLE,
+    ...(slug === "deals" || slug === "people" ? TABS_CHATS : []),
+    ...(slug === "deals" ? TABS_DEALS : []),
+  ];
+  return vorhanden.includes(tab) ? tab : "attributes";
+}
+
+// useSearchParams braucht eine Suspense-Grenze, sonst meckert der Build beim Vorrendern.
 export default function RecordDetailPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-full items-center justify-center text-muted-foreground">Lädt...</div>
+      }
+    >
+      <RecordDetailInhalt />
+    </Suspense>
+  );
+}
+
+function RecordDetailInhalt() {
   const params = useParams<{ slug: string; recordId: string }>();
   const router = useRouter();
+  const suche = useSearchParams();
   const { slug, recordId } = params;
 
   const [object, setObject] = useState<ObjectData | null>(null);
-  // Gesteuerte Tabs, damit z. B. das KV-Fenster in den Angebot-Tab springen kann.
-  const [aktiverTab, setAktiverTab] = useState("attributes");
+  // Gesteuerte Tabs, damit z. B. das KV-Fenster in den Angebot-Tab springen kann;
+  // die neue Akte verlinkt mit `?tab=quotation` direkt auf den Angebot-Tab.
+  const [aktiverTab, setAktiverTab] = useState(() => startTabAus(slug, suche.get("tab")));
   useEffect(() => {
     const wechsel = (e: Event) => {
       const ziel = (e as CustomEvent<string>).detail;
@@ -507,6 +537,12 @@ export default function RecordDetailPage() {
             <div className="flex items-center gap-2">
               {slug === "deals" && (
                 <>
+                  <Button variant="outline" size="sm" asChild>
+                    <Link href={`/app/leads/${recordId}`}>
+                      <FileText className="mr-1.5 h-4 w-4" />
+                      Neue Akte
+                    </Link>
+                  </Button>
                   <Button
                     variant="outline"
                     size="sm"

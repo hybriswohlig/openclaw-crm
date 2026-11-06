@@ -24,6 +24,8 @@ export type GlassDialogContentProps = React.ComponentPropsWithoutRef<
   typeof DialogPrimitive.Content
 > & {
   closeLabel?: string;
+  /** Where the portal mounts; document.body when unset. */
+  container?: HTMLElement | null;
   /** How thick the glass is, as a multiple of regular. See GlassSurface. */
   thickness?: number;
 };
@@ -32,10 +34,11 @@ export function GlassDialogContent({
   className,
   children,
   closeLabel = 'Close dialog',
+  container,
   ...props
 }: GlassDialogContentProps) {
   return (
-    <GlassDialogPortal>
+    <GlassDialogPortal container={container ?? undefined}>
       <GlassDialogOverlay />
       <DialogPrimitive.Content {...props} {...radixSlotProps}>
         <GlassPanel
