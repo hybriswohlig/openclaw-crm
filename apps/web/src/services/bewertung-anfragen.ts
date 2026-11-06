@@ -27,6 +27,7 @@
  *
  * Empfänger der Einwilligung ist die Person am Kontakt des WhatsApp-Gesprächs
  * (`inbox_contacts.crm_record_id`), sonst die erste verknüpfte Person des Deals.
+ * Der Vorname im Gruß kommt von derselben Person.
  * Die Einwilligung des Inhabers wird als Zeile in `consent_ledger` gespeichert,
  * nie in `review_contact_consent_at` (das liest die spätere Engine als
  * Einwilligung des Kunden). Die Tabelle hat keine Autorenspalte; der Autor
@@ -145,6 +146,8 @@ export interface BewertungSpeicher {
   tokenDa(ws: string, deal: string): Promise<boolean>;
   /** Person am Kontakt des Gesprächs (`inbox_contacts.crm_record_id`), nur Personen dieses Workspace. */
   kontaktPerson(ws: string, conversationId: string): Promise<string | null>;
+  /** Vorname der Person für „Hallo …,“ (null bei Anredeform oder ohne Namen). */
+  personVorname(ws: string, personId: string): Promise<string | null>;
   /** Telefonnummern und E-Mail-Adressen der Personen. */
   personKontakt(ws: string, personIds: string[]): Promise<{ telefone: string[]; emails: string[] }>;
   einwilligungDa(ws: string, personId: string): Promise<boolean>;
@@ -340,6 +343,21 @@ function speicherAuf(conn: Verbindung, gesperrt: BewertungSpeicher["gesperrt"] |
       return r?.id ?? null;
     },
 
+    async personVorname(ws, personId) {
+      const [r] = zeilen<{ text: string | null; json: unknown }>(
+        await conn.execute(sql`
+          SELECT n.text_value AS text, n.json_value AS json
+          FROM record_values n
+          INNER JOIN attributes na ON na.id = n.attribute_id AND na.slug = 'name'
+          INNER JOIN records pr ON pr.id = n.record_id AND pr.deleted_at IS NULL
+          INNER JOIN objects po ON po.id = pr.object_id AND po.workspace_id = ${ws} AND po.slug = 'people'
+          WHERE n.record_id = ${personId}
+          LIMIT 1
+        `)
+      );
+      return r ? vornameFuerAnrede(nameAusWert(r.text ?? null, alsJson(r.json))) : null;
+    },
+
     async personKontakt(ws, personIds) {
       if (personIds.length === 0) return { telefone: [], emails: [] };
       const rows = zeilen<{ slug: string; wert: string | null }>(
@@ -501,6 +519,8 @@ interface Pruefung {
   ziel: ReviewDestination | null;
   /** Person, für die die Einwilligung gilt und gespeichert wird. */
   empfaenger: string | null;
+  /** Vorname des Empfängers für den Gruß: dieselbe Person wie die Einwilligung. */
+  vorname: string | null;
   einwilligung: boolean;
   sperre: BewertungCode | null;
 }
@@ -516,7 +536,10 @@ async function pruefen(ws: string, deal: string, speicher: BewertungSpeicher): P
   const gespraech = whatsappGespraech(deal, gespraeche);
   const kontaktPerson = gespraech ? await speicher.kontaktPerson(ws, gespraech.id) : null;
   const empfaenger = kontaktPerson ?? roh.personId;
-  const einwilligung = empfaenger ? await speicher.einwilligungDa(ws, empfaenger) : false;
+  const [einwilligung, vorname] = await Promise.all([
+    empfaenger ? speicher.einwilligungDa(ws, empfaenger) : Promise.resolve(false),
+    !empfaenger ? Promise.resolve(null) : empfaenger === roh.personId ? Promise.resolve(roh.vorname) : speicher.personVorname(ws, empfaenger),
+  ]);
   const markeOderNull = markeAus(roh);
   let ziel: ReviewDestination | null = null;
   if (markeOderNull) {
@@ -526,7 +549,7 @@ async function pruefen(ws: string, deal: string, speicher: BewertungSpeicher): P
       ziel = null;
     }
   }
-  const basis = { roh, gespraech, marke: markeOderNull ?? "kottke", ziel, empfaenger, einwilligung };
+  const basis = { roh, gespraech, marke: markeOderNull ?? "kottke", ziel, empfaenger, vorname, einwilligung };
   const mit = (sperre: BewertungCode | null): Pruefung => ({ ...basis, sperre });
 
   if (!stufe.category || !ERLAUBTE_STUFEN.has(stufe.category)) return mit("STUFE");
@@ -543,7 +566,7 @@ async function pruefen(ws: string, deal: string, speicher: BewertungSpeicher): P
 
 async function vorlage(ws: string, deal: string, p: Pruefung, speicher: BewertungSpeicher, link: string): Promise<string> {
   const anrede = p.gespraech ? await speicher.anrede(ws, deal, p.gespraech.id) : "sie";
-  return renderManuell({ marke: p.marke, vorname: p.roh.vorname, link, leistung: p.roh.leistung, anrede });
+  return renderManuell({ marke: p.marke, vorname: p.vorname, link, leistung: p.roh.leistung, anrede });
 }
 
 // ─── Vorschau und Senden ──────────────────────────────────────────────────────

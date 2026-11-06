@@ -112,6 +112,7 @@ function fake(start: {
   tokenDa?: boolean;
   kontaktPerson?: string | null;
   personKontakt?: { telefone: string[]; emails: string[] };
+  vornamen?: Record<string, string | null>;
 } = {}) {
   const st = {
     tokens: [] as { token: string }[],
@@ -124,6 +125,7 @@ function fake(start: {
     tokenDa: vi.fn(async () => (start.tokenDa ?? false) || st.tokens.length > 0),
     kontaktPerson: vi.fn(async () => start.kontaktPerson ?? null),
     personKontakt: vi.fn(async () => start.personKontakt ?? { telefone: [], emails: [] }),
+    personVorname: vi.fn(async (_ws: string, id: string) => start.vornamen?.[id] ?? null),
     einwilligungDa: vi.fn(async () => start.einwilligung ?? true),
     anrede: vi.fn(async () => start.anrede ?? "sie"),
     optionen: vi.fn(async () => start.optionen ?? { statusGesendet: "st_sent_wa", varianteManuell: null }),
@@ -506,6 +508,28 @@ describe("Empfänger und Abmeldung", () => {
     expect(s.einwilligungSpeichern).toHaveBeenCalledWith(expect.objectContaining({ personRecordId: "person_kontakt" }));
   });
 
+  it("zwei verknüpfte Personen, Kontakt des Gesprächs ist die zweite: Gruß mit ihrem Vornamen", async () => {
+    const s = fake({
+      einwilligung: false,
+      roh: { personId: "person_1", vorname: "Anna" },
+      kontaktPerson: "person_2",
+      vornamen: { person_1: "Anna", person_2: "Bernd" },
+    });
+    await bewertungAnfragen(WS, DEAL, { ...ANFRAGE, einwilligung: "Per WhatsApp am 03.11. zugestimmt" }, s);
+    const body: string = mocks.sendeAntwort.mock.calls[0]![0].body;
+    expect(body.startsWith("Hallo Bernd,")).toBe(true);
+    expect(body).not.toContain("Anna");
+    expect(s.personVorname).toHaveBeenCalledWith(WS, "person_2");
+    expect(s.einwilligungSpeichern).toHaveBeenCalledWith(expect.objectContaining({ personRecordId: "person_2" }));
+    expect((await bewertungsVorschau(WS, DEAL, fake({ kontaktPerson: "person_2", vornamen: { person_2: "Bernd" } }))).text.startsWith("Hallo Bernd,")).toBe(true);
+  });
+
+  it("Kontaktperson ohne brauchbaren Vornamen: Gruß ohne Namen, nicht der Name einer anderen Person", async () => {
+    const s = fake({ kontaktPerson: "person_2", vornamen: { person_2: null } });
+    await bewertungAnfragen(WS, DEAL, ANFRAGE, s);
+    expect(mocks.sendeAntwort.mock.calls[0]![0].body.startsWith("Guten Tag,")).toBe(true);
+  });
+
   it("ohne Person am Kontakt: erste verknüpfte Person des Deals", async () => {
     const s = fake({ einwilligung: false, kontaktPerson: null });
     await bewertungAnfragen(WS, DEAL, { ...ANFRAGE, einwilligung: "Per WhatsApp am 03.11. zugestimmt" }, s);
@@ -751,6 +775,18 @@ describe("dbBewertungSpeicher", () => {
         throw new Error("Senden fehlgeschlagen");
       })
     ).rejects.toThrow("Senden fehlgeschlagen");
+  });
+
+  it("personVorname: Name der Person dieses Workspace, Anredeform ergibt null", async () => {
+    mocks.execute.mockResolvedValueOnce({ rows: [{ text: null, json: { first_name: "Bernd", last_name: "Kurz" } }] });
+    expect(await dbBewertungSpeicher.personVorname(WS, "person_2")).toBe("Bernd");
+    const q = sqlText(mocks.execute.mock.calls[0]![0]);
+    expect(q.sql).toContain("po.workspace_id");
+    expect(q.params).toEqual(expect.arrayContaining([WS, "person_2"]));
+    mocks.execute.mockResolvedValueOnce({ rows: [{ text: "Herr Kurz", json: null }] });
+    expect(await dbBewertungSpeicher.personVorname(WS, "person_2")).toBeNull();
+    mocks.execute.mockResolvedValueOnce({ rows: [] });
+    expect(await dbBewertungSpeicher.personVorname(WS, "person_x")).toBeNull();
   });
 
   it("gespraeche nutzt die Abfrage der Akte", async () => {
