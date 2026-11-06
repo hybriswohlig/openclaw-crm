@@ -58,9 +58,19 @@ async function liveDealIds(objectId: string, ids: string[]): Promise<string[]> {
   return rows.map((row) => row.id);
 }
 
+export interface CalendarLoadOptions {
+  /**
+   * Plan 8 only (opt-in): the confirmed customer slot sets the clock only when
+   * its day equals the event day. The old calendar page and the iCal feed do
+   * not pass this and keep their behaviour.
+   */
+  slotOnlyOnSameDay?: boolean;
+}
+
 export async function listCalendarEvents(
   workspaceId: string,
-  query: CalendarQuery
+  query: CalendarQuery,
+  options: CalendarLoadOptions = {}
 ): Promise<CalendarBundle> {
   const empty: CalendarBundle = {
     events: [],
@@ -260,6 +270,7 @@ export async function listCalendarEvents(
     const company = companyId ? companyById.get(companyId) : undefined;
 
     let moveDate: string | null = null;
+    let moveDateSource: "attribute" | "selection" = "attribute";
     let moveEndDate: string | null = null;
     let estimatedFlag = false;
     const appointments: DealAppointmentInput[] = [];
@@ -296,6 +307,7 @@ export async function listCalendarEvents(
     let slotEnd: string | null = null;
     if (!moveDate && selection) {
       moveDate = asIsoDate(selection.selectedDate);
+      if (moveDate) moveDateSource = "selection";
       slotStart = selection.selectedSlotStart;
       slotEnd = selection.selectedSlotEnd;
     } else if (selection) {
@@ -321,11 +333,13 @@ export async function listCalendarEvents(
       fromAddress: addressText(read("move_from_address")?.jsonValue ?? read("move_from_address")?.textValue),
       toAddress: addressText(read("move_to_address")?.jsonValue ?? read("move_to_address")?.textValue),
       moveDate,
+      moveDateSource,
       moveEndDate,
       timeStart: window?.start ?? null,
       timeEnd: window?.end ?? null,
       slotStart,
       slotEnd,
+      ...(options.slotOnlyOnSameDay && selection ? { slotDate: asIsoDate(selection.selectedDate) } : {}),
       estimatedFlag,
       proposedDate: proposal?.date ?? null,
       proposedStart: proposal?.start ?? null,

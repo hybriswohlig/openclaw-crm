@@ -391,14 +391,14 @@ function einsatz(f: AblaufFakten): Entwurf {
   };
 }
 
-const TERMIN_WORT: Record<AblaufFakten["leistung"], string> = {
+export const TERMIN_WORT: Record<AblaufFakten["leistung"], string> = {
   move: "Umzug",
   clearance_move: "Umzug",
   clearance: "Termin",
   kitchen_installation: "Montage",
 };
 
-const BEGINN_WORT: Record<AblaufFakten["leistung"], string> = {
+export const BEGINN_WORT: Record<AblaufFakten["leistung"], string> = {
   move: "Beladen",
   clearance_move: "Beladen",
   clearance: "Beginn",

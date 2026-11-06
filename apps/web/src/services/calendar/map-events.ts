@@ -44,7 +44,17 @@ export interface CalendarEvent {
   estimated: boolean;
   updatedAt: string | null;
   href: string;
+  /**
+   * Where the date comes from (Plan 8): the deal's move date attribute, the
+   * customer's portal selection, only the Auftrag time window, an unselected
+   * date offer, or an appointment field. Optional so older readers ignore it.
+   */
+  dateSource?: CalendarDateSource;
+  /** The end time is the +2 h fallback, not a real end (window end or slot end). */
+  endIsFallback?: boolean;
 }
+
+export type CalendarDateSource = "attribute" | "selection" | "window" | "proposal" | "appointment";
 
 export interface DealAppointmentInput {
   slug: string;
@@ -68,6 +78,8 @@ export interface DealCalendarInput {
   fromAddress: string | null;
   toAddress: string | null;
   moveDate: string | null;
+  /** Where `moveDate` comes from; absent counts as "attribute". */
+  moveDateSource?: "attribute" | "selection";
   moveEndDate: string | null;
   /** Auftrag time window: ISO timestamp or HH:MM. */
   timeStart: string | null;
@@ -75,6 +87,12 @@ export interface DealCalendarInput {
   /** Confirmed customer slot, HH:MM. */
   slotStart: string | null;
   slotEnd: string | null;
+  /**
+   * Day of the confirmed slot. When set, the slot clock only applies if this
+   * day equals the event day (Plan 8 loader, opt-in). Absent or null keeps the
+   * old behaviour (slot clock applies to any move date).
+   */
+  slotDate?: string | null;
   estimatedFlag: boolean;
   /** One unselected date offer, used only when the deal has no move date. */
   proposedDate: string | null;
@@ -188,21 +206,22 @@ function clockOnDate(
   date: string,
   start: string | null,
   end: string | null
-): { endDate: string; startTime: string; endTime: string } | null {
+): { endDate: string; startTime: string; endTime: string; fallback: boolean } | null {
   const startTime = parseClock(start).time;
   if (!startTime) return null;
   const endClock = parseClock(end).time;
   if (endClock && endClock > startTime) {
-    return { endDate: date, startTime, endTime: endClock };
+    return { endDate: date, startTime, endTime: endClock, fallback: false };
   }
   if (endClock && endClock <= startTime) {
-    return { endDate: plusDays(date, 1), startTime, endTime: endClock };
+    return { endDate: plusDays(date, 1), startTime, endTime: endClock, fallback: false };
   }
   const plus = addHours(startTime, 2);
   return {
     endDate: plus.dayOffset > 0 ? plusDays(date, plus.dayOffset) : date,
     startTime,
     endTime: plus.time,
+    fallback: true,
   };
 }
 
@@ -244,11 +263,13 @@ export function eventsFromDeal(input: DealCalendarInput): CalendarEvent[] {
 
     let startTime: string | null = null;
     let endTime: string | null = null;
+    let endIsFallback = false;
 
     if (windowApplies && windowStart.time) {
       startTime = windowStart.time;
       endTime = windowEnd.time;
       if (!endTime) {
+        endIsFallback = true;
         const plus = addHours(startTime, 2);
         endTime = plus.time;
         if (plus.dayOffset > 0 && endDate === date) endDate = plusDays(date, plus.dayOffset);
@@ -261,13 +282,15 @@ export function eventsFromDeal(input: DealCalendarInput): CalendarEvent[] {
         startTime = slot.startTime;
         endTime = slot.endTime;
         endDate = slot.endDate;
+        endIsFallback = slot.fallback;
       }
-    } else {
+    } else if (input.slotDate == null || input.slotDate === date) {
       const slot = clockOnDate(date, input.slotStart, input.slotEnd);
       if (slot && endDate === date) {
         startTime = slot.startTime;
         endTime = slot.endTime;
         endDate = slot.endDate;
+        endIsFallback = slot.fallback;
       }
     }
 
@@ -284,6 +307,8 @@ export function eventsFromDeal(input: DealCalendarInput): CalendarEvent[] {
       startTime: allDay ? null : startTime,
       endTime: allDay ? null : endTime,
       estimated,
+      dateSource: source === "move" ? input.moveDateSource ?? "attribute" : source,
+      endIsFallback: allDay ? false : endIsFallback,
     });
   }
 
@@ -307,6 +332,8 @@ export function eventsFromDeal(input: DealCalendarInput): CalendarEvent[] {
       startTime: timed && slot ? slot.startTime : null,
       endTime: timed && slot ? slot.endTime : null,
       estimated: false,
+      dateSource: "appointment",
+      endIsFallback: timed && slot ? slot.fallback : false,
     });
   }
 

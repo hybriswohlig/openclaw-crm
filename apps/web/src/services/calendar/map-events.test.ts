@@ -253,3 +253,85 @@ describe("company colors", () => {
     expect(companyColor("andere-id", "Ceylan Operations", null)).toBe("#ea580c");
   });
 });
+
+describe("Plan 8: dateSource, endIsFallback, slotDate", () => {
+  it("names the date source for every kind of event", () => {
+    expect(moveOf(eventsFromDeal(deal())).dateSource).toBe("attribute");
+    expect(moveOf(eventsFromDeal(deal({ moveDateSource: "attribute" }))).dateSource).toBe("attribute");
+    expect(moveOf(eventsFromDeal(deal({ moveDateSource: "selection" }))).dateSource).toBe("selection");
+    expect(
+      moveOf(eventsFromDeal(deal({ moveDate: null, timeStart: "2026-10-21T06:00:00.000Z" }))).dateSource
+    ).toBe("window");
+    expect(
+      moveOf(eventsFromDeal(deal({ moveDate: null, proposedDate: "2026-10-23", proposedStart: "08:00" }))).dateSource
+    ).toBe("proposal");
+    const appt = eventsFromDeal(
+      deal({
+        moveDate: null,
+        appointments: [{ slug: "besichtigung_am", label: "Besichtigung", date: "2026-10-20", endDate: null, startTime: null, endTime: null }],
+      })
+    );
+    expect(appt.map((e) => [e.kind, e.dateSource])).toEqual([["appointment", "appointment"]]);
+  });
+
+  it("marks the +2 h end as a fallback and a real end as real", () => {
+    const ohneEnde = moveOf(eventsFromDeal(deal({ timeStart: "2026-10-21T05:30:00.000Z" })));
+    expect([ohneEnde.startTime, ohneEnde.endTime, ohneEnde.endIsFallback]).toEqual(["07:30", "09:30", true]);
+    const mitEnde = moveOf(
+      eventsFromDeal(deal({ timeStart: "2026-10-21T05:30:00.000Z", timeEnd: "2026-10-21T11:00:00.000Z" }))
+    );
+    expect([mitEnde.startTime, mitEnde.endTime, mitEnde.endIsFallback]).toEqual(["07:30", "13:00", false]);
+    const slotOhneEnde = moveOf(eventsFromDeal(deal({ slotStart: "08:00" })));
+    expect([slotOhneEnde.endTime, slotOhneEnde.endIsFallback]).toEqual(["10:00", true]);
+    const slotMitEnde = moveOf(eventsFromDeal(deal({ slotStart: "08:00", slotEnd: "12:00" })));
+    expect([slotMitEnde.endTime, slotMitEnde.endIsFallback]).toEqual(["12:00", false]);
+    const angebot = moveOf(
+      eventsFromDeal(deal({ moveDate: null, proposedDate: "2026-10-23", proposedStart: "13:00", proposedEnd: "17:00" }))
+    );
+    expect(angebot.endIsFallback).toBe(false);
+    expect(moveOf(eventsFromDeal(deal())).endIsFallback).toBe(false);
+    const [termin] = eventsFromDeal(
+      deal({
+        moveDate: null,
+        appointments: [
+          { slug: "besichtigung_am", label: "Besichtigung", date: "2026-10-20", endDate: null, startTime: "2026-10-20T14:00:00.000Z", endTime: null },
+        ],
+      })
+    );
+    expect([termin.startTime, termin.endTime, termin.endIsFallback]).toEqual(["16:00", "18:00", true]);
+  });
+
+  it("ignores a customer slot from another day when slotDate is given", () => {
+    const anders = moveOf(
+      eventsFromDeal(deal({ moveDate: "2026-10-28", slotDate: "2026-10-21", slotStart: "08:00", slotEnd: "12:00" }))
+    );
+    expect(anders.allDay).toBe(true);
+    expect(anders.startTime).toBeNull();
+    expect(anders.endIsFallback).toBe(false);
+  });
+
+  it("keeps a customer slot on the same day when slotDate is given", () => {
+    const gleich = moveOf(
+      eventsFromDeal(deal({ moveDate: "2026-10-21", slotDate: "2026-10-21", slotStart: "08:00", slotEnd: "12:00" }))
+    );
+    expect([gleich.allDay, gleich.startTime, gleich.endTime]).toEqual([false, "08:00", "12:00"]);
+  });
+
+  it("without slotDate (old page and iCal) the slot clock applies as before, even on another day", () => {
+    const alt = moveOf(eventsFromDeal(deal({ moveDate: "2026-10-28", slotStart: "08:00", slotEnd: "12:00" })));
+    expect([alt.allDay, alt.startTime, alt.endTime]).toEqual([false, "08:00", "12:00"]);
+    const nullDate = moveOf(
+      eventsFromDeal(deal({ moveDate: "2026-10-28", slotDate: null, slotStart: "08:00", slotEnd: "12:00" }))
+    );
+    expect(nullDate.startTime).toBe("08:00");
+  });
+
+  it("the Auftrag window still wins over a slot, whatever the slot day", () => {
+    const e = moveOf(
+      eventsFromDeal(
+        deal({ slotDate: "2026-10-20", slotStart: "08:00", timeStart: "2026-10-21T05:00:00.000Z", timeEnd: "2026-10-21T11:00:00.000Z" })
+      )
+    );
+    expect([e.startTime, e.endTime, e.dateSource]).toEqual(["07:00", "13:00", "attribute"]);
+  });
+});
