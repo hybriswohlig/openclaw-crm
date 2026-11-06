@@ -210,6 +210,7 @@ describe("ladeAblaufFakten", () => {
         {
           version: 2,
           status: "gesperrt",
+          sent_at: "2026-11-04 09:00:00",
           price_cents: 248000,
           gesperrt_von: "Dario",
           overrides: JSON.stringify([
@@ -245,6 +246,8 @@ describe("ladeAblaufFakten", () => {
           mit_entruempelung: true,
           kv_version: 2,
           kv_gesendet_am: "2026-11-04 09:00:00",
+          ohne_version: false,
+          kv_dokument_am: "2026-11-01 09:00:00",
         },
       ],
     });
@@ -296,6 +299,7 @@ describe("ladeAblaufFakten", () => {
         geprueftVon: "Dario",
         anpassungen: 1,
         ersteAnpassung: { key: "volumen", grund: "Keller dazu" },
+        neuerEntwurf: null,
       },
       kv: {
         version: 2,
@@ -339,6 +343,8 @@ describe("ladeAblaufFakten", () => {
           mit_entruempelung: null,
           kv_version: null,
           kv_gesendet_am: null,
+          ohne_version: true,
+          kv_dokument_am: null,
         },
       ],
     });
@@ -365,6 +371,77 @@ describe("ladeAblaufFakten", () => {
     expect(f.annahme).toEqual({ am: "2026-11-05T08:00:00.000Z", unterschriftAm: null });
     // Das Umzugsdatum gilt; das Zeitfenster gehört zu einem anderen Tag und entfällt.
     expect(f.termin).toEqual({ datum: "2026-11-28", von: null, bis: null });
+  });
+
+  it("gesperrte v2 und neuer Entwurf v3: Kalkulation und KV aus v2, neuerEntwurf 3", async () => {
+    dbAntwortet({
+      deal: [LEERER_DEAL],
+      neben: [LEERE_NEBEN],
+      version: [
+        { version: 3, status: "entwurf", sent_at: null, price_cents: null, gesperrt_von: null, overrides: [], rechner_request: null, rechner_result: { preis: { selbstkosten: 1700 } } },
+        { version: 2, status: "gesperrt", sent_at: "2026-11-04 09:00:00", price_cents: 248000, gesperrt_von: "Dario", overrides: [], rechner_request: { von_etage: "2", von_aufzug: "keiner" }, rechner_result: { preis: { selbstkosten: 1540, margeWirksamProzent: 38 } } },
+      ],
+      angebot: [
+        { festpreis: "2480.00", is_variable: false, gueltig_bis: "2026-11-18", deposit_required_cents: null, service_type: "move", mit_entruempelung: null, kv_version: 2, kv_gesendet_am: "2026-11-04 09:00:00", ohne_version: false, kv_dokument_am: null },
+      ],
+    });
+
+    const f = await ladeAblaufFakten(WS, DEAL);
+
+    expect(f.kalkulation).toEqual({
+      version: 2,
+      status: "gesperrt",
+      selbstkostenCent: 154000,
+      margeProzent: 38,
+      geprueftVon: "Dario",
+      anpassungen: 0,
+      ersteAnpassung: null,
+      neuerEntwurf: 3,
+    });
+    expect(f.zugang).toBe("2. OG ohne Aufzug");
+    expect(f.kv).toMatchObject({ version: 2, gesendetAm: "2026-11-04T09:00:00.000Z" });
+    const { sql: text } = dialekt.sqlToQuery(
+      mocks.execute.mock.calls.map(([q]) => q).find((q) => gerendert(q).text.includes("FROM deal_calculation_versions v")) as SQL
+    );
+    expect(text).toContain("DISTINCT ON (v.status = 'gesperrt')");
+  });
+
+  it("nur Entwurf: Entwurf trägt die Kalkulation", async () => {
+    dbAntwortet({
+      deal: [LEERER_DEAL],
+      neben: [LEERE_NEBEN],
+      version: [{ version: 1, status: "entwurf", sent_at: null, price_cents: null, gesperrt_von: "Dario", overrides: [], rechner_request: null, rechner_result: null }],
+      angebot: [],
+    });
+    expect((await ladeAblaufFakten(WS, DEAL)).kalkulation).toMatchObject({ version: 1, status: "entwurf", geprueftVon: null, neuerEntwurf: null });
+  });
+
+  it("KV ohne Versionsbezug: gesendet ab dem ersten KV-Dokument", async () => {
+    dbAntwortet({
+      deal: [LEERER_DEAL],
+      neben: [LEERE_NEBEN],
+      version: [],
+      angebot: [
+        { festpreis: "1200.00", is_variable: false, gueltig_bis: null, deposit_required_cents: null, service_type: "move", mit_entruempelung: null, kv_version: null, kv_gesendet_am: null, ohne_version: true, kv_dokument_am: "2026-11-02 10:00:00" },
+      ],
+    });
+    const f = await ladeAblaufFakten(WS, DEAL);
+    expect(f.kv).toMatchObject({ version: null, betragCent: 120000, gesendetAm: "2026-11-02T10:00:00.000Z" });
+    const angebotSql = mocks.execute.mock.calls.map(([q]) => gerendert(q)).find((q) => q.text.includes("FROM quotations q"))!;
+    expect(angebotSql.text).toContain("d.document_type = 'quotation'");
+    expect(angebotSql.params).toContain(WS);
+  });
+
+  it("KV mit Versionsbezug, aber nicht gesendet: kein Rückfall auf das Dokument", async () => {
+    dbAntwortet({
+      deal: [LEERER_DEAL],
+      neben: [LEERE_NEBEN],
+      version: [],
+      angebot: [
+        { festpreis: "1200.00", is_variable: false, gueltig_bis: null, deposit_required_cents: null, service_type: "move", mit_entruempelung: null, kv_version: 1, kv_gesendet_am: null, ohne_version: false, kv_dokument_am: "2026-11-02 10:00:00" },
+      ],
+    });
+    expect((await ladeAblaufFakten(WS, DEAL)).kv?.gesendetAm).toBeNull();
   });
 
   it("Annahme eines fremden Workspace zählt nicht", async () => {

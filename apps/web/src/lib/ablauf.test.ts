@@ -32,6 +32,7 @@ function mockup(): AblaufFakten {
       geprueftVon: "Dario",
       anpassungen: 1,
       ersteAnpassung: { key: "volumen", grund: "Keller dazu" },
+      neuerEntwurf: null,
     },
     kv: {
       version: 2,
@@ -257,6 +258,24 @@ describe("Schritt 3: Kalkulation", () => {
     expect(s.zeile).toBe("Entwurf v3 · Selbstkosten 1.540 €");
   });
 
+  it("gesperrte v2 gesendet, neuer Entwurf v3: erledigt mit Zusatz, Schritt 4 bleibt jetzt mit Hinweis", () => {
+    const f = mockup();
+    f.kalkulation = { ...f.kalkulation!, neuerEntwurf: 3 };
+    const r = berechneAblauf(f, JETZT);
+    const k = r.schritte[2];
+    expect(k.zustand).toBe("erledigt");
+    expect(k.zeile).toBe(
+      "Selbstkosten 1.540 € · Marge 38 % · geprüft von Dario, 1 Anpassung · Entwurf v3 in Arbeit"
+    );
+    const kv = r.schritte[3];
+    expect(kv.zustand).toBe("jetzt");
+    expect(kv.zeile).toBe("v2 · 2.480 € · gesendet Mi 04.11. · gültig bis 18.11.");
+    expect(kv.hinweis?.text).toBe(
+      "3× geöffnet, noch nicht angenommen. Nachfass Tag 2 geht morgen 09:00 automatisch raus."
+    );
+    expect(r.position).toBe(4);
+  });
+
   it("offen ohne Kalkulation", () => {
     const s = schritt({ ...mockup(), kalkulation: null }, "kalkulation");
     expect(s.zustand).toBe("jetzt");
@@ -427,6 +446,13 @@ describe("Schritt 8: Termin", () => {
 
   it("offen mit Zeitfenster", () => {
     expect(schritt(mockup(), "termin").zeile).toBe("07:30 Beladen · ca. 13:00 fertig");
+    expect(schritt({ ...mockup(), leistung: "clearance_move" }, "termin").zeile).toBe("07:30 Beladen · ca. 13:00 fertig");
+  });
+
+  it("Zeitfenster bei Entrümpelung und Montage: Beginn statt Beladen", () => {
+    for (const leistung of ["clearance", "kitchen_installation"] as const) {
+      expect(schritt({ ...mockup(), leistung }, "termin").zeile).toBe("07:30 Beginn · ca. 13:00 fertig");
+    }
   });
 
   it("offen ohne Zeitfenster: in 16 Tagen", () => {
@@ -452,16 +478,20 @@ describe("Schritt 8: Termin", () => {
 
 describe("Schritt 9: Rechnung", () => {
   it("offen und erledigt", () => {
-    expect(schritt(mockup(), "rechnung").zeile).toBe("Restbetrag 2.480 € · fällig 14 Tage nach Rechnung");
+    expect(schritt(mockup(), "rechnung").zeile).toBe("Restbetrag 2.480 €");
     const s = schritt(fertig(), "rechnung");
     expect(s.zustand).toBe("erledigt");
     expect(s.zeile).toBe("erstellt So 22.11. · fällig 06.12.");
   });
 
-  it("Stunden-KV ohne Restbetrag", () => {
-    expect(schritt({ ...mockup(), rest: { restCent: null, quelle: "stunden" } }, "rechnung").zeile).toBe(
-      "fällig 14 Tage nach Rechnung"
-    );
+  it("Stunden-KV ohne Restbetrag: Teil entfällt", () => {
+    expect(schritt({ ...mockup(), rest: { restCent: null, quelle: "stunden" } }, "rechnung").zeile).toBe("");
+  });
+
+  it("Rechnung ohne Fälligkeit: nur erstellt", () => {
+    const f = fertig();
+    f.rechnung = { am: "2026-11-22T09:00:00.000Z", faelligAm: null };
+    expect(schritt(f, "rechnung").zeile).toBe("erstellt So 22.11.");
   });
 });
 
@@ -488,8 +518,24 @@ describe("Schritt 10: Zahlung", () => {
     expect(s.chips).toEqual(["Überweisung", "PayPal", "Bar", "Karte"]);
   });
 
-  it("Rest unbekannt (Stunden-KV) ist nicht erledigt", () => {
-    expect(schritt({ ...fertig(), rest: { restCent: null, quelle: "stunden" } }, "zahlung").zustand).toBe("jetzt");
+  it("Rest unbekannt (Stunden-KV) vor Bezahlt ist nicht erledigt", () => {
+    const f = { ...fertig(), rest: { restCent: null, quelle: "stunden" }, stageCategory: "done_unpaid" };
+    expect(schritt(f, "zahlung").zustand).toBe("jetzt");
+  });
+
+  it("Stunden-KV bei Stufe Bezahlt: Zahlung erledigt, Bewertung jetzt", () => {
+    const f: AblaufFakten = {
+      ...fertig(),
+      rest: { restCent: null, quelle: "stunden" },
+      bewertung: { status: null, am: null },
+      stageCategory: "paid",
+    };
+    const r = berechneAblauf(f, JETZT);
+    expect(r.schritte[9].zustand).toBe("erledigt");
+    expect(r.schritte[9].zeile).toBe("bezahlt Di 24.11.");
+    expect(r.schritte[10].zustand).toBe("jetzt");
+    expect(r.position).toBe(11);
+    expect(schritt({ ...f, letzteZahlungAm: null }, "zahlung").zeile).toBe("bezahlt");
   });
 });
 

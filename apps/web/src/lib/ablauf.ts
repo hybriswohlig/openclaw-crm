@@ -34,6 +34,8 @@ export interface AblaufFakten {
     geprueftVon: string | null;
     anpassungen: number;
     ersteAnpassung: { key: string; grund: string } | null;
+    /** Nummer eines neueren Entwurfs nach der gesperrten Version, sonst null. */
+    neuerEntwurf: number | null;
   } | null;
   kv: {
     version: number | null;
@@ -267,7 +269,8 @@ function kalkulation(f: AblaufFakten): Entwurf {
     zeileErledigt = teile(
       selbstkosten,
       k.margeProzent !== null && `Marge ${KOMMA1.format(k.margeProzent)} %`,
-      `${geprueft}${anpassungen}`
+      `${geprueft}${anpassungen}`,
+      k.neuerEntwurf !== null && `Entwurf v${k.neuerEntwurf} in Arbeit`
     );
   }
   return {
@@ -386,6 +389,13 @@ const TERMIN_WORT: Record<AblaufFakten["leistung"], string> = {
   kitchen_installation: "Montage",
 };
 
+const BEGINN_WORT: Record<AblaufFakten["leistung"], string> = {
+  move: "Beladen",
+  clearance_move: "Beladen",
+  clearance: "Beginn",
+  kitchen_installation: "Beginn",
+};
+
 function inTagen(datum: string, jetzt: Date): string {
   const d = tageBis(datum, jetzt);
   if (d === 0) return "heute";
@@ -399,7 +409,7 @@ function termin(f: AblaufFakten, jetzt: Date): Entwurf {
   let zeileOffen = "noch kein Termin";
   if (t) {
     zeileOffen =
-      t.von || t.bis ? teile(t.von && `${t.von} Beladen`, t.bis && `ca. ${t.bis} fertig`) : inTagen(t.datum, jetzt);
+      t.von || t.bis ? teile(t.von && `${t.von} ${BEGINN_WORT[f.leistung]}`, t.bis && `ca. ${t.bis} fertig`) : inTagen(t.datum, jetzt);
   }
   return {
     key: "termin",
@@ -419,7 +429,7 @@ function rechnung(f: AblaufFakten): Entwurf {
     wer: "du",
     erledigt: r !== null,
     zeileErledigt: r ? teile(`erstellt ${tagKurz(r.am)}`, r.faelligAm && `fällig ${datumKurz(r.faelligAm)}`) : "",
-    zeileOffen: teile(f.rest.restCent !== null && `Restbetrag ${euroText(f.rest.restCent)}`, "fällig 14 Tage nach Rechnung"),
+    zeileOffen: f.rest.restCent !== null ? `Restbetrag ${euroText(f.rest.restCent)}` : "",
   };
 }
 
@@ -428,7 +438,8 @@ function zahlung(f: AblaufFakten): Entwurf {
     key: "zahlung",
     titel: "Zahlung",
     wer: "du",
-    erledigt: f.rest.restCent === 0,
+    // Ein Stunden-KV hat nie Rest 0: dort zählt die Stufe Bezahlt.
+    erledigt: f.rest.restCent === 0 || f.stageCategory === "paid",
     zeileErledigt: f.letzteZahlungAm ? `bezahlt ${tagKurz(f.letzteZahlungAm)}` : "bezahlt",
     zeileOffen: "Kunde meldet „bezahlt“ im Link, du bestätigst",
     chips: [...ZAHLUNGSART_CHIPS],

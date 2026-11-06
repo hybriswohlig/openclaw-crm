@@ -12,11 +12,15 @@
  * - `agent_events` `fotos_erledigt`: letzter Zeitpunkt und Summe `analysiert`.
  * - Inventar (`getDealInventory`): Volumen der mitzunehmenden Teile; ohne
  *   Inventar das Nettovolumen der letzten Kalkulation.
- * - Letzte Kalkulationsversion: Status, Selbstkosten, Marge, Prüfer
- *   (`locked_by` → `users.name`), Anpassungen, Zugang und Halteverbot aus der
- *   Rechner-Anfrage, Einsatz aus dem Rechner-Ergebnis.
- * - `quotations` mit der verknüpften Version (`calculation_version_id`):
- *   Version, Festpreis, Stunden-KV, gesendet, gültig bis, Anzahlung, Leistung.
+ * - Kalkulationsversionen: die neueste gesperrte (sonst der Entwurf) liefert
+ *   Status, Selbstkosten, Marge, Prüfer (`locked_by` → `users.name`),
+ *   Anpassungen, Zugang und Halteverbot aus der Rechner-Anfrage und den Einsatz
+ *   aus dem Rechner-Ergebnis; ein neuerer Entwurf danach steht als
+ *   `neuerEntwurf`. Version und `sent_at` des KV kommen aus derselben
+ *   gesperrten Version (sonst der verknüpften `calculation_version_id`).
+ * - `quotations`: Festpreis, Stunden-KV, gültig bis, Anzahlung, Leistung; ein
+ *   KV ohne Versionsbezug gilt ab dem ersten `deal_documents`-KV
+ *   (`quotation`, `uploaded_at`) als gesendet, wie bei Wartet und Nachfass.
  * - `customer_status_links`: Öffnungen; `customer_date_selections`: Zeitfenster;
  *   `deal_documents`: AB und Rechnung (`uploaded_at`).
  * - Dienste: `ladeAktiveAnnahme`, `listDealEmployees`, `listPayments`,
@@ -167,6 +171,7 @@ function nebenLesen(ws: string, deal: string) {
 interface VersionZeile {
   version: unknown;
   status: string;
+  sent_at: unknown;
   price_cents: unknown;
   gesperrt_von: string | null;
   overrides: unknown;
@@ -174,11 +179,13 @@ interface VersionZeile {
   rechner_result: unknown;
 }
 
+/** Höchstens zwei Zeilen: die neueste gesperrte Version und die neueste ungesperrte (der Entwurf). */
 function versionLesen(ws: string, deal: string) {
   return db.execute(sql`
-    SELECT
+    SELECT DISTINCT ON (v.status = 'gesperrt')
       v.version AS version,
       v.status AS status,
+      v.sent_at::text AS sent_at,
       v.price_cents AS price_cents,
       u.name AS gesperrt_von,
       v.overrides AS overrides,
@@ -187,8 +194,7 @@ function versionLesen(ws: string, deal: string) {
     FROM deal_calculation_versions v
     LEFT JOIN users u ON u.id = v.locked_by
     WHERE v.workspace_id = ${ws} AND v.deal_record_id = ${deal}
-    ORDER BY v.version DESC
-    LIMIT 1
+    ORDER BY (v.status = 'gesperrt'), v.version DESC
   `);
 }
 
@@ -201,6 +207,8 @@ interface AngebotZeile {
   mit_entruempelung: unknown;
   kv_version: unknown;
   kv_gesendet_am: unknown;
+  ohne_version: boolean | null;
+  kv_dokument_am: unknown;
 }
 
 /** `quotations` hat keine Workspace-Spalte: Filter über das Objekt des Deals. */
@@ -214,7 +222,12 @@ function angebotLesen(ws: string, deal: string) {
       q.service_type AS service_type,
       q.document_details -> 'mitEntruempelung' AS mit_entruempelung,
       cv.version AS kv_version,
-      cv.sent_at::text AS kv_gesendet_am
+      cv.sent_at::text AS kv_gesendet_am,
+      q.calculation_version_id IS NULL AS ohne_version,
+      (
+        SELECT min(d.uploaded_at)::text FROM deal_documents d
+        WHERE d.workspace_id = ${ws} AND d.deal_record_id = ${deal} AND d.document_type = 'quotation'
+      ) AS kv_dokument_am
     FROM quotations q
     LEFT JOIN deal_calculation_versions cv
       ON cv.id = q.calculation_version_id AND cv.workspace_id = ${ws} AND cv.deal_record_id = q.deal_record_id
@@ -269,7 +282,12 @@ export async function ladeAblaufFakten(ws: string, deal: string): Promise<Ablauf
       ladeZahlungsmeldungen(ws, deal),
     ]);
   const [n] = zeilen<NebenZeile>(nebenRes);
-  const [v] = zeilen<VersionZeile>(versionRes);
+  const versionen = zeilen<VersionZeile>(versionRes);
+  const gesperrt = versionen.find((x) => x.status === "gesperrt");
+  const entwurf = versionen.find((x) => x.status !== "gesperrt");
+  const entwurfNr = entwurf ? alsZahl(entwurf.version) : null;
+  // Grundlage: die neueste gesperrte Version, ohne sie der Entwurf.
+  const v = gesperrt ?? entwurf;
   const [a] = zeilen<AngebotZeile>(angebotRes);
 
   const anfrage = v ? alsObjekt<RechnerAnfrage>(v.rechner_request) : null;
@@ -301,6 +319,7 @@ export async function ladeAblaufFakten(ws: string, deal: string): Promise<Ablauf
       margeProzent: alsZahl(ergebnis?.preis?.margeWirksamProzent ?? ergebnis?.preis?.margeProzent),
       geprueftVon: status === "gesperrt" ? (v.gesperrt_von ?? null) : null,
       ...ersteAnpassungAus(alsJson(v.overrides)),
+      neuerEntwurf: status === "gesperrt" && entwurfNr !== null && entwurfNr > version ? entwurfNr : null,
     };
   }
 
@@ -308,11 +327,13 @@ export async function ladeAblaufFakten(ws: string, deal: string): Promise<Ablauf
   if (a) {
     const istStunden = a.is_variable === true;
     const festpreis = alsZahl(a.festpreis);
+    const gesperrtNr = gesperrt ? alsZahl(gesperrt.version) : null;
+    const versionsGesendet = gesperrtNr !== null ? alsIso(gesperrt?.sent_at) : alsIso(a.kv_gesendet_am);
     kv = {
-      version: alsZahl(a.kv_version),
+      version: gesperrtNr ?? alsZahl(a.kv_version),
       betragCent: !istStunden && festpreis !== null ? Math.round(festpreis * 100) : null,
       istStunden,
-      gesendetAm: alsIso(a.kv_gesendet_am),
+      gesendetAm: versionsGesendet ?? (a.ohne_version === true ? alsIso(a.kv_dokument_am) : null),
       gueltigBis: alsTag(a.gueltig_bis),
       anzahlungCent: alsZahl(a.deposit_required_cents),
       geoeffnet: alsZahl(n?.geoeffnet) ?? 0,
