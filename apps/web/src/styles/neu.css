@@ -62,8 +62,12 @@
 
 /* ── Hintergrund ─────────────────────────────────────── */
 
+/* Absolut über die ganze Seitenhöhe, nicht fest im Fenster: so reicht der
+   Verlauf bis ans Ende langer Seiten (statt der Body-Farbe darunter), die
+   Schleife bleibt hinter dem Kopf und wandert beim Scrollen weg, und kein
+   Glas-Panel schiebt sich über sie (dort fiele Grau unter 4,5:1). */
 [data-neu] .neu-hintergrund {
-  position: fixed;
+  position: absolute;
   inset: 0;
   z-index: 0;
   pointer-events: none;
@@ -71,16 +75,28 @@
   background: linear-gradient(180deg, var(--seite-oben), var(--seite-unten));
 }
 
+/* Beim Überscrollen (Gummiband) zeigt der Body dieselbe Farbe wie das Seitenende
+   (--seite-unten; der Body kann die Tokens von [data-neu] nicht lesen). */
+body:has([data-neu]) {
+  background-color: #e6e8ec;
+}
+
+[data-lg-theme="dark"] body:has([data-neu]) {
+  background-color: #1c1c1e;
+}
+
 [data-neu] .neu-hintergrund-karte {
   position: absolute;
   inset: 0;
 }
 
+/* Mindestbreite 100 px: am Handy (390 px) endet die Schleife so oberhalb der
+   zweiten Kopfzeile, die dort über die volle Breite umbricht. */
 [data-neu] .neu-schleife {
   position: absolute;
   top: 0;
   right: 0;
-  width: clamp(150px, 25vw, 420px);
+  width: clamp(100px, 25vw, 420px);
   height: auto;
   display: block;
 }

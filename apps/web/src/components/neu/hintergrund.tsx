@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
 
 /**
- * Feste Fläche hinter der neuen Oberfläche: Seitenverlauf, Vermilion-Schleife oben rechts,
- * Silberband unten links (Pfade aus design/neubau-2026-11-05/03-leads-board.html).
+ * Fläche hinter der neuen Oberfläche über die ganze Seitenhöhe (absolut, nicht fest im
+ * Fenster, siehe neu.css): Seitenverlauf, Vermilion-Schleife oben rechts hinter dem Kopf,
+ * Silberband unten links am Seitenende (Pfade aus design/neubau-2026-11-05/03-leads-board.html).
  * Die beiden Formen sitzen je in ihrer Ecke, damit sie auch am Handy sichtbar bleiben.
  * `karte` ist der Platz für die blasse Regionskarte späterer Meilensteine.
  */

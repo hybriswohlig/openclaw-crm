@@ -15,7 +15,8 @@ export function Zahlenreihe({ kacheln }: { kacheln: Kachel[] }) {
           <div className="akte-kachel-wert">{k.wert}</div>
           <div className="akte-kachel-zeile">
             {k.ton && k.zeile ? (
-              <span className="akte-wartepille">
+              // Die Pille zeigt bis zu zwei Zeilen; der volle Text steht als title.
+              <span className="akte-wartepille" title={k.zeile}>
                 <i className="akte-punkt" data-ton={k.ton} aria-hidden="true" />
                 <span>{k.zeile}</span>
               </span>
