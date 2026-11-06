@@ -23,6 +23,11 @@ export interface StreetViewParams {
 }
 
 export class StreetViewConfigError extends Error {}
+
+/** Eigener Street-View-Schlüssel, sonst der allgemeine Maps-Schlüssel. */
+export function streetViewSchluessel(): string | null {
+  return process.env.GOOGLE_STREETVIEW_API_KEY || process.env.GOOGLE_MAPS_API_KEY || null;
+}
 export class StreetViewAPIError extends Error {}
 
 /**
@@ -32,11 +37,11 @@ export class StreetViewAPIError extends Error {}
  */
 export async function fetchStreetView(
   p: StreetViewParams
-): Promise<{ bytes: Buffer; mime: string } | null> {
-  const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+): Promise<{ bytes: Buffer; mime: string; panoId: string | null } | null> {
+  const apiKey = streetViewSchluessel();
   if (!apiKey) {
     throw new StreetViewConfigError(
-      "GOOGLE_MAPS_API_KEY is not configured. Set it in apps/web/.env.local."
+      "GOOGLE_STREETVIEW_API_KEY / GOOGLE_MAPS_API_KEY is not configured. Set it in apps/web/.env.local."
     );
   }
   if (!p.address || p.address.trim().length === 0) {
@@ -52,7 +57,7 @@ export async function fetchStreetView(
   if (!metaResp.ok) {
     throw new StreetViewAPIError(`metadata HTTP ${metaResp.status}`);
   }
-  const metaJson = (await metaResp.json()) as { status: string };
+  const metaJson = (await metaResp.json()) as { status: string; pano_id?: string };
   if (metaJson.status === "ZERO_RESULTS" || metaJson.status === "NOT_FOUND") {
     return null;
   }
@@ -77,5 +82,6 @@ export async function fetchStreetView(
   return {
     bytes: Buffer.from(arr),
     mime: imgResp.headers.get("content-type") ?? "image/jpeg",
+    panoId: typeof metaJson.pano_id === "string" && metaJson.pano_id !== "" ? metaJson.pano_id : null,
   };
 }
