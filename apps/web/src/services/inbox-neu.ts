@@ -11,7 +11,12 @@
  *    zuerst die Treffer, dann alle Gespräche ihrer Deals dazu.
  * 2. Firmen der Kanalkonten, 3. aktive Deal-Stufen (parallel zu 1).
  * 4. Anzeigenamen der Personen und Firmen über `batchGetRecordDisplayNames`
- *    (ein Aufruf, vier Abfragen).
+ *    (ein Aufruf, vier Abfragen). Der Helfer filtert nicht nach Workspace;
+ *    deshalb kommen nur IDs hinein, deren Record über sein Objekt
+ *    nachweislich in diesem Workspace liegt (Abfragen 1 und 2 prüfen das).
+ *
+ * Jede gelesene Tabelle mit eigener Workspace-Spalte wird zusätzlich auf den
+ * Workspace begrenzt (Kanalkonto, Kontakt, Nachrichten, Entwürfe).
  *
  * Kleinanzeigen-Erkennung und Vorschau-Bereinigung wie `listConversations`
  * (`istKleinanzeigenGespraech`, `cleanPreview` aus `services/inbox.ts`).
@@ -78,7 +83,7 @@ function muster(text: string): string {
  * dazu die Nummer nur aus Ziffern
  * („0170 123“ findet „+49170123…“).
  */
-function trefferBedingung(suche: string): SQL {
+function trefferBedingung(ws: string, suche: string): SQL {
   const p = muster(suche);
   const ziffern = suche.replace(/\D/g, "");
   const nurNummer = /^[+\d\s()/.-]+$/.test(suche) && ziffern.length >= 4;
@@ -95,7 +100,8 @@ function trefferBedingung(suche: string): SQL {
     OR EXISTS (
       SELECT 1 FROM record_values pv
       INNER JOIN records pr ON pr.id = pv.record_id AND pr.deleted_at IS NULL
-      INNER JOIN attributes pa ON pa.id = pv.attribute_id AND pa.slug = 'name'
+      INNER JOIN objects po ON po.id = pr.object_id AND po.workspace_id = ${ws}
+      INNER JOIN attributes pa ON pa.id = pv.attribute_id AND pa.object_id = pr.object_id AND pa.slug = 'name'
       WHERE pv.record_id = k2.crm_record_id
         AND (
           pv.text_value ILIKE ${p}
@@ -105,7 +111,7 @@ function trefferBedingung(suche: string): SQL {
     )
     OR EXISTS (
       SELECT 1 FROM inbox_messages m2
-      WHERE m2.conversation_id = c2.id AND m2.body ILIKE ${p}
+      WHERE m2.workspace_id = ${ws} AND m2.conversation_id = c2.id AND m2.body ILIKE ${p}
     )${nummer}
   )`;
 }
@@ -121,10 +127,10 @@ function gespraecheLesen(ws: string, suche: string | null, jetzt: Date) {
     ? sql`treffer AS (
         SELECT c2.id, c2.deal_record_id
         FROM inbox_conversations c2
-        INNER JOIN inbox_contacts k2 ON k2.id = c2.contact_id
+        INNER JOIN inbox_contacts k2 ON k2.id = c2.contact_id AND k2.workspace_id = ${ws}
         WHERE c2.workspace_id = ${ws}
           AND c2.status <> 'spam' AND c2.lane <> 'spam'
-          AND ${trefferBedingung(suche)}
+          AND ${trefferBedingung(ws, suche)}
       ),`
     : sql``;
 
@@ -143,8 +149,8 @@ function gespraecheLesen(ws: string, suche: string | null, jetzt: Date) {
       b.id AS gespraech_id,
       d.id AS deal_id,
       a.channel_type AS kanal,
-      a.operating_company_record_id AS firma_id,
-      k.crm_record_id AS person_id,
+      fk.id AS firma_id,
+      pk.id AS person_id,
       k.display_name AS kontakt_name,
       k.email AS email,
       k.phone AS telefon,
@@ -166,8 +172,12 @@ function gespraecheLesen(ws: string, suche: string | null, jetzt: Date) {
       ent.created_at::text AS entwurf_am,
       (ent.id IS NOT NULL) AS hat_entwurf
     FROM basis b
-    INNER JOIN channel_accounts a ON a.id = b.channel_account_id
-    INNER JOIN inbox_contacts k ON k.id = b.contact_id
+    INNER JOIN channel_accounts a ON a.id = b.channel_account_id AND a.workspace_id = ${ws}
+    INNER JOIN inbox_contacts k ON k.id = b.contact_id AND k.workspace_id = ${ws}
+    LEFT JOIN records pk ON pk.id = k.crm_record_id
+      AND EXISTS (SELECT 1 FROM objects o WHERE o.id = pk.object_id AND o.workspace_id = ${ws})
+    LEFT JOIN records fk ON fk.id = a.operating_company_record_id
+      AND EXISTS (SELECT 1 FROM objects o WHERE o.id = fk.object_id AND o.workspace_id = ${ws})
     LEFT JOIN records d ON d.id = b.deal_record_id AND d.deleted_at IS NULL
       AND EXISTS (
         SELECT 1 FROM objects o WHERE o.id = d.object_id AND o.workspace_id = ${ws} AND o.slug = 'deals'
@@ -183,7 +193,7 @@ function gespraecheLesen(ws: string, suche: string | null, jetzt: Date) {
     LEFT JOIN LATERAL (
       SELECT m.direction, coalesce(m.sent_at, m.created_at) AS zeit
       FROM inbox_messages m
-      WHERE m.conversation_id = b.id
+      WHERE m.workspace_id = ${ws} AND m.conversation_id = b.id
         AND (m.external_message_id IS NULL OR m.external_message_id NOT LIKE ${`${INTERNAL_PHOTO_PREFIX}%`})
       ORDER BY coalesce(m.sent_at, m.created_at) DESC, m.id DESC
       LIMIT 1
@@ -206,9 +216,11 @@ function gespraecheLesen(ws: string, suche: string | null, jetzt: Date) {
 
 function firmenLesen(ws: string) {
   return db.execute(sql`
-    SELECT DISTINCT a.operating_company_record_id AS id
+    SELECT DISTINCT r.id AS id
     FROM channel_accounts a
-    WHERE a.workspace_id = ${ws} AND a.operating_company_record_id IS NOT NULL
+    INNER JOIN records r ON r.id = a.operating_company_record_id
+    INNER JOIN objects o ON o.id = r.object_id AND o.workspace_id = ${ws}
+    WHERE a.workspace_id = ${ws}
   `);
 }
 

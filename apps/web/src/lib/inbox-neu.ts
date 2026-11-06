@@ -86,7 +86,11 @@ export interface InboxFilter {
 
 export interface InboxListe {
   eintraege: InboxEintrag[];
-  /** Zähler über die ungefilterte Menge (Chips zeigen immer den Gesamtstand). */
+  /**
+   * Zähler über die ungefilterte Menge (Chips zeigen immer den Gesamtstand).
+   * Bei `?q=` über die Treffer; die Oberfläche zeigt dann die Chips der
+   * letzten Ladung ohne Suche.
+   */
   chips: InboxChips;
   firmen: { id: string; name: string }[];
   stufen: { id: string; label: string }[];

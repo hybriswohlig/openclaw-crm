@@ -189,8 +189,35 @@ describe("ladeInboxListe", () => {
     expect(sql).toMatch(/d\.deleted_at IS NULL/);
     expect(sql).toMatch(/LEFT JOIN deal_workflow_state w/);
     expect(sql).not.toMatch(/treffer/);
-    expect(abfrage(1).params).toEqual(["ws_1"]);
+    expect(new Set(abfrage(1).params)).toEqual(new Set(["ws_1"]));
     expect(abfrage(2).params).toEqual(["ws_1"]);
+  });
+
+  it("strikt im Workspace: Konto, Kontakt, Nachrichten, Personen und Firmen nur über ihr Objekt im Workspace", async () => {
+    antworten([]);
+    await ladeInboxListe("ws_1", { suche: "Weber", jetzt: JETZT });
+    const haupt = abfrage(0);
+    const imWorkspace = (q: { sql: string; params: unknown[] }, ausdruck: string) => {
+      const treffer = [...q.sql.matchAll(new RegExp(`${ausdruck.replace(/\./g, "\\.")} = \\$(\\d+)`, "g"))];
+      expect(treffer.length, ausdruck).toBeGreaterThan(0);
+      for (const t of treffer) expect(q.params[Number(t[1]) - 1], ausdruck).toBe("ws_1");
+    };
+    // (2) Joins auf Kanalkonto und Kontakt
+    imWorkspace(haupt, "a.workspace_id");
+    imWorkspace(haupt, "k.workspace_id");
+    imWorkspace(haupt, "k2.workspace_id");
+    // (3) Nachrichten: Suche und letzte Nachricht
+    imWorkspace(haupt, "m2.workspace_id");
+    imWorkspace(haupt, "m.workspace_id");
+    // (1) Personen- und Firmen-IDs nur über ihr Objekt im Workspace, Personensuche ebenso
+    expect(haupt.sql).toMatch(/pk\.id AS person_id/);
+    expect(haupt.sql).toMatch(/fk\.id AS firma_id/);
+    expect(haupt.sql).not.toMatch(/k\.crm_record_id AS person_id/);
+    imWorkspace(haupt, "po.workspace_id");
+    const firmen = abfrage(1);
+    expect(firmen.sql).toMatch(/INNER JOIN objects o ON o\.id = r\.object_id/);
+    imWorkspace(firmen, "o.workspace_id");
+    imWorkspace(firmen, "a.workspace_id");
   });
 
   it("abgeschnitten, wenn mehr als 500 Gespräche kommen", async () => {
