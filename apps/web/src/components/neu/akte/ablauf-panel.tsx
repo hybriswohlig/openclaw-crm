@@ -3,7 +3,7 @@
 import "@/styles/neu-akte-ablauf.css";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { toast } from "sonner";
 import { GlassPanel } from "@/components/glassyui/glass-panel";
 import type { AblaufSchritt } from "@/lib/ablauf";
@@ -43,9 +43,15 @@ export function AblaufPanel({
 }) {
   const [alle, setAlle] = useState(false);
   const [bestaetigt, setBestaetigt] = useState<string | null>(null);
+  const listeId = useId();
   const fokus = fokusIndex(ablauf.schritte);
   const anzahl = ablauf.schritte.length;
 
+  /**
+   * 200 und 409 ERLEDIGT laden die Akte neu; jede andere Serverantwort (etwa
+   * 404, die Meldung gibt es nicht mehr) auch, damit kein veralteter Knopf
+   * stehen bleibt. Nur ohne Verbindung (Status 0) bleibt die Seite, wie sie ist.
+   */
   async function bestaetigen(eventId: string) {
     setBestaetigt(eventId);
     const r = await apiAufruf<{ paymentId: string }>(
@@ -54,13 +60,12 @@ export function AblaufPanel({
     );
     if (r.ok) {
       toast.success("Zahlung bestätigt.");
-      await onNeuLaden();
     } else if (r.status === 409 && r.code === "ERLEDIGT") {
       toast.error(r.message);
-      await onNeuLaden();
     } else {
       toast.error("Zahlung konnte nicht bestätigt werden.", { description: r.message });
     }
+    if (r.ok || r.status !== 0) await onNeuLaden();
     setBestaetigt(null);
   }
 
@@ -75,7 +80,7 @@ export function AblaufPanel({
           {ablauf.position} von {anzahl}
         </span>
       </div>
-      <ol className="akte-ablauf-liste" data-alle={alle || undefined} aria-label="Schritte">
+      <ol id={listeId} className="akte-ablauf-liste" data-alle={alle || undefined} aria-label="Schritte">
         {ablauf.schritte.map((s, i) => {
           // Schritt 10: bei genau einer offenen Meldung steht „Bestätigen“ im Hinweis,
           // sonst „Zahlung erfassen“ unter dem Schritt (Entscheidung 6).
@@ -123,6 +128,7 @@ export function AblaufPanel({
         type="button"
         className="akte-ablauf-alle"
         aria-expanded={alle}
+        aria-controls={listeId}
         onClick={() => setAlle((a) => !a)}
       >
         {alle ? "Nur den aktuellen Schritt" : `Alle ${anzahl} Schritte`}

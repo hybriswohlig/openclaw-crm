@@ -10,6 +10,13 @@
  * --jade-ink statt --jade (weißes „✓“ auf --jade nur 3,1:1).
  */
 
+/* Schrift auf Tinten (erledigter und aktueller Kreis). neu.css hat keinen
+   Weiß-Token; derselbe Wert wie die Kürzel in neu-akte.css. --fill-3 (88 %)
+   wäre auf --blue nur 4,5:1. */
+[data-neu] {
+  --akte-auf-tinte: #ffffff;
+}
+
 [data-neu] .akte-ablauf-liste {
   display: flex;
   flex-direction: column;
@@ -58,13 +65,13 @@
 [data-neu] .akte-schritt[data-zustand="erledigt"] .akte-schritt-kreis {
   background: var(--jade-ink);
   box-shadow: none;
-  color: #ffffff;
+  color: var(--akte-auf-tinte);
 }
 
 [data-neu] .akte-schritt[data-zustand="jetzt"] .akte-schritt-kreis {
   background: var(--blue);
-  box-shadow: 0 0 0 5px rgb(0 103 217 / 0.14);
-  color: #ffffff;
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--blue) 14%, transparent);
+  color: var(--akte-auf-tinte);
 }
 
 [data-neu] .akte-schritt[data-zustand="entfaellt"] .akte-schritt-kreis {
@@ -124,6 +131,15 @@
   color: var(--violet);
 }
 
+/* Entfallene Schritte: Marke grau, Zahlungsart-Chips weg. */
+[data-neu] .akte-schritt[data-zustand="entfaellt"] .akte-wer {
+  color: var(--ink-2);
+}
+
+[data-neu] .akte-schritt[data-zustand="entfaellt"] .akte-chips {
+  display: none;
+}
+
 /* Knopf im Schritt: Pille mit blauer Schrift, als <button> und als <a>. */
 [data-neu] .akte-ablauf-knopf {
   display: inline-flex;
@@ -146,7 +162,7 @@
 }
 
 [data-neu] .akte-ablauf-knopf:hover {
-  background: #ffffff;
+  background: var(--rim);
 }
 
 [data-neu] .akte-ablauf-knopf:focus-visible {
@@ -168,8 +184,8 @@
   margin-top: 8px;
   padding: 9px 12px;
   border-radius: 14px;
-  background: rgb(232 150 12 / 0.14);
-  box-shadow: inset 0 0 0 1px rgb(232 150 12 / 0.35);
+  background: color-mix(in srgb, var(--gold) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 35%, transparent);
   color: var(--gold-ink);
   font-size: 12.5px;
   font-weight: 500;
@@ -194,8 +210,8 @@
 }
 
 [data-neu] .akte-ablauf-hinweis[data-ton="blau"] {
-  background: rgb(0 103 217 / 0.1);
-  box-shadow: inset 0 0 0 1px rgb(0 103 217 / 0.3);
+  background: color-mix(in srgb, var(--blue) 10%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--blue) 30%, transparent);
   color: var(--blue-ink);
 }
 
@@ -269,7 +285,8 @@
   outline-offset: 2px;
 }
 
-@media (max-width: 640px) {
+/* Unter 640 px (Brief): eingeklappt. */
+@media (max-width: 639.98px) {
   [data-neu] .akte-ablauf-alle {
     display: flex;
   }
