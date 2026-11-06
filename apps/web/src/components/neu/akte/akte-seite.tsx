@@ -122,29 +122,13 @@ export function AkteSeite({ dealId }: { dealId: string }) {
             ablauf={akte.ablauf}
             zahlung={akte.zahlung}
             altLink={akte.altLink}
-            onNeuLaden={neuLaden}
+            onNeuLaden={neuLadenStill}
             onZahlung={nochKeinDialog}
             onBewertung={nochKeinDialog}
           />
         </aside>
       </div>
     </div>
-  );
-}
-
-/** Panel-Hülle mit Kopfzeile, bis Task 12 und 13 ihre Inhalte einsetzen. */
-function SlotPanel({ titel, unter, rechts }: { titel: string; unter: string; rechts?: string }) {
-  return (
-    <GlassPanel variant="panel" className="akte-panel">
-      <div className="akte-panel-kopf">
-        <div>
-          <h2 className="akte-panel-titel">{titel}</h2>
-          <p className="akte-panel-unter">{unter}</p>
-        </div>
-        {rechts ? <span className="akte-panel-rechts">{rechts}</span> : null}
-      </div>
-      <div className="akte-panel-leer" />
-    </GlassPanel>
   );
 }
 
