@@ -100,6 +100,13 @@ describe("PUT /api/v1/me/ansichten/[schluessel]", () => {
     expect(mocks.setAnsicht).not.toHaveBeenCalled();
   });
 
+  it.each(["constructor", "__proto__", "toString"])("antwortet 404 für geerbte Eigenschaft %s und schreibt nichts", async (k) => {
+    const res = await put(k, { beliebig: true });
+
+    expect(res.status).toBe(404);
+    expect(mocks.setAnsicht).not.toHaveBeenCalled();
+  });
+
   it("antwortet 400 bei ungültiger Ansicht und schreibt nichts", async () => {
     const res = await put("leads", { modus: "tisch", listenSpalten: ["name"], sortierung: GEPRUEFT.sortierung });
 

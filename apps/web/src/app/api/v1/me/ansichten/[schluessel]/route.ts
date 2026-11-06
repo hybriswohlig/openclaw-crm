@@ -13,9 +13,10 @@ import { setAnsicht } from "@/services/user-settings";
 
 const ANSICHT_MAX_BYTES = 4 * 1024;
 
-const ANSICHT_PRUEFER: Record<string, (roh: unknown) => unknown | null> = {
-  [LEADS_ANSICHT_SCHLUESSEL]: leadsAnsichtPruefen,
-};
+// Map statt Objekt: geerbte Eigenschaften wie „constructor“ oder „__proto__“ sind keine Ansichten.
+const ANSICHT_PRUEFER = new Map<string, (roh: unknown) => unknown | null>([
+  [LEADS_ANSICHT_SCHLUESSEL, leadsAnsichtPruefen],
+]);
 
 /** Speichert eine geprüfte Ansicht unter ihrem Schlüssel. Andere Schlüssel bleiben. */
 export async function PUT(
@@ -27,7 +28,7 @@ export async function PUT(
   if (isReadOnlyApiKey(ctx)) return forbidden("Nur-Lesen-Schlüssel darf keine Ansicht speichern.");
 
   const { schluessel } = await params;
-  const pruefen = ANSICHT_PRUEFER[schluessel];
+  const pruefen = ANSICHT_PRUEFER.get(schluessel);
   if (!pruefen) return notFound("Unbekannte Ansicht");
 
   const text = await req.text();
