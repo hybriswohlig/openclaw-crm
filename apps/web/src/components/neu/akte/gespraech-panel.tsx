@@ -5,7 +5,9 @@ import "@/styles/neu-akte-gespraech.css";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { GlassPanel } from "@/components/glassyui/glass-panel";
 import { GlassSegmentedControl, GlassSegmentedControlItem } from "@/components/glassyui/glass-segmented-control";
-import type { GespraechKanalArt } from "@/lib/gespraech";
+import { TranskriptDialog, type TranskriptVorschau } from "@/components/neu/anrufe/transkript-dialog";
+import { usePortalZiel } from "@/components/neu/portal-ziel";
+import type { GespraechEintrag, GespraechKanalArt } from "@/lib/gespraech";
 import type { Gespraech } from "@/services/gespraech";
 import { DokumenteAnsicht } from "./dokumente-ansicht";
 import { Eingabe } from "./eingabe";
@@ -25,6 +27,24 @@ const ANSICHTEN: { wert: Ansicht; label: string }[] = [
 ];
 
 const KANAL_REIHE: GespraechKanalArt[] = ["whatsapp", "email", "sms"];
+
+type Anruf = Extract<GespraechEintrag, { art: "anruf" }>;
+
+/** Was der Transkript-Dialog aus dem Verlaufseintrag schon weiß; der Name steht im Kopf der Akte. */
+function vorschauAus(a: Anruf, kundeName: string): TranskriptVorschau {
+  return {
+    id: a.id,
+    zeit: a.zeit,
+    leitung: a.leitung,
+    angenommenVon: a.angenommenVon,
+    dauerSek: a.dauerSek,
+    anruferName: kundeName,
+    nummer: a.nummer,
+    zusammenfassung: a.zusammenfassung,
+    stichworte: [],
+    dealRecordId: null,
+  };
+}
 
 /**
  * Das Gespräch-Panel der Akte (Spec 3.3): Kopf mit Kanal-Chips und
@@ -51,6 +71,8 @@ export function GespraechPanel({
   const [gewaehltId, setGewaehltId] = useState<string | null>(gespraech.vorauswahl);
   const [text, setText] = useState("");
   const [foto, setFoto] = useState<Foto | null>(null);
+  const [transkript, setTranskript] = useState<Anruf | null>(null);
+  const portalZiel = usePortalZiel();
   const feldRef = useRef<HTMLTextAreaElement | null>(null);
 
   // Fällt das gewählte Gespräch nach einem Neuladen weg (oder kam das erste
@@ -108,7 +130,12 @@ export function GespraechPanel({
 
       {ansicht === "chat" ? (
         <>
-          <GespraechVerlauf eintraege={gespraech.eintraege} kanaele={gespraech.kanaele} onFoto={setFoto} />
+          <GespraechVerlauf
+            eintraege={gespraech.eintraege}
+            kanaele={gespraech.kanaele}
+            onFoto={setFoto}
+            onTranskript={setTranskript}
+          />
           <div className="akte-gespraech-fuss">
             <EntwurfKarte
               gespraechId={gewaehltId}
@@ -131,6 +158,14 @@ export function GespraechPanel({
             />
           </div>
           <FotoVollbild foto={foto} onClose={() => setFoto(null)} />
+          {transkript ? (
+            <TranskriptDialog
+              anruf={vorschauAus(transkript, kundeName)}
+              portalZiel={portalZiel}
+              akteLink={false}
+              onSchliessen={() => setTranskript(null)}
+            />
+          ) : null}
         </>
       ) : null}
       {ansicht === "fotos" ? <FotosAnsicht dealId={dealId} /> : null}

@@ -1,0 +1,390 @@
+/*
+ * Telefonate in der neuen Oberfläche: die Seite /app/anrufe und der
+ * Transkript-Dialog (auch aus der Akte). Alles unter [data-neu] mit Präfix
+ * .anrufe-, damit die alten Seiten unberührt bleiben. Tokens aus neu.css,
+ * Dialogklassen (.akte-dialog-*) aus neu-akte.css.
+ */
+
+/* ── Seite ───────────────────────────────────────────── */
+
+[data-neu] .anrufe {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+[data-neu] .anrufe-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+[data-neu] .anrufe-filter button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+[data-neu] .anrufe-filter button:hover {
+  color: var(--ink);
+}
+
+[data-neu] .anrufe-filter button[aria-pressed="true"] {
+  background: var(--ink);
+  box-shadow: none;
+  color: #ffffff;
+}
+
+[data-neu] .anrufe-filter button:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+[data-neu] .anrufe-panel {
+  --lg-panel-radius: 24px;
+
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 18px;
+}
+
+[data-neu] .anrufe-leer {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+[data-neu] .anrufe-tag {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+[data-neu] .anrufe-tag-titel {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--ink-3);
+  text-transform: uppercase;
+}
+
+[data-neu] .anrufe-liste {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+[data-neu] .anrufe-zeile {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  align-items: start;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+}
+
+[data-neu] .anrufe-zeile:hover {
+  box-shadow: inset 0 0 0 1px var(--rim), var(--shadow);
+}
+
+[data-neu] .anrufe-zeit {
+  padding-top: 2px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+}
+
+/* Der Knopf trägt den Anruf selbst (öffnet den Dialog); die Links daneben bleiben eigene Elemente. */
+[data-neu] .anrufe-knopf {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+[data-neu] .anrufe-knopf:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 4px;
+  border-radius: 6px;
+}
+
+[data-neu] .anrufe-kopfzeile {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 14px;
+}
+
+[data-neu] .anrufe-kopfzeile b {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+[data-neu] .anrufe-kopfzeile span {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+[data-neu] .anrufe-leitung {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--violet) 10%, transparent);
+  color: var(--violet);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+[data-neu] .anrufe-leitung i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+[data-neu] .anrufe-zusammenfassung {
+  margin: 0;
+  overflow: hidden;
+  font-size: 13px;
+  color: var(--ink-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-neu] .anrufe-knopf:hover .anrufe-zusammenfassung {
+  color: var(--ink);
+}
+
+[data-neu] .anrufe-transkript-marke {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+[data-neu] .anrufe-zuordnung {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  padding-top: 2px;
+  font-size: 12.5px;
+  text-align: right;
+  color: var(--ink-2);
+}
+
+[data-neu] .anrufe-zuordnung a {
+  color: var(--blue);
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+[data-neu] .anrufe-zuordnung a:hover {
+  text-decoration: underline;
+}
+
+[data-neu] .anrufe-zuordnung-hinweis {
+  color: var(--gold-ink);
+  font-weight: 500;
+}
+
+/* ── Dialog ──────────────────────────────────────────── */
+
+[data-neu] .anrufe-dialog {
+  max-width: min(96vw, 760px);
+}
+
+[data-neu] .anrufe-dialog-kopf {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  gap: 10px 14px;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--hair);
+}
+
+[data-neu] .anrufe-dialog-kopf > div {
+  min-width: 0;
+}
+
+[data-neu] .anrufe-dialog-kopf dt {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ink-3);
+  text-transform: uppercase;
+}
+
+[data-neu] .anrufe-dialog-kopf dd {
+  display: flex;
+  flex-direction: column;
+  margin: 2px 0 0;
+  font-size: 14px;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+[data-neu] .anrufe-dialog-kopf dd small {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+[data-neu] .anrufe-dialog-abschnitt {
+  margin: 0 0 14px;
+}
+
+[data-neu] .anrufe-dialog-abschnitt h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+[data-neu] .anrufe-dialog-text {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ink);
+  white-space: pre-wrap;
+}
+
+[data-neu] .anrufe-dialog-hinweis {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+[data-neu] .anrufe-dialog-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--blue);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+[data-neu] .anrufe-dialog-link:hover {
+  text-decoration: underline;
+}
+
+[data-neu] .anrufe-stichworte {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+[data-neu] .anrufe-stichworte li {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--violet) 10%, transparent);
+  color: var(--violet);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+/* Vorformatiert, aber umbrechend; eigener Scrollbereich, damit der Dialog
+   selbst nicht endlos wächst. */
+[data-neu] .anrufe-transkript {
+  max-height: min(46vh, 480px);
+  margin: 0;
+  padding: 12px 14px;
+  overflow: auto;
+  border-radius: 14px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 13.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+[data-neu] .anrufe-transkript:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+/* ── Handy ───────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  [data-neu] .anrufe-panel {
+    padding: 14px 12px;
+  }
+
+  [data-neu] .anrufe-zeile {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+    padding: 10px 12px;
+  }
+
+  [data-neu] .anrufe-zeit {
+    padding-top: 0;
+    font-size: 12px;
+  }
+
+  [data-neu] .anrufe-zusammenfassung {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
+  [data-neu] .anrufe-zuordnung {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 4px 12px;
+    padding-top: 4px;
+    text-align: left;
+  }
+
+  [data-neu] .anrufe-zuordnung a {
+    white-space: normal;
+  }
+
+  [data-neu] .anrufe-dialog-kopf {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  [data-neu] .anrufe-transkript {
+    max-height: 40vh;
+  }
+}

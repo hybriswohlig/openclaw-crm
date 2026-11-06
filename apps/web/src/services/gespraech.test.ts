@@ -33,6 +33,7 @@ import {
   dealGespraeche,
   ersteAnpassungAus,
   ladeGespraech,
+  type AnrufRoh,
   type GespraechRoh,
   type GespraechSpeicher,
 } from "./gespraech";
@@ -87,7 +88,7 @@ const msg = (over: Partial<PersonTimelineMessage> & { id: string; conversationId
 function speicher(teile: {
   gespraeche?: GespraechRoh[];
   nachrichten?: PersonTimelineMessage[];
-  anrufe?: { id: string; startedAt: Date; durationSeconds: number | null; summary: string | null }[];
+  anrufe?: AnrufRoh[];
   fakten?: SystemFakten;
   imFenster?: boolean | null;
 }): GespraechSpeicher {
@@ -146,12 +147,35 @@ describe("ladeGespraech", () => {
         msg({ id: "mail1", conversationId: "c_mail", channelType: "email", sentAt: new Date("2026-11-03T09:00:00.000Z") }),
         msg({ id: "ohneZeit", conversationId: "c_mail", channelType: "email", sentAt: null, createdAt: new Date("2026-11-05T09:00:00.000Z") }),
       ],
-      anrufe: [{ id: "call1", startedAt: new Date("2026-11-02T15:00:00.000Z"), durationSeconds: 240, summary: "Termin besprochen" }],
+      anrufe: [
+        {
+          id: "call1",
+          startedAt: new Date("2026-11-02T15:00:00.000Z"),
+          durationSeconds: 240,
+          summary: "Termin besprochen",
+          lineLabel: "Festnetz",
+          answeredBy: "Dario",
+          callerE164: "+4915500000201",
+          callerRaw: "01550 0000201",
+          transcript: "Kunde: Guten Tag, ich ziehe im Dezember um.",
+        },
+        {
+          id: "call2",
+          startedAt: new Date("2026-11-02T16:00:00.000Z"),
+          durationSeconds: null,
+          summary: null,
+          lineLabel: null,
+          answeredBy: null,
+          callerE164: null,
+          callerRaw: "anonym",
+          transcript: "   ",
+        },
+      ],
       imFenster: true,
     });
     const out = await ladeGespraech(WS, DEAL, s);
 
-    expect(out.eintraege.map((e) => e.id)).toEqual(["sys:lead", "wa1", "call1", "mail1", "wa2", "ohneZeit"]);
+    expect(out.eintraege.map((e) => e.id)).toEqual(["sys:lead", "wa1", "call1", "call2", "mail1", "wa2", "ohneZeit"]);
     expect(out.eintraege[1]).toEqual({
       art: "nachricht",
       id: "wa1",
@@ -164,7 +188,29 @@ describe("ladeGespraech", () => {
       status: "received",
       anhaenge: [{ id: "att1", name: "sofa.jpg", mime: "image/jpeg" }],
     });
-    expect(out.eintraege[2]).toEqual({ art: "anruf", id: "call1", zeit: "2026-11-02T15:00:00.000Z", dauerSek: 240, zusammenfassung: "Termin besprochen" });
+    // Leitung, „angenommen von“ und Nummer kommen mit; das Transkript selbst nicht, nur ob es eines gibt.
+    expect(out.eintraege[2]).toEqual({
+      art: "anruf",
+      id: "call1",
+      zeit: "2026-11-02T15:00:00.000Z",
+      dauerSek: 240,
+      zusammenfassung: "Termin besprochen",
+      leitung: "Festnetz",
+      angenommenVon: "Dario",
+      nummer: "+4915500000201",
+      hatTranskript: true,
+    });
+    expect(out.eintraege[3]).toEqual({
+      art: "anruf",
+      id: "call2",
+      zeit: "2026-11-02T16:00:00.000Z",
+      dauerSek: null,
+      zusammenfassung: null,
+      leitung: null,
+      angenommenVon: null,
+      nummer: "anonym",
+      hatTranskript: false,
+    });
     expect(out.eintraege.find((e) => e.id === "wa2")).toMatchObject({ richtung: "outbound", von: null, status: "read" });
     expect(out.eintraege.find((e) => e.id === "ohneZeit")).toMatchObject({ zeit: "2026-11-05T09:00:00.000Z" });
     expect(out.eintraege[0]).toMatchObject({ art: "system", text: "Lead angelegt · Kottke · Quelle Kleinanzeigen · Neue Anfrage" });

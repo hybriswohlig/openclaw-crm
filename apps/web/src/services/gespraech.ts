@@ -16,6 +16,7 @@
  */
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
+import { hatTranskript } from "@/lib/anrufe";
 import { berlinDateString } from "@/lib/berlin-date";
 import { alsIso, alsJson, alsZahl, zeilen } from "@/lib/db-werte";
 import {
@@ -73,6 +74,11 @@ export interface AnrufRoh {
   startedAt: Date;
   durationSeconds: number | null;
   summary: string | null;
+  lineLabel: string | null;
+  answeredBy: string | null;
+  callerE164: string | null;
+  callerRaw: string | null;
+  transcript: string | null;
 }
 
 export interface GespraechSpeicher {
@@ -377,6 +383,10 @@ export async function ladeGespraech(
     zeit: c.startedAt.toISOString(),
     dauerSek: c.durationSeconds ?? null,
     zusammenfassung: c.summary ?? null,
+    leitung: c.lineLabel ?? null,
+    angenommenVon: c.answeredBy ?? null,
+    nummer: c.callerE164 ?? c.callerRaw ?? null,
+    hatTranskript: hatTranskript(c.transcript),
   }));
 
   const letzte = new Map<string, number>();

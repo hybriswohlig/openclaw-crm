@@ -180,6 +180,16 @@ export async function listCallsForRecord(
   return [...byId.values()].sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime()).slice(0, 50);
 }
 
+/** Ein Anruf des Workspace mit Transkript; aus einem fremden Workspace null. */
+export async function getPhoneCall(workspaceId: string, callId: string): Promise<PhoneCallRow | null> {
+  const [row] = await db
+    .select()
+    .from(phoneCalls)
+    .where(and(eq(phoneCalls.workspaceId, workspaceId), eq(phoneCalls.id, callId)))
+    .limit(1);
+  return row ?? null;
+}
+
 export async function listRecentPhoneCalls(workspaceId: string, limit: number): Promise<PhoneCallRow[]> {
   return db
     .select()

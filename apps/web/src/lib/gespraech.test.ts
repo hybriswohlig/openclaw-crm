@@ -26,7 +26,17 @@ const nachricht = (id: string, zeit: string, over: Partial<Nachricht> = {}): Nac
   anhaenge: [],
   ...over,
 });
-const anruf = (id: string, zeit: string): Anruf => ({ art: "anruf", id, zeit, dauerSek: 240, zusammenfassung: "Termin besprochen" });
+const anruf = (id: string, zeit: string): Anruf => ({
+  art: "anruf",
+  id,
+  zeit,
+  dauerSek: 240,
+  zusammenfassung: "Termin besprochen",
+  leitung: "Festnetz",
+  angenommenVon: "Dario",
+  nummer: "+4915500000201",
+  hatTranskript: true,
+});
 const system = (id: string, zeit: string): System => ({ art: "system", id, zeit, text: id, betont: null });
 
 const LEER: SystemFakten = {

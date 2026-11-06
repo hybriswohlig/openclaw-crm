@@ -302,6 +302,29 @@
   white-space: pre-wrap;
 }
 
+/* „Transkript“ unter der Zusammenfassung: öffnet den Dialog, erst dann lädt der Text. */
+[data-neu] .akte-gespraech-anruf-knopf {
+  margin-top: 3px;
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--violet) 10%, transparent);
+  color: var(--violet);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+[data-neu] .akte-gespraech-anruf-knopf:hover {
+  background: color-mix(in srgb, var(--violet) 16%, transparent);
+}
+
+[data-neu] .akte-gespraech-anruf-knopf:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
 /* ── Fuß: Entwurf-Karte und Eingabefeld ──────────────── */
 
 [data-neu] .akte-gespraech-fuss {

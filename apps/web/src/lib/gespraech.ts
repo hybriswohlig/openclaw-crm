@@ -26,7 +26,21 @@ export type GespraechEintrag =
       status: string;
       anhaenge: { id: string; name: string; mime: string }[];
     }
-  | { art: "anruf"; id: string; zeit: string; dauerSek: number | null; zusammenfassung: string | null }
+  | {
+      art: "anruf";
+      id: string;
+      zeit: string;
+      dauerSek: number | null;
+      zusammenfassung: string | null;
+      /** `phone_calls.line_label`, etwa „Festnetz“ oder „Kottke Mobil“. */
+      leitung: string | null;
+      /** `phone_calls.answered_by`. */
+      angenommenVon: string | null;
+      /** Nummer des Anrufers: E.164, sonst wie übermittelt. */
+      nummer: string | null;
+      /** Es gibt ein Transkript; geladen wird es erst beim Öffnen (`GET /phone-calls/[id]`). */
+      hatTranskript: boolean;
+    }
   | {
       art: "system";
       id: string;

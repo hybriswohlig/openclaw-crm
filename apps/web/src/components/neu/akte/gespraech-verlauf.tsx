@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
+import { anrufDauerText } from "@/lib/anrufe";
 import { uhrzeitKurz } from "@/lib/anzeige";
 import type { GespraechEintrag, GespraechKanalArt } from "@/lib/gespraech";
 import type { GespraechKanal } from "@/services/gespraech";
@@ -38,24 +39,22 @@ export function hakenAus(status: string): { text: string; titel: string } | null
   }
 }
 
-/** „4 Min“ aus Sekunden; unter einer Minute „1 Min“. */
-export function anrufDauer(sek: number): string {
-  return `${Math.max(1, Math.round(sek / 60))} Min`;
-}
-
 /**
  * Der Verlauf: Tageskapseln, eingehende Blasen links, ausgehende rechts,
  * Systemzeilen und Anrufe mittig. Scrollt beim Laden und bei neuen Einträgen
- * ans Ende. `onFoto` öffnet ein Bild im Vollbild.
+ * ans Ende. `onFoto` öffnet ein Bild im Vollbild, `onTranskript` den
+ * Transkript-Dialog eines Anrufs.
  */
 export function GespraechVerlauf({
   eintraege,
   kanaele,
   onFoto,
+  onTranskript,
 }: {
   eintraege: GespraechEintrag[];
   kanaele: GespraechKanal[];
   onFoto: (foto: Foto) => void;
+  onTranskript?: (anruf: Anruf) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const tage = useMemo(() => nachTagen(eintraege, new Date()), [eintraege]);
@@ -83,7 +82,7 @@ export function GespraechVerlauf({
             if (e.art === "nachricht") {
               return <NachrichtBlase key={e.id} n={e} andererDeal={direkt.get(e.gespraechId) === false} onFoto={onFoto} />;
             }
-            if (e.art === "anruf") return <AnrufZeile key={e.id} a={e} />;
+            if (e.art === "anruf") return <AnrufZeile key={e.id} a={e} onTranskript={onTranskript} />;
             return <SystemZeile key={e.id} s={e} />;
           })}
         </TagGruppe>
@@ -181,16 +180,25 @@ function NachrichtBlase({
   );
 }
 
-function AnrufZeile({ a }: { a: Anruf }) {
+/** „Anruf · Festnetz · 4 Min · 09:14“, darunter die Zusammenfassung und bei Transkript der Knopf dazu. */
+function AnrufZeile({ a, onTranskript }: { a: Anruf; onTranskript?: (anruf: Anruf) => void }) {
+  const dauer = anrufDauerText(a.dauerSek);
   return (
     <div className="akte-gespraech-system">
       <span className="akte-gespraech-system-zeile">
         <i className="akte-gespraech-punkt" data-kanal="anruf" aria-hidden="true" />
         <b>Anruf</b>
-        {a.dauerSek !== null && a.dauerSek > 0 ? <span>· {anrufDauer(a.dauerSek)}</span> : null}
+        {a.leitung ? <span>· {a.leitung}</span> : null}
+        {dauer ? <span>· {dauer}</span> : null}
         <span>· {uhrzeitKurz(a.zeit)}</span>
+        {a.angenommenVon ? <span>· {a.angenommenVon}</span> : null}
       </span>
       {a.zusammenfassung ? <span className="akte-gespraech-anruf-text">{a.zusammenfassung}</span> : null}
+      {a.hatTranskript && onTranskript ? (
+        <button type="button" className="akte-gespraech-anruf-knopf" onClick={() => onTranskript(a)}>
+          Transkript
+        </button>
+      ) : null}
     </div>
   );
 }
