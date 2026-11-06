@@ -110,9 +110,11 @@ const STUFEN = [
 ];
 
 describe("Ansicht", () => {
-  it("zeigt bei gespeichertem „kalender“ das Board", () => {
-    expect(modusAnzeige({ modus: "kalender" })).toBe("board");
+  it("zeigt Board, Liste und Kalender, Unbekanntes als Board", () => {
+    expect(modusAnzeige({ modus: "kalender" })).toBe("kalender");
     expect(modusAnzeige({ modus: "liste" })).toBe("liste");
+    expect(modusAnzeige({ modus: "board" })).toBe("board");
+    expect(modusAnzeige({ modus: "tafel" as never })).toBe("board");
   });
 
   it("ordnet Spalten wie LISTEN_SPALTEN und hält „name“", () => {
@@ -353,7 +355,10 @@ describe("Laden", () => {
     const liste = { ...STANDARD_ANSICHT, modus: "liste" as const };
     expect(angezeigterModus(false, liste)).toBe("board");
     expect(angezeigterModus(true, liste)).toBe("liste");
-    expect(angezeigterModus(true, { ...STANDARD_ANSICHT, modus: "kalender" })).toBe("board");
+    // Kalender lädt selbst; am Handy bleibt es die Kartenliste
+    expect(angezeigterModus(true, { modus: "kalender" })).toBeNull();
+    expect(angezeigterModus(false, { modus: "kalender" })).toBe("board");
+    expect(angezeigterModus(true, { ...STANDARD_ANSICHT, modus: "kalender" })).toBeNull();
     expect(angezeigterModus(null, liste)).toBeNull();
     expect(angezeigterModus(true, null)).toBeNull();
   });

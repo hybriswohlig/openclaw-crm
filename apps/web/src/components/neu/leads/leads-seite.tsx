@@ -9,7 +9,9 @@ import { GlassButton } from "@/components/glassyui/glass-button";
 import { apiAufruf, jsonAufruf } from "@/components/neu/akte/api";
 import { TerminDialogAlt } from "@/components/neu/akte/termin-dialog-alt";
 import { useBreit } from "@/components/neu/breit";
+import { PlanAnsicht } from "@/components/neu/plan/plan-ansicht";
 import { usePortalZiel } from "@/components/neu/portal-ziel";
+import { berlinDateString } from "@/lib/berlin-date";
 import {
   LEADS_ANSICHT_SCHLUESSEL,
   LISTEN_SEITE,
@@ -28,6 +30,7 @@ import {
   type ListenSpalte,
   type SortSchluessel,
 } from "@/lib/leads-board";
+import type { PlanSeitenZustand } from "@/lib/plan-heute";
 import { akteUrl } from "./lead-karte";
 import { LeadsBoard } from "./leads-board";
 import { LeadsChipsZeile } from "./leads-chips";
@@ -86,7 +89,8 @@ type Dialog = { art: "termin"; dealId: string } | { art: "zahlung"; karte: LeadK
 const FILTER_RUECKSETZEN: Partial<LeadsFilter> = { chip: null, firmaId: null, quelleId: null, monat: null, suche: "", nurWartet: false };
 
 /**
- * /app/leads (Plan 7): Board oder Liste über alle Deals des Workspace. Hält
+ * /app/leads (Plan 7): Board, Liste oder Kalender (Plan 8: der Plan mit den
+ * Leads-Filtern, `PlanAnsicht`) über alle Deals des Workspace. Hält
  * die Filter (in der URL, nicht gespeichert), die gespeicherte Ansicht
  * (`user_settings.ansichten.leads`, 500 ms nach der letzten Änderung), lädt
  * Board (`/leads/board`, je Spalte „Mehr laden“ über `/leads/board/spalte`)
@@ -115,6 +119,9 @@ export function LeadsSeite() {
   // Neu laden läuft (je Ansicht): „Mehr laden“ ist so lange gesperrt.
   const [boardLaeuft, setBoardLaeuftZustand] = useState(false);
   const [listeLaeuft, setListeLaeuftZustand] = useState(false);
+  // Kalender (Plan 8): Plan-Zustand nur auf der Seite; Firma kommt aus den Leads-Filtern.
+  const [kalender, setKalender] = useState<PlanSeitenZustand>(() => ({ modus: "monat", anker: berlinDateString(), firmaId: null, mitarbeiterId: null }));
+  const kalenderFilter = useMemo<LeadsFilter>(() => ({ ...gesendet, monat: null }), [gesendet]);
 
   const boardLauf = useRef(0);
   const listeLauf = useRef(0);
@@ -518,7 +525,9 @@ export function LeadsSeite() {
         onModus={(m) => ansichtSetzen((a) => ({ ...a, modus: m }))}
       />
 
-      {modus === "board" ? (
+      {modus === "kalender" ? (
+        <PlanAnsicht zustand={kalender} onZustand={setKalender} leads={kalenderFilter} onFilterZuruecksetzen={() => filterSetzen(FILTER_RUECKSETZEN)} />
+      ) : modus === "board" ? (
         board.art === "laden" ? (
           <BoardSkelett />
         ) : board.art === "fehler" ? (

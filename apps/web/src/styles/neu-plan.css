@@ -1,0 +1,1023 @@
+/*
+ * Plan unter /app/plan und Kalender in /app/leads (Plan 8). Maße aus
+ * design/neubau-2026-11-05/04-plan.html, Farben aus neu.css und neu-akte.css
+ * (--jade-ink, --blue-ink, --rose-ink), Dialogklassen aus neu-akte.css, die
+ * Leisten-Pille aus neu-leiste.css, die Tageszeile aus neu-plan-zeile.css.
+ * Alles unter [data-neu] mit Präfix .plan- (nicht .plan-zeile-).
+ *
+ * Glas nur auf Rasterpanel, Leiste, Chips und Popover; Zellen und Spalten
+ * stehen auf --fill-3. Text mindestens 4,5:1: Meta, Wochentage, Zweitzeilen
+ * und „erledigt“ in --ink-2 statt --ink-3 wie im Mockup; vergangene Tage nur
+ * mit blasserem Grund statt Deckkraft 0,6.
+ */
+
+[data-neu] .plan {
+  --plan-tint-jade: rgba(20, 168, 116, 0.13);
+  --plan-tint-gold: rgba(232, 150, 12, 0.15);
+  --plan-tint-violett: rgba(106, 76, 240, 0.11);
+  --plan-tint-grau: rgba(34, 34, 36, 0.05);
+  --plan-strich: rgba(34, 34, 36, 0.26);
+
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+/* ── Kopf ────────────────────────────────────────────── */
+
+[data-neu] .plan-kopf {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 18px;
+}
+
+[data-neu] .plan-kopf-text {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+[data-neu] .plan-meta {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+[data-neu] .plan-kopf-aktionen {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ── Im Blick ────────────────────────────────────────── */
+
+[data-neu] .plan-blick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px;
+}
+
+[data-neu] .plan-blick-label {
+  margin-right: 4px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+[data-neu] .plan-blick-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 13px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fill-2);
+  box-shadow: inset 0 0 0 1px var(--rim), var(--shadow);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(16px) saturate(1.6);
+  backdrop-filter: blur(16px) saturate(1.6);
+}
+
+[data-neu] .plan-blick-chip:hover {
+  background: var(--fill-3);
+}
+
+[data-neu] .plan-blick-chip b {
+  font-weight: 700;
+}
+
+[data-neu] .plan-blick-chip i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-3);
+}
+
+[data-neu] .plan-blick-chip i[data-ton="gold"] {
+  background: var(--gold);
+}
+
+[data-neu] .plan-blick-chip[aria-pressed="true"] {
+  background: var(--ink);
+  box-shadow: none;
+  color: #ffffff;
+}
+
+[data-neu] .plan-blick-chip[aria-pressed="true"] i {
+  box-shadow: 0 0 0 2px rgb(255 255 255 / 0.35);
+}
+
+/* ── Leiste ──────────────────────────────────────────── */
+
+/* Fast deckend wie die Leads-Leiste: oben rechts liegt die Schleife darunter. */
+[data-neu] .plan-leiste {
+  --lg-panel-radius: 24px;
+
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--fill-3);
+}
+
+[data-neu] .plan-umschalter {
+  width: max-content;
+  max-width: 100%;
+  grid-auto-columns: max-content;
+  font-size: 13px;
+}
+
+[data-neu] .plan-umschalter .lg-segmented-item {
+  padding: 6px 14px;
+  color: var(--ink-2);
+}
+
+[data-neu] .plan-umschalter .lg-segmented-item[data-state="checked"] {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+[data-neu] .plan-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 6px;
+}
+
+[data-neu] .plan-nav-titel {
+  min-width: 0;
+  margin: 0 4px;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+[data-neu] .plan-nav-pfeil {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+}
+
+[data-neu] .plan-nav-pfeil:hover {
+  background: rgba(34, 34, 36, 0.06);
+}
+
+[data-neu] .plan-nav-pfeil svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: var(--ink-2);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+[data-neu] .plan-heute-knopf {
+  margin-left: 4px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+[data-neu] .plan-heute-knopf:hover:not(:disabled) {
+  background: #ffffff;
+}
+
+[data-neu] .plan-heute-knopf:disabled {
+  color: var(--ink-2);
+  font-weight: 500;
+  cursor: default;
+}
+
+[data-neu] .plan-abo {
+  margin-left: auto;
+  padding: 6px 4px;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  text-decoration: none;
+}
+
+[data-neu] .plan-abo:hover {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+[data-neu] .plan-leiste[data-kompakt] {
+  padding: 8px 10px;
+}
+
+[data-neu] .plan-leiste[data-kompakt] .plan-nav {
+  flex: 1 1 100%;
+  justify-content: space-between;
+  margin: 0;
+}
+
+[data-neu] .plan-leiste[data-kompakt] .plan-nav-titel {
+  flex: 1;
+  overflow: hidden;
+  font-size: 15px;
+  text-align: center;
+  text-overflow: ellipsis;
+}
+
+/* ── Rasterpanel ─────────────────────────────────────── */
+
+[data-neu] .plan-raster {
+  --lg-panel-radius: 24px;
+
+  padding: 14px;
+  transition: opacity 0.15s ease;
+}
+
+[data-neu] .plan-raster[data-laedt] {
+  opacity: 0.72;
+}
+
+[data-neu] .plan-monat,
+[data-neu] .plan-woche {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+[data-neu] .plan-reihe,
+[data-neu] .plan-wochentage {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+}
+
+[data-neu] .plan-wochentage div {
+  padding: 0 10px;
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* ── Zelle (Monat) und Spalte (Woche) ────────────────── */
+
+[data-neu] .plan-zelle,
+[data-neu] .plan-spalte {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  min-height: 140px;
+  padding: 9px 9px 8px;
+  border-radius: 16px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim), 0 1px 2px rgb(0 0 0 / 0.04);
+}
+
+[data-neu] .plan-spalte {
+  min-height: 360px;
+  gap: 6px;
+}
+
+[data-neu] .plan-zelle[data-wochenende],
+[data-neu] .plan-spalte[data-wochenende] {
+  background: rgba(255, 255, 255, 0.62);
+}
+
+[data-neu] .plan-zelle[data-vergangen],
+[data-neu] .plan-spalte[data-vergangen] {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+[data-neu] .plan-zelle[data-nachbar] {
+  background: rgba(255, 255, 255, 0.42);
+}
+
+[data-neu] .plan-zelle[data-heute],
+[data-neu] .plan-spalte[data-heute] {
+  box-shadow: inset 0 0 0 2px var(--blue), 0 1px 2px rgb(0 0 0 / 0.04);
+}
+
+/* Während des Ziehens: jede erlaubte Ablage leicht blau, die unter dem Zeiger deutlich. */
+[data-neu] .plan-zelle[data-ablage],
+[data-neu] .plan-spalte[data-ablage] {
+  box-shadow: inset 0 0 0 1.5px rgb(0 103 217 / 0.28), 0 1px 2px rgb(0 0 0 / 0.04);
+}
+
+[data-neu] .plan-zelle[data-ueber],
+[data-neu] .plan-spalte[data-ueber] {
+  background: rgb(0 103 217 / 0.08);
+  box-shadow: inset 0 0 0 2px var(--blue), 0 1px 2px rgb(0 0 0 / 0.04);
+}
+
+[data-neu] .plan-zelle-datum {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  align-self: flex-start;
+  margin: -2px 0 2px -4px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+[data-neu] .plan-zelle-datum small {
+  color: var(--ink-2);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+[data-neu] .plan-zelle[data-heute] .plan-zelle-datum small {
+  color: var(--blue-ink);
+  font-weight: 600;
+}
+
+[data-neu] .plan-zelle[data-nachbar] .plan-zelle-datum,
+[data-neu] .plan-zelle[data-vergangen] .plan-zelle-datum {
+  color: var(--ink-2);
+  font-weight: 500;
+}
+
+[data-neu] .plan-zelle-datum:hover,
+[data-neu] .plan-spalte-kopf:hover {
+  background: rgba(34, 34, 36, 0.06);
+}
+
+[data-neu] .plan-spalte-kopf {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: -2px -4px 4px;
+  padding: 3px 4px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+[data-neu] .plan-spalte-kopf b {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+[data-neu] .plan-spalte-kopf small {
+  color: var(--blue-ink);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+[data-neu] .plan-spalte[data-vergangen] .plan-spalte-kopf b {
+  color: var(--ink-2);
+}
+
+[data-neu] .plan-spalte-leer {
+  color: var(--ink-2);
+  font-size: 12px;
+}
+
+[data-neu] .plan-mehr {
+  align-self: flex-start;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--blue-ink);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+[data-neu] .plan-mehr:hover {
+  background: rgb(0 103 217 / 0.08);
+}
+
+/* ── Eintrag ─────────────────────────────────────────── */
+
+[data-neu] .plan-eintrag {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--plan-tint-grau);
+  color: var(--ink);
+  font: inherit;
+  font-size: 11.5px;
+  line-height: 1.3;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+[data-neu] .plan-eintrag[data-ziehbar] {
+  cursor: grab;
+}
+
+[data-neu] .plan-eintrag[data-ton="jade"] {
+  border-left: 3px solid var(--jade);
+  background: var(--plan-tint-jade);
+}
+
+[data-neu] .plan-eintrag[data-ton="gold"] {
+  border-left: 3px solid var(--gold);
+  background: var(--plan-tint-gold);
+}
+
+[data-neu] .plan-eintrag[data-ton="violett"] {
+  border-left: 3px solid var(--violet);
+  background: var(--plan-tint-violett);
+}
+
+[data-neu] .plan-eintrag[data-ton="gestrichelt"] {
+  padding: 3.5px 6.5px;
+  border: 1.5px dashed var(--plan-strich);
+  background: transparent;
+  color: var(--ink-2);
+}
+
+[data-neu] .plan-eintrag[data-ton="grau"] {
+  border-left: 3px solid #bbbbbf;
+  color: var(--ink-2);
+}
+
+[data-neu] .plan-eintrag:hover {
+  filter: brightness(0.97);
+}
+
+[data-neu] .plan-eintrag:focus-visible,
+[data-neu] .plan-zelle-datum:focus-visible,
+[data-neu] .plan-spalte-kopf:focus-visible,
+[data-neu] .plan-mehr:focus-visible,
+[data-neu] .plan-blick-chip:focus-visible,
+[data-neu] .plan-nav-pfeil:focus-visible,
+[data-neu] .plan-heute-knopf:focus-visible,
+[data-neu] .plan-abo:focus-visible,
+[data-neu] .plan-popover-zu:focus-visible,
+[data-neu] .plan-suche-liste button:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+[data-neu] .plan-eintrag[data-ziehend],
+[data-neu] .plan-eintrag[data-unterwegs] {
+  opacity: 0.4;
+}
+
+[data-neu] .plan-eintrag[data-vorschau] {
+  outline: 1.5px dashed var(--blue);
+  outline-offset: 1px;
+  opacity: 0.85;
+  cursor: default;
+}
+
+[data-neu] .plan-eintrag-ueberlagerung {
+  width: 200px;
+  box-shadow: var(--shadow-raised);
+  background-color: #ffffff;
+  cursor: grabbing;
+}
+
+[data-neu] .plan-eintrag-kopf {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+[data-neu] .plan-eintrag-kopf b {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+[data-neu] .plan-eintrag-firma {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+[data-neu] .plan-eintrag small {
+  color: var(--ink-2);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+[data-neu] .plan-eintrag-zeit {
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+[data-neu] .plan-eintrag[data-ton="gestrichelt"] .plan-eintrag-zeit,
+[data-neu] .plan-eintrag[data-ton="grau"] .plan-eintrag-zeit {
+  color: var(--ink-2);
+}
+
+[data-neu] .plan-eintrag-team {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin-top: 2px;
+}
+
+[data-neu] .plan-kuerzel {
+  display: inline-flex;
+}
+
+[data-neu] .plan-kuerzel span {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-left: -5px;
+  border: 1.5px solid #ffffff;
+  border-radius: 50%;
+  color: #ffffff;
+  font-size: 7.5px;
+  font-weight: 700;
+}
+
+[data-neu] .plan-kuerzel span:first-child {
+  margin-left: 0;
+}
+
+[data-neu] .plan-kuerzel .plan-kuerzel-fehlt {
+  border: 1.5px dashed var(--gold);
+  background: #ffffff;
+  color: var(--gold-ink);
+  font-size: 9px;
+}
+
+[data-neu] .plan-eintrag-namen,
+[data-neu] .plan-eintrag-wagen {
+  color: var(--ink-2);
+  font-size: 11px;
+}
+
+/* ── Tag ─────────────────────────────────────────────── */
+
+[data-neu] .plan-tag {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+[data-neu] .plan-tag-leer {
+  padding: 6px;
+}
+
+[data-neu] .plan-leer-still {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 13.5px;
+}
+
+/* ── Leer, Fehler, Legende ───────────────────────────── */
+
+[data-neu] .plan-leer,
+[data-neu] .plan-hinweis {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 0 6px;
+  color: var(--ink-2);
+  font-size: 13.5px;
+}
+
+[data-neu] .plan-leer p,
+[data-neu] .plan-hinweis p {
+  margin: 0;
+}
+
+[data-neu] .plan-hinweis {
+  flex-direction: column;
+  align-items: flex-start;
+  max-width: 520px;
+  padding: 18px;
+  border-radius: 24px;
+  background: var(--fill-2);
+  box-shadow: inset 0 0 0 1px var(--rim);
+}
+
+[data-neu] .plan-legende {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 10px 0 0;
+  padding: 6px 6px 0;
+  list-style: none;
+  color: var(--ink-2);
+  font-size: 12px;
+}
+
+[data-neu] .plan-legende li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+[data-neu] .plan-legende i {
+  width: 12px;
+  height: 12px;
+  border-radius: 4px;
+  background: rgba(34, 34, 36, 0.18);
+}
+
+[data-neu] .plan-legende i[data-ton="jade"] {
+  background: rgba(20, 168, 116, 0.5);
+}
+
+[data-neu] .plan-legende i[data-ton="gold"] {
+  background: rgba(232, 150, 12, 0.6);
+}
+
+[data-neu] .plan-legende i[data-ton="violett"] {
+  background: rgba(106, 76, 240, 0.5);
+}
+
+[data-neu] .plan-legende i[data-ton="gestrichelt"] {
+  border: 1.5px dashed rgba(34, 34, 36, 0.4);
+  background: transparent;
+}
+
+/* ── Popover ─────────────────────────────────────────── */
+
+[data-neu] .plan-popover {
+  --lg-panel-radius: 20px;
+
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(340px, calc(100vw - 24px));
+  padding: 16px;
+}
+
+[data-neu] .plan-popover-kopf {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+[data-neu] .plan-popover-kopf > div {
+  flex: 1;
+  min-width: 0;
+}
+
+[data-neu] .plan-popover-kopf > i {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: #bbbbbf;
+}
+
+[data-neu] .plan-popover-kopf > i[data-ton="jade"] {
+  background: var(--jade);
+}
+
+[data-neu] .plan-popover-kopf > i[data-ton="gold"] {
+  background: var(--gold);
+}
+
+[data-neu] .plan-popover-kopf > i[data-ton="violett"] {
+  background: var(--violet);
+}
+
+[data-neu] .plan-popover-kopf > i[data-ton="gestrichelt"] {
+  border: 1.5px dashed var(--ink-2);
+  background: transparent;
+}
+
+[data-neu] .plan-popover-kopf h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+[data-neu] .plan-popover-ton {
+  margin: 2px 0 0;
+  color: var(--ink-2);
+  font-size: 12.5px;
+}
+
+[data-neu] .plan-popover-zu {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  margin: -4px -6px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+}
+
+[data-neu] .plan-popover-zu:hover {
+  background: rgba(34, 34, 36, 0.06);
+}
+
+[data-neu] .plan-popover-zu svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: var(--ink-2);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+[data-neu] .plan-popover-daten {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+}
+
+[data-neu] .plan-popover-daten > div {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 8px;
+}
+
+[data-neu] .plan-popover-daten dt {
+  color: var(--ink-2);
+}
+
+[data-neu] .plan-popover-daten dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+[data-neu] .plan-popover-firma {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 8px;
+  color: var(--ink-2);
+}
+
+[data-neu] .plan-popover-firma i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+[data-neu] .plan-popover-verschieben {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--hair);
+  font-size: 13px;
+}
+
+[data-neu] .plan-popover-verschieben label {
+  color: var(--ink-2);
+  font-weight: 500;
+}
+
+[data-neu] .plan-popover-verschieben > div {
+  display: flex;
+  gap: 8px;
+}
+
+[data-neu] .plan-popover-verschieben input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: inset 0 0 0 1px var(--hair);
+  color: var(--ink);
+  font: inherit;
+}
+
+[data-neu] .plan-popover-verschieben input:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 1px;
+}
+
+[data-neu] .plan-popover-hinweis {
+  margin: 0;
+  color: var(--gold-ink);
+  font-size: 12.5px;
+}
+
+[data-neu] .plan-popover-knoepfe {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ── Dialoge ─────────────────────────────────────────── */
+
+[data-neu] .plan-dialog .plan-popover-daten {
+  margin-bottom: 14px;
+}
+
+[data-neu] .plan-dialog .plan-popover-ton {
+  margin: 0 0 12px;
+}
+
+[data-neu] .plan-dialog-haken {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 12px;
+  color: var(--ink);
+  font-size: 13.5px;
+  cursor: pointer;
+}
+
+[data-neu] .plan-dialog-haken input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--blue);
+}
+
+[data-neu] .plan-dialog-hinweis {
+  margin: 0 0 12px;
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+[data-neu] .plan-suche-ergebnis {
+  min-height: 40px;
+}
+
+[data-neu] .plan-suche-liste {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 320px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+[data-neu] .plan-suche-liste button {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+[data-neu] .plan-suche-liste button:hover {
+  background: #ffffff;
+}
+
+[data-neu] .plan-suche-liste b {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+[data-neu] .plan-suche-liste span {
+  color: var(--ink-2);
+  font-size: 12.5px;
+}
+
+/* ── Skelett ─────────────────────────────────────────── */
+
+[data-neu] .plan-skelett {
+  padding: 14px;
+  border-radius: 24px;
+  background: var(--fill-2);
+  box-shadow: inset 0 0 0 1px var(--rim);
+}
+
+[data-neu] .plan-skelett-raster {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+}
+
+[data-neu] .plan-skelett-zelle {
+  display: block;
+  height: 120px;
+  border-radius: 16px;
+}
+
+[data-neu] .plan-skelett-raster[data-modus="woche"] .plan-skelett-zelle {
+  height: 320px;
+}
+
+[data-neu] .plan-skelett-zeile {
+  display: block;
+  height: 72px;
+  margin-bottom: 8px;
+  border-radius: 12px;
+}
+
+[data-neu] .plan-skelett-leiste {
+  display: block;
+  height: 54px;
+  border-radius: 24px;
+}
+
+[data-neu] .plan-skelett-flaeche {
+  display: block;
+  height: 640px;
+  border-radius: 24px;
+}
+
+/* ── Schmal ──────────────────────────────────────────── */
+
+@media (max-width: 1279px) {
+  [data-neu] .plan-zelle {
+    min-height: 120px;
+    padding: 7px 6px 6px;
+  }
+
+  [data-neu] .plan-reihe,
+  [data-neu] .plan-wochentage {
+    gap: 6px;
+  }
+
+  [data-neu] .plan-eintrag {
+    padding: 4px 6px;
+  }
+
+  [data-neu] .plan-eintrag[data-ton="gestrichelt"] {
+    padding: 2.5px 4.5px;
+  }
+}
+
+@media (max-width: 1023px) {
+  [data-neu] .plan-raster {
+    padding: 10px;
+  }
+
+  [data-neu] .plan-skelett-raster {
+    grid-template-columns: 1fr;
+  }
+
+  [data-neu] .plan-skelett-zelle {
+    height: 72px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-neu] .plan-raster {
+    transition: none;
+  }
+}

@@ -5,13 +5,14 @@ import { GlassPanel } from "@/components/glassyui/glass-panel";
 import { GlassSegmentedControl, GlassSegmentedControlItem } from "@/components/glassyui/glass-segmented-control";
 import { GlassSwitch } from "@/components/glassyui/glass-switch";
 import { LeistenMenue, type LeistenWahl } from "@/components/neu/leiste-menue";
-import { monatsOptionen, type LeadsFilter, type LeadsStammdaten } from "@/lib/leads-board";
+import { monatsOptionen, type LeadsFilter, type LeadsModus, type LeadsStammdaten } from "@/lib/leads-board";
 
 /**
- * Die Leiste (Entscheidung 7): Umschalter Board · Liste (gemerkt je Nutzer),
- * Firma, Quelle, Monat nach Termin, Suche (ab 2 Zeichen, serverseitig),
- * Schalter „Nur „wartet auf uns““. Alle Filter stehen in der URL. `kompakt`
- * am Handy: ohne Umschalter, Pillen umbrechend.
+ * Die Leiste (Entscheidung 7): Umschalter Board · Liste · Kalender (gemerkt
+ * je Nutzer), Firma, Quelle, Monat nach Termin (nicht im Kalender: dort
+ * ersetzt die Plan-Navigation den Monat, Plan 8 W7), Suche (ab 2 Zeichen,
+ * serverseitig), Schalter „Nur „wartet auf uns““. Alle Filter stehen in der
+ * URL. `kompakt` am Handy: ohne Umschalter, Pillen umbrechend.
  */
 export function LeadsLeiste({
   filter,
@@ -23,12 +24,12 @@ export function LeadsLeiste({
   onModus,
 }: {
   filter: LeadsFilter;
-  modus: "board" | "liste";
+  modus: LeadsModus;
   firmen: LeadsStammdaten["firmen"];
   quellen: LeadsStammdaten["quellen"];
   kompakt: boolean;
   onFilter: (teil: Partial<LeadsFilter>) => void;
-  onModus: (modus: "board" | "liste") => void;
+  onModus: (modus: LeadsModus) => void;
 }) {
   const schalterId = useId();
   const sucheId = useId();
@@ -41,14 +42,17 @@ export function LeadsLeiste({
   return (
     <GlassPanel variant="panel" className="leads-leiste" data-kompakt={kompakt || undefined} aria-label="Ansicht und Filter">
       {kompakt ? null : (
-        <GlassSegmentedControl value={modus} onValueChange={(v) => onModus(v === "liste" ? "liste" : "board")} aria-label="Ansicht" className="leads-umschalter">
+        <GlassSegmentedControl value={modus} onValueChange={(v) => onModus(v === "liste" || v === "kalender" ? v : "board")} aria-label="Ansicht" className="leads-umschalter">
           <GlassSegmentedControlItem value="board">Board</GlassSegmentedControlItem>
           <GlassSegmentedControlItem value="liste">Liste</GlassSegmentedControlItem>
+          <GlassSegmentedControlItem value="kalender">Kalender</GlassSegmentedControlItem>
         </GlassSegmentedControl>
       )}
       <LeistenMenue titel="Firma" optionen={firmenWahl} wert={filter.firmaId} punkt punktFarbe={firmaFarbe} onWaehlen={(w) => onFilter({ firmaId: w })} />
       <LeistenMenue titel="Quelle" optionen={quellenWahl} wert={filter.quelleId} onWaehlen={(w) => onFilter({ quelleId: w })} />
-      <LeistenMenue titel="Monat nach Termin" optionen={monateWahl} wert={filter.monat} onWaehlen={(w) => onFilter({ monat: w })} />
+      {modus === "kalender" ? null : (
+        <LeistenMenue titel="Monat nach Termin" optionen={monateWahl} wert={filter.monat} onWaehlen={(w) => onFilter({ monat: w })} />
+      )}
       <label className="leads-suche" htmlFor={sucheId}>
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <circle cx="11" cy="11" r="6.5" />

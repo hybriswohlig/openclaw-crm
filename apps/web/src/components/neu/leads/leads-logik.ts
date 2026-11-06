@@ -22,6 +22,7 @@ import {
   type LeadsBoard,
   type LeadsChips,
   type LeadsFilter,
+  type LeadsModus,
   type LeadsSpaltenSeite,
   type LeadsStammdaten,
   type ListenSortierung,
@@ -34,9 +35,9 @@ import {
 
 // ─── Gespeicherte Ansicht ─────────────────────────────────────────────────────
 
-/** Was die Seite zeigt: „kalender“ ist gespeichert erlaubt, gezeigt wird bis Plan 8 das Board. */
-export function modusAnzeige(a: Pick<LeadsAnsicht, "modus">): "board" | "liste" {
-  return a.modus === "liste" ? "liste" : "board";
+/** Was die Seite zeigt: Board, Liste oder Kalender (der Plan mit den Leads-Filtern, Plan 8). */
+export function modusAnzeige(a: Pick<LeadsAnsicht, "modus">): LeadsModus {
+  return a.modus === "liste" || a.modus === "kalender" ? a.modus : "board";
 }
 
 /** Reihenfolge wie `LISTEN_SPALTEN`, „name“ immer dabei, Dubletten weg. */
@@ -310,7 +311,10 @@ export function terminFehlt(k: Pick<LeadKarte, "termin">, nachKategorie: LeadKat
  */
 export function angezeigterModus(breit: boolean | null, a: Pick<LeadsAnsicht, "modus"> | null): "board" | "liste" | null {
   if (breit === null || a === null) return null;
-  return breit ? modusAnzeige(a) : "board";
+  if (!breit) return "board";
+  const m = modusAnzeige(a);
+  // Der Kalender (Plan 8) lädt seine Daten selbst; Board und Liste laden dann nichts.
+  return m === "kalender" ? null : m;
 }
 
 /** Wofür geladene Daten gelten: Modus, Filter (wie gesendet) und bei der Liste die Sortierung. */
