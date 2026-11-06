@@ -138,8 +138,23 @@
   background: var(--fill-3);
 }
 
+/* Kompakt wie im Mockup (und wie .akte-gespraech-seg): so breit wie die Beschriftungen,
+   nicht als eigene Zeile über die ganze Leiste. */
 [data-neu] .leads-umschalter {
+  width: max-content;
+  max-width: 100%;
+  grid-auto-columns: max-content;
   font-size: 13px;
+}
+
+[data-neu] .leads-umschalter .lg-segmented-item {
+  padding: 6px 14px;
+  color: var(--ink-2);
+}
+
+[data-neu] .leads-umschalter .lg-segmented-item[data-state="checked"] {
+  color: var(--ink);
+  font-weight: 600;
 }
 
 [data-neu] .leads-suche {
@@ -526,8 +541,12 @@
   color: var(--ink-2);
 }
 
-[data-neu] .leads-fuss-rest {
-  flex: 1;
+[data-neu] .leads-fuss-ende {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  white-space: nowrap;
 }
 
 [data-neu] .leads-quelle {

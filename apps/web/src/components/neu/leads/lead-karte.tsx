@@ -109,10 +109,12 @@ export function KarteInhalt({
           <span className="leads-quelle">{karte.quelle.label}</span>
         ) : null}
         {karte.kontext ? <span className="leads-kontext">{karte.kontext}</span> : null}
-        <span className="leads-fuss-rest" />
-        {karte.firma ? <i className="leads-firma" style={{ background: karte.firma.farbe }} title={karte.firma.name} aria-label={karte.firma.name} /> : null}
-        {karte.aktivitaetText ? <span className="leads-aktivitaet">{karte.aktivitaetText}</span> : null}
-        {menue}
+        {/* Firmenpunkt, Aktivität und Menü bleiben zusammen rechts; reicht der Platz nicht, rutschen sie gemeinsam in die zweite Zeile. */}
+        <span className="leads-fuss-ende">
+          {karte.firma ? <i className="leads-firma" style={{ background: karte.firma.farbe }} title={karte.firma.name} aria-label={karte.firma.name} /> : null}
+          {karte.aktivitaetText ? <span className="leads-aktivitaet">{karte.aktivitaetText}</span> : null}
+          {menue}
+        </span>
       </div>
     </>
   );
