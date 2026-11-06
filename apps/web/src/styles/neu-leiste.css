@@ -1,0 +1,69 @@
+/*
+ * Die Pille der Filterleiste als Menü (`components/neu/leiste-menue.tsx`),
+ * gemeinsam für Inbox und Leads. Regeln unverändert aus neu-inbox.css
+ * (.inbox-pille-knopf, .inbox-menue) hierher verschoben; alles unter
+ * [data-neu] mit Präfix .leiste-.
+ */
+
+[data-neu] .leiste-pille-knopf {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+[data-neu] .leiste-pille-knopf:hover,
+[data-neu] .leiste-pille-knopf[data-state="open"] {
+  background: #ffffff;
+}
+
+[data-neu] .leiste-pille-knopf:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+[data-neu] .leiste-pille-knopf[data-aktiv] {
+  box-shadow: inset 0 0 0 1.5px rgb(0 103 217 / 0.28);
+  color: var(--blue-ink);
+  font-weight: 600;
+}
+
+[data-neu] .leiste-pille-knopf i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink);
+}
+
+[data-neu] .leiste-pille-knopf svg {
+  width: 12px;
+  height: 12px;
+  stroke: var(--ink-2);
+  fill: none;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+[data-neu] .leiste-menue {
+  min-width: 200px;
+}
+
+[data-neu] .leiste-menue-eintrag {
+  font-size: 13.5px;
+  color: var(--ink);
+}
+
+[data-neu] .leiste-menue-eintrag[data-aktuell] {
+  font-weight: 600;
+}

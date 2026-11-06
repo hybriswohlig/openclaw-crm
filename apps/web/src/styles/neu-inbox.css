@@ -117,7 +117,6 @@
 }
 
 [data-neu] .inbox-chip-jetzt:focus-visible,
-[data-neu] .inbox-pille-knopf:focus-visible,
 [data-neu] .inbox-chip:focus-visible,
 [data-neu] .inbox-trenner:focus-visible {
   outline: 2px solid var(--blue);
@@ -137,64 +136,6 @@
   gap: 10px;
   padding: 10px 12px;
   background: var(--fill-3);
-}
-
-[data-neu] .inbox-pille-knopf {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 12px;
-  border: 0;
-  border-radius: 999px;
-  background: var(--fill-3);
-  box-shadow: inset 0 0 0 1px var(--rim);
-  color: var(--ink);
-  font: inherit;
-  font-size: 12.5px;
-  font-weight: 500;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-[data-neu] .inbox-pille-knopf:hover,
-[data-neu] .inbox-pille-knopf[data-state="open"] {
-  background: #ffffff;
-}
-
-[data-neu] .inbox-pille-knopf[data-aktiv] {
-  box-shadow: inset 0 0 0 1.5px var(--blue-rim);
-  color: var(--blue-ink);
-  font-weight: 600;
-}
-
-[data-neu] .inbox-pille-knopf i {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--ink);
-}
-
-[data-neu] .inbox-pille-knopf svg {
-  width: 12px;
-  height: 12px;
-  stroke: var(--ink-2);
-  fill: none;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-[data-neu] .inbox-menue {
-  min-width: 200px;
-}
-
-[data-neu] .inbox-menue-eintrag {
-  font-size: 13.5px;
-  color: var(--ink);
-}
-
-[data-neu] .inbox-menue-eintrag[data-aktuell] {
-  font-weight: 600;
 }
 
 [data-neu] .inbox-suche {
