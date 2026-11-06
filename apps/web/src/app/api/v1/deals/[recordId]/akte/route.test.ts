@@ -52,6 +52,8 @@ const AKTE = {
   zahlung: { restCent: 248000, meldungen: [] },
   firma: { id: "oc_kottke", name: "Kottke" },
   altLink: "/objects/deals/deal_1",
+  kalkulationLink: "/app/leads/deal_1/kalkulation",
+  kvLink: "/app/leads/deal_1/kalkulation",
 };
 
 beforeEach(() => {
@@ -83,7 +85,7 @@ describe("GET /deals/[recordId]/akte", () => {
     expect(res.status).toBe(200);
     const { data } = await res.json();
     expect(data).toEqual(AKTE);
-    expect(Object.keys(data).sort()).toEqual(["ablauf", "altLink", "dock", "firma", "kacheln", "kopf", "nachfass", "zahlung"]);
+    expect(Object.keys(data).sort()).toEqual(["ablauf", "altLink", "dock", "firma", "kacheln", "kalkulationLink", "kopf", "kvLink", "nachfass", "zahlung"]);
     expect(data.kacheln).toHaveLength(6);
     expect(mocks.ladeAkte).toHaveBeenCalledWith("ws_1", "deal_1");
   });

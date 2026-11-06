@@ -3,6 +3,7 @@ import type { AblaufFakten } from "./ablauf";
 import {
   artAus,
   dockAus,
+  kalkulationLinks,
   kuerzelAus,
   metaAus,
   ortAus,
@@ -441,5 +442,24 @@ describe("Kopf-Helfer", () => {
     );
     expect(volumenHerkunftAus({ quelle: "kalkulation", inventarQuellen: [] }, 14)).toBe("aus der Kalkulation");
     expect(volumenHerkunftAus({ quelle: null, inventarQuellen: [] }, 14)).toBeNull();
+  });
+});
+
+describe("kalkulationLinks", () => {
+  const alt = "/objects/deals/d1";
+  it("normal: beide Verweise gehen auf die neue Kalkulationsseite", () => {
+    expect(kalkulationLinks("d1", alt, { hatPaketoptionen: false, istStunden: false })).toEqual({
+      kalkulationLink: "/app/leads/d1/kalkulation",
+      kvLink: "/app/leads/d1/kalkulation",
+    });
+  });
+  it("Paketoptionen: KV bleibt auf dem alten Angebots-Tab", () => {
+    expect(kalkulationLinks("d1", alt, { hatPaketoptionen: true, istStunden: false })).toEqual({
+      kalkulationLink: "/app/leads/d1/kalkulation",
+      kvLink: "/objects/deals/d1?tab=quotation",
+    });
+  });
+  it("Stunden-KV: KV bleibt auf dem alten Angebots-Tab", () => {
+    expect(kalkulationLinks("d1", alt, { hatPaketoptionen: false, istStunden: true }).kvLink).toBe("/objects/deals/d1?tab=quotation");
   });
 });

@@ -7,7 +7,7 @@ import { useId, useState } from "react";
 import { GlassPanel } from "@/components/glassyui/glass-panel";
 import type { AblaufSchritt } from "@/lib/ablauf";
 import type { AkteDaten } from "@/lib/akte";
-import { fokusIndex, mitTab, schrittOffen, sequenzRechts, WER_LABEL, ZUSTAND_TEXT } from "./ablauf-anzeige";
+import { fokusIndex, schrittOffen, sequenzRechts, WER_LABEL, ZUSTAND_TEXT } from "./ablauf-anzeige";
 import { meldungBearbeiten } from "./zahlungsmeldung";
 
 type Ablauf = AkteDaten["ablauf"];
@@ -27,7 +27,7 @@ export function AblaufPanel({
   dealId,
   ablauf,
   zahlung,
-  altLink,
+  kalkulationLink,
   bewertungErlaubt,
   onNeuLaden,
   onZahlung,
@@ -36,7 +36,7 @@ export function AblaufPanel({
   dealId: string;
   ablauf: Ablauf;
   zahlung: Zahlung;
-  altLink: string;
+  kalkulationLink: string;
   bewertungErlaubt: boolean;
   onNeuLaden: () => Promise<void> | void;
   onZahlung?: () => void;
@@ -93,7 +93,7 @@ export function AblaufPanel({
               }
             >
               {s.key === "kalkulation" && s.zustand !== "entfaellt" ? (
-                <Link href={mitTab(altLink, "quotation")} className="akte-ablauf-knopf">
+                <Link href={kalkulationLink} className="akte-ablauf-knopf">
                   Kalkulation öffnen
                 </Link>
               ) : null}

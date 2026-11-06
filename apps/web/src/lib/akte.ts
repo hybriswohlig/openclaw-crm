@@ -78,6 +78,25 @@ export interface AkteDaten {
   zahlung: { restCent: number | null; meldungen: Zahlungsmeldung[] };
   firma: { id: string | null; name: string | null };
   altLink: string;
+  /** Neue Kalkulationsseite des Deals (Plan 4, Entscheidung 1). */
+  kalkulationLink: string;
+  /** Ziel von „KV anpassen“ und „KV erstellen“: die Kalkulationsseite, bei Paketoptionen oder Stunden-KV der alte Angebots-Tab. */
+  kvLink: string;
+}
+
+/**
+ * Verweise der Akte auf die Kalkulation. „Kalkulation öffnen“ geht immer auf die neue Seite.
+ * „KV anpassen/erstellen“ bleibt bei Paketoptionen und Stunden-KV auf dem alten
+ * Angebots-Tab, weil Sperren dort bis Plan 5 abgelehnt wird (Entscheidung 1).
+ */
+export function kalkulationLinks(
+  deal: string,
+  altLink: string,
+  kv: { hatPaketoptionen: boolean; istStunden: boolean }
+): { kalkulationLink: string; kvLink: string } {
+  const kalkulationLink = `/app/leads/${deal}/kalkulation`;
+  const alt = `${altLink}${altLink.includes("?") ? "&" : "?"}tab=quotation`;
+  return { kalkulationLink, kvLink: kv.hatPaketoptionen || kv.istStunden ? alt : kalkulationLink };
 }
 
 // ─── Kleine Helfer ────────────────────────────────────────────────────────────

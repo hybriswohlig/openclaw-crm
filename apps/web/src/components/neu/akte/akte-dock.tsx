@@ -7,7 +7,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { GlassDock, GlassDockSeparator } from "@/components/glassyui/glass-dock";
 import type { AkteDaten, DockAktion } from "@/lib/akte";
-import { mitTab } from "./ablauf-anzeige";
 import { apiAufruf, jsonAufruf } from "./api";
 import { meldungBearbeiten } from "./zahlungsmeldung";
 
@@ -86,7 +85,7 @@ const NACHFASS_FEHLER: Record<string, string> = {
 export function AkteDock({
   dealId,
   dock,
-  altLink,
+  kvLink,
   hatWaba,
   onZahlung,
   onBewertung,
@@ -98,7 +97,7 @@ export function AkteDock({
 }: {
   dealId: string;
   dock: Dock;
-  altLink: string;
+  kvLink: string;
   hatWaba: boolean;
   onZahlung: () => void;
   onBewertung: () => void;
@@ -111,7 +110,6 @@ export function AkteDock({
   const [laeuft, setLaeuft] = useState(false);
   const [weiter, setWeiter] = useState(false);
   const rolle = useRef<HTMLDivElement | null>(null);
-  const kvLink = mitTab(altLink, "quotation");
 
   /** Gibt es rechts noch verdeckte Knöpfe? */
   const weiterPruefen = useCallback(() => {

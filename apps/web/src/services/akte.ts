@@ -30,6 +30,7 @@ import { berechneAblauf } from "@/lib/ablauf";
 import {
   artAus,
   dockAus,
+  kalkulationLinks,
   kuerzelAus,
   metaAus,
   ortAus,
@@ -150,6 +151,16 @@ function entwurfLesen(ws: string, deal: string, jetzt: Date) {
   `);
 }
 
+/** Hat der Deal Paketoptionen im Portal? Dann bleibt „KV anpassen“ auf dem alten Angebots-Tab. */
+function paketOptionenLesen(ws: string, deal: string) {
+  return db.execute(sql`
+    SELECT EXISTS (
+      SELECT 1 FROM quotation_package_options p
+      WHERE p.workspace_id = ${ws} AND p.deal_record_id = ${deal}
+    ) AS hat
+  `);
+}
+
 const WARTET_WERTE = new Set(["uns", "kunde", "niemand"]);
 
 /**
@@ -166,13 +177,14 @@ function adresseAus(v: unknown): unknown {
 }
 
 export async function ladeAkte(ws: string, deal: string, jetzt: Date = new Date()): Promise<AkteDaten> {
-  const [grundlage, kopfRes, stufenRes, gruendeRes, entwurfRes, gespraeche] = await Promise.all([
+  const [grundlage, kopfRes, stufenRes, gruendeRes, entwurfRes, gespraeche, paketRes] = await Promise.all([
     ladeAblaufGrundlage(ws, deal),
     kopfLesen(ws, deal),
     stufenLesen(ws),
     verlustGruendeLesen(ws),
     entwurfLesen(ws, deal, jetzt),
     dealGespraeche(ws, deal),
+    paketOptionenLesen(ws, deal),
   ]);
   const [k] = zeilen<KopfZeile>(kopfRes);
   if (!k) throw new Error("Deal nicht gefunden");
@@ -191,6 +203,7 @@ export async function ladeAkte(ws: string, deal: string, jetzt: Date = new Date(
     ? gespraeche.some((g) => g.id === entwurf.conversation_id && g.direkt && g.kannSenden)
     : gespraeche.some((g) => g.direkt && g.kannSenden);
 
+  const altLink = `/objects/deals/${deal}`;
   const meldungen = grundlage.meldungen;
   const zimmer = alsZahl(k.zimmer);
   const name = k.name?.trim();
@@ -226,6 +239,10 @@ export async function ladeAkte(ws: string, deal: string, jetzt: Date = new Date(
     }),
     zahlung: { restCent: f.rest.restCent, meldungen },
     firma: { id: k.firma_id ?? null, name: k.firma_name ?? null },
-    altLink: `/objects/deals/${deal}`,
+    altLink,
+    ...kalkulationLinks(deal, altLink, {
+      hatPaketoptionen: zeilen<{ hat: unknown }>(paketRes)[0]?.hat === true,
+      istStunden: f.kv?.istStunden === true,
+    }),
   };
 }

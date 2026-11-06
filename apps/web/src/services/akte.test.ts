@@ -124,7 +124,7 @@ const GRUENDE = [
 
 /** Entwurf mit Klasse und Deal seines Gesprächs; die Abfrage-Attrappe filtert wie das SQL, das sie bekommt. */
 type EntwurfFixture = { id: string; conversation_id: string; message_class: string; gespraech_deal: string | null };
-type Antworten = { kopf?: unknown[]; stufen?: unknown[]; gruende?: unknown[]; entwurf?: EntwurfFixture[] };
+type Antworten = { paket?: boolean; kopf?: unknown[]; stufen?: unknown[]; gruende?: unknown[]; entwurf?: EntwurfFixture[] };
 
 const followup = (id: string, conversation_id: string): EntwurfFixture => ({ id, conversation_id, message_class: "followup", gespraech_deal: DEAL });
 
@@ -142,6 +142,7 @@ function dbAntwortet(a: Antworten = {}) {
     if (text.includes("FROM agent_drafts d")) return entwuerfeWieSql(text, a.entwurf ?? []);
     if (text.includes("FROM statuses s")) return a.stufen ?? STUFEN;
     if (text.includes("FROM select_options so")) return a.gruende ?? GRUENDE;
+    if (text.includes("FROM quotation_package_options")) return [{ hat: a.paket ?? false }];
     if (text.includes("FROM records r")) return a.kopf ?? [KOPF];
     throw new Error(`unerwartete Abfrage: ${text}`);
   });
@@ -212,6 +213,25 @@ describe("ladeAkte", () => {
     expect(akte.zahlung).toEqual({ restCent: 248000, meldungen: [] });
     expect(akte.firma).toEqual({ id: "oc_kottke", name: "Kottke" });
     expect(akte.altLink).toBe("/objects/deals/deal_1");
+    expect(akte.kalkulationLink).toBe("/app/leads/deal_1/kalkulation");
+    expect(akte.kvLink).toBe("/app/leads/deal_1/kalkulation");
+  });
+
+  it("Paketoptionen: KV-Link bleibt auf dem alten Angebots-Tab, Kalkulation öffnet die neue Seite", async () => {
+    dbAntwortet({ paket: true });
+    const akte = await ladeAkte(WS, DEAL, JETZT);
+    expect(akte.kalkulationLink).toBe("/app/leads/deal_1/kalkulation");
+    expect(akte.kvLink).toBe("/objects/deals/deal_1?tab=quotation");
+    const { text, params } = abfrage("FROM quotation_package_options");
+    expect(text).toContain("p.workspace_id = $");
+    expect(params).toEqual(expect.arrayContaining([WS, DEAL]));
+  });
+
+  it("Stunden-KV: KV-Link bleibt auf dem alten Angebots-Tab", async () => {
+    mocks.ladeAblaufGrundlage.mockResolvedValue(grundlage({ fakten: { kv: { ...fakten().kv!, istStunden: true, betragCent: null } } }));
+    const akte = await ladeAkte(WS, DEAL, JETZT);
+    expect(akte.kalkulationLink).toBe("/app/leads/deal_1/kalkulation");
+    expect(akte.kvLink).toBe("/objects/deals/deal_1?tab=quotation");
   });
 
   it("jede Abfrage filtert auf Workspace (und Deal, wo es einen gibt); nur lesen; Dienste mit Workspace und Deal", async () => {

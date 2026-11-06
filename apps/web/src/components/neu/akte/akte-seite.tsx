@@ -151,7 +151,7 @@ export function AkteSeite({ dealId }: { dealId: string }) {
           <AkteDock
             dealId={dealId}
             dock={akte.dock}
-            altLink={akte.altLink}
+            kvLink={akte.kvLink}
             hatWaba={wabaKanaele.length > 0}
             onZahlung={() => setDialog({ art: "zahlung" })}
             onBewertung={() => setDialog({ art: "bewertung" })}
@@ -167,7 +167,7 @@ export function AkteSeite({ dealId }: { dealId: string }) {
             dealId={dealId}
             ablauf={akte.ablauf}
             zahlung={akte.zahlung}
-            altLink={akte.altLink}
+            kalkulationLink={akte.kalkulationLink}
             bewertungErlaubt={akte.dock.bewertungErlaubt}
             onNeuLaden={neuLadenStill}
             onZahlung={() => setDialog({ art: "zahlung" })}
