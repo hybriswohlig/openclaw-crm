@@ -10,8 +10,11 @@ import { StufenMenue } from "./stufen-menue";
 
 type Nachfass = AkteDaten["nachfass"];
 
-/** Kürzel-Farben aus dem Mockup (Vermilion, Jade, Tinte), dann Blau und Violett. */
-const KUERZEL_FARBEN = ["#c9361a", "#14a874", "#222224", "#0067d9", "#6a4cf0"] as const;
+/**
+ * Füllungen der Kürzel, nach Reihenfolge im Team: dunkle Tinten, auf denen
+ * weiße Schrift mindestens 4,5:1 erreicht; kein Vermilion (Orange ist Artwork).
+ */
+const KUERZEL_FARBEN = ["var(--ink)", "var(--jade-ink)", "var(--blue-ink)", "var(--violet)", "var(--gold-ink)"] as const;
 
 /** „Umzug, 3 Zimmer, Stuttgart-West nach Esslingen.“ */
 export function zweiteZeile(art: string, strecke: string): string {
@@ -72,6 +75,7 @@ export function AkteKopf({
           stufe={kopf.stufe}
           stufen={kopf.stufen}
           verlustGruende={kopf.verlustGruende}
+          verlustGrund={kopf.verlustGrund}
           onGewechselt={onNeuLaden}
         />
       </div>

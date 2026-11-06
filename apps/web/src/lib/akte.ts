@@ -65,6 +65,8 @@ export interface AkteDaten {
     stufe: { id: string | null; label: string; kategorie: string | null; ton: StufenTon };
     stufen: { id: string; label: string; kategorie: string | null }[];
     verlustGruende: { id: string; label: string }[];
+    /** Gespeicherter Verlustgrund (Options-ID), damit Verloren nicht erneut fragt. */
+    verlustGrund: string | null;
   };
   kacheln: Kachel[];
   ablauf: { schritte: AblaufSchritt[]; position: number };

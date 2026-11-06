@@ -189,6 +189,7 @@ describe("ladeAkte", () => {
         { id: "lr_preis", label: "Zu teuer" },
         { id: "lr_sonst", label: "Sonstiges" },
       ],
+      verlustGrund: null,
     });
     expect(akte.kacheln.map((k) => [k.key, k.wert, k.zeile])).toEqual([
       ["kv", "2.480 €", "v2 · gesendet Mi 04.11."],
@@ -337,9 +338,20 @@ describe("ladeAkte", () => {
       stufe: { id: null, label: "Ohne Stufe", kategorie: null, ton: "grau" },
       stufen: [],
       verlustGruende: [],
+      verlustGrund: null,
     });
     expect(akte.kacheln[5]).toEqual({ key: "wartet", label: "Läuft", wert: "–", zeile: "", ton: "jade" });
     expect(akte.firma).toEqual({ id: null, name: null });
+  });
+
+  it("gespeicherter Verlustgrund steht im Kopf, leer wird null", async () => {
+    dbAntwortet({ kopf: [{ ...KOPF, verlust_grund: "lr_preis" }] });
+    expect((await ladeAkte(WS, DEAL, JETZT)).kopf.verlustGrund).toBe("lr_preis");
+    dbAntwortet({ kopf: [{ ...KOPF, verlust_grund: " " }] });
+    expect((await ladeAkte(WS, DEAL, JETZT)).kopf.verlustGrund).toBeNull();
+    const kopf = abfrage("FROM records r");
+    expect(kopf.text).toContain("AS verlust_grund");
+    expect(kopf.params).toContain("loss_reason");
   });
 
   it("Adresse als JSON-Text aus der Datenbank wird gelesen", async () => {

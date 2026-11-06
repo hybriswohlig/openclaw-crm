@@ -4,6 +4,14 @@
  * [data-neu] und mit Präfix .akte-, damit die alten Seiten unberührt bleiben.
  */
 
+/* Dunkle Tinten für Text und Flächen mit weißer Schrift, die 4,5:1 erreichen
+   (neu.css hat nur --gold-ink). */
+[data-neu] {
+  --rose-ink: #a8113a;
+  --jade-ink: #0d6b4a;
+  --blue-ink: #0054b3;
+}
+
 [data-neu] .akte {
   display: flex;
   flex-direction: column;
@@ -223,11 +231,15 @@
   gap: 12px;
 }
 
+/* Fast deckend: die Zahlenreihe liegt bei breiten Fenstern auf der Schleife,
+   und das Standardglas (52 %) schafft dort keine 4,5:1. Unter „Transparenz
+   reduzieren“ ist --fill-3 reines Weiß (neu.css). */
 [data-neu] .akte-kachel {
   --lg-panel-radius: 20px;
 
   min-width: 0;
   padding: 14px 16px;
+  background: var(--fill-3);
 }
 
 [data-neu] .akte-kachel-label {
@@ -428,7 +440,7 @@
 [data-neu] .akte-dialog-fehler {
   margin: 0 0 12px;
   font-size: 13px;
-  color: var(--rose);
+  color: var(--rose-ink);
 }
 
 [data-neu] .akte-dialog-knoepfe {
@@ -506,13 +518,17 @@
 
 /* ── Umbrüche (Spec 3.2) ─────────────────────────────── */
 
+/* Mit Seitenleiste (ab 1024 px) sind sechs Kacheln erst ab etwa 1280 px breit
+   genug für die Wartet-Begründung; darunter drei je Reihe. */
+@media (max-width: 1280px) {
+  [data-neu] .akte-zahlen {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 1100px) {
   [data-neu] .akte-koerper {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  [data-neu] .akte-zahlen {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 

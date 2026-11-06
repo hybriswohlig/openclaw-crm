@@ -33,18 +33,22 @@ const MIT_RUECKFRAGE = new Set(["done_unpaid", "paid", "lost"]);
  * Die Stufen-Pille im Kopf als Menü mit allen Deal-Stufen. Der Wechsel geht
  * über `PATCH /api/v1/objects/deals/records/{id}` wie in der alten Oberfläche,
  * damit `deal.stage_changed`, `move_completed_at` und Wartet wie heute laufen.
+ * Ist schon ein Verlustgrund gespeichert, fragt Verloren nicht erneut danach
+ * (wie `needsLossReasonPrompt` der alten Seite), nur noch zur Bestätigung.
  */
 export function StufenMenue({
   dealId,
   stufe,
   stufen,
   verlustGruende,
+  verlustGrund,
   onGewechselt,
 }: {
   dealId: string;
   stufe: Kopf["stufe"];
   stufen: Kopf["stufen"];
   verlustGruende: Kopf["verlustGruende"];
+  verlustGrund: string | null;
   onGewechselt: () => Promise<void> | void;
 }) {
   const portalZiel = usePortalZiel();
@@ -129,6 +133,7 @@ export function StufenMenue({
           portalZiel={portalZiel}
           von={stufe.label}
           ziel={rueckfrage}
+          grundNoetig={rueckfrage.kategorie === "lost" && !verlustGrund}
           verlustGruende={verlustGruende}
           speichert={speichert}
           onAbbrechen={() => setRueckfrage(null)}
@@ -143,11 +148,15 @@ export function StufenMenue({
   );
 }
 
-/** Rückfrage vor Durchgeführt und Bezahlt; bei Verloren mit Pflichtgrund wie `LossReasonDialog`. */
+/**
+ * Rückfrage vor Durchgeführt, Bezahlt und Verloren; mit `grundNoetig` zusätzlich
+ * Pflichtgrund und Freitext wie `LossReasonDialog` (Freitext Pflicht bei Sonstiges).
+ */
 function StufenDialog({
   portalZiel,
   von,
   ziel,
+  grundNoetig,
   verlustGruende,
   speichert,
   onAbbrechen,
@@ -156,26 +165,33 @@ function StufenDialog({
   portalZiel: HTMLElement | undefined;
   von: string;
   ziel: Stufe;
+  grundNoetig: boolean;
   verlustGruende: Kopf["verlustGruende"];
   speichert: boolean;
   onAbbrechen: () => void;
   onBestaetigen: (verlust?: { grund: string; notiz: string }) => Promise<string | null>;
 }) {
-  const verloren = ziel.kategorie === "lost";
   const [grund, setGrund] = useState("");
   const [notiz, setNotiz] = useState("");
   const [fehler, setFehler] = useState<string | null>(null);
   const grundLabel = verlustGruende.find((g) => g.id === grund)?.label ?? "";
   const sonstiges = grundLabel.toLowerCase() === "sonstiges";
+  const keineGruende = grundNoetig && verlustGruende.length === 0;
+
+  const beschreibung = grundNoetig
+    ? "Ein Lead auf Verloren braucht einen Grund."
+    : ziel.kategorie === "lost"
+      ? `Der Deal wechselt von „${von}“ auf „${ziel.label}“. Der gespeicherte Verlustgrund bleibt.`
+      : `Der Deal wechselt von „${von}“ auf „${ziel.label}“.`;
 
   async function absenden(e: React.FormEvent) {
     e.preventDefault();
-    if (verloren) {
+    if (grundNoetig) {
       if (!grund) return setFehler("Bitte einen Verlustgrund wählen.");
       if (sonstiges && !notiz.trim()) return setFehler("Bei Sonstiges ist ein Freitext Pflicht.");
     }
     setFehler(null);
-    const problem = await onBestaetigen(verloren ? { grund, notiz: notiz.trim() } : undefined);
+    const problem = await onBestaetigen(grundNoetig ? { grund, notiz: notiz.trim() } : undefined);
     if (problem) setFehler(problem);
   }
 
@@ -183,19 +199,15 @@ function StufenDialog({
     <GlassDialog open onOpenChange={(offen) => !offen && !speichert && onAbbrechen()}>
       <GlassDialogContent container={portalZiel} closeLabel="Schließen">
         <GlassDialogTitle className="akte-dialog-titel">
-          {verloren ? "Verlustgrund" : `Stufe auf „${ziel.label}“ setzen?`}
+          {grundNoetig ? "Verlustgrund" : `Stufe auf „${ziel.label}“ setzen?`}
         </GlassDialogTitle>
-        <GlassDialogDescription className="akte-dialog-text">
-          {verloren
-            ? "Ein Lead auf Verloren braucht einen Grund."
-            : `Der Deal wechselt von „${von}“ auf „${ziel.label}“.`}
-        </GlassDialogDescription>
+        <GlassDialogDescription className="akte-dialog-text">{beschreibung}</GlassDialogDescription>
         <form onSubmit={(e) => void absenden(e)}>
-          {verloren ? (
+          {grundNoetig ? (
             <>
               <label className="akte-dialog-feld">
                 Grund
-                <GlassSelect value={grund} onValueChange={setGrund} disabled={verlustGruende.length === 0}>
+                <GlassSelect value={grund} onValueChange={setGrund} disabled={keineGruende}>
                   <GlassSelectTrigger aria-label="Verlustgrund">
                     <GlassSelectValue placeholder="Auswählen" />
                   </GlassSelectTrigger>
@@ -208,7 +220,7 @@ function StufenDialog({
                   </GlassSelectContent>
                 </GlassSelect>
               </label>
-              {verlustGruende.length === 0 ? (
+              {keineGruende ? (
                 <p className="akte-dialog-fehler">Im Workspace sind keine Verlustgründe angelegt.</p>
               ) : null}
               <label className="akte-dialog-feld">
@@ -228,8 +240,8 @@ function StufenDialog({
             <GlassButton type="button" variant="ghost" onClick={onAbbrechen} disabled={speichert}>
               Abbrechen
             </GlassButton>
-            <GlassButton type="submit" disabled={speichert || (verloren && verlustGruende.length === 0)}>
-              {speichert ? "Speichert" : verloren ? "Als verloren markieren" : `Auf „${ziel.label}“ setzen`}
+            <GlassButton type="submit" disabled={speichert || keineGruende}>
+              {speichert ? "Speichert" : grundNoetig ? "Als verloren markieren" : `Auf „${ziel.label}“ setzen`}
             </GlassButton>
           </div>
         </form>

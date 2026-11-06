@@ -54,6 +54,7 @@ interface KopfZeile {
   firma_name: string | null;
   stufe_id: string | null;
   stufe_titel: string | null;
+  verlust_grund: string | null;
   waiting_on: string | null;
   waiting_since: unknown;
   waiting_reason: string | null;
@@ -88,6 +89,7 @@ function kopfLesen(ws: string, deal: string) {
       ) AS firma_name,
       st.id AS stufe_id,
       st.title AS stufe_titel,
+      ${attribut("loss_reason", "v.text_value")} AS verlust_grund,
       w.waiting_on AS waiting_on,
       w.waiting_since::text AS waiting_since,
       w.waiting_reason AS waiting_reason
@@ -212,6 +214,7 @@ export async function ladeAkte(ws: string, deal: string, jetzt: Date = new Date(
         kategorie: stufenKategorie({ titel: s.title, kategorie: s.stage_category }),
       })),
       verlustGruende: zeilen<{ id: string; title: string }>(gruendeRes).map((g) => ({ id: g.id, label: g.title })),
+      verlustGrund: k.verlust_grund?.trim() ? k.verlust_grund : null,
     },
     kacheln: zahlenreiheAus(f, wartet, volumenHerkunftAus(grundlage.volumen, f.fotos), jetzt),
     ablauf: berechneAblauf(f, jetzt),

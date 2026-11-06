@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { GlassButton } from "@/components/glassyui/glass-button";
 import { GlassPanel } from "@/components/glassyui/glass-panel";
 import type { AkteDaten } from "@/lib/akte";
@@ -22,33 +23,51 @@ type Zustand =
  * Die Umzugsakte: lädt `/akte` und `/gespraech` (Entscheidung 2), hält beide
  * im Zustand und gibt `neuLaden()` an die Kinder. Raster: Kopf, Zahlenreihe,
  * dann Gespräch links und Ablauf rechts (Spec 3.2).
+ *
+ * Ein neuer `dealId` zeigt wieder das Skelett. Schlägt ein Neuladen nach einer
+ * Aktion fehl, bleibt die Seite stehen und ein Toast erscheint; die Fehler- und
+ * 404-Ansicht gibt es nur, solange noch keine Akte da ist.
  */
 export function AkteSeite({ dealId }: { dealId: string }) {
   const [zustand, setZustand] = useState<Zustand>({ art: "laden" });
   const lauf = useRef(0);
+  const hatAkte = useRef(false);
+  hatAkte.current = zustand.art === "fertig";
 
-  const neuLaden = useCallback(async () => {
-    const dieser = ++lauf.current;
-    const [a, g] = await Promise.all([
-      apiAufruf<AkteDaten>(`/api/v1/deals/${dealId}/akte`),
-      apiAufruf<GespraechDaten>(`/api/v1/deals/${dealId}/gespraech`),
-    ]);
-    if (dieser !== lauf.current) return;
-    if (a.ok && g.ok) {
-      setZustand({ art: "fertig", akte: a.data, gespraech: g.data });
-      return;
-    }
-    const f = !a.ok ? a : !g.ok ? g : null;
-    if (!f) return;
-    setZustand(f.status === 404 ? { art: "nicht_gefunden" } : { art: "fehler", meldung: f.message });
-  }, [dealId]);
+  const laden = useCallback(
+    async (deal: string) => {
+      const dieser = ++lauf.current;
+      const stillOhneSeite = !hatAkte.current;
+      const [a, g] = await Promise.all([
+        apiAufruf<AkteDaten>(`/api/v1/deals/${deal}/akte`),
+        apiAufruf<GespraechDaten>(`/api/v1/deals/${deal}/gespraech`),
+      ]);
+      if (dieser !== lauf.current) return;
+      if (a.ok && g.ok) {
+        setZustand({ art: "fertig", akte: a.data, gespraech: g.data });
+        return;
+      }
+      const f = !a.ok ? a : !g.ok ? g : null;
+      if (!f) return;
+      if (!stillOhneSeite) {
+        toast.error("Akte konnte nicht neu geladen werden.", { description: f.message });
+        return;
+      }
+      setZustand(f.status === 404 ? { art: "nicht_gefunden" } : { art: "fehler", meldung: f.message });
+    },
+    []
+  );
 
   useEffect(() => {
-    void neuLaden();
+    hatAkte.current = false;
+    setZustand({ art: "laden" });
+    void laden(dealId);
     return () => {
       lauf.current++;
     };
-  }, [neuLaden]);
+  }, [dealId, laden]);
+
+  const neuLaden = useCallback(() => laden(dealId), [laden, dealId]);
 
   if (zustand.art === "laden") return <AkteSkelett />;
 
