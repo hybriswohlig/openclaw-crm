@@ -402,6 +402,8 @@ export interface PersonTimelineMessage {
   direction: "inbound" | "outbound";
   body: string;
   sentAt: Date | null;
+  /** Eingang im CRM; Ersatzzeit, wenn sentAt fehlt. */
+  createdAt: Date;
   channelType: "email" | "whatsapp" | "sms";
   isKleinanzeigen: boolean;
   status: string;
@@ -461,6 +463,7 @@ export async function getPersonMessages(workspaceId: string, conversationIds: st
       direction: m.direction as "inbound" | "outbound",
       body,
       sentAt: m.sentAt,
+      createdAt: m.createdAt,
       channelType: m.channelType as "email" | "whatsapp" | "sms",
       isKleinanzeigen: isKa,
       status: m.status,
