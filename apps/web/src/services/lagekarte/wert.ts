@@ -57,20 +57,27 @@ function positiveEuro(v: unknown): number | null {
 }
 
 /**
- * Wert eines Leads: bestätigte Annahme, dann Angebot, dann deals.value,
- * dann Rechner-Festpreis. Nie 0.
+ * Wert eines Leads: bestätigte Annahme, dann Angebot, dann (nur wenn
+ * übergeben) der Preis der neuesten Kalkulationsversion in Cent, dann
+ * deals.value, dann Rechner-Festpreis. Nie 0. Die Lagekarte ruft ohne
+ * `kalkCent` auf; das Leads-Board (Plan 7, Entscheidung 11) mit.
  */
 export function leadWert(e: {
   kvaCent: number | null;
   angebot: AngebotRoh | null;
   dealValue: unknown;
   rechnerErgebnis: unknown;
+  kalkCent?: number | null;
 }): LeadWert | null {
   if (e.kvaCent !== null && e.kvaCent > 0) return { cent: e.kvaCent, art: "bestaetigt" };
 
   if (e.angebot) {
     const cent = angebotSummeCent(e.angebot);
     if (cent !== null) return { cent, art: "angebot" };
+  }
+
+  if (typeof e.kalkCent === "number" && Number.isFinite(e.kalkCent) && e.kalkCent > 0) {
+    return { cent: Math.round(e.kalkCent), art: "schaetzung" };
   }
 
   const dealCent = positiveEuro(alsObjekt(e.dealValue)?.amount);

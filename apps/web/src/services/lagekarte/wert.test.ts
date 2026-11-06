@@ -52,6 +52,24 @@ describe("leadWert", () => {
   });
   it("dann Rechner-Festpreis (Euro)", () => expect(leadWert({ kvaCent: null, angebot: null, dealValue: null, rechnerErgebnis: { preis: { festpreis: 1430 } } })).toEqual({ cent: 143000, art: "schaetzung" }));
   it("sonst null, nie 0", () => expect(leadWert({ kvaCent: 0, angebot: a({}), dealValue: { amount: 0 }, rechnerErgebnis: {} })).toBeNull());
+
+  describe("kalkCent (Leads-Board, Plan 7)", () => {
+    const basis = { kvaCent: null, angebot: null, dealValue: { amount: 850 }, rechnerErgebnis: { preis: { festpreis: 1430 } } };
+    it("nach dem Angebot, vor deals.value und Rechner, als Schätzung", () => {
+      expect(leadWert({ ...basis, kalkCent: 180000 })).toEqual({ cent: 180000, art: "schaetzung" });
+      expect(leadWert({ ...basis, angebot: a({ fixedPriceEuro: "1200" }), kalkCent: 180000 })).toEqual({ cent: 120000, art: "angebot" });
+      expect(leadWert({ ...basis, kvaCent: 199000, kalkCent: 180000 })).toEqual({ cent: 199000, art: "bestaetigt" });
+    });
+    it("0, null oder ungültig zählt nicht", () => {
+      expect(leadWert({ ...basis, kalkCent: 0 })).toEqual({ cent: 85000, art: "schaetzung" });
+      expect(leadWert({ ...basis, kalkCent: null })).toEqual({ cent: 85000, art: "schaetzung" });
+      expect(leadWert({ ...basis, kalkCent: Number.NaN })).toEqual({ cent: 85000, art: "schaetzung" });
+    });
+    it("ohne Parameter wie bisher (Lagekarte)", () => {
+      expect(leadWert(basis)).toEqual({ cent: 85000, art: "schaetzung" });
+      expect(leadWert({ ...basis, dealValue: null })).toEqual({ cent: 143000, art: "schaetzung" });
+    });
+  });
 });
 
 describe("bezahltCent", () => {

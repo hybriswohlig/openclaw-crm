@@ -328,8 +328,8 @@ async function ladeWerte(dealsObjekt: SQLWrapper, dealIds: SQLWrapper): Promise<
   return zeilen.map((z) => ({ ...z, slug: z.slug as DealAttribut }));
 }
 
-/** Firmen: Records des Objekts operating_companies + Name + Portal-Farbe. */
-async function ladeFirmen(workspaceId: string): Promise<FirmaRoh[]> {
+/** Firmen: Records des Objekts operating_companies + Name + Portal-Farbe (auch für das Leads-Board). */
+export async function ladeFirmen(workspaceId: string): Promise<FirmaRoh[]> {
   return db
     .select({
       id: records.id,
