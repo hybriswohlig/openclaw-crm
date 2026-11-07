@@ -169,8 +169,24 @@ export interface KalkulationsAnsicht {
   angebotsformularLink: string;
   anpassungen: AnpassungAnsicht[];
   /** Plan 5a: Zeilen-Anpassungen, deren Kostenzeile nach dem Neurechnen fehlt (blockieren das Sperren). */
-  verwaist: VerwaisteUebersteuerung[];
+  verwaist: VerwaistAnsicht[];
   zeitpostenVorlagen: { id: string; bezeichnung: string; minuten: number }[];
+}
+
+/**
+ * Verwaiste Anpassung mit Anzeigenamen (Plan 5a, Task E). Fahrzeug- und
+ * Stations-IDs im Schlüssel sind UUIDs: Namen kommen nur aus dem aktuellen
+ * Rechnerergebnis, die alte Station heißt „einer früheren Station“.
+ */
+export interface VerwaistAnsicht extends VerwaisteUebersteuerung {
+  /** „Sprinter L, Miete an einer früheren Station: 120 €“ */
+  text: string;
+  /** Wert der Anpassung (Euro), null wenn keine Zahl */
+  wert: number | null;
+  /** je Kandidat „Sprinter L, Miete an Sixt Feuerbach“, Reihenfolge wie `kandidaten` */
+  kandidatenText: string[];
+  /** je Kandidat „Sixt Feuerbach“ bzw. „der aktuellen Station“ (für Rückfrage und Grund) */
+  kandidatenStation: string[];
 }
 
 // ─── Eingaben von `ansichtAus` ────────────────────────────────────────────────
@@ -822,6 +838,69 @@ function kvAnsicht(v: VersionsZeile, rest: AnsichtRest): { kv: KvAnsicht | null;
 
 // ─── Anpassungen ──────────────────────────────────────────────────────────────
 
+// ─── Fahrzeug-Schlüssel lesbar (Plan 5a, Task E) ──────────────────────────────
+
+const FAHRZEUG_SCHLUESSEL = /^fahrzeug\.([^@.]+)@([^.]+)\.([a-z_]+)$/;
+const TEIL_TEXT: Record<string, string> = {
+  miete: "Miete",
+  tagespauschale: "Tagespauschale",
+  kraftstoff: "Kraftstoff",
+  mehrkm: "Mehrkilometer",
+  verschleiss: "Verschleiß",
+};
+/** Sieht nach ID aus (UUID, langer Hex- oder Kürzelwert ohne Leerzeichen mit Ziffern): nie anzeigen. */
+const ID_ARTIG = /[0-9a-f]{8}-[0-9a-f]{4}|^[0-9a-f]{12,}$|^[a-z0-9]+_[a-z0-9_]+$/i;
+
+function lesbar(name: string | null | undefined): string | null {
+  const t = name?.trim() ?? "";
+  return t !== "" && !ID_ARTIG.test(t) ? t : null;
+}
+
+/** Klassenname aus einer Ergebniszeile derselben Fahrzeugklasse („Sprinter L: Miete“, „Sprinter L · Sixt …“). */
+function klassenName(klasse: string, v: VersionsZeile): string {
+  for (const p of v.rechnerResult?.kosten?.posten ?? []) {
+    const m = p.key ? FAHRZEUG_SCHLUESSEL.exec(p.key) : null;
+    if (m && m[1] === klasse) {
+      const n = lesbar(p.bezeichnung.split(":")[0].split(" · ")[0]);
+      if (n) return n;
+    }
+  }
+  const option = v.rechnerResult?.fahrzeugoptionen?.find((o) => o.id === klasse);
+  return lesbar(option?.name) ?? "Fahrzeug";
+}
+
+/** Station eines Schlüssels im aktuellen Ergebnis: der Name der gewählten Mietstation. */
+function aktuelleStation(v: VersionsZeile): string {
+  return lesbar(v.rechnerResult?.mietstation?.name) ?? "der aktuellen Station";
+}
+
+/** „Sprinter L, Miete“ ohne Station; null für Schlüssel, die keine Fahrzeugzeile mit Station sind. */
+function fahrzeugTeilText(key: string, v: VersionsZeile): string | null {
+  const m = FAHRZEUG_SCHLUESSEL.exec(key);
+  return m ? `${klassenName(m[1], v)}, ${TEIL_TEXT[m[3]] ?? "Kosten"}` : null;
+}
+
+/** Verwaiste Anpassungen mit Namen aus dem aktuellen Ergebnis; nie eine ID im Text. */
+export function verwaistMitNamen(liste: readonly VerwaisteUebersteuerung[], v: VersionsZeile): VerwaistAnsicht[] {
+  const station = aktuelleStation(v);
+  return liste.map((x) => {
+    const u = wirksameUebersteuerungen(v.overrides ?? []).find((o) => o.id === x.id) ?? null;
+    const wert = zahl(u?.wert);
+    const betrag = wert === null ? "" : `: ${euroText(cent(wert))}`;
+    const teil = fahrzeugTeilText(x.key, v);
+    const text = teil
+      ? `${teil} an einer früheren Station${betrag}`
+      : `${lesbar((v.costLines ?? []).find((c) => c.key === x.key)?.bezeichnung) ?? "Kostenzeile"}${betrag}`;
+    return {
+      ...x,
+      text,
+      wert,
+      kandidatenText: x.kandidaten.map((k) => `${fahrzeugTeilText(k, v) ?? "Kostenzeile"} an ${station}`),
+      kandidatenStation: x.kandidaten.map(() => station),
+    };
+  });
+}
+
 function anpassungText(u: Uebersteuerung, v: VersionsZeile): string {
   switch (u.art) {
     case "eingabe": {
@@ -834,7 +913,10 @@ function anpassungText(u: Uebersteuerung, v: VersionsZeile): string {
       const imErgebnis = posten?.find((x) => x.key === u.key) ?? null;
       const p = imErgebnis ?? v.costLines.find((c) => c.key === u.key) ?? null;
       const wert = zahl(u.wert);
-      const text = `${p?.bezeichnung ?? u.key}: ${wert === null ? String(u.wert) : euroText(cent(wert))}`;
+      // Fehlt die Zeile, trägt der Schlüssel nur IDs (UUIDs): dann den lesbaren Fahrzeugnamen.
+      const fahrzeug = p ? null : fahrzeugTeilText(u.key, v);
+      const name = p?.bezeichnung ?? (fahrzeug ? `${fahrzeug} an einer früheren Station` : u.key);
+      const text = `${name}: ${wert === null ? String(u.wert) : euroText(cent(wert))}`;
       // Fahrzeugzeilen tragen die Mietstation im Schlüssel: wählt der Rechner eine andere
       // Station, trifft die Anpassung keine Zeile mehr und wirkt nicht.
       return posten && !imErgebnis ? `${text} (wirkt nicht, die Zeile gibt es nach dem Neurechnen nicht mehr)` : text;
@@ -980,7 +1062,7 @@ export function ansichtAus(v: VersionsZeile, rest: AnsichtRest): KalkulationsAns
       am: zeitpunktText(u.zeit),
       grund: u.grund,
     })),
-    verwaist,
+    verwaist: verwaistMitNamen(verwaist, v),
     zeitpostenVorlagen: rest.vorlagen.map((z) => ({ id: z.id, bezeichnung: z.bezeichnung, minuten: z.minuten })),
   };
 }

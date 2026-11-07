@@ -9,19 +9,11 @@ import {
   GlassDialogDescription,
   GlassDialogTitle,
 } from "@/components/glassyui/glass-dialog";
-import type { VerwaisteUebersteuerung } from "@/lib/angebot-wahl";
-import type { AnpassungAnsicht } from "@/lib/kalkulations-ansicht";
+import type { AnpassungAnsicht, VerwaistAnsicht } from "@/lib/kalkulations-ansicht";
 import type { KalkKontext } from "./kalk-seite";
-import {
-  stationText,
-  uebertragbar,
-  uebertragenEingaben,
-  verwaistHinweis,
-  verwaistText,
-  verwerfenEingaben,
-} from "./verwaist-logik";
+import { uebertragbar, uebertragenEingaben, verwaistHinweis, verwerfenEingaben } from "./verwaist-logik";
 
-type Frage = { art: "uebertragen" | "verwerfen"; v: VerwaisteUebersteuerung };
+type Frage = { art: "uebertragen" | "verwerfen"; v: VerwaistAnsicht };
 
 /**
  * Verwaiste Fahrzeug-Anpassungen (Entscheidung 5a-9): je Anpassung eine
@@ -36,7 +28,7 @@ export function VerwaisteAnpassungen({
   beschaeftigt,
   portalZiel,
 }: {
-  verwaist: VerwaisteUebersteuerung[];
+  verwaist: VerwaistAnsicht[];
   anpassungen: AnpassungAnsicht[];
   kontext: Pick<KalkKontext, "uebersteuern" | "bearbeitbar">;
   beschaeftigt: boolean;
@@ -45,12 +37,11 @@ export function VerwaisteAnpassungen({
   const [frage, setFrage] = useState<Frage | null>(null);
   const [schreibt, setSchreibt] = useState(false);
   if (verwaist.length === 0 || !kontext.bearbeitbar) return null;
-  const anpassung = (v: VerwaisteUebersteuerung) => anpassungen.find((a) => a.id === v.id);
+  const anpassung = (v: VerwaistAnsicht) => anpassungen.find((a) => a.id === v.id);
 
   async function bestaetigen() {
     if (!frage) return;
-    const a = anpassung(frage.v);
-    const liste = frage.art === "uebertragen" ? uebertragenEingaben(frage.v, a) : verwerfenEingaben(frage.v);
+    const liste = frage.art === "uebertragen" ? uebertragenEingaben(frage.v) : verwerfenEingaben(frage.v);
     if (liste.length === 0) return;
     setSchreibt(true);
     const r = await kontext.uebersteuern(liste);
@@ -62,8 +53,6 @@ export function VerwaisteAnpassungen({
     toast.success(frage.art === "uebertragen" ? "Anpassung übertragen." : "Anpassung verworfen.");
     setFrage(null);
   }
-
-  const fa = frage ? anpassung(frage.v) : undefined;
 
   return (
     <>
@@ -78,15 +67,15 @@ export function VerwaisteAnpassungen({
           const a = anpassung(v);
           return (
             <li key={v.id} className="kalk-verwaist" data-ton="gold">
-              <p className="kalk-verwaist-t">{verwaistText(v, a)}</p>
+              <p className="kalk-verwaist-t">{v.text}</p>
               {a ? (
                 <small className="kalk-verwaist-f">
                   {a.von} · {a.am} · „{a.grund}“
                 </small>
               ) : null}
-              <p className="kalk-verwaist-h">{verwaistHinweis(v, a)}</p>
+              <p className="kalk-verwaist-h">{verwaistHinweis(v)}</p>
               <div className="kalk-verwaist-k">
-                {uebertragbar(v, a) ? (
+                {uebertragbar(v) ? (
                   <button type="button" className="kalk-kleinknopf" disabled={beschaeftigt} onClick={() => setFrage({ art: "uebertragen", v })}>
                     Übertragen
                   </button>
@@ -108,8 +97,8 @@ export function VerwaisteAnpassungen({
             </GlassDialogTitle>
             <GlassDialogDescription className="akte-dialog-text">
               {frage.art === "uebertragen"
-                ? `„${verwaistText(frage.v, fa)}“ gilt dann für ${stationText(frage.v.kandidaten[0] ?? "")}, mit dem Grund „übertragen von ${stationText(frage.v.key)}“. Die alte Anpassung wird gelöscht.`
-                : `„${verwaistText(frage.v, fa)}“ wird gelöscht. Der Rechner rechnet die Zeile dann mit seinen Regeln.`}
+                ? `„${frage.v.text}“ gilt dann für ${frage.v.kandidatenText[0] ?? "die neue Zeile"}, mit dem Grund „übertragen von früherer Station“. Die alte Anpassung wird gelöscht.`
+                : `„${frage.v.text}“ wird gelöscht. Der Rechner rechnet die Zeile dann mit seinen Regeln.`}
             </GlassDialogDescription>
             <div className="akte-dialog-knoepfe">
               <GlassButton type="button" variant="ghost" onClick={() => setFrage(null)} disabled={schreibt}>
