@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { kernBefund } from "@/lib/angebot-wahl";
 import { halteverbotVorlaufHinweis, kvBausteine, kvGueltigBis, strasseAus } from "./kv-posten";
 
 // Kalkulation wie bei Lead "Patrick" (2026-09-29): 4 Personen, zwei Halteverbotszonen, drei zerlegte Möbel.
@@ -271,6 +272,74 @@ describe("kvBausteine: Zeilen per Schlüssel (Rechner-Vertrag), Text als Rückfa
       optionen: { ohneMontage: true },
     });
     expect(k.entfalleneKosten).toBe(50);
+  });
+});
+
+const inCent = (eur: number) => Math.round(eur * 100);
+const postenCent = (posten: Array<{ unitRate: number; quantity: number }>) =>
+  posten.reduce((s, p) => s + inCent(p.unitRate) * p.quantity, 0);
+
+describe("kvBausteine: Hebelauswahl und Zusammenklappen (Plan 5b)", () => {
+  it("lässt ohne die neuen Optionen den kleinen Kern zusammengeklappt", () => {
+    const k = kvBausteine({ festpreis: 500, ergebnis, anfrage, zusammenklappen: "kern_min" });
+    expect(k.posten).toHaveLength(1);
+    expect(k.posten[0]!.unitRate).toBe(500);
+    expect(k.posten[0]!.description).toContain("Demontage & Montage und Halteverbotszone");
+  });
+
+  it("hält einen kleinen Kern mit zusammenklappen nie als eigenen Posten", () => {
+    const k = kvBausteine({ festpreis: 500, ergebnis, anfrage, festpreisIstEndpreis: true, zusammenklappen: "nie" });
+    expect(k.posten.map((p) => p.unitRate)).toEqual([80, 120, 150]);
+    expect(k.posten[2]!.quantity).toBe(2);
+    expect(postenCent(k.posten)).toBe(inCent(500));
+    expect(k.kern).toBe(80);
+  });
+
+  it("Basis ohne Hebel: ein Kernposten, nichts daneben", () => {
+    const k = kvBausteine({ festpreis: 1840, ergebnis, anfrage, festpreisIstEndpreis: true, hebelNur: [] });
+    expect(k.posten).toHaveLength(1);
+    expect(k.posten[0]!.description.startsWith("Umzugsteam")).toBe(true);
+    expect(k.posten[0]!.description).not.toMatch(/Demontage|Halteverbot|Einpack|Küche/);
+    expect(k.hebel).toEqual([]);
+    expect(postenCent(k.posten)).toBe(inCent(1840));
+  });
+
+  it("nimmt nur die genannten Hebel als eigene Posten, der Rest bleibt im Kern", () => {
+    const k = kvBausteine({
+      festpreis: 2260,
+      ergebnis,
+      anfrage,
+      festpreisIstEndpreis: true,
+      hebelNur: ["halteverbot"],
+    });
+    expect(k.hebel.map((h) => h.art)).toEqual(["halteverbot"]);
+    expect(k.posten.some((p) => p.description.startsWith("Demontage"))).toBe(false);
+    expect(postenCent(k.posten)).toBe(inCent(2260));
+  });
+
+  it("gibt einen Kern von 0 oder darunter nicht als Posten aus und kernBefund meldet negativ", () => {
+    const k = kvBausteine({ festpreis: 100, ergebnis, anfrage, festpreisIstEndpreis: true, zusammenklappen: "nie" });
+    expect(k.kern).toBeLessThanOrEqual(0);
+    expect(k.posten.every((p) => p.unitRate > 0)).toBe(true);
+    expect(k.posten.length).toBeGreaterThan(1);
+    expect(
+      kernBefund([{ description: "Kern", quantity: 1, unitRate: k.kern }, ...k.posten])
+    ).toEqual({ art: "negativ" });
+  });
+
+  it("gleicht einen krummen Hebel-Satz auf den Cent aus und klappt nicht zusammen", () => {
+    const krumm = {
+      ...ergebnis,
+      preis: {
+        ...ergebnis.preis,
+        posten: ergebnis.preis.posten.map((p) => (p.bezeichnung === "Halteverbotszone" ? { ...p, satz: 150.005 } : p)),
+      },
+    };
+    const k = kvBausteine({ festpreis: 500, ergebnis: krumm, anfrage, festpreisIstEndpreis: true, zusammenklappen: "nie" });
+    expect(k.posten.length).toBeGreaterThan(1);
+    expect(k.posten[0]!.unitRate).toBeLessThan(200);
+    expect(k.posten.every((p) => p.unitRate > 0)).toBe(true);
+    expect(postenCent(k.posten)).toBe(inCent(500));
   });
 });
 

@@ -181,6 +181,13 @@ export function kvBausteine(input: {
   anfrage: RechnerAnfrage;
   optionen?: KvOptionen;
   festpreisIstEndpreis?: boolean;
+  /** Nur diese Hebel werden eigene Posten. Alles andere bleibt im Kern. */
+  hebelNur?: HebelArt[];
+  /**
+   * `kern_min` (Standard): ein Kern unter der Hälfte wird ein Posten, wie bisher.
+   * `nie`: nie zusammenklappen, auch wenn der Kern klein oder nicht positiv ist.
+   */
+  zusammenklappen?: "nie" | "kern_min";
 }): KvBausteine {
   const { ergebnis: e, anfrage } = input;
   const opt = input.optionen ?? {};
@@ -274,8 +281,13 @@ export function kvBausteine(input: {
   const abzug = input.festpreisIstEndpreis ? 0 : kandidaten.filter((k) => weg(k.art)).reduce((s, k) => s + betrag(k.posten), 0);
   const summe = cent(input.festpreis - abzug);
   let hebel = kandidaten.filter((k) => !weg(k.art));
+  if (input.hebelNur) {
+    const nur = new Set(input.hebelNur);
+    hebel = hebel.filter((k) => nur.has(k.art));
+  }
   // Kern als Rest in ganzen Cent: so ergeben die gespeicherten Posten genau den Festpreis.
   let kern = (inCent(summe) - hebel.reduce((s, k) => s + inCent(k.posten.unitRate) * k.posten.quantity, 0)) / 100;
+  const klappen = input.zusammenklappen ?? "kern_min";
 
   // ── Kernposten ──
   const option = e.fahrzeugoptionen?.find((o) => o.id === e.empfehlungOptionId) ?? null;
@@ -283,7 +295,7 @@ export function kvBausteine(input: {
   const fahrzeug = option && /lkw/i.test(option.name) ? "LKW" : "Transporter";
   const kernText = `Umzugsteam${team ? ` (${team} Personen)` : ""} & ${fahrzeug}, inkl. Anfahrt, aller Kilometer, Möbelschutz und Tragewege`;
   let kernPosten: KvPosten = { description: kernText, quantity: 1, unitRate: kern };
-  if (kern < summe * KERN_MIN_ANTEIL) {
+  if (klappen !== "nie" && kern < summe * KERN_MIN_ANTEIL) {
     // Hebel zu groß im Verhältnis: ein Posten mit allem, damit kein Teil billiger wirkt als der Rest.
     const drin = hebel.map((k) => (k.art === "montage" ? montageTitel : k.art === "halteverbot" ? "Halteverbotszone" : k.art === "einpacken" ? "Einpackservice" : "Küche"));
     kernPosten = { description: `${kernText}${drin.length ? `, ${aufzaehlen(drin)}` : ""}`, quantity: 1, unitRate: summe };
@@ -319,8 +331,11 @@ export function kvBausteine(input: {
     );
   }
 
+  // Kern ≤ 0 ist kein Posten. Beim bisherigen Zusammenklappen steht er schon als Summe im einen Posten.
+  const posten = kern > 0 || klappen !== "nie" ? [kernPosten, ...hebel.map((k) => k.posten)] : hebel.map((k) => k.posten);
+
   return {
-    posten: [kernPosten, ...hebel.map((k) => k.posten)],
+    posten,
     summe,
     kern,
     hebel: hebel.map((k) => ({ art: k.art, betrag: betrag(k.posten) })),
