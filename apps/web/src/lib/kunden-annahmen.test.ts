@@ -14,22 +14,50 @@ describe("kundenAnnahmen", () => {
     );
     expect(r).toMatchObject({ anfahrtMinuten: 55, hinweis: "x" });
   });
-  it("Rechner-Hinweise mit Beträgen oder Spannen aus einer Übernahme erreichen den Kunden nicht", () => {
+  it("Rechner-Hinweise aus einer Übernahme erreichen den Kunden nicht (Anfänge wie im Rechner)", () => {
     const basis = { anfahrtMinuten: 55, etageVon: "3", uebernommenVon: "mensch" as const };
     for (const hinweis of [
       "Mietstation SIXT Sindelfingen (Anfahrt 12 Min, Rückfahrt 14 Min). Schnellschätzung 670 bis 1180 €, übernommen: Obergrenze.",
       "Schnellschätzung 670 bis 1180 €, übernommen: Obergrenze.",
-      "Keine Möbelliste: Umzugsgut aus 3 Zimmern geschätzt (18 bis 26 m³).",
-      "Halteverbot 150 € eingerechnet.",
+      // Ohne Station und Spanne beginnt der Hinweis mit der ersten Annahme des Rechners.
+      "Keine Möbelliste: Umzugsgut aus 3 Zimmern geschätzt (18 bis 26 m³), mit typischen Möbeln für 3 Zimmer.",
+      "Keine Möbelliste und keine Größenangabe: gerechnet mit 2 bis 4 Zimmern (typische Haushalte, 18 bis 30 m³).",
+      "Etage an der Beladeadresse unbekannt: günstig Erdgeschoss, ungünstig 3. OG ohne Aufzug.",
+      "Ohne Fahrzeiten je Station lässt sich die günstigste Station nicht bestimmen; gerechnet mit SIXT und den eingetragenen Fahrzeiten.",
+      "Fahrzeiten zur Mietstation unvollständig: Anfahrt 30 Min / 25 km, Rückfahrt 30 Min / 25 km angenommen.",
+      "Umzug innerhalb desselben Ortes ohne genaue Adressen: 15 Min und 5 km Strecke angenommen.",
+      "Strecke zwischen Belade- und Entladeadresse unbekannt: 30 Min und 20 km angenommen.",
+      "Strecke Beladen → Entladen fehlt, mit 0 km gerechnet.",
+      "Tragestrecke an der Entladeadresse unbekannt: 20 m angenommen.",
+      "Anfahrt und Rückfahrt für Startort Böblingen mit Depotwerten angenommen.",
+      "Route für Startort Böblingen fehlt, Anfahrt und Rückfahrt mit 0 gerechnet.",
+      "Route unvollständig, Fahrzeit und Kilometer mit 0 gerechnet.",
+      "Anhänger Koffer 2 steht an einem anderen Startort als das Zugfahrzeug, Umweg nicht gerechnet.",
+      "Volumen auf 25,5 m³ vorgegeben (Gewicht mitskaliert, Tragezeiten aus der Möbelliste)",
+      "Volumenvorgabe 25 m³ nicht angewendet: keine Positionen mit Volumen.",
+      "Wendeltreppe an der Beladeadresse: vorsichtig gerechnet, als müssten alle Möbel darüber.",
+      'Position "Aquarium" ohne Katalogtreffer: 0.5 m³ (Standard der Größenklasse M) und 40 kg (Standard der Größenklasse M) je Stück.',
+      "Das gesamte Team fährt im Fahrzeug mit.",
     ]) {
-      expect(kundenAnnahmen({ ...basis, hinweis })).toMatchObject({ anfahrtMinuten: 55, hinweis: null });
+      expect(kundenAnnahmen({ ...basis, hinweis }), hinweis).toMatchObject({ anfahrtMinuten: 55, hinweis: null });
     }
-    // Ein Hinweis von Hand bleibt, auch nach einer Übernahme.
-    expect(kundenAnnahmen({ ...basis, hinweis: "Preis gilt bei Zugang wie angenommen" })?.hinweis).toBe(
-      "Preis gilt bei Zugang wie angenommen"
-    );
-    // Ohne Übernahme ist der Hinweis von Hand, auch mit Betrag.
-    expect(kundenAnnahmen({ anfahrtMinuten: 55, hinweis: "Halteverbot 150 € eingerechnet." })?.hinweis).toBe("Halteverbot 150 € eingerechnet.");
+  });
+  it("Hinweise von Hand bleiben nach einer Übernahme, auch mit Betrag oder Spanne (Review N3)", () => {
+    const basis = { anfahrtMinuten: 55, etageVon: "3", uebernommenVon: "mensch" as const };
+    for (const hinweis of [
+      "Halteverbotszone 8 bis 12 Uhr beantragt",
+      "Halteverbot 8 bis 12 Uhr",
+      "Parkgebühr 15 € vor Ort",
+      "Halteverbot 150 € eingerechnet.",
+      "Preis gilt bei Zugang wie angenommen",
+      // Ein Rechner-Wort mitten im Satz macht einen Hinweis von Hand nicht zum Rechner-Hinweis.
+      "Transporter kommt von der Mietstation in Sindelfingen",
+      "Position des Klaviers vorab klären",
+    ]) {
+      expect(kundenAnnahmen({ ...basis, hinweis })?.hinweis).toBe(hinweis);
+    }
+    // Ohne Übernahme ist jeder Hinweis von Hand, auch einer, der wie der Rechner beginnt.
+    expect(kundenAnnahmen({ anfahrtMinuten: 55, hinweis: "Mietstation am Bahnhof" })?.hinweis).toBe("Mietstation am Bahnhof");
   });
   it("ohne sichtbare Angabe null (der Abschnitt entfällt)", () => {
     expect(kundenAnnahmen({ hinweis: "Schnellschätzung 670 bis 1180 €, übernommen: Obergrenze.", uebernommenVon: "agent", selbstkosten: 700 })).toBeNull();

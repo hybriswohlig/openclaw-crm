@@ -138,4 +138,34 @@ describe("vorbelegungAusAngebot: Stunden-KV aus der Version (Plan 5b, K1)", () =
     expect(vorbelegungAusAngebot(angebot(2), "kottke")?.ausVersion).toBeUndefined();
     expect(() => vpsPreiseMitStunden("kottke", angebot(2))).toThrow(VpsStundenError);
   });
+
+  // F2 (Review N2): Kottke hat nur den VPS, Ceylan die CRM-Vorlage. Die Meldung rät je Firma das Richtige.
+  it.each([0, 2])("%i Transporter: Meldung je Firma, Kottke neu sperren, Ceylan CRM-Vorlage", (transporter) => {
+    expect(() => vpsPreiseMitStunden("kottke", angebot(transporter))).toThrow(
+      `dieses Angebot hat ${transporter}. Bitte in der Kalkulation anpassen und neu sperren.`
+    );
+    let ceylan = "";
+    try {
+      vpsPreiseMitStunden("ceylan", angebot(transporter));
+    } catch (err) {
+      expect(err).toBeInstanceOf(VpsStundenError);
+      ceylan = (err as Error).message;
+    }
+    expect(ceylan).toBe(
+      `Der VPS druckt einen Stunden-KV nur mit genau einem Transporter, dieses Angebot hat ${transporter}. Bitte „Mit CRM-Vorlage speichern“ anhaken, die CRM-Vorlage druckt dieses Angebot richtig.`
+    );
+    expect(ceylan).not.toMatch(/neu sperren|[\u2013\u2014]/);
+  });
+
+  it("feste Zusatzposten: Ceylan bekommt den Rat zur CRM-Vorlage, Kottke den zum Neusperren", () => {
+    const mitZusatz: Angebot = { ...angebot(1), lineItems: [...angebot(1).lineItems, { type: "other", description: "Halteverbot", quantity: 1, unitRate: "150.00" }] };
+    expect(() => vpsPreiseMitStunden("kottke", mitZusatz)).toThrow("Bitte die Zusatzposten in der Kalkulation entfernen und neu sperren.");
+    expect(() => vpsPreiseMitStunden("ceylan", mitZusatz)).toThrow("Bitte „Mit CRM-Vorlage speichern“ anhaken");
+  });
+
+  it("die Vorbelegung trägt die Meldung des VPS-Wegs, damit der Dialog sie vorab zeigt", () => {
+    expect(vorbelegungAusAngebot(angebot(2), "ceylan")?.vpsNichtDruckbar).toMatch(/^Der VPS druckt einen Stunden-KV nur mit genau einem Transporter, dieses Angebot hat 2\. Bitte „Mit CRM-Vorlage speichern“/);
+    expect(vorbelegungAusAngebot(angebot(0), "kottke")?.vpsNichtDruckbar).toMatch(/neu sperren\.$/);
+    expect(vorbelegungAusAngebot(angebot(1), "ceylan")?.vpsNichtDruckbar).toBeUndefined();
+  });
 });

@@ -19,26 +19,57 @@ export const KUNDEN_ANNAHMEN_FELDER = [
 ] as const satisfies ReadonlyArray<keyof CalculationAssumptions>;
 
 /**
- * Merkmale des Rechner-Hinweises, den „In Angebot übernehmen“ bis Plan 5b in das
- * Kundenfeld `hinweis` schrieb: Mietstation, Schnellschätzung mit Spanne, Beträge.
- * Neue Übernahmen schreiben ihn nach `rechnerHinweis` (intern).
+ * Anfänge des Rechner-Hinweises, den „In Angebot übernehmen“ bis Plan 5b in das
+ * Kundenfeld `hinweis` schrieb (`services/rechner/uebernahme.ts`, Teile mit
+ * Leerzeichen verbunden): zuerst „Mietstation …“ und „Schnellschätzung …“, dann
+ * die Annahmen des Rechners (Repo „Umzugsgut Angebotsrechner“, `lib/berechnung.ts`,
+ * `engine/zeiten.ts`, `engine/positionen.ts`, `engine/index.ts`). Fehlen Station
+ * und Spanne, beginnt der Hinweis mit der ersten Annahme. Neue Übernahmen
+ * schreiben ihn nach `rechnerHinweis` (intern).
+ *
+ * Nur der Anfang zählt (F2, Review N3): ein Hinweis von Hand mit Betrag oder
+ * Spanne („Halteverbot 8 bis 12 Uhr“, „Parkgebühr 15 € vor Ort“) bleibt sichtbar.
  */
-const RECHNER_HINWEIS = [/Mietstation/, /Schnellschätzung/, /Obergrenze/, /\d\s*€/, /€\s*\d/, /\d+(?:[.,]\d+)?\s*bis\s*\d+/];
+const RECHNER_HINWEIS_ANFANG: readonly RegExp[] = [
+  /^Mietstation /,
+  /^Schnellschätzung /,
+  // Schätzung ohne Möbelliste oder Etage
+  /^Keine Möbelliste/,
+  /^Etage an der (?:Belade|Entlade)adresse unbekannt/,
+  // Fahrt und Strecke
+  /^Ohne Fahrzeiten je Station /,
+  /^Fahrzeiten zur Mietstation unvollständig/,
+  /^Umzug innerhalb desselben Ortes ohne genaue Adressen/,
+  /^Strecke zwischen Belade- und Entladeadresse unbekannt/,
+  /^Strecke Beladen → Entladen fehlt/,
+  /^Tragestrecke an der (?:Belade|Entlade)adresse unbekannt/,
+  /^Anfahrt und Rückfahrt für Startort /,
+  /^Route für Startort /,
+  /^Route unvollständig, /,
+  /^Anhänger .+ steht an einem anderen Startort/,
+  // Umzugsgut und Team
+  /^Volumen auf .+ vorgegeben/,
+  /^Volumenvorgabe .+ nicht angewendet/,
+  /^Wendeltreppe an der (?:Belade|Entlade)adresse:/,
+  /^Position ".*" (?:Katalogschlüssel|ohne Katalogtreffer)/,
+  /^Das gesamte Team fährt im Fahrzeug mit\./,
+];
 
 /**
  * Ist der Kundenhinweis ein interner Rechner-Hinweis aus einer alten Übernahme?
- * Nur wenn übernommen wurde (`uebernommenVon`), damit ein Hinweis von Hand
- * („Preis gilt bei Zugang wie angenommen“) stehen bleibt.
+ * Nur wenn übernommen wurde (`uebernommenVon`) und der Text so beginnt, wie der
+ * Rechner ihn schreibt. Ein Hinweis von Hand bleibt stehen, auch mit Betrag.
  */
 export function istRechnerHinweis(hinweis: string, a: Pick<CalculationAssumptions, "uebernommenVon">): boolean {
   if (!a.uebernommenVon) return false;
-  return RECHNER_HINWEIS.some((m) => m.test(hinweis));
+  const text = hinweis.trimStart();
+  return RECHNER_HINWEIS_ANFANG.some((m) => m.test(text));
 }
 
 /**
  * Whitelist für alles, was den Kunden erreicht (Portal, Dokumente, E-Mails).
  * Selbstkosten, Marge und Übernahme-Metadaten sind intern und bleiben draußen,
- * ebenso Rechner-Hinweise mit Beträgen oder Spannen. Bleibt keine Angabe übrig,
+ * ebenso Rechner-Hinweise aus alten Übernahmen. Bleibt keine Angabe übrig,
  * null: dann zeigt das Portal keine Kalkulationsgrundlagen.
  */
 export function kundenAnnahmen(a: CalculationAssumptions | null | undefined): CalculationAssumptions | null {

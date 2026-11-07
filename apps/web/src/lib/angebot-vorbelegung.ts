@@ -7,6 +7,7 @@
 import type { PrefilledPreise } from "@/components/GenerateDocumentDialog";
 import { festpreisAlsPauschale, istBepreist } from "@/lib/festpreis-posten";
 import { stundenAngebotAus, type PortalStundenAngebot } from "@openclaw-crm/customer-portal-core";
+import { isKottkeFirma } from "@/lib/kottke-crm-renderer";
 
 /** Die Felder des Angebots (`GET /deals/{id}/quotation`), die die Vorbelegung liest. */
 export interface Angebot {
@@ -94,6 +95,21 @@ export class VpsStundenError extends Error {
   }
 }
 
+/** Beschriftung des Hakens im Dokument-Dialog, der das CRM die PDF selbst erzeugen lässt. */
+export const CRM_VORLAGE_HAKEN = "Mit CRM-Vorlage speichern";
+
+/**
+ * Was die Mitarbeitenden tun sollen, wenn der VPS den Stunden-KV nicht drucken
+ * kann (F2, Review N2). Kottke hat nur den VPS: in der Kalkulation anpassen und
+ * neu sperren. Andere Firmen (Ceylan) haben die CRM-Vorlage, die Transporter
+ * und Zusatzposten richtig druckt; neu sperren wäre der falsche Rat.
+ */
+function vpsStundenAusweg(firma: string, kalkulation: string): string {
+  return isKottkeFirma(firma)
+    ? `Bitte ${kalkulation} und neu sperren.`
+    : `Bitte „${CRM_VORLAGE_HAKEN}“ anhaken, die CRM-Vorlage druckt dieses Angebot richtig.`;
+}
+
 /** Quelle für den VPS-Preisblock: Angebot plus Version und `document_details.stunden` (Plan 5b). */
 export type VpsPreisQuelle = Parameters<typeof vpsPreise>[1] & {
   calculationVersionId?: string | null;
@@ -124,13 +140,13 @@ export function vpsPreiseMitStunden(firma: string, q: VpsPreisQuelle): VpsPreise
   if (!s || !preise || preise.modell !== "stundensatz") return preise;
   if (s.transporter !== 1) {
     throw new VpsStundenError(
-      `Der VPS druckt einen Stunden-KV nur mit genau einem Transporter, dieses Angebot hat ${s.transporter}. Bitte in der Kalkulation anpassen und neu sperren.`
+      `Der VPS druckt einen Stunden-KV nur mit genau einem Transporter, dieses Angebot hat ${s.transporter}. ${vpsStundenAusweg(firma, "in der Kalkulation anpassen")}`
     );
   }
   const zusatz = q.lineItems.some((i) => i.type !== "helper" && i.type !== "transporter" && Number(i.unitRate) * i.quantity !== 0);
   if (zusatz) {
     throw new VpsStundenError(
-      "Der VPS druckt einen Stunden-KV ohne feste Zusatzposten. Bitte die Zusatzposten in der Kalkulation entfernen und neu sperren."
+      `Der VPS druckt einen Stunden-KV ohne feste Zusatzposten. ${vpsStundenAusweg(firma, "die Zusatzposten in der Kalkulation entfernen")}`
     );
   }
   return {
@@ -159,6 +175,8 @@ export function vorbelegungAusAngebot(
     ausVersion = q.calculationVersionId ? vpsPreiseMitStunden(firma, q) : null;
   } catch (err) {
     if (!(err instanceof VpsStundenError)) throw err;
+    // F2 (Review N2): der Dialog zeigt die Meldung vorab; bei Ceylan stellt er die CRM-Vorlage ein.
+    prefill.vpsNichtDruckbar = err.message;
   }
   if (q.calculationVersionId && ausVersion) {
     prefill.ausVersion = { versionId: q.calculationVersionId, preise: ausVersion };

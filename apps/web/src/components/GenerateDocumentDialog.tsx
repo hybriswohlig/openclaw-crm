@@ -84,6 +84,13 @@ export interface PrefilledPreise {
    * der Quotation). Ändern geht nur über die Kalkulation.
    */
   ausVersion?: { versionId: string; preise: VpsPreise };
+  /**
+   * F2 (Review N2): der VPS kann den Stunden-KV aus der Version nicht drucken
+   * (nicht genau ein Transporter oder feste Zusatzposten). Die Meldung, mit der
+   * der Server den VPS-Auftrag ablehnen würde. Mit CRM-Vorlage (Ceylan) stellt
+   * der Dialog sie ein.
+   */
+  vpsNichtDruckbar?: string;
 }
 
 /**
@@ -225,8 +232,11 @@ export function GenerateDocumentDialog({
   const [serviceType, setServiceType] = useState<ServiceType>(
     deal.serviceType ?? "move"
   );
-  // Opt-in CRM template. Unchecked keeps the VPS job.
-  const [useCrmRenderer, setUseCrmRenderer] = useState(false);
+  // Opt-in CRM template. Unchecked keeps the VPS job. Kann der VPS den Stunden-KV
+  // nicht drucken (F2, Review N2), ist die CRM-Vorlage gleich eingestellt, wo es sie gibt.
+  const [useCrmRenderer, setUseCrmRenderer] = useState(
+    () => showCrmRendererChoice(deal.firma) && !!prefill?.vpsNichtDruckbar
+  );
   const [intro, setIntro] = useState("");
   const [closing, setClosing] = useState("");
   const [remarks, setRemarks] = useState("");
@@ -246,6 +256,13 @@ export function GenerateDocumentDialog({
   useEffect(() => {
     if (!crmRendererChoice) setUseCrmRenderer(false);
   }, [crmRendererChoice]);
+
+  // Dasselbe, wenn die Vorbelegung erst nach dem ersten Rendern kommt oder der Dialog
+  // erneut öffnet. Kottke hat keine CRM-Vorlage und sieht nur die Meldung.
+  const vpsNichtDruckbar = prefill?.vpsNichtDruckbar ?? null;
+  useEffect(() => {
+    if (open && vpsNichtDruckbar && crmRendererChoice) setUseCrmRenderer(true);
+  }, [open, vpsNichtDruckbar, crmRendererChoice]);
 
   const versionId = ausVersion?.versionId ?? null;
   useEffect(() => {
@@ -842,6 +859,16 @@ export function GenerateDocumentDialog({
           </div>
 
           <div className="rounded border border-dashed border-gray-300 p-3 dark:border-gray-600">
+            {vpsNichtDruckbar && !(crmRendererChoice && useCrmRenderer) && (
+              <p className="mb-2 rounded bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">
+                {vpsNichtDruckbar}
+              </p>
+            )}
+            {vpsNichtDruckbar && crmRendererChoice && useCrmRenderer && (
+              <p className="mb-2 text-xs text-gray-600 dark:text-gray-300">
+                Der bisherige Server kann diesen Stunden-KV nicht drucken. Darum ist die CRM-Vorlage eingestellt.
+              </p>
+            )}
             <label className="flex items-start gap-2 text-sm">
               <input
                 type="checkbox"
