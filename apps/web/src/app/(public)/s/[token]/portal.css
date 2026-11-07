@@ -29,14 +29,12 @@
   --portal-brand-text: color-mix(in oklab, var(--portal-brand) 85%, black);
   --portal-highlight: var(--portal-brand);
 }
-.dark .kottke-portal, .dark .kottke-portal .portal-shell, .kottke-portal.dark, .kottke-portal.dark .portal-shell {
-  --portal-brand-text: color-mix(in oklab, var(--portal-brand) 40%, white);
-}
-.dark .kottke-portal, .kottke-portal.dark {
-  --portal-paper: #12213a; --portal-desk: #0b1626; --portal-line: #2a3a52;
-  --portal-ink: #f6f7f9; --portal-text: #b9c1cc;
-  --destructive: #ff9a8f;
-}
+/* Portal immer hell (Plan 14, K2): auch wenn next-themes im selben Browser „dunkel“
+   gespeichert hat und die Klasse dark an <html> setzt. next-themes schreibt
+   color-scheme inline an <html>, deshalb dort !important. */
+.kottke-portal { color-scheme: light; }
+html:has(.kottke-portal) { color-scheme: light !important; }
+html:has(.kottke-portal), html:has(.kottke-portal) body { background-color: #f6f7f9; }
 .kottke-portal .display, .kottke-portal .portal-price, .kottke-portal .portal-display { font-family: 'Plus Jakarta Sans', var(--font-inter), Arial, sans-serif; font-weight: 800; letter-spacing: -.03em; }
 .kottke-portal :is(h1, h2, h3) { font-family: 'Plus Jakarta Sans', var(--font-inter), Arial, sans-serif; }
 .kottke-portal h1, .kottke-portal h2, .kottke-portal h3 { color: var(--foreground); }
@@ -248,7 +246,6 @@
 .portal-strecke-lkw { position: absolute; left: -2px; bottom: -14px; width: 24px; height: 22px; display: grid; place-items: center; background: var(--card); color: var(--portal-brand); z-index: 2; }
 .portal-brief-gruss { margin-top: 30px; color: var(--foreground); }
 .portal-brief-unterschrift { display: block; height: 40px; width: auto; margin: 8px 0 4px; }
-.dark .kottke-portal .portal-brief-unterschrift { filter: invert(1) hue-rotate(180deg); }
 .portal-brief-absender { font-size: 13px; color: var(--muted-foreground); }
 .portal-annahme-zeile { margin-top: 26px; padding-top: 10px; border-top: 1.5px solid var(--foreground); display: flex; flex-direction: column; gap: 12px; }
 .portal-annahme-label { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted-foreground); }
@@ -271,7 +268,6 @@
 .portal-briefkopf-zeile { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .portal-briefkopf .portal-logo { display: flex; align-items: center; min-height: 56px; font-size: 22px; color: var(--foreground); }
 .portal-briefkopf .portal-logo img { width: auto; height: 56px; max-width: 300px; object-fit: contain; }
-.dark .kottke-portal .portal-briefkopf .portal-logo img { background: #fff; padding: 6px 10px; border-radius: 8px; }
 .portal-briefkopf-auftrag.portal-briefkopf-auftrag { font-family: var(--font-inter), Inter, Arial, sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0; color: var(--muted-foreground); white-space: nowrap; }
 .portal-briefkopf-linie { position: relative; height: 2px; margin: 12px 6px 0 0; background: var(--portal-brand); border-radius: 1px; }
 .portal-briefkopf-linie::after { content: ''; position: absolute; right: -1px; top: -4px; width: 10px; height: 10px; border-top: 2px solid var(--portal-brand); border-right: 2px solid var(--portal-brand); transform: rotate(45deg); }

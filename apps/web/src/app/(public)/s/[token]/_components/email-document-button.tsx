@@ -43,6 +43,6 @@ export function EmailDocumentButton({ ctx, token, url, ohneErfassung = false }: 
   return <div className="mt-3">
     <button className="portal-button portal-button-secondary w-full" type="button" disabled={busy || sent} onClick={send}>{busy ? <Loader2 size={18} className="animate-spin" aria-hidden /> : <Mail size={18} aria-hidden />}{sent ? "E-Mail versendet" : busy ? "Wird versendet …" : "Per E-Mail senden"}</button>
     <p className="mt-2 text-xs text-muted-foreground" role="status">{sent ? t("Das PDF wurde an Ihre hinterlegte E-Mail-Adresse versendet.", "Das PDF wurde an deine hinterlegte E-Mail-Adresse versendet.") : `Empfänger: ${masked ?? ctx.customerEmailMasked ?? hinterlegteEmailLabel(firma)}`}</p>
-    {error && <p className="mt-2 text-sm text-red-700 dark:text-red-300" role="alert">{error}</p>}
+    {error && <p className="mt-2 text-sm text-red-700" role="alert">{error}</p>}
   </div>;
 }
