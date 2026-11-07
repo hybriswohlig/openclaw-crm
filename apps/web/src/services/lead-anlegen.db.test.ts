@@ -139,4 +139,22 @@ describe.skipIf(!url)("neuenLeadAnlegen", { timeout: 20_000 }, () => {
     const verknuepft = await sql`select referenced_record_id from record_values where record_id = ${nochmal.dealRecordId} and attribute_id = ${attrPeople}`;
     expect(verknuepft[0].referenced_record_id).toBe(person.id);
   });
+
+  it("„Neue Person“ trotz Treffer legt eine zweite Person an, die Nummer nur als Feld", async () => {
+    const neu = await anlegen(ws, { ...eingabe, name: "Bert Beispiel", personWahl: { art: "neu" } }, null);
+    expect(neu.ok).toBe(true);
+    if (!neu.ok) return;
+    expect((await sql`select count(*)::int as n from records where object_id = ${people}`)[0].n).toBe(2);
+    const telefon = await sql`select text_value from record_values where record_id = ${neu.personRecordId} and attribute_id = ${attrPhone}`;
+    expect(telefon[0].text_value).toBe("+4915159058963");
+    const kennung = await sql`select id from person_identifiers where person_record_id = ${neu.personRecordId}`;
+    expect(kennung).toHaveLength(0);
+    // Danach kennt die Nummer beide Personen; ohne Wahl fragt die Route wieder nach.
+    const ohneWahl = await anlegen(ws, eingabe, null);
+    expect(ohneWahl.ok).toBe(false);
+    if (ohneWahl.ok || ohneWahl.code !== "RUECKFRAGE") throw new Error("unerwartet");
+    expect(ohneWahl.treffer.map((t) => t.id).sort()).toEqual(
+      [neu.personRecordId, (await sql`select person_record_id from person_identifiers limit 1`)[0].person_record_id].sort()
+    );
+  });
 });

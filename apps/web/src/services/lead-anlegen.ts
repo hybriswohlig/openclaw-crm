@@ -268,8 +268,11 @@ export async function neuenLeadAnlegen(
             peopleObjectId: basis.peopleId,
             peopleFelder: basis.people,
             name: e.name,
-            telefonE164: e164,
-            telefonRoh: e164 ? null : e.telefon,
+            // Wählt ein Mensch „Neue Person“ trotz Treffern, teilen sich zwei Personen die
+            // Nummer (etwa in einer Familie). Der Schlüssel der Nummer gehört schon der
+            // anderen Person; die neue bekommt die Nummer nur als Feld.
+            telefonE164: treffer.length === 0 ? e164 : null,
+            telefonRoh: treffer.length === 0 ? (e164 ? null : e.telefon) : (e164 ?? e.telefon),
             email: e.email,
             actorId,
           })

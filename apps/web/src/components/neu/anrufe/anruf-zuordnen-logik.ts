@@ -113,7 +113,7 @@ export function zuordnenTitel(lage: AnrufDialogLage): { titel: string; text: str
     case "person_waehlen":
       return {
         titel: "Welcher Kunde hat angerufen?",
-        text: "Zu dieser Nummer gibt es mehrere Kunden. Hat der gewählte Kunde genau einen offenen Lead, kommt der Anruf dorthin, sonst entsteht ein neuer Lead.",
+        text: "Zu dieser Nummer gibt es mehrere Kunden. Hat der gewählte Kunde genau einen offenen Lead, kommt der Anruf dorthin. Bei mehreren fragt das CRM nach, ohne offenen Lead entsteht ein neuer.",
       };
     case "lead_waehlen":
       return { titel: "Zu welchem Lead gehört der Anruf?", text: `${lage.person.name} hat mehrere offene Leads.` };
