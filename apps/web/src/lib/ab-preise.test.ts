@@ -58,6 +58,25 @@ describe("preisQuelleAusAnnahme", () => {
     expect(q?.lineItems).toHaveLength(2);
   });
 
+  it("Stunden-KV aus der Version: Stunden und Version aus dem Schnappschuss", () => {
+    const stunden = {
+      helfer: 2, transporter: 1, stundenGeschaetzt: 6.5, mindestStunden: 3, satzHelferEur: 35, satzTransporterEur: 25,
+      summeGeschaetztCent: 61_750, mindestbetragCent: 28_500, quelle: "version",
+    };
+    const snap = {
+      isVariable: true, fixedPriceCents: null, totalCents: 61_750, calculationVersionId: "ver_1", stundenModell: "version", stunden,
+      lineItems: [
+        { type: "helper", description: "Helfer", quantity: 2, unitRate: 35 },
+        { type: "transporter", description: "Transporter", quantity: 1, unitRate: 25 },
+      ],
+    };
+    expect(preisQuelleAusAnnahme(snap)).toMatchObject({ isVariable: true, stunden, calculationVersionId: "ver_1" });
+    // Ohne Version oder als alter Stunden-KV: keine Stunden (wie im Portal).
+    expect(preisQuelleAusAnnahme({ ...snap, calculationVersionId: null })).not.toHaveProperty("stunden");
+    expect(preisQuelleAusAnnahme({ ...snap, stundenModell: "alt" })).not.toHaveProperty("stunden");
+    expect(preisQuelleAusAnnahme({ ...snap, stunden: { ...stunden, quelle: "alt" } })).not.toHaveProperty("stunden");
+  });
+
   it("liefert null beim Stundensatz ohne brauchbare Posten", () => {
     expect(
       preisQuelleAusAnnahme({ isVariable: true, fixedPriceCents: null, lineItems: [{ description: "x" }], totalCents: 25500 })

@@ -57,8 +57,10 @@ export function priceSourceFromStored(row: {
   notes?: string | null;
   calculationAssumptions?: unknown;
   documentDetails?: unknown;
+  /** Gesperrte Kalkulationsversion. Ohne sie gilt `document_details.stunden` nicht (von Hand gelöst). */
+  calculationVersionId?: string | null;
 }): QuotationPriceSource {
-  const hourly = row.isVariable ? hourlyFromDetails(row.documentDetails) : null;
+  const hourly = row.isVariable && row.calculationVersionId ? hourlyFromDetails(row.documentDetails) : null;
   return {
     isVariable: row.isVariable,
     fixedPrice: row.fixedPrice,
@@ -286,6 +288,8 @@ export function resolveDocumentPrices(input: {
   let lines = input.quotation.lineItems;
   let option = input.packageOption ?? null;
   let choiceLines = input.kind === "KV" ? input.choiceLines ?? null : null;
+  // Stunden-KV aus der Version: KV und AB rechnen mit der Schätzung, die Rechnung nicht.
+  let hourly = input.kind === "KV" || input.kind === "AB" ? input.quotation.hourly ?? null : null;
 
   if (input.kind === "AB" && input.accepted) {
     isVariable = input.accepted.isVariable;
@@ -293,6 +297,8 @@ export function resolveDocumentPrices(input: {
     lines = input.accepted.lineItems;
     option = null;
     choiceLines = null;
+    // Die AB folgt der Annahme, auch bei den Stunden.
+    hourly = input.accepted.hourly ?? null;
   }
 
   /** Posten, die genau `cents` ergeben: die der Quotation, sonst die der Wahl. */
@@ -302,8 +308,8 @@ export function resolveDocumentPrices(input: {
     return null;
   };
 
-  if (input.kind === "KV" && isVariable && input.quotation.hourly) {
-    return hourlyPrices(input.quotation.hourly, lines);
+  if (isVariable && hourly) {
+    return hourlyPrices(hourly, lines);
   }
 
   if (!isVariable && option && Number.isFinite(option.priceCents)) {

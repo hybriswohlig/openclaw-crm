@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
-const jobMocks = vi.hoisted(() => ({ getQuotation: vi.fn() }));
+const jobMocks = vi.hoisted(() => ({ getQuotation: vi.fn(), zeilen: new Map<unknown, unknown[]>() }));
 
-// Kette für attachDocumentJobContext: der Deal gehört zum Workspace, sonst leere Ergebnisse.
+// Kette für attachDocumentJobContext: der Deal gehört zum Workspace; sonst die
+// Zeilen aus `jobMocks.zeilen` je Tabelle (z. B. kva_confirmations für die AB), leer ohne Eintrag.
 vi.mock("@/db", async () => {
   const { records } = await import("@/db/schema/records");
-  const kette = (ergebnis: () => unknown[]): unknown => {
+  const kette = (): unknown => {
     let tabelle: unknown = null;
     const k: Record<string, unknown> = {};
     for (const f of ["from", "innerJoin", "where", "limit", "orderBy", "set"]) {
@@ -15,10 +16,10 @@ vi.mock("@/db", async () => {
       };
     }
     k.then = (ok: (v: unknown) => unknown, fehler: (e: unknown) => unknown) =>
-      Promise.resolve(tabelle === records ? [{ id: "deal_1" }] : ergebnis()).then(ok, fehler);
+      Promise.resolve(tabelle === records ? [{ id: "deal_1" }] : jobMocks.zeilen.get(tabelle) ?? []).then(ok, fehler);
     return k;
   };
-  return { db: { select: () => kette(() => []), update: () => kette(() => []) } };
+  return { db: { select: () => kette(), update: () => kette() } };
 });
 vi.mock("@/services/quotations", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/services/quotations")>()),
@@ -26,6 +27,8 @@ vi.mock("@/services/quotations", async (importOriginal) => ({
 }));
 
 import { attachDocumentJobContext, preiseFromQuotation } from "./document-job-context";
+import { VpsStundenError } from "@/lib/angebot-vorbelegung";
+import { kvaConfirmations } from "@/db/schema/customer-portal";
 import { festpreisAlsPauschale } from "@/lib/festpreis-posten";
 import { angebotsUebernahme } from "./rechner/uebernahme";
 import type { RechnerErgebnis } from "./rechner/client";
@@ -130,15 +133,28 @@ describe("preiseFromQuotation", () => {
   ];
   const stunden = {
     helfer: 3,
-    transporter: 2,
+    transporter: 1,
     stundenGeschaetzt: 7.5,
     mindestStunden: 3,
     satzHelferEur: 35,
     satzTransporterEur: 25,
-    summeGeschaetztCent: 98_050,
-    mindestbetragCent: 46_500,
+    // (3 × 35 + 25) × 7,5 = 975 €; × 3 = 390 €
+    summeGeschaetztCent: 97_500,
+    mindestbetragCent: 39_000,
     quelle: "version" as const,
   };
+  type Posten = { type: "helper" | "transporter" | "other"; description: string; quantity: number; unitRate: string };
+  const einTransporter: Posten[] = [
+    { type: "helper", description: "Helfer", quantity: 3, unitRate: "35" },
+    { type: "transporter", description: "Transporter", quantity: 1, unitRate: "25" },
+  ];
+  const ausVersion = (s: typeof stunden, lineItems: Posten[] = einTransporter) => ({
+    isVariable: true,
+    fixedPrice: null,
+    lineItems,
+    calculationVersionId: "ver_1",
+    documentDetails: { stunden: s },
+  });
 
   it("ohne documentDetails.stunden bleiben geschätzte Stunden die Transporter-Menge", () => {
     expect(preiseFromQuotation("kottke", { isVariable: true, fixedPrice: null, lineItems: stundenPosten })).toEqual({
@@ -151,19 +167,37 @@ describe("preiseFromQuotation", () => {
     });
   });
 
-  it("nimmt geschätzte und Mindeststunden aus documentDetails.stunden", () => {
-    expect(
-      preiseFromQuotation("kottke", {
-        isVariable: true,
-        fixedPrice: null,
-        lineItems: stundenPosten,
-        documentDetails: { stunden },
-      })
-    ).toEqual({
+  it("ein Transporter: alle Werte aus documentDetails.stunden", () => {
+    expect(preiseFromQuotation("kottke", ausVersion(stunden))).toEqual({
       modell: "stundensatz",
       helfer_anzahl: 3,
       stunden_geschaetzt: 7.5,
       mindest_stunden: 3,
+      stundensatz_helfer_eur: 35,
+      stundensatz_transporter_eur: 25,
+    });
+  });
+
+  // K1: der VPS-Block kennt keine Zahl der Transporter, er druckt den Satz für einen.
+  it.each([0, 2, 3])("%i Transporter: Fehler statt falschem PDF", (transporter) => {
+    const posten = [einTransporter[0], { ...einTransporter[1], quantity: transporter }];
+    expect(() => preiseFromQuotation("kottke", ausVersion({ ...stunden, transporter }, posten))).toThrow(VpsStundenError);
+    expect(() => preiseFromQuotation("kottke", ausVersion({ ...stunden, transporter }, posten))).toThrow(
+      new RegExp(`nur mit genau einem Transporter, dieses Angebot hat ${transporter}\\.`)
+    );
+  });
+
+  it("feste Zusatzposten: Fehler, der VPS-Block kennt sie nicht (F12)", () => {
+    const posten: Posten[] = [...einTransporter, { type: "other", description: "Halteverbot", quantity: 1, unitRate: "150" }];
+    expect(() => preiseFromQuotation("kottke", ausVersion(stunden, posten))).toThrow(/ohne feste Zusatzposten/);
+  });
+
+  it("ohne Version (von Hand gelöst) gilt documentDetails.stunden nicht mehr (I5)", () => {
+    expect(preiseFromQuotation("kottke", { ...ausVersion({ ...stunden, transporter: 2 }), calculationVersionId: null })).toEqual({
+      modell: "stundensatz",
+      helfer_anzahl: 3,
+      stunden_geschaetzt: 1,
+      mindest_stunden: 1,
       stundensatz_helfer_eur: 35,
       stundensatz_transporter_eur: 25,
     });
@@ -290,30 +324,72 @@ describe("attachDocumentJobContext: Kalkulationsversion für den VPS-Weg (Review
     expect(r).toEqual({ params: { document_type: "KV" }, kv: null });
   });
 
-  it("gibt die Stunden aus dem Angebot an den VPS weiter", async () => {
-    jobMocks.getQuotation.mockResolvedValue({
-      ...quotation("ver_2"),
-      isVariable: true,
-      fixedPrice: null,
-      lineItems: [
-        { type: "helper", description: "Helfer", quantity: 3, unitRate: "35" },
-        { type: "transporter", description: "Transporter", quantity: 2, unitRate: "25" },
-      ],
-      documentDetails: {
-        stunden: {
-          helfer: 3,
-          transporter: 2,
-          stundenGeschaetzt: 7.5,
-          mindestStunden: 3,
-          satzHelferEur: 35,
-          satzTransporterEur: 25,
-          summeGeschaetztCent: 98_050,
-          mindestbetragCent: 46_500,
-          quelle: "version",
+  const stundenAngebot = (transporter: number) => ({
+    ...quotation("ver_2"),
+    isVariable: true,
+    fixedPrice: null,
+    lineItems: [
+      { type: "helper", description: "Helfer", quantity: 3, unitRate: "35" },
+      { type: "transporter", description: "Transporter", quantity: transporter, unitRate: "25" },
+    ],
+    documentDetails: {
+      stunden: {
+        helfer: 3,
+        transporter,
+        stundenGeschaetzt: 7.5,
+        mindestStunden: 3,
+        satzHelferEur: 35,
+        satzTransporterEur: 25,
+        summeGeschaetztCent: 97_500,
+        mindestbetragCent: 39_000,
+        quelle: "version",
+      },
+    },
+  });
+
+  it("Stunden-KV mit einem Transporter: Stunden an den VPS, Schätzung als Betrag (K1, K2)", async () => {
+    jobMocks.zeilen.clear();
+    jobMocks.getQuotation.mockResolvedValue(stundenAngebot(1));
+    const { params, kv } = await attachDocumentJobContext("ws_1", { _deal_record_id: "deal_1", document_type: "KV", firma: "kottke" });
+    expect(params.preise).toMatchObject({ modell: "stundensatz", helfer_anzahl: 3, stunden_geschaetzt: 7.5, mindest_stunden: 3, stundensatz_transporter_eur: 25 });
+    // Nicht die Summe der Stundensätze (3 × 35 + 25 = 130 €).
+    expect(params._document_context).toEqual({ paidCents: 0, totalCents: 97_500 });
+    expect(kv).toEqual({ calculationVersionId: "ver_2", priceCents: 97_500 });
+  });
+
+  it("Stunden-KV mit zwei Transportern: der Auftrag scheitert mit Meldung (K1)", async () => {
+    jobMocks.zeilen.clear();
+    jobMocks.getQuotation.mockResolvedValue(stundenAngebot(2));
+    await expect(
+      attachDocumentJobContext("ws_1", { _deal_record_id: "deal_1", document_type: "KV", firma: "kottke" })
+    ).rejects.toThrow(/genau einem Transporter/);
+  });
+
+  it("AB eines Stunden-KV: Stunden und Betrag aus der Annahme, nicht aus der Transporter-Menge (K2)", async () => {
+    jobMocks.zeilen.clear();
+    // Die aktuelle Quotation ist inzwischen von Hand gelöst; die AB folgt der Annahme.
+    jobMocks.getQuotation.mockResolvedValue({ ...stundenAngebot(1), calculationVersionId: null, documentDetails: null });
+    jobMocks.zeilen.set(kvaConfirmations, [
+      {
+        confirmedTotalCents: 97_500,
+        quotationSnapshot: {
+          isVariable: true,
+          fixedPriceCents: null,
+          totalCents: 97_500,
+          calculationVersionId: "ver_2",
+          stundenModell: "version",
+          stunden: stundenAngebot(1).documentDetails.stunden,
+          lineItems: [
+            { type: "helper", description: "Helfer", quantity: 3, unitRate: 35, lineTotal: 105 },
+            { type: "transporter", description: "Transporter", quantity: 1, unitRate: 25, lineTotal: 25 },
+          ],
         },
       },
-    });
-    const { params } = await attachDocumentJobContext("ws_1", { _deal_record_id: "deal_1", document_type: "KV", firma: "kottke" });
+    ]);
+    const { params } = await attachDocumentJobContext("ws_1", { _deal_record_id: "deal_1", document_type: "AB", firma: "kottke" });
     expect(params.preise).toMatchObject({ modell: "stundensatz", stunden_geschaetzt: 7.5, mindest_stunden: 3 });
+    expect(params._document_context).toEqual({ paidCents: 0, totalCents: 97_500 });
+    jobMocks.zeilen.clear();
   });
 });
+

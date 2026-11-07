@@ -17,7 +17,7 @@ import { serviceTypeZuSpeichern, vpsLeistungsart } from "@/lib/portal-dokumente"
 import type { ServiceArt } from "@openclaw-crm/customer-portal-core";
 import { aktivBedingung } from "./kva-annahme";
 import { preisQuelleAusAnnahme, type PreisQuelle } from "@/lib/ab-preise";
-import { vpsPreise } from "@/lib/angebot-vorbelegung";
+import { vpsPreiseMitStunden, vpsStundenAusVersion, type VpsPreisQuelle } from "@/lib/angebot-vorbelegung";
 import { preisZahlungenCent } from "@/lib/preis-zahlungen";
 
 type ServiceType = ServiceArt;
@@ -55,11 +55,14 @@ export async function assertDealInWorkspace(
   return !!row;
 }
 
-function quotationTotalCents(q: {
-  isVariable: boolean;
-  fixedPrice: string | null;
-  lineItems: Array<{ quantity: number; unitRate: string }>;
-}): number | undefined {
+/**
+ * Gesamtbetrag des Angebots für `_document_context` und das Job-Register. Beim
+ * Stunden-KV aus der Version die Schätzung (wie Portal, Annahme und CRM-PDF),
+ * nicht die Summe der Stundensätze.
+ */
+function quotationTotalCents(q: VpsPreisQuelle): number | undefined {
+  const stunden = vpsStundenAusVersion(q);
+  if (stunden) return stunden.summeGeschaetztCent;
   if (q.isVariable && q.lineItems.length > 0) {
     return q.lineItems.reduce(
       (sum, li) => sum + toCents(Number(li.unitRate) * li.quantity),
@@ -73,42 +76,15 @@ function quotationTotalCents(q: {
 /**
  * Preisblock für den VPS-Renderer (KV und AB). Die Regel steht rein in
  * `lib/angebot-vorbelegung.ts`, damit der VPS-Dialog dieselben Posten zeigt,
- * die der VPS druckt.
+ * die der VPS druckt. Liegt ein Stundenangebot aus der Version am Dokument und
+ * hängt die Quotation an dieser Version, gelten Helfer, Sätze, geschätzte und
+ * Mindeststunden daraus. Mit mehr oder weniger als einem Transporter oder mit
+ * festen Zusatzposten wirft es `VpsStundenError` (der VPS-Block kennt beides
+ * nicht). Sonst bleibt es bei der bisherigen Ableitung (beim Stundensatz: die
+ * Transporter-Menge).
  */
-type VpsQuelle = Parameters<typeof vpsPreise>[1] & {
-  /** `quotations.document_details` (D2: `stunden` ist als `StundenAngebot` typisiert). */
-  documentDetails?: Pick<QuotationDocumentDetails, "stunden"> | null;
-};
-
-/**
- * Stunden aus dem gespeicherten `StundenAngebot`. Der Typ kommt aus dem Schema;
- * geprüft wird trotzdem, weil jsonb (auch aus einem Annahmeschnappschuss) alles
- * enthalten kann.
- */
-function stundenAusDokument(
-  details: Pick<QuotationDocumentDetails, "stunden"> | null | undefined
-): { stundenGeschaetzt: number; mindestStunden: number } | null {
-  const s = details?.stunden;
-  if (!s || typeof s !== "object") return null;
-  if (typeof s.stundenGeschaetzt !== "number" || typeof s.mindestStunden !== "number") return null;
-  if (!Number.isFinite(s.stundenGeschaetzt) || !Number.isFinite(s.mindestStunden)) return null;
-  return { stundenGeschaetzt: s.stundenGeschaetzt, mindestStunden: s.mindestStunden };
-}
-
-/**
- * Preisblock für den VPS. Liegt ein Stundenangebot aus der Version am Dokument,
- * gelten dessen geschätzte und Mindeststunden. Sonst bleibt es bei der bisherigen
- * Ableitung (beim Stundensatz: die Transporter-Menge).
- */
-export function preiseFromQuotation(firma: string, q: VpsQuelle) {
-  const preise = vpsPreise(firma, q);
-  const stunden = stundenAusDokument(q.documentDetails);
-  if (!preise || preise.modell !== "stundensatz" || !stunden) return preise;
-  return {
-    ...preise,
-    stunden_geschaetzt: stunden.stundenGeschaetzt,
-    mindest_stunden: stunden.mindestStunden,
-  };
+export function preiseFromQuotation(firma: string, q: VpsPreisQuelle) {
+  return vpsPreiseMitStunden(firma, q);
 }
 
 /** Version und Preis des KV aus genau der Lesung, aus der die Preise an den VPS gehen. */
@@ -298,7 +274,14 @@ export async function attachDocumentJobContext(
   };
 
   if (quotation) {
-    const preisQuelle = abPreise ? { ...abPreise, documentDetails: snapshotDetails } : quotation;
+    // AB: Stunden aus der Annahme (der Schnappschuss trägt sie als `stunden`, nicht in documentDetails).
+    const preisQuelle: VpsPreisQuelle = abPreise
+      ? {
+          ...abPreise,
+          calculationVersionId: abPreise.calculationVersionId ?? null,
+          documentDetails: abPreise.stunden ? { stunden: abPreise.stunden } : null,
+        }
+      : quotation;
     const rebuilt = preiseFromQuotation(String(next.firma || "kottke"), preisQuelle);
     if (rebuilt) {
       const prev = (next.preise && typeof next.preise === "object" ? next.preise : {}) as Record<

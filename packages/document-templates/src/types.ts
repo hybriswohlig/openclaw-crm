@@ -124,6 +124,11 @@ export interface AcceptedPrice {
   isVariable: boolean;
   fixedPrice: string | null;
   lineItems: PriceLine[];
+  /**
+   * Stunden-KV aus der Version, wie bei der Annahme eingefroren. Damit druckt
+   * die AB dieselbe Schätzung wie der KV statt der Summe der Stundensätze.
+   */
+  hourly?: HourlyTerms | null;
 }
 
 export interface DealFacts {

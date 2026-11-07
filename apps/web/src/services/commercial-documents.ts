@@ -3,6 +3,7 @@ import {
   MissingPriceError,
   buildDocumentModel,
   priceSourceFromStored,
+  hourlyFromDetails,
   renderHtml,
   renderPdf,
   TEMPLATE_VERSION,
@@ -247,7 +248,16 @@ async function loadServiceFlags(
 /** AB prices follow the accepted snapshot. Deposit and the rest stay on the quotation row. */
 export function acceptedPriceFor(kind: DocKind, snapshot: unknown): AcceptedPrice | null {
   if (kind !== "AB") return null;
-  return preisQuelleAusAnnahme(snapshot);
+  const q = preisQuelleAusAnnahme(snapshot);
+  if (!q) return null;
+  // Stunden-KV aus der Version: die AB rechnet wie der KV mit der Schätzung.
+  const hourly = q.stunden ? hourlyFromDetails({ stunden: q.stunden }) : null;
+  return {
+    isVariable: q.isVariable,
+    fixedPrice: q.fixedPrice,
+    lineItems: q.lineItems,
+    ...(hourly ? { hourly } : {}),
+  };
 }
 
 function refId(value: unknown): string | null {

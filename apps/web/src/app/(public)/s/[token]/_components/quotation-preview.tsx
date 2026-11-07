@@ -31,13 +31,16 @@ export function QuotationPreview({ ctx, token, variant = "full", emailImBrief = 
   // Aktueller Stand (nicht der angenommene), Preis wie Preiskarte und Server: mit Tagespreisen am gewählten Tag.
   const preis = angezeigterPreis({ ...ctx, acceptance: null, dealPackageOffers: option ? ctx.dealPackageOffers : { options: [], selectedOptionId: null } });
   const total = preis.cents;
-  const positions = ctx.kva.lineItems.filter(item => item.description.trim());
-  // Plan 5b: Pakete aus der Version tragen die Posten des gewählten Pakets (Summe = Preis), K8.
-  const postenDerWahl = !!option && !!ctx.kva.calculationVersionId && positions.length > 0 &&
-    positions.reduce((s, p) => s + Math.round(p.lineTotal * 100), 0) === total;
   const stunden = stundenAnzeige(ctx.kva);
   // Stunden-KV aus der Version: Helfer- und Transporterzeilen sind Sätze je Stunde, nicht Teil der Summe (K12).
   const stundenZeile = (item: { type: string }) => stunden?.modell === "version" && (item.type === "helper" || item.type === "transporter");
+  // Ohne Transporter (z. B. Entrümpelung) keine Zeile „Transporter 0“.
+  const positions = ctx.kva.lineItems.filter(item => item.description.trim() && !(stundenZeile(item) && item.quantity === 0));
+  // Plan 5b: Pakete aus der Version tragen die Posten des gewählten Pakets (Summe = Preis), K8.
+  const postenDerWahl = !!option && !!ctx.kva.calculationVersionId && positions.length > 0 &&
+    positions.reduce((s, p) => s + Math.round(p.lineTotal * 100), 0) === total;
+  // Kalkulationsgrundlagen nur mit mindestens einer Angabe (der Server lässt Rechner-Hinweise schon weg).
+  const grundlagen = Object.entries(kundenAnnahmen(ctx.kva.calculationAssumptions) ?? {}).filter(([key, value]) => value != null && value !== "" && annahmenLabels(ctx)[key] !== null);
   const standardInclusions = ctx.kva.showStandardInclusions
     ? ctx.inclusions.included.map(item => [item.label, item.detail].filter(Boolean).join(": "))
     : [];
@@ -70,7 +73,7 @@ export function QuotationPreview({ ctx, token, variant = "full", emailImBrief = 
       <RestbetragHinweis firmaSlug={ctx.branding.firmaSlug} serviceType={ctx.annahmeRecht.serviceType} className="mt-3" />
       {ctx.kva.validUntil && <p className="mt-3">Gültig bis: {formatPortalDate(ctx.kva.validUntil)}</p>}
       {(ctx.scope.specialRequests || ctx.scope.inventoryNotes) && <p className="mt-4 whitespace-pre-line"><strong>Besonderheiten</strong><br />{[ctx.scope.specialRequests, ctx.scope.inventoryNotes].filter(Boolean).join("\n")}</p>}
-      {ctx.kva.calculationAssumptions && <div className="mt-4"><strong>Kalkulationsgrundlagen</strong><ul>{Object.entries(kundenAnnahmen(ctx.kva.calculationAssumptions) ?? {}).filter(([key, value]) => value != null && value !== "" && annahmenLabels(ctx)[key] !== null).map(([key, value]) => <li key={key}>{annahmenLabels(ctx)[key] ?? key}: {String(value)}</li>)}</ul></div>}
+      {grundlagen.length > 0 && <div className="mt-4"><strong>Kalkulationsgrundlagen</strong><ul>{grundlagen.map(([key, value]) => <li key={key}>{annahmenLabels(ctx)[key] ?? key}: {String(value)}</li>)}</ul></div>}
       {ctx.branding.agbPdfUrl && <p className="mt-4"><a href={ctx.branding.agbPdfUrl} className="underline">Allgemeine Geschäftsbedingungen</a></p>}
     </article>;
   if (variant === "file") return <section className="portal-panel" id="portal-quotation-preview">

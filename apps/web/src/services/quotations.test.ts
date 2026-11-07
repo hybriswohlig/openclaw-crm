@@ -218,6 +218,63 @@ describe("upsertQuotation löst die Kalkulationsversion bei Handänderung", () =
   });
 });
 
+describe("upsertQuotation: Stunden der Version nach einer Handänderung (I5)", () => {
+  const stunden = {
+    helfer: 3, transporter: 1, stundenGeschaetzt: 6, mindestStunden: 3, satzHelferEur: 35, satzTransporterEur: 25,
+    summeGeschaetztCent: 78_000, mindestbetragCent: 39_000, quelle: "version" as const,
+  };
+  const stundenPosten = [
+    { id: "l1", quotationId: "q1", type: "helper", description: "Helfer", quantity: 3, unitRate: "35.00", sortOrder: 0 },
+    { id: "l2", quotationId: "q1", type: "transporter", description: "Transporter", quantity: 1, unitRate: "25.00", sortOrder: 1 },
+  ];
+  const eingabe = stundenPosten.map(({ type, description, quantity, unitRate, sortOrder }) => ({ type, description, quantity, unitRate, sortOrder }));
+  function stundenBestand(over: Record<string, unknown> = {}) {
+    const q = { ...gespeichert, fixedPrice: null, isVariable: true, documentDetails: { stunden, validUntil: "2026-12-01" }, ...over };
+    m.txQuotationRows = [[q]];
+    m.txLineRows = [stundenPosten];
+    m.quotationRows = [[q]];
+    m.lineRows = [stundenPosten];
+  }
+
+  it("Stundenzahl von Hand umgestellt: Verknüpfung gelöst, stunden entfällt, Rest bleibt", async () => {
+    stundenBestand();
+    // Im alten Formular steht die Stundenzahl in der Menge der Transporter-Zeile.
+    await upsertQuotation("deal1", { fixedPrice: null, isVariable: true, lineItems: [eingabe[0], { ...eingabe[1], quantity: 8 }] });
+    const set = gesetzt();
+    expect(set).toMatchObject({ calculationVersionId: null });
+    expect(set.documentDetails).toEqual({ validUntil: "2026-12-01" });
+  });
+
+  it("auf Festpreis umgestellt: stunden entfällt", async () => {
+    stundenBestand();
+    await upsertQuotation("deal1", { fixedPrice: "900.00", isVariable: false, lineItems: [] });
+    expect(gesetzt().documentDetails).toEqual({ validUntil: "2026-12-01" });
+  });
+
+  it("nur Notiz geändert: Verknüpfung und stunden bleiben", async () => {
+    stundenBestand();
+    await upsertQuotation("deal1", { fixedPrice: null, isVariable: true, notes: "Klingel defekt" });
+    const set = gesetzt();
+    expect(set).not.toHaveProperty("calculationVersionId");
+    expect(set.documentDetails).toEqual({ stunden, validUntil: "2026-12-01" });
+  });
+
+  it("ein Formular kann stunden nicht setzen oder überschreiben", async () => {
+    stundenBestand();
+    await upsertQuotation("deal1", {
+      fixedPrice: null,
+      isVariable: true,
+      documentDetails: { stunden: { ...stunden, stundenGeschaetzt: 12 } },
+    });
+    expect((gesetzt().documentDetails as { stunden: unknown }).stunden).toEqual(stunden);
+
+    vi.clearAllMocks();
+    stundenBestand({ calculationVersionId: null, documentDetails: null });
+    await upsertQuotation("deal1", { fixedPrice: null, isVariable: true, documentDetails: { stunden } });
+    expect(gesetzt().documentDetails).toEqual({});
+  });
+});
+
 describe("upsertQuotation unter der Sperre des Angebots (Review 3)", () => {
   it("nimmt zuerst die Sperre je Deal, liest die Zeile FOR UPDATE, schreibt Kopf und Posten in derselben Transaktion", async () => {
     await upsertQuotation("deal1", { fixedPrice: "990.00", isVariable: false, lineItems: postenEingabe });

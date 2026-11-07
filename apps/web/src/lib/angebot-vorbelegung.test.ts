@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { vorbelegungAusAngebot, vpsPreise, type Angebot } from "./angebot-vorbelegung";
+import { vorbelegungAusAngebot, vpsPreise, vpsPreiseMitStunden, VpsStundenError, type Angebot } from "./angebot-vorbelegung";
 
 function festpreis(teil: Partial<Angebot> = {}): Angebot {
   return { fixedPrice: "2480.00", isVariable: false, lineItems: [], ...teil };
@@ -104,5 +104,38 @@ describe("vorbelegungAusAngebot: Quotation aus einer gesperrten Version (Plan 5a
   it("ohne Version kein Schreibschutz (Altbestand)", () => {
     expect(vorbelegungAusAngebot(festpreis({ lineItems: posten }), "kottke")?.ausVersion).toBeUndefined();
     expect(vorbelegungAusAngebot(festpreis({ calculationVersionId: null }), "kottke")?.ausVersion).toBeUndefined();
+  });
+});
+
+describe("vorbelegungAusAngebot: Stunden-KV aus der Version (Plan 5b, K1)", () => {
+  const stunden = {
+    helfer: 3, transporter: 1, stundenGeschaetzt: 7.5, mindestStunden: 3, satzHelferEur: 35, satzTransporterEur: 25,
+    summeGeschaetztCent: 97_500, mindestbetragCent: 39_000, quelle: "version",
+  };
+  const angebot = (transporter: number): Angebot => ({
+    fixedPrice: null,
+    isVariable: true,
+    lineItems: [
+      { type: "helper", description: "Helfer", quantity: 3, unitRate: "35.00" },
+      { type: "transporter", description: "Transporter", quantity: transporter, unitRate: "25.00" },
+    ],
+    calculationVersionId: "ver_4",
+    documentDetails: { stunden: { ...stunden, transporter } },
+  });
+
+  it("zeigt im Dialog die Stunden der Version, nicht die Transporter-Menge", () => {
+    expect(vorbelegungAusAngebot(angebot(1), "kottke")?.ausVersion?.preise).toEqual({
+      modell: "stundensatz",
+      helfer_anzahl: 3,
+      stunden_geschaetzt: 7.5,
+      mindest_stunden: 3,
+      stundensatz_helfer_eur: 35,
+      stundensatz_transporter_eur: 25,
+    });
+  });
+
+  it("zwei Transporter: keine Versionspreise im Dialog, der VPS-Weg lehnt ab", () => {
+    expect(vorbelegungAusAngebot(angebot(2), "kottke")?.ausVersion).toBeUndefined();
+    expect(() => vpsPreiseMitStunden("kottke", angebot(2))).toThrow(VpsStundenError);
   });
 });

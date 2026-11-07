@@ -263,6 +263,12 @@ export async function upsertQuotation(
       const preisGeaendert =
         angebotGeaendert(existing, neuerStand) &&
         !(await istWahlDerVersion(tx, dealRecordId, existing.calculationVersionId, existing.selectedPackageOptionId, neuerStand));
+      // Plan 5b (I5): Stunden der Version nur, solange die Quotation genau der Stunden-KV der
+      // Version bleibt. Handänderung (Verknüpfung gelöst) oder Speichern ohne Stundenmodus nimmt sie heraus.
+      const stundenBleiben =
+        !preisGeaendert && input.isVariable && !!existing.calculationVersionId
+          ? ((existing.documentDetails ?? null) as QuotationDocumentDetails | null)?.stunden
+          : undefined;
       const [updated] = await tx
         .update(quotations)
         .set({
@@ -295,13 +301,16 @@ export async function upsertQuotation(
             input.calculationAssumptions !== undefined
               ? annahmenZusammenfuehren(existing.calculationAssumptions, input.calculationAssumptions)
               : existing.calculationAssumptions,
-          documentDetails: mitLeistung(
-            input.documentDetails !== undefined
-              ? input.documentDetails === null
-                ? null
-                : { ...((existing.documentDetails ?? {}) as QuotationDocumentDetails), ...input.documentDetails }
-              : existing.documentDetails,
-            leistung
+          documentDetails: mitStundenAusVersion(
+            mitLeistung(
+              input.documentDetails !== undefined
+                ? input.documentDetails === null
+                  ? null
+                  : { ...((existing.documentDetails ?? {}) as QuotationDocumentDetails), ...input.documentDetails }
+                : existing.documentDetails,
+              leistung
+            ),
+            stundenBleiben
           ),
           ...(leistung ? { serviceType: leistung.serviceType } : {}),
           updatedAt: new Date(),
@@ -324,7 +333,8 @@ export async function upsertQuotation(
           showStandardInclusions: input.showStandardInclusions ?? true,
           selectedPackageSlug: input.selectedPackageSlug ?? null,
           calculationAssumptions: input.calculationAssumptions ?? null,
-          documentDetails: mitLeistung(input.documentDetails ?? null, leistung),
+          // Ein neues Angebot von Hand hat keine Version, also auch keine Stunden aus ihr.
+          documentDetails: mitStundenAusVersion(mitLeistung(input.documentDetails ?? null, leistung), undefined),
           ...(leistung ? { serviceType: leistung.serviceType } : {}),
         })
         .returning();
@@ -431,6 +441,20 @@ function ohneStunden(d: QuotationDocumentDetails): QuotationDocumentDetails {
   if (!("stunden" in d)) return d;
   const { stunden: _weg, ...rest } = d;
   return rest;
+}
+
+/**
+ * `document_details.stunden` schreibt nur das Sperren (`angebotAusVersionSchreiben`).
+ * Beim Speichern von Hand bleibt der gespeicherte Stand (`stunden`) oder es entfällt
+ * (`undefined`); was ein Formular in `documentDetails.stunden` mitschickt, zählt nie.
+ */
+function mitStundenAusVersion(
+  details: QuotationDocumentDetails | null,
+  stunden: StundenAngebot | undefined
+): QuotationDocumentDetails | null {
+  if (!details) return stunden ? { stunden } : null;
+  const rest = ohneStunden(details);
+  return stunden ? { ...rest, stunden } : rest;
 }
 
 export async function angebotAusVersionSchreiben(

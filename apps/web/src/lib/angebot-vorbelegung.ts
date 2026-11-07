@@ -6,6 +6,7 @@
  */
 import type { PrefilledPreise } from "@/components/GenerateDocumentDialog";
 import { festpreisAlsPauschale, istBepreist } from "@/lib/festpreis-posten";
+import { stundenAngebotAus, type PortalStundenAngebot } from "@openclaw-crm/customer-portal-core";
 
 /** Die Felder des Angebots (`GET /deals/{id}/quotation`), die die Vorbelegung liest. */
 export interface Angebot {
@@ -21,6 +22,8 @@ export interface Angebot {
   paymentMethodPreference?: "bank_transfer" | "paypal" | "cash" | "card" | null;
   /** Gesperrte Kalkulationsversion, aus der die Preise stammen (Plan 5a). */
   calculationVersionId?: string | null;
+  /** Plan 5b: `document_details.stunden` beim Stunden-KV aus der Version. */
+  documentDetails?: { stunden?: unknown } | null;
 }
 
 /**
@@ -83,6 +86,63 @@ export function vpsPreise(
 
 export type VpsPreise = NonNullable<ReturnType<typeof vpsPreise>>;
 
+/** Ein Stunden-KV aus der Version, den der VPS nicht richtig drucken kann: lieber kein PDF als ein falsches. */
+export class VpsStundenError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "VpsStundenError";
+  }
+}
+
+/** Quelle für den VPS-Preisblock: Angebot plus Version und `document_details.stunden` (Plan 5b). */
+export type VpsPreisQuelle = Parameters<typeof vpsPreise>[1] & {
+  calculationVersionId?: string | null;
+  documentDetails?: { stunden?: unknown } | null;
+};
+
+/**
+ * `document_details.stunden` eines Stunden-KV aus der Version. Nur solange die
+ * Quotation an einer Version hängt: von Hand geänderte Sätze lösen den Bezug,
+ * dann gilt die alte Ableitung aus den Posten (wie im Portal).
+ */
+export function vpsStundenAusVersion(q: VpsPreisQuelle): PortalStundenAngebot | null {
+  if (!q.isVariable || !q.calculationVersionId) return null;
+  return stundenAngebotAus(q.documentDetails?.stunden);
+}
+
+/**
+ * Preisblock für den VPS mit Stunden-KV aus der Version. Der VPS-Block
+ * `stundensatz` kennt Helfer, einen Transportersatz und die Stunden, aber weder
+ * die Zahl der Transporter noch feste Zusatzposten. Er druckt den Satz für genau
+ * einen Transporter. Darum: bei genau einem Transporter alle Werte aus der
+ * Version, sonst ein Fehler statt eines PDFs mit falschem Stundensatz.
+ * Ohne Stunden aus der Version wie `vpsPreise`.
+ */
+export function vpsPreiseMitStunden(firma: string, q: VpsPreisQuelle): VpsPreise | null {
+  const preise = vpsPreise(firma, q);
+  const s = vpsStundenAusVersion(q);
+  if (!s || !preise || preise.modell !== "stundensatz") return preise;
+  if (s.transporter !== 1) {
+    throw new VpsStundenError(
+      `Der VPS druckt einen Stunden-KV nur mit genau einem Transporter, dieses Angebot hat ${s.transporter}. Bitte in der Kalkulation anpassen und neu sperren.`
+    );
+  }
+  const zusatz = q.lineItems.some((i) => i.type !== "helper" && i.type !== "transporter" && Number(i.unitRate) * i.quantity !== 0);
+  if (zusatz) {
+    throw new VpsStundenError(
+      "Der VPS druckt einen Stunden-KV ohne feste Zusatzposten. Bitte die Zusatzposten in der Kalkulation entfernen und neu sperren."
+    );
+  }
+  return {
+    modell: "stundensatz" as const,
+    helfer_anzahl: s.helfer,
+    stunden_geschaetzt: s.stundenGeschaetzt,
+    mindest_stunden: s.mindestStunden,
+    stundensatz_helfer_eur: s.satzHelferEur,
+    stundensatz_transporter_eur: s.satzTransporterEur,
+  };
+}
+
 /** Map quotation values to the GenerateDocumentDialog prefill shape. */
 export function vorbelegungAusAngebot(
   q: Angebot | null,
@@ -92,7 +152,14 @@ export function vorbelegungAusAngebot(
   const prefill: PrefilledPreise = {};
   // Quotation aus einer gesperrten Version: der Dialog zeigt genau die Posten,
   // die der VPS druckt, schreibgeschützt (Entscheidung 5a-8).
-  const ausVersion = q.calculationVersionId ? vpsPreise(firma, q) : null;
+  // Kann der VPS den Stunden-KV nicht drucken, zeigt der Dialog keine Versionspreise;
+  // der Server lehnt den Auftrag dann mit derselben Meldung ab.
+  let ausVersion: VpsPreise | null = null;
+  try {
+    ausVersion = q.calculationVersionId ? vpsPreiseMitStunden(firma, q) : null;
+  } catch (err) {
+    if (!(err instanceof VpsStundenError)) throw err;
+  }
   if (q.calculationVersionId && ausVersion) {
     prefill.ausVersion = { versionId: q.calculationVersionId, preise: ausVersion };
   }

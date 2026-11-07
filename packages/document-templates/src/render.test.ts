@@ -566,8 +566,9 @@ const STUNDEN = {
   quelle: "version" as const,
 };
 
-function stundenAngebot(details: unknown) {
+function stundenAngebot(details: unknown, calculationVersionId: string | null = "ver_1") {
   return priceSourceFromStored({
+    calculationVersionId,
     isVariable: true,
     fixedPrice: null,
     lineItems: lines([
@@ -636,9 +637,103 @@ describe("Stunden-KV aus der Version (kv-ab-re/5)", () => {
     ).toThrow(/Stundenangaben passen nicht/);
   });
 
-  it("Rechnung und AB nutzen die Stundenangaben nicht", async () => {
+  it("die Rechnung nutzt die Stundenangaben nicht", async () => {
     const { model } = await rendered({ kind: "RE", deal: ceylan, quotation: stundenAngebot({ stunden: STUNDEN }) });
     expect(model.hourly).toBeUndefined();
     expect(model.totalCents).toBe(24500);
+  });
+
+  it("ohne Version (von Hand gelöst) gilt document_details.stunden nicht", async () => {
+    const { model } = await rendered({ kind: "KV", deal: ceylan, quotation: stundenAngebot({ stunden: STUNDEN }, null) });
+    expect(model.hourly).toBeUndefined();
+    expect(model.totalCents).toBe(24500);
+  });
+
+  // K2: die AB druckte die Summe der Stundensätze (2 × 35 + 25 + 150 = 245 €) als Gesamtbetrag.
+  const angenommen = {
+    isVariable: true,
+    fixedPrice: null,
+    lineItems: lines([
+      ["Helfer", 2, "35.00", "helper"],
+      ["Transporter", 1, "25.00", "transporter"],
+      ["Halteverbot", 1, "150.00", "other"],
+    ]),
+  };
+  const hourlyAngenommen = {
+    helpers: 2,
+    vans: 1,
+    estimatedHours: 6.5,
+    minimumHours: 3,
+    helperRateCents: 3500,
+    vanRateCents: 2500,
+    estimatedTotalCents: 76750,
+    minimumTotalCents: 43500,
+  };
+
+  it("AB eines Stunden-KV aus der Version: dieselbe Schätzung wie der KV", async () => {
+    const kv = await rendered({ kind: "KV", deal: ceylan, quotation: stundenAngebot({ stunden: STUNDEN }) });
+    const ab = await rendered({
+      kind: "AB",
+      deal: ceylan,
+      quotation: stundenAngebot({ stunden: STUNDEN }),
+      accepted: { ...angenommen, hourly: hourlyAngenommen },
+    });
+    expect(ab.model.totalCents).toBe(76750);
+    expect(ab.model.totalCents).toBe(kv.model.totalCents);
+    expect(ab.model.totalCaption).toBe("Voraussichtlicher Gesamtbetrag");
+    expect(ab.model.positions).toEqual(kv.model.positions);
+    expect(ab.model.hourly).toEqual(kv.model.hourly);
+    // Die Transporter-Zeile ist ein Satz je Fahrzeug, keine Stundenzahl.
+    expect(ab.text).not.toContain("1 Std.");
+    expect(ab.html).not.toContain("1 Std.");
+    expect(ab.model.hourly?.rates.find((r) => r.title === "Transporter")?.quantityLabel).toBe("1");
+  });
+
+  it("AB folgt der Annahme: Stunden aus dem Schnappschuss, nicht aus der aktuellen Quotation", async () => {
+    // Quotation inzwischen ohne Stunden (z. B. gelöst), die Annahme trägt sie.
+    const ab = await rendered({
+      kind: "AB",
+      deal: ceylan,
+      quotation: stundenAngebot(null),
+      accepted: { ...angenommen, hourly: hourlyAngenommen },
+    });
+    expect(ab.model.totalCents).toBe(76750);
+    // Umgekehrt: Annahme eines alten Stunden-KV ohne Stunden bleibt wie heute.
+    const alt = await rendered({ kind: "AB", deal: ceylan, quotation: stundenAngebot({ stunden: STUNDEN }), accepted: angenommen });
+    expect(alt.model.hourly).toBeUndefined();
+    expect(alt.model.totalCents).toBe(24500);
+  });
+
+  it("AB ohne Annahme rechnet wie der KV mit der Schätzung", async () => {
+    const { model } = await rendered({ kind: "AB", deal: ceylan, quotation: stundenAngebot({ stunden: STUNDEN }) });
+    expect(model.totalCents).toBe(76750);
+  });
+
+  it("AB mit 0 Transportern (Entrümpelung) zeigt keine Transporter-Zeile", async () => {
+    const ohne = {
+      ...hourlyAngenommen,
+      vans: 0,
+      // 70 €/h × 6,5 h = 455 € plus Halteverbot 150 €; 70 €/h × 3 h = 210 € plus 150 €
+      estimatedTotalCents: 60500,
+      minimumTotalCents: 36000,
+    };
+    const { model, text } = await rendered({
+      kind: "AB",
+      deal: ceylan,
+      quotation: stundenAngebot(null),
+      accepted: {
+        isVariable: true,
+        fixedPrice: null,
+        lineItems: lines([
+          ["Helfer", 2, "35.00", "helper"],
+          ["Transporter", 0, "25.00", "transporter"],
+          ["Halteverbot", 1, "150.00", "other"],
+        ]),
+        hourly: ohne,
+      },
+    });
+    expect(model.totalCents).toBe(60500);
+    expect(model.hourly?.rates.map((r) => r.title)).toEqual(["Helfer"]);
+    expect(text).not.toContain("Std. Transporter");
   });
 });

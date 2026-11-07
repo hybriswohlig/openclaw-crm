@@ -46,6 +46,64 @@ describe("acceptedPriceFor", () => {
     expect(html).not.toContain("10,00");
   });
 
+  // K2: Stunden-KV aus der Version. Die AB rechnet wie der KV mit der Schätzung.
+  const stundenSnapshot = {
+    isVariable: true,
+    fixedPriceCents: null,
+    totalCents: 76_750,
+    calculationVersionId: "ver_1",
+    stundenModell: "version",
+    stunden: {
+      helfer: 2,
+      transporter: 1,
+      stundenGeschaetzt: 6.5,
+      mindestStunden: 3,
+      satzHelferEur: 35,
+      satzTransporterEur: 25,
+      summeGeschaetztCent: 76_750,
+      mindestbetragCent: 43_500,
+      quelle: "version",
+    },
+    lineItems: [
+      { type: "helper", description: "Helfer", quantity: 2, unitRate: 35, lineTotal: 70 },
+      { type: "transporter", description: "Transporter", quantity: 1, unitRate: 25, lineTotal: 25 },
+      { type: "other", description: "Halteverbot", quantity: 1, unitRate: 150, lineTotal: 150 },
+    ],
+  };
+  const stundenQuotation = priceSourceFromStored({
+    isVariable: true,
+    fixedPrice: null,
+    lineItems: stundenSnapshot.lineItems.map((l) => ({ type: l.type, description: l.description, quantity: l.quantity, unitRate: l.unitRate.toFixed(2) })),
+    depositRequiredCents: null,
+    paymentMethodPreference: "cash",
+    validUntil: null,
+    summary: null,
+    serviceType: "move",
+    documentDetails: { stunden: stundenSnapshot.stunden },
+    calculationVersionId: "ver_1",
+  });
+  const deal = { firma: "ceylan" as const, customerName: "Kyra Heiker", documentDate: "2026-10-16" };
+
+  it("Stunden-KV aus der Version: KV und AB haben denselben Gesamtbetrag (die Schätzung)", () => {
+    const accepted = acceptedPriceFor("AB", stundenSnapshot);
+    expect(accepted?.hourly).toMatchObject({ helpers: 2, vans: 1, estimatedTotalCents: 76_750 });
+    const kv = buildDocumentModel({ kind: "KV", deal, quotation: stundenQuotation });
+    const ab = buildDocumentModel({ kind: "AB", deal, quotation: stundenQuotation, accepted });
+    expect(kv.totalCents).toBe(76_750);
+    expect(ab.totalCents).toBe(kv.totalCents);
+    expect(ab.positions.map((p) => p.quantityLabel)).not.toContain("1 Std.");
+  });
+
+  it("Annahme eines alten Stunden-KV (ohne Version) bleibt wie heute", () => {
+    const { stunden: _s, stundenModell: _m, calculationVersionId: _v, ...alt } = stundenSnapshot;
+    void _s; void _m; void _v;
+    for (const snap of [{ ...alt, stundenModell: "alt" }, { ...stundenSnapshot, calculationVersionId: null }]) {
+      const accepted = acceptedPriceFor("AB", snap);
+      expect(accepted).not.toHaveProperty("hourly");
+      expect(buildDocumentModel({ kind: "AB", deal, quotation: stundenQuotation, accepted }).totalCents).toBe(24_500);
+    }
+  });
+
   it("ignores the snapshot for a KV", () => {
     expect(acceptedPriceFor("KV", { isVariable: false, totalCents: 100, lineItems: [] })).toBeNull();
   });
