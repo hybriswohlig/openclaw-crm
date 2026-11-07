@@ -5,6 +5,7 @@
  * damit ein ausgefallener Rechner keine Lead-Seite und keinen Hintergrundjob
  * mitreißt. Der Schlüssel erscheint in keiner Fehlermeldung.
  */
+import type { RechnerPaketpreisPlan5, RechnerStunden, RechnerTagespreis } from "@/lib/angebot-wahl";
 import type { RechnerAnfrage } from "./eingabe";
 import type { HebelArt } from "./kv-posten";
 import type { Marke } from "./quelle";
@@ -27,6 +28,8 @@ export interface KostenPosten {
   /** "tarif" | "anfrage" | "uebersteuert" */
   quelle?: string;
   hebel?: HebelArt;
+  /** Plan 5b: mit `zeilen_stabil` `fahrzeug.<klasse>.<teil>` ohne Station. */
+  stabilKey?: string;
 }
 
 export interface MargeVorschlag {
@@ -72,7 +75,11 @@ export interface RechnerErgebnis {
   tarif?: { id: string; version: number; marke: Marke | null };
   /** Ein Preis je Paket, nur mit paket_hebel in der Anfrage (neuer Rechner) */
   /** festpreis ist null, wenn der Rechner ein Paket nicht kalkulieren kann. */
-  paketpreise?: Array<{ slug: string; festpreis: number | null; selbstkosten: number }>;
+  paketpreise?: RechnerPaketpreisPlan5[];
+  /** Plan 5b: nur mit `tage` in der Anfrage (neuer Rechner). */
+  tagespreise?: RechnerTagespreis[];
+  /** Plan 5b: nur mit `stunden_modus`; null ohne Stundensätze der Marke. */
+  stunden?: RechnerStunden | null;
   team?: { groesse: number };
   schaetzung?: {
     festpreisVon: number | null; festpreisBis: number | null; annahmen: string[];

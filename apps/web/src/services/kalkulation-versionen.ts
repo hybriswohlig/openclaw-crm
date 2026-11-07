@@ -11,6 +11,7 @@
  * Alle Abhängigkeiten sind über `VersionsOptionen` austauschbar; die
  * Vorgaben laden DB-Lader erst beim Aufruf (Tests berühren `@/db` nie).
  */
+import type { PaketpreisVersion, Tagespreis } from "@/lib/angebot-wahl";
 import { after } from "next/server";
 import type { DealCalculationVersionRow } from "@/db/schema/deal-calculation-versions";
 import {
@@ -49,6 +50,7 @@ type JsonFelder =
   | "costLines"
   | "margin"
   | "packagePrices"
+  | "dayPrices"
   | "kvItems"
   | "tariff"
   | "rechnerRequest"
@@ -61,7 +63,10 @@ export type VersionsZeile = Omit<DealCalculationVersionRow, JsonFelder> & {
   inputs: GrundlageZeile[];
   costLines: Kostenzeile[];
   margin: VersionsMarge | null;
-  packagePrices: Paketpreis[];
+  /** Ab Plan 5b mit Rundung, Marge, Übersteuerung und Posten je Paket (alte Einträge: slug, festpreis, selbstkosten). */
+  packagePrices: PaketpreisVersion[];
+  /** Plan 5b (Migration 0061): Tagespreise der Version, leer ohne Termin-Dialog. */
+  dayPrices: Tagespreis[];
   kvItems: KvPosten[];
   tariff: Tarif | null;
   rechnerRequest: RechnerAnfrage | null;
@@ -357,6 +362,7 @@ async function entwurfAnlegen(
     margin: null,
     priceCents: null,
     packagePrices: [],
+    dayPrices: [],
     kvItems: [],
     tariff: null,
     vehicleBookingId: null,

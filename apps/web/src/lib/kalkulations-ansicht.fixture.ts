@@ -199,6 +199,7 @@ export function weberVersion(felder: Partial<VersionsZeile> = {}): VersionsZeile
     margin: { vorschlagProzent: 37, gruende: ergebnis?.preis?.margeVorschlag?.gruende ?? [], gewaehltProzent: 38 },
     priceCents: 248000,
     packagePrices: [],
+    dayPrices: [],
     kvItems: [],
     tariff: { id: "tarif_kottke", version: 1, marke: "kottke" },
     vehicleBookingId: null,

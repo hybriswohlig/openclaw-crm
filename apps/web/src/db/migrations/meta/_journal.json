@@ -358,6 +358,13 @@
       "when": 1793404800000,
       "tag": "0060_kv_versionsbezug",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1793491200000,
+      "tag": "0061_pakete_tage",
+      "breakpoints": true
     }
   ]
 }

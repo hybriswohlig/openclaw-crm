@@ -34,6 +34,8 @@ export const dealCalculationVersions = pgTable(
     margin: jsonb("margin"),
     priceCents: integer("price_cents"),
     packagePrices: jsonb("package_prices").$type<unknown[]>().notNull().default([]),
+    /** Plan 5b (Migration 0061): `Tagespreis[]` aus lib/angebot-wahl.ts. */
+    dayPrices: jsonb("day_prices").$type<unknown[]>().notNull().default([]),
     kvItems: jsonb("kv_items").$type<unknown[]>().notNull().default([]),
     tariff: jsonb("tariff"),
     vehicleBookingId: text("vehicle_booking_id"),

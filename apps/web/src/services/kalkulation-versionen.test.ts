@@ -131,7 +131,7 @@ function aufbau(start = "2026-11-05T09:00:00Z") {
     const z: VersionsZeile = {
       id: `id_v${version}`, workspaceId: "ws", dealRecordId: "deal1", version, status: "gesperrt", pricingMode: "fest",
       referenceDate: "2026-11-01", inputs: [], overrides: [], rechnerRequest: rechnerAnfrageAus(lead(3), { heute: "2026-11-01" }),
-      rechnerResult: ergebnis(), error: null, costLines: [], margin: null, priceCents: 149000, packagePrices: [], kvItems: [],
+      rechnerResult: ergebnis(), error: null, costLines: [], margin: null, priceCents: 149000, packagePrices: [], dayPrices: [], kvItems: [],
       tariff: { id: "t1", version: 3, marke: "kottke" }, vehicleBookingId: null, createdBy: null, createdAt: jetzt, updatedAt: jetzt,
       lockedAt: jetzt, lockedBy: "usr_1", sentAt: null, sentVia: null, ...felder,
     };

@@ -41,6 +41,10 @@ export const operatingCompanyPortalSettings = pgTable(
     paymentsEnabled: boolean("payments_enabled").notNull().default(false),
     /** Unterschrift im Portal nach der Annahme anbieten. */
     signatureEnabled: boolean("signature_enabled").notNull().default(false),
+    /** Plan 5b: Pakete, Stunden-KV und Kern-Regel aus der Kalkulation (Migration 0061). */
+    angebotAusKalkulation: boolean("angebot_aus_kalkulation").notNull().default(false),
+    /** Plan 5b: Tagespreise im Termin-Dialog (Migration 0061). */
+    tagespreiseEnabled: boolean("tagespreise_enabled").notNull().default(false),
 
     // Custom subdomain, e.g. "status.kottke-umzuege.de". Unique across the
     // whole workspace so different OCs can't accidentally claim the same host.
@@ -225,6 +229,11 @@ export const kvaConfirmations = pgTable(
     selectedOptionName: text("selected_option_name"),
     /** YYYY-MM-DD, gebundener Termin. */
     moveDate: text("move_date"),
+    /** Plan 5b (0061): gewähltes Terminangebot und Tag bei der Annahme. */
+    selectedDateOfferId: text("selected_date_offer_id").references(() => quotationDateOffers.id, {
+      onDelete: "set null",
+    }),
+    selectedDate: date("selected_date", { mode: "string" }),
     fromAddress: text("from_address"),
     toAddress: text("to_address"),
     /** Version der Quotation bei der Annahme (Migration 0060); NULL bei Altbestand. */
@@ -509,6 +518,15 @@ export const quotationDateOffers = pgTable(
     note: text("note"),
     isRecommended: boolean("is_recommended").notNull().default(false),
     sortOrder: integer("sort_order").notNull().default(0),
+    /** Plan 5b (0061): Preis an diesem Tag (Standardpaket), Cent; null ohne Preis. */
+    priceCents: integer("price_cents"),
+    /** Plan 5b (0061): Preis je Paket-Slug an diesem Tag, Cent. */
+    packagePrices: jsonb("package_prices").$type<Record<string, number>>(),
+    calculationVersionId: text("calculation_version_id").references(() => dealCalculationVersions.id, {
+      onDelete: "set null",
+    }),
+    /** Meilenstein 3, bis dahin leer. */
+    vehicleBookingId: text("vehicle_booking_id"),
     createdBy: text("created_by").references(() => users.id, {
       onDelete: "set null",
     }),
@@ -543,6 +561,10 @@ export const quotationPackageOptions = pgTable(
       .notNull()
       .references(() => records.id, { onDelete: "cascade" }),
     catalogueSlug: text("catalogue_slug"),
+    /** Plan 5b (0061): Preis kommt aus dieser Version; null = von Hand. */
+    calculationVersionId: text("calculation_version_id").references(() => dealCalculationVersions.id, {
+      onDelete: "set null",
+    }),
     displayName: text("display_name").notNull(),
     shortDescription: text("short_description"),
     priceCents: integer("price_cents").notNull(),
