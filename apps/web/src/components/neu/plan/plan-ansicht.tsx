@@ -22,7 +22,7 @@ import { GlassButton } from "@/components/glassyui/glass-button";
 import { GlassPanel } from "@/components/glassyui/glass-panel";
 import { motionReduced } from "@/components/glassyui/lib/liquid-motion";
 import { apiAufruf } from "@/components/neu/akte/api";
-import { TerminDialogAlt } from "@/components/neu/akte/termin-dialog-alt";
+import { TerminDialog } from "@/components/neu/termin/termin-dialog";
 import { useBreit } from "@/components/neu/breit";
 import { filterAktiv as leadsFilterAktiv } from "@/components/neu/leads/leads-logik";
 import { usePortalZiel } from "@/components/neu/portal-ziel";
@@ -422,7 +422,7 @@ export function PlanAnsicht({
       ) : null}
 
       {dialog?.art === "angebote" ? (
-        <TerminDialogAlt
+        <TerminDialog
           dealId={dialog.dealId}
           portalZiel={portalZiel}
           onSchliessen={() => {

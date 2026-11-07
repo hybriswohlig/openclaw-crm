@@ -1,0 +1,816 @@
+/*
+ * Termin-Dialog mit Tagespreisen (Plan 5b, Task U2). Kein eigenes Mockup
+ * (F23): Stil der Kalkulationsseite (design/neubau-2026-11-05/05-kalkulation.html,
+ * neu-kalk*.css). Farben aus neu.css und neu-akte.css (--blue-ink, --jade-ink,
+ * --rose-ink). Alles unter [data-neu] mit Präfix .termin-. Glas trägt nur der
+ * Dialog selbst; Zellen, Zeilen und Bänder stehen auf --fill-3 (fast deckend),
+ * Text mindestens 4,5:1 (--ink-3 nur für Gesperrtes und Leeres).
+ */
+
+[data-neu] .termin-dialog {
+  width: calc(100vw - 2rem);
+  max-width: 1080px;
+}
+
+[data-neu] .termin-dialog[data-schritt="sperren"],
+[data-neu] .termin-dialog[data-schritt="gespeichert"],
+[data-neu] .termin-dialog[data-laedt] {
+  max-width: 620px;
+}
+
+[data-neu] .termin-skelett {
+  display: grid;
+  gap: 10px;
+}
+
+[data-neu] .termin-skelett > span {
+  height: 120px;
+  border-radius: 16px;
+}
+
+/* ── Wunschtermin und Bänder ─────────────────────────── */
+
+[data-neu] .termin-wunsch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 0 0 10px;
+  padding: 9px 12px;
+  border-radius: 14px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+[data-neu] .termin-wunsch b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+[data-neu] .termin-wunsch-punkt {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 2px var(--jade);
+}
+
+[data-neu] .termin-wunsch-quelle {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--jade) 12%, var(--fill-3));
+  color: var(--jade-ink);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+[data-neu] .termin-wunsch-weitere {
+  flex-basis: 100%;
+  padding-left: 17px;
+  font-size: 12.5px;
+}
+
+[data-neu] .termin-band {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 0 0 10px;
+  padding: 9px 12px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--gold) 14%, var(--fill-3));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 35%, var(--fill-3));
+  color: var(--gold-ink);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+[data-neu] .termin-band[data-ton="rose"] {
+  background: color-mix(in srgb, var(--rose) 10%, var(--fill-3));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rose) 30%, var(--fill-3));
+  color: var(--rose-ink);
+}
+
+[data-neu] .termin-band[data-ton="blau"] {
+  background: color-mix(in srgb, var(--blue) 10%, var(--fill-3));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--blue) 30%, var(--fill-3));
+  color: var(--blue-ink);
+}
+
+[data-neu] .termin-band > span {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+/* ── Aufbau ──────────────────────────────────────────── */
+
+[data-neu] .termin-koerper {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 14px;
+  align-items: start;
+}
+
+[data-neu] .termin-links,
+[data-neu] .termin-rechts {
+  min-width: 0;
+}
+
+/* ── Raster ──────────────────────────────────────────── */
+
+[data-neu] .termin-raster-kopf {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+[data-neu] .termin-raster-titel {
+  flex: 1;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-align: center;
+}
+
+[data-neu] .termin-pfeil {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim), var(--shadow);
+  color: var(--blue);
+  cursor: pointer;
+}
+
+[data-neu] .termin-pfeil:disabled {
+  color: var(--ink-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  cursor: default;
+}
+
+[data-neu] .termin-gitter {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+[data-neu] .termin-woche {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+
+[data-neu] .termin-wochentag {
+  padding: 2px 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+  text-align: center;
+}
+
+[data-neu] .termin-zelle {
+  position: relative;
+  min-width: 0;
+  min-height: 70px;
+}
+
+[data-neu] .termin-zelle[data-leer] {
+  min-height: 0;
+}
+
+[data-neu] .termin-tag {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  height: 100%;
+  min-height: 70px;
+  margin: 0;
+  padding: 6px 7px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+[data-neu] .termin-tag:hover:not(:disabled) {
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--blue) 45%, var(--rim));
+}
+
+[data-neu] .termin-tag:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+[data-neu] .termin-tag:disabled {
+  cursor: default;
+}
+
+[data-neu] .termin-zelle[data-vergangen] .termin-tag {
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink-3);
+}
+
+[data-neu] .termin-zelle[data-wunsch] .termin-tag {
+  box-shadow: inset 0 0 0 2px var(--jade);
+}
+
+[data-neu] .termin-zelle[data-gewaehlt] .termin-tag {
+  background: color-mix(in srgb, var(--blue) 12%, var(--fill-3));
+  box-shadow: inset 0 0 0 2px var(--blue);
+}
+
+[data-neu] .termin-zelle[data-gewaehlt][data-wunsch] .termin-tag {
+  box-shadow: inset 0 0 0 2px var(--blue), inset 0 0 0 4px color-mix(in srgb, var(--jade) 60%, var(--fill-3));
+}
+
+[data-neu] .termin-tag-nr {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+[data-neu] .termin-zelle[data-feiertag] .termin-tag-nr {
+  color: var(--rose-ink);
+}
+
+[data-neu] .termin-tag-preis {
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+[data-neu] .termin-tag-preis.lg-skeleton {
+  display: block;
+  width: 70%;
+  height: 12px;
+  border-radius: 6px;
+}
+
+[data-neu] .termin-tag-fuss {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 5px;
+  margin-top: auto;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+[data-neu] .termin-tag-punkte {
+  color: var(--gold-ink);
+}
+
+[data-neu] .termin-tag-feiertag {
+  color: var(--rose-ink);
+}
+
+[data-neu] .termin-tag-wunsch {
+  color: var(--jade-ink);
+}
+
+[data-neu] .termin-stern {
+  flex: none;
+  color: var(--blue);
+}
+
+/* Aufträge am Tag: kleine Zahl oben rechts, eigener Knopf (Klick: Namen). */
+[data-neu] .termin-auftraege {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 999px;
+  background: rgb(34 34 36 / 0.08);
+  color: var(--ink);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+[data-neu] .termin-auftraege[aria-expanded="true"] {
+  background: var(--ink);
+  color: #ffffff;
+}
+
+[data-neu] .termin-auftraege:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 1px;
+}
+
+[data-neu] .termin-auftrag-liste {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  font-size: 13px;
+}
+
+[data-neu] .termin-auftrag-kopf {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+[data-neu] .termin-auftrag-liste ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+[data-neu] .termin-auftrag-liste a {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgb(34 34 36 / 0.06);
+  color: var(--blue-ink);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+[data-neu] .termin-auftrag-liste a:hover {
+  text-decoration: underline;
+}
+
+[data-neu] .termin-legende {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+[data-neu] .termin-legende li {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+[data-neu] .termin-legende i {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  background: var(--fill-3);
+}
+
+[data-neu] .termin-legende i[data-art="wunsch"] {
+  box-shadow: inset 0 0 0 2px var(--jade);
+}
+
+[data-neu] .termin-legende i[data-art="gewaehlt"] {
+  background: color-mix(in srgb, var(--blue) 12%, var(--fill-3));
+  box-shadow: inset 0 0 0 2px var(--blue);
+}
+
+[data-neu] .termin-legende-punkte {
+  color: var(--gold-ink);
+  font-weight: 600;
+}
+
+[data-neu] .termin-legende-zahl {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgb(34 34 36 / 0.08);
+  color: var(--ink);
+  font-size: 11px;
+  text-align: center;
+}
+
+/* ── Auswahl ─────────────────────────────────────────── */
+
+[data-neu] .termin-auswahl-kopf {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 6px 0 8px;
+}
+
+[data-neu] .termin-auswahl-kopf h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+[data-neu] .termin-auswahl-kopf span {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+[data-neu] .termin-leer {
+  margin: 0;
+  padding: 14px 12px;
+  border-radius: 14px;
+  border: 1.5px dashed rgb(34 34 36 / 0.2);
+  font-size: 13px;
+  color: var(--ink-2);
+  text-align: center;
+}
+
+[data-neu] .termin-wahl-liste {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 560px;
+  margin: 0;
+  padding: 0 2px 2px 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+[data-neu] .termin-wahl {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+}
+
+[data-neu] .termin-wahl[data-empfohlen] {
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--blue) 55%, var(--rim));
+}
+
+[data-neu] .termin-wahl-kopf {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 14px;
+}
+
+[data-neu] .termin-wahl-kopf b {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+[data-neu] .termin-wahl-marke {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--rose) 10%, var(--fill-3));
+  color: var(--rose-ink);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+[data-neu] .termin-wahl-marke[data-ton="blau"] {
+  background: color-mix(in srgb, var(--blue) 10%, var(--fill-3));
+  color: var(--blue-ink);
+}
+
+[data-neu] .termin-wahl-preis {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+[data-neu] .termin-wahl-preis s {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--ink-2);
+}
+
+[data-neu] .termin-wahl-gruende {
+  margin: -3px 0 0;
+  font-size: 12px;
+  color: var(--gold-ink);
+}
+
+[data-neu] .termin-wahl-zeile {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 10px;
+}
+
+[data-neu] .termin-empfehlen {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--blue-ink);
+  cursor: pointer;
+}
+
+[data-neu] .termin-empfehlen input {
+  margin: 0;
+  accent-color: var(--blue);
+}
+
+[data-neu] .termin-slots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+[data-neu] .termin-slot {
+  padding: 3px 9px;
+  border: 0;
+  border-radius: 999px;
+  background: rgb(34 34 36 / 0.06);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+[data-neu] .termin-slot[aria-pressed="true"] {
+  background: var(--blue);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+[data-neu] .termin-slot:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 1px;
+}
+
+[data-neu] .termin-feld {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+[data-neu] .termin-feld .lg-input {
+  font-size: 13.5px;
+}
+
+[data-neu] .termin-feld .lg-input[aria-invalid="true"] {
+  box-shadow: inset 0 0 0 1.5px var(--rose);
+}
+
+[data-neu] .termin-anpassung {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--gold) 10%, var(--fill-3));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 35%, var(--fill-3));
+}
+
+[data-neu] .termin-anpassung-felder {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 8px;
+  width: 100%;
+}
+
+[data-neu] .termin-wahl-fuss {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+[data-neu] .termin-kleinknopf {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim), var(--shadow);
+  color: var(--blue-ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+[data-neu] .termin-kleinknopf[data-ton="rose"] {
+  color: var(--rose-ink);
+}
+
+[data-neu] .termin-kleinknopf:disabled {
+  color: var(--ink-3);
+  cursor: default;
+}
+
+[data-neu] .termin-kleinknopf:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+[data-neu] .termin-band > .termin-kleinknopf {
+  margin-left: auto;
+}
+
+/* ── Fuß, Fehler, Übersicht ──────────────────────────── */
+
+[data-neu] .termin-fehler {
+  margin: 12px 0 0;
+  padding: 9px 12px 9px 28px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--rose) 10%, var(--fill-3));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rose) 30%, var(--fill-3));
+  color: var(--rose-ink);
+  font-size: 13px;
+}
+
+[data-neu] .termin-fuss {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 4px 16px;
+  margin-top: 6px;
+}
+
+[data-neu] .termin-fuss .termin-hilfe {
+  flex: 1 1 300px;
+  margin: 18px 0 0;
+}
+
+[data-neu] .termin-hilfe {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+[data-neu] .termin-uebersicht {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+[data-neu] .termin-uebersicht li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  font-size: 13.5px;
+}
+
+[data-neu] .termin-uebersicht li > span:first-child {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+}
+
+[data-neu] .termin-uebersicht small {
+  flex-basis: 100%;
+  font-size: 11.5px;
+  color: var(--gold-ink);
+}
+
+[data-neu] .termin-uebersicht-preis {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+[data-neu] .termin-kv-summe {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 14px;
+  padding: 10px 12px 0;
+  border-top: 1px solid var(--hair);
+  font-size: 15px;
+}
+
+[data-neu] .termin-kv-summe span {
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+[data-neu] .termin-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ── Schmaler ────────────────────────────────────────── */
+
+@media (max-width: 900px) {
+  [data-neu] .termin-koerper {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  [data-neu] .termin-wahl-liste {
+    max-height: none;
+    overflow: visible;
+  }
+}
+
+@media (max-width: 560px) {
+  [data-neu] .termin-woche {
+    gap: 3px;
+  }
+
+  [data-neu] .termin-gitter {
+    gap: 3px;
+  }
+
+  [data-neu] .termin-zelle,
+  [data-neu] .termin-tag {
+    min-height: 54px;
+  }
+
+  [data-neu] .termin-tag {
+    padding: 4px 3px;
+    border-radius: 9px;
+    align-items: center;
+    text-align: center;
+  }
+
+  [data-neu] .termin-tag-nr {
+    font-size: 12px;
+  }
+
+  [data-neu] .termin-tag-preis {
+    font-size: 10.5px;
+  }
+
+  [data-neu] .termin-euro,
+  [data-neu] .termin-tag-feiertag,
+  [data-neu] .termin-tag-wunsch {
+    display: none;
+  }
+
+  [data-neu] .termin-tag-fuss {
+    justify-content: center;
+    font-size: 9.5px;
+  }
+
+  [data-neu] .termin-auftraege {
+    top: -4px;
+    right: -3px;
+    min-width: 17px;
+    height: 17px;
+    padding: 0 4px;
+    font-size: 10px;
+    line-height: 17px;
+  }
+
+  [data-neu] .termin-legende {
+    font-size: 11.5px;
+  }
+
+  [data-neu] .termin-anpassung-felder {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

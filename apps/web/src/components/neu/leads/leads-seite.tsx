@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { GlassButton } from "@/components/glassyui/glass-button";
 import { apiAufruf, jsonAufruf } from "@/components/neu/akte/api";
-import { TerminDialogAlt } from "@/components/neu/akte/termin-dialog-alt";
+import { TerminDialog } from "@/components/neu/termin/termin-dialog";
 import { useBreit } from "@/components/neu/breit";
 import { PlanAnsicht } from "@/components/neu/plan/plan-ansicht";
 import { usePortalZiel } from "@/components/neu/portal-ziel";
@@ -466,7 +466,7 @@ export function LeadsSeite() {
         <ZugDialoge key={`${zug.karte.id}:${zug.nach.stufeId}`} zug={zug} stammdaten={stamm} portalZiel={portalZiel} onEnde={zugEnde} />
       ) : null}
       {dialog?.art === "termin" ? (
-        <TerminDialogAlt
+        <TerminDialog
           dealId={dialog.dealId}
           portalZiel={portalZiel}
           onSchliessen={() => {

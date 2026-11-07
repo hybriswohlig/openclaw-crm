@@ -15,7 +15,7 @@ import { apiAufruf } from "./api";
 import { BewertungDialog } from "./bewertung-dialog";
 import { DokumentDialog } from "./dokument-dialog";
 import { GespraechPanel } from "./gespraech-panel";
-import { TerminDialogAlt } from "./termin-dialog-alt";
+import { TerminDialog } from "@/components/neu/termin/termin-dialog";
 import { VorlageDialog } from "./vorlage-dialog";
 import { ZahlungDialog } from "./zahlung-dialog";
 import { Zahlenreihe } from "./zahlenreihe";
@@ -186,7 +186,7 @@ export function AkteSeite({ dealId }: { dealId: string }) {
         <VorlageDialog dealId={dealId} kanaele={wabaKanaele} portalZiel={portalZiel} onSchliessen={schliessen} onNeuLaden={neuLadenStill} />
       ) : null}
       {dialog?.art === "termin" ? (
-        <TerminDialogAlt
+        <TerminDialog
           dealId={dealId}
           portalZiel={portalZiel}
           onSchliessen={() => {
