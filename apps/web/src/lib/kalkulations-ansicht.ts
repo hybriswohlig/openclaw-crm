@@ -4,7 +4,15 @@
  * Reine Typen und reine Funktionen, ohne Server-Importe: die Oberfläche
  * importiert diese Datei.
  */
-import { PLAN5_FEHLER_TEXT, verwaisteZeilenUebersteuerungen, type KvErzeugung, type VerwaisteUebersteuerung } from "@/lib/angebot-wahl";
+import {
+  PLAN5_FEHLER_TEXT,
+  verwaisteZeilenUebersteuerungen,
+  type KernBefund,
+  type KvErzeugung,
+  type Plan5Schalter,
+  type TagesSlot,
+  type VerwaisteUebersteuerung,
+} from "@/lib/angebot-wahl";
 import type { VersionsZeile } from "@/services/kalkulation-versionen";
 import type { RechnerErgebnis } from "@/services/rechner/client";
 import type { RechnerAnfrage } from "@/services/rechner/eingabe";
@@ -164,7 +172,19 @@ export interface KalkulationsAnsicht {
   preis: PreisAnsicht;
   kv: KvAnsicht | null;
   kvFehler: string | null;
-  pakete: { slug: string; name: string; preisCent: number | null; hinweis: string | null }[];
+  pakete: PaketAnsicht[];
+  /** Plan 5b: Tagespreise der Version (leer ohne Termin-Dialog). */
+  tage: TagAnsicht[];
+  /** Plan 5b: Stunden-KV aus der Version (nur `preisModus` „stunden“ mit Rechner-Stunden). */
+  stunden: StundenAnsicht | null;
+  /** Plan 5b: Kern-Regel über die Posten der Standardwahl (Warnung bei „klein“, Sperre bei „negativ“). */
+  kern: KernBefund | null;
+  /** Plan 5b: `preisHash` der Version; die Seite schickt ihn beim Sperren als `erwartetPreisHash`. */
+  preisHash: string | null;
+  /** Plan 5b: Firmen-Schalter des Deals (ohne Schalter alles wie vor 5b). */
+  schalter: Plan5Schalter;
+  /** Plan 5b: Anpassung `kv_darstellung`: „ein_posten“ zeigt den KV als einen Posten. */
+  kvDarstellung: "posten" | "ein_posten";
   /** Link aufs alte Angebotsformular (Pakete, Stunden) */
   angebotsformularLink: string;
   anpassungen: AnpassungAnsicht[];
@@ -187,6 +207,53 @@ export interface VerwaistAnsicht extends VerwaisteUebersteuerung {
   kandidatenText: string[];
   /** je Kandidat „Sixt Feuerbach“ bzw. „der aktuellen Station“ (für Rückfrage und Grund) */
   kandidatenStation: string[];
+}
+
+/** Plan 5b: ein Paket der Version, wie es die Kalkulationsseite zeigt. */
+export interface PaketAnsicht {
+  slug: string;
+  name: string;
+  /** wirksamer Preis (nach Paketpreis-Anpassung) */
+  preisCent: number | null;
+  hinweis: string | null;
+  /** Rechnerpreis vor einer Anpassung; gleich `preisCent` ohne Anpassung. */
+  rechnerPreisCent?: number | null;
+  uebersteuert?: { betragCent: number; grund: string } | null;
+  /** Untergrenze für eine Anpassung: Preis bei 30 % Marge. */
+  untergrenzeCent?: number | null;
+  hebel?: HebelArt[];
+  kern?: KernBefund | null;
+}
+
+/** Plan 5b: ein angebotener Tag der Version. */
+export interface TagAnsicht {
+  datum: string;
+  /** „Sa 21.11.“ */
+  text: string;
+  feiertag: boolean;
+  empfohlen: boolean;
+  preisCent: number | null;
+  rechnerPreisCent: number | null;
+  uebersteuert: { betragCent: number; grund: string } | null;
+  /** intern: Gründe der Marge an diesem Tag */
+  gruende: { text: string; punkte: number }[];
+  /** Preis je Paket-Slug an diesem Tag */
+  paketPreiseCent: Record<string, number | null> | null;
+  slots: TagesSlot[];
+  note: string | null;
+}
+
+/** Plan 5b: Stunden-KV der Version. */
+export interface StundenAnsicht {
+  helfer: number;
+  transporter: number;
+  stundenGeschaetzt: number;
+  mindestStunden: number;
+  satzHelferEur: number;
+  satzTransporterEur: number;
+  summeGeschaetztCent: number;
+  mindestbetragCent: number;
+  zusatzposten: { bezeichnung: string; betragCent: number }[];
 }
 
 // ─── Eingaben von `ansichtAus` ────────────────────────────────────────────────
@@ -232,6 +299,8 @@ export interface AnsichtRest {
   renderer?: "crm" | "vps";
   /** Plan 5a: aus `letzterKvJob` (Server); fehlt → „keins“. */
   kvErzeugung?: KvErzeugung;
+  /** Plan 5b: Firmen-Schalter des Deals; fehlt → beide aus. */
+  schalter?: Plan5Schalter;
 }
 
 // ─── Anzeige ──────────────────────────────────────────────────────────────────
@@ -1051,6 +1120,13 @@ export function ansichtAus(v: VersionsZeile, rest: AnsichtRest): KalkulationsAns
       preisCent: typeof p.festpreis === "number" ? cent(p.festpreis) : null,
       hinweis: typeof p.festpreis === "number" ? null : "Nicht kalkulierbar.",
     })),
+    // Plan 5b Task K füllt tage, stunden, kern, preisHash, schalter und kvDarstellung.
+    tage: [],
+    stunden: null,
+    kern: null,
+    preisHash: null,
+    schalter: rest.schalter ?? { angebotAusKalkulation: false, tagespreise: false },
+    kvDarstellung: "posten",
     angebotsformularLink: `/objects/deals/${v.dealRecordId}?tab=quotation`,
     anpassungen: wirksameUebersteuerungen(v.overrides ?? []).map((u) => ({
       id: u.id,
