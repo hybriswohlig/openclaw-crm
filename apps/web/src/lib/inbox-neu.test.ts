@@ -259,7 +259,19 @@ function eintrag(teil: Partial<InboxEintrag> & { key: string }): InboxEintrag {
 const uns = (seit: string | null) => ({ auf: "uns" as const, seit, text: "wartet auf uns" });
 
 describe("sortieren", () => {
-  it("wartet auf uns zuerst (längste Wartezeit oben), dann Zeit absteigend, Info-Gruppe unten", () => {
+  it("Standard: neueste Nachricht oben wie WhatsApp, wartende nicht vorgezogen, Info-Gruppe unten", () => {
+    const liste = [
+      eintrag({ key: "uns2Tage", wartet: uns(vor(2 * TAG)), zeit: vor(2 * TAG) }),
+      eintrag({ key: "info", gruppe: "info", zeit: vor(0) }),
+      eintrag({ key: "neu", zeit: vor(1) }),
+      eintrag({ key: "ohneZeit", zeit: null }),
+      eintrag({ key: "uns35", wartet: uns(vor(35)), zeit: vor(35) }),
+      eintrag({ key: "alt", zeit: vor(5 * TAG) }),
+    ];
+    expect(sortieren(liste).map((e) => e.key)).toEqual(["neu", "uns35", "uns2Tage", "alt", "ohneZeit", "info"]);
+  });
+
+  it("Modus wartet: wartet auf uns zuerst (längste Wartezeit oben), dann Zeit absteigend, Info-Gruppe unten", () => {
     const liste = [
       eintrag({ key: "neu", zeit: vor(1) }),
       eintrag({ key: "info", gruppe: "info", zeit: vor(0) }),
@@ -270,7 +282,7 @@ describe("sortieren", () => {
       eintrag({ key: "alt", zeit: vor(5 * TAG) }),
       eintrag({ key: "infoAlt", gruppe: "info", zeit: vor(TAG) }),
     ];
-    expect(sortieren(liste).map((e) => e.key)).toEqual([
+    expect(sortieren(liste, "wartet").map((e) => e.key)).toEqual([
       "uns2Tage",
       "uns35",
       "unsOhneSeit",
@@ -281,6 +293,20 @@ describe("sortieren", () => {
       "infoAlt",
     ]);
     expect(liste[0].key).toBe("neu");
+  });
+});
+
+describe("filtern sortiert beim Chip „Wartet“ nach Wartezeit", () => {
+  it("Chip warten und nurWartet: längste Wartezeit oben; ohne Chip bleibt neueste oben", () => {
+    const liste = sortieren([
+      eintrag({ key: "uns35", wartet: uns(vor(35)), zeit: vor(35) }),
+      eintrag({ key: "uns2Tage", wartet: uns(vor(2 * TAG)), zeit: vor(2 * TAG) }),
+      eintrag({ key: "neu", zeit: vor(1) }),
+    ]);
+    const basis = { suche: "", chip: null, kanal: null, firmaId: null, stufeId: null, nurWartet: false };
+    expect(filtern(liste, basis).map((e) => e.key)).toEqual(["neu", "uns35", "uns2Tage"]);
+    expect(filtern(liste, { ...basis, chip: "warten" }).map((e) => e.key)).toEqual(["uns2Tage", "uns35"]);
+    expect(filtern(liste, { ...basis, nurWartet: true }).map((e) => e.key)).toEqual(["uns2Tage", "uns35"]);
   });
 });
 

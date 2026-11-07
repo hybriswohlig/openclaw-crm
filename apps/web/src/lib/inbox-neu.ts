@@ -400,17 +400,24 @@ export function eintraegeBauen(zeilen: InboxZeile[], jetzt: Date): InboxEintrag[
 }
 
 /**
- * Sortierung (Entscheidung 3, Spec vor Mockup): Hauptgruppe vor Info; in jeder
+ * Sortierung. Standard „neueste“: wie WhatsApp, die neueste Nachricht oben
+ * (Hauptgruppe vor Info, ohne Zeit zuletzt); „wartet auf uns“ bleibt als Pille
+ * sichtbar. Modus „wartet“ (Chip „Wartet“ oder „Nur wartet auf uns“): in jeder
  * Gruppe zuerst „wartet auf uns“ nach Wartebeginn aufsteigend (längste
- * Wartezeit oben, ohne Beginn ans Ende davon), dann alle übrigen nach Zeit
- * absteigend, ohne Zeit zuletzt. Neues Array, Eingabe bleibt.
+ * Wartezeit oben, ohne Beginn ans Ende davon), dann der Rest nach Zeit.
+ * Rückmeldung des Inhabers 07.11.: nach Wartezeit sortiert wirkte die Liste
+ * wahllos, aktuelle Chats rutschten unter alte wartende Leads.
+ * Neues Array, Eingabe bleibt.
  */
-export function sortieren(eintraege: InboxEintrag[]): InboxEintrag[] {
-  const rang = (e: InboxEintrag) => (e.gruppe === "haupt" ? 0 : 2) + (e.wartet.auf === "uns" ? 0 : 1);
+export type InboxSortierung = "neueste" | "wartet";
+
+export function sortieren(eintraege: InboxEintrag[], modus: InboxSortierung = "neueste"): InboxEintrag[] {
+  const rang = (e: InboxEintrag) =>
+    (e.gruppe === "haupt" ? 0 : 2) + (modus === "wartet" && e.wartet.auf !== "uns" ? 1 : 0);
   return [...eintraege].sort((a, b) => {
     const r = rang(a) - rang(b);
     if (r !== 0) return r;
-    if (a.wartet.auf === "uns" && b.wartet.auf === "uns") {
+    if (modus === "wartet" && a.wartet.auf === "uns" && b.wartet.auf === "uns") {
       const s = nachZeitAufsteigend(a.wartet.seit, b.wartet.seit);
       if (s !== 0) return s;
     }
@@ -441,13 +448,13 @@ export const SUCHE_MIN_ZEICHEN = 2;
 
 /**
  * Clientseitige Filter über die geladene Liste (Entscheidung 7), Reihenfolge
- * bleibt. Eine aktive Suche (ab 2 Zeichen, Treffer kommen vom Server) hebt den
+ * bleibt (neueste oben), außer beim Chip „Wartet“ und „Nur wartet auf uns“. Eine aktive Suche (ab 2 Zeichen, Treffer kommen vom Server) hebt den
  * Chip auf; Kanal, Firma, Stufe und „Nur wartet auf uns“ gelten weiter.
  */
 export function filtern(eintraege: InboxEintrag[], filter: InboxFilter): InboxEintrag[] {
   const sucht = filter.suche.trim().length >= SUCHE_MIN_ZEICHEN;
   const chip = sucht ? null : filter.chip;
-  return eintraege.filter(
+  const gefiltert = eintraege.filter(
     (e) =>
       (!chip || CHIP_PASST[chip](e)) &&
       (!filter.kanal || e.kanaele.includes(filter.kanal)) &&
@@ -455,4 +462,6 @@ export function filtern(eintraege: InboxEintrag[], filter: InboxFilter): InboxEi
       (!filter.stufeId || e.stufe?.id === filter.stufeId) &&
       (!filter.nurWartet || e.wartet.auf === "uns"),
   );
+  // Wer gezielt die Wartenden ansieht, bekommt die längste Wartezeit oben.
+  return chip === "warten" || filter.nurWartet ? sortieren(gefiltert, "wartet") : gefiltert;
 }
