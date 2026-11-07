@@ -5,24 +5,35 @@
  */
 
 [data-neu] {
+  /* Tokens hell. Werte wie TOKENS in lib/dunkel-abschaltung.ts (Test liest diese Datei). */
   --ink: #222224;
   --ink-2: #66666a;
   --ink-3: #8e8e93;
-  --blue: #0067d9;
-  --jade: #14a874;
-  --gold: #e8960c;
-  --gold-ink: #8a5200;
-  --rose: #e8345a;
-  --violet: #6a4cf0;
   --fill: rgba(255, 255, 255, 0.52);
   --fill-2: rgba(255, 255, 255, 0.68);
   --fill-3: rgba(255, 255, 255, 0.88);
+  --flaeche: #ffffff;
+  --tinte-flaeche: #222224;
   --rim: rgba(255, 255, 255, 0.92);
   --hair: rgba(34, 34, 36, 0.08);
-  --shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 8px 24px -6px rgb(0 0 0 / 0.14);
-  --shadow-raised: 0 2px 6px rgb(0 0 0 / 0.06), 0 28px 56px -18px rgb(0 0 0 / 0.26);
+  /* Text in Akzentfarbe (4,5:1 auf Glas und Fläche). */
+  --gold-ink: #8a5200;
+  --rose-ink: #a8113a;
+  --jade-ink: #0d6b4a;
+  --blue-ink: #0054b3;
+  --violet-ink: #5a3fd6;
   --seite-oben: #faf9f7;
   --seite-unten: #e6e8ec;
+  --silber-1: #d2d5da;
+  --silber-2: #ffffff;
+  /* Akzente als Fläche, Rand oder Symbol: in beiden Themes gleich. */
+  --blue: #0067d9;
+  --jade: #14a874;
+  --gold: #e8960c;
+  --rose: #e8345a;
+  --violet: #6a4cf0;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 8px 24px -6px rgb(0 0 0 / 0.14);
+  --shadow-raised: 0 2px 6px rgb(0 0 0 / 0.06), 0 28px 56px -18px rgb(0 0 0 / 0.26);
 
   position: relative;
   isolation: isolate;
@@ -35,19 +46,71 @@
   -webkit-font-smoothing: antialiased;
 }
 
-/* Dunkel ist nur vorbereitet: Seite Anthrazit, Textfarben umgedreht. In Meilenstein 1
-   greift das nie, weil (neu)/layout.tsx data-lg-theme fest auf "light" setzt. */
+/* Tokens dunkel (Anthrazit). Greift erst, wenn die Schale data-lg-theme="dark" setzt
+   (Plan 14b); bis dahin setzt (neu)/layout.tsx das Theme fest auf "light". */
 [data-lg-theme="dark"] [data-neu] {
   --ink: #f5f5f7;
   --ink-2: #c7c7cc;
   --ink-3: #a1a1a6;
-  --seite-oben: #1c1c1e;
+  --fill: rgba(44, 44, 46, 0.52);
+  --fill-2: rgba(44, 44, 46, 0.68);
+  --fill-3: rgba(44, 44, 46, 0.88);
+  --flaeche: #2c2c2e;
+  --tinte-flaeche: #3a3a3c;
+  --rim: rgba(255, 255, 255, 0.12);
+  --hair: rgba(255, 255, 255, 0.10);
+  --gold-ink: #f5b54a;
+  --rose-ink: #ff8fa3;
+  --jade-ink: #4fd8a4;
+  --blue-ink: #7ab8ff;
+  --violet-ink: #b4a5ff;
+  --seite-oben: #242426;
   --seite-unten: #1c1c1e;
+  --silber-1: #3a3d42;
+  --silber-2: #2c2c2e;
 }
 
-/* „Transparenz reduzieren“: deckende Flächen statt Glas. */
+/* Bewusst hell (Dokumentvorschau, Portal-Vorschau, Firmenlogos): im Dunkeln die
+   hellen Tokens zurück. color neu setzen, weil die geerbte Farbe schon aufgelöst ist. */
+[data-lg-theme="dark"] [data-neu] .neu-hell-fest {
+  --ink: #222224;
+  --ink-2: #66666a;
+  --ink-3: #8e8e93;
+  --fill: rgba(255, 255, 255, 0.52);
+  --fill-2: rgba(255, 255, 255, 0.68);
+  --fill-3: rgba(255, 255, 255, 0.88);
+  --flaeche: #ffffff;
+  --tinte-flaeche: #222224;
+  --rim: rgba(255, 255, 255, 0.92);
+  --hair: rgba(34, 34, 36, 0.08);
+  --gold-ink: #8a5200;
+  --rose-ink: #a8113a;
+  --jade-ink: #0d6b4a;
+  --blue-ink: #0054b3;
+  --violet-ink: #5a3fd6;
+  --seite-oben: #faf9f7;
+  --seite-unten: #e6e8ec;
+  --silber-1: #d2d5da;
+  --silber-2: #ffffff;
+  color: var(--ink);
+}
+
+/* „Transparenz reduzieren“: deckende Flächen statt Glas, je Theme. Die Dunkel-Zweige
+   stehen danach und sind mindestens so spezifisch wie die hellen. */
 @media (prefers-reduced-transparency: reduce) {
   [data-neu] {
+    --fill: #ffffff;
+    --fill-2: #ffffff;
+    --fill-3: #ffffff;
+  }
+
+  [data-lg-theme="dark"] [data-neu] {
+    --fill: #2c2c2e;
+    --fill-2: #2c2c2e;
+    --fill-3: #2c2c2e;
+  }
+
+  [data-lg-theme="dark"] [data-neu] .neu-hell-fest {
     --fill: #ffffff;
     --fill-2: #ffffff;
     --fill-3: #ffffff;
@@ -55,6 +118,18 @@
 }
 
 :root[data-lg-reduce-transparency="1"] [data-neu] {
+  --fill: #ffffff;
+  --fill-2: #ffffff;
+  --fill-3: #ffffff;
+}
+
+:root[data-lg-reduce-transparency="1"][data-lg-theme="dark"] [data-neu] {
+  --fill: #2c2c2e;
+  --fill-2: #2c2c2e;
+  --fill-3: #2c2c2e;
+}
+
+:root[data-lg-reduce-transparency="1"][data-lg-theme="dark"] [data-neu] .neu-hell-fest {
   --fill: #ffffff;
   --fill-2: #ffffff;
   --fill-3: #ffffff;
@@ -78,11 +153,11 @@
 /* Beim Überscrollen (Gummiband) zeigt der Body dieselbe Farbe wie das Seitenende
    (--seite-unten; der Body kann die Tokens von [data-neu] nicht lesen). */
 body:has([data-neu]) {
-  background-color: #e6e8ec;
+  background-color: #e6e8ec; /* fest */ /* gleich --seite-unten hell */
 }
 
 [data-lg-theme="dark"] body:has([data-neu]) {
-  background-color: #1c1c1e;
+  background-color: #1c1c1e; /* fest */ /* gleich --seite-unten dunkel */
 }
 
 [data-neu] .neu-hintergrund-karte {

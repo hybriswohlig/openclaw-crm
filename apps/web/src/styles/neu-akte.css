@@ -4,14 +4,6 @@
  * [data-neu] und mit Präfix .akte-, damit die alten Seiten unberührt bleiben.
  */
 
-/* Dunkle Tinten für Text und Flächen mit weißer Schrift, die 4,5:1 erreichen
-   (neu.css hat nur --gold-ink). */
-[data-neu] {
-  --rose-ink: #a8113a;
-  --jade-ink: #0d6b4a;
-  --blue-ink: #0054b3;
-}
-
 [data-neu] .akte {
   display: flex;
   flex-direction: column;
