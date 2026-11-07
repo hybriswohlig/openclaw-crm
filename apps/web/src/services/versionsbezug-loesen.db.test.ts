@@ -374,13 +374,14 @@ describe.skipIf(!url)("Versionsbezug lösen ohne Firmen-Schalter (DB, F2 N1/M2/N
     expect(await quotation()).toMatchObject({ fixed_price: "1750.00", calculation_version_id: v1 });
   });
 
-  it("M2: mit Tagespreis-Schalter bleiben die Termine der Version; Quotation und Optionen lösen", async () => {
+  it("M2: auch mit Tagespreis-Schalter lösen Optionen von Hand alles; Termine verlieren ihre Preise, alle Quellen gleich", async () => {
     await schalter(true, true);
     await gesperrtMitPaketenUndTagen();
     await optionenVonHand();
-    expect(await quotation()).toMatchObject({ calculation_version_id: null });
+    expect(await quotation()).toMatchObject({ fixed_price: "1750.00", calculation_version_id: null });
     expect((await optionen()).every((o) => o.calculation_version_id === null)).toBe(true);
-    expect((await angebote()).every((a) => a.calculation_version_id === v1 && a.price_cents !== null)).toBe(true);
+    expect((await angebote()).every((a) => a.calculation_version_id === null && a.price_cents === null && a.package_prices === null)).toBe(true);
+    expect(await preise()).toEqual({ quotation: 175000, portal: 175000, kva: 175000, kvModell: 175000, kvTage: null });
   });
 
   // ─── N4 ─────────────────────────────────────────────────────────────────

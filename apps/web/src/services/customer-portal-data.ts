@@ -2486,10 +2486,11 @@ export async function replaceDealPackageOptions(input: {
     if (vonHand && existingQ && !chosen) {
       await tx.update(quotations).set({ calculationVersionId: null, updatedAt: new Date() }).where(eq(quotations.id, existingQ.id));
     }
-    // Ohne Tagespreis-Schalter gibt es keinen Termin-Dialog: Termine mit Preis aus der Version
-    // verlieren dann wie beim alten Termin-Weg (I6) Preis und Bezug. Sonst zeigte das Portal den
-    // Preis am Tag, Quotation und KV den Optionspreis von Hand.
-    if (vonHand && !schalter.tagespreise) {
+    // Paketoptionen von Hand lösen alles: Termine mit Preis aus der Version verlieren Preis und
+    // Bezug wie beim alten Termin-Weg (I6), mit oder ohne Tagespreis-Schalter. Sonst zeigte das
+    // Portal den Preis am Tag, Quotation und KV den Optionspreis von Hand. Neue Tage mit Preis
+    // bietet der Termin-Dialog über eine neue Version an.
+    if (vonHand) {
       await terminpreiseLoesen(tx, input.dealRecordId);
     }
 
