@@ -32,6 +32,8 @@ import "./lagekarte.css";
 export interface LagekarteProps {
   /** Zur klassischen Startseite wechseln (HUD „Liste“, WebGL-Hinweis). */
   onListe: () => void;
+  /** Fest vorgegebenes Thema statt next-themes (neue Oberfläche: hell bis Plan 14). */
+  thema?: Thema;
 }
 
 type Ansicht = "2d" | "3d";
@@ -171,9 +173,9 @@ export default function Lagekarte(props: LagekarteProps) {
   );
 }
 
-function LagekarteInhalt({ onListe }: LagekarteProps) {
+function LagekarteInhalt({ onListe, thema: themaVorgabe }: LagekarteProps) {
   const { resolvedTheme } = useTheme();
-  const thema: Thema = resolvedTheme === "dark" ? "dunkel" : "hell";
+  const thema: Thema = themaVorgabe ?? (resolvedTheme === "dark" ? "dunkel" : "hell");
   const mobil = useMedienAbfrage(MOBIL_ABFRAGE);
   const schmal = useMedienAbfrage(SCHMAL_ABFRAGE);
 

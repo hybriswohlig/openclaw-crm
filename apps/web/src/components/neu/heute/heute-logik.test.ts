@@ -171,7 +171,7 @@ describe("Link-Ziele", () => {
 
   it("Inbox und Lagekarte", () => {
     expect(INBOX_LINK).toBe("/app/inbox");
-    expect(LAGEKARTE_LINK).toBe("/home");
+    expect(LAGEKARTE_LINK).toBe("/app/heute/karte");
   });
 });
 

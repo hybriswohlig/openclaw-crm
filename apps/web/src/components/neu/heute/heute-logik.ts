@@ -18,8 +18,8 @@ export function planTagLink(tag: string): string {
 /** Die Inbox; ein Chip-Deep-Link kommt erst später (Entscheidung 21). */
 export const INBOX_LINK = "/app/inbox";
 
-/** Die alte Startseite mit der Lagekarte (bleibt unverändert erreichbar). */
-export const LAGEKARTE_LINK = "/home";
+/** Die Lagekarte als Ansicht unter Heute (Plan 10, Entscheidung 12). `/home` bleibt für die alte Oberfläche. */
+export const LAGEKARTE_LINK = "/app/heute/karte";
 
 // ─── Inbox „Jetzt“ ───────────────────────────────────────────────────────────
 

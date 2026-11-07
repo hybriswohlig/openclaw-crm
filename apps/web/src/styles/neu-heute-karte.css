@@ -1,0 +1,64 @@
+/* Lagekarte unter Heute (Plan 10, Entscheidung 12). Die Karte bringt ihre
+   eigenen Tokens mit (components/lagekarte/lagekarte.css); hier nur die Fläche. */
+
+[data-neu] .heute-karte {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  /* Gerüst oben und unten je 14 px. */
+  height: calc(100dvh - 28px);
+  min-height: 420px;
+}
+
+[data-neu] .heute-karte-kopf {
+  display: flex;
+  flex: none;
+  align-items: baseline;
+  gap: 12px;
+  padding: 0 6px;
+}
+
+[data-neu] .heute-karte-kopf a {
+  color: var(--blue-ink);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+[data-neu] .heute-karte-kopf a:hover {
+  text-decoration: underline;
+}
+
+[data-neu] .heute-karte-kopf a:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+[data-neu] .heute-karte-titel {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+[data-neu] .heute-karte-flaeche {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 18px;
+  box-shadow: inset 0 0 0 1px var(--hair), var(--shadow);
+}
+
+@media (max-width: 1023.98px) {
+  /* Oben 14 px, unten die Reserve des Gerüsts für das Handy-Dock (neu.css). */
+  [data-neu] .heute-karte {
+    height: calc(100dvh - 14px - env(safe-area-inset-bottom) - 104px);
+    min-height: 360px;
+  }
+
+  [data-neu] .heute-karte-flaeche {
+    border-radius: 14px;
+  }
+}

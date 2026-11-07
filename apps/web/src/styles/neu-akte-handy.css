@@ -1,0 +1,52 @@
+/* Akte am Handy (Plan 10, Entscheidung 9): ein Dock statt zwei.
+   Gilt nur auf Seiten mit „‹ Leads“ (.akte-zurueck). `:has()` hebt die
+   Spezifität über neu.css und neu-akte-dock.css, die Reihenfolge der
+   Stylesheets spielt deshalb keine Rolle. */
+
+[data-neu] .akte-zurueck {
+  display: none;
+}
+
+@media (max-width: 1023.98px) {
+  [data-neu] .akte-zurueck {
+    display: flex;
+    padding: 0 4px 8px;
+  }
+
+  [data-neu] .akte-zurueck a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 32px;
+    padding: 0 4px;
+    color: var(--blue-ink);
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  [data-neu] .akte-zurueck a:focus-visible {
+    outline: 2px solid var(--blue);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+
+  /* Das Handy-Dock weicht; das Akten-Dock rückt an seinen Platz. */
+  [data-neu]:has(.akte-zurueck) .neu-handy-dock {
+    display: none;
+  }
+
+  [data-neu]:has(.akte-zurueck) .akte-dock {
+    bottom: calc(env(safe-area-inset-bottom) + 12px);
+  }
+
+  /* Reserve unten: nur noch das Akten-Dock (die Akte hält 84 px selbst frei). */
+  [data-neu]:has(.akte-zurueck) .neu-geruest {
+    padding-bottom: calc(env(safe-area-inset-bottom) + 24px);
+  }
+
+  /* Tippt jemand in ein Feld der Akte, ist die Tastatur offen: das Dock
+     klebt auf iOS sonst darüber und verdeckt das Antwortfeld. */
+  [data-neu]:has(.akte :is(textarea, input:not([type="checkbox"], [type="radio"], [type="button"], [type="submit"])):focus) .akte-dock {
+    display: none;
+  }
+}
