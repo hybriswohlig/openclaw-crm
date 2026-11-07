@@ -114,6 +114,61 @@ export interface KvaSnapshot {
   calculationAssumptions: KvaCalculationAssumptions | null;
   /** Kalkulationsversion der Quotation; null = von Hand oder Altbestand. Fehlt bei alten Schnappschüssen. */
   calculationVersionId?: string | null;
+  /** Plan 5b: Stunden-KV aus der Version (Schätzung, Mindeststunden). Nur mit `stundenModell` „version“. */
+  stunden?: PortalStundenAngebot | null;
+  /**
+   * Plan 5b, nur bei `isVariable`: „version“ = Stunden-KV aus der Kalkulation
+   * (`totalCents` ist die Schätzung), „alt“ = Stunden-KV von Hand (die
+   * Postensumme ist der Stundensatz, F11). Fehlt beim Festpreis.
+   */
+  stundenModell?: "version" | "alt";
+}
+
+/**
+ * Stunden-KV aus der gesperrten Version, wie Portal und Annahme ihn sehen
+ * (Spiegel von `StundenAngebot` im CRM, `quotations.document_details.stunden`).
+ * Nur Kundenzahlen: Sätze, Stunden, Beträge.
+ */
+export interface PortalStundenAngebot {
+  helfer: number;
+  transporter: number;
+  /** In halben Stunden gerundet. */
+  stundenGeschaetzt: number;
+  mindestStunden: number;
+  satzHelferEur: number;
+  satzTransporterEur: number;
+  /** Annahmebetrag (F10). */
+  summeGeschaetztCent: number;
+  mindestbetragCent: number;
+  quelle: "version";
+}
+
+/** Was der Kunde mit der Annahme gewählt hat (Plan 5b, Entscheidung 10). */
+export interface AnnahmeWahl {
+  paketSlug: string | null;
+  paketName: string | null;
+  dateOfferId: string | null;
+  /** YYYY-MM-DD. */
+  datum: string | null;
+  priceCents: number;
+}
+
+/** Ein angebotener Kundenpreis zum Zeitpunkt der Annahme (Paket am Basistag, Tag, Paket am Tag). */
+export interface AngebotenerPreis {
+  paketSlug: string | null;
+  paketName: string | null;
+  datum: string | null;
+  cent: number | null;
+}
+
+/**
+ * Schnappschuss in `kva_confirmations.quotation_snapshot`. Mit Paket- oder
+ * Tagespreisen aus der Version zusätzlich Wahl und alle angebotenen Preise;
+ * ohne sie genau `KvaSnapshot` wie vor 5b.
+ */
+export interface KvaAnnahmeSnapshot extends KvaSnapshot {
+  wahl?: AnnahmeWahl;
+  angebotenePreise?: AngebotenerPreis[];
 }
 
 /** Mirror of the quotations.calculation_assumptions jsonb (apps/web). */
@@ -261,6 +316,13 @@ export interface DateOfferOption {
   note: string | null;
   isRecommended: boolean;
   sortOrder: number;
+  /**
+   * Plan 5b: Kundenpreis an diesem Tag in Cent (Standardpaket), aus der
+   * gesperrten Version. Fehlt oder null: Termin ohne Preis (Altbestand).
+   */
+  priceCents?: number | null;
+  /** Plan 5b: Kundenpreis je Paket-Slug an diesem Tag in Cent; null ohne Pakete. */
+  packagePrices?: Record<string, number> | null;
 }
 
 export interface DateOfferSelection {

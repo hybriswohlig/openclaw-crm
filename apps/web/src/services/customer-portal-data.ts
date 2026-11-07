@@ -90,6 +90,15 @@ import {
   annahmeKvSperre,
   type AnnahmeRegeln,
   type KvStand as PortalKvStand,
+  gesamtpreisMitWahl,
+  hatTagespreise,
+  stundenAngebotAus,
+  tagHatPreis,
+  terminPreise,
+  type AngebotenerPreis,
+  type AnnahmeWahl,
+  type KvaAnnahmeSnapshot,
+  type PortalStundenAngebot,
 } from "@openclaw-crm/customer-portal-core";
 import { isKleinanzeigenRelayAddress } from "./inbox-kleinanzeigen";
 import { loadEffectiveBranding, type EffectiveBranding } from "./customer-portal-config";
@@ -111,11 +120,14 @@ import {
 import type { DbExecutor, KvaConfirmationRow as KvaConfirmationZeile, Umzugsrahmen } from "./kva-annahme";
 import { preisZahlungenCent } from "@/lib/preis-zahlungen";
 import { angebotSperren } from "./quotations";
-import { kvStand, type KvStand } from "@/lib/angebot-wahl";
+import { kvStand, type KvStand, type StundenAngebot } from "@/lib/angebot-wahl";
 
 // Vertrag (CRM) und Portal-Core beschreiben denselben Stand.
 const _kvStandGleich: [KvStand] extends [PortalKvStand] ? ([PortalKvStand] extends [KvStand] ? true : never) : never = true;
 void _kvStandGleich;
+// Stunden-KV aus der Version: Portal-Core spiegelt den Vertrag Feld für Feld.
+const _stundenGleich: [StundenAngebot] extends [PortalStundenAngebot] ? ([PortalStundenAngebot] extends [StundenAngebot] ? true : never) : never = true;
+void _stundenGleich;
 
 // ─── Token / link lifecycle ────────────────────────────────────────────────────
 
@@ -379,8 +391,12 @@ export async function loadContextByToken(
   // otherwise render 0 € with nothing clicked.
   await ensureDefaultPackageSelection(dealRecordId);
 
+  // Multi-date offer (candidate dates + the customer's selection, if any).
+  // Vor dem Angebot gelesen: der Preis folgt dem gewählten Tag (Plan 5b).
+  const dateOffers = ohneLeereTagespreise(await loadDateOffersContext(dealRecordId));
+
   // Quotation + line items
-  const kva = await loadKvaSnapshot(dealRecordId);
+  const kva = await loadKvaSnapshot(dealRecordId, db, dateOffers);
 
   // Crew
   const crew = await loadCrew(dealRecordId);
@@ -395,9 +411,6 @@ export async function loadContextByToken(
   // Per-deal package options — take precedence over the catalogue when the
   // operator has set them up via the share panel composer.
   const dealPackageOffers = await loadDealPackageOffersContext(dealRecordId);
-
-  // Multi-date offer (candidate dates + the customer's selection, if any).
-  const dateOffers = await loadDateOffersContext(dealRecordId);
 
   // Mirror the chosen slot's arrival window into the scope. The selection row
   // stores the slot's "HH:MM" strings at pick time, so no extra query needed.
@@ -618,6 +631,10 @@ type AnnahmePruefung =
       scope: MoveScope;
       selectedOption: DealPackageOption | null;
       kvDokument: Awaited<ReturnType<typeof aktuellesKvDokument>>;
+      /** Gewählter Termin (Kundenwahl), auch ohne Tagespreis. */
+      termin: DateOffersContext["selection"];
+      /** Schnappschuss für `kva_confirmations`: mit Plan-5-Preisen samt Wahl und allen angebotenen Preisen. */
+      snapshot: KvaAnnahmeSnapshot;
     };
 
 /**
@@ -634,11 +651,11 @@ async function annahmePruefen(
   const ex = unterSperre?.tx ?? db;
   const deal = link.dealRecordId;
   await ensureDefaultPackageSelection(deal, unterSperre?.tx);
-  const kva = await loadKvaSnapshot(deal, ex);
+  const dateOffers = await loadDateOffersContext(deal, ex);
+  const kva = await loadKvaSnapshot(deal, ex, dateOffers);
   if (!kva) return { ok: false, reason: "no_quotation" };
 
   const dealOffers = await loadDealPackageOffersContext(deal, ex);
-  const dateOffers = await loadDateOffersContext(deal, ex);
   const hasOpenDateChoice = dateOffers.options.length > 0 && !dateOffers.selection;
   const acceptBlock = offerAcceptanceBlockReason({
     dealOptions: dealOffers.options,
@@ -669,11 +686,16 @@ async function annahmePruefen(
 
   const { serviceType } = await loadLeistung(deal, ex);
   const regeln = annahmeRegeln({ serviceType, moveDate: scope.moveDate, hasOpenDateChoice, now: new Date() });
+  // Dieselbe Funktion wie Dialog, Preiskarte und Mobil-Leiste: Tag vor Paket.
   const preisCents = erwarteterGesamtpreis({
     dealOptions: dealOffers.options,
     selectedOptionId: dealOffers.selectedOptionId,
     totalCents: kva.totalCents,
+    dateOffers: terminPreise(dateOffers.options),
+    selectedDateOfferId: dateOffers.selection?.dateOfferId ?? null,
   });
+  // Wahl ohne Preis in der Version (Paket an diesem Tag nicht kalkuliert).
+  if (preisCents <= 0) return { ok: false, reason: "zero_price" };
   const sperre = annahmeSperrgrund({
     payload: body,
     regeln,
@@ -688,7 +710,79 @@ async function annahmePruefen(
   const kvSperre = annahmeKvSperre(kvStand(kva.calculationVersionId ?? null, kvDokument));
   if (kvSperre) return { ok: false, reason: kvSperre };
 
-  return { ok: true, effective, kva, preisCents, serviceType, regeln, scope, selectedOption, kvDokument };
+  const snapshot = await annahmeSnapshot(ex, deal, kva, dealOffers, dateOffers, selectedOption, preisCents);
+  return {
+    ok: true, effective, kva, preisCents, serviceType, regeln, scope, selectedOption, kvDokument,
+    termin: dateOffers.selection, snapshot,
+  };
+}
+
+/**
+ * Schnappschuss der Annahme. Ohne Paket- oder Tagespreise aus der Version
+ * genau der Kontext-Schnappschuss wie vor 5b. Mit ihnen zusätzlich die Wahl
+ * (Paket, Tag, Betrag) und alle angebotenen Kundenpreise, damit Bestätigung,
+ * Mappe und ein späterer Streit dieselben Zahlen sehen. Nur Kundenpreise:
+ * Selbstkosten, Marge und Gründe stehen nie in Optionen oder Terminangeboten.
+ */
+async function annahmeSnapshot(
+  ex: DbExecutor,
+  deal: string,
+  kva: KvaSnapshot,
+  dealOffers: DealPackageOffersContext,
+  dateOffers: DateOffersContext,
+  selectedOption: DealPackageOption | null,
+  preisCents: number
+): Promise<KvaAnnahmeSnapshot> {
+  const tagesPreise = hatTagespreise(dateOffers.options);
+  const paketPreise = await paketeAusVersion(ex, deal, kva.calculationVersionId ?? null);
+  if (!tagesPreise && !paketPreise) return kva;
+  const paketName = (slug: string) => dealOffers.options.find((o) => o.catalogueSlug === slug)?.displayName ?? null;
+  const angebotenePreise: AngebotenerPreis[] = [
+    ...dealOffers.options.map((o) => ({ paketSlug: o.catalogueSlug, paketName: o.displayName, datum: null, cent: o.priceCents })),
+  ];
+  for (const t of dateOffers.options) {
+    if (!tagHatPreis(t)) continue;
+    angebotenePreise.push({ paketSlug: null, paketName: null, datum: t.date, cent: t.priceCents ?? null });
+    for (const [slug, cent] of Object.entries(t.packagePrices ?? {}).sort(([a], [b]) => a.localeCompare(b))) {
+      angebotenePreise.push({ paketSlug: slug, paketName: paketName(slug), datum: t.date, cent: typeof cent === "number" ? cent : null });
+    }
+  }
+  const wahl: AnnahmeWahl = {
+    paketSlug: selectedOption?.catalogueSlug ?? null,
+    paketName: selectedOption?.displayName ?? null,
+    dateOfferId: dateOffers.selection?.dateOfferId ?? null,
+    datum: dateOffers.selection?.selectedDate ?? null,
+    priceCents: preisCents,
+  };
+  return { ...kva, wahl, angebotenePreise };
+}
+
+/** Trägt der Deal Paketoptionen genau der Version der Quotation (beim Sperren mit Schalter geschrieben)? */
+async function paketeAusVersion(ex: DbExecutor, deal: string, versionId: string | null): Promise<boolean> {
+  if (!versionId) return false;
+  const [row] = await ex
+    .select({ id: quotationPackageOptions.id })
+    .from(quotationPackageOptions)
+    .where(and(eq(quotationPackageOptions.dealRecordId, deal), eq(quotationPackageOptions.calculationVersionId, versionId)))
+    .limit(1);
+  return !!row;
+}
+
+/**
+ * Terminangebote ohne Preis tragen im Portal-Kontext keine Preisfelder:
+ * ohne Tagespreise bleibt der Kontext genau wie vor 5b (Snapshot-Test).
+ */
+function ohneLeereTagespreise(d: DateOffersContext): DateOffersContext {
+  return {
+    ...d,
+    options: d.options.map((o) => {
+      if (tagHatPreis(o)) return o;
+      const { priceCents: _p, packagePrices: _pp, ...rest } = o;
+      void _p;
+      void _pp;
+      return rest;
+    }),
+  };
 }
 
 export async function confirmKvaForToken(
@@ -729,13 +823,13 @@ export async function confirmKvaForToken(
       if (schon) return { art: "doppelt", row: schon };
       const p = await annahmePruefen(link, body, { tx, effective });
       if (!p.ok) return { art: "abgelehnt", reason: p.reason };
-      const { kva, regeln, scope, selectedOption, kvDokument } = p;
+      const { kva, regeln, scope, selectedOption, kvDokument, termin, snapshot } = p;
       const signedAt = new Date();
       const [row] = await tx.insert(kvaConfirmations).values({
         workspaceId: link.workspaceId,
         dealRecordId: link.dealRecordId,
         customerLinkId: link.id,
-        quotationSnapshot: kva,
+        quotationSnapshot: snapshot,
         confirmedTotalCents: p.preisCents,
         agbVersionAccepted: effective.branding.agbVersion,
         widerrufVerzichtAccepted: false,
@@ -750,6 +844,9 @@ export async function confirmKvaForToken(
         versicherungGewuenscht: regeln.haftungshinweisErforderlich && body.versicherungGewuenscht,
         selectedOptionId: selectedOption?.id ?? null,
         selectedOptionName: selectedOption?.displayName ?? null,
+        // Plan 5b: gewählter Termin (aus derselben Lesung unter der Sperre).
+        selectedDateOfferId: termin?.dateOfferId ?? null,
+        selectedDate: termin?.selectedDate ?? null,
         moveDate: scope.moveDate,
         fromAddress: scope.fromAddress,
         toAddress: scope.toAddress,
@@ -1462,7 +1559,17 @@ export async function recordCustomerEmail(
   return { ok: true, status: "present", masked: maskEmail(email) };
 }
 
-async function loadKvaSnapshot(dealRecordId: string, ex: DbExecutor = db): Promise<KvaSnapshot | null> {
+/**
+ * Angebot für Portal und Annahme. `dateOffers`: Terminangebote samt Wahl aus
+ * derselben Lesung; mit Tagespreisen aus der Version folgt `totalCents` dem
+ * gewählten Tag (Plan 5b). Ohne Tagespreise und ohne Stunden-KV aus der
+ * Version genau wie vor 5b.
+ */
+async function loadKvaSnapshot(
+  dealRecordId: string,
+  ex: DbExecutor = db,
+  dateOffers: DateOffersContext | null = null
+): Promise<KvaSnapshot | null> {
   const [q] = await ex
     .select()
     .from(quotations)
@@ -1493,6 +1600,7 @@ async function loadKvaSnapshot(dealRecordId: string, ex: DbExecutor = db): Promi
       id: quotationPackageOptions.id,
       priceCents: quotationPackageOptions.priceCents,
       isRecommended: quotationPackageOptions.isRecommended,
+      catalogueSlug: quotationPackageOptions.catalogueSlug,
     })
     .from(quotationPackageOptions)
     .where(eq(quotationPackageOptions.dealRecordId, dealRecordId))
@@ -1508,6 +1616,20 @@ async function loadKvaSnapshot(dealRecordId: string, ex: DbExecutor = db): Promi
     totalCents = toCents(Number(q.fixedPrice));
   }
 
+  // Plan 5b: Stunden-KV aus der Version nur, solange die Quotation an ihr
+  // hängt (von Hand geänderte Sätze lösen den Bezug, dann gilt „alt“).
+  const stunden = q.isVariable && q.calculationVersionId
+    ? stundenAngebotAus((q.documentDetails as { stunden?: unknown } | null)?.stunden)
+    : null;
+  totalCents = gesamtpreisMitWahl({
+    isVariable: q.isVariable,
+    bisherCents: totalCents,
+    stunden,
+    dealOptions: optionRows,
+    boundOptionId: boundOption?.id ?? null,
+    dateOffers,
+  });
+
   return {
     isVariable: q.isVariable,
     fixedPriceCents: q.fixedPrice ? toCents(Number(q.fixedPrice)) : null,
@@ -1520,6 +1642,8 @@ async function loadKvaSnapshot(dealRecordId: string, ex: DbExecutor = db): Promi
     validUntil: q.validUntil ?? null,
     calculationAssumptions: kundenAnnahmen(q.calculationAssumptions),
     calculationVersionId: q.calculationVersionId ?? null,
+    // Nur beim Stunden-KV; der Festpreis bleibt Feld für Feld wie vor 5b.
+    ...(q.isVariable ? (stunden ? { stunden, stundenModell: "version" as const } : { stundenModell: "alt" as const }) : {}),
   };
 }
 

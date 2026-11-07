@@ -13,3 +13,4 @@ export * from "./unterschrift";
 
 export * from "./features";
 export * from "./leistung";
+export * from "./angebot-preis";

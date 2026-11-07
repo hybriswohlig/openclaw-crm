@@ -3,6 +3,7 @@
  * rufen dieselben Funktionen auf, damit beide nie auseinanderlaufen.
  */
 import { kundenText } from "./anrede";
+import { preisAmTag, tagHatPreis } from "./offer-selection";
 import { daysUntilMove } from "./stage-derivation";
 import type { ConfirmKvaPayload } from "./types";
 import { widerrufsfristEnde } from "./widerruf";
@@ -97,13 +98,26 @@ export function parseConfirmKvaPayload(raw: unknown): ConfirmKvaPayload | null {
   };
 }
 
-/** Preis, den der Kunde im Dialog sieht: gewählte Option, sonst Angebotssumme. */
+/**
+ * Preis, den der Kunde annimmt. Server (Annahme, Portal-Kontext), Annahme-
+ * dialog, Preiskarte und Mobil-Leiste rufen genau diese Funktion auf.
+ *
+ * Tag vor Paket wie `wahlPreis` im CRM (Plan 5b, Entscheidung 9): trägt das
+ * gewählte Terminangebot Preise aus der Version, gilt der Preis des Pakets an
+ * diesem Tag, ohne Paket der Tagespreis; hat die Wahl dort keinen Preis, 0
+ * (Annahme gesperrt, zero_price). Ohne Tagespreise wie vor 5b: gewählte
+ * Option, sonst Angebotssumme.
+ */
 export function erwarteterGesamtpreis(input: {
-  dealOptions: Array<{ id: string; priceCents: number }>;
+  dealOptions: Array<{ id: string; priceCents: number; catalogueSlug?: string | null }>;
   selectedOptionId: string | null | undefined;
   totalCents: number;
+  dateOffers?: Array<{ id: string; priceCents: number | null; packagePrices: Record<string, number> | null }>;
+  selectedDateOfferId?: string | null;
 }): number {
   const option = input.dealOptions.find((o) => o.id === input.selectedOptionId);
+  const tag = input.selectedDateOfferId ? input.dateOffers?.find((d) => d.id === input.selectedDateOfferId) : undefined;
+  if (tag && tagHatPreis(tag)) return preisAmTag(tag, option?.catalogueSlug ?? null) ?? 0;
   return option && option.priceCents > 0 ? option.priceCents : input.totalCents;
 }
 

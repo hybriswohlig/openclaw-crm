@@ -113,3 +113,46 @@ export function offerAcceptanceBlockReason(input: {
   if (!input.isVariable && input.totalCents <= 0) return "zero_price";
   return null;
 }
+
+// ─── Plan 5b: Tagespreise ────────────────────────────────────────────────────
+
+/** Preise eines Terminangebots, wie `erwarteterGesamtpreis` sie braucht. */
+export interface TerminPreis {
+  id: string;
+  priceCents: number | null;
+  packagePrices: Record<string, number> | null;
+}
+
+/** Terminangebote des Kontexts in die Form für `erwarteterGesamtpreis` (fehlende Felder = kein Preis). */
+export function terminPreise(
+  options: ReadonlyArray<{ id: string; priceCents?: number | null; packagePrices?: Record<string, number> | null }>
+): TerminPreis[] {
+  return options.map((o) => ({ id: o.id, priceCents: o.priceCents ?? null, packagePrices: o.packagePrices ?? null }));
+}
+
+/** Trägt das Terminangebot einen Preis aus der Version? Sonst gilt die Regel von vor 5b. */
+export function tagHatPreis(tag: { priceCents?: number | null; packagePrices?: Record<string, number> | null }): boolean {
+  return (tag.priceCents ?? null) !== null || (tag.packagePrices ?? null) !== null;
+}
+
+/** Mindestens ein Terminangebot mit Preis (Firmen-Schalter „Tagespreise“, gesperrte Version). */
+export function hatTagespreise(options: ReadonlyArray<{ priceCents?: number | null; packagePrices?: Record<string, number> | null }>): boolean {
+  return options.some(tagHatPreis);
+}
+
+/**
+ * Preis an einem Tag, Regel wie `wahlPreis` im CRM: mit Paket und
+ * Paketpreisen der Paketpreis an diesem Tag, sonst der Tagespreis. null =
+ * diese Wahl hat keinen Preis.
+ */
+export function preisAmTag(
+  tag: { priceCents?: number | null; packagePrices?: Record<string, number> | null },
+  paketSlug: string | null | undefined
+): number | null {
+  const pakete = tag.packagePrices ?? null;
+  if (paketSlug && pakete) {
+    const p = pakete[paketSlug];
+    return typeof p === "number" && Number.isFinite(p) ? p : null;
+  }
+  return tag.priceCents ?? null;
+}
