@@ -18,7 +18,7 @@
  */
 
 import { nameAusWert } from "@/lib/personen-name";
-import { and, asc, desc, eq, inArray, like, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, like, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   customerStatusLinks,
@@ -33,6 +33,7 @@ import {
   customerDateSelections,
 } from "@/db/schema/customer-portal";
 import { quotations, quotationLineItems } from "@/db/schema/quotations";
+import { dealCalculationVersions } from "@/db/schema/deal-calculation-versions";
 import { kundenAnnahmen } from "@/lib/kunden-annahmen";
 import { activityEvents } from "@/db/schema/activity";
 import { dealDocuments, payments, dealNumbers } from "@/db/schema/financial";
@@ -2362,6 +2363,16 @@ export interface DealPackageOptionInput {
   isRecommended: boolean;
 }
 
+/** Ob die Kalkulationsversion Paketpreise trägt (nur über `tx` des Aufrufers). */
+async function versionHatPaketpreise(tx: DbExecutor, versionId: string): Promise<boolean> {
+  const [v] = await tx
+    .select({ packagePrices: dealCalculationVersions.packagePrices })
+    .from(dealCalculationVersions)
+    .where(eq(dealCalculationVersions.id, versionId))
+    .limit(1);
+  return Array.isArray(v?.packagePrices) && v.packagePrices.length > 0;
+}
+
 export async function replaceDealPackageOptions(input: {
   workspaceId: string;
   dealRecordId: string;
@@ -2377,15 +2388,21 @@ export async function replaceDealPackageOptions(input: {
       .select({
         id: quotations.id,
         selectedPackageSlug: quotations.selectedPackageSlug,
+        calculationVersionId: quotations.calculationVersionId,
       })
       .from(quotations)
       .where(eq(quotations.dealRecordId, input.dealRecordId))
       .limit(1);
     const previousSlug = existingQ?.selectedPackageSlug ?? null;
     // Plan 5b (Entscheidung 8): Paketoptionen von Hand (Composer, Wizard, MCP,
-    // Paketberater) lösen bei Firmen mit Schalter den Bezug zur Kalkulationsversion.
+    // Paketberater) lösen den Bezug zur Kalkulationsversion: bei Firmen mit Schalter
+    // immer, sonst (F2, Review M2), wenn die Version der Quotation Paketpreise trägt.
+    // Die neuen Optionen haben ohnehin keinen Bezug (neue Zeilen).
     const { plan5Schalter } = await import("./plan5-schalter");
-    const vonHand = (await plan5Schalter(input.workspaceId, input.dealRecordId, tx)).angebotAusKalkulation;
+    const schalter = await plan5Schalter(input.workspaceId, input.dealRecordId, tx);
+    const vonHand =
+      schalter.angebotAusKalkulation ||
+      (existingQ?.calculationVersionId ? await versionHatPaketpreise(tx, existingQ.calculationVersionId) : false);
 
     await tx
       .delete(quotationPackageOptions)
@@ -2468,6 +2485,12 @@ export async function replaceDealPackageOptions(input: {
     // Ohne neue Option (alle entfernt) löst das Setzen von Hand den Bezug ebenso.
     if (vonHand && existingQ && !chosen) {
       await tx.update(quotations).set({ calculationVersionId: null, updatedAt: new Date() }).where(eq(quotations.id, existingQ.id));
+    }
+    // Ohne Tagespreis-Schalter gibt es keinen Termin-Dialog: Termine mit Preis aus der Version
+    // verlieren dann wie beim alten Termin-Weg (I6) Preis und Bezug. Sonst zeigte das Portal den
+    // Preis am Tag, Quotation und KV den Optionspreis von Hand.
+    if (vonHand && !schalter.tagespreise) {
+      await terminpreiseLoesen(tx, input.dealRecordId);
     }
 
     return validated.length;
@@ -2848,7 +2871,8 @@ export class TermineMitPreisError extends Error {
  * `TermineMitPreisError`, außer mit `versionLoesen` (F2, I6: die Firma hat den
  * Tagespreis-Schalter nicht mehr): dann ersetzt es die Termine wie vor 5b und
  * löst den Versionsbezug (`calculation_version_id`, `price_cents`,
- * `package_prices` werden null). Mit Version (Sperren, Task K): Preis,
+ * `package_prices` werden null), F2 (N1) im selben `tx` auch den von Quotation
+ * und Paketoptionen (`angebotVonVersionLoesen`). Mit Version (Sperren, Task K): Preis,
  * Paketpreise und Bezug je Tag aus der Version. Doppelte Daten in der Eingabe:
  * das erste gilt.
  */
@@ -2873,7 +2897,8 @@ export async function terminangeboteSchreiben(
     .from(quotationDateOffers)
     .where(eq(quotationDateOffers.dealRecordId, input.dealRecordId))
     .orderBy(quotationDateOffers.sortOrder);
-  if (vonHand && !input.versionLoesen && bestand.some((b) => b.calculationVersionId !== null)) throw new TermineMitPreisError();
+  const ausVersion = bestand.some((b) => b.calculationVersionId !== null);
+  if (vonHand && !input.versionLoesen && ausVersion) throw new TermineMitPreisError();
 
   const [wahl] = await tx
     .select({ dateOfferId: customerDateSelections.dateOfferId, selectedDate: customerDateSelections.selectedDate })
@@ -2936,7 +2961,77 @@ export async function terminangeboteSchreiben(
   if (wahl && !gesehen.has(wahl.selectedDate)) {
     await tx.delete(customerDateSelections).where(eq(customerDateSelections.dealRecordId, input.dealRecordId));
   }
+  // F2 (Review N1): hat der alte Weg Termine aus einer Version tatsächlich gelöst, hängen
+  // auch Quotation und Paketoptionen nicht mehr an ihr. Sonst trüge die Quotation den Preis
+  // am Standardtag, Portal und Annahme den Optionspreis, und das KV-PDF alte Tage.
+  if (vonHand && input.versionLoesen && ausVersion) {
+    await angebotVonVersionLoesen(tx, input.dealRecordId);
+  }
   return neu.length;
+}
+
+/**
+ * Löst Quotation und Paketoptionen des Deals von ihrer Kalkulationsversion, wie
+ * eine Handänderung (F2, Review N1). Nur in der Transaktion des Aufrufers, der
+ * `angebotSperren` hält; alles über `tx`. Danach gelten die Regeln von vor 5b:
+ * Hing die Quotation an einer Version und ist sie ein Festpreis, trägt sie den
+ * Preis der gewählten (sonst empfohlenen, sonst ersten) Option, so wie eine
+ * Paketwahl im Portal ohne Version. Portal, Annahme und KV nennen dann
+ * denselben Betrag. Ein Preis von Hand (Quotation schon ohne Version) bleibt.
+ */
+async function angebotVonVersionLoesen(tx: DbExecutor, dealRecordId: string): Promise<void> {
+  await tx
+    .update(quotationPackageOptions)
+    .set({ calculationVersionId: null })
+    .where(and(eq(quotationPackageOptions.dealRecordId, dealRecordId), isNotNull(quotationPackageOptions.calculationVersionId)));
+  const [q] = await tx
+    .select({
+      id: quotations.id,
+      calculationVersionId: quotations.calculationVersionId,
+      isVariable: quotations.isVariable,
+      selectedPackageOptionId: quotations.selectedPackageOptionId,
+    })
+    .from(quotations)
+    .where(eq(quotations.dealRecordId, dealRecordId))
+    .limit(1);
+  if (!q?.calculationVersionId) return;
+  const optionen = await tx
+    .select({
+      id: quotationPackageOptions.id,
+      priceCents: quotationPackageOptions.priceCents,
+      isRecommended: quotationPackageOptions.isRecommended,
+      catalogueSlug: quotationPackageOptions.catalogueSlug,
+    })
+    .from(quotationPackageOptions)
+    .where(eq(quotationPackageOptions.dealRecordId, dealRecordId))
+    .orderBy(quotationPackageOptions.sortOrder);
+  const option = q.isVariable ? null : pickDefaultDealOption(optionen, q.selectedPackageOptionId);
+  await tx
+    .update(quotations)
+    .set({
+      calculationVersionId: null,
+      ...(option && option.priceCents > 0
+        ? {
+            selectedPackageOptionId: option.id,
+            selectedPackageSlug: option.catalogueSlug ?? quotations.selectedPackageSlug,
+            fixedPrice: (option.priceCents / 100).toFixed(2),
+          }
+        : {}),
+      updatedAt: new Date(),
+    })
+    .where(eq(quotations.id, q.id));
+}
+
+/**
+ * Löst Terminangebote aus einer Version wie der alte Termin-Weg ohne Schalter
+ * (I6): Termine und Kundenwahl bleiben, Preis, Paketpreise und Bezug werden null.
+ * Nur unter der Sperre des Aufrufers über `tx`.
+ */
+async function terminpreiseLoesen(tx: DbExecutor, dealRecordId: string): Promise<void> {
+  await tx
+    .update(quotationDateOffers)
+    .set({ priceCents: null, packagePrices: null, calculationVersionId: null })
+    .where(and(eq(quotationDateOffers.dealRecordId, dealRecordId), isNotNull(quotationDateOffers.calculationVersionId)));
 }
 
 export async function replaceDateOffers(input: {

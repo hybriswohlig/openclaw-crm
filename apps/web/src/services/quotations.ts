@@ -35,7 +35,8 @@ export async function angebotSperren(tx: DbExecutor, dealRecordId: string): Prom
   await tx.execute(sql`select pg_advisory_xact_lock(hashtext('angebot:' || ${dealRecordId}::text))`);
 }
 
-async function quotationLesen(ex: DbExecutor, dealRecordId: string) {
+/** Quotation mit Posten über `ex` (eine Transaktion des Aufrufers oder `db`). */
+export async function quotationLesen(ex: DbExecutor, dealRecordId: string) {
   const [q] = await ex
     .select()
     .from(quotations)

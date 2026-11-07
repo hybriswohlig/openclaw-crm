@@ -31,7 +31,14 @@ const m = {
   ladeAngebot: vi.fn(),
   ladeWahl: vi.fn(),
 };
-const opt = m as unknown as KvAusVersionOptionen;
+// Ein Lader für Angebot und Wahl (N4); die Tests setzen beide Teile einzeln.
+const opt = {
+  ...m,
+  ladeAngebotUndWahl: async (deal: string, v: Parameters<NonNullable<KvAusVersionOptionen["ladeAngebotUndWahl"]>>[1]) => ({
+    angebot: await m.ladeAngebot(deal),
+    wahl: await m.ladeWahl(deal, v),
+  }),
+} as unknown as KvAusVersionOptionen;
 const eingabe = { workspaceId: "ws_1", dealRecordId: "deal_1", version: 2, updatedBy: "usr_1" };
 
 beforeEach(() => {

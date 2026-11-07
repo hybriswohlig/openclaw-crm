@@ -14,7 +14,8 @@
  * Plan 5b: Stammen die Angebote aus einer Kalkulationsversion (mit Preis) und
  * hat die Firma den Schalter „Tagespreise“, lehnen PUT und DELETE mit 409
  * TERMINE_MIT_PREIS ab; sie werden nur im Termin-Dialog geändert. Ohne Schalter
- * (F2, I6) ersetzen sie die Termine wie früher und lösen den Versionsbezug.
+ * (F2, I6) ersetzen sie die Termine wie früher und lösen den Versionsbezug,
+ * auch den von Quotation und Paketoptionen (N1).
  * Die Prüfung läuft im Dienst unter der Sperre.
  */
 import { NextRequest, NextResponse } from "next/server";

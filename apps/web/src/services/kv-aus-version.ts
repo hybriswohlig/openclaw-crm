@@ -37,13 +37,37 @@ export interface KvAusVersionOptionen {
   speichereKv?: typeof storeCommercialDocument;
   /** Plan 5b: Firmen-Schalter des Deals. */
   ladeSchalter?: (ws: string, deal: string) => Promise<Plan5Schalter>;
-  /** Plan 5b: Festpreis und Posten der Quotation (für `angebotPasstZuVersion`). */
-  ladeAngebot?: (deal: string) => Promise<{ fixedPrice: string | null; isVariable: boolean; lineItems: { description: string | null; quantity: number; unitRate: string | number }[] } | null>;
   /**
-   * F2 (I1): die aktuelle Wahl der Quotation (Paket der gewählten gebundenen Option,
-   * gewählter Tag, wie `kundenwahlAnwenden`); nur sie zählt als „nicht von Hand“.
+   * Plan 5b: Festpreis und Posten der Quotation (für `angebotPasstZuVersion`) und,
+   * F2 (I1), ihre aktuelle Wahl (Paket der gewählten gebundenen Option, gewählter Tag,
+   * wie `kundenwahlAnwenden`); nur sie zählt als „nicht von Hand“. F2 (Review N4):
+   * beides aus einem Stand, sonst lehnt eine Paketwahl des Kunden zwischen den
+   * Lesungen den KV als „von Hand geändert“ ab.
    */
-  ladeWahl?: (deal: string, version: VersionsPreise & { id: string }) => Promise<AngebotsWahl>;
+  ladeAngebotUndWahl?: (deal: string, version: VersionsPreise & { id: string }) => Promise<AngebotUndWahl>;
+}
+
+export interface AngebotUndWahl {
+  angebot: { fixedPrice: string | null; isVariable: boolean; lineItems: { description: string | null; quantity: number; unitRate: string | number }[] } | null;
+  wahl: AngebotsWahl;
+}
+
+/**
+ * Quotation und aktuelle Wahl in einer lesenden Transaktion mit REPEATABLE READ
+ * (wie `getQuotation({ konsistent: true })`): alle Abfragen sehen denselben Stand.
+ */
+export async function angebotUndWahlLesen(deal: string, version: VersionsPreise & { id: string }): Promise<AngebotUndWahl> {
+  const { db } = await import("@/db");
+  const { quotationLesen } = await import("./quotations");
+  const { aktuelleWahl } = await import("./kundenwahl");
+  return db.transaction(
+    async (tx) => {
+      const angebot = await quotationLesen(tx, deal);
+      const wahl = await aktuelleWahl(tx, deal, version, angebot?.selectedPackageOptionId ?? null);
+      return { angebot, wahl };
+    },
+    { isolationLevel: "repeatable read", accessMode: "read only" }
+  );
 }
 
 async function abhaengigkeiten(o: KvAusVersionOptionen): Promise<Required<KvAusVersionOptionen>> {
@@ -56,15 +80,7 @@ async function abhaengigkeiten(o: KvAusVersionOptionen): Promise<Required<KvAusV
     istKottke: o.istKottke ?? (await import("@/lib/kottke-crm-renderer-deal")).dealBlocksInRepoCrmRenderer,
     speichereKv: o.speichereKv ?? (await import("./commercial-documents")).storeCommercialDocument,
     ladeSchalter: o.ladeSchalter ?? (async (ws, deal) => (await import("./plan5-schalter")).plan5Schalter(ws, deal)),
-    ladeAngebot: o.ladeAngebot ?? (async (deal) => (await import("./quotations")).getQuotation(deal)),
-    ladeWahl:
-      o.ladeWahl ??
-      (async (deal, version) => {
-        const { db } = await import("@/db");
-        const { ladeWahlKontext, aktuelleWahl } = await import("./kundenwahl");
-        const { quotation } = await ladeWahlKontext(db, deal);
-        return aktuelleWahl(db, deal, version, quotation?.selectedPackageOptionId ?? null);
-      }),
+    ladeAngebotUndWahl: o.ladeAngebotUndWahl ?? angebotUndWahlLesen,
   };
 }
 
@@ -114,9 +130,6 @@ export async function kvAusVersion(
   } else if (version.pricingMode !== "stunden") {
     // Plan 5b: Paketoptionen tragen die Preise der Version. Die Quotation muss genau eine
     // Wahl dieser Version sein (Kundenwahl tauscht Preis und Posten, das ist keine Handänderung).
-    const q = await d.ladeAngebot(dealRecordId);
-    const fest = q && !q.isVariable && q.fixedPrice !== null ? Math.round(Number(q.fixedPrice) * 100) : null;
-    const posten = (q?.lineItems ?? []).map((li) => ({ description: li.description ?? "", quantity: li.quantity, unitRate: Number(li.unitRate) }));
     const preise = versionsPreiseAusZeile({
       pricingMode: version.pricingMode ?? "fest",
       priceCents: version.priceCents ?? null,
@@ -124,7 +137,9 @@ export async function kvAusVersion(
       packagePrices: version.packagePrices ?? [],
       dayPrices: version.dayPrices ?? [],
     });
-    const wahl = await d.ladeWahl(dealRecordId, { ...preise, id: version.id });
+    const { angebot: q, wahl } = await d.ladeAngebotUndWahl(dealRecordId, { ...preise, id: version.id });
+    const fest = q && !q.isVariable && q.fixedPrice !== null ? Math.round(Number(q.fixedPrice) * 100) : null;
+    const posten = (q?.lineItems ?? []).map((li) => ({ description: li.description ?? "", quantity: li.quantity, unitRate: Number(li.unitRate) }));
     if (!angebotPasstZuVersion({ fixedPriceCents: fest, posten }, preise, wahl)) await ablehnen();
   }
 
