@@ -3,11 +3,14 @@
 import { useMemo, useState } from "react";
 import {
   kundenText,
+  pickDefaultDealOption,
+  terminPreisFuerPaket,
   type CustomerPortalContext,
   type DateOfferOption,
   type DateOfferSlot,
 } from "@openclaw-crm/customer-portal-core";
 import { WhatsAppContactLink } from "./whatsapp-contact-link";
+import { formatPortalMoney } from "./portal-presentation";
 
 /**
  * Customer-facing multi-date picker rendered on Stage 1.
@@ -41,6 +44,9 @@ export function DateOfferPicker({
 
   const accent = `#${ctx.branding.primaryColor}`;
   const t = (sie: string, du: string) => kundenText(ctx.branding.firmaSlug, sie, du);
+  // Plan 5b: Preis je Tag für das gewählte Paket (Tag vor Paket wie der Server).
+  const paket = pickDefaultDealOption(ctx.dealPackageOffers.options, ctx.dealPackageOffers.selectedOptionId);
+  const preisAm = (opt: DateOfferOption) => terminPreisFuerPaket(opt, paket?.catalogueSlug);
 
   const selectedOption = useMemo(
     () =>
@@ -70,6 +76,12 @@ export function DateOfferPicker({
             {selection.slotLabel && (
               <div className="mt-0.5 text-sm text-foreground">
                 {selection.slotLabel}
+              </div>
+            )}
+            {selectedOption && preisAm(selectedOption) !== null && (
+              <div className="mt-1 text-sm text-foreground">
+                <span className="font-medium tabular-nums">{formatPortalMoney(preisAm(selectedOption)!)}</span>{" "}
+                <span className="text-muted-foreground">{paket ? `für ${paket.displayName} an diesem Tag` : "an diesem Tag"}</span>
               </div>
             )}
           </div>
@@ -143,6 +155,7 @@ export function DateOfferPicker({
       <div className="p-4 sm:p-6">
         <p className="mb-4 text-sm leading-relaxed text-muted-foreground sm:mb-5">
           {t("Wir haben Ihnen die folgenden Termine reserviert. Bitte wählen Sie eine Variante, damit wir verbindlich für Sie planen können.", "Wir haben dir die folgenden Termine reserviert. Bitte wähle eine Variante, damit wir verbindlich für dich planen können.")}
+          {options.some((o) => preisAm(o) !== null) && ` ${t("Der Preis hängt vom Tag ab und steht an jedem Termin. Ihr Angebot übernimmt ihn mit Ihrer Wahl.", "Der Preis hängt vom Tag ab und steht an jedem Termin. Dein Angebot übernimmt ihn mit deiner Wahl.")}`}
         </p>
 
         <div className="grid gap-3 sm:gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -151,6 +164,8 @@ export function DateOfferPicker({
               key={opt.id}
               opt={opt}
               accent={accent}
+              preisCents={preisAm(opt)}
+              paketName={paket?.displayName ?? null}
               pendingSlot={pendingId === opt.id ? pendingSlot : null}
               isSubmittingFor={submitting && pendingId === opt.id}
               currentSelectionDate={
@@ -214,6 +229,8 @@ export function DateOfferPicker({
 function DateCard({
   opt,
   accent,
+  preisCents,
+  paketName,
   pendingSlot,
   isSubmittingFor,
   currentSelectionDate,
@@ -222,6 +239,9 @@ function DateCard({
 }: {
   opt: DateOfferOption;
   accent: string;
+  /** Plan 5b: Kundenpreis an diesem Tag; null ohne Tagespreis (Karte wie vor 5b). */
+  preisCents: number | null;
+  paketName: string | null;
   pendingSlot: number | null;
   isSubmittingFor: boolean;
   currentSelectionDate: string | null;
@@ -259,6 +279,12 @@ function DateCard({
         <h3 className="display mt-0.5 text-xl font-medium leading-none">
           {formatDateShort(opt.date)}
         </h3>
+        {preisCents !== null && (
+          <p className="mt-2 text-sm">
+            <span className="portal-price text-lg font-semibold tabular-nums">{formatPortalMoney(preisCents)}</span>
+            {paketName && <span className="ml-1.5 text-[11px] text-muted-foreground">für {paketName}</span>}
+          </p>
+        )}
       </header>
 
       <ul className="-m-1 flex flex-wrap">

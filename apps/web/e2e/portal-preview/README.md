@@ -8,6 +8,7 @@ From the repository root:
 node apps/web/e2e/portal-preview/serve.mjs
 node apps/web/e2e/portal-preview/check.mjs
 node apps/web/e2e/portal-preview/check-unterschrift.mjs
+node apps/web/e2e/portal-preview/check-5b.mjs
 pnpm --filter @openclaw-crm/web exec tsc --noEmit -p e2e/portal-preview/tsconfig.json
 pnpm --filter @openclaw-crm/web test -- src/lib/portal-presentation.test.ts src/lib/portal-offer-selection.test.ts
 ```
@@ -21,3 +22,5 @@ Current production contract limitations: no independent live-tracking toggle, no
 On 2026-09-06, repository node_modules and .next contained macOS dataless placeholders that timed out on read. Validation used copies of these exact portal sources under `/tmp/kottke-portal-validation` with fresh dependencies; no repository lockfile or application dependencies were changed.
 
 The document email action is mocked locally. No message is sent. Live and payment flags default to false, even if operational timestamps or payment instructions are present in a fixture.
+
+Plan 5b (Paket- und Tagespreise, Stunden-KV aus der Version): `paketetage` (Pakete × Tage, Samstag gewählt; `tag=tag-fr|tag-sa|tag-mo`, `offen` = noch kein Tag), `nurtage` (Festangebot mit Tagespreisen), `nurpakete` (Paketpreise aus der Version mit Posten), `stunden` (Schätzung mit Mindeststunden), `stundenalt` (Stunden-KV von Hand, „Stundensatz je Stunde“), dazu `paket=basis|komfort|premium` und `angenommen`. Paket- und Terminwahl rechnen lokal wie der Server (`imFixtureWaehlen`). `check-5b.mjs` prüft diese Fälle bei 1440 und 390 px samt Tageswechsel, Paketwechsel und Annahmedialog; Screenshots `W-*.png` nach `PORTAL_SCREENSHOT_DIR` (Standard `/tmp/portal-5b`).

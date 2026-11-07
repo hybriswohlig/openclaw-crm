@@ -46,9 +46,13 @@ export function HourlyClock({
   // Hourly rate model: pull rates from the variable line items in the KVA.
   // Helpers count = offered quantity from the KVA so the customer sees the
   // rates they accepted; crew size on-site is only the fallback.
-  const helperRate = kva?.lineItems.find((li) => li.type === "helper")?.unitRate ?? 0;
-  const transporterRate = kva?.lineItems.find((li) => li.type === "transporter")?.unitRate ?? 0;
-  const offeredHelpers = kva?.lineItems.find((li) => li.type === "helper")?.quantity ?? 0;
+  // Plan 5b: Stunden-KV aus der Version trägt Helfer, Transporter und Sätze selbst.
+  const stunden = kva?.stundenModell === "version" ? kva.stunden ?? null : null;
+  const helperRate = stunden?.satzHelferEur ?? kva?.lineItems.find((li) => li.type === "helper")?.unitRate ?? 0;
+  const transporterRateEach = stunden?.satzTransporterEur ?? kva?.lineItems.find((li) => li.type === "transporter")?.unitRate ?? 0;
+  const transporterCount = stunden?.transporter ?? 1;
+  const transporterRate = transporterRateEach * transporterCount;
+  const offeredHelpers = stunden?.helfer ?? kva?.lineItems.find((li) => li.type === "helper")?.quantity ?? 0;
   const helperCount =
     offeredHelpers > 0
       ? offeredHelpers
@@ -92,7 +96,7 @@ export function HourlyClock({
             <div className="mt-1 flex items-baseline justify-between gap-3 text-xs text-muted-foreground">
               <span>
                 {helperCount} Helfer × {formatEur(helperRate)} +{" "}
-                {formatEur(transporterRate)} Transporter
+                {transporterCount > 1 ? `${transporterCount} × ${formatEur(transporterRateEach)}` : formatEur(transporterRate)} Transporter
               </span>
               <span className="font-medium tabular-nums text-foreground">
                 {runningLabel}

@@ -2,16 +2,21 @@
 
 import { useMemo, useState } from "react";
 import {
+  angezeigterPreis,
   annahmeKvSperre,
   kundenText,
+  tagKurz,
   kvVeraltetText,
   kvVeraltetTitel,
   offerAcceptanceBlockReason,
   pickDefaultDealOption,
   type CustomerPortalContext,
   type OfferAcceptanceBlockReason,
+  type PortalPreis,
+  type StundenAnzeige,
 } from "@openclaw-crm/customer-portal-core";
 import { portalOfferView } from "./portal-presentation";
+import { JeStunde, PreisZusatz, preisArt, preisBetragCents, stundenVon } from "./preis-zusatz";
 import { FestangebotView } from "./festangebot-view";
 
 /**
@@ -121,15 +126,15 @@ export function StageOneKva({
     ctx.dealPackageOffers.options,
     ctx.dealPackageOffers.selectedOptionId
   );
-  // Nach der Annahme gilt der angenommene Stand, nicht der aktuelle.
-  const displayTotalCents =
-    alreadyAccepted && ctx.acceptance!.confirmedTotalCents > 0
-      ? ctx.acceptance!.confirmedTotalCents
-      : defaultOption && defaultOption.priceCents > 0
-        ? defaultOption.priceCents
-        : ctx.kva?.totalCents ?? 0;
+  // Nach der Annahme gilt der angenommene Stand, nicht der aktuelle. Sonst
+  // dieselbe Funktion wie der Server (Tag vor Paket, Plan 5b).
+  const preis = angezeigterPreis(ctx);
+  const displayTotalCents = preis.cents;
+  const stunden = stundenVon(ctx.kva);
   const acceptedOptionName =
     (alreadyAccepted ? ctx.acceptance!.selectedOptionName : null) ?? defaultOption?.displayName ?? null;
+  // Mit Tagespreisen heißt die Wahl im Dialog „Komfort am Sa 28.11.“.
+  const wahlName = preis.tag && preis.tagGewaehlt && defaultOption ? `${defaultOption.displayName} am ${tagKurz(preis.tag.date)}` : defaultOption?.displayName ?? null;
   const terminOffen = !alreadyAccepted && ctx.annahmeRecht.terminFehlt && !hasOpenDateChoice;
   // Erst Termin und Auswahl (der Kunde kann handeln), dann der KV-Stand.
   const acceptBlock: AnnahmeBlock | null = terminOffen ? "termin_offen" : offerAcceptanceBlockReason({
@@ -152,10 +157,10 @@ export function StageOneKva({
             <div className="portal-offer-intro"><PanelHeading icon={FileText} title={hasMultipleOffers ? t("Unsere Angebote für Sie", "Unsere Angebote für dich") : t("Ihr persönliches Angebot", "Dein persönliches Angebot")}>
               <p>{hasMultipleOffers ? t(`Wir haben die Optionen für ${worte(ctx).deinAkk} erstellt. Wählen Sie das passende Angebot für sich aus.`, `Wir haben die Optionen für ${worte(ctx).deinAkk} erstellt. Wähle das passende Angebot für dich aus.`) : t(`Hier finden Sie Ihr Angebot mit allen vereinbarten Leistungen für ${worte(ctx).deinAkk}.`, `Hier findest du dein Angebot mit allen vereinbarten Leistungen für ${worte(ctx).deinAkk}.`)}</p>
             </PanelHeading><span>Auftragsnummer: <strong>{ctx.dealNumber}</strong></span></div>
-            {offerView !== "einzelangebot" && <PackageSelector token={token} packages={ctx.packages} dealOffers={ctx.dealPackageOffers} branding={ctx.branding} locked={alreadyAccepted} onPicked={onConfirmed} />}
-            {offerView === "einzelangebot" && ctx.kva && <div className="portal-note rounded-lg p-5"><strong>{ctx.kva.isVariable ? "Individuelles Angebot nach Aufwand" : t("Ihr individuelles Angebot", "Dein individuelles Angebot")}</strong><div className="portal-price text-4xl">{formatPortalMoney(displayTotalCents)}</div>{ctx.kva.summary && <p className="mt-3 whitespace-pre-line">{ctx.kva.summary}</p>}</div>}
+            {offerView !== "einzelangebot" && <PackageSelector token={token} packages={ctx.packages} dealOffers={ctx.dealPackageOffers} dateOffers={ctx.dateOffers} branding={ctx.branding} locked={alreadyAccepted} onPicked={onConfirmed} />}
+            {offerView === "einzelangebot" && ctx.kva && <div className="portal-note rounded-lg p-5"><strong>{ctx.kva.isVariable ? "Individuelles Angebot nach Aufwand" : t("Ihr individuelles Angebot", "Dein individuelles Angebot")}</strong>{stunden && <div className="mt-1 text-xs text-muted-foreground">{preisArt(ctx.kva, stunden)}</div>}<div className="portal-price text-4xl">{formatPortalMoney(preisBetragCents(displayTotalCents, stunden))}<JeStunde stunden={stunden} /></div><PreisZusatz preis={preis} stunden={stunden} />{ctx.kva.summary && <p className="mt-3 whitespace-pre-line">{ctx.kva.summary}</p>}</div>}
           </section>
-          {ctx.kva && !alreadyAccepted && <MobilePriceDetails ctx={ctx} expired={gueltigkeitAbgelaufen} displayTotalCents={displayTotalCents} selectedOptionName={defaultOption?.displayName ?? null} />}
+          {ctx.kva && !alreadyAccepted && <MobilePriceDetails ctx={ctx} expired={gueltigkeitAbgelaufen} displayTotalCents={displayTotalCents} selectedOptionName={defaultOption?.displayName ?? null} preis={preis} stunden={stunden} />}
           <QuotationPreview ctx={ctx} token={token} />
           <div className={hasMultipleOffers ? "" : "lg:hidden"}><OrderDetails ctx={ctx} token={token} wide /></div>
           {ctx.kva?.calculationAssumptions && <CalculationAssumptionsCard a={ctx.kva.calculationAssumptions} ctx={ctx} />}
@@ -165,7 +170,7 @@ export function StageOneKva({
           {alreadyAccepted && ctx.features?.payments === true && ctx.payment && ctx.payment.amountCents > 0 && <PaymentSection token={token} payment={ctx.payment} branding={ctx.branding} variant="deposit" markedPaidAt={ctx.customerSignals.markedPaidDepositAt} />}
         </div>
         <aside className="portal-stack">
-          <div className="hidden lg:block">{ctx.kva ? <PriceCard ctx={ctx} alreadyAccepted={alreadyAccepted} displayTotalCents={displayTotalCents} selectedOptionName={acceptedOptionName} acceptBlock={alreadyAccepted ? null : acceptBlock} expired={offerExpired} onAccept={() => setOpen(true)} /> : <ChooseOfferPrompt branding={ctx.branding} />}</div>
+          <div className="hidden lg:block">{ctx.kva ? <PriceCard ctx={ctx} alreadyAccepted={alreadyAccepted} displayTotalCents={displayTotalCents} selectedOptionName={acceptedOptionName} acceptBlock={alreadyAccepted ? null : acceptBlock} expired={offerExpired} onAccept={() => setOpen(true)} preis={preis} stunden={stunden} /> : <ChooseOfferPrompt branding={ctx.branding} />}</div>
           {(ctx.dealPackageOffers.options.length || ctx.packages.available.length) > 1 && !alreadyAccepted && <div className="portal-panel portal-note"><PanelHeading icon={Info} title="Hinweis" /><p>{t("Sie können zwischen den Angeboten wechseln. Der angezeigte Kostenvoranschlag passt sich Ihrer Auswahl an.", "Du kannst zwischen den Angeboten wechseln. Der angezeigte Kostenvoranschlag passt sich deiner Auswahl an.")}</p></div>}
           {!hasMultipleOffers && <div className="hidden lg:block"><OrderDetails ctx={ctx} token={token} /></div>}
           <ContactPanel ctx={ctx} token={token} title="Fragen zum Angebot?" />
@@ -188,11 +193,13 @@ export function StageOneKva({
             <div className="mx-auto flex max-w-2xl items-center justify-between gap-3 px-4 py-3">
               <div className="leading-tight">
                 <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                  {ctx.kva.isVariable ? "Voraussichtlich" : "Festpreis"}
+                  {preisArt(ctx.kva, stunden)}
                 </div>
                 <div className="display text-lg font-medium tabular-nums">
-                  {formatEurCents(displayTotalCents)}
+                  {formatEurCents(preisBetragCents(displayTotalCents, stunden))}
+                  <JeStunde stunden={stunden} />
                 </div>
+                {preis.tag && <div className="text-[10px] text-muted-foreground">{preis.tagGewaehlt ? "an diesem Tag" : "am empfohlenen Termin"}, {tagKurz(preis.tag.date)}</div>}
               </div>
               <p className="max-w-[60%] flex-1 text-right text-xs font-medium leading-snug">{kvVeraltetTitel(firma)}</p>
             </div>
@@ -200,11 +207,13 @@ export function StageOneKva({
             <div className="mx-auto flex max-w-2xl items-center justify-between gap-3 px-4 py-3">
               <div className="leading-tight">
                 <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                  {ctx.kva.isVariable ? "Voraussichtlich" : "Festpreis"}
+                  {preisArt(ctx.kva, stunden)}
                 </div>
                 <div className="display text-lg font-medium tabular-nums">
-                  {formatEurCents(displayTotalCents)}
+                  {formatEurCents(preisBetragCents(displayTotalCents, stunden))}
+                  <JeStunde stunden={stunden} />
                 </div>
+                {preis.tag && <div className="text-[10px] text-muted-foreground">{preis.tagGewaehlt ? "an diesem Tag" : "am empfohlenen Termin"}, {tagKurz(preis.tag.date)}</div>}
               </div>
               <button
                 type="button"
@@ -260,8 +269,10 @@ export function StageOneKva({
         onOpenChange={setOpen}
         ctx={ctx}
         displayTotalCents={displayTotalCents}
-        selectedOptionName={defaultOption?.displayName ?? null}
+        selectedOptionName={wahlName}
         onAccepted={onConfirmed}
+        preis={preis}
+        stunden={stunden}
       />
     </>
   );
@@ -311,6 +322,8 @@ function PriceCard({
   acceptBlock,
   expired,
   onAccept,
+  preis,
+  stunden,
 }: {
   ctx: CustomerPortalContext;
   alreadyAccepted: boolean;
@@ -319,6 +332,8 @@ function PriceCard({
   acceptBlock: AnnahmeBlock | null;
   expired: boolean;
   onAccept: () => void;
+  preis: PortalPreis;
+  stunden: StundenAnzeige;
 }) {
   const kva = ctx.kva!;
   const accent = `#${ctx.branding.primaryColor}`;
@@ -340,11 +355,13 @@ function PriceCard({
         <div>
           <div className="text-xl font-bold mb-2">{selectedOptionName ?? "Individuelles Angebot"}</div>
           <div className="text-xs text-muted-foreground">
-            {kva.isVariable ? "Voraussichtlich" : "Festpreis"}
+            {preisArt(kva, stunden)}
           </div>
           <div className="display mt-1 text-4xl font-medium tabular-nums leading-none tracking-tight">
-            {formatEurCents(displayTotalCents)}
+            {formatEurCents(preisBetragCents(displayTotalCents, stunden))}
+            <JeStunde stunden={stunden} />
           </div>
+          <PreisZusatz preis={preis} stunden={stunden} />
 
           {kva.validUntil && (
             <div className="mt-2 text-[11px] text-muted-foreground">
@@ -378,7 +395,7 @@ function PriceCard({
             </div>
             {selectedOptionName && (
               <p className="mt-1 leading-relaxed">
-                {t("Ihre Wahl", "Deine Wahl")}: {selectedOptionName} · {formatEurCents(displayTotalCents)}
+                {t("Ihre Wahl", "Deine Wahl")}: {selectedOptionName}{preis.tag && preis.tagGewaehlt ? ` am ${tagKurz(preis.tag.date)}` : ""} · {formatEurCents(displayTotalCents)}
               </p>
             )}
             <p className="mt-1 leading-relaxed">
@@ -465,22 +482,28 @@ function MobilePriceDetails({
   expired,
   displayTotalCents,
   selectedOptionName,
+  preis,
+  stunden,
 }: {
   ctx: CustomerPortalContext;
   expired: boolean;
   displayTotalCents: number;
   selectedOptionName: string | null;
+  preis: PortalPreis;
+  stunden: StundenAnzeige;
 }) {
   const kva = ctx.kva!;
   return (
     <div className="space-y-3 lg:hidden">
       <div className="rounded-2xl border bg-card px-5 py-4 shadow-sm">
         <div className="text-xs text-muted-foreground">
-          {kva.isVariable ? "Voraussichtlich" : "Festpreis"}
+          {preisArt(kva, stunden)}
         </div>
         <div className="display mt-1 text-3xl font-medium tabular-nums leading-none tracking-tight">
-          {formatEurCents(displayTotalCents)}
+          {formatEurCents(preisBetragCents(displayTotalCents, stunden))}
+          <JeStunde stunden={stunden} />
         </div>
+        <PreisZusatz preis={preis} stunden={stunden} />
         {selectedOptionName && (
           <div className="mt-2 text-sm font-medium">{selectedOptionName}</div>
         )}

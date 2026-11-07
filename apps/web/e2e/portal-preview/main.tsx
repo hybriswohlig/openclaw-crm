@@ -2,13 +2,23 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { StagePortal } from "../../src/app/(public)/s/[token]/_components/stage-portal";
 import { annahmeRegeln, ausPortalLeistung, firmaKontakt, leistungsWorte } from "@openclaw-crm/customer-portal-core";
-import { festangebotFixture, portalFixture } from "./fixture";
+import { angenommenFixture, festangebotFixture, imFixtureWaehlen, nurPaketeFixture, nurTageFixture, paketeTageFixture, portalFixture, stundenAltFixture, stundenFixture } from "./fixture";
 import "../../src/app/globals.css";
 import "../../src/app/(public)/s/[token]/portal.css";
 
 const params = new URLSearchParams(location.search);
 const stage = Math.min(4, Math.max(1, Number(params.get("stage") ?? 1))) as 1 | 2 | 3 | 4;
-let ctx = params.has("festangebot") ? festangebotFixture() : portalFixture(stage, params.has("single"), params.has("live"));
+// Plan 5b: paketetage, nurtage (Tag wählen mit tag=tag-fr|tag-sa|tag-mo, offen = noch keiner), nurpakete, stunden, stundenalt.
+const tagParam = params.has("offen") ? null : params.get("tag") ?? "tag-sa";
+const plan5 = ["paketetage", "nurtage", "nurpakete", "stunden", "stundenalt"].some((k) => params.has(k));
+let ctx = params.has("paketetage") ? paketeTageFixture(tagParam)
+  : params.has("nurtage") ? nurTageFixture(tagParam)
+  : params.has("nurpakete") ? nurPaketeFixture()
+  : params.has("stunden") ? stundenFixture()
+  : params.has("stundenalt") ? stundenAltFixture()
+  : params.has("festangebot") ? festangebotFixture() : portalFixture(stage, params.has("single"), params.has("live"));
+if (plan5 && params.has("paket")) ctx = imFixtureWaehlen(ctx, { optionId: `opt-${params.get("paket")}` });
+if (plan5 && params.has("angenommen")) ctx = angenommenFixture(ctx);
 if (params.has("payments")) ctx.features!.payments = true;
 if (params.has("otherbrand")) ctx.branding = { ...ctx.branding, firmaSlug: "ceylan", displayName: "Ceylan Umzüge", primaryColor: "3A567F", logoUrl: null, ansprechpartner: null, logoJeLeistung: null };
 if (params.has("expired")) ctx.kva!.validUntil = "2026-01-01";
@@ -51,6 +61,14 @@ window.fetch = async (input, init) => {
   if ((init?.method ?? "GET").toUpperCase() === "POST") (window as Window & { __portalPosts?: string[] }).__portalPosts?.push(url);
   if (url.endsWith("/set-email")) { ctx = { ...ctx, customerEmailStatus: "present", customerEmailMasked: "t***@example.invalid" }; return Response.json({ data: { masked: "t***@example.invalid" } }); }
   if (url.endsWith("/state")) return Response.json({ data: ctx });
+  if (plan5 && url.endsWith("/select-package-option")) {
+    ctx = imFixtureWaehlen(ctx, { optionId: JSON.parse(String(init?.body)).optionId });
+    return Response.json({ data: { ok: true } });
+  }
+  if (plan5 && url.endsWith("/select-date")) {
+    ctx = imFixtureWaehlen(ctx, { dateOfferId: JSON.parse(String(init?.body)).dateOfferId });
+    return Response.json({ data: { ok: true } });
+  }
   if (url.endsWith("/select-package-option")) {
     const { optionId } = JSON.parse(String(init?.body));
     const option = ctx.dealPackageOffers.options.find(o => o.id === optionId)!;

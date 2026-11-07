@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, Info } from "lucide-react";
 import {
+  angezeigterPreis,
   annahmeKvSperre,
   festangebotStatusStep,
   kundenText,
@@ -29,6 +30,7 @@ import { CustomerPhotosSection } from "./customer-photos-section";
 import { FurnitureListSection } from "./furniture-list-section";
 import { RestbetragHinweis } from "./restbetrag-hinweis";
 import { portalRestbetragSatz } from "@/lib/kottke-restbetrag";
+import { PreisZusatz } from "./preis-zusatz";
 
 /**
  * "termin_offen": Umzug ohne festen Termin und ohne Terminangebot.
@@ -75,10 +77,9 @@ export function FestangebotView({
   const offerExpired = (expired || ctx.annahmeRecht.terminVorbei) && !alreadyAccepted;
   const hasOpenDateChoice = ctx.dateOffers.options.length > 0 && !ctx.dateOffers.selection;
   const terminOffen = !alreadyAccepted && ctx.annahmeRecht.terminFehlt && !hasOpenDateChoice;
-  const displayTotalCents =
-    alreadyAccepted && ctx.acceptance!.confirmedTotalCents > 0
-      ? ctx.acceptance!.confirmedTotalCents
-      : kva.totalCents;
+  // Nach der Annahme der angenommene Betrag, sonst wie der Server (mit Tagespreisen der Preis am Tag).
+  const preis = angezeigterPreis(ctx);
+  const displayTotalCents = preis.cents;
   const acceptBlock: AnnahmeBlock | null = alreadyAccepted
     ? null
     : terminOffen
@@ -156,6 +157,7 @@ export function FestangebotView({
           <div className="portal-brief-preis">
             <p className="portal-fest-kicker">Festpreis</p>
             <p ref={preisRef} className="portal-price portal-fest-price">{formatPortalMoney(displayTotalCents)}</p>
+            <PreisZusatz preis={preis} stunden={null} className="mt-2 text-sm text-muted-foreground" />
             <div className="portal-fest-facts">
               {deposit > 0 && (
                 <p>
@@ -288,6 +290,7 @@ export function FestangebotView({
             <div className="leading-tight">
               <div className="portal-fest-kicker">Festpreis</div>
               <div className="portal-fest-bar-price display text-lg font-medium tabular-nums">{formatPortalMoney(displayTotalCents)}</div>
+              {preis.tag && <div className="text-[10px] text-muted-foreground">{preis.tagGewaehlt ? "an diesem Tag" : "am empfohlenen Termin"}</div>}
             </div>
             {acceptBlock === "kv_veraltet" ? (
               <p className="max-w-[60%] flex-1 text-right text-xs font-medium leading-snug">{kvVeraltetTitel(ctx.branding.firmaSlug)}</p>
@@ -316,6 +319,7 @@ export function FestangebotView({
         displayTotalCents={displayTotalCents}
         selectedOptionName={null}
         onAccepted={onConfirmed}
+        preis={preis}
       />
     </div>
   );

@@ -20,7 +20,10 @@ import {
   widerrufsbelehrung,
   type ConfirmKvaPayload,
   type CustomerPortalContext,
+  type PortalPreis,
+  type StundenAnzeige,
 } from "@openclaw-crm/customer-portal-core";
+import { JeStunde, PreisZusatz, preisBetragCents } from "./preis-zusatz";
 import { portalBrandStyle } from "./portal-presentation";
 import { PaymentSection } from "./payment-section";
 import { UnterschriftForm } from "./unterschrift-form";
@@ -49,16 +52,23 @@ export function ConfirmKvaDialog({
   displayTotalCents,
   selectedOptionName,
   onAccepted,
+  preis = null,
+  stunden = null,
 }: {
   token: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   ctx: CustomerPortalContext;
+  /** Annahmebetrag (`expectedTotalCents`), aus `angezeigterPreis` wie der Server. */
   displayTotalCents: number;
   selectedOptionName: string | null;
   /** Fires once the accept POST succeeded. Refreshes the context in the
       background; the dialog stays open and moves to the done step. */
   onAccepted: () => void | Promise<void>;
+  /** Plan 5b: Tag, an dem der Preis gilt (Tagespreise). */
+  preis?: PortalPreis | null;
+  /** Plan 5b: Stunden-KV aus der Version oder von Hand. */
+  stunden?: StundenAnzeige;
 }) {
   const [step, setStep] = useState<"form" | "done">("form");
   const [accOffer, setAccOffer] = useState(false);
@@ -163,6 +173,7 @@ export function ConfirmKvaDialog({
               ctx={ctx}
               selectedOptionName={selectedOptionName}
               displayTotalCents={displayTotalCents}
+              stunden={stunden}
               onClose={() => handleOpenChange(false)}
               onSigned={onAccepted}
             />
@@ -183,13 +194,17 @@ export function ConfirmKvaDialog({
             <div className="mt-4">
               <div className="rounded-xl border border-border/50 bg-muted/30 px-4 py-3">
                 <div className="text-xs text-muted-foreground">
-                  {ctx.kva.isVariable
+                  {stunden?.modell === "alt"
+                    ? "Stundensatz"
+                    : ctx.kva.isVariable
                     ? "Voraussichtlicher Gesamtbetrag"
                     : "Festpreis"}
                 </div>
                 <div className="mt-1 text-2xl font-medium tabular-nums leading-none tracking-tight">
-                  {formatEurCents(displayTotalCents)}
+                  {formatEurCents(preisBetragCents(displayTotalCents, stunden))}
+                  <JeStunde stunden={stunden} />
                 </div>
+                {preis && <PreisZusatz preis={preis} stunden={stunden} className="mt-1 text-xs text-muted-foreground" />}
                 {selectedOptionName && (
                   <div className="mt-2 text-sm font-medium">
                     {selectedOptionName}
@@ -388,6 +403,7 @@ function DoneStep({
   ctx,
   selectedOptionName,
   displayTotalCents,
+  stunden,
   onClose,
   onSigned,
 }: {
@@ -395,6 +411,7 @@ function DoneStep({
   ctx: CustomerPortalContext;
   selectedOptionName: string | null;
   displayTotalCents: number;
+  stunden: StundenAnzeige;
   onClose: () => void;
   onSigned: () => void | Promise<void>;
 }) {
@@ -418,6 +435,10 @@ function DoneStep({
           <DialogPrimitive.Description className="mt-1 text-sm leading-relaxed text-muted-foreground">
             {selectedOptionName
               ? `${kundenText(ctx.branding.firmaSlug, "Ihre Wahl", "Deine Wahl")}: ${selectedOptionName} · ${formatEurCents(displayTotalCents)}.`
+              : stunden?.modell === "alt"
+              ? `Stundensatz: ${formatEurCents(stunden.satzCents)} je Stunde.`
+              : stunden?.modell === "version"
+              ? `Voraussichtlich: ${formatEurCents(displayTotalCents)}.`
               : `Gesamtbetrag: ${formatEurCents(displayTotalCents)}.`}{" "}
             {kundenText(ctx.branding.firmaSlug, "Eine Bestätigung geht Ihnen per WhatsApp oder E-Mail zu.", "Eine Bestätigung geht dir per WhatsApp oder E-Mail zu.")}
           </DialogPrimitive.Description>

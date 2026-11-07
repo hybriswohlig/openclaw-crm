@@ -4,8 +4,10 @@ import { useEffect, useState } from "react";
 import { Check, Loader2, Package, Star, X, Plus, FileText } from "lucide-react";
 import { WhatsAppContactLink } from "./whatsapp-contact-link";
 import { formatPortalMoney } from "./portal-presentation";
-import { kundenText, pickDefaultDealOption } from "@openclaw-crm/customer-portal-core";
+import { anzeigeTag, kundenText, paketPreisAmTag, pickDefaultDealOption, tagKurz } from "@openclaw-crm/customer-portal-core";
 import type {
+  DateOfferOption,
+  DateOffersContext,
   DealPackageOffersContext,
   DealPackageOption,
   FirmaBranding,
@@ -40,6 +42,7 @@ export function PackageSelector({
   token,
   packages,
   dealOffers,
+  dateOffers,
   branding,
   locked,
   onPicked,
@@ -47,6 +50,8 @@ export function PackageSelector({
   token: string;
   packages: OfferPackagesContext;
   dealOffers: DealPackageOffersContext;
+  /** Plan 5b: mit Tagespreisen zeigen die Karten den Preis am gewählten, sonst empfohlenen Tag. */
+  dateOffers?: DateOffersContext;
   branding: FirmaBranding;
   locked: boolean;
   onPicked: () => void | Promise<void>;
@@ -59,6 +64,8 @@ export function PackageSelector({
       <DealOptionPicker
         token={token}
         offers={dealOffers}
+        tag={dateOffers ? anzeigeTag(dateOffers)?.tag ?? null : null}
+        tagGewaehlt={dateOffers ? !!anzeigeTag(dateOffers)?.gewaehlt : false}
         branding={branding}
         locked={locked}
         onPicked={onPicked}
@@ -79,12 +86,18 @@ export function PackageSelector({
 function DealOptionPicker({
   token,
   offers,
+  tag,
+  tagGewaehlt,
   branding,
   locked,
   onPicked,
 }: {
   token: string;
   offers: DealPackageOffersContext;
+  /** Tag, an dem die Kartenpreise gelten; null ohne Tagespreise (Preise wie vor 5b). */
+  tag: DateOfferOption | null;
+  /** Der Tag ist vom Kunden gewählt (sonst der empfohlene). */
+  tagGewaehlt: boolean;
   branding: FirmaBranding;
   locked: boolean;
   onPicked: () => void | Promise<void>;
@@ -166,6 +179,7 @@ function DealOptionPicker({
             isPending={pendingId === o.id}
             disabled={locked || pendingId != null}
             onTap={() => pick(o.id)}
+            tag={tag}
           />
         ))}
       </ul>
@@ -179,9 +193,9 @@ function DealOptionPicker({
       {selected ? (
         <p className="text-[11px] text-muted-foreground">
           {t("Ihre Wahl", "Deine Wahl")}:{" "}
-          <strong className="text-foreground">{selected.displayName}</strong> ·{" "}
+          <strong className="text-foreground">{selected.displayName}</strong>{tag && tagGewaehlt ? ` am ${tagKurz(tag.date)}` : ""} ·{" "}
           <span className="tabular-nums">
-            {formatEurCents(selected.priceCents)}
+            {formatEurCents(paketPreisAmTag(selected, tag) ?? 0)}
           </span>
           {locked ? " (verbindlich angenommen)" : visibleOptions.length > 1 ? t(". Sie können Ihre Auswahl jederzeit ändern.", ". Du kannst deine Auswahl jederzeit ändern.") : "."}
         </p>
@@ -297,15 +311,18 @@ function CataloguePicker({
   );
 }
 
-function DealOptionCard({ option, isSelected, isPending, disabled, onTap }: {
+function DealOptionCard({ option, isSelected, isPending, disabled, onTap, tag }: {
   option: DealPackageOption; accent: string; isSelected: boolean; isPending: boolean; disabled: boolean; onTap: () => void;
+  /** Plan 5b: Tag, an dem der Kartenpreis gilt. */
+  tag: DateOfferOption | null;
 }) {
   const Icon = option.isRecommended ? Star : Package;
+  const preis = paketPreisAmTag(option, tag);
   return <li>
     <button type="button" onClick={onTap} disabled={disabled} aria-pressed={isSelected} aria-busy={isPending} className="portal-package-card">
       {option.isRecommended && <span className="portal-package-badge">Empfohlen</span>}
       <div className="portal-package-title"><span className="portal-package-icon"><Icon size={28} aria-hidden /></span><div><strong>{option.displayName}</strong>{option.shortDescription && <p>{option.shortDescription}</p>}</div></div>
-      <div className="portal-package-price-wrap"><div className="portal-price portal-package-price">{formatPortalMoney(option.priceCents)}</div><p className="portal-package-price-label">Festpreis</p></div>
+      <div className="portal-package-price-wrap"><div className="portal-price portal-package-price">{preis === null ? "Nicht verfügbar" : formatPortalMoney(preis)}</div><p className="portal-package-price-label">{tag ? preis === null ? `an diesem Tag (${tagKurz(tag.date)})` : `Festpreis am ${tagKurz(tag.date)}` : "Festpreis"}</p></div>
       <ul className="portal-package-features">
         {option.includedItems.map((item, i) => <li key={`in-${i}`}><Check aria-hidden /><span>{item}</span></li>)}
         {(option.excludedItems ?? []).map((item, i) => <li className="excluded" key={`out-${i}`}><X aria-hidden /><span><span className="sr-only">Nicht enthalten: </span>{item}</span></li>)}

@@ -1,7 +1,7 @@
 "use client";
 
 import { CalendarDays, MapPin, Truck, UserRound, ClipboardList, MessageCircle, Phone, Check, UsersRound, Package, Clock3, type LucideIcon } from "lucide-react";
-import { kundenText, type CustomerPortalContext } from "@openclaw-crm/customer-portal-core";
+import { kundenText, stundenAnzeige, stundensatzText, stundenVersionText, type CustomerPortalContext } from "@openclaw-crm/customer-portal-core";
 import { PortalRequestForm } from "./portal-request-form";
 import { WhatsAppContactLink } from "./whatsapp-contact-link";
 import { formatPortalDate, formatPortalMoney, selectedPortalPackage } from "./portal-presentation";
@@ -39,13 +39,21 @@ export function OrderDetails({ ctx, token, wide = false }: { ctx: CustomerPortal
     <dl className="portal-details-grid">
       <DetailItem icon={CalendarDays} label={w.termin}>{formatPortalDate(scope.moveDate) ?? "Termin wird abgestimmt"}{scope.timeStart && <span className="block">{scope.timeEnd ? `${scope.timeStart} bis ${scope.timeEnd} Uhr` : `ab ${scope.timeStart} Uhr`}</span>}</DetailItem>
       {adressZeilen(ctx).map((a) => <DetailItem key={a.key} icon={MapPin} label={a.label}>{a.adresse}<AddressAccess floor={a.etage} access={a.zugang} /></DetailItem>)}
-      {(pkg || ctx.kva) && <DetailItem icon={Truck} label={pkg ? "Leistungspaket" : "Angebot"}>{pkg?.displayName ?? (ctx.kva?.isVariable ? "Abrechnung nach Aufwand" : "Individuelles Angebot")}{ctx.kva && <span className="block">{ctx.kva.isVariable && "Voraussichtlich "}{formatPortalMoney(ctx.kva.totalCents)}</span>}</DetailItem>}
+      {(pkg || ctx.kva) && <DetailItem icon={Truck} label={pkg ? "Leistungspaket" : "Angebot"}>{pkg?.displayName ?? (ctx.kva?.isVariable ? "Abrechnung nach Aufwand" : "Individuelles Angebot")}{ctx.kva && <span className="block">{angebotsBetrag(ctx.kva)}</span>}</DetailItem>}
       {ctx.customerDisplayName && <DetailItem icon={UserRound} label="Auftraggeber">{ctx.customerDisplayName}</DetailItem>}
       {scope.volumeCbm != null && <DetailItem icon={Package} label={w.volumenLabel}>ca. {scope.volumeCbm} m³</DetailItem>}
       {(scope.specialRequests || scope.inventoryNotes) && <DetailItem icon={ClipboardList} label="Besonderheiten">{[scope.specialRequests, scope.inventoryNotes].filter(Boolean).join("\n")}</DetailItem>}
     </dl>
     {ctx.stage < 4 && <div className="portal-detail-action"><PortalRequestForm token={token} firmaSlug={ctx.branding.firmaSlug} kind="question" triggerLabel={ctx.stage === 1 ? "Änderung anfragen" : "Änderung nach Absprache anfragen"} title={t("Änderung Ihrer Auftragsdetails", "Änderung deiner Auftragsdetails")} primaryColor={ctx.branding.primaryColor} /></div>}
   </section>;
+}
+
+/** Betrag in den Auftragsdetails; Stunden-KV nach F10 und F11, sonst wie vor 5b. */
+function angebotsBetrag(kva: NonNullable<CustomerPortalContext["kva"]>): string {
+  const s = stundenAnzeige(kva);
+  if (s?.modell === "version") return stundenVersionText(s.stunden, formatPortalMoney);
+  if (s?.modell === "alt") return stundensatzText(s.satzCents, formatPortalMoney);
+  return `${kva.isVariable ? "Voraussichtlich " : ""}${formatPortalMoney(kva.totalCents)}`;
 }
 
 export function SuccessBanner({ ctx, completed = false }: { ctx: CustomerPortalContext; completed?: boolean }) {
