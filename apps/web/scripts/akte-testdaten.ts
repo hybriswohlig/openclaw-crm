@@ -13,6 +13,9 @@
  *   (b) Neue Anfrage ohne Gespräch
  *   (c) Durchgeführt, Rechnung, Rest 1.980 €, offene Meldung „bezahlt“
  *   (d) Verloren
+ * Plan 5b (Task U1): Kottke hat die Schalter „Angebot aus Kalkulation“ und
+ * „Tagespreise“ an und vier Pakete mit Hebeln (Basis nur Kern, Komfort
+ * Halteverbot und Montage, Premium alle vier, Einzeltransport ohne).
  *
  * Erfundene Namen. Telefonnummern nur im Bereich +49 1550 000xxx.
  * E-Mail nur @example.com. Kanalzeilen ohne Zugangsdaten: Kanäle, Push und
@@ -373,7 +376,7 @@ async function main(): Promise<void> {
   const { userSettings } = await import("@/db/schema/user-settings");
   const { dealCalculationVersions } = await import("@/db/schema/deal-calculation-versions");
   const { quotations } = await import("@/db/schema/quotations");
-  const { customerStatusLinks } = await import("@/db/schema/customer-portal");
+  const { customerStatusLinks, offerPackages, operatingCompanyPortalSettings } = await import("@/db/schema/customer-portal");
   const { agentDrafts } = await import("@/db/schema/agent");
   const {
     channelAccounts,
@@ -538,6 +541,38 @@ async function main(): Promise<void> {
     ],
     rechnerMarke: "kottke",
   });
+
+  // Plan 5b (Task U1): Kottke mit beiden Firmen-Schaltern und Paketen samt Hebeln (F6),
+  // Beispiel Transporte ohne Schalter. Domain bleibt unkonfiguriert (keine Umleitung).
+  await db.insert(operatingCompanyPortalSettings).values([
+    {
+      workspaceId: workspace.id,
+      operatingCompanyRecordId: kottke,
+      signatureEnabled: true,
+      angebotAusKalkulation: true,
+      tagespreiseEnabled: true,
+    },
+    { workspaceId: workspace.id, operatingCompanyRecordId: beispiel },
+  ]);
+  await db.insert(offerPackages).values(
+    (
+      [
+        ["basis", "Basis", [], 10, false],
+        ["komfort", "Komfort", ["halteverbot", "montage"], 20, true],
+        ["premium", "Premium", ["halteverbot", "montage", "einpacken", "kueche"], 30, false],
+        ["einzeltransport", "Einzeltransport", [], 40, false],
+      ] as const
+    ).map(([slug, displayName, hebel, sortOrder, isRecommended]) => ({
+      workspaceId: workspace.id,
+      operatingCompanyRecordId: kottke,
+      slug,
+      displayName,
+      hebel: [...hebel],
+      sortOrder,
+      isRecommended,
+      includedItems: [],
+    }))
+  );
 
   const angebotStufe = await stufeId("Angebot");
   const anfrageStufe = await stufeId("Neue Anfrage");
