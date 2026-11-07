@@ -6,7 +6,7 @@
  *   DELETE → clear all options for the deal
  *
  * Validation: at most 6 options, displayName required + non-empty, priceCents
- * must be a non-negative integer.
+ * must be a non-negative integer. Fremde Deals (anderer Workspace): 404.
  */
 import { NextRequest } from "next/server";
 import { annahmeSperrAntwort } from "@/services/kva-annahme";
@@ -18,6 +18,7 @@ import {
   badRequest,
 } from "@/lib/api-utils";
 import { db } from "@/db";
+import { dealImWorkspace, dealNichtGefunden } from "@/lib/kalkulation-versionen-antwort";
 import { quotationPackageOptions } from "@/db/schema/customer-portal";
 import { quotations } from "@/db/schema/quotations";
 import {
@@ -36,6 +37,8 @@ export async function GET(
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized(req);
   const { recordId } = await params;
+  // Nur Deals des eigenen Workspace (sonst 404, wie die übrigen Deal-Routen).
+  if (!(await dealImWorkspace(ctx.workspaceId, recordId))) return dealNichtGefunden();
 
   const rows = await db
     .select()
@@ -74,6 +77,8 @@ export async function PUT(
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized(req);
   const { recordId } = await params;
+  // Nur Deals des eigenen Workspace (sonst 404, wie die übrigen Deal-Routen).
+  if (!(await dealImWorkspace(ctx.workspaceId, recordId))) return dealNichtGefunden();
 
   let body: { options?: unknown };
   try {
@@ -149,6 +154,8 @@ export async function DELETE(
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized(req);
   const { recordId } = await params;
+  // Nur Deals des eigenen Workspace (sonst 404, wie die übrigen Deal-Routen).
+  if (!(await dealImWorkspace(ctx.workspaceId, recordId))) return dealNichtGefunden();
   try {
     await replaceDealPackageOptions({
       workspaceId: ctx.workspaceId,

@@ -283,6 +283,12 @@ export interface DealPackageOption {
   note: string | null;
   isRecommended: boolean;
   sortOrder: number;
+  /**
+   * Plan 5b, F2 (M2): an die Version der Terminpreise gebunden. Nur gesetzt,
+   * wenn Terminangebote mit Preis aus dieser Version vorliegen; dann zählen
+   * für den Preis am Tag nur gebundene Optionen (`wahlPaketSlug`).
+   */
+  gebunden?: boolean;
 }
 
 export interface DealPackageOffersContext {

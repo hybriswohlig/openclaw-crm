@@ -22,12 +22,13 @@ import { quotationLineItems, quotations } from "@/db/schema/quotations";
 import {
   standardWahl,
   wahlPreis,
+  type AngebotsWahl,
   type PaketpreisVersion,
   type Tagespreis,
   type VersionsPreise,
 } from "@/lib/angebot-wahl";
 import type { KvPosten } from "@/services/rechner/kv-posten";
-import { pickDefaultDealOption } from "@openclaw-crm/customer-portal-core";
+import { wahlPaketSlug } from "@openclaw-crm/customer-portal-core";
 import type { DbExecutor } from "./kva-annahme";
 
 export type WahlVersion = VersionsPreise & { id: string };
@@ -92,8 +93,8 @@ export async function ladeWahlKontext(ex: DbExecutor, dealRecordId: string): Pro
 
 type OptionZeile = { id: string; catalogueSlug: string | null; isRecommended: boolean; calculationVersionId: string | null };
 
-/** Paketoptionen des Deals, die an die Version gebunden sind (Reihenfolge wie im Portal). */
-async function gebundeneOptionen(ex: DbExecutor, dealRecordId: string, versionId: string): Promise<OptionZeile[]> {
+/** Paketoptionen des Deals mit Bindung (Reihenfolge wie im Portal). */
+async function optionenMitBindung(ex: DbExecutor, dealRecordId: string): Promise<OptionZeile[]> {
   const rows = await ex
     .select({
       id: quotationPackageOptions.id,
@@ -104,12 +105,13 @@ async function gebundeneOptionen(ex: DbExecutor, dealRecordId: string, versionId
     .from(quotationPackageOptions)
     .where(eq(quotationPackageOptions.dealRecordId, dealRecordId))
     .orderBy(quotationPackageOptions.sortOrder);
-  return rows.filter((r) => r.calculationVersionId === versionId);
+  return rows;
 }
 
 /**
  * Paket der Wahl: die gewählte (sonst empfohlene, sonst erste) an die Version
- * gebundene Option mit Katalog-Slug. null ohne Paketpreise oder ohne gebundene Option.
+ * gebundene Option mit Katalog-Slug. null ohne Paketpreise oder ohne gebundene
+ * Option. Dieselbe Regel wie im Portal (`wahlPaketSlug`, F2/M2).
  */
 export async function wahlPaket(
   ex: DbExecutor,
@@ -118,8 +120,11 @@ export async function wahlPaket(
   selectedOptionId: string | null
 ): Promise<string | null> {
   if (version.packagePrices.length === 0) return null;
-  const optionen = await gebundeneOptionen(ex, dealRecordId, version.id);
-  return pickDefaultDealOption(optionen, selectedOptionId)?.catalogueSlug ?? null;
+  const optionen = await optionenMitBindung(ex, dealRecordId);
+  return wahlPaketSlug(
+    optionen.map((o) => ({ ...o, gebunden: o.calculationVersionId === version.id })),
+    selectedOptionId
+  );
 }
 
 /**
@@ -137,6 +142,24 @@ export async function wahlDatum(ex: DbExecutor, dealRecordId: string, version: W
     .limit(1);
   if (sel && sel.versionId === version.id && version.dayPrices.some((t) => t.datum === sel.datum)) return sel.datum;
   return standardWahl(version, null).datum;
+}
+
+/**
+ * Die aktuelle Wahl der Quotation (Paket der gewählten gebundenen Option,
+ * gewählter Tag, sonst Standard), genau wie `kundenwahlAnwenden` sie bildet.
+ * Für `angebotPasstZuVersion` (F2, I1): nur diese eine Wahl zählt als
+ * „nicht von Hand“.
+ */
+export async function aktuelleWahl(
+  ex: DbExecutor,
+  dealRecordId: string,
+  version: WahlVersion,
+  selectedOptionId: string | null
+): Promise<AngebotsWahl> {
+  return {
+    paketSlug: await wahlPaket(ex, dealRecordId, version, selectedOptionId),
+    datum: await wahlDatum(ex, dealRecordId, version),
+  };
 }
 
 /** Euro-Text wie `quotations.fixed_price` aus Cent. */
@@ -183,9 +206,7 @@ export async function kundenwahlAnwenden(
 ): Promise<"ohne_version" | "ohne_preis" | "geschrieben"> {
   const k = await ladeWahlKontext(tx, dealRecordId);
   if (!k.quotation || !k.version) return "ohne_version";
-  const paketSlug = await wahlPaket(tx, dealRecordId, k.version, k.quotation.selectedPackageOptionId);
-  const datum = await wahlDatum(tx, dealRecordId, k.version);
-  const preis = wahlPreis(k.version, { paketSlug, datum });
+  const preis = wahlPreis(k.version, await aktuelleWahl(tx, dealRecordId, k.version, k.quotation.selectedPackageOptionId));
   if (!preis) return "ohne_preis";
   await wahlSchreiben(tx, k.quotation.id, preis);
   return "geschrieben";

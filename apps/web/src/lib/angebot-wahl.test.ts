@@ -300,6 +300,31 @@ describe("Vertrag 5b", () => {
       expect(angebotPasstZuVersion({ fixedPriceCents: 12_345, posten: [euroPosten(123.45)] }, v)).toBe(false);
     });
 
+    it("F2 (I1): mit Wahl zählt nur diese Wahl; Posten Zeile für Zeile (Text, Menge, Satz)", () => {
+      const basis = { paketSlug: "basis", datum: "2026-11-21" };
+      const komfort = { paketSlug: "komfort", datum: "2026-11-21" };
+      const b = wahlPreis(v, basis)!;
+      // Genau die aktuelle Wahl: passt, auch mit Leerzeichen am Rand des Texts.
+      expect(angebotPasstZuVersion({ fixedPriceCents: b.priceCents, posten: b.kvItems }, v, basis)).toBe(true);
+      const mitRand = b.kvItems.map((p) => ({ ...p, description: `  ${p.description} ` }));
+      expect(angebotPasstZuVersion({ fixedPriceCents: b.priceCents, posten: mitRand }, v, basis)).toBe(true);
+      // Preis und Posten einer anderen Wahl (Basis), der Kunde hat Komfort: von Hand.
+      expect(angebotPasstZuVersion({ fixedPriceCents: b.priceCents, posten: b.kvItems }, v, komfort)).toBe(false);
+      // Ohne Wahl (Altaufruf) zählt jede Wahl.
+      expect(angebotPasstZuVersion({ fixedPriceCents: b.priceCents, posten: b.kvItems }, v)).toBe(true);
+      // Anderer Text bei gleichem Betrag: von Hand.
+      const text = b.kvItems.map((p) => ({ ...p, description: `${p.description} inkl. Klavier` }));
+      expect(angebotPasstZuVersion({ fixedPriceCents: b.priceCents, posten: text }, v, basis)).toBe(false);
+      expect(angebotPasstZuVersion({ fixedPriceCents: b.priceCents, posten: text }, v)).toBe(false);
+      // Andere Aufteilung bei gleicher Summe: von Hand.
+      const geteilt = [{ ...b.kvItems[0], quantity: 2, unitRate: b.kvItems[0].unitRate / 2 }];
+      expect(angebotPasstZuVersion({ fixedPriceCents: b.priceCents, posten: geteilt }, v, basis)).toBe(false);
+      // Ein Posten mehr (0 €): von Hand.
+      expect(angebotPasstZuVersion({ fixedPriceCents: b.priceCents, posten: [...b.kvItems, euroPosten(0)] }, v, basis)).toBe(false);
+      // Wahl ohne Preis: nie.
+      expect(angebotPasstZuVersion({ fixedPriceCents: 0, posten: [] }, v, { paketSlug: null, datum: "2026-11-28" })).toBe(false);
+    });
+
     it("gilt nicht, wenn die Postensumme vom Preis abweicht", () => {
       expect(angebotPasstZuVersion({ fixedPriceCents: 100_000, posten: [euroPosten(1)] }, v)).toBe(false);
       const kaputt = version({ kvItems: [euroPosten(1, "haupt")] });

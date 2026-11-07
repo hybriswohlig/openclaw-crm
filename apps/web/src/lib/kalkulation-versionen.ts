@@ -589,8 +589,9 @@ function mitBetrag(u: Uebersteuerung | undefined): Uebersteuerung | undefined {
 }
 
 /**
- * Eigens gesetzte Tagespreis-Anpassung (`<datum>` bzw. `<datum>:<slug>`), ohne den
- * Paketpreis am Basistag. Für die Vorbelegung im Termin-Dialog.
+ * Eigens gesetzte Tagespreis-Anpassung (`<datum>` bzw. `<datum>:<slug>`), ohne die
+ * Paketpreis-Anpassung, die an jedem Tag als Differenz wirkt. Für die Vorbelegung
+ * im Termin-Dialog.
  */
 export function tagespreisAnpassung(liste: Uebersteuerung[], datum: string, paketSlug: string | null): { betrag: number; grund: string } | null {
   const u = mitBetrag(wirksamFuer(liste, "tagespreis", paketSlug === null ? datum : `${datum}:${paketSlug}`));
@@ -600,21 +601,65 @@ export function tagespreisAnpassung(liste: Uebersteuerung[], datum: string, pake
 /** Was „Tage anbieten“ an einem Tag festlegt (ohne Preise). */
 export type TagKonfig = Pick<Tagespreis, "datum" | "slots" | "note" | "empfohlen">;
 
+/** Euro auf den Cent, ohne Gleitkomma-Reste (1480 + 70 = 1550, nicht 1549.9999). */
+const aufCent = (eur: number) => Math.round(eur * 100) / 100;
+
+/**
+ * Differenz einer wirksamen Paketpreis-Anpassung zum Rechnerpreis des Pakets am
+ * Basistag (F2, Regel des Koordinators zu I3): Anpassung minus Rechnerpreis. null
+ * ohne Anpassung oder ohne Rechnerpreis am Basistag (dann gibt es keine Differenz,
+ * und der Tag braucht einen eigenen Preis `<datum>:<slug>`).
+ */
+export function paketpreisDifferenz(
+  liste: Uebersteuerung[],
+  basis: readonly RechnerPaketpreisPlan5[] | null | undefined,
+  slug: string
+): { differenz: number; betrag: number; grund: string } | null {
+  const u = mitBetrag(wirksamFuer(liste, "paketpreis", slug));
+  if (!u) return null;
+  const rechner = (basis ?? []).find((p) => p.slug === slug)?.festpreis ?? null;
+  if (rechner === null) return null;
+  const betrag = betragAus(u.wert)!;
+  return { differenz: aufCent(betrag - rechner), betrag, grund: u.grund };
+}
+
+/**
+ * Paketpreis an einem angebotenen Tag (F2, I3). Vorrang: eigene Anpassung
+ * `<datum>:<slug>` (fester Betrag); sonst wirkt eine Paketpreis-Anpassung als
+ * dieselbe Differenz auf den Rechnerpreis des Pakets an diesem Tag; sonst der
+ * Rechnerpreis. Nichts wird gerechnet außer dieser einen Differenz.
+ */
+function paketAmTag(
+  p: RechnerPaketpreisPlan5,
+  datum: string,
+  liste: Uebersteuerung[],
+  basis: readonly RechnerPaketpreisPlan5[] | null | undefined
+): PaketpreisVersion {
+  const eigen = mitBetrag(wirksamFuer(liste, "tagespreis", `${datum}:${p.slug}`));
+  if (eigen) return paketMitAnpassung(p, eigen);
+  const d = p.festpreis === null ? null : paketpreisDifferenz(liste, basis, p.slug);
+  if (!d || p.festpreis === null) return paketMitAnpassung(p, undefined);
+  const festpreis = aufCent(p.festpreis + d.differenz);
+  return { ...p, festpreis, rechnerFestpreis: p.festpreis, uebersteuert: { betrag: festpreis, grund: d.grund } };
+}
+
 /**
  * Tagespreise der Version: je angebotenem Tag (Reihenfolge nach Datum) der
  * Rechnerpreis des Tages, mit Anpassung `<datum>` bzw. `<datum>:<slug>`. Fehlt der
  * Tag in der Rechner-Antwort, hat er keinen Preis (sperrt nicht still mit altem Wert).
  *
- * `basistag` (Umzugsdatum der Anfrage): Eine Paketpreis-Anpassung ist der Preis des
- * Pakets an diesem Tag. Wird der Basistag angeboten, trägt das Paket dort denselben
- * Betrag (sonst hätte dieselbe Wahl zwei Preise), außer `<datum>:<slug>` setzt ihn
- * eigens. An anderen Tagen gilt der Rechnerpreis des Tages. Nichts wird gerechnet.
+ * `basisPaketpreise` (Paketpreise des Rechners am Basistag, nur mit „Angebot aus
+ * Kalkulation“): Eine Paketpreis-Anpassung wirkt an jedem Tag als dieselbe
+ * Differenz (Anpassung minus Rechnerpreis des Pakets am Basistag) auf den
+ * Rechnerpreis des Pakets an diesem Tag. Eine eigene Anpassung `<datum>:<slug>`
+ * geht vor; wird sie aufgehoben, gilt wieder die Differenz. Ohne
+ * `basisPaketpreise` wirken Paketpreis-Anpassungen an keinem Tag.
  */
 export function tagespreiseAus(
   rechner: readonly RechnerTagespreis[] | undefined,
   konfig: readonly TagKonfig[],
   liste: Uebersteuerung[],
-  basistag: string | null = null
+  basisPaketpreise: readonly RechnerPaketpreisPlan5[] | null = null
 ): Tagespreis[] {
   return [...konfig]
     .sort((a, b) => a.datum.localeCompare(b.datum))
@@ -632,21 +677,35 @@ export function tagespreiseAus(
         margeProzent: r?.margeProzent ?? null,
         gruende: r?.gruende ?? [],
         uebersteuert: r && betrag !== null && u ? { betrag, grund: u.grund } : null,
-        paketpreise: r?.paketpreise
-          ? r.paketpreise.map((p) =>
-              paketMitAnpassung(
-                p,
-                mitBetrag(wirksamFuer(liste, "tagespreis", `${k.datum}:${p.slug}`)) ??
-                  (basistag !== null && k.datum === basistag ? wirksamFuer(liste, "paketpreis", p.slug) : undefined)
-              )
-            )
-          : null,
+        paketpreise: r?.paketpreise ? r.paketpreise.map((p) => paketAmTag(p, k.datum, liste, basisPaketpreise)) : null,
         slots: k.slots,
         note: k.note,
         empfohlen: k.empfohlen,
         vehicleBookingId: null,
       };
     });
+}
+
+/**
+ * Paket an einem Tag unter dem Preis bei 30 % Marge, nur durch eine
+ * Paketpreis-Anpassung als Differenz (F2, I3: die Untergrenze gilt je Tag; eigene
+ * Tagesanpassungen prüft schon `pruefeUntergrenze`). `grenzeFuer` liefert die
+ * Untergrenze aus Selbstkosten und Rundung des Pakets an diesem Tag.
+ */
+export function paketpreisUnterGrenzeAmTag(
+  tage: readonly Tagespreis[],
+  liste: Uebersteuerung[],
+  grenzeFuer: (p: PaketpreisVersion) => number | null
+): { datum: string; slug: string; grenze: number } | null {
+  for (const t of tage) {
+    for (const p of t.paketpreise ?? []) {
+      if (p.festpreis === null || !p.uebersteuert) continue;
+      if (mitBetrag(wirksamFuer(liste, "tagespreis", `${t.datum}:${p.slug}`))) continue;
+      const grenze = grenzeFuer(p);
+      if (grenze !== null && p.festpreis < grenze) return { datum: t.datum, slug: p.slug, grenze };
+    }
+  }
+  return null;
 }
 
 const WOCHENTAGE = ["so", "mo", "di", "mi", "do", "fr", "sa"] as const;
@@ -764,9 +823,14 @@ export function hauptPostenAus(
 }
 
 /**
- * Welche Wahl die Quotation beim Sperren bekommt: die des Kunden, solange Paket und
- * Tag angeboten sind und einen Preis haben, sonst die Standardwahl (empfohlenes Paket
- * am empfohlenen Tag). null nur, wenn auch die Standardwahl keinen Preis hat.
+ * Welche Wahl die Quotation beim Sperren bekommt, nach derselben Regel wie
+ * `kundenwahlAnwenden` (F2, Review M3): das Paket des Kunden (`kunde.paketSlug`,
+ * schon nach `wahlPaketSlug` aus den gebundenen Optionen bestimmt), solange es
+ * Paketpreise hat, sonst das Standardpaket; der Tag des Kunden, solange er
+ * angeboten ist, sonst der Standardtag. Kein weiterer Rückfall: hat genau diese
+ * Wahl keinen Preis, null (das Sperren lehnt dann mit Hinweis ab, statt einen
+ * Preis zu schreiben, den das Portal nicht zeigt und die Annahme mit
+ * `zero_price` ablehnt).
  */
 export function sperrWahl(
   preise: VersionsPreise,
@@ -776,11 +840,9 @@ export function sperrWahl(
   const paketSlug =
     kunde.paketSlug !== null && preise.packagePrices.some((p) => p.slug === kunde.paketSlug) ? kunde.paketSlug : standard.paketSlug;
   const datum = kunde.datum !== null && preise.dayPrices.some((t) => t.datum === kunde.datum) ? kunde.datum : standard.datum;
-  for (const wahl of [{ paketSlug, datum }, { paketSlug, datum: standard.datum }, standard]) {
-    const preis = wahlPreis(preise, wahl);
-    if (preis) return { wahl, preis };
-  }
-  return null;
+  const wahl = { paketSlug, datum };
+  const preis = wahlPreis(preise, wahl);
+  return preis ? { wahl, preis } : null;
 }
 
 // ─── Eine Sperr-Regel für Dienst und Seite (Entscheidungen 5, 14, 15) ─────────
@@ -808,7 +870,13 @@ export interface SperrRegel {
     /** Je Paketoption des Deals: Slug (null = frei angelegt), wirksamer Preis, Hebel aus dem Katalog. */
     pakete: { slug: string | null; preis: number | null; hebel: readonly HebelArt[] | null; uebersteuert: boolean }[];
     /** Nur im Stundenmodus. */
-    stunden: { kalkulierbar: boolean; hinweis: string | null; zusatzposten: number } | null;
+    stunden: {
+      kalkulierbar: boolean;
+      hinweis: string | null;
+      zusatzposten: number;
+      /** Zahl der Transporter der Schätzung; der Kottke-VPS rechnet genau einen (K1). */
+      transporter?: number;
+    } | null;
     istKottke: boolean;
     /** Kern-Befund je Wahl. */
     kerne: KernBefund[];
@@ -846,6 +914,8 @@ export function sperrBefund(r: SperrRegel): { code: SperrCode; text: string } | 
       return { code: "RECHNER_FEHLER", text: `Stunden nicht kalkulierbar: ${p.stunden.hinweis ?? "keine Stundensätze für diese Firma."}` };
     }
     if (p.istKottke && p.stunden.zusatzposten > 0) return f("STUNDEN_ZUSATZ_VPS");
+    // Der VPS-Renderer kennt keine Zahl der Fahrzeuge und rechnet mit einem Transporter.
+    if (p.istKottke && p.stunden.transporter !== undefined && p.stunden.transporter !== 1) return f("STUNDEN_TRANSPORTER_VPS");
   }
   if (p.kerne.some((k) => k.art === "negativ")) return f("KERN_NEGATIV");
   if (!p.anzahlungPasst) return f("ANZAHLUNG_UEBER_PREIS");

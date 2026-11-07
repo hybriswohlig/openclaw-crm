@@ -19,6 +19,21 @@ export function pickDefaultDealOption<T extends { id: string; isRecommended: boo
   return options.find((o) => o.isRecommended) ?? options[0] ?? null;
 }
 
+/**
+ * Paket-Slug der Wahl, eine Regel für CRM (`wahlPaket`) und Portal
+ * (`erwarteterGesamtpreis`), F2 (Review M2): die gewählte, sonst die
+ * empfohlene, sonst die erste Option, aber nur unter den Optionen, die an die
+ * Version der Terminpreise gebunden sind. `gebunden: false` schließt eine
+ * Option aus; fehlt das Feld, zählt sie (Kontexte ohne Version, wie vor 5b).
+ */
+export function wahlPaketSlug<T extends { id: string; isRecommended?: boolean; catalogueSlug?: string | null; gebunden?: boolean }>(
+  options: readonly T[],
+  selectedId: string | null | undefined
+): string | null {
+  const gebunden = options.filter((o) => o.gebunden !== false).map((o) => ({ ...o, isRecommended: o.isRecommended === true }));
+  return pickDefaultDealOption(gebunden, selectedId)?.catalogueSlug ?? null;
+}
+
 export function resolveSelectedPackageAfterReplace<
   T extends { catalogueSlug: string | null; isRecommended: boolean },
 >(inserted: T[], previousCatalogueSlug: string | null | undefined): T | null {

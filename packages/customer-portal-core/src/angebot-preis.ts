@@ -89,21 +89,23 @@ export function terminPreisFuerPaket(tag: DateOfferOption, paketSlug: string | n
 
 /**
  * `KvaSnapshot.totalCents` auf dem Server. Stunden-KV aus der Version: die
- * Schätzung (F10). Festpreis mit gewähltem Tag aus der Version: der Preis der
- * Wahl (gleiche Funktion wie die Annahme). Sonst `bisherCents`, die Regel von
- * vor 5b.
+ * Schätzung (F10). Festpreis mit Tagespreisen aus der Version: der Preis der
+ * Wahl am Anzeigetag (gleiche Funktion wie die Annahme). Ohne gewählten Tag
+ * gilt derselbe Tag wie in Preiskarte und Mobil-Leiste (`anzeigeTag`:
+ * empfohlen, sonst erster), F2 (Review I4): so zeigt das Portal vor der
+ * Terminwahl nur einen Preis. Sonst `bisherCents`, die Regel von vor 5b.
  */
 export function gesamtpreisMitWahl(input: {
   isVariable: boolean;
   bisherCents: number;
   stunden: PortalStundenAngebot | null;
-  dealOptions: Array<{ id: string; priceCents: number; catalogueSlug?: string | null }>;
+  dealOptions: Array<{ id: string; priceCents: number; catalogueSlug?: string | null; isRecommended?: boolean; gebunden?: boolean }>;
   boundOptionId: string | null;
   dateOffers: DateOffersContext | null;
 }): number {
   if (input.isVariable) return input.stunden ? input.stunden.summeGeschaetztCent : input.bisherCents;
   const d = input.dateOffers;
-  const tag = d?.selection ? d.options.find((o) => o.id === d.selection!.dateOfferId) : undefined;
+  const tag = d ? anzeigeTag(d)?.tag : undefined;
   if (!d || !tag || !tagHatPreis(tag)) return input.bisherCents;
   return erwarteterGesamtpreis({
     dealOptions: input.dealOptions,

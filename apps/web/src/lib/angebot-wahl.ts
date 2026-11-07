@@ -331,24 +331,49 @@ export function preisHash(v: VersionsPreise): string {
     .join("|");
 }
 
+/** Posten gleich, Zeile für Zeile: Text (getrimmt), Menge und Einzelpreis auf den Cent. */
+function gleichePosten(a: readonly KvPosten[], b: readonly KvPosten[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every(
+      (x, i) =>
+        x.description.trim() === b[i].description.trim() && x.quantity === b[i].quantity && inCent(x.unitRate) === inCent(b[i].unitRate)
+    )
+  );
+}
+
 /**
  * Ist die Quotation genau eine Wahl dieser Version (Kundenwahl, nicht von
  * Hand geändert)? Nutzen `kvAusVersion`, `angebotGeaendert` und die Annahme.
+ *
+ * F2 (Review I1), additiv erweitert: Verglichen werden Festpreis und die
+ * Posten Zeile für Zeile (Text, Menge, Einzelpreis), nicht nur Summen. Mit
+ * `wahl` zählt nur diese eine Wahl (die aktuelle der Quotation: Paket der
+ * gewählten gebundenen Option, gewählter Tag; wie `kundenwahlAnwenden`). Ohne
+ * `wahl` zählt jede Wahl der Version; das bleibt nur für Aufrufer ohne
+ * Kundenwahl (Tests, Werkzeuge) und reicht nicht, um eine Handänderung
+ * auszuschließen: ein von Hand gesetzter Preis, der zufällig einer anderen
+ * Wahl gleicht, sähe sonst wie eine Kundenwahl aus.
  */
 export function angebotPasstZuVersion(
   q: { fixedPriceCents: number | null; posten: readonly KvPosten[] },
-  v: VersionsPreise
+  v: VersionsPreise,
+  wahl?: AngebotsWahl
 ): boolean {
   if (q.fixedPriceCents === null || postenCent(q.posten) !== q.fixedPriceCents) return false;
-  const kandidaten: AngebotsWahl[] = [{ paketSlug: null, datum: null }];
-  for (const p of v.packagePrices) kandidaten.push({ paketSlug: p.slug, datum: null });
-  for (const t of v.dayPrices) {
-    kandidaten.push({ paketSlug: null, datum: t.datum });
-    for (const p of t.paketpreise ?? []) kandidaten.push({ paketSlug: p.slug, datum: t.datum });
+  const kandidaten: AngebotsWahl[] = [];
+  if (wahl) kandidaten.push(wahl);
+  else {
+    kandidaten.push({ paketSlug: null, datum: null });
+    for (const p of v.packagePrices) kandidaten.push({ paketSlug: p.slug, datum: null });
+    for (const t of v.dayPrices) {
+      kandidaten.push({ paketSlug: null, datum: t.datum });
+      for (const p of t.paketpreise ?? []) kandidaten.push({ paketSlug: p.slug, datum: t.datum });
+    }
   }
   return kandidaten.some((w) => {
     const r = wahlPreis(v, w);
-    return r !== null && r.priceCents === q.fixedPriceCents && postenCent(r.kvItems) === q.fixedPriceCents;
+    return r !== null && r.priceCents === q.fixedPriceCents && gleichePosten(q.posten, r.kvItems);
   });
 }
 
@@ -385,6 +410,7 @@ export type Plan5FehlerCode =
   | "ANZAHLUNG_UEBER_PREIS"
   | "STUNDEN_NUR_MENSCH"
   | "STUNDEN_ZUSATZ_VPS"
+  | "STUNDEN_TRANSPORTER_VPS"
   | "MODUSWECHSEL"
   | "TAGESPREIS_NUR_MENSCH";
 
@@ -396,6 +422,7 @@ export const PLAN5_FEHLER_TEXT: Record<Plan5FehlerCode, string> = {
   ANZAHLUNG_UEBER_PREIS: "Ein angebotener Preis liegt nicht über der Anzahlung. Bitte die Anzahlung anpassen.",
   STUNDEN_NUR_MENSCH: "Einen Stunden-KV sperrt nur ein Mensch.",
   STUNDEN_ZUSATZ_VPS: "Stunden-KV mit festen Zusatzposten geht für Kottke noch nicht. Bitte ohne Zusatzposten oder als Festpreis.",
+  STUNDEN_TRANSPORTER_VPS: "Stunden-KV für Kottke geht nur mit genau einem Transporter. Bitte als Festpreis anbieten.",
   MODUSWECHSEL: "Das Angebot ist ein Stunden-KV. Bitte bestätigen, dass es ein Festpreis werden soll.",
   TAGESPREIS_NUR_MENSCH: "Tagespreise legt nur ein Mensch im Termin-Dialog fest.",
 };

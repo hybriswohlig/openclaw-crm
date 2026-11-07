@@ -14,7 +14,7 @@
 import { apiAufruf, jsonAufruf, type ApiAntwort } from "@/components/neu/akte/api";
 import type { TageAnbieten, TagesRaster } from "@/lib/angebot-wahl";
 import type { KalkulationsAnsicht } from "@/lib/kalkulations-ansicht";
-import { sperrKoerper } from "@/components/neu/kalkulation/preis-logik";
+import { sperrAusgang, sperrKoerper } from "@/components/neu/kalkulation/preis-logik";
 
 export function versionenBasis(dealId: string): string {
   return `/api/v1/deals/${encodeURIComponent(dealId)}/calculation/versions`;
@@ -116,6 +116,8 @@ export type SperrErgebnis =
   | { art: "fertig"; fileName: string | null }
   | { art: "kottke"; hinweis: string | null }
   | { art: "preis_geaendert"; message: string }
+  /** F2 (M5): die Quotation ist ein Stunden-KV und würde Festpreis; nichts gesperrt, erst nachfragen. */
+  | { art: "moduswechsel"; message: string }
   | { art: "fehler"; schritt: "sperren" | "kv"; message: string };
 
 /**
@@ -123,18 +125,25 @@ export type SperrErgebnis =
  * Kundenpreise (`erwartetPreisHash`, Plan 5b), ohne Hash mit dem gesehenen Preis
  * (`erwartetPreisCent`), dann `kv`. Bei einer gesperrten Version
  * ohne KV nur `kv`. Kottke (`renderer: "vps"`): der nächste Dialog erzeugt das PDF.
+ * 409 MODUSWECHSEL (Stunden-KV würde Festpreis) wie auf der Kalkulationsseite: der
+ * Dialog fragt nach und ruft erneut mit `modusWechselBestaetigt` auf.
  */
-export async function sperrenUndKv(dealId: string, ansicht: KalkulationsAnsicht, texte: KvTexte): Promise<SperrErgebnis> {
+export async function sperrenUndKv(
+  dealId: string,
+  ansicht: KalkulationsAnsicht,
+  texte: KvTexte,
+  opts: { modusWechselBestaetigt?: boolean } = {}
+): Promise<SperrErgebnis> {
   const basis = `${versionenBasis(dealId)}/${ansicht.version.nummer}`;
   if (ansicht.version.status === "entwurf") {
     // Dieselbe Regel wie die Kalkulationsseite: mit Preis-Hash nur der Hash (er deckt die
     // Standardwahl mit ab), ohne Hash wie vor 5b der gezeigte Preis.
-    const koerper = sperrKoerper(ansicht);
+    const koerper = sperrKoerper(ansicht, { modusWechselBestaetigt: opts.modusWechselBestaetigt });
     const sperre = await apiAufruf<{ version: { version: number } }>(`${basis}/lock`, jsonAufruf("POST", koerper));
-    if (!sperre.ok) {
-      if (sperre.status === 409 && sperre.code === "PREIS_GEAENDERT") return { art: "preis_geaendert", message: sperre.message };
-      return { art: "fehler", schritt: "sperren", message: sperre.message };
-    }
+    const ausgang = sperrAusgang(sperre);
+    if (ausgang.art === "preis_geaendert") return { art: "preis_geaendert", message: ausgang.meldung };
+    if (ausgang.art === "moduswechsel" && !opts.modusWechselBestaetigt) return { art: "moduswechsel", message: ausgang.meldung };
+    if (ausgang.art !== "ok") return { art: "fehler", schritt: "sperren", message: ausgang.meldung };
   }
   const kv = await apiAufruf<{ renderer: "crm" | "vps"; fileName?: string; hinweis?: string }>(
     `${basis}/kv`,

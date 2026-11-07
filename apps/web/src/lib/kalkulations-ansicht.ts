@@ -1230,7 +1230,12 @@ function plan5Ansicht(
             : [],
           stunden:
             modus === "stunden"
-              ? { kalkulierbar: !!s, hinweis: (e as { stundenHinweis?: string | null }).stundenHinweis ?? null, zusatzposten: s?.zusatzposten.length ?? 0 }
+              ? {
+                  kalkulierbar: !!s,
+                  hinweis: (e as { stundenHinweis?: string | null }).stundenHinweis ?? null,
+                  zusatzposten: s?.zusatzposten.length ?? 0,
+                  ...(s ? { transporter: s.transporter } : {}),
+                }
               : null,
           istKottke: rest.renderer === "vps",
           kerne,

@@ -29,6 +29,7 @@ const m = {
   speichereKv: vi.fn(),
   ladeSchalter: vi.fn(),
   ladeAngebot: vi.fn(),
+  ladeWahl: vi.fn(),
 };
 const opt = m as unknown as KvAusVersionOptionen;
 const eingabe = { workspaceId: "ws_1", dealRecordId: "deal_1", version: 2, updatedBy: "usr_1" };
@@ -42,6 +43,7 @@ beforeEach(() => {
   m.hatPakete.mockResolvedValue(false);
   m.ladeSchalter.mockResolvedValue({ angebotAusKalkulation: false, tagespreise: false });
   m.ladeAngebot.mockResolvedValue(null);
+  m.ladeWahl.mockResolvedValue({ paketSlug: null, datum: null });
   m.speichereKv.mockResolvedValue({ document: DOKUMENT, fileName: DOKUMENT.fileName, templateVersion: "t", rechnungFaelligAm: null });
 });
 
@@ -217,9 +219,28 @@ describe("kvAusVersion mit Firmen-Schalter (Plan 5b)", () => {
   });
 
   it("Paketoptionen: kein PAKETE mehr; die Kundenwahl (Basis) ist eine Wahl der Version → KV wird erstellt", async () => {
+    m.ladeWahl.mockResolvedValue({ paketSlug: "basis", datum: null });
     m.ladeAngebot.mockResolvedValue({ fixedPrice: "1290.00", isVariable: false, lineItems: [{ description: "Basis", quantity: 1, unitRate: "1290.00" }] });
     expect(await kvAusVersion(eingabe, opt)).toMatchObject({ renderer: "crm" });
     expect(m.hatPakete).not.toHaveBeenCalled();
+    expect(m.ladeWahl).toHaveBeenCalledWith("deal_1", expect.objectContaining({ id: "ver_2" }));
+  });
+
+  it("F2 (I1): Preis und Posten einer anderen Wahl (Basis, der Kunde hat Komfort) → Handänderung, kein PDF", async () => {
+    m.ladeWahl.mockResolvedValue({ paketSlug: "komfort", datum: null });
+    m.ladeAngebot.mockResolvedValue({ fixedPrice: "1290.00", isVariable: false, lineItems: [{ description: "Basis", quantity: 1, unitRate: "1290.00" }] });
+    m.ladeVersionen.mockResolvedValue([{ version: 2, status: "gesperrt" }]);
+    const err = await fehlerVon(kvAusVersion(eingabe, opt));
+    expect(err.message).toBe("Das Angebot wurde nach v2 von Hand geändert. Neue Version sperren.");
+    expect(m.speichereKv).not.toHaveBeenCalled();
+  });
+
+  it("F2 (I1): geänderter Postentext bei gleichen Beträgen → Handänderung, kein PDF", async () => {
+    m.ladeWahl.mockResolvedValue({ paketSlug: "basis", datum: null });
+    m.ladeAngebot.mockResolvedValue({ fixedPrice: "1290.00", isVariable: false, lineItems: [{ description: "Basis inkl. Klavier", quantity: 1, unitRate: "1290.00" }] });
+    m.ladeVersionen.mockResolvedValue([{ version: 2, status: "gesperrt" }]);
+    const err = await fehlerVon(kvAusVersion(eingabe, opt));
+    expect(err.message).toBe("Das Angebot wurde nach v2 von Hand geändert. Neue Version sperren.");
   });
 
   it("Preis von Hand (keine Wahl der Version) → Text der Handänderung, kein PDF", async () => {

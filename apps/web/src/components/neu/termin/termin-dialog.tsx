@@ -13,6 +13,7 @@ import {
   GlassDialogTitle,
 } from "@/components/glassyui/glass-dialog";
 import { DokumentDialog } from "@/components/neu/akte/dokument-dialog";
+import { ModuswechselDialog } from "@/components/neu/kalkulation/preis-dialog";
 import { TerminDialogAlt } from "@/components/neu/akte/termin-dialog-alt";
 import { usePortalZiel } from "@/components/neu/portal-ziel";
 import type { TagesRaster, TagesRasterZelle } from "@/lib/angebot-wahl";
@@ -158,7 +159,9 @@ type Schritt =
   | { art: "waehlen" }
   | { art: "sperren"; ansicht: KalkulationsAnsicht }
   | { art: "gespeichert"; ansicht: KalkulationsAnsicht | null; version: number; text: string }
-  | { art: "kottke"; ansicht: KalkulationsAnsicht };
+  | { art: "kottke"; ansicht: KalkulationsAnsicht }
+  /** F2 (M5): Rückfrage wie auf der Kalkulationsseite, bevor ein Stunden-KV Festpreis wird. */
+  | { art: "moduswechsel"; ansicht: KalkulationsAnsicht; texte: KvTexte; meldung: string };
 
 /** Darf der Dialog nach dem Speichern sperren bzw. den KV erstellen? */
 function sperrSchritt(a: KalkulationsAnsicht): boolean {
@@ -283,11 +286,16 @@ function TerminDialogNeu({
     }
   }
 
-  async function sperren(ansicht: KalkulationsAnsicht, texte: KvTexte) {
+  async function sperren(ansicht: KalkulationsAnsicht, texte: KvTexte, modusWechselBestaetigt = false) {
     setLaeuft(true);
     try {
       const nr = ansicht.version.nummer;
-      const r = await sperrenUndKv(dealId, ansicht, texte);
+      const r = await sperrenUndKv(dealId, ansicht, texte, { modusWechselBestaetigt });
+      if (r.art === "moduswechsel") {
+        // Nichts gesperrt: erst nachfragen, dann mit Bestätigung erneut (Entscheidung 5b-5).
+        setSchritt({ art: "moduswechsel", ansicht, texte, meldung: r.message });
+        return;
+      }
       if (r.art === "fertig") {
         toast.success(ansicht.version.status === "entwurf" ? `Version v${nr} gesperrt, KV erstellt.` : "KV erstellt.", {
           description: r.fileName ?? undefined,
@@ -321,6 +329,18 @@ function TerminDialogNeu({
     } finally {
       setLaeuft(false);
     }
+  }
+
+  if (schritt.art === "moduswechsel") {
+    return (
+      <ModuswechselDialog
+        meldung={schritt.meldung}
+        laeuft={laeuft}
+        portalZiel={portalZiel}
+        onAbbrechen={() => setSchritt({ art: "sperren", ansicht: schritt.ansicht })}
+        onBestaetigen={() => void sperren(schritt.ansicht, schritt.texte, true)}
+      />
+    );
   }
 
   if (schritt.art === "kottke") {

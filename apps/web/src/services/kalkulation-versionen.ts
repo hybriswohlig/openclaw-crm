@@ -43,6 +43,7 @@ import {
   kundenPreiseOhnePosten,
   kvDarstellungAus,
   paketpreiseAus,
+  paketpreisUnterGrenzeAmTag,
   PLAN5_ARTEN,
   preisModusAus,
   pruefeUebersteuerung,
@@ -144,6 +145,7 @@ const FEHLER_STATUS: Record<VersionsFehlerCode, number> = {
   ANZAHLUNG_UEBER_PREIS: 409,
   STUNDEN_NUR_MENSCH: 409,
   STUNDEN_ZUSATZ_VPS: 409,
+  STUNDEN_TRANSPORTER_VPS: 409,
   MODUSWECHSEL: 409,
   TAGESPREIS_NUR_MENSCH: 409,
 };
@@ -188,7 +190,8 @@ export interface VersionsSpeicher {
    * Eine Transaktion: Sperre des Angebots nehmen, Kundenannahme erneut prüfen (wirft
    * `AngebotAngenommenError`), Version sperren (nur aus dem Entwurf) und die Quotation
    * des Deals schreiben. Mit `stand` nur, wenn die Version noch genau so viele Übersteuerungen hat
-   * (sonst hat jemand dazwischen übersteuert und das Ergebnis passt nicht mehr).
+   * und, mit `stand.updatedAt`, seit der Lesung unverändert ist (F2, I2: auch „Tage anbieten“ mit
+   * gleicher Zahl an Anpassungen und ein spätes `aktualisieren` werden so erkannt).
    */
   sperrenUndAngebot(
     ws: string,
@@ -197,7 +200,7 @@ export interface VersionsSpeicher {
     angebot: AngebotsEingabe,
     kvItems: KvPosten[],
     von: string | null,
-    stand?: { uebersteuerungen: number; schnappschuss?: Schnappschuss; plan5?: Plan5Sperre }
+    stand?: { uebersteuerungen: number; updatedAt?: Date; schnappschuss?: Schnappschuss; plan5?: Plan5Sperre }
   ): Promise<{ version: VersionsZeile }>;
 }
 
@@ -445,23 +448,55 @@ async function neuBerechnen(
   if (k.schalter.angebotAusKalkulation) {
     const modus = preisModusAus(liste);
     felder.pricingMode = modus;
-    felder.packagePrices = paketpreiseAus(ergebnis.paketpreise, liste);
     if (modus === "stunden") {
       const s = ergebnis.stunden;
       felder.priceCents = s ? Math.round(s.summeGeschaetztEur * 100) : null;
     }
   }
-  // Paketpreis-Anpassungen gelten am Basistag auch als Paketpreis dieses Tages (nur mit „Angebot aus Kalkulation“).
-  if (k.schalter.tagespreise) {
-    felder.dayPrices = tagespreiseAus(ergebnis.tagespreise, tage, liste, basistagAus(k.schalter, anfrage));
-  }
+  Object.assign(felder, abgeleitetePreise(ergebnis, liste, tage, k.schalter));
   return felder;
 }
 
-/** Basistag der Paketpreis-Anpassungen: Umzugsdatum der Anfrage, nur mit „Angebot aus Kalkulation“. */
-function basistagAus(schalter: Plan5Schalter, anfrage: RechnerAnfrage): string | null {
-  const d = anfrage.umzugsdatum;
-  return schalter.angebotAusKalkulation && typeof d === "string" ? d : null;
+/**
+ * Paket- und Tagespreise einer Version aus dem Rechner-Ergebnis, der Liste der
+ * Anpassungen und den angebotenen Tagen. Ein Weg für Neuberechnung und Sperren
+ * (F2, I2): Paket- und Tagespreis-Anpassungen gehen nicht an den Rechner, das
+ * Sperren darf den gespeicherten Feldern deshalb nicht trauen. Ohne Schalter die
+ * Paketpreise des Rechners wie vor 5b und keine Tage. Eine Paketpreis-Anpassung
+ * wirkt an jedem Tag als Differenz zum Rechnerpreis am Basistag (I3).
+ */
+export function abgeleitetePreise(
+  ergebnis: RechnerErgebnis,
+  liste: Uebersteuerung[],
+  tage: readonly TagKonfig[],
+  schalter: Plan5Schalter
+): Pick<VersionsZeile, "packagePrices"> & Partial<Pick<VersionsZeile, "dayPrices">> {
+  const aus: Pick<VersionsZeile, "packagePrices"> & Partial<Pick<VersionsZeile, "dayPrices">> = {
+    packagePrices: schalter.angebotAusKalkulation ? paketpreiseAus(ergebnis.paketpreise, liste) : ergebnis.paketpreise ?? [],
+  };
+  if (schalter.tagespreise) {
+    aus.dayPrices = tagespreiseAus(ergebnis.tagespreise, tage, liste, schalter.angebotAusKalkulation ? ergebnis.paketpreise ?? null : null);
+  }
+  return aus;
+}
+
+/** „21.11.2026“ aus „2026-11-21“. */
+const datumText = (t: string) => t.split("-").reverse().join(".");
+
+/**
+ * Untergrenze je Tag (F2, I3): Eine Paketpreis-Anpassung wirkt an jedem Tag als
+ * Differenz und darf an keinem Tag unter den Preis bei 30 % Marge fallen. Wirft
+ * mit Paket, Tag und Untergrenze; eine eigene Anpassung je Tag löst das.
+ */
+function pruefeUntergrenzeJeTag(tage: readonly Tagespreis[], liste: Uebersteuerung[], e: RechnerErgebnis | null, fehler: (text: string) => Error): void {
+  const rundungHaupt = e?.preis?.rundungEur ?? 1;
+  const treffer = paketpreisUnterGrenzeAmTag(tage, liste, (p) =>
+    p.selbstkosten > 0 ? preisBeiMarge(p.selbstkosten, MARGE_MIN_PROZENT, p.rundungEur ?? rundungHaupt) : null
+  );
+  if (!treffer) return;
+  throw fehler(
+    `Der Paketpreis für ${treffer.slug} liegt am ${datumText(treffer.datum)} unter der Mindestmarge von ${MARGE_MIN_PROZENT} % (mindestens ${euro(treffer.grenze)}). Bitte für diesen Tag einen eigenen Preis setzen.`
+  );
 }
 
 /** Anfrage aus Lead und Übersteuerungen weicht ab, oder das Bezugsdatum ist nicht heute. */
@@ -701,6 +736,13 @@ export async function uebersteuern(
       fotoRef: eingabe.fotoRef ?? null,
     };
 
+    // Paketpreis: die Differenz gilt an jedem angebotenen Tag, die Untergrenze auch (I3).
+    if (geprueft.art === "paketpreis" && geprueft.wert !== null && ziel.rechnerResult && kontext.schalter.tagespreise) {
+      const probe = [...ziel.overrides, neue];
+      const tage = abgeleitetePreise(ziel.rechnerResult, probe, tageKonfigAus(ziel.dayPrices), kontext.schalter).dayPrices ?? [];
+      pruefeUntergrenzeJeTag(tage, probe, ziel.rechnerResult, (t) => new UebersteuerungFehler(t));
+    }
+
     // Atomar anhängen; gerechnet wird mit der Liste, die der Speicher danach liefert
     // (enthält auch parallel angehängte Übersteuerungen). Schreibt ein paralleler Lauf
     // ein Ergebnis zu einer älteren Liste, erkennt das Sperren die Abweichung und rechnet neu.
@@ -723,8 +765,10 @@ export async function uebersteuern(
       });
       gespeichert = await d.speicher.aktualisieren(ziel.id, berechnet);
     } catch (err) {
-      // Inzwischen gesperrt: das Sperren hat mit der aktuellen Liste (samt dieser Übersteuerung)
-      // gerechnet, die gesperrte Version ist das Ergebnis.
+      // Inzwischen gesperrt. Enthält die gesperrte Version diese Übersteuerung, hat das Sperren
+      // mit genau ihrer Liste gerechnet: Es leitet Paket- und Tagespreise aus Ergebnis und
+      // Liste neu ab (auch Anpassungen ohne Rechner) und sperrt nur, wenn die Zeile seit
+      // seiner Lesung unverändert ist (`updated_at`). Die gesperrte Version ist das Ergebnis.
       if (!(err instanceof VersionsFehler && err.code === "UNGUELTIG")) throw err;
       const gesperrt = await d.speicher.lesen(ws, deal, ziel.version);
       if (!gesperrt || !gesperrt.overrides.some((u) => u.id === neue.id)) throw err;
@@ -941,6 +985,17 @@ export async function sperren(
       await neuBerechnen(ws, deal, lead, v.overrides, d, { referenceDate: heute, kontext: k, tage: tageKonfigAus(v.dayPrices) })
     );
   }
+  // F2 (I2): Paket- und Tagespreise nie aus den gespeicherten Feldern übernehmen, sondern aus
+  // Ergebnis und aktueller Liste neu ableiten. Anpassungen ohne Rechner (Paket-, Tagespreis)
+  // ändern den Anfrage-Hash nicht; zwischen `anhaengen` und `aktualisieren` stünden sonst
+  // alte Preise neben der neuen Liste. Dass die Zeile bis zum Sperren gleich bleibt, prüft
+  // `sperrenUndAngebot` über `updated_at`.
+  if (plan5 && v.error === null && v.rechnerResult) {
+    v = { ...v, ...abgeleitetePreise(v.rechnerResult, v.overrides, tageKonfigAus(v.dayPrices), k.schalter) };
+    if (k.schalter.tagespreise) {
+      pruefeUntergrenzeJeTag(v.dayPrices ?? [], v.overrides, v.rechnerResult, (t) => new VersionsFehler("UNGUELTIG", t));
+    }
+  }
   if (v.error !== null || !v.rechnerResult || !v.rechnerRequest) {
     throw new VersionsFehler("RECHNER_FEHLER", `Kalkulation nicht aktuell: ${v.error ?? "Noch keine Kalkulation vorhanden."}`);
   }
@@ -1009,6 +1064,7 @@ export async function sperren(
                 kalkulierbar: !!v.rechnerResult.stunden,
                 hinweis: (v.rechnerResult as { stundenHinweis?: string | null }).stundenHinweis ?? null,
                 zusatzposten: v.rechnerResult.stunden?.zusatzposten.length ?? 0,
+                ...(v.rechnerResult.stunden ? { transporter: v.rechnerResult.stunden.transporter } : {}),
               }
             : null,
         istKottke,
@@ -1041,6 +1097,7 @@ export async function sperren(
 
   const { version: gesperrt } = await d.speicher.sperrenUndAngebot(ws, deal, v.id, eingabe, sperrKvItems, autor.userId, {
     uebersteuerungen: v.overrides.length,
+    updatedAt: v.updatedAt,
     schnappschuss: {
       referenceDate: v.referenceDate,
       rechnerRequest: v.rechnerRequest,
@@ -1154,6 +1211,12 @@ export function plan5Preise(
   const kerne: KernBefund[] = [];
   let ohnePreis: string | null = null;
   let postenFalsch = false;
+  // M1: Hat die Version Pakete, braucht jeder Tag Paketpreise. Sonst kostete an diesem Tag
+  // jedes Paket den Tagespreis (alter Rechner, Messpunkt-Rückfall), mit allen Hebeln als Posten.
+  const ohnePakete = packagePrices.length > 0 ? dayPrices.find((t) => t.paketpreise === null) : undefined;
+  if (ohnePakete) {
+    ohnePreis = `Für den ${datumText(ohnePakete.datum)} liefert der Rechner keine Paketpreise. Bitte den Tag entfernen oder neu rechnen.`;
+  }
   for (const w of kundenWahlen(preise)) {
     const r = wahlPreis(preise, w);
     if (!r) {
@@ -1253,7 +1316,7 @@ export async function tagesRaster(
     antwort.ergebnis.tagespreise,
     tage.map((datum) => ({ datum, slots: [], note: null, empfohlen: false })),
     v.overrides,
-    basistagAus(k.schalter, anfrage)
+    k.schalter.angebotAusKalkulation ? antwort.ergebnis.paketpreise ?? null : null
   );
   const zellen = preise.map((t) => {
     const paket = empf && t.paketpreise ? t.paketpreise.find((p) => p.slug === empf) ?? null : null;
@@ -1398,6 +1461,16 @@ export async function tageSetzen(
     if (altBetrag !== u.betrag || alt?.grund !== u.grund) neue.push(anlegen(key, { betrag: u.betrag }, u.grund));
   }
   for (const key of wirksam.keys()) if (!soll.has(key)) neue.push(anlegen(key, null, "Im Termin-Dialog entfernt"));
+
+  // Paketpreis-Anpassungen wirken an jedem neuen Tag als Differenz; die Untergrenze gilt je Tag (I3).
+  // Geprüft vor dem Anhängen, damit ein abgelehnter Stand keine Anpassung hinterlässt.
+  const probe = [...ziel.overrides, ...neue];
+  pruefeUntergrenzeJeTag(
+    abgeleitetePreise(antwort.ergebnis, probe, konfig, k.schalter).dayPrices ?? [],
+    probe,
+    antwort.ergebnis,
+    (t) => new UebersteuerungFehler(t)
+  );
 
   let liste = ziel.overrides;
   for (const u of neue) {

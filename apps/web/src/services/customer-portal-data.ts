@@ -94,6 +94,8 @@ import {
   hatTagespreise,
   stundenAngebotAus,
   tagHatPreis,
+  preisAmTag,
+  wahlPaketSlug,
   terminPreise,
   type AngebotenerPreis,
   type AnnahmeWahl,
@@ -737,20 +739,35 @@ async function annahmeSnapshot(
   const tagesPreise = hatTagespreise(dateOffers.options);
   const paketPreise = await paketeAusVersion(ex, deal, kva.calculationVersionId ?? null);
   if (!tagesPreise && !paketPreise) return kva;
-  const paketName = (slug: string) => dealOffers.options.find((o) => o.catalogueSlug === slug)?.displayName ?? null;
-  const angebotenePreise: AngebotenerPreis[] = [
-    ...dealOffers.options.map((o) => ({ paketSlug: o.catalogueSlug, paketName: o.displayName, datum: null, cent: o.priceCents })),
-  ];
-  for (const t of dateOffers.options) {
-    if (!tagHatPreis(t)) continue;
-    angebotenePreise.push({ paketSlug: null, paketName: null, datum: t.date, cent: t.priceCents ?? null });
-    for (const [slug, cent] of Object.entries(t.packagePrices ?? {}).sort(([a], [b]) => a.localeCompare(b))) {
-      angebotenePreise.push({ paketSlug: slug, paketName: paketName(slug), datum: t.date, cent: typeof cent === "number" ? cent : null });
+  // F2 (M7): nur die Zellen, die das Portal anbietet. Mit Tagen je Tag die Pakete (Preis am
+  // Tag wie `preisAmTag`), ohne Pakete der Tagespreis; ohne Tage die Paketoptionen. Paket-
+  // preise am Basistag sind mit Tagen nie wählbar und stehen deshalb nicht drin.
+  const paketOptionen = dealOffers.options.filter((o) => o.gebunden !== false && o.catalogueSlug);
+  const angebotenePreise: AngebotenerPreis[] = [];
+  if (tagesPreise) {
+    for (const t of dateOffers.options) {
+      if (!tagHatPreis(t)) continue;
+      if (paketOptionen.length > 0 && t.packagePrices) {
+        for (const o of paketOptionen) {
+          angebotenePreise.push({ paketSlug: o.catalogueSlug, paketName: o.displayName, datum: t.date, cent: preisAmTag(t, o.catalogueSlug) });
+        }
+      } else {
+        angebotenePreise.push({ paketSlug: null, paketName: null, datum: t.date, cent: t.priceCents ?? null });
+      }
     }
+  } else {
+    for (const o of dealOffers.options) angebotenePreise.push({ paketSlug: o.catalogueSlug, paketName: o.displayName, datum: null, cent: o.priceCents });
   }
+  // Paket der Wahl nach derselben Regel wie Preis und CRM (`wahlPaketSlug`).
+  const wahlSlug = tagesPreise ? wahlPaketSlug(dealOffers.options, dealOffers.selectedOptionId) : selectedOption?.catalogueSlug ?? null;
+  const wahlOption = !tagesPreise
+    ? selectedOption
+    : wahlSlug
+      ? dealOffers.options.find((o) => o.catalogueSlug === wahlSlug && o.gebunden !== false) ?? null
+      : null;
   const wahl: AnnahmeWahl = {
-    paketSlug: selectedOption?.catalogueSlug ?? null,
-    paketName: selectedOption?.displayName ?? null,
+    paketSlug: wahlOption?.catalogueSlug ?? null,
+    paketName: wahlOption?.displayName ?? null,
     dateOfferId: dateOffers.selection?.dateOfferId ?? null,
     datum: dateOffers.selection?.selectedDate ?? null,
     priceCents: preisCents,
@@ -1602,6 +1619,7 @@ async function loadKvaSnapshot(
       priceCents: quotationPackageOptions.priceCents,
       isRecommended: quotationPackageOptions.isRecommended,
       catalogueSlug: quotationPackageOptions.catalogueSlug,
+      calculationVersionId: quotationPackageOptions.calculationVersionId,
     })
     .from(quotationPackageOptions)
     .where(eq(quotationPackageOptions.dealRecordId, dealRecordId))
@@ -1626,7 +1644,8 @@ async function loadKvaSnapshot(
     isVariable: q.isVariable,
     bisherCents: totalCents,
     stunden,
-    dealOptions: optionRows,
+    // Preis am Tag nur über Optionen der Version der Quotation (wie `wahlPaket` im CRM, M2).
+    dealOptions: optionRows.map((o) => ({ ...o, gebunden: q.calculationVersionId !== null && o.calculationVersionId === q.calculationVersionId })),
     boundOptionId: boundOption?.id ?? null,
     dateOffers,
   });
@@ -2193,6 +2212,23 @@ async function loadDealPackageOffersContext(
     .where(eq(quotationPackageOptions.dealRecordId, dealRecordId))
     .orderBy(quotationPackageOptions.sortOrder);
 
+  const [q] = await ex
+    .select({ selectedPackageOptionId: quotations.selectedPackageOptionId, calculationVersionId: quotations.calculationVersionId })
+    .from(quotations)
+    .where(eq(quotations.dealRecordId, dealRecordId))
+    .limit(1);
+
+  // F2 (M2): Liegen Terminangebote mit Preis aus der Version der Quotation vor, zählen für
+  // den Preis am Tag nur Optionen derselben Version. Sonst kein Feld (Kontext wie vor 5b).
+  const versionId = q?.calculationVersionId ?? null;
+  const [tagAusVersion] = versionId
+    ? await ex
+        .select({ id: quotationDateOffers.id })
+        .from(quotationDateOffers)
+        .where(and(eq(quotationDateOffers.dealRecordId, dealRecordId), eq(quotationDateOffers.calculationVersionId, versionId)))
+        .limit(1)
+    : [];
+
   const options: DealPackageOption[] = rows.map((r) => ({
     id: r.id,
     catalogueSlug: r.catalogueSlug,
@@ -2205,13 +2241,8 @@ async function loadDealPackageOffersContext(
     note: r.note,
     isRecommended: r.isRecommended,
     sortOrder: r.sortOrder,
+    ...(tagAusVersion ? { gebunden: r.calculationVersionId === versionId } : {}),
   }));
-
-  const [q] = await ex
-    .select({ selectedPackageOptionId: quotations.selectedPackageOptionId })
-    .from(quotations)
-    .where(eq(quotations.dealRecordId, dealRecordId))
-    .limit(1);
 
   return {
     options,
@@ -2814,8 +2845,12 @@ export class TermineMitPreisError extends Error {
  *
  * `calculationVersionId` null = von Hand (alter Dialog): Preise bleiben leer,
  * und liegen schon Angebote aus einer Version vor, wirft es
- * `TermineMitPreisError`. Mit Version (Sperren, Task K): Preis, Paketpreise und
- * Bezug je Tag aus der Version. Doppelte Daten in der Eingabe: das erste gilt.
+ * `TermineMitPreisError`, außer mit `versionLoesen` (F2, I6: die Firma hat den
+ * Tagespreis-Schalter nicht mehr): dann ersetzt es die Termine wie vor 5b und
+ * löst den Versionsbezug (`calculation_version_id`, `price_cents`,
+ * `package_prices` werden null). Mit Version (Sperren, Task K): Preis,
+ * Paketpreise und Bezug je Tag aus der Version. Doppelte Daten in der Eingabe:
+ * das erste gilt.
  */
 export async function terminangeboteSchreiben(
   tx: DbExecutor,
@@ -2825,6 +2860,7 @@ export async function terminangeboteSchreiben(
     createdBy: string | null;
     offers: DateOfferInput[];
     calculationVersionId: string | null;
+    versionLoesen?: boolean;
   }
 ): Promise<number> {
   const vonHand = input.calculationVersionId === null;
@@ -2837,7 +2873,7 @@ export async function terminangeboteSchreiben(
     .from(quotationDateOffers)
     .where(eq(quotationDateOffers.dealRecordId, input.dealRecordId))
     .orderBy(quotationDateOffers.sortOrder);
-  if (vonHand && bestand.some((b) => b.calculationVersionId !== null)) throw new TermineMitPreisError();
+  if (vonHand && !input.versionLoesen && bestand.some((b) => b.calculationVersionId !== null)) throw new TermineMitPreisError();
 
   const [wahl] = await tx
     .select({ dateOfferId: customerDateSelections.dateOfferId, selectedDate: customerDateSelections.selectedDate })
@@ -2914,7 +2950,12 @@ export async function replaceDateOffers(input: {
   const count = await db.transaction(async (tx) => {
     await angebotSperren(tx, input.dealRecordId);
     await pruefeNichtAngenommen(input.dealRecordId, tx);
-    return terminangeboteSchreiben(tx, { ...input, calculationVersionId: null });
+    // F2 (I6): Termine mit Preis ändert nur der Termin-Dialog, solange die Firma Tagespreise hat
+    // (409). Ohne Schalter gibt es den Dialog nicht: dann ersetzt der alte Weg die Termine wie
+    // früher und löst den Versionsbezug (Preise null), statt jede Änderung abzulehnen.
+    const { plan5Schalter } = await import("./plan5-schalter");
+    const mitSchalter = (await plan5Schalter(input.workspaceId, input.dealRecordId, tx)).tagespreise;
+    return terminangeboteSchreiben(tx, { ...input, calculationVersionId: null, versionLoesen: !mitSchalter });
   });
 
   await emitEvent({

@@ -132,17 +132,15 @@ describe.skipIf(!url)("Portal und Annahme mit Plan-5-Preisen (DB)", { timeout: 2
     expect(a).toMatchObject({ confirmed_total_cents: preis, selected_option_id: komfort, selected_option_name: "Komfort", selected_date_offer_id: sa, selected_date: "2099-03-06" });
     const snap = a.quotation_snapshot as KvaAnnahmeSnapshot;
     expect(snap.wahl).toEqual({ paketSlug: "komfort", paketName: "Komfort", dateOfferId: sa, datum: "2099-03-06", priceCents: preis });
-    expect(snap.angebotenePreise).toEqual(expect.arrayContaining([
-      { paketSlug: "basis", paketName: "Basis", datum: null, cent: 119000 },
-      { paketSlug: "komfort", paketName: "Komfort", datum: null, cent: 149000 },
-    ]));
-    if (mitTagespreisen) {
-      expect(snap.angebotenePreise).toEqual(expect.arrayContaining([
-        { paketSlug: null, paketName: null, datum: "2099-03-06", cent: 164000 },
-        { paketSlug: "basis", paketName: "Basis", datum: "2099-03-06", cent: 131000 },
-        { paketSlug: "komfort", paketName: "Komfort", datum: "2099-03-06", cent: 164000 },
-      ]));
-    }
+    // F2 (M7): nur die Zellen, die das Portal anbietet: je Tag jedes Paket. Paketpreise am
+    // Basistag (datum null) und der Tagespreis ohne Paket sind mit Paketen nie wählbar.
+    expect(mitTagespreisen).toBe(true);
+    expect(snap.angebotenePreise).toEqual([
+      { paketSlug: "basis", paketName: "Basis", datum: "2099-03-05", cent: 119000 },
+      { paketSlug: "komfort", paketName: "Komfort", datum: "2099-03-05", cent: 149000 },
+      { paketSlug: "basis", paketName: "Basis", datum: "2099-03-06", cent: 131000 },
+      { paketSlug: "komfort", paketName: "Komfort", datum: "2099-03-06", cent: 164000 },
+    ]);
     const snapJson = JSON.stringify(snap);
     for (const wort of INTERN) expect(snapJson).not.toContain(wort);
   });
@@ -173,7 +171,13 @@ describe.skipIf(!url)("Portal und Annahme mit Plan-5-Preisen (DB)", { timeout: 2
     const neu = (await portal.loadContextByToken(d.token))!;
     expect(angezeigterPreis(neu).cents).toBe(164000);
     expect(await portal.confirmKvaForToken(d.token, body(164000), ctx)).toMatchObject({ ok: true });
-    expect(await annahme(d.id)).toMatchObject({ confirmed_total_cents: 164000, selected_date_offer_id: sa, selected_date: "2099-03-06", selected_option_id: null });
+    const a = await annahme(d.id);
+    expect(a).toMatchObject({ confirmed_total_cents: 164000, selected_date_offer_id: sa, selected_date: "2099-03-06", selected_option_id: null });
+    // F2 (M7): ohne Pakete je Tag der Tagespreis.
+    expect((a.quotation_snapshot as KvaAnnahmeSnapshot).angebotenePreise).toEqual([
+      { paketSlug: null, paketName: null, datum: "2099-03-05", cent: 149000 },
+      { paketSlug: null, paketName: null, datum: "2099-03-06", cent: 164000 },
+    ]);
   });
 
   it("Stunden-KV aus der Version: Schätzung im Kontext und als Annahmebetrag, Stunden im Schnappschuss", async () => {

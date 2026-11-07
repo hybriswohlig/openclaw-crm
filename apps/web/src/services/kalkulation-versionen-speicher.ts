@@ -16,6 +16,7 @@ import {
 import { dealCalculationVersions } from "@/db/schema/deal-calculation-versions";
 import { quotations } from "@/db/schema/quotations";
 import { sperrWahl } from "@/lib/kalkulation-versionen";
+import { wahlPaketSlug } from "@openclaw-crm/customer-portal-core";
 import { resolveDealOperatingCompany } from "./financial";
 import { AngebotAngenommenError, aktivBedingung } from "./kva-annahme";
 import { angebotAusVersionSchreiben, angebotSperren, type AngebotAusVersion } from "./quotations";
@@ -168,7 +169,14 @@ export const dbVersionsSpeicher: VersionsSpeicher = {
             eq(dealCalculationVersions.workspaceId, ws),
             eq(dealCalculationVersions.dealRecordId, deal),
             eq(dealCalculationVersions.status, "entwurf"),
-            stand ? sql`jsonb_array_length(${t.overrides}) = ${stand.uebersteuerungen}` : undefined
+            stand ? sql`jsonb_array_length(${t.overrides}) = ${stand.uebersteuerungen}` : undefined,
+            // F2 (I2): optimistisch auf den gelesenen Stand. Jede Änderung am Entwurf (anhaengen,
+            // aktualisieren, auch „Tage anbieten“ mit gleicher Zahl an Anpassungen) setzt
+            // `updated_at` neu. Millisekunden, weil JS-Daten keine Mikrosekunden tragen;
+            // `timestamp` ohne Zeitzone ignoriert das „Z“ der ISO-Zeit (gespeichert wird UTC).
+            stand?.updatedAt
+              ? sql`date_trunc('milliseconds', ${t.updatedAt}) = date_trunc('milliseconds', ${new Date(stand.updatedAt).toISOString()}::timestamp)`
+              : undefined
           )
         )
         .returning();
@@ -186,7 +194,9 @@ export const dbVersionsSpeicher: VersionsSpeicher = {
         // Task T: eine erhaltene Kundenwahl (Paket, Tag) bekommt ihren Preis aus der neuen Version.
         if (!stand.plan5.stunden) {
           const { kundenwahlAnwenden } = await import("./kundenwahl");
-          await kundenwahlAnwenden(tx, deal);
+          // M3: hat die Wahl des Kunden keinen Preis, nichts sperren (die Transaktion rollt
+          // zurück), statt mit einem Preis zu enden, den das Portal nicht zeigt.
+          if ((await kundenwahlAnwenden(tx, deal)) === "ohne_preis") throw new VersionsFehler("UNGUELTIG", OHNE_PREIS_TEXT);
         }
       } else {
         await angebotAusVersionSchreiben(tx, deal, angebot, id);
@@ -213,6 +223,10 @@ export async function ladePaketHebel(ws: string, deal: string): Promise<Record<s
 
 const inCent = (eur: number) => Math.round(eur * 100);
 
+/** M3: Die Wahl des Kunden (Paket am Tag) hat in der Version keinen Preis. */
+export const OHNE_PREIS_TEXT =
+  "Für die Wahl des Kunden (Paket am gewählten Tag) gibt es in dieser Version keinen Preis. Bitte den Preis mit Grund setzen oder den Tag entfernen.";
+
 /**
  * Plan 5b, in der Sperr-Transaktion nach `angebotSperren` (nur über `tx`):
  * Paketoptionen je `catalogue_slug` aktualisieren (IDs und Kundenwahl bleiben),
@@ -229,12 +243,19 @@ async function plan5Schreiben(
   p: Plan5Sperre
 ): Promise<AngebotAusVersion> {
   const optionen = await tx
-    .select({ id: quotationPackageOptions.id, slug: quotationPackageOptions.catalogueSlug })
+    .select({
+      id: quotationPackageOptions.id,
+      slug: quotationPackageOptions.catalogueSlug,
+      isRecommended: quotationPackageOptions.isRecommended,
+    })
     .from(quotationPackageOptions)
-    .where(and(eq(quotationPackageOptions.workspaceId, ws), eq(quotationPackageOptions.dealRecordId, deal)));
+    .where(and(eq(quotationPackageOptions.workspaceId, ws), eq(quotationPackageOptions.dealRecordId, deal)))
+    .orderBy(asc(quotationPackageOptions.sortOrder));
+  const gebunden = new Set<string>();
   for (const o of optionen) {
     const paket = o.slug ? p.preise.packagePrices.find((x) => x.slug === o.slug) : undefined;
     if (!paket || paket.festpreis === null) continue;
+    gebunden.add(o.id);
     await tx
       .update(quotationPackageOptions)
       .set({ priceCents: inCent(paket.festpreis), calculationVersionId: versionId })
@@ -284,9 +305,16 @@ async function plan5Schreiben(
     .from(customerDateSelections)
     .where(and(eq(customerDateSelections.workspaceId, ws), eq(customerDateSelections.dealRecordId, deal)))
     .limit(1);
-  const paketSlug = optionen.find((o) => o.id === q?.option)?.slug ?? null;
+  // Paket der Kundenwahl nach derselben Regel wie `kundenwahlAnwenden` und das Portal (M2, M3).
+  const paketSlug =
+    p.preise.packagePrices.length > 0
+      ? wahlPaketSlug(
+          optionen.map((o) => ({ id: o.id, isRecommended: o.isRecommended, catalogueSlug: o.slug, gebunden: gebunden.has(o.id) })),
+          q?.option ?? null
+        )
+      : null;
   const gewaehlt = sperrWahl(p.preise, p.standard, { paketSlug, datum: auswahl?.datum ?? null });
-  if (!gewaehlt) throw new VersionsFehler("UNGUELTIG", "Für die gewählte Kombination gibt es keinen Preis. Bitte neu rechnen.");
+  if (!gewaehlt) throw new VersionsFehler("UNGUELTIG", OHNE_PREIS_TEXT);
   return { fest: gewaehlt.preis };
 }
 

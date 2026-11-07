@@ -3,7 +3,7 @@
  * rufen dieselben Funktionen auf, damit beide nie auseinanderlaufen.
  */
 import { kundenText } from "./anrede";
-import { preisAmTag, tagHatPreis } from "./offer-selection";
+import { preisAmTag, tagHatPreis, wahlPaketSlug } from "./offer-selection";
 import { daysUntilMove } from "./stage-derivation";
 import type { ConfirmKvaPayload } from "./types";
 import { widerrufsfristEnde } from "./widerruf";
@@ -109,7 +109,7 @@ export function parseConfirmKvaPayload(raw: unknown): ConfirmKvaPayload | null {
  * Option, sonst Angebotssumme.
  */
 export function erwarteterGesamtpreis(input: {
-  dealOptions: Array<{ id: string; priceCents: number; catalogueSlug?: string | null }>;
+  dealOptions: Array<{ id: string; priceCents: number; catalogueSlug?: string | null; isRecommended?: boolean; gebunden?: boolean }>;
   selectedOptionId: string | null | undefined;
   totalCents: number;
   dateOffers?: Array<{ id: string; priceCents: number | null; packagePrices: Record<string, number> | null }>;
@@ -117,7 +117,8 @@ export function erwarteterGesamtpreis(input: {
 }): number {
   const option = input.dealOptions.find((o) => o.id === input.selectedOptionId);
   const tag = input.selectedDateOfferId ? input.dateOffers?.find((d) => d.id === input.selectedDateOfferId) : undefined;
-  if (tag && tagHatPreis(tag)) return preisAmTag(tag, option?.catalogueSlug ?? null) ?? 0;
+  // Mit Tagespreisen das Paket nach derselben Regel wie das CRM (`wahlPaketSlug`, nur gebundene Optionen).
+  if (tag && tagHatPreis(tag)) return preisAmTag(tag, wahlPaketSlug(input.dealOptions, input.selectedOptionId)) ?? 0;
   return option && option.priceCents > 0 ? option.priceCents : input.totalCents;
 }
 

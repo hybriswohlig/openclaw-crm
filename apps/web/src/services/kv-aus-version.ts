@@ -10,7 +10,7 @@
  * laden DB-Lader erst beim Aufruf (Tests berühren `@/db` nie).
  */
 import type { DocumentCopy } from "@openclaw-crm/document-templates";
-import { angebotPasstZuVersion, type Plan5Schalter } from "@/lib/angebot-wahl";
+import { angebotPasstZuVersion, type AngebotsWahl, type Plan5Schalter, type VersionsPreise } from "@/lib/angebot-wahl";
 import { versionsPreiseAusZeile } from "@/lib/kalkulation-versionen";
 import { ohnePreisangaben } from "@/lib/ohne-preisangaben";
 import type { DealDocumentMeta } from "@/services/deal-documents";
@@ -39,6 +39,11 @@ export interface KvAusVersionOptionen {
   ladeSchalter?: (ws: string, deal: string) => Promise<Plan5Schalter>;
   /** Plan 5b: Festpreis und Posten der Quotation (für `angebotPasstZuVersion`). */
   ladeAngebot?: (deal: string) => Promise<{ fixedPrice: string | null; isVariable: boolean; lineItems: { description: string | null; quantity: number; unitRate: string | number }[] } | null>;
+  /**
+   * F2 (I1): die aktuelle Wahl der Quotation (Paket der gewählten gebundenen Option,
+   * gewählter Tag, wie `kundenwahlAnwenden`); nur sie zählt als „nicht von Hand“.
+   */
+  ladeWahl?: (deal: string, version: VersionsPreise & { id: string }) => Promise<AngebotsWahl>;
 }
 
 async function abhaengigkeiten(o: KvAusVersionOptionen): Promise<Required<KvAusVersionOptionen>> {
@@ -52,6 +57,14 @@ async function abhaengigkeiten(o: KvAusVersionOptionen): Promise<Required<KvAusV
     speichereKv: o.speichereKv ?? (await import("./commercial-documents")).storeCommercialDocument,
     ladeSchalter: o.ladeSchalter ?? (async (ws, deal) => (await import("./plan5-schalter")).plan5Schalter(ws, deal)),
     ladeAngebot: o.ladeAngebot ?? (async (deal) => (await import("./quotations")).getQuotation(deal)),
+    ladeWahl:
+      o.ladeWahl ??
+      (async (deal, version) => {
+        const { db } = await import("@/db");
+        const { ladeWahlKontext, aktuelleWahl } = await import("./kundenwahl");
+        const { quotation } = await ladeWahlKontext(db, deal);
+        return aktuelleWahl(db, deal, version, quotation?.selectedPackageOptionId ?? null);
+      }),
   };
 }
 
@@ -111,7 +124,8 @@ export async function kvAusVersion(
       packagePrices: version.packagePrices ?? [],
       dayPrices: version.dayPrices ?? [],
     });
-    if (!angebotPasstZuVersion({ fixedPriceCents: fest, posten }, preise)) await ablehnen();
+    const wahl = await d.ladeWahl(dealRecordId, { ...preise, id: version.id });
+    if (!angebotPasstZuVersion({ fixedPriceCents: fest, posten }, preise, wahl)) await ablehnen();
   }
 
   if (await d.istKottke(workspaceId, dealRecordId)) {

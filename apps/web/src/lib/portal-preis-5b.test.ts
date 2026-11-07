@@ -17,6 +17,7 @@ import {
   tagLang,
   terminPreise,
   terminPreisFuerPaket,
+  wahlPaketSlug,
   type CustomerPortalContext,
   type ConfirmKvaPayload,
 } from "@openclaw-crm/customer-portal-core";
@@ -133,6 +134,64 @@ describe("eine Wahrheit: wahlPreis = Portal = Annahme (Tabellentest)", () => {
     expect(serverPreis(w)).toBe(0);
     expect(angezeigterPreis(w).cents).toBe(0);
     expect(paketPreisAmTag(w.dealPackageOffers.options[2], w.dateOffers.options[1])).toBeNull();
+  });
+});
+
+describe("F2 (I4): eine Quelle für den Preis, auch vor der Terminwahl", () => {
+  /** Wie loadKvaSnapshot: `kva.totalCents`, das die Auftragsdetails zeigen. */
+  const auftragsdetails = (c: CustomerPortalContext) => {
+    const option = c.dealPackageOffers.options.find((o) => o.id === c.dealPackageOffers.selectedOptionId) ?? null;
+    return gesamtpreisMitWahl({
+      isVariable: false,
+      bisherCents: option ? option.priceCents : c.kva!.fixedPriceCents ?? 0,
+      stunden: null,
+      dealOptions: c.dealPackageOffers.options,
+      boundOptionId: option?.id ?? null,
+      dateOffers: c.dateOffers,
+    });
+  };
+  /** Der Samstag ist empfohlen: dort weichen die Paketpreise vom Basistag (Fr) ab. */
+  const mitSamstag = (c: CustomerPortalContext): CustomerPortalContext => ({
+    ...c,
+    dateOffers: { ...c.dateOffers, options: c.dateOffers.options.map((o) => ({ ...o, isRecommended: o.id === "tag-sa" })) },
+  });
+  for (const p of VERSION_5B.pakete) {
+    for (const tagId of [null, ...VERSION_5B.tage.map((t) => t.id)]) {
+      it(`${p.name}, ${tagId ?? "ohne Tag"}: Auftragsdetails = Preiskarte = Server`, () => {
+        const c = imFixtureWaehlen(mitSamstag(paketeTageFixture(null)), { optionId: `opt-${p.slug}`, ...(tagId ? { dateOfferId: tagId } : {}) });
+        const karte = angezeigterPreis(c).cents;
+        const tag = VERSION_5B.tage.find((t) => t.id === (tagId ?? "tag-sa"))!;
+        expect(karte).toBe(tag.pakete[p.slug as keyof typeof tag.pakete] * 100);
+        expect(auftragsdetails(c)).toBe(karte);
+      });
+    }
+  }
+  it("nur Tage, ohne Wahl: Tagespreis am empfohlenen Tag in beiden", () => {
+    const c = mitSamstag(nurTageFixture(null));
+    expect(auftragsdetails(c)).toBe(164000);
+    expect(angezeigterPreis(c).cents).toBe(164000);
+  });
+});
+
+describe("F2 (M2): Paket der Wahl nur aus gebundenen Optionen, wie im CRM", () => {
+  it("ungebundene gewählte Option zählt am Tag nicht: empfohlene gebundene Option gilt", () => {
+    const c = imFixtureWaehlen(paketeTageFixture(null), { optionId: "opt-premium", dateOfferId: "tag-sa" });
+    const optionen = c.dealPackageOffers.options.map((o) => ({ ...o, gebunden: o.catalogueSlug !== "premium" }));
+    const preis = erwarteterGesamtpreis({
+      dealOptions: optionen,
+      selectedOptionId: "opt-premium",
+      totalCents: 0,
+      dateOffers: terminPreise(c.dateOffers.options),
+      selectedDateOfferId: "tag-sa",
+    });
+    // Komfort (empfohlen, gebunden) am Samstag statt Premium.
+    expect(preis).toBe(164000);
+    expect(wahlPaketSlug(optionen, "opt-premium")).toBe("komfort");
+    expect(wahlPaketSlug(optionen, "opt-basis")).toBe("basis");
+    // Ohne Feld (Kontext ohne Version) wie vor 5b.
+    expect(wahlPaketSlug(c.dealPackageOffers.options, "opt-premium")).toBe("premium");
+    // Keine gebundene Option: kein Paket, der Tagespreis gilt.
+    expect(wahlPaketSlug(optionen.map((o) => ({ ...o, gebunden: false })), "opt-basis")).toBeNull();
   });
 });
 

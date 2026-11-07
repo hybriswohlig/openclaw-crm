@@ -107,14 +107,18 @@ function angebotGeaendert(
 }
 
 /**
- * Plan 5b (Entscheidung 8): Ist der neue Stand genau eine Wahl der verknüpften
- * Version (Paket oder Tag mit Preis und Posten aus der gesperrten Version)? Dann ist
- * er nicht von Hand geändert und die Verknüpfung bleibt. Nur für Versionen mit
- * Paket- oder Tagespreisen; sonst bleibt die Regel von vorher (jede Abweichung löst).
+ * Plan 5b (Entscheidung 8): Ist der neue Stand genau die aktuelle Wahl der verknüpften
+ * Version (Paket der gewählten gebundenen Option, gewählter Tag, wie `kundenwahlAnwenden`;
+ * Preis und Posten Zeile für Zeile aus der gesperrten Version)? Dann ist er nicht von Hand
+ * geändert und die Verknüpfung bleibt. F2 (I1): ein geänderter Text bei gleichen Beträgen
+ * oder ein Preis, der zufällig einer anderen Wahl gleicht, löst die Verknüpfung. Nur für
+ * Versionen mit Paket- oder Tagespreisen; sonst bleibt die Regel von vorher.
  */
 async function istWahlDerVersion(
   tx: DbExecutor,
+  dealRecordId: string,
   versionId: string | null,
+  selectedOptionId: string | null,
   neu: { fixedPrice: string | null; isVariable: boolean; lineItems: readonly VergleichsPosten[] }
 ): Promise<boolean> {
   if (!versionId || neu.isVariable) return false;
@@ -135,8 +139,13 @@ async function istWahlDerVersion(
   if (!v || v.status !== "gesperrt") return false;
   const preise = versionsPreiseAusZeile(v as Parameters<typeof versionsPreiseAusZeile>[0]);
   if (preise.packagePrices.length === 0 && preise.dayPrices.length === 0) return false;
-  const posten = neu.lineItems.map((li) => ({ description: li.description ?? "", quantity: li.quantity, unitRate: Number(li.unitRate) }));
-  return angebotPasstZuVersion({ fixedPriceCents: cent, posten }, preise);
+  const posten = [...neu.lineItems]
+    .map((li, index) => ({ li, index }))
+    .sort((a, b) => a.li.sortOrder - b.li.sortOrder || a.index - b.index)
+    .map(({ li }) => ({ description: li.description ?? "", quantity: li.quantity, unitRate: Number(li.unitRate) }));
+  const { aktuelleWahl } = await import("./kundenwahl");
+  const wahl = await aktuelleWahl(tx, dealRecordId, { ...preise, id: versionId }, selectedOptionId);
+  return angebotPasstZuVersion({ fixedPriceCents: cent, posten }, preise, wahl);
 }
 
 export async function upsertQuotation(
@@ -252,7 +261,8 @@ export async function upsertQuotation(
         lineItems: next ?? existing.lineItems,
       };
       const preisGeaendert =
-        angebotGeaendert(existing, neuerStand) && !(await istWahlDerVersion(tx, existing.calculationVersionId, neuerStand));
+        angebotGeaendert(existing, neuerStand) &&
+        !(await istWahlDerVersion(tx, dealRecordId, existing.calculationVersionId, existing.selectedPackageOptionId, neuerStand));
       const [updated] = await tx
         .update(quotations)
         .set({

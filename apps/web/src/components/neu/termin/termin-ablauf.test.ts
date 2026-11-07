@@ -182,6 +182,21 @@ describe("Sperren und KV wie auf der Kalkulationsseite", () => {
     expect(aufrufe.map((a) => a.url)).toEqual([`${B}/4/kv`]);
   });
 
+  it("F2 (M5): MODUSWECHSEL → Rückfrage, nichts gesperrt; mit Bestätigung erneut mit modusWechselBestaetigt", async () => {
+    mockeFetch({
+      [`POST ${B}/3/lock`]: [
+        { status: 409, body: { error: { code: "MODUSWECHSEL", message: "Das Angebot ist ein Stunden-KV." } } },
+        { body: { data: { version: { version: 3 } } } },
+      ],
+      [`POST ${B}/3/kv`]: { body: { data: { renderer: "crm", fileName: "KV-1001.pdf" } } },
+    });
+    expect(await sperrenUndKv("deal_1", ansicht({}), {})).toEqual({ art: "moduswechsel", message: "Das Angebot ist ein Stunden-KV." });
+    expect(aufrufe.map((a) => a.url)).toEqual([`${B}/3/lock`]);
+    expect(await sperrenUndKv("deal_1", ansicht({}), {}, { modusWechselBestaetigt: true })).toEqual({ art: "fertig", fileName: "KV-1001.pdf" });
+    expect(aufrufe[1].body).toMatchObject({ modusWechselBestaetigt: true });
+    expect(aufrufe.map((a) => a.url)).toEqual([`${B}/3/lock`, `${B}/3/lock`, `${B}/3/kv`]);
+  });
+
   it("PREIS_GEAENDERT und andere Fehler; nach einem Sperrfehler kein KV", async () => {
     mockeFetch({ [`POST ${B}/3/lock`]: { status: 409, body: { error: { code: "PREIS_GEAENDERT", message: "Der Preis hat sich geändert." } } } });
     expect(await sperrenUndKv("deal_1", ansicht({}), {})).toEqual({ art: "preis_geaendert", message: "Der Preis hat sich geändert." });

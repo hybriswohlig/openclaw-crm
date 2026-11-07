@@ -11,9 +11,11 @@
  *
  * GET returns the current set so the composer can hydrate.
  *
- * Plan 5b: Stammen die Angebote aus einer Kalkulationsversion (mit Preis),
- * lehnen PUT und DELETE mit 409 TERMINE_MIT_PREIS ab; sie werden nur im
- * Termin-Dialog geändert. Die Prüfung läuft im Dienst unter der Sperre.
+ * Plan 5b: Stammen die Angebote aus einer Kalkulationsversion (mit Preis) und
+ * hat die Firma den Schalter „Tagespreise“, lehnen PUT und DELETE mit 409
+ * TERMINE_MIT_PREIS ab; sie werden nur im Termin-Dialog geändert. Ohne Schalter
+ * (F2, I6) ersetzen sie die Termine wie früher und lösen den Versionsbezug.
+ * Die Prüfung läuft im Dienst unter der Sperre.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { annahmeSperrAntwort } from "@/services/kva-annahme";

@@ -28,6 +28,7 @@ import {
   sperrWahl,
   tagespreiseAus,
   tagespreisAnpassung,
+  paketpreisUnterGrenzeAmTag,
   UebersteuerungFehler,
   type SperrRegel,
   type Uebersteuerung,
@@ -84,7 +85,7 @@ describe("Paket- und Tagespreise der Version", () => {
     ]);
   });
 
-  it("Paketpreis-Anpassung gilt am Basistag auch als Paketpreis dieses Tages (eine Wahl, ein Preis)", () => {
+  it("Paketpreis-Anpassung wirkt an jedem Tag als Differenz zum Rechnerpreis am Basistag; eigene Tagesanpassung geht vor (F2, I3)", () => {
     const rechner = [
       { datum: "2026-11-20", wochentag: "fr" as const, feiertag: false, festpreis: 1810, selbstkosten: 1100, margeProzent: 38, gruende: [], paketpreise: [{ slug: "komfort", festpreis: 1480, selbstkosten: 1000 }] },
       { datum: "2026-11-21", wochentag: "sa" as const, feiertag: false, festpreis: 1870, selbstkosten: 1150, margeProzent: 38, gruende: [], paketpreise: [{ slug: "komfort", festpreis: 1540, selbstkosten: 1050 }] },
@@ -93,24 +94,55 @@ describe("Paket- und Tagespreise der Version", () => {
       { datum: "2026-11-20", slots: [], note: null, empfohlen: true },
       { datum: "2026-11-21", slots: [], note: null, empfohlen: false },
     ];
+    // Rechnerpreis am Basistag 1.480, Anpassung 1.550: Differenz +70 an jedem Tag.
+    const basis = [{ slug: "komfort", festpreis: 1480, selbstkosten: 1000 }];
     const paket = u("paketpreis", "komfort", { betrag: 1550 }, "Dritter Helfer");
     const komfort = (t: Tagespreis[]) => t.map((x) => [x.datum, x.paketpreise?.[0]?.festpreis, x.paketpreise?.[0]?.uebersteuert?.grund ?? null]);
-    // Basistag 20.11.: 1.550 wie das Paket; Samstag bleibt beim Rechner.
-    expect(komfort(tagespreiseAus(rechner, konfig, [paket], "2026-11-20"))).toEqual([
+    expect(komfort(tagespreiseAus(rechner, konfig, [paket], basis))).toEqual([
       ["2026-11-20", 1550, "Dritter Helfer"],
-      ["2026-11-21", 1540, null],
+      ["2026-11-21", 1610, "Dritter Helfer"],
     ]);
-    // Ohne Basistag (Schalter „Angebot aus Kalkulation“ aus): wie bisher.
-    expect(komfort(tagespreiseAus(rechner, konfig, [paket], null))[0]).toEqual(["2026-11-20", 1480, null]);
-    // Eigene Anpassung am Tag geht vor; aufgehoben gilt wieder die des Pakets.
-    const tag = u("tagespreis", "2026-11-20:komfort", { betrag: 1600 }, "Freitag knapp");
-    expect(komfort(tagespreiseAus(rechner, konfig, [paket, tag], "2026-11-20"))[0]).toEqual(["2026-11-20", 1600, "Freitag knapp"]);
-    const weg = { ...u("tagespreis", "2026-11-20:komfort", null, "Im Termin-Dialog entfernt"), id: "weg" };
-    expect(komfort(tagespreiseAus(rechner, konfig, [paket, tag, weg], "2026-11-20"))[0]).toEqual(["2026-11-20", 1550, "Dritter Helfer"]);
+    // Nach unten genauso (Differenz −80), Rechnerwert bleibt sichtbar.
+    const billiger = tagespreiseAus(rechner, konfig, [u("paketpreis", "komfort", { betrag: 1400 }, "Stammkunde")], basis);
+    expect(billiger.map((t) => [t.paketpreise?.[0]?.festpreis, t.paketpreise?.[0]?.rechnerFestpreis])).toEqual([[1400, 1480], [1460, 1540]]);
+    // Ohne Basis-Paketpreise (Schalter „Angebot aus Kalkulation“ aus): keine Wirkung an Tagen.
+    expect(komfort(tagespreiseAus(rechner, konfig, [paket], null))).toEqual([["2026-11-20", 1480, null], ["2026-11-21", 1540, null]]);
+    // Ohne Rechnerpreis am Basistag gibt es keine Differenz: der Tag behält den Rechnerpreis.
+    expect(komfort(tagespreiseAus(rechner, konfig, [paket], [{ slug: "komfort", festpreis: null, selbstkosten: 0 }]))[1]).toEqual(["2026-11-21", 1540, null]);
+    // Eigene Anpassung am Tag geht vor; aufgehoben gilt wieder die Differenz.
+    const tag = u("tagespreis", "2026-11-21:komfort", { betrag: 1600 }, "Samstag knapp");
+    expect(komfort(tagespreiseAus(rechner, konfig, [paket, tag], basis))).toEqual([
+      ["2026-11-20", 1550, "Dritter Helfer"],
+      ["2026-11-21", 1600, "Samstag knapp"],
+    ]);
+    const weg = { ...u("tagespreis", "2026-11-21:komfort", null, "Im Termin-Dialog entfernt"), id: "weg" };
+    expect(komfort(tagespreiseAus(rechner, konfig, [paket, tag, weg], basis))[1]).toEqual(["2026-11-21", 1610, "Dritter Helfer"]);
+    // Aufgehobene Paketanpassung: wieder der Rechner.
+    const aus = { ...u("paketpreis", "komfort", null, "zurück"), id: "aus" };
+    expect(komfort(tagespreiseAus(rechner, konfig, [paket, aus], basis))).toEqual([["2026-11-20", 1480, null], ["2026-11-21", 1540, null]]);
     // Die Ansicht trennt: eigens gesetzt je Paket am Tag nur die Tagesanpassung.
-    expect(tagespreisAnpassung([paket, tag], "2026-11-20", "komfort")).toEqual({ betrag: 1600, grund: "Freitag knapp" });
-    expect(tagespreisAnpassung([paket], "2026-11-20", "komfort")).toBeNull();
-    expect(tagespreisAnpassung([paket, tag, weg], "2026-11-20", "komfort")).toBeNull();
+    expect(tagespreisAnpassung([paket, tag], "2026-11-21", "komfort")).toEqual({ betrag: 1600, grund: "Samstag knapp" });
+    expect(tagespreisAnpassung([paket], "2026-11-21", "komfort")).toBeNull();
+    expect(tagespreisAnpassung([paket, tag, weg], "2026-11-21", "komfort")).toBeNull();
+  });
+
+  it("Untergrenze je Tag: die Differenz darf an keinem Tag unter 30 % Marge fallen; eigene Tagesanpassung zählt nicht (F2, I3)", () => {
+    const rechner = [
+      { datum: "2026-11-20", wochentag: "fr" as const, feiertag: false, festpreis: 1810, selbstkosten: 1100, margeProzent: 38, gruende: [], paketpreise: [{ slug: "komfort", festpreis: 1480, selbstkosten: 1000, rundungEur: 10 }] },
+      { datum: "2026-11-21", wochentag: "sa" as const, feiertag: false, festpreis: 1870, selbstkosten: 1150, margeProzent: 38, gruende: [], paketpreise: [{ slug: "komfort", festpreis: 1500, selbstkosten: 1200, rundungEur: 10 }] },
+    ];
+    const konfig = [
+      { datum: "2026-11-20", slots: [], note: null, empfohlen: true },
+      { datum: "2026-11-21", slots: [], note: null, empfohlen: false },
+    ];
+    const basis = [{ slug: "komfort", festpreis: 1480, selbstkosten: 1000 }];
+    const grenze = (p: PaketpreisVersion) => Math.ceil((p.selbstkosten * 1.3) / 10) * 10;
+    // −50: am 20. 1.430 (Grenze 1.300), am 21. 1.450 (Grenze 1.560): am 21. zu tief.
+    const tief = [u("paketpreis", "komfort", { betrag: 1430 }, "Rabatt")];
+    expect(paketpreisUnterGrenzeAmTag(tagespreiseAus(rechner, konfig, tief, basis), tief, grenze)).toEqual({ datum: "2026-11-21", slug: "komfort", grenze: 1560 });
+    // Mit eigener Anpassung am 21. greift die Prüfung der Tagesanpassung, nicht diese.
+    const mitTag = [...tief, u("tagespreis", "2026-11-21:komfort", { betrag: 1600 }, "fest")];
+    expect(paketpreisUnterGrenzeAmTag(tagespreiseAus(rechner, konfig, mitTag, basis), mitTag, grenze)).toBeNull();
   });
 
   it("sperrWahl: Kundenwahl bleibt, solange angeboten; sonst Standardwahl", () => {
@@ -127,6 +159,11 @@ describe("Paket- und Tagespreise der Version", () => {
     const standard = { paketSlug: "basis", datum: "2026-11-21" };
     expect(sperrWahl(p, standard, { paketSlug: "basis", datum: "2026-11-20" })).toMatchObject({ wahl: { paketSlug: "basis", datum: "2026-11-20" }, preis: { priceCents: 129000 } });
     expect(sperrWahl(p, standard, { paketSlug: "premium", datum: "2026-11-28" })?.wahl).toEqual(standard);
+    // F2 (M3): wie `kundenwahlAnwenden` kein weiterer Rückfall. Hat Basis am 20. keinen Preis,
+    // gibt es keine Wahl (das Sperren lehnt mit Hinweis ab), nicht still Basis am Standardtag.
+    const ohne = { ...p, dayPrices: p.dayPrices.map((t) => (t.datum === "2026-11-20" ? { ...t, paketpreise: t.paketpreise!.map((x) => ({ ...x, festpreis: null })) } : t)) };
+    expect(sperrWahl(ohne, standard, { paketSlug: "basis", datum: "2026-11-20" })).toBeNull();
+    expect(sperrWahl(ohne, standard, { paketSlug: "basis", datum: "2026-11-21" })?.preis.priceCents).toBe(139000);
   });
 });
 
@@ -155,9 +192,18 @@ describe("sperrBefund: eine Regel für Dienst und Seite", () => {
     ["Kern negativ", { kerne: [{ art: "ok" as const }, { art: "negativ" as const }] }, "KERN_NEGATIV"],
     ["Anzahlung", { anzahlungPasst: false }, "ANZAHLUNG_UEBER_PREIS"],
     ["Kottke mit Zusatzposten", { stunden: { kalkulierbar: true, hinweis: null, zusatzposten: 1 }, istKottke: true }, "STUNDEN_ZUSATZ_VPS"],
+    ["Kottke mit 2 Transportern", { stunden: { kalkulierbar: true, hinweis: null, zusatzposten: 0, transporter: 2 }, istKottke: true }, "STUNDEN_TRANSPORTER_VPS"],
+    ["Kottke ohne Transporter", { stunden: { kalkulierbar: true, hinweis: null, zusatzposten: 0, transporter: 0 }, istKottke: true }, "STUNDEN_TRANSPORTER_VPS"],
   ] as const)("%s → %s, Text aus PLAN5_FEHLER_TEXT", (_n, felder, code) => {
     const r = sperrBefund({ ...basis, preise: preise(felder as Partial<NonNullable<SperrRegel["preise"]>>) });
     expect(r).toEqual({ code, text: PLAN5_FEHLER_TEXT[code] });
+  });
+  it("K1: Kottke mit genau einem Transporter sperrt; andere Firmen auch mit 0 oder 2 Transportern", () => {
+    const stunden = (transporter: number) => ({ kalkulierbar: true, hinweis: null, zusatzposten: 0, transporter });
+    expect(sperrBefund({ ...basis, preise: preise({ stunden: stunden(1), istKottke: true }) })).toBeNull();
+    expect(sperrBefund({ ...basis, preise: preise({ stunden: stunden(2), istKottke: false }) })).toBeNull();
+    expect(sperrBefund({ ...basis, preise: preise({ stunden: stunden(0), istKottke: false }) })).toBeNull();
+    expect(PLAN5_FEHLER_TEXT.STUNDEN_TRANSPORTER_VPS).not.toMatch(/[—–]/);
   });
   it("Basis ohne Hebel, begründeter Preis ohne Hebel und kleiner Kern sperren nicht; Mensch mit Bestätigung auch nicht", () => {
     expect(sperrBefund({ ...basis, preise: preise({ kerne: [{ art: "klein", anteil: 0.3 }] }) })).toBeNull();

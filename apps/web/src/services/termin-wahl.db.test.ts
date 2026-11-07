@@ -322,14 +322,50 @@ describe.skipIf(!url)("Terminangebote und Kundenwahl unter der Angebots-Sperre (
     expect(z.slice(sperre, commit).every((e) => e.conn === conn)).toBe(true);
   });
 
-  it("alter Weg von Hand bei Angeboten aus einer Version: TermineMitPreisError, nichts geändert", async () => {
-    v1 = await versionAnlegen(1, versionV1);
-    await sql`update quotations set calculation_version_id = ${v1} where id = ${q1}`;
-    await angeboteAusVersion(v1, versionV1);
-    const vorher = await angebote();
-    await expect(vonHand("2026-12-06")).rejects.toBeInstanceOf(portal.TermineMitPreisError);
-    await expect(vonHand()).rejects.toMatchObject({ code: "TERMINE_MIT_PREIS", message: "Termine mit Preis bitte im Termin-Dialog ändern." });
-    expect(await angebote()).toEqual(vorher);
+  it("alter Weg von Hand bei Angeboten aus einer Version, Firma mit Tagespreisen: TermineMitPreisError, nichts geändert", async () => {
+    await sql`insert into operating_company_portal_settings (operating_company_record_id, workspace_id, angebot_aus_kalkulation, tagespreise_enabled)
+      values (${firma}, ${ws}, true, true)`;
+    try {
+      v1 = await versionAnlegen(1, versionV1);
+      await sql`update quotations set calculation_version_id = ${v1} where id = ${q1}`;
+      await angeboteAusVersion(v1, versionV1);
+      const vorher = await angebote();
+      await expect(vonHand("2026-12-06")).rejects.toBeInstanceOf(portal.TermineMitPreisError);
+      await expect(vonHand()).rejects.toMatchObject({ code: "TERMINE_MIT_PREIS", message: "Termine mit Preis bitte im Termin-Dialog ändern." });
+      expect(await angebote()).toEqual(vorher);
+    } finally {
+      await sql`delete from operating_company_portal_settings where operating_company_record_id = ${firma}`;
+    }
+  });
+
+  it("F2 (I6): ohne Schalter ersetzt der alte Weg die Termine und löst den Versionsbezug; DELETE leert", async () => {
+    // Schalter wieder aus: Zeile mit beiden Schaltern aus (wie nach dem Abschalten).
+    await sql`insert into operating_company_portal_settings (operating_company_record_id, workspace_id, angebot_aus_kalkulation, tagespreise_enabled)
+      values (${firma}, ${ws}, false, false)`;
+    try {
+      v1 = await versionAnlegen(1, versionV1);
+      await sql`update quotations set calculation_version_id = ${v1} where id = ${q1}`;
+      await angeboteAusVersion(v1, versionV1);
+      const vorher = await angebote();
+      expect(await waehleTag("2026-12-05")).toEqual({ ok: true });
+      expect(await vonHand("2026-12-05", "2026-12-06")).toEqual({ count: 2 });
+      const nachher = await angebote();
+      expect(nachher.map((a) => [a.datum, a.price_cents, a.package_prices, a.calculation_version_id])).toEqual([
+        ["2026-12-05", null, null, null],
+        ["2026-12-06", null, null, null],
+      ]);
+      // Der weiter angebotene Tag behält ID und Kundenwahl.
+      expect(nachher[0].id).toBe(vorher.find((a) => a.datum === "2026-12-05")!.id);
+      expect(await wahl()).toEqual({ date_offer_id: nachher[0].id, datum: "2026-12-05" });
+      // Das Portal zeigt an ungebundenen Terminen keine Preise mehr.
+      const c = (await portal.loadContextByToken(token))!;
+      expect(c.dateOffers.options.every((o) => (o as { priceCents?: unknown }).priceCents === undefined)).toBe(true);
+      // DELETE (leere Liste) wie früher.
+      expect(await vonHand()).toEqual({ count: 0 });
+      expect(await angebote()).toEqual([]);
+    } finally {
+      await sql`delete from operating_company_portal_settings where operating_company_record_id = ${firma}`;
+    }
   });
 
   it("Angebote aus der Version: Preis, Paketpreise und Bezug je Tag; erneutes Sperren hält IDs und Wahl", async () => {

@@ -459,6 +459,28 @@ describe("Stunden-KV aus der Version", () => {
     expect(t.plan5()!.stunden?.posten.map((x) => x.type)).toEqual(["helper", "transporter", "other"]);
   });
 
+  it.each([0, 2])("K1: Kottke mit %i Transportern → STUNDEN_TRANSPORTER_VPS; mit genau einem oder Nicht-Kottke sperrbar", async (n) => {
+    const t = aufbau({ kottke: true });
+    await stundenEntwurf(t);
+    t.setzeExtra({ stunden: { ...STUNDEN, transporter: n } });
+    t.zeilen[0].rechnerResult = { ...t.zeilen[0].rechnerResult!, stunden: { ...STUNDEN, transporter: n } };
+    expect(await fehler(sperren("ws", "deal1", 1, MENSCH, {}, t.deps))).toMatchObject({
+      code: "STUNDEN_TRANSPORTER_VPS",
+      message: "Stunden-KV für Kottke geht nur mit genau einem Transporter. Bitte als Festpreis anbieten.",
+    });
+    expect(t.zeilen[0].status).toBe("entwurf");
+    t.deps.istKottke.mockResolvedValue(false);
+    await sperren("ws", "deal1", 1, MENSCH, {}, t.deps);
+    expect(t.plan5()!.stunden?.angebot.transporter).toBe(n);
+  });
+
+  it("K1: Kottke mit genau einem Transporter sperrt", async () => {
+    const t = aufbau({ kottke: true });
+    await stundenEntwurf(t);
+    await sperren("ws", "deal1", 1, MENSCH, {}, t.deps);
+    expect(t.plan5()!.stunden?.angebot.transporter).toBe(1);
+  });
+
   it("ohne Stundensätze im Rechner → RECHNER_FEHLER mit Hinweis", async () => {
     const t = aufbau();
     t.setzeExtra({ stunden: null, ...({ stundenHinweis: "Keine Stundensätze für kottke." } as object) });
