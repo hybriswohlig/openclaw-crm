@@ -19,6 +19,9 @@ import {
   type AnrufAntwort,
 } from "@/lib/anrufe";
 import { uhrzeitKurz } from "@/lib/anzeige";
+import { anrufDialogLage, kundeLink, type AnrufDialogLage } from "@/lib/handy-links";
+import { nameAusZusammenfassung } from "@/lib/phone-call-lead";
+import { AnrufZuordnenDialog } from "./anruf-zuordnen-dialog";
 import { TranskriptDialog, type TranskriptVorschau } from "./transkript-dialog";
 
 /** So viele Anrufe höchstens; mehr gibt die Liste nicht her. */
@@ -53,6 +56,17 @@ function anruferName(a: AnrufEintrag): string | null {
   return a.karten.length === 1 ? (a.karten[0]!.name ?? null) : null;
 }
 
+/** Was „Zuordnen“ für diese Zeile anbietet (Plan 10, Entscheidung 11). */
+function lageAus(a: AnrufEintrag): AnrufDialogLage {
+  return anrufDialogLage({
+    matchStatus: a.matchStatus,
+    dealRecordId: a.dealRecordId,
+    karten: a.karten,
+    bestehendePerson: a.bestehendePerson,
+    offeneLeads: a.offeneLeads,
+  });
+}
+
 function vorschauAus(a: AnrufEintrag): TranskriptVorschau {
   return {
     id: a.id,
@@ -72,13 +86,14 @@ function vorschauAus(a: AnrufEintrag): TranskriptVorschau {
  * /app/anrufe: die letzten 50 Telefonate nach Tag, je Zeile Uhrzeit, Anrufer,
  * Leitung, Dauer, angenommen von und Zusammenfassung. Klick öffnet den
  * Transkript-Dialog. Mit Lead ein Link zur Akte; ohne Lead der Hinweis und
- * der Weg in die alte Oberfläche, wo die Zuordnung noch liegt. Filter nach
- * Leitung aus den vorhandenen Werten.
+ * „Zuordnen“ (Plan 10): Kunde wählen, Lead wählen, an den Lead hängen oder
+ * einen neuen anlegen. Filter nach Leitung aus den vorhandenen Werten.
  */
 export function AnrufeSeite() {
   const [zustand, setZustand] = useState<Zustand>({ art: "laden" });
   const [leitung, setLeitung] = useState<string | null>(null);
   const [dialog, setDialog] = useState<AnrufEintrag | null>(null);
+  const [zuordnen, setZuordnen] = useState<AnrufEintrag | null>(null);
   const portalZiel = usePortalZiel();
 
   const laden = useCallback(async (signal?: AbortSignal) => {
@@ -162,7 +177,7 @@ export function AnrufeSeite() {
             <h2 className="anrufe-tag-titel">{t.titel}</h2>
             <ul className="anrufe-liste">
               {t.anrufe.map((a) => (
-                <AnrufZeile key={a.id} a={a} onOeffnen={() => setDialog(a)} />
+                <AnrufZeile key={a.id} a={a} onOeffnen={() => setDialog(a)} onZuordnen={() => setZuordnen(a)} />
               ))}
             </ul>
           </section>
@@ -170,13 +185,25 @@ export function AnrufeSeite() {
       </GlassPanel>
 
       {dialog ? <TranskriptDialog anruf={vorschauAus(dialog)} portalZiel={portalZiel} onSchliessen={() => setDialog(null)} /> : null}
+      {zuordnen ? (
+        <AnrufZuordnenDialog
+          key={zuordnen.id}
+          callId={zuordnen.id}
+          lage={lageAus(zuordnen)}
+          namensVorschlag={nameAusZusammenfassung(zuordnen.summary)}
+          portalZiel={portalZiel}
+          onZugeordnet={() => void laden()}
+          onSchliessen={() => setZuordnen(null)}
+        />
+      ) : null}
     </div>
   );
 }
 
-function AnrufZeile({ a, onOeffnen }: { a: AnrufEintrag; onOeffnen: () => void }) {
+function AnrufZeile({ a, onOeffnen, onZuordnen }: { a: AnrufEintrag; onOeffnen: () => void; onZuordnen: () => void }) {
   const dauer = anrufDauerText(a.durationSeconds);
   const zuordnung = zuordnungText(a);
+  const lage = lageAus(a);
   const anrufer = anruferText({ name: anruferName(a), callerE164: a.callerE164, callerRaw: a.callerRaw });
   return (
     <li className="anrufe-zeile">
@@ -204,9 +231,15 @@ function AnrufZeile({ a, onOeffnen }: { a: AnrufEintrag; onOeffnen: () => void }
         ) : (
           <>
             <span className="anrufe-zuordnung-hinweis">{zuordnung}</span>
-            <Link href="/anrufe">In der alten Oberfläche zuordnen</Link>
+            {lage.art !== "keiner" ? (
+              <button type="button" className="anrufe-zuordnen-knopf" onClick={onZuordnen}>
+                Zuordnen
+              </button>
+            ) : null}
           </>
         )}
+        {/* Der Name steht im Knopf des Transkripts; ein Link darin wäre verschachtelt. */}
+        {a.personRecordId ? <Link href={kundeLink(a.personRecordId)}>Kunde ansehen</Link> : null}
       </div>
     </li>
   );

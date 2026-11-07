@@ -1,11 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { GlassButton } from "@/components/glassyui/glass-button";
 import type { LeadKarte as Karte, LeadsBoard as Board, LeadsChips, LeadsFilter } from "@/lib/leads-board";
 import { KarteInhalt } from "./lead-karte";
 import { LeadsChipsZeile } from "./leads-chips";
-import { NEUER_LEAD_URL } from "./leads-kopf";
+import { NeuerLeadKnopf } from "./leads-kopf";
 import { LeadsLeiste } from "./leads-leiste";
 import { handyUnterzeile, leerText, sichtbareSpalten } from "./leads-logik";
 
@@ -51,11 +50,7 @@ export function LeadsHandy({
           <h1>Leads</h1>
           <p>{chips ? handyUnterzeile(chips) : "Wird geladen"}</p>
         </div>
-        <GlassButton size="sm" asChild>
-          <Link href={NEUER_LEAD_URL} aria-label="Neuer Lead">
-            +
-          </Link>
-        </GlassButton>
+        <NeuerLeadKnopf kompakt />
       </header>
       <LeadsChipsZeile chips={chips} aktiv={filter.chip} kompakt onWaehlen={(chip) => onFilter({ chip })} />
       <LeadsLeiste

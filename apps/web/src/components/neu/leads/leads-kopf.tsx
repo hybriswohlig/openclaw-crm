@@ -1,10 +1,25 @@
 "use client";
 
-import Link from "next/link";
+import { useState } from "react";
 import { GlassButton } from "@/components/glassyui/glass-button";
+import { NeuerLeadDialog } from "./neuer-lead-dialog";
 
-/** Ziel von „+ Neuer Lead“: der Anlegen-Dialog der alten Seite (Entscheidung 19). */
-export const NEUER_LEAD_URL = "/objects/deals?create=1";
+/** „+ Neuer Lead“: öffnet den Dialog der neuen Oberfläche (Plan 10, Entscheidung 10). */
+export function NeuerLeadKnopf({ kompakt = false }: { kompakt?: boolean }) {
+  const [offen, setOffen] = useState(false);
+  return (
+    <>
+      {kompakt ? (
+        <GlassButton size="sm" aria-label="Neuer Lead" onClick={() => setOffen(true)}>
+          +
+        </GlassButton>
+      ) : (
+        <GlassButton onClick={() => setOffen(true)}>+ Neuer Lead</GlassButton>
+      )}
+      <NeuerLeadDialog offen={offen} onClose={() => setOffen(false)} />
+    </>
+  );
+}
 
 /** Kopf der Leads-Seite (Entscheidung 19, Mockup 03). */
 export function LeadsKopf() {
@@ -16,9 +31,7 @@ export function LeadsKopf() {
         <p className="leads-meta">Zieh eine Karte in die nächste Stufe. Was dabei passiert (KV, AB, Rechnung), fragt das CRM vorher.</p>
       </div>
       <div className="leads-kopf-aktionen">
-        <GlassButton asChild>
-          <Link href={NEUER_LEAD_URL}>+ Neuer Lead</Link>
-        </GlassButton>
+        <NeuerLeadKnopf />
       </div>
     </header>
   );
