@@ -1,0 +1,414 @@
+{
+  "festpreis": {
+    "modell": {
+      "titel": "Annahme und Unterschrift",
+      "auftrag": "Auftrag K-1042",
+      "firma": "Kottke Dienstleistungen",
+      "eckdaten": [
+        {
+          "label": "Kunde",
+          "wert": "Anna Muster"
+        },
+        {
+          "label": "Leistung",
+          "wert": "Umzug"
+        },
+        {
+          "label": "Festpreis",
+          "wert": "1.750,00 €",
+          "gross": true
+        },
+        {
+          "label": "Termin",
+          "wert": "26. November 2026"
+        },
+        {
+          "label": "Von",
+          "wert": "Hauptstr. 5, 72202 Nagold"
+        },
+        {
+          "label": "Nach",
+          "wert": "Gartenweg 2, 70173 Stuttgart"
+        }
+      ],
+      "strecke": true,
+      "stempel": {
+        "text": "ANGENOMMEN",
+        "datum": "22.10.2026"
+      },
+      "rechtstexte": [
+        "Angebot angenommen am 22. Oktober 2026 um 10:15 Uhr im Kundenportal.",
+        "Für Umzugsaufträge mit festem Termin besteht kein gesetzliches Widerrufsrecht (§ 312g Abs. 2 Satz 1 Nr. 9 BGB).",
+        "Haftungshinweis nach § 451g HGB vor der Annahme bestätigt.",
+        "Der Restbetrag ist am Umzugstag direkt nach dem Umzug fällig (bar oder Überweisung).",
+        "Mit meiner Unterschrift bestätige ich den oben bezeichneten Vertrag."
+      ],
+      "unterschrift": {
+        "beschriftung": "Unterschrift Kunde",
+        "name": "Anna Muster",
+        "zeile": "Unterschrieben am 22. Oktober 2026 um 10:20 Uhr, Art: als Name getippt."
+      },
+      "pruefvermerk": [
+        "Annahme: 22. Oktober 2026, 10:15 Uhr (Europe/Berlin), IP 203.0.113.5",
+        "Unterschrift: 22. Oktober 2026, 10:20 Uhr (Europe/Berlin), IP 203.0.113.5",
+        "Angenommenes Angebot: SHA-256 cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+        "AGB-Fassung: kottke-2026-10, SHA-256 abababababababababababababababababababababababababababababababab"
+      ],
+      "fusszeilen": [
+        "Kottke Dienstleistungen · Marktstr. 8 · 72218 Wildberg",
+        "Ihr Ansprechpartner: Dario Kottke"
+      ]
+    },
+    "zeilen": [
+      "Annahme und Unterschrift",
+      "Auftrag K-1042",
+      "Kottke Dienstleistungen",
+      "",
+      "Kunde: Anna Muster",
+      "Leistung: Umzug",
+      "Festpreis: 1.750,00 €",
+      "Termin: 26. November 2026",
+      "Von: Hauptstr. 5, 72202 Nagold",
+      "Nach: Gartenweg 2, 70173 Stuttgart",
+      "",
+      "Angebot angenommen am 22. Oktober 2026 um 10:15 Uhr (Europe/Berlin) im Kundenportal, IP 203.0.113.5.",
+      "Angenommenes Angebot: SHA-256 cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "AGB-Fassung: kottke-2026-10, SHA-256 abababababababababababababababababababababababababababababababab",
+      "Für Umzugsaufträge mit festem Termin besteht kein gesetzliches Widerrufsrecht (§ 312g Abs. 2 Satz 1 Nr. 9 BGB).",
+      "Haftungshinweis nach § 451g HGB vor der Annahme bestätigt.",
+      "Der Restbetrag ist am Umzugstag direkt nach dem Umzug fällig (bar oder Überweisung).",
+      "",
+      "Mit meiner Unterschrift bestätige ich den oben bezeichneten Vertrag.",
+      "",
+      "Name: Anna Muster",
+      "Unterschrieben am 22. Oktober 2026 um 10:20 Uhr, IP 203.0.113.5, Art: als Name getippt."
+    ],
+    "seite": "496c779595778aa30bb93db77adb37728e6774614b0d748a57a6b6995afec53e"
+  },
+  "option": {
+    "modell": {
+      "titel": "Annahme und Unterschrift",
+      "auftrag": "Auftrag K-1042",
+      "firma": "Kottke Dienstleistungen",
+      "eckdaten": [
+        {
+          "label": "Kunde",
+          "wert": "Anna Muster"
+        },
+        {
+          "label": "Leistung",
+          "wert": "Umzug"
+        },
+        {
+          "label": "Option",
+          "wert": "Komfort"
+        },
+        {
+          "label": "Festpreis",
+          "wert": "1.890,00 €",
+          "gross": true
+        },
+        {
+          "label": "Termin",
+          "wert": "26. November 2026"
+        },
+        {
+          "label": "Von",
+          "wert": "Hauptstr. 5, 72202 Nagold"
+        },
+        {
+          "label": "Nach",
+          "wert": "Gartenweg 2, 70173 Stuttgart"
+        }
+      ],
+      "strecke": true,
+      "stempel": {
+        "text": "ANGENOMMEN",
+        "datum": "22.10.2026"
+      },
+      "rechtstexte": [
+        "Angebot angenommen am 22. Oktober 2026 um 10:15 Uhr im Kundenportal.",
+        "Für Umzugsaufträge mit festem Termin besteht kein gesetzliches Widerrufsrecht (§ 312g Abs. 2 Satz 1 Nr. 9 BGB).",
+        "Haftungshinweis nach § 451g HGB vor der Annahme bestätigt.",
+        "Der Restbetrag ist am Umzugstag direkt nach dem Umzug fällig (bar oder Überweisung).",
+        "Mit meiner Unterschrift bestätige ich den oben bezeichneten Vertrag."
+      ],
+      "unterschrift": {
+        "beschriftung": "Unterschrift Kunde",
+        "name": "Anna Muster",
+        "zeile": "Unterschrieben am 22. Oktober 2026 um 10:20 Uhr, Art: als Name getippt."
+      },
+      "pruefvermerk": [
+        "Annahme: 22. Oktober 2026, 10:15 Uhr (Europe/Berlin), IP 203.0.113.5",
+        "Unterschrift: 22. Oktober 2026, 10:20 Uhr (Europe/Berlin), IP 203.0.113.5",
+        "Angenommenes Angebot: SHA-256 cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+        "AGB-Fassung: kottke-2026-10, SHA-256 abababababababababababababababababababababababababababababababab"
+      ],
+      "fusszeilen": [
+        "Kottke Dienstleistungen · Marktstr. 8 · 72218 Wildberg",
+        "Ihr Ansprechpartner: Dario Kottke"
+      ]
+    },
+    "zeilen": [
+      "Annahme und Unterschrift",
+      "Auftrag K-1042",
+      "Kottke Dienstleistungen",
+      "",
+      "Kunde: Anna Muster",
+      "Leistung: Umzug",
+      "Option: Komfort",
+      "Festpreis: 1.890,00 €",
+      "Termin: 26. November 2026",
+      "Von: Hauptstr. 5, 72202 Nagold",
+      "Nach: Gartenweg 2, 70173 Stuttgart",
+      "",
+      "Angebot angenommen am 22. Oktober 2026 um 10:15 Uhr (Europe/Berlin) im Kundenportal, IP 203.0.113.5.",
+      "Angenommenes Angebot: SHA-256 cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "AGB-Fassung: kottke-2026-10, SHA-256 abababababababababababababababababababababababababababababababab",
+      "Für Umzugsaufträge mit festem Termin besteht kein gesetzliches Widerrufsrecht (§ 312g Abs. 2 Satz 1 Nr. 9 BGB).",
+      "Haftungshinweis nach § 451g HGB vor der Annahme bestätigt.",
+      "Der Restbetrag ist am Umzugstag direkt nach dem Umzug fällig (bar oder Überweisung).",
+      "",
+      "Mit meiner Unterschrift bestätige ich den oben bezeichneten Vertrag.",
+      "",
+      "Name: Anna Muster",
+      "Unterschrieben am 22. Oktober 2026 um 10:20 Uhr, IP 203.0.113.5, Art: als Name getippt."
+    ],
+    "seite": "5d2cc416b4f9d63812a42e6e7d6a3f418d61da52eb2e9a6a70eb86f1c9892671"
+  },
+  "stunden-alt": {
+    "modell": {
+      "titel": "Annahme und Unterschrift",
+      "auftrag": "Auftrag K-1042",
+      "firma": "Kottke Dienstleistungen",
+      "eckdaten": [
+        {
+          "label": "Kunde",
+          "wert": "Anna Muster"
+        },
+        {
+          "label": "Leistung",
+          "wert": "Umzug"
+        },
+        {
+          "label": "Voraussichtlich",
+          "wert": "95,00 €",
+          "gross": true
+        },
+        {
+          "label": "Termin",
+          "wert": "26. November 2026"
+        },
+        {
+          "label": "Von",
+          "wert": "Hauptstr. 5, 72202 Nagold"
+        },
+        {
+          "label": "Nach",
+          "wert": "Gartenweg 2, 70173 Stuttgart"
+        }
+      ],
+      "strecke": true,
+      "stempel": {
+        "text": "ANGENOMMEN",
+        "datum": "22.10.2026"
+      },
+      "rechtstexte": [
+        "Angebot angenommen am 22. Oktober 2026 um 10:15 Uhr im Kundenportal.",
+        "Die Abrechnung erfolgt nach tatsächlichem Aufwand. Verbindlich ist die finale Rechnung.",
+        "Der Restbetrag ist am Umzugstag direkt nach dem Umzug fällig (bar oder Überweisung).",
+        "Mit meiner Unterschrift bestätige ich den oben bezeichneten Vertrag."
+      ],
+      "unterschrift": {
+        "beschriftung": "Unterschrift Kunde",
+        "name": "Anna Muster",
+        "zeile": "Unterschrieben am 22. Oktober 2026 um 10:20 Uhr, Art: als Name getippt."
+      },
+      "pruefvermerk": [
+        "Annahme: 22. Oktober 2026, 10:15 Uhr (Europe/Berlin), IP 203.0.113.5",
+        "Unterschrift: 22. Oktober 2026, 10:20 Uhr (Europe/Berlin), IP 203.0.113.5",
+        "Angenommenes Angebot: SHA-256 cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+        "AGB-Fassung: kottke-2026-10, SHA-256 abababababababababababababababababababababababababababababababab"
+      ],
+      "fusszeilen": [
+        "Kottke Dienstleistungen · Marktstr. 8 · 72218 Wildberg",
+        "Ihr Ansprechpartner: Dario Kottke"
+      ]
+    },
+    "zeilen": [
+      "Annahme und Unterschrift",
+      "Auftrag K-1042",
+      "Kottke Dienstleistungen",
+      "",
+      "Kunde: Anna Muster",
+      "Leistung: Umzug",
+      "Voraussichtlicher Gesamtbetrag: 95,00 €. Die Abrechnung erfolgt nach tatsächlichem Aufwand. Verbindlich ist die finale Rechnung.",
+      "Termin: 26. November 2026",
+      "Von: Hauptstr. 5, 72202 Nagold",
+      "Nach: Gartenweg 2, 70173 Stuttgart",
+      "",
+      "Angebot angenommen am 22. Oktober 2026 um 10:15 Uhr (Europe/Berlin) im Kundenportal, IP 203.0.113.5.",
+      "Angenommenes Angebot: SHA-256 cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "AGB-Fassung: kottke-2026-10, SHA-256 abababababababababababababababababababababababababababababababab",
+      "Der Restbetrag ist am Umzugstag direkt nach dem Umzug fällig (bar oder Überweisung).",
+      "",
+      "Mit meiner Unterschrift bestätige ich den oben bezeichneten Vertrag.",
+      "",
+      "Name: Anna Muster",
+      "Unterschrieben am 22. Oktober 2026 um 10:20 Uhr, IP 203.0.113.5, Art: als Name getippt."
+    ],
+    "seite": "d0acb220512bd637ecd94072e2df24afabd4e690df24bb74c9b962d656f592cb"
+  },
+  "ohne-adressen-ceylan": {
+    "modell": {
+      "titel": "Annahme und Unterschrift",
+      "auftrag": "Auftrag K-1042",
+      "firma": "Kottke Dienstleistungen",
+      "eckdaten": [
+        {
+          "label": "Leistung",
+          "wert": "Umzug"
+        },
+        {
+          "label": "Festpreis",
+          "wert": "1.750,00 €",
+          "gross": true
+        }
+      ],
+      "strecke": false,
+      "stempel": {
+        "text": "ANGENOMMEN",
+        "datum": "22.10.2026"
+      },
+      "rechtstexte": [
+        "Angebot angenommen am 22. Oktober 2026 um 10:15 Uhr im Kundenportal.",
+        "Für Umzugsaufträge mit festem Termin besteht kein gesetzliches Widerrufsrecht (§ 312g Abs. 2 Satz 1 Nr. 9 BGB).",
+        "Haftungshinweis nach § 451g HGB vor der Annahme bestätigt.",
+        "Mit meiner Unterschrift bestätige ich den oben bezeichneten Vertrag."
+      ],
+      "unterschrift": {
+        "beschriftung": "Unterschrift Kunde",
+        "name": "Anna Muster",
+        "zeile": "Unterschrieben am 22. Oktober 2026 um 10:20 Uhr, Art: als Name getippt."
+      },
+      "pruefvermerk": [
+        "Annahme: 22. Oktober 2026, 10:15 Uhr (Europe/Berlin), IP 203.0.113.5",
+        "Unterschrift: 22. Oktober 2026, 10:20 Uhr (Europe/Berlin), IP 203.0.113.5",
+        "Angenommenes Angebot: SHA-256 cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+        "AGB-Fassung: kottke-2026-10, SHA-256 abababababababababababababababababababababababababababababababab"
+      ],
+      "fusszeilen": []
+    },
+    "zeilen": [
+      "Annahme und Unterschrift",
+      "Auftrag K-1042",
+      "Kottke Dienstleistungen",
+      "",
+      "Leistung: Umzug",
+      "Festpreis: 1.750,00 €",
+      "",
+      "Angebot angenommen am 22. Oktober 2026 um 10:15 Uhr (Europe/Berlin) im Kundenportal, IP 203.0.113.5.",
+      "Angenommenes Angebot: SHA-256 cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "AGB-Fassung: kottke-2026-10, SHA-256 abababababababababababababababababababababababababababababababab",
+      "Für Umzugsaufträge mit festem Termin besteht kein gesetzliches Widerrufsrecht (§ 312g Abs. 2 Satz 1 Nr. 9 BGB).",
+      "Haftungshinweis nach § 451g HGB vor der Annahme bestätigt.",
+      "",
+      "Mit meiner Unterschrift bestätige ich den oben bezeichneten Vertrag.",
+      "",
+      "Name: Anna Muster",
+      "Unterschrieben am 22. Oktober 2026 um 10:20 Uhr, IP 203.0.113.5, Art: als Name getippt."
+    ],
+    "seite": "6438a293c2ecc9e7ea7dd7a176d14eab0e4eb1e527c484ae43d80340d5799d7a"
+  },
+  "felder-leer": {
+    "modell": {
+      "titel": "Annahme und Unterschrift",
+      "auftrag": "Auftrag K-1042",
+      "firma": "Kottke Dienstleistungen",
+      "eckdaten": [
+        {
+          "label": "Kunde",
+          "wert": "Anna Muster"
+        },
+        {
+          "label": "Leistung",
+          "wert": "Umzug"
+        },
+        {
+          "label": "Option",
+          "wert": "Premium"
+        },
+        {
+          "label": "Festpreis",
+          "wert": "1.750,00 €",
+          "gross": true
+        },
+        {
+          "label": "Termin",
+          "wert": "26. November 2026"
+        },
+        {
+          "label": "Von",
+          "wert": "Hauptstr. 5, 72202 Nagold"
+        },
+        {
+          "label": "Nach",
+          "wert": "Gartenweg 2, 70173 Stuttgart"
+        }
+      ],
+      "strecke": true,
+      "stempel": {
+        "text": "ANGENOMMEN",
+        "datum": "22.10.2026"
+      },
+      "rechtstexte": [
+        "Angebot angenommen am 22. Oktober 2026 um 10:15 Uhr im Kundenportal.",
+        "Für Umzugsaufträge mit festem Termin besteht kein gesetzliches Widerrufsrecht (§ 312g Abs. 2 Satz 1 Nr. 9 BGB).",
+        "Haftungshinweis nach § 451g HGB vor der Annahme bestätigt.",
+        "Der Restbetrag ist am Umzugstag direkt nach dem Umzug fällig (bar oder Überweisung).",
+        "Mit meiner Unterschrift bestätige ich den oben bezeichneten Vertrag."
+      ],
+      "unterschrift": {
+        "beschriftung": "Unterschrift Kunde",
+        "name": "Anna Muster",
+        "zeile": "Unterschrieben am 22. Oktober 2026 um 10:20 Uhr, Art: als Name getippt."
+      },
+      "pruefvermerk": [
+        "Annahme: 22. Oktober 2026, 10:15 Uhr (Europe/Berlin), IP 203.0.113.5",
+        "Unterschrift: 22. Oktober 2026, 10:20 Uhr (Europe/Berlin), IP 203.0.113.5",
+        "Angenommenes Angebot: SHA-256 cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+        "AGB-Fassung: kottke-2026-10, SHA-256 abababababababababababababababababababababababababababababababab"
+      ],
+      "fusszeilen": [
+        "Kottke Dienstleistungen · Marktstr. 8 · 72218 Wildberg",
+        "Ihr Ansprechpartner: Dario Kottke"
+      ]
+    },
+    "zeilen": [
+      "Annahme und Unterschrift",
+      "Auftrag K-1042",
+      "Kottke Dienstleistungen",
+      "",
+      "Kunde: Anna Muster",
+      "Leistung: Umzug",
+      "Option: Premium",
+      "Festpreis: 1.750,00 €",
+      "Termin: 26. November 2026",
+      "Von: Hauptstr. 5, 72202 Nagold",
+      "Nach: Gartenweg 2, 70173 Stuttgart",
+      "",
+      "Angebot angenommen am 22. Oktober 2026 um 10:15 Uhr (Europe/Berlin) im Kundenportal, IP 203.0.113.5.",
+      "Angenommenes Angebot: SHA-256 cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "AGB-Fassung: kottke-2026-10, SHA-256 abababababababababababababababababababababababababababababababab",
+      "Für Umzugsaufträge mit festem Termin besteht kein gesetzliches Widerrufsrecht (§ 312g Abs. 2 Satz 1 Nr. 9 BGB).",
+      "Haftungshinweis nach § 451g HGB vor der Annahme bestätigt.",
+      "Der Restbetrag ist am Umzugstag direkt nach dem Umzug fällig (bar oder Überweisung).",
+      "",
+      "Mit meiner Unterschrift bestätige ich den oben bezeichneten Vertrag.",
+      "",
+      "Name: Anna Muster",
+      "Unterschrieben am 22. Oktober 2026 um 10:20 Uhr, IP 203.0.113.5, Art: als Name getippt."
+    ],
+    "seite": "5dfad0855b8208e10cd4894d42c2e05187348f79b65d6cbb502649311f3a4e00"
+  }
+}

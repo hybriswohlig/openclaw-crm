@@ -5,8 +5,9 @@
  * Datenbank ersetzt (Zeilen je Tabelle).
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildDocumentModel, priceSourceFromStored, renderHtml } from "@openclaw-crm/document-templates";
-import { wahlPreis, type PaketpreisVersion, type Tagespreis, type VersionsPreise } from "@/lib/angebot-wahl";
+import { buildDocumentModel, hourlyFromDetails, priceSourceFromStored, renderHtml } from "@openclaw-crm/document-templates";
+import { wahlPreis, type PaketpreisVersion, type StundenAngebot, type Tagespreis, type VersionsPreise } from "@/lib/angebot-wahl";
+import type { QuotationDocumentDetails } from "@/db/schema/quotations";
 import type { KvPosten } from "@/services/rechner/kv-posten";
 
 const mocks = vi.hoisted(() => ({
@@ -343,5 +344,32 @@ describe("loadCommercialModel mit Version", () => {
     const mit = await loadCommercialModel(eingabe);
     expect(mit).toEqual(ohne);
     expect(mit.choices).toBeUndefined();
+  });
+});
+
+describe("Stunden-KV: QuotationDocumentDetails.stunden ist StundenAngebot", () => {
+  it("die Vorlage liest genau die Felder des Vertrags", () => {
+    const stunden: StundenAngebot = {
+      helfer: 2,
+      transporter: 1,
+      stundenGeschaetzt: 6.5,
+      mindestStunden: 3,
+      satzHelferEur: 35,
+      satzTransporterEur: 25,
+      summeGeschaetztCent: 76750,
+      mindestbetragCent: 43500,
+      quelle: "version",
+    };
+    const details: QuotationDocumentDetails = { stunden };
+    expect(hourlyFromDetails(details)).toEqual({
+      helpers: 2,
+      vans: 1,
+      estimatedHours: 6.5,
+      minimumHours: 3,
+      helperRateCents: 3500,
+      vanRateCents: 2500,
+      estimatedTotalCents: 76750,
+      minimumTotalCents: 43500,
+    });
   });
 });

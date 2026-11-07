@@ -20,6 +20,18 @@ export interface VertragsmappeDaten {
   preisCents: number;
   voraussichtlich: boolean;
   optionName: string | null;
+  /**
+   * Plan 5b: „Gewählt: Komfort am Samstag, 21. November 2026: 1.890,00 €“
+   * (fehlende Teile weggelassen). Ersetzt „Option“ und „Festpreis“.
+   * Fehlt das Feld, bleibt die Mappe wie vor 5b.
+   */
+  gewaehlt?: string | null;
+  /**
+   * Plan 5b, Stunden-KV: aus der Version „Voraussichtlich“ mit der Formulierung
+   * aus Entscheidung 9, alt „Stundensatz X € je Stunde“ (F11). Ersetzt die
+   * Betragszeile; `text` ist der ganze Satz.
+   */
+  preisAngabe?: { label: string; wert: string; text: string } | null;
   leistung: string;
   moveDate: string | null;
   fromAddress: string | null;
@@ -114,19 +126,41 @@ function restbetragZeile(d: VertragsmappeDaten): string | null {
   return kottkeRestbetragSatz(d.haftungshinweis || /umzug/i.test(d.leistung));
 }
 
+/** Erster Buchstabe groß, Satzpunkt am Ende. */
+const alsSatz = (text: string) => {
+  const t = text.trim();
+  const gross = t.charAt(0).toUpperCase() + t.slice(1);
+  return /[.!?]$/.test(gross) ? gross : `${gross}.`;
+};
+
+const gewaehltWert = (gewaehlt: string) => gewaehlt.replace(/^Gewählt:\s*/, "");
+
+/** Der Termin steht schon in der Gewählt-Zeile: dann keine eigene Termin-Zeile. */
+function terminInGewaehlt(d: VertragsmappeDaten): boolean {
+  return !!d.gewaehlt && !!d.moveDate && d.gewaehlt.includes(tagLang(d.moveDate));
+}
+
 function kopfZeilen(d: VertragsmappeDaten): string[] {
   const betrag = formatEur(d.preisCents);
+  const gewaehlt = d.gewaehlt?.trim() || null;
+  const preisAngabe = d.preisAngabe ?? null;
+  const betragZeile = preisAngabe
+    ? d.voraussichtlich
+      ? `${alsSatz(preisAngabe.text)} Die Abrechnung erfolgt nach tatsächlichem Aufwand. Verbindlich ist die finale Rechnung.`
+      : alsSatz(preisAngabe.text)
+    : d.voraussichtlich
+      ? `Voraussichtlicher Gesamtbetrag: ${betrag}. Die Abrechnung erfolgt nach tatsächlichem Aufwand. Verbindlich ist die finale Rechnung.`
+      : `Festpreis: ${betrag}`;
   const z: Array<string | null> = [
     `Auftrag ${d.dealNumber}`,
     d.firma,
     "",
     d.kunde ? `Kunde: ${d.kunde}` : null,
     `Leistung: ${d.leistung}`,
-    d.optionName ? `Option: ${d.optionName}` : null,
-    d.voraussichtlich
-      ? `Voraussichtlicher Gesamtbetrag: ${betrag}. Die Abrechnung erfolgt nach tatsächlichem Aufwand. Verbindlich ist die finale Rechnung.`
-      : `Festpreis: ${betrag}`,
-    d.moveDate ? `Termin: ${tagLang(d.moveDate)}` : null,
+    ...(gewaehlt && !preisAngabe
+      ? [gewaehlt]
+      : [d.optionName && !gewaehlt ? `Option: ${d.optionName}` : null, gewaehlt, betragZeile]),
+    d.moveDate && !terminInGewaehlt(d) ? `Termin: ${tagLang(d.moveDate)}` : null,
     d.fromAddress ? `Von: ${d.fromAddress}` : null,
     d.toAddress ? `Nach: ${d.toAddress}` : null,
     "",
@@ -177,17 +211,37 @@ export function annahmeSeiteModell(d: VertragsmappeDaten): AnnahmeSeiteModell {
   const betrag = formatEur(d.preisCents).replace(/\u00a0/g, " ");
   const u = d.unterschrift;
   const art = u.art === "gezeichnet" ? "eigenhändig gezeichnet" : "als Name getippt";
+  const gewaehlt = d.gewaehlt?.trim() || null;
+  const preisAngabe = d.preisAngabe ?? null;
+  const preisZeilen: (AnnahmeSeiteModell["eckdaten"][number] | null)[] =
+    gewaehlt && !preisAngabe
+      ? [{ label: "Gewählt", wert: gewaehltWert(gewaehlt), gross: true }]
+      : [
+          gewaehlt
+            ? { label: "Gewählt", wert: gewaehltWert(gewaehlt) }
+            : d.optionName
+              ? { label: "Option", wert: d.optionName }
+              : null,
+          preisAngabe
+            ? { label: preisAngabe.label, wert: preisAngabe.wert, gross: true }
+            : { label: d.voraussichtlich ? "Voraussichtlich" : "Festpreis", wert: betrag, gross: true },
+        ];
+  // Der ganze Satz nur, wenn er mehr sagt als Label und Wert (Mindeststunden beim Stunden-KV aus der Version).
+  const preisSatz =
+    preisAngabe && preisAngabe.text.trim() !== `${preisAngabe.label} ${preisAngabe.wert}`
+      ? alsSatz(preisAngabe.text)
+      : null;
   const eckdaten: (AnnahmeSeiteModell["eckdaten"][number] | null)[] = [
     d.kunde ? { label: "Kunde", wert: d.kunde } : null,
     { label: "Leistung", wert: d.leistung },
-    d.optionName ? { label: "Option", wert: d.optionName } : null,
-    { label: d.voraussichtlich ? "Voraussichtlich" : "Festpreis", wert: betrag, gross: true },
-    d.moveDate ? { label: "Termin", wert: tagLang(d.moveDate) } : null,
+    ...preisZeilen,
+    d.moveDate && !terminInGewaehlt(d) ? { label: "Termin", wert: tagLang(d.moveDate) } : null,
     d.fromAddress ? { label: "Von", wert: d.fromAddress } : null,
     d.toAddress ? { label: "Nach", wert: d.toAddress } : null,
   ];
   const rechtstexte: (string | null)[] = [
     `Angebot angenommen am ${datumLang(d.angenommenAm)} um ${uhrzeit(d.angenommenAm)} Uhr im Kundenportal.`,
+    preisSatz,
     d.voraussichtlich ? "Die Abrechnung erfolgt nach tatsächlichem Aufwand. Verbindlich ist die finale Rechnung." : null,
     d.widerrufHinweis,
     d.haftungshinweis ? "Haftungshinweis nach § 451g HGB vor der Annahme bestätigt." : null,

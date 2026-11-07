@@ -211,3 +211,63 @@ describe("Zeichen und Fußzeile", () => {
     expect(fussZeilen([lang, lang, lang], umbruch)).toHaveLength(3);
   });
 });
+
+describe("Plan 5b: Wahl und Stunden-KV in der Mappe", () => {
+  const gewaehlt = "Gewählt: Komfort am Donnerstag, 26. November 2026: 1.890,00 €";
+
+  it("Wahl: eine Zeile „Gewählt“ statt Option, Festpreis und Termin", () => {
+    const d = { ...basis, optionName: "Komfort", preisCents: 189000, gewaehlt };
+    const m = annahmeSeiteModell(d);
+    expect(m.eckdaten.map((e) => e.label)).toEqual(["Kunde", "Leistung", "Gewählt", "Von", "Nach"]);
+    expect(m.eckdaten[2]).toEqual({ label: "Gewählt", wert: "Komfort am Donnerstag, 26. November 2026: 1.890,00 €", gross: true });
+    const zeilen = annahmeSeiteZeilen(d);
+    expect(zeilen).toContain(gewaehlt);
+    expect(zeilen.some((z) => z.startsWith("Option:") || z.startsWith("Festpreis:") || z.startsWith("Termin:"))).toBe(false);
+  });
+
+  it("Wahl nur Paket: der Termin bleibt eine eigene Zeile", () => {
+    const d = { ...basis, optionName: "Komfort", gewaehlt: "Gewählt: Komfort: 1.780,00 €" };
+    const m = annahmeSeiteModell(d);
+    expect(m.eckdaten.map((e) => e.label)).toEqual(["Kunde", "Leistung", "Gewählt", "Termin", "Von", "Nach"]);
+    expect(annahmeSeiteZeilen(d)).toContain("Termin: 26. November 2026");
+  });
+
+  it("Stunden-KV aus der Version: voraussichtlich mit Mindeststunden (Entscheidung 9)", () => {
+    const text = "voraussichtlich 767,50 €, abgerechnet nach Aufwand, mindestens 3 Stunden (435,00 €)";
+    const d = { ...basis, voraussichtlich: true, preisCents: 76750, preisAngabe: { label: "Voraussichtlich", wert: "767,50 €", text } };
+    const m = annahmeSeiteModell(d);
+    expect(m.eckdaten.find((e) => e.gross)).toEqual({ label: "Voraussichtlich", wert: "767,50 €", gross: true });
+    expect(m.rechtstexte).toContain("Voraussichtlich 767,50 €, abgerechnet nach Aufwand, mindestens 3 Stunden (435,00 €).");
+    expect(m.rechtstexte).toContain("Die Abrechnung erfolgt nach tatsächlichem Aufwand. Verbindlich ist die finale Rechnung.");
+    expect(annahmeSeiteZeilen(d)).toContain(
+      "Voraussichtlich 767,50 €, abgerechnet nach Aufwand, mindestens 3 Stunden (435,00 €). Die Abrechnung erfolgt nach tatsächlichem Aufwand. Verbindlich ist die finale Rechnung."
+    );
+  });
+
+  it("alter Stunden-KV: „Stundensatz 95 € je Stunde“ statt „Voraussichtlicher Gesamtbetrag 95 €“ (F11)", () => {
+    const d = {
+      ...basis,
+      voraussichtlich: true,
+      preisCents: 9500,
+      preisAngabe: { label: "Stundensatz", wert: "95,00 € je Stunde", text: "Stundensatz 95,00 € je Stunde" },
+    };
+    const m = annahmeSeiteModell(d);
+    expect(m.eckdaten.find((e) => e.gross)).toEqual({ label: "Stundensatz", wert: "95,00 € je Stunde", gross: true });
+    expect(m.eckdaten.some((e) => e.label === "Voraussichtlich")).toBe(false);
+    // Label und Wert sagen schon alles: kein doppelter Satz.
+    expect(m.rechtstexte.some((r) => r.startsWith("Stundensatz"))).toBe(false);
+    const zeilen = annahmeSeiteZeilen(d).join("\n");
+    expect(zeilen).toContain("Stundensatz 95,00 € je Stunde. Die Abrechnung erfolgt nach tatsächlichem Aufwand.");
+    expect(zeilen).not.toContain("Voraussichtlicher Gesamtbetrag");
+  });
+
+  it("baut die Mappe mit Wahl und mit Stunden ohne Fehler", async () => {
+    for (const extra of [
+      { gewaehlt },
+      { voraussichtlich: true, preisAngabe: { label: "Stundensatz", wert: "95,00 € je Stunde", text: "Stundensatz 95,00 € je Stunde" } },
+    ]) {
+      const out = await baueVertragsmappe(await miniKv(1), { ...basis, ...extra });
+      expect((await PDFDocument.load(out)).getPageCount()).toBe(3);
+    }
+  });
+});
