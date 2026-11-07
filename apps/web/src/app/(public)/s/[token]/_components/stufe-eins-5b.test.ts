@@ -26,6 +26,9 @@ describe("Stufe 1 mit Plan-5-Preisen", () => {
     expect(render(paketeTageFixture(null))).toContain("Dein Angebot übernimmt ihn mit deiner Wahl.");
     expect(render(ceylan(paketeTageFixture(null)))).toContain("Ihr Angebot übernimmt ihn mit Ihrer Wahl.");
     expect(render(paketeTageFixture(null))).toContain("Preis am empfohlenen Termin Fr 27.11.");
+    // Integration: das Datum endet schon mit Punkt, kein „27.11..“ im Kostenvoranschlag.
+    expect(render(paketeTageFixture(null))).toContain("Preis am empfohlenen Termin Fr 27.11. Mit der Terminwahl kann er sich ändern.");
+    expect(render(paketeTageFixture(null))).not.toMatch(/\d\.\.(?!\.)/);
   });
   it("nur Tage (Festangebot): Preis des gewählten Tags im Brief", () => {
     const html = render(nurTageFixture("tag-mo"));
@@ -42,6 +45,9 @@ describe("Stufe 1 mit Plan-5-Preisen", () => {
     const html = render(stundenFixture());
     expect(html).toContain("715 €");
     expect(html).toContain("mindestens 3 Stunden (390 €)");
+    // Integration: Helfer- und Transporterzeilen sind Sätze je Stunde, sonst passt die Summe nicht.
+    expect(html).toMatch(/<td>Helfer<\/td><td>\d+<\/td><td>[\d.]+ € je Stunde<\/td>/);
+    expect(html).toMatch(/<td>Transporter<\/td><td>\d+<\/td><td>[\d.]+ € je Stunde<\/td>/);
   });
   it("alter Stunden-KV: Stundensatz je Stunde statt voraussichtlich", () => {
     const html = render(stundenAltFixture());

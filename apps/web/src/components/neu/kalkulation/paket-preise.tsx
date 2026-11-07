@@ -3,6 +3,7 @@
 import { paketOhneHebelSperrt, type PreisModus } from "@/lib/angebot-wahl";
 import type { KalkulationsAnsicht, PaketAnsicht, TagAnsicht } from "@/lib/kalkulations-ansicht";
 import { euro } from "@/components/neu/akte/format";
+import { empfohlenesPaketAus, tagKundenpreisCent } from "@/components/neu/termin/termin-logik";
 import { hebelText, modusName, type PreisStart } from "./preis-logik";
 
 /**
@@ -121,9 +122,21 @@ export function PaketPreise({
   );
 }
 
-function TagZeile({ tag }: { tag: TagAnsicht }) {
+function TagZeile({ tag, pakete }: { tag: TagAnsicht; pakete: KalkulationsAnsicht["pakete"] }) {
+  // Mit Paketen sieht der Kunde nie den Tagespreis ohne Paket: Hauptzahl ist das
+  // empfohlene Paket an diesem Tag, die übrigen Pakete stehen darunter (wie im Termin-Dialog).
+  const empf = empfohlenesPaketAus(pakete);
+  const preis = tagKundenpreisCent(tag, empf);
+  const anpassung = empf ? tag.paketUebersteuert?.[empf] ?? null : tag.uebersteuert;
+  const rechner = empf ? null : tag.rechnerPreisCent;
+  const empfName = empf ? pakete.find((p) => p.slug === empf)?.name ?? empf : null;
+  const andere = empf && tag.paketPreiseCent
+    ? pakete
+        .filter((p) => p.slug !== empf && tag.paketPreiseCent?.[p.slug] != null)
+        .map((p) => `${p.name} ${euro(tag.paketPreiseCent![p.slug]!)}`)
+    : [];
   return (
-    <li className="kalk-pz" data-uebersteuert={tag.uebersteuert ? "" : undefined}>
+    <li className="kalk-pz" data-uebersteuert={anpassung ? "" : undefined}>
       <div className="kalk-pz-kopf" data-ohne-knopf="">
         <span className="kalk-pz-name">
           {tag.text}
@@ -138,13 +151,17 @@ function TagZeile({ tag }: { tag: TagAnsicht }) {
             </span>
           ) : null}
         </span>
-        <b className="kalk-pz-preis">{tag.preisCent === null ? "kein Preis" : euro(tag.preisCent)}</b>
+        <b className="kalk-pz-preis">
+          {empfName ? `${empfName} ` : ""}
+          {preis === null ? "kein Preis" : euro(preis)}
+        </b>
       </div>
-      {tag.uebersteuert ? (
+      {anpassung ? (
         <p className="kalk-pz-anp">
-          {tag.rechnerPreisCent != null ? `Rechner ${euro(tag.rechnerPreisCent)}, ` : ""}angepasst: „{tag.uebersteuert.grund}“
+          {rechner != null ? `Rechner ${euro(rechner)}, ` : ""}angepasst: „{anpassung.grund}“
         </p>
       ) : null}
+      {andere.length > 0 ? <p className="kalk-pz-info">{andere.join(" · ")}</p> : null}
       {tag.slots.length > 0 || tag.note ? (
         <p className="kalk-pz-info">{[...tag.slots.map((s) => s.label), tag.note].filter(Boolean).join(" · ")}</p>
       ) : null}
@@ -153,7 +170,7 @@ function TagZeile({ tag }: { tag: TagAnsicht }) {
 }
 
 /** Angebotene Tage der Version (aus dem Termin-Dialog); geändert wird dort. */
-export function TagePreise({ tage }: { tage: KalkulationsAnsicht["tage"] }) {
+export function TagePreise({ tage, pakete = [] }: { tage: KalkulationsAnsicht["tage"]; pakete?: KalkulationsAnsicht["pakete"] }) {
   if (tage.length === 0) return null;
   return (
     <>
@@ -165,7 +182,7 @@ export function TagePreise({ tage }: { tage: KalkulationsAnsicht["tage"] }) {
       </div>
       <ul className="kalk-pzl" aria-label="Angebotene Tage">
         {tage.map((t) => (
-          <TagZeile key={t.datum} tag={t} />
+          <TagZeile key={t.datum} tag={t} pakete={pakete} />
         ))}
       </ul>
     </>

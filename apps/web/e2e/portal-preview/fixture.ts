@@ -175,8 +175,8 @@ export function stundenFixture(): CustomerPortalContext {
     calculationVersionId: "preview-v4",
     summary: "Umzug nach Aufwand, Team mit drei Helfern und einem Transporter.",
     lineItems: [
-      { type: "helper", description: "Helfer je Stunde", quantity: 3, unitRate: 35, lineTotal: 105 },
-      { type: "transporter", description: "Transporter je Stunde", quantity: 1, unitRate: 25, lineTotal: 25 },
+      { type: "helper", description: "Helfer", quantity: 3, unitRate: 35, lineTotal: 105 },
+      { type: "transporter", description: "Transporter", quantity: 1, unitRate: 25, lineTotal: 25 },
     ],
     stunden: { helfer: 3, transporter: 1, stundenGeschaetzt: 5.5, mindestStunden: 3, satzHelferEur: 35, satzTransporterEur: 25, summeGeschaetztCent: 71500, mindestbetragCent: 39000, quelle: "version" },
     stundenModell: "version",

@@ -35,6 +35,7 @@ import {
   PAKETE_TEXT,
   PLAN5_ARTEN,
   sperrBefund,
+  tagespreisAnpassung,
   STUNDEN_TEXT,
   versionsPreiseAusZeile,
   wirksameUebersteuerungen,
@@ -243,6 +244,8 @@ export interface PaketAnsicht {
   untergrenzeCent?: number | null;
   hebel?: HebelArt[];
   kern?: KernBefund | null;
+  /** Plan 5b: das empfohlene Paket des Deals (Standardwahl; Termin-Dialog zeigt dessen Preis je Tag). */
+  empfohlen?: boolean;
 }
 
 /** Plan 5b: ein angebotener Tag der Version. */
@@ -259,6 +262,8 @@ export interface TagAnsicht {
   gruende: { text: string; punkte: number }[];
   /** Preis je Paket-Slug an diesem Tag */
   paketPreiseCent: Record<string, number | null> | null;
+  /** Eigens gesetzte Anpassung je Paket an diesem Tag (`<datum>:<slug>`), ohne den Paketpreis am Basistag. */
+  paketUebersteuert?: Record<string, { betragCent: number; grund: string }>;
   slots: TagesSlot[];
   note: string | null;
 }
@@ -1155,6 +1160,7 @@ function plan5Ansicht(
       untergrenzeCent: p.selbstkosten > 0 ? cent(preisBeiMarge(p.selbstkosten, MARGE_MIN_PROZENT, rundungP)) : null,
       hebel: rest.paketHebel?.[p.slug] ?? [],
       kern: p.kvItems && p.kvItems.length > 0 ? kernBefund(p.kvItems) : null,
+      empfohlen: p.slug === empf,
     };
   });
 
@@ -1168,6 +1174,12 @@ function plan5Ansicht(
     uebersteuert: t.uebersteuert ? { betragCent: cent(t.uebersteuert.betrag), grund: t.uebersteuert.grund } : null,
     gruende: t.gruende,
     paketPreiseCent: t.paketpreise ? Object.fromEntries(t.paketpreise.map((p) => [p.slug, centOderNull(p.festpreis)])) : null,
+    paketUebersteuert: Object.fromEntries(
+      (t.paketpreise ?? []).flatMap((p) => {
+        const a = tagespreisAnpassung(v.overrides ?? [], t.datum, p.slug);
+        return a ? [[p.slug, { betragCent: cent(a.betrag), grund: a.grund }]] : [];
+      })
+    ),
     slots: t.slots,
     note: t.note,
   }));

@@ -206,13 +206,21 @@ export function betragLesen(text: string): number | null {
   return Number.isFinite(wert) && wert > 0 ? Math.round(wert * 100) / 100 : null;
 }
 
-/** Summe der Margenpunkte eines Tages (Wochenende, Feiertag, Eile, Monatswechsel). */
-export function punkteSumme(gruende: readonly { punkte: number }[]): number {
-  return gruende.reduce((s, g) => s + g.punkte, 0);
+/**
+ * Der Grundwert der Marge (Rechner: erster Grund „Basis Kottke“, „Basis (Marke
+ * unbekannt)“) ist kein Aufschlag; die Zelle zeigt nur, was darüber liegt.
+ */
+function istBasisGrund(g: { text?: string }): boolean {
+  return typeof g.text === "string" && /^Basis\b/.test(g.text);
+}
+
+/** Aufschlag der Marge an einem Tag (Wochenende, Feiertag, Eile, Monatswechsel, Quelle), ohne den Grundwert. */
+export function punkteSumme(gruende: readonly { text?: string; punkte: number }[]): number {
+  return gruende.reduce((s, g) => (istBasisGrund(g) ? s : s + g.punkte), 0);
 }
 
 /** „+5 %“, „+10 %“; 0 oder weniger: null (nichts anzeigen). */
-export function punkteText(gruende: readonly { punkte: number }[]): string | null {
+export function punkteText(gruende: readonly { text?: string; punkte: number }[]): string | null {
   const summe = punkteSumme(gruende);
   return summe > 0 ? `+${ZAHL.format(summe)} %` : null;
 }
@@ -230,15 +238,6 @@ export function wirksamerPreisCent(tag: AuswahlTag, zelle: Pick<TagesRasterZelle
   const betrag = tag.anpassung ? betragLesen(tag.anpassung.betrag) : null;
   if (betrag !== null) return Math.round(betrag * 100);
   return zelle?.preisCent ?? null;
-}
-
-/**
- * Hinweis bei übersteuerter Marge (F16): eine gewählte Marge gilt für alle
- * Tage, dann fallen die Aufschläge für Wochenende, Feiertag und Eile weg.
- */
-export function margenHinweis(gewaehltProzent: number | null): string | null {
-  if (gewaehltProzent === null) return null;
-  return `Die Marge ist von Hand auf ${ZAHL.format(gewaehltProzent)} % gesetzt und gilt für alle Tage. Die Preise unterscheiden sich dann nur durch Miete und Fahrzeit.`;
 }
 
 /** Vorlesetext einer Zelle: „Sa 21.11., 2.480 €, Samstag +5 %, 2 Aufträge, gewählt“. */
@@ -291,16 +290,18 @@ export function auswahlPruefen(auswahl: readonly AuswahlTag[], heute: string): s
 /**
  * Körper für `PUT …/versions/[v]/tage`. Die Liste ist der ganze Stand: Tage
  * ohne Eintrag in `uebersteuerungen` tragen den Rechnerpreis. Eine Anpassung
- * gilt dem Tagespreis (`paketSlug: null`). Nur nach `auswahlPruefen` ohne Fehler.
+ * gilt dem Preis, den das Raster zeigt: mit Paketen dem empfohlenen Paket an
+ * diesem Tag (`paketSlug`), sonst dem Tagespreis (`paketSlug: null`). Ein Kunde
+ * mit Paketen sieht den Tagespreis ohne Paket nie. Nur nach `auswahlPruefen` ohne Fehler.
  */
-export function tageAnbietenAus(auswahl: readonly AuswahlTag[]): TageAnbieten {
+export function tageAnbietenAus(auswahl: readonly AuswahlTag[], paketSlug: string | null = null): TageAnbieten {
   const liste = sortiert(auswahl);
   const uebersteuerungen: TageAnbieten["uebersteuerungen"] = [];
   for (const t of liste) {
     if (!t.anpassung) continue;
     const betrag = betragLesen(t.anpassung.betrag);
     if (betrag === null) continue;
-    uebersteuerungen.push({ datum: t.datum, paketSlug: null, betrag, grund: t.anpassung.grund.trim() });
+    uebersteuerungen.push({ datum: t.datum, paketSlug, betrag, grund: t.anpassung.grund.trim() });
   }
   return {
     tage: liste.map((t) => ({
@@ -313,6 +314,22 @@ export function tageAnbietenAus(auswahl: readonly AuswahlTag[]): TageAnbieten {
   };
 }
 
+function anpassungVon(u: { betragCent: number; grund: string } | null): AuswahlTag["anpassung"] {
+  return u ? { betrag: betragEingabe(u.betragCent), grund: u.grund } : null;
+}
+
+/** Preis eines angebotenen Tags, wie der Kunde ihn sieht: mit Paketen der des empfohlenen Pakets. */
+export function tagKundenpreisCent(t: Pick<TagAnsicht, "preisCent" | "paketPreiseCent">, paketSlug: string | null): number | null {
+  if (paketSlug !== null && t.paketPreiseCent) return t.paketPreiseCent[paketSlug] ?? null;
+  return t.preisCent;
+}
+
+/** Empfohlenes Paket der Ansicht (Standardwahl); null ohne Pakete. */
+export function empfohlenesPaketAus(pakete: readonly { slug: string; empfohlen?: boolean }[]): string | null {
+  if (pakete.length === 0) return null;
+  return (pakete.find((p) => p.empfohlen) ?? null)?.slug ?? null;
+}
+
 /** „2480“ bzw. „2480,50“ zum Vorbelegen eines Eingabefelds. */
 function betragEingabe(cent: number): string {
   return cent % 100 === 0 ? String(cent / 100) : (cent / 100).toFixed(2).replace(".", ",");
@@ -321,8 +338,9 @@ function betragEingabe(cent: number): string {
 /**
  * Auswahl aus den schon angebotenen Tagen der Version (erneut öffnen):
  * vergangene Tage fallen weg, Slots, Notiz, Empfehlung und Anpassung bleiben.
+ * Mit `paketSlug` die eigens gesetzte Anpassung dieses Pakets am Tag (wie `tageAnbietenAus`).
  */
-export function auswahlAusTagen(tage: readonly TagAnsicht[], heute: string): AuswahlTag[] {
+export function auswahlAusTagen(tage: readonly TagAnsicht[], heute: string, paketSlug: string | null = null): AuswahlTag[] {
   const liste: AuswahlTag[] = tage
     .filter((t) => istTag(t.datum) && !istVergangen(t.datum, heute))
     .slice(0, MAX_TAGE)
@@ -331,7 +349,7 @@ export function auswahlAusTagen(tage: readonly TagAnsicht[], heute: string): Aus
       slots: t.slots.length > 0 ? t.slots.map((s) => ({ ...s })) : [{ ...GANZTAGS }],
       note: t.note ?? "",
       empfohlen: t.empfohlen,
-      anpassung: t.uebersteuert ? { betrag: betragEingabe(t.uebersteuert.betragCent), grund: t.uebersteuert.grund } : null,
+      anpassung: anpassungVon(paketSlug === null ? t.uebersteuert : t.paketUebersteuert?.[paketSlug] ?? null),
     }));
   return empfehlungNormalisieren(liste);
 }

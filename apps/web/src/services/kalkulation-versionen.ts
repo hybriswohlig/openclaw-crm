@@ -451,8 +451,17 @@ async function neuBerechnen(
       felder.priceCents = s ? Math.round(s.summeGeschaetztEur * 100) : null;
     }
   }
-  if (k.schalter.tagespreise) felder.dayPrices = tagespreiseAus(ergebnis.tagespreise, tage, liste);
+  // Paketpreis-Anpassungen gelten am Basistag auch als Paketpreis dieses Tages (nur mit „Angebot aus Kalkulation“).
+  if (k.schalter.tagespreise) {
+    felder.dayPrices = tagespreiseAus(ergebnis.tagespreise, tage, liste, basistagAus(k.schalter, anfrage));
+  }
   return felder;
+}
+
+/** Basistag der Paketpreis-Anpassungen: Umzugsdatum der Anfrage, nur mit „Angebot aus Kalkulation“. */
+function basistagAus(schalter: Plan5Schalter, anfrage: RechnerAnfrage): string | null {
+  const d = anfrage.umzugsdatum;
+  return schalter.angebotAusKalkulation && typeof d === "string" ? d : null;
 }
 
 /** Anfrage aus Lead und Übersteuerungen weicht ab, oder das Bezugsdatum ist nicht heute. */
@@ -951,7 +960,9 @@ export async function sperren(
   const nachher = sperrBefund(regel(modus, v.dayPrices?.length ?? 0));
   if (nachher) throw new VersionsFehler(nachher.code, nachher.text);
 
-  const bestaetigtSpanne = body.bestaetigtSpanne === true;
+  // Die Obergrenze einer Spanne ist ein Festpreis-Begriff: der Stunden-KV trägt die
+  // Schätzung aus den Stunden (Entscheidung 7), eine Bestätigung der Obergrenze entfällt.
+  const bestaetigtSpanne = body.bestaetigtSpanne === true || modus === "stunden";
   const jetzt = d.jetzt();
   const u = angebotsUebernahme(
     { result: v.rechnerResult, request: v.rechnerRequest },
@@ -1241,7 +1252,8 @@ export async function tagesRaster(
   const preise = tagespreiseAus(
     antwort.ergebnis.tagespreise,
     tage.map((datum) => ({ datum, slots: [], note: null, empfohlen: false })),
-    v.overrides
+    v.overrides,
+    basistagAus(k.schalter, anfrage)
   );
   const zellen = preise.map((t) => {
     const paket = empf && t.paketpreise ? t.paketpreise.find((p) => p.slug === empf) ?? null : null;

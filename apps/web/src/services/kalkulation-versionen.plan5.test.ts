@@ -428,6 +428,20 @@ describe("Stunden-KV aus der Version", () => {
     expect(t.zeilen[0]).toMatchObject({ status: "gesperrt", pricingMode: "stunden", priceCents: 52250 });
   });
 
+  it("Schätzung (Spanne) sperrt im Stundenmodus ohne Spannen-Bestätigung; der Festpreis braucht sie weiter (Integration 5b)", async () => {
+    const t = aufbau();
+    t.setzeExtra({ schaetzung: { festpreisVon: 1190, festpreisBis: 1490, annahmen: [] } });
+    await stundenEntwurf(t);
+    // Die Seite zeigt im Stundenmodus keine KV-Vorschau und schickt keine Bestätigung der Obergrenze.
+    await sperren("ws", "deal1", 1, MENSCH, {}, t.deps);
+    expect(t.zeilen[0]).toMatchObject({ status: "gesperrt", pricingMode: "stunden", priceCents: 52250 });
+
+    const f = aufbau();
+    f.setzeExtra({ schaetzung: { festpreisVon: 1190, festpreisBis: 1490, annahmen: [] } });
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, f.deps);
+    expect(await fehler(sperren("ws", "deal1", 1, MENSCH, {}, f.deps))).toMatchObject({ code: "SPANNE" });
+  });
+
   it("Agent sperrt keinen Stunden-KV → STUNDEN_NUR_MENSCH", async () => {
     const t = aufbau();
     await stundenEntwurf(t);

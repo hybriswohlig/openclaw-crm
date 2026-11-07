@@ -36,6 +36,8 @@ export function QuotationPreview({ ctx, token, variant = "full", emailImBrief = 
   const postenDerWahl = !!option && !!ctx.kva.calculationVersionId && positions.length > 0 &&
     positions.reduce((s, p) => s + Math.round(p.lineTotal * 100), 0) === total;
   const stunden = stundenAnzeige(ctx.kva);
+  // Stunden-KV aus der Version: Helfer- und Transporterzeilen sind Sätze je Stunde, nicht Teil der Summe (K12).
+  const stundenZeile = (item: { type: string }) => stunden?.modell === "version" && (item.type === "helper" || item.type === "transporter");
   const standardInclusions = ctx.kva.showStandardInclusions
     ? ctx.inclusions.included.map(item => [item.label, item.detail].filter(Boolean).join(": "))
     : [];
@@ -53,7 +55,7 @@ export function QuotationPreview({ ctx, token, variant = "full", emailImBrief = 
       {ctx.scope.moveDate && <p>{worte(ctx).termin}: {formatPortalDate(ctx.scope.moveDate)}{ctx.scope.timeStart && `, ab ${ctx.scope.timeStart} Uhr`}</p>}
       {adressZeilen(ctx).length > 0 && <div className="my-4 grid gap-3 sm:grid-cols-2">{adressZeilen(ctx).map((a) => <p key={a.key}><strong>{a.label}</strong><br />{a.adresse}{a.etage != null && <span className="block">{a.etage === 0 ? "Erdgeschoss" : `${a.etage}. OG`}</span>}{a.zugang && <span className="block">{a.zugang}</span>}</p>)}</div>}
       {ctx.kva.summary && <p className="mt-4 whitespace-pre-line">{ctx.kva.summary}</p>}
-      {positions.length > 0 && (!option || postenDerWahl) ? <table><thead><tr><th>Beschreibung</th><th>Menge</th><th>Betrag</th></tr></thead><tbody>{positions.map((item, i) => <tr key={i}><td>{item.description}</td><td>{item.quantity}</td><td>{formatPortalMoney(Math.round(item.lineTotal * 100))}</td></tr>)}</tbody></table> : inclusions.length > 0 && <table><thead><tr><th>Vereinbarte Leistungen{option && ` · ${option.displayName}`}</th></tr></thead><tbody>{inclusions.map((item, i) => <tr key={i}><td style={{ textAlign: "left", whiteSpace: "normal" }}>{item}</td></tr>)}</tbody></table>}
+      {positions.length > 0 && (!option || postenDerWahl) ? <table><thead><tr><th>Beschreibung</th><th>Menge</th><th>Betrag</th></tr></thead><tbody>{positions.map((item, i) => <tr key={i}><td>{item.description}</td><td>{item.quantity}</td><td>{formatPortalMoney(Math.round(item.lineTotal * 100))}{stundenZeile(item) && " je Stunde"}</td></tr>)}</tbody></table> : inclusions.length > 0 && <table><thead><tr><th>Vereinbarte Leistungen{option && ` · ${option.displayName}`}</th></tr></thead><tbody>{inclusions.map((item, i) => <tr key={i}><td style={{ textAlign: "left", whiteSpace: "normal" }}>{item}</td></tr>)}</tbody></table>}
       {postenDerWahl && option.includedItems.length > 0 && <p className="mt-4"><strong>{option.displayName} enthält:</strong> {option.includedItems.join("; ")}</p>}
       {option && option.excludedItems.length > 0 && <p className="mt-4"><strong>Nicht enthalten:</strong> {option.excludedItems.join("; ")}</p>}
       {option && option.addableItems.length > 0 && <p className="mt-3"><strong>Auf Wunsch zubuchbar:</strong> {option.addableItems.join("; ")}</p>}
@@ -63,7 +65,7 @@ export function QuotationPreview({ ctx, token, variant = "full", emailImBrief = 
         : <div className="portal-document-total"><span>{ctx.kva.isVariable ? "Voraussichtlicher Gesamtbetrag" : "Gesamtbetrag"}</span><strong className="portal-price">{formatPortalMoney(total)}</strong></div>}
       {stunden?.modell === "version" && <p className="mt-2">{stundenVersionText(stunden.stunden, formatPortalMoney).replace(/^v/, "V")}.</p>}
       {stunden?.modell === "alt" && <p className="mt-2">{stundensatzText(stunden.satzCents, formatPortalMoney)}, abgerechnet nach tatsächlichem Aufwand.</p>}
-      {preis.tag && <p className="mt-2">{preis.tagGewaehlt ? `Preis an diesem Tag: ${tagKurz(preis.tag.date)}` : `Preis am empfohlenen Termin ${tagKurz(preis.tag.date)}. Mit der Terminwahl kann er sich ändern.`}</p>}
+      {preis.tag && <p className="mt-2">{preis.tagGewaehlt ? `Preis an diesem Tag: ${tagKurz(preis.tag.date)}` : `Preis am empfohlenen Termin ${tagKurz(preis.tag.date)} Mit der Terminwahl kann er sich ändern.`}</p>}
       {!!ctx.kva.depositRequiredCents && <p className="mt-3">Vereinbarte Anzahlung: {formatPortalMoney(ctx.kva.depositRequiredCents)}</p>}
       <RestbetragHinweis firmaSlug={ctx.branding.firmaSlug} serviceType={ctx.annahmeRecht.serviceType} className="mt-3" />
       {ctx.kva.validUntil && <p className="mt-3">Gültig bis: {formatPortalDate(ctx.kva.validUntil)}</p>}

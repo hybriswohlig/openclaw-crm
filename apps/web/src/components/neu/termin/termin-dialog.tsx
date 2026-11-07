@@ -35,13 +35,14 @@ import {
   auswahlAusTagen,
   auswahlPruefen,
   empfehlungNormalisieren,
-  margenHinweis,
+  empfohlenesPaketAus,
   monatBereich,
   monatErlaubt,
   monatVon,
   startMonat,
   tagAendern,
   tageAnbietenAus,
+  tagKundenpreisCent,
   tagUmschalten,
   TERMIN_DIALOG_EVENT,
   type AuswahlTag,
@@ -178,7 +179,10 @@ function TerminDialogNeu({
   onGespeichert?: (version: number) => void;
 }) {
   const [heute] = useState(() => berlinDateString());
-  const [auswahl, setAuswahl] = useState<AuswahlTag[]>(() => auswahlAusTagen(start.tage, heute));
+  // Mit Paketen gelten Preis und Anpassung dem empfohlenen Paket am Tag (wie das Raster).
+  const paket = empfohlenesPaketAus(start.pakete);
+  const paketName = paket ? start.pakete.find((p) => p.slug === paket)?.name ?? paket : null;
+  const [auswahl, setAuswahl] = useState<AuswahlTag[]>(() => auswahlAusTagen(start.tage, heute, paket));
   const [monat, setMonat] = useState(() => startMonat(auswahl, null, heute));
   const [zellen, setZellen] = useState<Record<string, TagesRasterZelle>>({});
   const [staende, setStaende] = useState<Record<string, MonatsStand>>({});
@@ -240,7 +244,6 @@ function TerminDialogNeu({
   }, [auswahl]);
 
   const beschaeftigt = laeuft || schritt.art !== "waehlen";
-  const hinweisMarge = margenHinweis(start.marge.gewaehltProzent);
 
   function tagKlick(datum: string) {
     const r = tagUmschalten(auswahl, datum, heute);
@@ -254,7 +257,7 @@ function TerminDialogNeu({
     if (fehler.length > 0) return;
     setLaeuft(true);
     try {
-      const r = await tageSpeichern(dealId, versionNr, tageAnbietenAus(auswahl));
+      const r = await tageSpeichern(dealId, versionNr, tageAnbietenAus(auswahl, paket));
       if (!r.ok) {
         setPruefFehler([r.message]);
         toast.error("Tage konnten nicht gespeichert werden.", { description: r.message });
@@ -338,15 +341,14 @@ function TerminDialogNeu({
             </GlassDialogDescription>
 
             <Wunschtermin kopf={kopf} />
-            {hinweisMarge ? (
-              <p className="termin-band" data-ton="gold" role="note">
-                {hinweisMarge}
-              </p>
-            ) : null}
+            {/* F16: nur der Dienst weiß, ob die Marge übersteuert ist (`marge.gewaehltProzent` ist auch ohne Anpassung gefüllt). */}
             {kopf?.hinweis ? (
-              <p className="termin-band" data-ton="blau" role="note">
+              <p className="termin-band" data-ton="gold" role="note">
                 {kopf.hinweis}
               </p>
+            ) : null}
+            {paketName ? (
+              <p className="termin-hilfe">Preise je Tag für {paketName} (empfohlenes Paket). Eine Anpassung gilt {paketName} an diesem Tag.</p>
             ) : null}
 
             <div className="termin-koerper">
@@ -472,6 +474,8 @@ function Wunschtermin({ kopf }: { kopf: Pick<TagesRaster, "wunschtermin"> | null
 /** Die angebotenen Tage einer Version mit ihren Preisen (nach dem Speichern neu gerechnet). */
 function TageListe({ ansicht }: { ansicht: KalkulationsAnsicht }) {
   if (ansicht.tage.length === 0) return null;
+  // Wie im Raster: mit Paketen der Preis des empfohlenen Pakets am Tag.
+  const paket = empfohlenesPaketAus(ansicht.pakete);
   return (
     <ul className="termin-uebersicht" aria-label="Angebotene Tage mit Preis">
       {ansicht.tage.map((t) => (
@@ -479,9 +483,13 @@ function TageListe({ ansicht }: { ansicht: KalkulationsAnsicht }) {
           <span>
             <b>{t.text || tagKurz(t.datum)}</b>
             {t.empfohlen ? <span className="termin-wahl-marke" data-ton="blau">empfohlen</span> : null}
-            {t.uebersteuert ? <small>angepasst: {t.uebersteuert.grund}</small> : null}
+            {(paket ? t.paketUebersteuert?.[paket] : t.uebersteuert) ? (
+              <small>angepasst: {(paket ? t.paketUebersteuert?.[paket] : t.uebersteuert)?.grund}</small>
+            ) : null}
           </span>
-          <span className="termin-uebersicht-preis">{t.preisCent !== null ? euroText(t.preisCent) : "kein Preis"}</span>
+          <span className="termin-uebersicht-preis">
+            {tagKundenpreisCent(t, paket) !== null ? euroText(tagKundenpreisCent(t, paket)!) : "kein Preis"}
+          </span>
         </li>
       ))}
     </ul>

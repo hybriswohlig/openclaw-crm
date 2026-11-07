@@ -307,7 +307,7 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
         ) : (
           <>
             <PaketPreise pakete={ansicht.pakete} beschaeftigt={lauf !== null} onPreis={preisOeffnen} />
-            <TagePreise tage={ansicht.tage} />
+            <TagePreise tage={ansicht.tage} pakete={ansicht.pakete} />
           </>
         )
       ) : (

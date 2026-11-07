@@ -27,6 +27,7 @@ import {
   sperrBefund,
   sperrWahl,
   tagespreiseAus,
+  tagespreisAnpassung,
   UebersteuerungFehler,
   type SperrRegel,
   type Uebersteuerung,
@@ -81,6 +82,35 @@ describe("Paket- und Tagespreise der Version", () => {
       ["2026-11-21", 1590, "sa", 1290],
       ["2026-11-27", null, "fr", null],
     ]);
+  });
+
+  it("Paketpreis-Anpassung gilt am Basistag auch als Paketpreis dieses Tages (eine Wahl, ein Preis)", () => {
+    const rechner = [
+      { datum: "2026-11-20", wochentag: "fr" as const, feiertag: false, festpreis: 1810, selbstkosten: 1100, margeProzent: 38, gruende: [], paketpreise: [{ slug: "komfort", festpreis: 1480, selbstkosten: 1000 }] },
+      { datum: "2026-11-21", wochentag: "sa" as const, feiertag: false, festpreis: 1870, selbstkosten: 1150, margeProzent: 38, gruende: [], paketpreise: [{ slug: "komfort", festpreis: 1540, selbstkosten: 1050 }] },
+    ];
+    const konfig = [
+      { datum: "2026-11-20", slots: [], note: null, empfohlen: true },
+      { datum: "2026-11-21", slots: [], note: null, empfohlen: false },
+    ];
+    const paket = u("paketpreis", "komfort", { betrag: 1550 }, "Dritter Helfer");
+    const komfort = (t: Tagespreis[]) => t.map((x) => [x.datum, x.paketpreise?.[0]?.festpreis, x.paketpreise?.[0]?.uebersteuert?.grund ?? null]);
+    // Basistag 20.11.: 1.550 wie das Paket; Samstag bleibt beim Rechner.
+    expect(komfort(tagespreiseAus(rechner, konfig, [paket], "2026-11-20"))).toEqual([
+      ["2026-11-20", 1550, "Dritter Helfer"],
+      ["2026-11-21", 1540, null],
+    ]);
+    // Ohne Basistag (Schalter „Angebot aus Kalkulation“ aus): wie bisher.
+    expect(komfort(tagespreiseAus(rechner, konfig, [paket], null))[0]).toEqual(["2026-11-20", 1480, null]);
+    // Eigene Anpassung am Tag geht vor; aufgehoben gilt wieder die des Pakets.
+    const tag = u("tagespreis", "2026-11-20:komfort", { betrag: 1600 }, "Freitag knapp");
+    expect(komfort(tagespreiseAus(rechner, konfig, [paket, tag], "2026-11-20"))[0]).toEqual(["2026-11-20", 1600, "Freitag knapp"]);
+    const weg = { ...u("tagespreis", "2026-11-20:komfort", null, "Im Termin-Dialog entfernt"), id: "weg" };
+    expect(komfort(tagespreiseAus(rechner, konfig, [paket, tag, weg], "2026-11-20"))[0]).toEqual(["2026-11-20", 1550, "Dritter Helfer"]);
+    // Die Ansicht trennt: eigens gesetzt je Paket am Tag nur die Tagesanpassung.
+    expect(tagespreisAnpassung([paket, tag], "2026-11-20", "komfort")).toEqual({ betrag: 1600, grund: "Freitag knapp" });
+    expect(tagespreisAnpassung([paket], "2026-11-20", "komfort")).toBeNull();
+    expect(tagespreisAnpassung([paket, tag, weg], "2026-11-20", "komfort")).toBeNull();
   });
 
   it("sperrWahl: Kundenwahl bleibt, solange angeboten; sonst Standardwahl", () => {
@@ -192,7 +222,7 @@ describe("ansichtAus mit Firmen-Schalter (Plan 5b)", () => {
     expect(a.tage).toEqual([
       {
         datum: "2026-11-21", text: "Sa 21.11.", feiertag: false, empfohlen: true, preisCent: 258000, rechnerPreisCent: 258000, uebersteuert: null,
-        gruende: [{ text: "Samstag", punkte: 5 }], paketPreiseCent: { basis: 209000 }, slots: tag.slots, note: null,
+        gruende: [{ text: "Samstag", punkte: 5 }], paketPreiseCent: { basis: 209000 }, paketUebersteuert: {}, slots: tag.slots, note: null,
       },
     ]);
     const s = weberVersion({

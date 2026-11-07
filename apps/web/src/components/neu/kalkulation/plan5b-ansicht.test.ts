@@ -85,6 +85,19 @@ describe("TagePreise und PreismodusWahl", () => {
     expect(t).toContain("ab 8 Uhr · Kunde bevorzugt Samstag");
   });
 
+  it("mit Paketen: je Tag der Preis des empfohlenen Pakets, die anderen darunter, Anpassung des Pakets am Tag", () => {
+    const pakete = PAKETE_5B.map((p) => ({ ...p, empfohlen: p.slug === "komfort" }));
+    const tage = TAGE_5B.map((t, i) => (i === 0 ? { ...t, paketUebersteuert: { komfort: { betragCent: 237000, grund: "Freitag knapp" } } } : t));
+    const t = text(html(createElement(TagePreise, { tage, pakete })));
+    expect(t).toContain("Fr 20.11. Komfort 2.370 €");
+    expect(t).toContain("angepasst: „Freitag knapp“");
+    expect(t).toContain("Basis 1.970 € · Premium 2.870 €");
+    // Der Tageshauptpreis ohne Paket (2.460 €) erscheint nicht: kein Kunde mit Paket sieht ihn.
+    expect(t).not.toContain("2.460 €");
+    // Die Tagesanpassung ohne Paket gilt hier nicht als Anpassung der Zeile.
+    expect(t).not.toContain("Samstag wie Freitag angeboten");
+  });
+
   it("Preismodus: aktiver Modus gedrückt", () => {
     const h = html(createElement(PreismodusWahl, { modus: "stunden", beschaeftigt: false, onPreis: vi.fn() }));
     expect(h).toMatch(/aria-pressed="false"[^>]*>Festpreis/);

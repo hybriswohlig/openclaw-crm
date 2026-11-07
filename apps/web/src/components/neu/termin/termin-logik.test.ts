@@ -3,12 +3,13 @@ import type { TagAnsicht } from "@/lib/kalkulations-ansicht";
 import {
   alsEmpfohlen,
   auswahlAusTagen,
+  empfohlenesPaketAus,
+  tagKundenpreisCent,
   auswahlPruefen,
   betragLesen,
   empfehlungNormalisieren,
   gruendeText,
   istVergangen,
-  margenHinweis,
   MAX_TAGE,
   monatBereich,
   monatErlaubt,
@@ -168,14 +169,10 @@ describe("Preise und Texte", () => {
     ];
     expect(punkteText(g)).toBe("+10 %");
     expect(punkteText([{ punkte: 0 }])).toBeNull();
+    // Integration 5b: der Grundwert („Basis …“, erster Grund des Rechners) ist kein Aufschlag.
+    expect(punkteText([{ text: "Basis (Marke unbekannt)", punkte: 40 }, { text: "Wochenende oder Feiertag", punkte: 5 }])).toBe("+5 %");
+    expect(punkteText([{ text: "Basis Kottke", punkte: 40 }, { text: "direkte Anfrage (WhatsApp/E-Mail)", punkte: 0 }])).toBeNull();
     expect(gruendeText(g)).toBe("Samstag +5 %, Eilauftrag +5 %");
-  });
-
-  it("Hinweis bei übersteuerter Marge (F16)", () => {
-    expect(margenHinweis(null)).toBeNull();
-    expect(margenHinweis(42)).toBe(
-      "Die Marge ist von Hand auf 42 % gesetzt und gilt für alle Tage. Die Preise unterscheiden sich dann nur durch Miete und Fahrzeit."
-    );
   });
 
   it("Vorlesetext einer Zelle", () => {
@@ -270,5 +267,37 @@ describe("Prüfen und Absenden", () => {
     expect(a[1].anpassung).toEqual({ betrag: "2390,50", grund: "Stammkunde" });
     expect(a[1].note).toBe("Bitte klingeln");
     expect(a[1].slots.map((s) => s.label)).toEqual(["ganztags"]);
+  });
+});
+
+describe("Mit Paketen gilt der Dialog dem empfohlenen Paket am Tag (Integration 5b)", () => {
+  const basis: Omit<TagAnsicht, "datum" | "empfohlen" | "uebersteuert" | "slots" | "note"> = {
+    text: "",
+    feiertag: false,
+    preisCent: 181000,
+    rechnerPreisCent: 181000,
+    gruende: [],
+    paketPreiseCent: { basis: 103000, komfort: 155000 },
+    paketUebersteuert: { komfort: { betragCent: 160000, grund: "Freitag knapp" } },
+  };
+
+  it("empfohlenes Paket aus der Ansicht, ohne Pakete null", () => {
+    expect(empfohlenesPaketAus([{ slug: "basis" }, { slug: "komfort", empfohlen: true }])).toBe("komfort");
+    expect(empfohlenesPaketAus([])).toBeNull();
+  });
+
+  it("Kundenpreis je Tag: Paket am Tag, ohne Pakete der Tagespreis", () => {
+    expect(tagKundenpreisCent(basis, "komfort")).toBe(155000);
+    expect(tagKundenpreisCent(basis, null)).toBe(181000);
+    expect(tagKundenpreisCent({ ...basis, paketPreiseCent: null }, "komfort")).toBe(181000);
+  });
+
+  it("Anpassung geht an das Paket am Tag und wird von dort vorbelegt", () => {
+    const k = tageAnbietenAus([tag("2026-11-20", { empfohlen: true, anpassung: { betrag: "1600", grund: "Freitag knapp" } })], "komfort");
+    expect(k.uebersteuerungen).toEqual([{ datum: "2026-11-20", paketSlug: "komfort", betrag: 1600, grund: "Freitag knapp" }]);
+    const a = auswahlAusTagen([{ ...basis, datum: "2026-11-20", empfohlen: true, uebersteuert: null, slots: [], note: null }], HEUTE, "komfort");
+    expect(a[0].anpassung).toEqual({ betrag: "1600", grund: "Freitag knapp" });
+    // Ohne Paket liest der Dialog die Tagesanpassung (hier keine).
+    expect(auswahlAusTagen([{ ...basis, datum: "2026-11-20", empfohlen: true, uebersteuert: null, slots: [], note: null }], HEUTE)[0].anpassung).toBeNull();
   });
 });

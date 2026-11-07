@@ -583,6 +583,20 @@ export function paketpreiseAus(rechner: readonly RechnerPaketpreisPlan5[] | unde
   return (rechner ?? []).map((p) => paketMitAnpassung(p, wirksamFuer(liste, "paketpreis", p.slug)));
 }
 
+/** Eine Anpassung nur, wenn sie einen Betrag setzt (eine aufgehobene gilt als keine). */
+function mitBetrag(u: Uebersteuerung | undefined): Uebersteuerung | undefined {
+  return u && betragAus(u.wert) !== null ? u : undefined;
+}
+
+/**
+ * Eigens gesetzte Tagespreis-Anpassung (`<datum>` bzw. `<datum>:<slug>`), ohne den
+ * Paketpreis am Basistag. Für die Vorbelegung im Termin-Dialog.
+ */
+export function tagespreisAnpassung(liste: Uebersteuerung[], datum: string, paketSlug: string | null): { betrag: number; grund: string } | null {
+  const u = mitBetrag(wirksamFuer(liste, "tagespreis", paketSlug === null ? datum : `${datum}:${paketSlug}`));
+  return u ? { betrag: betragAus(u.wert)!, grund: u.grund } : null;
+}
+
 /** Was „Tage anbieten“ an einem Tag festlegt (ohne Preise). */
 export type TagKonfig = Pick<Tagespreis, "datum" | "slots" | "note" | "empfohlen">;
 
@@ -590,11 +604,17 @@ export type TagKonfig = Pick<Tagespreis, "datum" | "slots" | "note" | "empfohlen
  * Tagespreise der Version: je angebotenem Tag (Reihenfolge nach Datum) der
  * Rechnerpreis des Tages, mit Anpassung `<datum>` bzw. `<datum>:<slug>`. Fehlt der
  * Tag in der Rechner-Antwort, hat er keinen Preis (sperrt nicht still mit altem Wert).
+ *
+ * `basistag` (Umzugsdatum der Anfrage): Eine Paketpreis-Anpassung ist der Preis des
+ * Pakets an diesem Tag. Wird der Basistag angeboten, trägt das Paket dort denselben
+ * Betrag (sonst hätte dieselbe Wahl zwei Preise), außer `<datum>:<slug>` setzt ihn
+ * eigens. An anderen Tagen gilt der Rechnerpreis des Tages. Nichts wird gerechnet.
  */
 export function tagespreiseAus(
   rechner: readonly RechnerTagespreis[] | undefined,
   konfig: readonly TagKonfig[],
-  liste: Uebersteuerung[]
+  liste: Uebersteuerung[],
+  basistag: string | null = null
 ): Tagespreis[] {
   return [...konfig]
     .sort((a, b) => a.datum.localeCompare(b.datum))
@@ -612,7 +632,15 @@ export function tagespreiseAus(
         margeProzent: r?.margeProzent ?? null,
         gruende: r?.gruende ?? [],
         uebersteuert: r && betrag !== null && u ? { betrag, grund: u.grund } : null,
-        paketpreise: r?.paketpreise ? r.paketpreise.map((p) => paketMitAnpassung(p, wirksamFuer(liste, "tagespreis", `${k.datum}:${p.slug}`))) : null,
+        paketpreise: r?.paketpreise
+          ? r.paketpreise.map((p) =>
+              paketMitAnpassung(
+                p,
+                mitBetrag(wirksamFuer(liste, "tagespreis", `${k.datum}:${p.slug}`)) ??
+                  (basistag !== null && k.datum === basistag ? wirksamFuer(liste, "paketpreis", p.slug) : undefined)
+              )
+            )
+          : null,
         slots: k.slots,
         note: k.note,
         empfohlen: k.empfohlen,
