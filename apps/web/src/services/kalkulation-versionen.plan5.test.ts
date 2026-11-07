@@ -379,11 +379,11 @@ describe("Sperren mit Tagespreisen", () => {
     expect(ohne.overrides.filter((u) => u.art === "tagespreis").map((u) => u.wert)).toEqual([{ betrag: 1490 }, null]);
   });
 
-  it("Tage anbieten: höchstens 10, nicht vorbei, genau eine Empfehlung; ohne Schalter nicht", async () => {
+  it("Tage anbieten: höchstens 10, nicht vorbei, höchstens eine Empfehlung; ohne Schalter nicht", async () => {
     const t = aufbau();
     await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
     await expect(tageSetzen("ws", "deal1", 1, MENSCH, tageEingabe({ tage: [{ datum: "2026-11-01", slots: [], note: null, empfohlen: true }] }), t.deps)).rejects.toThrow(/Vergangenheit/);
-    await expect(tageSetzen("ws", "deal1", 1, MENSCH, { tage: tageEingabe().tage.map((x) => ({ ...x, empfohlen: false })), uebersteuerungen: [] }, t.deps)).rejects.toThrow(/Genau ein Tag/);
+    await expect(tageSetzen("ws", "deal1", 1, MENSCH, { tage: tageEingabe().tage.map((x) => ({ ...x, empfohlen: true })), uebersteuerungen: [] }, t.deps)).rejects.toThrow(/Höchstens ein Tag/);
     const elf = Array.from({ length: 11 }, (_, i) => ({ datum: `2026-12-${String(i + 1).padStart(2, "0")}`, slots: [], note: null, empfohlen: i === 0 }));
     await expect(tageSetzen("ws", "deal1", 1, MENSCH, { tage: elf, uebersteuerungen: [] }, t.deps)).rejects.toThrow(/Höchstens 10/);
     const aus = aufbau({ schalter: { angebotAusKalkulation: true, tagespreise: false } });

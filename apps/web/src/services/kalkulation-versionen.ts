@@ -1281,14 +1281,14 @@ function pruefeSlots(slots: unknown, datum: string): TagesSlot[] {
     const zeit = (z: unknown) => (z === null || z === undefined || z === "" ? null : typeof z === "string" && ZEIT_RE.test(z) ? z : undefined);
     const startTime = zeit(s.startTime);
     const endTime = zeit(s.endTime);
-    if (label.length < 1 || label.length > 40 || startTime === undefined || endTime === undefined) {
-      throw new UebersteuerungFehler(`${datum}: Zeitfenster braucht eine Bezeichnung (bis 40 Zeichen) und Zeiten als HH:MM.`);
+    if (label.length < 1 || label.length > 80 || startTime === undefined || endTime === undefined) {
+      throw new UebersteuerungFehler(`${datum}: Zeitfenster braucht eine Bezeichnung (bis 80 Zeichen) und Zeiten als HH:MM.`);
     }
     return { label, startTime, endTime };
   });
 }
 
-/** Prüft „Tage anbieten“ (bis 10 Tage, nicht vorbei, genau eine Empfehlung, Anpassung nur mit Grund). */
+/** Prüft „Tage anbieten“ (bis 10 Tage, nicht vorbei, höchstens eine Empfehlung, Anpassung nur mit Grund). */
 export function pruefeTageAnbieten(e: unknown, heute: string): TageAnbieten {
   const roh = (e && typeof e === "object" ? e : {}) as Record<string, unknown>;
   if (!Array.isArray(roh.tage)) throw new UebersteuerungFehler("tage muss eine Liste sein.");
@@ -1303,9 +1303,8 @@ export function pruefeTageAnbieten(e: unknown, heute: string): TageAnbieten {
     const note = t.note === null || t.note === undefined ? null : typeof t.note === "string" ? t.note.trim().slice(0, 200) || null : null;
     return { datum: t.datum, slots: pruefeSlots(t.slots ?? [], t.datum), note, empfohlen: t.empfohlen === true };
   });
-  if (tage.length > 0 && tage.filter((t) => t.empfohlen).length !== 1) {
-    throw new UebersteuerungFehler("Genau ein Tag muss empfohlen sein.");
-  }
+  // Höchstens eine Empfehlung; ohne Empfehlung gilt der erste Tag (`standardWahl`), wie die Tage-Route.
+  if (tage.filter((t) => t.empfohlen).length > 1) throw new UebersteuerungFehler("Höchstens ein Tag kann empfohlen sein.");
   const liste = Array.isArray(roh.uebersteuerungen) ? roh.uebersteuerungen : [];
   const uebersteuerungen = liste.map((x) => {
     const u = (x ?? {}) as Record<string, unknown>;
