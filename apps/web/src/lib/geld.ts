@@ -232,6 +232,19 @@ export function pruefeZahlungsregel(patch: unknown): Partial<FirmenZahlungsregel
   return out;
 }
 
+/** Höchstlänge der Steuernummer (Briefkopf). */
+export const STEUERNUMMER_MAX = 40;
+
+/** Leer → null; sonst getrimmt, höchstens 40 Zeichen. Wirft mit Text. */
+export function pruefeSteuernummer(wert: unknown): string | null {
+  if (wert === null || wert === undefined) return null;
+  if (typeof wert !== "string") throw new Error("steuernummer muss Text oder leer sein.");
+  const t = wert.trim();
+  if (!t) return null;
+  if (t.length > STEUERNUMMER_MAX) throw new Error(`steuernummer: höchstens ${STEUERNUMMER_MAX} Zeichen.`);
+  return t;
+}
+
 // ─── Nummer und Fälligkeit ──────────────────────────────────────────────────
 
 /** `RE-2026-0001`: je Firma und Berliner Jahr fortlaufend. */

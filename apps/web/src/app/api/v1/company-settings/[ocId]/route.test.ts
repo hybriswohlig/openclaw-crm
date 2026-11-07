@@ -110,4 +110,42 @@ describe("GET/PUT /company-settings/[ocId]", () => {
       },
     });
   });
+
+  it("PUT mit zahlung und steuernummer reicht geprüfte Werte durch", async () => {
+    const res = await PUT(
+      req("PUT", { zahlung: { erinnerungModus: "entwurf", tage: 3 }, steuernummer: "  12/345/67890 " }),
+      { params }
+    );
+    expect(res.status).toBe(200);
+    expect(mocks.speichereFirmenEinstellungen).toHaveBeenCalledWith("ws_1", "oc_1", {
+      zahlung: { erinnerungModus: "entwurf", tage: 3 },
+      steuernummer: "12/345/67890",
+    });
+  });
+
+  it("PUT mit leerer steuernummer → null", async () => {
+    await PUT(req("PUT", { steuernummer: "" }), { params });
+    expect(mocks.speichereFirmenEinstellungen).toHaveBeenCalledWith("ws_1", "oc_1", { steuernummer: null });
+  });
+
+  it.each([
+    [{ zahlung: { tage: 61 } }],
+    [{ zahlung: { erinnerungModus: "senden" } }],
+    [{ zahlung: { basis: "monatsende" } }],
+    [{ zahlung: { gebuehr: 5 } }],
+    [{ zahlung: "aus" }],
+    [{ steuernummer: 12 }],
+  ])("PUT mit ungültigen Zahlungswerten %j → 400", async (body) => {
+    const res = await PUT(req("PUT", body), { params });
+    expect(res.status).toBe(400);
+    expect(mocks.speichereFirmenEinstellungen).not.toHaveBeenCalled();
+  });
+
+  it("PUT über API-Schlüssel (Agent) → 403, Nur-Lesen → 403", async () => {
+    mocks.getAuthContext.mockResolvedValue({ ...ADMIN, authMethod: "api_key", apiKeyAccess: "full" });
+    expect((await PUT(req("PUT", { zahlung: { erinnerungModus: "entwurf" } }), { params })).status).toBe(403);
+    mocks.getAuthContext.mockResolvedValue({ ...ADMIN, authMethod: "api_key", apiKeyAccess: "read" });
+    expect((await PUT(req("PUT", { zahlung: { erinnerungModus: "entwurf" } }), { params })).status).toBe(403);
+    expect(mocks.speichereFirmenEinstellungen).not.toHaveBeenCalled();
+  });
 });
