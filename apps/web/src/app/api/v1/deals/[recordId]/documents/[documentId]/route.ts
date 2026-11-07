@@ -5,6 +5,8 @@ import { dealDocuments } from "@/db/schema/financial";
 import { eq, and } from "drizzle-orm";
 import { fileResponseHeaders } from "@/lib/file-response";
 import { loeschbar } from "@/lib/portal-dokumente";
+import { dealInvoices } from "@/db/schema/deal-invoices";
+import { GELD_FEHLER_TEXT } from "@/lib/geld";
 
 export async function GET(
   req: NextRequest,
@@ -66,6 +68,18 @@ export async function DELETE(
       { error: "Der unterschriebene Vertrag gehört zur Annahme des Kunden und kann nicht gelöscht werden." },
       { status: 409 }
     );
+  }
+
+  // Plan 9 (G4): eine gestellte oder stornierte Rechnung wird storniert, nie gelöscht.
+  if (vorhanden?.documentType === "invoice") {
+    const [datensatz] = await db
+      .select({ status: dealInvoices.status })
+      .from(dealInvoices)
+      .where(and(eq(dealInvoices.workspaceId, ctx.workspaceId), eq(dealInvoices.dealDocumentId, documentId)))
+      .limit(1);
+    if (datensatz && (datensatz.status === "gestellt" || datensatz.status === "storniert")) {
+      return NextResponse.json({ error: GELD_FEHLER_TEXT.NUR_STORNO, code: "NUR_STORNO" }, { status: 409 });
+    }
   }
 
   const deleted = await db

@@ -37,6 +37,7 @@ import { dealCalculationVersions } from "@/db/schema/deal-calculation-versions";
 import { kundenAnnahmen } from "@/lib/kunden-annahmen";
 import { activityEvents } from "@/db/schema/activity";
 import { dealDocuments, payments, dealNumbers } from "@/db/schema/financial";
+import { stornierteRechnungsDokumente } from "./rechnungen";
 import { dealEmployees, employees } from "@/db/schema/employees";
 import { workspaceMembers } from "@/db/schema/workspace";
 import { objects, attributes, selectOptions } from "@/db/schema/objects";
@@ -447,7 +448,7 @@ export async function loadContextByToken(
   };
 
   // Documents (presence only — the public route streams them through a scoped URL)
-  const docRows = await db
+  const alleDocRows = await db
     .select({
       id: dealDocuments.id,
       type: dealDocuments.documentType,
@@ -461,6 +462,9 @@ export async function loadContextByToken(
         eq(dealDocuments.dealRecordId, dealRecordId)
       )
     ).orderBy(desc(dealDocuments.uploadedAt));
+  // Plan 9 (G4): eine stornierte Rechnung verschwindet aus dem Portal, vor deriveStage.
+  const storniert = await stornierteRechnungsDokumente(dealRecordId);
+  const docRows = alleDocRows.filter((d) => !(d.type === "invoice" && storniert.has(d.id)));
   const orderConfirmationDoc = gueltigeAuftragsbestaetigung(
     docRows.find((d) => d.type === "order_confirmation"),
     letzteAufhebung
@@ -1229,6 +1233,10 @@ export async function getScopedDocument(
 
   // Interne Dokumente (Auftragsanweisung, Zahlungsbestätigung) nie über den Kundenlink.
   if (!doc || !oeffentlichAbrufbar(doc.documentType)) return null;
+  // Stornierte Rechnung (Plan 9) nicht mehr über den Kundenlink.
+  if (doc.documentType === "invoice" && (await stornierteRechnungsDokumente(link.dealRecordId)).has(documentId)) {
+    return null;
+  }
   return { mimeType: doc.mimeType, fileName: doc.fileName, fileContent: doc.fileContent };
 }
 

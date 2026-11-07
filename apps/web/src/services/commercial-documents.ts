@@ -15,6 +15,7 @@ import {
   type OfferChoices,
   type PackageOptionPrice,
   type PriceLine,
+  type RenderInput,
   companyFromTitle,
   letterheadFromValues,
 } from "@openclaw-crm/document-templates";
@@ -41,7 +42,7 @@ import type { KvPosten } from "@/services/rechner/kv-posten";
 import { formatLocation } from "@/lib/deal-doc-data";
 import { preisQuelleAusAnnahme } from "@/lib/ab-preise";
 import { assertDealInWorkspace } from "@/services/document-job-context";
-import { getQuotation } from "@/services/quotations";
+import { angebotSperren, getQuotation, quotationLesen } from "@/services/quotations";
 import { resolveDocCustomerName } from "@/services/doc-customer-name";
 import { loadCustomerEmail } from "@/services/customer-portal-emails";
 import { getRecord } from "@/services/records";
@@ -51,6 +52,15 @@ import {
   type DealDocumentType,
 } from "@/services/deal-documents";
 import { applyInvoiceDueDate } from "@/services/rechnung-faellig";
+import { ladeSteuernummer } from "@/services/company-settings";
+import {
+  angebotsStandAus,
+  nachRechnung,
+  rechnungPruefenUndReservieren,
+  rechnungStellen,
+} from "@/services/rechnungen";
+import { GeldFehler, rechnungsDateiStamm, type RechnungEingabe, type RechnungZeile } from "@/lib/geld";
+import { dealDokumentNachlauf } from "@/services/deal-documents";
 import { berlinCalendarDay } from "@/lib/invoice-due-date";
 import { anredeFuerOptOut, ladeGespeicherteAnrede } from "@/services/agent/agent-suppress";
 import { aktivBedingung } from "@/services/kva-annahme";
@@ -508,7 +518,19 @@ async function ladeModellMitVersion(input: {
   kind: DocKind;
   copy?: DocumentCopy;
   now?: Date;
-}): Promise<{ model: DocumentModel; calculationVersionId: string | null }> {
+  /**
+   * Nur RE eines Stunden-KVs (Plan 9): der bestätigte Rechnungsbetrag. Das PDF
+   * druckt ihn als eine Preiszeile; ohne Betrag wird keine Stunden-Rechnung gebaut.
+   */
+  stundenRechnungCent?: number | null;
+}): Promise<{
+  model: DocumentModel;
+  calculationVersionId: string | null;
+  renderInput: RenderInput;
+  /** Stand der Quotation, aus dem gerendert wurde (Vergleich unter der Angebots-Sperre). */
+  angebotsStand: string;
+  istStunden: boolean;
+}> {
   const { workspaceId, dealRecordId, kind } = input;
   if (!(await assertDealInWorkspace(workspaceId, dealRecordId))) {
     throw new CommercialDocumentError("Auftrag nicht gefunden.", 404, "NOT_FOUND");
@@ -560,6 +582,11 @@ async function ladeModellMitVersion(input: {
     .where(and(eq(kvaConfirmations.workspaceId, workspaceId), aktivBedingung(dealRecordId)))
     .limit(1);
 
+  const stundenRechnung = kind === "RE" && quotation.isVariable;
+  if (stundenRechnung && (input.stundenRechnungCent == null || input.stundenRechnungCent <= 0)) {
+    throw new GeldFehler("STUNDEN_BETRAG_FEHLT");
+  }
+
   let packageOption: PackageOptionPrice | null = null;
   if (kind !== "AB" && quotation.selectedPackageOptionId && !quotation.isVariable) {
     const [option] = await db
@@ -601,7 +628,7 @@ async function ladeModellMitVersion(input: {
       : null;
 
   const ocId = refId(deal.values.operating_company);
-  const [email, personContact, paidRow, flags, addressForm, letterheadValues] = await Promise.all([
+  const [email, personContact, paidRow, flags, addressForm, letterheadValues, steuernummer] = await Promise.all([
     loadCustomerEmail(workspaceId, dealRecordId),
     personId
       ? loadPersonContact(workspaceId, personId)
@@ -623,6 +650,7 @@ async function ladeModellMitVersion(input: {
       const oc = await getRecord(ocObj.id, ocId);
       return oc?.values ?? null;
     })(),
+    kind === "RE" ? ladeSteuernummer(workspaceId, ocId) : Promise.resolve(null),
   ]);
 
   const linkedCompany =
@@ -642,8 +670,22 @@ async function ladeModellMitVersion(input: {
   // Kaution und durchlaufende Posten sind keine Zahlung auf die Rechnung.
   const paidCents = preisZahlungenCent(paidRow);
 
+  const preisQuelle = priceSourceFromStored(quotation);
+  const renderQuelle = stundenRechnung
+    ? (() => {
+        const euro = (input.stundenRechnungCent! / 100).toFixed(2);
+        return {
+          ...preisQuelle,
+          isVariable: false,
+          fixedPrice: euro,
+          hourly: null,
+          lineItems: [{ type: "pauschale", description: "Leistung nach Aufwand", quantity: 1, unitRate: euro }],
+        };
+      })()
+    : preisQuelle;
+
   try {
-    const model = buildDocumentModel({
+    const renderInput: RenderInput = {
       kind,
       deal: {
         firma,
@@ -662,6 +704,7 @@ async function ladeModellMitVersion(input: {
           deal.values.rechnung_faellig_am,
           quotation.documentDetails?.depositDue
         ),
+        ...(steuernummer ? { taxNumber: steuernummer } : {}),
       },
       service: {
         showStandardInclusions: quotation.showStandardInclusions,
@@ -674,14 +717,21 @@ async function ladeModellMitVersion(input: {
         title: [dealTitle, flags.auftragName].filter(Boolean).join(" "),
         mention: [quotation.summary, inventoryNotes].filter(Boolean).join(" "),
       },
-      quotation: priceSourceFromStored(quotation),
+      quotation: renderQuelle,
       accepted: acceptedPriceFor(kind, accepted?.quotationSnapshot),
-      packageOption,
+      packageOption: stundenRechnung ? null : packageOption,
       choices: wahlen?.choices ?? null,
       paidCents,
       copy: input.copy,
-    });
-    return { model, calculationVersionId: quotation.calculationVersionId ?? null };
+    };
+    const model = buildDocumentModel(renderInput);
+    return {
+      model,
+      calculationVersionId: quotation.calculationVersionId ?? null,
+      renderInput,
+      angebotsStand: angebotsStandAus(quotation),
+      istStunden: quotation.isVariable,
+    };
   } catch (err) {
     if (err instanceof MissingPriceError) {
       throw new CommercialDocumentError(err.message, 400);
@@ -733,13 +783,19 @@ export async function storeCommercialDocument(input: {
    * Wirft sie, wird nichts gespeichert (KV aus einer bestimmten Version).
    */
   pruefeVersion?: (calculationVersionId: string | null) => void | Promise<void>;
+  /** Nur RE: Betrag und Grund aus dem Rechnungsschritt (Plan 9). */
+  rechnung?: RechnungEingabe | null;
+  /** Aufruf über einen API-Schlüssel (MCP, Agent): Abweichung und Stunden nie. */
+  durchAgent?: boolean;
 }): Promise<{
   document: DealDocumentMeta;
   templateVersion: string;
   fileName: string;
   rechnungFaelligAm: string | null;
   dueDateWarning?: string;
+  rechnung?: RechnungZeile;
 }> {
+  if (input.kind === "RE") return storeRechnungCrm(input);
   const rendered = await previewCommercialDocument(input);
   if (input.pruefeVersion) await input.pruefeVersion(rendered.calculationVersionId);
   return persistCommercialDocument({
@@ -755,6 +811,96 @@ export async function storeCommercialDocument(input: {
     updatedBy: input.updatedBy,
     now: input.now,
   });
+}
+
+/**
+ * RE über den CRM-Renderer (Plan 9, Entscheidung 6): Modell außerhalb, dann in
+ * einer Transaktion unter der Angebots-Sperre Stand vergleichen, prüfen, Nummer
+ * reservieren, mit Nummer und Fälligkeit rendern, PDF und Datensatz `gestellt`
+ * speichern. Scheitert etwas, rollt der Zähler mit zurück. Nachläufe nach dem Commit.
+ */
+async function storeRechnungCrm(input: {
+  workspaceId: string;
+  dealRecordId: string;
+  copy?: DocumentCopy;
+  notifyCustomer?: boolean;
+  dueDate?: string | null;
+  updatedBy?: string | null;
+  now?: Date;
+  rechnung?: RechnungEingabe | null;
+  durchAgent?: boolean;
+}) {
+  const jetzt = input.now ?? new Date();
+  const eingabe: RechnungEingabe = {
+    bruttoCent: input.rechnung?.bruttoCent ?? null,
+    abweichungGrund: input.rechnung?.abweichungGrund ?? null,
+    faelligAm: input.dueDate ?? input.rechnung?.faelligAm ?? null,
+  };
+  const vorab = await ladeModellMitVersion({
+    workspaceId: input.workspaceId,
+    dealRecordId: input.dealRecordId,
+    kind: "RE",
+    copy: input.copy,
+    now: jetzt,
+    stundenRechnungCent: eingabe.bruttoCent,
+  });
+  const stunden = vorab.istStunden;
+
+  const ergebnis = await db.transaction(async (tx) => {
+    await angebotSperren(tx, input.dealRecordId);
+    const jetztStand = await quotationLesen(tx, input.dealRecordId);
+    if (!jetztStand || angebotsStandAus(jetztStand) !== vorab.angebotsStand) {
+      throw new GeldFehler("RECHNUNG_PDF_ANDERS", "Das Angebot hat sich gerade geändert. Bitte die Rechnung neu erstellen.");
+    }
+    const zeile = await rechnungPruefenUndReservieren(tx, {
+      ws: input.workspaceId,
+      deal: input.dealRecordId,
+      herkunft: "crm",
+      pdfBetragCent: stunden ? null : vorab.model.totalCents,
+      eingabe,
+      durchAgent: input.durchAgent === true,
+      userId: input.updatedBy ?? null,
+      jetzt,
+    });
+    const model = buildDocumentModel({
+      ...vorab.renderInput,
+      deal: { ...vorab.renderInput.deal, invoiceNumber: zeile.nummer ?? undefined, dueDate: zeile.faelligAm ?? undefined },
+    });
+    if (model.totalCents !== zeile.bruttoCent) {
+      throw new GeldFehler("RECHNUNG_PDF_ANDERS");
+    }
+    const pdf = await renderPdf(model);
+    const stamm = zeile.nummer ? rechnungsDateiStamm(zeile.nummer, vorab.renderInput.deal.firma) : model.fileStem;
+    const fileName = `${stamm}.pdf`;
+    const document = await createDealDocument(
+      {
+        workspaceId: input.workspaceId,
+        dealRecordId: input.dealRecordId,
+        documentType: "invoice",
+        fileName,
+        fileSize: pdf.byteLength,
+        mimeType: "application/pdf",
+        fileContent: Buffer.from(pdf).toString("base64"),
+        notifyCustomer: input.notifyCustomer === true,
+      },
+      tx
+    );
+    await rechnungStellen(tx, zeile.id, document.id);
+    return { document, fileName, zeile: { ...zeile, status: "gestellt" as const, dealDocumentId: document.id } };
+  });
+
+  await dealDokumentNachlauf(
+    { workspaceId: input.workspaceId, dealRecordId: input.dealRecordId, notifyCustomer: input.notifyCustomer === true },
+    "invoice"
+  );
+  await nachRechnung(input.workspaceId, input.dealRecordId, input.updatedBy ?? null);
+  return {
+    document: ergebnis.document,
+    templateVersion: TEMPLATE_VERSION,
+    fileName: ergebnis.fileName,
+    rechnungFaelligAm: ergebnis.zeile.faelligAm,
+    rechnung: ergebnis.zeile,
+  };
 }
 
 /** Stores an already rendered PDF and, for an RE, stamps Rechnung fällig am. */

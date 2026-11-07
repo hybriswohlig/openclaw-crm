@@ -159,6 +159,10 @@ export interface DealFacts {
    * service date.
    */
   dueDate?: string;
+  /** Nur RE: Rechnungsnummer aus dem CRM (`RE-2026-0001`), Plan 9. Fehlt beim Altbestand. */
+  invoiceNumber?: string;
+  /** Steuernummer der Firma; gedruckt nur, wenn gesetzt. */
+  taxNumber?: string;
 }
 
 /** Optional plain text. Never a price source. */
@@ -240,6 +244,8 @@ export interface DocumentModel {
   fileStem: string;
   issuer: IssuerView;
   documentDateLabel: string;
+  /** „Rechnungsnummer RE-2026-0001“, nur RE mit Nummer. */
+  invoiceNumberLabel?: string;
   customerName: string;
   /** Letter address block. Shown once, not again in the fact list. */
   recipientLines: string[];

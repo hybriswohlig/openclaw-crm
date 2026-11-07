@@ -221,7 +221,12 @@ export async function renderPdf(model: DocumentModel): Promise<Uint8Array> {
 
   w.text(model.issuer.displayName, { font: bold, size: 14, gap: 2 });
   for (const line of model.issuer.lines) w.text(line, { size: 11, gap: 0 });
-  w.text(model.documentDateLabel, { size: 11, gap: 8 });
+  if (model.invoiceNumberLabel) {
+    w.text(model.documentDateLabel, { size: 11, gap: 0 });
+    w.text(model.invoiceNumberLabel, { font: bold, size: 11, gap: 8 });
+  } else {
+    w.text(model.documentDateLabel, { size: 11, gap: 8 });
+  }
   w.rule();
   w.text(model.title, { font: bold, size: 16, gap: 8 });
   for (const line of model.recipientLines) w.text(line, { size: 11, gap: 1 });

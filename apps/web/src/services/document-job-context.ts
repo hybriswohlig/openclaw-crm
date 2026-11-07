@@ -19,6 +19,7 @@ import { aktivBedingung } from "./kva-annahme";
 import { preisQuelleAusAnnahme, type PreisQuelle } from "@/lib/ab-preise";
 import { vpsPreiseMitStunden, vpsStundenAusVersion, type VpsPreisQuelle } from "@/lib/angebot-vorbelegung";
 import { preisZahlungenCent } from "@/lib/preis-zahlungen";
+import { angebotsStandAus } from "./rechnungen";
 
 type ServiceType = ServiceArt;
 type InventoryOwner = "company" | "customer" | "none";
@@ -93,10 +94,22 @@ export interface KvJobBezug {
   priceCents: number | null;
 }
 
+/**
+ * RE (Plan 9): was der VPS aus genau dieser Lesung drucken wird. Der Aufrufer
+ * vergleicht `angebotsStand` unter der Angebots-Sperre und prüft damit.
+ */
+export interface ReJobBezug {
+  istStunden: boolean;
+  /** `quotationTotalCents(quotation)`; Stunden: null (der bestätigte Betrag gilt). */
+  pdfBetragCent: number | null;
+  angebotsStand: string;
+  firma: string;
+}
+
 export async function attachDocumentJobContext(
   workspaceId: string,
   params: Record<string, unknown>
-): Promise<{ params: Record<string, unknown>; kv: KvJobBezug | null }> {
+): Promise<{ params: Record<string, unknown>; kv: KvJobBezug | null; re?: ReJobBezug | null }> {
   const next: Record<string, unknown> = { ...params };
   delete next._document_context;
   // Keine Kalkulationsversion an den VPS: /jobs/{id}/result gibt nur das PDF zurück.
@@ -315,5 +328,14 @@ export async function attachDocumentJobContext(
           priceCents: quotation ? (quotationTotalCents(quotation) ?? null) : null,
         }
       : null;
-  return { params: next, kv };
+  const re: ReJobBezug | null =
+    String(next.document_type ?? "").toUpperCase() === "RE" && quotation
+      ? {
+          istStunden: quotation.isVariable,
+          pdfBetragCent: quotation.isVariable ? null : (quotationTotalCents(quotation) ?? null),
+          angebotsStand: angebotsStandAus(quotation),
+          firma: String(next.firma || "kottke"),
+        }
+      : null;
+  return { params: next, kv, re };
 }

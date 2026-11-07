@@ -74,12 +74,15 @@ function decodePdfHex(hex: string): string {
 function pdfPlainText(bytes: Uint8Array): string {
   const raw = Buffer.from(bytes).toString("latin1");
   const parts = [raw];
-  const re = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
+  // Stream-Länge aus /Length: der komprimierte Inhalt kann selbst „\nendstream“ oder ein \r am Ende tragen.
+  const re = /\/Length (\d+)[^]*?>>\s*stream\r?\n/g;
   for (const match of raw.matchAll(re)) {
+    const start = match.index! + match[0].length;
+    const body = raw.slice(start, start + Number(match[1]));
     try {
-      parts.push(inflateSync(Buffer.from(match[1], "latin1")).toString("latin1"));
+      parts.push(inflateSync(Buffer.from(body, "latin1")).toString("latin1"));
     } catch {
-      parts.push(match[1]);
+      parts.push(body);
     }
   }
   const joined = parts.join("\n");
@@ -252,7 +255,7 @@ describe("template version", () => {
       deal: { ...deal, firma: "ceylan" },
       quotation: quotation({ paymentMethodPreference: "bank_transfer" }),
     });
-    expect(TEMPLATE_VERSION).toBe("kv-ab-re/5");
+    expect(TEMPLATE_VERSION).toBe("kv-ab-re/6");
     expect(html).toContain(`content="${TEMPLATE_VERSION}"`);
     expect(html).toContain(`Vorlage ${TEMPLATE_VERSION}`);
     expect(text).toContain(TEMPLATE_VERSION);
@@ -735,5 +738,35 @@ describe("Stunden-KV aus der Version (kv-ab-re/5)", () => {
     expect(model.totalCents).toBe(60500);
     expect(model.hourly?.rates.map((r) => r.title)).toEqual(["Helfer"]);
     expect(text).not.toContain("Std. Transporter");
+  });
+});
+
+describe("Rechnungsnummer und Steuernummer (kv-ab-re/6, Plan 9)", () => {
+  it("druckt die Nummer im Kopf und benennt die Datei danach", async () => {
+    const { html, text, model } = await rendered({
+      kind: "RE",
+      deal: { ...deal, firma: "ceylan", invoiceNumber: "RE-2026-0001" },
+      quotation: quotation({ paymentMethodPreference: "bank_transfer" }),
+    });
+    expect(model.fileStem).toBe("RE-2026-0001-ceylan");
+    expect(model.invoiceNumberLabel).toBe("Rechnungsnummer RE-2026-0001");
+    expect(html).toContain("Rechnungsnummer RE-2026-0001");
+    expect(text).toContain("Rechnungsnummer RE-2026-0001");
+  });
+
+  it("ohne Nummer wie bisher; KV und AB ignorieren die Nummer", async () => {
+    const ohne = buildDocumentModel({ kind: "RE", deal: { ...deal, firma: "ceylan" }, quotation: quotation({}) });
+    expect(ohne.invoiceNumberLabel).toBeUndefined();
+    expect(ohne.fileStem).toMatch(/^RE-ceylan-/);
+    const kv = buildDocumentModel({ kind: "KV", deal: { ...deal, firma: "ceylan", invoiceNumber: "RE-2026-0002" }, quotation: quotation({}) });
+    expect(kv.invoiceNumberLabel).toBeUndefined();
+    expect(kv.fileStem).toMatch(/^KV-ceylan-/);
+  });
+
+  it("Steuernummer nur, wenn gesetzt", async () => {
+    const mit = await rendered({ kind: "RE", deal: { ...deal, firma: "ceylan", taxNumber: "41/123/45678" }, quotation: quotation({}) });
+    expect(mit.text).toContain("Steuernummer 41/123/45678");
+    const ohne = buildDocumentModel({ kind: "RE", deal: { ...deal, firma: "ceylan", taxNumber: "  " }, quotation: quotation({}) });
+    expect(ohne.issuer.lines.join(" ")).not.toContain("Steuernummer");
   });
 });

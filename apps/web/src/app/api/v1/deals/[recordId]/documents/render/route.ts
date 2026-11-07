@@ -7,6 +7,7 @@ import {
   CommercialDocumentError,
   storeCommercialDocument,
 } from "@/services/commercial-documents";
+import { GeldFehler } from "@/lib/geld";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -55,6 +56,8 @@ export async function POST(
       notifyCustomer: parsed.value.notifyCustomer,
       updatedBy: ctx.userId,
       ...(parsed.value.dueDate ? { dueDate: parsed.value.dueDate } : {}),
+      rechnung: parsed.value.rechnung ?? null,
+      durchAgent: ctx.authMethod === "api_key",
     });
     return success({
       renderer: "crm",
@@ -63,8 +66,12 @@ export async function POST(
       document: stored.document,
       ...(stored.rechnungFaelligAm ? { rechnungFaelligAm: stored.rechnungFaelligAm } : {}),
       ...(stored.dueDateWarning ? { dueDateWarning: stored.dueDateWarning } : {}),
+      ...(stored.rechnung ? { rechnung: { id: stored.rechnung.id, nummer: stored.rechnung.nummer, bruttoCent: stored.rechnung.bruttoCent, faelligAm: stored.rechnung.faelligAm } } : {}),
     });
   } catch (err) {
+    if (err instanceof GeldFehler) {
+      return NextResponse.json({ error: { code: err.code, message: err.message } }, { status: err.status });
+    }
     if (err instanceof CommercialDocumentError) {
       return NextResponse.json(
         { error: { code: err.code, message: err.message } },

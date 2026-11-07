@@ -86,7 +86,24 @@ describe("POST documents/render", () => {
       copy: { closing: "Viele Grüße" },
       notifyCustomer: false,
       updatedBy: "usr_1",
+      rechnung: null,
+      durchAgent: expect.any(Boolean),
     });
+  });
+
+  it("reicht den Rechnungsschritt durch und antwortet bei Geld-Fehlern mit Code (Plan 9)", async () => {
+    const res = await call({ renderer: "crm", documentType: "RE", rechnung: { bruttoCent: 90000, abweichungGrund: "Mehr Möbel" } });
+    expect(res.status).toBe(200);
+    expect(mocks.storeCommercialDocument).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "RE", rechnung: { bruttoCent: 90000, abweichungGrund: "Mehr Möbel" } })
+    );
+    const { GeldFehler } = await import("@/lib/geld");
+    mocks.storeCommercialDocument.mockRejectedValueOnce(new GeldFehler("NUR_MENSCH"));
+    const abgelehnt = await call({ renderer: "crm", documentType: "RE" });
+    expect(abgelehnt.status).toBe(403);
+    expect((await abgelehnt.json()).error.code).toBe("NUR_MENSCH");
+    const falsch = await call({ renderer: "crm", documentType: "RE", rechnung: { bruttoCent: 1.5 } });
+    expect(falsch.status).toBe(400);
   });
 
   it("rejects every document type when the deal is Kottke", async () => {

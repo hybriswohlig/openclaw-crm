@@ -36,6 +36,22 @@ export async function setRechnungFaelligAm(input: {
   }
 }
 
+/** Leert `rechnung_faellig_am` (Storno der Rechnung). Fehler nur als Warnung. */
+export async function leereRechnungFaelligAm(input: {
+  workspaceId: string;
+  dealRecordId: string;
+  updatedBy: string | null;
+}): Promise<{ ok: true } | { ok: false; warning: string }> {
+  try {
+    const obj = await getObjectBySlug(input.workspaceId, "deals");
+    if (!obj) return { ok: false, warning: "deals object missing" };
+    const record = await updateRecord(obj.id, input.dealRecordId, { rechnung_faellig_am: null }, input.updatedBy);
+    return record ? { ok: true } : { ok: false, warning: "deal not found" };
+  } catch (err) {
+    return { ok: false, warning: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 /**
  * Invoice stores set `rechnung_faellig_am`. Every other document type
  * leaves the field alone. An explicit due date wins; otherwise the

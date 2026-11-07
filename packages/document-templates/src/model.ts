@@ -89,6 +89,9 @@ export function buildDocumentModel(input: RenderInput): DocumentModel {
   });
 
   const showBank = input.kind === "RE" || method.label === "Überweisung";
+  const invoiceNumber = input.kind === "RE" ? input.deal.invoiceNumber?.trim() || undefined : undefined;
+  const taxNumber = input.deal.taxNumber?.trim() || undefined;
+  const issuer = issuerFor(input.deal.firma, input.deal.letterhead);
   const date = formatGermanDate(input.deal.documentDate);
   const serviceLabel = wording.service.detail
     ? `${wording.service.label} · ${wording.service.detail}`
@@ -109,9 +112,12 @@ export function buildDocumentModel(input: RenderInput): DocumentModel {
     logo: { firma: input.deal.firma, leistung: input.quotation.serviceType },
     kind: input.kind,
     title: TITLES[input.kind],
-    fileStem: `${input.kind}-${input.deal.firma}-${input.deal.documentDate}`,
-    issuer: issuerFor(input.deal.firma, input.deal.letterhead),
+    fileStem: invoiceNumber
+      ? `${invoiceNumber}-${input.deal.firma}`
+      : `${input.kind}-${input.deal.firma}-${input.deal.documentDate}`,
+    issuer: taxNumber ? { ...issuer, lines: [...issuer.lines, `Steuernummer ${taxNumber}`] } : issuer,
     documentDateLabel: date,
+    ...(invoiceNumber ? { invoiceNumberLabel: `Rechnungsnummer ${invoiceNumber}` } : {}),
     customerName: recipientName,
     recipientLines,
     customerEmail: input.deal.customerEmail,

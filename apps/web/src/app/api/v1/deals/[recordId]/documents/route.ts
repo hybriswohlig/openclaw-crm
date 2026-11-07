@@ -4,7 +4,10 @@ import { db } from "@/db";
 import { dealDocuments } from "@/db/schema/financial";
 import { eq, and } from "drizzle-orm";
 import { prepareJsonDealDocument, validateDealDocumentUpload } from "@/lib/deal-document-upload";
-import { createDealDocument } from "@/services/deal-documents";
+import { createDealDocument, type DealDocumentInput } from "@/services/deal-documents";
+import { rechnungHochladen } from "@/services/rechnungen";
+import { GeldFehler } from "@/lib/geld";
+import { explicitInvoiceDueDay } from "@/lib/invoice-due-date";
 import { applyInvoiceDueDate } from "@/services/rechnung-faellig";
 import { dealImWorkspace, dealNichtGefunden } from "@/lib/kalkulation-versionen-antwort";
 
@@ -44,6 +47,7 @@ export async function POST(
 ) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized(req);
+  const durchAgent = ctx.authMethod === "api_key";
 
   const { recordId } = await params;
   // Fremder Deal: 404 vor dem Lesen des Uploads (createDealDocument prüft zusätzlich).
@@ -52,9 +56,9 @@ export async function POST(
 
   // MCP clients send JSON only. The staff UI keeps sending multipart.
   if (contentType.includes("application/json")) {
-    return postDealDocumentJson(req, ctx.workspaceId, ctx.userId, recordId);
+    return postDealDocumentJson(req, ctx.workspaceId, ctx.userId, recordId, durchAgent);
   }
-  return postDealDocumentMultipart(req, ctx.workspaceId, ctx.userId, recordId);
+  return postDealDocumentMultipart(req, ctx.workspaceId, ctx.userId, recordId, durchAgent);
 }
 
 /**
@@ -66,7 +70,8 @@ async function postDealDocumentJson(
   req: NextRequest,
   workspaceId: string,
   userId: string,
-  recordId: string
+  recordId: string,
+  durchAgent: boolean
 ) {
   let body: unknown;
   try {
@@ -88,7 +93,7 @@ async function postDealDocumentJson(
     return NextResponse.json({ error: prepared.error }, { status: prepared.status });
   }
 
-  const doc = await createDealDocument({
+  const eingabe: DealDocumentInput = {
     workspaceId,
     dealRecordId: recordId,
     documentType: prepared.documentType,
@@ -97,7 +102,17 @@ async function postDealDocumentJson(
     mimeType: prepared.mimeType,
     fileContent: prepared.fileContent,
     notifyCustomer: record.notifyCustomer === true,
-  });
+  };
+  if (prepared.documentType === "invoice") {
+    return rechnungAblegen(eingabe, {
+      bruttoCent: record.bruttoCent,
+      abweichungGrund: record.abweichungGrund,
+      faelligAm: record.dueDate ?? record.rechnungFaelligAm,
+      durchAgent,
+      userId,
+    });
+  }
+  const doc = await createDealDocument(eingabe);
 
   return respondWithInvoiceDue(doc, {
     workspaceId,
@@ -112,7 +127,8 @@ async function postDealDocumentMultipart(
   req: NextRequest,
   workspaceId: string,
   userId: string,
-  recordId: string
+  recordId: string,
+  durchAgent: boolean
 ) {
   const formData = await req.formData();
   const file = formData.get("file") as File | null;
@@ -132,7 +148,7 @@ async function postDealDocumentMultipart(
   }
 
   const buffer = await file.arrayBuffer();
-  const doc = await createDealDocument({
+  const eingabe: DealDocumentInput = {
     workspaceId,
     dealRecordId: recordId,
     documentType: check.documentType,
@@ -140,9 +156,21 @@ async function postDealDocumentMultipart(
     fileSize: file.size,
     mimeType: file.type || "application/octet-stream",
     fileContent: Buffer.from(buffer).toString("base64"),
-  });
-
+  };
   const formDue = formData.get("dueDate") ?? formData.get("rechnungFaelligAm");
+  if (check.documentType === "invoice") {
+    const cent = formData.get("bruttoCent");
+    const grund = formData.get("abweichungGrund");
+    return rechnungAblegen(eingabe, {
+      bruttoCent: typeof cent === "string" && cent.trim() !== "" ? Number(cent) : undefined,
+      abweichungGrund: typeof grund === "string" ? grund : undefined,
+      faelligAm: typeof formDue === "string" ? formDue : undefined,
+      durchAgent,
+      userId,
+    });
+  }
+  const doc = await createDealDocument(eingabe);
+
   return respondWithInvoiceDue(doc, {
     workspaceId,
     userId,
@@ -175,4 +203,34 @@ async function respondWithInvoiceDue(
     ...(due.rechnungFaelligAm ? { rechnungFaelligAm: due.rechnungFaelligAm } : {}),
     ...(due.dueDateWarning ? { dueDateWarning: due.dueDateWarning } : {}),
   });
+}
+
+/** Rechnungs-Upload über den Datensatz (Plan 9): Prüfung, Fälligkeit, 409 mit Code. */
+async function rechnungAblegen(
+  eingabe: DealDocumentInput,
+  roh: { bruttoCent: unknown; abweichungGrund: unknown; faelligAm: unknown; durchAgent: boolean; userId: string }
+) {
+  const cent = roh.bruttoCent;
+  if (cent !== undefined && cent !== null && (typeof cent !== "number" || !Number.isInteger(cent) || cent < 0)) {
+    return NextResponse.json({ error: "bruttoCent muss eine ganze Zahl ab 0 sein." }, { status: 400 });
+  }
+  try {
+    const { document, rechnung } = await rechnungHochladen(eingabe, {
+      bruttoCent: typeof cent === "number" ? cent : null,
+      abweichungGrund: typeof roh.abweichungGrund === "string" ? roh.abweichungGrund : null,
+      faelligAm: explicitInvoiceDueDay(roh.faelligAm),
+      durchAgent: roh.durchAgent,
+      userId: roh.userId,
+    });
+    return NextResponse.json({
+      data: document,
+      rechnungFaelligAm: rechnung.faelligAm,
+      rechnung: { id: rechnung.id, bruttoCent: rechnung.bruttoCent, faelligAm: rechnung.faelligAm },
+    });
+  } catch (err) {
+    if (err instanceof GeldFehler) {
+      return NextResponse.json({ error: err.message, code: err.code }, { status: err.status });
+    }
+    throw err;
+  }
 }

@@ -16,6 +16,35 @@ export interface ParsedPreview {
 export interface ParsedRender extends ParsedPreview {
   notifyCustomer: boolean;
   dueDate?: string;
+  /** Nur RE: was der Mensch im Rechnungsschritt bestätigt (Plan 9). */
+  rechnung?: { bruttoCent: number | null; abweichungGrund: string | null };
+}
+
+/**
+ * `rechnung` aus dem Body (RE): `{ bruttoCent?, abweichungGrund? }`.
+ * null = nichts übergeben, sonst die geprüften Felder; ungültig → Fehlertext.
+ */
+export function parseRechnungEingabe(
+  value: unknown
+): { ok: true; value: { bruttoCent: number | null; abweichungGrund: string | null } | null } | { ok: false; error: string } {
+  if (value === undefined || value === null) return { ok: true, value: null };
+  if (typeof value !== "object" || Array.isArray(value)) return { ok: false, error: "rechnung muss ein Objekt sein." };
+  const r = value as Record<string, unknown>;
+  const cent = r.bruttoCent;
+  if (cent !== undefined && cent !== null && (typeof cent !== "number" || !Number.isInteger(cent) || cent < 0)) {
+    return { ok: false, error: "rechnung.bruttoCent muss eine ganze Zahl ab 0 sein." };
+  }
+  const grund = r.abweichungGrund;
+  if (grund !== undefined && grund !== null && typeof grund !== "string") {
+    return { ok: false, error: "rechnung.abweichungGrund muss Text sein." };
+  }
+  return {
+    ok: true,
+    value: {
+      bruttoCent: typeof cent === "number" ? cent : null,
+      abweichungGrund: typeof grund === "string" && grund.trim() ? grund.trim().slice(0, 500) : null,
+    },
+  };
 }
 
 export type ParseFailure = { ok: false; status: 400 | 409; code: string; error: string };
@@ -126,12 +155,15 @@ export function parseRenderBody(body: unknown): ParseSuccess<ParsedRender> | Par
   const preview = parsePreviewBody(body);
   if (!preview.ok) return preview;
   const dueDate = explicitInvoiceDueDay(body.dueDate ?? body.rechnungFaelligAm);
+  const rechnung = parseRechnungEingabe(body.rechnung);
+  if (!rechnung.ok) return { ok: false, status: 400, code: "BAD_REQUEST", error: rechnung.error };
   return {
     ok: true,
     value: {
       ...preview.value,
       notifyCustomer: body.notifyCustomer === true,
       ...(dueDate ? { dueDate } : {}),
+      ...(rechnung.value ? { rechnung: rechnung.value } : {}),
     },
   };
 }

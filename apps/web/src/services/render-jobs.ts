@@ -3,9 +3,10 @@
  * Jede Abfrage filtert nach `workspace_id`, außer `offeneJobs` und
  * `jobsAbgelaufenMarkieren` (Cron, über alle Workspaces).
  */
-import { and, asc, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { documentRenderJobs, type DocumentRenderJobRow } from "@/db/schema/document-render-jobs";
+import { dealInvoices } from "@/db/schema/deal-invoices";
 import {
   RENDER_JOB_ABLAUF_MS,
   RENDER_JOB_RESERVIERUNG_MS,
@@ -33,7 +34,23 @@ function zuJob(row: DocumentRenderJobRow): RenderJob {
     storedAt: row.storedAt === null ? null : iso(row.storedAt),
     dealDocumentId: row.dealDocumentId,
     fehler: row.fehler,
+    invoiceId: row.invoiceId ?? null,
   };
+}
+
+type Ex = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * Plan 9: Rechnungsdatensätze verworfener oder gescheiterter Jobs auf
+ * `verworfen` (nie gestellt; die Nummer bleibt dokumentiert, keine stille Lücke).
+ */
+export async function rechnungenDerJobsVerwerfen(ex: Ex, invoiceIds: (string | null | undefined)[], grund: string): Promise<void> {
+  const ids = invoiceIds.filter((x): x is string => !!x);
+  if (ids.length === 0) return;
+  await ex
+    .update(dealInvoices)
+    .set({ status: "verworfen", verworfenGrund: grund.slice(0, 500), updatedAt: new Date() })
+    .where(and(inArray(dealInvoices.id, ids), eq(dealInvoices.status, "entwurf")));
 }
 
 /** Legt den Job an. Dieselbe `vps_job_id` ein zweites Mal ändert nichts. */
@@ -48,6 +65,7 @@ export async function jobAnlegen(j: NeuerJob): Promise<void> {
       calculationVersionId: j.calculationVersionId,
       priceCents: j.priceCents,
       createdBy: j.createdBy,
+      invoiceId: j.invoiceId ?? null,
     })
     .onConflictDoNothing({ target: documentRenderJobs.vpsJobId });
 }
@@ -88,7 +106,7 @@ export async function jobAbschliessen(
   vpsJobId: string,
   e: { status: "abgelegt" | "verworfen" | "fehler"; dealDocumentId?: string; fehler?: string },
 ): Promise<void> {
-  await db
+  const rows = await db
     .update(documentRenderJobs)
     .set({
       status: e.status,
@@ -103,7 +121,11 @@ export async function jobAbschliessen(
         eq(documentRenderJobs.vpsJobId, vpsJobId),
         eq(documentRenderJobs.status, "laeuft")
       )
-    );
+    )
+    .returning({ invoiceId: documentRenderJobs.invoiceId });
+  if (e.status !== "abgelegt") {
+    await rechnungenDerJobsVerwerfen(db, rows.map((r) => r.invoiceId), e.fehler ?? `Job ${e.status}`);
+  }
 }
 
 /**
@@ -155,6 +177,7 @@ export async function jobsAbgelaufenMarkieren(jetzt: Date): Promise<number> {
     .update(documentRenderJobs)
     .set({ status: "fehler", fehler: "abgelaufen" })
     .where(and(eq(documentRenderJobs.status, "laeuft"), lt(documentRenderJobs.createdAt, grenze)))
-    .returning({ vpsJobId: documentRenderJobs.vpsJobId });
+    .returning({ vpsJobId: documentRenderJobs.vpsJobId, invoiceId: documentRenderJobs.invoiceId });
+  await rechnungenDerJobsVerwerfen(db, rows.map((r) => r.invoiceId), "Dokumentjob abgelaufen");
   return rows.length;
 }

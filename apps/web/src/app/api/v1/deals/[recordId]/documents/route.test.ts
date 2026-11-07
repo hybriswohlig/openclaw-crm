@@ -7,7 +7,10 @@ const mocks = vi.hoisted(() => ({
   getAuthContext: vi.fn(),
   createDealDocument: vi.fn(),
   applyInvoiceDueDate: vi.fn(),
+  rechnungHochladen: vi.fn(),
 }));
+
+vi.mock("@/services/rechnungen", () => ({ rechnungHochladen: mocks.rechnungHochladen }));
 
 const dealImWorkspaceMock = vi.hoisted(() => vi.fn(async (_ws: string, _deal: string) => true));
 vi.mock("@/lib/kalkulation-versionen-antwort", async (importOriginal) => ({
@@ -66,6 +69,10 @@ beforeEach(() => {
           : "2026-11-02",
     };
   });
+  mocks.rechnungHochladen.mockImplementation(async (dok: Record<string, unknown>, e: { faelligAm: string | null; bruttoCent: number | null }) => ({
+    document: { id: "doc_1", documentType: "invoice", fileName: dok.fileName },
+    rechnung: { id: "inv_1", bruttoCent: e.bruttoCent ?? 90000, faelligAm: e.faelligAm ?? "2026-11-02" },
+  }));
   mocks.createDealDocument.mockResolvedValue({
     id: "doc_1",
     documentType: "invoice",
@@ -77,7 +84,7 @@ beforeEach(() => {
 });
 
 describe("POST /api/v1/deals/[recordId]/documents JSON upload", () => {
-  it("stores a corrected invoice PDF and does not notify the customer", async () => {
+  it("Rechnung über den Datensatz: Prüfung, Fälligkeit, kein Kundenversand (Plan 9)", async () => {
     const pdf = Buffer.alloc(47 * 1024, 0x25);
     pdf.write("%PDF-1.4", 0, "utf8");
 
@@ -90,41 +97,51 @@ describe("POST /api/v1/deals/[recordId]/documents JSON upload", () => {
 
     expect(res.status).toBe(200);
     expect(body.data.id).toBe("doc_1");
-    expect(mocks.createDealDocument).toHaveBeenCalledTimes(1);
-    expect(mocks.createDealDocument).toHaveBeenCalledWith({
-      workspaceId: WORKSPACE_ID,
-      dealRecordId: DEAL_ID,
-      documentType: "invoice",
-      fileName: "RE-korrigiert.pdf",
-      fileSize: pdf.length,
-      mimeType: "application/pdf",
-      fileContent: pdf.toString("base64"),
-      notifyCustomer: false,
-    });
+    expect(mocks.createDealDocument).not.toHaveBeenCalled();
+    expect(mocks.rechnungHochladen).toHaveBeenCalledWith(
+      {
+        workspaceId: WORKSPACE_ID,
+        dealRecordId: DEAL_ID,
+        documentType: "invoice",
+        fileName: "RE-korrigiert.pdf",
+        fileSize: pdf.length,
+        mimeType: "application/pdf",
+        fileContent: pdf.toString("base64"),
+        notifyCustomer: false,
+      },
+      { bruttoCent: null, abweichungGrund: null, faelligAm: null, durchAgent: true, userId: AUTH_CTX.userId }
+    );
     expect(body.rechnungFaelligAm).toBe("2026-11-02");
-    expect(mocks.applyInvoiceDueDate).toHaveBeenCalledWith({
-      documentType: "invoice",
-      workspaceId: WORKSPACE_ID,
-      dealRecordId: DEAL_ID,
-      explicitDueDate: undefined,
-      updatedBy: AUTH_CTX.userId,
-    });
+    expect(mocks.applyInvoiceDueDate).not.toHaveBeenCalled();
   });
 
-  it("keeps an explicit due date on an uploaded invoice", async () => {
+  it("Rechnung mit Betrag, Grund und ausdrücklicher Fälligkeit", async () => {
     const res = await callJson({
       fileName: "RE-korrigiert.pdf",
       documentType: "invoice",
       contentBase64: Buffer.from("%PDF-1.4\n").toString("base64"),
-      dueDate: "2026-12-01",
+      dueDate: "01.12.2026",
+      bruttoCent: 95000,
+      abweichungGrund: "Eine Stunde mehr vor Ort",
     });
     const body = await res.json();
-
     expect(res.status).toBe(200);
     expect(body.rechnungFaelligAm).toBe("2026-12-01");
-    expect(mocks.applyInvoiceDueDate).toHaveBeenCalledWith(
-      expect.objectContaining({ documentType: "invoice", explicitDueDate: "2026-12-01" })
+    expect(mocks.rechnungHochladen).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ bruttoCent: 95000, abweichungGrund: "Eine Stunde mehr vor Ort", faelligAm: "2026-12-01" })
     );
+  });
+
+  it("Prüfung scheitert: 409 mit Code; ungültiger Betrag 400", async () => {
+    const { GeldFehler } = await import("@/lib/geld");
+    mocks.rechnungHochladen.mockRejectedValueOnce(new GeldFehler("STUNDEN_BETRAG_FEHLT"));
+    const base = { fileName: "RE.pdf", documentType: "invoice", contentBase64: Buffer.from("%PDF-1.4\n").toString("base64") };
+    const res = await callJson(base);
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe("STUNDEN_BETRAG_FEHLT");
+    const falsch = await callJson({ ...base, bruttoCent: -5 });
+    expect(falsch.status).toBe(400);
   });
 
   it("opts in to the portal notifier only when notifyCustomer is true", async () => {
@@ -171,7 +188,8 @@ describe("POST /api/v1/deals/[recordId]/documents JSON upload", () => {
     expect(mocks.createDealDocument).not.toHaveBeenCalled();
   });
 
-  it("keeps the multipart staff upload on the notifying path", async () => {
+  it("Multipart-Upload einer Rechnung (alte Oberfläche) läuft über den Datensatz, als Mensch", async () => {
+    mocks.getAuthContext.mockResolvedValue({ ...AUTH_CTX, authMethod: "cookie" });
     const pdf = Buffer.from("%PDF-1.4\n");
     const form = new FormData();
     form.append("file", new File([pdf], "RE-ui.pdf", { type: "application/pdf" }));
@@ -187,13 +205,11 @@ describe("POST /api/v1/deals/[recordId]/documents JSON upload", () => {
     );
 
     expect(res.status).toBe(200);
-    const stored = mocks.createDealDocument.mock.calls[0][0];
+    const [stored, e] = mocks.rechnungHochladen.mock.calls[0];
     expect(stored.documentType).toBe("invoice");
     expect(stored.fileName).toBe("RE-ui.pdf");
     expect(stored.notifyCustomer).toBeUndefined();
-    expect(mocks.applyInvoiceDueDate).toHaveBeenCalledWith(
-      expect.objectContaining({ documentType: "invoice", explicitDueDate: "2026-12-20" })
-    );
+    expect(e).toMatchObject({ faelligAm: "2026-12-20", durchAgent: false });
   });
 });
 

@@ -114,7 +114,7 @@ export function renderHtml(model: DocumentModel): string {
       <p class="brand">${escapeHtml(model.issuer.displayName)}</p>
       <p class="issuer">${model.issuer.lines.map((line) => escapeHtml(line)).join("<br>")}</p>
     </div>
-    <div class="muted">${escapeHtml(model.documentDateLabel)}</div>
+    <div class="muted">${escapeHtml(model.documentDateLabel)}${model.invoiceNumberLabel ? `<br><strong>${escapeHtml(model.invoiceNumberLabel)}</strong>` : ""}</div>
   </header>
   <h1>${escapeHtml(model.title)}</h1>
   <div class="recipient">${model.recipientLines.map((line) => textBlock(line)).join("<br>")}</div>

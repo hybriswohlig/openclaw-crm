@@ -20,6 +20,7 @@ import {
 } from "@/services/deal-documents";
 import { abschliessenMitAnspruch, ablegenUnterSperre } from "@/services/kv-job-ablage";
 import { applyInvoiceDueDate } from "@/services/rechnung-faellig";
+import { aktiveRechnung, nachRechnung } from "@/services/rechnungen";
 
 export interface AbschlussOptionen {
   abruf?: typeof fetch;
@@ -170,14 +171,22 @@ export async function kvJobAbschliessenDetails(
     console.error("[kv-job-abschluss] Nachlauf", err)
   );
 
-  // 5) Rechnung: „Rechnung fällig am“ wie bisher in store-as-document.
-  const faellig = await applyInvoiceDueDate({
-    documentType: check.documentType,
-    workspaceId: ws,
-    dealRecordId: job.dealRecordId,
-    explicitDueDate: opts.faelligAm,
-    updatedBy: opts.updatedBy ?? job.createdBy,
-  });
+  // 5) Rechnung mit Datensatz (Plan 9): Spiegel, Wartet, Abschluss aus dem Datensatz.
+  //    Alte Jobs ohne Datensatz: „Rechnung fällig am“ wie bisher.
+  let faellig: { rechnungFaelligAm: string | null; dueDateWarning?: string };
+  if (job.invoiceId) {
+    await nachRechnung(ws, job.dealRecordId, opts.updatedBy ?? job.createdBy);
+    const r = await aktiveRechnung(ws, job.dealRecordId).catch(() => null);
+    faellig = { rechnungFaelligAm: r?.faelligAm ?? null };
+  } else {
+    faellig = await applyInvoiceDueDate({
+      documentType: check.documentType,
+      workspaceId: ws,
+      dealRecordId: job.dealRecordId,
+      explicitDueDate: opts.faelligAm,
+      updatedBy: opts.updatedBy ?? job.createdBy,
+    });
+  }
 
   return {
     abschluss: { status: "abgelegt", dealDocumentId: dokument.id },

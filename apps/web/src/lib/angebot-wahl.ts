@@ -42,6 +42,8 @@ export interface RenderJob {
   storedAt: string | null;
   dealDocumentId: string | null;
   fehler: string | null;
+  /** Nur RE (Plan 9): Rechnungsdatensatz, der mit diesem Job gestellt wird. */
+  invoiceId?: string | null;
 }
 
 export const RENDER_JOB_RESERVIERUNG_MS = 2 * 60 * 1000;

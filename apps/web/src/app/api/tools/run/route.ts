@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthContext, unauthorized, badRequest } from "@/lib/api-utils";
 import { db } from "@/db";
 import { inboxMessageAttachments } from "@/db/schema/inbox";
+import { dealInvoices } from "@/db/schema/deal-invoices";
 import { and, eq, inArray } from "drizzle-orm";
 import { findDealInternalPhotosByIds } from "@/services/deal-photos";
 import { rewriteKundeParamsFromDeal } from "@/services/doc-customer-name";
@@ -15,6 +16,16 @@ import {
   type KvJobBezug,
 } from "@/services/document-job-context";
 import { jobAnlegen } from "@/services/render-jobs";
+import { type ReJobBezug } from "@/services/document-job-context";
+import { angebotSperren, quotationLesen } from "@/services/quotations";
+import {
+  angebotsStandAus,
+  rechnungPruefenUndReservieren,
+  rechnungsVorschlag,
+  rechnungVerwerfen,
+} from "@/services/rechnungen";
+import { GeldFehler, stundenPreiseFuerVps, type RechnungZeile } from "@/lib/geld";
+import { parseRechnungEingabe } from "@/lib/commercial-document-request";
 
 /** Dokumentart des Skills → Typ in `deal_documents` (wie `store-as-document`). */
 const DOKUMENT_TYP: Record<string, string> = {
@@ -94,6 +105,11 @@ export async function POST(req: NextRequest) {
   // (apartment photos etc.) for volume / Stockwerk / besonderheiten.
   let params: Record<string, unknown> = { ...(body.params ?? {}) };
   let kvBezug: KvJobBezug | null = null;
+  let reBezug: ReJobBezug | null = null;
+  // Plan 9: Rechnungsschritt der Akte (`_rechnung`), nie an den VPS.
+  const rechnungRoh = parseRechnungEingabe(params._rechnung);
+  delete params._rechnung;
+  if (!rechnungRoh.ok) return badRequest(rechnungRoh.error);
 
   // Authoritative kunde name: never trust the browser for the PDF header.
   // Stale client bundles (or lead-title leakage into person names) previously
@@ -109,6 +125,7 @@ export async function POST(req: NextRequest) {
         const kontext = await attachDocumentJobContext(ctx.workspaceId, params);
         params = kontext.params;
         kvBezug = kontext.kv;
+        reBezug = kontext.re ?? null;
       } catch (err) {
         return NextResponse.json(
           { error: err instanceof Error ? err.message : "Dokumentkontext fehlgeschlagen" },
@@ -210,6 +227,60 @@ export async function POST(req: NextRequest) {
     if (images.length > 0) params._images = images;
   }
 
+  // Plan 9, Entscheidung 6: Rechnung prüfen und mit Nummer reservieren, bevor der VPS startet.
+  let rechnung: RechnungZeile | null = null;
+  const istRechnung = registerTyp(body.skill, params) === "invoice";
+  if (istRechnung) {
+    if (!registerDeal || !reBezug) {
+      return NextResponse.json({ error: "Rechnung braucht einen Auftrag mit Angebot." }, { status: 400 });
+    }
+    const bezug = reBezug;
+    try {
+      rechnung = await db.transaction(async (tx) => {
+        await angebotSperren(tx, registerDeal);
+        const stand = await quotationLesen(tx, registerDeal);
+        if (!stand || angebotsStandAus(stand) !== bezug.angebotsStand) {
+          throw new GeldFehler("RECHNUNG_PDF_ANDERS", "Das Angebot hat sich gerade geändert. Bitte die Rechnung neu erstellen.");
+        }
+        return rechnungPruefenUndReservieren(tx, {
+          ws: ctx.workspaceId,
+          deal: registerDeal,
+          herkunft: "vps",
+          pdfBetragCent: bezug.pdfBetragCent,
+          eingabe: {
+            bruttoCent: rechnungRoh.value?.bruttoCent ?? null,
+            abweichungGrund: rechnungRoh.value?.abweichungGrund ?? null,
+            faelligAm: typeof params.rechnung_faellig_am === "string" ? params.rechnung_faellig_am : null,
+          },
+          durchAgent: ctx.authMethod === "api_key",
+          userId: ctx.userId,
+          jetzt: new Date(),
+        });
+      });
+    } catch (err) {
+      if (err instanceof GeldFehler) {
+        return NextResponse.json({ error: err.message, code: err.code }, { status: err.status });
+      }
+      throw err;
+    }
+    params.rechnungsnummer = rechnung.nummer;
+    params.faellig_am = rechnung.faelligAm;
+    if (bezug.istStunden && rechnung.bruttoCent != null) {
+      const vorschlag = await rechnungsVorschlag(ctx.workspaceId, registerDeal).catch(() => null);
+      const grundlage =
+        vorschlag?.stunden && vorschlag.stunden.bruttoCent === rechnung.bruttoCent
+          ? vorschlag.stunden.grundlage
+          : "laut Stundennachweis";
+      const prev = (params.preise && typeof params.preise === "object" ? params.preise : {}) as Record<string, unknown>;
+      params.preise = { ...prev, ...stundenPreiseFuerVps(bezug.firma, rechnung.bruttoCent, grundlage) };
+      const kontext = (params._document_context ?? {}) as Record<string, unknown>;
+      params._document_context = { ...kontext, totalCents: rechnung.bruttoCent };
+    }
+  }
+  const verwerfen = async (grund: string) => {
+    if (rechnung) await rechnungVerwerfen(ctx.workspaceId, rechnung.id, grund).catch(() => {});
+  };
+
   const upstreamUrl = `${CRM_TOOLS_API_URL}/skills/${encodeURIComponent(body.skill)}`;
   const buildBody = (p: Record<string, unknown>) =>
     JSON.stringify({
@@ -232,9 +303,16 @@ export async function POST(req: NextRequest) {
       body: buildBody(p),
     });
 
-  const upstream = await callUpstream(params);
+  let upstream: Response;
+  try {
+    upstream = await callUpstream(params);
+  } catch (err) {
+    await verwerfen("VPS nicht erreichbar");
+    throw err;
+  }
 
   if (upstream.status === 413 && params._images) {
+    await verwerfen("VPS: Anfrage zu groß");
     return NextResponse.json(
       {
         error:
@@ -246,6 +324,7 @@ export async function POST(req: NextRequest) {
 
   const data = await upstream.json().catch(() => ({}));
   if (!upstream.ok) {
+    await verwerfen(`VPS-Fehler ${upstream.status}`);
     return NextResponse.json(
       { error: "upstream error", upstream: data },
       { status: upstream.status }
@@ -255,6 +334,7 @@ export async function POST(req: NextRequest) {
   // Job-Register: Dokument-Skills mit Deal. Abgelegt wird nur, was hier steht.
   const jobId = (data as { job_id?: unknown }).job_id;
   const documentType = registerTyp(body.skill, params);
+  if (rechnung && typeof jobId !== "string") await verwerfen("VPS ohne Job-ID");
   if (registerDeal && typeof jobId === "string" && documentType) {
     try {
       await jobAnlegen({
@@ -263,12 +343,22 @@ export async function POST(req: NextRequest) {
         dealRecordId: registerDeal,
         documentType,
         calculationVersionId: documentType === "quotation" ? (kvBezug?.calculationVersionId ?? null) : null,
-        priceCents: documentType === "quotation" ? (kvBezug?.priceCents ?? null) : null,
+        priceCents:
+          documentType === "quotation"
+            ? (kvBezug?.priceCents ?? null)
+            : documentType === "invoice"
+              ? (rechnung?.bruttoCent ?? null)
+              : null,
         createdBy: ctx.userId,
+        invoiceId: rechnung?.id ?? null,
       });
+      if (rechnung) {
+        await db.update(dealInvoices).set({ renderJobId: jobId }).where(eq(dealInvoices.id, rechnung.id));
+      }
     } catch (err) {
       // Ohne Eintrag kann weder Browser noch Cron ablegen: sichtbar scheitern.
       console.error("[tools/run] Job-Register fehlgeschlagen:", err);
+      await verwerfen("Job-Register fehlgeschlagen");
       return NextResponse.json(
         { error: "Dokumentjob gestartet, aber nicht registriert. Bitte erneut erstellen." },
         { status: 500 }

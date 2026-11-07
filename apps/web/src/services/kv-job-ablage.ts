@@ -22,6 +22,8 @@ import {
   type DealDocumentMeta,
   type DealDocumentType,
 } from "@/services/deal-documents";
+import { rechnungenDerJobsVerwerfen } from "@/services/render-jobs";
+import { rechnungStellen } from "@/services/rechnungen";
 
 type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -57,7 +59,11 @@ export async function abschliessenMitAnspruch(
       storedAt: e.status === "abgelegt" ? sql`now()` : undefined,
     })
     .where(eigeneReservierung(ws, vpsJobId, claimedAt))
-    .returning({ vpsJobId: documentRenderJobs.vpsJobId });
+    .returning({ vpsJobId: documentRenderJobs.vpsJobId, invoiceId: documentRenderJobs.invoiceId });
+  // Plan 9: eine Rechnung, deren Job verworfen wird oder scheitert, wird nie gestellt.
+  if (e.status !== "abgelegt") {
+    await rechnungenDerJobsVerwerfen(ex, rows.map((r) => r.invoiceId), e.status === "fehler" ? e.fehler : "Job verworfen");
+  }
   return rows.length > 0;
 }
 
@@ -118,6 +124,7 @@ export async function ablegenUnterSperre(job: RenderJob & { claimedAt: string },
       { status: "abgelegt", dealDocumentId: dokument.id },
       tx
     );
+    if (job.invoiceId) await rechnungStellen(tx, job.invoiceId, dokument.id);
     return { art: "abgelegt" as const, dokument };
   });
 }

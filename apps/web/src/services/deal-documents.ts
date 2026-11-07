@@ -9,7 +9,8 @@
 // the MCP client can only send JSON. The size rules for that body live in
 // lib/deal-document-upload.ts (3 MB decoded, under the platform limit).
 
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, like } from "drizzle-orm";
+import { tasks, taskRecords } from "@/db/schema/tasks";
 import { db } from "@/db";
 import { objects } from "@/db/schema/objects";
 import { records } from "@/db/schema/records";
@@ -203,10 +204,43 @@ export async function dealDokumentNachlauf(
       });
   }
 
+  // Plan 9, Entscheidung 16: eine abgelegte AB erledigt die offene Aufgabe „AB erstellen: Auftrag N“.
+  if (check.documentType === "order_confirmation") {
+    try {
+      await abAufgabeErledigen(input.workspaceId, input.dealRecordId);
+    } catch (err) {
+      console.error("[deal-documents] AB-Aufgabe erledigen fehlgeschlagen:", err);
+    }
+  }
+
   // KV, AB und Rechnung verschieben das Wartet-Signal; Fehler brechen das Speichern nicht.
   try {
     await aktualisiereWartet(input.workspaceId, input.dealRecordId);
   } catch (err) {
     console.error("[wartet] nach Dokument fehlgeschlagen:", err);
   }
+}
+
+/** Nur die Aufgabe „AB erstellen: Auftrag …“ dieses Deals, nur solange offen. */
+export async function abAufgabeErledigen(workspaceId: string, dealRecordId: string): Promise<number> {
+  const offen = await db
+    .select({ id: tasks.id })
+    .from(tasks)
+    .innerJoin(taskRecords, eq(taskRecords.taskId, tasks.id))
+    .where(
+      and(
+        eq(tasks.workspaceId, workspaceId),
+        eq(taskRecords.recordId, dealRecordId),
+        eq(tasks.isCompleted, false),
+        like(tasks.content, "AB erstellen: Auftrag %")
+      )
+    );
+  if (offen.length === 0) return 0;
+  const jetzt = new Date();
+  const rows = await db
+    .update(tasks)
+    .set({ isCompleted: true, completedAt: jetzt, kanbanStatus: "erledigt" })
+    .where(and(inArray(tasks.id, offen.map((t) => t.id)), eq(tasks.isCompleted, false)))
+    .returning({ id: tasks.id });
+  return rows.length;
 }
