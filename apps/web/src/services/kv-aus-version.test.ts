@@ -199,3 +199,34 @@ describe("kvAusVersion", () => {
     expect(err.message).toBe("Version v9 nicht gefunden.");
   });
 });
+
+describe("kvAusVersion mit Firmen-Schalter (Plan 5b)", () => {
+  const paketVersion = () =>
+    version({
+      pricingMode: "fest", priceCents: 149000, kvItems: [{ description: "Komfort", quantity: 1, unitRate: 1490 }],
+      packagePrices: [
+        { slug: "basis", festpreis: 1290, selbstkosten: 700, kvItems: [{ description: "Basis", quantity: 1, unitRate: 1290 }] },
+        { slug: "komfort", festpreis: 1490, selbstkosten: 800, kvItems: [{ description: "Komfort", quantity: 1, unitRate: 1490 }] },
+      ],
+      dayPrices: [],
+    });
+  beforeEach(() => {
+    m.ladeSchalter.mockResolvedValue({ angebotAusKalkulation: true, tagespreise: false });
+    m.hatPakete.mockResolvedValue(true);
+    m.ladeVersion.mockResolvedValue(paketVersion());
+  });
+
+  it("Paketoptionen: kein PAKETE mehr; die Kundenwahl (Basis) ist eine Wahl der Version → KV wird erstellt", async () => {
+    m.ladeAngebot.mockResolvedValue({ fixedPrice: "1290.00", isVariable: false, lineItems: [{ description: "Basis", quantity: 1, unitRate: "1290.00" }] });
+    expect(await kvAusVersion(eingabe, opt)).toMatchObject({ renderer: "crm" });
+    expect(m.hatPakete).not.toHaveBeenCalled();
+  });
+
+  it("Preis von Hand (keine Wahl der Version) → Text der Handänderung, kein PDF", async () => {
+    m.ladeAngebot.mockResolvedValue({ fixedPrice: "1350.00", isVariable: false, lineItems: [{ description: "Basis", quantity: 1, unitRate: "1350.00" }] });
+    m.ladeVersionen.mockResolvedValue([{ version: 2, status: "gesperrt" }]);
+    const err = await fehlerVon(kvAusVersion(eingabe, opt));
+    expect(err.message).toBe("Das Angebot wurde nach v2 von Hand geändert. Neue Version sperren.");
+    expect(m.speichereKv).not.toHaveBeenCalled();
+  });
+});

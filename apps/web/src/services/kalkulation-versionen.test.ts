@@ -959,6 +959,42 @@ describe("angebotAusVersionSchreiben", () => {
     expect(log.posten?.every((p) => p.quotationId === "q_neu")).toBe(true);
   });
 
+  it("Plan 5b, Stunden-KV aus der Version: isVariable, kein Festpreis, Posten helper/transporter/other, documentDetails.stunden", async () => {
+    const { tx, log } = txMock({ id: "q1", calculationAssumptions: null, documentDetails: { reference: "KV-1" } });
+    const angebotStunden = {
+      helfer: 2, transporter: 1, stundenGeschaetzt: 5.5, mindestStunden: 3, satzHelferEur: 35, satzTransporterEur: 25,
+      summeGeschaetztCent: 52250, mindestbetragCent: 28500, quelle: "version" as const,
+    };
+    await angebotAusVersionSchreiben(tx, "deal1", eingabe(), "id_v4", {
+      stunden: {
+        posten: [
+          { type: "helper", description: "Helfer", quantity: 2, unitRate: 35 },
+          { type: "transporter", description: "Transporter", quantity: 1, unitRate: 25 },
+          { type: "other", description: "Halteverbotszone", quantity: 1, unitRate: 150 },
+        ],
+        angebot: angebotStunden,
+      },
+    });
+    expect(log.update).toMatchObject({ fixedPrice: null, isVariable: true, calculationVersionId: "id_v4" });
+    expect(log.update?.documentDetails).toMatchObject({ reference: "KV-1", stunden: angebotStunden });
+    expect(log.posten?.map((p) => [p.type, p.quantity, p.unitRate])).toEqual([["helper", 2, "35.00"], ["transporter", 1, "25.00"], ["other", 1, "150.00"]]);
+  });
+
+  it("Plan 5b, Festpreis aus einer Wahl: Posten der Wahl, Summe = Preis; alte Stunden-Angaben fallen weg; Summe ≠ Preis wirft", async () => {
+    const { tx, log } = txMock({ id: "q1", calculationAssumptions: null, documentDetails: { stunden: { helfer: 2 } } });
+    await angebotAusVersionSchreiben(tx, "deal1", eingabe(), "id_v5", {
+      fest: { priceCents: 129000, kvItems: [{ description: "Basis", quantity: 1, unitRate: 1140 }, { description: "Halteverbot", quantity: 1, unitRate: 150 }] },
+    });
+    expect(log.update).toMatchObject({ fixedPrice: "1290.00", isVariable: false });
+    expect(log.update?.documentDetails).not.toHaveProperty("stunden");
+    expect(log.posten?.every((p) => p.type === "other")).toBe(true);
+    const zwei = txMock(null);
+    await expect(
+      angebotAusVersionSchreiben(zwei.tx, "deal1", eingabe(), "id_v5", { fest: { priceCents: 129000, kvItems: [{ description: "x", quantity: 1, unitRate: 1000 }] } })
+    ).rejects.toThrow(/statt 129000 Cent/);
+    expect(zwei.log.insertQuotation).toBeUndefined();
+  });
+
   it("Menge nicht ganzzahlig: Fehler vor jedem Schreiben", async () => {
     const { tx, log } = txMock(null);
     const e = eingabe();

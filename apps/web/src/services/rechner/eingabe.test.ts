@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { eingabeHash, rechnerAnfrageAus, type LeadDaten } from "./eingabe";
+import { eingabeHash, mitPlan5Feldern, rechnerAnfrageAus, type LeadDaten } from "./eingabe";
 
 const leer: LeadDaten = {
   von: null, nach: null, etageVon: null, etageNach: null, zugangVon: null, zugangNach: null,
@@ -140,5 +140,44 @@ describe("Inventar-Quelle", () => {
       inventar: [{ name: "Sofa", menge: 1, groessenklasse: "gross", volumenCbm: 1.5, mitnehmen: true, quelle: "foto" }],
     });
     expect(a.positionen_freitext).toEqual([{ name: "Sofa", menge: 1, groessenklasse: "gross", volumenCbm: 1.5 }]);
+  });
+});
+
+describe("mitPlan5Feldern (Plan 5b)", () => {
+  const lead = { ...leer, von: "Böblingen", nach: "Stuttgart", zimmer: 3, umzugsdatum: "2026-11-21" };
+  const AUS = { angebotAusKalkulation: false, tagespreise: false };
+  // Fester Fingerabdruck dieser Anfrage, berechnet auf f70e6a72 (vor Task K): ändert er sich,
+  // gilt jede alte Version als veraltet.
+  const HASH_VOR_5B = "6687ece8f74cced2f78b27027e1c42ce3295c3411e9a869d2e30fef5e844d921";
+
+  it("ohne Schalter: Anfrage und Hash unverändert, auch mit Stundenmodus und Tagen", () => {
+    const a = rechnerAnfrageAus(lead);
+    for (const p of [null, undefined, { schalter: AUS, stunden: true, tage: ["2026-11-21", "2026-11-22"] }]) {
+      const b = mitPlan5Feldern(a, p);
+      expect(b).toEqual(a);
+      expect(JSON.stringify(b)).toBe(JSON.stringify(a));
+      expect(eingabeHash(b)).toBe(HASH_VOR_5B);
+    }
+  });
+
+  it("Angebot aus Kalkulation: paket_uebersteuerungen und zeilen_stabil; stunden_modus nur im Stundenmodus; Hash ändert sich", () => {
+    const a = rechnerAnfrageAus(lead);
+    const fest = mitPlan5Feldern(a, { schalter: { angebotAusKalkulation: true, tagespreise: false }, stunden: false, tage: ["2026-11-21"] });
+    expect(fest).toMatchObject({ paket_uebersteuerungen: "1", zeilen_stabil: "1" });
+    expect(fest).not.toHaveProperty("stunden_modus");
+    expect(fest).not.toHaveProperty("tage");
+    expect(eingabeHash(fest)).not.toBe(HASH_VOR_5B);
+    const std = mitPlan5Feldern(a, { schalter: { angebotAusKalkulation: true, tagespreise: true }, stunden: true, tage: ["2026-11-21"] });
+    expect(std.stunden_modus).toBe("1");
+    // Keine Tagespreise im Stundenmodus (F15).
+    expect(std).not.toHaveProperty("tage");
+  });
+
+  it("Tagespreise: tage nur mit Schalter und Tagen, sortiert und ohne Doppel; leere Liste schickt nichts", () => {
+    const a = rechnerAnfrageAus(lead);
+    const t = mitPlan5Feldern(a, { schalter: { angebotAusKalkulation: false, tagespreise: true }, stunden: false, tage: ["2026-11-22", "2026-11-21", "2026-11-22"] });
+    expect(t.tage).toBe(JSON.stringify(["2026-11-21", "2026-11-22"]));
+    expect(t).not.toHaveProperty("paket_uebersteuerungen");
+    expect(mitPlan5Feldern(a, { schalter: { angebotAusKalkulation: false, tagespreise: true }, stunden: false, tage: [] })).toEqual(a);
   });
 });
