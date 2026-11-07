@@ -32,6 +32,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
+    "test:pruefraster": "playwright test -c e2e/pruefraster.config.ts",
     "tasks:reorganize": "tsx scripts/reorganize-projects.ts"
   },
   "dependencies": {
