@@ -154,6 +154,8 @@ export async function upsertQuotation(
   // die Verknüpfung zu einer inzwischen gesperrten Version stehen.
   await db.transaction(async (tx) => {
     await angebotSperren(tx, dealRecordId);
+    // Die Annahme kann zwischen der Prüfung oben und der Sperre eingegangen sein.
+    await pruefeNichtAngenommen(dealRecordId, tx);
     const [row] = await tx
       .select()
       .from(quotations)

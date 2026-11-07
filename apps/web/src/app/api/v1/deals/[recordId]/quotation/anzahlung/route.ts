@@ -84,7 +84,8 @@ export async function PATCH(
   try {
     await db.transaction(async (tx) => {
       await angebotSperren(tx, recordId);
-      await pruefeNichtAngenommen(recordId);
+      // Über tx: unter der Sperre keine zweite Verbindung aus dem Pool.
+      await pruefeNichtAngenommen(recordId, tx);
 
       const [existing] = await tx
         .select({ id: quotations.id })

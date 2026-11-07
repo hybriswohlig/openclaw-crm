@@ -657,7 +657,7 @@ async function annahmePruefen(
     return { ok: false, reason: "offer_expired" };
   }
 
-  const dealAttrs = await loadDealAttributeMap(link.workspaceId);
+  const dealAttrs = await loadDealAttributeMap(link.workspaceId, ex);
   const dealValues = await loadValuesForRecord(deal, ex);
   const scope = projectMoveScope(dealAttrs, dealValues);
   let effective = unterSperre?.effective;
@@ -1163,15 +1163,15 @@ interface DealAttrIndex {
   byId: Map<string, { id: string; type: string; slug: string }>;
 }
 
-async function loadDealAttributeMap(workspaceId: string): Promise<DealAttrIndex> {
-  const [dealObj] = await db
+async function loadDealAttributeMap(workspaceId: string, ex: DbExecutor = db): Promise<DealAttrIndex> {
+  const [dealObj] = await ex
     .select({ id: objects.id })
     .from(objects)
     .where(and(eq(objects.workspaceId, workspaceId), eq(objects.slug, "deals")))
     .limit(1);
   if (!dealObj) return { bySlug: new Map(), byId: new Map() };
 
-  const attrs = await db
+  const attrs = await ex
     .select({ id: attributes.id, slug: attributes.slug, type: attributes.type })
     .from(attributes)
     .where(eq(attributes.objectId, dealObj.id));
@@ -2759,7 +2759,7 @@ async function mirrorMoveDateOntoDeal(
   ymd: string,
   ex: DbExecutor = db
 ): Promise<void> {
-  const dealAttrs = await loadDealAttributeMap(workspaceId);
+  const dealAttrs = await loadDealAttributeMap(workspaceId, ex);
   const moveDateAttr = dealAttrs.bySlug.get("move_date");
   if (!moveDateAttr) return;
   await ex

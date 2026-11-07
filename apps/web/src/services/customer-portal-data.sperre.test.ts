@@ -105,6 +105,9 @@ function pruefeReihenfolge(schreibt: RegExp) {
     expect(i).toBeLessThan(commit);
   }
   expect(schreiben.some(([z]) => schreibt.test(z))).toBe(true);
+  // Unter der Sperre nichts über die globale db: sonst wartet der Sperrhalter
+  // auf eine Verbindung, die wartende Transaktionen belegen (Pool-Deadlock).
+  expect(m.log.slice(begin, commit).filter((z) => z.startsWith("db "))).toEqual([]);
 }
 
 /** Annahme erscheint erst unter der Sperre: nichts wird geschrieben. */

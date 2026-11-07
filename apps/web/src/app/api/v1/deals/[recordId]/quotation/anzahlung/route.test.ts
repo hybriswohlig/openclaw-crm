@@ -119,7 +119,8 @@ describe("PATCH /deals/[recordId]/quotation/anzahlung", () => {
     const res = await PATCH(patch({ depositRequiredCents: 5000, paymentMethodPreference: "bank_transfer" }), p());
     expect(res.status).toBe(200);
     expect(mocks.schritte).toEqual(["sperre", "annahme", "lesen", "update"]);
-    expect(mocks.pruefeNichtAngenommen).toHaveBeenCalledWith("deal_1");
+    // Unter der Sperre über tx, nie über die globale db (Pool-Deadlock).
+    expect(mocks.pruefeNichtAngenommen).toHaveBeenCalledWith("deal_1", tx);
     expect(mocks.updateSet).toHaveBeenCalledWith(expect.objectContaining({ depositRequiredCents: 5000, paymentMethodPreference: "bank_transfer" }));
     const q = new PgDialect().sqlToQuery(mocks.sperrSql[0] as SQL);
     expect(q.sql).toBe("select pg_advisory_xact_lock(hashtext('angebot:' || $1::text))");
