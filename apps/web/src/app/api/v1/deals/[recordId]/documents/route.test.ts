@@ -9,6 +9,11 @@ const mocks = vi.hoisted(() => ({
   applyInvoiceDueDate: vi.fn(),
 }));
 
+const dealImWorkspaceMock = vi.hoisted(() => vi.fn(async (_ws: string, _deal: string) => true));
+vi.mock("@/lib/kalkulation-versionen-antwort", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/kalkulation-versionen-antwort")>()),
+  dealImWorkspace: dealImWorkspaceMock,
+}));
 vi.mock("@/lib/api-utils", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api-utils")>();
   return { ...actual, getAuthContext: mocks.getAuthContext };
@@ -189,5 +194,19 @@ describe("POST /api/v1/deals/[recordId]/documents JSON upload", () => {
     expect(mocks.applyInvoiceDueDate).toHaveBeenCalledWith(
       expect.objectContaining({ documentType: "invoice", explicitDueDate: "2026-12-20" })
     );
+  });
+});
+
+describe("POST /api/v1/deals/[recordId]/documents fremder Deal (Plan 5a)", () => {
+  it("antwortet 404 und legt nichts ab", async () => {
+    dealImWorkspaceMock.mockResolvedValueOnce(false);
+    const req = new NextRequest("https://crm.test/api/v1/deals/fremd/documents", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ fileName: "RE-1.pdf", documentType: "invoice", fileContent: "JVBERi0=" }),
+    });
+    const res = await POST(req, { params: Promise.resolve({ recordId: "fremd" }) });
+    expect(res.status).toBe(404);
+    expect(mocks.createDealDocument).not.toHaveBeenCalled();
   });
 });

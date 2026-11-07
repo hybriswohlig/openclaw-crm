@@ -96,7 +96,14 @@ export async function jobAbschliessen(
       dealDocumentId: e.dealDocumentId,
       storedAt: e.status === "abgelegt" ? sql`now()` : undefined,
     })
-    .where(and(eq(documentRenderJobs.workspaceId, ws), eq(documentRenderJobs.vpsJobId, vpsJobId)));
+    // Nur laufende Jobs: ein abgeschlossener Job wird nie überschrieben.
+    .where(
+      and(
+        eq(documentRenderJobs.workspaceId, ws),
+        eq(documentRenderJobs.vpsJobId, vpsJobId),
+        eq(documentRenderJobs.status, "laeuft")
+      )
+    );
 }
 
 /**

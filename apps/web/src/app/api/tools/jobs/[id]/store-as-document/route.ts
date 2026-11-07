@@ -25,6 +25,7 @@ import {
   validateDealDocumentUpload,
 } from "@/services/deal-documents";
 import { jobLaden } from "@/services/render-jobs";
+import { dealImWorkspace } from "@/lib/kalkulation-versionen-antwort";
 import { kvJobAbschliessenDetails } from "@/services/kv-job-abschluss";
 
 const CRM_TOOLS_API_URL = process.env.CRM_TOOLS_API_URL;
@@ -98,6 +99,7 @@ async function ohneRegister(
   id: string,
   body: { dealRecordId?: string; documentType?: string }
 ) {
+  if (!(await dealImWorkspace(ctx.workspaceId, body.dealRecordId!))) return nichtGefunden();
   if (body.documentType !== undefined && body.documentType !== "worker_instructions") return nichtGefunden();
 
   const upstream = await fetch(

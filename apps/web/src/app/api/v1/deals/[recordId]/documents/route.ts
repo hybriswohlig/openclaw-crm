@@ -6,6 +6,7 @@ import { eq, and } from "drizzle-orm";
 import { prepareJsonDealDocument, validateDealDocumentUpload } from "@/lib/deal-document-upload";
 import { createDealDocument } from "@/services/deal-documents";
 import { applyInvoiceDueDate } from "@/services/rechnung-faellig";
+import { dealImWorkspace, dealNichtGefunden } from "@/lib/kalkulation-versionen-antwort";
 
 export async function GET(
   req: NextRequest,
@@ -45,6 +46,8 @@ export async function POST(
   if (!ctx) return unauthorized(req);
 
   const { recordId } = await params;
+  // Fremder Deal: 404 vor dem Lesen des Uploads (createDealDocument prüft zusätzlich).
+  if (!(await dealImWorkspace(ctx.workspaceId, recordId))) return dealNichtGefunden();
   const contentType = (req.headers.get("content-type") ?? "").toLowerCase();
 
   // MCP clients send JSON only. The staff UI keeps sending multipart.

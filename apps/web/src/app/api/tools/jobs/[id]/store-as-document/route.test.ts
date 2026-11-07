@@ -40,6 +40,11 @@ vi.mock("@/services/render-jobs", () => ({
   },
 }));
 
+const dealImWorkspaceMock = vi.hoisted(() => vi.fn(async (_ws: string, _deal: string) => true));
+vi.mock("@/lib/kalkulation-versionen-antwort", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/kalkulation-versionen-antwort")>()),
+  dealImWorkspace: dealImWorkspaceMock,
+}));
 vi.mock("@/lib/api-utils", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api-utils")>();
   return { ...actual, getAuthContext: mocks.getAuthContext };
