@@ -10,20 +10,30 @@
  *   - at most 10 offers, at most 6 slots per offer
  *
  * GET returns the current set so the composer can hydrate.
+ *
+ * Plan 5b: Stammen die Angebote aus einer Kalkulationsversion (mit Preis),
+ * lehnen PUT und DELETE mit 409 TERMINE_MIT_PREIS ab; sie werden nur im
+ * Termin-Dialog geändert. Die Prüfung läuft im Dienst unter der Sperre.
  */
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { annahmeSperrAntwort } from "@/services/kva-annahme";
 import { eq } from "drizzle-orm";
 import { getAuthContext, unauthorized, success, badRequest } from "@/lib/api-utils";
 import { dealImWorkspace, dealNichtGefunden } from "@/lib/kalkulation-versionen-antwort";
 import { db } from "@/db";
 import { quotationDateOffers, customerDateSelections } from "@/db/schema/customer-portal";
-import { replaceDateOffers, type DateOfferInput } from "@/services/customer-portal-data";
+import { replaceDateOffers, TermineMitPreisError, type DateOfferInput } from "@/services/customer-portal-data";
 
 export const dynamic = "force-dynamic";
 
 const MAX_OFFERS = 10;
 const MAX_SLOTS = 6;
+
+/** Termine aus einer Version → 409 mit dem Hinweis auf den Termin-Dialog, sonst null. */
+function termineMitPreisAntwort(err: unknown): NextResponse | null {
+  if (!(err instanceof TermineMitPreisError)) return null;
+  return NextResponse.json({ error: { code: err.code, message: err.message } }, { status: 409 });
+}
 
 export async function GET(
   req: NextRequest,
@@ -128,7 +138,7 @@ export async function PUT(
     });
     return success({ count: result.count });
   } catch (err) {
-    const gesperrt = annahmeSperrAntwort(err);
+    const gesperrt = annahmeSperrAntwort(err) ?? termineMitPreisAntwort(err);
     if (gesperrt) return gesperrt;
     throw err;
   }
@@ -151,7 +161,7 @@ export async function DELETE(
     });
     return success({ cleared: true });
   } catch (err) {
-    const gesperrt = annahmeSperrAntwort(err);
+    const gesperrt = annahmeSperrAntwort(err) ?? termineMitPreisAntwort(err);
     if (gesperrt) return gesperrt;
     throw err;
   }

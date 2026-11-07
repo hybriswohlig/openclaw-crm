@@ -120,7 +120,8 @@ import {
 import type { DbExecutor, KvaConfirmationRow as KvaConfirmationZeile, Umzugsrahmen } from "./kva-annahme";
 import { preisZahlungenCent } from "@/lib/preis-zahlungen";
 import { angebotSperren } from "./quotations";
-import { kvStand, type KvStand, type StundenAngebot } from "@/lib/angebot-wahl";
+import { kvStand, wahlPreis, type KvStand, type StundenAngebot } from "@/lib/angebot-wahl";
+import { euroText, ladeWahlKontext, wahlDatum, wahlPaket, wahlSchreiben } from "./kundenwahl";
 
 // Vertrag (CRM) und Portal-Core beschreiben denselben Stand.
 const _kvStandGleich: [KvStand] extends [PortalKvStand] ? ([PortalKvStand] extends [KvStand] ? true : never) : never = true;
@@ -2237,8 +2238,14 @@ async function defaultAuswahlSchreiben(tx: DbExecutor, dealRecordId: string): Pr
   await angebotSperren(tx, dealRecordId);
   const plan = await defaultAuswahlPlanen(tx, dealRecordId);
   if (!plan) return;
-  const { q, chosen, priceEur } = plan;
-  if (q) {
+  const { q, chosen, priceEur, ausVersion } = plan;
+  if (q && ausVersion) {
+    // Entscheidung 8: Preis und Posten der Wahl aus der gesperrten Version, Bezug bleibt.
+    await wahlSchreiben(tx, q.id, ausVersion, {
+      selectedPackageOptionId: chosen.id,
+      selectedPackageSlug: chosen.catalogueSlug,
+    });
+  } else if (q) {
     await tx
       .update(quotations)
       .set({
@@ -2272,16 +2279,7 @@ async function defaultAuswahlPlanen(ex: DbExecutor, dealRecordId: string) {
     .orderBy(quotationPackageOptions.sortOrder);
   if (rows.length === 0) return null;
 
-  const [q] = await ex
-    .select({
-      id: quotations.id,
-      selectedPackageOptionId: quotations.selectedPackageOptionId,
-      isVariable: quotations.isVariable,
-      fixedPrice: quotations.fixedPrice,
-    })
-    .from(quotations)
-    .where(eq(quotations.dealRecordId, dealRecordId))
-    .limit(1);
+  const { quotation: q, version } = await ladeWahlKontext(ex, dealRecordId);
 
   const chosen = pickDefaultDealOption(rows, q?.selectedPackageOptionId ?? null);
   if (!chosen) return null;
@@ -2295,13 +2293,24 @@ async function defaultAuswahlPlanen(ex: DbExecutor, dealRecordId: string) {
   });
   if (!acceptanceMayWritePackageSlug(offerView)) return null;
 
-  const priceEur = (chosen.priceCents / 100).toFixed(2);
+  // Option aus der gesperrten Version: Preis der Wahl (Paket am gewählten, sonst Standardtag).
+  let ausVersion: ReturnType<typeof wahlPreis> = null;
+  if (q && version && chosen.calculationVersionId === version.id && chosen.catalogueSlug) {
+    ausVersion = wahlPreis(version, {
+      paketSlug: chosen.catalogueSlug,
+      datum: await wahlDatum(ex, dealRecordId, version),
+    });
+    // Ohne Preis für diese Wahl keinen Preis von Hand darüberschreiben.
+    if (!ausVersion) return null;
+  }
+
+  const priceEur = ausVersion ? euroText(ausVersion.priceCents) : (chosen.priceCents / 100).toFixed(2);
   const alreadyBound =
     q?.selectedPackageOptionId === chosen.id &&
     q?.isVariable === false &&
     q?.fixedPrice === priceEur;
   if (alreadyBound) return null;
-  return { q: q ?? null, chosen, priceEur };
+  return { q: q ?? null, chosen, priceEur, ausVersion };
 }
 
 /**
@@ -2488,11 +2497,21 @@ export async function selectDealPackageOptionForToken(
       .limit(1);
     if (!option) return { ok: false as const, reason: "option_not_found" };
 
-    const [existingQ] = await tx
-      .select({ id: quotations.id })
-      .from(quotations)
-      .where(eq(quotations.dealRecordId, link.dealRecordId))
-      .limit(1);
+    const { quotation: existingQ, version } = await ladeWahlKontext(tx, link.dealRecordId);
+
+    // Entscheidung 8: an die Version gebundene Option → Preis und Posten aus der Version.
+    if (existingQ && version && option.calculationVersionId === version.id && option.catalogueSlug) {
+      const preis = wahlPreis(version, {
+        paketSlug: option.catalogueSlug,
+        datum: await wahlDatum(tx, link.dealRecordId, version),
+      });
+      if (!preis) return { ok: false as const, reason: "price_unavailable" };
+      await wahlSchreiben(tx, existingQ.id, preis, {
+        selectedPackageOptionId: option.id,
+        selectedPackageSlug: option.catalogueSlug,
+      });
+      return { ok: true as const, option, priceCents: preis.priceCents };
+    }
 
     const priceEur = (option.priceCents / 100).toFixed(2);
 
@@ -2517,10 +2536,10 @@ export async function selectDealPackageOptionForToken(
         showStandardInclusions: true,
       });
     }
-    return { ok: true as const, option };
+    return { ok: true as const, option, priceCents: option.priceCents };
   });
   if (!ausgang.ok) return ausgang;
-  const { option } = ausgang;
+  const { option, priceCents } = ausgang;
 
   await emitEvent({
     workspaceId: link.workspaceId,
@@ -2530,7 +2549,7 @@ export async function selectDealPackageOptionForToken(
     payload: {
       optionId: option.id,
       displayName: option.displayName,
-      priceCents: option.priceCents,
+      priceCents,
       catalogueSlug: option.catalogueSlug,
       ipAddress: ctx.ipAddress.slice(0, 200),
       userAgent: ctx.userAgent.slice(0, 200),
@@ -2596,14 +2615,25 @@ export async function selectPackageForToken(
     await angebotSperren(tx, link.dealRecordId);
     if (await ladeAktiveAnnahme(link.dealRecordId, tx)) return { ok: false, reason: "already_accepted" };
     const optionRows = await tx
-      .select({ id: quotationPackageOptions.id })
+      .select({
+        id: quotationPackageOptions.id,
+        catalogueSlug: quotationPackageOptions.catalogueSlug,
+        calculationVersionId: quotationPackageOptions.calculationVersionId,
+      })
       .from(quotationPackageOptions)
-      .where(eq(quotationPackageOptions.dealRecordId, link.dealRecordId));
-    const [existingQ] = await tx
-      .select({ id: quotations.id, isVariable: quotations.isVariable, fixedPrice: quotations.fixedPrice })
-      .from(quotations)
-      .where(eq(quotations.dealRecordId, link.dealRecordId))
-      .limit(1);
+      .where(eq(quotationPackageOptions.dealRecordId, link.dealRecordId))
+      .orderBy(quotationPackageOptions.sortOrder);
+    const { quotation: existingQ, version } = await ladeWahlKontext(tx, link.dealRecordId);
+
+    // Entscheidung 8: Optionen aus der gesperrten Version → nur deren Preis, nie der Katalogpreis.
+    if (existingQ && version && optionRows.some((o) => o.calculationVersionId === version.id)) {
+      const option = optionRows.find((o) => o.calculationVersionId === version.id && o.catalogueSlug === pkg.slug);
+      if (!option) return { ok: false, reason: "fixed_offer" };
+      const preis = wahlPreis(version, { paketSlug: pkg.slug, datum: await wahlDatum(tx, link.dealRecordId, version) });
+      if (!preis) return { ok: false, reason: "price_unavailable" };
+      await wahlSchreiben(tx, existingQ.id, preis, { selectedPackageOptionId: option.id, selectedPackageSlug: pkg.slug });
+      return { ok: true };
+    }
     const offerView = resolvePortalOfferView({
       hasOffer: !!existingQ,
       fixedPriceCents:
@@ -2671,6 +2701,22 @@ export async function selectPackageForToken(
   return { ok: true };
 }
 
+/** Terminangebot im Portal-Kontext; Preise nur additiv (Plan 5b, Entscheidung 9). */
+type DateOfferOptionMitPreis = DateOfferOption & {
+  priceCents?: number | null;
+  packagePrices?: Record<string, number> | null;
+};
+
+/** Nur ganze, nicht negative Cent-Beträge je Paket-Slug (jsonb kann alles enthalten). */
+function kundenPaketpreise(v: unknown): Record<string, number> | null {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+  const aus: Record<string, number> = {};
+  for (const [slug, cent] of Object.entries(v as Record<string, unknown>)) {
+    if (typeof cent === "number" && Number.isSafeInteger(cent) && cent >= 0) aus[slug] = cent;
+  }
+  return Object.keys(aus).length > 0 ? aus : null;
+}
+
 async function loadDateOffersContext(
   dealRecordId: string,
   ex: DbExecutor = db
@@ -2681,20 +2727,38 @@ async function loadDateOffersContext(
     .where(eq(quotationDateOffers.dealRecordId, dealRecordId))
     .orderBy(quotationDateOffers.sortOrder);
 
-  const options: DateOfferOption[] = rows.map((r) => ({
-    id: r.id,
-    date: r.offerDate,
-    slots: Array.isArray(r.slots)
-      ? (r.slots as DateOfferSlot[]).map((s) => ({
-          label: s.label,
-          startTime: s.startTime ?? null,
-          endTime: s.endTime ?? null,
-        }))
-      : [],
-    note: r.note,
-    isRecommended: r.isRecommended,
-    sortOrder: r.sortOrder,
-  }));
+  // Preise nur aus der Version, an die auch die Quotation gebunden ist (eine Wahrheit).
+  const [q] = rows.some((r) => r.calculationVersionId)
+    ? await ex
+        .select({ calculationVersionId: quotations.calculationVersionId })
+        .from(quotations)
+        .where(eq(quotations.dealRecordId, dealRecordId))
+        .limit(1)
+    : [];
+  const versionId = q?.calculationVersionId ?? null;
+
+  const options: DateOfferOptionMitPreis[] = rows.map((r) => {
+    const basis: DateOfferOptionMitPreis = {
+      id: r.id,
+      date: r.offerDate,
+      slots: Array.isArray(r.slots)
+        ? (r.slots as DateOfferSlot[]).map((s) => ({
+            label: s.label,
+            startTime: s.startTime ?? null,
+            endTime: s.endTime ?? null,
+          }))
+        : [],
+      note: r.note,
+      isRecommended: r.isRecommended,
+      sortOrder: r.sortOrder,
+    };
+    if (versionId === null || r.calculationVersionId !== versionId) return basis;
+    // Nur Kundenpreise; Selbstkosten, Marge und Gründe stehen nie an diesen Zeilen.
+    const priceCents = typeof r.priceCents === "number" && r.priceCents >= 0 ? r.priceCents : null;
+    const packagePrices = kundenPaketpreise(r.packagePrices);
+    if (priceCents === null && packagePrices === null) return basis;
+    return { ...basis, priceCents, packagePrices };
+  });
 
   const [sel] = await ex
     .select()
@@ -2719,16 +2783,124 @@ async function loadDateOffersContext(
 /**
  * Operator-side write path for the multi-date-offer composer.
  *
- * Replaces the deal's full set of candidate dates atomically. If the
- * customer already picked a slot, the existing selection is preserved when
- * the chosen date still appears in the new set; otherwise it is cleared so
- * the customer is re-prompted.
+ * Angebote werden je Datum aktualisiert statt gelöscht (Plan 5b, F18): ein
+ * Tag, der angeboten bleibt, behält seine ID und damit die Kundenwahl. Ein
+ * entfernter Tag löscht sein Angebot und eine Wahl darauf.
  */
 export interface DateOfferInput {
   date: string; // YYYY-MM-DD
   slots: DateOfferSlot[];
   note: string | null;
   isRecommended: boolean;
+  /** Plan 5b, nur aus einer gesperrten Version: Preis an diesem Tag (Standardpaket), Cent. */
+  priceCents?: number | null;
+  /** Plan 5b, nur aus einer gesperrten Version: Preis je Paket-Slug an diesem Tag, Cent. */
+  packagePrices?: Record<string, number> | null;
+}
+
+/** Der alte Termin-Weg (ohne Preis) darf Termine aus einer Version nicht überschreiben. */
+export class TermineMitPreisError extends Error {
+  readonly code = "TERMINE_MIT_PREIS";
+  constructor() {
+    super("Termine mit Preis bitte im Termin-Dialog ändern.");
+    this.name = "TermineMitPreisError";
+  }
+}
+
+/**
+ * Schreibt die Terminangebote des Deals je Datum (anlegen, aktualisieren,
+ * nicht mehr angebotene löschen). Nur in der Transaktion des Aufrufers, der
+ * `angebotSperren` schon hält; alles über `tx`.
+ *
+ * `calculationVersionId` null = von Hand (alter Dialog): Preise bleiben leer,
+ * und liegen schon Angebote aus einer Version vor, wirft es
+ * `TermineMitPreisError`. Mit Version (Sperren, Task K): Preis, Paketpreise und
+ * Bezug je Tag aus der Version. Doppelte Daten in der Eingabe: das erste gilt.
+ */
+export async function terminangeboteSchreiben(
+  tx: DbExecutor,
+  input: {
+    workspaceId: string;
+    dealRecordId: string;
+    createdBy: string | null;
+    offers: DateOfferInput[];
+    calculationVersionId: string | null;
+  }
+): Promise<number> {
+  const vonHand = input.calculationVersionId === null;
+  const bestand = await tx
+    .select({
+      id: quotationDateOffers.id,
+      offerDate: quotationDateOffers.offerDate,
+      calculationVersionId: quotationDateOffers.calculationVersionId,
+    })
+    .from(quotationDateOffers)
+    .where(eq(quotationDateOffers.dealRecordId, input.dealRecordId))
+    .orderBy(quotationDateOffers.sortOrder);
+  if (vonHand && bestand.some((b) => b.calculationVersionId !== null)) throw new TermineMitPreisError();
+
+  const [wahl] = await tx
+    .select({ dateOfferId: customerDateSelections.dateOfferId, selectedDate: customerDateSelections.selectedDate })
+    .from(customerDateSelections)
+    .where(eq(customerDateSelections.dealRecordId, input.dealRecordId))
+    .limit(1);
+
+  // Bestehende Zeile je Datum; bei doppelten Daten (Altbestand) die der Kundenwahl.
+  const jeDatum = new Map<string, string>();
+  for (const b of bestand) {
+    if (!jeDatum.has(b.offerDate) || b.id === wahl?.dateOfferId) jeDatum.set(b.offerDate, b.id);
+  }
+
+  const gesehen = new Set<string>();
+  const neu = input.offers.filter((o) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(o.date) || gesehen.has(o.date)) return false;
+    gesehen.add(o.date);
+    return true;
+  });
+
+  const behalten = new Set<string>();
+  for (const [i, o] of neu.entries()) {
+    const werte = {
+      slots: o.slots.map((s) => ({
+        label: (s.label ?? "").slice(0, 80),
+        startTime: s.startTime || null,
+        endTime: s.endTime || null,
+      })),
+      note: o.note ? o.note.slice(0, 200) : null,
+      isRecommended: !!o.isRecommended,
+      sortOrder: i,
+      priceCents:
+        !vonHand && typeof o.priceCents === "number" && Number.isSafeInteger(o.priceCents) && o.priceCents >= 0
+          ? o.priceCents
+          : null,
+      packagePrices: vonHand ? null : kundenPaketpreise(o.packagePrices),
+      calculationVersionId: input.calculationVersionId,
+    };
+    const id = jeDatum.get(o.date);
+    if (id) {
+      await tx.update(quotationDateOffers).set(werte).where(eq(quotationDateOffers.id, id));
+      behalten.add(id);
+    } else {
+      await tx.insert(quotationDateOffers).values({
+        ...werte,
+        workspaceId: input.workspaceId,
+        dealRecordId: input.dealRecordId,
+        offerDate: o.date,
+        createdBy: input.createdBy,
+      });
+    }
+  }
+
+  const weg = bestand.filter((b) => !behalten.has(b.id)).map((b) => b.id);
+  if (weg.length > 0) {
+    // Die Wahl auf einem gelöschten Angebot fällt per FK (ON DELETE CASCADE) mit.
+    await tx.delete(quotationDateOffers).where(inArray(quotationDateOffers.id, weg));
+  }
+  // Wahl auf einem nicht mehr angebotenen Tag ausdrücklich löschen (der Kunde wird neu gefragt).
+  if (wahl && !gesehen.has(wahl.selectedDate)) {
+    await tx.delete(customerDateSelections).where(eq(customerDateSelections.dealRecordId, input.dealRecordId));
+  }
+  return neu.length;
 }
 
 export async function replaceDateOffers(input: {
@@ -2738,56 +2910,11 @@ export async function replaceDateOffers(input: {
   offers: DateOfferInput[];
 }): Promise<{ count: number }> {
   await pruefeNichtAngenommen(input.dealRecordId);
-  // Unter der Sperre des Angebots: die Terminwahl ändert Annahmeregeln und Termin.
+  // Unter der Sperre des Angebots: die Terminwahl ändert Annahmeregeln, Termin und Preis.
   const count = await db.transaction(async (tx) => {
     await angebotSperren(tx, input.dealRecordId);
     await pruefeNichtAngenommen(input.dealRecordId, tx);
-    // Wipe + re-insert. Done in two steps because Drizzle's pg dialect doesn't
-    // have a tidy multi-row-upsert helper here and the data is small.
-    const existingSel = await tx
-      .select({ selectedDate: customerDateSelections.selectedDate })
-      .from(customerDateSelections)
-      .where(eq(customerDateSelections.dealRecordId, input.dealRecordId))
-      .limit(1);
-
-    await tx
-      .delete(quotationDateOffers)
-      .where(eq(quotationDateOffers.dealRecordId, input.dealRecordId));
-
-    const validated = input.offers
-      .filter((o) => /^\d{4}-\d{2}-\d{2}$/.test(o.date))
-      .map((o, i) => ({
-        workspaceId: input.workspaceId,
-        dealRecordId: input.dealRecordId,
-        offerDate: o.date,
-        slots: o.slots.map((s) => ({
-          label: (s.label ?? "").slice(0, 80),
-          startTime: s.startTime || null,
-          endTime: s.endTime || null,
-        })),
-        note: o.note ? o.note.slice(0, 200) : null,
-        isRecommended: !!o.isRecommended,
-        sortOrder: i,
-        createdBy: input.createdBy,
-      }));
-
-    if (validated.length > 0) {
-      await tx.insert(quotationDateOffers).values(validated);
-    }
-
-    // If the customer's prior selection no longer matches any offered date,
-    // clear it so they're re-prompted on the next portal visit.
-    if (existingSel.length > 0) {
-      const stillOffered = validated.some(
-        (o) => o.offerDate === existingSel[0].selectedDate
-      );
-      if (!stillOffered) {
-        await tx
-          .delete(customerDateSelections)
-          .where(eq(customerDateSelections.dealRecordId, input.dealRecordId));
-      }
-    }
-    return validated.length;
+    return terminangeboteSchreiben(tx, { ...input, calculationVersionId: null });
   });
 
   await emitEvent({
@@ -2803,7 +2930,9 @@ export async function replaceDateOffers(input: {
 
 /**
  * Customer-side pick: writes the selection, mirrors the chosen date into
- * the deal's `move_date` attribute, and emits an activity event.
+ * the deal's `move_date` attribute, and emits an activity event. Ist das
+ * Angebot an die Version der Quotation gebunden und trägt die Version
+ * Tagespreise, tauscht die Wahl Preis und Posten (Entscheidung 8).
  */
 export async function selectDateOffer(
   token: string,
@@ -2844,6 +2973,17 @@ export async function selectDateOffer(
     }
     const slot = slots[body.slotIndex];
 
+    // Entscheidung 8: Tag aus der gesperrten Version → Preis und Posten dieses Tags.
+    const { quotation: q, version } = await ladeWahlKontext(tx, link.dealRecordId);
+    let preis: ReturnType<typeof wahlPreis> = null;
+    if (q && version && version.dayPrices.length > 0 && offer.calculationVersionId === version.id) {
+      preis = wahlPreis(version, {
+        paketSlug: await wahlPaket(tx, link.dealRecordId, version, q.selectedPackageOptionId),
+        datum: offer.offerDate,
+      });
+      if (!preis) return { ok: false as const, reason: "price_unavailable" };
+    }
+
     // Upsert by deal — one customer pick per deal.
     await tx
       .delete(customerDateSelections)
@@ -2864,10 +3004,11 @@ export async function selectDateOffer(
     // Mirror into the deal's `move_date` attribute so calendars + the rest of
     // the CRM read the agreed-upon date without special-casing the portal.
     await mirrorMoveDateOntoDeal(link.workspaceId, link.dealRecordId, offer.offerDate, tx);
-    return { ok: true as const, offer, slot };
+    if (q && preis) await wahlSchreiben(tx, q.id, preis);
+    return { ok: true as const, offer, slot, priceCents: preis?.priceCents ?? null };
   });
   if (!ausgang.ok) return ausgang;
-  const { offer, slot } = ausgang;
+  const { offer, slot, priceCents } = ausgang;
 
   await emitEvent({
     workspaceId: link.workspaceId,
@@ -2880,6 +3021,7 @@ export async function selectDateOffer(
       slotLabel: slot.label ?? null,
       slotStart: slot.startTime ?? null,
       slotEnd: slot.endTime ?? null,
+      ...(priceCents !== null ? { priceCents } : {}),
       ipAddress: ctx.ipAddress.slice(0, 200),
     },
   });

@@ -45,9 +45,17 @@ vi.mock("@/lib/kalkulation-versionen-antwort", async (importOriginal) => {
 });
 vi.mock("@/services/customer-portal-data", () => ({
   replaceDateOffers: mocks.replaceDateOffers,
+  // Wie im Dienst: Termine aus einer Kalkulationsversion ändert nur der Termin-Dialog.
+  TermineMitPreisError: class TermineMitPreisError extends Error {
+    readonly code = "TERMINE_MIT_PREIS";
+    constructor() {
+      super("Termine mit Preis bitte im Termin-Dialog ändern.");
+    }
+  },
 }));
 
 import { DELETE, GET, PUT } from "./route";
+import { TermineMitPreisError } from "@/services/customer-portal-data";
 
 const CTX = { userId: "usr_1", workspaceId: "ws_1", workspaceRole: "admin" as const, authMethod: "cookie" as const };
 const URL_ = "http://localhost/api/v1/deals/deal_1/date-offers";
@@ -125,6 +133,30 @@ describe("PUT /deals/[recordId]/date-offers", () => {
       createdBy: "usr_1",
       offers: [{ date: "2026-11-21", slots: [{ label: "Vormittag", startTime: "08:00", endTime: "12:00" }], note: null, isRecommended: true }],
     });
+  });
+});
+
+describe("Plan 5b: Termine aus einer Kalkulationsversion", () => {
+  const put = (body: unknown) =>
+    new NextRequest(URL_, { method: "PUT", body: JSON.stringify(body), headers: { "content-type": "application/json" } });
+
+  it("PUT → 409 TERMINE_MIT_PREIS mit Hinweis auf den Termin-Dialog", async () => {
+    mocks.replaceDateOffers.mockRejectedValue(new TermineMitPreisError());
+    const res = await PUT(put({ offers: [angebot] }), p());
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toEqual({ code: "TERMINE_MIT_PREIS", message: "Termine mit Preis bitte im Termin-Dialog ändern." });
+  });
+
+  it("DELETE → 409 TERMINE_MIT_PREIS", async () => {
+    mocks.replaceDateOffers.mockRejectedValue(new TermineMitPreisError());
+    const res = await DELETE(new NextRequest(URL_, { method: "DELETE" }), p());
+    expect(res.status).toBe(409);
+    expect((await res.json()).error.code).toBe("TERMINE_MIT_PREIS");
+  });
+
+  it("andere Fehler gehen weiter", async () => {
+    mocks.replaceDateOffers.mockRejectedValue(new Error("kaputt"));
+    await expect(PUT(put({ offers: [angebot] }), p())).rejects.toThrow("kaputt");
   });
 });
 

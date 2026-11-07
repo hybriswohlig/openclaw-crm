@@ -3,7 +3,6 @@ import { pgTable, text, timestamp, numeric, boolean, integer, date, pgEnum, inde
 import { records } from "./records";
 import { workspaces } from "./workspace";
 import { dealCalculationVersions } from "./deal-calculation-versions";
-import type { StundenAngebot } from "@/lib/angebot-wahl";
 
 export const lineItemTypeEnum = pgEnum("line_item_type", [
   "helper",
