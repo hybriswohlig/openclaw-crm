@@ -7,13 +7,15 @@
 // is not JSON). MCP callers only send { jobId, recordId }; the PDF never
 // travels through the MCP or Vercel request body.
 //
-// Body: { dealRecordId: string, documentType?: "quotation" | "order_confirmation" | "invoice" | "payment_confirmation" | "worker_instructions" }
+// Body: { dealRecordId: string, documentType?: string, dueDate?: string }
+// Der Typ kommt aus dem Job-Register; ein mitgeschickter documentType muss passen.
 //
-// If documentType is omitted, it's deduced from the result filename:
-//   "KV-…pdf" / "MUSTER-KV-…pdf" → quotation
-//   "AB-…pdf" → order_confirmation
-//   "RE-…pdf" → invoice
-//   "AW-…pdf" → worker_instructions
+// Plan 5a: Jobs von `rechnungen-und-auftragsbestaetigungen` stehen im Job-Register
+// (`document_render_jobs`). Abgelegt wird über `kvJobAbschliessen`, dieselbe Stelle
+// wie im Cron, mit Reservierung (nie doppelt) und Versionsbezug beim KV. Ein Job
+// ohne Eintrag, aus einem anderen Workspace, mit anderem Deal oder anderem Typ
+// ergibt 404. Ausnahme: Auftragsanweisungen (eigener Skill, nicht im Register)
+// laufen wie bisher, aber nur, wenn der VPS wirklich ein „AW-…“-PDF liefert.
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthContext, unauthorized, badRequest } from "@/lib/api-utils";
 import {
@@ -22,10 +24,13 @@ import {
   parseFilenameFromContentDisposition,
   validateDealDocumentUpload,
 } from "@/services/deal-documents";
-import { applyInvoiceDueDate } from "@/services/rechnung-faellig";
+import { jobLaden } from "@/services/render-jobs";
+import { kvJobAbschliessenDetails } from "@/services/kv-job-abschluss";
 
 const CRM_TOOLS_API_URL = process.env.CRM_TOOLS_API_URL;
 const CRM_TOOLS_AUTH_TOKEN = process.env.CRM_TOOLS_AUTH_TOKEN;
+
+const nichtGefunden = () => NextResponse.json({ error: "Job nicht gefunden" }, { status: 404 });
 
 export async function POST(
   req: NextRequest,
@@ -51,7 +56,50 @@ export async function POST(
 
   if (!body.dealRecordId) return badRequest("dealRecordId is required");
 
-  // 1) Pull result from FastAPI (outbound fetch — not a Vercel body limit).
+  const job = await jobLaden(ctx.workspaceId, id);
+  if (!job) return ohneRegister(ctx, id, body);
+  if (job.dealRecordId !== body.dealRecordId) return nichtGefunden();
+  if (body.documentType !== undefined && body.documentType !== job.documentType) return nichtGefunden();
+
+  const r = await kvJobAbschliessenDetails(ctx.workspaceId, id, {
+    faelligAm: body.dueDate ?? body.rechnungFaelligAm,
+    updatedBy: ctx.userId,
+  });
+  const a = r.abschluss;
+  switch (a.status) {
+    case "abgelegt":
+      return NextResponse.json({
+        ...a,
+        document: { data: r.dokument },
+        deducedDocumentType: job.documentType,
+        filename: r.dokument?.fileName,
+        ...(r.dueDateWarning ? { dueDateWarning: r.dueDateWarning } : { rechnungFaelligAm: r.rechnungFaelligAm }),
+      });
+    case "schon_erledigt":
+      return NextResponse.json(a);
+    case "laeuft":
+      return NextResponse.json(a, { status: 202 });
+    case "verworfen":
+      return NextResponse.json(
+        {
+          ...a,
+          error: "KV verworfen: Die Kalkulation hat inzwischen eine andere Version. Bitte den KV neu erstellen.",
+        },
+        { status: 409 }
+      );
+    case "fehler":
+      return NextResponse.json({ ...a, error: a.fehler }, { status: 502 });
+  }
+}
+
+/** Bisheriger Weg, nur noch für Auftragsanweisungen (Skill `auftragsanweisung`). */
+async function ohneRegister(
+  ctx: { workspaceId: string },
+  id: string,
+  body: { dealRecordId?: string; documentType?: string }
+) {
+  if (body.documentType !== undefined && body.documentType !== "worker_instructions") return nichtGefunden();
+
   const upstream = await fetch(
     `${CRM_TOOLS_API_URL}/jobs/${encodeURIComponent(id)}/result`,
     { headers: { Authorization: `Bearer ${CRM_TOOLS_AUTH_TOKEN}` } }
@@ -64,35 +112,24 @@ export async function POST(
     );
   }
 
+  const filename = parseFilenameFromContentDisposition(upstream.headers.get("content-disposition"));
+  if (!filename || deduceDocumentType(filename) !== "worker_instructions") return nichtGefunden();
   const bytes = Buffer.from(await upstream.arrayBuffer());
-  const filename =
-    parseFilenameFromContentDisposition(
-      upstream.headers.get("content-disposition")
-    ) || `document-${id}.pdf`;
-  const contentType = (
-    upstream.headers.get("content-type") ?? "application/pdf"
-  )
-    .split(";")[0]
-    .trim();
+  const contentType = (upstream.headers.get("content-type") ?? "application/pdf").split(";")[0].trim();
 
-  const documentType =
-    body.documentType ?? deduceDocumentType(filename) ?? "order_confirmation";
   const check = validateDealDocumentUpload({
     fileName: filename,
     fileSize: bytes.length,
-    documentType,
+    documentType: "worker_instructions",
   });
   if (!check.ok) {
     return NextResponse.json({ error: check.error }, { status: check.status });
   }
 
-  // 2) Insert directly. No self-HTTP upload of the PDF.
-  // Ohne Kalkulationsversion: /jobs/{id}/result liefert nur die PDF-Bytes. Welche
-  // Version der VPS gerendert hat, ist hier unbekannt; die Quotation von jetzt kann
-  // schon eine spätere sein.
+  // Direkt einfügen, kein zweiter HTTP-Weg für das PDF.
   const uploaded = await createDealDocument({
     workspaceId: ctx.workspaceId,
-    dealRecordId: body.dealRecordId,
+    dealRecordId: body.dealRecordId!,
     documentType: check.documentType,
     fileName: filename,
     fileSize: bytes.length,
@@ -101,32 +138,12 @@ export async function POST(
     calculationVersionId: null,
   });
 
-  // 3) On invoices: stamp the existing deal attribute "Rechnung fällig am"
-  // with the upload day (Europe/Berlin, sofort). An explicit dueDate wins.
-  // Same rule for every company — Ceylan has no separate code path.
-  // The attribute already exists, so this is a value write, not a migration.
-  // A failed stamp keeps the stored PDF and reports dueDateWarning.
-  const due = await applyInvoiceDueDate({
-    documentType: check.documentType,
-    workspaceId: ctx.workspaceId,
-    dealRecordId: body.dealRecordId,
-    explicitDueDate: body.dueDate ?? body.rechnungFaelligAm,
-    updatedBy: ctx.userId,
-  });
-  if (due.dueDateWarning) {
-    return NextResponse.json({
-      document: { data: uploaded },
-      deducedDocumentType: documentType,
-      filename,
-      dueDateWarning: due.dueDateWarning,
-    });
-  }
-  const dueDateSet = due.rechnungFaelligAm;
-
   return NextResponse.json({
+    status: "abgelegt",
+    dealDocumentId: uploaded.id,
     document: { data: uploaded },
-    deducedDocumentType: documentType,
+    deducedDocumentType: check.documentType,
     filename,
-    rechnungFaelligAm: dueDateSet,
+    rechnungFaelligAm: null,
   });
 }

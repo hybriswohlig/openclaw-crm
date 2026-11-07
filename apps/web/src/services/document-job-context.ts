@@ -17,7 +17,7 @@ import { serviceTypeZuSpeichern, vpsLeistungsart } from "@/lib/portal-dokumente"
 import type { ServiceArt } from "@openclaw-crm/customer-portal-core";
 import { aktivBedingung } from "./kva-annahme";
 import { preisQuelleAusAnnahme, type PreisQuelle } from "@/lib/ab-preise";
-import { festpreisAlsPauschale, istBepreist } from "@/lib/festpreis-posten";
+import { vpsPreise } from "@/lib/angebot-vorbelegung";
 import { preisZahlungenCent } from "@/lib/preis-zahlungen";
 
 type ServiceType = ServiceArt;
@@ -71,72 +71,31 @@ function quotationTotalCents(q: {
 }
 
 /**
- * Preisblock für den VPS-Renderer (KV und AB). Beim Festpreis kommen die Posten
- * nur ins Dokument, wenn ihre Summe genau der Festpreis ist (Kern + Hebel aus
- * der Übernahme). Sonst gibt es eine Zeile „Pauschale“, damit Posten und
- * Gesamtbetrag nie auseinanderlaufen, etwa wenn der Preis geändert wurde und
- * Posten eines älteren Stands übrig sind. Der Stundensatz bleibt wie er war.
- * Die Entscheidung trifft festpreisAlsPauschale, dieselbe wie für den Hinweis
- * im Fenster „Es fehlen noch Angaben“.
+ * Preisblock für den VPS-Renderer (KV und AB). Die Regel steht rein in
+ * `lib/angebot-vorbelegung.ts`, damit der VPS-Dialog dieselben Posten zeigt,
+ * die der VPS druckt.
  */
-export function preiseFromQuotation(
-  firma: string,
-  q: {
-    isVariable: boolean;
-    fixedPrice: string | null;
-    lineItems: Array<{
-      type: string;
-      description: string | null;
-      quantity: number;
-      unitRate: string;
-    }>;
-  }
-) {
-  if (firma === "ceylan" && q.fixedPrice) {
-    return { modell: "pauschale" as const, pauschale_betrag: Number(q.fixedPrice) };
-  }
-  if (q.isVariable) {
-    const helpers = q.lineItems.filter((i) => i.type === "helper");
-    const trucks = q.lineItems.filter((i) => i.type === "transporter");
-    if (helpers.length && trucks.length) {
-      const helfer = helpers[0];
-      const truck = trucks[0];
-      return {
-        modell: "stundensatz" as const,
-        helfer_anzahl: Math.max(1, Math.round(helfer.quantity)),
-        stunden_geschaetzt: truck.quantity,
-        mindest_stunden: truck.quantity,
-        stundensatz_helfer_eur: Number(helfer.unitRate),
-        stundensatz_transporter_eur: Number(truck.unitRate),
-      };
-    }
-  }
-  if (festpreisAlsPauschale(q)) {
-    return {
-      modell: "pauschale" as const,
-      pauschale_positionen: [{ titel: "Pauschale", betrag: Number(q.fixedPrice) }],
-    };
-  }
-  const positionen = q.lineItems.filter(istBepreist).map((i) => ({
-    titel: i.description || "Leistung",
-    betrag: Number(i.unitRate) * i.quantity,
-  }));
-  if (positionen.length) {
-    return { modell: "pauschale" as const, pauschale_positionen: positionen };
-  }
-  return null;
+export const preiseFromQuotation = vpsPreise;
+
+/** Version und Preis des KV aus genau der Lesung, aus der die Preise an den VPS gehen. */
+export interface KvJobBezug {
+  calculationVersionId: string | null;
+  priceCents: number | null;
 }
 
 export async function attachDocumentJobContext(
   workspaceId: string,
   params: Record<string, unknown>
-): Promise<Record<string, unknown>> {
+): Promise<{ params: Record<string, unknown>; kv: KvJobBezug | null }> {
   const next: Record<string, unknown> = { ...params };
   delete next._document_context;
+  // Keine Kalkulationsversion an den VPS: /jobs/{id}/result gibt nur das PDF zurück.
+  // Den Bezug hält das Job-Register (`kv`), ein Wert aus dem Browser wird entfernt.
+  delete next._calculation_version_id;
 
   const dealRecordId =
     typeof next._deal_record_id === "string" ? next._deal_record_id : null;
-  if (!dealRecordId) return next;
+  if (!dealRecordId) return { params: next, kv: null };
 
   if (!(await assertDealInWorkspace(workspaceId, dealRecordId))) {
     throw new Error("Auftrag gehört nicht zu diesem Workspace.");
@@ -154,7 +113,8 @@ export async function attachDocumentJobContext(
   // Kaution und durchlaufende Posten sind keine Zahlung auf den Preis.
   const paidCents = preisZahlungenCent(payRows);
 
-  const quotation = await getQuotation(dealRecordId);
+  // Kopf und Posten aus einem Stand: Version und Preise des KV passen sicher zusammen.
+  const quotation = await getQuotation(dealRecordId, { konsistent: true });
   const [accepted] = await db
     .select()
     .from(kvaConfirmations)
@@ -334,9 +294,12 @@ export async function attachDocumentJobContext(
   next.document_details = details;
   next.service_type = vpsArt;
   next._document_context = { paidCents, totalCents };
-  // Keine Kalkulationsversion an den VPS: /jobs/{id}/result gibt nur das PDF zurück,
-  // ein mitgeschickter Wert wäre ungenutzt und ungeprüft. Ein Wert aus dem Browser
-  // wird entfernt.
-  delete next._calculation_version_id;
-  return next;
+  const kv: KvJobBezug | null =
+    next.document_type === "KV"
+      ? {
+          calculationVersionId: quotation?.calculationVersionId ?? null,
+          priceCents: quotation ? (quotationTotalCents(quotation) ?? null) : null,
+        }
+      : null;
+  return { params: next, kv };
 }

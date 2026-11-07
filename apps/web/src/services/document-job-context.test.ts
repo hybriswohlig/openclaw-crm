@@ -196,8 +196,35 @@ describe("attachDocumentJobContext: Kalkulationsversion für den VPS-Weg (Review
 
   it("schickt dem VPS keine Kalkulationsversion, auch nicht aus dem Browser", async () => {
     jobMocks.getQuotation.mockResolvedValue(quotation("ver_2"));
-    const p = await attachDocumentJobContext("ws_1", { _deal_record_id: "deal_1", document_type: "KV", firma: "kottke", _calculation_version_id: "ver_9" });
+    const { params: p, kv } = await attachDocumentJobContext("ws_1", { _deal_record_id: "deal_1", document_type: "KV", firma: "kottke", _calculation_version_id: "ver_9" });
     expect(p).not.toHaveProperty("_calculation_version_id");
     expect(p.preise).toMatchObject({ modell: "pauschale" });
+    // Den Bezug hält das Job-Register: Version und Preis aus derselben Lesung.
+    expect(kv).toEqual({ calculationVersionId: "ver_2", priceCents: 172000 });
+  });
+
+  it("liest die Quotation konsistent (Kopf und Posten aus einem Stand)", async () => {
+    jobMocks.getQuotation.mockResolvedValue(quotation("ver_2"));
+    await attachDocumentJobContext("ws_1", { _deal_record_id: "deal_1", document_type: "KV", firma: "kottke" });
+    expect(jobMocks.getQuotation).toHaveBeenLastCalledWith("deal_1", { konsistent: true });
+  });
+
+  it("KV ohne Version (Altbestand): Bezug ohne Version, Preis bleibt", async () => {
+    jobMocks.getQuotation.mockResolvedValue(quotation(null));
+    const { kv } = await attachDocumentJobContext("ws_1", { _deal_record_id: "deal_1", document_type: "KV", firma: "kottke" });
+    expect(kv).toEqual({ calculationVersionId: null, priceCents: 172000 });
+  });
+
+  it("AB und Rechnung tragen keinen KV-Bezug", async () => {
+    jobMocks.getQuotation.mockResolvedValue(quotation("ver_2"));
+    for (const document_type of ["AB", "RE"]) {
+      const { kv } = await attachDocumentJobContext("ws_1", { _deal_record_id: "deal_1", document_type, firma: "kottke" });
+      expect(kv).toBeNull();
+    }
+  });
+
+  it("ohne Deal: Parameter unverändert, kein Bezug", async () => {
+    const r = await attachDocumentJobContext("ws_1", { document_type: "KV", _calculation_version_id: "x" });
+    expect(r).toEqual({ params: { document_type: "KV" }, kv: null });
   });
 });

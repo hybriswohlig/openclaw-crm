@@ -11,9 +11,9 @@
 // that started the job is long closed.
 //
 // Note: state lives in memory for the SPA session. A full browser reload
-// drops the client-side tracking (the VPS job itself keeps running and the
-// PDF can be re-fetched for 24h); the durable Postgres job table is a
-// planned follow-up.
+// drops the client-side tracking. Seit Plan 5a steht jeder Dokumentjob im
+// Job-Register; der Cron /api/cron/render-jobs legt das PDF dann trotzdem ab.
+// Browser und Cron legen nie doppelt ab (Reservierung im Register).
 "use client";
 
 import {
@@ -26,6 +26,7 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Loader2, Sparkles, X } from "lucide-react";
+import type { JobAbschluss } from "@/lib/angebot-wahl";
 
 export type BackgroundDocType = "KV" | "AB" | "RE" | "AW";
 
@@ -112,6 +113,32 @@ export function useBackgroundJobs(): BackgroundJobsApi {
 
 const POLL_INTERVAL_MS = 2000;
 const MAX_CONSECUTIVE_POLL_FAILURES = 8;
+/** Ablegen meldet „läuft“ (Cron hält die Reservierung): so oft nachfragen. */
+const STORE_RETRY_MS = 5000;
+const MAX_STORE_RETRIES = 30;
+
+/** Antwort von store-as-document auswerten (Plan 5a: `JobAbschluss`). */
+export function abschlussAuswerten(
+  ok: boolean,
+  data: (Partial<JobAbschluss> & { error?: string; rechnungFaelligAm?: unknown }) | null,
+  httpStatus: number
+):
+  | { art: "abgelegt"; rechnungFaelligAm: string | null }
+  | { art: "nochmal" }
+  | { art: "fehler"; text: string } {
+  const status = data?.status;
+  if (ok && (status === "abgelegt" || status === "schon_erledigt" || status === undefined)) {
+    return {
+      art: "abgelegt",
+      rechnungFaelligAm: typeof data?.rechnungFaelligAm === "string" ? data.rechnungFaelligAm : null,
+    };
+  }
+  if (status === "laeuft") return { art: "nochmal" };
+  if (status === "verworfen") {
+    return { art: "fehler", text: data?.error || "KV verworfen: Die Kalkulation hat eine neuere Version." };
+  }
+  return { art: "fehler", text: data?.error || `upload ${httpStatus}` };
+}
 
 interface JobPollPayload {
   status: "queued" | "running" | "done" | "error";
@@ -146,7 +173,7 @@ export function BackgroundJobsProvider({ children }: { children: React.ReactNode
 
   /** Attach the finished PDF to the deal (Finanzen tab). */
   const storeDocument = useCallback(
-    async (job: Pick<DocumentJobState, "id" | "vpsJobId" | "dealRecordId" | "docType">) => {
+    async (job: Pick<DocumentJobState, "id" | "vpsJobId" | "dealRecordId" | "docType">, versuch = 0) => {
       patchJob(job.id, { storing: true, storeError: null });
       try {
         const resp = await fetch(`/api/tools/jobs/${job.vpsJobId}/store-as-document`, {
@@ -159,13 +186,20 @@ export function BackgroundJobsProvider({ children }: { children: React.ReactNode
           }),
         });
         const data = await resp.json().catch(() => null);
-        if (!resp.ok) throw new Error(data?.error || `upload ${resp.status}`);
-        patchJob(job.id, {
-          storing: false,
-          stored: true,
-          rechnungFaelligAm:
-            typeof data?.rechnungFaelligAm === "string" ? data.rechnungFaelligAm : null,
-        });
+        const r = abschlussAuswerten(resp.ok, data, resp.status);
+        if (r.art === "nochmal") {
+          if (versuch >= MAX_STORE_RETRIES) {
+            throw new Error("Das PDF wird gerade auf dem Server abgelegt. Bitte später im Finanzen-Tab nachsehen.");
+          }
+          timers.current.set(
+            job.id,
+            setTimeout(() => void storeDocument(job, versuch + 1), STORE_RETRY_MS)
+          );
+          return;
+        }
+        if (r.art === "fehler") throw new Error(r.text);
+        patchJob(job.id, { storing: false, stored: true, rechnungFaelligAm: r.rechnungFaelligAm });
+        window.dispatchEvent(new CustomEvent("crm-deal-document-stored", { detail: job.dealRecordId }));
       } catch (e) {
         patchJob(job.id, { storing: false, storeError: (e as Error).message });
       }

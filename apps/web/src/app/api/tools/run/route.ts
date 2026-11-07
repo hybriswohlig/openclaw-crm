@@ -9,7 +9,18 @@ import { inboxMessageAttachments } from "@/db/schema/inbox";
 import { and, eq, inArray } from "drizzle-orm";
 import { findDealInternalPhotosByIds } from "@/services/deal-photos";
 import { rewriteKundeParamsFromDeal } from "@/services/doc-customer-name";
-import { attachDocumentJobContext } from "@/services/document-job-context";
+import { attachDocumentJobContext, type KvJobBezug } from "@/services/document-job-context";
+import { jobAnlegen } from "@/services/render-jobs";
+
+/** Skill, dessen Jobs ins Job-Register gehen (Plan 5a, Entscheidung 6). */
+const REGISTER_SKILL = "rechnungen-und-auftragsbestaetigungen";
+
+/** Dokumentart des Skills → Typ in `deal_documents` (wie `store-as-document`). */
+const DOKUMENT_TYP: Record<string, string> = {
+  KV: "quotation",
+  AB: "order_confirmation",
+  RE: "invoice",
+};
 
 const CRM_TOOLS_API_URL = process.env.CRM_TOOLS_API_URL;
 const CRM_TOOLS_AUTH_TOKEN = process.env.CRM_TOOLS_AUTH_TOKEN;
@@ -68,6 +79,7 @@ export async function POST(req: NextRequest) {
   // workspace scope. This is what gives the headless skill image context
   // (apartment photos etc.) for volume / Stockwerk / besonderheiten.
   let params: Record<string, unknown> = { ...(body.params ?? {}) };
+  let kvBezug: KvJobBezug | null = null;
 
   // Authoritative kunde name: never trust the browser for the PDF header.
   // Stale client bundles (or lead-title leakage into person names) previously
@@ -80,7 +92,9 @@ export async function POST(req: NextRequest) {
     }
     if (body.skill === "rechnungen-und-auftragsbestaetigungen") {
       try {
-        params = await attachDocumentJobContext(ctx.workspaceId, params);
+        const kontext = await attachDocumentJobContext(ctx.workspaceId, params);
+        params = kontext.params;
+        kvBezug = kontext.kv;
       } catch (err) {
         return NextResponse.json(
           { error: err instanceof Error ? err.message : "Dokumentkontext fehlgeschlagen" },
@@ -215,6 +229,32 @@ export async function POST(req: NextRequest) {
       { error: "upstream error", upstream: data },
       { status: upstream.status }
     );
+  }
+
+  // Job-Register: nur dieser Skill und nur mit Deal. Der Deal ist hier schon
+  // geprüft (attachDocumentJobContext wirft bei fremdem Workspace).
+  const dealRecordId = typeof params._deal_record_id === "string" ? params._deal_record_id : null;
+  const jobId = (data as { job_id?: unknown }).job_id;
+  const documentType = DOKUMENT_TYP[String(params.document_type ?? "").toUpperCase()];
+  if (body.skill === REGISTER_SKILL && dealRecordId && typeof jobId === "string" && documentType) {
+    try {
+      await jobAnlegen({
+        vpsJobId: jobId,
+        workspaceId: ctx.workspaceId,
+        dealRecordId,
+        documentType,
+        calculationVersionId: documentType === "quotation" ? (kvBezug?.calculationVersionId ?? null) : null,
+        priceCents: documentType === "quotation" ? (kvBezug?.priceCents ?? null) : null,
+        createdBy: ctx.userId,
+      });
+    } catch (err) {
+      // Ohne Eintrag kann weder Browser noch Cron ablegen: sichtbar scheitern.
+      console.error("[tools/run] Job-Register fehlgeschlagen:", err);
+      return NextResponse.json(
+        { error: "Dokumentjob gestartet, aber nicht registriert. Bitte erneut erstellen." },
+        { status: 500 }
+      );
+    }
   }
   return NextResponse.json(data);
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { vorbelegungAusAngebot, type Angebot } from "./angebot-vorbelegung";
+import { vorbelegungAusAngebot, vpsPreise, type Angebot } from "./angebot-vorbelegung";
 
 function festpreis(teil: Partial<Angebot> = {}): Angebot {
   return { fixedPrice: "2480.00", isVariable: false, lineItems: [], ...teil };
@@ -79,5 +79,30 @@ describe("vorbelegungAusAngebot", () => {
   it("Festpreis 0 oder fehlend ohne Positionen: nichts", () => {
     expect(vorbelegungAusAngebot(festpreis({ fixedPrice: "0" }), "kottke")).toBeUndefined();
     expect(vorbelegungAusAngebot(festpreis({ fixedPrice: null }), "ceylan")).toBeUndefined();
+  });
+});
+
+describe("vorbelegungAusAngebot: Quotation aus einer gesperrten Version (Plan 5a)", () => {
+  const posten: Angebot["lineItems"] = [
+    { type: "other", description: "Umzug mit Team und Fahrzeug", quantity: 1, unitRate: "1500.00" },
+    { type: "other", description: "Halteverbotszone", quantity: 2, unitRate: "110.00" },
+  ];
+
+  it("trägt die Posten der Version genau wie der VPS-Preisblock", () => {
+    const q = festpreis({ fixedPrice: "1720.00", lineItems: posten, calculationVersionId: "ver_3" });
+    const p = vorbelegungAusAngebot(q, "kottke");
+    expect(p?.ausVersion).toEqual({ versionId: "ver_3", preise: vpsPreise("kottke", q) });
+    expect(p?.ausVersion?.preise).toEqual({
+      modell: "pauschale",
+      pauschale_positionen: [
+        { titel: "Umzug mit Team und Fahrzeug", betrag: 1500 },
+        { titel: "Halteverbotszone", betrag: 220 },
+      ],
+    });
+  });
+
+  it("ohne Version kein Schreibschutz (Altbestand)", () => {
+    expect(vorbelegungAusAngebot(festpreis({ lineItems: posten }), "kottke")?.ausVersion).toBeUndefined();
+    expect(vorbelegungAusAngebot(festpreis({ calculationVersionId: null }), "kottke")?.ausVersion).toBeUndefined();
   });
 });

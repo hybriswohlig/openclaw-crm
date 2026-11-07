@@ -23,6 +23,7 @@ import {
   KOTTKE_CRM_RENDERER_MESSAGE,
   showCrmRendererChoice,
 } from "@/lib/kottke-crm-renderer";
+import type { VpsPreise } from "@/lib/angebot-vorbelegung";
 
 export type Firma = "kottke" | "ceylan";
 export type DocumentType = "KV" | "AB" | "RE";
@@ -77,6 +78,79 @@ export interface PrefilledPreise {
   anzahlungBar?: number;
   anzahlungMethod?: AnzahlungMethod;
   stammkundenrabatt?: boolean;
+  /**
+   * Quotation aus einer gesperrten Kalkulationsversion: beim KV zeigt der Dialog
+   * genau diese Posten schreibgeschützt (der Server baut die Preise ohnehin aus
+   * der Quotation). Ändern geht nur über die Kalkulation.
+   */
+  ausVersion?: { versionId: string; preise: VpsPreise };
+}
+
+/**
+ * Nummer der gesperrten Version zu ihrer ID. Die Versionsliste trägt keine IDs,
+ * deshalb die neuesten gesperrten Versionen einzeln lesen (meist trifft die erste).
+ */
+async function versionsNummerSuchen(dealRecordId: string, versionId: string): Promise<number | null> {
+  const basis = `/api/v1/deals/${dealRecordId}/calculation/versions`;
+  const liste = await fetch(basis, { cache: "no-store" });
+  if (!liste.ok) return null;
+  const json = (await liste.json()) as { data?: { versionen?: Array<{ version: number; status: string }> } };
+  const gesperrt = (json.data?.versionen ?? [])
+    .filter((v) => v.status === "gesperrt")
+    .map((v) => v.version)
+    .sort((a, b) => b - a)
+    .slice(0, 3);
+  for (const nr of gesperrt) {
+    const res = await fetch(`${basis}/${nr}`, { cache: "no-store" });
+    if (!res.ok) continue;
+    const v = (await res.json()) as { data?: { version?: { id?: string } } };
+    if (v.data?.version?.id === versionId) return nr;
+  }
+  return null;
+}
+
+const euro = (betrag: number) =>
+  betrag.toLocaleString("de-DE", { style: "currency", currency: "EUR" });
+
+/** Posten der Version, wie der VPS sie druckt (nur lesen). */
+function VersionsPosten({ preise, nummer }: { preise: VpsPreise; nummer: number | null }) {
+  return (
+    <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm dark:border-gray-700 dark:bg-gray-800/50">
+      <p className="mb-2 text-xs font-medium text-gray-600 dark:text-gray-300">
+        Preise kommen aus {nummer !== null ? `v${nummer}` : "der gesperrten Version"}. Ändern nur in der Kalkulation.
+      </p>
+      {preise.modell === "stundensatz" ? (
+        <ul className="space-y-1">
+          <li className="flex justify-between">
+            <span>{preise.helfer_anzahl} Helfer je Stunde</span>
+            <span>{euro(preise.stundensatz_helfer_eur)}</span>
+          </li>
+          <li className="flex justify-between">
+            <span>Transporter je Stunde</span>
+            <span>{euro(preise.stundensatz_transporter_eur)}</span>
+          </li>
+          <li className="flex justify-between text-gray-500">
+            <span>Stunden geschätzt</span>
+            <span>{preise.stunden_geschaetzt}</span>
+          </li>
+        </ul>
+      ) : preise.pauschale_betrag !== undefined ? (
+        <p className="flex justify-between">
+          <span>Pauschalbetrag</span>
+          <span>{euro(preise.pauschale_betrag)}</span>
+        </p>
+      ) : (
+        <ul className="space-y-1">
+          {(preise.pauschale_positionen ?? []).map((p, i) => (
+            <li key={`${p.titel}-${i}`} className="flex justify-between gap-3">
+              <span>{p.titel}</span>
+              <span className="shrink-0">{euro(p.betrag)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 interface Props {
@@ -165,10 +239,28 @@ export function GenerateDocumentDialog({
 
   const { startDocumentJob } = useBackgroundJobs();
   const crmRendererChoice = showCrmRendererChoice(deal.firma);
+  // Nur beim KV: AB und Rechnung rechnen mit Annahme bzw. eigenem Stand.
+  const ausVersion = documentType === "KV" ? prefill?.ausVersion : undefined;
+  const [versionsNummer, setVersionsNummer] = useState<number | null>(null);
 
   useEffect(() => {
     if (!crmRendererChoice) setUseCrmRenderer(false);
   }, [crmRendererChoice]);
+
+  const versionId = ausVersion?.versionId ?? null;
+  useEffect(() => {
+    if (!open || !versionId) return;
+    let aktuell = true;
+    setVersionsNummer(null);
+    versionsNummerSuchen(deal.dealRecordId, versionId)
+      .then((nr) => {
+        if (aktuell) setVersionsNummer(nr);
+      })
+      .catch(() => {});
+    return () => {
+      aktuell = false;
+    };
+  }, [open, versionId, deal.dealRecordId]);
 
   if (!open) return null;
 
@@ -195,6 +287,14 @@ export function GenerateDocumentDialog({
           ? { zahlungsweg }
           : {};
 
+    if (ausVersion) {
+      return {
+        ...ausVersion.preise,
+        ...anzahlungBlock,
+        ...(isKottke ? {} : { stammkundenrabatt }),
+        ...paymentExtra,
+      };
+    }
     if (!isKottke) {
       return {
         modell: "pauschale" as const,
@@ -535,7 +635,9 @@ export function GenerateDocumentDialog({
           )}
           <h3 className="text-sm font-medium">Preise</h3>
 
-          {isKottke && (
+          {ausVersion && <VersionsPosten preise={ausVersion.preise} nummer={versionsNummer} />}
+
+          {!ausVersion && isKottke && (
             <div className="flex gap-4">
               <label className="flex items-center gap-2 text-sm">
                 <input
@@ -556,7 +658,7 @@ export function GenerateDocumentDialog({
             </div>
           )}
 
-          {isKottke && modell === "stundensatz" && (
+          {!ausVersion && isKottke && modell === "stundensatz" && (
             <div className="grid grid-cols-2 gap-3">
               <NumberField
                 label="Helfer-Anzahl"
@@ -572,14 +674,14 @@ export function GenerateDocumentDialog({
             </div>
           )}
 
-          {isKottke && modell === "pauschale" && (
+          {!ausVersion && isKottke && modell === "pauschale" && (
             <PauschalePositionsEditor
               value={pauschalePositionen}
               onChange={setPauschalePositionen}
             />
           )}
 
-          {!isKottke && (
+          {!ausVersion && !isKottke && (
             <NumberField
               label="Pauschalbetrag (€)"
               value={pauschaleBetragCeylan}
