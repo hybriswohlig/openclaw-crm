@@ -14,6 +14,7 @@ import {
 import { sql } from "drizzle-orm";
 import { workspaces } from "./workspace";
 import { records } from "./records";
+import { dealCalculationVersions } from "./deal-calculation-versions";
 import { employees } from "./employees";
 import { users } from "./auth";
 
@@ -226,6 +227,10 @@ export const kvaConfirmations = pgTable(
     moveDate: text("move_date"),
     fromAddress: text("from_address"),
     toAddress: text("to_address"),
+    /** Version der Quotation bei der Annahme (Migration 0060); NULL bei Altbestand. */
+    calculationVersionId: text("calculation_version_id").references(() => dealCalculationVersions.id, {
+      onDelete: "set null",
+    }),
     quotationDocumentId: text("quotation_document_id"),
     quotationDocumentSha256: text("quotation_document_sha256"),
     agbTextSha256: text("agb_text_sha256"),

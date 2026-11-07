@@ -27,6 +27,6 @@ describe("Migration 0059 Kalkulationsseite", () => {
     const journal = JSON.parse(readFileSync(new URL("./meta/_journal.json", import.meta.url), "utf8"));
     const eintrag = journal.entries.find((e: { idx: number }) => e.idx === 59);
     expect(eintrag).toMatchObject({ tag: "0059_kalkulationsseite", when: 1793318400000 });
-    expect(journal.entries.at(-1).idx).toBe(59);
+    expect(journal.entries.at(-1).idx).toBeGreaterThanOrEqual(59);
   });
 });
