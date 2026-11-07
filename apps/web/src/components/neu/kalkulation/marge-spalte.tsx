@@ -1,6 +1,7 @@
 "use client";
 
 import "@/styles/neu-kalk-marge.css";
+import "@/styles/neu-kalkulation-5b.css";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -11,10 +12,23 @@ import type { KalkulationsAnsicht } from "@/lib/kalkulations-ansicht";
 import { apiAufruf, jsonAufruf } from "@/components/neu/akte/api";
 import { euro } from "@/components/neu/akte/format";
 import { AnpassungDialog, type AnpassungStart } from "./anpassung-dialog";
+import { istPreisStart } from "./anpassung-start";
 import { AnpassungenListe } from "./anpassungen-liste";
 import type { KalkKontext, Lauf } from "./kalk-seite";
 import { KvDialog, type KvTexte } from "./kv-dialog";
+import { KernWarnung } from "./kern-warnung";
 import { KvVorschau, PaketeAnzeige } from "./kv-vorschau";
+import { PaketPreise, PreismodusWahl, TagePreise } from "./paket-preise";
+import { ModuswechselDialog, PreisDialog } from "./preis-dialog";
+import {
+  sperrAusgang,
+  sperrKoerper,
+  tagespreiseKnopf,
+  terminDialogOeffnen,
+  type PreisStart,
+  type TerminStart,
+} from "./preis-logik";
+import { StundenBlock } from "./stunden-ansicht";
 import { MargeRegler } from "./marge-regler";
 import { margeVorschau } from "./marge-vorschau";
 import { uebersteuerbareZeilen } from "./selbstkosten-spalte";
@@ -44,7 +58,12 @@ export function vorschauFormel(selbstkostenEur: number, prozent: number): { form
   };
 }
 
-type Dialog = { art: "anpassung"; start: AnpassungStart } | { art: "kv"; nurKv: boolean } | { art: "kottke" };
+type Dialog =
+  | { art: "anpassung"; start: AnpassungStart }
+  | { art: "preis"; start: PreisStart }
+  | { art: "kv"; nurKv: boolean }
+  | { art: "moduswechsel"; texte: KvTexte; meldung: string }
+  | { art: "kottke" };
 
 /**
  * Rechte Spalte „Marge und Preis“ (Spec 3.6): Regler mit Vorschlag und
@@ -55,6 +74,10 @@ type Dialog = { art: "anpassung"; start: AnpassungStart } | { art: "kv"; nurKv: 
  * Sperren schickt den gesehenen Preis mit; 409 PREIS_GEAENDERT lädt neu.
  * Plan 5a: verwaiste Fahrzeug-Anpassungen stehen als goldene Zeilen über
  * der Liste (nicht doppelt darin), der KV-Zustand als Marke an der Vorschau.
+ * Plan 5b (Firmen-Schalter „Angebot aus Kalkulation“): Preismodus,
+ * Kern-Warnung, Paketpreise mit Anpassung, Stunden-KV und angebotene Tage;
+ * Sperren schickt den Preis-Hash, ein Stunden-KV fragt vor dem Wechsel zum
+ * Festpreis nach. Ohne Schalter alles wie vor 5b.
  */
 export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht; kontext: KalkKontext }) {
   const { marge, preis, version } = ansicht;
@@ -138,24 +161,26 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
   /** Lauf für Sperrbereich und KV-Dialog: auch ein ausstehender Reglerwert sperrt sie. */
   const lauf: Lauf | null = kontext.laeuft ?? (kontext.ausstehend ? "speichern" : null);
 
-  async function sperrenUndKv(texte: KvTexte, nurKv: boolean) {
+  async function sperrenUndKv(texte: KvTexte, nurKv: boolean, modusWechselBestaetigt = false) {
     const basisUrl = `/api/v1/deals/${encodeURIComponent(kontext.dealId)}/calculation/versions/${kontext.versionNr}`;
     kontext.setzeLauf("sperren");
     try {
       if (!nurKv) {
-        const kv = ansicht.kv;
         const sperre = await apiAufruf<{ version: { version: number } }>(
           `${basisUrl}/lock`,
-          jsonAufruf("POST", {
-            bestaetigtSpanne: kv?.obergrenze ?? false,
-            erwartetPreisCent: kv?.summeCent ?? preis.gerundetCent ?? 0,
-          })
+          jsonAufruf("POST", sperrKoerper(ansicht, { modusWechselBestaetigt }))
         );
-        if (!sperre.ok) {
-          if (sperre.status === 409 && sperre.code === "PREIS_GEAENDERT") {
-            toast.error(sperre.message, { description: "Die Ansicht wird neu geladen." });
+        const ausgang = sperrAusgang(sperre);
+        if (ausgang.art === "moduswechsel" && !modusWechselBestaetigt) {
+          // Nichts gesperrt: erst nachfragen, dann mit Bestätigung erneut (Entscheidung 5b-5).
+          setDialog({ art: "moduswechsel", texte, meldung: ausgang.meldung });
+          return;
+        }
+        if (ausgang.art !== "ok") {
+          if (ausgang.art === "preis_geaendert") {
+            toast.error(ausgang.meldung, { description: "Die Ansicht wird neu geladen." });
           } else {
-            toast.error("Sperren fehlgeschlagen.", { description: sperre.message });
+            toast.error("Sperren fehlgeschlagen.", { description: ausgang.meldung });
           }
           setDialog(null);
           await kontext.neuLaden();
@@ -187,6 +212,20 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
     } finally {
       kontext.setzeLauf(null);
     }
+  }
+
+  const plan5 = ansicht.schalter.angebotAusKalkulation;
+  const tagesKnopf = tagespreiseKnopf(ansicht.schalter, version);
+  const preisOeffnen = (start: PreisStart) => setDialog({ art: "preis", start });
+
+  function anpassungOeffnen(start: AnpassungStart | PreisStart | TerminStart) {
+    if (start.art === "termin") {
+      if (tagesKnopf.aktiv) terminDialogOeffnen({ dealId: kontext.dealId, version: version.nummer });
+      else toast.message("Tagespreise ändert der Termin-Dialog.", { description: tagesKnopf.hinweis ?? undefined });
+      return;
+    }
+    if (istPreisStart(start)) setDialog({ art: "preis", start });
+    else setDialog({ art: "anpassung", start });
   }
 
   // Die Dialoge stehen außerhalb des Glas-Panels: dessen backdrop-filter wäre
@@ -248,8 +287,21 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
         ) : null}
       </div>
 
+      {plan5 ? <PreismodusWahl modus={version.preisModus} beschaeftigt={lauf !== null} onPreis={preisOeffnen} /> : null}
       <KvVorschau kv={ansicht.kv} kvFehler={ansicht.kvFehler} erzeugung={version.kvErzeugung} />
-      <PaketeAnzeige pakete={ansicht.pakete} preisModus={version.preisModus} link={ansicht.angebotsformularLink} />
+      <KernWarnung kern={ansicht.kern} kvDarstellung={ansicht.kvDarstellung} beschaeftigt={lauf !== null} onPreis={preisOeffnen} />
+      {plan5 ? (
+        version.preisModus === "stunden" ? (
+          <StundenBlock stunden={ansicht.stunden} />
+        ) : (
+          <>
+            <PaketPreise pakete={ansicht.pakete} beschaeftigt={lauf !== null} onPreis={preisOeffnen} />
+            <TagePreise tage={ansicht.tage} />
+          </>
+        )
+      ) : (
+        <PaketeAnzeige pakete={ansicht.pakete} preisModus={version.preisModus} link={ansicht.angebotsformularLink} />
+      )}
       <VerwaisteAnpassungen
         verwaist={ansicht.verwaist}
         anpassungen={ansicht.anpassungen}
@@ -260,7 +312,7 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
       <AnpassungenListe
         anpassungen={ohneVerwaiste(ansicht.anpassungen, kontext.bearbeitbar ? ansicht.verwaist : [])}
         beschaeftigt={beschaeftigt}
-        onOeffnen={(start) => setDialog({ art: "anpassung", start })}
+        onOeffnen={anpassungOeffnen}
       />
       <SperrenBereich
         dealId={kontext.dealId}
@@ -270,6 +322,8 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
         onKv={() => setDialog({ art: "kv", nurKv: true })}
         onNeueVersion={() => void kontext.neueVersion()}
         onNeuRechnen={() => void kontext.neuRechnen()}
+        tagespreise={tagesKnopf}
+        onTagespreise={() => terminDialogOeffnen({ dealId: kontext.dealId, version: version.nummer })}
       />
     </GlassPanel>
 
@@ -282,6 +336,18 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
           kontext={kontext}
           portalZiel={portalZiel}
           onSchliessen={() => setDialog(null)}
+        />
+      ) : null}
+      {dialog?.art === "preis" ? (
+        <PreisDialog start={dialog.start} ansicht={ansicht} kontext={kontext} portalZiel={portalZiel} onSchliessen={() => setDialog(null)} />
+      ) : null}
+      {dialog?.art === "moduswechsel" ? (
+        <ModuswechselDialog
+          meldung={dialog.meldung}
+          laeuft={lauf !== null}
+          portalZiel={portalZiel}
+          onAbbrechen={() => setDialog(null)}
+          onBestaetigen={() => void sperrenUndKv(dialog.texte, false, true)}
         />
       ) : null}
       {dialog?.art === "kv" ? (

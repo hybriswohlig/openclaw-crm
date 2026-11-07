@@ -14,8 +14,10 @@ export function kvDokumentLink(dealId: string, dokumentId: string): string {
  * „Version vN sperren und KV erstellen“ (blau), sonst der Sperrgrund mit
  * „Neu rechnen“ bei veraltetem Entwurf oder Rechnerfehler; bei gesperrter
  * Version „+ Neue Version“ und, bei der neuesten gesperrten ohne KV-Dokument
- * (`kvErstellbar`), „KV erstellen“, sonst der Link „KV öffnen“. „Tagespreise im Termin-Dialog“
- * kommt mit Plan 5 und bleibt deaktiviert. Alles während eines Laufs gesperrt.
+ * (`kvErstellbar`), „KV erstellen“, sonst der Link „KV öffnen“. „Tagespreise im
+ * Termin-Dialog“ ist aktiv, wenn die Firma den Schalter „Tagespreise“ hat
+ * (Plan 5b, Entscheidung 15), sonst deaktiviert mit Hinweis. Die Sperrgründe
+ * kommen unverändert vom Dienst. Alles während eines Laufs gesperrt.
  * Plan 5a (Entscheidung 8): bei Kottke der Zustand des VPS-KV (läuft, fertig,
  * verworfen, Fehler); solange er läuft, kein zweites „KV erstellen“.
  */
@@ -27,6 +29,8 @@ export function SperrenBereich({
   onKv,
   onNeueVersion,
   onNeuRechnen,
+  tagespreise = { aktiv: false, hinweis: "Tagespreise sind für diese Firma aus." },
+  onTagespreise,
   jetzt = new Date(),
 }: {
   dealId: string;
@@ -36,6 +40,9 @@ export function SperrenBereich({
   onKv: () => void;
   onNeueVersion: () => void;
   onNeuRechnen: () => void;
+  /** Plan 5b: Zustand des Knopfs aus `tagespreiseKnopf`. */
+  tagespreise?: { aktiv: boolean; hinweis: string | null };
+  onTagespreise?: () => void;
   jetzt?: Date;
 }) {
   const beschaeftigt = laeuft !== null;
@@ -91,10 +98,16 @@ export function SperrenBereich({
         </>
       ) : null}
 
-      <button type="button" className="kalk-knopf" data-geist="" disabled title="Kommt mit Plan 5">
+      <button
+        type="button"
+        className="kalk-knopf"
+        data-geist=""
+        disabled={!tagespreise.aktiv || !onTagespreise || beschaeftigt}
+        onClick={onTagespreise}
+      >
         Tagespreise im Termin-Dialog
       </button>
-      <p className="kalk-aktionen-hinweis">Tagespreise im Termin-Dialog: kommt mit Plan 5.</p>
+      {tagespreise.hinweis ? <p className="kalk-aktionen-hinweis">{tagespreise.hinweis}</p> : null}
     </div>
   );
 }

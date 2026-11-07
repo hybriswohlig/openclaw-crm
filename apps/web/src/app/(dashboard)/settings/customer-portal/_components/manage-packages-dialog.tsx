@@ -11,7 +11,10 @@ import {
   X,
   GripVertical,
 } from "lucide-react";
+import { paketOhneHebelSperrt } from "@/lib/angebot-wahl";
+import { PAKET_HEBEL, PAKET_HEBEL_LABEL } from "@/lib/paket-hebel";
 import { cn } from "@/lib/utils";
+import type { HebelArt } from "@/services/rechner/kv-posten";
 
 interface OfferPackageRow {
   id: string;
@@ -23,8 +26,15 @@ interface OfferPackageRow {
   priceFixedFlag: boolean;
   includedItems: string[];
   isRecommended: boolean;
+  /** Leistungen im Paketpreis über den Kern hinaus (Plan 5b, F6). */
+  hebel: HebelArt[];
   sortOrder: number;
   active: boolean;
+}
+
+/** „Kern + Halteverbot, Montage“ bzw. „nur Kern“. */
+function leistungenText(hebel: HebelArt[]): string {
+  return hebel.length === 0 ? "nur Kern" : `Kern + ${hebel.map((h) => PAKET_HEBEL_LABEL[h]).join(", ")}`;
 }
 
 /**
@@ -253,6 +263,14 @@ function PackageRow({
         {row.shortDescription && (
           <p className="mt-0.5 text-xs text-muted-foreground">{row.shortDescription}</p>
         )}
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          Im Paketpreis: {leistungenText(row.hebel ?? [])}
+        </p>
+        {row.active && paketOhneHebelSperrt({ slug: row.slug, hebel: row.hebel ?? [] }) && (
+          <p className="mt-1 rounded-md bg-amber-50 px-2 py-1 text-[11px] text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+            Keine Leistungen gewählt. Mit „Angebot aus Kalkulation“ lässt sich ein Angebot mit diesem Paket erst sperren, wenn hier Leistungen gesetzt sind.
+          </p>
+        )}
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <button
             type="button"
@@ -308,7 +326,7 @@ function PackageEditor({
   onCancel: () => void;
   onSave: (data: Omit<OfferPackageRow, "id">) => Promise<void> | void;
 }) {
-  const [form, setForm] = useState<OfferPackageRow>(initial);
+  const [form, setForm] = useState<OfferPackageRow>(() => ({ ...initial, hebel: initial.hebel ?? [] }));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -381,9 +399,31 @@ function PackageEditor({
           onChange={(v) => set("active", v)}
         />
       </div>
+      <fieldset className="mt-3">
+        <legend className="text-[10px] uppercase tracking-wider text-muted-foreground">
+          Leistungen im Paketpreis
+        </legend>
+        <div className="mt-1 flex flex-wrap gap-2">
+          {PAKET_HEBEL.map((h) => (
+            <Checkbox
+              key={h}
+              label={PAKET_HEBEL_LABEL[h]}
+              checked={form.hebel.includes(h)}
+              onChange={(an) =>
+                set(
+                  "hebel",
+                  PAKET_HEBEL.filter((x) => (x === h ? an : form.hebel.includes(x)))
+                )
+              }
+            />
+          ))}
+        </div>
+      </fieldset>
       <p className="mt-2 text-[10px] text-muted-foreground">
-        Der Preis wird pro Auftrag im Preis-Kalkulator eingegeben. Pakete
-        sind hier nur Vorlagen für Leistungsumfang und Beschreibung.
+        Mit „Angebot aus Kalkulation“ rechnet die Kalkulation den Paketpreis
+        aus dem Kern plus diesen Leistungen. Ohne den Schalter wird der Preis
+        pro Auftrag im Preis-Kalkulator eingegeben; Pakete sind dann nur
+        Vorlagen für Leistungsumfang und Beschreibung.
       </p>
 
       <div className="mt-3">
@@ -514,6 +554,7 @@ function emptyDraft(existing: number): OfferPackageRow {
     priceFixedFlag: false,
     includedItems: [],
     isRecommended: false,
+    hebel: [],
     sortOrder: (existing + 1) * 10,
     active: true,
   };

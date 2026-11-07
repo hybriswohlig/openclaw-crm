@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { GlassButton } from "@/components/glassyui/glass-button";
 import { GlassPanel } from "@/components/glassyui/glass-panel";
 import type { KalkulationsAnsicht } from "@/lib/kalkulations-ansicht";
+import type { NeueUebersteuerungsArt } from "@/lib/angebot-wahl";
 import type { UebersteuerungsArt } from "@/lib/kalkulation-versionen";
 import { apiAufruf, jsonAufruf, type ApiAntwort } from "@/components/neu/akte/api";
 import { GrundlageSpalte } from "./grundlage-spalte";
@@ -19,9 +20,9 @@ import { SelbstkostenSpalte } from "./selbstkosten-spalte";
 /** Welche Aktion gerade läuft; währenddessen sind alle Eingaben gesperrt (Review Focus 5). */
 export type Lauf = "neue_version" | "neu_rechnen" | "speichern" | "sperren";
 
-/** Eine Übersteuerung, wie `POST …/overrides` sie erwartet. */
+/** Eine Übersteuerung, wie `POST …/overrides` sie erwartet (Plan 5b: auch Paketpreis, Tagespreis, KV-Darstellung, Preismodus). */
 export interface UebersteuerungEingabe {
-  art: UebersteuerungsArt;
+  art: UebersteuerungsArt | NeueUebersteuerungsArt;
   key: string;
   wert: unknown;
   grund: string;

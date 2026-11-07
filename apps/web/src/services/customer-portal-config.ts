@@ -23,6 +23,8 @@ import {
   portalFeatures,
   type FirmaBranding,
 } from "@openclaw-crm/customer-portal-core";
+import { hebelAusSpeicher } from "@/lib/paket-hebel";
+import type { HebelArt } from "./rechner/kv-posten";
 import { checkDomain, type DnsCheckResult } from "./dns-verify";
 import {
   attachDomain as vercelAttachDomain,
@@ -50,6 +52,10 @@ export interface OperatingCompanyPortalSettings {
   paymentsEnabled: boolean;
   /** Unterschrift im Portal nach der Annahme anbieten. */
   signatureEnabled: boolean;
+  /** Plan 5b (F21): Pakete, Stunden-KV und Kern-Regel aus der Kalkulation. */
+  angebotAusKalkulation: boolean;
+  /** Plan 5b (F21): Tagespreise im Termin-Dialog; wirkt nur mit `angebotAusKalkulation`. */
+  tagespreiseEnabled: boolean;
   customDomain: string | null;
   publicUrlPreview: string | null;
 
@@ -81,6 +87,8 @@ export interface PortalSettingsUpdate {
   liveTrackingEnabled?: boolean;
   paymentsEnabled?: boolean;
   signatureEnabled?: boolean;
+  angebotAusKalkulation?: boolean;
+  tagespreiseEnabled?: boolean;
   customDomain?: string | null;
   displayName?: string | null;
   primaryColor?: string | null;
@@ -127,12 +135,7 @@ export async function getOperatingCompanyPortalSettings(
   workspaceId: string,
   operatingCompanyRecordId: string
 ): Promise<OperatingCompanyPortalSettings | null> {
-  const [oc] = await db
-    .select({ id: records.id })
-    .from(records)
-    .where(eq(records.id, operatingCompanyRecordId))
-    .limit(1);
-  if (!oc) return null;
+  if (!(await operatingCompanyInWorkspace(workspaceId, operatingCompanyRecordId))) return null;
 
   const ocName = await loadOperatingCompanyName(operatingCompanyRecordId);
 
@@ -163,6 +166,7 @@ export async function upsertOperatingCompanyPortalSettings(
   operatingCompanyRecordId: string,
   patch: PortalSettingsUpdate
 ): Promise<OperatingCompanyPortalSettings | null> {
+  if (!(await operatingCompanyInWorkspace(workspaceId, operatingCompanyRecordId))) return null;
   // If customDomain is being changed, reset verification state.
   const [existing] = await db
     .select()
@@ -179,6 +183,11 @@ export async function upsertOperatingCompanyPortalSettings(
     .limit(1);
 
   const cleaned = cleanPatch(patch);
+  // Tagespreise wirken nur mit „Angebot aus Kalkulation“ (Plan 5b, Entscheidung 1): ohne ihn bleiben sie aus.
+  const angebotAn = cleaned.angebotAusKalkulation ?? existing?.angebotAusKalkulation ?? false;
+  if (!angebotAn && (cleaned.tagespreiseEnabled === true || existing?.tagespreiseEnabled === true)) {
+    cleaned.tagespreiseEnabled = false;
+  }
   const domainChanged =
     "customDomain" in cleaned &&
     (existing?.customDomain ?? null) !== (cleaned.customDomain ?? null);
@@ -370,6 +379,23 @@ export async function loadEffectiveBranding(
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+/**
+ * Gehört der Datensatz als Betriebsgesellschaft zu diesem Workspace? Ohne
+ * diese Prüfung könnte ein Admin Einstellungen oder Pakete an die Firma
+ * eines fremden Workspace hängen (Plan 5b, Task U1).
+ */
+export async function operatingCompanyInWorkspace(workspaceId: string, recordId: string): Promise<boolean> {
+  const [r] = await db
+    .select({ id: records.id })
+    .from(records)
+    .innerJoin(objects, eq(objects.id, records.objectId))
+    .where(
+      and(eq(records.id, recordId), eq(objects.workspaceId, workspaceId), eq(objects.slug, "operating_companies"))
+    )
+    .limit(1);
+  return !!r;
+}
+
 async function loadOperatingCompanyRecords(workspaceId: string): Promise<
   { id: string; name: string }[]
 > {
@@ -433,6 +459,8 @@ function cleanPatch(patch: PortalSettingsUpdate): PortalSettingsUpdate {
     "liveTrackingEnabled",
     "paymentsEnabled",
     "signatureEnabled",
+    "angebotAusKalkulation",
+    "tagespreiseEnabled",
     "customDomain",
     "displayName",
     "primaryColor",
@@ -525,6 +553,8 @@ function shapeSettings(
     liveTrackingEnabled: portalFeatures(s).liveTracking,
     paymentsEnabled: portalFeatures(s).payments,
     signatureEnabled: portalFeatures(s).signature,
+    angebotAusKalkulation: s?.angebotAusKalkulation ?? false,
+    tagespreiseEnabled: (s?.angebotAusKalkulation ?? false) && (s?.tagespreiseEnabled ?? false),
     customDomain,
     publicUrlPreview,
     domainVerificationState: (s?.domainVerificationState ?? "unconfigured") as DomainVerificationState,
@@ -562,6 +592,8 @@ export interface OfferPackageRow {
   priceFixedFlag: boolean;
   includedItems: string[];
   isRecommended: boolean;
+  /** Plan 5b (F6): Leistungen im Paketpreis über den Kern hinaus. */
+  hebel: HebelArt[];
   sortOrder: number;
   active: boolean;
 }
@@ -575,6 +607,7 @@ export interface OfferPackageInput {
   priceFixedFlag?: boolean;
   includedItems?: string[];
   isRecommended?: boolean;
+  hebel?: HebelArt[];
   sortOrder?: number;
   active?: boolean;
 }
@@ -602,6 +635,7 @@ export async function createOfferPackage(
   input: OfferPackageInput
 ): Promise<OfferPackageRow | null> {
   if (!input.slug || !input.displayName) return null;
+  if (!(await operatingCompanyInWorkspace(workspaceId, operatingCompanyRecordId))) return null;
   const slug = normalizeSlug(input.slug);
   const [row] = await db
     .insert(offerPackages)
@@ -616,6 +650,7 @@ export async function createOfferPackage(
       priceFixedFlag: input.priceFixedFlag ?? false,
       includedItems: input.includedItems ?? [],
       isRecommended: input.isRecommended ?? false,
+      hebel: input.hebel ?? [],
       sortOrder: input.sortOrder ?? 100,
       active: input.active ?? true,
     })
@@ -640,6 +675,7 @@ export async function updateOfferPackage(
   if (patch.priceFixedFlag !== undefined) cleaned.priceFixedFlag = patch.priceFixedFlag;
   if (patch.includedItems !== undefined) cleaned.includedItems = patch.includedItems;
   if (patch.isRecommended !== undefined) cleaned.isRecommended = patch.isRecommended;
+  if (patch.hebel !== undefined) cleaned.hebel = patch.hebel;
   if (patch.sortOrder !== undefined) cleaned.sortOrder = patch.sortOrder;
   if (patch.active !== undefined) cleaned.active = patch.active;
 
@@ -686,6 +722,7 @@ function shapeOfferPackage(r: typeof offerPackages.$inferSelect): OfferPackageRo
     priceFixedFlag: r.priceFixedFlag,
     includedItems: Array.isArray(r.includedItems) ? r.includedItems : [],
     isRecommended: r.isRecommended,
+    hebel: hebelAusSpeicher(r.hebel),
     sortOrder: r.sortOrder,
     active: r.active,
   };

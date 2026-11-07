@@ -2,6 +2,7 @@
 
 import type { AnpassungAnsicht } from "@/lib/kalkulations-ansicht";
 import { startFuer, type AnpassungStart } from "./anpassung-start";
+import type { PreisStart, TerminStart } from "./preis-logik";
 
 /**
  * „Anpassungen“ (Entscheidung 13): die wirksamen Übersteuerungen der Version
@@ -15,7 +16,7 @@ export function AnpassungenListe({
 }: {
   anpassungen: AnpassungAnsicht[];
   beschaeftigt: boolean;
-  onOeffnen: (start: AnpassungStart) => void;
+  onOeffnen: (start: AnpassungStart | PreisStart | TerminStart) => void;
 }) {
   return (
     <>

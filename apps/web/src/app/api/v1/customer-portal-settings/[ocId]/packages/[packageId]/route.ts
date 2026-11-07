@@ -6,6 +6,8 @@
  *   → permanently delete. Existing quotations that referenced this slug
  *     keep working (quotations.selected_package_slug is just text).
  *
+ * Plan 5b: `hebel` wie beim Anlegen (400 bei unbekannten Werten).
+ *
  * Admin-only.
  */
 import { NextRequest } from "next/server";
@@ -17,6 +19,7 @@ import {
   success,
   badRequest,
 } from "@/lib/api-utils";
+import { hebelAusEingabe } from "@/lib/paket-hebel";
 import {
   deleteOfferPackage,
   updateOfferPackage,
@@ -41,7 +44,13 @@ export async function PATCH(
   } catch {
     return badRequest("Invalid JSON body");
   }
-  const row = await updateOfferPackage(ctx.workspaceId, ocId, packageId, body);
+  if (!body || typeof body !== "object" || Array.isArray(body)) return badRequest("Ungültiges Paket.");
+  const hebel = hebelAusEingabe((body as { hebel?: unknown }).hebel);
+  if (hebel === null) return badRequest("hebel: nur halteverbot, montage, einpacken, kueche.");
+  const patch: Partial<OfferPackageInput> = { ...body };
+  if (hebel !== undefined) patch.hebel = hebel;
+  else delete patch.hebel;
+  const row = await updateOfferPackage(ctx.workspaceId, ocId, packageId, patch);
   if (!row) return notFound("Package not found");
   return success(row);
 }

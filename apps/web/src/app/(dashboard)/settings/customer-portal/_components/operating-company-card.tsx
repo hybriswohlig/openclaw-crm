@@ -132,6 +132,18 @@ export function OperatingCompanyCard({
           {/* Domain status */}
           <DomainStatusBlock settings={settings} onVerify={verifyDomain} verifying={verifying} />
 
+          {/* Plan 5b: Firmen-Schalter, Pflege im Dialog „Bearbeiten“ */}
+          <div className="rounded-lg border border-border/50 bg-background px-4 py-3 text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">Angebot aus Kalkulation:</span>{" "}
+            {settings.angebotAusKalkulation ? "an" : "aus"}
+            {" · "}
+            <span className="font-medium text-foreground">Tagespreise:</span>{" "}
+            {settings.tagespreiseEnabled ? "an" : "aus"}
+            {" · "}
+            <span className="font-medium text-foreground">Unterschrift:</span>{" "}
+            {settings.signatureEnabled ? "an" : "aus"}
+          </div>
+
           {/* Branding preview + edit */}
           <div className="flex items-center justify-between rounded-lg border border-border/50 bg-background p-4">
             <div className="min-w-0">

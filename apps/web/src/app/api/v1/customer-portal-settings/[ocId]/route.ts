@@ -1,6 +1,8 @@
 /**
  * GET  /api/v1/customer-portal-settings/[ocId] — load one OC's settings.
  * PUT  /api/v1/customer-portal-settings/[ocId] — patch one OC's settings.
+ *      Plan 5b: `angebotAusKalkulation` und `tagespreiseEnabled` (Boolean);
+ *      ohne „Angebot aus Kalkulation“ bleiben Tagespreise aus.
  *
  * Admin-only.
  */
@@ -55,7 +57,14 @@ export async function PUT(
   }
 
   if (!body || typeof body !== "object" || Array.isArray(body)) return badRequest("Ungültige Einstellungen.");
-  for (const key of ["enabled", "liveTrackingEnabled", "paymentsEnabled", "signatureEnabled"] as const) {
+  for (const key of [
+    "enabled",
+    "liveTrackingEnabled",
+    "paymentsEnabled",
+    "signatureEnabled",
+    "angebotAusKalkulation",
+    "tagespreiseEnabled",
+  ] as const) {
     if (key in body && typeof body[key] !== "boolean") return badRequest(`${key} muss ein Boolean sein.`);
   }
 

@@ -102,6 +102,8 @@ export function EditPortalDialog({
             <label className="flex items-start gap-3 rounded-lg border p-3"><input type="checkbox" className="mt-1" checked={form.liveTrackingEnabled === true} onChange={(e) => set("liveTrackingEnabled", e.target.checked)} /><span><strong className="text-sm">Live-Status anzeigen</strong><span className="block text-xs text-muted-foreground">Erfasste Einsatzzeiten und Live-Updates für Kunden sichtbar machen. Ohne Aktivierung werden nur Termin, Adressen, Team und Dokumente angezeigt.</span></span></label>
             <label className="flex items-start gap-3 rounded-lg border p-3"><input type="checkbox" className="mt-1" checked={form.paymentsEnabled === true} onChange={(e) => set("paymentsEnabled", e.target.checked)} /><span><strong className="text-sm">Zahlungsanzeige aktivieren</strong><span className="block text-xs text-muted-foreground">Zahlungsanweisungen, erfasste Zahlungseingänge und „Ich habe bezahlt“ im Portal anzeigen. Die interne Buchhaltung bleibt unabhängig davon aktiv.</span></span></label>
             <label className="flex items-start gap-3 rounded-lg border p-3"><input type="checkbox" className="mt-1" checked={form.signatureEnabled === true} onChange={(e) => set("signatureEnabled", e.target.checked)} /><span><strong className="text-sm">Unterschrift im Portal anbieten</strong><span className="block text-xs text-muted-foreground">Nach der Annahme kann der Kunde den Vertrag im Portal unterschreiben. Der unterschriebene Vertrag erscheint beim Kunden und im CRM.</span></span></label>
+            <label className="flex items-start gap-3 rounded-lg border p-3"><input type="checkbox" className="mt-1" checked={form.angebotAusKalkulation === true} onChange={(e) => setForm((f) => ({ ...f, angebotAusKalkulation: e.target.checked, ...(e.target.checked ? {} : { tagespreiseEnabled: false }) }))} /><span><strong className="text-sm">Angebot aus Kalkulation</strong><span className="block text-xs text-muted-foreground">Paketpreise, Stunden-KV und die Posten im KV kommen aus der gesperrten Kalkulationsversion. Paketpreise rechnet die Kalkulation aus dem Kern plus den Leistungen des Pakets (unter „Pakete“). Kein Posten wird zur Pauschale.</span></span></label>
+            <label className={`flex items-start gap-3 rounded-lg border p-3 ${form.angebotAusKalkulation === true ? "" : "opacity-60"}`}><input type="checkbox" className="mt-1" disabled={form.angebotAusKalkulation !== true} checked={form.angebotAusKalkulation === true && form.tagespreiseEnabled === true} onChange={(e) => set("tagespreiseEnabled", e.target.checked)} /><span><strong className="text-sm">Tagespreise</strong><span className="block text-xs text-muted-foreground">Im Termin-Dialog bis zu 10 Tage mit eigenem Preis anbieten; der Kunde wählt im Portal, der Preis folgt der Wahl. Nur zusammen mit „Angebot aus Kalkulation“.</span></span></label>
           </Section>
           <Section title="Domain">
             <Field
@@ -257,6 +259,8 @@ function snapshotOf(s: OperatingCompanyPortalSettings): PortalSettingsUpdate {
     liveTrackingEnabled: s.liveTrackingEnabled ?? false,
     paymentsEnabled: s.paymentsEnabled ?? false,
     signatureEnabled: s.signatureEnabled ?? false,
+    angebotAusKalkulation: s.angebotAusKalkulation ?? false,
+    tagespreiseEnabled: s.tagespreiseEnabled ?? false,
     customDomain: s.customDomain,
     displayName: s.displayName,
     primaryColor: s.primaryColor,

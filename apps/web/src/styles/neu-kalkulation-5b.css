@@ -1,0 +1,249 @@
+/*
+ * Kalkulationsseite, Plan 5b (Task U1): Preismodus, Kern-Warnung,
+ * Paketpreise mit Anpassung, angebotene Tage, Stunden-KV und Preis-Dialog.
+ * Nur unter [data-neu], Tokens aus neu.css, Zeilen auf --fill-3, kein
+ * eigenes Glas (das Panel trägt es). Gold = Anpassung, rose = sperrt.
+ */
+
+/* ── Preismodus ──────────────────────────────────────── */
+
+[data-neu] .kalk-modus {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 12px 12px;
+  padding: 8px 8px 8px 12px;
+  border-radius: 12px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+}
+
+[data-neu] .kalk-modus-label {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+[data-neu] .kalk-modus-wahl {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
+[data-neu] .kalk-modus-knopf {
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+[data-neu] .kalk-modus-knopf[aria-pressed="true"] {
+  background: var(--fill-3);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
+  cursor: default;
+}
+
+[data-neu] .kalk-modus-knopf:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+[data-neu] .kalk-modus-knopf:disabled {
+  cursor: progress;
+}
+
+/* ── Kern-Warnung ────────────────────────────────────── */
+
+[data-neu] .kalk-kern {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin: -4px 12px 12px;
+  padding: 9px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--gold) 12%, var(--fill-3));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 40%, transparent);
+  color: var(--gold-ink);
+  font-size: 12.5px;
+}
+
+[data-neu] .kalk-kern > span {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+[data-neu] .kalk-kern[data-ton="rose"] {
+  background: color-mix(in srgb, var(--rose) 10%, var(--fill-3));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rose) 30%, transparent);
+  color: var(--rose-ink);
+}
+
+[data-neu] .kalk-kern[data-ton="blau"] {
+  background: color-mix(in srgb, var(--blue) 10%, var(--fill-3));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--blue) 30%, transparent);
+  color: var(--blue-ink);
+}
+
+/* ── Paketpreise und Tage ────────────────────────────── */
+
+[data-neu] .kalk-pzl {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0;
+  padding: 0 12px 12px;
+  list-style: none;
+}
+
+[data-neu] .kalk-pz {
+  padding: 8px 8px 8px 12px;
+  border-radius: 12px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  font-size: 13px;
+}
+
+[data-neu] .kalk-pz[data-uebersteuert] {
+  background: color-mix(in srgb, var(--gold) 10%, var(--fill-3));
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--gold) 50%, transparent);
+}
+
+[data-neu] .kalk-pz-kopf {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0 10px;
+}
+
+[data-neu] .kalk-pz-kopf[data-ohne-knopf] {
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding-right: 4px;
+}
+
+[data-neu] .kalk-pz-name {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  min-width: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+[data-neu] .kalk-pz-preis {
+  font-size: 13.5px;
+  font-weight: 600;
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+[data-neu] .kalk-pz[data-ohne-preis] .kalk-pz-preis {
+  color: var(--gold-ink);
+}
+
+[data-neu] .kalk-pz .kalk-kleinknopf {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+[data-neu] .kalk-pz-info,
+[data-neu] .kalk-pz-anp,
+[data-neu] .kalk-pz-warn {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+[data-neu] .kalk-pz-anp,
+[data-neu] .kalk-pz-warn {
+  color: var(--gold-ink);
+}
+
+[data-neu] .kalk-pz-warn[data-ton="rose"] {
+  color: var(--rose-ink);
+}
+
+/* ── Stunden-KV ──────────────────────────────────────── */
+
+[data-neu] .kalk-std-summe {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0 12px;
+  padding: 10px 12px 2px;
+  border-top: 1px solid var(--hair);
+  margin-top: 4px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+[data-neu] .kalk-std-summe b {
+  font-variant-numeric: tabular-nums;
+}
+
+[data-neu] .kalk-std-kunde {
+  margin: 0;
+  padding: 0 12px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+[data-neu] .kalk-std-leer {
+  margin: 0 12px 12px;
+}
+
+/* ── Preis-Dialog ────────────────────────────────────── */
+
+[data-neu] .kalk-preisdialog-zahlen {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+
+[data-neu] .kalk-preisdialog-zahlen > div {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+}
+
+[data-neu] .kalk-preisdialog-zahlen dt {
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+
+[data-neu] .kalk-preisdialog-zahlen dd {
+  margin: 2px 0 0;
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+[data-neu] .kalk-preisdialog-warn {
+  margin: -4px 0 12px;
+  font-size: 12.5px;
+  color: var(--rose-ink);
+}
+
+@media (max-width: 480px) {
+  [data-neu] .kalk-preisdialog-zahlen {
+    grid-template-columns: 1fr;
+  }
+
+  [data-neu] .kalk-modus {
+    flex-wrap: wrap;
+  }
+}
